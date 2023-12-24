@@ -300,14 +300,13 @@ class SpurGearGenerator:
         # only specify which profiles to extrude by guessing which one is the
         # one we want by the order in the list in sketch.profile
 
-        toothProfile = profiles.item(0)
-
         distance = adsk.core.ValueInput.createByReal(spec.thickness)
 
         # First create the cylindrical part so we can construct a
         # perpendicular axis
         gearBodyProfile = profiles.item(1)
-        gearBodyExtrude = extrudes.addSimple(gearBodyProfile, distance, adsk.fusion.FeatureOperations.JoinFeatureOperation)
+        gearBodyExtrude = extrudes.addSimple(gearBodyProfile, distance, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+        gearBodyExtrude.bodies.item(0).name = 'Gear Body'
 
         circularFace = None
         for face in gearBodyExtrude.bodies.item(0).faces:
@@ -323,7 +322,9 @@ class SpurGearGenerator:
         centerAxis = self.component.constructionAxes.add(axisInput)
         if centerAxis is None:
             raise("Could not create axis")
+        centerAxis.name = 'Gear Center'
 
+        toothProfile = profiles.item(0)
         toothExtrude = extrudes.addSimple(toothProfile, distance, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)    
         toothBody = toothExtrude.bodies.item(0)
         bodies = adsk.core.ObjectCollection.create()
@@ -331,5 +332,13 @@ class SpurGearGenerator:
 
         patternInput = circular.createInput(bodies, centerAxis)
         patternInput.quantity = adsk.core.ValueInput.createByReal(spec.toothNumber)
-        circular.add(patternInput)
+        patternedTeeth = circular.add(patternInput)
 
+        toolBodies = adsk.core.ObjectCollection.create()
+        for body in patternedTeeth.bodies:
+            toolBodies.add(body)
+        combineInput = self.component.features.combineFeatures.createInput(
+            self.component.bRepBodies.itemByName('Gear Body'),
+            toolBodies
+        )
+        self.component.features.combineFeatures.add(combineInput)
