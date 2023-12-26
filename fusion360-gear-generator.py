@@ -203,7 +203,7 @@ class SpurGearSpecification:
 
         self.boreDiameter = None
         if boreDiameter is not None:
-            if boreDiameter <= 0:
+            if boreDiameter < 0:
                 self.boreDiameter = self.baseCircleDiameter / 4
             if boreDiameter > 0 and boreDiameter < 2:
                 self.boreDiameter = 2
@@ -219,6 +219,7 @@ class SpurGearGenerator:
         def __init__(self, component: adsk.fusion.Component):
             self.component = component
             self.anchorPoint = adsk.fusion.SketchPoint.cast(None)
+            self.gearBody = adsk.fusion.BRepBody.cast(None)
 
     def __init__(self, component: adsk.fusion.Component):
         self.component = component
@@ -287,19 +288,25 @@ class SpurGearGenerator:
 
 
     def buildBore(self, ctx: Context, spec: SpurGearSpecification):
+        if (spec.boreDiameter is None) or (spec.boreDiameter == 0):
+            return
         sketch = self.component.sketches.add(self.component.xYConstructionPlane)
         sketch.name = 'Bore Profile'
         self.drawBoreProfile(ctx, sketch, spec)
-        self.buildBoreHole(sketch, spec)
+        self.buildBoreHole(ctx, sketch, spec)
 
-    def buildBoreHole(self, sketch: adsk.fusion.Sketch, spec :SpurGearSpecification):
+    def buildBoreHole(self, ctx: Context, sketch: adsk.fusion.Sketch, spec :SpurGearSpecification):
         extrudes = self.component.features.extrudeFeatures
         profiles = sketch.profiles
 
         distance = adsk.core.ValueInput.createByReal(toCm(spec.thickness))
 
         boreProfile = profiles.item(0)
-        boreExtrude = extrudes.addSimple(boreProfile, distance, adsk.fusion.FeatureOperations.CutFeatureOperation)
+        boreExtrudeInput = extrudes.createInput(boreProfile, adsk.fusion.FeatureOperations.CutFeatureOperation)
+        
+        boreExtrudeInput.setDistanceExtent(False, distance)
+        boreExtrudeInput.participantBodies = [ctx.gearBody]
+        extrudes.add(boreExtrudeInput)
 
     def drawBoreProfile(self, ctx: Context, sketch: adsk.fusion.Sketch, spec: SpurGearSpecification):
         constraints = sketch.geometricConstraints
@@ -338,7 +345,7 @@ class SpurGearGenerator:
         sketch = self.component.sketches.add(self.component.xYConstructionPlane)
         sketch.name = 'Gear Profile'
         self.drawGearProfile(ctx, sketch, spec)
-        self.buildGear(sketch, self.component, spec)
+        self.buildGear(ctx, sketch, self.component, spec)
 
     def drawGearProfile(self, ctx: Context, sketch: adsk.fusion.Sketch, spec: SpurGearSpecification):
         constraints = sketch.geometricConstraints
@@ -492,7 +499,7 @@ class SpurGearGenerator:
             toCm(intersectionRadius*math.sin(invAlpha)),
             0)
 
-    def buildGear(self, sketch: adsk.fusion.Sketch, component: adsk.fusion.Component, spec :SpurGearSpecification):
+    def buildGear(self, ctx: Context, sketch: adsk.fusion.Sketch, component: adsk.fusion.Component, spec :SpurGearSpecification):
         extrudes = component.features.extrudeFeatures
         circular = component.features.circularPatternFeatures
         profiles = sketch.profiles
@@ -543,3 +550,6 @@ class SpurGearGenerator:
         )
         self.component.features.combineFeatures.add(combineInput)
         centerAxis.isVisibile = False
+
+        # store the gear body for later use
+        ctx.gearBody = self.component.bRepBodies.itemByName('Gear Body')
