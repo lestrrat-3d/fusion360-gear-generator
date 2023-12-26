@@ -27,7 +27,7 @@ def getDesign(app=adsk.core.Application.get()):
         raise Exception('A Fusion design must be active when invoking this command.')
     return des
 
-def writelog(s, ui=getUI()):
+def writelog(s):
     try:
         if not _debug:
             return
@@ -37,6 +37,7 @@ def writelog(s, ui=getUI()):
         palette.isVisible = True 
         palette.writeText(s)
     except:
+        ui = getUI()
         if ui:
             ui.messageBox('Failed:\n{}'.format(traceback.format_exc()))
 
@@ -49,9 +50,11 @@ def drawCircle(sketch: adsk.fusion.Sketch, name, radius, anchorPoint, angle=0, i
     obj.isConstruction = isConstruction
 
     # Draw the diameter dimension at the specified angle
-    x = toCm(radius)
+    x = 0
     y = 0
-    if angle != 0:
+    if angle == 0:
+        x = toCm(radius)
+    elif angle != 0:
         x = toCm((radius/2)*math.sin(math.radians(angle)))
         y = toCm((radius/2)*math.cos(math.radians(angle)))
     dimensions.addDiameterDimension(
@@ -354,9 +357,6 @@ class SpurGearGenerator:
         points = sketch.sketchPoints
         texts = sketch.sketchTexts
 
-        # The anchor point is where we draw the circle from.
-        # At the end of the drawing process, we create a new anchor point and
-        # move the entire thing to the new anchor point
         anchorPoint = points.add(adsk.core.Point3D.create(0, 0, 0))
 
         # bore circle
@@ -382,8 +382,6 @@ class SpurGearGenerator:
         texts = sketch.sketchTexts
 
         # The anchor point is where we draw the circle from.
-        # At the end of the drawing process, we create a new anchor point and
-        # move the entire thing to the new anchor point
         anchorPoint = points.add(adsk.core.Point3D.create(0, 0, 0))
 
         # Root circle
