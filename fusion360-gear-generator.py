@@ -116,7 +116,13 @@ class SpurGearCommandExecuted(adsk.core.CommandEventHandler):
             (module, ok) = _inputs.getValue('module')
             if not ok:
                 raise Exception('Invalid module value')
-            spec = SpurGearSpecification(module)
+            
+            args = {}
+            (toothNumber, ok) = _inputs.getValue('toothNumber')
+            if ok:
+                args['toothNumber'] = toothNumber
+
+            spec = SpurGearSpecification(module, **args)
             
             rootComponent = design.rootComponent.occurrences.addNewComponent(adsk.core.Matrix3D.create())
             g = SpurGearGenerator(adsk.fusion.Component.cast(rootComponent.component))
