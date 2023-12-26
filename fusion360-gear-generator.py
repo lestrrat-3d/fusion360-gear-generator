@@ -4,43 +4,178 @@
 import math
 import adsk.core, adsk.fusion, adsk.cam, traceback
 
-_app = adsk.core.Application.cast(None)
-_ui  = adsk.core.UserInterface.cast(None)
+_cmdName = 'lestrratSpurGearGenerator'
+_handlers = []
+_inputs = None
+_debug = True
+
+def getUI(app=adsk.core.Application.get()):
+    ui = app.userInterface
+    if not ui:
+        raise Exception('No UI object available. Please run this script from within Fusion 360')
+    return ui
+
+def getDesign(app=adsk.core.Application.get()):
+    des = adsk.fusion.Design.cast(app.activeProduct)
+    if not des:
+        raise Exception('A Fusion design must be active when invoking this command.')
+    return des
+
+def writelog(s, ui=getUI()):
+    try:
+        if not _debug:
+            return
+        palettes = ui.palettes
+        palette = palettes.itemById("TextCommands")
+        palette.forceUpdate = True
+        palette.isVisible = True 
+        palette.writeText(s)
+    except:
+        if ui:
+            ui.messageBox('Failed:\n{}'.format(traceback.format_exc()))
+
 
 def run(context):
-    rootComponent = None
     try:
-        global _app, _ui
-        _app = adsk.core.Application.get()
-        _ui  = _app.userInterface
+        global _cmdName
 
-        design = adsk.fusion.Design.cast(_app.activeProduct)
-        rootComponent = design.rootComponent.occurrences.addNewComponent(adsk.core.Matrix3D.create())
+        ui = getUI()
+        cmd = ui.commandDefinitions.itemById(_cmdName)
+        if not cmd:
+            cmd = ui.commandDefinitions.addButtonDefinition(
+                _cmdName,
+                'Spur Gear',
+                'Generate a spur gear',
+                'resources/SpurGear'
+            )
 
-        g = SpurGearGenerator(adsk.fusion.Component.cast(rootComponent.component))
-        spec = SpurGearSpecification(5, toothNumber=30, boreDiameter=None)
-        g.generate(spec)
+        # The commandDefinition only has the onCommandCreated evnet.
+        onCommandCreated = SpurGearCommandCreated()
+        cmd.commandCreated.add(onCommandCreated)
+        addHandler(onCommandCreated)
+
+        if not cmd.execute():
+            raise Exception('Command failed to execute')
+
+        adsk.autoTerminate(False)
+        writelog('Spur Gear Generator loaded')
     except:
-        if _ui:
-            _ui.messageBox('Failed:\n{}'.format(traceback.format_exc()))
+        if ui:
+            ui.messageBox('Failed:\n{}'.format(traceback.format_exc()))
+        
+        adsk.terminate()
 
-        # Clear component if there was an error
-        if rootComponent:
-            rootComponent.deleteMe()
+def addHandler(handler):
+    global _handlers
+    # Keep the handlers referenced beyond their regular lifecycle
+    _handlers.append(handler)
+
+class SpurGearCommandCreated(adsk.core.CommandCreatedEventHandler):
+    def __init__(self):
+        super().__init__()
+
+    def notify(self, args):
+        writelog('SpurGearCommandCreated')
+        ui = None
+        try:
+            global _inputs
+
+            ui = getUI()
+            eventArgs = adsk.core.CommandCreatedEventArgs.cast(args)
+
+            cmd = eventArgs.command
+            cmd.isExecutedWhenPreEmpted = False
+
+            # Setup the container for the command inputs
+            _inputs = SpurGearCommandInput(cmd)
+
+            onCommandExecuted = SpurGearCommandExecuted()
+            cmd.execute.add(onCommandExecuted)
+            addHandler(onCommandExecuted)
+
+            onCommandDestroyed = SpurGearCommandDestroyed()
+            cmd.destroy.add(onCommandDestroyed)
+            addHandler(onCommandDestroyed)
+        except:
+            if ui:
+                ui.messageBox('Failed:\n{}'.format(traceback.format_exc()))
+        writelog("END SpurGearCommandCreated")
+
+class SpurGearCommandExecuted(adsk.core.CommandEventHandler):
+    def __init__(self):
+        super().__init__()
+    
+    def notify(self, args):
+        ui = None
+        rootComponent = None
+        try:
+            global _inputs
+            ui = getUI()
+            design = getDesign()
+            
+            (module, ok) = _inputs.getValue('module')
+            if not ok:
+                raise Exception('Invalid module value')
+            spec = SpurGearSpecification(module)
+            
+            rootComponent = design.rootComponent.occurrences.addNewComponent(adsk.core.Matrix3D.create())
+            g = SpurGearGenerator(adsk.fusion.Component.cast(rootComponent.component))
+            g.generate(spec)
+        except:
+            writelog('Failed to execute command:\n{}'.format(traceback.format_exc()))
+            if ui:
+                ui.messageBox('Failed to execute command:\n{}'.format(traceback.format_exc()))
+                
+            # Clear component if there was an error
+            if rootComponent:
+                rootComponent.deleteMe()
+
+class SpurGearCommandDestroyed(adsk.core.CommandEventHandler):
+    def __init__(self):
+        super().__init__()
+
+    def notify(self, args):
+        try:
+            adsk.terminate()
+        except:
+            if _ui:
+                _ui.messageBox('Failed to terminate:\n{}'.format(traceback.format_exc()))
 
 def toCm(mm :float) -> float:
     return mm/10
 
+class SpurGearCommandInput:
+    def __init__(self, cmd):
+        inputs = cmd.commandInputs
+        self.container = inputs
+        self.inputs = {
+            'module': inputs.addValueInput('module', 'Module', '', adsk.core.ValueInput.createByReal(1)),
+            'toothNumber': inputs.addValueInput('toothNumber', 'Tooth Number', '', adsk.core.ValueInput.createByReal(17)),
+            'pressureAngle': inputs.addValueInput('pressureAngle', 'Pressure Angle', 'deg', adsk.core.ValueInput.createByReal(math.radians(20))),
+            'boreDiameter': inputs.addValueInput('boreDiameter', 'Bore Diameter', 'mm', adsk.core.ValueInput.createByReal(0)),
+            'thickness': inputs.addValueInput('thickness', 'Thickness', 'mm', adsk.core.ValueInput.createByReal(toCm(5))),
+            'helixAngle': inputs.addValueInput('helixAngle', 'Helix Angle', 'deg', adsk.core.ValueInput.createByReal(0))
+        }
+
+    def getValue(self, name):
+        unitsManager = getDesign().unitsManager
+        if not unitsManager.isValidExpression(self.inputs[name].expression, self.inputs[name].unitType):
+            return (None, False)
+        
+        return (unitsManager.evaluateExpression(self.inputs[name].expression, self.inputs[name].unitType), True)
+
 class SpurGearSpecification:
     # The base implementation uses ISO specs. For specs using diamteral pitches,
     # use a different constructor (TODO)
-    def __init__(self, module, toothNumber=17, pressureAngle=20, boreDiameter=0, thickness=5, helixAngle=0):
+    def __init__(self, module, toothNumber=17, pressureAngle=math.radians(20), boreDiameter=0, thickness=5, helixAngle=0):
+        # Note: all angles are in radians
         self.module = module
+        writelog('module: {}'.format(module))
         self.toothNumber = toothNumber
         self.pressureAngle = pressureAngle
         self.pitchCircleDiameter = toothNumber * module
         self.pitchCircleRadius = self.pitchCircleDiameter / 2.0
-        self.baseCircleDiameter = self.pitchCircleDiameter * math.cos(math.radians(pressureAngle))
+        self.baseCircleDiameter = self.pitchCircleDiameter * math.cos(pressureAngle)
         self.baseCircleRadius = self.baseCircleDiameter / 2.0
         self.tipClearance = 0 if self.toothNumber < 3 else module / 6
         self.rootCircleDiameter = self.pitchCircleDiameter - 2 * (module + self.tipClearance)
@@ -106,19 +241,20 @@ class SpurGearGenerator:
         # Tip circle
         tip = drawCircle('Tip Circle', spec.tipCircleRadius)
     
-        if spec.boreDiameter != None:
-            # Note: radius is in cm
-            inner = curves.sketchCircles.addByCenterRadius(
-                anchorPoint,
-                toCm(spec.boreDiameter)/2
-            )
-            dimensions.addDiameterDimension(
-                inner,
-                adsk.core.Point3D.create(toCm(spec.boreDiameter)/4, toCm(spec.boreDiameter)/4, 0)   ,
-                True
-            )
-            constraints.addConcentric(inner, tip)
-
+        # TODO: because the presence (or lack thereof) of the bore changes the
+        # profile to extrude, it is easier to work on the bore _AFTER_ the
+        # gear has been generated
+        #if spec.boreDiameter != None:
+        #    # Note: radius is in cm
+        #    inner = curves.sketchCircles.addByCenterRadius(
+        #        anchorPoint,
+        #        toCm(spec.boreDiameter)/2
+        #    )
+        #    dimensions.addDiameterDimension(
+        #        inner,
+        #        adsk.core.Point3D.create(toCm(spec.boreDiameter)/4, toCm(spec.boreDiameter)/4, 0)   ,
+        #        True
+        #    )
 
         involutePoints = []
         involuteSize = spec.tipCircleRadius - spec.baseCircleRadius
@@ -300,7 +436,7 @@ class SpurGearGenerator:
         # only specify which profiles to extrude by guessing which one is the
         # one we want by the order in the list in sketch.profile
 
-        distance = adsk.core.ValueInput.createByReal(spec.thickness)
+        distance = adsk.core.ValueInput.createByReal(toCm(spec.thickness))
 
         # First create the cylindrical part so we can construct a
         # perpendicular axis
@@ -342,3 +478,4 @@ class SpurGearGenerator:
             toolBodies
         )
         self.component.features.combineFeatures.add(combineInput)
+        centerAxis.isVisibile = False
