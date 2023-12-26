@@ -373,21 +373,6 @@ class SpurGearGenerator:
         # Tip circle
         tip = drawCircle('Tip Circle', spec.tipCircleRadius)
     
-        # TODO: because the presence (or lack thereof) of the bore changes the
-        # profile to extrude, it is easier to work on the bore _AFTER_ the
-        # gear has been generated
-        #if spec.boreDiameter != None:
-        #    # Note: radius is in cm
-        #    inner = curves.sketchCircles.addByCenterRadius(
-        #        anchorPoint,
-        #        toCm(spec.boreDiameter)/2
-        #    )
-        #    dimensions.addDiameterDimension(
-        #        inner,
-        #        adsk.core.Point3D.create(toCm(spec.boreDiameter)/4, toCm(spec.boreDiameter)/4, 0)   ,
-        #        True
-        #    )
-
         involutePoints = []
         involuteSize = spec.tipCircleRadius - spec.baseCircleRadius
         involuteSpinePoints = []
