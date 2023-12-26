@@ -121,6 +121,18 @@ class SpurGearCommandExecuted(adsk.core.CommandEventHandler):
             (toothNumber, ok) = _inputs.getValue('toothNumber')
             if ok:
                 args['toothNumber'] = toothNumber
+            (pressureAngle, ok) = _inputs.getValue('pressureAngle')
+            if ok:
+                args['pressureAngle'] = pressureAngle
+            (boreDiameter, ok) = _inputs.getValue('boreDiameter')
+            if ok:
+                args['boreDiameter'] = boreDiameter
+            (thickness, ok) = _inputs.getValue('thickness')
+            if ok:
+                args['thickness'] = thickness
+            (helixAngle, ok) = _inputs.getValue('helixAngle')
+            if ok:
+                args['helixAngle'] = helixAngle
 
             spec = SpurGearSpecification(module, **args)
             
@@ -176,7 +188,6 @@ class SpurGearSpecification:
     def __init__(self, module, toothNumber=17, pressureAngle=math.radians(20), boreDiameter=0, thickness=5, helixAngle=0):
         # Note: all angles are in radians
         self.module = module
-        writelog('module: {}'.format(module))
         self.toothNumber = toothNumber
         self.pressureAngle = pressureAngle
         self.pitchCircleDiameter = toothNumber * module
@@ -194,7 +205,7 @@ class SpurGearSpecification:
         if boreDiameter is not None:
             if boreDiameter <= 0:
                 self.boreDiameter = self.baseCircleDiameter / 4
-            if self.boreDiameter > 0 and self.boreDiameter < 2:
+            if boreDiameter > 0 and boreDiameter < 2:
                 self.boreDiameter = 2
 
         s = (math.acos(self.baseCircleDiameter/self.pitchCircleDiameter)/16)
@@ -204,17 +215,132 @@ class SpurGearSpecification:
             
 
 class SpurGearGenerator:
+    class Context:
+        def __init__(self, component: adsk.fusion.Component):
+            self.component = component
+            self.anchorPoint = adsk.fusion.SketchPoint.cast(None)
+
     def __init__(self, component: adsk.fusion.Component):
         self.component = component
 
     def generate(self, spec):
-        base_sketch = self.component.sketches.add(self.component.xYConstructionPlane)
         self.component.name = 'Spur Gear (M={}, Tooth={}, Thickness={})'.format(spec.module, spec.toothNumber, spec.thickness)
-        base_sketch.name = 'Gear Profile'
-        self.draw(base_sketch, spec)
-        self.build(base_sketch, self.component, spec)
 
-    def draw(self, sketch: adsk.fusion.Sketch, spec: SpurGearSpecification):
+        ctx = self.Context(self.component)
+        # Create tools to draw and otherwise position the gear with.
+        self.prepareTools(ctx)
+
+        # Create the main body of the gear
+        self.buildMainGearBody(ctx, spec)
+
+        self.buildBore(ctx, spec)
+
+    def prepareTools(self, ctx: Context):
+        # Create a sketch that contains the anchorPoint and the lines that
+        # define its position
+        sketch = self.component.sketches.add(self.component.xYConstructionPlane)
+        sketch.name = 'Tools'
+
+        curves = sketch.sketchCurves
+        constraints = sketch.geometricConstraints
+        dimensions = sketch.sketchDimensions
+
+        # Create an anchor point to base all of the calculations from by
+        # creating a pair of vertical and horizontal construction lines
+        # that can be dimensioned to the user's liking later.
+        # This allows for far easier manipulation of the gear position.
+        projectedConstructionPoint = sketch.project(self.component.originConstructionPoint).item(0)
+
+        anchorHorizontalLine = curves.sketchLines.addByTwoPoints(
+            projectedConstructionPoint,
+            adsk.core.Point3D.create(10, 0, 0)
+        )
+        anchorHorizontalLine.isConstruction = True
+        constraints.addHorizontal(anchorHorizontalLine)
+        dimensions.addDistanceDimension(
+            anchorHorizontalLine.startSketchPoint,
+            anchorHorizontalLine.endSketchPoint,
+            adsk.fusion.DimensionOrientations.AlignedDimensionOrientation,
+            adsk.core.Point3D.create(anchorHorizontalLine.endSketchPoint.geometry.x/2, 0, 0)
+        )
+        anchorVerticalLine = curves.sketchLines.addByTwoPoints(
+            anchorHorizontalLine.endSketchPoint,
+            adsk.core.Point3D.create(
+                anchorHorizontalLine.endSketchPoint.geometry.x,
+                -10,
+                0
+            )
+        )
+        anchorVerticalLine.isConstruction = True
+        constraints.addVertical(anchorVerticalLine)
+        dimensions.addDistanceDimension(
+            anchorVerticalLine.startSketchPoint,
+            anchorVerticalLine.endSketchPoint,
+            adsk.fusion.DimensionOrientations.AlignedDimensionOrientation,
+            adsk.core.Point3D.create(anchorHorizontalLine.endSketchPoint.geometry.x, anchorHorizontalLine.endSketchPoint.geometry.y/2, 0)
+        )
+
+        # This is our anchor point
+        ctx.anchorPoint = anchorVerticalLine.endSketchPoint
+
+        sketch.isVisible = False
+
+
+    def buildBore(self, ctx: Context, spec: SpurGearSpecification):
+        sketch = self.component.sketches.add(self.component.xYConstructionPlane)
+        sketch.name = 'Bore Profile'
+        self.drawBoreProfile(ctx, sketch, spec)
+        self.buildBoreHole(sketch, spec)
+
+    def buildBoreHole(self, sketch: adsk.fusion.Sketch, spec :SpurGearSpecification):
+        extrudes = self.component.features.extrudeFeatures
+        profiles = sketch.profiles
+
+        distance = adsk.core.ValueInput.createByReal(toCm(spec.thickness))
+
+        boreProfile = profiles.item(0)
+        boreExtrude = extrudes.addSimple(boreProfile, distance, adsk.fusion.FeatureOperations.CutFeatureOperation)
+
+    def drawBoreProfile(self, ctx: Context, sketch: adsk.fusion.Sketch, spec: SpurGearSpecification):
+        constraints = sketch.geometricConstraints
+        curves = sketch.sketchCurves
+        dimensions = sketch.sketchDimensions
+        points = sketch.sketchPoints
+        texts = sketch.sketchTexts
+
+        # The anchor point is where we draw the circle from.
+        # At the end of the drawing process, we create a new anchor point and
+        # move the entire thing to the new anchor point
+        anchorPoint = points.add(adsk.core.Point3D.create(0, 0, 0))
+
+        def drawCircle(name, radius, isConstruction=True):
+            obj = curves.sketchCircles.addByCenterRadius(anchorPoint, toCm(radius))
+            obj.isConstruction = isConstruction
+            dimensions.addDiameterDimension(
+                obj,
+                adsk.core.Point3D.create(toCm(radius/2), 0, 0)
+            )
+            input = texts.createInput2('{} (r={:.2f})'.format(name, radius), toCm(2.5))
+            input.setAsAlongPath(obj, True, adsk.core.HorizontalAlignments.CenterHorizontalAlignment, 0)
+            texts.add(input)
+            return obj
+
+        # bore circle
+        bore = drawCircle('Bore Circle', spec.boreDiameter, isConstruction=False)
+
+        # Now we have all the sketches necessary. Move the entire drawing by
+        # moving the anchor point to its intended location (where we defined it in
+        # a separate Tools sketch)
+        projectedAnchorPoint = sketch.project(ctx.anchorPoint).item(0)
+        constraints.addCoincident(projectedAnchorPoint, anchorPoint)
+    
+    def buildMainGearBody(self, ctx: Context, spec: SpurGearSpecification):
+        sketch = self.component.sketches.add(self.component.xYConstructionPlane)
+        sketch.name = 'Gear Profile'
+        self.drawGearProfile(ctx, sketch, spec)
+        self.buildGear(sketch, self.component, spec)
+
+    def drawGearProfile(self, ctx: Context, sketch: adsk.fusion.Sketch, spec: SpurGearSpecification):
         constraints = sketch.geometricConstraints
         curves = sketch.sketchCurves
         dimensions = sketch.sketchDimensions
@@ -365,43 +491,11 @@ class SpurGearGenerator:
         rlline = drawRootToInvoluteLine(involutePoints[0].x, involutePoints[0].y, lline)
         rrline = drawRootToInvoluteLine(involutePoints[0].x, -involutePoints[0].y, rline)
 
-        # Now we have all the sketches necessary.
-        # Create an anchor point to base all of the calculations from by
-        # creating a pair of vertical and horizontal construction lines
-        # that can be dimensioned to the user's liking later.
-        # This allows for far easier manipulation of the gear position.
-
-        projectedConstructionPoint = sketch.project(self.component.originConstructionPoint).item(0)
-
-        anchorHorizontalLine = curves.sketchLines.addByTwoPoints(
-            projectedConstructionPoint,
-            adsk.core.Point3D.create(10, 0, 0)
-        )
-        anchorHorizontalLine.isConstruction = True
-        constraints.addHorizontal(anchorHorizontalLine)
-        dimensions.addDistanceDimension(
-            anchorHorizontalLine.startSketchPoint,
-            anchorHorizontalLine.endSketchPoint,
-            adsk.fusion.DimensionOrientations.AlignedDimensionOrientation,
-            adsk.core.Point3D.create(anchorHorizontalLine.endSketchPoint.geometry.x/2, 0, 0)
-        )
-        anchorVerticalLine = curves.sketchLines.addByTwoPoints(
-            anchorHorizontalLine.endSketchPoint,
-            adsk.core.Point3D.create(
-                anchorHorizontalLine.endSketchPoint.geometry.x,
-                -10,
-                0
-            )
-        )
-        anchorVerticalLine.isConstruction = True
-        constraints.addVertical(anchorVerticalLine)
-        dimensions.addDistanceDimension(
-            anchorVerticalLine.startSketchPoint,
-            anchorVerticalLine.endSketchPoint,
-            adsk.fusion.DimensionOrientations.AlignedDimensionOrientation,
-            adsk.core.Point3D.create(anchorHorizontalLine.endSketchPoint.geometry.x, anchorHorizontalLine.endSketchPoint.geometry.y/2, 0)
-        )
-        constraints.addCoincident(anchorVerticalLine.endSketchPoint, anchorPoint)
+        # Now we have all the sketches necessary. Move the entire drawing by
+        # moving the anchor point to its intended location (where we defined it in
+        # a separate Tools sketch)
+        projectedAnchorPoint = sketch.project(ctx.anchorPoint).item(0)
+        constraints.addCoincident(projectedAnchorPoint, anchorPoint)
 
     def calculateInvolutePoint(self, baseCircleRadius, intersectionRadius):
         alpha = math.acos( baseCircleRadius / intersectionRadius)
@@ -413,28 +507,7 @@ class SpurGearGenerator:
             toCm(intersectionRadius*math.sin(invAlpha)),
             0)
 
-    # radius is the base circle radius, and distance is the distance from
-    # the center of the circle to the involute point
-    def calculateInvolutePointOld(self, radius, distance):
-        # Note: this is taken from the AutoDesk Fusion360 sample
-        # Calculate the other side of the right-angle triangle defined by the base circle and the current distance radius.
-        # This is also the length of the involute chord as it comes off of the base circle.
-        triangleSide = math.sqrt(math.pow(distance,2) - math.pow(radius,2)) 
-        
-        # Calculate the angle of the involute.
-        alpha = triangleSide / distance
-
-        # Calculate the angle where the current involute point is.
-        theta = alpha - math.acos(radius / distance)
-
-        # Calculate the coordinates of the involute point.    
-        x = distance * math.cos(theta)
-        y = distance * math.sin(theta)
-
-        # Create a point to return.        
-        return adsk.core.Point3D.create(toCm(x), toCm(y), 0)
-    
-    def build(self, sketch: adsk.fusion.Sketch, component: adsk.fusion.Component, spec :SpurGearSpecification):
+    def buildGear(self, sketch: adsk.fusion.Sketch, component: adsk.fusion.Component, spec :SpurGearSpecification):
         extrudes = component.features.extrudeFeatures
         circular = component.features.circularPatternFeatures
         profiles = sketch.profiles
