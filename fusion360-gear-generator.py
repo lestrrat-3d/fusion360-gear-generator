@@ -9,6 +9,12 @@ _handlers = []
 _inputs = None
 _debug = True
 
+def toCm(mm :float) -> float:
+    return mm/10
+
+def toMm(cm :float) -> float:
+    return cm*10
+
 def getUI(app=adsk.core.Application.get()):
     ui = app.userInterface
     if not ui:
@@ -34,6 +40,28 @@ def writelog(s, ui=getUI()):
         if ui:
             ui.messageBox('Failed:\n{}'.format(traceback.format_exc()))
 
+def drawCircle(sketch: adsk.fusion.Sketch, name, radius, anchorPoint, angle=0, isConstruction=True):
+    curves = sketch.sketchCurves
+    dimensions = sketch.sketchDimensions
+    texts = sketch.sketchTexts
+
+    obj = curves.sketchCircles.addByCenterRadius(anchorPoint, toCm(radius))
+    obj.isConstruction = isConstruction
+
+    # Draw the diameter dimension at the specified angle
+    x = toCm(radius)
+    y = 0
+    if angle != 0:
+        x = toCm((radius/2)*math.sin(math.radians(angle)))
+        y = toCm((radius/2)*math.cos(math.radians(angle)))
+    dimensions.addDiameterDimension(
+        obj,
+        adsk.core.Point3D.create(x, y, 0)
+    )
+    input = texts.createInput2('{} (r={:.2f})'.format(name, radius), toCm(2.5))
+    input.setAsAlongPath(obj, True, adsk.core.HorizontalAlignments.CenterHorizontalAlignment, 0)
+    texts.add(input)
+    return obj
 
 def run(context):
     try:
@@ -117,22 +145,30 @@ class SpurGearCommandExecuted(adsk.core.CommandEventHandler):
             if not ok:
                 raise Exception('Invalid module value')
             
+            # args is the dictionary of user inputs. For this purpose,
+            # we're going to insist on length being in mm, and angles being
+            # in degrees
             args = {}
             (toothNumber, ok) = _inputs.getValue('toothNumber')
             if ok:
                 args['toothNumber'] = toothNumber
+
             (pressureAngle, ok) = _inputs.getValue('pressureAngle')
             if ok:
                 args['pressureAngle'] = pressureAngle
+
             (boreDiameter, ok) = _inputs.getValue('boreDiameter')
             if ok:
-                args['boreDiameter'] = boreDiameter
+                args['boreDiameter'] = toMm(boreDiameter)
+
             (thickness, ok) = _inputs.getValue('thickness')
             if ok:
-                args['thickness'] = thickness
+                args['thickness'] = toMm(thickness)
+
             (helixAngle, ok) = _inputs.getValue('helixAngle')
             if ok:
                 args['helixAngle'] = helixAngle
+
 
             spec = SpurGearSpecification(module, **args)
             
@@ -159,9 +195,6 @@ class SpurGearCommandDestroyed(adsk.core.CommandEventHandler):
             if _ui:
                 _ui.messageBox('Failed to terminate:\n{}'.format(traceback.format_exc()))
 
-def toCm(mm :float) -> float:
-    return mm/10
-
 class SpurGearCommandInput:
     def __init__(self, cmd):
         inputs = cmd.commandInputs
@@ -171,7 +204,7 @@ class SpurGearCommandInput:
             'toothNumber': inputs.addValueInput('toothNumber', 'Tooth Number', '', adsk.core.ValueInput.createByReal(17)),
             'pressureAngle': inputs.addValueInput('pressureAngle', 'Pressure Angle', 'deg', adsk.core.ValueInput.createByReal(math.radians(20))),
             'boreDiameter': inputs.addValueInput('boreDiameter', 'Bore Diameter', 'mm', adsk.core.ValueInput.createByReal(0)),
-            'thickness': inputs.addValueInput('thickness', 'Thickness', 'mm', adsk.core.ValueInput.createByReal(toCm(5))),
+            'thickness': inputs.addValueInput('thickness', 'Thickness', 'mm', adsk.core.ValueInput.createByReal(toCm(10))),
             'helixAngle': inputs.addValueInput('helixAngle', 'Helix Angle', 'deg', adsk.core.ValueInput.createByReal(0))
         }
 
@@ -185,7 +218,7 @@ class SpurGearCommandInput:
 class SpurGearSpecification:
     # The base implementation uses ISO specs. For specs using diamteral pitches,
     # use a different constructor (TODO)
-    def __init__(self, module, toothNumber=17, pressureAngle=math.radians(20), boreDiameter=0, thickness=5, helixAngle=0):
+    def __init__(self, module, toothNumber=17, pressureAngle=math.radians(20), boreDiameter=None, thickness=5, helixAngle=0):
         # Note: all angles are in radians
         self.module = module
         self.toothNumber = toothNumber
@@ -205,8 +238,10 @@ class SpurGearSpecification:
         if boreDiameter is not None:
             if boreDiameter < 0:
                 self.boreDiameter = self.baseCircleDiameter / 4
-            if boreDiameter > 0 and boreDiameter < 2:
+            elif boreDiameter > 0 and boreDiameter < 2:
                 self.boreDiameter = 2
+            else:
+                self.boreDiameter = boreDiameter
 
         s = (math.acos(self.baseCircleDiameter/self.pitchCircleDiameter)/16)
         self.involuteSteps = 15
@@ -289,6 +324,7 @@ class SpurGearGenerator:
 
     def buildBore(self, ctx: Context, spec: SpurGearSpecification):
         if (spec.boreDiameter is None) or (spec.boreDiameter == 0):
+            raise Exception("spec.boreDiameter = {}".format(spec.boreDiameter))
             return
         sketch = self.component.sketches.add(self.component.xYConstructionPlane)
         sketch.name = 'Bore Profile'
@@ -304,7 +340,10 @@ class SpurGearGenerator:
         boreProfile = profiles.item(0)
         boreExtrudeInput = extrudes.createInput(boreProfile, adsk.fusion.FeatureOperations.CutFeatureOperation)
         
-        boreExtrudeInput.setDistanceExtent(False, distance)
+        boreExtrudeInput.setOneSideExtent(
+            adsk.fusion.DistanceExtentDefinition.create(distance),
+            adsk.fusion.ExtentDirections.PositiveExtentDirection,
+        )
         boreExtrudeInput.participantBodies = [ctx.gearBody]
         extrudes.add(boreExtrudeInput)
 
@@ -320,20 +359,8 @@ class SpurGearGenerator:
         # move the entire thing to the new anchor point
         anchorPoint = points.add(adsk.core.Point3D.create(0, 0, 0))
 
-        def drawCircle(name, radius, isConstruction=True):
-            obj = curves.sketchCircles.addByCenterRadius(anchorPoint, toCm(radius))
-            obj.isConstruction = isConstruction
-            dimensions.addDiameterDimension(
-                obj,
-                adsk.core.Point3D.create(toCm(radius/2), 0, 0)
-            )
-            input = texts.createInput2('{} (r={:.2f})'.format(name, radius), toCm(2.5))
-            input.setAsAlongPath(obj, True, adsk.core.HorizontalAlignments.CenterHorizontalAlignment, 0)
-            texts.add(input)
-            return obj
-
         # bore circle
-        bore = drawCircle('Bore Circle', spec.boreDiameter, isConstruction=False)
+        bore = drawCircle(sketch, 'Bore Circle', spec.boreDiameter, anchorPoint, isConstruction=False)
 
         # Now we have all the sketches necessary. Move the entire drawing by
         # moving the anchor point to its intended location (where we defined it in
@@ -359,26 +386,14 @@ class SpurGearGenerator:
         # move the entire thing to the new anchor point
         anchorPoint = points.add(adsk.core.Point3D.create(0, 0, 0))
 
-        def drawCircle(name, radius, isConstruction=True):
-            obj = curves.sketchCircles.addByCenterRadius(anchorPoint, toCm(radius))
-            obj.isConstruction = isConstruction
-            dimensions.addDiameterDimension(
-                obj,
-                adsk.core.Point3D.create(toCm(radius/2), 0, 0)
-            )
-            input = texts.createInput2('{} (r={:.2f})'.format(name, radius), toCm(2.5))
-            input.setAsAlongPath(obj, True, adsk.core.HorizontalAlignments.CenterHorizontalAlignment, 0)
-            texts.add(input)
-            return obj
-
         # Root circle
-        root = drawCircle('Root Circle', spec.rootCircleRadius, isConstruction=False)
+        root = drawCircle(sketch, 'Root Circle', spec.rootCircleRadius, anchorPoint, angle=15, isConstruction=False)
         # Base circle
-        base = drawCircle('Base Circle', spec.baseCircleRadius)
+        base = drawCircle(sketch, 'Base Circle', spec.baseCircleRadius, anchorPoint, angle=30)
         # Pitch circle (reference)
-        pitch = drawCircle('Pitch Circle', spec.pitchCircleRadius)
+        pitch = drawCircle(sketch, 'Pitch Circle', spec.pitchCircleRadius, anchorPoint, angle=45)
         # Tip circle
-        tip = drawCircle('Tip Circle', spec.tipCircleRadius)
+        tip = drawCircle(sketch, 'Tip Circle', spec.tipCircleRadius, anchorPoint, angle=60)
     
         involutePoints = []
         involuteSize = spec.tipCircleRadius - spec.baseCircleRadius
