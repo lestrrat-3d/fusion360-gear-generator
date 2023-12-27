@@ -27,7 +27,7 @@ def getDesign(app=adsk.core.Application.get()):
         raise Exception('A Fusion design must be active when invoking this command.')
     return des
 
-def writelog(s):
+def writelog(s, ui = getUI()):
     try:
         if not _debug:
             return
@@ -37,7 +37,6 @@ def writelog(s):
         palette.isVisible = True 
         palette.writeText(s)
     except:
-        ui = getUI()
         if ui:
             ui.messageBox('Failed:\n{}'.format(traceback.format_exc()))
 
@@ -327,7 +326,6 @@ class SpurGearGenerator:
 
     def buildBore(self, ctx: Context, spec: SpurGearSpecification):
         if (spec.boreDiameter is None) or (spec.boreDiameter == 0):
-            raise Exception("spec.boreDiameter = {}".format(spec.boreDiameter))
             return
         sketch = self.component.sketches.add(self.component.xYConstructionPlane)
         sketch.name = 'Bore Profile'
@@ -386,6 +384,11 @@ class SpurGearGenerator:
 
         # Root circle
         root = drawCircle(sketch, 'Root Circle', spec.rootCircleRadius, anchorPoint, angle=15, isConstruction=False)
+
+        # These three circles are mainly just for debugging purposes, except for
+        # the tip circle, which is used to determine the center point for the
+        # tooth tip curve.
+
         # Base circle
         base = drawCircle(sketch, 'Base Circle', spec.baseCircleRadius, anchorPoint, angle=30)
         # Pitch circle (reference)
@@ -393,108 +396,116 @@ class SpurGearGenerator:
         # Tip circle
         tip = drawCircle(sketch, 'Tip Circle', spec.tipCircleRadius, anchorPoint, angle=60)
     
-        involutePoints = []
-        involuteSize = spec.tipCircleRadius - spec.baseCircleRadius
-        involuteSpinePoints = []
-        for i in (range(0, spec.involuteSteps)):
-            intersectionRadius = spec.baseCircleRadius + ((involuteSize / (spec.involuteSteps-1))*i)
-            involutePoint = self.calculateInvolutePoint(spec.baseCircleRadius, intersectionRadius)
-            if involutePoint is not None:
-                involutePoints.append(involutePoint)
-                involuteSpinePoints.append(adsk.core.Point3D.create(involutePoint.x, 0, 0))
-
-        pitchInvolutePoint = self.calculateInvolutePoint(spec.baseCircleRadius, spec.pitchCircleRadius)
-        pitchPointAngle = math.atan(pitchInvolutePoint.y / pitchInvolutePoint.x)
-
-        # Determine the angle defined by the tooth thickness as measured at
-        # the pitch diameter circle.
-        toothThicknessAngle = math.pi / spec.toothNumber
-        
-        backlash = 0
-        # Determine the angle needed for the specified backlash.
-        backlashAngle = (backlash / (spec.pitchCircleRadius)) * .25
-        
-        # Determine the angle to rotate the curve.
-        rotateAngle = -((toothThicknessAngle/2) + pitchPointAngle - backlashAngle)
-        
-        # Rotate the involute so the middle of the tooth lies on the x axis.
-        cosAngle = math.cos(rotateAngle)
-        sinAngle = math.sin(rotateAngle)
-        for i in range(0, len(involutePoints)):
-            newX = involutePoints[i].x * cosAngle - involutePoints[i].y * sinAngle
-            newY = involutePoints[i].x * sinAngle + involutePoints[i].y * cosAngle
-            involutePoints[i] = adsk.core.Point3D.create(newX, newY, 0)
-
-        pointCollection = adsk.core.ObjectCollection.create()
-        for i in (range(0, len(involutePoints))): #spec.involuteSteps)):
-            pointCollection.add(involutePoints[i])
-        lline = sketch.sketchCurves.sketchFittedSplines.add(pointCollection)
-
-        pointCollection = adsk.core.ObjectCollection.create()
-        for i in (range(0, len(involutePoints))): #spec.involuteSteps)):
-            pointCollection.add(adsk.core.Point3D.create(involutePoints[i].x, -involutePoints[i].y, 0))
-        rline = sketch.sketchCurves.sketchFittedSplines.add(pointCollection)
-
-        # Draw the the top of the tooth
-        toothTopPoint = points.add(adsk.core.Point3D.create(toCm(spec.tipCircleRadius), 0, 0))
-        constraints.addCoincident(toothTopPoint, tip)
-        top = sketch.sketchCurves.sketchArcs.addByThreePoints(
-            rline.endSketchPoint,
-            toothTopPoint.geometry,
-            lline.endSketchPoint
-        )
-        dimensions.addDiameterDimension(
-            top,
-            adsk.core.Point3D.create(toothTopPoint.geometry.x, 0, 0)
-        )
-
-        # Create a "spine" for the involutes so that they can be fully constrainted
-        # without having to fix them
-        spine = sketch.sketchCurves.sketchLines.addByTwoPoints(anchorPoint, toothTopPoint)
-        spine.isConstruction = True
-        constraints.addHorizontal(spine)
-        #constraints.addCoincident(spine.startSketchPoint, anchorPoint)
-
-        # Create a series of lines (ribs) from one involute to the other
-        priv = anchorPoint
-        for i in range(0, len(involutePoints)):
-            # First create a point on the spine where the ribs are going to
-            # be constrained on 
-            lpoint = lline.fitPoints.item(i)
-            rib = curves.sketchLines.addByTwoPoints(
-                lpoint,
-                rline.fitPoints.item(i)
+        def drawTooth(ctx, sketch: adsk.fusion.Sketch, spec: SpurGearSpecification, anchorPoint, root, tip, angle):
+            involutePoints = []
+            involuteSize = spec.tipCircleRadius - spec.baseCircleRadius
+            involuteSpinePoints = []
+            for i in (range(0, spec.involuteSteps)):
+                intersectionRadius = spec.baseCircleRadius + ((involuteSize / (spec.involuteSteps-1))*i)
+                involutePoint = self.calculateInvolutePoint(spec.baseCircleRadius, intersectionRadius)
+                if involutePoint is not None:
+                    involutePoints.append(involutePoint)
+                    involuteSpinePoints.append(adsk.core.Point3D.create(involutePoint.x, 0, 0))
+    
+            pitchInvolutePoint = self.calculateInvolutePoint(spec.baseCircleRadius, spec.pitchCircleRadius)
+            pitchPointAngle = math.atan(pitchInvolutePoint.y / pitchInvolutePoint.x)
+    
+            # Determine the angle defined by the tooth thickness as measured at
+            # the pitch diameter circle.
+            toothThicknessAngle = math.pi / spec.toothNumber
+            
+            backlash = 0
+            # Determine the angle needed for the specified backlash.
+            backlashAngle = (backlash / (spec.pitchCircleRadius)) * .25
+            
+            # Determine the angle to rotate the curve.
+            rotateAngle = -((toothThicknessAngle/2) + pitchPointAngle - backlashAngle)
+            
+            # Rotate the involute so the middle of the tooth lies on the x axis.
+            cosAngle = math.cos(rotateAngle)
+            sinAngle = math.sin(rotateAngle)
+            for i in range(0, len(involutePoints)):
+                newX = involutePoints[i].x * cosAngle - involutePoints[i].y * sinAngle
+                newY = involutePoints[i].x * sinAngle + involutePoints[i].y * cosAngle
+                involutePoints[i] = adsk.core.Point3D.create(newX, newY, 0)
+    
+            pointCollection = adsk.core.ObjectCollection.create()
+            for i in (range(0, len(involutePoints))): #spec.involuteSteps)):
+                pointCollection.add(involutePoints[i])
+            lline = sketch.sketchCurves.sketchFittedSplines.add(pointCollection)
+    
+            pointCollection = adsk.core.ObjectCollection.create()
+            for i in (range(0, len(involutePoints))): #spec.involuteSteps)):
+                pointCollection.add(adsk.core.Point3D.create(involutePoints[i].x, -involutePoints[i].y, 0))
+            rline = sketch.sketchCurves.sketchFittedSplines.add(pointCollection)
+    
+            # Draw the the top of the tooth
+            toothTopPoint = points.add(adsk.core.Point3D.create(toCm(spec.tipCircleRadius), 0, 0))
+            constraints.addCoincident(toothTopPoint, tip)
+            top = sketch.sketchCurves.sketchArcs.addByThreePoints(
+                rline.endSketchPoint,
+                toothTopPoint.geometry,
+                lline.endSketchPoint
             )
-            rib.isConstruction = True
-            dimensions.addDistanceDimension(
-                rib.startSketchPoint,
-                rib.endSketchPoint,
-                adsk.fusion.DimensionOrientations.AlignedDimensionOrientation,
-                adsk.core.Point3D.create(rib.startSketchPoint.geometry.x, rib.startSketchPoint.geometry.y/2, 0)
+            dimensions.addDiameterDimension(
+                top,
+                adsk.core.Point3D.create(toothTopPoint.geometry.x, 0, 0)
             )
-            spinePoint = points.add(adsk.core.Point3D.create(lpoint.geometry.x, 0, 0))
-            constraints.addCoincident(spinePoint, spine)
-            constraints.addMidPoint(spinePoint, rib)
-            constraints.addPerpendicular(spine, rib)
-            dimensions.addDistanceDimension(priv, spinePoint, adsk.fusion.DimensionOrientations.AlignedDimensionOrientation, adsk.core.Point3D.create((lpoint.geometry.x-priv.geometry.x)/2+priv.geometry.x, 0, 0))
-            priv = spinePoint
+    
+            # Create a "spine" for the involutes so that they can be fully constrainted
+            # without having to fix them
+            spine = sketch.sketchCurves.sketchLines.addByTwoPoints(anchorPoint, toothTopPoint)
+            spine.isConstruction = True
 
-        # Create the point where the involutes will connect to the root circle
-        def drawRootToInvoluteLine(x, y, inv):
-            angle = math.atan(y/ x)
-            point = adsk.core.Point3D.create(
-                toCm(spec.rootCircleRadius) * math.cos(angle),
-                toCm(spec.rootCircleRadius) * math.sin(angle),
-                0,
-            )
-            line = sketch.sketchCurves.sketchLines.addByTwoPoints(point, inv.startSketchPoint)
-            constraints.addTangent(inv, line)
-            constraints.addCoincident(line.startSketchPoint, root)
-            dimensions.addAngularDimension(line, spine, line.endSketchPoint.geometry)
-            return line
+            # Instead of adding a horizontal constraint, add an angle dimension
+            # against the x axis
 
-        rlline = drawRootToInvoluteLine(involutePoints[0].x, involutePoints[0].y, lline)
-        rrline = drawRootToInvoluteLine(involutePoints[0].x, -involutePoints[0].y, rline)
+            constraints.addHorizontal(spine)
+            #constraints.addCoincident(spine.startSketchPoint, anchorPoint)
+    
+            # Create a series of lines (ribs) from one involute to the other
+            priv = anchorPoint
+            for i in range(0, len(involutePoints)):
+                # First create a point on the spine where the ribs are going to
+                # be constrained on 
+                lpoint = lline.fitPoints.item(i)
+                rib = curves.sketchLines.addByTwoPoints(
+                    lpoint,
+                    rline.fitPoints.item(i)
+                )
+                rib.isConstruction = True
+                dimensions.addDistanceDimension(
+                    rib.startSketchPoint,
+                    rib.endSketchPoint,
+                    adsk.fusion.DimensionOrientations.AlignedDimensionOrientation,
+                    adsk.core.Point3D.create(rib.startSketchPoint.geometry.x, rib.startSketchPoint.geometry.y/2, 0)
+                )
+                spinePoint = points.add(adsk.core.Point3D.create(lpoint.geometry.x, 0, 0))
+                constraints.addCoincident(spinePoint, spine)
+                constraints.addMidPoint(spinePoint, rib)
+                constraints.addPerpendicular(spine, rib)
+                dimensions.addDistanceDimension(priv, spinePoint, adsk.fusion.DimensionOrientations.AlignedDimensionOrientation, adsk.core.Point3D.create((lpoint.geometry.x-priv.geometry.x)/2+priv.geometry.x, 0, 0))
+                priv = spinePoint
+
+                # Create the point where the involutes will connect to the root circle
+                def drawRootToInvoluteLine(x, y, inv):
+                    angle = math.atan(y/ x)
+                    point = adsk.core.Point3D.create(
+                        toCm(spec.rootCircleRadius) * math.cos(angle),
+                        toCm(spec.rootCircleRadius) * math.sin(angle),
+                        0,
+                    )
+                    line = sketch.sketchCurves.sketchLines.addByTwoPoints(point, inv.startSketchPoint)
+                    constraints.addTangent(inv, line)
+                    constraints.addCoincident(line.startSketchPoint, root)
+                    dimensions.addAngularDimension(line, spine, line.endSketchPoint.geometry)
+                    return line
+        
+                rlline = drawRootToInvoluteLine(involutePoints[0].x, involutePoints[0].y, lline)
+                rrline = drawRootToInvoluteLine(involutePoints[0].x, -involutePoints[0].y, rline)
+
+        # Draw a single tooth at the specified angle relative to the x axis
+        drawTooth(ctx, sketch, spec, anchorPoint, root, tip, 0)
 
         # Now we have all the sketches necessary. Move the entire drawing by
         # moving the anchor point to its intended location (where we defined it in
