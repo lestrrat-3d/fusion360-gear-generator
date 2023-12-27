@@ -54,8 +54,8 @@ def drawCircle(sketch: adsk.fusion.Sketch, name, radius, anchorPoint, angle=0, i
     if angle == 0:
         x = toCm(radius)
     elif angle != 0:
-        x = toCm((radius/2)*math.sin(math.radians(angle)))
-        y = toCm((radius/2)*math.cos(math.radians(angle)))
+        x = toCm((radius/2)*math.sin(angle))
+        y = toCm((radius/2)*math.cos(angle))
     dimensions.addDiameterDimension(
         obj,
         adsk.core.Point3D.create(x, y, 0)
@@ -148,8 +148,8 @@ class SpurGearCommandExecuted(adsk.core.CommandEventHandler):
                 raise Exception('Invalid module value')
             
             # args is the dictionary of user inputs. For this purpose,
-            # we're going to insist on length being in mm, and angles being
-            # in degrees
+            # we're going to insist on length being in mm.
+            # Angles are in radians
             args = {}
             (toothNumber, ok) = _inputs.getValue('toothNumber')
             if ok:
@@ -320,9 +320,7 @@ class SpurGearGenerator:
 
         # This is our anchor point
         ctx.anchorPoint = anchorVerticalLine.endSketchPoint
-
         sketch.isVisible = False
-
 
     def buildBore(self, ctx: Context, spec: SpurGearSpecification):
         if (spec.boreDiameter is None) or (spec.boreDiameter == 0):
@@ -365,14 +363,36 @@ class SpurGearGenerator:
         # a separate Tools sketch)
         projectedAnchorPoint = sketch.project(ctx.anchorPoint).item(0)
         constraints.addCoincident(projectedAnchorPoint, anchorPoint)
-    
+
     def buildMainGearBody(self, ctx: Context, spec: SpurGearSpecification):
         sketch = self.component.sketches.add(self.component.xYConstructionPlane)
         sketch.name = 'Gear Profile'
         self.drawGearProfile(ctx, sketch, spec)
-        self.buildGear(ctx, sketch, self.component, spec)
+        if spec.helixAngle == 0:
+            self.extrudeGear(ctx, sketch, self.component, spec)
+        else:
+            # If we have a helix angle, we can't just extrude the bottom profile
+            # and call it a day. We create another sketch on a plane that is
+            # spec.thickness away from the bottom profile, and then use loft
+            # to create the body
+            constructionPlaneInput = self.component.constructionPlanes.createInput()
+            constructionPlaneInput.setByOffset(
+                self.component.xYConstructionPlane,
+                adsk.core.ValueInput.createByReal(toCm(spec.thickness))
+            )
+            plane = self.component.constructionPlanes.add(constructionPlaneInput)
+            loftSketch = self.component.sketches.add(plane)
+            loftSketch.name = 'Gear (angle={})'.format(math.degrees(spec.helixAngle))
+            loftSketch.isVisiable = False
 
-    def drawGearProfile(self, ctx: Context, sketch: adsk.fusion.Sketch, spec: SpurGearSpecification):
+            # This sketch is rotated for the helix angle
+            self.drawGearProfile(ctx, loftSketch, spec, angle=spec.helixAngle)
+
+            # now loft from the bottom profile to the top profile
+            self.loftGear(ctx, sketch, loftSketch, self.component, spec)
+
+
+    def drawGearProfile(self, ctx: Context, sketch: adsk.fusion.Sketch, spec: SpurGearSpecification, angle=0):
         constraints = sketch.geometricConstraints
         curves = sketch.sketchCurves
         dimensions = sketch.sketchDimensions
@@ -383,18 +403,18 @@ class SpurGearGenerator:
         anchorPoint = points.add(adsk.core.Point3D.create(0, 0, 0))
 
         # Root circle
-        root = drawCircle(sketch, 'Root Circle', spec.rootCircleRadius, anchorPoint, angle=15, isConstruction=False)
+        root = drawCircle(sketch, 'Root Circle', spec.rootCircleRadius, anchorPoint, angle=math.radians(15), isConstruction=False)
 
         # These three circles are mainly just for debugging purposes, except for
         # the tip circle, which is used to determine the center point for the
         # tooth tip curve.
 
         # Base circle
-        base = drawCircle(sketch, 'Base Circle', spec.baseCircleRadius, anchorPoint, angle=30)
+        base = drawCircle(sketch, 'Base Circle', spec.baseCircleRadius, anchorPoint, angle=math.radians(30))
         # Pitch circle (reference)
-        pitch = drawCircle(sketch, 'Pitch Circle', spec.pitchCircleRadius, anchorPoint, angle=45)
+        pitch = drawCircle(sketch, 'Pitch Circle', spec.pitchCircleRadius, anchorPoint, angle=math.radians(45))
         # Tip circle
-        tip = drawCircle(sketch, 'Tip Circle', spec.tipCircleRadius, anchorPoint, angle=60)
+        tip = drawCircle(sketch, 'Tip Circle', spec.tipCircleRadius, anchorPoint, angle=math.radians(60))
     
         def drawTooth(ctx, sketch: adsk.fusion.Sketch, spec: SpurGearSpecification, anchorPoint, root, tip, angle):
             involutePoints = []
@@ -456,13 +476,24 @@ class SpurGearGenerator:
             # without having to fix them
             spine = sketch.sketchCurves.sketchLines.addByTwoPoints(anchorPoint, toothTopPoint)
             spine.isConstruction = True
+            angleDimension = None
+            if angle == 0:
+                constraints.addHorizontal(spine)
+            else:
+                horizontal = sketch.sketchCurves.sketchLines.addByTwoPoints(
+                    adsk.core.Point3D.create(anchorPoint.geometry.x, anchorPoint.geometry.y, 0),
+                    adsk.core.Point3D.create(toothTopPoint.geometry.x, toothTopPoint.geometry.y, 0),
+                )
+                horizontal.isConsutruction = True
+                constraints.addHorizontal(horizontal)
+                constraints.addCoincident(horizontal.startSketchPoint, anchorPoint)
+                constraints.addCoincident(horizontal.endSketchPoint, tip)
 
-            # Instead of adding a horizontal constraint, add an angle dimension
-            # against the x axis
+                angleDimension = dimensions.addAngularDimension(spine, horizontal,
+                    adsk.core.Point3D.create(anchorPoint.geometry.x, anchorPoint.geometry.y, 0))
 
-            constraints.addHorizontal(spine)
-            #constraints.addCoincident(spine.startSketchPoint, anchorPoint)
-    
+
+
             # Create a series of lines (ribs) from one involute to the other
             priv = anchorPoint
             for i in range(0, len(involutePoints)):
@@ -498,14 +529,18 @@ class SpurGearGenerator:
                     line = sketch.sketchCurves.sketchLines.addByTwoPoints(point, inv.startSketchPoint)
                     constraints.addTangent(inv, line)
                     constraints.addCoincident(line.startSketchPoint, root)
-                    dimensions.addAngularDimension(line, spine, line.endSketchPoint.geometry)
+                    dimensions.addAngularDimension(spine, line, line.endSketchPoint.geometry)
                     return line
         
                 rlline = drawRootToInvoluteLine(involutePoints[0].x, involutePoints[0].y, lline)
                 rrline = drawRootToInvoluteLine(involutePoints[0].x, -involutePoints[0].y, rline)
 
+            if angle != 0:
+                # Only do this _AFTER_ all the lines have been drawn
+                angleDimension.value = angle
+
         # Draw a single tooth at the specified angle relative to the x axis
-        drawTooth(ctx, sketch, spec, anchorPoint, root, tip, 0)
+        drawTooth(ctx, sketch, spec, anchorPoint, root, tip, angle)
 
         # Now we have all the sketches necessary. Move the entire drawing by
         # moving the anchor point to its intended location (where we defined it in
@@ -523,7 +558,7 @@ class SpurGearGenerator:
             toCm(intersectionRadius*math.sin(invAlpha)),
             0)
 
-    def buildGear(self, ctx: Context, sketch: adsk.fusion.Sketch, component: adsk.fusion.Component, spec :SpurGearSpecification):
+    def extrudeGear(self, ctx: Context, sketch: adsk.fusion.Sketch, component: adsk.fusion.Component, spec :SpurGearSpecification):
         extrudes = component.features.extrudeFeatures
         circular = component.features.circularPatternFeatures
         profiles = sketch.profiles
@@ -577,3 +612,68 @@ class SpurGearGenerator:
 
         # store the gear body for later use
         ctx.gearBody = self.component.bRepBodies.itemByName('Gear Body')
+
+    def loftGear(self, ctx: Context, bottomSketch: adsk.fusion.Sketch, topSketch: adsk.fusion.Sketch, component: adsk.fusion.Component, spec :SpurGearSpecification):
+        extrudes = component.features.extrudeFeatures
+        lofts = component.features.loftFeatures
+        circular = component.features.circularPatternFeatures
+
+        bottomProfiles = bottomSketch.profiles
+        topProfiles = topSketch.profiles
+        # Note: the order of sketch creation is extremely important as we can
+        # only specify which profiles to extrude by guessing which one is the
+        # one we want by the order in the list in sketch.profile
+
+        distance = adsk.core.ValueInput.createByReal(toCm(spec.thickness))
+
+        # First create the cylindrical part so we can construct a
+        # perpendicular axis
+        gearBodyProfile = bottomProfiles.item(1)
+        gearBodyExtrude = extrudes.addSimple(gearBodyProfile, distance, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+        gearBodyExtrude.bodies.item(0).name = 'Gear Body'
+
+        circularFace = None
+        for face in gearBodyExtrude.bodies.item(0).faces:
+            if face.geometry.surfaceType == adsk.core.SurfaceTypes.CylinderSurfaceType:
+                circularFace = face
+                break
+        
+        if circularFace is None:
+            raise("could not find circular face")
+        
+        axisInput = self.component.constructionAxes.createInput()
+        axisInput.setByCircularFace(circularFace)
+        centerAxis = self.component.constructionAxes.add(axisInput)
+        if centerAxis is None:
+            raise("Could not create axis")
+        centerAxis.name = 'Gear Center'
+
+        bottomToothProfile = bottomProfiles.item(0)
+        topToothProfile = topProfiles.item(0)
+
+        loftInput = lofts.createInput(adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+        loftInput.loftSections.add(bottomToothProfile)
+        loftInput.loftSections.add(topToothProfile)
+        loftResult = lofts.add(loftInput)
+        toothBody = loftResult.bodies.item(0)
+
+        bodies = adsk.core.ObjectCollection.create()
+        bodies.add(toothBody)
+
+        patternInput = circular.createInput(bodies, centerAxis)
+        patternInput.quantity = adsk.core.ValueInput.createByReal(spec.toothNumber)
+        patternedTeeth = circular.add(patternInput)
+
+        toolBodies = adsk.core.ObjectCollection.create()
+        for body in patternedTeeth.bodies:
+            toolBodies.add(body)
+        combineInput = self.component.features.combineFeatures.createInput(
+            self.component.bRepBodies.itemByName('Gear Body'),
+            toolBodies
+        )
+        self.component.features.combineFeatures.add(combineInput)
+        centerAxis.isVisibile = False
+
+        # store the gear body for later use
+        ctx.gearBody = self.component.bRepBodies.itemByName('Gear Body')
+
