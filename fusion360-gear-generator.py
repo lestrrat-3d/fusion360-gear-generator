@@ -126,6 +126,10 @@ class SpurGearCommandCreated(adsk.core.CommandCreatedEventHandler):
             onCommandDestroyed = SpurGearCommandDestroyed()
             cmd.destroy.add(onCommandDestroyed)
             addHandler(onCommandDestroyed)
+
+            onCommandValidateInputs = SpurGearCommandValidator()
+            cmd.validateInputs.add(onCommandValidateInputs)
+            addHandler(onCommandValidateInputs)
         except:
             if ui:
                 ui.messageBox('Failed:\n{}'.format(traceback.format_exc()))
@@ -171,6 +175,9 @@ class SpurGearCommandExecuted(adsk.core.CommandEventHandler):
             if ok:
                 args['helixAngle'] = helixAngle
 
+            (herringbone, ok) = _inputs.getValue('herringbone')
+            if ok:
+                args['herringbone'] = herringbone
 
             spec = SpurGearSpecification(module, **args)
             
@@ -207,11 +214,19 @@ class SpurGearCommandInput:
             'pressureAngle': inputs.addValueInput('pressureAngle', 'Pressure Angle', 'deg', adsk.core.ValueInput.createByReal(math.radians(20))),
             'boreDiameter': inputs.addValueInput('boreDiameter', 'Bore Diameter', 'mm', adsk.core.ValueInput.createByReal(0)),
             'thickness': inputs.addValueInput('thickness', 'Thickness', 'mm', adsk.core.ValueInput.createByReal(toCm(10))),
-            'helixAngle': inputs.addValueInput('helixAngle', 'Helix Angle', 'deg', adsk.core.ValueInput.createByReal(0))
+            'helixAngle': inputs.addValueInput('helixAngle', 'Helix Angle', 'deg', adsk.core.ValueInput.createByReal(0)),
+            'herringbone': inputs.addBoolValueInput('herringbone', 'Herringbone Gear', True, '', False)
         }
+
+    def setValue(self, name, value: adsk.core.CommandInput):
+        self.inputs[name] = value
 
     def getValue(self, name):
         unitsManager = getDesign().unitsManager
+
+        if isinstance(self.inputs[name], adsk.core.BoolValueCommandInput):
+            return (self.inputs[name].value, True)
+
         if not unitsManager.isValidExpression(self.inputs[name].expression, self.inputs[name].unitType):
             return (None, False)
         
@@ -220,7 +235,7 @@ class SpurGearCommandInput:
 class SpurGearSpecification:
     # The base implementation uses ISO specs. For specs using diamteral pitches,
     # use a different constructor (TODO)
-    def __init__(self, module, toothNumber=17, pressureAngle=math.radians(20), boreDiameter=None, thickness=5, helixAngle=0):
+    def __init__(self, module, toothNumber=17, pressureAngle=math.radians(20), boreDiameter=None, thickness=5, helixAngle=0, herringbone=False):
         # Note: all angles are in radians
         self.module = module
         self.toothNumber = toothNumber
@@ -235,6 +250,7 @@ class SpurGearSpecification:
         self.tipCircleDiameter  = self.pitchCircleDiameter + 2 * module
         self.tipCircleRadius  = self.tipCircleDiameter / 2.0
         self.circularPitch = self.pitchCircleDiameter * math.pi / toothNumber
+        self.herringbone = herringbone
 
         self.boreDiameter = None
         if boreDiameter is not None:
@@ -257,6 +273,7 @@ class SpurGearGenerator:
             self.component = component
             self.anchorPoint = adsk.fusion.SketchPoint.cast(None)
             self.gearBody = adsk.fusion.BRepBody.cast(None)
+            self.helixPlane = None
 
     def __init__(self, component: adsk.fusion.Component):
         self.component = component
@@ -376,20 +393,40 @@ class SpurGearGenerator:
             # spec.thickness away from the bottom profile, and then use loft
             # to create the body
             constructionPlaneInput = self.component.constructionPlanes.createInput()
+            planeOffset = toCm(spec.thickness)
+            if spec.herringbone:
+                planeOffset = planeOffset / 2
+
             constructionPlaneInput.setByOffset(
                 self.component.xYConstructionPlane,
-                adsk.core.ValueInput.createByReal(toCm(spec.thickness))
+                adsk.core.ValueInput.createByReal(planeOffset)
             )
             plane = self.component.constructionPlanes.add(constructionPlaneInput)
+            ctx.helixPlane = plane
             loftSketch = self.component.sketches.add(plane)
             loftSketch.name = 'Gear (angle={})'.format(math.degrees(spec.helixAngle))
-            loftSketch.isVisiable = False
+            loftSketch.isVisible = False
 
             # This sketch is rotated for the helix angle
             self.drawGearProfile(ctx, loftSketch, spec, angle=spec.helixAngle)
 
             # now loft from the bottom profile to the top profile
             self.loftGear(ctx, sketch, loftSketch, self.component, spec)
+
+        if spec.herringbone:
+            entities = adsk.core.ObjectCollection.create()
+            entities.add(ctx.gearBody)
+            input = self.component.features.mirrorFeatures.createInput(entities, ctx.helixPlane)
+            mirrorResult = self.component.features.mirrorFeatures.add(input)
+            mirrorResult.bodies.item(0).name = 'Gear Body (Mirrored)'
+
+            entities = adsk.core.ObjectCollection.create()
+            entities.add(mirrorResult.bodies.item(0))
+            combineInput = self.component.features.combineFeatures.createInput(
+                self.component.bRepBodies.itemByName('Gear Body'),
+                entities,
+            )
+            self.component.features.combineFeatures.add(combineInput)
 
 
     def drawGearProfile(self, ctx: Context, sketch: adsk.fusion.Sketch, spec: SpurGearSpecification, angle=0):
@@ -620,11 +657,9 @@ class SpurGearGenerator:
 
         bottomProfiles = bottomSketch.profiles
         topProfiles = topSketch.profiles
-        # Note: the order of sketch creation is extremely important as we can
-        # only specify which profiles to extrude by guessing which one is the
-        # one we want by the order in the list in sketch.profile
 
-        distance = adsk.core.ValueInput.createByReal(toCm(spec.thickness))
+        # If this is a herringbone gear, we need to halve the thickness
+        distance = adsk.core.ValueInput.createByReal(toCm(spec.thickness/2))
 
         # First create the cylindrical part so we can construct a
         # perpendicular axis
@@ -677,3 +712,26 @@ class SpurGearGenerator:
         # store the gear body for later use
         ctx.gearBody = self.component.bRepBodies.itemByName('Gear Body')
 
+
+class SpurGearCommandValidator(adsk.core.ValidateInputsEventHandler):
+    def __init__(self):
+        super().__init__()
+
+    def notify(self, args):
+        try:
+            eventArgs = adsk.core.ValidateInputsEventArgs.cast(args)
+            eventArgs.areInputsValid = False
+
+            (herringbone, ok) = _inputs.getValue('herringbone')
+            if ok and herringbone:
+                (helixAngle, ok) = _inputs.getValue('helixAngle')
+                if not ok or helixAngle <= 0:
+                    _inputs.inputs['helixAngle'].value = math.radians(20)
+                    return
+                
+            eventArgs.areInputsValid = True
+
+        except:
+            ui = getUI()
+            if ui:
+                ui.messageBox('Failed to validate:\n{}'.format(traceback.format_exc()))
