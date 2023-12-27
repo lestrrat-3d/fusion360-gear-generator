@@ -3,7 +3,7 @@
 This is yet another Gear Generator for Fusion 360.
 I know there are a bunch of other tools to do this, I wrote this to scratch my itch, which were:
 
-* Source code legibility - I at least wanted to have code as classes, and not a single giang function
+* Source code legibility - I at least wanted to have code as classes, and not a single giant function
 * Fully constrained sketches - Many freely available scripts created gears whose sketches were not fully constrained. This led to funky problems when you wanted to modify or move the generated objects.
 
 On top of the above, there were also a few minor issues that I wanted to see happen:
