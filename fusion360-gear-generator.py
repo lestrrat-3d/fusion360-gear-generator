@@ -4,16 +4,23 @@
 import math
 import adsk.core, adsk.fusion, adsk.cam, traceback
 
+# Globals
 _cmdName = 'lestrratSpurGearGenerator'
-_handlers = []
 _inputs = None
 _debug = True
+_handlers = []
 
+# Utilities
 def toCm(mm :float) -> float:
     return mm/10
 
 def toMm(cm :float) -> float:
     return cm*10
+
+def addHandler(handler):
+    global _handlers
+    # Keep the handlers referenced beyond their regular lifecycle
+    _handlers.append(handler)
 
 def getUI(app=adsk.core.Application.get()):
     ui = app.userInterface
@@ -95,11 +102,6 @@ def run(context):
         
         adsk.terminate()
 
-def addHandler(handler):
-    global _handlers
-    # Keep the handlers referenced beyond their regular lifecycle
-    _handlers.append(handler)
-
 class SpurGearCommandCreated(adsk.core.CommandCreatedEventHandler):
     def __init__(self):
         super().__init__()
@@ -117,7 +119,7 @@ class SpurGearCommandCreated(adsk.core.CommandCreatedEventHandler):
             cmd.isExecutedWhenPreEmpted = False
 
             # Setup the container for the command inputs
-            _inputs = SpurGearCommandInput(cmd)
+            _inputs = GearGeneratorCommandInput(cmd)
 
             onCommandExecuted = SpurGearCommandExecuted()
             cmd.execute.add(onCommandExecuted)
@@ -176,13 +178,22 @@ class SpurGearCommandExecuted(adsk.core.CommandEventHandler):
                 args['helixAngle'] = helixAngle
 
             (herringbone, ok) = _inputs.getValue('herringbone')
-            if ok:
-                args['herringbone'] = herringbone
 
-            spec = SpurGearSpecification(module, **args)
-            
             rootComponent = design.rootComponent.occurrences.addNewComponent(adsk.core.Matrix3D.create())
-            g = SpurGearGenerator(adsk.fusion.Component.cast(rootComponent.component))
+            component = adsk.fusion.Component.cast(rootComponent.component)
+
+            g = None
+            spec = None
+            if herringbone:
+                g = HerringboneGearGenerator(component)
+                spec = HerringboneGearSpecification(module, **args)
+            elif helixAngle != 0:
+                g = HelicalGearGenerator(component)
+                spec = HelicalGearSpecification(module, **args)
+            else:
+                g = SpurGearGenerator(component)
+                spec = SpurGearSpecification(module, **args)
+            
             g.generate(spec)
         except:
             writelog('Failed to execute command:\n{}'.format(traceback.format_exc()))
@@ -190,8 +201,8 @@ class SpurGearCommandExecuted(adsk.core.CommandEventHandler):
                 ui.messageBox('Failed to execute command:\n{}'.format(traceback.format_exc()))
                 
             # Clear component if there was an error
-            if rootComponent:
-                rootComponent.deleteMe()
+#            if rootComponent:
+#                rootComponent.deleteMe()
 
 class SpurGearCommandDestroyed(adsk.core.CommandEventHandler):
     def __init__(self):
@@ -204,7 +215,7 @@ class SpurGearCommandDestroyed(adsk.core.CommandEventHandler):
             if _ui:
                 _ui.messageBox('Failed to terminate:\n{}'.format(traceback.format_exc()))
 
-class SpurGearCommandInput:
+class GearGeneratorCommandInput:
     def __init__(self, cmd):
         inputs = cmd.commandInputs
         self.container = inputs
@@ -233,8 +244,6 @@ class SpurGearCommandInput:
         return (unitsManager.evaluateExpression(self.inputs[name].expression, self.inputs[name].unitType), True)
 
 class SpurGearSpecification:
-    # The base implementation uses ISO specs. For specs using diamteral pitches,
-    # use a different constructor (TODO)
     def __init__(self, module, toothNumber=17, pressureAngle=math.radians(20), boreDiameter=None, thickness=5, helixAngle=0, herringbone=False):
         # Note: all angles are in radians
         self.module = module
@@ -250,7 +259,6 @@ class SpurGearSpecification:
         self.tipCircleDiameter  = self.pitchCircleDiameter + 2 * module
         self.tipCircleRadius  = self.tipCircleDiameter / 2.0
         self.circularPitch = self.pitchCircleDiameter * math.pi / toothNumber
-        self.herringbone = herringbone
 
         self.boreDiameter = None
         if boreDiameter is not None:
@@ -264,24 +272,42 @@ class SpurGearSpecification:
         s = (math.acos(self.baseCircleDiameter/self.pitchCircleDiameter)/16)
         self.involuteSteps = 15
         self.thickness = thickness
-        self.helixAngle = helixAngle
             
+class HelicalGearSpecification(SpurGearSpecification):
+    def __init__(self, module, toothNumber=17, pressureAngle=math.radians(20), boreDiameter=None, thickness=5, helixAngle=20):
+        super().__init__(module, toothNumber, pressureAngle, boreDiameter, thickness)
+        self.helixAngle = helixAngle
+
+class HerringboneGearSpecification(HelicalGearSpecification):
+    def __init__(self, module, toothNumber=17, pressureAngle=math.radians(20), boreDiameter=None, thickness=5, helixAngle=20):
+        super().__init__(module, toothNumber, pressureAngle, boreDiameter, thickness, helixAngle)
+
+class GearContext: pass
+
+class SpurGearContext (GearContext):
+    def __init__(self, component: adsk.fusion.Component):
+        self.component = component
+        self.anchorPoint = adsk.fusion.SketchPoint.cast(None)
+        self.gearBody = adsk.fusion.BRepBody.cast(None)
+        self.toothBody = adsk.fusion.BRepBody.cast(None)
+        self.centerAxis = adsk.fusion.ConstructionAxis.cast(None)
+        self.gearProfileSketch = adsk.fusion.Sketch.cast(None)
 
 class SpurGearGenerator:
-    class Context:
-        def __init__(self, component: adsk.fusion.Component):
-            self.component = component
-            self.anchorPoint = adsk.fusion.SketchPoint.cast(None)
-            self.gearBody = adsk.fusion.BRepBody.cast(None)
-            self.helixPlane = None
-
     def __init__(self, component: adsk.fusion.Component):
         self.component = component
 
-    def generate(self, spec):
-        self.component.name = 'Spur Gear (M={}, Tooth={}, Thickness={})'.format(spec.module, spec.toothNumber, spec.thickness)
+    def newContext(self):
+        return SpurGearContext(self.component)
+    
+    def generateName(self, spec):
+        return 'Spur Gear (M={}, Tooth={}, Thickness={})'.format(spec.module, spec.toothNumber, spec.thickness)
 
-        ctx = self.Context(self.component)
+    def generate(self, spec):
+        self.component.name = self.generateName(spec)
+
+        ctx = self.newContext()
+
         # Create tools to draw and otherwise position the gear with.
         self.prepareTools(ctx)
 
@@ -290,7 +316,10 @@ class SpurGearGenerator:
 
         self.buildBore(ctx, spec)
 
-    def prepareTools(self, ctx: Context):
+    def toothThickness(self, spec: HelicalGearSpecification):
+        return adsk.core.ValueInput.createByReal(toCm(spec.thickness))
+    
+    def prepareTools(self, ctx: GearContext):
         # Create a sketch that contains the anchorPoint and the lines that
         # define its position
         sketch = self.component.sketches.add(self.component.xYConstructionPlane)
@@ -339,7 +368,7 @@ class SpurGearGenerator:
         ctx.anchorPoint = anchorVerticalLine.endSketchPoint
         sketch.isVisible = False
 
-    def buildBore(self, ctx: Context, spec: SpurGearSpecification):
+    def buildBore(self, ctx: GearContext, spec: SpurGearSpecification):
         if (spec.boreDiameter is None) or (spec.boreDiameter == 0):
             return
         sketch = self.component.sketches.add(self.component.xYConstructionPlane)
@@ -347,7 +376,7 @@ class SpurGearGenerator:
         self.drawBoreProfile(ctx, sketch, spec)
         self.buildBoreHole(ctx, sketch, spec)
 
-    def buildBoreHole(self, ctx: Context, sketch: adsk.fusion.Sketch, spec :SpurGearSpecification):
+    def buildBoreHole(self, ctx: GearContext, sketch: adsk.fusion.Sketch, spec :SpurGearSpecification):
         extrudes = self.component.features.extrudeFeatures
         profiles = sketch.profiles
 
@@ -363,12 +392,9 @@ class SpurGearGenerator:
         boreExtrudeInput.participantBodies = [ctx.gearBody]
         extrudes.add(boreExtrudeInput)
 
-    def drawBoreProfile(self, ctx: Context, sketch: adsk.fusion.Sketch, spec: SpurGearSpecification):
+    def drawBoreProfile(self, ctx: GearContext, sketch: adsk.fusion.Sketch, spec: SpurGearSpecification):
         constraints = sketch.geometricConstraints
-        curves = sketch.sketchCurves
-        dimensions = sketch.sketchDimensions
         points = sketch.sketchPoints
-        texts = sketch.sketchTexts
 
         anchorPoint = points.add(adsk.core.Point3D.create(0, 0, 0))
 
@@ -381,60 +407,71 @@ class SpurGearGenerator:
         projectedAnchorPoint = sketch.project(ctx.anchorPoint).item(0)
         constraints.addCoincident(projectedAnchorPoint, anchorPoint)
 
-    def buildMainGearBody(self, ctx: Context, spec: SpurGearSpecification):
-        sketch = self.component.sketches.add(self.component.xYConstructionPlane)
-        sketch.name = 'Gear Profile'
+    def createSketchObject(self, name, plane=None):
+        if plane is None:
+            plane = self.component.xYConstructionPlane
+        sketch = self.component.sketches.add(plane)
+        sketch.name = name
+        sketch.isVisible = False
+        return sketch
+
+    def buildSketches(self, ctx: GearContext, spec: SpurGearSpecification):
+        sketch = self.createSketchObject('Gear Profile')
         self.drawGearProfile(ctx, sketch, spec)
-        if spec.helixAngle == 0:
-            self.extrudeGear(ctx, sketch, self.component, spec)
-        else:
-            # If we have a helix angle, we can't just extrude the bottom profile
-            # and call it a day. We create another sketch on a plane that is
-            # spec.thickness away from the bottom profile, and then use loft
-            # to create the body
-            constructionPlaneInput = self.component.constructionPlanes.createInput()
-            planeOffset = toCm(spec.thickness)
-            if spec.herringbone:
-                planeOffset = planeOffset / 2
+        ctx.gearProfileSketch = sketch
 
-            constructionPlaneInput.setByOffset(
-                self.component.xYConstructionPlane,
-                adsk.core.ValueInput.createByReal(planeOffset)
-            )
-            plane = self.component.constructionPlanes.add(constructionPlaneInput)
-            ctx.helixPlane = plane
-            loftSketch = self.component.sketches.add(plane)
-            loftSketch.name = 'Gear (angle={})'.format(math.degrees(spec.helixAngle))
-            loftSketch.isVisible = False
+    def buildMainGearBody(self, ctx: GearContext, spec: SpurGearSpecification):
+        self.buildSketches(ctx, spec)
+        self.buildTooth(ctx, spec)
+        self.buildBody(ctx, spec)
+        self.patternTeeth(ctx, spec)
 
-            # This sketch is rotated for the helix angle
-            self.drawGearProfile(ctx, loftSketch, spec, angle=spec.helixAngle)
+    def buildBody(self, ctx: GearContext, spec: SpurGearSpecification):
+        extrudes = self.component.features.extrudeFeatures
+        distance = self.toothThickness(spec)
 
-            # now loft from the bottom profile to the top profile
-            self.loftGear(ctx, sketch, loftSketch, self.component, spec)
+        # First create the cylindrical part so we can construct a
+        # perpendicular axis
+        gearBodyProfile = ctx.gearProfileSketch.profiles.item(1)
+        gearBodyExtrude = extrudes.addSimple(gearBodyProfile, distance, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+        gearBodyExtrude.bodies.item(0).name = 'Gear Body'
 
-        if spec.herringbone:
-            entities = adsk.core.ObjectCollection.create()
-            entities.add(ctx.gearBody)
-            input = self.component.features.mirrorFeatures.createInput(entities, ctx.helixPlane)
-            mirrorResult = self.component.features.mirrorFeatures.add(input)
-            mirrorResult.bodies.item(0).name = 'Gear Body (Mirrored)'
+        circularFace = None
+        for face in gearBodyExtrude.bodies.item(0).faces:
+            if face.geometry.surfaceType == adsk.core.SurfaceTypes.CylinderSurfaceType:
+                circularFace = face
+                break
+        
+        if circularFace is None:
+            raise Exception("Could not find circular face")
+        
+        axisInput = self.component.constructionAxes.createInput()
+        axisInput.setByCircularFace(circularFace)
+        centerAxis = self.component.constructionAxes.add(axisInput)
+        if centerAxis is None:
+            raise Exception("Could not create axis")
 
-            entities = adsk.core.ObjectCollection.create()
-            entities.add(mirrorResult.bodies.item(0))
-            combineInput = self.component.features.combineFeatures.createInput(
-                self.component.bRepBodies.itemByName('Gear Body'),
-                entities,
-            )
-            self.component.features.combineFeatures.add(combineInput)
+        centerAxis.name = 'Gear Center'
+        centerAxis.isVisibile = False
+        ctx.centerAxis = centerAxis
+        # store the gear body for later use
+        ctx.gearBody = self.component.bRepBodies.itemByName('Gear Body')
 
+    def buildTooth(self, ctx: GearContext, spec :SpurGearSpecification):
+        extrudes = self.component.features.extrudeFeatures
+        profiles = ctx.gearProfileSketch.profiles
 
-    def drawGearProfile(self, ctx: Context, sketch: adsk.fusion.Sketch, spec: SpurGearSpecification, angle=0):
+        distance = adsk.core.ValueInput.createByReal(toCm(spec.thickness))
+        toothProfile = profiles.item(0)
+        toothExtrude = extrudes.addSimple(toothProfile, distance, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)    
+        ctx.toothBody = toothExtrude.bodies.item(0)
+        self.chamferTooth(ctx, spec)
+
+    def drawGearProfile(self, ctx: GearContext, sketch: adsk.fusion.Sketch, spec: SpurGearSpecification, angle=0):
         constraints = sketch.geometricConstraints
         curves = sketch.sketchCurves
         dimensions = sketch.sketchDimensions
         points = sketch.sketchPoints
-        texts = sketch.sketchTexts
 
         # The anchor point is where we draw the circle from.
         anchorPoint = points.add(adsk.core.Point3D.create(0, 0, 0))
@@ -595,45 +632,80 @@ class SpurGearGenerator:
             toCm(intersectionRadius*math.sin(invAlpha)),
             0)
 
-    def extrudeGear(self, ctx: Context, sketch: adsk.fusion.Sketch, component: adsk.fusion.Component, spec :SpurGearSpecification):
-        extrudes = component.features.extrudeFeatures
-        circular = component.features.circularPatternFeatures
-        profiles = sketch.profiles
-        # Note: the order of sketch creation is extremely important as we can
-        # only specify which profiles to extrude by guessing which one is the
-        # one we want by the order in the list in sketch.profile
-
-        distance = adsk.core.ValueInput.createByReal(toCm(spec.thickness))
-
-        # First create the cylindrical part so we can construct a
-        # perpendicular axis
-        gearBodyProfile = profiles.item(1)
-        gearBodyExtrude = extrudes.addSimple(gearBodyProfile, distance, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
-        gearBodyExtrude.bodies.item(0).name = 'Gear Body'
-
-        circularFace = None
-        for face in gearBodyExtrude.bodies.item(0).faces:
-            if face.geometry.surfaceType == adsk.core.SurfaceTypes.CylinderSurfaceType:
-                circularFace = face
-                break
-        
-        if circularFace is None:
-            raise("could not find circular face")
-        
-        axisInput = self.component.constructionAxes.createInput()
-        axisInput.setByCircularFace(circularFace)
-        centerAxis = self.component.constructionAxes.add(axisInput)
-        if centerAxis is None:
-            raise("Could not create axis")
-        centerAxis.name = 'Gear Center'
+    def buildTooth(self, ctx: GearContext, spec :SpurGearSpecification):
+        extrudes = self.component.features.extrudeFeatures
+        profiles = ctx.gearProfileSketch.profiles
+        distance = self.toothThickness(spec)
 
         toothProfile = profiles.item(0)
         toothExtrude = extrudes.addSimple(toothProfile, distance, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)    
-        toothBody = toothExtrude.bodies.item(0)
+        ctx.toothBody = toothExtrude.bodies.item(0)
+        self.chamferTooth(ctx, spec)
+
+    def chamferWantEdges(self, spec :SpurGearSpecification):
+        return 6
+
+    def chamferTooth(self, ctx: GearContext, spec :SpurGearSpecification):
+        toothBody = ctx.toothBody
+        splineEdges = adsk.core.ObjectCollection.create()
+
+        # wantSurfaceType = adsk.core.SurfaceTypes.NurbsSurfaceType if spec.helixAngle != 0 else adsk.core.SurfaceTypes.PlaneSurfaceType
+        wantSurfaceType = adsk.core.SurfaceTypes.PlaneSurfaceType
+
+        wantEdges = self.chamferWantEdges(spec)
+        # The selection of face/edge is ... very hard coded. If there's a better way
+        # (more deterministic) way, we should use that instead
+        for face in toothBody.faces:
+            writelog("face: {}".format(face))
+            # Surface must be a plane, not like a cylindrical surface
+            if face.geometry.surfaceType != wantSurfaceType:
+                writelog("skipping face. surfaceType: {}".format(face.geometry))
+                continue
+
+            # face must contain exactly 6 edges... if it's a regular spur gear
+            # otherwise if it's a herringbone gear, it's going to be 7
+            if len(face.edges) != wantEdges:
+                writelog("skipping face. edges: {}".format(len(face.edges)))
+                continue
+
+            if wantEdges == 4:
+                # Only accept this face if the edges contain exactly two splines
+                splineCount = 0
+                for edge in face.edges:
+                    writelog("  edge: {}".format(edge.geometry))
+                    if edge.geometry.objectType == 'adsk::core::NurbsCurve3D':
+                        splineCount += 1
+
+                
+                if splineCount != 2:
+                    writelog("skipping face. splineCount: {}".format(splineCount))
+                    continue
+
+            writelog("processing face: {}".format(face))
+
+            # We don't want to chamfer the Arc that is part of the root circle.
+            for edge in face.edges:
+                if edge.geometry.curveType == adsk.core.Curve3DTypes.Arc3DCurveType:
+                    if abs(edge.geometry.radius - toCm(spec.rootCircleRadius)) < 0.001:
+                        continue
+                    writelog("OK: edge.radius = {} (root circle = {})".format(edge.geometry.radius, spec.rootCircleRadius))
+
+                splineEdges.add(edge)
+
+            writelog("face: {}, edges: {}".format(face, splineEdges.count))
+
+        chamferInput = self.component.features.chamferFeatures.createInput2()
+        chamferInput.chamferEdgeSets.addEqualDistanceChamferEdgeSet(splineEdges, adsk.core.ValueInput.createByReal(toCm(0.1)), False)
+        self.component.features.chamferFeatures.add(chamferInput)
+
+    def patternTeeth(self, ctx: GearContext, spec :SpurGearSpecification):
+        circular = self.component.features.circularPatternFeatures
+        toothBody = ctx.toothBody
+
         bodies = adsk.core.ObjectCollection.create()
         bodies.add(toothBody)
 
-        patternInput = circular.createInput(bodies, centerAxis)
+        patternInput = circular.createInput(bodies, ctx.centerAxis)
         patternInput.quantity = adsk.core.ValueInput.createByReal(spec.toothNumber)
         patternedTeeth = circular.add(patternInput)
 
@@ -644,73 +716,118 @@ class SpurGearGenerator:
             self.component.bRepBodies.itemByName('Gear Body'),
             toolBodies
         )
+        writelog("combining {} with {}".format(self.component.bRepBodies.itemByName('Gear Body'), toolBodies))
         self.component.features.combineFeatures.add(combineInput)
-        centerAxis.isVisibile = False
 
-        # store the gear body for later use
-        ctx.gearBody = self.component.bRepBodies.itemByName('Gear Body')
+class HelicalGearContext(SpurGearContext):
+    def __init__(self, component: adsk.fusion.Component):
+        super().__init__(component)
+        self.helixPlane = adsk.fusion.ConstructionPlane.cast(None)
+        self.twistedGearProfileSketch = adsk.fusion.Sketch.cast(None)
 
-    def loftGear(self, ctx: Context, bottomSketch: adsk.fusion.Sketch, topSketch: adsk.fusion.Sketch, component: adsk.fusion.Component, spec :SpurGearSpecification):
-        extrudes = component.features.extrudeFeatures
-        lofts = component.features.loftFeatures
-        circular = component.features.circularPatternFeatures
+class HelicalGearGenerator(SpurGearGenerator):
+    def __init__(self, component: adsk.fusion.Component):
+        super().__init__(component)
+
+    def newContext(self):
+        return HelicalGearContext(self.component)
+
+    def generateName(self, spec):
+        return 'Helical Gear (M={}, Tooth={}, Thickness={}, Angle={})'.format(spec.module, spec.toothNumber, spec.thickness, math.degrees(spec.helixAngle))
+    
+    def helicalPlaneOffset(self, spec: HelicalGearSpecification):
+        return toCm(spec.thickness)
+    
+    def chamferWantEdges(self, spec: SpurGearSpecification):
+        return 4
+
+    def buildSketches(self, ctx: GearContext, spec: SpurGearSpecification):
+        super().buildSketches(ctx, spec)
+
+        # If we have a helix angle, we can't just extrude the bottom profile
+        # and call it a day. We create another sketch on a plane that is
+        # spec.thickness away from the bottom profile, and then use loft
+        # to create the body
+        constructionPlaneInput = self.component.constructionPlanes.createInput()
+        constructionPlaneInput.setByOffset(
+            self.component.xYConstructionPlane,
+            adsk.core.ValueInput.createByReal(self.helicalPlaneOffset(spec))
+        )
+
+        plane = self.component.constructionPlanes.add(constructionPlaneInput)
+        ctx.helixPlane = plane
+        loftSketch = self.createSketchObject('Twisted Gear Profile', plane=plane)
+
+        # This sketch is rotated for the helix angle
+        self.drawGearProfile(ctx, loftSketch, spec, angle=spec.helixAngle)
+        ctx.twistedGearProfileSketch = loftSketch
+
+    def buildTooth(self, ctx: GearContext, spec :SpurGearSpecification):
+        self.loftTooth(ctx, spec)
+        self.chamferTooth(ctx, spec)
+
+    def loftTooth(self, ctx: GearContext, spec :SpurGearSpecification):
+        topSketch = ctx.twistedGearProfileSketch
+        bottomSketch = ctx.gearProfileSketch
+
+        # loft from the bottom sketch to the top sketch
+        lofts = self.component.features.loftFeatures
 
         bottomProfiles = bottomSketch.profiles
         topProfiles = topSketch.profiles
 
-        # If this is a herringbone gear, we need to halve the thickness
-        distance = adsk.core.ValueInput.createByReal(toCm(spec.thickness/2))
+        def findProfile(profiles):
+            for profile in profiles:
+                for loop in profile.profileLoops:
+                    if loop.profileCurves.count == 6:
+                        return profile
+            return None
 
-        # First create the cylindrical part so we can construct a
-        # perpendicular axis
-        gearBodyProfile = bottomProfiles.item(1)
-        gearBodyExtrude = extrudes.addSimple(gearBodyProfile, distance, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
-        gearBodyExtrude.bodies.item(0).name = 'Gear Body'
-
-        circularFace = None
-        for face in gearBodyExtrude.bodies.item(0).faces:
-            if face.geometry.surfaceType == adsk.core.SurfaceTypes.CylinderSurfaceType:
-                circularFace = face
-                break
-        
-        if circularFace is None:
-            raise("could not find circular face")
-        
-        axisInput = self.component.constructionAxes.createInput()
-        axisInput.setByCircularFace(circularFace)
-        centerAxis = self.component.constructionAxes.add(axisInput)
-        if centerAxis is None:
-            raise("Could not create axis")
-        centerAxis.name = 'Gear Center'
-
-        bottomToothProfile = bottomProfiles.item(0)
-        topToothProfile = topProfiles.item(0)
+        bottomToothProfile = findProfile(bottomProfiles) # bottomProfiles.item(0)
+        topToothProfile = findProfile(topProfiles) # topProfiles.item(0)
 
         loftInput = lofts.createInput(adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
         loftInput.loftSections.add(bottomToothProfile)
         loftInput.loftSections.add(topToothProfile)
         loftResult = lofts.add(loftInput)
-        toothBody = loftResult.bodies.item(0)
+        ctx.toothBody = loftResult.bodies.item(0)
+        ctx.toothBody.name = 'Tooth Body'
 
-        bodies = adsk.core.ObjectCollection.create()
-        bodies.add(toothBody)
+class HerringboneGearContext(HelicalGearContext):
+    def __init__(self, component: adsk.fusion.Component):
+        super().__init__(component)
 
-        patternInput = circular.createInput(bodies, centerAxis)
-        patternInput.quantity = adsk.core.ValueInput.createByReal(spec.toothNumber)
-        patternedTeeth = circular.add(patternInput)
+class HerringboneGearGenerator(HelicalGearGenerator):
+    def __init__(self, component: adsk.fusion.Component):
+        super().__init__(component)
 
-        toolBodies = adsk.core.ObjectCollection.create()
-        for body in patternedTeeth.bodies:
-            toolBodies.add(body)
+    def newContext(self):
+        return HerringboneGearContext(self.component)
+    
+    def generateName(self, spec):
+        return 'Herringbone Gear (M={}, Tooth={}, Thickness={}, Angle={})'.format(spec.module, spec.toothNumber, spec.thickness, math.degrees(spec.helixAngle))
+
+    def helicalPlaneOffset(self, spec: HelicalGearSpecification):
+        return super().helicalPlaneOffset(spec) / 2
+
+    def buildTooth(self, ctx: GearContext, spec: SpurGearSpecification):
+        self.loftTooth(ctx, spec)
+
+        # mirror the single tooth
+        entities = adsk.core.ObjectCollection.create()
+        entities.add(ctx.toothBody)
+        input = self.component.features.mirrorFeatures.createInput(entities, ctx.helixPlane)
+        mirrorResult = self.component.features.mirrorFeatures.add(input)
+        mirrorResult.bodies.item(0).name = 'Tooth Body (Mirrored)'
+
+        entities = adsk.core.ObjectCollection.create()
+        entities.add(mirrorResult.bodies.item(0))
         combineInput = self.component.features.combineFeatures.createInput(
-            self.component.bRepBodies.itemByName('Gear Body'),
-            toolBodies
+            self.component.bRepBodies.itemByName('Tooth Body'),
+            entities,
         )
         self.component.features.combineFeatures.add(combineInput)
-        centerAxis.isVisibile = False
-
-        # store the gear body for later use
-        ctx.gearBody = self.component.bRepBodies.itemByName('Gear Body')
+        self.chamferTooth(ctx, spec)
 
 
 class SpurGearCommandValidator(adsk.core.ValidateInputsEventHandler):
