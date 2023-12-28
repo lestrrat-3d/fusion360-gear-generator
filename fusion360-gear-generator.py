@@ -201,7 +201,7 @@ class SpurGearCommandExecuted(adsk.core.CommandEventHandler):
                 ui.messageBox('Failed to execute command:\n{}'.format(traceback.format_exc()))
                 
             # Clear component if there was an error
-#            if rootComponent:
+            if rootComponent:
                 rootComponent.deleteMe()
 
 class SpurGearCommandDestroyed(adsk.core.CommandEventHandler):
