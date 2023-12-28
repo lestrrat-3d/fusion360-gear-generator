@@ -202,7 +202,7 @@ class SpurGearCommandExecuted(adsk.core.CommandEventHandler):
                 
             # Clear component if there was an error
 #            if rootComponent:
-#                rootComponent.deleteMe()
+                rootComponent.deleteMe()
 
 class SpurGearCommandDestroyed(adsk.core.CommandEventHandler):
     def __init__(self):
@@ -646,6 +646,10 @@ class SpurGearGenerator:
         return 6
 
     def chamferTooth(self, ctx: GearContext, spec :SpurGearSpecification):
+        # Note: this does not take into account when the tooth is thin enough
+        # that the chamfer will not be applied. We need to figure out a soft limite
+        # to apply a chamfer, and avoid doing this calculation altogeher if it
+        # doesn't work
         toothBody = ctx.toothBody
         splineEdges = adsk.core.ObjectCollection.create()
 
