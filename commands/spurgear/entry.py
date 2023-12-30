@@ -17,15 +17,6 @@ CMD_Description = 'Spur Gear Generator'
 # Specify that the command will be promoted to the panel.
 IS_PROMOTED = True
 
-# TODO *** Define the location where the command button will be created. ***
-# This is done by specifying the workspace, the tab, and the panel, and the 
-# command it will be inserted beside. Not providing the command to position it
-# will insert it at the end.
-WORKSPACE_ID = 'FusionSolidEnvironment'
-PANEL_ID = 'SolidScriptsAddinsPanel'
-COMMAND_BESIDE_ID = 'ScriptsManagerCommand'
-DROPDOWN_ID = 'GearGeneratorDropDown'
-
 # Resource location for command icons, here we assume a sub folder in this directory named "resources".
 ICON_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'resources', '')
 
@@ -45,14 +36,14 @@ def start():
     futil.add_handler(cmd_def.commandCreated, command_created)
 
     # Get the target workspace the button will be created in.
-    workspace = ui.workspaces.itemById(WORKSPACE_ID)
+    workspace = ui.workspaces.itemById(config.WORKSPACE_ID)
 
     # Get the panel the button will be created in.
-    panel = workspace.toolbarPanels.itemById(PANEL_ID)
+    panel = workspace.toolbarPanels.itemById(config.PANEL_ID)
 
-    dropDown = panel.controls.itemById(DROPDOWN_ID)
+    dropDown = panel.controls.itemById(config.DROPDOWN_ID)
     if not dropDown:
-        dropDown = panel.controls.addDropDown('Gears', '', DROPDOWN_ID)
+        dropDown = panel.controls.addDropDown('Gears', '', config.DROPDOWN_ID)
         # Create the button command control in the UI after the specified existing command.
     
     control = dropDown.controls.itemById(CMD_ID)
@@ -62,9 +53,9 @@ def start():
 # Executed when add-in is stopped.
 def stop():
     # Get the various UI elements for this command
-    workspace = ui.workspaces.itemById(WORKSPACE_ID)
-    panel = workspace.toolbarPanels.itemById(PANEL_ID)
-    dropDown = panel.controls.itemById(DROPDOWN_ID)
+    workspace = ui.workspaces.itemById(config.WORKSPACE_ID)
+    panel = workspace.toolbarPanels.itemById(config.PANEL_ID)
+    dropDown = panel.controls.itemById(config.DROPDOWN_ID)
     command_definition = ui.commandDefinitions.itemById(CMD_ID)
 
     if dropDown:
