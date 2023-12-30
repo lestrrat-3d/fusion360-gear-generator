@@ -1,10 +1,13 @@
 {
 	"autodeskProduct":	"Fusion360",
-	"type":	"script",
+	"type":	"addin",
+	"id":	"181cc0ed-a531-427e-b2c7-d854fc406b4a",
 	"author":	"Daisuke Maki",
 	"description":	{
 		"":	""
 	},
+	"version":	"",
+	"runOnStartup":	false,
 	"supportedOS":	"windows|mac",
 	"editEnabled":	true
 }
