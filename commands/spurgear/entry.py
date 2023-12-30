@@ -124,10 +124,12 @@ def command_validate_input(args: adsk.core.ValidateInputsEventArgs):
     # General logging for debug.
     futil.log(f'{CMD_NAME} Validate Input Event')
 
-    inputs = args.inputs
+    args.areInputsValid = False
+    if not _inputs.validate():
+        raise Exception("validation failed (TODO)")
+    args.areInputsValid = True
+    
 
-    v = geargen.SpurGearCommandValidator()
-    v.validate(args, _inputs)
 
 # This event handler is called when the command terminates.
 def command_destroy(args: adsk.core.CommandEventArgs):

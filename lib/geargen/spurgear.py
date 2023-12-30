@@ -4,7 +4,7 @@ from .misc import *
 from .base import *
 
 class SpurGearSpecification(Specification):
-    def __init__(self, module=1, toothNumber=17, pressureAngle=math.radians(20), boreDiameter=None, thickness=5, chamferTooth=0):
+    def __init__(self, module=1, toothNumber=17, pressureAngle=math.radians(20), boreDiameter=None, thickness=5, chamferTooth=0, sketchOnly=False):
         # Note: all angles are in radians
         self.module = module
         self.toothNumber = toothNumber
@@ -32,6 +32,7 @@ class SpurGearSpecification(Specification):
         self.involuteSteps = 15
         self.thickness = thickness
         self.chamferTooth = chamferTooth
+        self.sketchOnly = sketchOnly
 
 class SpurGearCommandInputs:
     def __init__(self, cmd):
@@ -44,6 +45,7 @@ class SpurGearCommandInputs:
             'boreDiameter': inputs.addValueInput('boreDiameter', 'Bore Diameter', 'mm', adsk.core.ValueInput.createByReal(0)),
             'thickness': inputs.addValueInput('thickness', 'Thickness', 'mm', adsk.core.ValueInput.createByReal(to_cm(10))),
             'chamferTooth': inputs.addValueInput('chamferTooth', 'Apply chamfer to teeth', 'mm', adsk.core.ValueInput.createByReal(0)),
+            'sketchOnly': inputs.addBoolValueInput('sketchOnly', 'Generate sketches, but do not build body', True, '', False)
         }
 
     def setValue(self, name, value: adsk.core.CommandInput):
@@ -87,9 +89,13 @@ class SpurGearCommandInputs:
         if ok:
             args['chamferTooth'] = to_mm(chamferTooth)
 
+        (sketchOnly, ok) = self.getValue('sketchOnly')
+        if ok:
+            args['sketchOnly'] = sketchOnly
+
         return args
 
-    def toSpecification(kwargs):
+    def toSpecification(self, kwargs):
         return SpurGearSpecification(**kwargs)
 
     def validate(self):
@@ -350,9 +356,13 @@ class SpurGearGenerator(Generator):
 
     def buildMainGearBody(self, ctx: GenerationContext, spec: SpurGearSpecification):
         self.buildSketches(ctx, spec)
-        self.buildTooth(ctx, spec)
-        self.buildBody(ctx, spec)
-        self.patternTeeth(ctx, spec)
+
+        # The user could simply want the involute tooth and the circles.
+        # In that case, pass on building the body
+        if not spec.sketchOnly:
+            self.buildTooth(ctx, spec)
+            self.buildBody(ctx, spec)
+            self.patternTeeth(ctx, spec)
 
     def buildTooth(self, ctx: GenerationContext, spec :SpurGearSpecification):
         extrudes = self.component.features.extrudeFeatures
