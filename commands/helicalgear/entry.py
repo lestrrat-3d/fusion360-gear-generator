@@ -5,7 +5,6 @@ from ...lib import geargen
 from ... import config
 app = adsk.core.Application.get()
 ui = app.userInterface
-_inputs = None
 
 GEAR_TYPE='HelicalGear'
 CMD_ID = f'{config.COMPANY_NAME}_{config.ADDIN_NAME}_{GEAR_TYPE}_cmdDialog'
@@ -71,8 +70,7 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
     # General logging for debug.
     futil.log(f'{CMD_NAME} Command Created Event')
 
-    global _inputs
-    _inputs = geargen.HelicalGearCommandInputs(args.command)
+    geargen.HelicalGearCommandConfigurator.configure(args.command)
 
     # TODO Connect to the events that are needed by this command.
     futil.add_handler(args.command.execute, command_execute, local_handlers=local_handlers)
@@ -88,16 +86,18 @@ def command_execute(args: adsk.core.CommandEventArgs):
     # General logging for debug.
     futil.log(f'{CMD_NAME} Command Execute Event')
     try:
+        inputs = args.command.commandInputs
+        spec = geargen.HelicalGearSpecification.from_inputs(inputs)
+
         design = geargen.get_design()
         rootComponent = design.rootComponent.occurrences.addNewComponent(adsk.core.Matrix3D.create())
 
         g = geargen.HelicalGearGenerator(rootComponent.component)
-        g.generate(_inputs.toSpecification(_inputs.toSpecificationArgs()))
+        g.generate(spec)
     except:
         futil.handle_error("Generation error", show_message_box=True)
         if rootComponent:
             rootComponent.deleteMe()
-
 
 # This event handler is called when the command needs to compute a new preview in the graphics window.
 def command_preview(args: adsk.core.CommandEventArgs):
@@ -121,12 +121,6 @@ def command_input_changed(args: adsk.core.InputChangedEventArgs):
 def command_validate_input(args: adsk.core.ValidateInputsEventArgs):
     # General logging for debug.
     futil.log(f'{CMD_NAME} Validate Input Event')
-
-    args.areInputsValid = False
-
-    if not _inputs.validate():
-        # todo: how do we tellthe user that this field is invalid?
-        return ()
 
     args.areInputsValid = True
 

@@ -37,6 +37,4 @@ class HerringboneGearGenerator(HelicalGearGenerator):
         if spec.chamferTooth > 0:
             self.chamferTooth(ctx, spec)
 
-class HerringboneGearCommandInputs(HelicalGearCommandInputs):
-    def __init__(self, cmd):
-        super().__init__(cmd)
+class HerringboneGearCommandConfigurator(HelicalGearCommandConfigurator): pass

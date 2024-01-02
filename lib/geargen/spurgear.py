@@ -4,7 +4,7 @@ from .misc import *
 from .base import *
 
 class SpurGearSpecification(Specification):
-    def __init__(self, plane=None, module=1, toothNumber=17, pressureAngle=math.radians(20), boreDiameter=None, thickness=5, chamferTooth=0, sketchOnly=False, referencePoint=None, anchorPoint=None):
+    def __init__(self, plane=None, module=1, toothNumber=17, pressureAngle=math.radians(20), boreDiameter=None, thickness=5, chamferTooth=0, sketchOnly=False, anchorPoint=None):
         # Note: all angles are in radians
         self.plane = plane # If not set, the design generator will use the xyConstructionPlane
 
@@ -39,63 +39,66 @@ class SpurGearSpecification(Specification):
         self.sketchOnly = sketchOnly
 
     @classmethod
-    def to_args(cls, inputs: adsk.core.CommandInputs):
-        def value(name):
-            input = inputs.itemById(name)
-            unitsManager = get_design().unitsManager
-            if not unitsManager.isValidExpression(input.expression, input.unitType):
-                return (None, False)
+    def get_value(cls, inputs: adsk.core.CommandInputs, name):
+        input = inputs.itemById(name)
+        unitsManager = get_design().unitsManager
+        if not unitsManager.isValidExpression(input.expression, input.unitType):
+            return (None, False)
+
+        return (unitsManager.evaluateExpression(input.expression, input.unitType), True)
     
-            return (unitsManager.evaluateExpression(input.expression, input.unitType), True)
-        
-        def selection(name):
-            input = inputs.itemById(name)
-            futil.log(f'selection count (INSIDE) = {input.selectionCount}')
-            list = []
-            for i in range(0, input.selectionCount):
-                selection = input.selection(i)
-                list.append(selection.entity)
-            return (list, True)
-        
-        def boolean(name):
-            input = inputs.itemById(name)
-            return (input.value, True)
-        
+    @classmethod
+    def get_selection(cls, inputs: adsk.core.CommandInputs, name):
+        input = inputs.itemById(name)
+        futil.log(f'selection count (INSIDE) = {input.selectionCount}')
+        list = []
+        for i in range(0, input.selectionCount):
+            selection = input.selection(i)
+            list.append(selection.entity)
+        return (list, True)
+
+    @classmethod
+    def get_boolean(cls, inputs: adsk.core.CommandInputs, name):
+        input = inputs.itemById(name)
+        return (input.value, True)
+
+    @classmethod
+    def to_args(cls, inputs: adsk.core.CommandInputs):
         args = {}
-        (values, ok) = selection('plane')
+        (values, ok) = cls.get_selection(inputs, 'plane')
         if len(values) == 1 and ok:
             args['plane'] = values[0] # must be exactly one item
         
-        (values, ok) = selection('anchorPoint')
+        (values, ok) = cls.get_selection(inputs, 'anchorPoint')
         if len(values) == 1 and ok:
             args['anchorPoint'] = values[0] # must be exactly one item
 
-        (module, ok) = value('module')
+        (module, ok) = cls.get_value(inputs, 'module')
         if not ok:
             raise Exception('Invalid module value')
         args['module'] = module
 
-        (toothNumber, ok) = value('toothNumber')
+        (toothNumber, ok) = cls.get_value(inputs, 'toothNumber')
         if ok:
             args['toothNumber'] = toothNumber
 
-        (pressureAngle, ok) = value('pressureAngle')
+        (pressureAngle, ok) = cls.get_value(inputs, 'pressureAngle')
         if ok:
             args['pressureAngle'] = pressureAngle
 
-        (boreDiameter, ok) = value('boreDiameter')
+        (boreDiameter, ok) = cls.get_value(inputs, 'boreDiameter')
         if ok:
             args['boreDiameter'] = to_mm(boreDiameter)
 
-        (thickness, ok) = value('thickness')
+        (thickness, ok) = cls.get_value(inputs, 'thickness')
         if ok:
             args['thickness'] = to_mm(thickness)
         
-        (chamferTooth, ok) = value('chamferTooth')
+        (chamferTooth, ok) = cls.get_value(inputs, 'chamferTooth')
         if ok:
             args['chamferTooth'] = to_mm(chamferTooth)
 
-        (sketchOnly, ok) = boolean('sketchOnly')
+        (sketchOnly, ok) = cls.get_boolean(inputs, 'sketchOnly')
         if ok:
             args['sketchOnly'] = sketchOnly
 
@@ -136,7 +139,7 @@ class SpurGearCommandInputsConfigurator:
         inputs.addValueInput('thickness', 'Thickness', 'mm', adsk.core.ValueInput.createByReal(to_cm(10)))
         inputs.addValueInput('chamferTooth', 'Apply chamfer to teeth', 'mm', adsk.core.ValueInput.createByReal(0))
         inputs.addBoolValueInput('sketchOnly', 'Generate sketches, but do not build body', True, '', False)
-        return input
+        return inputs
 
 # The SpurGenerationContext represents an object to carry around context data
 # while generating a gear.

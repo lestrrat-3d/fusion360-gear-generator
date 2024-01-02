@@ -2,11 +2,25 @@ from .spurgear import *
 from .misc import *
 
 class HelicalGearSpecification(SpurGearSpecification):
-    def __init__(self, module, toothNumber=17, pressureAngle=math.radians(20), boreDiameter=None, thickness=5, helixAngle=14.5, chamferTooth=0):
-        super().__init__(module, toothNumber, pressureAngle, boreDiameter, thickness, chamferTooth)
+    def __init__(self, plane=None, module=1, toothNumber=17, pressureAngle=math.radians(20), boreDiameter=None, thickness=5, chamferTooth=0, sketchOnly=False, anchorPoint=None, helixAngle=0):
+        super().__init__(plane=plane, module=module, toothNumber=toothNumber, pressureAngle=pressureAngle, boreDiameter=boreDiameter, thickness=thickness, chamferTooth=chamferTooth, sketchOnly=sketchOnly, anchorPoint=anchorPoint)
         if helixAngle <= 0:
             raise Exception("helixAngle must be > 0")
         self.helixAngle = helixAngle
+
+    @classmethod
+    def to_args(cls, inputs: adsk.core.CommandInputs):
+        args = super().to_args(inputs)
+        (helixAngle, ok) = cls.get_value(inputs, 'helixAngle')
+        if not ok:
+            raise Exception('could not get helix angle value')
+        args['helixAngle'] = helixAngle
+        return args
+
+    @classmethod
+    def from_inputs(cls, inputs):
+        args = cls.to_args(inputs)
+        return HelicalGearSpecification(**args)
 
 class HelicalGearGenerationContext(SpurGearGenerationContext):
     def __init__(self):
@@ -14,9 +28,9 @@ class HelicalGearGenerationContext(SpurGearGenerationContext):
         self.helixPlane = adsk.fusion.ConstructionPlane.cast(None)
         self.twistedGearProfileSketch = adsk.fusion.Sketch.cast(None)
 
-class HelicalGearCommandInputs(SpurGearCommandInputsConfigurator):
+class HelicalGearCommandConfigurator(SpurGearCommandInputsConfigurator):
     @classmethod
-    def configure(cmd):
+    def configure(cls, cmd):
         input = SpurGearCommandInputsConfigurator.configure(cmd)
         input.addValueInput('helixAngle', 'Helix Angle', 'deg', adsk.core.ValueInput.createByReal(math.radians(14.5)))
 
@@ -67,7 +81,7 @@ class HelicalGearGenerator(SpurGearGenerator):
         # to create the body
         constructionPlaneInput = self.component.constructionPlanes.createInput()
         constructionPlaneInput.setByOffset(
-            self.component.xYConstructionPlane,
+            spec.plane,
             adsk.core.ValueInput.createByReal(self.helicalPlaneOffset(spec))
         )
 

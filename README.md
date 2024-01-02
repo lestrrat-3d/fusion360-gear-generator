@@ -17,3 +17,7 @@ On top of the above, there were also a few minor issues that I wanted to see hap
 * Error handling: I have a few, but I should add more.
 * User-friendly UI: Currently there's minimal UI. I suck at UI, so if you can help me, I'd be so happy.
 * Distribution: I have no idea how to package and otherwise distribute these things on AutoDesk Marketplace. If you can help me with it, I'd be so happy.
+
+# INSTALLATION
+
+Until we have some sort of way to

@@ -19,7 +19,7 @@ DEBUG = True
 #
 # Recommended value while you are developing is to set it equal to DEBUG
 # like this:
-# LOCATE_MENU_IN_ADDIN = DEBUG
+# LOCATE_MENU_IN_ADDIN = True
 LOCATE_MENU_IN_ADDIN = False
 
 # Gets the name of the add-in from the name of the folder the py file is in.
