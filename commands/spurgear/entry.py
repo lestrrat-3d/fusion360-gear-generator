@@ -5,8 +5,6 @@ from ...lib import geargen
 from ... import config
 app = adsk.core.Application.get()
 ui = app.userInterface
-_inputs = None
-
 
 # TODO *** Specify the command identity information. ***
 GEAR_TYPE='SpurGear'
@@ -73,8 +71,7 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
     # General logging for debug.
     futil.log(f'{CMD_NAME} Command Created Event')
 
-    global _inputs
-    _inputs = geargen.SpurGearCommandInputs(args.command)
+    geargen.SpurGearCommandInputsConfigurator.configure(args.command)
 
     # TODO Connect to the events that are needed by this command.
     futil.add_handler(args.command.execute, command_execute, local_handlers=local_handlers)
@@ -90,11 +87,16 @@ def command_execute(args: adsk.core.CommandEventArgs):
     # General logging for debug.
     futil.log(f'{CMD_NAME} Command Execute Event')
     try:
+        inputs = args.command.commandInputs
+
+        futil.log(f'selection count (OUTSIDE) = {inputs.itemById("plane").selectionCount}')
+        spec = geargen.SpurGearSpecification.from_inputs(inputs)
+
         design = geargen.get_design()
         rootComponent = design.rootComponent.occurrences.addNewComponent(adsk.core.Matrix3D.create())
 
         g = geargen.SpurGearGenerator(rootComponent.component)
-        g.generate(_inputs.toSpecification(_inputs.toSpecificationArgs()))
+        g.generate(spec)
     except:
         futil.handle_error("Generation error", show_message_box=True)
         if rootComponent:
@@ -114,9 +116,6 @@ def command_input_changed(args: adsk.core.InputChangedEventArgs):
     changed_input = args.input
     inputs = args.inputs
 
-    # General logging for debug.
-    futil.log(f'{CMD_NAME} Input Changed Event fired from a change to {changed_input.id}')
-
 
 # This event handler is called when the user interacts with any of the inputs in the dialog
 # which allows you to verify that all of the inputs are valid and enables the OK button.
@@ -124,9 +123,6 @@ def command_validate_input(args: adsk.core.ValidateInputsEventArgs):
     # General logging for debug.
     futil.log(f'{CMD_NAME} Validate Input Event')
 
-    args.areInputsValid = False
-    if not _inputs.validate():
-        raise Exception("validation failed (TODO)")
     args.areInputsValid = True
     
 

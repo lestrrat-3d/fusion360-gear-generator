@@ -14,11 +14,11 @@ class HelicalGearGenerationContext(SpurGearGenerationContext):
         self.helixPlane = adsk.fusion.ConstructionPlane.cast(None)
         self.twistedGearProfileSketch = adsk.fusion.Sketch.cast(None)
 
-class HelicalGearCommandInputs(SpurGearCommandInputs):
-    def __init__(self, cmd):
-        super().__init__(cmd)
-        helixAngle = self.container.addValueInput('helixAngle', 'Helix Angle', 'deg', adsk.core.ValueInput.createByReal(math.radians(14.5)))
-        self.inputs['helixAngle'] = helixAngle
+class HelicalGearCommandInputs(SpurGearCommandInputsConfigurator):
+    @classmethod
+    def configure(cmd):
+        input = SpurGearCommandInputsConfigurator.configure(cmd)
+        input.addValueInput('helixAngle', 'Helix Angle', 'deg', adsk.core.ValueInput.createByReal(math.radians(14.5)))
 
     def toSpecificationArgs(self):
         args = super().toSpecificationArgs()

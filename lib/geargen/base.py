@@ -18,6 +18,7 @@ class Generator(ABC):
     def createSketchObject(self, name, plane=None):
         if plane is None:
             plane = self.component.xYConstructionPlane
+
         sketch = self.component.sketches.add(plane)
         sketch.name = name
         sketch.isVisible = False

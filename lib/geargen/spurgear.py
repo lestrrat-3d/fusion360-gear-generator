@@ -1,11 +1,15 @@
 import math
-import traceback
+from ...lib import fusion360utils as futil
 from .misc import *
 from .base import *
 
 class SpurGearSpecification(Specification):
-    def __init__(self, module=1, toothNumber=17, pressureAngle=math.radians(20), boreDiameter=None, thickness=5, chamferTooth=0, sketchOnly=False):
+    def __init__(self, plane=None, module=1, toothNumber=17, pressureAngle=math.radians(20), boreDiameter=None, thickness=5, chamferTooth=0, sketchOnly=False, referencePoint=None, anchorPoint=None):
         # Note: all angles are in radians
+        self.plane = plane # If not set, the design generator will use the xyConstructionPlane
+
+        self.anchorPoint = anchorPoint
+
         self.module = module
         self.toothNumber = toothNumber
         self.pressureAngle = pressureAngle
@@ -34,72 +38,105 @@ class SpurGearSpecification(Specification):
         self.chamferTooth = chamferTooth
         self.sketchOnly = sketchOnly
 
-class SpurGearCommandInputs:
-    def __init__(self, cmd):
-        inputs = cmd.commandInputs
-        self.container = inputs
-        self.inputs = {
-            'module': inputs.addValueInput('module', 'Module', '', adsk.core.ValueInput.createByReal(1)),
-            'toothNumber': inputs.addValueInput('toothNumber', 'Tooth Number', '', adsk.core.ValueInput.createByReal(17)),
-            'pressureAngle': inputs.addValueInput('pressureAngle', 'Pressure Angle', 'deg', adsk.core.ValueInput.createByReal(math.radians(20))),
-            'boreDiameter': inputs.addValueInput('boreDiameter', 'Bore Diameter', 'mm', adsk.core.ValueInput.createByReal(0)),
-            'thickness': inputs.addValueInput('thickness', 'Thickness', 'mm', adsk.core.ValueInput.createByReal(to_cm(10))),
-            'chamferTooth': inputs.addValueInput('chamferTooth', 'Apply chamfer to teeth', 'mm', adsk.core.ValueInput.createByReal(0)),
-            'sketchOnly': inputs.addBoolValueInput('sketchOnly', 'Generate sketches, but do not build body', True, '', False)
-        }
-
-    def setValue(self, name, value: adsk.core.CommandInput):
-        self.inputs[name] = value
-
-    def getValue(self, name):
-        unitsManager = get_design().unitsManager
-
-        if isinstance(self.inputs[name], adsk.core.BoolValueCommandInput):
-            return (self.inputs[name].value, True)
-
-        if not unitsManager.isValidExpression(self.inputs[name].expression, self.inputs[name].unitType):
-            return (None, False)
-        
-        return (unitsManager.evaluateExpression(self.inputs[name].expression, self.inputs[name].unitType), True)
+    @classmethod
+    def to_args(cls, inputs: adsk.core.CommandInputs):
+        def value(name):
+            input = inputs.itemById(name)
+            unitsManager = get_design().unitsManager
+            if not unitsManager.isValidExpression(input.expression, input.unitType):
+                return (None, False)
     
-    def toSpecificationArgs(self):
+            return (unitsManager.evaluateExpression(input.expression, input.unitType), True)
+        
+        def selection(name):
+            input = inputs.itemById(name)
+            futil.log(f'selection count (INSIDE) = {input.selectionCount}')
+            list = []
+            for i in range(0, input.selectionCount):
+                selection = input.selection(i)
+                list.append(selection.entity)
+            return (list, True)
+        
+        def boolean(name):
+            input = inputs.itemById(name)
+            return (input.value, True)
+        
         args = {}
-        (module, ok) = self.getValue('module')
+        (values, ok) = selection('plane')
+        if len(values) == 1 and ok:
+            args['plane'] = values[0] # must be exactly one item
+        
+        (values, ok) = selection('anchorPoint')
+        if len(values) == 1 and ok:
+            args['anchorPoint'] = values[0] # must be exactly one item
+
+        (module, ok) = value('module')
         if not ok:
             raise Exception('Invalid module value')
         args['module'] = module
 
-        (toothNumber, ok) = self.getValue('toothNumber')
+        (toothNumber, ok) = value('toothNumber')
         if ok:
             args['toothNumber'] = toothNumber
 
-        (pressureAngle, ok) = self.getValue('pressureAngle')
+        (pressureAngle, ok) = value('pressureAngle')
         if ok:
             args['pressureAngle'] = pressureAngle
 
-        (boreDiameter, ok) = self.getValue('boreDiameter')
+        (boreDiameter, ok) = value('boreDiameter')
         if ok:
             args['boreDiameter'] = to_mm(boreDiameter)
 
-        (thickness, ok) = self.getValue('thickness')
+        (thickness, ok) = value('thickness')
         if ok:
             args['thickness'] = to_mm(thickness)
         
-        (chamferTooth, ok) = self.getValue('chamferTooth')
+        (chamferTooth, ok) = value('chamferTooth')
         if ok:
             args['chamferTooth'] = to_mm(chamferTooth)
 
-        (sketchOnly, ok) = self.getValue('sketchOnly')
+        (sketchOnly, ok) = boolean('sketchOnly')
         if ok:
             args['sketchOnly'] = sketchOnly
 
         return args
+    
+    @classmethod
+    def from_inputs(cls, inputs):
+        args = SpurGearSpecification.to_args(inputs)
+        return SpurGearSpecification(**args)
+    
+class SpurGearCommandInputValidator:
+    @classmethod
+    def validate(cls, cmd):
+        inputs = cmd.commandInputs
+        moduleInput = inputs.itemById('module')
 
-    def toSpecification(self, kwargs):
-        return SpurGearSpecification(**kwargs)
+# Configures the command input
+class SpurGearCommandInputsConfigurator:
+    @classmethod
+    def configure(cls, cmd):
+        inputs = cmd.commandInputs
 
-    def validate(self):
-        return True
+        planeInput = inputs.addSelectionInput('plane', 'Select Plane', 'Select a plane and to position the gear')
+        planeInput.addSelectionFilter(adsk.core.SelectionCommandInput.ConstructionPlanes)
+        planeInput.addSelectionFilter(adsk.core.SelectionCommandInput.PlanarFaces)
+        planeInput.setSelectionLimits(1)
+
+        pointInput = inputs.addSelectionInput('anchorPoint', 'Select Point', 'Select a point to anchor the gear')
+        pointInput.addSelectionFilter(adsk.core.SelectionCommandInput.ConstructionPoints)
+        pointInput.addSelectionFilter(adsk.core.SelectionCommandInput.SketchPoints)
+        pointInput.setSelectionLimits(1)
+
+        moduleInput = inputs.addValueInput('module', 'Module', '', adsk.core.ValueInput.createByReal(1))
+        moduleInput.isFullWidth = False
+        inputs.addValueInput('toothNumber', 'Tooth Number', '', adsk.core.ValueInput.createByReal(17))
+        inputs.addValueInput('pressureAngle', 'Pressure Angle', 'deg', adsk.core.ValueInput.createByReal(math.radians(20)))
+        inputs.addValueInput('boreDiameter', 'Bore Diameter', 'mm', adsk.core.ValueInput.createByReal(0))
+        inputs.addValueInput('thickness', 'Thickness', 'mm', adsk.core.ValueInput.createByReal(to_cm(10)))
+        inputs.addValueInput('chamferTooth', 'Apply chamfer to teeth', 'mm', adsk.core.ValueInput.createByReal(0))
+        inputs.addBoolValueInput('sketchOnly', 'Generate sketches, but do not build body', True, '', False)
+        return input
 
 # The SpurGenerationContext represents an object to carry around context data
 # while generating a gear.
@@ -119,8 +156,8 @@ class SpurGearInvoluteToothDesignGenerator():
         self.spec = spec
         # The angle to rotate the tooth at the end
         self.toothAngle = angle
-        # The anchor point is where we draw the circle from. We move this point
-        # as necessary later.
+        # The anchor point is where we draw the circle from. This value must
+        # initially be (0, 0, 0) for ease of computation.
         self.anchorPoint = sketch.sketchPoints.add(adsk.core.Point3D.create(0, 0, 0))
 
         self.rootCircle = adsk.fusion.SketchCircle.cast(None)
@@ -321,6 +358,7 @@ class SpurGearInvoluteToothDesignGenerator():
 class SpurGearGenerator(Generator):
     def newContext(self):
         return SpurGearGenerationContext()
+
     def generateName(self, spec):
         return 'Spur Gear (M={}, Tooth={}, Thickness={})'.format(spec.module, spec.toothNumber, spec.thickness)
 
@@ -329,27 +367,69 @@ class SpurGearGenerator(Generator):
         ctx = self.newContext()
 
         # Create tools to draw and otherwise position the gear with.
-        self.prepareTools(ctx)
+        self.prepareTools(ctx, spec)
 
         # Create the main body of the gear
         self.buildMainGearBody(ctx, spec)
-        #self.buildBore(ctx, spec)
+
+        self.buildBore(ctx, spec)
+
+
+    def buildBore(self, ctx: GenerationContext, spec: SpurGearSpecification):
+        if (spec.boreDiameter is None) or (spec.boreDiameter == 0):
+            return
+        sketch = self.component.sketches.add(self.component.xYConstructionPlane)
+        sketch.name = 'Bore Profile'
+        self.drawBoreProfile(ctx, sketch, spec)
+        self.buildBoreHole(ctx, sketch, spec)
+
+    def buildBoreHole(self, ctx: GenerationContext, sketch: adsk.fusion.Sketch, spec :SpurGearSpecification):
+        extrudes = self.component.features.extrudeFeatures
+        profiles = sketch.profiles
+
+        distance = adsk.core.ValueInput.createByReal(to_cm(spec.thickness))
+
+        boreProfile = profiles.item(0)
+        boreExtrudeInput = extrudes.createInput(boreProfile, adsk.fusion.FeatureOperations.CutFeatureOperation)
+        
+        boreExtrudeInput.setOneSideExtent(
+            adsk.fusion.DistanceExtentDefinition.create(distance),
+            adsk.fusion.ExtentDirections.PositiveExtentDirection,
+        )
+        boreExtrudeInput.participantBodies = [ctx.gearBody]
+        extrudes.add(boreExtrudeInput)
+
+    def drawBoreProfile(self, ctx: GenerationContext, sketch: adsk.fusion.Sketch, spec: SpurGearSpecification):
+        constraints = sketch.geometricConstraints
+        points = sketch.sketchPoints
+
+        anchorPoint = points.add(adsk.core.Point3D.create(0, 0, 0))
+
+        # bore circle
+        bore = self.drawCircle(sketch, 'Bore Circle', spec.boreDiameter, anchorPoint, isConstruction=False)
+
+        # Now we have all the sketches necessary. Move the entire drawing by
+        # moving the anchor point to its intended location (where we defined it in
+        # a separate Tools sketch)
+        projectedAnchorPoint = sketch.project(ctx.anchorPoint).item(0)
+        constraints.addCoincident(projectedAnchorPoint, anchorPoint)
 
     def toothThickness(self, spec: SpurGearSpecification):
         return adsk.core.ValueInput.createByReal(to_cm(spec.thickness))
     
-    def prepareTools(self, ctx: GenerationContext):
+    def prepareTools(self, ctx: GenerationContext, spec: SpurGearSpecification):
         # Create a sketch that contains the anchorPoint and the lines that
         # define its position
-        sketch = self.createSketchObject('Tools')
+        sketch = self.createSketchObject('Tools', plane=spec.plane)
 
-        ctx.anchorPoint = sketch.sketchPoints.add(adsk.core.Point3D.create(0, 0, 0))
-        projectedConstructionPoint = sketch.project(self.component.originConstructionPoint).item(0)
-        sketch.geometricConstraints.addCoincident(ctx.anchorPoint, projectedConstructionPoint)
+        ctx.anchorPoint = sketch.project(spec.anchorPoint)
+#        ctx.anchorPoint = sketch.sketchPoints.add(adsk.core.Point3D.create(0, 0, 0))
+#        projectedConstructionPoint = sketch.project(self.component.originConstructionPoint).item(0)
+#        sketch.geometricConstraints.addCoincident(ctx.anchorPoint, projectedConstructionPoint)
         sketch.isVisible = False
     
     def buildSketches(self, ctx: GenerationContext, spec: SpurGearSpecification):
-        sketch = self.createSketchObject('Gear Profile')
+        sketch = self.createSketchObject('Gear Profile', plane=spec.plane)
 
         SpurGearInvoluteToothDesignGenerator(sketch, spec).draw(ctx.anchorPoint)
         ctx.gearProfileSketch = sketch
