@@ -1,5 +1,7 @@
 from .helicalgear import *
 
+class HerringboneGearSpecification(HelicalGearSpecification): pass
+
 class HerringboneGearGenerationContext(HelicalGearGenerationContext):
     def __init__(self):
         super().__init__()
