@@ -4,7 +4,7 @@ from .misc import *
 from .base import *
 
 class SpurGearSpecification(Specification):
-    def __init__(self, plane=None, module=1, toothNumber=17, pressureAngle=math.radians(20), boreDiameter=None, thickness=5, chamferTooth=0, sketchOnly=False, anchorPoint=None):
+    def __init__(self, plane=None, module=1, toothNumber=17, pressureAngle=math.radians(20), boreDiameter=None, thickness=5, chamferTooth=0, sketchOnly=False, anchorPoint=None, filletRadius=None):
         # Note: all angles are in radians
         self.plane = plane # If not set, the design generator will use the xyConstructionPlane
 
@@ -41,6 +41,14 @@ class SpurGearSpecification(Specification):
         self.chamferTooth = chamferTooth
         self.sketchOnly = sketchOnly
 
+        filletThreshold = self.baseCircleDiameter * math.pi / (self.toothNumber * 2) * 0.4
+        if filletRadius == None:
+            filletRadius = filletThreshold
+        else:
+            if filletRadius < 0 or filletRadius > filletThreshold:
+                raise Exception(f'Fillet radius mustbe smaller than {filletThreshold}')
+        self.filletRadius = filletRadius
+
     @classmethod
     def get_value(cls, inputs: adsk.core.CommandInputs, name):
         input = inputs.itemById(name)
@@ -53,7 +61,6 @@ class SpurGearSpecification(Specification):
     @classmethod
     def get_selection(cls, inputs: adsk.core.CommandInputs, name):
         input = inputs.itemById(name)
-        futil.log(f'selection count (INSIDE) = {input.selectionCount}')
         list = []
         for i in range(0, input.selectionCount):
             selection = input.selection(i)
@@ -463,7 +470,6 @@ class SpurGearGenerator(Generator):
             profile = profiles.item(i)
             for j in range(0, profile.profileLoops.count):
                 loop = profile.profileLoops.item(j)
-                futil.log(f'profile {i}, loop {j}, num curves {loop.profileCurves.count}')
                 if loop.profileCurves.count > 2:
                     toothProfile = profile
                     break
@@ -493,7 +499,6 @@ class SpurGearGenerator(Generator):
             profile = profiles.item(i)
             for j in range(0, profile.profileLoops.count):
                 loop = profile.profileLoops.item(j)
-                futil.log(f'profile {i}, loop {j}, num curves {loop.profileCurves.count}')
                 if loop.profileCurves.count == 2:
                     gearBodyProfile = profile
                     break
@@ -547,6 +552,37 @@ class SpurGearGenerator(Generator):
             toolBodies
         )
         self.component.features.combineFeatures.add(combineInput)
+
+        if spec.filletRadius > 0:
+            self.createFillets(ctx, spec)
+    
+    def createFillets(self, ctx: GenerationContext, spec: SpurGearSpecification):
+        gearBody = self.component.bRepBodies.itemByName('Gear Body')
+        edges = adsk.core.ObjectCollection.create()
+        for face in gearBody.faces:
+            if face.geometry.objectType == adsk.core.Cylinder.classType():
+                if abs(face.geometry.radius - to_cm(spec.rootCircleRadius)) < 0.001:
+                    for edge in face.edges:
+                        dir = edge.endVertex.geometry.vectorTo(edge.startVertex.geometry)
+                        dir.normalize()
+
+                        normal = spec.plane.geometry.normal
+
+                        # XXX Hmmm, I thought the edges with dot product = 0
+                        # would be the right ones to fillet, but something isn't
+                        # working as I expected to...
+                        if abs(dir.dotProduct(normal)) > 0.001:
+                            edges.add(edge)
+                            
+        if edges.count > 0:
+            filletInput = self.component.features.filletFeatures.createInput()
+            filletInput.edgeSetInputs.addConstantRadiusEdgeSet(
+                edges,
+                adsk.core.ValueInput.createByReal(to_cm(spec.filletRadius)),
+                False,
+            )
+            self.component.features.filletFeatures.add(filletInput)
+
 
     def chamferWantEdges(self, spec :SpurGearSpecification):
         return 6
