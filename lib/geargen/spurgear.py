@@ -15,10 +15,13 @@ class SpurGearSpecification(Specification):
         self.pressureAngle = pressureAngle
         self.pitchCircleDiameter = toothNumber * module
         self.pitchCircleRadius = self.pitchCircleDiameter / 2.0
+        # https://khkgears.net/new/gear_knowledge/gear-nomenclature/base-circle.html
         self.baseCircleDiameter = self.pitchCircleDiameter * math.cos(pressureAngle)
         self.baseCircleRadius = self.baseCircleDiameter / 2.0
         self.tipClearance = 0 if self.toothNumber < 3 else module / 6
-        self.rootCircleDiameter = self.pitchCircleDiameter - 2 * (module + self.tipClearance)
+
+        # https://khkgears.net/new/gear_knowledge/gear-nomenclature/root-diameter.html
+        self.rootCircleDiameter = self.pitchCircleDiameter - 2.5 * module
         self.rootCircleRadius = self.rootCircleDiameter / 2.0
         self.tipCircleDiameter  = self.pitchCircleDiameter + 2 * module
         self.tipCircleRadius  = self.tipCircleDiameter / 2.0
@@ -341,8 +344,9 @@ class SpurGearInvoluteToothDesignGenerator():
                 dimensions.addAngularDimension(spine, line, line.endSketchPoint.geometry)
                 return line
         
-            rlline = drawRootToInvoluteLine(self.rootCircle, lline, involutePoints[0].x, involutePoints[0].y)
-            rrline = drawRootToInvoluteLine(self.rootCircle, rline, involutePoints[0].x, -involutePoints[0].y)
+            if spec.rootCircleDiameter < spec.baseCircleDiameter:
+                rlline = drawRootToInvoluteLine(self.rootCircle, lline, involutePoints[0].x, involutePoints[0].y)
+                rrline = drawRootToInvoluteLine(self.rootCircle, rline, involutePoints[0].x, -involutePoints[0].y)
         if angle != 0:
             # Only do this _AFTER_ all the lines have been drawn
             angleDimension.value = angle
@@ -442,7 +446,9 @@ class SpurGearGenerator(Generator):
 
         # The user could simply want the involute tooth and the circles.
         # In that case, pass on building the body
-        if not spec.sketchOnly:
+        if spec.sketchOnly:
+            ctx.gearProfileSketch.isVisible = True
+        else:
             self.buildTooth(ctx, spec)
             self.buildBody(ctx, spec)
             self.patternTeeth(ctx, spec)
@@ -452,8 +458,23 @@ class SpurGearGenerator(Generator):
         profiles = ctx.gearProfileSketch.profiles
         distance = self.toothThickness(spec)
 
-        toothProfile = profiles.item(0)
+        toothProfile = None
+        for i in range (0, profiles.count):
+            profile = profiles.item(i)
+            for j in range(0, profile.profileLoops.count):
+                loop = profile.profileLoops.item(j)
+                futil.log(f'profile {i}, loop {j}, num curves {loop.profileCurves.count}')
+                if loop.profileCurves.count > 2:
+                    toothProfile = profile
+                    break
+            if toothProfile:
+                break
+
+        if not toothProfile:
+            raise Exception("could not find tooth profile")
+
         toothExtrude = extrudes.addSimple(toothProfile, distance, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+        toothExtrude.name = 'Extrude tooth'
 
         # note: toothBody must be populated before chamferTooth
         ctx.toothBody = toothExtrude.bodies.item(0)
@@ -466,8 +487,24 @@ class SpurGearGenerator(Generator):
 
         # First create the cylindrical part so we can construct a
         # perpendicular axis
-        gearBodyProfile = ctx.gearProfileSketch.profiles.item(1)
+        profiles = ctx.gearProfileSketch.profiles
+        gearBodyProfile = None
+        for i in range (0, profiles.count):
+            profile = profiles.item(i)
+            for j in range(0, profile.profileLoops.count):
+                loop = profile.profileLoops.item(j)
+                futil.log(f'profile {i}, loop {j}, num curves {loop.profileCurves.count}')
+                if loop.profileCurves.count == 2:
+                    gearBodyProfile = profile
+                    break
+            if gearBodyProfile:
+                break
+
+        if not gearBodyProfile:
+            raise Exception("could not find gear body profile")
+
         gearBodyExtrude = extrudes.addSimple(gearBodyProfile, distance, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+        gearBodyExtrude.name = 'Extrude body'
         gearBodyExtrude.bodies.item(0).name = 'Gear Body'
 
         circularFace = None
