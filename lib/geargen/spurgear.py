@@ -369,6 +369,11 @@ class SpurGearInvoluteToothDesignGenerator():
             to_cm(intersectionRadius*math.sin(invAlpha)),
             0)
 
+    def drawBore(self, anchorPoint=None):
+        projectedAnchorPoint = self.sketch.project(anchorPoint).item(0)
+        self.drawCircle('Bore Circle', self.spec.boreDiameter, projectedAnchorPoint, isConstruction=False)
+
+
 class SpurGearGenerator(Generator):
     def newContext(self):
         return SpurGearGenerationContext()
@@ -392,12 +397,12 @@ class SpurGearGenerator(Generator):
     def buildBore(self, ctx: GenerationContext, spec: SpurGearSpecification):
         if (spec.boreDiameter is None) or (spec.boreDiameter == 0):
             return
-        sketch = self.component.sketches.add(self.component.xYConstructionPlane)
-        sketch.name = 'Bore Profile'
-        self.drawBoreProfile(ctx, sketch, spec)
-        self.buildBoreHole(ctx, sketch, spec)
 
-    def buildBoreHole(self, ctx: GenerationContext, sketch: adsk.fusion.Sketch, spec :SpurGearSpecification):
+        sketch = self.createSketchObject('Bore Profile', spec.plane)
+        sketch.name = 'Bore Profile'
+
+        SpurGearInvoluteToothDesignGenerator(sketch, spec).drawBore(ctx.anchorPoint)
+
         extrudes = self.component.features.extrudeFeatures
         profiles = sketch.profiles
 
@@ -412,21 +417,6 @@ class SpurGearGenerator(Generator):
         )
         boreExtrudeInput.participantBodies = [ctx.gearBody]
         extrudes.add(boreExtrudeInput)
-
-    def drawBoreProfile(self, ctx: GenerationContext, sketch: adsk.fusion.Sketch, spec: SpurGearSpecification):
-        constraints = sketch.geometricConstraints
-        points = sketch.sketchPoints
-
-        anchorPoint = points.add(adsk.core.Point3D.create(0, 0, 0))
-
-        # bore circle
-        bore = self.drawCircle(sketch, 'Bore Circle', spec.boreDiameter, anchorPoint, isConstruction=False)
-
-        # Now we have all the sketches necessary. Move the entire drawing by
-        # moving the anchor point to its intended location (where we defined it in
-        # a separate Tools sketch)
-        projectedAnchorPoint = sketch.project(ctx.anchorPoint).item(0)
-        constraints.addCoincident(projectedAnchorPoint, anchorPoint)
 
     def toothThickness(self, spec: SpurGearSpecification):
         return adsk.core.ValueInput.createByReal(to_cm(spec.thickness))
