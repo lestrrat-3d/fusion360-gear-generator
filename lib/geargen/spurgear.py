@@ -469,21 +469,29 @@ class SpurGearGenerator(Generator):
     
     def buildSketches(self, ctx: GenerationContext, spec: SpurGearSpecification):
         sketch = self.createSketchObject('Gear Profile', plane=spec.plane)
-
         SpurGearInvoluteToothDesignGenerator(sketch, spec).draw(ctx.anchorPoint)
         ctx.gearProfileSketch = sketch
 
     def buildMainGearBody(self, ctx: GenerationContext, spec: SpurGearSpecification):
+        ui = adsk.core.Application.get().userInterface
+        ui.isComputeDeferred = True
         self.buildSketches(ctx, spec)
+        ui.isComputeDeferred = False
 
         # The user could simply want the involute tooth and the circles.
         # In that case, pass on building the body
         if spec.sketchOnly:
             ctx.gearProfileSketch.isVisible = True
         else:
+            ui.isComputeDeferred = True
             self.buildTooth(ctx, spec)
+            ui.isComputeDeferred = False
+            ui.isComputeDeferred = True
             self.buildBody(ctx, spec)
+            ui.isComputeDeferred = False
+            ui.isComputeDeferred = True
             self.patternTeeth(ctx, spec)
+            ui.isComputeDeferred = False
 
     def buildTooth(self, ctx: GenerationContext, spec :SpurGearSpecification):
         extrudes = self.component.features.extrudeFeatures
