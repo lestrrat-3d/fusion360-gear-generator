@@ -2,11 +2,16 @@ import math
 from ...lib import fusion360utils as futil
 from .misc import *
 from .base import *
+from .utilities import *
 
 class SpurGearSpecification(Specification):
     def __init__(self, plane=None, module=1, toothNumber=17, pressureAngle=math.radians(20), boreDiameter=None, thickness=5, chamferTooth=0, sketchOnly=False, anchorPoint=None, filletRadius=None):
         # Note: all angles are in radians
-        self.plane = plane # If not set, the design generator will use the xyConstructionPlane
+
+        if not plane:
+            raise Exception('require argument "plane" not provided')
+
+        self.plane = plane 
 
         self.anchorPoint = anchorPoint
 
@@ -160,6 +165,7 @@ class SpurGearGenerationContext(GenerationContext):
         self.toothBody = adsk.fusion.BRepBody.cast(None)
         self.centerAxis = adsk.fusion.ConstructionAxis.cast(None)
         self.gearProfileSketch = adsk.fusion.Sketch.cast(None)
+        self.extrusionExtent = adsk.core.Surface.cast(None)
 
 # The spur gear tooth profile is used in a few different places, so
 # it is separated out into a standalone object
@@ -371,7 +377,7 @@ class SpurGearInvoluteToothDesignGenerator():
 
     def drawBore(self, anchorPoint=None):
         projectedAnchorPoint = self.sketch.project(anchorPoint).item(0)
-        self.drawCircle('Bore Circle', self.spec.boreDiameter, projectedAnchorPoint, isConstruction=False)
+        self.drawCircle('Bore Circle', self.spec.boreDiameter/2, projectedAnchorPoint, isConstruction=False)
 
 
 class SpurGearGenerator(Generator):
@@ -383,6 +389,18 @@ class SpurGearGenerator(Generator):
 
     def generate(self, spec):
         self.component.name = self.generateName(spec)
+
+        # The first thing we want to do is to "fix" the spec so that the plane
+        # is a construction plane.
+        # This plane _MUST_ be a construction plane in order to avoid having to deal with
+        # profile artifacts.
+        if spec.plane.objectType != adsk.fusion.ConstructionPlane.classType():
+            # Create a co-planer construction plane
+            cplaneInput = self.component.constructionPlanes.createInput()
+            cplaneInput.setByOffset(spec.plane, adsk.core.ValueInput.createByReal(0))
+            spec.plane = self.component.constructionPlanes.add(cplaneInput)
+
+
         ctx = self.newContext()
 
         # Create tools to draw and otherwise position the gear with.
@@ -404,16 +422,33 @@ class SpurGearGenerator(Generator):
         SpurGearInvoluteToothDesignGenerator(sketch, spec).drawBore(ctx.anchorPoint)
 
         extrudes = self.component.features.extrudeFeatures
-        profiles = sketch.profiles
+        boreProfile = None
+        for profile in sketch.profiles:
+            # There should be a single loop and a single curve
+            if profile.profileLoops.count != 1:
+                continue
 
-        distance = adsk.core.ValueInput.createByReal(to_cm(spec.thickness))
+            loop = profile.profileLoops.item(0)
+            if loop.profileCurves.count != 1:
+                continue
+            curve = loop.profileCurves.item(0)
+            if curve.geometryType == adsk.core.Curve3DTypes.Circle3DCurveType:
+                if abs(curve.geometry.radius - to_cm(spec.boreDiameter/2)) < 0.001:
+                    boreProfile = profile
+                    break
 
-        boreProfile = profiles.item(0)
+        if boreProfile is None:
+            raise Exception('could not find bore profile')
+
         boreExtrudeInput = extrudes.createInput(boreProfile, adsk.fusion.FeatureOperations.CutFeatureOperation)
-        
+
+        direction = adsk.fusion.ExtentDirections.PositiveExtentDirection
+#        if not get_normal(spec.plane).isEqualTo(get_normal(ctx.extrusionExtent)):
+#            direction = adsk.fusion.ExtentDirections.NegativeExtentDirection
+
         boreExtrudeInput.setOneSideExtent(
-            adsk.fusion.DistanceExtentDefinition.create(distance),
-            adsk.fusion.ExtentDirections.PositiveExtentDirection,
+            adsk.fusion.ToEntityExtentDefinition.create(ctx.extrusionExtent, False),
+            direction,
         )
         boreExtrudeInput.participantBodies = [ctx.gearBody]
         extrudes.add(boreExtrudeInput)
@@ -453,14 +488,31 @@ class SpurGearGenerator(Generator):
     def buildTooth(self, ctx: GenerationContext, spec :SpurGearSpecification):
         extrudes = self.component.features.extrudeFeatures
         profiles = ctx.gearProfileSketch.profiles
-        distance = self.toothThickness(spec)
 
+        # The tooth profile has a very specific shape. We look for that shape
+        # in the list of profiles that we have.
         toothProfile = None
-        for i in range (0, profiles.count):
-            profile = profiles.item(i)
-            for j in range(0, profile.profileLoops.count):
-                loop = profile.profileLoops.item(j)
-                if loop.profileCurves.count > 2:
+        for profile in profiles:
+            for loop in profile.profileLoops:
+                # The loop must have exactly 6 curves.
+                if loop.profileCurves.count != 6:
+                    continue
+                # The curve must consist of Line3D, NurbsCurve3D and Arc3D
+                arcs = 0
+                nurbs = 0
+                lines = 0
+                for curve in loop.profileCurves:
+                    ctyp = curve.geometry.curveType
+                    if ctyp == adsk.core.Curve3DTypes.Arc3DCurveType:
+                        arcs += 1
+                    elif  ctyp == adsk.core.Curve3DTypes.NurbsCurve3DCurveType:
+                        nurbs += 1
+                    elif  ctyp == adsk.core.Curve3DTypes.Line3DCurveType:
+                        lines += 1
+                    else:
+                        break
+                
+                if nurbs == 2 and arcs == 2 and lines == 2:
                     toothProfile = profile
                     break
             if toothProfile:
@@ -469,7 +521,12 @@ class SpurGearGenerator(Generator):
         if not toothProfile:
             raise Exception("could not find tooth profile")
 
-        toothExtrude = extrudes.addSimple(toothProfile, distance, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+        toothExtrudeInput = extrudes.createInput(toothProfile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+        toothExtrudeInput.setOneSideExtent(
+            adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByReal(to_cm(spec.thickness))),
+            adsk.fusion.ExtentDirections.PositiveExtentDirection
+        )
+        toothExtrude = extrudes.add(toothExtrudeInput)
         toothExtrude.name = 'Extrude tooth'
 
         # note: toothBody must be populated before chamferTooth
@@ -485,32 +542,58 @@ class SpurGearGenerator(Generator):
         # perpendicular axis
         profiles = ctx.gearProfileSketch.profiles
         gearBodyProfile = None
-        for i in range (0, profiles.count):
-            profile = profiles.item(i)
-            for j in range(0, profile.profileLoops.count):
-                loop = profile.profileLoops.item(j)
-                if loop.profileCurves.count == 2:
+        for profile in profiles:
+            for loop in profile.profileLoops:
+                if loop.profileCurves.count != 2:
+                    continue
+                arcs = 0
+                for curve in loop.profileCurves:
+                    if curve.geometry.curveType == adsk.core.Curve3DTypes.Arc3DCurveType:
+                        arcs += 1
+                    else:
+                        break
+                if arcs == 2:
                     gearBodyProfile = profile
                     break
+
             if gearBodyProfile:
                 break
 
         if not gearBodyProfile:
             raise Exception("could not find gear body profile")
 
-        gearBodyExtrude = extrudes.addSimple(gearBodyProfile, distance, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+        gearBodyExtrudeInput = extrudes.createInput(
+            gearBodyProfile,
+            adsk.fusion.FeatureOperations.NewBodyFeatureOperation,
+        )
+        gearBodyExtrudeInput.setOneSideExtent(
+            adsk.fusion.DistanceExtentDefinition.create(distance),
+            adsk.fusion.ExtentDirections.PositiveExtentDirection
+        )
+        gearBodyExtrude = extrudes.add(gearBodyExtrudeInput)
         gearBodyExtrude.name = 'Extrude body'
         gearBodyExtrude.bodies.item(0).name = 'Gear Body'
 
         circularFace = None
         for face in gearBodyExtrude.bodies.item(0).faces:
             if face.geometry.surfaceType == adsk.core.SurfaceTypes.CylinderSurfaceType:
+                # This face is used to find the axis
                 circularFace = face
+            elif face.geometry.surfaceType == adsk.core.SurfaceTypes.PlaneSurfaceType:
+                # If the plane is parallel but NOT coplanar, it's the
+                # face that was just created
+                sketchPlane = ctx.gearProfileSketch.referencePlane.geometry
+                if sketchPlane.isParallelToPlane(face.geometry) and not sketchPlane.isCoPlanarTo(face.geometry):
+                    ctx.extrusionExtent = face
+        
+            if circularFace and ctx.extrusionExtent:
                 break
-        
-        if circularFace is None:
+
+        if not circularFace:
             raise Exception("Could not find circular face")
-        
+        if not ctx.extrusionExtent: 
+            raise Exception("Could not find extrusion extent face")
+
         axisInput = self.component.constructionAxes.createInput()
         axisInput.setByCircularFace(circularFace)
         centerAxis = self.component.constructionAxes.add(axisInput)
