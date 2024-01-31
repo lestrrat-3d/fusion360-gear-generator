@@ -10,7 +10,7 @@ ui = app.userInterface
 GEAR_TYPE='SpurGear'
 CMD_ID = f'{config.COMPANY_NAME}_{config.ADDIN_NAME}_{GEAR_TYPE}_cmdDialog'
 CMD_NAME = 'Spur Gear Generator'
-CMD_Description = 'Spur Gear Generator'
+CMD_Description = 'Generates a Spur Gear'
 
 # Specify that the command will be promoted to the panel.
 IS_PROMOTED = True
@@ -86,6 +86,7 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
 def command_execute(args: adsk.core.CommandEventArgs):
     # General logging for debug.
     futil.log(f'{CMD_NAME} Command Execute Event')
+    g = None
     try:
         inputs = args.command.commandInputs
 
@@ -93,14 +94,12 @@ def command_execute(args: adsk.core.CommandEventArgs):
         spec = geargen.SpurGearSpecification.from_inputs(inputs)
 
         design = geargen.get_design()
-        rootComponent = design.rootComponent.occurrences.addNewComponent(adsk.core.Matrix3D.create())
-
-        g = geargen.SpurGearGenerator(rootComponent.component)
+        g = geargen.SpurGearGenerator(design)
         g.generate(spec)
     except:
         futil.handle_error("Generation error", show_message_box=True)
-        if rootComponent:
-            rootComponent.deleteMe()
+        if g:
+            g.deleteComponent()
 
 
 # This event handler is called when the command needs to compute a new preview in the graphics window.

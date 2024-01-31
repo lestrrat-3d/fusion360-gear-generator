@@ -166,6 +166,7 @@ class SpurGearGenerationContext(GenerationContext):
         self.centerAxis = adsk.fusion.ConstructionAxis.cast(None)
         self.gearProfileSketch = adsk.fusion.Sketch.cast(None)
         self.extrusionExtent = adsk.core.Surface.cast(None)
+        self.extrusionEndPlane = adsk.fusion.ConstructionPlane.cast(None)
 
 # The spur gear tooth profile is used in a few different places, so
 # it is separated out into a standalone object
@@ -466,6 +467,15 @@ class SpurGearGenerator(Generator):
 #        projectedConstructionPoint = sketch.project(self.component.originConstructionPoint).item(0)
 #        sketch.geometricConstraints.addCoincident(ctx.anchorPoint, projectedConstructionPoint)
         sketch.isVisible = False
+
+        # Create plane to perform extrusions against.
+        input = self.component.constructionPlanes.createInput()
+        input.setByOffset(spec.plane, self.toothThickness(spec))
+        extrusionEndPlane = self.component.constructionPlanes.add(input)
+        # TODO: I can't make this work
+        # extrusionEndPlane.isVisible = False
+        ctx.extrusionEndPlane = extrusionEndPlane
+
     
     def buildSketches(self, ctx: GenerationContext, spec: SpurGearSpecification):
         sketch = self.createSketchObject('Gear Profile', plane=spec.plane)
@@ -531,7 +541,7 @@ class SpurGearGenerator(Generator):
 
         toothExtrudeInput = extrudes.createInput(toothProfile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
         toothExtrudeInput.setOneSideExtent(
-            adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByReal(to_cm(spec.thickness))),
+            adsk.fusion.ToEntityExtentDefinition.create(ctx.extrusionEndPlane, False),
             adsk.fusion.ExtentDirections.PositiveExtentDirection
         )
         toothExtrude = extrudes.add(toothExtrudeInput)
@@ -544,7 +554,7 @@ class SpurGearGenerator(Generator):
     
     def buildBody(self, ctx: GenerationContext, spec: SpurGearSpecification):
         extrudes = self.component.features.extrudeFeatures
-        distance = self.toothThickness(spec)
+        # distance = self.toothThickness(spec)
 
         # First create the cylindrical part so we can construct a
         # perpendicular axis
@@ -575,7 +585,7 @@ class SpurGearGenerator(Generator):
             adsk.fusion.FeatureOperations.NewBodyFeatureOperation,
         )
         gearBodyExtrudeInput.setOneSideExtent(
-            adsk.fusion.DistanceExtentDefinition.create(distance),
+            adsk.fusion.ToEntityExtentDefinition.create(ctx.extrusionEndPlane, False),
             adsk.fusion.ExtentDirections.PositiveExtentDirection
         )
         gearBodyExtrude = extrudes.add(gearBodyExtrudeInput)
