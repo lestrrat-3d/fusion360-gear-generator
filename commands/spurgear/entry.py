@@ -64,7 +64,6 @@ def stop():
         command_definition.deleteMe()
 
 
-
 # Function that is called when a user clicks the corresponding button in the UI.
 # This defines the contents of the command dialog and connects to the command related events.
 def command_created(args: adsk.core.CommandCreatedEventArgs):
@@ -89,13 +88,9 @@ def command_execute(args: adsk.core.CommandEventArgs):
     g = None
     try:
         inputs = args.command.commandInputs
-
-        futil.log(f'selection count (OUTSIDE) = {inputs.itemById("plane").selectionCount}')
-        spec = geargen.SpurGearSpecification.from_inputs(inputs)
-
         design = geargen.get_design()
         g = geargen.SpurGearGenerator(design)
-        g.generate(spec)
+        g.generate(inputs)
     except:
         futil.handle_error("Generation error", show_message_box=True)
         if g:
@@ -106,14 +101,14 @@ def command_execute(args: adsk.core.CommandEventArgs):
 def command_preview(args: adsk.core.CommandEventArgs):
     # General logging for debug.
     futil.log(f'{CMD_NAME} Command Preview Event')
-    inputs = args.command.commandInputs
 
 
 # This event handler is called when the user changes anything in the command dialog
 # allowing you to modify values of other inputs based on that change.
 def command_input_changed(args: adsk.core.InputChangedEventArgs):
+    futil.log(f'{CMD_NAME} Command Input Changed')
     changed_input = args.input
-    inputs = args.inputs
+        
 
 
 # This event handler is called when the user interacts with any of the inputs in the dialog
