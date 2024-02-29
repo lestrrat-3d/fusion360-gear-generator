@@ -137,6 +137,7 @@ class SpurGearGenerationContext(GenerationContext):
         self.gearProfileSketch = adsk.fusion.Sketch.cast(None)
         self.extrusionExtent = adsk.core.Surface.cast(None)
         self.extrusionEndPlane = adsk.fusion.ConstructionPlane.cast(None)
+        self.toothProfileIsEmbedded = False
 
 # The spur gear tooth profile is used in a few different places, so
 # it is separated out into a standalone object
@@ -154,6 +155,7 @@ class SpurGearInvoluteToothDesignGenerator():
         self.baseCircle = adsk.fusion.SketchCircle.cast(None)
         self.pitchCircle = adsk.fusion.SketchCircle.cast(None)
         self.tipCircle = adsk.fusion.SketchCircle.cast(None)
+        self.toothProfileIsEmbedded = False
 
     def drawCircle(self, name, radius, anchorPoint, dimensionAngle=0, isConstruction=True):
         curves = self.sketch.sketchCurves
@@ -220,17 +222,21 @@ class SpurGearInvoluteToothDesignGenerator():
         baseCircleRadius = self.parent.getParameter('BaseCircleRadius').value
         pitchCircleRadius = self.parent.getParameter('PitchCircleRadius').value
         rootCircleRadius = self.parent.getParameter('RootCircleRadius').value
-        involuteSize =  tipCircleRadius - baseCircleRadius
+
+        # The involutes must always go to the smaller of the root/base circle
+        biggerCircleRadius = baseCircleRadius # if baseCircleRadius > rootCircleRadius else rootCircleRadius
+
+        involuteSize =  tipCircleRadius - biggerCircleRadius
         involuteSteps = int(self.parent.getParameter('InvoluteSteps').value)
         involuteSpinePoints = []
         for i in range(0, involuteSteps):
-            intersectionRadius = baseCircleRadius + ((involuteSize / (involuteSteps-1))*i)
-            involutePoint = self.calculateInvolutePoint(baseCircleRadius, intersectionRadius)
+            intersectionRadius = biggerCircleRadius + ((involuteSize / (involuteSteps-1))*i)
+            involutePoint = self.calculateInvolutePoint(biggerCircleRadius, intersectionRadius)
             if involutePoint is not None:
                 involutePoints.append(involutePoint)
                 involuteSpinePoints.append(adsk.core.Point3D.create(involutePoint.x, 0, 0))
     
-        pitchInvolutePoint = self.calculateInvolutePoint(baseCircleRadius, pitchCircleRadius)
+        pitchInvolutePoint = self.calculateInvolutePoint(biggerCircleRadius, pitchCircleRadius)
         pitchPointAngle = math.atan(pitchInvolutePoint.y / pitchInvolutePoint.x)
     
         # Determine the angle defined by the tooth thickness as measured at
@@ -320,22 +326,28 @@ class SpurGearInvoluteToothDesignGenerator():
             priv = spinePoint
 
             # Create the point where the involutes will connect to the root circle
-            def drawRootToInvoluteLine(root, inv, x, y):
-                angle = math.atan(y/ x)
-                point = adsk.core.Point3D.create(
-                    rootCircleRadius * math.cos(angle),
-                    rootCircleRadius * math.sin(angle),
-                    0,
-                )
-                line = sketch.sketchCurves.sketchLines.addByTwoPoints(point, inv.startSketchPoint)
-                constraints.addTangent(inv, line)
-                constraints.addCoincident(line.startSketchPoint, root)
-                dimensions.addAngularDimension(spine, line, line.endSketchPoint.geometry)
-                return line
-        
-            if rootCircleRadius < baseCircleRadius:
-                rlline = drawRootToInvoluteLine(self.rootCircle, lline, involutePoints[0].x, involutePoints[0].y)
-                rrline = drawRootToInvoluteLine(self.rootCircle, rline, involutePoints[0].x, -involutePoints[0].y)
+        def drawRootToInvoluteLine(root, rootRadius, inv, x, y):
+            angle = math.atan(y/ x)
+            point = adsk.core.Point3D.create(
+                rootRadius * math.cos(angle),
+                rootRadius * math.sin(angle),
+                0,
+            )
+
+            line = sketch.sketchCurves.sketchLines.addByTwoPoints(point, inv.startSketchPoint)
+            constraints.addCoincident(line.startSketchPoint, root)
+            constraints.addHorizontal(line)
+            return line
+
+#        if rootCircleRadius > baseCircleRadius:
+        if math.sqrt(involutePoints[0].x**2 + involutePoints[0].y**2) > rootCircleRadius:
+            drawRootToInvoluteLine(self.rootCircle, rootCircleRadius, lline, involutePoints[0].x, involutePoints[0].y)
+            drawRootToInvoluteLine(self.rootCircle, rootCircleRadius, rline, involutePoints[0].x, -involutePoints[0].y)
+        else:
+            self.toothProfileIsEmbedded = True
+#            drawRootToInvoluteLine(self.baseCircle, baseCircleRadius, lline, involutePoints[i].x, involutePoints[i].y)
+#            drawRootToInvoluteLine(self.baseCircle, baseCircleRadius, rline, involutePoints[i].x, -involutePoints[i].y)
+
         if angle != 0:
             # Only do this _AFTER_ all the lines have been drawn
             angleDimension.value = angle
@@ -563,7 +575,12 @@ class SpurGearGenerator(Generator):
     
     def buildSketches(self, ctx: GenerationContext):
         sketch = self.createSketchObject('Gear Profile', plane=self.plane)
-        SpurGearInvoluteToothDesignGenerator(sketch, self).draw(ctx.anchorPoint)
+        designgen = SpurGearInvoluteToothDesignGenerator(sketch, self)
+        designgen.draw(ctx.anchorPoint)
+
+        # remember if some specifics of this probile
+        if designgen.toothProfileIsEmbedded:
+            ctx.toothProfileIsEmbedded = True
         ctx.gearProfileSketch = sketch
 
     def buildMainGearBody(self, ctx: GenerationContext):
@@ -593,12 +610,23 @@ class SpurGearGenerator(Generator):
 
         # The tooth profile has a very specific shape. We look for that shape
         # in the list of profiles that we have.
+
         toothProfile = None
         for profile in profiles:
             for loop in profile.profileLoops:
-                # The loop must have exactly 6 curves.
-                if loop.profileCurves.count != 6:
-                    continue
+                expectArcs = 2
+                expectNurbs = 2
+                expectLines = 0
+                if ctx.toothProfileIsEmbedded:
+                    # The loop must have exactly 4 curves.
+                    if loop.profileCurves.count != 4:
+                        continue
+                else:
+                    # The loop must have exactly 6 curves.
+                    if loop.profileCurves.count != 6:
+                        continue
+                    expectLines = 2
+
                 # The curve must consist of Line3D, NurbsCurve3D and Arc3D
                 arcs = 0
                 nurbs = 0
@@ -614,7 +642,7 @@ class SpurGearGenerator(Generator):
                     else:
                         break
                 
-                if nurbs == 2 and arcs == 2 and lines == 2:
+                if nurbs == expectNurbs and arcs == expectArcs and lines == expectLines:
                     toothProfile = profile
                     break
             if toothProfile:
