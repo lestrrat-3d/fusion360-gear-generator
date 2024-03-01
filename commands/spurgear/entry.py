@@ -108,7 +108,6 @@ def command_preview(args: adsk.core.CommandEventArgs):
 def command_input_changed(args: adsk.core.InputChangedEventArgs):
     futil.log(f'{CMD_NAME} Command Input Changed')
     changed_input = args.input
-        
 
 
 # This event handler is called when the user interacts with any of the inputs in the dialog

@@ -6,6 +6,7 @@ from .utilities import *
 
 PARAM_MODULE = 'Module'
 PARAM_TOOTH_NUMBER = 'ToothNumber'
+INPUT_ID_PARENT = 'parentComponent'
 INPUT_ID_PLANE = 'plane'
 INPUT_ID_ANCHOR_POINT = 'anchorPoint'
 
@@ -106,6 +107,12 @@ class SpurGearCommandInputsConfigurator:
     @classmethod
     def configure(cls, cmd):
         inputs = cmd.commandInputs
+
+        componentInput = inputs.addSelectionInput(INPUT_ID_PARENT, 'Select Component', 'Select a component to attach the gear to')
+        componentInput.addSelectionFilter(adsk.core.SelectionCommandInput.Occurrences)
+        componentInput.addSelectionFilter(adsk.core.SelectionCommandInput.RootComponents)
+        componentInput.setSelectionLimits(1)
+        componentInput.addSelection(get_design().rootComponent)
 
         planeInput = inputs.addSelectionInput(INPUT_ID_PLANE, 'Select Plane', 'Select a plane and to position the gear')
         planeInput.addSelectionFilter(adsk.core.SelectionCommandInput.ConstructionPlanes)
@@ -371,6 +378,7 @@ class SpurGearInvoluteToothDesignGenerator():
 class SpurGearGenerator(Generator):
     def __init__(self, design: adsk.fusion.Design):
         super(SpurGearGenerator, self).__init__(design)
+        self.parent = None
         self.plane = None
         self.anchorPoint = None
 
@@ -388,14 +396,25 @@ class SpurGearGenerator(Generator):
     
     def processInputs(self, inputs: adsk.core.CommandInputs):
         # Note: all angles are in radians
-        futil.log(f"inputs 1 {inputs}")
+        (values, ok) = get_selection(inputs, INPUT_ID_PARENT)
+        if len(values) == 1 and ok:
+            v = values[0]
+            if v.objectType == adsk.fusion.Occurrence.classType():
+                self.parentComponent = v.component
+            elif v.objectType == adsk.fusion.Component.classType():
+                self.parentComponent = v
+            else:
+                raise Exception(f'Invalid object type {v.objectType}')
+            futil.log(f'parentComponent is {self.parentComponent.name}')
+        else:
+            raise Exception("Require parameter '{INPUT_ID_PARENT}' not available")
+
         (values, ok) = get_selection(inputs, INPUT_ID_PLANE)
         if len(values) == 1 and ok:
             self.plane = values[0] # must be exactly one item
         else:
             raise Exception("Require parameter '{INPUT_ID_PLANE}' not available")
     
-        futil.log(f"inputs 2 {inputs}")
         (values, ok) = get_selection(inputs, INPUT_ID_ANCHOR_POINT)
         if len(values) == 1 and ok:
             self.anchorPoint = values[0] # must be exactly one item

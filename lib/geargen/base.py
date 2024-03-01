@@ -88,6 +88,7 @@ class ComponentCleaner:
 class Generator(ABC):
     def __init__(self, design: adsk.fusion.Design):
         self.design = design
+        self.parentComponent = None # TODO: nothing is protecting this from being used when value is None
         self.component = adsk.fusion.Component.cast(None)
         self.occurrence = adsk.fusion.Component.cast(None)
         self.prefix = None
@@ -95,7 +96,10 @@ class Generator(ABC):
     
     def getOccurrence(self) -> adsk.fusion.Occurrence:
         if self.occurrence == None:
-            self.occurrence = self.design.rootComponent.occurrences.addNewComponent(adsk.core.Matrix3D.create())
+#            self.occurrence = self.design.rootComponent.occurrences.addNewComponent(adsk.core.Matrix3D.create())
+            futil.log(f'parent is {self.parentComponent.name}')
+            futil.log(f'root component is {self.design.rootComponent.name}')
+            self.occurrence = self.parentComponent.occurrences.addNewComponent(adsk.core.Matrix3D.create())
             prefixStr = f'SpurGear_{self.occurrence.component.id.replace("-", "")}'
             self.prefix = ParamNamePrefix(prefixStr)
             self.cleaner = ComponentCleaner(prefixStr, self.occurrence)
