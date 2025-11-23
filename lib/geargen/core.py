@@ -9,6 +9,7 @@ sketch creation, and plane normalization.
 from typing import Tuple, Optional, Union
 import adsk.core
 import adsk.fusion
+from .constants import PLANE_GEAR_BASE_COPLANAR
 
 
 def create_gear_occurrence(
@@ -163,7 +164,7 @@ def ensure_construction_plane(
     plane_input = component.constructionPlanes.createInput()
     plane_input.setByOffset(plane, adsk.core.ValueInput.createByReal(0))
     construction_plane = component.constructionPlanes.add(plane_input)
-    construction_plane.name = 'Gear Base Plane (Coplanar)'
+    construction_plane.name = PLANE_GEAR_BASE_COPLANAR
     return construction_plane
 
 

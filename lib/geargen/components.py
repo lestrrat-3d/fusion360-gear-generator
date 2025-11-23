@@ -10,6 +10,7 @@ import adsk.core
 import adsk.fusion
 from .types import ComponentCleanupInfo
 from .inputs import get_selection_input
+from .constants import INPUT_PARENT_COMPONENT
 
 
 def delete_component_and_parameters(
@@ -95,7 +96,7 @@ def get_parent_component(
                   made, or the selected entity is neither an Occurrence nor a
                   Component
     """
-    selections, ok = get_selection_input(inputs, 'parentComponent')
+    selections, ok = get_selection_input(inputs, INPUT_PARENT_COMPONENT)
     if not ok or len(selections) != 1:
         raise Exception("Must select exactly one parent component")
 

@@ -13,6 +13,20 @@ import adsk.fusion
 
 from .types import GenerationState, SpurGearSpec, BevelGearSpec, HelicalGearSpec
 from .core import add_parameter, make_param_name
+from .param_expression import ParamExpression
+from .constants import (
+    PARAM_MODULE, PARAM_TOOTH_NUMBER, PARAM_PRESSURE_ANGLE, PARAM_THICKNESS,
+    PARAM_BORE_DIAMETER, PARAM_CHAMFER_TOOTH, PARAM_SKETCH_ONLY,
+    PARAM_HELIX_ANGLE, PARAM_MATING_TOOTH_NUMBER,
+    PARAM_PITCH_CIRCLE_DIAMETER, PARAM_PITCH_CIRCLE_RADIUS,
+    PARAM_BASE_CIRCLE_DIAMETER, PARAM_BASE_CIRCLE_RADIUS,
+    PARAM_ROOT_CIRCLE_DIAMETER, PARAM_ROOT_CIRCLE_RADIUS,
+    PARAM_TIP_CIRCLE_DIAMETER, PARAM_TIP_CIRCLE_RADIUS,
+    PARAM_INVOLUTE_STEPS, PARAM_FILLET_THRESHOLD, PARAM_FILLET_RADIUS,
+    PARAM_GEAR_HEIGHT, PARAM_MATING_GEAR_HEIGHT, PARAM_VIRTUAL_TEETH_NUMBER,
+    PARAM_DRIVING_GEAR_BASE_THICKNESS, PARAM_TEETH_LENGTH,
+    UNIT_NONE, UNIT_MM, UNIT_RAD
+)
 
 
 def create_spur_gear_parameters(state: GenerationState, spec: SpurGearSpec) -> None:
@@ -37,54 +51,55 @@ def create_spur_gear_parameters(state: GenerationState, spec: SpurGearSpec) -> N
     """
     prefix = state.param_prefix
     design = state.design
+    expr = ParamExpression(prefix)
 
     # Basic input parameters
     add_parameter(
-        design, prefix, 'Module',
+        design, prefix, PARAM_MODULE,
         adsk.core.ValueInput.createByReal(spec.module),
-        '',
+        UNIT_NONE,
         'Module for the spur gear'
     )
 
     add_parameter(
-        design, prefix, 'ToothNumber',
+        design, prefix, PARAM_TOOTH_NUMBER,
         adsk.core.ValueInput.createByReal(spec.tooth_number),
-        '',
+        UNIT_NONE,
         'Number of teeth on the spur gear'
     )
 
     add_parameter(
-        design, prefix, 'PressureAngle',
+        design, prefix, PARAM_PRESSURE_ANGLE,
         adsk.core.ValueInput.createByReal(spec.pressure_angle),
-        'rad',
+        UNIT_RAD,
         'Pressure angle for spur gear'
     )
 
     add_parameter(
-        design, prefix, 'BoreDiameter',
+        design, prefix, PARAM_BORE_DIAMETER,
         adsk.core.ValueInput.createByReal(spec.bore_diameter),
-        'mm',
+        UNIT_MM,
         'Size of the bore'
     )
 
     add_parameter(
-        design, prefix, 'Thickness',
+        design, prefix, PARAM_THICKNESS,
         adsk.core.ValueInput.createByReal(spec.thickness),
-        'mm',
+        UNIT_MM,
         'Thickness of the spur gear'
     )
 
     add_parameter(
-        design, prefix, 'ChamferTooth',
+        design, prefix, PARAM_CHAMFER_TOOTH,
         adsk.core.ValueInput.createByReal(spec.chamfer_tooth),
-        'mm',
+        UNIT_MM,
         'Chamfer size'
     )
 
     add_parameter(
-        design, prefix, 'SketchOnly',
+        design, prefix, PARAM_SKETCH_ONLY,
         adsk.core.ValueInput.createByReal(1 if spec.sketch_only else 0),
-        '',
+        UNIT_NONE,
         'Draw sketch only'
     )
 

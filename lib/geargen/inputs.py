@@ -10,6 +10,15 @@ from typing import Tuple, List, Any, Dict
 import adsk.core
 import adsk.fusion
 from ...lib import fusion360utils as futil
+from .constants import (
+    INPUT_MODULE, INPUT_TOOTH_NUMBER, INPUT_PRESSURE_ANGLE, INPUT_THICKNESS,
+    INPUT_BORE_DIAMETER, INPUT_CHAMFER_TOOTH, INPUT_SKETCH_ONLY,
+    INPUT_HELIX_ANGLE, INPUT_MATING_TOOTH_NUMBER,
+    INPUT_SHAFT_ANGLE, INPUT_FACE_WIDTH, INPUT_DRIVING_GEAR_BASE_THICKNESS, INPUT_TEETH_LENGTH,
+    UNIT_NONE, UNIT_MM, UNIT_RAD,
+    ERR_INVALID_MODULE, ERR_INVALID_TOOTH_NUMBER, ERR_INVALID_PRESSURE_ANGLE,
+    ERR_INVALID_THICKNESS, ERR_INVALID_HELIX_ANGLE
+)
 
 
 def get_selection_input(
@@ -146,42 +155,42 @@ def parse_spur_gear_inputs(
     params = {}
 
     # Required parameters
-    module, ok = get_value_input(inputs, 'module', '', design)
+    module, ok = get_value_input(inputs, INPUT_MODULE, UNIT_NONE, design)
     if not ok:
-        raise Exception('Invalid module value')
+        raise Exception(ERR_INVALID_MODULE)
     params['module'] = module.realValue
 
-    tooth_number, ok = get_value_input(inputs, 'toothNumber', '', design)
+    tooth_number, ok = get_value_input(inputs, INPUT_TOOTH_NUMBER, UNIT_NONE, design)
     if not ok:
-        raise Exception('Invalid tooth number value')
+        raise Exception(ERR_INVALID_TOOTH_NUMBER)
     params['tooth_number'] = int(tooth_number.realValue)
 
-    pressure_angle, ok = get_value_input(inputs, 'pressureAngle', 'rad', design)
+    pressure_angle, ok = get_value_input(inputs, INPUT_PRESSURE_ANGLE, UNIT_RAD, design)
     if not ok:
-        raise Exception('Invalid pressure angle value')
+        raise Exception(ERR_INVALID_PRESSURE_ANGLE)
     params['pressure_angle'] = pressure_angle.realValue
 
-    thickness, ok = get_value_input(inputs, 'thickness', 'mm', design)
+    thickness, ok = get_value_input(inputs, INPUT_THICKNESS, UNIT_MM, design)
     if not ok:
-        raise Exception('Invalid thickness value')
+        raise Exception(ERR_INVALID_THICKNESS)
     params['thickness'] = thickness.realValue
 
     # Optional parameters with defaults
-    bore_diameter, ok = get_value_input(inputs, 'boreDiameter', 'mm', design)
+    bore_diameter, ok = get_value_input(inputs, INPUT_BORE_DIAMETER, UNIT_MM, design)
     if not ok:
         bore_diameter_value = 0
     else:
         bore_diameter_value = bore_diameter.realValue
     params['bore_diameter'] = bore_diameter_value
 
-    chamfer_tooth, ok = get_value_input(inputs, 'chamferTooth', 'mm', design)
+    chamfer_tooth, ok = get_value_input(inputs, INPUT_CHAMFER_TOOTH, UNIT_MM, design)
     if not ok:
         chamfer_tooth_value = 0
     else:
         chamfer_tooth_value = chamfer_tooth.realValue
     params['chamfer_tooth'] = chamfer_tooth_value
 
-    sketch_only, ok = get_boolean_input(inputs, 'sketchOnly')
+    sketch_only, ok = get_boolean_input(inputs, INPUT_SKETCH_ONLY)
     if not ok:
         sketch_only = False
     params['sketch_only'] = sketch_only
@@ -216,47 +225,47 @@ def parse_helical_gear_inputs(
     params = {}
 
     # Required parameters
-    module, ok = get_value_input(inputs, 'module', '', design)
+    module, ok = get_value_input(inputs, INPUT_MODULE, UNIT_NONE, design)
     if not ok:
-        raise Exception('Invalid module value')
+        raise Exception(ERR_INVALID_MODULE)
     params['module'] = module.realValue
 
-    tooth_number, ok = get_value_input(inputs, 'toothNumber', '', design)
+    tooth_number, ok = get_value_input(inputs, INPUT_TOOTH_NUMBER, UNIT_NONE, design)
     if not ok:
-        raise Exception('Invalid tooth number value')
+        raise Exception(ERR_INVALID_TOOTH_NUMBER)
     params['tooth_number'] = int(tooth_number.realValue)
 
-    pressure_angle, ok = get_value_input(inputs, 'pressureAngle', 'rad', design)
+    pressure_angle, ok = get_value_input(inputs, INPUT_PRESSURE_ANGLE, UNIT_RAD, design)
     if not ok:
-        raise Exception('Invalid pressure angle value')
+        raise Exception(ERR_INVALID_PRESSURE_ANGLE)
     params['pressure_angle'] = pressure_angle.realValue
 
-    thickness, ok = get_value_input(inputs, 'thickness', 'mm', design)
+    thickness, ok = get_value_input(inputs, INPUT_THICKNESS, UNIT_MM, design)
     if not ok:
-        raise Exception('Invalid thickness value')
+        raise Exception(ERR_INVALID_THICKNESS)
     params['thickness'] = thickness.realValue
 
-    helix_angle, ok = get_value_input(inputs, 'helixAngle', 'rad', design)
+    helix_angle, ok = get_value_input(inputs, INPUT_HELIX_ANGLE, UNIT_RAD, design)
     if not ok:
-        raise Exception('Invalid helix angle value')
+        raise Exception(ERR_INVALID_HELIX_ANGLE)
     params['helix_angle'] = helix_angle.realValue
 
     # Optional parameters with defaults
-    bore_diameter, ok = get_value_input(inputs, 'boreDiameter', 'mm', design)
+    bore_diameter, ok = get_value_input(inputs, INPUT_BORE_DIAMETER, UNIT_MM, design)
     if not ok:
         bore_diameter_value = 0
     else:
         bore_diameter_value = bore_diameter.realValue
     params['bore_diameter'] = bore_diameter_value
 
-    chamfer_tooth, ok = get_value_input(inputs, 'chamferTooth', 'mm', design)
+    chamfer_tooth, ok = get_value_input(inputs, INPUT_CHAMFER_TOOTH, UNIT_MM, design)
     if not ok:
         chamfer_tooth_value = 0
     else:
         chamfer_tooth_value = chamfer_tooth.realValue
     params['chamfer_tooth'] = chamfer_tooth_value
 
-    sketch_only, ok = get_boolean_input(inputs, 'sketchOnly')
+    sketch_only, ok = get_boolean_input(inputs, INPUT_SKETCH_ONLY)
     if not ok:
         sketch_only = False
     params['sketch_only'] = sketch_only
@@ -326,40 +335,40 @@ def parse_bevel_gear_inputs(
     params = {}
 
     # Required parameters
-    module, ok = get_value_input(inputs, 'module', '', design)
+    module, ok = get_value_input(inputs, INPUT_MODULE, UNIT_NONE, design)
     if not ok:
-        raise Exception('Invalid module value')
+        raise Exception(ERR_INVALID_MODULE)
     params['module'] = module.realValue
 
-    tooth_number, ok = get_value_input(inputs, 'toothNumber', '', design)
+    tooth_number, ok = get_value_input(inputs, INPUT_TOOTH_NUMBER, UNIT_NONE, design)
     if not ok:
-        raise Exception('Invalid tooth number value')
+        raise Exception(ERR_INVALID_TOOTH_NUMBER)
     params['tooth_number'] = int(tooth_number.realValue)
 
-    mating_tooth_number, ok = get_value_input(inputs, 'matingToothNumber', '', design)
+    mating_tooth_number, ok = get_value_input(inputs, INPUT_MATING_TOOTH_NUMBER, UNIT_NONE, design)
     if not ok:
-        raise Exception('Invalid mating tooth number value')
+        raise Exception(ERR_INVALID_TOOTH_NUMBER)
     params['mating_tooth_number'] = int(mating_tooth_number.realValue)
 
-    pressure_angle, ok = get_value_input(inputs, 'pressureAngle', 'rad', design)
+    pressure_angle, ok = get_value_input(inputs, INPUT_PRESSURE_ANGLE, UNIT_RAD, design)
     if not ok:
-        raise Exception('Invalid pressure angle value')
+        raise Exception(ERR_INVALID_PRESSURE_ANGLE)
     params['pressure_angle'] = pressure_angle.realValue
 
-    shaft_angle, ok = get_value_input(inputs, 'shaftAngle', 'rad', design)
+    shaft_angle, ok = get_value_input(inputs, INPUT_SHAFT_ANGLE, UNIT_RAD, design)
     if not ok:
-        raise Exception('Invalid shaft angle value')
+        raise Exception(ERR_INVALID_PRESSURE_ANGLE)
     params['shaft_angle'] = shaft_angle.realValue
 
     # Optional parameters with None defaults
-    face_width, ok = get_value_input(inputs, 'faceWidth', 'mm', design)
+    face_width, ok = get_value_input(inputs, INPUT_FACE_WIDTH, UNIT_MM, design)
     if not ok or (face_width and face_width.realValue <= 0):
         face_width_value = None
     else:
         face_width_value = face_width.realValue
     params['face_width'] = face_width_value
 
-    bore_diameter, ok = get_value_input(inputs, 'boreDiameter', 'mm', design)
+    bore_diameter, ok = get_value_input(inputs, INPUT_BORE_DIAMETER, UNIT_MM, design)
     if not ok or (bore_diameter and bore_diameter.realValue <= 0):
         bore_diameter_value = None
     else:
@@ -367,7 +376,7 @@ def parse_bevel_gear_inputs(
     params['bore_diameter'] = bore_diameter_value
 
     # Driving Gear Base Thickness (required for dual-trapezoid extensions)
-    driving_gear_base_thickness, ok = get_value_input(inputs, 'drivingGearBaseThickness', 'mm', design)
+    driving_gear_base_thickness, ok = get_value_input(inputs, INPUT_DRIVING_GEAR_BASE_THICKNESS, UNIT_MM, design)
     if not ok:
         # Provide sensible default based on module if not specified
         driving_gear_base_thickness_value = params.get('module', 1.0) * 5
@@ -376,7 +385,7 @@ def parse_bevel_gear_inputs(
     params['driving_gear_base_thickness'] = driving_gear_base_thickness_value
 
     # Teeth Length (distance between diagonal profile lines)
-    teeth_length, ok = get_value_input(inputs, 'teethLength', 'mm', design)
+    teeth_length, ok = get_value_input(inputs, INPUT_TEETH_LENGTH, UNIT_MM, design)
     if not ok:
         # Provide sensible default if not specified
         teeth_length_value = 10.0
@@ -384,7 +393,7 @@ def parse_bevel_gear_inputs(
         teeth_length_value = teeth_length.realValue
     params['teeth_length'] = teeth_length_value
 
-    sketch_only, ok = get_boolean_input(inputs, 'sketchOnly')
+    sketch_only, ok = get_boolean_input(inputs, INPUT_SKETCH_ONLY)
     if not ok:
         sketch_only = False
     params['sketch_only'] = sketch_only
