@@ -82,23 +82,27 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
     futil.add_handler(args.command.destroy, command_destroy, local_handlers=local_handlers)
 
 
-# This event handler is called when the user clicks the OK button in the command dialog or 
+# This event handler is called when the user clicks the OK button in the command dialog or
 # is immediately called after the created event not command inputs were created for the dialog.
 def command_execute(args: adsk.core.CommandEventArgs):
     # General logging for debug.
     futil.log(f'{CMD_NAME} Command Execute Event')
-    design = None
+    state = None
     try:
         inputs = args.command.commandInputs
-        spec = geargen.HerringboneGearSpecification.from_inputs(inputs)
-
         design = geargen.get_design()
-        g = geargen.HerringboneGearGenerator(design)
-        g.generate(spec)
+        # Use the functional API to generate the herringbone gear
+        state = geargen.generate_herringbone_gear(inputs, design)
+        futil.log(f'{CMD_NAME} Herringbone gear generated successfully')
     except:
         futil.handle_error("Generation error", show_message_box=True)
-        if design:
-            design.rootComponent.deleteMe()
+        if state:
+            # Use the new functional cleanup approach
+            cleanup_info = geargen.ComponentCleanupInfo(
+                param_prefix=state.param_prefix,
+                occurrence=state.occurrence
+            )
+            geargen.delete_component_and_parameters(cleanup_info, design)
 
 
 # This event handler is called when the command needs to compute a new preview in the graphics window.
