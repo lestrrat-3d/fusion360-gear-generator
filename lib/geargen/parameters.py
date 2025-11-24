@@ -473,6 +473,14 @@ def create_bevel_gear_parameters(state: GenerationState, spec: BevelGearSpec) ->
         'Number of teeth on mating gear'
     )
 
+    # Pressure angle (needed for tooth profile generation)
+    add_parameter(
+        design, prefix, 'PressureAngle',
+        adsk.core.ValueInput.createByReal(spec.pressure_angle),
+        'rad',
+        'Pressure angle for bevel gear'
+    )
+
     # VirtualTeethNumber (calculated as roundup(Z / cos(delta)) for bevel gears)
     add_parameter(
         design, prefix, 'VirtualTeethNumber',

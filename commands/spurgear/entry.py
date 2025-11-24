@@ -70,7 +70,7 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
     # General logging for debug.
     futil.log(f'{CMD_NAME} Command Created Event')
 
-    geargen.SpurGearCommandInputsConfigurator.configure(args.command)
+    geargen.configure_spur_gear_inputs(args.command)
 
     # TODO Connect to the events that are needed by this command.
     futil.add_handler(args.command.execute, command_execute, local_handlers=local_handlers)

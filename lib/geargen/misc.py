@@ -7,6 +7,10 @@ def to_cm(mm):
 def to_mm(cm):
     return cm*10
 
+def from_cm(cm):
+    """Convert from centimeters to millimeters. Alias for to_mm."""
+    return cm*10
+
 def get_ui(app=adsk.core.Application.get()):
     ui = app.userInterface
     if not ui:

@@ -107,6 +107,7 @@ import adsk.core
 import adsk.fusion
 from .types import GenerationState, BevelGearSpec
 from .core import create_sketch, get_parameter, create_gear_occurrence, ensure_construction_plane, hide_construction_planes, make_param_name
+from .involute import create_tooth_profile_circles_for_bevel, draw_involute_tooth_profile, ToothProfileConfig
 from .inputs import parse_bevel_gear_inputs, get_selection_input
 from .components import get_parent_component
 from .parameters import create_bevel_gear_parameters
@@ -649,8 +650,8 @@ def draw_gear_face_extension(
     if not virtual_teeth_param:
         raise Exception("VirtualTeethNumber parameter not found")
 
-    # Calculate P7 position: P5->P7 length = ((Module * VirtualTeethNumber) + 0.5)
-    p5_p7_length = (module_param.value * virtual_teeth_param.value) + 0.5
+    # Calculate P7 position: P5->P7 length = ((Module * VirtualTeethNumber) / 2) + 0.5 - pitch radius of virtual spur gear plus margin
+    p5_p7_length = ((module_param.value * virtual_teeth_param.value) / 2) + 0.5
     p7_pos = adsk.core.Point3D.create(
         p5.geometry.x + perp_vec_x * p5_p7_length,
         p5.geometry.y + perp_vec_y * p5_p7_length,
@@ -667,7 +668,7 @@ def draw_gear_face_extension(
     except Exception as e:
         raise Exception(f"Failed to add collinear constraint to P5->P7 line: {str(e)}")
 
-    # Apply dimension: ((Module * VirtualTeethNumber) + 0.5)
+    # Apply dimension: (((Module * VirtualTeethNumber) / 2) + 0.5) - pitch radius plus margin
     # This constrains the P7 endpoint, while P7_mid will be positioned independently by P6->P8 dimension
     try:
         dim_p5_p7 = sketch.sketchDimensions.addDistanceDimension(
@@ -680,7 +681,7 @@ def draw_gear_face_extension(
                 0
             )
         )
-        dim_p5_p7.parameter.expression = f'(({make_param_name(state.param_prefix, "Module")} * {make_param_name(state.param_prefix, "VirtualTeethNumber")}) + 0.5)'
+        dim_p5_p7.parameter.expression = f'((({make_param_name(state.param_prefix, "Module")} * {make_param_name(state.param_prefix, "VirtualTeethNumber")}) / 2) + 0.5)'
     except Exception as e:
         raise Exception(f"Failed to add dimension to P5->P7 line: {str(e)}")
 
@@ -1719,36 +1720,8 @@ def get_virtual_teeth_number(state: GenerationState, spec: BevelGearSpec) -> int
     return zv
 
 
-def calculate_involute_point_bevel(base_radius: float, intersection_radius: float) -> Optional[adsk.core.Point3D]:
-    """
-    Calculate a single point on an involute curve for bevel gear tooth profile.
-
-    The involute of a circle is the curve traced by a point on a taut string
-    as it is unwound from the circle. This is the fundamental curve shape
-    used for gear teeth.
-
-    Args:
-        base_radius: The radius of the base circle
-        intersection_radius: The radius at which to calculate the involute point
-
-    Returns:
-        The involute point, or None if calculation is not possible
-    """
-    if intersection_radius <= base_radius:
-        return None
-
-    alpha = math.acos(base_radius / intersection_radius)
-    if alpha <= 0:
-        return None
-
-    # Involute angle (inv α = tan α - α)
-    inv_alpha = math.tan(alpha) - alpha
-
-    return adsk.core.Point3D.create(
-        intersection_radius * math.cos(inv_alpha),
-        intersection_radius * math.sin(inv_alpha),
-        0
-    )
+# calculate_involute_point_bevel has been moved to involute.py as calculate_involute_point
+# (shared with spur gears - identical mathematics)
 
 
 def draw_spur_tooth_profile(state: GenerationState, spec: BevelGearSpec) -> GenerationState:
@@ -1783,190 +1756,46 @@ def draw_spur_tooth_profile(state: GenerationState, spec: BevelGearSpec) -> Gene
     # Get virtual teeth number (Zv)
     zv = get_virtual_teeth_number(state, spec)
 
-    # Calculate tooth profile parameters using virtual teeth number
-    module = spec.module
-    pressure_angle_rad = math.radians(spec.pressure_angle)
+    # Create circles with dimension expressions and store in state
+    create_tooth_profile_circles_for_bevel(sketch, center, state, spec, zv)
 
-    # Pitch radius using virtual teeth: r_pitch = (module * Zv) / 2
-    pitch_radius = (module * zv) / 2.0
+    # Calculate parameters
+    # NOTE: spec.module is in cm (Fusion API units), use directly without conversion
+    # All calculations in cm to match Fusion 360 API
+    module_cm = spec.module
+    pitch_radius_cm = (module_cm * zv) / 2.0
+    base_radius_cm = pitch_radius_cm * math.cos(math.radians(spec.pressure_angle))
+    outer_radius_cm = pitch_radius_cm + module_cm
+    root_radius_cm = pitch_radius_cm - 1.25 * module_cm
 
-    # Base radius: r_base = r_pitch * cos(pressure_angle)
-    base_radius = pitch_radius * math.cos(pressure_angle_rad)
+    # Angular tooth thickness
+    tooth_thickness_pitch = (math.pi * module_cm) / 2.0
+    tooth_thickness_angle = tooth_thickness_pitch / pitch_radius_cm
 
-    # Addendum: a = module * 1.0 (standard)
-    addendum = module * 1.0
-
-    # Dedendum: d = module * 1.25 (standard)
-    dedendum = module * 1.25
-
-    # Outer radius: r_outer = pitch_radius + addendum
-    outer_radius = pitch_radius + addendum
-
-    # Root radius: r_root = pitch_radius - dedendum
-    root_radius = pitch_radius - dedendum
-
-    # Tooth thickness at pitch circle: t = (π * module) / 2
-    tooth_thickness_pitch = (math.pi * module) / 2.0
-
-    # Angular tooth thickness at pitch circle
-    angular_tooth_thickness = tooth_thickness_pitch / pitch_radius
-
-    # Validate radii
-    if base_radius <= 0:
-        raise ValueError(f"Invalid base radius: {base_radius} (must be > 0)")
-    if outer_radius <= base_radius:
-        raise ValueError(
-            f"Outer radius ({outer_radius}) must be greater than base radius ({base_radius})"
-        )
-
-    # Draw construction circles (pitch, base, outer, root)
-    circles = sketch.sketchCurves.sketchCircles
-
-    # Pitch circle (construction)
-    pitch_circle = circles.addByCenterRadius(center, to_cm(pitch_radius))
-    pitch_circle.isConstruction = True
-
-    # Base circle (construction)
-    base_circle = circles.addByCenterRadius(center, to_cm(base_radius))
-    base_circle.isConstruction = True
-
-    # Outer circle (construction)
-    outer_circle = circles.addByCenterRadius(center, to_cm(outer_radius))
-    outer_circle.isConstruction = True
-
-    # Root circle (construction)
-    root_circle = circles.addByCenterRadius(center, to_cm(root_radius))
-    root_circle.isConstruction = True
-
-    # Generate involute curve points (right side)
-    # Start from base circle, extend to outer circle
-    num_points = 20  # Number of points along involute curve
-    involute_size = outer_radius - base_radius
-    involute_points = []
-
-    for i in range(num_points + 1):
-        intersection_radius = base_radius + (involute_size * i / num_points)
-        involute_point = calculate_involute_point_bevel(base_radius, intersection_radius)
-        if involute_point is not None:
-            involute_points.append(involute_point)
-
-    if len(involute_points) == 0:
-        raise Exception("Failed to generate involute points")
-
-    # Calculate pitch point to determine rotation angle
-    pitch_involute_point = calculate_involute_point_bevel(base_radius, pitch_radius)
-    if pitch_involute_point is None:
-        raise Exception("Failed to calculate pitch involute point")
-
-    pitch_point_angle = math.atan2(pitch_involute_point.y, pitch_involute_point.x)
-
-    # Calculate rotation angle to center tooth on vertical axis
-    # Half angular tooth thickness at pitch circle
-    half_angle = angular_tooth_thickness / 2.0
-
-    # Rotate angle to center tooth
-    rotate_angle = -(half_angle + pitch_point_angle)
-
-    # Rotate all involute points to center the tooth
-    cos_rot = math.cos(rotate_angle)
-    sin_rot = math.sin(rotate_angle)
-    rotated_involute_points = []
-
-    for point in involute_points:
-        # Rotate point
-        new_x = point.x * cos_rot - point.y * sin_rot
-        new_y = point.x * sin_rot + point.y * cos_rot
-
-        # Translate to center point
-        final_x = center.geometry.x + to_cm(new_x)
-        final_y = center.geometry.y + to_cm(new_y)
-
-        rotated_involute_points.append(adsk.core.Point3D.create(final_x, final_y, 0))
-
-    # Draw right involute using fitted spline
-    point_collection = adsk.core.ObjectCollection.create()
-    for point in rotated_involute_points:
-        point_collection.add(point)
-    right_involute_spline = sketch.sketchCurves.sketchFittedSplines.add(point_collection)
-
-    # Draw left involute (mirrored across vertical line through center)
-    # Mirror the Y-coordinates relative to center
-    left_point_collection = adsk.core.ObjectCollection.create()
-    for point in rotated_involute_points:
-        # Mirror Y coordinate across center
-        mirrored_y = 2 * center.geometry.y - point.y
-        left_point_collection.add(adsk.core.Point3D.create(point.x, mirrored_y, 0))
-    left_involute_spline = sketch.sketchCurves.sketchFittedSplines.add(left_point_collection)
-
-    # Draw tooth tip arc connecting the two involutes at outer radius
-    # The arc connects the end points of the involutes
-    tip_start_point = right_involute_spline.endSketchPoint
-    tip_end_point = left_involute_spline.endSketchPoint
-
-    # Create arc by three points (start, mid, end)
-    # Mid point is on outer circle directly above center
-    tip_mid_x = center.geometry.x
-    tip_mid_y = center.geometry.y + to_cm(outer_radius)
-    tip_mid_point = adsk.core.Point3D.create(tip_mid_x, tip_mid_y, 0)
-
-    tip_arc = sketch.sketchCurves.sketchArcs.addByThreePoints(
-        tip_start_point,
-        tip_mid_point,
-        tip_end_point
+    # Create configuration for shared function
+    config = ToothProfileConfig(
+        root_radius=root_radius_cm,
+        base_radius=base_radius_cm,
+        pitch_radius=pitch_radius_cm,
+        tip_radius=outer_radius_cm,
+        tooth_thickness_angle=tooth_thickness_angle,
+        involute_steps=20,
+        backlash=0.0,  # Backlash in cm (matches original default)
+        rotation_offset=math.pi,  # Tooth centered on Y-axis
+        center_offset=center.geometry,
+        use_dimension_expressions=True,  # Parametric dimensions
+        param_prefix=state.param_prefix,
+        tip_circle_param_name=state.tip_circle_param_name,
+        root_circle_param_name=state.root_circle_param_name,
+        add_construction_geometry=False,  # No spine/ribs
+        angle=0.0
     )
 
-    # Draw root fillet/circle segment connecting involute bases at root radius
-    # The root connects the start points of the involutes
-    root_start_point = right_involute_spline.startSketchPoint
-    root_end_point = left_involute_spline.startSketchPoint
+    # Use anchor_point for bevel gears (same as center for this context)
+    state.anchor_point = center
 
-    # If base radius > root radius, need to add lines from base to root
-    if base_radius > root_radius:
-        # Calculate angles for root points
-        # Get the angle of the right involute start
-        right_start_x = root_start_point.geometry.x - center.geometry.x
-        right_start_y = root_start_point.geometry.y - center.geometry.y
-        right_start_angle = math.atan2(from_cm(right_start_y), from_cm(right_start_x))
-
-        # Root point on root circle at same angle
-        root_right_x = center.geometry.x + to_cm(root_radius * math.cos(right_start_angle))
-        root_right_y = center.geometry.y + to_cm(root_radius * math.sin(right_start_angle))
-        root_right_point = adsk.core.Point3D.create(root_right_x, root_right_y, 0)
-
-        # Left side (mirrored)
-        left_start_x = root_end_point.geometry.x - center.geometry.x
-        left_start_y = root_end_point.geometry.y - center.geometry.y
-        left_start_angle = math.atan2(from_cm(left_start_y), from_cm(left_start_x))
-
-        root_left_x = center.geometry.x + to_cm(root_radius * math.cos(left_start_angle))
-        root_left_y = center.geometry.y + to_cm(root_radius * math.sin(left_start_angle))
-        root_left_point = adsk.core.Point3D.create(root_left_x, root_left_y, 0)
-
-        # Draw lines from involute starts to root circle
-        sketch.sketchCurves.sketchLines.addByTwoPoints(root_start_point, root_right_point)
-        sketch.sketchCurves.sketchLines.addByTwoPoints(root_end_point, root_left_point)
-
-        # Draw root arc
-        root_mid_x = center.geometry.x
-        root_mid_y = center.geometry.y + to_cm(root_radius)
-        root_mid_point = adsk.core.Point3D.create(root_mid_x, root_mid_y, 0)
-
-        sketch.sketchCurves.sketchArcs.addByThreePoints(
-            root_right_point,
-            root_mid_point,
-            root_left_point
-        )
-    else:
-        # Base radius <= root radius, draw direct arc between involute starts
-        root_mid_x = center.geometry.x
-        root_mid_y = center.geometry.y + to_cm(base_radius)
-        root_mid_point = adsk.core.Point3D.create(root_mid_x, root_mid_y, 0)
-
-        sketch.sketchCurves.sketchArcs.addByThreePoints(
-            root_start_point,
-            root_mid_point,
-            root_end_point
-        )
+    # Call shared function
+    draw_involute_tooth_profile(sketch, state, config)
 
     return state
 
@@ -2053,7 +1882,8 @@ def create_tooth_profile_phase(state: GenerationState, spec: BevelGearSpec) -> G
 
     except Exception as e:
         # Cleanup partial Part 1 geometry on error
-        cleanup_phase2_part1_on_error(state)
+        # DISABLED: Cleanup disabled for debugging - partial geometry preserved on error
+        # cleanup_phase2_part1_on_error(state)
         raise Exception(f"Phase 2 Part 1 Error: {str(e)}") from e
 
 
@@ -3234,10 +3064,11 @@ def generate_phase2_tooth_body(
 
     except Exception as e:
         # Clean up partial Phase 2 geometry on error
-        cleanup_phase2_on_error(state)
+        # DISABLED: Cleanup disabled for debugging - partial geometry preserved on error
+        # cleanup_phase2_on_error(state)
 
         # Re-raise the exception with context
         raise Exception(
-            f"Phase 2 failed: {str(e)}. Partial Phase 2 geometry has been cleaned up. "
+            f"Phase 2 failed: {str(e)}. Partial Phase 2 geometry preserved for debugging. "
             f"Phase 1 foundation sketch and components remain intact."
         ) from e

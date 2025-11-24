@@ -62,3 +62,13 @@ INPUT_SHAFT_ANGLE = "shaftAngle"  # Input field ID for shaft angle
 INPUT_FACE_WIDTH = "faceWidth"  # Input field ID for face width
 INPUT_DRIVING_GEAR_BASE_THICKNESS = "drivingGearBaseThickness"  # Input field ID for driving gear base thickness
 INPUT_TEETH_LENGTH = "teethLength"  # Input field ID for teeth length
+
+# Default values for UI inputs
+DEFAULT_MODULE_MM = 1.0
+DEFAULT_TOOTH_NUMBER = 17
+DEFAULT_PRESSURE_ANGLE_DEG = 20.0
+DEFAULT_BORE_DIAMETER_STR = "0 mm"
+DEFAULT_THICKNESS_MM = 10.0
+DEFAULT_CHAMFER_TOOTH_MM = 0.0
+DEFAULT_SKETCH_ONLY = False
+DEFAULT_HELIX_ANGLE_DEG = 14.5  # for helical/herringbone gears (matches current implementation)

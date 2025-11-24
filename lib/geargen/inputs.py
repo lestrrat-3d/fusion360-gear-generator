@@ -7,17 +7,25 @@ for validation.
 """
 
 from typing import Tuple, List, Any, Dict
+import math
 import adsk.core
 import adsk.fusion
 from ...lib import fusion360utils as futil
+from .misc import to_cm, get_design
 from .constants import (
     INPUT_MODULE, INPUT_TOOTH_NUMBER, INPUT_PRESSURE_ANGLE, INPUT_THICKNESS,
     INPUT_BORE_DIAMETER, INPUT_CHAMFER_TOOTH, INPUT_SKETCH_ONLY,
     INPUT_HELIX_ANGLE, INPUT_MATING_TOOTH_NUMBER,
     INPUT_SHAFT_ANGLE, INPUT_FACE_WIDTH, INPUT_DRIVING_GEAR_BASE_THICKNESS, INPUT_TEETH_LENGTH,
+    INPUT_PARENT_COMPONENT, INPUT_PLANE, INPUT_ANCHOR_POINT,
     UNIT_NONE, UNIT_MM, UNIT_RAD,
     ERR_INVALID_MODULE, ERR_INVALID_TOOTH_NUMBER, ERR_INVALID_PRESSURE_ANGLE,
-    ERR_INVALID_THICKNESS, ERR_INVALID_HELIX_ANGLE
+    ERR_INVALID_THICKNESS, ERR_INVALID_HELIX_ANGLE,
+    PROMPT_SELECT_COMPONENT, PROMPT_SELECT_PLANE, PROMPT_SELECT_POINT,
+    TOOLTIP_PARENT_COMPONENT, TOOLTIP_PLANE, TOOLTIP_ANCHOR_POINT,
+    DEFAULT_MODULE_MM, DEFAULT_TOOTH_NUMBER, DEFAULT_PRESSURE_ANGLE_DEG,
+    DEFAULT_BORE_DIAMETER_STR, DEFAULT_THICKNESS_MM, DEFAULT_CHAMFER_TOOTH_MM,
+    DEFAULT_SKETCH_ONLY
 )
 
 
@@ -399,3 +407,174 @@ def parse_bevel_gear_inputs(
     params['sketch_only'] = sketch_only
 
     return params
+
+
+def add_parent_component_input(
+    inputs: adsk.core.CommandInputs,
+    design: adsk.fusion.Design
+) -> adsk.core.SelectionCommandInput:
+    """
+    Create parent component selection input.
+
+    Creates a selection input that allows the user to select a parent component
+    (either an Occurrence or RootComponent) to attach the gear to. The root
+    component is pre-selected by default.
+
+    Args:
+        inputs: The CommandInputs collection to add the input to
+        design: The Fusion 360 design (needed to get root component)
+
+    Returns:
+        The created SelectionCommandInput
+    """
+    component_input = inputs.addSelectionInput(
+        INPUT_PARENT_COMPONENT,
+        PROMPT_SELECT_COMPONENT,
+        TOOLTIP_PARENT_COMPONENT
+    )
+    component_input.addSelectionFilter(adsk.core.SelectionCommandInput.Occurrences)
+    component_input.addSelectionFilter(adsk.core.SelectionCommandInput.RootComponents)
+    component_input.setSelectionLimits(1)
+    component_input.addSelection(design.rootComponent)
+    return component_input
+
+
+def add_plane_input(
+    inputs: adsk.core.CommandInputs
+) -> adsk.core.SelectionCommandInput:
+    """
+    Create plane selection input.
+
+    Creates a selection input that allows the user to select a plane to position
+    the gear on. Accepts both construction planes and planar faces.
+
+    Args:
+        inputs: The CommandInputs collection to add the input to
+
+    Returns:
+        The created SelectionCommandInput
+    """
+    plane_input = inputs.addSelectionInput(
+        INPUT_PLANE,
+        PROMPT_SELECT_PLANE,
+        TOOLTIP_PLANE
+    )
+    plane_input.addSelectionFilter(adsk.core.SelectionCommandInput.ConstructionPlanes)
+    plane_input.addSelectionFilter(adsk.core.SelectionCommandInput.PlanarFaces)
+    plane_input.setSelectionLimits(1)
+    return plane_input
+
+
+def add_anchor_point_input(
+    inputs: adsk.core.CommandInputs
+) -> adsk.core.SelectionCommandInput:
+    """
+    Create anchor point selection input.
+
+    Creates a selection input that allows the user to select a point to anchor
+    the gear center. Accepts both construction points and sketch points.
+
+    Args:
+        inputs: The CommandInputs collection to add the input to
+
+    Returns:
+        The created SelectionCommandInput
+    """
+    point_input = inputs.addSelectionInput(
+        INPUT_ANCHOR_POINT,
+        PROMPT_SELECT_POINT,
+        TOOLTIP_ANCHOR_POINT
+    )
+    point_input.addSelectionFilter(adsk.core.SelectionCommandInput.ConstructionPoints)
+    point_input.addSelectionFilter(adsk.core.SelectionCommandInput.SketchPoints)
+    point_input.setSelectionLimits(1)
+    return point_input
+
+
+def configure_spur_gear_inputs(cmd: adsk.core.Command) -> adsk.core.CommandInputs:
+    """
+    Configure command inputs for spur gear generation.
+
+    Creates and configures all UI input controls needed for spur gear generation.
+    This includes selection inputs for parent component, plane, and anchor point,
+    plus value inputs for all gear parameters (module, tooth number, pressure
+    angle, bore diameter, thickness, chamfer, and sketch-only mode).
+
+    The inputs are configured with the following defaults:
+    - Parent component: Root component (pre-selected)
+    - Plane: No default (user must select)
+    - Anchor point: No default (user must select)
+    - Module: 1.0 mm (displayed as "1 mm", stored as 0.1 cm internally)
+    - Tooth number: 17
+    - Pressure angle: 20 degrees (displayed in degrees, stored as radians)
+    - Bore diameter: "0 mm" (string input)
+    - Thickness: 10.0 mm (displayed as "10 mm", stored as 1.0 cm internally)
+    - Chamfer tooth: 0.0 mm (no chamfer by default)
+    - Sketch only: False (generate full 3D body by default)
+
+    Args:
+        cmd: The Command object that will own these inputs
+
+    Returns:
+        The CommandInputs collection with all spur gear inputs configured
+    """
+    inputs = cmd.commandInputs
+    design = get_design()
+
+    # Common selection inputs
+    add_parent_component_input(inputs, design)
+    add_plane_input(inputs)
+    add_anchor_point_input(inputs)
+
+    # Spur gear specific inputs
+    module_input = inputs.addValueInput(
+        INPUT_MODULE,
+        'Module',
+        'mm',
+        adsk.core.ValueInput.createByReal(to_cm(DEFAULT_MODULE_MM))
+    )
+    module_input.isFullWidth = False
+
+    inputs.addValueInput(
+        INPUT_TOOTH_NUMBER,
+        'Tooth Number',
+        '',
+        adsk.core.ValueInput.createByReal(DEFAULT_TOOTH_NUMBER)
+    )
+
+    inputs.addValueInput(
+        INPUT_PRESSURE_ANGLE,
+        'Pressure Angle',
+        'deg',
+        adsk.core.ValueInput.createByReal(math.radians(DEFAULT_PRESSURE_ANGLE_DEG))
+    )
+
+    inputs.addStringValueInput(
+        INPUT_BORE_DIAMETER,
+        'Bore Diameter',
+        DEFAULT_BORE_DIAMETER_STR
+    )
+
+    inputs.addValueInput(
+        INPUT_THICKNESS,
+        'Thickness',
+        'mm',
+        adsk.core.ValueInput.createByReal(to_cm(DEFAULT_THICKNESS_MM))
+    )
+
+    inputs.addValueInput(
+        INPUT_CHAMFER_TOOTH,
+        'Apply chamfer to teeth',
+        'mm',
+        adsk.core.ValueInput.createByReal(to_cm(DEFAULT_CHAMFER_TOOTH_MM))
+    )
+
+    inputs.addBoolValueInput(
+        INPUT_SKETCH_ONLY,
+        'Generate sketches, but do not build body',
+        True,
+        '',
+        DEFAULT_SKETCH_ONLY
+    )
+
+    return inputs

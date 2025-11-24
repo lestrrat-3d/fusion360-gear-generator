@@ -39,6 +39,18 @@ class GenerationState:
     extrusion_end_plane: Optional[adsk.fusion.ConstructionPlane] = None
     tooth_profile_is_embedded: bool = False
 
+    # Circle references for tooth profile generation (spur gears)
+    root_circle: Optional[adsk.fusion.SketchCircle] = None
+    base_circle: Optional[adsk.fusion.SketchCircle] = None
+    pitch_circle: Optional[adsk.fusion.SketchCircle] = None
+    tip_circle: Optional[adsk.fusion.SketchCircle] = None
+
+    # Parameter names for bevel gear dimension expressions
+    root_circle_param_name: Optional[str] = None
+    base_circle_param_name: Optional[str] = None
+    pitch_circle_param_name: Optional[str] = None
+    tip_circle_param_name: Optional[str] = None
+
     # Helical gear specific fields
     helix_plane: Optional[adsk.fusion.ConstructionPlane] = None
     twisted_sketch: Optional[adsk.fusion.Sketch] = None

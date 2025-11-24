@@ -1,6 +1,6 @@
 """Helper for building Fusion 360 parameter expressions using constants."""
 
-from lib.geargen.utilities import make_param_name
+from .core import make_param_name
 
 
 class ParamExpression:
