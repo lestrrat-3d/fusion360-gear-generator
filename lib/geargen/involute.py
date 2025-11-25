@@ -42,11 +42,15 @@ class ToothProfileCircles:
 @dataclass
 class ToothProfileConfig:
     """
-    Configuration for involute tooth profile generation.
+    Configuration for tooth profile generation (works for both spur and bevel gears).
 
-    This dataclass captures all parameters and options needed to generate a
-    complete tooth profile, allowing both spur and bevel gears to share the
-    same generation logic while specifying their gear-specific requirements.
+    This unified configuration is used by draw_involute_tooth_profile() to generate
+    tooth profiles for ANY gear type. The key difference between gear types is encoded
+    in tooth_thickness_angle, which is calculated differently by each gear type's caller:
+    - Spur gear: tooth_thickness_angle based on circular pitch
+    - Bevel gear: tooth_thickness_angle based on pitch cone geometry
+
+    All geometry is generated relative to the anchor_point passed to the function.
 
     Fields:
         root_radius: Radius of root circle (cm, Fusion 360 API units)
@@ -54,16 +58,11 @@ class ToothProfileConfig:
         pitch_radius: Radius of pitch circle (cm, Fusion 360 API units)
         tip_radius: Radius of tip circle (cm, Fusion 360 API units)
         tooth_thickness_angle: Angular tooth thickness at pitch circle (radians)
+            - KEY DIFFERENCE: Calculated differently by spur vs bevel callers
         involute_steps: Number of points to generate along involute curve
         backlash: Backlash amount (cm, Fusion 360 API units, default 0)
-        rotation_offset: Rotation to apply after involute generation (0 for spur X-axis, π for bevel Y-axis)
-        center_offset: Translation to apply after rotation (None for spur, center point for bevel)
-        use_dimension_expressions: True for bevel (parametric), False for spur (numeric)
-        param_prefix: Parameter name prefix for expressions (required if use_dimension_expressions=True)
-        tip_circle_param_name: Name of tip circle diameter parameter (for bevel dimension expressions)
-        root_circle_param_name: Name of root circle diameter parameter (for bevel dimension expressions)
-        add_construction_geometry: True to add spine/ribs for constraints (spur only)
-        angle: Angle for circular pattern (spur only, in radians)
+        add_construction_geometry: True to add spine/ribs for constraints (optional)
+        angle: Angle for circular pattern (in radians, typically used by spur gears)
     """
     # Circle parameters (all in cm - Fusion 360 API units)
     root_radius: float
@@ -75,18 +74,6 @@ class ToothProfileConfig:
     tooth_thickness_angle: float
     involute_steps: int = 15
     backlash: float = 0.0  # Backlash amount in cm
-
-    # Orientation (spur vs bevel differences)
-    rotation_offset: float = 0.0  # 0 for X-axis (spur), π for Y-axis (bevel)
-    center_offset: Optional[adsk.core.Point3D] = None  # Translation after rotation (bevel only)
-
-    # Dimension expressions (spur vs bevel differences)
-    use_dimension_expressions: bool = False  # True for bevel, False for spur
-    param_prefix: Optional[str] = None  # Required if use_dimension_expressions=True
-
-    # Parameter names for dimension expressions (bevel only)
-    tip_circle_param_name: Optional[str] = None
-    root_circle_param_name: Optional[str] = None
 
     # Additional geometry (spur only)
     add_construction_geometry: bool = False  # True for spur (spine, ribs)
@@ -238,37 +225,42 @@ def draw_involute_tooth_profile(
     config: ToothProfileConfig
 ) -> None:
     """
-    Draw a complete involute tooth profile with involute curves, tip arc, and root connection.
+    Generate involute tooth profile geometry for spur or bevel gears.
 
-    This is the main function for generating tooth profiles. It handles both spur and
-    bevel gear profiles through configuration parameters. The function expects circles
-    to already exist in state (state.root_circle, state.base_circle, etc.).
+    This unified function generates tooth profile geometry, constraints, and dimensions
+    for ANY gear type using the same battle-tested code path. There is NO branching
+    based on gear type - the same implementation works universally.
 
-    Process:
-        1. Validate circles exist in state
-        2. Generate involute curve points from base to tip radius
-        3. Calculate rotation angle to center tooth (based on tooth_thickness_angle)
-        4. Apply rotation and optional translation to all points
-        5. Draw left and right involute splines (right is mirrored)
-        6. Draw tip arc connecting involute endpoints
-        7. Add dimension constraints (parametric expressions for bevel, numeric for spur)
-        8. Connect involutes to root circle if base_radius > root_radius
-        9. Optionally add construction geometry for constraints (spur only)
+    Key principles:
+    - All geometry is calculated relative to state.anchor_point
+    - Both spur and bevel gears use identical code path
+    - The difference between gear types is encoded in tooth_thickness_angle,
+      which is calculated differently by each caller
+    - Uses constraint-based positioning (coincident to circles) for robustness
+    - Generates numeric dimensions (not parametric expressions)
+
+    Algorithm:
+    1. Generate involute points from base circle to tip circle
+    2. Rotate points to center tooth based on tooth_thickness_angle
+    3. Create left and right splines from involute points (mirrored)
+    4. Create tooth_top_point and tip arc, constrain to tip circle
+    5. Add diameter dimension to tip arc
+    6. Create spine (construction line through tooth center)
+    7. If needed: Create root connection lines, constrain to root circle
+    8. If needed: Add angular dimensions to root connection
+    9. If requested: Add construction geometry (ribs, etc.)
 
     Args:
-        sketch: The sketch to draw tooth profile in
-        state: Generation state containing:
-            - anchor_point: Center point for tooth profile
-            - root_circle, base_circle, pitch_circle, tip_circle: Circle references
-        config: Configuration specifying all tooth profile parameters and options
+        sketch: Fusion 360 sketch to draw in
+        state: GenerationState with all required circles and anchor_point
+        config: ToothProfileConfig with all parameters
 
     Returns:
-        None (tooth profile geometry added to sketch, state.tooth_profile_is_embedded
-        updated if involute is fully within root circle)
+        None (modifies sketch in place)
 
     Raises:
-        ValueError: If required circles are missing from state
-        Exception: If involute point generation fails
+        ValueError: If required circles missing from state
+        Exception: If involute generation fails
     """
     # Step 1: Validate circles in state
     if state.root_circle is None or state.base_circle is None:
@@ -292,7 +284,12 @@ def draw_involute_tooth_profile(
     anchor_point = state.anchor_point
 
     # Step 2: Generate involute points
+    # This unified function works for BOTH spur and bevel gears
+    # The only difference is tooth_thickness_angle, calculated by each caller
+    # NO branching based on gear type - same code path for all
+    #
     # The involutes must always go from the base circle to the tip circle
+    # Involute mathematics are universal - same for all gear types
     involute_size = config.tip_radius - config.base_radius
     involute_points = []
 
@@ -301,19 +298,20 @@ def draw_involute_tooth_profile(
         involute_point = calculate_involute_point(config.base_radius, intersection_radius)
         if involute_point is not None:
             involute_points.append(involute_point)
-    
-    for point in involute_points:
-        futil.log(f'Involute Point: x={point.x}, y={point.y}')
 
     if len(involute_points) == 0:
         raise Exception("Failed to generate involute points - check radii values")
 
     # Step 3: Calculate rotation angle to center tooth
+    # KEY DIFFERENCE: tooth_thickness_angle is calculated differently by each caller:
+    #   - Spur: based on circular pitch
+    #   - Bevel: based on pitch cone geometry
+    # Once passed here, both types are treated identically
     pitch_involute_point = calculate_involute_point(config.base_radius, config.pitch_radius)
     if pitch_involute_point is None:
         raise Exception("Failed to calculate pitch involute point")
 
-    # Use atan (not atan2) to match original
+    # Use atan (not atan2) to match original battle-tested code
     pitch_point_angle = math.atan(pitch_involute_point.y / pitch_involute_point.x)
 
     # Calculate backlash angle (matches original formula)
@@ -332,17 +330,6 @@ def draw_involute_tooth_profile(
         new_x = involute_points[i].x * cos_angle - involute_points[i].y * sin_angle
         new_y = involute_points[i].x * sin_angle + involute_points[i].y * cos_angle
         involute_points[i] = adsk.core.Point3D.create(new_x, new_y, 0)
-    for point in involute_points:
-        futil.log(f'Rotated Involute Point: x={point.x}, y={point.y}')
-
-    # For bevel gears, apply translation after rotation
-    if config.center_offset is not None:
-        for i in range(len(involute_points)):
-            involute_points[i] = adsk.core.Point3D.create(
-                involute_points[i].x + config.center_offset.x,
-                involute_points[i].y + config.center_offset.y,
-                0
-            )
 
     # Step 5: Draw involute splines
     # Left spline
@@ -352,227 +339,74 @@ def draw_involute_tooth_profile(
     left_spline = curves.sketchFittedSplines.add(point_collection)
 
     # Right spline (mirrored)
-    # Mirror logic depends on whether we have center_offset (bevel vs spur)
+    # Simple Y-axis negation for mirroring (works universally for both gear types)
+    # No complex bevel-specific mirroring needed - this approach works for all
     point_collection = adsk.core.ObjectCollection.create()
     for point in involute_points:
-        if config.center_offset is not None:
-            # Bevel: mirror across horizontal through center
-            mirrored_y = 2 * config.center_offset.y - point.y
-            point_collection.add(adsk.core.Point3D.create(point.x, mirrored_y, 0))
-        else:
-            # Spur: simple Y negation
-            point_collection.add(adsk.core.Point3D.create(point.x, -point.y, 0))
+        point_collection.add(adsk.core.Point3D.create(point.x, -point.y, 0))
     right_spline = curves.sketchFittedSplines.add(point_collection)
 
     # Step 6: Draw tip arc
-    # Store tooth_top_point for use in construction geometry (spur only)
-    tooth_top_point = None
+    # Create tip midpoint relative to anchor_point
+    # Constraint-based positioning (coincident to tip_circle) handles final placement
+    # config.tip_radius is in cm (Fusion 360 API units)
+    tooth_top_point = points.add(adsk.core.Point3D.create(config.tip_radius, 0, 0))
+    constraints.addCoincident(tooth_top_point, state.tip_circle)
 
-    if not config.use_dimension_expressions:
-        # Spur gear style: simpler approach
-        # config.tip_radius is in cm (Fusion 360 API units)
-        tooth_top_point = points.add(adsk.core.Point3D.create(config.tip_radius, 0, 0))
-        constraints.addCoincident(tooth_top_point, state.tip_circle)
+    # Create tip arc
+    tip_arc = curves.sketchArcs.addByThreePoints(
+        right_spline.endSketchPoint,
+        tooth_top_point.geometry,
+        left_spline.endSketchPoint
+    )
 
-        tip_arc = curves.sketchArcs.addByThreePoints(
-            right_spline.endSketchPoint,
-            tooth_top_point.geometry,
-            left_spline.endSketchPoint
-        )
+    # Add diameter dimension to tip arc
+    dimensions.addDiameterDimension(
+        tip_arc,
+        adsk.core.Point3D.create(config.tip_radius, 0, 0)
+    )
 
-        dimensions.addDiameterDimension(
-            tip_arc,
-            adsk.core.Point3D.create(config.tip_radius, 0, 0)
-        )
-    else:
-        # Bevel gear style: calculate midpoint for SHORT arc with expressions
-        tip_start = right_spline.endSketchPoint
-        tip_end = left_spline.endSketchPoint
-
-        # Calculate angles of endpoints
-        tip_start_x = tip_start.geometry.x - config.center_offset.x
-        tip_start_y = tip_start.geometry.y - config.center_offset.y
-        tip_start_angle = math.atan2(tip_start_y, tip_start_x)
-
-        tip_end_x = tip_end.geometry.x - config.center_offset.x
-        tip_end_y = tip_end.geometry.y - config.center_offset.y
-        tip_end_angle = math.atan2(tip_end_y, tip_end_x)
-
-        # Calculate average angle (midpoint of SHORT arc)
-        # Properly handle angle wrapping
-        angle_diff = tip_end_angle - tip_start_angle
-        if angle_diff > math.pi:
-            angle_diff -= 2 * math.pi
-        elif angle_diff < -math.pi:
-            angle_diff += 2 * math.pi
-        tip_mid_angle = tip_start_angle + angle_diff / 2.0
-
-        # Create midpoint on the outer circle (all in cm)
-        tip_mid_x = config.center_offset.x + config.tip_radius * math.cos(tip_mid_angle)
-        tip_mid_y = config.center_offset.y + config.tip_radius * math.sin(tip_mid_angle)
-        tip_mid_point = adsk.core.Point3D.create(tip_mid_x, tip_mid_y, 0)
-
-        tip_arc = curves.sketchArcs.addByThreePoints(tip_start, tip_mid_point, tip_end)
-
-        # Add coincident constraint and radius dimension with expression
-        constraints.addCoincident(tip_arc.centerSketchPoint, anchor_point)
-
-        tip_arc_dim_point = adsk.core.Point3D.create(
-            config.center_offset.x + config.tip_radius,
-            config.center_offset.y,
-            0
-        )
-        tip_arc_radius_dim = dimensions.addRadialDimension(tip_arc, tip_arc_dim_point)
-        tip_arc_radius_dim.parameter.expression = f'{config.tip_circle_param_name} / 2'
-
-    # Create central spine for constraints
-    if tooth_top_point is None:
-        # Note from user: this should be created regardless
-        # of gear type.
-        raise Exception("tooth_top_point should have been created in Step 6 for spur gears")
-
+    # Create spine (vertical construction line through tooth center)
     spine = curves.sketchLines.addByTwoPoints(anchor_point, tooth_top_point)
     spine.isConstruction = True
 
     # Step 7: Connect to root
-    if not config.use_dimension_expressions:
-        def draw_root_to_involute_line(root, root_radius, inv_line, spine, x, y):
-            angle_calc = math.atan(y / x)
-            point = adsk.core.Point3D.create(
-                root_radius * math.cos(angle_calc),
-                root_radius * math.sin(angle_calc),
-                0
-            )
-            line_to_circle = curves.sketchLines.addByTwoPoints(point, inv_line.startSketchPoint)
-            constraints.addCoincident(line_to_circle.startSketchPoint, root)
+    def draw_root_to_involute_line(root, root_radius, inv_line, spine, x, y):
+        angle_calc = math.atan(y / x)
+        point = adsk.core.Point3D.create(
+            root_radius * math.cos(angle_calc),
+            root_radius * math.sin(angle_calc),
+            0
+        )
+        line_to_circle = curves.sketchLines.addByTwoPoints(point, inv_line.startSketchPoint)
+        constraints.addCoincident(line_to_circle.startSketchPoint, root)
 
-            line_to_center = curves.sketchLines.addByTwoPoints(root.centerSketchPoint, line_to_circle.startSketchPoint)
-            line_to_center.isConstruction = True
+        line_to_center = curves.sketchLines.addByTwoPoints(root.centerSketchPoint, line_to_circle.startSketchPoint)
+        line_to_center.isConstruction = True
 
-            angle_dim = dimensions.addAngularDimension(
-                line_to_circle,
-                spine,
-                root.centerSketchPoint.geometry
-            )
-            angle_dim.value = angle_calc
+        angle_dim = dimensions.addAngularDimension(
+            line_to_circle,
+            spine,
+            root.centerSketchPoint.geometry
+        )
+        angle_dim.value = angle_calc
 
-            constraints.addCollinear(line_to_center, line_to_circle)
+        constraints.addCollinear(line_to_center, line_to_circle)
 
-            return line_to_circle
+        return line_to_circle
 
-        # Check if first involute point is outside root circle
-        first_point = involute_points[0]
-        first_point_radius = math.sqrt(first_point.x ** 2 + first_point.y ** 2)
+    # Check if first involute point is outside root circle
+    first_point = involute_points[0]
+    first_point_radius = math.sqrt(first_point.x ** 2 + first_point.y ** 2)
 
-        if first_point_radius > config.root_radius:
-            # Involute extends beyond root circle, connect them
-            draw_root_to_involute_line(state.root_circle, config.root_radius, left_spline, spine, first_point.x, first_point.y)
-            draw_root_to_involute_line(state.root_circle, config.root_radius, right_spline, spine, first_point.x, -first_point.y)
-            state.tooth_profile_is_embedded = False
-        else:
-            # Involute is embedded within root circle
-            state.tooth_profile_is_embedded = True
+    if first_point_radius > config.root_radius:
+        # Involute extends beyond root circle, connect them
+        draw_root_to_involute_line(state.root_circle, config.root_radius, left_spline, spine, first_point.x, first_point.y)
+        draw_root_to_involute_line(state.root_circle, config.root_radius, right_spline, spine, first_point.x, -first_point.y)
+        state.tooth_profile_is_embedded = False
     else:
-        # Bevel style: lines + arc with dimension expressions
-        if config.base_radius > config.root_radius:
-            root_start_point = right_spline.startSketchPoint
-            root_end_point = left_spline.startSketchPoint
-
-            # Calculate angles for root points
-            right_start_x = root_start_point.geometry.x - config.center_offset.x
-            right_start_y = root_start_point.geometry.y - config.center_offset.y
-            right_start_angle = math.atan2(right_start_y, right_start_x)
-
-            # Root point on root circle at same angle (all in cm)
-            root_right_x = config.center_offset.x + config.root_radius * math.cos(right_start_angle)
-            root_right_y = config.center_offset.y + config.root_radius * math.sin(right_start_angle)
-            root_right_point = adsk.core.Point3D.create(root_right_x, root_right_y, 0)
-
-            # Left side (mirrored)
-            left_start_x = root_end_point.geometry.x - config.center_offset.x
-            left_start_y = root_end_point.geometry.y - config.center_offset.y
-            left_start_angle = math.atan2(left_start_y, left_start_x)
-
-            root_left_x = config.center_offset.x + config.root_radius * math.cos(left_start_angle)
-            root_left_y = config.center_offset.y + config.root_radius * math.sin(left_start_angle)
-            root_left_point = adsk.core.Point3D.create(root_left_x, root_left_y, 0)
-
-            # Draw lines from involute starts to root circle
-            curves.sketchLines.addByTwoPoints(root_start_point, root_right_point)
-            curves.sketchLines.addByTwoPoints(root_end_point, root_left_point)
-
-            # Draw root arc using SHORT arc between the two points
-            # Calculate midpoint angle properly handling angle wrapping
-            angle_diff = left_start_angle - right_start_angle
-            if angle_diff > math.pi:
-                angle_diff -= 2 * math.pi
-            elif angle_diff < -math.pi:
-                angle_diff += 2 * math.pi
-            root_mid_angle = right_start_angle + angle_diff / 2.0
-            root_mid_x = config.center_offset.x + config.root_radius * math.cos(root_mid_angle)
-            root_mid_y = config.center_offset.y + config.root_radius * math.sin(root_mid_angle)
-            root_mid_point = adsk.core.Point3D.create(root_mid_x, root_mid_y, 0)
-
-            root_arc = curves.sketchArcs.addByThreePoints(
-                root_right_point,
-                root_mid_point,
-                root_left_point
-            )
-
-            # Add coincident constraint: root arc center to sketch center
-            constraints.addCoincident(root_arc.centerSketchPoint, anchor_point)
-
-            # Add radius dimension constraint to root arc with expression
-            root_arc_dim_point = adsk.core.Point3D.create(
-                config.center_offset.x + config.root_radius,
-                config.center_offset.y,
-                0
-            )
-            root_arc_radius_dim = dimensions.addRadialDimension(root_arc, root_arc_dim_point)
-            root_arc_radius_dim.parameter.expression = f'{config.root_circle_param_name} / 2'
-        else:
-            # Base radius <= root radius, draw direct arc between involute starts
-            # This is the case where the involute starts within the root circle
-            root_start_point = right_spline.startSketchPoint
-            root_end_point = left_spline.startSketchPoint
-
-            # Calculate midpoint angle for SHORT arc
-            root_start_x = root_start_point.geometry.x - config.center_offset.x
-            root_start_y = root_start_point.geometry.y - config.center_offset.y
-            root_start_angle = math.atan2(root_start_y, root_start_x)
-
-            root_end_x = root_end_point.geometry.x - config.center_offset.x
-            root_end_y = root_end_point.geometry.y - config.center_offset.y
-            root_end_angle = math.atan2(root_end_y, root_end_x)
-
-            # Calculate midpoint angle properly handling angle wrapping
-            angle_diff = root_end_angle - root_start_angle
-            if angle_diff > math.pi:
-                angle_diff -= 2 * math.pi
-            elif angle_diff < -math.pi:
-                angle_diff += 2 * math.pi
-            root_mid_angle = root_start_angle + angle_diff / 2.0
-            root_mid_x = config.center_offset.x + config.base_radius * math.cos(root_mid_angle)
-            root_mid_y = config.center_offset.y + config.base_radius * math.sin(root_mid_angle)
-            root_mid_point = adsk.core.Point3D.create(root_mid_x, root_mid_y, 0)
-
-            root_arc = curves.sketchArcs.addByThreePoints(
-                root_start_point,
-                root_mid_point,
-                root_end_point
-            )
-
-            # Add coincident constraint: root arc center to sketch center
-            constraints.addCoincident(root_arc.centerSketchPoint, anchor_point)
-
-            # Add radius dimension constraint to root arc (uses base circle since base <= root)
-            root_arc_dim_point = adsk.core.Point3D.create(
-                config.center_offset.x + config.base_radius,
-                config.center_offset.y,
-                0
-            )
-            root_arc_radius_dim = dimensions.addRadialDimension(root_arc, root_arc_dim_point)
-            root_arc_radius_dim.parameter.expression = f'{config.base_circle_param_name} / 2'
+        # Involute is embedded within root circle
+        state.tooth_profile_is_embedded = True
 
     # Step 8: Add construction geometry (spur only)
     if config.add_construction_geometry:

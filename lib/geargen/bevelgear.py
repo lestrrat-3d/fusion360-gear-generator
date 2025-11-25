@@ -1781,12 +1781,6 @@ def draw_spur_tooth_profile(state: GenerationState, spec: BevelGearSpec) -> Gene
         tooth_thickness_angle=tooth_thickness_angle,
         involute_steps=20,
         backlash=0.0,  # Backlash in cm (matches original default)
-        rotation_offset=math.pi,  # Tooth centered on Y-axis
-        center_offset=center.geometry,
-        use_dimension_expressions=True,  # Parametric dimensions
-        param_prefix=state.param_prefix,
-        tip_circle_param_name=state.tip_circle_param_name,
-        root_circle_param_name=state.root_circle_param_name,
         add_construction_geometry=False,  # No spine/ribs
         angle=0.0
     )

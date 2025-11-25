@@ -1283,12 +1283,6 @@ def draw_involute_tooth(
         tooth_thickness_angle=tooth_thickness_angle,
         involute_steps=spec.involute_steps,
         backlash=0.0,  # Backlash in cm (matches original default)
-        rotation_offset=0.0,  # Not used for spur gears (set to 0 for clarity)
-        center_offset=None,  # No translation
-        use_dimension_expressions=False,  # Numeric dimensions only
-        param_prefix=None,
-        tip_circle_param_name=None,
-        root_circle_param_name=None,
         add_construction_geometry=True,  # Spine, ribs, constraints
         angle=angle
     )
