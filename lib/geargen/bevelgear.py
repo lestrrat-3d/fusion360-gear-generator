@@ -1760,9 +1760,9 @@ def draw_spur_tooth_profile(state: GenerationState, spec: BevelGearSpec) -> Gene
     create_tooth_profile_circles_for_bevel(sketch, center, state, spec, zv)
 
     # Calculate parameters
-    # NOTE: spec.module is in cm (Fusion API units), use directly without conversion
+    # NOTE: spec.module is in mm (from user input), convert to cm for Fusion 360 API
     # All calculations in cm to match Fusion 360 API
-    module_cm = spec.module
+    module_cm = to_cm(spec.module)  # Convert mm to cm
     pitch_radius_cm = (module_cm * zv) / 2.0
     base_radius_cm = pitch_radius_cm * math.cos(math.radians(spec.pressure_angle))
     outer_radius_cm = pitch_radius_cm + module_cm
