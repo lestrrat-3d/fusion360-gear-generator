@@ -260,8 +260,9 @@ class BevelGearSpec:
     root_cone_angle: float = field(init=False)
     tip_cone_angle: float = field(init=False)
     driving_gear_virtual_teeth_number: int = field(init=False)
+    profile_tooth_number: float = field(init=False)
 
-    # Circle radii for tooth profile (based on virtual teeth number)
+    # Circle radii for tooth profile (based on profile tooth number)
     pitch_circle_radius: float = field(init=False)
     base_circle_radius: float = field(init=False)
     root_circle_radius: float = field(init=False)
@@ -299,13 +300,19 @@ class BevelGearSpec:
         # For general case, we use the actual pitch cone angle
         self.driving_gear_virtual_teeth_number = math.ceil(self.tooth_number / math.cos(self.pitch_cone_angle))
 
-        # Calculate circle radii using virtual teeth number (for tooth profile sketches)
+        # Calculate profile tooth number to align root circle radius with P5->P7 length
+        # P5->P7 length = ((module * tooth_number) / 2) + 0.05 (in cm, 0.5mm margin)
+        # Root circle radius = ((module * profile_tooth_number) / 2) - 1.25 * module
+        # Setting them equal: profile_tooth_number = tooth_number + (0.1 / module_cm) + 2.5
         module_cm = self.module / 10.0  # Convert mm to cm for Fusion 360 API
-        pitch_radius_vt = (module_cm * self.driving_gear_virtual_teeth_number) / 2.0
-        self.pitch_circle_radius = pitch_radius_vt
-        self.base_circle_radius = pitch_radius_vt * math.cos(math.radians(self.pressure_angle))
-        self.root_circle_radius = pitch_radius_vt - 1.25 * module_cm
-        self.tip_circle_radius = pitch_radius_vt + module_cm
+        self.profile_tooth_number = self.tooth_number + (0.1 / module_cm) + 2.5
+
+        # Calculate circle radii using profile tooth number (for tooth profile sketches)
+        pitch_radius = (module_cm * self.profile_tooth_number) / 2.0
+        self.pitch_circle_radius = pitch_radius
+        self.base_circle_radius = pitch_radius * math.cos(math.radians(self.pressure_angle))
+        self.root_circle_radius = pitch_radius - 1.25 * module_cm
+        self.tip_circle_radius = pitch_radius + module_cm
 
         # Validation
         if self.tooth_number < 1:

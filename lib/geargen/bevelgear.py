@@ -518,7 +518,8 @@ def draw_apex_diagonal(
 def draw_gear_face_extension(
     state: GenerationState,
     spec: BevelGearSpec,
-    sketch: adsk.fusion.Sketch
+    sketch: adsk.fusion.Sketch,
+    tooth_number: int
 ) -> GenerationState:
     """
     Draw the complete gear-side dual-trapezoid extension (towards lower Y).
@@ -546,6 +547,7 @@ def draw_gear_face_extension(
         state: The generation state containing p1, p2, p4, diagonal, and parameter prefix
         spec: The bevel gear specification
         sketch: The foundation sketch to draw in
+        tooth_number: Number of teeth for this gear (used for P5->P7 length calculation)
 
     Returns:
         Updated GenerationState with p5, p6, p7, p5_p7_line, p7_mid, p8, p9, p10 populated
@@ -647,13 +649,8 @@ def draw_gear_face_extension(
         raise Exception(f"Failed to add vertical constraint to P6->P1 line: {str(e)}")
 
     # Extend P4->P5 line to create P7 (collinear)
-    # Get VirtualTeethNumber parameter for P5->P7 length calculation
-    virtual_teeth_param = get_parameter(state.design, state.param_prefix, 'VirtualTeethNumber')
-    if not virtual_teeth_param:
-        raise Exception("VirtualTeethNumber parameter not found")
-
-    # Calculate P7 position: P5->P7 length = ((Module * VirtualTeethNumber) / 2) + 0.5 - pitch radius of virtual spur gear plus margin
-    p5_p7_length = ((module_param.value * virtual_teeth_param.value) / 2) + 0.5
+    # Calculate P7 position: P5->P7 length = ((Module * ToothNumber) / 2) + 0.05 - pitch radius plus 0.5mm margin
+    p5_p7_length = ((module_param.value * tooth_number) / 2) + 0.05
     p7_pos = adsk.core.Point3D.create(
         p5.geometry.x + perp_vec_x * p5_p7_length,
         p5.geometry.y + perp_vec_y * p5_p7_length,
@@ -683,7 +680,7 @@ def draw_gear_face_extension(
                 0
             )
         )
-        dim_p5_p7.parameter.expression = f'((({make_param_name(state.param_prefix, "Module")} * {make_param_name(state.param_prefix, "VirtualTeethNumber")}) / 2) + 0.5)'
+        dim_p5_p7.parameter.expression = f'((({make_param_name(state.param_prefix, "Module")} * {make_param_name(state.param_prefix, "ToothNumber")}) / 2) + 0.05 cm)'
     except Exception as e:
         raise Exception(f"Failed to add dimension to P5->P7 line: {str(e)}")
 
@@ -883,7 +880,8 @@ def draw_gear_face_extension(
 def draw_mating_face_extension(
     state: GenerationState,
     spec: BevelGearSpec,
-    sketch: adsk.fusion.Sketch
+    sketch: adsk.fusion.Sketch,
+    tooth_number: int
 ) -> GenerationState:
     """
     Draw the complete mating-gear-side dual-trapezoid extension (towards higher Y).
@@ -914,6 +912,7 @@ def draw_mating_face_extension(
         state: The generation state containing p2, p3, p4, diagonal, and parameter prefix
         spec: The bevel gear specification
         sketch: The foundation sketch to draw in
+        tooth_number: Number of teeth for mating gear (used for P11->P13 length calculation)
 
     Returns:
         Updated GenerationState with p11, p12, p13, p14_mid, p14, p15, p16 populated
@@ -1015,13 +1014,8 @@ def draw_mating_face_extension(
         raise Exception(f"Failed to add horizontal constraint to P12->P3 line: {str(e)}")
 
     # Extend P4->P11 line to create P13 (collinear)
-    # Get VirtualTeethNumber parameter for P11->P13 length calculation
-    virtual_teeth_param = get_parameter(state.design, state.param_prefix, 'VirtualTeethNumber')
-    if not virtual_teeth_param:
-        raise Exception("VirtualTeethNumber parameter not found")
-
-    # Calculate P13 position: P11->P13 length = ((Module * VirtualTeethNumber) + 0.5)
-    p11_p13_length = (module_param.value * virtual_teeth_param.value) + 0.5
+    # Calculate P13 position: P11->P13 length = ((Module * MatingToothNumber) / 2) + 0.05 - pitch radius plus 0.5mm margin
+    p11_p13_length = ((module_param.value * tooth_number) / 2) + 0.05
     p13_pos = adsk.core.Point3D.create(
         p11.geometry.x + perp_vec_x * p11_p13_length,
         p11.geometry.y + perp_vec_y * p11_p13_length,
@@ -1051,7 +1045,7 @@ def draw_mating_face_extension(
                 0
             )
         )
-        dim_p11_p13.parameter.expression = f'(({make_param_name(state.param_prefix, "Module")} * {make_param_name(state.param_prefix, "VirtualTeethNumber")}) + 0.5)'
+        dim_p11_p13.parameter.expression = f'((({make_param_name(state.param_prefix, "Module")} * {make_param_name(state.param_prefix, "MatingToothNumber")}) / 2) + 0.05 cm)'
     except Exception as e:
         raise Exception(f"Failed to add dimension to P11->P13 line: {str(e)}")
 
@@ -1287,10 +1281,10 @@ def create_foundation_sketch(
     state = draw_apex_diagonal(state, sketch)
 
     # Draw gear-side dual-trapezoid extension (mutates state with p5, p6, p7, p5_p7_line, p7_mid, p8, p9, p10)
-    state = draw_gear_face_extension(state, spec, sketch)
+    state = draw_gear_face_extension(state, spec, sketch, spec.tooth_number)
 
     # Draw mating-side dual-trapezoid extension (mutates state with p11, p12, p13, p14_mid, p14, p15, p16)
-    state = draw_mating_face_extension(state, spec, sketch)
+    state = draw_mating_face_extension(state, spec, sketch, spec.mating_tooth_number)
 
     # Update state with foundation sketch and convenience aliases
     state.foundation_sketch = sketch
@@ -1758,6 +1752,15 @@ def draw_spur_tooth_profile(state: GenerationState, spec: BevelGearSpec) -> Gene
     # Set anchor_point for bevel gears (required by draw_spur_gear_circles)
     state.anchor_point = center
 
+    # DIAGNOSTIC: Print BevelGearSpec circle radius values
+    futil.log(f"[CIRCLE_DIAGNOSTIC] spec.module (input) = {spec.module}")
+    futil.log(f"[CIRCLE_DIAGNOSTIC] spec.driving_gear_virtual_teeth_number = {spec.driving_gear_virtual_teeth_number}")
+    futil.log(f"[CIRCLE_DIAGNOSTIC] spec.pitch_circle_radius = {spec.pitch_circle_radius}")
+    futil.log(f"[CIRCLE_DIAGNOSTIC] spec.root_circle_radius = {spec.root_circle_radius}")
+    futil.log(f"[CIRCLE_DIAGNOSTIC] spec.base_circle_radius = {spec.base_circle_radius}")
+    futil.log(f"[CIRCLE_DIAGNOSTIC] spec.tip_circle_radius = {spec.tip_circle_radius}")
+    futil.log(f"[CIRCLE_DIAGNOSTIC] Formula: module_cm / 10.0, then (module_cm * Zv / 2) - 1.25 * module_cm")
+
     # Use the unified spur gear circle function (same as spur/helical/herringbone gears)
     # BevelGearSpec now has compatible circle radius fields based on virtual teeth number
     draw_spur_gear_circles(sketch, state, spec)
@@ -1791,6 +1794,9 @@ def draw_spur_tooth_profile(state: GenerationState, spec: BevelGearSpec) -> Gene
             f"Could not find angular dimension in tooth profile sketch. "
             f"Sketch has {sketch.sketchDimensions.count} dimensions."
         )
+
+    # Hide the tooth profile sketch (keep it invisible in UI)
+    sketch.isVisible = False
 
     return state
 
@@ -2122,10 +2128,47 @@ def create_base_gear_body(state: GenerationState, spec: BevelGearSpec) -> Genera
             f"Found {profiles.count} profiles total."
         )
 
+    # Find the triangular profile enclosed by P9, P10, P5
+    # This is the inner region that should also be revolved
+    triangular_profile = None
+    for i in range(profiles.count):
+        profile = profiles.item(i)
+        # Check if this profile contains P9, P10, and P5 as vertices
+        has_p9 = False
+        has_p10 = False
+        has_p5 = False
+
+        for loop in profile.profileLoops:
+            for curve in loop.profileCurves:
+                if isinstance(curve.sketchEntity, adsk.fusion.SketchLine):
+                    line = curve.sketchEntity
+                    if line.startSketchPoint == state.p9 or line.endSketchPoint == state.p9:
+                        has_p9 = True
+                    if line.startSketchPoint == state.p10 or line.endSketchPoint == state.p10:
+                        has_p10 = True
+                    if line.startSketchPoint == state.p5 or line.endSketchPoint == state.p5:
+                        has_p5 = True
+
+        # The triangular profile has all three vertices and is NOT the same as the hexagonal profile
+        if has_p9 and has_p10 and has_p5 and profile != target_profile:
+            triangular_profile = profile
+            break
+
+    if triangular_profile is None:
+        raise Exception(
+            f"Cannot identify triangular profile (P9-P10-P5) in foundation sketch. "
+            f"Found {profiles.count} profiles total."
+        )
+
+    # Create an ObjectCollection containing both profiles
+    profiles_to_revolve = adsk.core.ObjectCollection.create()
+    profiles_to_revolve.add(target_profile)
+    profiles_to_revolve.add(triangular_profile)
+
     # Create revolve feature in design_component (where the profile and axis live)
     revolveFeatures = state.design_component.features.revolveFeatures
     revolve_input = revolveFeatures.createInput(
-        target_profile,
+        profiles_to_revolve,
         p1_p2_line,
         adsk.fusion.FeatureOperations.NewBodyFeatureOperation
     )
@@ -2141,7 +2184,7 @@ def create_base_gear_body(state: GenerationState, spec: BevelGearSpec) -> Genera
     if revolve_feature is None or revolve_feature.bodies.count == 0:
         raise Exception("Failed to create base gear body by revolve")
 
-    # Store the resulting body
+    # Store the resulting body (profiles create a single unified body)
     base_gear_body = revolve_feature.bodies.item(0)
     state.base_gear_body = base_gear_body
 
@@ -2339,17 +2382,14 @@ def join_tooth_to_gear_body(state: GenerationState, spec: BevelGearSpec) -> Gene
     if combine_feature is None:
         raise Exception("Combine feature returned None (join failed)")
 
-    # After join, the target body (base_gear_body) is modified
-    # The combine feature's targetBody property gives us the result
-    joined_body = combine_feature.targetBody
+    # After join operation, base_gear_body is modified in place
+    # Use the base_gear_body reference directly (it's the same body, now joined with the tooth)
+    joined_body = state.base_gear_body
 
-    if joined_body is None:
-        raise Exception("Joined body is None after combine operation")
-
-    if not joined_body.isValid:
+    if joined_body is None or not joined_body.isValid:
         raise Exception("Joined body is invalid after combine operation")
 
-    # Store joined body
+    # Store joined body (same reference as base_gear_body after the join)
     state.joined_body = joined_body
 
     # Verify joined body volume increased (tooth added to base)
@@ -2439,8 +2479,17 @@ def identify_cutting_faces(state: GenerationState, spec: BevelGearSpec) -> Gener
             cutting_faces_p5_p7.append(face)
 
     # Combine both sets of cutting faces
-    # Remove duplicates if any
-    cutting_faces = list(set(cutting_faces_p9_p10 + cutting_faces_p5_p7))
+    # Remove duplicates manually (BRepFace is not hashable, can't use set())
+    cutting_faces = cutting_faces_p9_p10[:]  # Start with p9_p10 faces
+    for face in cutting_faces_p5_p7:
+        # Check if this face is already in the list (by object identity)
+        already_added = False
+        for existing_face in cutting_faces:
+            if face == existing_face:
+                already_added = True
+                break
+        if not already_added:
+            cutting_faces.append(face)
 
     if len(cutting_faces) == 0:
         raise Exception(
@@ -2469,9 +2518,9 @@ def face_intersects_line_planar(face, p1, p2) -> bool:
     Returns:
         True if face intersects the line segment
     """
-    # Get face plane (only works for planar faces)
-    if not hasattr(face.geometry, 'origin'):
-        # Face is not planar, use sampling approach
+    # Check if face is planar (only Plane geometry has 'normal' attribute)
+    # For non-planar faces (Cone, Cylinder, Sphere, etc.), use sampling approach
+    if not isinstance(face.geometry, adsk.core.Plane):
         return face_intersects_line_sampling(face, p1, p2)
 
     try:
@@ -2517,15 +2566,21 @@ def face_intersects_line_planar(face, p1, p2) -> bool:
     )
 
     # Check if intersection point is within face bounds
-    # Use face evaluator
+    # Use face evaluator to check if the point is on the face surface
     evaluator = face.evaluator
-    (returnValue, closest_point_on_face) = evaluator.getPointOnFace(intersection_point)
+    (returnValue, parameter) = evaluator.getParameterAtPoint(intersection_point)
 
     if not returnValue:
         return False
 
+    # Get the actual point on the surface at this parameter
+    (success, point_on_surface) = evaluator.getPointAtParameter(parameter)
+
+    if not success:
+        return False
+
     # Check if intersection point is very close to face surface
-    distance = intersection_point.distanceTo(closest_point_on_face)
+    distance = intersection_point.distanceTo(point_on_surface)
     return distance < 0.1  # 1mm tolerance (0.1cm)
 
 
@@ -2541,8 +2596,10 @@ def face_intersects_line_sampling(face, p1, p2) -> bool:
     Returns:
         True if face intersects the line segment
     """
-    # Sample points along line, check if any are on face
+    # Sample points along line, check if any are on or near the face
     num_samples = 20
+    evaluator = face.evaluator
+
     for i in range(num_samples + 1):
         t = i / num_samples
         # Interpolate between p1 and p2
@@ -2552,28 +2609,34 @@ def face_intersects_line_sampling(face, p1, p2) -> bool:
             p1.z + t * (p2.z - p1.z)
         )
 
-        # Check if sample point is on or very close to face
-        evaluator = face.evaluator
-        (returnValue, closest_point_on_face) = evaluator.getPointOnFace(sample_point)
+        # Try to get parameter at the sample point
+        # If successful, the point is on or very close to the surface
+        (returnValue, parameter) = evaluator.getParameterAtPoint(sample_point)
 
         if returnValue:
-            distance = sample_point.distanceTo(closest_point_on_face)
-            if distance < 0.01:  # 0.1mm tolerance (0.01cm)
-                return True
+            # Get the actual point on the surface at this parameter
+            (success, point_on_surface) = evaluator.getPointAtParameter(parameter)
+
+            if success:
+                # Check if the reconstructed point is close to our sample point
+                distance = sample_point.distanceTo(point_on_surface)
+                if distance < 0.01:  # 0.1mm tolerance (0.01cm)
+                    return True
 
     return False
 
 
 def cut_body_with_faces(state: GenerationState, spec: BevelGearSpec) -> GenerationState:
     """
-    Cut the joined body using construction planes derived from the cutting lines P9->P10 and P5->P7.
+    Cut the joined body using conical faces from the base_gear_body.
 
-    This function creates construction planes from the two cutting lines (inner and outer diagonals)
-    and uses them to split the joined body into multiple segments. The cutting planes extend
-    infinitely, trimming the tooth to the correct bevel gear conical boundaries.
+    This function uses the base_gear_body (with its conical faces from the revolve operation)
+    as a splitting tool to trim the joined body (base + lofted tooth) to the correct bevel
+    gear boundaries. The conical faces define the inner and outer tooth boundaries along
+    the bevel gear cone.
 
     Args:
-        state: The current generation state with joined_body, foundation_sketch, and cutting face points
+        state: The current generation state with joined_body, base_gear_body, and cutting_faces
         spec: The bevel gear specification (for reference)
 
     Returns:
@@ -2586,122 +2649,45 @@ def cut_body_with_faces(state: GenerationState, spec: BevelGearSpec) -> Generati
     if not hasattr(state, 'joined_body') or state.joined_body is None:
         raise Exception("Cannot cut body: joined_body is missing")
 
-    # Find P9->P10 line (inner diagonal on gear side)
-    p9_p10_line = None
-    for curve in state.foundation_sketch.sketchCurves.sketchLines:
-        if ((curve.startSketchPoint.geometry.isEqualTo(state.p9.geometry) and
-             curve.endSketchPoint.geometry.isEqualTo(state.p10.geometry)) or
-            (curve.startSketchPoint.geometry.isEqualTo(state.p10.geometry) and
-             curve.endSketchPoint.geometry.isEqualTo(state.p9.geometry))):
-            p9_p10_line = curve
-            break
+    if not hasattr(state, 'base_gear_body') or state.base_gear_body is None:
+        raise Exception("Cannot cut body: base_gear_body is missing")
 
-    if p9_p10_line is None:
-        raise Exception("Cannot find P9->P10 line in foundation sketch for cutting plane creation")
+    if not state.joined_body.isValid:
+        raise Exception("Cannot cut body: joined_body is invalid")
 
-    # Find P5->P7 line (outer diagonal on gear side)
-    # This should already be stored in state from Phase 1
-    if not hasattr(state, 'p5_p7_line') or state.p5_p7_line is None:
-        # Fallback: search for it
-        p5_p7_line = None
-        for curve in state.foundation_sketch.sketchCurves.sketchLines:
-            if ((curve.startSketchPoint.geometry.isEqualTo(state.p5.geometry) and
-                 curve.endSketchPoint.geometry.isEqualTo(state.p7.geometry)) or
-                (curve.startSketchPoint.geometry.isEqualTo(state.p7.geometry) and
-                 curve.endSketchPoint.geometry.isEqualTo(state.p5.geometry))):
-                p5_p7_line = curve
-                break
-        if p5_p7_line is None:
-            raise Exception("Cannot find P5->P7 line for cutting plane creation")
-    else:
-        p5_p7_line = state.p5_p7_line
+    if not state.base_gear_body.isValid:
+        raise Exception("Cannot cut body: base_gear_body is invalid")
 
-    # Create construction planes from the cutting lines
-    # These planes will extend infinitely in 3D and slice the joined body
-
-    # Construction plane 1: From P9->P10 line
-    plane_input_1 = state.gear_component.constructionPlanes.createInput()
-    # Use setByTwoLines approach: create plane containing P9->P10 line and P1->P2 axis
-    # Find P1->P2 axis
-    p1 = state.foundation_sketch.sketchPoints.item(0)
-    p2 = state.apex_point
-    p1_p2_line = None
-    for curve in state.foundation_sketch.sketchCurves.sketchLines:
-        if ((curve.startSketchPoint.geometry.isEqualTo(p1.geometry) and
-             curve.endSketchPoint.geometry.isEqualTo(p2.geometry)) or
-            (curve.startSketchPoint.geometry.isEqualTo(p2.geometry) and
-             curve.endSketchPoint.geometry.isEqualTo(p1.geometry))):
-            p1_p2_line = curve
-            break
-
-    if p1_p2_line is None:
-        raise Exception("Cannot find P1->P2 axis line for cutting plane creation")
-
-    # Create plane containing P9->P10 and parallel to P1->P2 axis
-    # Use setByLineAndPlane: create offset plane from foundation plane through the line
-    plane_input_1.setByTwoLines(p9_p10_line, p1_p2_line)
-    cutting_plane_1 = state.gear_component.constructionPlanes.add(plane_input_1)
-    cutting_plane_1.name = "Cutting Plane P9-P10"
-
-    # Construction plane 2: From P5->P7 line
-    plane_input_2 = state.gear_component.constructionPlanes.createInput()
-    plane_input_2.setByTwoLines(p5_p7_line, p1_p2_line)
-    cutting_plane_2 = state.gear_component.constructionPlanes.add(plane_input_2)
-    cutting_plane_2.name = "Cutting Plane P5-P7"
-
-    # Now use splitBody features to split the joined body with these planes
+    # Use splitBody feature to split joined_body using base_gear_body as cutting tool
+    # The base_gear_body contains the conical faces that define the bevel gear boundaries
     splitBodyFeatures = state.design_component.features.splitBodyFeatures
 
-    # Split with first cutting plane (P9->P10)
-    split_input_1 = splitBodyFeatures.createInput(
-        state.joined_body,
-        cutting_plane_1,
-        True  # keepBothSides
+    # Create split input with base_gear_body as the splitting tool
+    split_input = splitBodyFeatures.createInput(
+        state.joined_body,        # Body to be split
+        state.base_gear_body,     # Splitting tool (contains conical faces)
+        True                      # keepBothSides - keep all resulting bodies
     )
+
     try:
-        split_feature_1 = splitBodyFeatures.add(split_input_1)
+        split_feature = splitBodyFeatures.add(split_input)
     except Exception as e:
-        raise Exception(f"Failed to split body with P9->P10 cutting plane: {str(e)}")
+        raise Exception(
+            f"Failed to split joined body with base_gear_body conical faces. "
+            f"Bodies may not intersect properly. Original error: {str(e)}"
+        )
 
-    # After first split, get all bodies
-    # The joined_body may have been replaced or split into multiple bodies
-    all_bodies_after_split_1 = [body for body in state.gear_component.bRepBodies if body.isVisible]
+    if split_feature is None:
+        raise Exception("Split feature returned None (split operation failed)")
 
-    # Split with second cutting plane (P5->P7)
-    # We need to split all visible bodies, not just the original joined_body
-    # In Fusion 360, split may have modified the bodies collection
-    split_input_2 = splitBodyFeatures.createInput(
-        cutting_plane_2,  # Splitting tool
-        cutting_plane_2,  # Bodies to split (will split all that intersect)
-        True  # keepBothSides
-    )
-
-    # Note: The API for splitBodyFeatures may require bodies to be specified differently
-    # Try alternative: split each body individually with the second plane
-    for body in all_bodies_after_split_1:
-        if body.isVisible:
-            try:
-                split_input_2 = splitBodyFeatures.createInput(
-                    body,
-                    cutting_plane_2,
-                    True
-                )
-                split_feature_2 = splitBodyFeatures.add(split_input_2)
-            except:
-                # Body may not intersect this plane, skip
-                pass
-
-    # Collect all final visible bodies after both splits
-    cut_bodies = [body for body in state.gear_component.bRepBodies if body.isVisible]
+    # Collect all visible bodies after split from design_component
+    # The split operation may have created multiple body fragments
+    cut_bodies = [body for body in state.design_component.bRepBodies if body.isVisible]
 
     if len(cut_bodies) == 0:
-        raise Exception("Split operations produced no visible bodies")
+        raise Exception("Split operation produced no visible bodies")
 
     state.cut_bodies = cut_bodies
-
-    # Store cutting planes for potential cleanup
-    state.cutting_plane_1 = cutting_plane_1
-    state.cutting_plane_2 = cutting_plane_2
 
     return state
 
@@ -3072,20 +3058,8 @@ def cleanup_phase2_on_error(state: GenerationState) -> None:
         except:
             pass  # Best effort cleanup
 
-    # Clean up cutting planes (Part 2 - from cut_body_with_faces)
-    try:
-        if hasattr(state, 'cutting_plane_1') and state.cutting_plane_1:
-            if state.cutting_plane_1.isValid:
-                state.cutting_plane_1.deleteMe()
-    except:
-        pass  # Best effort cleanup
-
-    try:
-        if hasattr(state, 'cutting_plane_2') and state.cutting_plane_2:
-            if state.cutting_plane_2.isValid:
-                state.cutting_plane_2.deleteMe()
-    except:
-        pass  # Best effort cleanup
+    # Note: No cutting planes to clean up anymore
+    # The cut_body_with_faces function now uses base_gear_body directly as splitting tool
 
     # Clean up 2D sketch features (Part 1)
     try:
