@@ -1283,7 +1283,6 @@ def draw_involute_tooth(
         tooth_thickness_angle=tooth_thickness_angle,
         involute_steps=spec.involute_steps,
         backlash=0.0,  # Backlash in cm (matches original default)
-        add_construction_geometry=True,  # Spine, ribs, constraints
         angle=angle
     )
 

@@ -107,11 +107,13 @@ import adsk.core
 import adsk.fusion
 from .types import GenerationState, BevelGearSpec
 from .core import create_sketch, get_parameter, create_gear_occurrence, ensure_construction_plane, hide_construction_planes, make_param_name
-from .involute import create_tooth_profile_circles_for_bevel, draw_involute_tooth_profile, ToothProfileConfig
+from .involute import draw_involute_tooth_profile, ToothProfileConfig
+from .spurgear import draw_spur_gear_circles
 from .inputs import parse_bevel_gear_inputs, get_selection_input
 from .components import get_parent_component
 from .parameters import create_bevel_gear_parameters
 from .misc import get_design
+from ...lib import fusion360utils as futil
 
 
 # Helper function to convert mm to cm (Fusion 360 API uses cm internally)
@@ -1753,75 +1755,194 @@ def draw_spur_tooth_profile(state: GenerationState, spec: BevelGearSpec) -> Gene
     sketch = state.tooth_profile_sketch
     center = state.tooth_profile_center_point
 
-    # Get virtual teeth number (Zv)
-    zv = get_virtual_teeth_number(state, spec)
+    # Set anchor_point for bevel gears (required by draw_spur_gear_circles)
+    state.anchor_point = center
 
-    # Create circles with dimension expressions and store in state
-    create_tooth_profile_circles_for_bevel(sketch, center, state, spec, zv)
+    # Use the unified spur gear circle function (same as spur/helical/herringbone gears)
+    # BevelGearSpec now has compatible circle radius fields based on virtual teeth number
+    draw_spur_gear_circles(sketch, state, spec)
 
-    # Calculate parameters
+    # Calculate angular tooth thickness for bevel gear
     # NOTE: spec.module is in mm (from user input), convert to cm for Fusion 360 API
-    # All calculations in cm to match Fusion 360 API
     module_cm = to_cm(spec.module)  # Convert mm to cm
-    pitch_radius_cm = (module_cm * zv) / 2.0
-    base_radius_cm = pitch_radius_cm * math.cos(math.radians(spec.pressure_angle))
-    outer_radius_cm = pitch_radius_cm + module_cm
-    root_radius_cm = pitch_radius_cm - 1.25 * module_cm
-
-    # Angular tooth thickness
     tooth_thickness_pitch = (math.pi * module_cm) / 2.0
-    tooth_thickness_angle = tooth_thickness_pitch / pitch_radius_cm
+    tooth_thickness_angle = tooth_thickness_pitch / spec.pitch_circle_radius
 
     # Create configuration for shared function
     config = ToothProfileConfig(
-        root_radius=root_radius_cm,
-        base_radius=base_radius_cm,
-        pitch_radius=pitch_radius_cm,
-        tip_radius=outer_radius_cm,
+        root_radius=spec.root_circle_radius,
+        base_radius=spec.base_circle_radius,
+        pitch_radius=spec.pitch_circle_radius,
+        tip_radius=spec.tip_circle_radius,
         tooth_thickness_angle=tooth_thickness_angle,
         involute_steps=20,
         backlash=0.0,  # Backlash in cm (matches original default)
-        add_construction_geometry=False,  # No spine/ribs
         angle=0.0
     )
-
-    # Use anchor_point for bevel gears (same as center for this context)
-    state.anchor_point = center
 
     # Call shared function
     draw_involute_tooth_profile(sketch, state, config)
 
+    # Find and store the angular dimension created by draw_involute_tooth_profile()
+    # This dimension controls tooth rotation and will be modified by rotate_tooth_profile_to_align()
+    state.tooth_spine_angular_dimension = find_tooth_spine_angular_dimension(state)
+    if state.tooth_spine_angular_dimension is None:
+        raise Exception(
+            f"Could not find angular dimension in tooth profile sketch. "
+            f"Sketch has {sketch.sketchDimensions.count} dimensions."
+        )
+
     return state
+
+
+def find_tooth_spine_angular_dimension(state: GenerationState) -> Optional[adsk.fusion.SketchAngularDimension]:
+    """
+    Find the angular dimension between tooth spine and horizontal reference.
+
+    This dimension is created by draw_involute_tooth_profile() to control tooth
+    orientation. We identify it by looking for an angular dimension between two
+    perpendicular construction lines that both start at the anchor point.
+
+    Args:
+        state: GenerationState with tooth_profile_sketch and anchor_point
+
+    Returns:
+        The angular dimension, or None if not found
+    """
+    if not state.tooth_profile_sketch or not state.anchor_point:
+        raise Exception("tooth_profile_sketch and anchor_point required in state")
+
+    sketch = state.tooth_profile_sketch
+    anchor_point = state.anchor_point
+
+    futil.log(f"[FIND_DIM] Searching for angular dimension among {sketch.sketchDimensions.count} dimensions")
+    futil.log(f"[FIND_DIM] Anchor point at: ({anchor_point.geometry.x:.4f}, {anchor_point.geometry.y:.4f})")
+
+    angular_dim_count = 0
+    for i in range(sketch.sketchDimensions.count):
+        dim = sketch.sketchDimensions.item(i)
+
+        # Must be angular dimension
+        if not isinstance(dim, adsk.fusion.SketchAngularDimension):
+            continue
+
+        angular_dim_count += 1
+        futil.log(f"[FIND_DIM] Checking angular dimension {angular_dim_count}, value={dim.value:.4f} rad")
+
+        line_one = dim.lineOne
+        line_two = dim.lineTwo
+
+        # Both must be SketchLines
+        if not (isinstance(line_one, adsk.fusion.SketchLine) and isinstance(line_two, adsk.fusion.SketchLine)):
+            futil.log(f"[FIND_DIM]   Skipped: not both SketchLines")
+            continue
+
+        # Both must be construction lines
+        if not (line_one.isConstruction and line_two.isConstruction):
+            futil.log(f"[FIND_DIM]   Skipped: not both construction (line1={line_one.isConstruction}, line2={line_two.isConstruction})")
+            continue
+
+        # Check if either line has anchor_point as start
+        line1_start = line_one.startSketchPoint.geometry
+        line1_end = line_one.endSketchPoint.geometry
+        line2_start = line_two.startSketchPoint.geometry
+        line2_end = line_two.endSketchPoint.geometry
+
+        line1_starts_at_anchor = (
+            abs(line1_start.x - anchor_point.geometry.x) < 0.0001 and
+            abs(line1_start.y - anchor_point.geometry.y) < 0.0001
+        )
+        line2_starts_at_anchor = (
+            abs(line2_start.x - anchor_point.geometry.x) < 0.0001 and
+            abs(line2_start.y - anchor_point.geometry.y) < 0.0001
+        )
+
+        futil.log(f"[FIND_DIM]   Line1: ({line1_start.x:.4f}, {line1_start.y:.4f}) to ({line1_end.x:.4f}, {line1_end.y:.4f}), starts_at_anchor={line1_starts_at_anchor}")
+        futil.log(f"[FIND_DIM]   Line2: ({line2_start.x:.4f}, {line2_start.y:.4f}) to ({line2_end.x:.4f}, {line2_end.y:.4f}), starts_at_anchor={line2_starts_at_anchor}")
+
+        if not (line1_starts_at_anchor and line2_starts_at_anchor):
+            futil.log(f"[FIND_DIM]   Skipped: not both starting at anchor")
+            continue
+
+        # Found it! This is the angular dimension created by draw_involute_tooth_profile()
+        # We don't check perpendicularity because in some cases (like bevel gears) the lines
+        # might be parallel in the local sketch coordinate system
+        futil.log(f"[FIND_DIM] Found matching dimension!")
+        return dim
+
+    futil.log(f"[FIND_DIM] No matching dimension found (checked {angular_dim_count} angular dimensions)")
+    return None
 
 
 def rotate_tooth_profile_to_align(state: GenerationState, spec: BevelGearSpec) -> GenerationState:
     """
-    Rotate the tooth profile to align the tooth centerline with the P5->P7 line direction.
+    Rotate tooth profile to align tooth centerline with P5→P7 direction.
 
-    This function ensures the tooth profile is properly oriented for lofting from the apex.
-    The rotation aligns the tooth centerline with the P5->P7 line.
+    Uses the angular dimension stored in state by draw_spur_tooth_profile() and
+    calculates the required rotation by projecting P5 onto the tooth profile sketch.
 
     Args:
-        state: The current generation state with tooth_profile_sketch
-        spec: The bevel gear specification (for reference)
+        state: GenerationState with tooth_spine_angular_dimension, p5, tooth_profile_sketch
+        spec: BevelGearSpec (for reference)
 
     Returns:
-        Updated GenerationState with aligned tooth profile
-
-    Raises:
-        Exception: If rotation fails or constraints become over-constrained
+        Updated GenerationState with rotated tooth profile
     """
-    # For the simplified tooth profile created in draw_spur_tooth_profile,
-    # the tooth is already aligned with the vertical axis (Y-axis) of the sketch.
-    # Since the sketch is on the plane perpendicular to P5->P7 at P7,
-    # the tooth should already be properly aligned.
+    # Validate state has required fields
+    if not hasattr(state, 'tooth_spine_angular_dimension') or state.tooth_spine_angular_dimension is None:
+        raise Exception("tooth_spine_angular_dimension not found in state")
 
-    # In a complete implementation with involute curves, this function would:
-    # 1. Calculate the angle between tooth centerline and desired orientation
-    # 2. Apply rotation constraint or transform to align the tooth
-    # 3. Verify all constraints remain satisfied
+    if not state.p5 or not state.tooth_profile_sketch or not state.tooth_profile_center_point:
+        raise Exception("Missing required geometry in state (p5, tooth_profile_sketch, or tooth_profile_center_point)")
 
-    # For now, return state unchanged as the simplified tooth is already aligned
+    sketch = state.tooth_profile_sketch
+    anchor_point = state.tooth_profile_center_point
+    angle_dimension = state.tooth_spine_angular_dimension
+
+    futil.log("[TOOTH_ROTATION] Starting tooth profile rotation alignment")
+    futil.log(f"[TOOTH_ROTATION] Current dimension value: {angle_dimension.value:.4f} rad")
+
+    # Project P5 onto tooth profile sketch
+    projected = sketch.project(state.p5)
+    if projected.count == 0:
+        raise Exception("Failed to project P5 onto tooth profile sketch")
+
+    p5_projected = projected.item(0)
+    if not isinstance(p5_projected, adsk.fusion.SketchPoint):
+        raise Exception(f"Projected P5 is not a SketchPoint (got {type(p5_projected).__name__})")
+
+    # Calculate 2D direction vector from anchor to projected P5
+    dx = p5_projected.geometry.x - anchor_point.geometry.x
+    dy = p5_projected.geometry.y - anchor_point.geometry.y
+
+    # Calculate angle using atan2 (handles all quadrants correctly)
+    rotation_angle = math.atan2(dy, dx)
+
+    futil.log(f"[TOOTH_ROTATION] Anchor: ({anchor_point.geometry.x:.4f}, {anchor_point.geometry.y:.4f})")
+    futil.log(f"[TOOTH_ROTATION] Projected P5: ({p5_projected.geometry.x:.4f}, {p5_projected.geometry.y:.4f})")
+    futil.log(f"[TOOTH_ROTATION] Direction: ({dx:.4f}, {dy:.4f})")
+    futil.log(f"[TOOTH_ROTATION] Rotation angle: {rotation_angle:.4f} rad = {math.degrees(rotation_angle):.2f}°")
+
+    # Cleanup temporary projected point
+    try:
+        if p5_projected.isValid:
+            p5_projected.deleteMe()
+    except:
+        futil.log("[TOOTH_ROTATION] Warning: Could not delete projected P5")
+
+    # Update angular dimension to rotate tooth
+    angle_dimension.value = rotation_angle
+    futil.log(f"[TOOTH_ROTATION] Updated dimension to {rotation_angle:.4f} rad")
+
+    # Verify update
+    if abs(angle_dimension.value - rotation_angle) > 0.0001:
+        futil.log(
+            f"[TOOTH_ROTATION] Warning: Dimension after update ({angle_dimension.value:.4f}) "
+            f"doesn't match target ({rotation_angle:.4f})"
+        )
+
+    futil.log("[TOOTH_ROTATION] Rotation completed successfully")
+
     return state
 
 

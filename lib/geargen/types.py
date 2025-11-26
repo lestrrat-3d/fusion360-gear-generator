@@ -261,6 +261,12 @@ class BevelGearSpec:
     tip_cone_angle: float = field(init=False)
     driving_gear_virtual_teeth_number: int = field(init=False)
 
+    # Circle radii for tooth profile (based on virtual teeth number)
+    pitch_circle_radius: float = field(init=False)
+    base_circle_radius: float = field(init=False)
+    root_circle_radius: float = field(init=False)
+    tip_circle_radius: float = field(init=False)
+
     def __post_init__(self):
         """Compute derived parameters based on input parameters."""
         # Pitch calculations
@@ -292,6 +298,14 @@ class BevelGearSpec:
         # For equal tooth numbers (1:1 ratio), delta = 45 degrees
         # For general case, we use the actual pitch cone angle
         self.driving_gear_virtual_teeth_number = math.ceil(self.tooth_number / math.cos(self.pitch_cone_angle))
+
+        # Calculate circle radii using virtual teeth number (for tooth profile sketches)
+        module_cm = self.module / 10.0  # Convert mm to cm for Fusion 360 API
+        pitch_radius_vt = (module_cm * self.driving_gear_virtual_teeth_number) / 2.0
+        self.pitch_circle_radius = pitch_radius_vt
+        self.base_circle_radius = pitch_radius_vt * math.cos(math.radians(self.pressure_angle))
+        self.root_circle_radius = pitch_radius_vt - 1.25 * module_cm
+        self.tip_circle_radius = pitch_radius_vt + module_cm
 
         # Validation
         if self.tooth_number < 1:

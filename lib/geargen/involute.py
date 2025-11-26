@@ -18,8 +18,7 @@ import adsk.core
 import adsk.fusion
 from ...lib import fusion360utils as futil
 
-from .types import GenerationState, BevelGearSpec
-from .core import make_param_name
+from .types import GenerationState
 
 
 @dataclass
@@ -61,7 +60,6 @@ class ToothProfileConfig:
             - KEY DIFFERENCE: Calculated differently by spur vs bevel callers
         involute_steps: Number of points to generate along involute curve
         backlash: Backlash amount (cm, Fusion 360 API units, default 0)
-        add_construction_geometry: True to add spine/ribs for constraints (optional)
         angle: Angle for circular pattern (in radians, typically used by spur gears)
     """
     # Circle parameters (all in cm - Fusion 360 API units)
@@ -75,9 +73,8 @@ class ToothProfileConfig:
     involute_steps: int = 15
     backlash: float = 0.0  # Backlash amount in cm
 
-    # Additional geometry (spur only)
-    add_construction_geometry: bool = False  # True for spur (spine, ribs)
-    angle: float = 0.0  # For spur gear circular pattern
+    # Angular position for tooth orientation
+    angle: float = 0.0  # Angle for circular pattern (in radians)
 
 
 def create_point_relative_to(
@@ -149,108 +146,6 @@ def calculate_involute_point(
         intersection_radius * math.sin(inv_alpha),
         0
     )
-
-
-def create_tooth_profile_circles_for_bevel(
-    sketch: adsk.fusion.Sketch,
-    center_point: adsk.fusion.SketchPoint,
-    state: GenerationState,
-    spec: BevelGearSpec,
-    virtual_teeth_number: int
-) -> None:
-    """
-    Create construction circles with parametric dimension expressions for bevel gear.
-
-    Creates four circles (root, base, pitch, tip) with dimension expressions that
-    link to user parameters. Stores circle references and their parameter names
-    in state fields for later use by the tooth profile drawing function.
-
-    Stores in state:
-        - state.root_circle, state.base_circle, state.pitch_circle, state.tip_circle
-        - state.root_circle_param_name, state.base_circle_param_name, etc.
-
-    Args:
-        sketch: The tooth profile sketch to draw circles in
-        center_point: The center point for all circles (projected P7)
-        state: Generation state to store circle references and parameter names
-        spec: Bevel gear specification
-        virtual_teeth_number: The virtual teeth number (Zv) for this gear
-
-    Returns:
-        None (circles and parameter names stored in state fields)
-    """
-    circles = sketch.sketchCurves.sketchCircles
-    dimensions = sketch.sketchDimensions
-
-    # Calculate radii using virtual teeth number
-    # NOTE: spec.module is in mm (from user input), convert to cm for Fusion 360 API
-    module_cm = spec.module / 10.0  # Convert mm to cm
-    pressure_angle_rad = math.radians(spec.pressure_angle)
-    pitch_radius = (module_cm * virtual_teeth_number) / 2.0
-    base_radius = pitch_radius * math.cos(pressure_angle_rad)
-    outer_radius = pitch_radius + module_cm
-    root_radius = pitch_radius - 1.25 * module_cm
-
-    # Pitch circle (construction) - constrained to Module * VirtualTeethNumber
-    pitch_circle = circles.addByCenterRadius(center_point, pitch_radius)
-    pitch_circle.isConstruction = True
-
-    pitch_dim_point = adsk.core.Point3D.create(
-        center_point.geometry.x + pitch_radius,
-        center_point.geometry.y,
-        0
-    )
-    pitch_dim = dimensions.addDiameterDimension(pitch_circle, pitch_dim_point)
-    pitch_dim.parameter.expression = f'{make_param_name(state.param_prefix, "Module")} * {make_param_name(state.param_prefix, "VirtualTeethNumber")}'
-
-    # Base circle (construction) - constrained to PitchCircleDiameter * cos(PressureAngle)
-    base_circle = circles.addByCenterRadius(center_point, base_radius)
-    base_circle.isConstruction = True
-
-    base_dim_point = adsk.core.Point3D.create(
-        center_point.geometry.x,
-        center_point.geometry.y + base_radius,
-        0
-    )
-    base_dim = dimensions.addDiameterDimension(base_circle, base_dim_point)
-    pitch_param_name = pitch_dim.parameter.name
-    base_dim.parameter.expression = f'{pitch_param_name} * cos({make_param_name(state.param_prefix, "PressureAngle")})'
-
-    # Outer/tip circle (construction) - constrained to PitchCircleDiameter + 2 * Module
-    outer_circle = circles.addByCenterRadius(center_point, outer_radius)
-    outer_circle.isConstruction = True
-
-    outer_dim_point = adsk.core.Point3D.create(
-        center_point.geometry.x - outer_radius,
-        center_point.geometry.y,
-        0
-    )
-    outer_dim = dimensions.addDiameterDimension(outer_circle, outer_dim_point)
-    outer_dim.parameter.expression = f'{pitch_param_name} + 2 * {make_param_name(state.param_prefix, "Module")}'
-
-    # Root circle (construction) - constrained to PitchCircleDiameter - 2.5 * Module
-    root_circle = circles.addByCenterRadius(center_point, root_radius)
-    root_circle.isConstruction = True
-
-    root_dim_point = adsk.core.Point3D.create(
-        center_point.geometry.x,
-        center_point.geometry.y - root_radius,
-        0
-    )
-    root_dim = dimensions.addDiameterDimension(root_circle, root_dim_point)
-    root_dim.parameter.expression = f'{pitch_param_name} - 2.5 * {make_param_name(state.param_prefix, "Module")}'
-
-    # Store circle references in state
-    state.root_circle = root_circle
-    state.base_circle = base_circle
-    state.pitch_circle = pitch_circle
-    state.tip_circle = outer_circle
-
-    # Store parameter names in state for later dimension expressions
-    state.root_circle_param_name = root_dim.parameter.name
-    state.base_circle_param_name = base_dim.parameter.name
-    state.pitch_circle_param_name = pitch_param_name
-    state.tip_circle_param_name = outer_dim.parameter.name
 
 
 def draw_involute_tooth_profile(
@@ -363,7 +258,7 @@ def draw_involute_tooth_profile(
     for i in range(len(involute_points)):
         new_x = involute_points[i].x * cos_angle - involute_points[i].y * sin_angle
         new_y = involute_points[i].x * sin_angle + involute_points[i].y * cos_angle
-        involute_points[i] = adsk.core.Point3D.create(new_x, new_y, 0)
+        involute_points[i] = create_point_relative_to(anchor_point, new_x, new_y)
 
     futil.log(f"[INVOLUTE] rotate_angle = {math.degrees(rotate_angle):.2f}°")
     futil.log(f"[INVOLUTE] First point after rotation: ({involute_points[0].x:.4f}, {involute_points[0].y:.4f})")
@@ -377,19 +272,22 @@ def draw_involute_tooth_profile(
     left_spline = curves.sketchFittedSplines.add(point_collection)
 
     # Right spline (mirrored)
-    # Simple Y-axis negation for mirroring (works universally for both gear types)
-    # No complex bevel-specific mirroring needed - this approach works for all
+    # Mirror Y coordinate around anchor_point
     point_collection = adsk.core.ObjectCollection.create()
     for point in involute_points:
-        point_collection.add(adsk.core.Point3D.create(point.x, -point.y, 0))
+        # Calculate relative coordinates, mirror Y, then convert back to absolute
+        rel_x = point.x - anchor_point.geometry.x
+        rel_y = point.y - anchor_point.geometry.y
+        mirrored_point = create_point_relative_to(anchor_point, rel_x, -rel_y)
+        point_collection.add(mirrored_point)
     right_spline = curves.sketchFittedSplines.add(point_collection)
 
     # Step 6: Draw tip arc
     # Create tip midpoint relative to anchor_point
     # Constraint-based positioning (coincident to tip_circle) handles final placement
     # config.tip_radius is in cm (Fusion 360 API units)
-    futil.log(f"[TOOTH_TOP] Creating at ({config.tip_radius:.4f}, 0, 0)")
-    tooth_top_point = points.add(adsk.core.Point3D.create(config.tip_radius, 0, 0))
+    futil.log(f"[TOOTH_TOP] Creating at ({config.tip_radius:.4f}, 0, 0) relative to anchor")
+    tooth_top_point = points.add(create_point_relative_to(anchor_point, config.tip_radius, 0))
     futil.log(f"[TOOTH_TOP] Before constraint: ({tooth_top_point.geometry.x:.4f}, {tooth_top_point.geometry.y:.4f})")
     constraints.addCoincident(tooth_top_point, state.tip_circle)
     futil.log(f"[TOOTH_TOP] After coincident to tip_circle: ({tooth_top_point.geometry.x:.4f}, {tooth_top_point.geometry.y:.4f})")
@@ -404,7 +302,7 @@ def draw_involute_tooth_profile(
     # Add diameter dimension to tip arc
     dimensions.addDiameterDimension(
         tip_arc,
-        adsk.core.Point3D.create(config.tip_radius, 0, 0)
+        create_point_relative_to(anchor_point, config.tip_radius, 0)
     )
 
     # Create spine (vertical construction line through tooth center)
@@ -416,11 +314,15 @@ def draw_involute_tooth_profile(
 
     # Step 7: Connect to root
     def draw_root_to_involute_line(root, root_radius, inv_line, spine, x, y):
-        angle_calc = math.atan(y / x)
-        point = adsk.core.Point3D.create(
+        # Calculate angle from relative coordinates
+        rel_x = x - anchor_point.geometry.x
+        rel_y = y - anchor_point.geometry.y
+        angle_calc = math.atan(rel_y / rel_x)
+        # Create point on root circle at calculated angle, relative to anchor
+        point = create_point_relative_to(
+            anchor_point,
             root_radius * math.cos(angle_calc),
-            root_radius * math.sin(angle_calc),
-            0
+            root_radius * math.sin(angle_calc)
         )
         futil.log(f"[ROOT_CONNECT] Connecting at angle {math.degrees(angle_calc):.2f}°, point: ({point.x:.4f}, {point.y:.4f})")
         futil.log(f"[ROOT_CONNECT] Involute start at: ({inv_line.startSketchPoint.geometry.x:.4f}, {inv_line.startSketchPoint.geometry.y:.4f})")
@@ -443,8 +345,11 @@ def draw_involute_tooth_profile(
         return line_to_circle
 
     # Check if first involute point is outside root circle
+    # Calculate radius relative to anchor_point (circle center)
     first_point = involute_points[0]
-    first_point_radius = math.sqrt(first_point.x ** 2 + first_point.y ** 2)
+    rel_x = first_point.x - anchor_point.geometry.x
+    rel_y = first_point.y - anchor_point.geometry.y
+    first_point_radius = math.sqrt(rel_x ** 2 + rel_y ** 2)
 
     futil.log(f"[ROOT_CHECK] first_point_radius = {first_point_radius:.4f} cm, root_radius = {config.root_radius:.4f} cm")
     futil.log(f"[ROOT_CHECK] Root connection needed: {first_point_radius > config.root_radius}")
@@ -458,70 +363,61 @@ def draw_involute_tooth_profile(
         # Involute is embedded within root circle
         state.tooth_profile_is_embedded = True
 
-    # Step 8: Add construction geometry (spur only)
-    if config.add_construction_geometry:
-        # Handle angle constraint
-        angle_dimension = None
-        if config.angle == 0:
-            # Tooth is horizontal (default)
-            constraints.addHorizontal(spine)
-        else:
-            # Tooth is at an angle - create horizontal reference and angular dimension
-            horizontal = curves.sketchLines.addByTwoPoints(
-                adsk.core.Point3D.create(anchor_point.geometry.x, anchor_point.geometry.y, 0),
-                adsk.core.Point3D.create(tooth_top_point.geometry.x, tooth_top_point.geometry.y, 0)
-            )
-            horizontal.isConstruction = True
-            constraints.addHorizontal(horizontal)
-            constraints.addCoincident(horizontal.startSketchPoint, anchor_point)
-            constraints.addCoincident(horizontal.endSketchPoint, state.tip_circle)
+    # Step 8: Add construction geometry for full constraint
+    # Always create horizontal reference and angular dimension (consistent for all angles)
+    horizontal = curves.sketchLines.addByTwoPoints(
+        create_point_relative_to(anchor_point, 0, 0),
+        create_point_relative_to(anchor_point, config.tip_radius, 0)
+    )
+    horizontal.isConstruction = True
+    constraints.addHorizontal(horizontal)
+    constraints.addCoincident(horizontal.startSketchPoint, anchor_point)
+    constraints.addCoincident(horizontal.endSketchPoint, state.tip_circle)
 
-            angle_dimension = dimensions.addAngularDimension(
-                spine,
-                horizontal,
-                adsk.core.Point3D.create(anchor_point.geometry.x, anchor_point.geometry.y, 0)
-            )
+    # Add angular dimension between spine and horizontal reference
+    angle_dimension = dimensions.addAngularDimension(
+        spine,
+        horizontal,
+        create_point_relative_to(anchor_point, 0, 0)
+    )
+    # Set angle value (0 for horizontal tooth, or specified angle)
+    angle_dimension.value = config.angle
 
-        # Create ribs between left and right involutes for full constraint
-        prev_point = anchor_point
-        for i in range(len(involute_points)):
-            left_point = left_spline.fitPoints.item(i)
+    # Create ribs between left and right involutes for full constraint
+    prev_point = anchor_point
+    for i in range(len(involute_points)):
+        left_point = left_spline.fitPoints.item(i)
 
-            # Create rib connecting left and right involutes
-            rib = curves.sketchLines.addByTwoPoints(
-                left_point,
-                right_spline.fitPoints.item(i)
-            )
-            rib.isConstruction = True
+        # Create rib connecting left and right involutes
+        rib = curves.sketchLines.addByTwoPoints(
+            left_point,
+            right_spline.fitPoints.item(i)
+        )
+        rib.isConstruction = True
 
-            # Add dimension for rib width
+        # Add dimension for rib width
+        dimensions.addDistanceDimension(
+            rib.startSketchPoint,
+            rib.endSketchPoint,
+            adsk.fusion.DimensionOrientations.AlignedDimensionOrientation,
+            adsk.core.Point3D.create(rib.startSketchPoint.geometry.x, rib.startSketchPoint.geometry.y / 2, 0)
+        )
+
+        # Create spine point for this rib
+        spine_point = points.add(adsk.core.Point3D.create(left_point.geometry.x, 0, 0))
+        constraints.addCoincident(spine_point, spine)
+        constraints.addMidPoint(spine_point, rib)
+        if i > 0:
+            constraints.addPerpendicular(spine, rib)
+            # Add distance dimension along spine
             dimensions.addDistanceDimension(
-                rib.startSketchPoint,
-                rib.endSketchPoint,
+                prev_point,
+                spine_point,
                 adsk.fusion.DimensionOrientations.AlignedDimensionOrientation,
-                adsk.core.Point3D.create(rib.startSketchPoint.geometry.x, rib.startSketchPoint.geometry.y / 2, 0)
-            )
-
-            # Create spine point for this rib
-            spine_point = points.add(adsk.core.Point3D.create(left_point.geometry.x, 0, 0))
-            constraints.addCoincident(spine_point, spine)
-            constraints.addMidPoint(spine_point, rib)
-            if i > 0:
-                constraints.addPerpendicular(spine, rib)
-                # Add distance dimension along spine
-                dimensions.addDistanceDimension(
-                    prev_point,
-                    spine_point,
-                    adsk.fusion.DimensionOrientations.AlignedDimensionOrientation,
-                    adsk.core.Point3D.create(
-                        (left_point.geometry.x - prev_point.geometry.x) / 2 + prev_point.geometry.x,
-                        0,
-                        0
-                    )
+                adsk.core.Point3D.create(
+                    (left_point.geometry.x - prev_point.geometry.x) / 2 + prev_point.geometry.x,
+                    0,
+                    0
                 )
-            prev_point = spine_point
-
-        # Set the angle dimension value if we created one
-        # This must be done AFTER all the lines have been drawn
-        if config.angle != 0 and angle_dimension is not None:
-            angle_dimension.value = config.angle
+            )
+        prev_point = spine_point
