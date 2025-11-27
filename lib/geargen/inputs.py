@@ -25,7 +25,8 @@ from .constants import (
     TOOLTIP_PARENT_COMPONENT, TOOLTIP_PLANE, TOOLTIP_ANCHOR_POINT,
     DEFAULT_MODULE_MM, DEFAULT_TOOTH_NUMBER, DEFAULT_PRESSURE_ANGLE_DEG,
     DEFAULT_BORE_DIAMETER_STR, DEFAULT_THICKNESS_MM, DEFAULT_CHAMFER_TOOTH_MM,
-    DEFAULT_SKETCH_ONLY
+    DEFAULT_SKETCH_ONLY, DEFAULT_MATING_TOOTH_NUMBER, DEFAULT_SHAFT_ANGLE_DEG,
+    DEFAULT_DRIVING_GEAR_BASE_THICKNESS_MM, DEFAULT_TEETH_LENGTH_MM
 )
 
 
@@ -569,6 +570,123 @@ def configure_spur_gear_inputs(cmd: adsk.core.Command) -> adsk.core.CommandInput
         adsk.core.ValueInput.createByReal(to_cm(DEFAULT_CHAMFER_TOOTH_MM))
     )
 
+    inputs.addBoolValueInput(
+        INPUT_SKETCH_ONLY,
+        'Generate sketches, but do not build body',
+        True,
+        '',
+        DEFAULT_SKETCH_ONLY
+    )
+
+    return inputs
+
+
+def configure_bevel_gear_inputs(cmd: adsk.core.Command) -> adsk.core.CommandInputs:
+    """
+    Configure command inputs for bevel gear generation.
+
+    Creates and configures all UI input controls needed for bevel gear generation.
+    This includes selection inputs for parent component, plane, and anchor point,
+    plus value inputs for all bevel gear parameters (module, tooth numbers, angles,
+    dimensions, and sketch-only mode).
+
+    The inputs are configured with the following defaults:
+    - Parent component: Root component (pre-selected)
+    - Plane: No default (user must select)
+    - Anchor point: No default (user must select)
+    - Module: 1.0 (unitless, displayed as "1")
+    - Tooth number: 17
+    - Mating tooth number: 17
+    - Pressure angle: 20 degrees
+    - Shaft angle: 90 degrees
+    - Face width: "0 mm" (string input, optional for Phase 2+)
+    - Bore diameter: "0 mm" (string input, optional for Phase 2+)
+    - Driving gear base thickness: 5.0 mm (displayed as "5 mm", stored as 0.5 cm)
+    - Teeth length: 10.0 mm (displayed as "10 mm", stored as 1.0 cm)
+    - Sketch only: False (generate full 3D body by default)
+
+    Args:
+        cmd: The Command object that will own these inputs
+
+    Returns:
+        The CommandInputs collection with all bevel gear inputs configured
+    """
+    inputs = cmd.commandInputs
+    design = get_design()
+
+    # Common selection inputs (reuse helpers)
+    add_parent_component_input(inputs, design)
+    add_plane_input(inputs)
+    add_anchor_point_input(inputs)
+
+    # Module (unitless)
+    module_input = inputs.addValueInput(
+        INPUT_MODULE,
+        'Module',
+        '',
+        adsk.core.ValueInput.createByReal(DEFAULT_MODULE_MM)
+    )
+    module_input.isFullWidth = False
+
+    # Tooth numbers
+    inputs.addValueInput(
+        INPUT_TOOTH_NUMBER,
+        'Tooth Number',
+        '',
+        adsk.core.ValueInput.createByReal(DEFAULT_TOOTH_NUMBER)
+    )
+
+    inputs.addValueInput(
+        INPUT_MATING_TOOTH_NUMBER,
+        'Mating Tooth Number',
+        '',
+        adsk.core.ValueInput.createByReal(DEFAULT_MATING_TOOTH_NUMBER)
+    )
+
+    # Angles (in degrees, converted to radians internally)
+    inputs.addValueInput(
+        INPUT_PRESSURE_ANGLE,
+        'Pressure Angle',
+        'deg',
+        adsk.core.ValueInput.createByReal(math.radians(DEFAULT_PRESSURE_ANGLE_DEG))
+    )
+
+    inputs.addValueInput(
+        INPUT_SHAFT_ANGLE,
+        'Shaft Angle',
+        'deg',
+        adsk.core.ValueInput.createByReal(math.radians(DEFAULT_SHAFT_ANGLE_DEG))
+    )
+
+    # Optional string inputs for Phase 2+
+    inputs.addStringValueInput(
+        INPUT_FACE_WIDTH,
+        'Face Width',
+        DEFAULT_BORE_DIAMETER_STR
+    )
+
+    inputs.addStringValueInput(
+        INPUT_BORE_DIAMETER,
+        'Bore Diameter',
+        DEFAULT_BORE_DIAMETER_STR
+    )
+
+    # Dimensions (in mm, converted to cm for Fusion 360 API)
+    inputs.addValueInput(
+        INPUT_DRIVING_GEAR_BASE_THICKNESS,
+        'Driving Gear Base Thickness',
+        'mm',
+        adsk.core.ValueInput.createByReal(to_cm(DEFAULT_DRIVING_GEAR_BASE_THICKNESS_MM))
+    )
+
+    inputs.addValueInput(
+        INPUT_TEETH_LENGTH,
+        'Teeth Length',
+        'mm',
+        adsk.core.ValueInput.createByReal(to_cm(DEFAULT_TEETH_LENGTH_MM))
+    )
+
+    # Boolean input
     inputs.addBoolValueInput(
         INPUT_SKETCH_ONLY,
         'Generate sketches, but do not build body',
