@@ -40,10 +40,10 @@ Part 1: Tooth Profile Sketch Creation
 Part 2: 3D Tooth Body Creation
 - Revolves hexagonal profile (P5, P7, P8, P6, P9, P10 - 6 vertices, NOT P7_mid) by 360° to create base gear body
 - Creates lofted tooth from apex (P2) to tooth profile
-- Joins lofted tooth to base gear body
 - Identifies conical cutting faces from base_gear_body intersecting P9->P10 and P5->P7
-- Cuts joined body using identified faces
-- Removes smaller trimmed parts
+- Cuts lofted tooth using identified faces (BEFORE joining to base)
+- Removes smaller trimmed parts, keeping largest fragment (trimmed tooth)
+- Joins trimmed tooth to base gear body
 - Patterns teeth circularly around P1->P2 axis (from state.p1_p2_axis)
 
 Phase 1 Main Functions (All follow (state, spec, ...) signature pattern):
@@ -66,10 +66,10 @@ Phase 2 Main Functions (All follow (state, spec) signature pattern):
 - rotate_tooth_profile_to_align: Aligns tooth profile with P5->P7 direction
 - create_base_gear_body: Revolves hexagonal profile (6 vertices) to create base conical gear body
 - create_lofted_tooth: Lofts from apex (P2) to tooth profile
-- join_tooth_to_gear_body: Joins lofted tooth to base gear body
 - identify_cutting_faces: Identifies conical faces from base_gear_body using state.p5_p7_line
-- cut_body_with_faces: Cuts joined body using identified faces
-- remove_smaller_parts: Removes trimmed parts, keeps largest body
+- cut_body_with_faces: Cuts lofted tooth using identified faces (before joining)
+- remove_smaller_parts: Removes trimmed parts, keeps largest body (trimmed tooth)
+- join_tooth_to_gear_body: Joins trimmed tooth to base gear body
 - pattern_teeth_circularly: Patterns teeth around state.p1_p2_axis
 
 Phase 2 Validation and Error Handling:
@@ -543,6 +543,10 @@ def draw_gear_face_extension(
     This function mutates state directly by storing p5, p6, p7, p5_p7_line (CRITICAL for Phase 2),
     p7_mid, p8, p9, and p10.
 
+    After creating all geometry, this function validates that P9->P10 and P5->P7_mid line segments
+    are at least 0.1 cm long. This ensures reliable face intersection detection in Phase 2, where
+    midpoint checking is used to identify cutting faces.
+
     Args:
         state: The generation state containing p1, p2, p4, diagonal, and parameter prefix
         spec: The bevel gear specification
@@ -554,6 +558,8 @@ def draw_gear_face_extension(
 
     Raises:
         Exception: If constraints fail or parameters are missing
+        Exception: If P9->P10 line is shorter than 0.1 cm (indicates TeethLength too small)
+        Exception: If P5->P7_mid line is shorter than 0.1 cm (indicates invalid gear dimensions)
     """
     # Get module and DrivingGearBaseThickness parameters
     module_param = get_parameter(state.design, state.param_prefix, 'Module')
@@ -873,6 +879,28 @@ def draw_gear_face_extension(
     state.p8 = p8
     state.p9 = p9
     state.p10 = p10
+
+    # Validate critical line segment lengths for reliable face intersection detection
+    # These lines will be used in Phase 2 to identify cutting faces via midpoint checking
+    MINIMUM_PROFILE_LINE_LENGTH = 0.1  # 1mm minimum (0.1cm) - provides 5x safety margin over tolerance
+
+    # Validate P9->P10 diagonal line length
+    p9_p10_length = state.p9.geometry.distanceTo(state.p10.geometry)
+    if p9_p10_length < MINIMUM_PROFILE_LINE_LENGTH:
+        raise Exception(
+            f"P9->P10 diagonal line is too short ({p9_p10_length:.4f} cm). "
+            f"Minimum length is {MINIMUM_PROFILE_LINE_LENGTH} cm. "
+            f"This typically indicates TeethLength parameter is too small for the gear configuration."
+        )
+
+    # Validate P5->P7_mid line length
+    p5_p7mid_length = state.p5.geometry.distanceTo(state.p7_mid.geometry)
+    if p5_p7mid_length < MINIMUM_PROFILE_LINE_LENGTH:
+        raise Exception(
+            f"P5->P7_mid line is too short ({p5_p7mid_length:.4f} cm). "
+            f"Minimum length is {MINIMUM_PROFILE_LINE_LENGTH} cm. "
+            f"This typically indicates gear dimensions are invalid or TeethLength is too large."
+        )
 
     return state
 
@@ -2318,13 +2346,15 @@ def create_lofted_tooth(state: GenerationState, spec: BevelGearSpec) -> Generati
 
 def join_tooth_to_gear_body(state: GenerationState, spec: BevelGearSpec) -> GenerationState:
     """
-    Join the lofted tooth body to the base gear body using a combine operation.
+    Join the trimmed single tooth to the base gear body using a combine operation.
 
-    This function merges the lofted tooth with the base gear body to create a
-    combined solid for subsequent trimming operations.
+    This function merges the trimmed tooth (result of cutting and removing smaller
+    parts) with the base gear body to create a combined solid ready for circular
+    patterning. This operation happens AFTER the tooth has been trimmed to the
+    correct bevel gear boundaries.
 
     Args:
-        state: The current generation state with base_gear_body and lofted_tooth_body
+        state: The current generation state with base_gear_body and single_tooth_body
         spec: The bevel gear specification (for validation)
 
     Returns:
@@ -2335,19 +2365,21 @@ def join_tooth_to_gear_body(state: GenerationState, spec: BevelGearSpec) -> Gene
         Exception: If bodies don't intersect (required for join)
         Exception: If combine operation fails
     """
+    futil.log(f"DEBUG: join_tooth_to_gear_body started")
+
     # Verify bodies exist
     if not hasattr(state, 'base_gear_body') or state.base_gear_body is None:
         raise Exception("Cannot join bodies: base_gear_body is missing")
 
-    if not hasattr(state, 'lofted_tooth_body') or state.lofted_tooth_body is None:
-        raise Exception("Cannot join bodies: lofted_tooth_body is missing")
+    if not hasattr(state, 'single_tooth_body') or state.single_tooth_body is None:
+        raise Exception("Cannot join bodies: single_tooth_body is missing")
 
     # Verify bodies are valid
     if not state.base_gear_body.isValid:
         raise Exception("Cannot join bodies: base_gear_body is invalid")
 
-    if not state.lofted_tooth_body.isValid:
-        raise Exception("Cannot join bodies: lofted_tooth_body is invalid")
+    if not state.single_tooth_body.isValid:
+        raise Exception("Cannot join bodies: single_tooth_body is invalid")
 
     # Verify gear_component exists
     if not hasattr(state, 'gear_component') or state.gear_component is None:
@@ -2361,7 +2393,7 @@ def join_tooth_to_gear_body(state: GenerationState, spec: BevelGearSpec) -> Gene
 
     # Create tool bodies collection
     tool_bodies = adsk.core.ObjectCollection.create()
-    tool_bodies.add(state.lofted_tooth_body)
+    tool_bodies.add(state.single_tooth_body)
 
     # Create combine input
     combine_input = combineFeatures.createInput(state.base_gear_body, tool_bodies)
@@ -2375,7 +2407,7 @@ def join_tooth_to_gear_body(state: GenerationState, spec: BevelGearSpec) -> Gene
         combine_feature = combineFeatures.add(combine_input)
     except Exception as e:
         raise Exception(
-            f"Failed to join lofted tooth to base gear body. "
+            f"Failed to join trimmed tooth to base gear body. "
             f"Bodies may not intersect. Original error: {str(e)}"
         ) from e
 
@@ -2404,19 +2436,24 @@ def join_tooth_to_gear_body(state: GenerationState, spec: BevelGearSpec) -> Gene
 
 def identify_cutting_faces(state: GenerationState, spec: BevelGearSpec) -> GenerationState:
     """
-    Identify conical faces from the base_gear_body that intersect lines P9->P10 and P5->P7 for trimming.
+    Identify conical faces from the base_gear_body that contain lines P9->P10 and P5->P7_mid for trimming.
 
     This function finds the two conical faces from the base gear body (created by revolving
     the hexagonal profile) that can be used to cut the tooth to the correct bevel shape.
     The faces are:
-    1. Conical face created by revolving the P9->P10 line (inner diagonal profile line)
-    2. Conical face created by revolving the P5->P7 line (outer diagonal reference line)
+    1. Conical face created by revolving the P9->P10 edge (inner diagonal profile line)
+    2. Conical face created by revolving the P5->P7_mid edge (outer profile edge)
 
     These faces already exist on the base_gear_body from the revolve operation and define
     the tooth boundaries on the bevel gear cone.
 
+    The detection uses midpoint checking to avoid false positives from faces that only
+    touch the line segments at endpoints. For example, the face created by revolving
+    P6->P9 shares point P9 with the P9->P10 line, but doesn't contain the P9->P10 line
+    interior. The midpoint check correctly excludes such faces.
+
     Args:
-        state: The current generation state with base_gear_body, p5_p7_line, p9, p10
+        state: The current generation state with base_gear_body, p5, p7_mid, p9, p10
         spec: The bevel gear specification (for reference)
 
     Returns:
@@ -2424,64 +2461,57 @@ def identify_cutting_faces(state: GenerationState, spec: BevelGearSpec) -> Gener
 
     Raises:
         Exception: If base_gear_body is missing
-        Exception: If p5_p7_line is missing from state
+        Exception: If required points (p5, p7_mid, p9, p10) are missing
         Exception: If P9->P10 line cannot be found
-        Exception: If no faces intersect these lines
+        Exception: If no faces contain these lines
     """
     # Verify base_gear_body exists (CRITICAL: must use base_gear_body, NOT joined_body)
     if not hasattr(state, 'base_gear_body') or state.base_gear_body is None:
         raise Exception("Cannot identify cutting faces: base_gear_body is missing")
 
-    # Use P5->P7 line from state (stored by draw_gear_face_extension in Phase 1)
-    if not hasattr(state, 'p5_p7_line') or state.p5_p7_line is None:
-        raise Exception(
-            "Cannot identify cutting faces: p5_p7_line is missing from state. "
-            "Phase 1 should have stored this line during foundation sketch creation."
-        )
+    # Verify required points exist
+    if not hasattr(state, 'p5') or state.p5 is None:
+        raise Exception("Cannot identify cutting faces: p5 is missing from state")
 
-    if not state.p5_p7_line.isValid:
-        raise Exception("Cannot identify cutting faces: p5_p7_line from state is invalid")
+    if not hasattr(state, 'p7_mid') or state.p7_mid is None:
+        raise Exception("Cannot identify cutting faces: p7_mid is missing from state")
 
-    p5_p7_line = state.p5_p7_line
+    if not hasattr(state, 'p9') or state.p9 is None:
+        raise Exception("Cannot identify cutting faces: p9 is missing from state")
 
-    # Find P9->P10 line (diagonal profile line on gear side)
-    # TODO: Consider storing this in state during Phase 1 as well for consistency
-    p9_p10_line = None
-    for curve in state.foundation_sketch.sketchCurves.sketchLines:
-        if ((curve.startSketchPoint.geometry.isEqualTo(state.p9.geometry) and
-             curve.endSketchPoint.geometry.isEqualTo(state.p10.geometry)) or
-            (curve.startSketchPoint.geometry.isEqualTo(state.p10.geometry) and
-             curve.endSketchPoint.geometry.isEqualTo(state.p9.geometry))):
-            p9_p10_line = curve
-            break
-
-    if p9_p10_line is None:
-        raise Exception("Cannot find P9->P10 line in foundation sketch for cutting face identification")
+    if not hasattr(state, 'p10') or state.p10 is None:
+        raise Exception("Cannot identify cutting faces: p10 is missing from state")
 
     # Get all faces from the base_gear_body (NOT joined_body)
     # These are the conical faces created by the revolve operation
     faces = state.base_gear_body.faces
 
-    # Identify faces intersecting P9->P10 line
+    # Identify conical faces intersecting P9->P10 edge
+    # Only check conical surfaces - skip planar/cylindrical faces created by other edges
     cutting_faces_p9_p10 = []
-    p9_p10_line_geom = p9_p10_line.geometry
 
     for face in faces:
+        # Filter: only check conical surfaces
+        if face.geometry.surfaceType != adsk.core.SurfaceTypes.ConeSurfaceType:
+            continue
         if face_intersects_line_planar(face, state.p9.geometry, state.p10.geometry):
             cutting_faces_p9_p10.append(face)
 
-    # Identify faces intersecting P5->P7 line
-    cutting_faces_p5_p7 = []
-    p5_p7_line_geom = p5_p7_line.geometry
+    # Identify conical faces intersecting P5->P7_mid edge
+    # Only check conical surfaces - skip planar/cylindrical faces created by other edges
+    cutting_faces_p5_p7mid = []
 
     for face in faces:
-        if face_intersects_line_planar(face, state.p5.geometry, state.p7.geometry):
-            cutting_faces_p5_p7.append(face)
+        # Filter: only check conical surfaces
+        if face.geometry.surfaceType != adsk.core.SurfaceTypes.ConeSurfaceType:
+            continue
+        if face_intersects_line_planar(face, state.p5.geometry, state.p7_mid.geometry):
+            cutting_faces_p5_p7mid.append(face)
 
     # Combine both sets of cutting faces
     # Remove duplicates manually (BRepFace is not hashable, can't use set())
     cutting_faces = cutting_faces_p9_p10[:]  # Start with p9_p10 faces
-    for face in cutting_faces_p5_p7:
+    for face in cutting_faces_p5_p7mid:
         # Check if this face is already in the list (by object identity)
         already_added = False
         for existing_face in cutting_faces:
@@ -2493,15 +2523,15 @@ def identify_cutting_faces(state: GenerationState, spec: BevelGearSpec) -> Gener
 
     if len(cutting_faces) == 0:
         raise Exception(
-            f"No cutting faces found intersecting P9->P10 or P5->P7 lines. "
-            f"Joined body has {faces.count} faces total. "
-            f"Check joined body geometry and line positions."
+            f"No cutting faces found intersecting P9->P10 or P5->P7_mid edges. "
+            f"Base gear body has {faces.count} faces total. "
+            f"Check base gear body geometry and edge positions."
         )
 
     # Store in state
     state.cutting_faces = cutting_faces
     state.cutting_faces_p9_p10 = cutting_faces_p9_p10  # For diagnostics
-    state.cutting_faces_p5_p7 = cutting_faces_p5_p7    # For diagnostics
+    state.cutting_faces_p5_p7mid = cutting_faces_p5_p7mid  # For diagnostics
 
     return state
 
@@ -2586,57 +2616,64 @@ def face_intersects_line_planar(face, p1, p2) -> bool:
 
 def face_intersects_line_sampling(face, p1, p2) -> bool:
     """
-    Check if a face intersects a line segment using point sampling approach.
+    Check if a face contains the line segment by testing its midpoint.
+
+    This avoids false positives from faces that only touch the line at endpoints.
+    For example, when checking P9->P10, the face created by revolving P6->P9 touches
+    at point P9 but doesn't contain the line interior.
+
+    PREREQUISITE: The line segment P1->P2 must be at least 0.1 cm long to ensure
+    the midpoint is sufficiently far from endpoints. This is validated during
+    sketch creation in draw_diagonal_profile_line().
 
     Args:
         face: BRepFace to check
-        p1: Start point of line segment
+        p1: Start point of line segment (must be >0.1cm from p2)
         p2: End point of line segment
 
     Returns:
-        True if face intersects the line segment
+        True if the face contains the midpoint of the line segment
     """
-    # Sample points along line, check if any are on or near the face
-    num_samples = 20
     evaluator = face.evaluator
 
-    for i in range(num_samples + 1):
-        t = i / num_samples
-        # Interpolate between p1 and p2
-        sample_point = adsk.core.Point3D.create(
-            p1.x + t * (p2.x - p1.x),
-            p1.y + t * (p2.y - p1.y),
-            p1.z + t * (p2.z - p1.z)
-        )
+    # Calculate midpoint (guaranteed to be ≥0.05cm from endpoints due to length validation)
+    midpoint = adsk.core.Point3D.create(
+        (p1.x + p2.x) / 2.0,
+        (p1.y + p2.y) / 2.0,
+        (p1.z + p2.z) / 2.0
+    )
 
-        # Try to get parameter at the sample point
-        # If successful, the point is on or very close to the surface
-        (returnValue, parameter) = evaluator.getParameterAtPoint(sample_point)
+    # Check if midpoint lies on the face surface
+    (returnValue, parameter) = evaluator.getParameterAtPoint(midpoint)
+    if not returnValue:
+        return False
 
-        if returnValue:
-            # Get the actual point on the surface at this parameter
-            (success, point_on_surface) = evaluator.getPointAtParameter(parameter)
+    (success, point_on_surface) = evaluator.getPointAtParameter(parameter)
+    if not success:
+        return False
 
-            if success:
-                # Check if the reconstructed point is close to our sample point
-                distance = sample_point.distanceTo(point_on_surface)
-                if distance < 0.01:  # 0.1mm tolerance (0.01cm)
-                    return True
-
-    return False
+    # Verify midpoint is on face within tolerance
+    distance = midpoint.distanceTo(point_on_surface)
+    return distance < 0.01  # 0.1mm tolerance (0.01cm)
 
 
 def cut_body_with_faces(state: GenerationState, spec: BevelGearSpec) -> GenerationState:
     """
-    Cut the joined body using conical faces from the base_gear_body.
+    Cut the lofted tooth body using identified conical faces as splitting surfaces.
 
-    This function uses the base_gear_body (with its conical faces from the revolve operation)
-    as a splitting tool to trim the joined body (base + lofted tooth) to the correct bevel
-    gear boundaries. The conical faces define the inner and outer tooth boundaries along
-    the bevel gear cone.
+    This function uses the conical faces identified from the base_gear_body (from the
+    revolve operation) as splitting tools to trim the lofted tooth. Each face acts as
+    an infinite surface that slices through the lofted tooth to trim it to the correct
+    bevel gear boundaries.
+
+    The cutting faces are the conical surfaces created by revolving the P9->P10 and P5->P7
+    lines, which define the inner and outer tooth boundaries along the bevel gear cone.
+
+    This operation happens BEFORE joining the tooth to the base, so only the tooth is
+    cut, not the base gear body.
 
     Args:
-        state: The current generation state with joined_body, base_gear_body, and cutting_faces
+        state: The current generation state with lofted_tooth_body and cutting_faces
         spec: The bevel gear specification (for reference)
 
     Returns:
@@ -2646,61 +2683,76 @@ def cut_body_with_faces(state: GenerationState, spec: BevelGearSpec) -> Generati
         Exception: If prerequisites are missing or split operations fail
     """
     # Verify prerequisites
-    if not hasattr(state, 'joined_body') or state.joined_body is None:
-        raise Exception("Cannot cut body: joined_body is missing")
+    if not hasattr(state, 'lofted_tooth_body') or state.lofted_tooth_body is None:
+        raise Exception("Cannot cut body: lofted_tooth_body is missing")
 
-    if not hasattr(state, 'base_gear_body') or state.base_gear_body is None:
-        raise Exception("Cannot cut body: base_gear_body is missing")
+    if not hasattr(state, 'cutting_faces') or state.cutting_faces is None or len(state.cutting_faces) == 0:
+        raise Exception("Cannot cut body: cutting_faces is missing or empty")
 
-    if not state.joined_body.isValid:
-        raise Exception("Cannot cut body: joined_body is invalid")
+    if not state.lofted_tooth_body.isValid:
+        raise Exception("Cannot cut body: lofted_tooth_body is invalid")
 
-    if not state.base_gear_body.isValid:
-        raise Exception("Cannot cut body: base_gear_body is invalid")
+    # DIAGNOSTIC: Log that we're about to split
+    futil.log(f"DEBUG: About to split with {len(state.cutting_faces)} cutting faces")
 
-    # Use splitBody feature to split joined_body using base_gear_body as cutting tool
-    # The base_gear_body contains the conical faces that define the bevel gear boundaries
+    # Use splitBody feature to split lofted_tooth_body using each cutting face individually
     splitBodyFeatures = state.design_component.features.splitBodyFeatures
 
-    # Create split input with base_gear_body as the splitting tool
-    split_input = splitBodyFeatures.createInput(
-        state.joined_body,        # Body to be split
-        state.base_gear_body,     # Splitting tool (contains conical faces)
-        True                      # keepBothSides - keep all resulting bodies
-    )
+    # Split with each cutting face
+    # After each split, the body collection may change, so we iterate carefully
+    for i, cutting_face in enumerate(state.cutting_faces):
+        futil.log(f"DEBUG: Splitting with cutting face {i+1}/{len(state.cutting_faces)}")
+        if not cutting_face.isValid:
+            raise Exception(f"Cutting face {i} is invalid")
 
-    try:
-        split_feature = splitBodyFeatures.add(split_input)
-    except Exception as e:
-        raise Exception(
-            f"Failed to split joined body with base_gear_body conical faces. "
-            f"Bodies may not intersect properly. Original error: {str(e)}"
+        # Create split input with this face as the splitting tool
+        split_input = splitBodyFeatures.createInput(
+            state.lofted_tooth_body,    # Body to be split (the lofted tooth, before joining)
+            cutting_face,               # Splitting tool (a BRepFace from the base_gear_body)
+            True                        # keepBothSides - keep all resulting bodies
         )
 
-    if split_feature is None:
-        raise Exception("Split feature returned None (split operation failed)")
+        try:
+            split_feature = splitBodyFeatures.add(split_input)
+            futil.log(f"DEBUG: Split {i+1} succeeded, split_feature created")
+        except Exception as e:
+            raise Exception(
+                f"Failed to split lofted tooth body with cutting face {i}. "
+                f"Original error: {str(e)}"
+            )
 
-    # Collect all visible bodies after split from design_component
-    # The split operation may have created multiple body fragments
-    cut_bodies = [body for body in state.design_component.bRepBodies if body.isVisible]
+        if split_feature is None:
+            raise Exception(f"Split feature returned None for cutting face {i}")
+
+    # Collect all visible bodies after all splits from design_component
+    # Exclude base_gear_body since we only want the split tooth fragments
+    cut_bodies = [body for body in state.design_component.bRepBodies
+                  if body.isValid and body.isVisible and body != state.base_gear_body]
+
+    futil.log(f"DEBUG: After splits, found {len(cut_bodies)} cut bodies (excluding base_gear_body)")
 
     if len(cut_bodies) == 0:
-        raise Exception("Split operation produced no visible bodies")
+        raise Exception("Split operations produced no visible bodies (excluding base_gear_body)")
 
     state.cut_bodies = cut_bodies
 
+    futil.log(f"DEBUG: cut_body_with_faces completed successfully")
     return state
 
 
 def remove_smaller_parts(state: GenerationState, spec: BevelGearSpec) -> GenerationState:
     """
-    Remove the smaller parts that resulted from cutting, leaving only the final tooth body (largest volume).
+    Identify the tooth body by checking which body does NOT contain the apex point,
+    then delete all scrap bodies.
 
-    This function identifies the largest body from the cut bodies and removes all
-    smaller bodies, leaving only the final tooth.
+    After splitting the lofted tooth with cutting faces, we get multiple fragments:
+    - Scrap fragments (trimmed away parts) contain the apex point
+    - The final tooth body does NOT contain the apex point
+
+    This function identifies the tooth body and removes all scrap fragments.
 
     Args:
-        state: The current generation state with cut_bodies
+        state: The current generation state with cut_bodies and apex_point
         spec: The bevel gear specification (for reference)
 
     Returns:
@@ -2708,41 +2760,65 @@ def remove_smaller_parts(state: GenerationState, spec: BevelGearSpec) -> Generat
 
     Raises:
         Exception: If cut_bodies are missing or empty
-        Exception: If volume calculations fail
+        Exception: If apex_point is missing
+        Exception: If no body is found that doesn't contain the apex point
     """
+    futil.log(f"DEBUG: remove_smaller_parts started")
+
     # Verify cut_bodies exist
     if not hasattr(state, 'cut_bodies') or state.cut_bodies is None or len(state.cut_bodies) == 0:
-        raise Exception("Cannot remove smaller parts: cut_bodies are missing or empty")
+        raise Exception("Cannot identify tooth body: cut_bodies are missing or empty")
 
-    # Calculate volumes and find largest body
-    bodies_with_volumes = []
+    futil.log(f"DEBUG: Found {len(state.cut_bodies)} cut bodies to process")
+
+    # Verify apex_point exists (P2)
+    if not hasattr(state, 'apex_point') or state.apex_point is None:
+        raise Exception("Cannot identify tooth body: apex_point is missing from state")
+
+    # Get apex point 3D coordinates
+    apex_3d = state.apex_point.geometry
+
+    # Find the largest body where apex is Outside
+    # Delete bodies where apex is OnBoundary or Inside
+    from adsk.fusion import PointContainment
+
+    tooth_body = None
+    not_tooth_body = None
     for body in state.cut_bodies:
-        if body.isValid:
-            try:
-                volume = body.volume
-                bodies_with_volumes.append((body, volume))
-            except:
-                # Skip bodies where volume cannot be calculated
-                pass
+        if not body.isValid:
+            continue
 
-    if len(bodies_with_volumes) == 0:
-        raise Exception("Cannot remove smaller parts: no valid bodies with calculable volumes")
+        try:
+            containment = body.pointContainment(apex_3d)
+            volume = body.volume if body.isValid else 0
 
-    # Sort by volume descending (largest first)
-    bodies_with_volumes.sort(key=lambda x: x[1], reverse=True)
+            # Delete bodies where apex is OnBoundary or Inside
+            if containment == PointContainment.PointOnPointContainment or \
+               containment == PointContainment.PointInsidePointContainment:
+                state.design_component.features.removeFeatures.add(body)
+                continue
 
-    # Largest body is the tooth we want to keep
-    largest_body = bodies_with_volumes[0][0]
-    largest_volume = bodies_with_volumes[0][1]
+            # Bodies with apex Outside are candidates (tooth and remaining scrap)
+            # Pick the largest among those
+            if containment == PointContainment.PointOutsidePointContainment:
+                if tooth_body is None or volume > tooth_body.volume:
+                    tooth_body = body
+                else:
+                    not_tooth_body = body
+        except:
+            # If pointContainment fails on this body, skip it
+            continue
 
-    # In a full implementation, we would delete the smaller bodies
-    # For now, we just identify the largest one
-    # for body, volume in bodies_with_volumes[1:]:
-    #     # Delete smaller bodies
-    #     pass
+    if tooth_body is None or not_tooth_body is None:
+        raise Exception(
+            f"Cannot identify tooth body: no cut bodies have apex point outside. "
+            f"This indicates the split operations may have failed."
+        )
+    
+    state.design_component.features.removeFeatures.add(not_tooth_body)
 
     # Store the single tooth body
-    state.single_tooth_body = largest_body
+    state.single_tooth_body = tooth_body
 
     return state
 
@@ -2751,16 +2827,15 @@ def pattern_teeth_circularly(state: GenerationState, spec: BevelGearSpec) -> Gen
     """
     Create a circular pattern of teeth around the P1->P2 axis to create the complete bevel gear.
 
-    This function patterns all features that created the single tooth body around the central
-    axis to create all teeth. In Fusion 360, circular patterns operate on features, so we
-    need to identify and pattern the loft, combine, and split features that built the tooth.
+    This function patterns the tooth body body around the central axis to create all teeth,
+    then joins them to the base gear body.
 
     Args:
         state: The current generation state with single_tooth_body and foundation_sketch
         spec: The bevel gear specification containing tooth_number
 
     Returns:
-        Updated GenerationState with patterned_teeth field populated
+        GenerationState 
 
     Raises:
         Exception: If single_tooth_body is missing
@@ -2781,93 +2856,25 @@ def pattern_teeth_circularly(state: GenerationState, spec: BevelGearSpec) -> Gen
 
     p1_p2_line = state.p1_p2_axis
 
-    # Strategy: Pattern the features that created the tooth
-    # We need to pattern: loft feature, combine feature, and split features
-    # These are the features that built the individual tooth from the base gear body
-
-    # Get all features in the timeline
-    all_features = state.design_component.features
-
-    # Collect the features that created the tooth
-    # Start from the most recent features and work backwards
-    input_features = adsk.core.ObjectCollection.create()
-
-    # Find the loft feature (creates lofted_tooth_body)
-    # Look for loft features created after the revolve
-    loft_feature = None
-    for i in range(all_features.loftFeatures.count - 1, -1, -1):
-        feature = all_features.loftFeatures.item(i)
-        # Check if this loft created our lofted_tooth_body
-        if hasattr(state, 'lofted_tooth_body') and feature.bodies.count > 0:
-            for j in range(feature.bodies.count):
-                if feature.bodies.item(j) == state.lofted_tooth_body:
-                    loft_feature = feature
-                    break
-        if loft_feature:
-            break
-
-    if loft_feature and loft_feature.isValid:
-        input_features.add(loft_feature)
-
-    # Find the combine feature (joins lofted tooth to base gear body)
-    combine_feature = None
-    for i in range(all_features.combineFeatures.count - 1, -1, -1):
-        feature = all_features.combineFeatures.item(i)
-        # Check if this is the join operation for the tooth
-        # It should have been created recently
-        if feature.isValid:
-            combine_feature = feature
-            break  # Take the most recent combine
-
-    if combine_feature and combine_feature.isValid:
-        input_features.add(combine_feature)
-
-    # Find the split features (cut the tooth to shape)
-    # Add the most recent split features
-    split_features_added = 0
-    for i in range(all_features.splitBodyFeatures.count - 1, -1, -1):
-        feature = all_features.splitBodyFeatures.item(i)
-        if feature.isValid:
-            input_features.add(feature)
-            split_features_added += 1
-            if split_features_added >= 2:  # We created 2 split features (P9->P10 and P5->P7)
-                break
-
-    # Verify we have features to pattern
-    if input_features.count == 0:
-        raise Exception(
-            "Cannot create circular pattern: no valid features found to pattern. "
-            "Loft, combine, and split features may be missing or invalid."
-        )
-
-    # Create the circular pattern
     circularPatternFeatures = state.design_component.features.circularPatternFeatures
+    input_features = adsk.core.ObjectCollection.create()
+    input_features.add(state.single_tooth_body)
     pattern_input = circularPatternFeatures.createInput(input_features, p1_p2_line)
+    pattern_input.quantity = adsk.core.ValueInput.createByReal(spec.driving_gear_virtual_teeth_number)
 
-    # Set pattern quantity to tooth_number
-    pattern_input.quantity = adsk.core.ValueInput.createByReal(spec.tooth_number)
+    patterned_teeth = circularPatternFeatures.add(pattern_input)
 
-    # Set total angle to 360 degrees for full circle
-    pattern_input.totalAngle = adsk.core.ValueInput.createByString("360 deg")
+    # Combine all patterned teeth with the base gear body
+    tool_bodies = adsk.core.ObjectCollection.create()
+    for body in patterned_teeth.bodies:
+        tool_bodies.add(body)
 
-    # Pattern should not be symmetric (teeth should be evenly distributed around full circle)
-    pattern_input.isSymmetric = False
-
-    # Create the pattern feature
-    try:
-        pattern_feature = circularPatternFeatures.add(pattern_input)
-    except Exception as e:
-        raise Exception(
-            f"Failed to create circular pattern: {str(e)}. "
-            f"Attempted to pattern {input_features.count} features around P1->P2 axis with {spec.tooth_number} teeth."
-        )
-
-    # Verify pattern was created successfully
-    if pattern_feature is None:
-        raise Exception("Circular pattern feature creation returned None")
-
-    # Store the pattern feature in state
-    state.patterned_teeth = pattern_feature
+    combine_input = state.design_component.features.combineFeatures.createInput(
+        state.base_gear_body,
+        tool_bodies
+    )
+    combine_feature = state.design_component.features.combineFeatures.add(combine_input)
+    state.final_body = combine_feature.bodies.item(0)
 
     return state
 
@@ -3143,7 +3150,6 @@ def generate_phase2_tooth_body(
         # Part 2: 3D Tooth Body
         state = create_base_gear_body(state, spec)
         state = create_lofted_tooth(state, spec)
-        state = join_tooth_to_gear_body(state, spec)
         state = identify_cutting_faces(state, spec)
         state = cut_body_with_faces(state, spec)
         state = remove_smaller_parts(state, spec)
