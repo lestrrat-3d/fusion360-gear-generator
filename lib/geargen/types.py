@@ -58,9 +58,13 @@ class GenerationState:
     # Bevel gear specific fields
     foundation_sketch: Optional[adsk.fusion.Sketch] = None
     foundation_plane: Optional[adsk.fusion.ConstructionPlane] = None
+    gear_plane: Optional[adsk.fusion.ConstructionPlane] = None  # User-selected plane for orientation detection
+    y_is_perpendicular: bool = True  # True if sketch Y-axis is perpendicular to gear_plane
     apex_point: Optional[adsk.fusion.SketchPoint] = None
     gear_base_corner: Optional[adsk.fusion.SketchPoint] = None
-    diagonal: Optional[adsk.fusion.SketchLine] = None
+    diagonal: Optional[adsk.fusion.SketchLine] = None  # P2->P4 apex diagonal (construction)
+    p1_p4_line: Optional[adsk.fusion.SketchLine] = None  # P1->P4 gear side edge
+    p2_p3_line: Optional[adsk.fusion.SketchLine] = None  # P2->P3 mating side edge
     design_component: Optional[adsk.fusion.Component] = None
     gear_component: Optional[adsk.fusion.Component] = None
     gear_occurrence: Optional[adsk.fusion.Occurrence] = None  # Occurrence for Driving Gear (for activation)

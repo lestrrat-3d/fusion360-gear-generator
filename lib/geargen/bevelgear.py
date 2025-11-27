@@ -324,6 +324,74 @@ def create_perpendicular_plane(
     return foundation_plane
 
 
+def add_line_label(sketch: adsk.fusion.Sketch, line: adsk.fusion.SketchLine, label: str) -> None:
+    """
+    Add a text label along a sketch line for debugging.
+
+    Uses the same approach as circle labeling in spurgear.py - placing text along the path.
+
+    Args:
+        sketch: The sketch containing the line
+        line: The line to label
+        label: The text to display (e.g., "P5->P6")
+    """
+    # Create text input with label and height
+    text_input = sketch.sketchTexts.createInput2(label, 0.1)  # 0.1 cm height (1mm)
+
+    # Place text along the line path (same method used for circles in spurgear.py:1194)
+    text_input.setAsAlongPath(
+        line,  # Place text along this line
+        True,  # isAbove - place text above the line
+        adsk.core.HorizontalAlignments.CenterHorizontalAlignment,  # Center the text
+        0  # offset from line
+    )
+
+    # Add text to sketch
+    sketch.sketchTexts.add(text_input)
+
+
+def detect_sketch_orientation(sketch: adsk.fusion.Sketch, gear_plane: adsk.fusion.ConstructionPlane) -> bool:
+    """
+    Detect if sketch Y-axis is perpendicular to gear_plane.
+
+    This function determines which sketch axis (X or Y) is more perpendicular to the gear_plane's
+    normal vector. This is necessary because the foundation_plane's orientation (created via
+    setByAngle) is not directly controllable, so we adapt the drawing logic based on the actual
+    sketch orientation.
+
+    Args:
+        sketch: The foundation sketch whose orientation we're detecting
+        gear_plane: The user-selected construction plane
+
+    Returns:
+        True if sketch.yDirection is perpendicular to gear_plane (standard orientation)
+        False if sketch.xDirection is perpendicular to gear_plane (swapped orientation)
+
+    Raises:
+        Exception: If both axes are equally perpendicular (degenerate case)
+    """
+    sketch_x = sketch.xDirection
+    sketch_y = sketch.yDirection
+    gear_normal = gear_plane.geometry.normal
+
+    # Calculate dot products (closer to 1.0 means more parallel/perpendicular)
+    # The dot product of two unit vectors gives cos(angle)
+    # If perpendicular (90°), dot product = 0
+    # If parallel (0° or 180°), |dot product| = 1
+    x_perpendicularity = abs(sketch_x.dotProduct(gear_normal))
+    y_perpendicularity = abs(sketch_y.dotProduct(gear_normal))
+
+    # Check for degenerate case (both equally perpendicular, within threshold)
+    if abs(x_perpendicularity - y_perpendicularity) < 0.1:
+        raise Exception(
+            f"Cannot determine sketch orientation: both axes are equally perpendicular "
+            f"(x={x_perpendicularity:.3f}, y={y_perpendicularity:.3f})"
+        )
+
+    # Whichever is closer to 1.0 is the perpendicular direction
+    return y_perpendicularity > x_perpendicularity
+
+
 def draw_foundation_rectangle(
     state: GenerationState,
     spec: BevelGearSpec,
@@ -335,9 +403,9 @@ def draw_foundation_rectangle(
 
     This function draws a fully-constrained rectangle where:
     - Bottom-left corner (P1) is at projected_anchor_point (Gear Center Point)
-    - Vertical height (P1->P2) = module * mating_tooth_number (mating gear pitch radius)
-    - Horizontal width (P1->P4) = module * tooth_number (main gear pitch radius)
-    - P1->P4 (bottom horizontal line) is marked as construction
+    - P1->P2 points perpendicular to gear_plane (away from base)
+    - P1->P4 points parallel to gear_plane (along base)
+    - P1->P4 (bottom edge) is marked as construction
 
     Points are labeled: P1 (bottom-left), P2 (top-left/apex), P3 (top-right), P4 (bottom-right)
 
@@ -345,21 +413,31 @@ def draw_foundation_rectangle(
     PERPENDICULAR, COINCIDENT) and dimensional constraints tied to user parameters.
     The constraint order is critical for proper propagation.
 
-    This function mutates state directly by storing p1, p2, p3, p4, and p1_p2_axis
-    (the vertical line P1->P2, which is stored for Phase 2 circular pattern).
+    This function adapts to the sketch orientation (which sketch axis is perpendicular to gear_plane)
+    by detecting the orientation and applying appropriate constraints.
+
+    This function mutates state directly by storing p1, p2, p3, p4, p1_p2_axis, and y_is_perpendicular.
 
     Args:
-        state: The generation state containing parameter prefix
+        state: The generation state containing parameter prefix and gear_plane
         spec: The bevel gear specification
         sketch: The foundation sketch to draw in
         projected_anchor_point: The projected anchor point (bottom-left corner, P1)
 
     Returns:
-        Updated GenerationState with p1, p2, p3, p4, and p1_p2_axis populated
+        Updated GenerationState with p1, p2, p3, p4, p1_p2_axis, and y_is_perpendicular populated
 
     Raises:
         Exception: If sketch is not fully constrained after drawing
+        Exception: If gear_plane is missing from state
     """
+    # Detect sketch orientation relative to gear_plane
+    if not hasattr(state, 'gear_plane') or state.gear_plane is None:
+        raise Exception("gear_plane is missing from state - required for orientation detection")
+
+    y_is_perpendicular = detect_sketch_orientation(sketch, state.gear_plane)
+    state.y_is_perpendicular = y_is_perpendicular
+
     # Get parameter references for dimensions
     gear_height_param = get_parameter(state.design, state.param_prefix, 'GearHeight')
     mating_height_param = get_parameter(state.design, state.param_prefix, 'MatingGearHeight')
@@ -369,113 +447,143 @@ def draw_foundation_rectangle(
     if not mating_height_param:
         raise Exception("MatingGearHeight parameter not found")
 
-    # Step 1: Draw vertical line from projected_anchor_point upward (left edge)
-    vertical_line_1_end = adsk.core.Point3D.create(
-        projected_anchor_point.geometry.x,
-        projected_anchor_point.geometry.y + mating_height_param.value,
-        0
-    )
-    vertical_line_1 = sketch.sketchCurves.sketchLines.addByTwoPoints(
-        projected_anchor_point,
-        vertical_line_1_end
-    )
+    # Compute corner point coordinates based on orientation
+    # P1 = origin (projected_anchor_point)
+    # P2 = P1 + perpendicular direction (mating_gear_height)
+    # P4 = P1 + parallel direction (gear_height)
+    # P3 = P2 + parallel direction
+    #
+    # IMPORTANT: Use Point3D objects (not SketchPoint) to avoid over-constraint
+    # The API creates SketchPoints automatically when drawing lines
 
-    # Apply VERTICAL constraint
-    sketch.geometricConstraints.addVertical(vertical_line_1)
+    p1_x = projected_anchor_point.geometry.x
+    p1_y = projected_anchor_point.geometry.y
 
-    # Apply dimension using parameter expression
-    dim_1 = sketch.sketchDimensions.addDistanceDimension(
-        vertical_line_1.startSketchPoint,
-        vertical_line_1.endSketchPoint,
-        adsk.fusion.DimensionOrientations.VerticalDimensionOrientation,
-        adsk.core.Point3D.create(projected_anchor_point.geometry.x - 2, projected_anchor_point.geometry.y + mating_height_param.value / 2, 0)
-    )
-    dim_1.parameter.expression = make_param_name(state.param_prefix, 'MatingGearHeight')
+    if y_is_perpendicular:
+        # Standard orientation: sketch +Y is perpendicular, sketch +X is parallel
+        # P1->P2 along sketch +Y, P1->P4 along sketch +X
+        p2_coords = adsk.core.Point3D.create(p1_x, p1_y + mating_height_param.value, 0)
+        p4_coords = adsk.core.Point3D.create(p1_x + gear_height_param.value, p1_y, 0)
+    else:
+        # Swapped orientation: sketch +X is perpendicular, sketch +Y is parallel
+        # P1->P2 along sketch +X, P1->P4 along sketch +Y
+        p2_coords = adsk.core.Point3D.create(p1_x + mating_height_param.value, p1_y, 0)
+        p4_coords = adsk.core.Point3D.create(p1_x, p1_y + gear_height_param.value, 0)
 
-    # Store apex_point (top of vertical line)
-    apex_point = vertical_line_1.endSketchPoint
+    # Draw first two lines - API creates SketchPoints at endpoints
+    line_p1_p2 = sketch.sketchCurves.sketchLines.addByTwoPoints(projected_anchor_point, p2_coords)
+    line_p1_p4 = sketch.sketchCurves.sketchLines.addByTwoPoints(projected_anchor_point, p4_coords)
 
-    # Step 2: Draw horizontal line from projected_anchor_point rightward (bottom edge)
-    horizontal_line_1_end = adsk.core.Point3D.create(
-        projected_anchor_point.geometry.x + gear_height_param.value,
-        projected_anchor_point.geometry.y,
-        0
-    )
-    horizontal_line_1 = sketch.sketchCurves.sketchLines.addByTwoPoints(
-        projected_anchor_point,
-        horizontal_line_1_end
-    )
+    # Get SketchPoints from line endpoints
+    p2_point = line_p1_p2.endSketchPoint
+    p4_point = line_p1_p4.endSketchPoint
 
-    # Mark bottom horizontal line as construction (per design requirements)
-    horizontal_line_1.isConstruction = True
+    # Compute P3 coordinates based on orientation
+    if y_is_perpendicular:
+        p3_coords = adsk.core.Point3D.create(p4_coords.x, p2_coords.y, 0)
+    else:
+        p3_coords = adsk.core.Point3D.create(p2_coords.x, p4_coords.y, 0)
 
-    # Apply HORIZONTAL constraint
-    sketch.geometricConstraints.addHorizontal(horizontal_line_1)
+    # Draw remaining two lines - API creates SketchPoints
+    line_p4_p3 = sketch.sketchCurves.sketchLines.addByTwoPoints(p4_point, p3_coords)
+    line_p2_p3 = sketch.sketchCurves.sketchLines.addByTwoPoints(p2_point, p3_coords)
 
-    # Note: PERPENDICULAR constraint not needed - HORIZONTAL and VERTICAL constraints already define perpendicularity
+    # Get P3 SketchPoint from line endpoint
+    p3_point = line_p4_p3.endSketchPoint
 
-    # Apply dimension using parameter expression
-    dim_2 = sketch.sketchDimensions.addDistanceDimension(
-        horizontal_line_1.startSketchPoint,
-        horizontal_line_1.endSketchPoint,
-        adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation,
-        adsk.core.Point3D.create(projected_anchor_point.geometry.x + gear_height_param.value / 2, projected_anchor_point.geometry.y - 2, 0)
-    )
-    dim_2.parameter.expression = make_param_name(state.param_prefix, 'GearHeight')
+    # Mark P1->P4 (bottom edge) as construction
+    line_p1_p4.isConstruction = True
 
-    # Store bottom_right_corner
-    bottom_right_corner = horizontal_line_1.endSketchPoint
+    # Mark P4->P3 (right edge) as construction
+    line_p4_p3.isConstruction = True
 
-    # Step 3: Draw second vertical line from bottom_right_corner upward (right edge)
-    vertical_line_2_end = adsk.core.Point3D.create(
-        bottom_right_corner.geometry.x,
-        bottom_right_corner.geometry.y + mating_height_param.value,
-        0
-    )
-    vertical_line_2 = sketch.sketchCurves.sketchLines.addByTwoPoints(
-        bottom_right_corner,
-        vertical_line_2_end
-    )
+    # Add text labels for debugging
+    add_line_label(sketch, line_p1_p2, "P1->P2")
+    add_line_label(sketch, line_p1_p4, "P1->P4")
+    add_line_label(sketch, line_p2_p3, "P2->P3")
+    add_line_label(sketch, line_p4_p3, "P4->P3")
 
-    # Mark right vertical line as construction (per design requirements)
-    vertical_line_2.isConstruction = True
+    # Apply geometric constraints based on orientation
+    if y_is_perpendicular:
+        # Standard orientation:
+        # - line_p1_p2 uses sketch +Y (perpendicular) -> VERTICAL
+        # - line_p1_p4 uses sketch +X (parallel) -> HORIZONTAL
+        # - line_p4_p3 uses sketch +Y (perpendicular) -> VERTICAL
+        # - line_p2_p3 uses sketch +X (parallel) -> HORIZONTAL
+        sketch.geometricConstraints.addVertical(line_p1_p2)
+        sketch.geometricConstraints.addHorizontal(line_p1_p4)
+        sketch.geometricConstraints.addVertical(line_p4_p3)
+        sketch.geometricConstraints.addHorizontal(line_p2_p3)
+    else:
+        # Swapped orientation:
+        # - line_p1_p2 uses sketch +X (perpendicular) -> HORIZONTAL
+        # - line_p1_p4 uses sketch +Y (parallel) -> VERTICAL
+        # - line_p4_p3 uses sketch +X (perpendicular) -> HORIZONTAL
+        # - line_p2_p3 uses sketch +Y (parallel) -> VERTICAL
+        sketch.geometricConstraints.addHorizontal(line_p1_p2)
+        sketch.geometricConstraints.addVertical(line_p1_p4)
+        sketch.geometricConstraints.addHorizontal(line_p4_p3)
+        sketch.geometricConstraints.addVertical(line_p2_p3)
 
-    # Apply VERTICAL constraint
-    sketch.geometricConstraints.addVertical(vertical_line_2)
+    # Apply EQUAL constraints (orientation-independent)
+    sketch.geometricConstraints.addEqual(line_p2_p3, line_p1_p4)
+    sketch.geometricConstraints.addEqual(line_p4_p3, line_p1_p2)
 
-    # Note: Don't add dimension to this line - will use EQUAL constraint instead to avoid over-constraint
+    # Apply dimensional constraints using parameter expressions
+    if y_is_perpendicular:
+        # P1->P2 dimension with VERTICAL orientation
+        dim_1 = sketch.sketchDimensions.addDistanceDimension(
+            line_p1_p2.startSketchPoint,
+            line_p1_p2.endSketchPoint,
+            adsk.fusion.DimensionOrientations.VerticalDimensionOrientation,
+            adsk.core.Point3D.create(p1_x - 2, p1_y + mating_height_param.value / 2, 0)
+        )
+        dim_1.parameter.expression = make_param_name(state.param_prefix, 'MatingGearHeight')
 
-    # Store opposite_corner (top-right)
-    opposite_corner = vertical_line_2.endSketchPoint
+        # P1->P4 dimension with HORIZONTAL orientation
+        dim_2 = sketch.sketchDimensions.addDistanceDimension(
+            line_p1_p4.startSketchPoint,
+            line_p1_p4.endSketchPoint,
+            adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation,
+            adsk.core.Point3D.create(p1_x + gear_height_param.value / 2, p1_y - 2, 0)
+        )
+        dim_2.parameter.expression = make_param_name(state.param_prefix, 'GearHeight')
+    else:
+        # P1->P2 dimension with HORIZONTAL orientation
+        dim_1 = sketch.sketchDimensions.addDistanceDimension(
+            line_p1_p2.startSketchPoint,
+            line_p1_p2.endSketchPoint,
+            adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation,
+            adsk.core.Point3D.create(p1_x + mating_height_param.value / 2, p1_y - 2, 0)
+        )
+        dim_1.parameter.expression = make_param_name(state.param_prefix, 'MatingGearHeight')
 
-    # Step 4: Draw second horizontal line connecting opposite_corner to apex_point (top edge)
-    horizontal_line_2 = sketch.sketchCurves.sketchLines.addByTwoPoints(
-        opposite_corner,
-        apex_point
-    )
-
-    # Note: COINCIDENT constraints not needed - the line was drawn using these exact points,
-    # so the endpoints are already coincident
-
-    # Apply EQUAL constraint to ensure top edge equals bottom edge length
-    sketch.geometricConstraints.addEqual(horizontal_line_2, horizontal_line_1)
-
-    # Apply EQUAL constraint to ensure right edge equals left edge length
-    sketch.geometricConstraints.addEqual(vertical_line_2, vertical_line_1)
+        # P1->P4 dimension with VERTICAL orientation
+        dim_2 = sketch.sketchDimensions.addDistanceDimension(
+            line_p1_p4.startSketchPoint,
+            line_p1_p4.endSketchPoint,
+            adsk.fusion.DimensionOrientations.VerticalDimensionOrientation,
+            adsk.core.Point3D.create(p1_x - 2, p1_y + gear_height_param.value / 2, 0)
+        )
+        dim_2.parameter.expression = make_param_name(state.param_prefix, 'GearHeight')
 
     # Verify sketch is fully constrained
     if not sketch.isFullyConstrained:
         raise Exception("Foundation sketch is not fully constrained - check constraint order")
 
-    # CRITICAL: Store P1->P2 axis (vertical line) for Phase 2 circular pattern
+    # CRITICAL: Store P1->P2 axis (line perpendicular to gear_plane) for Phase 2 circular pattern
     # This line will be used as the rotation axis when creating circular pattern of teeth
-    state.p1_p2_axis = vertical_line_1
+    state.p1_p2_axis = line_p1_p2
 
     # Store all four corner points in state (P1, P2, P3, P4)
     state.p1 = projected_anchor_point
-    state.p2 = apex_point
-    state.p3 = opposite_corner
-    state.p4 = bottom_right_corner
+    state.p2 = p2_point
+    state.p3 = p3_point
+    state.p4 = p4_point
+
+    # Store foundation edges for tooth profile constraints
+    state.p1_p4_line = line_p1_p4  # Gear side edge
+    state.p2_p3_line = line_p2_p3  # Mating side edge
 
     return state
 
@@ -508,6 +616,9 @@ def draw_apex_diagonal(
 
     # Set as construction line
     diagonal.isConstruction = True
+
+    # Add text label for debugging
+    add_line_label(sketch, diagonal, "P2->P4")
 
     # Store diagonal in state
     state.diagonal = diagonal
@@ -576,14 +687,28 @@ def draw_gear_face_extension(
     p4 = state.p4
     diagonal = state.diagonal
 
-    # Calculate perpendicular direction from diagonal (P2->P4) towards lower Y
+    # Calculate perpendicular direction from diagonal (P2->P4) towards gear side (towards P1)
+    # This needs to be orientation-aware, not hard-coded to "lower Y"
     diag_vec_x = p4.geometry.x - p2.geometry.x
     diag_vec_y = p4.geometry.y - p2.geometry.y
     diag_length = math.sqrt(diag_vec_x**2 + diag_vec_y**2)
 
-    # Rotate 90° clockwise for lower Y: (x, y) -> (y, -x)
-    perp_vec_x = diag_vec_y / diag_length
-    perp_vec_y = -diag_vec_x / diag_length
+    # Determine which side of P2->P4 line that P1 is on using cross product
+    # Cross product: (P4 - P2) × (P1 - P2) = (p4.x - p2.x) * (p1.y - p2.y) - (p4.y - p2.y) * (p1.x - p2.x)
+    cross_product = (diag_vec_x * (p1.geometry.y - p2.geometry.y) -
+                     diag_vec_y * (p1.geometry.x - p2.geometry.x))
+
+    # If cross product is positive, P1 is on the left side of P2->P4 (counter-clockwise)
+    # If negative, P1 is on the right side (clockwise)
+    # For gear side extension (P4->P5), we want to go towards P1's side
+    if cross_product > 0:
+        # P1 is on left side, rotate 90° counter-clockwise: (x, y) -> (-y, x)
+        perp_vec_x = -diag_vec_y / diag_length
+        perp_vec_y = diag_vec_x / diag_length
+    else:
+        # P1 is on right side, rotate 90° clockwise: (x, y) -> (y, -x)
+        perp_vec_x = diag_vec_y / diag_length
+        perp_vec_y = -diag_vec_x / diag_length
 
     # Calculate P5 position (module * 1.25 distance from P4, perpendicular to diagonal)
     ext_length = module_param.value * 1.25
@@ -626,33 +751,52 @@ def draw_gear_face_extension(
     p2_p5_line = sketch.sketchCurves.sketchLines.addByTwoPoints(p2, p5)
     p2_p5_line.isConstruction = False
 
-    # Draw horizontal line (P5->P6) towards P1's X level (parallel to P1->P4)
-    p6_pos = adsk.core.Point3D.create(
-        state.p1.geometry.x,
-        p5.geometry.y,
-        0
-    )
+    # Draw line (P5->P6) towards P1 level (parallel to P1->P4)
+    # Orientation-dependent: P1->P4 direction determines this line's direction
+    if state.y_is_perpendicular:
+        # Standard: P1->P4 is horizontal (sketch +X), so P5->P6 is horizontal
+        p6_pos = adsk.core.Point3D.create(
+            state.p1.geometry.x,
+            p5.geometry.y,
+            0
+        )
+    else:
+        # Swapped: P1->P4 is vertical (sketch +Y), so P5->P6 is vertical
+        p6_pos = adsk.core.Point3D.create(
+            p5.geometry.x,
+            state.p1.geometry.y,
+            0
+        )
+
     p5_p6_line = sketch.sketchCurves.sketchLines.addByTwoPoints(p5, p6_pos)
     p5_p6_line.isConstruction = False
 
-    # Add HORIZONTAL constraint (line is parallel to P1->P4)
+    # Add constraint based on orientation (line is parallel to P1->P4)
     try:
-        sketch.geometricConstraints.addHorizontal(p5_p6_line)
+        if state.y_is_perpendicular:
+            sketch.geometricConstraints.addHorizontal(p5_p6_line)
+        else:
+            sketch.geometricConstraints.addVertical(p5_p6_line)
     except Exception as e:
-        raise Exception(f"Failed to add horizontal constraint to P5->P6 line: {str(e)}")
+        raise Exception(f"Failed to add constraint to P5->P6 line: {str(e)}")
 
     # Store P6
     p6 = p5_p6_line.endSketchPoint
 
-    # Draw vertical closing line (P6->P1)
+    # Draw closing line (P6->P1) - perpendicular to P1->P4
     p6_p1_line = sketch.sketchCurves.sketchLines.addByTwoPoints(p6, state.p1)
     p6_p1_line.isConstruction = False
 
-    # Add VERTICAL constraint (P6 is at same X level as P1)
+    # Add constraint based on orientation (perpendicular to P1->P4)
     try:
-        sketch.geometricConstraints.addVertical(p6_p1_line)
+        if state.y_is_perpendicular:
+            # Standard: P1->P4 is horizontal, so P6->P1 is vertical
+            sketch.geometricConstraints.addVertical(p6_p1_line)
+        else:
+            # Swapped: P1->P4 is vertical, so P6->P1 is horizontal
+            sketch.geometricConstraints.addHorizontal(p6_p1_line)
     except Exception as e:
-        raise Exception(f"Failed to add vertical constraint to P6->P1 line: {str(e)}")
+        raise Exception(f"Failed to add constraint to P6->P1 line: {str(e)}")
 
     # Extend P4->P5 line to create P7 (collinear)
     # Calculate P7 position: P5->P7 length = ((Module * ToothNumber) / 2) + 0.05 - pitch radius plus 0.5mm margin
@@ -708,41 +852,64 @@ def draw_gear_face_extension(
     except Exception as e:
         raise Exception(f"Failed to add coincident constraint to P7_mid on P5->P7 line: {str(e)}")
 
-    # Draw horizontal line (P7_mid->P8) towards P1's X level (parallel to P1->P4)
-    p8_pos = adsk.core.Point3D.create(
-        state.p1.geometry.x,
-        p7_mid.geometry.y,
-        0
-    )
+    # Draw line (P7_mid->P8) towards P1 level (parallel to P1->P4)
+    # Orientation-dependent: P1->P4 direction determines this line's direction
+    if state.y_is_perpendicular:
+        # Standard: P1->P4 is horizontal (sketch +X), so P7_mid->P8 is horizontal
+        p8_pos = adsk.core.Point3D.create(
+            state.p1.geometry.x,
+            p7_mid.geometry.y,
+            0
+        )
+    else:
+        # Swapped: P1->P4 is vertical (sketch +Y), so P7_mid->P8 is vertical
+        p8_pos = adsk.core.Point3D.create(
+            p7_mid.geometry.x,
+            state.p1.geometry.y,
+            0
+        )
+
     p7_mid_p8_line = sketch.sketchCurves.sketchLines.addByTwoPoints(p7_mid, p8_pos)
     p7_mid_p8_line.isConstruction = False
 
-    # Add HORIZONTAL constraint (line is parallel to P1->P4)
+    # Add constraint based on orientation (line is parallel to P1->P4)
     try:
-        sketch.geometricConstraints.addHorizontal(p7_mid_p8_line)
+        if state.y_is_perpendicular:
+            sketch.geometricConstraints.addHorizontal(p7_mid_p8_line)
+        else:
+            sketch.geometricConstraints.addVertical(p7_mid_p8_line)
     except Exception as e:
-        raise Exception(f"Failed to add horizontal constraint to P7_mid->P8 line: {str(e)}")
+        raise Exception(f"Failed to add constraint to P7_mid->P8 line: {str(e)}")
 
     # Store P8
     p8 = p7_mid_p8_line.endSketchPoint
 
-    # Draw vertical connector line (P6->P8) to close the outer trapezoid
-    # Both P6 and P8 are at P1's X level, so this is a vertical line
+    # Draw connector line (P6->P8) to close the outer trapezoid - perpendicular to P1->P4
     p6_p8_line = sketch.sketchCurves.sketchLines.addByTwoPoints(p6, p8)
     p6_p8_line.isConstruction = False
 
-    # Add VERTICAL constraint (both points at same X level)
+    # Add constraint based on orientation (perpendicular to P1->P4)
     try:
-        sketch.geometricConstraints.addVertical(p6_p8_line)
+        if state.y_is_perpendicular:
+            # Standard: P1->P4 is horizontal, so P6->P8 is vertical
+            sketch.geometricConstraints.addVertical(p6_p8_line)
+        else:
+            # Swapped: P1->P4 is vertical, so P6->P8 is horizontal
+            sketch.geometricConstraints.addHorizontal(p6_p8_line)
     except Exception as e:
-        raise Exception(f"Failed to add vertical constraint to P6->P8 line: {str(e)}")
+        raise Exception(f"Failed to add constraint to P6->P8 line: {str(e)}")
 
-    # Apply dimension = DrivingGearBaseThickness
+    # Apply dimension = DrivingGearBaseThickness with orientation-dependent dimension orientation
     try:
+        if state.y_is_perpendicular:
+            dim_orientation = adsk.fusion.DimensionOrientations.VerticalDimensionOrientation
+        else:
+            dim_orientation = adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation
+
         dim_p6_p8 = sketch.sketchDimensions.addDistanceDimension(
             p6_p8_line.startSketchPoint,
             p6_p8_line.endSketchPoint,
-            adsk.fusion.DimensionOrientations.VerticalDimensionOrientation,
+            dim_orientation,
             adsk.core.Point3D.create(
                 p6.geometry.x - 2,
                 (p6.geometry.y + p8.geometry.y) / 2,
@@ -759,7 +926,7 @@ def draw_gear_face_extension(
         raise Exception("TeethLength parameter not found")
 
     # Draw diagonal profile line parallel to P5->P7, at distance teeth_length
-    # This line runs from line P5-P6 (point P10) to line P2-P5
+    # This line runs from line P5-P6 (point P9) to line P2-P5 (point P10)
     # The line is parallel to P5->P7 (collinear direction)
 
     # Calculate the direction vector of P5->P7 (same as perpendicular direction)
@@ -780,44 +947,56 @@ def draw_gear_face_extension(
 
     # The diagonal line at distance teeth_length has direction same as P5->P7
     # It passes through offset_start point and extends in P5->P7 direction
-    # Find intersection with horizontal line at P5.y (line P5-P6)
-    # Line P5-P6 equation: y = p5.y
-    # Diagonal line equation: passes through (offset_start_x, offset_start_y), direction (p5_p7_dir_x, p5_p7_dir_y)
+    # Find intersection with line P5->P6
+    # P5->P6 is either horizontal (standard orientation) or vertical (swapped orientation)
+    # Offset diagonal: passes through (offset_start_x, offset_start_y), direction (p5_p7_dir_x, p5_p7_dir_y)
     # Parametric: x = offset_start_x + t * p5_p7_dir_x, y = offset_start_y + t * p5_p7_dir_y
-    # Solve for t when y = p5.y: offset_start_y + t * p5_p7_dir_y = p5.y
-    if abs(p5_p7_dir_y) > 1e-6:
-        t = (p5.geometry.y - offset_start_y) / p5_p7_dir_y
-        p10_x = offset_start_x + t * p5_p7_dir_x
+    if state.y_is_perpendicular:
+        # Standard orientation: P5->P6 is horizontal (y = p5.y)
+        # Solve for t when y = p5.y: offset_start_y + t * p5_p7_dir_y = p5.y
+        if abs(p5_p7_dir_y) > 1e-6:
+            t = (p5.geometry.y - offset_start_y) / p5_p7_dir_y
+            p9_x = offset_start_x + t * p5_p7_dir_x
+        else:
+            # P5->P7 is horizontal (shouldn't happen), use offset_start_x
+            p9_x = offset_start_x
+        p9_y = p5.geometry.y  # On horizontal line P5-P6
     else:
-        # P5->P7 is horizontal (shouldn't happen), use offset_start_x
-        p10_x = offset_start_x
-    p10_y = p5.geometry.y  # On horizontal line P5-P6
+        # Swapped orientation: P5->P6 is vertical (x = p5.x)
+        # Solve for t when x = p5.x: offset_start_x + t * p5_p7_dir_x = p5.x
+        if abs(p5_p7_dir_x) > 1e-6:
+            t = (p5.geometry.x - offset_start_x) / p5_p7_dir_x
+            p9_y = offset_start_y + t * p5_p7_dir_y
+        else:
+            # P5->P7 is vertical (shouldn't happen), use offset_start_y
+            p9_y = offset_start_y
+        p9_x = p5.geometry.x  # On vertical line P5-P6
 
-    # Draw line from P10 (on P5-P6) to intersection with P2-P5
+    # Draw line from P9 (on P5->P6) to intersection with P2->P5
     # P2-P5 line direction
     p2_p5_vec_x = p5.geometry.x - p2.geometry.x
     p2_p5_vec_y = p5.geometry.y - p2.geometry.y
 
-    # Find intersection of diagonal through P10 with line P2-P5
-    # Diagonal through P10: direction (p5_p7_dir_x, p5_p7_dir_y), passes through (p10_x, p10_y)
+    # Find intersection of diagonal through P9 with line P2-P5
+    # Diagonal through P9: direction (p5_p7_dir_x, p5_p7_dir_y), passes through (p9_x, p9_y)
     # Line P2-P5: direction (p2_p5_vec_x, p2_p5_vec_y), passes through P2
     # Solve parametric equations:
-    # p10_x + s * p5_p7_dir_x = p2.x + u * p2_p5_vec_x
-    # p10_y + s * p5_p7_dir_y = p2.y + u * p2_p5_vec_y
+    # p9_x + s * p5_p7_dir_x = p2.x + u * p2_p5_vec_x
+    # p9_y + s * p5_p7_dir_y = p2.y + u * p2_p5_vec_y
     # This is a 2x2 linear system, solve for s and u
     det = p5_p7_dir_x * p2_p5_vec_y - p5_p7_dir_y * p2_p5_vec_x
     if abs(det) > 1e-6:
-        u = ((p10_x - p2.geometry.x) * p5_p7_dir_y - (p10_y - p2.geometry.y) * p5_p7_dir_x) / det
-        p10_end_x = p2.geometry.x + u * p2_p5_vec_x
-        p10_end_y = p2.geometry.y + u * p2_p5_vec_y
+        u = ((p9_x - p2.geometry.x) * p5_p7_dir_y - (p9_y - p2.geometry.y) * p5_p7_dir_x) / det
+        p10_x = p2.geometry.x + u * p2_p5_vec_x
+        p10_y = p2.geometry.y + u * p2_p5_vec_y
     else:
-        # Lines are parallel (shouldn't happen), use P10 as both start and end
-        p10_end_x = p10_x
-        p10_end_y = p10_y
+        # Lines are parallel (shouldn't happen), use P9 as fallback for P10
+        p10_x = p9_x
+        p10_y = p9_y
 
     # Create P9 (start) and P10 (end) points for diagonal line
-    p9_point = adsk.core.Point3D.create(p10_x, p10_y, 0)
-    p10_point = adsk.core.Point3D.create(p10_end_x, p10_end_y, 0)
+    p9_point = adsk.core.Point3D.create(p9_x, p9_y, 0)
+    p10_point = adsk.core.Point3D.create(p10_x, p10_y, 0)
 
     try:
         p9_p10_diagonal_line = sketch.sketchCurves.sketchLines.addByTwoPoints(p9_point, p10_point)
@@ -825,15 +1004,15 @@ def draw_gear_face_extension(
     except Exception as e:
         raise Exception(f"Failed to draw diagonal profile line P9->P10: {str(e)}")
 
-    # Store P9 (start on P5-P6) and P10 (end on P2-P5)
+    # Store P9 (start on P5->P6) and P10 (end on P2-P5)
     p9 = p9_p10_diagonal_line.startSketchPoint
     p10 = p9_p10_diagonal_line.endSketchPoint
 
-    # Add COINCIDENT constraint: P9 start point must be on line P5-P6
+    # Add COINCIDENT constraint: P9 start point must be on line P5->P6
     try:
         sketch.geometricConstraints.addCoincident(p9, p5_p6_line)
     except Exception as e:
-        raise Exception(f"Failed to add coincident constraint for P9 to line P5-P6: {str(e)}")
+        raise Exception(f"Failed to add coincident constraint for P9 to line P5->P6: {str(e)}")
 
     # Add COINCIDENT constraint: P10 end point must be on line P2-P5
     try:
@@ -857,8 +1036,8 @@ def draw_gear_face_extension(
             p9,  # Point on P9->P10 diagonal line
             adsk.fusion.DimensionOrientations.AlignedDimensionOrientation,
             adsk.core.Point3D.create(
-                (p5.geometry.x + p10_x) / 2,
-                (p5.geometry.y + p10_y) / 2 - 1,
+                (p5.geometry.x + p9_x) / 2,
+                (p5.geometry.y + p9_y) / 2 - 1,
                 0
             )
         )
@@ -879,6 +1058,16 @@ def draw_gear_face_extension(
     state.p8 = p8
     state.p9 = p9
     state.p10 = p10
+
+    # Add text labels for debugging
+    add_line_label(sketch, p4_p5_line, "P4->P5")
+    add_line_label(sketch, p2_p5_line, "P2->P5")
+    add_line_label(sketch, p5_p6_line, "P5->P6")
+    add_line_label(sketch, p6_p1_line, "P6->P1")
+    add_line_label(sketch, p5_p7_line, "P5->P7")
+    add_line_label(sketch, p7_mid_p8_line, "P7_mid->P8")
+    add_line_label(sketch, p6_p8_line, "P6->P8")
+    add_line_label(sketch, p9_p10_diagonal_line, "P9->P10")
 
     # Validate critical line segment lengths for reliable face intersection detection
     # These lines will be used in Phase 2 to identify cutting faces via midpoint checking
@@ -957,20 +1146,34 @@ def draw_mating_face_extension(
     if not base_thickness_param:
         raise Exception("DrivingGearBaseThickness parameter not found")
 
-    # Access p2, p3, p4, diagonal from state (set by draw_foundation_rectangle and draw_apex_diagonal)
+    # Access p1, p2, p3, p4, diagonal from state (set by draw_foundation_rectangle and draw_apex_diagonal)
+    p1 = state.p1
     p2 = state.p2
     p3 = state.p3
     p4 = state.p4
     diagonal = state.diagonal
 
-    # Calculate perpendicular direction from diagonal (P2->P4) towards higher Y
+    # Calculate perpendicular direction from diagonal (P2->P4) towards mating side (towards P3)
+    # This needs to be orientation-aware, not hard-coded to "higher Y"
     diag_vec_x = p4.geometry.x - p2.geometry.x
     diag_vec_y = p4.geometry.y - p2.geometry.y
     diag_length = math.sqrt(diag_vec_x**2 + diag_vec_y**2)
 
-    # Rotate 90° counter-clockwise for higher Y: (x, y) -> (-y, x)
-    perp_vec_x = -diag_vec_y / diag_length
-    perp_vec_y = diag_vec_x / diag_length
+    # Determine which side of P2->P4 line that P1 is on using cross product
+    # Cross product: (P4 - P2) × (P1 - P2) = (p4.x - p2.x) * (p1.y - p2.y) - (p4.y - p2.y) * (p1.x - p2.x)
+    cross_product = (diag_vec_x * (p1.geometry.y - p2.geometry.y) -
+                     diag_vec_y * (p1.geometry.x - p2.geometry.x))
+
+    # For mating side extension (P4->P11), we want to go towards P3's side (opposite of P1)
+    # So we invert the direction compared to gear side extension
+    if cross_product > 0:
+        # P1 is on left side, so P3 is on right side, rotate 90° clockwise: (x, y) -> (y, -x)
+        perp_vec_x = diag_vec_y / diag_length
+        perp_vec_y = -diag_vec_x / diag_length
+    else:
+        # P1 is on right side, so P3 is on left side, rotate 90° counter-clockwise: (x, y) -> (-y, x)
+        perp_vec_x = -diag_vec_y / diag_length
+        perp_vec_y = diag_vec_x / diag_length
 
     # Calculate P11 position (module * 1.25 distance from P4, perpendicular to diagonal)
     ext_length = module_param.value * 1.25
@@ -1013,33 +1216,51 @@ def draw_mating_face_extension(
     p2_p11_line = sketch.sketchCurves.sketchLines.addByTwoPoints(p2, p11)
     p2_p11_line.isConstruction = False
 
-    # Draw vertical line (P11->P12) upward towards P3's Y level (parallel to P2->P3)
-    p12_pos = adsk.core.Point3D.create(
-        p11.geometry.x,
-        p3.geometry.y,
-        0
-    )
+    # Draw line (P11->P12) towards P3's level (parallel to P2->P3)
+    # Orientation-dependent: use P3's Y coord (standard) or X coord (swapped)
+    if state.y_is_perpendicular:
+        # Standard: P1->P2 is vertical, so P11->P12 goes to P3's Y level
+        p12_pos = adsk.core.Point3D.create(
+            p11.geometry.x,
+            p3.geometry.y,
+            0
+        )
+    else:
+        # Swapped: P1->P2 is horizontal, so P11->P12 goes to P3's X level
+        p12_pos = adsk.core.Point3D.create(
+            p3.geometry.x,
+            p11.geometry.y,
+            0
+        )
     p11_p12_line = sketch.sketchCurves.sketchLines.addByTwoPoints(p11, p12_pos)
     p11_p12_line.isConstruction = False
 
-    # Add VERTICAL constraint (line is parallel to P2->P3)
+    # Add constraint (line is parallel to P2->P3)
+    # Orientation-dependent: VERTICAL (standard) or HORIZONTAL (swapped)
     try:
-        sketch.geometricConstraints.addVertical(p11_p12_line)
+        if state.y_is_perpendicular:
+            sketch.geometricConstraints.addVertical(p11_p12_line)
+        else:
+            sketch.geometricConstraints.addHorizontal(p11_p12_line)
     except Exception as e:
-        raise Exception(f"Failed to add vertical constraint to P11->P12 line: {str(e)}")
+        raise Exception(f"Failed to add constraint to P11->P12 line: {str(e)}")
 
     # Store P12
     p12 = p11_p12_line.endSketchPoint
 
-    # Draw horizontal closing line (P12->P3)
+    # Draw closing line (P12->P3)
     p12_p3_line = sketch.sketchCurves.sketchLines.addByTwoPoints(p12, p3)
     p12_p3_line.isConstruction = False
 
-    # Add HORIZONTAL constraint (P12 is at same Y level as P3)
+    # Add constraint (P12 is at same level as P3)
+    # Orientation-dependent: HORIZONTAL (standard) or VERTICAL (swapped)
     try:
-        sketch.geometricConstraints.addHorizontal(p12_p3_line)
+        if state.y_is_perpendicular:
+            sketch.geometricConstraints.addHorizontal(p12_p3_line)
+        else:
+            sketch.geometricConstraints.addVertical(p12_p3_line)
     except Exception as e:
-        raise Exception(f"Failed to add horizontal constraint to P12->P3 line: {str(e)}")
+        raise Exception(f"Failed to add constraint to P12->P3 line: {str(e)}")
 
     # Extend P4->P11 line to create P13 (collinear)
     # Calculate P13 position: P11->P13 length = ((Module * MatingToothNumber) / 2) + 0.05 - pitch radius plus 0.5mm margin
@@ -1096,46 +1317,75 @@ def draw_mating_face_extension(
     except Exception as e:
         raise Exception(f"Failed to add coincident constraint to P14_mid on P11->P13 line: {str(e)}")
 
-    # Draw vertical line (P14_mid->P14) upward towards P3's Y level (parallel to P2->P3)
-    p14_pos = adsk.core.Point3D.create(
-        p14_mid.geometry.x,
-        p3.geometry.y,
-        0
-    )
+    # Draw line (P14_mid->P14) towards P3's level (parallel to P2->P3)
+    # Orientation-dependent: use P3's Y coord (standard) or X coord (swapped)
+    if state.y_is_perpendicular:
+        # Standard: P1->P2 is vertical, so P14_mid->P14 goes to P3's Y level
+        p14_pos = adsk.core.Point3D.create(
+            p14_mid.geometry.x,
+            p3.geometry.y,
+            0
+        )
+    else:
+        # Swapped: P1->P2 is horizontal, so P14_mid->P14 goes to P3's X level
+        p14_pos = adsk.core.Point3D.create(
+            p3.geometry.x,
+            p14_mid.geometry.y,
+            0
+        )
     p14_mid_p14_line = sketch.sketchCurves.sketchLines.addByTwoPoints(p14_mid, p14_pos)
     p14_mid_p14_line.isConstruction = False
 
-    # Add VERTICAL constraint (line is parallel to P2->P3)
+    # Add constraint (line is parallel to P2->P3)
+    # Orientation-dependent: VERTICAL (standard) or HORIZONTAL (swapped)
     try:
-        sketch.geometricConstraints.addVertical(p14_mid_p14_line)
+        if state.y_is_perpendicular:
+            sketch.geometricConstraints.addVertical(p14_mid_p14_line)
+        else:
+            sketch.geometricConstraints.addHorizontal(p14_mid_p14_line)
     except Exception as e:
-        raise Exception(f"Failed to add vertical constraint to P14_mid->P14 line: {str(e)}")
+        raise Exception(f"Failed to add constraint to P14_mid->P14 line: {str(e)}")
 
     # Store P14 (outer vertical endpoint, closure point)
     p14 = p14_mid_p14_line.endSketchPoint
 
-    # Draw horizontal connector line (P12->P14) to close the outer trapezoid
-    # Both P12 and P14 are at P3's Y level, so this is a horizontal line
+    # Draw connector line (P12->P14) to close the outer trapezoid
+    # Both P12 and P14 are at P3's level
     p12_p14_line = sketch.sketchCurves.sketchLines.addByTwoPoints(p12, p14)
     p12_p14_line.isConstruction = False
 
-    # Add HORIZONTAL constraint (both points at same Y level)
+    # Add constraint (both points at same level)
+    # Orientation-dependent: HORIZONTAL (standard) or VERTICAL (swapped)
     try:
-        sketch.geometricConstraints.addHorizontal(p12_p14_line)
+        if state.y_is_perpendicular:
+            sketch.geometricConstraints.addHorizontal(p12_p14_line)
+        else:
+            sketch.geometricConstraints.addVertical(p12_p14_line)
     except Exception as e:
-        raise Exception(f"Failed to add horizontal constraint to P12->P14 line: {str(e)}")
+        raise Exception(f"Failed to add constraint to P12->P14 line: {str(e)}")
 
     # Apply dimension = DrivingGearBaseThickness
+    # Orientation-dependent dimension orientation
+    if state.y_is_perpendicular:
+        dim_orientation = adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation
+        dim_text_pos = adsk.core.Point3D.create(
+            (p12.geometry.x + p14.geometry.x) / 2,
+            p12.geometry.y + 2,
+            0
+        )
+    else:
+        dim_orientation = adsk.fusion.DimensionOrientations.VerticalDimensionOrientation
+        dim_text_pos = adsk.core.Point3D.create(
+            p12.geometry.x + 2,
+            (p12.geometry.y + p14.geometry.y) / 2,
+            0
+        )
     try:
         dim_p12_p14 = sketch.sketchDimensions.addDistanceDimension(
             p12_p14_line.startSketchPoint,
             p12_p14_line.endSketchPoint,
-            adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation,
-            adsk.core.Point3D.create(
-                (p12.geometry.x + p14.geometry.x) / 2,
-                p12.geometry.y + 2,
-                0
-            )
+            dim_orientation,
+            dim_text_pos
         )
         dim_p12_p14.parameter.expression = make_param_name(state.param_prefix, 'DrivingGearBaseThickness')
     except Exception as e:
@@ -1147,7 +1397,7 @@ def draw_mating_face_extension(
         raise Exception("TeethLength parameter not found")
 
     # Draw diagonal profile line parallel to P11->P13, at distance teeth_length
-    # This line runs from line P11-P12 (point P15) to line P2-P11
+    # This line runs from line P11-P12 (point P15) to line P2-P11 (point P16)
     # The line is parallel to P11->P13 (collinear direction)
 
     # Calculate the direction vector of P11->P13 (same as perpendicular direction)
@@ -1166,20 +1416,32 @@ def draw_mating_face_extension(
 
     # The diagonal line at distance teeth_length has direction same as P11->P13
     # It passes through offset_start point and extends in P11->P13 direction
-    # Find intersection with vertical line at P11.x (line P11-P12)
-    # Line P11-P12 equation: x = p11.x
-    # Diagonal line equation: passes through (offset_start_x, offset_start_y), direction (p11_p13_dir_x, p11_p13_dir_y)
+    # Find intersection with line P11->P12
+    # P11->P12 is either vertical (standard orientation) or horizontal (swapped orientation)
+    # Offset diagonal: passes through (offset_start_x, offset_start_y), direction (p11_p13_dir_x, p11_p13_dir_y)
     # Parametric: x = offset_start_x + t * p11_p13_dir_x, y = offset_start_y + t * p11_p13_dir_y
-    # Solve for t when x = p11.x: offset_start_x + t * p11_p13_dir_x = p11.x
-    if abs(p11_p13_dir_x) > 1e-6:
-        t = (p11.geometry.x - offset_start_x) / p11_p13_dir_x
-        p15_y = offset_start_y + t * p11_p13_dir_y
+    if state.y_is_perpendicular:
+        # Standard orientation: P11->P12 is vertical (x = p11.x)
+        # Solve for t when x = p11.x: offset_start_x + t * p11_p13_dir_x = p11.x
+        if abs(p11_p13_dir_x) > 1e-6:
+            t = (p11.geometry.x - offset_start_x) / p11_p13_dir_x
+            p15_y = offset_start_y + t * p11_p13_dir_y
+        else:
+            # P11->P13 is vertical (shouldn't happen), use offset_start_y
+            p15_y = offset_start_y
+        p15_x = p11.geometry.x  # On vertical line P11-P12
     else:
-        # P11->P13 is vertical (shouldn't happen), use offset_start_y
-        p15_y = offset_start_y
-    p15_x = p11.geometry.x  # On vertical line P11-P12
+        # Swapped orientation: P11->P12 is horizontal (y = p11.y)
+        # Solve for t when y = p11.y: offset_start_y + t * p11_p13_dir_y = p11.y
+        if abs(p11_p13_dir_y) > 1e-6:
+            t = (p11.geometry.y - offset_start_y) / p11_p13_dir_y
+            p15_x = offset_start_x + t * p11_p13_dir_x
+        else:
+            # P11->P13 is horizontal (shouldn't happen), use offset_start_x
+            p15_x = offset_start_x
+        p15_y = p11.geometry.y  # On horizontal line P11-P12
 
-    # Draw line from P15 (on P11-P12) to intersection with P2-P11
+    # Draw line from P15 (on P11->P12) to intersection with P2-P11
     # P2-P11 line direction
     p2_p11_vec_x = p11.geometry.x - p2.geometry.x
     p2_p11_vec_y = p11.geometry.y - p2.geometry.y
@@ -1194,32 +1456,32 @@ def draw_mating_face_extension(
     det = p11_p13_dir_x * p2_p11_vec_y - p11_p13_dir_y * p2_p11_vec_x
     if abs(det) > 1e-6:
         u = ((p15_x - p2.geometry.x) * p11_p13_dir_y - (p15_y - p2.geometry.y) * p11_p13_dir_x) / det
-        p15_end_x = p2.geometry.x + u * p2_p11_vec_x
-        p15_end_y = p2.geometry.y + u * p2_p11_vec_y
+        p16_x = p2.geometry.x + u * p2_p11_vec_x
+        p16_y = p2.geometry.y + u * p2_p11_vec_y
     else:
-        # Lines are parallel (shouldn't happen), use P15 as both start and end
-        p15_end_x = p15_x
-        p15_end_y = p15_y
+        # Lines are parallel (shouldn't happen), use P15 as fallback for P16
+        p16_x = p15_x
+        p16_y = p15_y
 
-    # Create P15 point and diagonal line
+    # Create P15 (start) and P16 (end) points for diagonal line
     p15_point = adsk.core.Point3D.create(p15_x, p15_y, 0)
-    p15_end_point = adsk.core.Point3D.create(p15_end_x, p15_end_y, 0)
+    p16_point = adsk.core.Point3D.create(p16_x, p16_y, 0)
 
     try:
-        p15_diagonal_line = sketch.sketchCurves.sketchLines.addByTwoPoints(p15_point, p15_end_point)
-        p15_diagonal_line.isConstruction = False
+        p15_p16_diagonal_line = sketch.sketchCurves.sketchLines.addByTwoPoints(p15_point, p16_point)
+        p15_p16_diagonal_line.isConstruction = False
     except Exception as e:
-        raise Exception(f"Failed to draw diagonal profile line P15: {str(e)}")
+        raise Exception(f"Failed to draw diagonal profile line P15->P16: {str(e)}")
 
-    # Store P15 (start on P11-P12) and P16 (end on P2-P11)
-    p15 = p15_diagonal_line.startSketchPoint
-    p16 = p15_diagonal_line.endSketchPoint
+    # Store P15 (start on P11->P12) and P16 (end on P2-P11)
+    p15 = p15_p16_diagonal_line.startSketchPoint
+    p16 = p15_p16_diagonal_line.endSketchPoint
 
-    # Add COINCIDENT constraint: P15 start point must be on line P11-P12
+    # Add COINCIDENT constraint: P15 start point must be on line P11->P12
     try:
         sketch.geometricConstraints.addCoincident(p15, p11_p12_line)
     except Exception as e:
-        raise Exception(f"Failed to add coincident constraint for P15 to line P11-P12: {str(e)}")
+        raise Exception(f"Failed to add coincident constraint for P15 to line P11->P12: {str(e)}")
 
     # Add COINCIDENT constraint: P16 end point must be on line P2-P11
     try:
@@ -1229,7 +1491,7 @@ def draw_mating_face_extension(
 
     # Add PARALLEL constraint to P11->P13 line
     try:
-        sketch.geometricConstraints.addParallel(p15_diagonal_line, p11_p13_line)
+        sketch.geometricConstraints.addParallel(p15_p16_diagonal_line, p11_p13_line)
     except Exception as e:
         raise Exception(f"Failed to add parallel constraint to P15->P16 diagonal line: {str(e)}")
 
@@ -1260,6 +1522,16 @@ def draw_mating_face_extension(
     state.p14 = p14
     state.p15 = p15
     state.p16 = p16
+
+    # Add text labels for debugging
+    add_line_label(sketch, p4_p11_line, "P4->P11")
+    add_line_label(sketch, p2_p11_line, "P2->P11")
+    add_line_label(sketch, p11_p12_line, "P11->P12")
+    add_line_label(sketch, p12_p3_line, "P12->P3")
+    add_line_label(sketch, p11_p13_line, "P11->P13")
+    add_line_label(sketch, p14_mid_p14_line, "P14_mid->P14")
+    add_line_label(sketch, p12_p14_line, "P12->P14")
+    add_line_label(sketch, p15_p16_diagonal_line, "P15->P16")
 
     return state
 
@@ -1485,6 +1757,7 @@ def generate_bevel_gear(
     # 12. Create perpendicular foundation plane
     foundation_plane = create_perpendicular_plane(state.design_component, gear_plane, anchor_point_entity)
     state.foundation_plane = foundation_plane
+    state.gear_plane = gear_plane  # Store for orientation detection
 
     # 13. Create foundation sketch
     state = create_foundation_sketch(state, spec, anchor_point_entity)
@@ -2125,12 +2398,27 @@ def create_base_gear_body(state: GenerationState, spec: BevelGearSpec) -> Genera
 
     # Find the hexagonal profile that contains P8 and P7_mid as vertices (boundary points)
     # The hexagonal profile should have lines connecting: P5->P7_mid, P7_mid->P8, P8->P6, P6->P9, P9->P10, P10->P5
+    # IMPORTANT: Exclude profiles that contain P1, P2, P3, or P4 (these are the wrong profiles from the original trapezoid)
+
+    # Get trapezoid vertices once before the loop
+    p1 = getattr(state, 'p1', None)
+    p2 = getattr(state, 'p2', None)
+    p3 = getattr(state, 'p3', None)
+    p4 = getattr(state, 'p4', None)
+
+    futil.log(f"[PROFILE_SELECT] Trapezoid vertices: p1={p1 is not None}, p2={p2 is not None}, p3={p3 is not None}, p4={p4 is not None}")
+    futil.log(f"[PROFILE_SELECT] Total profiles in foundation sketch: {profiles.count}")
+
     target_profile = None
     for i in range(profiles.count):
         profile = profiles.item(i)
         # Check if this profile contains both P8 and P7_mid as vertices by examining its boundary curves
         has_p8 = False
         has_p7_mid = False
+        has_p1 = False
+        has_p2 = False
+        has_p3 = False
+        has_p4 = False
 
         for loop in profile.profileLoops:
             for curve in loop.profileCurves:
@@ -2143,9 +2431,22 @@ def create_base_gear_body(state: GenerationState, spec: BevelGearSpec) -> Genera
                     if hasattr(state, 'p7_mid') and state.p7_mid:
                         if (line.startSketchPoint == state.p7_mid or line.endSketchPoint == state.p7_mid):
                             has_p7_mid = True
+                    # Check if any trapezoid vertices (P1, P2, P3, P4) are present
+                    if p1 and (line.startSketchPoint == p1 or line.endSketchPoint == p1):
+                        has_p1 = True
+                    if p2 and (line.startSketchPoint == p2 or line.endSketchPoint == p2):
+                        has_p2 = True
+                    if p3 and (line.startSketchPoint == p3 or line.endSketchPoint == p3):
+                        has_p3 = True
+                    if p4 and (line.startSketchPoint == p4 or line.endSketchPoint == p4):
+                        has_p4 = True
 
-        # The hexagonal profile has BOTH P8 and P7_mid as vertices
+        # DEBUG: Print what we found for this profile
         if has_p8 and has_p7_mid:
+            futil.log(f"[PROFILE_SELECT] Profile {i}: has_p8={has_p8}, has_p7_mid={has_p7_mid}, has_p1={has_p1}, has_p2={has_p2}, has_p3={has_p3}, has_p4={has_p4}")
+
+        # The hexagonal profile has BOTH P8 and P7_mid as vertices, but NO trapezoid vertices
+        if has_p8 and has_p7_mid and not (has_p1 or has_p2 or has_p3 or has_p4):
             target_profile = profile
             break
 
@@ -2158,6 +2459,7 @@ def create_base_gear_body(state: GenerationState, spec: BevelGearSpec) -> Genera
 
     # Find the triangular profile enclosed by P9, P10, P5
     # This is the inner region that should also be revolved
+    # IMPORTANT: Exclude profiles that contain P1, P2, P3, or P4 (these are from the original trapezoid)
     triangular_profile = None
     for i in range(profiles.count):
         profile = profiles.item(i)
@@ -2165,6 +2467,10 @@ def create_base_gear_body(state: GenerationState, spec: BevelGearSpec) -> Genera
         has_p9 = False
         has_p10 = False
         has_p5 = False
+        has_p1 = False
+        has_p2 = False
+        has_p3 = False
+        has_p4 = False
 
         for loop in profile.profileLoops:
             for curve in loop.profileCurves:
@@ -2176,10 +2482,26 @@ def create_base_gear_body(state: GenerationState, spec: BevelGearSpec) -> Genera
                         has_p10 = True
                     if line.startSketchPoint == state.p5 or line.endSketchPoint == state.p5:
                         has_p5 = True
+                    # Check if any trapezoid vertices (P1, P2, P3, P4) are present
+                    if p1 and (line.startSketchPoint == p1 or line.endSketchPoint == p1):
+                        has_p1 = True
+                    if p2 and (line.startSketchPoint == p2 or line.endSketchPoint == p2):
+                        has_p2 = True
+                    if p3 and (line.startSketchPoint == p3 or line.endSketchPoint == p3):
+                        has_p3 = True
+                    if p4 and (line.startSketchPoint == p4 or line.endSketchPoint == p4):
+                        has_p4 = True
 
-        # The triangular profile has all three vertices and is NOT the same as the hexagonal profile
-        if has_p9 and has_p10 and has_p5 and profile != target_profile:
+        # DEBUG: Log triangular profile candidates
+        if has_p9 and has_p10 and has_p5:
+            futil.log(f"[PROFILE_SELECT] Triangular candidate {i}: has_p9={has_p9}, has_p10={has_p10}, has_p5={has_p5}, has_p1={has_p1}, has_p2={has_p2}, has_p3={has_p3}, has_p4={has_p4}, is_target={profile == target_profile}")
+
+        # The triangular profile has all three vertices (P9, P10, P5), is NOT the hexagonal profile,
+        # and does NOT contain P1, P3, or P4 (the base corners)
+        # NOTE: P2 (apex) is allowed because the line P2->P5 is part of the triangular profile boundary
+        if has_p9 and has_p10 and has_p5 and profile != target_profile and not (has_p1 or has_p3 or has_p4):
             triangular_profile = profile
+            futil.log(f"[PROFILE_SELECT] Selected triangular profile: candidate {i}")
             break
 
     if triangular_profile is None:
@@ -2188,10 +2510,12 @@ def create_base_gear_body(state: GenerationState, spec: BevelGearSpec) -> Genera
             f"Found {profiles.count} profiles total."
         )
 
-    # Create an ObjectCollection containing both profiles
+    # Create an ObjectCollection containing BOTH profiles to revolve
+    # 1. The hexagonal profile (P5, P7_mid, P8, P6, P9, P10) - outer gear side extension
+    # 2. The triangular profile (P9, P10, P5) - inner region
     profiles_to_revolve = adsk.core.ObjectCollection.create()
-    profiles_to_revolve.add(target_profile)
-    profiles_to_revolve.add(triangular_profile)
+    profiles_to_revolve.add(target_profile)  # Hexagonal profile
+    profiles_to_revolve.add(triangular_profile)  # Triangular profile
 
     # Create revolve feature in design_component (where the profile and axis live)
     revolveFeatures = state.design_component.features.revolveFeatures
