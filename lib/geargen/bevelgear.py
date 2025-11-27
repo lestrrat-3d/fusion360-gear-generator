@@ -112,19 +112,8 @@ from .spurgear import draw_spur_gear_circles
 from .inputs import parse_bevel_gear_inputs, get_selection_input
 from .components import get_parent_component
 from .parameters import create_bevel_gear_parameters
-from .misc import get_design
+from .misc import to_cm, from_cm, get_design
 from ...lib import fusion360utils as futil
-
-
-# Helper function to convert mm to cm (Fusion 360 API uses cm internally)
-def to_cm(mm: float) -> float:
-    """Convert millimeters to centimeters."""
-    return mm / 10.0
-
-
-def from_cm(cm: float) -> float:
-    """Convert centimeters to millimeters."""
-    return cm * 10.0
 
 
 class BevelGearCommandInputsConfigurator:

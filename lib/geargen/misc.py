@@ -1,15 +1,17 @@
 import math
 import adsk.core
 
-def to_cm(mm):
-    return mm/10
+def to_cm(mm: float) -> float:
+    """Convert millimeters to centimeters."""
+    return mm / 10.0
 
-def to_mm(cm):
-    return cm*10
+def to_mm(cm: float) -> float:
+    """Convert centimeters to millimeters."""
+    return cm * 10.0
 
-def from_cm(cm):
+def from_cm(cm: float) -> float:
     """Convert from centimeters to millimeters. Alias for to_mm."""
-    return cm*10
+    return cm * 10.0
 
 def get_ui(app=adsk.core.Application.get()):
     ui = app.userInterface
