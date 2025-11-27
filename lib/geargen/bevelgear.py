@@ -245,10 +245,10 @@ def create_bevel_gear_components(state: GenerationState) -> GenerationState:
 
 
 def create_perpendicular_plane(
-    design_component: adsk.fusion.Component,
+    state: GenerationState,
     gear_plane: adsk.fusion.ConstructionPlane,
     anchor_point_entity: Any
-) -> adsk.fusion.ConstructionPlane:
+) -> GenerationState:
     """
     Create a construction plane perpendicular to the gear plane, passing through the projected anchor point.
 
@@ -276,7 +276,7 @@ def create_perpendicular_plane(
         Exception: If plane creation fails or anchor point cannot be projected
     """
     # Create temporary sketch on gear_plane for projection
-    temp_sketch = design_component.sketches.add(gear_plane)
+    temp_sketch = state.design_component.sketches.add(gear_plane)
 
     # Project anchor_point_entity into sketch to get projected point on gear_plane
     projected = temp_sketch.project(anchor_point_entity)
@@ -307,21 +307,23 @@ def create_perpendicular_plane(
         projected_anchor_point,
         end_point
     )
+    # TODO: constrain perp_line length so that the sketch is fully constrained
 
     # Create plane using setByAngle at 90 degrees to gear_plane
-    plane_input = design_component.constructionPlanes.createInput()
+    plane_input = state.design_component.constructionPlanes.createInput()
     plane_input.setByAngle(
         perp_line,
         adsk.core.ValueInput.createByReal(math.pi / 2),
         gear_plane
     )
-    foundation_plane = design_component.constructionPlanes.add(plane_input)
+    foundation_plane = state.design_component.constructionPlanes.add(plane_input)
     foundation_plane.name = "Foundation Plane"
 
-    # Delete temporary sketch (cleanup)
-    temp_sketch.deleteMe()
+    temp_sketch.isVisible = False  # Hide instead of delete to avoid API issues
+    temp_sketch.name = "Perpendicular Reference"
 
-    return foundation_plane
+    state.foundation_plane = foundation_plane
+    return state
 
 
 def add_line_label(sketch: adsk.fusion.Sketch, line: adsk.fusion.SketchLine, label: str) -> None:
@@ -1755,8 +1757,7 @@ def generate_bevel_gear(
     state = create_bevel_gear_components(state)
 
     # 12. Create perpendicular foundation plane
-    foundation_plane = create_perpendicular_plane(state.design_component, gear_plane, anchor_point_entity)
-    state.foundation_plane = foundation_plane
+    state = create_perpendicular_plane(state, gear_plane, anchor_point_entity)
     state.gear_plane = gear_plane  # Store for orientation detection
 
     # 13. Create foundation sketch
@@ -1901,7 +1902,8 @@ def create_tooth_profile_plane(state: GenerationState) -> GenerationState:
     tooth_profile_plane.name = "Tooth Profile Plane"
 
     # Delete temporary sketch (cleanup)
-    temp_sketch.deleteMe()
+    temp_sketch.isVisible = False
+    temp_sketch.name = "Tooth Profile Reference"
 
     # Store in state
     state.tooth_profile_plane = tooth_profile_plane
@@ -2406,9 +2408,6 @@ def create_base_gear_body(state: GenerationState, spec: BevelGearSpec) -> Genera
     p3 = getattr(state, 'p3', None)
     p4 = getattr(state, 'p4', None)
 
-    futil.log(f"[PROFILE_SELECT] Trapezoid vertices: p1={p1 is not None}, p2={p2 is not None}, p3={p3 is not None}, p4={p4 is not None}")
-    futil.log(f"[PROFILE_SELECT] Total profiles in foundation sketch: {profiles.count}")
-
     target_profile = None
     for i in range(profiles.count):
         profile = profiles.item(i)
@@ -2440,10 +2439,6 @@ def create_base_gear_body(state: GenerationState, spec: BevelGearSpec) -> Genera
                         has_p3 = True
                     if p4 and (line.startSketchPoint == p4 or line.endSketchPoint == p4):
                         has_p4 = True
-
-        # DEBUG: Print what we found for this profile
-        if has_p8 and has_p7_mid:
-            futil.log(f"[PROFILE_SELECT] Profile {i}: has_p8={has_p8}, has_p7_mid={has_p7_mid}, has_p1={has_p1}, has_p2={has_p2}, has_p3={has_p3}, has_p4={has_p4}")
 
         # The hexagonal profile has BOTH P8 and P7_mid as vertices, but NO trapezoid vertices
         if has_p8 and has_p7_mid and not (has_p1 or has_p2 or has_p3 or has_p4):
@@ -2492,16 +2487,11 @@ def create_base_gear_body(state: GenerationState, spec: BevelGearSpec) -> Genera
                     if p4 and (line.startSketchPoint == p4 or line.endSketchPoint == p4):
                         has_p4 = True
 
-        # DEBUG: Log triangular profile candidates
-        if has_p9 and has_p10 and has_p5:
-            futil.log(f"[PROFILE_SELECT] Triangular candidate {i}: has_p9={has_p9}, has_p10={has_p10}, has_p5={has_p5}, has_p1={has_p1}, has_p2={has_p2}, has_p3={has_p3}, has_p4={has_p4}, is_target={profile == target_profile}")
-
         # The triangular profile has all three vertices (P9, P10, P5), is NOT the hexagonal profile,
         # and does NOT contain P1, P3, or P4 (the base corners)
         # NOTE: P2 (apex) is allowed because the line P2->P5 is part of the triangular profile boundary
         if has_p9 and has_p10 and has_p5 and profile != target_profile and not (has_p1 or has_p3 or has_p4):
             triangular_profile = profile
-            futil.log(f"[PROFILE_SELECT] Selected triangular profile: candidate {i}")
             break
 
     if triangular_profile is None:
@@ -2818,7 +2808,7 @@ def identify_cutting_faces(state: GenerationState, spec: BevelGearSpec) -> Gener
         # Filter: only check conical surfaces
         if face.geometry.surfaceType != adsk.core.SurfaceTypes.ConeSurfaceType:
             continue
-        if face_intersects_line_planar(face, state.p9.geometry, state.p10.geometry):
+        if face_intersects_line_planar(face, state.p9.worldGeometry, state.p10.worldGeometry):
             cutting_faces_p9_p10.append(face)
 
     # Identify conical faces intersecting P5->P7_mid edge
@@ -2829,7 +2819,7 @@ def identify_cutting_faces(state: GenerationState, spec: BevelGearSpec) -> Gener
         # Filter: only check conical surfaces
         if face.geometry.surfaceType != adsk.core.SurfaceTypes.ConeSurfaceType:
             continue
-        if face_intersects_line_planar(face, state.p5.geometry, state.p7_mid.geometry):
+        if face_intersects_line_planar(face, state.p5.worldGeometry, state.p7_mid.worldGeometry):
             cutting_faces_p5_p7mid.append(face)
 
     # Combine both sets of cutting faces
@@ -3099,8 +3089,8 @@ def remove_smaller_parts(state: GenerationState, spec: BevelGearSpec) -> Generat
     if not hasattr(state, 'apex_point') or state.apex_point is None:
         raise Exception("Cannot identify tooth body: apex_point is missing from state")
 
-    # Get apex point 3D coordinates
-    apex_3d = state.apex_point.geometry
+    # Get apex point 3D coordinates (use worldGeometry for component-global coordinates)
+    apex_3d = state.apex_point.worldGeometry
 
     # Find the largest body where apex is Outside
     # Delete bodies where apex is OnBoundary or Inside
