@@ -112,7 +112,7 @@ from .spurgear import draw_spur_gear_circles
 from .inputs import parse_bevel_gear_inputs, get_selection_input
 from .components import get_parent_component
 from .parameters import create_bevel_gear_parameters
-from .misc import to_cm, from_cm, get_design
+from .misc import to_cm, get_design
 from ...lib import fusion360utils as futil
 from .constants.entities import (
     COMPONENT_DESIGN,

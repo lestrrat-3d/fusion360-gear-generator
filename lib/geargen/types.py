@@ -92,6 +92,25 @@ class GenerationState:
     small_end_profile: Optional[adsk.fusion.Profile] = None
     cone_axis: Optional[adsk.fusion.ConstructionAxis] = None
 
+    def update(self, **kwargs) -> 'GenerationState':
+        """
+        Create a new GenerationState with specified fields updated.
+
+        This eliminates the need to manually list all fields when creating
+        updated state objects.
+
+        Args:
+            **kwargs: Field names and their new values to update
+
+        Returns:
+            New GenerationState instance with updated fields
+
+        Example:
+            new_state = state.update(anchor_point=new_anchor)
+        """
+        import dataclasses
+        return dataclasses.replace(self, **kwargs)
+
 
 @dataclass
 class SpurGearSpec:

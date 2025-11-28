@@ -1,12 +1,11 @@
 import math
-from typing import Optional, Any
+from typing import Optional, Any, Union
 import adsk.core
 import adsk.fusion
 from ...lib import fusion360utils as futil
 from .misc import *
-from .base import *
 from .utilities import *
-from .types import GenerationState, SpurGearSpec
+from .types import GenerationState, SpurGearSpec, HelicalGearSpec, HerringboneGearSpec
 from .core import create_gear_occurrence, ensure_construction_plane, create_sketch, get_parameter, hide_construction_planes
 from .inputs import parse_spur_gear_inputs, get_selection_input
 from .components import get_parent_component
@@ -452,6 +451,54 @@ def draw_involute_tooth(
     draw_involute_tooth_profile(sketch, state, config)
 
 
+def find_tooth_profile(
+    sketch: adsk.fusion.Sketch,
+    allow_embedded: bool = True
+) -> Optional[adsk.fusion.Profile]:
+    """
+    Find the tooth profile in a sketch by examining profile curves.
+
+    Searches for profiles with 4 or 6 curves containing exactly 2 nurbs
+    (involute) curves and 2 arcs, which are the signature of involute teeth.
+
+    Args:
+        sketch: The sketch to search for tooth profiles
+        allow_embedded: If True, accepts both 4-curve and 6-curve profiles
+
+    Returns:
+        The tooth Profile object if found, None otherwise
+    """
+    from .constants.entities import (
+        TOOTH_PROFILE_CURVE_COUNT_EMBEDDED,
+        TOOTH_PROFILE_CURVE_COUNT_STANDARD
+    )
+
+    for profile in sketch.profiles:
+        for loop in profile.profileLoops:
+            curve_count = loop.profileCurves.count
+            if allow_embedded:
+                if curve_count not in (TOOTH_PROFILE_CURVE_COUNT_EMBEDDED,
+                                      TOOTH_PROFILE_CURVE_COUNT_STANDARD):
+                    continue
+            else:
+                if curve_count != TOOTH_PROFILE_CURVE_COUNT_STANDARD:
+                    continue
+
+            # Verify curve types
+            has_nurbs = 0
+            has_arcs = 0
+            for curve in loop.profileCurves:
+                if curve.geometry.curveType == adsk.core.Curve3DTypes.NurbsCurve3DCurveType:
+                    has_nurbs += 1
+                elif curve.geometry.curveType == adsk.core.Curve3DTypes.Arc3DCurveType:
+                    has_arcs += 1
+
+            if has_nurbs == 2 and has_arcs == 2:
+                return profile
+
+    return None
+
+
 def extrude_spur_tooth(
     state: GenerationState,
     spec: SpurGearSpec
@@ -574,6 +621,70 @@ def chamfer_spur_tooth(
         for edge in face.edges:
             if edge.geometry.curveType == adsk.core.Curve3DTypes.Arc3DCurveType:
                 if abs(edge.geometry.radius - root_circle_radius_cm) < 0.001:
+                    continue
+            spline_edges.add(edge)
+
+    if spline_edges.count > 0:
+        chamfer_input = state.component.features.chamferFeatures.createInput2()
+        chamfer_input.chamferEdgeSets.addEqualDistanceChamferEdgeSet(
+            spline_edges,
+            adsk.core.ValueInput.createByReal(spec.chamfer_tooth),
+            False
+        )
+        state.component.features.chamferFeatures.add(chamfer_input)
+
+
+def chamfer_lofted_tooth(
+    state: GenerationState,
+    spec: Union['HelicalGearSpec', 'HerringboneGearSpec'],
+    edge_count: int = None
+) -> None:
+    """
+    Apply chamfer to lofted tooth edges (helical/herringbone gears).
+
+    Finds planar faces with the specified edge count containing exactly
+    two spline edges, and applies chamfer while excluding root circle arcs.
+
+    Args:
+        state: Generation state with tooth_body populated
+        spec: Gear specification with chamfer_tooth and root_circle_radius
+        edge_count: Number of edges per face. Defaults to HELICAL_GEAR_CHAMFER_EDGE_COUNT (4)
+    """
+    from .constants.entities import (
+        HELICAL_GEAR_CHAMFER_EDGE_COUNT,
+        RADIUS_COMPARISON_TOLERANCE_CM
+    )
+
+    if spec.chamfer_tooth <= 0:
+        return
+
+    if edge_count is None:
+        edge_count = HELICAL_GEAR_CHAMFER_EDGE_COUNT
+
+    tooth_body = state.tooth_body
+    spline_edges = adsk.core.ObjectCollection.create()
+    want_surface_type = adsk.core.SurfaceTypes.PlaneSurfaceType
+
+    for face in tooth_body.faces:
+        if face.geometry.surfaceType != want_surface_type:
+            continue
+        if len(face.edges) != edge_count:
+            continue
+
+        # Count splines
+        spline_count = 0
+        for edge in face.edges:
+            if edge.geometry.objectType == 'adsk::core::NurbsCurve3D':
+                spline_count += 1
+
+        if spline_count != 2:
+            continue
+
+        # Collect edges excluding root circle
+        root_circle_radius_cm = spec.root_circle_radius
+        for edge in face.edges:
+            if edge.geometry.curveType == adsk.core.Curve3DTypes.Arc3DCurveType:
+                if abs(edge.geometry.radius - root_circle_radius_cm) < RADIUS_COMPARISON_TOLERANCE_CM:
                     continue
             spline_edges.add(edge)
 

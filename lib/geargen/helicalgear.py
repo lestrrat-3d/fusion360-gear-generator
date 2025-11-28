@@ -30,9 +30,6 @@ def create_helical_gear_spec(
     Raises:
         Exception: If required parameters are invalid or missing
     """
-    from .inputs import parse_helical_gear_inputs
-    from .types import HelicalGearSpec
-
     params = parse_helical_gear_inputs(inputs, design)
 
     return HelicalGearSpec(
@@ -101,12 +98,6 @@ def generate_helical_gear(
         Exception: If inputs are invalid, required selections are missing, or
                   generation fails
     """
-    from .inputs import get_selection_input
-    from .components import get_parent_component
-    from .core import create_gear_occurrence, ensure_construction_plane
-    from .parameters import create_helical_gear_parameters
-    from .types import GenerationState
-
     INPUT_ID_PLANE = 'plane'
     INPUT_ID_ANCHOR_POINT = 'anchorPoint'
 
@@ -162,7 +153,6 @@ def generate_helical_gear(
         state = build_helical_gear_body(state, spec)
 
     # Hide all construction planes (they're only needed during generation)
-    from .core import hide_construction_planes
     hide_construction_planes(state)
 
     return state
@@ -191,10 +181,6 @@ def prepare_helical_gear_tools(
         Updated GenerationState with anchor_point, extrusion_end_plane, and
         helix_plane fields populated
     """
-    from .core import create_sketch, get_parameter
-    from .types import GenerationState
-    from .misc import to_cm
-
     # Create tools sketch on the specified plane
     sketch = create_sketch(state.component, 'Tools', plane)
 
@@ -228,22 +214,10 @@ def prepare_helical_gear_tools(
     helix_plane.name = 'Helical Gear Twisted Profile Plane'
 
     # Return updated state with new fields
-    return GenerationState(
-        design=state.design,
-        parent_component=state.parent_component,
-        component=state.component,
-        occurrence=state.occurrence,
-        param_prefix=state.param_prefix,
-        plane=state.plane,
+    return state.update(
         anchor_point=projected_anchor,
         extrusion_end_plane=extrusion_end_plane,
-        helix_plane=helix_plane,
-        sketch=state.sketch,
-        twisted_sketch=state.twisted_sketch,
-        gear_body=state.gear_body,
-        tooth_body=state.tooth_body,
-        center_axis=state.center_axis,
-        extrusion_extent=state.extrusion_extent
+        helix_plane=helix_plane
     )
 
 
@@ -269,10 +243,6 @@ def build_helical_gear_sketches(
     Returns:
         Updated GenerationState with sketch and twisted_sketch fields populated
     """
-    from .core import create_sketch
-    from .spurgear import draw_spur_gear_circles, draw_involute_tooth
-    from .types import GenerationState
-
     # Create the bottom gear profile sketch (angle=0)
     sketch = create_sketch(state.component, 'Gear Profile', state.plane)
 
@@ -282,20 +252,8 @@ def build_helical_gear_sketches(
         raise Exception("Failed to project anchor point into gear profile sketch")
 
     # Create temporary state with projected anchor for this sketch
-    state_with_projected_anchor = GenerationState(
-        design=state.design,
-        parent_component=state.parent_component,
-        component=state.component,
-        occurrence=state.occurrence,
-        param_prefix=state.param_prefix,
-        plane=state.plane,
-        anchor_point=projected_collection.item(0),  # Use projected anchor
-        helix_plane=state.helix_plane,
-        sketch=state.sketch,
-        gear_body=state.gear_body,
-        tooth_body=state.tooth_body,
-        center_axis=state.center_axis,
-        extrusion_extent=state.extrusion_extent
+    state_with_projected_anchor = state.update(
+        anchor_point=projected_collection.item(0)  # Use projected anchor
     )
 
     # Draw all circles (root, base, pitch, tip) using projected anchor
@@ -313,20 +271,9 @@ def build_helical_gear_sketches(
         raise Exception("Failed to project anchor point into twisted gear profile sketch")
 
     # Create temporary state with projected anchor for the twisted sketch
-    temp_state = GenerationState(
-        design=state.design,
-        parent_component=state.parent_component,
-        component=state.component,
-        occurrence=state.occurrence,
-        param_prefix=state.param_prefix,
+    temp_state = state.update(
         plane=state.extrusion_end_plane,
-        anchor_point=twisted_projected_collection.item(0),  # Use projected anchor for twisted sketch
-        helix_plane=state.helix_plane,
-        sketch=state.sketch,
-        gear_body=state.gear_body,
-        tooth_body=state.tooth_body,
-        center_axis=state.center_axis,
-        extrusion_extent=state.extrusion_extent
+        anchor_point=twisted_projected_collection.item(0)  # Use projected anchor for twisted sketch
     )
 
     # Draw all circles again (they'll be at the same radii but on the offset plane)
@@ -336,22 +283,9 @@ def build_helical_gear_sketches(
     draw_involute_tooth(twisted_sketch, temp_state, spec, angle=spec.helix_angle)
 
     # Return updated state with both sketches populated
-    return GenerationState(
-        design=state.design,
-        parent_component=state.parent_component,
-        component=state.component,
-        occurrence=state.occurrence,
-        param_prefix=state.param_prefix,
-        plane=state.plane,
-        anchor_point=state.anchor_point,
+    return state.update(
         sketch=sketch,
         twisted_sketch=twisted_sketch,
-        gear_body=state.gear_body,
-        tooth_body=state.tooth_body,
-        center_axis=state.center_axis,
-        extrusion_extent=state.extrusion_extent,
-        extrusion_end_plane=state.extrusion_end_plane,
-        helix_plane=state.helix_plane,
         tooth_profile_is_embedded=temp_state.tooth_profile_is_embedded
     )
 
@@ -377,34 +311,14 @@ def loft_helical_tooth(
     Raises:
         Exception: If the tooth profiles cannot be found in the sketches
     """
-    from .spurgear import chamfer_spur_tooth
-
     lofts = state.component.features.loftFeatures
 
     bottom_sketch = state.sketch
     top_sketch = state.twisted_sketch
 
     # Find the tooth profile in both sketches
-    # The tooth profile has exactly 6 curves (or 4 if embedded)
-    def find_tooth_profile(profiles):
-        for profile in profiles:
-            for loop in profile.profileLoops:
-                if loop.profileCurves.count == 6 or loop.profileCurves.count == 4:
-                    # Verify it's actually a tooth profile by checking curve types
-                    # Should have nurbs (involutes) and arcs
-                    has_nurbs = False
-                    has_arcs = False
-                    for curve in loop.profileCurves:
-                        if curve.geometry.curveType == adsk.core.Curve3DTypes.NurbsCurve3DCurveType:
-                            has_nurbs = True
-                        elif curve.geometry.curveType == adsk.core.Curve3DTypes.Arc3DCurveType:
-                            has_arcs = True
-                    if has_nurbs and has_arcs:
-                        return profile
-        return None
-
-    bottom_tooth_profile = find_tooth_profile(bottom_sketch.profiles)
-    top_tooth_profile = find_tooth_profile(top_sketch.profiles)
+    bottom_tooth_profile = find_tooth_profile(bottom_sketch)
+    top_tooth_profile = find_tooth_profile(top_sketch)
 
     if bottom_tooth_profile is None:
         raise Exception("Could not find bottom tooth profile")
@@ -423,71 +337,10 @@ def loft_helical_tooth(
 
     # Apply chamfer to tooth if needed
     # For helical gears, we expect 4 edges per face (not 6 like spur)
-    # We'll create a custom chamfer function or modify the spec
     if spec.chamfer_tooth > 0:
-        chamfer_helical_tooth(state, spec)
+        chamfer_lofted_tooth(state, spec)
 
     return state
-
-
-def chamfer_helical_tooth(
-    state: 'GenerationState',
-    spec: 'HelicalGearSpec'
-) -> None:
-    """
-    Apply chamfer to the helical tooth edges if chamfer_tooth > 0.
-
-    This function finds the appropriate edges on the tooth body and applies
-    a chamfer to them. For helical gears, the tooth faces have 4 edges instead
-    of 6 (due to the loft creating different geometry than extrusion).
-
-    Args:
-        state: The current generation state with tooth_body populated
-        spec: The helical gear specification
-    """
-    if spec.chamfer_tooth <= 0:
-        return
-
-    tooth_body = state.tooth_body
-    spline_edges = adsk.core.ObjectCollection.create()
-
-    want_surface_type = adsk.core.SurfaceTypes.PlaneSurfaceType
-    want_edges = 4  # Helical gear has 4 edges per planar face
-
-    # The selection of face/edge is very hard coded
-    for face in tooth_body.faces:
-        # Surface must be a plane
-        if face.geometry.surfaceType != want_surface_type:
-            continue
-        # Face must contain exactly 4 edges for a helical gear
-        if len(face.edges) != want_edges:
-            continue
-
-        # Only accept this face if the edges contain exactly two splines (nurbs)
-        spline_count = 0
-        for edge in face.edges:
-            if edge.geometry.objectType == 'adsk::core::NurbsCurve3D':
-                spline_count += 1
-
-        if spline_count != 2:
-            continue
-
-        # We don't want to chamfer the Arc that is part of the root circle
-        root_circle_radius_cm = spec.root_circle_radius
-        for edge in face.edges:
-            if edge.geometry.curveType == adsk.core.Curve3DTypes.Arc3DCurveType:
-                if abs(edge.geometry.radius - root_circle_radius_cm) < 0.001:
-                    continue
-            spline_edges.add(edge)
-
-    if spline_edges.count > 0:
-        chamfer_input = state.component.features.chamferFeatures.createInput2()
-        chamfer_input.chamferEdgeSets.addEqualDistanceChamferEdgeSet(
-            spline_edges,
-            adsk.core.ValueInput.createByReal(spec.chamfer_tooth),
-            False
-        )
-        state.component.features.chamferFeatures.add(chamfer_input)
 
 
 def build_helical_gear_body(
@@ -517,8 +370,6 @@ def build_helical_gear_body(
     Returns:
         Updated GenerationState with gear_body field populated and all features created
     """
-    from .spurgear import extrude_spur_body, pattern_spur_teeth, create_spur_fillets, create_spur_bore
-
     # Build both sketches (bottom and top)
     state = build_helical_gear_sketches(state, spec)
 

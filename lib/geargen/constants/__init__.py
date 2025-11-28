@@ -195,4 +195,10 @@ __all__ = [
     "UNIT_RAD",
     "UNIT_DEG",
     "UNIT_NONE",
+
+    # entities.py - Tooth Profile and Chamfer Constants
+    "TOOTH_PROFILE_CURVE_COUNT_EMBEDDED",
+    "TOOTH_PROFILE_CURVE_COUNT_STANDARD",
+    "HELICAL_GEAR_CHAMFER_EDGE_COUNT",
+    "RADIUS_COMPARISON_TOLERANCE_CM",
 ]

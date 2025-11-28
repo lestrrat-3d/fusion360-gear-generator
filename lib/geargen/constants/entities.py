@@ -38,3 +38,13 @@ FEATURE_EXTRUDE_GEAR = "Gear Extrude"  # Extrusion feature for gear body
 FEATURE_EXTRUDE_TOOTH = "Tooth Extrude"  # Extrusion feature for tooth
 FEATURE_LOFT_TOOTH = "Tooth Loft"  # Loft feature for helical tooth
 FEATURE_REVOLVE_BORE = "Bore Revolve"  # Revolve feature for bore
+
+# Tooth Profile Detection Constants
+TOOTH_PROFILE_CURVE_COUNT_EMBEDDED = 4  # Embedded tooth profiles (within base circle)
+TOOTH_PROFILE_CURVE_COUNT_STANDARD = 6  # Standard tooth profiles (extends to root circle)
+
+# Chamfer Edge Counts by Gear Type
+HELICAL_GEAR_CHAMFER_EDGE_COUNT = 4  # Helical/herringbone (lofted) have 4 edges per face
+
+# Geometric Comparison Tolerances
+RADIUS_COMPARISON_TOLERANCE_CM = 0.001  # 0.01mm tolerance for radius comparisons
