@@ -1994,15 +1994,6 @@ def draw_spur_tooth_profile(state: GenerationState, spec: BevelGearSpec) -> Gene
     # Set anchor_point for bevel gears (required by draw_spur_gear_circles)
     state.anchor_point = center
 
-    # DIAGNOSTIC: Print BevelGearSpec circle radius values
-    futil.log(f"[CIRCLE_DIAGNOSTIC] spec.module (input) = {spec.module}")
-    futil.log(f"[CIRCLE_DIAGNOSTIC] spec.driving_gear_virtual_teeth_number = {spec.driving_gear_virtual_teeth_number}")
-    futil.log(f"[CIRCLE_DIAGNOSTIC] spec.pitch_circle_radius = {spec.pitch_circle_radius}")
-    futil.log(f"[CIRCLE_DIAGNOSTIC] spec.root_circle_radius = {spec.root_circle_radius}")
-    futil.log(f"[CIRCLE_DIAGNOSTIC] spec.base_circle_radius = {spec.base_circle_radius}")
-    futil.log(f"[CIRCLE_DIAGNOSTIC] spec.tip_circle_radius = {spec.tip_circle_radius}")
-    futil.log(f"[CIRCLE_DIAGNOSTIC] Formula: module_cm / 10.0, then (module_cm * Zv / 2) - 1.25 * module_cm")
-
     # Use the unified spur gear circle function (same as spur/helical/herringbone gears)
     # BevelGearSpec now has compatible circle radius fields based on virtual teeth number
     draw_spur_gear_circles(sketch, state, spec)

@@ -115,10 +115,6 @@ def get_value_input(
 
     evaluated = units_manager.evaluateExpression(input_item.expression, units)
 
-    # DIAGNOSTIC: Check what evaluateExpression returns
-    if name == INPUT_THICKNESS:
-        futil.log(f"[DIAG_GET_VALUE] evaluateExpression('{input_item.expression}', '{units}') returned: {evaluated}")
-
     return adsk.core.ValueInput.createByReal(evaluated), True
 
 
@@ -187,9 +183,6 @@ def parse_spur_gear_inputs(
     thickness, ok = get_value_input(inputs, INPUT_THICKNESS, UNIT_MM, design)
     if not ok:
         raise Exception(ERR_INVALID_THICKNESS)
-
-    # DIAGNOSTIC: Check what value get_value_input returns (SPUR)
-    futil.log(f"[DIAG_SPUR] get_value_input returned thickness.realValue = {thickness.realValue} (units: UNIT_MM)")
 
     params['thickness'] = thickness.realValue
 
@@ -294,9 +287,6 @@ def parse_helical_gear_inputs(
     thickness, ok = get_value_input(inputs, INPUT_THICKNESS, UNIT_MM, design)
     if not ok:
         raise Exception(ERR_INVALID_THICKNESS)
-
-    # DIAGNOSTIC: Check what value get_value_input returns
-    futil.log(f"[DIAG_HELICAL] get_value_input returned thickness.realValue = {thickness.realValue} (units: UNIT_MM)")
 
     params['thickness'] = thickness.realValue
 

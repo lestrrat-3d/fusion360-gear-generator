@@ -91,7 +91,6 @@ class GenerationState:
     small_end_sketch: Optional[adsk.fusion.Sketch] = None
     small_end_profile: Optional[adsk.fusion.Profile] = None
     cone_axis: Optional[adsk.fusion.ConstructionAxis] = None
-    tooth_body: Optional[adsk.fusion.BRepBody] = None
 
 
 @dataclass

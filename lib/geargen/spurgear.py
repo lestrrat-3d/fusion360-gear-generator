@@ -110,12 +110,6 @@ def generate_spur_gear(
     # 1. Parse inputs and create specification
     spec = create_spur_gear_spec(inputs, design)
 
-    # DIAGNOSTIC: Check spec values after parsing (SPUR)
-    from ...lib import fusion360utils as futil
-    futil.log(f"[DIAG_SPUR] After parse: spec.thickness = {spec.thickness}")
-    futil.log(f"[DIAG_SPUR] After parse: spec.pitch_circle_radius = {spec.pitch_circle_radius}")
-    futil.log(f"[DIAG_SPUR] After parse: spec.module = {spec.module}")
-
     # 2. Extract parent component and selections
     parent_component = get_parent_component(inputs)
 
@@ -207,10 +201,6 @@ def prepare_spur_gear_tools(
     thickness_param = get_parameter(state.design, state.param_prefix, 'Thickness')
     if thickness_param is None:
         raise Exception("Thickness parameter not found")
-
-    # DIAGNOSTIC: Check parameter value when reading (SPUR)
-    futil.log(f"[DIAG_SPUR_USAGE] thickness_param.value = {thickness_param.value} (Fusion internal units: cm)")
-    futil.log(f"[DIAG_SPUR_USAGE] Using this value for construction plane offset")
 
     thickness_value = adsk.core.ValueInput.createByReal(thickness_param.value)
 
