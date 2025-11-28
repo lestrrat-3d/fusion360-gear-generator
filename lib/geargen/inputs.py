@@ -207,6 +207,39 @@ def parse_spur_gear_inputs(
     return params
 
 
+
+def configure_helical_gear_inputs(cmd: adsk.core.Command) -> adsk.core.CommandInputs:
+    """
+    Configure the command dialog inputs for helical gear generation.
+
+    Args:
+        cmd: The Fusion 360 command object
+
+    Returns:
+        The CommandInputs collection with all required inputs added
+    """
+    inputs = cmd.commandInputs
+
+    # Add parent component selection
+    inputs.addSelectionInput(INPUT_PARENT_COMPONENT, 'Parent Component', 'Select the parent component')
+    # Add plane selection
+    inputs.addSelectionInput(INPUT_PLANE, 'Plane', 'Select the plane for gear placement')
+    # Add anchor point selection
+    inputs.addSelectionInput(INPUT_ANCHOR_POINT, 'Anchor Point', 'Select the anchor point for gear')
+
+    # Add gear parameters
+    inputs.addValueInput(INPUT_MODULE, 'Module', UNIT_NONE, adsk.core.ValueInput.createByReal(DEFAULT_MODULE_MM))
+    inputs.addValueInput(INPUT_TOOTH_NUMBER, 'Tooth Number', UNIT_NONE, adsk.core.ValueInput.createByReal(DEFAULT_TOOTH_NUMBER))
+    inputs.addValueInput(INPUT_PRESSURE_ANGLE, 'Pressure Angle', 'deg', adsk.core.ValueInput.createByReal(math.radians(DEFAULT_PRESSURE_ANGLE_DEG)))
+    inputs.addValueInput(INPUT_THICKNESS, 'Thickness', UNIT_MM, adsk.core.ValueInput.createByReal(DEFAULT_THICKNESS_MM))
+    inputs.addValueInput(INPUT_BORE_DIAMETER, 'Bore Diameter', UNIT_MM, adsk.core.ValueInput.createByString(DEFAULT_BORE_DIAMETER_STR))
+    inputs.addValueInput(INPUT_CHAMFER_TOOTH, 'Chamfer Tooth', UNIT_MM, adsk.core.ValueInput.createByReal(DEFAULT_CHAMFER_TOOTH_MM))
+    inputs.addValueInput(INPUT_HELIX_ANGLE, 'Helix Angle', 'deg', adsk.core.ValueInput.createByReal(math.radians(14.5)))
+    inputs.addBoolValueInput(INPUT_SKETCH_ONLY, 'Sketch Only', True, '', DEFAULT_SKETCH_ONLY)
+
+    return inputs
+
+
 def parse_helical_gear_inputs(
     inputs: adsk.core.CommandInputs,
     design: adsk.fusion.Design

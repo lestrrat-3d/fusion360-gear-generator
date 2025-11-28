@@ -3,6 +3,7 @@ from .base import *
 from .types import *
 from .core import *
 from .inputs import *
+from .inputs import configure_helical_gear_inputs
 from .components import *
 from .parameters import *
 from .spurgear import *
