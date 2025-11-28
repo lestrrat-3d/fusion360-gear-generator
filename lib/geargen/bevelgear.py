@@ -114,6 +114,27 @@ from .components import get_parent_component
 from .parameters import create_bevel_gear_parameters
 from .misc import to_cm, from_cm, get_design
 from ...lib import fusion360utils as futil
+from .constants.entities import (
+    COMPONENT_DESIGN,
+    COMPONENT_DRIVING_GEAR,
+    COMPONENT_MATING_GEAR,
+    SKETCH_FOUNDATION,
+    SKETCH_TOOTH_PROFILE,
+    SKETCH_PERPENDICULAR_REFERENCE,
+    SKETCH_TOOTH_PROFILE_REFERENCE,
+    SKETCH_APEX_FOR_LOFT,
+    PLANE_FOUNDATION,
+    PLANE_TOOTH_PROFILE,
+)
+from .constants.params import (
+    PARAM_MODULE,
+    PARAM_GEAR_HEIGHT,
+    PARAM_MATING_GEAR_HEIGHT,
+    PARAM_DRIVING_GEAR_BASE_THICKNESS,
+    PARAM_TEETH_LENGTH,
+    PARAM_TOOTH_NUMBER,
+    PARAM_MATING_TOOTH_NUMBER,
+)
 
 
 def create_bevel_gear_components(state: GenerationState) -> GenerationState:
@@ -141,17 +162,17 @@ def create_bevel_gear_components(state: GenerationState) -> GenerationState:
     # Create "Design" sub-component
     design_occurrence = state.component.occurrences.addNewComponent(transform)
     design_component = design_occurrence.component
-    design_component.name = "Design"
+    design_component.name = COMPONENT_DESIGN
 
     # Create "Driving Gear" sub-component
     gear_occurrence = state.component.occurrences.addNewComponent(transform)
     gear_component = gear_occurrence.component
-    gear_component.name = "Driving Gear"
+    gear_component.name = COMPONENT_DRIVING_GEAR
 
     # Create "Mating Gear" sub-component
     mating_gear_occurrence = state.component.occurrences.addNewComponent(transform)
     mating_gear_component = mating_gear_occurrence.component
-    mating_gear_component.name = "Mating Gear"
+    mating_gear_component.name = COMPONENT_MATING_GEAR
 
     # Update state with new component and occurrence references
     state.design_component = design_component
@@ -235,10 +256,10 @@ def create_perpendicular_plane(
         gear_plane
     )
     foundation_plane = state.design_component.constructionPlanes.add(plane_input)
-    foundation_plane.name = "Foundation Plane"
+    foundation_plane.name = PLANE_FOUNDATION
 
     temp_sketch.isVisible = False  # Hide instead of delete to avoid API issues
-    temp_sketch.name = "Perpendicular Reference"
+    temp_sketch.name = SKETCH_PERPENDICULAR_REFERENCE
 
     state.foundation_plane = foundation_plane
     return state
@@ -359,13 +380,13 @@ def draw_foundation_rectangle(
     state.y_is_perpendicular = y_is_perpendicular
 
     # Get parameter references for dimensions
-    gear_height_param = get_parameter(state.design, state.param_prefix, 'GearHeight')
-    mating_height_param = get_parameter(state.design, state.param_prefix, 'MatingGearHeight')
+    gear_height_param = get_parameter(state.design, state.param_prefix, PARAM_GEAR_HEIGHT)
+    mating_height_param = get_parameter(state.design, state.param_prefix, PARAM_MATING_GEAR_HEIGHT)
 
     if not gear_height_param:
-        raise Exception("GearHeight parameter not found")
+        raise Exception(f"{PARAM_GEAR_HEIGHT} parameter not found")
     if not mating_height_param:
-        raise Exception("MatingGearHeight parameter not found")
+        raise Exception(f"{PARAM_MATING_GEAR_HEIGHT} parameter not found")
 
     # Compute corner point coordinates based on orientation
     # P1 = origin (projected_anchor_point)
@@ -458,7 +479,7 @@ def draw_foundation_rectangle(
             adsk.fusion.DimensionOrientations.VerticalDimensionOrientation,
             adsk.core.Point3D.create(p1_x - 2, p1_y + mating_height_param.value / 2, 0)
         )
-        dim_1.parameter.expression = make_param_name(state.param_prefix, 'MatingGearHeight')
+        dim_1.parameter.expression = make_param_name(state.param_prefix, PARAM_MATING_GEAR_HEIGHT)
 
         # P1->P4 dimension with HORIZONTAL orientation
         dim_2 = sketch.sketchDimensions.addDistanceDimension(
@@ -467,7 +488,7 @@ def draw_foundation_rectangle(
             adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation,
             adsk.core.Point3D.create(p1_x + gear_height_param.value / 2, p1_y - 2, 0)
         )
-        dim_2.parameter.expression = make_param_name(state.param_prefix, 'GearHeight')
+        dim_2.parameter.expression = make_param_name(state.param_prefix, PARAM_GEAR_HEIGHT)
     else:
         # P1->P2 dimension with HORIZONTAL orientation
         dim_1 = sketch.sketchDimensions.addDistanceDimension(
@@ -476,7 +497,7 @@ def draw_foundation_rectangle(
             adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation,
             adsk.core.Point3D.create(p1_x + mating_height_param.value / 2, p1_y - 2, 0)
         )
-        dim_1.parameter.expression = make_param_name(state.param_prefix, 'MatingGearHeight')
+        dim_1.parameter.expression = make_param_name(state.param_prefix, PARAM_MATING_GEAR_HEIGHT)
 
         # P1->P4 dimension with VERTICAL orientation
         dim_2 = sketch.sketchDimensions.addDistanceDimension(
@@ -485,7 +506,7 @@ def draw_foundation_rectangle(
             adsk.fusion.DimensionOrientations.VerticalDimensionOrientation,
             adsk.core.Point3D.create(p1_x - 2, p1_y + gear_height_param.value / 2, 0)
         )
-        dim_2.parameter.expression = make_param_name(state.param_prefix, 'GearHeight')
+        dim_2.parameter.expression = make_param_name(state.param_prefix, PARAM_GEAR_HEIGHT)
 
     # Verify sketch is fully constrained
     if not sketch.isFullyConstrained:
@@ -593,13 +614,13 @@ def draw_gear_face_extension(
         Exception: If P5->P7_mid line is shorter than 0.1 cm (indicates invalid gear dimensions)
     """
     # Get module and DrivingGearBaseThickness parameters
-    module_param = get_parameter(state.design, state.param_prefix, 'Module')
-    base_thickness_param = get_parameter(state.design, state.param_prefix, 'DrivingGearBaseThickness')
+    module_param = get_parameter(state.design, state.param_prefix, PARAM_MODULE)
+    base_thickness_param = get_parameter(state.design, state.param_prefix, PARAM_DRIVING_GEAR_BASE_THICKNESS)
 
     if not module_param:
-        raise Exception("Module parameter not found")
+        raise Exception(f"{PARAM_MODULE} parameter not found")
     if not base_thickness_param:
-        raise Exception("DrivingGearBaseThickness parameter not found")
+        raise Exception(f"{PARAM_DRIVING_GEAR_BASE_THICKNESS} parameter not found")
 
     # Access p1, p2, p4, diagonal from state (set by draw_foundation_rectangle and draw_apex_diagonal)
     p1 = state.p1
@@ -660,7 +681,7 @@ def draw_gear_face_extension(
                 0
             )
         )
-        dim_p4_p5.parameter.expression = f'{make_param_name(state.param_prefix, "Module")} * 1.25'
+        dim_p4_p5.parameter.expression = f'{make_param_name(state.param_prefix, PARAM_MODULE)} * 1.25'
     except Exception as e:
         raise Exception(f"Failed to add dimension to P4->P5 line: {str(e)}")
 
@@ -750,7 +771,7 @@ def draw_gear_face_extension(
                 0
             )
         )
-        dim_p5_p7.parameter.expression = f'((({make_param_name(state.param_prefix, "Module")} * {make_param_name(state.param_prefix, "ToothNumber")}) / 2) + 0.05 cm)'
+        dim_p5_p7.parameter.expression = f'((({make_param_name(state.param_prefix, PARAM_MODULE)} * {make_param_name(state.param_prefix, PARAM_TOOTH_NUMBER)}) / 2) + 0.05 cm)'
     except Exception as e:
         raise Exception(f"Failed to add dimension to P5->P7 line: {str(e)}")
 
@@ -836,7 +857,7 @@ def draw_gear_face_extension(
                 0
             )
         )
-        dim_p6_p8.parameter.expression = make_param_name(state.param_prefix, 'DrivingGearBaseThickness')
+        dim_p6_p8.parameter.expression = make_param_name(state.param_prefix, PARAM_DRIVING_GEAR_BASE_THICKNESS)
     except Exception as e:
         raise Exception(f"Failed to add dimension to P6->P8 line: {str(e)}")
 
@@ -961,7 +982,7 @@ def draw_gear_face_extension(
                 0
             )
         )
-        dim_p9_distance.parameter.expression = make_param_name(state.param_prefix, 'TeethLength')
+        dim_p9_distance.parameter.expression = make_param_name(state.param_prefix, PARAM_TEETH_LENGTH)
     except Exception as e:
         raise Exception(f"Failed to add dimension to P9->P10 diagonal line: {str(e)}")
 
@@ -1058,11 +1079,11 @@ def draw_mating_face_extension(
         Exception: If constraints fail or parameters are missing
     """
     # Get module and DrivingGearBaseThickness parameters
-    module_param = get_parameter(state.design, state.param_prefix, 'Module')
-    base_thickness_param = get_parameter(state.design, state.param_prefix, 'DrivingGearBaseThickness')
+    module_param = get_parameter(state.design, state.param_prefix, PARAM_MODULE)
+    base_thickness_param = get_parameter(state.design, state.param_prefix, PARAM_DRIVING_GEAR_BASE_THICKNESS)
 
     if not module_param:
-        raise Exception("Module parameter not found")
+        raise Exception(f"{PARAM_MODULE} parameter not found")
     if not base_thickness_param:
         raise Exception("DrivingGearBaseThickness parameter not found")
 
@@ -1125,7 +1146,7 @@ def draw_mating_face_extension(
                 0
             )
         )
-        dim_p4_p11.parameter.expression = f'{make_param_name(state.param_prefix, "Module")} * 1.25'
+        dim_p4_p11.parameter.expression = f'{make_param_name(state.param_prefix, PARAM_MODULE)} * 1.25'
     except Exception as e:
         raise Exception(f"Failed to add dimension to P4->P11 line: {str(e)}")
 
@@ -1214,7 +1235,7 @@ def draw_mating_face_extension(
                 0
             )
         )
-        dim_p11_p13.parameter.expression = f'((({make_param_name(state.param_prefix, "Module")} * {make_param_name(state.param_prefix, "MatingToothNumber")}) / 2) + 0.05 cm)'
+        dim_p11_p13.parameter.expression = f'((({make_param_name(state.param_prefix, PARAM_MODULE)} * {make_param_name(state.param_prefix, PARAM_MATING_TOOTH_NUMBER)}) / 2) + 0.05 cm)'
     except Exception as e:
         raise Exception(f"Failed to add dimension to P11->P13 line: {str(e)}")
 
@@ -1307,7 +1328,7 @@ def draw_mating_face_extension(
             dim_orientation,
             dim_text_pos
         )
-        dim_p12_p14.parameter.expression = make_param_name(state.param_prefix, 'DrivingGearBaseThickness')
+        dim_p12_p14.parameter.expression = make_param_name(state.param_prefix, PARAM_DRIVING_GEAR_BASE_THICKNESS)
     except Exception as e:
         raise Exception(f"Failed to add dimension to P12->P14 line: {str(e)}")
 
@@ -1430,7 +1451,7 @@ def draw_mating_face_extension(
                 0
             )
         )
-        dim_p15_distance.parameter.expression = make_param_name(state.param_prefix, 'TeethLength')
+        dim_p15_distance.parameter.expression = make_param_name(state.param_prefix, PARAM_TEETH_LENGTH)
     except Exception as e:
         raise Exception(f"Failed to add dimension to P15->P16 diagonal line: {str(e)}")
 
@@ -1486,7 +1507,7 @@ def create_foundation_sketch(
         Updated GenerationState with foundation_sketch, apex_point, gear_base_corner, and all 18 points (P1-P16 + P7_mid + P14_mid) populated
     """
     # Create new sketch on foundation_plane within design_component
-    sketch = create_sketch(state.design_component, 'Foundation Sketch', state.foundation_plane)
+    sketch = create_sketch(state.design_component, SKETCH_FOUNDATION, state.foundation_plane)
 
     # Project anchor_point_entity into this sketch
     projected = sketch.project(anchor_point_entity)
@@ -1555,19 +1576,19 @@ def validate_foundation_sketch_geometry(
         raise Exception("Foundation sketch is not fully constrained")
 
     # Get parameters for validation
-    module_param = get_parameter(state.design, state.param_prefix, 'Module')
-    gear_height_param = get_parameter(state.design, state.param_prefix, 'GearHeight')
-    mating_height_param = get_parameter(state.design, state.param_prefix, 'MatingGearHeight')
-    base_thickness_param = get_parameter(state.design, state.param_prefix, 'DrivingGearBaseThickness')
+    module_param = get_parameter(state.design, state.param_prefix, PARAM_MODULE)
+    gear_height_param = get_parameter(state.design, state.param_prefix, PARAM_GEAR_HEIGHT)
+    mating_height_param = get_parameter(state.design, state.param_prefix, PARAM_MATING_GEAR_HEIGHT)
+    base_thickness_param = get_parameter(state.design, state.param_prefix, PARAM_DRIVING_GEAR_BASE_THICKNESS)
 
     if not module_param:
-        raise Exception("Module parameter not found for validation")
+        raise Exception(f"{PARAM_MODULE} parameter not found for validation")
     if not gear_height_param:
-        raise Exception("GearHeight parameter not found for validation")
+        raise Exception(f"{PARAM_GEAR_HEIGHT} parameter not found for validation")
     if not mating_height_param:
-        raise Exception("MatingGearHeight parameter not found for validation")
+        raise Exception(f"{PARAM_MATING_GEAR_HEIGHT} parameter not found for validation")
     if not base_thickness_param:
-        raise Exception("DrivingGearBaseThickness parameter not found for validation")
+        raise Exception(f"{PARAM_DRIVING_GEAR_BASE_THICKNESS} parameter not found for validation")
 
     # Validate expected parameter values
     # Note: module_param is unitless, so value is raw number (e.g., 1.0)
@@ -1817,11 +1838,11 @@ def create_tooth_profile_plane(state: GenerationState) -> GenerationState:
     if tooth_profile_plane is None:
         raise Exception("Failed to create tooth profile plane in design component")
 
-    tooth_profile_plane.name = "Tooth Profile Plane"
+    tooth_profile_plane.name = PLANE_TOOTH_PROFILE
 
     # Delete temporary sketch (cleanup)
     temp_sketch.isVisible = False
-    temp_sketch.name = "Tooth Profile Reference"
+    temp_sketch.name = SKETCH_TOOTH_PROFILE_REFERENCE
 
     # Store in state
     state.tooth_profile_plane = tooth_profile_plane
@@ -1852,7 +1873,7 @@ def create_tooth_profile_sketch(state: GenerationState, spec: BevelGearSpec) -> 
 
     # Create sketch on tooth_profile_plane in design_component (where the plane lives)
     sketch = state.design_component.sketches.add(state.tooth_profile_plane)
-    sketch.name = "Tooth Profile"
+    sketch.name = SKETCH_TOOTH_PROFILE
 
     # Project P7 into the sketch
     projected = sketch.project(state.p7)
@@ -2494,7 +2515,7 @@ def create_lofted_tooth(state: GenerationState, spec: BevelGearSpec) -> Generati
     # Create a construction sketch at the apex point P2 on the foundation plane
     # Use a tiny circle instead of a point for reliable lofting
     apex_sketch = state.design_component.sketches.add(state.foundation_plane)
-    apex_sketch.name = "Apex Point for Loft"
+    apex_sketch.name = SKETCH_APEX_FOR_LOFT
     apex_sketch.isVisible = False  # Hide from UI (construction only)
 
     # Project P2 into this sketch

@@ -17,6 +17,9 @@ SKETCH_TOOTH_PROFILE = "Tooth Profile"  # Tooth profile for extrusion/lofting
 SKETCH_GEAR_PROFILE = "Gear Profile"  # Full gear profile (spur/helical gears)
 SKETCH_BORE = "Bore Sketch"  # Bore/shaft hole sketch
 SKETCH_TOOLS = "Tools"  # Utility sketch for construction geometry
+SKETCH_PERPENDICULAR_REFERENCE = "Perpendicular Reference"  # Temporary sketch for perpendicular plane construction
+SKETCH_TOOTH_PROFILE_REFERENCE = "Tooth Profile Reference"  # Temporary sketch for tooth profile plane construction
+SKETCH_APEX_FOR_LOFT = "Apex Point for Loft"  # Apex sketch for lofting tooth body
 
 # Construction Plane Names
 PLANE_FOUNDATION = "Foundation Plane"  # Construction plane for bevel gear foundation
