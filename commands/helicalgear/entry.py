@@ -70,7 +70,7 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
     # General logging for debug.
     futil.log(f'{CMD_NAME} Command Created Event')
 
-    geargen.HelicalGearCommandConfigurator.configure(args.command)
+    geargen.configure_helical_gear_inputs(args.command)
 
     # TODO Connect to the events that are needed by this command.
     futil.add_handler(args.command.execute, command_execute, local_handlers=local_handlers)
@@ -90,7 +90,7 @@ def command_execute(args: adsk.core.CommandEventArgs):
         inputs = args.command.commandInputs
         design = geargen.get_design()
         # Use functional API
-        state = geargen.helicalgear.generate_helical_gear(inputs, design)
+        state = geargen.generate_helical_gear(inputs, design)
     except:
         futil.handle_error("Generation error", show_message_box=True)
         if state:
