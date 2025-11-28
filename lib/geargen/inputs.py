@@ -114,6 +114,11 @@ def get_value_input(
         return None, False
 
     evaluated = units_manager.evaluateExpression(input_item.expression, units)
+
+    # DIAGNOSTIC: Check what evaluateExpression returns
+    if name == INPUT_THICKNESS:
+        futil.log(f"[DIAG_GET_VALUE] evaluateExpression('{input_item.expression}', '{units}') returned: {evaluated}")
+
     return adsk.core.ValueInput.createByReal(evaluated), True
 
 
@@ -182,6 +187,10 @@ def parse_spur_gear_inputs(
     thickness, ok = get_value_input(inputs, INPUT_THICKNESS, UNIT_MM, design)
     if not ok:
         raise Exception(ERR_INVALID_THICKNESS)
+
+    # DIAGNOSTIC: Check what value get_value_input returns (SPUR)
+    futil.log(f"[DIAG_SPUR] get_value_input returned thickness.realValue = {thickness.realValue} (units: UNIT_MM)")
+
     params['thickness'] = thickness.realValue
 
     # Optional parameters with defaults
@@ -228,12 +237,12 @@ def configure_helical_gear_inputs(cmd: adsk.core.Command) -> adsk.core.CommandIn
     inputs.addSelectionInput(INPUT_ANCHOR_POINT, 'Anchor Point', 'Select the anchor point for gear')
 
     # Add gear parameters
-    inputs.addValueInput(INPUT_MODULE, 'Module', UNIT_NONE, adsk.core.ValueInput.createByReal(DEFAULT_MODULE_MM))
+    inputs.addValueInput(INPUT_MODULE, 'Module', 'mm', adsk.core.ValueInput.createByReal(to_cm(DEFAULT_MODULE_MM)))
     inputs.addValueInput(INPUT_TOOTH_NUMBER, 'Tooth Number', UNIT_NONE, adsk.core.ValueInput.createByReal(DEFAULT_TOOTH_NUMBER))
     inputs.addValueInput(INPUT_PRESSURE_ANGLE, 'Pressure Angle', 'deg', adsk.core.ValueInput.createByReal(math.radians(DEFAULT_PRESSURE_ANGLE_DEG)))
-    inputs.addValueInput(INPUT_THICKNESS, 'Thickness', UNIT_MM, adsk.core.ValueInput.createByReal(DEFAULT_THICKNESS_MM))
+    inputs.addValueInput(INPUT_THICKNESS, 'Thickness', 'mm', adsk.core.ValueInput.createByReal(to_cm(DEFAULT_THICKNESS_MM)))
     inputs.addValueInput(INPUT_BORE_DIAMETER, 'Bore Diameter', UNIT_MM, adsk.core.ValueInput.createByString(DEFAULT_BORE_DIAMETER_STR))
-    inputs.addValueInput(INPUT_CHAMFER_TOOTH, 'Chamfer Tooth', UNIT_MM, adsk.core.ValueInput.createByReal(DEFAULT_CHAMFER_TOOTH_MM))
+    inputs.addValueInput(INPUT_CHAMFER_TOOTH, 'Chamfer Tooth', 'mm', adsk.core.ValueInput.createByReal(to_cm(DEFAULT_CHAMFER_TOOTH_MM)))
     inputs.addValueInput(INPUT_HELIX_ANGLE, 'Helix Angle', 'deg', adsk.core.ValueInput.createByReal(math.radians(14.5)))
     inputs.addBoolValueInput(INPUT_SKETCH_ONLY, 'Sketch Only', True, '', DEFAULT_SKETCH_ONLY)
 
@@ -285,6 +294,10 @@ def parse_helical_gear_inputs(
     thickness, ok = get_value_input(inputs, INPUT_THICKNESS, UNIT_MM, design)
     if not ok:
         raise Exception(ERR_INVALID_THICKNESS)
+
+    # DIAGNOSTIC: Check what value get_value_input returns
+    futil.log(f"[DIAG_HELICAL] get_value_input returned thickness.realValue = {thickness.realValue} (units: UNIT_MM)")
+
     params['thickness'] = thickness.realValue
 
     helix_angle, ok = get_value_input(inputs, INPUT_HELIX_ANGLE, UNIT_RAD, design)

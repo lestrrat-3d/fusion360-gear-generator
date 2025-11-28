@@ -12,7 +12,7 @@ import adsk.core
 import adsk.fusion
 
 from .types import GenerationState, SpurGearSpec, BevelGearSpec, HelicalGearSpec
-from .core import add_parameter, make_param_name
+from .core import add_parameter, make_param_name, get_parameter
 from .param_expression import ParamExpression
 from .constants import (
     PARAM_MODULE, PARAM_TOOTH_NUMBER, PARAM_PRESSURE_ANGLE, PARAM_THICKNESS,
@@ -82,12 +82,22 @@ def create_spur_gear_parameters(state: GenerationState, spec: SpurGearSpec) -> N
         'Size of the bore'
     )
 
+    # DIAGNOSTIC: Check value before creating parameter (SPUR)
+    from ...lib import fusion360utils as futil
+    futil.log(f"[DIAG_SPUR_PARAM] Creating Thickness parameter with spec.thickness = {spec.thickness}, units = 'mm'")
+
     add_parameter(
         design, prefix, PARAM_THICKNESS,
         adsk.core.ValueInput.createByReal(spec.thickness),
         UNIT_MM,
         'Thickness of the spur gear'
     )
+
+    # DIAGNOSTIC: Read back the parameter value (SPUR)
+    thickness_param_spur = get_parameter(design, prefix, PARAM_THICKNESS)
+    if thickness_param_spur:
+        futil.log(f"[DIAG_SPUR_PARAM] Parameter created. thickness_param.value = {thickness_param_spur.value} (Fusion internal units: cm)")
+        futil.log(f"[DIAG_SPUR_PARAM] Parameter expression: {thickness_param_spur.expression}")
 
     add_parameter(
         design, prefix, PARAM_CHAMFER_TOOTH,
@@ -268,12 +278,22 @@ def create_helical_gear_parameters(state: GenerationState, spec: HelicalGearSpec
         'Size of the bore'
     )
 
+    # DIAGNOSTIC: Check value before creating parameter
+    from ...lib import fusion360utils as futil
+    futil.log(f"[DIAG_PARAM] Creating Thickness parameter with spec.thickness = {spec.thickness}, units = 'mm'")
+
     add_parameter(
         design, prefix, 'Thickness',
         adsk.core.ValueInput.createByReal(spec.thickness),
         'mm',
         'Thickness of the helical gear'
     )
+
+    # DIAGNOSTIC: Read back the parameter value
+    thickness_param = get_parameter(design, prefix, 'Thickness')
+    if thickness_param:
+        futil.log(f"[DIAG_PARAM] Parameter created. thickness_param.value = {thickness_param.value} (Fusion internal units: cm)")
+        futil.log(f"[DIAG_PARAM] Parameter expression: {thickness_param.expression}")
 
     add_parameter(
         design, prefix, 'ChamferTooth',

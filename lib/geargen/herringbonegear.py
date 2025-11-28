@@ -179,6 +179,12 @@ def generate_herringbone_gear(
     # 1. Parse inputs and create specification
     spec = create_herringbone_gear_spec(inputs, design)
 
+    # DIAGNOSTIC: Check spec values after parsing
+    from ...lib import fusion360utils as futil
+    futil.log(f"[DIAG_HERRINGBONE] After parse: spec.thickness = {spec.thickness}")
+    futil.log(f"[DIAG_HERRINGBONE] After parse: spec.pitch_circle_radius = {spec.pitch_circle_radius} (should be in cm)")
+    futil.log(f"[DIAG_HERRINGBONE] After parse: spec.module = {spec.module}")
+
     # 2. Extract parent component and selections
     parent_component = get_parent_component(inputs)
 
@@ -262,7 +268,7 @@ def prepare_herringbone_gear_tools(
     """
     from .core import create_sketch, get_parameter
     from .types import GenerationState
-    from .misc import to_cm
+    from ...lib import fusion360utils as futil
 
     # Create tools sketch on the specified plane
     sketch = create_sketch(state.component, 'Tools', plane)
@@ -281,6 +287,10 @@ def prepare_herringbone_gear_tools(
     thickness_param = get_parameter(state.design, state.param_prefix, 'Thickness')
     if thickness_param is None:
         raise Exception("Thickness parameter not found")
+
+    # DIAGNOSTIC: Check parameter value when reading
+    futil.log(f"[DIAG_USAGE] thickness_param.value = {thickness_param.value} (Fusion internal units: cm)")
+    futil.log(f"[DIAG_USAGE] Using this value for construction plane offset")
 
     thickness_value = adsk.core.ValueInput.createByReal(thickness_param.value)
 
