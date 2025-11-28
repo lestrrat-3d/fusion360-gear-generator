@@ -332,7 +332,7 @@ class BevelGearSpec:
         # Calculate circle radii using profile tooth number (for tooth profile sketches)
         pitch_radius = (module_cm * self.profile_tooth_number) / 2.0
         self.pitch_circle_radius = pitch_radius
-        self.base_circle_radius = pitch_radius * math.cos(math.radians(self.pressure_angle))
+        self.base_circle_radius = pitch_radius * math.cos(self.pressure_angle)
         self.root_circle_radius = pitch_radius - 1.25 * module_cm
         self.tip_circle_radius = pitch_radius + module_cm
 
