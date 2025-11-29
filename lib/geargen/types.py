@@ -91,6 +91,12 @@ class GenerationState:
     small_end_sketch: Optional[adsk.fusion.Sketch] = None
     small_end_profile: Optional[adsk.fusion.Profile] = None
     cone_axis: Optional[adsk.fusion.ConstructionAxis] = None
+    # Perpendicular reference line (from temp sketch on gear_plane)
+    perpendicular_reference_line: Optional[adsk.fusion.SketchLine] = None
+    # Projected reference line in foundation sketch (for P8 constraint)
+    reference_line_in_foundation: Optional[adsk.fusion.SketchLine] = None
+    # Perpendicular line in foundation sketch (from origin to reference line intersection)
+    perpendicular_line_in_foundation: Optional[adsk.fusion.SketchLine] = None
 
     def update(self, **kwargs) -> 'GenerationState':
         """
