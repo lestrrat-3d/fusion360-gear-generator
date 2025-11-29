@@ -83,3 +83,9 @@ DEFAULT_GENERATE_MATING_GEAR = True
 # Bevel Gear Control Parameters
 PARAM_GENERATE_MATING_GEAR = "GenerateMatingGear"  # Whether to generate mating gear body
 INPUT_GENERATE_MATING_GEAR = "generateMatingGear"  # Input field ID for mating gear generation
+
+# Gear Geometry Multipliers (Standard Gear Design Constants)
+DEDENDUM_MULTIPLIER = 1.25  # Standard dedendum = 1.25 * module (ISO gear standard)
+ROOT_CIRCLE_MULTIPLIER = 2.5  # Root circle reduction = 2.5 * module from pitch diameter
+GEAR_EXTENSION_MARGIN_CM = 0.05  # Safety margin for gear extensions (0.5mm)
+PROFILE_TOOTH_ADJUSTMENT = 2.5  # Virtual tooth number adjustment factor

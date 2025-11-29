@@ -48,3 +48,6 @@ HELICAL_GEAR_CHAMFER_EDGE_COUNT = 4  # Helical/herringbone (lofted) have 4 edges
 
 # Geometric Comparison Tolerances
 RADIUS_COMPARISON_TOLERANCE_CM = 0.001  # 0.01mm tolerance for radius comparisons
+
+# Sketch Text Formatting
+SKETCH_TEXT_HEIGHT_CM = 0.1  # 1mm text height for sketch labels

@@ -11,6 +11,12 @@ from .inputs import parse_spur_gear_inputs, get_selection_input
 from .components import get_parent_component
 from .parameters import create_spur_gear_parameters
 from .involute import draw_involute_tooth_profile, ToothProfileConfig
+from .constants.geometry import (
+    ANGLE_15_DEG,
+    ANGLE_30_DEG,
+    ANGLE_45_DEG,
+    ANGLE_60_DEG,
+)
 
 PARAM_MODULE = 'Module'
 PARAM_TOOTH_NUMBER = 'ToothNumber'
@@ -366,28 +372,28 @@ def draw_spur_gear_circles(
     root_circle = draw_circle(
         'Root Circle',
         spec.root_circle_radius,
-        math.radians(15),
+        ANGLE_15_DEG,
         False  # Not construction - this is the actual root
     )
 
     tip_circle = draw_circle(
         'Tip Circle',
         spec.tip_circle_radius,
-        math.radians(30),
+        ANGLE_30_DEG,
         True  # Construction line
     )
 
     base_circle = draw_circle(
         'Base Circle',
         spec.base_circle_radius,
-        math.radians(45),
+        ANGLE_45_DEG,
         True  # Construction line
     )
 
     pitch_circle = draw_circle(
         'Pitch Circle',
         spec.pitch_circle_radius,
-        math.radians(60),
+        ANGLE_60_DEG,
         True  # Construction line (reference)
     )
 

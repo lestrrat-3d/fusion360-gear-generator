@@ -10,6 +10,15 @@ from typing import Optional, List
 import math
 import adsk.core
 import adsk.fusion
+from .constants.params import (
+    DEDENDUM_MULTIPLIER,
+    ROOT_CIRCLE_MULTIPLIER,
+    GEAR_EXTENSION_MARGIN_CM,
+    PROFILE_TOOTH_ADJUSTMENT,
+)
+from .constants.tolerances import (
+    FLOATING_POINT_TOLERANCE_CM,
+)
 
 
 @dataclass
@@ -201,7 +210,7 @@ class SpurGearSpec:
 
         # Root circle calculations
         # https://khkgears.net/new/gear_knowledge/gear-nomenclature/root-diameter.html
-        self.root_circle_diameter = self.pitch_diameter - 2.5 * self.module
+        self.root_circle_diameter = self.pitch_diameter - ROOT_CIRCLE_MULTIPLIER * self.module
         self.root_circle_radius = self.root_circle_diameter / 2
 
         # Tip circle calculations
@@ -266,7 +275,7 @@ class HelicalGearSpec:
 
         # Root circle calculations
         # https://khkgears.net/new/gear_knowledge/gear-nomenclature/root-diameter.html
-        self.root_circle_diameter = self.pitch_diameter - 2.5 * self.module
+        self.root_circle_diameter = self.pitch_diameter - ROOT_CIRCLE_MULTIPLIER * self.module
         self.root_circle_radius = self.root_circle_diameter / 2
 
         # Tip circle calculations
@@ -354,7 +363,7 @@ class BevelGearSpec:
 
         # Tooth depth calculations
         self.addendum = self.module
-        self.dedendum = 1.25 * self.module
+        self.dedendum = DEDENDUM_MULTIPLIER * self.module
         self.whole_depth = self.addendum + self.dedendum
 
         # Additional cone angles
@@ -370,17 +379,17 @@ class BevelGearSpec:
         self.driving_gear_virtual_teeth_number = math.ceil(self.tooth_number / math.cos(self.pitch_cone_angle))
 
         # Calculate profile tooth number to align root circle radius with P5->P7 length
-        # P5->P7 length = ((module * tooth_number) / 2) + 0.05 (in cm, 0.5mm margin)
-        # Root circle radius = ((module * profile_tooth_number) / 2) - 1.25 * module
-        # Setting them equal: profile_tooth_number = tooth_number + (0.1 / module_cm) + 2.5
+        # P5->P7 length = ((module * tooth_number) / 2) + GEAR_EXTENSION_MARGIN_CM (in cm, 0.5mm margin)
+        # Root circle radius = ((module * profile_tooth_number) / 2) - DEDENDUM_MULTIPLIER * module
+        # Setting them equal: profile_tooth_number = tooth_number + (2 * GEAR_EXTENSION_MARGIN_CM / module_cm) + PROFILE_TOOTH_ADJUSTMENT
         module_cm = self.module / 10.0  # Convert mm to cm for Fusion 360 API
-        self.profile_tooth_number = self.tooth_number + (0.1 / module_cm) + 2.5
+        self.profile_tooth_number = self.tooth_number + (2 * GEAR_EXTENSION_MARGIN_CM / module_cm) + PROFILE_TOOTH_ADJUSTMENT
 
         # Calculate circle radii using profile tooth number (for tooth profile sketches)
         pitch_radius = (module_cm * self.profile_tooth_number) / 2.0
         self.pitch_circle_radius = pitch_radius
         self.base_circle_radius = pitch_radius * math.cos(self.pressure_angle)
-        self.root_circle_radius = pitch_radius - 1.25 * module_cm
+        self.root_circle_radius = pitch_radius - DEDENDUM_MULTIPLIER * module_cm
         self.tip_circle_radius = pitch_radius + module_cm
 
         # Validation

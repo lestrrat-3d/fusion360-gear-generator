@@ -125,6 +125,7 @@ from .constants.entities import (
     SKETCH_APEX_FOR_LOFT,
     PLANE_FOUNDATION,
     PLANE_TOOTH_PROFILE,
+    SKETCH_TEXT_HEIGHT_CM,
 )
 from .constants.params import (
     PARAM_MODULE,
@@ -134,6 +135,44 @@ from .constants.params import (
     PARAM_TEETH_LENGTH,
     PARAM_TOOTH_NUMBER,
     PARAM_MATING_TOOTH_NUMBER,
+    DEDENDUM_MULTIPLIER,
+    GEAR_EXTENSION_MARGIN_CM,
+)
+from .constants.tolerances import (
+    MINIMUM_PROFILE_LINE_LENGTH_CM,
+    FLOATING_POINT_TOLERANCE_CM,
+    PROXIMITY_TOLERANCE_CM,
+    VECTOR_LENGTH_MINIMUM,
+    PERPENDICULARITY_THRESHOLD,
+    TINY_CIRCLE_RADIUS_CM,
+)
+from .constants.geometry import (
+    ANGLE_90_DEG,
+    ANGLE_360_DEG,
+)
+from .constants.messages import (
+    ERR_PERPENDICULAR_CONSTRAINT_FAILED,
+    ERR_DIMENSION_TO_LINE_FAILED,
+    ERR_CONSTRAINT_TO_LINE_FAILED,
+    ERR_COLLINEAR_CONSTRAINT_FAILED,
+    ERR_COINCIDENT_CONSTRAINT_FAILED,
+    ERR_DIAGONAL_PROFILE_LINE_FAILED,
+    ERR_PROFILE_LINE_TOO_SHORT,
+    ERR_TEETH_LENGTH_TOO_SMALL,
+    ERR_GEAR_DIMENSIONS_INVALID,
+    ERR_BASE_GEAR_BODY_REVOLVE_FAILED,
+    ERR_LOFT_APEX_TO_PROFILE_FAILED,
+    ERR_JOIN_TRIMMED_TOOTH_FAILED,
+    ERR_SPLIT_BODY_WITH_FACE_FAILED,
+    ERR_TOOTH_PROFILE_PLANE_FAILED,
+    ERR_PROFILE_LINE_START_PROJECTION_FAILED,
+    ERR_PROFILE_LINE_END_PROJECTION_FAILED,
+    ERR_ALIGNMENT_POINT_PROJECTION_FAILED,
+    ERR_APEX_POINT_PROJECTION_FAILED,
+    ERR_PERPENDICULAR_LINE_PROJECTION_FAILED,
+    ERR_ANCHOR_POINT_CALCULATE_FAILED,
+    ERR_CONSTRAIN_INTERSECTION_FAILED,
+    ERR_PARALLEL_CONSTRAINT_FAILED,
 )
 
 
@@ -230,7 +269,7 @@ def create_perpendicular_plane(
     # Compute perpendicular direction using cross product
     # Try X axis first
     perp_dir = normal.crossProduct(adsk.core.Vector3D.create(1, 0, 0))
-    if perp_dir.length < 0.01:
+    if perp_dir.length < VECTOR_LENGTH_MINIMUM:
         # Normal is parallel to X, use Y instead
         perp_dir = normal.crossProduct(adsk.core.Vector3D.create(0, 1, 0))
     perp_dir.normalize()
@@ -253,7 +292,7 @@ def create_perpendicular_plane(
     plane_input = state.design_component.constructionPlanes.createInput()
     plane_input.setByAngle(
         perp_line,
-        adsk.core.ValueInput.createByReal(math.pi / 2),
+        adsk.core.ValueInput.createByReal(ANGLE_90_DEG),
         gear_plane
     )
     foundation_plane = state.design_component.constructionPlanes.add(plane_input)
@@ -279,7 +318,7 @@ def add_line_label(sketch: adsk.fusion.Sketch, line: adsk.fusion.SketchLine, lab
         label: The text to display (e.g., "P5->P6")
     """
     # Create text input with label and height
-    text_input = sketch.sketchTexts.createInput2(label, 0.1)  # 0.1 cm height (1mm)
+    text_input = sketch.sketchTexts.createInput2(label, SKETCH_TEXT_HEIGHT_CM)  # 1mm text height for sketch labels
 
     # Place text along the line path (same method used for circles in spurgear.py:1194)
     text_input.setAsAlongPath(
@@ -325,7 +364,7 @@ def detect_sketch_orientation(sketch: adsk.fusion.Sketch, gear_plane: adsk.fusio
     y_perpendicularity = abs(sketch_y.dotProduct(gear_normal))
 
     # Check for degenerate case (both equally perpendicular, within threshold)
-    if abs(x_perpendicularity - y_perpendicularity) < 0.1:
+    if abs(x_perpendicularity - y_perpendicularity) < PERPENDICULARITY_THRESHOLD:
         raise Exception(
             f"Cannot determine sketch orientation: both axes are equally perpendicular "
             f"(x={x_perpendicularity:.3f}, y={y_perpendicularity:.3f})"
@@ -653,8 +692,8 @@ def draw_gear_face_extension(
         perp_vec_x = diag_vec_y / diag_length
         perp_vec_y = -diag_vec_x / diag_length
 
-    # Calculate P5 position (module * 1.25 distance from P4, perpendicular to diagonal)
-    ext_length = module_param.value * 1.25
+    # Calculate P5 position (module * DEDENDUM_MULTIPLIER distance from P4, perpendicular to diagonal)
+    ext_length = module_param.value * DEDENDUM_MULTIPLIER
     p5_pos = adsk.core.Point3D.create(
         p4.geometry.x + perp_vec_x * ext_length,
         p4.geometry.y + perp_vec_y * ext_length,
@@ -671,7 +710,7 @@ def draw_gear_face_extension(
     except Exception as e:
         raise Exception(f"Failed to add perpendicular constraint to P4->P5 line: {str(e)}")
 
-    # Apply dimension: module * 1.25
+    # Apply dimension: module * DEDENDUM_MULTIPLIER
     try:
         dim_p4_p5 = sketch.sketchDimensions.addDistanceDimension(
             p4_p5_line.startSketchPoint,
@@ -683,7 +722,7 @@ def draw_gear_face_extension(
                 0
             )
         )
-        dim_p4_p5.parameter.expression = f'{make_param_name(state.param_prefix, PARAM_MODULE)} * 1.25'
+        dim_p4_p5.parameter.expression = f'{make_param_name(state.param_prefix, PARAM_MODULE)} * {DEDENDUM_MULTIPLIER}'
     except Exception as e:
         raise Exception(f"Failed to add dimension to P4->P5 line: {str(e)}")
 
@@ -742,8 +781,8 @@ def draw_gear_face_extension(
         raise Exception(f"Failed to add constraint to P6->P1 line: {str(e)}")
 
     # Extend P4->P5 line to create P7 (collinear)
-    # Calculate P7 position: P5->P7 length = ((Module * ToothNumber) / 2) + 0.05 - pitch radius plus 0.5mm margin
-    p5_p7_length = ((module_param.value * tooth_number) / 2) + 0.05
+    # Calculate P7 position: P5->P7 length = ((Module * ToothNumber) / 2) + GEAR_EXTENSION_MARGIN_CM - pitch radius plus 0.5mm margin
+    p5_p7_length = ((module_param.value * tooth_number) / 2) + GEAR_EXTENSION_MARGIN_CM
     p7_pos = adsk.core.Point3D.create(
         p5.geometry.x + perp_vec_x * p5_p7_length,
         p5.geometry.y + perp_vec_y * p5_p7_length,
@@ -773,7 +812,7 @@ def draw_gear_face_extension(
                 0
             )
         )
-        dim_p5_p7.parameter.expression = f'((({make_param_name(state.param_prefix, PARAM_MODULE)} * {make_param_name(state.param_prefix, PARAM_TOOTH_NUMBER)}) / 2) + 0.05 cm)'
+        dim_p5_p7.parameter.expression = f'((({make_param_name(state.param_prefix, PARAM_MODULE)} * {make_param_name(state.param_prefix, PARAM_TOOTH_NUMBER)}) / 2) + {GEAR_EXTENSION_MARGIN_CM} cm)'
     except Exception as e:
         raise Exception(f"Failed to add dimension to P5->P7 line: {str(e)}")
 
@@ -1034,23 +1073,22 @@ def draw_gear_face_extension(
 
     # Validate critical line segment lengths for reliable face intersection detection
     # These lines will be used in Phase 2 to identify cutting faces via midpoint checking
-    MINIMUM_PROFILE_LINE_LENGTH = 0.1  # 1mm minimum (0.1cm) - provides 5x safety margin over tolerance
 
     # Validate P9->P10 diagonal line length
     p9_p10_length = state.p9.geometry.distanceTo(state.p10.geometry)
-    if p9_p10_length < MINIMUM_PROFILE_LINE_LENGTH:
+    if p9_p10_length < MINIMUM_PROFILE_LINE_LENGTH_CM:
         raise Exception(
             f"P9->P10 diagonal line is too short ({p9_p10_length:.4f} cm). "
-            f"Minimum length is {MINIMUM_PROFILE_LINE_LENGTH} cm. "
+            f"Minimum length is {MINIMUM_PROFILE_LINE_LENGTH_CM} cm. "
             f"This typically indicates TeethLength parameter is too small for the gear configuration."
         )
 
     # Validate P5->P7_mid line length
     p5_p7mid_length = state.p5.geometry.distanceTo(state.p7_mid.geometry)
-    if p5_p7mid_length < MINIMUM_PROFILE_LINE_LENGTH:
+    if p5_p7mid_length < MINIMUM_PROFILE_LINE_LENGTH_CM:
         raise Exception(
             f"P5->P7_mid line is too short ({p5_p7mid_length:.4f} cm). "
-            f"Minimum length is {MINIMUM_PROFILE_LINE_LENGTH} cm. "
+            f"Minimum length is {MINIMUM_PROFILE_LINE_LENGTH_CM} cm. "
             f"This typically indicates gear dimensions are invalid or TeethLength is too large."
         )
 
@@ -1138,8 +1176,8 @@ def draw_mating_face_extension(
         perp_vec_x = -diag_vec_y / diag_length
         perp_vec_y = diag_vec_x / diag_length
 
-    # Calculate P11 position (module * 1.25 distance from P4, perpendicular to diagonal)
-    ext_length = module_param.value * 1.25
+    # Calculate P11 position (module * DEDENDUM_MULTIPLIER distance from P4, perpendicular to diagonal)
+    ext_length = module_param.value * DEDENDUM_MULTIPLIER
     p11_pos = adsk.core.Point3D.create(
         p4.geometry.x + perp_vec_x * ext_length,
         p4.geometry.y + perp_vec_y * ext_length,
@@ -1168,7 +1206,7 @@ def draw_mating_face_extension(
                 0
             )
         )
-        dim_p4_p11.parameter.expression = f'{make_param_name(state.param_prefix, PARAM_MODULE)} * 1.25'
+        dim_p4_p11.parameter.expression = f'{make_param_name(state.param_prefix, PARAM_MODULE)} * {DEDENDUM_MULTIPLIER}'
     except Exception as e:
         raise Exception(f"Failed to add dimension to P4->P11 line: {str(e)}")
 
@@ -1226,8 +1264,8 @@ def draw_mating_face_extension(
         raise Exception(f"Failed to add constraint to P12->P3 line: {str(e)}")
 
     # Extend P4->P11 line to create P13 (collinear)
-    # Calculate P13 position: P11->P13 length = ((Module * MatingToothNumber) / 2) + 0.05 - pitch radius plus 0.5mm margin
-    p11_p13_length = ((module_param.value * tooth_number) / 2) + 0.05
+    # Calculate P13 position: P11->P13 length = ((Module * MatingToothNumber) / 2) + GEAR_EXTENSION_MARGIN_CM - pitch radius plus 0.5mm margin
+    p11_p13_length = ((module_param.value * tooth_number) / 2) + GEAR_EXTENSION_MARGIN_CM
     p13_pos = adsk.core.Point3D.create(
         p11.geometry.x + perp_vec_x * p11_p13_length,
         p11.geometry.y + perp_vec_y * p11_p13_length,
@@ -1257,7 +1295,7 @@ def draw_mating_face_extension(
                 0
             )
         )
-        dim_p11_p13.parameter.expression = f'((({make_param_name(state.param_prefix, PARAM_MODULE)} * {make_param_name(state.param_prefix, PARAM_MATING_TOOTH_NUMBER)}) / 2) + 0.05 cm)'
+        dim_p11_p13.parameter.expression = f'((({make_param_name(state.param_prefix, PARAM_MODULE)} * {make_param_name(state.param_prefix, PARAM_MATING_TOOTH_NUMBER)}) / 2) + {GEAR_EXTENSION_MARGIN_CM} cm)'
     except Exception as e:
         raise Exception(f"Failed to add dimension to P11->P13 line: {str(e)}")
 
@@ -1568,7 +1606,7 @@ def create_foundation_sketch(
         # Calculate perpendicular from origin (0, 0) to this line
         # Using formula: intersection = start + ((origin - start) · direction) * direction
         # where direction is normalized
-        if length > 0.0001:
+        if length > FLOATING_POINT_TOLERANCE_CM:
             dir_x = dx / length
             dir_y = dy / length
 
@@ -1700,7 +1738,7 @@ def validate_foundation_sketch_geometry(
     expected_gear_height = (module_param.value * spec.tooth_number) / 10.0  # Convert mm to cm
     expected_mating_height = (module_param.value * spec.mating_tooth_number) / 10.0  # Convert mm to cm
 
-    tolerance = 0.0001  # Tolerance for floating point comparison (0.1 micron in cm)
+    tolerance = FLOATING_POINT_TOLERANCE_CM  # Tolerance for floating point comparison (0.1 micron in cm)
 
     if abs(gear_height_param.value - expected_gear_height) > tolerance:
         raise Exception(f"GearHeight parameter mismatch: expected {expected_gear_height} cm, got {gear_height_param.value} cm")
@@ -2015,7 +2053,7 @@ def create_tooth_profile_plane(
     plane_input = design_planes.createInput()
     plane_input.setByAngle(
         profile_temp_line,
-        adsk.core.ValueInput.createByReal(math.pi / 2),
+        adsk.core.ValueInput.createByReal(ANGLE_90_DEG),
         state.foundation_sketch.referencePlane
     )
     tooth_profile_plane = design_planes.add(plane_input)
@@ -2129,7 +2167,7 @@ def get_virtual_teeth_number(state: GenerationState, spec: BevelGearSpec, config
 
     # Calculate Zv
     cos_angle = math.cos(pitch_cone_angle_radians)
-    if abs(cos_angle) < 0.0001:  # Avoid division by zero
+    if abs(cos_angle) < FLOATING_POINT_TOLERANCE_CM:  # Avoid division by zero
         raise ValueError(
             f"pitch_cone_angle too close to 90°: {config.pitch_cone_angle} "
             f"(cos={cos_angle})"
@@ -2297,12 +2335,12 @@ def find_tooth_spine_angular_dimension(
         line2_end = line_two.endSketchPoint.geometry
 
         line1_starts_at_anchor = (
-            abs(line1_start.x - anchor_point.geometry.x) < 0.0001 and
-            abs(line1_start.y - anchor_point.geometry.y) < 0.0001
+            abs(line1_start.x - anchor_point.geometry.x) < FLOATING_POINT_TOLERANCE_CM and
+            abs(line1_start.y - anchor_point.geometry.y) < FLOATING_POINT_TOLERANCE_CM
         )
         line2_starts_at_anchor = (
-            abs(line2_start.x - anchor_point.geometry.x) < 0.0001 and
-            abs(line2_start.y - anchor_point.geometry.y) < 0.0001
+            abs(line2_start.x - anchor_point.geometry.x) < FLOATING_POINT_TOLERANCE_CM and
+            abs(line2_start.y - anchor_point.geometry.y) < FLOATING_POINT_TOLERANCE_CM
         )
 
         if not (line1_starts_at_anchor and line2_starts_at_anchor):
@@ -2667,7 +2705,7 @@ def create_base_gear_body(
     # Set full rotation (360 degrees = 2π radians)
     revolve_input.setAngleExtent(
         False,  # Not symmetric
-        adsk.core.ValueInput.createByReal(math.pi * 2)
+        adsk.core.ValueInput.createByReal(ANGLE_360_DEG)
     )
 
     # Create the revolve feature
@@ -2750,7 +2788,7 @@ def create_lofted_tooth(
 
     # Draw a tiny circle at P2 for loft
     # Using a very small radius (1 micrometer = 0.001 mm = 0.0001 cm)
-    tiny_radius = 0.0001  # cm (0.001 mm)
+    tiny_radius = TINY_CIRCLE_RADIUS_CM  # 1 micrometer for apex point sketch
     apex_circle = apex_sketch.sketchCurves.sketchCircles.addByCenterRadius(
         projected_p2,
         tiny_radius
@@ -3058,7 +3096,7 @@ def face_intersects_line_planar(face, p1, p2) -> bool:
 
     # Check if line is parallel to plane
     dot_n_d = plane.normal.dotProduct(direction)
-    if abs(dot_n_d) < 0.0001:
+    if abs(dot_n_d) < FLOATING_POINT_TOLERANCE_CM:
         # Line is parallel to plane, no intersection (or lies in plane)
         return False
 
@@ -3097,7 +3135,7 @@ def face_intersects_line_planar(face, p1, p2) -> bool:
 
     # Check if intersection point is very close to face surface
     distance = intersection_point.distanceTo(point_on_surface)
-    return distance < 0.1  # 1mm tolerance (0.1cm)
+    return distance < MINIMUM_PROFILE_LINE_LENGTH_CM  # 1mm tolerance (0.1cm)
 
 
 def face_intersects_line_sampling(face, p1, p2) -> bool:
@@ -3140,7 +3178,7 @@ def face_intersects_line_sampling(face, p1, p2) -> bool:
 
     # Verify midpoint is on face within tolerance
     distance = midpoint.distanceTo(point_on_surface)
-    return distance < 0.01  # 0.1mm tolerance (0.01cm)
+    return distance < PROXIMITY_TOLERANCE_CM  # 0.1mm tolerance (0.01cm)
 
 
 def cut_body_with_faces(

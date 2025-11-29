@@ -25,7 +25,8 @@ from .constants import (
     PARAM_INVOLUTE_STEPS, PARAM_FILLET_THRESHOLD, PARAM_FILLET_RADIUS,
     PARAM_GEAR_HEIGHT, PARAM_MATING_GEAR_HEIGHT, PARAM_VIRTUAL_TEETH_NUMBER,
     PARAM_DRIVING_GEAR_BASE_THICKNESS, PARAM_TEETH_LENGTH,
-    UNIT_NONE, UNIT_MM, UNIT_RAD
+    UNIT_NONE, UNIT_MM, UNIT_RAD,
+    ROOT_CIRCLE_MULTIPLIER,
 )
 
 
@@ -148,7 +149,7 @@ def create_spur_gear_parameters(state: GenerationState, spec: SpurGearSpec) -> N
     add_parameter(
         design, prefix, 'RootCircleDiameter',
         adsk.core.ValueInput.createByString(
-            f'{make_param_name(prefix, "PitchCircleDiameter")} - 2.5 * {make_param_name(prefix, "Module")}'
+            f'{make_param_name(prefix, "PitchCircleDiameter")} - {ROOT_CIRCLE_MULTIPLIER} * {make_param_name(prefix, "Module")}'
         ),
         'mm',
         'Root circle diameter'
@@ -334,7 +335,7 @@ def create_helical_gear_parameters(state: GenerationState, spec: HelicalGearSpec
     add_parameter(
         design, prefix, 'RootCircleDiameter',
         adsk.core.ValueInput.createByString(
-            f'{make_param_name(prefix, "PitchCircleDiameter")} - 2.5 * {make_param_name(prefix, "Module")}'
+            f'{make_param_name(prefix, "PitchCircleDiameter")} - {ROOT_CIRCLE_MULTIPLIER} * {make_param_name(prefix, "Module")}'
         ),
         'mm',
         'Root circle diameter'

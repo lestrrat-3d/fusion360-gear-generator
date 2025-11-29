@@ -81,3 +81,40 @@ VALIDATION_MISSING_STATE = "Missing required state attribute"  # State missing a
 VALIDATION_INVALID_STATE = "Invalid generation state"  # State is invalid
 VALIDATION_NO_SELECTION = "No selection made"  # No entity selected
 VALIDATION_INVALID_SELECTION = "Invalid selection"  # Wrong entity type selected
+
+# Error Messages - Bevel Gear Constraint Operations
+ERR_PERPENDICULAR_CONSTRAINT_FAILED = "Failed to add perpendicular constraint"
+ERR_HORIZONTAL_CONSTRAINT_FAILED = "Failed to add horizontal constraint"
+ERR_VERTICAL_CONSTRAINT_FAILED = "Failed to add vertical constraint"
+ERR_COLLINEAR_CONSTRAINT_FAILED = "Failed to add collinear constraint"
+ERR_COINCIDENT_CONSTRAINT_FAILED = "Failed to add coincident constraint"
+ERR_PARALLEL_CONSTRAINT_FAILED = "Failed to add parallel constraint"
+
+# Error Messages - Bevel Gear Dimension Operations
+ERR_DIMENSION_ADD_FAILED = "Failed to add dimension"
+ERR_DIMENSION_TO_LINE_FAILED = "Failed to add dimension to line"
+
+# Error Messages - Bevel Gear Sketch Operations
+ERR_DIAGONAL_PROFILE_LINE_FAILED = "Failed to draw diagonal profile line"
+ERR_CONSTRAINT_TO_LINE_FAILED = "Failed to add constraint to line"
+ERR_CONSTRAIN_INTERSECTION_FAILED = "Failed to constrain to intersection"
+
+# Error Messages - Bevel Gear Validation
+ERR_PROFILE_LINE_TOO_SHORT = "Profile line is too short"
+ERR_TEETH_LENGTH_TOO_SMALL = "TeethLength parameter is too small for gear configuration"
+ERR_GEAR_DIMENSIONS_INVALID = "Gear dimensions are invalid"
+
+# Error Messages - Bevel Gear 3D Operations
+ERR_BASE_GEAR_BODY_REVOLVE_FAILED = "Failed to create base gear body by revolve"
+ERR_LOFT_APEX_TO_PROFILE_FAILED = "Failed to create loft feature from apex to tooth profile"
+ERR_JOIN_TRIMMED_TOOTH_FAILED = "Failed to join trimmed tooth to base gear body"
+ERR_SPLIT_BODY_WITH_FACE_FAILED = "Failed to split lofted tooth body with cutting face"
+ERR_TOOTH_PROFILE_PLANE_FAILED = "Failed to create tooth profile plane in design component"
+
+# Error Messages - Bevel Gear Projection Operations
+ERR_PROFILE_LINE_START_PROJECTION_FAILED = "Failed to project profile line start point into temporary sketch"
+ERR_PROFILE_LINE_END_PROJECTION_FAILED = "Failed to project profile line end point into temporary sketch"
+ERR_ALIGNMENT_POINT_PROJECTION_FAILED = "Failed to project alignment point onto tooth profile sketch"
+ERR_APEX_POINT_PROJECTION_FAILED = "Failed to project apex point P2 into apex sketch"
+ERR_PERPENDICULAR_LINE_PROJECTION_FAILED = "Failed to project perpendicular reference line into foundation sketch"
+ERR_ANCHOR_POINT_CALCULATE_FAILED = "Failed to calculate P1 anchor point from perpendicular intersection"

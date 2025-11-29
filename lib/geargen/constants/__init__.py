@@ -35,6 +35,8 @@ from .params import *
 from .messages import *
 from .entities import *
 from .units import *
+from .tolerances import *
+from .geometry import *
 
 # Define __all__ for controlled exports
 __all__ = [
