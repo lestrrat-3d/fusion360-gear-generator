@@ -51,7 +51,6 @@ def get_selection_input(
         True (selection inputs are always valid if they exist)
     """
     input_item = inputs.itemById(name)
-    futil.log(f'get_selection_input: item {name} has {input_item.selectionCount} selections')
 
     items = []
     for i in range(input_item.selectionCount):
@@ -99,7 +98,6 @@ def get_value_input(
             # Not a parameter reference, evaluate as expression
             evaluated = units_manager.evaluateExpression(value, units)
             if evaluated is None:
-                futil.log(f'Failed to evaluate expression "{value}"')
                 return None, False
             return adsk.core.ValueInput.createByReal(evaluated), False
         # It's a parameter reference, keep it as a string
@@ -110,7 +108,6 @@ def get_value_input(
         units = input_item.unitType
 
     if not units_manager.isValidExpression(input_item.expression, units):
-        futil.log(f'Invalid expression "{input_item.expression}" for units "{units}"')
         return None, False
 
     evaluated = units_manager.evaluateExpression(input_item.expression, units)

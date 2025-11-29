@@ -67,9 +67,6 @@ def stop():
 # Function that is called when a user clicks the corresponding button in the UI.
 # This defines the contents of the command dialog and connects to the command related events.
 def command_created(args: adsk.core.CommandCreatedEventArgs):
-    # General logging for debug.
-    futil.log(f'{CMD_NAME} Command Created Event')
-
     geargen.configure_spur_gear_inputs(args.command)
 
     # TODO Connect to the events that are needed by this command.
@@ -83,8 +80,6 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
 # This event handler is called when the user clicks the OK button in the command dialog or
 # is immediately called after the created event not command inputs were created for the dialog.
 def command_execute(args: adsk.core.CommandEventArgs):
-    # General logging for debug.
-    futil.log(f'{CMD_NAME} Command Execute Event')
     state = None
     try:
         inputs = args.command.commandInputs
@@ -104,31 +99,23 @@ def command_execute(args: adsk.core.CommandEventArgs):
 
 # This event handler is called when the command needs to compute a new preview in the graphics window.
 def command_preview(args: adsk.core.CommandEventArgs):
-    # General logging for debug.
-    futil.log(f'{CMD_NAME} Command Preview Event')
+    pass
 
 
 # This event handler is called when the user changes anything in the command dialog
 # allowing you to modify values of other inputs based on that change.
 def command_input_changed(args: adsk.core.InputChangedEventArgs):
-    futil.log(f'{CMD_NAME} Command Input Changed')
     changed_input = args.input
 
 
 # This event handler is called when the user interacts with any of the inputs in the dialog
 # which allows you to verify that all of the inputs are valid and enables the OK button.
 def command_validate_input(args: adsk.core.ValidateInputsEventArgs):
-    # General logging for debug.
-    futil.log(f'{CMD_NAME} Validate Input Event')
-
     args.areInputsValid = True
     
 
 
 # This event handler is called when the command terminates.
 def command_destroy(args: adsk.core.CommandEventArgs):
-    # General logging for debug.
-    futil.log(f'{CMD_NAME} Command Destroy Event')
-
     global local_handlers
     local_handlers = []

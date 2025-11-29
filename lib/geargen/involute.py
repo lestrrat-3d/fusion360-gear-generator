@@ -260,10 +260,6 @@ def draw_involute_tooth_profile(
         new_y = involute_points[i].x * sin_angle + involute_points[i].y * cos_angle
         involute_points[i] = create_point_relative_to(anchor_point, new_x, new_y)
 
-    futil.log(f"[INVOLUTE] rotate_angle = {math.degrees(rotate_angle):.2f}°")
-    futil.log(f"[INVOLUTE] First point after rotation: ({involute_points[0].x:.4f}, {involute_points[0].y:.4f})")
-    futil.log(f"[INVOLUTE] Last point after rotation: ({involute_points[-1].x:.4f}, {involute_points[-1].y:.4f})")
-
     # Step 5: Draw involute splines
     # Left spline
     point_collection = adsk.core.ObjectCollection.create()
@@ -286,11 +282,8 @@ def draw_involute_tooth_profile(
     # Create tip midpoint relative to anchor_point
     # Constraint-based positioning (coincident to tip_circle) handles final placement
     # config.tip_radius is in cm (Fusion 360 API units)
-    futil.log(f"[TOOTH_TOP] Creating at ({config.tip_radius:.4f}, 0, 0) relative to anchor")
     tooth_top_point = points.add(create_point_relative_to(anchor_point, config.tip_radius, 0))
-    futil.log(f"[TOOTH_TOP] Before constraint: ({tooth_top_point.geometry.x:.4f}, {tooth_top_point.geometry.y:.4f})")
     constraints.addCoincident(tooth_top_point, state.tip_circle)
-    futil.log(f"[TOOTH_TOP] After coincident to tip_circle: ({tooth_top_point.geometry.x:.4f}, {tooth_top_point.geometry.y:.4f})")
 
     # Create tip arc
     tip_arc = curves.sketchArcs.addByThreePoints(
@@ -306,11 +299,8 @@ def draw_involute_tooth_profile(
     )
 
     # Create spine (vertical construction line through tooth center)
-    futil.log(f"[SPINE] anchor_point at: ({anchor_point.geometry.x:.4f}, {anchor_point.geometry.y:.4f})")
-    futil.log(f"[SPINE] tooth_top_point at: ({tooth_top_point.geometry.x:.4f}, {tooth_top_point.geometry.y:.4f})")
     spine = curves.sketchLines.addByTwoPoints(anchor_point, tooth_top_point)
     spine.isConstruction = True
-    futil.log(f"[SPINE] Created from ({spine.startSketchPoint.geometry.x:.4f}, {spine.startSketchPoint.geometry.y:.4f}) to ({spine.endSketchPoint.geometry.x:.4f}, {spine.endSketchPoint.geometry.y:.4f})")
 
     # Step 7: Connect to root
     def draw_root_to_involute_line(root, root_radius, inv_line, spine, x, y):
@@ -324,11 +314,8 @@ def draw_involute_tooth_profile(
             root_radius * math.cos(angle_calc),
             root_radius * math.sin(angle_calc)
         )
-        futil.log(f"[ROOT_CONNECT] Connecting at angle {math.degrees(angle_calc):.2f}°, point: ({point.x:.4f}, {point.y:.4f})")
-        futil.log(f"[ROOT_CONNECT] Involute start at: ({inv_line.startSketchPoint.geometry.x:.4f}, {inv_line.startSketchPoint.geometry.y:.4f})")
         line_to_circle = curves.sketchLines.addByTwoPoints(point, inv_line.startSketchPoint)
         constraints.addCoincident(line_to_circle.startSketchPoint, root)
-        futil.log(f"[ROOT_CONNECT] After coincident constraint: ({line_to_circle.startSketchPoint.geometry.x:.4f}, {line_to_circle.startSketchPoint.geometry.y:.4f})")
 
         line_to_center = curves.sketchLines.addByTwoPoints(root.centerSketchPoint, line_to_circle.startSketchPoint)
         line_to_center.isConstruction = True
@@ -350,9 +337,6 @@ def draw_involute_tooth_profile(
     rel_x = first_point.x - anchor_point.geometry.x
     rel_y = first_point.y - anchor_point.geometry.y
     first_point_radius = math.sqrt(rel_x ** 2 + rel_y ** 2)
-
-    futil.log(f"[ROOT_CHECK] first_point_radius = {first_point_radius:.4f} cm, root_radius = {config.root_radius:.4f} cm")
-    futil.log(f"[ROOT_CHECK] Root connection needed: {first_point_radius > config.root_radius}")
 
     if first_point_radius > config.root_radius:
         # Involute extends beyond root circle, connect them

@@ -519,15 +519,6 @@ def draw_foundation_rectangle(
     state.p3 = p3_point
     state.p4 = p4_point
 
-    # DIAGNOSTIC: Verify P1 was stored
-    futil.log(f"[DIAGNOSTIC] draw_foundation_rectangle: Stored P1 in state")
-    futil.log(f"[DIAGNOSTIC] state.p1 is None: {state.p1 is None}")
-    if state.p1 is not None:
-        futil.log(f"[DIAGNOSTIC] state.p1 type: {type(state.p1)}")
-        futil.log(f"[DIAGNOSTIC] state.p1 has 'constraints': {hasattr(state.p1, 'constraints')}")
-        if hasattr(state.p1, 'objectType'):
-            futil.log(f"[DIAGNOSTIC] state.p1.objectType: {state.p1.objectType}")
-
     # Store foundation edges for tooth profile constraints
     state.p1_p4_line = line_p1_p4  # Gear side edge
     state.p2_p3_line = line_p2_p3  # Mating side edge
@@ -698,11 +689,6 @@ def draw_gear_face_extension(
     p2_p5_line = sketch.sketchCurves.sketchLines.addByTwoPoints(p2, p5)
     p2_p5_line.isConstruction = False
 
-    # DIAGNOSTIC: Log what we're using for P5->P6 alignment
-    futil.log(f"[DIAGNOSTIC] draw_gear_face_extension: y_is_perpendicular={state.y_is_perpendicular}")
-    futil.log(f"[DIAGNOSTIC] P1 position: x={state.p1.geometry.x:.6f}, y={state.p1.geometry.y:.6f}")
-    futil.log(f"[DIAGNOSTIC] P5 position: x={p5.geometry.x:.6f}, y={p5.geometry.y:.6f}")
-
     # Draw line (P5->P6) towards P1 level (parallel to P1->P4)
     # Orientation-dependent: P1->P4 direction determines this line's direction
     if state.y_is_perpendicular:
@@ -712,7 +698,6 @@ def draw_gear_face_extension(
             p5.geometry.y,
             0
         )
-        futil.log(f"[DIAGNOSTIC] P6 will be at: x={p6_pos.x:.6f}, y={p6_pos.y:.6f} (using P1.x)")
     else:
         # Swapped: P1->P4 is vertical (sketch +Y), so P5->P6 is vertical
         p6_pos = adsk.core.Point3D.create(
@@ -720,7 +705,6 @@ def draw_gear_face_extension(
             state.p1.geometry.y,
             0
         )
-        futil.log(f"[DIAGNOSTIC] P6 will be at: x={p6_pos.x:.6f}, y={p6_pos.y:.6f} (using P1.y)")
 
     p5_p6_line = sketch.sketchCurves.sketchLines.addByTwoPoints(p5, p6_pos)
     p5_p6_line.isConstruction = False
@@ -806,9 +790,6 @@ def draw_gear_face_extension(
     except Exception as e:
         raise Exception(f"Failed to add coincident constraint to P7_mid on P5->P7 line: {str(e)}")
 
-    # DIAGNOSTIC: Log P7_mid position before drawing P7_mid->P8
-    futil.log(f"[DIAGNOSTIC] P7_mid position: x={p7_mid.geometry.x:.6f}, y={p7_mid.geometry.y:.6f}")
-
     # Draw line (P7_mid->P8) towards P1 level (parallel to P1->P4)
     # Orientation-dependent: P1->P4 direction determines this line's direction
     if state.y_is_perpendicular:
@@ -818,7 +799,6 @@ def draw_gear_face_extension(
             p7_mid.geometry.y,
             0
         )
-        futil.log(f"[DIAGNOSTIC] P8 will be at: x={p8_pos.x:.6f}, y={p8_pos.y:.6f} (using P1.x)")
     else:
         # Swapped: P7_mid->P8 is vertical, aligned with P1.y
         p8_pos = adsk.core.Point3D.create(
@@ -826,7 +806,6 @@ def draw_gear_face_extension(
             state.p1.geometry.y,
             0
         )
-        futil.log(f"[DIAGNOSTIC] P8 will be at: x={p8_pos.x:.6f}, y={p8_pos.y:.6f} (using P1.y)")
 
     p7_mid_p8_line = sketch.sketchCurves.sketchLines.addByTwoPoints(p7_mid, p8_pos)
     p7_mid_p8_line.isConstruction = False
@@ -843,32 +822,6 @@ def draw_gear_face_extension(
     # Store P8
     p8 = p7_mid_p8_line.endSketchPoint
 
-    # DIAGNOSTIC: Verify P8 is the endpoint of the line
-    futil.log(f"[DIAGNOSTIC] P8 is endSketchPoint of p7_mid_p8_line: {p8 == p7_mid_p8_line.endSketchPoint}")
-    futil.log(f"[DIAGNOSTIC] P7_mid is startSketchPoint: {p7_mid == p7_mid_p8_line.startSketchPoint}")
-
-    # DIAGNOSTIC: Check P8's constraints BEFORE we add ours
-    futil.log(f"[DIAGNOSTIC] ========== P8 CONSTRAINT CHECK (before adding ours) ==========")
-    futil.log(f"[DIAGNOSTIC] P8 position: x={p8.geometry.x:.6f}, y={p8.geometry.y:.6f}")
-    if hasattr(p8, 'constraints'):
-        futil.log(f"[DIAGNOSTIC] P8 has {p8.constraints.count} constraint(s) before we add ours")
-        for i in range(p8.constraints.count):
-            constraint = p8.constraints.item(i)
-            futil.log(f"[DIAGNOSTIC] Constraint {i}: {constraint.objectType}")
-
-            if constraint.objectType == 'adsk::fusion::CoincidentConstraint':
-                coincident = constraint
-                futil.log(f"[DIAGNOSTIC]   COINCIDENT constraint found on P8!")
-                if hasattr(coincident, 'point') and hasattr(coincident, 'entity'):
-                    entity = coincident.entity
-                    if hasattr(entity, 'objectType'):
-                        futil.log(f"[DIAGNOSTIC]   Entity type: {entity.objectType}")
-                        if entity == state.reference_line_in_foundation:
-                            futil.log(f"[DIAGNOSTIC]   >>> P8 ALREADY COINCIDENT TO reference_line_in_foundation!")
-                        elif entity == state.perpendicular_line_in_foundation:
-                            futil.log(f"[DIAGNOSTIC]   >>> P8 ALREADY COINCIDENT TO perpendicular_line_in_foundation!")
-    futil.log(f"[DIAGNOSTIC] ==============================================================")
-
     # CRITICAL: Constrain P8 to be at the intersection of perpendicular line and reference line
     # This places P8 at exactly the right position for gear base alignment
     if state.perpendicular_line_in_foundation is None:
@@ -876,32 +829,16 @@ def draw_gear_face_extension(
     if state.reference_line_in_foundation is None:
         raise Exception("reference_line_in_foundation not found in state")
 
-    # DIAGNOSTIC: Log reference and perpendicular line positions
-    futil.log(f"[DIAGNOSTIC] reference_line start: x={state.reference_line_in_foundation.startSketchPoint.geometry.x:.6f}, y={state.reference_line_in_foundation.startSketchPoint.geometry.y:.6f}")
-    futil.log(f"[DIAGNOSTIC] reference_line end: x={state.reference_line_in_foundation.endSketchPoint.geometry.x:.6f}, y={state.reference_line_in_foundation.endSketchPoint.geometry.y:.6f}")
-    futil.log(f"[DIAGNOSTIC] perpendicular_line start: x={state.perpendicular_line_in_foundation.startSketchPoint.geometry.x:.6f}, y={state.perpendicular_line_in_foundation.startSketchPoint.geometry.y:.6f}")
-    futil.log(f"[DIAGNOSTIC] perpendicular_line end: x={state.perpendicular_line_in_foundation.endSketchPoint.geometry.x:.6f}, y={state.perpendicular_line_in_foundation.endSketchPoint.geometry.y:.6f}")
-
     try:
         # Constraint 1: Perpendicular line endpoint is coincident to the reference line
         # This ensures the perpendicular line intersects the reference line at the endpoint
         perp_line_endpoint = state.perpendicular_line_in_foundation.endSketchPoint
         sketch.geometricConstraints.addCoincident(perp_line_endpoint, state.reference_line_in_foundation)
-        futil.log(f"[DIAGNOSTIC] Perpendicular line endpoint constrained to reference line")
-        futil.log(f"[DIAGNOSTIC] Perpendicular endpoint position: x={perp_line_endpoint.geometry.x:.6f}, y={perp_line_endpoint.geometry.y:.6f}")
 
         # Constraint 2: P8 lies on the perpendicular line
         # This positions P8 at the intersection point (through the perpendicular line)
         sketch.geometricConstraints.addCoincident(p8, state.perpendicular_line_in_foundation)
         sketch.geometricConstraints.addCoincident(p8, state.reference_line_in_foundation)
-        futil.log(f"[DIAGNOSTIC] P8 constrained to perpendicular line")
-        futil.log(f"[DIAGNOSTIC] P8 position after constraint: x={p8.geometry.x:.6f}, y={p8.geometry.y:.6f}")
-        futil.log(f"[DIAGNOSTIC] P8 is now at intersection (via perpendicular line constraint)")
-
-        # DIAGNOSTIC: Verify P8 is still the endpoint of p7_mid_p8_line after constraining
-        futil.log(f"[DIAGNOSTIC] After constraint - P8 still endSketchPoint: {p8 == p7_mid_p8_line.endSketchPoint}")
-        futil.log(f"[DIAGNOSTIC] After constraint - p7_mid_p8_line.endSketchPoint position: x={p7_mid_p8_line.endSketchPoint.geometry.x:.6f}, y={p7_mid_p8_line.endSketchPoint.geometry.y:.6f}")
-        futil.log(f"[DIAGNOSTIC] After constraint - P7_mid position: x={p7_mid.geometry.x:.6f}, y={p7_mid.geometry.y:.6f}")
     except Exception as e:
         raise Exception(f"Failed to constrain P8 to intersection: {str(e)}")
 
@@ -938,11 +875,6 @@ def draw_gear_face_extension(
             )
         )
         dim_p6_p8.parameter.expression = make_param_name(state.param_prefix, PARAM_DRIVING_GEAR_BASE_THICKNESS)
-
-        futil.log(f"[DIAGNOSTIC] P6->P8 dimension added: {dim_p6_p8.parameter.value:.6f} cm")
-        futil.log(f"[DIAGNOSTIC] After P6->P8 dimension - P6: x={p6.geometry.x:.6f}, y={p6.geometry.y:.6f}")
-        futil.log(f"[DIAGNOSTIC] After P6->P8 dimension - P8: x={p8.geometry.x:.6f}, y={p8.geometry.y:.6f}")
-        futil.log(f"[DIAGNOSTIC] After P6->P8 dimension - P1: x={state.p1.geometry.x:.6f}, y={state.p1.geometry.y:.6f}")
     except Exception as e:
         raise Exception(f"Failed to add dimension to P6->P8 line: {str(e)}")
 
@@ -1612,23 +1544,17 @@ def create_foundation_sketch(
     # Get the start point of the projected line (this is where perp_line intersects foundation_plane)
     perp_line_in_foundation = perp_line_projected.item(0)
 
-    # DIAGNOSTIC: Log projection type and geometry
-    futil.log(f"[DIAGNOSTIC] perp_line projection type: {type(perp_line_in_foundation)}")
-    futil.log(f"[DIAGNOSTIC] perp_line projection object type: {perp_line_in_foundation.objectType if hasattr(perp_line_in_foundation, 'objectType') else 'N/A'}")
-
     # Calculate perpendicular from foundation sketch origin (0, 0) to the projected reference line
     # This gives us the correct P1 position that's aligned with the reference line
     p1_anchor_point = None
     if hasattr(perp_line_in_foundation, 'startSketchPoint') and hasattr(perp_line_in_foundation, 'endSketchPoint'):
         start_pt = perp_line_in_foundation.startSketchPoint.geometry
         end_pt = perp_line_in_foundation.endSketchPoint.geometry
-        futil.log(f"[DIAGNOSTIC] Projected reference line: start=({start_pt.x:.6f}, {start_pt.y:.6f}), end=({end_pt.x:.6f}, {end_pt.y:.6f})")
 
         # Calculate line direction
         dx = end_pt.x - start_pt.x
         dy = end_pt.y - start_pt.y
         length = (dx**2 + dy**2)**0.5
-        futil.log(f"[DIAGNOSTIC] Line direction: dx={dx:.6f}, dy={dy:.6f}, length={length:.6f}")
 
         # Calculate perpendicular from origin (0, 0) to this line
         # Using formula: intersection = start + ((origin - start) · direction) * direction
@@ -1647,9 +1573,6 @@ def create_foundation_sketch(
             # Intersection point
             intersect_x = start_pt.x + t * dir_x
             intersect_y = start_pt.y + t * dir_y
-
-            futil.log(f"[DIAGNOSTIC] Perpendicular from origin to reference line intersects at: ({intersect_x:.6f}, {intersect_y:.6f})")
-            futil.log(f"[DIAGNOSTIC] Drawing perpendicular line from origin to intersection point")
 
             # CRITICAL: Draw the perpendicular line from origin to the intersection point
             # This line connects the origin to the reference line perpendicularly
@@ -1677,11 +1600,6 @@ def create_foundation_sketch(
             # Store perpendicular line in state for use in draw_gear_face_extension()
             # This line will be used to constrain P8 to the intersection point
             state.perpendicular_line_in_foundation = perp_to_ref_line
-
-            futil.log(f"[DIAGNOSTIC] Intersection point (where P8 will be): ({intersect_x:.6f}, {intersect_y:.6f})")
-            futil.log(f"[DIAGNOSTIC] P1 created at 2x distance: ({p1_initial_x:.6f}, {p1_initial_y:.6f})")
-            futil.log(f"[DIAGNOSTIC] P1 has NO constraints - will be positioned by rectangle geometry")
-            futil.log(f"[DIAGNOSTIC] Perpendicular line stored - will constrain P8 in draw_gear_face_extension()")
         else:
             raise Exception("Projected reference line has zero length - cannot calculate perpendicular")
     else:
@@ -1692,10 +1610,6 @@ def create_foundation_sketch(
 
     # Store the projected reference line in state so we can constrain P8 to it later
     state.reference_line_in_foundation = perp_line_in_foundation
-
-    # DIAGNOSTIC: Log P1's initial position
-    futil.log(f"[DIAGNOSTIC] P1 initial position (2x distance): x={p1_anchor_point.geometry.x:.6f}, y={p1_anchor_point.geometry.y:.6f}")
-    futil.log(f"[DIAGNOSTIC] (P1 will be repositioned by constraint chain after P8 is constrained)")
 
     # Draw the foundation rectangle using P1 at 2x distance from origin
     # P1 has no direct constraints - will be positioned by rectangle geometry and constraint chain
@@ -1718,41 +1632,6 @@ def create_foundation_sketch(
 
     # Note: All 18 points (P1-P16 + P7_mid + P14_mid) and critical lines (p1_p2_axis, p5_p7_line, diagonal)
     # are already stored in state by the helper functions above
-
-    # DIAGNOSTIC: Check all constraints on P1 before validation
-    futil.log(f"[DIAGNOSTIC] ========== P1 CONSTRAINT ANALYSIS ==========")
-    if state.p1 is not None and sketch is not None:
-        futil.log(f"[DIAGNOSTIC] P1 position: x={state.p1.geometry.x:.6f}, y={state.p1.geometry.y:.6f}")
-        futil.log(f"[DIAGNOSTIC] Checking sketch constraints that reference P1...")
-
-        # Check geometric constraints
-        constraint_count = 0
-        for i in range(sketch.geometricConstraints.count):
-            constraint = sketch.geometricConstraints.item(i)
-
-            # Check if this constraint references P1
-            references_p1 = False
-            constraint_info = f"Constraint {i}: {constraint.objectType}"
-
-            if constraint.objectType == 'adsk::fusion::CoincidentConstraint':
-                if hasattr(constraint, 'point') and constraint.point == state.p1:
-                    references_p1 = True
-                    entity = constraint.entity if hasattr(constraint, 'entity') else None
-                    if entity:
-                        constraint_info += f" - P1 coincident to {entity.objectType if hasattr(entity, 'objectType') else 'unknown'}"
-                        if entity == state.perpendicular_line_in_foundation:
-                            constraint_info += " (perpendicular_line_in_foundation!)"
-                        elif entity == state.reference_line_in_foundation:
-                            constraint_info += " (reference_line_in_foundation!)"
-
-            if references_p1:
-                futil.log(f"[DIAGNOSTIC]   {constraint_info}")
-                constraint_count += 1
-
-        futil.log(f"[DIAGNOSTIC] P1 has {constraint_count} constraint(s) referencing it")
-    else:
-        futil.log(f"[DIAGNOSTIC] P1 or sketch not available")
-    futil.log(f"[DIAGNOSTIC] ============================================")
 
     # Validate geometry before returning
     validate_foundation_sketch_geometry(sketch, spec, state)
@@ -2269,9 +2148,6 @@ def find_tooth_spine_angular_dimension(state: GenerationState) -> Optional[adsk.
     sketch = state.tooth_profile_sketch
     anchor_point = state.anchor_point
 
-    futil.log(f"[FIND_DIM] Searching for angular dimension among {sketch.sketchDimensions.count} dimensions")
-    futil.log(f"[FIND_DIM] Anchor point at: ({anchor_point.geometry.x:.4f}, {anchor_point.geometry.y:.4f})")
-
     angular_dim_count = 0
     for i in range(sketch.sketchDimensions.count):
         dim = sketch.sketchDimensions.item(i)
@@ -2281,19 +2157,16 @@ def find_tooth_spine_angular_dimension(state: GenerationState) -> Optional[adsk.
             continue
 
         angular_dim_count += 1
-        futil.log(f"[FIND_DIM] Checking angular dimension {angular_dim_count}, value={dim.value:.4f} rad")
 
         line_one = dim.lineOne
         line_two = dim.lineTwo
 
         # Both must be SketchLines
         if not (isinstance(line_one, adsk.fusion.SketchLine) and isinstance(line_two, adsk.fusion.SketchLine)):
-            futil.log(f"[FIND_DIM]   Skipped: not both SketchLines")
             continue
 
         # Both must be construction lines
         if not (line_one.isConstruction and line_two.isConstruction):
-            futil.log(f"[FIND_DIM]   Skipped: not both construction (line1={line_one.isConstruction}, line2={line_two.isConstruction})")
             continue
 
         # Check if either line has anchor_point as start
@@ -2311,20 +2184,14 @@ def find_tooth_spine_angular_dimension(state: GenerationState) -> Optional[adsk.
             abs(line2_start.y - anchor_point.geometry.y) < 0.0001
         )
 
-        futil.log(f"[FIND_DIM]   Line1: ({line1_start.x:.4f}, {line1_start.y:.4f}) to ({line1_end.x:.4f}, {line1_end.y:.4f}), starts_at_anchor={line1_starts_at_anchor}")
-        futil.log(f"[FIND_DIM]   Line2: ({line2_start.x:.4f}, {line2_start.y:.4f}) to ({line2_end.x:.4f}, {line2_end.y:.4f}), starts_at_anchor={line2_starts_at_anchor}")
-
         if not (line1_starts_at_anchor and line2_starts_at_anchor):
-            futil.log(f"[FIND_DIM]   Skipped: not both starting at anchor")
             continue
 
         # Found it! This is the angular dimension created by draw_involute_tooth_profile()
         # We don't check perpendicularity because in some cases (like bevel gears) the lines
         # might be parallel in the local sketch coordinate system
-        futil.log(f"[FIND_DIM] Found matching dimension!")
         return dim
 
-    futil.log(f"[FIND_DIM] No matching dimension found (checked {angular_dim_count} angular dimensions)")
     return None
 
 
@@ -2353,9 +2220,6 @@ def rotate_tooth_profile_to_align(state: GenerationState, spec: BevelGearSpec) -
     anchor_point = state.tooth_profile_center_point
     angle_dimension = state.tooth_spine_angular_dimension
 
-    futil.log("[TOOTH_ROTATION] Starting tooth profile rotation alignment")
-    futil.log(f"[TOOTH_ROTATION] Current dimension value: {angle_dimension.value:.4f} rad")
-
     # Project P5 onto tooth profile sketch
     projected = sketch.project(state.p5)
     if projected.count == 0:
@@ -2372,30 +2236,15 @@ def rotate_tooth_profile_to_align(state: GenerationState, spec: BevelGearSpec) -
     # Calculate angle using atan2 (handles all quadrants correctly)
     rotation_angle = math.atan2(dy, dx)
 
-    futil.log(f"[TOOTH_ROTATION] Anchor: ({anchor_point.geometry.x:.4f}, {anchor_point.geometry.y:.4f})")
-    futil.log(f"[TOOTH_ROTATION] Projected P5: ({p5_projected.geometry.x:.4f}, {p5_projected.geometry.y:.4f})")
-    futil.log(f"[TOOTH_ROTATION] Direction: ({dx:.4f}, {dy:.4f})")
-    futil.log(f"[TOOTH_ROTATION] Rotation angle: {rotation_angle:.4f} rad = {math.degrees(rotation_angle):.2f}°")
-
     # Cleanup temporary projected point
     try:
         if p5_projected.isValid:
             p5_projected.deleteMe()
     except:
-        futil.log("[TOOTH_ROTATION] Warning: Could not delete projected P5")
+        pass
 
     # Update angular dimension to rotate tooth
     angle_dimension.value = rotation_angle
-    futil.log(f"[TOOTH_ROTATION] Updated dimension to {rotation_angle:.4f} rad")
-
-    # Verify update
-    if abs(angle_dimension.value - rotation_angle) > 0.0001:
-        futil.log(
-            f"[TOOTH_ROTATION] Warning: Dimension after update ({angle_dimension.value:.4f}) "
-            f"doesn't match target ({rotation_angle:.4f})"
-        )
-
-    futil.log("[TOOTH_ROTATION] Rotation completed successfully")
 
     return state
 
@@ -2652,41 +2501,6 @@ def create_base_gear_body(state: GenerationState, spec: BevelGearSpec) -> Genera
     profiles_to_revolve.add(target_profile)  # Hexagonal profile
     profiles_to_revolve.add(triangular_profile)  # Triangular profile
 
-    # DIAGNOSTIC: Final check of P1 constraints before revolve
-    futil.log(f"[DIAGNOSTIC] ========== FINAL P1 CONSTRAINT CHECK (before revolve) ==========")
-    if state.p1 is not None and state.foundation_sketch is not None:
-        futil.log(f"[DIAGNOSTIC] P1 position: x={state.p1.geometry.x:.6f}, y={state.p1.geometry.y:.6f}")
-        futil.log(f"[DIAGNOSTIC] Checking foundation sketch constraints that reference P1...")
-
-        # Check geometric constraints
-        constraint_count = 0
-        for i in range(state.foundation_sketch.geometricConstraints.count):
-            constraint = state.foundation_sketch.geometricConstraints.item(i)
-
-            # Check if this constraint references P1
-            references_p1 = False
-            constraint_info = f"Constraint {i}: {constraint.objectType}"
-
-            if constraint.objectType == 'adsk::fusion::CoincidentConstraint':
-                if hasattr(constraint, 'point') and constraint.point == state.p1:
-                    references_p1 = True
-                    entity = constraint.entity if hasattr(constraint, 'entity') else None
-                    if entity:
-                        constraint_info += f" - P1 coincident to {entity.objectType if hasattr(entity, 'objectType') else 'unknown'}"
-                        if entity == state.perpendicular_line_in_foundation:
-                            constraint_info += " (perpendicular_line_in_foundation!)"
-                        elif entity == state.reference_line_in_foundation:
-                            constraint_info += " (reference_line_in_foundation!)"
-
-            if references_p1:
-                futil.log(f"[DIAGNOSTIC]   {constraint_info}")
-                constraint_count += 1
-
-        futil.log(f"[DIAGNOSTIC] P1 has {constraint_count} constraint(s) referencing it")
-    else:
-        futil.log(f"[DIAGNOSTIC] P1 or foundation_sketch not available")
-    futil.log(f"[DIAGNOSTIC] ================================================================")
-
     # Verify foundation sketch is fully constrained before revolve
     if not state.foundation_sketch.isFullyConstrained:
         raise Exception("Foundation sketch is not fully constrained before revolve operation")
@@ -2863,8 +2677,6 @@ def join_tooth_to_gear_body(state: GenerationState, spec: BevelGearSpec) -> Gene
         Exception: If bodies don't intersect (required for join)
         Exception: If combine operation fails
     """
-    futil.log(f"DEBUG: join_tooth_to_gear_body started")
-
     # Verify bodies exist
     if not hasattr(state, 'base_gear_body') or state.base_gear_body is None:
         raise Exception("Cannot join bodies: base_gear_body is missing")
@@ -3190,16 +3002,12 @@ def cut_body_with_faces(state: GenerationState, spec: BevelGearSpec) -> Generati
     if not state.lofted_tooth_body.isValid:
         raise Exception("Cannot cut body: lofted_tooth_body is invalid")
 
-    # DIAGNOSTIC: Log that we're about to split
-    futil.log(f"DEBUG: About to split with {len(state.cutting_faces)} cutting faces")
-
     # Use splitBody feature to split lofted_tooth_body using each cutting face individually
     splitBodyFeatures = state.design_component.features.splitBodyFeatures
 
     # Split with each cutting face
     # After each split, the body collection may change, so we iterate carefully
     for i, cutting_face in enumerate(state.cutting_faces):
-        futil.log(f"DEBUG: Splitting with cutting face {i+1}/{len(state.cutting_faces)}")
         if not cutting_face.isValid:
             raise Exception(f"Cutting face {i} is invalid")
 
@@ -3212,7 +3020,6 @@ def cut_body_with_faces(state: GenerationState, spec: BevelGearSpec) -> Generati
 
         try:
             split_feature = splitBodyFeatures.add(split_input)
-            futil.log(f"DEBUG: Split {i+1} succeeded, split_feature created")
         except Exception as e:
             raise Exception(
                 f"Failed to split lofted tooth body with cutting face {i}. "
@@ -3227,14 +3034,11 @@ def cut_body_with_faces(state: GenerationState, spec: BevelGearSpec) -> Generati
     cut_bodies = [body for body in state.design_component.bRepBodies
                   if body.isValid and body.isVisible and body != state.base_gear_body]
 
-    futil.log(f"DEBUG: After splits, found {len(cut_bodies)} cut bodies (excluding base_gear_body)")
-
     if len(cut_bodies) == 0:
         raise Exception("Split operations produced no visible bodies (excluding base_gear_body)")
 
     state.cut_bodies = cut_bodies
 
-    futil.log(f"DEBUG: cut_body_with_faces completed successfully")
     return state
 
 
@@ -3261,13 +3065,9 @@ def remove_smaller_parts(state: GenerationState, spec: BevelGearSpec) -> Generat
         Exception: If apex_point is missing
         Exception: If no body is found that doesn't contain the apex point
     """
-    futil.log(f"DEBUG: remove_smaller_parts started")
-
     # Verify cut_bodies exist
     if not hasattr(state, 'cut_bodies') or state.cut_bodies is None or len(state.cut_bodies) == 0:
         raise Exception("Cannot identify tooth body: cut_bodies are missing or empty")
-
-    futil.log(f"DEBUG: Found {len(state.cut_bodies)} cut bodies to process")
 
     # Verify apex_point exists (P2)
     if not hasattr(state, 'apex_point') or state.apex_point is None:

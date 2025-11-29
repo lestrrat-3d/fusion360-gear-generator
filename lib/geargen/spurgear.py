@@ -882,12 +882,8 @@ def create_spur_fillets(
             state.component.features.filletFeatures.add(fillet_input)
     except:
         # Fillet operation can fail on complex geometry (e.g., lofted helical gears)
-        # This is non-critical - fillets are cosmetic, so we log and continue
-        import traceback
-        # Log to console for debugging
-        print('Fillet operation skipped due to geometry complexity (this is normal for helical/herringbone gears)')
-        print('Error details:')
-        traceback.print_exc()
+        # This is non-critical - fillets are cosmetic, so we continue silently
+        pass
 
 
 def create_spur_bore(
