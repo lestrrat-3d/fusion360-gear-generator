@@ -6,7 +6,7 @@ data containers with no methods (except __post_init__ for validation).
 """
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, List
 import math
 import adsk.core
 import adsk.fusion
@@ -98,6 +98,26 @@ class GenerationState:
     # Perpendicular line in foundation sketch (from origin to reference line intersection)
     perpendicular_line_in_foundation: Optional[adsk.fusion.SketchLine] = None
 
+    # Geometry references for gear generation (Phase 2 and Phase 3)
+    p1_p2_axis: Optional[adsk.fusion.SketchLine] = None  # Driving gear rotation axis (P1->P2)
+    p2_p3_axis: Optional[adsk.fusion.SketchLine] = None  # Mating gear rotation axis (P2->P3)
+    p5_p7_line: Optional[adsk.fusion.SketchLine] = None  # Driving gear tooth profile reference line
+    p11_p13_line: Optional[adsk.fusion.SketchLine] = None  # Mating gear tooth profile reference line
+    mating_gear_occurrence: Optional[adsk.fusion.Occurrence] = None  # Occurrence for Mating Gear (for activation)
+
+    # Mating gear generation state (Phase 3) - mirrors driving gear state structure
+    mating_tooth_profile_plane: Optional[adsk.fusion.ConstructionPlane] = None
+    mating_tooth_profile_sketch: Optional[adsk.fusion.Sketch] = None
+    mating_tooth_profile_center_point: Optional[adsk.fusion.SketchPoint] = None
+    mating_tooth_spine_angular_dimension: Optional[adsk.fusion.SketchAngularDimension] = None
+    mating_base_gear_body: Optional[adsk.fusion.BRepBody] = None
+    mating_lofted_tooth_body: Optional[adsk.fusion.BRepBody] = None
+    mating_apex_sketch: Optional[adsk.fusion.Sketch] = None
+    mating_cutting_faces: List[adsk.fusion.BRepFace] = field(default_factory=list)
+    mating_cut_bodies: List[adsk.fusion.BRepBody] = field(default_factory=list)
+    mating_single_tooth_body: Optional[adsk.fusion.BRepBody] = None
+    mating_final_body: Optional[adsk.fusion.BRepBody] = None
+
     def update(self, **kwargs) -> 'GenerationState':
         """
         Create a new GenerationState with specified fields updated.
@@ -116,6 +136,26 @@ class GenerationState:
         """
         import dataclasses
         return dataclasses.replace(self, **kwargs)
+
+
+@dataclass
+class GearConfig:
+    """
+    Geometry configuration for gear generation.
+
+    Encapsulates all geometry references needed to generate a bevel gear,
+    allowing the same Phase 2 functions to work for both driving and mating gears
+    by simply passing different configurations.
+    """
+    component: adsk.fusion.Component  # Component to activate and create geometry in
+    occurrence: adsk.fusion.Occurrence  # Occurrence for component activation
+    axis_line: adsk.fusion.SketchLine  # Rotation axis (P1->P2 for driving, P2->P3 for mating)
+    profile_line: adsk.fusion.SketchLine  # Tooth profile reference (P5->P7 for driving, P11->P13 for mating)
+    anchor_point: adsk.fusion.SketchPoint  # Anchor point for tooth profile (P7 for driving, P13 for mating)
+    extension_points: List[adsk.fusion.SketchPoint]  # Extension points (P5-P10 for driving, P11-P16 for mating)
+    tooth_number: int  # Number of teeth (tooth_number for driving, mating_tooth_number for mating)
+    pitch_cone_angle: float  # Pitch cone angle (pitch_cone_angle for driving, mating_pitch_cone_angle for mating)
+    virtual_teeth_number: int  # Virtual teeth number Zv = ceil(Z / cos(pitch_cone_angle)) for circular pattern
 
 
 @dataclass
@@ -273,6 +313,7 @@ class BevelGearSpec:
     driving_gear_base_thickness: float = 5.0
     teeth_length: float = 10.0  # Distance between diagonal profile lines for tooth extrusion
     sketch_only: bool = False
+    generate_mating_gear: bool = True  # Whether to generate the mating gear body
 
     # Derived parameters (computed in __post_init__)
     pitch_diameter: float = field(init=False)

@@ -17,7 +17,7 @@ from .constants import (
     INPUT_BORE_DIAMETER, INPUT_CHAMFER_TOOTH, INPUT_SKETCH_ONLY,
     INPUT_HELIX_ANGLE, INPUT_MATING_TOOTH_NUMBER,
     INPUT_SHAFT_ANGLE, INPUT_FACE_WIDTH, INPUT_DRIVING_GEAR_BASE_THICKNESS, INPUT_TEETH_LENGTH,
-    INPUT_PARENT_COMPONENT, INPUT_PLANE, INPUT_ANCHOR_POINT,
+    INPUT_PARENT_COMPONENT, INPUT_PLANE, INPUT_ANCHOR_POINT, INPUT_GENERATE_MATING_GEAR,
     UNIT_NONE, UNIT_MM, UNIT_RAD,
     ERR_INVALID_MODULE, ERR_INVALID_TOOTH_NUMBER, ERR_INVALID_PRESSURE_ANGLE,
     ERR_INVALID_THICKNESS, ERR_INVALID_HELIX_ANGLE,
@@ -26,7 +26,7 @@ from .constants import (
     DEFAULT_MODULE_MM, DEFAULT_TOOTH_NUMBER, DEFAULT_PRESSURE_ANGLE_DEG,
     DEFAULT_BORE_DIAMETER_STR, DEFAULT_THICKNESS_MM, DEFAULT_CHAMFER_TOOTH_MM,
     DEFAULT_SKETCH_ONLY, DEFAULT_MATING_TOOTH_NUMBER, DEFAULT_SHAFT_ANGLE_DEG,
-    DEFAULT_DRIVING_GEAR_BASE_THICKNESS_MM, DEFAULT_TEETH_LENGTH_MM
+    DEFAULT_DRIVING_GEAR_BASE_THICKNESS_MM, DEFAULT_TEETH_LENGTH_MM, DEFAULT_GENERATE_MATING_GEAR
 )
 
 
@@ -440,6 +440,11 @@ def parse_bevel_gear_inputs(
         sketch_only = False
     params['sketch_only'] = sketch_only
 
+    generate_mating_gear, ok = get_boolean_input(inputs, INPUT_GENERATE_MATING_GEAR)
+    if not ok:
+        generate_mating_gear = DEFAULT_GENERATE_MATING_GEAR
+    params['generate_mating_gear'] = generate_mating_gear
+
     return params
 
 
@@ -719,13 +724,21 @@ def configure_bevel_gear_inputs(cmd: adsk.core.Command) -> adsk.core.CommandInpu
         adsk.core.ValueInput.createByReal(to_cm(DEFAULT_TEETH_LENGTH_MM))
     )
 
-    # Boolean input
+    # Boolean inputs
     inputs.addBoolValueInput(
         INPUT_SKETCH_ONLY,
         'Generate sketches, but do not build body',
         True,
         '',
         DEFAULT_SKETCH_ONLY
+    )
+
+    inputs.addBoolValueInput(
+        INPUT_GENERATE_MATING_GEAR,
+        'Generate Mating Gear',
+        True,
+        '',
+        DEFAULT_GENERATE_MATING_GEAR
     )
 
     return inputs

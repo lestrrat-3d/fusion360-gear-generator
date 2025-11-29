@@ -105,7 +105,7 @@ import math
 from typing import Optional, Any, Tuple
 import adsk.core
 import adsk.fusion
-from .types import GenerationState, BevelGearSpec
+from .types import GenerationState, BevelGearSpec, GearConfig
 from .core import create_sketch, get_parameter, create_gear_occurrence, ensure_construction_plane, hide_construction_planes, make_param_name
 from .involute import draw_involute_tooth_profile, ToothProfileConfig
 from .spurgear import draw_spur_gear_circles
@@ -177,8 +177,9 @@ def create_bevel_gear_components(state: GenerationState) -> GenerationState:
     # Update state with new component and occurrence references
     state.design_component = design_component
     state.gear_component = gear_component
-    state.gear_occurrence = gear_occurrence  # Store occurrence for activation
+    state.gear_occurrence = gear_occurrence  # Store occurrence for driving gear activation
     state.mating_gear_component = mating_gear_component
+    state.mating_gear_occurrence = mating_gear_occurrence  # Store occurrence for mating gear activation
 
     return state
 
@@ -522,6 +523,10 @@ def draw_foundation_rectangle(
     # Store foundation edges for tooth profile constraints
     state.p1_p4_line = line_p1_p4  # Gear side edge
     state.p2_p3_line = line_p2_p3  # Mating side edge
+
+    # CRITICAL: Store P2->P3 axis for Phase 3 (mating gear) circular pattern
+    # This line will be used as the rotation axis for mating gear tooth pattern
+    state.p2_p3_axis = line_p2_p3
 
     return state
 
@@ -1481,6 +1486,10 @@ def draw_mating_face_extension(
     state.p15 = p15
     state.p16 = p16
 
+    # CRITICAL: Store P11->P13 line for Phase 3 (mating gear tooth profile plane)
+    # This line will be used to create the tooth profile plane for the mating gear
+    state.p11_p13_line = p11_p13_line
+
     # Add text labels for debugging
     add_line_label(sketch, p4_p11_line, "P4->P11")
     add_line_label(sketch, p2_p11_line, "P2->P11")
@@ -1799,12 +1808,92 @@ def generate_bevel_gear(
     # 14. Hide construction planes
     hide_construction_planes(state)
 
-    # 15. Run Phase 2 if not sketch_only
+    # 15. Run Phase 2 (driving gear) if not sketch_only
     if not spec.sketch_only:
-        state = generate_phase2_tooth_body(state, spec)
+        state = generate_driving_gear_body(state, spec)
 
-    # 16. Return final state
+        # 16. Run Phase 3 (mating gear) if generate_mating_gear is enabled
+        if spec.generate_mating_gear:
+            state = generate_mating_gear_body(state, spec)
+
+    # 17. Return final state
     return state
+
+
+# ============================================================================
+# Gear Configuration Helpers (for Phase 2 and Phase 3)
+# ============================================================================
+
+def get_driving_gear_config(state: GenerationState, spec: BevelGearSpec) -> GearConfig:
+    """
+    Extract driving gear geometry references from state.
+
+    Creates a GearConfig containing all geometry references needed to generate
+    the driving gear body. This configuration is used by Phase 2 tooth generation
+    functions.
+
+    Args:
+        state: The current generation state (after Phase 1 completion)
+        spec: The bevel gear specification
+
+    Returns:
+        GearConfig containing driving gear geometry references
+
+    Raises:
+        AttributeError: If required state fields are missing
+    """
+    # Calculate virtual teeth number: Zv = ceil(Z / cos(pitch_cone_angle))
+    import math
+    cos_angle = math.cos(spec.pitch_cone_angle)
+    virtual_teeth_number = math.ceil(spec.tooth_number / cos_angle)
+
+    return GearConfig(
+        component=state.gear_component,
+        occurrence=state.gear_occurrence,
+        axis_line=state.p1_p2_axis,
+        profile_line=state.p5_p7_line,
+        anchor_point=state.p7,
+        extension_points=[state.p5, state.p6, state.p7, state.p7_mid, state.p8, state.p9, state.p10],
+        tooth_number=spec.tooth_number,
+        pitch_cone_angle=spec.pitch_cone_angle,
+        virtual_teeth_number=virtual_teeth_number
+    )
+
+
+def get_mating_gear_config(state: GenerationState, spec: BevelGearSpec) -> GearConfig:
+    """
+    Extract mating gear geometry references from state.
+
+    Creates a GearConfig containing all geometry references needed to generate
+    the mating gear body. This configuration is used by Phase 3 tooth generation
+    functions, which reuse the same Phase 2 functions with different geometry.
+
+    Args:
+        state: The current generation state (after Phase 1 completion)
+        spec: The bevel gear specification
+
+    Returns:
+        GearConfig containing mating gear geometry references
+
+    Raises:
+        AttributeError: If required state fields are missing
+    """
+    # Calculate virtual teeth number: Zv = ceil(Z / cos(pitch_cone_angle))
+    import math
+    cos_angle = math.cos(spec.mating_pitch_cone_angle)
+    virtual_teeth_number = math.ceil(spec.mating_tooth_number / cos_angle)
+
+    return GearConfig(
+        component=state.mating_gear_component,
+        occurrence=state.mating_gear_occurrence,
+        axis_line=state.p2_p3_axis,
+        profile_line=state.p11_p13_line,
+        anchor_point=state.p13,
+        extension_points=[state.p11, state.p12, state.p13, state.p14_mid, state.p14, state.p15, state.p16],
+        tooth_number=spec.mating_tooth_number,
+        pitch_cone_angle=spec.mating_pitch_cone_angle,
+        virtual_teeth_number=virtual_teeth_number
+    )
 
 
 # ============================================================================
@@ -1825,73 +1914,71 @@ def generate_bevel_gear(
 # Part 1: Tooth Profile Sketch Functions (Tasks 1-6)
 # ----------------------------------------------------------------------------
 
-def activate_driving_gear_component(state: GenerationState) -> GenerationState:
+def activate_gear_component(state: GenerationState, config: GearConfig) -> GenerationState:
     """
-    Activate the Driving Gear component so subsequent geometry is created in the correct component.
+    Activate the specified gear component so subsequent geometry is created in the correct component.
 
-    This function switches the active component from Design to Driving Gear, ensuring
-    that all tooth profile and 3D body operations create geometry within the Driving
-    Gear component.
+    This function switches the active component to the one specified in config, ensuring
+    that all tooth profile and 3D body operations create geometry within the correct
+    gear component (either Driving Gear or Mating Gear).
 
     Args:
-        state: The current generation state with gear_component populated
+        state: The current generation state
+        config: Gear configuration containing component and occurrence to activate
 
     Returns:
         The same GenerationState (side effect of activating component)
 
     Raises:
-        ValueError: If gear_component is missing or invalid
+        ValueError: If component or occurrence is missing or invalid
     """
-    if not hasattr(state, 'gear_component') or state.gear_component is None:
-        raise ValueError("Cannot activate Driving Gear component: state.gear_component is missing")
+    if not config.component or not config.component.isValid:
+        raise ValueError("Cannot activate gear component: component is invalid")
 
-    if not hasattr(state, 'gear_occurrence') or state.gear_occurrence is None:
-        raise ValueError("Cannot activate Driving Gear component: state.gear_occurrence is missing")
+    if not config.occurrence or not config.occurrence.isValid:
+        raise ValueError("Cannot activate gear component: occurrence is invalid")
 
-    if not state.gear_component.isValid:
-        raise ValueError("Cannot activate Driving Gear component: component is invalid")
-
-    # Activate the Driving Gear component using the occurrence's activate() method
-    state.gear_occurrence.activate()
+    # Activate the gear component using the occurrence's activate() method
+    config.occurrence.activate()
 
     return state
 
 
-def create_tooth_profile_plane(state: GenerationState) -> GenerationState:
+def create_tooth_profile_plane(
+    state: GenerationState,
+    config: GearConfig,
+    field_name: str = 'tooth_profile_plane'
+) -> GenerationState:
     """
-    Create a construction plane perpendicular to the P5->P7 line at point P7.
+    Create a construction plane perpendicular to the profile line at the anchor point.
 
     This function creates the plane on which the tooth profile sketch will be drawn.
-    The plane is perpendicular to the P5->P7 line and passes through P7, providing
-    the correct orientation for the tooth profile relative to the bevel gear cone.
+    The plane is perpendicular to the profile line (P5->P7 for driving gear, P11->P13
+    for mating gear) and passes through the anchor point, providing the correct
+    orientation for the tooth profile relative to the bevel gear cone.
 
-    Uses the P5->P7 line stored in state from Phase 1, eliminating the need to
-    search through sketch curves. The line reference works across component boundaries
-    (line is in design_component, plane is created in gear_component).
+    Uses the profile line from config, eliminating the need to search through sketch
+    curves. The line reference works across component boundaries (line is in
+    design_component, plane is created in gear_component).
 
     Args:
-        state: The current generation state containing p5_p7_line, foundation_plane, and gear_component
+        state: The current generation state containing foundation_plane and design_component
+        config: Gear configuration containing profile_line and anchor_point
+        field_name: Name of state field to store the plane in (default: 'tooth_profile_plane')
 
     Returns:
-        Updated GenerationState with tooth_profile_plane field populated
+        Updated GenerationState with specified field populated
 
     Raises:
-        Exception: If p5_p7_line is missing from state or invalid
+        Exception: If profile_line is missing or invalid
         Exception: If foundation_plane is missing from state
         Exception: If plane creation fails
     """
-    # Use the P5->P7 line stored in state from Phase 1
-    # This eliminates the need to search through all sketch curves
-    if not hasattr(state, 'p5_p7_line') or state.p5_p7_line is None:
-        raise Exception(
-            "p5_p7_line is missing from state. "
-            "Phase 1 should have stored this line during foundation sketch creation."
-        )
+    # Use the profile line from config
+    if not config.profile_line or not config.profile_line.isValid:
+        raise Exception("profile_line from config is missing or invalid")
 
-    if not state.p5_p7_line.isValid:
-        raise Exception("p5_p7_line from state is invalid")
-
-    p5_p7_line = state.p5_p7_line
+    profile_line = config.profile_line
 
     # Verify foundation_plane exists in state (from Phase 1)
     if not hasattr(state, 'foundation_plane') or state.foundation_plane is None:
@@ -1903,28 +1990,31 @@ def create_tooth_profile_plane(state: GenerationState) -> GenerationState:
     # Create temporary sketch on foundation_sketch's reference plane
     temp_sketch = state.design_component.sketches.add(state.foundation_sketch.referencePlane)
 
-    # Project P5 and P7 into the temporary sketch
-    projected_p5 = temp_sketch.project(state.p5)
-    if projected_p5.count == 0:
-        raise Exception("Failed to project P5 into temporary sketch")
-    p5_projected = projected_p5.item(0)
+    # Project profile line start and end points into the temporary sketch
+    profile_start = profile_line.startSketchPoint
+    profile_end = profile_line.endSketchPoint
 
-    projected_p7 = temp_sketch.project(state.p7)
-    if projected_p7.count == 0:
-        raise Exception("Failed to project P7 into temporary sketch")
-    p7_projected = projected_p7.item(0)
+    projected_start = temp_sketch.project(profile_start)
+    if projected_start.count == 0:
+        raise Exception("Failed to project profile line start point into temporary sketch")
+    start_projected = projected_start.item(0)
 
-    # Draw line between projected P5 and P7
-    p5_p7_temp_line = temp_sketch.sketchCurves.sketchLines.addByTwoPoints(
-        p5_projected,
-        p7_projected
+    projected_end = temp_sketch.project(profile_end)
+    if projected_end.count == 0:
+        raise Exception("Failed to project profile line end point into temporary sketch")
+    end_projected = projected_end.item(0)
+
+    # Draw line between projected points
+    profile_temp_line = temp_sketch.sketchCurves.sketchLines.addByTwoPoints(
+        start_projected,
+        end_projected
     )
 
     # Create plane using setByAngle at 90 degrees to foundation plane
     design_planes = state.design_component.constructionPlanes
     plane_input = design_planes.createInput()
     plane_input.setByAngle(
-        p5_p7_temp_line,
+        profile_temp_line,
         adsk.core.ValueInput.createByReal(math.pi / 2),
         state.foundation_sketch.referencePlane
     )
@@ -1938,41 +2028,55 @@ def create_tooth_profile_plane(state: GenerationState) -> GenerationState:
     temp_sketch.isVisible = False
     temp_sketch.name = SKETCH_TOOTH_PROFILE_REFERENCE
 
-    # Store in state
-    state.tooth_profile_plane = tooth_profile_plane
+    # Store in state using field_name
+    setattr(state, field_name, tooth_profile_plane)
 
     return state
 
 
-def create_tooth_profile_sketch(state: GenerationState, spec: BevelGearSpec) -> GenerationState:
+def create_tooth_profile_sketch(
+    state: GenerationState,
+    spec: BevelGearSpec,
+    config: GearConfig,
+    field_name: str = 'tooth_profile_sketch',
+    center_point_field: str = 'tooth_profile_center_point'
+) -> GenerationState:
     """
-    Create the tooth profile sketch on the perpendicular plane and project P7 as the center point.
+    Create the tooth profile sketch on the perpendicular plane and project anchor point as center.
 
-    This function creates a new sketch on the tooth profile plane and projects P7
-    into the sketch to establish the center point for the tooth profile.
+    This function creates a new sketch on the tooth profile plane and projects the anchor
+    point (P7 for driving gear, P13 for mating gear) into the sketch to establish the
+    center point for the tooth profile.
 
     Args:
-        state: The current generation state with tooth_profile_plane, p7, and gear_component
+        state: The current generation state with tooth_profile_plane or mating_tooth_profile_plane
         spec: The bevel gear specification (used for documentation)
+        config: Gear configuration containing anchor_point
+        field_name: Name of state field to store sketch in (default: 'tooth_profile_sketch')
+        center_point_field: Name of state field to store center point (default: 'tooth_profile_center_point')
 
     Returns:
-        Updated GenerationState with tooth_profile_sketch and tooth_profile_center_point fields populated
+        Updated GenerationState with specified fields populated
 
     Raises:
         Exception: If tooth_profile_plane is missing
-        Exception: If P7 projection fails
+        Exception: If anchor point projection fails
     """
-    if not hasattr(state, 'tooth_profile_plane') or state.tooth_profile_plane is None:
-        raise Exception("Cannot create tooth profile sketch: tooth_profile_plane is missing")
+    # Determine which plane field to use based on field_name
+    plane_field = field_name.replace('sketch', 'plane')
+    if not hasattr(state, plane_field) or getattr(state, plane_field) is None:
+        raise Exception(f"Cannot create tooth profile sketch: {plane_field} is missing")
+
+    tooth_profile_plane = getattr(state, plane_field)
 
     # Create sketch on tooth_profile_plane in design_component (where the plane lives)
-    sketch = state.design_component.sketches.add(state.tooth_profile_plane)
+    sketch = state.design_component.sketches.add(tooth_profile_plane)
     sketch.name = SKETCH_TOOTH_PROFILE
 
-    # Project P7 into the sketch
-    projected = sketch.project(state.p7)
+    # Project anchor point into the sketch
+    projected = sketch.project(config.anchor_point)
     if projected.count == 0:
-        raise Exception("Failed to project P7 into tooth profile sketch")
+        raise Exception("Failed to project anchor point into tooth profile sketch")
 
     # Extract projected point
     tooth_profile_center_point = projected.item(0)
@@ -1980,26 +2084,27 @@ def create_tooth_profile_sketch(state: GenerationState, spec: BevelGearSpec) -> 
     # Verify projected point is a SketchPoint
     if not isinstance(tooth_profile_center_point, adsk.fusion.SketchPoint):
         raise Exception(
-            f"Projected P7 is not a SketchPoint (got {type(tooth_profile_center_point).__name__})"
+            f"Projected anchor point is not a SketchPoint (got {type(tooth_profile_center_point).__name__})"
         )
 
-    # Store in state
-    state.tooth_profile_sketch = sketch
-    state.tooth_profile_center_point = tooth_profile_center_point
+    # Store in state using field names
+    setattr(state, field_name, sketch)
+    setattr(state, center_point_field, tooth_profile_center_point)
 
     return state
 
 
-def get_virtual_teeth_number(state: GenerationState, spec: BevelGearSpec) -> int:
+def get_virtual_teeth_number(state: GenerationState, spec: BevelGearSpec, config: GearConfig) -> int:
     """
-    Calculate or retrieve the virtual teeth number (Zv) for the bevel gear tooth profile.
+    Calculate the virtual teeth number (Zv) for the bevel gear tooth profile.
 
     The virtual teeth number accounts for the cone angle of the bevel gear and is
     calculated as: Zv = ceil(Z / cos(pitch_cone_angle))
 
     Args:
         state: The current generation state (for future extensions)
-        spec: The bevel gear specification containing tooth_number and pitch_cone_angle
+        spec: The bevel gear specification (for caching if available)
+        config: Gear configuration containing tooth_number and pitch_cone_angle
 
     Returns:
         Virtual teeth number (Zv) as an integer
@@ -2009,44 +2114,39 @@ def get_virtual_teeth_number(state: GenerationState, spec: BevelGearSpec) -> int
         ValueError: If tooth_number is invalid (<= 0)
     """
     # Input validation
-    if spec.tooth_number <= 0:
-        raise ValueError(f"Invalid tooth_number: {spec.tooth_number} (must be > 0)")
+    if config.tooth_number <= 0:
+        raise ValueError(f"Invalid tooth_number: {config.tooth_number} (must be > 0)")
 
-    if spec.pitch_cone_angle <= 0 or spec.pitch_cone_angle >= 90:
+    if config.pitch_cone_angle <= 0 or config.pitch_cone_angle >= math.pi/2:
         raise ValueError(
-            f"Invalid pitch_cone_angle: {spec.pitch_cone_angle} "
-            f"(must be 0 < angle < 90)"
+            f"Invalid pitch_cone_angle: {config.pitch_cone_angle} radians "
+            f"(must be 0 < angle < π/2)"
         )
 
-    # Check if virtual teeth number is already calculated in spec
-    if hasattr(spec, 'driving_gear_virtual_teeth_number'):
-        if spec.driving_gear_virtual_teeth_number is not None and spec.driving_gear_virtual_teeth_number > 0:
-            return int(spec.driving_gear_virtual_teeth_number)
-
     # Calculate virtual teeth number: Zv = ceil(Z / cos(delta))
-    # Convert pitch_cone_angle from degrees to radians
-    pitch_cone_angle_radians = math.radians(spec.pitch_cone_angle)
+    # pitch_cone_angle is already in radians
+    pitch_cone_angle_radians = config.pitch_cone_angle
 
     # Calculate Zv
     cos_angle = math.cos(pitch_cone_angle_radians)
     if abs(cos_angle) < 0.0001:  # Avoid division by zero
         raise ValueError(
-            f"pitch_cone_angle too close to 90°: {spec.pitch_cone_angle} "
+            f"pitch_cone_angle too close to 90°: {config.pitch_cone_angle} "
             f"(cos={cos_angle})"
         )
 
-    zv = math.ceil(spec.tooth_number / cos_angle)
+    zv = math.ceil(config.tooth_number / cos_angle)
 
     # Sanity check: Zv should be >= Z and < 10000
-    if zv < spec.tooth_number:
+    if zv < config.tooth_number:
         raise ValueError(
-            f"Calculated virtual teeth number ({zv}) < actual teeth number ({spec.tooth_number})"
+            f"Calculated virtual teeth number ({zv}) < actual teeth number ({config.tooth_number})"
         )
 
     if zv > 10000:
         raise ValueError(
             f"Calculated virtual teeth number ({zv}) unreasonably large. "
-            f"Check tooth_number={spec.tooth_number} and pitch_cone_angle={spec.pitch_cone_angle}"
+            f"Check tooth_number={config.tooth_number} and pitch_cone_angle={config.pitch_cone_angle}"
         )
 
     return zv
@@ -2056,34 +2156,45 @@ def get_virtual_teeth_number(state: GenerationState, spec: BevelGearSpec) -> int
 # (shared with spur gears - identical mathematics)
 
 
-def draw_spur_tooth_profile(state: GenerationState, spec: BevelGearSpec) -> GenerationState:
+def draw_spur_tooth_profile(
+    state: GenerationState,
+    spec: BevelGearSpec,
+    config: GearConfig,
+    sketch_field: str = 'tooth_profile_sketch',
+    center_field: str = 'tooth_profile_center_point',
+    angular_dim_field: str = 'tooth_spine_angular_dimension'
+) -> GenerationState:
     """
-    Draw a spur gear tooth profile centered at the projected P7 point using the virtual teeth number.
+    Draw a spur gear tooth profile centered at the projected anchor point using the virtual teeth number.
 
     This function generates a complete involute tooth profile using the virtual teeth number (Zv)
-    to account for the bevel gear's cone angle. The profile is centered at tooth_profile_center_point
+    to account for the bevel gear's cone angle. The profile is centered at the center point
     and includes proper involute curves, tooth tip arc, and root fillet.
 
     Args:
-        state: The current generation state with tooth_profile_sketch and tooth_profile_center_point
-        spec: The bevel gear specification containing module, tooth_number, pressure_angle
+        state: The current generation state
+        spec: The bevel gear specification containing module and pressure_angle
+        config: Gear configuration (not used directly but passed for consistency)
+        sketch_field: Name of state field containing the tooth profile sketch
+        center_field: Name of state field containing the center point
+        angular_dim_field: Name of state field to store the angular dimension
 
     Returns:
-        Updated GenerationState with tooth profile geometry added to tooth_profile_sketch
+        Updated GenerationState with tooth profile geometry added to sketch
 
     Raises:
         ValueError: If virtual teeth number is invalid
         Exception: If tooth profile generation fails
     """
     # Validate inputs
-    if not hasattr(state, 'tooth_profile_sketch') or state.tooth_profile_sketch is None:
-        raise Exception("tooth_profile_sketch is required but missing")
+    if not hasattr(state, sketch_field) or getattr(state, sketch_field) is None:
+        raise Exception(f"{sketch_field} is required but missing")
 
-    if not hasattr(state, 'tooth_profile_center_point') or state.tooth_profile_center_point is None:
-        raise Exception("tooth_profile_center_point is required but missing")
+    if not hasattr(state, center_field) or getattr(state, center_field) is None:
+        raise Exception(f"{center_field} is required but missing")
 
-    sketch = state.tooth_profile_sketch
-    center = state.tooth_profile_center_point
+    sketch = getattr(state, sketch_field)
+    center = getattr(state, center_field)
 
     # Set anchor_point for bevel gears (required by draw_spur_gear_circles)
     state.anchor_point = center
@@ -2115,8 +2226,9 @@ def draw_spur_tooth_profile(state: GenerationState, spec: BevelGearSpec) -> Gene
 
     # Find and store the angular dimension created by draw_involute_tooth_profile()
     # This dimension controls tooth rotation and will be modified by rotate_tooth_profile_to_align()
-    state.tooth_spine_angular_dimension = find_tooth_spine_angular_dimension(state)
-    if state.tooth_spine_angular_dimension is None:
+    angular_dim = find_tooth_spine_angular_dimension(state, sketch_field, center_field)
+    setattr(state, angular_dim_field, angular_dim)
+    if angular_dim is None:
         raise Exception(
             f"Could not find angular dimension in tooth profile sketch. "
             f"Sketch has {sketch.sketchDimensions.count} dimensions."
@@ -2128,7 +2240,11 @@ def draw_spur_tooth_profile(state: GenerationState, spec: BevelGearSpec) -> Gene
     return state
 
 
-def find_tooth_spine_angular_dimension(state: GenerationState) -> Optional[adsk.fusion.SketchAngularDimension]:
+def find_tooth_spine_angular_dimension(
+    state: GenerationState,
+    sketch_field: str = 'tooth_profile_sketch',
+    center_field: str = 'tooth_profile_center_point'
+) -> Optional[adsk.fusion.SketchAngularDimension]:
     """
     Find the angular dimension between tooth spine and horizontal reference.
 
@@ -2137,16 +2253,21 @@ def find_tooth_spine_angular_dimension(state: GenerationState) -> Optional[adsk.
     perpendicular construction lines that both start at the anchor point.
 
     Args:
-        state: GenerationState with tooth_profile_sketch and anchor_point
+        state: GenerationState
+        sketch_field: Name of state field containing the tooth profile sketch
+        center_field: Name of state field containing the center/anchor point
 
     Returns:
         The angular dimension, or None if not found
     """
-    if not state.tooth_profile_sketch or not state.anchor_point:
-        raise Exception("tooth_profile_sketch and anchor_point required in state")
+    if not hasattr(state, sketch_field) or getattr(state, sketch_field) is None:
+        raise Exception(f"{sketch_field} required in state")
 
-    sketch = state.tooth_profile_sketch
-    anchor_point = state.anchor_point
+    if not hasattr(state, center_field) or getattr(state, center_field) is None:
+        raise Exception(f"{center_field} required in state")
+
+    sketch = getattr(state, sketch_field)
+    anchor_point = getattr(state, center_field)
 
     angular_dim_count = 0
     for i in range(sketch.sketchDimensions.count):
@@ -2195,51 +2316,71 @@ def find_tooth_spine_angular_dimension(state: GenerationState) -> Optional[adsk.
     return None
 
 
-def rotate_tooth_profile_to_align(state: GenerationState, spec: BevelGearSpec) -> GenerationState:
+def rotate_tooth_profile_to_align(
+    state: GenerationState,
+    spec: BevelGearSpec,
+    config: GearConfig,
+    sketch_field: str = 'tooth_profile_sketch',
+    center_field: str = 'tooth_profile_center_point',
+    angular_dim_field: str = 'tooth_spine_angular_dimension'
+) -> GenerationState:
     """
-    Rotate tooth profile to align tooth centerline with P5→P7 direction.
+    Rotate tooth profile to align tooth centerline with the extension line direction.
 
     Uses the angular dimension stored in state by draw_spur_tooth_profile() and
-    calculates the required rotation by projecting P5 onto the tooth profile sketch.
+    calculates the required rotation by projecting the first extension point onto the tooth profile sketch.
 
     Args:
-        state: GenerationState with tooth_spine_angular_dimension, p5, tooth_profile_sketch
+        state: GenerationState
         spec: BevelGearSpec (for reference)
+        config: Gear configuration with extension_points (first point is used for alignment)
+        sketch_field: Name of state field containing the tooth profile sketch
+        center_field: Name of state field containing the center point
+        angular_dim_field: Name of state field containing the angular dimension
 
     Returns:
         Updated GenerationState with rotated tooth profile
     """
     # Validate state has required fields
-    if not hasattr(state, 'tooth_spine_angular_dimension') or state.tooth_spine_angular_dimension is None:
-        raise Exception("tooth_spine_angular_dimension not found in state")
+    if not hasattr(state, angular_dim_field) or getattr(state, angular_dim_field) is None:
+        raise Exception(f"{angular_dim_field} not found in state")
 
-    if not state.p5 or not state.tooth_profile_sketch or not state.tooth_profile_center_point:
-        raise Exception("Missing required geometry in state (p5, tooth_profile_sketch, or tooth_profile_center_point)")
+    if not hasattr(state, sketch_field) or getattr(state, sketch_field) is None:
+        raise Exception(f"{sketch_field} not found in state")
 
-    sketch = state.tooth_profile_sketch
-    anchor_point = state.tooth_profile_center_point
-    angle_dimension = state.tooth_spine_angular_dimension
+    if not hasattr(state, center_field) or getattr(state, center_field) is None:
+        raise Exception(f"{center_field} not found in state")
 
-    # Project P5 onto tooth profile sketch
-    projected = sketch.project(state.p5)
+    if not config.extension_points or len(config.extension_points) == 0:
+        raise Exception("config.extension_points is empty - need at least one point for alignment")
+
+    sketch = getattr(state, sketch_field)
+    anchor_point = getattr(state, center_field)
+    angle_dimension = getattr(state, angular_dim_field)
+
+    # Use first extension point (P5 for driving gear, P11 for mating gear) for alignment
+    alignment_point = config.extension_points[0]
+
+    # Project alignment point onto tooth profile sketch
+    projected = sketch.project(alignment_point)
     if projected.count == 0:
-        raise Exception("Failed to project P5 onto tooth profile sketch")
+        raise Exception("Failed to project alignment point onto tooth profile sketch")
 
-    p5_projected = projected.item(0)
-    if not isinstance(p5_projected, adsk.fusion.SketchPoint):
-        raise Exception(f"Projected P5 is not a SketchPoint (got {type(p5_projected).__name__})")
+    projected_point = projected.item(0)
+    if not isinstance(projected_point, adsk.fusion.SketchPoint):
+        raise Exception(f"Projected point is not a SketchPoint (got {type(projected_point).__name__})")
 
-    # Calculate 2D direction vector from anchor to projected P5
-    dx = p5_projected.geometry.x - anchor_point.geometry.x
-    dy = p5_projected.geometry.y - anchor_point.geometry.y
+    # Calculate 2D direction vector from anchor to projected alignment point
+    dx = projected_point.geometry.x - anchor_point.geometry.x
+    dy = projected_point.geometry.y - anchor_point.geometry.y
 
     # Calculate angle using atan2 (handles all quadrants correctly)
     rotation_angle = math.atan2(dy, dx)
 
     # Cleanup temporary projected point
     try:
-        if p5_projected.isValid:
-            p5_projected.deleteMe()
+        if projected_point.isValid:
+            projected_point.deleteMe()
     except:
         pass
 
@@ -2339,61 +2480,72 @@ def cleanup_phase2_part1_on_error(state: GenerationState) -> None:
 # Part 2: 3D Tooth Body Functions (Tasks 7-13)
 # ----------------------------------------------------------------------------
 
-def create_base_gear_body(state: GenerationState, spec: BevelGearSpec) -> GenerationState:
+def create_base_gear_body(
+    state: GenerationState,
+    spec: BevelGearSpec,
+    config: GearConfig,
+    body_field: str = 'base_gear_body'
+) -> GenerationState:
     """
-    Rotate the hexagonal profile with 6 vertices (P5, P7, P8, P6, P9, P10) by 360 degrees to create the base gear body.
+    Rotate the hexagonal profile by 360 degrees to create the base gear body.
 
     This function creates the base conical gear body by revolving the hexagonal profile
-    around the P1->P2 axis. The hexagonal profile has exactly 6 vertices in traversal order:
-    P5→P7→P8→P6→P9→P10→P5, enclosed by lines: P5->P7, P7->P8, P8->P6, P6->P9, P9->P10,
-    P10->P5 (segment of line P2->P5).
+    around the axis line. The hexagonal profile has exactly 6 vertices using extension_points:
+    [0]→[2]→[4]→[1]→[5]→[6]→[0], which corresponds to the gear side extension shape.
 
-    IMPORTANT: P7_mid is NOT a vertex of this hexagonal profile. P7_mid is an intermediate
-    point on the P5->P7 line used for the inner trapezoid boundary, but the outer hexagonal
-    profile goes directly from P5 to P7.
+    IMPORTANT: extension_points[3] is the mid-point, NOT a vertex of the hexagonal profile.
+    The mid-point is an intermediate point on the extension line used for the inner
+    trapezoid boundary, but the outer hexagonal profile goes directly from [0] to [2].
 
     Args:
-        state: The current generation state with foundation_sketch and all required points
+        state: The current generation state with foundation_sketch
         spec: The bevel gear specification (for reference)
+        config: Gear configuration with axis_line and extension_points
+        body_field: Name of state field to store the created body
 
     Returns:
-        Updated GenerationState with base_gear_body field populated
+        Updated GenerationState with body field populated
 
     Raises:
         Exception: If hexagonal profile cannot be identified or revolve fails
     """
-    # Use the P1->P2 axis line from state (stored by draw_foundation_rectangle in Phase 1)
-    if not hasattr(state, 'p1_p2_axis') or state.p1_p2_axis is None:
-        raise Exception("Cannot create base gear body: p1_p2_axis is missing from state")
+    # Use the axis line from config (P1->P2 for driving, P2->P3 for mating)
+    if not config.axis_line or not config.axis_line.isValid:
+        raise Exception("Cannot create base gear body: config.axis_line is missing or invalid")
 
-    if not state.p1_p2_axis.isValid:
-        raise Exception("Cannot create base gear body: p1_p2_axis is not valid")
+    axis_line = config.axis_line
 
-    p1_p2_line = state.p1_p2_axis
+    # Validate required extension points (7 points: indices 0-6)
+    if not config.extension_points or len(config.extension_points) < 7:
+        raise Exception(
+            f"Cannot create base gear body: config.extension_points has {len(config.extension_points) if config.extension_points else 0} points, need 7"
+        )
 
-    # Validate required state elements for the hexagonal profile (6 vertices: P5, P7, P8, P6, P9, P10)
-    # NOTE: P7_mid is NOT a vertex of the hexagonal profile!
-    required_points = ['p5', 'p6', 'p7', 'p8', 'p9', 'p10']
-    for point_name in required_points:
-        if not hasattr(state, point_name) or getattr(state, point_name) is None:
-            raise Exception(f"Required point {point_name} is missing from state for hexagonal profile")
+    # Extract points from extension_points for clarity
+    p_first = config.extension_points[0]   # P5 or P11
+    p_second = config.extension_points[1]  # P6 or P12
+    p_anchor = config.extension_points[2]  # P7 or P13
+    p_mid = config.extension_points[3]     # P7_mid or P14_mid
+    p_outer = config.extension_points[4]   # P8 or P14
+    p_inner1 = config.extension_points[5]  # P9 or P15
+    p_inner2 = config.extension_points[6]  # P10 or P16
 
-    # Identify the hexagonal profile with 6 vertices: P5, P7, P8, P6, P9, P10
-    # Traversal order: P5→P7→P8→P6→P9→P10→P5
-    # Enclosed by lines: P5->P7, P7->P8, P8->P6, P6->P9, P9->P10, P10->P5 (segment of P2->P5)
+    # Identify the hexagonal profile with 6 vertices using extension_points
+    # Traversal order: [0]→[2]→[4]→[1]→[5]→[6]→[0]
+    # which for driving gear is: P5→P7→P8→P6→P9→P10→P5
+    # which for mating gear is: P11→P13→P14→P12→P15→P16→P11
     #
-    # Strategy: Find the profile that contains P8 but does NOT contain P7_mid
-    # - P8 is unique to the outer hexagonal profile (not in inner trapezoid)
-    # - P7_mid exists on the P5->P7 line but is NOT a vertex of the hexagonal profile
-    # - The hexagonal profile is the larger outer region that includes P8
+    # Strategy: Find the profile that contains p_outer and p_mid as vertices
+    # - p_outer is unique to the outer hexagonal profile (not in inner trapezoid)
+    # - p_mid exists on the extension line but IS a vertex of the hexagonal profile
+    # - The hexagonal profile is the larger outer region that includes p_outer
 
     # Get all profiles in the foundation sketch
     profiles = state.foundation_sketch.profiles
     if profiles.count == 0:
         raise Exception("No profiles found in foundation sketch for revolve")
 
-    # Find the hexagonal profile that contains P8 and P7_mid as vertices (boundary points)
-    # The hexagonal profile should have lines connecting: P5->P7_mid, P7_mid->P8, P8->P6, P6->P9, P9->P10, P10->P5
+    # Find the hexagonal profile that contains p_outer and p_mid as vertices (boundary points)
     # IMPORTANT: Exclude profiles that contain P1, P2, P3, or P4 (these are the wrong profiles from the original trapezoid)
 
     # Get trapezoid vertices once before the loop
@@ -2405,9 +2557,9 @@ def create_base_gear_body(state: GenerationState, spec: BevelGearSpec) -> Genera
     target_profile = None
     for i in range(profiles.count):
         profile = profiles.item(i)
-        # Check if this profile contains both P8 and P7_mid as vertices by examining its boundary curves
-        has_p8 = False
-        has_p7_mid = False
+        # Check if this profile contains both p_outer and p_mid as vertices by examining its boundary curves
+        has_outer = False
+        has_mid = False
         has_p1 = False
         has_p2 = False
         has_p3 = False
@@ -2417,13 +2569,12 @@ def create_base_gear_body(state: GenerationState, spec: BevelGearSpec) -> Genera
             for curve in loop.profileCurves:
                 if isinstance(curve.sketchEntity, adsk.fusion.SketchLine):
                     line = curve.sketchEntity
-                    # Check if P8 is a vertex (start or end point)
-                    if (line.startSketchPoint == state.p8 or line.endSketchPoint == state.p8):
-                        has_p8 = True
-                    # Check if P7_mid is a vertex (IS part of hexagonal profile)
-                    if hasattr(state, 'p7_mid') and state.p7_mid:
-                        if (line.startSketchPoint == state.p7_mid or line.endSketchPoint == state.p7_mid):
-                            has_p7_mid = True
+                    # Check if p_outer is a vertex (start or end point)
+                    if (line.startSketchPoint == p_outer or line.endSketchPoint == p_outer):
+                        has_outer = True
+                    # Check if p_mid is a vertex (IS part of hexagonal profile)
+                    if p_mid and (line.startSketchPoint == p_mid or line.endSketchPoint == p_mid):
+                        has_mid = True
                     # Check if any trapezoid vertices (P1, P2, P3, P4) are present
                     if p1 and (line.startSketchPoint == p1 or line.endSketchPoint == p1):
                         has_p1 = True
@@ -2434,28 +2585,28 @@ def create_base_gear_body(state: GenerationState, spec: BevelGearSpec) -> Genera
                     if p4 and (line.startSketchPoint == p4 or line.endSketchPoint == p4):
                         has_p4 = True
 
-        # The hexagonal profile has BOTH P8 and P7_mid as vertices, but NO trapezoid vertices
-        if has_p8 and has_p7_mid and not (has_p1 or has_p2 or has_p3 or has_p4):
+        # The hexagonal profile has BOTH p_outer and p_mid as vertices, but NO trapezoid vertices
+        if has_outer and has_mid and not (has_p1 or has_p2 or has_p3 or has_p4):
             target_profile = profile
             break
 
     if target_profile is None:
         raise Exception(
-            f"Cannot identify hexagonal profile (P5-P7_mid-P8-P6-P9-P10) in foundation sketch. "
-            f"The profile should have 6 vertices (P5, P7_mid, P8, P6, P9, P10) and should include both P8 and P7_mid. "
+            f"Cannot identify hexagonal profile in foundation sketch. "
+            f"The profile should include both outer point and mid point as vertices. "
             f"Found {profiles.count} profiles total."
         )
 
-    # Find the triangular profile enclosed by P9, P10, P5
+    # Find the triangular profile enclosed by p_inner1, p_inner2, p_first
     # This is the inner region that should also be revolved
     # IMPORTANT: Exclude profiles that contain P1, P2, P3, or P4 (these are from the original trapezoid)
     triangular_profile = None
     for i in range(profiles.count):
         profile = profiles.item(i)
-        # Check if this profile contains P9, P10, and P5 as vertices
-        has_p9 = False
-        has_p10 = False
-        has_p5 = False
+        # Check if this profile contains p_inner1, p_inner2, and p_first as vertices
+        has_inner1 = False
+        has_inner2 = False
+        has_first = False
         has_p1 = False
         has_p2 = False
         has_p3 = False
@@ -2465,12 +2616,12 @@ def create_base_gear_body(state: GenerationState, spec: BevelGearSpec) -> Genera
             for curve in loop.profileCurves:
                 if isinstance(curve.sketchEntity, adsk.fusion.SketchLine):
                     line = curve.sketchEntity
-                    if line.startSketchPoint == state.p9 or line.endSketchPoint == state.p9:
-                        has_p9 = True
-                    if line.startSketchPoint == state.p10 or line.endSketchPoint == state.p10:
-                        has_p10 = True
-                    if line.startSketchPoint == state.p5 or line.endSketchPoint == state.p5:
-                        has_p5 = True
+                    if line.startSketchPoint == p_inner1 or line.endSketchPoint == p_inner1:
+                        has_inner1 = True
+                    if line.startSketchPoint == p_inner2 or line.endSketchPoint == p_inner2:
+                        has_inner2 = True
+                    if line.startSketchPoint == p_first or line.endSketchPoint == p_first:
+                        has_first = True
                     # Check if any trapezoid vertices (P1, P2, P3, P4) are present
                     if p1 and (line.startSketchPoint == p1 or line.endSketchPoint == p1):
                         has_p1 = True
@@ -2481,22 +2632,22 @@ def create_base_gear_body(state: GenerationState, spec: BevelGearSpec) -> Genera
                     if p4 and (line.startSketchPoint == p4 or line.endSketchPoint == p4):
                         has_p4 = True
 
-        # The triangular profile has all three vertices (P9, P10, P5), is NOT the hexagonal profile,
+        # The triangular profile has all three vertices, is NOT the hexagonal profile,
         # and does NOT contain P1, P3, or P4 (the base corners)
-        # NOTE: P2 (apex) is allowed because the line P2->P5 is part of the triangular profile boundary
-        if has_p9 and has_p10 and has_p5 and profile != target_profile and not (has_p1 or has_p3 or has_p4):
+        # NOTE: P2 (apex) is allowed because the axis line is part of the triangular profile boundary
+        if has_inner1 and has_inner2 and has_first and profile != target_profile and not (has_p1 or has_p3 or has_p4):
             triangular_profile = profile
             break
 
     if triangular_profile is None:
         raise Exception(
-            f"Cannot identify triangular profile (P9-P10-P5) in foundation sketch. "
+            f"Cannot identify triangular profile in foundation sketch. "
             f"Found {profiles.count} profiles total."
         )
 
     # Create an ObjectCollection containing BOTH profiles to revolve
-    # 1. The hexagonal profile (P5, P7_mid, P8, P6, P9, P10) - outer gear side extension
-    # 2. The triangular profile (P9, P10, P5) - inner region
+    # 1. The hexagonal profile - outer gear side extension
+    # 2. The triangular profile - inner region
     profiles_to_revolve = adsk.core.ObjectCollection.create()
     profiles_to_revolve.add(target_profile)  # Hexagonal profile
     profiles_to_revolve.add(triangular_profile)  # Triangular profile
@@ -2509,7 +2660,7 @@ def create_base_gear_body(state: GenerationState, spec: BevelGearSpec) -> Genera
     revolveFeatures = state.design_component.features.revolveFeatures
     revolve_input = revolveFeatures.createInput(
         profiles_to_revolve,
-        p1_p2_line,
+        axis_line,
         adsk.fusion.FeatureOperations.NewBodyFeatureOperation
     )
 
@@ -2525,17 +2676,24 @@ def create_base_gear_body(state: GenerationState, spec: BevelGearSpec) -> Genera
         raise Exception("Failed to create base gear body by revolve")
 
     # Store the resulting body (profiles create a single unified body)
-    base_gear_body = revolve_feature.bodies.item(0)
-    state.base_gear_body = base_gear_body
+    created_body = revolve_feature.bodies.item(0)
+    setattr(state, body_field, created_body)
 
     # Verify body is valid
-    if base_gear_body.volume <= 0:
-        raise Exception(f"Base gear body has invalid volume: {base_gear_body.volume}")
+    if created_body.volume <= 0:
+        raise Exception(f"Base gear body has invalid volume: {created_body.volume}")
 
     return state
 
 
-def create_lofted_tooth(state: GenerationState, spec: BevelGearSpec) -> GenerationState:
+def create_lofted_tooth(
+    state: GenerationState,
+    spec: BevelGearSpec,
+    config: GearConfig,
+    sketch_field: str = 'tooth_profile_sketch',
+    body_field: str = 'lofted_tooth_body',
+    apex_sketch_field: str = 'apex_sketch'
+) -> GenerationState:
     """
     Create a loft from the apex point (P2) to the tooth profile sketch.
 
@@ -2544,8 +2702,12 @@ def create_lofted_tooth(state: GenerationState, spec: BevelGearSpec) -> Generati
     conical taper appropriate for a bevel gear tooth.
 
     Args:
-        state: The current generation state with apex_point, tooth_profile_sketch, gear_component
+        state: The current generation state with apex_point and foundation_plane
         spec: The bevel gear specification (for validation)
+        config: Gear configuration with component
+        sketch_field: Name of state field containing the tooth profile sketch
+        body_field: Name of state field to store the lofted body
+        apex_sketch_field: Name of state field to store the apex sketch
 
     Returns:
         Updated GenerationState with lofted_tooth_body field populated
@@ -2555,16 +2717,18 @@ def create_lofted_tooth(state: GenerationState, spec: BevelGearSpec) -> Generati
         Exception: If tooth profile sketch is missing or has no closed profiles
         Exception: If loft operation fails to create valid solid body
     """
-    # Get apex point P2
+    # Get apex point P2 (shared by both driving and mating gears)
     if not hasattr(state, 'apex_point') or state.apex_point is None:
         raise Exception("Cannot create lofted tooth: apex_point (P2) is missing")
 
     # Get tooth profile sketch
-    if not hasattr(state, 'tooth_profile_sketch') or state.tooth_profile_sketch is None:
-        raise Exception("Cannot create lofted tooth: tooth_profile_sketch is missing")
+    if not hasattr(state, sketch_field) or getattr(state, sketch_field) is None:
+        raise Exception(f"Cannot create lofted tooth: {sketch_field} is missing")
+
+    tooth_sketch = getattr(state, sketch_field)
 
     # Check if tooth profile has closed profiles
-    if state.tooth_profile_sketch.profiles.count == 0:
+    if tooth_sketch.profiles.count == 0:
         raise Exception("Cannot create lofted tooth: tooth profile sketch has no closed profiles")
 
     # Verify foundation_plane exists
@@ -2599,10 +2763,10 @@ def create_lofted_tooth(state: GenerationState, spec: BevelGearSpec) -> Generati
     apex_profile = apex_sketch.profiles.item(0)
 
     # Get the tooth profile from tooth profile sketch
-    if state.tooth_profile_sketch.profiles.count == 0:
+    if tooth_sketch.profiles.count == 0:
         # Debug: check what's in the sketch
-        num_curves = state.tooth_profile_sketch.sketchCurves.count
-        num_points = state.tooth_profile_sketch.sketchPoints.count
+        num_curves = tooth_sketch.sketchCurves.count
+        num_points = tooth_sketch.sketchPoints.count
         raise Exception(
             f"Tooth profile sketch has no closed profiles! "
             f"Sketch has {num_curves} curves and {num_points} points. "
@@ -2610,7 +2774,7 @@ def create_lofted_tooth(state: GenerationState, spec: BevelGearSpec) -> Generati
         )
 
     # Typically, the first (and only) profile is the tooth
-    tooth_profile = state.tooth_profile_sketch.profiles.item(0)
+    tooth_profile = tooth_sketch.profiles.item(0)
 
     # Create loft feature
     loftFeatures = state.design_component.features.loftFeatures
@@ -2643,8 +2807,8 @@ def create_lofted_tooth(state: GenerationState, spec: BevelGearSpec) -> Generati
 
     # Store the lofted body
     lofted_tooth_body = loft_feature.bodies.item(0)
-    state.lofted_tooth_body = lofted_tooth_body
-    state.apex_sketch = apex_sketch  # Keep reference for potential cleanup
+    setattr(state, body_field, lofted_tooth_body)
+    setattr(state, apex_sketch_field, apex_sketch)  # Keep reference for potential cleanup
 
     # Verify body is valid
     if not lofted_tooth_body.isValid:
@@ -2656,7 +2820,13 @@ def create_lofted_tooth(state: GenerationState, spec: BevelGearSpec) -> Generati
     return state
 
 
-def join_tooth_to_gear_body(state: GenerationState, spec: BevelGearSpec) -> GenerationState:
+def join_tooth_to_gear_body(
+    state: GenerationState,
+    spec: BevelGearSpec,
+    config: GearConfig,
+    base_body_field: str = 'base_gear_body',
+    tooth_body_field: str = 'single_tooth_body'
+) -> GenerationState:
     """
     Join the trimmed single tooth to the base gear body using a combine operation.
 
@@ -2666,11 +2836,14 @@ def join_tooth_to_gear_body(state: GenerationState, spec: BevelGearSpec) -> Gene
     correct bevel gear boundaries.
 
     Args:
-        state: The current generation state with base_gear_body and single_tooth_body
+        state: The current generation state
         spec: The bevel gear specification (for validation)
+        config: Gear configuration with component
+        base_body_field: Name of state field containing the base gear body
+        tooth_body_field: Name of state field containing the single tooth body
 
     Returns:
-        Updated GenerationState with joined_body field populated
+        Updated GenerationState (base_gear_body is modified in place)
 
     Raises:
         Exception: If either body is missing or invalid
@@ -2678,35 +2851,38 @@ def join_tooth_to_gear_body(state: GenerationState, spec: BevelGearSpec) -> Gene
         Exception: If combine operation fails
     """
     # Verify bodies exist
-    if not hasattr(state, 'base_gear_body') or state.base_gear_body is None:
-        raise Exception("Cannot join bodies: base_gear_body is missing")
+    if not hasattr(state, base_body_field) or getattr(state, base_body_field) is None:
+        raise Exception(f"Cannot join bodies: {base_body_field} is missing")
 
-    if not hasattr(state, 'single_tooth_body') or state.single_tooth_body is None:
-        raise Exception("Cannot join bodies: single_tooth_body is missing")
+    if not hasattr(state, tooth_body_field) or getattr(state, tooth_body_field) is None:
+        raise Exception(f"Cannot join bodies: {tooth_body_field} is missing")
+
+    base_body = getattr(state, base_body_field)
+    tooth_body = getattr(state, tooth_body_field)
 
     # Verify bodies are valid
-    if not state.base_gear_body.isValid:
-        raise Exception("Cannot join bodies: base_gear_body is invalid")
+    if not base_body.isValid:
+        raise Exception(f"Cannot join bodies: {base_body_field} is invalid")
 
-    if not state.single_tooth_body.isValid:
-        raise Exception("Cannot join bodies: single_tooth_body is invalid")
+    if not tooth_body.isValid:
+        raise Exception(f"Cannot join bodies: {tooth_body_field} is invalid")
 
     # Verify gear_component exists
-    if not hasattr(state, 'gear_component') or state.gear_component is None:
-        raise Exception("gear_component is missing")
+    if not config.component or not config.component.isValid:
+        raise Exception("config.component is missing or invalid")
 
     # Store base gear body volume before join (for validation)
-    base_volume = state.base_gear_body.volume
+    base_volume = base_body.volume
 
     # Create combine feature to join the bodies
     combineFeatures = state.design_component.features.combineFeatures
 
     # Create tool bodies collection
     tool_bodies = adsk.core.ObjectCollection.create()
-    tool_bodies.add(state.single_tooth_body)
+    tool_bodies.add(tooth_body)
 
     # Create combine input
-    combine_input = combineFeatures.createInput(state.base_gear_body, tool_bodies)
+    combine_input = combineFeatures.createInput(base_body, tool_bodies)
 
     # Set operation to Join
     combine_input.operation = adsk.fusion.FeatureOperations.JoinFeatureOperation
@@ -2724,19 +2900,14 @@ def join_tooth_to_gear_body(state: GenerationState, spec: BevelGearSpec) -> Gene
     if combine_feature is None:
         raise Exception("Combine feature returned None (join failed)")
 
-    # After join operation, base_gear_body is modified in place
-    # Use the base_gear_body reference directly (it's the same body, now joined with the tooth)
-    joined_body = state.base_gear_body
-
-    if joined_body is None or not joined_body.isValid:
+    # After join operation, base_body is modified in place
+    # The body reference remains the same, now containing both base and tooth
+    if not base_body.isValid:
         raise Exception("Joined body is invalid after combine operation")
-
-    # Store joined body (same reference as base_gear_body after the join)
-    state.joined_body = joined_body
 
     # Verify joined body volume increased (tooth added to base)
     # Should be larger than base alone
-    if joined_body.volume <= base_volume * 0.95:
+    if base_body.volume <= base_volume * 0.95:
         # This might just be floating point comparison, log warning but don't fail
         # In a real scenario, volume should increase or at least stay similar
         pass
@@ -2744,84 +2915,91 @@ def join_tooth_to_gear_body(state: GenerationState, spec: BevelGearSpec) -> Gene
     return state
 
 
-def identify_cutting_faces(state: GenerationState, spec: BevelGearSpec) -> GenerationState:
+def identify_cutting_faces(
+    state: GenerationState,
+    spec: BevelGearSpec,
+    config: GearConfig,
+    base_body_field: str = 'base_gear_body',
+    cutting_faces_field: str = 'cutting_faces'
+) -> GenerationState:
     """
-    Identify conical faces from the base_gear_body that contain lines P9->P10 and P5->P7_mid for trimming.
+    Identify conical faces from the base gear body that define tooth trimming boundaries.
 
     This function finds the two conical faces from the base gear body (created by revolving
     the hexagonal profile) that can be used to cut the tooth to the correct bevel shape.
-    The faces are:
-    1. Conical face created by revolving the P9->P10 edge (inner diagonal profile line)
-    2. Conical face created by revolving the P5->P7_mid edge (outer profile edge)
+    The faces are created by revolving:
+    1. The inner diagonal profile line (p_inner1->p_inner2)
+    2. The outer profile edge (p_first->p_mid)
 
     These faces already exist on the base_gear_body from the revolve operation and define
     the tooth boundaries on the bevel gear cone.
 
     The detection uses midpoint checking to avoid false positives from faces that only
-    touch the line segments at endpoints. For example, the face created by revolving
-    P6->P9 shares point P9 with the P9->P10 line, but doesn't contain the P9->P10 line
-    interior. The midpoint check correctly excludes such faces.
+    touch the line segments at endpoints.
 
     Args:
-        state: The current generation state with base_gear_body, p5, p7_mid, p9, p10
+        state: The current generation state
         spec: The bevel gear specification (for reference)
+        config: Gear configuration with extension_points
+        base_body_field: Name of state field containing the base gear body
+        cutting_faces_field: Name of state field to store cutting faces
 
     Returns:
         Updated GenerationState with cutting_faces field populated
 
     Raises:
         Exception: If base_gear_body is missing
-        Exception: If required points (p5, p7_mid, p9, p10) are missing
-        Exception: If P9->P10 line cannot be found
+        Exception: If required extension points are missing
         Exception: If no faces contain these lines
     """
-    # Verify base_gear_body exists (CRITICAL: must use base_gear_body, NOT joined_body)
-    if not hasattr(state, 'base_gear_body') or state.base_gear_body is None:
-        raise Exception("Cannot identify cutting faces: base_gear_body is missing")
+    # Verify base_gear_body exists
+    if not hasattr(state, base_body_field) or getattr(state, base_body_field) is None:
+        raise Exception(f"Cannot identify cutting faces: {base_body_field} is missing")
 
-    # Verify required points exist
-    if not hasattr(state, 'p5') or state.p5 is None:
-        raise Exception("Cannot identify cutting faces: p5 is missing from state")
+    base_body = getattr(state, base_body_field)
 
-    if not hasattr(state, 'p7_mid') or state.p7_mid is None:
-        raise Exception("Cannot identify cutting faces: p7_mid is missing from state")
+    # Verify required extension points (need at least 7 points)
+    if not config.extension_points or len(config.extension_points) < 7:
+        raise Exception(
+            f"Cannot identify cutting faces: config.extension_points has {len(config.extension_points) if config.extension_points else 0} points, need 7"
+        )
 
-    if not hasattr(state, 'p9') or state.p9 is None:
-        raise Exception("Cannot identify cutting faces: p9 is missing from state")
+    # Extract points from extension_points
+    p_first = config.extension_points[0]   # P5 or P11
+    p_mid = config.extension_points[3]     # P7_mid or P14_mid
+    p_inner1 = config.extension_points[5]  # P9 or P15
+    p_inner2 = config.extension_points[6]  # P10 or P16
 
-    if not hasattr(state, 'p10') or state.p10 is None:
-        raise Exception("Cannot identify cutting faces: p10 is missing from state")
-
-    # Get all faces from the base_gear_body (NOT joined_body)
+    # Get all faces from the base_gear_body
     # These are the conical faces created by the revolve operation
-    faces = state.base_gear_body.faces
+    faces = base_body.faces
 
-    # Identify conical faces intersecting P9->P10 edge
+    # Identify conical faces intersecting p_inner1->p_inner2 edge
     # Only check conical surfaces - skip planar/cylindrical faces created by other edges
-    cutting_faces_p9_p10 = []
+    cutting_faces_inner = []
 
     for face in faces:
         # Filter: only check conical surfaces
         if face.geometry.surfaceType != adsk.core.SurfaceTypes.ConeSurfaceType:
             continue
-        if face_intersects_line_planar(face, state.p9.worldGeometry, state.p10.worldGeometry):
-            cutting_faces_p9_p10.append(face)
+        if face_intersects_line_planar(face, p_inner1.worldGeometry, p_inner2.worldGeometry):
+            cutting_faces_inner.append(face)
 
-    # Identify conical faces intersecting P5->P7_mid edge
+    # Identify conical faces intersecting p_first->p_mid edge
     # Only check conical surfaces - skip planar/cylindrical faces created by other edges
-    cutting_faces_p5_p7mid = []
+    cutting_faces_outer = []
 
     for face in faces:
         # Filter: only check conical surfaces
         if face.geometry.surfaceType != adsk.core.SurfaceTypes.ConeSurfaceType:
             continue
-        if face_intersects_line_planar(face, state.p5.worldGeometry, state.p7_mid.worldGeometry):
-            cutting_faces_p5_p7mid.append(face)
+        if face_intersects_line_planar(face, p_first.worldGeometry, p_mid.worldGeometry):
+            cutting_faces_outer.append(face)
 
     # Combine both sets of cutting faces
     # Remove duplicates manually (BRepFace is not hashable, can't use set())
-    cutting_faces = cutting_faces_p9_p10[:]  # Start with p9_p10 faces
-    for face in cutting_faces_p5_p7mid:
+    cutting_faces = cutting_faces_inner[:]  # Start with inner faces
+    for face in cutting_faces_outer:
         # Check if this face is already in the list (by object identity)
         already_added = False
         for existing_face in cutting_faces:
@@ -2833,15 +3011,13 @@ def identify_cutting_faces(state: GenerationState, spec: BevelGearSpec) -> Gener
 
     if len(cutting_faces) == 0:
         raise Exception(
-            f"No cutting faces found intersecting P9->P10 or P5->P7_mid edges. "
+            f"No cutting faces found intersecting inner or outer edges. "
             f"Base gear body has {faces.count} faces total. "
             f"Check base gear body geometry and edge positions."
         )
 
-    # Store in state
-    state.cutting_faces = cutting_faces
-    state.cutting_faces_p9_p10 = cutting_faces_p9_p10  # For diagnostics
-    state.cutting_faces_p5_p7mid = cutting_faces_p5_p7mid  # For diagnostics
+    # Store in state using parameterized field
+    setattr(state, cutting_faces_field, cutting_faces)
 
     return state
 
@@ -2967,7 +3143,15 @@ def face_intersects_line_sampling(face, p1, p2) -> bool:
     return distance < 0.01  # 0.1mm tolerance (0.01cm)
 
 
-def cut_body_with_faces(state: GenerationState, spec: BevelGearSpec) -> GenerationState:
+def cut_body_with_faces(
+    state: GenerationState,
+    spec: BevelGearSpec,
+    config: GearConfig,
+    tooth_body_field: str = 'lofted_tooth_body',
+    cutting_faces_field: str = 'cutting_faces',
+    base_body_field: str = 'base_gear_body',
+    cut_bodies_field: str = 'cut_bodies'
+) -> GenerationState:
     """
     Cut the lofted tooth body using identified conical faces as splitting surfaces.
 
@@ -2976,15 +3160,17 @@ def cut_body_with_faces(state: GenerationState, spec: BevelGearSpec) -> Generati
     an infinite surface that slices through the lofted tooth to trim it to the correct
     bevel gear boundaries.
 
-    The cutting faces are the conical surfaces created by revolving the P9->P10 and P5->P7
-    lines, which define the inner and outer tooth boundaries along the bevel gear cone.
-
     This operation happens BEFORE joining the tooth to the base, so only the tooth is
     cut, not the base gear body.
 
     Args:
-        state: The current generation state with lofted_tooth_body and cutting_faces
+        state: The current generation state
         spec: The bevel gear specification (for reference)
+        config: Gear configuration with component
+        tooth_body_field: Name of state field containing the lofted tooth body
+        cutting_faces_field: Name of state field containing the cutting faces
+        base_body_field: Name of state field containing the base gear body
+        cut_bodies_field: Name of state field to store cut bodies
 
     Returns:
         Updated GenerationState with cut_bodies field populated
@@ -2993,29 +3179,36 @@ def cut_body_with_faces(state: GenerationState, spec: BevelGearSpec) -> Generati
         Exception: If prerequisites are missing or split operations fail
     """
     # Verify prerequisites
-    if not hasattr(state, 'lofted_tooth_body') or state.lofted_tooth_body is None:
-        raise Exception("Cannot cut body: lofted_tooth_body is missing")
+    if not hasattr(state, tooth_body_field) or getattr(state, tooth_body_field) is None:
+        raise Exception(f"Cannot cut body: {tooth_body_field} is missing")
 
-    if not hasattr(state, 'cutting_faces') or state.cutting_faces is None or len(state.cutting_faces) == 0:
-        raise Exception("Cannot cut body: cutting_faces is missing or empty")
+    if not hasattr(state, cutting_faces_field) or getattr(state, cutting_faces_field) is None:
+        raise Exception(f"Cannot cut body: {cutting_faces_field} is missing")
 
-    if not state.lofted_tooth_body.isValid:
-        raise Exception("Cannot cut body: lofted_tooth_body is invalid")
+    tooth_body = getattr(state, tooth_body_field)
+    cutting_faces = getattr(state, cutting_faces_field)
+    base_body = getattr(state, base_body_field)
+
+    if len(cutting_faces) == 0:
+        raise Exception(f"Cannot cut body: {cutting_faces_field} is empty")
+
+    if not tooth_body.isValid:
+        raise Exception(f"Cannot cut body: {tooth_body_field} is invalid")
 
     # Use splitBody feature to split lofted_tooth_body using each cutting face individually
     splitBodyFeatures = state.design_component.features.splitBodyFeatures
 
     # Split with each cutting face
     # After each split, the body collection may change, so we iterate carefully
-    for i, cutting_face in enumerate(state.cutting_faces):
+    for i, cutting_face in enumerate(cutting_faces):
         if not cutting_face.isValid:
             raise Exception(f"Cutting face {i} is invalid")
 
         # Create split input with this face as the splitting tool
         split_input = splitBodyFeatures.createInput(
-            state.lofted_tooth_body,    # Body to be split (the lofted tooth, before joining)
-            cutting_face,               # Splitting tool (a BRepFace from the base_gear_body)
-            True                        # keepBothSides - keep all resulting bodies
+            tooth_body,    # Body to be split (the lofted tooth, before joining)
+            cutting_face,  # Splitting tool (a BRepFace from the base_gear_body)
+            True          # keepBothSides - keep all resulting bodies
         )
 
         try:
@@ -3029,20 +3222,28 @@ def cut_body_with_faces(state: GenerationState, spec: BevelGearSpec) -> Generati
         if split_feature is None:
             raise Exception(f"Split feature returned None for cutting face {i}")
 
-    # Collect all visible bodies after all splits from design_component
-    # Exclude base_gear_body since we only want the split tooth fragments
-    cut_bodies = [body for body in state.design_component.bRepBodies
-                  if body.isValid and body.isVisible and body != state.base_gear_body]
+    # Collect ONLY newly created bodies from the split operations
+    # Exclude base_gear_body and the driving gear (which has distinctive name "Driving Gear")
+    cut_bodies_list = [body for body in state.design_component.bRepBodies
+                       if body.isValid and body.isVisible
+                       and body != base_body
+                       and body.name != "Driving Gear"]
 
-    if len(cut_bodies) == 0:
+    if len(cut_bodies_list) == 0:
         raise Exception("Split operations produced no visible bodies (excluding base_gear_body)")
 
-    state.cut_bodies = cut_bodies
+    setattr(state, cut_bodies_field, cut_bodies_list)
 
     return state
 
 
-def remove_smaller_parts(state: GenerationState, spec: BevelGearSpec) -> GenerationState:
+def remove_smaller_parts(
+    state: GenerationState,
+    spec: BevelGearSpec,
+    config: GearConfig,
+    cut_bodies_field: str = 'cut_bodies',
+    tooth_body_field: str = 'single_tooth_body'
+) -> GenerationState:
     """
     Identify the tooth body by checking which body does NOT contain the apex point,
     then delete all scrap bodies.
@@ -3054,8 +3255,11 @@ def remove_smaller_parts(state: GenerationState, spec: BevelGearSpec) -> Generat
     This function identifies the tooth body and removes all scrap fragments.
 
     Args:
-        state: The current generation state with cut_bodies and apex_point
+        state: The current generation state with apex_point
         spec: The bevel gear specification (for reference)
+        config: Gear configuration with component
+        cut_bodies_field: Name of state field containing cut bodies
+        tooth_body_field: Name of state field to store the single tooth body
 
     Returns:
         Updated GenerationState with single_tooth_body field populated
@@ -3066,8 +3270,13 @@ def remove_smaller_parts(state: GenerationState, spec: BevelGearSpec) -> Generat
         Exception: If no body is found that doesn't contain the apex point
     """
     # Verify cut_bodies exist
-    if not hasattr(state, 'cut_bodies') or state.cut_bodies is None or len(state.cut_bodies) == 0:
-        raise Exception("Cannot identify tooth body: cut_bodies are missing or empty")
+    if not hasattr(state, cut_bodies_field) or getattr(state, cut_bodies_field) is None:
+        raise Exception(f"Cannot identify tooth body: {cut_bodies_field} is missing")
+
+    cut_bodies = getattr(state, cut_bodies_field)
+
+    if len(cut_bodies) == 0:
+        raise Exception(f"Cannot identify tooth body: {cut_bodies_field} is empty")
 
     # Verify apex_point exists (P2)
     if not hasattr(state, 'apex_point') or state.apex_point is None:
@@ -3080,9 +3289,9 @@ def remove_smaller_parts(state: GenerationState, spec: BevelGearSpec) -> Generat
     # Delete bodies where apex is OnBoundary or Inside
     from adsk.fusion import PointContainment
 
-    tooth_body = None
+    final_tooth = None
     not_tooth_body = None
-    for body in state.cut_bodies:
+    for body in cut_bodies:
         if not body.isValid:
             continue
 
@@ -3099,80 +3308,110 @@ def remove_smaller_parts(state: GenerationState, spec: BevelGearSpec) -> Generat
             # Bodies with apex Outside are candidates (tooth and remaining scrap)
             # Pick the largest among those
             if containment == PointContainment.PointOutsidePointContainment:
-                if tooth_body is None or volume > tooth_body.volume:
-                    tooth_body = body
+                if final_tooth is None or volume > final_tooth.volume:
+                    final_tooth = body
                 else:
                     not_tooth_body = body
         except:
             # If pointContainment fails on this body, skip it
             continue
 
-    if tooth_body is None or not_tooth_body is None:
+    if final_tooth is None or not_tooth_body is None:
         raise Exception(
             f"Cannot identify tooth body: no cut bodies have apex point outside. "
             f"This indicates the split operations may have failed."
         )
-    
+
     state.design_component.features.removeFeatures.add(not_tooth_body)
 
     # Store the single tooth body
-    state.single_tooth_body = tooth_body
+    setattr(state, tooth_body_field, final_tooth)
 
     return state
 
 
-def pattern_teeth_circularly(state: GenerationState, spec: BevelGearSpec) -> GenerationState:
+def pattern_teeth_circularly(
+    state: GenerationState,
+    spec: BevelGearSpec,
+    config: GearConfig,
+    tooth_body_field: str = 'single_tooth_body',
+    base_body_field: str = 'base_gear_body',
+    final_body_field: str = 'final_body'
+) -> GenerationState:
     """
-    Create a circular pattern of teeth around the P1->P2 axis to create the complete bevel gear.
+    Create a circular pattern of teeth around the axis to create the complete bevel gear.
 
-    This function patterns the tooth body body around the central axis to create all teeth,
-    then joins them to the base gear body.
+    This function patterns the tooth body around the central axis to create all teeth,
+    then joins them to the base gear body. The number of pattern instances is determined
+    by config.virtual_teeth_number (Zv), which accounts for the bevel gear cone angle.
 
     Args:
-        state: The current generation state with single_tooth_body and foundation_sketch
-        spec: The bevel gear specification containing tooth_number
+        state: The current generation state
+        spec: The bevel gear specification (for reference)
+        config: Gear configuration with axis_line and virtual_teeth_number
+        tooth_body_field: Name of state field containing the single tooth body
+        base_body_field: Name of state field containing the base gear body
+        final_body_field: Name of state field to store the final body
 
     Returns:
-        GenerationState 
+        GenerationState with final_body populated
 
     Raises:
-        Exception: If single_tooth_body is missing
-        Exception: If P1->P2 axis cannot be found
+        Exception: If tooth body is missing
+        Exception: If axis cannot be found
         Exception: If pattern operation fails
     """
     # Verify single tooth body exists
-    if not hasattr(state, 'single_tooth_body') or state.single_tooth_body is None:
-        raise Exception("Cannot create circular pattern: single_tooth_body is missing")
+    if not hasattr(state, tooth_body_field) or getattr(state, tooth_body_field) is None:
+        raise Exception(f"Cannot create circular pattern: {tooth_body_field} is missing")
 
-    # Get P1->P2 axis line from state (stored by draw_foundation_rectangle in Phase 1)
-    # This is the vertical line that serves as the rotation axis for the circular pattern
-    if not hasattr(state, 'p1_p2_axis') or state.p1_p2_axis is None:
-        raise Exception("Cannot create circular pattern: p1_p2_axis is missing from state")
+    # Get axis line from config (P1->P2 for driving, P2->P3 for mating)
+    # This is the line that serves as the rotation axis for the circular pattern
+    if not config.axis_line or not config.axis_line.isValid:
+        raise Exception("Cannot create circular pattern: config.axis_line is missing or invalid")
 
-    if not state.p1_p2_axis.isValid:
-        raise Exception("Cannot create circular pattern: p1_p2_axis is not valid")
-
-    p1_p2_line = state.p1_p2_axis
+    tooth_body = getattr(state, tooth_body_field)
+    base_body = getattr(state, base_body_field)
+    axis_line = config.axis_line
 
     circularPatternFeatures = state.design_component.features.circularPatternFeatures
     input_features = adsk.core.ObjectCollection.create()
-    input_features.add(state.single_tooth_body)
-    pattern_input = circularPatternFeatures.createInput(input_features, p1_p2_line)
-    pattern_input.quantity = adsk.core.ValueInput.createByReal(spec.driving_gear_virtual_teeth_number)
+    input_features.add(tooth_body)
+    pattern_input = circularPatternFeatures.createInput(input_features, axis_line)
+    pattern_input.quantity = adsk.core.ValueInput.createByReal(config.virtual_teeth_number)
 
     patterned_teeth = circularPatternFeatures.add(pattern_input)
 
     # Combine all patterned teeth with the base gear body
+    # IMPORTANT: Exclude driving gear final body to prevent accidentally combining wrong gear
     tool_bodies = adsk.core.ObjectCollection.create()
+
     for body in patterned_teeth.bodies:
+        # Skip driving gear final body (identified by name)
+        if body.name == "Driving Gear":
+            continue
         tool_bodies.add(body)
 
+    if tool_bodies.count == 0:
+        raise Exception(f"No valid bodies found in pattern result to combine with {base_body_field}")
+
     combine_input = state.design_component.features.combineFeatures.createInput(
-        state.base_gear_body,
+        base_body,
         tool_bodies
     )
+    # Set operation to Join
+    combine_input.operation = adsk.fusion.FeatureOperations.JoinFeatureOperation
+    combine_input.isKeepToolBodies = False  # Consume tool bodies in the join
+
     combine_feature = state.design_component.features.combineFeatures.add(combine_input)
-    state.final_body = combine_feature.bodies.item(0)
+
+    final_body = combine_feature.bodies.item(0)
+
+    # Set a distinctive name for the driving gear final body to enable exclusion during mating gear generation
+    if final_body_field == 'final_body':  # This is the driving gear
+        final_body.name = "Driving Gear"
+
+    setattr(state, final_body_field, final_body)
 
     return state
 
@@ -3390,11 +3629,165 @@ def cleanup_phase2_on_error(state: GenerationState) -> None:
         pass  # Best effort cleanup
 
 
+# ============================================================================
+# Phase 2 and Phase 3: Tooth Body Generation (Parameterized)
+# ============================================================================
+
+def generate_tooth_body(
+    state: GenerationState,
+    spec: BevelGearSpec,
+    config: GearConfig,
+    sketch_field: str = 'tooth_profile_sketch',
+    plane_field: str = 'tooth_profile_plane',
+    center_field: str = 'tooth_profile_center_point',
+    angular_dim_field: str = 'tooth_spine_angular_dimension',
+    base_body_field: str = 'base_gear_body',
+    lofted_body_field: str = 'lofted_tooth_body',
+    apex_sketch_field: str = 'apex_sketch',
+    cutting_faces_field: str = 'cutting_faces',
+    cut_bodies_field: str = 'cut_bodies',
+    tooth_body_field: str = 'single_tooth_body',
+    final_body_field: str = 'final_body'
+) -> GenerationState:
+    """
+    Parameterized tooth body generation pipeline that works for both driving and mating gears.
+
+    This function executes the complete tooth body generation pipeline:
+    1. Activate gear component
+    2. Create tooth profile plane perpendicular to profile line
+    3. Create tooth profile sketch and project anchor point
+    4. Draw spur tooth profile using virtual teeth number
+    5. Rotate tooth profile to align
+    6. Create base gear body by revolving hexagonal profile
+    7. Create lofted tooth from apex to profile
+    8. Identify cutting faces from base body
+    9. Cut lofted tooth with faces
+    10. Remove smaller parts to get single tooth
+    11. Circular pattern teeth and combine with base body
+
+    Args:
+        state: The GenerationState from Phase 1 with all foundation geometry
+        spec: The BevelGearSpec containing all gear parameters
+        config: GearConfig with geometry references (axis, profile line, anchor, etc.)
+        sketch_field: State field name for tooth profile sketch
+        plane_field: State field name for tooth profile plane
+        center_field: State field name for tooth profile center point
+        angular_dim_field: State field name for angular dimension
+        base_body_field: State field name for base gear body
+        lofted_body_field: State field name for lofted tooth body
+        apex_sketch_field: State field name for apex sketch
+        cutting_faces_field: State field name for cutting faces
+        cut_bodies_field: State field name for cut bodies
+        tooth_body_field: State field name for single tooth body
+        final_body_field: State field name for final gear body
+
+    Returns:
+        Updated GenerationState with all tooth body artifacts populated
+
+    Raises:
+        ValueError: If Phase 1 outputs or spec validation fails
+        Exception: If any operation fails
+    """
+    try:
+        # Validate Phase 1 complete
+        validate_phase1_outputs(state)
+
+        # Validate spec for Phase 2
+        validate_spec_for_phase2(spec)
+
+        # Part 1: Tooth Profile Sketch
+        state = activate_gear_component(state, config)
+        state = create_tooth_profile_plane(state, config, plane_field)
+        state = create_tooth_profile_sketch(state, spec, config, sketch_field, center_field)
+        virtual_teeth_number = get_virtual_teeth_number(state, spec, config)
+        state = draw_spur_tooth_profile(state, spec, config, sketch_field, center_field, angular_dim_field)
+        state = rotate_tooth_profile_to_align(state, spec, config, sketch_field, center_field, angular_dim_field)
+
+        # Part 2: 3D Tooth Body
+        state = create_base_gear_body(state, spec, config, base_body_field)
+        state = create_lofted_tooth(state, spec, config, sketch_field, lofted_body_field, apex_sketch_field)
+        state = identify_cutting_faces(state, spec, config, base_body_field, cutting_faces_field)
+        state = cut_body_with_faces(state, spec, config, lofted_body_field, cutting_faces_field, base_body_field, cut_bodies_field)
+        state = remove_smaller_parts(state, spec, config, cut_bodies_field, tooth_body_field)
+        # Note: join_tooth_to_gear_body is NOT called here - pattern_teeth_circularly handles the combine
+        state = pattern_teeth_circularly(state, spec, config, tooth_body_field, base_body_field, final_body_field)
+
+        return state
+
+    except Exception as e:
+        # Re-raise the exception with context
+        raise Exception(
+            f"Tooth body generation failed: {str(e)}. "
+            f"Partial geometry preserved for debugging. "
+            f"Phase 1 foundation sketch and components remain intact."
+        ) from e
+
+
+def generate_driving_gear_body(state: GenerationState, spec: BevelGearSpec) -> GenerationState:
+    """
+    Generate the driving gear tooth body using Phase 1 driving gear geometry.
+
+    This is a convenience wrapper that extracts the driving gear configuration
+    from state and calls the parameterized generate_tooth_body() function.
+
+    Args:
+        state: The GenerationState from Phase 1
+        spec: The BevelGearSpec
+
+    Returns:
+        Updated GenerationState with driving gear body
+    """
+    config = get_driving_gear_config(state, spec)
+    return generate_tooth_body(
+        state,
+        spec,
+        config,
+        # All defaults are for driving gear, no need to specify field names
+    )
+
+
+def generate_mating_gear_body(state: GenerationState, spec: BevelGearSpec) -> GenerationState:
+    """
+    Generate the mating gear tooth body using Phase 1 mating gear geometry.
+
+    This is a convenience wrapper that extracts the mating gear configuration
+    from state and calls the parameterized generate_tooth_body() function with
+    mating-specific field names.
+
+    Args:
+        state: The GenerationState from Phase 1
+        spec: The BevelGearSpec
+
+    Returns:
+        Updated GenerationState with mating gear body
+    """
+    config = get_mating_gear_config(state, spec)
+    return generate_tooth_body(
+        state,
+        spec,
+        config,
+        # Mating gear uses prefixed field names
+        sketch_field='mating_tooth_profile_sketch',
+        plane_field='mating_tooth_profile_plane',
+        center_field='mating_tooth_profile_center_point',
+        angular_dim_field='mating_tooth_spine_angular_dimension',
+        base_body_field='mating_base_gear_body',
+        lofted_body_field='mating_lofted_tooth_body',
+        apex_sketch_field='mating_apex_sketch',
+        cutting_faces_field='mating_cutting_faces',
+        cut_bodies_field='mating_cut_bodies',
+        tooth_body_field='mating_single_tooth_body',
+        final_body_field='mating_final_body'
+    )
+
+
 def generate_phase2_tooth_body(
     state: GenerationState,
     spec: BevelGearSpec
 ) -> GenerationState:
     """
+    DEPRECATED: Use generate_driving_gear_body() instead.
+
     Main pipeline function for Phase 2 that orchestrates tooth profile sketch and 3D tooth body creation.
 
     This function executes the complete Phase 2 pipeline, which consists of two parts:
@@ -3430,38 +3823,5 @@ def generate_phase2_tooth_body(
         ValueError: If Phase 1 outputs or spec validation fails
         Exception: If any Phase 2 operation fails (with cleanup)
     """
-    try:
-        # Validate Phase 1 complete
-        validate_phase1_outputs(state)
-
-        # Validate spec for Phase 2
-        validate_spec_for_phase2(spec)
-
-        # Part 1: Tooth Profile Sketch
-        state = activate_driving_gear_component(state)
-        state = create_tooth_profile_plane(state)
-        state = create_tooth_profile_sketch(state, spec)
-        virtual_teeth_number = get_virtual_teeth_number(state, spec)
-        state = draw_spur_tooth_profile(state, spec)
-        state = rotate_tooth_profile_to_align(state, spec)
-
-        # Part 2: 3D Tooth Body
-        state = create_base_gear_body(state, spec)
-        state = create_lofted_tooth(state, spec)
-        state = identify_cutting_faces(state, spec)
-        state = cut_body_with_faces(state, spec)
-        state = remove_smaller_parts(state, spec)
-        state = pattern_teeth_circularly(state, spec)
-
-        return state
-
-    except Exception as e:
-        # Clean up partial Phase 2 geometry on error
-        # DISABLED: Cleanup disabled for debugging - partial geometry preserved on error
-        # cleanup_phase2_on_error(state)
-
-        # Re-raise the exception with context
-        raise Exception(
-            f"Phase 2 failed: {str(e)}. Partial Phase 2 geometry preserved for debugging. "
-            f"Phase 1 foundation sketch and components remain intact."
-        ) from e
+    # Delegate to new wrapper
+    return generate_driving_gear_body(state, spec)

@@ -78,3 +78,8 @@ DEFAULT_MATING_TOOTH_NUMBER = 17
 DEFAULT_SHAFT_ANGLE_DEG = 90.0
 DEFAULT_DRIVING_GEAR_BASE_THICKNESS_MM = 5.0
 DEFAULT_TEETH_LENGTH_MM = 10.0
+DEFAULT_GENERATE_MATING_GEAR = True
+
+# Bevel Gear Control Parameters
+PARAM_GENERATE_MATING_GEAR = "GenerateMatingGear"  # Whether to generate mating gear body
+INPUT_GENERATE_MATING_GEAR = "generateMatingGear"  # Input field ID for mating gear generation
