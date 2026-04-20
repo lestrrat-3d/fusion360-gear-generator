@@ -1,42 +1,50 @@
 from .helicalgear import *
 
-class HerringboneGearSpecification(HelicalGearSpecification): pass
+class HerringboneGearCommandConfigurator(HelicalGearCommandConfigurator): pass
 
 class HerringboneGearGenerationContext(HelicalGearGenerationContext):
     def __init__(self):
         super().__init__()
 
 class HerringboneGearGenerator(HelicalGearGenerator):
-    def __init__(self, component: adsk.fusion.Component):
-        super().__init__(component)
-
     def newContext(self):
         return HerringboneGearGenerationContext()
-    
-    def generateName(self, spec):
-        return 'Herringbone Gear (M={}, Tooth={}, Thickness={}, Angle={})'.format(spec.module, spec.toothNumber, spec.thickness, math.degrees(spec.helixAngle))
 
-    def helicalPlaneOffset(self, spec: HelicalGearSpecification):
-        return super().helicalPlaneOffset(spec) / 2
+    def prefixBase(self) -> str:
+        return 'HerringboneGear'
 
-    def buildTooth(self, ctx: GenerationContext, spec: SpurGearSpecification):
-        self.loftTooth(ctx, spec)
+    def generateName(self):
+        module = self.getParameter(PARAM_MODULE)
+        toothNumber = self.getParameter(PARAM_TOOTH_NUMBER)
+        thickness = self.getParameter('Thickness')
+        helixAngle = self.getParameter(PARAM_HELIX_ANGLE)
+        return 'Herringbone Gear (M={}, Tooth={}, Thickness={}, Angle={})'.format(
+            module.expression, toothNumber.expression, thickness.expression, helixAngle.expression)
 
-        # mirror the single tooth
+    # The mirror plane sits in the middle of the body, so the loft only covers
+    # half the thickness.
+    def helicalPlaneOffset(self) -> adsk.core.ValueInput:
+        thickness = self.getParameter('Thickness').value
+        return adsk.core.ValueInput.createByReal(thickness / 2)
+
+    def buildTooth(self, ctx: GenerationContext):
+        self.loftTooth(ctx)
+
+        # Mirror the lofted tooth across the helix plane to form the other half.
         entities = adsk.core.ObjectCollection.create()
         entities.add(ctx.toothBody)
-        input = self.component.features.mirrorFeatures.createInput(entities, ctx.helixPlane)
-        mirrorResult = self.component.features.mirrorFeatures.add(input)
+        mirrorInput = self.getComponent().features.mirrorFeatures.createInput(entities, ctx.helixPlane)
+        mirrorResult = self.getComponent().features.mirrorFeatures.add(mirrorInput)
         mirrorResult.bodies.item(0).name = 'Tooth Body (Mirrored)'
 
+        # Combine the mirrored half into the original tooth body so the pattern
+        # and combine steps in the base class operate on a single body.
         entities = adsk.core.ObjectCollection.create()
         entities.add(mirrorResult.bodies.item(0))
-        combineInput = self.component.features.combineFeatures.createInput(
-            self.component.bRepBodies.itemByName('Tooth Body'),
+        combineInput = self.getComponent().features.combineFeatures.createInput(
+            self.getComponent().bRepBodies.itemByName('Tooth Body'),
             entities,
         )
-        self.component.features.combineFeatures.add(combineInput)
-        if spec.chamferTooth > 0:
-            self.chamferTooth(ctx, spec)
+        self.getComponent().features.combineFeatures.add(combineInput)
 
-class HerringboneGearCommandConfigurator(HelicalGearCommandConfigurator): pass
+        self.chamferTooth(ctx)

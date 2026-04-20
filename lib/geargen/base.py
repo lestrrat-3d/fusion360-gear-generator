@@ -28,7 +28,7 @@ def get_value(inputs: adsk.core.CommandInputs, name: str, units: str):
         if userParameters.itemByName(value) == None:
             evaluated = unitsManager.evaluateExpression(value, units)
             if evaluated == None:
-                raise(f'Failed to evaluate expression "{value}"')
+                raise Exception(f'Failed to evaluate expression "{value}"')
             return (evaluated, False)
         return (adsk.core.ValueInput.createByString(value), True)
 
@@ -43,8 +43,6 @@ def get_value(inputs: adsk.core.CommandInputs, name: str, units: str):
 
 # Base object for generation contexts
 class GenerationContext: pass
-
-class Specification: pass
 
 class ParamNamePrefix:
     def __init__(self, prefix):
@@ -90,7 +88,7 @@ class Generator(ABC):
         self.design = design
         self.parentComponent = None # TODO: nothing is protecting this from being used when value is None
         self.component = adsk.fusion.Component.cast(None)
-        self.occurrence = adsk.fusion.Component.cast(None)
+        self.occurrence = adsk.fusion.Occurrence.cast(None)
         self.prefix = None
         self.cleaner = None
     
@@ -100,10 +98,13 @@ class Generator(ABC):
             futil.log(f'parent is {self.parentComponent.name}')
             futil.log(f'root component is {self.design.rootComponent.name}')
             self.occurrence = self.parentComponent.occurrences.addNewComponent(adsk.core.Matrix3D.create())
-            prefixStr = f'SpurGear_{self.occurrence.component.id.replace("-", "")}'
+            prefixStr = f'{self.prefixBase()}_{self.occurrence.component.id.replace("-", "")}'
             self.prefix = ParamNamePrefix(prefixStr)
             self.cleaner = ComponentCleaner(prefixStr, self.occurrence)
         return self.occurrence
+
+    def prefixBase(self) -> str:
+        return 'Gear'
     
     def getComponent(self) -> adsk.fusion.Component:
         return self.getOccurrence().component
@@ -139,7 +140,7 @@ class Generator(ABC):
             self.component = None
 
     @abstractmethod
-    def generate(self, spec: Specification):
+    def generate(self, inputs: adsk.core.CommandInputs):
         pass
 
     def createSketchObject(self, name, plane=None):

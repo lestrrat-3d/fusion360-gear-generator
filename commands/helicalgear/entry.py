@@ -85,18 +85,16 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
 def command_execute(args: adsk.core.CommandEventArgs):
     # General logging for debug.
     futil.log(f'{CMD_NAME} Command Execute Event')
-    design = None
+    g = None
     try:
         inputs = args.command.commandInputs
-        spec = geargen.HelicalGearSpecification.from_inputs(inputs)
-
         design = geargen.get_design()
         g = geargen.HelicalGearGenerator(design)
-        g.generate(spec)
+        g.generate(inputs)
     except:
         futil.handle_error("Generation error", show_message_box=True)
-        if design:
-            design.rootComponent.deleteMe()
+        if g:
+            g.deleteComponent()
 
 # This event handler is called when the command needs to compute a new preview in the graphics window.
 def command_preview(args: adsk.core.CommandEventArgs):

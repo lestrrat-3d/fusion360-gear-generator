@@ -1,26 +1,19 @@
 from .spurgear import *
 from .misc import *
 
-class HelicalGearSpecification(SpurGearSpecification):
-    def __init__(self, plane=None, module=1, toothNumber=17, pressureAngle=math.radians(20), boreDiameter=None, thickness=5, chamferTooth=0, sketchOnly=False, anchorPoint=None, helixAngle=0):
-        super().__init__(plane=plane, module=module, toothNumber=toothNumber, pressureAngle=pressureAngle, boreDiameter=boreDiameter, thickness=thickness, chamferTooth=chamferTooth, sketchOnly=sketchOnly, anchorPoint=anchorPoint)
-        if helixAngle <= 0:
-            raise Exception("helixAngle must be > 0")
-        self.helixAngle = helixAngle
+PARAM_HELIX_ANGLE = 'HelixAngle'
+INPUT_ID_HELIX_ANGLE = 'helixAngle'
 
+class HelicalGearCommandConfigurator(SpurGearCommandInputsConfigurator):
     @classmethod
-    def to_args(cls, inputs: adsk.core.CommandInputs):
-        args = super().to_args(inputs)
-        (helixAngle, ok) = cls.get_value(inputs, 'helixAngle')
-        if not ok:
-            raise Exception('could not get helix angle value')
-        args['helixAngle'] = helixAngle
-        return args
-
-    @classmethod
-    def from_inputs(cls, inputs):
-        args = cls.to_args(inputs)
-        return HelicalGearSpecification(**args)
+    def configure(cls, cmd):
+        super().configure(cmd)
+        cmd.commandInputs.addValueInput(
+            INPUT_ID_HELIX_ANGLE,
+            'Helix Angle',
+            'deg',
+            adsk.core.ValueInput.createByReal(math.radians(14.5)),
+        )
 
 class HelicalGearGenerationContext(SpurGearGenerationContext):
     def __init__(self):
@@ -28,85 +21,62 @@ class HelicalGearGenerationContext(SpurGearGenerationContext):
         self.helixPlane = adsk.fusion.ConstructionPlane.cast(None)
         self.twistedGearProfileSketch = adsk.fusion.Sketch.cast(None)
 
-class HelicalGearCommandConfigurator(SpurGearCommandInputsConfigurator):
-    @classmethod
-    def configure(cls, cmd):
-        input = SpurGearCommandInputsConfigurator.configure(cmd)
-        input.addValueInput('helixAngle', 'Helix Angle', 'deg', adsk.core.ValueInput.createByReal(math.radians(14.5)))
-
-    def toSpecificationArgs(self):
-        args = super().toSpecificationArgs()
-        (helixAngle, ok) = self.getValue('helixAngle')
-        if not ok:
-            raise Exception("mandatory parameter helix angle not provided")
-
-        if helixAngle <= 0 or helixAngle >= math.radians(180):
-            raise Exception("invalid value for helix angle")
-
-        args['helixAngle'] = helixAngle
-        return args
-
-    def toSpecification(self, kwargs):
-        return HelicalGearSpecification(**kwargs)
-
-    def validate(self):
-        (helixAngle, ok) = self.getValue('helixAngle')
-        if not ok or helixAngle <= 0 or helixAngle >= math.radians(180):
-            raise Exception(f'invalid helix angle: {helixAngle}')
-    
-        return True
-
 class HelicalGearGenerator(SpurGearGenerator):
-    def __init__(self, component: adsk.fusion.Component):
-        super().__init__(component)
-
     def newContext(self):
         return HelicalGearGenerationContext()
 
-    def generateName(self, spec):
-        return 'Helical Gear (M={}, Tooth={}, Thickness={}, Angle={})'.format(spec.module, spec.toothNumber, spec.thickness, math.degrees(spec.helixAngle))
-    
-    def helicalPlaneOffset(self, spec: HelicalGearSpecification):
-        return to_cm(spec.thickness)
-    
-    def chamferWantEdges(self, spec: SpurGearSpecification):
+    def prefixBase(self) -> str:
+        return 'HelicalGear'
+
+    def generateName(self):
+        module = self.getParameter(PARAM_MODULE)
+        toothNumber = self.getParameter(PARAM_TOOTH_NUMBER)
+        thickness = self.getParameter('Thickness')
+        helixAngle = self.getParameter(PARAM_HELIX_ANGLE)
+        return 'Helical Gear (M={}, Tooth={}, Thickness={}, Angle={})'.format(
+            module.expression, toothNumber.expression, thickness.expression, helixAngle.expression)
+
+    def processInputs(self, inputs: adsk.core.CommandInputs):
+        super().processInputs(inputs)
+        (helixAngle, ok) = get_value(inputs, INPUT_ID_HELIX_ANGLE, 'rad')
+        if not ok:
+            raise Exception('Invalid helix angle value')
+        self.addParameter(PARAM_HELIX_ANGLE, helixAngle, 'rad', 'Helix angle for the helical gear')
+
+    # Offset of the construction plane used for the twisted top profile,
+    # relative to the base plane. Herringbone halves this so the mirror plane
+    # sits in the middle of the gear body.
+    def helicalPlaneOffset(self) -> adsk.core.ValueInput:
+        return self.getParameterAsValueInput('Thickness')
+
+    def chamferWantEdges(self):
         return 4
-    
-    def buildSketches(self, ctx: GenerationContext, spec: SpurGearSpecification):
-        super().buildSketches(ctx, spec)
 
-        # If we have a helix angle, we can't just extrude the bottom profile
-        # and call it a day. We create another sketch on a plane that is
-        # spec.thickness away from the bottom profile, and then use loft
-        # to create the body
-        constructionPlaneInput = self.component.constructionPlanes.createInput()
-        constructionPlaneInput.setByOffset(
-            spec.plane,
-            adsk.core.ValueInput.createByReal(self.helicalPlaneOffset(spec))
-        )
+    def buildSketches(self, ctx: GenerationContext):
+        super().buildSketches(ctx)
 
-        plane = self.component.constructionPlanes.add(constructionPlaneInput)
+        # The bottom profile has already been drawn by the base class.
+        # Now draw a twisted profile on a plane offset from the base plane
+        # so the tooth can be built with a loft.
+        constructionPlaneInput = self.getComponent().constructionPlanes.createInput()
+        constructionPlaneInput.setByOffset(self.plane, self.helicalPlaneOffset())
+        plane = self.getComponent().constructionPlanes.add(constructionPlaneInput)
         ctx.helixPlane = plane
+
         loftSketch = self.createSketchObject('Twisted Gear Profile', plane=plane)
-
-        # This sketch is rotated for the helix angle
-        SpurGearInvoluteToothDesignGenerator(loftSketch, spec).draw(ctx.anchorPoint, angle=spec.helixAngle)
+        helixAngle = self.getParameter(PARAM_HELIX_ANGLE).value
+        SpurGearInvoluteToothDesignGenerator(loftSketch, self).draw(ctx.anchorPoint, angle=helixAngle)
         ctx.twistedGearProfileSketch = loftSketch
-    
-    def buildTooth(self, ctx: GenerationContext, spec :SpurGearSpecification):
-        self.loftTooth(ctx, spec)
-        if spec.chamferTooth > 0:
-            self.chamferTooth(ctx, spec)
 
-    def loftTooth(self, ctx: GenerationContext, spec :SpurGearSpecification):
-        topSketch = ctx.twistedGearProfileSketch
+    def buildTooth(self, ctx: GenerationContext):
+        self.loftTooth(ctx)
+        self.chamferTooth(ctx)
+
+    def loftTooth(self, ctx: GenerationContext):
         bottomSketch = ctx.gearProfileSketch
+        topSketch = ctx.twistedGearProfileSketch
 
-        # loft from the bottom sketch to the top sketch
-        lofts = self.component.features.loftFeatures
-
-        bottomProfiles = bottomSketch.profiles
-        topProfiles = topSketch.profiles
+        lofts = self.getComponent().features.loftFeatures
 
         def findProfile(profiles):
             for profile in profiles:
@@ -115,8 +85,10 @@ class HelicalGearGenerator(SpurGearGenerator):
                         return profile
             return None
 
-        bottomToothProfile = findProfile(bottomProfiles) # bottomProfiles.item(0)
-        topToothProfile = findProfile(topProfiles) # topProfiles.item(0)
+        bottomToothProfile = findProfile(bottomSketch.profiles)
+        topToothProfile = findProfile(topSketch.profiles)
+        if not bottomToothProfile or not topToothProfile:
+            raise Exception('could not find tooth profile for loft')
 
         loftInput = lofts.createInput(adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
         loftInput.loftSections.add(bottomToothProfile)

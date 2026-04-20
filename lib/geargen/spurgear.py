@@ -10,98 +10,6 @@ INPUT_ID_PARENT = 'parentComponent'
 INPUT_ID_PLANE = 'plane'
 INPUT_ID_ANCHOR_POINT = 'anchorPoint'
 
-def as_param_value(value: adsk.core.ValueInput) -> str:
-    vt = value.valueType
-    match vt:
-        case adsk.core.ValueTypes.RealValueType:
-            return f'{value.realValue}'
-        case adsk.core.ValueTypes.StringValueType:
-            return value.stringValue
-        case _:
-            return None
-        
-class SpurGearSpecification(Specification):
-    def __init__(self, component, occurrence, plane=None, module=1, toothNumber=17, pressureAngle=math.radians(20), boreDiameter=None, thickness=5, chamferTooth=0, sketchOnly=False, anchorPoint=None, filletRadius=None):
-        pass
-    @classmethod
-    def get_value(cls, inputs: adsk.core.CommandInputs, name):
-        input = inputs.itemById(name)
-        futil.log(f'input is {input}')
-
-        design = get_design()
-        unitsManager = design.unitsManager
-        userParameters = design.userParameters
-        if input.classType == adsk.core.StringValueCommandInput.classType:
-            value = input.value
-            if userParameters.itemByName(value) == None:
-                evaluated = unitsManager.evaluateExpression(value, 'mm')
-                if evaluated == None:
-                    raise(f'Failed to evaluate expression "{value}"')
-                return (evaluated, False)
-            return (adsk.core.ValueInput.createByString(value), True)
-
-        if not unitsManager.isValidExpression(input.expression, input.unitType):
-            return (None, False)
-
-        evaluated = unitsManager.evaluateExpression(input.expression, input.unitType)
-        if input.unitType == 'cm':
-            evaluated = to_mm(evaluated)
-        return (adsk.core.ValueInput.createByReal(evaluated), True)
-    
-
-    @classmethod
-    def to_args(cls, inputs: adsk.core.CommandInputs):
-        args = {}
-        (values, ok) = cls.get_selection(inputs, INPUT_ID_PLANE)
-        if len(values) == 1 and ok:
-            args[INPUT_ID_PLANE] = values[0] # must be exactly one item
-        
-        (values, ok) = cls.get_selection(inputs, INPUT_ID_ANCHOR_POINT)
-        if len(values) == 1 and ok:
-            args[INPUT_ID_ANCHOR_POINT] = values[0] # must be exactly one item
-
-        (module, ok) = cls.get_value(inputs, 'module')
-        if not ok:
-            raise Exception('Invalid module value')
-        args['module'] = module
-
-        (toothNumber, ok) = cls.get_value(inputs, 'toothNumber')
-        if ok:
-            args['toothNumber'] = toothNumber
-
-        (pressureAngle, ok) = cls.get_value(inputs, 'pressureAngle')
-        if ok:
-            args['pressureAngle'] = pressureAngle
-
-        (boreDiameter, ok) = cls.get_value(inputs, 'boreDiameter')
-        if ok:
-            args['boreDiameter'] = boreDiameter
-
-        (thickness, ok) = cls.get_value(inputs, 'thickness')
-        if ok:
-            args['thickness'] = thickness
-        
-        (chamferTooth, ok) = cls.get_value(inputs, 'chamferTooth')
-        if ok:
-            args['chamferTooth'] = chamferTooth
-
-        (sketchOnly, ok) = cls.get_boolean(inputs, 'sketchOnly')
-        if ok:
-            args['sketchOnly'] = sketchOnly
-
-        return args
-    
-    @classmethod
-    def from_inputs(cls, component, occurrence, inputs):
-        args = SpurGearSpecification.to_args(inputs)
-        return SpurGearSpecification(component, occurrence, **args)
-    
-class SpurGearCommandInputValidator:
-    @classmethod
-    def validate(cls, cmd):
-        inputs = cmd.commandInputs
-        moduleInput = inputs.itemById('module')
-
 # Configures the command input
 class SpurGearCommandInputsConfigurator:
     @classmethod
@@ -300,7 +208,7 @@ class SpurGearInvoluteToothDesignGenerator():
                 adsk.core.Point3D.create(anchorPoint.geometry.x, anchorPoint.geometry.y, 0),
                 adsk.core.Point3D.create(toothTopPoint.geometry.x, toothTopPoint.geometry.y, 0),
             )
-            horizontal.isConsutruction = True
+            horizontal.isConstruction = True
             constraints.addHorizontal(horizontal)
             constraints.addCoincident(horizontal.startSketchPoint, anchorPoint)
             constraints.addCoincident(horizontal.endSketchPoint, self.tipCircle)
@@ -334,7 +242,7 @@ class SpurGearInvoluteToothDesignGenerator():
 
             # Create the point where the involutes will connect to the root circle
         def drawRootToInvoluteLine(root, rootRadius, inv, x, y):
-            angle = math.atan(y/ x)
+            angle = math.atan2(y, x)
             point = adsk.core.Point3D.create(
                 rootRadius * math.cos(angle),
                 rootRadius * math.sin(angle),
@@ -343,7 +251,6 @@ class SpurGearInvoluteToothDesignGenerator():
 
             line = sketch.sketchCurves.sketchLines.addByTwoPoints(point, inv.startSketchPoint)
             constraints.addCoincident(line.startSketchPoint, root)
-            constraints.addHorizontal(line)
             return line
 
 #        if rootCircleRadius > baseCircleRadius:
@@ -385,8 +292,8 @@ class SpurGearGenerator(Generator):
     def newContext(self):
         return SpurGearGenerationContext()
 
-    def create_specification_from_inputs(self, inputs):
-        return SpurGearSpecification.from_inputs(self.getComponent(), self.getOccurence(), inputs)
+    def prefixBase(self) -> str:
+        return 'SpurGear'
 
     def generateName(self):
         module = self.getParameter(PARAM_MODULE)
@@ -407,13 +314,13 @@ class SpurGearGenerator(Generator):
                 raise Exception(f'Invalid object type {v.objectType}')
             futil.log(f'parentComponent is {self.parentComponent.name}')
         else:
-            raise Exception("Require parameter '{INPUT_ID_PARENT}' not available")
+            raise Exception(f"Required parameter '{INPUT_ID_PARENT}' not available")
 
         (values, ok) = get_selection(inputs, INPUT_ID_PLANE)
         if len(values) == 1 and ok:
             self.plane = values[0] # must be exactly one item
         else:
-            raise Exception("Require parameter '{INPUT_ID_PLANE}' not available")
+            raise Exception(f"Required parameter '{INPUT_ID_PLANE}' not available")
     
         (values, ok) = get_selection(inputs, INPUT_ID_ANCHOR_POINT)
         if len(values) == 1 and ok:
@@ -428,7 +335,7 @@ class SpurGearGenerator(Generator):
 
         (toothNumber, ok) = get_value(inputs, 'toothNumber', '')
         if ok:
-            self.addParameter(PARAM_TOOTH_NUMBER, toothNumber, '', 'Number of tooth on the spur gera')
+            self.addParameter(PARAM_TOOTH_NUMBER, toothNumber, '', 'Number of teeth on the spur gear')
 
         (pressureAngle, ok) = get_value(inputs, 'pressureAngle', 'rad')
         if ok:
@@ -475,32 +382,6 @@ class SpurGearGenerator(Generator):
         self.addParameter('FilletThreshold', adsk.core.ValueInput.createByString(f'{self.parameterName("BaseCircleDiameter")} * PI / ({self.parameterName("ToothNumber")} * 2) * 0.4'), 'mm', 'Maximum possible threshold')
         # For now, filletRadius = filletThreshold
         self.addParameter('FilletRadius', adsk.core.ValueInput.createByString(f'{self.parameterName("FilletThreshold")}'), 'mm', '')
-
-    def drawCircle(self, name: str, sketch: adsk.fusion.Sketch, radius: adsk.core.ValueInput, anchorPoint, dimensionAngle=0, isConstruction=True):
-        curves = sketch.sketchCurves
-        dimensions = sketch.sketchDimensions
-        texts = sketch.sketchTexts
-
-        obj = curves.sketchCircles.addByCenterRadius(anchorPoint, radius)
-        obj.isConstruction = isConstruction
-
-        # Draw the diameter dimension at the specified angle
-        x = 0
-        y = 0
-        if dimensionAngle == 0:
-            x = radius.value
-        elif dimensionAngle != 0:
-            x = (radius.value/2)*math.sin(dimensionAngle)
-            y = (radius.value/2)*math.cos(dimensionAngle)
-        dimensions.addDiameterDimension(
-            obj,
-            adsk.core.Point3D.create(x, y, 0)
-        )
-        size = self.parent.getParameter('TipCircleRadius').value - self.parent.getParameter('RootCircleRadius').value
-        input = texts.createInput2('{} (r={:.2f})'.format(name, radius), size)
-        input.setAsAlongPath(obj, True, adsk.core.HorizontalAlignments.CenterHorizontalAlignment, 0)
-        texts.add(input)
-        return obj
 
     def generate(self, inputs: adsk.core.CommandInputs):
         self.processInputs(inputs)
@@ -749,7 +630,7 @@ class SpurGearGenerator(Generator):
             raise Exception("Could not create axis")
 
         centerAxis.name = 'Gear Center'
-        centerAxis.isVisibile = False
+        centerAxis.isVisible = False
         ctx.centerAxis = centerAxis
         # store the gear body for later use
         ctx.gearBody = self.getComponent().bRepBodies.itemByName('Gear Body')

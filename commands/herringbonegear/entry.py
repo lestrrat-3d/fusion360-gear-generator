@@ -72,7 +72,7 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
     # General logging for debug.
     futil.log(f'{CMD_NAME} Command Created Event')
 
-    geargen.HelicalGearCommandConfigurator.configure(args.command)
+    geargen.HerringboneGearCommandConfigurator.configure(args.command)
 
     # TODO Connect to the events that are needed by this command.
     futil.add_handler(args.command.execute, command_execute, local_handlers=local_handlers)
@@ -87,18 +87,16 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
 def command_execute(args: adsk.core.CommandEventArgs):
     # General logging for debug.
     futil.log(f'{CMD_NAME} Command Execute Event')
-    design = None
+    g = None
     try:
         inputs = args.command.commandInputs
-        spec = geargen.HerringboneGearSpecification.from_inputs(inputs)
-
         design = geargen.get_design()
         g = geargen.HerringboneGearGenerator(design)
-        g.generate(spec)
+        g.generate(inputs)
     except:
         futil.handle_error("Generation error", show_message_box=True)
-        if design:
-            design.rootComponent.deleteMe()
+        if g:
+            g.deleteComponent()
 
 
 # This event handler is called when the command needs to compute a new preview in the graphics window.
