@@ -630,7 +630,7 @@ class SpurGearGenerator(Generator):
             raise Exception("Could not create axis")
 
         centerAxis.name = 'Gear Center'
-        centerAxis.isVisible = False
+        centerAxis.isLightBulbOn = False
         ctx.centerAxis = centerAxis
         # store the gear body for later use
         ctx.gearBody = self.getComponent().bRepBodies.itemByName('Gear Body')
