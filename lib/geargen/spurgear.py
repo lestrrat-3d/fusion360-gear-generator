@@ -357,7 +357,11 @@ class SpurGearGenerator(Generator):
         (sketchOnly, ok) = get_boolean(inputs, 'sketchOnly')
         if ok:
             self.addParameter('SketchOnly', adsk.core.ValueInput.createByReal(1 if sketchOnly else 0), '', 'Draw sketch only')
-    
+
+        # Hook for subclasses to add extra primary parameters (e.g. HelixAngle)
+        # before the derived parameters below reference them.
+        self.addExtraPrimaryParameters(inputs)
+
         self.addParameter('PitchCircleDiameter', adsk.core.ValueInput.createByString(f'{self.parameterName("ToothNumber")} * {self.parameterName("Module")}'), 'mm', 'Pitch circle diameter')
         self.addParameter('PitchCircleRadius', adsk.core.ValueInput.createByString(f'{self.parameterName("PitchCircleDiameter")} / 2'), 'mm', 'Pitch circle radius')
 
@@ -372,16 +376,63 @@ class SpurGearGenerator(Generator):
         self.addParameter('TipCircleDiameter', adsk.core.ValueInput.createByString(f'{self.parameterName("PitchCircleDiameter")} + 2 * {self.parameterName("Module")}'), 'mm', 'Tip circle diameter')
         self.addParameter('TipCircleRadius', adsk.core.ValueInput.createByString(f'{self.parameterName("TipCircleDiameter")} / 2'), 'mm', 'Tip circle radius')
 
-        # currently unused
-        # self.tipClearance = 0 if self.toothNumber < 3 else module / 6
-        # currently unused
-        # self.circularPitch = self.pitchCircleDiameter * math.pi / toothNumber
-        # s = (math.acos(self.baseCircleDiameter/self.pitchCircleDiameter)/16)
         self.addParameter('InvoluteSteps', adsk.core.ValueInput.createByReal(15), '', 'Number of segments to use when drawing involute')
 
-        self.addParameter('FilletThreshold', adsk.core.ValueInput.createByString(f'{self.parameterName("BaseCircleDiameter")} * PI / ({self.parameterName("ToothNumber")} * 2) * 0.4'), 'mm', 'Maximum possible threshold')
-        # For now, filletRadius = filletThreshold
-        self.addParameter('FilletRadius', adsk.core.ValueInput.createByString(f'{self.parameterName("FilletThreshold")}'), 'mm', '')
+        # Fillet sizing. The valley between adjacent teeth at the root circle
+        # subtends an angle of PI/N - 2 * inv(PressureAngle), where
+        # inv(a) = tan(a) - a is the involute function. The flank runs
+        # involute from tip to the base circle then radial to the root, so
+        # the tooth occupies the same angle at the root as at the base.
+        #
+        # Compute the angle numerically in Python — Fusion's expression engine
+        # will not mix the unitless result of tan() with the radian PressureAngle
+        # in a subtraction, and both PressureAngle and ToothNumber are baked
+        # into the drawn sketch anyway so there is nothing to gain by keeping
+        # this expression live.
+        paRad = self.getParameter('PressureAngle').value
+        toothN = self.getParameter(PARAM_TOOTH_NUMBER).value
+        valleyAngleRad = math.pi / toothN - 2 * (math.tan(paRad) - paRad)
+
+        self.addParameter(
+            'ToothSpaceAngleAtRoot',
+            adsk.core.ValueInput.createByReal(valleyAngleRad),
+            '', 'Angular width (rad) of the valley between adjacent teeth at the root circle')
+
+        self.addParameter(
+            'ToothSpaceArcAtRoot',
+            adsk.core.ValueInput.createByString(
+                f'{self.parameterName("RootCircleRadius")} * {self.parameterName("ToothSpaceAngleAtRoot")}'
+            ),
+            'mm', 'Arc length of the valley between adjacent teeth at the root circle')
+
+        # Fraction of the half-valley used for the fillet radius. 1.0 means
+        # fillets from adjacent flanks meet at the midpoint of the valley
+        # (fully rounded root); smaller values leave a flat strip at the root.
+        self.addParameter(
+            'FilletClearance',
+            adsk.core.ValueInput.createByReal(0.9),
+            '', 'Fraction of half-valley used for the fillet radius (1.0 = fillets meet)')
+
+        self.addParameter(
+            'FilletRadius',
+            adsk.core.ValueInput.createByString(
+                f'({self.parameterName("ToothSpaceArcAtRoot")} / 2) '
+                f'* {self.parameterName("FilletClearance")} '
+                f'* ({self.filletHelixFactorExpression()})'
+            ),
+            'mm', 'Fillet radius at the root of each tooth')
+
+    # Hook for subclasses to register extra primary parameters (e.g. HelixAngle)
+    # after the input-sourced parameters but before the derived ones.
+    def addExtraPrimaryParameters(self, inputs: adsk.core.CommandInputs):
+        pass
+
+    # Expression string (in Fusion parameter syntax) that scales the fillet
+    # radius from the transverse plane into the plane perpendicular to the
+    # tooth flank. For spur gears the flank is axial, so the factor is 1.
+    # Helical/herringbone override this to apply cos(HelixAngle).
+    def filletHelixFactorExpression(self) -> str:
+        return '1'
 
     def generate(self, inputs: adsk.core.CommandInputs):
         self.processInputs(inputs)

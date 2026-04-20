@@ -36,12 +36,14 @@ class HelicalGearGenerator(SpurGearGenerator):
         return 'Helical Gear (M={}, Tooth={}, Thickness={}, Angle={})'.format(
             module.expression, toothNumber.expression, thickness.expression, helixAngle.expression)
 
-    def processInputs(self, inputs: adsk.core.CommandInputs):
-        super().processInputs(inputs)
+    def addExtraPrimaryParameters(self, inputs: adsk.core.CommandInputs):
         (helixAngle, ok) = get_value(inputs, INPUT_ID_HELIX_ANGLE, 'rad')
         if not ok:
             raise Exception('Invalid helix angle value')
         self.addParameter(PARAM_HELIX_ANGLE, helixAngle, 'rad', 'Helix angle for the helical gear')
+
+    def filletHelixFactorExpression(self) -> str:
+        return f'cos({self.parameterName(PARAM_HELIX_ANGLE)})'
 
     # Offset of the construction plane used for the twisted top profile,
     # relative to the base plane. Herringbone halves this so the mirror plane
