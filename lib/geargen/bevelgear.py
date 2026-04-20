@@ -6,6 +6,7 @@ from ...lib import fusion360utils as futil
 from .base import *
 from .misc import *
 from .utilities import *
+from .spurgear import SpurGearInvoluteToothDesignGenerator
 
 # This module follows lib/geargen/bevelgear.md literally. It stops at step 2
 # (Gear Profiles rectangle). Body/tooth construction is intentionally absent
@@ -60,6 +61,47 @@ class BevelGearCommandInputsConfigurator:
             adsk.core.ValueInput.createByReal(to_cm(0)))
         inputs.addValueInput(INPUT_ID_PINION_BASE_HEIGHT, 'Pinion Gear Base Height', 'mm',
             adsk.core.ValueInput.createByReal(to_cm(0)))
+
+
+class _Val:
+    __slots__ = ('value',)
+    def __init__(self, v):
+        self.value = v
+
+
+class _VirtualSpurProxy:
+    """Minimal stand-in for a Generator used by the SpurGearInvoluteToothDesign
+    drawer in Section 3. It supplies the parameters the drawer reads (module,
+    tooth number, pressure angle, pitch/base/root/tip circles, involute
+    steps) as Python-computed values, so we don't have to register user
+    parameters in the design just to draw two virtual spur tooth cross
+    sections."""
+
+    def __init__(self, module_mm: float, virtualTeeth: int,
+                 pressureAngle_deg: float = 20.0):
+        module_cm = to_cm(module_mm)
+        pressureAngle_rad = math.radians(pressureAngle_deg)
+        pitch_d = virtualTeeth * module_cm
+        base_d = pitch_d * math.cos(pressureAngle_rad)
+        root_d = pitch_d - 2.5 * module_cm
+        tip_d = pitch_d + 2 * module_cm
+        self._values = {
+            'Module': module_cm,
+            'ToothNumber': virtualTeeth,
+            'PressureAngle': pressureAngle_rad,
+            'PitchCircleDiameter': pitch_d,
+            'PitchCircleRadius': pitch_d / 2,
+            'BaseCircleDiameter': base_d,
+            'BaseCircleRadius': base_d / 2,
+            'RootCircleDiameter': root_d,
+            'RootCircleRadius': root_d / 2,
+            'TipCircleDiameter': tip_d,
+            'TipCircleRadius': tip_d / 2,
+            'InvoluteSteps': 15,
+        }
+
+    def getParameter(self, name):
+        return _Val(self._values[name])
 
 
 class BevelGearGenerator:
@@ -545,6 +587,135 @@ class BevelGearGenerator:
                  + pointG.geometry.x) / 2,
                 apex.geometry.y + to_cm(5), 0)
         ).parameter.value = pinionBaseHeight_cm
+
+        # Point K: construction line from G heading "away from Apex". Only
+        # constraint is coincident at G; initial direction chosen as the
+        # Apex->G unit vector so the construction points in a reasonable
+        # direction when the solver runs.
+        gk_dx = pointG.geometry.x - apex.geometry.x
+        gk_dy = pointG.geometry.y - apex.geometry.y
+        gk_len = math.sqrt(gk_dx ** 2 + gk_dy ** 2)
+        if gk_len == 0:
+            gk_ux, gk_uy = 1.0, 0.0
+        else:
+            gk_ux, gk_uy = gk_dx / gk_len, gk_dy / gk_len
+        kInit = adsk.core.Point3D.create(
+            pointG.geometry.x + gk_ux * module_cm,
+            pointG.geometry.y + gk_uy * module_cm, 0)
+        gToK = sketch.sketchCurves.sketchLines.addByTwoPoints(
+            pointG.geometry, kInit)
+        gToK.isConstruction = True
+        constraints.addCoincident(gToK.startSketchPoint, pointG)
+        pointK = gToK.endSketchPoint
+        # Doc says G->K colinear with Apex->A (lineA1). Using point-on-line
+        # coincident on the far endpoint K instead of addCollinear avoids the
+        # over-constraint error Fusion reports when the chain lineA1 ->
+        # aToE -> eToG already has pointG lying on lineA1's infinite line.
+        constraints.addCoincident(pointK, lineA1)
+        # Doc also says H->K colinear with Apex2->C (pinionDedendum). Point H
+        # is already on that line's extension via cToH, so constraining K to
+        # the same infinite line forces hToK (added below) to be colinear.
+        constraints.addCoincident(pointK, pinionDedendum)
+
+        # Construction line C->K, coincident at both ends. C and K both lie
+        # on pinionDedendum's infinite line (C as its endpoint, K via the
+        # addCoincident above), so this line runs along Apex2->C as the doc
+        # requires.
+        cToK = sketch.sketchCurves.sketchLines.addByTwoPoints(
+            pointC.geometry, pointK.geometry)
+        cToK.isConstruction = True
+        constraints.addCoincident(cToK.startSketchPoint, pointC)
+        constraints.addCoincident(cToK.endSketchPoint, pointK)
+
+        # Point L: mirror of K on the driving side. Construction line from I
+        # heading away from Apex.
+        il_dx = pointI.geometry.x - apex.geometry.x
+        il_dy = pointI.geometry.y - apex.geometry.y
+        il_len = math.sqrt(il_dx ** 2 + il_dy ** 2)
+        if il_len == 0:
+            il_ux, il_uy = 0.0, -y_up_sign
+        else:
+            il_ux, il_uy = il_dx / il_len, il_dy / il_len
+        lInit = adsk.core.Point3D.create(
+            pointI.geometry.x + il_ux * module_cm,
+            pointI.geometry.y + il_uy * module_cm, 0)
+        iToL = sketch.sketchCurves.sketchLines.addByTwoPoints(
+            pointI.geometry, lInit)
+        iToL.isConstruction = True
+        constraints.addCoincident(iToL.startSketchPoint, pointI)
+        pointL = iToL.endSketchPoint
+        # Doc says I->L colinear with Apex->B (lineB1). Same reasoning as for
+        # G->K / lineA1 above: use point-on-line on L to avoid over-constraint.
+        constraints.addCoincident(pointL, lineB1)
+        # Doc also says J->L (the doc's I->L typo) colinear with Apex2->D
+        # (drivingDedendum). Point J is on that line's extension via dToJ, so
+        # constraining L here forces jToL (below) to be colinear.
+        constraints.addCoincident(pointL, drivingDedendum)
+
+        # Construction line D->L, coincident at both ends. Mirror of C->K.
+        dToL = sketch.sketchCurves.sketchLines.addByTwoPoints(
+            pointD.geometry, pointL.geometry)
+        dToL.isConstruction = True
+        constraints.addCoincident(dToL.startSketchPoint, pointD)
+        constraints.addCoincident(dToL.endSketchPoint, pointL)
+
+        # ----- Section 3: Gear Tooth Profiles -----
+        # Virtual pitch radii per the doc: length(Apex2->K) for the pinion and
+        # length(Apex2->L) for the driving gear. Computed from the known
+        # rectangle geometry rather than measured from the sketch: for a pair
+        # of bevel gears with horizontal (pinion) and vertical (driving) shaft
+        # axes and 90 degree shaft angle, cos(pitchConeAngle_pinion) =
+        # drivingPD / hypot and cos(pitchConeAngle_driving) = pinionPD / hypot,
+        # where hypot = sqrt(drivingPD^2 + pinionPD^2).
+        hypot_cm = math.sqrt(drivingPD_cm ** 2 + pinionPD_cm ** 2)
+        pinionVirtualPitchRadius_cm = (
+            pinionPD_cm * hypot_cm / (2 * drivingPD_cm))
+        drivingVirtualPitchRadius_cm = (
+            drivingPD_cm * hypot_cm / (2 * pinionPD_cm))
+        pinionVirtualTeeth = int(math.ceil(
+            2 * pinionVirtualPitchRadius_cm / module_cm))
+        drivingVirtualTeeth = int(math.ceil(
+            2 * drivingVirtualPitchRadius_cm / module_cm))
+
+        self._buildVirtualSpurProfile(
+            component=component,
+            referencePlane=axialPlane,
+            lineToInclude=cToK,
+            anchorPoint=pointK,
+            module_mm=module_mm,
+            virtualTeeth=pinionVirtualTeeth,
+            name='Pinion Tooth Profile')
+
+        self._buildVirtualSpurProfile(
+            component=component,
+            referencePlane=axialPlane,
+            lineToInclude=dToL,
+            anchorPoint=pointL,
+            module_mm=module_mm,
+            virtualTeeth=drivingVirtualTeeth,
+            name='Driving Tooth Profile')
+
+    def _buildVirtualSpurProfile(self, component, referencePlane, lineToInclude,
+                                  anchorPoint, module_mm, virtualTeeth, name):
+        """Create a plane perpendicular to the Gear Profiles sketch plane
+        that includes the given line, and draw a virtual spur gear tooth
+        profile on it centered at anchorPoint."""
+        planeInput = component.constructionPlanes.createInput()
+        planeInput.setByAngle(
+            lineToInclude,
+            adsk.core.ValueInput.createByString('90 deg'),
+            referencePlane)
+        toothPlane = component.constructionPlanes.add(planeInput)
+        toothPlane.name = f'{name} Plane'
+
+        sketch = component.sketches.add(toothPlane)
+        sketch.name = name
+
+        proxy = _VirtualSpurProxy(
+            module_mm=module_mm,
+            virtualTeeth=virtualTeeth)
+        drawer = SpurGearInvoluteToothDesignGenerator(sketch, proxy)
+        drawer.draw(anchorPoint)
 
     def _pointWorldGeometry(self, point) -> adsk.core.Point3D:
         if point.objectType == adsk.fusion.SketchPoint.classType():

@@ -24,7 +24,7 @@ Pinion Gear Teeth Number: user-specified number of teeth on the pinion gear.
 
 Pinion Gear Pitch Diameter: calculated number. Module * Teeth Number of the pinion gear.
 
-Driving Gear Base Height: user-specified positive number, default 0mm (i.e. unspecified) .
+Driving Gear Base Height: user-specified positive number, default 0mm (i.e. unspecified).
 
 Pinion Gear Base Height: user-specified positive number, default 0mm (i.e. unspecified).
 
@@ -48,7 +48,7 @@ Create a line that intersects with the projected center point by applying the in
 
 ### 2: Gear Profiles
 
-Using ConstructionPlaneInput.setByAngle, create a plane that includes the Anchor Line, and set it at 90 degrees (as by default it would lay flush to the plane of the anchor line, but we want it perpendicular). Create a sketch on this plane.
+Using ConstructionPlaneInput.setByAngle, create a plane that includes the Anchor Line, and set it at 90 degrees (as by default it would lie flush to the plane of the anchor line, but we want it perpendicular). Create a sketch on this plane.
 
 In the sketch, project the center point from the Anchor Sketch.
 
@@ -78,7 +78,7 @@ Draw a construction line from point D to point F. constrain each end to respecti
 
 Draw a construction line from point E colinear to line A->E, with length equal to module (but do NOT add dimensional constraint). Constrain point E and the beginning of this line. Let the end be known as point G.
 
-From point C, draw a line with length equal to module (but do NOT add dimensional constraint). Constrain point C and the beginning of this line.  Let the end of the new line be point H. Line C->H should be colinear with line Apex2->C.
+From point C, draw a line with length equal to module (but do NOT add dimensional constraint). Constrain point C and the beginning of this line. Let the end of the new line be point H. Line C->H should be colinear with line Apex2->C.
 
 Connect point G and H with a line. Constrain end points of line accordingly with coincidence constraints. Constrain line E->G and H->G with a perpendicular constraint.
 
@@ -86,15 +86,38 @@ Connect point G and H with a line. Constrain end points of line accordingly with
 Draw a construction line from point F colinear to line B->F, with length equal to module (but do NOT add dimensional constraint). Constrain point F and the beginning of this line. Let the end be known as point I.
 
 
-From point D, draw a  line with length equal to module (but do NOT add dimensional constraint). Constrain point D and the beginning of this line. Let the end of the new line be point J. Line D->J should be colinear with line Apex2->D.
+From point D, draw a line with length equal to module (but do NOT add dimensional constraint). Constrain point D and the beginning of this line. Let the end of the new line be point J. Line D->J should be colinear with line Apex2->D.
 
 Connect point I and J with a line. Constrain end points of line accordingly with coincidence constraints. Constrain line F->I and J->I with a perpendicular constraint.
 
-Create a dimension constraint between lines Apex2->B and J->I. The value of this constraint should be equal to Driving Gear Base Height _if_ it is specified (non-0). Otherwise, compute the value as module * teeth number / 8.
+Create a dimension constraint between lines Apex2->B and J->I. The value of this constraint should be equal to Driving Gear Base Height _if_ it is specified (non-0). Otherwise, compute the value as module * Driving Gear Teeth Number / 8.
 
 Create a dimension constraint between lines Apex2->A and G->H. The value of
-this constraint should be equal to Pinion Gear Base Hiehgt _if_ it is specified (non-0). Otherwise, compute the value as Driving Gear Base Height * (Pinion Gear Teeth Number / Driving Gear Teeth Number).
+this constraint should be equal to Pinion Gear Base Height _if_ it is specified (non-0). Otherwise, compute the value as Driving Gear Base Height * (Pinion Gear Teeth Number / Driving Gear Teeth Number).
 
 Draw a line from Apex to G. Constrain endpoints appropriately.
 
 Constrain Point I with center point.
+
+
+Draw a construction line away from Apex, starting from point G. This new line should be colinear with Apex->A. Apply coincidence constraint on beginning of this line and point G. Let the end of this new line be point K.
+
+Draw a construction line from point C to K. Constrain both ends appropriately. C->K should be colinear with Apex2->C.
+
+Draw a construction line away from Apex, starting from point I. This line should be colinear with Apex->B. Apply coincidence constraint on beginning of this line and point I. Let the end of this new line be point L.
+
+Draw a construction line from point D to L. Constrain both ends appropriately. D->L should be colinear with Apex2->D.
+
+### 3: Gear Tooth Profiles
+
+Obtain the length of line Apex2->K. This is the virtual pitch radius of the pinion tooth profile; twice this length is the virtual pitch diameter. Divide the virtual pitch diameter by module to obtain the virtual tooth number; if fractional, take the ceiling and convert it to an integer. This shall be the virtual tooth number of the pinion tooth profile.
+
+Create a new plane that includes line C->K. Use setByAngle to make this plane perpendicular to the Gear Profiles sketch plane.
+
+Using the new plane and point K as the center point, create a spur gear tooth profile with module and the virtual tooth number obtained from the previous step.
+
+Obtain the length of line Apex2->L. This is the virtual pitch radius of the driving gear tooth profile; twice this length is the virtual pitch diameter. Divide the virtual pitch diameter by module to obtain the virtual tooth number; if fractional, take the ceiling and convert it to an integer. This shall be the virtual tooth number of the driving gear tooth profile.
+
+Create a new plane that includes line D->L. Use setByAngle to make this plane perpendicular to the Gear Profiles sketch plane.
+
+Using the new plane and point L as the center point, create a spur gear tooth profile with module and the virtual tooth number obtained from the previous step.
