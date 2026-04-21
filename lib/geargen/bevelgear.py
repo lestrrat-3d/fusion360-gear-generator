@@ -20,6 +20,7 @@ INPUT_ID_DRIVING_TEETH = 'drivingTeeth'
 INPUT_ID_PINION_TEETH = 'pinionTeeth'
 INPUT_ID_DRIVING_BASE_HEIGHT = 'drivingBaseHeight'
 INPUT_ID_PINION_BASE_HEIGHT = 'pinionBaseHeight'
+INPUT_ID_FACE_WIDTH = 'faceWidth'
 
 
 class BevelGearCommandInputsConfigurator:
@@ -54,12 +55,14 @@ class BevelGearCommandInputsConfigurator:
             adsk.core.ValueInput.createByReal(1))
         moduleInput.isFullWidth = False
         inputs.addValueInput(INPUT_ID_DRIVING_TEETH, 'Driving Gear Teeth', '',
-            adsk.core.ValueInput.createByReal(24))
+            adsk.core.ValueInput.createByReal(31))
         inputs.addValueInput(INPUT_ID_PINION_TEETH, 'Pinion Gear Teeth', '',
-            adsk.core.ValueInput.createByReal(12))
+            adsk.core.ValueInput.createByReal(31))
         inputs.addValueInput(INPUT_ID_DRIVING_BASE_HEIGHT, 'Driving Gear Base Height', 'mm',
             adsk.core.ValueInput.createByReal(to_cm(0)))
         inputs.addValueInput(INPUT_ID_PINION_BASE_HEIGHT, 'Pinion Gear Base Height', 'mm',
+            adsk.core.ValueInput.createByReal(to_cm(0)))
+        inputs.addValueInput(INPUT_ID_FACE_WIDTH, 'Face Width', 'mm',
             adsk.core.ValueInput.createByReal(to_cm(0)))
 
 
@@ -142,7 +145,34 @@ class BevelGearGenerator:
 
         self._buildGearProfiles(
             designComponent, targetPlane, anchorLine, centerPoint,
-            module, drivingPitchDiameter_cm, pinionPitchDiameter_cm)
+            module, drivingPitchDiameter_cm, pinionPitchDiameter_cm,
+            drivingTeeth=drivingTeeth, pinionTeeth=pinionTeeth,
+            bevelComponent=bevelComponent,
+            designOccurrence=designOccurrence)
+
+        # Cleanup: hide all sketches, construction planes, and construction
+        # axes across the Bevel Gear component tree so only the finished
+        # gear bodies are visible.
+        self._hideConstructionGeometry(bevelComponent)
+
+    @staticmethod
+    def _hideConstructionGeometry(rootComponent):
+        visited = set()
+
+        def walk(comp):
+            if comp.entityToken in visited:
+                return
+            visited.add(comp.entityToken)
+            for sk in comp.sketches:
+                sk.isLightBulbOn = False
+            for pl in comp.constructionPlanes:
+                pl.isLightBulbOn = False
+            for ax in comp.constructionAxes:
+                ax.isLightBulbOn = False
+            for occ in comp.occurrences:
+                walk(occ.component)
+
+        walk(rootComponent)
 
     def deleteComponent(self):
         if self.bevelOccurrence is not None:
@@ -194,8 +224,10 @@ class BevelGearGenerator:
 
         self._drivingBaseHeight_cm = evalNum(INPUT_ID_DRIVING_BASE_HEIGHT, 'mm')
         self._pinionBaseHeight_cm = evalNum(INPUT_ID_PINION_BASE_HEIGHT, 'mm')
-        if self._drivingBaseHeight_cm < 0 or self._pinionBaseHeight_cm < 0:
-            raise Exception('Base heights must be positive numbers')
+        self._faceWidth_cm = evalNum(INPUT_ID_FACE_WIDTH, 'mm')
+        if (self._drivingBaseHeight_cm < 0 or self._pinionBaseHeight_cm < 0
+                or self._faceWidth_cm < 0):
+            raise Exception('Base heights and face width must be positive numbers')
 
         return (parentComponent, targetPlane, centerPoint,
                 module, drivingTeeth, pinionTeeth)
@@ -238,7 +270,9 @@ class BevelGearGenerator:
         return anchorLine
 
     def _buildGearProfiles(self, component, targetPlane, anchorLine,
-                           centerPoint, module_mm, drivingPD_cm, pinionPD_cm):
+                           centerPoint, module_mm, drivingPD_cm, pinionPD_cm,
+                           drivingTeeth=None, pinionTeeth=None,
+                           bevelComponent=None, designOccurrence=None):
         """Step 2 of the doc: axial construction plane, Gear Profiles sketch
         with the apex, the two-path construction rectangle, Apex 2, the Pitch
         Line, the two Dedendum lines and the two Root Axis lines."""
@@ -290,6 +324,7 @@ class BevelGearGenerator:
         # pins it through the chained perpendicular/colinear constraints.
         centerToApex = sketch.sketchCurves.sketchLines.addByTwoPoints(
             projectedCenter.geometry, apex_local)
+        centerToApex.isConstruction = True
         constraints.addCoincident(centerToApex.startSketchPoint, projectedCenter)
         constraints.addVertical(centerToApex)
         apex = centerToApex.endSketchPoint
@@ -408,16 +443,18 @@ class BevelGearGenerator:
                 (a2x + pinionDedEnd.x) / 2 + to_cm(2),
                 (a2y + pinionDedEnd.y) / 2 + to_cm(2), 0))
 
-        # Root Axis lines: from Apex to each Dedendum endpoint. Fully fixed by
-        # the coincident constraints at both ends.
+        # Root Axis lines (construction): from Apex to each Dedendum endpoint.
+        # Fully fixed by the coincident constraints at both ends.
         drivingRootAxis = sketch.sketchCurves.sketchLines.addByTwoPoints(
             apex.geometry, drivingDedendum.endSketchPoint.geometry)
+        drivingRootAxis.isConstruction = True
         constraints.addCoincident(drivingRootAxis.startSketchPoint, apex)
         constraints.addCoincident(
             drivingRootAxis.endSketchPoint, drivingDedendum.endSketchPoint)
 
         pinionRootAxis = sketch.sketchCurves.sketchLines.addByTwoPoints(
             apex.geometry, pinionDedendum.endSketchPoint.geometry)
+        pinionRootAxis.isConstruction = True
         constraints.addCoincident(pinionRootAxis.startSketchPoint, apex)
         constraints.addCoincident(
             pinionRootAxis.endSketchPoint, pinionDedendum.endSketchPoint)
@@ -539,11 +576,11 @@ class BevelGearGenerator:
         constraints.addCoincident(iToJ.endSketchPoint, pointJ)
         constraints.addPerpendicular(fToI, iToJ)
 
-        # Solid line from Apex to G, coincident at both ends.
-        apexToG = sketch.sketchCurves.sketchLines.addByTwoPoints(
-            apex.geometry, pointG.geometry)
-        constraints.addCoincident(apexToG.startSketchPoint, apex)
-        constraints.addCoincident(apexToG.endSketchPoint, pointG)
+        # Solid line from A to G, coincident at both ends.
+        aToG = sketch.sketchCurves.sketchLines.addByTwoPoints(
+            pointA.geometry, pointG.geometry)
+        constraints.addCoincident(aToG.startSketchPoint, pointA)
+        constraints.addCoincident(aToG.endSketchPoint, pointG)
 
         # Pin the rectangle vertically by making point I coincident with the
         # projected center. Point I already lies on the Driving Gear Shaft
@@ -627,6 +664,61 @@ class BevelGearGenerator:
         constraints.addCoincident(cToK.startSketchPoint, pointC)
         constraints.addCoincident(cToK.endSketchPoint, pointK)
 
+        # Face Width resolution: user value if > 0, else Cone Distance / 6
+        # where Cone Distance = hypot(drivingPD, pinionPD) per the doc's
+        # Variables section.
+        if self._faceWidth_cm > 0:
+            faceWidth_cm = self._faceWidth_cm
+        else:
+            coneDistance_cm = math.sqrt(drivingPD_cm ** 2 + pinionPD_cm ** 2)
+            faceWidth_cm = coneDistance_cm / 6.0
+
+        # Doc line 115: a new line from pinionRootAxis (Apex->C) to lineA2
+        # (A->Apex2), parallel to C->H. M on pinionRootAxis, N on lineA2.
+        # The M-N line is offset from C->H by Face Width.
+        # Initial placement: parallel to cToH direction through a midpoint.
+        ch_dx = pointH.geometry.x - pointC.geometry.x
+        ch_dy = pointH.geometry.y - pointC.geometry.y
+        ch_len = math.sqrt(ch_dx ** 2 + ch_dy ** 2)
+        ch_ux = ch_dx / ch_len
+        ch_uy = ch_dy / ch_len
+        m_init = adsk.core.Point3D.create(
+            (apex.geometry.x + pointC.geometry.x) / 2,
+            (apex.geometry.y + pointC.geometry.y) / 2, 0)
+        # Slide n_init along ch direction from m_init enough to roughly reach
+        # lineA2. The exact value is irrelevant for initial placement; the
+        # constraints below settle it.
+        approxLen = math.sqrt(
+            (lineA2.startSketchPoint.geometry.x - m_init.x) ** 2
+            + (lineA2.startSketchPoint.geometry.y - m_init.y) ** 2)
+        n_init = adsk.core.Point3D.create(
+            m_init.x + ch_ux * approxLen,
+            m_init.y + ch_uy * approxLen, 0)
+        mToN = sketch.sketchCurves.sketchLines.addByTwoPoints(m_init, n_init)
+        pointM = mToN.startSketchPoint
+        pointN = mToN.endSketchPoint
+        constraints.addCoincident(pointM, pinionRootAxis)
+        constraints.addCoincident(pointN, lineA2)
+        constraints.addParallel(mToN, cToH)
+
+        dims.addOffsetDimension(
+            cToH, mToN,
+            adsk.core.Point3D.create(
+                (m_init.x + pointC.geometry.x) / 2,
+                (m_init.y + pointC.geometry.y) / 2, 0)
+        ).parameter.value = faceWidth_cm
+
+        # Doc line 113: lines from M to C and from N to A.
+        mToC = sketch.sketchCurves.sketchLines.addByTwoPoints(
+            pointM.geometry, pointC.geometry)
+        constraints.addCoincident(mToC.startSketchPoint, pointM)
+        constraints.addCoincident(mToC.endSketchPoint, pointC)
+
+        nToA = sketch.sketchCurves.sketchLines.addByTwoPoints(
+            pointN.geometry, pointA.geometry)
+        constraints.addCoincident(nToA.startSketchPoint, pointN)
+        constraints.addCoincident(nToA.endSketchPoint, pointA)
+
         # Point L: mirror of K on the driving side. Construction line from I
         # heading away from Apex.
         il_dx = pointI.geometry.x - apex.geometry.x
@@ -659,6 +751,55 @@ class BevelGearGenerator:
         constraints.addCoincident(dToL.startSketchPoint, pointD)
         constraints.addCoincident(dToL.endSketchPoint, pointL)
 
+        # Doc line 123: mirror of the M/N construction for the driving side.
+        # O on drivingRootAxis (Apex->D), P on lineB2 (B->Apex2), O-P parallel
+        # to D->J. No dimensional constraint on this side per the doc.
+        dj_dx = pointJ.geometry.x - pointD.geometry.x
+        dj_dy = pointJ.geometry.y - pointD.geometry.y
+        dj_len = math.sqrt(dj_dx ** 2 + dj_dy ** 2)
+        dj_ux = dj_dx / dj_len
+        dj_uy = dj_dy / dj_len
+        o_init = adsk.core.Point3D.create(
+            (apex.geometry.x + pointD.geometry.x) / 2,
+            (apex.geometry.y + pointD.geometry.y) / 2, 0)
+        approxLenD = math.sqrt(
+            (lineB2.startSketchPoint.geometry.x - o_init.x) ** 2
+            + (lineB2.startSketchPoint.geometry.y - o_init.y) ** 2)
+        p_init = adsk.core.Point3D.create(
+            o_init.x + dj_ux * approxLenD,
+            o_init.y + dj_uy * approxLenD, 0)
+        oToP = sketch.sketchCurves.sketchLines.addByTwoPoints(o_init, p_init)
+        pointO = oToP.startSketchPoint
+        pointP = oToP.endSketchPoint
+        constraints.addCoincident(pointO, drivingRootAxis)
+        constraints.addCoincident(pointP, lineB2)
+        constraints.addParallel(oToP, dToJ)
+
+        dims.addOffsetDimension(
+            dToJ, oToP,
+            adsk.core.Point3D.create(
+                (o_init.x + pointD.geometry.x) / 2,
+                (o_init.y + pointD.geometry.y) / 2, 0)
+        ).parameter.value = faceWidth_cm
+
+        # Doc line 121: lines from O to D and from P to B (mirror of M-to-C
+        # and N-to-A on the pinion side).
+        oToD = sketch.sketchCurves.sketchLines.addByTwoPoints(
+            pointO.geometry, pointD.geometry)
+        constraints.addCoincident(oToD.startSketchPoint, pointO)
+        constraints.addCoincident(oToD.endSketchPoint, pointD)
+
+        pToB = sketch.sketchCurves.sketchLines.addByTwoPoints(
+            pointP.geometry, pointB.geometry)
+        constraints.addCoincident(pToB.startSketchPoint, pointP)
+        constraints.addCoincident(pToB.endSketchPoint, pointB)
+
+        # Doc line 121: additional line from B to I.
+        bToI = sketch.sketchCurves.sketchLines.addByTwoPoints(
+            pointB.geometry, pointI.geometry)
+        constraints.addCoincident(bToI.startSketchPoint, pointB)
+        constraints.addCoincident(bToI.endSketchPoint, pointI)
+
         # ----- Section 3: Gear Tooth Profiles -----
         # Virtual pitch radii per the doc: length(Apex2->K) for the pinion and
         # length(Apex2->L) for the driving gear. Computed from the known
@@ -672,34 +813,476 @@ class BevelGearGenerator:
             pinionPD_cm * hypot_cm / (2 * drivingPD_cm))
         drivingVirtualPitchRadius_cm = (
             drivingPD_cm * hypot_cm / (2 * pinionPD_cm))
-        pinionVirtualTeeth = int(math.ceil(
+        pinionVirtualTeeth = int(math.floor(
             2 * pinionVirtualPitchRadius_cm / module_cm))
-        drivingVirtualTeeth = int(math.ceil(
+        drivingVirtualTeeth = int(math.floor(
             2 * drivingVirtualPitchRadius_cm / module_cm))
 
-        self._buildVirtualSpurProfile(
+        pinionToothSketch = self._buildVirtualSpurProfile(
             component=component,
             referencePlane=axialPlane,
             lineToInclude=cToK,
             anchorPoint=pointK,
             module_mm=module_mm,
             virtualTeeth=pinionVirtualTeeth,
-            name='Pinion Tooth Profile')
+            name='Pinion Tooth Profile',
+            rotationDegrees=180.0)
 
-        self._buildVirtualSpurProfile(
+        drivingToothSketch = self._buildVirtualSpurProfile(
             component=component,
             referencePlane=axialPlane,
             lineToInclude=dToL,
             anchorPoint=pointL,
             module_mm=module_mm,
             virtualTeeth=drivingVirtualTeeth,
-            name='Driving Tooth Profile')
+            name='Driving Tooth Profile',
+            rotationDegrees=180.0)
+
+        # ----- Create the Pinion Gear and Driving Gear bodies -----
+        # The doc says "child of Parent Component" but the overall Component
+        # Setup section describes a single outer component containing the
+        # design + two gears, so we add the gear components under the Bevel
+        # Gear parent that already owns the Design sub-component.
+        if bevelComponent is not None:
+            self._createGearBody(
+                bevelComponent=bevelComponent,
+                designComponent=component,
+                designOccurrence=designOccurrence,
+                axialPlane=axialPlane,
+                name='Pinion Gear',
+                profilePoints=[pointA, pointG, pointH, pointC, pointM, pointN],
+                apexPoint=apex,
+                toothSketch=pinionToothSketch,
+                cutLines=[mToN, cToH],
+                toothCount=pinionTeeth)
+            self._createGearBody(
+                bevelComponent=bevelComponent,
+                designComponent=component,
+                designOccurrence=designOccurrence,
+                axialPlane=axialPlane,
+                name='Driving Gear',
+                profilePoints=[pointB, pointI, pointJ, pointD, pointO, pointP],
+                apexPoint=apex,
+                toothSketch=drivingToothSketch,
+                cutLines=[oToP, dToJ],
+                toothCount=drivingTeeth,
+                meshingOffsetDegrees=(180.0 / drivingTeeth
+                                      if drivingTeeth else None))
+
+    def _createGearBody(self, bevelComponent, designComponent, axialPlane,
+                         name, profilePoints, apexPoint=None, toothSketch=None,
+                         cutLines=None, toothCount=None,
+                         meshingOffsetDegrees=None,
+                         designOccurrence=None):
+        # Make sure we're operating in the Design occurrence's context for
+        # the subsequent feature calls; addNewComponent above can shift the
+        # active context, which then makes Fusion fail to resolve sketch
+        # entities that live in Design (Path.create in particular needs an
+        # active context whose component matches the entity owner).
+        """Build a bevel gear sub-component. Despite the doc's
+        "operations within this new component" wording, every step here runs
+        in `designComponent` — Fusion's API rejects cross-sibling references
+        (sketches.add, project) even when the target component is activated
+        and the entities are wrapped in createForAssemblyContext proxies.
+        After all features run in Design, the resulting bodies are moved
+        into the gear sub-component."""
+        gearOcc = bevelComponent.occurrences.addNewComponent(
+            adsk.core.Matrix3D.create())
+        gearOcc.component.name = name
+
+        if designOccurrence is not None:
+            try:
+                designOccurrence.activate()
+            except Exception:
+                pass
+
+        # Step 1: revolve the hexagonal profile in Design.
+        profileSketch = designComponent.sketches.add(axialPlane)
+        profileSketch.name = f'{name} Profile'
+
+        projected = []
+        for pt in profilePoints:
+            projected.append(profileSketch.project(pt).item(0))
+
+        lines = profileSketch.sketchCurves.sketchLines
+        sketchLines = []
+        for i in range(len(projected)):
+            a = projected[i]
+            b = projected[(i + 1) % len(projected)]
+            sketchLines.append(lines.addByTwoPoints(a.geometry, b.geometry))
+
+        expectedCurves = len(sketchLines)
+        profile = None
+        for p in profileSketch.profiles:
+            for loop in p.profileLoops:
+                if loop.profileCurves.count == expectedCurves:
+                    profile = p
+                    break
+            if profile is not None:
+                break
+        if profile is None:
+            raise Exception(f'{name}: could not find revolve profile')
+
+        revolves = designComponent.features.revolveFeatures
+        revolveInput = revolves.createInput(
+            profile,
+            sketchLines[0],
+            adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+        revolveInput.setAngleExtent(False,
+            adsk.core.ValueInput.createByReal(2 * math.pi))
+        revolveResult = revolves.add(revolveInput)
+        revolveResult.name = f'{name} Revolve'
+
+        frustumBodies = []
+        for i in range(revolveResult.bodies.count):
+            b = revolveResult.bodies.item(i)
+            b.name = f'{name} Body'
+            frustumBodies.append(b)
+
+        # Step 2: loft tooth from apex to tooth profile as a separate body.
+        toothBodies = []
+        if apexPoint is not None and toothSketch is not None:
+            toothProfile = self._findSpurToothProfile(toothSketch)
+            if toothProfile is not None:
+                lofts = designComponent.features.loftFeatures
+                loftInput = lofts.createInput(
+                    adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+                loftInput.loftSections.add(apexPoint)
+                loftInput.loftSections.add(toothProfile)
+                try:
+                    loftResult = lofts.add(loftInput)
+                    loftResult.name = f'{name} Tooth Loft'
+                    for i in range(loftResult.bodies.count):
+                        b = loftResult.bodies.item(i)
+                        b.name = f'{name} Tooth Body'
+                        toothBodies.append(b)
+                except Exception as e:
+                    futil.log(f'{name}: tooth loft failed ({e})')
+
+        # Step 3: two sequential conical-surface cuts on the tooth body, then
+        # drop the apex-side piece and the smaller of the two remaining
+        # pieces. The conical surfaces needed for the cuts are already faces
+        # of the frustum body (the cut edges M->N and C->H, or O->P and
+        # D->J, are sides of the revolved hexagon), so we locate them by
+        # heuristic instead of building separate surfaces -- building a
+        # fresh revolved surface from a cross-component sketch line trips
+        # Fusion's path-resolution checks.
+        futil.log(
+            f'{name}: pre-cut state: cutLines={len(cutLines) if cutLines else 0}, '
+            f'toothBodies={len(toothBodies)}, frustumBodies={len(frustumBodies)}',
+            force_console=True)
+        if (cutLines and toothBodies and frustumBodies):
+            toothBodies = self._applyConicalCut(
+                designComponent, toothBodies, frustumBodies[0],
+                cutLines, apexPoint, name)
+
+        # Step 3.5: circular-pattern the surviving tooth piece around the
+        # shaft axis. sketchLines[0] is the hexagon's first edge (A->G for
+        # pinion, B->I for driving), colinear with the gear's shaft axis,
+        # so it serves as the pattern axis.
+        if toothBodies and toothCount and toothCount > 1 and sketchLines:
+            patternAxis = sketchLines[0]
+            patternBodies = adsk.core.ObjectCollection.create()
+            for b in toothBodies:
+                if b.isValid:
+                    patternBodies.add(b)
+            if patternBodies.count > 0:
+                patterns = designComponent.features.circularPatternFeatures
+                patternInput = patterns.createInput(patternBodies, patternAxis)
+                patternInput.quantity = adsk.core.ValueInput.createByReal(
+                    float(toothCount))
+                patternInput.totalAngle = adsk.core.ValueInput.createByString(
+                    '360 deg')
+                patternInput.isSymmetric = False
+                patternResult = patterns.add(patternInput)
+                patternResult.name = f'{name} Tooth Pattern'
+                # Collect the patterned bodies (they include the original
+                # plus N-1 new copies).
+                allTeeth = list(toothBodies)
+                for i in range(patternResult.bodies.count):
+                    pb = patternResult.bodies.item(i)
+                    if pb.isValid and pb not in allTeeth:
+                        allTeeth.append(pb)
+                toothBodies = allTeeth
+                futil.log(
+                    f'{name}: pattern produced {len(toothBodies)} tooth '
+                    f'body(ies) total (target count {toothCount})',
+                    force_console=True)
+
+        # Step 4: join all (patterned) tooth pieces into the gear body in a
+        # single Combine-Join.
+        if toothBodies and frustumBodies:
+            target = frustumBodies[0]
+            tools = adsk.core.ObjectCollection.create()
+            for b in toothBodies:
+                if b.isValid:
+                    tools.add(b)
+            if tools.count > 0:
+                combines = designComponent.features.combineFeatures
+                combineInput = combines.createInput(target, tools)
+                combineInput.operation = (
+                    adsk.fusion.FeatureOperations.JoinFeatureOperation)
+                try:
+                    combines.add(combineInput)
+                except Exception as e:
+                    futil.log(
+                        f'{name}: could not join tooth into body ({e})')
+
+        # Step 5 (driving gear only): rotate the finished body by half its
+        # tooth pitch around the shaft axis so the teeth appear to mesh
+        # with the pinion. Done BEFORE moveToComponent so we stay in the
+        # Design component's context (where we can add construction axes
+        # reliably) rather than the gear sub-component (where
+        # `constructionAxes.add` fails with "Environment is not
+        # supported"). Functionally identical to rotating afterwards.
+        # MoveFeatures.defineAsRotate requires a linear edge or
+        # construction axis -- a SketchLine is rejected as "Invalid
+        # entity" -- so we build a construction axis from the hexagon's
+        # B->I world geometry.
+        if (meshingOffsetDegrees and sketchLines and frustumBodies):
+            shaftLine = sketchLines[0]
+            p1 = shaftLine.startSketchPoint.worldGeometry
+            p2 = shaftLine.endSketchPoint.worldGeometry
+            direction = adsk.core.Vector3D.create(
+                p2.x - p1.x, p2.y - p1.y, p2.z - p1.z)
+            direction.normalize()
+
+            # Build a rotation matrix around the world-space shaft axis
+            # and apply it via MoveFeatures.defineAsFreeMove. This avoids
+            # needing a construction axis entity -- adding construction
+            # axes in this context errors with "Environment is not
+            # supported", and defineAsRotate requires a linear edge or
+            # construction axis (SketchLine is rejected).
+            transform = adsk.core.Matrix3D.create()
+            transform.setToRotation(
+                math.radians(meshingOffsetDegrees), direction, p1)
+
+            bodyCol = adsk.core.ObjectCollection.create()
+            for body in frustumBodies:
+                if body.isValid:
+                    bodyCol.add(body)
+            if bodyCol.count > 0:
+                moves = designComponent.features.moveFeatures
+                moveInput = moves.createInput2(bodyCol)
+                moveInput.defineAsFreeMove(transform)
+                moves.add(moveInput)
+                futil.log(
+                    f'{name}: applied meshing rotation '
+                    f'{meshingOffsetDegrees:.4f} deg around shaft axis',
+                    force_console=True)
+
+        # Step 6: move surviving bodies (the frustum, now containing the
+        # joined tooth) to the gear sub-component.
+        for body in frustumBodies:
+            if not body.isValid:
+                continue
+            try:
+                body.moveToComponent(gearOcc)
+            except Exception as e:
+                futil.log(
+                    f'{name}: could not move body ({e}); stays in Design')
+
+    def _applyConicalCut(self, component, bodies, frustumBody, cutLines,
+                          apexPoint, name):
+        """Apply each cut in `cutLines` sequentially to every piece in
+        `bodies`, sourcing the cutting tool as an existing conical face of
+        `frustumBody` (the cut edges are sides of the revolved hexagon).
+        After all cuts, expect exactly three pieces total: drop the piece
+        containing the apex, drop the smaller of the two remaining (by
+        volume), and return the largest -- the actual tooth."""
+        splits = component.features.splitBodyFeatures
+        current = list(bodies)
+        for cutIdx, cutLine in enumerate(cutLines):
+            cutFace = self._findConeFaceForCutLine(
+                frustumBody, cutLine, f'{name} cut#{cutIdx + 1}')
+            if cutFace is None:
+                raise Exception(
+                    f'{name}: could not locate cone face for cut#{cutIdx + 1} '
+                    f'on frustum body (searched {frustumBody.faces.count} '
+                    f'face(s)) -- cutLine endpoints did not lie on any cone '
+                    f'face within tolerance')
+            futil.log(
+                f'{name}: cut#{cutIdx + 1}: splitting {len(current)} body(ies)',
+                force_console=True)
+            nextPieces = []
+            for body in current:
+                if not body.isValid:
+                    continue
+                splitInput = splits.createInput(body, cutFace, True)
+                try:
+                    splitResult = splits.add(splitInput)
+                except RuntimeError as e:
+                    # SPLIT_TARGET_TOOL_NOT_INTERSECT: the cut tool doesn't
+                    # cross this piece (expected when the second cut sits
+                    # past the first cut's plane). Keep the piece intact.
+                    msg = str(e)
+                    if 'SPLIT_TARGET_TOOL_NOT_INTERSECT' in msg or \
+                       '交差' in msg:
+                        futil.log(
+                            f'{name}: cut#{cutIdx + 1}: tool does not '
+                            f'intersect body "{body.name}", keeping intact',
+                            force_console=True)
+                        nextPieces.append(body)
+                        continue
+                    raise
+                futil.log(
+                    f'{name}: cut#{cutIdx + 1}: split produced '
+                    f'{splitResult.bodies.count} piece(s)',
+                    force_console=True)
+                for i in range(splitResult.bodies.count):
+                    nextPieces.append(splitResult.bodies.item(i))
+            current = nextPieces
+
+        if len(current) != 3:
+            raise Exception(
+                f'{name}: expected three pieces after both cuts, got '
+                f'{len(current)}')
+
+        apexWorld = None
+        if apexPoint is not None:
+            try:
+                apexWorld = apexPoint.worldGeometry
+            except Exception:
+                apexWorld = None
+
+        apexPieces = []
+        nonApexPieces = []
+        for idx, body in enumerate(current):
+            if not body.isValid:
+                continue
+            containment = None
+            if apexWorld is not None:
+                containment = body.pointContainment(apexWorld)
+            isApex = containment in (
+                adsk.fusion.PointContainment.PointInsidePointContainment,
+                adsk.fusion.PointContainment.PointOnPointContainment)
+            futil.log(
+                f'{name}: piece[{idx}] containment={containment} '
+                f'-> {"APEX" if isApex else "non-apex"}',
+                force_console=True)
+            (apexPieces if isApex else nonApexPieces).append(body)
+
+        if len(apexPieces) != 1:
+            raise Exception(
+                f'{name}: expected exactly one apex-containing piece, got '
+                f'{len(apexPieces)}')
+        if len(nonApexPieces) != 2:
+            raise Exception(
+                f'{name}: expected exactly two non-apex pieces, got '
+                f'{len(nonApexPieces)}')
+
+        nonApexPieces.sort(key=lambda b: b.physicalProperties.volume)
+        smallerPiece = nonApexPieces[0]
+        largerPiece = nonApexPieces[1]
+        futil.log(
+            f'{name}: piece volumes: smaller='
+            f'{smallerPiece.physicalProperties.volume:.6f} larger='
+            f'{largerPiece.physicalProperties.volume:.6f}',
+            force_console=True)
+
+        removes = component.features.removeFeatures
+        removes.add(apexPieces[0])
+        removes.add(smallerPiece)
+        futil.log(
+            f'{name}: removed apex piece + smaller piece via RemoveFeatures',
+            force_console=True)
+
+        return [largerPiece]
+
+    def _findConeFaceForCutLine(self, body, cutLine, name=''):
+        """Return the BRepFace on `body` whose underlying conical surface
+        contains both endpoints of `cutLine` (in world coordinates), or
+        None. When the frustum's hexagonal profile included `cutLine` as
+        one of its edges, the revolve produced exactly such a face."""
+        try:
+            mWorld = cutLine.startSketchPoint.worldGeometry
+            nWorld = cutLine.endSketchPoint.worldGeometry
+        except Exception as e:
+            futil.log(
+                f'{name}: cone-face search: cutLine endpoints unreadable '
+                f'({e})', force_console=True)
+            return None
+
+        tol = 1e-2  # cm (Fusion internal length unit) ~ 0.1 mm
+        coneCount = 0
+        best = None
+        bestDist = None
+        for face in body.faces:
+            surf = face.geometry
+            if surf is None:
+                continue
+            if surf.surfaceType != adsk.core.SurfaceTypes.ConeSurfaceType:
+                continue
+            coneCount += 1
+            dM = self._surfaceDistance(surf, mWorld)
+            dN = self._surfaceDistance(surf, nWorld)
+            futil.log(
+                f'{name}: cone face #{coneCount} M_dist={dM} N_dist={dN}',
+                force_console=True)
+            if dM is None or dN is None:
+                continue
+            if dM < tol and dN < tol:
+                score = dM + dN
+                if bestDist is None or score < bestDist:
+                    best = face
+                    bestDist = score
+        futil.log(
+            f'{name}: cone-face search: {coneCount} cone(s) on body, '
+            f'matched={"yes" if best else "no"}',
+            force_console=True)
+        return best
+
+    @staticmethod
+    def _surfaceDistance(surface, point):
+        evaluator = surface.evaluator
+        ok, param = evaluator.getParameterAtPoint(point)
+        if not ok:
+            return None
+        ok2, projected = evaluator.getPointAtParameter(param)
+        if not ok2:
+            return None
+        dx = projected.x - point.x
+        dy = projected.y - point.y
+        dz = projected.z - point.z
+        return math.sqrt(dx * dx + dy * dy + dz * dz)
+
+    @staticmethod
+    def _findSpurToothProfile(sketch):
+        """Find the tooth cross-section profile in a spur-gear tooth sketch.
+        Handles both non-embedded (6 curves: 2 splines + 2 arcs + 2 lines)
+        and embedded (4 curves: 2 splines + 2 arcs) tooth shapes."""
+        for expectCurves, expectLines in ((6, 2), (4, 0)):
+            for profile in sketch.profiles:
+                for loop in profile.profileLoops:
+                    if loop.profileCurves.count != expectCurves:
+                        continue
+                    arcs = nurbs = lines = 0
+                    invalid = False
+                    for curve in loop.profileCurves:
+                        ctyp = curve.geometry.curveType
+                        if ctyp == adsk.core.Curve3DTypes.Arc3DCurveType:
+                            arcs += 1
+                        elif ctyp == adsk.core.Curve3DTypes.NurbsCurve3DCurveType:
+                            nurbs += 1
+                        elif ctyp == adsk.core.Curve3DTypes.Line3DCurveType:
+                            lines += 1
+                        else:
+                            invalid = True
+                            break
+                    if invalid:
+                        continue
+                    if nurbs == 2 and arcs == 2 and lines == expectLines:
+                        return profile
+        return None
 
     def _buildVirtualSpurProfile(self, component, referencePlane, lineToInclude,
-                                  anchorPoint, module_mm, virtualTeeth, name):
+                                  anchorPoint, module_mm, virtualTeeth, name,
+                                  rotationDegrees=180.0):
         """Create a plane perpendicular to the Gear Profiles sketch plane
-        that includes the given line, and draw a virtual spur gear tooth
-        profile on it centered at anchorPoint."""
+        that includes the given line, draw a virtual spur gear tooth profile
+        on it centered at anchorPoint (rotated by rotationDegrees), and
+        create a construction axis through anchorPoint perpendicular to the
+        new plane."""
         planeInput = component.constructionPlanes.createInput()
         planeInput.setByAngle(
             lineToInclude,
@@ -715,7 +1298,39 @@ class BevelGearGenerator:
             module_mm=module_mm,
             virtualTeeth=virtualTeeth)
         drawer = SpurGearInvoluteToothDesignGenerator(sketch, proxy)
-        drawer.draw(anchorPoint)
+        # The doc asks for a post-draw rotation around the axis created below.
+        # The drawer's built-in `angle` kwarg produces the same final
+        # geometry (rotated tooth around the anchor) without needing a
+        # separate Move feature, so we use it here.
+        drawer.draw(anchorPoint, angle=math.radians(rotationDegrees))
+
+        # Construction axis through anchorPoint perpendicular to the tooth
+        # profile plane — kept as a parametric reference per the doc.
+        #
+        # Fusion's setByPerpendicularAtPoint requires a BRepFace (not a
+        # ConstructionPlane), so we build the axis as the intersection of two
+        # planes:
+        #   - the Gear Profiles sketch plane (referencePlane)
+        #   - a helper plane perpendicular to lineToInclude at its far end,
+        #     i.e., at anchorPoint
+        # That intersection is the line in referencePlane perpendicular to
+        # lineToInclude through anchorPoint, which is exactly the tooth
+        # plane's normal through anchorPoint.
+        helperInput = component.constructionPlanes.createInput()
+        helperInput.setByDistanceOnPath(
+            lineToInclude,
+            adsk.core.ValueInput.createByReal(1.0))
+        helperPlane = component.constructionPlanes.add(helperInput)
+        helperPlane.name = f'{name} Axis Helper'
+        helperPlane.isLightBulbOn = False
+
+        axisInput = component.constructionAxes.createInput()
+        axisInput.setByTwoPlanes(referencePlane, helperPlane)
+        toothAxis = component.constructionAxes.add(axisInput)
+        toothAxis.name = f'{name} Axis'
+        toothAxis.isLightBulbOn = False
+
+        return sketch
 
     def _pointWorldGeometry(self, point) -> adsk.core.Point3D:
         if point.objectType == adsk.fusion.SketchPoint.classType():
