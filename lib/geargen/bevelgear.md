@@ -8,24 +8,25 @@ The first two components are for the driving gear and pinion gear. Because the d
 
 ## Variables
 
-Module: user-supplied number. Specifies the module of gears. 
+User inputs are listed below in the order they appear in the command dialog. Target Plane comes first so it receives keyboard/pick focus when the dialog opens (Fusion auto-focuses the first `SelectionCommandInput` and does not respect a later `hasFocus = True` override); Center Point follows so the user flows naturally from plane to point; Parent Component comes third since it is already pre-selected to the root component. Calculated values are listed after the inputs they depend on.
+
+Target Plane: user-specified plane. This is where the bottom of the driving gear will sit flush against.
+
+Center Point: user-specified point. This is where the driving bevel gear will be centered on. Does not need to be co-planar with target plane.
+
+Parent Component: user-specified component. Defaults to the root component (pre-selected).
+
+Module: user-supplied number. Specifies the module of gears.
 
 Shaft Angle: User-supplied angle in degrees between 30° and 150°. Default 90° (perpendicular shafts — the classic bevel pair). The input is entered as a Fusion expression with a `deg` unit (e.g., `60 deg`); when read back via `UnitsManager.evaluateExpression(..., 'deg')` Fusion returns the value in its internal angle unit (radians), so validate-and-use code must convert back to degrees (`math.degrees(...)`) before comparing against the 30–150 range.
 
-Parent Component: user-specified component. Defaults to currently active component.
+Driving Gear Teeth Number: user-specified number of teeth on the driving gear. Default is 31.
 
-Target plane: user-specified plane. This is where the bottom of the driving gear will sit flush against.
+Pinion Gear Teeth Number: user-specified number of teeth on the pinion gear. Default is 31.
 
-Center Point: user-specified point. This is where the driving bevel gear will be centered on. Does not need to be co-planar with target plane. 
+Driving Gear Pitch Diameter: calculated number. Module * Driving Gear Teeth Number.
 
-Driving Gear Teeth Number: user-specified number of teeth on the driving gear. Default is 31
-
-Driving Gear Pitch Diameter: calculated number. Module * Teeth Number of the driving gear.
-
-
-Pinion Gear Teeth Number: user-specified number of teeth on the pinion gear. Default is 31
-
-Pinion Gear Pitch Diameter: calculated number. Module * Teeth Number of the pinion gear.
+Pinion Gear Pitch Diameter: calculated number. Module * Pinion Gear Teeth Number.
 
 Driving Gear Base Height: user-specified positive number, default 0mm (i.e. unspecified).
 
@@ -37,9 +38,9 @@ Driving Gear Bore Diameter: user-specified positive number, default 0mm. Only co
 
 Pinion Gear Bore Diameter: user-specified positive number, default 0mm. Only consulted when Enable Bore is checked. A value of 0 means "auto-calculate" — use `Pinion Gear Pitch Diameter / 4` as the bore diameter.
 
-Cone Distance: sqrt((Module*Driving Gear Teeh Number)**2 + (Module*Pinion Gear Teeth Number)**2)
+Face Width: User-specified positive number. If unspecified, calculate from (Cone Distance / 6).
 
-Face Width: User-specified positive number. If unspecified, calculate from (Cone Distance / 6)
+Cone Distance: calculated number. `sqrt((Module * Driving Gear Teeth Number)**2 + (Module * Pinion Gear Teeth Number)**2)`.
 
 ## Instructions
 

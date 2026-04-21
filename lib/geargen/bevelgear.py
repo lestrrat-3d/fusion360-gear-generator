@@ -32,14 +32,12 @@ class BevelGearCommandInputsConfigurator:
     def configure(cls, cmd):
         inputs = cmd.commandInputs
 
-        componentInput = inputs.addSelectionInput(
-            INPUT_ID_PARENT, 'Parent Component',
-            'Component that will contain the new Bevel Gear assembly')
-        componentInput.addSelectionFilter(adsk.core.SelectionCommandInput.Occurrences)
-        componentInput.addSelectionFilter(adsk.core.SelectionCommandInput.RootComponents)
-        componentInput.setSelectionLimits(1)
-        componentInput.addSelection(get_design().rootComponent)
-
+        # Order: Target Plane, Center Point, Parent Component. Target Plane
+        # first so it receives focus when the dialog opens (Fusion
+        # auto-focuses the first SelectionCommandInput, and `hasFocus =
+        # True` later doesn't override that). Center Point second so the
+        # user flows naturally from plane to point before dealing with the
+        # already-pre-selected Parent Component.
         planeInput = inputs.addSelectionInput(
             INPUT_ID_PLANE, 'Target Plane',
             'Plane the bottom of the driving gear sits flush against')
@@ -53,6 +51,14 @@ class BevelGearCommandInputsConfigurator:
         pointInput.addSelectionFilter(adsk.core.SelectionCommandInput.ConstructionPoints)
         pointInput.addSelectionFilter(adsk.core.SelectionCommandInput.SketchPoints)
         pointInput.setSelectionLimits(1)
+
+        componentInput = inputs.addSelectionInput(
+            INPUT_ID_PARENT, 'Parent Component',
+            'Component that will contain the new Bevel Gear assembly')
+        componentInput.addSelectionFilter(adsk.core.SelectionCommandInput.Occurrences)
+        componentInput.addSelectionFilter(adsk.core.SelectionCommandInput.RootComponents)
+        componentInput.setSelectionLimits(1)
+        componentInput.addSelection(get_design().rootComponent)
 
         moduleInput = inputs.addValueInput(
             INPUT_ID_MODULE, 'Module', '',
