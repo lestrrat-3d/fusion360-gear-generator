@@ -29,6 +29,12 @@ Driving Gear Base Height: user-specified positive number, default 0mm (i.e. unsp
 
 Pinion Gear Base Height: user-specified positive number, default 0mm (i.e. unspecified).
 
+Enable Bore: user-specified boolean, default `true`. Applies to both gears. When unchecked, no bore is cut on either gear and the per-gear bore diameter inputs below are ignored.
+
+Driving Gear Bore Diameter: user-specified positive number, default 0mm. Only consulted when Enable Bore is checked. A value of 0 means "auto-calculate" — use `Driving Gear Pitch Diameter / 4` as the bore diameter.
+
+Pinion Gear Bore Diameter: user-specified positive number, default 0mm. Only consulted when Enable Bore is checked. A value of 0 means "auto-calculate" — use `Pinion Gear Pitch Diameter / 4` as the bore diameter.
+
 Cone Distance: sqrt((Module*Driving Gear Teeh Number)**2 + (Module*Pinion Gear Teeth Number)**2)
 
 Face Width: User-specified positive number. If unspecified, calculate from (Cone Distance / 6)
@@ -161,6 +167,8 @@ Circular-pattern the remaining tooth piece around the Apex->A axis (the Pinion G
 
 Join all patterned tooth pieces with Pinion Gear Body in a single Combine-Join (Pinion Gear Body as the target, the patterned tooth bodies as the tools).
 
+If Enable Bore is checked, cut a cylindrical bore through Pinion Gear Body along the Pinion Gear Shaft Axis (Apex->A). The bore diameter is the Pinion Gear Bore Diameter if specified (non-zero); otherwise use `Pinion Gear Pitch Diameter / 4`. The bore runs the full length of the body along the shaft axis (both caps of the extrude-cut extend well past the body so the hole goes all the way through). Skip this step entirely if Enable Bore is unchecked.
+
 
 
 ## Create the Driving Gear
@@ -185,6 +193,8 @@ Of the two remaining pieces, remove the smaller one (compare by `BRepBody.physic
 Circular-pattern the remaining tooth piece around the Apex->B axis (the Driving Gear Shaft Axis). The number of copies equals the Driving Gear Teeth Number, for the same reason as the pinion: the angular spacing around the shaft axis is constant at `360° / N`, regardless of the radial taper from heel toward apex.
 
 Join all patterned tooth pieces with Driving Gear Body in a single Combine-Join (Driving Gear Body as the target, the patterned tooth bodies as the tools).
+
+If Enable Bore is checked, cut a cylindrical bore through Driving Gear Body along the Driving Gear Shaft Axis (Apex->B). The bore diameter is the Driving Gear Bore Diameter if specified (non-zero); otherwise use `Driving Gear Pitch Diameter / 4`. The bore runs the full length of the body along the shaft axis. Skip this step entirely if Enable Bore is unchecked.
 
 ## Cleanup
 

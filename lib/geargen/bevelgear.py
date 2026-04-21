@@ -20,6 +20,9 @@ INPUT_ID_DRIVING_TEETH = 'drivingTeeth'
 INPUT_ID_PINION_TEETH = 'pinionTeeth'
 INPUT_ID_DRIVING_BASE_HEIGHT = 'drivingBaseHeight'
 INPUT_ID_PINION_BASE_HEIGHT = 'pinionBaseHeight'
+INPUT_ID_BORE_ENABLE = 'boreEnable'
+INPUT_ID_DRIVING_BORE = 'drivingBore'
+INPUT_ID_PINION_BORE = 'pinionBore'
 INPUT_ID_FACE_WIDTH = 'faceWidth'
 
 
@@ -61,6 +64,12 @@ class BevelGearCommandInputsConfigurator:
         inputs.addValueInput(INPUT_ID_DRIVING_BASE_HEIGHT, 'Driving Gear Base Height', 'mm',
             adsk.core.ValueInput.createByReal(to_cm(0)))
         inputs.addValueInput(INPUT_ID_PINION_BASE_HEIGHT, 'Pinion Gear Base Height', 'mm',
+            adsk.core.ValueInput.createByReal(to_cm(0)))
+        inputs.addBoolValueInput(
+            INPUT_ID_BORE_ENABLE, 'Enable Bore', True, '', True)
+        inputs.addValueInput(INPUT_ID_DRIVING_BORE, 'Driving Gear Bore Diameter', 'mm',
+            adsk.core.ValueInput.createByReal(to_cm(0)))
+        inputs.addValueInput(INPUT_ID_PINION_BORE, 'Pinion Gear Bore Diameter', 'mm',
             adsk.core.ValueInput.createByReal(to_cm(0)))
         inputs.addValueInput(INPUT_ID_FACE_WIDTH, 'Face Width', 'mm',
             adsk.core.ValueInput.createByReal(to_cm(0)))
@@ -126,6 +135,20 @@ class BevelGearGenerator:
         drivingPitchDiameter_cm = to_cm(module * drivingTeeth)
         pinionPitchDiameter_cm = to_cm(module * pinionTeeth)
 
+        # Bore diameters: only resolved when the Enable Bore checkbox is
+        # on. Within that, a non-zero user value is used as-is; zero means
+        # "auto" = pitch diameter / 4. Values are already in cm from
+        # _readInputs. When bore is disabled, pass 0 through so the gear
+        # builder skips the cut entirely.
+        if self._boreEnable:
+            drivingBore_cm = (self._drivingBore_cm if self._drivingBore_cm > 0
+                              else drivingPitchDiameter_cm / 4)
+            pinionBore_cm = (self._pinionBore_cm if self._pinionBore_cm > 0
+                             else pinionPitchDiameter_cm / 4)
+        else:
+            drivingBore_cm = 0.0
+            pinionBore_cm = 0.0
+
         # Bevel Gear component under the user-chosen parent.
         self.bevelOccurrence = parentComponent.occurrences.addNewComponent(
             adsk.core.Matrix3D.create())
@@ -147,6 +170,7 @@ class BevelGearGenerator:
             designComponent, targetPlane, anchorLine, centerPoint,
             module, drivingPitchDiameter_cm, pinionPitchDiameter_cm,
             drivingTeeth=drivingTeeth, pinionTeeth=pinionTeeth,
+            drivingBore_cm=drivingBore_cm, pinionBore_cm=pinionBore_cm,
             bevelComponent=bevelComponent,
             designOccurrence=designOccurrence)
 
@@ -224,10 +248,16 @@ class BevelGearGenerator:
 
         self._drivingBaseHeight_cm = evalNum(INPUT_ID_DRIVING_BASE_HEIGHT, 'mm')
         self._pinionBaseHeight_cm = evalNum(INPUT_ID_PINION_BASE_HEIGHT, 'mm')
+        (self._boreEnable, _) = get_boolean(inputs, INPUT_ID_BORE_ENABLE)
+        self._drivingBore_cm = evalNum(INPUT_ID_DRIVING_BORE, 'mm')
+        self._pinionBore_cm = evalNum(INPUT_ID_PINION_BORE, 'mm')
         self._faceWidth_cm = evalNum(INPUT_ID_FACE_WIDTH, 'mm')
         if (self._drivingBaseHeight_cm < 0 or self._pinionBaseHeight_cm < 0
+                or self._drivingBore_cm < 0 or self._pinionBore_cm < 0
                 or self._faceWidth_cm < 0):
-            raise Exception('Base heights and face width must be positive numbers')
+            raise Exception(
+                'Base heights, bore diameters, and face width must be '
+                'non-negative numbers')
 
         return (parentComponent, targetPlane, centerPoint,
                 module, drivingTeeth, pinionTeeth)
@@ -272,6 +302,7 @@ class BevelGearGenerator:
     def _buildGearProfiles(self, component, targetPlane, anchorLine,
                            centerPoint, module_mm, drivingPD_cm, pinionPD_cm,
                            drivingTeeth=None, pinionTeeth=None,
+                           drivingBore_cm=0.0, pinionBore_cm=0.0,
                            bevelComponent=None, designOccurrence=None):
         """Step 2 of the doc: axial construction plane, Gear Profiles sketch
         with the apex, the two-path construction rectangle, Apex 2, the Pitch
@@ -854,7 +885,8 @@ class BevelGearGenerator:
                 apexPoint=apex,
                 toothSketch=pinionToothSketch,
                 cutLines=[mToN, cToH],
-                toothCount=pinionTeeth)
+                toothCount=pinionTeeth,
+                boreDiameter_cm=pinionBore_cm)
             self._createGearBody(
                 bevelComponent=bevelComponent,
                 designComponent=component,
@@ -866,12 +898,14 @@ class BevelGearGenerator:
                 toothSketch=drivingToothSketch,
                 cutLines=[oToP, dToJ],
                 toothCount=drivingTeeth,
+                boreDiameter_cm=drivingBore_cm,
                 meshingOffsetDegrees=(180.0 / drivingTeeth
                                       if drivingTeeth else None))
 
     def _createGearBody(self, bevelComponent, designComponent, axialPlane,
                          name, profilePoints, apexPoint=None, toothSketch=None,
                          cutLines=None, toothCount=None,
+                         boreDiameter_cm=0.0,
                          meshingOffsetDegrees=None,
                          designOccurrence=None):
         # Make sure we're operating in the Design occurrence's context for
@@ -1027,6 +1061,18 @@ class BevelGearGenerator:
                 except Exception as e:
                     futil.log(
                         f'{name}: could not join tooth into body ({e})')
+
+        # Step 4.5: cut a cylindrical bore through the gear body along the
+        # shaft axis. Uses sketchLines[0] (A->G for pinion, B->I for
+        # driving) -- both colinear with their shaft axis -- as the
+        # perpendicular construction-plane path.
+        if (boreDiameter_cm and boreDiameter_cm > 0
+                and sketchLines and frustumBodies):
+            gearBody = frustumBodies[0]
+            if gearBody.isValid:
+                self._cutBore(
+                    designComponent, gearBody, sketchLines[0],
+                    boreDiameter_cm, name)
 
         # Step 5 (driving gear only): rotate the finished body by half its
         # tooth pitch around the shaft axis so the teeth appear to mesh
@@ -1188,6 +1234,60 @@ class BevelGearGenerator:
             force_console=True)
 
         return [largerPiece]
+
+    def _cutBore(self, designComponent, gearBody, axisLine,
+                 boreDiameter_cm, name):
+        """Cut a cylindrical bore through `gearBody` along `axisLine`
+        (a sketch line colinear with the shaft axis). A construction
+        plane perpendicular to `axisLine` at its start point anchors a
+        sketch containing a circle centered on the axis; that circle is
+        extrude-cut symmetrically with enough length to pierce the body
+        in both directions."""
+        planeInput = designComponent.constructionPlanes.createInput()
+        planeInput.setByDistanceOnPath(
+            axisLine, adsk.core.ValueInput.createByReal(0.0))
+        borePlane = designComponent.constructionPlanes.add(planeInput)
+        borePlane.name = f'{name} Bore Plane'
+        borePlane.isLightBulbOn = False
+
+        boreSketch = designComponent.sketches.add(borePlane)
+        boreSketch.name = f'{name} Bore'
+        boreSketch.isVisible = False
+        circles = boreSketch.sketchCurves.sketchCircles
+        origin = adsk.core.Point3D.create(0, 0, 0)
+        circles.addByCenterRadius(origin, boreDiameter_cm / 2.0)
+
+        boreProfile = None
+        for p in boreSketch.profiles:
+            for loop in p.profileLoops:
+                if loop.profileCurves.count == 1:
+                    boreProfile = p
+                    break
+            if boreProfile is not None:
+                break
+        if boreProfile is None:
+            futil.log(
+                f'{name}: bore sketch produced no usable profile -- skipped',
+                force_console=True)
+            return
+
+        extrudes = designComponent.features.extrudeFeatures
+        extrudeInput = extrudes.createInput(
+            boreProfile,
+            adsk.fusion.FeatureOperations.CutFeatureOperation)
+        # Symmetric extent with a length comfortably larger than any
+        # reasonable gear size so the bore pierces the body both ways.
+        largeDist_cm = max(1000.0, boreDiameter_cm * 100.0)
+        extrudeInput.setSymmetricExtent(
+            adsk.core.ValueInput.createByReal(largeDist_cm), False)
+        bodyCol = adsk.core.ObjectCollection.create()
+        bodyCol.add(gearBody)
+        extrudeInput.participantBodies = [gearBody]
+        result = extrudes.add(extrudeInput)
+        result.name = f'{name} Bore Cut'
+        futil.log(
+            f'{name}: cut bore (diameter={boreDiameter_cm * 10:.3f} mm)',
+            force_console=True)
 
     def _findConeFaceForCutLine(self, body, cutLine, name=''):
         """Return the BRepFace on `body` whose underlying conical surface
