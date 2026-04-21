@@ -10,6 +10,8 @@ The first two components are for the driving gear and pinion gear. Because the d
 
 Module: user-supplied number. Specifies the module of gears. 
 
+Shaft Angle: User-supplied angle in degrees between 30° and 150°. Default 90° (perpendicular shafts — the classic bevel pair). The input is entered as a Fusion expression with a `deg` unit (e.g., `60 deg`); when read back via `UnitsManager.evaluateExpression(..., 'deg')` Fusion returns the value in its internal angle unit (radians), so validate-and-use code must convert back to degrees (`math.degrees(...)`) before comparing against the 30–150 range.
+
 Parent Component: user-specified component. Defaults to currently active component.
 
 Target plane: user-specified plane. This is where the bottom of the driving gear will sit flush against.
@@ -65,13 +67,17 @@ In the sketch, project the center point from the Anchor Sketch.
 
 From the projected center point, draw a construction line that runs along the direction of the target plane's normal (away from the target plane, on the side the normal points to). Apply Horizontal/Vertical constraint to it so it is perpendicular to the anchor line. The end of this line should be well above the Anchor line; Use x,y coordinates where x is the same as the center point, but y is shifted upwards the same amount as Driving Gear Pitch Diameter (however, do NOT use constraints). This end point shall be called the Apex.
 
-Create a horizontal construction line from the apex, Driving Gear Pitch Diameter / 2 length away in the x direction; this line needs a dimensional constraint using the length specified earlier. Beginning of this line should use coincidence constraint with apex. Let the axis where this line lies be called the Pinion Gear Shaft Axis. The end of this line shall be called point A. From A, create a vertical construction line, Pinion Gear Pitch Diameter / 2 length away in the y direction towards the anchor line; this line needs a dimensional constraint using the length specified earlier. Beginning of this line should use coincidence constraint with the end of the previous line.
+Create a construction line from the apex representing the Driving Gear Shaft Axis. Apply a vertical constraint so it runs parallel to the previous (target-plane-normal) line, pointing downward from the apex toward the anchor line. Beginning of this line should use coincidence constraint with apex. The end of this line shall be called point B. Do **not** dimension the line's length — it is determined by the closing constraint at Apex 2 below.
 
-Create a vertical construction line from the apex, Pinion Gear Pitch Diameter / 2 length away in the y direction, towards the anchor line (no constraint). Beginning of this line should use coincidence constraint with apex. Let the axis where this line lies be called the Driving Gear Shaft Axis. The end of this line shall be called point B. From B, create a horizontal construction line, Driving Gear Pitch Diameter / 2 length away in the x direction (no constraint). Beginning of this line should use coincidence constraint with the end of the previous line.
+Create a construction line from the apex representing the Pinion Gear Shaft Axis. Apply an angular dimension between this line and the Driving Gear Shaft Axis equal to Shaft Angle (this is the traditional "angle between the two shaft axes" — Shaft Angle = 90° gives the classic perpendicular bevel pair). The pinion shaft is drawn on the side away from the anchor sketch's leading direction, typically the +X half-plane of the Gear Profiles sketch. Beginning of this line should use coincidence constraint with apex. The end of this line shall be called point A. Do **not** dimension the line's length — it is determined by the closing constraint at Apex 2 below.
 
-Constrain the end point of the second lines from the previous two paragraphs with a coincident constraint. Let this point be called the Apex 2.
+From A, create a construction line perpendicular to the Pinion Gear Shaft Axis, drawn toward the side where Apex 2 will lie (between the two shaft axes, in the direction of the anchor line). Apply a perpendicular constraint against the Pinion Gear Shaft Axis. Apply a dimensional constraint with length = Pinion Gear Pitch Diameter / 2 (this equals the pinion's pitch radius at the heel, which is the perpendicular distance from Apex 2 to the Pinion Gear Shaft Axis for any Shaft Angle). Beginning of this line should use coincidence constraint with A.
 
-Note that the rectangle created above deliberately lies well above the anchor line.
+From B, create a construction line perpendicular to the Driving Gear Shaft Axis, drawn toward the side where Apex 2 will lie. Apply a perpendicular constraint against the Driving Gear Shaft Axis. Apply a dimensional constraint with length = Driving Gear Pitch Diameter / 2 (the driving pitch radius at the heel, perpendicular distance from Apex 2 to the Driving Gear Shaft Axis for any Shaft Angle). Beginning of this line should use coincidence constraint with B.
+
+Constrain the end points of the two perpendicular lines from the previous two paragraphs with a coincident constraint. Let this point be called Apex 2. (At Shaft Angle = 90° the four points Apex, A, Apex 2, B form a rectangle. For other shaft angles the figure is a non-rectangular parallelogram-like quadrilateral; the lengths of Apex→A and Apex→B adjust so the perpendicular drops of length PPD/2 and DPD/2 coincide at Apex 2.)
+
+Note that this quadrilateral deliberately lies well above the anchor line. The Apex's upward offset from the anchor line (= Driving Gear Pitch Diameter) is chosen to keep the whole figure above the anchor line for Shaft Angle in the supported range 30°–150°.
 
 Draw a construction line from Apex to Apex 2. This line shall be called the Pitch Line. Each end of the Pitch Line should be constrained to the respective points using coincidence constraint.
 

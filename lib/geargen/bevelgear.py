@@ -16,6 +16,7 @@ INPUT_ID_PARENT = 'parentComponent'
 INPUT_ID_PLANE = 'targetPlane'
 INPUT_ID_CENTER_POINT = 'centerPoint'
 INPUT_ID_MODULE = 'module'
+INPUT_ID_SHAFT_ANGLE = 'shaftAngle'
 INPUT_ID_DRIVING_TEETH = 'drivingTeeth'
 INPUT_ID_PINION_TEETH = 'pinionTeeth'
 INPUT_ID_DRIVING_BASE_HEIGHT = 'drivingBaseHeight'
@@ -57,6 +58,8 @@ class BevelGearCommandInputsConfigurator:
             INPUT_ID_MODULE, 'Module', '',
             adsk.core.ValueInput.createByReal(1))
         moduleInput.isFullWidth = False
+        inputs.addValueInput(INPUT_ID_SHAFT_ANGLE, 'Shaft Angle', 'deg',
+            adsk.core.ValueInput.createByString('90 deg'))
         inputs.addValueInput(INPUT_ID_DRIVING_TEETH, 'Driving Gear Teeth', '',
             adsk.core.ValueInput.createByReal(31))
         inputs.addValueInput(INPUT_ID_PINION_TEETH, 'Pinion Gear Teeth', '',
@@ -128,7 +131,8 @@ class BevelGearGenerator:
 
     def generate(self, inputs: adsk.core.CommandInputs):
         (parentComponent, targetPlane, centerPoint,
-         module, drivingTeeth, pinionTeeth) = self._readInputs(inputs)
+         module, drivingTeeth, pinionTeeth,
+         shaftAngle_deg) = self._readInputs(inputs)
 
         # Pitch diameters: module * teeth (in millimeters). Convert to cm for
         # Fusion's internal distance units when we use them in sketch math.
@@ -171,6 +175,7 @@ class BevelGearGenerator:
             module, drivingPitchDiameter_cm, pinionPitchDiameter_cm,
             drivingTeeth=drivingTeeth, pinionTeeth=pinionTeeth,
             drivingBore_cm=drivingBore_cm, pinionBore_cm=pinionBore_cm,
+            shaftAngle_deg=shaftAngle_deg,
             bevelComponent=bevelComponent,
             designOccurrence=designOccurrence)
 
@@ -246,6 +251,13 @@ class BevelGearGenerator:
         if drivingTeeth < 3 or pinionTeeth < 3:
             raise Exception('Tooth counts must be at least 3')
 
+        # evalNum returns in Fusion's internal units (radians for angles),
+        # regardless of the `units` argument -- that arg only parses unit-less
+        # expressions.
+        shaftAngle_deg = math.degrees(evalNum(INPUT_ID_SHAFT_ANGLE, 'deg'))
+        if shaftAngle_deg < 30 or shaftAngle_deg > 150:
+            raise Exception('Shaft Angle must be between 30 and 150 degrees')
+
         self._drivingBaseHeight_cm = evalNum(INPUT_ID_DRIVING_BASE_HEIGHT, 'mm')
         self._pinionBaseHeight_cm = evalNum(INPUT_ID_PINION_BASE_HEIGHT, 'mm')
         (self._boreEnable, _) = get_boolean(inputs, INPUT_ID_BORE_ENABLE)
@@ -260,7 +272,7 @@ class BevelGearGenerator:
                 'non-negative numbers')
 
         return (parentComponent, targetPlane, centerPoint,
-                module, drivingTeeth, pinionTeeth)
+                module, drivingTeeth, pinionTeeth, shaftAngle_deg)
 
     def _buildAnchorSketch(self, component, targetPlane, centerPoint):
         """Step 1 of the doc: sketch on the target plane containing a single
@@ -303,6 +315,7 @@ class BevelGearGenerator:
                            centerPoint, module_mm, drivingPD_cm, pinionPD_cm,
                            drivingTeeth=None, pinionTeeth=None,
                            drivingBore_cm=0.0, pinionBore_cm=0.0,
+                           shaftAngle_deg=90.0,
                            bevelComponent=None, designOccurrence=None):
         """Step 2 of the doc: axial construction plane, Gear Profiles sketch
         with the apex, the two-path construction rectangle, Apex 2, the Pitch
@@ -362,60 +375,121 @@ class BevelGearGenerator:
 
         ay = apex_local.y
 
-        # --- Path A (dimensioned): construction horizontal D_pd/2 (Pinion
-        # Gear Shaft Axis), construction vertical P_pd/2 toward the anchor
-        # line ---
+        # --- Shaft-angle-parameterized rectangle/parallelogram ---
+        # For general Shaft Angle Σ, the four points Apex, A, Apex 2, B do
+        # NOT form a rectangle; only at Σ = 90° do they. What IS always
+        # true is:
+        #   * |A -> Apex 2| = PPD/2   (pinion pitch radius at heel; the
+        #     perpendicular distance from Apex 2 to the Pinion Gear Shaft
+        #     Axis equals the pinion heel pitch radius for any Σ)
+        #   * |B -> Apex 2| = DPD/2   (likewise for the driving side)
+        #   * Angle between Pinion Gear Shaft Axis and Driving Gear Shaft
+        #     Axis = Σ
+        # We dimension those three values and let the along-shaft lengths
+        # (Apex -> A, Apex -> B) be determined by the closing coincidence
+        # at Apex 2.
+        shaftAngle_rad = math.radians(shaftAngle_deg)
+
+        # Pinion shaft direction from apex, chosen so A lies on the +X
+        # side of the sketch. The driving shaft direction is (0, -y_up_sign)
+        # (away from apex toward the anchor line); rotating it by Σ toward
+        # +X yields this pinion direction.
+        pinion_dir_x = math.sin(shaftAngle_rad)
+        pinion_dir_y = -y_up_sign * math.cos(shaftAngle_rad)
+
+        # Precompute the exact along-shaft lengths the constraint solver
+        # will converge to. Using the correct values as seed positions
+        # keeps the solver well-conditioned across the full Σ range.
+        # Pinion pitch cone half-angle:
+        #   tan γ_p = sin(Σ) / (N_g/N_p + cos(Σ))
+        #           = sin(Σ) * PPD / (DPD + PPD * cos(Σ))
+        # Cone distance R = PPD / (2 sin γ_p); along-shaft lengths are
+        # R cos γ_p (pinion) and R cos γ_g (driving), with γ_g = Σ − γ_p.
+        gamma_p = math.atan2(
+            math.sin(shaftAngle_rad) * pinionPD_cm,
+            drivingPD_cm + pinionPD_cm * math.cos(shaftAngle_rad))
+        gamma_g = shaftAngle_rad - gamma_p
+        cone_R_cm = (pinionPD_cm / 2.0) / math.sin(gamma_p)
+        init_pinion_along = cone_R_cm * math.cos(gamma_p)
+        init_driving_along = cone_R_cm * math.cos(gamma_g)
+
         a1End = adsk.core.Point3D.create(
-            apex_local.x + drivingPD_cm / 2, ay, 0)
+            apex_local.x + init_pinion_along * pinion_dir_x,
+            ay + init_pinion_along * pinion_dir_y, 0)
         lineA1 = sketch.sketchCurves.sketchLines.addByTwoPoints(
             apex_local, a1End)
         lineA1.isConstruction = True
         constraints.addCoincident(lineA1.startSketchPoint, apex)
-        constraints.addHorizontal(lineA1)
-        dims.addDistanceDimension(
-            lineA1.startSketchPoint,
-            lineA1.endSketchPoint,
-            adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation,
-            adsk.core.Point3D.create(
-                (apex_local.x + a1End.x) / 2,
-                ay + y_up_sign * to_cm(3), 0))
 
-        a2End = adsk.core.Point3D.create(
-            a1End.x, a1End.y - y_up_sign * pinionPD_cm / 2, 0)
-        lineA2 = sketch.sketchCurves.sketchLines.addByTwoPoints(
-            lineA1.endSketchPoint.geometry, a2End)
-        lineA2.isConstruction = True
-        constraints.addCoincident(lineA2.startSketchPoint, lineA1.endSketchPoint)
-        constraints.addVertical(lineA2)
-        dims.addDistanceDimension(
-            lineA2.startSketchPoint,
-            lineA2.endSketchPoint,
-            adsk.fusion.DimensionOrientations.VerticalDimensionOrientation,
-            adsk.core.Point3D.create(
-                a2End.x + to_cm(3),
-                (lineA2.startSketchPoint.geometry.y + a2End.y) / 2, 0))
-
-        # --- Path B (no length dimensions): construction vertical P_pd/2
-        # (Driving Gear Shaft Axis), then construction horizontal D_pd/2.
-        # Dimensions come from the coincident constraint closing the
-        # rectangle below. ---
         b1End = adsk.core.Point3D.create(
-            apex_local.x, ay - y_up_sign * pinionPD_cm / 2, 0)
+            apex_local.x, ay - y_up_sign * init_driving_along, 0)
         lineB1 = sketch.sketchCurves.sketchLines.addByTwoPoints(
             apex_local, b1End)
         lineB1.isConstruction = True
         constraints.addCoincident(lineB1.startSketchPoint, apex)
         constraints.addVertical(lineB1)
 
+        # Angular dimension between Pinion and Driving shaft axes = Σ.
+        # The text point sits in the angular interior (midway between the
+        # two shaft directions), which selects the Σ angle rather than its
+        # supplement/reflex.
+        interior_x = (pinion_dir_x + 0.0) / 2.0
+        interior_y = (pinion_dir_y + (-y_up_sign)) / 2.0
+        interior_len = math.sqrt(interior_x * interior_x + interior_y * interior_y)
+        if interior_len < 1e-6:
+            interior_x, interior_y = 0.5, -0.5 * y_up_sign
+            interior_len = math.sqrt(0.5)
+        interior_ux = interior_x / interior_len
+        interior_uy = interior_y / interior_len
+        angle_text = adsk.core.Point3D.create(
+            apex_local.x + interior_ux * to_cm(5),
+            ay + interior_uy * to_cm(5), 0)
+        dims.addAngularDimension(lineA1, lineB1, angle_text)
+
+        # A -> Apex 2 perpendicular to pinion shaft axis, length = PPD/2.
+        # The perpendicular must point toward the interior wedge between
+        # the two shaft axes (where Apex 2 lives). For y_up_sign=1 that's
+        # the CW-90° perpendicular of the pinion direction; for y_up_sign=-1
+        # it's the CCW-90° perpendicular. Combined:
+        #   perpA = y_up_sign * (pinion_dir_y, -pinion_dir_x)
+        perpA_x = y_up_sign * pinion_dir_y
+        perpA_y = -y_up_sign * pinion_dir_x
+        a2End = adsk.core.Point3D.create(
+            a1End.x + perpA_x * pinionPD_cm / 2,
+            a1End.y + perpA_y * pinionPD_cm / 2, 0)
+        lineA2 = sketch.sketchCurves.sketchLines.addByTwoPoints(
+            lineA1.endSketchPoint.geometry, a2End)
+        lineA2.isConstruction = True
+        constraints.addCoincident(lineA2.startSketchPoint, lineA1.endSketchPoint)
+        constraints.addPerpendicular(lineA1, lineA2)
+        dims.addDistanceDimension(
+            lineA2.startSketchPoint,
+            lineA2.endSketchPoint,
+            adsk.fusion.DimensionOrientations.AlignedDimensionOrientation,
+            adsk.core.Point3D.create(
+                (lineA2.startSketchPoint.geometry.x + a2End.x) / 2 + to_cm(3),
+                (lineA2.startSketchPoint.geometry.y + a2End.y) / 2, 0))
+
+        # B -> Apex 2 perpendicular to driving shaft axis, length = DPD/2.
+        # Driving shaft points (0, -y_up_sign); perpendicular toward the
+        # pinion side (+X) is (+1, 0) regardless of y_up_sign.
         b2End = adsk.core.Point3D.create(
             b1End.x + drivingPD_cm / 2, b1End.y, 0)
         lineB2 = sketch.sketchCurves.sketchLines.addByTwoPoints(
             lineB1.endSketchPoint.geometry, b2End)
         lineB2.isConstruction = True
         constraints.addCoincident(lineB2.startSketchPoint, lineB1.endSketchPoint)
-        constraints.addHorizontal(lineB2)
+        constraints.addPerpendicular(lineB1, lineB2)
+        dims.addDistanceDimension(
+            lineB2.startSketchPoint,
+            lineB2.endSketchPoint,
+            adsk.fusion.DimensionOrientations.AlignedDimensionOrientation,
+            adsk.core.Point3D.create(
+                (lineB2.startSketchPoint.geometry.x + b2End.x) / 2,
+                (lineB2.startSketchPoint.geometry.y + b2End.y) / 2
+                + y_up_sign * to_cm(3), 0))
 
-        # Close the rectangle at Apex 2.
+        # Close the quadrilateral at Apex 2.
         constraints.addCoincident(lineA2.endSketchPoint, lineB2.endSketchPoint)
         apex2 = lineA2.endSketchPoint
 
@@ -427,17 +501,22 @@ class BevelGearGenerator:
         constraints.addCoincident(pitchLine.startSketchPoint, apex)
         constraints.addCoincident(pitchLine.endSketchPoint, apex2)
 
-        # Dedendum lines: from Apex 2, perpendicular to the Pitch Line, length
-        # 1.5 * module. "Toward the anchor line" is the perpendicular direction
-        # whose sketch-Y component has sign opposite to y_up_sign. The unit
-        # vector for that direction in the sketch's 2D frame is
-        #   (-P_pd/2, -y_up_sign * D_pd/2) / |pitch vector|
-        # and the "away from anchor line" direction is its negation.
-        pitchVecLen_cm = math.sqrt(
-            (drivingPD_cm / 2) ** 2 + (pinionPD_cm / 2) ** 2)
+        # Dedendum lines: from Apex 2, perpendicular to the Pitch Line,
+        # length 1.25 * module. "Toward the anchor line" is the
+        # perpendicular to the pitch vector whose sketch-Y component has
+        # sign opposite to y_up_sign. The pitch vector is now derived from
+        # the (solved) apex and apex2 sketch positions so this works for
+        # any Shaft Angle — unlike the old hard-coded (DPD/2, PPD/2)
+        # rectangle diagonal, which only held at Σ = 90°.
+        pitch_dx = apex2.geometry.x - apex.geometry.x
+        pitch_dy = apex2.geometry.y - apex.geometry.y
+        pitchVecLen_cm = math.sqrt(pitch_dx * pitch_dx + pitch_dy * pitch_dy)
         dedendumLen_cm = to_cm(1.25 * module_mm)
-        toward_ux = -(pinionPD_cm / 2) / pitchVecLen_cm
-        toward_uy = (-y_up_sign * drivingPD_cm / 2) / pitchVecLen_cm
+        # Perpendicular to pitch vector, selected so the y-component has
+        # sign -y_up_sign (pointing toward the anchor line):
+        #   toward = y_up_sign * (pitch_dy, -pitch_dx) / pitchVecLen
+        toward_ux = (y_up_sign * pitch_dy) / pitchVecLen_cm
+        toward_uy = (-y_up_sign * pitch_dx) / pitchVecLen_cm
 
         a2x = apex2.geometry.x
         a2y = apex2.geometry.y
@@ -695,14 +774,16 @@ class BevelGearGenerator:
         constraints.addCoincident(cToK.startSketchPoint, pointC)
         constraints.addCoincident(cToK.endSketchPoint, pointK)
 
-        # Face Width resolution: user value if > 0, else Cone Distance / 6
-        # where Cone Distance = hypot(drivingPD, pinionPD) per the doc's
-        # Variables section.
+        # Face Width resolution: user value if > 0, else (Cone Distance)/6.
+        # The doc's "Cone Distance = hypot(DPD, PPD)" is exactly 2R at
+        # Σ = 90°. Generalized to any Σ, the equivalent length along the
+        # pitch line from apex to heel is R = cone_R_cm; doubling that
+        # preserves the original default magnitude for Σ = 90° so existing
+        # configurations pick the same face width they always did.
         if self._faceWidth_cm > 0:
             faceWidth_cm = self._faceWidth_cm
         else:
-            coneDistance_cm = math.sqrt(drivingPD_cm ** 2 + pinionPD_cm ** 2)
-            faceWidth_cm = coneDistance_cm / 6.0
+            faceWidth_cm = (2.0 * cone_R_cm) / 6.0
 
         # Doc line 115: a new line from pinionRootAxis (Apex->C) to lineA2
         # (A->Apex2), parallel to C->H. M on pinionRootAxis, N on lineA2.
@@ -832,18 +913,14 @@ class BevelGearGenerator:
         constraints.addCoincident(bToI.endSketchPoint, pointI)
 
         # ----- Section 3: Gear Tooth Profiles -----
-        # Virtual pitch radii per the doc: length(Apex2->K) for the pinion and
-        # length(Apex2->L) for the driving gear. Computed from the known
-        # rectangle geometry rather than measured from the sketch: for a pair
-        # of bevel gears with horizontal (pinion) and vertical (driving) shaft
-        # axes and 90 degree shaft angle, cos(pitchConeAngle_pinion) =
-        # drivingPD / hypot and cos(pitchConeAngle_driving) = pinionPD / hypot,
-        # where hypot = sqrt(drivingPD^2 + pinionPD^2).
-        hypot_cm = math.sqrt(drivingPD_cm ** 2 + pinionPD_cm ** 2)
-        pinionVirtualPitchRadius_cm = (
-            pinionPD_cm * hypot_cm / (2 * drivingPD_cm))
-        drivingVirtualPitchRadius_cm = (
-            drivingPD_cm * hypot_cm / (2 * pinionPD_cm))
+        # Virtual pitch radii per the doc (back-cone development used by the
+        # Tredgold approximation): length(Apex2->K) for the pinion and
+        # length(Apex2->L) for the driving gear. For a bevel gear with
+        # pitch-cone half-angle γ, the back-cone radius at the heel equals
+        # pitch_radius / cos γ. γ_p and γ_g were solved earlier from the
+        # shaft angle and the two pitch diameters.
+        pinionVirtualPitchRadius_cm = (pinionPD_cm / 2.0) / math.cos(gamma_p)
+        drivingVirtualPitchRadius_cm = (drivingPD_cm / 2.0) / math.cos(gamma_g)
         pinionVirtualTeeth = int(math.floor(
             2 * pinionVirtualPitchRadius_cm / module_cm))
         drivingVirtualTeeth = int(math.floor(
