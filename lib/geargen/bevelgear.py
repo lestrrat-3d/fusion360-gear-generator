@@ -1519,7 +1519,12 @@ class BevelGearGenerator:
         # The doc asks for a post-draw rotation around the axis created below.
         # The drawer's built-in `angle` kwarg produces the same final
         # geometry (rotated tooth around the anchor) without needing a
-        # separate Move feature, so we use it here.
+        # separate Move feature, so we use it here. This equivalence relies on
+        # every tooth entity -- including the root-to-involute connecting lines
+        # -- being constrained to rotate with the tooth; see the radial pin in
+        # SpurGearInvoluteToothDesignGenerator.drawTooth.drawRootToInvoluteLine.
+        # (Without it, non-embedded virtual teeth -- e.g. the pinion at
+        # driving=31/pinion=17 -- left those two lines behind when rotated.)
         drawer.draw(anchorPoint, angle=math.radians(rotationDegrees))
 
         # Construction axis through anchorPoint perpendicular to the tooth

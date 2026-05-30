@@ -251,6 +251,17 @@ class SpurGearInvoluteToothDesignGenerator():
 
             line = sketch.sketchCurves.sketchLines.addByTwoPoints(point, inv.startSketchPoint)
             constraints.addCoincident(line.startSketchPoint, root)
+            # Pin the root end radially. The root point, the involute start and
+            # the gear center are collinear by construction (they share one
+            # polar angle), so constrain the center onto this line's infinite
+            # extension. Without it the root point keeps only its
+            # on-root-circle constraint -- one free DOF -- so when the tooth is
+            # later rotated (drawTooth's `angle`, used by the bevel virtual
+            # tooth profiles) the involute end swings around the center while
+            # the root point stays put, leaving these two connecting lines
+            # skewed and detached from the tooth. At angle=0 the point was
+            # already drawn in the right place, just under-constrained.
+            constraints.addCoincident(anchorPoint, line)
             return line
 
 #        if rootCircleRadius > baseCircleRadius:
