@@ -38,9 +38,17 @@ Driving Gear Bore Diameter: user-specified positive number, default 0mm. Only co
 
 Pinion Gear Bore Diameter: user-specified positive number, default 0mm. Only consulted when Enable Bore is checked. A value of 0 means "auto-calculate" — use `Pinion Gear Pitch Diameter / 4` as the bore diameter.
 
-Face Width: User-specified positive number. If unspecified, calculate from (Cone Distance / 6).
+Face Width: User-specified positive number. If unspecified, default to (Cone Distance / 6). In **every** case (default or user-specified) the Face Width is bounded by the Maximum Face Width (defined below):
+- If unspecified, use `min(Cone Distance / 6, Maximum Face Width)`.
+- If the user specifies a value greater than the Maximum Face Width, this is an error: reject it with a message stating the maximum, rather than proceeding (the gear-body revolve in "Create the Pinion Gear" would otherwise fail — see the Maximum Face Width rationale).
 
 Cone Distance: calculated number. `sqrt((Module * Driving Gear Teeth Number)**2 + (Module * Pinion Gear Teeth Number)**2)`.
+
+Maximum Face Width: a geometric upper bound that cannot be evaluated until the Gear Profiles sketch points A, B, C, D, H, J exist (see §2 — apply the bound there). It is `0.95 *` the smaller of:
+- the perpendicular distance from point A to the line through C and H (the Pinion Gear Dedendum line, i.e. Apex2->C extended), and
+- the perpendicular distance from point B to the line through D and J (the Driving Gear Dedendum line, i.e. Apex2->D extended).
+
+Rationale (do not drop this when regenerating): the toe line M->N is C->H offset *toward the Apex* by Face Width, with N pinned to line A->Apex2; its mirror O->P is D->J offset toward the Apex by Face Width, with P pinned to line B->Apex2. When the offset reaches the perpendicular distance from A to line C->H, point N lands exactly on A; any larger value drives N **past** A, across the gear's own shaft axis (Apex->A). The frustum profile (hexagon A, G, H, C, M, N, built here in §2 and revolved later in "Create the Pinion Gear") is revolved about that shaft axis, so a profile that has crossed the axis self-intersects the axis of revolution and Fusion aborts the revolve (`RuntimeError ... ASM_WIRE_X_AXIS ... the profile crosses the axis of revolution`). The pinion side is normally the binding one (its smaller pitch radius gives the smaller distance), but compute both and take the minimum so the bound holds for any Shaft Angle. The `0.95` factor keeps N clearly off A, since a near-coincident N≈A degenerates the toe edge even before it strictly crosses. At Shaft Angle 90° this limit equals `Pinion Gear Pitch Diameter**2 / (2 * Cone Distance)`, so the naive `Cone Distance / 6` default exceeds it — and the gear fails to generate — for any gear ratio above roughly √2 (e.g. Driving 31 / Pinion 17).
 
 ## Instructions
 
@@ -121,7 +129,9 @@ Draw a construction line away from Apex, starting from point G. This new line sh
 
 Draw a construction line from point C to K. Constrain both ends appropriately. C->K should be colinear with Apex2->C.
 
-Create line starting from Apex->C up to line A->Apex2. The new line should be parallel to C->H. The line should have a dimensional constraint against C->H, with a dimension equal to Face Width.
+At this point all of A, B, C, D, H, J exist, so resolve the **Maximum Face Width** (see the Parameters section) and apply it before using Face Width below: cap the auto default to it, and reject a user value that exceeds it. Skipping this makes the M->N line below push point N across the shaft axis for gear ratios above ~√2, which fails the gear-body revolve in "Create the Pinion Gear".
+
+Create line starting from Apex->C up to line A->Apex2. The new line should be parallel to C->H. The line should have a dimensional constraint against C->H, with a dimension equal to Face Width. (N is pinned to line A->Apex2; the Maximum Face Width above is exactly the value at which N would reach A, so the capped Face Width keeps N between Apex2 and A.)
 
 Let the beginning of this new line to be point M, let the end of of this line be point N. Draw a line from M to C. Draw a line from N to A.
 

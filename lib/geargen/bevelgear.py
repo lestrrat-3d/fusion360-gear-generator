@@ -780,16 +780,51 @@ class BevelGearGenerator:
         constraints.addCoincident(cToK.startSketchPoint, pointC)
         constraints.addCoincident(cToK.endSketchPoint, pointK)
 
+        # Geometric upper bound on Face Width. The toe line M->N (and its
+        # driving-side mirror O->P) is parallel to the heel dedendum line
+        # C->H, offset toward the apex by Face Width, with N pinned to lineA2
+        # (A->Apex2) and P pinned to lineB2 (B->Apex2). Once that offset
+        # reaches the perpendicular distance from A to the C->H line, N lands
+        # exactly on A; any larger value pushes N across the gear's shaft
+        # axis, so the revolved hexagon self-intersects the rotation axis and
+        # Fusion aborts the revolve (RuntimeError "ASM_WIRE_X_AXIS ... profile
+        # crosses the axis of revolution"). The pinion is the binding side
+        # (its smaller pitch radius gives the smaller bound), but we compute
+        # both and take the min so the cap holds for any Shaft Angle. This is
+        # what made e.g. driving=31 / pinion=17 fail with the default width:
+        # the bound is exceeded for any ratio above ~sqrt(2) at Σ = 90°.
+        pinionDedUx = pinionDedDx / pinionDedLen
+        pinionDedUy = pinionDedDy / pinionDedLen
+        pinionFaceWidthMax_cm = abs(
+            (pointA.geometry.x - pointC.geometry.x) * pinionDedUy
+            - (pointA.geometry.y - pointC.geometry.y) * pinionDedUx)
+        drivingDedUx = drivingDedDx / drivingDedLen
+        drivingDedUy = drivingDedDy / drivingDedLen
+        drivingFaceWidthMax_cm = abs(
+            (pointB.geometry.x - pointD.geometry.x) * drivingDedUy
+            - (pointB.geometry.y - pointD.geometry.y) * drivingDedUx)
+        # 0.95 leaves a margin so N stays clearly off A (a near-coincident
+        # N≈A degenerates the toe edge even before it crosses).
+        faceWidthLimit_cm = 0.95 * min(
+            pinionFaceWidthMax_cm, drivingFaceWidthMax_cm)
+
         # Face Width resolution: user value if > 0, else (Cone Distance)/6.
         # The doc's "Cone Distance = hypot(DPD, PPD)" is exactly 2R at
         # Σ = 90°. Generalized to any Σ, the equivalent length along the
         # pitch line from apex to heel is R = cone_R_cm; doubling that
         # preserves the original default magnitude for Σ = 90° so existing
-        # configurations pick the same face width they always did.
+        # configurations pick the same face width they always did. Both the
+        # default and a user value are capped by faceWidthLimit_cm above.
         if self._faceWidth_cm > 0:
             faceWidth_cm = self._faceWidth_cm
+            if faceWidth_cm > faceWidthLimit_cm:
+                raise Exception(
+                    'Face Width {:.2f} mm is too large for these tooth '
+                    'counts and shaft angle: the pinion toe would cross its '
+                    'shaft axis. Maximum is {:.2f} mm.'.format(
+                        faceWidth_cm * 10.0, faceWidthLimit_cm * 10.0))
         else:
-            faceWidth_cm = (2.0 * cone_R_cm) / 6.0
+            faceWidth_cm = min((2.0 * cone_R_cm) / 6.0, faceWidthLimit_cm)
 
         # Doc line 115: a new line from pinionRootAxis (Apex->C) to lineA2
         # (A->Apex2), parallel to C->H. M on pinionRootAxis, N on lineA2.
