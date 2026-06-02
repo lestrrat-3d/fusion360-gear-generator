@@ -251,6 +251,19 @@ class SpurGearInvoluteToothDesignGenerator:
         leftPoints = rotate(mirrored, rotate_angle)
         rightPoints = [adsk.core.Point3D.create(p.x, -p.y, 0) for p in leftPoints]
 
+        # Fold the requested rotation `angle` into the drawing: rotate the whole
+        # (symmetric, +X-centered) tooth by `angle` so the seed tooth is drawn
+        # directly at its final angular position. angle==0 and angle!=0 then
+        # share the same centering baseline and differ by exactly `angle`, so a
+        # helical loft between an angle=0 profile and an angle=helixAngle profile
+        # twists by exactly the helix angle. Drawing the tooth already at `angle`
+        # also means the spine angular dimension below merely *confirms* the
+        # position instead of forcing a rotation the solver could resolve to the
+        # wrong (~180-off) branch. For spur (angle==0) this is a no-op.
+        if angle != 0:
+            leftPoints = rotate(leftPoints, angle)
+            rightPoints = rotate(rightPoints, angle)
+
         # --- 5. draw the two flanks as fitted splines through the collections.
         leftCollection = adsk.core.ObjectCollection.create()
         for p in leftPoints:
@@ -264,13 +277,13 @@ class SpurGearInvoluteToothDesignGenerator:
         rightSpline = splines.add(rightCollection)
 
         # --- 6. tooth-top arc (minimal, exactly-constrained set).
-        self._drawToothTopArc(leftSpline, rightSpline, tipRadius)
+        self._drawToothTopArc(leftSpline, rightSpline, tipRadius, angle)
 
         # --- 7. spine (construction): shares the local origin and tooth top.
-        self._drawSpine(angle)
+        self._drawSpine(angle, tipRadius)
 
         # --- 8. ribs between matching left/right flank fit points.
-        self._drawRibs(leftSpline, rightSpline)
+        self._drawRibs(leftSpline, rightSpline, angle)
 
         # --- 9. flank-to-root lines (common case) or embedded profile.
         self._drawFlankToRoot(leftSpline, rightSpline, rootRadius)
@@ -280,18 +293,20 @@ class SpurGearInvoluteToothDesignGenerator:
         if angle != 0 and self.spineAngularDimension is not None:
             self.spineAngularDimension.parameter.value = angle
 
-    def _drawToothTopArc(self, leftSpline, rightSpline, tipRadius):
+    def _drawToothTopArc(self, leftSpline, rightSpline, tipRadius, angle=0):
         sketch = self.sketch
         constraints = sketch.geometricConstraints
 
         leftEnd = leftSpline.endSketchPoint
         rightEnd = rightSpline.endSketchPoint
 
-        # Materialize a tooth-top point at (tipRadius, 0), coincident to the tip
-        # circle. This is the ONLY coincidence here - do not constrain the arc's
-        # centerSketchPoint to anything.
+        # Materialize a tooth-top point at the tip, rotated by `angle` to match
+        # the rotated flanks, and coincident to the tip circle. This is the ONLY
+        # coincidence here - do not constrain the arc's centerSketchPoint to
+        # anything.
         toothTop = sketch.sketchPoints.add(
-            adsk.core.Point3D.create(tipRadius, 0, 0))
+            adsk.core.Point3D.create(
+                tipRadius * math.cos(angle), tipRadius * math.sin(angle), 0))
         constraints.addCoincident(toothTop, self.tipCircle)
         self.toothTopPoint = toothTop
 
@@ -306,7 +321,7 @@ class SpurGearInvoluteToothDesignGenerator:
             arc,
             adsk.core.Point3D.create(0, tipRadius, 0))
 
-    def _drawSpine(self, angle):
+    def _drawSpine(self, angle, tipRadius):
         sketch = self.sketch
         constraints = sketch.geometricConstraints
         lines = sketch.sketchCurves.sketchLines
@@ -323,25 +338,33 @@ class SpurGearInvoluteToothDesignGenerator:
             # Spur: the spine's only additional constraint is horizontal.
             constraints.addHorizontal(spine)
         else:
-            # Horizontal reference construction line from the origin.
-            refEnd = adsk.core.Point3D.create(
-                self.toothTopPoint.geometry.x, 0, 0)
+            # Horizontal reference that ALWAYS points +X (fixed +tipRadius), so
+            # the spine->horizontal angle equals `angle` for any angle (the
+            # tooth-top point itself may sit on the -X side once angle > 90 deg,
+            # so deriving the reference from it would flip the sign).
+            refEnd = adsk.core.Point3D.create(tipRadius, 0, 0)
             horizontal = lines.addByTwoPoints(self.anchorPoint, refEnd)
             horizontal.isConstruction = True
             constraints.addHorizontal(horizontal)
             # Angular dimension spine -> horizontal, in that argument order, so
-            # the sign of the tilt (helix hand) is fixed. Value set later.
+            # the sign of the tilt (helix hand) is fixed. Place the text on the
+            # bisector of the intended angle so Fusion selects `angle` (not its
+            # supplement). The spine is already drawn at `angle`, so setting the
+            # value later confirms the position rather than rotating into it.
             dim = sketch.sketchDimensions.addAngularDimension(
                 spine, horizontal,
                 adsk.core.Point3D.create(
-                    self.toothTopPoint.geometry.x / 2, 0, 0))
+                    tipRadius / 2 * math.cos(angle / 2),
+                    tipRadius / 2 * math.sin(angle / 2), 0))
             self.spineAngularDimension = dim
 
-    def _drawRibs(self, leftSpline, rightSpline):
+    def _drawRibs(self, leftSpline, rightSpline, angle=0):
         sketch = self.sketch
         constraints = sketch.geometricConstraints
         dims = sketch.sketchDimensions
         lines = sketch.sketchCurves.sketchLines
+        ca = math.cos(angle)
+        sa = math.sin(angle)
 
         leftFits = leftSpline.fitPoints
         rightFits = rightSpline.fitPoints
@@ -366,10 +389,14 @@ class SpurGearInvoluteToothDesignGenerator:
                     (leftFit.geometry.x + rightFit.geometry.x) / 2,
                     (leftFit.geometry.y + rightFit.geometry.y) / 2, 0))
 
-            # 3. fresh midpoint, created ALREADY on the spine (y = 0 at draw
-            # time), at (fitPoints[i].x, 0, 0). Not at the rib's true midpoint.
+            # 3. fresh midpoint, created ALREADY on the spine. The spine is the
+            # line at `angle` through the origin (y = 0 only when angle == 0),
+            # so seed the midpoint at the foot of the left fit point on that
+            # line - it must start ON the spine (an off-spine seed
+            # over-constrains). For angle == 0 this reduces to (fitX, 0).
+            t = leftFit.geometry.x * ca + leftFit.geometry.y * sa
             midpoint = sketch.sketchPoints.add(
-                adsk.core.Point3D.create(leftFit.geometry.x, 0, 0))
+                adsk.core.Point3D.create(t * ca, t * sa, 0))
             # 4. pin onto the spine first.
             constraints.addCoincident(midpoint, self.spine)
             # 5. then make it the rib's midpoint.
@@ -935,11 +962,16 @@ class SpurGearGenerator(Generator):
                 # axis); drop the circular end-cap rims.
                 if geometry.curveType != adsk.core.Curve3DTypes.Line3DCurveType:
                     continue
-                (ok, startTangent) = edge.evaluator.getTangent(0)
-                if not ok or startTangent is None:
+                # A line edge has a constant tangent = its direction. Read it
+                # from the line geometry's endpoints rather than
+                # evaluator.getTangent(0): parameter 0 is not guaranteed to lie
+                # inside the edge's parameter range and raises
+                # "invalid argument parameter".
+                direction = geometry.startPoint.vectorTo(geometry.endPoint)
+                if direction.length == 0:
                     continue
-                startTangent.normalize()
-                if abs(abs(startTangent.dotProduct(axisDir)) - 1.0) < 0.01:
+                direction.normalize()
+                if abs(abs(direction.dotProduct(axisDir)) - 1.0) < 0.01:
                     edges.add(edge)
 
         if edges.count == 0:
