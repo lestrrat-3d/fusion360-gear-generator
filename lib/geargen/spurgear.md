@@ -94,7 +94,7 @@ A few rules apply across every sketch created below. They're not obvious from th
 
 **Hide a sketch only after you're done with it.** Setting `isVisible = False` on a sketch effectively takes it offline — projections, profile extraction, and further edits stop working on an invisible sketch. So the pattern is: create the sketch visible, draw and project and constrain everything, run any feature that consumes profiles from it, *then* toggle `isVisible = False` to keep the browser tidy. The same applies to any intermediate construction plane that needs to remain consumable by later features.
 
-**Construction planes and axes hide with `isLightBulbOn = False`, not `isVisible`.** A `ConstructionPlane`/`ConstructionAxis` is *not* hidden by `isVisible = False` (that has no visible effect on it — a Fusion gotcha; the stock generator left a commented-out `extrusionEndPlane.isVisible = False` "I can't make this work", which is exactly why the Extrusion End Plane stayed visible). Use `entity.isLightBulbOn = False`. As with sketches, only hide a construction plane *after* the features that consume it (here, the tooth and body extrudes that target the Extrusion End Plane) have run. At the very end of the build the cleanup must turn off the light bulb on **every** construction plane and axis it created — the Extrusion End Plane, the `Gear Center` axis, and the normalized target plane if one was created in step 1 — and set `isVisible = False` on the Tools and Gear Profile (and Bore Profile) sketches, so only the finished gear body is left showing.
+**Construction planes and axes hide with `isLightBulbOn = False`, not `isVisible`.** A `ConstructionPlane`/`ConstructionAxis` is *not* hidden by `isVisible = False` (that has no visible effect on it — a Fusion gotcha; the stock generator left a commented-out `extrusionEndPlane.isVisible = False` "I can't make this work", which is exactly why the Extrusion End Plane stayed visible). Use `entity.isLightBulbOn = False`. As with sketches, only hide a construction plane *after* the features that consume it (here, the tooth and body extrudes that target the Extrusion End Plane) have run. At the very end of the build the cleanup must turn off the light bulb on **every** construction plane and axis it created — the Extrusion End Plane, the `Gear Center` axis, and the normalized target plane if one was created in step 1 — and set `isVisible = False` on the Tools and Gear Profile (and Bore Profile) sketches, so only the finished gear body is left showing. **Split the cleanup by entity kind:** the construction-plane/axis hiding (`isLightBulbOn = False`) **always runs, in both modes** — including Generate-Sketches-Only, so no stray plane is left floating. The **sketch** hiding (`isVisible = False` on Tools/Gear Profile/Bore Profile) runs **only on the full-build path**; in Generate-Sketches-Only mode the sketches are deliberately left visible (see step 6). Guard each entity individually (only hide it if it was actually created — e.g. the `Gear Center` axis and Bore Profile sketch don't exist in sketch-only mode).
 
 **Dimensions are driving by default; don't pass `isDriven=True`.** `Sketch*Dimensions.addDiameterDimension(curve, textPoint)` creates a *driving* dimension — one that pins the curve's size to the stated value. Passing `True` as the third argument inverts it to a *driven* (measured) dimension that merely reports the current size, letting the curve float. All diameter dimensions in this file (the four gear circles, the tooth-top arc, the bore circle) must be driving, so just omit the third argument.
 
@@ -145,7 +145,18 @@ generate(inputs)
             → buildBody(ctx)     # extrude the annular body → ctx.gearBody, centerAxis, extrusionExtent (step 9)
             → patternTeeth(ctx)  # circular pattern + combine, then call createFillets(ctx) (steps 10–11)
   → buildBore(ctx)               # optional bore (step 12)
+  → cleanup(ctx)                 # always: hide construction planes/axes; sketches hidden only when NOT SketchOnly
 ```
+
+**`cleanup(ctx)` is the very last action of `generate()` — after `buildBore`, not inside
+`buildMainGearBody`.** Call it **unconditionally** (in both modes); the SketchOnly distinction
+lives *inside* `cleanup`: it always hides the construction planes/axes (`isLightBulbOn = False`),
+and hides the sketches (`isVisible = False`) only when NOT SketchOnly. So sketch-only mode leaves
+the sketches visible but still tidies away the floating construction planes. Placement after
+`buildBore` matters because `buildBore` re-projects `ctx.anchorPoint` from the Tools sketch and
+projection fails once that sketch is hidden — so the Tools sketch must stay visible through the
+bore. Do not move `cleanup` up into `buildMainGearBody`, and do not guard the *call* (guard the
+sketch-hiding inside it instead).
 
 Specific boundaries subclasses depend on (do not move the work elsewhere):
 
@@ -159,6 +170,11 @@ Specific boundaries subclasses depend on (do not move the work elsewhere):
   separately.
 - **`chamferTooth` / `createFillets`** read `chamferWantEdges()` and the fillet helix factor
   (`filletHelixFactorExpression()`); these hooks must exist on the generator.
+- **`generateName()`** returns the component name. For the spur base it is
+  `'Spur Gear (M={}, Tooth={}, Thickness={})'.format(module.expression, toothNumber.expression, thickness.expression)`
+  — i.e. the `Module`, `ToothNumber`, and `Thickness` parameters' **`.expression`** strings (not
+  `.value`), so units show through (e.g. `Spur Gear (M=1, Tooth=17, Thickness=10 mm)`). Subclasses
+  override this to read their own parameters.
 
 ### Tooth generator (`SpurGearInvoluteToothDesignGenerator`) reproduced surface
 
@@ -202,7 +218,7 @@ Create a sketch named `Gear Profile` on the target plane. Inside this sketch the
 3. **Base Circle** (construction), `Base Circle Radius`.
 4. **Pitch Circle** (construction), `Pitch Circle Radius`.
 
-Center every circle on the local-origin `SketchPoint` by passing it **directly** as the center — `sketchCircles.addByCenterRadius(localOrigin, radius)` — so all four share that one point (see Sketch Discipline: share, don't re-coincident; do not pass `localOrigin.geometry` and then add a center coincident). Give each a driving diameter dimension. Each circle is also labeled with along-path sketch text `<Name> (r=…, size=…)` where `size = Tip Circle Radius − Root Circle Radius`.
+Center every circle on the local-origin `SketchPoint` by passing it **directly** as the center — `sketchCircles.addByCenterRadius(localOrigin, radius)` — so all four share that one point (see Sketch Discipline: share, don't re-coincident; do not pass `localOrigin.geometry` and then add a center coincident). Give each a driving diameter dimension. Each circle is also labeled with along-path sketch text (see the playbook for the exact `sketchTexts.createInput2(...)` + `setAsAlongPath(...)` call). The label string is `'{} (r={:.2f}, size={:.2f})'.format(name, radius, size)` — the circle's name, its radius, and `size`, all using the radii's internal `.value` (cm) — where `size = Tip Circle Radius − Root Circle Radius`. Pass that same `size` as the text **height** argument to `createInput2`.
 
 ### 4: Involute Tooth
 
@@ -244,7 +260,7 @@ This is the step that slides the whole drawing onto the user's anchor. Project t
 
 ### 6: Sketch-Only Short-Circuit
 
-If the Generate-Sketches-Only input is `true`, make the Gear Profile sketch visible and stop. Skip the remaining body operations.
+If the Generate-Sketches-Only input is `true`, make the Gear Profile sketch visible and stop — skip the remaining body operations (tooth/body/pattern/fillet/bore). The end-of-build cleanup still runs in this mode, but does only **half** its job: it **hides the construction planes/axes** (the Extrusion End Plane, and the normalized Target Plane if one was created) so no stray plane is left floating, while **leaving the sketches visible** (Tools and Gear Profile stay shown for inspection — the whole point of this mode is to see the involute construction). So the SketchOnly end state is: gear sketches visible, construction planes/axes hidden, no body. (See the cleanup rule in Sketch Discipline: the plane/axis hiding always runs; only the sketch hiding is full-build-only.)
 
 ### 7: Extrude the Tooth
 
@@ -256,16 +272,20 @@ Extrude this profile from the target plane to the Extrusion End Plane (`ToEntity
 
 If Apply-Chamfer-To-Teeth > 0, round off every edge of the tooth's front face *except* the arc shared with the root valley. The target face is identified by its edge count matching the loop we drew in step 4 — 6 for a spur tooth, different for subclasses. Skipping the root arc is the critical part: chamfering it would eat into the neighbouring tooth.
 
+**Identify the root arc by radius, not by relative size.** Walk the front face's edges and add each to the chamfer edge set, *except* skip any edge that is an `Arc3DCurveType` whose `edge.geometry.radius` equals `Root Circle Radius` (compare against the registered parameter's `.value`, tolerance `0.001` cm). That radius match is exact — the root arc is the only edge lying on the root circle — so it is more robust than "the smallest-radius arc." (This is the same radius-matching technique step 11 uses to find the root cylinders.) Everything else on the face — the two flanks, the tooth-top arc, and the two flank-to-root lines — gets chamfered. Apply with `chamferFeatures.createInput2()` → `chamferEdgeSets.addEqualDistanceChamferEdgeSet(edges, <ChamferTooth value>, False)`.
+
 Helical and herringbone subclasses override the expected edge count (a lofted embedded tooth has 4 edges, not 6), and may additionally filter the face by content — e.g. "must contain two NURBS flanks" — because on a tilted tooth more than one face can match the raw edge count and only one of them is the actual front.
 
 ### 9: Extrude the Body
 
-Find the gear body profile — the annular loop bounded by **exactly 2 arcs** (the root circle and the tip circle). Extrude it from the target plane to the Extrusion End Plane as a **New Body**. Name the feature `Extrude body` and the resulting body `Gear Body`.
+Find the gear body profile — the annular loop bounded by **exactly 2 arcs** (the root circle and the tip circle): a `profileLoop` whose `profileCurves.count == 2` and every curve's `geometry.curveType` is `Arc3DCurveType`. Extrude it from the target plane to the Extrusion End Plane (`ToEntityExtentDefinition.create(ctx.extrusionEndPlane, False)`, `PositiveExtentDirection`) as a **New Body**. Name the feature `Extrude body` and the resulting body `Gear Body`.
 
-While iterating the body's faces, also capture two references needed later:
+While iterating the new body's faces (`extrude.bodies.item(0).faces`), capture two references needed later. Classify each face by `face.geometry.surfaceType`:
 
-- `Gear Center` construction axis: add via `constructionAxes.setByCircularFace(cylindrical_face)` using any cylindrical face of this body. Name it, and set `isLightBulbOn = False`.
-- `ctx.extrusionExtent`: the planar face on the body that is parallel to but not coplanar with the target plane — i.e., the far face where the body ends. Used later by the bore cut.
+- **`Gear Center` construction axis** — from any face whose `surfaceType` is `CylinderSurfaceType`. Build it with `constructionAxes.createInput()` → `axisInput.setByCircularFace(cylindrical_face)` → `constructionAxes.add(axisInput)`. Name it `Gear Center`; set `isLightBulbOn = False`. Store on `ctx.centerAxis`.
+- **`ctx.extrusionExtent`** (the far end-cap face, used later by the bore cut) — among faces whose `surfaceType` is `PlaneSurfaceType`, the one that is parallel to but **not** coplanar with the gear's sketch plane. Test it with the plane-geometry API rather than a hand-rolled dot-product: let `sketchPlane = ctx.gearProfileSketch.referencePlane.geometry`, and pick the face where `sketchPlane.isParallelToPlane(face.geometry) and not sketchPlane.isCoPlanarTo(face.geometry)`. (The near cap is coplanar with the sketch plane, so `isCoPlanarTo` rules it out; the cylindrical and side faces aren't planar.) Raise if either reference isn't found.
+
+Finally store `ctx.gearBody` (the `Gear Body` body).
 
 ### 10: Pattern Teeth
 
