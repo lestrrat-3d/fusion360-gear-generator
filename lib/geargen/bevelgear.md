@@ -205,10 +205,23 @@ PLAYBOOK still apply):
 - **Apex is placed numerically, not constrained.** Its position is computed in world coordinates
   (target-plane normal, `get_normal` + `_pointWorldGeometry` + `modelToSketchSpace`) and set by
   coordinate, deliberately *without* a constraint, so the figure sits above the anchor line for any
-  Shaft Angle.
-- **All features run in the Design component; bodies are relocated at the end** via
-  `moveToComponent` — Fusion rejects cross-sibling sketch/`project`/`Path.create` (see PLAYBOOK
-  "Multi-component orchestration"). Activate the Design occurrence before building.
+  Shaft Angle. This world→sketch round-trip is correct **only because no occurrence is activated and
+  every component transform is identity** (see the no-`activate()` rule below) — `modelToSketchSpace`
+  then maps the world apex into the sketch faithfully. If anything were activated, this same
+  round-trip would resolve against the wrong frame.
+- **NEVER call `occurrence.activate()` — this is the bug that silently collapses the whole gear
+  onto world XY.** All sketches/features run in the Design component, created via that component's
+  collections (`designComponent.sketches.add(...)`, `designComponent.features.*`) **without
+  activating it** — exactly as the spur generator builds in its own non-activated component. The
+  reason: the Anchor Sketch is created on the user's *external* (root-owned) target plane; if the
+  Design occurrence is **activated**, Fusion resolves that external plane in the activated
+  component's **local frame (identity → world-XY-aligned)**, so the anchor line and the
+  `setByAngle(anchorLine, '90 deg', targetPlane)` Gear Profiles plane come out XY-aligned regardless
+  of the real plane tilt, and the entire gear builds flat on XY. Leaving every occurrence
+  non-activated lets `sketches.add(targetPlane)` carry the true orientation (spur proves this works
+  for any plane). `moveToComponent` at the end still works without activation (it preserves world
+  position), and all features run in the single Design component, so no cross-sibling reference is
+  ever needed during construction.
 - **Cleanup hides by entity kind.** Recursively walk the Bevel Gear component tree (dedupe by
   `entityToken`) and set `isLightBulbOn = False` on every sketch, construction plane, and
   construction axis (construction planes/axes are **not** hidden by `isVisible`). There is no
@@ -266,13 +279,13 @@ Create the Design component as a child of the Bevel Gear component.
 
 ### 1: Anchor Sketch
 
-Start a sketch on the target plane. Mark the center point on the target plane by projecting the user-specified center point onto the sketch.
+Start the Anchor Sketch **directly on the user-selected target plane** — `designComponent.sketches.add(targetPlane)` — whether the selection is a `ConstructionPlane` or a `PlanarFace`. **Do NOT "normalize" the target plane first** (e.g. `setByOffset(targetPlane, 0)` into a new construction plane), and in particular do not build such a plane inside the Design sub-component: a construction plane offset from a face that lives in another component resolves in the Design component's own (identity → world XY) frame and **loses the target plane's orientation, so the whole gear builds flat on world XY regardless of the plane the user picked**. `sketches.add` accepts a planar face directly and preserves its world orientation — use it as-is. Mark the center point by projecting the user-specified center point onto the sketch.
 
 Create a line that intersects with the projected center point by applying the intersection constraint. Use the mid-point constraint to make the center point divide the line in half. This line shall only be used as a reference, and therefore its dimension does not really matter. Pick a number, say 10mm, and apply it to the line. This line shall be known as the Anchor Line.
 
 ### 2: Gear Profiles
 
-Using ConstructionPlaneInput.setByAngle, create a plane that includes the Anchor Line, and set it at 90 degrees (as by default it would lie flush to the plane of the anchor line, but we want it perpendicular). Create a sketch on this plane.
+Using ConstructionPlaneInput.setByAngle, create a plane that includes the Anchor Line, and set it at 90 degrees (as by default it would lie flush to the plane of the anchor line, but we want it perpendicular). **Pass the original `targetPlane` as `setByAngle`'s reference plane** — not the anchor sketch's own `referencePlane` and not any re-derived/offset plane — so the Gear Profiles plane inherits the true target-plane orientation (this is the other place the target-plane orientation reaches the bodies; substituting a different plane here also collapses the gear onto XY). Create a sketch on this plane.
 
 In the sketch, project the center point from the Anchor Sketch.
 
@@ -319,10 +332,9 @@ From point D, draw a line with length equal to module (but do NOT add dimensiona
 
 Connect point I and J with a line. Constrain end points of line accordingly with coincidence constraints. Constrain line F->I and J->I with a perpendicular constraint.
 
-Create a dimension constraint between lines Apex2->B and J->I. The value of this constraint should be equal to Driving Gear Base Height _if_ it is specified (non-0). Otherwise, compute the value as module * Driving Gear Teeth Number / 8.
+Create an **offset dimension between the B->Apex2 perpendicular drop line and J->I**. **"B->Apex2" here is the perpendicular construction line of length DPD/2 you drew earlier "From B, perpendicular to the Driving Gear Shaft Axis" — NOT the Apex->B shaft axis.** This matters: `addOffsetDimension` requires its two lines be parallel, and J->I is parallel to that perpendicular drop (both run in the dedendum/perpendicular direction), whereas the Apex->B shaft axis is not parallel to J->I — passing the shaft axis makes the offset dimension unsolvable (`VCS_SKETCH_SOLVING_FAILED`). Set the value equal to Driving Gear Base Height _if_ specified (non-0); otherwise `module * Driving Gear Teeth Number / 8`.
 
-Create a dimension constraint between lines Apex2->A and G->H. The value of
-this constraint should be equal to Pinion Gear Base Height _if_ it is specified (non-0). Otherwise, compute the value as Driving Gear Base Height * (Pinion Gear Teeth Number / Driving Gear Teeth Number).
+Create an **offset dimension between the A->Apex2 perpendicular drop line and G->H** — again "A->Apex2" is the perpendicular construction line of length PPD/2 (drawn "From A, perpendicular to the Pinion Gear Shaft Axis"), **not** the Apex->A shaft axis; G->H is parallel to it, the shaft axis is not. The value should be equal to Pinion Gear Base Height _if_ specified (non-0); otherwise `Driving Gear Base Height * (Pinion Gear Teeth Number / Driving Gear Teeth Number)`.
 
 Draw a line from A to G. Constrain endpoints appropriately.
 
@@ -396,6 +408,11 @@ Cut the Pinion Gear Tooth Body twice, in order:
 2. Then, cut the resulting bodies using the conical face on Pinion Gear Body that was generated from the C->H edge. Locate it the same way: among the cone faces of Pinion Gear Body, pick the **best-matching** one whose underlying surface contains both C and H in world coordinates (min total distance), and use it as the splitting tool with `isSplittingToolExtended=True`.
 
 Apply the cuts **sequentially over the current set of pieces** (after cut 1, feed each resulting piece into cut 2). **The second cone may not intersect every piece** — wrap each split in a `try/except RuntimeError` and, when the message contains `SPLIT_TARGET_TOOL_NOT_INTERSECT` (or its localized form `交差`), keep that piece intact and continue rather than aborting. After both cuts you must have **exactly three pieces**; it is an error otherwise.
+
+**Make every cut failure self-diagnosing** (these errors are how the build is debugged when run headless, so they must carry the measured numbers, not a bare count):
+- **Cone-face lookup never silently returns "not found."** When no `ConeSurfaceType` face has both cut-line endpoints within tolerance, the finder must `raise` an error naming the cut (#1/#2, pinion/driving) and listing, for **every** cone face on the body, its two endpoint distances `(dA, dB)` and the tolerance — so a too-tight tolerance vs. a genuinely-absent face is distinguishable. Do **not** return the bodies unchanged on a miss (that turns a found-no-face into a misleading downstream "wrong piece count").
+- **Log each cut's outcome** with `futil.log(..., force_console=True)`: how many bodies went in, which face was selected (with its `(dA,dB)`), and how many pieces came out (or "tool did not intersect, kept intact").
+- **The piece-count error must report the per-cut history**, e.g. `"<gear>: expected 3 pieces, got N (cut#1: faces found=…, selected dist=…, produced=…; cut#2: …)"`, so the message alone reveals which cut under- or over-split and whether it was a tolerance/face-selection problem.
 
 Remove the piece that contains the Apex. Identify it by `BRepBody.pointContainment(apexWorld)` returning `PointInside` or `PointOn`; remove it via `RemoveFeatures.add()` (so the deletion appears in the timeline).
 
