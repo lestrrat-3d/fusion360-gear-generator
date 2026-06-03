@@ -72,6 +72,29 @@ post-generation user-parameter table, and saved designs reference them). Use the
 | Apply chamfer to teeth | `chamferTooth` | `ChamferTooth` |
 | Generate sketches, but do not build body | `sketchOnly` | `SketchOnly` |
 
+**Dialog display order (the order `configure()` adds inputs) is fixed and must be exactly:**
+
+1. Target Plane (`plane`)
+2. Anchor Point (`anchorPoint`)
+3. Module (`module`)
+4. Tooth Number (`toothNumber`)
+5. Pressure Angle (`pressureAngle`)
+6. Bore Diameter (`boreDiameter`)
+7. Thickness (`thickness`)
+8. Apply chamfer to teeth (`chamferTooth`)
+9. Generate sketches, but do not build body (`sketchOnly`)
+10. Parent Component (`parentComponent`) — **last**
+
+This is the order the inputs are listed in the Variables section above, and `configure()` must
+call its `add*Input(...)` methods in exactly this sequence. **Do not reorder by input *type*** (e.g.
+all selections together, all value inputs together). In particular: Target Plane and Anchor Point
+are the **first two** inputs, and Parent Component is **last** (its default — the root component —
+is correct for most uses, so it sits at the bottom). **This display order is independent of, and
+must not be confused with, the `processInputs` *read* order** — `processInputs` reads the three
+selection inputs first to dodge the occurrence-context shift (see Generation Order), but that
+read-order has no bearing on where the inputs appear in the dialog. A generator that puts the
+selections last in `configure()` because they are "read first" has the rule backwards.
+
 Bore Diameter is added as a **string** value input (`addStringValueInput`, default `'0 mm'`) so it
 accepts expressions; the rest are numeric `addValueInput`s. `SketchOnly` is persisted as a
 real-valued user parameter (1 = true, 0 = false), since the framework only reads numeric
@@ -90,7 +113,7 @@ A few rules apply across every sketch created below. They're not obvious from th
 
 **Anchor to an existing sketch point by *sharing* it, never by re-coinciding a fresh point.** When a construction line or circle should start at / be centered on a point that already exists (the local origin, or the tooth-top point), pass that `SketchPoint` **object directly** into the creation call — `sketchCircles.addByCenterRadius(localOrigin, r)`, `sketchLines.addByTwoPoints(localOrigin, toothTopPoint)`, `addByThreePoints(flankEnd, …, flankEnd)` — so the new entity reuses the same point. Do **not** create the entity from the point's `.geometry` (a raw `Point3D`, which makes a *new* coincident point) and then `addCoincident(newPoint, original)` to tie them back. Each such redundant coincident piles another constraint onto the shared origin; with the four circle centers, the spine start and the rib chain all anchored to the local origin, accumulating these makes Fusion's solver fail outright (`VCS_SKETCH_SOLVING_FAILED`) or over-constrain. Sharing the point adds zero constraints and always solves. (This is the same rule as the profile-adjacency one above, applied to construction geometry and the origin.)
 
-**The helical rotation is driven, not constructed.** When a subclass passes a non-zero `angle` to the tooth generator, the geometry is still drawn at zero rotation — splines, ribs, and dimensions exactly as for a spur tooth. The tilt is applied as the very last step by setting the spine-to-horizontal angular dimension's value to `angle`, *after* the entire constraint network exists. Fusion then rotates the finished tooth as a rigid body. Trying to pre-rotate points leaves dimensions inconsistent with geometry and the sketch fails to solve.
+**The helical rotation is drawn AND confirmed — two distinct, both-required actions.** When a non-zero `angle` is passed, the tooth geometry is drawn **already rotated by `angle`** in the Python point math (step 4 — every flank point, the tooth-top point, and the rib-midpoint seeds are at their `angle`-rotated positions). Then, **as the very last action after the entire constraint network exists**, the spine-to-horizontal angular dimension's value is set to `angle` (step 7). These are NOT alternatives — do both: the pre-rotation puts the geometry on the correct solver branch, and the final dimension value-set *confirms and locks* that rotation rather than swinging the tooth into place from +X. (An earlier approach drew the tooth flat and relied solely on the dimension to swing it; that lets Fusion pick the wrong ~180°-off branch and ruins the helical loft — see step 4. The fix was to pre-rotate *and* keep the confirming dimension.) Concretely, the dimension value-set is mandatory even though the geometry already sits at `angle`: `if angle != 0: spineAngularDimension.parameter.value = angle`. For `angle = 0` (spur) there is no angular dimension and nothing to set.
 
 **Hide a sketch only after you're done with it.** Setting `isVisible = False` on a sketch effectively takes it offline — projections, profile extraction, and further edits stop working on an invisible sketch. So the pattern is: create the sketch visible, draw and project and constrain everything, run any feature that consumes profiles from it, *then* toggle `isVisible = False` to keep the browser tidy. The same applies to any intermediate construction plane that needs to remain consumable by later features.
 
@@ -178,13 +201,37 @@ Specific boundaries subclasses depend on (do not move the work elsewhere):
 
 ### Tooth generator (`SpurGearInvoluteToothDesignGenerator`) reproduced surface
 
-- Constructor `(sketch, parent, angle=0)`. Store the angle (e.g. `self.toothAngle = angle`).
+- Constructor `(sketch, parent, angle=0)`. Store the constructor angle as `self.toothAngle =
+  angle`. **This stored value is NOT what `drawTooth` rotates by** — see the next bullet. (It is
+  retained only as an incidental field; the live rotation always comes from `draw()`'s runtime
+  argument. Do not use `self.toothAngle` inside `drawTooth`.)
 - The movable **local origin is a field named `self.anchorPoint`** — a fresh `SketchPoint` added
   at (0, 0, 0) in the constructor (see Sketch Discipline). Subclasses don't read it directly, but
   the spur base `buildSketches` and the `draw()` anchoring below depend on this exact name.
 - `draw(anchorPoint, angle=0)` performs, in order: `drawCircles()`, `drawTooth(angle)`, then the
-  **step-5 anchoring as its own final action** (see step 5). Methods `drawCircles`, `drawTooth`,
-  `drawBore`, and `calculateInvolutePoint(baseRadius, intersectionRadius)` must all exist.
+  **step-5 anchoring as its own final action** (see step 5). **`drawTooth` MUST rotate by the
+  `angle` argument that flows in from `draw()` at call time — NOT by the constructor-stored
+  `self.toothAngle`.** This is load-bearing for subclasses: helical/herringbone construct the
+  generator with the default `angle=0` (so `self.toothAngle == 0`) and then call
+  `draw(ctx.anchorPoint, angle=helixAngle)`. If `drawTooth` used `self.toothAngle` it would draw a
+  flat tooth and the helical loft would have no twist.
+- Methods `drawCircles`, `drawTooth`, `drawBore`, and `calculateInvolutePoint(baseRadius,
+  intersectionRadius)` must all exist. The tooth generator also exposes parameter accessors
+  `getParameter(name)` and `getParameterValue(name)` (these names are part of the reproduced
+  surface).
+- **`calculateInvolutePoint(baseRadius, intersectionRadius)` — exact math** (this fully pins the
+  flank shape; do not infer it). Returns the point on the involute of `baseRadius` at the radius
+  where the unrolled string reaches `intersectionRadius`; returns `None` when `intersectionRadius
+  < baseRadius` (the sample sits inside the base circle — this is the "non-positive involute
+  parameter" case the sampling loop drops):
+  ```
+  alpha = acos(baseRadius / intersectionRadius)
+  t     = tan(alpha)          # the curve parameter is tan(alpha) — NOT inv(alpha)=tan(alpha)-alpha
+  x = baseRadius * (cos(t) + t * sin(t))
+  y = baseRadius * (sin(t) - t * cos(t))
+  ```
+  Using `inv(alpha) = tan(alpha) − alpha` as the parameter instead of `tan(alpha)` is a common
+  mistake and produces a wrong (mis-parameterised) flank.
 
 ## Generation Order
 
@@ -224,7 +271,7 @@ Center every circle on the local-origin `SketchPoint` by passing it **directly**
 
 Still inside the Gear Profile sketch, draw a single involute tooth centered on the +X direction:
 
-1. Sample a sequence of points along the involute flank, starting on the base circle and walking outward toward the tip circle in equal radial steps (Involute Steps samples in total). Drop any sample whose corresponding involute parameter would be non-positive — those sit inside the base circle and have no valid involute.
+1. Sample a sequence of points along the involute flank, starting on the base circle and walking outward toward the tip circle in equal radial steps (Involute Steps samples in total). The first sample radius is **exactly `Base Circle Radius`** — do **not** clamp the start to `max(Base Circle Radius, Root Circle Radius)`; the flank is sampled from the base circle even when the base circle sits inside the root circle (the embedded case is detected later in step 9 from where the flank *start* lands, not by trimming the sampling). Each sample is `calculateInvolutePoint(Base Circle Radius, r)` for that step's radius `r` (the exact math is pinned in the tooth-generator surface section above). Drop any sample that returns `None` (i.e. whose radius is below the base circle) — those sit inside the base circle and have no valid involute.
 2. **Watch the spiral direction.** A correctly-formed involute tooth narrows from base to tip, so the left flank's angular distance above +X must *decrease* as the radius grows. The standard parametric involute (`rb*(cos t + t sin t, sin t - t cos t)`) spirals the opposite way — its angular position *increases* with radius — and using it as a left flank directly produces a tooth that splays outward (wider at the tip than at the root). Before rotating, mirror the samples across the +X axis (negate y) so the spiral matches a left flank's shape. The rotation in the next step lifts the mirrored curve from −Y back up into +Y where the left flank belongs.
 3. Decide how far to rotate the (mirrored) sequence so the tooth ends up symmetric about +X. Measure where the mirrored involute crosses the pitch circle, then rotate by exactly the amount that lands that pitch-circle crossing at angle `+π / (2 · ToothNumber)` above +X. (The angular width of a single tooth at the pitch circle is `π / Tooth Number`, so half that — `π / (2 · ToothNumber)` — is where the left flank's pitch crossing must end up.) Compute the pitch-circle crossing angle **analytically** — evaluate `calculateInvolutePoint(Base Circle Radius, Pitch Circle Radius)` and take its polar angle — rather than interpolating between the sampled flank points; the analytic value places the tooth at exactly the right angle regardless of how few involute samples are taken.
 4. Rotate the (mirrored) sampled points by `rotate_angle`. This produces the **left** flank. Mirror that result across the X axis to produce the **right** flank. You now have a tooth symmetric about +X.
@@ -253,7 +300,7 @@ Still inside the Gear Profile sketch, draw a single involute tooth centered on t
    - (a) the line's **root-end** point coincident to the **root circle**;
    - (b) the **local origin** coincident to the line itself (point-on-line, treating the line as infinite) — this pins the line to a radial direction.
 
-   Both are required and together they exactly constrain the line: the root end starts with 2 DOF, (a) drops it to 1 (on the circle), and (b) drops it to 0 (the line must pass through the origin, so the root end lands where the origin→flank-start ray meets the root circle). The flank-start endpoint is already fully located by the rib chain, so (b) constrains the *root end's* direction, not the flank point — there is no conflict. Omitting (b) leaves the root end free to slide around the circle (under-constrained, and the revolve/tooth comes out skewed); adding a *third* constraint (e.g. re-coinciding the shared flank endpoint) over-constrains it. This is the common case; the resulting tooth loop has 6 curves (2 splines + 2 flank-to-root lines + 2 arcs — the tooth top and the root arc). If instead the flank starts **inside** the root circle (happens when the tooth count / pressure angle combination drops the base circle below the root), no flank-to-root line is drawn and the loop has 4 curves (2 splines + 2 arcs); the profile is "embedded". Record which shape was drawn on `ctx.toothProfileIsEmbedded` so the extrude step knows which edge count to look for.
+   Both are required and together they exactly constrain the line: the root end starts with 2 DOF, (a) drops it to 1 (on the circle), and (b) drops it to 0 (the line must pass through the origin, so the root end lands where the origin→flank-start ray meets the root circle). The flank-start endpoint is already fully located by the rib chain, so (b) constrains the *root end's* direction, not the flank point — there is no conflict. Omitting (b) leaves the root end free to slide around the circle (under-constrained, and the revolve/tooth comes out skewed); adding a *third* constraint (e.g. re-coinciding the shared flank endpoint) over-constrains it. This is the common case; the resulting tooth loop has 6 curves (2 splines + 2 flank-to-root lines + 2 arcs — the tooth top and the root arc). If instead the flank starts **inside** the root circle (happens when the tooth count / pressure angle combination drops the base circle below the root), no flank-to-root line is drawn and the loop has 4 curves (2 splines + 2 arcs); the profile is "embedded". Record which shape was drawn so the extrude step knows which edge count to look for. **Mechanism (the tooth generator has no `ctx`):** the tooth generator sets the boolean on its **parent generator** — `self.parent._lastToothEmbedded = True/False` — during `drawTooth`. `SpurGearGenerator.__init__` MUST pre-initialise `self._lastToothEmbedded = False` (alongside `self.toolsSketch = None` and `self.boreSketch = None`, the other fields cleanup guards on). Then `buildSketches`, which does hold `ctx`, copies it across: `ctx.toothProfileIsEmbedded = self._lastToothEmbedded`. Do not try to set `ctx.toothProfileIsEmbedded` directly from inside the tooth generator — it cannot reach `ctx`.
 
 ### 5: Anchor the Sketch
 
@@ -301,8 +348,12 @@ Important Fusion-API detail: `CircularPatternFeature.bodies` already includes *a
 If Fillet Radius > 0, round the corner where the root valley floor meets each tooth flank — the sharp inside corner that runs the full thickness of the gear, parallel to its main axis. This is where bending stress concentrates at the tooth root, so it's the structurally important fillet (not the front/back rim, which is a cosmetic rounding the user doesn't want here). Two things make picking the right edges fiddly:
 
 - After the pattern-and-combine step, the root cylinder is usually split into one patch per valley rather than a single continuous surface. Collect *every* cylindrical face whose radius equals Root Circle Radius, not just the first one found.
-- On each such face, keep the **axial straight edges** — the ones whose direction is parallel to the target plane's normal (i.e. parallel to the gear's main axis). Those are the two valley-floor-to-tooth-flank corners on each valley patch. Drop the *circular* edges that wrap around the circumference at the front and back end caps; those are end-cap rims, not the structural root corners. Filter first to `Line3DCurveType` edges, then take each line's direction from its **geometry endpoints** (`geometry.startPoint.vectorTo(geometry.endPoint)`), normalize, and keep it if `abs(dot(direction, axisNormal)) ≈ 1`. Do **not** read the direction via `edge.evaluator.getTangent(0)` — parameter `0` is not guaranteed to lie inside the edge's parameter range and Fusion raises `RuntimeError: invalid argument parameter`.
+- On each such face, keep the **axial straight edges** — the ones whose direction is parallel to the target plane's normal (i.e. parallel to the gear's main axis). Those are the two valley-floor-to-tooth-flank corners on each valley patch. Drop the *circular* edges that wrap around the circumference at the front and back end caps; those are end-cap rims, not the structural root corners. Filter first to `Line3DCurveType` edges, then take each line's direction from its **geometry endpoints** (`geometry.startPoint.vectorTo(geometry.endPoint)`), normalize, and keep it if it is parallel to the axis within tolerance: `abs(abs(dot(direction, axisNormal)) - 1.0) < 0.01`. (Use exactly this tolerance — a tighter test like `> 0.999` can drop valid axial edges that are slightly off due to tessellation, leaving root fillets missing.)
+
+Apply the fillet with `filletFeatures.createInput()` → `edgeSetInputs.addConstantRadiusEdgeSet(edges, <Fillet Radius value>, isTangentChain=False)`. **`isTangentChain` must be `False`** — the collected edges are exactly the axial root corners; tangent-chaining (`True`) would let Fusion pull in tangent-adjacent edges and round more than the intended root corner. Do **not** read the direction via `edge.evaluator.getTangent(0)` — parameter `0` is not guaranteed to lie inside the edge's parameter range and Fusion raises `RuntimeError: invalid argument parameter`.
 
 ### 12: Bore (optional)
 
-If Bore Diameter > 0, create a separate `Bore Profile` sketch on the target plane, draw a construction-less circle of that diameter at the projected Anchor Point, then extrude-cut that profile from the target plane to `ctx.extrusionExtent` (the far end-cap face), affecting only `ctx.gearBody`. The `ToEntityExtentDefinition` to the far face guarantees the bore goes all the way through regardless of Thickness.
+`buildBore` runs unconditionally from `generate()` (after `buildMainGearBody`), so it MUST itself early-return in two cases: when **SketchOnly** is set, and when **Bore Diameter ≤ 0**. The SketchOnly guard is essential — in sketch-only mode `buildMainGearBody` short-circuits before `buildBody`, so `ctx.gearBody` and `ctx.extrusionExtent` are never set; proceeding into the cut would dereference `None`. (Do not rely on the bore diameter being 0 in sketch-only mode — the user may have set both.)
+
+Otherwise (full build, Bore Diameter > 0), create a separate `Bore Profile` sketch on the target plane, draw a construction-less circle of that diameter at the projected Anchor Point, then extrude-cut that profile from the target plane to `ctx.extrusionExtent` (the far end-cap face), affecting only `ctx.gearBody`. The `ToEntityExtentDefinition` to the far face guarantees the bore goes all the way through regardless of Thickness.
