@@ -28,10 +28,16 @@ Module-level constants name the recurring parameters and dialog input ids, e.g.
 `PARAM_MODULE = 'Module'`, `INPUT_ID_PARENT = 'parentComponent'`, `INPUT_ID_PLANE = 'plane'`,
 `INPUT_ID_ANCHOR_POINT = 'anchorPoint'`. A subclass may add its own (e.g. a helix-angle param).
 
-## The four classes
+## The four-class pattern (involute family — one option, not mandatory)
 
-A gear module is built from four cooperating classes. Names are part of the public API —
-subclasses in `helicalgear.py` / `herringbonegear.py` bind to them **by name** (see Contract).
+This is the architecture the **involute gear family** (`spurgear` + its `helicalgear` /
+`herringbonegear` subclasses) uses. It is **not** the only valid shape: a gear is free to use a
+different class layout, skip `GenerationContext`, or not subclass `base.Generator` at all (e.g.
+`bevelgear` does none of these). **The gear's own spec declares its architecture** (see the
+skill's "Required spec sections"); use this four-class pattern only when that spec says to.
+
+When a gear *does* use it, the four class names are part of the public API — subclasses bind to
+them **by name** (see Contract), so reproduce them exactly:
 
 1. **`<Gear>CommandInputsConfigurator`** — a class with `@classmethod def configure(cls, cmd)`
    that adds the dialog inputs to `cmd.commandInputs`. Selection inputs use
@@ -55,7 +61,9 @@ subclasses in `helicalgear.py` / `herringbonegear.py` bind to them **by name** (
 
 ## `base.Generator` — what you inherit (do not re-implement)
 
-`lib/geargen/base.py` provides:
+Use this **when the gear's spec says it subclasses `base.Generator`** (the involute family does;
+a gear with a standalone generator, e.g. `bevelgear`, manages its own occurrence/cleanup instead
+and the spec describes that). When inherited, `lib/geargen/base.py` provides:
 
 - `__init__(self, design)` — sets `self.design`, `self.parentComponent`, `self.occurrence`,
   `self.prefix`, `self.cleaner`.
@@ -151,29 +159,31 @@ links — editing a `<prefix>_…` parameter does not update an existing gear; r
    contract" section pins which build methods own which steps; preserve those method boundaries
    and names (subclasses override at them). Private-helper decomposition beyond that is free.
 
-## Subclass-extension contract (MUST be preserved verbatim)
+## Dependent-gear contract (preserve verbatim — when a spec declares one)
 
-A gear may anchor a subclass family — for the involute gears, `helicalgear.py` and
-`herringbonegear.py` subclass the base gear's classes and override/call members **by name**.
-Wherever that is the case, the base gear's public surface is a contract a regenerated base `.py`
-must preserve exactly, or the subclasses break. That surface is:
+This applies **only when a gear's spec declares dependents** — another gear that either subclasses
+its classes or imports one of them. For the involute gears, `helicalgear.py` and
+`herringbonegear.py` subclass `spurgear`'s classes and override/call members **by name**; a gear
+may also be borrowed by composition (e.g. `bevelgear` imports `spurgear`'s tooth generator). In
+any such case the depended-on gear's public surface is a contract a regenerated `.py` must
+preserve exactly, or the dependents break. That surface typically includes:
 
-- the four class names (`<Gear>CommandInputsConfigurator`, `<Gear>GenerationContext`,
-  `<Gear>InvoluteToothDesignGenerator`, `<Gear>Generator`);
-- the overridable generator hook methods — kept as **distinct, overridable steps** (subclasses
-  override them and call them via `super()`);
-- the tooth-generator entry point and its `draw(anchorPoint, angle=<radians>)` signature (a
-  subclass may pass a non-zero `angle`);
-- every `GenerationContext` field name (subclasses both read these and add their own);
-- the inherited `base.Generator` helpers subclasses lean on — `parameterName`, `getParameter`,
+- the class names the dependent binds to;
+- the overridable hook methods — kept as **distinct, overridable steps** (subclasses override them
+  and call them via `super()`);
+- the tooth/profile-generator entry point and its `draw(anchorPoint, angle=<radians>)` signature
+  (a subclass may pass a non-zero `angle`);
+- every `GenerationContext` field name the dependent reads or extends (for gears that use a
+  context object);
+- the inherited `base.Generator` helpers the dependent leans on — `parameterName`, `getParameter`,
   `getComponent`, `createSketchObject`.
 
-**The concrete names for a given gear live in that gear's spec, not here** — see the spec's
-"Method contract — call graph and override boundaries" and "Generation Context — canonical field
-names" sections, which enumerate the exact classes, hook methods, call graph, and `ctx` fields to
-reproduce. Treat them as fixed identifiers; don't rename or drop any. (Hooks typically include
-ones a subclass uses to vary behaviour — a fillet-scaling expression, an expected front-face edge
-count, etc.; the spec says what each returns for the base gear.)
+**The concrete names, and whether any dependents exist at all, live in that gear's spec, not
+here** — see the spec's "Method contract / call graph", "Generation Context", and "Dependencies"
+sections, which enumerate the exact classes, hook methods, call graph, `ctx` fields, and
+borrowed/inherited surface to reproduce. Treat them as fixed identifiers; don't rename or drop any.
+(Hooks typically include ones a subclass uses to vary behaviour — a fillet-scaling expression, an
+expected front-face edge count, etc.; the spec says what each returns for the depended-on gear.)
 
 ## Command-entry wiring (`commands/<gear>/entry.py`)
 
@@ -188,6 +198,26 @@ execute/inputChanged/executePreview/validateInputs/destroy handlers via `futil.a
 
 ## Fusion-API conventions & gotchas (cross-gear)
 
+- **Sketch curve collections live under `sketch.sketchCurves`, never on the sketch directly.** Add
+  geometry via `sketch.sketchCurves.sketchCircles`, `.sketchLines`, `.sketchArcs`,
+  `.sketchFittedSplines`. `sketch.sketchCircles` (etc.) does NOT exist and raises `AttributeError:
+  'Sketch' object has no attribute 'sketchCircles'`. (By contrast `sketch.sketchPoints`,
+  `sketch.sketchDimensions`, `sketch.geometricConstraints`, `sketch.sketchTexts`, and
+  `sketch.profiles` ARE direct members of the sketch — only the *curve* collections sit under
+  `sketchCurves`.)
+- **Selection filters take enum constants, not strings.** `selectionInput.addSelectionFilter(...)`
+  expects `adsk.core.SelectionCommandInput.<Member>` (an int enum), e.g.
+  `addSelectionFilter(adsk.core.SelectionCommandInput.ConstructionPlanes)`. Passing the string
+  `'ConstructionPlanes'` raises a `TypeError` on the argument. The member names match the entity
+  kinds (`ConstructionPlanes`, `PlanarFaces`, `ConstructionPoints`, `SketchPoints`, `Occurrences`,
+  `RootComponents`, `Bodies`, …) — but they must be the enum attribute, not a quoted literal.
+- **Fillet vs chamfer edge-sets are asymmetric — easy to get backwards:**
+  - **Fillet:** add the edge set on the input **itself** —
+    `filletInput.addConstantRadiusEdgeSet(edges, ValueInput, isTangentChain)`. There is no
+    `filletInput.edgeSetInputs`; reaching for it raises `AttributeError`.
+  - **Chamfer:** add the edge set on the input's **`chamferEdgeSets`** collection —
+    `chamferInput.chamferEdgeSets.addEqualDistanceChamferEdgeSet(edges, ValueInput, isFlipped)`.
+  Do not mirror one onto the other.
 - **Driving vs driven dimensions:** `add*Dimension(...)` is *driving* by default; never pass the
   trailing `isDriven=True`/`True` (it inverts to a measured dimension and lets geometry float).
 - **Selections drop on context shift:** stash selection entities before occurrence creation
@@ -222,9 +252,9 @@ execute/inputChanged/executePreview/validateInputs/destroy handlers via `futil.a
   try/except + `deleteComponent()` handle rollback rather than swallowing errors mid-step — don't
   invent new silent failure paths.
 
-## What may vary between two faithful generations
+## What the spec need not pin (free to vary)
 
 Local variable names, comments, log strings, and how build steps are decomposed into private
-helper methods. What may **not** vary: the contract surface (the classes, hook methods, `ctx`
-fields, and call graph the spec pins), parameter names/ids, the geometry the spec prescribes,
-feature order, and edge-case handling.
+helper methods. What the spec **does** pin and the output must reproduce: the contract surface (the
+classes, hook methods, `ctx` fields, and call graph the spec declares), parameter names/ids, the
+geometry the spec prescribes, feature order, and edge-case handling.
