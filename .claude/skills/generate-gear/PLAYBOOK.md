@@ -218,8 +218,41 @@ execute/inputChanged/executePreview/validateInputs/destroy handlers via `futil.a
   - **Chamfer:** add the edge set on the input's **`chamferEdgeSets`** collection —
     `chamferInput.chamferEdgeSets.addEqualDistanceChamferEdgeSet(edges, ValueInput, isFlipped)`.
   Do not mirror one onto the other.
+- **`sketch.modelToSketchSpace(p)` / `sketch.sketchToModelSpace(p)` are point-transforming
+  METHODS, not matrices.** Each takes a `Point3D` (world resp. sketch) and returns the transformed
+  `Point3D`: `local = sketch.modelToSketchSpace(worldPoint)`. Do NOT do `m = sketch.modelToSketchSpace`
+  then `worldPoint.transformBy(m)` — passing a bound method where `Point3D.transformBy` expects a
+  `Matrix3D` raises `TypeError: … argument 2 of type 'Matrix3D'`. (To map a world point into a
+  sketch — e.g. an apex computed from a plane normal — call the method directly.)
+- **Seed coordinates near the solved position — the solver is seed-sensitive.** When you create a
+  curve/point from raw `Point3D` coordinates that constraints will then pin, place the seed close to
+  where it will end up and on the correct side. Fusion's sketch solver is an iterative numerical
+  solver: a seed that starts far away, or on the wrong side of a parallel/offset target, can fail to
+  converge with `RuntimeError … VCS_SKETCH_SOLVING_FAILED` *even though the constraint system is
+  perfectly solvable*. (Seeds are not constraints — they don't pin anything — but a bad seed still
+  breaks the solve. Especially: a point that must end up *on another line* should be seeded near
+  that line, not near some unrelated point.)
+- **Never double-bind a point — share it OR coincident a fresh one, never both.** To start/anchor
+  a curve at an existing sketch point, choose ONE: (a) pass that `SketchPoint` object directly into
+  the creation call — `addByTwoPoints(existingPoint, otherEnd)` — so the curve *shares* it, and add
+  **no** coincident; or (b) create the curve from raw `Point3D` coordinates and add **exactly one**
+  `addCoincident(curve.startSketchPoint, existingPoint)`. Doing **both** (passing the shared point
+  *and* then adding a coincident to it) stacks a redundant self-coincident and the solver dies with
+  `RuntimeError … VCS_SKETCH_SOLVING_FAILED`. Same trap: never `addCoincident` two points that are
+  already the same shared point. (This is the single most common over-constraint failure; it bit
+  both spur and bevel.)
 - **Driving vs driven dimensions:** `add*Dimension(...)` is *driving* by default; never pass the
   trailing `isDriven=True`/`True` (it inverts to a measured dimension and lets geometry float).
+- **Line-to-line / parallel-offset dimension:** to dimension the gap between two (parallel) lines —
+  used for base heights, face widths, and similar offsets — use
+  `sketch.sketchDimensions.addOffsetDimension(lineA, lineB, textPoint)` and set the value via the
+  returned dimension's `.parameter.value = <number>`. It is *not* `addDistanceDimension`
+  (point-to-point). The two lines must be parallel (constrain them parallel first, or the call
+  fails).
+- **Angular dimension picks the wedge containing its text point:**
+  `addAngularDimension(lineA, lineB, textPoint)` measures the angle on the side where `textPoint`
+  lies. To get the intended angle (e.g. a shaft angle Σ rather than its supplement 180−Σ), place
+  `textPoint` inside the wedge you mean.
 - **Selections drop on context shift:** stash selection entities before occurrence creation
   (above).
 - **Hide a sketch only after consuming it:** projections/profile extraction stop working on an
@@ -251,6 +284,101 @@ execute/inputChanged/executePreview/validateInputs/destroy handlers via `futil.a
 - **Logging/robustness:** use `futil.log(...)` for step progress; let the entry point's
   try/except + `deleteComponent()` handle rollback rather than swallowing errors mid-step — don't
   invent new silent failure paths.
+
+## Solid-modelling features beyond extrude (used by revolved/cut gears, e.g. bevel)
+
+The involute gears only extrude + pattern + combine + chamfer + fillet. Gears whose spec calls for
+revolved bodies, lofted teeth, or split-by-face shaping (bevel) use these additional features. The
+spec says *which* to use and *on what geometry*; this pins the *API shape*.
+
+- **Revolve** (`component.features.revolveFeatures`): `createInput(profile, axis, operation)` →
+  `setAngleExtent(False, ValueInput.createByString('360 deg'))` → `add(input)`. The `axis` is a
+  sketch line or construction axis. **Hard failure to design around: the profile must NOT cross the
+  axis of revolution** — if it does, Fusion aborts with `RuntimeError … ASM_WIRE_X_AXIS … the
+  profile crosses the axis of revolution`. A spec that revolves a profile bounded by a
+  geometrically-derived dimension (e.g. bevel's Face Width) must cap that dimension so the profile
+  stays on one side of the axis; reproduce the cap exactly.
+- **Loft, including point-to-profile** (`component.features.loftFeatures`): `createInput(operation)`
+  → `loftSections.add(entity)` for each section in order → `add(input)`. A section may be a
+  **single point** (a `SketchPoint`/`ConstructionPoint`) for a degenerate end — lofting an apex
+  point to a profile yields a tapered/pointed body. Order of `loftSections.add(...)` is the loft
+  order.
+- **Symmetric through-cut extent:** for an extrude-cut that must pierce a body fully regardless of
+  thickness, use `extentInput.setSymmetricExtent(ValueInput.createByReal(largeDist), False)` — the
+  second arg `isFullLength=False` means `largeDist` is the half-length *per side*. Do not pass a
+  third (taper) argument. Restrict the cut with `participantBodies = [theBody]`.
+- **Split body by a face** (`component.features.splitBodyFeatures`): `createInput(bodyToSplit,
+  splittingTool, isSplittingToolExtended)` → `add(input)`. The splitting tool can be a `BRepFace`
+  (reuse an existing face of another body rather than building a fresh surface — building a surface
+  from a sketch line in a sibling/parent component fails, see cross-component below). Pass
+  `isSplittingToolExtended=True` to extend the tool surface to fully bisect the target. A split that
+  doesn't intersect raises `RuntimeError … SPLIT_TARGET_TOOL_NOT_INTERSECT` (message text may be
+  localized) — catch it where the spec says a cut may be a no-op.
+- **Find a face by surface type, incl. cones** (cross-gear pattern, extends the profile/face-finding
+  rule above): iterate `body.faces`, test `face.geometry.surfaceType` against
+  `adsk.core.SurfaceTypes` (e.g. `ConeSurfaceType`, `CylinderSurfaceType`, `PlaneSurfaceType`).
+  When several faces share a type, disambiguate by **world-coordinate containment**: pick the face
+  whose underlying surface passes through given world points (project the point with
+  `surface.evaluator.getParameterAtPoint` → `getPointAtParameter` and compare distance within a
+  tolerance like `1e-2` cm). The spec states which world points identify the wanted face.
+- **Select/remove split pieces:** after a split, identify pieces with
+  `body.pointContainment(worldPoint)` (returns `adsk.fusion.PointContainment.PointInside` /
+  `PointOnPoint`(`PointOnPointContainment`)`/Outside`) and rank by
+  `body.physicalProperties.volume`. Delete unwanted pieces with
+  `component.features.removeFeatures.add(body)` (timeline-visible) — not a bare `deleteMe()`.
+- **Construction planes beyond offset:** `constructionPlanes.createInput()` then
+  `setByOffset(plane, ValueInput)` (coplanar/offset), `setByAngle(line, ValueInput, refPlane)`
+  (a plane through a line tilted by an angle off a reference plane — e.g. a plane *perpendicular* to
+  a sketch by passing `'90 deg'`), or `setByDistanceOnPath(curve, ValueInput)` (a plane normal to a
+  curve at a fractional distance 0–1). The spec says which constructor and inputs.
+  **Pass the `SketchLine` (or edge / construction axis) DIRECTLY** to `setByAngle` /
+  `setByDistanceOnPath` — both accept a single linear/curve entity. Do **NOT** wrap it in
+  `adsk.fusion.Path.create(curve, …)` first: `Path.create` on a sketch curve raises
+  `RuntimeError … InternalValidationError : Utils::getObjectPath(sketchCurve, …, nullptr,
+  contextPath)` whenever the curve's owner sketch isn't trivially resolvable in the current
+  (multi-component) context. Avoid `Path.create` on sketch curves entirely; the plane/axis builders
+  resolve the curve themselves.
+- **Construction axes beyond circular-face:** `constructionAxes.createInput()` then
+  `setByLine(infiniteLine)` (axis along a sketch/3D line), `setByCircularFace(face)` (off a
+  cylinder/cone), or `setByTwoPlanes(planeA, planeB)` (their intersection — a usable workaround when
+  `setByPerpendicularAtPoint` would need a `BRepFace` you don't have).
+- **Move/rotate a body** (`component.features.moveFeatures`): `createInput2(bodyCollection)` →
+  `defineAsFreeMove(matrix3D)` → `add(input)`, where the matrix is built with
+  `Matrix3D.setToRotation(angleRadians, axisVector, originPoint)`. Use `defineAsFreeMove` with a
+  matrix (not `defineAsRotate`, which rejects a `SketchLine` axis). Used for aesthetic/meshing
+  rotations.
+
+## Multi-component orchestration (a gear that builds several sibling components, e.g. a pair)
+
+Single-gear modules create one occurrence (`base.Generator.getOccurrence()`). A gear that produces
+a *set* of related components (bevel: a parent holding a shared **Design** component plus a
+**body-per-gear** component) cannot use that helper and must manage the tree itself:
+
+- Create each occurrence with `parent.occurrences.addNewComponent(adsk.core.Matrix3D.create())` and
+  name `occurrence.component.name`. Typical tree: `<Pair> Gear` under the user's parent → `Design`
+  sub-component (all sketches/construction geometry/features run **here**) + one sub-component per
+  output gear (the finished bodies are relocated into these at the end).
+- **Fusion rejects cross-sibling sketch/`project`/`Path.create` references**, even when the target
+  component is activated or entities are wrapped via `createForAssemblyContext`. So: run **all**
+  feature operations in the one Design component, then **relocate finished bodies** with
+  `body.moveToComponent(targetOccurrence)`. Do not try to sketch or path-reference geometry that
+  lives in a sibling.
+- Cleanup/rollback is hand-rolled: a recursive walk turning off `isLightBulbOn` on every sketch /
+  construction plane / construction axis across the tree (dedupe by `entityToken`), and
+  `deleteComponent()` calls `deleteMe()` on the top occurrence for error rollback.
+
+## Parameters: live-expression mode vs all-Python-precomputed mode
+
+The involute gears register Fusion **user parameters** as live expression strings (the
+`processInputs` pattern above) so they appear in the parameter table. This is **one valid mode, not
+mandatory.** A gear may instead **precompute every value in Python** (internal cm) and write
+geometry numerically — setting sketch dimensions via `dimension.parameter.value = <number>` and
+feature inputs via `ValueInput.createByReal(<number>)` — registering **no** named user parameters
+(bevel does this). When a gear borrows another gear's tooth generator that expects
+`parent.getParameter(name).value`, it can satisfy that interface with a lightweight **proxy object**
+that returns precomputed values, rather than registering real parameters (see the borrowing gear's
+spec Dependencies section). The spec declares which mode the gear uses; either is acceptable, but
+the contract self-check only looks for the parameter names the spec actually declares.
 
 ## What the spec need not pin (free to vary)
 
