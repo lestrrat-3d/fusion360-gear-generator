@@ -321,6 +321,14 @@ spec says *which* to use and *on what geometry*; this pins the *API shape*.
   whose underlying surface passes through given world points (project the point with
   `surface.evaluator.getParameterAtPoint` → `getPointAtParameter` and compare distance within a
   tolerance like `1e-2` cm). The spec states which world points identify the wanted face.
+- **Make runtime-topology failures self-diagnosing.** Steps whose outcome depends on geometry the
+  parse/contract checks can't see (face-finding by containment, body splits, piece counts) must
+  raise exceptions that **carry the measured quantities** — candidate face distances vs. tolerance,
+  pieces-in/pieces-out per operation, which entity was selected — never a bare count or a silent
+  no-op. In a headless/Fusion-add-in run the exception text is the only telemetry the caller gets,
+  so "expected 3 pieces, got 2" is useless but "got 2 (cut#1 found 3 cone faces, dists …, produced
+  2; cut#2 found 0 faces within tol 1e-2, dists …)" pinpoints the cause. Prefer raising a rich error
+  over returning unchanged on a lookup miss.
 - **Select/remove split pieces:** after a split, identify pieces with
   `body.pointContainment(worldPoint)` (returns `adsk.fusion.PointContainment.PointInside` /
   `PointOnPoint`(`PointOnPointContainment`)`/Outside`) and rank by
@@ -358,14 +366,34 @@ a *set* of related components (bevel: a parent holding a shared **Design** compo
   name `occurrence.component.name`. Typical tree: `<Pair> Gear` under the user's parent → `Design`
   sub-component (all sketches/construction geometry/features run **here**) + one sub-component per
   output gear (the finished bodies are relocated into these at the end).
-- **Fusion rejects cross-sibling sketch/`project`/`Path.create` references**, even when the target
-  component is activated or entities are wrapped via `createForAssemblyContext`. So: run **all**
-  feature operations in the one Design component, then **relocate finished bodies** with
-  `body.moveToComponent(targetOccurrence)`. Do not try to sketch or path-reference geometry that
-  lives in a sibling.
+- **NEVER call `occurrence.activate()`.** Build in a component by calling its own collections
+  (`comp.sketches.add(...)`, `comp.features.*`) on the *non-activated* component — exactly as a
+  single-gear generator does. Activating a sub-occurrence and then sketching on a plane/face the
+  **user selected in another component** (root) makes Fusion resolve that external reference in the
+  activated component's **local frame** (identity → world-XY-aligned), silently collapsing the
+  build's orientation onto XY no matter what plane the user picked. This is a real, hard-to-see
+  trap: the gear still builds, just flat on XY. A single-gear generator that respects arbitrary
+  planes works precisely *because* it never activates — match that.
+- **Fusion rejects cross-sibling sketch/`project`/`Path.create` references** (entities wrapped via
+  `createForAssemblyContext` don't help). So: run **all** feature operations in the one Design
+  component, then **relocate finished bodies** with `body.moveToComponent(targetOccurrence)`
+  (`moveToComponent` preserves world position and needs no activation). Do not sketch or
+  path-reference geometry that lives in a sibling. Note this does **not** require activating
+  anything — building everything in one component already avoids cross-sibling references.
 - Cleanup/rollback is hand-rolled: a recursive walk turning off `isLightBulbOn` on every sketch /
   construction plane / construction axis across the tree (dedupe by `entityToken`), and
   `deleteComponent()` calls `deleteMe()` on the top occurrence for error rollback.
+- **Don't re-derive a user-selected plane/face inside your sub-component — use it directly.** When
+  the user selects a target plane (a `ConstructionPlane` or `PlanarFace`) that lives in the root or
+  another component, place sketches **directly** on that selected entity (`sketches.add(target)`)
+  and pass the selected entity itself to plane builders (`setByAngle(line, angle, target)`). Do NOT
+  "normalize" it by building a coplanar construction plane (`setByOffset(target, 0)`) inside your
+  activated sub-component first: a construction plane created in a sub-occurrence, offset from a
+  face in a *different* component, resolves in the sub-component's own coordinate frame (identity →
+  effectively world XY for a freshly-added component) and **silently loses the selected plane's
+  world orientation** — the whole build then lies flat on XY regardless of what the user picked.
+  (A single-component generator can normalize safely because there's no cross-component frame
+  mismatch; a multi-component one must not.)
 
 ## Parameters: live-expression mode vs all-Python-precomputed mode
 
