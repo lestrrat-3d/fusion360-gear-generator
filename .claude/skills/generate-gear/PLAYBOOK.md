@@ -201,7 +201,7 @@ execute/inputChanged/executePreview/validateInputs/destroy handlers via `futil.a
 - **Leave no sketch under-constrained — and verify it with `sketch.isFullyConstrained`.** A
   well-formed parametric sketch should end with **zero free degrees of freedom**: every point either
   carries explicit constraints/dimensions or is *driven* (a projected point tracks its source; an
-  endpoint at a perpendicular/colinear intersection is determined by those constraints). A free DOF
+  endpoint at a perpendicular/collinear intersection is determined by those constraints). A free DOF
   is a latent defect — the geometry can shift between rebuilds. Two practical rules:
   - **Fix reference-line directions.** A line created only with coincident/midpoint + a length still
     has a free *rotation* (1 DOF). If nothing downstream needs a particular angle, pin it with a
@@ -230,11 +230,24 @@ execute/inputChanged/executePreview/validateInputs/destroy handlers via `futil.a
     exist. (`modelToSketchSpace(worldGeometry)` is exact when source and target sketches share a
     plane; it needs the source sketch fully constrained so `worldGeometry` is defined.)
   - **But do NOT over-constrain to get there:** dimensioning a length that is already *driven* by a
-    perpendicular/colinear/closing constraint throws `VCS_SKETCH_OVER_CONSTRAINTS`. Full constraint
+    perpendicular/collinear/closing constraint throws `VCS_SKETCH_OVER_CONSTRAINTS`. Full constraint
     comes from the *missing* constraint, not from piling on dimensions. When unsure which DOF is
     free, a runtime gate (`if not sketch.isFullyConstrained: raise ...` naming the sketch) surfaces
     exactly which sketch fell short the moment it builds in Fusion — far better than eyeballing the
     timeline for blue geometry.
+- **When a sketch has exactly one closed loop, grab `sketch.profiles.item(0)` — don't filter.** If
+  you build a sketch whose only geometry is one closed region, it has `profiles.count == 1`; take
+  that profile directly. Resist inventing a search that filters by `profileLoops` /
+  `profileCurves.count` or by curve type (`ProfileCurve.geometry.curveType == Line3DCurveType`) — a
+  curve-type filter in particular has spuriously rejected a valid all-line loop and made the revolve
+  fail with "could not find profile". Filter only when a sketch genuinely holds multiple profiles you
+  must disambiguate.
+- **Geometric-constraint method names are exact — watch the easy misspellings.** The collinear
+  constraint is `geometricConstraints.addCollinear(...)` with a **double "l"**; `addColinear` (single
+  "l") does not exist and raises `AttributeError` (Fusion's own message even suggests "Did you mean
+  'addCollinear'?"). Don't let English prose spelling ("colinear") leak into the API call. Likewise
+  `addCoincident`, `addPerpendicular`, `addParallel`, `addHorizontal`, `addMidPoint` (capital P),
+  `addOffsetDimension`, `addDiameterDimension` — copy the exact casing/spelling, don't infer it.
 - **Sketch curve collections live under `sketch.sketchCurves`, never on the sketch directly.** Add
   geometry via `sketch.sketchCurves.sketchCircles`, `.sketchLines`, `.sketchArcs`,
   `.sketchFittedSplines`. `sketch.sketchCircles` (etc.) does NOT exist and raises `AttributeError:
