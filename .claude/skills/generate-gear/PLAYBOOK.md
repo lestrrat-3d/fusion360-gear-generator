@@ -198,6 +198,43 @@ execute/inputChanged/executePreview/validateInputs/destroy handlers via `futil.a
 
 ## Fusion-API conventions & gotchas (cross-gear)
 
+- **Leave no sketch under-constrained — and verify it with `sketch.isFullyConstrained`.** A
+  well-formed parametric sketch should end with **zero free degrees of freedom**: every point either
+  carries explicit constraints/dimensions or is *driven* (a projected point tracks its source; an
+  endpoint at a perpendicular/colinear intersection is determined by those constraints). A free DOF
+  is a latent defect — the geometry can shift between rebuilds. Two practical rules:
+  - **Fix reference-line directions.** A line created only with coincident/midpoint + a length still
+    has a free *rotation* (1 DOF). If nothing downstream needs a particular angle, pin it with a
+    **sketch-local** `addHorizontal`/`addVertical` (defined in the sketch's own frame, so it survives
+    a tilted host plane) or an angle dimension — don't leave it spinning.
+  - **A circle's center is FREE even when created at (0,0,0) — fix it, don't coincident it to the
+    origin.** `sketchCircles.addByCenterRadius(Point3D.create(0,0,0), r)` does NOT reuse the sketch's
+    `originPoint`; its `centerSketchPoint` is a free point that happens to sit at the origin. Fully
+    constrain with `circle.centerSketchPoint.isFixed = True` + a radius/diameter dimension (2 DOF +
+    1 DOF = 0). Do NOT `addCoincident(circle.centerSketchPoint, sketch.originPoint)` — observed to
+    throw `VCS_SKETCH_SOLVING_FAILED` (at least on a `setByDistanceOnPath` plane). `isFixed` on the
+    center is the reliable pin.
+  - **`sketch.project(...)` does NOT fix the projected geometry.** A projected point/curve is brought
+    in *associatively* (it tracks its source) but still carries **free DOF** — it is a reference, not
+    a fixed point. A sketch whose geometry hangs off shared projected points therefore reports
+    **under-constrained**, even though every projected point already has a correct position (so
+    `worldGeometry` looks fine and the feature builds — the defect is silent until you check
+    `isFullyConstrained`). To turn another sketch's points into *fully-constrained* local geometry,
+    either (a) `addCoincident` the projection to an already-fixed point (works when you have one
+    natural anchor, e.g. spur's tooth anchor), or (b) **recreate each as a brand-new point and fix it
+    AFTER the geometry that uses it is built** — `verts = [sketch.sketchPoints.add(
+    sketch.modelToSketchSpace(src.worldGeometry)) for src in pts]`, draw the curves *sharing* those
+    `verts`, then `for e in lines: e.startSketchPoint.isFixed = True; e.endSketchPoint.isFixed =
+    True`. **Order matters:** setting `isFixed = True` on a bare point *before* it is consumed as a
+    line endpoint does NOT leave the sketch fully constrained — fix the endpoints once the lines
+    exist. (`modelToSketchSpace(worldGeometry)` is exact when source and target sketches share a
+    plane; it needs the source sketch fully constrained so `worldGeometry` is defined.)
+  - **But do NOT over-constrain to get there:** dimensioning a length that is already *driven* by a
+    perpendicular/colinear/closing constraint throws `VCS_SKETCH_OVER_CONSTRAINTS`. Full constraint
+    comes from the *missing* constraint, not from piling on dimensions. When unsure which DOF is
+    free, a runtime gate (`if not sketch.isFullyConstrained: raise ...` naming the sketch) surfaces
+    exactly which sketch fell short the moment it builds in Fusion — far better than eyeballing the
+    timeline for blue geometry.
 - **Sketch curve collections live under `sketch.sketchCurves`, never on the sketch directly.** Add
   geometry via `sketch.sketchCurves.sketchCircles`, `.sketchLines`, `.sketchArcs`,
   `.sketchFittedSplines`. `sketch.sketchCircles` (etc.) does NOT exist and raises `AttributeError:
@@ -385,6 +422,15 @@ spec says *which* to use and *on what geometry*; this pins the *API shape*.
   `setByLine(infiniteLine)` (axis along a sketch/3D line), `setByCircularFace(face)` (off a
   cylinder/cone), or `setByTwoPlanes(planeA, planeB)` (their intersection — a usable workaround when
   `setByPerpendicularAtPoint` would need a `BRepFace` you don't have).
+- **Construction geometry (points/axes/planes) needs an ACTIVE component — sketch geometry does
+  not.** `component.constructionPoints.add(...)` / `constructionAxes.add(...)` raise `RuntimeError:
+  3 : Environment is not supported` when `component` is not the activated one. Sketches, solids, and
+  features happily build on a non-activated component, but construction geometry does not — and the
+  cross-gear rule is to **never** activate (activating mis-resolves externally-selected planes onto
+  world XY). So when you'd reach for a construction point/axis, prefer geometry that needs no active
+  component: use a **`SketchPoint`** as a loft point-section (not a `ConstructionPoint`), and feed
+  rotations a `Matrix3D` axis from a sketch edge's `worldGeometry` (not a `ConstructionAxis`). Reserve
+  construction geometry for code paths that genuinely run in the active/root component.
 - **Move/rotate a body** (`component.features.moveFeatures`): `createInput2(bodyCollection)` →
   `defineAsFreeMove(matrix3D)` → `add(input)`, where the matrix is built with
   `Matrix3D.setToRotation(angleRadians, axisVector, originPoint)`. Use `defineAsFreeMove` with a
