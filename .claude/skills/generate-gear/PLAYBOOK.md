@@ -224,6 +224,21 @@ execute/inputChanged/executePreview/validateInputs/destroy handlers via `futil.a
   then `worldPoint.transformBy(m)` — passing a bound method where `Point3D.transformBy` expects a
   `Matrix3D` raises `TypeError: … argument 2 of type 'Matrix3D'`. (To map a world point into a
   sketch — e.g. an apex computed from a plane normal — call the method directly.)
+- **Read SOLVED `.geometry` for any computed-from-geometry bound — not the seed coordinates.** When
+  a value is derived from the positions of constrained sketch points (a clearance, a max-offset
+  bound, a measured distance), read each point's `.geometry` *after* the constraints that locate it
+  have been added (Fusion solves incrementally, so the point is already in its solved position).
+  Do NOT reuse the raw `Point3D` seed coordinates you passed to `addByTwoPoints` — seeds can diverge
+  from the solved positions (markedly so for asymmetric / non-symmetric configurations), making a
+  seed-based bound wrong even though the same formula on solved geometry is correct.
+- **A sketch entity you'll read `.worldGeometry` from must be CONSTRAINED, not free.** If you later
+  take `someSketchLine.startSketchPoint.worldGeometry` (or a sketch point's `worldGeometry`) to build
+  a world-space axis/origin/tool, that point must be pinned (shared with, or coincident to, fixed
+  geometry). A **fully-unconstrained** sketch line/point has an **undefined `worldGeometry`** — Fusion
+  resolves its free DOF against a default/world frame, so the value silently comes back wrong and any
+  feature built from it (a rotation axis, a move) lands the body in the wrong place. Drawing a line
+  from raw `.geometry` coordinates *without* coincident-pinning its endpoints is the classic trap:
+  it looks placed, but its `worldGeometry` is not trustworthy.
 - **Seed coordinates near the solved position — the solver is seed-sensitive.** When you create a
   curve/point from raw `Point3D` coordinates that constraints will then pin, place the seed close to
   where it will end up and on the correct side. Fusion's sketch solver is an iterative numerical
@@ -247,8 +262,13 @@ execute/inputChanged/executePreview/validateInputs/destroy handlers via `futil.a
   used for base heights, face widths, and similar offsets — use
   `sketch.sketchDimensions.addOffsetDimension(lineA, lineB, textPoint)` and set the value via the
   returned dimension's `.parameter.value = <number>`. It is *not* `addDistanceDimension`
-  (point-to-point). The two lines must be parallel (constrain them parallel first, or the call
-  fails).
+  (point-to-point). The two lines must be parallel — but **only add an `addParallel` constraint if
+  they are not already parallel.** If the two lines are already parallel *by construction* (e.g.
+  both are perpendicular to a common third line), they're parallel already; adding a redundant
+  `addParallel` over-constrains the sketch and throws `VCS_SKETCH_OVER_CONSTRAINTS`. Add `addParallel`
+  only for a freshly-drawn line that isn't yet parallel to its target (e.g. a toe line you just drew
+  at arbitrary angle); for a line whose direction the existing constraints already fix, call
+  `addOffsetDimension` directly with no parallel constraint.
 - **Angular dimension picks the wedge containing its text point:**
   `addAngularDimension(lineA, lineB, textPoint)` measures the angle on the side where `textPoint`
   lies. To get the intended angle (e.g. a shaft angle Σ rather than its supplement 180−Σ), place
@@ -317,10 +337,25 @@ spec says *which* to use and *on what geometry*; this pins the *API shape*.
 - **Find a face by surface type, incl. cones** (cross-gear pattern, extends the profile/face-finding
   rule above): iterate `body.faces`, test `face.geometry.surfaceType` against
   `adsk.core.SurfaceTypes` (e.g. `ConeSurfaceType`, `CylinderSurfaceType`, `PlaneSurfaceType`).
-  When several faces share a type, disambiguate by **world-coordinate containment**: pick the face
-  whose underlying surface passes through given world points (project the point with
-  `surface.evaluator.getParameterAtPoint` → `getPointAtParameter` and compare distance within a
-  tolerance like `1e-2` cm). The spec states which world points identify the wanted face.
+  When several faces share a type, disambiguate by **world-coordinate containment**: project the
+  point with `surface.evaluator.getParameterAtPoint` → `getPointAtParameter` and compare distance
+  within a tolerance like `1e-2` cm. **But that distance is to the *infinite* surface, so it is NOT
+  a reliable unique key** — several trimmed faces whose infinite surface passes through the same
+  points tie at distance ≈0 (common with near-coaxial cones), and a min-distance pick can land on a
+  trimmed face that isn't the one you want. When the face is going to be *used in an operation*
+  (e.g. a split tool), **validate against the operation rather than trusting the distance**: collect
+  the candidate faces by surface type, order them best-first by distance, and **try each in the
+  actual operation, keeping the first that succeeds** (e.g. the first cone face that actually splits
+  the target body into >1 piece). **Do not use distance as a hard filter** — `getParameterAtPoint`
+  returns no-result (None) near a surface singularity (a cone's apex), so a point actually *on* the
+  surface can report an unevaluable distance; gating on "distance < tol" then wrongly drops the right
+  face. Treat an unevaluable distance as "try last," never as "disqualified." Never rely on
+  `body.faces` enumeration order to break a distance tie — that is luck, not correctness.
+  **Identify a revolved-edge face by the edge's MIDPOINT, not its endpoints.** An endpoint that sits
+  near the surface's singularity (a cone's apex) makes `getParameterAtPoint` return `None` there, so
+  endpoint-distance can't see the right face; the edge midpoint is clear of the apex (reliable) and
+  uniquely picks the face that edge swept (different edges → different midpoints), so it
+  distinguishes adjacent/coaxial cones that endpoint-distance can't.
 - **Make runtime-topology failures self-diagnosing.** Steps whose outcome depends on geometry the
   parse/contract checks can't see (face-finding by containment, body splits, piece counts) must
   raise exceptions that **carry the measured quantities** — candidate face distances vs. tolerance,

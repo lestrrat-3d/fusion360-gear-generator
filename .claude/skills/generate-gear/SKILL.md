@@ -53,6 +53,16 @@ The spec + playbook together MUST be sufficient. If they are not, fix the spec o
    - **Parse:** `python3 -c "import ast; ast.parse(open('.tmp/<gear>.generated.py').read())"`.
      (Fusion's `adsk` modules can't be imported here; the repo has no runnable tests — parse is
      the available mechanical gate.)
+   - **Undefined-name check (catches `NameError`s that parse can't).** A typo'd or wrong-scope
+     local (e.g. using a `generate()`-scope variable inside a build helper) is valid syntax but a
+     runtime `NameError`. Catch it statically with pyflakes, filtering out the star-import names it
+     can't resolve: `python3 -m pyflakes .tmp/<gear>.generated.py | grep "may be undefined" |
+     grep -vE "'(to_cm|to_mm|get_design|get_ui|Generator|GenerationContext|get_value|get_boolean|get_selection|ParamNamePrefix|ComponentCleaner|get_normal|cast)'"`.
+     Anything left is a **real undefined name** — fix it (it would otherwise only surface at Fusion
+     runtime). (The grep filter drops the legit `from .misc/.base/.utilities import *` exports, which
+     pyflakes flags as "may be undefined" because star imports defeat its resolution; the framework's
+     star-export set is small and fixed, so subtracting it leaves only genuine bugs.) Install pyflakes
+     once with `python3 -m pip install --break-system-packages pyflakes` if absent.
    - **Contract self-check:** every class name, hook method, tooth/profile-generator entry point,
      `ctx` field, Fusion user-parameter name, and dialog input id the spec's Contract sections
      declare is present in the generated file. If the spec declares dependent gears, confirm the
