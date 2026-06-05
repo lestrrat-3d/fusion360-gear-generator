@@ -196,6 +196,10 @@ execute/inputChanged/executePreview/validateInputs/destroy handlers via `futil.a
 `try/except` and calls `g.deleteComponent()` on failure (errors surfaced with
 `futil.handle_error("Generation error", show_message_box=True)`).
 
+**Dialog auto-focus ordering gotcha.** Fusion auto-focuses the FIRST `SelectionCommandInput` and
+ignores a later `hasFocus=True`; add the selection input that should own initial focus first (so the
+`configure()` add-order, not a focus flag, decides which selection the dialog opens on).
+
 ## Fusion-API conventions & gotchas (cross-gear)
 
 - **Leave no sketch under-constrained — and verify it with `sketch.isFullyConstrained`.** A
@@ -501,6 +505,12 @@ feature inputs via `ValueInput.createByReal(<number>)` — registering **no** na
 that returns precomputed values, rather than registering real parameters (see the borrowing gear's
 spec Dependencies section). The spec declares which mode the gear uses; either is acceptable, but
 the contract self-check only looks for the parameter names the spec actually declares.
+
+**Reading raw dialog inputs in this mode.** Read raw dialog inputs with
+`design.unitsManager.evaluateExpression(input.expression, units)` — it ALWAYS returns Fusion
+internal units (cm for length, **radians** for angle) regardless of the unit string, so a `deg`
+field comes back in radians; convert with `math.degrees(...)` before any degree-range check. Don't
+read via `ValueInput.realValue`.
 
 ## What the spec need not pin (free to vary)
 
