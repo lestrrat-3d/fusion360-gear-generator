@@ -52,6 +52,8 @@ Maximum Face Width: a geometric upper bound that cannot be evaluated until the G
 
 Rationale (do not drop this when regenerating): the toe line M->N is C->H offset *toward the Apex* by Face Width, with N pinned to line A->Apex2; its mirror O->P is D->J offset toward the Apex by Face Width, with P pinned to line B->Apex2. When the offset reaches the perpendicular distance from A to line C->H, point N lands exactly on A; any larger value drives N **past** A, across the gear's own shaft axis (Apex->A). The frustum profile (hexagon A, G, H, C, M, N, built here in §2 and revolved later in "Create the Pinion Gear") is revolved about that shaft axis, so a profile that has crossed the axis self-intersects the axis of revolution and Fusion aborts the revolve (`RuntimeError ... ASM_WIRE_X_AXIS ... the profile crosses the axis of revolution`). The pinion side is normally the binding one (its smaller pitch radius gives the smaller distance), but compute both and take the minimum so the bound holds for any Shaft Angle. The `0.95` factor keeps N clearly off A, since a near-coincident N≈A degenerates the toe edge even before it strictly crosses. At Shaft Angle 90° this limit equals `Pinion Gear Pitch Diameter**2 / (2 * Cone Distance)`, so the naive `Cone Distance / 6` default exceeds it — and the gear fails to generate — for any gear ratio above roughly √2 (e.g. Driving 31 / Pinion 17).
 
+Tooth Spacing: user-specified non-negative number in mm, default 0mm. A single value applied to **both** gears. It is a clearance offset that shifts each virtual spur tooth profile's **center** radially outward along the dedendum line — *away from the lower corner* (the rim corner opposite the Apex: point C for the pinion, point D for the driving gear), i.e. in the C->K direction beyond K (and D->L beyond L) — by this distance, **while the tooth itself is still drawn at the original virtual pitch radius** (virtual tooth number × Module / 2; the virtual tooth number is unchanged). At 0 (the default) the tooth center sits exactly at K / L and the generated geometry is byte-for-byte the prior behavior; a positive value moves the center farther from the rim, loosening the mesh so 3D-printed teeth have more clearance. Applied in §3; see "Gear Tooth Profiles".
+
 ### Exact input ids and parameter-name strings
 
 These literal strings are part of the reproduced surface. Use them verbatim. The dialog **display
@@ -74,6 +76,7 @@ numeric/bool fields. Module-level constants name the input ids (`INPUT_ID_PLANE 
 | 11 | Driving Gear Bore Diameter | `drivingBore` | `addValueInput` | `mm` | `createByReal(to_cm(0))` | — |
 | 12 | Pinion Gear Bore Diameter | `pinionBore` | `addValueInput` | `mm` | `createByReal(to_cm(0))` | — |
 | 13 | Face Width | `faceWidth` | `addValueInput` | `mm` | `createByReal(to_cm(0))` | — |
+| 14 | Tooth Spacing | `toothSpacing` | `addValueInput` | `mm` | `createByReal(to_cm(0))` | — |
 
 Selection filters and limit-1 are set per PLAYBOOK; the Parent selection pre-selects
 `get_design().rootComponent`. The numeric `mm`/`deg` defaults are passed in internal units
@@ -86,7 +89,7 @@ under a prefix. Every value (pitch diameters, cone distance, base heights, bore 
 tooth counts, face width) is **precomputed in Python in internal cm** and written into geometry
 numerically — sketch dimensions via `dimension.parameter.value = <number>` and feature inputs via
 `ValueInput.createByReal(<number>)`. There are therefore no `PARAM_*` name strings to reproduce;
-the only module-level constants are the 13 `INPUT_ID_*` strings. (See PLAYBOOK, "all-Python-
+the only module-level constants are the 14 `INPUT_ID_*` strings. (See PLAYBOOK, "all-Python-
 precomputed mode".)
 
 **Reading the raw numbers.** Read each numeric/angle input by evaluating its expression with units
@@ -94,7 +97,8 @@ precomputed mode".)
 regardless of the unit string (see PLAYBOOK).
 
 **Units — critical (Module is unitless mm; everything else is already internal):**
-- The `'mm'` inputs (Driving/Pinion Base Height, Driving/Pinion Bore Diameter, Face Width) and the
+- The `'mm'` inputs (Driving/Pinion Base Height, Driving/Pinion Bore Diameter, Face Width, Tooth
+  Spacing) and the
   `'deg'` input (Shaft Angle) come back from `evaluateExpression(expr, 'mm'|'deg')` **already in
   internal units** (cm / radians). Use them as-is; do **not** `to_cm` them again.
 - **`Module` is read with unit `''`, so it comes back as a raw number that means *millimetres*** (a
@@ -108,7 +112,7 @@ regardless of the unit string (see PLAYBOOK).
   Module-derived Maximum Face Width) without this conversion makes the gear come out ~10× off and
   the Face-Width bound meaningless. The boolean Enable-Bore input is read with
 `get_boolean` (or `input.value`). Read all inputs up front in a single `_readInputs` pass that
-validates ranges (teeth ≥ 3, shaft angle 30–150°, non-negative heights/bores/width) and returns the
+validates ranges (teeth ≥ 3, shaft angle 30–150°, non-negative heights/bores/width/tooth-spacing) and returns the
 primary values, stashing the rest on `self`.
 
 ## Architecture
@@ -118,7 +122,7 @@ Bevel uses a **standalone generator** — it does **not** subclass `base.Generat
 the first and third by name):
 
 1. **`BevelGearCommandInputsConfigurator`** — `@classmethod def configure(cls, cmd)` that adds the
-   13 dialog inputs above in display order.
+   14 dialog inputs above in display order.
 2. **`BevelGearGenerator`** — `__init__(self, design)` (stores `self.design`, `self.bevelOccurrence
    = None`); `generate(inputs)`; `deleteComponent()`. Creates the occurrence tree directly with
    `parent.occurrences.addNewComponent(...)` — it does **not** use `getOccurrence` / `addParameter`
@@ -135,7 +139,7 @@ Bevel carries **no `GenerationContext` object.** State is threaded three ways: (
 returns a 7-tuple `(parentComponent, targetPlane, centerPoint, module, drivingTeeth, pinionTeeth,
 shaftAngle_deg)` and stashes the rest as instance attributes (`self._drivingBaseHeight_cm`,
 `self._pinionBaseHeight_cm`, `self._boreEnable`, `self._drivingBore_cm`, `self._pinionBore_cm`,
-`self._faceWidth_cm`); (b) the ~30 geometric anchors (Apex, Apex2, points A–P, K, L, the two shaft
+`self._faceWidth_cm`, `self._toothSpacing_cm`); (b) the ~30 geometric anchors (Apex, Apex2, points A–P, K, L, the two shaft
 axes, the cone-cutter faces, the two tooth sketches, the per-gear bodies) are passed as locals /
 return values between `_buildGearProfiles` and the per-gear helpers; (c) `self.bevelOccurrence`
 holds the top occurrence for cleanup. A regenerated bevel must not introduce a `ctx` object.
@@ -332,6 +336,8 @@ Constrain Point I with center point.
 
 Draw a construction line away from Apex, starting from point G, extending along Apex->A, and call its end point K. Then **pin K with two point-on-line coincident constraints** — `addCoincident(K, line Apex->A)` and `addCoincident(K, the Pinion Dedendum line Apex2->C extended)` — rather than `addCollinear` on the connecting lines. By the time K is added, G and C are already fixed, so an `addCollinear` here over-constrains the sketch and Fusion errors; the two point-on-line coincidents locate K exactly (intersection of the two lines) without over-constraining. Draw a construction line from point C to K for reference.
 
+**Tooth-center point K′ (Tooth Spacing offset).** The §3 spur tooth is centered not at K but at a tooth-center point **K′**, obtained by shifting K outward along the dedendum line by **Tooth Spacing**, *away from the lower corner C*. **When Tooth Spacing is 0 (the default), do NOT build anything here — set K′ ≡ K and reuse the C->K reference line**, so the output stays byte-identical to the no-spacing build (a zero-length dimensioned line would be degenerate). When Tooth Spacing > 0: draw a construction line starting at K with its far end seeded on the *far side of K from C* along the dedendum direction; pin its far end **the same way K is pinned to its line** — `addCoincident(start, K)` and `addCoincident(K′, the Pinion Dedendum line Apex2->C extended)` to keep K′ on the dedendum line — then add a **length dimension on this line = Tooth Spacing** (do **not** use `addCollinear`, for the same over-constraint reason as K). The far end is K′. Build it **here, inside the Gear Profiles sketch, before that sketch's end-of-step full-constraint gate**, so the gate covers it. Finally draw the **tooth-center reference line C->K′** (from the lower corner C to K′) for §3 to use in place of C->K. Only the tooth's center moves; the virtual tooth number and drawn tooth size are unchanged (see §3).
+
 At this point all of A, B, C, D, H, J exist **and are solved**, so resolve the **Maximum Face Width** (see the Parameters section) from their solved `.geometry` (NOT the seed coordinates — see that section) and apply it before using Face Width below: cap the auto default to it, and reject a user value that exceeds it. Skipping this — or computing it from seeds — makes the M->N / O->P line push N/P across the shaft axis for asymmetric tooth counts (either gear can be the smaller, binding side), which fails the gear-body revolve with `ASM_WIRE_X_AXIS`.
 
 Create line M->N. **Seed it near its solved position** (the solver is seed-sensitive — see PLAYBOOK): seed M at roughly the **midpoint of Apex->C**, and seed N by sliding from that M-seed **along the C->H direction far enough to roughly reach line A->Apex2** (e.g. by the distance from the M-seed to A). Do NOT seed M/N just `Face Width` away from C/H — that starts N near H, far from its constraint target (line A->Apex2), and the solve fails to converge. Then apply **exactly these constraints** — all four are required, and the two coincident pins are what make the Maximum-Face-Width guarantee real (N reaches A exactly at the cap):
@@ -346,6 +352,8 @@ Let the beginning of this new line be point M, the end be point N. Draw a line f
 
 Draw a construction line away from Apex, starting from point I, extending along Apex->B, and call its end point L. **Pin L the same way as K** — `addCoincident(L, line Apex->B)` and `addCoincident(L, the Driving Dedendum line Apex2->D extended)`; do not use `addCollinear`. Draw a construction line from point D to L for reference.
 
+**Tooth-center point L′ (Tooth Spacing offset).** Build the driving-side tooth center **L′** exactly as K′ on the pinion side: when Tooth Spacing is 0, set L′ ≡ L and reuse the D->L reference line; when Tooth Spacing > 0, draw a construction line from L seeded on the far side of L from D along the driving dedendum direction, pin its far end with `addCoincident(start, L)` and `addCoincident(L′, the Driving Dedendum line Apex2->D extended)`, add a length dimension on it = Tooth Spacing (no `addCollinear`), and draw the tooth-center reference line **D->L′** for §3. Same single Tooth Spacing value as the pinion; same full-constraint and "byte-identical at 0" guarantees.
+
 Create line O->P, the mirror of M->N on the driving side. Seed it the same way (O near the midpoint of Apex->D, P slid along D->J toward line B->Apex2), then apply the same four constraints:
 - `addCoincident(O, Driving Root Axis)` — O on the Apex->D root axis;
 - `addCoincident(P, line B->Apex2)` — P on the B->Apex2 line, i.e. the perpendicular DROP line of length DPD/2 drawn "From B, perpendicular to the Driving Gear Shaft Axis" — **NOT the Apex->B shaft axis** (same trap as N above; pinning P to the shaft axis puts it on the axis of revolution and breaks the cut);
@@ -359,21 +367,23 @@ Let the beginning of this new line be point O, the end be point P. Draw a line f
 **API note for this whole section:** pass the relevant **sketch line directly** to `setByAngle` and
 `setByDistanceOnPath`; never wrap it in `Path.create` first (see PLAYBOOK).
 
-Compute the pinion's virtual (back-cone / Tredgold) tooth number from the closed form, **not** by measuring Apex2->K (K is still used as the tooth's center point, below): virtual pitch radius = `(Pinion Gear Pitch Diameter / 2) / cos(γ_p)`, where `γ_p` is the pinion pitch-cone half-angle from §2 (`tan γ_p = sin Σ · PPD / (DPD + PPD · cos Σ)`). Virtual tooth number = `floor(2 · virtualPitchRadius / Module)`, as an int. (Module here is the raw mm value; the radius is a length — keep the unit handling consistent, see the Units note.)
+**Throughout this section the tooth center is the §2 tooth-center point K′ (pinion) / L′ (driving) and the center reference line is C->K′ / D->L′ — which equal K / L and C->K / D->L exactly when Tooth Spacing is 0.** The virtual tooth number below is computed from the pitch diameter and is **independent of Tooth Spacing**; the spacing offset moves only the center, not the tooth size.
 
-Create a new plane that includes line C->K. Use setByAngle to make this plane perpendicular to the Gear Profiles sketch plane.
+Compute the pinion's virtual (back-cone / Tredgold) tooth number from the closed form, **not** by measuring Apex2->K′ (the tooth-center point K′ is used as the tooth's center, below): virtual pitch radius = `(Pinion Gear Pitch Diameter / 2) / cos(γ_p)`, where `γ_p` is the pinion pitch-cone half-angle from §2 (`tan γ_p = sin Σ · PPD / (DPD + PPD · cos Σ)`). Virtual tooth number = `floor(2 · virtualPitchRadius / Module)`, as an int. (Module here is the raw mm value; the radius is a length — keep the unit handling consistent, see the Units note.)
 
-Using the new plane and point K as the center point, create a spur gear tooth profile with module and the virtual tooth number obtained from the previous step. Draw it **already rotated 180°** by passing `angle=math.radians(180)` to the spur tooth generator's `draw(anchorPoint, angle=…)` (see Dependencies) — the generator rotates the whole tooth by that angle; do not draw it flat and rotate the sketch afterward. **After `draw()` returns, assert the tooth sketch is fully constrained: `_assertFullyConstrained(toothSketch)`** — like every other sketch, the tooth sketch must reach zero DOF (the spur generator pins the `angle != 0` reference line; if this raises, the gap is in `spurgear.md`).
+Create a new plane that includes line C->K′. Use setByAngle to make this plane perpendicular to the Gear Profiles sketch plane.
 
-Create a construction axis through point K, normal to the plane the tooth profile was drawn on, via `setByTwoPlanes` (`setByPerpendicularAtPoint` would need a `BRepFace`). The two planes are: the **Gear Profiles plane** and a **helper plane built `setByDistanceOnPath(C->K line, 1.0)`** (perpendicular to C->K at its far end, K); their intersection is the line through K normal to the tooth plane.
+Using the new plane and point K′ as the center point, create a spur gear tooth profile with module and the virtual tooth number obtained from the previous step. Draw it **already rotated 180°** by passing `angle=math.radians(180)` to the spur tooth generator's `draw(anchorPoint, angle=…)` (see Dependencies) — the generator rotates the whole tooth by that angle; do not draw it flat and rotate the sketch afterward. **After `draw()` returns, assert the tooth sketch is fully constrained: `_assertFullyConstrained(toothSketch)`** — like every other sketch, the tooth sketch must reach zero DOF (the spur generator pins the `angle != 0` reference line; if this raises, the gap is in `spurgear.md`).
 
-Compute the driving gear's virtual tooth number the same way (L is still the tooth center): virtual pitch radius = `(Driving Gear Pitch Diameter / 2) / cos(γ_g)`, where `γ_g = Σ − γ_p` is the driving pitch-cone half-angle from §2. Virtual tooth number = `floor(2 · virtualPitchRadius / Module)`, as an int.
+Create a construction axis through point K′, normal to the plane the tooth profile was drawn on, via `setByTwoPlanes` (`setByPerpendicularAtPoint` would need a `BRepFace`). The two planes are: the **Gear Profiles plane** and a **helper plane built `setByDistanceOnPath(C->K′ line, 1.0)`** (perpendicular to C->K′ at its far end, K′); their intersection is the line through K′ normal to the tooth plane.
 
-Create a new plane that includes line D->L. Use setByAngle to make this plane perpendicular to the Gear Profiles sketch plane.
+Compute the driving gear's virtual tooth number the same way (the tooth-center point L′ is used as the tooth center): virtual pitch radius = `(Driving Gear Pitch Diameter / 2) / cos(γ_g)`, where `γ_g = Σ − γ_p` is the driving pitch-cone half-angle from §2. Virtual tooth number = `floor(2 · virtualPitchRadius / Module)`, as an int.
 
-Using the new plane and point L as the center point, create a spur gear tooth profile with module and the virtual tooth number obtained from the previous step. Draw it **already rotated 180°** by passing `angle=math.radians(180)` to the spur tooth generator's `draw(anchorPoint, angle=…)` (see Dependencies), exactly as for the pinion. **After `draw()` returns, assert the tooth sketch is fully constrained: `_assertFullyConstrained(toothSketch)`** (same as the pinion).
+Create a new plane that includes line D->L′. Use setByAngle to make this plane perpendicular to the Gear Profiles sketch plane.
 
-Create a construction axis through point L, normal to the tooth plane, via `setByTwoPlanes`: the **Gear Profiles plane** intersected with a **helper plane `setByDistanceOnPath(D->L line, 1.0)`**.
+Using the new plane and point L′ as the center point, create a spur gear tooth profile with module and the virtual tooth number obtained from the previous step. Draw it **already rotated 180°** by passing `angle=math.radians(180)` to the spur tooth generator's `draw(anchorPoint, angle=…)` (see Dependencies), exactly as for the pinion. **After `draw()` returns, assert the tooth sketch is fully constrained: `_assertFullyConstrained(toothSketch)`** (same as the pinion).
+
+Create a construction axis through point L′, normal to the tooth plane, via `setByTwoPlanes`: the **Gear Profiles plane** intersected with a **helper plane `setByDistanceOnPath(D->L′ line, 1.0)`**.
 
 ## Create the Pinion Gear
 
