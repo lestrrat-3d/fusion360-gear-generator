@@ -4,4 +4,3 @@ from .spurgear import *
 from .helicalgear import *
 from .herringbonegear import *
 from .bevelgear import *
-from .spiralbevelgear import *
