@@ -1016,6 +1016,59 @@ class BevelGearGenerator:
         # Gate: the §2 sketch must be fully constrained.
         self._assertFullyConstrained(sketch, 'Gear Profiles')
 
+        # --- Surface the spec's named points as NAMED construction points (a debugging
+        # aid for discussing geometry). They go in a 'Profile Sketch Points' COMPONENT
+        # used as a folder: the API has no browser sub-folder for construction geometry,
+        # and a component gives a single visibility toggle (hidden after a good build,
+        # while each point keeps its own visibility). ---
+        _lv = locals()
+        namedPoints = [(nm, _lv[var]) for nm, var in [
+            ('A', 'pointA'), ('B', 'pointB'), ('C', 'pointC'), ('D', 'pointD'),
+            ('E', 'pointE'), ('F', 'pointF'), ('G', 'pointG'), ('H', 'pointH'),
+            ('I', 'pointI'), ('J', 'pointJ'), ('K', 'pointK'), ('Kp', 'pointKp'),
+            ('L', 'pointL'), ('Lp', 'pointLp'), ('M', 'pointM'), ('N', 'pointN'),
+            ('O', 'pointO'), ('P', 'pointP'), ('Apex', 'apexPoint'),
+        ] if var in _lv]                          # Kp/Lp only exist for some configs
+        namedPoints.append(('Apex2', aToApex2.endSketchPoint))
+        self._profilePointsOcc = designComponent.occurrences.addNewComponent(
+            adsk.core.Matrix3D.create())
+        ptsComp = self._profilePointsOcc.component
+        ptsComp.name = 'Profile Sketch Points'
+        for nm, sp in namedPoints:
+            placed = False
+            for ref in (sp, sp.worldGeometry):    # sketch-point ref, else world Point3D
+                try:
+                    cpInput = ptsComp.constructionPoints.createInput()
+                    cpInput.setByPoint(ref)
+                    ptsComp.constructionPoints.add(cpInput).name = f'pt {nm}'
+                    placed = True
+                    break
+                except Exception as exc:
+                    lastExc = exc
+            if not placed:
+                futil.log(f'[named-points] could not place "{nm}": {lastExc}',
+                          force_console=True)
+
+        # --- Spiral support: DRIVEN face-width dims on O->D (driving) and M->C (pinion).
+        # Their parameter names (dXXX) drive the spiral tooth construction. Also stash the
+        # §2 lines the spiral build references later (I->J/G->H, D->J/C->H). ---
+        _ALN = adsk.fusion.DimensionOrientations.AlignedDimensionOrientation
+
+        def _drivenLen(ln):
+            g = ln.startSketchPoint.geometry
+            d = dimensions.addDistanceDimension(
+                ln.startSketchPoint, ln.endSketchPoint, _ALN,
+                adsk.core.Point3D.create(g.x, g.y + to_cm(0.3), 0), False)
+            return d.parameter.name
+
+        self._dFaceDriving = _drivenLen(oToD)   # |O->D| = driving face width
+        self._dFacePinion = _drivenLen(mToC)    # |M->C| = pinion face width
+        self._lineIJ, self._lineGH = iToJ, gToH
+        self._lineDJ, self._lineCH = dToJ, cToH
+        self._anchorPoint = centerPoint         # the bevel anchor (for the dYYY angle)
+        futil.log(f'[spiral] face-width params: driving={self._dFaceDriving}, '
+                  f'pinion={self._dFacePinion}', force_console=True)
+
         # --- §3: virtual spur tooth profiles ---
         # gamma_p, gamma_g already computed above.
         pinionVirtualPitchRadius_cm = (PPD / 2) / math.cos(gamma_p)
@@ -1051,7 +1104,7 @@ class BevelGearGenerator:
             apexSketchPoint, pinionToothSketch,
             (pointM, pointN), (pointC, pointH),
             pinionTeeth, pinionBore_cm,
-            'Pinion', pinionGearOccurrence, meshRotation=0.0)
+            'Pinion', pinionGearOccurrence, meshRotation=self._pinionMeshPhase())
 
         # --- Driving Gear body ---
         drivingGearOccurrence = bevelComponent.occurrences.addNewComponent(
@@ -1067,6 +1120,11 @@ class BevelGearGenerator:
             drivingTeeth, drivingBore_cm,
             'Driving', drivingGearOccurrence, meshRotation=drivingMeshRotation)
 
+        # Both gears built successfully -> hide the Profile Sketch Points folder (toggle
+        # the component's visibility only; each point keeps its own visibility on).
+        if getattr(self, '_profilePointsOcc', None):
+            self._profilePointsOcc.isLightBulbOn = False
+
     # ----- §3 helper: virtual spur tooth profile -----
     def _buildVirtualSpurProfile(self, designComponent, gearProfilesSketch,
                                  gearProfilesPlane, centerRefLine, centerPoint,
@@ -1077,8 +1135,7 @@ class BevelGearGenerator:
             centerRefLine, adsk.core.ValueInput.createByString('90 deg'),
             gearProfilesPlane)
         toothPlane = designComponent.constructionPlanes.add(planeInput)
-        toothPlane.name = f'{label} Plane'
-
+        toothPlane.name = f'{label} Plane'           # the spiral cut plane offsets from this
         toothSketch = designComponent.sketches.add(toothPlane)
         toothSketch.name = f'{label} Profile'
         toothSketch.isVisible = True
@@ -1181,32 +1238,14 @@ class BevelGearGenerator:
             (heel_c.x + heel_h.x) / 2, (heel_c.y + heel_h.y) / 2,
             (heel_c.z + heel_h.z) / 2)
 
-        # Cut 1: toe cut on the Tooth Body using a cone face of the Gear Body (frustum).
-        toePieces = self._applyConicalCut(
-            designComponent, gearBody, [toothBody], toeMid,
-            f'{gearLabel} toe cut#1')
-
-        # Drop the apex tip; keep the largest non-apex piece (the keeper).
-        keeper = self._selectKeeper(designComponent, toePieces, apexWorld,
-                                    f'{gearLabel} toe keeper')
-
-        # Cut 2: heel cut on the keeper alone. May not intersect (try/except).
-        try:
-            heelPieces = self._applyConicalCut(
-                designComponent, gearBody, [keeper], heelMid,
-                f'{gearLabel} heel cut#2')
-            tooth = self._selectKeeper(
-                designComponent, heelPieces, apexWorld,
-                f'{gearLabel} heel keeper')
-        except RuntimeError as e:
-            msg = str(e)
-            if 'SPLIT_TARGET_TOOL_NOT_INTERSECT' in msg or '交差' in msg:
-                futil.log(
-                    f'{gearLabel} heel cut: tool did not intersect, kept intact',
-                    force_console=True)
-                tooth = keeper
-            else:
-                raise
+        # --- Build the tooth via the hook. It receives the UNCUT toothBody (the full
+        # apex->heel taper). Straight bevel just trims it to a band with the toe/heel
+        # cone cuts; the spiral subclass slices the full taper, lofts the spiral
+        # tooth, then trims with the same cones -- so its ends are flush/conical. ---
+        tooth = self._transformToothBody(
+            designComponent, toothBody, gearBody, shaftAxisEdge, apexWorld,
+            apexSketchPoint, toeMid, heelMid, toe_m, heel_c, toothSketch.referencePlane,
+            gearLabel, teethNumber)
 
         # --- Circular-pattern the tooth around the shaft axis edge ---
         inputBodies = adsk.core.ObjectCollection.create()
@@ -1249,6 +1288,52 @@ class BevelGearGenerator:
 
         # --- Relocate finished body into the gear component ---
         gearBody.moveToComponent(targetOccurrence)
+
+    # ----- pinion mesh-phase hook -----
+    def _pinionMeshPhase(self):
+        """Extra rotation (radians) of the pinion gear about its own shaft axis (Apex->A),
+        applied via the same mesh-rotation step as the driving gear. Straight bevel needs
+        none; the spiral subclass overrides this to seat the curved teeth tooth-in-gap."""
+        return 0.0
+
+    # ----- tooth-body transform hook -----
+    def _transformToothBody(self, designComponent, toothBody, gearBody, shaftAxisEdge,
+                            apexWorld, apexSketchPoint, toeMid, heelMid, toeConeWorld,
+                            heelConeWorld, parentToothPlane, gearLabel, teethNumber):
+        """Straight bevel: trim the uncut tooth body to a band with the toe/heel cone
+        cuts. Subclasses (spiral) override this to reshape the tooth first, then trim
+        with the same cones."""
+        return self._cutConicalEnds(
+            designComponent, toothBody, gearBody, toeMid, heelMid, apexWorld, gearLabel)
+
+    # ----- toe/heel conical cuts that trim a tooth body to a flush band -----
+    def _cutConicalEnds(self, designComponent, toothBody, gearBody, toeMid, heelMid,
+                        apexWorld, gearLabel):
+        # Cut 1: toe cut using a cone face of the Gear Body (frustum).
+        toePieces = self._applyConicalCut(
+            designComponent, gearBody, [toothBody], toeMid, f'{gearLabel} toe cut#1')
+        # Drop the apex tip; keep the largest non-apex piece (the keeper).
+        keeper = self._selectKeeper(designComponent, toePieces, apexWorld,
+                                    f'{gearLabel} toe keeper')
+        # Cut 2: heel cut on the keeper alone. May not intersect (try/except).
+        try:
+            heelPieces = self._applyConicalCut(
+                designComponent, gearBody, [keeper], heelMid, f'{gearLabel} heel cut#2')
+            tooth = self._selectKeeper(designComponent, heelPieces, apexWorld,
+                                       f'{gearLabel} heel keeper')
+        except Exception as e:
+            # Tolerate the heel cone not intersecting (tooth ends at/just inside the
+            # back cone): straight bevel raises SPLIT_TARGET_TOOL_NOT_INTERSECT; the
+            # spiral tooth ends ~tangent so _applyConicalCut raises 'no cone face split'.
+            msg = str(e)
+            if ('SPLIT_TARGET_TOOL_NOT_INTERSECT' in msg or '交差' in msg
+                    or 'no cone face split' in msg):
+                futil.log(f'{gearLabel} heel cut: tool did not intersect, kept intact',
+                          force_console=True)
+                tooth = keeper
+            else:
+                raise
+        return tooth
 
     # ----- find the spur tooth cross-section profile -----
     def _findSpurToothProfile(self, toothSketch):

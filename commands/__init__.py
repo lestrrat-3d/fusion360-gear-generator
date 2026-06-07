@@ -7,6 +7,7 @@ from .spurgear import entry as spurgear
 from .helicalgear import entry as helicalgear
 from .herringbonegear import entry as herringbonegear
 from .bevelgear import entry as bevelgear
+from .spiralbevelgear import entry as spiralbevelgear
 
 # TODO add your imported modules to this list.
 # Fusion will automatically call the start() and stop() functions.
@@ -15,6 +16,7 @@ commands = [
     helicalgear,
     herringbonegear,
     bevelgear,
+    spiralbevelgear,
 ]
 
 
