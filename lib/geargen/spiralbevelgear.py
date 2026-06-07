@@ -153,12 +153,12 @@ class SpiralBevelGearGenerator(BevelGearGenerator):
         return math.radians(self._PINION_MESH_PHASE_TEETH * 360.0 / self._sbPinionTeeth)
 
     # ----- lengthwise crown (relief) -----
-    # Tunable: circumferential relief per radian of local twist. Each segment's cross-
-    # section is scaled by (1 - _CROWN_PER_RAD*|ang|) about its centroid, so mid-face (twist
-    # 0) is untouched and toe/heel are progressively thinned -> contact localizes at
-    # mid-face and the twisted ends clear instead of gouging. Scales with spiral angle.
-    # 0 disables. Dial up until the pair runs clean.
-    _CROWN_PER_RAD = 0.0   # TEMP off (scaleFeatures unsupported here) while fixing twist
+    # Tunable: circumferential relief fraction per radian of local twist. Each segment is
+    # scaled by (1 - _CROWN_PER_RAD*|ang|) about its centroid, so mid-face (twist 0) is
+    # untouched and toe/heel are progressively thinned -> contact localizes at mid-face and
+    # the twisted ends clear instead of gouging. Scales with spiral angle automatically.
+    # 0 disables. Dial up until a high-ratio pair runs clean.
+    _CROWN_PER_RAD = 0.5
 
     # ----- trace-construction helpers (ported from the validated trace sketch) -----
     def _combine(self, base, a, e1, b=0.0, e2=None):
@@ -544,20 +544,54 @@ class SpiralBevelGearGenerator(BevelGearGenerator):
                 if best is None or d > best:
                     best = d
             return best
-        for seg in segments:
+
+        # scaleFeatures (the crown) raised "Environment is not supported" -- the operation
+        # needs its owning component to be the ACTIVE edit target. Activate the Design
+        # occurrence around the crown, then restore the root.
+        _crownOcc = None
+        if self._CROWN_PER_RAD > 0:
+            try:
+                _occs = designComponent.parentDesign.rootComponent.allOccurrencesByComponent(
+                    designComponent)
+                if _occs.count:
+                    _crownOcc = _occs.item(0)
+                    _crownOcc.activate()
+                    futil.log(f'[spiral] {gearLabel}: activated Design occ for crown scale',
+                              force_console=True)
+            except Exception as e:
+                futil.log(f'[spiral] {gearLabel}: activate Design failed ({e})',
+                          force_console=True)
+
+        for idx, seg in enumerate(segments):
             ang = -handSign * total * (R_mean - _heelR(seg)) / span
-            # Lengthwise crown: thin the cross-section about its centroid in proportion to
-            # the local twist, so toe/heel are relieved and contact localizes at mid-face.
+            # Lengthwise crown: scale the segment about its heel-face centre in proportion
+            # to the local twist, so toe/heel thin and contact localizes at mid-face. SKIP
+            # only the OUTERMOST (heel) segment -- its face is the loft's heel end that must
+            # stay full so the heel cone trims it flush with the gear base.
             relief = self._CROWN_PER_RAD * abs(ang)
-            if relief > 1e-4:
+            if relief > 1e-4 and idx < len(segments) - 1:
                 try:
-                    cpIn = designComponent.constructionPoints.createInput()
-                    cpIn.setByPoint(seg.physicalProperties.centerOfMass)
-                    cp = designComponent.constructionPoints.add(cpIn)
+                    # Symmetric crown: scale the segment about the CENTRE of its heel face
+                    # (the tooth centreline at the loft section). A sketch point on that
+                    # face is a valid scale base; setByPoint(Point3D) is not supported here.
+                    hf, hfd, hfc = None, None, None
+                    for fi in range(seg.faces.count):
+                        f = seg.faces.item(fi)
+                        bb = f.boundingBox
+                        c = adsk.core.Point3D.create(
+                            0.5 * (bb.minPoint.x + bb.maxPoint.x),
+                            0.5 * (bb.minPoint.y + bb.maxPoint.y),
+                            0.5 * (bb.minPoint.z + bb.maxPoint.z))
+                        d = distAlong(c)
+                        if hfd is None or d > hfd:
+                            hfd, hf, hfc = d, f, c
+                    sk = designComponent.sketches.add(hf)
+                    sk.isVisible = False
+                    spt = sk.sketchPoints.add(sk.modelToSketchSpace(hfc))
                     ents = adsk.core.ObjectCollection.create()
                     ents.add(seg)
                     features.scaleFeatures.add(features.scaleFeatures.createInput(
-                        ents, cp, adsk.core.ValueInput.createByReal(1.0 - relief)))
+                        ents, spt, adsk.core.ValueInput.createByReal(1.0 - relief)))
                 except Exception as e:
                     futil.log(f'[spiral] {gearLabel}: crown skipped ({e})', force_console=True)
             if abs(ang) > 1e-9:
@@ -568,6 +602,12 @@ class SpiralBevelGearGenerator(BevelGearGenerator):
                 mv = features.moveFeatures.createInput2(coll)
                 mv.defineAsFreeMove(m)
                 features.moveFeatures.add(mv)
+        if _crownOcc:
+            try:
+                designComponent.parentDesign.activateRootComponent()
+            except Exception as e:
+                futil.log(f'[spiral] {gearLabel}: restore root active failed ({e})',
+                          force_console=True)
         futil.log(f'[spiral] {gearLabel}: PASS 2d staggered {len(segments)} segments, '
                   f'total twist={math.degrees(total):.2f} deg', force_console=True)
 
