@@ -45,8 +45,16 @@ The spec + playbook together MUST be sufficient. If they are not, fix the spec o
 
 3. **Generate.** Spawn a subagent that writes `.tmp/<gear>.generated.py` from **the spec +
    playbook + the framework files + any declared dependency files only**. It MUST NOT read an
-   existing `lib/geargen/<gear>.py` if one is present. Give it the contract list from step 2 as a
-   hard requirement.
+   existing `lib/geargen/<gear>.py` if one is present.
+   - **Use the verbatim "Standard generation prompt" in the appendix below — do NOT improvise it,
+     and do NOT add per-gear hints, "high-risk" checklists, reminders of specific gotchas, or any
+     gear-specific guidance to the prompt.** Substitute only `<gear>`. All gear-specific knowledge
+     (geometry, failure modes, the exact ⚠️ rules) MUST live in the **spec/playbook**, never in the
+     generation prompt. Reason: a hand-tuned prompt (a) adds orchestrator variance round-to-round on
+     top of the model's, and (b) **masks spec gaps** — if the prompt spoon-feeds a rule, a green run
+     no longer proves the *spec* states it well enough. Identical prompt every run ⇒ a pass/fail is
+     attributable to the spec, which is the whole point. When a regen reveals a gap, fix the
+     **spec/playbook** and re-run the **same** standard prompt — never patch the prompt.
 
 4. **Validate (reference-free).** The output is checked against the **spec**, not against any
    implementation:
@@ -63,15 +71,6 @@ The spec + playbook together MUST be sufficient. If they are not, fix the spec o
      pyflakes flags as "may be undefined" because star imports defeat its resolution; the framework's
      star-export set is small and fixed, so subtracting it leaves only genuine bugs.) Install pyflakes
      once with `python3 -m pip install --break-system-packages pyflakes` if absent.
-   - **adsk module placement (catches wrong-module `AttributeError`s parse/pyflakes can't see).**
-     `adsk` is a native module that can't be imported here, so `adsk.fusion.SurfaceTypes` —
-     `SurfaceTypes` actually lives in `adsk.core` — parses fine and pyflakes-passes, then dies at
-     Fusion runtime with `AttributeError: module 'adsk.fusion' has no attribute 'SurfaceTypes'`. Run
-     `python3 .claude/skills/generate-gear/check_adsk_modules.py .tmp/<gear>.generated.py`: it learns
-     each name's canonical `adsk.core`/`adsk.fusion` module from the trusted framework + other gears
-     (the gear under generation excluded) and flags any reference using the wrong module. A non-empty
-     result (exit 1) is a **real bug** — fix the module (in the spec/playbook so it sticks) and
-     regenerate.
    - **Contract self-check:** every class name, hook method, tooth/profile-generator entry point,
      `ctx` field, Fusion user-parameter name, and dialog input id the spec's Contract sections
      declare is present in the generated file. If the spec declares dependent gears, confirm the
@@ -151,3 +150,54 @@ geometry in the report so it is visible, not silently assumed.
 - A gear that borrows from another (e.g. one reusing another's tooth generator) must declare that
   in its Dependencies section so generation reads the dependency and the contract self-check
   covers the borrowed surface.
+
+## Standard generation prompt (use verbatim — substitute only `<gear>`)
+
+This is the fixed prompt for the step-3 generation subagent. Use it **exactly**, changing only the
+`<gear>` token. Do **not** add gear-specific hints, gotcha reminders, or "high-risk" lists — those
+belong in the spec/playbook. Identical prompt every run is what makes the regen an honest test of
+the spec.
+
+> Generate a Fusion 360 gear-generator implementation **purely from its spec** — reference-free.
+> Work in the repo's worktree. Write the result to `.tmp/<gear>.generated.py` (parse-only; the
+> `adsk` modules are not importable here — do not try to run it).
+>
+> **HARD RULE — reference-free:** Do NOT open, read, grep, or otherwise consult an existing
+> `lib/geargen/<gear>.py`. If anything is unclear, record it as a spec-gap note in your report —
+> never resolve it by peeking at an existing implementation.
+>
+> **Read, in full, ONLY these:**
+> - `lib/geargen/<gear>.md` — THE SPEC, the sole source of truth. Read it end-to-end. **Every
+>   rule, formula, and ⚠️ note in it is binding** — the spec already encodes the known failure
+>   modes; obey them precisely. Do not rely on any guidance outside the spec/playbook.
+> - `.claude/skills/generate-gear/PLAYBOOK.md` — shared framework conventions and Fusion-API rules.
+> - Every document the spec references by name (e.g. a geometry-derivation `.md`).
+> - The framework files the output builds on: `lib/geargen/base.py`, `lib/geargen/misc.py`,
+>   `lib/geargen/utilities.py`, and `lib/fusion360utils/`.
+> - Every gear/module the spec's **Dependencies** section declares (read the exact surface bevel/…
+>   borrows: class names, constructor/`draw` signatures, and any attribute it reads or writes).
+>
+> **Contract = the spec's own declarations.** The spec's Architecture, Method-contract / call-graph,
+> Generation-Context, Generation-Order, Exact-input-ids, Dependencies, and Sketch-Discipline
+> sections ARE the hard requirement. Extract them yourself and satisfy them exactly: reproduce every
+> class name, method/hook name and signature, constant, dialog input id/label/unit/default, and
+> declared helper. Follow the Instructions sections' geometry and feature order verbatim, including
+> every edge case and ⚠️ the spec calls out. Local variable names, comments, and private-helper
+> decomposition beyond the pinned boundaries may vary.
+>
+> **Self-check before finishing** (fix and repeat until all pass):
+> 1. `python3 -c "import ast; ast.parse(open('.tmp/<gear>.generated.py').read())"` succeeds.
+> 2. `python3 -m pyflakes .tmp/<gear>.generated.py | grep "may be undefined" | grep -vE
+>    "'(to_cm|to_mm|get_design|get_ui|Generator|GenerationContext|get_value|get_boolean|get_selection|ParamNamePrefix|ComponentCleaner|get_normal|cast)'"`
+>    prints nothing.
+> 3. Every class / method / constant / input id / declared helper the spec's contract sections name
+>    is present, spelled exactly.
+> 4. Every name imported from another module exists in that module.
+>
+> **Report:** whether the self-checks pass (with line numbers for the contract items); the final
+> line count; and — most important — a precise list of any place the spec was **ambiguous or
+> insufficient** and you had to infer, since those are the spec gaps to fix. Do not smooth over
+> inferences; name them.
+
+When a run fails validation or (later) misbehaves in Fusion, the fix is always to the **spec or
+playbook**, after which you re-run **this same prompt** — you never edit the prompt to compensate.
