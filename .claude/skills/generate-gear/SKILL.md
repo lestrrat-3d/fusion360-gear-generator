@@ -63,6 +63,15 @@ The spec + playbook together MUST be sufficient. If they are not, fix the spec o
      pyflakes flags as "may be undefined" because star imports defeat its resolution; the framework's
      star-export set is small and fixed, so subtracting it leaves only genuine bugs.) Install pyflakes
      once with `python3 -m pip install --break-system-packages pyflakes` if absent.
+   - **adsk module placement (catches wrong-module `AttributeError`s parse/pyflakes can't see).**
+     `adsk` is a native module that can't be imported here, so `adsk.fusion.SurfaceTypes` —
+     `SurfaceTypes` actually lives in `adsk.core` — parses fine and pyflakes-passes, then dies at
+     Fusion runtime with `AttributeError: module 'adsk.fusion' has no attribute 'SurfaceTypes'`. Run
+     `python3 .claude/skills/generate-gear/check_adsk_modules.py .tmp/<gear>.generated.py`: it learns
+     each name's canonical `adsk.core`/`adsk.fusion` module from the trusted framework + other gears
+     (the gear under generation excluded) and flags any reference using the wrong module. A non-empty
+     result (exit 1) is a **real bug** — fix the module (in the spec/playbook so it sticks) and
+     regenerate.
    - **Contract self-check:** every class name, hook method, tooth/profile-generator entry point,
      `ctx` field, Fusion user-parameter name, and dialog input id the spec's Contract sections
      declare is present in the generated file. If the spec declares dependent gears, confirm the

@@ -1309,7 +1309,10 @@ class BevelGearGenerator:
         designComponent.features.removeFeatures.add(scrap)
 
         # ---------- G. Twist (the spiral) ----------
-        total = self._twistAzimuth(samplePts, axisDir, apex)
+        # Analytic crown-gear law: total = |phi_crown| / sin(pitch cone angle). Robust, no projection.
+        _gam = self._gamma_p if gearLabel == 'Pinion' else self._gamma_g
+        total = abs(math.atan2(heel2d[1], heel2d[0])
+                    - math.atan2(toe2d[1], toe2d[0])) / math.sin(_gam)
 
         def heelFaceCenter(seg):
             return self._farthestFace(seg, apex, coneVec).centroid
