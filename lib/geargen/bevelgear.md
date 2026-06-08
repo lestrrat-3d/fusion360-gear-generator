@@ -56,9 +56,9 @@ Tooth Spacing: user-specified non-negative number in mm, default 0mm. A single v
 
 Mean Spiral Angle (ψ): user-specified angle in degrees, default 35°, valid range **[0, 60)**. The angle between the tooth trace and the cone element, measured at the mean cone distance (see `spiral-tooth-trace.md`). **ψ = 0 means a STRAIGHT bevel gear** — the tooth-body build takes the original straight path unchanged (apex-point loft + the two conical trims) and every spiral input below is ignored; any value **> 0 builds a curved (spiral) tooth**. The driving gear uses this hand; the meshing pinion is built with the **opposite** hand (mirror) so the pair meshes. Input is a `deg` Fusion expression; read-back is radians, so convert to degrees before the [0, 60) range check (see PLAYBOOK).
 
-Hand of Spiral: user-specified dropdown — `Right` (default) or `Left`. The **driving** gear's hand of spiral; the pinion is built with the opposite hand. Only consulted when ψ > 0. The two list-item strings `Right`/`Left` are reproduced surface (module constants `_HAND_RIGHT = 'Right'`, `_HAND_LEFT = 'Left'`).
+Hand of Spiral: user-specified dropdown — `Right` (default) or `Left`. The **driving** gear's hand of spiral; the pinion is built with the opposite hand. Only consulted when ψ > 0. **Shown in the dialog only when ψ > 0** (hidden for straight bevels — see "Conditional visibility" under Exact input ids). The two list-item strings `Right`/`Left` are reproduced surface (module constants `_HAND_RIGHT = 'Right'`, `_HAND_LEFT = 'Left'`).
 
-Cutter Radius: user-specified non-negative number in mm, default 0mm. The face-mill cutter radius `r_c` that sets the radius of the tooth-trace arc (see `spiral-tooth-trace.md`). **0 means auto** — use the mean cone distance `R_mean` as `r_c`. Only consulted when ψ > 0. Reject negative values.
+Cutter Radius: user-specified non-negative number in mm, default 0mm. The face-mill cutter radius `r_c` that sets the radius of the tooth-trace arc (see `spiral-tooth-trace.md`). **0 means auto** — use the mean cone distance `R_mean` as `r_c`. Only consulted when ψ > 0. **Shown in the dialog only when ψ > 0** (hidden for straight bevels — see "Conditional visibility" under Exact input ids). Reject negative values.
 ### Exact input ids and parameter-name strings
 
 These literal strings are part of the reproduced surface. Use them verbatim. The dialog **display
@@ -93,6 +93,26 @@ appended **after** Tooth Spacing in display order. The Hand dropdown is a
 its `selectedItem.name` (default `Right` if none). `spiralAngle` reads back in radians (range-check
 [0, 60)° after converting to degrees); `cutterRadius` reads back in internal cm via `'mm'`. Still **no live
 Fusion user parameters** — the spiral values are precomputed in Python like everything else.
+
+**Conditional visibility — the spiral-only inputs show only when ψ > 0.** Hand of Spiral
+(`spiralHand`) and Cutter Radius (`cutterRadius`) are relevant **only** for curved bevels, so they
+are **hidden whenever Mean Spiral Angle ψ = 0 and shown when ψ > 0**. Mean Spiral Angle (`spiralAngle`)
+itself is the controller and is **always visible** — it is how the user reaches ψ > 0. Realize this
+with the `commandInput.isVisible` property (there is no declarative "show-if" in the Fusion API):
+- Add a `@classmethod _updateSpiralInputVisibility(cls, inputs)` helper. It reads the `spiralAngle`
+  input's value (internal **radians**) and sets `inputs.itemById(INPUT_ID_HAND).isVisible` and
+  `inputs.itemById(INPUT_ID_CUTTER_RADIUS).isVisible` to `(value > 0)`. **Guard it:** if any of the
+  three inputs is `None` return early, and wrap the value read in `try/except` (a half-typed
+  expression can raise mid-edit) — on failure leave both inputs **shown**. `isVisible` only hides the
+  dialog row; the input still exists and `_readInputs` reads it normally (and the ψ = 0 build ignores
+  Hand/Cutter anyway), so hiding is purely cosmetic and cannot affect generation.
+- `configure()` calls `cls._updateSpiralInputVisibility(inputs)` **as its last step**, so the initial
+  state is correct (default ψ = 35° → both shown).
+- The dialog's `inputChanged` event drives the reactive update through a second classmethod
+  `@classmethod def handle_input_changed(cls, args)`, which simply calls
+  `cls._updateSpiralInputVisibility(args.inputs)` — recompute on **every** input change (cheap and
+  robust; no need to branch on which input changed). `handle_input_changed` is bound by name from
+  `commands/bevelgear/entry.py` (see Method contract — external bindings).
 
 Selection filters and limit-1 are set per PLAYBOOK; the Parent selection pre-selects
 `get_design().rootComponent`. The numeric `mm`/`deg` defaults are passed in internal units
@@ -141,7 +161,10 @@ builds a straight bevel when Mean Spiral Angle ψ = 0 and a curved (spiral) beve
 reproduced surface; the entry point binds the first and second by name):
 
 1. **`BevelGearCommandInputsConfigurator`** — `@classmethod def configure(cls, cmd)` that adds the
-   **17** dialog inputs above in display order.
+   **17** dialog inputs above in display order, plus `@classmethod def handle_input_changed(cls, args)`
+   (with a private `_updateSpiralInputVisibility(cls, inputs)` helper) that drives the spiral-only
+   inputs' conditional visibility (see "Conditional visibility" under Exact input ids). Both
+   `configure` and `handle_input_changed` are bound **by name** from `commands/bevelgear/entry.py`.
 2. **`BevelGearGenerator`** — `__init__(self, design)` (stores `self.design`, `self.bevelOccurrence
    = None`); `generate(inputs)`; `deleteComponent()`. Creates the occurrence tree directly with
    `parent.occurrences.addNewComponent(...)` — it does **not** use `getOccurrence` / `addParameter`
@@ -167,8 +190,10 @@ holds the top occurrence for cleanup. A regenerated bevel must not introduce a `
 
 No gear subclasses bevel, so there are **no override boundaries to preserve** (unlike spur). The
 only hard external bindings are `commands/bevelgear/entry.py` → `BevelGearCommandInputsConfigurator.
-configure(args.command)` and `BevelGearGenerator(design).generate(inputs)` + `deleteComponent()` on
-failure. The internal decomposition below is the intended structure; private helper names may vary,
+configure(args.command)`, `BevelGearCommandInputsConfigurator.handle_input_changed(args)` (the
+dialog's `inputChanged` handler delegates one line to it — drives the spiral inputs' conditional
+visibility, see Exact input ids), and `BevelGearGenerator(design).generate(inputs)` +
+`deleteComponent()` on failure. The internal decomposition below is the intended structure; private helper names may vary,
 but keep the step boundaries (they map to the Instructions sections):
 
 ```
@@ -188,14 +213,18 @@ deleteComponent()                            # error rollback (entry point calls
 
 `_transformToothBody(designComponent, toothBody, gearBody, shaftAxisEdge, apexWorld, apexSketchPoint,
 toeMid, heelMid, toeConeWorld, heelConeWorld, parentToothPlane, gearLabel, teethNumber)` is the single
-tooth-body hook `_createGearBody` calls after lofting the uncut apex→heel tooth. Its first line is the
+tooth-body hook `_createGearBody` calls after lofting the uncut apex→heel tooth. **`_createGearBody`
+builds the four `toeMid / heelMid / toeConeWorld / heelConeWorld` arguments exactly per the §3a
+"Caller hand-off" table — toe edge = M→N (pinion) / O→P (driving), heel edge = C→H / D→J; `toeMid`/
+`heelMid` are the toe/heel edge MIDpoints and `toeConeWorld`/`heelConeWorld` are M/O and C/D. Getting
+this wrong silently inverts the spiral (see §3a).** Its first line is the
 gate `if self._spiralAngle_rad <= 0: return self._cutConicalEnds(...)` — straight bevels are byte-for-
 byte the prior behavior. `_pinionMeshPhase()` returns the pinion's extra mesh rotation about its own
 shaft axis (0 for straight; for spiral it is `_PINION_MESH_PHASE_TEETH` tooth-fractions, default 0).
 
 Helpers used by the above (names may vary; behaviour is pinned by the Instructions): `_readInputs`,
 `_pointWorldGeometry` (world Point3D for a SketchPoint via `.worldGeometry` / ConstructionPoint via
-`.geometry`), `_findSpurToothProfile` (match the tooth cross-section loop by curve-**type** mix, not count alone, or an unrelated loop can match: **2 NURBS flanks + 2 arcs (tip/root) + 2 lines** for a non-embedded tooth, or **2 NURBS + 2 arcs + 0 lines** when embedded),
+`.geometry`), `_findSpurToothProfile(toothSketch, embedded)` (match the tooth cross-section loop by curve-**type** mix — but the line count is **DETERMINED BY the `embedded` flag, NOT guessed/accepted-either**: `wantLines = 0 if embedded else 2`, then return the loop with exactly **2 NURBS flanks + 2 arcs (tip/root) + `wantLines` lines**. ⚠️ Do **NOT** accept "0 **or** 2 lines" — for a given gear only ONE of those is the real tooth; an **unrelated** loop (e.g. an inter-tooth or annular region between the drawCircles circles) can also have 2 NURBS + 2 arcs but the *other* line count, and selecting it makes the apex→profile loft in "Create the Pinion/Driving Gear" fail with `RuntimeError ... ASM_RBI_INTERNAL / LOFT_NO_TOOLBODY` (the impostor loop can't form a loft tool body). The `embedded` flag is read from the borrowed spur generator — see Dependencies (`_lastToothEmbedded`) — and passed into this helper; `embedded` ⇒ tip/root/flanks meet with no connecting lines (4 curves), non-embedded ⇒ 2 connecting lines (6 curves), mirroring spur's own `expectedCount = 4 if embedded else 6`),
 `_applyConicalCut` (sequential split by cone faces; keep the largest non-apex piece),
 `_findConeFaceForCutLine` (the `ConeSurfaceType` face whose surface contains both world endpoints of
 a cut line), `_surfaceDistance`, `_cutBore`, `_cutConicalEnds` (the toe-then-heel two-cone trim that
@@ -229,6 +258,7 @@ PLAYBOOK still apply):
   `RuntimeError … VCS_SKETCH_SOLVING_FAILED - failed to create offset`. The correct construction is
   always raw-`Point3D` endpoints + a **single** `addCoincident` per existing-point connection. (This
   is the one place the generic playbook rule is too permissive — §2 must use coincident-style.)
+  - ⚠️ **This rule covers the short "reference"/connector lines too — the ones whose BOTH endpoints already exist: `C→K`, `D→L` (and `C→K′`/`D→L′`), `M→C`, `N→A`, `O→D`, `P→B`, `B→I`, `A→G`.** It is tempting to draw these by passing the two existing `SketchPoint`s straight into `addByTwoPoints(pointM, pointC)` (sharing both) since there is no *new* lattice point to create — **do NOT.** Sharing even these "harmless" already-pinned points is what tips the Gear Profiles sketch to **under-constrained** and the gate fails on "Gear Profiles" (observed: a fresh regen that used coincident-style for the lattice but **shared** these reference lines came out ~14 coincidents short and failed the gate). Build **every** §2 line the same way: `addByTwoPoints(P2(startCoord), P2(endCoord))` from raw `Point3D` coordinates, then `addCoincident` **each** endpoint to its existing point (one coincident per end; never share, never share-and-coincident). No §2 line — lattice or reference — is exempt.
 - **Each named §2 line is created ONCE and later references REUSE that same line object — never redraw it.** The module-length extensions (A→E, B→F, E→G, F→I) and the dedendum / closing lines (C→H, D→J, G→H, I→J) are *named* construction lines. When a later step says, e.g., "from point E collinear to **line A->E**" (point G) or "**lines A->E and C->E** should be perpendicular", it means **the very line you drew in the point-E step** — so the helper that creates a module-extension must **RETURN the line** (not just its endpoint) and you must keep that reference. Do **NOT** draw a *second* line between the same two points (e.g. a fresh `addByTwoPoints(A, E)` / `_lineBetween(A, E)`) just to obtain a reference for a perpendicular/collinear: that duplicate line carries its own constraints over the same segment, **over-determines** the coupled §2 net, and the solve fails with `RuntimeError … VCS_SKETCH_OVER_CONSTRAINTS - failed to create offset` (often several lines later, when the redundancy finally exceeds the DOF). One segment ⇒ one line ⇒ its constraints live on that one line.
 - **Place the Apex (and the ENTIRE §2 figure) POSITION in the gear-profiles sketch's own 2-D coordinates — NEVER compute a §2 POSITION from a world round-trip.** This is the single biggest source of orientation bugs (gear collapsing onto world XY). The reasoning, which is exactly why this works: the gear-profiles plane is built perpendicular to the target plane and contains the anchor line; therefore, *inside its sketch*, the direction perpendicular to the (projected) anchor line **is** the target-plane normal, and "up toward the Apex" is simply that in-plane perpendicular. So:
   - Project the center point and the anchor line into the gear-profiles sketch. Let `c` be the projected center and `d` the projected anchor line's 2-D unit direction.
@@ -294,6 +324,8 @@ bevel dialog input), `PitchCircleDiameter`, `PitchCircleRadius`, `BaseCircleDiam
 `BaseCircleRadius`, `RootCircleDiameter`, `RootCircleRadius`, `TipCircleDiameter`, `TipCircleRadius`,
 `InvoluteSteps` (15). Standard spur formulas: pitch = teeth·module, base = pitch·cos α,
 root = pitch − 2.5·module, tip = pitch + 2·module.
+
+**The proxy must also carry `_lastToothEmbedded` — it is an OUTPUT the spur generator writes, and bevel MUST read it back.** During `draw()` the spur generator decides whether the tooth is *embedded* (tip/root/flanks meet with no connecting lines) and records it with `self.parent._lastToothEmbedded = <bool>` (it has no ctx of its own). So `_VirtualSpurProxy.__init__` must define `self._lastToothEmbedded = False` up front to absorb that write. **After `drawer.draw(...)` returns, read `proxy._lastToothEmbedded` and thread it to `_findSpurToothProfile(toothSketch, embedded)`** (e.g. stash it alongside the tooth sketch/plane returned by `_buildVirtualSpurProfile`). This flag is **not optional bookkeeping** — it is the deterministic selector for the tooth loop's line count (`0 if embedded else 2`); skipping it and accepting either count makes `_findSpurToothProfile` grab an unrelated loop and the apex→tooth loft dies with `LOFT_NO_TOOLBODY` (see Method contract).
 
 The **180° rotation is delivered through the `draw()` angle argument** (the spur generator rotates
 the whole tooth by `angle`, per `spurgear.md`), *not* a post-hoc Move/sketch rotation — this relies
@@ -431,6 +463,23 @@ Create a construction axis through point L′, normal to the tooth plane, via `s
 ### 3a: Spiral tooth body (ψ > 0)
 
 This is the ψ > 0 branch of the tooth-body hook `_transformToothBody` (Method contract) — it **replaces** the straight tooth's two conical trims with a curved tooth. When **ψ = 0 the hook returns immediately** with `_cutConicalEnds` (the straight tooth, trimmed to a flush band — byte-for-byte the prior behavior); everything below runs **only when ψ > 0**. It is invoked once per gear (pinion then driving), inside `_createGearBody`, on the freshly lofted uncut apex→heel `toothBody`, before pattern/combine/bore. The arc math it realizes is derived in `spiral-tooth-trace.md`; this section states **how** that construction is realized as Fusion sketches/features and the order it runs in. Use the existing `{gear}` sketch-naming (`gearLabel` is `Pinion` or `Driving`).
+
+**Caller hand-off — the four toe/heel world points `_createGearBody` builds and passes to the hook (PIN EXACTLY; mislabeling them silently inverts the spiral — this is the single biggest spiral-regen hazard).** The §2 lattice gives each gear a **toe edge** (the inner face-width edge, nearer the apex) and a **heel edge** (the outer edge, at the back cone). Per gear they are exactly:
+
+| gear | toe edge (inner) | heel edge (outer) | `toeConeWorld` | `heelConeWorld` |
+|---|---|---|---|---|
+| Pinion | **M→N** | **C→H** | **M** | **C** |
+| Driving | **O→P** | **D→J** | **O** | **D** |
+
+From those §2 sketch points' **world** geometry, `_createGearBody` computes (and passes positionally into `_transformToothBody` in the order `toeMid, heelMid, toeConeWorld, heelConeWorld`):
+- `toeMid` = world **midpoint of the TOE edge** — ½(M+N) pinion / ½(O+P) driving.
+- `heelMid` = world **midpoint of the HEEL edge** — ½(C+H) pinion / ½(D+J) driving.
+- `toeConeWorld` = the **toe edge's inner endpoint** — **M** (pinion) / **O** (driving). This point lies on the **root cone element** (the Pinion Root Axis Apex→C / Driving Root Axis Apex→D) at the inner/toe end — M is pinned onto Apex→C in §2 (`addCoincident(M, Pinion Root Axis)`), O onto Apex→D.
+- `heelConeWorld` = the **dedendum corner** (the heel edge's first endpoint) — **C** (pinion) / **D** (driving). C/D is the **outer** end of that **same root cone element**, so `coneVec = normalize(heelConeWorld − apex)` runs along Apex→C / Apex→D pointing outward and `distAlong(heelConeWorld) > distAlong(toeConeWorld)`.
+
+⚠️ **Two scrambles to avoid** (a fresh regen has made both):
+- Do **NOT** pass the two endpoints of a *single* edge as `toeMid`/`heelMid` (e.g. M as `toeMid` and N as `heelMid`). M and N both sit at the **toe**, so `span = distAlong(heelMid) − distAlong(toeMid)` collapses to ≈0 or negative and the spiral inverts. `toeMid` is the midpoint of the **toe** edge; `heelMid` is the midpoint of the **heel** edge — two different edges.
+- `heelConeWorld` is the **dedendum corner C/D** (on the root axis Apex→C / Apex→D), **never H/J**. H/J lie on the `Apex2→C` / `Apex2→D` dedendum line (one Module beyond C/D), **off** the root cone element — using them skews `coneVec` away from Apex→C / Apex→D.
 
 **A. Gate & frame.** Build a world frame from the geometry already constructed for this gear:
 
