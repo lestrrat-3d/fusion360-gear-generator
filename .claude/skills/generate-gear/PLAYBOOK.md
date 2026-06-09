@@ -275,6 +275,14 @@ ignores a later `hasFocus=True`; add the selection input that should own initial
   - **Chamfer:** add the edge set on the input's **`chamferEdgeSets`** collection —
     `chamferInput.chamferEdgeSets.addEqualDistanceChamferEdgeSet(edges, ValueInput, isFlipped)`.
   Do not mirror one onto the other.
+- **A 2-D-coord→`Point3D` helper MUST tolerate both raw `(x, y[, z])` tuples AND objects with
+  `.x/.y/.z` (`Point3D` / `SketchPoint.geometry`).** Generators routinely mix **seed tuples** (e.g.
+  `apexSeed = (cx, cy)`) with **solved `.geometry`** points and feed both to the same little helper
+  (`P2(p)`, `add_point(p)`). A helper written as `Point3D.create(p.x, p.y, p.z)` then throws
+  `AttributeError: 'tuple' object has no attribute 'x'` the moment a seed tuple reaches it — a pure
+  **runtime** crash that `ast.parse` and pyflakes do NOT catch. Make such helpers branch on type:
+  `p[0], p[1]` for a tuple/list, `p.x, p.y` otherwise (or standardize every call on one form). The
+  same applies to a tuple-only helper handed a `Point3D` (`p[0]` fails).
 - **`sketch.modelToSketchSpace(p)` / `sketch.sketchToModelSpace(p)` are point-transforming
   METHODS, not matrices.** Each takes a `Point3D` (world resp. sketch) and returns the transformed
   `Point3D`: `local = sketch.modelToSketchSpace(worldPoint)`. Do NOT do `m = sketch.modelToSketchSpace`
@@ -330,6 +338,11 @@ ignores a later `hasFocus=True`; add the selection input that should own initial
   `addAngularDimension(lineA, lineB, textPoint)` measures the angle on the side where `textPoint`
   lies. To get the intended angle (e.g. a shaft angle Σ rather than its supplement 180−Σ), place
   `textPoint` inside the wedge you mean.
+- **Radial/diameter dimension text points must be OFF-CENTRE.** `addRadialDimension(arc, textPoint)` /
+  `addDiameterDimension(circle, textPoint)` reject a `textPoint` at the curve's **centre** with
+  `RuntimeError: 3 : … 一部の入力引数が無効です` ("some input arguments are invalid") — at the centre
+  there is no radial direction to place the dimension. Pass a point **on or near the curve** instead
+  (e.g. a point at radius `r` from the centre, or one of the arc's own through-points).
 - **Selections drop on context shift:** stash selection entities before occurrence creation
   (above).
 - **Hide a sketch only after consuming it:** projections/profile extraction stop working on an
