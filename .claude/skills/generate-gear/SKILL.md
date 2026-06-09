@@ -66,16 +66,24 @@ The spec + playbook together MUST be sufficient. If they are not, fix the spec o
    - **Parse:** `python3 -c "import ast; ast.parse(open('.tmp/<gear>.generated.py').read())"`.
      (Fusion's `adsk` modules can't be imported here; the repo has no runnable tests — parse is
      the available mechanical gate.)
-   - **Undefined-name check (catches `NameError`s that parse can't).** A typo'd or wrong-scope
-     local (e.g. using a `generate()`-scope variable inside a build helper) is valid syntax but a
-     runtime `NameError`. Catch it statically with pyflakes, filtering out the star-import names it
-     can't resolve: `python3 -m pyflakes .tmp/<gear>.generated.py | grep "may be undefined" |
-     grep -vE "'(to_cm|to_mm|get_design|get_ui|Generator|GenerationContext|get_value|get_boolean|get_selection|ParamNamePrefix|ComponentCleaner|get_normal|cast)'"`.
-     Anything left is a **real undefined name** — fix it (it would otherwise only surface at Fusion
-     runtime). (The grep filter drops the legit `from .misc/.base/.utilities import *` exports, which
-     pyflakes flags as "may be undefined" because star imports defeat its resolution; the framework's
-     star-export set is small and fixed, so subtracting it leaves only genuine bugs.) Install pyflakes
-     once with `python3 -m pip install --break-system-packages pyflakes` if absent.
+   - **Static analysis (pyright + Fusion API stubs).** Run
+     `python3 .claude/skills/generate-gear/pyright_check.py .tmp/<gear>.generated.py`. With the
+     Fusion stubs on the path, pyright (standard mode) resolves `adsk.core`/`adsk.fusion` and the
+     framework's `from .misc import *` star-exports, so one tool catches both bug classes the old
+     pyflakes + `check_adsk_modules.py` split: **undefined names / typos** (`NameError`) and
+     **wrong adsk submodule** (`adsk.fusion.SurfaceTypes` → `adsk.core`). Only **BLOCKING** findings
+     (exit 1) gate — they are real; fix the **spec/playbook** and regenerate. **REVIEW** findings are
+     advisory stub pessimism (idiomatic downcasts, Optional-typed API returns); correct code like
+     `spurgear.py` emits ~27 with zero real bugs, so **never gate or thrash the spec on them** —
+     expand with `--review` only when chasing a specific runtime `AttributeError`/`NoneType`. Stubs
+     come from `$FUSION_API_STUBS` (or `--stubs <dir>`); if neither is set the script **auto-clones**
+     the `FusionAPIReference` repo (sparse/shallow/blobless — ~13M, not the full 338M) into
+     `~/.cache/fusion360-gear-generator/` on first run and reuses it. Install pyright once with
+     `python3 -m pip install --break-system-packages pyright`. Why standard mode, not `--strict`:
+     the stubs are intellisense-only and leave many return types unannotated, so `--strict` buries
+     the file in thousands of `reportUnknown*` lines with zero extra real bugs. Supersedes pyflakes +
+     `check_adsk_modules.py`; if the stubs are unavailable the script exits 2 — fall back to those
+     two (pyflakes undefined-name grep + `check_adsk_modules.py`) for a weaker, stub-free check.
    - **Contract self-check:** every class name, hook method, tooth/profile-generator entry point,
      `ctx` field, Fusion user-parameter name, and dialog input id the spec's Contract sections
      declare is present in the generated file. If the spec declares dependent gears, confirm the
@@ -192,9 +200,9 @@ the spec.
 >
 > **Self-check before finishing** (fix and repeat until all pass):
 > 1. `python3 -c "import ast; ast.parse(open('.tmp/<gear>.generated.py').read())"` succeeds.
-> 2. `python3 -m pyflakes .tmp/<gear>.generated.py | grep "may be undefined" | grep -vE
->    "'(to_cm|to_mm|get_design|get_ui|Generator|GenerationContext|get_value|get_boolean|get_selection|ParamNamePrefix|ComponentCleaner|get_normal|cast)'"`
->    prints nothing.
+> 2. `python3 .claude/skills/generate-gear/pyright_check.py .tmp/<gear>.generated.py` reports
+>    **0 BLOCKING** (undefined names / typos and wrong-adsk-submodule refs). REVIEW findings are
+>    advisory stub noise — do not act on them or change the code to silence them.
 > 3. Every class / method / constant / input id / declared helper the spec's contract sections name
 >    is present, spelled exactly.
 > 4. Every name imported from another module exists in that module.
