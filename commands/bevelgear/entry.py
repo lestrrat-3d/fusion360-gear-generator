@@ -81,7 +81,8 @@ def command_preview(args: adsk.core.CommandEventArgs):
 
 
 def command_input_changed(args: adsk.core.InputChangedEventArgs):
-    pass
+    # Drive conditional visibility of the spiral-only inputs (shown only when ψ > 0).
+    geargen.BevelGearCommandInputsConfigurator.handle_input_changed(args)
 
 
 def command_validate_input(args: adsk.core.ValidateInputsEventArgs):
