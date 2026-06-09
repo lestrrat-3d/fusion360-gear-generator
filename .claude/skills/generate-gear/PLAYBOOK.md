@@ -1,7 +1,7 @@
 # Gear Generator Playbook — framework conventions (gear-agnostic)
 
 This playbook captures the **repo scaffolding and Fusion-API conventions** shared by every gear
-generator in `lib/geargen/`. It is the *how*. A per-gear spec (e.g. `lib/geargen/spurgear.md`)
+generator in `lib/geargen/`. It is the *how*. A per-gear spec (e.g. `spec/spurgear/instructions.md`)
 supplies the *what* — the geometry. A code generator is given **both** the spec and this
 playbook, and must not need anything else.
 

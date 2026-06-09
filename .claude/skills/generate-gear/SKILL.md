@@ -1,12 +1,12 @@
 ---
 name: generate-gear
-description: Generate (or regenerate) a gear generator implementation `lib/geargen/<gear>.py` from its natural-language spec `lib/geargen/<gear>.md` plus the shared `PLAYBOOK.md`, using the spec as the SOLE source of truth — no reference implementation is consulted during generation. Use when asked to (re)generate gear code from a spec, or to check that a spec is complete enough to drive generation on its own. Args: optional `<gear>` name (default `spurgear`).
+description: Generate (or regenerate) a gear generator implementation `lib/geargen/<gear>.py` from its natural-language spec `spec/<gear>/instructions.md` plus the shared `PLAYBOOK.md`, using the spec as the SOLE source of truth — no reference implementation is consulted during generation. Use when asked to (re)generate gear code from a spec, or to check that a spec is complete enough to drive generation on its own. Args: optional `<gear>` name (default `spurgear`).
 ---
 
 # Generate gear code from a spec
 
 This repo generates gear implementations from natural-language design docs:
-`lib/geargen/<gear>.md` (the spec) → `lib/geargen/<gear>.py` (the implementation). This skill
+`spec/<gear>/instructions.md` (the spec) → `lib/geargen/<gear>.py` (the implementation). This skill
 runs that generation as a repeatable, agent-driven workflow.
 
 **The spec is the sole source of truth.** Generation reads only the spec, the shared playbook,
@@ -16,9 +16,14 @@ improve the **spec or playbook**, never to consult or copy an existing implement
 no implementation yet is generated the same way as one being regenerated; the workflow does not
 depend on a prior `.py` existing.
 
+Each gear's spec lives in its own directory `spec/<gear>/`: the entry point is
+`spec/<gear>/instructions.md`, optionally alongside auxiliary docs it references (e.g. a geometry
+derivation like `spec/bevelgear/spiral-tooth-trace.md`). The generated code goes to
+`lib/geargen/<gear>.py` (the `.py` modules stay in `lib/geargen/`; only the specs live under `spec/`).
+
 Two inputs drive every generation:
-- the per-gear **spec** `lib/geargen/<gear>.md` — the *what* (geometry, parameters, the contract
-  surface, generation order);
+- the per-gear **spec** `spec/<gear>/instructions.md` — the *what* (geometry, parameters, the contract
+  surface, generation order) — plus any auxiliary docs it references in `spec/<gear>/`;
 - the shared **playbook** `PLAYBOOK.md` (next to this file) — the *how* (framework scaffolding,
   Fusion-API conventions, optional architectural patterns). Read it in full first.
 
@@ -26,7 +31,7 @@ The spec + playbook together MUST be sufficient. If they are not, fix the spec o
 
 ## Inputs
 
-- `gear` (default `spurgear`): names the spec `lib/geargen/<gear>.md` and the output
+- `gear` (default `spurgear`): names the spec `spec/<gear>/instructions.md` and the output
   `lib/geargen/<gear>.py` (generated first to the scratch path `.tmp/<gear>.generated.py`).
 
 ## Procedure
@@ -111,7 +116,7 @@ For generation to succeed from the spec alone, the spec MUST declare its own con
 - **Dependencies** — any other gear/module this gear imports a class or helper from.
 - **Sketch-discipline deltas** — any per-gear deviation from the playbook's shared rules.
 
-`spurgear.md` is the worked example of a spec carrying all of these. The contract names are
+`spec/spurgear/instructions.md` is the worked example of a spec carrying all of these. The contract names are
 **gear-specific identifiers**: reproduce them exactly, but do not assume spur's class names or
 methods apply to another gear — read them from that gear's spec.
 
@@ -167,7 +172,7 @@ the spec.
 > never resolve it by peeking at an existing implementation.
 >
 > **Read, in full, ONLY these:**
-> - `lib/geargen/<gear>.md` — THE SPEC, the sole source of truth. Read it end-to-end. **Every
+> - `spec/<gear>/instructions.md` — THE SPEC, the sole source of truth. Read it end-to-end. **Every
 >   rule, formula, and ⚠️ note in it is binding** — the spec already encodes the known failure
 >   modes; obey them precisely. Do not rely on any guidance outside the spec/playbook.
 > - `.claude/skills/generate-gear/PLAYBOOK.md` — shared framework conventions and Fusion-API rules.
