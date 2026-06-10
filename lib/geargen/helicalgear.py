@@ -1,3 +1,5 @@
+import math
+import adsk.core, adsk.fusion
 from .spurgear import *
 from .misc import *
 
@@ -31,7 +33,7 @@ class HelicalGearGenerator(SpurGearGenerator):
     def generateName(self):
         module = self.getParameter(PARAM_MODULE)
         toothNumber = self.getParameter(PARAM_TOOTH_NUMBER)
-        thickness = self.getParameter('Thickness')
+        thickness = self.getParameter(PARAM_THICKNESS)
         helixAngle = self.getParameter(PARAM_HELIX_ANGLE)
         return 'Helical Gear (M={}, Tooth={}, Thickness={}, Angle={})'.format(
             module.expression, toothNumber.expression, thickness.expression, helixAngle.expression)
@@ -49,7 +51,7 @@ class HelicalGearGenerator(SpurGearGenerator):
     # relative to the base plane. Herringbone halves this so the mirror plane
     # sits in the middle of the gear body.
     def helicalPlaneOffset(self) -> adsk.core.ValueInput:
-        return self.getParameterAsValueInput('Thickness')
+        return self.getParameterAsValueInput(PARAM_THICKNESS)
 
     def chamferWantEdges(self):
         return 4

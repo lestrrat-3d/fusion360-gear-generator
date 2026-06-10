@@ -21,7 +21,7 @@ Each gear lives in `lib/geargen/<gear>.py` and imports exactly:
 ```python
 import math
 from ...lib import fusion360utils as futil
-from .misc import *        # to_cm, to_mm, get_design, get_ui
+from .misc import *        # to_cm, to_mm, get_design
 from .base import *        # Generator, GenerationContext, get_value/get_boolean/get_selection, ParamNamePrefix, ComponentCleaner
 from .utilities import *   # get_normal
 ```
@@ -81,7 +81,8 @@ and the spec describes that). When inherited, `lib/geargen/base.py` provides:
 - `getParameter(name)`, `getParameterAsValueInput(name)`, `getParameterAsBoolean(name)`.
 - `parameterName(name)` → `f'{prefix}_{name}'` (creates the occurrence if needed).
 - `prefixBase()` → default `'Gear'`; override per gear (`'SpurGear'`, `'HelicalGear'`, …).
-- `deleteComponent()` — deletes the occurrence; used by the entry point on failure.
+- `deleteComponent()` — deletes the registered user parameters (via `ComponentCleaner`) and the
+  occurrence; used by the entry point on failure.
 - `createSketchObject(name, plane=None)` — adds a sketch (defaults to XY plane), names it, sets
   `isVisible=False`, returns it. (Note: a sketch created this way starts hidden; make it visible
   while you draw/consume profiles, per the spec's sketch-discipline rules.)
@@ -198,14 +199,38 @@ expected front-face edge count, etc.; the spec says what each returns for the de
 
 ## Command-entry wiring (`commands/<gear>/entry.py`)
 
-Standard Fusion add-in command module (mostly boilerplate; mirror the existing command modules):
-`GEAR_TYPE`/`CMD_ID`/`CMD_NAME`; `start()` registers the button + dropdown and the
-`commandCreated` handler; `command_created` calls
-`geargen.<Gear>CommandInputsConfigurator.configure(args.command)` and wires the
-execute/inputChanged/executePreview/validateInputs/destroy handlers via `futil.add_handler`;
-`command_execute` does `g = geargen.<Gear>Generator(design); g.generate(inputs)` inside
-`try/except` and calls `g.deleteComponent()` on failure (errors surfaced with
-`futil.handle_error("Generation error", show_message_box=True)`).
+The Fusion command boilerplate lives once in `commands/_gear_command.py` (`GearCommand`): it
+registers the button in the shared Gears dropdown, wires the
+execute/inputChanged/validateInputs/destroy handlers via `futil.add_handler`, runs
+`generator_class(get_design()).generate(inputs)` inside `try/except Exception` (failure →
+`futil.handle_error('Generation error', show_message_box=True)` + `g.deleteComponent()`), and on
+`stop()` removes only its own control — the shared dropdown is deleted once by
+`commands/__init__.py` after all commands stop. An entry module only declares its command and
+re-exports the lifecycle hooks:
+
+```python
+import os
+from ...lib import geargen
+from .._gear_command import GearCommand
+
+command = GearCommand(
+    gear_type='SpurGear',     # CMD_ID becomes f'{COMPANY_NAME}_{ADDIN_NAME}_{gear_type}_cmdDialog'
+    name='Spur Gear Generator',
+    description='Generates a Spur Gear',
+    icon_folder=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'resources', ''),
+    configurator=geargen.SpurGearCommandInputsConfigurator,
+    generator_class=geargen.SpurGearGenerator,
+    # optional: input_changed=<callback(args)> for dialogs with reactive inputs
+    # (e.g. bevel passes its configurator's handle_input_changed to drive
+    # conditional visibility of the spiral-only inputs)
+)
+
+start = command.start
+stop = command.stop
+```
+
+New gears: add the entry directory (with `resources/`), then import and list it in
+`commands/__init__.py`.
 
 **[PB-AUTOFOCUS-FIRST] Dialog auto-focus ordering gotcha.** Fusion auto-focuses the FIRST `SelectionCommandInput` and
 ignores a later `hasFocus=True`; add the selection input that should own initial focus first (so the

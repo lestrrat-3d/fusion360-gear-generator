@@ -87,7 +87,6 @@ class Generator(ABC):
     def __init__(self, design: adsk.fusion.Design):
         self.design = design
         self.parentComponent = None # TODO: nothing is protecting this from being used when value is None
-        self.component = adsk.fusion.Component.cast(None)
         self.occurrence = adsk.fusion.Occurrence.cast(None)
         self.prefix = None
         self.cleaner = None
@@ -135,9 +134,14 @@ class Generator(ABC):
         return self.prefix.name(name)
 
     def deleteComponent(self):
-        if self.occurrence:
+        if self.cleaner:
+            # Deletes the registered user parameters AND the occurrence.
+            self.cleaner.deleteAll()
+        elif self.occurrence:
             self.occurrence.deleteMe()
-            self.component = None
+        self.occurrence = None
+        self.cleaner = None
+        self.prefix = None
 
     @abstractmethod
     def generate(self, inputs: adsk.core.CommandInputs):

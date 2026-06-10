@@ -8,7 +8,7 @@ def run(context):
         # This will run the start function in each of your commands as defined in commands/__init__.py
         commands.start()
 
-    except:
+    except Exception:
         futil.handle_error('run')
 
 
@@ -20,5 +20,5 @@ def stop(context):
         # This will run the start function in each of your commands as defined in commands/__init__.py
         commands.stop()
 
-    except:
+    except Exception:
         futil.handle_error('stop')
