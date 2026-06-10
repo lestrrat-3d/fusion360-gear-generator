@@ -1,5 +1,12 @@
 # Bevel Gear Creation Instructions
 
+This file is the **design & geometry intent**. The bevel-specific **Fusion-API realization** (the §2
+lattice constraint style, sketch-local apex positioning, the full-constraint gate and its
+exemptions, the cleanup recipe) lives in the sidecar **`fusion.md`** next to this file and is cited
+by anchor (`[BEVEL-F…]`). Cross-gear Fusion conventions are cited as `[PB-…]` (shared `PLAYBOOK.md`),
+and the spiral-tooth geometry derivation is in `spiral-tooth-trace.md`. Read them together; the
+cited rules are as binding as this body.
+
 ## Component Setup
 
 Bevel gears are inherently created in pairs. As such, we shall have a single component containing three components
@@ -237,52 +244,24 @@ needs it).
 
 ## Sketch Discipline (bevel-specific)
 
-Bevel's sketch work differs from the spur family — note these deltas (the general Fusion gotchas in
-PLAYBOOK still apply):
+Bevel's sketch work differs from the spur family. The bevel-specific Fusion mechanics live in
+`fusion.md` (cited below); the general Fusion gotchas in `PLAYBOOK.md` still apply. In brief:
 
-- **Every sketch this generator authors MUST end FULLY CONSTRAINED.** Gate every sketch this generator authors with the `[PB-FULL-CONSTRAINT]` check (raise, naming the sketch), called at the END of each sketch-building step. This applies to **the Anchor Sketch, the Gear Profiles (§2) sketch, both per-gear Profile sketches, and the Bore sketch**. (The two **tooth-profile sketches are EXEMPT** — see the parenthetical below.) A free DOF is a **generation defect, not a warning**, so raise rather than warn. **Do NOT** reach full constraint by dimensioning the *driven* §2 lines (Apex→A/B, the module-length extensions) — those are determined by the perpendicular/collinear/closing constraints (`[PB-NO-OVERCONSTRAIN]`). Once the Anchor Line direction is fixed, the §2 lattice is fully determined by its existing net; the per-gear Profile sketches are made fully constrained by recreating their six vertices as **fixed points** per the `[PB-PROJECT-NOT-FIXED]` recreate-share-fix recipe, not by projecting §2 points. (**The two tooth-profile sketches are EXEMPT from the hard gate.** They are drawn by the borrowed spur generator, which leaves the **embedded** (low-tooth-count) tooth under-constrained: when the involute flank starts *inside* the root circle the generator omits the flank-to-root lines that otherwise radially pin the flanks (see `spec/spurgear/instructions.md`, `drawTooth`), so the flanks keep a free radial DOF. This is **benign here** — the spur generator places every involute point at its computed position and the tooth profile is consumed immediately by the apex→profile loft, so the residual DOF never moves anything (same rationale as the spiral-aux exemption below). So after `draw()` returns, do **NOT** raise on the tooth sketch — at most `futil.log` it if `not toothSketch.isFullyConstrained`. Forcing full constraint would require pinning the embedded tooth inside the shared spur generator, risking the whole spur/helical/herringbone family for no real benefit. Lower-tooth-count gears — e.g. module 2 / driving 19 / pinion 13, whose virtual pinion tooth is embedded — fail the gate otherwise.)
-- **The spiral build's auxiliary sketches are EXEMPT from the full-constraint gate.** When ψ > 0 the spiral tooth build (§3 "Spiral tooth body") authors several **transient construction sketches** — the `{gear} 2D Tooth Trace` (the cutter arc) and the `{gear} Cone Element` line / `{gear} Trace Plane` it sits on. (There is **no** 3-D projection, root-cone, or twist-angle sketch — the spiral twist is computed analytically in §3a step G, not measured off a projected curve.) The cutter arc is a genuine arc constrained by a radius dimension plus a center-coincidence but is **deliberately left with free DOF** (its toe/heel endpoints are pinned by 3-point construction, not dimensioned). These sketches are consumed by the build and hidden in cleanup, so do **NOT** call the full-constraint gate on them. The gate above applies **only to the bevel's own permanent sketches** (Anchor, Gear Profiles, the two per-gear Profile sketches, Bore) — those must still be fully constrained for both straight and spiral builds. (The two **tooth-profile sketches** drawn by the borrowed spur generator are also exempt — see the preceding bullet.)
-- **Constraint-network construction — §2 lattice lines use the COINCIDENT style, not sharing**
-  (a stricter delta to `[PB-SHARE-XOR-COINCIDENT]`, which allows either style; §2 allows only one).
-  When a §2 line must *start at* (or connect to) an already-existing point (Apex, A, B, C, **the
-  projected center**, …), **create the line from raw `Point3D` coordinates and pin the connecting
-  endpoint with exactly one `addCoincident(line.endpoint, <existingPoint>)`** — never pass the
-  existing `SketchPoint` into `addByTwoPoints` to *share* it. Load-bearing in two directions:
-  (a) sharing *without* a coincident leaves the Gear Profiles sketch **under**-constrained (free
-  DOF → the full-constraint gate fails on "Gear Profiles"); (b) sharing **and also** coinciding is
-  a redundant constraint that makes the §2 solve **fail outright** with
-  `RuntimeError … VCS_SKETCH_SOLVING_FAILED - failed to create offset`.
-  - ⚠️ **This rule covers the short "reference"/connector lines too — the ones whose BOTH endpoints already exist: `C→K`, `D→L` (and `C→K′`/`D→L′`), `M→C`, `N→A`, `O→D`, `P→B`, `B→I`, `A→G`.** Do **NOT** draw these by passing the two existing `SketchPoint`s into `addByTwoPoints` (sharing both): sharing even these already-pinned points tips the Gear Profiles sketch to **under-constrained** and the gate fails (observed: a fresh regen that shared only these reference lines came out ~14 coincidents short). Build **every** §2 line — lattice or reference — from raw `Point3D` coordinates, then `addCoincident` **each** endpoint to its existing point (one per end). No §2 line is exempt.
-- **Each named §2 line is created ONCE and later references REUSE that same line object — never redraw it.** The module-length extensions (A→E, B→F, E→G, F→I) and the dedendum / closing lines (C→H, D→J, G→H, I→J) are *named* construction lines. When a later step says, e.g., "from point E collinear to **line A->E**" (point G) or "**lines A->E and C->E** should be perpendicular", it means **the very line you drew in the point-E step** — so the helper that creates a module-extension must **RETURN the line** (not just its endpoint) and you must keep that reference. Do **NOT** draw a *second* line between the same two points (e.g. a fresh `addByTwoPoints(A, E)` / `_lineBetween(A, E)`) just to obtain a reference for a perpendicular/collinear: that duplicate line carries its own constraints over the same segment, **over-determines** the coupled §2 net, and the solve fails with `RuntimeError … VCS_SKETCH_OVER_CONSTRAINTS - failed to create offset` (often several lines later, when the redundancy finally exceeds the DOF). One segment ⇒ one line ⇒ its constraints live on that one line.
-- **Place the Apex (and the ENTIRE §2 figure) POSITION in the gear-profiles sketch's own 2-D coordinates — NEVER compute a §2 POSITION from a world round-trip.** This is the single biggest source of orientation bugs (gear collapsing onto world XY). The reasoning, which is exactly why this works: the gear-profiles plane is built perpendicular to the target plane and contains the anchor line; therefore, *inside its sketch*, the direction perpendicular to the (projected) anchor line **is** the target-plane normal, and "up toward the Apex" is simply that in-plane perpendicular. So:
-  - Project the center point and the anchor line into the gear-profiles sketch. Let `c` be the projected center and `d` the projected anchor line's 2-D unit direction.
-  - In-plane perpendicular: `perp = (-d.y, d.x)` (one of the two senses points to each side of the target plane). **Pick the sign by the target-plane normal, NOT by the sketch's local +Y** (see the grow-side note below).
-  - The Apex is the 2-D point `c + perp·DPD`. Build it as the free **end** of a construction line from the projected center, seeded at that 2-D point but **left undimensioned** (pinned later via "Constrain Point I with center"). Do not create the Apex as a standalone point. **Construct this line by the COINCIDENT style (it connects to the already-existing projected center):** pass **raw `Point3D` coordinates for BOTH endpoints** to `addByTwoPoints` (the projected center's `.geometry` for the start, the seed apex 2-D point for the end), then pin the start with **exactly one** `addCoincident(centerToApex.startSketchPoint, projectedCenter)`. **Do NOT pass the projected-center `SketchPoint` itself into `addByTwoPoints`** (which *shares* it) and *also* add a coincident — that "share **and** coincident" on the same point is a redundant constraint that makes the §2 solve **fail outright** with `RuntimeError … VCS_SKETCH_SOLVING_FAILED - failed to create offset`. The projected center is subject to the coincident-style rule exactly like A/B/C — see the §2 lattice bullet below.
-  The single permitted world use in §2 is reading the target normal as a *direction* to choose `perp`'s sign — a one-bit direction comparison, not a position round-trip, so it cannot collapse the figure. Because every §2 coordinate is otherwise sketch-local on an already-correctly-oriented plane, the figure **cannot** collapse to world XY.
-- **The dimensional constraints in §2 are load-bearing, and the "do NOT add a dimensional
-  constraint" notes equally so:** the along-shaft lengths (Apex→A, Apex→B) and the module-length
-  extensions are DRIVEN by the closing/collinear constraints — do not dimension them
-  (`[PB-NO-OVERCONSTRAIN]`).
-- **Grow side (the apex/perp sign) — decide by the target NORMAL, not by the sketch's local +Y.**
-  Choose which side the gear grows by the SIGN of the target-plane normal, used as one bit (grow
-  toward the normal), **not** by the sketch's local +Y. A sketch-local rule like `perp.y >= 0` is
-  deterministic as code but NOT tied to a physical side: the sketch's local +Y maps to different
-  world sides depending on how the gear-profiles plane was oriented for the chosen target plane, so
-  the gear grows on an inconsistent side. Pick `perp`'s sign so it points **toward the target-plane
-  normal**, used only as a one-bit direction — the apex *position* stays sketch-local (`c + perp·DPD`),
-  so this does NOT reintroduce the XY-collapse (that came from a world *position* round-trip, not
-  from reading a direction). This convention is consistent across all target planes; flip the single
-  comparison if a user ever needs the opposite side.
-- **Never activate any occurrence (`[PB-NEVER-ACTIVATE]`).** The bevel-relevant reason: the Anchor
-  Sketch is created on the user's **EXTERNAL** (root-owned) target plane — an activated occurrence
-  resolves that external plane in its own local frame, so the build collapses onto XY regardless of
-  the real plane tilt. All features run in the single Design component, so no cross-sibling
-  reference is ever needed (`[PB-NO-CROSS-SIBLING]`). (Sole exception: the spiral crown's
-  `scaleFeatures` step activates the Design occurrence and restores root — see §3a step H.)
-- **Cleanup hides by entity kind.** Recursively walk the Bevel Gear component tree (dedupe by
-  `entityToken`) and set `isLightBulbOn = False` on every sketch, construction plane, and
-  construction axis (construction planes/axes are **not** hidden by `isVisible`). There is no
-  sketch-only mode and no per-mode guard — bevel always builds solids.
+- **Every *permanent* sketch must end fully constrained** (Anchor, Gear Profiles §2, the two
+  per-gear Profile sketches, Bore) — a free DOF is a generation defect; gate and raise. The two
+  tooth-profile sketches (drawn by the borrowed spur generator) and the spiral build's transient
+  auxiliary sketches are **exempt**. Gate, exemptions, and rationale: `[BEVEL-F-FULL-CONSTRAINT]`.
+- **§2 lattice lines use the COINCIDENT style, not sharing** — build every §2 line (lattice *and*
+  short reference/connector lines) from raw `Point3D` coords and `addCoincident` each endpoint to
+  its existing point: `[BEVEL-F-COINCIDENT-STYLE]`. Each named §2 line is created **once** and
+  reused, never redrawn: `[BEVEL-F-LINE-ONCE]`. The driven §2 lengths are **not** dimensioned:
+  `[BEVEL-F-DRIVEN-DIMS]`.
+- **The §2 figure is positioned in sketch-local 2-D coordinates** (apex = `c + perp·DPD`), never via
+  a world position round-trip — this is what keeps the gear off world XY: `[BEVEL-F-APEX-LOCAL]`.
+  The grow side is chosen by the target-plane **normal**, not the sketch's local +Y:
+  `[BEVEL-F-GROW-SIDE]`.
+- **Never activate any occurrence** (`[PB-NEVER-ACTIVATE]`; bevel reason and the sole spiral-crown
+  exception in `[BEVEL-F-NEVER-ACTIVATE]`). **Cleanup hides by entity kind** (`[BEVEL-F-CLEANUP]`).
 
 ## Generation Order
 

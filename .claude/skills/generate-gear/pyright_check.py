@@ -48,62 +48,15 @@ import shutil
 import subprocess
 import sys
 
+# Stub resolution/clone is shared with build_fusion_index.py (sibling module; sys.path[0] is
+# this file's dir when run as a script). One clone, one resolution policy.
+from fusion_stubs import resolve_defs, StubsUnavailable
+
 
 def repo_root():
     # this file: <root>/.claude/skills/generate-gear/pyright_check.py
     here = os.path.dirname(os.path.abspath(__file__))
     return os.path.abspath(os.path.join(here, "..", "..", ".."))
-
-
-_REPO_URL = "https://github.com/AutodeskFusion360/FusionAPIReference.git"
-_DEFS_REL = os.path.join("Fusion_API_Python_Reference", "defs")  # defs path within the repo
-
-
-def _defs_at(base):
-    """Return the abs defs dir (containing adsk/core.py) at `base` or under the repo's
-    `Fusion_API_Python_Reference/defs` subpath, or None. Accepts either form so a path may
-    point at the defs dir itself or at the FusionAPIReference checkout root."""
-    if not base:
-        return None
-    base = os.path.abspath(base)
-    for cand in (base, os.path.join(base, _DEFS_REL)):
-        if os.path.isfile(os.path.join(cand, "adsk", "core.py")):
-            return cand
-    return None
-
-
-def _cache_repo_dir():
-    cache = os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache")
-    return os.path.join(cache, "fusion360-gear-generator", "FusionAPIReference")
-
-
-def _clone_stubs():
-    """Clone (sparse, shallow, blobless) just the Python defs into the cache; return the
-    defs dir, or None on failure (offline / git missing)."""
-    repo = _cache_repo_dir()
-    existing = _defs_at(repo)
-    if existing:
-        return existing
-    print(f"Fusion API stubs not found; cloning {_REPO_URL}")
-    print(f"  -> {repo} (sparse: {_DEFS_REL}, shallow, blobless; ~4M of 338M)")
-    os.makedirs(os.path.dirname(repo), exist_ok=True)
-    try:
-        subprocess.run(
-            ["git", "clone", "--depth", "1", "--filter=blob:none", "--sparse",
-             _REPO_URL, repo],
-            check=True, capture_output=True, text=True, timeout=600)
-        subprocess.run(
-            ["git", "-C", repo, "sparse-checkout", "set", _DEFS_REL],
-            check=True, capture_output=True, text=True, timeout=600)
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired,
-            FileNotFoundError) as e:
-        if os.path.isdir(repo):
-            shutil.rmtree(repo, ignore_errors=True)  # don't leave a half-clone behind
-        detail = getattr(e, "stderr", None) or str(e)
-        print("ERROR: failed to clone Fusion API stubs (offline? git missing?).")
-        print("  " + str(detail).strip()[:300])
-        return None
-    return _defs_at(repo)
 
 
 def classify(diag):
@@ -160,27 +113,15 @@ def main():
         print(f"ERROR: lib/geargen not found under repo root {root}")
         sys.exit(2)
 
-    # Resolve stubs: --stubs and $FUSION_API_STUBS are authoritative (a wrong path fails
-    # loudly, no silent fallback); otherwise clone the repo into the cache and reuse it.
-    env_stubs = os.environ.get("FUSION_API_STUBS")
-    if stubs_arg:
-        stubs = _defs_at(stubs_arg)
-        if not stubs:
-            print(f"ERROR: --stubs {stubs_arg} has no adsk/core.py "
-                  f"(point at the defs dir or the FusionAPIReference checkout)")
-            sys.exit(2)
-    elif env_stubs:
-        stubs = _defs_at(env_stubs)
-        if not stubs:
-            print(f"ERROR: $FUSION_API_STUBS={env_stubs} has no adsk/core.py "
-                  f"(point at the defs dir or the FusionAPIReference checkout)")
-            sys.exit(2)
-    else:
-        stubs = _clone_stubs()
-        if not stubs:
-            print("  Set $FUSION_API_STUBS to a local FusionAPIReference checkout to skip "
-                  "cloning, or fall back to check_adsk_modules.py + pyflakes (stub-free).")
-            sys.exit(2)
+    # Resolve stubs (shared policy): --stubs and $FUSION_API_STUBS are authoritative (a wrong
+    # path fails loudly, no silent fallback); otherwise clone the repo into the cache and reuse.
+    try:
+        stubs = resolve_defs(stubs_arg)
+    except StubsUnavailable as e:
+        print(f"ERROR: {e}")
+        print("  Fall back to check_adsk_modules.py + pyflakes (stub-free) if stubs are "
+              "unavailable.")
+        sys.exit(2)
 
     tmp = os.path.join(root, ".tmp")
     os.makedirs(tmp, exist_ok=True)
