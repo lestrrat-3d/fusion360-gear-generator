@@ -9,6 +9,11 @@ Deliberately, this file contains **no gear-specific geometry** (no involute math
 tooth/root/flank construction). That belongs in the spec, so that regenerating a `.py` from its
 spec is an honest test of the spec's completeness.
 
+**Anchor convention.** Rules below carry stable IDs like `**[PB-RADIAL-DIM]**`. Specs cite a rule
+as `[PB-…]` instead of restating it; the anchor text HERE is authoritative, and the spec states
+only its gear-specific delta. When generating, a `[PB-…]` citation binds the full anchored rule at
+that point of use. IDs are permanent — never renamed or reused once a spec cites them.
+
 ## Module layout & imports
 
 Each gear lives in `lib/geargen/<gear>.py` and imports exactly:
@@ -85,7 +90,7 @@ and the spec describes that). When inherited, `lib/geargen/base.py` provides:
 Helpers (free functions in `base.py`): `get_selection(inputs, id)` → `(list_of_entities, ok)`;
 `get_boolean(inputs, id)` → `(value, ok)`; `get_value(inputs, id, units)` → `(value, ok)`.
 
-**`get_value` return contract — important, easy to get wrong.** It does NOT always return a
+**[PB-GET-VALUE-CONTRACT] `get_value` return contract — important, easy to get wrong.** It does NOT always return a
 `ValueInput`:
 - Numeric `ValueCommandInput`, valid expression → `(ValueInput.createByReal(evaluated), True)`.
 - Numeric input, invalid expression → `(None, False)`.
@@ -196,32 +201,32 @@ execute/inputChanged/executePreview/validateInputs/destroy handlers via `futil.a
 `try/except` and calls `g.deleteComponent()` on failure (errors surfaced with
 `futil.handle_error("Generation error", show_message_box=True)`).
 
-**Dialog auto-focus ordering gotcha.** Fusion auto-focuses the FIRST `SelectionCommandInput` and
+**[PB-AUTOFOCUS-FIRST] Dialog auto-focus ordering gotcha.** Fusion auto-focuses the FIRST `SelectionCommandInput` and
 ignores a later `hasFocus=True`; add the selection input that should own initial focus first (so the
 `configure()` add-order, not a focus flag, decides which selection the dialog opens on).
 
 ## Fusion-API conventions & gotchas (cross-gear)
 
-- **`adsk.core` vs `adsk.fusion` — get the module right; the wrong one is a runtime `AttributeError`, not a parse error.** `adsk` is native and unimportable outside Fusion, so `ast.parse`/`pyflakes` happily accept `adsk.fusion.SurfaceTypes` even though `SurfaceTypes` is in **`adsk.core`** — it dies only at runtime with `AttributeError: module 'adsk.fusion' has no attribute 'SurfaceTypes'`. Rule of thumb: geometry/value types — `Point3D`, `Vector3D`, `Matrix3D`, `Line3D`, `ObjectCollection`, `ValueInput`, **`SurfaceTypes`**, `Curve3DTypes`/`Curve2DTypes` — live in **`adsk.core`**; feature/operation/topology enums — `FeatureOperations`, `SurfaceProjectTypes`, `PatternComputeOptions`, `PointContainment`, `Path` — live in **`adsk.fusion`**. When unsure, copy the exact `adsk.<module>.<Name>` an existing gear/framework file uses. The generate-gear validation runs `pyright_check.py` (pyright + Fusion API stubs), which flags a wrong-submodule ref as a **BLOCKING** `reportAttributeAccessIssue` (`"SurfaceTypes" is not a known attribute of module "adsk.fusion"`); `check_adsk_modules.py` is the stub-free fallback. Either way, get it right at authoring time rather than relying on the lint.
-- **`.geometry` (sketch-local) vs `.worldGeometry` (world) — match the frame of whatever you measure against.** A sketch curve/point's `.geometry` lives in its sketch's *local* coordinate system; `.worldGeometry` is world/model space. When you measure an angle, distance, or perpendicular component against a **world** quantity — a world axis vector, a world apex point, another body's geometry — you must sample the curve in **world** space (`entity.worldGeometry.evaluator.getParameterExtents()`/`getPointAtParameter`). Mixing a local-frame curve with a world axis is valid Python that **silently returns wrong numbers** — no exception, no parse/lint catch — e.g. a wrong spiral-twist magnitude that makes meshing teeth interfere. The two frames coincide only when the sketch sits on the world-origin plane, which is generally not the case. No mechanical gate catches this; it's an authoring rule.
-- **Geometry ops can legitimately yield zero results — never feed that straight into `max()`/`min()`/`[0]`/`.index(max(...))`.** A `splitBodyFeatures` that doesn't intersect, a face/edge search that finds nothing, a piece list after filtering or after dropping a scrap — any of these can be **empty**. `max([])`/`min([])` raise `ValueError: max() iterable argument is empty` and `coll[0]` raises `IndexError`, both **cryptic and far from the real cause** (often surfacing several calls downstream). **Guard every such collection at the point it's produced:** if zero is a valid outcome, skip gracefully; otherwise `raise` a clear self-diagnosing error that names the operation, the gear/part, and the actual count (e.g. `"{gear}: slice produced {n} piece(s), expected >=2 — cut planes missed"`). Assert the expected count **right after** the split/search/removal, not three steps later where `max([])` blows up. (This is how the conical-cut and slice steps already self-diagnose — follow that pattern for any zero-able collection.)
-- **Leave no sketch under-constrained — and verify it with `sketch.isFullyConstrained`.** A
+- **[PB-ADSK-MODULES] `adsk.core` vs `adsk.fusion` — get the module right; the wrong one is a runtime `AttributeError`, not a parse error.** `adsk` is native and unimportable outside Fusion, so `ast.parse`/`pyflakes` happily accept `adsk.fusion.SurfaceTypes` even though `SurfaceTypes` is in **`adsk.core`** — it dies only at runtime with `AttributeError: module 'adsk.fusion' has no attribute 'SurfaceTypes'`. Rule of thumb: geometry/value types — `Point3D`, `Vector3D`, `Matrix3D`, `Line3D`, `ObjectCollection`, `ValueInput`, **`SurfaceTypes`**, `Curve3DTypes`/`Curve2DTypes` — live in **`adsk.core`**; feature/operation/topology enums — `FeatureOperations`, `SurfaceProjectTypes`, `PatternComputeOptions`, `PointContainment`, `Path` — live in **`adsk.fusion`**. When unsure, copy the exact `adsk.<module>.<Name>` an existing gear/framework file uses. The generate-gear validation runs `pyright_check.py` (pyright + Fusion API stubs), which flags a wrong-submodule ref as a **BLOCKING** `reportAttributeAccessIssue` (`"SurfaceTypes" is not a known attribute of module "adsk.fusion"`); `check_adsk_modules.py` is the stub-free fallback. Either way, get it right at authoring time rather than relying on the lint.
+- **[PB-WORLD-FRAME] `.geometry` (sketch-local) vs `.worldGeometry` (world) — match the frame of whatever you measure against.** A sketch curve/point's `.geometry` lives in its sketch's *local* coordinate system; `.worldGeometry` is world/model space. When you measure an angle, distance, or perpendicular component against a **world** quantity — a world axis vector, a world apex point, another body's geometry — you must sample the curve in **world** space (`entity.worldGeometry.evaluator.getParameterExtents()`/`getPointAtParameter`). Mixing a local-frame curve with a world axis is valid Python that **silently returns wrong numbers** — no exception, no parse/lint catch — e.g. a wrong spiral-twist magnitude that makes meshing teeth interfere. The two frames coincide only when the sketch sits on the world-origin plane, which is generally not the case. No mechanical gate catches this; it's an authoring rule.
+- **[PB-EMPTY-RESULT] Geometry ops can legitimately yield zero results — never feed that straight into `max()`/`min()`/`[0]`/`.index(max(...))`.** A `splitBodyFeatures` that doesn't intersect, a face/edge search that finds nothing, a piece list after filtering or after dropping a scrap — any of these can be **empty**. `max([])`/`min([])` raise `ValueError: max() iterable argument is empty` and `coll[0]` raises `IndexError`, both **cryptic and far from the real cause** (often surfacing several calls downstream). **Guard every such collection at the point it's produced:** if zero is a valid outcome, skip gracefully; otherwise `raise` a clear self-diagnosing error that names the operation, the gear/part, and the actual count (e.g. `"{gear}: slice produced {n} piece(s), expected >=2 — cut planes missed"`). Assert the expected count **right after** the split/search/removal, not three steps later where `max([])` blows up. (This is how the conical-cut and slice steps already self-diagnose — follow that pattern for any zero-able collection.)
+- **[PB-FULL-CONSTRAINT] Leave no sketch under-constrained — and verify it with `sketch.isFullyConstrained`.** A
   well-formed parametric sketch should end with **zero free degrees of freedom**: every point either
   carries explicit constraints/dimensions or is *driven* (a projected point tracks its source; an
   endpoint at a perpendicular/collinear intersection is determined by those constraints). A free DOF
   is a latent defect — the geometry can shift between rebuilds. Two practical rules:
-  - **Fix reference-line directions.** A line created only with coincident/midpoint + a length still
+  - **[PB-REFLINE-DIRECTION] Fix reference-line directions.** A line created only with coincident/midpoint + a length still
     has a free *rotation* (1 DOF). If nothing downstream needs a particular angle, pin it with a
     **sketch-local** `addHorizontal`/`addVertical` (defined in the sketch's own frame, so it survives
     a tilted host plane) or an angle dimension — don't leave it spinning.
-  - **A circle's center is FREE even when created at (0,0,0) — fix it, don't coincident it to the
+  - **[PB-CIRCLE-CENTER] A circle's center is FREE even when created at (0,0,0) — fix it, don't coincident it to the
     origin.** `sketchCircles.addByCenterRadius(Point3D.create(0,0,0), r)` does NOT reuse the sketch's
     `originPoint`; its `centerSketchPoint` is a free point that happens to sit at the origin. Fully
     constrain with `circle.centerSketchPoint.isFixed = True` + a radius/diameter dimension (2 DOF +
     1 DOF = 0). Do NOT `addCoincident(circle.centerSketchPoint, sketch.originPoint)` — observed to
     throw `VCS_SKETCH_SOLVING_FAILED` (at least on a `setByDistanceOnPath` plane). `isFixed` on the
     center is the reliable pin.
-  - **`sketch.project(...)` does NOT fix the projected geometry.** A projected point/curve is brought
+  - **[PB-PROJECT-NOT-FIXED] `sketch.project(...)` does NOT fix the projected geometry.** A projected point/curve is brought
     in *associatively* (it tracks its source) but still carries **free DOF** — it is a reference, not
     a fixed point. A sketch whose geometry hangs off shared projected points therefore reports
     **under-constrained**, even though every projected point already has a correct position (so
@@ -236,46 +241,46 @@ ignores a later `hasFocus=True`; add the selection input that should own initial
     line endpoint does NOT leave the sketch fully constrained — fix the endpoints once the lines
     exist. (`modelToSketchSpace(worldGeometry)` is exact when source and target sketches share a
     plane; it needs the source sketch fully constrained so `worldGeometry` is defined.)
-  - **But do NOT over-constrain to get there:** dimensioning a length that is already *driven* by a
+  - **[PB-NO-OVERCONSTRAIN] But do NOT over-constrain to get there:** dimensioning a length that is already *driven* by a
     perpendicular/collinear/closing constraint throws `VCS_SKETCH_OVER_CONSTRAINTS`. Full constraint
     comes from the *missing* constraint, not from piling on dimensions. When unsure which DOF is
     free, a runtime gate (`if not sketch.isFullyConstrained: raise ...` naming the sketch) surfaces
     exactly which sketch fell short the moment it builds in Fusion — far better than eyeballing the
     timeline for blue geometry.
-- **When a sketch has exactly one closed loop, grab `sketch.profiles.item(0)` — don't filter.** If
+- **[PB-SINGLE-PROFILE] When a sketch has exactly one closed loop, grab `sketch.profiles.item(0)` — don't filter.** If
   you build a sketch whose only geometry is one closed region, it has `profiles.count == 1`; take
   that profile directly. Resist inventing a search that filters by `profileLoops` /
   `profileCurves.count` or by curve type (`ProfileCurve.geometry.curveType == Line3DCurveType`) — a
   curve-type filter in particular has spuriously rejected a valid all-line loop and made the revolve
   fail with "could not find profile". Filter only when a sketch genuinely holds multiple profiles you
   must disambiguate.
-- **Geometric-constraint method names are exact — watch the easy misspellings.** The collinear
+- **[PB-API-SPELLING] Geometric-constraint method names are exact — watch the easy misspellings.** The collinear
   constraint is `geometricConstraints.addCollinear(...)` with a **double "l"**; `addColinear` (single
   "l") does not exist and raises `AttributeError` (Fusion's own message even suggests "Did you mean
   'addCollinear'?"). Don't let English prose spelling ("colinear") leak into the API call. Likewise
   `addCoincident`, `addPerpendicular`, `addParallel`, `addHorizontal`, `addMidPoint` (capital P),
   `addOffsetDimension`, `addDiameterDimension` — copy the exact casing/spelling, don't infer it.
-- **Sketch curve collections live under `sketch.sketchCurves`, never on the sketch directly.** Add
+- **[PB-SKETCHCURVES] Sketch curve collections live under `sketch.sketchCurves`, never on the sketch directly.** Add
   geometry via `sketch.sketchCurves.sketchCircles`, `.sketchLines`, `.sketchArcs`,
   `.sketchFittedSplines`. `sketch.sketchCircles` (etc.) does NOT exist and raises `AttributeError:
   'Sketch' object has no attribute 'sketchCircles'`. (By contrast `sketch.sketchPoints`,
   `sketch.sketchDimensions`, `sketch.geometricConstraints`, `sketch.sketchTexts`, and
   `sketch.profiles` ARE direct members of the sketch — only the *curve* collections sit under
   `sketchCurves`.)
-- **Selection filters take enum constants, not strings.** `selectionInput.addSelectionFilter(...)`
+- **[PB-SELECTION-FILTER-ENUM] Selection filters take enum constants, not strings.** `selectionInput.addSelectionFilter(...)`
   expects `adsk.core.SelectionCommandInput.<Member>` (an int enum), e.g.
   `addSelectionFilter(adsk.core.SelectionCommandInput.ConstructionPlanes)`. Passing the string
   `'ConstructionPlanes'` raises a `TypeError` on the argument. The member names match the entity
   kinds (`ConstructionPlanes`, `PlanarFaces`, `ConstructionPoints`, `SketchPoints`, `Occurrences`,
   `RootComponents`, `Bodies`, …) — but they must be the enum attribute, not a quoted literal.
-- **Fillet vs chamfer edge-sets are asymmetric — easy to get backwards:**
+- **[PB-FILLET-CHAMFER] Fillet vs chamfer edge-sets are asymmetric — easy to get backwards:**
   - **Fillet:** add the edge set on the input **itself** —
     `filletInput.addConstantRadiusEdgeSet(edges, ValueInput, isTangentChain)`. There is no
     `filletInput.edgeSetInputs`; reaching for it raises `AttributeError`.
   - **Chamfer:** add the edge set on the input's **`chamferEdgeSets`** collection —
     `chamferInput.chamferEdgeSets.addEqualDistanceChamferEdgeSet(edges, ValueInput, isFlipped)`.
   Do not mirror one onto the other.
-- **A 2-D-coord→`Point3D` helper MUST tolerate both raw `(x, y[, z])` tuples AND objects with
+- **[PB-POINT-HELPER] A 2-D-coord→`Point3D` helper MUST tolerate both raw `(x, y[, z])` tuples AND objects with
   `.x/.y/.z` (`Point3D` / `SketchPoint.geometry`).** Generators routinely mix **seed tuples** (e.g.
   `apexSeed = (cx, cy)`) with **solved `.geometry`** points and feed both to the same little helper
   (`P2(p)`, `add_point(p)`). A helper written as `Point3D.create(p.x, p.y, p.z)` then throws
@@ -284,20 +289,20 @@ ignores a later `hasFocus=True`; add the selection input that should own initial
   catch. Make such helpers branch on type:
   `p[0], p[1]` for a tuple/list, `p.x, p.y` otherwise (or standardize every call on one form). The
   same applies to a tuple-only helper handed a `Point3D` (`p[0]` fails).
-- **`sketch.modelToSketchSpace(p)` / `sketch.sketchToModelSpace(p)` are point-transforming
+- **[PB-SPACE-METHODS] `sketch.modelToSketchSpace(p)` / `sketch.sketchToModelSpace(p)` are point-transforming
   METHODS, not matrices.** Each takes a `Point3D` (world resp. sketch) and returns the transformed
   `Point3D`: `local = sketch.modelToSketchSpace(worldPoint)`. Do NOT do `m = sketch.modelToSketchSpace`
   then `worldPoint.transformBy(m)` — passing a bound method where `Point3D.transformBy` expects a
   `Matrix3D` raises `TypeError: … argument 2 of type 'Matrix3D'`. (To map a world point into a
   sketch — e.g. an apex computed from a plane normal — call the method directly.)
-- **Read SOLVED `.geometry` for any computed-from-geometry bound — not the seed coordinates.** When
+- **[PB-SOLVED-GEOMETRY] Read SOLVED `.geometry` for any computed-from-geometry bound — not the seed coordinates.** When
   a value is derived from the positions of constrained sketch points (a clearance, a max-offset
   bound, a measured distance), read each point's `.geometry` *after* the constraints that locate it
   have been added (Fusion solves incrementally, so the point is already in its solved position).
   Do NOT reuse the raw `Point3D` seed coordinates you passed to `addByTwoPoints` — seeds can diverge
   from the solved positions (markedly so for asymmetric / non-symmetric configurations), making a
   seed-based bound wrong even though the same formula on solved geometry is correct.
-- **A sketch entity you'll read `.worldGeometry` from must be CONSTRAINED, not free.** If you later
+- **[PB-WORLDGEO-CONSTRAINED] A sketch entity you'll read `.worldGeometry` from must be CONSTRAINED, not free.** If you later
   take `someSketchLine.startSketchPoint.worldGeometry` (or a sketch point's `worldGeometry`) to build
   a world-space axis/origin/tool, that point must be pinned (shared with, or coincident to, fixed
   geometry). A **fully-unconstrained** sketch line/point has an **undefined `worldGeometry`** — Fusion
@@ -305,7 +310,7 @@ ignores a later `hasFocus=True`; add the selection input that should own initial
   feature built from it (a rotation axis, a move) lands the body in the wrong place. Drawing a line
   from raw `.geometry` coordinates *without* coincident-pinning its endpoints is the classic trap:
   it looks placed, but its `worldGeometry` is not trustworthy.
-- **Seed coordinates near the solved position — the solver is seed-sensitive.** When you create a
+- **[PB-SEED-NEAR] Seed coordinates near the solved position — the solver is seed-sensitive.** When you create a
   curve/point from raw `Point3D` coordinates that constraints will then pin, place the seed close to
   where it will end up and on the correct side. Fusion's sketch solver is an iterative numerical
   solver: a seed that starts far away, or on the wrong side of a parallel/offset target, can fail to
@@ -313,7 +318,7 @@ ignores a later `hasFocus=True`; add the selection input that should own initial
   perfectly solvable*. (Seeds are not constraints — they don't pin anything — but a bad seed still
   breaks the solve. Especially: a point that must end up *on another line* should be seeded near
   that line, not near some unrelated point.)
-- **Never double-bind a point — share it OR coincident a fresh one, never both.** To start/anchor
+- **[PB-SHARE-XOR-COINCIDENT] Never double-bind a point — share it OR coincident a fresh one, never both.** To start/anchor
   a curve at an existing sketch point, choose ONE: (a) pass that `SketchPoint` object directly into
   the creation call — `addByTwoPoints(existingPoint, otherEnd)` — so the curve *shares* it, and add
   **no** coincident; or (b) create the curve from raw `Point3D` coordinates and add **exactly one**
@@ -322,9 +327,9 @@ ignores a later `hasFocus=True`; add the selection input that should own initial
   `RuntimeError … VCS_SKETCH_SOLVING_FAILED`. Same trap: never `addCoincident` two points that are
   already the same shared point. (This is the single most common over-constraint failure; it bit
   both spur and bevel.)
-- **Driving vs driven dimensions:** `add*Dimension(...)` is *driving* by default; never pass the
+- **[PB-DRIVING-DIM] Driving vs driven dimensions:** `add*Dimension(...)` is *driving* by default; never pass the
   trailing `isDriven=True`/`True` (it inverts to a measured dimension and lets geometry float).
-- **Line-to-line / parallel-offset dimension:** to dimension the gap between two (parallel) lines —
+- **[PB-OFFSET-DIM] Line-to-line / parallel-offset dimension:** to dimension the gap between two (parallel) lines —
   used for base heights, face widths, and similar offsets — use
   `sketch.sketchDimensions.addOffsetDimension(lineA, lineB, textPoint)` and set the value via the
   returned dimension's `.parameter.value = <number>`. It is *not* `addDistanceDimension`
@@ -335,21 +340,21 @@ ignores a later `hasFocus=True`; add the selection input that should own initial
   only for a freshly-drawn line that isn't yet parallel to its target (e.g. a toe line you just drew
   at arbitrary angle); for a line whose direction the existing constraints already fix, call
   `addOffsetDimension` directly with no parallel constraint.
-- **Angular dimension picks the wedge containing its text point:**
+- **[PB-ANGULAR-DIM] Angular dimension picks the wedge containing its text point:**
   `addAngularDimension(lineA, lineB, textPoint)` measures the angle on the side where `textPoint`
   lies. To get the intended angle (e.g. a shaft angle Σ rather than its supplement 180−Σ), place
   `textPoint` inside the wedge you mean.
-- **Radial/diameter dimension text points must be OFF-CENTRE.** `addRadialDimension(arc, textPoint)` /
+- **[PB-RADIAL-DIM] Radial/diameter dimension text points must be OFF-CENTRE.** `addRadialDimension(arc, textPoint)` /
   `addDiameterDimension(circle, textPoint)` reject a `textPoint` at the curve's **centre** with
   `RuntimeError: 3 : … 一部の入力引数が無効です` ("some input arguments are invalid") — at the centre
   there is no radial direction to place the dimension. Pass a point **on or near the curve** instead
   (e.g. a point at radius `r` from the centre, or one of the arc's own through-points).
-- **Selections drop on context shift:** stash selection entities before occurrence creation
+- **[PB-SELECTION-STASH] Selections drop on context shift:** stash selection entities before occurrence creation
   (above).
-- **Hide a sketch only after consuming it:** projections/profile extraction stop working on an
+- **[PB-HIDE-AFTER-USE] Hide a sketch only after consuming it:** projections/profile extraction stop working on an
   invisible sketch; draw → project → constrain → run features → then `isVisible=False`. Same for
   construction planes later features still consume.
-- **Profiles are found by curve count/type**, not index — iterate `sketch.profiles` /
+- **[PB-PROFILE-MATCH] Profiles are found by curve count/type**, not index — iterate `sketch.profiles` /
   `profile.profileLoops` and match the loop whose `profileCurves` have the expected count/type
   mix (the spec states the expected counts per loop, including any variant cases). Read a curve's
   type with `curve.geometry.curveType` and compare against the `adsk.core.Curve3DTypes` enum.
@@ -359,7 +364,7 @@ ignores a later `hasFocus=True`; add the selection input that should own initial
   - `adsk.core.Curve3DTypes.Arc3DCurveType`
   - `adsk.core.Curve3DTypes.Circle3DCurveType`
   - `adsk.core.Curve3DTypes.NurbsCurve3DCurveType`
-- **Along-path sketch text** (e.g. labelling a circle) has a fixed three-call shape — use it
+- **[PB-SKETCH-TEXT] Along-path sketch text** (e.g. labelling a circle) has a fixed three-call shape — use it
   exactly; don't guess or wrap it defensively, this is the working API:
   ```python
   textInput = sketch.sketchTexts.createInput2(text, height)   # height in cm (internal units)
@@ -370,9 +375,9 @@ ignores a later `hasFocus=True`; add the selection input that should own initial
   `createInput2(text, height)` takes the string and a text height; `setAsAlongPath(curve,
   isAbovePath, horizontalAlignment, offset)` lays it along the curve. The spec gives the text
   content and the height to use.
-- **Patterns return original + copies:** `CircularPatternFeature.bodies` already includes the
+- **[PB-PATTERN-BODIES] Patterns return original + copies:** `CircularPatternFeature.bodies` already includes the
   seed body plus copies; feed the whole collection to Combine — don't re-add the seed.
-- **Logging/robustness:** use `futil.log(...)` for step progress; let the entry point's
+- **[PB-LOGGING] Logging/robustness:** use `futil.log(...)` for step progress; let the entry point's
   try/except + `deleteComponent()` handle rollback rather than swallowing errors mid-step — don't
   invent new silent failure paths.
 
@@ -382,30 +387,30 @@ The involute gears only extrude + pattern + combine + chamfer + fillet. Gears wh
 revolved bodies, lofted teeth, or split-by-face shaping (bevel) use these additional features. The
 spec says *which* to use and *on what geometry*; this pins the *API shape*.
 
-- **Revolve** (`component.features.revolveFeatures`): `createInput(profile, axis, operation)` →
+- **[PB-REVOLVE] Revolve** (`component.features.revolveFeatures`): `createInput(profile, axis, operation)` →
   `setAngleExtent(False, ValueInput.createByString('360 deg'))` → `add(input)`. The `axis` is a
   sketch line or construction axis. **Hard failure to design around: the profile must NOT cross the
   axis of revolution** — if it does, Fusion aborts with `RuntimeError … ASM_WIRE_X_AXIS … the
   profile crosses the axis of revolution`. A spec that revolves a profile bounded by a
   geometrically-derived dimension (e.g. bevel's Face Width) must cap that dimension so the profile
   stays on one side of the axis; reproduce the cap exactly.
-- **Loft, including point-to-profile** (`component.features.loftFeatures`): `createInput(operation)`
+- **[PB-LOFT] Loft, including point-to-profile** (`component.features.loftFeatures`): `createInput(operation)`
   → `loftSections.add(entity)` for each section in order → `add(input)`. A section may be a
   **single point** (a `SketchPoint`/`ConstructionPoint`) for a degenerate end — lofting an apex
   point to a profile yields a tapered/pointed body. Order of `loftSections.add(...)` is the loft
   order.
-- **Symmetric through-cut extent:** for an extrude-cut that must pierce a body fully regardless of
+- **[PB-THROUGH-CUT] Symmetric through-cut extent:** for an extrude-cut that must pierce a body fully regardless of
   thickness, use `extentInput.setSymmetricExtent(ValueInput.createByReal(largeDist), False)` — the
   second arg `isFullLength=False` means `largeDist` is the half-length *per side*. Do not pass a
   third (taper) argument. Restrict the cut with `participantBodies = [theBody]`.
-- **Split body by a face** (`component.features.splitBodyFeatures`): `createInput(bodyToSplit,
+- **[PB-SPLIT-BODY] Split body by a face** (`component.features.splitBodyFeatures`): `createInput(bodyToSplit,
   splittingTool, isSplittingToolExtended)` → `add(input)`. The splitting tool can be a `BRepFace`
   (reuse an existing face of another body rather than building a fresh surface — building a surface
   from a sketch line in a sibling/parent component fails, see cross-component below). Pass
   `isSplittingToolExtended=True` to extend the tool surface to fully bisect the target. A split that
   doesn't intersect raises `RuntimeError … SPLIT_TARGET_TOOL_NOT_INTERSECT` (message text may be
   localized) — catch it where the spec says a cut may be a no-op.
-- **Find a face by surface type, incl. cones** (cross-gear pattern, extends the profile/face-finding
+- **[PB-FACE-BY-MIDPOINT] Find a face by surface type, incl. cones** (cross-gear pattern, extends the profile/face-finding
   rule above): iterate `body.faces`, test `face.geometry.surfaceType` against
   `adsk.core.SurfaceTypes` (e.g. `ConeSurfaceType`, `CylinderSurfaceType`, `PlaneSurfaceType`).
   When several faces share a type, disambiguate by **world-coordinate containment**: project the
@@ -427,7 +432,7 @@ spec says *which* to use and *on what geometry*; this pins the *API shape*.
   endpoint-distance can't see the right face; the edge midpoint is clear of the apex (reliable) and
   uniquely picks the face that edge swept (different edges → different midpoints), so it
   distinguishes adjacent/coaxial cones that endpoint-distance can't.
-- **Make runtime-topology failures self-diagnosing.** Steps whose outcome depends on geometry the
+- **[PB-SELF-DIAGNOSING] Make runtime-topology failures self-diagnosing.** Steps whose outcome depends on geometry the
   parse/contract checks can't see (face-finding by containment, body splits, piece counts) must
   raise exceptions that **carry the measured quantities** — candidate face distances vs. tolerance,
   pieces-in/pieces-out per operation, which entity was selected — never a bare count or a silent
@@ -435,12 +440,12 @@ spec says *which* to use and *on what geometry*; this pins the *API shape*.
   so "expected 3 pieces, got 2" is useless but "got 2 (cut#1 found 3 cone faces, dists …, produced
   2; cut#2 found 0 faces within tol 1e-2, dists …)" pinpoints the cause. Prefer raising a rich error
   over returning unchanged on a lookup miss.
-- **Select/remove split pieces:** after a split, identify pieces with
+- **[PB-REMOVE-PIECES] Select/remove split pieces:** after a split, identify pieces with
   `body.pointContainment(worldPoint)` (returns `adsk.fusion.PointContainment.PointInside` /
   `PointOnPoint`(`PointOnPointContainment`)`/Outside`) and rank by
   `body.physicalProperties.volume`. Delete unwanted pieces with
   `component.features.removeFeatures.add(body)` (timeline-visible) — not a bare `deleteMe()`.
-- **Construction planes beyond offset:** `constructionPlanes.createInput()` then
+- **[PB-CONSTRUCTION-PLANES] Construction planes beyond offset:** `constructionPlanes.createInput()` then
   `setByOffset(plane, ValueInput)` (coplanar/offset), `setByAngle(line, ValueInput, refPlane)`
   (a plane through a line tilted by an angle off a reference plane — e.g. a plane *perpendicular* to
   a sketch by passing `'90 deg'`), or `setByDistanceOnPath(curve, ValueInput)` (a plane normal to a
@@ -452,11 +457,11 @@ spec says *which* to use and *on what geometry*; this pins the *API shape*.
   contextPath)` whenever the curve's owner sketch isn't trivially resolvable in the current
   (multi-component) context. Avoid `Path.create` on sketch curves entirely; the plane/axis builders
   resolve the curve themselves.
-- **Construction axes beyond circular-face:** `constructionAxes.createInput()` then
+- **[PB-CONSTRUCTION-AXES] Construction axes beyond circular-face:** `constructionAxes.createInput()` then
   `setByLine(infiniteLine)` (axis along a sketch/3D line), `setByCircularFace(face)` (off a
   cylinder/cone), or `setByTwoPlanes(planeA, planeB)` (their intersection — a usable workaround when
   `setByPerpendicularAtPoint` would need a `BRepFace` you don't have).
-- **Construction geometry (points/axes/planes) needs an ACTIVE component — sketch geometry does
+- **[PB-CONSTRUCTION-NEEDS-ACTIVE] Construction geometry (points/axes/planes) needs an ACTIVE component — sketch geometry does
   not.** `component.constructionPoints.add(...)` / `constructionAxes.add(...)` raise `RuntimeError:
   3 : Environment is not supported` when `component` is not the activated one. Sketches, solids, and
   features happily build on a non-activated component, but construction geometry does not — and the
@@ -465,7 +470,7 @@ spec says *which* to use and *on what geometry*; this pins the *API shape*.
   component: use a **`SketchPoint`** as a loft point-section (not a `ConstructionPoint`), and feed
   rotations a `Matrix3D` axis from a sketch edge's `worldGeometry` (not a `ConstructionAxis`). Reserve
   construction geometry for code paths that genuinely run in the active/root component.
-- **Move/rotate a body** (`component.features.moveFeatures`): `createInput2(bodyCollection)` →
+- **[PB-MOVE-ROTATE] Move/rotate a body** (`component.features.moveFeatures`): `createInput2(bodyCollection)` →
   `defineAsFreeMove(matrix3D)` → `add(input)`, where the matrix is built with
   `Matrix3D.setToRotation(angleRadians, axisVector, originPoint)`. Use `defineAsFreeMove` with a
   matrix (not `defineAsRotate`, which rejects a `SketchLine` axis). Used for aesthetic/meshing
@@ -477,11 +482,11 @@ Single-gear modules create one occurrence (`base.Generator.getOccurrence()`). A 
 a *set* of related components (bevel: a parent holding a shared **Design** component plus a
 **body-per-gear** component) cannot use that helper and must manage the tree itself:
 
-- Create each occurrence with `parent.occurrences.addNewComponent(adsk.core.Matrix3D.create())` and
+- **[PB-OCCURRENCE-TREE]** Create each occurrence with `parent.occurrences.addNewComponent(adsk.core.Matrix3D.create())` and
   name `occurrence.component.name`. Typical tree: `<Pair> Gear` under the user's parent → `Design`
   sub-component (all sketches/construction geometry/features run **here**) + one sub-component per
   output gear (the finished bodies are relocated into these at the end).
-- **NEVER call `occurrence.activate()`.** Build in a component by calling its own collections
+- **[PB-NEVER-ACTIVATE] NEVER call `occurrence.activate()`.** Build in a component by calling its own collections
   (`comp.sketches.add(...)`, `comp.features.*`) on the *non-activated* component — exactly as a
   single-gear generator does. Activating a sub-occurrence and then sketching on a plane/face the
   **user selected in another component** (root) makes Fusion resolve that external reference in the
@@ -489,16 +494,16 @@ a *set* of related components (bevel: a parent holding a shared **Design** compo
   build's orientation onto XY no matter what plane the user picked. This is a real, hard-to-see
   trap: the gear still builds, just flat on XY. A single-gear generator that respects arbitrary
   planes works precisely *because* it never activates — match that.
-- **Fusion rejects cross-sibling sketch/`project`/`Path.create` references** (entities wrapped via
+- **[PB-NO-CROSS-SIBLING] Fusion rejects cross-sibling sketch/`project`/`Path.create` references** (entities wrapped via
   `createForAssemblyContext` don't help). So: run **all** feature operations in the one Design
   component, then **relocate finished bodies** with `body.moveToComponent(targetOccurrence)`
   (`moveToComponent` preserves world position and needs no activation). Do not sketch or
   path-reference geometry that lives in a sibling. Note this does **not** require activating
   anything — building everything in one component already avoids cross-sibling references.
-- Cleanup/rollback is hand-rolled: a recursive walk turning off `isLightBulbOn` on every sketch /
+- **[PB-TREE-CLEANUP]** Cleanup/rollback is hand-rolled: a recursive walk turning off `isLightBulbOn` on every sketch /
   construction plane / construction axis across the tree (dedupe by `entityToken`), and
   `deleteComponent()` calls `deleteMe()` on the top occurrence for error rollback.
-- **Don't re-derive a user-selected plane/face inside your sub-component — use it directly.** When
+- **[PB-USE-SELECTED-PLANE] Don't re-derive a user-selected plane/face inside your sub-component — use it directly.** When
   the user selects a target plane (a `ConstructionPlane` or `PlanarFace`) that lives in the root or
   another component, place sketches **directly** on that selected entity (`sketches.add(target)`)
   and pass the selected entity itself to plane builders (`setByAngle(line, angle, target)`). Do NOT
@@ -512,7 +517,7 @@ a *set* of related components (bevel: a parent holding a shared **Design** compo
 
 ## Parameters: live-expression mode vs all-Python-precomputed mode
 
-The involute gears register Fusion **user parameters** as live expression strings (the
+**[PB-PRECOMPUTED-MODE]** The involute gears register Fusion **user parameters** as live expression strings (the
 `processInputs` pattern above) so they appear in the parameter table. This is **one valid mode, not
 mandatory.** A gear may instead **precompute every value in Python** (internal cm) and write
 geometry numerically — setting sketch dimensions via `dimension.parameter.value = <number>` and
@@ -523,7 +528,7 @@ that returns precomputed values, rather than registering real parameters (see th
 spec Dependencies section). The spec declares which mode the gear uses; either is acceptable, but
 the contract self-check only looks for the parameter names the spec actually declares.
 
-**Reading raw dialog inputs in this mode.** Read raw dialog inputs with
+**[PB-EVAL-EXPRESSION] Reading raw dialog inputs in this mode.** Read raw dialog inputs with
 `design.unitsManager.evaluateExpression(input.expression, units)` — it ALWAYS returns Fusion
 internal units (cm for length, **radians** for angle) regardless of the unit string, so a `deg`
 field comes back in radians; convert with `math.degrees(...)` before any degree-range check. Don't
