@@ -60,6 +60,13 @@ The spec + playbook together MUST be sufficient. If they are not, fix the spec o
      no longer proves the *spec* states it well enough. Identical prompt every run ⇒ a pass/fail is
      attributable to the spec, which is the whole point. When a regen reveals a gap, fix the
      **spec/playbook** and re-run the **same** standard prompt — never patch the prompt.
+   - **Launch in the background and watch the heartbeat.** Run the subagent as a background task
+     and poll `.tmp/<gear>.progress.log` every ~2–3 minutes (the standard prompt makes the subagent
+     append one milestone line per phase). Stall rules: **no `start` line within ~5 minutes** ⇒ the
+     launch never began (e.g. an unanswered approval gate) — stop and surface it; **no new line for
+     >10 minutes** ⇒ the agent stalled — stop the run, relaunch once, and only then involve the
+     user. A healthy round is ~10–15 minutes end-to-end; never let a silent run sit for an hour.
+     Delete any stale `.tmp/<gear>.progress.log` before launching so the heartbeat is unambiguous.
 
 4. **Validate (reference-free).** The output is checked against the **spec**, not against any
    implementation:
@@ -178,6 +185,13 @@ the spec.
 > **HARD RULE — reference-free:** Do NOT open, read, grep, or otherwise consult an existing
 > `lib/geargen/<gear>.py`. If anything is unclear, record it as a spec-gap note in your report —
 > never resolve it by peeking at an existing implementation.
+>
+> **Progress heartbeat (liveness telemetry only — it does not alter what you generate):** append
+> one line `<unix-epoch-seconds> <milestone>` to `.tmp/<gear>.progress.log` at each milestone
+> (e.g. `date +%s` for the timestamp): `start` as your first action; `read:<path>` after finishing
+> each required input file; `draft:written` immediately after writing `.tmp/<gear>.generated.py`;
+> `check:<n>:pass` / `check:<n>:fail` after each self-check round; `done` as your last action
+> before reporting. Never go more than a few minutes without a heartbeat line.
 >
 > **Read, in full, ONLY these:**
 > - `spec/<gear>/instructions.md` — THE SPEC, the sole source of truth. Read it end-to-end. **Every
