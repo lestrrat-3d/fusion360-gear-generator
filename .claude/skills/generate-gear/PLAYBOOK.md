@@ -148,9 +148,15 @@ create the occurrence — so read selections first.
    registered **unitless** (`''`), not `'rad'`, or Fusion rejects the dependent length expression
    (`mm·rad`) as invalid.
 
-Caveat to honor (already in the spec's Sketch Discipline): sketch **dimensions** and **feature
-inputs** are set from the *current numeric value* of a parameter at generation time, not as live
-links — editing a `<prefix>_…` parameter does not update an existing gear; regenerate.
+**[PB-NUMERIC-SNAPSHOT]** Caveat to honor: sketch **dimensions** and **feature inputs** are set
+from the *current numeric value* of a parameter at generation time, not as live links — editing a
+`<prefix>_…` parameter does not update an existing gear; regenerate. (Wiring live links —
+`dim.parameter.expression = parameterName(...)` for sketch dims, `ValueInput.createByString(...)`
+for feature inputs — has been tried repeatedly and does not propagate reliably in Fusion: sketch
+dims appear to need the sketch reopened/edited before downstream parameters drive geometry, and
+feature inputs capture the expression only intermittently. So the user parameters under
+`<prefix>_…` stay visible for reference but are not design-editable; re-run the dialog to change a
+gear.)
 
 ## `generate` orchestration
 
@@ -207,7 +213,10 @@ ignores a later `hasFocus=True`; add the selection input that should own initial
 
 ## Fusion-API conventions & gotchas (cross-gear)
 
-- **[PB-ADSK-MODULES] `adsk.core` vs `adsk.fusion` — get the module right; the wrong one is a runtime `AttributeError`, not a parse error.** `adsk` is native and unimportable outside Fusion, so `ast.parse`/`pyflakes` happily accept `adsk.fusion.SurfaceTypes` even though `SurfaceTypes` is in **`adsk.core`** — it dies only at runtime with `AttributeError: module 'adsk.fusion' has no attribute 'SurfaceTypes'`. Rule of thumb: geometry/value types — `Point3D`, `Vector3D`, `Matrix3D`, `Line3D`, `ObjectCollection`, `ValueInput`, **`SurfaceTypes`**, `Curve3DTypes`/`Curve2DTypes` — live in **`adsk.core`**; feature/operation/topology enums — `FeatureOperations`, `SurfaceProjectTypes`, `PatternComputeOptions`, `PointContainment`, `Path` — live in **`adsk.fusion`**. When unsure, copy the exact `adsk.<module>.<Name>` an existing gear/framework file uses. The generate-gear validation runs `pyright_check.py` (pyright + Fusion API stubs), which flags a wrong-submodule ref as a **BLOCKING** `reportAttributeAccessIssue` (`"SurfaceTypes" is not a known attribute of module "adsk.fusion"`); `check_adsk_modules.py` is the stub-free fallback. Either way, get it right at authoring time rather than relying on the lint.
+- **[PB-API-LOOKUP] Look the API up before you write it — never guess an `adsk.*` name, module, or signature.** A grep-able, class-scoped index of the entire Fusion Python API is built from the stub defs by `.claude/skills/generate-gear/build_fusion_index.py` (run it once; it clones the `FusionAPIReference` defs on demand into `~/.cache/fusion360-gear-generator/` — the same cache `pyright_check.py` uses — and writes `~/.cache/fusion360-gear-generator/fusion-api-index.jsonl`). Each line is one class / method / property / enum-member with `name`, owning `class`, `module` (`adsk.core` vs `adsk.fusion`), `kind`, `sig` (full signature), and `doc` (one-line summary). Use it two ways:
+  - **Verification (point lookup) — do this for any call you're not 100% sure of.** `grep '"name":"<Name>"'` confirms the identifier exists (zero hits ⇒ it's a typo, e.g. `addColinear`), names its **owning class** (so you write `sketch.sketchCurves.sketchCircles`, not `sketch.sketchCircles` — the index shows `sketchCircles` belongs to `SketchCurves`, not `Sketch`), pins the **submodule** (`SurfaceTypes` → `adsk.core`), and gives the **exact signature/casing**. This shifts the two BLOCKING bug classes (`reportUndefinedVariable`, wrong-submodule `reportAttributeAccessIssue`) left — before writing — rather than relying on the after-the-fact `pyright_check.py` gate.
+  - **Discovery (concept lookup) — when you know the concept but not the name.** `grep` a concept word (`chamfer`, `revolve`, `split`, `loft`) over the index; it matches both names and the `doc` summary. For the deep-prose tail the index can't hold (internal-unit notes, "returns null if …", concept synonyms like bore↔hole), **grep the raw defs directly** — `core.py` / `fusion.py` under the cached clone are already on disk and are the full-text fallback. (The index is a derived artifact — never committed; rebuild it by re-running the builder.)
+- **[PB-ADSK-MODULES] `adsk.core` vs `adsk.fusion` — get the module right; the wrong one is a runtime `AttributeError`, not a parse error.** `adsk` is native and unimportable outside Fusion, so `ast.parse`/`pyflakes` happily accept `adsk.fusion.SurfaceTypes` even though `SurfaceTypes` is in **`adsk.core`** — it dies only at runtime with `AttributeError: module 'adsk.fusion' has no attribute 'SurfaceTypes'`. **Resolve the module mechanically: grep the API index ([PB-API-LOOKUP]) for `"name":"<Name>"` and read its `module` field** — definitive for any name, no memorization. As a rule of thumb when the index isn't handy: geometry/value types — `Point3D`, `Vector3D`, `Matrix3D`, `Line3D`, `ObjectCollection`, `ValueInput`, **`SurfaceTypes`**, `Curve3DTypes`/`Curve2DTypes` — live in **`adsk.core`**; feature/operation/topology enums — `FeatureOperations`, `SurfaceProjectTypes`, `PatternComputeOptions`, `PointContainment`, `Path` — live in **`adsk.fusion`**. The generate-gear validation runs `pyright_check.py` (pyright + Fusion API stubs), which flags a wrong-submodule ref as a **BLOCKING** `reportAttributeAccessIssue` (`"SurfaceTypes" is not a known attribute of module "adsk.fusion"`); `check_adsk_modules.py` is the stub-free fallback. Either way, get it right at authoring time rather than relying on the lint.
 - **[PB-WORLD-FRAME] `.geometry` (sketch-local) vs `.worldGeometry` (world) — match the frame of whatever you measure against.** A sketch curve/point's `.geometry` lives in its sketch's *local* coordinate system; `.worldGeometry` is world/model space. When you measure an angle, distance, or perpendicular component against a **world** quantity — a world axis vector, a world apex point, another body's geometry — you must sample the curve in **world** space (`entity.worldGeometry.evaluator.getParameterExtents()`/`getPointAtParameter`). Mixing a local-frame curve with a world axis is valid Python that **silently returns wrong numbers** — no exception, no parse/lint catch — e.g. a wrong spiral-twist magnitude that makes meshing teeth interfere. The two frames coincide only when the sketch sits on the world-origin plane, which is generally not the case. No mechanical gate catches this; it's an authoring rule.
 - **[PB-EMPTY-RESULT] Geometry ops can legitimately yield zero results — never feed that straight into `max()`/`min()`/`[0]`/`.index(max(...))`.** A `splitBodyFeatures` that doesn't intersect, a face/edge search that finds nothing, a piece list after filtering or after dropping a scrap — any of these can be **empty**. `max([])`/`min([])` raise `ValueError: max() iterable argument is empty` and `coll[0]` raises `IndexError`, both **cryptic and far from the real cause** (often surfacing several calls downstream). **Guard every such collection at the point it's produced:** if zero is a valid outcome, skip gracefully; otherwise `raise` a clear self-diagnosing error that names the operation, the gear/part, and the actual count (e.g. `"{gear}: slice produced {n} piece(s), expected >=2 — cut planes missed"`). Assert the expected count **right after** the split/search/removal, not three steps later where `max([])` blows up. (This is how the conical-cut and slice steps already self-diagnose — follow that pattern for any zero-able collection.)
 - **[PB-FULL-CONSTRAINT] Leave no sketch under-constrained — and verify it with `sketch.isFullyConstrained`.** A
@@ -260,13 +269,16 @@ ignores a later `hasFocus=True`; add the selection input that should own initial
   'addCollinear'?"). Don't let English prose spelling ("colinear") leak into the API call. Likewise
   `addCoincident`, `addPerpendicular`, `addParallel`, `addHorizontal`, `addMidPoint` (capital P),
   `addOffsetDimension`, `addDiameterDimension` — copy the exact casing/spelling, don't infer it.
+  **The index ([PB-API-LOOKUP]) settles any spelling mechanically:** a `grep '"name":"addColinear"'`
+  returns zero lines (⇒ doesn't exist), while `addCollinear` returns its signature.
 - **[PB-SKETCHCURVES] Sketch curve collections live under `sketch.sketchCurves`, never on the sketch directly.** Add
   geometry via `sketch.sketchCurves.sketchCircles`, `.sketchLines`, `.sketchArcs`,
   `.sketchFittedSplines`. `sketch.sketchCircles` (etc.) does NOT exist and raises `AttributeError:
   'Sketch' object has no attribute 'sketchCircles'`. (By contrast `sketch.sketchPoints`,
   `sketch.sketchDimensions`, `sketch.geometricConstraints`, `sketch.sketchTexts`, and
   `sketch.profiles` ARE direct members of the sketch — only the *curve* collections sit under
-  `sketchCurves`.)
+  `sketchCurves`.) The index ([PB-API-LOOKUP]) confirms ownership: `grep '"name":"sketchCircles"'`
+  shows `"class":"SketchCurves"`, not `Sketch` — so the access path must go through `sketchCurves`.
 - **[PB-SELECTION-FILTER-ENUM] Selection filters take enum constants, not strings.** `selectionInput.addSelectionFilter(...)`
   expects `adsk.core.SelectionCommandInput.<Member>` (an int enum), e.g.
   `addSelectionFilter(adsk.core.SelectionCommandInput.ConstructionPlanes)`. Passing the string
@@ -353,7 +365,12 @@ ignores a later `hasFocus=True`; add the selection input that should own initial
   (above).
 - **[PB-HIDE-AFTER-USE] Hide a sketch only after consuming it:** projections/profile extraction stop working on an
   invisible sketch; draw → project → constrain → run features → then `isVisible=False`. Same for
-  construction planes later features still consume.
+  construction planes later features still consume. **And hide construction geometry with the right
+  property:** a `ConstructionPlane`/`ConstructionAxis` is **not** hidden by `isVisible = False` (it
+  has no visible effect on construction geometry — a Fusion gotcha); use `entity.isLightBulbOn =
+  False`. So `isVisible=False` hides **sketches**, `isLightBulbOn=False` hides **construction
+  planes/axes** — don't cross them. (A gear's own cleanup recipe — which entities, and any per-mode
+  split — is gear-specific; see that gear's spec.)
 - **[PB-PROFILE-MATCH] Profiles are found by curve count/type**, not index — iterate `sketch.profiles` /
   `profile.profileLoops` and match the loop whose `profileCurves` have the expected count/type
   mix (the spec states the expected counts per loop, including any variant cases). Read a curve's
