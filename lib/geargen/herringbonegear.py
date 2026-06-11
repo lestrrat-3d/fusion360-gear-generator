@@ -1,5 +1,10 @@
 import adsk.core, adsk.fusion
-from .helicalgear import *
+from .base import GenerationContext
+from .spurgear import PARAM_MODULE, PARAM_TOOTH_NUMBER, PARAM_THICKNESS
+from .helicalgear import (
+    PARAM_HELIX_ANGLE, HelicalGearCommandConfigurator,
+    HelicalGearGenerationContext, HelicalGearGenerator,
+)
 
 class HerringboneGearCommandConfigurator(HelicalGearCommandConfigurator): pass
 

@@ -1,44 +1,50 @@
 from abc import ABC, abstractmethod
-from .misc import *
+from .misc import get_design
 from ...lib import fusion360utils as futil
 import adsk.core, adsk.fusion
 
-def get_boolean(inputs: adsk.core.CommandInputs, name):
-    input = inputs.itemById(name)
-    return (input.value, True)
+def get_boolean(inputs: adsk.core.CommandInputs, name: str) -> bool:
+    return inputs.itemById(name).value
 
 def get_selection(inputs: adsk.core.CommandInputs, name: str):
     input = inputs.itemById(name)
     futil.log(f'get_selection: item {name} has {input.selectionCount} selections')
-    list = []
+    entities = []
     for i in range(0, input.selectionCount):
-        selection = input.selection(i)
-        list.append(selection.entity)
-    return (list, True)
+        entities.append(input.selection(i).entity)
+    return entities
 
-def get_value(inputs: adsk.core.CommandInputs, name: str, units: str):
+def get_value(inputs: adsk.core.CommandInputs, name: str, units: str) -> adsk.core.ValueInput:
+    """Read a dialog input and return a ValueInput ready for
+    userParameters.add(). Raises on an invalid expression — never returns
+    None or a raw number ([PB-GET-VALUE-CONTRACT]).
+
+    - StringValueCommandInput whose text names an existing user parameter ->
+      ValueInput.createByString(text) (a live reference to that parameter).
+    - StringValueCommandInput holding a literal expression (e.g. '5 mm') ->
+      ValueInput.createByReal(evaluated value, internal units).
+    - Numeric ValueCommandInput -> ValueInput.createByReal(evaluated value).
+    """
     input = inputs.itemById(name)
     design = get_design()
     unitsManager = design.unitsManager
-    userParameters = design.userParameters
 
-    # If it's a string, we attempt to convert 
     if input.classType == adsk.core.StringValueCommandInput.classType:
-        value = input.value
-        if userParameters.itemByName(value) == None:
-            evaluated = unitsManager.evaluateExpression(value, units)
-            if evaluated == None:
-                raise Exception(f'Failed to evaluate expression "{value}"')
-            return (evaluated, False)
-        return (adsk.core.ValueInput.createByString(value), True)
+        text = input.value
+        if design.userParameters.itemByName(text) is not None:
+            return adsk.core.ValueInput.createByString(text)
+        if not unitsManager.isValidExpression(text, units):
+            raise Exception(f'Invalid expression "{text}" for input "{name}"')
+        return adsk.core.ValueInput.createByReal(
+            unitsManager.evaluateExpression(text, units))
 
-    if units == None:
+    if units is None:
         units = input.unitType
     if not unitsManager.isValidExpression(input.expression, units):
-        return (None, False)
-
-    evaluated = unitsManager.evaluateExpression(input.expression, units)
-    return (adsk.core.ValueInput.createByReal(evaluated), True)
+        raise Exception(
+            f'Invalid expression "{input.expression}" for input "{name}"')
+    return adsk.core.ValueInput.createByReal(
+        unitsManager.evaluateExpression(input.expression, units))
 
 
 # Base object for generation contexts
