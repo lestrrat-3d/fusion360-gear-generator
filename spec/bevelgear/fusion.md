@@ -124,4 +124,5 @@ in `PLAYBOOK.md` still apply).
   (dedupe by `entityToken`) and set `isLightBulbOn = False` on every sketch, construction plane, and
   construction axis (construction planes/axes are **not** hidden by `isVisible` — see
   `[PB-HIDE-AFTER-USE]`). There is no sketch-only mode and no per-mode guard — bevel always builds
-  solids.
+  solids. (Realized by the framework's `solids.hide_construction_geometry(bevelComponent)` — call
+  it, don't re-implement the walk.)

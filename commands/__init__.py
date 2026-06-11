@@ -1,14 +1,12 @@
 # Here you define the commands that will be added to your add-in.
-
-# TODO Import the modules corresponding to the commands you created.
-# If you want to add an additional command, duplicate one of the existing directories and import it here.
-# You need to use aliases (import "entry" as "my_module") assuming you have the default module named "entry".
+# To add a command: create a directory with an entry.py declaring a GearCommand
+# (see commands/_gear_command.py), import it here, and add it to the list.
+from . import _gear_command
 from .spurgear import entry as spurgear
 from .helicalgear import entry as helicalgear
 from .herringbonegear import entry as herringbonegear
 from .bevelgear import entry as bevelgear
 
-# TODO add your imported modules to this list.
 # Fusion will automatically call the start() and stop() functions.
 commands = [
     spurgear,
@@ -18,15 +16,14 @@ commands = [
 ]
 
 
-# Assumes you defined a "start" function in each of your modules.
-# The start function will be run when the add-in is started.
 def start():
     for command in commands:
         command.start()
 
 
-# Assumes you defined a "stop" function in each of your modules.
-# The stop function will be run when the add-in is stopped.
 def stop():
     for command in commands:
         command.stop()
+    # Each command removed its own control above; the shared Gears dropdown is
+    # owned by this package and deleted once here.
+    _gear_command.delete_dropdown()

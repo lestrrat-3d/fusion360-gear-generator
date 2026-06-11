@@ -97,6 +97,12 @@ The spec + playbook together MUST be sufficient. If they are not, fix the spec o
      surface those dependents bind to (by name) exists unchanged.
    - **Dependency resolution:** every name the generated file imports from another gear or
      framework module actually exists in that module.
+   - **Helper-shadowing check:** the generated file must not re-define (via `def` or `class`) any
+     name the framework helper library provides (PLAYBOOK "Shared geargen helper library":
+     `find_profile_by_curve_counts`, `find_circle_by_radius`, the `solids.*` functions,
+     `VirtualSpurProxy`/`Val`), nor carry a private re-implementation of one. A shadow or
+     re-implementation means the spec/playbook failed to direct the generator to the helper — fix
+     there and regenerate.
 
 5. **Iterate.** A parse error, a missing contract item, or an unresolved dependency means the
    **spec or playbook** is incomplete or wrong — fix it there (never hand-edit the generated file,
@@ -200,7 +206,8 @@ the spec.
 > - `.claude/skills/generate-gear/PLAYBOOK.md` — shared framework conventions and Fusion-API rules.
 > - Every document the spec references by name (e.g. a geometry-derivation `.md`).
 > - The framework files the output builds on: `lib/geargen/base.py`, `lib/geargen/misc.py`,
->   `lib/geargen/utilities.py`, and `lib/fusion360utils/`.
+>   `lib/geargen/utilities.py`, `lib/geargen/solids.py`, `lib/geargen/spurproxy.py`, and
+>   `lib/fusion360utils/`.
 > - Every gear/module the spec's **Dependencies** section declares (read the exact surface bevel/…
 >   borrows: class names, constructor/`draw` signatures, and any attribute it reads or writes).
 >

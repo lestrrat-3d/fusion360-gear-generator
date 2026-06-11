@@ -16,18 +16,24 @@ that point of use. IDs are permanent — never renamed or reused once a spec cit
 
 ## Module layout & imports
 
-Each gear lives in `lib/geargen/<gear>.py` and imports exactly:
+Each gear lives in `lib/geargen/<gear>.py` and imports **explicitly — no `import *` in gear
+modules** (star-imports hide real dependencies and have broken modules that relied on a name
+arriving transitively). Import exactly the names the module uses, from their home modules:
 
 ```python
 import math
+import adsk.core, adsk.fusion
 from ...lib import fusion360utils as futil
-from .misc import *        # to_cm, to_mm, get_design, get_ui
-from .base import *        # Generator, GenerationContext, get_value/get_boolean/get_selection, ParamNamePrefix, ComponentCleaner
-from .utilities import *   # get_normal
+from .misc import to_cm, to_mm, get_design
+from .base import Generator, GenerationContext, get_value, get_boolean, get_selection
+from .utilities import get_normal, find_profile_by_curve_counts, find_circle_by_radius
+from . import solids                     # body-op helpers — only gears that need them
+from .spurproxy import VirtualSpurProxy  # only gears that borrow the spur tooth drawer
 ```
 
-Some gears import `adsk.core, adsk.fusion` explicitly; others rely on the star-imports pulling
-`adsk` in transitively. Use the same import list as the existing gear modules.
+(Trim the list to what the gear actually uses; the last two lines apply only to gears whose spec
+calls for them. `lib/geargen/__init__.py` star-imports each gear module to build the package
+facade — that one facade star-import is fine; gear modules themselves never use `import *`.)
 
 Module-level constants name the recurring parameters and dialog input ids, e.g.
 `PARAM_MODULE = 'Module'`, `INPUT_ID_PARENT = 'parentComponent'`, `INPUT_ID_PLANE = 'plane'`,
@@ -81,48 +87,77 @@ and the spec describes that). When inherited, `lib/geargen/base.py` provides:
 - `getParameter(name)`, `getParameterAsValueInput(name)`, `getParameterAsBoolean(name)`.
 - `parameterName(name)` → `f'{prefix}_{name}'` (creates the occurrence if needed).
 - `prefixBase()` → default `'Gear'`; override per gear (`'SpurGear'`, `'HelicalGear'`, …).
-- `deleteComponent()` — deletes the occurrence; used by the entry point on failure.
+- `deleteComponent()` — deletes the registered user parameters (via `ComponentCleaner`) and the
+  occurrence; used by the entry point on failure.
 - `createSketchObject(name, plane=None)` — adds a sketch (defaults to XY plane), names it, sets
   `isVisible=False`, returns it. (Note: a sketch created this way starts hidden; make it visible
   while you draw/consume profiles, per the spec's sketch-discipline rules.)
 - `@abstractmethod generate(self, inputs)` — every gear implements this.
 
-Helpers (free functions in `base.py`): `get_selection(inputs, id)` → `(list_of_entities, ok)`;
-`get_boolean(inputs, id)` → `(value, ok)`; `get_value(inputs, id, units)` → `(value, ok)`.
+Helpers (free functions in `base.py`): `get_selection(inputs, id)` → list of selected entities;
+`get_boolean(inputs, id)` → bool; `get_value(inputs, id, units)` → `ValueInput` (raises on an
+invalid expression).
 
-**[PB-GET-VALUE-CONTRACT] `get_value` return contract — important, easy to get wrong.** It does NOT always return a
-`ValueInput`:
-- Numeric `ValueCommandInput`, valid expression → `(ValueInput.createByReal(evaluated), True)`.
-- Numeric input, invalid expression → `(None, False)`.
-- `StringValueCommandInput` whose text **is** an existing user-parameter name →
-  `(ValueInput.createByString(text), True)`.
-- `StringValueCommandInput` holding a literal expression (e.g. a default like `'0 mm'`) →
-  `(evaluated_number, False)` — a **raw float, not a `ValueInput`, and `ok` is False**.
+**[PB-GET-VALUE-CONTRACT]** `get_value` ALWAYS returns a `ValueInput` ready to pass straight to
+`addParameter` / `userParameters.add` — string-value (expression) inputs included: a text that
+names an existing user parameter becomes a live `createByString` reference; a literal expression
+(e.g. `'5 mm'`) is evaluated to internal units and wrapped `createByReal`; numeric inputs are
+evaluated and wrapped `createByReal`. It **raises** on an invalid expression rather than returning
+`None`. No caller-side `ok`-flag handling or `ValueInput` wrapping is needed — `addParameter` the
+result directly.
 
-`addParameter(name, value, units, comment)` calls `userParameters.add(...)`, whose value
-argument **must be a `ValueInput`** — passing the raw float raises
-`TypeError: ... argument 3 of type 'adsk::core::Ptr< adsk::core::ValueInput >'`. So whenever
-`get_value` can return `ok=False` (i.e. any `addStringValueInput` field), the caller must wrap
-the returned value in a `ValueInput` before `addParameter`. **Wrap the evaluated number
-`get_value` handed back — do not discard it to 0.** That returned float is already in Fusion's
-internal units (cm), which is exactly what `ValueInput.createByReal` expects, so wrapping it
-preserves the user's value; a literal like `'5 mm'` then actually takes effect. (Discarding it to
-`createByReal(0)` silently throws the user's value away — e.g. a typed bore diameter that then
-never cuts a hole.)
+## Shared geargen helper library (use, do not re-implement)
 
-```python
-# For any addStringValueInput field <FIELD>:
-(value, ok) = get_value(inputs, INPUT_ID_<FIELD>, 'mm')
-if not ok:
-    # get_value returned the evaluated value as a raw number (internal cm).
-    # Wrap THAT — wrapping 0 would silently ignore a typed value.
-    value = adsk.core.ValueInput.createByReal(
-        value if isinstance(value, (int, float)) else 0)
-self.addParameter(PARAM_<FIELD>, value, 'mm', '…')
-```
+The framework carries a small library of **proven** helpers; each encodes a known Fusion failure
+mode that took real debugging to pin down. A generated gear **MUST call these instead of
+re-implementing the pattern** — re-defining one of these names (or writing a private equivalent of
+one) in a generated module is a contract violation the validation step checks for. The gear's spec
+says *which* helpers it uses and *on what geometry*; the behavior below is the helper's contract.
 
-(Numeric inputs return `ok=True` with a `ValueInput`, so they don't need this wrap; only the
-string-value inputs do.)
+**`lib/geargen/utilities.py`:**
+- `find_profile_by_curve_counts(sketch, nurbs=0, arcs=0, lines=0)` → the profile whose loop has
+  exactly those curve-type counts and no other curve types ([PB-PROFILE-MATCH]); raises (never
+  falls back to a wrong profile) with a self-diagnosing message.
+- `find_circle_by_radius(sketch, radius, tolerance=0.0001)` → the sketch circle matching the
+  radius (cm); raises on no match.
+- `get_normal(entity)` → world normal of a `BRepFace` / `ConstructionPlane` / `Plane` / `Sketch`.
+
+**`lib/geargen/solids.py`** (body operations; all take the owning component first):
+- `cut_conical_ends(component, toothBody, gearBody, toeMid, heelMid, apexWorld, label)` → the
+  toe-then-heel two-cone flush trim. Toe cut is strict (failure raises); a heel cone that does not
+  intersect the keeper is caught (typed `NonIntersectError`) and the keeper is returned intact.
+  Exactly two split features per gear, every gear ratio.
+- `apply_conical_cut(component, targetBody, frustumBody, edgeMidWorld, apexWorld, label)` → one
+  conical cut: candidate `ConeSurfaceType` faces of `frustumBody` ordered best-first by the cut
+  edge's world-MIDPOINT distance ([PB-FACE-BY-MIDPOINT]), each tried as the split tool
+  (`isSplittingToolExtended=True`), first that splits wins; keeper per `select_keeper`. When no
+  face splits: raises `NonIntersectError` if the per-face failures carried Fusion's
+  `SPLIT_TARGET_TOOL_NOT_INTERSECT` (or localized `交差`) signal, else `RuntimeError` — both with
+  the full per-face distance/error history ([PB-SELF-DIAGNOSING]).
+- `select_keeper(component, pieces, apexWorld, label)` → drops apex-containing pieces, keeps the
+  largest remaining, removes the rest ([PB-REMOVE-PIECES]); raises when nothing remains.
+- `find_cone_faces_by_midpoint(frustumBody, edgeMidWorld)` / `surface_distance(surface, point)` —
+  the face-candidate ordering primitives (unevaluable distance → `inf`, "try last").
+- `slice_body_by_offset_planes(component, body, basePlane, offsets)` → splits piece-by-piece with
+  planes offset by each value (cm); a plane that misses a piece leaves it whole. The caller picks
+  the offsets/signs and asserts the resulting piece count ([PB-EMPTY-RESULT]).
+- `rotate_body_about_edge(component, body, edge, angleRad)` — rotation about a sketch edge's world
+  endpoints via free-move matrix ([PB-MOVE-ROTATE]).
+- `plane_by_angle(component, line, refPlane, angleDeg)` — `setByAngle` construction plane through
+  a sketch line (passed directly, never via `Path.create` — [PB-CONSTRUCTION-PLANES]).
+- `combine_point(base, a, e1, b=0.0, e2=None)` → world `Point3D` = base + a·e1 (+ b·e2), cm.
+- `circle_intersect_nearest(R, Cx, Cy, r_c, refX, refY)` → the 2-D circle∩circle intersection
+  nearest the reference point (non-overlap clamps to tangency).
+- `hide_construction_geometry(component)` — recursive light-bulb-off walk over every sketch /
+  construction plane / axis in the tree, deduped by `entityToken` ([PB-TREE-CLEANUP]).
+
+**`lib/geargen/spurproxy.py`:**
+- `VirtualSpurProxy(module_mm, virtualTeeth, pressureAngleRad=radians(20), involuteSteps=15)` — a
+  fake spur `parent` for `SpurGearInvoluteToothDesignGenerator` ([PB-PRECOMPUTED-MODE]): serves,
+  in internal cm, exactly the parameter keys the spur drawer reads (`Module`, `ToothNumber`,
+  `PressureAngle`, the Pitch/Base/Root/Tip circle diameters+radii, `InvoluteSteps`), each wrapped
+  in a `.value` carrier (`Val`). Carries the `_lastToothEmbedded` output slot the drawer writes
+  during `draw()` — the borrowing gear reads it back afterward.
 
 ## `processInputs` pattern
 
@@ -198,14 +233,38 @@ expected front-face edge count, etc.; the spec says what each returns for the de
 
 ## Command-entry wiring (`commands/<gear>/entry.py`)
 
-Standard Fusion add-in command module (mostly boilerplate; mirror the existing command modules):
-`GEAR_TYPE`/`CMD_ID`/`CMD_NAME`; `start()` registers the button + dropdown and the
-`commandCreated` handler; `command_created` calls
-`geargen.<Gear>CommandInputsConfigurator.configure(args.command)` and wires the
-execute/inputChanged/executePreview/validateInputs/destroy handlers via `futil.add_handler`;
-`command_execute` does `g = geargen.<Gear>Generator(design); g.generate(inputs)` inside
-`try/except` and calls `g.deleteComponent()` on failure (errors surfaced with
-`futil.handle_error("Generation error", show_message_box=True)`).
+The Fusion command boilerplate lives once in `commands/_gear_command.py` (`GearCommand`): it
+registers the button in the shared Gears dropdown, wires the
+execute/inputChanged/validateInputs/destroy handlers via `futil.add_handler`, runs
+`generator_class(get_design()).generate(inputs)` inside `try/except Exception` (failure →
+`futil.handle_error('Generation error', show_message_box=True)` + `g.deleteComponent()`), and on
+`stop()` removes only its own control — the shared dropdown is deleted once by
+`commands/__init__.py` after all commands stop. An entry module only declares its command and
+re-exports the lifecycle hooks:
+
+```python
+import os
+from ...lib import geargen
+from .._gear_command import GearCommand
+
+command = GearCommand(
+    gear_type='SpurGear',     # CMD_ID becomes f'{COMPANY_NAME}_{ADDIN_NAME}_{gear_type}_cmdDialog'
+    name='Spur Gear Generator',
+    description='Generates a Spur Gear',
+    icon_folder=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'resources', ''),
+    configurator=geargen.SpurGearCommandInputsConfigurator,
+    generator_class=geargen.SpurGearGenerator,
+    # optional: input_changed=<callback(args)> for dialogs with reactive inputs
+    # (e.g. bevel passes its configurator's handle_input_changed to drive
+    # conditional visibility of the spiral-only inputs)
+)
+
+start = command.start
+stop = command.stop
+```
+
+New gears: add the entry directory (with `resources/`), then import and list it in
+`commands/__init__.py`.
 
 **[PB-AUTOFOCUS-FIRST] Dialog auto-focus ordering gotcha.** Fusion auto-focuses the FIRST `SelectionCommandInput` and
 ignores a later `hasFocus=True`; add the selection input that should own initial focus first (so the
@@ -402,7 +461,10 @@ ignores a later `hasFocus=True`; add the selection input that should own initial
 
 The involute gears only extrude + pattern + combine + chamfer + fillet. Gears whose spec calls for
 revolved bodies, lofted teeth, or split-by-face shaping (bevel) use these additional features. The
-spec says *which* to use and *on what geometry*; this pins the *API shape*.
+spec says *which* to use and *on what geometry*; this pins the *API shape*. Several of these
+patterns are implemented once in `lib/geargen/solids.py` (see "Shared geargen helper library") —
+when a helper exists, call it instead of re-implementing the pattern; the anchors below remain the
+authoritative description of the behavior the helpers encode.
 
 - **[PB-REVOLVE] Revolve** (`component.features.revolveFeatures`): `createInput(profile, axis, operation)` →
   `setAngleExtent(False, ValueInput.createByString('360 deg'))` → `add(input)`. The `axis` is a

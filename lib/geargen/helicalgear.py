@@ -1,5 +1,12 @@
-from .spurgear import *
-from .misc import *
+import math
+import adsk.core, adsk.fusion
+from .base import GenerationContext, get_value
+from .utilities import find_profile_by_curve_counts
+from .spurgear import (
+    PARAM_MODULE, PARAM_TOOTH_NUMBER, PARAM_THICKNESS,
+    SpurGearCommandInputsConfigurator, SpurGearGenerationContext,
+    SpurGearGenerator, SpurGearInvoluteToothDesignGenerator,
+)
 
 PARAM_HELIX_ANGLE = 'HelixAngle'
 INPUT_ID_HELIX_ANGLE = 'helixAngle'
@@ -31,15 +38,13 @@ class HelicalGearGenerator(SpurGearGenerator):
     def generateName(self):
         module = self.getParameter(PARAM_MODULE)
         toothNumber = self.getParameter(PARAM_TOOTH_NUMBER)
-        thickness = self.getParameter('Thickness')
+        thickness = self.getParameter(PARAM_THICKNESS)
         helixAngle = self.getParameter(PARAM_HELIX_ANGLE)
         return 'Helical Gear (M={}, Tooth={}, Thickness={}, Angle={})'.format(
             module.expression, toothNumber.expression, thickness.expression, helixAngle.expression)
 
     def addExtraPrimaryParameters(self, inputs: adsk.core.CommandInputs):
-        (helixAngle, ok) = get_value(inputs, INPUT_ID_HELIX_ANGLE, 'rad')
-        if not ok:
-            raise Exception('Invalid helix angle value')
+        helixAngle = get_value(inputs, INPUT_ID_HELIX_ANGLE, 'rad')
         self.addParameter(PARAM_HELIX_ANGLE, helixAngle, 'rad', 'Helix angle for the helical gear')
 
     def filletHelixFactorExpression(self) -> str:
@@ -49,7 +54,7 @@ class HelicalGearGenerator(SpurGearGenerator):
     # relative to the base plane. Herringbone halves this so the mirror plane
     # sits in the middle of the gear body.
     def helicalPlaneOffset(self) -> adsk.core.ValueInput:
-        return self.getParameterAsValueInput('Thickness')
+        return self.getParameterAsValueInput(PARAM_THICKNESS)
 
     def chamferWantEdges(self):
         return 4
@@ -80,17 +85,10 @@ class HelicalGearGenerator(SpurGearGenerator):
 
         lofts = self.getComponent().features.loftFeatures
 
-        def findProfile(profiles):
-            for profile in profiles:
-                for loop in profile.profileLoops:
-                    if loop.profileCurves.count == 6:
-                        return profile
-            return None
-
-        bottomToothProfile = findProfile(bottomSketch.profiles)
-        topToothProfile = findProfile(topSketch.profiles)
-        if not bottomToothProfile or not topToothProfile:
-            raise Exception('could not find tooth profile for loft')
+        bottomToothProfile = find_profile_by_curve_counts(
+            bottomSketch, nurbs=2, arcs=2, lines=2)
+        topToothProfile = find_profile_by_curve_counts(
+            topSketch, nurbs=2, arcs=2, lines=2)
 
         loftInput = lofts.createInput(adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
         loftInput.loftSections.add(bottomToothProfile)

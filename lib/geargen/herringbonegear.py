@@ -1,10 +1,14 @@
-from .helicalgear import *
+import adsk.core, adsk.fusion
+from .base import GenerationContext
+from .spurgear import PARAM_MODULE, PARAM_TOOTH_NUMBER, PARAM_THICKNESS
+from .helicalgear import (
+    PARAM_HELIX_ANGLE, HelicalGearCommandConfigurator,
+    HelicalGearGenerationContext, HelicalGearGenerator,
+)
 
 class HerringboneGearCommandConfigurator(HelicalGearCommandConfigurator): pass
 
-class HerringboneGearGenerationContext(HelicalGearGenerationContext):
-    def __init__(self):
-        super().__init__()
+class HerringboneGearGenerationContext(HelicalGearGenerationContext): pass
 
 class HerringboneGearGenerator(HelicalGearGenerator):
     def newContext(self):
@@ -16,7 +20,7 @@ class HerringboneGearGenerator(HelicalGearGenerator):
     def generateName(self):
         module = self.getParameter(PARAM_MODULE)
         toothNumber = self.getParameter(PARAM_TOOTH_NUMBER)
-        thickness = self.getParameter('Thickness')
+        thickness = self.getParameter(PARAM_THICKNESS)
         helixAngle = self.getParameter(PARAM_HELIX_ANGLE)
         return 'Herringbone Gear (M={}, Tooth={}, Thickness={}, Angle={})'.format(
             module.expression, toothNumber.expression, thickness.expression, helixAngle.expression)
@@ -24,7 +28,7 @@ class HerringboneGearGenerator(HelicalGearGenerator):
     # The mirror plane sits in the middle of the body, so the loft only covers
     # half the thickness.
     def helicalPlaneOffset(self) -> adsk.core.ValueInput:
-        thickness = self.getParameter('Thickness').value
+        thickness = self.getParameter(PARAM_THICKNESS).value
         return adsk.core.ValueInput.createByReal(thickness / 2)
 
     def buildTooth(self, ctx: GenerationContext):

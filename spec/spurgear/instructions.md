@@ -18,7 +18,12 @@ Target Plane: user-specified plane. The gear's front face is sketched on this pl
 
 Anchor Point: user-specified point. The gear center is aligned with this point. May be a `ConstructionPoint` or a `SketchPoint`. The anchor point is projected into the Tools sketch on the target plane; the Gear Profile sketch then constrains its own local origin (0,0,0) to that projected point, so changing the anchor point downstream moves the gear.
 
-Module: user-supplied number. Specifies the module of the gear.
+Module: user-supplied number. Specifies the module of the gear. The dialog input is unitless
+(`''`) with default `1`, and the `Module` user parameter is registered with units **`''`
+(unitless) — NOT `'mm'`** — so `generateName` renders `M=1` (no unit suffix) and the derived
+`mm`-registered expressions (`PitchCircleDiameter = Module * ToothNumber`, `RootCircleDiameter =
+PitchCircleDiameter - 2.5 * Module`, …) read the unitless `Module` factor exactly as the proven
+implementation does (Fusion accepts the unitless term inside those `mm` expressions).
 
 Tooth Number: user-specified integer. Default 17.
 
@@ -224,7 +229,13 @@ Specific boundaries subclasses depend on (do not move the work elsewhere):
 - Methods `drawCircles`, `drawTooth`, `drawBore`, and `calculateInvolutePoint(baseRadius,
   intersectionRadius)` must all exist. The tooth generator also exposes parameter accessors
   `getParameter(name)` and `getParameterValue(name)` (these names are part of the reproduced
-  surface).
+  surface). `drawBore(anchorPoint, diameter)` takes the anchor entity and the bore diameter (cm),
+  projects the anchor into the sketch, draws the bore circle of that diameter centered on the
+  projection with a driving diameter dimension, and returns the circle.
+- When a drawing step needs one of the four circles drawn by `drawCircles` (the tip circle for
+  the tooth-top point, the root circle for the flank-to-root lines), either keep direct references
+  from `drawCircles` or locate it with the framework's `find_circle_by_radius(sketch, radius)`
+  (from `.utilities`) — never fall back to an arbitrary circle on a failed radius match.
 - **`calculateInvolutePoint(baseRadius, intersectionRadius)` — exact math** (this fully pins the
   flank shape; do not infer it). Returns the point on the involute of `baseRadius` at the radius
   where the unrolled string reaches `intersectionRadius`; returns `None` when `intersectionRadius
@@ -318,13 +329,13 @@ If the Generate-Sketches-Only input is `true`, make the Gear Profile sketch visi
 
 ### 7: Extrude the Tooth
 
-Find the single tooth cross-section profile in the Gear Profile sketch. The profile has 2 NURBS (the two flanks), 2 arcs (the tooth top and the root arc between them), and — unless `toothProfileIsEmbedded` — 2 short line segments (the flank-to-root lines). Reject loops whose curve counts don't match.
+Find the single tooth cross-section profile in the Gear Profile sketch. The profile has 2 NURBS (the two flanks), 2 arcs (the tooth top and the root arc between them), and — unless `toothProfileIsEmbedded` — 2 short line segments (the flank-to-root lines). Find it with the framework helper — `find_profile_by_curve_counts(sketch, nurbs=2, arcs=2, lines=0 if ctx.toothProfileIsEmbedded else 2)` (from `.utilities`) — do not re-implement the loop search; the helper rejects loops whose curve counts don't match and raises when nothing matches.
 
 Extrude this profile from the target plane to the Extrusion End Plane (`ToEntityExtentDefinition`, PositiveExtentDirection) as a **New Body**. Name the feature `Extrude tooth`. Store the resulting body as `ctx.toothBody`.
 
 ### 8: Chamfer Tooth (optional)
 
-If Apply-Chamfer-To-Teeth > 0, round off every edge of the tooth's front face *except* the arc shared with the root valley. The target face is identified by its edge count matching the loop we drew in step 4 — 6 for a spur tooth, different for subclasses. Skipping the root arc is the critical part: chamfering it would eat into the neighbouring tooth.
+If Apply-Chamfer-To-Teeth > 0, round off every edge of the tooth's front face *except* the arc shared with the root valley. The target face is identified by its edge count matching the loop we drew in step 4 — 6 for a spur tooth, different for subclasses. When both end caps of the tooth body match the edge count, take the **front** one: the face that is coplanar with the gear's sketch plane (`sketchPlane.isCoPlanarTo(face.geometry)` with `sketchPlane = ctx.gearProfileSketch.referencePlane.geometry` — the same test step 9 uses, inverted). Skipping the root arc is the critical part: chamfering it would eat into the neighbouring tooth. (Known, accepted limitation: an **embedded** profile yields a 4-edge front face while `chamferWantEdges()` stays 6 for spur, so chamfering an embedded spur tooth raises the front-face-not-found error — users disable chamfer for such gears.)
 
 **Identify the root arc by radius, not by relative size.** Walk the front face's edges and add each to the chamfer edge set, *except* skip any edge that is an `Arc3DCurveType` whose `edge.geometry.radius` equals `Root Circle Radius` (compare against the registered parameter's `.value`, tolerance `0.001` cm). That radius match is exact — the root arc is the only edge lying on the root circle — so it is more robust than "the smallest-radius arc." (This is the same radius-matching technique step 11 uses to find the root cylinders.) Everything else on the face — the two flanks, the tooth-top arc, and the two flank-to-root lines — gets chamfered. Apply with `chamferFeatures.createInput2()` → `chamferEdgeSets.addEqualDistanceChamferEdgeSet(edges, <ChamferTooth value>, False)`.
 
@@ -332,7 +343,7 @@ Helical and herringbone subclasses override the expected edge count (a lofted em
 
 ### 9: Extrude the Body
 
-Find the gear body profile — the annular loop bounded by **exactly 2 arcs** (the root circle and the tip circle): a `profileLoop` whose `profileCurves.count == 2` and every curve's `geometry.curveType` is `Arc3DCurveType`. Extrude it from the target plane to the Extrusion End Plane (`ToEntityExtentDefinition.create(ctx.extrusionEndPlane, False)`, `PositiveExtentDirection`) as a **New Body**. Name the feature `Extrude body` and the resulting body `Gear Body`.
+Find the gear body profile — the annular loop bounded by **exactly 2 arcs** (the root circle and the tip circle): `find_profile_by_curve_counts(sketch, arcs=2)` (from `.utilities`). Extrude it from the target plane to the Extrusion End Plane (`ToEntityExtentDefinition.create(ctx.extrusionEndPlane, False)`, `PositiveExtentDirection`) as a **New Body**. Name the feature `Extrude body` and the resulting body `Gear Body`.
 
 While iterating the new body's faces (`extrude.bodies.item(0).faces`), capture two references needed later. Classify each face by `face.geometry.surfaceType`:
 
