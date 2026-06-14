@@ -103,6 +103,15 @@ The spec + playbook together MUST be sufficient. If they are not, fix the spec o
      `VirtualSpurProxy`/`Val`), nor carry a private re-implementation of one. A shadow or
      re-implementation means the spec/playbook failed to direct the generator to the helper — fix
      there and regenerate.
+   - **Input-read consistency check:** run
+     `python3 .claude/skills/generate-gear/check_input_read.py .tmp/<gear>.generated.py`. It pairs
+     each `add*Input(id, …)` declaration in `configure()` with the `get_*(inputs, id, …)` read by
+     input id and **exits 1 (BLOCKING)** on a type mismatch — reading an `addBoolValueInput` with
+     `get_value` (a runtime `AttributeError: 'BoolValueCommandInput' has no attribute 'expression'`),
+     a value input with `get_boolean`, etc. The pyright gate **cannot** catch this — the readers
+     resolve the input by a runtime string key, so the concrete input type is invisible to static
+     typing. A mismatch means the spec under-specified how that input is read (`[PB-INPUT-READ]`);
+     fix the spec/playbook and regenerate.
 
 5. **Iterate.** A parse error, a missing contract item, or an unresolved dependency means the
    **spec or playbook** is incomplete or wrong — fix it there (never hand-edit the generated file,
@@ -224,9 +233,13 @@ the spec.
 > 2. `python3 .claude/skills/generate-gear/pyright_check.py .tmp/<gear>.generated.py` reports
 >    **0 BLOCKING** (undefined names / typos and wrong-adsk-submodule refs). REVIEW findings are
 >    advisory stub noise — do not act on them or change the code to silence them.
-> 3. Every class / method / constant / input id / declared helper the spec's contract sections name
+> 3. `python3 .claude/skills/generate-gear/check_input_read.py .tmp/<gear>.generated.py` exits 0:
+>    every dialog input is read with the helper matching its declared type (`get_value` for
+>    value/string inputs, `get_boolean` for `addBoolValueInput`, `get_selection` for selections —
+>    `[PB-INPUT-READ]`). A mismatch is a real runtime crash pyright can't see.
+> 4. Every class / method / constant / input id / declared helper the spec's contract sections name
 >    is present, spelled exactly.
-> 4. Every name imported from another module exists in that module.
+> 5. Every name imported from another module exists in that module.
 >
 > **Report:** whether the self-checks pass (with line numbers for the contract items); the final
 > line count; and — most important — a precise list of any place the spec was **ambiguous or

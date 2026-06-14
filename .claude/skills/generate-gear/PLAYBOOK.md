@@ -98,6 +98,23 @@ Helpers (free functions in `base.py`): `get_selection(inputs, id)` → list of s
 `get_boolean(inputs, id)` → bool; `get_value(inputs, id, units)` → `ValueInput` (raises on an
 invalid expression).
 
+**[PB-INPUT-READ] Read each input with the helper that matches the type it was declared with.** The
+read helper is fixed by the `add*Input` used in `configure()`, not chosen freely:
+
+| declared in `configure()` | read with | reads |
+|---|---|---|
+| `addValueInput` / `addStringValueInput` | `get_value(inputs, id, units)` | `.expression` → `ValueInput` |
+| `addBoolValueInput` (checkbox) | `get_boolean(inputs, id)` | `.value` (bool) |
+| `addSelectionInput` | `get_selection(inputs, id)` | `.selection(i).entity` |
+
+A boolean dialog input is therefore read with **`get_boolean`**, then registered as a `1`/`0`
+user-parameter and read back later via `getParameterAsBoolean` — do **NOT** call `get_value` on a
+bool input: `get_value` accesses `input.expression`, which `BoolValueCommandInput` does not have, and
+Fusion raises `AttributeError: 'BoolValueCommandInput' object has no attribute 'expression'` at
+generation time. (pyright cannot catch this — the helper resolves the input by a runtime string key,
+so the concrete input type is invisible to static typing; the `check_input_read.py` gate does catch
+it.) A dropdown (`addDropDownCommandInput`) is read via `itemById(id).selectedItem`, never a `get_*`.
+
 **[PB-GET-VALUE-CONTRACT]** `get_value` ALWAYS returns a `ValueInput` ready to pass straight to
 `addParameter` / `userParameters.add` — string-value (expression) inputs included: a text that
 names an existing user parameter becomes a live `createByString` reference; a literal expression
