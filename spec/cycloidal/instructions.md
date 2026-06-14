@@ -25,8 +25,10 @@ them by name; exported via `lib/geargen/__init__.py`):
   (inherited); implements `generate(self, inputs)` and the call-graph methods below; relies on inherited
   `deleteComponent()` for error cleanup. Overrides `prefixBase()` to return `'CycloidalDrive'`.
 
-**Generation Context: none.** The build is a single sketch; carry the few handles as locals. (No
-`CycloidalDriveGenerationContext` class in this minimal step.)
+**Generation Context: none.** No `CycloidalDriveGenerationContext` class; carry handles on `self` —
+per-disc handles are **lists** indexed by the disc index `d` (`self.diskBodies`, `self.diskAxes`,
+`self.lobeSplines`, `self.outputHoles`, `self.lobeDiskCentres`, `self.discPlanes`), the rest scalars
+(`self.driveAxis`, `self.housingRing`, `self.ringCasing`, `self.cam`, `self.outputPlate`).
 
 **Dependencies: none.** Imports only the framework (`base`, `misc`, `utilities`, `fusion360utils`).
 
@@ -34,17 +36,17 @@ them by name; exported via `lib/geargen/__init__.py`):
 
 One command invocation creates a new child component (named per `generateName`) of the user-selected
 Parent Component. It draws six sketches — `Rotor Lobe` (one fully-constrained open lobe section + its
-reference frame), `Output Hole` (one output hole), `Housing Ring` (the base annulus + projected pin circle
-+ ring pin, on a construction plane `1 mm` below the disk), `Disk Bore` (the enlarged center bore),
+reference frame), `Output Hole` (one output hole), `Housing Ring` (the base annulus, on a construction plane
+`1 mm` below the disk) + `Ring Casing` (one swept-contour section), `Disk Bore` (the enlarged center bore),
 `Eccentric Cam` (cam outer + input bore), and `Output Plate` (the output disc + one output pin, on a plane
 `1 mm` above the disk) — and builds the **rotor disk** (with its **center bore**), **`M` output holes**, the
-**Housing Ring base**, **`N` full-length ring pins**, the **eccentric input cam**, and the **output plate +
-`M` output pins**. The **Anchor is the drive axis** `O`; the
+**`Housing` body** (base annulus + pinless swept-contour ring casing, Combined into one part), the
+**eccentric input cam**, and the **output plate + `M` output pins**. The **Anchor is the drive axis** `O`; the
 **cycloidal disk is eccentric**, its centre
-`Od = O + E·X̂` offset by the Eccentricity. So the parts on the fixed axes (pin circle, ring pins, Housing
-Ring, the cam's input bore, **the output plate + output pins**) are built on `O`, while the **disk**
+`Od = O + E·X̂` offset by the Eccentricity. So the parts on the fixed axes (the `Housing` base + casing
+contour, the cam's input bore, **the output plate + output pins**) are built on `O`, while the **disk**
 geometry (root circle, lobe, output holes, center bore) and the **cam outer** are built on `Od` — the disk
-sits eccentrically inside the pin ring (`[CYCLOIDAL-F-DISK-CENTER]`). The **output pins are on `O`** but the
+sits eccentrically inside the casing contour (`[CYCLOIDAL-F-DISK-CENTER]`). The **output pins are on `O`** but the
 disk's **output holes are on `Od`** and oversized by `2E`, so the pins pass through as the disk orbits. Each
 profile lives in its own sketch so they never interfere.
 
@@ -57,13 +59,19 @@ parameters under the `CycloidalDrive<N>_` prefix.
   selection (e.g. a planar face) is normalized to a coplanar construction plane at generation time.
 - **Anchor Point** — user-specified `ConstructionPoint` or `SketchPoint`; the lobe is centred on its
   in-plane projection `O`.
+- **Disc Count** — a **dropdown** (`DropDownCommandInput`, `TextListDropDownStyle`) with items `'1'` and
+  `'2'`, default **`'1'`**. `1` = single disc (today's build); `2` = two discs 180° opposed for balance.
+  Read as int from the selected item's name. ⚠️ **`2` requires even `Pin Count` and even `Output Pin
+  Count`** (see Validity) — the 180° disc-2 construction only maps pins→pins / holes→holes when both are
+  even.
 - **Pin Count** — integer ≥ 4 (`N`). Sets `Lobes = N − 1`. Default **16**.
 - **Pin Circle Diameter** — mm > 0. `R = Pin Circle Radius` (pitch radius). Default 90 mm.
 - **Pin Diameter** — mm ≥ 0. The ring-pin diameter, **`0` = auto** (derive `Rr` from the bounds-mean).
   Default **0**. If > 0, `Rr = Pin Diameter / 2` (an explicit override).
 - **Eccentricity** — mm > 0 (`E`). Default 1.5 mm. (Validity: `E < R/N`; reject otherwise.)
 - **Disk Clearance** — mm ≥ 0 (`c`). Backlash cut into the profile (`Rr_eff = Rr + c`). Default 0.3 mm.
-- **Disc Thickness** — mm > 0. Axial thickness of the rotor disk (the lobe-sector extrude depth). Default 8 mm.
+- **Disc Thickness** — mm > 0. Axial thickness of **each** rotor disk (the lobe-sector extrude depth). Default 8 mm.
+- **Disc Gap** — mm ≥ 0. Axial clearance between disc 1 and disc 2 (two-disc only). Default **0.5 mm**.
 - **Center Bearing Diameter** — mm > 0. The disk **center-bore** diameter **=** the eccentric **cam outer
   diameter** (the disk rides on the cam). Centred on the disk centre `Od`. Default **30 mm**.
 - **Input Shaft Diameter** — mm ≥ 0. Bore through the cam centred on the **drive axis `O`** for the input
@@ -77,8 +85,9 @@ parameters under the `CycloidalDrive<N>_` prefix.
 - **Output Pin Count** — integer ≥ 3 (`M`). Number of output pins/holes. Default **6**.
 - **Output Pin Diameter** — mm ≥ 0. The output-pin diameter, **`0` = auto** (derive from the bounds-mean).
   Default **0**. If > 0, it is the explicit pin diameter. The output **hole** is always this pin `+ 2E`.
-- **Housing Wall** — mm > 0 (`wall`). Radial wall thickness of the ring-pin base annulus (the housing
-  ring extends `wall` beyond the pins on both sides of the pin circle). Default **5 mm**.
+- **Housing Wall** — mm > 0 (`wall`). Radial wall thickness of the pinless casing: the outer wall clears the
+  rolling contour's furthest reach (the peak at `R − PinRadius + 2·E`) by `wall`, so this is the **minimum**
+  wall thickness (a little more at the contour valleys). Default **3 mm** (thin; no pins to enclose).
 - **Base Thickness** — mm > 0. Axial thickness of the ring-pin base (Housing Ring); the ring pins run from
   its far face up to the disk top. Default **5 mm**.
 - **Output Plate Thickness** — mm > 0. Axial thickness of the **output plate** (the disc carrying the `M`
@@ -96,8 +105,12 @@ else `Rop·sin(π/M) − E`; `D_hole = D_pin + 2E`.
 Derived (Python-precomputed, internal cm): `Lobes = N − 1`; `PinCircleRadius`, `OutputPinCircleRadius`;
 **`PinRadius`** (resolved per above); `Rr_eff = PinRadius + c`; `Rv = R − Rr_eff − E`;
 **`OutputHoleDiameter = D_hole`** (resolved per above); and the **ring-pin base annulus** diameters
-**`HousingInnerDiameter = 2·(R − PinRadius − Wall)`** and **`HousingOuterDiameter = 2·(R + PinRadius +
-Wall)`** (the housing surrounds the pins by `Wall` on each side of the pin circle); and the **output-plate**
+**`HousingInnerDiameter = 2·(R − PinRadius − Wall)`** and **`HousingOuterDiameter = 2·(R − PinRadius + 2·E +
+Wall)`** (**pinless** — the casing is a thin wall around the rolling contour, NOT a thick ring around the old
+pin circle. The disc's furthest reach is the **contour peak at radius `R − PinRadius + 2·E`** [exact: the
+lobe-tip envelope `env_max + c`, the `c` cancels — verified]; the outer wall clears it by `Wall`, so the
+**minimum wall thickness is exactly `Wall`** at the peaks, a bit more at the valleys. The inner floor lip sits
+`Wall` inside the contour valley `R − PinRadius`); and the **output-plate**
 diameter **`OutputPlateDiameter = OutputPinCircleDiameter + D_pin + 2·Wall`** (= `2·Rop + D_pin + 2·Wall`,
 the plate covers the output pins by `Wall`). The resolved **output-pin diameter** is `D_pin = OutputHoleDiameter − 2E`. Validity (reject with a clear message, on the
 **resolved** values): `E < PinRadius < R·sin(π/N)`; `D_pin > 0`; `D_hole < 2·Rop·sin(π/M)`; `E < R/N`;
@@ -108,6 +121,9 @@ Also (cam/bore): `Input Shaft Diameter < Center Bearing Diameter`; the input bor
 (`E + InputShaftDiameter/2 < CenterBearingDiameter/2`); and the **enlarged** disk center bore must clear the
 output holes (`(CenterBearingDiameter + BearingClearance)/2 < Rop − D_hole/2`). Reject with a clear message
 otherwise.
+Also (two-disc): when **`Disc Count == 2`**, require **`N` even AND `M` even** — the 180° disc-2
+construction maps pins→pins only for even `N` and output-holes→output-pins only for even `M`. Reject with a
+clear message (e.g. "Two discs require an even Pin Count and even Output Pin Count").
 
 ### Exact input ids and parameter-name strings (verbatim)
 
@@ -116,12 +132,14 @@ otherwise.
 | Parent Component (selection) | `parentComponent` | — |
 | Target Plane (selection) | `plane` | — |
 | Anchor Point (selection) | `anchorPoint` | — |
+| Disc Count (dropdown 1/2) | `discCount` | — |
 | Pin Count | `pinCount` | `PinCount` |
 | Pin Circle Diameter | `pinCircleDiameter` | `PinCircleDiameter` |
 | Pin Diameter | `pinDiameter` | `PinDiameter` |
 | Eccentricity | `eccentricity` | `Eccentricity` |
 | Disk Clearance | `diskClearance` | `DiskClearance` |
 | Disc Thickness | `discThickness` | `DiscThickness` |
+| Disc Gap | `discGap` | `DiscGap` |
 | Output Pin Circle Diameter | `outputPinCircleDiameter` | `OutputPinCircleDiameter` |
 | Output Pin Count | `outputPinCount` | `OutputPinCount` |
 | Output Pin Diameter | `outputPinDiameter` | `OutputPinDiameter` |
@@ -136,13 +154,24 @@ otherwise.
 `Pin Diameter` and `Output Pin Diameter` are `addValueInput` defaulting to **`0`** (`0` = auto-derive).
 Derived parameter names (kept verbatim): `Lobes`, `PinCircleRadius`, `OutputPinCircleRadius`,
 `PinRadius` (resolved), `OutputHoleDiameter` (resolved), `HousingInnerDiameter`, `HousingOuterDiameter`,
-`OutputPlateDiameter`.
+`OutputPlateDiameter`. (The ring casing's inner wall is a Python-computed swept-envelope spline — a numeric
+snapshot, not a parameter-referenced dimension.)
+
+⚠️ **Registration mode — `PinRadius` and `OutputHoleDiameter` MUST be `createByReal` numeric snapshots**
+(the Python-**resolved** value, in internal cm), **NOT** live `createByString` expressions. They resolve by an
+**auto-vs-override branch in Python** (`if Pin Diameter > 0 …`, and the auto formula uses `sin(π/N)`), which a
+live Fusion expression cannot reproduce cleanly — so register the already-resolved float: `self.addParameter(
+PARAM_PIN_RADIUS, adsk.core.ValueInput.createByReal(Rr), 'mm', …)` and likewise `createByReal(D_hole)` for
+`OutputHoleDiameter`. Other dims then reference these two **by name** in their expressions (the names exist as
+real parameters; their *value* is the snapshot). `PinCircleRadius`, `OutputPinCircleRadius`,
+`HousingInnerDiameter`, `HousingOuterDiameter`, `OutputPlateDiameter`, `Lobes` stay **live** `createByString`
+expressions (they compose cleanly from the registered inputs, including the snapshot `PinRadius`).
 
 **Dialog display order (`configure()` adds inputs in exactly this sequence):** Target Plane, Anchor
-Point, Pin Count, Pin Circle Diameter, Pin Diameter, Eccentricity, Disk Clearance, Disc Thickness, Center
-Bearing Diameter, Input Shaft Diameter, Bearing Clearance, Output Pin Circle Diameter, Output Pin Count,
-Output Pin Diameter, Housing Wall, Base Thickness, Output Plate Thickness, Chamfer Size, **Parent Component
-(last)**. Selections first two; Parent last. All numerics are `addValueInput` (read with `get_value`);
+Point, Disc Count, Pin Count, Pin Circle Diameter, Pin Diameter, Eccentricity, Disk Clearance, Disc
+Thickness, Disc Gap, Center Bearing Diameter, Input Shaft Diameter, Bearing Clearance, Output Pin Circle
+Diameter, Output Pin Count, Output Pin Diameter, Housing Wall, Base Thickness, Output Plate Thickness,
+Chamfer Size, **Parent Component (last)**. Selections first two; Parent last. All numerics are `addValueInput` (read with `get_value`);
 selections via `get_selection`. `Pin Count` (`N`) and `Output Pin Count` (`M`) are integer counts —
 register the parameters but **read the counts from the dialog value rounded to int** for the Python
 formulas (`sin(π/N)`, `sin(π/M)`; Fusion user params are floats).
@@ -158,8 +187,15 @@ formulas (`sin(π/N)`, `sin(π/M)`; Fusion user params are floats).
 - **Every driving dimension is PARAMETER-REFERENCED (coded, not a numeric fluke).** Set each driving
   dimension's `.parameter.expression` to reference the registered user parameter(s) **by name** (the
   generator registers all of them and keeps handles), so the sketch is genuinely parametric and the
-  references are deterministic every regen:
-  | dimension | `.parameter.expression` |
+  references are deterministic every regen.
+  ⚠️ **The names in the table below are the LOGICAL parameter names — the actual registered parameters are
+  PREFIXED (`CycloidalDrive<N>_…`). EVERY name in an expression must be substituted with its registered
+  name via `self.parameterName(PARAM_…)`, including inside multi-term expressions** (e.g. the root-circle
+  diameter is `'2 * ({} - {} - {} - {})'.format(parameterName(PinCircleRadius), parameterName(PinRadius),
+  parameterName(DiskClearance), parameterName(Eccentricity))`). A bare-name expression like
+  `'2 * (PinCircleRadius - …)'` raises **`RuntimeError: 3 : Expression is invalid`** because no parameter
+  with that unprefixed name exists.
+  | dimension (param names are LOGICAL — prefix each via `parameterName`) | `.parameter.expression` |
   |---|---|
   | eccentricity offset (`O→Od`) | `Eccentricity` |
   | lobe-pitch angle | `360 deg / Lobes` |
@@ -167,9 +203,8 @@ formulas (`sin(π/N)`, `sin(π/M)`; Fusion user params are floats).
   | root-circle diameter | `2 * (PinCircleRadius - PinRadius - DiskClearance - Eccentricity)` (= `2·Rv`) |
   | output-pin-circle diameter | `OutputPinCircleDiameter` |
   | output-hole diameter | `OutputHoleDiameter` |
-  | ring-pin diameter | `2 * PinRadius` |
   | housing inner diameter | `HousingInnerDiameter` |
-  | housing outer diameter | `HousingOuterDiameter` |
+  | housing / casing outer diameter | `HousingOuterDiameter` |
   | cam outer diameter | `CenterBearingDiameter` |
   | disk center-bore (enlarged) | `CenterBearingDiameter + BearingClearance` |
   | cam input-shaft bore | `InputShaftDiameter` |
@@ -184,41 +219,47 @@ formulas (`sin(π/N)`, `sin(π/M)`; Fusion user params are floats).
 
 ## Method contract — call graph
 
+The build loops over **`D = Disc Count`** discs (`D ∈ {1,2}`). Per-disc quantities (`d = 0..D−1`, `T =
+DiscThickness`, `g = DiscGap`): centre **`Od_d = O + s_d·E·X̂`** (`s_0 = +1`, `s_1 = −1`); clocking
+**`phi_d = d·π`** (disc 1 is disc 0 rotated 180° about `O`); z-base **`z_d = d·(T + g)`** (disc `d` spans
+`[z_d, z_d + T]`); plane = `self.plane` for `d=0`, else a construction plane offset `z_d`. Stack top
+**`stackTop = (D−1)·(T+g) + T`**. The **per-disc stashes are LISTS** indexed by `d`: `self.diskBodies[d]`,
+`self.diskAxes[d]`, `self.lobeSplines[d]`, `self.outputHoles[d]`, `self.lobeDiskCentres[d]`,
+`self.discPlanes[d]`. (`self.lobePinCircle` — disc 0's pin circle only — is still scalar, for the ring-pin
+projection.) ⚠️ **EVERY Fusion expression string — construction-plane offsets AND extrude extents, not just
+`.parameter.expression` dims — must use the PREFIXED parameter name via `self.parameterName(PARAM_…)`.** The
+params register under `CycloidalDrive<N>_`, so a bare `'DiscThickness'`/`'DiscGap'` in any
+`ValueInput.createByString(...)` raises **`RuntimeError: invalid expression`**. Build the literal string for
+the current `D` substituting prefixed names. Let `nT = self.parameterName(PARAM_DISC_THICKNESS)`,
+`nG = self.parameterName(PARAM_DISC_GAP)`. Then **`stackTopExpr`** = `nT` for `D=1`, `'2 * {} + {}'.format(nT,
+nG)` for `D=2`; the **disc-`d` plane offset** = `'{} * ({} + {})'.format(d, nT, nG)`. (`DiscCount` is a
+dropdown, not a param, so it never appears in an expression — only as the literal integer multiplier `d`/`D`.)
+
 ```
 generate(inputs)
-  → processInputs(inputs)            # read selections; getOccurrence(); register params; precompute dims
-  → generateName()                   # 'Cycloidal Drive (N=…):L'  (L = N−1, the reduction ratio)
+  → processInputs(inputs)            # read selections incl Disc Count (dropdown→int); register params;
+                                     #   precompute dims; ⚠️ if D==2: require even N and even M (Validity)
+  → generateName()                   # 'Cycloidal Drive (N=…):L'
   → normalize self.plane to a ConstructionPlane
-  → buildLobeSketch()                # 'Rotor Lobe': pin + output-pin circles on O; ecc disk-centre Od=O+E;
-                                     #   root circle + locked open lobe + 2 spokes + angle dim on Od.
-                                     #   Stashes the Od sketch point on self.lobeDiskCentre.
-  → buildDisk()                      # extrude the lobe pie-sector (Disc Thickness) → New Body 'Cycloidal
-                                     #   Disk' → buildDiskAxis(capFace): axis ⟂ sketch at Od FROM THE BODY
-                                     #   FACE (setByPerpendicularAtPoint; setByLine is unsupported) →
-                                     #   circular-pattern ×L (= N−1) about self.diskAxis → Join ×L into one
-                                     #   'Cycloidal Disk' body (self.diskBody)
-  → buildOutputHoleSketch()          # 'Output Hole' (separate sketch): output-hole circle + 1 hole on Od
-  → buildOutputHoles()               # extrude-CUT the hole through self.diskBody → circular-pattern the cut
-                                     #   FEATURE ×M (= Output Pin Count) about self.diskAxis → M output holes
-  → buildRingPins()                  # 'Ring Housing Plane' 1mm below disk (opposite side); one 'Housing Ring'
-                                     #   sketch (annulus + projected pin circle + ring pin) → solid ring
-                                     #   extruded AWAY from disk by Base Thickness → drive axis at O (cap) →
-                                     #   'Ring Pin' two-sided extrude (housing bottom ↔ disk top) → combine-
-                                     #   CUT the pin from the housing (keepTool) → CHAMFER pin ends → pattern
-                                     #   pin + hole + chamfer ×N (= Pin Count) about the drive axis
-  → buildCam()                       # 'Disk Bore' sketch: CUT disk center bore (CenterBearingDiameter +
-                                     #   BearingClearance) through self.diskBody. 'Eccentric Cam' sketch: cam
-                                     #   outer (CenterBearingDiameter) on Od + input bore (InputShaftDiameter)
-                                     #   on O → extrude cam annulus by Disc Thickness → 'Eccentric Cam'
-  → buildOutputPins()                # construction plane 1mm ABOVE disk (opposite housing); 'Output Plate'
-                                     #   sketch on O (solid disc + output-pin circle Rop + 1 pin) → plate
-                                     #   extruded AWAY from disk by Output Plate Thickness → 'Output Pin'
-                                     #   two-sided (plate top ↔ disk bottom, through output holes) → combine-
-                                     #   CUT the pin from the plate (keepTool) → CHAMFER pin ends → pattern
-                                     #   pin + socket + chamfer ×M (= Output Pin Count) about self.driveAxis
-  → buildChamfers()                  # if Chamfer Size > 0: chamfer the outer rim (both faces) of the rotor
-                                     #   disc, Housing Ring, Output Plate (_chamferCapRims). Pin-end chamfers
-                                     #   are done in buildRingPins/buildOutputPins (inside their patterns).
+  → for d in range(D):               # build each rotor disc on its own plane/centre/clocking
+       buildLobeSketch(d)            # plane(d); 'Rotor Lobe {d+1}': lobe about Od_d clocked phi_d; pin circle
+                                     #   on O (d=0 only, stash self.lobePinCircle). Stash Od_d, spline.
+       buildDisk(d)                  # extrude sector (T, from plane(d)) → axis ⟂ at Od_d → pattern ×L about
+                                     #   self.diskAxes[d] → Join → self.diskBodies[d] 'Cycloidal Disk {d+1}'
+       buildOutputHoleSketch(d)      # 'Output Hole {d+1}': output-hole circle + 1 hole on Od_d
+       buildOutputHoles(d)           # cut through diskBodies[d] → pattern ×M about diskAxes[d] (M holes)
+       buildDiskBore(d)              # 'Disc Bore {d+1}': cut center bore (CenterBearing+BearingClr) on Od_d
+  → buildCam()                       # D eccentric sections (section d: outer on Od_d, input bore on O,
+                                     #   over [z_d, z_d+T] (+ the gap below the next)) JOINED → 'Eccentric
+                                     #   Cam'; the ±E sections overlap centrally so the join is one solid
+  → buildRingPins()                  # base annulus 1mm below disc 0 + ring casing around the stack:
+                                     #   ONE pin-pitch section (outer arc + swept-envelope spline env+c + 2
+                                     #   spokes) → extrude TWO-SIDED (down to base top) → pattern ×N about O →
+                                     #   join sectors → JOIN casing+base into ONE 'Housing'. Disc rolls on the
+                                     #   smooth conjugate contour; no loose pins.
+  → buildOutputPins()                # plate 1mm ABOVE stackTop; pins span [plate top, disc-0 bottom] through
+                                     #   ALL discs' output holes → sockets + chamfer → pattern ×M about O
+  → buildChamfers()                  # chamfer outer rim of EVERY disc body + 'Housing' + Output Plate
 ```
 
 As with spur, creating the occurrence (first `addParameter` / `getOccurrence`) shifts Fusion's active
@@ -228,20 +269,51 @@ any parameter registration.** `generateName()` returns `'Cycloidal Drive (N={}):
 
 ## Instructions
 
+### 0: Two-disc parameterization (read first — generalizes §2–§8)
+`D = Disc Count` (`1` or `2`). The per-disc steps `buildLobeSketch`, `buildDisk`, `buildOutputHoleSketch`,
+`buildOutputHoles`, `buildDiskBore` each take a **disc index `d`** and run once per disc in a
+`for d in range(D)` loop (`[CYCLOIDAL-F-TWO-DISC]`). §2–§4 below describe **`d = 0`** (centre `Od_0 = O +
+E·X̂`, clocking `phi = 0`, on `self.plane`); for general `d` substitute:
+- **Plane** `plane(d)`: `self.plane` for `d = 0`; else a construction plane `setByOffset(self.plane,
+  ValueInput.createByString('{} * ({} + {})'.format(d, parameterName(PARAM_DISC_THICKNESS),
+  parameterName(PARAM_DISC_GAP))))` at `z_d = d·(T+g)` — **prefixed param names** (⚠️ above). Stash
+  `self.discPlanes[d]`; anchor every disc-`d` sketch to **`O`** on `plane(d)`.
+- **Centre** `Od_d = O + s_d·E·X̂`, `s_0 = +1`, `s_1 = −1`. So disc 1's eccentric-offset construction
+  (`[CYCLOIDAL-F-DISK-CENTER]`) points to **`−E·X̂`** — use the distance dim expression `Eccentricity` but
+  place `Od` at `(−E, 0)` and the spokes/lobe on it. (Generator: a signed `E`.)
+- **Clocking** `phi_d = d·π`. Disc 1's lobe is `disk_point(t, cx = −E, cy = 0, phi = π)` — exactly the **180°
+  rotation of disc 0 about `O`** (`disk_point(cx=−E, phi=π) ≡ −disk_point(cx=+E, phi=0)`), which is what
+  meshes the second disc with the **same** ring pins (even `N`) at the opposite eccentric. The two spokes
+  and the angle dim rotate with `phi_d` too (spoke 1 along `−X̂` for disc 1, i.e. the lobe's first valley at
+  `Od_1 + Rv·(cos π, −sin π) = Od_1 + (−Rv, 0)`).
+- **Names** carry `{d+1}`: `'Rotor Lobe {d+1}'`, `'Cycloidal Disk {d+1}'`, `'Output Hole {d+1}'`,
+  `'Disc Bore {d+1}'`. **Stash into the `[d]` lists** (`self.diskBodies[d]`, `self.diskAxes[d]`,
+  `self.lobeSplines[d]`, `self.outputHoles[d]`, `self.lobeDiskCentres[d]`). The **pin circle** (on `O`) is
+  drawn and stashed (`self.lobePinCircle`) **only for `d = 0`** — the ring pins reuse it.
+- The disc-`d` extrude, axis (`buildDiskAxis` from `plane(d)`-extrude cap face at `Od_d`), lobe pattern, and
+  output-hole pattern are all about **`self.diskAxes[d]`** (at `Od_d`). `buildDiskBore(d)` is the center-bore
+  cut (formerly inside `buildCam` step 1) on `Od_d` through `self.diskBodies[d]`.
+
+`buildCam`, `buildRingPins`, `buildOutputPins`, `buildChamfers` then run **once** over the whole stack (see
+their sections + `[CYCLOIDAL-F-TWO-DISC]` for the `stackTop`/two-section deltas). For `D = 1` everything
+reduces to today's single-disc build.
+
 ### 1: Normalize the Target Plane
 If the selected plane is not a `ConstructionPlane`, make a coplanar one via
 `ConstructionPlaneInput.setByOffset(selectedPlane, 0)` and use it (`[SPUR-F` parity).
 
-### 2: Fully-constrained lobe, on the eccentric disk centre — `buildLobeSketch()`
-Create a sketch named `Rotor Lobe` on the (normalized) plane. Anchor a fresh local origin `O` (the drive
-axis) to the Anchor (`[CYCLOIDAL-F-ANCHOR-CHAIN]`), then make the **eccentric disk centre** `Od = O + E·X̂`
+### 2: Fully-constrained lobe, on the eccentric disk centre — `buildLobeSketch(d)`
+(Takes the disc index `d` per **§0**; the text below is the `d=0` case — for general `d` substitute
+`plane(d)`, centre `Od_d = O + s_d·E·X̂`, clocking `phi_d = d·π`, and the `'… {d+1}'` names / `[d]` stashes.)
+Create a sketch named `Rotor Lobe {d+1}` on `plane(d)`. Anchor a fresh local origin `O` (the drive axis)
+to the Anchor (`[CYCLOIDAL-F-ANCHOR-CHAIN]`), then make the **eccentric disk centre** `Od_d = O + s_d·E·X̂`
 (`[CYCLOIDAL-F-DISK-CENTER]` — a point on a horizontal construction line from `O`, with a driving distance
-dimension = `Eccentricity`). The lobe is built about `Od`: `disk_point(t, cx = E, cy = 0, phi = 0)`.
-Per `[CYCLOIDAL-F-DISK-LOBE]`, build in order:
+dimension = `Eccentricity`; `s_d` is the sign). The lobe is `disk_point(t, cx = s_d·E, cy = 0, phi = d·π)`
+(disc 1 = disc 0 rotated 180° about `O`). Per `[CYCLOIDAL-F-DISK-LOBE]`, build in order:
 1. **pin circle** (radius `R`) construction, centred on **`O`** (the fixed ring), diameter dim, with an
-   **along-path text label `'Pin Circle'`** wrapped on it (`spurgear`'s `sketchTexts` idiom,
-   `[CYCLOIDAL-F-DISK-LOBE]`); **stash this circle on `self.lobePinCircle`** — `buildRingPins` projects it
-   onto the housing plane to place the ring pins (`[CYCLOIDAL-F-RING-PINS]`);
+   **along-path text label `'Pin Circle'`** — **for `d = 0` only**: **stash it on `self.lobePinCircle`** so
+   `buildRingPins` projects it (`[CYCLOIDAL-F-RING-PINS]`). (Disc 1 doesn't need its own pin circle; draw it
+   for the lobe reference if convenient but the ring pins use disc 0's.)
 2. **output-pin circle** (radius `Rop`) construction, centred on **`Od`** (the disk centre — concentric
    with the root circle, where the disk's output holes sit; the innermost reference circle), diameter dim,
    with an **along-path text label `'Output Pin Circle'`**;
@@ -258,123 +330,141 @@ Per `[CYCLOIDAL-F-DISK-LOBE]`, build in order:
 8. a **driving angular dimension** between the spokes = one **lobe pitch** `360°/(N − 1)` via
    `360 deg / Lobes`, text point in the minor wedge.
 After this the sketch is **fully constrained**. Leave it **visible**; build no bodies. **Stash the
-Root-circle-centre sketch point (`diskCentre`, `Od`) on `self.lobeDiskCentre`** for the next step.
+Root-circle-centre sketch point (`diskCentre`, `Od_d`) on `self.lobeDiskCentres[d]`** and the lobe spline on
+**`self.lobeSplines[d]`** for the next steps.
 
-### 2·A: Extrude + axis + pattern → the rotor disk — `buildDisk()` (and `buildDiskAxis(capFace)`)
-Build the full rotor from the Rotor-Lobe sketch's **one closed profile** — the **lobe pie-sector** bounded
-by spoke 1 + the lobe spline + spoke 2 (`[CYCLOIDAL-F-DISK-BODY]`):
-1. **Extrude** that sector profile by **`Disc Thickness`** as a **New Body** `'Cycloidal Disk'`
-   (`PositiveExtentDirection`). ⚠️ Select the sector profile by the one whose loop contains the **lobe
-   spline** — **not** `profiles.item(0)`, since the along-path text labels add their own letter profiles.
-2. **Disk axis — `buildDiskAxis(capFace)`** (`[CYCLOIDAL-F-DISK-AXIS]`): now that a body exists, create the
-   construction axis **perpendicular to the sketch at the Root-circle centre `Od`** **from the extrude's
-   planar cap face** via `setByPerpendicularAtPoint(capFace, self.lobeDiskCentre)`. Name it `'Disk Axis'`,
-   stash on `self.diskAxis`. ⚠️ **Pick the cap by NORMAL (∥ sketch normal) — use `extrude.startFaces.item(0)`,
-   NOT a nearest-/contains-`Od` planar-face search**: the pie-sector's two **spoke faces are also planar and
-   also contain the apex `Od`**, so a proximity search grabs a spoke → an **in-plane (horizontal) axis** →
-   the pattern (and the whole disk) comes out garbage (`[CYCLOIDAL-F-DISK-AXIS]`). ⚠️ **Do NOT use
-   `setByLine`** (face-less) and do **NOT** `activate()` — both fail/are unnecessary; a face-anchored axis
-   works on the non-active component, but **needs the body**, so this comes AFTER the extrude.
-3. **Circular-pattern the extrude FEATURE ×`L` (= `N − 1`)** about **`self.diskAxis`** over `360°` — pass
-   the **`ExtrudeFeature`** to `circularPatternFeatures.createInput`, **not** its body. The `L` sectors tile
-   the full rotor disk.
-4. **Join ×`L` → one disk body** (`[CYCLOIDAL-F-DISK-BODY]` step 4): combine the `L` lobe-sector bodies into
-   one with a `combineFeatures` Join (target = `component.bRepBodies.item(0)`, tools = the rest). Name the
-   result `'Cycloidal Disk'` and stash **`self.diskBody`** (the output-hole cut needs it).
+### 2·A: Extrude + axis + pattern → the rotor disk — `buildDisk(d)` (and `buildDiskAxis(capFace, d)`)
+(Takes the disc index `d` per §0.) Build disc `d` from its Rotor-Lobe sketch's **one closed profile** — the
+**lobe pie-sector** bounded by spoke 1 + the lobe spline + spoke 2 (`[CYCLOIDAL-F-DISK-BODY]`):
+1. **Extrude** that sector profile by **`Disc Thickness`** as a **New Body** `'Cycloidal Disk {d+1}'`
+   (`PositiveExtentDirection`, from `plane(d)`). ⚠️ Select the sector profile by the one whose loop contains
+   **`self.lobeSplines[d]`** — **not** `profiles.item(0)`, since the along-path text labels add their own
+   letter profiles.
+2. **Disk axis — `buildDiskAxis(capFace, d)`** (`[CYCLOIDAL-F-DISK-AXIS]`): now that a body exists, create the
+   construction axis **perpendicular to the sketch at the disc centre `Od_d`** **from the extrude's planar cap
+   face** via `setByPerpendicularAtPoint(capFace, self.lobeDiskCentres[d])`. Name it `'Disk Axis {d+1}'`,
+   stash on **`self.diskAxes[d]`**. ⚠️ **Pick the cap by NORMAL (∥ sketch normal) — use
+   `extrude.startFaces.item(0)`, NOT a nearest-/contains-`Od` planar-face search**: the pie-sector's two
+   **spoke faces are also planar and also contain the apex `Od_d`**, so a proximity search grabs a spoke → an
+   **in-plane (horizontal) axis** → the pattern comes out garbage (`[CYCLOIDAL-F-DISK-AXIS]`). ⚠️ **Do NOT
+   use `setByLine`** and do **NOT** `activate()`.
+3. **Circular-pattern the extrude FEATURE ×`L` (= `N − 1`)** about **`self.diskAxes[d]`** over `360°` — pass
+   the **`ExtrudeFeature`** to `circularPatternFeatures.createInput`, **not** its body; set
+   `patternComputeOption = AdjustPatternCompute` (`[CYCLOIDAL-F-OUTPUT-HOLES]`). The `L` sectors tile disc `d`.
+4. **Join ×`L` → one disc body.** ⚠️ **Join ONLY disc `d`'s OWN `L` sectors — not the whole component.** With
+   two discs, disc 0's body already exists when disc 1 builds, so `bRepBodies.item(0)` is the WRONG target.
+   Record **`base = component.bRepBodies.count` BEFORE step 1's extrude**; disc `d`'s sectors are then
+   `bRepBodies.item(base) … item(base + L − 1)`. `combineFeatures` Join: target = `bRepBodies.item(base)`,
+   tools = the other `L − 1` of disc `d`'s sectors. Name the result `'Cycloidal Disk {d+1}'` and stash
+   **`self.diskBodies[d]`**.
 
-### 3: Output hole, separate sketch — `buildOutputHoleSketch()`
-Create a **new** sketch named `Output Hole` (so the lobe and hole profiles never share a sketch). Anchor a
-local origin to `O` and rebuild the eccentric disk centre `Od` (`[CYCLOIDAL-F-DISK-CENTER]`). Then, on `Od`
+### 3: Output hole, separate sketch — `buildOutputHoleSketch(d)`
+(Takes the disc index `d` per §0; uses `plane(d)` and `Od_d`.) Create a **new** sketch named `Output Hole
+{d+1}` on `plane(d)` (so the lobe and hole profiles never share a sketch). Anchor a local origin to `O` and
+rebuild the eccentric disk centre `Od_d` (`[CYCLOIDAL-F-DISK-CENTER]`). Then, on `Od_d`
 (`[CYCLOIDAL-F-OUTPUT-HOLE]`): an **output-hole circle** (radius `Rop`, construction, driving diameter dim)
 and **one solid hole** of derived diameter `OutputHoleDiameter = D_pin + 2E`, seated on the output-hole
 circle, with a **driving diameter dimension** and its centre fully pinned (on the `Rop` circle + a
-horizontal spoke from `Od`). Leave the sketch **visible**; stash the solid hole circle on **`self.outputHole`**
-for the cut step. No bodies here.
+horizontal spoke from `Od_d`). Leave the sketch **visible**; stash the solid hole circle on
+**`self.outputHoles[d]`** for the cut step. No bodies here. (Hole clocking: the `M`-fold pattern in §4 means
+the half-turn clocking of disc 1 maps the hole set onto itself for even `M`, so just centre on `Od_d`.)
 
-### 4: Cut + pattern the output holes — `buildOutputHoles()`
-Using the `Output Hole` sketch's solid hole (`[CYCLOIDAL-F-OUTPUT-HOLES]`): select the profile whose loop
-contains **`self.outputHole`** (not `profiles.item(0)` — the construction circle + text label add other
-profiles), **extrude-cut** it through **`self.diskBody`** by `Disc Thickness` (`CutFeatureOperation`,
-`participantBodies = [self.diskBody]`), then **circular-pattern that cut `ExtrudeFeature` ×`M`** (=
-`Output Pin Count`) about **`self.diskAxis`** over `360°` — pass the **feature**, not a body. ⚠️ Set
-**`patternComputeOption = AdjustPatternCompute`** on the pattern input — a lone patterned CUT fails with
-`NO_TARGET_BODY / NO_PASTE_INT_EDGES` under the default paste compute (`[CYCLOIDAL-F-OUTPUT-HOLES]`). → `M`
-output holes orbiting `Od`. Done.
+### 4: Cut + pattern the output holes — `buildOutputHoles(d)`
+Using the `Output Hole {d+1}` sketch's solid hole (`[CYCLOIDAL-F-OUTPUT-HOLES]`): select the profile whose
+loop contains **`self.outputHoles[d]`** (not `profiles.item(0)` — the construction circle + text label add
+other profiles), **extrude-cut** it through **`self.diskBodies[d]`** by `Disc Thickness`
+(`CutFeatureOperation`, `participantBodies = [self.diskBodies[d]]`), then **circular-pattern that cut
+`ExtrudeFeature` ×`M`** (= `Output Pin Count`) about **`self.diskAxes[d]`** over `360°` — pass the
+**feature**, not a body. ⚠️ Set **`patternComputeOption = AdjustPatternCompute`** on the pattern input — a
+lone patterned CUT fails with `NO_TARGET_BODY / NO_PASTE_INT_EDGES` under the default paste compute
+(`[CYCLOIDAL-F-OUTPUT-HOLES]`). → `M` output holes orbiting `Od_d`. Done.
 
-### 5: Ring pins + base — `buildRingPins()`
-The fixed ring: the **Housing Ring** base (an annulus on `O`) on its own construction plane `1 mm` below the
-disk (opposite side), and `N` **full-length ring-pin posts** standing from the housing bottom up to the disk
-top. Built from **one** sketch, all on `O` (**not** `Od`) (`[CYCLOIDAL-F-RING-PINS]`):
-1. **Housing plane.** A construction plane offset `−1 mm` from the target plane — `setByOffset(self.plane,
-   '-1 mm')` — i.e. `1 mm` away on the side **opposite** the disk's `+normal` extrude. Name `'Ring Housing
-   Plane'`.
-2. **One sketch `Housing Ring`** on that plane, anchored to `O`: the **annulus** (outer `R + Rr + Wall`,
-   inner `R − Rr − Wall`, solid, diameter dims → `HousingOuterDiameter` / `HousingInnerDiameter`); the
-   **projected pin circle** — `sketch.project(self.lobePinCircle)`, set **construction** — to locate the pins
-   parametrically; and **one solid ring-pin circle** (radius `Rr`) seated on the projected pin circle at
-   `(R, 0)` (diameter dim → `2 * PinRadius`, centre coincident to the projected circle + a horizontal spoke
-   from `O`).
-3. **Housing extrude — the SOLID ring including the pin footprint, AWAY from the disk.** The pin circle
-   splits the annulus, so select **every profile EXCEPT the central hole** (the 1-loop profile bounded by the
-   inner circle): that is the 3-loop ring-with-pin-bite **plus** the pin disc → a complete solid ring with no
-   pin-shaped hole. Extrude by `Base Thickness` in **`NegativeExtentDirection`** as a New Body `'Housing
-   Ring'`. ⚠️ The disk extrudes `+normal` (`PositiveExtentDirection`); this offset plane shares that normal,
-   so **away from the disk = `NegativeExtentDirection`** (Positive would drive the housing into the disk)
-   (`[CYCLOIDAL-F-RING-PINS]`). Stash `self.housingRing`. ⚠️ Not `profileLoops.count == 2` /
-   `find_profile_by_curve_counts` — once the pin is added the ring is no longer a clean 2-loop profile.
-4. **Drive axis at `O`.** Construction axis `'Drive Axis'` ⟂ the sketch at `O`, from the Housing-Ring
-   extrude's **cap face selected by NORMAL** (`startFaces.item(0)`, never a proximity search) via
-   `setByPerpendicularAtPoint(capFace, originPoint)`. Stash `self.driveAxis`.
-5. **Ring pin extrude — two-sided full-length post.** ⚠️ **Select the pin DISC, not the ring around it:**
-   the ring-pin circle bounds the small pin disc (1 loop) **and** the surrounding 3-loop ring (where the pin
-   is an inner hole-loop); a generic "any-loop-contains-pin" match grabs the ring (the area *outside* the
-   pin) — wrong. Pick the profile with **`profileLoops.count == 1` whose loop curve is the ring-pin circle**.
-   Then extrude **both sides** with `setTwoSidesExtent(sideOne, sideTwo)` (this plane shares `self.plane`'s
-   normal, so `+normal` is toward the disk): `sideOne` (toward the disk) = `DiscThickness + 1 mm` (reaching
-   the disk top); `sideTwo` (away, toward/through the housing) = `Base Thickness` (reaching the housing's far
-   face). New Body `'Ring Pin'`, a **separate dowel**. Keep the `ExtrudeFeature` **and** its body `pinBody`.
-6. **Combine-cut a socket hole in the housing (keep the pin).** `combineFeatures` Cut: target =
-   `self.housingRing`, tools = `[pinBody]`, `operation = CutFeatureOperation`, **`isKeepToolBodies = True`**
-   (the pin survives). → a pin-shaped through-hole in the housing, the dowel seated in it
-   (`[CYCLOIDAL-F-RING-PINS]`). Keep the `CombineFeature`.
-7. **Chamfer the pin ends** (if `Chamfer Size > 0`). `chamferFeature = self._chamferCapRims(pinBody)`
-   (`[CYCLOIDAL-F-CHAMFERS]`) — a 45° equal chamfer on the pin's two circular ends. Keep the `ChamferFeature`
-   (may be `None` when `Chamfer Size == 0`).
-8. **Pattern the pin, hole AND chamfer ×`N` (= `Pin Count`) about `self.driveAxis`** over `360°`:
-   circular-pattern an `ObjectCollection` holding the pin `ExtrudeFeature`, the socket `CombineFeature`, and
-   the pin-end `ChamferFeature` (when present) — same input, so each patterned pin gets its matching hole and
-   its chamfer. → `N` posts, each through a matching hole in the single Housing Ring. Done.
+### 5: Housing base + ring casing (no discrete pins) — `buildRingPins()`
+The fixed reaction member is **ONE `Housing` body on `O`**, built as two extrusions then **Combined**: a base
+annulus `1 mm` below the disc (mounting base), and a ring casing surrounding the disc stack whose inner wall
+**contours the cycloidal path** — the rolling surface is integral, not loose pins (`[CYCLOIDAL-F-RING-PINS]`,
+`epitrochoid-trace.md` "Pinless ring casing"). The casing reaches **down to the base top** so the two meet and
+Join into one connected, printable part. `stackTopExpr` per §0.
+1. **Housing plane.** Construction plane `setByOffset(self.plane, '-1 mm')`, `1 mm` below the disc (opposite
+   the disk's `+normal` extrude). Name `'Ring Housing Plane'`.
+2. **Housing base — sketch `Housing Ring`** on that plane, anchored to `O`: a plain **annulus** (outer
+   `R − Rr + 2·E + Wall` [the thin pinless wall — contour peak + `Wall`], inner `R − Rr − Wall`, solid, diameter dims → `HousingOuterDiameter` /
+   `HousingInnerDiameter`). Extrude the **annulus profile** (`profileLoops.count == 2`) by `Base Thickness`
+   in **`NegativeExtentDirection`** (away from the disc) as a New Body `'Housing Ring'`. Stash
+   `self.housingRing`. (No pins, no projected circle — just the base.)
+3. **Drive axis at `O`.** Construction axis `'Drive Axis'` ⟂ the sketch at `O`, from the Housing-Ring
+   extrude's **cap face by NORMAL** (`startFaces.item(0)`) via `setByPerpendicularAtPoint(capFace, origin)`.
+   Stash `self.driveAxis`. (Reused by the casing pin pattern and the output-pin pattern.)
+4. **Ring casing — ONE section, patterned ×`N`** (like the disc's lobe-sector → pattern → join;
+   `[CYCLOIDAL-F-RING-PINS]`, `epitrochoid-trace.md` "Pinless ring casing"). The inner wall follows the disc's
+   **swept envelope** `contour(φ) = env(φ) + c` (smooth — replaces the old constant-radius bridge circle).
+   - **Compute one pin-pitch of the contour.** Sweep the disc `disk_point(t, E·cosθ, E·sinθ, −θ/L)` over
+     `θ, t ∈ [0, 2π)` (≈ 240 each); bin points whose angle is in `[−π/N, π/N]` into `nbins` by angle, keep max
+     radius per bin → `env`. ⚠️ **Emit the points at bin EDGES so the first/last land EXACTLY on `∓π/N`**:
+     `nbins+1` points at `φ_i = −π/N + (2π/N)·i/nbins` (`i = 0…nbins`), radius `c + max(binMax[i−1], binMax[i])`
+     — **NOT bin centres**, which inset the ends by half a bin and leave a gap between every patterned sector so
+     the ×`N` sectors don't touch and won't Join into one casing (the "several unnamed bodies" bug). Point =
+     `(r_i·cosφ_i, r_i·sinφ_i)`, ordered by angle, in cm. (`N`-fold symmetric, pin centred at `φ = 0`; the ends
+     at `±π/N` are mid-gap peaks, tangential by symmetry → seamless tiling. See `[CYCLOIDAL-F-RING-PINS]`.)
+   - **Section sketch `Ring Casing`** on `self.plane`, anchored to `O`: an **outer circle** (`R − Rr + 2·E + Wall`,
+     **SOLID — NOT construction**; it forms the sector's outer arc, so the wedge profile closes; dim →
+     `HousingOuterDiameter`); a **fitted spline** through the contour points (open); and **two radial
+     spokes** from the spline's two ends (at `φ = ±π/N`, on the contour) out to the outer circle.
+   - **Extrude the SECTOR profile** (the thin annular pie wedge bounded by the outer arc + contour spline + the
+     two spokes). ⚠️ **Select it by MINIMUM AREA among profiles whose loop contains the contour spline — NOT
+     just "contains the spline", and NOT `profiles.item(0)`.** The SOLID outer circle makes the open contour
+     spline a shared edge of **two** closed profiles — the thin wedge *and* the large complement (everything
+     else inside the outer circle) — both of which contain the spline; picking the complement extrudes a
+     near-full disc that patterns ×`N` into a **solid cylinder** (scallops erased). Take the smallest-area
+     profile (`areaProperties(...).area`) to get the wedge. See `[CYCLOIDAL-F-RING-PINS]`. Extrude it
+     **TWO-SIDED**: `stackTopExpr` in the `+normal` (up to `stackTop`) **and `'1 mm'` in the `−normal`** (down
+     to the base top, closing the gap so the casing can Join the base). **Circular-pattern ×`N`** (= `Pin
+     Count`) about `self.driveAxis` (`patternComputeOption = AdjustPatternCompute`), then **Join** the `N`
+     sector bodies into one casing body. The section ends fall on valley midpoints (tangential by symmetry) so
+     the joined wall is smooth. The disc valleys roll on the contour near each pin (clearance `c`); the lobe
+     tips clear it between pins.
+5. **Combine into one housing.** **Join** the casing body (tool) into `self.housingRing` (target, the base) —
+     `combineFeatures`, `JoinFeatureOperation`. The casing bottom is coincident with the base top (step 4), so
+     the result is one connected solid. Rename `self.housingRing.name = 'Housing'`; keep `self.housingRing` =
+     the combined body and set `self.ringCasing = None` (consumed by the Join; `buildChamfers` skips a `None`
+     casing, so the housing is chamfered once). Done.
 
-The ring pins span `[−1mm − BaseThickness, +DiscThickness]`: flush with the housing bottom, through the
-`1 mm` gap, up to the disk top — so the disk lobes roll against them over the full disk height while the
-Housing Ring sits clear of the disk `1 mm` below it.
+The combined `Housing` spans `[−1 mm−BaseThickness, stackTop]` — the base floor below, the scalloped reaction
+wall around the disc stack, one printed part to mount. No separate pins, no sockets.
 
-### 6: Eccentric cam + disk center bore — `buildCam()`
-The **input**: an eccentric cam the disk rides on, on a plain (journal) bearing. The cam **outer** is on the
-disk centre `Od` (diameter `Center Bearing Diameter`); its **input-shaft bore** is on the drive axis `O`
-(diameter `Input Shaft Diameter`) — the `E` offset between `Od` and `O` makes it eccentric. The disk's
-**center bore** is enlarged over the cam by `Bearing Clearance` (a concentric running gap, both on `Od`) so
-the cam spins freely. **Two sketches** keep the bore-cut and cam profiles clean (`[CYCLOIDAL-F-CAM]`):
-1. **Disk center bore — sketch `Disk Bore`** on `self.plane`, anchored to `O`, rebuild `Od`
-   (`[CYCLOIDAL-F-DISK-CENTER]`). One **solid** circle on `Od`, diameter dim
-   `.parameter.expression = 'CenterBearingDiameter + BearingClearance'`. Extrude-**cut** it (all the sketch's
-   profiles = the disc) through **`self.diskBody`** by `Disc Thickness` (`CutFeatureOperation`,
-   `participantBodies = [self.diskBody]`, `PositiveExtentDirection`). → the disk bore, `Bearing Clearance`
-   larger than the cam (≈ 0.1 mm radial gap at the 0.2 mm default).
-2. **Eccentric Cam — sketch `Eccentric Cam`** on `self.plane`, anchored to `O`, rebuild `Od`. Draw the
-   **cam-outer circle** (radius `CenterBearingDiameter/2`, **solid**, on `Od`, diameter dim →
-   `CenterBearingDiameter`). If `Input Shaft Diameter > 0`, draw the **input-bore circle**
-   (radius `InputShaftDiameter/2`, **solid**, on `O`, diameter dim → `InputShaftDiameter`) — it sits inside
-   the cam outer (offset `E` from `Od`), splitting it into a small bore disc + the cam annulus. Extrude the
-   **cam cross-section** by `Disc Thickness` as a New Body `'Eccentric Cam'` (`PositiveExtentDirection`,
-   `[0, DiscThickness]`, co-level with the disk): the **2-loop annulus** when `Input Shaft Diameter > 0`,
-   else the **1-loop cam disc**. Stash `self.cam`. Done.
+### 6: Disc center bore (per disc) + eccentric cam — `buildDiskBore(d)` and `buildCam()`
+The disk rides on the eccentric cam on a plain (journal) bearing: cam **outer** on the disc centre `Od_d`
+(diameter `Center Bearing Diameter`), **input-shaft bore** on the drive axis `O` (diameter `Input Shaft
+Diameter`); the `E` offset makes it eccentric. Each disc's **center bore** is enlarged over the cam by
+`Bearing Clearance` (concentric running gap) so the cam turns freely (`[CYCLOIDAL-F-CAM]`).
+
+**`buildDiskBore(d)`** (runs per disc, in the §0 loop): sketch `'Disc Bore {d+1}'` on `plane(d)`, anchored to
+`O`, rebuild `Od_d`. One **solid** circle on `Od_d`, diameter dim `.parameter.expression =
+'CenterBearingDiameter + BearingClearance'`. Extrude-**cut** it (all the sketch's profiles) through
+**`self.diskBodies[d]`** by `Disc Thickness` (`CutFeatureOperation`, `participantBodies =
+[self.diskBodies[d]]`, `PositiveExtentDirection`). → each disc gets a clean center bore.
+
+**`buildCam()`** (once, over the stack): build **`D` eccentric sections** and join them into one
+`'Eccentric Cam'`. Section `d`: sketch `'Eccentric Cam {d+1}'` on `plane(d)`, anchored to `O`, rebuild
+`Od_d`; **cam-outer circle** on `Od_d` (dim → `CenterBearingDiameter`); if `Input Shaft Diameter > 0`,
+**input-bore circle** on `O` (dim → `InputShaftDiameter`). Extrude the **cam cross-section** (2-loop annulus
+selected by `profileLoops.count == 2` — ⚠️ **NOT** `find_profile_by_curve_counts`, see `[CYCLOIDAL-F-CAM]`;
+or 1-loop disc if no bore) as a New Body — section `d` extends from `plane(d)` toward the disk for **`T + g`**
+when `d < D−1` (filling the inter-disc gap so adjacent sections meet) and **`T`** for the last section.
+After all sections exist, **Join** them (`combineFeatures` Join, target = section 0, tools = the rest) into
+one `'Eccentric Cam'`; the `±E` sections overlap in the central region (centres only `2E` apart, radius
+`CenterBearingDiameter/2`), so the join is one continuous solid with the input bore running through. Stash
+`self.cam`. (For `D = 1` this is exactly the old single cam.)
 
 ### 7: Output pins + plate — `buildOutputPins()`
-The **output member**: a solid plate above the disk carrying `M` output pins that hang **down** through the
-disk's `M` output holes. Built like the ring housing, mirrored to the `+normal` side (`[CYCLOIDAL-F-OUTPUT-PINS]`):
-1. **Output plate plane.** A construction plane `setByOffset(self.plane, 'DiscThickness + 1 mm')` — `1 mm`
-   above the disk top, **opposite** the housing. Name `'Output Plate Plane'`.
+The **output member**: a solid plate above the **whole disc stack** carrying `M` output pins that hang
+**down** through **every** disc's `M` output holes (for even `M`, all discs' holes share the same `M` angular
+positions, so the same pins thread all discs — `[CYCLOIDAL-F-TWO-DISC]`). Built like the ring housing,
+mirrored to the `+normal` side (`[CYCLOIDAL-F-OUTPUT-PINS]`). Use the **PREFIXED `stackTopExpr`** (§ call
+graph ⚠️: `nT` for `D=1`, `'2 * {} + {}'.format(nT, nG)` for `D=2` — never bare `'DiscThickness'`):
+1. **Output plate plane.** A construction plane `setByOffset(self.plane, ValueInput.createByString(
+   stackTopExpr + ' + 1 mm'))` — `1 mm` above the **top** disc, **opposite** the housing. Name `'Output Plate
+   Plane'`.
 2. **One sketch `Output Plate`** on that plane, anchored to `O`. Add: a **solid plate-outer circle** on `O`
    (diameter dim → `OutputPlateDiameter`); a **construction output-pin circle** on `O` (radius `Rop`, dim →
    `OutputPinCircleDiameter`); and **one solid output pin** on `O` at `(Rop, 0)` (diameter dim →
@@ -387,8 +477,8 @@ disk's `M` output holes. Built like the ring housing, mirrored to the `+normal` 
 4. **Output pin (two-sided).** From the **pin disc** (the `profileLoops.count == 1` profile whose loop is the
    output pin), extrude **both sides** with `setTwoSidesExtent(sideOne, sideTwo)`: `sideOne`
    (`PositiveExtentDirection`, away from the disk, into the plate) = `Output Plate Thickness`; `sideTwo`
-   (toward the disk) = `DiscThickness + 1 mm` (reaching the disk bottom, so the pin runs the full output-hole
-   height). New Body `'Output Pin'`; keep the `ExtrudeFeature` and its body.
+   (toward the disk) = `stackTopExpr + ' + 1 mm'` (reaching disc-0's bottom `z=0`, so the pin runs through
+   **all** discs' output holes). New Body `'Output Pin'`; keep the `ExtrudeFeature` and its body.
 5. **Socket (combine-cut, keep the pin).** `combineFeatures` Cut: target `self.outputPlate`, tool the output
    pin body, `isKeepToolBodies = True` → a matching hole in the plate, the pin seated in it.
 6. **Chamfer the pin ends** (if `Chamfer Size > 0`): `chamferFeature = self._chamferCapRims(pinBody)`
@@ -400,8 +490,13 @@ disk's `M` output holes. Built like the ring housing, mirrored to the `+normal` 
 
 ### 8: Edge chamfers — `buildChamfers()`
 If `Chamfer Size > 0`, chamfer the **outer rim** (both flat faces) of each disc-like body via
-`self._chamferCapRims(body)` (`[CYCLOIDAL-F-CHAMFERS]`): `self.diskBody` (the rotor disc — its rim is the
-**lobe profile**), `self.housingRing`, and `self.outputPlate`. Inner edges (bores, output holes, sockets)
-are left sharp — outer rim only. (The ring pins and output pins are already chamfered in their own build
-steps, inside their patterns, so every instance carries the chamfer.) If `Chamfer Size == 0`, do nothing.
-Done.
+`self._chamferCapRims(body)` (`[CYCLOIDAL-F-CHAMFERS]`): **every disc in `self.diskBodies`** (each rotor
+disc — its rim is the **lobe profile**), `self.housingRing` (the combined `Housing` — base + casing in one
+body), and `self.outputPlate`. **Guard each against `None`** — `self.ringCasing` is `None` after §5's Join
+(consumed into `self.housingRing`), so it is skipped; chamfering only `self.housingRing` covers the whole
+housing once. ⚠️ `_chamferCapRims` chamfers **only the two axially-extreme caps** (topmost + bottommost), NOT
+every cap-normal face — the combined `Housing` has an internal ledge at the base/casing junction whose outer
+loop is the scalloped contour, and chamfering it throws `ASM_BL_CAP_COMPLEX` (`[CYCLOIDAL-F-CHAMFERS]`). Inner
+edges (bores, output holes, the casing's inner pin contour) are left sharp — outer rim only. (The
+output pins are already chamfered in their own build step, inside the pattern; the casing's pins are integral
+so they need no separate chamfer.) If `Chamfer Size == 0`, do nothing. Done.

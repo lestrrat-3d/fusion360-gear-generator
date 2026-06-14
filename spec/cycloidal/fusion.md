@@ -146,6 +146,14 @@ spline**: iterate `sketch.profiles`, and for each, scan its `profileLoops[*].pro
 for the saved `spline` object (identity match). (Equivalently `find_profile_by_curve_counts` for a single
 loop of **2 lines + 1 fitted spline**, if that helper is available.)
 
+⚠️ **`find_profile_by_curve_counts` works ONLY for NURBS/arc/line-bounded profiles.** It counts
+`NurbsCurve3D` / `Arc3D` / `Line3D` per loop and treats everything else as "other". A **full circle is a
+`Circle3DCurveType`** — it is NOT an arc, so it counts as "other" — and any **annulus** has its two circles
+in **separate loops**. Therefore **circle-bounded profiles (annulus, plain disc, bore) MUST be selected by
+`profileLoops.count` (and/or loop-identity), NEVER by `find_profile_by_curve_counts`**. This applies to the
+**cam annulus** (`[CYCLOIDAL-F-CAM]`), the **housing/casing annulus** (`[CYCLOIDAL-F-RING-PINS]`), and the
+**output-plate annulus** (`[CYCLOIDAL-F-OUTPUT-PINS]`).
+
 1. **Extrude.** `ext = extrudeFeatures.createInput(sectorProfile,
    adsk.fusion.FeatureOperations.NewBodyFeatureOperation)`; `ext.setOneSideExtent(
    adsk.fusion.DistanceExtentDefinition.create(ValueInput.createByString(discThicknessParam.name)),
@@ -221,84 +229,86 @@ intersect the original body"). Setting `patternComputeOption = AdjustPatternComp
 per-instance recompute of the cut, which succeeds. Apply this to the lobe pattern, the output-hole pattern,
 the ring-pin pattern, and the output-pin pattern alike.
 
-## [CYCLOIDAL-F-RING-PINS] Ring pins + Housing Ring base (on `O`, the fixed ring)
+## [CYCLOIDAL-F-RING-PINS] Housing base + ring casing (on `O`; pinless contour)
 
-The ring pins and their base are the **fixed** member, centred on the drive axis **`O`** (NOT `Od`). The
-Housing Ring sits on its **own construction plane, `1 mm` below the disk on the side OPPOSITE the disk
-extrude**, so it never fouls the disk; the ring pins are **full-length posts** that run from the bottom of
-the housing all the way up to the top of the disk. Everything is built from **one** sketch. Build
-`buildRingPins()` after the disk + output holes:
+The fixed reaction member is **ONE `Housing` body** on `O` (NOT `Od`), built as two extrusions that are then
+**Combined into a single printable part**: a base annulus `1 mm` below the disc, and the ring casing
+surrounding the disc stack whose inner wall is the integral rolling contour (`epitrochoid-trace.md` "Pinless
+ring casing"). The two extrusions are made to **meet** (the casing reaches down to the base top — no floating
+gap) and Joined. **No discrete pins.** Build `buildRingPins()` after the discs + cam:
 
-1. **Housing construction plane (`1 mm`, opposite the disk).** The disk extrudes `+normal`
-   (`PositiveExtentDirection`, `[CYCLOIDAL-F-DISK-BODY]`), so the housing plane is on `−normal`:
-   `pi = component.constructionPlanes.createInput()`; `pi.setByOffset(self.plane, ValueInput.createByString(
-   '-1 mm'))`; `housingPlane = constructionPlanes.add(pi)`; name `'Ring Housing Plane'`. (A negative offset
-   is measured along `−normal` = away from the disk.)
-2. **One sketch on that plane.** Create sketch `Housing Ring` on `housingPlane`; anchor a local origin to
-   `O` (`[CYCLOIDAL-F-ANCHOR-CHAIN]`). In it:
-   - **Annulus:** two concentric **solid** circles on `O` — outer `addByCenterRadius(O, R + Rr + Wall)`,
-     inner `addByCenterRadius(O, R − Rr − Wall)` — diameter dims → `HousingOuterDiameter` /
-     `HousingInnerDiameter`. Keep handles `outerCircle`, `innerCircle`.
-   - **Projected pin circle (construction).** `projected = sketch.project(self.lobePinCircle)` (the Rotor
-     Lobe sketch's pin circle, radius `R` on `O` — stashed there). Set each returned curve
-     `isConstruction = True`; keep `projPinCircle = projected.item(0)`. This links the pin placement to
-     `PinCircleDiameter` through the lobe sketch.
-   - **Ring pin (solid).** `pin = addByCenterRadius(Point3D.create(R, 0, 0), Rr)`; diameter dim →
-     `2 * PinRadius`; pin its centre: `addCoincident(pin.centerSketchPoint, projPinCircle)` + a horizontal
-     construction line `O → pin centre` with `addHorizontal`. Keep `pin`.
-3. **Housing extrude — the SOLID ring, including the pin footprint, `−normal`.** Adding the pin circle on
-   the annulus splits it, so the sketch now has these profiles: the **central hole** (1 loop = `innerCircle`),
-   the **pin disc** (1 loop = `pin`), and the **ring-with-pin-bite** (3 loops = outer + inner + pin). The
-   housing is the full solid ring **including** the pin footprint, i.e. **every profile EXCEPT the central
-   hole**. Collect them: iterate `sketch.profiles`, **skip** the one that is the central hole (the profile
-   with `profileLoops.count == 1` whose single loop curve is `innerCircle`, by identity), `coll.add` the
-   rest (the 3-loop ring + the pin disc). `ext = extrudeFeatures.createInput(coll, NewBodyFeatureOperation)`;
-   `ext.setOneSideExtent(DistanceExtentDefinition.create(ValueInput.createByString(baseThicknessParam.name)),
-   adsk.fusion.ExtentDirections.NegativeExtentDirection)`; name the body `'Housing Ring'`; stash
-   **`self.housingRing`**. (Including the pin disc is why the ring has no pin-shaped hole — "extrude the
-   profile **including the ring pin profile**".)
-   ⚠️ **Direction — AWAY from the disk is `NegativeExtentDirection`.** The disk extrudes
-   `PositiveExtentDirection` (`+normal`) on `self.plane`; this offset plane inherits the same normal, so the
-   housing must extrude `−normal` = **`NegativeExtentDirection`** to sit on the side opposite the disk. (Do
-   **not** use Positive — that drives the housing toward / into the disk.)
-4. **Drive axis at `O`.** The disk-axis recipe (`[CYCLOIDAL-F-DISK-AXIS]`) anchored at `O`:
-   `capFace = housingExtrude.startFaces.item(0)` (cap **selected by NORMAL**, never a proximity search);
-   `axInput.setByPerpendicularAtPoint(capFace, originPoint)` (the `Housing Ring` sketch's `O` point); name
-   `'Drive Axis'`; stash **`self.driveAxis`**.
-5. **Ring pin extrude — TWO-SIDED, full-length post.** ⚠️ **Select the pin DISC, not the surrounding ring.**
-   The ring-pin circle `pin` bounds **two** profiles: the **pin disc** (the small disc *inside* it — 1 loop,
-   `pin` as the outer boundary) and the **ring-with-pin-bite** (3 loops, where `pin` is an inner hole-loop).
-   A generic "first profile whose any loop contains `pin`" returns the **ring** (the area *outside* the pin)
-   — wrong. Pick the pin disc deterministically: the profile with **`profileLoops.count == 1` whose single
-   loop's curve is `pin`** (by identity). Then `pinExt = extrudeFeatures.createInput(pinProfile,
-   NewBodyFeatureOperation)`; extrude **both sides** with `setTwoSidesExtent(sideOne, sideTwo)` — this offset
-   plane shares `self.plane`'s normal, so `+normal` is toward the disk:
-   - `sideOne` (toward the disk, `+normal`/`PositiveExtentDirection`) reaches the disk top:
-     `DistanceExtentDefinition.create(ValueInput.createByString('{} + 1 mm'.format(discThicknessParam.name)))`
-     (disk top is `DiscThickness` above the target plane = `DiscThickness + 1 mm` above this `−1 mm` sketch);
-   - `sideTwo` (away from the disk, toward / through the housing) reaches the housing's far face:
-     `DistanceExtentDefinition.create(ValueInput.createByString(baseThicknessParam.name))`.
-   `pinFeature = extrudeFeatures.add(pinExt)`; name the body `'Ring Pin'`; keep the `Ring Pin` **body** as
-   `pinBody = pinFeature.bodies.item(0)`. The post spans `[−1mm − BaseThickness, +DiscThickness]` — flush
-   with the housing bottom and the disk top, a **separate dowel** body.
-6. **Combine-cut a socket hole in the housing (keep the pin).** Cut the pin's shape out of the Housing Ring
-   so the dowel passes through a matching hole instead of overlapping solid material:
-   `combines = component.features.combineFeatures`; `tools = ObjectCollection.create(); tools.add(pinBody)`;
-   `ci = combines.createInput(self.housingRing, tools)`; `ci.operation =
-   adsk.fusion.FeatureOperations.CutFeatureOperation`; **`ci.isKeepToolBodies = True`** (the pin must
-   survive the cut); `combineFeature = combines.add(ci)`. → a pin-shaped through-hole in the housing, the
-   `Ring Pin` body intact and seated in it.
-7. **Chamfer the pin ends** (`[CYCLOIDAL-F-CHAMFERS]`): `chamferFeature = self._chamferCapRims(pinBody)`
-   (the `Ring Pin` body) — `None` when `Chamfer Size == 0`.
-8. **Pattern the pin, hole AND chamfer ×`N` about `self.driveAxis`.** `coll = ObjectCollection.create();
-   coll.add(pinFeature)` (the pin `ExtrudeFeature`); `coll.add(combineFeature)` (the socket `CombineFeature`);
-   **and `if chamferFeature: coll.add(chamferFeature)`** (the pin-end `ChamferFeature`) — patterned in the
-   **same** input so each patterned pin gets its matching hole and chamfers; `pat =
-   circularPatternFeatures.createInput(coll, self.driveAxis)`; **`pat.patternComputeOption =
-   adsk.fusion.PatternComputeOptions.AdjustPatternCompute`** (`[CYCLOIDAL-F-OUTPUT-HOLES]` ⚠️);
-   `pat.quantity = ValueInput.createByReal(N)`
-   (`N = Pin Count`); `pat.totalAngle = '360 deg'`; `pat.isSymmetric = False`; `add(pat)`. → `N` full-length
-   ring posts, each through a matching hole in the single Housing Ring.
+1. **Housing plane.** `pi = constructionPlanes.createInput(); pi.setByOffset(self.plane,
+   ValueInput.createByString('-1 mm')); housingPlane = constructionPlanes.add(pi)`; name `'Ring Housing
+   Plane'` (`−normal`, away from the disk).
+2. **Housing base — sketch `Housing Ring`** on `housingPlane`, local origin on `O`: a plain **annulus**,
+   outer `addByCenterRadius(O, R − Rr + 2·E + Wall)` (the thin pinless wall = contour peak + `Wall`; dim →
+   `HousingOuterDiameter`), inner `addByCenterRadius(O, R − Rr − Wall)` (dim → `HousingInnerDiameter`).
+   ⚠️ Constrain each circle's centre **coincident to the local origin ONLY** (`addCoincident(circle.
+   centerSketchPoint, localOrigin)`) — do **NOT** also set the centre `isFixed` (coincident-to-the-anchored-
+   origin already pins it; adding `isFixed` is redundant and risks an over-constrained solver — `[PB-SHARE-
+   XOR-COINCIDENT]`). Extrude the **annulus profile** (`profileLoops.count ==
+   2`) `ext.setOneSideExtent(DistanceExtentDefinition.create(ValueInput.createByString(baseThicknessParam
+   .name)), adsk.fusion.ExtentDirections.NegativeExtentDirection)` (away from the disk) as a New Body
+   `'Housing Ring'`; stash **`self.housingRing`**. ⚠️ Away from the disk = `NegativeExtentDirection` (the
+   offset plane shares `self.plane`'s normal).
+3. **Drive axis at `O`.** `capFace = housingExtrude.startFaces.item(0)` (cap by NORMAL);
+   `axInput.setByPerpendicularAtPoint(capFace, originPoint)`; name `'Drive Axis'`; stash **`self.driveAxis`**.
+4. **Ring casing — one section, patterned ×`N`** (mirrors the disc's lobe-sector → pattern → join). The inner
+   wall is the disc's **swept envelope** `contour(φ) = env(φ) + c` (`epitrochoid-trace.md` "Pinless ring
+   casing") — a smooth conjugate curve, NOT a constant circle.
+   - **Compute one pin-pitch of the contour (Python).** `env = {}`; for `θ` in `linspace(0, 2π, Nθ≈240)`:
+     `cx, cy = E*cos θ, E*sin θ`; `phi = -θ/L`; for `t` in `linspace(0, 2π, Nt≈240)`:
+     `x, y = disk_point(t, cx, cy, phi)`; `a = atan2(y, x)`; **if `a ∈ [−π/N, π/N]`**: bin `a` into `nbins`
+     bins, keep `max(r=hypot(x,y))` per bin (`binMax`). ⚠️ **Emit the contour points at bin EDGES so the FIRST
+     lands exactly on `−π/N` and the LAST exactly on `+π/N`** — `nbins+1` points at `φ_i = −π/N + (2π/N)·i/nbins`
+     (`i = 0 … nbins`), radius `(c + max(binMax[i−1], binMax[i]))` (single neighbour at the two ends), as
+     `[(r_i·cos φ_i, r_i·sin φ_i)]` ordered by angle (all cm; `disk_point` returns cm, use as-is). **Do NOT use
+     bin CENTRES `(b+0.5)/nbins`** — that insets the endpoints by half a bin, leaving an angular gap between
+     every patterned sector so the ×`N` sectors don't touch and won't Join (see `epitrochoid-trace.md` "Build
+     one section" ⚠️, and the spoke note below).
+   - **Section sketch `Ring Casing`** on `self.plane`, local origin on `O`: **outer**
+     `addByCenterRadius(O, R − Rr + 2·E + Wall)` (= contour peak + `Wall`, the thin pinless wall; matches the
+     base outer so the two Join flush) — **leave SOLID, do NOT set `isConstruction`** (it forms the
+     sector's outer arc; a construction circle would leave the wedge open → `profileContainingCurve` finds
+     nothing) — (dim → `HousingOuterDiameter`); a **fitted spline**
+     `sketchFittedSplines.add(ObjectCollection of the contour Point3D's)` (open, `isClosed` off); and **two
+     radial spokes** — `sketchLines.addByTwoPoints` from each spline end (the first/last contour points, at
+     `φ = ±π/N`) out to a point on the outer circle at the same angle; keep the spline handle `contour`.
+   - **Extrude the SECTOR + pattern + join.** ⚠️ **Select the wedge by MINIMUM AREA among the profiles whose
+     loop contains `contour` — "contains `contour`" alone is AMBIGUOUS here and picking wrong silently makes a
+     plain cylinder.** Unlike the disc's lobe sector (whose root circle is *construction*, so the lobe spline
+     bounds only one finite profile), this sketch's outer circle is **SOLID**, so the open `contour` spline is
+     a shared edge of **TWO** closed profiles: (a) the thin **annular wedge** between `contour` (inner) and the
+     outer-circle arc (outer), bounded by the two spokes — *this* is the casing section; and (b) the large
+     **complement** (the rest of the disc: the entire central region inside `contour` plus the annulus over the
+     other `N−1` pitches). **Both loops contain `contour`**, so a first-match "containing-curve" search (and
+     `profiles.item(0)`) may return the big complement (b) — extruding it gives a near-full disc that, patterned
+     ×`N` and joined, **overlaps into a solid cylinder with the scallops erased** (the reported "extruding a
+     cylinder, not the contour" bug). Disambiguate by **area**: among the profiles whose loop contains
+     `contour`, take the one with the **smallest** `areaProperties(LowCalculationAccuracy).area` — the wedge (a)
+     is far smaller than the complement (b). Then: `ext = extrudeFeatures.createInput(sectorProfile,
+     NewBodyFeatureOperation)`; extrude it **TWO-SIDED so it spans from the housing base top up to the stack
+     top** (closing the `1 mm` gap so it can Join the base into one connected solid): `ext.setTwoSidesExtent(
+     DistanceExtentDefinition.create(ValueInput.createByString(stackTopExpr)),  # +normal: up to stackTop` and
+     `DistanceExtentDefinition.create(ValueInput.createByString('1 mm')))  # −normal: 1 mm down to the base top`.
+     ⚠️ The `'1 mm'` negative side MUST match the housing plane's `'-1 mm'` offset (step 1) so the casing
+     **bottom face is coincident with the base top face** → the Join below yields ONE connected solid, not two
+     lumps. `sectorFeature = extrudeFeatures.add(ext)`. `coll = ObjectCollection.create();
+     coll.add(sectorFeature)`; `pat = circularPatternFeatures.createInput(
+     coll, self.driveAxis)`; **`pat.patternComputeOption = adsk.fusion.PatternComputeOptions.
+     AdjustPatternCompute`** (`[CYCLOIDAL-F-OUTPUT-HOLES]` ⚠️); `pat.quantity = ValueInput.createByReal(N)`
+     (`N = Pin Count`); `pat.totalAngle = '360 deg'`; `pat.isSymmetric = False`; `add(pat)`. Then
+     **`combineFeatures` Join** the `N` sector bodies into one casing body (collect them by a pre-extrude
+     `base = component.bRepBodies.count` baseline, as the disc join does). The section ends sit at valley
+     midpoints (tangential by symmetry), so the joined inner wall is smooth.
+5. **Combine the housing into ONE body.** ⚠️ **Do NOT leave the base and casing as two separate bodies** — the
+   housing is a single printable part. `combineFeatures` **Join** the casing body (tool) into `self.housingRing`
+   (target, the base from step 2): `ci = combineFeatures.createInput(self.housingRing, ObjectCollection
+   containing the casing body); ci.operation = JoinFeatureOperation; combineFeatures.add(ci)`. Because the
+   casing bottom is coincident with the base top (step 4), the result is one **connected** solid. Rename it
+   `self.housingRing.name = 'Housing'`; keep **`self.housingRing`** = the combined body, and set
+   **`self.ringCasing = None`** (it is consumed by the Join). `buildChamfers` already skips a `None`
+   `self.ringCasing`, so the combined housing is chamfered exactly once via `self.housingRing`.
 
 ## [CYCLOIDAL-F-CAM] Eccentric cam + disk center bore
 
@@ -328,8 +338,12 @@ stay simple. Build `buildCam()` after the ring pins:
    Extrude the **cam cross-section** by `Disc Thickness` as a New Body, name it `'Eccentric Cam'`
    (`PositiveExtentDirection` → `[0, DiscThickness]`, co-level with the disk). The cross-section is the **cam
    annulus** when `Input Shaft Diameter > 0` — the **2-loop** profile (outer loop `camOuter`, inner hole-loop
-   `inputBore`); select it by `profileLoops.count == 2`. When `Input Shaft Diameter == 0` there is no bore,
-   so the cross-section is the **1-loop** cam disc — select the only profile. Stash **`self.cam`**. The cam
+   `inputBore`); select it by **`profileLoops.count == 2`**. ⚠️ **Do NOT use `find_profile_by_curve_counts`
+   for the cam annulus** — a full circle is a single `Circle3DCurveType` curve (that helper counts it as
+   "other", not an arc) and the annulus's two circles are in **separate loops**, so `find_profile_by_curve_counts(arcs=2)`
+   raises `Could not find profile`. Same gotcha as the housing annulus (`[CYCLOIDAL-F-RING-PINS]`). When
+   `Input Shaft Diameter == 0` there is no bore, so the cross-section is the **1-loop** cam disc — select the
+   only profile (`profiles.item(0)`). Stash **`self.cam`**. The cam
    outer is on `Od`; the disk's bore (on `Od`, larger by `Bearing Clearance`) rides on it with the running
    gap; the input bore runs through the full cam height on `O`.
 
@@ -339,10 +353,11 @@ The output member, mirror of the ring housing on the `+normal` side. A solid pla
 `M` output pins that hang down through the disk's `M` output holes. All on the drive axis `O`. Build
 `buildOutputPins()` after the cam:
 
-1. **Output plate plane (`1 mm` above the disk, opposite the housing).** `pi =
+1. **Output plate plane (`1 mm` above the TOP disc, opposite the housing).** `pi =
    component.constructionPlanes.createInput()`; `pi.setByOffset(self.plane, ValueInput.createByString(
-   '{} + 1 mm'.format(discThicknessParam.name)))` — a positive offset is `+normal` (the disk side), so this
-   sits `DiscThickness + 1 mm` along `+normal`, i.e. `1 mm` above the disk top. Name `'Output Plate Plane'`.
+   stackTopExpr + ' + 1 mm'))` — `stackTopExpr` is the **prefixed** stack-top string (`[CYCLOIDAL-F-TWO-DISC]`),
+   so this sits `1 mm` above the top disc (= disc top for `D=1`). A positive offset is `+normal` (the disk
+   side). Name `'Output Plate Plane'`.
    ⚠️ **Direction note:** this plane is **above** the disk, so on its sketch `PositiveExtentDirection`
    (`+normal`) points **away** from the disk and `Negative` points **toward** it — the *mirror* of the
    Housing-Ring plane (which is below, where away = `Negative`).
@@ -368,8 +383,8 @@ The output member, mirror of the ring housing on the `+normal` side. A solid pla
    - `sideOne` (`PositiveExtentDirection`, away from the disk, into the plate) =
      `DistanceExtentDefinition.create(ValueInput.createByString(outputPlateThicknessParam.name))`;
    - `sideTwo` (toward the disk) = `DistanceExtentDefinition.create(ValueInput.createByString(
-     '{} + 1 mm'.format(discThicknessParam.name)))` (reaches the disk bottom — the pin runs the full
-     output-hole height).
+     stackTopExpr + ' + 1 mm'))` (reaches **disc-0's bottom** `z=0` — the pin runs through **all** discs'
+     output holes; `stackTopExpr` is the **prefixed** stack-top string).
    `pinFeature = extrudeFeatures.add(pinExt)`; name the body `'Output Pin'`; keep `pinBody =
    pinFeature.bodies.item(0)`.
 5. **Socket (combine-cut, keep the pin).** `tools = ObjectCollection.create(); tools.add(pinBody)`; `ci =
@@ -394,13 +409,26 @@ chamfers the pin's two **ends** (same geometry — a cap-face outer loop). Skip 
 
 `_chamferCapRims(self, body)` → returns the `ChamferFeature`, or `None`:
 - If `self.chamferSize <= 0`: return `None`.
-- `axis = self.plane.geometry.normal` (the disc/pin axis; `self.plane` is a `ConstructionPlane`).
-- `edges = adsk.core.ObjectCollection.create()`. For each `face` in `body.faces`:
+- `axis = self.plane.geometry.normal` (the disc/pin axis; `self.plane` is a `ConstructionPlane`);
+  `ref = self.plane.geometry.origin`.
+- **First pass — collect the cap faces with their axial heights.** `capFaces = []`. For each `face` in
+  `body.faces`:
   - skip unless `face.geometry.surfaceType == adsk.core.SurfaceTypes.PlaneSurfaceType`;
-  - `n = face.geometry.normal`; skip unless `abs(n.dotProduct(axis)) > 0.999` (a top/bottom **cap** face,
-    not a side wall);
-  - for each `loop` in `face.loops` with **`loop.isOuter`** (the rim — skip inner hole loops), add every
-    `edge` in `loop.edges` to `edges`.
+  - `n = face.geometry.normal`; skip unless `abs(n.dotProduct(axis)) > 0.999` (a **cap-normal** face — flat,
+    perpendicular to the axis — not a side wall);
+  - axial height `h = (face.geometry.origin − ref) · axis` (dot of the component differences with `axis`);
+    append `(h, face)` to `capFaces`.
+- If `capFaces` is empty: return `None`. Else `hmin = min(h)`, `hmax = max(h)` over `capFaces`.
+- ⚠️ **Second pass — chamfer ONLY the two axially-EXTREME caps** (`h ≈ hmin` or `h ≈ hmax`, tolerance
+  `~1e-4` cm), **NOT every cap-normal face.** `edges = adsk.core.ObjectCollection.create()`. For each
+  `(h, face)` in `capFaces` with `h` at an extreme, for each `loop` in `face.loops` with **`loop.isOuter`**
+  (the rim — skip inner hole loops), add every `edge` in `loop.edges`. **Why the extreme filter:** the
+  combined `Housing` (base + casing in one body) has an **internal horizontal ledge** at the base/casing
+  junction (`z = −1 mm`), where the base annulus extends inward past the casing's inner contour. That ledge is
+  a cap-normal face too, and its **outer** loop is the **scalloped inner contour** — chamfering that complex
+  edge throws `RuntimeError ... ASM_BL_CAP_COMPLEX (面取りを要求されたサイズで作成できませんでした)`. A
+  uniform-thickness disc/plate/pin has exactly two cap faces (both extreme), so this filter is a no-op for
+  them and only drops the housing's interior ledge.
 - If `edges.count == 0`: return `None`.
 - Modern chamfer API (same as `spurgear.chamferTooth`): `chamfers =
   self.getComponent().features.chamferFeatures`; `ci = chamfers.createInput2()`;
@@ -412,7 +440,54 @@ the **rotor disc** the outer loop is the **lobe profile** (a small chamfer follo
 well below the lobe size so it does not fail at the sharp valleys). For the housing / plate / pins it is a
 circle.
 
-**Pin chamfers ride in the pattern.** `buildRingPins`/`buildOutputPins` call `_chamferCapRims(pinBody)`
-**after** the socket combine and **before** the circular pattern, then add the returned `ChamferFeature` to
-the pattern's `ObjectCollection` (alongside the pin `ExtrudeFeature` and socket `CombineFeature`) — so every
-patterned pin instance carries its end chamfers. (Pattern of features may include chamfer features.)
+**Output-pin chamfers ride in the pattern.** `buildOutputPins` calls `_chamferCapRims(pinBody)` **after** the
+socket combine and **before** the circular pattern, then adds the returned `ChamferFeature` to the pattern's
+`ObjectCollection` (alongside the pin `ExtrudeFeature` and socket `CombineFeature`) — so every patterned
+output pin carries its end chamfers. (Pattern of features may include chamfer features.) The **ring casing's
+pins are integral bumps** — no separate chamfer; `buildChamfers` chamfers the casing's outer rim.
+
+## [CYCLOIDAL-F-TWO-DISC] Two-disc stack (Disc Count = 2)
+
+`D = Disc Count` (`1`|`2`, from the dropdown). The per-disc steps run in a `for d in range(D)` loop; the
+stack-spanning steps (cam, ring pins, output pins, chamfers) run once. Per-disc stashes are **lists** indexed
+by `d` (`self.diskBodies`, `self.diskAxes`, `self.lobeSplines`, `self.outputHoles`, `self.lobeDiskCentres`,
+`self.discPlanes`); `self.lobePinCircle` stays scalar (disc 0). For `D = 1` the loop runs once and everything
+is identical to the single-disc build.
+
+⚠️ **Prefix EVERY parameter in EVERY `createByString` expression** (offsets AND extents) with
+`self.parameterName(PARAM_…)` — the params register under `CycloidalDrive<N>_`, so a bare `'DiscThickness'`
+raises `RuntimeError: invalid expression`. Below, `nT = parameterName(PARAM_DISC_THICKNESS)`, `nG =
+parameterName(PARAM_DISC_GAP)`.
+
+**Per-disc geometry.** Let `T = DiscThickness`, `g = DiscGap`, `s_d = +1 if d == 0 else -1`.
+- **Plane** `plane(d)`: `d == 0` → `self.plane`; else `pi = constructionPlanes.createInput();
+  pi.setByOffset(self.plane, ValueInput.createByString('{} * ({} + {})'.format(d, nT, nG)));
+  constructionPlanes.add(pi)` (**prefixed** `nT`/`nG`). Name `'Disc Plane {d+1}'`; stash `self.discPlanes[d]`.
+  Disc `d` spans `[z_d, z_d + T]`, `z_d = d·(T+g)`, all extrudes `PositiveExtentDirection` from `plane(d)`.
+- **Centre** `Od_d = O + s_d·E·X̂`: in `[CYCLOIDAL-F-DISK-CENTER]` place `diskCentre` at `Point3D.create(
+  s_d * E, 0, 0)` (signed); keep the `Eccentricity` distance-dim expression (the dim is a magnitude — the
+  sign is in the point's position + the horizontal line direction).
+- **Clocking** `phi_d = d·π`: the lobe is `disk_point(t, s_d * E, 0, d * math.pi)`. ⚠️ Verified identity:
+  `disk_point(t, -E, 0, π) == (-x, -y)` of `disk_point(t, +E, 0, 0)` — disc 1 is **disc 0 rotated 180° about
+  `O`**, which meshes the second disc with the **same** ring pins at the opposite eccentric (rigorous for
+  **even `N`**: a π-rotation about `O` maps the `N`-pin ring onto itself). Its `M` output holes are likewise
+  π-rotated, landing on the same output pins (rigorous for **even `M`**). Hence the even-`N`/even-`M`
+  Validity gate for `D = 2`.
+
+⚠️ **Join only the disc's OWN sectors** (`[CYCLOIDAL-F-DISK-BODY]` / §2·A step 4). Capture `base =
+component.bRepBodies.count` **before** disc `d`'s sector extrude; after the ×`L` pattern, disc `d`'s sectors
+are `bRepBodies.item(base .. base+L-1)`. Join those (target = `item(base)`, tools = the rest of that range).
+Using `item(0)` would wrongly fold disc 0 into disc 1.
+
+**`stackTop` expression (PREFIXED).** `DiscCount` is a dropdown (not a param), so build the string for the
+current `D` with prefixed names: `stackTopExpr = nT` for `D = 1`, `'2 * {} + {}'.format(nT, nG)` for `D = 2`.
+Used by the casing/output-pin span (`stackTopExpr + ' + 1 mm'`) and the output-plate plane
+(`setByOffset(self.plane, ValueInput.createByString(stackTopExpr + ' + 1 mm'))`).
+
+**Cam — `D` sections joined** (`buildCam`, `[CYCLOIDAL-F-CAM]`). For each `d`, sketch the eccentric cam
+cross-section on `plane(d)` (outer on `Od_d`, input bore on `O`) and extrude `PositiveExtentDirection` as a
+New Body by **`'{} + {}'.format(nT, nG)`** for `d < D-1` (fills the inter-disc gap so adjacent sections abut)
+and **`nT`** for the last (both **prefixed**). Then `combineFeatures` **Join** all section bodies into one
+`'Eccentric Cam'` (target = section 0's body, tools = the rest). The `±E` sections share a large central
+overlap (centres `2E` apart, radius `CenterBearingDiameter/2`), so the joined cam is one continuous solid
+with the input bore through it. (`D = 1` → the single section, unchanged.)

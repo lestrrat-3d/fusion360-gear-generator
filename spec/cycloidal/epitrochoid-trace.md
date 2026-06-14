@@ -8,8 +8,9 @@ points computed here are **already cm** — add them to sketches as-is (never re
 > Scope note: the full archived drive is at `.tmp/cycloidal-spec-full-archive/`. This spec is being grown
 > back incrementally; it currently produces the **rotor disk** (lobe section → extrude → pattern → join)
 > with its **center bore**, the **output holes**, the **ring pins + Housing Ring base**, the **eccentric
-> input cam**, and the **output plate + `M` output pins**. The full axial stack/clocking (and a 2nd disk)
-> are not built yet. **Output pins** are `M` cylinders (`D_pin = Output Pin Diameter`, resolved) on the
+> input cam**, the **output plate + `M` output pins**, edge **chamfers**, and an optional **second disc**
+> (`Disc Count = 2`, 180° opposed — see "Two discs" below). **Output pins** are `M` cylinders (`D_pin =
+> Output Pin Diameter`, resolved) on the
 > output-pin circle (`Rop`) about the drive axis **`O`**, carried by a plate `1 mm` above the disk
 > (opposite the housing); they pass down through the disk's output holes (which are on `Od`, `+2E` oversize).
 >
@@ -129,3 +130,54 @@ valid `E` with only ~30–55 points:
 This concentrates points on the sharp flanks/tip and thins them on the gentle parts — fewer points than a
 smooth uniform sample, and no overshoot. Valid (non-self-intersecting) for `E < min(Rr, R/N)` and the
 no-undercut guard; the defaults (`N=16, R=45, Rr≈5.14, E=1.5, c=0.3`) satisfy these.
+
+## Two discs (Disc Count = 2)
+
+For balance, the drive may use **two cycloidal discs 180° out of phase** (the eccentric masses cancel →
+smoother at speed). Disc `d` (`d = 0,1`) is `disk_point(t, cx = s_d·E, cy = 0, phi = d·π)` with `s_0 = +1`,
+`s_1 = −1`: disc 1 is **disc 0 rotated 180° about `O`** (`disk_point(t, −E, 0, π) ≡ (−x, −y)` of
+`disk_point(t, +E, 0, 0)` — verify the sign once in code). This is exactly the orientation that meshes disc
+1 with the **same** ring pins at the opposite eccentric `Od_1 = O − E·X̂`.
+
+**Why even `N` and even `M`.** Rotating disc 0's whole meshing configuration by `π` about `O` maps the
+`N`-pin ring onto itself **iff `N` is even** (`π = N/2` pin-pitches), landing a valid disc at `−E·X̂`
+rotated `π`. Its `M` output holes are likewise `π`-rotated; they land on the output pins **iff `M` is even**
+(a pin exists at every `+π` position). So `Disc Count = 2` **requires even `N` and even `M`** (rejected
+otherwise). The cam carries two eccentric sections (`+E`, `−E`) `180°` apart; the discs stack with a small
+`Disc Gap`; the ring pins and output pins span the whole stack.
+
+## Pinless ring casing (the disc rolls on an integral contour, not loose pins)
+
+Instead of `N` discrete pins, the reaction member is a **`Ring Casing`** at the disc level whose inner wall
+**follows the disc's swept envelope** — the smooth conjugate contour the disc rolls in. The inner wall is the
+**disc swept boundary offset outward by the clearance `c`**: `contour(φ) = env(φ) + c`, where `env(φ)` is the
+maximum radius (from `O`) the disc reaches in direction `φ` over a full cam cycle. This single offset yields
+both features at once: near each pin the swept boundary is the disc valley wrapping the pin, so `env+c` lands
+on ≈ the radius-`Rr` pin surface (disc clears by `c`); between pins it follows the lobe-tip path (the true
+swept-tip bridge, smoothly deepest mid-gap). No constant-radius circle.
+
+**`env(φ)` by sweep.** As the cam turns by `θ` the disc centre orbits `O` at radius `E` (angle `θ`) and the
+disc rotates by `β(θ) = −θ/L`. Sample the world disc `disk_point(t, E·cos θ, E·sin θ, −θ/L)` over
+`θ ∈ [0, 2π)`, `t ∈ [0, 2π)`; bin each point by its polar angle and keep the **max radius** per bin →
+`env(φ)`. The result is **`N`-fold symmetric** (period `2π/N`).
+
+**Build one section, pattern ×`N`** (like the disc's lobe-sector → pattern → join). Compute the contour over
+**one pin-pitch** `φ ∈ [−π/N, π/N]` (a pin centred at `φ = 0`) — bin only that sector while sweeping; ~60–90
+points (dense enough that the fitted spline doesn't overshoot at the pin bump — same risk as the lobe spline).
+
+⚠️ **The contour's first and last points MUST land EXACTLY on `φ = −π/N` and `φ = +π/N`** (the pin-pitch
+boundaries), NOT at the centres of the first/last bins. Emit the `nbins+1` points at the bin **EDGES**
+`φ_i = −π/N + (2π/N)·i/nbins` for `i = 0 … nbins` (radius at edge `i` = `c + max(binMax[i−1], binMax[i])`,
+using the single existing neighbour at the two ends), so `φ_0 = −π/N` and `φ_nbins = +π/N` exactly. This is
+**load-bearing for the join**: the two radial spokes are placed at the spline endpoints' angles, and the ×`N`
+pattern steps by exactly `2π/N`, so adjacent sectors share a spoke face **only if** the endpoints are exactly
+at `±π/N`. Bin **centres** (inset by half a bin) leave a `2π/(N·nbins)` angular **gap** between every pair of
+patterned sectors → the sectors don't touch, the Join can't merge them, and you get `N` disjoint "several
+unnamed bodies" that never combine into one casing (the reported bug). The casing **sector** is the pie wedge
+bounded by the outer arc (`R + Rr + Wall`), the contour spline (`env+c` over the pin-pitch), and two **radial
+spokes** at `φ = ±π/N` (the section ends fall on the mid-gap **peaks**, where the contour is tangential by
+symmetry, so the seamlessly-tiled patterned sectors join into one smooth wall).
+Extrude the sector by the stack height, **circular-pattern ×`N`** about the drive axis, **Join** into one
+`'Ring Casing'`. The `Housing Ring` base stays below it; the discrete pins are gone. (Moderate sweep
+resolution, e.g. `Nθ = Nt ≈ 240`, keeps generation fast; the disc clears the contour so small sampling error
+is absorbed by `c`.)
