@@ -30,7 +30,9 @@ per-disc handles are **lists** indexed by the disc index `d` (`self.diskBodies`,
 `self.lobeSplines`, `self.outputHoles`, `self.lobeDiskCentres`, `self.discPlanes`), the rest scalars
 (`self.driveAxis`, `self.housingRing`, `self.ringCasing`, `self.cam`, `self.outputPlate`).
 
-**Dependencies: none.** Imports only the framework (`base`, `misc`, `utilities`, `fusion360utils`).
+**Dependencies: none.** Imports only the framework (`base`, `misc`, `utilities`, `solids`,
+`fusion360utils`). ⚠️ Use **`solids.hide_construction_geometry(component)`** for the final cleanup — do NOT
+re-implement it (helper-shadowing is rejected).
 
 ## Component Setup
 
@@ -260,6 +262,11 @@ generate(inputs)
   → buildOutputPins()                # plate 1mm ABOVE stackTop; pins span [plate top, disc-0 bottom] through
                                      #   ALL discs' output holes → sockets + chamfer → pattern ×M about O
   → buildChamfers()                  # chamfer outer rim of EVERY disc body + 'Housing' + Output Plate
+  → buildSubComponents()             # LAST. Organize the finished bodies into 4 sub-components inside the
+                                     #   Cycloidal Drive component, by part type: 'Rotor Discs' (Disc 1[,2]),
+                                     #   'Housing', 'Eccentric Cam', 'Output' (plate + M pins). moveToComponent.
+                                     #   THEN solids.hide_construction_geometry(component): hide all sketches/
+                                     #   construction planes/axes, leaving only the solid bodies visible.
 ```
 
 As with spur, creating the occurrence (first `addParameter` / `getOccurrence`) shifts Fusion's active
@@ -486,7 +493,12 @@ graph ⚠️: `nT` for `D=1`, `'2 * {} + {}'.format(nT, nG)` for `D=2` — never
 7. **Pattern ×`M` (= `Output Pin Count`) about `self.driveAxis`** (reuse the drive axis at `O` from
    `buildRingPins`): an `ObjectCollection` with the pin `ExtrudeFeature`, the socket `CombineFeature`, and the
    pin-end `ChamferFeature` (when present). → `M` output pins, each through a plate socket and orbiting
-   through the disk's output holes. Done.
+   through the disk's output holes.
+8. **Name all `M` pin bodies** so `buildSubComponents` can group them by name. Capture `pinBase =
+   component.bRepBodies.count` **before** the step-4 pin extrude; the `M` pin bodies are then the contiguous
+   block `bRepBodies.item(pinBase … pinBase+M−1)` (the socket Cut adds no body; only the pin `NewBody` extrude
+   and its `M−1` pattern instances do). Rename each: `body.name = 'Output Pin {}'.format(k+1)` for `k =
+   0…M−1`. (The seed pin's step-4 `'Output Pin'` name is overwritten to `'Output Pin 1'`.) Done.
 
 ### 8: Edge chamfers — `buildChamfers()`
 If `Chamfer Size > 0`, chamfer the **outer rim** (both flat faces) of each disc-like body via
@@ -500,3 +512,25 @@ loop is the scalloped contour, and chamfering it throws `ASM_BL_CAP_COMPLEX` (`[
 edges (bores, output holes, the casing's inner pin contour) are left sharp — outer rim only. (The
 output pins are already chamfered in their own build step, inside the pattern; the casing's pins are integral
 so they need no separate chamfer.) If `Chamfer Size == 0`, do nothing. Done.
+
+### 9: Organize bodies into sub-components — `buildSubComponents()`
+**LAST step, after everything is built and chamfered.** Group the finished bodies into **four sub-components
+inside the Cycloidal Drive component**, one per part type, so the browser tree is a tidy assembly rather than a
+flat body list (`[CYCLOIDAL-F-SUBCOMPONENTS]`). Run it **last** because `moveToComponent` invalidates the
+moved body's reference and `buildChamfers` (and the earlier build steps) still need the bodies in the root
+Cycloidal Drive component. The four groups, matched **by body name** (robust against stale refs):
+- **`Rotor Discs`** — every body whose name starts with `'Cycloidal Disk'` (Disc 1, and Disc 2 when `D=2`).
+- **`Housing`** — the body named `'Housing'`.
+- **`Eccentric Cam`** — the body named `'Eccentric Cam'`.
+- **`Output`** — the bodies named `'Output Plate'` and `'Output Pin …'` (plate + all `M` pins).
+
+For each non-empty group: `occ = component.occurrences.addNewComponent(adsk.core.Matrix3D.create())` (identity
+transform → bodies keep their world position), `occ.component.name = <group name>`, then `body.moveToComponent(
+occ)` for each body in the group. ⚠️ **Snapshot all bodies into the four name-keyed lists FIRST** (one pass over
+`component.bRepBodies`), THEN create occurrences and move — moving mutates `component.bRepBodies`, so iterating
+it while moving would skip bodies. `moveToComponent` returns the moved body or `None` on failure; ignore the
+return (the body is already relocated).
+
+**Finally, hide all construction geometry.** Call **`solids.hide_construction_geometry(component)`** (recursive
+— hides every sketch, construction plane, and construction axis under the Cycloidal Drive component and its new
+sub-components, leaving only the solid bodies visible). Use the shared helper; do NOT re-implement it. Done.

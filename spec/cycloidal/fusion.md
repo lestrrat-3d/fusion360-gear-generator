@@ -491,3 +491,41 @@ and **`nT`** for the last (both **prefixed**). Then `combineFeatures` **Join** a
 `'Eccentric Cam'` (target = section 0's body, tools = the rest). The `±E` sections share a large central
 overlap (centres `2E` apart, radius `CenterBearingDiameter/2`), so the joined cam is one continuous solid
 with the input bore through it. (`D = 1` → the single section, unchanged.)
+
+## [CYCLOIDAL-F-SUBCOMPONENTS] Organize finished bodies into sub-components (`buildSubComponents`)
+
+The **last** step of `generate`. Everything so far built its bodies directly in the **Cycloidal Drive
+component** (`self.getComponent()`), giving a flat body list. Group them into **four child sub-components**,
+one per part type, so the browser tree reads like an assembly. **Build-then-organize, not build-in-place:** the
+earlier steps and `buildChamfers` need every body in the root component, and `moveToComponent` invalidates the
+moved body — so this MUST run after all geometry + chamfers.
+
+`buildSubComponents(self)`:
+- `component = self.getComponent()` (the Cycloidal Drive component — `Component.occurrences` holds its
+  children, exactly as `base.getOccurrence` uses `parentComponent.occurrences.addNewComponent`).
+- ⚠️ **Snapshot first, move second.** Iterate `component.bRepBodies` **once** and bucket each body **by name**
+  into four Python lists (do NOT move while iterating — `moveToComponent` mutates `bRepBodies` and the loop
+  would skip bodies):
+  - name `.startswith('Cycloidal Disk')` → **`Rotor Discs`**
+  - name `== 'Housing'` → **`Housing`**
+  - name `== 'Eccentric Cam'` → **`Eccentric Cam`**
+  - name `== 'Output Plate'` **or** `.startswith('Output Pin')` → **`Output`**
+  Name-keying (not stashed `self.*` handles or body indices) is deliberate: chamfers/combines may have
+  refreshed the stashed proxies, and `moveToComponent` shifts every later index. `buildOutputPins` step 8
+  guarantees every pin is named `'Output Pin k'`, and `buildRingPins`/`buildCam` leave the final bodies named
+  `'Housing'`/`'Eccentric Cam'` — so every body falls into exactly one bucket.
+- For each group **in a fixed order** (`Rotor Discs`, `Housing`, `Eccentric Cam`, `Output`), skip if empty,
+  else: `occ = component.occurrences.addNewComponent(adsk.core.Matrix3D.create())` (⚠️ **identity** transform —
+  so the body keeps its world position; a non-identity transform would shift it), `occ.component.name =
+  <group name>`, then for each `body` in the list `body.moveToComponent(occ)` (target is the **occurrence**;
+  the body moves into `occ.component` at the same world position). `moveToComponent` returns the relocated
+  `BRepBody` or `None` on failure — you may ignore it (the relocation already happened); do not reuse the
+  pre-move reference afterward.
+- No new parameters, sketches, or dims. Construction geometry (planes/axes) stays in the root Cycloidal Drive
+  component; only solid bodies are relocated.
+- **Final cleanup — hide construction geometry.** After the moves, call
+  **`solids.hide_construction_geometry(component)`** (import from `.solids`; it recursively walks the component
+  + its sub-occurrences and sets `isLightBulbOn = False` on every sketch, construction plane, and construction
+  axis). ⚠️ Use the shared helper — re-implementing it is a helper-shadow rejection. This supersedes any
+  per-axis `isLightBulbOn = False` (e.g. the drive axis); one call hides them all. Only solid bodies stay
+  visible.
