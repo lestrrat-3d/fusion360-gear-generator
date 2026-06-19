@@ -283,6 +283,35 @@ stop = command.stop
 New gears: add the entry directory (with `resources/`), then import and list it in
 `commands/__init__.py`.
 
+### Optional: live input validation (`validateInputs`) — `[PB-VALIDATE-INPUTS]`
+
+`GearCommand.command_validate_input` supports an **opt-in** per-gear hook so a dialog can grey out
+OK and show *why* — keeping the dialog open and editable — instead of failing only at execute
+time. A gear opts in by declaring on its **generator class**:
+
+- `@staticmethod validate_inputs(inputs) -> list[str]` — a **pure** check that reads raw values
+  straight off `inputs.itemById(<id>).value` (internal cm — no `get_value`, no parameters, no
+  document mutation; it runs on every keystroke) and returns a list of human-readable problems,
+  **each ideally naming the offending input and a concrete numeric bound** (e.g. "Output Pin
+  Circle Diameter must be below 42.5 mm"). An empty list means valid. This member alone enables the
+  OK-greying behavior.
+- (to also *show* the messages) a **per-field message slot** after each editable input: a hidden
+  read-only `addTextBoxCommandInput` whose id is the input's id + `STATUS_SUFFIX` (`'__status'`),
+  created `isVisible = False`; plus a class attribute `DEFAULT_STATUS_INPUT_ID` naming one such slot
+  to use as a fallback. The shared handler records the **last-changed input** (in `inputChanged`) and,
+  on a problem, writes the list into `<last-changed-id> + '__status'` (or `DEFAULT_STATUS_INPUT_ID`
+  when that input has no slot — e.g. selections, or the initial open), hiding whichever slot it showed
+  before. This puts the guidance **next to the field the user just edited** instead of in one fixed
+  box that may be scrolled out of view in a long dialog.
+
+When `validate_inputs` is present the shared handler sets `args.areInputsValid = not problems`
+(OK disabled while any problem remains). It swallows exceptions from the hook (a half-typed
+expression) and falls back to valid, so the hook never traps the user; the generator's
+execute-time validity guard stays as the backstop. A gear may define `validate_inputs` without any
+slots (OK greys out, no inline text). Gears that declare neither keep the default always-valid
+behavior. Keep the resolve+validate math in **one routine** shared by `validate_inputs` and the
+execute-time resolve so the two never drift.
+
 **[PB-AUTOFOCUS-FIRST] Dialog auto-focus ordering gotcha.** Fusion auto-focuses the FIRST `SelectionCommandInput` and
 ignores a later `hasFocus=True`; add the selection input that should own initial focus first (so the
 `configure()` add-order, not a focus flag, decides which selection the dialog opens on).
