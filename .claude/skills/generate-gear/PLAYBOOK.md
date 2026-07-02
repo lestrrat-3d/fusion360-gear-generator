@@ -316,6 +316,75 @@ execute-time resolve so the two never drift.
 ignores a later `hasFocus=True`; add the selection input that should own initial focus first (so the
 `configure()` add-order, not a focus flag, decides which selection the dialog opens on).
 
+## Sketch-first proof — fully constrain in the `sketch` engine before generating ([PB-SKETCH-FIRST])
+
+**[PB-SKETCH-FIRST] Before emitting Fusion code for a gear whose profile is a non-trivial
+constrained sketch, first reproduce that sketch in the standalone
+[lestrrat-3d/sketch](https://github.com/lestrrat-3d/sketch) engine and prove the constraint scheme
+fully constrains — `DOF == 0`, no redundant or conflicting constraints, well-conditioned. Only
+once that passes do you generate the Fusion add-in code.** A constraint scheme that is silently
+under- or over-constrained (`[PB-FULL-CONSTRAINT]`, `[PB-NO-OVERCONSTRAIN]`) is expensive to
+discover inside Fusion and hard to attribute. The sketch engine is a headless, scriptable oracle
+for exactly this question, so the scheme is proven on the bench before it is committed to geometry.
+
+**Where it lives.** The proof is a small, committed, runnable Go program per gear at
+`spec/<gear>/sketch/` (module + `main.go` + `run.sh` + `README.md`). It reproduces the gear's
+constraint-bearing sketch(es) from the same `[SPUR-F-…]`/spec recipes the Fusion code will use, runs
+the solver, and prints a pass/fail gate. `spec/spurgear/sketch/` is the worked example (the spur
+Gear Profile: four circles, involute flanks, ribs, spine, flank-to-root lines). `run.sh` resolves a
+local checkout of the engine (source-available, not go-gettable) via `$SKETCH_DIR` or a sibling
+`<repo>/../sketch` located with `git --git-common-dir`, injecting the replace through a throwaway
+`GOWORK` so the committed `go.mod` stays portable. Run it with `./run.sh`.
+
+**The gate.** Build geometry from points, add the constraints, `Solve()`, then read `Verify()`:
+
+- **Primary gate (must pass) — full constraint.** `report.Status == FullyConstrained` **and**
+  `report.Conditioning >= max(1e-6, 4·√tolerance)`. `Status == FullyConstrained` already implies
+  solvable + `DOF == 0` + no redundant + no conflicting constraints; it is the faithful analog of
+  Fusion's `sketch.isFullyConstrained` plus "not over-constrained." The conditioning check rejects a
+  `DOF == 0` verdict that is decided by a near-singular constraint set (it catches, e.g., a
+  vanishing-length reference line whose direction constraint is ill-defined). `VerificationReport.Trustworthy()`
+  bundles this **and** the advisories below; gate on the primary fields, not on `Trustworthy()`
+  alone, so a benign advisory does not block a genuinely fully-constrained scheme.
+- **Advisory (report and interpret, do not hard-block):**
+  - `ProfilesValid` — should be **true**: the profile forms one clean, extrudable loop with the curve
+    count the spec's extrude step expects. A false here on a valid loop is usually an engine
+    limitation (see the corner-join note below), not a scheme defect — investigate before dismissing.
+  - `Probe.Ambiguous()` — a draw-then-constrain CAD sketch is seeded at its pose (`MoveTo`) and then
+    constrained; the pure-constraint system may still admit branch/mirror flips that the seed
+    resolves, exactly as Fusion relies on initial geometry placement. `DOF == 0` means each discrete
+    solution is itself rigid, so this is expected and is **not** an under-constraint.
+
+**Constraint mapping (Fusion → sketch engine).** The two constraint sets are near-identical, so the
+scheme translates almost verbatim: `addByCenterRadius`→`CreateCircle`; a driving diameter/radius
+dim→`NewDiameter`/`NewRadius`; `addCoincident`→`NewCoincident` (or grounding a shared point with
+`Fix`); `addHorizontal`/`addVertical`→`NewHorizontal`/`NewVertical`; `addPerpendicular`→`NewPerpendicular`;
+`addMidPoint`→`NewMidpoint`; a point-on-line/`addCollinear`→`NewPointOnLine`/`NewCollinear`;
+point-on-circle→`NewPointOnCircle`; an angular/`addAngularDimension`→`NewAngle`; a fitted
+spline→`CreateSpline`. Share a `*Point` between entities to express a shared vertex (the engine's
+analog of `[PB-SHARE-XOR-COINCIDENT]`). A Fusion three-point arc with a diameter dim maps to
+`CreateArc(freeCenter, start, end)` + `NewDiameter` (the arc's own free centre is pinned by the two
+shared ends + the diameter). The anchor coincidence that grounds the whole sketch maps to fixing the
+local-origin point (`MoveTo` + `Fix`).
+
+**The proof is a bench model, not the Fusion code.** Where an engine primitive differs, use the
+closest faithful equivalent and say so in the gear's `README.md` — e.g. Fusion derives a tooth's
+root arc by profile-splitting a solid root circle, which the prototype models with an explicit root
+arc (the same derived boundary) while keeping the root circle construction. The point is to prove
+the *constraint logic* reaches `DOF == 0` across a parameter sweep, not to byte-match Fusion's entity
+list. Run the check across several `Module`/`Tooth Number` sizes to prove the **parametric** scheme
+holds, and note any parameter region it does **not** (e.g. an ill-conditioned near-degenerate
+transition) as a finding.
+
+**Engine bug found and fixed by this work (context, not a rule):** a line meeting an arc at a shared
+loop corner (a circular segment, slot, pie slice, gear tooth) was false-flagged as a *degenerate
+arrangement* by the sketch engine's profile consistency gate — it counted the endpoint corner-join
+against the sampled interior-crossing count. Fixed in lestrrat-3d/sketch `main` (PR #12 —
+`cornerJoin` handling in `geom/arrange.go` + a regression test). `ProfilesValid`
+is true for the gear teeth only against an engine that carries this fix. When the bench oracle
+disagrees with a hand proof, suspect (and, if authorized, fix) the oracle too — don't just downgrade
+the check.
+
 ## Fusion-API conventions & gotchas (cross-gear)
 
 - **[PB-API-LOOKUP] Look the API up before you write it — never guess an `adsk.*` name, module, or signature.** A grep-able, class-scoped index of the entire Fusion Python API is built from the stub defs by `.claude/skills/generate-gear/build_fusion_index.py` (run it once; it clones the `FusionAPIReference` defs on demand into `~/.cache/fusion360-gear-generator/` — the same cache `pyright_check.py` uses — and writes `~/.cache/fusion360-gear-generator/fusion-api-index.jsonl`). Each line is one class / method / property / enum-member with `name`, owning `class`, `module` (`adsk.core` vs `adsk.fusion`), `kind`, `sig` (full signature), and `doc` (one-line summary). Use it two ways:
@@ -324,7 +393,8 @@ ignores a later `hasFocus=True`; add the selection input that should own initial
 - **[PB-ADSK-MODULES] `adsk.core` vs `adsk.fusion` — get the module right; the wrong one is a runtime `AttributeError`, not a parse error.** `adsk` is native and unimportable outside Fusion, so `ast.parse`/`pyflakes` happily accept `adsk.fusion.SurfaceTypes` even though `SurfaceTypes` is in **`adsk.core`** — it dies only at runtime with `AttributeError: module 'adsk.fusion' has no attribute 'SurfaceTypes'`. **Resolve the module mechanically: grep the API index ([PB-API-LOOKUP]) for `"name":"<Name>"` and read its `module` field** — definitive for any name, no memorization. As a rule of thumb when the index isn't handy: geometry/value types — `Point3D`, `Vector3D`, `Matrix3D`, `Line3D`, `ObjectCollection`, `ValueInput`, **`SurfaceTypes`**, `Curve3DTypes`/`Curve2DTypes` — live in **`adsk.core`**; feature/operation/topology enums — `FeatureOperations`, `SurfaceProjectTypes`, `PatternComputeOptions`, `PointContainment`, `Path` — live in **`adsk.fusion`**. The generate-gear validation runs `pyright_check.py` (pyright + Fusion API stubs), which flags a wrong-submodule ref as a **BLOCKING** `reportAttributeAccessIssue` (`"SurfaceTypes" is not a known attribute of module "adsk.fusion"`); `check_adsk_modules.py` is the stub-free fallback. Either way, get it right at authoring time rather than relying on the lint.
 - **[PB-WORLD-FRAME] `.geometry` (sketch-local) vs `.worldGeometry` (world) — match the frame of whatever you measure against.** A sketch curve/point's `.geometry` lives in its sketch's *local* coordinate system; `.worldGeometry` is world/model space. When you measure an angle, distance, or perpendicular component against a **world** quantity — a world axis vector, a world apex point, another body's geometry — you must sample the curve in **world** space (`entity.worldGeometry.evaluator.getParameterExtents()`/`getPointAtParameter`). Mixing a local-frame curve with a world axis is valid Python that **silently returns wrong numbers** — no exception, no parse/lint catch — e.g. a wrong spiral-twist magnitude that makes meshing teeth interfere. The two frames coincide only when the sketch sits on the world-origin plane, which is generally not the case. No mechanical gate catches this; it's an authoring rule.
 - **[PB-EMPTY-RESULT] Geometry ops can legitimately yield zero results — never feed that straight into `max()`/`min()`/`[0]`/`.index(max(...))`.** A `splitBodyFeatures` that doesn't intersect, a face/edge search that finds nothing, a piece list after filtering or after dropping a scrap — any of these can be **empty**. `max([])`/`min([])` raise `ValueError: max() iterable argument is empty` and `coll[0]` raises `IndexError`, both **cryptic and far from the real cause** (often surfacing several calls downstream). **Guard every such collection at the point it's produced:** if zero is a valid outcome, skip gracefully; otherwise `raise` a clear self-diagnosing error that names the operation, the gear/part, and the actual count (e.g. `"{gear}: slice produced {n} piece(s), expected >=2 — cut planes missed"`). Assert the expected count **right after** the split/search/removal, not three steps later where `max([])` blows up. (This is how the conical-cut and slice steps already self-diagnose — follow that pattern for any zero-able collection.)
-- **[PB-FULL-CONSTRAINT] Leave no sketch under-constrained — and verify it with `sketch.isFullyConstrained`.** A
+- **[PB-FULL-CONSTRAINT] Leave no sketch under-constrained — and verify it with `sketch.isFullyConstrained`.**
+  (Prove the scheme reaches this *before* generating, on the bench, per `[PB-SKETCH-FIRST]`.) A
   well-formed parametric sketch should end with **zero free degrees of freedom**: every point either
   carries explicit constraints/dimensions or is *driven* (a projected point tracks its source; an
   endpoint at a perpendicular/collinear intersection is determined by those constraints). A free DOF

@@ -39,7 +39,8 @@ The spec + playbook together MUST be sufficient. If they are not, fix the spec o
 1. **Setup.** Work in a worktree (per the repo's CLAUDE.md — never the root checkout). Ensure
    `.tmp/` exists. Read this skill, `PLAYBOOK.md`, and the spec end-to-end. Skim the shared
    framework the output builds on: `lib/geargen/base.py`, `misc.py`, `utilities.py`,
-   `lib/fusion360utils/`, and `commands/<gear>/entry.py`.
+   `lib/fusion360utils/`, and `commands/<gear>/entry.py`. Note the gear's sketch-first proof at
+   `spec/<gear>/sketch/` if present (run in step 3).
 
 2. **Extract the contract from the spec.** Read the spec's **Contract** sections (the classes,
    hook methods, generation-context fields, generation order, and exact input ids / parameter-name
@@ -48,7 +49,18 @@ The spec + playbook together MUST be sufficient. If they are not, fix the spec o
    family, or another gear it borrows a class from), read those files too and treat the surface
    they bind to as part of the required contract.
 
-3. **Generate.** Spawn a subagent that writes `.tmp/<gear>.generated.py` from **the spec +
+3. **Prove the sketch fully constrains (sketch-first gate — `[PB-SKETCH-FIRST]`).** If the gear's
+   profile is a non-trivial constrained sketch, run its bench proof at `spec/<gear>/sketch/`
+   (`./run.sh`) and confirm the **primary gate passes** — `Status == FullyConstrained` and healthy
+   conditioning (`DOF == 0`, no redundant/conflicting constraints). This proves the constraint scheme
+   is sound *before* any Fusion code is emitted; the advisory signals (`ProfilesValid`,
+   `Probe.Ambiguous()`) are reported and interpreted, not hard-blocking (see `[PB-SKETCH-FIRST]`).
+   If the proof does not yet exist for this gear, build it from the spec's sketch recipes (the spur
+   `spec/spurgear/sketch/` is the worked example) — a scheme that cannot reach `DOF == 0` on the
+   bench is a spec/playbook defect to fix here, not to discover inside Fusion. Requires a local
+   checkout of the `sketch` engine (`$SKETCH_DIR` or a sibling `../sketch`).
+
+4. **Generate.** Spawn a subagent that writes `.tmp/<gear>.generated.py` from **the spec +
    playbook + the framework files + any declared dependency files only**. It MUST NOT read an
    existing `lib/geargen/<gear>.py` if one is present.
    - **Use the verbatim "Standard generation prompt" in the appendix below — do NOT improvise it,
@@ -68,7 +80,7 @@ The spec + playbook together MUST be sufficient. If they are not, fix the spec o
      user. A healthy round is ~10–15 minutes end-to-end; never let a silent run sit for an hour.
      Delete any stale `.tmp/<gear>.progress.log` before launching so the heartbeat is unambiguous.
 
-4. **Validate (reference-free).** The output is checked against the **spec**, not against any
+5. **Validate (reference-free).** The output is checked against the **spec**, not against any
    implementation:
    - **Parse:** `python3 -c "import ast; ast.parse(open('.tmp/<gear>.generated.py').read())"`.
      (Fusion's `adsk` modules can't be imported here; the repo has no runnable tests — parse is
@@ -113,15 +125,15 @@ The spec + playbook together MUST be sufficient. If they are not, fix the spec o
      typing. A mismatch means the spec under-specified how that input is read (`[PB-INPUT-READ]`);
      fix the spec/playbook and regenerate.
 
-5. **Iterate.** A parse error, a missing contract item, or an unresolved dependency means the
+6. **Iterate.** A parse error, a missing contract item, or an unresolved dependency means the
    **spec or playbook** is incomplete or wrong — fix it there (never hand-edit the generated file,
-   never copy from an existing implementation) and regenerate from step 3. Repeat up to ~3 rounds.
-   Converges when the output parses and satisfies the full declared contract.
+   never copy from an existing implementation) and regenerate from the Generate step (step 4).
+   Repeat up to ~3 rounds. Converges when the output parses and satisfies the full declared contract.
 
-6. **Install (on approval).** The generated file is the product. With the user's approval, copy
+7. **Install (on approval).** The generated file is the product. With the user's approval, copy
    `.tmp/<gear>.generated.py` to `lib/geargen/<gear>.py`. Without approval, leave it in `.tmp/`.
 
-7. **Report.** State whether the spec drove a complete, contract-satisfying generation, the
+8. **Report.** State whether the spec drove a complete, contract-satisfying generation, the
    spec/playbook edits made, and any **asserted-but-unproven** gaps (geometry the spec describes
    that no mechanical check can confirm — see the honesty note). Commit spec/playbook improvements
    (and the installed `.py` if approved). No push without explicit approval.
@@ -188,7 +200,7 @@ geometry in the report so it is visible, not silently assumed.
 
 ## Standard generation prompt (use verbatim — substitute only `<gear>`)
 
-This is the fixed prompt for the step-3 generation subagent. Use it **exactly**, changing only the
+This is the fixed prompt for the Generate-step (step 4) generation subagent. Use it **exactly**, changing only the
 `<gear>` token. Do **not** add gear-specific hints, gotcha reminders, or "high-risk" lists — those
 belong in the spec/playbook. Identical prompt every run is what makes the regen an honest test of
 the spec.
