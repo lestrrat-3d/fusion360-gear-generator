@@ -112,6 +112,15 @@ real-valued user parameter (1 = true, 0 = false), since the framework only reads
 parameters as booleans (`getParameterAsBoolean`). The derived parameters in the list above
 (Pitch/Base/Root/Tip circles, InvoluteSteps, ToothSpace…, Fillet…) keep exactly those names.
 
+**[SPUR-SUBCLASS-INPUT] Configurator extension seam (for subclasses).** `configure()` is a
+`@classmethod` on `SpurGearCommandInputsConfigurator`. A subclass gear (helical/herringbone) adds its
+own extra dialog input by **subclassing the configurator and appending after `super().configure(cmd)`**
+— e.g. `HelicalGearCommandConfigurator.configure` calls `super().configure(cmd)` then
+`cmd.commandInputs.addValueInput(...)` for its Helix Angle. Because `super().configure()` already
+added Parent Component **last**, a subclass's extra input necessarily lands **after** Parent Component
+in the dialog. (This is the actual behavior; the "Parent Component last" rule above is a spur-base
+statement that a subclass's appended inputs sit below.)
+
 ## Sketch Discipline
 
 A few rules apply across every sketch created below. They're not obvious from the step list, and
@@ -210,6 +219,14 @@ Specific boundaries subclasses depend on (do not move the work elsewhere):
   separately.
 - **`chamferTooth` / `createFillets`** read `chamferWantEdges()` and the fillet helix factor
   (`filletHelixFactorExpression()`); these hooks must exist on the generator.
+- **[SPUR-EXTRA-PARAMS] `addExtraPrimaryParameters(self, inputs)`** is an overridable hook, a **no-op
+  on the spur base**, that `processInputs` calls **between** registering the input-sourced parameters
+  and the derived ones. Subclasses override it to register their own primary user parameters from the
+  extra dialog inputs they added (e.g. helical registers `HelixAngle` from the `helixAngle` input).
+  It must exist (as a no-op) on the spur base so the call site in `processInputs` is present for
+  subclasses to hook. Together with `[SPUR-SUBCLASS-INPUT]`, these are the two seams by which a
+  subclass adds a parameter: the configurator adds the dialog *input*, this hook registers the
+  *parameter*.
 - **`generateName()`** returns the component name. For the spur base it is
   `'Spur Gear (M={}, Tooth={}, Thickness={})'.format(module.expression, toothNumber.expression, thickness.expression)`
   — i.e. the `Module`, `ToothNumber`, and `Thickness` parameters' **`.expression`** strings (not
