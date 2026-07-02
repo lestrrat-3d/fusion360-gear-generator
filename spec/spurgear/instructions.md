@@ -118,6 +118,12 @@ A few rules apply across every sketch created below. They're not obvious from th
 the whole construction falls apart without them. The Fusion-API mechanics are in `fusion.md` and
 `PLAYBOOK.md`; this section states the *intent* and points to the binding rule for each.
 
+The Gear Profile constraint scheme below is **proven to fully constrain** (`DOF == 0`, no
+redundant/conflicting constraints, across a size sweep) on the bench in `spec/spurgear/sketch/`
+before any Fusion code is generated — the sketch-first gate `[PB-SKETCH-FIRST]`. That proof is the
+executable check that these rules add up to a fully-constrained sketch; run it (`./run.sh`) when
+changing any of them.
+
 - **Sketches follow the user's anchor through a projection chain.** The Tools-sketch projection of
   the anchor is the canonical handle; later sketches re-project it so the whole gear tracks the
   anchor if it moves — see `[SPUR-F-ANCHOR-CHAIN]`.
@@ -290,7 +296,7 @@ Still inside the Gear Profile sketch, draw a single involute tooth centered on t
 
 1. Sample a sequence of points along the involute flank, starting on the base circle and walking outward toward the tip circle in equal radial steps (Involute Steps samples in total). The first sample radius is **exactly `Base Circle Radius`** — do **not** clamp the start to `max(Base Circle Radius, Root Circle Radius)`; the flank is sampled from the base circle even when the base circle sits inside the root circle (the embedded case is detected later in step 9 from where the flank *start* lands, not by trimming the sampling). Each sample is `calculateInvolutePoint(Base Circle Radius, r)` for that step's radius `r` (the exact math is pinned in the tooth-generator surface section above). Drop any sample that returns `None` (i.e. whose radius is below the base circle) — those sit inside the base circle and have no valid involute.
 2. **Watch the spiral direction.** A correctly-formed involute tooth narrows from base to tip, so the left flank's angular distance above +X must *decrease* as the radius grows. The standard parametric involute (`rb*(cos t + t sin t, sin t - t cos t)`) spirals the opposite way — its angular position *increases* with radius — and using it as a left flank directly produces a tooth that splays outward (wider at the tip than at the root). Before rotating, mirror the samples across the +X axis (negate y) so the spiral matches a left flank's shape. The rotation in the next step lifts the mirrored curve from −Y back up into +Y where the left flank belongs.
-3. Decide how far to rotate the (mirrored) sequence so the tooth ends up symmetric about +X. Measure where the mirrored involute crosses the pitch circle, then rotate by exactly the amount that lands that pitch-circle crossing at angle `+π / (2 · ToothNumber)` above +X. (The angular width of a single tooth at the pitch circle is `π / Tooth Number`, so half that — `π / (2 · ToothNumber)` — is where the left flank's pitch crossing must end up.) Compute the pitch-circle crossing angle **analytically** — evaluate `calculateInvolutePoint(Base Circle Radius, Pitch Circle Radius)` and take its polar angle — rather than interpolating between the sampled flank points; the analytic value places the tooth at exactly the right angle regardless of how few involute samples are taken.
+3. Decide how far to rotate the (mirrored) sequence so the tooth ends up symmetric about +X. Measure where the mirrored involute crosses the pitch circle, then rotate by exactly the amount that lands that pitch-circle crossing at angle `+π / (2 · ToothNumber)` above +X. (The angular width of a single tooth at the pitch circle is `π / Tooth Number`, so half that — `π / (2 · ToothNumber)` — is where the left flank's pitch crossing must end up.) Compute the pitch-circle crossing angle **analytically** — evaluate `calculateInvolutePoint(Base Circle Radius, Pitch Circle Radius)` and take its polar angle — rather than interpolating between the sampled flank points; the analytic value places the tooth at exactly the right angle regardless of how few involute samples are taken. **Exact expression (pin the sign — it interacts with the step-2 mirror):** with `(px, py) = calculateInvolutePoint(Base Circle Radius, Pitch Circle Radius)`, the *mirrored* pitch crossing sits at polar angle `atan2(−py, px)`, so `rotate_angle = π / (2 · ToothNumber) − atan2(−py, px)`. (The `−py` is the step-2 mirror applied to the analytic point; do not take `atan2(py, px)`.)
 4. Rotate the (mirrored) sampled points by `rotate_angle`. This produces the **left** flank. Mirror that result across the X axis to produce the **right** flank. You now have a tooth symmetric about +X.
    **Then apply the requested `angle`.** The generator's `draw(anchorPoint, angle=0)` takes an `angle` (0 for spur; the helix angle for helical; 180° for the bevel virtual tooth) — the seed tooth must end up rotated by exactly that. Do this by rotating the **whole** +X-centered tooth by `angle` right here, in the same Python point math: rotate both flank point collections by `angle` (and, below, place the tooth-top point and seed the rib midpoints at the rotated positions too). Draw the tooth directly at its final angular position. Do **not** instead leave the tooth at +X and rely on the spine's angular dimension to swing it into place after the fact — that makes the `angle = 0` and `angle != 0` cases settle on ~180°-different baselines (Fusion's solver picks the wrong branch when the dimension jumps from ≈0 to `angle`), which is invisible for a spur gear (its teeth are circular-patterned, so the seed's absolute angle doesn't matter) but ruins a helical loft (bottom profile at 0°, top ~180° away → the loft passes through the gear centre). Because both the bottom (`angle = 0`) and top (`angle = helixAngle`) profiles now share the same `rotate_angle` baseline and differ by exactly `angle`, the loft twists by exactly the helix angle regardless of the absolute baseline. For `angle = 0` this whole step is a no-op (rotating by 0).
 5. Draw the two flanks as `SketchFittedSpline`s through the point collections.
@@ -304,9 +310,13 @@ Still inside the Gear Profile sketch, draw a single involute tooth centered on t
    dimension) is in `[SPUR-F-SPINE]`; the draw-and-confirm rule is `[SPUR-F-ROTATE-CONFIRM]`.
 8. Draw a **rib** construction line between each matching pair of left/right flank fit-points, with
    a midpoint on the spine; the ribs lock the flanks to the spine so the tooth rebuilds cleanly when
-   `Module` or `Tooth Number` changes, without pinning any point to an absolute coordinate. The
-   construction is order-sensitive — follow the exact six-step order and the midpoint-chain rule
-   (including the origin-to-first-rib dimension) in `[SPUR-F-RIBS]`.
+   `Module` or `Tooth Number` changes, without pinning any point to an absolute coordinate. **Build a
+   rib for *every* fit-point index — including the first (base-circle) pair and the last (tip) pair
+   whose ends are also joined by the tooth-top arc; there is no exception for endpoints.** With N
+   involute samples per flank you draw N ribs; the flank fit-points carry no other constraint, so a
+   missing endpoint rib leaves that fit-point free and the sketch under-constrained. The construction
+   is order-sensitive — follow the exact six-step order and the midpoint-chain rule (including the
+   origin-to-first-rib dimension) in `[SPUR-F-RIBS]`.
 9. Close the tooth at the root. If the flank's first point (on the base circle) lies **outside** the
    root circle, draw a short **radial** flank-to-root line on each side (exact two-constraint
    construction in `[SPUR-F-FLANK-ROOT]`); the tooth loop then has **6 curves** (2 splines + 2
