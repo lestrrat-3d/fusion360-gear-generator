@@ -101,9 +101,12 @@ build on the shared `[PB-FULL-CONSTRAINT]`, `[PB-SHARE-XOR-COINCIDENT]`, `[PB-NO
     supplement. Set its value to `angle` as the very last action (see `[SPUR-F-ROTATE-CONFIRM]`).
 
 - **[SPUR-F-RIBS] Ribs — exact construction order (step 8).** A rib construction line runs between
-  each pair of matching left/right flank points; each needs a materialized **midpoint sketch
-  point** on the spine. Build each rib in **this exact order** — a different order over-constrains
-  the sketch (`VCS_SKETCH_OVER_CONSTRAINTS`):
+  each pair of matching left/right flank points — **one per fit-point index `i` for all N indices,
+  endpoints included** (the base-circle pair `i=0` and the tip pair `i=N-1` both get a rib, even
+  though the tip ends are also joined by the tooth-top arc; the fit-points have no other constraint,
+  so an omitted endpoint rib leaves the sketch under-constrained). Each needs a materialized
+  **midpoint sketch point** on the spine. Build each rib in **this exact order** — a different order
+  over-constrains the sketch (`VCS_SKETCH_OVER_CONSTRAINTS`):
   1. Add the rib with `addByTwoPoints(leftSpline.fitPoints[i], rightSpline.fitPoints[i])` — pass the
      two fit-point `SketchPoint`s **directly** so the rib shares them; mark it construction.
   2. Dimension the rib's **aligned length** to its current measured value.
