@@ -10,6 +10,28 @@ shared `PLAYBOOK.md`). Read all three together; the cited rules are as binding a
 
 A spur gear is a single cylindrical body with straight teeth cut along the axis. Unlike the bevel generator there is no pairing — one invocation of the command produces exactly one gear. The new gear is added as a child occurrence of the user-selected Parent Component.
 
+## Architecture
+
+Spur **opts into the playbook's four-class pattern** (PLAYBOOK "The four-class pattern") and into
+`base.Generator` / `GenerationContext`. The module defines exactly these four classes; the names
+are public API (helical/herringbone subclass all of them by name, and `commands/spurgear/entry.py`
+binds two):
+
+1. **`SpurGearCommandInputsConfigurator`** — a plain class (no base) with `@classmethod def
+   configure(cls, cmd)` that adds the dialog inputs (see "Exact input ids and parameter-name
+   strings"). Extension seam for subclasses: `[SPUR-SUBCLASS-INPUT]`.
+2. **`SpurGearGenerationContext(GenerationContext)`** — the data carrier whose `__init__` declares
+   the fields in "Generation Context — canonical field names", each `cast(None)`-initialised
+   (`toothProfileIsEmbedded` starts `False`).
+3. **`SpurGearInvoluteToothDesignGenerator`** — a plain class (no base), constructed as
+   `(sketch, parent, angle=0)`; draws the circles, the involute tooth, and the bore circle. Its
+   reproduced surface is pinned in "Tooth generator … reproduced surface" below.
+4. **`SpurGearGenerator(Generator)`** — the orchestrator, subclass of `base.Generator`. Holds
+   `processInputs`, `generate`, parameter registration, and the per-step build methods (see
+   "Method contract — call graph and override boundaries").
+
+`GenerationContext` and `Generator` are imported from `.base`.
+
 ## Variables
 
 User inputs are listed below in the order they appear in the command dialog. Derived (calculated) parameters are registered as Fusion user parameters under the `SpurGear<N>_` prefix so they are visible and editable after generation; they are listed after the inputs they depend on.
@@ -111,6 +133,25 @@ accepts expressions; the rest are numeric `addValueInput`s. `SketchOnly` is pers
 real-valued user parameter (1 = true, 0 = false), since the framework only reads numeric
 parameters as booleans (`getParameterAsBoolean`). The derived parameters in the list above
 (Pitch/Base/Root/Tip circles, InvoluteSteps, ToothSpace…, Fillet…) keep exactly those names.
+
+**[SPUR-EXPORTED-CONSTANTS] Module-level constants are public API.** Every input id and
+user-parameter name above is exported as a module-level constant in `spurgear.py`, and dependent
+modules import them by name — renaming any of these identifiers is a breaking change. The full
+roster:
+
+- Input ids: `INPUT_ID_PARENT`, `INPUT_ID_PLANE`, `INPUT_ID_ANCHOR_POINT`, `INPUT_ID_MODULE`,
+  `INPUT_ID_TOOTH_NUMBER`, `INPUT_ID_PRESSURE_ANGLE`, `INPUT_ID_BORE_DIAMETER`,
+  `INPUT_ID_THICKNESS`, `INPUT_ID_CHAMFER_TOOTH`, `INPUT_ID_SKETCH_ONLY`.
+- Parameter names: `PARAM_MODULE`, `PARAM_TOOTH_NUMBER`, `PARAM_PRESSURE_ANGLE`,
+  `PARAM_BORE_DIAMETER`, `PARAM_THICKNESS`, `PARAM_CHAMFER_TOOTH`, `PARAM_SKETCH_ONLY`,
+  `PARAM_PITCH_DIAMETER`, `PARAM_PITCH_RADIUS`, `PARAM_BASE_DIAMETER`, `PARAM_BASE_RADIUS`,
+  `PARAM_ROOT_DIAMETER`, `PARAM_ROOT_RADIUS`, `PARAM_TIP_DIAMETER`, `PARAM_TIP_RADIUS`,
+  `PARAM_INVOLUTE_STEPS`, `PARAM_TOOTH_SPACE_ANGLE`, `PARAM_TOOTH_SPACE_ARC`,
+  `PARAM_FILLET_CLEARANCE`, `PARAM_FILLET_RADIUS`.
+
+`helicalgear.py` and `herringbonegear.py` each import `PARAM_MODULE, PARAM_TOOTH_NUMBER,
+PARAM_THICKNESS` from `.spurgear` (helical additionally imports the four classes; see
+"Dependencies and dependents").
 
 **[SPUR-SUBCLASS-INPUT] Configurator extension seam (for subclasses).** `configure()` is a
 `@classmethod` on `SpurGearCommandInputsConfigurator`. A subclass gear (helical/herringbone) adds its
@@ -217,8 +258,14 @@ Specific boundaries subclasses depend on (do not move the work elsewhere):
   extrude) and herringbone to loft+mirror; both still end by calling `chamferTooth`. Because the
   chamfer is triggered from inside `buildTooth`, `buildMainGearBody` must **not** chamfer
   separately.
-- **`chamferTooth` / `createFillets`** read `chamferWantEdges()` and the fillet helix factor
-  (`filletHelixFactorExpression()`); these hooks must exist on the generator.
+- **`chamferWantEdges()` / `filletHelixFactorExpression()`** are overridable hooks that must exist
+  on the generator, but they are consumed at different points. `chamferTooth` reads
+  `chamferWantEdges()` (spur base: `6`) when picking the front face. `filletHelixFactorExpression()`
+  is **not** read by `createFillets`: it returns an **expression string** (spur base: `'1'`;
+  helical: `'cos(<prefix>_HelixAngle)'`) that is consumed exactly once, in
+  `registerDerivedParameters`, where it is spliced in as the last factor of the live `FilletRadius`
+  parameter expression (`(ToothSpaceArcAtRoot / 2) * FilletClearance * <factor>`). `createFillets`
+  then reads only the resulting `FilletRadius` parameter's numeric `.value`.
 - **[SPUR-EXTRA-PARAMS] `addExtraPrimaryParameters(self, inputs)`** is an overridable hook, a **no-op
   on the spur base**, that `processInputs` calls **between** registering the input-sourced parameters
   and the derived ones. Subclasses override it to register their own primary user parameters from the
@@ -272,6 +319,33 @@ Specific boundaries subclasses depend on (do not move the work elsewhere):
   ```
   Using `inv(alpha) = tan(alpha) − alpha` as the parameter instead of `tan(alpha)` is a common
   mistake and produces a wrong (mis-parameterised) flank.
+
+## Dependencies and dependents
+
+Spur imports only the framework (`.base` — `Generator, GenerationContext, get_value, get_boolean,
+get_selection`; `.utilities` — `get_normal, find_profile_by_curve_counts`; `.misc` — `to_cm,
+get_design`). It depends on no other gear. Two dependents bind to its surface; regenerating spur
+must not break either:
+
+- **`helicalgear.py` / `herringbonegear.py` subclass the four classes.** Helical imports
+  `SpurGearCommandInputsConfigurator`, `SpurGearGenerationContext`, `SpurGearGenerator`, and
+  `SpurGearInvoluteToothDesignGenerator` (herringbone subclasses helical's versions), and both
+  import the module-level constants `PARAM_MODULE, PARAM_TOOTH_NUMBER, PARAM_THICKNESS`
+  (`[SPUR-EXPORTED-CONSTANTS]`). Everything they lean on is pinned in "Method contract" and
+  "Generation Context" above.
+- **`bevelgear.py` borrows the tooth generator without the Fusion parameter table.** It constructs
+  `SpurGearInvoluteToothDesignGenerator(toothSketch, proxy)` where `proxy` is a
+  `spurproxy.VirtualSpurProxy` — a fake `parent` whose `getParameter(name)` serves precomputed
+  values in internal cm (`[PB-PRECOMPUTED-MODE]`). **Borrowing constraint:** inside `drawCircles`,
+  `drawTooth`, and `draw` (including the helpers they call, e.g. `_drawFlankToRoot`), parameters
+  may be read ONLY from the key set `VirtualSpurProxy` serves — `Module`, `ToothNumber`,
+  `PressureAngle`, `PitchCircleDiameter`, `PitchCircleRadius`, `BaseCircleDiameter`,
+  `BaseCircleRadius`, `RootCircleDiameter`, `RootCircleRadius`, `TipCircleDiameter`,
+  `TipCircleRadius`, `InvoluteSteps`. Reading any other key on those paths breaks the bevel build
+  (the proxy raises `KeyError`). The proxy also carries the `_lastToothEmbedded` output slot: the
+  tooth generator's `drawTooth` writes `self.parent._lastToothEmbedded` (see
+  `[SPUR-F-FLANK-ROOT]`), and bevel reads it back off the proxy after `draw()` — keep that output
+  write in place.
 
 ## Generation Order
 
