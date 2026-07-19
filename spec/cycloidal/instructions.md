@@ -33,14 +33,18 @@ per-disc handles are **lists** indexed by the disc index `d` (`self.diskBodies`,
 `fusion360utils`). ⚠️ Use **`solids.hide_construction_geometry(component)`** for the final cleanup — do NOT
 re-implement it (helper-shadowing is rejected).
 
+**Entry wiring:** `commands/cycloidaldrive/entry.py` constructs `GearCommand(gear_type='CycloidalDrive',
+name='Cycloidal Drive Generator', …)`, binding the two classes above by name.
+
 ## Component Setup
 
 One command invocation creates a new child component (named per `generateName`) of the user-selected
-Parent Component. It draws six sketches — `Rotor Lobe` (one fully-constrained open lobe section + its
+Parent Component. It draws seven sketches — `Rotor Lobe` (one fully-constrained open lobe section + its
 reference frame), `Output Hole` (one output hole), `Housing Ring` (the base annulus, on a construction plane
-`1 mm` below the disk) + `Ring Casing` (one swept-contour section), `Disk Bore` (the enlarged center bore),
+`1 mm` below the disk), `Ring Casing` (one swept-contour section), `Disc Bore` (the enlarged center bore),
 `Eccentric Cam` (cam outer + input bore), and `Output Plate` (the output disc + one output pin, on a plane
-`1 mm` above the disk) — and builds the **rotor disk** (with its **center bore**), **`M` output holes**, the
+`1 mm` above the disk); the per-disc ones (`Rotor Lobe`, `Output Hole`, `Disc Bore`, `Eccentric Cam`) carry
+`{d+1}` name suffixes and repeat for the second disc — and builds the **rotor disk** (with its **center bore**), **`M` output holes**, the
 **`Housing` body** (base annulus + pinless swept-contour ring casing, Combined into one part), the
 **eccentric input cam**, and the **output plate + `M` output pins**. The **Anchor is the drive axis** `O`; the
 **cycloidal disk is eccentric**, its centre
@@ -56,10 +60,17 @@ profile lives in its own sketch so they never interfere.
 User inputs in dialog order; all linear inputs are mm. Derived parameters are registered as Fusion user
 parameters under the `CycloidalDrive<N>_` prefix.
 
+⚠️ **The bullet bounds below are authoring constraints, NOT live-validated.** The "integer ≥ 4" /
+"integer ≥ 3" count floors and the "mm > 0" / "mm ≥ 0" notes are documentation of sensible ranges;
+`evaluate_problems` does **not** enforce them. The validity table under "Live input validation" is the
+authoritative, complete list of checks `validate_inputs` / `_resolveDimensions` actually run.
+
 - **Target Plane** — user-specified plane; the lobe sketch sits here. Any non-`ConstructionPlane`
   selection (e.g. a planar face) is normalized to a coplanar construction plane at generation time.
+  Selection filters: `ConstructionPlanes` + `PlanarFaces`; `setSelectionLimits(1, 1)`.
 - **Anchor Point** — user-specified `ConstructionPoint` or `SketchPoint`; the lobe is centred on its
-  in-plane projection `O`.
+  in-plane projection `O`. Selection filters: `ConstructionPoints` + `SketchPoints`;
+  `setSelectionLimits(1, 1)`.
 - **Disc Count** — a **dropdown** (`DropDownCommandInput`, `TextListDropDownStyle`) with items `'1'` and
   `'2'`, default **`'1'`**. `1` = single disc (today's build); `2` = two discs 180° opposed for balance.
   Read as int from the selected item's name. ⚠️ **`2` requires even `Pin Count` and even `Output Pin
@@ -97,6 +108,10 @@ parameters under the `CycloidalDrive<N>_` prefix.
   rotor disc, Housing Ring and Output Plate, and on the two **ends** of every ring pin and output pin.
   **`0` = no chamfer**. Default **0.5 mm**.
 - **Parent Component** — component, default root (pre-selected); listed last among the editable inputs.
+  Selection filters: `Occurrences` + `RootComponents`; **`setSelectionLimits(0, 1)`** (empty allowed), with
+  the root component pre-selected via `addSelection(get_design().rootComponent)`. `processInputs` falls back
+  to `get_design().rootComponent` when the selection is empty; an `Occurrence` selection resolves to its
+  `.component`.
 - **Per-field message slots** — **not** user inputs: immediately **after each value/dropdown input**
   above, `configure()` adds a hidden, read-only `TextBoxCommandInput` whose id is **that input's id +
   `'__status'`** (e.g. `pinCircleDiameter__status`). Create each with the exact signature
@@ -122,29 +137,26 @@ lobe-tip envelope `env_max + c`, the `c` cancels — verified]; the outer wall c
 **minimum wall thickness is exactly `Wall`** at the peaks, a bit more at the valleys. The inner floor lip sits
 `Wall` inside the contour valley `R − PinRadius`); and the **output-plate**
 diameter **`OutputPlateDiameter = OutputPinCircleDiameter + D_pin + 2·Wall`** (= `2·Rop + D_pin + 2·Wall`,
-the plate covers the output pins by `Wall`). The resolved **output-pin diameter** is `D_pin = OutputHoleDiameter − 2E`. Validity (reject with a clear message, on the
-**resolved** values): `E < PinRadius < R·sin(π/N)`; `D_pin > 0`; `D_hole < 2·Rop·sin(π/M)`; `E < R/N`;
-`Rop < Rv`; **and the no-undercut guard `Rr_eff < ρ_min^O`** (`epitrochoid-trace.md` "No-undercut guard"
-— the *binding* eccentricity limit, ≈ 2.5 mm for defaults; computed numerically from the base-trochoid
-curvature, far tighter than `R/N`). This is the check that stops the "sketch breaks at high E" failure.
-Also (cam/bore): `Input Shaft Diameter < Center Bearing Diameter`; the input bore must sit inside the cam
-(`E + InputShaftDiameter/2 < CenterBearingDiameter/2`); and the **enlarged** disk center bore must clear the
-output holes (`(CenterBearingDiameter + BearingClearance)/2 < Rop − D_hole/2`). Reject with a clear message
-otherwise.
-Also (two-disc): when **`Disc Count == 2`**, require **`N` even AND `M` even** — the 180° disc-2
-construction maps pins→pins only for even `N` and output-holes→output-pins only for even `M`. Reject with a
-clear message (e.g. "Two discs require an even Pin Count and even Output Pin Count").
+the plate covers the output pins by `Wall`). The resolved **output-pin diameter** is
+`D_pin = OutputHoleDiameter − 2E`.
+**Validity — the table under "Live input validation" is the single authoritative list of enforced checks**
+(run on the **resolved** values; it includes the two-disc evenness gate and the cam/bore fit checks). The
+**no-undercut guard `Rr_eff < ρ_min^O`** in that table is the *binding* eccentricity limit
+(`epitrochoid-trace.md` "No-undercut guard" — ≈ 2.5 mm for defaults, computed numerically from the
+base-trochoid curvature, far tighter than `R/N`); it is the check that stops the "sketch breaks at high E"
+failure.
 
-⚠️ **All of the above validity checks are implemented exactly once**, in the shared
+⚠️ **All validity checks are implemented exactly once**, in the shared
 `evaluate_problems(vals)` helper, and surfaced **both** live (OK greys out while editing, via
 `validate_inputs`) **and** at execute time (`_resolveDimensions` raises the joined messages) — see
 "Live input validation" for the routine, the actionable message wording, and the numeric `E*` bound.
 
 ### Exact input ids and parameter-name strings (verbatim)
 
+Rows are in dialog display order (the authoritative order — see the display-order paragraph below):
+
 | Dialog input | input id | registered user-parameter |
 |---|---|---|
-| Parent Component (selection) | `parentComponent` | — |
 | Target Plane (selection) | `plane` | — |
 | Anchor Point (selection) | `anchorPoint` | — |
 | Disc Count (dropdown 1/2) | `discCount` | — |
@@ -155,16 +167,17 @@ clear message (e.g. "Two discs require an even Pin Count and even Output Pin Cou
 | Disk Clearance | `diskClearance` | `DiskClearance` |
 | Disc Thickness | `discThickness` | `DiscThickness` |
 | Disc Gap | `discGap` | `DiscGap` |
-| Output Pin Circle Diameter | `outputPinCircleDiameter` | `OutputPinCircleDiameter` |
-| Output Pin Count | `outputPinCount` | `OutputPinCount` |
-| Output Pin Diameter | `outputPinDiameter` | `OutputPinDiameter` |
 | Center Bearing Diameter | `centerBearingDiameter` | `CenterBearingDiameter` |
 | Input Shaft Diameter | `inputShaftDiameter` | `InputShaftDiameter` |
 | Bearing Clearance | `bearingClearance` | `BearingClearance` |
+| Output Pin Circle Diameter | `outputPinCircleDiameter` | `OutputPinCircleDiameter` |
+| Output Pin Count | `outputPinCount` | `OutputPinCount` |
+| Output Pin Diameter | `outputPinDiameter` | `OutputPinDiameter` |
 | Housing Wall | `wall` | `Wall` |
 | Base Thickness | `baseThickness` | `BaseThickness` |
 | Output Plate Thickness | `outputPlateThickness` | `OutputPlateThickness` |
 | Chamfer Size | `chamferSize` | `ChamferSize` |
+| Parent Component (selection) | `parentComponent` | — |
 | Per-field message slot after each value/dropdown input | `<inputId>__status` (e.g. `pinCircleDiameter__status`) | — (not read, not a parameter) |
 
 `Pin Diameter` and `Output Pin Diameter` are `addValueInput` defaulting to **`0`** (`0` = auto-derive).
@@ -182,28 +195,31 @@ PARAM_PIN_RADIUS, adsk.core.ValueInput.createByReal(Rr), 'mm', …)` and likewis
 real parameters; their *value* is the snapshot). `PinCircleRadius`, `OutputPinCircleRadius`,
 `HousingInnerDiameter`, `HousingOuterDiameter`, `OutputPlateDiameter`, `Lobes` stay **live** `createByString`
 expressions (they compose cleanly from the registered inputs, including the snapshot `PinRadius`).
+**Ordering (fixed):** `processInputs` registers all **primary** parameters, then calls
+`_resolveDimensions()` (which raises the joined `evaluate_problems` messages on failure), then registers the
+**derived** parameters — required because the `PinRadius` / `OutputHoleDiameter` snapshots read the resolved
+`self.Rr` / `self.D_hole` that `_resolveDimensions` stashes.
 
-**Dialog display order (`configure()` adds inputs in exactly this sequence):** Target Plane, Anchor
+**Dialog display order — AUTHORITATIVE (`configure()` adds inputs in exactly this sequence; the ids table
+above lists the same order):** Target Plane, Anchor
 Point, Disc Count, Pin Count, Pin Circle Diameter, Pin Diameter, Eccentricity, Disk Clearance, Disc
 Thickness, Disc Gap, Center Bearing Diameter, Input Shaft Diameter, Bearing Clearance, Output Pin Circle
 Diameter, Output Pin Count, Output Pin Diameter, Housing Wall, Base Thickness, Output Plate Thickness,
-Chamfer Size, Parent Component. Selections first two; Parent last. **Immediately after each
-value/dropdown input** in that sequence (i.e. after Disc Count, Pin Count, …, Chamfer Size — but NOT
-after the selections), add that input's hidden `<id>__status` message slot, so each editable field is
-directly followed by its own slot. All numerics are `addValueInput` (read with `get_value`); selections
+Chamfer Size, Parent Component. Selections first two; Parent last. Each value/dropdown input is
+immediately followed by its hidden `<id>__status` slot (the "Per-field message slots" bullet under
+Variables owns the exact creation signature; selections get no slot). All numerics are `addValueInput`
+(read with `get_value`); selections
 via `get_selection`; the `__status` slots are `addTextBoxCommandInput` and are never read.
 `Pin Count` (`N`) and `Output Pin Count` (`M`) are integer counts —
-register the parameters but **read the counts from the dialog value rounded to int** for the Python
-formulas (`sin(π/N)`, `sin(π/M)`; Fusion user params are floats).
+their `addValueInput` **unit string is `''`** (unitless) and they are **registered as unitless parameters**
+(`get_value(inputs, <id>, '')`, unit `''`); register the parameters but **read the counts from the dialog
+value rounded to int** for the Python formulas (`sin(π/N)`, `sin(π/M)`; Fusion user params are floats).
 
 ## Live input validation
 
 The dialog validates geometry **live** so the user is never silently kicked out at OK time. The shared
-`GearCommand.command_validate_input` (`[PB-VALIDATE-INPUTS]`) consults two members this generator
-declares, and on any problem **disables OK** (the dialog stays open and editable) while showing the
-problem list in the **per-field message slot next to the field the user last edited** (the handler
-tracks the last-changed input and writes into `<that-input-id>__status`, hiding the previously shown
-slot; for selection changes or the initial open it uses `DEFAULT_STATUS_INPUT_ID`):
+handler's mechanics (OK-disable, last-edited-slot tracking, fallback slot) are `[PB-VALIDATE-INPUTS]` —
+the PLAYBOOK owns them; this gear's delta is only the two members the handler consults:
 
 - **`DEFAULT_STATUS_INPUT_ID = INPUT_ID_PIN_CIRCLE_DIAMETER + '__status'`** (class attribute on
   `CycloidalDriveGenerator`) — the fallback slot, used when the last-edited input has no slot of its own.
@@ -213,7 +229,9 @@ slot; for selection changes or the initial open it uses `DEFAULT_STATUS_INPUT_ID
   `inputs.itemById(INPUT_ID_DISC_COUNT).selectedItem.name` for the dropdown), resolves the same derived
   dimensions as `_resolveDimensions` (`Rr`, `Rr_eff`, `Rv`, `D_pin`, `D_hole` per the auto-vs-override
   rules above), runs the validity checks, and returns a list of **actionable** problem strings (empty =
-  valid). It runs on every keystroke, so keep it cheap. If a value can't be read yet (a half-typed
+  valid). It runs on every keystroke; its cost — the 2000-point curvature scan, plus the 40-iteration
+  bisection (each iteration re-running the scan) when the undercut guard fails — is **accepted as-is**; do
+  not cache or downsample. If a value can't be read yet (a half-typed
   expression), let the read raise — the shared handler catches it and treats the inputs as provisionally
   valid (the execute-time guard is the backstop).
 
@@ -250,7 +268,7 @@ to match the table. Two-disc evenness is checked first (it needs only `N`, `M`, 
 closed form, so solve it for the message: holding every other input fixed, find the largest `E*` in
 `(0, E]` for which `Rr_eff(E') < ρ_min^O(E')` still holds, where `ρ_min^O` is the existing base-trochoid
 curvature scan (`epitrochoid-trace.md` "No-undercut guard"; note both `Rr_eff` and `ρ_min^O` depend on
-`E'` when `Pin Diameter = 0`). A ~40-iteration **bisection** on `E'` is ample; report `to_mm(E*)`. If the
+`E'` when `Pin Diameter = 0`). Run exactly **40 bisection iterations** on `E'`; report `to_mm(E*)`. If the
 solve degenerates (no positive `E'` satisfies it), fall back to the plain "reduce Eccentricity" message
 without a number.
 
@@ -295,6 +313,21 @@ without a number.
   **not** re-cut the lobe; **regenerate** to apply a change (the normal workflow here). The dimension
   references are for parametric clarity + consistency on regen, not in-place editing of the profile.
 
+- **`Ring Casing` sketch — deliberate `[PB-FULL-CONSTRAINT]` exemption.** Unlike the fully-locked lobe
+  sketch, the casing section sketch is left **under-constrained**: the contour spline's fit points are
+  numeric snapshots but **NOT** `isFixed`, and the two spokes' outer endpoints are only **seeded** on the
+  outer circle (no coincident constraint to it). What IS constrained: the outer circle's centre (coincident
+  to the anchored local origin) and its diameter dim (`HousingOuterDiameter`); each spoke's inner end shares
+  the spline's end fit point. The sketch is consumed immediately by the sector extrude and never re-solved,
+  so the free geometry is accepted as-is.
+
+**Sketch-first status (`[PB-SKETCH-FIRST]`) — waived, not satisfied.** There is **no**
+`spec/cycloidal/sketch/` bench proof for this gear. Rationale: the lobe sketch's shape comes from a fitted
+spline through Python-computed points, locked by fixing every interior fit point and pinning the ends by
+radius + angle — a trivial constraint scheme rather than a solver-driven one; the `Ring Casing` sketch is
+deliberately under-constrained per the exemption above. A bench proof of the lobe reference frame is future
+work; this paragraph records the waiver honestly rather than claiming a proof exists.
+
 ## Method contract — call graph
 
 The build loops over **`D = Disc Count`** discs (`D ∈ {1,2}`). Per-disc quantities (`d = 0..D−1`, `T =
@@ -303,8 +336,8 @@ DiscThickness`, `g = DiscGap`): centre **`Od_d = O + s_d·E·X̂`** (`s_0 = +1`,
 `[z_d, z_d + T]`); plane = `self.plane` for `d=0`, else a construction plane offset `z_d`. Stack top
 **`stackTop = (D−1)·(T+g) + T`**. The **per-disc stashes are LISTS** indexed by `d`: `self.diskBodies[d]`,
 `self.diskAxes[d]`, `self.lobeSplines[d]`, `self.outputHoles[d]`, `self.lobeDiskCentres[d]`,
-`self.discPlanes[d]`. (`self.lobePinCircle` — disc 0's pin circle only — is still scalar, for the ring-pin
-projection.) ⚠️ **EVERY Fusion expression string — construction-plane offsets AND extrude extents, not just
+`self.discPlanes[d]`. (`self.lobePinCircle` — disc 0's pin circle only — is still scalar; it is stashed as
+part of the attribute surface but **never read** — legacy of the pinned-ring design.) ⚠️ **EVERY Fusion expression string — construction-plane offsets AND extrude extents, not just
 `.parameter.expression` dims — must use the PREFIXED parameter name via `self.parameterName(PARAM_…)`.** The
 params register under `CycloidalDrive<N>_`, so a bare `'DiscThickness'`/`'DiscGap'` in any
 `ValueInput.createByString(...)` raises **`RuntimeError: invalid expression`**. Build the literal string for
@@ -367,13 +400,16 @@ E·X̂`, clocking `phi = 0`, on `self.plane`); for general `d` substitute:
   place `Od` at `(−E, 0)` and the spokes/lobe on it. (Generator: a signed `E`.)
 - **Clocking** `phi_d = d·π`. Disc 1's lobe is `disk_point(t, cx = −E, cy = 0, phi = π)` — exactly the **180°
   rotation of disc 0 about `O`** (`disk_point(cx=−E, phi=π) ≡ −disk_point(cx=+E, phi=0)`), which is what
-  meshes the second disc with the **same** ring pins (even `N`) at the opposite eccentric. The two spokes
-  and the angle dim rotate with `phi_d` too (spoke 1 along `−X̂` for disc 1, i.e. the lobe's first valley at
-  `Od_1 + Rv·(cos π, −sin π) = Od_1 + (−Rv, 0)`).
+  meshes the second disc with the **same** ring pins (even `N`) at the opposite eccentric. The spoke **seed
+  coordinates and the angle-dim text point are NOT rotated with `phi_d`** — only the signed `E` is
+  substituted (spoke 1 is still seeded at `Od_d + (Rv, 0)`, the text point at the unrotated bisector). The
+  coincident constraints onto the spline's end fit points drag the spokes onto the rotated valleys (disc 1's
+  first valley `Od_1 + (−Rv, 0)` still lies on spoke 1's horizontal), so the solve lands correctly.
 - **Names** carry `{d+1}`: `'Rotor Lobe {d+1}'`, `'Cycloidal Disk {d+1}'`, `'Output Hole {d+1}'`,
   `'Disc Bore {d+1}'`. **Stash into the `[d]` lists** (`self.diskBodies[d]`, `self.diskAxes[d]`,
   `self.lobeSplines[d]`, `self.outputHoles[d]`, `self.lobeDiskCentres[d]`). The **pin circle** (on `O`) is
-  drawn and stashed (`self.lobePinCircle`) **only for `d = 0`** — the ring pins reuse it.
+  drawn and stashed (`self.lobePinCircle`) **only for `d = 0`**; the stash is **unused** (nothing reads it —
+  the pinless casing computes its own contour).
 - The disc-`d` extrude, axis (`buildDiskAxis` from `plane(d)`-extrude cap face at `Od_d`), lobe pattern, and
   output-hole pattern are all about **`self.diskAxes[d]`** (at `Od_d`). `buildDiskBore(d)` is the center-bore
   cut (formerly inside `buildCam` step 1) on `Od_d` through `self.diskBodies[d]`.
@@ -384,7 +420,8 @@ reduces to today's single-disc build.
 
 ### 1: Normalize the Target Plane
 If the selected plane is not a `ConstructionPlane`, make a coplanar one via
-`ConstructionPlaneInput.setByOffset(selectedPlane, 0)` and use it (`[SPUR-F` parity).
+`ConstructionPlaneInput.setByOffset(selectedPlane, 0)` and use it (the same normalization the spur
+generator does).
 
 ### 2: Fully-constrained lobe, on the eccentric disk centre — `buildLobeSketch(d)`
 (Takes the disc index `d` per **§0**; the text below is the `d=0` case — for general `d` substitute
@@ -395,17 +432,18 @@ to the Anchor (`[CYCLOIDAL-F-ANCHOR-CHAIN]`), then make the **eccentric disk cen
 dimension = `Eccentricity`; `s_d` is the sign). The lobe is `disk_point(t, cx = s_d·E, cy = 0, phi = d·π)`
 (disc 1 = disc 0 rotated 180° about `O`). Per `[CYCLOIDAL-F-DISK-LOBE]`, build in order:
 1. **pin circle** (radius `R`) construction, centred on **`O`** (the fixed ring), diameter dim, with an
-   **along-path text label `'Pin Circle'`** — **for `d = 0` only**: **stash it on `self.lobePinCircle`** so
-   `buildRingPins` projects it (`[CYCLOIDAL-F-RING-PINS]`). (Disc 1 doesn't need its own pin circle; draw it
-   for the lobe reference if convenient but the ring pins use disc 0's.)
+   **along-path text label `'Pin Circle'`** — **for `d = 0` only**: **stash it on `self.lobePinCircle`**.
+   The stash is part of the declared attribute surface but is **never read** — legacy of the old pinned-ring
+   build (`buildRingPins` computes the pinless contour instead, `[CYCLOIDAL-F-RING-PINS]`); a future regen
+   may drop it. (Disc 1 doesn't need its own pin circle; draw it for the lobe reference if convenient.)
 2. **output-pin circle** (radius `Rop`) construction, centred on **`Od`** (the disk centre — concentric
    with the root circle, where the disk's output holes sit; the innermost reference circle), diameter dim,
    with an **along-path text label `'Output Pin Circle'`**;
 3. **root/valley circle** (radius `Rv = R − Rr_eff − E`) construction, centred on **`Od`**, diameter dim,
    with an **along-path text label `'Root Circle'`**;
-4. the **lobe** — the open lobe spline about `Od`, **adaptively sampled** by bounded turn angle (≤ ~5°,
-   `epitrochoid-trace.md` "Sampling") so the fitted spline doesn't overshoot near the undercut limit
-   (**not** uniform `t`); **not** `isClosed`, no arc;
+4. the **lobe** — the open lobe spline about `Od`, **adaptively sampled** by bounded turn angle (threshold
+   **5.0°** over a **2000-step** fine trace, `epitrochoid-trace.md` "Sampling") so the fitted spline doesn't
+   overshoot near the undercut limit (**not** uniform `t`); **not** `isClosed`, no arc;
 5. **lock the spline**: fix every **interior** fit point (`isFixed = True`) and coincide each **endpoint
    onto the root circle** (pins the valley radii) — do **not** fix the whole spline;
 6. **spoke line 1** from `Od` to the lobe's **first** point, `coincident(line1.end, spline first point)` +
@@ -483,8 +521,8 @@ Join into one connected, printable part. `stackTopExpr` per §0.
    `[CYCLOIDAL-F-RING-PINS]`, `epitrochoid-trace.md` "Pinless ring casing"). The inner wall follows the disc's
    **swept envelope** `contour(φ) = env(φ) + c` (smooth — replaces the old constant-radius bridge circle).
    - **Compute one pin-pitch of the contour.** Sweep the disc `disk_point(t, E·cosθ, E·sinθ, −θ/L)` over
-     `θ, t ∈ [0, 2π)` (≈ 240 each); bin points whose angle is in `[−π/N, π/N]` into `nbins` by angle, keep max
-     radius per bin → `env`. ⚠️ **Emit the points at bin EDGES so the first/last land EXACTLY on `∓π/N`**:
+     `θ, t ∈ [0, 2π)` (**240 each**); bin points whose angle is in `[−π/N, π/N]` into **`nbins = 80`** by
+     angle, keep max radius per bin → `env`. ⚠️ **Emit the points at bin EDGES so the first/last land EXACTLY on `∓π/N`**:
      `nbins+1` points at `φ_i = −π/N + (2π/N)·i/nbins` (`i = 0…nbins`), radius `c + max(binMax[i−1], binMax[i])`
      — **NOT bin centres**, which inset the ends by half a bin and leave a gap between every patterned sector so
      the ×`N` sectors don't touch and won't Join into one casing (the "several unnamed bodies" bug). Point =
