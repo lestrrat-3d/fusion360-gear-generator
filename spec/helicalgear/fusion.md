@@ -22,7 +22,24 @@ the chamfer edge count. These are the only helical-specific anchors; the tooth i
   herringbone: `Thickness/2`), so herringbone's mirror plane lands mid-body. The twist angle is read as
   a raw `.value` (radians) and passed to the spur tooth generator's `draw(anchorPoint, angle=…)`; the
   generator draws the whole tooth already rotated by it (`[SPUR-F-ROTATE-CONFIRM]` / `[SPUR-F-SPINE]`).
-  `createSketchObject` returns a hidden sketch; the inherited spur pipeline handles visibility/cleanup.
+  The offset is a **numeric snapshot**: `getParameterAsValueInput` returns
+  `ValueInput.createByReal(param.value)` — the `Thickness` value at generation time, not a live
+  parameter reference.
+
+  **Visibility — two deliberate facts; a regen must reproduce both, not "clean them up":**
+  - **The Twisted Gear Profile sketch stays hidden its whole life.** `createSketchObject` returns a
+    hidden sketch, and nothing ever shows it — not `buildSketches`, and not spur's `cleanup` (which
+    touches only its own three sketches). The loft's profile-finding works fine on the hidden
+    sketch. This is a declared delta from `[PB-HIDE-AFTER-USE]` (there is no "shown then hidden
+    after use" phase — it is never shown at all).
+  - **The helix `ConstructionPlane` (`ctx.helixPlane`) is left visible after generation.** It is
+    never light-bulbed off: spur's `cleanup` hides only the entities spur itself created (Extrusion
+    End Plane, normalized plane, `Gear Center` axis), so the offset plane stays lit. Faithful,
+    deliberate behavior — a regen must NOT add cleanup for it.
+
+  In **SketchOnly** mode the same holds: the helix plane is still created (and left visible) and the
+  twisted sketch is drawn but stays hidden — only the bottom Gear Profile is shown, so the twisted
+  profile is not inspectable in sketch-only mode. Faithful to code.
 
 ## Loft the tooth
 
@@ -49,16 +66,19 @@ the chamfer edge count. These are the only helical-specific anchors; the tooth i
 
 ## Chamfer edge count
 
-- **[HELI-F-CHAMFER-COUNT] `chamferWantEdges()` returns `4`.** The inherited `chamferTooth`
-  (`[SPUR-F]` step 8 / spur `chamferTooth`) selects the tooth's front face by
-  `face.edges.count == chamferWantEdges()` plus the sketch-plane coplanarity test, and helical bumps
-  the expected count from spur's 6 to **4** — it does **not** override `chamferTooth` itself and adds
-  no "must contain two NURBS flanks" content filter (that phrasing in the spur spec is speculative and
-  unimplemented).
+- **[HELI-F-CHAMFER-COUNT] `chamferWantEdges()` returns `4`.** The inherited `chamferTooth` (spur
+  `chamferTooth`, spur instructions step 8 — no `[SPUR-F-…]` anchor covers it) selects the tooth's
+  front face by `face.edges.count == chamferWantEdges()` plus the sketch-plane coplanarity test, and
+  helical bumps the expected count from spur's 6 to **4** — it does **not** override `chamferTooth`
+  itself and adds no "must contain two NURBS flanks" content filter.
   **⚠️ Asserted / unverified — reproduce verbatim, do not "fix".** The lofted tooth here is the
   non-embedded **6-curve** profile, so its front cap face would be expected to have **6** edges, not 4.
-  A `chamferWantEdges()` of 4 would then make `chamferTooth` fail to find the front face, so helical
-  chamfer is likely **fragile/broken for the default non-embedded tooth** and is effectively exercised
-  only at the default **chamfer 0** (no chamfer). This value (`4`) is copied straight from
-  `lib/geargen/helicalgear.py`; it is flagged here for a future, deliberate correction once the front
-  face edge count is confirmed in Fusion — changing it now would be an un-verified behavior change.
+  A `chamferWantEdges()` of 4 then makes `chamferTooth` fail to find the front face. **Concrete
+  failure mode:** with a chamfer value > 0 on a default (non-embedded) helical gear, `chamferTooth`
+  **raises** the front-face-not-found error, and the command's execute handler catches it and calls
+  `deleteComponent()` — the **whole new gear component is rolled back** (abort, not a skipped
+  chamfer). So helical chamfer is effectively exercised only at the default **chamfer 0** (no
+  chamfer). A regen must reproduce exactly this — it must NOT soften the raise into a skip. This
+  value (`4`) is copied straight from `lib/geargen/helicalgear.py`; it is flagged here for a future,
+  deliberate correction once the front face edge count is confirmed in Fusion — changing it now
+  would be an un-verified behavior change.

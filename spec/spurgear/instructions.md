@@ -10,6 +10,28 @@ shared `PLAYBOOK.md`). Read all three together; the cited rules are as binding a
 
 A spur gear is a single cylindrical body with straight teeth cut along the axis. Unlike the bevel generator there is no pairing — one invocation of the command produces exactly one gear. The new gear is added as a child occurrence of the user-selected Parent Component.
 
+## Architecture
+
+Spur **opts into the playbook's four-class pattern** (PLAYBOOK "The four-class pattern") and into
+`base.Generator` / `GenerationContext`. The module defines exactly these four classes; the names
+are public API (helical/herringbone subclass all of them by name, and `commands/spurgear/entry.py`
+binds two):
+
+1. **`SpurGearCommandInputsConfigurator`** — a plain class (no base) with `@classmethod def
+   configure(cls, cmd)` that adds the dialog inputs (see "Exact input ids and parameter-name
+   strings"). Extension seam for subclasses: `[SPUR-SUBCLASS-INPUT]`.
+2. **`SpurGearGenerationContext(GenerationContext)`** — the data carrier whose `__init__` declares
+   the fields in "Generation Context — canonical field names", each `cast(None)`-initialised
+   (`toothProfileIsEmbedded` starts `False`).
+3. **`SpurGearInvoluteToothDesignGenerator`** — a plain class (no base), constructed as
+   `(sketch, parent, angle=0)`; draws the circles, the involute tooth, and the bore circle. Its
+   reproduced surface is pinned in "Tooth generator … reproduced surface" below.
+4. **`SpurGearGenerator(Generator)`** — the orchestrator, subclass of `base.Generator`. Holds
+   `processInputs`, `generate`, parameter registration, and the per-step build methods (see
+   "Method contract — call graph and override boundaries").
+
+`GenerationContext` and `Generator` are imported from `.base`.
+
 ## Variables
 
 User inputs are listed below in the order they appear in the command dialog. Derived (calculated) parameters are registered as Fusion user parameters under the `SpurGear<N>_` prefix so they are visible and editable after generation; they are listed after the inputs they depend on.
@@ -107,10 +129,44 @@ read-order has no bearing on where the inputs appear in the dialog. A generator 
 selections last in `configure()` because they are "read first" has the rule backwards.
 
 Bore Diameter is added as a **string** value input (`addStringValueInput`, default `'0 mm'`) so it
-accepts expressions; the rest are numeric `addValueInput`s. `SketchOnly` is persisted as a
+accepts expressions; the rest are numeric `addValueInput`s. **`addValueInput` defaults are given in
+Fusion's internal units (cm for lengths, radians for angles), regardless of the input's display
+unit string.** Pin the two non-trivial ones: Pressure Angle is
+`addValueInput(…, 'deg', ValueInput.createByReal(math.radians(20)))` — display unit `'deg'`,
+default in radians — and Thickness is `addValueInput(…, 'mm', ValueInput.createByReal(to_cm(10)))`
+— display unit `'mm'`, default in cm. (Module and Tooth Number are unitless
+`createByReal(1)` / `createByReal(17)`; chamfer is `createByReal(0)`.)
+
+The three selection inputs each carry exactly these filters, and each is limited to exactly one
+selection with `setSelectionLimits(1, 1)`:
+
+- Target Plane: `ConstructionPlanes` + `PlanarFaces`.
+- Anchor Point: `ConstructionPoints` + `SketchPoints`.
+- Parent Component: `Occurrences` + `RootComponents`; pre-selects `get_design().rootComponent`.
+
+`SketchOnly` is persisted as a
 real-valued user parameter (1 = true, 0 = false), since the framework only reads numeric
 parameters as booleans (`getParameterAsBoolean`). The derived parameters in the list above
 (Pitch/Base/Root/Tip circles, InvoluteSteps, ToothSpace…, Fillet…) keep exactly those names.
+
+**[SPUR-EXPORTED-CONSTANTS] Module-level constants are public API.** Every input id and
+user-parameter name above is exported as a module-level constant in `spurgear.py`, and dependent
+modules import them by name — renaming any of these identifiers is a breaking change. The full
+roster:
+
+- Input ids: `INPUT_ID_PARENT`, `INPUT_ID_PLANE`, `INPUT_ID_ANCHOR_POINT`, `INPUT_ID_MODULE`,
+  `INPUT_ID_TOOTH_NUMBER`, `INPUT_ID_PRESSURE_ANGLE`, `INPUT_ID_BORE_DIAMETER`,
+  `INPUT_ID_THICKNESS`, `INPUT_ID_CHAMFER_TOOTH`, `INPUT_ID_SKETCH_ONLY`.
+- Parameter names: `PARAM_MODULE`, `PARAM_TOOTH_NUMBER`, `PARAM_PRESSURE_ANGLE`,
+  `PARAM_BORE_DIAMETER`, `PARAM_THICKNESS`, `PARAM_CHAMFER_TOOTH`, `PARAM_SKETCH_ONLY`,
+  `PARAM_PITCH_DIAMETER`, `PARAM_PITCH_RADIUS`, `PARAM_BASE_DIAMETER`, `PARAM_BASE_RADIUS`,
+  `PARAM_ROOT_DIAMETER`, `PARAM_ROOT_RADIUS`, `PARAM_TIP_DIAMETER`, `PARAM_TIP_RADIUS`,
+  `PARAM_INVOLUTE_STEPS`, `PARAM_TOOTH_SPACE_ANGLE`, `PARAM_TOOTH_SPACE_ARC`,
+  `PARAM_FILLET_CLEARANCE`, `PARAM_FILLET_RADIUS`.
+
+`helicalgear.py` and `herringbonegear.py` each import `PARAM_MODULE, PARAM_TOOTH_NUMBER,
+PARAM_THICKNESS` from `.spurgear` (helical additionally imports the four classes; see
+"Dependencies and dependents").
 
 **[SPUR-SUBCLASS-INPUT] Configurator extension seam (for subclasses).** `configure()` is a
 `@classmethod` on `SpurGearCommandInputsConfigurator`. A subclass gear (helical/herringbone) adds its
@@ -199,9 +255,8 @@ generate(inputs)
 
 **`cleanup(ctx)` is the very last action of `generate()` — after `buildBore`, not inside
 `buildMainGearBody`.** Call it **unconditionally** (in both modes); the SketchOnly distinction
-lives *inside* `cleanup`: it always hides the construction planes/axes (`isLightBulbOn = False`),
-and hides the sketches (`isVisible = False`) only when NOT SketchOnly. So sketch-only mode leaves
-the sketches visible but still tidies away the floating construction planes. Placement after
+lives *inside* `cleanup` — the recipe (which entities, the per-mode split) is owned by
+`[SPUR-F-CLEANUP]`. Placement after
 `buildBore` matters because `buildBore` re-projects `ctx.anchorPoint` from the Tools sketch and
 projection fails once that sketch is hidden — so the Tools sketch must stay visible through the
 bore. Do not move `cleanup` up into `buildMainGearBody`, and do not guard the *call* (guard the
@@ -217,8 +272,14 @@ Specific boundaries subclasses depend on (do not move the work elsewhere):
   extrude) and herringbone to loft+mirror; both still end by calling `chamferTooth`. Because the
   chamfer is triggered from inside `buildTooth`, `buildMainGearBody` must **not** chamfer
   separately.
-- **`chamferTooth` / `createFillets`** read `chamferWantEdges()` and the fillet helix factor
-  (`filletHelixFactorExpression()`); these hooks must exist on the generator.
+- **`chamferWantEdges()` / `filletHelixFactorExpression()`** are overridable hooks that must exist
+  on the generator, but they are consumed at different points. `chamferTooth` reads
+  `chamferWantEdges()` (spur base: `6`) when picking the front face. `filletHelixFactorExpression()`
+  is **not** read by `createFillets`: it returns an **expression string** (spur base: `'1'`;
+  helical: `'cos(<prefix>_HelixAngle)'`) that is consumed exactly once, in
+  `registerDerivedParameters`, where it is spliced in as the last factor of the live `FilletRadius`
+  parameter expression (`(ToothSpaceArcAtRoot / 2) * FilletClearance * <factor>`). `createFillets`
+  then reads only the resulting `FilletRadius` parameter's numeric `.value`.
 - **[SPUR-EXTRA-PARAMS] `addExtraPrimaryParameters(self, inputs)`** is an overridable hook, a **no-op
   on the spur base**, that `processInputs` calls **between** registering the input-sourced parameters
   and the derived ones. Subclasses override it to register their own primary user parameters from the
@@ -243,7 +304,10 @@ Specific boundaries subclasses depend on (do not move the work elsewhere):
   at (0, 0, 0) in the constructor (see Sketch Discipline). Subclasses don't read it directly, but
   the spur base `buildSketches` and the `draw()` anchoring below depend on this exact name.
 - `draw(anchorPoint, angle=0)` performs, in order: `drawCircles()`, `drawTooth(angle)`, then the
-  **step-5 anchoring as its own final action** (see step 5). **`drawTooth` MUST rotate by the
+  **step-5 anchoring**, then — as the very last action, *after* the anchoring — sets the
+  confirming angular dimension's value to `angle` (only when `angle != 0`; this last action is
+  `[SPUR-F-ROTATE-CONFIRM]`'s "very last action, after the entire constraint network exists").
+  **`drawTooth` MUST rotate by the
   `angle` argument that flows in from `draw()` at call time — NOT by the constructor-stored
   `self.toothAngle`.** This is load-bearing for subclasses: helical/herringbone construct the
   generator with the default `angle=0` (so `self.toothAngle == 0`) and then call
@@ -272,6 +336,33 @@ Specific boundaries subclasses depend on (do not move the work elsewhere):
   ```
   Using `inv(alpha) = tan(alpha) − alpha` as the parameter instead of `tan(alpha)` is a common
   mistake and produces a wrong (mis-parameterised) flank.
+
+## Dependencies and dependents
+
+Spur imports only the framework (`.base` — `Generator, GenerationContext, get_value, get_boolean,
+get_selection`; `.utilities` — `get_normal, find_profile_by_curve_counts`; `.misc` — `to_cm,
+get_design`). It depends on no other gear. Two dependents bind to its surface; regenerating spur
+must not break either:
+
+- **`helicalgear.py` / `herringbonegear.py` subclass the four classes.** Helical imports
+  `SpurGearCommandInputsConfigurator`, `SpurGearGenerationContext`, `SpurGearGenerator`, and
+  `SpurGearInvoluteToothDesignGenerator` (herringbone subclasses helical's versions), and both
+  import the module-level constants `PARAM_MODULE, PARAM_TOOTH_NUMBER, PARAM_THICKNESS`
+  (`[SPUR-EXPORTED-CONSTANTS]`). Everything they lean on is pinned in "Method contract" and
+  "Generation Context" above.
+- **`bevelgear.py` borrows the tooth generator without the Fusion parameter table.** It constructs
+  `SpurGearInvoluteToothDesignGenerator(toothSketch, proxy)` where `proxy` is a
+  `spurproxy.VirtualSpurProxy` — a fake `parent` whose `getParameter(name)` serves precomputed
+  values in internal cm (`[PB-PRECOMPUTED-MODE]`). **Borrowing constraint:** inside `drawCircles`,
+  `drawTooth`, and `draw` (including the helpers they call, e.g. `_drawFlankToRoot`), parameters
+  may be read ONLY from the key set `VirtualSpurProxy` serves — `Module`, `ToothNumber`,
+  `PressureAngle`, `PitchCircleDiameter`, `PitchCircleRadius`, `BaseCircleDiameter`,
+  `BaseCircleRadius`, `RootCircleDiameter`, `RootCircleRadius`, `TipCircleDiameter`,
+  `TipCircleRadius`, `InvoluteSteps`. Reading any other key on those paths breaks the bevel build
+  (the proxy raises `KeyError`). The proxy also carries the `_lastToothEmbedded` output slot: the
+  tooth generator's `drawTooth` writes `self.parent._lastToothEmbedded` (see
+  `[SPUR-F-FLANK-ROOT]`), and bevel reads it back off the proxy after `draw()` — keep that output
+  write in place.
 
 ## Generation Order
 
@@ -311,11 +402,11 @@ Center every circle on the local-origin `SketchPoint` by passing it **directly**
 
 Still inside the Gear Profile sketch, draw a single involute tooth centered on the +X direction:
 
-1. Sample a sequence of points along the involute flank, starting on the base circle and walking outward toward the tip circle in equal radial steps (Involute Steps samples in total). The first sample radius is **exactly `Base Circle Radius`** — do **not** clamp the start to `max(Base Circle Radius, Root Circle Radius)`; the flank is sampled from the base circle even when the base circle sits inside the root circle (the embedded case is detected later in step 9 from where the flank *start* lands, not by trimming the sampling). Each sample is `calculateInvolutePoint(Base Circle Radius, r)` for that step's radius `r` (the exact math is pinned in the tooth-generator surface section above). Drop any sample that returns `None` (i.e. whose radius is below the base circle) — those sit inside the base circle and have no valid involute.
+1. Sample a sequence of points along the involute flank, starting on the base circle and walking outward toward the tip circle in equal radial steps (Involute Steps samples in total). The sampling is **endpoint-inclusive**: with `steps = Involute Steps`, sample `i` (for `i = 0 … steps−1`) sits at radius `r = Base Circle Radius + (Tip Circle Radius − Base Circle Radius) · i / (steps − 1)`, so the first sample radius is exactly `Base Circle Radius` and the **last sample is exactly `Tip Circle Radius`**. Do **not** clamp the start to `max(Base Circle Radius, Root Circle Radius)`; the flank is sampled from the base circle even when the base circle sits inside the root circle (the embedded case is detected later in step 9 from where the flank *start* lands, not by trimming the sampling). Each sample is `calculateInvolutePoint(Base Circle Radius, r)` for that step's radius `r` (the exact math is pinned in the tooth-generator surface section above). Drop any sample that returns `None` (i.e. whose radius is below the base circle) — those sit inside the base circle and have no valid involute.
 2. **Watch the spiral direction.** A correctly-formed involute tooth narrows from base to tip, so the left flank's angular distance above +X must *decrease* as the radius grows. The standard parametric involute (`rb*(cos t + t sin t, sin t - t cos t)`) spirals the opposite way — its angular position *increases* with radius — and using it as a left flank directly produces a tooth that splays outward (wider at the tip than at the root). Before rotating, mirror the samples across the +X axis (negate y) so the spiral matches a left flank's shape. The rotation in the next step lifts the mirrored curve from −Y back up into +Y where the left flank belongs.
 3. Decide how far to rotate the (mirrored) sequence so the tooth ends up symmetric about +X. Measure where the mirrored involute crosses the pitch circle, then rotate by exactly the amount that lands that pitch-circle crossing at angle `+π / (2 · ToothNumber)` above +X. (The angular width of a single tooth at the pitch circle is `π / Tooth Number`, so half that — `π / (2 · ToothNumber)` — is where the left flank's pitch crossing must end up.) Compute the pitch-circle crossing angle **analytically** — evaluate `calculateInvolutePoint(Base Circle Radius, Pitch Circle Radius)` and take its polar angle — rather than interpolating between the sampled flank points; the analytic value places the tooth at exactly the right angle regardless of how few involute samples are taken. **Exact expression (pin the sign — it interacts with the step-2 mirror):** with `(px, py) = calculateInvolutePoint(Base Circle Radius, Pitch Circle Radius)`, the *mirrored* pitch crossing sits at polar angle `atan2(−py, px)`, so `rotate_angle = π / (2 · ToothNumber) − atan2(−py, px)`. (The `−py` is the step-2 mirror applied to the analytic point; do not take `atan2(py, px)`.)
 4. Rotate the (mirrored) sampled points by `rotate_angle`. This produces the **left** flank. Mirror that result across the X axis to produce the **right** flank. You now have a tooth symmetric about +X.
-   **Then apply the requested `angle`.** The generator's `draw(anchorPoint, angle=0)` takes an `angle` (0 for spur; the helix angle for helical; 180° for the bevel virtual tooth) — the seed tooth must end up rotated by exactly that. Do this by rotating the **whole** +X-centered tooth by `angle` right here, in the same Python point math: rotate both flank point collections by `angle` (and, below, place the tooth-top point and seed the rib midpoints at the rotated positions too). Draw the tooth directly at its final angular position. Do **not** instead leave the tooth at +X and rely on the spine's angular dimension to swing it into place after the fact — that makes the `angle = 0` and `angle != 0` cases settle on ~180°-different baselines (Fusion's solver picks the wrong branch when the dimension jumps from ≈0 to `angle`), which is invisible for a spur gear (its teeth are circular-patterned, so the seed's absolute angle doesn't matter) but ruins a helical loft (bottom profile at 0°, top ~180° away → the loft passes through the gear centre). Because both the bottom (`angle = 0`) and top (`angle = helixAngle`) profiles now share the same `rotate_angle` baseline and differ by exactly `angle`, the loft twists by exactly the helix angle regardless of the absolute baseline. For `angle = 0` this whole step is a no-op (rotating by 0).
+   **Then apply the requested `angle`.** The generator's `draw(anchorPoint, angle=0)` takes an `angle` (0 for spur; the helix angle for helical; 180° for the bevel virtual tooth) — the seed tooth must end up rotated by exactly that. Do this by rotating the **whole** +X-centered tooth by `angle` right here, in the same Python point math: rotate both flank point collections by `angle` (and, below, place the tooth-top point and seed the rib midpoints at the rotated positions too). Draw the tooth directly at its final angular position. Do **not** instead leave the tooth at +X and rely on the spine's angular dimension to swing it into place after the fact — the wrong-solver-branch failure this causes (and why it ruins the helical loft) is owned by `[SPUR-F-ROTATE-CONFIRM]`. Because both the bottom (`angle = 0`) and top (`angle = helixAngle`) profiles share the same `rotate_angle` baseline and differ by exactly `angle`, the loft twists by exactly the helix angle regardless of the absolute baseline. For `angle = 0` this whole step is a no-op (rotating by 0).
 5. Draw the two flanks as `SketchFittedSpline`s through the point collections.
 6. Draw the **tooth-top arc** — an arc through the two flank ends, capping the tooth at the tip
    circle. This step is constraint-sensitive (over-constraining it blows up later when the last
@@ -348,11 +439,11 @@ Still inside the Gear Profile sketch, draw a single involute tooth centered on t
 
 This is the step that slides the whole drawing onto the user's anchor. Project the Tools-sketch anchor into the Gear Profile sketch (this re-projection is what chains the two sketches together), then add a coincidence constraint between that freshly-projected point and the Gear Profile's local origin — the sketch point the tooth generator added at (0, 0, 0) in step 4 (the field `self.anchorPoint`), *not* `sketch.originPoint`. Because every piece of geometry above is constrained relative to the local origin, constraining it here drags the entire tooth profile onto the anchor as a unit.
 
-**This anchoring is the final action of the tooth generator's `draw()` method itself** — `draw()` does `drawCircles()`, then `drawTooth()`, then this projection-and-coincidence — *not* a separate step the generator performs after `draw()` returns. This matters because helical/herringbone build their twisted loft profile by calling `SpurGearInvoluteToothDesignGenerator(loftSketch, self).draw(ctx.anchorPoint, angle=…)` directly and rely on that single call to anchor the sketch. If the anchoring were moved up into `buildSketches`, the twisted sketch would be left unconstrained and the loft would float off the anchor.
+**This anchoring happens inside the tooth generator's `draw()` method itself** — `draw()` does `drawCircles()`, then `drawTooth()`, then this projection-and-coincidence, then (for `angle != 0` only) sets the confirming angular dimension's value as its very last action, after the anchoring (`[SPUR-F-ROTATE-CONFIRM]`) — *not* a separate step the generator performs after `draw()` returns. This matters because helical/herringbone build their twisted loft profile by calling `SpurGearInvoluteToothDesignGenerator(loftSketch, self).draw(ctx.anchorPoint, angle=…)` directly and rely on that single call to anchor the sketch. If the anchoring were moved up into `buildSketches`, the twisted sketch would be left unconstrained and the loft would float off the anchor.
 
 ### 6: Sketch-Only Short-Circuit
 
-If the Generate-Sketches-Only input is `true`, make the Gear Profile sketch visible and stop — skip the remaining body operations (tooth/body/pattern/fillet/bore). The end-of-build cleanup still runs in this mode, but does only **half** its job: it **hides the construction planes/axes** (the Extrusion End Plane, and the normalized Target Plane if one was created) so no stray plane is left floating, while **leaving the sketches visible** (Tools and Gear Profile stay shown for inspection — the whole point of this mode is to see the involute construction). So the SketchOnly end state is: gear sketches visible, construction planes/axes hidden, no body. (See the cleanup rule in Sketch Discipline: the plane/axis hiding always runs; only the sketch hiding is full-build-only.)
+If the Generate-Sketches-Only input is `true`, make the Gear Profile sketch visible and stop — skip the remaining body operations (tooth/body/pattern/fillet/bore). The end-of-build cleanup still runs in this mode; its per-mode split (planes/axes always hidden, sketches left visible for inspection — the whole point of this mode) is owned by `[SPUR-F-CLEANUP]`.
 
 ### 7: Extrude the Tooth
 
@@ -362,11 +453,11 @@ Extrude this profile from the target plane to the Extrusion End Plane (`ToEntity
 
 ### 8: Chamfer Tooth (optional)
 
-If Apply-Chamfer-To-Teeth > 0, round off every edge of the tooth's front face *except* the arc shared with the root valley. The target face is identified by its edge count matching the loop we drew in step 4 — 6 for a spur tooth, different for subclasses. When both end caps of the tooth body match the edge count, take the **front** one: the face that is coplanar with the gear's sketch plane (`sketchPlane.isCoPlanarTo(face.geometry)` with `sketchPlane = ctx.gearProfileSketch.referencePlane.geometry` — the same test step 9 uses, inverted). Skipping the root arc is the critical part: chamfering it would eat into the neighbouring tooth. (Known, accepted limitation: an **embedded** profile yields a 4-edge front face while `chamferWantEdges()` stays 6 for spur, so chamfering an embedded spur tooth raises the front-face-not-found error — users disable chamfer for such gears.)
+If Apply-Chamfer-To-Teeth > 0, round off every edge of the tooth's front face *except* the arc shared with the root valley. The target face is found with a **single conjunction predicate**: walk `ctx.toothBody.faces` and take the first face for which **both** `face.edges.count == chamferWantEdges()` (6 for the spur base) **and** the face is coplanar with the gear's sketch plane (`sketchPlane.isCoPlanarTo(face.geometry)` with `sketchPlane = ctx.gearProfileSketch.referencePlane.geometry` — the same test step 9 uses, inverted). Both conditions are required of the *same* face — this is not an edge-count match followed by a coplanarity tiebreak. If **no** face satisfies both, raise (front face not found); do not fall back to a partial match. Skipping the root arc is the critical part: chamfering it would eat into the neighbouring tooth. (Known, accepted limitation: an **embedded** profile yields a 4-edge front face while `chamferWantEdges()` stays 6 for spur, so chamfering an embedded spur tooth raises the front-face-not-found error — users disable chamfer for such gears.)
 
 **Identify the root arc by radius, not by relative size.** Walk the front face's edges and add each to the chamfer edge set, *except* skip any edge that is an `Arc3DCurveType` whose `edge.geometry.radius` equals `Root Circle Radius` (compare against the registered parameter's `.value`, tolerance `0.001` cm). That radius match is exact — the root arc is the only edge lying on the root circle — so it is more robust than "the smallest-radius arc." (This is the same radius-matching technique step 11 uses to find the root cylinders.) Everything else on the face — the two flanks, the tooth-top arc, and the two flank-to-root lines — gets chamfered. Apply with `chamferFeatures.createInput2()` → `chamferEdgeSets.addEqualDistanceChamferEdgeSet(edges, <ChamferTooth value>, False)`.
 
-Helical and herringbone subclasses override the expected edge count (a lofted embedded tooth has 4 edges, not 6), and may additionally filter the face by content — e.g. "must contain two NURBS flanks" — because on a tilted tooth more than one face can match the raw edge count and only one of them is the actual front.
+Helical and herringbone subclasses override only the expected edge count, via `chamferWantEdges()`; they change nothing else about this step. Their value (4) and its flagged caveat are owned by the subclass specs — see `spec/helicalgear/fusion.md` `[HELI-F-CHAMFER-COUNT]`; do not restate or second-guess them here.
 
 ### 9: Extrude the Body
 
@@ -381,9 +472,9 @@ Finally store `ctx.gearBody` (the `Gear Body` body).
 
 ### 10: Pattern Teeth
 
-Circular-pattern `ctx.toothBody` around the `Gear Center` axis, quantity = Tooth Number. Combine the patterned tooth bodies into `Gear Body` via a single Combine-Join.
+Circular-pattern `ctx.toothBody` around the `Gear Center` axis, quantity = Tooth Number. Pin the two other pattern inputs: `patternInput.totalAngle = ValueInput.createByString('360 deg')` (a full turn, set as a string expression) and `patternInput.isSymmetric = False`. Combine the patterned tooth bodies into `Gear Body` via a single Combine-Join.
 
-Important Fusion-API detail: `CircularPatternFeature.bodies` already includes *all* N tooth bodies — the original input body at position 0 plus the N-1 new copies. Feed the entire collection to the combine tools as-is; do **not** add `ctx.toothBody` again or the original will be double-counted.
+Feed the pattern's `bodies` collection to the combine as-is — it already includes the original tooth body, per `[PB-PATTERN-BODIES]`.
 
 ### 11: Fillets
 
@@ -394,8 +485,10 @@ If Fillet Radius > 0, round the corner where the root valley floor meets each to
 
 Apply the fillet with `filletFeatures.createInput()` → `filletInput.addConstantRadiusEdgeSet(edges, <Fillet Radius value>, isTangentChain=False)` — add the edge set on the input **itself**, per `[PB-FILLET-CHAMFER]` (do **not** route it through a `filletInput.edgeSetInputs` collection — that is the chamfer-side shape, and reaching for it on the fillet input fails). **`isTangentChain` must be `False`** — the collected edges are exactly the axial root corners; tangent-chaining (`True`) would let Fusion pull in tangent-adjacent edges and round more than the intended root corner. Do **not** read the direction via `edge.evaluator.getTangent(0)` — parameter `0` is not guaranteed to lie inside the edge's parameter range and Fusion raises `RuntimeError: invalid argument parameter`.
 
+If the edge collection ends up **empty** (no axial root edge matched), silently skip the fillet — return without creating the fillet feature, no error. An empty edge set must not reach `filletFeatures.add`.
+
 ### 12: Bore (optional)
 
 `buildBore` runs unconditionally from `generate()` (after `buildMainGearBody`), so it MUST itself early-return in two cases: when **SketchOnly** is set, and when **Bore Diameter ≤ 0**. The SketchOnly guard is essential — in sketch-only mode `buildMainGearBody` short-circuits before `buildBody`, so `ctx.gearBody` and `ctx.extrusionExtent` are never set; proceeding into the cut would dereference `None`. (Do not rely on the bore diameter being 0 in sketch-only mode — the user may have set both.)
 
-Otherwise (full build, Bore Diameter > 0), create a separate `Bore Profile` sketch on the target plane, draw a construction-less circle of that diameter at the projected Anchor Point, then extrude-cut that profile from the target plane to `ctx.extrusionExtent` (the far end-cap face), affecting only `ctx.gearBody`. The `ToEntityExtentDefinition` to the far face guarantees the bore goes all the way through regardless of Thickness.
+Otherwise (full build, Bore Diameter > 0), create a separate `Bore Profile` sketch on the target plane and draw the bore circle **by instantiating the tooth generator on that sketch** — `SpurGearInvoluteToothDesignGenerator(boreSketch, self)` — and calling its `drawBore(ctx.anchorPoint, boreDiameter)`, which projects the anchor in and draws the construction-less circle of that diameter with a driving diameter dimension. Note the accepted side effect: the tooth generator's **constructor** always adds its local-origin `(0, 0, 0)` `SketchPoint` (see `[SPUR-F-LOCAL-ORIGIN]`), so the Bore Profile sketch carries one stray unused sketch point at (0,0,0) — faithful behavior, don't suppress it. Then extrude-cut the bore profile from the target plane to `ctx.extrusionExtent` (the far end-cap face), affecting only `ctx.gearBody`. The `ToEntityExtentDefinition` to the far face guarantees the bore goes all the way through regardless of Thickness.
