@@ -106,15 +106,30 @@ The spec + playbook together MUST be sufficient. If they are not, fix the spec o
    - **Contract self-check:** every class name, hook method, tooth/profile-generator entry point,
      `ctx` field, Fusion user-parameter name, and dialog input id the spec's Contract sections
      declare is present in the generated file. If the spec declares dependent gears, confirm the
-     surface those dependents bind to (by name) exists unchanged.
+     surface those dependents bind to (by name) exists unchanged. Where the gear carries a
+     machine-readable manifest `spec/<gear>/contract.json`, run
+     `python3 .claude/skills/generate-gear/check_contract.py spec/<gear>/contract.json
+     .tmp/<gear>.generated.py` — it mechanically gates (exit 1 = BLOCKING) the manifest's classes,
+     bases, pinned methods, `ctx` fields, and module-level constants (the Python identifiers
+     dependents import AND their exact string values — the breakage class no other gate sees). The
+     spec **prose** stays authoritative; the manifest mirrors its Contract sections, and a
+     spec/manifest mismatch is a spec bug — fix both together. Prose-check whatever the manifest
+     doesn't carry. (`spec/spurgear/contract.json` is the worked example; gears without a manifest
+     get the full prose check.)
+   - **Anchor check:** run `python3 .claude/skills/generate-gear/check_anchors.py` (repo root).
+     Every `[PB-…]`/`[<GEAR>-F-…]` anchor cited anywhere in `spec/` or the playbook must resolve to
+     a defined anchor, defined in exactly one file, with no truncated cites. Exit 1 gates: an
+     unresolved cite silently unbinds the rule at that point of use.
    - **Dependency resolution:** every name the generated file imports from another gear or
-     framework module actually exists in that module.
+     framework module actually exists in that module. (`check_contract.py` verifies this
+     mechanically for `lib/geargen/` imports, plus the no-`import *` module-layout rule.)
    - **Helper-shadowing check:** the generated file must not re-define (via `def` or `class`) any
      name the framework helper library provides (PLAYBOOK "Shared geargen helper library":
      `find_profile_by_curve_counts`, `find_circle_by_radius`, the `solids.*` functions,
      `VirtualSpurProxy`/`Val`), nor carry a private re-implementation of one. A shadow or
      re-implementation means the spec/playbook failed to direct the generator to the helper — fix
-     there and regenerate.
+     there and regenerate. (`check_contract.py` catches the literal re-definition case
+     mechanically; private re-implementations under a different name still need the prose check.)
    - **Input-read consistency check:** run
      `python3 .claude/skills/generate-gear/check_input_read.py .tmp/<gear>.generated.py`. It pairs
      each `add*Input(id, …)` declaration in `configure()` with the `get_*(inputs, id, …)` read by
