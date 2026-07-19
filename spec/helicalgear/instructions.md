@@ -75,9 +75,9 @@ SpurGearGenerationContext, SpurGearGenerator, SpurGearInvoluteToothDesignGenerat
 
 ## Generation Context — spur's, plus two fields
 
-Cite spur's `SpurGearGenerationContext` field list (inherited unchanged — `ctx.plane`,
-`ctx.anchorPoint`, `ctx.extrusionEndPlane`, `ctx.gearProfileSketch`, `ctx.toothBody`, `ctx.gearBody`,
-`ctx.centerAxis`, `ctx.extrusionExtent`, `ctx.toothProfileIsEmbedded`). Helical adds two:
+Spur's `SpurGearGenerationContext` fields are inherited unchanged — see
+`spec/spurgear/instructions.md` "Generation Context — canonical field names" (do not restate the
+list here; it drifts). Helical adds two:
 
 - **`ctx.helixPlane`** — the offset `ConstructionPlane` the twisted top profile is drawn on. (Also the
   mirror plane herringbone reflects across.)
@@ -148,8 +148,7 @@ See `[HELI-F-LOFT]`.
 ## Sketch-discipline deltas
 
 - **The twisted profile is drawn at `angle=helixAngle`** — the spur tooth generator's **angle≠0**
-  path applies verbatim (`[SPUR-F-SPINE]`: pre-rotated geometry + a +X horizontal reference line whose
-  far end is pinned on the tip circle + a confirming angular dimension; `[SPUR-F-ROTATE-CONFIRM]`).
+  path applies verbatim (`[SPUR-F-SPINE]`, `[SPUR-F-ROTATE-CONFIRM]`).
   Helical does nothing special here — it just passes `angle=helixAngle` to `draw()`; the generator
   builds the fully-constrained rotated tooth. This angle≠0 path is proven in `spec/helicalgear/sketch/`.
 - **Both profiles are the non-embedded 6-curve tooth** (2 splines + 2 arcs + 2 lines). Helical
