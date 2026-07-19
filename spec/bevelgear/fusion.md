@@ -77,6 +77,12 @@ in `PLAYBOOK.md` still apply).
   **over-determines** the coupled §2 net, and the solve fails with `RuntimeError …
   VCS_SKETCH_OVER_CONSTRAINTS - failed to create offset`. One segment ⇒ one line ⇒ its constraints
   live on that one line.
+  - **Scope of the failure consequence:** the `VCS_SKETCH_OVER_CONSTRAINTS` crash is what happens
+    when the duplicate carries its own geometric constraints (perpendicular/collinear/dimension)
+    over the same segment. A duplicate line whose endpoints carry **only per-end coincidents** has
+    been observed to solve and even pass the full-constraint gate. The rule stands unchanged — one
+    segment ⇒ one line — but an over-constraint failure is NOT a guaranteed tripwire, so do not
+    rely on the solver or the gate to catch a duplicate for you.
 - **[BEVEL-F-DRIVEN-DIMS] The §2 driven lengths are NOT dimensioned.** The along-shaft lengths
   (Apex→A, Apex→B) and the module-length extensions are DRIVEN by the closing/collinear constraints —
   do not dimension them (`[PB-NO-OVERCONSTRAIN]`). The "do NOT add a dimensional constraint" notes

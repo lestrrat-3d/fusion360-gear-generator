@@ -4,11 +4,13 @@ This describes, as a straightedge-and-compass construction, how a single spiral-
 **tooth trace** is drawn: the curved centreline that one tooth follows across the cone
 face. It is the *genuine* circular-arc (Gleason face-mill) trace — a real circle of the
 cutter's radius — **not** a point-sampled / fitted spline. Everything here happens in a
-single flat plane (the cone's tangent plane); the curve is only afterwards laid onto the
-cone. Lengths are cone distances; angles are real angles in that plane.
+single flat plane (the cone's tangent plane); the curve is never laid onto the cone as
+geometry — its effect on the tooth is applied analytically as a twist about the shaft axis
+(§8). Lengths are cone distances; angles are real angles in that plane.
 
 The point of writing it out is verification: each numbered step below should correspond to
-one piece of the construction in `spiralbevelgear.py`. If a step has no counterpart, or the
+one piece of the construction in the spiral branch of `lib/geargen/bevelgear.py` (§3a of
+`instructions.md`). If a step has no counterpart, or the
 code does something the step does not justify, that is the bug.
 
 ---
@@ -181,24 +183,35 @@ circular-cut spiral bevel — not an error.
 
 ---
 
-## 8. Laying the flat trace onto the cone (3-D placement)
+## 8. From the flat trace to the tooth — the analytic twist (no projection)
 
-The arc above lives in the tangent plane. The actual tooth trace is that arc **projected onto
-the cone surface** along the tangent plane's normal (push each point of the flat arc
-straight onto the cone it was tangent to). Because the plane was tangent along `Apex→D`, the
-projection is near-identity close to the element and only curves the arc gently onto the cone
-toward the edges — it does not change which cone, the apex, or ψ at `M`.
+The arc above is **never laid onto the cone as 3-D geometry**. Earlier versions projected the
+flat arc onto the root cone (`projectToSurface` along the tangent-plane normal) and measured
+the trace azimuth on the cone; that approach is **removed** — for unequal-ratio pairs the arc
+wraps around the cone and comes back as multiple disjoint fragments, so the measured azimuth
+collapses to a fraction of the true sweep (see `instructions.md` §3a step D, which forbids
+reintroducing it). Instead the tooth's rotation about the gear **shaft axis** is computed
+**analytically** from the flat 2-D arc endpoints (`instructions.md` §3a step G):
 
-> **Separate step, separate failure mode — the twist about the shaft axis.** Drawing the
-> trace (everything above) is *not* the same as turning it into the tooth's rotation about
-> the gear **shaft axis**. On the developed (unrolled) cone, an in-plane swept angle `φ`
-> corresponds to a rotation about the shaft axis of **`θ = φ / sin γ`** (γ = pitch angle); a
-> full turn about the axis, θ = 2π, develops to an arc of only 2π·sin γ. So the toe→heel
-> *shaft-axis* twist is **not** the angle the flat arc subtends at the apex — it is that
-> angle divided by `sin γ`. A correct-looking trace can still give a wrong tooth if this
-> `1/sin γ` factor (or the plane the twist is measured in — which must be perpendicular to
-> the **shaft axis**, vertex on that axis) is mishandled. This is the most likely culprit
-> when the trace looks right but a same-tooth pair won't mesh.
+- `phi_crown = atan2(heel_y, heel_x) − atan2(toe_y, toe_x)` — the angle the arc's toe and
+  heel endpoints subtend **at the apex** in the flat frame (the developed crown-gear plane);
+- `total = |phi_crown| / sin γ` — the toe→heel twist magnitude about the shaft axis, with γ
+  this gear's **pitch** cone angle; the hand sign sets the direction.
+
+The straight tooth is then sliced into cross-section slabs and each slab is rotated about the
+shaft axis by its linear share of `total`, centred on `R_mean` so the mid-face section stays
+unrotated. The flat trace sketch itself remains reference-only geometry.
+
+> **Why `1/sin γ` — and where it goes wrong.** On the developed (unrolled) cone, an in-plane
+> swept angle `φ` corresponds to a rotation about the shaft axis of **`θ = φ / sin γ`**
+> (γ = pitch angle); a full turn about the axis, θ = 2π, develops to an arc of only
+> 2π·sin γ. So the toe→heel *shaft-axis* twist is **not** the angle the flat arc subtends at
+> the apex — it is that angle divided by `sin γ`. A correct-looking trace can still give a
+> wrong tooth if this `1/sin γ` factor is mishandled: use the **pitch** cone angle, not the
+> root-cone angle (`acos(coneVec·axisDir)` measures the root cone and inflates the twist),
+> and expect the two members of a pair to get legitimately **different** twists (same ψ and
+> cutter, different γ). This is the most likely culprit when the trace looks right but a
+> pair won't mesh.
 
 ---
 
