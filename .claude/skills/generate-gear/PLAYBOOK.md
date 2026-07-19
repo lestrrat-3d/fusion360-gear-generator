@@ -52,9 +52,11 @@ them **by name** (see Contract), so reproduce them exactly:
 
 1. **`<Gear>CommandInputsConfigurator`** — a class with `@classmethod def configure(cls, cmd)`
    that adds the dialog inputs to `cmd.commandInputs`. Selection inputs use
-   `addSelectionInput(id, label, tooltip)` + `addSelectionFilter(...)` + `setSelectionLimits(1)`;
+   `addSelectionInput(id, label, tooltip)` + `addSelectionFilter(...)` + `setSelectionLimits(...)`
+   with the filter set and limits the spec declares per input ([PB-SELECTION-DECL]);
    the parent selection pre-selects `get_design().rootComponent`. Value inputs use
-   `addValueInput(id, label, unit, ValueInput.createByReal(default))`; booleans
+   `addValueInput(id, label, unit, ValueInput.createByReal(default))` with the default in
+   internal units ([PB-DIALOG-DEFAULT-UNITS]); booleans
    `addBoolValueInput(...)`; expression-style fields `addStringValueInput(...)`.
 
 2. **`<Gear>GenerationContext(GenerationContext)`** — a plain data carrier whose `__init__`
@@ -123,7 +125,22 @@ evaluated and wrapped `createByReal`. It **raises** on an invalid expression rat
 `None`. No caller-side `ok`-flag handling or `ValueInput` wrapping is needed — `addParameter` the
 result directly.
 
-## Shared geargen helper library (use, do not re-implement)
+**[PB-DIALOG-DEFAULT-UNITS] Dialog defaults passed as `ValueInput.createByReal(...)` are in Fusion
+INTERNAL units — cm for length, radians for angle — regardless of the input's unit string.** A
+10 mm default is `createByReal(to_cm(10))` and a 20° default is `createByReal(math.radians(20))`;
+writing `createByReal(10)` / `createByReal(20)` ships a 100 mm / 20-radian default even though the
+dialog displays `mm` / `deg`. The unit string on `addValueInput` controls display and expression
+parsing only, never the interpretation of the `createByReal` default. No mechanical gate catches a
+wrong default (it is valid code and a valid dialog) — pin every default's internal-unit conversion
+at authoring time, and specs state defaults in display units with the conversion implied by this
+rule.
+
+**[PB-SELECTION-DECL] A selection input's filter enums and `setSelectionLimits(min, max)` are
+contract surface — the gear's spec declares both, per input.** Do not improvise them: the filter
+set decides what the user can pick and the limits decide dialog validity (`setSelectionLimits(1)`
+alone means min-1/no-max — usually wrong; the existing gears use `setSelectionLimits(1, 1)`
+exactly-one, or `(0, 1)` plus an explicit empty-selection fallback the spec must also state).
+Filters are enum constants, never strings ([PB-SELECTION-FILTER-ENUM]).
 
 The framework carries a small library of **proven** helpers; each encodes a known Fusion failure
 mode that took real debugging to pin down. A generated gear **MUST call these instead of
@@ -285,9 +302,9 @@ New gears: add the entry directory (with `resources/`), then import and list it 
 
 ### Optional: live input validation (`validateInputs`) — `[PB-VALIDATE-INPUTS]`
 
-`GearCommand.command_validate_input` supports an **opt-in** per-gear hook so a dialog can grey out
-OK and show *why* — keeping the dialog open and editable — instead of failing only at execute
-time. A gear opts in by declaring on its **generator class**:
+**[PB-VALIDATE-INPUTS]** `GearCommand.command_validate_input` supports an **opt-in** per-gear hook
+so a dialog can grey out OK and show *why* — keeping the dialog open and editable — instead of
+failing only at execute time. A gear opts in by declaring on its **generator class**:
 
 - `@staticmethod validate_inputs(inputs) -> list[str]` — a **pure** check that reads raw values
   straight off `inputs.itemById(<id>).value` (internal cm — no `get_value`, no parameters, no
@@ -538,8 +555,13 @@ the check.
   (e.g. a point at radius `r` from the centre, or one of the arc's own through-points).
 - **[PB-SELECTION-STASH] Selections drop on context shift:** stash selection entities before occurrence creation
   (above).
-- **[PB-HIDE-AFTER-USE] Hide a sketch only after consuming it:** projections/profile extraction stop working on an
-  invisible sketch; draw → project → constrain → run features → then `isVisible=False`. Same for
+- **[PB-HIDE-AFTER-USE] Hide a sketch only after consuming it:** draw → project → constrain → run
+  features → then `isVisible=False`. `sketch.project(...)` and profile extraction have failed on
+  invisible sketches in this repo's history, so visible-while-consumed is the default discipline —
+  but the failure is operation-dependent, not universal: reading `sketch.profiles` for a loft is
+  observed to work on a sketch that was never made visible (helical's twisted profile). A gear may
+  rely on such a verified exception only when its spec declares it as a sketch-discipline delta;
+  never generalize the exception on your own. Same for
   construction planes later features still consume. **And hide construction geometry with the right
   property:** a `ConstructionPlane`/`ConstructionAxis` is **not** hidden by `isVisible = False` (it
   has no visible effect on construction geometry — a Fusion gotcha); use `entity.isLightBulbOn =
@@ -569,6 +591,12 @@ the check.
   content and the height to use.
 - **[PB-PATTERN-BODIES] Patterns return original + copies:** `CircularPatternFeature.bodies` already includes the
   seed body plus copies; feed the whole collection to Combine — don't re-add the seed.
+- **[PB-CIRCULAR-PATTERN] Circular-pattern input shape:** `circularPatternFeatures.createInput(bodies, axis)` →
+  set `quantity` (`ValueInput`), `totalAngle = ValueInput.createByString('360 deg')`,
+  `isSymmetric = False` → `add(input)`. Pin all three explicitly — do not rely on Fusion's
+  defaults staying equal to them. Where a gear patterns many features and rebuild cost matters, its
+  spec may additionally call for `patternComputeOption = adsk.fusion.PatternComputeOptions.AdjustPatternCompute`;
+  the resulting bodies follow [PB-PATTERN-BODIES].
 - **[PB-LOGGING] Logging/robustness:** use `futil.log(...)` for step progress; let the entry point's
   try/except + `deleteComponent()` handle rollback rather than swallowing errors mid-step — don't
   invent new silent failure paths.
