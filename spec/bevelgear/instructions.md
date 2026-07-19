@@ -34,7 +34,7 @@ Parent Component: user-specified component. Defaults to the root component (pre-
 
 Module: user-supplied number. Specifies the module of gears.
 
-Shaft Angle: User-supplied angle in degrees between 30° and 150°. Default 90° (perpendicular shafts — the classic bevel pair). The input is a `deg` Fusion expression (e.g. `60 deg`); radians read-back (`[PB-EVAL-EXPRESSION]`) — convert to degrees before the 30–150° range check.
+Shaft Angle: User-supplied angle in degrees between 30° and 150°. Default 90° (perpendicular shafts — the classic bevel pair). The input is a `deg` Fusion expression (e.g. `60 deg`); convert to degrees before the 30–150° range check (read-back units: see "Reading the raw numbers", `[PB-EVAL-EXPRESSION]`).
 
 Driving Gear Teeth: user-specified number of teeth on the driving gear. Default is 31. (The dialog label is `Driving Gear Teeth`, per the input table; formulas below refer to this value as Driving Gear Teeth Number.)
 
@@ -70,11 +70,11 @@ Rationale (do not drop this when regenerating): the toe line M->N is C->H offset
 
 Tooth Spacing: user-specified non-negative number in mm, default 0mm. A single value applied to **both** gears. It is a clearance offset that shifts each virtual spur tooth profile's **center** radially outward along the dedendum line — *away from the lower corner* (the rim corner opposite the Apex: point C for the pinion, point D for the driving gear), i.e. in the C->K direction beyond K (and D->L beyond L) — by this distance, **while the tooth itself is still drawn at the original virtual pitch radius** (virtual tooth number × Module / 2; the virtual tooth number is unchanged). At 0 (the default) the tooth center sits exactly at K / L; a positive value moves the center farther from the rim, loosening the mesh so 3D-printed teeth have more clearance. Applied in §3; see "Gear Tooth Profiles".
 
-Mean Spiral Angle (ψ): user-specified angle in degrees, default 35°, valid range **[0, 60)**. The angle between the tooth trace and the cone element, measured at the mean cone distance (see `spiral-tooth-trace.md`). **ψ = 0 means a STRAIGHT bevel gear** — the tooth-body build takes the original straight path unchanged (apex-point loft + the two conical trims) and every spiral input below is ignored; any value **> 0 builds a curved (spiral) tooth**. The driving gear uses this hand; the meshing pinion is built with the **opposite** hand (mirror) so the pair meshes. Input is a `deg` Fusion expression; radians read-back (`[PB-EVAL-EXPRESSION]`) — convert to degrees before the [0, 60)° range check.
+Mean Spiral Angle (ψ): user-specified angle in degrees, default 35°, valid range **[0, 60)**. The angle between the tooth trace and the cone element, measured at the mean cone distance (see `spiral-tooth-trace.md`). **ψ = 0 means a STRAIGHT bevel gear** — the tooth-body build takes the original straight path unchanged (apex-point loft + the two conical trims) and every spiral input below is ignored; any value **> 0 builds a curved (spiral) tooth**. The driving gear uses this hand; the meshing pinion is built with the **opposite** hand (mirror) so the pair meshes. Input is a `deg` Fusion expression; convert to degrees before the [0, 60)° range check (read-back units: see "Reading the raw numbers", `[PB-EVAL-EXPRESSION]`).
 
-Hand of Spiral: user-specified dropdown — `Right` (default) or `Left`. The **driving** gear's hand of spiral; the pinion is built with the opposite hand. Only consulted when ψ > 0. **Shown in the dialog only when ψ > 0** (hidden for straight bevels — see "Conditional visibility" under Exact input ids). The two list-item strings `Right`/`Left` are reproduced surface (module constants `_HAND_RIGHT = 'Right'`, `_HAND_LEFT = 'Left'`).
+Hand of Spiral: user-specified dropdown — `Right` (default) or `Left`. The **driving** gear's hand of spiral; the pinion is built with the opposite hand. Only consulted when ψ > 0; shown only when ψ > 0 (see "Conditional visibility" under Exact input ids). The two list-item strings `Right`/`Left` are reproduced surface (module constants `_HAND_RIGHT = 'Right'`, `_HAND_LEFT = 'Left'`).
 
-Cutter Radius: user-specified non-negative number in mm, default 0mm. The face-mill cutter radius `r_c` that sets the radius of the tooth-trace arc (see `spiral-tooth-trace.md`). **0 means auto** — use the mean cone distance `R_mean` as `r_c`. Only consulted when ψ > 0. **Shown in the dialog only when ψ > 0** (hidden for straight bevels — see "Conditional visibility" under Exact input ids). Reject negative values.
+Cutter Radius: user-specified non-negative number in mm, default 0mm. The face-mill cutter radius `r_c` that sets the radius of the tooth-trace arc (see `spiral-tooth-trace.md`). **0 means auto** — use the mean cone distance `R_mean` as `r_c`. Only consulted when ψ > 0; shown only when ψ > 0 (see "Conditional visibility" under Exact input ids). Reject negative values.
 ### Exact input ids and parameter-name strings
 
 These literal strings are part of the reproduced surface. Use them verbatim. The dialog **display
@@ -109,8 +109,8 @@ There are now **17** dialog inputs and **17 `INPUT_ID_*`** module constants, nam
 `INPUT_ID_SPIRAL_ANGLE`, `INPUT_ID_HAND`, `INPUT_ID_CUTTER_RADIUS` — holding the table's id
 strings in row order. Inputs 15–17 are appended **after** Tooth Spacing in display order. The Hand dropdown is a
 `DropDownStyles.TextListDropDownStyle` with `Right` added selected and `Left` added unselected; read
-its `selectedItem.name` (default `Right` if none). `spiralAngle` reads back in radians (range-check
-[0, 60)° after converting to degrees); `cutterRadius` reads back in internal cm via `'mm'`. Still **no live
+its `selectedItem.name` (default `Right` if none). `spiralAngle` and `cutterRadius` read back in
+internal units per "Reading the raw numbers" (`[PB-EVAL-EXPRESSION]`). Still **no live
 Fusion user parameters** — the spiral values are precomputed in Python like everything else.
 
 **Conditional visibility — the spiral-only inputs show only when ψ > 0.** Hand of Spiral
@@ -247,7 +247,7 @@ generate(inputs)
         → _buildVirtualSpurProfile(...)      # §3 this gear: tooth plane + spur tooth + axis
         → _createGearBody(...)               # revolve → loft (uncut tooth) → _transformToothBody → pattern → combine → bore → mesh-rotate → moveToComponent
               → _transformToothBody(...)     # the tooth-body step. ψ=0 → solids.cut_conical_ends (2 conical trims, straight bevel). ψ>0 → spiral build (see §3 "Spiral tooth body")
-              # mesh-rotate: driving by 180°/drivingTeeth; pinion by _pinionMeshPhase(pinionTeeth) (0 unless a spiral pair needs a nudge)
+              # mesh-rotate: see "Meshing rotation" under Create the Gear Bodies
   → _hideConstructionGeometry(bevelComponent)        # Cleanup
 deleteComponent()                            # error rollback (entry point calls on exception)
 ```
@@ -293,8 +293,8 @@ the borrowed spur generator — see Dependencies (`_lastToothEmbedded`); `embedd
 meet with no connecting lines (4 curves), non-embedded ⇒ 2 connecting lines (6 curves), mirroring
 spur's own selection.
 
-Pinion is built first; driving second (mesh offset `180° / drivingTeeth`); the pinion additionally
-gets `_pinionMeshPhase(pinionTeeth)` (0 unless a spiral pair needs it).
+Pinion is built first; driving second. The meshing offsets both gears receive are owned by
+"Meshing rotation" under Create the Gear Bodies.
 
 ## Sketch Discipline (bevel-specific)
 
@@ -574,7 +574,7 @@ factor = 1 − _CROWN_PER_RAD · (|total| / 2) · u
 
 **I. Loft → curved tooth.** ⚠️ **Re-sort the segments by their heel-face cone distance HERE, AFTER the twist (G) and crown (H) — do NOT reuse the pre-twist slice/centroid order from step F.** The twist rotates each slab about the shaft axis, and for high-twist *unequal-ratio* pairs that rotation changes the slabs' along-cone (`distAlong`) order enough to **reorder adjacent slabs**; lofting in the stale pre-twist order then assembles the cross-sections out of sequence and the crowned tooth comes out distorted → the two gears interfere. (For equal/low-twist pairs the two orders coincide, which is why equal-teeth gears mesh even with the stale order but unequal ratios distort — this is the single thing that makes a ratio pair like 31/17 fail while 31/31 looks fine.) So: compute `order = sorted(segment indices, key = distAlong(slabHeelFace(seg).centroid))` **now**, and loft a NewBody through, in that order: first the **toe-most segment's apex-side (toe-facing) face** — the toe segment is `order[0]`, its toe face added first to push the loft past the toe cone so the toe trim bites — then the **heel-facing face of every segment, iterated in `order`** (each segment's farthest-along-the-element face by post-twist centroid; the last reaches past the heel cone). Name the resulting body **`{gear} Spiral Tooth`**. Then remove the segment scaffolding (the loft has captured their faces).
 
-**J. Flush trim + mesh phase.** Return `cut_conical_ends(designComponent, curvedTooth, gearBody, toeMid, heelMid, apexWorld, gearLabel)` (framework) — the same toe-then-heel two-cone trim used for the straight tooth — so the curved tooth's ends sit **flush** on the gear base. The toe/heel **mesh phasing** is handled outside this hook by `_createGearBody`'s mesh-rotate step (driving by `180°/drivingTeeth`; the **pinion additionally** by `_pinionMeshPhase(pinionTeeth)`, which is 0 by default because the mid-face section is unrotated and already meshes — see Method contract).
+**J. Flush trim + mesh phase.** Return `cut_conical_ends(designComponent, curvedTooth, gearBody, toeMid, heelMid, apexWorld, gearLabel)` (framework) — the same toe-then-heel two-cone trim used for the straight tooth — so the curved tooth's ends sit **flush** on the gear base. The toe/heel **mesh phasing** is handled outside this hook by `_createGearBody`'s mesh-rotate step (see "Meshing rotation" under Create the Gear Bodies; the pinion's extra phase is 0 by default because the mid-face section is unrotated and already meshes).
 
 ## Create the Gear Bodies (once per gear — pinion first, then driving)
 
