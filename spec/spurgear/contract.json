@@ -1,0 +1,95 @@
+{
+  "_comment": "Machine-readable mirror of the spec's contract sections, checked by .claude/skills/generate-gear/check_contract.py. The spec prose (instructions.md/fusion.md) is authoritative — a mismatch between this file and the spec is a spec bug; fix both together. Methods listed are the pinned public/hook surface (underscore-private decomposition stays free). module_constants pins the Python identifiers dependents import (helicalgear/herringbonegear) AND their exact string values.",
+  "module": "lib/geargen/spurgear.py",
+  "module_constants": {
+    "INPUT_ID_PARENT": "parentComponent",
+    "INPUT_ID_PLANE": "plane",
+    "INPUT_ID_ANCHOR_POINT": "anchorPoint",
+    "INPUT_ID_MODULE": "module",
+    "INPUT_ID_TOOTH_NUMBER": "toothNumber",
+    "INPUT_ID_PRESSURE_ANGLE": "pressureAngle",
+    "INPUT_ID_BORE_DIAMETER": "boreDiameter",
+    "INPUT_ID_THICKNESS": "thickness",
+    "INPUT_ID_CHAMFER_TOOTH": "chamferTooth",
+    "INPUT_ID_SKETCH_ONLY": "sketchOnly",
+    "PARAM_MODULE": "Module",
+    "PARAM_TOOTH_NUMBER": "ToothNumber",
+    "PARAM_PRESSURE_ANGLE": "PressureAngle",
+    "PARAM_BORE_DIAMETER": "BoreDiameter",
+    "PARAM_THICKNESS": "Thickness",
+    "PARAM_CHAMFER_TOOTH": "ChamferTooth",
+    "PARAM_SKETCH_ONLY": "SketchOnly",
+    "PARAM_PITCH_DIAMETER": "PitchCircleDiameter",
+    "PARAM_PITCH_RADIUS": "PitchCircleRadius",
+    "PARAM_BASE_DIAMETER": "BaseCircleDiameter",
+    "PARAM_BASE_RADIUS": "BaseCircleRadius",
+    "PARAM_ROOT_DIAMETER": "RootCircleDiameter",
+    "PARAM_ROOT_RADIUS": "RootCircleRadius",
+    "PARAM_TIP_DIAMETER": "TipCircleDiameter",
+    "PARAM_TIP_RADIUS": "TipCircleRadius",
+    "PARAM_INVOLUTE_STEPS": "InvoluteSteps",
+    "PARAM_TOOTH_SPACE_ANGLE": "ToothSpaceAngleAtRoot",
+    "PARAM_TOOTH_SPACE_ARC": "ToothSpaceArcAtRoot",
+    "PARAM_FILLET_CLEARANCE": "FilletClearance",
+    "PARAM_FILLET_RADIUS": "FilletRadius"
+  },
+  "classes": {
+    "SpurGearCommandInputsConfigurator": {
+      "bases": [],
+      "methods": ["configure"]
+    },
+    "SpurGearGenerationContext": {
+      "bases": ["GenerationContext"],
+      "methods": ["__init__"],
+      "ctx_fields": [
+        "plane",
+        "anchorPoint",
+        "extrusionEndPlane",
+        "gearProfileSketch",
+        "toothBody",
+        "gearBody",
+        "centerAxis",
+        "extrusionExtent",
+        "toothProfileIsEmbedded"
+      ]
+    },
+    "SpurGearInvoluteToothDesignGenerator": {
+      "bases": [],
+      "methods": [
+        "__init__",
+        "getParameter",
+        "getParameterValue",
+        "calculateInvolutePoint",
+        "draw",
+        "drawCircles",
+        "drawTooth",
+        "drawBore"
+      ]
+    },
+    "SpurGearGenerator": {
+      "bases": ["Generator"],
+      "methods": [
+        "__init__",
+        "prefixBase",
+        "newContext",
+        "addExtraPrimaryParameters",
+        "chamferWantEdges",
+        "filletHelixFactorExpression",
+        "generateName",
+        "processInputs",
+        "registerDerivedParameters",
+        "generate",
+        "prepareTools",
+        "buildMainGearBody",
+        "buildSketches",
+        "buildTooth",
+        "chamferTooth",
+        "buildBody",
+        "patternTeeth",
+        "createFillets",
+        "buildBore",
+        "cleanup"
+      ]
+    }
+  }
+}
