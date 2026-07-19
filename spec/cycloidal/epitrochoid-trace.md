@@ -1,13 +1,13 @@
-# Cycloidal rotor profile — geometry oracle (minimal: one lobe)
+# Cycloidal rotor profile — geometry oracle
 
 This is the geometry oracle for the cycloidal-rotor generator (cited from `instructions.md`). Reproduce
 the point function and formulas **exactly** — no mechanical gate verifies geometry, so these are the
 asserted facts. The generator works in Fusion-internal **cm**; convert mm inputs with `to_cm`. Profile
 points computed here are **already cm** — add them to sketches as-is (never re-wrap in `to_cm`).
 
-> Scope note: the full archived drive is at `.tmp/cycloidal-spec-full-archive/`. This spec is being grown
-> back incrementally; it currently produces the **rotor disk** (lobe section → extrude → pattern → join)
-> with its **center bore**, the **output holes**, the **ring pins + Housing Ring base**, the **eccentric
+> Scope note: this spec produces the **rotor disk(s)** (lobe section → extrude → pattern → join)
+> with **center bore**, the **output holes**, the **pinless `Housing`** (base annulus + swept-contour
+> ring casing — see "Pinless ring casing"; no discrete ring pins), the **eccentric
 > input cam**, the **output plate + `M` output pins**, edge **chamfers**, and an optional **second disc**
 > (`Disc Count = 2`, 180° opposed — see "Two discs" below). **Output pins** are `M` cylinders (`D_pin =
 > Output Pin Diameter`, resolved) on the

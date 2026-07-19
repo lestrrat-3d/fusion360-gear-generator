@@ -39,11 +39,12 @@ name='Cycloidal Drive Generator', …)`, binding the two classes above by name.
 ## Component Setup
 
 One command invocation creates a new child component (named per `generateName`) of the user-selected
-Parent Component. It draws six sketches — `Rotor Lobe` (one fully-constrained open lobe section + its
+Parent Component. It draws seven sketches — `Rotor Lobe` (one fully-constrained open lobe section + its
 reference frame), `Output Hole` (one output hole), `Housing Ring` (the base annulus, on a construction plane
-`1 mm` below the disk) + `Ring Casing` (one swept-contour section), `Disk Bore` (the enlarged center bore),
+`1 mm` below the disk), `Ring Casing` (one swept-contour section), `Disc Bore` (the enlarged center bore),
 `Eccentric Cam` (cam outer + input bore), and `Output Plate` (the output disc + one output pin, on a plane
-`1 mm` above the disk) — and builds the **rotor disk** (with its **center bore**), **`M` output holes**, the
+`1 mm` above the disk); the per-disc ones (`Rotor Lobe`, `Output Hole`, `Disc Bore`, `Eccentric Cam`) carry
+`{d+1}` name suffixes and repeat for the second disc — and builds the **rotor disk** (with its **center bore**), **`M` output holes**, the
 **`Housing` body** (base annulus + pinless swept-contour ring casing, Combined into one part), the
 **eccentric input cam**, and the **output plate + `M` output pins**. The **Anchor is the drive axis** `O`; the
 **cycloidal disk is eccentric**, its centre
@@ -136,29 +137,26 @@ lobe-tip envelope `env_max + c`, the `c` cancels — verified]; the outer wall c
 **minimum wall thickness is exactly `Wall`** at the peaks, a bit more at the valleys. The inner floor lip sits
 `Wall` inside the contour valley `R − PinRadius`); and the **output-plate**
 diameter **`OutputPlateDiameter = OutputPinCircleDiameter + D_pin + 2·Wall`** (= `2·Rop + D_pin + 2·Wall`,
-the plate covers the output pins by `Wall`). The resolved **output-pin diameter** is `D_pin = OutputHoleDiameter − 2E`. Validity (reject with a clear message, on the
-**resolved** values): `E < PinRadius < R·sin(π/N)`; `D_pin > 0`; `D_hole < 2·Rop·sin(π/M)`; `E < R/N`;
-`Rop < Rv`; **and the no-undercut guard `Rr_eff < ρ_min^O`** (`epitrochoid-trace.md` "No-undercut guard"
-— the *binding* eccentricity limit, ≈ 2.5 mm for defaults; computed numerically from the base-trochoid
-curvature, far tighter than `R/N`). This is the check that stops the "sketch breaks at high E" failure.
-Also (cam/bore): `Input Shaft Diameter < Center Bearing Diameter`; the input bore must sit inside the cam
-(`E + InputShaftDiameter/2 < CenterBearingDiameter/2`); and the **enlarged** disk center bore must clear the
-output holes (`(CenterBearingDiameter + BearingClearance)/2 < Rop − D_hole/2`). Reject with a clear message
-otherwise.
-Also (two-disc): when **`Disc Count == 2`**, require **`N` even AND `M` even** — the 180° disc-2
-construction maps pins→pins only for even `N` and output-holes→output-pins only for even `M`. Reject with a
-clear message (e.g. "Two discs require an even Pin Count and even Output Pin Count").
+the plate covers the output pins by `Wall`). The resolved **output-pin diameter** is
+`D_pin = OutputHoleDiameter − 2E`.
+**Validity — the table under "Live input validation" is the single authoritative list of enforced checks**
+(run on the **resolved** values; it includes the two-disc evenness gate and the cam/bore fit checks). The
+**no-undercut guard `Rr_eff < ρ_min^O`** in that table is the *binding* eccentricity limit
+(`epitrochoid-trace.md` "No-undercut guard" — ≈ 2.5 mm for defaults, computed numerically from the
+base-trochoid curvature, far tighter than `R/N`); it is the check that stops the "sketch breaks at high E"
+failure.
 
-⚠️ **All of the above validity checks are implemented exactly once**, in the shared
+⚠️ **All validity checks are implemented exactly once**, in the shared
 `evaluate_problems(vals)` helper, and surfaced **both** live (OK greys out while editing, via
 `validate_inputs`) **and** at execute time (`_resolveDimensions` raises the joined messages) — see
 "Live input validation" for the routine, the actionable message wording, and the numeric `E*` bound.
 
 ### Exact input ids and parameter-name strings (verbatim)
 
+Rows are in dialog display order (the authoritative order — see the display-order paragraph below):
+
 | Dialog input | input id | registered user-parameter |
 |---|---|---|
-| Parent Component (selection) | `parentComponent` | — |
 | Target Plane (selection) | `plane` | — |
 | Anchor Point (selection) | `anchorPoint` | — |
 | Disc Count (dropdown 1/2) | `discCount` | — |
@@ -169,16 +167,17 @@ clear message (e.g. "Two discs require an even Pin Count and even Output Pin Cou
 | Disk Clearance | `diskClearance` | `DiskClearance` |
 | Disc Thickness | `discThickness` | `DiscThickness` |
 | Disc Gap | `discGap` | `DiscGap` |
-| Output Pin Circle Diameter | `outputPinCircleDiameter` | `OutputPinCircleDiameter` |
-| Output Pin Count | `outputPinCount` | `OutputPinCount` |
-| Output Pin Diameter | `outputPinDiameter` | `OutputPinDiameter` |
 | Center Bearing Diameter | `centerBearingDiameter` | `CenterBearingDiameter` |
 | Input Shaft Diameter | `inputShaftDiameter` | `InputShaftDiameter` |
 | Bearing Clearance | `bearingClearance` | `BearingClearance` |
+| Output Pin Circle Diameter | `outputPinCircleDiameter` | `OutputPinCircleDiameter` |
+| Output Pin Count | `outputPinCount` | `OutputPinCount` |
+| Output Pin Diameter | `outputPinDiameter` | `OutputPinDiameter` |
 | Housing Wall | `wall` | `Wall` |
 | Base Thickness | `baseThickness` | `BaseThickness` |
 | Output Plate Thickness | `outputPlateThickness` | `OutputPlateThickness` |
 | Chamfer Size | `chamferSize` | `ChamferSize` |
+| Parent Component (selection) | `parentComponent` | — |
 | Per-field message slot after each value/dropdown input | `<inputId>__status` (e.g. `pinCircleDiameter__status`) | — (not read, not a parameter) |
 
 `Pin Diameter` and `Output Pin Diameter` are `addValueInput` defaulting to **`0`** (`0` = auto-derive).
@@ -201,14 +200,15 @@ expressions (they compose cleanly from the registered inputs, including the snap
 **derived** parameters — required because the `PinRadius` / `OutputHoleDiameter` snapshots read the resolved
 `self.Rr` / `self.D_hole` that `_resolveDimensions` stashes.
 
-**Dialog display order (`configure()` adds inputs in exactly this sequence):** Target Plane, Anchor
+**Dialog display order — AUTHORITATIVE (`configure()` adds inputs in exactly this sequence; the ids table
+above lists the same order):** Target Plane, Anchor
 Point, Disc Count, Pin Count, Pin Circle Diameter, Pin Diameter, Eccentricity, Disk Clearance, Disc
 Thickness, Disc Gap, Center Bearing Diameter, Input Shaft Diameter, Bearing Clearance, Output Pin Circle
 Diameter, Output Pin Count, Output Pin Diameter, Housing Wall, Base Thickness, Output Plate Thickness,
-Chamfer Size, Parent Component. Selections first two; Parent last. **Immediately after each
-value/dropdown input** in that sequence (i.e. after Disc Count, Pin Count, …, Chamfer Size — but NOT
-after the selections), add that input's hidden `<id>__status` message slot, so each editable field is
-directly followed by its own slot. All numerics are `addValueInput` (read with `get_value`); selections
+Chamfer Size, Parent Component. Selections first two; Parent last. Each value/dropdown input is
+immediately followed by its hidden `<id>__status` slot (the "Per-field message slots" bullet under
+Variables owns the exact creation signature; selections get no slot). All numerics are `addValueInput`
+(read with `get_value`); selections
 via `get_selection`; the `__status` slots are `addTextBoxCommandInput` and are never read.
 `Pin Count` (`N`) and `Output Pin Count` (`M`) are integer counts —
 their `addValueInput` **unit string is `''`** (unitless) and they are **registered as unitless parameters**
@@ -218,11 +218,8 @@ value rounded to int** for the Python formulas (`sin(π/N)`, `sin(π/M)`; Fusion
 ## Live input validation
 
 The dialog validates geometry **live** so the user is never silently kicked out at OK time. The shared
-`GearCommand.command_validate_input` (`[PB-VALIDATE-INPUTS]`) consults two members this generator
-declares, and on any problem **disables OK** (the dialog stays open and editable) while showing the
-problem list in the **per-field message slot next to the field the user last edited** (the handler
-tracks the last-changed input and writes into `<that-input-id>__status`, hiding the previously shown
-slot; for selection changes or the initial open it uses `DEFAULT_STATUS_INPUT_ID`):
+handler's mechanics (OK-disable, last-edited-slot tracking, fallback slot) are `[PB-VALIDATE-INPUTS]` —
+the PLAYBOOK owns them; this gear's delta is only the two members the handler consults:
 
 - **`DEFAULT_STATUS_INPUT_ID = INPUT_ID_PIN_CIRCLE_DIAMETER + '__status'`** (class attribute on
   `CycloidalDriveGenerator`) — the fallback slot, used when the last-edited input has no slot of its own.
@@ -423,7 +420,8 @@ reduces to today's single-disc build.
 
 ### 1: Normalize the Target Plane
 If the selected plane is not a `ConstructionPlane`, make a coplanar one via
-`ConstructionPlaneInput.setByOffset(selectedPlane, 0)` and use it (`[SPUR-F` parity).
+`ConstructionPlaneInput.setByOffset(selectedPlane, 0)` and use it (the same normalization the spur
+generator does).
 
 ### 2: Fully-constrained lobe, on the eccentric disk centre — `buildLobeSketch(d)`
 (Takes the disc index `d` per **§0**; the text below is the `d=0` case — for general `d` substitute
