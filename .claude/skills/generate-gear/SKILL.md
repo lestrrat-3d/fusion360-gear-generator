@@ -38,8 +38,9 @@ The spec + playbook together MUST be sufficient. If they are not, fix the spec o
 
 1. **Setup.** Work in a worktree (per the repo's CLAUDE.md — never the root checkout). Ensure
    `.tmp/` exists. Read this skill, `PLAYBOOK.md`, and the spec end-to-end. Skim the shared
-   framework the output builds on: `lib/geargen/base.py`, `misc.py`, `utilities.py`,
-   `lib/fusion360utils/`, and `commands/<gear>/entry.py`. Note the gear's sketch-first proof at
+   framework the output builds on: `lib/geargen/base.py`, `misc.py`, `utilities.py`, `solids.py`,
+   `spurproxy.py`, `lib/fusion360utils/`, and `commands/<gear>/entry.py` (the same file set the
+   standard generation prompt hands the subagent). Note the gear's sketch-first proof at
    `spec/<gear>/sketch/` if present (run in step 3).
 
 2. **Extract the contract from the spec.** Read the spec's **Contract** sections (the classes,
