@@ -144,6 +144,12 @@ build on the shared `[PB-FULL-CONSTRAINT]`, `[PB-SHARE-XOR-COINCIDENT]`, `[PB-NO
   below the root), no flank-to-root line is drawn and the loop has **4 curves** (2 splines + 2
   arcs) — the profile is "embedded."
 
+  **The embedded test is strict `<`:** with `firstRadius` the distance from the local origin to the
+  left flank's first fit point, `embedded = firstRadius < Root Circle Radius` (compare raw values,
+  no tolerance). Exact equality therefore counts as **non**-embedded and draws a **zero-length**
+  flank-to-root stub (root end and flank start coincide) — this is the ill-conditioned region the
+  bench proof flags. Keep the strict comparison; do not "improve" it with `<=` or a tolerance.
+
   **Embedded-flag mechanism (the tooth generator has no `ctx`):** the tooth generator sets the
   boolean on its **parent generator** — `self.parent._lastToothEmbedded = True/False` — during
   `drawTooth`. `SpurGearGenerator.__init__` MUST pre-initialise `self._lastToothEmbedded = False`

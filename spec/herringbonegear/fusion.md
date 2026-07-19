@@ -33,7 +33,11 @@ and combine into a single tooth body before the pattern. Everything else is heli
   self.chamferTooth(ctx)
   ```
   Key points, exactly as the current code does them:
-  - The mirror **target plane is `ctx.helixPlane`** (the mid-body plane), not a fresh plane.
+  - The mirror **target plane is `ctx.helixPlane`** (the mid-body plane), not a fresh plane. Like
+    helical's helix plane, this plane is **left visible after generation** — see the visibility
+    statement in `[HELI-F-TWIST-PLANE]`; a regen must not add cleanup for it.
+  - The combine **leaves `combineInput.operation` at its API default (Join)** — no operation is
+    assigned. Deliberate/faithful; do not "fix" it by setting the operation explicitly.
   - The mirrored body is renamed `'Tooth Body (Mirrored)'`; the combine's **target is looked up by
     name** — `self.getComponent().bRepBodies.itemByName('Tooth Body')` — and the mirrored half is the
     tool. After the combine there is a single `'Tooth Body'` spanning the full thickness, which the

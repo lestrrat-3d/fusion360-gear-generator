@@ -18,6 +18,12 @@ separate sketch-first proof.
 Identical to helical (inherited). Same inputs (including Helix Angle, default 14.5°), same derived
 parameters, same input ids and parameter names. No additions.
 
+### Exact input ids and parameter-name strings
+
+Herringbone adds **none** — helical's table (`spec/helicalgear/instructions.md` "Exact input ids
+and parameter-name strings", which in turn inherits all of spur's) applies verbatim. No new input
+id, no new user-parameter name, no new module-level constant.
+
 ## Architecture
 
 Three classes extending their helical counterparts (names are the reproduced surface;
@@ -38,7 +44,8 @@ HelicalGearCommandConfigurator, HelicalGearGenerationContext, HelicalGearGenerat
 
 Helical's context unchanged (`HerringboneGearGenerationContext` is a `pass` subclass). `ctx.helixPlane`
 is repurposed as the **mid-body mirror plane** (a consequence of the `helicalPlaneOffset` override
-below); `ctx.twistedGearProfileSketch` is the (half-height) top loft section.
+below); `ctx.twistedGearProfileSketch` is the top loft section on the half-thickness plane (the
+profile itself is full-size; only the plane sits at half thickness).
 
 ## Method contract — overrides only (helical's/spur's call graph is inherited)
 
@@ -55,8 +62,10 @@ Herringbone keeps the full inherited call graph (`spec/helicalgear/instructions.
   return adsk.core.ValueInput.createByReal(thickness / 2)
   ```
   (Helical returned the full thickness.) This places `ctx.helixPlane` at mid-body so the loft spans the
-  bottom half and the mirror completes the top half. Note the value is a **raw computed offset**
-  (`createByReal(thickness/2)`), not a parameter reference.
+  bottom half and the mirror completes the top half. Note the contrast with helical: both hooks
+  produce a **numeric snapshot** at generation time, but helical snapshots the `Thickness`
+  parameter's value via `getParameterAsValueInput`, while herringbone computes a **raw value**
+  (`thickness / 2`) that corresponds to no registered parameter.
 - **`buildTooth(self, ctx)`** → loft one half, mirror it across `ctx.helixPlane`, combine, then chamfer
   (`[HERR-F-MIRROR-COMBINE]`).
 
@@ -74,6 +83,12 @@ unchanged in code but its plane now lands at **half thickness** (via the overrid
 extrude, pattern+combine, fillets, bore, and cleanup remain spur's, unchanged. (The gear body is still
 extruded across the **full** thickness by the inherited `buildBody`; only the lofted tooth is built
 half-then-mirrored.)
+
+## Sketch-discipline deltas
+
+**None beyond helical's.** Herringbone draws no new sketches: the twisted profile is helical's
+(same `angle=helixAngle` path, proven in `spec/helicalgear/sketch/`), and the mirror and combine
+are solid-body operations, not sketches.
 
 ## Dependencies
 

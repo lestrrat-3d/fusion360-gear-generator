@@ -103,6 +103,8 @@ boundaries.** Helical overrides exactly these methods:
   (reproduce verbatim; it is flagged there).
 - **`helicalPlaneOffset(self)`** → the offset of the twisted-profile plane from the base plane, as a
   `ValueInput`. Helical returns the full thickness: `self.getParameterAsValueInput(PARAM_THICKNESS)`.
+  Note this is a **numeric snapshot**, not a live parameter reference — `getParameterAsValueInput`
+  returns `ValueInput.createByReal(param.value)`, the `Thickness` value at generation time.
   **This is a distinct overridable hook** (herringbone re-points it to half-thickness); keep it its own
   method — do not inline the offset into `buildSketches`.
 - **`buildSketches(self, ctx)`** → calls `super().buildSketches(ctx)` (which draws the bottom Gear
@@ -180,7 +182,13 @@ changes behavior and belongs in a separate, deliberate change once verified in F
 
 - **Helix Angle sits last in the dialog**, after Parent Component (`[SPUR-SUBCLASS-INPUT]` consequence).
 - **`chamferWantEdges()` returns 4** for a non-embedded 6-curve lofted tooth — see
-  `[HELI-F-CHAMFER-COUNT]`; helical chamfer is likely fragile for the default tooth and effectively
+  `[HELI-F-CHAMFER-COUNT]`: with chamfer > 0 on a default helical gear, `chamferTooth` raises and
+  the whole new component is rolled back (abort, not skip), so helical chamfer is effectively
   exercised only at chamfer 0.
 - **Embedded (low-tooth-count) helical is unsupported** — `loftTooth` hardcodes `lines=2` and never
   reads `ctx.toothProfileIsEmbedded` (`[HELI-F-LOFT]`).
+- **The helix construction plane is left visible after generation** — spur's cleanup hides only its
+  own entities, and helical adds no cleanup of its own. The Twisted Gear Profile sketch, by
+  contrast, stays hidden its whole life (created hidden, never shown — including in SketchOnly
+  mode, where the twisted profile is therefore not inspectable). Both pinned in
+  `[HELI-F-TWIST-PLANE]`.
