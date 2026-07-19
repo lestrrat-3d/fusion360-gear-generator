@@ -260,10 +260,11 @@ gap) and Joined. **No discrete pins.** Build `buildRingPins()` after the discs +
 4. **Ring casing — one section, patterned ×`N`** (mirrors the disc's lobe-sector → pattern → join). The inner
    wall is the disc's **swept envelope** `contour(φ) = env(φ) + c` (`epitrochoid-trace.md` "Pinless ring
    casing") — a smooth conjugate curve, NOT a constant circle.
-   - **Compute one pin-pitch of the contour (Python).** `env = {}`; for `θ` in `linspace(0, 2π, Nθ≈240)`:
-     `cx, cy = E*cos θ, E*sin θ`; `phi = -θ/L`; for `t` in `linspace(0, 2π, Nt≈240)`:
-     `x, y = disk_point(t, cx, cy, phi)`; `a = atan2(y, x)`; **if `a ∈ [−π/N, π/N]`**: bin `a` into `nbins`
-     bins, keep `max(r=hypot(x,y))` per bin (`binMax`). ⚠️ **Emit the contour points at bin EDGES so the FIRST
+   - **Compute one pin-pitch of the contour (Python).** `env = {}`; for `θ` in `linspace(0, 2π, Nθ = 240)`:
+     `cx, cy = E*cos θ, E*sin θ`; `phi = -θ/L`; for `t` in `linspace(0, 2π, Nt = 240)`:
+     `x, y = disk_point(t, cx, cy, phi)`; `a = atan2(y, x)`; **if `a ∈ [−π/N, π/N]`**: bin `a` into
+     **`nbins = 80`** bins, keep `max(r=hypot(x,y))` per bin (`binMax`). (Empty bins: per
+     `epitrochoid-trace.md` — an edge uses only its hit neighbours; both-unhit edges fall back to radius `c`.) ⚠️ **Emit the contour points at bin EDGES so the FIRST
      lands exactly on `−π/N` and the LAST exactly on `+π/N`** — `nbins+1` points at `φ_i = −π/N + (2π/N)·i/nbins`
      (`i = 0 … nbins`), radius `(c + max(binMax[i−1], binMax[i]))` (single neighbour at the two ends), as
      `[(r_i·cos φ_i, r_i·sin φ_i)]` ordered by angle (all cm; `disk_point` returns cm, use as-is). **Do NOT use

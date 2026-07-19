@@ -33,6 +33,9 @@ per-disc handles are **lists** indexed by the disc index `d` (`self.diskBodies`,
 `fusion360utils`). ⚠️ Use **`solids.hide_construction_geometry(component)`** for the final cleanup — do NOT
 re-implement it (helper-shadowing is rejected).
 
+**Entry wiring:** `commands/cycloidaldrive/entry.py` constructs `GearCommand(gear_type='CycloidalDrive',
+name='Cycloidal Drive Generator', …)`, binding the two classes above by name.
+
 ## Component Setup
 
 One command invocation creates a new child component (named per `generateName`) of the user-selected
@@ -56,10 +59,17 @@ profile lives in its own sketch so they never interfere.
 User inputs in dialog order; all linear inputs are mm. Derived parameters are registered as Fusion user
 parameters under the `CycloidalDrive<N>_` prefix.
 
+⚠️ **The bullet bounds below are authoring constraints, NOT live-validated.** The "integer ≥ 4" /
+"integer ≥ 3" count floors and the "mm > 0" / "mm ≥ 0" notes are documentation of sensible ranges;
+`evaluate_problems` does **not** enforce them. The validity table under "Live input validation" is the
+authoritative, complete list of checks `validate_inputs` / `_resolveDimensions` actually run.
+
 - **Target Plane** — user-specified plane; the lobe sketch sits here. Any non-`ConstructionPlane`
   selection (e.g. a planar face) is normalized to a coplanar construction plane at generation time.
+  Selection filters: `ConstructionPlanes` + `PlanarFaces`; `setSelectionLimits(1, 1)`.
 - **Anchor Point** — user-specified `ConstructionPoint` or `SketchPoint`; the lobe is centred on its
-  in-plane projection `O`.
+  in-plane projection `O`. Selection filters: `ConstructionPoints` + `SketchPoints`;
+  `setSelectionLimits(1, 1)`.
 - **Disc Count** — a **dropdown** (`DropDownCommandInput`, `TextListDropDownStyle`) with items `'1'` and
   `'2'`, default **`'1'`**. `1` = single disc (today's build); `2` = two discs 180° opposed for balance.
   Read as int from the selected item's name. ⚠️ **`2` requires even `Pin Count` and even `Output Pin
@@ -97,6 +107,10 @@ parameters under the `CycloidalDrive<N>_` prefix.
   rotor disc, Housing Ring and Output Plate, and on the two **ends** of every ring pin and output pin.
   **`0` = no chamfer**. Default **0.5 mm**.
 - **Parent Component** — component, default root (pre-selected); listed last among the editable inputs.
+  Selection filters: `Occurrences` + `RootComponents`; **`setSelectionLimits(0, 1)`** (empty allowed), with
+  the root component pre-selected via `addSelection(get_design().rootComponent)`. `processInputs` falls back
+  to `get_design().rootComponent` when the selection is empty; an `Occurrence` selection resolves to its
+  `.component`.
 - **Per-field message slots** — **not** user inputs: immediately **after each value/dropdown input**
   above, `configure()` adds a hidden, read-only `TextBoxCommandInput` whose id is **that input's id +
   `'__status'`** (e.g. `pinCircleDiameter__status`). Create each with the exact signature
@@ -182,6 +196,10 @@ PARAM_PIN_RADIUS, adsk.core.ValueInput.createByReal(Rr), 'mm', …)` and likewis
 real parameters; their *value* is the snapshot). `PinCircleRadius`, `OutputPinCircleRadius`,
 `HousingInnerDiameter`, `HousingOuterDiameter`, `OutputPlateDiameter`, `Lobes` stay **live** `createByString`
 expressions (they compose cleanly from the registered inputs, including the snapshot `PinRadius`).
+**Ordering (fixed):** `processInputs` registers all **primary** parameters, then calls
+`_resolveDimensions()` (which raises the joined `evaluate_problems` messages on failure), then registers the
+**derived** parameters — required because the `PinRadius` / `OutputHoleDiameter` snapshots read the resolved
+`self.Rr` / `self.D_hole` that `_resolveDimensions` stashes.
 
 **Dialog display order (`configure()` adds inputs in exactly this sequence):** Target Plane, Anchor
 Point, Disc Count, Pin Count, Pin Circle Diameter, Pin Diameter, Eccentricity, Disk Clearance, Disc
@@ -193,8 +211,9 @@ after the selections), add that input's hidden `<id>__status` message slot, so e
 directly followed by its own slot. All numerics are `addValueInput` (read with `get_value`); selections
 via `get_selection`; the `__status` slots are `addTextBoxCommandInput` and are never read.
 `Pin Count` (`N`) and `Output Pin Count` (`M`) are integer counts —
-register the parameters but **read the counts from the dialog value rounded to int** for the Python
-formulas (`sin(π/N)`, `sin(π/M)`; Fusion user params are floats).
+their `addValueInput` **unit string is `''`** (unitless) and they are **registered as unitless parameters**
+(`get_value(inputs, <id>, '')`, unit `''`); register the parameters but **read the counts from the dialog
+value rounded to int** for the Python formulas (`sin(π/N)`, `sin(π/M)`; Fusion user params are floats).
 
 ## Live input validation
 
@@ -213,7 +232,9 @@ slot; for selection changes or the initial open it uses `DEFAULT_STATUS_INPUT_ID
   `inputs.itemById(INPUT_ID_DISC_COUNT).selectedItem.name` for the dropdown), resolves the same derived
   dimensions as `_resolveDimensions` (`Rr`, `Rr_eff`, `Rv`, `D_pin`, `D_hole` per the auto-vs-override
   rules above), runs the validity checks, and returns a list of **actionable** problem strings (empty =
-  valid). It runs on every keystroke, so keep it cheap. If a value can't be read yet (a half-typed
+  valid). It runs on every keystroke; its cost — the 2000-point curvature scan, plus the 40-iteration
+  bisection (each iteration re-running the scan) when the undercut guard fails — is **accepted as-is**; do
+  not cache or downsample. If a value can't be read yet (a half-typed
   expression), let the read raise — the shared handler catches it and treats the inputs as provisionally
   valid (the execute-time guard is the backstop).
 
@@ -250,7 +271,7 @@ to match the table. Two-disc evenness is checked first (it needs only `N`, `M`, 
 closed form, so solve it for the message: holding every other input fixed, find the largest `E*` in
 `(0, E]` for which `Rr_eff(E') < ρ_min^O(E')` still holds, where `ρ_min^O` is the existing base-trochoid
 curvature scan (`epitrochoid-trace.md` "No-undercut guard"; note both `Rr_eff` and `ρ_min^O` depend on
-`E'` when `Pin Diameter = 0`). A ~40-iteration **bisection** on `E'` is ample; report `to_mm(E*)`. If the
+`E'` when `Pin Diameter = 0`). Run exactly **40 bisection iterations** on `E'`; report `to_mm(E*)`. If the
 solve degenerates (no positive `E'` satisfies it), fall back to the plain "reduce Eccentricity" message
 without a number.
 
@@ -294,6 +315,21 @@ without a number.
   cannot be a live Fusion expression. So editing a parameter in Fusion updates the *dimensions* but does
   **not** re-cut the lobe; **regenerate** to apply a change (the normal workflow here). The dimension
   references are for parametric clarity + consistency on regen, not in-place editing of the profile.
+
+- **`Ring Casing` sketch — deliberate `[PB-FULL-CONSTRAINT]` exemption.** Unlike the fully-locked lobe
+  sketch, the casing section sketch is left **under-constrained**: the contour spline's fit points are
+  numeric snapshots but **NOT** `isFixed`, and the two spokes' outer endpoints are only **seeded** on the
+  outer circle (no coincident constraint to it). What IS constrained: the outer circle's centre (coincident
+  to the anchored local origin) and its diameter dim (`HousingOuterDiameter`); each spoke's inner end shares
+  the spline's end fit point. The sketch is consumed immediately by the sector extrude and never re-solved,
+  so the free geometry is accepted as-is.
+
+**Sketch-first status (`[PB-SKETCH-FIRST]`) — waived, not satisfied.** There is **no**
+`spec/cycloidal/sketch/` bench proof for this gear. Rationale: the lobe sketch's shape comes from a fitted
+spline through Python-computed points, locked by fixing every interior fit point and pinning the ends by
+radius + angle — a trivial constraint scheme rather than a solver-driven one; the `Ring Casing` sketch is
+deliberately under-constrained per the exemption above. A bench proof of the lobe reference frame is future
+work; this paragraph records the waiver honestly rather than claiming a proof exists.
 
 ## Method contract — call graph
 
@@ -407,9 +443,9 @@ dimension = `Eccentricity`; `s_d` is the sign). The lobe is `disk_point(t, cx = 
    with an **along-path text label `'Output Pin Circle'`**;
 3. **root/valley circle** (radius `Rv = R − Rr_eff − E`) construction, centred on **`Od`**, diameter dim,
    with an **along-path text label `'Root Circle'`**;
-4. the **lobe** — the open lobe spline about `Od`, **adaptively sampled** by bounded turn angle (≤ ~5°,
-   `epitrochoid-trace.md` "Sampling") so the fitted spline doesn't overshoot near the undercut limit
-   (**not** uniform `t`); **not** `isClosed`, no arc;
+4. the **lobe** — the open lobe spline about `Od`, **adaptively sampled** by bounded turn angle (threshold
+   **5.0°** over a **2000-step** fine trace, `epitrochoid-trace.md` "Sampling") so the fitted spline doesn't
+   overshoot near the undercut limit (**not** uniform `t`); **not** `isClosed`, no arc;
 5. **lock the spline**: fix every **interior** fit point (`isFixed = True`) and coincide each **endpoint
    onto the root circle** (pins the valley radii) — do **not** fix the whole spline;
 6. **spoke line 1** from `Od` to the lobe's **first** point, `coincident(line1.end, spline first point)` +
@@ -487,8 +523,8 @@ Join into one connected, printable part. `stackTopExpr` per §0.
    `[CYCLOIDAL-F-RING-PINS]`, `epitrochoid-trace.md` "Pinless ring casing"). The inner wall follows the disc's
    **swept envelope** `contour(φ) = env(φ) + c` (smooth — replaces the old constant-radius bridge circle).
    - **Compute one pin-pitch of the contour.** Sweep the disc `disk_point(t, E·cosθ, E·sinθ, −θ/L)` over
-     `θ, t ∈ [0, 2π)` (≈ 240 each); bin points whose angle is in `[−π/N, π/N]` into `nbins` by angle, keep max
-     radius per bin → `env`. ⚠️ **Emit the points at bin EDGES so the first/last land EXACTLY on `∓π/N`**:
+     `θ, t ∈ [0, 2π)` (**240 each**); bin points whose angle is in `[−π/N, π/N]` into **`nbins = 80`** by
+     angle, keep max radius per bin → `env`. ⚠️ **Emit the points at bin EDGES so the first/last land EXACTLY on `∓π/N`**:
      `nbins+1` points at `φ_i = −π/N + (2π/N)·i/nbins` (`i = 0…nbins`), radius `c + max(binMax[i−1], binMax[i])`
      — **NOT bin centres**, which inset the ends by half a bin and leave a gap between every patterned sector so
      the ×`N` sectors don't touch and won't Join into one casing (the "several unnamed bodies" bug). Point =

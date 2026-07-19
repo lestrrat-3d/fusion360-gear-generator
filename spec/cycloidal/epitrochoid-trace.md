@@ -65,7 +65,7 @@ the base trochoid offset by `Rr_eff`, and that offset **self-intersects (undercu
 when `Rr_eff` exceeds the smallest radius of curvature of the base trochoid at the points whose centre of
 curvature lies **toward `O`** (the convex flanks an inward offset can overrun). Below that limit the
 profile is clean; above it the spline self-intersects and Fusion fails. **Reject when `Rr_eff ≥ ρ_min^O`**,
-computed numerically (sample `t` at ~2000 points over `[0, 2π)`):
+computed numerically (sample `t` at exactly **2000** points over `[0, 2π)`):
 
 ```
 bx  =  R·cos t − E·cos(Nt) ;            by  = −R·sin t + E·sin(Nt)        # base trochoid point
@@ -121,11 +121,11 @@ from the root circle + pattern). ⚠️ Do **NOT** sample `t` uniformly: an inte
 **overshoots** ("rabbit-ear" loops) where the lobe turns sharply. The per-step direction change is only
 ~6° for the gentle default but reaches **~25° near the undercut limit** at 60 uniform points — far past
 where the spline overshoots. A uniform sample dense enough to be smooth there needs ~480 points; instead
-sample so consecutive fit points subtend a **bounded turn angle** (≤ ~5°), which stays smooth at **any**
-valid `E` with only ~30–55 points:
-1. Evaluate `disk_point` at fine resolution (e.g. ~2000 `t` over `[0, 2π/L]`).
+sample so consecutive fit points subtend a **bounded turn angle** (threshold exactly **5.0°**), which stays
+smooth at **any** valid `E` with only ~30–55 points:
+1. Evaluate `disk_point` at fine resolution: exactly **2000** uniform steps (2001 points) over `[0, 2π/L]`.
 2. Greedily keep points: keep the first; accumulate the turn angle between consecutive fine points; each
-   time the accumulator reaches the threshold (~5°), keep that point and reset; always keep the last.
+   time the accumulator reaches the threshold (**5.0°**), keep that point and reset; always keep the last.
 3. Build the fitted spline through the kept points.
 This concentrates points on the sharp flanks/tip and thins them on the gentle parts — fewer points than a
 smooth uniform sample, and no overshoot. Valid (non-self-intersecting) for `E < min(Rr, R/N)` and the
@@ -162,13 +162,18 @@ disc rotates by `β(θ) = −θ/L`. Sample the world disc `disk_point(t, E·cos 
 `env(φ)`. The result is **`N`-fold symmetric** (period `2π/N`).
 
 **Build one section, pattern ×`N`** (like the disc's lobe-sector → pattern → join). Compute the contour over
-**one pin-pitch** `φ ∈ [−π/N, π/N]` (a pin centred at `φ = 0`) — bin only that sector while sweeping; ~60–90
-points (dense enough that the fitted spline doesn't overshoot at the pin bump — same risk as the lobe spline).
+**one pin-pitch** `φ ∈ [−π/N, π/N]` (a pin centred at `φ = 0`) — bin only that sector while sweeping;
+**`nbins = 80`** (81 emitted edge points — dense enough that the fitted spline doesn't overshoot at the pin
+bump, same risk as the lobe spline).
 
 ⚠️ **The contour's first and last points MUST land EXACTLY on `φ = −π/N` and `φ = +π/N`** (the pin-pitch
 boundaries), NOT at the centres of the first/last bins. Emit the `nbins+1` points at the bin **EDGES**
 `φ_i = −π/N + (2π/N)·i/nbins` for `i = 0 … nbins` (radius at edge `i` = `c + max(binMax[i−1], binMax[i])`,
-using the single existing neighbour at the two ends), so `φ_0 = −π/N` and `φ_nbins = +π/N` exactly. This is
+using the single existing neighbour at the two ends), so `φ_0 = −π/N` and `φ_nbins = +π/N` exactly.
+**Empty (unhit) bins:** track a per-bin hit flag while sweeping; an edge's radius considers only its **hit**
+neighbour bins, and when **both** neighbours are unhit the max is taken as `0`, so the edge radius falls
+back to `c`. (At the pinned `Nθ = Nt = 240` / `nbins = 80` resolution unhit bins are not expected; the
+guard just keeps a sparse sweep from crashing or emitting garbage radii.) This is
 **load-bearing for the join**: the two radial spokes are placed at the spline endpoints' angles, and the ×`N`
 pattern steps by exactly `2π/N`, so adjacent sectors share a spoke face **only if** the endpoints are exactly
 at `±π/N`. Bin **centres** (inset by half a bin) leave a `2π/(N·nbins)` angular **gap** between every pair of
@@ -178,6 +183,6 @@ bounded by the outer arc (`R − Rr + 2·E + Wall`, the pinless outer wall = con
 spline (`env+c` over the pin-pitch), and two **radial spokes** at `φ = ±π/N` (the section ends fall on the mid-gap **peaks**, where the contour is tangential by
 symmetry, so the seamlessly-tiled patterned sectors join into one smooth wall).
 Extrude the sector by the stack height, **circular-pattern ×`N`** about the drive axis, **Join** into one
-`'Ring Casing'`. The `Housing Ring` base stays below it; the discrete pins are gone. (Moderate sweep
-resolution, e.g. `Nθ = Nt ≈ 240`, keeps generation fast; the disc clears the contour so small sampling error
-is absorbed by `c`.)
+`'Ring Casing'`. The `Housing Ring` base stays below it; the discrete pins are gone. (Sweep resolution
+exactly **`Nθ = Nt = 240`** — moderate, keeps generation fast; the disc clears the contour so small sampling
+error is absorbed by `c`.)
