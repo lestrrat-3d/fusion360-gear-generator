@@ -174,8 +174,8 @@ pattern steps by exactly `2π/N`, so adjacent sectors share a spoke face **only 
 at `±π/N`. Bin **centres** (inset by half a bin) leave a `2π/(N·nbins)` angular **gap** between every pair of
 patterned sectors → the sectors don't touch, the Join can't merge them, and you get `N` disjoint "several
 unnamed bodies" that never combine into one casing (the reported bug). The casing **sector** is the pie wedge
-bounded by the outer arc (`R + Rr + Wall`), the contour spline (`env+c` over the pin-pitch), and two **radial
-spokes** at `φ = ±π/N` (the section ends fall on the mid-gap **peaks**, where the contour is tangential by
+bounded by the outer arc (`R − Rr + 2·E + Wall`, the pinless outer wall = contour peak + `Wall`), the contour
+spline (`env+c` over the pin-pitch), and two **radial spokes** at `φ = ±π/N` (the section ends fall on the mid-gap **peaks**, where the contour is tangential by
 symmetry, so the seamlessly-tiled patterned sectors join into one smooth wall).
 Extrude the sector by the stack height, **circular-pattern ×`N`** about the drive axis, **Join** into one
 `'Ring Casing'`. The `Housing Ring` base stays below it; the discrete pins are gone. (Moderate sweep

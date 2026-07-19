@@ -303,8 +303,8 @@ DiscThickness`, `g = DiscGap`): centre **`Od_d = O + s_d·E·X̂`** (`s_0 = +1`,
 `[z_d, z_d + T]`); plane = `self.plane` for `d=0`, else a construction plane offset `z_d`. Stack top
 **`stackTop = (D−1)·(T+g) + T`**. The **per-disc stashes are LISTS** indexed by `d`: `self.diskBodies[d]`,
 `self.diskAxes[d]`, `self.lobeSplines[d]`, `self.outputHoles[d]`, `self.lobeDiskCentres[d]`,
-`self.discPlanes[d]`. (`self.lobePinCircle` — disc 0's pin circle only — is still scalar, for the ring-pin
-projection.) ⚠️ **EVERY Fusion expression string — construction-plane offsets AND extrude extents, not just
+`self.discPlanes[d]`. (`self.lobePinCircle` — disc 0's pin circle only — is still scalar; it is stashed as
+part of the attribute surface but **never read** — legacy of the pinned-ring design.) ⚠️ **EVERY Fusion expression string — construction-plane offsets AND extrude extents, not just
 `.parameter.expression` dims — must use the PREFIXED parameter name via `self.parameterName(PARAM_…)`.** The
 params register under `CycloidalDrive<N>_`, so a bare `'DiscThickness'`/`'DiscGap'` in any
 `ValueInput.createByString(...)` raises **`RuntimeError: invalid expression`**. Build the literal string for
@@ -367,13 +367,16 @@ E·X̂`, clocking `phi = 0`, on `self.plane`); for general `d` substitute:
   place `Od` at `(−E, 0)` and the spokes/lobe on it. (Generator: a signed `E`.)
 - **Clocking** `phi_d = d·π`. Disc 1's lobe is `disk_point(t, cx = −E, cy = 0, phi = π)` — exactly the **180°
   rotation of disc 0 about `O`** (`disk_point(cx=−E, phi=π) ≡ −disk_point(cx=+E, phi=0)`), which is what
-  meshes the second disc with the **same** ring pins (even `N`) at the opposite eccentric. The two spokes
-  and the angle dim rotate with `phi_d` too (spoke 1 along `−X̂` for disc 1, i.e. the lobe's first valley at
-  `Od_1 + Rv·(cos π, −sin π) = Od_1 + (−Rv, 0)`).
+  meshes the second disc with the **same** ring pins (even `N`) at the opposite eccentric. The spoke **seed
+  coordinates and the angle-dim text point are NOT rotated with `phi_d`** — only the signed `E` is
+  substituted (spoke 1 is still seeded at `Od_d + (Rv, 0)`, the text point at the unrotated bisector). The
+  coincident constraints onto the spline's end fit points drag the spokes onto the rotated valleys (disc 1's
+  first valley `Od_1 + (−Rv, 0)` still lies on spoke 1's horizontal), so the solve lands correctly.
 - **Names** carry `{d+1}`: `'Rotor Lobe {d+1}'`, `'Cycloidal Disk {d+1}'`, `'Output Hole {d+1}'`,
   `'Disc Bore {d+1}'`. **Stash into the `[d]` lists** (`self.diskBodies[d]`, `self.diskAxes[d]`,
   `self.lobeSplines[d]`, `self.outputHoles[d]`, `self.lobeDiskCentres[d]`). The **pin circle** (on `O`) is
-  drawn and stashed (`self.lobePinCircle`) **only for `d = 0`** — the ring pins reuse it.
+  drawn and stashed (`self.lobePinCircle`) **only for `d = 0`**; the stash is **unused** (nothing reads it —
+  the pinless casing computes its own contour).
 - The disc-`d` extrude, axis (`buildDiskAxis` from `plane(d)`-extrude cap face at `Od_d`), lobe pattern, and
   output-hole pattern are all about **`self.diskAxes[d]`** (at `Od_d`). `buildDiskBore(d)` is the center-bore
   cut (formerly inside `buildCam` step 1) on `Od_d` through `self.diskBodies[d]`.
@@ -395,9 +398,10 @@ to the Anchor (`[CYCLOIDAL-F-ANCHOR-CHAIN]`), then make the **eccentric disk cen
 dimension = `Eccentricity`; `s_d` is the sign). The lobe is `disk_point(t, cx = s_d·E, cy = 0, phi = d·π)`
 (disc 1 = disc 0 rotated 180° about `O`). Per `[CYCLOIDAL-F-DISK-LOBE]`, build in order:
 1. **pin circle** (radius `R`) construction, centred on **`O`** (the fixed ring), diameter dim, with an
-   **along-path text label `'Pin Circle'`** — **for `d = 0` only**: **stash it on `self.lobePinCircle`** so
-   `buildRingPins` projects it (`[CYCLOIDAL-F-RING-PINS]`). (Disc 1 doesn't need its own pin circle; draw it
-   for the lobe reference if convenient but the ring pins use disc 0's.)
+   **along-path text label `'Pin Circle'`** — **for `d = 0` only**: **stash it on `self.lobePinCircle`**.
+   The stash is part of the declared attribute surface but is **never read** — legacy of the old pinned-ring
+   build (`buildRingPins` computes the pinless contour instead, `[CYCLOIDAL-F-RING-PINS]`); a future regen
+   may drop it. (Disc 1 doesn't need its own pin circle; draw it for the lobe reference if convenient.)
 2. **output-pin circle** (radius `Rop`) construction, centred on **`Od`** (the disk centre — concentric
    with the root circle, where the disk's output holes sit; the innermost reference circle), diameter dim,
    with an **along-path text label `'Output Pin Circle'`**;

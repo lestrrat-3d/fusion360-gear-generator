@@ -112,8 +112,8 @@ raises `RuntimeError: 3 : Environment is not supported` in the parametric design
 (`buildDiskAxis(capFace)`, called from `buildDisk` after the extrude):
 1. `capFace` = **a planar cap of the extrude — selected by NORMAL direction**, i.e. a face whose surface
    is `PlaneSurfaceType` **and whose normal is parallel to the sketch-plane normal** (the cap is ⟂ the
-   extrude direction). Use **`extrude.startFaces.item(0)`** (the cap in the sketch plane); only if that is
-   somehow not such a face, fall back to `extrude.endFaces.item(0)`. The axis direction comes from the
+   extrude direction). Use **`extrude.startFaces.item(0)`** unconditionally (the cap in the sketch plane;
+   no `endFaces` fallback). The axis direction comes from the
    cap's normal, so **either cap yields the same vertical axis** — you only need *a cap*; its location
    through `Od` is set by the point arg in step 2.
    ⚠️ **Do NOT pick the cap by "nearest planar face to `Od`" or "the planar face whose plane contains
@@ -131,8 +131,8 @@ raises `RuntimeError: 3 : Environment is not supported` in the parametric design
 3. `axis = component.constructionAxes.add(axInput)`; `axis.name = 'Disk Axis'`; **`self.diskAxis = axis`**.
 
 Face-anchored axis methods (`setByPerpendicularAtPoint`, `setByCircularFace`) work on a **non-active**
-component — only the line/point methods need a body face. If `setByPerpendicularAtPoint` rejects the
-sketch point, pass the body **vertex** at `Od` instead (search `body.vertices` for the one nearest `Od`).
+component — only the line/point methods need a body face. Pass the stashed disk-centre sketch point
+directly (no nearest-vertex fallback).
 
 ## [CYCLOIDAL-F-DISK-BODY] Extrude the lobe sector + circular-pattern into the disk
 
@@ -171,11 +171,15 @@ in **separate loops**. Therefore **circle-bounded profiles (annulus, plain disc,
    `pat.totalAngle = ValueInput.createByString('360 deg')`; `pat.isSymmetric = False`;
    `circularPatternFeatures.add(pat)`. (`createInput` accepts features **or** bodies; pass the **feature** —
    `[PB-PATTERN-BODIES]`.) The `L` sectors tile the full rotor disk.
-4. **Combine ×`L` → one disk body.** The component now holds exactly the `L` lobe-sector bodies. Join them:
-   `target = component.bRepBodies.item(0)`; `tools = ObjectCollection` of `component.bRepBodies.item(i)` for
-   `i in 1..count−1`; `ci = combineFeatures.createInput(target, tools)`;
+4. **Combine ×`L` → one disk body.** ⚠️ Join ONLY disc `d`'s **own** `L` sectors — with two discs, earlier
+   bodies already exist, so `bRepBodies.item(0)` is the WRONG target. Record `base =
+   component.bRepBodies.count` **BEFORE** step 1's extrude; disc `d`'s sectors are then
+   `bRepBodies.item(base) … item(base + L − 1)`. Join them: `target = component.bRepBodies.item(base)`;
+   `tools = ObjectCollection` of `component.bRepBodies.item(i)` for `i in base+1 .. base+L−1`;
+   `ci = combineFeatures.createInput(target, tools)`;
    `ci.operation = adsk.fusion.FeatureOperations.JoinFeatureOperation`; `combineFeatures.add(ci)`. Name the
-   resulting body `'Cycloidal Disk'` and stash **`self.diskBody`** (the output-hole cut needs it).
+   resulting body `'Cycloidal Disk {d+1}'` and stash **`self.diskBodies[d]`** (the output-hole cut needs it).
+   (`[CYCLOIDAL-F-TWO-DISC]` restates the baseline rule.)
 
 ## [CYCLOIDAL-F-OUTPUT-HOLE] Separate output-hole sketch
 
@@ -316,7 +320,8 @@ The cam is the **input** — an eccentric cylinder the disk rides on (a plain jo
 on the disk centre `Od`, input-shaft bore centred on the drive axis `O`; the `E` offset between them is the
 eccentricity. The disk's center bore is **enlarged** over the cam by `Bearing Clearance` (a concentric
 running gap, both on `Od`) so the cam turns freely. Use **two sketches** so the bore-cut and cam profiles
-stay simple. Build `buildCam()` after the ring pins:
+stay simple. `buildCam()` runs after the per-disc loop and **before** `buildRingPins()` (the call-graph
+order; `buildDiskBore(d)` runs inside the per-disc loop):
 
 1. **Disk center bore — sketch `Disk Bore`** on `self.plane`; anchor a local origin to `O`
    (`[CYCLOIDAL-F-ANCHOR-CHAIN]`), rebuild `Od` (`[CYCLOIDAL-F-DISK-CENTER]`). One **solid** circle
@@ -451,8 +456,8 @@ pins are integral bumps** — no separate chamfer; `buildChamfers` chamfers the 
 `D = Disc Count` (`1`|`2`, from the dropdown). The per-disc steps run in a `for d in range(D)` loop; the
 stack-spanning steps (cam, ring pins, output pins, chamfers) run once. Per-disc stashes are **lists** indexed
 by `d` (`self.diskBodies`, `self.diskAxes`, `self.lobeSplines`, `self.outputHoles`, `self.lobeDiskCentres`,
-`self.discPlanes`); `self.lobePinCircle` stays scalar (disc 0). For `D = 1` the loop runs once and everything
-is identical to the single-disc build.
+`self.discPlanes`); `self.lobePinCircle` stays scalar (disc 0; stashed but unused — legacy). For `D = 1` the loop runs once and
+everything is identical to the single-disc build.
 
 ⚠️ **Prefix EVERY parameter in EVERY `createByString` expression** (offsets AND extents) with
 `self.parameterName(PARAM_…)` — the params register under `CycloidalDrive<N>_`, so a bare `'DiscThickness'`
