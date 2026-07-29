@@ -9,6 +9,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"os"
@@ -39,7 +40,7 @@ func dist(a, b pt) float64 { return math.Hypot(a.x-b.x, a.y-b.y) }
 
 // checkGearProfile builds the spur Gear Profile sketch for the given parameters
 // and returns whether it PASSES the primary full-constraint gate.
-func checkGearProfile(module, toothNumber, pressureAng float64, involSteps int) bool {
+func checkGearProfile(ctx context.Context, module, toothNumber, pressureAng float64, involSteps int) bool {
 	const angle = 0.0 // spur seed tooth (helical/herringbone pass a nonzero angle)
 	pitchR := module * toothNumber / 2
 	baseR := pitchR * math.Cos(pressureAng)
@@ -66,12 +67,18 @@ func checkGearProfile(module, toothNumber, pressureAng float64, involSteps int) 
 	}
 	px, py, _ := calculateInvolutePoint(baseR, pitchR)
 	rotateAngle := math.Pi/(2*toothNumber) - math.Atan2(-py, px)
+	// The right flank is the mirror of the +X-symmetric LEFT flank, taken BEFORE
+	// the requested `angle` is applied; both are then swung by `angle` together.
+	// Mirroring after the swing would leave the tooth symmetric about +X instead
+	// of about the `angle` direction (no observable difference at angle == 0).
 	var left, right []pt
 	for _, p := range mirrored {
 		lx, ly := rot(p.x, p.y, rotateAngle)
+		rx, ry := lx, -ly
 		lx, ly = rot(lx, ly, angle)
+		rx, ry = rot(rx, ry, angle)
 		left = append(left, pt{lx, ly})
-		right = append(right, pt{lx, -ly})
+		right = append(right, pt{rx, ry})
 	}
 
 	w := sketch.NewWorld()
@@ -163,11 +170,11 @@ func checkGearProfile(module, toothNumber, pressureAng float64, involSteps int) 
 	s.AddConstraint(sketch.NewDiameter(rootArc, 2*rootR))
 
 	// --- solve & verify ---
-	res, err := s.Solve()
+	res, err := s.Solve(ctx)
 	if err != nil {
 		fmt.Println("solve error:", err)
 	}
-	rep := s.Verify(sketch.WithProbe())
+	rep := s.Verify(ctx, sketch.WithProbe())
 	fmt.Printf("Solve: converged=%v DOF=%d redundant=%d residual=%.1e | Verify: status=%s conditioning=%.2e profiles=%d\n",
 		res.Converged, res.DOF, res.Redundant, res.Residual, rep.Status, rep.Conditioning, len(rep.Profiles))
 
@@ -207,9 +214,10 @@ func main() {
 	}{
 		{1, 12}, {1, 17}, {2, 20}, {3, 15},
 	}
+	ctx := context.Background()
 	allPass := true
 	for _, c := range cases {
-		if !checkGearProfile(c.module, c.teeth, pa, 15) {
+		if !checkGearProfile(ctx, c.module, c.teeth, pa, 15) {
 			allPass = false
 		}
 	}
