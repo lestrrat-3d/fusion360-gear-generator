@@ -1,0 +1,48 @@
+name: sketch bench
+
+# Builds and runs the sketch-first proofs ([PB-SKETCH-FIRST]). A bench that stops
+# compiling — as both did when the engine added a context parameter to Solve and
+# Verify — is a silent loss of the only mechanical check the gear geometry has.
+#
+# The engine is pinned to a commit, so a green build means the benches pass
+# against a known engine rather than against whatever landed on its main today.
+# lestrrat-3d/sketch publishes no tags, so a SHA is the only stable handle.
+# Bumping that SHA is a deliberate PR, and the benches are what decide whether
+# the new engine is acceptable.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        gear: [spurgear, helicalgear]
+    steps:
+      - name: Check out the gear repo
+        uses: actions/checkout@v4
+        with:
+          path: gears
+
+      - name: Check out the sketch engine
+        uses: actions/checkout@v4
+        with:
+          repository: lestrrat-3d/sketch
+          # main @ 2026-07-13, "bump units to dimension-exponent kind api (#42)"
+          ref: e1313e1cd01c48635ceb5aff46aed2ded4925480
+          path: sketch
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: gears/spec/${{ matrix.gear }}/sketch/go.mod
+
+      - name: Run the ${{ matrix.gear }} bench
+        env:
+          SKETCH_DIR: ${{ github.workspace }}/sketch
+        run: ./run.sh
+        working-directory: gears/spec/${{ matrix.gear }}/sketch
