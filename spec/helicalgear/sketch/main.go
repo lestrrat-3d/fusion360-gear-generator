@@ -11,6 +11,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"os"
@@ -43,7 +44,7 @@ func dist(a, b pt) float64 { return math.Hypot(a.x-b.x, a.y-b.y) }
 // drawn at `helixAngle`) and returns whether it PASSES the primary
 // full-constraint gate. helixAngle is in radians; helixAngle==0 reduces to the
 // spur (untwisted) profile.
-func checkTwistedProfile(module, toothNumber, pressureAng, helixAngle float64, involSteps int) bool {
+func checkTwistedProfile(ctx context.Context, module, toothNumber, pressureAng, helixAngle float64, involSteps int) bool {
 	angle := helixAngle // the whole tooth is drawn pre-rotated by this (spur step 4)
 	pitchR := module * toothNumber / 2
 	baseR := pitchR * math.Cos(pressureAng)
@@ -70,12 +71,18 @@ func checkTwistedProfile(module, toothNumber, pressureAng, helixAngle float64, i
 	}
 	px, py, _ := calculateInvolutePoint(baseR, pitchR)
 	rotateAngle := math.Pi/(2*toothNumber) - math.Atan2(-py, px)
+	// The right flank is the mirror of the +X-symmetric LEFT flank, taken BEFORE
+	// the twist is applied; both are then swung by `angle` together. Mirroring
+	// after the swing leaves the tooth symmetric about +X rather than about the
+	// twist direction, which is a different (wrong) tooth at every angle != 0.
 	var left, right []pt
 	for _, p := range mirrored {
 		lx, ly := rot(p.x, p.y, rotateAngle)
+		rx, ry := lx, -ly
 		lx, ly = rot(lx, ly, angle)
+		rx, ry = rot(rx, ry, angle)
 		left = append(left, pt{lx, ly})
-		right = append(right, pt{lx, -ly})
+		right = append(right, pt{rx, ry})
 	}
 
 	w := sketch.NewWorld()
@@ -171,11 +178,11 @@ func checkTwistedProfile(module, toothNumber, pressureAng, helixAngle float64, i
 	rootArc := s.CreateArc(s.CreatePoint(rot(0, -rootR*0.1, angle)), rightFoot, leftFoot)
 	s.AddConstraint(sketch.NewDiameter(rootArc, 2*rootR))
 
-	res, err := s.Solve()
+	res, err := s.Solve(ctx)
 	if err != nil {
 		fmt.Println("solve error:", err)
 	}
-	rep := s.Verify(sketch.WithProbe())
+	rep := s.Verify(ctx, sketch.WithProbe())
 	fmt.Printf("Solve: converged=%v DOF=%d redundant=%d residual=%.1e | Verify: status=%s conditioning=%.2e\n",
 		res.Converged, res.DOF, res.Redundant, res.Residual, rep.Status, rep.Conditioning)
 
@@ -191,9 +198,10 @@ func main() {
 	const pa = 20.0 * math.Pi / 180.0
 	deg := func(d float64) float64 { return d * math.Pi / 180.0 }
 
+	ctx := context.Background()
 	allPass := true
 	check := func(m, n, helix float64) {
-		if !checkTwistedProfile(m, n, pa, helix, 15) {
+		if !checkTwistedProfile(ctx, m, n, pa, helix, 15) {
 			allPass = false
 		}
 	}
