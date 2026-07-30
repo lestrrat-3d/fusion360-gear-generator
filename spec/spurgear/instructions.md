@@ -379,7 +379,7 @@ So the rule is: pull every selection input (Parent, Target Plane, Anchor Point) 
 
 ### 1: Normalize the Target Plane
 
-If the user-selected plane is not already a `ConstructionPlane` (for example they picked a planar face of an existing body), create a coplanar construction plane via `ConstructionPlaneInput.setByOffset(selectedPlane, 0)` and use that for all subsequent operations. This keeps the downstream profile-detection code from having to filter out the selected face's native profile.
+If the user-selected plane is not already a `ConstructionPlane` (for example they picked a planar face of an existing body), create a coplanar construction plane via `ConstructionPlaneInput.setByOffset(selectedPlane, adsk.core.ValueInput.createByReal(0))` and use that for all subsequent operations. The offset argument is a **`ValueInput`, not a bare number** — `setByOffset(plane, 0)` is a runtime `TypeError` (`[PB-CONSTRUCTION-PLANES]` gives the signature). The same applies to the `Extrusion End Plane` in step 2: its `Thickness` offset is passed as `ValueInput.createByReal(thickness)`. This keeps the downstream profile-detection code from having to filter out the selected face's native profile.
 
 ### 2: Tools Sketch
 
