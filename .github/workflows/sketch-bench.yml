@@ -1,0 +1,45 @@
+name: sketch bench
+
+# Builds and runs the sketch-first proofs ([PB-SKETCH-FIRST]). A bench that stops
+# compiling — as both did when the engine added a context parameter to Solve and
+# Verify — is a silent loss of the only mechanical check the gear geometry has.
+#
+# The engine is tracked at its default branch on purpose, so that drift shows up
+# here as a red build instead of rotting unnoticed. It also means an unrelated
+# change in lestrrat-3d/sketch can turn this red; pin `ref:` to a commit if that
+# becomes noisy.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        gear: [spurgear, helicalgear]
+    steps:
+      - name: Check out the gear repo
+        uses: actions/checkout@v4
+        with:
+          path: gears
+
+      - name: Check out the sketch engine
+        uses: actions/checkout@v4
+        with:
+          repository: lestrrat-3d/sketch
+          path: sketch
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: gears/spec/${{ matrix.gear }}/sketch/go.mod
+
+      - name: Run the ${{ matrix.gear }} bench
+        env:
+          SKETCH_DIR: ${{ github.workspace }}/sketch
+        run: ./run.sh
+        working-directory: gears/spec/${{ matrix.gear }}/sketch
