@@ -204,7 +204,9 @@ changing any of them.
   sketches, `isLightBulbOn=False` for construction planes/axes (`[PB-HIDE-AFTER-USE]`); the
   spur cleanup recipe (which entities, the per-mode split) is `[SPUR-F-CLEANUP]`.
 - **Dimensions are driving by default** — never pass `isDriven=True` (`[PB-DRIVING-DIM]`). All
-  diameter dimensions here (four gear circles, tooth-top arc, bore circle) must be driving.
+  diameter dimensions here (the four gear circles and the bore circle) must be driving. The
+  tooth-top arc carries no diameter dimension at all; it shares the local origin as its centre
+  instead (`[SPUR-F-TOOTHTOP-ARC]`).
 - **Every sketch here is fully constrained** (`[PB-FULL-CONSTRAINT]`), with exactly one exception:
   the Bore Profile sketch carries the tooth generator's unused local-origin point, which is placed
   by the constructor and never moved. See step 12.

@@ -1,30 +1,18 @@
-// Package spurgear_test proves the spur gear's constrained sketches.
+// Package spurgear_test proves the sketch steps of the spur gear build.
 //
-// Each [GO] step of spurgear.steps.md has one build function here, named
-// step<Title> after the step's title, and every build function is named by a
-// step. The 3D steps have no build function: the engine models 2D sketches
-// only, so an extrude, a chamfer, a pattern or a fillet cannot be exercised
-// here and is written as [PROSE] in the step list instead.
+// The build has three sketches — Tools, Gear Profile and Bore Profile — and one
+// function here per sketch step of the step list. Everything else the build does
+// is 3D (extrudes, a chamfer, a pattern, a combine, fillets, a cut), which the
+// engine models nothing of, so those steps are prose in the step list and absent
+// here.
 //
-// What the proof models, and where it departs from Fusion:
-//
-//   - A projected point is reference geometry (CreateReferencePoint), because
-//     Fusion's projection is positioned from outside the sketch. The tooth
-//     generator's local origin is an ordinary point made coincident with it,
-//     exactly as [SPUR-F-LOCAL-ORIGIN] and step 5 of the spec describe.
-//   - Construction circles and construction lines are marked construction, so
-//     region detection sees only what Fusion's profile search sees.
-//   - No root arc is drawn by hand. The root circle is a whole solid circle and
-//     region detection splits it where the tooth meets it, which is what Fusion
-//     does when it finds the tooth and body profiles.
-//   - The confirming angular dimension is created already carrying its value.
-//     Fusion sets that value as a separate last action to move the solver onto
-//     the intended branch ([SPUR-F-ROTATE-CONFIRM]); the other half of that
-//     rule — the geometry being drawn pre-rotated — is what the proof models,
-//     by seeding every point at its rotated position.
+// Compiled from spec/spurgear/instructions.md, spec/spurgear/fusion.md and
+// .claude/skills/generate-gear/PLAYBOOK.md. See .tmp/spurgear.steps.md for the
+// step list these functions are named by.
 package spurgear_test
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"testing"
@@ -34,341 +22,329 @@ import (
 	"github.com/lestrrat-3d/sketch"
 )
 
-// Parameter keys of a case. Lengths are millimetres and angles degrees, which
-// is what the sketch engine's metric defaults use; the Fusion code works in
-// internal centimetres and radians, a conversion that changes no constraint.
-const (
-	pModule      = "module"
-	pTeeth       = "toothNumber"
-	pPressureDeg = "pressureAngleDeg"
-	pSteps       = "involuteSteps"
-	pAngleDeg    = "angleDeg"
-	pBoreDia     = "boreDiameter"
-)
-
 // cases sweeps the sizes the scheme has to hold across.
 //
-// The first four are the required sweep. The rest reach branches those do not:
-// the embedded profile (base circle inside the root circle, no flank-to-root
-// stubs), a rotated tooth in each of the two dimension orientations the rib
-// recipe chooses between, a non-default pressure angle, a coarse involute
-// sample count, and a gear with no bore.
-func cases() []proofkit.Case {
-	return []proofkit.Case{
-		{Name: "m1_t12", Params: params(1, 12, 20, 15, 0, 4)},
-		{Name: "m1_t17", Params: params(1, 17, 20, 15, 0, 5)},
-		{Name: "m2_t20", Params: params(2, 20, 20, 15, 0, 8)},
-		{Name: "m3_t15", Params: params(3, 15, 20, 15, 0, 12)},
-
-		{Name: "m1_t60_embedded", Params: params(1, 60, 20, 15, 0, 20)},
-		{Name: "m2_t100_embedded", Params: params(2, 100, 20, 15, 0, 40)},
-		{Name: "m2_t20_rot30", Params: params(2, 20, 20, 15, 30, 8)},
-		{Name: "m1_t17_rot90", Params: params(1, 17, 20, 15, 90, 5)},
-		{Name: "m2_t20_rot145", Params: params(2, 20, 20, 15, 145, 8)},
-		{Name: "m1_t17_pa14_5", Params: params(1, 17, 14.5, 15, 0, 5)},
-		{Name: "m1_t17_pa25", Params: params(1, 17, 25, 15, 0, 5)},
-		{Name: "m2_t20_steps4", Params: params(2, 20, 20, 4, 0, 8)},
-		{Name: "m3_t15_nobore", Params: params(3, 15, 20, 15, 0, 0)},
-	}
-}
-
-func params(module, teeth, pressureDeg, steps, angleDeg, boreDia float64) map[string]float64 {
-	return map[string]float64{
-		pModule:      module,
-		pTeeth:       teeth,
-		pPressureDeg: pressureDeg,
-		pSteps:       steps,
-		pAngleDeg:    angleDeg,
-		pBoreDia:     boreDia,
-	}
-}
-
-func TestToolsSketch(t *testing.T)       { proofkit.Run(t, cases(), stepToolsSketch) }
-func TestGearProfileSketch(t *testing.T) { proofkit.Run(t, cases(), stepGearProfileSketch) }
-func TestBoreProfileSketch(t *testing.T) { proofkit.Run(t, cases(), stepBoreProfileSketch) }
-
-// stepToolsSketch realises step S3.
+// The first four are the baseline sweep. The rest reach branches the baseline
+// does not: the embedded profile (which needs a HIGH tooth count, not a low one
+// — see the report on step S5), the rotation the tooth generator's angle
+// argument asks for, an anchor away from the sketch origin, a coarser involute
+// sampling, and the no-bore path.
 //
-// The Tools sketch draws no geometry of its own. It exists to own one entity:
-// the projection of the user's anchor point, which every later sketch projects
-// in again. Modelling it is worth the line it takes, because it states what the
-// canonical handle is and shows that a sketch holding only it is sound.
-func stepToolsSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
-	proofkit.Step(t, "project the anchor point into the Tools sketch")
-	anchor := s.CreateReferencePoint(0, 0, "user anchor point")
-	anchor.SetName("ctx.anchorPoint")
+// Embedded is base radius < root radius, i.e. N·cos(pressureAngle) < N − 2.5,
+// i.e. N > 2.5/(1−cos(pressureAngle)). At 20° that is N > 41.45; at 30° it is
+// N > 18.66.
+var cases = []proofkit.Case{
+	{Name: "m1_t12", Params: map[string]float64{"module": 1, "toothNumber": 12, "pressureAngle": 20, "involuteSteps": 15, "boreDiameter": 4}},
+	{Name: "m1_t17", Params: map[string]float64{"module": 1, "toothNumber": 17, "pressureAngle": 20, "involuteSteps": 15, "boreDiameter": 5}},
+	{Name: "m2_t20", Params: map[string]float64{"module": 2, "toothNumber": 20, "pressureAngle": 20, "involuteSteps": 15, "boreDiameter": 8}},
+	{Name: "m3_t15", Params: map[string]float64{"module": 3, "toothNumber": 15, "pressureAngle": 20, "involuteSteps": 15, "boreDiameter": 10}},
+
+	{Name: "m05_t24_fine", Params: map[string]float64{"module": 0.5, "toothNumber": 24, "pressureAngle": 20, "involuteSteps": 15, "boreDiameter": 3}},
+	{Name: "m1_t45_embedded", Params: map[string]float64{"module": 1, "toothNumber": 45, "pressureAngle": 20, "involuteSteps": 15, "boreDiameter": 6}},
+	{Name: "m2_t60_embedded", Params: map[string]float64{"module": 2, "toothNumber": 60, "pressureAngle": 20, "involuteSteps": 15, "boreDiameter": 20}},
+	{Name: "m1_t30_pa30_embedded", Params: map[string]float64{"module": 1, "toothNumber": 30, "pressureAngle": 30, "involuteSteps": 15, "boreDiameter": 6}},
+	{Name: "m1_t41_shortstub", Params: map[string]float64{"module": 1, "toothNumber": 41, "pressureAngle": 20, "involuteSteps": 15, "boreDiameter": 6}},
+	{Name: "m1_t42_barelyembedded", Params: map[string]float64{"module": 1, "toothNumber": 42, "pressureAngle": 20, "involuteSteps": 15, "boreDiameter": 6}},
+
+	{Name: "m2_t20_rot30", Params: map[string]float64{"module": 2, "toothNumber": 20, "pressureAngle": 20, "involuteSteps": 15, "angle": 30, "boreDiameter": 8}},
+	{Name: "m2_t20_rot90", Params: map[string]float64{"module": 2, "toothNumber": 20, "pressureAngle": 20, "involuteSteps": 15, "angle": 90, "boreDiameter": 8}},
+	{Name: "m2_t20_rot180", Params: map[string]float64{"module": 2, "toothNumber": 20, "pressureAngle": 20, "involuteSteps": 15, "angle": 180, "boreDiameter": 8}},
+	{Name: "m1_t17_rotneg45", Params: map[string]float64{"module": 1, "toothNumber": 17, "pressureAngle": 20, "involuteSteps": 15, "angle": -45, "boreDiameter": 5}},
+	{Name: "m1_t45_rot120_embedded", Params: map[string]float64{"module": 1, "toothNumber": 45, "pressureAngle": 20, "involuteSteps": 15, "angle": 120, "boreDiameter": 6}},
+
+	{Name: "m2_t20_offanchor", Params: map[string]float64{"module": 2, "toothNumber": 20, "pressureAngle": 20, "involuteSteps": 15, "anchorX": 37, "anchorY": -21, "boreDiameter": 8}},
+	{Name: "m1_t17_steps8", Params: map[string]float64{"module": 1, "toothNumber": 17, "pressureAngle": 20, "involuteSteps": 8, "boreDiameter": 5}},
+	{Name: "m1_t17_steps24", Params: map[string]float64{"module": 1, "toothNumber": 17, "pressureAngle": 20, "involuteSteps": 24, "boreDiameter": 5}},
+	{Name: "m1_t17_nobore", Params: map[string]float64{"module": 1, "toothNumber": 17, "pressureAngle": 20, "involuteSteps": 15}},
 }
 
-// stepGearProfileSketch realises step S5 — the whole Gear Profile sketch, which
-// is one Fusion timeline entry however much goes into it: the four circles, the
-// involute tooth, and the anchoring that slides the drawing onto the user's
-// anchor.
+func TestToolsSketch(t *testing.T)       { proofkit.Run(t, cases, stepToolsSketch) }
+func TestGearProfileSketch(t *testing.T) { proofkit.Run(t, cases, stepGearProfileSketch) }
+func TestBoreProfileSketch(t *testing.T) { proofkit.Run(t, cases, stepBoreProfileSketch) }
+
+// gear is one case's derived geometry: radii in millimetres, angles in radians.
+type gear struct {
+	involute.Dimensions
+	teeth  float64
+	steps  int
+	angle  float64
+	ax, ay float64 // the anchor point's position in sketch-local coordinates
+	bore   float64
+}
+
+func derive(p map[string]float64) gear {
+	teeth := p["toothNumber"]
+	return gear{
+		Dimensions: involute.Derive(p["module"], teeth, p["pressureAngle"]*math.Pi/180),
+		teeth:      teeth,
+		steps:      int(p["involuteSteps"]),
+		angle:      p["angle"] * math.Pi / 180,
+		ax:         p["anchorX"],
+		ay:         p["anchorY"],
+		bore:       p["boreDiameter"],
+	}
+}
+
+// stepToolsSketch is step S3: the Tools sketch.
+//
+// It draws no geometry of its own and exists to own one reference — the
+// projection of the user's Anchor Point, which every later sketch re-projects
+// from. A projection is placed by the layer above and never moved by the solver,
+// which is what reference geometry is.
+func stepToolsSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
+	g := derive(p)
+	proofkit.Step(t, "project the Anchor Point in and keep it as ctx.anchorPoint")
+	a := s.CreateReferencePoint(g.ax, g.ay, "Anchor Point")
+	a.SetName("ctx.anchorPoint")
+}
+
+// stepGearProfileSketch is step S5: the Gear Profile sketch.
+//
+// One Fusion timeline entry covers the whole of the spec's steps 3, 4 and 5 —
+// the four circles, the involute tooth and the anchoring — because the tooth
+// generator's draw() runs all three inside the one sketch.
 func stepGearProfileSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
-	var (
-		module   = p[pModule]
-		teeth    = p[pTeeth]
-		pressure = radians(p[pPressureDeg])
-		steps    = int(p[pSteps])
-		angle    = radians(p[pAngleDeg])
+	g := derive(p)
+
+	proofkit.Step(t, "constructor: the movable local origin, a fresh point at (0,0)")
+	o := s.CreatePoint(0, 0)
+	o.SetName("local origin")
+
+	proofkit.Step(t, "drawCircles: four circles sharing the local origin, each with a driving diameter")
+	root := s.CreateCircle(o, g.Root)
+	root.SetName("root circle")
+	tip := s.CreateCircle(o, g.Tip)
+	tip.SetName("tip circle")
+	tip.SetConstruction(true)
+	base := s.CreateCircle(o, g.Base)
+	base.SetName("base circle")
+	base.SetConstruction(true)
+	pitch := s.CreateCircle(o, g.Pitch)
+	pitch.SetName("pitch circle")
+	pitch.SetConstruction(true)
+	s.AddConstraint(
+		sketch.NewDiameter(root, 2*g.Root),
+		sketch.NewDiameter(tip, 2*g.Tip),
+		sketch.NewDiameter(base, 2*g.Base),
+		sketch.NewDiameter(pitch, 2*g.Pitch),
 	)
-	d := involute.Derive(module, teeth, pressure)
+	// The along-path label on each circle is text, which carries no constraint
+	// and no boundary, so there is nothing here for the engine to hold.
 
-	// The tooth generator's constructor adds the local origin, and everything
-	// below is drawn relative to it. It is an ordinary movable point, not the
-	// sketch's own origin point, so that the anchoring at the end can drag the
-	// whole drawing onto the user's anchor as a unit ([SPUR-F-LOCAL-ORIGIN]).
-	proofkit.Step(t, "constructor: local origin at (0, 0)")
-	origin := s.CreatePoint(0, 0)
-	origin.SetName("local origin")
-
-	proofkit.Step(t, "drawCircles: root solid, tip/base/pitch construction, all centred on the local origin")
-	circle(s, origin, "root", d.Root, false)
-	tip := circle(s, origin, "tip", d.Tip, true)
-	circle(s, origin, "base", d.Base, true)
-	circle(s, origin, "pitch", d.Pitch, true)
-
-	proofkit.Step(t, "drawTooth: %d involute samples per flank at %.4g rad", steps, angle)
-	leftPts, rightPts := involute.Flanks(d.Base, d.Tip, d.Pitch, teeth, steps, angle)
-	if len(leftPts) < 2 {
-		proofkit.Unmodelled(t, "only %d involute sample(s) survived, too few for a flank", len(leftPts))
+	proofkit.Step(t, "drawTooth: sample both flanks and draw them as fitted splines")
+	left, right := involute.Flanks(g.Base, g.Tip, g.Pitch, g.teeth, g.steps, g.angle)
+	n := len(left)
+	lp := make([]*sketch.Point, n)
+	rp := make([]*sketch.Point, n)
+	for i := range n {
+		lp[i] = s.CreatePoint(left[i].X, left[i].Y)
+		rp[i] = s.CreatePoint(right[i].X, right[i].Y)
 	}
-	left := make([]*sketch.Point, len(leftPts))
-	right := make([]*sketch.Point, len(rightPts))
-	for i := range leftPts {
-		left[i] = named(s, leftPts[i], "left flank fit %d", i)
-		right[i] = named(s, rightPts[i], "right flank fit %d", i)
-	}
-	leftFlank, err := s.CreateFitSpline(left...)
+	ls, err := s.CreateFitSpline(lp...)
 	if err != nil {
 		t.Fatalf("left flank spline: %v", err)
 	}
-	leftFlank.SetName("left flank")
-	rightFlank, err := s.CreateFitSpline(right...)
+	ls.SetName("left flank")
+	rs, err := s.CreateFitSpline(rp...)
 	if err != nil {
 		t.Fatalf("right flank spline: %v", err)
 	}
-	rightFlank.SetName("right flank")
+	rs.SetName("right flank")
 
-	// The tooth-top arc caps the tooth at the tip circle, so it is part of that
-	// circle and must bulge outward. Sharing the local origin as its centre is
-	// what says so: a free centre with a diameter dimension reaches DOF 0 with
-	// the inward-bulging arc equally valid ([SPUR-F-TOOTHTOP-ARC]).
-	proofkit.Step(t, "tooth-top point on the tip circle, and the arc centred on the local origin")
-	last := len(left) - 1
-	toothTop := named(s, involute.Pt{X: d.Tip * math.Cos(angle), Y: d.Tip * math.Sin(angle)}, "tooth top")
-	s.AddConstraint(sketch.NewPointOnCircle(toothTop, tip))
-	arc := s.CreateArc(origin, right[last], left[last])
+	proofkit.Step(t, "tooth-top arc: a point on the tip circle, then an arc sharing the local origin as its centre")
+	top := s.CreatePoint(g.Tip*math.Cos(g.angle), g.Tip*math.Sin(g.angle))
+	top.SetName("tooth top")
+	s.AddConstraint(sketch.NewPointOnCircle(top, tip))
+	// Sharing the centre is the whole constraint set: the arc's own radius
+	// consistency then says the two flank ends are equidistant from the centre,
+	// which is exactly what the last rib's perpendicular would have said. That
+	// is why the rib loop below skips it.
+	//
+	// What this cannot reach: the ⚠️ in [SPUR-F-TOOTHTOP-ARC] says a FREE centre
+	// plus a diameter dimension leaves an inward-bulging alternative. Built that
+	// way (free centre, diameter dimension, last rib's perpendicular restored)
+	// the engine's probe still finds one configuration, so the proof neither
+	// confirms nor refutes that warning. It is a Fusion solver-branch claim; the
+	// engine picks its arc direction from the centre/start/end triple instead.
+	arc := s.CreateArc(o, rp[n-1], lp[n-1])
 	arc.SetName("tooth top arc")
 
-	// The spine says which way the tooth points. A horizontal constraint would
-	// fix the direction but not the sense, leaving the tooth free to settle
-	// 180 degrees around, so the angle is dimensioned against a reference line
-	// that is itself pinned to +X by two signed offsets ([SPUR-F-SPINE]).
-	proofkit.Step(t, "spine, +X reference line and the confirming angular dimension")
-	spine := s.CreateLine(origin, toothTop)
+	proofkit.Step(t, "spine, +X reference line, and the angular dimension that says which way the spine points")
+	spine := s.CreateLine(o, top)
 	spine.SetName("spine")
 	spine.SetConstruction(true)
-	refEnd := named(s, involute.Pt{X: d.Tip, Y: 0}, "+X reference end")
+	xend := s.CreatePoint(g.Tip, 0)
+	xend.SetName("+X reference end")
 	s.AddConstraint(
-		sketch.NewHorizontalDistance(origin, refEnd, d.Tip),
-		sketch.NewVerticalDistance(origin, refEnd, 0),
+		sketch.NewHorizontalDistance(o, xend, g.Tip),
+		sketch.NewVerticalDistance(o, xend, 0),
 	)
-	refLine := s.CreateLine(origin, refEnd)
-	refLine.SetName("+X reference")
-	refLine.SetConstruction(true)
-	s.AddConstraint(sketch.NewAngle(refLine, spine, p[pAngleDeg]))
+	xref := s.CreateLine(o, xend)
+	xref.SetName("+X reference")
+	xref.SetConstruction(true)
+	// Signed, and from the reference to the spine in that order. A plain
+	// horizontal on the spine instead leaves the tooth free to settle 180° round
+	// — the engine's probe reports two configurations for that variant.
+	s.AddConstraint(sketch.NewAngle(xref, spine, g.angle*180/math.Pi))
 
-	// One rib per fit-point index, endpoints included: the fit points carry no
-	// other constraint, so a missing rib leaves one free ([SPUR-F-RIBS]). The
-	// last rib takes no perpendicular — the tooth-top arc already holds its two
-	// ends at equal radius either side of the spine, so a perpendicular there
-	// would be redundant.
-	proofkit.Step(t, "%d ribs, midpoints on the spine, last one without a perpendicular", len(left))
-	alongSpine := signedAlong(angle)
-	mids := make([]*sketch.Point, len(left))
-	for i := range left {
-		rib := s.CreateLine(left[i], right[i])
+	proofkit.Step(t, "ribs: one per fit-point index, each with a midpoint chained along the spine")
+	ca, sa := math.Cos(g.angle), math.Sin(g.angle)
+	// The spine runs along (cos, sin) and a rib across (-sin, cos), so a signed
+	// dimension has to be taken on whichever axis carries the larger component:
+	// across the rib that is the vertical one when |cos| dominates, and along the
+	// spine chain it is the other way round.
+	alongX := math.Abs(ca) >= math.Abs(sa)
+	prevX, prevY := 0.0, 0.0
+	prevPt := o
+	for i := range n {
+		rib := s.CreateLine(lp[i], rp[i])
 		rib.SetName(fmt.Sprintf("rib %d", i))
 		rib.SetConstruction(true)
-
-		// Signed, not aligned: an aligned dimension gives only the length,
-		// which the left and right flanks satisfy equally well swapped over.
-		s.AddConstraint(alongSpine.across(left[i], right[i], leftPts[i], rightPts[i]))
-
-		// Seeded at the foot of the left fit point on the spine, which is
-		// where the constraints put it — not at the rib's own 2-D midpoint.
-		foot := spineFoot(leftPts[i], angle)
-		mids[i] = named(s, foot, "rib %d midpoint", i)
-		s.AddConstraint(sketch.NewPointOnLine(mids[i], spine))
-		s.AddConstraint(sketch.NewMidpoint(mids[i], rib))
-		if i != last {
+		if alongX {
+			s.AddConstraint(sketch.NewVerticalDistance(lp[i], rp[i], right[i].Y-left[i].Y))
+		} else {
+			s.AddConstraint(sketch.NewHorizontalDistance(lp[i], rp[i], right[i].X-left[i].X))
+		}
+		// Seeded at the foot of the left fit point on the spine, not at the rib's
+		// own midpoint.
+		foot := left[i].X*ca + left[i].Y*sa
+		mx, my := foot*ca, foot*sa
+		mid := s.CreatePoint(mx, my)
+		mid.SetName(fmt.Sprintf("rib %d midpoint", i))
+		s.AddConstraint(sketch.NewPointOnLine(mid, spine))
+		s.AddConstraint(sketch.NewMidpoint(mid, rib))
+		if i != n-1 {
 			s.AddConstraint(sketch.NewPerpendicular(spine, rib))
 		}
+		// The chain starts at the local origin. Without that first link the whole
+		// rib chain slides along the spine as a unit and the sketch never closes.
+		if alongX {
+			s.AddConstraint(sketch.NewHorizontalDistance(prevPt, mid, mx-prevX))
+		} else {
+			s.AddConstraint(sketch.NewVerticalDistance(prevPt, mid, my-prevY))
+		}
+		prevX, prevY, prevPt = mx, my, mid
 	}
 
-	// The chain of midpoint-to-midpoint dimensions runs outward along the
-	// spine, and starts at the local origin. Without that first link the whole
-	// chain slides along the spine as a unit and never fully constrains.
-	proofkit.Step(t, "midpoint chain, starting from the local origin")
-	prev, prevAt := origin, involute.Pt{}
-	for i := range mids {
-		at := spineFoot(leftPts[i], angle)
-		s.AddConstraint(alongSpine.along(prev, mids[i], prevAt, at))
-		prev, prevAt = mids[i], at
-	}
-
-	// Close the tooth at the root. When the flank starts outside the root
-	// circle a short radial stub reaches down to it, placed by two signed
-	// offsets from the local origin. Placing it instead with "on the root
-	// circle" plus "origin on the line" admits the far intersection too, and
-	// the stub becomes a line straight across the gear ([SPUR-F-FLANK-ROOT]).
-	if d.Embedded() {
-		proofkit.Step(t, "flank starts inside the root circle: embedded profile, no stubs")
+	if g.Embedded() {
+		proofkit.Step(t, "embedded profile: the flank starts inside the root circle, so no flank-to-root lines")
 	} else {
-		proofkit.Step(t, "flank starts outside the root circle: two radial flank-to-root stubs")
-		stub(s, origin, left[0], leftPts[0], d.Root, "left")
-		stub(s, origin, right[0], rightPts[0], d.Root, "right")
+		proofkit.Step(t, "flank-to-root: a radial stub each side, its root end pinned by two signed dimensions")
+		for _, f := range []struct {
+			name string
+			at   involute.Pt
+			fit  *sketch.Point
+		}{{"left", left[0], lp[0]}, {"right", right[0], rp[0]}} {
+			r := math.Hypot(f.at.X, f.at.Y)
+			ex, ey := f.at.X*g.Root/r, f.at.Y*g.Root/r
+			end := s.CreatePoint(ex, ey)
+			end.SetName(f.name + " root end")
+			stub := s.CreateLine(end, f.fit)
+			stub.SetName(f.name + " flank to root")
+			// Two signed offsets from the local origin, and nothing else. Putting
+			// the end on the root circle instead would admit the point diametrically
+			// opposite and turn the stub into a line across the gear.
+			s.AddConstraint(
+				sketch.NewHorizontalDistance(o, end, ex),
+				sketch.NewVerticalDistance(o, end, ey),
+			)
+		}
 	}
 
-	// Step 5 of the spec, and the last thing draw() does apart from confirming
-	// the rotation: project the Tools-sketch anchor in and make the local
-	// origin coincident with it. Every point above is placed relative to the
-	// local origin, so this one constraint grounds the whole sketch.
-	proofkit.Step(t, "anchor: project ctx.anchorPoint in and make the local origin coincident with it")
-	anchor := s.CreateReferencePoint(0, 0, "Tools sketch anchor")
+	proofkit.Step(t, "anchor the sketch: project the Tools anchor in, then make the local origin coincident with it")
+	anchor := s.CreateReferencePoint(g.ax, g.ay, "Anchor Point")
 	anchor.SetName("projected anchor")
-	s.AddConstraint(sketch.NewCoincident(origin, anchor))
+	s.AddConstraint(sketch.NewCoincident(o, anchor))
 
-	requireToothProfile(t, s, d.Embedded())
+	requireExtrudableLoops(t, s, g.Embedded())
 }
 
-// stepBoreProfileSketch realises step S14.
+// requireExtrudableLoops checks that the two loops the later extrudes look for
+// are the two the sketch actually holds.
 //
-// The sketch holds two points at the origin and one circle. One point is the
-// projected anchor the circle is centred on; the other is the tooth
-// generator's local origin, which its constructor always adds and drawBore
-// never uses. That stray point is the spec's one exception to the
-// full-constraint rule, and it is reference geometry here for the reason the
-// exception is granted: it is placed by the constructor and never moved.
+// Step S7 asks for the tooth loop by curve counts — 2 splines, 2 arcs, and 2
+// lines unless the profile is embedded — and step S9 asks for the gear body loop
+// by its 2 arcs. Both counts are Fusion's, which sees the root circle as the two
+// arcs it is split into; the engine keeps it as one Circle entity and reports the
+// pieces as fragments of it, so the equivalent test here is on entities.
+func requireExtrudableLoops(t testing.TB, s *sketch.Sketch, embedded bool) {
+	t.Helper()
+	if _, err := s.Solve(context.Background()); err != nil {
+		t.Fatalf("solve before reading profiles: %v", err)
+	}
+	kinds := func(p *sketch.Profile) map[string]int {
+		m := map[string]int{}
+		for _, e := range p.Entities {
+			switch e.(type) {
+			case *sketch.FitSpline:
+				m["spline"]++
+			case *sketch.Arc:
+				m["arc"]++
+			case *sketch.Circle:
+				m["circle"]++
+			case *sketch.Line:
+				m["line"]++
+			}
+		}
+		return m
+	}
+	wantTooth := map[string]int{"spline": 2, "arc": 1, "circle": 1, "line": 2}
+	if embedded {
+		delete(wantTooth, "line")
+	}
+	wantBody := map[string]int{"circle": 1}
+
+	var tooth, body int
+	profiles := s.Profiles()
+	for _, p := range profiles {
+		switch k := kinds(p); {
+		case eq(k, wantTooth):
+			tooth++
+		case eq(k, wantBody):
+			body++
+		default:
+			t.Errorf("unexpected region: %v (area %.3f)", k, p.Area)
+		}
+	}
+	if tooth != 1 || body != 1 {
+		t.Errorf("want one tooth loop and one gear body loop, got %d and %d out of %d region(s)",
+			tooth, body, len(profiles))
+	}
+}
+
+func eq(a, b map[string]int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if b[k] != v {
+			return false
+		}
+	}
+	return true
+}
+
+// stepBoreProfileSketch is step S14: the Bore Profile sketch.
+//
+// It carries the tooth generator's unused local-origin point, which the
+// constructor places at (0,0) and nothing afterwards moves. Placed and never
+// moved is what reference geometry is, so it is modelled as one — the sketch is
+// fully constrained with it in, and the spec's carve-out for it in Sketch
+// Discipline turns out not to be needed here.
 func stepBoreProfileSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
-	bore := p[pBoreDia]
-	if bore <= 0 {
-		proofkit.Unmodelled(t, "bore diameter is %.3g mm, so buildBore returns before any sketch exists", bore)
+	g := derive(p)
+	if g.bore <= 0 {
+		proofkit.Unmodelled(t, "Bore Diameter is %g, so buildBore returns before any Bore Profile sketch exists", g.bore)
 	}
 
-	proofkit.Step(t, "constructor: the unused local origin the tooth generator always adds")
-	stray := s.CreateReferencePoint(0, 0, "tooth generator local origin, never moved")
+	proofkit.Step(t, "constructor: the unused local-origin point the tooth generator always adds")
+	stray := s.CreateReferencePoint(0, 0, "tooth generator local origin")
 	stray.SetName("unused local origin")
 
-	proofkit.Step(t, "drawBore: project the anchor in, draw the bore circle on it, dimension the diameter")
-	anchor := s.CreateReferencePoint(0, 0, "Tools sketch anchor")
+	proofkit.Step(t, "drawBore: project the anchor in, draw the bore circle on it, dimension its diameter")
+	anchor := s.CreateReferencePoint(g.ax, g.ay, "Anchor Point")
 	anchor.SetName("projected anchor")
-	c := s.CreateCircle(anchor, bore/2)
-	c.SetName("bore circle")
-	s.AddConstraint(sketch.NewDiameter(c, bore))
+	bore := s.CreateCircle(anchor, g.bore/2)
+	bore.SetName("bore circle")
+	s.AddConstraint(sketch.NewDiameter(bore, g.bore))
 }
-
-// requireToothProfile checks that region detection recovers the loops the
-// extrude steps look for: the tooth, whose curve count step S7 matches on, and
-// the root disc, which step S9 matches on.
-//
-// The counts are the point of drawing no root arc by hand. Had the proof drawn
-// one, the loop would close whether or not the splitting Fusion actually does
-// would have produced it.
-//
-// Two representation differences from Fusion are absorbed here, and neither
-// changes the boundary. The engine names the whole root circle as the tooth
-// region's root-side entity, where Fusion names the arc it split out of it, so
-// the tooth's entity count matches step S7's curve count exactly. The engine
-// then reports the disc's boundary as that one circle, where Fusion reports the
-// two arcs it split the circle into, which is the count step S9 matches on.
-func requireToothProfile(t testing.TB, s *sketch.Sketch, embedded bool) {
-	t.Helper()
-	wantTooth := 6 // 2 flanks + 2 flank-to-root lines + tooth-top arc + root arc
-	if embedded {
-		wantTooth = 4 // 2 flanks + tooth-top arc + root arc
-	}
-	regions := s.Profiles()
-	var tooth, disc int
-	for _, r := range regions {
-		switch len(r.Entities) {
-		case wantTooth:
-			tooth++
-		case 1:
-			disc++
-		}
-	}
-	if len(regions) != 2 || tooth != 1 || disc != 1 {
-		t.Errorf("region detection found %d region(s): %d bounded by the tooth's %d entities, %d by the root circle alone; want 2 regions, 1 and 1",
-			len(regions), tooth, wantTooth, disc)
-		for i, r := range regions {
-			t.Logf("  region %d: %d entities, %d boundary edge(s), %d hole(s), area %.4g",
-				i, len(r.Entities), len(r.Outer), len(r.Holes), r.Area)
-		}
-	}
-}
-
-func circle(s *sketch.Sketch, center *sketch.Point, name string, radius float64, construction bool) *sketch.Circle {
-	c := s.CreateCircle(center, radius)
-	c.SetName(name + " circle")
-	c.SetConstruction(construction)
-	s.AddConstraint(sketch.NewDiameter(c, 2*radius))
-	return c
-}
-
-func named(s *sketch.Sketch, at involute.Pt, format string, args ...any) *sketch.Point {
-	p := s.CreatePoint(at.X, at.Y)
-	p.SetName(fmt.Sprintf(format, args...))
-	return p
-}
-
-// stub draws one flank-to-root line and pins its root end with exactly two
-// signed offsets from the local origin — no others.
-func stub(s *sketch.Sketch, origin, flankStart *sketch.Point, at involute.Pt, rootR float64, side string) {
-	dir := math.Atan2(at.Y, at.X)
-	foot := involute.Pt{X: rootR * math.Cos(dir), Y: rootR * math.Sin(dir)}
-	end := named(s, foot, "%s flank-to-root end", side)
-	line := s.CreateLine(end, flankStart)
-	line.SetName(side + " flank-to-root")
-	s.AddConstraint(
-		sketch.NewHorizontalDistance(origin, end, foot.X),
-		sketch.NewVerticalDistance(origin, end, foot.Y),
-	)
-}
-
-// orientation picks between the horizontal and vertical signed dimension for
-// each of the two jobs the rib recipe needs one for. Ribs run perpendicular to
-// the spine and the chain runs along it, so one predicate settles both: when
-// the spine is nearer horizontal the chain is dimensioned horizontally and the
-// ribs vertically, and when it is nearer vertical, the other way round.
-type orientation struct{ spineNearHorizontal bool }
-
-func signedAlong(angle float64) orientation {
-	return orientation{spineNearHorizontal: math.Abs(math.Cos(angle)) >= math.Abs(math.Sin(angle))}
-}
-
-// across dimensions a rib, from its left end to its right end.
-func (o orientation) across(a, b *sketch.Point, atA, atB involute.Pt) sketch.Constraint {
-	if o.spineNearHorizontal {
-		return sketch.NewVerticalDistance(a, b, atB.Y-atA.Y)
-	}
-	return sketch.NewHorizontalDistance(a, b, atB.X-atA.X)
-}
-
-// along dimensions one link of the midpoint chain.
-func (o orientation) along(a, b *sketch.Point, atA, atB involute.Pt) sketch.Constraint {
-	if o.spineNearHorizontal {
-		return sketch.NewHorizontalDistance(a, b, atB.X-atA.X)
-	}
-	return sketch.NewVerticalDistance(a, b, atB.Y-atA.Y)
-}
-
-// spineFoot is the foot of p on the spine — the line at angle through the
-// local origin — which is where a rib midpoint ends up.
-func spineFoot(p involute.Pt, angle float64) involute.Pt {
-	sa, ca := math.Sin(angle), math.Cos(angle)
-	t := p.X*ca + p.Y*sa
-	return involute.Pt{X: t * ca, Y: t * sa}
-}
-
-func radians(deg float64) float64 { return deg * math.Pi / 180 }
