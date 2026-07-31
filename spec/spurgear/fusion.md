@@ -64,41 +64,50 @@ different set or order throws `VCS_SKETCH_OVER_CONSTRAINTS` or `VCS_SKETCH_SOLVI
 build on the shared `[PB-FULL-CONSTRAINT]`, `[PB-SHARE-XOR-COINCIDENT]`, `[PB-NO-OVERCONSTRAIN]`,
 `[PB-DRIVING-DIM]` rules; here is the spur application.)
 
-- **[SPUR-F-TOOTHTOP-ARC] Tooth-top arc — minimal constraint set (step 6).** Add the *minimal* set
-  below and **nothing more** — pinning the arc's centre, or separately coincident-constraining the
-  arc endpoints, over-determines the sketch and it blows up later (when the last rib's perpendicular
-  is added) with `VCS_SKETCH_OVER_CONSTRAINTS`.
+- **[SPUR-F-TOOTHTOP-ARC] Tooth-top arc — centred on the local origin (step 6).** The arc caps the
+  tooth at the tip circle, so it *is* part of that circle and must bulge outward. Say that by
+  **sharing the local origin as the arc's centre**, and add nothing else.
   1. Materialize a **tooth-top point**: a `SketchPoint` at the tip, **rotated by `angle`** to match
      the rotated flanks — `(Tip Circle Radius · cos(angle), Tip Circle Radius · sin(angle))` —
-     constrained **coincident to the tip circle** (the *point* lies on the tip circle). This is the
-     only coincidence here. Do **not** constrain the arc's `centerSketchPoint` to anything.
-  2. Create the arc with `sketchArcs.addByThreePoints(rightFlankEndPoint, toothTopPoint.geometry,
-     leftFlankEndPoint)` — pass the two flank splines' **end `SketchPoint`s directly** as first and
-     third arguments (so the arc shares those endpoints; no separate coincidences), and the
-     tooth-top point's *geometry* as the middle through-point.
-  3. Add a single **driving diameter dimension** on the arc equal to the tip circle diameter. The
-     two shared flank ends plus this diameter fully determine the arc.
+     constrained **coincident to the tip circle**.
+  2. Create the arc with `sketchArcs.addByCenterStartEnd(localOrigin, rightFlankEndPoint,
+     leftFlankEndPoint)` — pass the local origin and the two flank splines' **end `SketchPoint`s
+     directly**, so the arc shares all three and needs no separate coincidences.
+  3. Add **no diameter dimension**. The shared centre and the two shared ends already determine the
+     arc, and its radius follows from the flank ends being on the tip circle.
 
-- **[SPUR-F-SPINE] Spine + horizontal reference + angular pin (step 7).** Draw the spine as a
-  construction line `addByTwoPoints(localOrigin, toothTopPoint)` — pass **both** existing
-  `SketchPoint`s directly (share them). Do **not** create it from `.geometry`, do **not** add a
-  separate start-coincident to the origin (sharing already ties it; an extra coincident makes the
-  solver fail), and do **not** constrain the spine's end onto the arc (the tooth-top point already
-  lies on the tip circle). Because the tooth is drawn at its final `angle` (step 4), the spine
-  starts out pointing in the `angle` direction. Pin its absolute rotation:
-  - For `angle = 0` (spur), the spine's only additional constraint is **horizontal**.
-  - Otherwise add a horizontal reference construction line from the origin **that always points
-    +X** — give it a far endpoint at `(Tip Circle Radius, 0)` (a fixed positive x; do *not* derive
-    it from the tooth-top point's x, which goes negative once `angle > 90°` and would flip the
-    reference). **Then pin that far endpoint: `addCoincident(horizontal.endSketchPoint, tipCircle)`.**
-    `addHorizontal` fixes only the line's *direction*, so without this pin the reference line's far
-    end is a **free DOF** (its length floats) and the whole tooth sketch is under-constrained
-    (`isFullyConstrained` False) even though the geometry is correct. (This loose end appears only
-    on the `angle != 0` path — helical / herringbone / bevel virtual tooth.) Add an angular
-    dimension measured **from the spine to that horizontal reference, in that argument order**
-    (`addAngularDimension(spine, horizontal, …)`); place its text on the **bisector of the intended
-    angle** (`(R·cos(angle/2), R·sin(angle/2))` for small R) so Fusion selects `angle`, not its
-    supplement. Set its value to `angle` as the very last action (see `[SPUR-F-ROTATE-CONFIRM]`).
+  ⚠️ A **free centre plus a diameter dimension** determines the arc's size but not which way it
+  curves: an arc of the same radius through the same two ends can bulge inward, back through the
+  tooth. The sketch then reaches DOF 0 with two valid answers and the solver picks by where the
+  centre was seeded. Sharing the origin removes the choice.
+
+  ⚠️ Sharing the centre makes the **last rib's perpendicular redundant** — see `[SPUR-F-RIBS]`,
+  which omits it. Keeping both is what throws `VCS_SKETCH_OVER_CONSTRAINTS`.
+
+- **[SPUR-F-SPINE] Spine + +X reference + angular pin (step 7).** Draw the spine as a construction
+  line `addByTwoPoints(localOrigin, toothTopPoint)` — pass **both** existing `SketchPoint`s
+  directly (share them). Do **not** create it from `.geometry`, do **not** add a separate
+  start-coincident to the origin (sharing already ties it; an extra coincident makes the solver
+  fail), and do **not** constrain the spine's end onto the arc (the tooth-top point already lies on
+  the tip circle).
+
+  Build the **+X reference construction line** for **every** `angle`, including 0:
+  1. Add a far endpoint at `(Tip Circle Radius, 0)` and pin it with **two signed dimensions from
+     the local origin** — `addDistanceDimension(..., HorizontalDimensionOrientation, Tip Circle
+     Radius)` and the vertical one at `0`. Pin it this way rather than with `addCoincident(end,
+     tipCircle)`: a point on a circle has two answers, and pinning its x at the tip radius instead
+     touches the circle at its extreme, where the numbers go unstable.
+  2. Draw the reference line from the origin to that endpoint and mark it construction.
+  3. Add an angular dimension **from the reference to the spine, in that argument order**
+     (`addAngularDimension(reference, spine, …)`); place its text on the **bisector of the intended
+     angle** (`(R·cos(angle/2), R·sin(angle/2))` for small R) so Fusion selects `angle`, not its
+     supplement. Set its value to `angle` as the very last action (see `[SPUR-F-ROTATE-CONFIRM]`).
+
+  ⚠️ Do **not** use a plain `addHorizontal` on the spine for the `angle = 0` case. Horizontal fixes
+  the line's direction but says nothing about which way it points, so the tooth top can settle at
+  either end of the tip circle and the whole tooth comes out 180° around. The angular dimension
+  against a reference that is pinned to +X is what says which way, and using it for every `angle`
+  keeps spur, helical, herringbone and the bevel virtual tooth on one path.
 
 - **[SPUR-F-RIBS] Ribs — exact construction order (step 8).** A rib construction line runs between
   each pair of matching left/right flank points — **one per fit-point index `i` for all N indices,
@@ -109,7 +118,11 @@ build on the shared `[PB-FULL-CONSTRAINT]`, `[PB-SHARE-XOR-COINCIDENT]`, `[PB-NO
   over-constrains the sketch (`VCS_SKETCH_OVER_CONSTRAINTS`):
   1. Add the rib with `addByTwoPoints(leftSpline.fitPoints[i], rightSpline.fitPoints[i])` — pass the
      two fit-point `SketchPoint`s **directly** so the rib shares them; mark it construction.
-  2. Dimension the rib's **aligned length** to its current measured value.
+  2. Dimension the rib with a **signed** dimension, not an aligned one: for `angle = 0` use
+     `addDistanceDimension(left, right, VerticalDimensionOrientation, …)` at the measured Δy; for a
+     rotated tooth use whichever of the horizontal/vertical pair is better conditioned for that
+     angle. An **aligned** dimension gives only the length, which the left and right flanks satisfy
+     equally well swapped over, so the tooth can come out mirrored.
   3. Add a fresh `SketchPoint` for the midpoint, created **already on the spine**. The spine is the
      line at `angle` through the local origin, so seed the midpoint at the **foot of the left fit
      point on that line**: with `t = fitX·cos(angle) + fitY·sin(angle)`, the seed is
@@ -117,11 +130,16 @@ build on the shared `[PB-FULL-CONSTRAINT]`, `[PB-SHARE-XOR-COINCIDENT]`, `[PB-NO
      it at the rib's true 2-D midpoint, and do **not** seed it at `(fitX, 0)` for a rotated tooth.
   4. `addCoincident(midpoint, spine)` — pin the point onto the spine **first**.
   5. `addMidPoint(midpoint, rib)` — then make it the rib's midpoint.
-  6. `addPerpendicular(spine, rib)` — then make the rib perpendicular to the spine.
+  6. `addPerpendicular(spine, rib)` — then make the rib perpendicular to the spine. **Skip this for
+     the last rib.** That rib joins the two flank tips, which the tooth-top arc already holds at
+     equal radius either side of the spine (`[SPUR-F-TOOTHTOP-ARC]`), so its perpendicular says
+     nothing new and Fusion rejects it with `VCS_SKETCH_OVER_CONSTRAINTS`.
 
-  Then dimension the aligned distance from each rib's midpoint to the previous rib's midpoint — and
-  **for the first rib, dimension the distance from the local origin to its midpoint** (start the
-  chain with `previous = local origin`). Without that origin-to-first dim the whole rib chain has
+  Then dimension the distance from each rib's midpoint to the previous rib's midpoint with a
+  **signed** dimension along the spine direction (horizontal for `angle = 0`) — and **for the first
+  rib, dimension it from the local origin to its midpoint** (start the chain with
+  `previous = local origin`). Signed, so the chain runs outward; an aligned dimension is equally
+  happy running the other way, which is one of the ways the tooth ends up reversed. Without that origin-to-first dim the whole rib chain has
   one residual DOF (it slides along the spine as a unit) and the sketch never fully constrains. Per
   rib this is exactly determined; any further constraint, wrong order, or off-spine midpoint seed
   over-constrains it.
@@ -130,15 +148,20 @@ build on the shared `[PB-FULL-CONSTRAINT]`, `[PB-SHARE-XOR-COINCIDENT]`, `[PB-NO
   (step 9).** If the flank's first point (on the base circle) lies **outside** the root circle, draw
   a short radial line from the root circle up to that start point on each side. Build each as
   `addByTwoPoints(rootEndGeometry, flankStartFitPoint)` — pass the flank spline's **start
-  `SketchPoint` directly** as the far endpoint (share it; no separate coincident). Then add
-  **exactly these two** constraints, no others:
-  - (a) the line's **root-end** point coincident to the **root circle**;
-  - (b) the **local origin** coincident to the line itself (point-on-line, line treated as infinite)
-    — this pins the line to a radial direction.
+  `SketchPoint` directly** as the far endpoint (share it; no separate coincident). Then place the
+  root end with **exactly these two signed dimensions from the local origin**, no others:
+  - (a) `addDistanceDimension(localOrigin, rootEnd, HorizontalDimensionOrientation, …)` at the
+    root end's Δx;
+  - (b) the same with `VerticalDimensionOrientation` at its Δy.
 
-  Together they exactly constrain the line (root end: 2 DOF → (a) → 1 → (b) → 0). Omitting (b)
-  leaves the root end free to slide on the circle (tooth comes out skewed); a third constraint (e.g.
-  re-coinciding the shared flank endpoint) over-constrains it. This common case yields a tooth loop
+  Together they exactly constrain the root end (2 DOF → 0), and being signed they say **which side
+  of the gear centre** it sits on.
+
+  ⚠️ Do **not** place it instead with "root end on the root circle" plus "local origin on the
+  line". Those two are satisfied by **two** points, because the line through the flank start and
+  the centre carries on and meets the root circle again on the far side. The stub then stops being
+  a stub and becomes a long line straight across the gear, and the sketch reaches DOF 0 with both
+  answers available. The signed offsets are what rule the far one out. This common case yields a tooth loop
   of **6 curves** (2 splines + 2 flank-to-root lines + 2 arcs). If instead the flank starts
   **inside** the root circle (low tooth-count / pressure-angle combinations drop the base circle
   below the root), no flank-to-root line is drawn and the loop has **4 curves** (2 splines + 2

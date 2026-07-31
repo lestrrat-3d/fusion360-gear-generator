@@ -419,8 +419,9 @@ Still inside the Gear Profile sketch, draw a single involute tooth centered on t
 8. Draw a **rib** construction line between each matching pair of left/right flank fit-points, with
    a midpoint on the spine; the ribs lock the flanks to the spine so the tooth rebuilds cleanly when
    `Module` or `Tooth Number` changes, without pinning any point to an absolute coordinate. **Build a
-   rib for *every* fit-point index — including the first (base-circle) pair and the last (tip) pair
-   whose ends are also joined by the tooth-top arc; there is no exception for endpoints.** With N
+   rib for *every* fit-point index, including the first (base-circle) pair and the last (tip) pair.**
+   The last rib carries no perpendicular, because the tooth-top arc already implies it
+   (`[SPUR-F-TOOTHTOP-ARC]`); every other constraint on it is unchanged. With N
    involute samples per flank you draw N ribs; the flank fit-points carry no other constraint, so a
    missing endpoint rib leaves that fit-point free and the sketch under-constrained. The construction
    is order-sensitive — follow the exact six-step order and the midpoint-chain rule (including the
