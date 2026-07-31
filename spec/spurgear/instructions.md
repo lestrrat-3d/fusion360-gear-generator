@@ -434,8 +434,9 @@ Still inside the Gear Profile sketch, draw a single involute tooth centered on t
 9. Close the tooth at the root. If the flank's first point (on the base circle) lies **outside** the
    root circle, draw a short **radial** flank-to-root line on each side (exact two-constraint
    construction in `[SPUR-F-FLANK-ROOT]`); the tooth loop then has **6 curves** (2 splines + 2
-   flank-to-root lines + 2 arcs). If the flank starts **inside** the root circle (low tooth-count /
-   pressure-angle combinations), no flank-to-root line is drawn and the loop has **4 curves** (2
+   flank-to-root lines + 2 arcs). If the flank starts **inside** the root circle (which happens above
+   `2.5 / (1 - cos(PressureAngle))` teeth — 41.5 at 20°, 78.5 at 14.5°, 26.7 at 25°), no
+   flank-to-root line is drawn and the loop has **4 curves** (2
    splines + 2 arcs) — the profile is "embedded." Record which shape was drawn so the extrude step
    knows which edge count to expect; the embedded-flag mechanism (the tooth generator sets
    `self.parent._lastToothEmbedded`, copied to `ctx.toothProfileIsEmbedded` in `buildSketches`) is
@@ -467,7 +468,7 @@ Helical and herringbone subclasses override only the expected edge count, via `c
 
 ### 9: Extrude the Body
 
-Find the gear body profile — the annular loop bounded by **exactly 2 arcs** (the root circle and the tip circle): `find_profile_by_curve_counts(sketch, arcs=2)` (from `.utilities`). Extrude it from the target plane to the Extrusion End Plane (`ToEntityExtentDefinition.create(ctx.extrusionEndPlane, False)`, `PositiveExtentDirection`) as a **New Body**. Name the feature `Extrude body` and the resulting body `Gear Body`.
+Find the gear body profile — the solid disc inside the root circle, whose boundary is **exactly 2 arcs**: the two pieces the tooth's flank-to-root lines cut the root circle into. `find_profile_by_curve_counts(sketch, arcs=2)` (from `.utilities`). It is not an annulus and the tip circle is not part of it: the tip circle is construction geometry (step 3), and construction geometry bounds no profile. Extrude it from the target plane to the Extrusion End Plane (`ToEntityExtentDefinition.create(ctx.extrusionEndPlane, False)`, `PositiveExtentDirection`) as a **New Body**. Name the feature `Extrude body` and the resulting body `Gear Body`.
 
 While iterating the new body's faces (`extrude.bodies.item(0).faces`), capture two references needed later. Classify each face by `face.geometry.surfaceType`:
 

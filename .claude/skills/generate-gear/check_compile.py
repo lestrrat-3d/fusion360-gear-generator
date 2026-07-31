@@ -88,11 +88,12 @@ PYTHON_METHODS = {
 
 INDEX_GAPS = {
     # Names the shipped add-in calls successfully inside Fusion, which the
-    # intellisense stubs omit, so the derived index lacks them too. Keep this list
-    # SHORT and justify every entry — it is the gate's blind spot.
-    'project',                    # Sketch.project(entity)
-    'createInput2',               # SketchTexts.createInput2(text, height); the stubs carry only createInput3
-    'addConstantRadiusEdgeSet',   # FilletFeatureInput.addConstantRadiusEdgeSet; the stubs put it only on FilletEdgeSetInputs
+    # intellisense stubs omit, so the derived index lacks them too. Each is used by
+    # lib/geargen/spurgear.py in an add-in that runs, which is the evidence. Keep
+    # this list SHORT and justify every entry — it is the gate's blind spot.
+    'project',                    # Sketch.project(entity) — spurgear.py:153
+    'createInput2',               # SketchTexts.createInput2(text, height) — spurgear.py:187
+    'addConstantRadiusEdgeSet',   # on FilletFeatureInput itself — spurgear.py:683
 }
 
 
@@ -153,7 +154,8 @@ def proof_functions(proof_dir):
     for entry in sorted(os.listdir(proof_dir)):
         if not entry.endswith('.go'):
             continue
-        for m in re.finditer(r'^func (step\w+)\(', read(os.path.join(proof_dir, entry)), re.M):
+        # step<Title>, so a helper called steps() is not mistaken for a step.
+        for m in re.finditer(r'^func (step[A-Z]\w*)\(', read(os.path.join(proof_dir, entry)), re.M):
             found.add(m.group(1))
     return found
 

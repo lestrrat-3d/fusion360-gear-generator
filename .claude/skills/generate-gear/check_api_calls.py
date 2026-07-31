@@ -58,11 +58,12 @@ PYTHON_METHODS = {
 # Keep this list SHORT and justify every entry — it is the gate's blind spot.
 INDEX_GAPS = {
     # Names the shipped add-in calls successfully inside Fusion, which the
-    # intellisense stubs omit, so the derived index lacks them too. Keep this list
-    # SHORT and justify every entry — it is the gate's blind spot.
-    'project',                    # Sketch.project(entity)
-    'createInput2',               # SketchTexts.createInput2(text, height); the stubs carry only createInput3
-    'addConstantRadiusEdgeSet',   # FilletFeatureInput.addConstantRadiusEdgeSet; the stubs put it only on FilletEdgeSetInputs
+    # intellisense stubs omit, so the derived index lacks them too. Each is used by
+    # lib/geargen/spurgear.py in an add-in that runs, which is the evidence. Keep
+    # this list SHORT and justify every entry — it is the gate's blind spot.
+    'project',                    # Sketch.project(entity) — spurgear.py:153
+    'createInput2',               # SketchTexts.createInput2(text, height) — spurgear.py:187
+    'addConstantRadiusEdgeSet',   # on FilletFeatureInput itself — spurgear.py:683
 }
 
 

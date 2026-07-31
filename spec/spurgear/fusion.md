@@ -122,8 +122,10 @@ build on the shared `[PB-FULL-CONSTRAINT]`, `[PB-SHARE-XOR-COINCIDENT]`, `[PB-NO
      two fit-point `SketchPoint`s **directly** so the rib shares them; mark it construction.
   2. Dimension the rib with a **signed** dimension, not an aligned one: for `angle = 0` use
      `addDistanceDimension(left, right, VerticalDimensionOrientation, …)` at the measured Δy; for a
-     rotated tooth use whichever of the horizontal/vertical pair is better conditioned for that
-     angle. An **aligned** dimension gives only the length, which the left and right flanks satisfy
+     rotated tooth, the rib takes the axis **across** the spine and the midpoint chain takes the
+     one **along** it: use vertical for the rib and horizontal for the chain when
+     `|cos(angle)| >= |sin(angle)|`, and swap both otherwise. That reduces to the pair above at
+     `angle = 0`, and a tooth at 90° fails without it. An **aligned** dimension gives only the length, which the left and right flanks satisfy
      equally well swapped over, so the tooth can come out mirrored.
   3. Add a fresh `SketchPoint` for the midpoint, created **already on the spine**. The spine is the
      line at `angle` through the local origin, so seed the midpoint at the **foot of the left fit
@@ -165,8 +167,9 @@ build on the shared `[PB-FULL-CONSTRAINT]`, `[PB-SHARE-XOR-COINCIDENT]`, `[PB-NO
   a stub and becomes a long line straight across the gear, and the sketch reaches DOF 0 with both
   answers available. The signed offsets are what rule the far one out. This common case yields a tooth loop
   of **6 curves** (2 splines + 2 flank-to-root lines + 2 arcs). If instead the flank starts
-  **inside** the root circle (low tooth-count / pressure-angle combinations drop the base circle
-  below the root), no flank-to-root line is drawn and the loop has **4 curves** (2 splines + 2
+  **inside** the root circle (**high** tooth counts drop the base circle below the root: it happens
+  above `2.5 / (1 - cos(PressureAngle))` teeth, which is 41.5 at 20°, 78.5 at 14.5° and 26.7 at
+  25°, so a larger pressure angle brings it on sooner), no flank-to-root line is drawn and the loop has **4 curves** (2 splines + 2
   arcs) — the profile is "embedded."
 
   **The embedded test is strict `<`:** with `firstRadius` the distance from the local origin to the

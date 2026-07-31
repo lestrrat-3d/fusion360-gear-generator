@@ -98,8 +98,12 @@ func Derive(module, toothNumber, pressureAngle float64) Dimensions {
 	}
 }
 
-// Embedded reports whether the flank starts inside the root circle, which
-// happens at low tooth counts and leaves no room for the flank-to-root lines.
+// Embedded reports whether the flank starts inside the root circle, which leaves
+// no room for the flank-to-root lines.
+//
+// It happens at HIGH tooth counts, not low ones: base < root reduces to
+// toothNumber > 2.5/(1-cos(pressureAngle)), which is 41.5 teeth at 20 degrees,
+// 78.5 at 14.5 and 26.7 at 25, so a larger pressure angle brings it on sooner.
 //
 // The first flank sample sits at exactly the base radius by construction, so
 // comparing the two radii is the same test as measuring the drawn point. The
