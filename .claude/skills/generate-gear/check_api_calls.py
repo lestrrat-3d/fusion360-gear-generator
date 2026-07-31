@@ -57,7 +57,12 @@ PYTHON_METHODS = {
 # Real Fusion methods the intellisense stubs omit, so the derived index lacks them too.
 # Keep this list SHORT and justify every entry — it is the gate's blind spot.
 INDEX_GAPS = {
-    'project',  # Sketch.project(entity) — present in the live API, absent from the stubs.
+    # Names the shipped add-in calls successfully inside Fusion, which the
+    # intellisense stubs omit, so the derived index lacks them too. Keep this list
+    # SHORT and justify every entry — it is the gate's blind spot.
+    'project',                    # Sketch.project(entity)
+    'createInput2',               # SketchTexts.createInput2(text, height); the stubs carry only createInput3
+    'addConstantRadiusEdgeSet',   # FilletFeatureInput.addConstantRadiusEdgeSet; the stubs put it only on FilletEdgeSetInputs
 }
 
 

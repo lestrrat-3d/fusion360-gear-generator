@@ -51,6 +51,20 @@ the pipeline exists to make trustworthy.
 
 `pyright_check.py` REVIEW findings are advisory stub noise. Only BLOCKING gates.
 
+## Triage the type complaints
+
+After the six gates pass, run
+`python3 .claude/skills/generate-gear/check_novel_types.py .tmp/<gear>.generated.py`. It reports
+every type complaint the candidate draws that no shipped gear in `lib/geargen/` draws, on the
+grounds that a complaint working code never produces is worth a look.
+
+This reports rather than gates, because an API the shipped gears never touch has no baseline and
+correct code using it reads as new. Read each finding and decide. It is the only check that has
+caught a method called on a class that does not define it, or a `BRepBodies` handed to a parameter
+typed `ObjectCollection` — both of which passed all six gates.
+
+Pass `--gate` to make findings fail the run, once the baseline covers the API surface in question.
+
 ## Telling an emit fault from a compile fault
 
 | Symptom | Usually |

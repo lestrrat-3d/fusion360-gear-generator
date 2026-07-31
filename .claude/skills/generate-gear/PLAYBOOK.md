@@ -590,7 +590,10 @@ the check.
   isAbovePath, horizontalAlignment, offset)` lays it along the curve. The spec gives the text
   content and the height to use.
 - **[PB-PATTERN-BODIES] Patterns return original + copies:** `CircularPatternFeature.bodies` already includes the
-  seed body plus copies; feed the whole collection to Combine — don't re-add the seed.
+  seed body plus copies, so don't re-add the seed. **Copy them into an `ObjectCollection` first** —
+  `pattern.bodies` is a `BRepBodies`, and `combineFeatures.createInput(targetBody: BRepBody,
+  toolBodies: core.ObjectCollection)` rejects it. Loop `pattern.bodies.item(i)` into a fresh
+  `adsk.core.ObjectCollection.create()` and pass that.
 - **[PB-CIRCULAR-PATTERN] Circular-pattern input shape:** `circularPatternFeatures.createInput(bodies, axis)` →
   set `quantity` (`ValueInput`), `totalAngle = ValueInput.createByString('360 deg')`,
   `isSymmetric = False` → `add(input)`. Pin all three explicitly — do not rely on Fusion's
