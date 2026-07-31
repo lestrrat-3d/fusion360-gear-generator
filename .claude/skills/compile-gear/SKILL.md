@@ -36,8 +36,10 @@ A step is `[GO]` when the proof exercises it and `[PROSE]` when nothing can. Eve
    clones the Fusion API reference on demand, so a fresh machine needs no setup, and it is cheap
    once the clone exists. Run it every time.
 
-3. **Record provenance.** Take `git hash-object` of `spec/<gear>/instructions.md` and
-   `spec/<gear>/fusion.md`. These go in the step list's provenance table, and step 6 checks them.
+3. **Record provenance.** Take `git hash-object` of every compile input: `spec/<gear>/instructions.md`,
+   `spec/<gear>/fusion.md`, and `.claude/skills/generate-gear/PLAYBOOK.md`. All three go in the step
+   list's provenance table, and step 6 checks them. The playbook belongs there because steps cite its
+   rules by anchor, so a playbook fix leaves every step list stale until it is recompiled.
 
 4. **Draft.** Spawn a subagent with the verbatim prompt in the appendix, substituting only
    `<gear>`. It writes `.tmp/<gear>.steps.md` and `.tmp/<gear>_test.go`. Do **not** add per-gear
@@ -107,8 +109,9 @@ this skill: a compiler that rewrites its own source removes the thing being chec
 > geometry goes into it. So is each extrude, chamfer, pattern, combine, fillet. Write the step list
 > at that size, and keep the detail inside the step it belongs to.
 >
-> **The step list opens with a provenance table** of each spec file and its `git hash-object`
-> value, in a two-column markdown table with both cells in backticks.
+> **The step list opens with a provenance table** of each input file and its `git hash-object`
+> value, in a two-column markdown table with both cells in backticks. It covers the gear's
+> `instructions.md`, its `fusion.md` if present, and `.claude/skills/generate-gear/PLAYBOOK.md`.
 >
 > **Each step carries** a heading of the form `## <id> `[GO]` <title>` or with `[PROSE]`, the
 > instructions themselves, a `**From:**` line naming the spec files and line ranges you compiled it

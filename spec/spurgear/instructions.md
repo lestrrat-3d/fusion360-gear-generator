@@ -414,7 +414,7 @@ Still inside the Gear Profile sketch, draw a single involute tooth centered on t
 7. Draw the **spine** — a construction line from the local origin to the tooth-top point, defining
    the tooth's axis of symmetry — and pin its absolute rotation so the tooth sits at `angle` and the
    sketch is fully constrained. The exact construction (sharing the endpoints, the +X horizontal
-   reference and its required end-pin on the `angle != 0` path, and the confirming angular
+   reference and its required end-pin, built for every angle including 0, and the confirming angular
    dimension) is in `[SPUR-F-SPINE]`; the draw-and-confirm rule is `[SPUR-F-ROTATE-CONFIRM]`.
 8. Draw a **rib** construction line between each matching pair of left/right flank fit-points, with
    a midpoint on the spine; the ribs lock the flanks to the spine so the tooth rebuilds cleanly when

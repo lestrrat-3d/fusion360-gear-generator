@@ -54,8 +54,10 @@ mode. The whole construction falls apart without them, and they're not obvious f
   that rotation rather than swinging the tooth into place from +X. (Drawing the tooth flat and
   relying solely on the dimension to swing it lets Fusion pick the wrong ~180°-off branch and ruins
   the helical loft — bottom profile at 0°, top ~180° away → the loft passes through the gear
-  centre.) Concretely: `if angle != 0: spineAngularDimension.parameter.value = angle`. For
-  `angle = 0` (spur) there is no angular dimension and nothing to set.
+  centre.) Concretely: `if angle != 0: spineAngularDimension.parameter.value = angle`. The angular
+  dimension itself exists for **every** angle including 0, because it is what says which way the
+  spine points (`[SPUR-F-SPINE]`); at `angle = 0` it is created at 0 and there is simply nothing to
+  set afterwards.
 
 ## Per-step constraint recipes (the over-constraint-sensitive ones)
 
