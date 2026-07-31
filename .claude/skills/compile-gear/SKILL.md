@@ -32,36 +32,32 @@ A step is `[GO]` when the proof exercises it and `[PROSE]` when nothing can. Eve
 1. **Setup.** Work in a worktree, never the root checkout. Ensure `.tmp/` exists. Read this file,
    `PLAYBOOK.md`, the gear's spec end to end, and `proof/proofkit/` for the harness API.
 
-2. **Build the API index.** Run `python3 .claude/skills/generate-gear/build_fusion_index.py`. It
-   clones the Fusion API reference on demand, so a fresh machine needs no setup, and it is cheap
-   once the clone exists. Run it every time.
-
-3. **Record provenance.** Take `git hash-object` of every compile input: `spec/<gear>/instructions.md`,
+2. **Record provenance.** Take `git hash-object` of every compile input: `spec/<gear>/instructions.md`,
    `spec/<gear>/fusion.md`, and `.claude/skills/generate-gear/PLAYBOOK.md`. All three go in the step
-   list's provenance table, and step 6 checks them. The playbook belongs there because steps cite its
+   list's provenance table, and step 5 checks them. The playbook belongs there because steps cite its
    rules by anchor, so a playbook fix leaves every step list stale until it is recompiled.
 
-4. **Draft.** Spawn a subagent with the verbatim prompt in the appendix, substituting only
+3. **Draft.** Spawn a subagent with the verbatim prompt in the appendix, substituting only
    `<gear>`. It writes `.tmp/<gear>.steps.md` and `.tmp/<gear>_test.go`. Do **not** add per-gear
    hints, gotcha reminders or "high-risk" lists to that prompt. A hand-tuned prompt varies run to
    run and hides gaps by spoon-feeding what the prose should have said, so a green run would no
    longer say anything about the spec.
 
-5. **Run the proof.** Copy the drafted test into `proof/<gear>/` and run
+4. **Run the proof.** Copy the drafted test into `proof/<gear>/` and run
    `go test ./proof/<gear>/`. The proof must pass with nothing waived.
 
-6. **Check.** Run `python3 .claude/skills/generate-gear/check_compile.py <gear>` from the repo
+5. **Check.** Run `python3 .claude/skills/generate-gear/check_compile.py <gear>` from the repo
    root. It gates citations, step-to-proof agreement, the reality of every named API call, and the
-   provenance hashes. It also prints the spec lines no step claims, which is worth skimming but
-   never gates.
+   provenance hashes. It also prints the spec lines no step claims, and every call on the
+   unverified watchlist the step list makes; both are worth reading and neither gates.
 
-7. **Diagnose and loop.** Classify any failure with the table below. A draft fault goes back to
-   step 4 with the failure text appended, up to about three rounds. A prose fault stops the run.
+6. **Diagnose and loop.** Classify any failure with the table below. A draft fault goes back to
+   step 3 with the failure text appended, up to about three rounds. A prose fault stops the run.
 
-8. **Place.** On success, move both drafts into the working tree. This writes files only; it does
+7. **Place.** On success, move both drafts into the working tree. This writes files only; it does
    not commit, push, or touch Fusion's add-in directory.
 
-9. **Report.** State what was produced, the coverage list, and every prose fault found.
+8. **Report.** State what was produced, the coverage list, and every prose fault found.
 
 ## Telling a draft fault from a prose fault
 
@@ -118,11 +114,13 @@ this skill: a compiler that rewrites its own source removes the thing being chec
 > from, and every Fusion API call it requires written inside a code span. A `[GO]` step also names
 > the proof function that realises it.
 >
-> **Before naming any `adsk.*` call**, grep the API index at
-> `~/.cache/fusion360-gear-generator/fusion-api-index.jsonl` for `"name":"<TheName>"` and read its
-> `class` and `sig`. Write the call with the arguments that signature asks for. If the spec names a
-> call that does not exist, or passes an argument of the wrong type, say so in your report and do
-> not quietly correct it.
+> **Before naming any `adsk.*` call**, ask the `fusion:query-api` skill about it. Two questions
+> carry most of the work: `members <Class>` lists everything a class offers, inherited members
+> included, each with the class that declares it, which is how you find out whether the class you
+> are calling on really has the member; and `show <Class>.<member>` gives one member's signature
+> and documentation. Write the call with the arguments that signature asks for. If the spec names
+> a call the API does not have, or passes an argument of the wrong type, say so in your report and
+> do not quietly correct it.
 >
 > **The proof is a Go test** in package `<gear>_test`, with one function per step named
 > `step<Title>`, matching what the step list names. It builds a table of parameter cases and runs

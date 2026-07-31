@@ -15,7 +15,7 @@ it: the proof engine models 2D sketches, so everything 3D is `[PROSE]`.
 |---|---|
 | `spec/spurgear/instructions.md` | `6ce986c609c1d086e5158592f439e6d1c62309e3` |
 | `spec/spurgear/fusion.md` | `3e8b0b338e80a1199eb7eb95f9f004a6f0bb747d` |
-| `.claude/skills/generate-gear/PLAYBOOK.md` | `9297782f07cf4a68372a500eaa3b0e35a9d27091` |
+| `.claude/skills/generate-gear/PLAYBOOK.md` | `802a53d6e2be4743227920a9d58c3dbe132553dc` |
 
 ## Defects marked inline
 

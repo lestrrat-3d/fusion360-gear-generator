@@ -12,8 +12,8 @@ Four checks gate, and one is reported:
   2. STEPS AND PROOF AGREE. Every `[GO]` step names the proof function that realises it, and every
      proof function is claimed by a step. Drift in either direction means one artifact moved
      without the other.
-  3. API CALLS ARE REAL. Every Fusion call the step list names exists in the API index, on the
-     class it is used from. Catches a spec that names a method Fusion does not have.
+  3. API CALLS ARE REAL. Every Fusion call the step list names exists in the API database the
+     `fusion` plugin ships. Catches a spec that names a method Fusion does not have.
   4. INPUTS HAVE NOT DRIFTED. The provenance table's hashes still match the live spec files, so an
      edited spec cannot leave a stale step list looking healthy.
 
@@ -21,6 +21,11 @@ Four checks gate, and one is reported:
   omissions, but most of that list is headings and introductions, and the compiler is reporting on
   its own citations, so a lazily wide one silences it. Deciding which lines ought to count is a
   judgement call, and a gate would force it on every build.
+
+  UNVERIFIED CALLS are printed, never gated. These are the calls in fusion_api.UNVERIFIED_CALLS —
+  ones the shipped add-in and this step list make that the API database does not back. They are
+  not waived: every run names each one and says which class, if any, does declare it. They do not
+  fail the run either, because only a Fusion session can settle whether the call works.
 
 Usage:
     python3 check_compile.py <gear>            # e.g. spurgear
@@ -34,7 +39,9 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-INDEX = os.path.expanduser('~/.cache/fusion360-gear-generator/fusion-api-index.jsonl')
+sys.path.insert(0, HERE)
+import fusion_api  # noqa: E402  (sibling module; sys.path is fixed up just above)
+
 MIN_CALL_LEN = 6
 
 
@@ -77,23 +84,13 @@ FRAMEWORK = [
     'lib/geargen/solids.py', 'lib/geargen/spurproxy.py', 'lib/fusion360utils',
 ]
 
-# Plain Python and math, which the index rightly does not carry.
+# Plain Python and math, which the API database rightly does not carry.
 PYTHON_METHODS = {
     'append', 'extend', 'insert', 'pop', 'remove', 'sort', 'reverse', 'count', 'index',
     'format', 'join', 'split', 'strip', 'replace', 'startswith', 'endswith', 'lower',
     'upper', 'items', 'keys', 'values', 'update', 'copy', 'setdefault', 'acos', 'asin',
     'atan', 'atan2', 'cos', 'sin', 'tan', 'sqrt', 'hypot', 'radians', 'degrees', 'floor',
     'ceil', 'fabs', 'isclose',
-}
-
-INDEX_GAPS = {
-    # Names the shipped add-in calls successfully inside Fusion, which the
-    # intellisense stubs omit, so the derived index lacks them too. Each is used by
-    # lib/geargen/spurgear.py in an add-in that runs, which is the evidence. Keep
-    # this list SHORT and justify every entry — it is the gate's blind spot.
-    'project',                    # Sketch.project(entity) — spurgear.py:153
-    'createInput2',               # SketchTexts.createInput2(text, height) — spurgear.py:187
-    'addConstantRadiusEdgeSet',   # on FilletFeatureInput itself — spurgear.py:683
 }
 
 
@@ -144,6 +141,25 @@ def named_calls(src):
     for line in re.findall(r'<!--\s*check-compile:\s*ignore\s+([^>]*?)-->', src):
         names -= set(line.split())
     return names
+
+
+def watched_calls(src, path):
+    """Where the step list names a call from the unverified watchlist, receiver and all.
+
+    An entry that names receivers only counts a call written on one of them, so the legitimate
+    `chamferFeatures.createInput2()` is not dragged in beside `sketchTexts.createInput2(...)`.
+    """
+    seen = {}
+    for name, _, receivers, _ in fusion_api.UNVERIFIED_CALLS:
+        if receivers is None:
+            pattern = r'\b%s\s*\(' % re.escape(name)
+        else:
+            pattern = r'\b(?:%s)\s*\.\s*%s\s*\(' % (
+                '|'.join(re.escape(r) for r in receivers), re.escape(name))
+        lines = sorted({src[:m.start()].count('\n') + 1 for m in re.finditer(pattern, src)})
+        if lines:
+            seen[name] = '%s:%s' % (path, ','.join(str(line) for line in lines))
+    return seen
 
 
 def proof_functions(proof_dir):
@@ -211,23 +227,22 @@ def main(argv):
         problems.append("  proof function %s is not claimed by any step" % fn)
 
     # 3. API calls are real
-    if os.path.exists(INDEX):
-        known = set()
-        with open(INDEX) as fh:
-            for line in fh:
-                try:
-                    known.add(json.loads(line)['name'])
-                except Exception:
-                    continue
-        known |= PYTHON_METHODS | INDEX_GAPS
-        known |= defined_names(FRAMEWORK) | contract_names(gear)
-        for call in sorted(named_calls(src)):
-            if call not in known:
-                problems.append("  the step list names '%s(', which is not in the Fusion API index"
-                                % call)
-    else:
-        print('check_compile: no API index at %s; skipping the call check' % INDEX,
-              file=sys.stderr)
+    local = PYTHON_METHODS | defined_names(FRAMEWORK) | contract_names(gear)
+    watched = {name for name, _, _, _ in fusion_api.UNVERIFIED_CALLS}
+    candidates = sorted(name for name in named_calls(src) if name not in local)
+    try:
+        hits = fusion_api.lookup_many(n for n in candidates if n not in watched)
+        findings = fusion_api.unverified_findings(watched_calls(src, steps_path))
+    except fusion_api.Unavailable as exc:
+        print('check_compile: %s' % exc, file=sys.stderr)
+        return 2
+    for call in candidates:
+        if call in watched or hits[call]:
+            continue
+        near = fusion_api.similar(call)
+        problems.append("  the step list names '%s(', which the Fusion API database does not have%s"
+                        % (call, '' if not near else
+                           '; the nearest names it does have are %s' % ', '.join(near)))
 
     # 4. inputs have not drifted
     stamped = dict(re.findall(r'\|\s*`([\w./-]+)`\s*\|\s*`([0-9a-f]{40})`\s*\|', src))
@@ -249,6 +264,13 @@ def main(argv):
         missing = [i for i in live if i not in lines]
         print("coverage: %s — %d/%d lines claimed by a step, %d unclaimed"
               % (path, len(live) - len(missing), len(live), len(missing)))
+
+    # unverified calls, reported only
+    if findings:
+        print('unverified: %d call(s) the API database does not back — reported, not blocking, '
+              'not waived' % len(findings))
+        for line in findings:
+            print('  %s' % line)
 
     if problems:
         print('compile check: BLOCKING (%d)' % len(problems))

@@ -22,21 +22,19 @@ the pipeline exists to make trustworthy.
    `python3 .claude/skills/generate-gear/check_compile.py <gear>`. Emitting from a stale step list
    wastes the round. If it fails, run `/compile-gear <gear>` first.
 
-3. **Build the API index.** Run `python3 .claude/skills/generate-gear/build_fusion_index.py`.
-
-4. **Draft.** Spawn a subagent with the verbatim prompt in the appendix, substituting only
+3. **Draft.** Spawn a subagent with the verbatim prompt in the appendix, substituting only
    `<gear>`. It writes `.tmp/<gear>.generated.py`. Add no per-gear hints; anything the drafter
    needs belongs in the step list.
 
-5. **Gate.** Run all six checks below. Every one must exit 0.
+4. **Gate.** Run all six checks below. Every one must exit 0.
 
-6. **Diagnose and loop.** Classify any failure with the table below. An emit fault goes back to
-   step 4 with the failure text appended, up to about three rounds. A compile fault stops the run.
+5. **Diagnose and loop.** Classify any failure with the table below. An emit fault goes back to
+   step 3 with the failure text appended, up to about three rounds. A compile fault stops the run.
 
-7. **Place.** On success, move the draft to `lib/geargen/<gear>.py`. This writes a file only; it
+6. **Place.** On success, move the draft to `lib/geargen/<gear>.py`. This writes a file only; it
    does not commit, push, or touch Fusion's add-in directory.
 
-8. **Report.** State the gate results and every step that was thin or wrong.
+7. **Report.** State the gate results and every step that was thin or wrong.
 
 ## Gates
 
@@ -103,11 +101,14 @@ step list by hand, and never work around it in the Python.
 > or any previous draft. The step list is deliberately the only description of the gear you get. If
 > a step is unclear, record it as a defect in your report and make your best attempt.
 >
-> **Before writing any `adsk.*` call**, grep the API index at
-> `~/.cache/fusion360-gear-generator/fusion-api-index.jsonl` for `"name":"<TheName>"` and read its
-> `class` and `sig`. Pass what the signature asks for. Where it says `ValueInput`, a bare number
+> **Before writing any `adsk.*` call**, ask the `fusion:query-api` skill about it. Two questions
+> carry most of the work: `members <Class>` lists everything a class offers, inherited members
+> included, each with the class that declares it, which is how you find out whether the class you
+> are calling on really has the member; and `show <Class>.<member>` gives one member's signature
+> and documentation. Pass what the signature asks for. Where it says `ValueInput`, a bare number
 > raises. Where it says `ObjectCollection`, a Python list raises. Where it says `Point3D`, a
-> `SketchPoint` raises.
+> `SketchPoint` raises. If the step list names a call the API does not have, report it and do not
+> quietly correct it.
 >
 > **Do every step.** A step you cannot finish is a defect to report, never a comment left in the
 > file and never a silent omission.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Gate every method call in a generated gear against the real Fusion API index.
+"""Gate every method call in a generated gear against the real Fusion API.
 
 Why this exists: a generated file can call a Fusion method that does not exist and pass every
 other gate. That is not hypothetical. The second task-list pilot passed parse, pyright,
@@ -17,35 +17,42 @@ Nothing else catches them:
   - check_task_calls.py only asks whether a call the task list NAMES appears somewhere in the
     file. A substitution passes it: `addCoincident` does appear, in a different task.
 
-This check automates [PB-API-LOOKUP] — "grep the index before you write the name" — instead of
+This check automates [PB-API-LOOKUP] — "look the API up before you write the name" — instead of
 trusting that the author did.
 
 What it does: collect every `<something>.name(...)` call in the file, then require each name to
-exist in the Fusion API index, to be defined in the file itself, to come from the framework
+exist in the Fusion API database, to be defined in the file itself, to come from the framework
 helper modules, or to be a plain Python method. Anything left over is a name that exists nowhere
 and will fail the moment the add-in runs.
 
+What it cannot do: a walk of the syntax tree does not know the type of the thing being called, so
+a name that exists on SOME class passes here even when the receiver is a different class. Pyright
+answers that question; this gate answers the weaker one.
+
+Unverified calls are reported, not waived. The shipped add-in makes three calls the API database
+does not back, listed as UNVERIFIED_CALLS in fusion_api.py. This tool prints every one it sees,
+on every run, and says which class does declare the name if any does. It does not fail the run,
+because nothing has established that Fusion rejects them — that needs a Fusion session, and the
+fix then belongs in the spec.
+
 Usage:
-    python3 check_api_calls.py <generated.py> [--framework <dir>] [--index <path>]
+    python3 check_api_calls.py <generated.py> [--framework <dir>]
 
-Exit 0 = OK, 1 = BLOCKING, 2 = the index could not be built.
+Exit 0 = OK, 1 = BLOCKING, 2 = the API database could not be reached.
 
-The index is the one built by build_fusion_index.py, which clones the Fusion API reference on
-demand. This script builds it the same way if it is missing, so a fresh machine needs no setup.
+The API comes from the `fusion` plugin's compiled database, via fusion_api.py. Nothing is built
+or cloned here, so a fresh machine needs only that plugin installed.
 """
 import argparse
 import ast
-import json
 import os
-import subprocess
 import sys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_INDEX = os.path.expanduser(
-    '~/.cache/fusion360-gear-generator/fusion-api-index.jsonl')
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import fusion_api  # noqa: E402  (sibling module; sys.path is fixed up just above)
 
 # Plain Python: builtins, str/list/dict methods, and the math functions the gear math uses.
-# None of these are Fusion names, so the index rightly does not carry them.
+# None of these are Fusion names, so the API database rightly does not carry them.
 PYTHON_METHODS = {
     'append', 'extend', 'insert', 'pop', 'remove', 'sort', 'reverse', 'count', 'index',
     'format', 'join', 'split', 'strip', 'lstrip', 'rstrip', 'replace', 'startswith',
@@ -53,35 +60,6 @@ PYTHON_METHODS = {
     'acos', 'asin', 'atan', 'atan2', 'cos', 'sin', 'tan', 'sqrt', 'hypot', 'radians',
     'degrees', 'floor', 'ceil', 'fabs', 'pow', 'log', 'exp', 'isclose',
 }
-
-# Real Fusion methods the intellisense stubs omit, so the derived index lacks them too.
-# Keep this list SHORT and justify every entry — it is the gate's blind spot.
-INDEX_GAPS = {
-    # Names the shipped add-in calls successfully inside Fusion, which the
-    # intellisense stubs omit, so the derived index lacks them too. Each is used by
-    # lib/geargen/spurgear.py in an add-in that runs, which is the evidence. Keep
-    # this list SHORT and justify every entry — it is the gate's blind spot.
-    'project',                    # Sketch.project(entity) — spurgear.py:153
-    'createInput2',               # SketchTexts.createInput2(text, height) — spurgear.py:187
-    'addConstantRadiusEdgeSet',   # on FilletFeatureInput itself — spurgear.py:683
-}
-
-
-def load_index(path):
-    if not os.path.exists(path):
-        builder = os.path.join(HERE, 'build_fusion_index.py')
-        print('api index missing; building it with %s' % builder, file=sys.stderr)
-        rc = subprocess.call([sys.executable, builder])
-        if rc != 0 or not os.path.exists(path):
-            return None
-    names = set()
-    with open(path) as fh:
-        for line in fh:
-            try:
-                names.add(json.loads(line)['name'])
-            except Exception:
-                continue
-    return names
 
 
 def defined_names(paths):
@@ -100,6 +78,19 @@ def defined_names(paths):
     return names
 
 
+def receiver_tail(func):
+    """The last identifier of what a call is made ON: `sketch.sketchTexts.createInput2` -> sketchTexts.
+
+    It is a name, not a type, so it only ever narrows a report — never widens one.
+    """
+    value = func.value
+    if isinstance(value, ast.Attribute):
+        return value.attr
+    if isinstance(value, ast.Name):
+        return value.id
+    return None
+
+
 def framework_files(root):
     out = []
     for base, _, files in os.walk(root):
@@ -114,44 +105,68 @@ def main():
     ap.add_argument('target')
     ap.add_argument('--framework', default='lib',
                     help='directory holding the framework modules (default: lib)')
-    ap.add_argument('--index', default=DEFAULT_INDEX)
     args = ap.parse_args()
-
-    index = load_index(args.index)
-    if index is None:
-        print('check_api_calls: could not build the Fusion API index', file=sys.stderr)
-        return 2
 
     src = open(args.target).read()
     tree = ast.parse(src)
 
-    known = set(index) | PYTHON_METHODS | INDEX_GAPS
-    known |= defined_names([args.target])
-    known |= defined_names(framework_files(args.framework))
+    local = set(PYTHON_METHODS)
+    local |= defined_names([args.target])
+    local |= defined_names(framework_files(args.framework))
     # Names bound by imports in the target (framework helpers called bare).
     for node in ast.walk(tree):
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             for alias in node.names:
-                known.add(alias.asname or alias.name.split('.')[-1])
+                local.add(alias.asname or alias.name.split('.')[-1])
 
-    unknown = {}
+    called = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            name = node.func.attr
-            if name.startswith('_') or name in known:
-                continue
-            unknown.setdefault(name, node.lineno)
+            called.setdefault(node.func.attr, []).append((node.lineno, receiver_tail(node.func)))
+
+    candidates = sorted(n for n in called if not n.startswith('_') and n not in local)
+
+    # Where each watchlist call is actually made, receiver and all, so a legitimate namesake on
+    # another class is not dragged into the report.
+    seen = {}
+    for name, _, receivers, _ in fusion_api.UNVERIFIED_CALLS:
+        lines = sorted(line for line, tail in called.get(name, [])
+                       if fusion_api.receiver_matches(receivers, tail))
+        if lines:
+            seen[name] = '%s:%s' % (args.target, ','.join(str(line) for line in lines))
+
+    try:
+        hits = fusion_api.lookup_many(candidates)
+        findings = fusion_api.unverified_findings(seen)
+    except fusion_api.Unavailable as exc:
+        print('check_api_calls: %s' % exc, file=sys.stderr)
+        return 2
+
+    # A call already reported as unverified is not also reported as unknown; the finding below
+    # says more about it than "no such name" ever could.
+    watched = set(seen)
+    unknown = {name: called[name][0][0] for name in candidates
+               if not hits[name] and name not in watched}
 
     if unknown:
         print('api-call check: BLOCKING (%d)' % len(unknown))
         for name, lineno in sorted(unknown.items(), key=lambda kv: kv[1]):
-            print("  %s:%d calls '%s(' — no such name in the Fusion API index, the framework, "
-                  "or this file" % (args.target, lineno, name))
-        print('  Grep the index for the name you meant: '
-              'grep \'"class":"<OwningClass>"\' %s' % args.index)
+            near = fusion_api.similar(name)
+            print("  %s:%d calls '%s(' — no such name in the Fusion API database, the framework, "
+                  "or this file%s"
+                  % (args.target, lineno, name,
+                     '' if not near else
+                     '; the nearest names the database has are %s' % ', '.join(near)))
+        print('  Ask the database what a class offers: '
+              'python3 %s members <Class>' % fusion_api.query_script())
         return 1
 
-    print('api-call check: OK (every method call resolves)')
+    print('api-call check: OK (%d call names resolve)' % len(candidates))
+    if findings:
+        print('api-call check: %d UNVERIFIED call(s) — reported, not blocking, not waived'
+              % len(findings))
+        for line in findings:
+            print('  %s' % line)
     return 0
 
 

@@ -48,8 +48,8 @@ import shutil
 import subprocess
 import sys
 
-# Stub resolution/clone is shared with build_fusion_index.py (sibling module; sys.path[0] is
-# this file's dir when run as a script). One clone, one resolution policy.
+# Stub resolution/clone lives in a sibling module (sys.path[0] is this file's dir when run as a
+# script). One clone, one resolution policy.
 from fusion_stubs import resolve_defs, StubsUnavailable
 
 
