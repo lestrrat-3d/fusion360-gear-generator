@@ -54,7 +54,9 @@ def steps_of(src):
     heads = list(re.finditer(r'^##\s+(\S+)\s+`\[(GO|PROSE)\]`\s+(.*)$', src, re.M))
     for i, m in enumerate(heads):
         end = heads[i + 1].start() if i + 1 < len(heads) else len(src)
-        out.append((m.group(1), m.group(2), src[m.end():end]))
+        # The title counts as part of the step. A step may name its proof function
+        # there rather than in the prose below, and both readings are reasonable.
+        out.append((m.group(1), m.group(2), m.group(3) + '\n' + src[m.end():end]))
     return out
 
 
