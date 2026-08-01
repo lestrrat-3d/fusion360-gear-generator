@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Static-analysis gate for a generated gear file, using pyright + Fusion API stubs.
 
-Supersedes the old `pyflakes` undefined-name check AND `check_adsk_modules.py`: with the
-Autodesk Fusion API stubs on the path, pyright (standard mode) resolves `adsk.core` /
-`adsk.fusion` and the framework's `from .misc import *` star-exports, so it catches BOTH
-classes of bug the old tools split between them, generically and with no hand-maintained
-name lists:
+Supersedes the old `pyflakes` undefined-name check: with the Autodesk Fusion API stubs on
+the path, pyright (standard mode) resolves `adsk.core` / `adsk.fusion` and the framework's
+`from .misc import *` star-exports, so it catches BOTH classes of bug the old tools split
+between them, generically and with no hand-maintained name lists:
   - undefined names / typos      -> reportUndefinedVariable      (NameError at runtime)
   - wrong adsk submodule         -> reportAttributeAccessIssue   ("X is not a known
     e.g. adsk.fusion.SurfaceTypes                                 attribute of module ...")
@@ -48,8 +47,8 @@ import shutil
 import subprocess
 import sys
 
-# Stub resolution/clone is shared with build_fusion_index.py (sibling module; sys.path[0] is
-# this file's dir when run as a script). One clone, one resolution policy.
+# Stub resolution/clone lives in a sibling module (sys.path[0] is this file's dir when run as a
+# script). One clone, one resolution policy.
 from fusion_stubs import resolve_defs, StubsUnavailable
 
 
@@ -119,8 +118,9 @@ def main():
         stubs = resolve_defs(stubs_arg)
     except StubsUnavailable as e:
         print(f"ERROR: {e}")
-        print("  Fall back to check_adsk_modules.py + pyflakes (stub-free) if stubs are "
-              "unavailable.")
+        print("  Stub-free fallback: pyflakes for undefined names, and the fusion plugin's "
+              "compiled database")
+        print("  ('query_fusion_api.py show <Name>', see fusion_api.py) for the adsk submodule.")
         sys.exit(2)
 
     tmp = os.path.join(root, ".tmp")

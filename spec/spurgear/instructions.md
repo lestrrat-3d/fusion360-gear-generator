@@ -204,7 +204,12 @@ changing any of them.
   sketches, `isLightBulbOn=False` for construction planes/axes (`[PB-HIDE-AFTER-USE]`); the
   spur cleanup recipe (which entities, the per-mode split) is `[SPUR-F-CLEANUP]`.
 - **Dimensions are driving by default** — never pass `isDriven=True` (`[PB-DRIVING-DIM]`). All
-  diameter dimensions here (four gear circles, tooth-top arc, bore circle) must be driving.
+  diameter dimensions here (the four gear circles and the bore circle) must be driving. The
+  tooth-top arc carries no diameter dimension at all; it shares the local origin as its centre
+  instead (`[SPUR-F-TOOTHTOP-ARC]`).
+- **Every sketch here is fully constrained** (`[PB-FULL-CONSTRAINT]`), with no exceptions. Every
+  sketch's local origin rides on the projected anchor, including the Bore Profile sketch's, whose
+  local origin the tooth generator creates and nothing else uses. See step 12.
 - **Dimensions and feature inputs are numeric snapshots** — editing a `<prefix>_…` parameter does
   not change an existing gear; regenerate (`[PB-NUMERIC-SNAPSHOT]`, spur application
   `[SPUR-F-SNAPSHOT]`).
@@ -414,13 +419,14 @@ Still inside the Gear Profile sketch, draw a single involute tooth centered on t
 7. Draw the **spine** — a construction line from the local origin to the tooth-top point, defining
    the tooth's axis of symmetry — and pin its absolute rotation so the tooth sits at `angle` and the
    sketch is fully constrained. The exact construction (sharing the endpoints, the +X horizontal
-   reference and its required end-pin on the `angle != 0` path, and the confirming angular
+   reference and its required end-pin, built for every angle including 0, and the confirming angular
    dimension) is in `[SPUR-F-SPINE]`; the draw-and-confirm rule is `[SPUR-F-ROTATE-CONFIRM]`.
 8. Draw a **rib** construction line between each matching pair of left/right flank fit-points, with
    a midpoint on the spine; the ribs lock the flanks to the spine so the tooth rebuilds cleanly when
    `Module` or `Tooth Number` changes, without pinning any point to an absolute coordinate. **Build a
-   rib for *every* fit-point index — including the first (base-circle) pair and the last (tip) pair
-   whose ends are also joined by the tooth-top arc; there is no exception for endpoints.** With N
+   rib for *every* fit-point index, including the first (base-circle) pair and the last (tip) pair.**
+   The last rib carries no perpendicular, because the tooth-top arc already implies it
+   (`[SPUR-F-TOOTHTOP-ARC]`); every other constraint on it is unchanged. With N
    involute samples per flank you draw N ribs; the flank fit-points carry no other constraint, so a
    missing endpoint rib leaves that fit-point free and the sketch under-constrained. The construction
    is order-sensitive — follow the exact six-step order and the midpoint-chain rule (including the
@@ -428,8 +434,9 @@ Still inside the Gear Profile sketch, draw a single involute tooth centered on t
 9. Close the tooth at the root. If the flank's first point (on the base circle) lies **outside** the
    root circle, draw a short **radial** flank-to-root line on each side (exact two-constraint
    construction in `[SPUR-F-FLANK-ROOT]`); the tooth loop then has **6 curves** (2 splines + 2
-   flank-to-root lines + 2 arcs). If the flank starts **inside** the root circle (low tooth-count /
-   pressure-angle combinations), no flank-to-root line is drawn and the loop has **4 curves** (2
+   flank-to-root lines + 2 arcs). If the flank starts **inside** the root circle (which happens above
+   `2.5 / (1 - cos(PressureAngle))` teeth — 41.5 at 20°, 78.5 at 14.5°, 26.7 at 25°), no
+   flank-to-root line is drawn and the loop has **4 curves** (2
    splines + 2 arcs) — the profile is "embedded." Record which shape was drawn so the extrude step
    knows which edge count to expect; the embedded-flag mechanism (the tooth generator sets
    `self.parent._lastToothEmbedded`, copied to `ctx.toothProfileIsEmbedded` in `buildSketches`) is
@@ -461,7 +468,7 @@ Helical and herringbone subclasses override only the expected edge count, via `c
 
 ### 9: Extrude the Body
 
-Find the gear body profile — the annular loop bounded by **exactly 2 arcs** (the root circle and the tip circle): `find_profile_by_curve_counts(sketch, arcs=2)` (from `.utilities`). Extrude it from the target plane to the Extrusion End Plane (`ToEntityExtentDefinition.create(ctx.extrusionEndPlane, False)`, `PositiveExtentDirection`) as a **New Body**. Name the feature `Extrude body` and the resulting body `Gear Body`.
+Find the gear body profile — the solid disc inside the root circle, whose boundary is **exactly 2 arcs**: the two pieces the tooth's flank-to-root lines cut the root circle into. `find_profile_by_curve_counts(sketch, arcs=2)` (from `.utilities`). It is not an annulus and the tip circle is not part of it: the tip circle is construction geometry (step 3), and construction geometry bounds no profile. Extrude it from the target plane to the Extrusion End Plane (`ToEntityExtentDefinition.create(ctx.extrusionEndPlane, False)`, `PositiveExtentDirection`) as a **New Body**. Name the feature `Extrude body` and the resulting body `Gear Body`.
 
 While iterating the new body's faces (`extrude.bodies.item(0).faces`), capture two references needed later. Classify each face by `face.geometry.surfaceType`:
 
@@ -491,4 +498,4 @@ If the edge collection ends up **empty** (no axial root edge matched), silently 
 
 `buildBore` runs unconditionally from `generate()` (after `buildMainGearBody`), so it MUST itself early-return in two cases: when **SketchOnly** is set, and when **Bore Diameter ≤ 0**. The SketchOnly guard is essential — in sketch-only mode `buildMainGearBody` short-circuits before `buildBody`, so `ctx.gearBody` and `ctx.extrusionExtent` are never set; proceeding into the cut would dereference `None`. (Do not rely on the bore diameter being 0 in sketch-only mode — the user may have set both.)
 
-Otherwise (full build, Bore Diameter > 0), create a separate `Bore Profile` sketch on the target plane and draw the bore circle **by instantiating the tooth generator on that sketch** — `SpurGearInvoluteToothDesignGenerator(boreSketch, self)` — and calling its `drawBore(ctx.anchorPoint, boreDiameter)`, which projects the anchor in and draws the construction-less circle of that diameter with a driving diameter dimension. Note the accepted side effect: the tooth generator's **constructor** always adds its local-origin `(0, 0, 0)` `SketchPoint` (see `[SPUR-F-LOCAL-ORIGIN]`), so the Bore Profile sketch carries one stray unused sketch point at (0,0,0) — faithful behavior, don't suppress it. Then extrude-cut the bore profile from the target plane to `ctx.extrusionExtent` (the far end-cap face), affecting only `ctx.gearBody`. The `ToEntityExtentDefinition` to the far face guarantees the bore goes all the way through regardless of Thickness.
+Otherwise (full build, Bore Diameter > 0), create a separate `Bore Profile` sketch on the target plane and draw the bore circle **by instantiating the tooth generator on that sketch** — `SpurGearInvoluteToothDesignGenerator(boreSketch, self)` — and calling its `drawBore(ctx.anchorPoint, boreDiameter)`, which projects the anchor in and draws the construction-less circle of that diameter with a driving diameter dimension. Note the accepted side effect: the tooth generator's **constructor** always adds its local-origin `(0, 0, 0)` `SketchPoint` (see `[SPUR-F-LOCAL-ORIGIN]`), so the Bore Profile sketch carries one stray unused sketch point at (0,0,0) — faithful behavior, don't suppress it. **Ground that point on the projected anchor**, exactly as step 5 does for the Gear Profile sketch: `drawBore` already projects `ctx.anchorPoint` into this sketch to place the circle's centre, so add `addCoincident(toothGen.anchorPoint, projectedAnchor)` using that same projection. The local origin then rides on the anchor like every other sketch's does, the Bore Profile sketch is fully constrained, and the bore follows the anchor if the user moves it. Do **not** ground it on `boreSketch.originPoint` instead — that pins the point to the plane rather than the gear, and `[PB-CIRCLE-CENTER]` records a solver failure from constraining to `originPoint`. Without any grounding the point is free in two directions and the sketch never reaches `isFullyConstrained`. Then extrude-cut the bore profile from the target plane to `ctx.extrusionExtent` (the far end-cap face), affecting only `ctx.gearBody`. The `ToEntityExtentDefinition` to the far face guarantees the bore goes all the way through regardless of Thickness.
