@@ -13,7 +13,9 @@ Three checks, all derived from `spec/<gear>/steps.md` itself, so the step list d
 checklist and there is nothing separate to keep in sync:
 
   1. NAMED-CALL COVERAGE. Every API call the step list names inside a code span must occur as an
-     executable call in the generated file. A step the generator skipped outright fails here.
+     executable call in the generated file. Dotted names require an executable attribute call;
+     bare names may be implemented as either a function or a method. A step the generator skipped
+     outright fails here.
 
   2. STUB MARKERS. Abandoned work leaves a fingerprint. Any TODO / FIXME / "would be" /
      "placeholder" / "not implemented" comment fails.
@@ -73,32 +75,48 @@ def is_negative_call_span(steps_src, span_start):
 
 def named_calls(steps_src):
     """Extract required API calls named inside single-backtick code spans."""
+    return {name for name, _ in named_call_shapes(steps_src)}
+
+
+CALL_PATTERN = re.compile(
+    r'\b(?:(?P<receiver>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\.)?'
+    r'(?P<name>[a-z][A-Za-z0-9_]{%d,})\s*\(' % (MIN_NAME_LEN - 1))
+
+
+def named_call_shapes(steps_src):
+    """Extract required calls, retaining whether the step names a receiver."""
     # Strip fenced blocks FIRST. Their ``` fences desync single-backtick pairing, which
     # silently drops most of the corpus — the bug that made the first draft of this check
     # report a clean pass on a file that was missing calls.
     body = re.sub(r'```.*?```', '', steps_src, flags=re.S)
-    names = set()
+    calls = set()
     for match in re.finditer(r'`([^`\n]+)`', body):
         if is_negative_call_span(body, match.start()):
             continue
         span = match.group(1)
-        for name in re.findall(r'\b([a-z][A-Za-z0-9_]{%d,})\s*\(' % (MIN_NAME_LEN - 1), span):
-            names.add(name)
+        for call in CALL_PATTERN.finditer(span):
+            calls.add((call.group('name'), call.group('receiver') is not None))
     for line in re.findall(r'<!--\s*check-step-calls:\s*ignore\s+([^>]*?)-->', steps_src):
-        names -= set(line.split())
-    return names
+        ignored = set(line.split())
+        calls = {call for call in calls if call[0] not in ignored}
+    return calls
 
 
 def actual_call_names(gen_tree):
     """Return function and method names used by executable Call nodes."""
+    return {name for name, _ in actual_call_shapes(gen_tree)}
+
+
+def actual_call_shapes(gen_tree):
+    """Return executable calls, retaining whether each call has an attribute receiver."""
     names = set()
     for node in ast.walk(gen_tree):
         if not isinstance(node, ast.Call):
             continue
         if isinstance(node.func, ast.Name):
-            names.add(node.func.id)
+            names.add((node.func.id, False))
         elif isinstance(node.func, ast.Attribute):
-            names.add(node.func.attr)
+            names.add((node.func.attr, True))
     return names
 
 
@@ -112,24 +130,28 @@ def main(argv):
 
     problems = []
 
-    wanted = named_calls(steps_src)
+    wanted = named_call_shapes(steps_src)
     try:
         gen_tree = ast.parse(gen_src, filename=gen_path)
     except SyntaxError as err:
         problems.append("  generated candidate is not valid Python: %s" % err)
         actual = set()
     else:
-        actual = actual_call_names(gen_tree)
+        actual = actual_call_shapes(gen_tree)
 
     # Keep the textual scan only to explain whether a missing executable call has a misleading
     # match in a comment or string. The AST result above is the coverage gate.
-    textual = {n for n in wanted if n + '(' in gen_src}
-    missing = sorted(wanted - actual)
-    for name in missing:
+    textual = {name for name, _ in wanted if name + '(' in gen_src}
+    missing = sorted(
+        (name, has_receiver) for name, has_receiver in wanted
+        if not any(actual_name == name and (not has_receiver or actual_receiver)
+                   for actual_name, actual_receiver in actual))
+    for name, has_receiver in missing:
         note = " (textual match exists, but it is not an executable call)" if name in textual else ""
+        call = ('receiver.%s' if has_receiver else '%s') % name
         problems.append(
-            "  named-call coverage: '%s(' is named in %s but has no executable call in %s%s"
-            % (name, steps_path, gen_path, note))
+            "  named-call coverage: '%s(' is named in %s but has no executable %s call in %s%s"
+            % (call, steps_path, 'method' if has_receiver else 'function', gen_path, note))
 
     for lineno, line in enumerate(gen_src.splitlines(), 1):
         hit = STUB_PATTERN.search(line)

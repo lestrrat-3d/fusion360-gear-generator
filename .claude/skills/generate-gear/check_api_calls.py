@@ -21,9 +21,9 @@ This check automates [PB-API-LOOKUP] — "look the API up before you write the n
 trusting that the author did.
 
 What it does: collect every `<something>.name(...)` call in the file, then require each name to
-exist in the Fusion API database, to be defined in the file itself, to come from the framework
-helper modules, or to be a plain Python method. Anything left over is a name that exists nowhere
-and will fail the moment the add-in runs.
+exist in the Fusion API database, to be defined in the target, to be an inherited framework
+method, to come from an imported framework module, or to be a plain Python method. Anything left
+over is a name that exists nowhere and will fail the moment the add-in runs.
 
 What it cannot do: a walk of the syntax tree does not know the type of the thing being called, so
 a name that exists on SOME class passes here even when the receiver is a different class. Pyright
@@ -100,6 +100,55 @@ def framework_files(root):
     return out
 
 
+def imported_roots(tree):
+    """Names that the target imports as modules or classes."""
+    roots = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                roots.add(alias.asname or alias.name.split('.')[0])
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                roots.add(alias.asname or alias.name)
+    return roots
+
+
+def inherited_framework_methods(target_tree, framework_paths):
+    """Methods inherited by target classes from framework classes."""
+    framework_classes = {}
+    for path in framework_paths:
+        if not os.path.exists(path):
+            continue
+        try:
+            tree = ast.parse(open(path).read())
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                framework_classes[node.name] = {
+                    child.name for child in node.body
+                    if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+                }
+
+    inherited = set()
+    for node in ast.walk(target_tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        for base in node.bases:
+            base_name = base.id if isinstance(base, ast.Name) else base.attr \
+                if isinstance(base, ast.Attribute) else None
+            inherited.update(framework_classes.get(base_name, set()))
+    return inherited
+
+
+def receiver_root(func):
+    """The first identifier in the receiver, such as `futil` in `futil.log(...)`."""
+    value = func.value
+    while isinstance(value, ast.Attribute):
+        value = value.value
+    return value.id if isinstance(value, ast.Name) else None
+
+
 def main():
     ap = argparse.ArgumentParser(add_help=True)
     ap.add_argument('target')
@@ -110,21 +159,30 @@ def main():
     src = open(args.target).read()
     tree = ast.parse(src)
 
-    local = set(PYTHON_METHODS)
-    local |= defined_names([args.target])
-    local |= defined_names(framework_files(args.framework))
-    # Names bound by imports in the target (framework helpers called bare).
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.Import, ast.ImportFrom)):
-            for alias in node.names:
-                local.add(alias.asname or alias.name.split('.')[-1])
+    target_names = defined_names([args.target])
+    framework_paths = framework_files(args.framework)
+    framework_names = defined_names(framework_paths)
+    inherited = inherited_framework_methods(tree, framework_paths)
+    imported = imported_roots(tree)
 
     called = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
             called.setdefault(node.func.attr, []).append((node.lineno, receiver_tail(node.func)))
 
-    candidates = sorted(n for n in called if not n.startswith('_') and n not in local)
+    def allowed(name, func):
+        if name in PYTHON_METHODS or name in target_names:
+            return True
+        if receiver_tail(func) == 'self' and name in inherited:
+            return True
+        return receiver_root(func) in imported and name in framework_names
+
+    candidates = sorted(
+        name for name in called
+        if not name.startswith('_')
+        and any(not allowed(node.func.attr, node.func) for node in ast.walk(tree)
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == name))
 
     # Where each watchlist call is actually made, receiver and all, so a legitimate namesake on
     # another class is not dragged into the report.

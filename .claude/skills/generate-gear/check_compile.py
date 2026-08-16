@@ -8,14 +8,15 @@ from.
 
 Four checks gate, and one is reported:
 
-  1. CITATIONS RESOLVE. Every `**From:**` line names real files and line ranges that exist.
+  1. CITATIONS RESOLVE. Every step has a nonempty `**From:**` line naming real files and line
+     ranges that exist.
   2. STEPS AND PROOF AGREE. Every `[GO]` step names the proof function that realises it, and every
      proof function is claimed by a step. Drift in either direction means one artifact moved
      without the other.
   3. API CALLS ARE REAL. Every Fusion call the step list names exists in the API database the
      `fusion` plugin ships. Catches a spec that names a method Fusion does not have.
-  4. INPUTS HAVE NOT DRIFTED. The provenance table's hashes still match the live spec files, so an
-     edited spec cannot leave a stale step list looking healthy.
+  4. INPUTS HAVE NOT DRIFTED. The provenance table contains and matches the instructions, fusion
+     and playbook inputs, so an edited source cannot leave a stale step list looking healthy.
 
   COVERAGE is printed, never gated. The spec lines no step claims are worth skimming for
   omissions, but most of that list is headings and introductions, and the compiler is reporting on
@@ -45,6 +46,15 @@ import fusion_api  # noqa: E402  (sibling module; sys.path is fixed up just abov
 MIN_CALL_LEN = 6
 
 
+def provenance_inputs(gear):
+    """The source files whose hashes define a compiled step list."""
+    return {
+        os.path.join('spec', gear, 'instructions.md'),
+        os.path.join('spec', gear, 'fusion.md'),
+        os.path.join('.claude', 'skills', 'generate-gear', 'PLAYBOOK.md'),
+    }
+
+
 def read(path):
     with open(path) as fh:
         return fh.read()
@@ -68,9 +78,12 @@ def steps_of(src):
 
 
 def citations(body):
-    """Every (file, first, last) a step's From line names."""
+    """Every (file, first, last) named by a step's From block."""
     out = []
-    for m in re.finditer(r'`([\w./-]+\.(?:md|go)):(\d+)(?:-(\d+))?`', body):
+    match = re.search(r'^\*\*From:\*\*(.*?)(?=\n\s*\n|$)', body, re.M | re.S)
+    if not match:
+        return out
+    for m in re.finditer(r'`([\w./-]+\.(?:md|go)):(\d+)(?:-(\d+))?`', match.group(1)):
         first = int(m.group(2))
         out.append((m.group(1), first, int(m.group(3) or first)))
     return out
@@ -197,6 +210,10 @@ def main(argv):
     # 1. citations resolve
     cited = {}
     for sid, _, body in steps:
+        from_match = re.search(r'^\*\*From:\*\*(.*?)(?=\n\s*\n|$)', body, re.M | re.S)
+        if not from_match or not from_match.group(1).strip():
+            problems.append("  %s has no nonempty **From:** citation" % sid)
+            continue
         for path, first, last in citations(body):
             if not path.endswith('.md'):
                 continue
@@ -248,6 +265,8 @@ def main(argv):
     stamped = dict(re.findall(r'\|\s*`([\w./-]+)`\s*\|\s*`([0-9a-f]{40})`\s*\|', src))
     if not stamped:
         problems.append("  the step list carries no provenance table, so staleness cannot be seen")
+    for path in sorted(provenance_inputs(gear) - set(stamped)):
+        problems.append("  provenance omits required source %s" % path)
     for path, want in sorted(stamped.items()):
         if not os.path.exists(path):
             problems.append("  provenance names %s, which does not exist" % path)
