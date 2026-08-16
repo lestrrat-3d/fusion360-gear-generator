@@ -122,7 +122,7 @@ class SpurGearInvoluteToothDesignGenerator:
         # Movable local origin: a fresh (0,0,0) SketchPoint (NOT sketch.originPoint).
         self.anchorPoint = sketch.sketchPoints.add(adsk.core.Point3D.create(0, 0, 0))
         # References filled by drawCircles / drawTooth.
-        self.projectedAnchorPoint = None
+        self.projectedAnchorPoint = adsk.fusion.SketchPoint.cast(None)
         self.rootCircle = None
         self.tipCircle = None
         self.baseCircle = None
