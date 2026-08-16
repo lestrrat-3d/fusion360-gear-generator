@@ -42,8 +42,8 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import fusion_api  # noqa: E402  (sibling module; sys.path is fixed up just above)
+from call_parser import call_shapes  # noqa: E402
 
-MIN_CALL_LEN = 6
 PATH_REF = r'[\w./-]+\.(?:md|go|py|json|sh)'
 PATH_TOKEN = re.compile(r'`(%s)`' % PATH_REF)
 INLINE_CITATION = re.compile(r'`(%s):(\d+)(?:\s*[-\u2013]\s*(\d+))?`' % PATH_REF)
@@ -227,8 +227,7 @@ def named_calls(src):
     body = re.sub(r'```.*?```', '', src, flags=re.S)
     names = set()
     for span in re.findall(r'`([^`\n]+)`', body):
-        for name in re.findall(r'\b([a-z][A-Za-z0-9_]{%d,})\s*\(' % (MIN_CALL_LEN - 1), span):
-            names.add(name)
+        names.update(name for name, _ in call_shapes(span))
     for line in re.findall(r'<!--\s*check-compile:\s*ignore\s+([^>]*?)-->', src):
         names -= set(line.split())
     return names

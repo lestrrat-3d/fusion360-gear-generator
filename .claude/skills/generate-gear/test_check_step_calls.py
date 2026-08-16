@@ -75,6 +75,17 @@ class CheckStepCallsTest(unittest.TestCase):
 
         self.assertEqual(result, 0, output)
 
+    def test_short_dotted_calls_are_required(self):
+        steps = 'Call `sketch.add()` and `sketch.set()`.'
+
+        self.assertEqual(
+            CHECKER.named_call_shapes(steps),
+            {('add', True), ('set', True)})
+        result, output = self.run_checker(steps, 'sketch.add(None)\n')
+
+        self.assertEqual(result, 1)
+        self.assertIn("receiver.set('", output)
+
 
 class CheckApiCallsTest(unittest.TestCase):
     def run_checker(self, candidate, framework):
@@ -218,6 +229,34 @@ class CheckCompileTest(unittest.TestCase):
 
         self.assertEqual(result, 0, output)
         self.assertIn('compile check: OK', output)
+
+    def test_short_dotted_calls_are_compile_candidates(self):
+        steps = 'Call `sketch.add()`, `sketch.set()`, and `safeCall()`.'
+
+        self.assertEqual(
+            COMPILE_CHECKER.named_calls(steps),
+            {'add', 'set', 'safeCall'})
+
+
+class WorkflowGateWiringTest(unittest.TestCase):
+    def test_workflow_runs_all_generated_candidate_gates(self):
+        root = Path(__file__).parents[3]
+        workflow = (root / '.github' / 'workflows' / '3d-proof.yml').read_text()
+
+        for gate in (
+                'check_compile.py spurgear',
+                'pyright_check.py .tmp/spurgear.generated.py',
+                'check_novel_types.py .tmp/spurgear.generated.py',
+                'check_contract.py spec/spurgear/contract.json',
+                'check_input_read.py .tmp/spurgear.generated.py',
+                'check_anchors.py',
+                'check_step_calls.py spec/spurgear/steps.md .tmp/spurgear.generated.py',
+                'check_api_calls.py .tmp/spurgear.generated.py'):
+            self.assertIn(gate, workflow)
+
+        self.assertIn('FUSION_QUERY_API', workflow)
+        self.assertIn('FUSION_API_STUBS', workflow)
+        self.assertIn('cp lib/geargen/spurgear.py .tmp/spurgear.generated.py', workflow)
 
 
 if __name__ == '__main__':

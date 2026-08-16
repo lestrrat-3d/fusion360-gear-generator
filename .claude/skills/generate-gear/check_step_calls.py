@@ -43,8 +43,7 @@ import ast
 import re
 import sys
 
-# Names shorter than this are almost always prose words followed by a paren.
-MIN_NAME_LEN = 6
+from call_parser import call_shapes
 
 NEGATIVE_CALL_CONTEXT = re.compile(
     r'\b(?:do\s+not|must\s+not|never|avoid|forbid(?:den)?|prohibit(?:ed|s)?)\b',
@@ -78,11 +77,6 @@ def named_calls(steps_src):
     return {name for name, _ in named_call_shapes(steps_src)}
 
 
-CALL_PATTERN = re.compile(
-    r'\b(?:(?P<receiver>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\.)?'
-    r'(?P<name>[a-z][A-Za-z0-9_]{%d,})\s*\(' % (MIN_NAME_LEN - 1))
-
-
 def named_call_shapes(steps_src):
     """Extract required calls, retaining whether the step names a receiver."""
     # Strip fenced blocks FIRST. Their ``` fences desync single-backtick pairing, which
@@ -94,8 +88,7 @@ def named_call_shapes(steps_src):
         if is_negative_call_span(body, match.start()):
             continue
         span = match.group(1)
-        for call in CALL_PATTERN.finditer(span):
-            calls.add((call.group('name'), call.group('receiver') is not None))
+        calls.update(call_shapes(span))
     for line in re.findall(r'<!--\s*check-step-calls:\s*ignore\s+([^>]*?)-->', steps_src):
         ignored = set(line.split())
         calls = {call for call in calls if call[0] not in ignored}

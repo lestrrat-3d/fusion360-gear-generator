@@ -29,12 +29,61 @@ jobs:
           ref: main
           path: decad
 
+      - name: Check out the Fusion API lookup database
+        uses: actions/checkout@v4
+        with:
+          repository: lestrrat-ai/claude-code-plugins
+          ref: main
+          path: fusion-api
+          sparse-checkout: |
+            plugins/fusion/skills/query-api/data
+            plugins/fusion/skills/query-api/scripts
+          sparse-checkout-cone-mode: false
+
+      - name: Install generated-candidate gate dependencies
+        env:
+          FUSION_API_STUBS: ${{ runner.temp }}/FusionAPIReference/Fusion_API_Python_Reference/defs
+          FUSION_QUERY_API: ${{ github.workspace }}/fusion-api/plugins/fusion/skills/query-api/scripts/query_fusion_api.py
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --no-input pyright
+          git clone --depth 1 --filter=blob:none --sparse \
+            https://github.com/AutodeskFusion360/FusionAPIReference.git "$RUNNER_TEMP/FusionAPIReference"
+          git -C "$RUNNER_TEMP/FusionAPIReference" sparse-checkout set Fusion_API_Python_Reference/defs
+          test -f "$FUSION_QUERY_API"
+          test -f "$FUSION_API_STUBS/adsk/core.py"
+          {
+            echo "FUSION_QUERY_API=$FUSION_QUERY_API"
+            echo "FUSION_API_STUBS=$FUSION_API_STUBS"
+          } >> "$GITHUB_ENV"
+
+      - name: Prepare the checked-in spur candidate
+        run: |
+          set -euo pipefail
+          mkdir -p .tmp
+          cp lib/geargen/spurgear.py .tmp/spurgear.generated.py
+        working-directory: gears
+
       - uses: actions/setup-go@v5
         with:
           go-version-file: gears/proof/go.mod
 
       - name: Run step-call checker regression tests
         run: python3 .claude/skills/generate-gear/test_check_step_calls.py
+        working-directory: gears
+
+      - name: Run compile and generated-candidate gates
+        run: |
+          set -euo pipefail
+          python3 .claude/skills/generate-gear/check_compile.py spurgear
+          python3 -c "import ast; ast.parse(open('.tmp/spurgear.generated.py').read())"
+          python3 .claude/skills/generate-gear/pyright_check.py .tmp/spurgear.generated.py
+          python3 .claude/skills/generate-gear/check_novel_types.py .tmp/spurgear.generated.py --reference lib/geargen --gate
+          python3 .claude/skills/generate-gear/check_contract.py spec/spurgear/contract.json .tmp/spurgear.generated.py
+          python3 .claude/skills/generate-gear/check_input_read.py .tmp/spurgear.generated.py
+          python3 .claude/skills/generate-gear/check_anchors.py
+          python3 .claude/skills/generate-gear/check_step_calls.py spec/spurgear/steps.md .tmp/spurgear.generated.py
+          python3 .claude/skills/generate-gear/check_api_calls.py .tmp/spurgear.generated.py
         working-directory: gears
 
       - name: Run proof runner regression tests
