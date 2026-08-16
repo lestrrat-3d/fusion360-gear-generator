@@ -1,0 +1,41 @@
+name: 3D proof
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the gear repository
+        uses: actions/checkout@v4
+        with:
+          path: gears
+
+      - name: Check out the sketch engine
+        uses: actions/checkout@v4
+        with:
+          repository: lestrrat-3d/sketch
+          ref: main
+          path: sketch
+
+      - name: Check out the decad engine
+        uses: actions/checkout@v4
+        with:
+          repository: lestrrat-3d/decad
+          ref: main
+          path: decad
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: gears/proof/go.mod
+
+      - name: Run the 3D proof
+        env:
+          SKETCH_DIR: ${{ github.workspace }}/sketch
+          DECAD_DIR: ${{ github.workspace }}/decad
+        run: ./run.sh
+        working-directory: gears/proof
