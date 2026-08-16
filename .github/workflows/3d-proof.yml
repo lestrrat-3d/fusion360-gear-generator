@@ -33,6 +33,14 @@ jobs:
         with:
           go-version-file: gears/proof/go.mod
 
+      - name: Run step-call checker regression tests
+        run: python3 .claude/skills/generate-gear/test_check_step_calls.py
+        working-directory: gears
+
+      - name: Run proof runner regression tests
+        run: bash proof/run_test.sh
+        working-directory: gears
+
       - name: Run the 3D proof
         env:
           SKETCH_DIR: ${{ github.workspace }}/sketch

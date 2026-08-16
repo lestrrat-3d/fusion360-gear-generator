@@ -18,8 +18,8 @@ printf 'module github.com/lestrrat-3d/sketch\ngo 1.26.1\n' > "$fixture/sketch/go
 printf 'module github.com/lestrrat-3d/decad\ngo 1.26.1\n' > "$fixture/decad/go.mod"
 
 output=$(cd "$fixture/repo/proof" && ./run.sh)
-printf '%s\n' "$output" | rg -Fq "using sketch engine at: $fixture/repo/../sketch"
-printf '%s\n' "$output" | rg -Fq "using decad engine at: $fixture/repo/../decad"
+printf '%s\n' "$output" | grep -Fq "using sketch engine at: $fixture/repo/../sketch"
+printf '%s\n' "$output" | grep -Fq "using decad engine at: $fixture/repo/../decad"
 
 first_output="$fixture/first.out"
 second_output="$fixture/second.out"
@@ -42,9 +42,9 @@ second_status=$?
 set -e
 test "$first_status" -eq 0
 test "$second_status" -eq 0
-rg -Fq "using sketch engine at: $fixture/repo/../sketch" "$first_output"
-rg -Fq "using sketch engine at: $fixture/repo/../sketch" "$second_output"
-rg -Fq "using decad engine at: $fixture/repo/../decad" "$first_output"
-rg -Fq "using decad engine at: $fixture/repo/../decad" "$second_output"
+grep -Fq "using sketch engine at: $fixture/repo/../sketch" "$first_output"
+grep -Fq "using sketch engine at: $fixture/repo/../sketch" "$second_output"
+grep -Fq "using decad engine at: $fixture/repo/../decad" "$first_output"
+grep -Fq "using decad engine at: $fixture/repo/../decad" "$second_output"
 
 printf '%s\n' 'proof/run.sh path fixture: OK'

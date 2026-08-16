@@ -90,6 +90,8 @@ class CheckApiCallsTest(unittest.TestCase):
                     API_CHECKER.fusion_api, 'lookup_many',
                     side_effect=lambda names: {name: [] for name in names}), \
                     mock.patch.object(API_CHECKER.fusion_api, 'similar', return_value=[]), \
+                    mock.patch.object(API_CHECKER.fusion_api, 'query_script',
+                                      return_value='/hermetic/fusion-query-api.py'), \
                     contextlib.redirect_stdout(output):
                 with warnings.catch_warnings():
                     warnings.simplefilter('ignore', ResourceWarning)
