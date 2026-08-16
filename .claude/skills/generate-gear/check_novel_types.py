@@ -19,6 +19,10 @@ that nothing working produces it, which is enough to make a human look. It there
 default; pass --gate to make findings fail the run, once you trust the baseline covers the API
 surface in question.
 
+Diagnostics for calls listed in `fusion_api.UNVERIFIED_CALLS` are explicitly non-gating. The API
+checker still reports those calls, and this gate only exempts the matching unavailable member on
+its matching Fusion class; other candidate-only diagnostics remain blocking.
+
 Three limits, stated plainly.
 
 It needs at least one shipped gear to compare against, so it does nothing for a repository with no
@@ -51,10 +55,29 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
+sys.path.insert(0, HERE)
+import fusion_api  # noqa: E402  (sibling module; sys.path is fixed up above)
+
 # Import noise: the candidate lives in .tmp/ and the gears live in a package, so their
 # relative imports resolve differently. That difference is about where the file sits,
 # not about what it does.
 IGNORED_RULES = {'reportMissingImports', 'reportMissingModuleSource'}
+
+
+ATTRIBUTE_ACCESS = re.compile(
+    r'Cannot access attribute "(?P<member>\w+)" for class "(?P<class>[^\"]+)"')
+UNVERIFIED_ATTRIBUTES = frozenset(
+    (cls.rsplit('.', 1)[-1], member)
+    for member, cls, _, _ in fusion_api.UNVERIFIED_CALLS)
+
+
+def is_unverified_api_diagnostic(diag):
+    """Whether a pyright finding names an explicitly unverified Fusion member."""
+    if diag.get('rule') != 'reportAttributeAccessIssue':
+        return False
+    match = ATTRIBUTE_ACCESS.search(diag.get('message', ''))
+    return bool(match and (match.group('class'), match.group('member'))
+                in UNVERIFIED_ATTRIBUTES)
 
 
 def load_pyright_check():
@@ -166,7 +189,8 @@ def main():
         for diag in diagnostics(pc, gear):
             baseline.add(signature(diag))
 
-    novel = [d for d in diagnostics(pc, args.candidate) if signature(d) not in baseline]
+    novel = [d for d in diagnostics(pc, args.candidate)
+             if signature(d) not in baseline and not is_unverified_api_diagnostic(d)]
     if novel:
         print('novel-type check: %d complaint(s) no shipped gear produces — triage each'
               % len(novel))

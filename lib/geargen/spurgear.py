@@ -218,6 +218,8 @@ class SpurGearInvoluteToothDesignGenerator:
 
         # 3. Rotate so the pitch-circle crossing lands at +pi/(2N) (analytic).
         pitchPoint = self.calculateInvolutePoint(baseR, pitchR)
+        if pitchPoint is None:
+            raise ValueError('Pitch Circle Radius must be at least Base Circle Radius')
         rotate_angle = math.pi / (2 * toothNumber) - math.atan2(-pitchPoint.y, pitchPoint.x)
 
         def rot(pt, a):

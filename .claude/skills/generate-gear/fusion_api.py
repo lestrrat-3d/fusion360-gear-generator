@@ -18,8 +18,10 @@ The three shapes of question the checkers ask:
     owners('addByTwoPoints')   -> just the classes that declare a member of that name
     class_members('Sketch')    -> member name -> declaring class, inherited members included
 
-Calls the database does not back are listed in UNVERIFIED_CALLS below. They are reported, never
-suppressed; see that list's comment for why they cannot simply be deleted or fixed.
+Calls the database does not back are listed in UNVERIFIED_CALLS below. The API-call checks report
+them and never suppress them. The novel-type check uses the same list to recognize matching stub
+diagnostics as non-gating; see that list's comment for why the calls cannot simply be deleted or
+fixed.
 """
 import json
 import os
@@ -50,7 +52,8 @@ _MEMBER = re.compile(r'^\s{2}(\w+)')
 # The checkers re-ask the database about each entry on every run rather than trusting this
 # comment, so an entry whose member has since been documented is reported as stale and deleted.
 #
-# These are NOT waived. The checkers print them on every run and never count them as resolved.
+# These are NOT waived. The API-call checks print them on every run and never count them as
+# resolved. The novel-type check exempts only matching stub diagnostics, not the calls themselves.
 # They are not failures either, because nothing has established that Fusion rejects them — the
 # shipped add-in makes all three and is believed to run. Only loading the add-in settles it, and
 # whichever way it goes the fix belongs in the spec, not in a generated file.

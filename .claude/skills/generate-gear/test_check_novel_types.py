@@ -43,5 +43,44 @@ class ReferenceGearTests(unittest.TestCase):
             )
 
 
+class DiagnosticFilterTests(unittest.TestCase):
+    def test_unverified_fusion_member_is_non_gating(self):
+        for member, class_name in (
+                ('project', 'Sketch'),
+                ('addConstantRadiusEdgeSet', 'FilletFeatureInput')):
+            diagnostic = {
+                'rule': 'reportAttributeAccessIssue',
+                'message': 'Cannot access attribute "%s" for class "%s"' %
+                           (member, class_name),
+            }
+
+            with self.subTest(member=member):
+                self.assertTrue(MODULE.is_unverified_api_diagnostic(diagnostic))
+
+    def test_other_member_on_valid_class_remains_gating(self):
+        diagnostic = {
+            'rule': 'reportAttributeAccessIssue',
+            'message': 'Cannot access attribute "missing" for class "Sketch"',
+        }
+
+        self.assertFalse(MODULE.is_unverified_api_diagnostic(diagnostic))
+
+    def test_unverified_member_on_wrong_class_remains_gating(self):
+        diagnostic = {
+            'rule': 'reportAttributeAccessIssue',
+            'message': 'Cannot access attribute "project" for class "SketchPoint"',
+        }
+
+        self.assertFalse(MODULE.is_unverified_api_diagnostic(diagnostic))
+
+    def test_optional_member_access_remains_gating(self):
+        diagnostic = {
+            'rule': 'reportOptionalMemberAccess',
+            'message': '"x" is not a known attribute of "None"',
+        }
+
+        self.assertFalse(MODULE.is_unverified_api_diagnostic(diagnostic))
+
+
 if __name__ == '__main__':
     unittest.main()
