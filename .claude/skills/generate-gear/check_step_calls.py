@@ -31,7 +31,9 @@ Usage:
 Exit 0 = OK, 1 = BLOCKING.
 
 The step list may exempt a name it mentions but does not require — a call the framework makes on
-the generator's behalf, or one named only to forbid it — with a line of the form:
+the generator's behalf, or one named only to forbid it. Calls in code spans introduced by a
+negative instruction such as "Do not call" or "never use" are also excluded. An explicit
+exemption uses a line of the form:
 
     <!-- check-step-calls: ignore nameOne nameTwo -->
 """
@@ -42,6 +44,10 @@ import sys
 # Names shorter than this are almost always prose words followed by a paren.
 MIN_NAME_LEN = 6
 
+NEGATIVE_CALL_CONTEXT = re.compile(
+    r'\b(?:do\s+not|must\s+not|never|avoid|forbid(?:den)?|prohibit(?:ed|s)?)\b',
+    re.IGNORECASE)
+
 STUB_PATTERN = re.compile(
     r'(TODO|FIXME|XXX|would be\b|placeholder|not implemented|unimplemented)',
     re.IGNORECASE)
@@ -51,14 +57,31 @@ SHARE_CALL = re.compile(
     r'add(?:ByCenterRadius|ByTwoPoints)\(\s*([A-Za-z_][\w.]*)\s*,', re.S)
 
 
+def is_negative_call_span(steps_src, span_start):
+    """Return whether a code span is introduced as a forbidden example."""
+    context_start = max(
+        steps_src.rfind('.', 0, span_start),
+        steps_src.rfind('!', 0, span_start),
+        steps_src.rfind('?', 0, span_start),
+        steps_src.rfind(';', 0, span_start),
+        steps_src.rfind(':', 0, span_start),
+        steps_src.rfind('\n', 0, span_start),
+    ) + 1
+    context = re.sub(r'[*_]', '', steps_src[context_start:span_start])
+    return bool(NEGATIVE_CALL_CONTEXT.search(context))
+
+
 def named_calls(steps_src):
-    """Extract every API call the step list names inside a single-backtick code span."""
+    """Extract required API calls named inside single-backtick code spans."""
     # Strip fenced blocks FIRST. Their ``` fences desync single-backtick pairing, which
     # silently drops most of the corpus — the bug that made the first draft of this check
     # report a clean pass on a file that was missing calls.
     body = re.sub(r'```.*?```', '', steps_src, flags=re.S)
     names = set()
-    for span in re.findall(r'`([^`\n]+)`', body):
+    for match in re.finditer(r'`([^`\n]+)`', body):
+        if is_negative_call_span(body, match.start()):
+            continue
+        span = match.group(1)
         for name in re.findall(r'\b([a-z][A-Za-z0-9_]{%d,})\s*\(' % (MIN_NAME_LEN - 1), span):
             names.add(name)
     for line in re.findall(r'<!--\s*check-step-calls:\s*ignore\s+([^>]*?)-->', steps_src):

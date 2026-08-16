@@ -44,7 +44,8 @@ A step is `[GO]` when the proof exercises it and `[PROSE]` when nothing can. Eve
    longer say anything about the spec.
 
 4. **Run the proof.** Copy the drafted test into `proof/<gear>/` and run
-   `go test ./proof/<gear>/`. The proof must pass with nothing waived.
+   `bash proof/run.sh`. The wrapper enters the `proof/` module and configures the local engine
+   replacements; the proof must pass with nothing waived.
 
 5. **Check.** Run `python3 .claude/skills/generate-gear/check_compile.py <gear>` from the repo
    root. It gates citations, step-to-proof agreement, the reality of every named API call, and the
