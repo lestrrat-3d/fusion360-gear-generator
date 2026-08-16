@@ -46,7 +46,7 @@ prescribe, mapping each Fusion constraint to its sketch-engine equivalent:
 | involute flanks as fitted splines (step 4) | `CreateSpline(pts...)` |
 | tooth-top arc `addByCenterStartEnd` without a diameter; root-circle split (`[SPUR-F-TOOTHTOP-ARC]`) | `CreateArc(origin, a, b)`; root split uses `CreateArc(freeCenter, a, b)` + `NewDiameter` |
 | spine horizontal (`[SPUR-F-SPINE]`, angle 0) | `CreateLine` + `NewHorizontal` |
-| ribs: length, midpoint-on-spine, midpoint, ⊥, chain dims (`[SPUR-F-RIBS]`) | `NewDistance`, `NewPointOnLine`, `NewMidpoint`, `NewPerpendicular` |
+| ribs: length, midpoint-on-spine, midpoint, ⊥ except on the final rib, chain dims (`[SPUR-F-RIBS]`) | `NewDistance`, `NewPointOnLine`, `NewMidpoint`, `NewPerpendicular` except on the final rib |
 | flank-to-root lines: root-end-on-circle + origin-on-line (`[SPUR-F-FLANK-ROOT]`) | `NewPointOnCircle` + `NewPointOnLine` |
 
 The involute sampling (`calculateInvolutePoint`, the mirror/rotate) is the spec's

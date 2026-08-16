@@ -142,9 +142,11 @@ func checkGearProfile(ctx context.Context, module, toothNumber, pressureAng floa
 		t := left[i].x*math.Cos(angle) + left[i].y*math.Sin(angle)                            // foot on spine
 		mx, my := t*math.Cos(angle), t*math.Sin(angle)
 		mid := s.CreatePoint(mx, my)
-		s.AddConstraint(sketch.NewPointOnLine(mid, spine))   // 4. midpoint onto spine first
-		s.AddConstraint(sketch.NewMidpoint(mid, rib))        // 5. then midpoint of rib
-		s.AddConstraint(sketch.NewPerpendicular(spine, rib)) // 6. then rib ⊥ spine
+		s.AddConstraint(sketch.NewPointOnLine(mid, spine)) // 4. midpoint onto spine first
+		s.AddConstraint(sketch.NewMidpoint(mid, rib))      // 5. then midpoint of rib
+		if i != len(left)-1 {
+			s.AddConstraint(sketch.NewPerpendicular(spine, rib)) // 6. then rib ⊥ spine
+		} // The tooth-top arc already constrains the final rib's perpendicular.
 		// chain distance from previous midpoint (origin for the first rib)
 		s.AddConstraint(sketch.NewDistance(prevMid, mid, dist(prevMidPt, pt{mx, my})))
 		prevMid, prevMidPt = mid, pt{mx, my}

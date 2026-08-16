@@ -288,8 +288,10 @@ class SpurGearInvoluteToothDesignGenerator:
             sketch.geometricConstraints.addCoincident(mid, spine)
             # 5. then make it the rib's midpoint.
             sketch.geometricConstraints.addMidPoint(mid, rib)
-            # 6. then make the rib perpendicular to the spine.
-            sketch.geometricConstraints.addPerpendicular(spine, rib)
+            # 6. then make the rib perpendicular to the spine, except for the
+            # final rib whose perpendicular is already implied by the tooth-top arc.
+            if i != leftFit.count - 1:
+                sketch.geometricConstraints.addPerpendicular(spine, rib)
             # chain distance from the previous midpoint (origin for the first rib).
             pg = prevMid.geometry
             chainText = adsk.core.Point3D.create(
