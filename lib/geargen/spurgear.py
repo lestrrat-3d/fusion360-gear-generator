@@ -249,21 +249,27 @@ class SpurGearInvoluteToothDesignGenerator:
         sketch.sketchCurves.sketchArcs.addByCenterStartEnd(
             origin, rightSpline.endSketchPoint, leftSpline.endSketchPoint)
 
-        # 7. Spine + horizontal reference + angular pin ([SPUR-F-SPINE]).
+        # 7. Spine + +X reference + angular pin ([SPUR-F-SPINE]).
         spine = sketch.sketchCurves.sketchLines.addByTwoPoints(origin, toothTop)
         spine.isConstruction = True
-        if angle == 0:
-            sketch.geometricConstraints.addHorizontal(spine)
-        else:
-            horizontal = sketch.sketchCurves.sketchLines.addByTwoPoints(
-                origin, adsk.core.Point3D.create(tipR, 0, 0))
-            horizontal.isConstruction = True
-            sketch.geometricConstraints.addHorizontal(horizontal)
-            sketch.geometricConstraints.addCoincident(horizontal.endSketchPoint, self.tipCircle)
-            bisectorText = adsk.core.Point3D.create(
-                tipR * math.cos(angle / 2), tipR * math.sin(angle / 2), 0)
-            self.spineAngularDimension = sketch.sketchDimensions.addAngularDimension(
-                spine, horizontal, bisectorText)
+        referenceEnd = sketch.sketchPoints.add(
+            adsk.core.Point3D.create(tipR, 0, 0))
+        horizontalDimension = sketch.sketchDimensions.addDistanceDimension(
+            origin, referenceEnd,
+            adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation,
+            adsk.core.Point3D.create(tipR / 2, 0, 0))
+        horizontalDimension.parameter.value = tipR
+        verticalDimension = sketch.sketchDimensions.addDistanceDimension(
+            origin, referenceEnd,
+            adsk.fusion.DimensionOrientations.VerticalDimensionOrientation,
+            adsk.core.Point3D.create(tipR, 0, 0))
+        verticalDimension.parameter.value = 0
+        reference = sketch.sketchCurves.sketchLines.addByTwoPoints(origin, referenceEnd)
+        reference.isConstruction = True
+        bisectorText = adsk.core.Point3D.create(
+            tipR * math.cos(angle / 2), tipR * math.sin(angle / 2), 0)
+        self.spineAngularDimension = sketch.sketchDimensions.addAngularDimension(
+            reference, spine, bisectorText)
 
         # 8. Ribs ([SPUR-F-RIBS]) — exact order, midpoint chain from the origin.
         leftFit = leftSpline.fitPoints

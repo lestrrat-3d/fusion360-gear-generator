@@ -45,7 +45,7 @@ prescribe, mapping each Fusion constraint to its sketch-engine equivalent:
 | 4 circles sharing the origin center + driving diameter dims (step 3) | `CreateCircle(origin, r)` + `NewDiameter` |
 | involute flanks as fitted splines (step 4) | `CreateSpline(pts...)` |
 | tooth-top arc `addByCenterStartEnd` without a diameter; root-circle split (`[SPUR-F-TOOTHTOP-ARC]`) | `CreateArc(origin, a, b)`; root split uses `CreateArc(freeCenter, a, b)` + `NewDiameter` |
-| spine horizontal (`[SPUR-F-SPINE]`, angle 0) | `CreateLine` + `NewHorizontal` |
+| +X reference and angular pin (`[SPUR-F-SPINE]`, every angle) | `NewHorizontalDistance` + `NewVerticalDistance` + `NewAngle` |
 | ribs: length, midpoint-on-spine, midpoint, ⊥ except on the final rib, chain dims (`[SPUR-F-RIBS]`) | `NewDistance`, `NewPointOnLine`, `NewMidpoint`, `NewPerpendicular` except on the final rib |
 | flank-to-root lines: root-end-on-circle + origin-on-line (`[SPUR-F-FLANK-ROOT]`) | `NewPointOnCircle` + `NewPointOnLine` |
 

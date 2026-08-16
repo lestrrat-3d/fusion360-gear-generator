@@ -121,12 +121,19 @@ func checkGearProfile(ctx context.Context, module, toothNumber, pressureAng floa
 		return false
 	}
 
-	// spine: origin -> tooth-top; tooth-top on tip circle; horizontal (angle 0).
+	// spine: origin -> tooth-top; tooth-top on tip circle; +X reference and angle pin.
 	toothTop := s.CreatePoint(tipR, 0)
 	s.AddConstraint(sketch.NewPointOnCircle(toothTop, tipCircle))
 	spine := s.CreateLine(origin, toothTop)
 	spine.SetConstruction(true)
-	s.AddConstraint(sketch.NewHorizontal(spine)) // [SPUR-F-SPINE], angle==0 path
+	refEnd := s.CreatePoint(tipR, 0)
+	s.AddConstraint(
+		sketch.NewHorizontalDistance(origin, refEnd, tipR),
+		sketch.NewVerticalDistance(origin, refEnd, 0),
+	)
+	reference := s.CreateLine(origin, refEnd)
+	reference.SetConstruction(true)
+	s.AddConstraint(sketch.NewAngle(reference, spine, angle*180/math.Pi)) // [SPUR-F-SPINE]
 
 	// tooth-top arc: caps the flank ends. Faithful to Fusion's shared-origin
 	// addByCenterStartEnd call, with no diameter dimension.

@@ -88,13 +88,13 @@ class CheckStepCallsTest(unittest.TestCase):
 
 
 class CheckApiCallsTest(unittest.TestCase):
-    def run_checker(self, candidate, framework):
+    def run_checker(self, candidate, framework, framework_name='helpers.py'):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             candidate_path = root / 'candidate.py'
             framework_path = root / 'framework'
             framework_path.mkdir()
-            (framework_path / 'helpers.py').write_text(framework)
+            (framework_path / framework_name).write_text(framework)
             candidate_path.write_text(candidate)
             output = io.StringIO()
             with mock.patch.object(
@@ -172,6 +172,70 @@ class CheckApiCallsTest(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertIn("calls 'addConstantRadiusEdgeSet('", output)
 
+    def test_framework_method_on_unrelated_target_receiver_is_blocking(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            framework_path = root / 'framework'
+            framework_path.mkdir()
+            (framework_path / 'base.py').write_text(
+                'class Generator:\n'
+                '    def getParameterValue(self, name):\n'
+                '        return name\n')
+            (framework_path / 'spurgear.py').write_text(
+                'class SpurGearInvoluteToothDesignGenerator:\n'
+                '    def getParameterValue(self, name):\n'
+                '        return name\n')
+            candidate_path = root / 'candidate.py'
+            candidate_path.write_text(
+                'class Candidate:\n'
+                '    def run(self):\n'
+                "        return self.getParameterValue('x')\n")
+            output = io.StringIO()
+            with mock.patch.object(
+                    API_CHECKER.fusion_api, 'lookup_many',
+                    side_effect=lambda names: {name: [] for name in names}), \
+                    mock.patch.object(API_CHECKER.fusion_api, 'similar', return_value=[]), \
+                    mock.patch.object(API_CHECKER.fusion_api, 'query_script',
+                                      return_value='/hermetic/fusion-query-api.py'), \
+                    contextlib.redirect_stdout(output):
+                with mock.patch.object(sys, 'argv', [
+                        'check_api_calls.py', str(candidate_path),
+                        '--framework', str(framework_path)]):
+                    result = API_CHECKER.main()
+
+        self.assertEqual(result, 1)
+        self.assertIn("calls 'getParameterValue('", output.getvalue())
+
+    def test_method_on_verified_framework_object_is_allowed(self):
+        result, output = self.run_checker(
+            'class Candidate:\n'
+            '    def run(self):\n'
+            '        parent = Generator()\n'
+            "        return parent.getParameterValue('x')\n",
+            'class Generator:\n'
+            '    def getParameterValue(self, name):\n'
+            '        return name\n',
+            framework_name='base.py')
+
+        self.assertEqual(result, 0, output)
+
+    def test_method_on_constructor_verified_field_is_allowed(self):
+        result, output = self.run_checker(
+            'class Candidate:\n'
+            '    def __init__(self, parent):\n'
+            '        self.parent = parent\n'
+            '    def run(self):\n'
+            "        return self.parent.getParameterValue('x')\n"
+            '\n'
+            'def build():\n'
+            '    return Candidate(Generator()).run()\n',
+            'class Generator:\n'
+            '    def getParameterValue(self, name):\n'
+            '        return name\n',
+            framework_name='base.py')
+
+        self.assertEqual(result, 0, output)
+
 
 class SpurDimensionContractTest(unittest.TestCase):
     def test_rib_and_midpoint_chain_dimensions_are_signed(self):
@@ -184,6 +248,17 @@ class SpurDimensionContractTest(unittest.TestCase):
         self.assertIn('HorizontalDimensionOrientation', ribs)
         self.assertIn('ribOrientation', ribs)
         self.assertIn('chainOrientation', ribs)
+
+    def test_spine_uses_pinned_reference_for_zero_angle(self):
+        source = (Path(__file__).parents[3] / 'lib' / 'geargen' / 'spurgear.py').read_text()
+        spine = source.split('        # 7. Spine + +X reference', 1)[1].split(
+            '        # 8. Ribs', 1)[0]
+
+        self.assertIn('referenceEnd = sketch.sketchPoints.add', spine)
+        self.assertIn('HorizontalDimensionOrientation', spine)
+        self.assertIn('VerticalDimensionOrientation', spine)
+        self.assertIn('addAngularDimension(\n            reference, spine', spine)
+        self.assertNotIn('addHorizontal(spine)', spine)
 
 
 class CheckCompileTest(unittest.TestCase):

@@ -124,22 +124,17 @@ func checkTwistedProfile(ctx context.Context, module, toothNumber, pressureAng, 
 	s.AddConstraint(sketch.NewPointOnCircle(toothTop, tipCircle))
 	spine := s.CreateLine(origin, toothTop)
 	spine.SetConstruction(true)
-	if angle == 0 {
-		// angle==0 (spur) path: the spine's only extra constraint is horizontal.
-		s.AddConstraint(sketch.NewHorizontal(spine))
-	} else {
-		// angle!=0 (helical/herringbone/bevel) path: a +X horizontal REFERENCE line
-		// whose far end is PINNED on the tip circle (else its length floats and the
-		// sketch is under-constrained — the [SPUR-F-SPINE] end-pin), then an angular
-		// dimension from the reference to the spine fixes the twist.
-		refEnd := s.CreatePoint(tipR, 0)
-		refLine := s.CreateLine(origin, refEnd)
-		refLine.SetConstruction(true)
-		s.AddConstraint(sketch.NewHorizontal(refLine))
-		s.AddConstraint(sketch.NewPointOnCircle(refEnd, tipCircle)) // the end-pin
-		// CCW from the +X reference to the spine == helixAngle (NewAngle is in degrees).
-		s.AddConstraint(sketch.NewAngle(refLine, spine, helixAngle*180/math.Pi))
-	}
+	// Every angle uses the same signed +X reference recipe as the Fusion spur
+	// implementation, including the zero-angle seed tooth.
+	refEnd := s.CreatePoint(tipR, 0)
+	s.AddConstraint(
+		sketch.NewHorizontalDistance(origin, refEnd, tipR),
+		sketch.NewVerticalDistance(origin, refEnd, 0),
+	)
+	refLine := s.CreateLine(origin, refEnd)
+	refLine.SetConstruction(true)
+	// CCW from the +X reference to the spine == helixAngle (NewAngle is in degrees).
+	s.AddConstraint(sketch.NewAngle(refLine, spine, helixAngle*180/math.Pi))
 
 	// tooth-top arc (free center + diameter dim, faithful to Fusion's 3-point arc).
 	topArc := s.CreateArc(s.CreatePoint(rot(0, tipR*0.1, angle)), rightPts[len(rightPts)-1], leftPts[len(leftPts)-1])

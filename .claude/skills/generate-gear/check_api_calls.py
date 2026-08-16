@@ -57,21 +57,19 @@ PYTHON_METHODS = {
     'degrees', 'floor', 'ceil', 'fabs', 'pow', 'log', 'exp', 'isclose',
 }
 
-
-def defined_names(paths):
-    """Every function/class/method name the given Python files define."""
-    names = set()
-    for path in paths:
-        if not os.path.exists(path):
-            continue
-        try:
-            tree = ast.parse(open(path).read())
-        except SyntaxError:
-            continue
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                names.add(node.name)
-    return names
+# Only these modules are shared by generated gear files.  Gear implementations are
+# deliberately excluded: a method on one gear must not become an API allowance for
+# an unrelated receiver in another generated file.
+SHARED_FRAMEWORK_MODULES = (
+    'geargen/base.py',
+    'geargen/misc.py',
+    'geargen/utilities.py',
+    'geargen/solids.py',
+    'geargen/spurproxy.py',
+    'fusion360utils/__init__.py',
+    'fusion360utils/event_utils.py',
+    'fusion360utils/general_utils.py',
+)
 
 
 def receiver_tail(func):
@@ -89,16 +87,20 @@ def receiver_tail(func):
 
 def framework_files(root):
     out = []
-    for base, _, files in os.walk(root):
-        for name in files:
-            if name.endswith('.py'):
-                out.append(os.path.join(base, name))
+    for relative in SHARED_FRAMEWORK_MODULES:
+        path = os.path.join(root, relative)
+        if not os.path.exists(path):
+            # Permit --framework to point directly at either shared package.  This
+            # keeps the checker useful with a small hermetic fixture as well as lib/.
+            path = os.path.join(root, os.path.basename(relative))
+        if os.path.exists(path):
+            out.append(path)
     return out
 
 
 def framework_methods(paths):
-    """Every method declared directly on a framework class."""
-    names = set()
+    """Map each shared framework class to its directly declared methods."""
+    methods = {}
     for path in paths:
         try:
             tree = ast.parse(open(path).read())
@@ -106,54 +108,136 @@ def framework_methods(paths):
             continue
         for node in ast.walk(tree):
             if isinstance(node, ast.ClassDef):
-                names.update(child.name for child in node.body
-                             if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)))
-    return names
+                methods.setdefault(node.name, set()).update(
+                    child.name for child in node.body
+                    if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)))
+    return methods
 
 
-def imported_roots(tree):
-    """Names that the target imports as modules or classes."""
-    roots = set()
+def framework_exports(paths):
+    """Map each shared module name to its top-level exported names."""
+    exports = {}
+    for path in paths:
+        try:
+            tree = ast.parse(open(path).read())
+        except (OSError, SyntaxError):
+            continue
+        filename = os.path.basename(path)
+        module = os.path.splitext(filename)[0]
+        if module == '__init__':
+            module = os.path.basename(os.path.dirname(path))
+        names = {
+            node.name for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        }
+        exports.setdefault(module, set()).update(names)
+        if os.path.basename(os.path.dirname(path)) == 'fusion360utils':
+            # The package re-exports the two utility modules with star imports.
+            exports.setdefault('fusion360utils', set()).update(names)
+    return exports
+
+
+def imported_framework_modules(tree, exports):
+    """Map imported aliases to verified shared framework modules."""
+    modules = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                roots.add(alias.asname or alias.name.split('.')[0])
+                module = alias.name.rsplit('.', 1)[-1]
+                if module in exports:
+                    modules[alias.asname or alias.name.split('.')[0]] = module
         elif isinstance(node, ast.ImportFrom):
             for alias in node.names:
-                roots.add(alias.asname or alias.name)
-    return roots
+                module = alias.name
+                if module in exports:
+                    modules[alias.asname or alias.name] = module
+    return modules
 
 
-def inherited_framework_methods(target_tree, framework_paths):
-    """Methods inherited by target classes from framework classes."""
-    framework_classes = {}
-    for path in framework_paths:
-        if not os.path.exists(path):
+def imported_class_methods(tree, root, inherited_methods):
+    """Resolve methods only for classes explicitly imported by the target."""
+    imported_paths = []
+
+    def module_path(module):
+        candidates = (
+            os.path.join(root, 'geargen', module + '.py'),
+            os.path.join(root, module + '.py'),
+        )
+        return next((path for path in candidates if os.path.exists(path)), None)
+
+    def add_imports(source):
+        for node in ast.walk(source):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            module = node.module.rsplit('.', 1)[-1] if node.module else None
+            if module:
+                path = module_path(module)
+                if path is not None:
+                    imported_paths.append(path)
+            else:
+                imported_paths.extend(
+                    path for path in (module_path(alias.name) for alias in node.names)
+                    if path is not None)
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom):
             continue
+        module = node.module.rsplit('.', 1)[-1] if node.module else None
+        if module:
+            path = module_path(module)
+            if path is not None:
+                imported_paths.append(path)
+        else:
+            imported_paths.extend(
+                path for path in (module_path(alias.name) for alias in node.names)
+                if path is not None)
+
+    own = {}
+    bases = {}
+    seen_paths = set()
+    while imported_paths:
+        path = imported_paths.pop()
+        if path in seen_paths:
+            continue
+        seen_paths.add(path)
         try:
-            tree = ast.parse(open(path).read())
-        except SyntaxError:
+            source = ast.parse(open(path).read())
+        except (OSError, SyntaxError):
             continue
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ClassDef):
-                framework_classes[node.name] = {
-                    child.name for child in node.body
-                    if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
-                }
+        add_imports(source)
+        for class_node in source.body:
+            if not isinstance(class_node, ast.ClassDef):
+                continue
+            own[class_node.name] = {
+                child.name for child in class_node.body
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+            }
+            bases[class_node.name] = {
+                base.id if isinstance(base, ast.Name) else base.attr
+                for base in class_node.bases
+                if isinstance(base, (ast.Name, ast.Attribute))
+            }
 
-    inherited = set()
-    for node in ast.walk(target_tree):
-        if not isinstance(node, ast.ClassDef):
-            continue
-        for base in node.bases:
-            base_name = base.id if isinstance(base, ast.Name) else base.attr \
-                if isinstance(base, ast.Attribute) else None
-            inherited.update(framework_classes.get(base_name, set()))
-    return inherited
+    resolved = {}
+
+    def methods_for(class_name, visiting=()):
+        if class_name in resolved:
+            return resolved[class_name]
+        if class_name in visiting:
+            return set()
+        methods = set(own.get(class_name, ()))
+        for base in bases.get(class_name, ()):
+            methods.update(methods_for(base, visiting + (class_name,)))
+            methods.update(inherited_methods.get(base, ()))
+        resolved[class_name] = methods
+        return methods
+
+    return {class_name: methods_for(class_name) for class_name in own}
 
 
-def target_methods(tree):
+def target_methods(tree, framework_class_methods=None):
     """Map each target class to its own methods and methods of target base classes."""
+    framework_class_methods = framework_class_methods or {}
     own = {}
     bases = {}
     for node in ast.walk(tree):
@@ -178,7 +262,10 @@ def target_methods(tree):
             return set()
         methods = set(own.get(class_name, ()))
         for base in bases.get(class_name, ()):
-            methods.update(methods_for(base, visiting + (class_name,)))
+            methods.update(own.get(base, ()))
+            methods.update(framework_class_methods.get(base, ()))
+            if base in own:
+                methods.update(methods_for(base, visiting + (class_name,)))
         resolved[class_name] = methods
         return methods
 
@@ -205,6 +292,67 @@ def target_receiver_types(tree, classes):
             if target_type and isinstance(node.target, (ast.Name, ast.Attribute)):
                 types[ast.unparse(node.target)] = target_type
     return types
+
+
+def constructor_field_parameters(tree):
+    """Map (class, field) to the constructor parameter assigned to that field."""
+    fields = {}
+    parameters = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        init = next((child for child in node.body
+                     if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+                     and child.name == '__init__'), None)
+        if init is None:
+            continue
+        args = [arg.arg for arg in init.args.args[1:]]
+        parameters[node.name] = args
+        for statement in ast.walk(init):
+            if not isinstance(statement, ast.Assign):
+                continue
+            if not isinstance(statement.value, ast.Name):
+                continue
+            for target in statement.targets:
+                if (isinstance(target, ast.Attribute)
+                        and isinstance(target.value, ast.Name)
+                        and target.value.id == 'self'
+                        and statement.value.id in args):
+                    fields[(node.name, target.attr)] = statement.value.id
+    return fields, parameters
+
+
+def inferred_field_types(tree, classes, receiver_types, containing_classes):
+    """Infer field types from constructor calls with already verified receivers."""
+    fields, parameters = constructor_field_parameters(tree)
+    inferred = {}
+
+    def expression_type(expression, containing_class):
+        if isinstance(expression, ast.Name) and expression.id == 'self':
+            return containing_class
+        if isinstance(expression, (ast.Name, ast.Attribute)):
+            return receiver_types.get(ast.unparse(expression))
+        if (isinstance(expression, ast.Call)
+                and isinstance(expression.func, ast.Name)
+                and expression.func.id in classes):
+            return expression.func.id
+        return None
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+            continue
+        class_name = node.func.id
+        if class_name not in parameters:
+            continue
+        containing_class = containing_classes.get(node)
+        for argument, parameter in zip(node.args, parameters[class_name]):
+            argument_type = expression_type(argument, containing_class)
+            if argument_type is None:
+                continue
+            for (field_class, field), field_parameter in fields.items():
+                if field_class == class_name and field_parameter == parameter:
+                    inferred.setdefault((field_class, field), set()).add(argument_type)
+    return inferred
 
 
 def call_classes(tree):
@@ -247,13 +395,20 @@ def main():
     tree = ast.parse(src)
 
     framework_paths = framework_files(args.framework)
-    framework_names = defined_names(framework_paths)
-    framework_method_names = framework_methods(framework_paths)
-    inherited = inherited_framework_methods(tree, framework_paths)
-    target_class_methods = target_methods(tree)
-    target_types = target_receiver_types(tree, target_class_methods)
+    framework_class_methods = framework_methods(framework_paths)
+    framework_module_exports = framework_exports(framework_paths)
+    imported_methods = imported_class_methods(
+        tree, args.framework, framework_class_methods)
+    inherited_methods = dict(framework_class_methods)
+    inherited_methods.update(imported_methods)
+    target_class_methods = target_methods(tree, inherited_methods)
+    known_class_methods = dict(inherited_methods)
+    known_class_methods.update(target_class_methods)
+    target_types = target_receiver_types(tree, known_class_methods)
     containing_classes = call_classes(tree)
-    imported = imported_roots(tree)
+    framework_modules = imported_framework_modules(tree, framework_module_exports)
+    field_types = inferred_field_types(
+        tree, known_class_methods, target_types, containing_classes)
 
     called = {}
     for node in ast.walk(tree):
@@ -268,19 +423,24 @@ def main():
         receiver_type = None
         if isinstance(receiver, ast.Name) and receiver.id == 'self':
             receiver_type = containing_class
-        elif isinstance(receiver, ast.Name) and receiver.id in target_class_methods:
-            receiver_type = receiver.id
+        elif (isinstance(receiver, ast.Call)
+              and isinstance(receiver.func, ast.Name)
+              and receiver.func.id == 'super'):
+            return name in known_class_methods.get(containing_class, ())
+        elif (isinstance(receiver, ast.Call)
+              and isinstance(receiver.func, ast.Name)):
+            receiver_type = receiver.func.id
         elif isinstance(receiver, (ast.Name, ast.Attribute)):
             receiver_type = target_types.get(ast.unparse(receiver))
-        if name in target_class_methods.get(receiver_type, ()):
+        if (isinstance(receiver, ast.Attribute)
+                and isinstance(receiver.value, ast.Name)
+                and receiver.value.id == 'self'):
+            receiver_type = next(iter(field_types.get(
+                (containing_class, receiver.attr), ())), None)
+        if name in known_class_methods.get(receiver_type, ()):
             return True
-        # A target object may pass a framework-backed object through an attribute, as in
-        # `self.parent.getParameter()`. Keep that existing framework allowance scoped to self.
-        if receiver_root(func) == 'self' and name in framework_method_names:
-            return True
-        if receiver_tail(func) == 'self' and name in inherited:
-            return True
-        return receiver_root(func) in imported and name in framework_names
+        module = framework_modules.get(receiver_root(func))
+        return module is not None and name in framework_module_exports[module]
 
     candidates = sorted(
         name for name in called
