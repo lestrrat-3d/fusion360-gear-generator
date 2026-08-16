@@ -51,6 +51,19 @@ class CheckStepCallsTest(unittest.TestCase):
         self.assertEqual(result, 0, output)
         self.assertNotIn('getTangent', output)
 
+    def test_not_a_substitute_call_is_not_required(self):
+        steps = (
+            'Use the angular pin. A plain `GeometricConstraints.addHorizontal(line)` '
+            'is not a substitute at angle 0.')
+
+        self.assertEqual(
+            CHECKER.named_calls(steps),
+            set())
+        result, output = self.run_checker(steps, 'pass\n')
+
+        self.assertEqual(result, 0, output)
+        self.assertNotIn('addHorizontal', output)
+
     def test_comment_only_call_still_fails_coverage(self):
         steps = 'Call `safeCall()`.'
 

@@ -46,7 +46,8 @@ import sys
 from call_parser import call_shapes
 
 NEGATIVE_CALL_CONTEXT = re.compile(
-    r'\b(?:do\s+not|must\s+not|never|avoid|forbid(?:den)?|prohibit(?:ed|s)?)\b',
+    r'\b(?:do\s+not|must\s+not|never|avoid|forbid(?:den)?|prohibit(?:ed|s)?|'
+    r'not\s+(?:a\s+)?substitute)\b',
     re.IGNORECASE)
 
 STUB_PATTERN = re.compile(
@@ -58,8 +59,8 @@ SHARE_CALL = re.compile(
     r'add(?:ByCenterRadius|ByTwoPoints)\(\s*([A-Za-z_][\w.]*)\s*,', re.S)
 
 
-def is_negative_call_span(steps_src, span_start):
-    """Return whether a code span is introduced as a forbidden example."""
+def is_negative_call_span(steps_src, span_start, span_end):
+    """Return whether a code span is used as a forbidden example."""
     context_start = max(
         steps_src.rfind('.', 0, span_start),
         steps_src.rfind('!', 0, span_start),
@@ -68,7 +69,17 @@ def is_negative_call_span(steps_src, span_start):
         steps_src.rfind(':', 0, span_start),
         steps_src.rfind('\n', 0, span_start),
     ) + 1
-    context = re.sub(r'[*_]', '', steps_src[context_start:span_start])
+    context_end_candidates = [
+        position for position in (
+            steps_src.find('.', span_end),
+            steps_src.find('!', span_end),
+            steps_src.find('?', span_end),
+            steps_src.find(':', span_end),
+            steps_src.find('\n', span_end),
+        ) if position >= 0
+    ]
+    context_end = min(context_end_candidates, default=len(steps_src))
+    context = re.sub(r'[*_]', '', steps_src[context_start:context_end])
     return bool(NEGATIVE_CALL_CONTEXT.search(context))
 
 
@@ -85,7 +96,7 @@ def named_call_shapes(steps_src):
     body = re.sub(r'```.*?```', '', steps_src, flags=re.S)
     calls = set()
     for match in re.finditer(r'`([^`\n]+)`', body):
-        if is_negative_call_span(body, match.start()):
+        if is_negative_call_span(body, match.start(), match.end()):
             continue
         span = match.group(1)
         calls.update(call_shapes(span))
