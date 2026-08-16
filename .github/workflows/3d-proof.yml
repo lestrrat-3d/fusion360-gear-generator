@@ -33,7 +33,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: lestrrat-ai/claude-code-plugins
-          ref: main
+          ref: 0ea1fd792e3da6d9e3727262f7904673295af931
           path: fusion-api
           sparse-checkout: |
             plugins/fusion/skills/query-api/data

@@ -21,13 +21,9 @@ This check automates [PB-API-LOOKUP] — "look the API up before you write the n
 trusting that the author did.
 
 What it does: collect every `<something>.name(...)` call in the file, then require each name to
-exist in the Fusion API database, to be defined in the target, to be an inherited framework
-method, to come from an imported framework module, or to be a plain Python method. Anything left
-over is a name that exists nowhere and will fail the moment the add-in runs.
-
-What it cannot do: a walk of the syntax tree does not know the type of the thing being called, so
-a name that exists on SOME class passes here even when the receiver is a different class. Pyright
-answers that question; this gate answers the weaker one.
+exist in the Fusion API database, to be a method on the target receiver, to be an inherited
+framework method, to come from an imported framework module, or to be a plain Python method.
+Anything left over is a name that exists nowhere and will fail the moment the add-in runs.
 
 Unverified calls are reported, not waived. The shipped add-in makes three calls the API database
 does not back, listed as UNVERIFIED_CALLS in fusion_api.py. This tool prints every one it sees,
@@ -100,6 +96,21 @@ def framework_files(root):
     return out
 
 
+def framework_methods(paths):
+    """Every method declared directly on a framework class."""
+    names = set()
+    for path in paths:
+        try:
+            tree = ast.parse(open(path).read())
+        except (OSError, SyntaxError):
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                names.update(child.name for child in node.body
+                             if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)))
+    return names
+
+
 def imported_roots(tree):
     """Names that the target imports as modules or classes."""
     roots = set()
@@ -141,6 +152,82 @@ def inherited_framework_methods(target_tree, framework_paths):
     return inherited
 
 
+def target_methods(tree):
+    """Map each target class to its own methods and methods of target base classes."""
+    own = {}
+    bases = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        own[node.name] = {
+            child.name for child in node.body
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        bases[node.name] = {
+            base.id if isinstance(base, ast.Name) else base.attr
+            for base in node.bases
+            if isinstance(base, (ast.Name, ast.Attribute))
+        }
+
+    resolved = {}
+
+    def methods_for(class_name, visiting=()):
+        if class_name in resolved:
+            return resolved[class_name]
+        if class_name in visiting:
+            return set()
+        methods = set(own.get(class_name, ()))
+        for base in bases.get(class_name, ()):
+            methods.update(methods_for(base, visiting + (class_name,)))
+        resolved[class_name] = methods
+        return methods
+
+    return {class_name: methods_for(class_name) for class_name in own}
+
+
+def target_receiver_types(tree, classes):
+    """Infer simple target-instance bindings such as `candidate = Candidate()`."""
+    types = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            value = node.value
+            target_type = (value.func.id if isinstance(value, ast.Call)
+                           and isinstance(value.func, ast.Name)
+                           and value.func.id in classes else None)
+            if target_type:
+                for target in node.targets:
+                    if isinstance(target, (ast.Name, ast.Attribute)):
+                        types[ast.unparse(target)] = target_type
+        elif isinstance(node, ast.AnnAssign):
+            annotation = node.annotation
+            target_type = (annotation.id if isinstance(annotation, ast.Name)
+                           and annotation.id in classes else None)
+            if target_type and isinstance(node.target, (ast.Name, ast.Attribute)):
+                types[ast.unparse(node.target)] = target_type
+    return types
+
+
+def call_classes(tree):
+    """Map calls to the target class whose method contains each call."""
+    found = {}
+
+    class Visitor(ast.NodeVisitor):
+        def __init__(self):
+            self.classes = []
+
+        def visit_ClassDef(self, node):
+            self.classes.append(node.name)
+            self.generic_visit(node)
+            self.classes.pop()
+
+        def visit_Call(self, node):
+            found[node] = self.classes[-1] if self.classes else None
+            self.generic_visit(node)
+
+    Visitor().visit(tree)
+    return found
+
+
 def receiver_root(func):
     """The first identifier in the receiver, such as `futil` in `futil.log(...)`."""
     value = func.value
@@ -159,19 +246,37 @@ def main():
     src = open(args.target).read()
     tree = ast.parse(src)
 
-    target_names = defined_names([args.target])
     framework_paths = framework_files(args.framework)
     framework_names = defined_names(framework_paths)
+    framework_method_names = framework_methods(framework_paths)
     inherited = inherited_framework_methods(tree, framework_paths)
+    target_class_methods = target_methods(tree)
+    target_types = target_receiver_types(tree, target_class_methods)
+    containing_classes = call_classes(tree)
     imported = imported_roots(tree)
 
     called = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            called.setdefault(node.func.attr, []).append((node.lineno, receiver_tail(node.func)))
+            called.setdefault(node.func.attr, []).append((
+                node.lineno, receiver_tail(node.func), node, containing_classes[node]))
 
-    def allowed(name, func):
-        if name in PYTHON_METHODS or name in target_names:
+    def allowed(name, func, containing_class):
+        if name in PYTHON_METHODS:
+            return True
+        receiver = func.value
+        receiver_type = None
+        if isinstance(receiver, ast.Name) and receiver.id == 'self':
+            receiver_type = containing_class
+        elif isinstance(receiver, ast.Name) and receiver.id in target_class_methods:
+            receiver_type = receiver.id
+        elif isinstance(receiver, (ast.Name, ast.Attribute)):
+            receiver_type = target_types.get(ast.unparse(receiver))
+        if name in target_class_methods.get(receiver_type, ()):
+            return True
+        # A target object may pass a framework-backed object through an attribute, as in
+        # `self.parent.getParameter()`. Keep that existing framework allowance scoped to self.
+        if receiver_root(func) == 'self' and name in framework_method_names:
             return True
         if receiver_tail(func) == 'self' and name in inherited:
             return True
@@ -180,7 +285,7 @@ def main():
     candidates = sorted(
         name for name in called
         if not name.startswith('_')
-        and any(not allowed(node.func.attr, node.func) for node in ast.walk(tree)
+        and any(not allowed(node.func.attr, node.func, containing_classes[node]) for node in ast.walk(tree)
                 if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
                 and node.func.attr == name))
 
@@ -188,7 +293,7 @@ def main():
     # another class is not dragged into the report.
     seen = {}
     for name, _, receivers, _ in fusion_api.UNVERIFIED_CALLS:
-        lines = sorted(line for line, tail in called.get(name, [])
+        lines = sorted(line for line, tail, _, _ in called.get(name, [])
                        if fusion_api.receiver_matches(receivers, tail))
         if lines:
             seen[name] = '%s:%s' % (args.target, ','.join(str(line) for line in lines))

@@ -128,6 +128,32 @@ class CheckApiCallsTest(unittest.TestCase):
 
         self.assertEqual(result, 0, output)
 
+    def test_target_helper_does_not_allow_unrelated_receiver(self):
+        result, output = self.run_checker(
+            'class Candidate:\n'
+            '    def totallyBogus(self, entity):\n'
+            '        return entity\n'
+            '\n'
+            'def build(sketch, entity):\n'
+            '    return sketch.totallyBogus(entity)\n',
+            '')
+
+        self.assertEqual(result, 1)
+        self.assertIn("calls 'totallyBogus('", output)
+
+    def test_target_method_on_typed_local_instance_is_allowed(self):
+        result, output = self.run_checker(
+            'class Candidate:\n'
+            '    def helper(self):\n'
+            '        return None\n'
+            '\n'
+            'def build():\n'
+            '    candidate = Candidate()\n'
+            '    return candidate.helper()\n',
+            '')
+
+        self.assertEqual(result, 0, output)
+
     def test_project_on_unrelated_receiver_is_blocking(self):
         result, output = self.run_checker(
             'def build(other, entity):\n'
@@ -288,6 +314,10 @@ class WorkflowGateWiringTest(unittest.TestCase):
         self.assertIn('FUSION_QUERY_API', workflow)
         self.assertIn('FUSION_API_STUBS', workflow)
         self.assertIn('cp lib/geargen/spurgear.py .tmp/spurgear.generated.py', workflow)
+
+        lookup_step = workflow.split('name: Check out the Fusion API lookup database', 1)[1]
+        lookup_step = lookup_step.split('name:', 1)[0]
+        self.assertRegex(lookup_step, r'(?m)^\s+ref: [0-9a-f]{40}$')
 
 
 if __name__ == '__main__':
