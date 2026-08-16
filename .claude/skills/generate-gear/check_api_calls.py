@@ -42,6 +42,7 @@ or cloned here, so a fresh machine needs only that plugin installed.
 import argparse
 import ast
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -70,6 +71,28 @@ SHARED_FRAMEWORK_MODULES = (
     'fusion360utils/event_utils.py',
     'fusion360utils/general_utils.py',
 )
+
+FUSION_NAME_HINTS = {
+    'cmd': 'Command',
+    'command': 'Command',
+    'sketch': 'Sketch',
+}
+
+UNVERIFIED_RETURN_TYPES = {
+    ('project', 'sketch'): 'ObjectCollection',
+    ('project', 'toolsSketch'): 'ObjectCollection',
+    ('createInput2', 'sketchTexts'): 'SketchTextInput',
+}
+
+IMPLIED_MEMBER_RETURNS = {
+    ('Curve3D', 'startPoint'): 'Point3D',
+    ('Curve3D', 'endPoint'): 'Point3D',
+}
+
+
+def read_source(path):
+    with open(path) as fh:
+        return fh.read()
 
 
 def receiver_tail(func):
@@ -103,7 +126,7 @@ def framework_methods(paths):
     methods = {}
     for path in paths:
         try:
-            tree = ast.parse(open(path).read())
+            tree = ast.parse(read_source(path))
         except (OSError, SyntaxError):
             continue
         for node in ast.walk(tree):
@@ -114,12 +137,157 @@ def framework_methods(paths):
     return methods
 
 
+def class_bases_from_tree(tree):
+    bases = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        bases[node.name] = {
+            base.id if isinstance(base, ast.Name) else base.attr
+            for base in node.bases
+            if isinstance(base, (ast.Name, ast.Attribute))
+        }
+    return bases
+
+
+def framework_bases(paths):
+    bases = {}
+    for path in paths:
+        try:
+            tree = ast.parse(read_source(path))
+        except (OSError, SyntaxError):
+            continue
+        bases.update(class_bases_from_tree(tree))
+    return bases
+
+
+def normalize_api_type(name):
+    if not name:
+        return None
+    name = str(name).strip().strip('"\'')
+    name = re.sub(r'\s*\|\s*None$', '', name)
+    optional = re.match(r'(?:typing\.)?Optional\[(.+)\]$', name)
+    if optional:
+        name = optional.group(1)
+    if name.startswith(('adsk.core.', 'adsk.fusion.')):
+        return name.rsplit('.', 1)[-1]
+    if name.startswith(('core.', 'fusion.')):
+        return name.rsplit('.', 1)[-1]
+    if re.match(r'^[A-Z][A-Za-z0-9_]*(?:\[[^]]+\])?$', name):
+        return name.split('[', 1)[0]
+    return None
+
+
+def annotation_return_type(annotation):
+    if annotation is None:
+        return None
+    return normalize_api_type(ast.unparse(annotation))
+
+
+def method_returns_from_tree(tree, known_classes):
+    returns = {}
+    for class_node in ast.walk(tree):
+        if not isinstance(class_node, ast.ClassDef):
+            continue
+        for child in class_node.body:
+            if not isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            ret = annotation_return_type(child.returns)
+            if ret is None:
+                for statement in child.body:
+                    if not isinstance(statement, ast.Return):
+                        continue
+                    value = statement.value
+                    if (isinstance(value, ast.Call)
+                            and isinstance(value.func, ast.Name)
+                            and value.func.id in known_classes):
+                        ret = value.func.id
+                        break
+            if ret is not None:
+                returns[(class_node.name, child.name)] = ret
+    return returns
+
+
+def method_parameters_from_tree(tree):
+    parameters = {}
+    for class_node in ast.walk(tree):
+        if not isinstance(class_node, ast.ClassDef):
+            continue
+        for child in class_node.body:
+            if not isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            parameters[(class_node.name, child.name)] = [
+                arg.arg for arg in child.args.args[1:]]
+    return parameters
+
+
+def framework_method_returns(paths, known_classes):
+    returns = {}
+    for path in paths:
+        try:
+            tree = ast.parse(read_source(path))
+        except (OSError, SyntaxError):
+            continue
+        returns.update(method_returns_from_tree(tree, known_classes))
+    # `createSketchObject` is part of the shared generator surface, but it has no annotation in
+    # the shipped framework. Its body returns the result of `Component.sketches.add(...)`.
+    if ('Generator', 'createSketchObject') in {
+            (class_name, method)
+            for class_name, methods in framework_methods(paths).items()
+            for method in methods}:
+        returns.setdefault(('Generator', 'createSketchObject'), 'Sketch')
+    return returns
+
+
+def attr_chain(expr):
+    parts = []
+    while isinstance(expr, ast.Attribute):
+        parts.append(expr.attr)
+        expr = expr.value
+    if isinstance(expr, ast.Name):
+        parts.append(expr.id)
+        return list(reversed(parts))
+    return None
+
+
+def fusion_class_expr(expr):
+    parts = attr_chain(expr)
+    if parts and len(parts) >= 3 and parts[0] == 'adsk' and parts[1] in ('core', 'fusion'):
+        return parts[2]
+    return None
+
+
+def hinted_name_type(name):
+    if name in FUSION_NAME_HINTS:
+        return FUSION_NAME_HINTS[name]
+    if name.endswith('Sketch') or name.endswith('sketch'):
+        return 'Sketch'
+    return None
+
+
+def unverified_return_type(func):
+    if not isinstance(func, ast.Attribute):
+        return None
+    return UNVERIFIED_RETURN_TYPES.get((func.attr, receiver_tail(func)))
+
+
+def implied_member_return(owner_type, name, expression=None):
+    if (owner_type, name) in IMPLIED_MEMBER_RETURNS:
+        return IMPLIED_MEMBER_RETURNS[(owner_type, name)]
+    if (name == 'geometry'
+            and isinstance(expression, ast.Attribute)
+            and isinstance(expression.value, ast.Attribute)
+            and expression.value.attr == 'referencePlane'):
+        return 'Plane'
+    return None
+
+
 def framework_exports(paths):
     """Map each shared module name to its top-level exported names."""
     exports = {}
     for path in paths:
         try:
-            tree = ast.parse(open(path).read())
+            tree = ast.parse(read_source(path))
         except (OSError, SyntaxError):
             continue
         filename = os.path.basename(path)
@@ -201,7 +369,7 @@ def imported_class_methods(tree, root, inherited_methods):
             continue
         seen_paths.add(path)
         try:
-            source = ast.parse(open(path).read())
+            source = ast.parse(read_source(path))
         except (OSError, SyntaxError):
             continue
         add_imports(source)
@@ -376,12 +544,241 @@ def call_classes(tree):
     return found
 
 
+def node_classes(tree):
+    """Map every visited node to the class whose body contains it."""
+    found = {}
+
+    class Visitor(ast.NodeVisitor):
+        def __init__(self):
+            self.classes = []
+
+        def generic_visit(self, node):
+            found[node] = self.classes[-1] if self.classes else None
+            super().generic_visit(node)
+
+        def visit_ClassDef(self, node):
+            found[node] = self.classes[-1] if self.classes else None
+            self.classes.append(node.name)
+            for child in node.body:
+                self.visit(child)
+            self.classes.pop()
+
+    Visitor().visit(tree)
+    return found
+
+
+def node_scopes(tree):
+    """Map nodes to their containing class/function pair."""
+    found = {}
+
+    class Visitor(ast.NodeVisitor):
+        def __init__(self):
+            self.classes = []
+            self.functions = []
+
+        def generic_visit(self, node):
+            found[node] = (
+                self.classes[-1] if self.classes else None,
+                self.functions[-1] if self.functions else None,
+            )
+            super().generic_visit(node)
+
+        def visit_ClassDef(self, node):
+            found[node] = (
+                self.classes[-1] if self.classes else None,
+                self.functions[-1] if self.functions else None,
+            )
+            self.classes.append(node.name)
+            for child in node.body:
+                self.visit(child)
+            self.classes.pop()
+
+        def visit_FunctionDef(self, node):
+            found[node] = (
+                self.classes[-1] if self.classes else None,
+                self.functions[-1] if self.functions else None,
+            )
+            self.functions.append(node.name)
+            for child in node.body:
+                self.visit(child)
+            self.functions.pop()
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+    Visitor().visit(tree)
+    return found
+
+
 def receiver_root(func):
     """The first identifier in the receiver, such as `futil` in `futil.log(...)`."""
     value = func.value
     while isinstance(value, ast.Attribute):
         value = value.value
     return value.id if isinstance(value, ast.Name) else None
+
+
+def infer_api_receiver_types(tree, classes, bases, method_returns, api_member_info):
+    """Infer receiver types used to check Fusion calls, staying within simple AST facts."""
+    containing = node_classes(tree)
+    scopes = node_scopes(tree)
+    types = {}
+    field_types = {}
+    constructor_fields, constructor_parameters = constructor_field_parameters(tree)
+    method_parameters = method_parameters_from_tree(tree)
+
+    def method_return_for(class_name, name, visiting=()):
+        if class_name is None or class_name in visiting:
+            return None
+        ret = method_returns.get((class_name, name))
+        if ret is not None:
+            return ret
+        for base in bases.get(class_name, ()):
+            ret = method_return_for(base, name, visiting + (class_name,))
+            if ret is not None:
+                return ret
+        return None
+
+    def method_parameters_for(class_name, name, visiting=()):
+        if class_name is None or class_name in visiting:
+            return None
+        params = method_parameters.get((class_name, name))
+        if params is not None:
+            return class_name, params
+        for base in bases.get(class_name, ()):
+            found = method_parameters_for(base, name, visiting + (class_name,))
+            if found is not None:
+                return found
+        return None
+
+    def expression_type(expression, containing_class):
+        if expression is None:
+            return None
+        direct_class = fusion_class_expr(expression)
+        if direct_class is not None:
+            return direct_class
+        if isinstance(expression, ast.Name):
+            if expression.id == 'self':
+                return containing_class
+            return (types.get((scopes.get(expression), expression.id))
+                    or types.get(expression.id)
+                    or hinted_name_type(expression.id))
+        if isinstance(expression, ast.Attribute):
+            text = ast.unparse(expression)
+            scoped = (scopes.get(expression), text)
+            if scoped in types:
+                return types[scoped]
+            if (isinstance(expression.value, ast.Name)
+                    and expression.value.id == 'self'):
+                known = field_types.get((containing_class, expression.attr))
+                if known:
+                    return next(iter(known))
+            owner_type = expression_type(expression.value, containing_class)
+            if owner_type is None:
+                return hinted_name_type(expression.attr)
+            known_field = field_types.get((owner_type, expression.attr))
+            if known_field:
+                return next(iter(known_field))
+            info = api_member_info(owner_type, expression.attr)
+            if info:
+                return normalize_api_type(info.get('returns'))
+            return implied_member_return(owner_type, expression.attr, expression)
+        if isinstance(expression, ast.Call):
+            if isinstance(expression.func, ast.Name):
+                if expression.func.id in classes:
+                    return expression.func.id
+                return None
+            if isinstance(expression.func, ast.Attribute):
+                owner_type = expression_type(expression.func.value, containing_class)
+                if owner_type is None:
+                    return None
+                ret = method_return_for(owner_type, expression.func.attr)
+                if ret is not None:
+                    return ret
+                info = api_member_info(owner_type, expression.func.attr)
+                if info:
+                    return normalize_api_type(info.get('returns'))
+                implied = implied_member_return(owner_type, expression.func.attr)
+                if implied is not None:
+                    return implied
+                return unverified_return_type(expression.func)
+        return None
+
+    def assign_type(target, assigned):
+        nonlocal field_types
+        if assigned is None:
+            return False
+        changed = False
+        if isinstance(target, (ast.Name, ast.Attribute)):
+            name = target.id if isinstance(target, ast.Name) else ast.unparse(target)
+            key = (scopes.get(target), name)
+            if key not in types:
+                types[key] = assigned
+                changed = True
+        if isinstance(target, ast.Attribute):
+            owner = expression_type(target.value, containing.get(target))
+            if owner is not None:
+                values = field_types.setdefault((owner, target.attr), set())
+                if assigned not in values:
+                    values.add(assigned)
+                    changed = True
+        return changed
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AnnAssign):
+            assigned = annotation_return_type(node.annotation)
+            if assigned is not None:
+                assign_type(node.target, assigned)
+
+    changed = True
+    while changed:
+        changed = False
+        for node in ast.walk(tree):
+            containing_class = containing.get(node)
+            if isinstance(node, ast.Assign):
+                assigned = expression_type(node.value, containing_class)
+                for target in node.targets:
+                    changed = assign_type(target, assigned) or changed
+            elif isinstance(node, ast.AnnAssign):
+                assigned = annotation_return_type(node.annotation) or expression_type(
+                    node.value, containing_class)
+                changed = assign_type(node.target, assigned) or changed
+            elif isinstance(node, ast.For):
+                iter_type = expression_type(node.iter, containing_class)
+                item = None
+                if iter_type is not None:
+                    info = api_member_info(iter_type, 'item')
+                    item = normalize_api_type(info.get('returns')) if info else None
+                changed = assign_type(node.target, item) or changed
+            elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                class_name = node.func.id
+                if class_name not in constructor_parameters:
+                    continue
+                for argument, parameter in zip(node.args, constructor_parameters[class_name]):
+                    argument_type = expression_type(argument, containing_class)
+                    if argument_type is None:
+                        continue
+                    for (field_class, field), field_parameter in constructor_fields.items():
+                        if field_class == class_name and field_parameter == parameter:
+                            values = field_types.setdefault((field_class, field), set())
+                            if argument_type not in values:
+                                values.add(argument_type)
+                                changed = True
+            elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                receiver_type = expression_type(node.func.value, containing_class)
+                found = method_parameters_for(receiver_type, node.func.attr)
+                if found is None:
+                    continue
+                method_class, parameters = found
+                for argument, parameter in zip(node.args, parameters):
+                    argument_type = expression_type(argument, containing_class)
+                    if argument_type is None:
+                        continue
+                    key = ((method_class, node.func.attr), parameter)
+                    if key not in types:
+                        types[key] = argument_type
+                        changed = True
+
+    return types, field_types, expression_type
 
 
 def main():
@@ -391,7 +788,7 @@ def main():
                     help='directory holding the framework modules (default: lib)')
     args = ap.parse_args()
 
-    src = open(args.target).read()
+    src = read_source(args.target)
     tree = ast.parse(src)
 
     framework_paths = framework_files(args.framework)
@@ -404,11 +801,25 @@ def main():
     target_class_methods = target_methods(tree, inherited_methods)
     known_class_methods = dict(inherited_methods)
     known_class_methods.update(target_class_methods)
-    target_types = target_receiver_types(tree, known_class_methods)
+    bases = framework_bases(framework_paths)
+    bases.update(class_bases_from_tree(tree))
+    method_returns = framework_method_returns(framework_paths, known_class_methods)
+    method_returns.update(method_returns_from_tree(tree, known_class_methods))
     containing_classes = call_classes(tree)
     framework_modules = imported_framework_modules(tree, framework_module_exports)
-    field_types = inferred_field_types(
-        tree, known_class_methods, target_types, containing_classes)
+    member_cache = {}
+
+    def api_member_info(cls, name):
+        cls = normalize_api_type(cls)
+        if cls is None:
+            return None
+        key = (cls, name)
+        if key not in member_cache:
+            member_cache[key] = fusion_api.member_info(cls, name)
+        return member_cache[key]
+
+    target_types, field_types, expression_type = infer_api_receiver_types(
+        tree, known_class_methods, bases, method_returns, api_member_info)
 
     called = {}
     for node in ast.walk(tree):
@@ -420,43 +831,51 @@ def main():
         if name in PYTHON_METHODS:
             return True
         receiver = func.value
-        receiver_type = None
-        if isinstance(receiver, ast.Name) and receiver.id == 'self':
-            receiver_type = containing_class
-        elif (isinstance(receiver, ast.Call)
+        if (isinstance(receiver, ast.Call)
               and isinstance(receiver.func, ast.Name)
               and receiver.func.id == 'super'):
             return name in known_class_methods.get(containing_class, ())
-        elif (isinstance(receiver, ast.Call)
-              and isinstance(receiver.func, ast.Name)):
-            receiver_type = receiver.func.id
-        elif isinstance(receiver, (ast.Name, ast.Attribute)):
-            receiver_type = target_types.get(ast.unparse(receiver))
-        if (isinstance(receiver, ast.Attribute)
-                and isinstance(receiver.value, ast.Name)
-                and receiver.value.id == 'self'):
-            receiver_type = next(iter(field_types.get(
-                (containing_class, receiver.attr), ())), None)
+        receiver_type = expression_type(receiver, containing_class)
         if name in known_class_methods.get(receiver_type, ()):
             return True
         module = framework_modules.get(receiver_root(func))
         return module is not None and name in framework_module_exports[module]
 
-    candidates = sorted(
-        name for name in called
-        if not name.startswith('_')
-        and any(not allowed(node.func.attr, node.func, containing_classes[node]) for node in ast.walk(tree)
-                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                and node.func.attr == name))
+    def exact_unverified(name, tail):
+        return any(watched == name and fusion_api.receiver_matches(receivers, tail)
+                   for watched, _, receivers, _ in fusion_api.UNVERIFIED_CALLS)
 
     # Where each watchlist call is actually made, receiver and all, so a legitimate namesake on
-    # another class is not dragged into the report.
+    # another class is not dragged into the report or exempted from receiver validation.
     seen = {}
     for name, _, receivers, _ in fusion_api.UNVERIFIED_CALLS:
         lines = sorted(line for line, tail, _, _ in called.get(name, [])
                        if fusion_api.receiver_matches(receivers, tail))
         if lines:
             seen[name] = '%s:%s' % (args.target, ','.join(str(line) for line in lines))
+
+    unresolved = []
+    resolved_names = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            continue
+        name = node.func.attr
+        if name.startswith('_') or allowed(name, node.func, containing_classes[node]):
+            continue
+        tail = receiver_tail(node.func)
+        if exact_unverified(name, tail):
+            continue
+        receiver_type = expression_type(node.func.value, containing_classes[node])
+        if receiver_type is None:
+            unresolved.append((name, node.lineno, None, 'unknown receiver'))
+            continue
+        info = api_member_info(receiver_type, name)
+        if info:
+            resolved_names.add(name)
+            continue
+        unresolved.append((name, node.lineno, receiver_type, 'wrong receiver'))
+
+    candidates = sorted({name for name, _, _, _ in unresolved})
 
     try:
         hits = fusion_api.lookup_many(candidates)
@@ -465,26 +884,30 @@ def main():
         print('check_api_calls: %s' % exc, file=sys.stderr)
         return 2
 
-    # A call already reported as unverified is not also reported as unknown; the finding below
-    # says more about it than "no such name" ever could.
-    watched = set(seen)
-    unknown = {name: called[name][0][0] for name in candidates
-               if not hits[name] and name not in watched}
-
-    if unknown:
-        print('api-call check: BLOCKING (%d)' % len(unknown))
-        for name, lineno in sorted(unknown.items(), key=lambda kv: kv[1]):
+    if unresolved:
+        print('api-call check: BLOCKING (%d)' % len(unresolved))
+        for name, lineno, receiver_type, reason in sorted(unresolved, key=lambda row: row[1]):
             near = fusion_api.similar(name)
-            print("  %s:%d calls '%s(' — no such name in the Fusion API database, the framework, "
-                  "or this file%s"
-                  % (args.target, lineno, name,
-                     '' if not near else
-                     '; the nearest names the database has are %s' % ', '.join(near)))
+            if hits.get(name):
+                if receiver_type is None:
+                    detail = "the receiver type is not known"
+                else:
+                    detail = "%s does not declare it" % receiver_type
+                print("  %s:%d calls '%s(' — %s; receiver ownership is required%s"
+                      % (args.target, lineno, name, detail,
+                         '' if not near else
+                         '; the nearest names the database has are %s' % ', '.join(near)))
+            else:
+                print("  %s:%d calls '%s(' — no such name in the Fusion API database, the "
+                      "framework, or this file%s"
+                      % (args.target, lineno, name,
+                         '' if not near else
+                         '; the nearest names the database has are %s' % ', '.join(near)))
         print('  Ask the database what a class offers: '
               'python3 %s members <Class>' % fusion_api.query_script())
         return 1
 
-    print('api-call check: OK (%d call names resolve)' % len(candidates))
+    print('api-call check: OK (%d call names resolve)' % len(resolved_names))
     if findings:
         print('api-call check: %d UNVERIFIED call(s) — reported, not blocking, not waived'
               % len(findings))
