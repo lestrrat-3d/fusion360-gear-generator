@@ -275,11 +275,16 @@ class SpurGearInvoluteToothDesignGenerator:
             # 1. rib shares the two fit points; construction.
             rib = sketch.sketchCurves.sketchLines.addByTwoPoints(lp, rp)
             rib.isConstruction = True
-            # 2. aligned length dimension at its current measured value.
+            # 2. signed axis dimension at its current measured value.
             lenText = adsk.core.Point3D.create(
                 (lp.geometry.x + rp.geometry.x) / 2, (lp.geometry.y + rp.geometry.y) / 2, 0)
+            acrossIsVertical = abs(math.cos(angle)) >= abs(math.sin(angle))
+            ribOrientation = (
+                adsk.fusion.DimensionOrientations.VerticalDimensionOrientation
+                if acrossIsVertical else
+                adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation)
             sketch.sketchDimensions.addDistanceDimension(
-                lp, rp, adsk.fusion.DimensionOrientations.AlignedDimensionOrientation, lenText)
+                lp, rp, ribOrientation, lenText)
             # 3. fresh midpoint seeded at the foot of the left fit point on the spine.
             t = lp.geometry.x * math.cos(angle) + lp.geometry.y * math.sin(angle)
             midSeed = adsk.core.Point3D.create(t * math.cos(angle), t * math.sin(angle), 0)
@@ -296,9 +301,12 @@ class SpurGearInvoluteToothDesignGenerator:
             pg = prevMid.geometry
             chainText = adsk.core.Point3D.create(
                 (pg.x + midSeed.x) / 2, (pg.y + midSeed.y) / 2, 0)
+            chainOrientation = (
+                adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation
+                if acrossIsVertical else
+                adsk.fusion.DimensionOrientations.VerticalDimensionOrientation)
             sketch.sketchDimensions.addDistanceDimension(
-                prevMid, mid, adsk.fusion.DimensionOrientations.AlignedDimensionOrientation,
-                chainText)
+                prevMid, mid, chainOrientation, chainText)
             prevMid = mid
 
         # 9. Close the tooth at the root ([SPUR-F-FLANK-ROOT]); detect embedded case

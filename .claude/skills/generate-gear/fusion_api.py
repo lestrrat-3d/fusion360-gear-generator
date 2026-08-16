@@ -45,7 +45,7 @@ _MEMBER = re.compile(r'^\s{2}(\w+)')
 
 # Calls the shipped add-in makes that the API database does not back. Every entry is
 # (member, the class the shipped code calls it on, receiver names that identify that class in the
-# source, a note). A `None` receiver set means every call of that name counts.
+# source, a note). Receiver names are exact so an unrelated namesake cannot be exempted.
 #
 # The checkers re-ask the database about each entry on every run rather than trusting this
 # comment, so an entry whose member has since been documented is reported as stale and deleted.
@@ -55,13 +55,13 @@ _MEMBER = re.compile(r'^\s{2}(\w+)')
 # shipped add-in makes all three and is believed to run. Only loading the add-in settles it, and
 # whichever way it goes the fix belongs in the spec, not in a generated file.
 UNVERIFIED_CALLS = (
-    ('project', 'adsk.fusion.Sketch', None,
+    ('project', 'adsk.fusion.Sketch', ('sketch',),
      'the shipped add-ins call `sketch.project(entity)`, and the spur step list names it'),
     ('createInput2', 'adsk.fusion.SketchTexts', ('sketchTexts',),
      'the shipped add-ins call `sketch.sketchTexts.createInput2(text, height)`, and the spur '
      'step list names it; '
      '`ChamferFeatures.createInput2` and `MoveFeatures.createInput2` are real and not at issue'),
-    ('addConstantRadiusEdgeSet', 'adsk.fusion.FilletFeatureInput', None,
+    ('addConstantRadiusEdgeSet', 'adsk.fusion.FilletFeatureInput', ('filletInput',),
      'the shipped add-in calls `filletInput.addConstantRadiusEdgeSet(...)`, and the spur '
      'step list states that `filletInput.edgeSetInputs` does not exist'),
 )

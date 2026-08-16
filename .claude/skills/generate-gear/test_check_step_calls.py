@@ -128,6 +128,37 @@ class CheckApiCallsTest(unittest.TestCase):
 
         self.assertEqual(result, 0, output)
 
+    def test_project_on_unrelated_receiver_is_blocking(self):
+        result, output = self.run_checker(
+            'def build(other, entity):\n'
+            '    return other.project(entity)\n',
+            '')
+
+        self.assertEqual(result, 1)
+        self.assertIn("calls 'project('", output)
+
+    def test_fillet_method_on_unrelated_receiver_is_blocking(self):
+        result, output = self.run_checker(
+            'def build(other, edges, radius):\n'
+            '    return other.addConstantRadiusEdgeSet(edges, radius, False)\n',
+            '')
+
+        self.assertEqual(result, 1)
+        self.assertIn("calls 'addConstantRadiusEdgeSet('", output)
+
+
+class SpurDimensionContractTest(unittest.TestCase):
+    def test_rib_and_midpoint_chain_dimensions_are_signed(self):
+        source = (Path(__file__).parents[3] / 'lib' / 'geargen' / 'spurgear.py').read_text()
+        ribs = source.split('        # 8. Ribs ([SPUR-F-RIBS])', 1)[1].split(
+            '        # 9. Close the tooth at the root', 1)[0]
+
+        self.assertNotIn('AlignedDimensionOrientation', ribs)
+        self.assertIn('VerticalDimensionOrientation', ribs)
+        self.assertIn('HorizontalDimensionOrientation', ribs)
+        self.assertIn('ribOrientation', ribs)
+        self.assertIn('chainOrientation', ribs)
+
 
 class CheckCompileTest(unittest.TestCase):
     SOURCE_PATHS = (
