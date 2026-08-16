@@ -2,8 +2,8 @@
 // engine. It reproduces the SPUR-F constraint scheme from spec/spurgear/fusion.md
 // and proves it FULLY CONSTRAINS (DOF==0, no redundant/conflicting constraints,
 // well-conditioned) BEFORE any Fusion add-in code is generated — the sketch-first
-// gate ([PB-SKETCH-FIRST]). It runs the check across several tooth counts to show
-// the parametric scheme holds as Module / Tooth Number change.
+// gate ([PB-SKETCH-FIRST]). It runs the check across several tooth counts and angles
+// to show the parametric scheme holds as Module / Tooth Number / angle change.
 //
 //	go run .
 package main
@@ -36,19 +36,16 @@ func rot(x, y, a float64) (float64, float64) {
 
 type pt struct{ x, y float64 }
 
-func dist(a, b pt) float64 { return math.Hypot(a.x-b.x, a.y-b.y) }
-
 // checkGearProfile builds the spur Gear Profile sketch for the given parameters
 // and returns whether it PASSES the primary full-constraint gate.
-func checkGearProfile(ctx context.Context, module, toothNumber, pressureAng float64, involSteps int) bool {
-	const angle = 0.0 // spur seed tooth (helical/herringbone pass a nonzero angle)
+func checkGearProfile(ctx context.Context, module, toothNumber, pressureAng, angle float64, involSteps int) bool {
 	pitchR := module * toothNumber / 2
 	baseR := pitchR * math.Cos(pressureAng)
 	rootR := (module*toothNumber - 2.5*module) / 2
 	tipR := (module*toothNumber + 2*module) / 2
 	embedded := baseR < rootR
-	fmt.Printf("\n=== M=%.2f N=%.0f PA=%.1f°  pitch=%.3f base=%.3f root=%.3f tip=%.3f embedded=%v ===\n",
-		module, toothNumber, pressureAng*180/math.Pi, pitchR, baseR, rootR, tipR, embedded)
+	fmt.Printf("\n=== M=%.2f N=%.0f PA=%.1f° angle=%.1f°  pitch=%.3f base=%.3f root=%.3f tip=%.3f embedded=%v ===\n",
+		module, toothNumber, pressureAng*180/math.Pi, angle*180/math.Pi, pitchR, baseR, rootR, tipR, embedded)
 	if embedded {
 		fmt.Println("(embedded 4-curve variant not modelled by this prototype — see README)")
 		return true
@@ -122,7 +119,8 @@ func checkGearProfile(ctx context.Context, module, toothNumber, pressureAng floa
 	}
 
 	// spine: origin -> tooth-top; tooth-top on tip circle; +X reference and angle pin.
-	toothTop := s.CreatePoint(tipR, 0)
+	topX, topY := rot(tipR, 0, angle)
+	toothTop := s.CreatePoint(topX, topY)
 	s.AddConstraint(sketch.NewPointOnCircle(toothTop, tipCircle))
 	spine := s.CreateLine(origin, toothTop)
 	spine.SetConstruction(true)
@@ -140,13 +138,19 @@ func checkGearProfile(ctx context.Context, module, toothNumber, pressureAng floa
 	s.CreateArc(origin, rightPts[len(rightPts)-1], leftPts[len(leftPts)-1]) // [SPUR-F-TOOTHTOP-ARC]
 
 	// ribs: lock each flank pair to the spine. Exact [SPUR-F-RIBS] order.
+	// The rib takes the axis across the spine and the chain takes the axis along it.
+	acrossIsVertical := math.Abs(math.Cos(angle)) >= math.Abs(math.Sin(angle))
 	prevMid := origin
 	prevMidPt := pt{0, 0}
 	for i := range left {
 		rib := s.CreateLine(leftPts[i], rightPts[i])
 		rib.SetConstruction(true)
-		s.AddConstraint(sketch.NewDistance(leftPts[i], rightPts[i], dist(left[i], right[i]))) // aligned length
-		t := left[i].x*math.Cos(angle) + left[i].y*math.Sin(angle)                            // foot on spine
+		if acrossIsVertical {
+			s.AddConstraint(sketch.NewVerticalDistance(leftPts[i], rightPts[i], right[i].y-left[i].y))
+		} else {
+			s.AddConstraint(sketch.NewHorizontalDistance(leftPts[i], rightPts[i], right[i].x-left[i].x))
+		}
+		t := left[i].x*math.Cos(angle) + left[i].y*math.Sin(angle) // foot on spine
 		mx, my := t*math.Cos(angle), t*math.Sin(angle)
 		mid := s.CreatePoint(mx, my)
 		s.AddConstraint(sketch.NewPointOnLine(mid, spine)) // 4. midpoint onto spine first
@@ -155,7 +159,11 @@ func checkGearProfile(ctx context.Context, module, toothNumber, pressureAng floa
 			s.AddConstraint(sketch.NewPerpendicular(spine, rib)) // 6. then rib ⊥ spine
 		} // The tooth-top arc already constrains the final rib's perpendicular.
 		// chain distance from previous midpoint (origin for the first rib)
-		s.AddConstraint(sketch.NewDistance(prevMid, mid, dist(prevMidPt, pt{mx, my})))
+		if acrossIsVertical {
+			s.AddConstraint(sketch.NewHorizontalDistance(prevMid, mid, mx-prevMidPt.x))
+		} else {
+			s.AddConstraint(sketch.NewVerticalDistance(prevMid, mid, my-prevMidPt.y))
+		}
 		prevMid, prevMidPt = mid, pt{mx, my}
 	}
 
@@ -218,14 +226,17 @@ func main() {
 	// (~N=42 at PA=20°) where the flank-to-root stubs vanish and the system turns
 	// ill-conditioned — see README for that caught-fragility finding.
 	cases := []struct {
-		module, teeth float64
+		module, teeth, angle float64
 	}{
-		{1, 12}, {1, 17}, {2, 20}, {3, 15},
+		{1, 12, 0}, {1, 17, 0}, {2, 20, 0}, {3, 15, 0},
+		{2, 20, 30 * math.Pi / 180},
+		{1, 17, 90 * math.Pi / 180},
+		{3, 15, -60 * math.Pi / 180},
 	}
 	ctx := context.Background()
 	allPass := true
 	for _, c := range cases {
-		if !checkGearProfile(ctx, c.module, c.teeth, pa, 15) {
+		if !checkGearProfile(ctx, c.module, c.teeth, pa, c.angle, 15) {
 			allPass = false
 		}
 	}

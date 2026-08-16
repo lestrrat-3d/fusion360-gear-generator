@@ -46,12 +46,13 @@ prescribe, mapping each Fusion constraint to its sketch-engine equivalent:
 | involute flanks as fitted splines (step 4) | `CreateSpline(pts...)` |
 | tooth-top arc `addByCenterStartEnd` without a diameter; root-circle split (`[SPUR-F-TOOTHTOP-ARC]`) | `CreateArc(origin, a, b)`; root split uses `CreateArc(freeCenter, a, b)` + `NewDiameter` |
 | +X reference and angular pin (`[SPUR-F-SPINE]`, every angle) | `NewHorizontalDistance` + `NewVerticalDistance` + `NewAngle` |
-| ribs: length, midpoint-on-spine, midpoint, ⊥ except on the final rib, chain dims (`[SPUR-F-RIBS]`) | `NewDistance`, `NewPointOnLine`, `NewMidpoint`, `NewPerpendicular` except on the final rib |
+| ribs: signed across-spine dimension, midpoint-on-spine, midpoint, ⊥ except on the final rib, signed along-spine chain dims (`[SPUR-F-RIBS]`) | `NewHorizontalDistance` or `NewVerticalDistance` by axis, `NewPointOnLine`, `NewMidpoint`, `NewPerpendicular` except on the final rib |
 | flank-to-root lines: root-end-on-circle + origin-on-line (`[SPUR-F-FLANK-ROOT]`) | `NewPointOnCircle` + `NewPointOnLine` |
 
 The involute sampling (`calculateInvolutePoint`, the mirror/rotate) is the spec's
-exact math. The check runs across several `Module` / `Tooth Number` sizes to prove
-the **parametric** scheme holds, not just one instance.
+exact math. The check runs across several `Module` / `Tooth Number` sizes and zero,
+positive, negative, and axis-swapping tooth angles to prove the **parametric** scheme
+holds, not just one instance.
 
 ## The gate
 

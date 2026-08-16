@@ -26,6 +26,9 @@ working code yet.
 
 A bug a shipped gear also has is never reported, because it is part of the baseline.
 
+When the candidate is a copied shipped gear, the exact-content match is omitted from the baseline
+so the workflow cannot hide candidate-only complaints by copying the source into .tmp/.
+
 An API the shipped gears never touch has no baseline, so correct code using it reads as new. That
 is not hypothetical: the stubs accept `AlignedDimensionOrientation`, which the shipped gears use,
 and reject `Horizontal`/`Vertical`, which they do not, so a generated gear using the latter draws
@@ -39,6 +42,7 @@ Run from the repo root. Exit 0 = OK, 1 = BLOCKING, 2 = no reference gears to com
 """
 import argparse
 import contextlib
+import filecmp
 import importlib.util
 import io
 import os
@@ -109,6 +113,37 @@ def signature(diag):
     return (rule, message)
 
 
+def reference_gears(reference, candidate):
+    """Return shipped gears that are not the source represented by candidate.
+
+    The workflow checks a copied candidate, so comparing only path strings would leave the
+    candidate's source file in the baseline. An exact-content match is the source-file identity
+    available after the copy step; same-file and real-path checks also cover in-place and symlinked
+    candidates.
+    """
+    candidate_path = os.path.abspath(candidate)
+    candidate_realpath = os.path.realpath(candidate_path)
+    gears = []
+    if not os.path.isdir(reference):
+        return gears
+    for entry in sorted(os.listdir(reference)):
+        full = os.path.join(reference, entry)
+        if not entry.endswith('.py') or entry.startswith('_'):
+            continue
+        full_path = os.path.abspath(full)
+        if full_path == candidate_path or os.path.realpath(full_path) == candidate_realpath:
+            continue
+        try:
+            if os.path.samefile(full_path, candidate_path):
+                continue
+        except (FileNotFoundError, OSError):
+            pass
+        if os.path.isfile(candidate_path) and filecmp.cmp(full_path, candidate_path, shallow=False):
+            continue
+        gears.append(full)
+    return gears
+
+
 def main():
     ap = argparse.ArgumentParser(add_help=True)
     ap.add_argument('candidate')
@@ -120,12 +155,7 @@ def main():
 
     pc = load_pyright_check()
 
-    gears = []
-    if os.path.isdir(args.reference):
-        for entry in sorted(os.listdir(args.reference)):
-            full = os.path.join(args.reference, entry)
-            if entry.endswith('.py') and not entry.startswith('_') and full != args.candidate:
-                gears.append(full)
+    gears = reference_gears(args.reference, args.candidate)
     if not gears:
         print('check_novel_types: no reference gears under %s, nothing to compare against'
               % args.reference, file=sys.stderr)

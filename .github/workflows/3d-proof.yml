@@ -72,6 +72,10 @@ jobs:
         run: python3 .claude/skills/generate-gear/test_check_step_calls.py
         working-directory: gears
 
+      - name: Run novel-type checker regression tests
+        run: python3 .claude/skills/generate-gear/test_check_novel_types.py
+        working-directory: gears
+
       - name: Run compile and generated-candidate gates
         run: |
           set -euo pipefail
