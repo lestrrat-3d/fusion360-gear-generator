@@ -44,6 +44,10 @@ sys.path.insert(0, HERE)
 import fusion_api  # noqa: E402  (sibling module; sys.path is fixed up just above)
 
 MIN_CALL_LEN = 6
+PATH_REF = r'[\w./-]+\.(?:md|go|py|json|sh)'
+PATH_TOKEN = re.compile(r'`(%s)`' % PATH_REF)
+INLINE_CITATION = re.compile(r'`(%s):(\d+)(?:\s*[-\u2013]\s*(\d+))?`' % PATH_REF)
+LINE_RANGE = re.compile(r'\bL(\d+)(?:\s*[-\u2013]\s*(\d+))?\b')
 
 
 def provenance_inputs(gear):
@@ -77,16 +81,90 @@ def steps_of(src):
     return out
 
 
-def citations(body):
-    """Every (file, first, last) named by a step's From block."""
-    out = []
-    match = re.search(r'^\*\*From:\*\*(.*?)(?=\n\s*\n|$)', body, re.M | re.S)
+def from_block(body):
+    """The raw text after a step's From marker, if any."""
+    match = re.search(r'^\*\*From:\*\*(.*?)(?=\n\s*\n|\Z)', body, re.M | re.S)
     if not match:
-        return out
-    for m in re.finditer(r'`([\w./-]+\.(?:md|go)):(\d+)(?:-(\d+))?`', match.group(1)):
+        return None
+    return match.group(1)
+
+
+def citations_from_block(block):
+    """Every (file, first, last) named by a From block.
+
+    The committed step lists write citations as a backtick path followed by one or
+    more `L<line>` or `L<first>–<last>` ranges. Older inline
+    `` `path:line[-last]` `` citations remain parseable so fixtures and drafts
+    fail on validation, not on syntax churn.
+    """
+    out = []
+    for m in INLINE_CITATION.finditer(block):
         first = int(m.group(2))
         out.append((m.group(1), first, int(m.group(3) or first)))
+
+    paths = list(PATH_TOKEN.finditer(block))
+    for i, path_match in enumerate(paths):
+        end = paths[i + 1].start() if i + 1 < len(paths) else len(block)
+        for line_match in LINE_RANGE.finditer(block, path_match.end(), end):
+            first = int(line_match.group(1))
+            out.append((path_match.group(1), first, int(line_match.group(2) or first)))
     return out
+
+
+def resolve_citation_path(path, gear):
+    """Resolve a cited path from the repo root, with bare spec filenames allowed."""
+    if os.path.exists(path):
+        return path
+    spec_path = os.path.join('spec', gear, path)
+    if os.path.exists(spec_path):
+        return spec_path
+    return None
+
+
+def citation_label(path, first, last):
+    """A compact, actionable citation label for diagnostics."""
+    if first == last:
+        return '%s L%d' % (path, first)
+    return '%s L%d–%d' % (path, first, last)
+
+
+def validate_citations(body, gear):
+    """Return (valid citations, problems) for one step body."""
+    block = from_block(body)
+    if block is None or not block.strip():
+        return [], ["has no nonempty **From:** citation"]
+
+    parsed = citations_from_block(block)
+    if not parsed:
+        return [], ["has no parseable **From:** file-and-line citation; expected `path` L1 or "
+                    "`path` L1–2-style ranges"]
+
+    valid = []
+    problems = []
+    for path, first, last in parsed:
+        label = citation_label(path, first, last)
+        if first < 1 or last < 1:
+            problems.append("cites %s, but line numbers start at 1" % label)
+            continue
+        if first > last:
+            problems.append("cites %s, but the first line is after the last line" % label)
+            continue
+        full = resolve_citation_path(path, gear)
+        if full is None:
+            problems.append("cites %s, which does not exist" % path)
+            continue
+        total = len(read(full).splitlines())
+        if last > total:
+            problems.append("cites %s, but that file has %d lines" % (label, total))
+            continue
+        valid.append((full, first, last))
+    return valid, problems
+
+
+def citations(body, gear):
+    """Every valid (file, first, last) named by a step's From block."""
+    valid, _ = validate_citations(body, gear)
+    return valid
 
 
 # Framework modules the generated code calls into. The per-gear implementations are
@@ -210,23 +288,13 @@ def main(argv):
     # 1. citations resolve
     cited = {}
     for sid, _, body in steps:
-        from_match = re.search(r'^\*\*From:\*\*(.*?)(?=\n\s*\n|$)', body, re.M | re.S)
-        if not from_match or not from_match.group(1).strip():
-            problems.append("  %s has no nonempty **From:** citation" % sid)
-            continue
-        for path, first, last in citations(body):
+        valid, citation_problems = validate_citations(body, gear)
+        for problem in citation_problems:
+            problems.append("  %s %s" % (sid, problem))
+        for path, first, last in valid:
             if not path.endswith('.md'):
                 continue
-            full = path if os.path.exists(path) else os.path.join('spec', gear, path)
-            if not os.path.exists(full):
-                problems.append("  %s cites %s, which does not exist" % (sid, path))
-                continue
-            total = len(read(full).splitlines())
-            if last > total:
-                problems.append("  %s cites %s:%d-%d, but that file has %d lines"
-                                % (sid, path, first, last, total))
-                continue
-            cited.setdefault(full, set()).update(range(first, last + 1))
+            cited.setdefault(path, set()).update(range(first, last + 1))
 
     # 2. steps and proof agree
     functions = proof_functions(proof_dir)
