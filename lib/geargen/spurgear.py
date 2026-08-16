@@ -122,6 +122,7 @@ class SpurGearInvoluteToothDesignGenerator:
         # Movable local origin: a fresh (0,0,0) SketchPoint (NOT sketch.originPoint).
         self.anchorPoint = sketch.sketchPoints.add(adsk.core.Point3D.create(0, 0, 0))
         # References filled by drawCircles / drawTooth.
+        self.projectedAnchorPoint = None
         self.rootCircle = None
         self.tipCircle = None
         self.baseCircle = None
@@ -358,6 +359,7 @@ class SpurGearInvoluteToothDesignGenerator:
         sketch = self.sketch
         projected = sketch.project(anchorPoint)
         center = projected.item(0)
+        self.projectedAnchorPoint = center
         circle = sketch.sketchCurves.sketchCircles.addByCenterRadius(center, diameter / 2)
         cg = center.geometry
         textPoint = adsk.core.Point3D.create(cg.x + diameter / 2, cg.y, 0)
@@ -730,6 +732,8 @@ class SpurGearGenerator(Generator):
 
         generator = SpurGearInvoluteToothDesignGenerator(boreSketch, self)
         generator.drawBore(ctx.anchorPoint, boreDiameter)
+        boreSketch.geometricConstraints.addCoincident(
+            generator.anchorPoint, generator.projectedAnchorPoint)
 
         profile = boreSketch.profiles.item(0)
         extrudes = component.features.extrudeFeatures

@@ -76,6 +76,26 @@ func TestRootEndSignedConstraintRecipeDoesNotDrift(t *testing.T) {
 	}
 }
 
+func TestBoreProfileGroundsGeneratorAnchorOnProjectedAnchor(t *testing.T) {
+	data, err := os.ReadFile(repoPath(t, "lib/geargen/spurgear.py"))
+	if err != nil {
+		t.Fatalf("read generator: %v", err)
+	}
+	text := string(data)
+	for _, want := range []string{
+		"self.projectedAnchorPoint = center",
+		"generator.drawBore(ctx.anchorPoint, boreDiameter)",
+		"generator.anchorPoint, generator.projectedAnchorPoint",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("generator no longer retains and constrains the Bore Profile projected anchor: missing %q", want)
+		}
+	}
+	if strings.Contains(text, "generator.anchorPoint, boreSketch.originPoint") {
+		t.Fatal("generator constrains the Bore Profile local anchor to the sketch origin")
+	}
+}
+
 func repoPath(t *testing.T, rel string) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
