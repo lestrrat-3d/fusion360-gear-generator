@@ -33,7 +33,9 @@ func RunSolid(t *testing.T, cases []Case, build Build, assert Assert) {
 	RunWithGate(t, cases, build, RequireSolid, assert)
 }
 
-// RunWithGate proves every case with the supplied verification gate.
+// RunWithGate proves every case with the supplied verification gate. At least
+// one case must complete; a proof table where every case is unmodelled proves
+// no solid.
 func RunWithGate(t *testing.T, cases []Case, build Build, gate Gate, assert Assert) {
 	t.Helper()
 	if len(cases) == 0 {
@@ -48,6 +50,7 @@ func RunWithGate(t *testing.T, cases []Case, build Build, gate Gate, assert Asse
 	if assert == nil {
 		t.Fatal("proofkit3d: nil assertion function")
 	}
+	completed := 0
 	for _, c := range cases {
 		c := c
 		t.Run(c.Name, func(t *testing.T) {
@@ -55,7 +58,11 @@ func RunWithGate(t *testing.T, cases []Case, build Build, gate Gate, assert Asse
 			bodies := build(t, doc, c.Params)
 			gate(t, doc, bodies)
 			assert(t, doc, bodies, c.Params)
+			completed++
 		})
+	}
+	if completed == 0 && !t.Failed() {
+		t.Fatal("proofkit3d: no non-skipped proof cases completed — every proof must prove at least one solid")
 	}
 }
 

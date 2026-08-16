@@ -46,18 +46,26 @@ type Build func(t testing.TB, s *sketch.Sketch, p map[string]float64)
 // Run proves build against every case, one subtest each.
 //
 // Each case gets a fresh world and sketch, and is gated with [RequireSound]
-// after build returns. A case that fails does not stop the others.
+// after build returns. A case that fails does not stop the others. At least one
+// case must complete; a proof table where every case is unmodelled proves no
+// sketch.
 func Run(t *testing.T, cases []Case, build Build) {
 	t.Helper()
 	if len(cases) == 0 {
 		t.Fatal("proofkit: no cases — a proof with nothing to prove passes vacuously")
 	}
+	completed := 0
 	for _, c := range cases {
+		c := c
 		t.Run(c.Name, func(t *testing.T) {
 			s := NewSketch(t)
 			build(t, s, c.Params)
 			RequireSound(t, s)
+			completed++
 		})
+	}
+	if completed == 0 && !t.Failed() {
+		t.Fatal("proofkit: no non-skipped proof cases completed — every proof must prove at least one sketch")
 	}
 }
 
