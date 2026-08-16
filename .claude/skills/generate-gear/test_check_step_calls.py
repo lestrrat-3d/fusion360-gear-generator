@@ -287,7 +287,8 @@ class CheckCompileTest(unittest.TestCase):
             '| `%s` | `%s` |' % (path, COMPILE_CHECKER.blob_hash(str(root / path)))
             for path in paths)
 
-    def run_checker(self, provenance=None, from_line='**From:** `spec/gear/instructions.md` L1'):
+    def run_checker(self, provenance=None, from_line='**From:** `spec/gear/instructions.md` L1',
+                    proof_body=None, proof_filename='proof_test.go', step_body=None):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / 'spec' / 'gear').mkdir(parents=True)
@@ -300,19 +301,30 @@ class CheckCompileTest(unittest.TestCase):
                 path.write_text('source\nline two\nline three\n')
             if provenance is None:
                 provenance = self.provenance_rows(root)
-            (root / 'proof' / 'gear' / 'proof.go').write_text('func stepOne() {}\n')
+            if proof_body is None:
+                proof_body = (
+                    'func TestOne(t *testing.T) {\n'
+                    '    proofkit.Run(t, cases(\n'
+                    '        gear{name: "one"},\n'
+                    '    ), stepOne)\n'
+                    '}\n\n'
+                    'func stepOne() {}\n')
+            (root / 'proof' / 'gear' / proof_filename).write_text(proof_body)
             table = '\n'.join((
                 '| Source | Blob hash |',
                 '|---|---|',
                 provenance,
             ))
+            if step_body is None:
+                step_body = (
+                    '## S1 `[GO]` One — `stepOne`\n\n'
+                    'Build the thing.\n\n'
+                    '%s\n\n' % from_line)
             steps = (
                 '# Steps\n\n'
-                '## S1 `[GO]` One — `stepOne`\n\n'
-                'Build the thing.\n\n'
-                '%s\n\n'
+                '%s'
                 '## Provenance\n\n'
-                '%s\n' % (from_line, table))
+                '%s\n' % (step_body, table))
             (root / 'spec' / 'gear' / 'steps.md').write_text(steps)
             output = io.StringIO()
             prior = os.getcwd()
@@ -374,6 +386,47 @@ class CheckCompileTest(unittest.TestCase):
 
         self.assertEqual(result, 0, output)
         self.assertIn('compile check: OK', output)
+
+    def test_registered_proofkit_step_is_accepted(self):
+        result, output = self.run_checker()
+
+        self.assertEqual(result, 0, output)
+        self.assertIn('compile check: OK', output)
+
+    def test_registration_in_non_test_go_file_is_rejected(self):
+        proof_body = (
+            'func TestOne(t *testing.T) {\n'
+            '    proofkit.Run(t, cases(gear{name: "one"}), stepOne)\n'
+            '}\n\n'
+            'func stepOne() {}\n')
+
+        result, output = self.run_checker(proof_body=proof_body, proof_filename='proof.go')
+
+        self.assertEqual(result, 1)
+        self.assertIn('stepOne, but no Go Test registers it', output)
+
+    def test_claimed_but_unregistered_proof_function_fails(self):
+        proof_body = (
+            'func TestOne(t *testing.T) {\n'
+            '    proofkit.Run(t, cases(gear{name: "one"}), stepOne)\n'
+            '    _ = "proofkit.Run(t, cases, stepUnused)"\n'
+            '    // proofkit.Run(t, cases, stepUnused)\n'
+            '    _ = stepUnused\n'
+            '}\n\n'
+            'func stepOne() {}\n'
+            'func stepUnused() {}\n')
+        step_body = (
+            '## S1 `[GO]` One — `stepOne`\n\n'
+            'Build the first thing.\n\n'
+            '**From:** `spec/gear/instructions.md` L1\n\n'
+            '## S2 `[GO]` Unused — `stepUnused`\n\n'
+            'Build the second thing.\n\n'
+            '**From:** `spec/gear/instructions.md` L1\n\n')
+
+        result, output = self.run_checker(proof_body=proof_body, step_body=step_body)
+
+        self.assertEqual(result, 1)
+        self.assertIn('S2 names proof function stepUnused, but no Go Test registers it', output)
 
     def test_short_dotted_calls_are_compile_candidates(self):
         steps = 'Call `sketch.add()`, `sketch.set()`, and `safeCall()`.'

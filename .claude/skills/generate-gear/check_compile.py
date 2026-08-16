@@ -252,6 +252,146 @@ def watched_calls(src, path):
     return seen
 
 
+def strip_go_comments_and_literals(src):
+    """Blank Go comments and literals so proof registration is read from code only."""
+    out = list(src)
+    i = 0
+    while i < len(src):
+        if src.startswith('//', i):
+            j = src.find('\n', i)
+            if j == -1:
+                j = len(src)
+            for k in range(i, j):
+                out[k] = ' '
+            i = j
+            continue
+        if src.startswith('/*', i):
+            j = src.find('*/', i + 2)
+            j = len(src) if j == -1 else j + 2
+            for k in range(i, j):
+                if out[k] != '\n':
+                    out[k] = ' '
+            i = j
+            continue
+        if src[i] in ('"', "'"):
+            quote = src[i]
+            j = i + 1
+            while j < len(src):
+                if src[j] == '\\':
+                    j += 2
+                    continue
+                if src[j] == quote:
+                    j += 1
+                    break
+                j += 1
+            for k in range(i, min(j, len(src))):
+                if out[k] != '\n':
+                    out[k] = ' '
+            i = j
+            continue
+        if src[i] == '`':
+            j = src.find('`', i + 1)
+            j = len(src) if j == -1 else j + 1
+            for k in range(i, j):
+                if out[k] != '\n':
+                    out[k] = ' '
+            i = j
+            continue
+        i += 1
+    return ''.join(out)
+
+
+def matching_delimiter(src, start):
+    """Return the matching delimiter index for src[start], or None."""
+    pairs = {'(': ')', '{': '}', '[': ']'}
+    opens = set(pairs)
+    closes = {v: k for k, v in pairs.items()}
+    stack = [src[start]]
+    for i in range(start + 1, len(src)):
+        ch = src[i]
+        if ch in opens:
+            stack.append(ch)
+        elif ch in closes:
+            if not stack or stack[-1] != closes[ch]:
+                return None
+            stack.pop()
+            if not stack:
+                return i
+    return None
+
+
+def go_func_bodies(src, name_pattern):
+    """Yield (name, body) for top-level Go functions whose names match name_pattern."""
+    pattern = r'(?m)^func\s+(%s)\s*\(' % name_pattern
+    for m in re.finditer(pattern, src):
+        open_brace = src.find('{', m.end())
+        if open_brace == -1:
+            continue
+        close_brace = matching_delimiter(src, open_brace)
+        if close_brace is None:
+            continue
+        yield m.group(1), src[open_brace + 1:close_brace]
+
+
+def split_go_args(src):
+    """Split a Go argument list on top-level commas."""
+    args = []
+    start = 0
+    stack = []
+    pairs = {'(': ')', '{': '}', '[': ']'}
+    closes = {v: k for k, v in pairs.items()}
+    for i, ch in enumerate(src):
+        if ch in pairs:
+            stack.append(ch)
+        elif ch in closes:
+            if stack and stack[-1] == closes[ch]:
+                stack.pop()
+        elif ch == ',' and not stack:
+            args.append(src[start:i].strip())
+            start = i + 1
+    tail = src[start:].strip()
+    if tail:
+        args.append(tail)
+    return args
+
+
+PROOF_RUN_CALLS = [
+    (r'\bproofkit\s*\.\s*Run\s*\(', 2),
+    (r'\bproofkit3d\s*\.\s*Run\s*\(', 2),
+    (r'\bproofkit3d\s*\.\s*RunSolid\s*\(', 2),
+    (r'\bproofkit3d\s*\.\s*RunWithGate\s*\(', 2),
+]
+
+
+def delimiter_depth(src, pos):
+    """Return delimiter nesting depth before pos in already-scrubbed Go source."""
+    depth = 0
+    for ch in src[:pos]:
+        if ch in '({[':
+            depth += 1
+        elif ch in ')}]' and depth:
+            depth -= 1
+    return depth
+
+
+def registered_step_functions(src):
+    """Step functions passed directly to proofkit runs inside Go Test functions."""
+    registered = set()
+    for _, body in go_func_bodies(src, r'Test[A-Z]\w*'):
+        for pattern, build_arg in PROOF_RUN_CALLS:
+            for m in re.finditer(pattern, body):
+                if delimiter_depth(body, m.start()) != 0:
+                    continue
+                open_paren = m.end() - 1
+                close_paren = matching_delimiter(body, open_paren)
+                if close_paren is None:
+                    continue
+                args = split_go_args(body[open_paren + 1:close_paren])
+                if len(args) > build_arg and re.fullmatch(r'step[A-Z]\w*', args[build_arg]):
+                    registered.add(args[build_arg])
+    return registered
+
+
 def proof_functions(proof_dir):
     """Every step function the proof defines, by name."""
     found = set()
@@ -260,9 +400,23 @@ def proof_functions(proof_dir):
     for entry in sorted(os.listdir(proof_dir)):
         if not entry.endswith('.go'):
             continue
+        src = strip_go_comments_and_literals(read(os.path.join(proof_dir, entry)))
         # step<Title>, so a helper called steps() is not mistaken for a step.
-        for m in re.finditer(r'^func (step[A-Z]\w*)\(', read(os.path.join(proof_dir, entry)), re.M):
-            found.add(m.group(1))
+        for name, _ in go_func_bodies(src, r'step[A-Z]\w*'):
+            found.add(name)
+    return found
+
+
+def proof_registrations(proof_dir):
+    """Every step function directly registered in a proofkit run from a Go Test."""
+    found = set()
+    if not os.path.isdir(proof_dir):
+        return found
+    for entry in sorted(os.listdir(proof_dir)):
+        if not entry.endswith('_test.go'):
+            continue
+        src = strip_go_comments_and_literals(read(os.path.join(proof_dir, entry)))
+        found.update(registered_step_functions(src))
     return found
 
 
@@ -297,6 +451,7 @@ def main(argv):
 
     # 2. steps and proof agree
     functions = proof_functions(proof_dir)
+    registered = proof_registrations(proof_dir)
     claimed = set()
     for sid, tag, body in steps:
         named = set(re.findall(r'\b(step[A-Z]\w*)\b', body))
@@ -306,9 +461,15 @@ def main(argv):
             if fn not in functions:
                 problems.append("  %s names proof function %s, which %s/ does not define"
                                 % (sid, fn, proof_dir))
+            elif fn not in registered:
+                problems.append("  %s names proof function %s, but no Go Test registers it "
+                                "in a proofkit run" % (sid, fn))
             claimed.add(fn)
     for fn in sorted(functions - claimed):
         problems.append("  proof function %s is not claimed by any step" % fn)
+    for fn in sorted(functions - registered):
+        problems.append("  proof function %s is defined but is not registered in any "
+                        "proofkit run inside a Go Test" % fn)
 
     # 3. API calls are real
     local = PYTHON_METHODS | defined_names(FRAMEWORK) | contract_names(gear)
