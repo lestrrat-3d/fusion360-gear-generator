@@ -128,10 +128,9 @@ func checkGearProfile(ctx context.Context, module, toothNumber, pressureAng floa
 	spine.SetConstruction(true)
 	s.AddConstraint(sketch.NewHorizontal(spine)) // [SPUR-F-SPINE], angle==0 path
 
-	// tooth-top arc: caps the flank ends. Faithful to Fusion's addByThreePoints +
-	// diameter dim — own free center pinned by the two shared ends + the diameter.
-	topArc := s.CreateArc(s.CreatePoint(0, tipR*0.1), rightPts[len(rightPts)-1], leftPts[len(leftPts)-1])
-	s.AddConstraint(sketch.NewDiameter(topArc, 2*tipR)) // [SPUR-F-TOOTHTOP-ARC]
+	// tooth-top arc: caps the flank ends. Faithful to Fusion's shared-origin
+	// addByCenterStartEnd call, with no diameter dimension.
+	s.CreateArc(origin, rightPts[len(rightPts)-1], leftPts[len(leftPts)-1]) // [SPUR-F-TOOTHTOP-ARC]
 
 	// ribs: lock each flank pair to the spine. Exact [SPUR-F-RIBS] order.
 	prevMid := origin

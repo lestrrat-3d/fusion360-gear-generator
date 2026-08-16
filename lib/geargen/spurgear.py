@@ -246,9 +246,8 @@ class SpurGearInvoluteToothDesignGenerator:
         toothTop = sketch.sketchPoints.add(
             adsk.core.Point3D.create(tipR * math.cos(angle), tipR * math.sin(angle), 0))
         sketch.geometricConstraints.addCoincident(toothTop, self.tipCircle)
-        topArc = sketch.sketchCurves.sketchArcs.addByThreePoints(
-            rightSpline.endSketchPoint, toothTop.geometry, leftSpline.endSketchPoint)
-        sketch.sketchDimensions.addDiameterDimension(topArc, toothTop.geometry)
+        sketch.sketchCurves.sketchArcs.addByCenterStartEnd(
+            origin, rightSpline.endSketchPoint, leftSpline.endSketchPoint)
 
         # 7. Spine + horizontal reference + angular pin ([SPUR-F-SPINE]).
         spine = sketch.sketchCurves.sketchLines.addByTwoPoints(origin, toothTop)

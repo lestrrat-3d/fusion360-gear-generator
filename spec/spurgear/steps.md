@@ -10,6 +10,8 @@ models 2D sketches only, so the three sketches are `[GO]` and every 3D step is `
 Three calls the spec names are absent from the Fusion API database and are marked inline
 where they appear; they are written as the spec names them, not corrected.
 
+<!-- check-step-calls: ignore addNewComponent configure generate parameterName project2 createInput3 -->
+
 ## Provenance
 
 | Source | Blob hash |
