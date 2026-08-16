@@ -461,16 +461,16 @@ the check.
   'addCollinear'?"). Don't let English prose spelling ("colinear") leak into the API call. Likewise
   `addCoincident`, `addPerpendicular`, `addParallel`, `addHorizontal`, `addMidPoint` (capital P),
   `addOffsetDimension`, `addDiameterDimension` — copy the exact casing/spelling, don't infer it.
-  **The index ([PB-API-LOOKUP]) settles any spelling mechanically:** a `grep '"name":"addColinear"'`
-  returns zero lines (⇒ doesn't exist), while `addCollinear` returns its signature.
+  **The API database ([PB-API-LOOKUP]) settles any spelling mechanically:** `members
+  GeometricConstraints` lists `addCollinear` and not `addColinear`; use the listed spelling.
 - **[PB-SKETCHCURVES] Sketch curve collections live under `sketch.sketchCurves`, never on the sketch directly.** Add
   geometry via `sketch.sketchCurves.sketchCircles`, `.sketchLines`, `.sketchArcs`,
   `.sketchFittedSplines`. `sketch.sketchCircles` (etc.) does NOT exist and raises `AttributeError:
   'Sketch' object has no attribute 'sketchCircles'`. (By contrast `sketch.sketchPoints`,
   `sketch.sketchDimensions`, `sketch.geometricConstraints`, `sketch.sketchTexts`, and
   `sketch.profiles` ARE direct members of the sketch — only the *curve* collections sit under
-  `sketchCurves`.) The index ([PB-API-LOOKUP]) confirms ownership: `grep '"name":"sketchCircles"'`
-  shows `"class":"SketchCurves"`, not `Sketch` — so the access path must go through `sketchCurves`.
+  `sketchCurves`.) The API database ([PB-API-LOOKUP]) confirms ownership: `members SketchCurves`
+  lists `sketchCircles`, so the access path must go through `sketchCurves`.
 - **[PB-SELECTION-FILTER-ENUM] Selection filters take enum constants, not strings.** `selectionInput.addSelectionFilter(...)`
   expects `adsk.core.SelectionCommandInput.<Member>` (an int enum), e.g.
   `addSelectionFilter(adsk.core.SelectionCommandInput.ConstructionPlanes)`. Passing the string

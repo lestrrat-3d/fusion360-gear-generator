@@ -4,7 +4,7 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/.." && pwd)
 
-common=$(git -C "$repo" rev-parse --git-common-dir)
+common=$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)
 main_repo=$(cd "$(dirname "$common")" && pwd)
 sketch_dir=${SKETCH_DIR:-"$main_repo/../sketch"}
 decad_dir=${DECAD_DIR:-"$main_repo/../decad"}
