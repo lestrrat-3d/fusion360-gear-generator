@@ -12,8 +12,8 @@ dimension, leaving `prev_pt = None  # Would be previous midpoint` in the rib cha
 Three checks, all derived from `spec/<gear>/steps.md` itself, so the step list doubles as the
 checklist and there is nothing separate to keep in sync:
 
-  1. NAMED-CALL COVERAGE. Every API call the step list names inside a code span must appear at
-     least once in the generated file. A step the generator skipped outright fails here.
+  1. NAMED-CALL COVERAGE. Every API call the step list names inside a code span must occur as an
+     executable call in the generated file. A step the generator skipped outright fails here.
 
   2. STUB MARKERS. Abandoned work leaves a fingerprint. Any TODO / FIXME / "would be" /
      "placeholder" / "not implemented" comment fails.
@@ -35,6 +35,7 @@ the generator's behalf, or one named only to forbid it — with a line of the fo
 
     <!-- check-step-calls: ignore nameOne nameTwo -->
 """
+import ast
 import re
 import sys
 
@@ -65,6 +66,19 @@ def named_calls(steps_src):
     return names
 
 
+def actual_call_names(gen_tree):
+    """Return function and method names used by executable Call nodes."""
+    names = set()
+    for node in ast.walk(gen_tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if isinstance(node.func, ast.Name):
+            names.add(node.func.id)
+        elif isinstance(node.func, ast.Attribute):
+            names.add(node.func.attr)
+    return names
+
+
 def main(argv):
     if len(argv) != 3:
         print('usage: check_step_calls.py <steps.md> <generated.py>', file=sys.stderr)
@@ -76,11 +90,23 @@ def main(argv):
     problems = []
 
     wanted = named_calls(steps_src)
-    missing = sorted(n for n in wanted if n + '(' not in gen_src)
+    try:
+        gen_tree = ast.parse(gen_src, filename=gen_path)
+    except SyntaxError as err:
+        problems.append("  generated candidate is not valid Python: %s" % err)
+        actual = set()
+    else:
+        actual = actual_call_names(gen_tree)
+
+    # Keep the textual scan only to explain whether a missing executable call has a misleading
+    # match in a comment or string. The AST result above is the coverage gate.
+    textual = {n for n in wanted if n + '(' in gen_src}
+    missing = sorted(wanted - actual)
     for name in missing:
+        note = " (textual match exists, but it is not an executable call)" if name in textual else ""
         problems.append(
-            "  named-call coverage: '%s(' is named in %s but never called in %s"
-            % (name, steps_path, gen_path))
+            "  named-call coverage: '%s(' is named in %s but has no executable call in %s%s"
+            % (name, steps_path, gen_path, note))
 
     for lineno, line in enumerate(gen_src.splitlines(), 1):
         hit = STUB_PATTERN.search(line)

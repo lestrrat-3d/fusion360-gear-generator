@@ -18,15 +18,17 @@ done
 
 gowork="$repo/.tmp/proof-go.work"
 mkdir -p "${gowork%/*}"
-trap 'rm -f "$gowork"' EXIT
-cat > "$gowork" <<WORK
-go 1.26.1
-
-use $here
-
-replace github.com/lestrrat-3d/sketch => $sketch_dir
-replace github.com/lestrrat-3d/decad => $decad_dir
-WORK
+trap 'rm -f "$gowork" "${gowork%/*}/go.work"' EXIT
+(
+	cd "${gowork%/*}"
+	go work init "$here"
+	go work edit \
+		-go=1.26.1 \
+		"-replace=github.com/lestrrat-3d/sketch=$sketch_dir" \
+		"-replace=github.com/lestrrat-3d/decad=$decad_dir" \
+		go.work
+	mv go.work "$gowork"
+)
 
 echo "using sketch engine at: $sketch_dir"
 echo "using decad engine at: $decad_dir"
