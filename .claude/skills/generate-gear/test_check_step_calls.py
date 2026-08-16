@@ -117,7 +117,19 @@ class CheckApiCallsTest(unittest.TestCase):
 
 
 class CheckCompileTest(unittest.TestCase):
-    def run_checker(self, provenance, from_line='**From:** `instructions.md:1`'):
+    SOURCE_PATHS = (
+        'spec/gear/instructions.md',
+        'spec/gear/fusion.md',
+        '.claude/skills/generate-gear/PLAYBOOK.md',
+    )
+
+    def provenance_rows(self, root, paths=None):
+        paths = paths or self.SOURCE_PATHS
+        return '\n'.join(
+            '| `%s` | `%s` |' % (path, COMPILE_CHECKER.blob_hash(str(root / path)))
+            for path in paths)
+
+    def run_checker(self, provenance=None, from_line='**From:** `spec/gear/instructions.md` L1'):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / 'spec' / 'gear').mkdir(parents=True)
@@ -127,7 +139,9 @@ class CheckCompileTest(unittest.TestCase):
                     root / 'spec' / 'gear' / 'instructions.md',
                     root / 'spec' / 'gear' / 'fusion.md',
                     root / '.claude' / 'skills' / 'generate-gear' / 'PLAYBOOK.md'):
-                path.write_text('source\n')
+                path.write_text('source\nline two\nline three\n')
+            if provenance is None:
+                provenance = self.provenance_rows(root)
             (root / 'proof' / 'gear' / 'proof.go').write_text('func stepOne() {}\n')
             table = '\n'.join((
                 '| Source | Blob hash |',
@@ -153,26 +167,55 @@ class CheckCompileTest(unittest.TestCase):
                 os.chdir(prior)
             return result, output.getvalue()
 
-    def complete_provenance(self):
-        return (
-            '| `spec/gear/instructions.md` | `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` |\n'
-            '| `spec/gear/fusion.md` | `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` |\n'
-            '| `.claude/skills/generate-gear/PLAYBOOK.md` | `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` |'
-        )
-
     def test_all_declared_compile_inputs_are_required(self):
-        provenance = self.complete_provenance().splitlines()[:-1]
-
-        result, output = self.run_checker('\n'.join(provenance))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for path in self.SOURCE_PATHS:
+                (root / path).parent.mkdir(parents=True, exist_ok=True)
+                (root / path).write_text('source\nline two\nline three\n')
+            provenance = self.provenance_rows(root, self.SOURCE_PATHS[:-1])
+        result, output = self.run_checker(provenance)
 
         self.assertEqual(result, 1)
         self.assertIn('provenance omits required source', output)
 
     def test_each_step_requires_a_from_citation(self):
-        result, output = self.run_checker(self.complete_provenance(), from_line='')
+        result, output = self.run_checker(from_line='')
 
         self.assertEqual(result, 1)
         self.assertIn('has no nonempty **From:** citation', output)
+
+    def test_prose_only_from_block_is_not_a_citation(self):
+        result, output = self.run_checker(from_line='**From:** the gear instructions prose')
+
+        self.assertEqual(result, 1)
+        self.assertIn('has no parseable **From:** file-and-line citation', output)
+
+    def test_citation_line_zero_is_rejected(self):
+        result, output = self.run_checker(from_line='**From:** `spec/gear/instructions.md` L0')
+
+        self.assertEqual(result, 1)
+        self.assertIn('line numbers start at 1', output)
+
+    def test_citation_reversed_range_is_rejected(self):
+        result, output = self.run_checker(from_line='**From:** `spec/gear/instructions.md` L3–2')
+
+        self.assertEqual(result, 1)
+        self.assertIn('first line is after the last line', output)
+
+    def test_citation_out_of_range_is_rejected(self):
+        result, output = self.run_checker(from_line='**From:** `spec/gear/instructions.md` L1–4')
+
+        self.assertEqual(result, 1)
+        self.assertIn('but that file has 3 lines', output)
+
+    def test_current_format_citation_is_valid(self):
+        result, output = self.run_checker(
+            from_line='**From:** `spec/gear/instructions.md` L1-2,\n'
+            'L3; `spec/gear/fusion.md` L1–2')
+
+        self.assertEqual(result, 0, output)
+        self.assertIn('compile check: OK', output)
 
 
 if __name__ == '__main__':
