@@ -98,7 +98,7 @@ func checkTwistedProfile(ctx context.Context, module, toothNumber, pressureAng, 
 		s.AddConstraint(sketch.NewDiameter(c, 2*r))
 		return c
 	}
-	rootCircle := mkCircle(rootR)
+	mkCircle(rootR)
 	tipCircle := mkCircle(tipR)
 	mkCircle(baseR)
 	mkCircle(pitchR)
@@ -173,10 +173,13 @@ func checkTwistedProfile(ctx context.Context, module, toothNumber, pressureAng, 
 	// flank-to-root lines ([SPUR-F-FLANK-ROOT], non-embedded).
 	addFlankRoot := func(flankStart *sketch.Point, seed pt) *sketch.Point {
 		n := math.Hypot(seed.x, seed.y)
-		re := s.CreatePoint(rootR*seed.x/n, rootR*seed.y/n)
-		line := s.CreateLine(re, flankStart)
-		s.AddConstraint(sketch.NewPointOnCircle(re, rootCircle))
-		s.AddConstraint(sketch.NewPointOnLine(origin, line))
+		rx, ry := rootR*seed.x/n, rootR*seed.y/n
+		re := s.CreatePoint(rx, ry)
+		s.CreateLine(re, flankStart)
+		s.AddConstraint(
+			sketch.NewHorizontalDistance(origin, re, rx),
+			sketch.NewVerticalDistance(origin, re, ry),
+		)
 		return re
 	}
 	leftFoot := addFlankRoot(leftPts[0], left[0])
