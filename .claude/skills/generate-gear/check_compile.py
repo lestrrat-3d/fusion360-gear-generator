@@ -15,8 +15,9 @@ Four checks gate, and one is reported:
      without the other.
   3. API CALLS ARE REAL. Every Fusion call the step list names exists in the API database the
      `fusion` plugin ships. Catches a spec that names a method Fusion does not have.
-  4. INPUTS HAVE NOT DRIFTED. The provenance table contains and matches the instructions, fusion
-     and playbook inputs, so an edited source cannot leave a stale step list looking healthy.
+  4. INPUTS HAVE NOT DRIFTED. The provenance table contains and matches the existing instructions,
+     optional fusion sidecar, playbook, and auxiliary documents referenced by the specs,
+     so an edited source cannot leave a stale step list looking healthy.
 
   COVERAGE is printed, never gated. The spec lines no step claims are worth skimming for
   omissions, but most of that list is headings and introductions, and the compiler is reporting on
@@ -46,17 +47,40 @@ from call_parser import call_shapes  # noqa: E402
 
 PATH_REF = r'[\w./-]+\.(?:md|go|py|json|sh)'
 PATH_TOKEN = re.compile(r'`(%s)`' % PATH_REF)
+DOCUMENT_REF = re.compile(r'(?<![\w./-])[\w./-]+\.md\b')
 INLINE_CITATION = re.compile(r'`(%s):(\d+)(?:\s*[-\u2013]\s*(\d+))?`' % PATH_REF)
 LINE_RANGE = re.compile(r'\bL(\d+)(?:\s*[-\u2013]\s*(\d+))?\b')
 
 
+def referenced_documents(path):
+    """Return existing Markdown documents referenced from one gear's input spec."""
+    found = set()
+    for reference in DOCUMENT_REF.findall(read(path)):
+        candidates = (
+            os.path.normpath(os.path.join(os.path.dirname(path), reference)),
+            os.path.normpath(reference),
+        )
+        for candidate in candidates:
+            if not os.path.isfile(candidate):
+                continue
+            if candidate != path:
+                found.add(candidate)
+            break
+    return found
+
+
 def provenance_inputs(gear):
-    """The source files whose hashes define a compiled step list."""
-    return {
-        os.path.join('spec', gear, 'instructions.md'),
-        os.path.join('spec', gear, 'fusion.md'),
-        os.path.join('.claude', 'skills', 'generate-gear', 'PLAYBOOK.md'),
+    """Existing source files whose hashes define a compiled step list."""
+    instructions = os.path.join('spec', gear, 'instructions.md')
+    fusion = os.path.join('spec', gear, 'fusion.md')
+    playbook = os.path.join('.claude', 'skills', 'generate-gear', 'PLAYBOOK.md')
+    specs = [path for path in (instructions, fusion) if os.path.isfile(path)]
+    inputs = {
+        path for path in (instructions, fusion, playbook) if os.path.isfile(path)
     }
+    for path in specs:
+        inputs.update(referenced_documents(path))
+    return inputs
 
 
 def read(path):

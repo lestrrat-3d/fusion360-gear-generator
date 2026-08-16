@@ -32,10 +32,12 @@ A step is `[GO]` when the proof exercises it and `[PROSE]` when nothing can. Eve
 1. **Setup.** Work in a worktree, never the root checkout. Ensure `.tmp/` exists. Read this file,
    `PLAYBOOK.md`, the gear's spec end to end, and `proof/proofkit/` for the harness API.
 
-2. **Record provenance.** Take `git hash-object` of every compile input: `spec/<gear>/instructions.md`,
-   `spec/<gear>/fusion.md`, and `.claude/skills/generate-gear/PLAYBOOK.md`. All three go in the step
-   list's provenance table, and step 5 checks them. The playbook belongs there because steps cite its
-   rules by anchor, so a playbook fix leaves every step list stale until it is recompiled.
+2. **Record provenance.** Use the provenance input set owned by
+   `.claude/skills/generate-gear/check_compile.py`: existing `spec/<gear>/instructions.md`, optional
+   `spec/<gear>/fusion.md`, `.claude/skills/generate-gear/PLAYBOOK.md`, and existing auxiliary Markdown
+   documents referenced by those two spec files. Take `git hash-object` of every member and put each
+   row in the step list's provenance table. Step 5 checks them. The playbook belongs there because
+   steps cite its rules by anchor, so a playbook fix leaves every step list stale until it is recompiled.
 
 3. **Draft.** Spawn a subagent with the verbatim prompt in the appendix, substituting only
    `<gear>`. It writes `.tmp/<gear>.steps.md` and `.tmp/<gear>_test.go`. Do **not** add per-gear
@@ -106,9 +108,11 @@ this skill: a compiler that rewrites its own source removes the thing being chec
 > geometry goes into it. So is each extrude, chamfer, pattern, combine, fillet. Write the step list
 > at that size, and keep the detail inside the step it belongs to.
 >
-> **The step list opens with a provenance table** of each input file and its `git hash-object`
-> value, in a two-column markdown table with both cells in backticks. It covers the gear's
-> `instructions.md`, its `fusion.md` if present, and `.claude/skills/generate-gear/PLAYBOOK.md`.
+> **The step list opens with a provenance table** of each file in the provenance input set owned by
+> `.claude/skills/generate-gear/check_compile.py`, with its `git hash-object` value, in a two-column
+> markdown table with both cells in backticks. The set covers the gear's `instructions.md`, its
+> `fusion.md` if present, the playbook, and existing auxiliary Markdown documents referenced by the
+> two spec files.
 >
 > **Each step carries** a heading of the form `## <id> `[GO]` <title>` or with `[PROSE]`, the
 > instructions themselves, a `**From:**` line naming the spec files and line ranges you compiled it

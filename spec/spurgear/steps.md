@@ -18,6 +18,7 @@ where they appear; they are written as the spec names them, not corrected.
 |---|---|
 | `spec/spurgear/instructions.md` | `6ce986c609c1d086e5158592f439e6d1c62309e3` |
 | `spec/spurgear/fusion.md` | `3e8b0b338e80a1199eb7eb95f9f004a6f0bb747d` |
+| `spec/helicalgear/fusion.md` | `83fac920272341e3c4584f16031478a69b7472e7` |
 | `.claude/skills/generate-gear/PLAYBOOK.md` | `e2d9d754012ed9e0e0306cd1327c36caac690f61` |
 
 ---

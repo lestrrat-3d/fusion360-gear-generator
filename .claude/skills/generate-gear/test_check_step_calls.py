@@ -288,19 +288,29 @@ class CheckCompileTest(unittest.TestCase):
             for path in paths)
 
     def run_checker(self, provenance=None, from_line='**From:** `spec/gear/instructions.md` L1',
-                    proof_body=None, proof_filename='proof_test.go', step_body=None):
+                    proof_body=None, proof_filename='proof_test.go', step_body=None,
+                    include_fusion=True, auxiliary=False, mutate_auxiliary=False):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / 'spec' / 'gear').mkdir(parents=True)
             (root / 'proof' / 'gear').mkdir(parents=True)
             (root / '.claude' / 'skills' / 'generate-gear').mkdir(parents=True)
-            for path in (
-                    root / 'spec' / 'gear' / 'instructions.md',
-                    root / 'spec' / 'gear' / 'fusion.md',
-                    root / '.claude' / 'skills' / 'generate-gear' / 'PLAYBOOK.md'):
-                path.write_text('source\nline two\nline three\n')
+            instruction_text = 'source\nline two\nline three\n'
+            if auxiliary:
+                instruction_text = 'source\nSee `trace.md` for details.\nline three\n'
+                (root / 'spec' / 'gear' / 'trace.md').write_text('trace\n')
+            (root / 'spec' / 'gear' / 'instructions.md').write_text(instruction_text)
+            if include_fusion:
+                (root / 'spec' / 'gear' / 'fusion.md').write_text(
+                    'source\nline two\nline three\n')
+            (root / '.claude' / 'skills' / 'generate-gear' / 'PLAYBOOK.md').write_text(
+                'source\nline two\nline three\n')
             if provenance is None:
-                provenance = self.provenance_rows(root)
+                paths = self.SOURCE_PATHS if include_fusion else (
+                    self.SOURCE_PATHS[0], self.SOURCE_PATHS[2])
+                if auxiliary:
+                    paths = (*paths[:-1], 'spec/gear/trace.md', paths[-1])
+                provenance = self.provenance_rows(root, paths)
             if proof_body is None:
                 proof_body = (
                     'func TestOne(t *testing.T) {\n'
@@ -326,6 +336,8 @@ class CheckCompileTest(unittest.TestCase):
                 '## Provenance\n\n'
                 '%s\n' % (step_body, table))
             (root / 'spec' / 'gear' / 'steps.md').write_text(steps)
+            if mutate_auxiliary:
+                (root / 'spec' / 'gear' / 'trace.md').write_text('changed\n')
             output = io.StringIO()
             prior = os.getcwd()
             try:
@@ -348,6 +360,44 @@ class CheckCompileTest(unittest.TestCase):
 
         self.assertEqual(result, 1)
         self.assertIn('provenance omits required source', output)
+
+    def test_existing_auxiliary_spec_documents_are_provenance_inputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            instructions = root / 'spec' / 'gear' / 'instructions.md'
+            auxiliary = root / 'spec' / 'gear' / 'trace.md'
+            playbook = root / '.claude' / 'skills' / 'generate-gear' / 'PLAYBOOK.md'
+            instructions.parent.mkdir(parents=True)
+            playbook.parent.mkdir(parents=True)
+            instructions.write_text('See `trace.md` for the derivation.\n')
+            auxiliary.write_text('trace\n')
+            playbook.write_text('playbook\n')
+            prior = os.getcwd()
+            try:
+                os.chdir(root)
+                inputs = COMPILE_CHECKER.provenance_inputs('gear')
+            finally:
+                os.chdir(prior)
+
+        self.assertEqual(
+            inputs,
+            {
+                'spec/gear/instructions.md',
+                'spec/gear/trace.md',
+                '.claude/skills/generate-gear/PLAYBOOK.md',
+            })
+
+    def test_absent_fusion_sidecar_is_optional(self):
+        result, output = self.run_checker(include_fusion=False)
+
+        self.assertEqual(result, 0, output)
+        self.assertNotIn('spec/gear/fusion.md', output)
+
+    def test_referenced_auxiliary_drift_is_blocking(self):
+        result, output = self.run_checker(auxiliary=True, mutate_auxiliary=True)
+
+        self.assertEqual(result, 1)
+        self.assertIn('spec/gear/trace.md has changed since the step list was compiled', output)
 
     def test_each_step_requires_a_from_citation(self):
         result, output = self.run_checker(from_line='')
