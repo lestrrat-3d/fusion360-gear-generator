@@ -336,10 +336,23 @@ class SpurGearInvoluteToothDesignGenerator:
         rootEnd = adsk.core.Point3D.create(rootR * g.x / n, rootR * g.y / n, 0)
         # Share the flank start SketchPoint directly as the far endpoint.
         line = sketch.sketchCurves.sketchLines.addByTwoPoints(rootEnd, flankStart)
-        # (a) root end on the root circle.
-        sketch.geometricConstraints.addCoincident(line.startSketchPoint, self.rootCircle)
-        # (b) local origin on the line (radial direction).
-        sketch.geometricConstraints.addCoincident(origin, line)
+        rootEndPoint = line.startSketchPoint
+        og = origin.geometry
+        dx = rootEnd.x - og.x
+        dy = rootEnd.y - og.y
+        # Exactly two signed dimensions from the local origin. Do not constrain
+        # the root endpoint to the root circle or the origin to this line: that
+        # leaves the far-side root-circle intersection available too.
+        horizontalDimension = sketch.sketchDimensions.addDistanceDimension(
+            origin, rootEndPoint,
+            adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation,
+            adsk.core.Point3D.create(og.x + dx / 2, og.y, 0))
+        horizontalDimension.parameter.value = dx
+        verticalDimension = sketch.sketchDimensions.addDistanceDimension(
+            origin, rootEndPoint,
+            adsk.fusion.DimensionOrientations.VerticalDimensionOrientation,
+            adsk.core.Point3D.create(rootEnd.x, og.y + dy / 2, 0))
+        verticalDimension.parameter.value = dy
 
     def drawBore(self, anchorPoint, diameter):
         sketch = self.sketch

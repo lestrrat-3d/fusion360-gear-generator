@@ -47,7 +47,7 @@ prescribe, mapping each Fusion constraint to its sketch-engine equivalent:
 | tooth-top arc `addByCenterStartEnd` without a diameter; root-circle split (`[SPUR-F-TOOTHTOP-ARC]`) | `CreateArc(origin, a, b)`; root split uses `CreateArc(freeCenter, a, b)` + `NewDiameter` |
 | +X reference and angular pin (`[SPUR-F-SPINE]`, every angle) | `NewHorizontalDistance` + `NewVerticalDistance` + `NewAngle` |
 | ribs: signed across-spine dimension, midpoint-on-spine, midpoint, ⊥ except on the final rib, signed along-spine chain dims (`[SPUR-F-RIBS]`) | `NewHorizontalDistance` or `NewVerticalDistance` by axis, `NewPointOnLine`, `NewMidpoint`, `NewPerpendicular` except on the final rib |
-| flank-to-root lines: root-end-on-circle + origin-on-line (`[SPUR-F-FLANK-ROOT]`) | `NewPointOnCircle` + `NewPointOnLine` |
+| flank-to-root lines: root endpoint pinned by signed Δx and Δy from the local origin (`[SPUR-F-FLANK-ROOT]`) | `NewHorizontalDistance(origin, rootEnd, dx)` + `NewVerticalDistance(origin, rootEnd, dy)` |
 
 The involute sampling (`calculateInvolutePoint`, the mirror/rotate) is the spec's
 exact math. The check runs across several `Module` / `Tooth Number` sizes and zero,
@@ -84,11 +84,9 @@ all of solvable + DOF 0 + no redundant + no conflict.
 ## A fragility the gate catches
 
 Near the embedded transition (`base ≈ root`, about `N = 42` at 20° pressure
-angle) the flank-to-root stubs shrink toward zero length and the "origin-on-line"
-constraint through two near-coincident points turns ill-conditioned: e.g.
-`M=1.5, N=40` gives `Conditioning ≈ 1.6e-8` and the solve fails to converge. That
-is a real fragility surfaced here rather than in Fusion. The healthy sizes this
-proof runs are comfortably clear of it.
+angle) the flank-to-root stubs shrink toward zero length, which leaves the root
+endpoint signed offsets close to the flank start. The healthy sizes this proof
+runs are comfortably clear of it.
 
 ## Scope
 
