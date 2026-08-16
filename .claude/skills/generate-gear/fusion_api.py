@@ -41,6 +41,10 @@ INSTALL_HINT = (
 
 # One line of `show`/`search` output: a fully qualified name and its kind.
 _HIT = re.compile(r'^\s*(adsk\.[A-Za-z0-9_.]+)\s+\[(\w+)[^]]*\]\s*$')
+_MEMBER_HIT = re.compile(r'^\s*(adsk\.[A-Za-z0-9_.]+)\.(\w+)\s+\[(\w+)[^]]*\]\s*$')
+_INHERITED_FROM = re.compile(r'^inherited from:\s+(adsk\.[A-Za-z0-9_.]+)\s*$')
+_TYPE = re.compile(r'^type:\s+([A-Za-z0-9_.]+)')
+_RETURNS = re.compile(r'^signature:.*\s->\s*([A-Za-z0-9_.]+)')
 # `members` groups its output by declaring class: a header, then two-space-indented members.
 _GROUP = re.compile(r'^(adsk\.[A-Za-z0-9_.]+)\s+\(\d+\s+members?\):\s*$')
 _MEMBER = re.compile(r'^\s{2}(\w+)')
@@ -58,7 +62,7 @@ _MEMBER = re.compile(r'^\s{2}(\w+)')
 # shipped add-in makes all three and is believed to run. Only loading the add-in settles it, and
 # whichever way it goes the fix belongs in the spec, not in a generated file.
 UNVERIFIED_CALLS = (
-    ('project', 'adsk.fusion.Sketch', ('sketch',),
+    ('project', 'adsk.fusion.Sketch', ('sketch', 'toolsSketch'),
      'the shipped add-ins call `sketch.project(entity)`, and the spur step list names it'),
     ('createInput2', 'adsk.fusion.SketchTexts', ('sketchTexts',),
      'the shipped add-ins call `sketch.sketchTexts.createInput2(text, height)`, and the spur '
@@ -178,6 +182,33 @@ def class_members(cls):
         if m:
             found.setdefault(m.group(1), owner)
     return found
+
+
+def member_info(cls, name):
+    """The member reached by `cls.name`, including inherited members and return type."""
+    out = _run('show', '%s.%s' % (cls, name))
+    info = None
+    for line in out.splitlines():
+        m = _MEMBER_HIT.match(line)
+        if m and m.group(2) == name:
+            info = {
+                'lookup': m.group(1).rsplit('.', 1)[0],
+                'name': m.group(2),
+                'kind': m.group(3),
+                'declared_on': m.group(1).rsplit('.', 1)[0],
+                'returns': None,
+            }
+            continue
+        if info is None:
+            continue
+        inherited = _INHERITED_FROM.match(line)
+        if inherited:
+            info['declared_on'] = inherited.group(1)
+            continue
+        typed = _TYPE.match(line) or _RETURNS.match(line)
+        if typed:
+            info['returns'] = typed.group(1)
+    return info
 
 
 def receiver_matches(receivers, tail):
