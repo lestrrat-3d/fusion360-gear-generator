@@ -16,18 +16,18 @@ for module_dir in "$sketch_dir" "$decad_dir"; do
 	fi
 done
 
-gowork="$repo/.tmp/proof-go.work"
-mkdir -p "${gowork%/*}"
-trap 'rm -f "$gowork" "${gowork%/*}/go.work"' EXIT
+mkdir -p "$repo/.tmp"
+work=$(mktemp -d "$repo/.tmp/proof-go-work.XXXXXX")
+gowork="$work/go.work"
+trap 'rm -rf -- "$work"' EXIT
 (
-	cd "${gowork%/*}"
+	cd "$work"
 	go work init "$here"
 	go work edit \
 		-go=1.26.1 \
 		"-replace=github.com/lestrrat-3d/sketch=$sketch_dir" \
 		"-replace=github.com/lestrrat-3d/decad=$decad_dir" \
 		go.work
-	mv go.work "$gowork"
 )
 
 echo "using sketch engine at: $sketch_dir"
