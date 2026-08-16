@@ -17,6 +17,7 @@ for module_dir in "$sketch_dir" "$decad_dir"; do
 done
 
 gowork="$repo/.tmp/proof-go.work"
+mkdir -p "${gowork%/*}"
 trap 'rm -f "$gowork"' EXIT
 cat > "$gowork" <<WORK
 go 1.26.1
