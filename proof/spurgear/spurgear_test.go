@@ -344,11 +344,12 @@ func stepGearProfileSketch(t testing.TB, s *sketch.Sketch, p map[string]float64)
 			rx, ry := f.at.X*scale, f.at.Y*scale
 			rootEnd := s.CreatePoint(rx, ry)
 			rootEnd.SetName(f.name + " flank root end")
-			s.CreateLine(rootEnd, f.end) // solid: it is part of the tooth loop
+			stub := s.CreateLine(rootEnd, f.end) // solid: it is part of the tooth loop
 			s.AddConstraint(
 				sketch.NewHorizontalDistance(origin, rootEnd, rx),
 				sketch.NewVerticalDistance(origin, rootEnd, ry),
 			)
+			checkRootEndConstraintRecipe(t, s, origin, rootEnd, stub)
 		}
 	}
 
@@ -384,6 +385,36 @@ func axisName(vertical bool) string {
 		return "vertical"
 	}
 	return "horizontal"
+}
+
+func checkRootEndConstraintRecipe(t testing.TB, s *sketch.Sketch, origin, rootEnd *sketch.Point, stub *sketch.Line) {
+	t.Helper()
+
+	var horizontal, vertical int
+	var rejected []string
+	for _, c := range s.Constraints() {
+		kind := sketch.ConstraintKind(c)
+		pts, ents := sketch.ConstraintRefs(c)
+		if kind == "hdistance" && len(pts) == 2 && pts[0] == origin && pts[1] == rootEnd {
+			horizontal++
+			continue
+		}
+		if kind == "vdistance" && len(pts) == 2 && pts[0] == origin && pts[1] == rootEnd {
+			vertical++
+			continue
+		}
+		if kind == "point_on_circle" && len(pts) == 1 && pts[0] == rootEnd {
+			rejected = append(rejected, "root end on root circle")
+			continue
+		}
+		if kind == "point_on_line" && len(pts) == 1 && pts[0] == origin && len(ents) == 1 && ents[0] == stub {
+			rejected = append(rejected, "local origin on flank-to-root line")
+		}
+	}
+	if horizontal != 1 || vertical != 1 || len(rejected) > 0 {
+		t.Fatalf("root endpoint constraints must be exactly signed horizontal+vertical dimensions from the local origin; got horizontal=%d vertical=%d rejected=%v",
+			horizontal, vertical, rejected)
+	}
 }
 
 // stepBoreProfileSketch proves S14, the Bore Profile sketch.
