@@ -73,6 +73,41 @@ class DiagnosticFilterTests(unittest.TestCase):
 
         self.assertFalse(MODULE.is_unverified_api_diagnostic(diagnostic))
 
+    def test_receiver_name_exemption_still_rejects_local_class_namesake(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'candidate.py'
+            path.write_text(
+                'class Sketch:\n'
+                '    pass\n'
+                '\n'
+                'def build(sketch: Sketch, entity):\n'
+                '    return sketch.project(entity)\n')
+            diagnostic = {
+                'rule': 'reportAttributeAccessIssue',
+                'message': 'Cannot access attribute "project" for class "Sketch"',
+                'range': {'start': {'line': 3}},
+            }
+
+            verified = MODULE.verified_fusion_classes(str(path))
+
+        self.assertFalse(MODULE.is_unverified_api_diagnostic(diagnostic, verified))
+
+    def test_receiver_name_exemption_matches_sanctioned_call(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'candidate.py'
+            path.write_text(
+                'def build(toolsSketch, entity):\n'
+                '    return toolsSketch.project(entity)\n')
+            diagnostic = {
+                'rule': 'reportAttributeAccessIssue',
+                'message': 'Cannot access attribute "project" for class "Sketch"',
+                'range': {'start': {'line': 1}},
+            }
+
+            verified = MODULE.verified_fusion_classes(str(path))
+
+        self.assertTrue(MODULE.is_unverified_api_diagnostic(diagnostic, verified))
+
     def test_unverified_member_on_wrong_class_remains_gating(self):
         diagnostic = {
             'rule': 'reportAttributeAccessIssue',

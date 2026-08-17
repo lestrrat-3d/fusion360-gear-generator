@@ -91,7 +91,8 @@ def qualified_fusion_type(expression):
 
 def verified_fusion_classes(path):
     """Map source lines to Fusion classes proven by current qualified bindings."""
-    tree = ast.parse(open(path).read(), filename=path)
+    with open(path) as source:
+        tree = ast.parse(source.read(), filename=path)
     by_line = {}
 
     def record(node, bindings):
@@ -142,6 +143,31 @@ def verified_fusion_classes(path):
             if bound is not None:
                 bindings[argument.arg] = bound
         walk_statements(node.body, bindings)
+
+    local_classes = {node.name for node in ast.walk(tree) if isinstance(node, ast.ClassDef)}
+    receiver_types = {
+        (member, receiver): class_name.rsplit('.', 1)[-1]
+        for member, class_name, receivers, _ in fusion_api.UNVERIFIED_CALLS
+        for receiver in receivers
+    }
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            continue
+        class_name = None
+        receiver = node.func.value
+        receiver_name = receiver.attr if isinstance(receiver, ast.Attribute) else None
+        if isinstance(receiver, ast.Name):
+            receiver_name = receiver.id
+        if receiver_name is not None:
+            class_name = receiver_types.get((node.func.attr, receiver_name))
+        if class_name is None:
+            continue
+        if class_name in local_classes:
+            continue
+        start = getattr(node, 'lineno', None)
+        end = getattr(node, 'end_lineno', start)
+        for line in range(start, end + 1):
+            by_line.setdefault(line, set()).add(class_name)
     return by_line
 
 
