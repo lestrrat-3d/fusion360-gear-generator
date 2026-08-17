@@ -583,6 +583,19 @@ class CheckCompileTest(unittest.TestCase):
         self.assertEqual(result, 0, output)
         self.assertIn('compile check: OK', output)
 
+    def test_compile_rejects_same_name_from_wrong_watchlist_owner(self):
+        result, output = self.run_checker(
+            step_body=(
+                '## S1 `[PROSE]` Invalid receiver — `stepOne`\n\n'
+                'Call `SketchPoint.createInput2(edges)`.\n\n'
+                '**From:** `spec/gear/instructions.md` L1\n\n'),
+            api_lookup={
+                'createInput2': [('adsk.fusion.ChamferFeatures.createInput2', 'method')]})
+
+        self.assertEqual(result, 1)
+        self.assertIn("on receiver 'SketchPoint'", output)
+        self.assertIn('database declares it on ChamferFeatures', output)
+
     def test_compiled_proof_summary_requires_a_tracked_path(self):
         result, output = self.run_checker(
             step_body=(

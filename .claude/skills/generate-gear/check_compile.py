@@ -296,6 +296,16 @@ def watched_calls(src, path):
     return seen
 
 
+def api_owner_matches_receiver(hits, receiver):
+    """Return whether a database hit is declared on the named receiver class."""
+    if receiver is None:
+        return False
+    receiver_name = receiver.rsplit('.', 1)[-1].lower()
+    return any(
+        qualified.rsplit('.', 2)[-2].lower() == receiver_name
+        for qualified, _ in hits)
+
+
 def proof_paths(src):
     """Return proof paths named by the step-list summary.
 
@@ -607,6 +617,10 @@ def main(argv):
     local = PYTHON_METHODS | defined_names(FRAMEWORK) | contract_names(gear)
     watched = {name for name, _, _, _ in fusion_api.UNVERIFIED_CALLS}
     shapes = named_call_shapes(src)
+    wrong_watchlist_receivers = {}
+    for called, receiver in shapes:
+        if called in watched and not is_watched_call(called, receiver):
+            wrong_watchlist_receivers.setdefault(called, set()).add(receiver)
     candidates = sorted(
         name for name in named_calls(src)
         if name not in local
@@ -622,7 +636,19 @@ def main(argv):
         print('check_compile: %s' % exc, file=sys.stderr)
         return 2
     for call in candidates:
-        if hits[call]:
+        wrong_receivers = wrong_watchlist_receivers.get(call, ())
+        if (hits[call]
+                and all(api_owner_matches_receiver(hits[call], receiver)
+                        for receiver in wrong_receivers)):
+            continue
+        if hits[call] and wrong_receivers:
+            owners = sorted({qualified.rsplit('.', 2)[-2] for qualified, _ in hits[call]})
+            for receiver in sorted(wrong_receivers, key=lambda value: value or ''):
+                if not api_owner_matches_receiver(hits[call], receiver):
+                    problems.append(
+                        "  the step list names '%s(' on receiver '%s', but the Fusion API "
+                        "database declares it on %s"
+                        % (call, receiver, ', '.join(owners)))
             continue
         near = fusion_api.similar(call)
         problems.append("  the step list names '%s(', which the Fusion API database does not have%s"

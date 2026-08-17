@@ -150,6 +150,18 @@ class CheckApiReceiverOwnershipTest(unittest.TestCase):
         self.assertIn('api-call check: OK', output)
         self.assertIn('UNVERIFIED call', output)
 
+    def test_unverified_namesake_without_verified_receiver_binding_is_blocking(self):
+        result, output = self.run_checker(
+            """
+            def build(Sketch, entity):
+                return Sketch.project(entity)
+            """,
+            api_names={'project'})
+
+        self.assertEqual(result, 1)
+        self.assertIn("calls 'project('", output)
+        self.assertIn('receiver ownership is required', output)
+
 
 if __name__ == '__main__':
     unittest.main()

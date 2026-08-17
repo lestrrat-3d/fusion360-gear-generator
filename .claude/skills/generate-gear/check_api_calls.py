@@ -818,7 +818,7 @@ def main():
             member_cache[key] = fusion_api.member_info(cls, name)
         return member_cache[key]
 
-    target_types, field_types, expression_type = infer_api_receiver_types(
+    receiver_bindings, field_types, expression_type = infer_api_receiver_types(
         tree, known_class_methods, bases, method_returns, api_member_info)
 
     called = {}
@@ -841,9 +841,26 @@ def main():
         module = framework_modules.get(receiver_root(func))
         return module is not None and name in framework_module_exports[module]
 
-    def exact_unverified(name, tail):
-        return any(watched == name and fusion_api.receiver_matches(receivers, tail)
-                   for watched, _, receivers, _ in fusion_api.UNVERIFIED_CALLS)
+    def has_verified_receiver_binding(receiver, receiver_type):
+        if receiver_type is None:
+            return False
+        if fusion_class_expr(receiver) == receiver_type:
+            return True
+        text = ast.unparse(receiver)
+        return any(binding_name == text and binding_type == receiver_type
+                   for (_, binding_name), binding_type in receiver_bindings.items())
+
+    def exact_unverified(name, func, receiver_type):
+        tail = receiver_tail(func)
+        for watched, cls, receivers, _ in fusion_api.UNVERIFIED_CALLS:
+            if watched != name or not fusion_api.receiver_matches(receivers, tail):
+                continue
+            expected = normalize_api_type(cls)
+            if tail != expected:
+                return True
+            if has_verified_receiver_binding(func.value, receiver_type):
+                return True
+        return False
 
     # Where each watchlist call is actually made, receiver and all, so a legitimate namesake on
     # another class is not dragged into the report or exempted from receiver validation.
@@ -863,9 +880,9 @@ def main():
         if name.startswith('_') or allowed(name, node.func, containing_classes[node]):
             continue
         tail = receiver_tail(node.func)
-        if exact_unverified(name, tail):
-            continue
         receiver_type = expression_type(node.func.value, containing_classes[node])
+        if exact_unverified(name, node.func, receiver_type):
+            continue
         if receiver_type is None:
             unresolved.append((name, node.lineno, None, 'unknown receiver'))
             continue
