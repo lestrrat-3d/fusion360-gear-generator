@@ -581,6 +581,11 @@ class CheckCompileTest(unittest.TestCase):
         self.assertEqual(
             COMPILE_CHECKER.watched_calls(invalid, 'steps.md'), {})
 
+    def test_compile_watchlist_rejects_prefixed_receiver(self):
+        self.assertEqual(
+            COMPILE_CHECKER.watched_calls(
+                'Call `other.sketch.project(entity)`.', 'steps.md'), {})
+
     def test_compile_queries_and_rejects_wrong_watchlist_receiver(self):
         result, output = self.run_checker(
             step_body=(

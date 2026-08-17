@@ -102,6 +102,11 @@ def receiver_tail(func):
     return None
 
 
+def receiver_expression(func):
+    """Return the complete expression the call is made on."""
+    return ast.unparse(func.value)
+
+
 def framework_files(root):
     out = []
     for relative in SHARED_FRAMEWORK_MODULES:
@@ -946,7 +951,7 @@ def main():
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
             called.setdefault(node.func.attr, []).append((
-                node.lineno, receiver_tail(node.func), node, containing_classes[node]))
+                node.lineno, receiver_expression(node.func), node, containing_classes[node]))
 
     def allowed(name, func, containing_class):
         if name in PYTHON_METHODS:
@@ -992,9 +997,9 @@ def main():
         return explicitly_bound(receiver) is not None
 
     def exact_unverified(name, func, receiver_type, containing_class):
-        tail = receiver_tail(func)
+        receiver = receiver_expression(func)
         for watched, cls, receivers, _ in fusion_api.UNVERIFIED_CALLS:
-            if watched != name or not fusion_api.receiver_matches(receivers, tail):
+            if watched != name or not fusion_api.receiver_matches(receivers, receiver):
                 continue
             expected = normalize_api_type(cls)
             if receiver_type == expected and has_verified_receiver_binding(
@@ -1006,8 +1011,8 @@ def main():
     # another class is not dragged into the report or exempted from receiver validation.
     seen = {}
     for name, _, receivers, _ in fusion_api.UNVERIFIED_CALLS:
-        lines = sorted(line for line, tail, _, _ in called.get(name, [])
-                       if fusion_api.receiver_matches(receivers, tail))
+        lines = sorted(line for line, receiver, _, _ in called.get(name, [])
+                       if fusion_api.receiver_matches(receivers, receiver))
         if lines:
             seen[name] = '%s:%s' % (args.target, ','.join(str(line) for line in lines))
 

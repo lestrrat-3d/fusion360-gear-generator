@@ -155,11 +155,8 @@ def verified_fusion_classes(path):
             continue
         class_name = None
         receiver = node.func.value
-        receiver_name = receiver.attr if isinstance(receiver, ast.Attribute) else None
-        if isinstance(receiver, ast.Name):
-            receiver_name = receiver.id
-        if receiver_name is not None:
-            class_name = receiver_types.get((node.func.attr, receiver_name))
+        receiver_expression = ast.unparse(receiver)
+        class_name = receiver_types.get((node.func.attr, receiver_expression))
         if class_name is None:
             continue
         if class_name in local_classes:

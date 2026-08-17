@@ -64,7 +64,8 @@ _MEMBER = re.compile(r'^\s{2}(\w+)')
 UNVERIFIED_CALLS = (
     ('project', 'adsk.fusion.Sketch', ('sketch', 'toolsSketch', 'Sketch'),
      'the shipped add-ins call `sketch.project(entity)`, and the spur step list names it'),
-    ('createInput2', 'adsk.fusion.SketchTexts', ('sketchTexts', 'SketchTexts'),
+    ('createInput2', 'adsk.fusion.SketchTexts',
+     ('sketch.sketchTexts', 'sketchTexts', 'SketchTexts'),
      'the shipped add-ins call `sketch.sketchTexts.createInput2(text, height)`, and the spur '
      'step list names it; '
      '`ChamferFeatures.createInput2` and `MoveFeatures.createInput2` are real and not at issue'),
@@ -220,8 +221,8 @@ def receiver_tail(receiver):
 
 
 def receiver_matches(receivers, receiver):
-    """Does a call belong to a watchlist entry wanting these receiver names?"""
-    return receivers is None or receiver_tail(receiver) in receivers
+    """Does a call belong to a watchlist entry naming this exact receiver expression?"""
+    return receivers is None or receiver in receivers
 
 
 def unverified_findings(called):
