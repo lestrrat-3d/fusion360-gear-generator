@@ -957,7 +957,8 @@ def main():
               and receiver.func.id == 'super'):
             return name in known_class_methods.get(containing_class, ())
         receiver_type = expression_type(receiver, containing_class)
-        if name in known_class_methods.get(receiver_type, ()):
+        if (receiver_type not in qualified_fusion_types
+                and name in known_class_methods.get(receiver_type, ())):
             return True
         module = framework_modules.get(receiver_root(func))
         return module is not None and name in framework_module_exports[module]

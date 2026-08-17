@@ -46,9 +46,9 @@ type Build func(t testing.TB, s *sketch.Sketch, p map[string]float64)
 // Run proves build against every case, one subtest each.
 //
 // Each case gets a fresh world and sketch, and is gated with [RequireSound]
-// after build returns. A case that fails does not stop the others. At least one
-// case must complete; a proof table where every case is unmodelled proves no
-// sketch.
+// after build returns. A case that creates no authored points or entities fails
+// before solving. A case that fails does not stop the others. At least one case
+// must complete; a proof table where every case is unmodelled proves no sketch.
 func Run(t *testing.T, cases []Case, build Build) {
 	t.Helper()
 	if len(cases) == 0 {
@@ -60,6 +60,9 @@ func Run(t *testing.T, cases []Case, build Build) {
 		t.Run(c.Name, func(t *testing.T) {
 			s := NewSketch(t)
 			build(t, s, c.Params)
+			if len(s.Points()) == 0 && len(s.Entities()) == 0 {
+				t.Fatalf("proofkit: case %q created no authored geometry", c.Name)
+			}
 			RequireSound(t, s)
 			completed++
 		})

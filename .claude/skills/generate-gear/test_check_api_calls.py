@@ -197,6 +197,22 @@ class CheckApiReceiverOwnershipTest(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertIn('receiver ownership is required', output)
 
+    def test_local_sketch_method_does_not_authorize_fusion_sketch_receiver(self):
+        result, output = self.run_checker(
+            """
+            class Sketch:
+                def notAnApi(self):
+                    return None
+
+            def build(sketch: adsk.fusion.Sketch):
+                return sketch.notAnApi()
+            """,
+            api_names={'notAnApi'})
+
+        self.assertEqual(result, 1)
+        self.assertIn("calls 'notAnApi('", output)
+        self.assertIn('receiver ownership is required', output)
+
     def test_untyped_watchlist_aliases_require_verified_bindings(self):
         candidates = (
             ('sketch', 'project(entity)'),
