@@ -586,6 +586,12 @@ class CheckCompileTest(unittest.TestCase):
             COMPILE_CHECKER.watched_calls(
                 'Call `other.sketch.project(entity)`.', 'steps.md'), {})
 
+    def test_compile_watchlist_accepts_verified_receiver_shape(self):
+        self.assertEqual(
+            COMPILE_CHECKER.watched_calls(
+                'Call `self.sketch.project(entity)`.', 'steps.md'),
+            {'project': 'steps.md:1'})
+
     def test_compile_queries_and_rejects_wrong_watchlist_receiver(self):
         result, output = self.run_checker(
             step_body=(

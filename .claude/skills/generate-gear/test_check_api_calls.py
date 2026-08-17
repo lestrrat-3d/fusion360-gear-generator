@@ -257,6 +257,22 @@ class CheckApiReceiverOwnershipTest(unittest.TestCase):
         self.assertIn("calls 'project('", output)
         self.assertIn('receiver ownership is required', output)
 
+    def test_verified_self_fusion_field_allows_unverified_call(self):
+        result, output = self.run_checker(
+            """
+            class Candidate:
+                def __init__(self, sketch: adsk.fusion.Sketch):
+                    self.sketch = sketch
+
+                def run(self, entity):
+                    return self.sketch.project(entity)
+            """,
+            api_names={'project'})
+
+        self.assertEqual(result, 0, output)
+        self.assertIn('api-call check: OK', output)
+        self.assertIn('UNVERIFIED call', output)
+
 
 if __name__ == '__main__':
     unittest.main()

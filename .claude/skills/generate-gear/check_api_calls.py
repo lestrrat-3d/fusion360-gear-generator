@@ -1002,6 +1002,12 @@ def main():
             if watched != name or not fusion_api.receiver_matches(receivers, receiver):
                 continue
             expected = normalize_api_type(cls)
+            # `self.sketch` is a generated receiver shape, but its field must still be
+            # proven to be a Fusion Sketch. Exact matching alone would waive an arbitrary
+            # namesake field, while tail matching would reopen `other.sketch`.
+            if receiver.startswith('self.') and not has_verified_receiver_binding(
+                    func.value, receiver_type, containing_class):
+                continue
             if receiver_type == expected and has_verified_receiver_binding(
                     func.value, receiver_type, containing_class):
                 return True

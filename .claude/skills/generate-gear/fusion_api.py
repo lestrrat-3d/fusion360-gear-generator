@@ -62,7 +62,7 @@ _MEMBER = re.compile(r'^\s{2}(\w+)')
 # shipped add-in makes all three and is believed to run. Only loading the add-in settles it, and
 # whichever way it goes the fix belongs in the spec, not in a generated file.
 UNVERIFIED_CALLS = (
-    ('project', 'adsk.fusion.Sketch', ('sketch', 'toolsSketch', 'Sketch'),
+    ('project', 'adsk.fusion.Sketch', ('sketch', 'toolsSketch', 'Sketch', 'self.sketch'),
      'the shipped add-ins call `sketch.project(entity)`, and the spur step list names it'),
     ('createInput2', 'adsk.fusion.SketchTexts',
      ('sketch.sketchTexts', 'sketchTexts', 'SketchTexts'),

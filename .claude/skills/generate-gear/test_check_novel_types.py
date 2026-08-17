@@ -124,6 +124,26 @@ class DiagnosticFilterTests(unittest.TestCase):
 
         self.assertFalse(MODULE.is_unverified_api_diagnostic(diagnostic, verified))
 
+    def test_verified_self_fusion_field_matches_sanctioned_call(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'candidate.py'
+            path.write_text(
+                'class Candidate:\n'
+                '    def __init__(self, sketch: adsk.fusion.Sketch):\n'
+                '        self.sketch = sketch\n'
+                '\n'
+                '    def build(self, entity):\n'
+                '        return self.sketch.project(entity)\n')
+            diagnostic = {
+                'rule': 'reportAttributeAccessIssue',
+                'message': 'Cannot access attribute "project" for class "Sketch"',
+                'range': {'start': {'line': 5}},
+            }
+
+            verified = MODULE.verified_fusion_classes(str(path))
+
+        self.assertTrue(MODULE.is_unverified_api_diagnostic(diagnostic, verified))
+
     def test_unverified_member_on_wrong_class_remains_gating(self):
         diagnostic = {
             'rule': 'reportAttributeAccessIssue',

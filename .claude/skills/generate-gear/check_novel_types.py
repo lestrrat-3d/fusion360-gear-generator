@@ -95,6 +95,56 @@ def verified_fusion_classes(path):
         tree = ast.parse(source.read(), filename=path)
     by_line = {}
 
+    field_types = {}
+    containing_classes = {}
+
+    class Visitor(ast.NodeVisitor):
+        def __init__(self):
+            self.classes = []
+
+        def visit_ClassDef(self, node):
+            self.classes.append(node.name)
+            for child in node.body:
+                self.visit(child)
+            self.classes.pop()
+
+        def visit_Call(self, node):
+            containing_classes[id(node)] = self.classes[-1] if self.classes else None
+            self.generic_visit(node)
+
+    Visitor().visit(tree)
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        init = next((child for child in node.body
+                     if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+                     and child.name == '__init__'), None)
+        if init is None:
+            continue
+        bindings = {
+            argument.arg: qualified_fusion_type(argument.annotation)
+            for argument in (*init.args.posonlyargs, *init.args.args, *init.args.kwonlyargs)
+            if qualified_fusion_type(argument.annotation) is not None
+        }
+        for statement in ast.walk(init):
+            if not isinstance(statement, ast.Assign):
+                continue
+            assigned = qualified_fusion_type(statement.value)
+            if isinstance(statement.value, ast.Name):
+                assigned = bindings.get(statement.value.id)
+            for target in statement.targets:
+                if isinstance(target, ast.Name):
+                    if assigned is None:
+                        bindings.pop(target.id, None)
+                    else:
+                        bindings[target.id] = assigned
+                elif (isinstance(target, ast.Attribute)
+                      and isinstance(target.value, ast.Name)
+                      and target.value.id == 'self'
+                      and assigned is not None):
+                    field_types[(node.name, target.attr)] = assigned
+
     def record(node, bindings):
         start = getattr(node, 'lineno', None)
         end = getattr(node, 'end_lineno', start)
@@ -157,6 +207,13 @@ def verified_fusion_classes(path):
         receiver = node.func.value
         receiver_expression = ast.unparse(receiver)
         class_name = receiver_types.get((node.func.attr, receiver_expression))
+        containing_class = containing_classes.get(id(node))
+        if (class_name is not None and receiver_expression.startswith('self.')
+                and isinstance(receiver, ast.Attribute)
+                and isinstance(receiver.value, ast.Name)
+                and receiver.value.id == 'self'):
+            if field_types.get((containing_class, receiver.attr)) != class_name:
+                class_name = None
         if class_name is None:
             continue
         if class_name in local_classes:
