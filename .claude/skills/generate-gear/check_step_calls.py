@@ -117,13 +117,31 @@ class ReachableCallCollector(ast.NodeVisitor):
         self.methods = {}
         self.calls = set()
         self.visited = set()
+        self.function_owners = {}
+        self.owner_stack = []
+        self.binding_stack = []
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 self.functions.setdefault(node.name, []).append(node)
-                if node.args.posonlyargs or node.args.args:
-                    self.methods.setdefault(node.name, []).append(node)
             elif isinstance(node, ast.ClassDef):
                 self.classes.setdefault(node.name, []).append(node)
+
+        class Collector(ast.NodeVisitor):
+            def __init__(self, outer):
+                self.outer = outer
+                self.class_stack = []
+
+            def visit_ClassDef(self, node):
+                self.class_stack.append(node.name)
+                for child in node.body:
+                    if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        self.outer.function_owners[id(child)] = node.name
+                        self.outer.methods[(node.name, child.name)] = child
+                    elif isinstance(child, ast.ClassDef):
+                        self.visit(child)
+                self.class_stack.pop()
+
+        Collector(self).visit(tree)
 
     def collect(self, tree):
         self.visit_statements(tree.body)
@@ -148,7 +166,9 @@ class ReachableCallCollector(ast.NodeVisitor):
                 self.visit(expression)
             for base in statement.bases:
                 self.visit(base)
-            self.visit_statements(statement.body)
+            for child in statement.body:
+                if not isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    self.visit(child)
             return True
         if isinstance(statement, ast.If):
             self.visit(statement.test)
@@ -215,9 +235,13 @@ class ReachableCallCollector(ast.NodeVisitor):
         if marker in self.visited:
             return
         self.visited.add(marker)
+        self.owner_stack.append(self.function_owners.get(marker))
+        self.binding_stack.append({})
         for default in (*node.args.defaults, *(default for default in node.args.kw_defaults if default)):
             self.visit(default)
         self.visit_statements(node.body)
+        self.binding_stack.pop()
+        self.owner_stack.pop()
 
     def visit_Call(self, node):
         if isinstance(node.func, ast.Name):
@@ -225,7 +249,7 @@ class ReachableCallCollector(ast.NodeVisitor):
             self.visit_local_name(node.func.id)
         elif isinstance(node.func, ast.Attribute):
             self.calls.add((node.func.attr, True))
-            self.visit_local_method(node.func.attr)
+            self.visit_local_method(node.func.attr, self.class_for_expression(node.func.value))
             self.visit(node.func.value)
         else:
             self.visit(node.func)
@@ -234,18 +258,60 @@ class ReachableCallCollector(ast.NodeVisitor):
         for keyword in node.keywords:
             self.visit(keyword.value)
 
+    def visit_Assign(self, node):
+        self.visit(node.value)
+        assigned = self.class_for_expression(node.value)
+        if self.binding_stack:
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    if assigned is None:
+                        self.binding_stack[-1].pop(target.id, None)
+                    else:
+                        self.binding_stack[-1][target.id] = assigned
+
+    def visit_AnnAssign(self, node):
+        if node.value:
+            self.visit(node.value)
+        assigned = self.class_for_expression(node.value) if node.value else None
+        if isinstance(node.target, ast.Name) and self.binding_stack:
+            if assigned is None:
+                self.binding_stack[-1].pop(node.target.id, None)
+            else:
+                self.binding_stack[-1][node.target.id] = assigned
+
+    def class_for_expression(self, expression):
+        if isinstance(expression, ast.Name):
+            if expression.id == 'self' and self.owner_stack:
+                return self.owner_stack[-1]
+            if self.binding_stack and expression.id in self.binding_stack[-1]:
+                return self.binding_stack[-1][expression.id]
+            if expression.id in self.classes:
+                return expression.id
+        if isinstance(expression, ast.Call) and isinstance(expression.func, ast.Name):
+            if expression.func.id in self.classes:
+                return expression.func.id
+        return None
+
     def visit_local_name(self, name):
         for node in self.functions.get(name, ()):
-            self.visit_function(node)
+            if id(node) not in self.function_owners:
+                self.visit_function(node)
         for node in self.classes.get(name, ()):
             for member in node.body:
                 if isinstance(member, (ast.FunctionDef, ast.AsyncFunctionDef)) and member.name == '__init__':
                     self.visit_function(member)
 
-    def visit_local_method(self, name):
-        for node in self.methods.get(name, ()):
-            self.visit_function(node)
-
+    def visit_local_method(self, name, owner):
+        if owner is None and self.owner_stack:
+            owner = self.owner_stack[-1]
+        if owner is not None:
+            node = self.methods.get((owner, name))
+            if node is not None:
+                self.visit_function(node)
+            return
+        for (class_name, method_name), node in self.methods.items():
+            if method_name == name:
+                self.visit_function(node)
 
 def actual_call_names(gen_tree):
     """Return function and method names used by reachable Call nodes."""
@@ -280,9 +346,10 @@ def main(argv):
     # match in a comment or string. The AST result above is the coverage gate.
     textual = {name for name, _ in wanted if name + '(' in gen_src}
     missing = sorted(
-        (name, has_receiver) for name, has_receiver in wanted
-        if not any(actual_name == name and (not has_receiver or actual_receiver)
-                   for actual_name, actual_receiver in actual))
+        ((name, has_receiver) for name, has_receiver in wanted
+         if not any(actual_name == name and (not has_receiver or actual_receiver)
+                    for actual_name, actual_receiver in actual)),
+        key=lambda row: (row[0], row[1] or ''))
     for name, has_receiver in missing:
         note = " (textual match exists, but it is not a reachable executable call)" if name in textual else ""
         call = ('receiver.%s' if has_receiver else '%s') % name

@@ -119,6 +119,27 @@ class CheckStepCallsTest(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertIn('textual match exists, but it is not a reachable executable call', output)
 
+    def test_reachability_stays_with_the_called_class_method(self):
+        steps = 'Call `sketch.project(entity)`.'
+        candidate = (
+            'class A:\n'
+            '    def generate(self):\n'
+            '        return A.helper(self)\n'
+            '    def helper(self):\n'
+            '        return None\n'
+            '\n'
+            'class B:\n'
+            '    def helper(self):\n'
+            '        return sketch.project(entity)\n'
+            '\n'
+            'def generate():\n'
+            '    return A.generate(None)\n')
+
+        result, output = self.run_checker(steps, candidate)
+
+        self.assertEqual(result, 1)
+        self.assertIn('textual match exists, but it is not a reachable executable call', output)
+
 
 class CheckApiCallsTest(unittest.TestCase):
     def run_checker(self, candidate, framework, framework_name='helpers.py'):

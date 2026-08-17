@@ -72,12 +72,6 @@ SHARED_FRAMEWORK_MODULES = (
     'fusion360utils/general_utils.py',
 )
 
-FUSION_NAME_HINTS = {
-    'cmd': 'Command',
-    'command': 'Command',
-    'sketch': 'Sketch',
-}
-
 UNVERIFIED_RETURN_TYPES = {
     ('project', 'sketch'): 'ObjectCollection',
     ('project', 'toolsSketch'): 'ObjectCollection',
@@ -184,6 +178,19 @@ def annotation_return_type(annotation):
     return normalize_api_type(ast.unparse(annotation))
 
 
+def fusion_annotation_type(annotation):
+    """Return a type only when an annotation names a qualified Fusion class."""
+    if annotation is None:
+        return None
+    text = ast.unparse(annotation).strip()
+    if not text.startswith(('adsk.core.', 'adsk.fusion.', 'core.', 'fusion.')):
+        optional = re.match(r'(?:typing\.)?Optional\[(.+)\]$', text)
+        if optional is None:
+            return None
+        text = optional.group(1).strip()
+    return normalize_api_type(text)
+
+
 def method_returns_from_tree(tree, known_classes):
     returns = {}
     for class_node in ast.walk(tree):
@@ -255,10 +262,6 @@ def fusion_class_expr(expr):
     if parts and len(parts) >= 3 and parts[0] == 'adsk' and parts[1] in ('core', 'fusion'):
         return parts[2]
     return None
-
-
-def hinted_name_type(name):
-    return FUSION_NAME_HINTS.get(name)
 
 
 def unverified_return_type(func):
@@ -619,6 +622,8 @@ def infer_api_receiver_types(tree, classes, bases, method_returns, api_member_in
     scopes = node_scopes(tree)
     types = {}
     field_types = {}
+    verified_bindings = set()
+    verified_fields = set()
     constructor_fields, constructor_parameters = constructor_field_parameters(tree)
     method_parameters = method_parameters_from_tree(tree)
 
@@ -628,9 +633,11 @@ def infer_api_receiver_types(tree, classes, bases, method_returns, api_member_in
         scope = (containing.get(node), node.name)
         arguments = (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs)
         for argument in arguments:
-            argument_type = annotation_return_type(argument.annotation)
+            argument_type = fusion_annotation_type(argument.annotation)
             if argument_type is not None:
-                types[(scope, argument.arg)] = argument_type
+                key = (scope, argument.arg)
+                types[key] = argument_type
+                verified_bindings.add(key)
 
     def method_return_for(class_name, name, visiting=()):
         if class_name is None or class_name in visiting:
@@ -666,8 +673,7 @@ def infer_api_receiver_types(tree, classes, bases, method_returns, api_member_in
             if expression.id == 'self':
                 return containing_class
             return (types.get((scopes.get(expression), expression.id))
-                    or types.get(expression.id)
-                    or hinted_name_type(expression.id))
+                    or types.get(expression.id))
         if isinstance(expression, ast.Attribute):
             text = ast.unparse(expression)
             scoped = (scopes.get(expression), text)
@@ -709,31 +715,81 @@ def infer_api_receiver_types(tree, classes, bases, method_returns, api_member_in
                 return unverified_return_type(expression.func)
         return None
 
-    def assign_type(target, assigned):
-        nonlocal field_types
-        if assigned is None:
+    def expression_is_verified(expression, containing_class):
+        if expression is None:
             return False
+        if fusion_class_expr(expression) is not None:
+            return True
+        if isinstance(expression, ast.Name):
+            return (scopes.get(expression), expression.id) in verified_bindings
+        if isinstance(expression, ast.Attribute):
+            key = (scopes.get(expression), ast.unparse(expression))
+            if key in verified_bindings:
+                return True
+            if (isinstance(expression.value, ast.Name)
+                    and expression.value.id == 'self'
+                    and (containing_class, expression.attr) in verified_fields):
+                return True
+            return False
+        if isinstance(expression, ast.Call) and isinstance(expression.func, ast.Attribute):
+            owner = expression_type(expression.func.value, containing_class)
+            owner_verified = expression_is_verified(expression.func.value, containing_class)
+            if owner_verified:
+                return True
+            return method_return_for(owner, expression.func.attr) is not None
+        return False
+
+    def assign_type(target, assigned, verified=False, preserve_unknown_field=False):
+        nonlocal field_types
         changed = False
         if isinstance(target, (ast.Name, ast.Attribute)):
             name = target.id if isinstance(target, ast.Name) else ast.unparse(target)
             key = (scopes.get(target), name)
-            if key not in types:
+            if assigned is None:
+                if key in types:
+                    del types[key]
+                    changed = True
+                if key in verified_bindings:
+                    verified_bindings.remove(key)
+                    changed = True
+            elif types.get(key) != assigned:
                 types[key] = assigned
+                changed = True
+                if verified:
+                    verified_bindings.add(key)
+                else:
+                    verified_bindings.discard(key)
+            elif verified and key not in verified_bindings:
+                verified_bindings.add(key)
                 changed = True
         if isinstance(target, ast.Attribute):
             owner = expression_type(target.value, containing.get(target))
             if owner is not None:
-                values = field_types.setdefault((owner, target.attr), set())
-                if assigned not in values:
-                    values.add(assigned)
+                field_key = (owner, target.attr)
+                values = field_types.get(field_key, set())
+                if assigned is None and not preserve_unknown_field:
+                    if field_key in field_types:
+                        del field_types[field_key]
+                        changed = True
+                    if field_key in verified_fields:
+                        verified_fields.remove(field_key)
+                        changed = True
+                elif assigned is not None and values != {assigned}:
+                    field_types[field_key] = {assigned}
+                    changed = True
+                    if verified:
+                        verified_fields.add(field_key)
+                    else:
+                        verified_fields.discard(field_key)
+                elif verified and field_key not in verified_fields:
+                    verified_fields.add(field_key)
                     changed = True
         return changed
 
     for node in ast.walk(tree):
         if isinstance(node, ast.AnnAssign):
             assigned = annotation_return_type(node.annotation)
-            if assigned is not None:
-                assign_type(node.target, assigned)
+            assign_type(node.target, assigned, fusion_annotation_type(node.annotation) is not None)
 
     changed = True
     while changed:
@@ -742,19 +798,34 @@ def infer_api_receiver_types(tree, classes, bases, method_returns, api_member_in
             containing_class = containing.get(node)
             if isinstance(node, ast.Assign):
                 assigned = expression_type(node.value, containing_class)
+                verified = expression_is_verified(node.value, containing_class)
+                preserve_unknown_field = (
+                    isinstance(node.value, ast.Name)
+                    and scopes.get(node) is not None
+                    and scopes[node][1] == '__init__'
+                    and node.value.id in constructor_parameters.get(containing_class, ()))
                 for target in node.targets:
-                    changed = assign_type(target, assigned) or changed
+                    changed = assign_type(
+                        target, assigned, verified, preserve_unknown_field) or changed
             elif isinstance(node, ast.AnnAssign):
                 assigned = annotation_return_type(node.annotation) or expression_type(
                     node.value, containing_class)
-                changed = assign_type(node.target, assigned) or changed
+                verified = (fusion_annotation_type(node.annotation) is not None
+                            or expression_is_verified(node.value, containing_class))
+                preserve_unknown_field = (
+                    isinstance(node.value, ast.Name)
+                    and scopes.get(node) is not None
+                    and scopes[node][1] == '__init__'
+                    and node.value.id in constructor_parameters.get(containing_class, ()))
+                changed = assign_type(
+                    node.target, assigned, verified, preserve_unknown_field) or changed
             elif isinstance(node, ast.For):
                 iter_type = expression_type(node.iter, containing_class)
                 item = None
                 if iter_type is not None:
                     info = api_member_info(iter_type, 'item')
                     item = normalize_api_type(info.get('returns')) if info else None
-                changed = assign_type(node.target, item) or changed
+                changed = assign_type(node.target, item, False) or changed
             elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
                 class_name = node.func.id
                 if class_name not in constructor_parameters:
@@ -767,8 +838,17 @@ def infer_api_receiver_types(tree, classes, bases, method_returns, api_member_in
                         if field_class == class_name and field_parameter == parameter:
                             values = field_types.setdefault((field_class, field), set())
                             if argument_type not in values:
+                                values.clear()
                                 values.add(argument_type)
                                 changed = True
+                            field_key = (field_class, field)
+                            argument_verified = expression_is_verified(
+                                argument, containing_class)
+                            if argument_verified and field_key not in verified_fields:
+                                verified_fields.add(field_key)
+                                changed = True
+                            elif not argument_verified:
+                                verified_fields.discard(field_key)
             elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
                 receiver_type = expression_type(node.func.value, containing_class)
                 found = method_parameters_for(receiver_type, node.func.attr)
@@ -784,7 +864,7 @@ def infer_api_receiver_types(tree, classes, bases, method_returns, api_member_in
                         types[key] = argument_type
                         changed = True
 
-    return types, field_types, expression_type
+    return types, field_types, expression_type, verified_bindings, verified_fields
 
 
 def main():
@@ -813,18 +893,24 @@ def main():
     method_returns.update(method_returns_from_tree(tree, known_class_methods))
     containing_classes = call_classes(tree)
     framework_modules = imported_framework_modules(tree, framework_module_exports)
+    qualified_fusion_types = {
+        fusion_class_expr(node) for node in ast.walk(tree)
+        if fusion_class_expr(node) is not None}
     member_cache = {}
 
     def api_member_info(cls, name):
         cls = normalize_api_type(cls)
         if cls is None:
             return None
+        if cls in target_class_methods and cls not in qualified_fusion_types:
+            return None
         key = (cls, name)
         if key not in member_cache:
             member_cache[key] = fusion_api.member_info(cls, name)
         return member_cache[key]
 
-    receiver_bindings, field_types, expression_type = infer_api_receiver_types(
+    (receiver_bindings, field_types, expression_type,
+     verified_bindings, verified_fields) = infer_api_receiver_types(
         tree, known_class_methods, bases, method_returns, api_member_info)
     receiver_scopes = node_scopes(tree)
 
@@ -857,15 +943,18 @@ def main():
         def explicitly_bound(expression):
             if isinstance(expression, ast.Name):
                 key = (receiver_scopes.get(expression), expression.id)
-                return receiver_bindings.get(key)
+                return (receiver_bindings.get(key)
+                        if key in verified_bindings else None)
             if isinstance(expression, ast.Attribute):
                 text = ast.unparse(expression)
                 key = (receiver_scopes.get(expression), text)
-                bound = receiver_bindings.get(key)
+                bound = (receiver_bindings.get(key)
+                         if key in verified_bindings else None)
                 if bound is not None:
                     return bound
                 if (isinstance(expression.value, ast.Name)
                         and expression.value.id == 'self'
+                        and (containing_class, expression.attr) in verified_fields
                         and field_types.get((containing_class, expression.attr))):
                     return next(iter(field_types[(containing_class, expression.attr)]))
                 return explicitly_bound(expression.value)

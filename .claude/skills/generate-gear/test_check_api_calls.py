@@ -166,6 +166,37 @@ class CheckApiReceiverOwnershipTest(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertIn("calls 'addByCenterRadius('", output)
 
+    def test_reassignment_removes_prior_fusion_receiver_type(self):
+        result, output = self.run_checker(
+            """
+            def build(sketch: adsk.fusion.Sketch, bad, center):
+                sketch = bad
+                return sketch.sketchCurves.sketchCircles.addByCenterRadius(center, 1)
+            """,
+            api_names={'addByCenterRadius'},
+            members={
+                ('Sketch', 'sketchCurves'): api_member('SketchCurves', kind='property'),
+                ('SketchCurves', 'sketchCircles'): api_member('SketchCircles', kind='property'),
+                ('SketchCircles', 'addByCenterRadius'): api_member('SketchCircle'),
+            })
+
+        self.assertEqual(result, 1)
+        self.assertIn('receiver ownership is required', output)
+
+    def test_local_class_named_sketch_does_not_authorize_unverified_call(self):
+        result, output = self.run_checker(
+            """
+            class Sketch:
+                pass
+
+            def build(sketch: Sketch, entity):
+                return sketch.project(entity)
+            """,
+            api_names={'project'})
+
+        self.assertEqual(result, 1)
+        self.assertIn('receiver ownership is required', output)
+
     def test_untyped_watchlist_aliases_require_verified_bindings(self):
         candidates = (
             ('sketch', 'project(entity)'),

@@ -45,6 +45,7 @@ Usage:
 Run from the repo root. Exit 0 = OK, 1 = BLOCKING, 2 = no reference gears to compare against.
 """
 import argparse
+import ast
 import contextlib
 import filecmp
 import importlib.util
@@ -69,15 +70,94 @@ ATTRIBUTE_ACCESS = re.compile(
 UNVERIFIED_ATTRIBUTES = frozenset(
     (cls.rsplit('.', 1)[-1], member)
     for member, cls, _, _ in fusion_api.UNVERIFIED_CALLS)
+QUALIFIED_UNVERIFIED_ATTRIBUTES = frozenset(
+    (cls, member) for member, cls, _, _ in fusion_api.UNVERIFIED_CALLS)
 
 
-def is_unverified_api_diagnostic(diag):
+def qualified_fusion_type(expression):
+    if isinstance(expression, ast.Call) and isinstance(expression.func, ast.Attribute):
+        return qualified_fusion_type(expression.func.value)
+    parts = []
+    while isinstance(expression, ast.Attribute):
+        parts.append(expression.attr)
+        expression = expression.value
+    if isinstance(expression, ast.Name):
+        parts.append(expression.id)
+        parts.reverse()
+        if len(parts) == 3 and parts[:2] in (['adsk', 'core'], ['adsk', 'fusion']):
+            return parts[2]
+    return None
+
+
+def verified_fusion_classes(path):
+    """Map source lines to Fusion classes proven by current qualified bindings."""
+    tree = ast.parse(open(path).read(), filename=path)
+    by_line = {}
+
+    def record(node, bindings):
+        start = getattr(node, 'lineno', None)
+        end = getattr(node, 'end_lineno', start)
+        if start is None:
+            return
+        for line in range(start, end + 1):
+            by_line.setdefault(line, set()).update(bindings.values())
+
+    def walk_statements(statements, bindings):
+        for statement in statements:
+            record(statement, bindings)
+            if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                continue
+            if isinstance(statement, ast.Assign):
+                assigned = qualified_fusion_type(statement.value)
+                if isinstance(statement.value, ast.Name):
+                    assigned = bindings.get(statement.value.id)
+                for target in statement.targets:
+                    if isinstance(target, ast.Name):
+                        if assigned is None:
+                            bindings.pop(target.id, None)
+                        else:
+                            bindings[target.id] = assigned
+            elif isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name):
+                assigned = qualified_fusion_type(statement.annotation)
+                if assigned is None and statement.value is not None:
+                    assigned = qualified_fusion_type(statement.value)
+                if assigned is None:
+                    bindings.pop(statement.target.id, None)
+                else:
+                    bindings[statement.target.id] = assigned
+            for child in ast.iter_child_nodes(statement):
+                if isinstance(child, (ast.If, ast.For, ast.AsyncFor, ast.While, ast.With,
+                                      ast.AsyncWith, ast.Try)):
+                    for block in (getattr(child, 'body', []), getattr(child, 'orelse', []),
+                                  getattr(child, 'finalbody', [])):
+                        walk_statements(block, bindings.copy())
+
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        bindings = {}
+        arguments = (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs)
+        for argument in arguments:
+            bound = qualified_fusion_type(argument.annotation)
+            if bound is not None:
+                bindings[argument.arg] = bound
+        walk_statements(node.body, bindings)
+    return by_line
+
+
+def is_unverified_api_diagnostic(diag, verified_by_line=None):
     """Whether a pyright finding names an explicitly unverified Fusion member."""
     if diag.get('rule') != 'reportAttributeAccessIssue':
         return False
     match = ATTRIBUTE_ACCESS.search(diag.get('message', ''))
-    return bool(match and (match.group('class'), match.group('member'))
-                in UNVERIFIED_ATTRIBUTES)
+    if not match:
+        return False
+    pair = (match.group('class'), match.group('member'))
+    if pair in QUALIFIED_UNVERIFIED_ATTRIBUTES:
+        return True
+    line = diag.get('range', {}).get('start', {}).get('line', -1) + 1
+    verified = (verified_by_line or {}).get(line, ())
+    return pair in UNVERIFIED_ATTRIBUTES and match.group('class') in verified
 
 
 def load_pyright_check():
@@ -189,8 +269,10 @@ def main():
         for diag in diagnostics(pc, gear):
             baseline.add(signature(diag))
 
+    verified_by_line = verified_fusion_classes(args.candidate)
     novel = [d for d in diagnostics(pc, args.candidate)
-             if signature(d) not in baseline and not is_unverified_api_diagnostic(d)]
+             if signature(d) not in baseline
+             and not is_unverified_api_diagnostic(d, verified_by_line)]
     if novel:
         print('novel-type check: %d complaint(s) no shipped gear produces — triage each'
               % len(novel))

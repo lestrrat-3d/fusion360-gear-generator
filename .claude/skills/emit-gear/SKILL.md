@@ -26,7 +26,7 @@ the pipeline exists to make trustworthy.
    `<gear>`. It writes `.tmp/<gear>.generated.py`. Add no per-gear hints; anything the drafter
    needs belongs in the step list.
 
-4. **Gate.** Run all six checks below. Every one must exit 0.
+4. **Gate.** Run all seven checks below. Every one must exit 0.
 
 5. **Diagnose and loop.** Classify any failure with the table below. An emit fault goes back to
    step 3 with the failure text appended, up to about three rounds. A compile fault stops the run.
@@ -45,13 +45,14 @@ the pipeline exists to make trustworthy.
 | Input reads | `check_input_read.py .tmp/<gear>.generated.py` | A dialog input read with the wrong helper |
 | Contract | `check_contract.py spec/<gear>/contract.json .tmp/<gear>.generated.py` | Missing classes, hooks, `ctx` fields, constants |
 | Step calls | `check_step_calls.py spec/<gear>/steps.md .tmp/<gear>.generated.py` | A named call never made, an abandoned stub, a shared point passed as `.geometry` |
+| Anchors | `python3 .claude/skills/generate-gear/check_anchors.py` | A proof or step-list anchor is missing or stale |
 | API calls | `check_api_calls.py .tmp/<gear>.generated.py` | A method that exists nowhere in the Fusion API |
 
 `pyright_check.py` REVIEW findings are advisory stub noise. Only BLOCKING gates.
 
 ## Triage the type complaints
 
-After the six gates pass, run
+After the seven gates pass, run
 `python3 .claude/skills/generate-gear/check_novel_types.py .tmp/<gear>.generated.py`. It reports
 every type complaint the candidate draws that no shipped gear in `lib/geargen/` draws, on the
 grounds that a complaint working code never produces is worth a look.
@@ -59,7 +60,7 @@ grounds that a complaint working code never produces is worth a look.
 This reports rather than gates, because an API the shipped gears never touch has no baseline and
 correct code using it reads as new. Read each finding and decide. It is the only check that has
 caught a method called on a class that does not define it, or a `BRepBodies` handed to a parameter
-typed `ObjectCollection` — both of which passed all six gates.
+typed `ObjectCollection` — both of which passed all seven gates.
 
 Pass `--gate` to make findings fail the run, once the baseline covers the API surface in question.
 
@@ -113,9 +114,9 @@ step list by hand, and never work around it in the Python.
 > **Do every step.** A step you cannot finish is a defect to report, never a comment left in the
 > file and never a silent omission.
 >
-> **Self-check before finishing**, fixing until all six gates pass: parse, `pyright_check.py` with
-> 0 BLOCKING, `check_input_read.py`, `check_contract.py`, `check_step_calls.py` and
-> `check_api_calls.py`. Never silence a finding by deleting a comment, renaming a variable, or
+> **Self-check before finishing**, fixing until all seven gates pass: parse, `pyright_check.py` with
+> 0 BLOCKING, `check_input_read.py`, `check_contract.py`, `check_anchors.py`, `check_step_calls.py`
+> and `check_api_calls.py`. Never silence a finding by deleting a comment, renaming a variable, or
 > removing the call it objects to.
 >
 > **Report:** the gate results, the final line count, and every step that was unclear, incomplete,

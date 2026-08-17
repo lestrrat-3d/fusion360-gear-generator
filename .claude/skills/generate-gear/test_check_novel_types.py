@@ -50,7 +50,7 @@ class DiagnosticFilterTests(unittest.TestCase):
                 ('addConstantRadiusEdgeSet', 'FilletFeatureInput')):
             diagnostic = {
                 'rule': 'reportAttributeAccessIssue',
-                'message': 'Cannot access attribute "%s" for class "%s"' %
+                'message': 'Cannot access attribute "%s" for class "adsk.fusion.%s"' %
                            (member, class_name),
             }
 
@@ -61,6 +61,14 @@ class DiagnosticFilterTests(unittest.TestCase):
         diagnostic = {
             'rule': 'reportAttributeAccessIssue',
             'message': 'Cannot access attribute "missing" for class "Sketch"',
+        }
+
+        self.assertFalse(MODULE.is_unverified_api_diagnostic(diagnostic))
+
+    def test_local_class_namesake_remains_gating(self):
+        diagnostic = {
+            'rule': 'reportAttributeAccessIssue',
+            'message': 'Cannot access attribute "project" for class "Sketch"',
         }
 
         self.assertFalse(MODULE.is_unverified_api_diagnostic(diagnostic))
