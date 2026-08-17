@@ -16,21 +16,35 @@ printf 'package proof\n' > "$fixture/repo/proof/proof.go"
 printf 'package proof\n' > "$fixture/repo/proof/proof_test.go"
 printf 'module github.com/lestrrat-3d/sketch\ngo 1.26.1\n' > "$fixture/sketch/go.mod"
 printf 'module github.com/lestrrat-3d/decad\ngo 1.26.1\n' > "$fixture/decad/go.mod"
+git -C "$fixture/sketch" init --quiet
+git -C "$fixture/sketch" config user.email fixture@example.invalid
+git -C "$fixture/sketch" config user.name fixture
+git -C "$fixture/sketch" add go.mod
+git -C "$fixture/sketch" commit --quiet -m fixture
+git -C "$fixture/decad" init --quiet
+git -C "$fixture/decad" config user.email fixture@example.invalid
+git -C "$fixture/decad" config user.name fixture
+git -C "$fixture/decad" add go.mod
+git -C "$fixture/decad" commit --quiet -m fixture
+sketch_commit=$(git -C "$fixture/sketch" rev-parse HEAD)
+decad_commit=$(git -C "$fixture/decad" rev-parse HEAD)
 
-output=$(cd "$fixture/repo/proof" && ./run.sh)
+output=$(cd "$fixture/repo/proof" && PROOF_VERIFY_REVISIONS=1 SKETCH_COMMIT="$sketch_commit" DECAD_COMMIT="$decad_commit" ./run.sh)
 printf '%s\n' "$output" | grep -Fq "using sketch engine at: $fixture/repo/../sketch"
 printf '%s\n' "$output" | grep -Fq "using decad engine at: $fixture/repo/../decad"
+printf '%s\n' "$output" | grep -Fq "verified sketch revision: $sketch_commit"
+printf '%s\n' "$output" | grep -Fq "verified decad revision: $decad_commit"
 
 first_output="$fixture/first.out"
 second_output="$fixture/second.out"
 (
 	cd "$fixture/repo/proof"
-	./run.sh > "$first_output" 2>&1
+	PROOF_VERIFY_REVISIONS=1 SKETCH_COMMIT="$sketch_commit" DECAD_COMMIT="$decad_commit" ./run.sh > "$first_output" 2>&1
 ) &
 first_pid=$!
 (
 	cd "$fixture/repo/proof"
-	./run.sh > "$second_output" 2>&1
+	PROOF_VERIFY_REVISIONS=1 SKETCH_COMMIT="$sketch_commit" DECAD_COMMIT="$decad_commit" ./run.sh > "$second_output" 2>&1
 ) &
 second_pid=$!
 
@@ -46,5 +60,9 @@ grep -Fq "using sketch engine at: $fixture/repo/../sketch" "$first_output"
 grep -Fq "using sketch engine at: $fixture/repo/../sketch" "$second_output"
 grep -Fq "using decad engine at: $fixture/repo/../decad" "$first_output"
 grep -Fq "using decad engine at: $fixture/repo/../decad" "$second_output"
+grep -Fq "verified sketch revision: $sketch_commit" "$first_output"
+grep -Fq "verified sketch revision: $sketch_commit" "$second_output"
+grep -Fq "verified decad revision: $decad_commit" "$first_output"
+grep -Fq "verified decad revision: $decad_commit" "$second_output"
 
 printf '%s\n' 'proof/run.sh path fixture: OK'
