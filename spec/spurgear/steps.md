@@ -4,7 +4,7 @@ One step is one entry in the Fusion timeline. A whole sketch is one step however
 geometry goes into it, and so is each construction plane, construction axis, extrude,
 chamfer, pattern, combine and fillet. Everything a step needs is inside that step.
 
-`[GO]` marks a step the proof in `.tmp/spurgear_test.go` exercises. The proof engine
+`[GO]` marks a step the proof in `proof/spurgear/spurgear_test.go` exercises. The proof engine
 models 2D sketches only, so the three sketches are `[GO]` and every 3D step is `[PROSE]`.
 
 Three calls the spec names are absent from the Fusion API database and are marked inline

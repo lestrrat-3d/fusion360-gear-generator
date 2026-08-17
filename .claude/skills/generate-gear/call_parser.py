@@ -14,8 +14,12 @@ CALL_PATTERN = re.compile(
 
 
 def call_shapes(span):
-    """Return ``(name, has_attribute_receiver)`` pairs from one code span."""
+    """Return ``(name, receiver)`` pairs from one code span.
+
+    The complete receiver is retained for dotted calls. Callers that need the object
+    immediately owning the method can take the final component themselves.
+    """
     return {
-        (match.group('method') or match.group('bare'), match.group('receiver') is not None)
+        (match.group('method') or match.group('bare'), match.group('receiver'))
         for match in CALL_PATTERN.finditer(span)
     }

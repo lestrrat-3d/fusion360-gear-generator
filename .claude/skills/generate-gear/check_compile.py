@@ -257,6 +257,25 @@ def named_calls(src):
     return names
 
 
+def named_call_shapes(src):
+    """Return the calls named in inline step-list code spans with receivers intact."""
+    body = re.sub(r'```.*?```', '', src, flags=re.S)
+    shapes = set()
+    for span in re.findall(r'`([^`\n]+)`', body):
+        shapes.update(call_shapes(span))
+    for line in re.findall(r'<!--\s*check-compile:\s*ignore\s+([^>]*?)-->', src):
+        ignored = set(line.split())
+        shapes = {shape for shape in shapes if shape[0] not in ignored}
+    return shapes
+
+
+def is_watched_call(name, receiver):
+    """Return whether a named call matches an unverified entry's receiver."""
+    return any(
+        watched_name == name and fusion_api.receiver_matches(receivers, receiver)
+        for watched_name, _, receivers, _ in fusion_api.UNVERIFIED_CALLS)
+
+
 def watched_calls(src, path):
     """Where the step list names a call from the unverified watchlist, receiver and all.
 
@@ -265,15 +284,42 @@ def watched_calls(src, path):
     """
     seen = {}
     for name, _, receivers, _ in fusion_api.UNVERIFIED_CALLS:
-        if receivers is None:
-            pattern = r'\b%s\s*\(' % re.escape(name)
-        else:
-            pattern = r'\b(?:%s)\s*\.\s*%s\s*\(' % (
-                '|'.join(re.escape(r) for r in receivers), re.escape(name))
-        lines = sorted({src[:m.start()].count('\n') + 1 for m in re.finditer(pattern, src)})
+        lines = sorted({
+            line
+            for match in re.finditer(r'`([^`\n]+)`', src)
+            for called, receiver in call_shapes(match.group(1))
+            if called == name and is_watched_call(called, receiver)
+            for line in [src[:match.start()].count('\n') + 1]
+        })
         if lines:
             seen[name] = '%s:%s' % (path, ','.join(str(line) for line in lines))
     return seen
+
+
+def proof_paths(src):
+    """Return proof paths named by the step-list summary.
+
+    The summary is the contract between the compiled step list and its committed proof. Keep
+    this scan limited to paths under `proof/` or `.tmp/` so ordinary temporary build commands in
+    later step prose do not become proof references.
+    """
+    summary = src.split('## Provenance', 1)[0]
+    return sorted(set(re.findall(r'(?<![\w./-])(?:proof|\.tmp)/[\w./-]+', summary)))
+
+
+def proof_path_is_tracked_or_committed(path):
+    """Return whether an existing proof path is tracked by the index or present in HEAD."""
+    if not os.path.isfile(path):
+        return False
+    tracked = subprocess.run(
+        ['git', 'ls-files', '--error-unmatch', '--', path],
+        capture_output=True, text=True)
+    if tracked.returncode == 0:
+        return True
+    committed = subprocess.run(
+        ['git', 'cat-file', '-e', 'HEAD:%s' % path],
+        capture_output=True, text=True)
+    return committed.returncode == 0
 
 
 def strip_go_comments_and_literals(src):
@@ -517,6 +563,13 @@ def main(argv):
 
     problems = []
 
+    # The summary must point at the committed proof, not an ignored compiler output.
+    for path in proof_paths(src):
+        if not os.path.exists(path):
+            problems.append("  proof path %s does not exist" % path)
+        elif not proof_path_is_tracked_or_committed(path):
+            problems.append("  proof path %s is not tracked or committed" % path)
+
     # 1. citations resolve
     cited = {}
     for sid, _, body in steps:
@@ -553,15 +606,23 @@ def main(argv):
     # 3. API calls are real
     local = PYTHON_METHODS | defined_names(FRAMEWORK) | contract_names(gear)
     watched = {name for name, _, _, _ in fusion_api.UNVERIFIED_CALLS}
-    candidates = sorted(name for name in named_calls(src) if name not in local)
+    shapes = named_call_shapes(src)
+    candidates = sorted(
+        name for name in named_calls(src)
+        if name not in local
+        and (name not in watched or any(
+            called == name and not is_watched_call(called, receiver)
+            for called, receiver in shapes)))
     try:
-        hits = fusion_api.lookup_many(n for n in candidates if n not in watched)
+        # Every candidate is either an ordinary call or a watchlist method on the wrong
+        # receiver. The latter must reach the database instead of being exempted by name.
+        hits = fusion_api.lookup_many(candidates)
         findings = fusion_api.unverified_findings(watched_calls(src, steps_path))
     except fusion_api.Unavailable as exc:
         print('check_compile: %s' % exc, file=sys.stderr)
         return 2
     for call in candidates:
-        if call in watched or hits[call]:
+        if hits[call]:
             continue
         near = fusion_api.similar(call)
         problems.append("  the step list names '%s(', which the Fusion API database does not have%s"

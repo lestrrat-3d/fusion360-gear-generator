@@ -93,7 +93,7 @@ class CheckStepCallsTest(unittest.TestCase):
 
         self.assertEqual(
             CHECKER.named_call_shapes(steps),
-            {('add', True), ('set', True)})
+            {('add', 'sketch'), ('set', 'sketch')})
         result, output = self.run_checker(steps, 'sketch.add(None)\n')
 
         self.assertEqual(result, 1)
@@ -309,7 +309,8 @@ class CheckCompileTest(unittest.TestCase):
 
     def run_checker(self, provenance=None, from_line='**From:** `spec/gear/instructions.md` L1',
                     proof_body=None, proof_filename='proof_test.go', step_body=None,
-                    include_fusion=True, auxiliary=False, mutate_auxiliary=False):
+                    include_fusion=True, auxiliary=False, mutate_auxiliary=False,
+                    api_lookup=None, unverified_findings=None):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / 'spec' / 'gear').mkdir(parents=True)
@@ -362,8 +363,13 @@ class CheckCompileTest(unittest.TestCase):
             prior = os.getcwd()
             try:
                 os.chdir(root)
-                with mock.patch.object(COMPILE_CHECKER.fusion_api, 'lookup_many', return_value={}), \
-                        contextlib.redirect_stdout(output):
+                lookup_patch = mock.patch.object(
+                    COMPILE_CHECKER.fusion_api, 'lookup_many',
+                    return_value={} if api_lookup is None else api_lookup)
+                findings_patch = mock.patch.object(
+                    COMPILE_CHECKER.fusion_api, 'unverified_findings',
+                    return_value=[] if unverified_findings is None else unverified_findings)
+                with lookup_patch, findings_patch, contextlib.redirect_stdout(output):
                     result = COMPILE_CHECKER.main(['check_compile.py', 'gear'])
             finally:
                 os.chdir(prior)
@@ -531,6 +537,76 @@ class CheckCompileTest(unittest.TestCase):
         self.assertEqual(
             COMPILE_CHECKER.named_calls(steps),
             {'add', 'set', 'safeCall'})
+
+    def test_call_parser_preserves_bare_and_dotted_receivers(self):
+        self.assertEqual(
+            COMPILE_CHECKER.call_shapes(
+                'sketch.project(entity), sketch.sketchTexts.createInput2(text, height), unknown()'),
+            {
+                ('project', 'sketch'),
+                ('createInput2', 'sketch.sketchTexts'),
+                ('unknown', None),
+            })
+
+    def test_compile_watchlist_matches_only_the_declared_receiver(self):
+        valid = (
+            '`sketch.project(entity)` `Sketch.project(entity)` '
+            '`sketch.sketchTexts.createInput2(text, height)`')
+        invalid = '`SketchPoint.project(entity)` `chamferFeatures.createInput2(text, height)`'
+
+        self.assertEqual(
+            COMPILE_CHECKER.watched_calls(valid, 'steps.md'),
+            {'project': 'steps.md:1', 'createInput2': 'steps.md:1'})
+        self.assertEqual(
+            COMPILE_CHECKER.watched_calls(invalid, 'steps.md'), {})
+
+    def test_compile_queries_and_rejects_wrong_watchlist_receiver(self):
+        result, output = self.run_checker(
+            step_body=(
+                '## S1 `[PROSE]` Invalid call — `stepOne`\n\n'
+                'Call `SketchPoint.project(entity)`.\n\n'
+                '**From:** `spec/gear/instructions.md` L1\n\n'),
+            api_lookup={'project': []})
+
+        self.assertEqual(result, 1)
+        self.assertIn("names 'project(', which the Fusion API database does not have", output)
+
+    def test_compile_allows_legitimate_unwatched_namesake_from_api(self):
+        result, output = self.run_checker(
+            step_body=(
+                '## S1 `[PROSE]` Chamfer call — `stepOne`\n\n'
+                'Call `chamferFeatures.createInput2(edges)`.\n\n'
+                '**From:** `spec/gear/instructions.md` L1\n\n'),
+            api_lookup={
+                'createInput2': [('adsk.fusion.ChamferFeatures.createInput2', 'method')]})
+
+        self.assertEqual(result, 0, output)
+        self.assertIn('compile check: OK', output)
+
+    def test_compiled_proof_summary_requires_a_tracked_path(self):
+        result, output = self.run_checker(
+            step_body=(
+                '## S1 `[GO]` One — `stepOne`\n\n'
+                'The proof in `.tmp/step_test.go` exercises this step.\n\n'
+                '**From:** `spec/gear/instructions.md` L1\n\n'))
+
+        self.assertEqual(result, 1)
+        self.assertIn('proof path .tmp/step_test.go does not exist', output)
+
+    def test_committed_proof_summary_path_is_accepted(self):
+        root = Path(__file__).parents[3]
+        prior = os.getcwd()
+        try:
+            os.chdir(root)
+            self.assertEqual(
+                COMPILE_CHECKER.proof_paths(
+                    '`[GO]` marks the proof in `proof/spurgear/spurgear_test.go`.'),
+                ['proof/spurgear/spurgear_test.go'])
+            self.assertTrue(
+                COMPILE_CHECKER.proof_path_is_tracked_or_committed(
+                    'proof/spurgear/spurgear_test.go'))
+        finally:
+            os.chdir(prior)
 
 
 class WorkflowGateWiringTest(unittest.TestCase):

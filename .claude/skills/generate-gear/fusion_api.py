@@ -62,13 +62,14 @@ _MEMBER = re.compile(r'^\s{2}(\w+)')
 # shipped add-in makes all three and is believed to run. Only loading the add-in settles it, and
 # whichever way it goes the fix belongs in the spec, not in a generated file.
 UNVERIFIED_CALLS = (
-    ('project', 'adsk.fusion.Sketch', ('sketch', 'toolsSketch'),
+    ('project', 'adsk.fusion.Sketch', ('sketch', 'toolsSketch', 'Sketch'),
      'the shipped add-ins call `sketch.project(entity)`, and the spur step list names it'),
-    ('createInput2', 'adsk.fusion.SketchTexts', ('sketchTexts',),
+    ('createInput2', 'adsk.fusion.SketchTexts', ('sketchTexts', 'SketchTexts'),
      'the shipped add-ins call `sketch.sketchTexts.createInput2(text, height)`, and the spur '
      'step list names it; '
      '`ChamferFeatures.createInput2` and `MoveFeatures.createInput2` are real and not at issue'),
-    ('addConstantRadiusEdgeSet', 'adsk.fusion.FilletFeatureInput', ('filletInput',),
+    ('addConstantRadiusEdgeSet', 'adsk.fusion.FilletFeatureInput',
+     ('filletInput', 'FilletFeatureInput'),
      'the shipped add-in calls `filletInput.addConstantRadiusEdgeSet(...)`, and the spur '
      'step list states that `filletInput.edgeSetInputs` does not exist'),
 )
@@ -211,9 +212,16 @@ def member_info(cls, name):
     return info
 
 
-def receiver_matches(receivers, tail):
-    """Does a call written on `tail` belong to a watchlist entry wanting `receivers`?"""
-    return receivers is None or tail in receivers
+def receiver_tail(receiver):
+    """Return the object immediately owning a call from a receiver expression."""
+    if receiver is None:
+        return None
+    return receiver.rsplit('.', 1)[-1]
+
+
+def receiver_matches(receivers, receiver):
+    """Does a call belong to a watchlist entry wanting these receiver names?"""
+    return receivers is None or receiver_tail(receiver) in receivers
 
 
 def unverified_findings(called):
