@@ -70,7 +70,7 @@ class CheckStepCallsTest(unittest.TestCase):
         result, output = self.run_checker(steps, '# safeCall()\n')
 
         self.assertEqual(result, 1)
-        self.assertIn('textual match exists, but it is not an executable call', output)
+        self.assertIn('textual match exists, but it is not a reachable executable call', output)
 
     def test_dotted_call_does_not_match_local_helper(self):
         steps = 'Call `sketch.addByTwoPoints(start, end)`.'
@@ -98,6 +98,26 @@ class CheckStepCallsTest(unittest.TestCase):
 
         self.assertEqual(result, 1)
         self.assertIn("receiver.set('", output)
+
+    def test_unreachable_branch_does_not_cover_named_call(self):
+        steps = 'Call `sketch.requiredFusionCall()`.'
+        candidate = 'if False:\n    sketch.requiredFusionCall()\n'
+
+        result, output = self.run_checker(steps, candidate)
+
+        self.assertEqual(result, 1)
+        self.assertIn('textual match exists, but it is not a reachable executable call', output)
+
+    def test_unreachable_helper_does_not_cover_named_call(self):
+        steps = 'Call `sketch.requiredFusionCall()`.'
+        candidate = (
+            'def unused_helper():\n'
+            '    sketch.requiredFusionCall()\n')
+
+        result, output = self.run_checker(steps, candidate)
+
+        self.assertEqual(result, 1)
+        self.assertIn('textual match exists, but it is not a reachable executable call', output)
 
 
 class CheckApiCallsTest(unittest.TestCase):
@@ -477,6 +497,33 @@ class CheckCompileTest(unittest.TestCase):
 
         self.assertEqual(result, 1)
         self.assertIn('S2 names proof function stepUnused, but no Go Test registers it', output)
+
+    def test_early_returned_proof_registration_is_rejected(self):
+        proof_body = (
+            'func TestOne(t *testing.T) {\n'
+            '    if t != nil { return }\n'
+            '    proofkit.Run(t, cases(gear{name: "one"}), stepOne)\n'
+            '}\n\n'
+            'func stepOne() {}\n')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 1)
+        self.assertIn('stepOne, but no Go Test registers it', output)
+
+    def test_false_branch_proof_registration_is_rejected(self):
+        proof_body = (
+            'func TestOne(t *testing.T) {\n'
+            '    if false {\n'
+            '        proofkit.Run(t, cases(gear{name: "one"}), stepOne)\n'
+            '    }\n'
+            '}\n\n'
+            'func stepOne() {}\n')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 1)
+        self.assertIn('stepOne, but no Go Test registers it', output)
 
     def test_short_dotted_calls_are_compile_candidates(self):
         steps = 'Call `sketch.add()`, `sketch.set()`, and `safeCall()`.'

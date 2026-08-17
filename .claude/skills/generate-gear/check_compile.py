@@ -387,24 +387,79 @@ PROOF_RUN_CALLS = [
 ]
 
 
-def delimiter_depth(src, pos):
-    """Return delimiter nesting depth before pos in already-scrubbed Go source."""
-    depth = 0
-    for ch in src[:pos]:
-        if ch in '({[':
-            depth += 1
-        elif ch in ')}]' and depth:
-            depth -= 1
-    return depth
+def go_brace_pairs(src):
+    """Return matching brace positions in already-scrubbed Go source."""
+    pairs = {}
+    stack = []
+    for pos, char in enumerate(src):
+        if char == '{':
+            stack.append(pos)
+        elif char == '}' and stack:
+            opening = stack.pop()
+            pairs[opening] = pos
+    return pairs
+
+
+def go_brace_depth(src, pos):
+    """Return brace nesting depth before pos in already-scrubbed Go source."""
+    return sum(char == '{' for char in src[:pos]) - sum(char == '}' for char in src[:pos])
+
+
+def go_block_condition(src, opening):
+    """Return the known reachability of an if block, or None when it is unknown."""
+    line_start = src.rfind('\n', 0, opening) + 1
+    header = src[line_start:opening].strip()
+    match = re.match(r'if\s+(.+)$', header)
+    if not match:
+        return False
+    condition = re.sub(r'\s+', ' ', match.group(1)).strip()
+    if condition == 'false':
+        return False
+    if condition in ('true', 't != nil'):
+        return True
+    return None
+
+
+def go_top_level_return_before(src, pos):
+    """Return whether an unconditional return precedes pos in a test body."""
+    for match in re.finditer(r'\breturn\b', src[:pos]):
+        if go_brace_depth(src, match.start()) == 0:
+            return True
+    return False
+
+
+def go_early_return_before(src, pos, brace_pairs):
+    """Return whether a known-true top-level if-return precedes pos."""
+    for opening, closing in brace_pairs.items():
+        if closing >= pos or go_brace_depth(src, opening) != 0:
+            continue
+        if go_block_condition(src, opening) is not True:
+            continue
+        if re.fullmatch(r'\s*return\s*;?\s*', src[opening + 1:closing]):
+            return True
+    return False
+
+
+def go_call_is_reachable(src, pos, brace_pairs):
+    """Return whether a proof run at pos can execute on the test path."""
+    if go_top_level_return_before(src, pos) or go_early_return_before(src, pos, brace_pairs):
+        return False
+    for opening, closing in brace_pairs.items():
+        if not opening < pos < closing:
+            continue
+        condition = go_block_condition(src, opening)
+        if condition is not True:
+            return False
+    return True
 
 
 def registered_step_functions(src):
-    """Step functions passed directly to proofkit runs inside Go Test functions."""
+    """Step functions passed by reachable proofkit runs inside Go Test functions."""
     registered = set()
     for _, body in go_func_bodies(src, r'Test[A-Z]\w*'):
         for pattern, build_arg in PROOF_RUN_CALLS:
             for m in re.finditer(pattern, body):
-                if delimiter_depth(body, m.start()) != 0:
+                if not go_call_is_reachable(body, m.start(), go_brace_pairs(body)):
                     continue
                 open_paren = m.end() - 1
                 close_paren = matching_delimiter(body, open_paren)

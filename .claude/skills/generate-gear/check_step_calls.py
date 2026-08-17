@@ -13,7 +13,7 @@ Three checks, all derived from `spec/<gear>/steps.md` itself, so the step list d
 checklist and there is nothing separate to keep in sync:
 
   1. NAMED-CALL COVERAGE. Every API call the step list names inside a code span must occur as an
-     executable call in the generated file. Dotted names require an executable attribute call;
+     reachable executable call in the generated file. Dotted names require a reachable attribute call;
      bare names may be implemented as either a function or a method. A step the generator skipped
      outright fails here.
 
@@ -106,22 +106,155 @@ def named_call_shapes(steps_src):
     return calls
 
 
+class ReachableCallCollector(ast.NodeVisitor):
+    """Collect calls from module code and locally reachable entry-point functions."""
+
+    ENTRY_POINTS = {'configure', 'generate'}
+
+    def __init__(self, tree):
+        self.functions = {}
+        self.classes = {}
+        self.methods = {}
+        self.calls = set()
+        self.visited = set()
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                self.functions.setdefault(node.name, []).append(node)
+                if node.args.posonlyargs or node.args.args:
+                    self.methods.setdefault(node.name, []).append(node)
+            elif isinstance(node, ast.ClassDef):
+                self.classes.setdefault(node.name, []).append(node)
+
+    def collect(self, tree):
+        self.visit_statements(tree.body)
+        for name in self.ENTRY_POINTS:
+            for node in self.functions.get(name, ()):
+                self.visit_function(node)
+        return self.calls
+
+    def visit_statements(self, statements):
+        falls_through = True
+        for statement in statements:
+            if not falls_through:
+                break
+            falls_through = self.visit_statement(statement)
+        return falls_through
+
+    def visit_statement(self, statement):
+        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            return True
+        if isinstance(statement, ast.ClassDef):
+            for expression in statement.decorator_list:
+                self.visit(expression)
+            for base in statement.bases:
+                self.visit(base)
+            self.visit_statements(statement.body)
+            return True
+        if isinstance(statement, ast.If):
+            self.visit(statement.test)
+            constant = self.constant_condition(statement.test)
+            if constant is True:
+                return self.visit_statements(statement.body)
+            if constant is False:
+                return self.visit_statements(statement.orelse)
+            body_falls = self.visit_statements(statement.body)
+            else_falls = self.visit_statements(statement.orelse)
+            return body_falls or else_falls
+        if isinstance(statement, ast.While):
+            self.visit(statement.test)
+            if self.constant_condition(statement.test) is False:
+                return self.visit_statements(statement.orelse)
+            self.visit_statements(statement.body)
+            self.visit_statements(statement.orelse)
+            return True
+        if isinstance(statement, (ast.For, ast.AsyncFor)):
+            self.visit(statement.target)
+            self.visit(statement.iter)
+            self.visit_statements(statement.body)
+            self.visit_statements(statement.orelse)
+            return True
+        if isinstance(statement, ast.Try):
+            body_falls = self.visit_statements(statement.body)
+            for handler in statement.handlers:
+                if handler.type:
+                    self.visit(handler.type)
+                self.visit_statements(handler.body)
+            else_falls = self.visit_statements(statement.orelse) if body_falls else True
+            finally_falls = self.visit_statements(statement.finalbody)
+            return finally_falls and (body_falls and else_falls or bool(statement.handlers))
+        if isinstance(statement, (ast.With, ast.AsyncWith)):
+            for item in statement.items:
+                self.visit(item.context_expr)
+                if item.optional_vars:
+                    self.visit(item.optional_vars)
+            return self.visit_statements(statement.body)
+        if isinstance(statement, ast.Return):
+            if statement.value:
+                self.visit(statement.value)
+            return False
+        if isinstance(statement, ast.Raise):
+            if statement.exc:
+                self.visit(statement.exc)
+            if statement.cause:
+                self.visit(statement.cause)
+            return False
+        if isinstance(statement, (ast.Break, ast.Continue)):
+            return False
+        self.visit(statement)
+        return True
+
+    @staticmethod
+    def constant_condition(expression):
+        try:
+            return bool(ast.literal_eval(expression))
+        except (ValueError, TypeError, SyntaxError):
+            return None
+
+    def visit_function(self, node):
+        marker = id(node)
+        if marker in self.visited:
+            return
+        self.visited.add(marker)
+        for default in (*node.args.defaults, *(default for default in node.args.kw_defaults if default)):
+            self.visit(default)
+        self.visit_statements(node.body)
+
+    def visit_Call(self, node):
+        if isinstance(node.func, ast.Name):
+            self.calls.add((node.func.id, False))
+            self.visit_local_name(node.func.id)
+        elif isinstance(node.func, ast.Attribute):
+            self.calls.add((node.func.attr, True))
+            self.visit_local_method(node.func.attr)
+            self.visit(node.func.value)
+        else:
+            self.visit(node.func)
+        for argument in node.args:
+            self.visit(argument)
+        for keyword in node.keywords:
+            self.visit(keyword.value)
+
+    def visit_local_name(self, name):
+        for node in self.functions.get(name, ()):
+            self.visit_function(node)
+        for node in self.classes.get(name, ()):
+            for member in node.body:
+                if isinstance(member, (ast.FunctionDef, ast.AsyncFunctionDef)) and member.name == '__init__':
+                    self.visit_function(member)
+
+    def visit_local_method(self, name):
+        for node in self.methods.get(name, ()):
+            self.visit_function(node)
+
+
 def actual_call_names(gen_tree):
-    """Return function and method names used by executable Call nodes."""
+    """Return function and method names used by reachable Call nodes."""
     return {name for name, _ in actual_call_shapes(gen_tree)}
 
 
 def actual_call_shapes(gen_tree):
-    """Return executable calls, retaining whether each call has an attribute receiver."""
-    names = set()
-    for node in ast.walk(gen_tree):
-        if not isinstance(node, ast.Call):
-            continue
-        if isinstance(node.func, ast.Name):
-            names.add((node.func.id, False))
-        elif isinstance(node.func, ast.Attribute):
-            names.add((node.func.attr, True))
-    return names
+    """Return reachable calls, retaining whether each call has an attribute receiver."""
+    return ReachableCallCollector(gen_tree).collect(gen_tree)
 
 
 def main(argv):
@@ -143,7 +276,7 @@ def main(argv):
     else:
         actual = actual_call_shapes(gen_tree)
 
-    # Keep the textual scan only to explain whether a missing executable call has a misleading
+    # Keep the textual scan only to explain whether a missing reachable call has a misleading
     # match in a comment or string. The AST result above is the coverage gate.
     textual = {name for name, _ in wanted if name + '(' in gen_src}
     missing = sorted(
@@ -151,10 +284,10 @@ def main(argv):
         if not any(actual_name == name and (not has_receiver or actual_receiver)
                    for actual_name, actual_receiver in actual))
     for name, has_receiver in missing:
-        note = " (textual match exists, but it is not an executable call)" if name in textual else ""
+        note = " (textual match exists, but it is not a reachable executable call)" if name in textual else ""
         call = ('receiver.%s' if has_receiver else '%s') % name
         problems.append(
-            "  named-call coverage: '%s(' is named in %s but has no executable %s call in %s%s"
+                "  named-call coverage: '%s(' is named in %s but has no reachable executable %s call in %s%s"
             % (call, steps_path, 'method' if has_receiver else 'function', gen_path, note))
 
     for lineno, line in enumerate(gen_src.splitlines(), 1):
