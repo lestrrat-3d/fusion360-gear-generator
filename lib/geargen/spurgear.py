@@ -43,7 +43,7 @@ PARAM_FILLET_RADIUS = 'FilletRadius'
 
 class SpurGearCommandInputsConfigurator:
     @classmethod
-    def configure(cls, cmd):
+    def configure(cls, cmd: adsk.core.Command):
         inputs = cmd.commandInputs
 
         # 1. Target Plane (first selection => owns initial focus, [PB-AUTOFOCUS-FIRST])
@@ -113,7 +113,7 @@ class SpurGearGenerationContext(GenerationContext):
 
 
 class SpurGearInvoluteToothDesignGenerator:
-    def __init__(self, sketch, parent, angle=0):
+    def __init__(self, sketch: adsk.fusion.Sketch, parent, angle=0):
         self.sketch = sketch
         self.parent = parent
         # Retained incidental field; the live rotation always comes from draw()'s

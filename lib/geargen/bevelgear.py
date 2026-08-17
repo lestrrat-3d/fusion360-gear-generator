@@ -92,7 +92,7 @@ class BevelGearCommandInputsConfigurator:
     commands/bevelgear/entry.py (configure / handle_input_changed)."""
 
     @classmethod
-    def configure(cls, cmd):
+    def configure(cls, cmd: adsk.core.Command):
         inputs = cmd.commandInputs
         ValueInput = adsk.core.ValueInput
         Sel = adsk.core.SelectionCommandInput
@@ -921,7 +921,7 @@ class BevelGearGenerator:
             self._createGearBody(designComponent, module, ctx)
 
     # -- Tooth-center (K' / L') --------------------------------------------
-    def _buildToothCenter(self, sketch, basePoint, lowerCorner, dedendumLine,
+    def _buildToothCenter(self, sketch: adsk.fusion.Sketch, basePoint, lowerCorner, dedendumLine,
                           cornerSeed, baseSeed, awayDir):
         """Build the tooth-center point shifted from basePoint outward along the
         dedendum line (away from lowerCorner) by Tooth Spacing. When spacing is
@@ -966,7 +966,7 @@ class BevelGearGenerator:
         return kpPoint, refLine
 
     # -- Toe line (M->N / O->P) --------------------------------------------
-    def _buildToeLine(self, sketch, rootAxis, dropLine, heelLine,
+    def _buildToeLine(self, sketch: adsk.fusion.Sketch, rootAxis, dropLine, heelLine,
                       cornerPoint, axisPoint, cornerSeed, heelEndSeed,
                       apex2d, faceWidth_cm):
         lines = sketch.sketchCurves.sketchLines
@@ -1509,7 +1509,7 @@ class BevelGearGenerator:
     def _bottomEdgeMid(self, edge):
         return _midpoint(edge[0].worldGeometry, edge[1].worldGeometry)
 
-    def _distDim(self, sketch, p0, p1, value, textPoint):
+    def _distDim(self, sketch: adsk.fusion.Sketch, p0, p1, value, textPoint):
         dim = sketch.sketchDimensions.addDistanceDimension(
             p0, p1,
             adsk.fusion.DimensionOrientations.AlignedDimensionOrientation,

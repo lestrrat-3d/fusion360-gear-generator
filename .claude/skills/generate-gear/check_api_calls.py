@@ -72,12 +72,6 @@ SHARED_FRAMEWORK_MODULES = (
     'fusion360utils/general_utils.py',
 )
 
-FUSION_NAME_HINTS = {
-    'cmd': 'Command',
-    'command': 'Command',
-    'sketch': 'Sketch',
-}
-
 UNVERIFIED_RETURN_TYPES = {
     ('project', 'sketch'): 'ObjectCollection',
     ('project', 'toolsSketch'): 'ObjectCollection',
@@ -254,14 +248,6 @@ def fusion_class_expr(expr):
     parts = attr_chain(expr)
     if parts and len(parts) >= 3 and parts[0] == 'adsk' and parts[1] in ('core', 'fusion'):
         return parts[2]
-    return None
-
-
-def hinted_name_type(name):
-    if name in FUSION_NAME_HINTS:
-        return FUSION_NAME_HINTS[name]
-    if name.endswith('Sketch') or name.endswith('sketch'):
-        return 'Sketch'
     return None
 
 
@@ -626,6 +612,16 @@ def infer_api_receiver_types(tree, classes, bases, method_returns, api_member_in
     constructor_fields, constructor_parameters = constructor_field_parameters(tree)
     method_parameters = method_parameters_from_tree(tree)
 
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        scope = (containing.get(node), node.name)
+        arguments = (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs)
+        for argument in arguments:
+            argument_type = annotation_return_type(argument.annotation)
+            if argument_type is not None:
+                types[(scope, argument.arg)] = argument_type
+
     def method_return_for(class_name, name, visiting=()):
         if class_name is None or class_name in visiting:
             return None
@@ -660,8 +656,7 @@ def infer_api_receiver_types(tree, classes, bases, method_returns, api_member_in
             if expression.id == 'self':
                 return containing_class
             return (types.get((scopes.get(expression), expression.id))
-                    or types.get(expression.id)
-                    or hinted_name_type(expression.id))
+                    or types.get(expression.id))
         if isinstance(expression, ast.Attribute):
             text = ast.unparse(expression)
             scoped = (scopes.get(expression), text)
@@ -674,7 +669,7 @@ def infer_api_receiver_types(tree, classes, bases, method_returns, api_member_in
                     return next(iter(known))
             owner_type = expression_type(expression.value, containing_class)
             if owner_type is None:
-                return hinted_name_type(expression.attr)
+                return None
             known_field = field_types.get((owner_type, expression.attr))
             if known_field:
                 return next(iter(known_field))
@@ -841,24 +836,25 @@ def main():
         module = framework_modules.get(receiver_root(func))
         return module is not None and name in framework_module_exports[module]
 
-    def has_verified_receiver_binding(receiver, receiver_type):
+    def has_verified_receiver_binding(receiver, receiver_type, containing_class):
         if receiver_type is None:
             return False
         if fusion_class_expr(receiver) == receiver_type:
             return True
         text = ast.unparse(receiver)
-        return any(binding_name == text and binding_type == receiver_type
-                   for (_, binding_name), binding_type in receiver_bindings.items())
+        if any(binding_name == text and binding_type == receiver_type
+               for (_, binding_name), binding_type in receiver_bindings.items()):
+            return True
+        return expression_type(receiver, containing_class) == receiver_type
 
-    def exact_unverified(name, func, receiver_type):
+    def exact_unverified(name, func, receiver_type, containing_class):
         tail = receiver_tail(func)
         for watched, cls, receivers, _ in fusion_api.UNVERIFIED_CALLS:
             if watched != name or not fusion_api.receiver_matches(receivers, tail):
                 continue
             expected = normalize_api_type(cls)
-            if tail != expected:
-                return True
-            if has_verified_receiver_binding(func.value, receiver_type):
+            if receiver_type == expected and has_verified_receiver_binding(
+                    func.value, receiver_type, containing_class):
                 return True
         return False
 
@@ -881,7 +877,7 @@ def main():
             continue
         tail = receiver_tail(node.func)
         receiver_type = expression_type(node.func.value, containing_classes[node])
-        if exact_unverified(name, node.func, receiver_type):
+        if exact_unverified(name, node.func, receiver_type, containing_classes[node]):
             continue
         if receiver_type is None:
             unresolved.append((name, node.lineno, None, 'unknown receiver'))

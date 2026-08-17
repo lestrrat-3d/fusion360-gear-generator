@@ -132,7 +132,7 @@ class CheckApiReceiverOwnershipTest(unittest.TestCase):
     def test_valid_fusion_chain_and_exact_unverified_receiver_are_allowed(self):
         result, output = self.run_checker(
             """
-            def build(sketch, center):
+            def build(sketch: adsk.fusion.Sketch, center):
                 circles = sketch.sketchCurves.sketchCircles
                 circle = circles.addByCenterRadius(center, 1)
                 projected = sketch.project(center)
@@ -149,6 +149,42 @@ class CheckApiReceiverOwnershipTest(unittest.TestCase):
         self.assertEqual(result, 0, output)
         self.assertIn('api-call check: OK', output)
         self.assertIn('UNVERIFIED call', output)
+
+    def test_identifier_ending_in_sketch_does_not_bind_a_receiver(self):
+        result, output = self.run_checker(
+            """
+            def build(not_a_sketch, center):
+                return not_a_sketch.sketchCurves.sketchCircles.addByCenterRadius(center, 1)
+            """,
+            api_names={'addByCenterRadius'},
+            members={
+                ('Sketch', 'sketchCurves'): api_member('SketchCurves', kind='property'),
+                ('SketchCurves', 'sketchCircles'): api_member('SketchCircles', kind='property'),
+                ('SketchCircles', 'addByCenterRadius'): api_member('SketchCircle'),
+            })
+
+        self.assertEqual(result, 1)
+        self.assertIn("calls 'addByCenterRadius('", output)
+
+    def test_untyped_watchlist_aliases_require_verified_bindings(self):
+        candidates = (
+            ('sketch', 'project(entity)'),
+            ('toolsSketch', 'project(entity)'),
+            ('Sketch', 'project(entity)'),
+            ('sketchTexts', 'createInput2(text, 1)'),
+            ('SketchTexts', 'createInput2(text, 1)'),
+            ('filletInput', 'addConstantRadiusEdgeSet(edges, value, False)'),
+            ('FilletFeatureInput', 'addConstantRadiusEdgeSet(edges, value, False)'),
+        )
+        for receiver, call in candidates:
+            with self.subTest(receiver=receiver):
+                result, output = self.run_checker(
+                    "def build(%s, entity, text, edges, value):\n"
+                    "    return %s.%s\n" % (receiver, receiver, call),
+                    api_names={'project', 'createInput2', 'addConstantRadiusEdgeSet'})
+
+                self.assertEqual(result, 1)
+                self.assertIn('receiver ownership is required', output)
 
     def test_unverified_namesake_without_verified_receiver_binding_is_blocking(self):
         result, output = self.run_checker(
