@@ -78,6 +78,11 @@ func RequireSound(t *testing.T, doc *decad.Document, bodies []*decad.Body) {
 	if len(bodies) == 0 {
 		t.Fatal("proofkit3d: build returned no bodies")
 	}
+	for i, body := range bodies {
+		if body == nil {
+			t.Fatalf("proofkit3d: build returned nil body at index %d", i)
+		}
+	}
 	report, err := doc.Verify(t.Context())
 	if err != nil {
 		t.Fatalf("verify failed: %v", err)

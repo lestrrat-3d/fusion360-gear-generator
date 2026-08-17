@@ -53,6 +53,23 @@ func TestRunWithGateRejectsAllSkippedCases(t *testing.T) {
 	}
 }
 
+func TestRequireSoundRejectsNilBody(t *testing.T) {
+	if os.Getenv("PROOFKIT3D_NIL_BODY_HELPER") == "1" {
+		RequireSound(t, decad.New(), []*decad.Body{nil})
+		t.Fatal("RequireSound returned after receiving a nil body")
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=^TestRequireSoundRejectsNilBody$")
+	cmd.Env = append(os.Environ(), "PROOFKIT3D_NIL_BODY_HELPER=1")
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("RequireSound accepted a nil body; output:\n%s", output)
+	}
+	if !strings.Contains(string(output), "proofkit3d: build returned nil body at index 0") {
+		t.Fatalf("nil-body failure did not explain the invariant; output:\n%s", output)
+	}
+}
+
 func countingBuild(count *int) Build {
 	return func(t *testing.T, _ *decad.Document, params map[string]float64) []*decad.Body {
 		(*count)++
