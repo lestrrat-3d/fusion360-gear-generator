@@ -730,13 +730,20 @@ def infer_api_receiver_types(tree, classes, bases, method_returns, api_member_in
                     and expression.value.id == 'self'
                     and (containing_class, expression.attr) in verified_fields):
                 return True
-            return False
+            owner = expression_type(expression.value, containing_class)
+            if not expression_is_verified(expression.value, containing_class):
+                return False
+            info = api_member_info(owner, expression.attr)
+            return info is not None and info.get('returns') is not None
         if isinstance(expression, ast.Call) and isinstance(expression.func, ast.Attribute):
             owner = expression_type(expression.func.value, containing_class)
             owner_verified = expression_is_verified(expression.func.value, containing_class)
             if owner_verified:
                 return True
-            return method_return_for(owner, expression.func.attr) is not None
+            if method_return_for(owner, expression.func.attr) is not None:
+                return True
+            info = api_member_info(owner, expression.func.attr)
+            return info is not None and info.get('returns') is not None
         return False
 
     def assign_type(target, assigned, verified=False, preserve_unknown_field=False):
@@ -793,6 +800,11 @@ def infer_api_receiver_types(tree, classes, bases, method_returns, api_member_in
 
     changed = True
     while changed:
+        previous_types = types.copy()
+        previous_field_types = {
+            key: set(values) for key, values in field_types.items()}
+        previous_verified_bindings = verified_bindings.copy()
+        previous_verified_fields = verified_fields.copy()
         changed = False
         for node in ast.walk(tree):
             containing_class = containing.get(node)
@@ -834,6 +846,18 @@ def infer_api_receiver_types(tree, classes, bases, method_returns, api_member_in
                     argument_type = expression_type(argument, containing_class)
                     if argument_type is None:
                         continue
+                    parameter_key = ((class_name, '__init__'), parameter)
+                    if types.get(parameter_key) != argument_type:
+                        types[parameter_key] = argument_type
+                        changed = True
+                    argument_verified = expression_is_verified(
+                        argument, containing_class)
+                    if argument_verified and parameter_key not in verified_bindings:
+                        verified_bindings.add(parameter_key)
+                        changed = True
+                    elif not argument_verified and parameter_key in verified_bindings:
+                        verified_bindings.remove(parameter_key)
+                        changed = True
                     for (field_class, field), field_parameter in constructor_fields.items():
                         if field_class == class_name and field_parameter == parameter:
                             values = field_types.setdefault((field_class, field), set())
@@ -842,8 +866,6 @@ def infer_api_receiver_types(tree, classes, bases, method_returns, api_member_in
                                 values.add(argument_type)
                                 changed = True
                             field_key = (field_class, field)
-                            argument_verified = expression_is_verified(
-                                argument, containing_class)
                             if argument_verified and field_key not in verified_fields:
                                 verified_fields.add(field_key)
                                 changed = True
@@ -863,6 +885,12 @@ def infer_api_receiver_types(tree, classes, bases, method_returns, api_member_in
                     if key not in types:
                         types[key] = argument_type
                         changed = True
+
+        changed = (
+            types != previous_types
+            or field_types != previous_field_types
+            or verified_bindings != previous_verified_bindings
+            or verified_fields != previous_verified_fields)
 
     return types, field_types, expression_type, verified_bindings, verified_fields
 
