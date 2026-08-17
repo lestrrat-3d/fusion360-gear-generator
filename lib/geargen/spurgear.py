@@ -43,7 +43,7 @@ PARAM_FILLET_RADIUS = 'FilletRadius'
 
 class SpurGearCommandInputsConfigurator:
     @classmethod
-    def configure(cls, cmd):
+    def configure(cls, cmd: adsk.core.Command):
         inputs = cmd.commandInputs
 
         # 1. Target Plane (first selection => owns initial focus, [PB-AUTOFOCUS-FIRST])
@@ -122,6 +122,7 @@ class SpurGearInvoluteToothDesignGenerator:
         # Movable local origin: a fresh (0,0,0) SketchPoint (NOT sketch.originPoint).
         self.anchorPoint = sketch.sketchPoints.add(adsk.core.Point3D.create(0, 0, 0))
         # References filled by drawCircles / drawTooth.
+        self.projectedAnchorPoint = adsk.fusion.SketchPoint.cast(None)
         self.rootCircle = None
         self.tipCircle = None
         self.baseCircle = None
@@ -218,6 +219,8 @@ class SpurGearInvoluteToothDesignGenerator:
 
         # 3. Rotate so the pitch-circle crossing lands at +pi/(2N) (analytic).
         pitchPoint = self.calculateInvolutePoint(baseR, pitchR)
+        if pitchPoint is None:
+            raise ValueError('Pitch Circle Radius must be at least Base Circle Radius')
         rotate_angle = math.pi / (2 * toothNumber) - math.atan2(-pitchPoint.y, pitchPoint.x)
 
         def rot(pt, a):
@@ -246,25 +249,30 @@ class SpurGearInvoluteToothDesignGenerator:
         toothTop = sketch.sketchPoints.add(
             adsk.core.Point3D.create(tipR * math.cos(angle), tipR * math.sin(angle), 0))
         sketch.geometricConstraints.addCoincident(toothTop, self.tipCircle)
-        topArc = sketch.sketchCurves.sketchArcs.addByThreePoints(
-            rightSpline.endSketchPoint, toothTop.geometry, leftSpline.endSketchPoint)
-        sketch.sketchDimensions.addDiameterDimension(topArc, toothTop.geometry)
+        sketch.sketchCurves.sketchArcs.addByCenterStartEnd(
+            origin, rightSpline.endSketchPoint, leftSpline.endSketchPoint)
 
-        # 7. Spine + horizontal reference + angular pin ([SPUR-F-SPINE]).
+        # 7. Spine + +X reference + angular pin ([SPUR-F-SPINE]).
         spine = sketch.sketchCurves.sketchLines.addByTwoPoints(origin, toothTop)
         spine.isConstruction = True
-        if angle == 0:
-            sketch.geometricConstraints.addHorizontal(spine)
-        else:
-            horizontal = sketch.sketchCurves.sketchLines.addByTwoPoints(
-                origin, adsk.core.Point3D.create(tipR, 0, 0))
-            horizontal.isConstruction = True
-            sketch.geometricConstraints.addHorizontal(horizontal)
-            sketch.geometricConstraints.addCoincident(horizontal.endSketchPoint, self.tipCircle)
-            bisectorText = adsk.core.Point3D.create(
-                tipR * math.cos(angle / 2), tipR * math.sin(angle / 2), 0)
-            self.spineAngularDimension = sketch.sketchDimensions.addAngularDimension(
-                spine, horizontal, bisectorText)
+        referenceEnd = sketch.sketchPoints.add(
+            adsk.core.Point3D.create(tipR, 0, 0))
+        horizontalDimension = sketch.sketchDimensions.addDistanceDimension(
+            origin, referenceEnd,
+            adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation,
+            adsk.core.Point3D.create(tipR / 2, 0, 0))
+        horizontalDimension.parameter.value = tipR
+        verticalDimension = sketch.sketchDimensions.addDistanceDimension(
+            origin, referenceEnd,
+            adsk.fusion.DimensionOrientations.VerticalDimensionOrientation,
+            adsk.core.Point3D.create(tipR, 0, 0))
+        verticalDimension.parameter.value = 0
+        reference = sketch.sketchCurves.sketchLines.addByTwoPoints(origin, referenceEnd)
+        reference.isConstruction = True
+        bisectorText = adsk.core.Point3D.create(
+            tipR * math.cos(angle / 2), tipR * math.sin(angle / 2), 0)
+        self.spineAngularDimension = sketch.sketchDimensions.addAngularDimension(
+            reference, spine, bisectorText)
 
         # 8. Ribs ([SPUR-F-RIBS]) — exact order, midpoint chain from the origin.
         leftFit = leftSpline.fitPoints
@@ -276,11 +284,16 @@ class SpurGearInvoluteToothDesignGenerator:
             # 1. rib shares the two fit points; construction.
             rib = sketch.sketchCurves.sketchLines.addByTwoPoints(lp, rp)
             rib.isConstruction = True
-            # 2. aligned length dimension at its current measured value.
+            # 2. signed axis dimension at its current measured value.
             lenText = adsk.core.Point3D.create(
                 (lp.geometry.x + rp.geometry.x) / 2, (lp.geometry.y + rp.geometry.y) / 2, 0)
+            acrossIsVertical = abs(math.cos(angle)) >= abs(math.sin(angle))
+            ribOrientation = (
+                adsk.fusion.DimensionOrientations.VerticalDimensionOrientation
+                if acrossIsVertical else
+                adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation)
             sketch.sketchDimensions.addDistanceDimension(
-                lp, rp, adsk.fusion.DimensionOrientations.AlignedDimensionOrientation, lenText)
+                lp, rp, ribOrientation, lenText)
             # 3. fresh midpoint seeded at the foot of the left fit point on the spine.
             t = lp.geometry.x * math.cos(angle) + lp.geometry.y * math.sin(angle)
             midSeed = adsk.core.Point3D.create(t * math.cos(angle), t * math.sin(angle), 0)
@@ -289,15 +302,20 @@ class SpurGearInvoluteToothDesignGenerator:
             sketch.geometricConstraints.addCoincident(mid, spine)
             # 5. then make it the rib's midpoint.
             sketch.geometricConstraints.addMidPoint(mid, rib)
-            # 6. then make the rib perpendicular to the spine.
-            sketch.geometricConstraints.addPerpendicular(spine, rib)
+            # 6. then make the rib perpendicular to the spine, except for the
+            # final rib whose perpendicular is already implied by the tooth-top arc.
+            if i != leftFit.count - 1:
+                sketch.geometricConstraints.addPerpendicular(spine, rib)
             # chain distance from the previous midpoint (origin for the first rib).
             pg = prevMid.geometry
             chainText = adsk.core.Point3D.create(
                 (pg.x + midSeed.x) / 2, (pg.y + midSeed.y) / 2, 0)
+            chainOrientation = (
+                adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation
+                if acrossIsVertical else
+                adsk.fusion.DimensionOrientations.VerticalDimensionOrientation)
             sketch.sketchDimensions.addDistanceDimension(
-                prevMid, mid, adsk.fusion.DimensionOrientations.AlignedDimensionOrientation,
-                chainText)
+                prevMid, mid, chainOrientation, chainText)
             prevMid = mid
 
         # 9. Close the tooth at the root ([SPUR-F-FLANK-ROOT]); detect embedded case
@@ -319,15 +337,29 @@ class SpurGearInvoluteToothDesignGenerator:
         rootEnd = adsk.core.Point3D.create(rootR * g.x / n, rootR * g.y / n, 0)
         # Share the flank start SketchPoint directly as the far endpoint.
         line = sketch.sketchCurves.sketchLines.addByTwoPoints(rootEnd, flankStart)
-        # (a) root end on the root circle.
-        sketch.geometricConstraints.addCoincident(line.startSketchPoint, self.rootCircle)
-        # (b) local origin on the line (radial direction).
-        sketch.geometricConstraints.addCoincident(origin, line)
+        rootEndPoint = line.startSketchPoint
+        og = origin.geometry
+        dx = rootEnd.x - og.x
+        dy = rootEnd.y - og.y
+        # Exactly two signed dimensions from the local origin. Do not constrain
+        # the root endpoint to the root circle or the origin to this line: that
+        # leaves the far-side root-circle intersection available too.
+        horizontalDimension = sketch.sketchDimensions.addDistanceDimension(
+            origin, rootEndPoint,
+            adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation,
+            adsk.core.Point3D.create(og.x + dx / 2, og.y, 0))
+        horizontalDimension.parameter.value = dx
+        verticalDimension = sketch.sketchDimensions.addDistanceDimension(
+            origin, rootEndPoint,
+            adsk.fusion.DimensionOrientations.VerticalDimensionOrientation,
+            adsk.core.Point3D.create(rootEnd.x, og.y + dy / 2, 0))
+        verticalDimension.parameter.value = dy
 
     def drawBore(self, anchorPoint, diameter):
         sketch = self.sketch
         projected = sketch.project(anchorPoint)
         center = projected.item(0)
+        self.projectedAnchorPoint = center
         circle = sketch.sketchCurves.sketchCircles.addByCenterRadius(center, diameter / 2)
         cg = center.geometry
         textPoint = adsk.core.Point3D.create(cg.x + diameter / 2, cg.y, 0)
@@ -700,6 +732,8 @@ class SpurGearGenerator(Generator):
 
         generator = SpurGearInvoluteToothDesignGenerator(boreSketch, self)
         generator.drawBore(ctx.anchorPoint, boreDiameter)
+        boreSketch.geometricConstraints.addCoincident(
+            generator.anchorPoint, generator.projectedAnchorPoint)
 
         profile = boreSketch.profiles.item(0)
         extrudes = component.features.extrudeFeatures

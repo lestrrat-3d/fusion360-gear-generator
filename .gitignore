@@ -2,5 +2,6 @@ __pycache__
 .vscode
 .env
 .tmp/
+.gauntlet/
 .worktrees/
 .pyright_check.tmp.json

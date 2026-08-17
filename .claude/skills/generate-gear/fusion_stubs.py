@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Shared resolution/clone of the Autodesk FusionAPIReference Python stub defs.
 
-One clone, one resolution policy, used by both:
-  - pyright_check.py     (static-analysis gate — needs the stubs on pyright's path)
-  - build_fusion_index.py (API lookup index — parses the stubs into a grep-able index)
+One clone, one resolution policy, used by pyright_check.py (the static-analysis gate, which
+needs the stubs on pyright's path).
+
+Looking a name up is a different job and no longer done here: fusion_api.py asks the `fusion`
+plugin's compiled database, which needs no clone.
 
 The FusionAPIReference repo is 338M; the Python defs are ~4M, so the clone is sparse,
-shallow, and blobless (~13M on disk) and cached under ~/.cache/fusion360-gear-generator/
-so the two tools share it.
+shallow, and blobless (~13M on disk) and cached under ~/.cache/fusion360-gear-generator/.
 
 Resolution precedence (see resolve_defs):
     1. explicit arg (e.g. --stubs)   authoritative; a wrong path raises, no fallback

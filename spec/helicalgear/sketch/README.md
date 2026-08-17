@@ -23,14 +23,15 @@ ALL PASS — the helical twisted Gear Profile fully constrains across sizes and 
 
 The tooth geometry and its constraint scheme are spur's (see `spec/spurgear/sketch/README.md` for the
 circles / involute flanks / ribs / flank-to-root construction). The **one new thing** is the spine's
-rotation lock. The spur bench only runs the seed tooth at `angle == 0`, where `[SPUR-F-SPINE]` reduces
-to a single `NewHorizontal(spine)`. Helical draws the tooth pre-rotated by `helixAngle`, which takes
-the **`[SPUR-F-SPINE]` angle ≠ 0 path** — untested until now:
+rotation lock. The spur bench runs the seed tooth at `angle == 0` with the same signed +X reference
+recipe. Helical draws the tooth pre-rotated by `helixAngle` and exercises that shared recipe across
+non-zero angles:
 
-- a **+X horizontal reference** construction line from the origin, whose **far end is pinned on the
-  tip circle** (`NewPointOnCircle`). Without this end-pin the reference line's length floats and the
-  whole sketch is under-constrained even though the geometry looks right — the exact failure
-  `[SPUR-F-SPINE]` warns about;
+- a **+X reference** construction line from the origin, whose **far end is pinned with signed
+  horizontal and vertical distances** (`NewHorizontalDistance` and `NewVerticalDistance`). Without
+  these signed dimensions the reference line's length or direction can float, and the whole sketch
+  is under-constrained even though the geometry looks right — the exact failure `[SPUR-F-SPINE]`
+  warns about;
 - an **angular dimension** from the reference to the spine (`NewAngle`, in degrees) fixing the twist.
 
 This bench runs the twisted profile across **sizes** (M/N) at the default 14.5° **and** a **helix-angle

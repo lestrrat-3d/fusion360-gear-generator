@@ -98,7 +98,7 @@ func checkTwistedProfile(ctx context.Context, module, toothNumber, pressureAng, 
 		s.AddConstraint(sketch.NewDiameter(c, 2*r))
 		return c
 	}
-	rootCircle := mkCircle(rootR)
+	mkCircle(rootR)
 	tipCircle := mkCircle(tipR)
 	mkCircle(baseR)
 	mkCircle(pitchR)
@@ -124,51 +124,62 @@ func checkTwistedProfile(ctx context.Context, module, toothNumber, pressureAng, 
 	s.AddConstraint(sketch.NewPointOnCircle(toothTop, tipCircle))
 	spine := s.CreateLine(origin, toothTop)
 	spine.SetConstruction(true)
-	if angle == 0 {
-		// angle==0 (spur) path: the spine's only extra constraint is horizontal.
-		s.AddConstraint(sketch.NewHorizontal(spine))
-	} else {
-		// angle!=0 (helical/herringbone/bevel) path: a +X horizontal REFERENCE line
-		// whose far end is PINNED on the tip circle (else its length floats and the
-		// sketch is under-constrained — the [SPUR-F-SPINE] end-pin), then an angular
-		// dimension from the reference to the spine fixes the twist.
-		refEnd := s.CreatePoint(tipR, 0)
-		refLine := s.CreateLine(origin, refEnd)
-		refLine.SetConstruction(true)
-		s.AddConstraint(sketch.NewHorizontal(refLine))
-		s.AddConstraint(sketch.NewPointOnCircle(refEnd, tipCircle)) // the end-pin
-		// CCW from the +X reference to the spine == helixAngle (NewAngle is in degrees).
-		s.AddConstraint(sketch.NewAngle(refLine, spine, helixAngle*180/math.Pi))
-	}
+	// Every angle uses the same signed +X reference recipe as the Fusion spur
+	// implementation, including the zero-angle seed tooth.
+	refEnd := s.CreatePoint(tipR, 0)
+	s.AddConstraint(
+		sketch.NewHorizontalDistance(origin, refEnd, tipR),
+		sketch.NewVerticalDistance(origin, refEnd, 0),
+	)
+	refLine := s.CreateLine(origin, refEnd)
+	refLine.SetConstruction(true)
+	// CCW from the +X reference to the spine == helixAngle (NewAngle is in degrees).
+	s.AddConstraint(sketch.NewAngle(refLine, spine, helixAngle*180/math.Pi))
 
-	// tooth-top arc (free center + diameter dim, faithful to Fusion's 3-point arc).
-	topArc := s.CreateArc(s.CreatePoint(rot(0, tipR*0.1, angle)), rightPts[len(rightPts)-1], leftPts[len(leftPts)-1])
-	s.AddConstraint(sketch.NewDiameter(topArc, 2*tipR)) // [SPUR-F-TOOTHTOP-ARC]
+	// tooth-top arc: caps the flank ends. Faithful to Fusion's shared-origin
+	// addByCenterStartEnd call, with no diameter dimension.
+	s.CreateArc(origin, rightPts[len(rightPts)-1], leftPts[len(leftPts)-1]) // [SPUR-F-TOOTHTOP-ARC]
 
 	// ribs: lock each flank pair to the spine. Exact [SPUR-F-RIBS] order.
+	// The rib takes the axis across the spine and the chain takes the axis along it.
+	acrossIsVertical := math.Abs(math.Cos(angle)) >= math.Abs(math.Sin(angle))
 	prevMid := origin
 	prevMidPt := pt{0, 0}
 	for i := range left {
 		rib := s.CreateLine(leftPts[i], rightPts[i])
 		rib.SetConstruction(true)
-		s.AddConstraint(sketch.NewDistance(leftPts[i], rightPts[i], dist(left[i], right[i])))
+		if acrossIsVertical {
+			s.AddConstraint(sketch.NewVerticalDistance(leftPts[i], rightPts[i], right[i].y-left[i].y))
+		} else {
+			s.AddConstraint(sketch.NewHorizontalDistance(leftPts[i], rightPts[i], right[i].x-left[i].x))
+		}
 		t := left[i].x*math.Cos(angle) + left[i].y*math.Sin(angle) // foot on the spine
 		mx, my := t*math.Cos(angle), t*math.Sin(angle)
 		mid := s.CreatePoint(mx, my)
-		s.AddConstraint(sketch.NewPointOnLine(mid, spine))
-		s.AddConstraint(sketch.NewMidpoint(mid, rib))
-		s.AddConstraint(sketch.NewPerpendicular(spine, rib))
-		s.AddConstraint(sketch.NewDistance(prevMid, mid, dist(prevMidPt, pt{mx, my})))
+		s.AddConstraint(sketch.NewPointOnLine(mid, spine)) // 4. midpoint onto spine first
+		s.AddConstraint(sketch.NewMidpoint(mid, rib))      // 5. then midpoint of rib
+		if i != len(left)-1 {
+			s.AddConstraint(sketch.NewPerpendicular(spine, rib)) // 6. then rib ⊥ spine
+		} // The tooth-top arc already constrains the final rib's perpendicular.
+		// chain distance from previous midpoint (origin for the first rib)
+		if acrossIsVertical {
+			s.AddConstraint(sketch.NewHorizontalDistance(prevMid, mid, mx-prevMidPt.x))
+		} else {
+			s.AddConstraint(sketch.NewVerticalDistance(prevMid, mid, my-prevMidPt.y))
+		}
 		prevMid, prevMidPt = mid, pt{mx, my}
 	}
 
 	// flank-to-root lines ([SPUR-F-FLANK-ROOT], non-embedded).
 	addFlankRoot := func(flankStart *sketch.Point, seed pt) *sketch.Point {
 		n := math.Hypot(seed.x, seed.y)
-		re := s.CreatePoint(rootR*seed.x/n, rootR*seed.y/n)
-		line := s.CreateLine(re, flankStart)
-		s.AddConstraint(sketch.NewPointOnCircle(re, rootCircle))
-		s.AddConstraint(sketch.NewPointOnLine(origin, line))
+		rx, ry := rootR*seed.x/n, rootR*seed.y/n
+		re := s.CreatePoint(rx, ry)
+		s.CreateLine(re, flankStart)
+		s.AddConstraint(
+			sketch.NewHorizontalDistance(origin, re, rx),
+			sketch.NewVerticalDistance(origin, re, ry),
+		)
 		return re
 	}
 	leftFoot := addFlankRoot(leftPts[0], left[0])
