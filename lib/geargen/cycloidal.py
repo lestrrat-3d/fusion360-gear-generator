@@ -394,7 +394,7 @@ def _build_vals(R, Rop, E, c, N, M, D, CBD, clr, ISD, pinDiameter,
 # ===========================================================================
 class CycloidalDriveCommandInputsConfigurator:
     @classmethod
-    def configure(cls, command: adsk.core.Command):
+    def configure(cls, command):
         from .misc import get_design
         inputs = command.commandInputs
 
@@ -779,7 +779,7 @@ class CycloidalDriveGenerator(Generator):
             return nT
         return '2 * {} + {}'.format(nT, nG)
 
-    def _anchorLocalOrigin(self, sketch: adsk.fusion.Sketch):
+    def _anchorLocalOrigin(self, sketch):
         """Project the user's Anchor and constrain a fresh local origin to it
         ([CYCLOIDAL-F-ANCHOR-CHAIN]). Returns the local origin SketchPoint."""
         localOrigin = sketch.sketchPoints.add(
@@ -788,7 +788,7 @@ class CycloidalDriveGenerator(Generator):
         sketch.geometricConstraints.addCoincident(localOrigin, projected)
         return localOrigin
 
-    def _eccentricCentre(self, sketch: adsk.fusion.Sketch, localOrigin, signedE):
+    def _eccentricCentre(self, sketch, localOrigin, signedE):
         """Build the eccentric disk centre Od = O + s_d*E*Xhat
         ([CYCLOIDAL-F-DISK-CENTER]). signedE in cm with sign. Returns the
         diskCentre SketchPoint."""
@@ -805,7 +805,7 @@ class CycloidalDriveGenerator(Generator):
         dim.parameter.expression = self.parameterName(PARAM_ECCENTRICITY)
         return diskCentre
 
-    def _alongPathLabel(self, sketch: adsk.fusion.Sketch, circle, text):
+    def _alongPathLabel(self, sketch, circle, text):
         ti = sketch.sketchTexts.createInput2(text, self.Rr)
         ti.setAsAlongPath(
             circle, True,
@@ -1538,7 +1538,7 @@ class CycloidalDriveGenerator(Generator):
         solids.hide_construction_geometry(component)
 
     # ----- profile-selection helpers -----
-    def _profile_containing(self, sketch: adsk.fusion.Sketch, curve):
+    def _profile_containing(self, sketch, curve):
         """The profile whose loop contains `curve` (identity match)."""
         for profile in sketch.profiles:
             for loop in profile.profileLoops:
@@ -1549,7 +1549,7 @@ class CycloidalDriveGenerator(Generator):
             'No profile in sketch "{}" contains the given curve'.format(
                 sketch.name))
 
-    def _min_area_profile_containing(self, sketch: adsk.fusion.Sketch, curve):
+    def _min_area_profile_containing(self, sketch, curve):
         """Among profiles whose loop contains `curve`, the one with the
         smallest area (the casing wedge, not the large complement)."""
         best = None
@@ -1576,7 +1576,7 @@ class CycloidalDriveGenerator(Generator):
                     sketch.name))
         return best
 
-    def _single_loop_profile_of(self, sketch: adsk.fusion.Sketch, curve):
+    def _single_loop_profile_of(self, sketch, curve):
         """The profileLoops.count == 1 profile whose loop curve is `curve`."""
         for profile in sketch.profiles:
             if profile.profileLoops.count != 1:
@@ -1589,7 +1589,7 @@ class CycloidalDriveGenerator(Generator):
             'No single-loop profile in sketch "{}" for the given curve'.format(
                 sketch.name))
 
-    def _profile_by_loop_count(self, sketch: adsk.fusion.Sketch, loopCount):
+    def _profile_by_loop_count(self, sketch, loopCount):
         """The profile with exactly `loopCount` loops (annulus = 2)."""
         for profile in sketch.profiles:
             if profile.profileLoops.count == loopCount:

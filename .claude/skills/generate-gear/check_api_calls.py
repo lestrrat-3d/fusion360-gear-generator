@@ -72,6 +72,12 @@ SHARED_FRAMEWORK_MODULES = (
     'fusion360utils/general_utils.py',
 )
 
+FUSION_NAME_HINTS = {
+    'cmd': 'Command',
+    'command': 'Command',
+    'sketch': 'Sketch',
+}
+
 UNVERIFIED_RETURN_TYPES = {
     ('project', 'sketch'): 'ObjectCollection',
     ('project', 'toolsSketch'): 'ObjectCollection',
@@ -249,6 +255,10 @@ def fusion_class_expr(expr):
     if parts and len(parts) >= 3 and parts[0] == 'adsk' and parts[1] in ('core', 'fusion'):
         return parts[2]
     return None
+
+
+def hinted_name_type(name):
+    return FUSION_NAME_HINTS.get(name)
 
 
 def unverified_return_type(func):
@@ -656,7 +666,8 @@ def infer_api_receiver_types(tree, classes, bases, method_returns, api_member_in
             if expression.id == 'self':
                 return containing_class
             return (types.get((scopes.get(expression), expression.id))
-                    or types.get(expression.id))
+                    or types.get(expression.id)
+                    or hinted_name_type(expression.id))
         if isinstance(expression, ast.Attribute):
             text = ast.unparse(expression)
             scoped = (scopes.get(expression), text)
@@ -815,6 +826,7 @@ def main():
 
     receiver_bindings, field_types, expression_type = infer_api_receiver_types(
         tree, known_class_methods, bases, method_returns, api_member_info)
+    receiver_scopes = node_scopes(tree)
 
     called = {}
     for node in ast.walk(tree):
@@ -841,11 +853,25 @@ def main():
             return False
         if fusion_class_expr(receiver) == receiver_type:
             return True
-        text = ast.unparse(receiver)
-        if any(binding_name == text and binding_type == receiver_type
-               for (_, binding_name), binding_type in receiver_bindings.items()):
-            return True
-        return expression_type(receiver, containing_class) == receiver_type
+
+        def explicitly_bound(expression):
+            if isinstance(expression, ast.Name):
+                key = (receiver_scopes.get(expression), expression.id)
+                return receiver_bindings.get(key)
+            if isinstance(expression, ast.Attribute):
+                text = ast.unparse(expression)
+                key = (receiver_scopes.get(expression), text)
+                bound = receiver_bindings.get(key)
+                if bound is not None:
+                    return bound
+                if (isinstance(expression.value, ast.Name)
+                        and expression.value.id == 'self'
+                        and field_types.get((containing_class, expression.attr))):
+                    return next(iter(field_types[(containing_class, expression.attr)]))
+                return explicitly_bound(expression.value)
+            return None
+
+        return explicitly_bound(receiver) is not None
 
     def exact_unverified(name, func, receiver_type, containing_class):
         tail = receiver_tail(func)

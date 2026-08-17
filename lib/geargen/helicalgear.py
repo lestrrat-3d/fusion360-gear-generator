@@ -16,7 +16,7 @@ INPUT_ID_HELIX_ANGLE = 'helixAngle'
 
 class HelicalGearCommandConfigurator(SpurGearCommandInputsConfigurator):
     @classmethod
-    def configure(cls, cmd: adsk.core.Command):
+    def configure(cls, cmd):
         # Spur adds every base input first (Parent Component last); the Helix
         # Angle value input is appended after, so it necessarily lands LAST in
         # the dialog, after Parent Component ([SPUR-SUBCLASS-INPUT] consequence).
