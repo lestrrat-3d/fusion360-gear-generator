@@ -375,6 +375,89 @@ class CheckCompileTest(unittest.TestCase):
         self.assertEqual(misnamed, [])
         self.assertEqual(unreadable, ['build'])
 
+    def test_comma_declared_local_build_argument_is_unreadable(self):
+        src = (
+            'func TestOne(t *testing.T) {\n'
+            '    var ignored, stepOne proofkit.Build = buildA, buildB\n'
+            '    _ = ignored\n'
+            '    proofkit.Run(t, spurCases(), stepOne)\n'
+            '}\n')
+
+        registered, misnamed, unreadable = COMPILE_CHECKER.registered_step_functions(src)
+
+        self.assertEqual(registered, set())
+        self.assertEqual(misnamed, [])
+        self.assertEqual(unreadable, ['stepOne'])
+
+    def test_grouped_var_local_build_argument_is_unreadable(self):
+        src = (
+            'func TestOne(t *testing.T) {\n'
+            '    var (\n'
+            '        stepOne proofkit.Build = buildA\n'
+            '    )\n'
+            '    proofkit.Run(t, spurCases(), stepOne)\n'
+            '}\n')
+
+        registered, misnamed, unreadable = COMPILE_CHECKER.registered_step_functions(src)
+
+        self.assertEqual(registered, set())
+        self.assertEqual(misnamed, [])
+        self.assertEqual(unreadable, ['stepOne'])
+
+    def test_grouped_var_initializer_does_not_hide_a_real_registration(self):
+        src = (
+            'func TestOne(t *testing.T) {\n'
+            '    var (\n'
+            '        alias proofkit.Build = stepOne\n'
+            '    )\n'
+            '    _ = alias\n'
+            '    proofkit.Run(t, spurCases(), stepOne)\n'
+            '}\n')
+
+        registered, misnamed, unreadable = COMPILE_CHECKER.registered_step_functions(src)
+
+        self.assertEqual(registered, {'stepOne'})
+        self.assertEqual(misnamed, [])
+        self.assertEqual(unreadable, [])
+
+    def test_wrapped_var_initializer_does_not_hide_a_real_registration(self):
+        src = (
+            'func TestOne(t *testing.T) {\n'
+            '    var (\n'
+            '        builds = []proofkit.Build{\n'
+            '            stepOne,\n'
+            '            stepTwo,\n'
+            '        }\n'
+            '    )\n'
+            '    _ = builds\n'
+            '    proofkit.Run(t, spurCases(), stepOne)\n'
+            '    proofkit.Run(t, spurCases(), stepTwo)\n'
+            '}\n')
+
+        registered, misnamed, unreadable = COMPILE_CHECKER.registered_step_functions(src)
+
+        self.assertEqual(registered, {'stepOne', 'stepTwo'})
+        self.assertEqual(misnamed, [])
+        self.assertEqual(unreadable, [])
+
+    def test_grouped_var_local_build_argument_is_blocking(self):
+        proof_body = (
+            'func TestOne(t *testing.T) {\n'
+            '    var (\n'
+            '        stepOne proofkit.Build = buildProfile\n'
+            '    )\n'
+            '    proofkit.Run(t, cases(gear{name: "one"}), stepOne)\n'
+            '}\n\n'
+            'func stepOne() {}\n')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 1)
+        self.assertIn(
+            'proof/gear/proof_test.go does not show the gate which function a proof run builds '
+            'with: stepOne; write the run\'s arguments out one by one, with the build argument '
+            'a literal step<Title> identifier so a step can claim the run', output)
+
     def test_loop_whose_body_returns_does_not_hide_a_later_run(self):
         src = (
             'func TestOne(t *testing.T) {\n'

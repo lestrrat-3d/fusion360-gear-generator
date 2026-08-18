@@ -545,6 +545,65 @@ def go_argument_label(argument):
     return label
 
 
+def go_statement_ends_at_line(text):
+    """Whether Go would end a statement at the end of this line.
+
+    Go inserts the semicolon itself, and only when the line's last token can end a statement:
+    an identifier, a literal, a closing bracket, or ++/--. A line ending in `=`, a comma or an
+    operator continues into the next one, which is what keeps a multi-line declaration from
+    being read as several.
+    """
+    stripped = text.rstrip()
+    if not stripped:
+        return True
+    return re.search(r'(?:\w|[)\]}\'"]|\+\+|--)$', stripped) is not None
+
+
+def go_var_specs(body, start):
+    """The declaration specs of the var declaration at start, as written.
+
+    One spec for a single `var` declaration, and one per declaration for a parenthesised
+    block. Specs are cut at the block's own nesting depth, so a composite literal or a call in
+    an initializer cannot split one, and only where Go would end the statement, so a wrapped
+    initializer cannot either.
+    """
+    rest = body[start:]
+    offset = len(rest) - len(rest.lstrip())
+    if rest[offset:offset + 1] != '(':
+        return [rest]
+    closing = matching_delimiter(body, start + offset)
+    if closing is None:
+        return []
+    specs = []
+    current = ''
+    depth = 0
+    for ch in body[start + offset + 1:closing]:
+        if ch in '([{':
+            depth += 1
+        elif ch in ')]}':
+            depth -= 1
+        if depth == 0 and (ch == ';' or (ch == '\n' and go_statement_ends_at_line(current))):
+            specs.append(current)
+            current = ''
+            continue
+        current += ch
+    specs.append(current)
+    return specs
+
+
+def go_declared_names(spec):
+    """The names one var declaration binds: the identifier list before the type and any `=`.
+
+    Only the left-hand side, because a declaration's initializer may name a real step function,
+    and treating that name as a local would make a literal registration of it elsewhere in the
+    same function look unreadable.
+    """
+    match = re.match(r'\s*([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)', spec)
+    if match is None:
+        return []
+    return re.findall(r'[A-Za-z_]\w*', match.group(1))
+
+
 def go_local_bindings(body):
     """Every name a Go function body binds with := or var, as far as those two forms show.
 
@@ -552,13 +611,16 @@ def go_local_bindings(body):
     the gate cannot say which function the run builds with. Telling the two apart matters:
     calling a loop variable a misnamed build function sends a drafter to rename the wrong
     thing. A stray keyword swept up by the scan is harmless, because no build argument is
-    written as one.
+    written as one. Every name a var declaration binds counts, including the ones after a comma
+    and the ones inside a parenthesised block, or a run on a local declared in either shape
+    would be read as a registration of a step function by that name.
     """
     names = set()
     for match in re.finditer(r'([^\n;{}]*?):=', body):
         names.update(re.findall(r'[A-Za-z_]\w*', match.group(1)))
-    for match in re.finditer(r'\bvar\s+([A-Za-z_]\w*)', body):
-        names.add(match.group(1))
+    for match in re.finditer(r'\bvar\b', body):
+        for spec in go_var_specs(body, match.end()):
+            names.update(go_declared_names(spec))
     return names
 
 
