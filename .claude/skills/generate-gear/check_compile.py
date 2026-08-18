@@ -645,15 +645,37 @@ def go_enclosing_block_close(body, brace_pairs, pos):
     return close
 
 
+def go_group_closes_the_statement(body, closing):
+    """Whether nothing but whitespace follows a brace group's close before the statement ends.
+
+    A statement ends at a newline, at a `;`, or at the `}` of the block it sits in, so a group
+    that reaches one of those with only whitespace in between is the last thing the statement
+    writes.
+    """
+    for ch in body[closing + 1:]:
+        if ch in '\n;}':
+            return True
+        if not ch.isspace():
+            return False
+    return True
+
+
 def go_header_block_close(body, brace_pairs, pos):
     """Where the block a statement header introduces closes, or None when none follows.
 
     A `for` or `if` header is written in the enclosing block, but what it binds is scoped to
-    the block that header opens, so that block is what bounds it. The scan skips balanced
-    groups, and takes the first brace at the header's own depth that follows whitespace: gofmt
-    writes a space before a block's opening brace and none before a composite literal's, which
-    is what tells the block in `for _, build := range []proofkit.Build{stepOne} {` from the
-    literal in the same header.
+    the block that header opens, so that block is what bounds it. The scan skips every balanced
+    brace group from the binding onward and takes the group, at the header's own paren and
+    bracket depth, whose close is the last thing on the statement. The block a header opens is
+    always in that position, and nothing else in the header is: whatever a header writes before
+    the block — a composite literal, a struct or interface type, a function literal — is
+    followed by the block itself, or by the call parentheses, the `;` or the operand that
+    carries the header on.
+
+    The rule has to be positional. Brace matching cannot see where the range expression ends,
+    and it cannot read the spacing either: gofmt leaves a space before a multi-line
+    `[]struct {` or a function literal's own brace just as it does before a block's, so the
+    character in front of a brace says nothing about which kind it opens.
     """
     depth = 0
     while pos < len(body):
@@ -667,9 +689,10 @@ def go_header_block_close(body, brace_pairs, pos):
         elif ch == '{':
             if pos not in brace_pairs:
                 return None
-            if depth == 0 and pos > 0 and body[pos - 1].isspace():
-                return brace_pairs[pos]
-            pos = brace_pairs[pos]
+            closing = brace_pairs[pos]
+            if depth == 0 and go_group_closes_the_statement(body, closing):
+                return closing
+            pos = closing
         pos += 1
     return None
 

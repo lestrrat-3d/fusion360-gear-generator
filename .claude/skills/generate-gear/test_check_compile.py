@@ -534,6 +534,60 @@ class CheckCompileTest(unittest.TestCase):
         self.assertEqual(misnamed, [])
         self.assertEqual(unreadable, [])
 
+    # A loop header can write a brace group of its own before the block it opens, and gofmt
+    # leaves a space in front of that group's brace exactly as it does in front of the block's.
+    # Every body below is gofmt's own output, so the shapes are what a drafter would really
+    # write, and each one has to end with the loop variable holding the build: a run reported
+    # as registering a step it only names through the loop variable is a false pass, and the
+    # geometry that step claims would go unproven with the gate green.
+    HEADER_BLOCK_SHAPES = {
+        'multi-line anonymous struct': (
+            '\tfor _, stepOne := range []struct {\n'
+            '\t\tbuild proofkit.Build\n'
+            '\t}{{buildA}} {\n'),
+        'function literal in the header': (
+            '\tfor _, stepOne := range func() []proofkit.Build {\n'
+            '\t\treturn []proofkit.Build{buildA}\n'
+            '\t}() {\n'),
+        'build slice literal': (
+            '\tfor _, stepOne := range []proofkit.Build{buildA} {\n'),
+    }
+
+    def test_loop_header_shapes_leave_the_run_unreadable(self):
+        for shape, header in self.HEADER_BLOCK_SHAPES.items():
+            with self.subTest(shape=shape):
+                src = (
+                    'func TestOne(t *testing.T) {\n'
+                    + header
+                    + '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+                    '\t}\n'
+                    '}\n')
+
+                registered, misnamed, unreadable = (
+                    COMPILE_CHECKER.registered_step_functions(src))
+
+                self.assertEqual(registered, set())
+                self.assertEqual(misnamed, [])
+                self.assertEqual(unreadable, ['stepOne'])
+
+    def test_loop_header_shapes_end_their_binding_with_the_loop(self):
+        for shape, header in self.HEADER_BLOCK_SHAPES.items():
+            with self.subTest(shape=shape):
+                src = (
+                    'func TestOne(t *testing.T) {\n'
+                    + header
+                    + '\t\t_ = stepOne\n'
+                    '\t}\n'
+                    '\tproofkit.Run(t, spurCases(), stepOne)\n'
+                    '}\n')
+
+                registered, misnamed, unreadable = (
+                    COMPILE_CHECKER.registered_step_functions(src))
+
+                self.assertEqual(registered, {'stepOne'})
+                self.assertEqual(misnamed, [])
+                self.assertEqual(unreadable, [])
+
     # An if header that carries an init clause states a condition the reachability walk cannot
     # read, so a run inside such a block is skipped before its build argument is judged. The
     # scope the header binding gets is therefore checked on the bindings themselves.
