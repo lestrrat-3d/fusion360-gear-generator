@@ -1741,6 +1741,256 @@ class HeaderShapeTest(unittest.TestCase):
                     self.assertEqual(formatted.stdout, src)
 
 
+# ---------------------------------------------------------------------------------------------
+# The signature matrix: which identifiers a func SIGNATURE binds.
+#
+# A parameter list holds names and types together, and only the names are bindings. The types
+# must stay out, because every name collected here reaches the chokepoint through
+# `go_bound_step_names`, which keeps anything matching `step<Title>`. A proof is free to declare
+# a package-level `type stepType`, `stepCase` or `stepResult` and write it in a parameter's
+# type; reading that type as a binding makes every run in the body unreadable, which suppresses
+# the registration verdict for the whole proof directory and tells the drafter to rename a local
+# that was never written.
+#
+# The eleven shapes below are the audited matrix, and `required` is its third column verbatim.
+# `incidental` names what the surrounding statements bind — the `call` of a `call := func...` —
+# so the two together are the whole binding set of the body and the assertion is exact rather
+# than a containment check.
+#
+# Both directions are asserted, because they fail differently. Reading a type as a binding is a
+# false failure: loud, and it costs a drafter a rename with nothing to rename. Losing a real
+# parameter name is a false pass: silent, and it lets a run that builds with a local count as
+# the registration of the package-level step of the same name, leaving that step's geometry
+# unproven behind a green gate. So each shape is written twice, once with `stepType` standing in
+# the type position, where the run must still register, and once with `stepOne` standing in the
+# shape's binding position, where the run must become unreadable.
+#
+# Three shapes bind nothing at all in either direction — a func-typed struct field, an interface
+# method and `func()` — so their bound direction wraps the same shape in a literal that does
+# bind, which is the nearest genuine binding the shape admits.
+Signature = collections.namedtuple('Signature', 'shape required incidental body bound')
+
+RUN = '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+BOUND_RUN = '\t\tproofkit.Run(t, spurCases(), stepTwo)\n'
+
+SIGNATURE_SHAPES = (
+    Signature(
+        'func(a, b stepType)', frozenset({'a', 'b'}), frozenset({'call'}),
+        '\tcall := func(a, b stepType) {\n' + RUN + '\t}\n\tcall(0, 0)\n',
+        '\tcall := func(a, stepOne stepType) {\n' + BOUND_RUN + '\t}\n\tcall(0, 0)\n'),
+    Signature(
+        'func(a ...stepType)', frozenset({'a'}), frozenset({'call'}),
+        '\tcall := func(a ...stepType) {\n' + RUN + '\t}\n\tcall()\n',
+        '\tcall := func(stepOne ...stepType) {\n' + BOUND_RUN + '\t}\n\tcall()\n'),
+    Signature(
+        'func() (res stepType, err error)', frozenset({'res', 'err'}), frozenset({'call'}),
+        '\tcall := func() (res stepType, err error) {\n' + RUN
+        + '\t\treturn 0, nil\n\t}\n\t_, _ = call()\n',
+        '\tcall := func() (stepOne stepType, err error) {\n' + BOUND_RUN
+        + '\t\treturn 0, nil\n\t}\n\t_, _ = call()\n'),
+    # The unnamed result list and the named one hold groups of a single identifier alike, so
+    # this shape and the one above it are what the list-wide rule separates. Writing the names
+    # in is what turns this list into that one, and it is the bound direction of both.
+    Signature(
+        'func() (stepType, error)', frozenset(), frozenset({'call'}),
+        '\tcall := func() (stepType, error) {\n' + RUN
+        + '\t\treturn 0, nil\n\t}\n\t_, _ = call()\n',
+        '\tcall := func() (stepOne stepType, err error) {\n' + BOUND_RUN
+        + '\t\treturn 0, nil\n\t}\n\t_, _ = call()\n'),
+    Signature(
+        'func(stepType)', frozenset(), frozenset({'call'}),
+        '\tcall := func(stepType) {\n' + RUN + '\t}\n\tcall(0)\n',
+        '\tcall := func(stepOne stepType) {\n' + BOUND_RUN + '\t}\n\tcall(0)\n'),
+    Signature(
+        'func(cb func(arg stepType))', frozenset({'cb'}), frozenset({'call'}),
+        '\tcall := func(cb func(arg stepType)) {\n' + RUN + '\t}\n\tcall(nil)\n',
+        '\tcall := func(stepOne func(arg stepType)) {\n' + BOUND_RUN + '\t}\n\tcall(nil)\n'),
+    Signature(
+        'struct field run func(arg stepType)', frozenset(), frozenset(),
+        '\ttype config struct{ run func(arg stepType) }\n'
+        '\tproofkit.Run(t, spurCases(), stepOne)\n',
+        '\tcall := func(stepOne stepType) {\n'
+        '\t\ttype config struct{ run func(arg stepType) }\n' + BOUND_RUN + '\t}\n\tcall(0)\n'),
+    Signature(
+        'interface method do(arg stepType)', frozenset(), frozenset(),
+        '\ttype doer interface{ do(arg stepType) }\n'
+        '\tproofkit.Run(t, spurCases(), stepOne)\n',
+        '\tcall := func(stepOne stepType) {\n'
+        '\t\ttype doer interface{ do(arg stepType) }\n' + BOUND_RUN + '\t}\n\tcall(0)\n'),
+    Signature(
+        'func(p pair[stepType])', frozenset({'p'}), frozenset({'call'}),
+        '\tcall := func(p pair[stepType]) {\n' + RUN + '\t}\n\tcall(pair[stepType]{})\n',
+        '\tcall := func(stepOne pair[stepType]) {\n' + BOUND_RUN
+        + '\t}\n\tcall(pair[stepType]{})\n'),
+    Signature(
+        'func()', frozenset(), frozenset({'call'}),
+        '\tcall := func() {\n' + RUN + '\t}\n\tcall()\n',
+        '\tcall := func(stepOne stepType) {\n' + BOUND_RUN + '\t}\n\tcall(0)\n'),
+    Signature(
+        't.Run("x", func(inner *testing.T) {})', frozenset({'inner'}), frozenset(),
+        '\tt.Run("x", func(inner *testing.T) {\n'
+        '\t\tproofkit.Run(inner, spurCases(), stepOne)\n\t})\n',
+        '\tt.Run("x", func(stepOne *testing.T) {\n'
+        '\t\tproofkit.Run(stepOne, spurCases(), stepTwo)\n\t})\n'),
+)
+
+# The scan restriction, anchored the same way. A func TYPE writes a parameter list that no body
+# can read, so nothing in it is a binding, and the first two rows are the audited fixtures for
+# exactly that. The third is the same in a `var` declaration. The fourth is the other side of
+# the restriction: a literal whose single result is written without parentheses is still a
+# literal, and dropping it would lose a real parameter name, which is the silent failure.
+SCAN_ANCHORS = (
+    Signature(
+        'type handler func(arg stepType)', frozenset(), frozenset(),
+        '\ttype handler func(arg stepType)\n'
+        '\tproofkit.Run(t, spurCases(), stepOne)\n',
+        '\tcall := func(stepOne stepType) {\n'
+        '\t\ttype handler func(arg stepType)\n' + BOUND_RUN + '\t}\n\tcall(0)\n'),
+    Signature(
+        'call := func(arg stepType)', frozenset({'arg'}), frozenset({'call'}),
+        '\tcall := func(arg stepType) {\n' + RUN + '\t}\n\tcall(0)\n',
+        '\tcall := func(stepOne stepType) {\n' + BOUND_RUN + '\t}\n\tcall(0)\n'),
+    Signature(
+        'var local func(arg stepType)', frozenset(), frozenset({'local'}),
+        '\tvar local func(arg stepType)\n\t_ = local\n'
+        '\tproofkit.Run(t, spurCases(), stepOne)\n',
+        '\tvar stepOne func(arg stepType)\n\t_ = stepOne\n'
+        '\tproofkit.Run(t, spurCases(), stepTwo)\n'),
+    Signature(
+        'func(arg stepType) error', frozenset({'arg'}), frozenset({'call'}),
+        '\tcall := func(arg stepType) error {\n' + RUN + '\t\treturn nil\n\t}\n\t_ = call\n',
+        '\tcall := func(stepOne stepType) error {\n' + BOUND_RUN
+        + '\t\treturn nil\n\t}\n\t_ = call\n'),
+)
+
+# The Go package the shapes are compiled in. `stepType` is the package-level type whose name the
+# gate used to read as a binding, `stepOne` and `stepTwo` are the step functions a run can
+# register, and the proof kit is stubbed down to the shapes the runs need, so the fixtures vet
+# without the real engines.
+FIXTURE_MODULE = 'module fixture\n\ngo 1.24\n'
+
+FIXTURE_PROOFKIT = (
+    'package proofkit\n\n'
+    'import "testing"\n\n'
+    'type Case int\n\n'
+    'type Build func(int)\n\n'
+    'func Run(t *testing.T, cases []Case, build Build) {\n'
+    '\t_, _, _ = t, cases, build\n'
+    '}\n')
+
+FIXTURE_SUPPORT = (
+    'package proof\n\n'
+    'import "fixture/proofkit"\n\n'
+    'type stepType int\n\n'
+    'type pair[T any] struct{}\n\n'
+    'func spurCases() []proofkit.Case { return nil }\n\n'
+    'func stepOne(int) {}\n\n'
+    'func stepTwo(int) {}\n')
+
+FIXTURE_TEST_HEADER = (
+    'package proof\n\n'
+    'import (\n'
+    '\t"testing"\n\n'
+    '\t"fixture/proofkit"\n'
+    ')\n')
+
+
+class SignatureShapeTest(unittest.TestCase):
+    """The signature matrix, in both directions, against real Go.
+
+    Every source here is a Test body the gate reads and a Go compiler accepts, so a shape that
+    only looks like Go cannot pass as evidence.
+    """
+
+    SHAPES = SIGNATURE_SHAPES + SCAN_ANCHORS
+
+    def source(self, body):
+        return 'func TestOne(t *testing.T) {\n' + body + '}\n'
+
+    def bound_names(self, body):
+        src = self.source(body)
+        spans = list(COMPILE_CHECKER.go_func_body_spans(src, r'Test[A-Z]\w*'))
+        self.assertEqual(len(spans), 1, src)
+        _, start, end = spans[0]
+        return COMPILE_CHECKER.go_bound_names(src[start:end])
+
+    def outcome(self, body):
+        registered, misnamed, unreadable = (
+            COMPILE_CHECKER.registered_step_functions(self.source(body)))
+        if registered == {'stepOne'} and not misnamed and not unreadable:
+            return REGISTERED
+        self.assertEqual(registered, set(), body)
+        self.assertEqual(misnamed, [], body)
+        self.assertEqual(len(unreadable), 1, body)
+        reason = unreadable[0][1]
+        return LOCAL if reason.startswith(LOCAL_STEP_PREFIX) else reason
+
+    def test_every_shape_binds_exactly_the_required_names(self):
+        for shape in self.SHAPES:
+            with self.subTest(shape=shape.shape):
+                self.assertEqual(
+                    self.bound_names(shape.body), set(shape.required | shape.incidental))
+
+    def test_no_shape_makes_the_body_unreadable(self):
+        for shape in self.SHAPES:
+            with self.subTest(shape=shape.shape):
+                self.assertEqual(self.outcome(shape.body), REGISTERED)
+
+    def test_a_step_named_binding_in_the_same_shape_still_does(self):
+        for shape in self.SHAPES:
+            with self.subTest(shape=shape.shape):
+                self.assertEqual(self.outcome(shape.bound), LOCAL)
+
+    def test_every_source_is_what_gofmt_writes(self):
+        """gofmt itself, not a guess at it.
+
+        A shape gofmt would reformat is a shape no drafter would commit, and a matrix of those
+        proves nothing about the proofs this gate reads.
+        """
+        if shutil.which('gofmt') is None:
+            self.skipTest('gofmt is not on PATH')
+        for shape in self.SHAPES:
+            for direction, body in (('type', shape.body), ('binding', shape.bound)):
+                with self.subTest(shape=shape.shape, direction=direction):
+                    src = 'package proof\n\n' + self.source(body)
+
+                    formatted = subprocess.run(
+                        ['gofmt'], input=src, capture_output=True, text=True, check=True)
+
+                    self.assertEqual(formatted.stdout, src)
+
+    def test_every_source_compiles_and_vets(self):
+        """One `go vet` over every shape, in one package the compiler type-checks.
+
+        A shape that does not compile is not a shape the gate can ever meet, so pinning the
+        gate's reading of one would pin a reading of nothing. Vetting them together is also how
+        the two directions stay honest: the bound direction has to keep the same shape and
+        change only the name, and a rename that does not type-check fails here.
+        """
+        if shutil.which('go') is None:
+            self.skipTest('go is not on PATH')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'go.mod').write_text(FIXTURE_MODULE)
+            (root / 'proofkit').mkdir()
+            (root / 'proofkit' / 'proofkit.go').write_text(FIXTURE_PROOFKIT)
+            (root / 'proof').mkdir()
+            (root / 'proof' / 'support.go').write_text(FIXTURE_SUPPORT)
+            tests = [FIXTURE_TEST_HEADER]
+            for index, shape in enumerate(self.SHAPES):
+                for direction, body in (('Type', shape.body), ('Binding', shape.bound)):
+                    tests.append(self.source(body).replace(
+                        'func TestOne(', 'func TestShape%02d%s(' % (index, direction), 1))
+            (root / 'proof' / 'shapes_test.go').write_text('\n'.join(tests))
+            environment = dict(os.environ, GOWORK='off', GOTOOLCHAIN='local', GOFLAGS='-mod=mod')
+
+            vetted = subprocess.run(
+                ['go', 'vet', './...'], cwd=directory, env=environment,
+                capture_output=True, text=True)
+
+            self.assertEqual(vetted.returncode, 0, vetted.stderr)
+
+
 class CommittedStepListProofPathsTest(unittest.TestCase):
     """The proof-path gate must have something to check on the real step lists.
 

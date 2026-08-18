@@ -785,8 +785,9 @@ def go_short_declaration_names(body, assign):
     last token can end a statement stops the scan, which is the same rule Go's own semicolon
     insertion uses.
 
-    A keyword swept up in front of the list — `for`, `if`, `case` — costs nothing, because no
-    build argument is written as one.
+    A keyword swept up in front of the list — `for`, `if`, `case` — costs nothing, because
+    these names are judged against `step<Title>` at the chokepoint and no Go keyword can match
+    it. What a name here costs is measured on that path, not on the build-argument path.
     """
     start = assign
     while start > 0:
@@ -803,24 +804,213 @@ def go_short_declaration_names(body, assign):
     return re.findall(r'[A-Za-z_]\w*', body[start:assign])
 
 
-def go_signature_names(body, open_paren):
-    """The identifiers a func literal's parameter list, and its named result list, write.
+# A type keyword can lead a parameter group without any name standing in front of it, so a
+# group starting with one of these is a bare type: `chan int`, `map[string]int`, `struct {`,
+# `interface {`, `func(`. Only `chan` and the two brace forms can hold whitespace at the
+# group's own top level, which is why the keyword has to be recognised rather than the space.
+GO_TYPE_KEYWORDS = frozenset(('chan', 'map', 'struct', 'interface', 'func'))
 
-    Both lists bind names in the literal's body, and both are read whole rather than split
-    into name and type: a type name swept up alongside a parameter name costs nothing, because
-    no build argument is written as a type.
+GO_GROUP_HEAD = re.compile(r'\s*([A-Za-z_]\w*)(\s+(?=\S))?', re.S)
+
+
+def go_skip_line_space(text, index):
+    """The index of the first character at or after index that is not a space or a tab.
+
+    Newlines are not crossed. Go ends a statement at a line break whose last token can end
+    one, so a `func` signature and the brace opening its body stand on one line, and a `{` on
+    the next line opens a plain block after a func TYPE instead.
+    """
+    while index < len(text) and text[index] in ' \t':
+        index += 1
+    return index
+
+
+def go_type_end(text, index):
+    """The index just past the type written at index, or None if no type is written there.
+
+    Only enough of Go's type grammar to walk over one result type: the prefixes `*`, `[]`,
+    `[N]`, `<-` and `...`, the four keyword forms, and a plain or qualified name with an
+    optional generic instantiation. It exists to find the brace after a func literal's single
+    unparenthesised result, `func(arg stepType) error {`, which is a literal whose parameters
+    bind and which a bare "is the next character a brace" test would drop.
+    """
+    while True:
+        index = go_skip_line_space(text, index)
+        if text.startswith('...', index) or text.startswith('<-', index):
+            index += 3 if text.startswith('...', index) else 2
+            continue
+        if text[index:index + 1] == '*':
+            index += 1
+            continue
+        if text[index:index + 1] == '[':
+            closing = matching_delimiter(text, index)
+            if closing is None:
+                return None
+            index = closing + 1
+            continue
+        break
+    word = re.match(r'[A-Za-z_]\w*', text[index:])
+    if word is None:
+        return None
+    index += word.end()
+    if word.group() == 'chan':
+        return go_type_end(text, index)
+    if word.group() == 'map':
+        index = go_skip_line_space(text, index)
+        if text[index:index + 1] != '[':
+            return None
+        closing = matching_delimiter(text, index)
+        return None if closing is None else go_type_end(text, closing + 1)
+    if word.group() in ('struct', 'interface'):
+        index = go_skip_line_space(text, index)
+        if text[index:index + 1] != '{':
+            return None
+        closing = matching_delimiter(text, index)
+        return None if closing is None else closing + 1
+    if word.group() == 'func':
+        index = go_skip_line_space(text, index)
+        if text[index:index + 1] != '(':
+            return None
+        closing = matching_delimiter(text, index)
+        if closing is None:
+            return None
+        after = go_skip_line_space(text, closing + 1)
+        if text[after:after + 1] == '(':
+            results = matching_delimiter(text, after)
+            return closing + 1 if results is None else results + 1
+        # A func type's own result is optional, and what follows may be the brace of the body
+        # this whole type is the result of, so an unreadable one ends the type here.
+        return go_type_end(text, after) or closing + 1
+    qualified = re.match(r'\s*\.\s*[A-Za-z_]\w*', text[index:])
+    if qualified is not None:
+        index += qualified.end()
+    if text[index:index + 1] == '[':
+        closing = matching_delimiter(text, index)
+        if closing is None:
+            return None
+        index = closing + 1
+    return index
+
+
+def go_func_literal_has_body(body, open_paren):
+    """Whether the `func` whose parameter list opens at open_paren is a literal with a body.
+
+    A func TYPE binds nothing. `var handle func(arg stepType)`, `type handler func(arg
+    stepType)`, a func-typed struct field and a func type nested in another literal's
+    parameter list all write a parameter list that no body can read, so reading names out of
+    one collects identifiers that nothing in the file binds.
+
+    Requiring a body drops exactly those and excludes nothing that binds, because every func
+    literal in Go has a body. What stands between the parameter list and that body is either
+    nothing, a parenthesised result list, or one unparenthesised result type.
+    """
+    closing = matching_delimiter(body, open_paren)
+    if closing is None:
+        return False
+    index = go_skip_line_space(body, closing + 1)
+    if body[index:index + 1] == '(':
+        results = matching_delimiter(body, index)
+        if results is None:
+            return False
+        index = go_skip_line_space(body, results + 1)
+    elif body[index:index + 1] not in ('{', ''):
+        index = go_type_end(body, index)
+        if index is None:
+            return False
+        index = go_skip_line_space(body, index)
+    return body[index:index + 1] == '{'
+
+
+def go_signature_groups(text):
+    """One parameter or result list, split into groups at its own top-level commas.
+
+    A comma inside brackets, parentheses or braces belongs to a type — `pair[A, B]`, a nested
+    `func(a, b int)`, a `struct{ x, y int }` field — and separates nothing at this level, so
+    the split tracks nesting depth instead of splitting the text plainly. Groups holding only
+    whitespace are dropped, which is what a list gofmt wrapped over several lines writes after
+    its trailing comma.
+    """
+    groups = []
+    current = ''
+    depth = 0
+    for ch in text:
+        if ch in '([{':
+            depth += 1
+        elif ch in ')]}':
+            depth -= 1
+        elif ch == ',' and depth == 0:
+            groups.append(current)
+            current = ''
+            continue
+        current += ch
+    groups.append(current)
+    return [group for group in groups if group.strip()]
+
+
+def go_group_head(group):
+    """The identifier leading this group, and whether type text follows it.
+
+    Only the LEADING identifier can be a name. Everything from the first type token on is type
+    text and is skipped whole, which is what keeps `arg` and `stepType` out of
+    `func(cb func(arg stepType))` and a field name out of `func(cfg struct{ stepField int })`.
+
+    Whitespace is what separates a name from its type. `pair[stepType]` and `testing.T` open
+    with an identifier too, and gofmt writes no space before the bracket or dot continuing
+    one, so an identifier running straight into either is the head of a type and not a name.
+    A group opening with a type keyword is a bare type whatever follows it.
+    """
+    match = GO_GROUP_HEAD.match(group)
+    if match is None or match.group(1) in GO_TYPE_KEYWORDS:
+        return None, False
+    if match.group(2) is not None:
+        return match.group(1), True
+    if group[match.end():].strip():
+        return None, False
+    return match.group(1), False
+
+
+def go_parameter_names(text):
+    """The names one parameter or result list binds, and none if the list is unnamed.
+
+    Named and unnamed cannot be told apart one group at a time. `(stepType, error)` and
+    `(a, b int)` both hold groups of a single identifier, and only the list as a whole
+    separates them: Go forbids mixing the two forms, so ONE group carrying a name and then a
+    type puts the whole list in named form, and every group's leading identifier is a name.
+    Deciding per group instead reads the type in `func(stepType)` as a name, or loses `a` in
+    `func(a, b stepType)`.
+    """
+    heads = [go_group_head(group) for group in go_signature_groups(text)]
+    if not any(carries_type for _, carries_type in heads):
+        return []
+    return [name for name, _ in heads if name is not None]
+
+
+def go_signature_names(body, open_paren):
+    """The names a func literal's parameter list, and its named result list, bind.
+
+    Names only, never the types standing beside them. These names reach `go_bound_step_names`,
+    which keeps everything matching `step<Title>`, so a type name swept up here is read as a
+    binding: a package-level `type stepResult struct{}` named in a parameter's type would make
+    every run in the body unreadable, suppress the whole proof directory's registration
+    verdict, and tell the drafter to rename a local that was never written. That is the
+    chokepoint path. Reading the lists whole was justified by the build-argument path, where a
+    type name really does cost nothing, and the two paths are not the same one.
+
+    Each list is read on its own, because each carries its own named-or-unnamed form. The
+    result list is read only when it is parenthesised, since an unparenthesised single result
+    is a bare type and binds nothing.
     """
     closing = matching_delimiter(body, open_paren)
     if closing is None:
         return []
-    text = body[open_paren + 1:closing]
+    names = go_parameter_names(body[open_paren + 1:closing])
     rest = body[closing + 1:]
     offset = len(rest) - len(rest.lstrip())
     if rest[offset:offset + 1] == '(':
         results = matching_delimiter(body, closing + 1 + offset)
         if results is not None:
-            text += ',' + body[closing + offset + 2:results]
-    return re.findall(r'[A-Za-z_]\w*', text)
+            names += go_parameter_names(body[closing + offset + 2:results])
+    return names
 
 
 def go_bound_names(body):
@@ -862,7 +1052,9 @@ def go_bound_names(body):
         for spec in go_var_specs(body, match.end()):
             names.update(go_declared_names(spec))
     for match in re.finditer(r'\bfunc\s*\(', body):
-        names.update(go_signature_names(body, match.end() - 1))
+        open_paren = match.end() - 1
+        if go_func_literal_has_body(body, open_paren):
+            names.update(go_signature_names(body, open_paren))
     return names
 
 
