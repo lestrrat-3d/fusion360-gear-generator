@@ -198,10 +198,13 @@ Fusion API calls: `get_selection(inputs, id)`, `get_value(inputs, id, units)`,
 `adsk.core.ValueInput.createByReal(...)`, `adsk.core.ValueInput.createByString(...)`,
 `math.tan(pressureAngle)`, `math.pi`
 
-`parameterName` is named as the naming rule every registered parameter follows, not as a call this
-step makes on its own: `addParameter` applies it on the generator's behalf.
-
-<!-- check-step-calls: ignore parameterName -->
+`parameterName` stays a requirement. `addParameter` does apply the prefix on the generator's
+behalf, but that covers only the parameter being created; the derived parameters are registered as
+live expression strings that name OTHER parameters, and there is no way to build
+`'<prefix>_PitchCircleDiameter / 2'` without calling `parameterName` for the operand. So step 5
+above calls it directly, and the module must. (`design.userParameters.add(...)` is the opposite
+case — it is what `addParameter` does underneath, named here to say where a registered parameter
+ends up, not as a call this module makes itself.)
 
 ## 1 `[PROSE]` Normalize the Target Plane
 
@@ -211,8 +214,8 @@ is not confused by the selected face's own profile. Keep a handle to it: step 14
 bulb off, and only if it was created here.
 
 The offset argument is a `ValueInput`, not a bare number:
-`planeInput.setByOffset(self.plane, adsk.core.ValueInput.createByReal(0))`. `setByOffset(plane, 0)`
-is a runtime `TypeError`.
+`planeInput.setByOffset(self.plane, adsk.core.ValueInput.createByReal(0))`. Never pass the bare
+number `setByOffset(plane, 0)`, which raises `TypeError` at runtime.
 
 `ctx.plane` and `self.plane` both hold the normalized plane; subclasses read `self.plane` directly,
 so keep both available.

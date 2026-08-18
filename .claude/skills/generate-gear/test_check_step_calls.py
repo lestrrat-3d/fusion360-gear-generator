@@ -169,6 +169,114 @@ class CheckStepCallsTest(unittest.TestCase):
         self.assertIn('textual match exists, but it is not a reachable executable call', output)
 
 
+    def test_call_through_a_local_alias_covers_the_named_method(self):
+        # The generated spur module binds `pn = self.parameterName` and builds every
+        # derived-parameter expression through `pn`, so the alias is where the call
+        # actually happens.
+        steps = 'Call `self.parameterName(name)` and `parameterName(name)`.'
+        candidate = (
+            'class Gear:\n'
+            '    def parameterName(self, name):\n'
+            '        return name\n'
+            '    def generate(self):\n'
+            '        pn = self.parameterName\n'
+            '        return pn("module")\n')
+
+        result, output = self.run_checker(steps, candidate)
+
+        self.assertEqual(result, 0, output)
+
+    def test_annotated_alias_also_covers_the_named_method(self):
+        steps = 'Call `self.parameterName(name)`.'
+        candidate = (
+            'class Gear:\n'
+            '    def parameterName(self, name):\n'
+            '        return name\n'
+            '    def generate(self):\n'
+            '        pn: object = self.parameterName\n'
+            '        return pn("module")\n')
+
+        result, output = self.run_checker(steps, candidate)
+
+        self.assertEqual(result, 0, output)
+
+    def test_alias_of_another_method_does_not_cover_the_named_method(self):
+        steps = 'Call `self.parameterName(name)`.'
+        candidate = (
+            'class Gear:\n'
+            '    def parameterName(self, name):\n'
+            '        return name\n'
+            '    def otherName(self, name):\n'
+            '        return name\n'
+            '    def generate(self):\n'
+            '        pn = self.otherName\n'
+            '        return pn("module")\n')
+
+        result, output = self.run_checker(steps, candidate)
+
+        self.assertEqual(result, 1, output)
+        self.assertIn('parameterName', output)
+
+    def test_alias_that_is_never_called_does_not_cover_the_named_method(self):
+        steps = 'Call `self.parameterName(name)`.'
+        candidate = (
+            'class Gear:\n'
+            '    def parameterName(self, name):\n'
+            '        return name\n'
+            '    def generate(self):\n'
+            '        pn = self.parameterName\n'
+            '        return pn\n')
+
+        result, output = self.run_checker(steps, candidate)
+
+        self.assertEqual(result, 1, output)
+        self.assertIn('textual match exists, but it is not a reachable executable call', output)
+
+    def test_alias_rebound_to_something_else_stops_covering_the_named_method(self):
+        steps = 'Call `self.parameterName(name)`.'
+        candidate = (
+            'class Gear:\n'
+            '    def parameterName(self, name):\n'
+            '        return name\n'
+            '    def generate(self):\n'
+            '        pn = self.parameterName\n'
+            '        pn = str\n'
+            '        return pn("module")\n')
+
+        result, output = self.run_checker(steps, candidate)
+
+        self.assertEqual(result, 1, output)
+        self.assertIn('textual match exists, but it is not a reachable executable call', output)
+
+    def test_alias_of_a_module_function_covers_the_named_function(self):
+        steps = 'Call `requiredHelper(value)`.'
+        candidate = (
+            'def requiredHelper(value):\n'
+            '    return value\n'
+            '\n'
+            'def generate():\n'
+            '    helper = requiredHelper\n'
+            '    return helper(1)\n')
+
+        result, output = self.run_checker(steps, candidate)
+
+        self.assertEqual(result, 0, output)
+
+    def test_alias_call_reaches_the_body_of_the_aliased_method(self):
+        steps = 'Call `sketch.requiredFusionCall()`.'
+        candidate = (
+            'class Gear:\n'
+            '    def helper(self):\n'
+            '        return sketch.requiredFusionCall()\n'
+            '    def generate(self):\n'
+            '        run = self.helper\n'
+            '        return run()\n')
+
+        result, output = self.run_checker(steps, candidate)
+
+        self.assertEqual(result, 0, output)
+
+
 class CheckApiCallsTest(unittest.TestCase):
     def run_checker(self, candidate, framework, framework_name='helpers.py'):
         with tempfile.TemporaryDirectory() as directory:
