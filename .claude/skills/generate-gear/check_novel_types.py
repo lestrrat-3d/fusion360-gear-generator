@@ -195,18 +195,14 @@ def verified_fusion_classes(path):
         walk_statements(node.body, bindings)
 
     local_classes = {node.name for node in ast.walk(tree) if isinstance(node, ast.ClassDef)}
-    receiver_types = {
-        (member, receiver): class_name.rsplit('.', 1)[-1]
-        for member, class_name, receivers, _ in fusion_api.UNVERIFIED_CALLS
-        for receiver in receivers
-    }
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
             continue
         class_name = None
         receiver = node.func.value
         receiver_expression = ast.unparse(receiver)
-        class_name = receiver_types.get((node.func.attr, receiver_expression))
+        watched = fusion_api.unverified_class(node.func.attr, receiver_expression)
+        class_name = None if watched is None else watched.rsplit('.', 1)[-1]
         containing_class = containing_classes.get(id(node))
         if (class_name is not None and receiver_expression.startswith('self.')
                 and isinstance(receiver, ast.Attribute)
