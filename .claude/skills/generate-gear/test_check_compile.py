@@ -235,6 +235,160 @@ class CheckCompileTest(unittest.TestCase):
         self.assertEqual(len(misnamed), 1)
         self.assertNotIn('\n', misnamed[0])
         self.assertTrue(misnamed[0].startswith('func(t *testing.T) []*decad.Body {'))
+        self.assertEqual(unreadable, [])
+
+    def looping_proof(self, run_call):
+        """A proof whose only run is run_call, reached through a loop and a subtest closure."""
+        return (
+            'func TestOne(t *testing.T) {\n'
+            '    for _, name := range names {\n'
+            '        t.Run(name, func(t *testing.T) {\n'
+            '            %s\n'
+            '        })\n'
+            '    }\n'
+            '}\n\n'
+            'func stepOne() {}\n' % run_call)
+
+    def test_run_inside_a_loop_is_registered(self):
+        proof_body = (
+            'func TestOne(t *testing.T) {\n'
+            '    for _, c := range cases() {\n'
+            '        proofkit.Run(t, []proofkit.Case{c}, stepOne)\n'
+            '    }\n'
+            '}\n\n'
+            'func stepOne() {}\n')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 0, output)
+        self.assertIn('compile check: OK', output)
+
+    def test_run_inside_a_subtest_closure_is_registered(self):
+        proof_body = (
+            'func TestOne(t *testing.T) {\n'
+            '    t.Run("one", func(t *testing.T) {\n'
+            '        proofkit.Run(t, cases(gear{name: "one"}), stepOne)\n'
+            '    })\n'
+            '}\n\n'
+            'func stepOne() {}\n')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 0, output)
+        self.assertIn('compile check: OK', output)
+
+    def test_run_inside_a_loop_and_a_closure_is_registered(self):
+        proof_body = self.looping_proof(
+            'proofkit.Run(t, cases(gear{name: "one"}), stepOne)')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 0, output)
+        self.assertIn('compile check: OK', output)
+
+    def test_misnamed_build_inside_a_loop_is_blocking(self):
+        proof_body = self.looping_proof(
+            'proofkit.Run(t, cases(gear{name: "one"}), buildProfile)')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 1)
+        self.assertIn('registers buildProfile as a proof run\'s build argument', output)
+
+    def test_table_registered_build_argument_is_blocking(self):
+        proof_body = (
+            'func TestOne(t *testing.T) {\n'
+            '    steps := []struct {\n'
+            '        name  string\n'
+            '        build proofkit.Build\n'
+            '    }{\n'
+            '        {name: "one", build: stepOne},\n'
+            '    }\n'
+            '    for _, step := range steps {\n'
+            '        step := step\n'
+            '        t.Run(step.name, func(t *testing.T) {\n'
+            '            proofkit.Run(t, cases(gear{name: "one"}), step.build)\n'
+            '        })\n'
+            '    }\n'
+            '}\n\n'
+            'func stepOne() {}\n')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 1)
+        self.assertIn(
+            'proof/gear/proof_test.go does not show the gate which function a proof run builds '
+            'with: step.build; write the run\'s arguments out one by one, with the build '
+            'argument a literal step<Title> identifier so a step can claim the run', output)
+
+    def test_table_registered_step_is_not_called_unregistered(self):
+        proof_body = (
+            'func TestOne(t *testing.T) {\n'
+            '    for _, step := range []proofkit.Build{stepOne} {\n'
+            '        proofkit.Run(t, cases(gear{name: "one"}), step)\n'
+            '    }\n'
+            '}\n\n'
+            'func stepOne() {}\n')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 1)
+        self.assertNotIn('no Go Test registers it', output)
+        self.assertNotIn('is defined but is not registered', output)
+
+    def test_unreachable_unreadable_build_argument_is_not_counted(self):
+        proof_body = self.solid_proof(
+            'if false {\n'
+            '        proofkit3d.RunSolid(t, solidCases, builds[0].build, assertSolid)\n'
+            '    }')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 0, output)
+        self.assertNotIn('builds[0].build', output)
+
+    def test_table_build_argument_is_unreadable_not_misnamed(self):
+        src = (
+            'func TestOne(t *testing.T) {\n'
+            '    for _, step := range steps {\n'
+            '        proofkit.Run(t, spurCases(), step.build)\n'
+            '    }\n'
+            '}\n')
+
+        registered, misnamed, unreadable = COMPILE_CHECKER.registered_step_functions(src)
+
+        self.assertEqual(registered, set())
+        self.assertEqual(misnamed, [])
+        self.assertEqual(unreadable, ['step.build'])
+
+    def test_loop_variable_build_argument_is_unreadable_not_misnamed(self):
+        src = (
+            'func TestOne(t *testing.T) {\n'
+            '    for _, build := range []proofkit.Build{stepOne} {\n'
+            '        proofkit.Run(t, spurCases(), build)\n'
+            '    }\n'
+            '}\n')
+
+        registered, misnamed, unreadable = COMPILE_CHECKER.registered_step_functions(src)
+
+        self.assertEqual(registered, set())
+        self.assertEqual(misnamed, [])
+        self.assertEqual(unreadable, ['build'])
+
+    def test_loop_whose_body_returns_does_not_hide_a_later_run(self):
+        src = (
+            'func TestOne(t *testing.T) {\n'
+            '    for range cases() {\n'
+            '        return\n'
+            '    }\n'
+            '    proofkit.Run(t, cases(), buildProfile)\n'
+            '}\n')
+
+        registered, misnamed, unreadable = COMPILE_CHECKER.registered_step_functions(src)
+
+        self.assertEqual(registered, set())
+        self.assertEqual(misnamed, ['buildProfile'])
+        self.assertEqual(unreadable, [])
 
     # A run whose argument list the parse cannot read to the build slot is reported, because
     # such a run can compile: Go lets one multi-value call supply a whole argument list, so
@@ -248,8 +402,10 @@ class CheckCompileTest(unittest.TestCase):
 
         self.assertEqual(result, 1)
         self.assertIn(
-            'proof/gear/proof_test.go runs proofkit3d.Run(runArgs(t)), whose arguments could '
-            'not be read, so its build argument cannot be checked', output)
+            'proof/gear/proof_test.go does not show the gate which function a proof run builds '
+            'with: proofkit3d.Run(runArgs(t)); write the run\'s arguments out one by one, with '
+            'the build argument a literal step<Title> identifier so a step can claim the run',
+            output)
 
     def test_multi_value_forwarded_2d_run_is_blocking(self):
         proof_body = (
@@ -264,7 +420,9 @@ class CheckCompileTest(unittest.TestCase):
         result, output = self.run_checker(proof_body=proof_body)
 
         self.assertEqual(result, 1)
-        self.assertIn('runs proofkit.Run(runArgs(t)), whose arguments could not be read', output)
+        self.assertIn(
+            'does not show the gate which function a proof run builds with: '
+            'proofkit.Run(runArgs(t))', output)
 
     def test_unclosed_run_call_is_reported_not_dropped(self):
         """The argument list that never closes is reported too.
@@ -300,7 +458,7 @@ class CheckCompileTest(unittest.TestCase):
         result, output = self.run_checker(proof_body=proof_body)
 
         self.assertEqual(result, 0, output)
-        self.assertNotIn('could not be read', output)
+        self.assertNotIn('does not show the gate', output)
 
     def test_short_argument_list_is_reported_not_registered(self):
         src = (
