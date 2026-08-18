@@ -10,9 +10,10 @@ Four checks gate, and one is reported:
 
   1. CITATIONS RESOLVE. Every step has a nonempty `**From:**` line naming real files and line
      ranges that exist.
-  2. STEPS AND PROOF AGREE. Every `[GO]` step names the proof function that realises it, and every
-     proof function is claimed by a step. Drift in either direction means one artifact moved
-     without the other.
+  2. STEPS AND PROOF AGREE. Every `[GO]` step names the proof function that realises it, every
+     proof function is claimed by a step, and every proof run's build argument is a `step<Title>`
+     function so a step can claim it. Drift in either direction means one artifact moved without
+     the other, and a build function under any other name is a proof no step can reach.
   3. API CALLS ARE REAL. Every Fusion call the step list names exists in the API database the
      `fusion` plugin ships. Catches a spec that names a method Fusion does not have.
   4. INPUTS HAVE NOT DRIFTED. The provenance table contains and matches the existing instructions,
@@ -509,22 +510,43 @@ def go_call_is_reachable(src, pos, brace_pairs):
     return True
 
 
+def go_argument_label(argument):
+    """A one-line label for a Go argument expression, for diagnostics."""
+    label = re.sub(r'\s+', ' ', argument).strip()
+    if len(label) > 60:
+        label = label[:57] + '...'
+    return label
+
+
 def registered_step_functions(src):
-    """Step functions passed by reachable proofkit runs inside Go Test functions."""
+    """Return (step functions, other build arguments) for reachable proofkit runs.
+
+    Both halves come out of the same parse of the same run, because they are the same fact
+    read two ways: a run's build argument either is a step function or is a build the step
+    list has no name for. Dropping the second half is how a proof registered under a name
+    like buildSolid used to escape every check — no step could claim it, and nothing looked
+    for it. Only the build argument is judged; the gate and assertion arguments are not steps.
+    """
     registered = set()
+    other = set()
     for _, body in go_func_bodies(src, r'Test[A-Z]\w*'):
+        brace_pairs = go_brace_pairs(body)
         for pattern, build_arg in PROOF_RUN_CALLS:
             for m in re.finditer(pattern, body):
-                if not go_call_is_reachable(body, m.start(), go_brace_pairs(body)):
+                if not go_call_is_reachable(body, m.start(), brace_pairs):
                     continue
                 open_paren = m.end() - 1
                 close_paren = matching_delimiter(body, open_paren)
                 if close_paren is None:
                     continue
                 args = split_go_args(body[open_paren + 1:close_paren])
-                if len(args) > build_arg and re.fullmatch(r'step[A-Z]\w*', args[build_arg]):
+                if len(args) <= build_arg:
+                    continue
+                if re.fullmatch(r'step[A-Z]\w*', args[build_arg]):
                     registered.add(args[build_arg])
-    return registered
+                else:
+                    other.add(go_argument_label(args[build_arg]))
+    return registered, sorted(other)
 
 
 def proof_functions(proof_dir):
@@ -543,16 +565,24 @@ def proof_functions(proof_dir):
 
 
 def proof_registrations(proof_dir):
-    """Every step function directly registered in a proofkit run from a Go Test."""
+    """Return (step functions registered from a Go Test, misnamed builds as (file, argument)).
+
+    A build argument carries its file, because the name alone does not say where to go and fix
+    it.
+    """
     found = set()
+    misnamed = set()
     if not os.path.isdir(proof_dir):
-        return found
+        return found, []
     for entry in sorted(os.listdir(proof_dir)):
         if not entry.endswith('_test.go'):
             continue
-        src = strip_go_comments_and_literals(read(os.path.join(proof_dir, entry)))
-        found.update(registered_step_functions(src))
-    return found
+        path = os.path.join(proof_dir, entry)
+        src = strip_go_comments_and_literals(read(path))
+        registered, other = registered_step_functions(src)
+        found.update(registered)
+        misnamed.update((path, argument) for argument in other)
+    return found, sorted(misnamed)
 
 
 def main(argv):
@@ -593,7 +623,7 @@ def main(argv):
 
     # 2. steps and proof agree
     functions = proof_functions(proof_dir)
-    registered = proof_registrations(proof_dir)
+    registered, misnamed_builds = proof_registrations(proof_dir)
     claimed = set()
     for sid, tag, body in steps:
         named = set(re.findall(r'\b(step[A-Z]\w*)\b', body))
@@ -612,6 +642,10 @@ def main(argv):
     for fn in sorted(functions - registered):
         problems.append("  proof function %s is defined but is not registered in any "
                         "proofkit run inside a Go Test" % fn)
+    for path, argument in misnamed_builds:
+        problems.append("  %s registers %s as a proof run's build argument, but that argument "
+                        "must be a step<Title> function so a step can claim it"
+                        % (path, argument))
 
     # 3. API calls are real
     local = PYTHON_METHODS | defined_names(FRAMEWORK) | contract_names(gear)
