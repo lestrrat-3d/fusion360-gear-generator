@@ -341,8 +341,41 @@ def proof_path_is_tracked_or_committed(path):
     return committed.returncode == 0
 
 
+def go_literal_end(src, start):
+    """Where the string, rune or raw literal at start ends, and whether it is terminated.
+
+    The end is one past the closing delimiter of a terminated literal, and the end of the
+    source for one the file never closes.
+    """
+    quote = src[start]
+    if quote == '`':
+        closing = src.find('`', start + 1)
+        return (len(src), False) if closing == -1 else (closing + 1, True)
+    index = start + 1
+    while index < len(src):
+        if src[index] == '\\':
+            index += 2
+            continue
+        if src[index] == quote:
+            return index + 1, True
+        index += 1
+    return len(src), False
+
+
 def strip_go_comments_and_literals(src):
-    """Blank Go comments and literals so proof registration is read from code only."""
+    """Blank Go comments and literals so proof registration is read from code only.
+
+    A literal's own text goes and its CLOSING delimiter stays, so what is left where a literal
+    stood is a token that can end a statement. Blanking the delimiter too left `label = "one"`
+    reading as `label =`, a line Go's semicolon insertion continues into the next one, and a
+    `var ( ... )` block written over several lines was then read as one declaration instead of
+    several: only the first spec's names came out as bound, and a `step<Title>` local declared
+    under a string-initialised one was never seen by the chokepoint.
+
+    The closing delimiter is the one to keep, because it is the one a statement can end on. A
+    raw string's opening backtick can stand on a line the literal itself continues past, and a
+    line break inside a raw string ends no statement in Go.
+    """
     out = list(src)
     i = 0
     while i < len(src):
@@ -362,26 +395,9 @@ def strip_go_comments_and_literals(src):
                     out[k] = ' '
             i = j
             continue
-        if src[i] in ('"', "'"):
-            quote = src[i]
-            j = i + 1
-            while j < len(src):
-                if src[j] == '\\':
-                    j += 2
-                    continue
-                if src[j] == quote:
-                    j += 1
-                    break
-                j += 1
-            for k in range(i, min(j, len(src))):
-                if out[k] != '\n':
-                    out[k] = ' '
-            i = j
-            continue
-        if src[i] == '`':
-            j = src.find('`', i + 1)
-            j = len(src) if j == -1 else j + 1
-            for k in range(i, j):
+        if src[i] in ('"', "'", '`'):
+            j, terminated = go_literal_end(src, i)
+            for k in range(i, j - 1 if terminated else j):
                 if out[k] != '\n':
                     out[k] = ' '
             i = j
@@ -643,6 +659,9 @@ def go_block_condition(src, opening):
     enclosure holds runs when the statement around it does. Reading those enclosures as guards
     is how a proof that registers its steps from a table used to look as though no Test
     registered anything.
+
+    Whether the statement around a func literal ever RUNS that literal is a separate question
+    this does not answer; `go_unreached_literal_spans` does, on the reached-literal axis.
     """
     header = go_block_header(src, opening)
     if not go_header_is_guard(header):
@@ -686,7 +705,8 @@ def go_call_reachability(src, pos, brace_pairs):
 
     True when nothing the gate reads keeps it from running, False when a known-false
     condition or an unconditional early return does, and None when a block encloses it whose
-    condition the gate cannot read.
+    condition the gate cannot read. A func literal that never runs keeps a run off the test
+    path too, and that is read separately, by `go_unreached_literal_spans`.
 
     None is not False. A run the gate cannot decide about is one it cannot report on, so the
     caller reads it as unreadable rather than dropping it. Dropping it was worse than saying
@@ -722,11 +742,15 @@ def go_statement_ends_at_line(text):
     an identifier, a literal, a closing bracket, or ++/--. A line ending in `=`, a comma or an
     operator continues into the next one, which is what keeps a multi-line declaration from
     being read as several.
+
+    A literal reaches this rule as its closing delimiter alone, which is what
+    `strip_go_comments_and_literals` leaves standing, so the backtick of a raw string ends a
+    statement here exactly as a quote does.
     """
     stripped = text.rstrip()
     if not stripped:
         return True
-    return re.search(r'(?:\w|[)\]}\'"]|\+\+|--)$', stripped) is not None
+    return re.search(r'(?:\w|[)\]}\'"`]|\+\+|--)$', stripped) is not None
 
 
 def go_var_specs(body, start):
@@ -986,6 +1010,78 @@ def go_func_literal_parameter_lists(body):
     return open_parens
 
 
+def go_func_literal_bodies(body):
+    """(keyword, opening brace, closing brace) for every func LITERAL written in body.
+
+    The keyword is the `func` of the literal itself, which is the last one before its
+    parameter list, because only whitespace can stand between the two.
+    """
+    bodies = []
+    for open_paren in go_func_literal_parameter_lists(body):
+        opening = go_func_literal_body_start(body, open_paren)
+        closing = matching_delimiter(body, opening)
+        if closing is None:
+            continue
+        bodies.append((body.rfind('func', 0, open_paren), opening, closing))
+    return bodies
+
+
+ASSIGNMENT_END = re.compile(r'(?<![=!<>])=\s*$')
+
+
+def go_func_literal_bound_names(body, keyword):
+    """The names the func literal at keyword is assigned to, or None when it is assigned none.
+
+    The literal's own statement is read back to its start, so what stands in front of the
+    keyword says which POSITION the literal is written in. A statement head ending in an `=`
+    that is not part of a comparison is an assignment or a declaration, and the identifier list
+    at its start is what the literal is bound to. Every other head — an argument list, a
+    `return`, a `go` or `defer`, a composite literal's element or field, a statement of its
+    own — puts the literal somewhere it is not stored under a name.
+    """
+    head = body[go_statement_start(body, keyword):keyword]
+    assignment = ASSIGNMENT_END.search(head)
+    if assignment is None:
+        return None
+    left = re.sub(r'^\s*var\b', '', head[:assignment.start()])
+    match = re.match(r'\s*([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)', left)
+    return [] if match is None else re.findall(r'[A-Za-z_]\w*', match.group(1))
+
+
+def go_literal_is_invoked_where_it_stands(body, closing):
+    """Whether the func literal whose body closes at `closing` is called on the spot.
+
+    `func() { ... }()` is the whole shape, and `go` and `defer` write it too, because Go takes
+    a call after either keyword and not a bare literal.
+    """
+    index = go_skip_line_space(body, closing + 1)
+    return body[index:index + 1] == '('
+
+
+def go_name_is_called(body, name):
+    """Whether `name` stands in call position anywhere in body."""
+    return re.search(r'\b%s\s*\(' % re.escape(name), body) is not None
+
+
+def go_unreached_literal_spans(body):
+    """The bodies of func literals this gate cannot say run, as (opening, closing) spans.
+
+    See THE REACHED-LITERAL AXIS below for what the two positions are and why the second is
+    reported rather than counted.
+    """
+    spans = []
+    for keyword, opening, closing in go_func_literal_bodies(body):
+        if go_literal_is_invoked_where_it_stands(body, closing):
+            continue
+        names = go_func_literal_bound_names(body, keyword)
+        if names is None:
+            continue
+        if any(go_name_is_called(body, name) for name in names):
+            continue
+        spans.append((opening, closing))
+    return spans
+
+
 def go_signature_groups(text):
     """One parameter or result list, split into groups at its own top-level commas.
 
@@ -1184,9 +1280,10 @@ def go_bound_names(body):
 #
 # Go's grammar closes this axis, not this repo's conventions, which is why it can be listed
 # once. Only the if / else if / else family skips its own block on a condition. A `for`, a
-# `switch`, a `select`, a func literal (invoked, deferred, started with `go`, or handed to
-# `t.Run`), a plain block, a labelled statement and a composite literal all enclose what is
-# written inside them, and what an enclosure holds runs when the statement around it runs. So
+# `switch`, a `select`, a func literal, a plain block, a labelled statement and a composite
+# literal all enclose what is written inside them, and what an enclosure holds runs when the
+# statement around it runs. Whether the statement around a func literal runs the literal is a
+# separate question, and THE REACHED-LITERAL AXIS below is where it is answered. So
 # the walk reads the header back to the statement start and dispatches on the keyword standing
 # there: the enclosure verdict is what that keyword says, rather than what an unread header
 # happened to fall through to. Reading only the last line before the brace was the earlier
@@ -1214,9 +1311,59 @@ def go_bound_names(body):
 #      Go, the scan stops at the line break, and the block then reads as an enclosure. gofmt
 #      rewrites it to one line, so no committed proof can hold the shape; the test table pins
 #      both the misreading and the rewrite rather than leaving the gap unwritten.
+#
+# THE REACHED-LITERAL AXIS: DOES THE FUNC LITERAL HOLDING THE RUN EVER RUN
+#
+# A func literal encloses what is written in it, so the guard axis says a run inside one runs
+# when the statement around the literal runs. That is the right reading of the brace and the
+# wrong reading of the literal: `unused := func() { proofkit.Run(t, cases, stepOne) }` writes a
+# statement that runs and a run that never does, and counting stepOne registered there is a
+# silent false pass in the same shape the chokepoint above exists to close.
+#
+# The POSITION the literal is written in settles it, and reading a position is what this module
+# can do. `go_unreached_literal_spans` splits the two:
+#
+#   * Reached. A literal invoked where it stands — `func() { ... }()`, and the `go` and `defer`
+#     forms of the same shape, because Go takes a call after either keyword. A literal in
+#     argument position, `t.Run("name", func(t *testing.T) { ... })`, which the test framework
+#     calls. A literal stored under a name that stands in call position somewhere in the same
+#     Test body. Anything else that is not an assignment: a composite literal's element, a
+#     struct field, a `return` operand.
+#   * Unreached. A literal stored under a name that never stands in call position in that body.
+#     A run inside one is reported unreadable rather than counted.
+#
+# Reporting EVERY func-literal enclosure unreadable was the other candidate and it is refused
+# here in writing, because it takes the `t.Run` subtest with it — the pattern this whole file
+# was rewritten to stop reporting as unregistered. An audit of that version failed 38 of 61
+# cases across 11 tests, two of them written for the subtest pattern on purpose.
+#
+# WHAT THIS AXIS GIVES UP
+#
+#   1. Where the call is. The name standing in call position may itself sit in dead code or in
+#      another unreached literal, and the literal is read as reached anyway. Following that is
+#      the call-graph question this gate does not ask, and the same limit is already written
+#      down for a run in a helper. What the check does buy is the shape a drafter actually
+#      writes: a literal built and then called in the same Test body.
+#   2. A literal that escapes under a name. `handlers["x"] = func() { ... }` and a literal
+#      returned or passed on after being stored are read as unreached, because no call on that
+#      name stands in the body. That is a false failure, it is loud, and a proof pays it only
+#      by registering a run from a closure it never calls itself.
+#   3. A literal that is not assigned anywhere. A composite literal's element and a struct
+#      field hold a run the value they belong to may never call, and this axis reads them as
+#      reached, because the position it reads is the assignment. The guard axis pins those
+#      three shapes as enclosures, so moving them is a decision about that table and not a
+#      refinement of this one.
 
 
 STEP_FUNCTION_NAME = re.compile(r'step[A-Z]\w*')
+
+# Which names `go test` runs, written as Go's own rule rather than as a convention: `Test`
+# followed by a rune that is not a lower-case letter, and `Test` on its own. `Test_Profile` and
+# `Test1` are tests, `Testing` is not, and `go vet` refuses a `Testing(t *testing.T)` as a
+# malformed test name, so the two agree on the whole space. Reading only `Test[A-Z]\w*` left a
+# run in a `Test_Profile` or a `Test1` body reported as 'not inside a Go Test function', which
+# names the wrong thing to fix: the Test was there and the gate was not looking for it.
+GO_TEST_FUNCTION_NAME = r'Test(?:[^a-z]\w*)?'
 
 
 def go_bound_step_names(bound_names):
@@ -1245,6 +1392,10 @@ UNREADABLE_GUARD = ("the gate cannot read the condition that guards it, so it ca
                     "guards it")
 UNREADABLE_OUTSIDE_TEST = ("the run is not inside a Go Test function, so the gate cannot say "
                            "which Test reaches it; register the step from a Test body")
+UNREADABLE_CLOSURE = ("the run is inside a func literal that is stored under a name and never "
+                      "called, so the gate cannot say whether the Test reaches it; hand the "
+                      "literal to t.Run, invoke it where it stands, or call the name it is "
+                      "stored under in the same Test body")
 
 
 def unreadable_local_step_reason(names):
@@ -1266,13 +1417,15 @@ def registered_step_functions(src):
     gate then reports the steps such a run registers as registered nowhere, which is false.
     Only the build argument is judged; the gate and assertion arguments are not steps.
 
-    A run is unreadable in five ways, and they are one category because they leave the gate in
-    one state — it cannot say which function the run builds with. The Test body may bind a
-    step<Title> name itself, which is the chokepoint above and covers every scope question at
-    once. A block the gate cannot read may guard the run. The argument list may never close; it
-    may be shorter than the build slot, which is what a run written as one multi-value call
-    parses to, the arguments forwarded from a helper rather than written out; or the build
-    argument may be an expression, a bound name or a table entry rather than a name. Each
+    A run is unreadable in six ways, and they are one category because they leave the gate in
+    one state — it cannot say which function the run builds with, or whether the Test runs it
+    at all. The Test body may bind a step<Title> name itself, which is the chokepoint above and
+    covers every scope question at once. A block the gate cannot read may guard the run. A func
+    literal that is stored under a name and never called may hold it, which is the
+    reached-literal axis above. The argument list may never close; it may be shorter than the
+    build slot, which is what a run written as one multi-value call parses to, the arguments
+    forwarded from a helper rather than written out; or the build argument may be an
+    expression, a bound name or a table entry rather than a name. Each
     compiles, so silently skipping any of them would let a build argument escape the
     step<Title> check. Each unreadable run carries the label of the thing to look at and the
     reason the gate stopped there. The label carries the whole call where no argument reached
@@ -1285,12 +1438,13 @@ def registered_step_functions(src):
     misnamed = set()
     unreadable = set()
     test_spans = []
-    for _, body_start, body_end in go_func_body_spans(src, r'Test[A-Z]\w*'):
+    for _, body_start, body_end in go_func_body_spans(src, GO_TEST_FUNCTION_NAME):
         test_spans.append((body_start, body_end))
         body = src[body_start:body_end]
         brace_pairs = go_brace_pairs(body)
         bound_names = go_bound_names(body)
         bound_step_names = go_bound_step_names(bound_names)
+        unreached_literals = go_unreached_literal_spans(body)
         for pattern, build_arg in PROOF_RUN_CALLS:
             for m in re.finditer(pattern, body):
                 reachable = go_call_reachability(body, m.start(), brace_pairs)
@@ -1300,6 +1454,9 @@ def registered_step_functions(src):
                 close_paren = matching_delimiter(body, open_paren)
                 call = (body[m.start():] if close_paren is None
                         else body[m.start():close_paren + 1])
+                if any(start < m.start() < end for start, end in unreached_literals):
+                    unreadable.add((go_argument_label(call), UNREADABLE_CLOSURE))
+                    continue
                 if reachable is None:
                     unreadable.add((go_argument_label(call), UNREADABLE_GUARD))
                     continue
@@ -1351,8 +1508,8 @@ def proof_registrations(proof_dir):
     They are the step functions registered from a Go Test, the misnamed builds as (file,
     label) pairs, and the unreadable runs as (file, label, reason) triples. A label carries its
     file, because the argument or the call alone does not say where to go and fix it, and an
-    unreadable run carries its reason, because the five ways a run can be unreadable are fixed
-    in five different places.
+    unreadable run carries its reason, because the six ways a run can be unreadable are fixed
+    in six different places.
     """
     found = set()
     misnamed = set()

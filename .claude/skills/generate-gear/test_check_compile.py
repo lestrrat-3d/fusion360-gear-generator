@@ -22,6 +22,7 @@ COMPILE_MODULE_SPEC.loader.exec_module(COMPILE_CHECKER)
 UNREADABLE_ARGUMENT = COMPILE_CHECKER.UNREADABLE_ARGUMENT
 UNREADABLE_GUARD = COMPILE_CHECKER.UNREADABLE_GUARD
 UNREADABLE_OUTSIDE_TEST = COMPILE_CHECKER.UNREADABLE_OUTSIDE_TEST
+UNREADABLE_CLOSURE = COMPILE_CHECKER.UNREADABLE_CLOSURE
 LOCAL_STEP_PREFIX = 'this Test body binds stepOne'
 
 
@@ -1250,13 +1251,16 @@ MAP_CELLS = (
         '\t}\n'
         '\tcall(buildA)\n'
         '}\n'), LOCAL, REGISTERED),
+    # The literal is called rather than discarded, because a run inside a literal stored under
+    # a name that is never called is unreadable on the reached-literal axis, and this cell is
+    # about which NAME a named result binds. Both axes are asserted, each in its own table.
     Cell('func-literal parameters and named results', ('C2',), (
         'func TestOne(t *testing.T) {\n'
         '\tcall := func() (localName proofkit.Build) {\n'
         '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
         '\t\treturn []proofkit.Build{buildA}[0]\n'
         '\t}\n'
-        '\t_ = call\n'
+        '\t_ = call()\n'
         '}\n'), LOCAL, REGISTERED),
     Cell('func-literal parameters and named results', ('C4',), (
         'func TestOne(t *testing.T) {\n'
@@ -1862,18 +1866,23 @@ SCAN_ANCHORS = (
         '\tproofkit.Run(t, spurCases(), stepOne)\n',
         '\tvar stepOne func(arg stepType)\n\t_ = stepOne\n'
         '\tproofkit.Run(t, spurCases(), stepTwo)\n'),
+    # A row holding its run inside the literal calls that literal rather than discarding it,
+    # because a run inside a literal stored under a name that is never called is unreadable on
+    # the reached-literal axis, which ReachedLiteralTest owns. These rows are about which names
+    # a SIGNATURE binds, and the call keeps them asking only that.
     Signature(
         'func(arg stepType) error', frozenset({'arg'}), frozenset({'call'}),
-        '\tcall := func(arg stepType) error {\n' + RUN + '\t\treturn nil\n\t}\n\t_ = call\n',
+        '\tcall := func(arg stepType) error {\n' + RUN
+        + '\t\treturn nil\n\t}\n\t_ = call(0)\n',
         '\tcall := func(stepOne stepType) error {\n' + BOUND_RUN
-        + '\t\treturn nil\n\t}\n\t_ = call\n'),
+        + '\t\treturn nil\n\t}\n\t_ = call(0)\n'),
     Signature(
         'func() func(arg stepType), a result type', frozenset(), frozenset({'call'}),
         '\tcall := func() func(stepOne stepType) {\n'
         '\t\treturn nil\n\t}\n\t_ = call\n'
         '\tproofkit.Run(t, spurCases(), stepOne)\n',
         '\tcall := func(stepOne stepType) func(arg stepType) {\n' + BOUND_RUN
-        + '\t\treturn nil\n\t}\n\t_ = call\n'),
+        + '\t\treturn nil\n\t}\n\t_ = call(0)\n'),
     Signature(
         '[]func(arg stepType){}, an element type', frozenset(), frozenset({'table'}),
         '\ttable := []func(stepOne stepType){}\n\t_ = table\n'
@@ -1948,7 +1957,8 @@ class GoBodyFixtureTest(unittest.TestCase):
 
     def bound_names(self, body):
         src = self.source(body)
-        spans = list(COMPILE_CHECKER.go_func_body_spans(src, r'Test[A-Z]\w*'))
+        spans = list(COMPILE_CHECKER.go_func_body_spans(
+            src, COMPILE_CHECKER.GO_TEST_FUNCTION_NAME))
         self.assertEqual(len(spans), 1, src)
         _, start, end = spans[0]
         return COMPILE_CHECKER.go_bound_names(src[start:end])
@@ -1989,6 +1999,16 @@ class GoBodyFixtureTest(unittest.TestCase):
         a matrix's two directions stay honest: the bound direction has to keep the same shape
         and change only the name, and a rename that does not type-check fails here.
         """
+        vetted = self.vet_sources(labelled_bodies)
+
+        self.assertEqual(vetted.returncode, 0, vetted.stderr)
+
+    def vet_sources(self, labelled_bodies):
+        """Run `go vet` over the bodies given and return the finished process.
+
+        A table that pins a name Go itself refuses needs the refusal, not just a zero exit, so
+        the run is handed back rather than asserted on here.
+        """
         if shutil.which('go') is None:
             self.skipTest('go is not on PATH')
         with tempfile.TemporaryDirectory() as directory:
@@ -2005,11 +2025,24 @@ class GoBodyFixtureTest(unittest.TestCase):
             (root / 'proof' / 'shapes_test.go').write_text('\n'.join(tests))
             environment = dict(os.environ, GOWORK='off', GOTOOLCHAIN='local', GOFLAGS='-mod=mod')
 
-            vetted = subprocess.run(
+            return subprocess.run(
                 ['go', 'vet', './...'], cwd=directory, env=environment,
                 capture_output=True, text=True)
 
-            self.assertEqual(vetted.returncode, 0, vetted.stderr)
+
+class ScrubbedBodyFixtureTest(GoBodyFixtureTest):
+    """A fixture table read the way the gate reads a proof: after the literals are scrubbed.
+
+    A literal left standing in the raw fixture text ends its own statement, so a table that
+    skipped the scrubber would pass with a scrubber defect in place and say nothing about the
+    copy the gate actually reads.
+    """
+
+    def bound_names(self, body):
+        return super().bound_names(COMPILE_CHECKER.strip_go_comments_and_literals(body))
+
+    def outcome(self, body):
+        return super().outcome(COMPILE_CHECKER.strip_go_comments_and_literals(body))
 
 
 class SignatureShapeTest(GoBodyFixtureTest):
@@ -2072,6 +2105,200 @@ class ScopeBlindShapeTest(GoBodyFixtureTest):
         self.assert_gofmt_writes_every_source(self.labelled_bodies())
 
     def test_every_source_compiles_and_vets(self):
+        self.assert_every_source_compiles_and_vets(self.labelled_bodies())
+
+
+# ---------------------------------------------------------------------------------------------
+# A var block's spec boundaries, and what an initializer written as a literal does to them.
+#
+# Go ends a var spec at a line break whose last token can end a statement, and a literal is
+# such a token. The gate reads the block after the scrubber has blanked every literal, so the
+# scrubber has to leave that token standing. Blanking a literal's delimiters along with its
+# text left `label = "one"` reading as a line that continues into the next one: the block was
+# then read as ONE spec, only the first spec's names came out bound, and a `step<Title>`
+# declared under a string-initialised spec was invisible to the chokepoint. The run built with
+# that local while the gate reported the package-level step of the same name as registered,
+# which is the silent false pass the chokepoint exists to convert into a loud one.
+#
+# Each initializer is written twice, because the two directions fail differently: with the
+# second spec binding `stepOne`, where the run must become unreadable, and with it binding an
+# ordinary name, where the run must still register.
+VarSpecInitializer = collections.namedtuple('VarSpecInitializer', 'kind literal')
+
+VAR_SPEC_INITIALIZERS = (
+    VarSpecInitializer('an int', '1'),
+    VarSpecInitializer('a string', '"one"'),
+    VarSpecInitializer('a rune', "'x'"),
+    VarSpecInitializer('a raw string', '`one`'),
+)
+
+
+class VarSpecInitializerTest(ScrubbedBodyFixtureTest):
+    """Every initializer kind splits a var block the same way, in both directions."""
+
+    def body(self, literal, name):
+        """A var block whose first spec holds the literal and whose second binds `name`.
+
+        gofmt aligns a group's `=` signs, so the first name is padded to the second's width.
+        That padding is asserted rather than assumed: `test_every_source_is_what_gofmt_writes`
+        runs gofmt over each body.
+        """
+        return ('\tvar (\n'
+                '\t\t%s = %s\n'
+                '\t\t%s = stepTwo\n'
+                '\t)\n'
+                '\t_, _ = label, %s\n'
+                '\tproofkit.Run(t, spurCases(), stepOne)\n'
+                % ('label'.ljust(len(name)), literal, name, name))
+
+    def labelled_bodies(self):
+        return [('%s, %s direction' % (initializer.kind, direction), self.body(
+                    initializer.literal, name))
+                for initializer in VAR_SPEC_INITIALIZERS
+                for direction, name in (('bound', 'stepOne'), ('free', 'localBuild'))]
+
+    def test_every_initializer_binds_both_spec_names(self):
+        """The direct probe: a spec the scrubber ended wrongly loses the names after it."""
+        for initializer in VAR_SPEC_INITIALIZERS:
+            for name in ('stepOne', 'localBuild'):
+                with self.subTest(initializer=initializer.kind, name=name):
+                    self.assertEqual(
+                        self.bound_names(self.body(initializer.literal, name)),
+                        {'label', name})
+
+    def test_every_initializer_leaves_the_step_named_local_caught(self):
+        for initializer in VAR_SPEC_INITIALIZERS:
+            with self.subTest(initializer=initializer.kind):
+                self.assertEqual(
+                    self.outcome(self.body(initializer.literal, 'stepOne')), LOCAL)
+
+    def test_every_initializer_leaves_an_ordinary_local_registered(self):
+        for initializer in VAR_SPEC_INITIALIZERS:
+            with self.subTest(initializer=initializer.kind):
+                self.assertEqual(
+                    self.outcome(self.body(initializer.literal, 'localBuild')), REGISTERED)
+
+    def test_every_source_is_what_gofmt_writes(self):
+        self.assert_gofmt_writes_every_source(self.labelled_bodies())
+
+    def test_every_source_compiles_and_vets(self):
+        self.assert_every_source_compiles_and_vets(self.labelled_bodies())
+
+
+# ---------------------------------------------------------------------------------------------
+# The reached-literal axis: does the func literal holding a run ever run?
+#
+# A func literal encloses what is written in it, so the guard axis reads a run inside one as
+# running when the statement around the literal runs. For a literal stored under a name and
+# never called, that statement runs and the run does not, and counting the step registered is a
+# silent false pass. The POSITION the literal is written in separates the two, and both halves
+# are pinned here, because the cheap rule — report every func-literal enclosure unreadable —
+# takes the `t.Run` subtest with it, which is the false failure this module was rewritten to
+# stop producing.
+Position = collections.namedtuple('Position', 'position verdict body')
+
+RUN_IN_A_LITERAL = '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+
+LITERAL_POSITIONS = (
+    Position('stored under a name and never called', UNREADABLE_CLOSURE,
+             '\tunused := func() {\n' + RUN_IN_A_LITERAL + '\t}\n\t_ = unused\n'),
+    Position('declared with var and never called', UNREADABLE_CLOSURE,
+             '\tvar unused = func() {\n' + RUN_IN_A_LITERAL + '\t}\n\t_ = unused\n'),
+    Position('stored under a name and called', REGISTERED,
+             '\tcall := func() {\n' + RUN_IN_A_LITERAL + '\t}\n\tcall()\n'),
+    Position('handed to t.Run', REGISTERED,
+             '\tt.Run("one", func(t *testing.T) {\n' + RUN_IN_A_LITERAL + '\t})\n'),
+    Position('invoked where it stands', REGISTERED,
+             '\tfunc() {\n' + RUN_IN_A_LITERAL + '\t}()\n'),
+    Position('deferred', REGISTERED,
+             '\tdefer func() {\n' + RUN_IN_A_LITERAL + '\t}()\n'),
+    Position('started with go', REGISTERED,
+             '\tgo func() {\n' + RUN_IN_A_LITERAL + '\t}()\n'),
+)
+
+
+class ReachedLiteralTest(ScrubbedBodyFixtureTest):
+    """Every position a func literal holding a run can stand in, and what the gate says."""
+
+    def labelled_bodies(self):
+        return [(position.position, position.body) for position in LITERAL_POSITIONS]
+
+    def test_every_position_reads_as_the_table_says(self):
+        for position in LITERAL_POSITIONS:
+            with self.subTest(position=position.position):
+                self.assertEqual(self.outcome(position.body), position.verdict)
+
+    def test_every_source_is_what_gofmt_writes(self):
+        self.assert_gofmt_writes_every_source(self.labelled_bodies())
+
+    def test_every_source_compiles_and_vets(self):
+        self.assert_every_source_compiles_and_vets(self.labelled_bodies())
+
+
+# ---------------------------------------------------------------------------------------------
+# Which function names `go test` runs.
+#
+# Go's rule is `Test` followed by a rune that is not a lower-case letter, `Test` alone
+# included, and `go vet` enforces the same rule on a function taking `*testing.T`. Reading only
+# `Test[A-Z]\w*` left a run in a `Test_Profile` or `Test1` body reported as 'not inside a Go
+# Test function', which names the wrong thing to fix, since the Test was there and running.
+#
+# The rejected row is not vetted with the others: `go vet` refuses `Testing(t *testing.T)` as
+# a malformed name, and that refusal is asserted below rather than worked around, because it
+# is the evidence that the gate and Go draw the same line.
+TestName = collections.namedtuple('TestName', 'name verdict')
+
+TEST_FUNCTION_NAMES = (
+    TestName('Test', REGISTERED),
+    TestName('TestOne', REGISTERED),
+    TestName('Test_Foo', REGISTERED),
+    TestName('Test1', REGISTERED),
+)
+
+REJECTED_TEST_FUNCTION_NAME = TestName('Testing', UNREADABLE_OUTSIDE_TEST)
+
+
+class TestFunctionNameTest(GoBodyFixtureTest):
+    """Every name shape, against the gate and against `go vet`."""
+
+    def source(self, body):
+        """The fixture is the whole function here, because the name is what is under test."""
+        return body
+
+    def function(self, name):
+        return ('func %s(t *testing.T) {\n'
+                '\tproofkit.Run(t, spurCases(), stepOne)\n'
+                '}\n' % name)
+
+    def labelled_bodies(self):
+        return [(name.name, self.function(name.name)) for name in TEST_FUNCTION_NAMES]
+
+    def test_every_accepted_name_registers_its_run(self):
+        for name in TEST_FUNCTION_NAMES:
+            with self.subTest(name=name.name):
+                self.assertEqual(self.outcome(self.function(name.name)), name.verdict)
+
+    def test_the_rejected_name_leaves_the_run_outside_every_test(self):
+        rejected = REJECTED_TEST_FUNCTION_NAME
+
+        self.assertEqual(self.outcome(self.function(rejected.name)), rejected.verdict)
+
+    def test_go_vet_rejects_the_name_the_gate_rejects(self):
+        """Go itself, not this table, is what says `Testing` is no test."""
+        rejected = REJECTED_TEST_FUNCTION_NAME
+
+        vetted = self.vet_sources([(rejected.name, self.function(rejected.name))])
+
+        self.assertNotEqual(vetted.returncode, 0)
+        self.assertIn('malformed name', vetted.stderr)
+
+    def test_every_source_is_what_gofmt_writes(self):
+        self.assert_gofmt_writes_every_source(
+            self.labelled_bodies()
+            + [(REJECTED_TEST_FUNCTION_NAME.name,
+                self.function(REJECTED_TEST_FUNCTION_NAME.name))])
+
+    def test_every_accepted_source_compiles_and_vets(self):
         self.assert_every_source_compiles_and_vets(self.labelled_bodies())
 
 

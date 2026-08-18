@@ -185,7 +185,7 @@ this skill: a compiler that rewrites its own source removes the thing being chec
 >
 > **Write every run where the gate can read it.** The gate reads Go by matching braces rather than
 > by compiling it, so it refuses to guess wherever the guess could be wrong, and a run it refuses
-> to read blocks the compile check for the whole proof directory. Four shapes make it refuse:
+> to read blocks the compile check for the whole proof directory. Five shapes make it refuse:
 >
 > - A run whose arguments are forwarded from a single call, as in `proofkit3d.Run(runArgs(t))`.
 >   Write each run's arguments out one by one.
@@ -197,6 +197,10 @@ this skill: a compiler that rewrites its own source removes the thing being chec
 >   Name locals anything else.
 > - A run under a condition the gate cannot read, or in a helper rather than in a `Test` body.
 >   Register each step from a `Test` body, unguarded.
+> - A run inside a func literal that is stored under a name and never called in that `Test` body,
+>   as in `run := func() { proofkit.Run(...) }`. A literal handed to `t.Run`, invoked where it
+>   stands, deferred or started with `go`, and one stored under a name the body then calls, are
+>   all read as running.
 >
 > Each run takes a table of parameter cases, one subtest each.
 >
