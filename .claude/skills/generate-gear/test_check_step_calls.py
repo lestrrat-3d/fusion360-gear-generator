@@ -581,10 +581,14 @@ class CheckCompileTest(unittest.TestCase):
         self.assertEqual(
             COMPILE_CHECKER.watched_calls(invalid, 'steps.md'), {})
 
-    def test_compile_watchlist_rejects_prefixed_receiver(self):
+    def test_compile_watchlist_reads_a_qualified_sketch_receiver(self):
+        # A step list carries no types, so a receiver is judged by the class its own name
+        # denotes. `other.sketch` denotes a Sketch however it was reached. The type-aware
+        # checkers still gate this shape; only the step list treats it as the watched call.
         self.assertEqual(
             COMPILE_CHECKER.watched_calls(
-                'Call `other.sketch.project(entity)`.', 'steps.md'), {})
+                'Call `other.sketch.project(entity)`.', 'steps.md'),
+            {'project': 'steps.md:1'})
 
     def test_compile_watchlist_accepts_verified_receiver_shape(self):
         self.assertEqual(

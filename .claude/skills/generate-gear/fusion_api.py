@@ -50,8 +50,20 @@ _GROUP = re.compile(r'^(adsk\.[A-Za-z0-9_.]+)\s+\(\d+\s+members?\):\s*$')
 _MEMBER = re.compile(r'^\s{2}(\w+)')
 
 # Calls the shipped add-in makes that the API database does not back. Every entry is
-# (member, the class the shipped code calls it on, receiver names that identify that class in the
-# source, a note). Receiver names are exact so an unrelated namesake cannot be exempted.
+# (member, the class the shipped code calls it on, the words that make a receiver denote that
+# class, a note).
+#
+# The words are class names, never variable names. A step list is compiled from prose without
+# reading any implementation, so whoever writes it picks its own receiver spellings, and an entry
+# that listed one implementation's locals would exempt that implementation and block every other
+# spelling of the same call. A word is matched against the last segment of the receiver
+# expression, ignoring case, and only where the segment ends on a word boundary, so `gearSketch`,
+# `bore_sketch` and `self.sketch` all denote a Sketch.
+#
+# The words still keep an unrelated namesake out, because a receiver is named after the class it
+# holds: `chamferFeatures.createInput2()` is a real call on a real class, its receiver denotes
+# ChamferFeatures and not SketchTexts, and so the SketchTexts entry never covers it. It reaches
+# the database on its own, which is where it belongs.
 #
 # The checkers re-ask the database about each entry on every run rather than trusting this
 # comment, so an entry whose member has since been documented is reported as stale and deleted.
@@ -62,15 +74,14 @@ _MEMBER = re.compile(r'^\s{2}(\w+)')
 # shipped add-in makes all three and is believed to run. Only loading the add-in settles it, and
 # whichever way it goes the fix belongs in the spec, not in a generated file.
 UNVERIFIED_CALLS = (
-    ('project', 'adsk.fusion.Sketch', ('sketch', 'toolsSketch', 'Sketch', 'self.sketch'),
+    ('project', 'adsk.fusion.Sketch', ('Sketch',),
      'the shipped add-ins call `sketch.project(entity)`, and the spur step list names it'),
-    ('createInput2', 'adsk.fusion.SketchTexts',
-     ('sketch.sketchTexts', 'sketchTexts', 'SketchTexts'),
+    ('createInput2', 'adsk.fusion.SketchTexts', ('SketchTexts',),
      'the shipped add-ins call `sketch.sketchTexts.createInput2(text, height)`, and the spur '
      'step list names it; '
      '`ChamferFeatures.createInput2` and `MoveFeatures.createInput2` are real and not at issue'),
     ('addConstantRadiusEdgeSet', 'adsk.fusion.FilletFeatureInput',
-     ('filletInput', 'FilletFeatureInput'),
+     ('FilletFeatureInput', 'FilletInput'),
      'the shipped add-in calls `filletInput.addConstantRadiusEdgeSet(...)`, and the spur '
      'step list states that `filletInput.edgeSetInputs` does not exist'),
 )
@@ -220,9 +231,36 @@ def receiver_tail(receiver):
     return receiver.rsplit('.', 1)[-1]
 
 
+def denotes_class(word, name):
+    """Does an identifier name something of this class — `gearSketch` for `Sketch`?
+
+    The word has to be the whole name or the last word of it. Case is ignored on the word, and
+    the boundary is read from the spelling the source actually uses: the front of the name, an
+    underscore, or a capital. So `boreSketch` and `bore_sketch` denote a Sketch, `sketchTexts`
+    does not, and neither does a run-on lowercase namesake such as `mysketch`.
+    """
+    if name is None or len(name) < len(word):
+        return False
+    if name[-len(word):].lower() != word.lower():
+        return False
+    start = len(name) - len(word)
+    return start == 0 or name[start - 1] == '_' or name[start].isupper()
+
+
 def receiver_matches(receivers, receiver):
-    """Does a call belong to a watchlist entry naming this exact receiver expression?"""
-    return receivers is None or receiver in receivers
+    """Does a call belong to a watchlist entry, judged by what its receiver denotes?"""
+    if receivers is None:
+        return True
+    tail = receiver_tail(receiver)
+    return any(denotes_class(word, tail) for word in receivers)
+
+
+def unverified_class(name, receiver):
+    """The class a watchlist entry says this call is made on, or None when none covers it."""
+    for member, cls, receivers, _ in UNVERIFIED_CALLS:
+        if member == name and receiver_matches(receivers, receiver):
+            return cls
+    return None
 
 
 def unverified_findings(called):

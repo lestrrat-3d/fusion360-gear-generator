@@ -108,7 +108,7 @@ class DiagnosticFilterTests(unittest.TestCase):
 
         self.assertTrue(MODULE.is_unverified_api_diagnostic(diagnostic, verified))
 
-    def test_prefixed_receiver_name_does_not_match_sanctioned_call(self):
+    def test_qualified_receiver_name_matches_sanctioned_call(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'candidate.py'
             path.write_text(
@@ -122,7 +122,9 @@ class DiagnosticFilterTests(unittest.TestCase):
 
             verified = MODULE.verified_fusion_classes(str(path))
 
-        self.assertFalse(MODULE.is_unverified_api_diagnostic(diagnostic, verified))
+        # `other.sketch` denotes a Sketch, and pyright named that same class, so the pair
+        # agrees. The receiver still has to be typed for the api-call check to exempt it.
+        self.assertTrue(MODULE.is_unverified_api_diagnostic(diagnostic, verified))
 
     def test_verified_self_fusion_field_matches_sanctioned_call(self):
         with tempfile.TemporaryDirectory() as directory:
