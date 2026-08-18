@@ -789,6 +789,53 @@ class CheckCompileTest(unittest.TestCase):
         self.assertNotIn('no Go Test registers it', output)
         self.assertNotIn('is defined but is not registered', output)
 
+    def test_run_under_a_wrapped_unreadable_condition_is_loud_not_dropped(self):
+        """The same guard, written over three lines instead of one.
+
+        Reading only the line before the brace left this header as `)`, which named no
+        condition, so the guard passed as an enclosure and the step counted as registered.
+        """
+        proof_body = (
+            'func TestOne(t *testing.T) {\n'
+            '\tif enabled(\n'
+            '\t\t"one",\n'
+            '\t) {\n'
+            '\t\tproofkit.Run(t, cases(gear{name: "one"}), stepOne)\n'
+            '\t}\n'
+            '}\n\n'
+            'func stepOne() {}\n')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 1)
+        self.assertIn('has a proof run the gate cannot read as a registration', output)
+        self.assertIn(UNREADABLE_GUARD, output)
+        self.assertNotIn('no Go Test registers it', output)
+        self.assertNotIn('is defined but is not registered', output)
+
+    def test_run_in_the_else_arm_of_an_unreadable_if_is_loud_not_dropped(self):
+        """An else arm is as unreadable as the if it closes.
+
+        `} else` names no condition of its own, so it used to read as an enclosure and the run
+        inside it counted, though it executes only when a condition the gate cannot read fails.
+        """
+        proof_body = (
+            'func TestOne(t *testing.T) {\n'
+            '\tif enabled() {\n'
+            '\t} else {\n'
+            '\t\tproofkit.Run(t, cases(gear{name: "one"}), stepOne)\n'
+            '\t}\n'
+            '}\n\n'
+            'func stepOne() {}\n')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 1)
+        self.assertIn('has a proof run the gate cannot read as a registration', output)
+        self.assertIn(UNREADABLE_GUARD, output)
+        self.assertNotIn('no Go Test registers it', output)
+        self.assertNotIn('is defined but is not registered', output)
+
     def test_run_in_a_helper_is_loud_not_dropped(self):
         proof_body = (
             'func TestOne(t *testing.T) {\n'
@@ -1017,9 +1064,13 @@ MAP_CELLS = (
         '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
         '\t}\n'
         '}\n'), GUARD, GUARD),
+    # These three guard on a literal, so that the else arm they put the run in stays readable.
+    # An else arm inherits the readability of the if it closes (see the guard axis below), so a
+    # condition the walk cannot read would answer for these cells first and they would stop
+    # testing the binding they exist to test.
     Cell('if with init, run in the else-branch', ('C1',), (
         'func TestOne(t *testing.T) {\n'
-        '\tif localName := buildA; localName == nil {\n'
+        '\tif localName := buildA; false {\n'
         '\t\t_ = localName\n'
         '\t} else {\n'
         '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
@@ -1027,7 +1078,7 @@ MAP_CELLS = (
         '}\n'), LOCAL, REGISTERED),
     Cell('if with init, run in the else-branch', ('C2',), (
         'func TestOne(t *testing.T) {\n'
-        '\tif localName := []proofkit.Build{buildA}[0]; localName == nil {\n'
+        '\tif localName := []proofkit.Build{buildA}[0]; false {\n'
         '\t\t_ = localName\n'
         '\t} else {\n'
         '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
@@ -1035,8 +1086,8 @@ MAP_CELLS = (
         '}\n'), LOCAL, REGISTERED),
     Cell('if with init, run in the else-branch', ('C3',), (
         'func TestOne(t *testing.T) {\n'
-        '\tif localName, list := buildA, []proofkit.Build{buildA}; len(list) > 0 {\n'
-        '\t\t_ = localName\n'
+        '\tif localName, list := buildA, []proofkit.Build{buildA}; false {\n'
+        '\t\t_, _ = localName, list\n'
         '\t} else {\n'
         '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
         '\t}\n'
@@ -1342,6 +1393,351 @@ class MapCellTest(unittest.TestCase):
                     formatted = subprocess.run(
                         ['gofmt'], input=src, capture_output=True, text=True, check=True)
 
+                    self.assertEqual(formatted.stdout, src)
+
+
+# ---------------------------------------------------------------------------------------------
+# The guard axis: given a brace the walk crosses on its way to a run, is it a guard or an
+# enclosure, and if a guard, can its condition be read?
+#
+# This is not a column of the map above. That map decided which NAMES a body binds; this decides
+# whether the run executes at all. Go's grammar closes the axis — only the if / else if / else
+# family skips its own block on a condition — so the shapes can be listed once, and HEADER_SHAPES
+# is that list. Every shape gets one case, and the list and the cases are reconciled below rather
+# than eyeballed.
+#
+# Both directions are asserted, because they fail differently. Calling a guard an enclosure is a
+# false pass: the step counts as registered while its run may never execute, and the geometry it
+# claims goes unproven behind a green gate. Calling an enclosure a guard is a false failure: loud,
+# and it costs a drafter a rewrite of a proof that was already correct. The enclosure shapes used
+# to come out right by accident, an unread header falling through to reachable; they are asserted
+# here so that the keyword now deciding them is what keeps them right.
+HEADER_SHAPES = (
+    'if, single-line',
+    'if, wrapped condition',
+    'if with an init statement, single-line',
+    'if with an init statement, wrapped',
+    'else, closing an unreadable if',
+    'else, closing a known-false if',
+    'else, closing a known-true if',
+    'else if, single-line',
+    'else if, wrapped condition',
+    'known literal, true',
+    'known literal, false',
+    'known literals compounded, single-line',
+    'known literals compounded, wrapped',
+    'for, three-clause',
+    'for, range',
+    'for, bare',
+    'for, wrapped range expression',
+    'switch, expression, and its case body',
+    'switch, type, and its case body',
+    'switch with an init statement, and its case body',
+    'select, and its case body',
+    'plain block',
+    'func literal, immediately invoked',
+    'func literal, a t.Run closure',
+    'func literal, started with go',
+    'func literal, deferred',
+    'labelled statement',
+    'composite literal at line start',
+    'struct literal at line start',
+    'map literal at line start',
+    'if alone on its line, which gofmt rewrites',
+)
+
+REACHABLE = REGISTERED
+DEAD = 'dead: the walk knows the run never executes'
+
+# rewritten marks a shape gofmt does not leave alone. Such a shape cannot reach a committed
+# proof, so its case pins the rewrite rather than the reading.
+Shape = collections.namedtuple('Shape', 'name verdict source rewritten', defaults=(False,))
+
+HEADER_SHAPE_CASES = (
+    # The if family. A condition that is not a known literal makes the run unreadable, and the
+    # shape it is written in must not change that: these are the same guard four ways.
+    Shape('if, single-line', GUARD, (
+        'func TestOne(t *testing.T) {\n'
+        '\tif enabled(t) {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n')),
+    Shape('if, wrapped condition', GUARD, (
+        'func TestOne(t *testing.T) {\n'
+        '\tif enabled(\n'
+        '\t\tt,\n'
+        '\t) {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n')),
+    Shape('if with an init statement, single-line', GUARD, (
+        'func TestOne(t *testing.T) {\n'
+        '\tif on := enabled(t); on {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n')),
+    Shape('if with an init statement, wrapped', GUARD, (
+        'func TestOne(t *testing.T) {\n'
+        '\tif on := enabled(\n'
+        '\t\tt,\n'
+        '\t); on {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n')),
+    # The else family. A bare else names no condition of its own, so it takes the readability of
+    # the chain it closes: unreadable behind an unreadable if, live behind a dead one, dead
+    # behind a live one.
+    Shape('else, closing an unreadable if', GUARD, (
+        'func TestOne(t *testing.T) {\n'
+        '\tif enabled(t) {\n'
+        '\t} else {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n')),
+    Shape('else, closing a known-false if', REACHABLE, (
+        'func TestOne(t *testing.T) {\n'
+        '\tif false {\n'
+        '\t} else {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n')),
+    Shape('else, closing a known-true if', DEAD, (
+        'func TestOne(t *testing.T) {\n'
+        '\tif true {\n'
+        '\t} else {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n')),
+    Shape('else if, single-line', GUARD, (
+        'func TestOne(t *testing.T) {\n'
+        '\tif false {\n'
+        '\t} else if enabled(t) {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n')),
+    Shape('else if, wrapped condition', GUARD, (
+        'func TestOne(t *testing.T) {\n'
+        '\tif false {\n'
+        '\t} else if enabled(\n'
+        '\t\tt,\n'
+        '\t) {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n')),
+    # The literal conditions the walk does read. A compound of them is decidable and is still
+    # refused, because deciding it is evaluating Go; the wrapped form must give the same answer
+    # as the single-line one, which is the whole point of reading the header to its start.
+    Shape('known literal, true', REACHABLE, (
+        'func TestOne(t *testing.T) {\n'
+        '\tif true {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n')),
+    Shape('known literal, false', DEAD, (
+        'func TestOne(t *testing.T) {\n'
+        '\tif false {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n')),
+    Shape('known literals compounded, single-line', GUARD, (
+        'func TestOne(t *testing.T) {\n'
+        '\tif false || false {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n')),
+    Shape('known literals compounded, wrapped', GUARD, (
+        'func TestOne(t *testing.T) {\n'
+        '\tif false ||\n'
+        '\t\tfalse {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n')),
+    # Every enclosure below. None of them can skip its block on a condition, so a run inside one
+    # runs when the Test does, and the keyword at the head of the header is what says so.
+    Shape('for, three-clause', REACHABLE, (
+        'func TestOne(t *testing.T) {\n'
+        '\tfor i := 0; i < 2; i++ {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n')),
+    Shape('for, range', REACHABLE, (
+        'func TestOne(t *testing.T) {\n'
+        '\tfor range spurCases() {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n')),
+    Shape('for, bare', REACHABLE, (
+        'func TestOne(t *testing.T) {\n'
+        '\tfor {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t\tbreak\n'
+        '\t}\n'
+        '}\n')),
+    Shape('for, wrapped range expression', REACHABLE, (
+        'func TestOne(t *testing.T) {\n'
+        '\tfor range namedCases(\n'
+        '\t\tt,\n'
+        '\t) {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n')),
+    Shape('switch, expression, and its case body', REACHABLE, (
+        'func TestOne(t *testing.T) {\n'
+        '\tswitch len(spurCases()) {\n'
+        '\tcase 0:\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n')),
+    Shape('switch, type, and its case body', REACHABLE, (
+        'func TestOne(t *testing.T) {\n'
+        '\tswitch any(t).(type) {\n'
+        '\tcase *testing.T:\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n')),
+    Shape('switch with an init statement, and its case body', REACHABLE, (
+        'func TestOne(t *testing.T) {\n'
+        '\tswitch n := len(spurCases()); n {\n'
+        '\tcase 0:\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n')),
+    Shape('select, and its case body', REACHABLE, (
+        'func TestOne(t *testing.T) {\n'
+        '\tselect {\n'
+        '\tcase <-done:\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n')),
+    Shape('plain block', REACHABLE, (
+        'func TestOne(t *testing.T) {\n'
+        '\t{\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n')),
+    Shape('func literal, immediately invoked', REACHABLE, (
+        'func TestOne(t *testing.T) {\n'
+        '\tfunc() {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}()\n'
+        '}\n')),
+    Shape('func literal, a t.Run closure', REACHABLE, (
+        'func TestOne(t *testing.T) {\n'
+        '\tt.Run("one", func(t *testing.T) {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t})\n'
+        '}\n')),
+    Shape('func literal, started with go', REACHABLE, (
+        'func TestOne(t *testing.T) {\n'
+        '\tgo func() {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}()\n'
+        '}\n')),
+    Shape('func literal, deferred', REACHABLE, (
+        'func TestOne(t *testing.T) {\n'
+        '\tdefer func() {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}()\n'
+        '}\n')),
+    Shape('labelled statement', REACHABLE, (
+        'func TestOne(t *testing.T) {\n'
+        'Loop:\n'
+        '\tfor {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t\tbreak Loop\n'
+        '\t}\n'
+        '}\n')),
+    Shape('composite literal at line start', REACHABLE, (
+        'func TestOne(t *testing.T) {\n'
+        '\truns := []func(){\n'
+        '\t\tfunc() {\n'
+        '\t\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t\t},\n'
+        '\t}\n'
+        '\t_ = runs\n'
+        '}\n')),
+    Shape('struct literal at line start', REACHABLE, (
+        'func TestOne(t *testing.T) {\n'
+        '\tspec := runSpec{\n'
+        '\t\trun: func() {\n'
+        '\t\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t\t},\n'
+        '\t}\n'
+        '\t_ = spec\n'
+        '}\n')),
+    Shape('map literal at line start', REACHABLE, (
+        'func TestOne(t *testing.T) {\n'
+        '\tbyName := map[string]func(){\n'
+        '\t\t"one": func() {\n'
+        '\t\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t\t},\n'
+        '\t}\n'
+        '\t_ = byName\n'
+        '}\n')),
+    # The one shape read wrongly, kept in the list rather than hidden. An `if` alone on its line
+    # is legal Go, the scan stops at the line break, and the guard reads as an enclosure. gofmt
+    # rewrites it to one line, where it reads as the guard it is, so no committed proof holds it.
+    Shape('if alone on its line, which gofmt rewrites', REACHABLE, (
+        'func TestOne(t *testing.T) {\n'
+        '\tif\n'
+        '\tenabled(t) {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n'), True),
+)
+
+
+class HeaderShapeTest(unittest.TestCase):
+    """Every header shape the Go grammar allows in front of a brace, one case each."""
+
+    def outcome(self, src):
+        """Which of the three verdicts the gate gives this source."""
+        scrubbed = COMPILE_CHECKER.strip_go_comments_and_literals(src)
+        registered, misnamed, unreadable = COMPILE_CHECKER.registered_step_functions(scrubbed)
+        self.assertEqual(misnamed, [], src)
+        if registered == {'stepOne'} and not unreadable:
+            return REACHABLE
+        self.assertEqual(registered, set(), src)
+        if not unreadable:
+            return DEAD
+        self.assertEqual(len(unreadable), 1, src)
+        reason = unreadable[0][1]
+        return GUARD if reason == UNREADABLE_GUARD else reason
+
+    def test_every_shape_reads_as_the_table_says(self):
+        for shape in HEADER_SHAPE_CASES:
+            with self.subTest(shape=shape.name):
+                self.assertEqual(self.outcome(shape.source), shape.verdict)
+
+    def test_every_shape_of_the_grammar_is_covered(self):
+        """The list above and the cases below it are reconciled, not eyeballed.
+
+        Three review rounds each repaired one header shape and left another open, because the
+        shapes were found one at a time rather than listed. The list is the enumeration now, so
+        a shape it names and no case exercises is a hole.
+        """
+        self.assertEqual(
+            [shape.name for shape in HEADER_SHAPE_CASES], list(HEADER_SHAPES))
+
+    def test_every_shape_source_is_what_gofmt_writes(self):
+        """gofmt itself, not a guess at it.
+
+        A probe gofmt would reformat is a probe of a shape no drafter can commit. The one shape
+        that is reformatted says so in the table, and is asserted to be reformatted, so the gap
+        it documents cannot quietly become a shape the gate must read.
+        """
+        if shutil.which('gofmt') is None:
+            self.skipTest('gofmt is not on PATH')
+        for shape in HEADER_SHAPE_CASES:
+            with self.subTest(shape=shape.name):
+                src = 'package proof_test\n\n' + shape.source
+
+                formatted = subprocess.run(
+                    ['gofmt'], input=src, capture_output=True, text=True, check=True)
+
+                if shape.rewritten:
+                    self.assertNotEqual(formatted.stdout, src)
+                else:
                     self.assertEqual(formatted.stdout, src)
 
 

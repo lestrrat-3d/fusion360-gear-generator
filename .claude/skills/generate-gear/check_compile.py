@@ -480,37 +480,181 @@ def go_brace_depth(src, pos):
     return sum(char == '{' for char in src[:pos]) - sum(char == '}' for char in src[:pos])
 
 
+def go_open_delimiter(src, closing):
+    """Return the index of the delimiter that src[closing] closes, or None."""
+    pairs = {')': '(', ']': '[', '}': '{'}
+    stack = [src[closing]]
+    for index in range(closing - 1, -1, -1):
+        char = src[index]
+        if char in pairs:
+            stack.append(char)
+        elif char in '([{':
+            if pairs[stack[-1]] != char:
+                return None
+            stack.pop()
+            if not stack:
+                return index
+    return None
+
+
+def go_statement_start(src, opening):
+    """Where the statement whose block opens at `opening` begins.
+
+    The scan walks back from the brace over whole bracket groups, so a condition wrapped
+    across lines, and an arm the chain has already closed, are stepped over rather than
+    ending it. It stops at the first statement boundary: the unmatched `{`, `(` or `[` of the
+    construct this statement sits inside, or a newline where Go's own semicolon insertion
+    would end the line. See THE GUARD AXIS below for what this reading can and cannot reach.
+    """
+    index = opening
+    while index > 0:
+        char = src[index - 1]
+        if char in ')]}':
+            start = go_open_delimiter(src, index - 1)
+            if start is None:
+                return index
+            index = start
+            continue
+        if char in '([{':
+            return index
+        if char == '\n':
+            if go_statement_ends_at_line(src[:index - 1]):
+                return index
+            index -= 1
+            continue
+        index -= 1
+    return 0
+
+
 def go_block_header(src, opening):
-    """The text before a block's opening brace, on one line."""
-    line_start = src.rfind('\n', 0, opening) + 1
-    return re.sub(r'\s+', ' ', src[line_start:opening]).strip()
+    """The whole header of the block opening at `opening`, on one line.
+
+    It runs from the statement start, so it carries the construct's keyword whatever the lines
+    between look like: an `if` whose condition wraps, an init statement, and for an `else` arm
+    the whole chain it hangs off, up to but not including its own brace.
+    """
+    return re.sub(r'\s+', ' ', src[go_statement_start(src, opening):opening]).strip()
 
 
-def go_if_condition(header):
-    """The condition an if block header states, or None when the header is not an if."""
-    match = re.search(r'\bif\s+(.+)$', header)
-    if not match:
-        return None
-    return match.group(1).strip()
+GUARD_HEADER = re.compile(r'^(?:[A-Za-z_]\w*\s*:\s+)*(if|else)\b')
+ARM_KEYWORD = re.compile(r'\s*(else if|if|else)\b')
+
+
+def go_header_is_guard(header):
+    """Whether a header opens an arm of an if chain rather than an enclosure.
+
+    Go gives only the if / else if / else family the power to skip its own block on a
+    condition. Every other brace a walk crosses — `for`, `switch`, `select`, a func literal, a
+    plain block, a composite literal, a labelled statement — encloses what is written inside
+    it. So the keyword the header opens with settles this, and a header read back to the
+    statement start always has that keyword in it.
+    """
+    return GUARD_HEADER.match(header) is not None
+
+
+def go_arm_condition(header, start):
+    """One arm's condition text from start, with the position after that arm's body.
+
+    A `{` at the header's own depth ends the condition only when an `else` follows the group
+    it opens, which is what a closed arm looks like from here. Any other group at that depth
+    is a composite literal inside an init statement or a condition, so the scan steps over it
+    and keeps reading.
+    """
+    index = start
+    depth = 0
+    while index < len(header):
+        char = header[index]
+        if char in '([':
+            depth += 1
+        elif char in ')]':
+            depth -= 1
+        elif char == '{' and depth == 0:
+            closing = matching_delimiter(header, index)
+            if closing is None:
+                break
+            if re.match(r'\s*else\b', header[closing + 1:]):
+                return header[start:index].strip(), closing + 1
+            index = closing
+        index += 1
+    return header[start:].strip(), len(header)
+
+
+def go_guard_arms(header):
+    """The conditions an if chain header states: the arms it falls through, and its own.
+
+    Go writes a whole if / else if / else chain as one statement, so the header of any arm
+    starts at the chain's `if` and carries every arm before it. The arm this header opens is
+    the last one, and its own condition is None when it is a bare `else`.
+    """
+    text = header[GUARD_HEADER.match(header).start(1):]
+    preceding = []
+    own = None
+    position = 0
+    while position < len(text):
+        keyword = ARM_KEYWORD.match(text, position)
+        if keyword is None:
+            break
+        position = keyword.end()
+        if keyword.group(1) == 'else':
+            own = None
+            break
+        condition, position = go_arm_condition(text, position)
+        own = condition
+        if position >= len(text):
+            break
+        preceding.append(condition)
+        own = None
+    return preceding, own
+
+
+def go_condition_value(condition):
+    """True, False or None for one arm's condition: taken, never taken, or unreadable.
+
+    The init statement an `if` may carry decides nothing, so only the expression after the
+    last `;` at the condition's own depth is read. Three forms are known; anything else,
+    a compound of literals included, is a condition this gate would have to evaluate, and it
+    says it cannot read it rather than guessing.
+    """
+    if condition is None:
+        return True
+    depth = 0
+    cut = -1
+    for index, char in enumerate(condition):
+        if char in '([{':
+            depth += 1
+        elif char in ')]}':
+            depth -= 1
+        elif char == ';' and depth == 0:
+            cut = index
+    expression = condition[cut + 1:].strip()
+    if expression == 'false':
+        return False
+    if expression in ('true', 't != nil'):
+        return True
+    return None
 
 
 def go_block_condition(src, opening):
     """Return the known reachability of a block, or None when it is unknown.
 
-    Only an `if` decides whether its block runs. A `for` loop, the closure a `t.Run` subtest
-    takes, a `switch` and every other brace the walk crosses on its way to a run enclose that
-    run rather than guard it, so a run inside one still executes on the test path. Reading
-    those enclosures as guards is how a proof that registers its steps from a table used to
-    look as though no Test registered anything.
+    An arm of an if chain runs when no arm before it was taken and its own condition holds, so
+    a bare `else` inherits the readability of the chain it closes: it is unreadable whenever
+    any condition before it is. Every other brace encloses rather than guards, and what an
+    enclosure holds runs when the statement around it does. Reading those enclosures as guards
+    is how a proof that registers its steps from a table used to look as though no Test
+    registered anything.
     """
-    condition = go_if_condition(go_block_header(src, opening))
-    if condition is None:
+    header = go_block_header(src, opening)
+    if not go_header_is_guard(header):
         return True
-    if condition == 'false':
+    preceding, own = go_guard_arms(header)
+    values = [go_condition_value(condition) for condition in preceding]
+    own_value = go_condition_value(own)
+    if own_value is False or any(value is True for value in values):
         return False
-    if condition in ('true', 't != nil'):
-        return True
-    return None
+    if any(value is None for value in values):
+        return None
+    return own_value
 
 
 def go_top_level_return_before(src, pos):
@@ -526,9 +670,9 @@ def go_early_return_before(src, pos, brace_pairs):
     for opening, closing in brace_pairs.items():
         if closing >= pos or go_brace_depth(src, opening) != 0:
             continue
-        # Only an if can return early on a known-true condition. A loop or a closure whose
+        # Only an if arm can return early on a known-true condition. A loop or a closure whose
         # whole body is a return says nothing about what follows it.
-        if go_if_condition(go_block_header(src, opening)) is None:
+        if not go_header_is_guard(go_block_header(src, opening)):
             continue
         if go_block_condition(src, opening) is not True:
             continue
@@ -754,6 +898,47 @@ def go_bound_names(body):
 # makes this Python gate depend on the Go toolchain being present to run at all, which is a
 # structural change beyond the scope this decision was taken in. Take it up and this whole
 # chokepoint, along with the machinery above it, is deleted rather than refined.
+#
+# THE GUARD AXIS: IS A BRACE A GUARD OR AN ENCLOSURE
+#
+# The map above crossed binding constructs with header shapes to decide which NAMES a body
+# binds. This is the other question the walk asks of a brace it crosses on its way to a run:
+# does that brace guard the run, and if it does, can its condition be read. The two axes are
+# independent, and the chokepoint answers only the first, so this one is answered here, by
+# `go_block_header` and `go_block_condition`.
+#
+# Go's grammar closes this axis, not this repo's conventions, which is why it can be listed
+# once. Only the if / else if / else family skips its own block on a condition. A `for`, a
+# `switch`, a `select`, a func literal (invoked, deferred, started with `go`, or handed to
+# `t.Run`), a plain block, a labelled statement and a composite literal all enclose what is
+# written inside them, and what an enclosure holds runs when the statement around it runs. So
+# the walk reads the header back to the statement start and dispatches on the keyword standing
+# there: the enclosure verdict is what that keyword says, rather than what an unread header
+# happened to fall through to. Reading only the last line before the brace was the earlier
+# rule, and it left a wrapped `if` header as `)`, which matched no condition and made the guard
+# read as an enclosure — the same guard passing when written over three lines and failing when
+# written on one.
+#
+# An `else` arm carries its whole chain in its header, because Go writes a chain as one
+# statement. It runs when every condition before it was false, so it inherits their
+# readability: the `else` closing an unreadable `if` is unreadable itself, and a run inside it
+# is reported rather than counted.
+#
+# WHAT THIS AXIS STILL CANNOT READ
+#
+#   1. A condition that is not one of three literal forms. `false` is dead, `true` and
+#      `t != nil` are live, and everything else — a call, a variable, a comparison, and a
+#      compound of literals such as `false || false` — is unreadable. That is item 3 of the
+#      list above reached from the other side. The compound is decidable and is still refused,
+#      because deciding it means evaluating Go, and this axis reads keywords.
+#   2. A statement boundary gofmt does not write. The scan ends a statement where Go's own
+#      semicolon insertion ends a line, so two statements written on one line with a `;`
+#      between them would be read as a single header. gofmt splits them, and no proof here
+#      writes them.
+#   3. An `if` left alone on its line with its condition starting the next one. That is legal
+#      Go, the scan stops at the line break, and the block then reads as an enclosure. gofmt
+#      rewrites it to one line, so no committed proof can hold the shape; the test table pins
+#      both the misreading and the rewrite rather than leaving the gap unwritten.
 
 
 STEP_FUNCTION_NAME = re.compile(r'step[A-Z]\w*')
