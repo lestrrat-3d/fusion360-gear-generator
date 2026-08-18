@@ -51,6 +51,34 @@ class CheckStepCallsTest(unittest.TestCase):
         self.assertEqual(result, 0, output)
         self.assertNotIn('getTangent', output)
 
+    def test_forbidden_call_stays_exempt_when_the_sentence_wraps(self):
+        # The prohibition and the call it forbids land on different Markdown
+        # lines. Where a paragraph wraps says nothing about where its sentences
+        # end, so the wrap must not turn the example into a requirement.
+        steps = (
+            'Call `safeCall()`. Never read the direction\n'
+            'with `getTangent(0)`: parameter 0 may sit outside the range.')
+
+        self.assertEqual(CHECKER.named_calls(steps), {'safeCall'})
+        result, output = self.run_checker(steps, 'safeCall()\n')
+
+        self.assertEqual(result, 0, output)
+        self.assertNotIn('getTangent', output)
+
+    def test_required_call_on_the_line_after_a_finished_prohibition(self):
+        # The prohibition ended with its own sentence, and the next block is a
+        # bullet, so the call in it is still required.
+        steps = (
+            'Never read the direction with `getTangent(0)`\n'
+            '- Call `safeCall()`\n')
+
+        self.assertEqual(CHECKER.named_calls(steps), {'safeCall'})
+        result, output = self.run_checker(steps, 'pass\n')
+
+        self.assertEqual(result, 1, output)
+        self.assertIn('safeCall', output)
+        self.assertNotIn('getTangent', output)
+
     def test_not_a_substitute_call_is_not_required(self):
         steps = (
             'Use the angular pin. A plain `GeometricConstraints.addHorizontal(line)` '
@@ -139,6 +167,114 @@ class CheckStepCallsTest(unittest.TestCase):
 
         self.assertEqual(result, 1)
         self.assertIn('textual match exists, but it is not a reachable executable call', output)
+
+
+    def test_call_through_a_local_alias_covers_the_named_method(self):
+        # The generated spur module binds `pn = self.parameterName` and builds every
+        # derived-parameter expression through `pn`, so the alias is where the call
+        # actually happens.
+        steps = 'Call `self.parameterName(name)` and `parameterName(name)`.'
+        candidate = (
+            'class Gear:\n'
+            '    def parameterName(self, name):\n'
+            '        return name\n'
+            '    def generate(self):\n'
+            '        pn = self.parameterName\n'
+            '        return pn("module")\n')
+
+        result, output = self.run_checker(steps, candidate)
+
+        self.assertEqual(result, 0, output)
+
+    def test_annotated_alias_also_covers_the_named_method(self):
+        steps = 'Call `self.parameterName(name)`.'
+        candidate = (
+            'class Gear:\n'
+            '    def parameterName(self, name):\n'
+            '        return name\n'
+            '    def generate(self):\n'
+            '        pn: object = self.parameterName\n'
+            '        return pn("module")\n')
+
+        result, output = self.run_checker(steps, candidate)
+
+        self.assertEqual(result, 0, output)
+
+    def test_alias_of_another_method_does_not_cover_the_named_method(self):
+        steps = 'Call `self.parameterName(name)`.'
+        candidate = (
+            'class Gear:\n'
+            '    def parameterName(self, name):\n'
+            '        return name\n'
+            '    def otherName(self, name):\n'
+            '        return name\n'
+            '    def generate(self):\n'
+            '        pn = self.otherName\n'
+            '        return pn("module")\n')
+
+        result, output = self.run_checker(steps, candidate)
+
+        self.assertEqual(result, 1, output)
+        self.assertIn('parameterName', output)
+
+    def test_alias_that_is_never_called_does_not_cover_the_named_method(self):
+        steps = 'Call `self.parameterName(name)`.'
+        candidate = (
+            'class Gear:\n'
+            '    def parameterName(self, name):\n'
+            '        return name\n'
+            '    def generate(self):\n'
+            '        pn = self.parameterName\n'
+            '        return pn\n')
+
+        result, output = self.run_checker(steps, candidate)
+
+        self.assertEqual(result, 1, output)
+        self.assertIn('textual match exists, but it is not a reachable executable call', output)
+
+    def test_alias_rebound_to_something_else_stops_covering_the_named_method(self):
+        steps = 'Call `self.parameterName(name)`.'
+        candidate = (
+            'class Gear:\n'
+            '    def parameterName(self, name):\n'
+            '        return name\n'
+            '    def generate(self):\n'
+            '        pn = self.parameterName\n'
+            '        pn = str\n'
+            '        return pn("module")\n')
+
+        result, output = self.run_checker(steps, candidate)
+
+        self.assertEqual(result, 1, output)
+        self.assertIn('textual match exists, but it is not a reachable executable call', output)
+
+    def test_alias_of_a_module_function_covers_the_named_function(self):
+        steps = 'Call `requiredHelper(value)`.'
+        candidate = (
+            'def requiredHelper(value):\n'
+            '    return value\n'
+            '\n'
+            'def generate():\n'
+            '    helper = requiredHelper\n'
+            '    return helper(1)\n')
+
+        result, output = self.run_checker(steps, candidate)
+
+        self.assertEqual(result, 0, output)
+
+    def test_alias_call_reaches_the_body_of_the_aliased_method(self):
+        steps = 'Call `sketch.requiredFusionCall()`.'
+        candidate = (
+            'class Gear:\n'
+            '    def helper(self):\n'
+            '        return sketch.requiredFusionCall()\n'
+            '    def generate(self):\n'
+            '        run = self.helper\n'
+            '        return run()\n')
+
+        result, output = self.run_checker(steps, candidate)
+
+        self.assertEqual(result, 0, output)
 
 
 class CheckApiCallsTest(unittest.TestCase):
@@ -649,11 +785,11 @@ class CheckCompileTest(unittest.TestCase):
             os.chdir(root)
             self.assertEqual(
                 COMPILE_CHECKER.proof_paths(
-                    '`[GO]` marks the proof in `proof/spurgear/spurgear_test.go`.'),
-                ['proof/spurgear/spurgear_test.go'])
+                    '`[GO]` marks the proof in `proof/spurgear/solids_test.go`.'),
+                ['proof/spurgear/solids_test.go'])
             self.assertTrue(
                 COMPILE_CHECKER.proof_path_is_tracked_or_committed(
-                    'proof/spurgear/spurgear_test.go'))
+                    'proof/spurgear/solids_test.go'))
         finally:
             os.chdir(prior)
 
@@ -673,6 +809,11 @@ class WorkflowGateWiringTest(unittest.TestCase):
                 'check_step_calls.py spec/spurgear/steps.md .tmp/spurgear.generated.py',
                 'check_api_calls.py .tmp/spurgear.generated.py'):
             self.assertIn(gate, workflow)
+
+        # The checker regression tests run as one discovery pass, so adding a
+        # test file needs no workflow edit and cannot be forgotten.
+        self.assertIn(
+            "unittest discover -s .claude/skills/generate-gear -p 'test_*.py'", workflow)
 
         self.assertIn('FUSION_QUERY_API', workflow)
         self.assertIn('FUSION_API_STUBS', workflow)

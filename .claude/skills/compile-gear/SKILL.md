@@ -37,6 +37,14 @@ registering its parameters, visibility and cleanup, and any solid operation `dec
 represent. `[PROSE]` says something about the harnesses, not about the dimension. A 3D step whose
 shape `decad` can build is `[GO]` like any other.
 
+A boundary the harness refuses is not by itself a `[PROSE]` verdict. Substitute geometry the
+harness does accept — chord a curve the harness will not trim, draw a split the engine will not
+perform — and assert what the substitute still pins, saying in the proof what was substituted and
+what the substitution costs. Only a step no substitute reaches is `[PROSE]`, and then the proof
+file records that, next to the nearest thing it does build, with the reason. That record is what
+`CLAUDE.md` asks for, and it belongs in the proof rather than only in the step list, because the
+proof is where the next reader is looking for the missing check.
+
 ## Procedure
 
 1. **Setup.** Work in a worktree, never the root checkout. Ensure `.tmp/` exists. Read this file,
@@ -65,6 +73,16 @@ shape `decad` can build is `[GO]` like any other.
    provenance hashes. It also prints the spec lines no step claims, and every call on the
    unverified watchlist the step list makes; both are worth reading and neither gates.
 
+   Then, **only if `lib/geargen/<gear>.py` already exists**, run
+   `python3 .claude/skills/generate-gear/check_step_calls.py spec/<gear>/steps.md
+   lib/geargen/<gear>.py`. That gate runs in CI against the checked-in module, so a recompiled step
+   list that disagrees with it breaks the build even though both other checks are green. Read its
+   output as a list of call names to classify, and pass only the names back to the drafter: a name
+   the step list mentions without requiring takes the exemption directive, and a call the module
+   genuinely fails to make is work for `/emit-gear`, not for this stage. Never hand the drafter
+   anything the module does or does not contain, and never let it read the module — the pipeline
+   has to be able to compile a gear that has no implementation yet.
+
 6. **Diagnose and loop.** Classify any failure with the table below. A draft fault goes back to
    step 3 with the failure text appended, up to about three rounds. A prose fault stops the run.
 
@@ -80,6 +98,7 @@ shape `decad` can build is `[GO]` like any other.
 | The proof fails to build | Draft fault |
 | A cited line range does not exist | Draft fault |
 | A step and its proof function disagree | Draft fault |
+| A step names a call the module is not required to make | Draft fault |
 | A named API call does not exist, and the spec did not name it | Draft fault |
 | A provenance hash does not match | Draft fault, or someone edited the spec mid-run |
 | **A named API call does not exist, and the spec named it** | **Prose fault** |
@@ -123,16 +142,31 @@ this skill: a compiler that rewrites its own source removes the thing being chec
 > geometry goes into it. So is each extrude, chamfer, pattern, combine, fillet. Write the step list
 > at that size, and keep the detail inside the step it belongs to.
 >
-> **The step list opens with a provenance table** of each file in the provenance input set owned by
-> `.claude/skills/generate-gear/check_compile.py`, with its `git hash-object` value, in a two-column
-> markdown table with both cells in backticks. The set covers the gear's `instructions.md`, its
-> `fusion.md` if present, the playbook, and existing auxiliary Markdown documents referenced by the
-> two spec files.
+> **The step list opens with one sentence naming the proof files**, above the provenance heading and
+> before any other section, written as the committed paths `proof/<gear>/<file>.go` even though you
+> are writing the files themselves to `.tmp/<gear>-proof/`, since the step list ships next to the
+> placed proof, not next to your scratch copy. A gate reads only the text above the provenance
+> heading for those paths and requires each one to exist and be committed, so a sentence written
+> below that heading, or one naming bare file names, leaves the gate with nothing to check.
+>
+> **Under the `## Provenance` heading comes the provenance table** of each file in the provenance
+> input set owned by `.claude/skills/generate-gear/check_compile.py`, with its `git hash-object`
+> value, in a two-column markdown table with both cells in backticks. The set covers the gear's
+> `instructions.md`, its `fusion.md` if present, the playbook, and existing auxiliary Markdown
+> documents referenced by the two spec files.
 >
 > **Each step carries** a heading of the form `## <id> `[GO]` <title>` or with `[PROSE]`, the
 > instructions themselves, a `**From:**` line naming the spec files and line ranges you compiled it
 > from, and every Fusion API call it requires written inside a code span. A `[GO]` step also names
 > the proof function that realises it.
+>
+> **A call span in a step is a call the module must make.** A later gate reads every call written
+> in a code span and requires the generated module to make it. A name a step mentions without
+> requiring it therefore has to be marked: a method the module defines for the framework to call, a
+> call named only to forbid it, and one of several alternatives the spec lets the implementation
+> choose between are all mentions, not requirements. Mark each with the exemption directive on its
+> own line in the step that mentions it, `<!-- check-step-calls: ignore nameOne nameTwo -->`, and
+> say in the step's prose why the mention is not a requirement.
 >
 > **Before naming any `adsk.*` call**, ask the `fusion:query-api` skill about it. Two questions
 > carry most of the work: `members <Class>` lists everything a class offers, inherited members
@@ -147,8 +181,33 @@ this skill: a compiler that rewrites its own source removes the thing being chec
 > matching what the step list names, and is passed as the build argument — the third — to a
 > `proofkit.Run`, `proofkit3d.Run`, `proofkit3d.RunSolid` or `proofkit3d.RunWithGate` call inside a
 > Go `Test` function. A build function under any other name, or one no `Test` reaches, is invisible
-> to the gate, and the step naming it fails the check. Each run takes a table of parameter cases,
-> one subtest each.
+> to the gate, and the step naming it fails the check. Write each run's arguments out one by one:
+> a run that forwards them from a single call, as in `proofkit3d.Run(runArgs(t))`, hides its build
+> argument from the gate and fails the check too. Each run takes a table of parameter cases, one
+> subtest each.
+>
+> **The case table reaches every branch, from every direction the spec offers.** A branch a step
+> takes needs a case on each side of it, and a branch the spec says is reachable in more than one
+> way needs a case for each way, because the ways differ in what they get wrong. Cover the ends of
+> every range the spec states for a parameter, negative values included wherever the spec says the
+> value is signed — a sign the scheme drops is still solvable at the positive value, so a table of
+> positive cases proves nothing about the sign. Where the spec names the regime the design must
+> hold across, that regime is the table.
+>
+> **Assert what the spec pins.** Where the spec fixes a fact a later step selects or matches on — a
+> curve count a profile search takes as its key, an edge or face count, an extent, a volume — the
+> proof asserts that fact on the geometry it actually built, in the step that produces it. Restating
+> the number in a comment is not proving it. Assert it against the real construction rather than
+> against a simplified stand-in drawn for the purpose, since the stand-in is the thing whose
+> agreement is in question.
+>
+> **A boundary a harness refuses is not permission to drop the step.** Substitute geometry the
+> harness does accept — chord a curve it will not trim, draw a split the engine will not perform —
+> and assert what the substitute still pins, saying in the proof what was substituted and what the
+> substitution costs. Only where no substitute survives the gate is the step `[PROSE]`, and then say
+> so **in the proof file**, next to the nearest thing the proof does build, with the reason it
+> cannot be reached. A limit recorded only in the step list is a limit the next reader of the proof
+> will not find.
 >
 > **A sketch step** builds through `proofkit.Run`, whose build function is
 > `func(t testing.TB, s *sketch.Sketch, p map[string]float64)`. Model what Fusion does: use

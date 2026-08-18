@@ -112,8 +112,10 @@ The spec + playbook together MUST be sufficient. If they are not, fix the spec o
      machine-readable manifest `spec/<gear>/contract.json`, run
      `python3 .claude/skills/generate-gear/check_contract.py spec/<gear>/contract.json
      .tmp/<gear>.generated.py` — it mechanically gates (exit 1 = BLOCKING) the manifest's classes,
-     bases, pinned methods, `ctx` fields, and module-level constants (the Python identifiers
-     dependents import AND their exact string values — the breakage class no other gate sees). The
+     bases, pinned methods, `ctx` fields, module-level constants (the Python identifiers
+     dependents import AND their exact string values — the breakage class no other gate sees), and
+     its `source_guards`, which pin the constraint recipes the spec chose over an alternative that
+     also solves, in the generated module and in the hand-written sources that teach it. The
      spec **prose** stays authoritative; the manifest mirrors its Contract sections, and a
      spec/manifest mismatch is a spec bug — fix both together. Prose-check whatever the manifest
      doesn't carry. (`spec/spurgear/contract.json` is the worked example; gears without a manifest

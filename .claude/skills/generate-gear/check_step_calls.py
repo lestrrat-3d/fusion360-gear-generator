@@ -15,7 +15,9 @@ checklist and there is nothing separate to keep in sync:
   1. NAMED-CALL COVERAGE. Every API call the step list names inside a code span must occur as an
      reachable executable call in the generated file. Dotted names require a reachable attribute call;
      bare names may be implemented as either a function or a method. A step the generator skipped
-     outright fails here.
+     outright fails here. A call made through a local alias of a method or function
+     (``pn = self.parameterName`` followed by ``pn(...)``) counts as a call to what the alias holds,
+     because that is the call the module actually makes.
 
   2. STUB MARKERS. Abandoned work leaves a fingerprint. Any TODO / FIXME / "would be" /
      "placeholder" / "not implemented" comment fails.
@@ -59,6 +61,26 @@ SHARE_CALL = re.compile(
     r'add(?:ByCenterRadius|ByTwoPoints)\(\s*([A-Za-z_][\w.]*)\s*,', re.S)
 
 
+# A newline that starts a new block: a blank line, a list item, a heading, a
+# table row, a quote. A newline that merely wraps a sentence is NOT one of
+# these, because where a Markdown paragraph wraps says nothing about where its
+# sentences end — and a "never call X" whose X wrapped to the next line used to
+# read as a plain requirement.
+BLOCK_BREAK = re.compile(r'\n(?=[ \t]*(?:\n|[-*+][ \t]|\d+[.)][ \t]|#{1,6}[ \t]|\||>))')
+
+
+def _last_block_break(text, before):
+    last = -1
+    for match in BLOCK_BREAK.finditer(text, 0, before):
+        last = match.start()
+    return last
+
+
+def _next_block_break(text, after):
+    match = BLOCK_BREAK.search(text, after)
+    return match.start() if match else -1
+
+
 def is_negative_call_span(steps_src, span_start, span_end):
     """Return whether a code span is used as a forbidden example."""
     context_start = max(
@@ -67,7 +89,7 @@ def is_negative_call_span(steps_src, span_start, span_end):
         steps_src.rfind('?', 0, span_start),
         steps_src.rfind(';', 0, span_start),
         steps_src.rfind(':', 0, span_start),
-        steps_src.rfind('\n', 0, span_start),
+        _last_block_break(steps_src, span_start),
     ) + 1
     context_end_candidates = [
         position for position in (
@@ -75,7 +97,7 @@ def is_negative_call_span(steps_src, span_start, span_end):
             steps_src.find('!', span_end),
             steps_src.find('?', span_end),
             steps_src.find(':', span_end),
-            steps_src.find('\n', span_end),
+            _next_block_break(steps_src, span_end),
         ) if position >= 0
     ]
     context_end = min(context_end_candidates, default=len(steps_src))
@@ -120,6 +142,7 @@ class ReachableCallCollector(ast.NodeVisitor):
         self.function_owners = {}
         self.owner_stack = []
         self.binding_stack = []
+        self.alias_stack = []
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 self.functions.setdefault(node.name, []).append(node)
@@ -237,9 +260,11 @@ class ReachableCallCollector(ast.NodeVisitor):
         self.visited.add(marker)
         self.owner_stack.append(self.function_owners.get(marker))
         self.binding_stack.append({})
+        self.alias_stack.append({})
         for default in (*node.args.defaults, *(default for default in node.args.kw_defaults if default)):
             self.visit(default)
         self.visit_statements(node.body)
+        self.alias_stack.pop()
         self.binding_stack.pop()
         self.owner_stack.pop()
 
@@ -247,6 +272,7 @@ class ReachableCallCollector(ast.NodeVisitor):
         if isinstance(node.func, ast.Name):
             self.calls.add((node.func.id, False))
             self.visit_local_name(node.func.id)
+            self.visit_aliased_call(node.func.id)
         elif isinstance(node.func, ast.Attribute):
             self.calls.add((node.func.attr, True))
             self.visit_local_method(node.func.attr, self.class_for_expression(node.func.value))
@@ -261,23 +287,68 @@ class ReachableCallCollector(ast.NodeVisitor):
     def visit_Assign(self, node):
         self.visit(node.value)
         assigned = self.class_for_expression(node.value)
-        if self.binding_stack:
-            for target in node.targets:
-                if isinstance(target, ast.Name):
-                    if assigned is None:
-                        self.binding_stack[-1].pop(target.id, None)
-                    else:
-                        self.binding_stack[-1][target.id] = assigned
+        alias = self.alias_target(node.value)
+        for target in node.targets:
+            if isinstance(target, ast.Name):
+                self.bind_local(target.id, assigned, alias)
 
     def visit_AnnAssign(self, node):
         if node.value:
             self.visit(node.value)
         assigned = self.class_for_expression(node.value) if node.value else None
-        if isinstance(node.target, ast.Name) and self.binding_stack:
+        alias = self.alias_target(node.value) if node.value else None
+        if isinstance(node.target, ast.Name):
+            self.bind_local(node.target.id, assigned, alias)
+
+    def bind_local(self, name, assigned, alias):
+        """Record what a local name now holds, forgetting whatever it held before.
+
+        Two independent facts travel with the name: the class an instance belongs to,
+        which resolves method receivers, and the call an alias stands for, which lets
+        ``pn = self.parameterName`` be followed through to ``pn(...)``. Rebinding the
+        name to anything else clears both, so a name that no longer holds a method
+        reference stops counting as a call to that method.
+        """
+        if self.binding_stack:
             if assigned is None:
-                self.binding_stack[-1].pop(node.target.id, None)
+                self.binding_stack[-1].pop(name, None)
             else:
-                self.binding_stack[-1][node.target.id] = assigned
+                self.binding_stack[-1][name] = assigned
+        if self.alias_stack:
+            if alias is None:
+                self.alias_stack[-1].pop(name, None)
+            else:
+                self.alias_stack[-1][name] = alias
+
+    def alias_target(self, expression):
+        """Return the call an expression names without invoking it.
+
+        The result is ``(name, has_receiver, owner)``, matching the shape the coverage
+        gate compares against. Only a plain method or function reference qualifies:
+        ``self.parameterName``, another object's method, a module-level function, or a
+        local name already bound to one of those. A call result, a literal or any other
+        value is not an alias and returns None.
+        """
+        if isinstance(expression, ast.Attribute):
+            return (expression.attr, True, self.class_for_expression(expression.value))
+        if isinstance(expression, ast.Name):
+            if self.alias_stack and expression.id in self.alias_stack[-1]:
+                return self.alias_stack[-1][expression.id]
+            if expression.id in self.functions:
+                return (expression.id, False, None)
+        return None
+
+    def visit_aliased_call(self, name):
+        """Count a call through a local alias as a call to what the alias holds."""
+        alias = self.alias_stack[-1].get(name) if self.alias_stack else None
+        if alias is None:
+            return
+        target, has_receiver, owner = alias
+        self.calls.add((target, has_receiver))
+        if has_receiver:
+            self.visit_local_method(target, owner)
+        else:
+            self.visit_local_name(target)
 
     def class_for_expression(self, expression):
         if isinstance(expression, ast.Name):

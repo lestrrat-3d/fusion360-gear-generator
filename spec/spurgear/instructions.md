@@ -189,6 +189,42 @@ before any Fusion code is generated — the sketch-first gate `[PB-SKETCH-FIRST]
 executable check that these rules add up to a fully-constrained sketch; run it (`./run.sh`) when
 changing any of them.
 
+**The scheme is parametric, and the regime it has to hold across is part of the design.** Proving
+one gear proves nothing about the next one, so a check of these rules sweeps the regime below.
+Each item is here because the scheme fails differently outside it. A check that cannot reach part
+of the regime says which part and why, next to the thing it cannot reach — the bench's own
+excluded case is its `Scope` note, and its ill-conditioning finding is why that exclusion stands.
+
+- **Size.** Several `Module` and `Tooth Number` pairs, coarse and fine, because the rib chain's
+  dimensions scale with the tooth and the conditioning of the system does not.
+- **The whole signed range of the `angle` argument.** `draw(anchorPoint, angle)` is called at 0 by
+  spur, at the user's Helix Angle by helical and herringbone — which is **negative for a left-hand
+  helix**, and the dialog input accepts a negative value — and at 180° by the bevel virtual tooth.
+  A **negative** angle has to be swept alongside a positive one: the confirming angular dimension
+  `[SPUR-F-ROTATE-CONFIRM]` carries the sign, so a scheme that drops or flips it still solves at
+  `+angle` and comes out mirrored at `−angle`. Sweep a quarter turn as well, where `|sin| > |cos|`
+  swaps which axis the rib and chain dimensions take (`[SPUR-F-RIBS]`).
+- **The rib count.** One rib, one across-spine dimension and one chain dimension exist **per
+  involute sample**, so `Involute Steps` sets how many constraints the sketch carries. The scheme
+  has to hold at the low end of that count as well as at the standard 15 — a handful of samples is
+  the case where a single missing or redundant dimension is a large fraction of the system.
+- **Both routes into the embedded shape.** The profile is embedded when the base circle falls
+  inside the root circle, which by the formulas above is `Tooth Number · (1 − cos(Pressure Angle))
+  > 2.5`. Either factor can carry it: a **high tooth count** at the ordinary 20° pressure angle,
+  or a **moderate tooth count at a large pressure angle**. Reach it both ways. The two arrive at
+  the same missing-stub geometry through different terms, and a derivation that fixes one factor
+  gets the branch wrong for the other.
+
+**The Gear Profile sketch closes exactly two regions, and their curve counts are a contract.** The
+tooth section and the disc inside the root circle are what the two extrude steps consume, and each
+is found by matching the count of curves that bound it (step 7 and step 9 below spell the counts
+out, and `find_profile_by_curve_counts` matches on nothing else). Both loops exist only because the
+tooth meets the root circle and splits it in two, at the ends of the flank-to-root lines or, in the
+embedded case, where the flanks themselves cross it. A sketch that closes neither region, or closes
+them with different counts, is therefore a broken *sketch* and not a later step's problem, and a
+check of this scheme counts the curves on the two loops of the sketch it actually drew rather than
+on a simplified stand-in.
+
 - **Sketches follow the user's anchor through a projection chain.** The Tools-sketch projection of
   the anchor is the canonical handle; later sketches re-project it so the whole gear tracks the
   anchor if it moves — see `[SPUR-F-ANCHOR-CHAIN]`.
