@@ -214,10 +214,11 @@ class CheckCompileTest(unittest.TestCase):
             'assertSolid)\n'
             '}\n')
 
-        registered, misnamed = COMPILE_CHECKER.registered_step_functions(src)
+        registered, misnamed, unreadable = COMPILE_CHECKER.registered_step_functions(src)
 
         self.assertEqual(registered, {'stepSolid'})
         self.assertEqual(misnamed, [])
+        self.assertEqual(unreadable, [])
 
     def test_build_argument_expression_is_labelled_on_one_line(self):
         src = (
@@ -227,12 +228,91 @@ class CheckCompileTest(unittest.TestCase):
             '    }, assertSolid)\n'
             '}\n')
 
-        registered, misnamed = COMPILE_CHECKER.registered_step_functions(src)
+        registered, misnamed, unreadable = COMPILE_CHECKER.registered_step_functions(src)
 
         self.assertEqual(registered, set())
+        self.assertEqual(unreadable, [])
         self.assertEqual(len(misnamed), 1)
         self.assertNotIn('\n', misnamed[0])
         self.assertTrue(misnamed[0].startswith('func(t *testing.T) []*decad.Body {'))
+
+    # A run whose argument list the parse cannot read to the build slot is reported, because
+    # such a run can compile: Go lets one multi-value call supply a whole argument list, so
+    # proofkit3d.Run(runArgs(t)) vets clean and still parses to a single argument here.
+    # Skipping it silently would let its build argument escape the step<Title> check.
+
+    def test_multi_value_forwarded_run_is_blocking(self):
+        proof_body = self.solid_proof('proofkit3d.Run(runArgs(t))')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 1)
+        self.assertIn(
+            'proof/gear/proof_test.go runs proofkit3d.Run(runArgs(t)), whose arguments could '
+            'not be read, so its build argument cannot be checked', output)
+
+    def test_multi_value_forwarded_2d_run_is_blocking(self):
+        proof_body = (
+            'func TestOne(t *testing.T) {\n'
+            '    proofkit.Run(t, cases(gear{name: "one"}), stepOne)\n'
+            '}\n\n'
+            'func TestTwo(t *testing.T) {\n'
+            '    proofkit.Run(runArgs(t))\n'
+            '}\n\n'
+            'func stepOne() {}\n')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 1)
+        self.assertIn('runs proofkit.Run(runArgs(t)), whose arguments could not be read', output)
+
+    def test_unclosed_run_call_is_reported_not_dropped(self):
+        """The argument list that never closes is reported too.
+
+        No Go source reaches this through the checker: a Test body is only read when its
+        delimiters nest, which already gives every open paren inside it a close. The branch
+        stays as the parse's own guard, and this test holds it to reporting rather than
+        skipping by making the paren lookup fail.
+        """
+        src = (
+            'func TestSolid(t *testing.T) {\n'
+            '    proofkit3d.Run(t, solidCases, stepSolid, assertSolid)\n'
+            '}\n')
+        real_match = COMPILE_CHECKER.matching_delimiter
+
+        def no_close_paren(text, start):
+            return None if text[start] == '(' else real_match(text, start)
+
+        with mock.patch.object(COMPILE_CHECKER, 'matching_delimiter', no_close_paren):
+            registered, misnamed, unreadable = COMPILE_CHECKER.registered_step_functions(src)
+
+        self.assertEqual(registered, set())
+        self.assertEqual(misnamed, [])
+        self.assertEqual(len(unreadable), 1)
+        self.assertTrue(unreadable[0].startswith('proofkit3d.Run(t, solidCases, stepSolid'))
+
+    def test_unreachable_unreadable_run_is_not_counted(self):
+        proof_body = self.solid_proof(
+            'if false {\n'
+            '        proofkit3d.Run(runArgs(t))\n'
+            '    }')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 0, output)
+        self.assertNotIn('could not be read', output)
+
+    def test_short_argument_list_is_reported_not_registered(self):
+        src = (
+            'func TestSolid(t *testing.T) {\n'
+            '    proofkit3d.Run(runArgs(t))\n'
+            '}\n')
+
+        registered, misnamed, unreadable = COMPILE_CHECKER.registered_step_functions(src)
+
+        self.assertEqual(registered, set())
+        self.assertEqual(misnamed, [])
+        self.assertEqual(unreadable, ['proofkit3d.Run(runArgs(t))'])
 
 
 if __name__ == '__main__':

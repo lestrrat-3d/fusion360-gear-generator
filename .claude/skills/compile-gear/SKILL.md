@@ -147,8 +147,10 @@ this skill: a compiler that rewrites its own source removes the thing being chec
 > matching what the step list names, and is passed as the build argument — the third — to a
 > `proofkit.Run`, `proofkit3d.Run`, `proofkit3d.RunSolid` or `proofkit3d.RunWithGate` call inside a
 > Go `Test` function. A build function under any other name, or one no `Test` reaches, is invisible
-> to the gate, and the step naming it fails the check. Each run takes a table of parameter cases,
-> one subtest each.
+> to the gate, and the step naming it fails the check. Write each run's arguments out one by one:
+> a run that forwards them from a single call, as in `proofkit3d.Run(runArgs(t))`, hides its build
+> argument from the gate and fails the check too. Each run takes a table of parameter cases, one
+> subtest each.
 >
 > **A sketch step** builds through `proofkit.Run`, whose build function is
 > `func(t testing.TB, s *sketch.Sketch, p map[string]float64)`. Model what Fusion does: use
