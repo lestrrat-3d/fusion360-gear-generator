@@ -142,11 +142,18 @@ this skill: a compiler that rewrites its own source removes the thing being chec
 > geometry goes into it. So is each extrude, chamfer, pattern, combine, fillet. Write the step list
 > at that size, and keep the detail inside the step it belongs to.
 >
-> **The step list opens with a provenance table** of each file in the provenance input set owned by
-> `.claude/skills/generate-gear/check_compile.py`, with its `git hash-object` value, in a two-column
-> markdown table with both cells in backticks. The set covers the gear's `instructions.md`, its
-> `fusion.md` if present, the playbook, and existing auxiliary Markdown documents referenced by the
-> two spec files.
+> **The step list opens with one sentence naming the proof files**, above the provenance heading and
+> before any other section, written as the committed paths `proof/<gear>/<file>.go` even though you
+> are writing the files themselves to `.tmp/<gear>-proof/`, since the step list ships next to the
+> placed proof, not next to your scratch copy. A gate reads only the text above the provenance
+> heading for those paths and requires each one to exist and be committed, so a sentence written
+> below that heading, or one naming bare file names, leaves the gate with nothing to check.
+>
+> **Under the `## Provenance` heading comes the provenance table** of each file in the provenance
+> input set owned by `.claude/skills/generate-gear/check_compile.py`, with its `git hash-object`
+> value, in a two-column markdown table with both cells in backticks. The set covers the gear's
+> `instructions.md`, its `fusion.md` if present, the playbook, and existing auxiliary Markdown
+> documents referenced by the two spec files.
 >
 > **Each step carries** a heading of the form `## <id> `[GO]` <title>` or with `[PROSE]`, the
 > instructions themselves, a `**From:**` line naming the spec files and line ranges you compiled it

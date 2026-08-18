@@ -1,5 +1,8 @@
 # Spur Gear — compiled step list
 
+The proof is `proof/spurgear/sketches_test.go`, `proof/spurgear/solids_test.go` and
+`proof/spurgear/geometry_test.go`, in package `spurgear_test`.
+
 ## Provenance
 
 | file | `git hash-object` |
@@ -8,8 +11,6 @@
 | `spec/spurgear/fusion.md` | `3e8b0b338e80a1199eb7eb95f9f004a6f0bb747d` |
 | `spec/helicalgear/fusion.md` | `83fac920272341e3c4584f16031478a69b7472e7` |
 | `.claude/skills/generate-gear/PLAYBOOK.md` | `e2d9d754012ed9e0e0306cd1327c36caac690f61` |
-
-The proof is `sketches_test.go`, `solids_test.go` and `geometry_test.go` in package `spurgear_test`.
 
 ## 0.1 `[PROSE]` Module surface — classes, constants and the call graph
 
@@ -451,8 +452,10 @@ the feature `Extrude tooth` and store the body as `ctx.toothBody`.
 The proof function is `stepExtrudeTooth`. Its case table sweeps module, tooth number and thickness,
 both sides of the embedded branch — which is what changes the curve count the search matches on —
 and a coarse involute sample count. It asserts the body spans exactly `Thickness` from the sketch
-plane, reaches out to the tip circle and no further, and reaches in to the root circle and no
-further, which is the tooth section standing outside the disc.
+plane, reaches out to the tip circle and no further, and that its foot lands on the root circle
+itself, to the same tolerance as the tip. That is the tooth section standing outside the disc, and
+pinning the foot rather than only bounding it is what catches a tooth floating clear of the disc,
+which step 10 would then join into a notched or disjoint body.
 
 Substitution: the proof extrudes the same tooth with each flank chorded through the same involute
 samples, because `decad` refuses to record a profile boundary whose trim it cannot certify and the

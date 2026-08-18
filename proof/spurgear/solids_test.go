@@ -181,14 +181,21 @@ func assertExtrudeTooth(t *testing.T, doc *decad.Document, bodies []*decad.Body,
 	if math.Abs(bounds.Min.Z) > 1e-9 || math.Abs(bounds.Max.Z-g.thickness) > 1e-9 {
 		t.Errorf("tooth spans z %.9f..%.9f, want 0..%.9f", bounds.Min.Z, bounds.Max.Z, g.thickness)
 	}
-	// The tooth reaches the tip circle and stops at the root circle: it is the
-	// section outside the disc, and nothing of it lies inside the root radius.
+	// The tooth reaches the tip circle and its foot lands on the root circle: it
+	// is the section outside the disc, and it meets the disc exactly there. Both
+	// radii are pinned two-sided, because a foot merely outside the root circle
+	// is a tooth floating clear of the disc, and step 10's Combine-Join would
+	// leave a notch or a disjoint body instead of one gear. toothOutline closes
+	// both flanks on footRadius and joins them with an origin-centred arc, so
+	// the foot sits on the root radius by construction; measured across the
+	// case table the worst relative error is around 1e-16, ten orders inside
+	// the 1e-6 the tip already uses.
 	near, far := radialExtent(t, body)
 	if math.Abs(far-g.dims.Tip) > 1e-6*g.dims.Tip {
 		t.Errorf("tooth reaches radius %.6f, want the tip circle's %.6f", far, g.dims.Tip)
 	}
-	if near < g.dims.Root-1e-6*g.dims.Root {
-		t.Errorf("tooth reaches in to radius %.6f, inside the root circle's %.6f", near, g.dims.Root)
+	if math.Abs(near-g.dims.Root) > 1e-6*g.dims.Root {
+		t.Errorf("tooth foot sits at radius %.6f, want the root circle's %.6f", near, g.dims.Root)
 	}
 	volume, err := body.Volume()
 	if err != nil {

@@ -315,5 +315,55 @@ class CheckCompileTest(unittest.TestCase):
         self.assertEqual(unreadable, ['proofkit3d.Run(runArgs(t))'])
 
 
+class CommittedStepListProofPathsTest(unittest.TestCase):
+    """The proof-path gate must have something to check on the real step lists.
+
+    `proof_paths` reads only the text above `## Provenance`, so a recompile that writes the
+    summary sentence below that heading, or that names bare file names instead of
+    `proof/<gear>/...`, leaves the gate scanning an empty slice and passing vacuously. The
+    synthetic-string tests elsewhere cannot see that, because they supply the sentence the
+    committed file is supposed to carry.
+    """
+
+    ROOT = Path(__file__).parents[3]
+
+    def step_lists(self):
+        paths = sorted((self.ROOT / 'spec').glob('*/steps.md'))
+        self.assertTrue(paths, 'no compiled step list found under spec/')
+        return paths
+
+    def test_every_committed_step_list_names_its_proof_files(self):
+        for path in self.step_lists():
+            with self.subTest(steps=str(path.relative_to(self.ROOT))):
+                named = COMPILE_CHECKER.proof_paths(path.read_text(encoding='utf-8'))
+
+                self.assertTrue(
+                    named,
+                    '%s names no proof path above ## Provenance, so the gate checks nothing'
+                    % path.relative_to(self.ROOT))
+                gear = path.parent.name
+                for proof_path in named:
+                    self.assertTrue(
+                        proof_path.startswith('proof/%s/' % gear),
+                        '%s points at %s, not the committed proof/%s/'
+                        % (path.relative_to(self.ROOT), proof_path, gear))
+
+    def test_every_named_proof_path_exists_and_is_committed(self):
+        prior = os.getcwd()
+        try:
+            os.chdir(self.ROOT)
+            for path in self.step_lists():
+                for proof_path in COMPILE_CHECKER.proof_paths(path.read_text(encoding='utf-8')):
+                    with self.subTest(proof=proof_path):
+                        self.assertTrue(
+                            os.path.isfile(proof_path),
+                            '%s does not exist' % proof_path)
+                        self.assertTrue(
+                            COMPILE_CHECKER.proof_path_is_tracked_or_committed(proof_path),
+                            '%s is not tracked or committed' % proof_path)
+        finally:
+            os.chdir(prior)
+
+
 if __name__ == '__main__':
     unittest.main()
