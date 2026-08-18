@@ -440,6 +440,118 @@ class CheckCompileTest(unittest.TestCase):
         self.assertEqual(misnamed, [])
         self.assertEqual(unreadable, [])
 
+    # Go scopes a local from the end of its own spec to the end of the block that contains
+    # it, so only a declaration whose block encloses the run can hide what that run registers.
+    LOCAL_DECLARATIONS = (
+        'var stepOne proofkit.Build = buildA',
+        'stepOne := buildA',
+    )
+
+    def test_local_that_does_not_enclose_the_run_leaves_it_registered(self):
+        shapes = {
+            'later in the same block': (
+                'func TestOne(t *testing.T) {\n'
+                '    proofkit.Run(t, spurCases(), stepOne)\n'
+                '    %s\n'
+                '    _ = stepOne\n'
+                '}\n'),
+            'earlier sibling block': (
+                'func TestOne(t *testing.T) {\n'
+                '    if true {\n'
+                '        %s\n'
+                '        _ = stepOne\n'
+                '    }\n'
+                '    proofkit.Run(t, spurCases(), stepOne)\n'
+                '}\n'),
+            'sibling blocks': (
+                'func TestOne(t *testing.T) {\n'
+                '    if true {\n'
+                '        %s\n'
+                '        _ = stepOne\n'
+                '    }\n'
+                '    if true {\n'
+                '        proofkit.Run(t, spurCases(), stepOne)\n'
+                '    }\n'
+                '}\n'),
+        }
+
+        for shape, template in shapes.items():
+            for declaration in self.LOCAL_DECLARATIONS:
+                with self.subTest(shape=shape, declaration=declaration):
+                    src = template % declaration
+
+                    registered, misnamed, unreadable = (
+                        COMPILE_CHECKER.registered_step_functions(src))
+
+                    self.assertEqual(registered, {'stepOne'})
+                    self.assertEqual(misnamed, [])
+                    self.assertEqual(unreadable, [])
+
+    def test_local_in_an_enclosing_block_still_makes_the_run_unreadable(self):
+        for declaration in self.LOCAL_DECLARATIONS:
+            with self.subTest(declaration=declaration):
+                src = (
+                    'func TestOne(t *testing.T) {\n'
+                    '    if true {\n'
+                    '        %s\n'
+                    '        proofkit.Run(t, spurCases(), stepOne)\n'
+                    '    }\n'
+                    '}\n') % declaration
+
+                registered, misnamed, unreadable = (
+                    COMPILE_CHECKER.registered_step_functions(src))
+
+                self.assertEqual(registered, set())
+                self.assertEqual(misnamed, [])
+                self.assertEqual(unreadable, ['stepOne'])
+
+    def test_loop_header_binding_covers_the_loop_body(self):
+        src = (
+            'func TestOne(t *testing.T) {\n'
+            '    for _, stepOne := range []proofkit.Build{buildA} {\n'
+            '        proofkit.Run(t, spurCases(), stepOne)\n'
+            '    }\n'
+            '}\n')
+
+        registered, misnamed, unreadable = COMPILE_CHECKER.registered_step_functions(src)
+
+        self.assertEqual(registered, set())
+        self.assertEqual(misnamed, [])
+        self.assertEqual(unreadable, ['stepOne'])
+
+    def test_loop_header_binding_ends_with_its_loop(self):
+        src = (
+            'func TestOne(t *testing.T) {\n'
+            '    for _, stepOne := range []proofkit.Build{buildA} {\n'
+            '        _ = stepOne\n'
+            '    }\n'
+            '    proofkit.Run(t, spurCases(), stepOne)\n'
+            '}\n')
+
+        registered, misnamed, unreadable = COMPILE_CHECKER.registered_step_functions(src)
+
+        self.assertEqual(registered, {'stepOne'})
+        self.assertEqual(misnamed, [])
+        self.assertEqual(unreadable, [])
+
+    # An if header that carries an init clause states a condition the reachability walk cannot
+    # read, so a run inside such a block is skipped before its build argument is judged. The
+    # scope the header binding gets is therefore checked on the bindings themselves.
+    def test_if_header_binding_is_scoped_to_the_block_it_opens(self):
+        body = (
+            '\n'
+            '    if stepOne := buildA; true {\n'
+            '        inside()\n'
+            '    }\n'
+            '    after()\n')
+
+        bindings = COMPILE_CHECKER.go_local_bindings(body, COMPILE_CHECKER.go_brace_pairs(body))
+
+        self.assertIn(
+            'stepOne', COMPILE_CHECKER.go_local_names_at(bindings, body.index('inside')))
+        self.assertNotIn(
+            'stepOne', COMPILE_CHECKER.go_local_names_at(bindings, body.index('after')))
+
     def test_grouped_var_local_build_argument_is_blocking(self):
         proof_body = (
             'func TestOne(t *testing.T) {\n'

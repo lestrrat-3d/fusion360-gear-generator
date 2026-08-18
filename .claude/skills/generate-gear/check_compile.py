@@ -559,35 +559,61 @@ def go_statement_ends_at_line(text):
     return re.search(r'(?:\w|[)\]}\'"]|\+\+|--)$', stripped) is not None
 
 
+def go_statement_end(body, start):
+    """Where the Go statement running from start stops, as written.
+
+    It stops at a `;`, at a line break whose last token can end a statement, or at the `}`
+    that closes the block the statement sits in, and only at the statement's own nesting
+    depth, so a composite literal or a wrapped initializer cannot end it early. A declaration
+    stops where the name it binds comes into scope, which is what this position is read for.
+    """
+    depth = 0
+    current = ''
+    for pos in range(start, len(body)):
+        ch = body[pos]
+        if ch in '([{':
+            depth += 1
+        elif ch in ')]}':
+            if depth == 0 and ch == '}':
+                return pos
+            depth -= 1
+        if depth == 0 and (ch == ';' or (ch == '\n' and go_statement_ends_at_line(current))):
+            return pos
+        current += ch
+    return len(body)
+
+
 def go_var_specs(body, start):
-    """The declaration specs of the var declaration at start, as written.
+    """The declaration specs of the var declaration at start, as (spec, end) pairs.
 
     One spec for a single `var` declaration, and one per declaration for a parenthesised
     block. Specs are cut at the block's own nesting depth, so a composite literal or a call in
     an initializer cannot split one, and only where Go would end the statement, so a wrapped
-    initializer cannot either.
+    initializer cannot either. Each end is where that spec stops in body, because a local is
+    in scope from the end of its own spec and not before it.
     """
     rest = body[start:]
     offset = len(rest) - len(rest.lstrip())
     if rest[offset:offset + 1] != '(':
-        return [rest]
+        return [(rest, go_statement_end(body, start))]
     closing = matching_delimiter(body, start + offset)
     if closing is None:
         return []
     specs = []
     current = ''
     depth = 0
-    for ch in body[start + offset + 1:closing]:
+    first = start + offset + 1
+    for index, ch in enumerate(body[first:closing]):
         if ch in '([{':
             depth += 1
         elif ch in ')]}':
             depth -= 1
         if depth == 0 and (ch == ';' or (ch == '\n' and go_statement_ends_at_line(current))):
-            specs.append(current)
+            specs.append((current, first + index))
             current = ''
             continue
         current += ch
-    specs.append(current)
+    specs.append((current, closing))
     return specs
 
 
@@ -595,8 +621,8 @@ def go_declared_names(spec):
     """The names one var declaration binds: the identifier list before the type and any `=`.
 
     Only the left-hand side, because a declaration's initializer may name a real step function,
-    and treating that name as a local would make a literal registration of it elsewhere in the
-    same function look unreadable.
+    and treating that name as a local would make a literal registration of it anywhere in that
+    declaration's own scope look unreadable.
     """
     match = re.match(r'\s*([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)', spec)
     if match is None:
@@ -604,10 +630,60 @@ def go_declared_names(spec):
     return re.findall(r'[A-Za-z_]\w*', match.group(1))
 
 
-def go_local_bindings(body):
-    """Every name a Go function body binds with := or var, as far as those two forms show.
+def go_enclosing_block_close(body, brace_pairs, pos):
+    """Where the innermost block containing pos closes, or the end of body when none does.
 
-    A build argument that is one of these is a local holding a build, not the name of one, so
+    body is a function body with its own braces already stripped, so a declaration at the top
+    level of the function is inside no pair and its block closes with the function.
+    """
+    close = len(body)
+    innermost = None
+    for opening, closing in brace_pairs.items():
+        if opening < pos <= closing and (innermost is None or opening > innermost):
+            innermost = opening
+            close = closing
+    return close
+
+
+def go_header_block_close(body, brace_pairs, pos):
+    """Where the block a statement header introduces closes, or None when none follows.
+
+    A `for` or `if` header is written in the enclosing block, but what it binds is scoped to
+    the block that header opens, so that block is what bounds it. The scan skips balanced
+    groups, and takes the first brace at the header's own depth that follows whitespace: gofmt
+    writes a space before a block's opening brace and none before a composite literal's, which
+    is what tells the block in `for _, build := range []proofkit.Build{stepOne} {` from the
+    literal in the same header.
+    """
+    depth = 0
+    while pos < len(body):
+        ch = body[pos]
+        if ch in '([':
+            depth += 1
+        elif ch in ')]':
+            depth -= 1
+        elif ch == '}':
+            return None
+        elif ch == '{':
+            if pos not in brace_pairs:
+                return None
+            if depth == 0 and pos > 0 and body[pos - 1].isspace():
+                return brace_pairs[pos]
+            pos = brace_pairs[pos]
+        pos += 1
+    return None
+
+
+def go_local_bindings(body, brace_pairs):
+    """Every name a Go function body binds with := or var, with the span where it is in scope.
+
+    Each binding is a (name, decl_end, block_close) triple, and it holds the name over
+    decl_end < position <= block_close, which is Go's own rule: a local is in scope from the
+    end of its own spec to the end of the innermost block containing that spec. Reading the
+    names alone made every binding cover the whole function, so a same-named declaration in a
+    later or a sibling block hid an outer literal registration.
+
+    A build argument that a binding holds is a local holding a build, not the name of one, so
     the gate cannot say which function the run builds with. Telling the two apart matters:
     calling a loop variable a misnamed build function sends a drafter to rename the wrong
     thing. A stray keyword swept up by the scan is harmless, because no build argument is
@@ -615,13 +691,32 @@ def go_local_bindings(body):
     and the ones inside a parenthesised block, or a run on a local declared in either shape
     would be read as a registration of a step function by that name.
     """
-    names = set()
+    bindings = []
     for match in re.finditer(r'([^\n;{}]*?):=', body):
-        names.update(re.findall(r'[A-Za-z_]\w*', match.group(1)))
+        names = re.findall(r'[A-Za-z_]\w*', match.group(1))
+        if re.match(r'\s*(?:else\s+)?(?:for|if|switch)\b', match.group(1)):
+            # A header binding sits outside the braces it belongs to, so its scope is the
+            # block the header opens and it starts at the := rather than at the header's end.
+            decl_end = match.end()
+            block_close = go_header_block_close(body, brace_pairs, decl_end)
+            if block_close is None:
+                block_close = go_enclosing_block_close(body, brace_pairs, decl_end)
+        else:
+            decl_end = go_statement_end(body, match.end())
+            block_close = go_enclosing_block_close(body, brace_pairs, decl_end)
+        bindings.extend((name, decl_end, block_close) for name in names)
     for match in re.finditer(r'\bvar\b', body):
-        for spec in go_var_specs(body, match.end()):
-            names.update(go_declared_names(spec))
-    return names
+        for spec, spec_end in go_var_specs(body, match.end()):
+            block_close = go_enclosing_block_close(body, brace_pairs, spec_end)
+            bindings.extend(
+                (name, spec_end, block_close) for name in go_declared_names(spec))
+    return bindings
+
+
+def go_local_names_at(bindings, pos):
+    """The names the function's local bindings hold at pos."""
+    return {name for name, decl_end, block_close in bindings
+            if decl_end < pos <= block_close}
 
 
 def go_build_argument_names_a_function(argument, local_names):
@@ -662,11 +757,14 @@ def registered_step_functions(src):
     unreadable = set()
     for _, body in go_func_bodies(src, r'Test[A-Z]\w*'):
         brace_pairs = go_brace_pairs(body)
-        local_names = go_local_bindings(body)
+        local_bindings = go_local_bindings(body, brace_pairs)
         for pattern, build_arg in PROOF_RUN_CALLS:
             for m in re.finditer(pattern, body):
                 if not go_call_is_reachable(body, m.start(), brace_pairs):
                     continue
+                # The run's own start, so a binding counts only where it is in scope for
+                # the whole call, and not one written inside the call's own arguments.
+                local_names = go_local_names_at(local_bindings, m.start())
                 open_paren = m.end() - 1
                 close_paren = matching_delimiter(body, open_paren)
                 if close_paren is None:
