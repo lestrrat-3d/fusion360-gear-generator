@@ -834,6 +834,26 @@ def go_bound_names(body):
 
     No position is recorded, because the chokepoint below asks only whether a name is bound
     somewhere in the body, never where.
+
+    `const` and `type` are deliberately NOT read, and that is a claim you can falsify rather
+    than a gap. Neither can occupy a build slot: every `PROOF_RUN_CALLS` entry points at slot
+    2, which is `proofkit.Build` or `proofkit3d.Build`, both func types. Go restricts constants
+    to boolean, rune, integer, float, complex and string, so `const stepOne proofkit.Build =
+    nil` is rejected as `invalid constant type`, and `const stepOne = 0` passed to a run is
+    rejected as `cannot use stepOne (untyped int constant 0) as proofkit.Build value`. A type
+    name is never an expression, so `type stepOne struct{}`, a `type stepOne = proofkit.Build`
+    alias and a func-typed declaration are all rejected as `stepOne (type) is not an
+    expression`. Checked against the real packages with go1.26.1.
+
+    Reading them would therefore add false failures and no soundness: the only step-named
+    `const` or `type` declarations that COMPILE are ones a run does not resolve against —
+    declared after the run, or in a sibling block — and in each the run's argument really is
+    the package-level step function, so counting it registered is the correct answer. The one
+    shape where such a name reaches a run's argument text is a conversion,
+    `stepOne(buildX)`, and that is already unreadable because it is not a bare identifier.
+
+    To falsify this, exhibit a `const` or `type` declaration that COMPILES as a build argument
+    and shadows a package-level step function. `go vet` deciding it is the whole test.
     """
     names = set()
     for match in re.finditer(r':=', body):
