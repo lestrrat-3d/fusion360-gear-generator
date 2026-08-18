@@ -892,33 +892,98 @@ def go_type_end(text, index):
     return index
 
 
-def go_func_literal_has_body(body, open_paren):
-    """Whether the `func` whose parameter list opens at open_paren is a literal with a body.
+def go_func_literal_body_start(body, open_paren):
+    """The index of the brace opening the body of the func whose list opens at open_paren.
 
-    A func TYPE binds nothing. `var handle func(arg stepType)`, `type handler func(arg
-    stepType)`, a func-typed struct field and a func type nested in another literal's
-    parameter list all write a parameter list that no body can read, so reading names out of
-    one collects identifiers that nothing in the file binds.
+    None when no brace follows the signature, which is what a func TYPE writes. A type binds
+    nothing. `var handle func(arg stepType)`, `type handler func(arg stepType)`, a func-typed
+    struct field and a func type nested in another literal's parameter list all write a
+    parameter list that no body can read, so reading names out of one collects identifiers
+    that nothing in the file binds.
 
     Requiring a body drops exactly those and excludes nothing that binds, because every func
     literal in Go has a body. What stands between the parameter list and that body is either
     nothing, a parenthesised result list, or one unparenthesised result type.
+
+    This test is local, so it can ask only whether a brace FOLLOWS the signature, never whose
+    brace it is. A func type written inside other type text is followed by a brace that opens
+    something else — the body of the literal whose result the type is, or a composite
+    literal's value — and this test accepts it. Whose brace it is depends on the text around
+    the match, so it is decided by the scan in `go_func_literal_parameter_lists`, which is
+    what callers wanting literals only must use.
     """
     closing = matching_delimiter(body, open_paren)
     if closing is None:
-        return False
+        return None
     index = go_skip_line_space(body, closing + 1)
     if body[index:index + 1] == '(':
         results = matching_delimiter(body, index)
         if results is None:
-            return False
+            return None
         index = go_skip_line_space(body, results + 1)
     elif body[index:index + 1] not in ('{', ''):
         index = go_type_end(body, index)
         if index is None:
-            return False
+            return None
         index = go_skip_line_space(body, index)
-    return body[index:index + 1] == '{'
+    return index if body[index:index + 1] == '{' else None
+
+
+def go_element_type_bracket_before(body, keyword):
+    """Whether the `func` keyword at keyword is the element type of a bracketed type.
+
+    `[]func(arg stepType)`, `[2]func(arg stepType)` and `map[string]func(arg stepType)` all
+    write a func TYPE, and all three announce it the same way: with the `]` that closes their
+    brackets standing immediately before the `func`. Go writes no expression that puts a `]`
+    there, so the character decides it, and it is the only character that can — a func literal
+    in expression position follows an operator, a delimiter, a keyword, or nothing.
+
+    Only spaces and tabs are crossed looking back, never a line break. A statement ending in
+    `]` on the line above says nothing about the `func` opening the next one, and gofmt writes
+    the bracketed type and its element type together on one line.
+    """
+    index = keyword - 1
+    while index >= 0 and body[index] in ' \t':
+        index -= 1
+    return index >= 0 and body[index] == ']'
+
+
+def go_func_literal_parameter_lists(body):
+    """Every func LITERAL's parameter list in body, as open-paren indexes in source order.
+
+    A `func(` match is a literal only when it opens one. The same characters write a func TYPE
+    inside larger type text, where the brace `go_func_literal_body_start` finds belongs to
+    something else, and a type binds nothing anywhere in the program. Two shapes reach it:
+
+      1. A result type. In `factory := func() func(arg stepType) {`, the returned type's own
+         parameter list is followed by the OUTER literal's body brace.
+      2. A bracketed element type. In `table := []func(arg stepType){}`, the parameter list is
+         followed by the composite literal's value brace.
+
+    Neither is decidable from the brace, and both are decidable from the scan. A literal's
+    result type runs from its parameter list to its body brace, so every match inside that
+    span is type text, and the scan runs in source order, which puts the enclosing literal's
+    span in hand before the matches it covers. Case 2 is decided by the bracket that precedes
+    the keyword.
+
+    What this does NOT decide is scope. A func literal nested in another one is a literal, and
+    its parameters are collected, because the chokepoint below asks only whether a name is
+    bound somewhere in the body. That conservative reading is the design, not an oversight.
+    """
+    open_parens = []
+    type_spans = []
+    for match in re.finditer(r'\bfunc\s*\(', body):
+        if any(start <= match.start() < end for start, end in type_spans):
+            continue
+        if go_element_type_bracket_before(body, match.start()):
+            continue
+        open_paren = match.end() - 1
+        brace = go_func_literal_body_start(body, open_paren)
+        if brace is None:
+            continue
+        open_parens.append(open_paren)
+        type_spans.append((matching_delimiter(body, open_paren) + 1, brace))
+    return open_parens
 
 
 def go_signature_groups(text):
@@ -1051,10 +1116,8 @@ def go_bound_names(body):
     for match in re.finditer(r'\bvar\b', body):
         for spec in go_var_specs(body, match.end()):
             names.update(go_declared_names(spec))
-    for match in re.finditer(r'\bfunc\s*\(', body):
-        open_paren = match.end() - 1
-        if go_func_literal_has_body(body, open_paren):
-            names.update(go_signature_names(body, open_paren))
+    for open_paren in go_func_literal_parameter_lists(body):
+        names.update(go_signature_names(body, open_paren))
     return names
 
 

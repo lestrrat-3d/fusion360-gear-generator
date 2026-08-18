@@ -1839,6 +1839,12 @@ SIGNATURE_SHAPES = (
 # exactly that. The third is the same in a `var` declaration. The fourth is the other side of
 # the restriction: a literal whose single result is written without parentheses is still a
 # literal, and dropping it would lose a real parameter name, which is the silent failure.
+#
+# The last two rows are the audited fixtures for the two positions where a following brace hides
+# a func type: the RESULT type of an enclosing literal, where the brace standing after the type
+# opens that literal's body, and the element type of a composite literal, where it opens the
+# literal's value. A local test at the parameter list sees a brace in both and cannot say whose
+# it is, so the scan over the whole body decides it.
 SCAN_ANCHORS = (
     Signature(
         'type handler func(arg stepType)', frozenset(), frozenset(),
@@ -1861,6 +1867,41 @@ SCAN_ANCHORS = (
         '\tcall := func(arg stepType) error {\n' + RUN + '\t\treturn nil\n\t}\n\t_ = call\n',
         '\tcall := func(stepOne stepType) error {\n' + BOUND_RUN
         + '\t\treturn nil\n\t}\n\t_ = call\n'),
+    Signature(
+        'func() func(arg stepType), a result type', frozenset(), frozenset({'call'}),
+        '\tcall := func() func(stepOne stepType) {\n'
+        '\t\treturn nil\n\t}\n\t_ = call\n'
+        '\tproofkit.Run(t, spurCases(), stepOne)\n',
+        '\tcall := func(stepOne stepType) func(arg stepType) {\n' + BOUND_RUN
+        + '\t\treturn nil\n\t}\n\t_ = call\n'),
+    Signature(
+        '[]func(arg stepType){}, an element type', frozenset(), frozenset({'table'}),
+        '\ttable := []func(stepOne stepType){}\n\t_ = table\n'
+        '\tproofkit.Run(t, spurCases(), stepOne)\n',
+        '\tcall := func(stepOne stepType) {\n'
+        '\t\ttable := []func(arg stepType){}\n\t\t_ = table\n' + BOUND_RUN
+        + '\t}\n\tcall(0)\n'),
+)
+
+# The chokepoint working as designed, and a fixture so the next reader meets it as a decision.
+#
+# The inner literal below is a real func literal and `stepOne` is a real binding of it, in a
+# scope the Test body cannot reach. This gate tracks no scope by construction — that is what
+# ended the four rounds of header-shape repairs recorded above the chokepoint — so it reads the
+# name as bound and reports the run unreadable. The verdict is a false failure, which is the
+# price this design pays deliberately, and it is the correct verdict for this gate.
+#
+# It sits one keyword apart from the result-type row above: there the same parameter list stands
+# in a TYPE, which binds nothing anywhere in the program, and the run must register. Separating
+# those two is the whole of that fix, so this row is what pins the half that must NOT move.
+ScopeBlind = collections.namedtuple('ScopeBlind', 'shape binds body')
+
+SCOPE_BLIND_SHAPES = (
+    ScopeBlind(
+        'a literal returned by a literal', frozenset({'call', 'stepOne'}),
+        '\tcall := func() func(arg stepType) {\n'
+        '\t\treturn func(stepOne stepType) {}\n\t}\n\t_ = call\n'
+        '\tproofkit.Run(t, spurCases(), stepOne)\n'),
 )
 
 # The Go package the shapes are compiled in. `stepType` is the package-level type whose name the
@@ -1895,14 +1936,12 @@ FIXTURE_TEST_HEADER = (
     ')\n')
 
 
-class SignatureShapeTest(unittest.TestCase):
-    """The signature matrix, in both directions, against real Go.
+class GoBodyFixtureTest(unittest.TestCase):
+    """What reads the fixture bodies above, shared by the tables that hold them.
 
-    Every source here is a Test body the gate reads and a Go compiler accepts, so a shape that
-    only looks like Go cannot pass as evidence.
+    The gate reads each body, and gofmt and `go vet` read it too, so a shape that only looks
+    like Go cannot pass as evidence here.
     """
-
-    SHAPES = SIGNATURE_SHAPES + SCAN_ANCHORS
 
     def source(self, body):
         return 'func TestOne(t *testing.T) {\n' + body + '}\n'
@@ -1925,6 +1964,64 @@ class SignatureShapeTest(unittest.TestCase):
         reason = unreadable[0][1]
         return LOCAL if reason.startswith(LOCAL_STEP_PREFIX) else reason
 
+    def assert_gofmt_writes_every_source(self, labelled_bodies):
+        """gofmt itself, not a guess at it.
+
+        A shape gofmt would reformat is a shape no drafter would commit, and a table of those
+        proves nothing about the proofs this gate reads.
+        """
+        if shutil.which('gofmt') is None:
+            self.skipTest('gofmt is not on PATH')
+        for label, body in labelled_bodies:
+            with self.subTest(shape=label):
+                src = 'package proof\n\n' + self.source(body)
+
+                formatted = subprocess.run(
+                    ['gofmt'], input=src, capture_output=True, text=True, check=True)
+
+                self.assertEqual(formatted.stdout, src)
+
+    def assert_every_source_compiles_and_vets(self, labelled_bodies):
+        """One `go vet` over every body given, in one package the compiler type-checks.
+
+        A shape that does not compile is not a shape the gate can ever meet, so pinning the
+        gate's reading of one would pin a reading of nothing. Vetting them together is also how
+        a matrix's two directions stay honest: the bound direction has to keep the same shape
+        and change only the name, and a rename that does not type-check fails here.
+        """
+        if shutil.which('go') is None:
+            self.skipTest('go is not on PATH')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'go.mod').write_text(FIXTURE_MODULE)
+            (root / 'proofkit').mkdir()
+            (root / 'proofkit' / 'proofkit.go').write_text(FIXTURE_PROOFKIT)
+            (root / 'proof').mkdir()
+            (root / 'proof' / 'support.go').write_text(FIXTURE_SUPPORT)
+            tests = [FIXTURE_TEST_HEADER]
+            for index, (_, body) in enumerate(labelled_bodies):
+                tests.append(self.source(body).replace(
+                    'func TestOne(', 'func TestShape%02d(' % index, 1))
+            (root / 'proof' / 'shapes_test.go').write_text('\n'.join(tests))
+            environment = dict(os.environ, GOWORK='off', GOTOOLCHAIN='local', GOFLAGS='-mod=mod')
+
+            vetted = subprocess.run(
+                ['go', 'vet', './...'], cwd=directory, env=environment,
+                capture_output=True, text=True)
+
+            self.assertEqual(vetted.returncode, 0, vetted.stderr)
+
+
+class SignatureShapeTest(GoBodyFixtureTest):
+    """The signature matrix, in both directions, against real Go."""
+
+    SHAPES = SIGNATURE_SHAPES + SCAN_ANCHORS
+
+    def labelled_bodies(self):
+        return [('%s, %s direction' % (shape.shape, direction), body)
+                for shape in self.SHAPES
+                for direction, body in (('type', shape.body), ('binding', shape.bound))]
+
     def test_every_shape_binds_exactly_the_required_names(self):
         for shape in self.SHAPES:
             with self.subTest(shape=shape.shape):
@@ -1942,53 +2039,40 @@ class SignatureShapeTest(unittest.TestCase):
                 self.assertEqual(self.outcome(shape.bound), LOCAL)
 
     def test_every_source_is_what_gofmt_writes(self):
-        """gofmt itself, not a guess at it.
-
-        A shape gofmt would reformat is a shape no drafter would commit, and a matrix of those
-        proves nothing about the proofs this gate reads.
-        """
-        if shutil.which('gofmt') is None:
-            self.skipTest('gofmt is not on PATH')
-        for shape in self.SHAPES:
-            for direction, body in (('type', shape.body), ('binding', shape.bound)):
-                with self.subTest(shape=shape.shape, direction=direction):
-                    src = 'package proof\n\n' + self.source(body)
-
-                    formatted = subprocess.run(
-                        ['gofmt'], input=src, capture_output=True, text=True, check=True)
-
-                    self.assertEqual(formatted.stdout, src)
+        self.assert_gofmt_writes_every_source(self.labelled_bodies())
 
     def test_every_source_compiles_and_vets(self):
-        """One `go vet` over every shape, in one package the compiler type-checks.
+        self.assert_every_source_compiles_and_vets(self.labelled_bodies())
 
-        A shape that does not compile is not a shape the gate can ever meet, so pinning the
-        gate's reading of one would pin a reading of nothing. Vetting them together is also how
-        the two directions stay honest: the bound direction has to keep the same shape and
-        change only the name, and a rename that does not type-check fails here.
-        """
-        if shutil.which('go') is None:
-            self.skipTest('go is not on PATH')
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / 'go.mod').write_text(FIXTURE_MODULE)
-            (root / 'proofkit').mkdir()
-            (root / 'proofkit' / 'proofkit.go').write_text(FIXTURE_PROOFKIT)
-            (root / 'proof').mkdir()
-            (root / 'proof' / 'support.go').write_text(FIXTURE_SUPPORT)
-            tests = [FIXTURE_TEST_HEADER]
-            for index, shape in enumerate(self.SHAPES):
-                for direction, body in (('Type', shape.body), ('Binding', shape.bound)):
-                    tests.append(self.source(body).replace(
-                        'func TestOne(', 'func TestShape%02d%s(' % (index, direction), 1))
-            (root / 'proof' / 'shapes_test.go').write_text('\n'.join(tests))
-            environment = dict(os.environ, GOWORK='off', GOTOOLCHAIN='local', GOFLAGS='-mod=mod')
 
-            vetted = subprocess.run(
-                ['go', 'vet', './...'], cwd=directory, env=environment,
-                capture_output=True, text=True)
+class ScopeBlindShapeTest(GoBodyFixtureTest):
+    """The false failures the chokepoint is designed to take, pinned as such.
 
-            self.assertEqual(vetted.returncode, 0, vetted.stderr)
+    A shape here binds a `step<Title>` name in a scope the run cannot see, and the gate reports
+    the run unreadable anyway. That is the design and not a defect, so it is asserted rather
+    than left for a later reader to read as one and 'fix'.
+    """
+
+    SHAPES = SCOPE_BLIND_SHAPES
+
+    def labelled_bodies(self):
+        return [(shape.shape, shape.body) for shape in self.SHAPES]
+
+    def test_every_shape_binds_exactly_the_names_it_really_binds(self):
+        for shape in self.SHAPES:
+            with self.subTest(shape=shape.shape):
+                self.assertEqual(self.bound_names(shape.body), set(shape.binds))
+
+    def test_every_shape_stays_unreadable(self):
+        for shape in self.SHAPES:
+            with self.subTest(shape=shape.shape):
+                self.assertEqual(self.outcome(shape.body), LOCAL)
+
+    def test_every_source_is_what_gofmt_writes(self):
+        self.assert_gofmt_writes_every_source(self.labelled_bodies())
+
+    def test_every_source_compiles_and_vets(self):
+        self.assert_every_source_compiles_and_vets(self.labelled_bodies())
 
 
 class CommittedStepListProofPathsTest(unittest.TestCase):
