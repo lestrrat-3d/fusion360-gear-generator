@@ -649,11 +649,11 @@ class CheckCompileTest(unittest.TestCase):
             os.chdir(root)
             self.assertEqual(
                 COMPILE_CHECKER.proof_paths(
-                    '`[GO]` marks the proof in `proof/spurgear/spurgear_test.go`.'),
-                ['proof/spurgear/spurgear_test.go'])
+                    '`[GO]` marks the proof in `proof/spurgear/solids_test.go`.'),
+                ['proof/spurgear/solids_test.go'])
             self.assertTrue(
                 COMPILE_CHECKER.proof_path_is_tracked_or_committed(
-                    'proof/spurgear/spurgear_test.go'))
+                    'proof/spurgear/solids_test.go'))
         finally:
             os.chdir(prior)
 
