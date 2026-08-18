@@ -1,5 +1,5 @@
 {
-  "_comment": "Machine-readable mirror of the spec's contract sections, checked by .claude/skills/generate-gear/check_contract.py. The spec prose (instructions.md/fusion.md) is authoritative — a mismatch between this file and the spec is a spec bug; fix both together. Methods listed are the pinned public/hook surface (underscore-private decomposition stays free). module_constants pins the Python identifiers dependents import (helicalgear/herringbonegear) AND their exact string values.",
+  "_comment": "Machine-readable mirror of the spec's contract sections, checked by .claude/skills/generate-gear/check_contract.py. The spec prose (instructions.md/fusion.md) is authoritative — a mismatch between this file and the spec is a spec bug; fix both together. Methods listed are the pinned public/hook surface (underscore-private decomposition stays free). module_constants pins the Python identifiers dependents import (helicalgear/herringbonegear) AND their exact string values. source_guards pins the two constraint recipes the spec chose over an alternative that also solves — reverting either renames nothing, so nothing else here would see it.",
   "module": "lib/geargen/spurgear.py",
   "module_constants": {
     "INPUT_ID_PARENT": "parentComponent",
@@ -91,5 +91,45 @@
         "cleanup"
       ]
     }
-  }
+  },
+  "source_guards": [
+    {
+      "file": "lib/geargen/spurgear.py",
+      "in_function": "_drawFlankToRoot",
+      "why": "[SPUR-F-FLANK-ROOT]: the root endpoint is pinned by exactly two signed dimensions from the local origin. Constraining it onto the root circle, or the local origin onto the stub line, also reaches DOF 0 but leaves the far root-circle intersection equally valid, and the stub runs across the gear.",
+      "required": [
+        "addDistanceDimension\\(",
+        "DimensionOrientations\\.HorizontalDimensionOrientation",
+        "DimensionOrientations\\.VerticalDimensionOrientation",
+        "\\.parameter\\.value\\s*="
+      ],
+      "banned": ["addCoincident\\("]
+    },
+    {
+      "file": "lib/geargen/spurgear.py",
+      "in_function": "buildBore",
+      "why": "[SPUR-F-LOCAL-ORIGIN] and [PB-CIRCLE-CENTER]: the Bore Profile sketch's stray local origin is grounded on the anchor projected into that sketch, never on the sketch's own originPoint, which pins it to the plane instead of to the gear.",
+      "required": ["drawBore\\(", "addCoincident\\(", "\\.anchorPoint"],
+      "banned": ["originPoint"]
+    },
+    {
+      "file": "spec/spurgear/sketch/main.go",
+      "why": "The sketch bench is where [SPUR-F-FLANK-ROOT] was proven; it has to keep proving the recipe the generator is required to use.",
+      "required": [
+        "sketch\\.NewHorizontalDistance\\(origin, re, rx\\)",
+        "sketch\\.NewVerticalDistance\\(origin, re, ry\\)"
+      ],
+      "banned": ["NewPointOnCircle\\(re,", "NewPointOnLine\\(origin,"]
+    },
+    {
+      "file": "spec/spurgear/sketch/README.md",
+      "why": "The bench README is the constraint-by-constraint map a reader trusts; a stale row there sends the next generation back to the rejected recipe.",
+      "required": [
+        "flank-to-root lines: root endpoint pinned by signed",
+        "NewHorizontalDistance\\(origin, rootEnd, dx\\)",
+        "NewVerticalDistance\\(origin, rootEnd, dy\\)"
+      ],
+      "banned": ["root-end-on-circle", "origin-on-line"]
+    }
+  ]
 }

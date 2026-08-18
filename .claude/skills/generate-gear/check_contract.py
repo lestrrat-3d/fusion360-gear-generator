@@ -21,8 +21,24 @@ Manifest shape (all sections optional):
         "methods": ["generate", ...],    // must be defined in the class body
         "ctx_fields": ["plane", ...]     // self.<field> assigned in __init__
       }, ...
-    }
+    },
+    "source_guards": [                   // constraint recipes that must not drift back
+      {
+        "file": "lib/geargen/spurgear.py",
+        "in_function": "_drawFlankToRoot",   // optional; Python sources only
+        "why": "which spec anchor rejected the other recipe, and what it costs",
+        "required": ["regex", ...],          // each must match
+        "banned": ["regex", ...]             // none may match
+      }, ...
+    ]
   }
+
+A source guard pins a recipe the spec chose *against a named alternative that also solves* — the
+kind of decision no name-and-constant check can see, because reverting it renames nothing. Patterns
+are Python regexes. `file` is read relative to the repo root, except when it names the manifest's
+own `module`, where the candidate under test is read instead: the candidate is what a regeneration
+can revert. `in_function` narrows the search to one `def`'s source, so a pattern can ban a call
+outright inside the one place the recipe lives without banning it module-wide.
 
 Also checked, manifest-free (they need only the repo):
   * helper shadowing — the generated module must not re-define (def/class) a
@@ -38,6 +54,7 @@ Exit 0 = clean; exit 1 = at least one BLOCKING contract violation.
 import ast
 import json
 import os
+import re
 import sys
 
 HELPER_MODULES = ("utilities", "solids", "spurproxy")
@@ -76,6 +93,58 @@ def _ctx_fields(classnode):
                                 isinstance(t.value, ast.Name) and t.value.id == "self":
                             fields.append(t.attr)
     return fields
+
+
+def function_source(text, name):
+    """Source of the single top-level-or-nested `def name` in a Python file.
+
+    Returns None when the file holds no such def, and raises when it holds more
+    than one, since a guard scoped to an ambiguous name checks the wrong body.
+    """
+    found = []
+    for node in ast.walk(ast.parse(text)):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+            found.append(node)
+    if not found:
+        return None
+    if len(found) > 1:
+        raise ValueError("%d definitions of %s" % (len(found), name))
+    return ast.get_source_segment(text, found[0])
+
+
+def guard_problems(guards, gen_path, module_path, root):
+    """Check each source guard's required and banned patterns."""
+    problems = []
+    for guard in guards:
+        rel = guard["file"]
+        from_candidate = bool(module_path) and rel == module_path
+        path = gen_path if from_candidate else os.path.join(root, rel)
+        label = "%s (candidate %s)" % (rel, os.path.basename(gen_path)) if from_candidate else rel
+        if not os.path.isfile(path):
+            problems.append("  guard %s: file not found at %s" % (rel, path))
+            continue
+        with open(path, encoding="utf-8") as handle:
+            text = handle.read()
+        scope = guard.get("in_function")
+        if scope:
+            try:
+                text = function_source(text, scope)
+            except (SyntaxError, ValueError) as err:
+                problems.append("  guard %s: cannot isolate %s (%s)" % (label, scope, err))
+                continue
+            if text is None:
+                problems.append("  guard %s: no definition of %s" % (label, scope))
+                continue
+            label = "%s in %s" % (label, scope)
+        for pattern in guard.get("required", []):
+            if not re.search(pattern, text):
+                problems.append("  guard %s: required pattern %r no longer matches — %s"
+                                % (label, pattern, guard.get("why", "see the spec")))
+        for pattern in guard.get("banned", []):
+            if re.search(pattern, text):
+                problems.append("  guard %s: rejected pattern %r is back — %s"
+                                % (label, pattern, guard.get("why", "see the spec")))
+    return problems
 
 
 def main(manifest_path, gen_path, root="."):
@@ -151,14 +220,20 @@ def main(manifest_path, gen_path, root="."):
                             problems.append("  L%d: `from .%s import %s` — name not defined there"
                                             % (node.lineno, node.module, a.name))
 
+    # --- source guards: recipes the spec chose over a rejected alternative ---
+    guards = manifest.get("source_guards", [])
+    problems.extend(guard_problems(guards, gen_path, manifest.get("module"), root))
+
     if problems:
         print("contract check: %d BLOCKING violation(s) vs %s:"
               % (len(problems), os.path.relpath(manifest_path, root)))
         for p in problems:
             print(p)
         return 1
-    print("contract check: OK (%d constants, %d classes declared; shadowing/imports clean)"
-          % (len(manifest.get("module_constants", {})), len(manifest.get("classes", {}))))
+    print("contract check: OK (%d constants, %d classes, %d source guards declared; "
+          "shadowing/imports clean)"
+          % (len(manifest.get("module_constants", {})), len(manifest.get("classes", {})),
+             len(guards)))
     return 0
 
 

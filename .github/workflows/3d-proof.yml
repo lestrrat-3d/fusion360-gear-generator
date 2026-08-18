@@ -68,16 +68,8 @@ jobs:
         with:
           go-version-file: gears/proof/go.mod
 
-      - name: Run step-call checker regression tests
-        run: python3 .claude/skills/generate-gear/test_check_step_calls.py
-        working-directory: gears
-
-      - name: Run API checker regression tests
-        run: python3 .claude/skills/generate-gear/test_check_api_calls.py
-        working-directory: gears
-
-      - name: Run novel-type checker regression tests
-        run: python3 .claude/skills/generate-gear/test_check_novel_types.py
+      - name: Run checker regression tests
+        run: python3 -m unittest discover -s .claude/skills/generate-gear -p 'test_*.py'
         working-directory: gears
 
       - name: Run compile and generated-candidate gates

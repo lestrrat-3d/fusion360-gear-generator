@@ -59,6 +59,26 @@ SHARE_CALL = re.compile(
     r'add(?:ByCenterRadius|ByTwoPoints)\(\s*([A-Za-z_][\w.]*)\s*,', re.S)
 
 
+# A newline that starts a new block: a blank line, a list item, a heading, a
+# table row, a quote. A newline that merely wraps a sentence is NOT one of
+# these, because where a Markdown paragraph wraps says nothing about where its
+# sentences end — and a "never call X" whose X wrapped to the next line used to
+# read as a plain requirement.
+BLOCK_BREAK = re.compile(r'\n(?=[ \t]*(?:\n|[-*+][ \t]|\d+[.)][ \t]|#{1,6}[ \t]|\||>))')
+
+
+def _last_block_break(text, before):
+    last = -1
+    for match in BLOCK_BREAK.finditer(text, 0, before):
+        last = match.start()
+    return last
+
+
+def _next_block_break(text, after):
+    match = BLOCK_BREAK.search(text, after)
+    return match.start() if match else -1
+
+
 def is_negative_call_span(steps_src, span_start, span_end):
     """Return whether a code span is used as a forbidden example."""
     context_start = max(
@@ -67,7 +87,7 @@ def is_negative_call_span(steps_src, span_start, span_end):
         steps_src.rfind('?', 0, span_start),
         steps_src.rfind(';', 0, span_start),
         steps_src.rfind(':', 0, span_start),
-        steps_src.rfind('\n', 0, span_start),
+        _last_block_break(steps_src, span_start),
     ) + 1
     context_end_candidates = [
         position for position in (
@@ -75,7 +95,7 @@ def is_negative_call_span(steps_src, span_start, span_end):
             steps_src.find('!', span_end),
             steps_src.find('?', span_end),
             steps_src.find(':', span_end),
-            steps_src.find('\n', span_end),
+            _next_block_break(steps_src, span_end),
         ) if position >= 0
     ]
     context_end = min(context_end_candidates, default=len(steps_src))
