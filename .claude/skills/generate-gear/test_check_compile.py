@@ -1844,11 +1844,15 @@ SIGNATURE_SHAPES = (
 # the restriction: a literal whose single result is written without parentheses is still a
 # literal, and dropping it would lose a real parameter name, which is the silent failure.
 #
-# The last two rows are the audited fixtures for the two positions where a following brace hides
-# a func type: the RESULT type of an enclosing literal, where the brace standing after the type
-# opens that literal's body, and the element type of a composite literal, where it opens the
-# literal's value. A local test at the parameter list sees a brace in both and cannot say whose
-# it is, so the scan over the whole body decides it.
+# The fifth and sixth rows are the audited fixtures for the two positions where a following
+# brace hides a func type: the RESULT type of an enclosing literal, where the brace standing
+# after the type opens that literal's body, and the element type of a composite literal, where
+# it opens the literal's value. A local test at the parameter list sees a brace in both and
+# cannot say whose it is, so the scan over the whole body decides it. TYPE_TEXT_SHAPES below
+# takes the element-type position through every bracketed context it is written in.
+#
+# The last row is the other side of the pointer prefix that scan walks over, and it is here
+# rather than there because it is not type text at all.
 SCAN_ANCHORS = (
     Signature(
         'type handler func(arg stepType)', frozenset(), frozenset(),
@@ -1890,6 +1894,20 @@ SCAN_ANCHORS = (
         '\tcall := func(stepOne stepType) {\n'
         '\t\ttable := []func(arg stepType){}\n\t\t_ = table\n' + BOUND_RUN
         + '\t}\n\tcall(0)\n'),
+    # The half of the pointer prefix that must NOT move. `[]*func(arg stepType){}` is a func
+    # TYPE and this is a product whose right operand is an invoked literal, and the two are
+    # told apart by the space gofmt writes around a binary operator and never inside a pointer
+    # type. Reading this one as type text would drop a real parameter name, which is the
+    # direction that can leave a run counted when it should not be.
+    Signature(
+        'm[0] * func(arg stepType) int { ... }(0), a product', frozenset({'arg'}),
+        frozenset({'m'}),
+        '\tm := []int{1}\n'
+        '\t_ = m[0] * func(arg stepType) int { return 1 }(0)\n'
+        '\tproofkit.Run(t, spurCases(), stepOne)\n',
+        '\tm := []int{1}\n'
+        '\t_ = m[0] * func(stepOne stepType) int { return 1 }(0)\n'
+        '\tproofkit.Run(t, spurCases(), stepTwo)\n'),
 )
 
 # The chokepoint working as designed, and a fixture so the next reader meets it as a decision.
@@ -1911,6 +1929,67 @@ SCOPE_BLIND_SHAPES = (
         '\tcall := func() func(arg stepType) {\n'
         '\t\treturn func(stepOne stepType) {}\n\t}\n\t_ = call\n'
         '\tproofkit.Run(t, spurCases(), stepOne)\n'),
+)
+
+# A func TYPE written inside larger type text, in every context that announces itself with a
+# bracket, and one that announces itself with nothing.
+#
+# The element-type row in SCAN_ANCHORS covers one of these — a bracket standing directly in
+# front of the keyword. It is not the shape. The shape is a `func` keyword standing in TYPE
+# text, and the bracket is one of the ways it is announced: an element type can carry `*`,
+# `chan` or `<-chan` in front of its own keyword, and a bracketed element type can be a func
+# type whose RESULT is another func type, where the inner keyword has a `)` in front of it and
+# no bracket anywhere near.
+#
+# Seven of the twelve rows below were read as func literals: the parameter list of the type was
+# collected as a binding, `stepOne` came out bound in a Test body that binds nothing, and the
+# run built with the package-level `stepOne` was reported unreadable. The verdict was a false
+# failure, never a false pass, because a spuriously bound name can only send a run down the
+# chokepoint. The other five rows already read correctly and are here so a later change cannot
+# move them: four through the bracket test, and `chan func(...)` at the top of a var
+# declaration only because no brace follows it, which is an accident of that shape rather than
+# a decision anything makes.
+#
+# Every row is written twice, like the tables above: with the type's parameter named `stepOne`,
+# where the run must register because a type binds nothing, and with a real literal binding
+# `stepOne` around the same type, where the run must become unreadable.
+
+
+def type_text_row(type_text):
+    """A row whose two directions write `type_text` with its parameter named two ways.
+
+    The type direction writes it as the type of a composite literal, which is where a func
+    type standing in type text is followed by a brace and reads locally like a literal.
+    """
+    return Signature(
+        type_text % 'arg', frozenset(), frozenset({'f'}),
+        '\tf := %s\n\t_ = f\n' % (type_text % 'stepOne')
+        + '\tproofkit.Run(t, spurCases(), stepOne)\n',
+        '\tcall := func(stepOne stepType) {\n'
+        '\t\tf := %s\n\t\t_ = f\n' % (type_text % 'arg')
+        + BOUND_RUN + '\t}\n\tcall(0)\n')
+
+
+TYPE_TEXT_SHAPES = tuple(type_text_row(type_text) for type_text in (
+    '[]func(%s stepType){}',
+    'map[string]func(%s stepType){}',
+    '[2]func(%s stepType){}',
+    '[][]func(%s stepType){}',
+    '[]func() func(%s stepType){}',
+    'map[string]func() func(%s stepType){}',
+    '[2]func() func(%s stepType){}',
+    '[][]func() func(%s stepType){}',
+    '[]func(a stepType) func(%s stepType){}',
+    'map[string]chan func(%s stepType){}',
+    '[]*func(%s stepType){}',
+)) + (
+    Signature(
+        'chan func(arg stepType), declared with var', frozenset(), frozenset({'ch'}),
+        '\tvar ch chan func(stepOne stepType)\n\t_ = ch\n'
+        '\tproofkit.Run(t, spurCases(), stepOne)\n',
+        '\tcall := func(stepOne stepType) {\n'
+        '\t\tvar ch chan func(arg stepType)\n\t\t_ = ch\n' + BOUND_RUN
+        + '\t}\n\tcall(0)\n'),
 )
 
 # The Go package the shapes are compiled in. `stepType` is the package-level type whose name the
@@ -2078,6 +2157,17 @@ class SignatureShapeTest(GoBodyFixtureTest):
         self.assert_every_source_compiles_and_vets(self.labelled_bodies())
 
 
+class TypeTextShapeTest(SignatureShapeTest):
+    """The twelve-variant type-text table, read the same way the signature matrix is.
+
+    Every row's type direction has to bind nothing and register, and every row's bound
+    direction has to bind `stepOne` and stop the run, so the two halves of the rule are pinned
+    against the same Go the signature matrix is pinned against.
+    """
+
+    SHAPES = TYPE_TEXT_SHAPES
+
+
 class ScopeBlindShapeTest(GoBodyFixtureTest):
     """The false failures the chokepoint is designed to take, pinned as such.
 
@@ -2243,9 +2333,20 @@ class ReachedLiteralTest(ScrubbedBodyFixtureTest):
 # `Test[A-Z]\w*` left a run in a `Test_Profile` or `Test1` body reported as 'not inside a Go
 # Test function', which names the wrong thing to fix, since the Test was there and running.
 #
-# The rejected row is not vetted with the others: `go vet` refuses `Testing(t *testing.T)` as
-# a malformed name, and that refusal is asserted below rather than worked around, because it
-# is the evidence that the gate and Go draw the same line.
+# The rule is Unicode, and `[^a-z]` was the ASCII reading of it. `Testé`, `Testα`, `Testñ` and
+# `Testı` are not tests: `go vet` refuses each one with the same malformed-name error it gives
+# `Testing`, and `go test` runs none of them. Reading them as tests counted the runs in them as
+# registered, which is a false pass, so the four stand in the rejected table below with the
+# refusal asserted for each.
+#
+# `TestÉ` is the other side of the same rule and registers, because an upper-case letter is not
+# a lower-case one whatever alphabet it comes from. `Testʰ` is the row that separates Go's rule
+# from Python's `str.islower()`: U+02B0 is Other_Lowercase but category Lm, so Go runs it and
+# Python's own predicate would have called it lower and dropped it.
+#
+# The rejected rows are not vetted with the accepted ones: `go vet` refuses them, and that
+# refusal is asserted below rather than worked around, because it is the evidence that the gate
+# and Go draw the same line.
 TestName = collections.namedtuple('TestName', 'name verdict')
 
 TEST_FUNCTION_NAMES = (
@@ -2253,9 +2354,17 @@ TEST_FUNCTION_NAMES = (
     TestName('TestOne', REGISTERED),
     TestName('Test_Foo', REGISTERED),
     TestName('Test1', REGISTERED),
+    TestName('TestÉ', REGISTERED),
+    TestName('Testʰ', REGISTERED),
 )
 
-REJECTED_TEST_FUNCTION_NAME = TestName('Testing', UNREADABLE_OUTSIDE_TEST)
+REJECTED_TEST_FUNCTION_NAMES = (
+    TestName('Testing', UNREADABLE_OUTSIDE_TEST),
+    TestName('Testé', UNREADABLE_OUTSIDE_TEST),
+    TestName('Testα', UNREADABLE_OUTSIDE_TEST),
+    TestName('Testñ', UNREADABLE_OUTSIDE_TEST),
+    TestName('Testı', UNREADABLE_OUTSIDE_TEST),
+)
 
 
 class TestFunctionNameTest(GoBodyFixtureTest):
@@ -2278,28 +2387,183 @@ class TestFunctionNameTest(GoBodyFixtureTest):
             with self.subTest(name=name.name):
                 self.assertEqual(self.outcome(self.function(name.name)), name.verdict)
 
-    def test_the_rejected_name_leaves_the_run_outside_every_test(self):
-        rejected = REJECTED_TEST_FUNCTION_NAME
+    def test_every_rejected_name_leaves_the_run_outside_every_test(self):
+        for rejected in REJECTED_TEST_FUNCTION_NAMES:
+            with self.subTest(name=rejected.name):
+                self.assertEqual(self.outcome(self.function(rejected.name)), rejected.verdict)
 
-        self.assertEqual(self.outcome(self.function(rejected.name)), rejected.verdict)
+    def test_go_vet_rejects_every_name_the_gate_rejects(self):
+        """Go itself, not this table, is what says these names are no tests.
 
-    def test_go_vet_rejects_the_name_the_gate_rejects(self):
-        """Go itself, not this table, is what says `Testing` is no test."""
-        rejected = REJECTED_TEST_FUNCTION_NAME
+        One vet run per name, because a run over all of them together proves only that one of
+        them is malformed.
+        """
+        for rejected in REJECTED_TEST_FUNCTION_NAMES:
+            with self.subTest(name=rejected.name):
+                vetted = self.vet_sources([(rejected.name, self.function(rejected.name))])
 
-        vetted = self.vet_sources([(rejected.name, self.function(rejected.name))])
-
-        self.assertNotEqual(vetted.returncode, 0)
-        self.assertIn('malformed name', vetted.stderr)
+                self.assertNotEqual(vetted.returncode, 0)
+                self.assertIn('malformed name', vetted.stderr)
 
     def test_every_source_is_what_gofmt_writes(self):
         self.assert_gofmt_writes_every_source(
             self.labelled_bodies()
-            + [(REJECTED_TEST_FUNCTION_NAME.name,
-                self.function(REJECTED_TEST_FUNCTION_NAME.name))])
+            + [(rejected.name, self.function(rejected.name))
+               for rejected in REJECTED_TEST_FUNCTION_NAMES])
 
     def test_every_accepted_source_compiles_and_vets(self):
         self.assert_every_source_compiles_and_vets(self.labelled_bodies())
+
+
+# ---------------------------------------------------------------------------------------------
+# A build constraint on a proof file.
+#
+# `go test` never compiles a file its build constraint excludes, so a run written in one never
+# executes and registers nothing. The gate reads every `*_test.go` in the proof directory, and
+# the scrubber blanks the constraint along with every other comment before anything looks at
+# it, so a run parked behind `//go:build never` used to come back registered. That is a false
+# pass with no second line of defence: the proof runs green because Go skips the file, and the
+# gate says the step it holds is proven.
+#
+# Only the two never-build markers are honoured, which is the whole realistic case. The table
+# below pins that boundary in both directions, including the constraints that are read as if
+# the file compiled, so the gate's own documentation of what it honours is mechanical rather
+# than a claim.
+BuildConstraint = collections.namedtuple('BuildConstraint', 'shape header built')
+
+BUILD_CONSTRAINTS = (
+    BuildConstraint('no constraint', '', True),
+    BuildConstraint('//go:build never', '//go:build never\n\n', False),
+    BuildConstraint('//go:build ignore', '//go:build ignore\n\n', False),
+    BuildConstraint('//go:build linux', '//go:build linux\n\n', True),
+    BuildConstraint('//go:build !windows', '//go:build !windows\n\n', True),
+    BuildConstraint('//go:build never && linux', '//go:build never && linux\n\n', True),
+)
+
+# The legacy build line, which is not in the table because gofmt does not leave it standing: it
+# writes the `//go:build` form above it, and that form is honoured. The rewrite is asserted
+# below, so "the legacy spelling is not read" is a statement about a file no drafter can commit
+# rather than a hole in the rule.
+LEGACY_BUILD_LINE = '// +build never\n\n'
+
+CONSTRAINED_RUN = (
+    'func TestExcluded(t *testing.T) {\n'
+    '\tproofkit.Run(t, spurCases(), stepTwo)\n'
+    '}\n')
+
+UNCONSTRAINED_RUN = (
+    'func TestIncluded(t *testing.T) {\n'
+    '\tproofkit.Run(t, spurCases(), stepOne)\n'
+    '}\n')
+
+
+def constrained_file(header, body):
+    """A whole `_test.go` file: the constraint header, the package clause, then the body."""
+    return header + FIXTURE_TEST_HEADER + '\n' + body
+
+
+class BuildConstraintTest(unittest.TestCase):
+    """What a build constraint on a proof file does to the registrations read out of it."""
+
+    def registrations(self, files):
+        """`proof_registrations` over a directory holding exactly the files given."""
+        with tempfile.TemporaryDirectory() as directory:
+            for name, text in files:
+                (Path(directory) / name).write_text(text, encoding='utf-8')
+            found, misnamed, unreadable = COMPILE_CHECKER.proof_registrations(directory)
+            return found, misnamed, [(label, reason) for _, label, reason in unreadable]
+
+    def test_a_never_built_file_registers_nothing(self):
+        files = [('excluded_test.go', constrained_file('//go:build never\n\n', CONSTRAINED_RUN))]
+
+        self.assertEqual(self.registrations(files), (set(), [], []))
+
+    def test_an_unconstrained_file_still_registers(self):
+        files = [('proof_test.go', constrained_file('', UNCONSTRAINED_RUN))]
+
+        self.assertEqual(self.registrations(files), ({'stepOne'}, [], []))
+
+    def test_only_the_compiled_file_of_the_two_registers(self):
+        """Both in one directory, which is how the shape reaches a real proof."""
+        files = [
+            ('excluded_test.go', constrained_file('//go:build never\n\n', CONSTRAINED_RUN)),
+            ('proof_test.go', constrained_file('', UNCONSTRAINED_RUN)),
+        ]
+
+        self.assertEqual(self.registrations(files), ({'stepOne'}, [], []))
+
+    def test_every_constraint_is_honoured_or_read_as_the_table_says(self):
+        for constraint in BUILD_CONSTRAINTS:
+            with self.subTest(constraint=constraint.shape):
+                files = [('proof_test.go',
+                          constrained_file(constraint.header, UNCONSTRAINED_RUN))]
+
+                registered, _, _ = self.registrations(files)
+
+                self.assertEqual(registered, {'stepOne'} if constraint.built else set())
+
+    def test_a_constraint_below_the_package_clause_is_not_a_constraint(self):
+        """Go reads `//go:build` only above the package clause, and so does this."""
+        files = [('proof_test.go', constrained_file('', UNCONSTRAINED_RUN)
+                  + '\n// //go:build never\nfunc helper() {}\n')]
+
+        registered, _, _ = self.registrations(files)
+
+        self.assertEqual(registered, {'stepOne'})
+
+    def test_every_source_is_what_gofmt_writes(self):
+        if shutil.which('gofmt') is None:
+            self.skipTest('gofmt is not on PATH')
+        for constraint in BUILD_CONSTRAINTS:
+            with self.subTest(constraint=constraint.shape):
+                text = constrained_file(constraint.header, UNCONSTRAINED_RUN)
+
+                formatted = subprocess.run(
+                    ['gofmt'], input=text, capture_output=True, text=True, check=True)
+
+                self.assertEqual(formatted.stdout, text)
+
+    def test_gofmt_rewrites_the_legacy_build_line_into_the_honoured_one(self):
+        if shutil.which('gofmt') is None:
+            self.skipTest('gofmt is not on PATH')
+        text = constrained_file(LEGACY_BUILD_LINE, UNCONSTRAINED_RUN)
+
+        formatted = subprocess.run(
+            ['gofmt'], input=text, capture_output=True, text=True, check=True)
+
+        self.assertTrue(formatted.stdout.startswith('//go:build never\n// +build never\n'),
+                        formatted.stdout)
+        rewritten = [('proof_test.go', formatted.stdout)]
+        self.assertEqual(self.registrations(rewritten), (set(), [], []))
+
+    def test_go_test_runs_only_the_unconstrained_file(self):
+        """Go itself, not this table, is what says the excluded file never runs."""
+        if shutil.which('go') is None:
+            self.skipTest('go is not on PATH')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'go.mod').write_text(FIXTURE_MODULE)
+            (root / 'proofkit').mkdir()
+            (root / 'proofkit' / 'proofkit.go').write_text(FIXTURE_PROOFKIT)
+            (root / 'proof').mkdir()
+            (root / 'proof' / 'support.go').write_text(FIXTURE_SUPPORT)
+            (root / 'proof' / 'excluded_test.go').write_text(
+                constrained_file('//go:build never\n\n', CONSTRAINED_RUN))
+            (root / 'proof' / 'proof_test.go').write_text(
+                constrained_file('', UNCONSTRAINED_RUN))
+            environment = dict(os.environ, GOWORK='off', GOTOOLCHAIN='local', GOFLAGS='-mod=mod')
+
+            vetted = subprocess.run(
+                ['go', 'vet', './...'], cwd=directory, env=environment,
+                capture_output=True, text=True)
+            listed = subprocess.run(
+                ['go', 'test', '-list', '.*', './proof'], cwd=directory, env=environment,
+                capture_output=True, text=True)
+
+            self.assertEqual(vetted.returncode, 0, vetted.stderr)
+            self.assertEqual(listed.returncode, 0, listed.stderr)
+            self.assertIn('TestIncluded', listed.stdout)
+            self.assertNotIn('TestExcluded', listed.stdout)
 
 
 class CommittedStepListProofPathsTest(unittest.TestCase):

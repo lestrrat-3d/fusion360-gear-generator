@@ -48,6 +48,7 @@ import os
 import re
 import subprocess
 import sys
+import unicodedata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -360,6 +361,51 @@ def go_literal_end(src, start):
             return index + 1, True
         index += 1
     return len(src), False
+
+
+# Which build constraints this gate honours, and which it does not.
+#
+# A `//go:build` line above the package clause can keep `go build` and `go test` from compiling
+# a file at all, and a file Go never compiles registers nothing. Only the two conventional
+# never-build markers are honoured — `//go:build ignore` and `//go:build never` — because they
+# are the whole realistic case here: a proof file parked out of the build while it is being
+# written or kept for reference. Both are ordinary tag names Go has no meaning for, so neither
+# is satisfied unless someone passes `-tags`, and `proof/run.sh` passes none.
+#
+# NOT honoured, and read as if the file compiled: every other constraint. A tag expression
+# (`//go:build linux && cgo`), a negation (`//go:build !windows`), a GOOS or GOARCH name, an
+# implicit `_linux.go` or `_amd64.go` file-name constraint, and a bare legacy `// +build` line
+# all leave the file read. Deciding the first four needs the tag set, the target platform and a
+# release-tag list, which is a build-context evaluator, and a gate that matches braces rather
+# than compiling Go should not carry one. The legacy line costs nothing: gofmt writes the
+# matching `//go:build` line above it, so a committed file that never builds carries the form
+# this reads. The residue is a false pass of the same kind this rule closes, so a proof that
+# parks a run behind a platform constraint is still counted as registering it; `//go:build
+# never` is what to write when a file must not count.
+GO_NEVER_BUILT_CONSTRAINTS = frozenset(('ignore', 'never'))
+
+GO_BUILD_CONSTRAINT = re.compile(r'(?m)^//go:build[ \t]+(.*?)[ \t]*$')
+
+
+def go_build_constraint(src):
+    """The expression on the file's `//go:build` line, or None when it has none.
+
+    The line is a constraint only above the package clause, so nothing below it is read: a
+    `//go:build` written inside a function is a comment like any other.
+    """
+    package = re.search(r'(?m)^package\b', src)
+    head = src if package is None else src[:package.start()]
+    match = GO_BUILD_CONSTRAINT.search(head)
+    return None if match is None else match.group(1).strip()
+
+
+def go_file_is_never_built(src):
+    """Whether a build constraint keeps Go from ever compiling this file.
+
+    Read from the raw source, before `strip_go_comments_and_literals` blanks the line that
+    carries it. See the note above for which constraints this answers and which it does not.
+    """
+    return go_build_constraint(src) in GO_NEVER_BUILT_CONSTRAINTS
 
 
 def strip_go_comments_and_literals(src):
@@ -953,23 +999,61 @@ def go_func_literal_body_start(body, open_paren):
     return index if body[index:index + 1] == '{' else None
 
 
+# The prefixes an element type can carry in front of its own keyword. `[]*func(...)`,
+# `map[string]chan func(...)` and `[]<-chan func(...)` are the bracketed type whose element is
+# a func TYPE, written with `*`, `chan` or `<-chan` standing where the `]` would otherwise be.
+# Anchored at the end so it reads what stands just before a keyword. `...` is not in the list:
+# Go writes it only in a parameter list, where no `]` closing a bracketed type can stand in
+# front of it, so reading it would decide nothing.
+#
+# `chan` may be spaced off what follows it and needs a boundary in front of it, so a name
+# ending in those four letters is not read as the keyword. `*` may NOT: a pointer type is
+# written against its element and a product is written with spaces around its operator, which
+# is what separates `[]*func(arg stepType){}` from `m[0] * func(arg stepType) int { ... }(0)`,
+# an invoked literal whose parameters bind. Both spellings are gofmt's, so the space is a fact
+# about committed Go rather than a guess. A pointer element type spaced off its own type reads
+# as a literal here and binds a name too many, which is the direction that only ever makes a
+# run unreadable.
+GO_TYPE_PREFIX_BEFORE = re.compile(r'(?:\*|(?:<-[ \t]*)?(?<!\w)chan[ \t]*)\Z')
+
+
+def go_type_prefix_start(body, index):
+    """Where the run of type prefixes standing just before index begins.
+
+    index itself when none stands there. Only spaces and tabs are crossed, never a line break,
+    for the reason `go_element_type_bracket_before` gives.
+    """
+    while True:
+        match = GO_TYPE_PREFIX_BEFORE.search(body, 0, index)
+        if match is None:
+            return index
+        index = match.start()
+
+
 def go_element_type_bracket_before(body, keyword):
     """Whether the `func` keyword at keyword is the element type of a bracketed type.
 
     `[]func(arg stepType)`, `[2]func(arg stepType)` and `map[string]func(arg stepType)` all
     write a func TYPE, and all three announce it the same way: with the `]` that closes their
-    brackets standing immediately before the `func`. Go writes no expression that puts a `]`
-    there, so the character decides it, and it is the only character that can — a func literal
-    in expression position follows an operator, a delimiter, a keyword, or nothing.
+    brackets standing before the `func`. Go writes no expression that puts a `]` there, so the
+    character decides it, and it is the only character that can — a func literal in expression
+    position follows an operator, a delimiter, a keyword, or nothing.
+
+    The `]` does not have to stand next to the keyword. `map[string]chan func(arg stepType)`
+    and `[]*func(arg stepType)` are the same func TYPE with a prefix in between, so the
+    character before the keyword is `n` or `*` there and a test that read only that character
+    reported both as literals. The prefixes are walked over first, which is what makes this a
+    test for "a func keyword standing in type text" rather than for one punctuation mark. See
+    `GO_TYPE_PREFIX_BEFORE` for which prefixes are read and how a product's `*` stays out.
 
     Only spaces and tabs are crossed looking back, never a line break. A statement ending in
     `]` on the line above says nothing about the `func` opening the next one, and gofmt writes
     the bracketed type and its element type together on one line.
     """
-    index = keyword - 1
-    while index >= 0 and body[index] in ' \t':
+    index = go_type_prefix_start(body, keyword)
+    while index > 0 and body[index - 1] in ' \t':
         index -= 1
-    return index >= 0 and body[index] == ']'
+    return index > 0 and body[index - 1] == ']'
 
 
 def go_func_literal_parameter_lists(body):
@@ -990,6 +1074,14 @@ def go_func_literal_parameter_lists(body):
     span in hand before the matches it covers. Case 2 is decided by the bracket that precedes
     the keyword.
 
+    An element type is type text all the way down, so case 2 records the span it covers
+    instead of skipping one keyword and reading on. `table := []func() func(arg stepType){}`
+    writes the same func TYPE twice, and skipping only the outer one left the inner parameter
+    list standing in front of the composite literal's value brace, which is exactly what a
+    literal looks like locally: `arg` came out bound, and a run built with a step function of
+    that name was then reported unreadable. `go_type_end` reads the whole type from the
+    keyword, and every match inside it is type text for the same reason case 1's span is.
+
     What this does NOT decide is scope. A func literal nested in another one is a literal, and
     its parameters are collected, because the chokepoint below asks only whether a name is
     bound somewhere in the body. That conservative reading is the design, not an oversight.
@@ -1000,6 +1092,9 @@ def go_func_literal_parameter_lists(body):
         if any(start <= match.start() < end for start, end in type_spans):
             continue
         if go_element_type_bracket_before(body, match.start()):
+            type_end = go_type_end(body, match.start())
+            if type_end is not None:
+                type_spans.append((match.start(), type_end))
             continue
         open_paren = match.end() - 1
         brace = go_func_literal_body_start(body, open_paren)
@@ -1360,10 +1455,31 @@ STEP_FUNCTION_NAME = re.compile(r'step[A-Z]\w*')
 # Which names `go test` runs, written as Go's own rule rather than as a convention: `Test`
 # followed by a rune that is not a lower-case letter, and `Test` on its own. `Test_Profile` and
 # `Test1` are tests, `Testing` is not, and `go vet` refuses a `Testing(t *testing.T)` as a
-# malformed test name, so the two agree on the whole space. Reading only `Test[A-Z]\w*` left a
-# run in a `Test_Profile` or a `Test1` body reported as 'not inside a Go Test function', which
-# names the wrong thing to fix: the Test was there and the gate was not looking for it.
-GO_TEST_FUNCTION_NAME = r'Test(?:[^a-z]\w*)?'
+# malformed test name. Reading only `Test[A-Z]\w*` left a run in a `Test_Profile` or a `Test1`
+# body reported as 'not inside a Go Test function', which names the wrong thing to fix: the
+# Test was there and the gate was not looking for it.
+#
+# The pattern collects candidates and `go_name_is_a_go_test` decides them, because this name is
+# interpolated into a larger pattern and Python writes no Unicode category class. `[^a-z]` was
+# the ASCII reading of the rule and accepted `Testé`, which `go vet` refuses with the same
+# malformed-name error it gives `Testing`.
+GO_TEST_NAME_PREFIX = 'Test'
+
+GO_TEST_FUNCTION_NAME = GO_TEST_NAME_PREFIX + r'\w*'
+
+
+def go_name_is_a_go_test(name):
+    """Whether `go test` runs a function of this name, by Go's own rule.
+
+    `cmd/go/internal/load.isTest` takes the first rune after the prefix and answers
+    `!unicode.IsLower(rune)`, with the bare prefix a test. Go's `unicode.IsLower` is category
+    Ll and nothing else, so the category is read here rather than `str.islower()`, which also
+    answers true for Other_Lowercase runes such as U+02B0. That difference would only reject
+    names Go runs — the safe direction — but the rule is cheap to write exactly, and a gate
+    that says it matches Go should match it.
+    """
+    rest = name[len(GO_TEST_NAME_PREFIX):]
+    return not rest or unicodedata.category(rest[0]) != 'Ll'
 
 
 def go_bound_step_names(bound_names):
@@ -1432,13 +1548,17 @@ def registered_step_functions(src):
     the slot, and the argument itself where one did.
 
     A run outside every Test body is reported the same way, because whether a Test reaches the
-    helper holding it is a call-graph question this gate does not ask.
+    helper holding it is a call-graph question this gate does not ask. A function whose name
+    only looks like a test's is outside every Test body too: `go test` never runs it, so a run
+    written in one registers nothing.
     """
     registered = set()
     misnamed = set()
     unreadable = set()
     test_spans = []
-    for _, body_start, body_end in go_func_body_spans(src, GO_TEST_FUNCTION_NAME):
+    for name, body_start, body_end in go_func_body_spans(src, GO_TEST_FUNCTION_NAME):
+        if not go_name_is_a_go_test(name):
+            continue
         test_spans.append((body_start, body_end))
         body = src[body_start:body_end]
         brace_pairs = go_brace_pairs(body)
@@ -1510,6 +1630,16 @@ def proof_registrations(proof_dir):
     file, because the argument or the call alone does not say where to go and fix it, and an
     unreadable run carries its reason, because the six ways a run can be unreadable are fixed
     in six different places.
+
+    A file a build constraint keeps out of the build is skipped whole, because `go test` never
+    compiles it and a run it holds never executes. That is read from the raw file, ahead of the
+    scrubber that blanks the constraint along with every other comment.
+
+    `proof_functions` reads the same directory without that skip, so a step function DEFINED in
+    a never-built file is still collected. Both halves of the disagreement that leaves are
+    loud: the step list claims a function whose registration is now missing, or no step claims
+    a function nothing registers. A false failure naming a real file is the safe side of a rule
+    this narrow, and it is the reading a compiling proof never reaches.
     """
     found = set()
     misnamed = set()
@@ -1520,8 +1650,11 @@ def proof_registrations(proof_dir):
         if not entry.endswith('_test.go'):
             continue
         path = os.path.join(proof_dir, entry)
-        src = strip_go_comments_and_literals(read(path))
-        registered, other, unread = registered_step_functions(src)
+        text = read(path)
+        if go_file_is_never_built(text):
+            continue
+        registered, other, unread = registered_step_functions(
+            strip_go_comments_and_literals(text))
         found.update(registered)
         misnamed.update((path, argument) for argument in other)
         unreadable.update((path, label, reason) for label, reason in unread)
