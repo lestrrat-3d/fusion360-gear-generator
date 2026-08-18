@@ -180,11 +180,25 @@ this skill: a compiler that rewrites its own source removes the thing being chec
 > needs, with one function per step. Every step function, 2D or 3D alike, is named `step<Title>`,
 > matching what the step list names, and is passed as the build argument — the third — to a
 > `proofkit.Run`, `proofkit3d.Run`, `proofkit3d.RunSolid` or `proofkit3d.RunWithGate` call inside a
-> Go `Test` function. A build function under any other name, or one no `Test` reaches, is invisible
-> to the gate, and the step naming it fails the check. Write each run's arguments out one by one:
-> a run that forwards them from a single call, as in `proofkit3d.Run(runArgs(t))`, hides its build
-> argument from the gate and fails the check too. Each run takes a table of parameter cases, one
-> subtest each.
+> Go `Test` function. A build function under any other name fails the check, and the step naming
+> it fails with it.
+>
+> **Write every run where the gate can read it.** The gate reads Go by matching braces rather than
+> by compiling it, so it refuses to guess wherever the guess could be wrong, and a run it refuses
+> to read blocks the compile check for the whole proof directory. Four shapes make it refuse:
+>
+> - A run whose arguments are forwarded from a single call, as in `proofkit3d.Run(runArgs(t))`.
+>   Write each run's arguments out one by one.
+> - A run whose build argument is anything but a literal `step<Title>` identifier — a table entry,
+>   a loop variable, a struct field, a call.
+> - A run in a `Test` body that binds a `step<Title>` name of its own, by any means: `:=`, `var`,
+>   a loop or `if` or `switch` header, a `case` clause, a func-literal parameter. Once such a name
+>   is bound anywhere in the body, every run in that body is refused, wherever the binding sits.
+>   Name locals anything else.
+> - A run under a condition the gate cannot read, or in a helper rather than in a `Test` body.
+>   Register each step from a `Test` body, unguarded.
+>
+> Each run takes a table of parameter cases, one subtest each.
 >
 > **The case table reaches every branch, from every direction the spec offers.** A branch a step
 > takes needs a case on each side of it, and a branch the spec says is reachable in more than one

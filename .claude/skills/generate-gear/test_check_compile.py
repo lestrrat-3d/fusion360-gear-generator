@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Regression tests for the compile-stage gate."""
+import collections
 import contextlib
 import importlib.util
 import io
 import os
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,6 +17,12 @@ COMPILE_CHECKER_PATH = Path(__file__).with_name('check_compile.py')
 COMPILE_MODULE_SPEC = importlib.util.spec_from_file_location('check_compile', COMPILE_CHECKER_PATH)
 COMPILE_CHECKER = importlib.util.module_from_spec(COMPILE_MODULE_SPEC)
 COMPILE_MODULE_SPEC.loader.exec_module(COMPILE_CHECKER)
+
+
+UNREADABLE_ARGUMENT = COMPILE_CHECKER.UNREADABLE_ARGUMENT
+UNREADABLE_GUARD = COMPILE_CHECKER.UNREADABLE_GUARD
+UNREADABLE_OUTSIDE_TEST = COMPILE_CHECKER.UNREADABLE_OUTSIDE_TEST
+LOCAL_STEP_PREFIX = 'this Test body binds stepOne'
 
 
 class CheckCompileTest(unittest.TestCase):
@@ -317,9 +326,9 @@ class CheckCompileTest(unittest.TestCase):
 
         self.assertEqual(result, 1)
         self.assertIn(
-            'proof/gear/proof_test.go does not show the gate which function a proof run builds '
-            'with: step.build; write the run\'s arguments out one by one, with the build '
-            'argument a literal step<Title> identifier so a step can claim the run', output)
+            'proof/gear/proof_test.go has a proof run the gate cannot read as a registration: '
+            'step.build; write the run\'s arguments out one by one, with the build argument a '
+            'literal step<Title> identifier so a step can claim the run', output)
 
     def test_table_registered_step_is_not_called_unregistered(self):
         proof_body = (
@@ -359,7 +368,7 @@ class CheckCompileTest(unittest.TestCase):
 
         self.assertEqual(registered, set())
         self.assertEqual(misnamed, [])
-        self.assertEqual(unreadable, ['step.build'])
+        self.assertEqual(unreadable, [('step.build', UNREADABLE_ARGUMENT)])
 
     def test_loop_variable_build_argument_is_unreadable_not_misnamed(self):
         src = (
@@ -373,7 +382,7 @@ class CheckCompileTest(unittest.TestCase):
 
         self.assertEqual(registered, set())
         self.assertEqual(misnamed, [])
-        self.assertEqual(unreadable, ['build'])
+        self.assertEqual(unreadable, [('build', UNREADABLE_ARGUMENT)])
 
     def test_comma_declared_local_build_argument_is_unreadable(self):
         src = (
@@ -387,7 +396,9 @@ class CheckCompileTest(unittest.TestCase):
 
         self.assertEqual(registered, set())
         self.assertEqual(misnamed, [])
-        self.assertEqual(unreadable, ['stepOne'])
+        self.assertEqual(len(unreadable), 1)
+        self.assertEqual(unreadable[0][0], 'stepOne')
+        self.assertTrue(unreadable[0][1].startswith(LOCAL_STEP_PREFIX))
 
     def test_grouped_var_local_build_argument_is_unreadable(self):
         src = (
@@ -402,7 +413,9 @@ class CheckCompileTest(unittest.TestCase):
 
         self.assertEqual(registered, set())
         self.assertEqual(misnamed, [])
-        self.assertEqual(unreadable, ['stepOne'])
+        self.assertEqual(len(unreadable), 1)
+        self.assertEqual(unreadable[0][0], 'stepOne')
+        self.assertTrue(unreadable[0][1].startswith(LOCAL_STEP_PREFIX))
 
     def test_grouped_var_initializer_does_not_hide_a_real_registration(self):
         src = (
@@ -440,70 +453,93 @@ class CheckCompileTest(unittest.TestCase):
         self.assertEqual(misnamed, [])
         self.assertEqual(unreadable, [])
 
-    # Go scopes a local from the end of its own spec to the end of the block that contains
-    # it, so only a declaration whose block encloses the run can hide what that run registers.
+    # `local` stands in for the declared name, so one template drives both directions: the
+    # name a proof must not use, and any other name.
     LOCAL_DECLARATIONS = (
-        'var stepOne proofkit.Build = buildA',
-        'stepOne := buildA',
+        'var local proofkit.Build = buildA',
+        'local := buildA',
     )
 
-    def test_local_that_does_not_enclose_the_run_leaves_it_registered(self):
-        shapes = {
-            'later in the same block': (
-                'func TestOne(t *testing.T) {\n'
-                '    proofkit.Run(t, spurCases(), stepOne)\n'
-                '    %s\n'
-                '    _ = stepOne\n'
-                '}\n'),
-            'earlier sibling block': (
-                'func TestOne(t *testing.T) {\n'
-                '    if true {\n'
-                '        %s\n'
-                '        _ = stepOne\n'
-                '    }\n'
-                '    proofkit.Run(t, spurCases(), stepOne)\n'
-                '}\n'),
-            'sibling blocks': (
-                'func TestOne(t *testing.T) {\n'
-                '    if true {\n'
-                '        %s\n'
-                '        _ = stepOne\n'
-                '    }\n'
-                '    if true {\n'
-                '        proofkit.Run(t, spurCases(), stepOne)\n'
-                '    }\n'
-                '}\n'),
-        }
+    LOCAL_SHAPES = {
+        'later in the same block': (
+            'func TestOne(t *testing.T) {\n'
+            '    proofkit.Run(t, spurCases(), stepOne)\n'
+            '    %s\n'
+            '    _ = local\n'
+            '}\n'),
+        'earlier sibling block': (
+            'func TestOne(t *testing.T) {\n'
+            '    if true {\n'
+            '        %s\n'
+            '        _ = local\n'
+            '    }\n'
+            '    proofkit.Run(t, spurCases(), stepOne)\n'
+            '}\n'),
+        'sibling blocks': (
+            'func TestOne(t *testing.T) {\n'
+            '    if true {\n'
+            '        %s\n'
+            '        _ = local\n'
+            '    }\n'
+            '    if true {\n'
+            '        proofkit.Run(t, spurCases(), stepOne)\n'
+            '    }\n'
+            '}\n'),
+    }
 
-        for shape, template in shapes.items():
+    def local_shapes(self, name):
+        for shape, template in self.LOCAL_SHAPES.items():
             for declaration in self.LOCAL_DECLARATIONS:
-                with self.subTest(shape=shape, declaration=declaration):
-                    src = template % declaration
+                yield shape, declaration, (template % declaration).replace('local', name)
 
-                    registered, misnamed, unreadable = (
-                        COMPILE_CHECKER.registered_step_functions(src))
+    # Go scopes a local from the end of its own spec to the end of the block containing it, so
+    # a real scope analysis would leave every run below registered. The chokepoint makes no
+    # scope decision, so it reports them unreadable instead. This is the precision option A
+    # gives up, written down as a test so a later reader meets it as a decision rather than as
+    # a surprise: the cost is a false failure, which is loud, and a proof pays it only by
+    # naming a local step<Title>.
+    def test_local_outside_the_run_is_given_up_as_unreadable(self):
+        for shape, declaration, src in self.local_shapes('stepOne'):
+            with self.subTest(shape=shape, declaration=declaration):
+                registered, misnamed, unreadable = (
+                    COMPILE_CHECKER.registered_step_functions(src))
 
-                    self.assertEqual(registered, {'stepOne'})
-                    self.assertEqual(misnamed, [])
-                    self.assertEqual(unreadable, [])
+                self.assertEqual(registered, set())
+                self.assertEqual(misnamed, [])
+                self.assertEqual(len(unreadable), 1)
+                self.assertTrue(unreadable[0][1].startswith(LOCAL_STEP_PREFIX))
+
+    # The same shapes with the local under any other name still count the literal
+    # registration, which is what keeps the chokepoint from being a blanket refusal.
+    def test_local_under_another_name_leaves_the_run_registered(self):
+        for shape, declaration, src in self.local_shapes('localBuild'):
+            with self.subTest(shape=shape, declaration=declaration):
+                registered, misnamed, unreadable = (
+                    COMPILE_CHECKER.registered_step_functions(src))
+
+                self.assertEqual(registered, {'stepOne'})
+                self.assertEqual(misnamed, [])
+                self.assertEqual(unreadable, [])
 
     def test_local_in_an_enclosing_block_still_makes_the_run_unreadable(self):
         for declaration in self.LOCAL_DECLARATIONS:
             with self.subTest(declaration=declaration):
-                src = (
+                src = ((
                     'func TestOne(t *testing.T) {\n'
                     '    if true {\n'
                     '        %s\n'
                     '        proofkit.Run(t, spurCases(), stepOne)\n'
                     '    }\n'
-                    '}\n') % declaration
+                    '}\n') % declaration).replace('local', 'stepOne')
 
                 registered, misnamed, unreadable = (
                     COMPILE_CHECKER.registered_step_functions(src))
 
                 self.assertEqual(registered, set())
                 self.assertEqual(misnamed, [])
-                self.assertEqual(unreadable, ['stepOne'])
+                self.assertEqual(len(unreadable), 1)
+                self.assertEqual(unreadable[0][0], 'stepOne')
+                self.assertTrue(unreadable[0][1].startswith(LOCAL_STEP_PREFIX))
 
     def test_loop_header_binding_covers_the_loop_body(self):
         src = (
@@ -517,13 +553,31 @@ class CheckCompileTest(unittest.TestCase):
 
         self.assertEqual(registered, set())
         self.assertEqual(misnamed, [])
-        self.assertEqual(unreadable, ['stepOne'])
+        self.assertEqual(len(unreadable), 1)
+        self.assertEqual(unreadable[0][0], 'stepOne')
+        self.assertTrue(unreadable[0][1].startswith(LOCAL_STEP_PREFIX))
 
-    def test_loop_header_binding_ends_with_its_loop(self):
+    def test_loop_header_binding_reaches_past_its_loop(self):
         src = (
             'func TestOne(t *testing.T) {\n'
             '    for _, stepOne := range []proofkit.Build{buildA} {\n'
             '        _ = stepOne\n'
+            '    }\n'
+            '    proofkit.Run(t, spurCases(), stepOne)\n'
+            '}\n')
+
+        registered, misnamed, unreadable = COMPILE_CHECKER.registered_step_functions(src)
+
+        self.assertEqual(registered, set())
+        self.assertEqual(misnamed, [])
+        self.assertEqual(len(unreadable), 1)
+        self.assertTrue(unreadable[0][1].startswith(LOCAL_STEP_PREFIX))
+
+    def test_loop_header_binding_under_another_name_leaves_the_run_registered(self):
+        src = (
+            'func TestOne(t *testing.T) {\n'
+            '    for _, localBuild := range []proofkit.Build{buildA} {\n'
+            '        _ = localBuild\n'
             '    }\n'
             '    proofkit.Run(t, spurCases(), stepOne)\n'
             '}\n')
@@ -568,9 +622,11 @@ class CheckCompileTest(unittest.TestCase):
 
                 self.assertEqual(registered, set())
                 self.assertEqual(misnamed, [])
-                self.assertEqual(unreadable, ['stepOne'])
+                self.assertEqual(len(unreadable), 1)
+                self.assertEqual(unreadable[0][0], 'stepOne')
+                self.assertTrue(unreadable[0][1].startswith(LOCAL_STEP_PREFIX))
 
-    def test_loop_header_shapes_end_their_binding_with_the_loop(self):
+    def test_loop_header_shapes_reach_past_their_loop(self):
         for shape, header in self.HEADER_BLOCK_SHAPES.items():
             with self.subTest(shape=shape):
                 src = (
@@ -584,27 +640,29 @@ class CheckCompileTest(unittest.TestCase):
                 registered, misnamed, unreadable = (
                     COMPILE_CHECKER.registered_step_functions(src))
 
+                self.assertEqual(registered, set())
+                self.assertEqual(misnamed, [])
+                self.assertEqual(len(unreadable), 1)
+                self.assertTrue(unreadable[0][1].startswith(LOCAL_STEP_PREFIX))
+
+    # The same three headers with an ordinary loop variable still count the registration, so
+    # the header shapes that defeated three rounds of the old scope decision now cost nothing.
+    def test_loop_header_shapes_under_another_name_stay_registered(self):
+        for shape, header in self.HEADER_BLOCK_SHAPES.items():
+            with self.subTest(shape=shape):
+                src = (
+                    'func TestOne(t *testing.T) {\n'
+                    + header.replace('stepOne', 'localBuild')
+                    + '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+                    '\t}\n'
+                    '}\n')
+
+                registered, misnamed, unreadable = (
+                    COMPILE_CHECKER.registered_step_functions(src))
+
                 self.assertEqual(registered, {'stepOne'})
                 self.assertEqual(misnamed, [])
                 self.assertEqual(unreadable, [])
-
-    # An if header that carries an init clause states a condition the reachability walk cannot
-    # read, so a run inside such a block is skipped before its build argument is judged. The
-    # scope the header binding gets is therefore checked on the bindings themselves.
-    def test_if_header_binding_is_scoped_to_the_block_it_opens(self):
-        body = (
-            '\n'
-            '    if stepOne := buildA; true {\n'
-            '        inside()\n'
-            '    }\n'
-            '    after()\n')
-
-        bindings = COMPILE_CHECKER.go_local_bindings(body, COMPILE_CHECKER.go_brace_pairs(body))
-
-        self.assertIn(
-            'stepOne', COMPILE_CHECKER.go_local_names_at(bindings, body.index('inside')))
-        self.assertNotIn(
-            'stepOne', COMPILE_CHECKER.go_local_names_at(bindings, body.index('after')))
 
     def test_grouped_var_local_build_argument_is_blocking(self):
         proof_body = (
@@ -620,9 +678,8 @@ class CheckCompileTest(unittest.TestCase):
 
         self.assertEqual(result, 1)
         self.assertIn(
-            'proof/gear/proof_test.go does not show the gate which function a proof run builds '
-            'with: stepOne; write the run\'s arguments out one by one, with the build argument '
-            'a literal step<Title> identifier so a step can claim the run', output)
+            'proof/gear/proof_test.go has a proof run the gate cannot read as a registration: '
+            'stepOne; ' + LOCAL_STEP_PREFIX, output)
 
     def test_loop_whose_body_returns_does_not_hide_a_later_run(self):
         src = (
@@ -651,9 +708,9 @@ class CheckCompileTest(unittest.TestCase):
 
         self.assertEqual(result, 1)
         self.assertIn(
-            'proof/gear/proof_test.go does not show the gate which function a proof run builds '
-            'with: proofkit3d.Run(runArgs(t)); write the run\'s arguments out one by one, with '
-            'the build argument a literal step<Title> identifier so a step can claim the run',
+            'proof/gear/proof_test.go has a proof run the gate cannot read as a registration: '
+            'proofkit3d.Run(runArgs(t)); write the run\'s arguments out one by one, with the '
+            'build argument a literal step<Title> identifier so a step can claim the run',
             output)
 
     def test_multi_value_forwarded_2d_run_is_blocking(self):
@@ -670,7 +727,7 @@ class CheckCompileTest(unittest.TestCase):
 
         self.assertEqual(result, 1)
         self.assertIn(
-            'does not show the gate which function a proof run builds with: '
+            'has a proof run the gate cannot read as a registration: '
             'proofkit.Run(runArgs(t))', output)
 
     def test_unclosed_run_call_is_reported_not_dropped(self):
@@ -696,7 +753,8 @@ class CheckCompileTest(unittest.TestCase):
         self.assertEqual(registered, set())
         self.assertEqual(misnamed, [])
         self.assertEqual(len(unreadable), 1)
-        self.assertTrue(unreadable[0].startswith('proofkit3d.Run(t, solidCases, stepSolid'))
+        self.assertTrue(unreadable[0][0].startswith('proofkit3d.Run(t, solidCases, stepSolid'))
+        self.assertEqual(unreadable[0][1], UNREADABLE_ARGUMENT)
 
     def test_unreachable_unreadable_run_is_not_counted(self):
         proof_body = self.solid_proof(
@@ -707,7 +765,46 @@ class CheckCompileTest(unittest.TestCase):
         result, output = self.run_checker(proof_body=proof_body)
 
         self.assertEqual(result, 0, output)
-        self.assertNotIn('does not show the gate', output)
+        self.assertNotIn('cannot read as a registration', output)
+
+    # A run the walk cannot decide about used to be dropped before its build argument was read,
+    # which left the step it registers reported as registered nowhere. That is a phantom: the
+    # proof does register the step, and the drafter sent to fix it finds nothing wrong. Both
+    # tests below hold the gate to naming the run instead.
+
+    def test_run_under_an_unreadable_condition_is_loud_not_dropped(self):
+        proof_body = (
+            'func TestOne(t *testing.T) {\n'
+            '\tif enabled() {\n'
+            '\t\tproofkit.Run(t, cases(gear{name: "one"}), stepOne)\n'
+            '\t}\n'
+            '}\n\n'
+            'func stepOne() {}\n')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 1)
+        self.assertIn('has a proof run the gate cannot read as a registration', output)
+        self.assertIn(UNREADABLE_GUARD, output)
+        self.assertNotIn('no Go Test registers it', output)
+        self.assertNotIn('is defined but is not registered', output)
+
+    def test_run_in_a_helper_is_loud_not_dropped(self):
+        proof_body = (
+            'func TestOne(t *testing.T) {\n'
+            '\tregister(t)\n'
+            '}\n\n'
+            'func register(t *testing.T) {\n'
+            '\tproofkit.Run(t, cases(gear{name: "one"}), stepOne)\n'
+            '}\n\n'
+            'func stepOne() {}\n')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 1)
+        self.assertIn(UNREADABLE_OUTSIDE_TEST, output)
+        self.assertNotIn('no Go Test registers it', output)
+        self.assertNotIn('is defined but is not registered', output)
 
     def test_short_argument_list_is_reported_not_registered(self):
         src = (
@@ -719,7 +816,533 @@ class CheckCompileTest(unittest.TestCase):
 
         self.assertEqual(registered, set())
         self.assertEqual(misnamed, [])
-        self.assertEqual(unreadable, ['proofkit3d.Run(runArgs(t))'])
+        self.assertEqual(
+            unreadable, [('proofkit3d.Run(runArgs(t))', UNREADABLE_ARGUMENT)])
+
+
+# ---------------------------------------------------------------------------------------------
+# The root-cause map, transcribed as a table and then covered cell by cell.
+#
+# The map crossed the Go binding construct (its rows) with what the construct writes before its
+# block and where the run sits (its columns): C1 no brace group in the header, C2 a brace group
+# mid-header, C3 a brace group ending a clause so a `;` follows its `}`, C4 the run in a sibling
+# clause or after the construct. H is a shape the gate already read correctly, N a shape the
+# grammar does not allow, and a G marks one of the seven gaps the map found.
+#
+# Every cell that is not N is covered below in both directions: the construct binding a
+# `step<Title>` name, where the run must now be unreadable, and the same construct binding an
+# ordinary name, where the literal registration must still be counted. The second direction is
+# what keeps the chokepoint from being a blanket refusal, so it is not optional.
+MAP_TABLE = {
+    ':= single-line left-hand side': {'C1': 'H', 'C2': 'H', 'C3': 'N', 'C4': 'H'},
+    ':= multi-line left-hand side': {'C1': 'G5', 'C2': 'G5', 'C3': 'N', 'C4': 'H'},
+    'var x = ...': {'C1': 'H', 'C2': 'H', 'C3': 'N', 'C4': 'H'},
+    'var ( ... ) group': {'C1': 'H', 'C2': 'H', 'C3': 'N', 'C4': 'H'},
+    'for ... := range header': {'C1': 'H', 'C2': 'H', 'C3': 'N', 'C4': 'H'},
+    'three-clause for, init binds': {'C1': 'H', 'C2': 'H', 'C3': 'G1', 'C4': 'H'},
+    'if with init, run in the then-branch': {'C1': 'G6', 'C2': 'G6', 'C3': 'G6', 'C4': 'N'},
+    'if with init, run in the else-branch': {'C1': 'H', 'C2': 'H', 'C3': 'G1', 'C4': 'H'},
+    'expression switch with init': {'C1': 'H', 'C2': 'H', 'C3': 'G1', 'C4': 'H'},
+    'type-switch guard': {'C1': 'H', 'C2': 'H', 'C3': 'N', 'C4': 'H'},
+    'switch case clause body binding': {'C1': 'H', 'C2': 'H', 'C3': 'N', 'C4': 'G3'},
+    'select clause case v := <-ch:': {'C1': 'G2', 'C2': 'G2', 'C3': 'N', 'C4': 'G3'},
+    'plain block': {'C1': 'H', 'C2': 'H', 'C3': 'N', 'C4': 'H'},
+    'func-literal body': {'C1': 'H', 'C2': 'H', 'C3': 'N', 'C4': 'H'},
+    'func-literal parameters and named results': {'C1': 'G4', 'C2': 'G4', 'C3': 'N', 'C4': 'H'},
+    'labelled statement, gofmt form': {'C1': 'H', 'C2': 'H', 'C3': 'N', 'C4': 'H'},
+    'labelled statement on one line': {'C1': 'N', 'C2': 'N', 'C3': 'N', 'C4': 'N'},
+    'const / type declaration': {'C1': 'N', 'C2': 'N', 'C3': 'N', 'C4': 'N'},
+    'range-over-func / range-over-int': {'C1': 'H', 'C2': 'H', 'C3': 'N', 'C4': 'H'},
+    'run in a helper, not in a Test body': {'C1': 'G7', 'C2': 'G7', 'C3': 'G7', 'C4': 'G7'},
+    'run under a condition the walk cannot read': {
+        'C1': 'G6', 'C2': 'G6', 'C3': 'G6', 'C4': 'G6'},
+}
+
+REGISTERED = 'registered'
+LOCAL = 'unreadable: the body binds a step name'
+GUARD = 'unreadable: the guard cannot be read'
+OUTSIDE = 'unreadable: the run is outside every Test'
+
+Cell = collections.namedtuple('Cell', 'row columns source bound free')
+
+# LOCAL_NAME is the identifier the construct binds. Substituting `stepOne` for it gives the
+# false-pass direction, and any other identifier gives the direction that must still count.
+LOCAL_NAME = 'localName'
+
+MAP_CELLS = (
+    Cell(':= single-line left-hand side', ('C1',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tlocalName := buildA\n'
+        '\t_ = localName\n'
+        '\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell(':= single-line left-hand side', ('C2',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tlocalName := []proofkit.Build{buildA}[0]\n'
+        '\t_ = localName\n'
+        '\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell(':= single-line left-hand side', ('C4',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\tlocalName := buildA\n'
+        '\t_ = localName\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell(':= multi-line left-hand side', ('C1',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tlocalName,\n'
+        '\t\tother := buildA, buildB\n'
+        '\t_, _ = localName, other\n'
+        '\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell(':= multi-line left-hand side', ('C2',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tlocalName,\n'
+        '\t\tother := []proofkit.Build{buildA}[0], buildB\n'
+        '\t_, _ = localName, other\n'
+        '\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell(':= multi-line left-hand side', ('C4',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\tlocalName,\n'
+        '\t\tother := buildA, buildB\n'
+        '\t_, _ = localName, other\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('var x = ...', ('C1',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tvar localName = buildA\n'
+        '\t_ = localName\n'
+        '\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('var x = ...', ('C2',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tvar localName = []proofkit.Build{buildA}[0]\n'
+        '\t_ = localName\n'
+        '\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('var x = ...', ('C4',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\tvar localName = buildA\n'
+        '\t_ = localName\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('var ( ... ) group', ('C1',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tvar (\n'
+        '\t\tlocalName proofkit.Build = buildA\n'
+        '\t)\n'
+        '\t_ = localName\n'
+        '\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('var ( ... ) group', ('C2',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tvar (\n'
+        '\t\tlocalName = []proofkit.Build{buildA}[0]\n'
+        '\t)\n'
+        '\t_ = localName\n'
+        '\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('var ( ... ) group', ('C4',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\tvar (\n'
+        '\t\tlocalName proofkit.Build = buildA\n'
+        '\t)\n'
+        '\t_ = localName\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('for ... := range header', ('C1',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tfor _, localName := range []proofkit.Build{buildA} {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('for ... := range header', ('C2',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tfor _, localName := range []struct {\n'
+        '\t\tbuild proofkit.Build\n'
+        '\t}{{buildA}} {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('for ... := range header', ('C4',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tfor _, localName := range []proofkit.Build{buildA} {\n'
+        '\t\t_ = localName\n'
+        '\t}\n'
+        '\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('three-clause for, init binds', ('C1',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tfor localName := buildA; localName != nil; localName = nil {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('three-clause for, init binds', ('C2',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tfor localName := []proofkit.Build{buildA}[0]; localName != nil; localName = nil {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('three-clause for, init binds', ('C3',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tfor localName, list := buildA, []proofkit.Build{buildA}; len(list) > 0; list = nil {\n'
+        '\t\t_ = localName\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('three-clause for, init binds', ('C4',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tfor localName := buildA; localName != nil; localName = nil {\n'
+        '\t\tbreak\n'
+        '\t}\n'
+        '\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('if with init, run in the then-branch', ('C1',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tif localName := buildA; localName != nil {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n'), GUARD, GUARD),
+    Cell('if with init, run in the then-branch', ('C2',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tif localName := []proofkit.Build{buildA}[0]; localName != nil {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n'), GUARD, GUARD),
+    Cell('if with init, run in the then-branch', ('C3',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tif localName, list := buildA, []proofkit.Build{buildA}; len(list) > 0 {\n'
+        '\t\t_ = localName\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n'), GUARD, GUARD),
+    Cell('if with init, run in the else-branch', ('C1',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tif localName := buildA; localName == nil {\n'
+        '\t\t_ = localName\n'
+        '\t} else {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('if with init, run in the else-branch', ('C2',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tif localName := []proofkit.Build{buildA}[0]; localName == nil {\n'
+        '\t\t_ = localName\n'
+        '\t} else {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('if with init, run in the else-branch', ('C3',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tif localName, list := buildA, []proofkit.Build{buildA}; len(list) > 0 {\n'
+        '\t\t_ = localName\n'
+        '\t} else {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('if with init, run in the else-branch', ('C4',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tif localName := buildA; localName == nil {\n'
+        '\t\t_ = localName\n'
+        '\t} else {\n'
+        '\t\t_ = localName\n'
+        '\t}\n'
+        '\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('expression switch with init', ('C1',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tswitch localName := buildA; localName {\n'
+        '\tcase buildA:\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('expression switch with init', ('C2',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tswitch localName := []proofkit.Build{buildA}[0]; localName {\n'
+        '\tcase buildA:\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('expression switch with init', ('C3',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tswitch localName, list := buildA, []proofkit.Build{buildA}; len(list) {\n'
+        '\tcase 1:\n'
+        '\t\t_ = localName\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('expression switch with init', ('C4',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tswitch localName := buildA; localName {\n'
+        '\tcase buildA:\n'
+        '\t\t_ = localName\n'
+        '\t}\n'
+        '\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('type-switch guard', ('C1',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tswitch localName := any(buildA).(type) {\n'
+        '\tcase proofkit.Build:\n'
+        '\t\t_ = localName\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('type-switch guard', ('C2',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tswitch localName := any([]proofkit.Build{buildA}[0]).(type) {\n'
+        '\tcase proofkit.Build:\n'
+        '\t\t_ = localName\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('type-switch guard', ('C4',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tswitch localName := any(buildA).(type) {\n'
+        '\tcase proofkit.Build:\n'
+        '\t\t_ = localName\n'
+        '\t}\n'
+        '\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('switch case clause body binding', ('C1',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tswitch {\n'
+        '\tcase true:\n'
+        '\t\tlocalName := buildA\n'
+        '\t\t_ = localName\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('switch case clause body binding', ('C2',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tswitch {\n'
+        '\tcase true:\n'
+        '\t\tlocalName := []proofkit.Build{buildA}[0]\n'
+        '\t\t_ = localName\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('switch case clause body binding', ('C4',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tswitch {\n'
+        '\tcase true:\n'
+        '\t\tlocalName := buildA\n'
+        '\t\t_ = localName\n'
+        '\tdefault:\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('select clause case v := <-ch:', ('C1',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tch := make(chan proofkit.Build)\n'
+        '\tselect {\n'
+        '\tcase localName := <-ch:\n'
+        '\t\t_ = localName\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('select clause case v := <-ch:', ('C2',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tch := make(chan proofkit.Build, len([]proofkit.Build{buildA}))\n'
+        '\tselect {\n'
+        '\tcase localName := <-ch:\n'
+        '\t\t_ = localName\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('select clause case v := <-ch:', ('C4',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tch := make(chan proofkit.Build)\n'
+        '\tselect {\n'
+        '\tcase localName := <-ch:\n'
+        '\t\t_ = localName\n'
+        '\tdefault:\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('plain block', ('C1', 'C2'), (
+        'func TestOne(t *testing.T) {\n'
+        '\t{\n'
+        '\t\tlocalName := []proofkit.Build{buildA}[0]\n'
+        '\t\t_ = localName\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('plain block', ('C4',), (
+        'func TestOne(t *testing.T) {\n'
+        '\t{\n'
+        '\t\tlocalName := buildA\n'
+        '\t\t_ = localName\n'
+        '\t}\n'
+        '\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('func-literal body', ('C1', 'C2'), (
+        'func TestOne(t *testing.T) {\n'
+        '\tt.Run("one", func(t *testing.T) {\n'
+        '\t\tlocalName := []proofkit.Build{buildA}[0]\n'
+        '\t\t_ = localName\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t})\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('func-literal body', ('C4',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tt.Run("one", func(t *testing.T) {\n'
+        '\t\tlocalName := buildA\n'
+        '\t\t_ = localName\n'
+        '\t})\n'
+        '\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('func-literal parameters and named results', ('C1',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tcall := func(localName proofkit.Build) {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '\tcall(buildA)\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('func-literal parameters and named results', ('C2',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tcall := func() (localName proofkit.Build) {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t\treturn []proofkit.Build{buildA}[0]\n'
+        '\t}\n'
+        '\t_ = call\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('func-literal parameters and named results', ('C4',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tcall := func(localName proofkit.Build) {\n'
+        '\t\t_ = localName\n'
+        '\t}\n'
+        '\tcall(buildA)\n'
+        '\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('labelled statement, gofmt form', ('C1', 'C2'), (
+        'func TestOne(t *testing.T) {\n'
+        'Loop:\n'
+        '\tfor _, localName := range []proofkit.Build{buildA} {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t\tbreak Loop\n'
+        '\t}\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('labelled statement, gofmt form', ('C4',), (
+        'func TestOne(t *testing.T) {\n'
+        'Loop:\n'
+        '\tfor _, localName := range []proofkit.Build{buildA} {\n'
+        '\t\t_ = localName\n'
+        '\t\tbreak Loop\n'
+        '\t}\n'
+        '\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('range-over-func / range-over-int', ('C1',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tfor localName := range 3 {\n'
+        '\t\t_ = localName\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('range-over-func / range-over-int', ('C2',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tfor localName := range slices.Values([]proofkit.Build{buildA}) {\n'
+        '\t\t_ = localName\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('range-over-func / range-over-int', ('C4',), (
+        'func TestOne(t *testing.T) {\n'
+        '\tfor localName := range 3 {\n'
+        '\t\t_ = localName\n'
+        '\t}\n'
+        '\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '}\n'), LOCAL, REGISTERED),
+    Cell('run under a condition the walk cannot read', ('C1', 'C2', 'C3', 'C4'), (
+        'func TestOne(t *testing.T) {\n'
+        '\tif enabled() {\n'
+        '\t\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '\t}\n'
+        '}\n'), GUARD, GUARD),
+    Cell('run in a helper, not in a Test body', ('C1', 'C2', 'C3', 'C4'), (
+        'func TestOne(t *testing.T) {\n'
+        '\tregister(t)\n'
+        '}\n'
+        '\n'
+        'func register(t *testing.T) {\n'
+        '\tproofkit.Run(t, spurCases(), stepOne)\n'
+        '}\n'), OUTSIDE, OUTSIDE),
+)
+
+
+class MapCellTest(unittest.TestCase):
+    """Every cell of the root-cause map, in both directions.
+
+    A cell fails in one of two ways, and the two are not symmetric. A false pass — a local
+    counted as a registered step — is silent, and it lets the geometry that step claims go
+    unproven behind a green gate. A false failure is loud and costs a drafter a rename. The
+    chokepoint converts the first into the second everywhere, so each cell is asserted twice:
+    once with the construct binding the step name, where the run must now be unreadable, and
+    once with it binding an ordinary name, where the registration must still be counted.
+    """
+
+    def source(self, cell, name):
+        return cell.source.replace(LOCAL_NAME, name)
+
+    def outcome(self, src):
+        """Which of the four results the gate gives this source."""
+        registered, misnamed, unreadable = COMPILE_CHECKER.registered_step_functions(src)
+        if registered == {'stepOne'} and not misnamed and not unreadable:
+            return REGISTERED
+        self.assertEqual(registered, set(), src)
+        self.assertEqual(misnamed, [], src)
+        self.assertEqual(len(unreadable), 1, src)
+        reason = unreadable[0][1]
+        if reason.startswith(LOCAL_STEP_PREFIX):
+            return LOCAL
+        if reason == UNREADABLE_GUARD:
+            return GUARD
+        if reason == UNREADABLE_OUTSIDE_TEST:
+            return OUTSIDE
+        return reason
+
+    def test_every_cell_binding_the_step_name(self):
+        for cell in MAP_CELLS:
+            with self.subTest(row=cell.row, columns=cell.columns):
+                self.assertEqual(
+                    self.outcome(self.source(cell, 'stepOne')), cell.bound)
+
+    def test_every_cell_binding_an_ordinary_name(self):
+        for cell in MAP_CELLS:
+            with self.subTest(row=cell.row, columns=cell.columns):
+                self.assertEqual(
+                    self.outcome(self.source(cell, 'localBuild')), cell.free)
+
+    def test_every_cell_of_the_map_is_covered(self):
+        """The table above and the cells below are reconciled, not eyeballed.
+
+        The map is the enumeration of the space, so a cell it lists and no case exercises is a
+        hole, and a case naming a cell the map calls impossible is a case testing nothing.
+        """
+        listed = {(row, column)
+                  for row, columns in MAP_TABLE.items()
+                  for column, mark in columns.items() if mark != 'N'}
+        covered = {(cell.row, column) for cell in MAP_CELLS for column in cell.columns}
+
+        self.assertEqual(covered, listed)
+
+    def test_every_cell_source_is_what_gofmt_writes(self):
+        """gofmt itself, not a guess at it.
+
+        A probe gofmt would reformat is a probe of a shape no drafter would commit, and three
+        review rounds turned on exactly which brace a real formatter puts where.
+        """
+        if shutil.which('gofmt') is None:
+            self.skipTest('gofmt is not on PATH')
+        for cell in MAP_CELLS:
+            for name in ('stepOne', 'localBuild'):
+                with self.subTest(row=cell.row, columns=cell.columns, name=name):
+                    src = 'package proof_test\n\n' + self.source(cell, name)
+
+                    formatted = subprocess.run(
+                        ['gofmt'], input=src, capture_output=True, text=True, check=True)
+
+                    self.assertEqual(formatted.stdout, src)
 
 
 class CommittedStepListProofPathsTest(unittest.TestCase):

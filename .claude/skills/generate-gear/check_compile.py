@@ -18,7 +18,10 @@ Four checks gate, and one is reported:
      argument list and not reached through a table or a variable, because the gate reads Go by
      matching braces rather than by compiling it: a run it cannot read to a function name is
      reported as unreadable, and it then says nothing about which steps are registered, rather
-     than calling a registered step unregistered.
+     than calling a registered step unregistered. A run is also unreadable when its own Test
+     body binds a `step<Title>` name, when a condition the gate cannot read guards it, or when
+     it sits outside every Test body. See THE CHOKEPOINT below for why those three are answered
+     by refusing to read rather than by deciding.
   3. API CALLS ARE REAL. Every Fusion call the step list names exists in the API database the
      `fusion` plugin ships. Catches a spec that names a method Fusion does not have.
   4. INPUTS HAVE NOT DRIFTED. The provenance table contains and matches the existing instructions,
@@ -406,8 +409,12 @@ def matching_delimiter(src, start):
     return None
 
 
-def go_func_bodies(src, name_pattern):
-    """Yield (name, body) for top-level Go functions whose names match name_pattern."""
+def go_func_body_spans(src, name_pattern):
+    """Yield (name, start, end) for top-level Go functions whose names match name_pattern.
+
+    start and end bound the body between the function's own braces. Positions come out with
+    the body because a run has to be placed inside or outside a Test body before it is read.
+    """
     pattern = r'(?m)^func\s+(%s)\s*\(' % name_pattern
     for m in re.finditer(pattern, src):
         open_brace = src.find('{', m.end())
@@ -416,7 +423,13 @@ def go_func_bodies(src, name_pattern):
         close_brace = matching_delimiter(src, open_brace)
         if close_brace is None:
             continue
-        yield m.group(1), src[open_brace + 1:close_brace]
+        yield m.group(1), open_brace + 1, close_brace
+
+
+def go_func_bodies(src, name_pattern):
+    """Yield (name, body) for top-level Go functions whose names match name_pattern."""
+    for name, start, end in go_func_body_spans(src, name_pattern):
+        yield name, src[start:end]
 
 
 def split_go_args(src):
@@ -524,17 +537,30 @@ def go_early_return_before(src, pos, brace_pairs):
     return False
 
 
-def go_call_is_reachable(src, pos, brace_pairs):
-    """Return whether a proof run at pos can execute on the test path."""
+def go_call_reachability(src, pos, brace_pairs):
+    """Return True, False or None for whether a proof run at pos runs on the test path.
+
+    True when nothing the gate reads keeps it from running, False when a known-false
+    condition or an unconditional early return does, and None when a block encloses it whose
+    condition the gate cannot read.
+
+    None is not False. A run the gate cannot decide about is one it cannot report on, so the
+    caller reads it as unreadable rather than dropping it. Dropping it was worse than saying
+    nothing: the steps such a run registers were then reported as registered nowhere, which
+    sends a drafter to fix a proof that already registers them.
+    """
     if go_top_level_return_before(src, pos) or go_early_return_before(src, pos, brace_pairs):
         return False
+    unknown = False
     for opening, closing in brace_pairs.items():
         if not opening < pos < closing:
             continue
         condition = go_block_condition(src, opening)
-        if condition is not True:
+        if condition is False:
             return False
-    return True
+        if condition is None:
+            unknown = True
+    return None if unknown else True
 
 
 def go_argument_label(argument):
@@ -559,43 +585,18 @@ def go_statement_ends_at_line(text):
     return re.search(r'(?:\w|[)\]}\'"]|\+\+|--)$', stripped) is not None
 
 
-def go_statement_end(body, start):
-    """Where the Go statement running from start stops, as written.
-
-    It stops at a `;`, at a line break whose last token can end a statement, or at the `}`
-    that closes the block the statement sits in, and only at the statement's own nesting
-    depth, so a composite literal or a wrapped initializer cannot end it early. A declaration
-    stops where the name it binds comes into scope, which is what this position is read for.
-    """
-    depth = 0
-    current = ''
-    for pos in range(start, len(body)):
-        ch = body[pos]
-        if ch in '([{':
-            depth += 1
-        elif ch in ')]}':
-            if depth == 0 and ch == '}':
-                return pos
-            depth -= 1
-        if depth == 0 and (ch == ';' or (ch == '\n' and go_statement_ends_at_line(current))):
-            return pos
-        current += ch
-    return len(body)
-
-
 def go_var_specs(body, start):
-    """The declaration specs of the var declaration at start, as (spec, end) pairs.
+    """The declaration specs of the var declaration at start.
 
     One spec for a single `var` declaration, and one per declaration for a parenthesised
     block. Specs are cut at the block's own nesting depth, so a composite literal or a call in
     an initializer cannot split one, and only where Go would end the statement, so a wrapped
-    initializer cannot either. Each end is where that spec stops in body, because a local is
-    in scope from the end of its own spec and not before it.
+    initializer cannot either. Only the names a spec binds are read from it.
     """
     rest = body[start:]
     offset = len(rest) - len(rest.lstrip())
     if rest[offset:offset + 1] != '(':
-        return [(rest, go_statement_end(body, start))]
+        return [rest]
     closing = matching_delimiter(body, start + offset)
     if closing is None:
         return []
@@ -603,17 +604,17 @@ def go_var_specs(body, start):
     current = ''
     depth = 0
     first = start + offset + 1
-    for index, ch in enumerate(body[first:closing]):
+    for ch in body[first:closing]:
         if ch in '([{':
             depth += 1
         elif ch in ')]}':
             depth -= 1
         if depth == 0 and (ch == ';' or (ch == '\n' and go_statement_ends_at_line(current))):
-            specs.append((current, first + index))
+            specs.append(current)
             current = ''
             continue
         current += ch
-    specs.append((current, closing))
+    specs.append(current)
     return specs
 
 
@@ -621,8 +622,8 @@ def go_declared_names(spec):
     """The names one var declaration binds: the identifier list before the type and any `=`.
 
     Only the left-hand side, because a declaration's initializer may name a real step function,
-    and treating that name as a local would make a literal registration of it anywhere in that
-    declaration's own scope look unreadable.
+    and treating that name as a binding would make a literal registration of it anywhere in the
+    same Test body look unreadable.
     """
     match = re.match(r'\s*([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)', spec)
     if match is None:
@@ -630,129 +631,168 @@ def go_declared_names(spec):
     return re.findall(r'[A-Za-z_]\w*', match.group(1))
 
 
-def go_enclosing_block_close(body, brace_pairs, pos):
-    """Where the innermost block containing pos closes, or the end of body when none does.
+def go_short_declaration_names(body, assign):
+    """The identifiers the `:=` at assign binds, read backwards from it.
 
-    body is a function body with its own braces already stripped, so a declaration at the top
-    level of the function is inside no pair and its block closes with the function.
+    Go's short variable declaration takes an identifier list on its left, so nothing but
+    identifiers, commas and whitespace can stand there. The scan walks back over exactly that
+    and stops at anything else. That is why it can cross the newline of a left-hand side
+    written over several lines and still cannot run into the statement before it: a line whose
+    last token can end a statement stops the scan, which is the same rule Go's own semicolon
+    insertion uses.
+
+    A keyword swept up in front of the list — `for`, `if`, `case` — costs nothing, because no
+    build argument is written as one.
     """
-    close = len(body)
-    innermost = None
-    for opening, closing in brace_pairs.items():
-        if opening < pos <= closing and (innermost is None or opening > innermost):
-            innermost = opening
-            close = closing
-    return close
+    start = assign
+    while start > 0:
+        ch = body[start - 1]
+        if ch == '\n':
+            if go_statement_ends_at_line(body[:start - 1]):
+                break
+            start -= 1
+            continue
+        if ch.isalnum() or ch in '_, \t':
+            start -= 1
+            continue
+        break
+    return re.findall(r'[A-Za-z_]\w*', body[start:assign])
 
 
-def go_group_closes_the_statement(body, closing):
-    """Whether nothing but whitespace follows a brace group's close before the statement ends.
+def go_signature_names(body, open_paren):
+    """The identifiers a func literal's parameter list, and its named result list, write.
 
-    A statement ends at a newline, at a `;`, or at the `}` of the block it sits in, so a group
-    that reaches one of those with only whitespace in between is the last thing the statement
-    writes.
+    Both lists bind names in the literal's body, and both are read whole rather than split
+    into name and type: a type name swept up alongside a parameter name costs nothing, because
+    no build argument is written as a type.
     """
-    for ch in body[closing + 1:]:
-        if ch in '\n;}':
-            return True
-        if not ch.isspace():
-            return False
-    return True
+    closing = matching_delimiter(body, open_paren)
+    if closing is None:
+        return []
+    text = body[open_paren + 1:closing]
+    rest = body[closing + 1:]
+    offset = len(rest) - len(rest.lstrip())
+    if rest[offset:offset + 1] == '(':
+        results = matching_delimiter(body, closing + 1 + offset)
+        if results is not None:
+            text += ',' + body[closing + offset + 2:results]
+    return re.findall(r'[A-Za-z_]\w*', text)
 
 
-def go_header_block_close(body, brace_pairs, pos):
-    """Where the block a statement header introduces closes, or None when none follows.
+def go_bound_names(body):
+    """Every name a Go function body binds, with no scope attached to any of them.
 
-    A `for` or `if` header is written in the enclosing block, but what it binds is scoped to
-    the block that header opens, so that block is what bounds it. The scan skips every balanced
-    brace group from the binding onward and takes the group, at the header's own paren and
-    bracket depth, whose close is the last thing on the statement. The block a header opens is
-    always in that position, and nothing else in the header is: whatever a header writes before
-    the block — a composite literal, a struct or interface type, a function literal — is
-    followed by the block itself, or by the call parentheses, the `;` or the operand that
-    carries the header on.
+    Three constructs write a binding: a `:=`, a `var` declaration, and a func literal's
+    parameter or named result list. Every other binding form in Go's grammar — a for-range
+    header, a three-clause `for` init, an `if` or `switch` init, a type-switch guard, a
+    `case v := <-ch:` in a select, a case clause body — is one of those three wearing a
+    keyword, so reading the three reads them all.
 
-    The rule has to be positional. Brace matching cannot see where the range expression ends,
-    and it cannot read the spacing either: gofmt leaves a space before a multi-line
-    `[]struct {` or a function literal's own brace just as it does before a block's, so the
-    character in front of a brace says nothing about which kind it opens.
+    No position is recorded, because the chokepoint below asks only whether a name is bound
+    somewhere in the body, never where.
     """
-    depth = 0
-    while pos < len(body):
-        ch = body[pos]
-        if ch in '([':
-            depth += 1
-        elif ch in ')]':
-            depth -= 1
-        elif ch == '}':
-            return None
-        elif ch == '{':
-            if pos not in brace_pairs:
-                return None
-            closing = brace_pairs[pos]
-            if depth == 0 and go_group_closes_the_statement(body, closing):
-                return closing
-            pos = closing
-        pos += 1
-    return None
-
-
-def go_local_bindings(body, brace_pairs):
-    """Every name a Go function body binds with := or var, with the span where it is in scope.
-
-    Each binding is a (name, decl_end, block_close) triple, and it holds the name over
-    decl_end < position <= block_close, which is Go's own rule: a local is in scope from the
-    end of its own spec to the end of the innermost block containing that spec. Reading the
-    names alone made every binding cover the whole function, so a same-named declaration in a
-    later or a sibling block hid an outer literal registration.
-
-    A build argument that a binding holds is a local holding a build, not the name of one, so
-    the gate cannot say which function the run builds with. Telling the two apart matters:
-    calling a loop variable a misnamed build function sends a drafter to rename the wrong
-    thing. A stray keyword swept up by the scan is harmless, because no build argument is
-    written as one. Every name a var declaration binds counts, including the ones after a comma
-    and the ones inside a parenthesised block, or a run on a local declared in either shape
-    would be read as a registration of a step function by that name.
-    """
-    bindings = []
-    for match in re.finditer(r'([^\n;{}]*?):=', body):
-        names = re.findall(r'[A-Za-z_]\w*', match.group(1))
-        if re.match(r'\s*(?:else\s+)?(?:for|if|switch)\b', match.group(1)):
-            # A header binding sits outside the braces it belongs to, so its scope is the
-            # block the header opens and it starts at the := rather than at the header's end.
-            decl_end = match.end()
-            block_close = go_header_block_close(body, brace_pairs, decl_end)
-            if block_close is None:
-                block_close = go_enclosing_block_close(body, brace_pairs, decl_end)
-        else:
-            decl_end = go_statement_end(body, match.end())
-            block_close = go_enclosing_block_close(body, brace_pairs, decl_end)
-        bindings.extend((name, decl_end, block_close) for name in names)
+    names = set()
+    for match in re.finditer(r':=', body):
+        names.update(go_short_declaration_names(body, match.start()))
     for match in re.finditer(r'\bvar\b', body):
-        for spec, spec_end in go_var_specs(body, match.end()):
-            block_close = go_enclosing_block_close(body, brace_pairs, spec_end)
-            bindings.extend(
-                (name, spec_end, block_close) for name in go_declared_names(spec))
-    return bindings
+        for spec in go_var_specs(body, match.end()):
+            names.update(go_declared_names(spec))
+    for match in re.finditer(r'\bfunc\s*\(', body):
+        names.update(go_signature_names(body, match.end() - 1))
+    return names
 
 
-def go_local_names_at(bindings, pos):
-    """The names the function's local bindings hold at pos."""
-    return {name for name, decl_end, block_close in bindings
-            if decl_end < pos <= block_close}
+# THE CHOKEPOINT, AND WHAT IT GIVES UP
+#
+# A Test body that binds a `step<Title>` name itself makes every proof run in that body
+# unreadable. The rule makes no scope decision at all, so no header shape can defeat it.
+#
+# A root-cause map of this gate's local-binding handling found seven gaps across the Go binding
+# constructs and offered two ways out: this one, the conservative chokepoint, and a real parse.
+# The conservative one was ruled, and the reasoning on both sides is kept here rather than in a
+# commit message, because the next reader of this file is the one who needs it.
+#
+# It replaces a character-level guess at Go's scoping rule — "the brace group whose close is
+# the last thing on the statement is the block this header opens". Three review rounds each
+# repaired one header shape that defeated that guess, and each time a fourth shape appeared,
+# because the guess is not an approximation of Go's grammar but a different rule that happens
+# to agree with it on the shapes anyone had written down yet.
+#
+# What this deliberately gives up is precision. It reports runs unreadable that a real scope
+# analysis would accept: a `step<Title>` local declared in a sibling block, or after the run,
+# or inside a loop the run is not in, now blocks the whole body. That is the price of a rule
+# with no grammar of its own, and it is paid in false failures, which are loud, rather than in
+# false passes, which are silent and let unproven geometry through a green gate. A proof pays
+# it only by naming a local `step<Title>`, which no proof needs to do.
+#
+# THREE THINGS BRACE MATCHING CANNOT DECIDE, EVEN IN PRINCIPLE
+#
+#   1. A brace group that ends a header clause. In `for a, b := f(), []T{x}; cond; post {` the
+#      clause-ending group and the block are character-identical, and gofmt spaces them the
+#      same way. Telling them apart means knowing how many `;`-separated clauses the header
+#      has and which one the scan is in, which is parsing, not matching.
+#   2. A binding with no brace to hang it on. A `switch` case clause is an implicit block that
+#      writes no brace; func-literal parameters and named results bind inside parentheses;
+#      `const`, `type` and labelled statements are grammar facts with no delimiter of their
+#      own. No refinement of "what follows the brace" reaches any of them.
+#   3. Whether a guarded run executes. `if cond { run }` is decidable only by evaluating
+#      `cond`, which is undecidable in general. The gate reads such a run as unreadable, which
+#      is the honest answer, rather than deciding it either way.
+#
+# Item 3's sibling is the run written in a helper rather than in a `Test` body. Whether a Test
+# reaches it is a call-graph question this gate does not ask, so such a run is reported
+# unreadable too. That is a known limit, not a fix: a helper that a Test really does call
+# still has to be reported, because nothing here can tell it from one that no Test calls.
+#
+# OPTION B, DEFERRED AND KEPT OPEN
+#
+# The sound fix is a real parse: a small `go/parser` plus `go/ast` helper emitting binding
+# spans and the resolved build-argument identifier, leaving this module with one lookup and no
+# grammar of its own. It closes all three items above, because a parser answers by
+# construction what brace matching can only guess at. The repo already ships a Go module and
+# toolchain under `proof/`, so the dependency exists. It is deferred, not rejected, because it
+# makes this Python gate depend on the Go toolchain being present to run at all, which is a
+# structural change beyond the scope this decision was taken in. Take it up and this whole
+# chokepoint, along with the machinery above it, is deleted rather than refined.
 
 
-def go_build_argument_names_a_function(argument, local_names):
+STEP_FUNCTION_NAME = re.compile(r'step[A-Z]\w*')
+
+
+def go_bound_step_names(bound_names):
+    """The step<Title> names among a Test body's bindings: the chokepoint's whole input."""
+    return sorted(name for name in bound_names if STEP_FUNCTION_NAME.fullmatch(name))
+
+
+def go_build_argument_names_a_function(argument, bound_names):
     """Return whether a build argument says, on its own, which function the run builds with.
 
     A package-level identifier says it, and so does a function literal, which says it is
-    anonymous and therefore no step's. Anything else — a local, a struct field, an index, a
-    call, a qualified name — is an expression the gate would have to evaluate to know what the
-    run builds with, and this is brace matching over scrubbed source, not a Go compiler.
+    anonymous and therefore no step's. Anything else — a name the Test body binds itself, a
+    struct field, an index, a call, a qualified name — is an expression the gate would have to
+    evaluate to know what the run builds with, and this is brace matching over scrubbed
+    source, not a Go compiler.
     """
     if re.fullmatch(r'[A-Za-z_]\w*', argument):
-        return argument not in local_names
+        return argument not in bound_names
     return re.match(r'func\s*\(', argument) is not None
+
+
+UNREADABLE_ARGUMENT = ("write the run's arguments out one by one, with the build argument a "
+                       "literal step<Title> identifier so a step can claim the run")
+UNREADABLE_GUARD = ("the gate cannot read the condition that guards it, so it cannot say "
+                    "whether the run executes; write the run where nothing it cannot read "
+                    "guards it")
+UNREADABLE_OUTSIDE_TEST = ("the run is not inside a Go Test function, so the gate cannot say "
+                           "which Test reaches it; register the step from a Test body")
+
+
+def unreadable_local_step_reason(names):
+    """Why a Test body that binds a step<Title> name of its own makes its runs unreadable."""
+    return ("this Test body binds %s itself, so a step<Title> build argument written here may "
+            "be that local rather than the step function of the same name; rename the local so "
+            "no step<Title> name is bound in a Test body that registers a run"
+            % ', '.join(names))
 
 
 def registered_step_functions(src):
@@ -766,44 +806,67 @@ def registered_step_functions(src):
     gate then reports the steps such a run registers as registered nowhere, which is false.
     Only the build argument is judged; the gate and assertion arguments are not steps.
 
-    A run counts as unreadable in three ways, and they are one category because they leave the
-    gate in one state — it cannot say which function the run builds with. The argument list may
-    never close; it may be shorter than the build slot, which is what a run written as one
-    multi-value call parses to, the arguments forwarded from a helper rather than written out;
-    or the build argument may be an expression, a local or a table entry rather than a name.
-    Each compiles, so silently skipping any of them would let a build argument escape the
-    step<Title> check. The label carries the whole call where no argument reached the slot, and
-    the argument itself where one did.
+    A run is unreadable in five ways, and they are one category because they leave the gate in
+    one state — it cannot say which function the run builds with. The Test body may bind a
+    step<Title> name itself, which is the chokepoint above and covers every scope question at
+    once. A block the gate cannot read may guard the run. The argument list may never close; it
+    may be shorter than the build slot, which is what a run written as one multi-value call
+    parses to, the arguments forwarded from a helper rather than written out; or the build
+    argument may be an expression, a bound name or a table entry rather than a name. Each
+    compiles, so silently skipping any of them would let a build argument escape the
+    step<Title> check. Each unreadable run carries the label of the thing to look at and the
+    reason the gate stopped there. The label carries the whole call where no argument reached
+    the slot, and the argument itself where one did.
+
+    A run outside every Test body is reported the same way, because whether a Test reaches the
+    helper holding it is a call-graph question this gate does not ask.
     """
     registered = set()
     misnamed = set()
     unreadable = set()
-    for _, body in go_func_bodies(src, r'Test[A-Z]\w*'):
+    test_spans = []
+    for _, body_start, body_end in go_func_body_spans(src, r'Test[A-Z]\w*'):
+        test_spans.append((body_start, body_end))
+        body = src[body_start:body_end]
         brace_pairs = go_brace_pairs(body)
-        local_bindings = go_local_bindings(body, brace_pairs)
+        bound_names = go_bound_names(body)
+        bound_step_names = go_bound_step_names(bound_names)
         for pattern, build_arg in PROOF_RUN_CALLS:
             for m in re.finditer(pattern, body):
-                if not go_call_is_reachable(body, m.start(), brace_pairs):
+                reachable = go_call_reachability(body, m.start(), brace_pairs)
+                if reachable is False:
                     continue
-                # The run's own start, so a binding counts only where it is in scope for
-                # the whole call, and not one written inside the call's own arguments.
-                local_names = go_local_names_at(local_bindings, m.start())
                 open_paren = m.end() - 1
                 close_paren = matching_delimiter(body, open_paren)
+                call = (body[m.start():] if close_paren is None
+                        else body[m.start():close_paren + 1])
+                if reachable is None:
+                    unreadable.add((go_argument_label(call), UNREADABLE_GUARD))
+                    continue
                 if close_paren is None:
-                    unreadable.add(go_argument_label(body[m.start():]))
+                    unreadable.add((go_argument_label(call), UNREADABLE_ARGUMENT))
                     continue
                 args = split_go_args(body[open_paren + 1:close_paren])
                 if len(args) <= build_arg:
-                    unreadable.add(go_argument_label(body[m.start():close_paren + 1]))
+                    unreadable.add((go_argument_label(call), UNREADABLE_ARGUMENT))
                     continue
                 argument = args[build_arg]
-                if argument not in local_names and re.fullmatch(r'step[A-Z]\w*', argument):
+                if bound_step_names:
+                    unreadable.add((go_argument_label(argument),
+                                    unreadable_local_step_reason(bound_step_names)))
+                elif STEP_FUNCTION_NAME.fullmatch(argument):
                     registered.add(argument)
-                elif go_build_argument_names_a_function(argument, local_names):
+                elif go_build_argument_names_a_function(argument, bound_names):
                     misnamed.add(go_argument_label(argument))
                 else:
-                    unreadable.add(go_argument_label(argument))
+                    unreadable.add((go_argument_label(argument), UNREADABLE_ARGUMENT))
+    for pattern, _ in PROOF_RUN_CALLS:
+        for m in re.finditer(pattern, src):
+            if any(start <= m.start() < end for start, end in test_spans):
+                continue
+            close_paren = matching_delimiter(src, m.end() - 1)
+            call = src[m.start():] if close_paren is None else src[m.start():close_paren + 1]
+            unreadable.add((go_argument_label(call), UNREADABLE_OUTSIDE_TEST))
     return registered, sorted(misnamed), sorted(unreadable)
 
 
@@ -825,9 +888,11 @@ def proof_functions(proof_dir):
 def proof_registrations(proof_dir):
     """Return the registrations a proof directory makes, as three sets.
 
-    They are the step functions registered from a Go Test, the misnamed builds, and the
-    unreadable runs, the last two as (file, label) pairs. A label carries its file, because
-    the argument or the call alone does not say where to go and fix it.
+    They are the step functions registered from a Go Test, the misnamed builds as (file,
+    label) pairs, and the unreadable runs as (file, label, reason) triples. A label carries its
+    file, because the argument or the call alone does not say where to go and fix it, and an
+    unreadable run carries its reason, because the five ways a run can be unreadable are fixed
+    in five different places.
     """
     found = set()
     misnamed = set()
@@ -842,7 +907,7 @@ def proof_registrations(proof_dir):
         registered, other, unread = registered_step_functions(src)
         found.update(registered)
         misnamed.update((path, argument) for argument in other)
-        unreadable.update((path, label) for label in unread)
+        unreadable.update((path, label, reason) for label, reason in unread)
     return found, sorted(misnamed), sorted(unreadable)
 
 
@@ -913,11 +978,9 @@ def main(argv):
         problems.append("  %s registers %s as a proof run's build argument, but that argument "
                         "must be a step<Title> function so a step can claim it"
                         % (path, argument))
-    for path, label in unreadable_runs:
-        problems.append("  %s does not show the gate which function a proof run builds with: "
-                        "%s; write the run's arguments out one by one, with the build argument "
-                        "a literal step<Title> identifier so a step can claim the run"
-                        % (path, label))
+    for path, label, reason in unreadable_runs:
+        problems.append("  %s has a proof run the gate cannot read as a registration: %s; %s"
+                        % (path, label, reason))
 
     # 3. API calls are real
     local = PYTHON_METHODS | defined_names(FRAMEWORK) | contract_names(gear)
