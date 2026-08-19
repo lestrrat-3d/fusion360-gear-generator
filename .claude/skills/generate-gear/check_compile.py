@@ -424,10 +424,17 @@ TEST_HEADER = re.compile(r'^func\s+(Test[A-Z]\w*)\s*\(\s*\w+\s+\*testing\.T\s*\)
 
 # The build slot is a bare name, because it has to be `step<Title>` for a step to claim it. Every
 # other argument may be qualified, so a gate like `proofkit3d.RequireSolid` reads as one argument.
+# The suffix is tied to its namespace, because the four run methods are the four that exist:
+# `proofkit` defines only `Run`, and the `Solid` and `WithGate` variants belong to `proofkit3d`
+# alone. Letting the namespace and the suffix vary independently would credit a registration built
+# on `proofkit.RunSolid`, which no package defines and Go cannot compile.
 PROOF_RUN = re.compile(
-    r'^\s*proofkit(?:3d)?\s*\.\s*Run(?:Solid|WithGate)?\s*\('
+    r'^\s*(?:proofkit\s*\.\s*Run|proofkit3d\s*\.\s*Run(?:Solid|WithGate)?)\s*\('
     r'\s*[\w.]+\s*,\s*[\w.]+\s*,\s*(\w+)\s*(?:,\s*[\w.]+\s*)*\)\s*$')
 
+# The mention pattern stays deliberately wider than the shape above: it is what turns a run the
+# shape refuses into a named complaint. A line calling `proofkit.RunSolid` has to be seen here, or
+# a registration on a method that does not exist would pass by going unnoticed instead of failing.
 PROOF_RUN_MENTION = re.compile(r'\bproofkit(?:3d)?\s*\.\s*Run(?:Solid|WithGate)?\s*\(')
 
 BLOCK_END = re.compile(r'^\}\s*$')
@@ -443,8 +450,8 @@ def scan_proof_file(path):
     """Return one proof file's step definitions, registrations and complaints.
 
     A registration comes back as (line number, Test name, build argument) so a complaint can say
-    where to go. Complaints here are the ones only this file can see: a build constraint, and a
-    proof run written outside the registration shape.
+    where to go. Complaints here are the ones only this file can see: a build constraint in the
+    file header, and a proof run written outside the registration shape.
     """
     src = read(path)
     raw = src.splitlines()
@@ -477,7 +484,19 @@ def scan_proof_file(path):
     # The build constraint is read from the raw source, because blanking has already removed it
     # from the scrubbed copy. A constrained file decides outside itself whether it compiles, so
     # the gate would otherwise credit registrations Go never builds.
-    for number, line in enumerate(raw, 1):
+    #
+    # Only the header is read, because that is the only place Go reads one: a constraint is taken
+    # from the lines before the package clause, so the same text lower down is ordinary content,
+    # most often a line inside a raw string. Scanning the whole file on raw lines refused proofs Go
+    # builds happily. The blanked copy locates the package clause at no cost, since every header
+    # comment is already whitespace there, which leaves the first line carrying anything at all as
+    # the first line of real code.
+    header_end = len(raw)
+    for index, line in enumerate(code):
+        if line.strip():
+            header_end = index
+            break
+    for number, line in enumerate(raw[:header_end], 1):
         if GO_BUILD_CONSTRAINT.match(line):
             complaints.append(
                 "  %s:%d carries a build constraint, so whether Go ever compiles these "

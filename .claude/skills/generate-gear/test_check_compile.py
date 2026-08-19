@@ -146,6 +146,26 @@ class CheckCompileTest(unittest.TestCase):
 
         self.assertEqual(result, 0, output)
 
+    # Only the four run methods that exist are read as registrations.
+
+    def test_run_method_no_package_defines_is_refused(self):
+        """`proofkit` defines only `Run`; the two variants live in `proofkit3d` alone.
+
+        A gate that let the namespace and the suffix vary on their own credited a step whose
+        registration Go cannot compile, which is the one direction a compile gate must never fail
+        in.
+        """
+        proof_body = self.registration('TestOne', 'proofkit.RunSolid', 'stepOne',
+                                       extra=', assertOne')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 1)
+        self.assertIn('proof/gear/proof_test.go:2 runs a proof outside the shape this gate reads',
+                      output)
+        self.assertIn(
+            'S1 names proof function stepOne, which TestOne does not build with', output)
+
     # The build argument must be the step of the Test's own title.
 
     def test_misnamed_build_argument_is_blocking(self):
@@ -338,6 +358,7 @@ class CheckCompileTest(unittest.TestCase):
     def test_build_constraint_is_blocking(self):
         proof_body = (
             '//go:build ignore\n\n'
+            'package gear_test\n\n'
             'func TestOne(t *testing.T) {\n'
             '\tproofkit.Run(t, profileCases, stepOne)\n'
             '}\n\n'
@@ -349,6 +370,26 @@ class CheckCompileTest(unittest.TestCase):
         self.assertIn(
             'proof/gear/proof_test.go:1 carries a build constraint, so whether Go ever compiles '
             'these registrations is decided outside the file', output)
+
+    def test_build_constraint_text_inside_a_raw_string_is_accepted(self):
+        """Go reads a constraint only above the package clause, so lower down it is just text.
+
+        Scanning every raw line refused this file, which `gofmt` and `go test` both accept.
+        """
+        proof_body = (
+            'package gear_test\n\n'
+            'var sample = `\n'
+            '//go:build ignore\n'
+            '`\n\n'
+            'func TestOne(t *testing.T) {\n'
+            '\tproofkit.Run(t, profileCases, stepOne)\n'
+            '}\n\n'
+            'func stepOne() {}\n')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 0, output)
+        self.assertIn('compile check: OK', output)
 
     def test_registration_outside_a_test_file_is_blocking(self):
         result, output = self.run_checker(proof_filename='proof.go')

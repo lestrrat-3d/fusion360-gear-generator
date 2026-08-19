@@ -196,8 +196,10 @@ this skill: a compiler that rewrites its own source removes the thing being chec
 > The gate reads this shape by line rather than by parsing Go, so anything else is refused, not
 > interpreted. A build under another name, a `Test` whose title does not match the step it builds,
 > a run reached through a loop, a condition or a closure, a run whose arguments come from one
-> forwarded call as in `proofkit3d.Run(runArgs(t))`, and a proof file carrying a `//go:build`
-> constraint all fail the check by name and line. The refusal says what to write; write that.
+> forwarded call as in `proofkit3d.Run(runArgs(t))`, a run on a method outside the four named
+> above, and a proof file whose header carries a `//go:build` constraint all fail the check by name
+> and line. A `//go:build` line further down, inside a string, is content rather than a constraint
+> and passes. The refusal says what to write; write that.
 >
 > **The case table reaches every branch, from every direction the spec offers.** A branch a step
 > takes needs a case on each side of it, and a branch the spec says is reachable in more than one
