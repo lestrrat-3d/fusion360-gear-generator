@@ -492,9 +492,7 @@ class CheckCompileTest(unittest.TestCase):
             if proof_body is None:
                 proof_body = (
                     'func TestOne(t *testing.T) {\n'
-                    '    proofkit.Run(t, cases(\n'
-                    '        gear{name: "one"},\n'
-                    '    ), stepOne)\n'
+                    '\tproofkit.Run(t, profileCases, stepOne)\n'
                     '}\n\n'
                     'func stepOne() {}\n')
             (root / 'proof' / 'gear' / proof_filename).write_text(proof_body)
@@ -627,25 +625,20 @@ class CheckCompileTest(unittest.TestCase):
         self.assertIn('compile check: OK', output)
 
     def test_registration_in_non_test_go_file_is_rejected(self):
-        proof_body = (
-            'func TestOne(t *testing.T) {\n'
-            '    proofkit.Run(t, cases(gear{name: "one"}), stepOne)\n'
-            '}\n\n'
-            'func stepOne() {}\n')
-
-        result, output = self.run_checker(proof_body=proof_body, proof_filename='proof.go')
+        result, output = self.run_checker(proof_filename='proof.go')
 
         self.assertEqual(result, 1)
-        self.assertIn('stepOne, but no Go Test registers it', output)
+        self.assertIn('registers stepOne, but `go test` only runs tests in a _test.go file',
+                      output)
 
     def test_claimed_but_unregistered_proof_function_fails(self):
+        """A step whose Test does not exist fails, and a quoted registration does not save it."""
         proof_body = (
             'func TestOne(t *testing.T) {\n'
-            '    proofkit.Run(t, cases(gear{name: "one"}), stepOne)\n'
-            '    _ = "proofkit.Run(t, cases, stepUnused)"\n'
-            '    // proofkit.Run(t, cases, stepUnused)\n'
-            '    _ = stepUnused\n'
+            '\tproofkit.Run(t, profileCases, stepOne)\n'
             '}\n\n'
+            'var sample = "proofkit.Run(t, profileCases, stepUnused)"\n\n'
+            '// proofkit.Run(t, profileCases, stepUnused)\n\n'
             'func stepOne() {}\n'
             'func stepUnused() {}\n')
         step_body = (
@@ -659,34 +652,41 @@ class CheckCompileTest(unittest.TestCase):
         result, output = self.run_checker(proof_body=proof_body, step_body=step_body)
 
         self.assertEqual(result, 1)
-        self.assertIn('S2 names proof function stepUnused, but no Go Test registers it', output)
+        self.assertIn('S2 names proof function stepUnused, which TestUnused does not build with',
+                      output)
 
     def test_early_returned_proof_registration_is_rejected(self):
         proof_body = (
             'func TestOne(t *testing.T) {\n'
-            '    if t != nil { return }\n'
-            '    proofkit.Run(t, cases(gear{name: "one"}), stepOne)\n'
+            '\tif t != nil {\n'
+            '\t\treturn\n'
+            '\t}\n'
+            '\tproofkit.Run(t, profileCases, stepOne)\n'
             '}\n\n'
             'func stepOne() {}\n')
 
         result, output = self.run_checker(proof_body=proof_body)
 
         self.assertEqual(result, 1)
-        self.assertIn('stepOne, but no Go Test registers it', output)
+        self.assertIn('proof/gear/proof_test.go:5 runs a proof outside the shape this gate reads',
+                      output)
+        self.assertIn('S1 names proof function stepOne, which TestOne does not build with', output)
 
     def test_false_branch_proof_registration_is_rejected(self):
         proof_body = (
             'func TestOne(t *testing.T) {\n'
-            '    if false {\n'
-            '        proofkit.Run(t, cases(gear{name: "one"}), stepOne)\n'
-            '    }\n'
+            '\tif false {\n'
+            '\t\tproofkit.Run(t, profileCases, stepOne)\n'
+            '\t}\n'
             '}\n\n'
             'func stepOne() {}\n')
 
         result, output = self.run_checker(proof_body=proof_body)
 
         self.assertEqual(result, 1)
-        self.assertIn('stepOne, but no Go Test registers it', output)
+        self.assertIn('proof/gear/proof_test.go:3 runs a proof outside the shape this gate reads',
+                      output)
+        self.assertIn('S1 names proof function stepOne, which TestOne does not build with', output)
 
     def test_short_dotted_calls_are_compile_candidates(self):
         steps = 'Call `sketch.add()`, `sketch.set()`, and `safeCall()`.'
