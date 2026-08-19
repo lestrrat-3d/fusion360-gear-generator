@@ -225,6 +225,14 @@ this skill: a compiler that rewrites its own source removes the thing being chec
 > the gate names the file and asks for a rename. Ordinary trailing words are unaffected, so
 > `geometry_test.go`, `sketches_test.go` and `solids_test.go` are all fine.
 >
+> **Write proof files as UTF-8 Go can read.** Go refuses to compile a source file whose bytes it
+> cannot read, and a refused file registers nothing, so the gate refuses it too, naming the file,
+> the line and the column. Four byte patterns do it: a UTF-16 byte order mark, which is what a
+> file saved as UTF-16 opens with; any other bytes that are not UTF-8; a NUL byte anywhere; and a
+> byte order mark anywhere other than the very first character. One leading `EF BB BF` is the
+> exception Go strips, so a file that opens with a single mark is read normally and every line
+> below it keeps its number. Write the file as UTF-8, with none of those bytes in it.
+>
 > **The case table reaches every branch, from every direction the spec offers.** A branch a step
 > takes needs a case on each side of it, and a branch the spec says is reachable in more than one
 > way needs a case for each way, because the ways differ in what they get wrong. Cover the ends of

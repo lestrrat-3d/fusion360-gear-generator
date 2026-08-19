@@ -24,7 +24,7 @@ COMPILE_MODULE_SPEC.loader.exec_module(COMPILE_CHECKER)
 # does about that. The whole class of defect on this boundary is the gate disagreeing with Go
 # about a spelling, so a spelling is not settled until both halves are written down and both are
 # checked: `test_go_agrees_with_every_recorded_header_verdict` runs the Go toolchain over this
-# corpus and fails if a `go` column ever stops being true, and the two gate tests below run the
+# corpus and fails if a `go` column ever stops being true, and the three gate tests below run the
 # checker over the same corpus.
 #
 # A row carries the bytes above the package clause and nothing else; the file under test is that
@@ -33,48 +33,58 @@ COMPILE_MODULE_SPEC.loader.exec_module(COMPILE_CHECKER)
 #   ignored             the constraint is honoured and excludes the file — `IgnoredGoFiles`
 #   invalid-constraint  the constraint is read but does not parse — `InvalidGoFiles`
 #   no-constraint       no constraint is read, whatever else Go thinks of the file
+#   unreadable          Go refuses the file's bytes, so `go build` never compiles it and the
+#                       constraint question never arises
 #
-# The `gate` column is `refuse` or `accept`. They agree everywhere except the `+build` near-misses
-# grouped at the end, which are refused deliberately; `PLUS_BUILD_DIRECTIVE` in the checker states
-# why.
+# The `gate` column says what the checker does and, when it refuses, which complaint it makes:
+#
+#   accept              the file is read and scanned
+#   refuse-constraint   "carries a build constraint"
+#   refuse-unreadable   "so Go refuses the file", because Go cannot read those bytes
+#
+# Go and the gate agree everywhere except the `+build` near-misses grouped at the end, which are
+# refused deliberately — `PLUS_BUILD_DIRECTIVE` in the checker states why — and the two
+# `illegal character` rows, which are the known edge named where they sit.
 BOM = b'\xef\xbb\xbf'
 
 GO_HEADER_CASES = (
     # name, header bytes, what Go does, what the gate does
-    ('a plain constraint', b'//go:build ignore\n\n', 'ignored', 'refuse'),
-    ('a tab separator', b'//go:build\tignore\n\n', 'ignored', 'refuse'),
-    ('an indented constraint', b'   //go:build ignore\n\n', 'ignored', 'refuse'),
-    ('a tab-indented constraint', b'\t//go:build ignore\n\n', 'ignored', 'refuse'),
+    ('a plain constraint', b'//go:build ignore\n\n', 'ignored', 'refuse-constraint'),
+    ('a tab separator', b'//go:build\tignore\n\n', 'ignored', 'refuse-constraint'),
+    ('an indented constraint', b'   //go:build ignore\n\n', 'ignored', 'refuse-constraint'),
+    ('a tab-indented constraint', b'\t//go:build ignore\n\n', 'ignored', 'refuse-constraint'),
     ('a constraint on the second header line', b'// note\n//go:build ignore\n\n',
-     'ignored', 'refuse'),
-    ('no blank line before the package clause', b'//go:build ignore\n', 'ignored', 'refuse'),
-    ('CRLF line endings', b'//go:build ignore\r\n\r\n', 'ignored', 'refuse'),
-    ('lone CR line endings', b'//go:build ignore\r\r', 'invalid-constraint', 'refuse'),
-    ('a bare directive', b'//go:build\n\n', 'invalid-constraint', 'refuse'),
+     'ignored', 'refuse-constraint'),
+    ('no blank line before the package clause', b'//go:build ignore\n', 'ignored',
+     'refuse-constraint'),
+    ('CRLF line endings', b'//go:build ignore\r\n\r\n', 'ignored', 'refuse-constraint'),
+    ('lone CR line endings', b'//go:build ignore\r\r', 'invalid-constraint', 'refuse-constraint'),
+    ('a bare directive', b'//go:build\n\n', 'invalid-constraint', 'refuse-constraint'),
     ('a directive followed only by spaces', b'//go:build   \n\n',
-     'invalid-constraint', 'refuse'),
-    ('a directive followed only by a tab', b'//go:build\t\n\n', 'invalid-constraint', 'refuse'),
+     'invalid-constraint', 'refuse-constraint'),
+    ('a directive followed only by a tab', b'//go:build\t\n\n', 'invalid-constraint',
+     'refuse-constraint'),
     ('a byte order mark above the directive', BOM + b'//go:build ignore\n\n',
-     'ignored', 'refuse'),
+     'ignored', 'refuse-constraint'),
     ('a byte order mark above an indented directive', BOM + b'   //go:build ignore\n\n',
-     'ignored', 'refuse'),
+     'ignored', 'refuse-constraint'),
     ('a byte order mark above the legacy form', BOM + b'// +build ignore\n\n',
-     'ignored', 'refuse'),
+     'ignored', 'refuse-constraint'),
     # Go trims the header line with `unicode.IsSpace`, which counts a non-breaking space.
     ('a non-breaking space before the slashes', b'\xc2\xa0//go:build ignore\n\n',
-     'ignored', 'refuse'),
+     'ignored', 'refuse-constraint'),
     ('a closed block comment on the line above', b'/* note */\n//go:build ignore\n\n',
-     'ignored', 'refuse'),
+     'ignored', 'refuse-constraint'),
     ('a closed multi-line block comment above', b'/*\nnote\n*/\n//go:build ignore\n\n',
-     'ignored', 'refuse'),
+     'ignored', 'refuse-constraint'),
     ('a `/*` inside a line comment above', b'// /* note\n//go:build ignore\n\n',
-     'ignored', 'refuse'),
-    ('the legacy form', b'// +build ignore\n\n', 'ignored', 'refuse'),
-    ('the legacy form with no space', b'//+build ignore\n\n', 'ignored', 'refuse'),
-    ('the legacy form with two spaces', b'//  +build ignore\n\n', 'ignored', 'refuse'),
-    ('the legacy form with a tab', b'//\t+build ignore\n\n', 'ignored', 'refuse'),
-    ('the legacy form indented', b'  // +build ignore\n\n', 'ignored', 'refuse'),
-    ('a bare legacy directive', b'// +build\n\n', 'ignored', 'refuse'),
+     'ignored', 'refuse-constraint'),
+    ('the legacy form', b'// +build ignore\n\n', 'ignored', 'refuse-constraint'),
+    ('the legacy form with no space', b'//+build ignore\n\n', 'ignored', 'refuse-constraint'),
+    ('the legacy form with two spaces', b'//  +build ignore\n\n', 'ignored', 'refuse-constraint'),
+    ('the legacy form with a tab', b'//\t+build ignore\n\n', 'ignored', 'refuse-constraint'),
+    ('the legacy form indented', b'  // +build ignore\n\n', 'ignored', 'refuse-constraint'),
+    ('a bare legacy directive', b'// +build\n\n', 'ignored', 'refuse-constraint'),
 
     ('a space after the slashes', b'// go:build ignore\n\n', 'no-constraint', 'accept'),
     ('prose about the directive', b'// go:build is discussed here, not used\n\n',
@@ -89,37 +99,79 @@ GO_HEADER_CASES = (
     ('a block comment closing on the directive line', b'/* note */ //go:build ignore\n\n',
      'no-constraint', 'accept'),
     ('a byte order mark and no constraint', BOM, 'no-constraint', 'accept'),
+
+    # Bytes Go refuses to read. Every one of these makes `go build` fail, so the file is never
+    # compiled and nothing it registers is ever built; crediting one is a false pass. The
+    # constraint written under them is beside the point — Go never gets far enough to read it —
+    # which is why the `go` column says `unreadable` rather than `no-constraint`.
+    ('a UTF-16 byte order mark', b'\xff\xfe//go:build ignore\n\n', 'unreadable',
+     'refuse-unreadable'),
+    ('a big-endian UTF-16 byte order mark', b'\xfe\xff//go:build ignore\n\n', 'unreadable',
+     'refuse-unreadable'),
+    ('a stray 0xFF in a header comment', b'// no\xffte\n\n', 'unreadable', 'refuse-unreadable'),
+    ('a NUL byte', b'\x00//go:build ignore\n\n', 'unreadable', 'refuse-unreadable'),
+    ('a NUL byte in a header comment', b'// no\x00te\n\n', 'unreadable', 'refuse-unreadable'),
     ('two byte order marks above the directive', BOM + BOM + b'//go:build ignore\n\n',
-     'no-constraint', 'accept'),
+     'unreadable', 'refuse-unreadable'),
     ('a byte order mark below the first line', b'// note\n' + BOM + b'//go:build ignore\n\n',
-     'no-constraint', 'accept'),
-    # Leading bytes Go rejects rather than strips. None of them is whitespace to Go, so the line
-    # does not begin with `//` and no constraint is read; Go's own complaint about the byte
-    # arrives later, from the parser, and is not this gate's to make.
-    ('a UTF-16 byte order mark', b'\xff\xfe//go:build ignore\n\n', 'no-constraint', 'accept'),
-    ('a NUL byte', b'\x00//go:build ignore\n\n', 'no-constraint', 'accept'),
-    ('a zero width space', b'\xe2\x80\x8b//go:build ignore\n\n', 'no-constraint', 'accept'),
-    ('a file separator U+001C', b'\x1c//go:build ignore\n\n', 'no-constraint', 'accept'),
+     'unreadable', 'refuse-unreadable'),
+    ('a byte order mark inside a header comment', b'// no' + BOM + b'te\n\n', 'unreadable',
+     'refuse-unreadable'),
+
+    # The known edge, recorded rather than hidden. Go refuses these two as well, reporting
+    # `illegal character U+200B` and `illegal character U+001C`, and the gate still credits them.
+    # They are not one of the four byte patterns `go_refused_bytes` knows: both are well-formed
+    # UTF-8 holding a character Go's scanner will not start a token with, and that rule is Go's
+    # whole lexer rather than a byte pattern a reader can check. Widening the gate to cover it
+    # means transcribing that lexer, which is a bigger change than the one these rows document.
+    ('a zero width space', b'\xe2\x80\x8b//go:build ignore\n\n', 'unreadable', 'accept'),
+    ('a file separator U+001C', b'\x1c//go:build ignore\n\n', 'unreadable', 'accept'),
 
     # Refused by decision rather than by Go's rule.
     ('a `!` straight after the legacy directive', b'// +build!ignore\n\n',
-     'no-constraint', 'refuse'),
+     'no-constraint', 'refuse-constraint'),
     ('a `/` straight after the legacy directive', b'// +build/ignore\n\n',
-     'no-constraint', 'refuse'),
-    ('a word run on to the legacy directive', b'// +buildignore\n\n', 'no-constraint', 'refuse'),
+     'no-constraint', 'refuse-constraint'),
+    ('a word run on to the legacy directive', b'// +buildignore\n\n', 'no-constraint',
+     'refuse-constraint'),
     ('the legacy form with no blank line after it', b'// +build ignore\n',
-     'no-constraint', 'refuse'),
+     'no-constraint', 'refuse-constraint'),
+)
+
+
+# What Go says when it refuses a file's bytes. Which message arrives depends on which stage
+# catches the file: the reader `go/build` uses for a file's header names a NUL `unexpected NUL in
+# input` and a stray mark `illegal byte order mark`, while the compiler, reached only when the
+# reader got through, names the same two `invalid NUL character` and `invalid BOM in the middle of
+# the file`. Any of them means the file is not compiled, which is the only distinction that
+# matters here.
+GO_UNREADABLE_MESSAGES = (
+    'illegal UTF-8 encoding',
+    'invalid UTF-8 encoding',
+    'unexpected NUL in input',
+    'invalid NUL character',
+    'illegal character NUL',
+    'illegal byte order mark',
+    'invalid BOM in the middle of the file',
+    'illegal character U+',
 )
 
 
 def go_verdicts(headers, body=b'package p\n\nfunc F() {}\n'):
-    """Ask the Go toolchain what it does with each header, in one `go list` run.
+    """Ask the Go toolchain what it does with each header, in one `go list` run and a build each.
 
     Every header becomes its own package directory holding the header plus `body`, alongside a
     file that carries the package on its own so a header Go excludes still leaves a package to
-    report. `go list -e` classifies a file without compiling it, which is exactly the question:
-    `IgnoredGoFiles` means a constraint excluded the file, and a `parsing //go:build line` error
-    means one was read and would not parse.
+    report. `go list -e` classifies a file without compiling it, which is exactly the constraint
+    question: `IgnoredGoFiles` means a constraint excluded the file, and a `parsing //go:build
+    line` error means one was read and would not parse.
+
+    A file whose bytes Go refuses is settled first and reported `unreadable`, because for such a
+    file there is no constraint question: Go never reads one. That verdict comes from `go build`
+    rather than from `go list`, because `go list -e` reports only what it hit while scanning a
+    file's header, and a second byte order mark is caught later, by the compiler. The builds run
+    one package at a time on purpose: `go build ./...` stops at the load errors and never compiles
+    the packages whose refusal only the compiler sees.
     """
     root = Path(tempfile.mkdtemp(prefix='go-header-'))
     try:
@@ -129,6 +181,12 @@ def go_verdicts(headers, body=b'package p\n\nfunc F() {}\n'):
             package.mkdir()
             (package / 'x.go').write_bytes(header + body)
             (package / 'keep.go').write_text('package p\n\nfunc Keep() {}\n')
+        unreadable = set()
+        for index in range(len(headers)):
+            built = subprocess.run(['go', 'build', './c%d' % index],
+                                   cwd=root, capture_output=True, text=True)
+            if any(message in built.stderr for message in GO_UNREADABLE_MESSAGES):
+                unreadable.add('c%d' % index)
         listed = subprocess.run(['go', 'list', '-e', '-json', './...'],
                                 cwd=root, capture_output=True, text=True)
         decoder = json.JSONDecoder()
@@ -140,7 +198,9 @@ def go_verdicts(headers, body=b'package p\n\nfunc F() {}\n'):
             while offset < len(text) and text[offset] in ' \t\r\n':
                 offset += 1
             name = info['ImportPath'].rsplit('/', 1)[-1]
-            if 'x.go' in (info.get('IgnoredGoFiles') or []):
+            if name in unreadable:
+                verdicts[name] = 'unreadable'
+            elif 'x.go' in (info.get('IgnoredGoFiles') or []):
                 verdicts[name] = 'ignored'
             elif 'parsing //go:build line' in ((info.get('Error') or {}).get('Err') or ''):
                 verdicts[name] = 'invalid-constraint'
@@ -761,7 +821,7 @@ class CheckCompileTest(unittest.TestCase):
         credit.
         """
         for name, header, verdict, gate in GO_HEADER_CASES:
-            if gate != 'refuse':
+            if gate != 'refuse-constraint':
                 continue
             with self.subTest(case=name, go=verdict):
                 result, output = self.run_checker(proof_body=self.constrained(header))
@@ -769,14 +829,36 @@ class CheckCompileTest(unittest.TestCase):
                 self.assertEqual(result, 1, output)
                 self.assertIn('carries a build constraint', output)
 
+    def test_every_header_whose_bytes_go_refuses_is_refused(self):
+        """A file Go will not read registers nothing, so crediting one is a false pass.
+
+        Four byte patterns do it and each row above names which: a UTF-16 mark, any other bytes
+        that are not UTF-8, a NUL, and a byte order mark below the first character. Reading such a
+        file as text credited every registration in it with no complaint at all, and for the
+        UTF-16 mark it also hid the build constraint underneath, because the two replacement
+        characters pushed the line off its `//` start. The complaint wording and the position it
+        points at are pinned one pattern at a time below.
+        """
+        for name, header, verdict, gate in GO_HEADER_CASES:
+            if gate != 'refuse-unreadable':
+                continue
+            with self.subTest(case=name, go=verdict):
+                result, output = self.run_checker(proof_body=self.constrained(header))
+
+                self.assertEqual(result, 1, output)
+                self.assertIn('so Go refuses the file', output)
+                self.assertNotIn('compile check: OK', output)
+
     def test_every_header_go_builds_as_written_is_accepted(self):
         """Every spelling Go reads no constraint from passes, so the gate refuses no built file.
 
         These are the near-misses and the disguises: a space after the slashes, a `!` or a `/`
-        straight after the directive, a directive quoted inside a leading block comment, and a
-        leading byte Go rejects rather than strips. `go list` reports all of them in `GoFiles`,
-        with no constraint read, and a gate that refused any of them would be failing a proof Go
-        compiles.
+        straight after the directive, and a directive quoted inside a leading block comment.
+        `go list` reports all of them in `GoFiles`, with no constraint read, and a gate that
+        refused any of them would be failing a proof Go compiles.
+
+        Two rows here are accepted while Go refuses the file, for an illegal character rather than
+        for a byte pattern; the corpus comment says why the gate does not reach them.
         """
         for name, header, verdict, gate in GO_HEADER_CASES:
             if gate != 'accept':
@@ -807,9 +889,10 @@ class CheckCompileTest(unittest.TestCase):
         """The `go` column of every row is what the toolchain actually does with that header.
 
         The gate's rules are transcribed from `go/build`, and a transcription is only worth what
-        keeps it true. This runs `go list -e -json` over the whole corpus and reconciles it row
-        by row, so a Go release that changed the boundary, or a row written from memory, fails
-        here rather than in a proof nobody can explain.
+        keeps it true. This runs `go build` and `go list -e -json` over the whole corpus and
+        reconciles it row by row, so a Go release that changed the boundary, or a row written from
+        memory, fails here rather than in a proof nobody can explain. It is what keeps `unreadable`
+        honest as well: that column claims Go refuses the file, and this is the run that shows it.
         """
         headers = [header for _, header, _, _ in GO_HEADER_CASES]
 
@@ -818,6 +901,148 @@ class CheckCompileTest(unittest.TestCase):
         for (name, _, verdict, _), actual in zip(GO_HEADER_CASES, observed):
             with self.subTest(case=name):
                 self.assertEqual(actual, verdict)
+
+    # Bytes Go refuses to read, one pattern at a time: what the complaint says and where it
+    # points. The corpus above carries every one of these as a header row, reconciled against the
+    # toolchain; what a header row cannot carry is the wording, the position, and a pattern that
+    # only appears below the package clause, which is what these add.
+
+    UNREADABLE_TAIL = ('so Go refuses the file: `go test` never compiles it, and nothing it '
+                       'registers is ever built; write the file ')
+
+    def assert_refused(self, proof_body, position, reason, remedy):
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 1, output)
+        self.assertIn('proof/gear/proof_test.go:%s %s, %s%s'
+                      % (position, reason, self.UNREADABLE_TAIL, remedy), output)
+        self.assertNotIn('compile check: OK', output)
+        return output
+
+    def test_a_utf16_byte_order_mark_is_refused_at_the_first_byte(self):
+        """`go build` fails with `illegal UTF-8 encoding (got UTF-16)` at 1:1, and nothing builds.
+
+        Reading the bytes with `errors='replace'` credited the registrations in such a file, and
+        the two replacement characters also pushed the header off its `//` start, so the build
+        constraint under the mark went unreported as well. Both marks are named, since a file
+        saved as UTF-16 opens with whichever one the editor writes.
+        """
+        for mark in (b'\xff\xfe', b'\xfe\xff'):
+            with self.subTest(mark=mark):
+                self.assert_refused(
+                    mark + b'//go:build ignore\n\n' + self.PROOF_BODY, '1:1',
+                    'opens with a UTF-16 byte order mark, which Go reports as `illegal UTF-8 '
+                    'encoding (got UTF-16)`', 'as UTF-8 rather than UTF-16')
+
+    def test_bytes_that_are_not_utf8_are_refused_where_they_sit(self):
+        """A stray `0xFF` is `illegal UTF-8 encoding` to Go, in a comment and in a literal alike.
+
+        The literal case is here rather than in `GO_HEADER_CASES`, whose rows are headers above
+        the package clause: this byte sits below it, and Go still refuses the file.
+        """
+        self.assert_refused(
+            b'// no\xffte\n' + self.PROOF_BODY, '1:6',
+            'holds bytes that are not UTF-8, which Go reports as `illegal UTF-8 encoding`',
+            'as UTF-8')
+        self.assert_refused(
+            self.PROOF_BODY + b'\nvar note = "no\xffte"\n', '9:15',
+            'holds bytes that are not UTF-8, which Go reports as `illegal UTF-8 encoding`',
+            'as UTF-8')
+
+    def test_a_nul_byte_is_refused_wherever_it_sits(self):
+        """A NUL decodes as valid UTF-8, so a strict decode alone credits the file.
+
+        Go refuses it either way, reporting `unexpected NUL in input` from the reader that walks a
+        file's header and `invalid NUL character` from the compiler for one further down. The
+        literal case is here rather than in `GO_HEADER_CASES` because it sits below the package
+        clause, which a header row cannot express.
+        """
+        self.assert_refused(
+            b'// no\x00te\n' + self.PROOF_BODY, '1:6',
+            'holds a NUL byte, which Go reports as `unexpected NUL in input`',
+            'without that byte')
+        self.assert_refused(
+            self.PROOF_BODY + b'\nvar note = "no\x00te"\n', '9:15',
+            'holds a NUL byte, which Go reports as `unexpected NUL in input`',
+            'without that byte')
+
+    def test_a_byte_order_mark_below_the_first_character_is_refused(self):
+        """Only the very first mark is stripped; any other one is `illegal byte order mark`.
+
+        A mark below the first character decodes as valid UTF-8 too, so this is the second case a
+        strict decode does not catch. The scan starts below a stripped leading mark, so a second
+        mark is reported at column 4, which is where Go reports it.
+        """
+        self.assert_refused(
+            BOM + BOM + b'//go:build ignore\n\n' + self.PROOF_BODY, '1:4',
+            'holds a byte order mark below the first character, which Go reports as `illegal '
+            'byte order mark`', 'without that mark')
+        self.assert_refused(
+            b'// note\n' + BOM + b'//go:build ignore\n\n' + self.PROOF_BODY, '2:1',
+            'holds a byte order mark below the first character, which Go reports as `illegal '
+            'byte order mark`', 'without that mark')
+
+    def test_the_first_refused_pattern_in_the_file_is_the_one_reported(self):
+        """One complaint per file, pointing at the earliest bytes Go stops on."""
+        output = self.assert_refused(
+            b'// note\x00and\xffmore\n' + self.PROOF_BODY, '1:8',
+            'holds a NUL byte, which Go reports as `unexpected NUL in input`',
+            'without that byte')
+
+        self.assertNotIn('not UTF-8', output)
+
+    def test_a_leading_byte_order_mark_is_still_stripped_and_the_file_scanned(self):
+        """The one mark Go strips stays stripped, and the file under it is read normally.
+
+        `test_a_byte_order_mark_does_not_hide_a_constraint` and the test below it hold the line
+        numbers; this holds the acceptance, so refusing every other mark did not take this one
+        with it.
+        """
+        result, output = self.run_checker(proof_body=BOM + self.PROOF_BODY)
+
+        self.assertEqual(result, 0, output)
+        self.assertIn('compile check: OK', output)
+
+    def test_no_byte_pattern_raises_out_of_the_gate(self):
+        """Every refusal is a complaint, never a traceback.
+
+        `errors='replace'` was put in to stop a UTF-16 mark raising `UnicodeDecodeError` and
+        crashing the run, and decoding strictly without catching the failure would bring that
+        crash back. The gate has to survive an arbitrary byte anywhere, so this walks a file with
+        one byte of every value in it, at three positions, and asks that the read either hands
+        back text or hands back a complaint. It goes through `go_source` rather than through the
+        whole checker because that is the one place a byte is decoded, and 768 whole runs cost
+        more than the suite should pay to say the same thing.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, 'proof_test.go')
+            for value in range(256):
+                byte = bytes([value])
+                for where, data in (('above', byte + self.PROOF_BODY),
+                                    ('in a comment', b'// note ' + byte + b'\n' + self.PROOF_BODY),
+                                    ('in a literal',
+                                     self.PROOF_BODY + b'\nvar note = "x' + byte + b'"\n')):
+                    with self.subTest(value=value, where=where):
+                        with open(path, 'wb') as handle:
+                            handle.write(data)
+
+                        text, refused = COMPILE_CHECKER.go_source(path)
+
+                        self.assertEqual(text is None, refused is not None)
+
+    def test_an_undecodable_file_is_one_complaint_and_no_registration(self):
+        """The whole run returns, with the file named and nothing in it credited.
+
+        Reading the same bytes as text returned the file's registrations with no complaint, which
+        is the false pass; before that, decoding them strictly crashed the run.
+        """
+        result, output = self.run_checker(proof_body=b'\xff\xfe' + self.PROOF_BODY)
+
+        self.assertEqual(result, 1, output)
+        self.assertIn('compile check: BLOCKING (2)', output)
+        self.assertIn('proof/gear/proof_test.go:1:1 opens with a UTF-16 byte order mark', output)
+        self.assertIn('S1 names proof function stepOne, which proof/gear/ does not declare as a '
+                      'function', output)
 
     # Lines are cut where Go cuts them, at `\n` and nowhere else.
 

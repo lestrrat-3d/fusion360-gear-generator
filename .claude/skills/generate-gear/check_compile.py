@@ -745,8 +745,90 @@ REGISTRATION_SHAPE = ('a registration is three lines and nothing else: '
                       'then `}`')
 
 
+GO_BYTE_ORDER_MARK_BYTES = GO_BYTE_ORDER_MARK.encode('utf-8')
+
+# The UTF-16 marks, in both byte orders. Go names this one specially — `illegal UTF-8 encoding
+# (got UTF-16)` — because it is the byte pattern a file saved as UTF-16 by an editor opens with,
+# and telling the drafter "not UTF-8" without naming the encoding sends them looking for a stray
+# character instead of at the save dialog.
+GO_UTF16_MARKS = (b'\xff\xfe', b'\xfe\xff')
+
+# What each refused byte pattern is, in Go's own words, and what removing it means. Go reports
+# `unexpected NUL in input` from the reader `go/build` uses for a file's header and `invalid NUL
+# character` from the compiler for one further down; either way the file is refused, so the gate
+# does not distinguish them.
+GO_UTF16_REFUSAL = ('opens with a UTF-16 byte order mark, which Go reports as `illegal UTF-8 '
+                    'encoding (got UTF-16)`', 'as UTF-8 rather than UTF-16')
+GO_NOT_UTF8_REFUSAL = ('holds bytes that are not UTF-8, which Go reports as `illegal UTF-8 '
+                       'encoding`', 'as UTF-8')
+GO_NUL_REFUSAL = ('holds a NUL byte, which Go reports as `unexpected NUL in input`',
+                  'without that byte')
+GO_STRAY_MARK_REFUSAL = ('holds a byte order mark below the first character, which Go reports as '
+                         '`illegal byte order mark`', 'without that mark')
+
+
+def go_refused_bytes(data):
+    """The first byte pattern in `data` that Go refuses to read, or None when there is none.
+
+    Returns `(offset, reason, remedy)`, the offset being the byte the complaint points at.
+
+    Go refuses to compile a source file whose bytes it cannot read, and a refused file registers
+    nothing, so crediting one is a false pass of this gate. Four patterns do it, and each is
+    checked here rather than guessed at:
+
+    - `FF FE` or `FE FF` at the very start, which is a UTF-16 mark.
+    - Any other byte sequence that is not UTF-8.
+    - A NUL byte anywhere.
+    - `EF BB BF` anywhere other than the first character.
+
+    The last two decode as perfectly good UTF-8, so a strict decode alone catches neither, and
+    both were credited with no complaint before they were looked for by hand.
+
+    One leading `EF BB BF` is skipped before the scan, because Go strips that one; the search for
+    a stray mark then starts below it, so a second mark is found at the offset Go names.
+
+    Which pattern is reported when a file holds more than one is the earliest in the file, except
+    that a leading UTF-16 mark is named first: it is also invalid UTF-8, and the specific message
+    is the useful one.
+    """
+    if data.startswith(GO_UTF16_MARKS):
+        return (0,) + GO_UTF16_REFUSAL
+    start = len(GO_BYTE_ORDER_MARK_BYTES) if data.startswith(GO_BYTE_ORDER_MARK_BYTES) else 0
+    found = []
+    nul = data.find(b'\x00', start)
+    if nul >= 0:
+        found.append((nul,) + GO_NUL_REFUSAL)
+    mark = data.find(GO_BYTE_ORDER_MARK_BYTES, start)
+    if mark >= 0:
+        found.append((mark,) + GO_STRAY_MARK_REFUSAL)
+    try:
+        data[start:].decode('utf-8')
+    except UnicodeDecodeError as bad:
+        found.append((start + bad.start,) + GO_NOT_UTF8_REFUSAL)
+    if not found:
+        return None
+    return min(found, key=lambda refusal: refusal[0])
+
+
+def go_byte_position(data, offset):
+    """The 1-based line and column Go names for a byte offset, counted in bytes.
+
+    Go counts a column in bytes, not in characters, so counting them here the same way makes the
+    position the gate prints the one the compiler prints. Lines are cut at `\\n`, which is the
+    only line ending Go recognises. The count runs over bytes because a file refused for its bytes
+    may have no text form to count over at all.
+    """
+    line = data.count(b'\n', 0, offset) + 1
+    column = offset - (data.rfind(b'\n', 0, offset) + 1) + 1
+    return line, column
+
+
 def go_source(path):
-    """A `.go` file's text as Go reads it, with one leading byte order mark removed.
+    """A `.go` file's text as Go reads it, or a complaint saying why Go will not read it.
+
+    Returns `(text, complaint)`, exactly one of which is None. Nothing here raises: every byte
+    pattern Go refuses becomes a complaint the drafter can act on, because a traceback fails the
+    whole run without naming the file.
 
     Go strips a UTF-8 byte order mark only when it is the first code point in the file, and only
     one of them, before it looks for a build constraint. So `EF BB BF` above a `//go:build ignore`
@@ -757,19 +839,27 @@ def go_source(path):
     The mark is removed as a character, not as a line, so every line number below it is the one
     Go, an editor and this gate's complaints all name.
 
-    A second mark, or one anywhere below the first character, is left in place, which is what Go
-    does: the line then does not begin with `//`, no constraint is read, and the parser reports
-    `illegal byte order mark` for the one that is not at the start.
-
-    Bytes that are not UTF-8 are replaced rather than raised on. A UTF-16 mark, and every other
-    leading byte Go rejects instead of stripping, leaves a line Go reads no constraint from, and
-    the gate agrees with that by reading the file rather than by crashing on it.
+    A second mark, one anywhere below the first character, a NUL byte, and bytes that are not
+    UTF-8 are all refusals rather than text to scan, because `go build` fails on each of them and
+    a file Go never compiles registers nothing. `go_refused_bytes` is the whole list and states
+    what Go does with each. Reading such a file as text — with `errors='replace'` for the
+    undecodable ones — credited its registrations and, for a UTF-16 mark, also hid the build
+    constraint under it, because the two replacement characters pushed the line off its `//`
+    start.
     """
     with open(path, 'rb') as fh:
-        text = fh.read().decode('utf-8', 'replace')
+        data = fh.read()
+    refused = go_refused_bytes(data)
+    if refused is not None:
+        offset, reason, remedy = refused
+        line, column = go_byte_position(data, offset)
+        return None, (
+            "  %s:%d:%d %s, so Go refuses the file: `go test` never compiles it, and nothing it "
+            "registers is ever built; write the file %s" % (path, line, column, reason, remedy))
+    text = data.decode('utf-8')
     if text.startswith(GO_BYTE_ORDER_MARK):
         text = text[len(GO_BYTE_ORDER_MARK):]
-    return text
+    return text, None
 
 
 def go_header_constraint_lines(lines):
@@ -831,8 +921,12 @@ def scan_proof_file(path):
 
     The source arrives from `go_source`, which removes a leading byte order mark as Go does, so
     line 1 reads the same to this gate as it does to the compiler and every line number holds.
+    That is also where a file Go refuses to read at all is turned into the one complaint such a
+    file has: nothing below is scanned, because Go never compiles it and so registers nothing.
     """
-    src = go_source(path)
+    src, refused = go_source(path)
+    if refused is not None:
+        return set(), [], [refused]
     raw = src.split('\n')
     code = strip_go_comments_and_literals(src).split('\n')
     defined = set()
