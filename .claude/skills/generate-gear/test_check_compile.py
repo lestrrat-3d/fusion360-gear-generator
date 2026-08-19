@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -1297,7 +1298,7 @@ class ProofRunArityDerivationTest(unittest.TestCase):
         nothing would look just as healthy. This pins what `proof/proofkit` and `proof/proofkit3d`
         declare today, so adding a run method or changing an arity fails here and gets reviewed.
         """
-        self.assertEqual(COMPILE_CHECKER.PROOF_RUN_ARGUMENTS, {
+        self.assertEqual(COMPILE_CHECKER.proof_run_shapes().arguments, {
             'proofkit.Run': 3,
             'proofkit3d.Run': 4,
             'proofkit3d.RunSolid': 4,
@@ -1318,7 +1319,16 @@ class ProofRunArityDerivationTest(unittest.TestCase):
             with self.subTest(parameters=parameters):
                 self.assertEqual(COMPILE_CHECKER.go_parameter_count(parameters), expected)
 
-    def test_arities_are_read_from_source_text_comments_excluded(self):
+    def test_arities_are_read_from_code_only_never_a_comment_or_a_literal(self):
+        """The declaration is read wherever it starts on its line, but only in code.
+
+        The derivation allows leading whitespace, because Go compiles and exports an indented
+        package-level declaration and nothing here runs gofmt. That width must not reach the two
+        places a `func` is text rather than a declaration, and both are written here: the doc
+        comment holds a whole indented signature, and the raw string holds one at column 1.
+        `strip_go_comments_and_literals` blanks each to spaces before the scan, so neither is
+        derived, and `RunTwice` and `RunQuoted` appearing in the table would say that broke.
+        """
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'harness.go'
             path.write_text(
@@ -1328,7 +1338,11 @@ class ProofRunArityDerivationTest(unittest.TestCase):
                 '//\tfunc RunTwice(t *testing.T, a, b, c, d Case) {}\n'
                 '//\n'
                 '// but it is not.\n'
+                'const usage = `\n'
+                'func RunQuoted(t *testing.T, a, b, c, d, e Case) {}\n'
+                '`\n\n'
                 'func Run(t *testing.T, cases []Case, build Build) {}\n\n'
+                '\tfunc RunSolid(t *testing.T, cases []Case, build Build, assert Assert) {}\n\n'
                 'func RunWithGate(t *testing.T, cases []Case, build Build, gate Gate,\n'
                 '\tassert Assert) {\n'
                 '}\n\n'
@@ -1336,7 +1350,8 @@ class ProofRunArityDerivationTest(unittest.TestCase):
 
             table = COMPILE_CHECKER.go_run_arities('harness', str(path))
 
-        self.assertEqual(table, {'harness.Run': 3, 'harness.RunWithGate': 5})
+        self.assertEqual(table,
+                         {'harness.Run': 3, 'harness.RunSolid': 4, 'harness.RunWithGate': 5})
 
     def test_both_run_patterns_are_built_from_the_derived_table(self):
         """Every derived method is read as a registration; no other pairing is read as one.
@@ -1344,17 +1359,18 @@ class ProofRunArityDerivationTest(unittest.TestCase):
         The mention pattern stays wider on purpose, so a call on a method no package declares —
         `proofkit.RunSolid` — is still seen and complained about rather than passing unnoticed.
         """
-        packages = sorted({method.split('.')[0] for method in COMPILE_CHECKER.PROOF_RUN_ARGUMENTS})
-        names = sorted({method.split('.')[1] for method in COMPILE_CHECKER.PROOF_RUN_ARGUMENTS})
+        runs = COMPILE_CHECKER.proof_run_shapes()
+        packages = sorted({method.split('.')[0] for method in runs.arguments})
+        names = sorted({method.split('.')[1] for method in runs.arguments})
         for package in packages:
             for name in names:
                 method = '%s.%s' % (package, name)
-                declared = COMPILE_CHECKER.PROOF_RUN_ARGUMENTS.get(method)
+                declared = COMPILE_CHECKER.proof_run_shapes().arguments.get(method)
                 arguments = ['t', 'profileCases', 'stepOne'] + ['assertOne'] * 2
                 line = '\t%s(%s)' % (method, ', '.join(arguments[:declared or 3]))
                 with self.subTest(method=method):
                     self.assertTrue(COMPILE_CHECKER.PROOF_RUN_MENTION.search(line))
-                    match = COMPILE_CHECKER.PROOF_RUN.match(line)
+                    match = runs.shape.match(line)
                     if declared is None:
                         self.assertIsNone(match)
                         continue
@@ -1363,9 +1379,15 @@ class ProofRunArityDerivationTest(unittest.TestCase):
                                      (method, declared))
 
 
-def harness_file(package, name='RunExtra'):
-    """One harness source declaring a single run method, for the named package."""
-    return b'package %s\n\nfunc %s(a, b, c int) {}\n' % (package.encode(), name.encode())
+def harness_file(package, name='RunExtra', indent=b''):
+    """One harness source declaring a single run method, for the named package.
+
+    `indent` is the whitespace in front of the declaration. Go's layout is free and nothing in
+    this repository holds the harness to `gofmt`, so an indented declaration is an ordinary file
+    the derivation has to read, not a malformed one.
+    """
+    return b'package %s\n\n%sfunc %s(a, b, c int) {}\n' % (package.encode(), indent,
+                                                          name.encode())
 
 
 def go_harness_verdict(name, source):
@@ -1448,6 +1470,14 @@ class HarnessSourceRuleTest(unittest.TestCase):
             ('a legacy constraint', 'runconstrained.go',
              b'// +build never\n\n' + body, 'ignored', 'error'),
             ('a NUL byte', 'runnul.go', body[:-1] + b'\x00\n', 'unreadable', 'error'),
+            # Go's layout is free, and `proof/run.sh` and both workflows run no gofmt, vet or
+            # lint, so nothing stops an indented declaration reaching the harness. Anchoring the
+            # derivation at column 1 lost the method while Go still compiled and exported it, and
+            # every registration on it was then reported as a call no harness package declares.
+            ('a tab-indented declaration', 'runindenttab.go',
+             harness_file('proofkit', indent=b'\t'), 'compiled', 'read'),
+            ('a space-indented declaration', 'runindentspaces.go',
+             harness_file('proofkit', indent=b'    '), 'compiled', 'read'),
         )
 
     def derive(self, name=None, source=None):
@@ -1586,8 +1616,153 @@ class HarnessSourceRuleTest(unittest.TestCase):
                 self.assertEqual(
                     {name for name in exported if name.startswith('Run')},
                     {method.split('.', 1)[1]
-                     for method in COMPILE_CHECKER.PROOF_RUN_ARGUMENTS
+                     for method in COMPILE_CHECKER.proof_run_shapes().arguments
                      if method.startswith('%s.' % package)})
+
+
+class BrokenHarnessExitCodeTest(unittest.TestCase):
+    """A harness this gate cannot read is a broken input: exit 2, named, and never a traceback.
+
+    The run table used to be derived at import, before `main` existed, so every raise from the
+    derivation killed the command with an uncaught traceback and exit 1. Exit 1 is this checker's
+    code for findings in the artifact under review, and the harness is not that artifact: sending
+    a reader to look for findings in a proof that has none, with a Python stack instead of a
+    message, is the wrong file and the wrong shape of answer. Exit 2 is the documented code for a
+    missing or broken input, and `main` already uses it for a usage error, a missing step list, a
+    step list with no steps and an unavailable API database.
+
+    Each case is run as a real subprocess, because the defect was in what the command does at
+    import and only a fresh process shows that.
+    """
+
+    SKILL_DIR = Path(__file__).parent
+
+    STEP_LIST = '## S1 `[PROSE]` Title\n\n**From:** `spec/gear/instructions.md` L1\n'
+
+    def harness_tree(self):
+        """A tree the checker reads as a repository, with a sound harness and one step list.
+
+        The skill directory is linked rather than copied, so the checker under test is this one
+        and not a stale copy. `check_compile.py` takes the repository root from its own path
+        without resolving links, so the link is what puts the harness below in its reach.
+        """
+        root = Path(tempfile.mkdtemp(prefix='harness-exit-'))
+        self.addCleanup(shutil.rmtree, str(root), True)
+        (root / '.claude' / 'skills').mkdir(parents=True)
+        (root / '.claude' / 'skills' / 'generate-gear').symlink_to(self.SKILL_DIR)
+        for package in COMPILE_CHECKER.PROOF_RUN_PACKAGES:
+            (root / 'proof' / package).mkdir(parents=True)
+            (root / 'proof' / package / ('%s.go' % package)).write_bytes(
+                harness_file(package, 'Run'))
+        (root / 'spec' / 'gear').mkdir(parents=True)
+        (root / 'spec' / 'gear' / 'steps.md').write_text(self.STEP_LIST)
+        return root
+
+    def check(self, root, *arguments):
+        return subprocess.run(
+            [sys.executable,
+             str(root / '.claude' / 'skills' / 'generate-gear' / 'check_compile.py')]
+            + list(arguments),
+            cwd=str(root), capture_output=True, text=True)
+
+    def assertNoTraceback(self, result):
+        self.assertNotIn('Traceback', result.stderr)
+        self.assertNotIn('Traceback', result.stdout)
+
+    def test_a_sound_harness_is_read_and_the_run_goes_on_to_the_artifact(self):
+        """The control. Without it every case below would pass on a checker that always exits 2.
+
+        The exit code is not pinned, because what the run finds past the harness depends on
+        whether the Fusion API database is installed. What is pinned is that the harness was read:
+        the run got somewhere the harness never named, and it did not stop at the derivation.
+        """
+        result = self.check(self.harness_tree(), 'gear')
+
+        self.assertNoTraceback(result)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn('harness', result.stderr)
+        self.assertNotIn('run methods', result.stderr)
+
+    def test_a_harness_carrying_a_build_constraint_exits_two(self):
+        """Whether Go compiles a constrained file is settled outside it, so this is an input fault.
+
+        `//go:build linux` is the case that makes the point: on a linux builder Go does compile
+        the file, so skipping it would drop a method that exists and turn every sound registration
+        on it into a complaint about the proof.
+        """
+        root = self.harness_tree()
+        (root / 'proof' / 'proofkit' / 'runconstrained.go').write_bytes(
+            b'//go:build linux\n\n' + harness_file('proofkit'))
+
+        result = self.check(root, 'gear')
+
+        self.assertNoTraceback(result)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn('runconstrained.go:1 carries a build constraint', result.stderr)
+
+    def test_a_harness_go_will_not_read_exits_two(self):
+        root = self.harness_tree()
+        (root / 'proof' / 'proofkit' / 'runnul.go').write_bytes(
+            harness_file('proofkit')[:-1] + b'\x00\n')
+
+        result = self.check(root, 'gear')
+
+        self.assertNoTraceback(result)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn('is one Go will not read', result.stderr)
+        self.assertIn('holds a NUL byte', result.stderr)
+
+    @unittest.skipIf(getattr(os, 'geteuid', lambda: 1)() == 0,
+                     'root reads a mode 000 file, so there is nothing to refuse')
+    def test_a_harness_this_process_cannot_open_exits_two(self):
+        """The `OSError` path, and the reason catching `RuntimeError` alone leaves a hole.
+
+        Every other refusal here is the gate's own `RuntimeError`. A harness source at mode 000
+        raises `PermissionError` from `open()` instead, which is an `OSError`, and the operating
+        system's message says nothing about why this checker was reading the file, so `main` names
+        the harness itself.
+        """
+        root = self.harness_tree()
+        unreadable = root / 'proof' / 'proofkit' / 'proofkit.go'
+        unreadable.chmod(0o000)
+        self.addCleanup(unreadable.chmod, 0o644)
+
+        result = self.check(root, 'gear')
+
+        self.assertNoTraceback(result)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn('the harness sources under proof/proofkit, proof/proofkit3d cannot be read',
+                      result.stderr)
+        self.assertIn('Permission denied', result.stderr)
+
+    def test_a_missing_harness_exits_two(self):
+        root = self.harness_tree()
+        for package in COMPILE_CHECKER.PROOF_RUN_PACKAGES:
+            shutil.rmtree(str(root / 'proof' / package))
+
+        result = self.check(root, 'gear')
+
+        self.assertNoTraceback(result)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn('no proof run methods found under proof/proofkit, proof/proofkit3d',
+                      result.stderr)
+
+    def test_the_usage_message_survives_a_broken_harness(self):
+        """Reading the harness at import ran it before the arguments were looked at.
+
+        With a harness the gate refuses, `check_compile.py` with no arguments printed a Python
+        stack instead of the one line that says how to call it.
+        """
+        root = self.harness_tree()
+        (root / 'proof' / 'proofkit' / 'runconstrained.go').write_bytes(
+            b'//go:build linux\n\n' + harness_file('proofkit'))
+
+        result = self.check(root)
+
+        self.assertNoTraceback(result)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn('usage: check_compile.py <gear>', result.stderr)
+        self.assertNotIn('build constraint', result.stderr)
 
 
 class CommittedStepListProofPathsTest(unittest.TestCase):
