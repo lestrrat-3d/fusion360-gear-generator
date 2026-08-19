@@ -11,12 +11,13 @@ Four checks gate, and one is reported:
   1. CITATIONS RESOLVE. Every step has a nonempty `**From:**` line naming real files and line
      ranges that exist.
   2. STEPS AND PROOF AGREE. Every `[GO]` step names the proof function that realises it, every
-     proof function is claimed by a step, and every proof run's build argument is a `step<Title>`
-     function so a step can claim it. Drift in either direction means one artifact moved without
-     the other, and a build function under any other name is a proof no step can reach. A run
-     whose arguments this checker cannot read to the build slot — one written as a single
-     multi-value call, say — is reported for the same reason: an unread build argument is an
-     unchecked one.
+     proof function is claimed by a step, and every proof function is built by the Go Test of its
+     own title: `stepGearProfileSketch` by `TestGearProfileSketch`, and by no other. Drift in
+     either direction means one artifact moved without the other, and a build the matching Test
+     does not name is a proof no step can reach. The registration is written in one fixed shape
+     the gate matches by line ("Registration is read by SHAPE" below says why and states it); a
+     run written any other way is reported rather than read, because an unread build argument is
+     an unchecked one.
   3. API CALLS ARE REAL. Every Fusion call the step list names exists in the API database the
      `fusion` plugin ships. Catches a spec that names a method Fusion does not have.
   4. INPUTS HAVE NOT DRIFTED. The provenance table contains and matches the existing instructions,
@@ -385,219 +386,147 @@ def strip_go_comments_and_literals(src):
     return ''.join(out)
 
 
-def matching_delimiter(src, start):
-    """Return the matching delimiter index for src[start], or None."""
-    pairs = {'(': ')', '{': '}', '[': ']'}
-    opens = set(pairs)
-    closes = {v: k for k, v in pairs.items()}
-    stack = [src[start]]
-    for i in range(start + 1, len(src)):
-        ch = src[i]
-        if ch in opens:
-            stack.append(ch)
-        elif ch in closes:
-            if not stack or stack[-1] != closes[ch]:
-                return None
-            stack.pop()
-            if not stack:
-                return i
-    return None
+# Registration is read by SHAPE, not by parsing Go.
+#
+# The gate has one question about the proof: which step function does each proof run build with?
+# Answering it by reading Go is answering a much harder question than the one asked, and the
+# checker spent a long time getting Go's grammar wrong at the edges — a type brace in a range
+# header, a func literal in a for-init, a wrapped if, a func type in a result position. Every one
+# of those was a shape no committed proof contains.
+#
+# So the proof declares its registrations in a fixed shape instead, and the gate matches that
+# shape. A registration is three lines and nothing else:
+#
+#     func Test<Title>(t *testing.T) {
+#             proofkit.Run(t, <cases>, step<Title>)
+#     }
+#
+# with `proofkit3d.Run`, `proofkit3d.RunSolid` or `proofkit3d.RunWithGate` in place of
+# `proofkit.Run`, and an assertion argument after the build where the run takes one. The build
+# argument is always the third. The Test's title and the step's title are the same word, which is
+# what lets a step list claim a function by name alone.
+#
+# What this buys is that the gate never has to decide what a brace means. What it costs is that a
+# run written any other way is refused rather than read. That is the safe direction: a refusal
+# names the file and line and says what to write, while a misreading silently credits a step no
+# test builds. `.claude/skills/compile-gear/SKILL.md` states the same shape to the drafter, so the
+# refusal is a contract violation rather than a surprise.
+#
+# Comments and literals are blanked before matching, so a registration quoted inside a doc comment
+# or a raw string is not mistaken for a real one. Blanking preserves newlines, so a line number in
+# a complaint is a line number in the file.
+
+GO_BUILD_CONSTRAINT = re.compile(r'^\s*//\s*(?:go:build|\+build)\b')
+
+STEP_DEFINITION = re.compile(r'^func\s+(step[A-Z]\w*)\s*[\[(]')
+
+TEST_HEADER = re.compile(r'^func\s+(Test[A-Z]\w*)\s*\(\s*\w+\s+\*testing\.T\s*\)\s*\{\s*$')
+
+# The build slot is a bare name, because it has to be `step<Title>` for a step to claim it. Every
+# other argument may be qualified, so a gate like `proofkit3d.RequireSolid` reads as one argument.
+PROOF_RUN = re.compile(
+    r'^\s*proofkit(?:3d)?\s*\.\s*Run(?:Solid|WithGate)?\s*\('
+    r'\s*[\w.]+\s*,\s*[\w.]+\s*,\s*(\w+)\s*(?:,\s*[\w.]+\s*)*\)\s*$')
+
+PROOF_RUN_MENTION = re.compile(r'\bproofkit(?:3d)?\s*\.\s*Run(?:Solid|WithGate)?\s*\(')
+
+BLOCK_END = re.compile(r'^\}\s*$')
+
+STEP_NAME = re.compile(r'step[A-Z]\w*')
+
+REGISTRATION_SHAPE = ('a registration is three lines and nothing else: '
+                      '`func Test<Title>(t *testing.T) {`, one proof run whose third argument is '
+                      '`step<Title>`, then `}`')
 
 
-def go_func_bodies(src, name_pattern):
-    """Yield (name, body) for top-level Go functions whose names match name_pattern."""
-    pattern = r'(?m)^func\s+(%s)\s*\(' % name_pattern
-    for m in re.finditer(pattern, src):
-        open_brace = src.find('{', m.end())
-        if open_brace == -1:
-            continue
-        close_brace = matching_delimiter(src, open_brace)
-        if close_brace is None:
-            continue
-        yield m.group(1), src[open_brace + 1:close_brace]
+def scan_proof_file(path):
+    """Return one proof file's step definitions, registrations and complaints.
 
-
-def split_go_args(src):
-    """Split a Go argument list on top-level commas."""
-    args = []
-    start = 0
-    stack = []
-    pairs = {'(': ')', '{': '}', '[': ']'}
-    closes = {v: k for k, v in pairs.items()}
-    for i, ch in enumerate(src):
-        if ch in pairs:
-            stack.append(ch)
-        elif ch in closes:
-            if stack and stack[-1] == closes[ch]:
-                stack.pop()
-        elif ch == ',' and not stack:
-            args.append(src[start:i].strip())
-            start = i + 1
-    tail = src[start:].strip()
-    if tail:
-        args.append(tail)
-    return args
-
-
-PROOF_RUN_CALLS = [
-    (r'\bproofkit\s*\.\s*Run\s*\(', 2),
-    (r'\bproofkit3d\s*\.\s*Run\s*\(', 2),
-    (r'\bproofkit3d\s*\.\s*RunSolid\s*\(', 2),
-    (r'\bproofkit3d\s*\.\s*RunWithGate\s*\(', 2),
-]
-
-
-def go_brace_pairs(src):
-    """Return matching brace positions in already-scrubbed Go source."""
-    pairs = {}
-    stack = []
-    for pos, char in enumerate(src):
-        if char == '{':
-            stack.append(pos)
-        elif char == '}' and stack:
-            opening = stack.pop()
-            pairs[opening] = pos
-    return pairs
-
-
-def go_brace_depth(src, pos):
-    """Return brace nesting depth before pos in already-scrubbed Go source."""
-    return sum(char == '{' for char in src[:pos]) - sum(char == '}' for char in src[:pos])
-
-
-def go_block_condition(src, opening):
-    """Return the known reachability of an if block, or None when it is unknown."""
-    line_start = src.rfind('\n', 0, opening) + 1
-    header = src[line_start:opening].strip()
-    match = re.match(r'if\s+(.+)$', header)
-    if not match:
-        return False
-    condition = re.sub(r'\s+', ' ', match.group(1)).strip()
-    if condition == 'false':
-        return False
-    if condition in ('true', 't != nil'):
-        return True
-    return None
-
-
-def go_top_level_return_before(src, pos):
-    """Return whether an unconditional return precedes pos in a test body."""
-    for match in re.finditer(r'\breturn\b', src[:pos]):
-        if go_brace_depth(src, match.start()) == 0:
-            return True
-    return False
-
-
-def go_early_return_before(src, pos, brace_pairs):
-    """Return whether a known-true top-level if-return precedes pos."""
-    for opening, closing in brace_pairs.items():
-        if closing >= pos or go_brace_depth(src, opening) != 0:
-            continue
-        if go_block_condition(src, opening) is not True:
-            continue
-        if re.fullmatch(r'\s*return\s*;?\s*', src[opening + 1:closing]):
-            return True
-    return False
-
-
-def go_call_is_reachable(src, pos, brace_pairs):
-    """Return whether a proof run at pos can execute on the test path."""
-    if go_top_level_return_before(src, pos) or go_early_return_before(src, pos, brace_pairs):
-        return False
-    for opening, closing in brace_pairs.items():
-        if not opening < pos < closing:
-            continue
-        condition = go_block_condition(src, opening)
-        if condition is not True:
-            return False
-    return True
-
-
-def go_argument_label(argument):
-    """A one-line label for a Go argument expression, for diagnostics."""
-    label = re.sub(r'\s+', ' ', argument).strip()
-    if len(label) > 60:
-        label = label[:57] + '...'
-    return label
-
-
-def registered_step_functions(src):
-    """Return (step functions, other build arguments, unreadable runs) for reachable runs.
-
-    The first two come out of the same parse of the same run, because they are the same fact
-    read two ways: a run's build argument either is a step function or is a build the step
-    list has no name for. Dropping the second half is how a proof registered under a name
-    like buildSolid used to escape every check — no step could claim it, and nothing looked
-    for it. Only the build argument is judged; the gate and assertion arguments are not steps.
-
-    The third is every reachable run whose argument list this parse could not read to the
-    build slot: an unterminated call, or an argument list shorter than that slot, which is
-    what a run written as one multi-value call — the build argument forwarded from a helper
-    rather than written out — parses to. Such a run compiles, so silently skipping it would
-    let its build argument escape the same check. It is reported instead, and the fix is to
-    write the run's arguments out one by one.
+    A registration comes back as (line number, Test name, build argument) so a complaint can say
+    where to go. Complaints here are the ones only this file can see: a build constraint, and a
+    proof run written outside the registration shape.
     """
-    registered = set()
-    other = set()
-    unreadable = set()
-    for _, body in go_func_bodies(src, r'Test[A-Z]\w*'):
-        brace_pairs = go_brace_pairs(body)
-        for pattern, build_arg in PROOF_RUN_CALLS:
-            for m in re.finditer(pattern, body):
-                if not go_call_is_reachable(body, m.start(), brace_pairs):
-                    continue
-                open_paren = m.end() - 1
-                close_paren = matching_delimiter(body, open_paren)
-                if close_paren is None:
-                    unreadable.add(go_argument_label(body[m.start():]))
-                    continue
-                args = split_go_args(body[open_paren + 1:close_paren])
-                if len(args) <= build_arg:
-                    unreadable.add(go_argument_label(body[m.start():close_paren + 1]))
-                    continue
-                if re.fullmatch(r'step[A-Z]\w*', args[build_arg]):
-                    registered.add(args[build_arg])
-                else:
-                    other.add(go_argument_label(args[build_arg]))
-    return registered, sorted(other), sorted(unreadable)
+    src = read(path)
+    raw = src.splitlines()
+    code = strip_go_comments_and_literals(src).splitlines()
+    defined = set()
+    registrations = []
+    complaints = []
+    run_lines = set()
 
-
-def proof_functions(proof_dir):
-    """Every step function the proof defines, by name."""
-    found = set()
-    if not os.path.isdir(proof_dir):
-        return found
-    for entry in sorted(os.listdir(proof_dir)):
-        if not entry.endswith('.go'):
+    for index, line in enumerate(code):
+        match = STEP_DEFINITION.match(line)
+        if match:
+            defined.add(match.group(1))
+        header = TEST_HEADER.match(line)
+        if not header:
             continue
-        src = strip_go_comments_and_literals(read(os.path.join(proof_dir, entry)))
-        # step<Title>, so a helper called steps() is not mistaken for a step.
-        for name, _ in go_func_bodies(src, r'step[A-Z]\w*'):
-            found.add(name)
-    return found
+        run = PROOF_RUN.match(code[index + 1]) if index + 1 < len(code) else None
+        closed = BLOCK_END.match(code[index + 2]) if index + 2 < len(code) else None
+        if not run or not closed:
+            continue
+        run_lines.add(index + 1)
+        registrations.append((index + 2, header.group(1), run.group(1)))
+
+    for index, line in enumerate(code):
+        if PROOF_RUN_MENTION.search(line) and index not in run_lines:
+            complaints.append(
+                "  %s:%d runs a proof outside the shape this gate reads, so its build argument "
+                "cannot be checked; %s" % (path, index + 1, REGISTRATION_SHAPE))
+
+    # The build constraint is read from the raw source, because blanking has already removed it
+    # from the scrubbed copy. A constrained file decides outside itself whether it compiles, so
+    # the gate would otherwise credit registrations Go never builds.
+    for number, line in enumerate(raw, 1):
+        if GO_BUILD_CONSTRAINT.match(line):
+            complaints.append(
+                "  %s:%d carries a build constraint, so whether Go ever compiles these "
+                "registrations is decided outside the file; a proof file needs no build "
+                "constraint, so remove it" % (path, number))
+
+    return defined, registrations, complaints
 
 
 def proof_registrations(proof_dir):
-    """Return registrations, misnamed builds and unreadable runs, the last two file-anchored.
+    """Return the proof's step functions, its registered ones, and every complaint about them.
 
-    Misnamed builds come back as (file, argument) and unreadable runs as (file, call), because
-    the name alone does not say where to go and fix it.
+    A step function is registered when the Test of the same title builds with it. Requiring the
+    titles to agree is what makes the mapping readable from names alone, and it catches a crossed
+    pair — a Test building with some other step — which a gate that only looked for a `step<Title>`
+    argument would pass.
     """
-    found = set()
-    misnamed = set()
-    unreadable = set()
+    defined = set()
+    registered = set()
+    complaints = []
     if not os.path.isdir(proof_dir):
-        return found, [], []
+        return defined, registered, complaints
     for entry in sorted(os.listdir(proof_dir)):
-        if not entry.endswith('_test.go'):
+        if not entry.endswith('.go'):
             continue
         path = os.path.join(proof_dir, entry)
-        src = strip_go_comments_and_literals(read(path))
-        registered, other, unread = registered_step_functions(src)
-        found.update(registered)
-        misnamed.update((path, argument) for argument in other)
-        unreadable.update((path, call) for call in unread)
-    return found, sorted(misnamed), sorted(unreadable)
+        found, registrations, file_complaints = scan_proof_file(path)
+        defined |= found
+        complaints.extend(file_complaints)
+        for number, test, build in registrations:
+            if not entry.endswith('_test.go'):
+                complaints.append(
+                    "  %s:%d registers %s, but `go test` only runs tests in a _test.go file, so "
+                    "nothing here ever builds it" % (path, number, build))
+                continue
+            expected = 'step' + test[len('Test'):]
+            if build == expected:
+                registered.add(build)
+            elif STEP_NAME.fullmatch(build):
+                complaints.append(
+                    "  %s:%d registers %s inside %s, but a step is registered by the Test of its "
+                    "own title, so this build belongs in Test%s"
+                    % (path, number, build, test, build[len('step'):]))
+            else:
+                complaints.append(
+                    "  %s:%d registers %s as a proof run's build argument, but that argument "
+                    "must be a step<Title> function so a step can claim it"
+                    % (path, number, build))
+    return defined, registered, complaints
 
 
 def main(argv):
@@ -637,8 +566,8 @@ def main(argv):
             cited.setdefault(path, set()).update(range(first, last + 1))
 
     # 2. steps and proof agree
-    functions = proof_functions(proof_dir)
-    registered, misnamed_builds, unreadable_runs = proof_registrations(proof_dir)
+    functions, registered, registration_problems = proof_registrations(proof_dir)
+    problems.extend(registration_problems)
     claimed = set()
     for sid, tag, body in steps:
         named = set(re.findall(r'\b(step[A-Z]\w*)\b', body))
@@ -649,22 +578,14 @@ def main(argv):
                 problems.append("  %s names proof function %s, which %s/ does not define"
                                 % (sid, fn, proof_dir))
             elif fn not in registered:
-                problems.append("  %s names proof function %s, but no Go Test registers it "
-                                "in a proofkit run" % (sid, fn))
+                problems.append("  %s names proof function %s, which Test%s does not build with; "
+                                "%s" % (sid, fn, fn[len('step'):], REGISTRATION_SHAPE))
             claimed.add(fn)
     for fn in sorted(functions - claimed):
         problems.append("  proof function %s is not claimed by any step" % fn)
-    for fn in sorted(functions - registered):
-        problems.append("  proof function %s is defined but is not registered in any "
-                        "proofkit run inside a Go Test" % fn)
-    for path, argument in misnamed_builds:
-        problems.append("  %s registers %s as a proof run's build argument, but that argument "
-                        "must be a step<Title> function so a step can claim it"
-                        % (path, argument))
-    for path, call in unreadable_runs:
-        problems.append("  %s runs %s, whose arguments could not be read, so its build argument "
-                        "cannot be checked; write the run's arguments out one by one"
-                        % (path, call))
+    for fn in sorted(functions - registered - claimed):
+        problems.append("  proof function %s is defined but no Test%s builds with it; %s"
+                        % (fn, fn[len('step'):], REGISTRATION_SHAPE))
 
     # 3. API calls are real
     local = PYTHON_METHODS | defined_names(FRAMEWORK) | contract_names(gear)

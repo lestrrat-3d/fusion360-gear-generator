@@ -178,13 +178,26 @@ this skill: a compiler that rewrites its own source removes the thing being chec
 >
 > **The proof is a Go test** in package `<gear>_test`, spread over as many files as the split
 > needs, with one function per step. Every step function, 2D or 3D alike, is named `step<Title>`,
-> matching what the step list names, and is passed as the build argument — the third — to a
-> `proofkit.Run`, `proofkit3d.Run`, `proofkit3d.RunSolid` or `proofkit3d.RunWithGate` call inside a
-> Go `Test` function. A build function under any other name, or one no `Test` reaches, is invisible
-> to the gate, and the step naming it fails the check. Write each run's arguments out one by one:
-> a run that forwards them from a single call, as in `proofkit3d.Run(runArgs(t))`, hides its build
-> argument from the gate and fails the check too. Each run takes a table of parameter cases, one
-> subtest each.
+> matching what the step list names, and is registered by the Go `Test` of the same title, in a
+> shape that is fixed and has no variants:
+>
+> ```go
+> func TestGearProfileSketch(t *testing.T) {
+>         proofkit.Run(t, profileCases, stepGearProfileSketch)
+> }
+> ```
+>
+> Three lines, and the `Test` function holds nothing else. Use `proofkit3d.Run`,
+> `proofkit3d.RunSolid` or `proofkit3d.RunWithGate` in place of `proofkit.Run` for a solid step,
+> and put the assertion after the build where the run takes one. The build argument is always the
+> third, each argument is written out as a plain name, and the case table is a named variable
+> rather than a call built in place. Each run takes a table of parameter cases, one subtest each.
+>
+> The gate reads this shape by line rather than by parsing Go, so anything else is refused, not
+> interpreted. A build under another name, a `Test` whose title does not match the step it builds,
+> a run reached through a loop, a condition or a closure, a run whose arguments come from one
+> forwarded call as in `proofkit3d.Run(runArgs(t))`, and a proof file carrying a `//go:build`
+> constraint all fail the check by name and line. The refusal says what to write; write that.
 >
 > **The case table reaches every branch, from every direction the spec offers.** A branch a step
 > takes needs a case on each side of it, and a branch the spec says is reachable in more than one

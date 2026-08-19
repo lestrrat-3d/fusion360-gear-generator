@@ -55,13 +55,7 @@ class CheckCompileTest(unittest.TestCase):
                     paths = (*paths[:-1], 'spec/gear/trace.md', paths[-1])
                 provenance = self.provenance_rows(root, paths)
             if proof_body is None:
-                proof_body = (
-                    'func TestOne(t *testing.T) {\n'
-                    '    proofkit.Run(t, cases(\n'
-                    '        gear{name: "one"},\n'
-                    '    ), stepOne)\n'
-                    '}\n\n'
-                    'func stepOne() {}\n')
+                proof_body = self.registration('TestOne', 'proofkit.Run', 'stepOne')
             (root / 'proof' / 'gear' / proof_filename).write_text(proof_body)
             table = '\n'.join((
                 '| Source | Blob hash |',
@@ -97,222 +91,291 @@ class CheckCompileTest(unittest.TestCase):
                 os.chdir(prior)
             return result, output.getvalue()
 
-    def solid_proof(self, run_call):
-        """A proof whose 2D run is in order and whose solid run is run_call."""
+    def registration(self, test, call, build, cases='profileCases', extra=''):
+        """The canonical three-line registration, plus the step definition it names.
+
+        Every argument is a knob a test turns to step one way off the shape, so a fixture that
+        only differs in the build argument reads as exactly that difference.
+        """
+        return (
+            'func %s(t *testing.T) {\n'
+            '\t%s(t, %s, %s%s)\n'
+            '}\n\n'
+            'func stepOne() {}\n' % (test, call, cases, build, extra))
+
+    def body(self, statements, test='TestTwo'):
+        """A proof whose first registration is canonical and whose second Test is `statements`."""
         return (
             'func TestOne(t *testing.T) {\n'
-            '    proofkit.Run(t, cases(gear{name: "one"}), stepOne)\n'
+            '\tproofkit.Run(t, profileCases, stepOne)\n'
             '}\n\n'
-            'func TestSolid(t *testing.T) {\n'
-            '    %s\n'
+            'func %s(t *testing.T) {\n'
+            '%s\n'
             '}\n\n'
-            'func stepOne() {}\n' % run_call)
+            'func stepOne() {}\n' % (test, statements))
 
-    def test_step_named_build_argument_is_accepted(self):
-        proof_body = (
-            'func TestOne(t *testing.T) {\n'
-            '    proofkit.Run(t, cases(gear{name: "one"}), stepOne)\n'
-            '}\n\n'
-            'func TestSolid(t *testing.T) {\n'
-            '    proofkit3d.Run(t, solidCases, stepOne, assertSolid)\n'
-            '}\n\n'
-            'func stepOne() {}\n')
+    # The canonical shape, in each of the four run forms.
 
-        result, output = self.run_checker(proof_body=proof_body)
+    def test_canonical_2d_registration_is_accepted(self):
+        result, output = self.run_checker()
 
         self.assertEqual(result, 0, output)
         self.assertIn('compile check: OK', output)
 
+    def test_canonical_3d_registrations_are_accepted(self):
+        for call, extra in (('proofkit3d.Run', ', assertOne'),
+                            ('proofkit3d.RunSolid', ', assertOne'),
+                            ('proofkit3d.RunWithGate', ', proofkit3d.RequireSolid, assertOne')):
+            with self.subTest(call=call):
+                proof_body = self.registration('TestOne', call, 'stepOne', extra=extra)
+
+                result, output = self.run_checker(proof_body=proof_body)
+
+                self.assertEqual(result, 0, output)
+                self.assertIn('compile check: OK', output)
+
+    def test_gofmt_spacing_is_not_required(self):
+        """The shape is matched by line, not by byte, so spacing inside the call is free."""
+        proof_body = (
+            'func TestOne(t *testing.T) {\n'
+            '    proofkit . Run( t ,  profileCases ,  stepOne )\n'
+            '}\n\n'
+            'func stepOne() {}\n')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 0, output)
+
+    # The build argument must be the step of the Test's own title.
+
     def test_misnamed_build_argument_is_blocking(self):
-        proof_body = self.solid_proof(
-            'proofkit3d.Run(t, solidCases, buildSolid, assertSolid)')
+        proof_body = self.body('\tproofkit3d.Run(t, solidCases, buildSolid, assertSolid)')
 
         result, output = self.run_checker(proof_body=proof_body)
 
         self.assertEqual(result, 1)
         self.assertIn(
-            'proof/gear/proof_test.go registers buildSolid as a proof run\'s build argument, '
+            'proof/gear/proof_test.go:6 registers buildSolid as a proof run\'s build argument, '
             'but that argument must be a step<Title> function so a step can claim it', output)
 
-    def test_misnamed_build_argument_in_run_solid_is_blocking(self):
-        proof_body = self.solid_proof(
-            'proofkit3d.RunSolid(t, solidCases, buildSolid, assertSolid)')
-
-        result, output = self.run_checker(proof_body=proof_body)
-
-        self.assertEqual(result, 1)
-        self.assertIn('registers buildSolid as a proof run\'s build argument', output)
-
-    def test_misnamed_build_argument_in_run_with_gate_is_blocking(self):
-        proof_body = self.solid_proof(
-            'proofkit3d.RunWithGate(t, solidCases, buildSolid, proofkit3d.RequireSolid, '
-            'assertSolid)')
-
-        result, output = self.run_checker(proof_body=proof_body)
-
-        self.assertEqual(result, 1)
-        self.assertIn('registers buildSolid as a proof run\'s build argument', output)
-
-    def test_misnamed_2d_build_argument_is_blocking(self):
+    def test_crossed_registration_is_blocking(self):
+        """A Test that builds with some other step is the failure name-matching exists to catch."""
         proof_body = (
             'func TestOne(t *testing.T) {\n'
-            '    proofkit.Run(t, cases(gear{name: "one"}), stepOne)\n'
+            '\tproofkit.Run(t, profileCases, stepTwo)\n'
             '}\n\n'
-            'func TestTwo(t *testing.T) {\n'
-            '    proofkit.Run(t, cases(gear{name: "two"}), buildProfile)\n'
-            '}\n\n'
-            'func stepOne() {}\n')
-
-        result, output = self.run_checker(proof_body=proof_body)
-
-        self.assertEqual(result, 1)
-        self.assertIn('registers buildProfile as a proof run\'s build argument', output)
-
-    def test_one_misnamed_build_is_reported_once_per_file(self):
-        proof_body = (
-            'func TestOne(t *testing.T) {\n'
-            '    proofkit.Run(t, cases(gear{name: "one"}), stepOne)\n'
-            '}\n\n'
-            'func TestSolid(t *testing.T) {\n'
-            '    proofkit3d.Run(t, solidCases, buildSolid, assertSolid)\n'
-            '}\n\n'
-            'func TestBore(t *testing.T) {\n'
-            '    proofkit3d.RunSolid(t, boreCases, buildSolid, assertSolid)\n'
-            '}\n\n'
-            'func stepOne() {}\n')
-
-        result, output = self.run_checker(proof_body=proof_body)
-
-        self.assertEqual(result, 1)
-        self.assertEqual(output.count('registers buildSolid'), 1)
-
-    def test_unreachable_misnamed_build_argument_is_not_counted(self):
-        proof_body = self.solid_proof(
-            'if false {\n'
-            '        proofkit3d.RunSolid(t, solidCases, buildSolid, assertSolid)\n'
-            '    }')
-
-        result, output = self.run_checker(proof_body=proof_body)
-
-        self.assertEqual(result, 0, output)
-        self.assertNotIn('buildSolid', output)
-
-    def test_early_returned_misnamed_build_argument_is_not_counted(self):
-        proof_body = self.solid_proof(
-            'if t != nil { return }\n'
-            '    proofkit3d.Run(t, solidCases, buildSolid, assertSolid)')
-
-        result, output = self.run_checker(proof_body=proof_body)
-
-        self.assertEqual(result, 0, output)
-        self.assertNotIn('buildSolid', output)
-
-    def test_assertion_and_gate_arguments_are_not_step_functions(self):
-        src = (
-            'func TestSolid(t *testing.T) {\n'
-            '    proofkit3d.RunWithGate(t, solidCases, stepSolid, proofkit3d.RequireSolid, '
-            'assertSolid)\n'
-            '}\n')
-
-        registered, misnamed, unreadable = COMPILE_CHECKER.registered_step_functions(src)
-
-        self.assertEqual(registered, {'stepSolid'})
-        self.assertEqual(misnamed, [])
-        self.assertEqual(unreadable, [])
-
-    def test_build_argument_expression_is_labelled_on_one_line(self):
-        src = (
-            'func TestSolid(t *testing.T) {\n'
-            '    proofkit3d.Run(t, solidCases, func(t *testing.T) []*decad.Body {\n'
-            '        return nil\n'
-            '    }, assertSolid)\n'
-            '}\n')
-
-        registered, misnamed, unreadable = COMPILE_CHECKER.registered_step_functions(src)
-
-        self.assertEqual(registered, set())
-        self.assertEqual(unreadable, [])
-        self.assertEqual(len(misnamed), 1)
-        self.assertNotIn('\n', misnamed[0])
-        self.assertTrue(misnamed[0].startswith('func(t *testing.T) []*decad.Body {'))
-
-    # A run whose argument list the parse cannot read to the build slot is reported, because
-    # such a run can compile: Go lets one multi-value call supply a whole argument list, so
-    # proofkit3d.Run(runArgs(t)) vets clean and still parses to a single argument here.
-    # Skipping it silently would let its build argument escape the step<Title> check.
-
-    def test_multi_value_forwarded_run_is_blocking(self):
-        proof_body = self.solid_proof('proofkit3d.Run(runArgs(t))')
+            'func stepOne() {}\n\n'
+            'func stepTwo() {}\n')
 
         result, output = self.run_checker(proof_body=proof_body)
 
         self.assertEqual(result, 1)
         self.assertIn(
-            'proof/gear/proof_test.go runs proofkit3d.Run(runArgs(t)), whose arguments could '
-            'not be read, so its build argument cannot be checked', output)
+            'proof/gear/proof_test.go:2 registers stepTwo inside TestOne, but a step is '
+            'registered by the Test of its own title, so this build belongs in TestTwo', output)
 
-    def test_multi_value_forwarded_2d_run_is_blocking(self):
+    def test_step_the_matching_test_does_not_build_is_blocking(self):
         proof_body = (
             'func TestOne(t *testing.T) {\n'
-            '    proofkit.Run(t, cases(gear{name: "one"}), stepOne)\n'
+            '\tproofkit.Run(t, profileCases, stepOne)\n'
             '}\n\n'
-            'func TestTwo(t *testing.T) {\n'
-            '    proofkit.Run(runArgs(t))\n'
+            'func stepOne() {}\n\n'
+            'func stepTwo() {}\n')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 1)
+        self.assertIn('proof function stepTwo is not claimed by any step', output)
+
+    def test_claimed_step_with_no_registration_is_blocking(self):
+        proof_body = 'func stepOne() {}\n'
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 1)
+        self.assertIn(
+            'S1 names proof function stepOne, which TestOne does not build with', output)
+
+    # Everything off the shape is refused rather than read. These are the shapes that cost the
+    # brace-matching reader its rounds; here each one is one line of expected output.
+
+    def test_run_in_a_condition_is_refused(self):
+        proof_body = self.body(
+            '\tif solid {\n'
+            '\t\tproofkit3d.Run(t, solidCases, stepTwo, assertTwo)\n'
+            '\t}')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 1)
+        self.assertIn('proof/gear/proof_test.go:7 runs a proof outside the shape this gate reads',
+                      output)
+
+    def test_run_in_a_loop_is_refused(self):
+        proof_body = self.body(
+            '\tfor _, c := range []struct{ n int }{{1}} {\n'
+            '\t\tproofkit3d.Run(t, solidCases, stepTwo, assertTwo)\n'
+            '\t}')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 1)
+        self.assertIn('runs a proof outside the shape this gate reads', output)
+
+    def test_run_in_a_closure_is_refused(self):
+        proof_body = self.body(
+            '\tt.Run("one", func(t *testing.T) {\n'
+            '\t\tproofkit3d.Run(t, solidCases, stepTwo, assertTwo)\n'
+            '\t})')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 1)
+        self.assertIn('runs a proof outside the shape this gate reads', output)
+
+    def test_forwarded_argument_list_is_refused(self):
+        proof_body = self.body('\tproofkit3d.Run(runArgs(t))')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 1)
+        self.assertIn('proof/gear/proof_test.go:6 runs a proof outside the shape this gate reads, '
+                      'so its build argument cannot be checked', output)
+
+    def test_case_table_built_in_place_is_refused(self):
+        """The table is a named variable, so the run stays one line the gate can match."""
+        proof_body = self.body(
+            '\tproofkit.Run(t, cases(\n'
+            '\t\tgear{name: "two"},\n'
+            '\t), stepTwo)')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 1)
+        self.assertIn('runs a proof outside the shape this gate reads', output)
+
+    def test_extra_statement_in_the_test_body_is_refused(self):
+        proof_body = self.body(
+            '\tt.Parallel()\n'
+            '\tproofkit.Run(t, profileCases, stepTwo)')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 1)
+        self.assertIn('runs a proof outside the shape this gate reads', output)
+
+    def test_run_outside_any_test_is_refused(self):
+        proof_body = (
+            'func TestOne(t *testing.T) {\n'
+            '\tproofkit.Run(t, profileCases, stepOne)\n'
+            '}\n\n'
+            'func register(t *testing.T) {\n'
+            '\tproofkit.Run(t, profileCases, stepTwo)\n'
             '}\n\n'
             'func stepOne() {}\n')
 
         result, output = self.run_checker(proof_body=proof_body)
 
         self.assertEqual(result, 1)
-        self.assertIn('runs proofkit.Run(runArgs(t)), whose arguments could not be read', output)
+        self.assertIn('proof/gear/proof_test.go:6 runs a proof outside the shape this gate reads',
+                      output)
 
-    def test_unclosed_run_call_is_reported_not_dropped(self):
-        """The argument list that never closes is reported too.
+    def test_test_name_go_would_not_run_is_refused(self):
+        """`go test` runs Test followed by a non-lower rune, and this gate never has to know that.
 
-        No Go source reaches this through the checker: a Test body is only read when its
-        delimiters nest, which already gives every open paren inside it a close. The branch
-        stays as the parse's own guard, and this test holds it to reporting rather than
-        skipping by making the paren lookup fail.
+        It looks for the title it expects instead of classifying the name it finds, so a name Go
+        rejects simply fails to be a registration and its run is reported.
         """
-        src = (
-            'func TestSolid(t *testing.T) {\n'
-            '    proofkit3d.Run(t, solidCases, stepSolid, assertSolid)\n'
-            '}\n')
-        real_match = COMPILE_CHECKER.matching_delimiter
-
-        def no_close_paren(text, start):
-            return None if text[start] == '(' else real_match(text, start)
-
-        with mock.patch.object(COMPILE_CHECKER, 'matching_delimiter', no_close_paren):
-            registered, misnamed, unreadable = COMPILE_CHECKER.registered_step_functions(src)
-
-        self.assertEqual(registered, set())
-        self.assertEqual(misnamed, [])
-        self.assertEqual(len(unreadable), 1)
-        self.assertTrue(unreadable[0].startswith('proofkit3d.Run(t, solidCases, stepSolid'))
-
-    def test_unreachable_unreadable_run_is_not_counted(self):
-        proof_body = self.solid_proof(
-            'if false {\n'
-            '        proofkit3d.Run(runArgs(t))\n'
-            '    }')
+        proof_body = (
+            'func TestOne(t *testing.T) {\n'
+            '\tproofkit.Run(t, profileCases, stepOne)\n'
+            '}\n\n'
+            'func Testé(t *testing.T) {\n'
+            '\tproofkit.Run(t, profileCases, stepTwo)\n'
+            '}\n\n'
+            'func stepOne() {}\n')
 
         result, output = self.run_checker(proof_body=proof_body)
 
-        self.assertEqual(result, 0, output)
-        self.assertNotIn('could not be read', output)
+        self.assertEqual(result, 1)
+        self.assertIn('proof/gear/proof_test.go:6 runs a proof outside the shape this gate reads',
+                      output)
 
-    def test_short_argument_list_is_reported_not_registered(self):
-        src = (
-            'func TestSolid(t *testing.T) {\n'
-            '    proofkit3d.Run(runArgs(t))\n'
-            '}\n')
+    # Comments and literals are blanked first, so a quoted registration is not a real one.
 
-        registered, misnamed, unreadable = COMPILE_CHECKER.registered_step_functions(src)
+    def test_registration_inside_a_comment_does_not_count(self):
+        proof_body = (
+            '/*\n'
+            'func TestOne(t *testing.T) {\n'
+            '\tproofkit.Run(t, profileCases, stepOne)\n'
+            '}\n'
+            '*/\n\n'
+            'func stepOne() {}\n')
 
-        self.assertEqual(registered, set())
-        self.assertEqual(misnamed, [])
-        self.assertEqual(unreadable, ['proofkit3d.Run(runArgs(t))'])
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 1)
+        self.assertIn(
+            'S1 names proof function stepOne, which TestOne does not build with', output)
+
+    def test_registration_inside_a_raw_string_does_not_count(self):
+        proof_body = (
+            'var sample = `\n'
+            'func TestOne(t *testing.T) {\n'
+            '\tproofkit.Run(t, profileCases, stepOne)\n'
+            '}\n'
+            '`\n\n'
+            'func stepOne() {}\n')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 1)
+        self.assertIn(
+            'S1 names proof function stepOne, which TestOne does not build with', output)
+
+    # Two rules Go owns that no reader of source text can infer, refused rather than copied.
+
+    def test_build_constraint_is_blocking(self):
+        proof_body = (
+            '//go:build ignore\n\n'
+            'func TestOne(t *testing.T) {\n'
+            '\tproofkit.Run(t, profileCases, stepOne)\n'
+            '}\n\n'
+            'func stepOne() {}\n')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 1)
+        self.assertIn(
+            'proof/gear/proof_test.go:1 carries a build constraint, so whether Go ever compiles '
+            'these registrations is decided outside the file', output)
+
+    def test_registration_outside_a_test_file_is_blocking(self):
+        result, output = self.run_checker(proof_filename='proof.go')
+
+        self.assertEqual(result, 1)
+        self.assertIn(
+            'proof/gear/proof.go:2 registers stepOne, but `go test` only runs tests in a '
+            '_test.go file, so nothing here ever builds it', output)
+
+    def test_each_off_shape_run_is_reported_at_its_own_line(self):
+        proof_body = (
+            'func TestOne(t *testing.T) {\n'
+            '\tproofkit.Run(t, profileCases, stepOne)\n'
+            '}\n\n'
+            'func TestTwo(t *testing.T) {\n'
+            '\tproofkit3d.Run(runArgs(t))\n'
+            '}\n\n'
+            'func TestThree(t *testing.T) {\n'
+            '\tproofkit3d.RunSolid(runArgs(t))\n'
+            '}\n\n'
+            'func stepOne() {}\n')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 1)
+        self.assertIn('proof/gear/proof_test.go:6 runs a proof', output)
+        self.assertIn('proof/gear/proof_test.go:10 runs a proof', output)
 
 
 class CommittedStepListProofPathsTest(unittest.TestCase):
