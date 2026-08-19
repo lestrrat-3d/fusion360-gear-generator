@@ -1185,6 +1185,169 @@ class CheckCompileTest(unittest.TestCase):
             'write `func stepOne(...)`, since a step bound to a variable is not read', output)
         self.assertNotIn('which proof/gear/ does not define', output)
 
+    # Where a declaration may start on its line, pattern by pattern.
+    #
+    # Go's layout is free and nothing in this repository holds a proof file to `gofmt`, so every
+    # line below can arrive indented and Go still compiles it. Two of the four patterns that read
+    # such a line are widened to match Go, and two keep a column-1 anchor because their line is
+    # part of the registration shape `.claude/skills/compile-gear/SKILL.md` states to the drafter.
+    # `ProofDeclarationColumnTest` holds the Go half of each pairing; these hold the gate half, so
+    # neither decision can be reversed without a failure here.
+
+    def test_an_indented_step_definition_is_read(self):
+        """The step definition is not part of the registration shape, so it follows Go.
+
+        Go compiles an indented `func stepOne`, `go test` runs the registration built on it, and
+        the step is genuinely declared as a function. Anchored at column 1 the definition was
+        invisible and the step was reported as one the proof directory does not declare as a
+        function, which sends the reader to a proof that is already right and says nothing about
+        the whitespace that is the real difference.
+        """
+        for indent in ('\t', '    ', '\r'):
+            with self.subTest(indent=repr(indent)):
+                proof_body = (
+                    'func TestOne(t *testing.T) {\n'
+                    '\tproofkit.Run(t, profileCases, stepOne)\n'
+                    '}\n\n'
+                    '%sfunc stepOne() {}\n' % indent)
+
+                result, output = self.run_checker(proof_body=proof_body)
+
+                self.assertEqual(result, 0, output)
+                self.assertIn('compile check: OK', output)
+
+    def test_a_step_definition_behind_whitespace_go_refuses_is_not_read(self):
+        """The indentation set is Go's own, so a file Go will not compile defines nothing.
+
+        U+00A0, U+000B and U+000C are not whitespace to Go's scanner: each makes the file illegal
+        at that line, `go test` reports `illegal character U+00A0` and the package never builds.
+        Reading them would credit a step definition in a proof that never compiles, which is the
+        one direction this gate must not fail in, so Python's wider `\\s` is not used here.
+        """
+        for indent, character in (('\u00a0', 'U+00A0'), ('\x0b', 'U+000B'), ('\x0c', 'U+000C')):
+            with self.subTest(character=character):
+                proof_body = (
+                    'func TestOne(t *testing.T) {\n'
+                    '\tproofkit.Run(t, profileCases, stepOne)\n'
+                    '}\n\n'
+                    '%sfunc stepOne() {}\n' % indent)
+
+                result, output = self.run_checker(proof_body=proof_body)
+
+                self.assertEqual(result, 1, output)
+                self.assertIn('S1 names proof function stepOne, which proof/gear/ does not '
+                              'declare as a function', output)
+
+    def test_a_quoted_step_definition_is_still_not_a_definition(self):
+        """Accepting leading whitespace must not turn a `func` in a comment or a string into one.
+
+        `strip_go_comments_and_literals` blanks both to spaces before the scan, so a quoted
+        declaration leaves a line of whitespace and nothing to match. Indented or not, it is text.
+        """
+        for name, quoted in (
+                ('a block comment', '/*\n\tfunc stepTwo() {}\n*/\n'),
+                ('a line comment', '\t// func stepTwo() {}\n'),
+                ('a raw string', 'var sample = `\n\tfunc stepTwo() {}\n`\n')):
+            with self.subTest(case=name):
+                proof_body = (
+                    'func TestOne(t *testing.T) {\n'
+                    '\tproofkit.Run(t, profileCases, stepOne)\n'
+                    '}\n\n'
+                    '%s\n'
+                    'func stepOne() {}\n' % quoted)
+
+                result, output = self.run_checker(proof_body=proof_body)
+
+                self.assertEqual(result, 0, output)
+                self.assertIn('compile check: OK (1 steps, 1 proof functions', output)
+
+    def test_an_indented_test_header_is_refused_and_named_as_the_header(self):
+        """`TEST_HEADER` keeps its anchor, and `TEST_FUNCTION` makes the refusal land on it.
+
+        The three-line shape is a contract, so an indented header is refused although `go test`
+        runs it. What the refusal must not do is blame the run beneath, which is well formed; the
+        wider diagnostic pattern reads the indented header and names the header instead.
+        """
+        for indent in ('\t', '    '):
+            with self.subTest(indent=repr(indent)):
+                proof_body = (
+                    '%sfunc TestOne(t *testing.T) {\n'
+                    '\tproofkit.Run(t, profileCases, stepOne)\n'
+                    '}\n\n'
+                    'func stepOne() {}\n' % indent)
+
+                result, output = self.run_checker(proof_body=proof_body)
+
+                self.assertEqual(result, 1, output)
+                self.assertIn(
+                    'proof/gear/proof_test.go:1 heads TestOne in a shape this gate does not read, '
+                    'so the registration under it cannot be checked; a proof Test is headed '
+                    '`func Test<Title>(t *testing.T) {`, with the testing package named in full',
+                    output)
+                self.assertNotIn('runs a proof outside the shape this gate reads', output)
+
+    def test_an_indented_closing_brace_is_refused_as_a_run_off_the_shape(self):
+        """`BLOCK_END` keeps its anchor too, and the refusal quotes the shape it belongs to.
+
+        Go compiles an indented `}`, so this is the gate holding its own contract. The complaint
+        is the off-shape one, which names all three lines of the registration, and the step is
+        reported unregistered rather than quietly credited.
+        """
+        proof_body = (
+            'func TestOne(t *testing.T) {\n'
+            '\tproofkit.Run(t, profileCases, stepOne)\n'
+            '\t}\n\n'
+            'func stepOne() {}\n')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 1, output)
+        self.assertIn('proof/gear/proof_test.go:2 runs a proof outside the shape this gate reads',
+                      output)
+        self.assertIn('S1 names proof function stepOne, which TestOne does not build with', output)
+
+    def test_the_drafting_contract_states_the_column_the_gate_holds(self):
+        """The checker and the contract the drafter is given have to say the same thing.
+
+        `TEST_HEADER` and `BLOCK_END` refuse a line Go compiles, so the rule is this repository's
+        and has to be written down where the drafter reads it. Without this, the two patterns could
+        keep an anchor no document mentions, which is how the same defect arose on the step side.
+        """
+        contract = (Path(__file__).parents[3] / '.claude' / 'skills' / 'compile-gear'
+                    / 'SKILL.md').read_text(encoding='utf-8')
+
+        self.assertIn('The header and the closing `}` each', contract)
+        self.assertIn('start at column 1', contract)
+        self.assertIn('The step function is not part of', contract)
+
+    def test_each_pattern_answers_the_column_question_as_its_site_says(self):
+        """The four decisions, pinned on the patterns themselves.
+
+        The messages above can be reworded; these cannot drift. Two patterns read a declaration
+        wherever it starts, and two require column 1 because their line is the drafting contract.
+        """
+        widened = (
+            ('STEP_DEFINITION', COMPILE_CHECKER.STEP_DEFINITION, 'func stepOne() {}'),
+            ('TEST_FUNCTION', COMPILE_CHECKER.TEST_FUNCTION, 'func TestOne(t *testing.T) {'),
+        )
+        for name, pattern, line in widened:
+            with self.subTest(pattern=name):
+                self.assertTrue(pattern.match(line))
+                for indent in (' ', '\t', '\r'):
+                    self.assertTrue(pattern.match(indent + line), indent)
+                for indent in ('\u00a0', '\x0b', '\x0c'):
+                    self.assertIsNone(pattern.match(indent + line), indent)
+
+        anchored = (
+            ('TEST_HEADER', COMPILE_CHECKER.TEST_HEADER, 'func TestOne(t *testing.T) {'),
+            ('BLOCK_END', COMPILE_CHECKER.BLOCK_END, '}'),
+        )
+        for name, pattern, line in anchored:
+            with self.subTest(pattern=name):
+                self.assertTrue(pattern.match(line))
+                for indent in (' ', '\t', '\r'):
+                    self.assertIsNone(pattern.match(indent + line), indent)
+
     # A Test header Go runs but this gate cannot read is named as a header problem.
 
     def test_test_header_go_runs_but_the_gate_cannot_read_names_the_header(self):
@@ -1233,6 +1396,115 @@ class CheckCompileTest(unittest.TestCase):
         self.assertIn('proof/gear/proof_test.go:6 runs a proof outside the shape this gate reads',
                       output)
         self.assertNotIn('in a shape this gate does not read', output)
+
+
+# The proof-side probe. The gate's answers about where a line may start are only worth anything
+# next to what Go does with the same file, so each case below is a real proof file handed to the
+# real toolchain.
+PROOF_PROBE_HARNESS = ('package proofkit\n\n'
+                       'import "testing"\n\n'
+                       'func Run(t *testing.T, cases []int, build func()) {\n'
+                       '\t_ = cases\n'
+                       '\tbuild()\n'
+                       '}\n')
+
+
+def go_proof_verdict(body):
+    """What the Go toolchain does with one proof file body.
+
+    Returns `(compiled, ran)`: whether `go test` builds the package at all, and whether it ran a
+    test named `TestOne`. The two are separate questions — a file can compile while its Test never
+    runs, which is what a header Go does not recognise as a test looks like.
+
+    The package is shaped like a real proof: an external `gear_test` package importing a `proofkit`
+    stub, so `body` is the same text the gate is given.
+    """
+    root = Path(tempfile.mkdtemp(prefix='go-proof-'))
+    try:
+        (root / 'go.mod').write_text('module proofprobe\n\ngo 1.21\n')
+        (root / 'proofkit').mkdir()
+        (root / 'proofkit' / 'proofkit.go').write_text(PROOF_PROBE_HARNESS)
+        (root / 'gear').mkdir()
+        (root / 'gear' / 'gear.go').write_text('package gear\n')
+        (root / 'gear' / 'proof_test.go').write_text(
+            'package gear_test\n\n'
+            'import (\n\t"testing"\n\n\t"proofprobe/proofkit"\n)\n\n'
+            'var profileCases = []int{1}\n\n' + body)
+        run = subprocess.run(['go', 'test', '-v', '-run', 'TestOne', './gear'],
+                             cwd=root, capture_output=True, text=True)
+        return run.returncode == 0, '--- PASS: TestOne' in run.stdout
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+class ProofDeclarationColumnTest(unittest.TestCase):
+    """Go's half of the column question, for every line of a proof the gate reads by pattern.
+
+    `gofmt` writes all three lines of a registration at column 1, and nothing in this repository
+    runs `gofmt`: `proof/run.sh` runs only `go work init/edit` and `go test ./...`, and neither
+    `.github/workflows/3d-proof.yml` nor `sketch-bench.yml` has a gofmt, vet or lint step. So an
+    indented line is an ordinary proof file rather than a malformed one, and what the gate does
+    about each is a decision recorded at its site rather than an accident of a pattern.
+
+    The cases here say what Go does. `CheckCompileTest` says what the gate does about it.
+    """
+
+    # name, the proof body, whether Go compiles it, whether `go test` runs TestOne.
+    CASES = (
+        ('the shape at column 1',
+         'func TestOne(t *testing.T) {\n'
+         '\tproofkit.Run(t, profileCases, stepOne)\n'
+         '}\n\n'
+         'func stepOne() {}\n', True, True),
+        ('a tab-indented step definition',
+         'func TestOne(t *testing.T) {\n'
+         '\tproofkit.Run(t, profileCases, stepOne)\n'
+         '}\n\n'
+         '\tfunc stepOne() {}\n', True, True),
+        ('a space-indented step definition',
+         'func TestOne(t *testing.T) {\n'
+         '\tproofkit.Run(t, profileCases, stepOne)\n'
+         '}\n\n'
+         '    func stepOne() {}\n', True, True),
+        ('a carriage return before the step definition',
+         'func TestOne(t *testing.T) {\n'
+         '\tproofkit.Run(t, profileCases, stepOne)\n'
+         '}\n\n'
+         '\rfunc stepOne() {}\n', True, True),
+        ('an indented Test header',
+         '\tfunc TestOne(t *testing.T) {\n'
+         '\tproofkit.Run(t, profileCases, stepOne)\n'
+         '}\n\n'
+         'func stepOne() {}\n', True, True),
+        ('an indented closing brace',
+         'func TestOne(t *testing.T) {\n'
+         '\tproofkit.Run(t, profileCases, stepOne)\n'
+         '\t}\n\n'
+         'func stepOne() {}\n', True, True),
+        # The whitespace Go does not have. Each of these makes the file illegal where it sits, so
+        # nothing in it is declared, registered or run.
+        ('a non-breaking space before the step definition',
+         'func TestOne(t *testing.T) {\n'
+         '\tproofkit.Run(t, profileCases, stepOne)\n'
+         '}\n\n'
+         '\u00a0func stepOne() {}\n', False, False),
+        ('a vertical tab before the step definition',
+         'func TestOne(t *testing.T) {\n'
+         '\tproofkit.Run(t, profileCases, stepOne)\n'
+         '}\n\n'
+         '\x0bfunc stepOne() {}\n', False, False),
+        ('a form feed before the step definition',
+         'func TestOne(t *testing.T) {\n'
+         '\tproofkit.Run(t, profileCases, stepOne)\n'
+         '}\n\n'
+         '\x0cfunc stepOne() {}\n', False, False),
+    )
+
+    def test_go_agrees_with_every_recorded_proof_verdict(self):
+        """Without this the table above is a claim about Go rather than a reading of it."""
+        for name, body, compiled, ran in self.CASES:
+            with self.subTest(case=name):
+                self.assertEqual(go_proof_verdict(body), (compiled, ran))
 
 
 class GoFilenameRuleTest(unittest.TestCase):

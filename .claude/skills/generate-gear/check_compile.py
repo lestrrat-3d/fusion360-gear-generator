@@ -412,6 +412,10 @@ def strip_go_comments_and_literals(src):
 # no more and no fewer. The Test's title and the step's title are the same word, which is what
 # lets a step list claim a function by name alone.
 #
+# The header and the closing brace are read at column 1 only, which is part of the shape rather
+# than a fact about Go: Go compiles an indented one. `TEST_HEADER` and `BLOCK_END` each say why
+# they hold that column, and `GO_DECLARATION_INDENT` says where an ordinary declaration may start.
+#
 # What this buys is that the gate never has to decide what a brace means. What it costs is that a
 # run written any other way is refused rather than read. That is the safe direction: a refusal
 # names the file and line and says what to write, while a misreading silently credits a step no
@@ -575,13 +579,58 @@ def go_style_build_comment(line):
     return go_reads_build_constraint(line) or bool(PLUS_BUILD_DIRECTIVE.match(line))
 
 
+# Where a package-level declaration may start, for every pattern below that reads one. Go's layout
+# is free and nothing in this repository holds a `.go` file to `gofmt`: `proof/run.sh` runs only
+# `go work init/edit` and `go test ./...`, and neither `.github/workflows/3d-proof.yml` nor
+# `sketch-bench.yml` has a gofmt, vet or lint step. An indented declaration therefore reaches the
+# harness sources and the proof files alike, and Go compiles it, exports it and runs the test built
+# on it.
+#
+# Allowing the indentation stays exact rather than becoming a guess. Go does not permit a named
+# function declaration inside a function body — an indented `func Inner(x int) {}` there is
+# `syntax error: unexpected name Inner, expected (` — so `func` followed by a name can only be a
+# package-level declaration, whatever column it sits in. A function literal has no name, so a
+# `func(` opening a continuation line never matches. A method is `func (r *T) Name…`, whose
+# parenthesis follows `func` directly, and the name each pattern requires already excludes it.
+# Comments and string literals are blanked to spaces by `strip_go_comments_and_literals` before
+# every scan these patterns run in, so a `func` quoted in either cannot match.
+#
+# The indentation set is Go's rather than Python's `\s`. Go's scanner skips space, tab, carriage
+# return and newline between tokens and nothing else, and a file indented with anything wider is
+# one Go refuses outright: the compiler reports a leading U+00A0 as `invalid character U+00A0 in
+# identifier`, and `go test` reports the same file `illegal character U+00A0`, with U+000B and
+# U+000C refused the same way. Reading those would find a declaration in a file that never
+# compiles, which is what every rule on this path exists to stop. Newline is left out because a
+# line is what these anchor to.
+#
+# Which pattern uses this is a decision per pattern rather than a blanket widening. The two lines
+# that carry the declared registration shape — `TEST_HEADER` and `BLOCK_END` — stay anchored at
+# column 1 on purpose, and each says so at its own site.
+GO_DECLARATION_INDENT = ' \t\r'
+
 # A step is read only from a function declaration. Go would also accept `var stepFoo = func(...)`,
 # and that form is deliberately not recognised: the drafting contract in
 # `.claude/skills/compile-gear/SKILL.md` is one function per step, and a gate that reads both forms
 # has two shapes to keep right instead of one. What the refusal must not do is call a
 # variable-bound step undefined, so the complaint says the step has to be declared as a function.
-STEP_DEFINITION = re.compile(r'^func\s+(step[A-Z]\w*)\s*[\[(]')
+#
+# The declaration is read wherever it starts on its line. This pattern is not part of the declared
+# registration shape; it only discovers which steps a proof directory defines. Go compiles an
+# indented `func stepFoo`, `go test` runs the registration built on it, and anchoring at column 1
+# hid the definition and reported the step as one the proof directory does not declare as a
+# function — a complaint that sends the reader to a proof where the step is already written as a
+# function, and hides the whitespace that is the real difference.
+STEP_DEFINITION = re.compile(
+    r'^[%s]*func\s+(step[A-Z]\w*)\s*[\[(]' % re.escape(GO_DECLARATION_INDENT))
 
+# The header is anchored at column 1, and that is a decision rather than an oversight. It is the
+# first of the three lines of the registration shape `.claude/skills/compile-gear/SKILL.md` states
+# to the drafter, and that shape is a contract: the example there writes the header at column 1,
+# `gofmt` writes it there, and holding the contract is what this pattern is for. Go does run an indented
+# `Test`, so the refusal is this gate holding its own shape rather than following Go, and it is
+# intended. It is also loud rather than silent: `TEST_FUNCTION` below reads the indented header and
+# names it as the header problem, at its own line, instead of leaving the run beneath it to be
+# blamed.
 TEST_HEADER = re.compile(r'^func\s+(Test[A-Z]\w*)\s*\(\s*\w+\s+\*testing\.T\s*\)\s*\{\s*$')
 
 # `go test` runs any function named `Test` followed by a rune that is not a lowercase letter, and
@@ -590,7 +639,13 @@ TEST_HEADER = re.compile(r'^func\s+(Test[A-Z]\w*)\s*\(\s*\w+\s+\*testing\.T\s*\)
 # pattern exists so a Test that Go runs but this gate cannot read is named as the header problem it
 # is: the run inside such a Test is often perfectly formed, and reporting the run would send the
 # drafter to the wrong line.
-TEST_FUNCTION = re.compile(r'^func\s+(Test\w*)\s*\(')
+#
+# So this one is read wherever it starts on its line, unlike the shape pattern above. An indented
+# header is precisely a header Go runs and the shape does not read, which is the case this
+# diagnostic exists for; while it was anchored too, the diagnostic went silent for exactly that
+# file and the complaint fell back to the run beneath it.
+TEST_FUNCTION = re.compile(
+    r'^[%s]*func\s+(Test\w*)\s*\(' % re.escape(GO_DECLARATION_INDENT))
 
 TEST_HEADER_SHAPE = ('a proof Test is headed `func Test<Title>(t *testing.T) {`, with the testing '
                      'package named in full')
@@ -626,31 +681,11 @@ def go_runs_test(name):
 # green. Reading the `.go` files as text adds no toolchain dependency.
 PROOF_RUN_PACKAGES = ('proofkit', 'proofkit3d')
 
-# The declaration is read wherever it starts on its line, because Go's layout is free and nothing
-# here holds the harness to `gofmt`: `proof/run.sh` runs only `go work init/edit` and
-# `go test ./...`, and neither `.github/workflows/3d-proof.yml` nor `sketch-bench.yml` has a
-# gofmt, vet or lint step. Anchoring at column 1 meant one stray tab in front of `func RunSolid`
-# lost the method while `go build` and `go vet` stayed at exit 0, and every sound registration on
-# it was then reported as a call no harness package declares, sending the reader to the proof for
-# a defect in the harness.
-#
-# Allowing the indentation stays exact rather than becoming a guess. Go does not permit a named
-# function declaration inside a function body — an indented `func RunInner(x int) {}` there is
-# `syntax error: unexpected name RunInner, expected (` — so `func` followed by a name can only be
-# a package-level declaration, whatever column it sits in. A function literal has no name, so a
-# `func(` opening a continuation line never matches. A method is `func (r *T) Run…`, whose
-# parenthesis follows `func` directly, and the name required here already excludes it. Comments
-# and string literals are blanked to spaces by `strip_go_comments_and_literals` before this scan,
-# so a `func` quoted in either cannot match.
-#
-# The indentation set is Go's rather than Python's `\s`. Go's scanner skips space, tab, carriage
-# return and newline between tokens and nothing else, and a file indented with anything wider is
-# one Go refuses outright: a leading U+00A0 is `invalid character U+00A0 in identifier`, U+000B is
-# `invalid character U+000B`, U+000C is `illegal character U+000C`. Reading those would derive a
-# method from a file that never compiles, which is what every rule on this path exists to stop.
-# Newline is left out because a line is what this anchors to.
-GO_DECLARATION_INDENT = ' \t\r'
-
+# The declaration is read wherever it starts on its line, under `GO_DECLARATION_INDENT` above.
+# Anchoring at column 1 meant one stray tab in front of `func RunSolid` lost the method while
+# `go build` and `go vet` stayed at exit 0, and every sound registration on it was then reported
+# as a call no harness package declares, sending the reader to the proof for a defect in the
+# harness.
 GO_RUN_DECLARATION = re.compile(
     r'^[%s]*func\s+(Run\w*)\s*\(' % re.escape(GO_DECLARATION_INDENT), re.M)
 
@@ -755,6 +790,12 @@ def go_name_alternation(names):
     return '|'.join(re.escape(name) for name in sorted(names, key=lambda name: (-len(name), name)))
 
 
+# The closing brace is anchored at column 1 for the reason `TEST_HEADER` gives: it is the third
+# line of the declared registration shape, the SKILL.md example writes it at column 1, and `gofmt`
+# writes it there. Go compiles an indented `}`, so refusing one is this gate holding the contract
+# rather than following Go, and the refusal is intended. It is loud: the three lines are reported
+# as a run written outside the shape, and the shape quoted in that complaint names all three of
+# them.
 BLOCK_END = re.compile(r'^\}\s*$')
 
 STEP_NAME = re.compile(r'step[A-Z]\w*')

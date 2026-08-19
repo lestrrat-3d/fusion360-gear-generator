@@ -190,7 +190,11 @@ this skill: a compiler that rewrites its own source removes the thing being chec
 >
 > Three lines, headed exactly as above, with the testing package named in full: `go test` also
 > runs `Test_Foo`, `Test1x` and a header written against an aliased import of `testing`, and the
-> gate refuses all three by name rather than reading them. The `Test` function holds nothing else.
+> gate refuses all three by name rather than reading them. The header and the closing `}` each
+> start at column 1, which is where `gofmt` writes them. Go compiles an indented one, and the gate
+> refuses it anyway, because these three lines are the shape rather than ordinary code; the refusal
+> names the header or quotes the shape, so it is never silent. The step function is not part of
+> that shape and is read wherever it starts on its line. The `Test` function holds nothing else.
 > Use `proofkit3d.Run`, `proofkit3d.RunSolid` or `proofkit3d.RunWithGate` in place of
 > `proofkit.Run` for a solid step, and put the assertion after the build where the run takes one. The build argument is always the
 > third, each argument is written out as a plain name, and the case table is a named variable
