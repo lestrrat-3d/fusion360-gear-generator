@@ -56,6 +56,14 @@ from call_parser import call_shapes  # noqa: E402
 
 PATH_REF = r'[\w./-]+\.(?:md|go|py|json|sh)'
 PATH_TOKEN = re.compile(r'`(%s)`' % PATH_REF)
+
+# The edges here are not symmetric, and that is left as it is. The lookbehind excludes `.`, `/`
+# and `-` while `\b` on the right excludes only word characters, so a name that continues past the
+# extension yields the `.md` prefix inside it. What that costs is one extra path in the provenance
+# input set, which is a file the table must stamp; the complaint is BLOCKING and names the file,
+# so the failure is loud. Closing it by excluding `.` on the right would drop a reference at the
+# end of a sentence, and a reference dropped from that set is a source whose edit leaves a stale
+# step list looking healthy, which is the silent direction this gate must not fail in.
 DOCUMENT_REF = re.compile(r'(?<![\w./-])[\w./-]+\.md\b')
 INLINE_CITATION = re.compile(r'`(%s):(\d+)(?:\s*[-\u2013]\s*(\d+))?`' % PATH_REF)
 LINE_RANGE = re.compile(r'\bL(\d+)(?:\s*[-\u2013]\s*(\d+))?\b')
@@ -675,11 +683,24 @@ GO_IDENTIFIER = '%s%s*' % (GO_IDENTIFIER_START, GO_IDENTIFIER_PART)
 #   name        a whole Go identifier
 #   qualified   a Go name, optionally package qualified: `proofkit3d.RequireSolid`
 #   left        the left edge of a Go token: the rune before it is not one an identifier carries
+#   no_word_left, no_word_right
+#               the edges of a token that has to stand alone: nothing Python counts as a word
+#               character touches it on that side
 #
 # `left` is a lookbehind rather than `\b` because `\b` is defined by Python's `\w`, so a
 # neighbouring U+00B2 counts to Python as part of a word and to Go does not, and the match is
 # suppressed. That is the one place on this path where Python's class is too narrow rather than
 # too wide, and a match suppressed there silences a diagnostic instead of over-accepting.
+#
+# `no_word_left` and `no_word_right` are the opposite edge rule, and they are wider than Go's own
+# on purpose. Which of the two a pattern takes follows from what its match does. `left` belongs on
+# a pattern whose match raises a complaint, where a neighbouring rune Go refuses must not silence
+# it. A pattern whose match grants credit needs the reverse: a rune Go refuses glued to the token
+# means the token as written is not a Go name at all, so the whole match has to be suppressed
+# rather than truncated to the valid prefix it starts or ends with. Python's `\w` is the class
+# that spans both the identifier runes and the ones Go refuses, so it is the edge that suppresses.
+# `STEP_NAME_CLAIM` is the only pattern here whose match grants credit, and it is the only one
+# written from this pair.
 GO_TOKENS = {
     'sp': '[%s]*' % re.escape(GO_DECLARATION_INDENT),
     'sp1': '[%s]+' % re.escape(GO_DECLARATION_INDENT),
@@ -687,6 +708,8 @@ GO_TOKENS = {
     'name': GO_IDENTIFIER,
     'qualified': '%s(?:\\.%s)*' % (GO_IDENTIFIER, GO_IDENTIFIER),
     'left': '(?<!%s)' % GO_IDENTIFIER_PART,
+    'no_word_left': '(?<!\\w)',
+    'no_word_right': '(?!\\w)',
 }
 
 # The run of separation between two tokens, for stripping it out of a captured qualifier.
@@ -889,11 +912,23 @@ BLOCK_END = re.compile(r'^\}%(sp)s$' % GO_TOKENS)
 STEP_NAME = re.compile(r'step[A-Z]%(part)s*' % GO_TOKENS)
 
 # The step names one step's Markdown body claims. The subject is prose, but what the token names
-# is a Go identifier compared against the names read from the proof sources, so it follows Go's
-# rule too: a name Go cannot have is a name no proof can declare, and reading a wider one compares
-# a name that cannot exist against a set that cannot hold it. Both sides used Python's `\w`, which
-# agreed with itself and credited a step in a proof `go test` refuses.
-STEP_NAME_CLAIM = re.compile(r'%(left)s(step[A-Z]%(part)s*)' % GO_TOKENS)
+# is a Go identifier compared against the names read from the proof sources, so the body of the
+# name follows Go's rule too: a name Go cannot have is a name no proof can declare, and reading a
+# wider one compares a name that cannot exist against a set that cannot hold it. Both sides read
+# the body with Python's `\w`, which agreed with itself and credited a step in a proof `go test`
+# refuses.
+#
+# The edges are the other pair, `no_word_left` and `no_word_right`, and this is the site that pair
+# was written for. This is the one pattern here whose match grants credit rather than raising a
+# complaint, so it is the one where a wider match is a false OK rather than a louder report. With
+# no right edge the match stopped at the first rune outside the identifier class and handed back
+# the valid prefix, so a step claiming `stepOne²` was credited to a proof declaring `stepOne` and
+# the gate printed OK; with only `left` on the other side, `²stepOne` did the same. An edge
+# symmetric with `left` does not close either hole, because U+00B2 is not an identifier rune and
+# such a lookbehind or lookahead succeeds on it. The edge has to be the wider class, so that a
+# neighbour Go refuses suppresses the claim instead of trimming it.
+STEP_NAME_CLAIM = re.compile(
+    r'%(no_word_left)s(step[A-Z]%(part)s*)%(no_word_right)s' % GO_TOKENS)
 
 REGISTRATION_SHAPE = ('a registration is three lines and nothing else: '
                       '`func Test<Title>(t *testing.T) {`, one proof run whose third argument is '
@@ -1167,7 +1202,9 @@ def proof_run_shapes():
 # left edge is `left` from `GO_TOKENS` rather than `\b`, and this is the site that reason was
 # written for. `\b` is defined by Python's `\w`, so a character in front of the package name that
 # Python counts as part of a word and Go does not suppressed the whole mention, and with it the
-# only complaint that names an undeclared method.
+# only complaint that names an undeclared method. That is the complaint-side edge rule; the
+# credit-side one is the pair `STEP_NAME_CLAIM` is written from, and the comment on `GO_TOKENS`
+# says which match takes which.
 PROOF_RUN_MENTION = re.compile(
     r'%(left)s(%(packages)s)%(sp)s\.%(sp)s(Run%(part)s*)%(sp)s\('
     % dict(GO_TOKENS, packages=go_name_alternation(PROOF_RUN_PACKAGES)))

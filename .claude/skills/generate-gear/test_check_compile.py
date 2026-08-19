@@ -391,6 +391,16 @@ class CheckCompileTest(unittest.TestCase):
             '}\n\n'
             'func stepOne() {}\n' % (test, call, cases, build, extra))
 
+    def claim_step(self, claim):
+        """One `[GO]` step whose title carries `claim`, with citation and body canonical.
+
+        The title is where the committed step lists write the proof function, so a fixture that
+        only differs in what is claimed reads as exactly that difference.
+        """
+        return ('## S1 `[GO]` One — `%s`\n\n'
+                'Build the thing.\n\n'
+                '**From:** `spec/gear/instructions.md` L1\n\n' % claim)
+
     def body(self, statements, test='TestTwo'):
         """A proof whose first registration is canonical and whose second Test is `statements`."""
         return (
@@ -1337,16 +1347,64 @@ class CheckCompileTest(unittest.TestCase):
         both and the gate credited the step, while `go test` reported `illegal character U+00B2`.
         The name is a Go identifier wherever it is written, so a name Go cannot have is one no
         proof declares and no step claims.
-        """
-        step_body = ('## S1 `[GO]` One — `step%s`\n\n'
-                     'Build the thing.\n\n'
-                     '**From:** `spec/gear/instructions.md` L1\n\n' % NON_GO_STEP)
 
-        result, output = self.run_checker(proof_body=NON_GO_PROOF, step_body=step_body)
+        The complaint names the step rather than the name, because the claim is read whole or not
+        at all: nothing here is a step name, so there is no name to quote. The earlier wording
+        quoted a truncated identifier the drafter never wrote.
+        """
+        result, output = self.run_checker(proof_body=NON_GO_PROOF,
+                                          step_body=self.claim_step('step' + NON_GO_STEP))
 
         self.assertEqual(result, 1, output)
         self.assertNotIn('compile check: OK', output)
-        self.assertIn('proof/gear/ does not declare as a function', output)
+        self.assertIn('S1 is tagged [GO] but names no proof function', output)
+
+    def test_a_claim_trailing_a_rune_go_refuses_is_not_credited_to_its_prefix(self):
+        """A claim is credited whole or not at all, and the right edge is what makes that true.
+
+        With no right-edge assertion the pattern stopped at the first rune outside the Go
+        identifier class and handed back the valid prefix, so a step claiming `stepOne²` was
+        credited to a proof declaring plain `stepOne` and the gate printed OK at exit 0. The
+        drafter wrote a name `go test` refuses, and the gate has to say so.
+        """
+        result, output = self.run_checker(step_body=self.claim_step('stepOne²'))
+
+        self.assertEqual(result, 1, output)
+        self.assertNotIn('compile check: OK', output)
+        self.assertIn('S1 is tagged [GO] but names no proof function', output)
+
+    def test_a_claim_behind_a_rune_go_refuses_is_not_credited_to_its_suffix(self):
+        """The same hole on the left edge, which a Go-strict lookbehind does not close.
+
+        `left` excludes only the runes a Go identifier carries, and U+00B2 is not one of them, so
+        it succeeds in front of `²stepOne` and the valid suffix was credited to a proof declaring
+        plain `stepOne`. The edge that closes this is the wider Python class: the neighbouring
+        rune is what proves the token is not a Go name, so it has to suppress the claim.
+        """
+        result, output = self.run_checker(step_body=self.claim_step('²stepOne'))
+
+        self.assertEqual(result, 1, output)
+        self.assertNotIn('compile check: OK', output)
+        self.assertIn('S1 is tagged [GO] but names no proof function', output)
+
+    def test_a_claim_beside_ordinary_punctuation_is_still_read(self):
+        """Suppressing a glued rune must not suppress the punctuation a step list writes.
+
+        A claim is written inside backticks, inside bold, in a parenthesis and mid-sentence, and
+        none of those neighbours is a word character. A name that carries a Unicode letter, a
+        trailing letter or a trailing digit is one identifier and is read whole.
+        """
+        for claim, credited in (('`stepOne`', 'stepOne'),
+                                ('stepOne, and', 'stepOne'),
+                                ('stepOne. Next', 'stepOne'),
+                                ('(stepOne)', 'stepOne'),
+                                ('**stepOne**', 'stepOne'),
+                                ('the `stepOne` step', 'stepOne'),
+                                ('stepOnes', 'stepOnes'),
+                                ('stepPrüfung', 'stepPrüfung'),
+                                ('stepOne2', 'stepOne2')):
+            with self.subTest(claim=claim):
+                self.assertEqual(COMPILE_CHECKER.STEP_NAME_CLAIM.findall(claim), [credited])
 
     def test_a_unicode_letter_in_a_step_name_is_still_read(self):
         """Go identifiers include Unicode letters, so tightening must not refuse one.
@@ -1355,11 +1413,8 @@ class CheckCompileTest(unittest.TestCase):
         `ProofDeclarationColumnTest` checks with the toolchain. A gate that read only ASCII names
         would report a step the proof does declare as one it does not.
         """
-        step_body = ('## S1 `[GO]` One — `step%s`\n\n'
-                     'Build the thing.\n\n'
-                     '**From:** `spec/gear/instructions.md` L1\n\n' % GO_LETTER_STEP)
-
-        result, output = self.run_checker(proof_body=GO_LETTER_PROOF, step_body=step_body)
+        result, output = self.run_checker(proof_body=GO_LETTER_PROOF,
+                                          step_body=self.claim_step('step' + GO_LETTER_STEP))
 
         self.assertEqual(result, 0, output)
         self.assertIn('compile check: OK', output)
@@ -1702,6 +1757,88 @@ RE_PATTERN_CALLS = frozenset(
 
 PYTHON_CHARACTER_CLASS = re.compile(r'\\[bBdDsSwW]')
 
+# The `GO_TOKENS` slots that put a Go identifier into a pattern. A pattern that fills one of these
+# is one that reads a name, whatever else it reads.
+GO_IDENTIFIER_SLOTS = ('%(part)s', '%(name)s', '%(qualified)s')
+
+
+def re_pattern_calls(tree):
+    """Every `re.*` call in `tree` that takes a pattern, as (method, pattern argument node).
+
+    One enumeration, because two checks read it. `GoPatternClassTest` reads the literals that
+    reach the pattern argument; `GoIdentifierEdgeTest` reads the patterns those calls compile and
+    probes their edges. A pattern the enumeration misses is invisible to both, so there is one
+    place to get it right.
+    """
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        function = node.func
+        if not (isinstance(function, ast.Attribute) and function.attr in RE_PATTERN_CALLS
+                and isinstance(function.value, ast.Name) and function.value.id == 're'):
+            continue
+        pattern = node.args[0] if node.args else next(
+            (keyword.value for keyword in node.keywords if keyword.arg == 'pattern'), None)
+        if pattern is not None:
+            yield function.attr, pattern
+
+
+# One entry of the registry below: the `re` methods the module calls the pattern through, and the
+# literal written at its own `re.compile` call, slots and all.
+PatternUse = collections.namedtuple('PatternUse', 'methods written')
+
+
+def go_identifier_patterns(source):
+    """Every compiled pattern in `source` that reads a Go identifier, and how it is used.
+
+    Returns {name: PatternUse}: the name the pattern is bound to, against the `re` methods the
+    module calls it through and the literal it was compiled from. The name is the assignment
+    target, or the function that returns the pattern when it is built rather than assigned, since
+    a derived pattern has no other name to report. A pattern whose uses this scan cannot see comes
+    back with an empty method set, which is not the same as one used only through `fullmatch`;
+    unseen is a reason to probe it, not to trust it.
+
+    A pattern reads a Go identifier when the literal written at its own `re.compile` call fills
+    one of the `GO_TOKENS` identifier slots. Only that literal is read, unlike `pattern_literals`
+    above: the slots are filled from `GO_TOKENS`, which carries a whole Go identifier in it, so
+    following names here would make every pattern in the module look like a name reader.
+    """
+    tree = ast.parse(source)
+
+    def written_pattern(node):
+        """The literal a call compiles, when the call compiles one that reads a Go identifier."""
+        for method, pattern in re_pattern_calls(node):
+            if method != 'compile':
+                continue
+            written = ''.join(sub.value for sub in ast.walk(pattern)
+                              if isinstance(sub, ast.Constant) and isinstance(sub.value, str))
+            if any(slot in written for slot in GO_IDENTIFIER_SLOTS):
+                return written
+        return None
+
+    found = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(
+                node.targets[0], ast.Name) and isinstance(node.value, ast.Call):
+            written = written_pattern(node.value)
+            if written is not None:
+                found[node.targets[0].id] = [set(), written]
+        elif isinstance(node, ast.FunctionDef):
+            for sub in ast.walk(node):
+                if isinstance(sub, ast.Return) and isinstance(sub.value, ast.Call):
+                    written = written_pattern(sub.value)
+                    if written is not None:
+                        found[node.name] = [set(), written]
+
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr in RE_PATTERN_CALLS
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id in found):
+            found[node.func.value.id][0].add(node.func.attr)
+    return {name: PatternUse(frozenset(methods), written)
+            for name, (methods, written) in found.items()}
+
 
 def pattern_literals(source):
     """Every (line, text) string literal that reaches the pattern argument of an `re.*` call.
@@ -1735,17 +1872,8 @@ def pattern_literals(source):
                 for value in bindings.get(sub.id, ()):
                     visit(value, seen | {sub.id})
 
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        function = node.func
-        if not (isinstance(function, ast.Attribute) and function.attr in RE_PATTERN_CALLS
-                and isinstance(function.value, ast.Name) and function.value.id == 're'):
-            continue
-        pattern = node.args[0] if node.args else next(
-            (keyword.value for keyword in node.keywords if keyword.arg == 'pattern'), None)
-        if pattern is not None:
-            visit(pattern, frozenset())
+    for _, pattern in re_pattern_calls(tree):
+        visit(pattern, frozenset())
     return found
 
 
@@ -1823,9 +1951,24 @@ class GoPatternClassTest(unittest.TestCase):
         r'[^\W%s]': 'GO_IDENTIFIER_PART, a word character that is not a numeral Go refuses',
     }
 
+    # The two edges of a token that has to stand alone. They are the one place on this path where
+    # the wider Python class is the correct rule rather than an approximation of Go's, and the
+    # reason is what the match is for. Every other pattern here matches to raise a complaint,
+    # where a wider read is a louder report; `STEP_NAME_CLAIM` matches to grant a step credit for
+    # a proof function, where a wider read is a false OK. A rune Go refuses glued to the token
+    # proves the token as written is not a Go name at all, so it must suppress the whole match
+    # rather than leave the valid prefix or suffix credited — and a Go-strict edge cannot do that,
+    # because such a rune is not a Go identifier rune and every Go-strict edge succeeds beside it.
+    # `GoIdentifierEdgeTest` holds the behaviour these two exist for.
+    GO_CLAIM_EDGES = {
+        r'(?<!\w)': 'no_word_left, the left edge of a claim that must stand alone',
+        r'(?!\w)': 'no_word_right, the right edge of a claim that must stand alone',
+    }
+
     def allowed(self):
         allowed = dict(self.MARKDOWN_PATTERNS)
         allowed.update(self.GO_CLASS_DEFINITIONS)
+        allowed.update(self.GO_CLAIM_EDGES)
         return allowed
 
     def findings(self, source):
@@ -1884,6 +2027,135 @@ class GoPatternClassTest(unittest.TestCase):
     def test_a_class_written_in_the_subject_is_not_a_finding(self):
         """Only the pattern argument is a rule. A class in the searched text is characters."""
         self.assertEqual(self.findings(CLASS_IN_THE_SUBJECT_MODULE), [])
+
+
+# An invented pattern, not one from this repository, and nothing in the tree is spelled this way.
+# It reads a name with neither edge asserted, which is what the probe below has to be able to see.
+OPEN_EDGED_PATTERN = re.compile(r'(gate[A-Z]\w*)')
+
+# One canonical sample per pattern that reads a Go identifier: the line it is read from, with a
+# `%s` where the name sits, and the name. The probe glues a rune Go refuses to one side of the
+# name and then the other, so the sample has to put the name where the pattern expects it and
+# nothing else about the line may be off the shape.
+GO_IDENTIFIER_SAMPLES = {
+    'STEP_DEFINITION': ('func %s() {}', 'stepOne'),
+    'TEST_HEADER': ('func %s(t *testing.T) {', 'TestOne'),
+    'TEST_FUNCTION': ('\tfunc %s(t *testing.T) {', 'TestOne'),
+    'GO_RUN_DECLARATION': ('func %s(t *testing.T, cases []Case, build func()) {', 'RunSolid'),
+    'STEP_NAME_CLAIM': ('The step builds the profile with `%s`.', 'stepOne'),
+    'PROOF_RUN_MENTION': ('\tproofkit3d.%s(t, profileCases, stepOne)', 'RunSolid'),
+    'proof_run_shape': ('\tproofkit.Run(t, profileCases, %s)', 'stepOne'),
+}
+
+# The patterns that need no edge at all, with the reason each one does not. `fullmatch` makes the
+# whole subject the name, so there is no neighbour to glue anything to. The claim is checked
+# against the scan rather than taken on trust: an entry here whose pattern is used through
+# anything else is a pattern nobody is probing.
+GO_IDENTIFIER_WHOLE_SUBJECT = {
+    'STEP_NAME': 'the build argument a registration passed, tested whole against the step '
+                 'naming rule',
+}
+
+
+class GoIdentifierEdgeTest(unittest.TestCase):
+    """A pattern that reads a Go identifier must refuse a name with a refused rune glued to it.
+
+    `GoPatternClassTest` above reads the character classes a pattern spells, and the defect this
+    class exists for spells none: `STEP_NAME_CLAIM` had no right-edge assertion at all, so the
+    match stopped at the first rune outside the identifier class and handed back the valid prefix.
+    A missing assertion is nothing for a scan of written classes to see, so this is the
+    behavioural half of the same rule.
+
+    Every pattern in the registry gets its canonical sample with one refused rune glued to the
+    left of the name, and again to the right, and must match neither. Which patterns those are is
+    enumerated from the checker rather than listed by hand, so a new pattern that reads a name
+    fails here until someone gives it a sample or writes down why the whole subject is the name.
+
+    Suppressing rather than truncating is what a credit-granting match needs, and truncation is
+    what the other patterns are already safe from by accident: each is closed by a required
+    character such as `(` or `.` that a refused rune displaces. Their edges are checked here too,
+    because that safety is a property of how they happen to be written and nothing was holding it.
+    """
+
+    # The rune the probe glues on. `GoIdentifierClassTest` holds the checker's classes against
+    # Go's own tables and `go_proof_verdict` shows the toolchain refusing a proof carrying this
+    # one, so what makes it the right probe is checked in three places rather than asserted here.
+    GLUED = '²'
+
+    def registry(self):
+        return go_identifier_patterns(COMPILE_CHECKER_PATH.read_text())
+
+    def pattern_for(self, name):
+        """The compiled pattern a registry entry names.
+
+        Most are module constants. The registration shape is not: it is derived from the harness
+        sources, so it is reached through the accessor that builds it.
+        """
+        found = getattr(COMPILE_CHECKER, name, None)
+        if isinstance(found, re.Pattern):
+            return found
+        if name == 'proof_run_shape':
+            return COMPILE_CHECKER.proof_run_shapes().shape
+        self.fail('%s is in the registry but this test cannot reach the pattern it compiles'
+                  % name)
+
+    def edges(self, pattern, template, name):
+        """Whether the pattern still matches with the refused rune glued to each side of `name`."""
+        return tuple(bool(pattern.search(template % glued))
+                     for glued in (self.GLUED + name, name + self.GLUED))
+
+    def test_every_pattern_that_reads_a_go_identifier_is_probed_or_classified(self):
+        """The registry is the checker's, so a new name reader cannot arrive unexamined."""
+        registry = self.registry()
+
+        self.assertEqual(sorted(registry),
+                         sorted(set(GO_IDENTIFIER_SAMPLES) | set(GO_IDENTIFIER_WHOLE_SUBJECT)))
+        for name, reason in sorted(GO_IDENTIFIER_WHOLE_SUBJECT.items()):
+            with self.subTest(name=name, reason=reason):
+                self.assertEqual(registry[name].methods, frozenset(('fullmatch',)))
+
+    def test_only_the_claim_pattern_is_written_from_the_credit_side_edges(self):
+        """`GO_TOKENS` says the wider pair belongs to the one match that grants credit.
+
+        That sentence is a rule about which pattern may take which edge, and a rule nothing checks
+        is one the next pattern can quietly break, so the count is held here.
+        """
+        written = sorted(name for name, use in self.registry().items()
+                         if '%(no_word_left)s' in use.written
+                         or '%(no_word_right)s' in use.written)
+
+        self.assertEqual(written, ['STEP_NAME_CLAIM'])
+
+    def test_a_refused_rune_glued_to_a_name_suppresses_the_match(self):
+        """The property itself, on both edges of every pattern that reads a name.
+
+        The sample matching is asserted first, because a probe whose sample never matched would
+        report both edges closed on a pattern it had not exercised at all.
+        """
+        for name, (template, identifier) in sorted(GO_IDENTIFIER_SAMPLES.items()):
+            with self.subTest(pattern=name):
+                pattern = self.pattern_for(name)
+
+                match = pattern.search(template % identifier)
+
+                self.assertIsNotNone(match, template % identifier)
+                self.assertIn(identifier, match.groups())
+                self.assertEqual(self.edges(pattern, template, identifier), (False, False))
+
+    def test_the_probe_sees_a_pattern_with_open_edges(self):
+        """The control. A probe that reported every pattern closed would prove nothing.
+
+        The invented pattern above asserts neither edge, which is the shape the defect had, and
+        the probe has to report both sides open.
+        """
+        self.assertEqual(self.edges(OPEN_EDGED_PATTERN, 'builds `%s` here', 'gateOne'),
+                         (True, True))
+
+    def test_the_glued_rune_is_a_word_character_go_refuses(self):
+        """The probe rests on Python and Go disagreeing about this rune, so state both halves."""
+        self.assertTrue(re.fullmatch(r'\w', self.GLUED))
+        self.assertIsNone(
+            re.compile(COMPILE_CHECKER.GO_IDENTIFIER_PART).fullmatch(self.GLUED))
 
 
 GO_UNICODE_TABLE_PROBE = (

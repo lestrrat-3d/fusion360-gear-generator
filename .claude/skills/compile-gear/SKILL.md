@@ -245,8 +245,10 @@ this skill: a compiler that rewrites its own source removes the thing being chec
 > non-breaking space in the indentation, a superscript digit inside a step title: each makes the
 > file illegal where it sits, `go test` reports it as an illegal character and the package builds
 > nothing, so the gate reads no declaration on that line and names the step or the run that went
-> missing instead. Unicode letters themselves are ordinary — `stepPrüfung` is a name Go compiles
-> and the gate reads.
+> missing instead. The name a step claims in the step list is held to the same rule and is read
+> whole: with such a character written against it the claim is not a Go name at all, so it credits
+> nothing and the step is reported as naming no proof function. Unicode letters themselves are
+> ordinary — `stepPrüfung` is a name Go compiles and the gate reads.
 >
 > **The case table reaches every branch, from every direction the spec offers.** A branch a step
 > takes needs a case on each side of it, and a branch the spec says is reachable in more than one
