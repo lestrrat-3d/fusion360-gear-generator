@@ -521,12 +521,57 @@ def go_ignores_file(name, goos=None, goarch=None):
     return None
 
 
-# Go's two constraint forms differ in what may sit between the slashes and the directive, and the
-# gate has to differ with them or it refuses comments Go compiles. `//go:build` is recognised only
-# with no space after the slashes, so `// go:build is discussed here` is ordinary prose and its
-# file is built. The legacy `+build` form does allow the space, and every spelling of it is
-# honoured.
-GO_BUILD_CONSTRAINT = re.compile(r'^\s*//(?:go:build\b|\s*\+build\b)')
+# Go trims every header line with `bytes.TrimSpace`, which uses `unicode.IsSpace`, before it looks
+# at the line at all. Python's `\s` is nearly that set but also counts U+001C to U+001F, which Go
+# does not, so a header opening with one of those reads to Python as an indented comment and to Go
+# as a line that does not begin with `//`. The set is written out rather than borrowed. A
+# non-breaking space is in it, which is why `\xa0//go:build ignore` is a constraint Go honours.
+GO_SPACE = ('\t\n\v\f\r \u0085\u00a0\u1680'
+            '\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a'
+            '\u2028\u2029\u202f\u205f\u3000')
+
+GO_BUILD_DIRECTIVE = '//go:build'
+
+GO_BYTE_ORDER_MARK = '\ufeff'
+
+
+def go_reads_build_constraint(line):
+    """Whether Go reads this trimmed header line as a `//go:build` constraint.
+
+    Transcribed from `go/build`'s `isGoBuildComment`. Two rules, and the gate has to hold both or
+    it disagrees with Go about a spelling.
+
+    Nothing may sit between the slashes and the directive, so `// go:build is discussed here` is
+    ordinary prose and its file is built.
+
+    The directive must be followed by whitespace or the end of the line. `//go:build!ignore` and
+    `//go:build/ignore` are prose by that rule, and `go list` reports both in `GoFiles`; ending
+    the directive at a word boundary instead refused files Go compiles, at line 1, for a `!` or a
+    `/`. Bare `//go:build`, and `//go:build` followed only by spaces or tabs, are constraints Go
+    cannot parse — it reports the file in `InvalidGoFiles` with "unexpected end of expression" —
+    so they stay refused.
+    """
+    if not line.startswith(GO_BUILD_DIRECTIVE):
+        return False
+    rest = line[len(GO_BUILD_DIRECTIVE):]
+    return not rest or rest[0] in GO_SPACE
+
+
+# Every `+build` spelling is refused, and that is this gate's decision rather than Go's rule. Go
+# reads the legacy form only when the directive is followed by whitespace or the end of the line,
+# and only when the comment run holding it is closed by a blank line, so `// +build!ignore` and a
+# `// +build ignore` written directly above the package clause are both in `GoFiles`. The gate
+# refuses them anyway. A proof file needs no build constraint in any form, so an over-refusal here
+# costs one message and a rewritten header, while matching Go would add two more rules to keep
+# right for a form nothing in this repository should be writing. The `//go:build` side above is
+# matched exactly instead, because there a wider gate refuses files Go builds and buys nothing.
+PLUS_BUILD_DIRECTIVE = re.compile(r'//[%s]*\+build' % re.escape(GO_SPACE))
+
+
+def go_style_build_comment(line):
+    """Whether this trimmed header line is refused as a build constraint."""
+    return go_reads_build_constraint(line) or bool(PLUS_BUILD_DIRECTIVE.match(line))
+
 
 # A step is read only from a function declaration. Go would also accept `var stepFoo = func(...)`,
 # and that form is deliberately not recognised: the drafting contract in
@@ -700,31 +745,69 @@ REGISTRATION_SHAPE = ('a registration is three lines and nothing else: '
                       'then `}`')
 
 
-def blank_block_comments(text):
-    """Blank `/* */` spans, leaving line comments alone.
+def go_source(path):
+    """A `.go` file's text as Go reads it, with one leading byte order mark removed.
 
-    Go reads a build constraint only from a `//` line comment, so constraint text inside a block
-    comment above the package clause is prose. Blanking the block comments and nothing else leaves
-    exactly the lines Go would read. Line comments are stepped over rather than blanked, so a `/*`
-    written inside one does not open a span.
+    Go strips a UTF-8 byte order mark only when it is the first code point in the file, and only
+    one of them, before it looks for a build constraint. So `EF BB BF` above a `//go:build ignore`
+    line leaves a constraint Go honours, and `go list` reports the file in `IgnoredGoFiles`.
+    Reading the bytes as they sit left the line beginning with U+FEFF, which no `//` match
+    reaches, and the gate credited registrations Go never compiles.
+
+    The mark is removed as a character, not as a line, so every line number below it is the one
+    Go, an editor and this gate's complaints all name.
+
+    A second mark, or one anywhere below the first character, is left in place, which is what Go
+    does: the line then does not begin with `//`, no constraint is read, and the parser reports
+    `illegal byte order mark` for the one that is not at the start.
+
+    Bytes that are not UTF-8 are replaced rather than raised on. A UTF-16 mark, and every other
+    leading byte Go rejects instead of stripping, leaves a line Go reads no constraint from, and
+    the gate agrees with that by reading the file rather than by crashing on it.
     """
-    out = list(text)
-    i = 0
-    while i < len(text):
-        if text.startswith('//', i):
-            j = text.find('\n', i)
-            i = len(text) if j == -1 else j
-            continue
-        if text.startswith('/*', i):
-            j = text.find('*/', i + 2)
-            j = len(text) if j == -1 else j + 2
-            for k in range(i, j):
-                if out[k] != '\n':
-                    out[k] = ' '
-            i = j
-            continue
-        i += 1
-    return ''.join(out)
+    with open(path, 'rb') as fh:
+        text = fh.read().decode('utf-8', 'replace')
+    if text.startswith(GO_BYTE_ORDER_MARK):
+        text = text[len(GO_BYTE_ORDER_MARK):]
+    return text
+
+
+def go_header_constraint_lines(lines):
+    """The 1-based numbers of the lines this gate refuses as a build constraint.
+
+    Transcribed from `go/build`'s `parseFileHeader`. Go walks the file from the top tracking
+    whether it is inside a `/* */` comment, and stops at the first text that is neither a comment
+    nor blank — the package clause, in a proof file. A constraint is taken only from a `//` line
+    comment outside a block comment, which is why the same text quoted inside a leading `/* */`
+    note is content, and why `/* note */ //go:build ignore` written on one line is content too:
+    the line does not begin with the directive, and Go never revisits it. Text below the package
+    clause, most often a line inside a raw string, is never reached at all.
+
+    Which trimmed lines are refused is `go_style_build_comment`: Go's `//go:build` rule exactly,
+    and every `+build` spelling by this gate's own decision.
+    """
+    numbers = []
+    in_block_comment = False
+    for number, source in enumerate(lines, 1):
+        line = source.strip(GO_SPACE)
+        if not in_block_comment and go_style_build_comment(line):
+            numbers.append(number)
+        while line:
+            if in_block_comment:
+                end = line.find('*/')
+                if end < 0:
+                    break
+                in_block_comment = False
+                line = line[end + 2:].strip(GO_SPACE)
+                continue
+            if line.startswith('//'):
+                break
+            if line.startswith('/*'):
+                in_block_comment = True
+                line = line[2:].strip(GO_SPACE)
+                continue
+            return numbers
+    return numbers
 
 
 def proof_run_arguments(match):
@@ -745,8 +828,11 @@ def scan_proof_file(path):
     Python's own line splitting is wider, ending a line at a form feed, a vertical tab and
     several more, so a header comment holding one of them was read as two lines: the tail became
     a build constraint the file does not carry, and every line number after it was off by one.
+
+    The source arrives from `go_source`, which removes a leading byte order mark as Go does, so
+    line 1 reads the same to this gate as it does to the compiler and every line number holds.
     """
-    src = read(path)
+    src = go_source(path)
     raw = src.split('\n')
     code = strip_go_comments_and_literals(src).split('\n')
     defined = set()
@@ -796,33 +882,17 @@ def scan_proof_file(path):
                 "  %s:%d runs a proof outside the shape this gate reads, so its build argument "
                 "cannot be checked; %s" % (path, index + 1, REGISTRATION_SHAPE))
 
-    # The build constraint is read from the raw source, because blanking has already removed it
-    # from the scrubbed copy. A constrained file decides outside itself whether it compiles, so
-    # the gate would otherwise credit registrations Go never builds.
+    # The build constraint is read from the raw source, because the scrubbed copy has already had
+    # its comments blanked. A constrained file decides outside itself whether it compiles, so the
+    # gate would otherwise credit registrations Go never builds.
     #
-    # Only the header is read, because that is the only place Go reads one: a constraint is taken
-    # from the lines before the package clause, so the same text lower down is ordinary content,
-    # most often a line inside a raw string. Scanning the whole file on raw lines refused proofs Go
-    # builds happily. The blanked copy locates the package clause at no cost, since every header
-    # comment is already whitespace there, which leaves the first line carrying anything at all as
-    # the first line of real code.
-    #
-    # Within the header, only `//` line comments are read, because those are the only ones Go takes
-    # a constraint from. Reading every raw header line refused a file whose leading `/* */` licence
-    # or design note happened to quote `//go:build`, which Go builds and `go list` reports as
-    # unconstrained.
-    header_end = len(raw)
-    for index, line in enumerate(code):
-        if line.strip():
-            header_end = index
-            break
-    header_lines = blank_block_comments('\n'.join(raw[:header_end])).split('\n')
-    for number, line in enumerate(header_lines, 1):
-        if GO_BUILD_CONSTRAINT.match(line):
-            complaints.append(
-                "  %s:%d carries a build constraint, so whether Go ever compiles these "
-                "registrations is decided outside the file; a proof file needs no build "
-                "constraint, so remove it" % (path, number))
+    # Which lines those are, and where the walk stops, is `go_header_constraint_lines`, which
+    # follows `go/build` rather than approximating it.
+    for number in go_header_constraint_lines(raw):
+        complaints.append(
+            "  %s:%d carries a build constraint, so whether Go ever compiles these "
+            "registrations is decided outside the file; a proof file needs no build "
+            "constraint, so remove it" % (path, number))
 
     return defined, registrations, complaints
 

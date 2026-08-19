@@ -207,11 +207,15 @@ this skill: a compiler that rewrites its own source removes the thing being chec
 > closure, a run whose arguments come from one forwarded call as in `proofkit3d.Run(runArgs(t))`,
 > a run on a method neither harness package declares, a run passing a different number of
 > arguments than its method declares, and a proof file whose header carries a build constraint all
-> fail the check by name and line. Go reads a constraint from `//go:build` with nothing between
-> the slashes and the directive, and from `+build` with or without a space, and only above the
-> package clause, so the same text further down, inside a string, inside a `/* */` comment in the
-> header, or written `// go:build …` with a space, is content rather than a constraint, and all of
-> it passes. The refusal says what to write; write that.
+> fail the check by name and line. Go reads a constraint from `//go:build` when nothing sits
+> between the slashes and the directive, whitespace or the end of the line follows the directive,
+> and the line is above the package clause. A leading byte order mark hides nothing: Go strips one
+> and honours what is under it, and the gate reads it the same way. The same text further down,
+> inside a string, inside a `/* */` comment in the header, written `// go:build …` with a space, or
+> run straight on as `//go:build!ignore`, is content rather than a constraint, and all of it
+> passes. The legacy `+build` form is refused in every spelling, including the near-misses Go
+> builds, because a proof file needs no build constraint at all. The refusal says what to write;
+> write that.
 >
 > **Name proof files so Go compiles them.** Go decides which files are in a package from their
 > names alone: a name starting with `_` or `.` is invisible to it, and a name whose trailing
