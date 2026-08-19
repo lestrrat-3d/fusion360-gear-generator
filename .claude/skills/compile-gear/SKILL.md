@@ -205,9 +205,11 @@ this skill: a compiler that rewrites its own source removes the thing being chec
 > interpreted. A build under another name, a `Test` header outside the shape shown above, a `Test`
 > whose title does not match the step it builds, a run reached through a loop, a condition or a
 > closure, a run whose arguments come from one forwarded call as in `proofkit3d.Run(runArgs(t))`,
-> a run on a method neither harness package declares, a run passing a different number of
-> arguments than its method declares, and a proof file whose header carries a build constraint all
-> fail the check by name and line. Go reads a constraint from `//go:build` when nothing sits
+> a run passing a different number of arguments than its method declares, and a proof file whose
+> header carries a build constraint all fail the check by name and line. A call to a `Run…` method
+> no harness package declares fails the same way, and that one is not confined to a registration:
+> a misspelled run in a helper is `undefined` to Go wherever it sits, so it is named wherever it
+> is written. Go reads a constraint from `//go:build` when nothing sits
 > between the slashes and the directive, whitespace or the end of the line follows the directive,
 > and the line is above the package clause. A leading byte order mark hides nothing: Go strips one
 > and honours what is under it, and the gate reads it the same way. The same text further down,

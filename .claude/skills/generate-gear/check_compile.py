@@ -17,7 +17,8 @@ Four checks gate, and one is reported:
      does not name is a proof no step can reach. The registration is written in one fixed shape
      the gate matches by line ("Registration is read by SHAPE" below says why and states it); a
      run written any other way is reported rather than read, because an unread build argument is
-     an unchecked one.
+     an unchecked one. A call to a run method the harness does not declare is reported wherever it
+     is written, registration or not, because Go calls that `undefined` wherever it sits.
   3. API CALLS ARE REAL. Every Fusion call the step list names exists in the API database the
      `fusion` plugin ships. Catches a spec that names a method Fusion does not have.
   4. INPUTS HAVE NOT DRIFTED. The provenance table contains and matches the existing instructions,
@@ -664,11 +665,14 @@ def go_parameter_count(parameters):
 def go_run_arities(package, path):
     """Map `<package>.<Run…>` to its declared parameter count, for one harness source file.
 
+    The text comes from `harness_source`, so a file Go will not read, or one whose header decides
+    outside the file whether Go compiles it, is a named error rather than a silent contribution.
+
     Comments and literals are blanked first, so a signature quoted in a doc comment is not read
     as a declaration.
     """
     table = {}
-    code = strip_go_comments_and_literals(read(path))
+    code = strip_go_comments_and_literals(harness_source(path))
     for match in GO_RUN_DECLARATION.finditer(code):
         parameters = go_balanced_span(code, match.end() - 1)
         if parameters is None:
@@ -677,11 +681,20 @@ def go_run_arities(package, path):
     return table
 
 
-def derive_proof_run_arguments():
-    """Every run method the harness packages declare, with the arguments each one takes."""
+def derive_proof_run_arguments(root=REPO_ROOT):
+    """Every run method the harness packages declare, with the arguments each one takes.
+
+    The harness sources are held to the same Go rules as the proof files, because the derived set
+    is only as true as the reading it comes from: a file read here but not compiled by Go invents
+    a method that does not exist, and a file compiled by Go but not read here loses one that does.
+    `harness_source` states which rule is a skip, which is a named error, and why each is which.
+
+    `root` is the tree the harness is read from. The default is the repository this checker ships
+    in; a test passes its own so these rules can be exercised on fixtures.
+    """
     table = {}
     for package in PROOF_RUN_PACKAGES:
-        directory = os.path.join(REPO_ROOT, 'proof', package)
+        directory = os.path.join(root, 'proof', package)
         if not os.path.isdir(directory):
             continue
         for entry in sorted(os.listdir(directory)):
@@ -689,6 +702,8 @@ def derive_proof_run_arguments():
             if not entry.endswith('.go') or entry.endswith('_test.go'):
                 continue
             if not os.path.isfile(path):
+                continue
+            if go_ignores_file(entry) is not None:
                 continue
             table.update(go_run_arities(package, path))
     if not table:
@@ -712,28 +727,6 @@ def go_name_alternation(names):
     """A regex alternation over names, longest first so `RunSolid` is never cut short to `Run`."""
     return '|'.join(re.escape(name) for name in sorted(names, key=lambda name: (-len(name), name)))
 
-
-PROOF_RUN_ARGUMENTS = derive_proof_run_arguments()
-
-PROOF_RUN_METHODS_BY_PACKAGE = run_methods_by_package(PROOF_RUN_ARGUMENTS)
-
-PROOF_RUN = re.compile(
-    r'^\s*(%s)\s*\('
-    r'\s*[\w.]+\s*,\s*[\w.]+\s*,\s*(\w+)\s*((?:,\s*[\w.]+\s*)*)\)\s*$'
-    % '|'.join(
-        r'%s\s*\.\s*(?:%s)' % (re.escape(package), go_name_alternation(names))
-        for package, names in sorted(PROOF_RUN_METHODS_BY_PACKAGE.items(),
-                                     key=lambda item: (-len(item[0]), item[0]))))
-
-# The mention pattern stays deliberately wider than the shape above: it is what turns a run the
-# shape refuses into a named complaint. It pairs every harness package with every run name either
-# package declares, so a line calling `proofkit.RunSolid` is seen here; otherwise a registration on
-# a method that does not exist would pass by going unnoticed instead of failing.
-PROOF_RUN_MENTION = re.compile(
-    r'\b(?:%s)\s*\.\s*(?:%s)\s*\('
-    % (go_name_alternation(PROOF_RUN_METHODS_BY_PACKAGE.keys()),
-       go_name_alternation({name for names in PROOF_RUN_METHODS_BY_PACKAGE.values()
-                            for name in names})))
 
 BLOCK_END = re.compile(r'^\}\s*$')
 
@@ -900,6 +893,79 @@ def go_header_constraint_lines(lines):
     return numbers
 
 
+# The harness is read under Go's rules too, and which rule is a skip and which is an error is
+# decided here rather than by whichever reader was nearest.
+#
+# Go's filename rule carries over unchanged, and a file it excludes is skipped exactly as Go skips
+# it. The name is the whole reason, it is visible in a directory listing, and the method really
+# does not exist here: `go vet` answers a call to one with `undefined: proofkit.RunWindows`, which
+# is what the undeclared-method complaint below says at the call site.
+#
+# A build constraint is the opposite case and is a named error rather than a skip. Whether Go
+# compiles a constrained file is settled outside the file, so the derived set would depend on
+# where this gate runs. Skipping such a file would drop a method Go does build under a satisfied
+# constraint — `//go:build linux` read on a linux builder — and every sound registration on that
+# method would then be complained about as a call the harness does not declare, sending the reader
+# to the proof for a defect that is in the harness. So the harness carries no build constraint at
+# all, and a file that carries one is named as the harness problem it is.
+#
+# `go_header_constraint_lines` is the detector for that, and the breadth that makes it wrong for a
+# skip is what makes it right here: it refuses every `+build` spelling as well as the `//go:build`
+# ones Go reads, which is over-refusal against Go and is exactly the rule "no constraint in any
+# spelling". On this path it must stay a detector and never become a skip.
+def harness_source(path):
+    """One harness source's text, or a named error saying why no run method can be read from it.
+
+    Unlike the proof-file readers, this raises. A proof file the gate cannot read is one drafted
+    artifact among many and becomes a complaint about that file, while a harness the gate cannot
+    read leaves every registration in every proof checked against a run table that is missing
+    methods Go has — a wrong answer everywhere rather than a complaint in one place.
+    """
+    text, refused = go_source(path)
+    if refused is not None:
+        raise RuntimeError(
+            'check_compile: the harness source %s is one Go will not read, so the run methods it '
+            'declares cannot be derived: %s' % (path, refused.strip()))
+    numbers = go_header_constraint_lines(text.split('\n'))
+    if numbers:
+        raise RuntimeError(
+            'check_compile: %s:%d carries a build constraint, so which run methods the harness '
+            'declares would be decided outside the file and would depend on where this gate runs; '
+            'a harness source must carry no build constraint, so remove it'
+            % (path, numbers[0]))
+    return text
+
+
+PROOF_RUN_ARGUMENTS = derive_proof_run_arguments()
+
+PROOF_RUN_METHODS_BY_PACKAGE = run_methods_by_package(PROOF_RUN_ARGUMENTS)
+
+PROOF_RUN = re.compile(
+    r'^\s*(%s)\s*\('
+    r'\s*[\w.]+\s*,\s*[\w.]+\s*,\s*(\w+)\s*((?:,\s*[\w.]+\s*)*)\)\s*$'
+    % '|'.join(
+        r'%s\s*\.\s*(?:%s)' % (re.escape(package), go_name_alternation(names))
+        for package, names in sorted(PROOF_RUN_METHODS_BY_PACKAGE.items(),
+                                     key=lambda item: (-len(item[0]), item[0]))))
+
+# The mention pattern stays deliberately wider than the shape above. It is what turns a run the
+# shape refuses into a named complaint, and it is the only thing that sees a run on a method no
+# harness package declares — a name outside the derived set cannot appear in the shape above, so a
+# pattern built from that set alone is blind to exactly the call it exists to catch.
+#
+# So it pairs each harness package with any `Run`-prefixed name at all. `proofkit.RunSolid`, a
+# pairing neither package declares, and a plain misspelling such as `proofkit3d.RunTypa` are both
+# seen, and both are reported as the undeclared method Go calls `undefined`.
+#
+# The `Run\w*` boundary is what keeps the ordinary harness calls in a step body silent, and it
+# rests on a fact about the harness rather than on a rule Go enforces: no exported harness helper
+# other than the run methods has a name starting with `Run`. A test in `test_check_compile.py`
+# holds that fact against the harness sources, so a helper named `Run…` fails there rather than
+# turning every call to it into a false complaint here.
+PROOF_RUN_MENTION = re.compile(
+    r'\b(%s)\s*\.\s*(Run\w*)\s*\(' % go_name_alternation(PROOF_RUN_PACKAGES))
+
+
 def proof_run_arguments(match):
     """Return a matched proof run's method name and the number of arguments it passes."""
     method = re.sub(r'\s+', '', match.group(1))
@@ -912,7 +978,8 @@ def scan_proof_file(path):
     A registration comes back as (line number, Test name, build argument) so a complaint can say
     where to go. Complaints here are the ones only this file can see: a build constraint in the
     file header, a Test header Go runs but this gate cannot read, a proof run written outside the
-    registration shape, and a run whose argument count is not the one its method declares.
+    registration shape, a run whose argument count is not the one its method declares, and a call
+    to a run method no harness package declares.
 
     Lines are cut at `\n` and nowhere else, because that is the only line ending Go recognises.
     Python's own line splitting is wider, ending a line at a form feed, a vertical tab and
@@ -970,8 +1037,26 @@ def scan_proof_file(path):
             continue
         registrations.append((index + 2, header.group(1), run.group(2)))
 
+    # A run on a method the harness does not declare is named as that, wherever it is written. It
+    # is not the same defect as a run off the shape: the shape complaint sends the drafter to the
+    # three lines, and here the three lines may be perfect while the method does not exist. Inside
+    # a registration the two coincide, and the undeclared method is the one reported, because it
+    # is the one Go fails on.
     for index, line in enumerate(code):
-        if PROOF_RUN_MENTION.search(line) and index not in read_runs:
+        undeclared = []
+        off_shape = False
+        for mention in PROOF_RUN_MENTION.finditer(line):
+            method = '%s.%s' % (mention.group(1), mention.group(2))
+            if method in PROOF_RUN_ARGUMENTS:
+                off_shape = off_shape or index not in read_runs
+            elif method not in undeclared:
+                undeclared.append(method)
+        for method in undeclared:
+            complaints.append(
+                "  %s:%d calls %s, which no harness package declares, so Go cannot compile "
+                "this proof; the run methods are %s"
+                % (path, index + 1, method, ', '.join(sorted(PROOF_RUN_ARGUMENTS))))
+        if off_shape:
             complaints.append(
                 "  %s:%d runs a proof outside the shape this gate reads, so its build argument "
                 "cannot be checked; %s" % (path, index + 1, REGISTRATION_SHAPE))

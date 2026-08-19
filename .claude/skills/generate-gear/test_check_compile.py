@@ -6,6 +6,7 @@ import inspect
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -211,6 +212,15 @@ def go_verdicts(headers, body=b'package p\n\nfunc F() {}\n'):
         shutil.rmtree(root, ignore_errors=True)
 
 
+def foreign_goos():
+    """A GOOS this machine is not, so a `_GOOS` suffix carrying it is genuinely unsatisfied."""
+    for name in sorted(COMPILE_CHECKER.GO_KNOWN_OS):
+        if not COMPILE_CHECKER.go_platform_tag_matches(
+                name, COMPILE_CHECKER.GOOS, COMPILE_CHECKER.GOARCH):
+            return name
+    raise AssertionError('every known GOOS matches this machine')
+
+
 class CheckCompileTest(unittest.TestCase):
     SOURCE_PATHS = (
         'spec/gear/instructions.md',
@@ -356,6 +366,10 @@ class CheckCompileTest(unittest.TestCase):
         A gate that let the namespace and the suffix vary on their own credited a step whose
         registration Go cannot compile, which is the one direction a compile gate must never fail
         in.
+
+        The complaint names the method rather than the shape, because the three lines here are
+        well formed and it is the method that does not exist. Go says the same of this pairing:
+        `undefined: proofkit.RunSolid`.
         """
         proof_body = self.registration('TestOne', 'proofkit.RunSolid', 'stepOne',
                                        extra=', assertOne')
@@ -363,10 +377,63 @@ class CheckCompileTest(unittest.TestCase):
         result, output = self.run_checker(proof_body=proof_body)
 
         self.assertEqual(result, 1)
-        self.assertIn('proof/gear/proof_test.go:2 runs a proof outside the shape this gate reads',
-                      output)
+        self.assertIn('proof/gear/proof_test.go:2 calls proofkit.RunSolid, which no harness '
+                      'package declares', output)
         self.assertIn(
             'S1 names proof function stepOne, which TestOne does not build with', output)
+
+    def test_call_to_a_harness_method_that_does_not_exist_is_named(self):
+        """A run method that does not exist, called outside a registration, was invisible.
+
+        The mention pattern was built from the derived set, so a name outside that set could not
+        match it, and the pattern meant to catch a run written outside the accepted shape was
+        blind to exactly the case its own comment named. `go vet` reports this file
+        `undefined: proofkit3d.RunTypo`.
+
+        The same typo written inside the three-line shape was already caught indirectly, because
+        the step then goes unregistered. The hole was the call that is not itself a step's sole
+        registration.
+        """
+        proof_body = (
+            'func TestOne(t *testing.T) {\n'
+            '\tproofkit.Run(t, profileCases, stepOne)\n'
+            '}\n\n'
+            'func helper(t *testing.T) {\n'
+            '\tproofkit3d.RunTypo(t, profileCases, stepOne)\n'
+            '}\n\n'
+            'func stepOne() {}\n')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 1)
+        self.assertIn('proof/gear/proof_test.go:6 calls proofkit3d.RunTypo, which no harness '
+                      'package declares', output)
+        # The three lines are not the defect and are not reported as one.
+        self.assertEqual(output.count('proof/gear/proof_test.go:6'), 1, output)
+
+    def test_harness_calls_that_are_not_runs_stay_silent(self):
+        """The `Run` prefix is the whole boundary, so every other harness call must pass through.
+
+        These five helpers appear throughout ordinary step bodies. A pattern that reached them
+        would turn every proof in the repository into a wall of complaints about calls Go
+        compiles.
+        """
+        proof_body = (
+            'func TestOne(t *testing.T) {\n'
+            '\tproofkit.Run(t, profileCases, stepOne)\n'
+            '}\n\n'
+            'func stepOne(t *testing.T) {\n'
+            '\tproofkit.Step(t, "one")\n'
+            '\tproofkit.Unmodelled(t, "two")\n'
+            '\tproofkit.RequireSound(t, s)\n'
+            '\tproofkit3d.RequireSolid(t, doc, bodies)\n'
+            '\tproofkit3d.BodyReport(t, doc, body)\n'
+            '}\n')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 0, output)
+        self.assertIn('compile check: OK', output)
 
     # Each run takes the arguments its own signature declares, and no others.
 
@@ -751,14 +818,6 @@ class CheckCompileTest(unittest.TestCase):
 
     # Only files Go actually compiles are credited.
 
-    def foreign_goos(self):
-        """A GOOS this machine is not, so a `_GOOS` suffix here is genuinely unsatisfied."""
-        for name in sorted(COMPILE_CHECKER.GO_KNOWN_OS):
-            if not COMPILE_CHECKER.go_platform_tag_matches(
-                    name, COMPILE_CHECKER.GOOS, COMPILE_CHECKER.GOARCH):
-                return name
-        raise AssertionError('every known GOOS matches this machine')
-
     def test_file_go_never_compiles_is_named_not_credited(self):
         """A proof file Go drops still parsed as a proof, so its steps were credited unbuilt.
 
@@ -766,7 +825,7 @@ class CheckCompileTest(unittest.TestCase):
         suffix this machine does not satisfy lands the file in `IgnoredGoFiles`. In all three
         cases `go test` reports no test files, so nothing here registers anything.
         """
-        foreign = self.foreign_goos()
+        foreign = foreign_goos()
         for filename in ('_x_test.go', '.x_test.go', 'proof_%s_test.go' % foreign,
                          'proof_%s_amd64_test.go' % foreign):
             with self.subTest(filename=filename):
@@ -1302,6 +1361,233 @@ class ProofRunArityDerivationTest(unittest.TestCase):
                     self.assertIsNotNone(match)
                     self.assertEqual(COMPILE_CHECKER.proof_run_arguments(match),
                                      (method, declared))
+
+
+def harness_file(package, name='RunExtra'):
+    """One harness source declaring a single run method, for the named package."""
+    return b'package %s\n\nfunc %s(a, b, c int) {}\n' % (package.encode(), name.encode())
+
+
+def go_harness_verdict(name, source):
+    """What Go does with one file dropped into a package, and whether its method can be called.
+
+    Returns `(placement, callable)`. `placement` is where the file lands — `compiled` for
+    `GoFiles`, `ignored` for `IgnoredGoFiles`, `unreadable` when Go refuses its bytes — and
+    `callable` is whether another package can build against the method it declares, which is the
+    question the derived run table is answering.
+
+    The call lives in a second package on purpose. A method Go does not compile is not a
+    compilation error in the harness; it is an `undefined` at every use, which is what a proof
+    registration on it would be.
+
+    The probe package is named `proofkit` so the fixture bytes are the same ones the gate is given.
+    """
+    root = Path(tempfile.mkdtemp(prefix='go-harness-'))
+    try:
+        (root / 'go.mod').write_text('module harnessprobe\n\ngo 1.21\n')
+        (root / 'proofkit').mkdir()
+        (root / 'proofkit' / 'proofkit.go').write_bytes(harness_file('proofkit', 'Run'))
+        (root / 'proofkit' / name).write_bytes(source)
+        (root / 'user').mkdir()
+        (root / 'user' / 'user.go').write_text(
+            'package user\n\n'
+            'import "harnessprobe/proofkit"\n\n'
+            'func call() { proofkit.RunExtra(1, 2, 3) }\n')
+        built = subprocess.run(['go', 'build', './proofkit'],
+                               cwd=root, capture_output=True, text=True)
+        listed = subprocess.run(['go', 'list', '-e', '-json', './proofkit'],
+                                cwd=root, capture_output=True, text=True)
+        info = json.JSONDecoder().raw_decode(listed.stdout.strip())[0]
+        if any(message in built.stderr for message in GO_UNREADABLE_MESSAGES):
+            placement = 'unreadable'
+        elif name in (info.get('IgnoredGoFiles') or []):
+            placement = 'ignored'
+        else:
+            placement = 'compiled'
+        used = subprocess.run(['go', 'build', './user'], cwd=root, capture_output=True, text=True)
+        return placement, used.returncode == 0
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+class HarnessSourceRuleTest(unittest.TestCase):
+    """The harness sources are read under the Go rules the proof files are already held to.
+
+    Every run method the gate accepts is derived from `proof/proofkit/` and `proof/proofkit3d/`,
+    so the derivation is where a Go rule missing from the read does its damage: a file read here
+    but not compiled by Go invents a method that does not exist, and every registration on it is
+    then credited although `go vet` calls it `undefined`.
+
+    Which rule is a skip and which is a named error differs, and `HARNESS_FILE_CASES` records what
+    Go does with each input alongside what the gate does about it.
+    """
+
+    # name, file bytes below the package clause, what Go does, what the gate does.
+    #
+    #   compiled/ignored/unreadable  where Go puts the file, and `callable` below says whether the
+    #                                method it declares can be used from another package at all
+    #   read                         the gate derives the method from it
+    #   skipped                      the gate passes over the file exactly as Go does
+    #   error                        the gate raises a named error rather than deriving anything
+    @staticmethod
+    def cases():
+        goos = COMPILE_CHECKER.GOOS
+        body = harness_file('proofkit')
+        return (
+            ('an ordinary name', 'runmore.go', body, 'compiled', 'read'),
+            ('a satisfied GOOS suffix', 'run_%s.go' % goos, body, 'compiled', 'read'),
+            ('an unsatisfied GOOS suffix', 'run_%s.go' % foreign_goos(), body, 'ignored',
+             'skipped'),
+            ('an unsatisfiable constraint', 'runconstrained.go',
+             b'//go:build never\n\n' + body, 'ignored', 'error'),
+            # The row the loud option exists for. Go compiles this file here, so a gate that
+            # skipped it would drop a method that does exist and report every sound registration
+            # on it as a call the harness does not declare.
+            ('a satisfied constraint', 'runconstrained.go',
+             ('//go:build %s\n\n' % goos).encode() + body, 'compiled', 'error'),
+            ('a legacy constraint', 'runconstrained.go',
+             b'// +build never\n\n' + body, 'ignored', 'error'),
+            ('a NUL byte', 'runnul.go', body[:-1] + b'\x00\n', 'unreadable', 'error'),
+        )
+
+    def derive(self, name=None, source=None):
+        """The run table derived from a harness tree holding one extra file under `proofkit`."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for package in COMPILE_CHECKER.PROOF_RUN_PACKAGES:
+                (root / 'proof' / package).mkdir(parents=True)
+                (root / 'proof' / package / ('%s.go' % package)).write_bytes(
+                    harness_file(package, 'Run'))
+            if name is not None:
+                (root / 'proof' / 'proofkit' / name).write_bytes(source)
+            return COMPILE_CHECKER.derive_proof_run_arguments(root=str(root))
+
+    def test_the_fixture_tree_derives_what_it_declares(self):
+        """The control. Without it a derivation that read nothing would pass every case below."""
+        self.assertEqual(self.derive(), {'proofkit.Run': 3, 'proofkit3d.Run': 3})
+
+    def test_a_harness_file_go_compiles_is_read(self):
+        for name, filename, source, _, gate in self.cases():
+            if gate != 'read':
+                continue
+            with self.subTest(case=name):
+                self.assertEqual(self.derive(filename, source).get('proofkit.RunExtra'), 3)
+
+    def test_a_harness_file_go_excludes_by_name_is_not_read(self):
+        """Go decides this from the name alone, and the gate already holds proof files to it.
+
+        A `proof/proofkit/run_windows.go` declaring `RunWindows` was read on linux and its method
+        accepted in a registration, while `go list` reported the file in `IgnoredGoFiles` and
+        `go vet` reported `undefined: proofkit.RunWindows`.
+
+        Skipping is the right answer here rather than an error: the name is the whole reason, Go
+        does the same, and the method really does not exist on this machine, so a proof that calls
+        it is told so at the call.
+        """
+        for name, filename, source, _, gate in self.cases():
+            if gate != 'skipped':
+                continue
+            with self.subTest(case=name):
+                table = self.derive(filename, source)
+
+                self.assertNotIn('proofkit.RunExtra', table)
+                self.assertIn('proofkit.Run', table)
+
+    def test_a_harness_file_carrying_a_build_constraint_is_a_named_error(self):
+        """A constraint is settled outside the file, so the harness carries none in any spelling.
+
+        `//go:build never` excludes the file and `//go:build linux` on a linux builder does not,
+        and nothing in the file says which of the two the reader is holding. Skipping both would
+        drop a method Go does build and turn every sound registration on it into a complaint about
+        the proof, which is the wrong file entirely. So both are refused, loudly, naming the
+        harness file and line.
+        """
+        for name, filename, source, _, gate in self.cases():
+            if gate != 'error':
+                continue
+            if b'//go:build' not in source and b'+build' not in source:
+                continue
+            with self.subTest(case=name):
+                with self.assertRaises(RuntimeError) as raised:
+                    self.derive(filename, source)
+
+                message = str(raised.exception)
+                self.assertIn('%s:1 carries a build constraint' % filename, message)
+                self.assertIn('a harness source must carry no build constraint', message)
+
+    def test_a_harness_file_go_will_not_read_is_a_named_error(self):
+        """The byte refusals reach the harness too, and name the harness file when they bite.
+
+        A `proof/proofkit/runnul.go` holding a NUL byte was read with a plain `read()` and its
+        method accepted, while `go vet ./proofkit/` refused the file outright. Reading it through
+        `go_source`, as the proof files are read, turns it into an error that names the file, the
+        byte and what Go says about it.
+        """
+        for name, filename, source, _, gate in self.cases():
+            if gate != 'error' or b'\x00' not in source:
+                continue
+            with self.subTest(case=name):
+                with self.assertRaises(RuntimeError) as raised:
+                    self.derive(filename, source)
+
+                message = str(raised.exception)
+                self.assertIn(filename, message)
+                self.assertIn('is one Go will not read', message)
+                self.assertIn('holds a NUL byte', message)
+
+    def test_no_harness_file_is_credited_with_a_method_go_does_not_have(self):
+        """The whole class, in one line: read or refused, never quietly wrong.
+
+        A file Go does not compile must never contribute a method, whether the gate skips it or
+        errors on it.
+        """
+        for name, filename, source, placement, _ in self.cases():
+            if placement == 'compiled':
+                continue
+            with self.subTest(case=name):
+                try:
+                    table = self.derive(filename, source)
+                except RuntimeError:
+                    continue
+                self.assertNotIn('proofkit.RunExtra', table)
+
+    @unittest.skipUnless(shutil.which('go'), 'the Go toolchain establishes these verdicts')
+    def test_go_agrees_with_the_recorded_harness_verdicts(self):
+        """The `go` column of every row is what the toolchain actually does with that input.
+
+        A row written from memory, or a Go release that moved the boundary, fails here rather
+        than in a harness read nobody can explain. `callable` is checked with it, because that is
+        the consequence the rows are really about: a method from a file Go does not compile is an
+        `undefined` at every use.
+        """
+        for name, filename, source, placement, _ in self.cases():
+            with self.subTest(case=name):
+                self.assertEqual(go_harness_verdict(filename, source),
+                                 (placement, placement == 'compiled'))
+
+    @unittest.skipUnless(shutil.which('go'), 'the Go toolchain establishes this API')
+    def test_no_exported_harness_helper_but_a_run_method_is_named_run(self):
+        """`PROOF_RUN_MENTION` reads any `Run`-prefixed name, and this is what makes that safe.
+
+        The boundary is a fact about the harness, not a rule Go enforces: were a helper called
+        `RunReport` added beside `RequireSound`, every call to it in a step body would become a
+        complaint about a method the harness does declare. `go doc` is asked rather than the
+        source, so the answer is the package's real exported API.
+        """
+        root = Path(__file__).parents[3] / 'proof'
+        for package in COMPILE_CHECKER.PROOF_RUN_PACKAGES:
+            with self.subTest(package=package):
+                listed = subprocess.run(['go', 'doc', './%s' % package],
+                                        cwd=root, capture_output=True, text=True)
+                self.assertEqual(listed.returncode, 0, listed.stderr)
+                exported = set(re.findall(r'^(?:func|type|var|const)\s+(\w+)',
+                                          listed.stdout, re.M))
+
+                self.assertEqual(
+                    {name for name in exported if name.startswith('Run')},
+                    {method.split('.', 1)[1]
+                     for method in COMPILE_CHECKER.PROOF_RUN_ARGUMENTS
+                     if method.startswith('%s.' % package)})
 
 
 class CommittedStepListProofPathsTest(unittest.TestCase):
