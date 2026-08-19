@@ -177,9 +177,10 @@ this skill: a compiler that rewrites its own source removes the thing being chec
 > do not quietly correct it.
 >
 > **The proof is a Go test** in package `<gear>_test`, spread over as many files as the split
-> needs, with one function per step. Every step function, 2D or 3D alike, is named `step<Title>`,
-> matching what the step list names, and is registered by the Go `Test` of the same title, in a
-> shape that is fixed and has no variants:
+> needs, with one function per step. Every step function, 2D or 3D alike, is declared as a
+> function, `func step<Title>(...)`, matching what the step list names — a step bound to a
+> variable is not read — and is registered by the Go `Test` of the same title, in a shape that is
+> fixed and has no variants:
 >
 > ```go
 > func TestGearProfileSketch(t *testing.T) {
@@ -187,24 +188,38 @@ this skill: a compiler that rewrites its own source removes the thing being chec
 > }
 > ```
 >
-> Three lines, and the `Test` function holds nothing else. Use `proofkit3d.Run`,
-> `proofkit3d.RunSolid` or `proofkit3d.RunWithGate` in place of `proofkit.Run` for a solid step,
-> and put the assertion after the build where the run takes one. The build argument is always the
+> Three lines, headed exactly as above, with the testing package named in full: `go test` also
+> runs `Test_Foo`, `Test1x` and a header written against an aliased import of `testing`, and the
+> gate refuses all three by name rather than reading them. The `Test` function holds nothing else.
+> Use `proofkit3d.Run`, `proofkit3d.RunSolid` or `proofkit3d.RunWithGate` in place of
+> `proofkit.Run` for a solid step, and put the assertion after the build where the run takes one. The build argument is always the
 > third, each argument is written out as a plain name, and the case table is a named variable
 > rather than a call built in place. Each run takes a table of parameter cases, one subtest each.
 > Pass exactly the arguments the run's own signature declares — `proofkit3d.RunWithGate` takes the
 > gate as well as the assertion, and `proofkit.Run` takes neither — since a count the method does
-> not declare is a call Go cannot compile.
+> not declare is a call Go cannot compile. The gate reads the run methods and their argument
+> counts out of `proof/proofkit/` and `proof/proofkit3d/`, so those sources are what a run is
+> checked against.
 >
 > The gate reads this shape by line rather than by parsing Go, so anything else is refused, not
-> interpreted. A build under another name, a `Test` whose title does not match the step it builds,
-> a run reached through a loop, a condition or a closure, a run whose arguments come from one
-> forwarded call as in `proofkit3d.Run(runArgs(t))`, a run on a method outside the four named
-> above, a run passing a different number of arguments than its method declares, and a proof file
-> whose header carries a `//go:build` line comment all fail the check by name and line. Go reads a
-> constraint only from a `//` line comment above the package clause, so the same text further down,
-> inside a string, and the same text inside a `/* */` comment in the header are both content rather
-> than a constraint, and both pass. The refusal says what to write; write that.
+> interpreted. A build under another name, a `Test` header outside the shape shown above, a `Test`
+> whose title does not match the step it builds, a run reached through a loop, a condition or a
+> closure, a run whose arguments come from one forwarded call as in `proofkit3d.Run(runArgs(t))`,
+> a run on a method neither harness package declares, a run passing a different number of
+> arguments than its method declares, and a proof file whose header carries a build constraint all
+> fail the check by name and line. Go reads a constraint from `//go:build` with nothing between
+> the slashes and the directive, and from `+build` with or without a space, and only above the
+> package clause, so the same text further down, inside a string, inside a `/* */` comment in the
+> header, or written `// go:build …` with a space, is content rather than a constraint, and all of
+> it passes. The refusal says what to write; write that.
+>
+> **Name proof files so Go compiles them.** Go decides which files are in a package from their
+> names alone: a name starting with `_` or `.` is invisible to it, and a name whose trailing
+> `_`-separated words are a GOOS, a GOARCH, or a GOOS and a GOARCH — `steps_windows_test.go`,
+> `steps_arm64_test.go`, `steps_windows_amd64_test.go` — is compiled only on that platform. A
+> proof in such a file registers nothing, `go test` reports no test files rather than failing, and
+> the gate names the file and asks for a rename. Ordinary trailing words are unaffected, so
+> `geometry_test.go`, `sketches_test.go` and `solids_test.go` are all fine.
 >
 > **The case table reaches every branch, from every direction the spec offers.** A branch a step
 > takes needs a case on each side of it, and a branch the spec says is reachable in more than one

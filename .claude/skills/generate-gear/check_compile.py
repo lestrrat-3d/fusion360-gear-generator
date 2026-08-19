@@ -41,11 +41,13 @@ Run from the repo root. Exit 0 = OK, 1 = BLOCKING, 2 = something is missing.
 """
 import json
 import os
+import platform
 import re
 import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.abspath(os.path.join(HERE, os.pardir, os.pardir, os.pardir))
 sys.path.insert(0, HERE)
 import fusion_api  # noqa: E402  (sibling module; sys.path is fixed up just above)
 from call_parser import call_shapes  # noqa: E402
@@ -401,8 +403,9 @@ def strip_go_comments_and_literals(src):
 #             proofkit.Run(t, <cases>, step<Title>)
 #     }
 #
-# with `proofkit3d.Run`, `proofkit3d.RunSolid` or `proofkit3d.RunWithGate` in place of
-# `proofkit.Run`, and an assertion argument after the build where the run takes one. The build
+# with any run method `proof/proofkit/` or `proof/proofkit3d/` declares in place of `proofkit.Run`,
+# and an assertion argument after the build where the run takes one. The methods and their
+# argument counts are read from those two packages, so this comment does not list them. The build
 # argument is always the third, and the run passes exactly the arguments its own method declares,
 # no more and no fewer. The Test's title and the step's title are the same word, which is what
 # lets a step list claim a function by name alone.
@@ -417,39 +420,275 @@ def strip_go_comments_and_literals(src):
 # or a raw string is not mistaken for a real one. Blanking preserves newlines, so a line number in
 # a complaint is a line number in the file.
 
-GO_BUILD_CONSTRAINT = re.compile(r'^\s*//\s*(?:go:build|\+build)\b')
+# Which files Go puts in a package is decided by their names alone, and by two rules nothing in
+# the file itself shows. A basename starting with `_` or `.` is invisible to `go/build`: it lands
+# in neither `TestGoFiles` nor `IgnoredGoFiles`, and `go test` reports the package as having no
+# test files. A basename whose trailing `_`-separated words name a GOOS, a GOARCH, or a GOOS and a
+# GOARCH, with a `_test` word stripped first, carries a build constraint and is compiled only
+# where those match.
+#
+# The gate needs both, because a proof file Go never builds cannot register anything, and reading
+# `_test.go` off the end of a name credits steps whose tests never run. The name lists and the
+# matching order below are transcribed from `go/build`'s `syslist.go` and `goodOSArchFile`.
+GO_KNOWN_OS = frozenset((
+    'aix', 'android', 'darwin', 'dragonfly', 'freebsd', 'hurd', 'illumos', 'ios', 'js', 'linux',
+    'nacl', 'netbsd', 'openbsd', 'plan9', 'solaris', 'wasip1', 'windows', 'zos',
+))
 
+GO_KNOWN_ARCH = frozenset((
+    '386', 'amd64', 'amd64p32', 'arm', 'armbe', 'arm64', 'arm64be', 'loong64', 'mips', 'mipsle',
+    'mips64', 'mips64le', 'mips64p32', 'mips64p32le', 'ppc', 'ppc64', 'ppc64le', 'riscv',
+    'riscv64', 's390', 's390x', 'sparc', 'sparc64', 'wasm',
+))
+
+# Go's name for the machine this checker runs on. `go env` would answer directly, but running the
+# toolchain is out of scope here, so the two identifiers are translated from Python's own. Only
+# the platforms this repo is built on need an entry; anything else falls back to the Python name
+# with a trailing release number dropped, which is already Go's spelling for the BSDs.
+GOOS_BY_SYS_PLATFORM = {
+    'aix': 'aix', 'cygwin': 'windows', 'darwin': 'darwin', 'linux': 'linux', 'sunos': 'solaris',
+    'win32': 'windows',
+}
+
+GOARCH_BY_MACHINE = {
+    '386': '386', 'aarch64': 'arm64', 'amd64': 'amd64', 'arm': 'arm', 'arm64': 'arm64',
+    'armv6l': 'arm', 'armv7l': 'arm', 'i386': '386', 'i686': '386', 'loongarch64': 'loong64',
+    'mips': 'mips', 'mips64': 'mips64', 'mips64le': 'mips64le', 'mipsel': 'mipsle',
+    'ppc64': 'ppc64', 'ppc64le': 'ppc64le', 'riscv64': 'riscv64', 's390x': 's390x',
+    'sparc64': 'sparc64', 'x86': '386', 'x86_64': 'amd64',
+}
+
+
+def current_goos():
+    """Go's name for this operating system."""
+    name = sys.platform
+    if name in GOOS_BY_SYS_PLATFORM:
+        return GOOS_BY_SYS_PLATFORM[name]
+    return name.rstrip('0123456789')
+
+
+def current_goarch():
+    """Go's name for this processor architecture."""
+    machine = platform.machine().lower()
+    return GOARCH_BY_MACHINE.get(machine, machine)
+
+
+GOOS = current_goos()
+GOARCH = current_goarch()
+
+
+def go_platform_tag_matches(tag, goos, goarch):
+    """Whether one GOOS or GOARCH filename suffix is satisfied here.
+
+    The three aliases are Go's own: an `android` build also takes `linux` files, `illumos` takes
+    `solaris`, and `ios` takes `darwin`.
+    """
+    if tag in (goos, goarch):
+        return True
+    return (goos, tag) in (('android', 'linux'), ('illumos', 'solaris'), ('ios', 'darwin'))
+
+
+def go_ignores_file(name, goos=None, goarch=None):
+    """Why Go never compiles this basename here, or None when it does.
+
+    `unix` is a build tag and never a filename suffix, the name match is case-sensitive, and a
+    basename that is only a GOOS with nothing before it carries no constraint at all, because Go
+    reads the suffix from the first `_` onwards. All three follow from `goodOSArchFile` and all
+    three are names Go compiles.
+    """
+    goos = GOOS if goos is None else goos
+    goarch = GOARCH if goarch is None else goarch
+    if name.startswith('_') or name.startswith('.'):
+        return "a basename starting with `%s` is invisible to the Go build" % name[0]
+    stem = name.split('.', 1)[0]
+    cut = stem.find('_')
+    if cut < 0:
+        return None
+    words = stem[cut:].split('_')
+    if words[-1] == 'test':
+        words = words[:-1]
+    if len(words) >= 2 and words[-2] in GO_KNOWN_OS and words[-1] in GO_KNOWN_ARCH:
+        if (go_platform_tag_matches(words[-2], goos, goarch)
+                and go_platform_tag_matches(words[-1], goos, goarch)):
+            return None
+        return ("a `_%s_%s` suffix builds only on %s/%s, and this is %s/%s"
+                % (words[-2], words[-1], words[-2], words[-1], goos, goarch))
+    if words and (words[-1] in GO_KNOWN_OS or words[-1] in GO_KNOWN_ARCH):
+        if go_platform_tag_matches(words[-1], goos, goarch):
+            return None
+        return ("a `_%s` suffix builds only where GOOS or GOARCH is %s, and this is %s/%s"
+                % (words[-1], words[-1], goos, goarch))
+    return None
+
+
+# Go's two constraint forms differ in what may sit between the slashes and the directive, and the
+# gate has to differ with them or it refuses comments Go compiles. `//go:build` is recognised only
+# with no space after the slashes, so `// go:build is discussed here` is ordinary prose and its
+# file is built. The legacy `+build` form does allow the space, and every spelling of it is
+# honoured.
+GO_BUILD_CONSTRAINT = re.compile(r'^\s*//(?:go:build\b|\s*\+build\b)')
+
+# A step is read only from a function declaration. Go would also accept `var stepFoo = func(...)`,
+# and that form is deliberately not recognised: the drafting contract in
+# `.claude/skills/compile-gear/SKILL.md` is one function per step, and a gate that reads both forms
+# has two shapes to keep right instead of one. What the refusal must not do is call a
+# variable-bound step undefined, so the complaint says the step has to be declared as a function.
 STEP_DEFINITION = re.compile(r'^func\s+(step[A-Z]\w*)\s*[\[(]')
 
 TEST_HEADER = re.compile(r'^func\s+(Test[A-Z]\w*)\s*\(\s*\w+\s+\*testing\.T\s*\)\s*\{\s*$')
 
+# `go test` runs any function named `Test` followed by a rune that is not a lowercase letter, and
+# it does not care how the testing package is spelled, so `Test_Foo`, `Test1x` and a header written
+# against an aliased import all run. The header shape above is narrower on purpose. This wider
+# pattern exists so a Test that Go runs but this gate cannot read is named as the header problem it
+# is: the run inside such a Test is often perfectly formed, and reporting the run would send the
+# drafter to the wrong line.
+TEST_FUNCTION = re.compile(r'^func\s+(Test\w*)\s*\(')
+
+TEST_HEADER_SHAPE = ('a proof Test is headed `func Test<Title>(t *testing.T) {`, with the testing '
+                     'package named in full')
+
+
+def go_runs_test(name):
+    """Whether `go test` would run a function of this name.
+
+    Go's rule is `Test` followed by a rune that is not a lowercase letter, with bare `Test`
+    allowed. Transcribed from the `testing` package's own `isTest`.
+    """
+    if not name.startswith('Test'):
+        return False
+    rest = name[len('Test'):]
+    return not rest or not rest[0].islower()
+
+
 # The build slot is a bare name, because it has to be `step<Title>` for a step to claim it. Every
 # other argument may be qualified, so a gate like `proofkit3d.RequireSolid` reads as one argument.
-# The suffix is tied to its namespace, because the four run methods are the four that exist:
-# `proofkit` defines only `Run`, and the `Solid` and `WithGate` variants belong to `proofkit3d`
-# alone. Letting the namespace and the suffix vary independently would credit a registration built
-# on `proofkit.RunSolid`, which no package defines and Go cannot compile.
+# The suffix is tied to its namespace, because the run methods that exist are the ones the two
+# harness packages declare: `proofkit` declares only `Run`, and the `Solid` and `WithGate` variants
+# belong to `proofkit3d` alone. Letting the namespace and the suffix vary independently would
+# credit a registration built on `proofkit.RunSolid`, which no package defines and Go cannot
+# compile.
 #
 # The argument count is tied to the method for the same reason. A tail of any length accepted a
 # three-argument `proofkit3d.RunWithGate` and a five-argument `proofkit.Run`, neither of which Go
-# compiles, so the shape read a step as registered by a call that never builds. The counts below
-# are the declared signatures: `proofkit.Run` takes the harness, the case table and the build;
-# every `proofkit3d` run adds the assertion, and `RunWithGate` the gate before it.
-PROOF_RUN_ARGUMENTS = {
-    'proofkit.Run': 3,
-    'proofkit3d.Run': 4,
-    'proofkit3d.RunSolid': 4,
-    'proofkit3d.RunWithGate': 5,
-}
+# compiles, so the shape read a step as registered by a call that never builds.
+#
+# Neither the method names nor the counts are written out here. They are derived from the harness
+# sources below, because a table typed into Python is a copy of a Go fact that nothing keeps
+# honest: a new run method, or a changed signature, would leave it wrong with every test still
+# green. Reading the `.go` files as text adds no toolchain dependency.
+PROOF_RUN_PACKAGES = ('proofkit', 'proofkit3d')
+
+GO_RUN_DECLARATION = re.compile(r'^func\s+(Run\w*)\s*\(', re.M)
+
+
+def go_balanced_span(text, start):
+    """The text between the bracket at `start` and its match, or None when unbalanced."""
+    depth = 0
+    for index in range(start, len(text)):
+        if text[index] in '([{':
+            depth += 1
+        elif text[index] in ')]}':
+            depth -= 1
+            if depth == 0:
+                return text[start + 1:index]
+    return None
+
+
+def go_parameter_count(parameters):
+    """The number of parameters one Go parameter list declares.
+
+    Go lets parameters share a type, so `a, b Case` is two parameters and the count is of
+    top-level commas. A comma nested inside brackets belongs to a type — a func type's own list,
+    a composite literal, a generic instantiation — and is not one of them.
+    """
+    if not parameters.strip():
+        return 0
+    depth = 0
+    commas = 0
+    for character in parameters:
+        if character in '([{':
+            depth += 1
+        elif character in ')]}':
+            depth -= 1
+        elif character == ',' and depth == 0:
+            commas += 1
+    return commas + 1
+
+
+def go_run_arities(package, path):
+    """Map `<package>.<Run…>` to its declared parameter count, for one harness source file.
+
+    Comments and literals are blanked first, so a signature quoted in a doc comment is not read
+    as a declaration.
+    """
+    table = {}
+    code = strip_go_comments_and_literals(read(path))
+    for match in GO_RUN_DECLARATION.finditer(code):
+        parameters = go_balanced_span(code, match.end() - 1)
+        if parameters is None:
+            continue
+        table['%s.%s' % (package, match.group(1))] = go_parameter_count(parameters)
+    return table
+
+
+def derive_proof_run_arguments():
+    """Every run method the harness packages declare, with the arguments each one takes."""
+    table = {}
+    for package in PROOF_RUN_PACKAGES:
+        directory = os.path.join(REPO_ROOT, 'proof', package)
+        if not os.path.isdir(directory):
+            continue
+        for entry in sorted(os.listdir(directory)):
+            path = os.path.join(directory, entry)
+            if not entry.endswith('.go') or entry.endswith('_test.go'):
+                continue
+            if not os.path.isfile(path):
+                continue
+            table.update(go_run_arities(package, path))
+    if not table:
+        raise RuntimeError(
+            'check_compile: no proof run methods found under %s; the registration shape is '
+            'derived from those packages and cannot be built without them'
+            % ', '.join(os.path.join('proof', name) for name in PROOF_RUN_PACKAGES))
+    return table
+
+
+def run_methods_by_package(methods):
+    """Group derived `<package>.<Run…>` names by the package that declares each one."""
+    grouped = {}
+    for qualified in methods:
+        package, name = qualified.split('.', 1)
+        grouped.setdefault(package, set()).add(name)
+    return grouped
+
+
+def go_name_alternation(names):
+    """A regex alternation over names, longest first so `RunSolid` is never cut short to `Run`."""
+    return '|'.join(re.escape(name) for name in sorted(names, key=lambda name: (-len(name), name)))
+
+
+PROOF_RUN_ARGUMENTS = derive_proof_run_arguments()
+
+PROOF_RUN_METHODS_BY_PACKAGE = run_methods_by_package(PROOF_RUN_ARGUMENTS)
 
 PROOF_RUN = re.compile(
-    r'^\s*(proofkit\s*\.\s*Run|proofkit3d\s*\.\s*Run(?:Solid|WithGate)?)\s*\('
-    r'\s*[\w.]+\s*,\s*[\w.]+\s*,\s*(\w+)\s*((?:,\s*[\w.]+\s*)*)\)\s*$')
+    r'^\s*(%s)\s*\('
+    r'\s*[\w.]+\s*,\s*[\w.]+\s*,\s*(\w+)\s*((?:,\s*[\w.]+\s*)*)\)\s*$'
+    % '|'.join(
+        r'%s\s*\.\s*(?:%s)' % (re.escape(package), go_name_alternation(names))
+        for package, names in sorted(PROOF_RUN_METHODS_BY_PACKAGE.items(),
+                                     key=lambda item: (-len(item[0]), item[0]))))
 
 # The mention pattern stays deliberately wider than the shape above: it is what turns a run the
-# shape refuses into a named complaint. A line calling `proofkit.RunSolid` has to be seen here, or
-# a registration on a method that does not exist would pass by going unnoticed instead of failing.
-PROOF_RUN_MENTION = re.compile(r'\bproofkit(?:3d)?\s*\.\s*Run(?:Solid|WithGate)?\s*\(')
+# shape refuses into a named complaint. It pairs every harness package with every run name either
+# package declares, so a line calling `proofkit.RunSolid` is seen here; otherwise a registration on
+# a method that does not exist would pass by going unnoticed instead of failing.
+PROOF_RUN_MENTION = re.compile(
+    r'\b(?:%s)\s*\.\s*(?:%s)\s*\('
+    % (go_name_alternation(PROOF_RUN_METHODS_BY_PACKAGE.keys()),
+       go_name_alternation({name for names in PROOF_RUN_METHODS_BY_PACKAGE.values()
+                            for name in names})))
 
 BLOCK_END = re.compile(r'^\}\s*$')
 
@@ -499,12 +738,17 @@ def scan_proof_file(path):
 
     A registration comes back as (line number, Test name, build argument) so a complaint can say
     where to go. Complaints here are the ones only this file can see: a build constraint in the
-    file header, a proof run written outside the registration shape, and a run whose argument
-    count is not the one its method declares.
+    file header, a Test header Go runs but this gate cannot read, a proof run written outside the
+    registration shape, and a run whose argument count is not the one its method declares.
+
+    Lines are cut at `\n` and nowhere else, because that is the only line ending Go recognises.
+    Python's own line splitting is wider, ending a line at a form feed, a vertical tab and
+    several more, so a header comment holding one of them was read as two lines: the tail became
+    a build constraint the file does not carry, and every line number after it was off by one.
     """
     src = read(path)
-    raw = src.splitlines()
-    code = strip_go_comments_and_literals(src).splitlines()
+    raw = src.split('\n')
+    code = strip_go_comments_and_literals(src).split('\n')
     defined = set()
     registrations = []
     complaints = []
@@ -516,6 +760,17 @@ def scan_proof_file(path):
             defined.add(match.group(1))
         header = TEST_HEADER.match(line)
         if not header:
+            named = TEST_FUNCTION.match(line)
+            if named and go_runs_test(named.group(1)):
+                complaints.append(
+                    "  %s:%d heads %s in a shape this gate does not read, so the registration "
+                    "under it cannot be checked; %s"
+                    % (path, index + 1, named.group(1), TEST_HEADER_SHAPE))
+                # The run under such a header is usually well formed, and the header is what did
+                # not match, so the run is not also reported as being off the registration shape.
+                if (index + 2 < len(code) and PROOF_RUN.match(code[index + 1])
+                        and BLOCK_END.match(code[index + 2])):
+                    read_runs.add(index + 1)
             continue
         run = PROOF_RUN.match(code[index + 1]) if index + 1 < len(code) else None
         closed = BLOCK_END.match(code[index + 2]) if index + 2 < len(code) else None
@@ -561,7 +816,7 @@ def scan_proof_file(path):
         if line.strip():
             header_end = index
             break
-    header_lines = blank_block_comments('\n'.join(raw[:header_end])).splitlines()
+    header_lines = blank_block_comments('\n'.join(raw[:header_end])).split('\n')
     for number, line in enumerate(header_lines, 1):
         if GO_BUILD_CONSTRAINT.match(line):
             complaints.append(
@@ -589,6 +844,16 @@ def proof_registrations(proof_dir):
         if not entry.endswith('.go'):
             continue
         path = os.path.join(proof_dir, entry)
+        # A directory may be named `*.go`. Go builds the package around it without complaint, and
+        # reading it as a file raises, so it is passed over the way Go passes over it.
+        if not os.path.isfile(path):
+            continue
+        unbuilt = go_ignores_file(entry)
+        if unbuilt is not None:
+            complaints.append(
+                "  %s is never compiled by Go, because %s, so nothing it registers is ever built; "
+                "rename it" % (path, unbuilt))
+            continue
         found, registrations, file_complaints = scan_proof_file(path)
         defined |= found
         complaints.extend(file_complaints)
@@ -660,8 +925,10 @@ def main(argv):
             problems.append("  %s is tagged [GO] but names no proof function" % sid)
         for fn in named:
             if fn not in functions:
-                problems.append("  %s names proof function %s, which %s/ does not define"
-                                % (sid, fn, proof_dir))
+                problems.append(
+                    "  %s names proof function %s, which %s/ does not declare as a function; "
+                    "write `func %s(...)`, since a step bound to a variable is not read"
+                    % (sid, fn, proof_dir, fn))
             elif fn not in registered:
                 problems.append("  %s names proof function %s, which Test%s does not build with; "
                                 "%s" % (sid, fn, fn[len('step'):], REGISTRATION_SHAPE))
