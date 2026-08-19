@@ -527,6 +527,13 @@ def go_ignores_file(name, goos=None, goarch=None):
     return None
 
 
+# The whitespace `go/build` trims off a header line, and nothing else. This set is for the
+# textual pass Go makes over a file's header before the compiler scans anything, so it is the
+# right one in `go_header_constraint_lines` and `PLUS_BUILD_DIRECTIVE` and the wrong one anywhere
+# a Go token is being read: it holds U+000B, U+000C, U+0085, U+00A0 and the Unicode space
+# separators, every one of which Go's scanner refuses outright. `GO_DECLARATION_INDENT` below is
+# the set for separating tokens on a line.
+#
 # Go trims every header line with `bytes.TrimSpace`, which uses `unicode.IsSpace`, before it looks
 # at the line at all. Python's `\s` is nearly that set but also counts U+001C to U+001F, which Go
 # does not, so a header opening with one of those reads to Python as an indented comment and to Go
@@ -606,7 +613,84 @@ def go_style_build_comment(line):
 # Which pattern uses this is a decision per pattern rather than a blanket widening. The two lines
 # that carry the declared registration shape — `TEST_HEADER` and `BLOCK_END` — stay anchored at
 # column 1 on purpose, and each says so at its own site.
+#
+# The same set separates one token from the next, which is the other job it has here. Go's scanner
+# makes no distinction between the run of whitespace in front of `func` and the run between `func`
+# and the name, so every gap in every pattern below is this set and never Python's `\s`. `GO_SPACE`
+# above is a different set for a different job and would be wrong in either position.
 GO_DECLARATION_INDENT = ' \t\r'
+
+
+def go_word_exclusion_ranges():
+    """Code point ranges Python's `\\w` matches that Go's identifier rule refuses.
+
+    `\\w` is exactly the alphanumeric characters plus `_`, and Go's rule is a Unicode letter or `_`
+    to start, then letters, Unicode decimal digits or `_`. Go's two halves are `str.isalpha` (the
+    letter categories) and `str.isdecimal` (the decimal digits), so what `\\w` has and Go does not
+    is what is alphanumeric to Python and neither of those — the numeral-like characters such as
+    U+00B2, U+00BD and U+2160, which Go reports as `invalid character U+00B2 in identifier` and
+    `go test` reports as `illegal character U+00B2`.
+
+    The set is derived rather than typed out, for the reason `PROOF_RUN_PACKAGES` gives about the
+    run table: a list of code points copied into Python is a fact about Unicode that nothing keeps
+    honest. `test_check_compile.py` holds the derived classes against the Go toolchain's own
+    tables, so a release that moved the boundary fails there.
+    """
+    ranges = []
+    for code in range(sys.maxunicode + 1):
+        character = chr(code)
+        if not character.isalnum() or character.isalpha() or character.isdecimal():
+            continue
+        if ranges and ranges[-1][1] == code - 1:
+            ranges[-1][1] = code
+        else:
+            ranges.append([code, code])
+    return [(first, last) for first, last in ranges]
+
+
+def character_class_body(ranges):
+    """Those ranges as the inside of a character class, every code point written as an escape."""
+    def escaped(code):
+        return '\\u%04x' % code if code <= 0xFFFF else '\\U%08x' % code
+    return ''.join(
+        escaped(first) if first == last else '%s-%s' % (escaped(first), escaped(last))
+        for first, last in ranges)
+
+
+GO_WORD_EXCLUSION = character_class_body(go_word_exclusion_ranges())
+
+# Go's identifier rule as two classes: `\w` with the numerals Go refuses taken out, and without
+# the decimal digits as well for the first rune, since a Go identifier cannot open with one. Go
+# identifiers do include Unicode letters, so `stepPrüfung` is a name a proof may declare and these
+# classes read it.
+GO_IDENTIFIER_START = '[^\\W\\d%s]' % GO_WORD_EXCLUSION
+GO_IDENTIFIER_PART = '[^\\W%s]' % GO_WORD_EXCLUSION
+GO_IDENTIFIER = '%s%s*' % (GO_IDENTIFIER_START, GO_IDENTIFIER_PART)
+
+# The pieces every pattern that reads Go source is written from, so no pattern below spells a
+# character class of its own:
+#
+#   sp, sp1     a run of token separation, optional and required — `GO_DECLARATION_INDENT`
+#   part        one rune a Go identifier may carry after its first
+#   name        a whole Go identifier
+#   qualified   a Go name, optionally package qualified: `proofkit3d.RequireSolid`
+#   left        the left edge of a Go token: the rune before it is not one an identifier carries
+#
+# `left` is a lookbehind rather than `\b` because `\b` is defined by Python's `\w`, so a
+# neighbouring U+00B2 counts to Python as part of a word and to Go does not, and the match is
+# suppressed. That is the one place on this path where Python's class is too narrow rather than
+# too wide, and a match suppressed there silences a diagnostic instead of over-accepting.
+GO_TOKENS = {
+    'sp': '[%s]*' % re.escape(GO_DECLARATION_INDENT),
+    'sp1': '[%s]+' % re.escape(GO_DECLARATION_INDENT),
+    'part': GO_IDENTIFIER_PART,
+    'name': GO_IDENTIFIER,
+    'qualified': '%s(?:\\.%s)*' % (GO_IDENTIFIER, GO_IDENTIFIER),
+    'left': '(?<!%s)' % GO_IDENTIFIER_PART,
+}
+
+# The run of separation between two tokens, for stripping it out of a captured qualifier.
+GO_TOKEN_SEPARATION = re.compile('%(sp1)s' % GO_TOKENS)
 
 # A step is read only from a function declaration. Go would also accept `var stepFoo = func(...)`,
 # and that form is deliberately not recognised: the drafting contract in
@@ -621,7 +705,7 @@ GO_DECLARATION_INDENT = ' \t\r'
 # function — a complaint that sends the reader to a proof where the step is already written as a
 # function, and hides the whitespace that is the real difference.
 STEP_DEFINITION = re.compile(
-    r'^[%s]*func\s+(step[A-Z]\w*)\s*[\[(]' % re.escape(GO_DECLARATION_INDENT))
+    r'^%(sp)sfunc%(sp1)s(step[A-Z]%(part)s*)%(sp)s[\[(]' % GO_TOKENS)
 
 # The header is anchored at column 1, and that is a decision rather than an oversight. It is the
 # first of the three lines of the registration shape `.claude/skills/compile-gear/SKILL.md` states
@@ -631,7 +715,9 @@ STEP_DEFINITION = re.compile(
 # intended. It is also loud rather than silent: `TEST_FUNCTION` below reads the indented header and
 # names it as the header problem, at its own line, instead of leaving the run beneath it to be
 # blamed.
-TEST_HEADER = re.compile(r'^func\s+(Test[A-Z]\w*)\s*\(\s*\w+\s+\*testing\.T\s*\)\s*\{\s*$')
+TEST_HEADER = re.compile(
+    r'^func%(sp1)s(Test[A-Z]%(part)s*)%(sp)s\(%(sp)s%(name)s%(sp1)s\*testing\.T%(sp)s\)'
+    r'%(sp)s\{%(sp)s$' % GO_TOKENS)
 
 # `go test` runs any function named `Test` followed by a rune that is not a lowercase letter, and
 # it does not care how the testing package is spelled, so `Test_Foo`, `Test1x` and a header written
@@ -645,7 +731,7 @@ TEST_HEADER = re.compile(r'^func\s+(Test[A-Z]\w*)\s*\(\s*\w+\s+\*testing\.T\s*\)
 # diagnostic exists for; while it was anchored too, the diagnostic went silent for exactly that
 # file and the complaint fell back to the run beneath it.
 TEST_FUNCTION = re.compile(
-    r'^[%s]*func\s+(Test\w*)\s*\(' % re.escape(GO_DECLARATION_INDENT))
+    r'^%(sp)sfunc%(sp1)s(Test%(part)s*)%(sp)s\(' % GO_TOKENS)
 
 TEST_HEADER_SHAPE = ('a proof Test is headed `func Test<Title>(t *testing.T) {`, with the testing '
                      'package named in full')
@@ -687,7 +773,7 @@ PROOF_RUN_PACKAGES = ('proofkit', 'proofkit3d')
 # as a call no harness package declares, sending the reader to the proof for a defect in the
 # harness.
 GO_RUN_DECLARATION = re.compile(
-    r'^[%s]*func\s+(Run\w*)\s*\(' % re.escape(GO_DECLARATION_INDENT), re.M)
+    r'^%(sp)sfunc%(sp1)s(Run%(part)s*)%(sp)s\(' % GO_TOKENS, re.M)
 
 
 def go_balanced_span(text, start):
@@ -796,9 +882,18 @@ def go_name_alternation(names):
 # rather than following Go, and the refusal is intended. It is loud: the three lines are reported
 # as a run written outside the shape, and the shape quoted in that complaint names all three of
 # them.
-BLOCK_END = re.compile(r'^\}\s*$')
+BLOCK_END = re.compile(r'^\}%(sp)s$' % GO_TOKENS)
 
-STEP_NAME = re.compile(r'step[A-Z]\w*')
+# The build argument a registration passed, tested against the step naming rule. It is read from
+# Go source and so follows Go's identifier rule.
+STEP_NAME = re.compile(r'step[A-Z]%(part)s*' % GO_TOKENS)
+
+# The step names one step's Markdown body claims. The subject is prose, but what the token names
+# is a Go identifier compared against the names read from the proof sources, so it follows Go's
+# rule too: a name Go cannot have is a name no proof can declare, and reading a wider one compares
+# a name that cannot exist against a set that cannot hold it. Both sides used Python's `\w`, which
+# agreed with itself and credited a step in a proof `go test` refuses.
+STEP_NAME_CLAIM = re.compile(r'%(left)s(step[A-Z]%(part)s*)' % GO_TOKENS)
 
 REGISTRATION_SHAPE = ('a registration is three lines and nothing else: '
                       '`func Test<Title>(t *testing.T) {`, one proof run whose third argument is '
@@ -1006,13 +1101,15 @@ def harness_source(path):
 
 def proof_run_shape(arguments):
     """The registration shape, over the run methods the harness packages declare."""
+    method = '|'.join(
+        '%s%s\\.%s(?:%s)' % (re.escape(package), GO_TOKENS['sp'], GO_TOKENS['sp'],
+                             go_name_alternation(names))
+        for package, names in sorted(run_methods_by_package(arguments).items(),
+                                     key=lambda item: (-len(item[0]), item[0])))
     return re.compile(
-        r'^\s*(%s)\s*\('
-        r'\s*[\w.]+\s*,\s*[\w.]+\s*,\s*(\w+)\s*((?:,\s*[\w.]+\s*)*)\)\s*$'
-        % '|'.join(
-            r'%s\s*\.\s*(?:%s)' % (re.escape(package), go_name_alternation(names))
-            for package, names in sorted(run_methods_by_package(arguments).items(),
-                                         key=lambda item: (-len(item[0]), item[0]))))
+        r'^%(sp)s(%(method)s)%(sp)s\('
+        r'%(sp)s%(qualified)s%(sp)s,%(sp)s%(qualified)s%(sp)s,%(sp)s(%(name)s)'
+        r'%(sp)s((?:,%(sp)s%(qualified)s%(sp)s)*)\)%(sp)s$' % dict(GO_TOKENS, method=method))
 
 
 ProofRunShapes = collections.namedtuple('ProofRunShapes', 'arguments shape')
@@ -1059,18 +1156,26 @@ def proof_run_shapes():
 # `proofkit3d.RunTypa` are both seen, and both are reported as the undeclared method Go calls
 # `undefined`.
 #
-# The `Run\w*` boundary is what keeps the ordinary harness calls in a step body silent, and it
-# rests on a fact about the harness rather than on a rule Go enforces: no exported harness helper
-# other than the run methods has a name starting with `Run`. A test in `test_check_compile.py`
-# holds that fact against the harness sources, so a helper named `Run…` fails there rather than
-# turning every call to it into a false complaint here.
+# The `Run` prefix is what keeps the ordinary harness calls in a step body silent, and it rests on
+# a fact about the harness rather than on a rule Go enforces: no exported harness helper other
+# than the run methods has a name starting with `Run`. A test in `test_check_compile.py` holds
+# that fact against the harness sources, so a helper named `Run…` fails there rather than turning
+# every call to it into a false complaint here.
+#
+# What follows that prefix is read under Go's identifier rule, like every other name here: the
+# width this pattern needs is the `Run` prefix and the package alternation, not a wider class. The
+# left edge is `left` from `GO_TOKENS` rather than `\b`, and this is the site that reason was
+# written for. `\b` is defined by Python's `\w`, so a character in front of the package name that
+# Python counts as part of a word and Go does not suppressed the whole mention, and with it the
+# only complaint that names an undeclared method.
 PROOF_RUN_MENTION = re.compile(
-    r'\b(%s)\s*\.\s*(Run\w*)\s*\(' % go_name_alternation(PROOF_RUN_PACKAGES))
+    r'%(left)s(%(packages)s)%(sp)s\.%(sp)s(Run%(part)s*)%(sp)s\('
+    % dict(GO_TOKENS, packages=go_name_alternation(PROOF_RUN_PACKAGES)))
 
 
 def proof_run_arguments(match):
     """Return a matched proof run's method name and the number of arguments it passes."""
-    method = re.sub(r'\s+', '', match.group(1))
+    method = GO_TOKEN_SEPARATION.sub('', match.group(1))
     return method, 3 + match.group(3).count(',')
 
 
@@ -1296,7 +1401,7 @@ def main(argv):
     problems.extend(registration_problems)
     claimed = set()
     for sid, tag, body in steps:
-        named = set(re.findall(r'\b(step[A-Z]\w*)\b', body))
+        named = set(STEP_NAME_CLAIM.findall(body))
         if tag == 'GO' and not named:
             problems.append("  %s is tagged [GO] but names no proof function" % sid)
         for fn in named:

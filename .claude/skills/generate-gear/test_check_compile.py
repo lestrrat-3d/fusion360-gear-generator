@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Regression tests for the compile-stage gate."""
+import ast
+import collections
 import contextlib
 import importlib.util
 import inspect
@@ -11,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import unicodedata
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -147,6 +150,11 @@ GO_HEADER_CASES = (
 # reader got through, names the same two `invalid NUL character` and `invalid BOM in the middle of
 # the file`. Any of them means the file is not compiled, which is the only distinction that
 # matters here.
+#
+# A character Go's scanner will not start a token with is named the same way and is refused just
+# as completely, so it belongs in this list although no reader ever looked at the bytes: the
+# compiler says `invalid character U+000B` and `invalid character U+00A0 in identifier`, and
+# `go vet` says `illegal character U+000B` for the same file.
 GO_UNREADABLE_MESSAGES = (
     'illegal UTF-8 encoding',
     'invalid UTF-8 encoding',
@@ -156,6 +164,7 @@ GO_UNREADABLE_MESSAGES = (
     'illegal byte order mark',
     'invalid BOM in the middle of the file',
     'illegal character U+',
+    'invalid character U+',
 )
 
 
@@ -213,6 +222,10 @@ def go_verdicts(headers, body=b'package p\n\nfunc F() {}\n'):
         shutil.rmtree(root, ignore_errors=True)
 
 
+# Every code point, as one string, so a class can be read over the whole range in one pass.
+ALL_CODE_POINTS = ''.join(chr(code) for code in range(sys.maxunicode + 1))
+
+
 def foreign_goos():
     """A GOOS this machine is not, so a `_GOOS` suffix carrying it is genuinely unsatisfied."""
     for name in sorted(COMPILE_CHECKER.GO_KNOWN_OS):
@@ -220,6 +233,68 @@ def foreign_goos():
                 name, COMPILE_CHECKER.GOOS, COMPILE_CHECKER.GOARCH):
             return name
     raise AssertionError('every known GOOS matches this machine')
+
+
+# A vertical tab at each of the five positions inside a registration. Go's scanner skips space,
+# tab, carriage return and newline between tokens and nothing else, so every one of these files is
+# illegal where the tab sits: `go test` reports `illegal character U+000B` and `[setup failed]`,
+# and the package never builds. Python's `\s` matches U+000B, so the gate read all five as
+# ordinary separation and credited a registration Go never compiles.
+#
+# `ProofDeclarationColumnTest` says what Go does with each body and `CheckCompileTest` says what
+# the gate does about it, which is the split every rule on this boundary is recorded under.
+VERTICAL_TAB = '\x0b'
+
+REGISTRATION_WHITESPACE_CASES = (
+    ('after `func` in the Test header',
+     'func%sTestOne(t *testing.T) {\n'
+     '\tproofkit.Run(t, profileCases, stepOne)\n'
+     '}\n\n'
+     'func stepOne() {}\n' % VERTICAL_TAB),
+    ('after the header\'s opening brace',
+     'func TestOne(t *testing.T) {%s\n'
+     '\tproofkit.Run(t, profileCases, stepOne)\n'
+     '}\n\n'
+     'func stepOne() {}\n' % VERTICAL_TAB),
+    ('inside the run call',
+     'func TestOne(t *testing.T) {\n'
+     '\tproofkit.Run(t, profileCases,%sstepOne)\n'
+     '}\n\n'
+     'func stepOne() {}\n' % VERTICAL_TAB),
+    ('after the run\'s closing parenthesis',
+     'func TestOne(t *testing.T) {\n'
+     '\tproofkit.Run(t, profileCases, stepOne)%s\n'
+     '}\n\n'
+     'func stepOne() {}\n' % VERTICAL_TAB),
+    ('after the closing brace',
+     'func TestOne(t *testing.T) {\n'
+     '\tproofkit.Run(t, profileCases, stepOne)\n'
+     '}%s\n\n'
+     'func stepOne() {}\n' % VERTICAL_TAB),
+)
+
+# A name carrying a Unicode letter, which Go's identifier rule allows and this gate must read.
+# Tightening the patterns to Go is about refusing what Go refuses, and a proof that compiles,
+# registers and runs under `go test` has to stay credited.
+GO_LETTER_STEP = 'Prüfung'
+
+GO_LETTER_PROOF = (
+    'func Test%(title)s(t *testing.T) {\n'
+    '\tproofkit.Run(t, profileCases, step%(title)s)\n'
+    '}\n\n'
+    'func step%(title)s() {}\n' % {'title': GO_LETTER_STEP})
+
+# A name carrying U+00B2, which Python counts as a word character and Go refuses outright:
+# `invalid character U+00B2 in identifier` from the compiler, `illegal character U+00B2` from
+# `go test`. The step list and the proof agreed with each other about this name because both
+# sides read it with Python's `\w`, and the registration was credited.
+NON_GO_STEP = 'One\u00b2'
+
+NON_GO_PROOF = (
+    'func Test%(title)s(t *testing.T) {\n'
+    '\tproofkit.Run(t, profileCases, step%(title)s)\n'
+    '}\n\n'
+    'func step%(title)s() {}\n' % {'title': NON_GO_STEP})
 
 
 class CheckCompileTest(unittest.TestCase):
@@ -1238,6 +1313,76 @@ class CheckCompileTest(unittest.TestCase):
                 self.assertIn('S1 names proof function stepOne, which proof/gear/ does not '
                               'declare as a function', output)
 
+    def test_whitespace_go_refuses_inside_a_registration_is_never_credited(self):
+        """Every gap in the three lines is Go's separation set, not Python's `\\s`.
+
+        A vertical tab at any of these five positions makes the file illegal where it sits, so
+        `go test` reports `[setup failed]` and the registration never builds. The gate read all
+        five as separation, printed `compile check: OK` at exit 0 and credited the step.
+
+        What the complaint says depends on which line stopped matching, so the assertion is the
+        one thing that must hold at every position: the run is not credited and the gate blocks.
+        """
+        for position, proof_body in REGISTRATION_WHITESPACE_CASES:
+            with self.subTest(position=position):
+                result, output = self.run_checker(proof_body=proof_body)
+
+                self.assertEqual(result, 1, output)
+                self.assertNotIn('compile check: OK', output)
+
+    def test_a_step_name_go_cannot_have_is_never_credited(self):
+        """The step list and the proof agreeing with each other is not the question.
+
+        Both sides read the name with Python's `\\w`, so a U+00B2 suffix written into both matched
+        both and the gate credited the step, while `go test` reported `illegal character U+00B2`.
+        The name is a Go identifier wherever it is written, so a name Go cannot have is one no
+        proof declares and no step claims.
+        """
+        step_body = ('## S1 `[GO]` One — `step%s`\n\n'
+                     'Build the thing.\n\n'
+                     '**From:** `spec/gear/instructions.md` L1\n\n' % NON_GO_STEP)
+
+        result, output = self.run_checker(proof_body=NON_GO_PROOF, step_body=step_body)
+
+        self.assertEqual(result, 1, output)
+        self.assertNotIn('compile check: OK', output)
+        self.assertIn('proof/gear/ does not declare as a function', output)
+
+    def test_a_unicode_letter_in_a_step_name_is_still_read(self):
+        """Go identifiers include Unicode letters, so tightening must not refuse one.
+
+        This proof compiles, registers and runs under `go test`, which
+        `ProofDeclarationColumnTest` checks with the toolchain. A gate that read only ASCII names
+        would report a step the proof does declare as one it does not.
+        """
+        step_body = ('## S1 `[GO]` One — `step%s`\n\n'
+                     'Build the thing.\n\n'
+                     '**From:** `spec/gear/instructions.md` L1\n\n' % GO_LETTER_STEP)
+
+        result, output = self.run_checker(proof_body=GO_LETTER_PROOF, step_body=step_body)
+
+        self.assertEqual(result, 0, output)
+        self.assertIn('compile check: OK', output)
+
+    def test_a_mention_is_not_silenced_by_a_neighbouring_character_go_refuses(self):
+        """`PROOF_RUN_MENTION` is the only thing that sees a run on a method nothing declares.
+
+        Its left edge was `\\b`, which is defined by Python's `\\w`: a preceding U+00B2 counts to
+        Python as part of a word and to Go does not, so the mention went silent and the
+        undeclared method was never named. That is this pattern failing in the opposite direction
+        from the rest, and the edge is written as Go's own rather than dropped — a preceding Go
+        identifier rune still suppresses it, because there the text is one longer name.
+        """
+        self.assertTrue(COMPILE_CHECKER.PROOF_RUN_MENTION.search('\u00b2proofkit3d.RunTypa('))
+        self.assertIsNone(COMPILE_CHECKER.PROOF_RUN_MENTION.search('xproofkit3d.RunTypa('))
+
+        proof_body = self.body('\tvar n = \u00b2proofkit3d.RunTypa(t, profileCases, stepOne)')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 1, output)
+        self.assertIn('calls proofkit3d.RunTypa, which no harness package declares', output)
+
     def test_a_quoted_step_definition_is_still_not_a_definition(self):
         """Accepting leading whitespace must not turn a `func` in a comment or a string into one.
 
@@ -1319,6 +1464,19 @@ class CheckCompileTest(unittest.TestCase):
         self.assertIn('The header and the closing `}` each', contract)
         self.assertIn('start at column 1', contract)
         self.assertIn('The step function is not part of', contract)
+
+    def test_the_drafting_contract_states_the_separation_and_names_go_reads(self):
+        """The gate reads a proof under Go's rules, so the contract says which those are.
+
+        A file carrying whitespace or a name Go's scanner refuses builds nothing, and what the
+        gate says about it names the missing step or the unread run rather than the character.
+        The contract is where the drafter finds out what that means.
+        """
+        contract = (Path(__file__).parents[3] / '.claude' / 'skills' / 'compile-gear'
+                    / 'SKILL.md').read_text(encoding='utf-8')
+
+        self.assertIn('Between two tokens Go skips', contract)
+        self.assertIn('a name is a Unicode letter or `_`', contract)
 
     def test_each_pattern_answers_the_column_question_as_its_site_says(self):
         """The four decisions, pinned on the patterns themselves.
@@ -1409,12 +1567,12 @@ PROOF_PROBE_HARNESS = ('package proofkit\n\n'
                        '}\n')
 
 
-def go_proof_verdict(body):
+def go_proof_verdict(body, test='TestOne'):
     """What the Go toolchain does with one proof file body.
 
-    Returns `(compiled, ran)`: whether `go test` builds the package at all, and whether it ran a
-    test named `TestOne`. The two are separate questions — a file can compile while its Test never
-    runs, which is what a header Go does not recognise as a test looks like.
+    Returns `(compiled, ran)`: whether `go test` builds the package at all, and whether it ran the
+    named test. The two are separate questions — a file can compile while its Test never runs,
+    which is what a header Go does not recognise as a test looks like.
 
     The package is shaped like a real proof: an external `gear_test` package importing a `proofkit`
     stub, so `body` is the same text the gate is given.
@@ -1430,9 +1588,9 @@ def go_proof_verdict(body):
             'package gear_test\n\n'
             'import (\n\t"testing"\n\n\t"proofprobe/proofkit"\n)\n\n'
             'var profileCases = []int{1}\n\n' + body)
-        run = subprocess.run(['go', 'test', '-v', '-run', 'TestOne', './gear'],
+        run = subprocess.run(['go', 'test', '-v', '-run', test, './gear'],
                              cwd=root, capture_output=True, text=True)
-        return run.returncode == 0, '--- PASS: TestOne' in run.stdout
+        return run.returncode == 0, '--- PASS: %s' % test in run.stdout
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
@@ -1505,6 +1663,352 @@ class ProofDeclarationColumnTest(unittest.TestCase):
         for name, body, compiled, ran in self.CASES:
             with self.subTest(case=name):
                 self.assertEqual(go_proof_verdict(body), (compiled, ran))
+
+    @unittest.skipUnless(shutil.which('go'), 'the Go toolchain establishes these verdicts')
+    def test_go_refuses_a_vertical_tab_at_every_position_in_a_registration(self):
+        """The Go half of `REGISTRATION_WHITESPACE_CASES`, which the gate half rests on.
+
+        Between two tokens Go skips space, tab, carriage return and newline and nothing else, so
+        each of these files is illegal where the vertical tab sits and neither compiles nor runs.
+        """
+        for position, body in REGISTRATION_WHITESPACE_CASES:
+            with self.subTest(position=position):
+                self.assertEqual(go_proof_verdict(body), (False, False))
+
+    @unittest.skipUnless(shutil.which('go'), 'the Go toolchain establishes these verdicts')
+    def test_go_compiles_and_runs_a_name_carrying_a_unicode_letter(self):
+        """The accept direction, read from Go rather than assumed.
+
+        Go's identifiers are a Unicode letter or `_` and then letters, decimal digits or `_`, so
+        this proof is an ordinary one that builds and runs. A gate narrowed to ASCII would report
+        a step the proof does declare as one it does not.
+        """
+        self.assertEqual(go_proof_verdict(GO_LETTER_PROOF, 'Test' + GO_LETTER_STEP), (True, True))
+
+    @unittest.skipUnless(shutil.which('go'), 'the Go toolchain establishes these verdicts')
+    def test_go_refuses_a_name_carrying_a_character_outside_its_identifier_rule(self):
+        """U+00B2 is a word character to Python and not a letter or a digit to Go.
+
+        Written into a step name it makes the proof illegal, which is what the step list agreeing
+        with the proof about that name was hiding.
+        """
+        self.assertEqual(go_proof_verdict(NON_GO_PROOF, 'Test' + NON_GO_STEP), (False, False))
+
+
+# Every `re` entry point whose first argument is a pattern. `re.escape` is not one of them: it
+# takes text and hands back a pattern in which nothing is a class any more.
+RE_PATTERN_CALLS = frozenset(
+    ('compile', 'match', 'fullmatch', 'search', 'findall', 'finditer', 'sub', 'subn', 'split'))
+
+PYTHON_CHARACTER_CLASS = re.compile(r'\\[bBdDsSwW]')
+
+
+def pattern_literals(source):
+    """Every (line, text) string literal that reaches the pattern argument of an `re.*` call.
+
+    A pattern is rarely one literal written at its call site. It is built by `%` from constants
+    defined elsewhere, so a name is followed to what it was assigned, wherever in the module that
+    happened, and a name assigned in two places is followed to both. The looseness is the point:
+    a check meant to fail closed must not leave a hiding place one indirection away.
+
+    Only the pattern argument is read. The subject and the replacement are ordinary text, and a
+    character class written in either is a run of characters rather than a rule.
+
+    Adjacent literals are one constant by the time the parser is done, so a pattern written over
+    two lines arrives here as a single string reported at the line it starts on.
+    """
+    tree = ast.parse(source)
+    bindings = collections.defaultdict(list)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    bindings[target.id].append(node.value)
+
+    found = set()
+
+    def visit(node, seen):
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Constant) and isinstance(sub.value, str):
+                found.add((sub.lineno, sub.value))
+            elif isinstance(sub, ast.Name) and sub.id not in seen:
+                for value in bindings.get(sub.id, ()):
+                    visit(value, seen | {sub.id})
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        function = node.func
+        if not (isinstance(function, ast.Attribute) and function.attr in RE_PATTERN_CALLS
+                and isinstance(function.value, ast.Name) and function.value.id == 're'):
+            continue
+        pattern = node.args[0] if node.args else next(
+            (keyword.value for keyword in node.keywords if keyword.arg == 'pattern'), None)
+        if pattern is not None:
+            visit(pattern, frozenset())
+    return found
+
+
+# Invented modules, not code from this repository. An illustration of a defect that is a live
+# string in the tree becomes a false target for whoever greps for it next, so these are written
+# to be wrong on purpose and exist nowhere else.
+LOOSE_PATTERN_MODULE = (
+    'import re\n'
+    '\n'
+    'HEADER = re.compile(r"^\\s*func\\s+(\\w+)")\n')
+
+HIDDEN_LOOSE_PATTERN_MODULE = (
+    'import re\n'
+    '\n'
+    'GAP = r"\\s*"\n'
+    'HEADER = re.compile(r"^%sfunc" % GAP)\n')
+
+STRICT_PATTERN_MODULE = (
+    'import re\n'
+    '\n'
+    'GAP = "[ \\t\\r]*"\n'
+    'HEADER = re.compile(r"^%sfunc%s[A-Z]" % (GAP, GAP))\n')
+
+CLASS_IN_THE_SUBJECT_MODULE = (
+    'import re\n'
+    '\n'
+    'NOTE = r"the \\s class is discussed here"\n'
+    'FOUND = re.findall(r"[ \\t]+", NOTE)\n')
+
+
+class GoPatternClassTest(unittest.TestCase):
+    """No pattern that reads Go source may spell a Python character class.
+
+    Go's scanner skips space, tab, carriage return and newline between tokens and nothing else,
+    and its identifiers are a Unicode letter or `_` then letters, decimal digits or `_`. Python's
+    `\\s` and `\\w` are both wider, so every pattern written with them read a file Go refuses as a
+    sound one and credited what it found. Fixing the patterns is the smaller half of that; this is
+    the half that keeps them fixed.
+
+    It fails closed. A literal reaching an `re.*` pattern argument is held to Go's rules unless it
+    is named below, so a new pattern carrying a class fails here until someone classifies it, and
+    classifying it means writing down why the text it matches is not Go.
+    """
+
+    # Patterns whose subject is Markdown. Go never reads a step list, a spec or a provenance
+    # table, so Python's classes are the right ones there and the wide reading is the intended
+    # one: prose is what these match.
+    MARKDOWN_PATTERNS = {
+        r'[\w./-]+\.(?:md|go|py|json|sh)':
+            'PATH_REF, a file path as a step list writes it',
+        r'(?<![\w./-])[\w./-]+\.md\b':
+            'DOCUMENT_REF, a Markdown document a spec names in prose',
+        r'`(%s):(\d+)(?:\s*[-\u2013]\s*(\d+))?`':
+            'INLINE_CITATION, the older `path:line` citation form in a From block',
+        r'\bL(\d+)(?:\s*[-\u2013]\s*(\d+))?\b':
+            'LINE_RANGE, an `L12-L20` range in a From block',
+        r'^##\s+(\S+)\s+`\[(GO|PROSE)\]`\s+(.*)$':
+            'steps_of, a step heading in the step list',
+        r'^\*\*From:\*\*(.*?)(?=\n\s*\n|\Z)':
+            'from_block, the From block under a step heading',
+        r'<!--\s*check-compile:\s*ignore\s+([^>]*?)-->':
+            'named_calls and named_call_shapes, an HTML comment waiving a named call',
+        r'(?<![\w./-])(?:proof|\.tmp)/[\w./-]+':
+            'proof_paths, a proof path named in the step-list summary',
+        r'\|\s*`([\w./-]+)`\s*\|\s*`([0-9a-f]{40})`\s*\|':
+            'stamped, a row of the provenance table',
+    }
+
+    # The two classes that say what a Go identifier rune is. They are written as `\w` with what
+    # Go refuses taken out, so the Python classes in them are the subtraction itself rather than a
+    # rule about Go being approximated. `GoIdentifierClassTest` holds both against Go's own tables.
+    GO_CLASS_DEFINITIONS = {
+        r'[^\W\d%s]': 'GO_IDENTIFIER_START, a word character that is neither a digit nor a '
+                      'numeral Go refuses',
+        r'[^\W%s]': 'GO_IDENTIFIER_PART, a word character that is not a numeral Go refuses',
+    }
+
+    def allowed(self):
+        allowed = dict(self.MARKDOWN_PATTERNS)
+        allowed.update(self.GO_CLASS_DEFINITIONS)
+        return allowed
+
+    def findings(self, source):
+        """Every pattern literal in `source` that carries a Python class and is not allowlisted."""
+        allowed = self.allowed()
+        return sorted(
+            (line, ''.join(sorted(set(PYTHON_CHARACTER_CLASS.findall(text)))), text)
+            for line, text in pattern_literals(source)
+            if PYTHON_CHARACTER_CLASS.search(text) and text not in allowed)
+
+    def checker_source(self):
+        return COMPILE_CHECKER_PATH.read_text()
+
+    def test_no_pattern_that_reads_go_source_spells_a_python_class(self):
+        """The gate itself, under its own rule."""
+        self.assertEqual(self.findings(self.checker_source()), [])
+
+    def test_every_allowlisted_pattern_is_still_written_in_the_checker(self):
+        """An allowlist entry for a pattern nobody kept is a waiver over nothing.
+
+        Left standing it would silently cover a future pattern that happened to be spelled the
+        same way, so an entry that no longer matches anything is a failure here.
+        """
+        carrying = {text for _, text in pattern_literals(self.checker_source())
+                    if PYTHON_CHARACTER_CLASS.search(text)}
+        for pattern, reason in sorted(self.allowed().items()):
+            with self.subTest(reason=reason):
+                self.assertIn(pattern, carrying)
+
+    def test_a_python_class_in_a_new_pattern_is_a_finding(self):
+        """The property the whole check exists for, on an invented pattern.
+
+        Nothing was added to the allowlist for it, and that is what makes it fail: the default
+        classification is Go-strict.
+        """
+        findings = self.findings(LOOSE_PATTERN_MODULE)
+
+        self.assertEqual(len(findings), 1, findings)
+        self.assertEqual(findings[0][1], r'\s\w')
+
+    def test_a_python_class_reached_through_a_constant_is_a_finding(self):
+        """A pattern is usually assembled from constants, so the check follows them.
+
+        Reading only the literal at the call site would leave every class one `%` away from
+        invisible, which is exactly how these patterns are written.
+        """
+        findings = self.findings(HIDDEN_LOOSE_PATTERN_MODULE)
+
+        self.assertEqual(len(findings), 1, findings)
+        self.assertEqual(findings[0][1], r'\s')
+
+    def test_a_go_strict_pattern_is_not_a_finding(self):
+        """The control. A check that failed on everything would prove nothing about the eleven."""
+        self.assertEqual(self.findings(STRICT_PATTERN_MODULE), [])
+
+    def test_a_class_written_in_the_subject_is_not_a_finding(self):
+        """Only the pattern argument is a rule. A class in the searched text is characters."""
+        self.assertEqual(self.findings(CLASS_IN_THE_SUBJECT_MODULE), [])
+
+
+GO_UNICODE_TABLE_PROBE = (
+    'package main\n'
+    '\n'
+    'import (\n'
+    '\t"fmt"\n'
+    '\t"unicode"\n'
+    ')\n'
+    '\n'
+    '// The two tables Go builds its identifier rule from, as ranges, under the Unicode\n'
+    '// release the toolchain was built against.\n'
+    'func main() {\n'
+    '\tfmt.Printf("version %s\\n", unicode.Version)\n'
+    '\temit("letter", unicode.IsLetter)\n'
+    '\temit("digit", unicode.IsDigit)\n'
+    '}\n'
+    '\n'
+    'func emit(label string, member func(rune) bool) {\n'
+    '\tstart := rune(-1)\n'
+    '\tfor r := rune(0); r <= 0x110000; r++ {\n'
+    '\t\tif r < 0x110000 && member(r) {\n'
+    '\t\t\tif start < 0 {\n'
+    '\t\t\t\tstart = r\n'
+    '\t\t\t}\n'
+    '\t\t\tcontinue\n'
+    '\t\t}\n'
+    '\t\tif start >= 0 {\n'
+    '\t\t\tfmt.Printf("%s %d %d\\n", label, start, r-1)\n'
+    '\t\t\tstart = -1\n'
+    '\t\t}\n'
+    '\t}\n'
+    '}\n')
+
+
+def go_unicode_tables():
+    """Go's Unicode release, and `unicode.IsLetter` and `unicode.IsDigit` as code point sets."""
+    root = Path(tempfile.mkdtemp(prefix='go-unicode-'))
+    try:
+        (root / 'go.mod').write_text('module unicodeprobe\n\ngo 1.21\n')
+        (root / 'main.go').write_text(GO_UNICODE_TABLE_PROBE)
+        run = subprocess.run(['go', 'run', '.'], cwd=root, capture_output=True, text=True)
+        if run.returncode != 0:
+            raise AssertionError(run.stderr)
+        tables = {'letter': set(), 'digit': set()}
+        version = None
+        for line in run.stdout.split('\n'):
+            if not line:
+                continue
+            fields = line.split()
+            if fields[0] == 'version':
+                version = fields[1]
+                continue
+            label, first, last = fields
+            tables[label].update(range(int(first), int(last) + 1))
+        return version, tables['letter'], tables['digit']
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+class GoIdentifierClassTest(unittest.TestCase):
+    """`GO_IDENTIFIER_START` and `GO_IDENTIFIER_PART` are Go's rule and not an approximation of it.
+
+    The classes are derived from Python's Unicode tables rather than typed out, so what has to be
+    checked is the derivation: that Python's letters and decimal digits are the same sets Go
+    builds its identifier rule from, and that the two classes read exactly those. A Python or a Go
+    release that moved either boundary fails here rather than in a proof nobody can explain.
+    """
+
+    def characters_matching(self, pattern):
+        """Every code point one class matches, in a single pass over the whole range."""
+        return {ord(character) for character in re.findall(pattern, ALL_CODE_POINTS)}
+
+    def test_the_classes_read_every_rune_gos_rule_allows_and_no_other(self):
+        letters = {code for code in range(sys.maxunicode + 1) if chr(code).isalpha()}
+        digits = {code for code in range(sys.maxunicode + 1) if chr(code).isdecimal()}
+
+        self.assertEqual(self.characters_matching(COMPILE_CHECKER.GO_IDENTIFIER_START),
+                         letters | {ord('_')})
+        self.assertEqual(self.characters_matching(COMPILE_CHECKER.GO_IDENTIFIER_PART),
+                         letters | digits | {ord('_')})
+
+    def test_the_characters_the_defect_turned_on_are_named_one_by_one(self):
+        """The set equality above is the rule; these are the runes the eleven sites read.
+
+        U+00B2, U+2160 and U+00BD are word characters to Python and neither letters nor decimal
+        digits to Go, which reports `invalid character U+00B2 in identifier`. The letters beside
+        them are the accept direction: Go identifiers are Unicode, and narrowing to ASCII would
+        refuse a proof that builds.
+        """
+        start = re.compile(COMPILE_CHECKER.GO_IDENTIFIER_START)
+        part = re.compile(COMPILE_CHECKER.GO_IDENTIFIER_PART)
+        for character in ('a', 'Z', '_', 'ü', 'Ω', '漢'):
+            with self.subTest(character=character):
+                self.assertTrue(start.fullmatch(character))
+                self.assertTrue(part.fullmatch(character))
+        for character in ('\u00b2', '\u2160', '\u00bd'):
+            with self.subTest(character=repr(character)):
+                self.assertIsNone(start.fullmatch(character))
+                self.assertIsNone(part.fullmatch(character))
+        for character in ('7', '\u0663'):
+            with self.subTest(character=repr(character)):
+                self.assertIsNone(start.fullmatch(character))
+                self.assertTrue(part.fullmatch(character))
+
+    @unittest.skipUnless(shutil.which('go'), 'the Go toolchain establishes these tables')
+    def test_go_agrees_about_which_runes_are_letters_and_digits(self):
+        """The derivation rests on Python's tables being Go's, so Go is asked rather than trusted.
+
+        Go's spec writes an identifier as a Unicode letter or `_` then letters, Unicode decimal
+        digits or `_`, and the compiler reads those two tables through `unicode.IsLetter` and
+        `unicode.IsDigit`.
+
+        The two sides are separate Unicode releases that happen to agree, so the failure message
+        names both: a Python and a Go built against different releases genuinely disagree about a
+        handful of runes, and which of the two moved is the first thing to know.
+        """
+        go_version, go_letters, go_digits = go_unicode_tables()
+        releases = ('Go reads Unicode %s and this Python reads Unicode %s'
+                    % (go_version, unicodedata.unidata_version))
+
+        self.assertEqual({code for code in range(sys.maxunicode + 1) if chr(code).isalpha()},
+                         go_letters, releases)
+        self.assertEqual({code for code in range(sys.maxunicode + 1) if chr(code).isdecimal()},
+                         go_digits, releases)
 
 
 class GoFilenameRuleTest(unittest.TestCase):
@@ -1852,6 +2356,30 @@ class HarnessSourceRuleTest(unittest.TestCase):
                 except RuntimeError:
                     continue
                 self.assertNotIn('proofkit.RunExtra', table)
+
+    def test_a_run_declaration_behind_whitespace_go_refuses_is_not_derived(self):
+        """The gap between `func` and the name is Go's separation set, like the indent before it.
+
+        One vertical tab there made `go vet` report `invalid character U+000B` while the gate
+        still derived `RunExtra`, and every registration built on the method was then credited
+        against a harness Go cannot compile.
+        """
+        for character, name in (('\x0b', 'U+000B'), ('\x0c', 'U+000C'), ('\u00a0', 'U+00A0')):
+            with self.subTest(character=name):
+                source = (b'package proofkit\n\nfunc%sRunExtra(a, b, c int) {}\n'
+                          % character.encode())
+
+                self.assertNotIn('proofkit.RunExtra', self.derive('rungap.go', source))
+
+    @unittest.skipUnless(shutil.which('go'), 'the Go toolchain establishes these verdicts')
+    def test_go_refuses_a_harness_declaration_behind_whitespace_it_does_not_have(self):
+        """The Go half of the case above: the file is unreadable and the method uncallable."""
+        for character, name in (('\x0b', 'U+000B'), ('\x0c', 'U+000C'), ('\u00a0', 'U+00A0')):
+            with self.subTest(character=name):
+                source = (b'package proofkit\n\nfunc%sRunExtra(a, b, c int) {}\n'
+                          % character.encode())
+
+                self.assertEqual(go_harness_verdict('rungap.go', source), ('unreadable', False))
 
     @unittest.skipUnless(shutil.which('go'), 'the Go toolchain establishes these verdicts')
     def test_go_agrees_with_the_recorded_harness_verdicts(self):

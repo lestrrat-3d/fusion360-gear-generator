@@ -239,6 +239,15 @@ this skill: a compiler that rewrites its own source removes the thing being chec
 > exception Go strips, so a file that opens with a single mark is read normally and every line
 > below it keeps its number. Write the file as UTF-8, with none of those bytes in it.
 >
+> **Separate tokens and spell names the way Go's scanner reads them.** Between two tokens Go skips
+> space, tab, carriage return and newline and nothing else, and a name is a Unicode letter or `_`
+> followed by letters, decimal digits or `_`. A vertical tab between `func` and a name, a
+> non-breaking space in the indentation, a superscript digit inside a step title: each makes the
+> file illegal where it sits, `go test` reports it as an illegal character and the package builds
+> nothing, so the gate reads no declaration on that line and names the step or the run that went
+> missing instead. Unicode letters themselves are ordinary — `stepPrüfung` is a name Go compiles
+> and the gate reads.
+>
 > **The case table reaches every branch, from every direction the spec offers.** A branch a step
 > takes needs a case on each side of it, and a branch the spec says is reachable in more than one
 > way needs a case for each way, because the ways differ in what they get wrong. Cover the ends of
