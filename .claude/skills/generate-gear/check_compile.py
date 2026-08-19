@@ -403,8 +403,9 @@ def strip_go_comments_and_literals(src):
 #
 # with `proofkit3d.Run`, `proofkit3d.RunSolid` or `proofkit3d.RunWithGate` in place of
 # `proofkit.Run`, and an assertion argument after the build where the run takes one. The build
-# argument is always the third. The Test's title and the step's title are the same word, which is
-# what lets a step list claim a function by name alone.
+# argument is always the third, and the run passes exactly the arguments its own method declares,
+# no more and no fewer. The Test's title and the step's title are the same word, which is what
+# lets a step list claim a function by name alone.
 #
 # What this buys is that the gate never has to decide what a brace means. What it costs is that a
 # run written any other way is refused rather than read. That is the safe direction: a refusal
@@ -428,9 +429,22 @@ TEST_HEADER = re.compile(r'^func\s+(Test[A-Z]\w*)\s*\(\s*\w+\s+\*testing\.T\s*\)
 # `proofkit` defines only `Run`, and the `Solid` and `WithGate` variants belong to `proofkit3d`
 # alone. Letting the namespace and the suffix vary independently would credit a registration built
 # on `proofkit.RunSolid`, which no package defines and Go cannot compile.
+#
+# The argument count is tied to the method for the same reason. A tail of any length accepted a
+# three-argument `proofkit3d.RunWithGate` and a five-argument `proofkit.Run`, neither of which Go
+# compiles, so the shape read a step as registered by a call that never builds. The counts below
+# are the declared signatures: `proofkit.Run` takes the harness, the case table and the build;
+# every `proofkit3d` run adds the assertion, and `RunWithGate` the gate before it.
+PROOF_RUN_ARGUMENTS = {
+    'proofkit.Run': 3,
+    'proofkit3d.Run': 4,
+    'proofkit3d.RunSolid': 4,
+    'proofkit3d.RunWithGate': 5,
+}
+
 PROOF_RUN = re.compile(
-    r'^\s*(?:proofkit\s*\.\s*Run|proofkit3d\s*\.\s*Run(?:Solid|WithGate)?)\s*\('
-    r'\s*[\w.]+\s*,\s*[\w.]+\s*,\s*(\w+)\s*(?:,\s*[\w.]+\s*)*\)\s*$')
+    r'^\s*(proofkit\s*\.\s*Run|proofkit3d\s*\.\s*Run(?:Solid|WithGate)?)\s*\('
+    r'\s*[\w.]+\s*,\s*[\w.]+\s*,\s*(\w+)\s*((?:,\s*[\w.]+\s*)*)\)\s*$')
 
 # The mention pattern stays deliberately wider than the shape above: it is what turns a run the
 # shape refuses into a named complaint. A line calling `proofkit.RunSolid` has to be seen here, or
@@ -443,7 +457,41 @@ STEP_NAME = re.compile(r'step[A-Z]\w*')
 
 REGISTRATION_SHAPE = ('a registration is three lines and nothing else: '
                       '`func Test<Title>(t *testing.T) {`, one proof run whose third argument is '
-                      '`step<Title>`, then `}`')
+                      '`step<Title>` and which passes exactly the arguments its method declares, '
+                      'then `}`')
+
+
+def blank_block_comments(text):
+    """Blank `/* */` spans, leaving line comments alone.
+
+    Go reads a build constraint only from a `//` line comment, so constraint text inside a block
+    comment above the package clause is prose. Blanking the block comments and nothing else leaves
+    exactly the lines Go would read. Line comments are stepped over rather than blanked, so a `/*`
+    written inside one does not open a span.
+    """
+    out = list(text)
+    i = 0
+    while i < len(text):
+        if text.startswith('//', i):
+            j = text.find('\n', i)
+            i = len(text) if j == -1 else j
+            continue
+        if text.startswith('/*', i):
+            j = text.find('*/', i + 2)
+            j = len(text) if j == -1 else j + 2
+            for k in range(i, j):
+                if out[k] != '\n':
+                    out[k] = ' '
+            i = j
+            continue
+        i += 1
+    return ''.join(out)
+
+
+def proof_run_arguments(match):
+    """Return a matched proof run's method name and the number of arguments it passes."""
+    method = re.sub(r'\s+', '', match.group(1))
+    return method, 3 + match.group(3).count(',')
 
 
 def scan_proof_file(path):
@@ -451,7 +499,8 @@ def scan_proof_file(path):
 
     A registration comes back as (line number, Test name, build argument) so a complaint can say
     where to go. Complaints here are the ones only this file can see: a build constraint in the
-    file header, and a proof run written outside the registration shape.
+    file header, a proof run written outside the registration shape, and a run whose argument
+    count is not the one its method declares.
     """
     src = read(path)
     raw = src.splitlines()
@@ -459,7 +508,7 @@ def scan_proof_file(path):
     defined = set()
     registrations = []
     complaints = []
-    run_lines = set()
+    read_runs = set()
 
     for index, line in enumerate(code):
         match = STEP_DEFINITION.match(line)
@@ -472,11 +521,22 @@ def scan_proof_file(path):
         closed = BLOCK_END.match(code[index + 2]) if index + 2 < len(code) else None
         if not run or not closed:
             continue
-        run_lines.add(index + 1)
-        registrations.append((index + 2, header.group(1), run.group(1)))
+        method, passed = proof_run_arguments(run)
+        declared = PROOF_RUN_ARGUMENTS[method]
+        # A run on the right method with the wrong count is named as that, rather than left to the
+        # mention loop below, because "outside the shape" would send the drafter looking at the
+        # three lines instead of at the one argument that is missing or spare.
+        read_runs.add(index + 1)
+        if passed != declared:
+            complaints.append(
+                "  %s:%d passes %d arguments to %s, which takes %d, so Go cannot compile this "
+                "registration; pass exactly the arguments the method declares"
+                % (path, index + 2, passed, method, declared))
+            continue
+        registrations.append((index + 2, header.group(1), run.group(2)))
 
     for index, line in enumerate(code):
-        if PROOF_RUN_MENTION.search(line) and index not in run_lines:
+        if PROOF_RUN_MENTION.search(line) and index not in read_runs:
             complaints.append(
                 "  %s:%d runs a proof outside the shape this gate reads, so its build argument "
                 "cannot be checked; %s" % (path, index + 1, REGISTRATION_SHAPE))
@@ -491,12 +551,18 @@ def scan_proof_file(path):
     # builds happily. The blanked copy locates the package clause at no cost, since every header
     # comment is already whitespace there, which leaves the first line carrying anything at all as
     # the first line of real code.
+    #
+    # Within the header, only `//` line comments are read, because those are the only ones Go takes
+    # a constraint from. Reading every raw header line refused a file whose leading `/* */` licence
+    # or design note happened to quote `//go:build`, which Go builds and `go list` reports as
+    # unconstrained.
     header_end = len(raw)
     for index, line in enumerate(code):
         if line.strip():
             header_end = index
             break
-    for number, line in enumerate(raw[:header_end], 1):
+    header_lines = blank_block_comments('\n'.join(raw[:header_end])).splitlines()
+    for number, line in enumerate(header_lines, 1):
         if GO_BUILD_CONSTRAINT.match(line):
             complaints.append(
                 "  %s:%d carries a build constraint, so whether Go ever compiles these "

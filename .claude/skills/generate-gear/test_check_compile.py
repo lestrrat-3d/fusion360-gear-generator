@@ -166,6 +166,64 @@ class CheckCompileTest(unittest.TestCase):
         self.assertIn(
             'S1 names proof function stepOne, which TestOne does not build with', output)
 
+    # Each run takes the arguments its own signature declares, and no others.
+
+    def test_wrong_argument_count_on_a_real_method_is_refused(self):
+        """A tail of any length credited calls Go cannot compile, on every one of the four runs.
+
+        `proofkit.Run` takes three arguments, `proofkit3d.Run` and `RunSolid` four, and
+        `RunWithGate` five. A shape that accepted three or more read a step as registered by a run
+        that never builds, which is the direction a compile gate must never fail in.
+        """
+        cases = (
+            ('proofkit.Run', ', assertOne', 4, 3),
+            ('proofkit.Run', ', proofkit3d.RequireSolid, assertOne', 5, 3),
+            ('proofkit3d.Run', '', 3, 4),
+            ('proofkit3d.Run', ', proofkit3d.RequireSolid, assertOne', 5, 4),
+            ('proofkit3d.RunSolid', '', 3, 4),
+            ('proofkit3d.RunWithGate', ', assertOne', 4, 5),
+            ('proofkit3d.RunWithGate', '', 3, 5),
+        )
+        for call, extra, passed, declared in cases:
+            with self.subTest(call=call, passed=passed):
+                proof_body = self.registration('TestOne', call, 'stepOne', extra=extra)
+
+                result, output = self.run_checker(proof_body=proof_body)
+
+                self.assertEqual(result, 1, output)
+                self.assertIn(
+                    'proof/gear/proof_test.go:2 passes %d arguments to %s, which takes %d, so Go '
+                    'cannot compile this registration' % (passed, call, declared), output)
+                self.assertIn(
+                    'S1 names proof function stepOne, which TestOne does not build with', output)
+
+    def test_declared_argument_count_on_each_method_is_accepted(self):
+        """The counts are the signatures in `proof/proofkit` and `proof/proofkit3d`."""
+        for call, extra in (('proofkit.Run', ''),
+                            ('proofkit3d.Run', ', assertOne'),
+                            ('proofkit3d.RunSolid', ', assertOne'),
+                            ('proofkit3d.RunWithGate', ', proofkit3d.RequireSolid, assertOne')):
+            with self.subTest(call=call):
+                proof_body = self.registration('TestOne', call, 'stepOne', extra=extra)
+
+                result, output = self.run_checker(proof_body=proof_body)
+
+                self.assertEqual(result, 0, output)
+                self.assertIn('compile check: OK', output)
+
+    def test_wrong_argument_count_is_named_once_at_its_own_line(self):
+        """A refused run is named exactly once, so the count complaint is the whole story.
+
+        The wider mention pattern still sees the line, so widening it further is safe; it is
+        skipped here only because the count complaint already names the same line.
+        """
+        proof_body = self.registration('TestOne', 'proofkit.Run', 'stepOne', extra=', assertOne')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 1)
+        self.assertEqual(output.count('proof/gear/proof_test.go:2'), 1, output)
+
     # The build argument must be the step of the Test's own title.
 
     def test_misnamed_build_argument_is_blocking(self):
@@ -381,6 +439,33 @@ class CheckCompileTest(unittest.TestCase):
             'var sample = `\n'
             '//go:build ignore\n'
             '`\n\n'
+            'func TestOne(t *testing.T) {\n'
+            '\tproofkit.Run(t, profileCases, stepOne)\n'
+            '}\n\n'
+            'func stepOne() {}\n')
+
+        result, output = self.run_checker(proof_body=proof_body)
+
+        self.assertEqual(result, 0, output)
+        self.assertIn('compile check: OK', output)
+
+    def test_build_constraint_text_inside_a_header_block_comment_is_accepted(self):
+        """Go takes a constraint only from a `//` line comment, so block-comment prose is text.
+
+        A file whose leading `/* */` note quotes a constraint builds, vets and formats clean, and
+        `go list` reports it unconstrained. Reading every raw header line refused it.
+        """
+        proof_body = (
+            '/*\n'
+            'Package gear_test proves the gear steps.\n'
+            '\n'
+            'A file that is not built would say\n'
+            '\n'
+            '\t//go:build ignore\n'
+            '\n'
+            'above its package clause. This proof is built, so it says no such thing.\n'
+            '*/\n'
+            'package gear_test\n\n'
             'func TestOne(t *testing.T) {\n'
             '\tproofkit.Run(t, profileCases, stepOne)\n'
             '}\n\n'

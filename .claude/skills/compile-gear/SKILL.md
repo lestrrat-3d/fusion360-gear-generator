@@ -192,14 +192,19 @@ this skill: a compiler that rewrites its own source removes the thing being chec
 > and put the assertion after the build where the run takes one. The build argument is always the
 > third, each argument is written out as a plain name, and the case table is a named variable
 > rather than a call built in place. Each run takes a table of parameter cases, one subtest each.
+> Pass exactly the arguments the run's own signature declares — `proofkit3d.RunWithGate` takes the
+> gate as well as the assertion, and `proofkit.Run` takes neither — since a count the method does
+> not declare is a call Go cannot compile.
 >
 > The gate reads this shape by line rather than by parsing Go, so anything else is refused, not
 > interpreted. A build under another name, a `Test` whose title does not match the step it builds,
 > a run reached through a loop, a condition or a closure, a run whose arguments come from one
 > forwarded call as in `proofkit3d.Run(runArgs(t))`, a run on a method outside the four named
-> above, and a proof file whose header carries a `//go:build` constraint all fail the check by name
-> and line. A `//go:build` line further down, inside a string, is content rather than a constraint
-> and passes. The refusal says what to write; write that.
+> above, a run passing a different number of arguments than its method declares, and a proof file
+> whose header carries a `//go:build` line comment all fail the check by name and line. Go reads a
+> constraint only from a `//` line comment above the package clause, so the same text further down,
+> inside a string, and the same text inside a `/* */` comment in the header are both content rather
+> than a constraint, and both pass. The refusal says what to write; write that.
 >
 > **The case table reaches every branch, from every direction the spec offers.** A branch a step
 > takes needs a case on each side of it, and a branch the spec says is reachable in more than one
