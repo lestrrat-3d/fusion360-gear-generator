@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Regression tests for the generated-candidate novel-type baseline."""
 import importlib.util
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -217,6 +218,111 @@ class AcceptedNoiseTests(unittest.TestCase):
             ('reportArgumentType', 'orientation', 'DimensionOrientations',
              'addDistanceDimension'),
             accepted)
+
+
+class RecordAcceptedTests(unittest.TestCase):
+    ARGUMENT_DIAGNOSTIC = {
+        'rule': 'reportArgumentType',
+        'message': 'Argument of type "int" cannot be assigned to parameter "orientation" '
+                   'of type "DimensionOrientations" in function "addDistanceDimension"',
+        'range': {'start': {'line': 41}},
+    }
+    PLAIN_DIAGNOSTIC = {
+        'rule': 'reportOptionalMemberAccess',
+        'message': '"x" is not a known attribute of "None"\n  second line of detail',
+        'range': {'start': {'line': 7}},
+    }
+
+    def test_wrong_argument_entry_round_trips_through_accepted_signatures(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'accepted.json'
+
+            status, entry = MODULE.record_accepted(
+                str(path), self.ARGUMENT_DIAGNOSTIC, 'the stubs type the members as int')
+
+            self.assertEqual(status, 'added')
+            self.assertEqual(list(entry), ['rule', 'param', 'want', 'func', 'why'])
+            self.assertEqual(entry['param'], 'orientation')
+            self.assertIn(MODULE.signature(self.ARGUMENT_DIAGNOSTIC),
+                          MODULE.accepted_signatures(str(path)))
+
+    def test_plain_entry_records_first_message_line_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'accepted.json'
+
+            _, entry = MODULE.record_accepted(str(path), self.PLAIN_DIAGNOSTIC, 'stub gap')
+
+            self.assertEqual(list(entry), ['rule', 'message', 'why'])
+            self.assertEqual(entry['message'], '"x" is not a known attribute of "None"')
+            self.assertIn(MODULE.signature(self.PLAIN_DIAGNOSTIC),
+                          MODULE.accepted_signatures(str(path)))
+
+    def test_missing_file_is_created_with_one_entry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'absent.json'
+
+            MODULE.record_accepted(str(path), self.PLAIN_DIAGNOSTIC, 'stub gap')
+
+            self.assertEqual(len(json.loads(path.read_text(encoding='utf-8'))), 1)
+
+    def test_re_recording_updates_the_why_in_place(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'accepted.json'
+            MODULE.record_accepted(str(path), self.ARGUMENT_DIAGNOSTIC, 'first reason')
+            first_status, _ = MODULE.record_accepted(
+                str(path), self.PLAIN_DIAGNOSTIC, 'other finding')
+
+            status, entry = MODULE.record_accepted(
+                str(path), self.ARGUMENT_DIAGNOSTIC, 'second reason')
+
+            entries = json.loads(path.read_text(encoding='utf-8'))
+            self.assertEqual(first_status, 'added')
+            self.assertEqual(status, 'updated')
+            self.assertEqual(len(entries), 2)
+            self.assertEqual(entries[0]['why'], 'second reason')
+            self.assertEqual(entry['why'], 'second reason')
+            self.assertEqual(entries[1]['message'], '"x" is not a known attribute of "None"')
+
+    def test_blank_why_is_refused_and_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'accepted.json'
+            MODULE.record_accepted(str(path), self.PLAIN_DIAGNOSTIC, 'stub gap')
+            before = path.read_text(encoding='utf-8')
+
+            with self.assertRaises(ValueError):
+                MODULE.record_accepted(str(path), self.ARGUMENT_DIAGNOSTIC, '   ')
+
+            self.assertEqual(path.read_text(encoding='utf-8'), before)
+
+    def test_written_file_keeps_the_checked_in_formatting(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'accepted.json'
+
+            MODULE.record_accepted(str(path), self.PLAIN_DIAGNOSTIC, 'stub gap')
+
+            self.assertEqual(
+                path.read_text(encoding='utf-8'),
+                '[\n'
+                '  {\n'
+                '    "rule": "reportOptionalMemberAccess",\n'
+                '    "message": "\\"x\\" is not a known attribute of \\"None\\"",\n'
+                '    "why": "stub gap"\n'
+                '  }\n'
+                ']\n')
+
+
+class NovelOrderTests(unittest.TestCase):
+    def test_findings_on_one_line_order_by_rule_then_message(self):
+        first = {'rule': 'reportArgumentType', 'message': 'b complaint',
+                 'range': {'start': {'line': 4}}}
+        second = {'rule': 'reportArgumentType', 'message': 'c complaint',
+                  'range': {'start': {'line': 4}}}
+        third = {'rule': 'reportOptionalMemberAccess', 'message': 'a complaint',
+                 'range': {'start': {'line': 4}}}
+
+        self.assertEqual(
+            sorted([third, second, first], key=MODULE.novel_sort_key),
+            [first, second, third])
 
 
 if __name__ == '__main__':
