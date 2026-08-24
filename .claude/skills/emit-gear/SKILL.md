@@ -32,8 +32,9 @@ the pipeline exists to make trustworthy.
 5. **Diagnose and loop.** Classify any failure with the table below. An emit fault goes back to
    step 3 with the failure text appended, up to about three rounds. A compile fault stops the run.
 
-6. **Place.** On success, move the draft to `lib/geargen/<gear>.py`. This writes a file only; it
-   does not commit, push, or touch Fusion's add-in directory.
+6. **Place.** On success, run `python3 .claude/skills/generate-gear/stage.py <gear> module` from
+   the repo root. It puts `.tmp/<gear>.generated.py` at `lib/geargen/<gear>.py` and reports what
+   moved. This writes a file only; it does not commit, push, or touch Fusion's add-in directory.
 
 7. **Report.** State the gate results and every step that was thin or wrong.
 
