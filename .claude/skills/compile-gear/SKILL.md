@@ -50,9 +50,11 @@ proof is where the next reader is looking for the missing check.
 1. **Setup.** Work in a worktree, never the root checkout. Ensure `.tmp/` exists. Run
    `python3 .claude/skills/generate-gear/preflight.py <gear> --stage compile` and fix every
    `[FAIL]` before drafting; it verifies the engines, the go toolchain and the API database so a
-   broken environment fails here instead of mid-run. Read this file,
-   `PLAYBOOK.md`, the gear's spec end to end, and both harness APIs, `proof/proofkit/` and
-   `proof/proofkit3d/`.
+   broken environment fails here instead of mid-run. Read this file end to end. Do **not** read
+   `PLAYBOOK.md`, the spec, or the harness APIs up front: the drafting subagent reads them in
+   full, and the orchestrator reads on demand — the drafted step list around each name step 5
+   classifies, the spec lines a `fault:` line names in step 6, and a harness or playbook section
+   only when a specific diagnosis calls for it.
 
 2. **Stamp provenance.** The provenance table is generated, never typed. After each drafting round
    in step 3, run `python3 .claude/skills/generate-gear/gen_provenance.py <gear> --write
@@ -114,10 +116,14 @@ proof is where the next reader is looking for the missing check.
    step list mentions without requiring takes the exemption directive, and a call the module
    genuinely fails to make is work for `/emit-gear`, not for this stage. Never hand the drafter
    anything the module does or does not contain, and never let it read the module — the pipeline
-   has to be able to compile a gear that has no implementation yet.
+   has to be able to compile a gear that has no implementation yet. Classify by reading the
+   drafted step list around each printed name in `.tmp/<gear>.steps.md`; that is the only text
+   the classification needs.
 
 6. **Diagnose and loop.** Classify any failure with the table below. A draft fault goes back to
-   the drafter, up to about three rounds in total. A prose fault stops the run.
+   the drafter, up to about three rounds in total. A prose fault stops the run. Read, at this
+   point, only what the failure names: the spec file and line a `fault: prose` line prints, the
+   step and proof text the failure quotes, and any playbook anchor the step cites.
 
    A draft fault does not change any input file, so the drafter that produced it still holds
    every input in context. Send it the stored gate report `.tmp/<gear>.compile-gates.txt`
