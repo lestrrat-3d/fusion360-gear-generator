@@ -25,11 +25,12 @@ below that heading, or one naming bare file names, leaves the gate with nothing 
 Include `proof/{{gear}}/zz_registrations_test.go`, the generated registration file, among the
 paths.
 
-**Under the `## Provenance` heading comes the provenance table** of each file in the provenance
-input set owned by `.claude/skills/generate-gear/check_compile.py`, with its `git hash-object`
-value, in a two-column markdown table with both cells in backticks. The set covers the gear's
-`instructions.md`, its `fusion.md` if present, the playbook, and existing auxiliary Markdown
-documents referenced by the two spec files.
+**Write the `## Provenance` heading and leave its section empty.** The provenance table is
+generated from the spec files after you finish, by
+`.claude/skills/generate-gear/gen_provenance.py`, and written into that section. Never run
+`git hash-object` and never type a hash: a hand-copied hash is a defect the gate can only report
+as drift. Put the heading below the sentence naming the proof files and above the first step
+heading, since a gate reads the text above it for those paths and the generator writes below it.
 
 **Each step carries** a heading of the form `## <id> `[GO]` <title>` or with `[PROSE]`, the
 instructions themselves, a `**From:**` line naming the spec files and line ranges you compiled it

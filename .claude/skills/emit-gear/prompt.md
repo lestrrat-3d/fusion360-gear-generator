@@ -24,9 +24,12 @@ quietly correct it.
 **Do every step.** A step you cannot finish is a defect to report, never a comment left in the
 file and never a silent omission.
 
-**Self-check before finishing**, fixing until all seven gates pass: parse, `pyright_check.py` with
-0 BLOCKING, `check_input_read.py`, `check_contract.py`, `check_anchors.py`, `check_step_calls.py`
-and `check_api_calls.py`. Never silence a finding by deleting a comment, renaming a variable, or
+**Self-check before finishing**, by running
+`python3 .claude/skills/generate-gear/run_gates.py {{gear}} --no-advisory` and fixing until it
+exits 0. It runs every gate and reports all failures at once, so fix the whole list before
+re-running. Exit 2 is a setup problem, not a draft problem: report it and stop rather than
+editing around it. Run it once more without `--no-advisory` before you finish, and report what
+its advisory row says. Never silence a finding by deleting a comment, renaming a variable, or
 removing the call it objects to.
 
 **Report:** the gate results, the final line count, and every step that was unclear, incomplete,

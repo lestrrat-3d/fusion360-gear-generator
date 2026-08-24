@@ -131,7 +131,7 @@ class CommittedTemplatesTest(unittest.TestCase):
         text = (SKILLS_ROOT / 'emit-gear' / 'prompt.md').read_text(encoding='utf-8')
         names = {
             name for name in re.findall(r'\w+\.py', text)
-            if name.startswith('check_') or name == 'pyright_check.py'
+            if name.startswith('check_') or name in ('pyright_check.py', 'run_gates.py')
         }
         self.assertTrue(names, 'emit prompt should name the gate scripts')
         for name in sorted(names):

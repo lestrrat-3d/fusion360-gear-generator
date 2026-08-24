@@ -56,61 +56,14 @@ REPO_ROOT = os.path.abspath(os.path.join(HERE, os.pardir, os.pardir, os.pardir))
 sys.path.insert(0, HERE)
 import fusion_api  # noqa: E402  (sibling module; sys.path is fixed up just above)
 from call_parser import call_shapes  # noqa: E402
+from provenance import (  # noqa: E402  (sibling module; sys.path is fixed up just above)
+    DOCUMENT_REF, STAMPED_ROW, blob_hash, provenance_inputs, read, referenced_documents)
 
 PATH_REF = r'[\w./-]+\.(?:md|go|py|json|sh)'
 PATH_TOKEN = re.compile(r'`(%s)`' % PATH_REF)
 
-# The edges here are not symmetric, and that is left as it is. The lookbehind excludes `.`, `/`
-# and `-` while `\b` on the right excludes only word characters, so a name that continues past the
-# extension yields the `.md` prefix inside it. What that costs is one extra path in the provenance
-# input set, which is a file the table must stamp; the complaint is BLOCKING and names the file,
-# so the failure is loud. Closing it by excluding `.` on the right would drop a reference at the
-# end of a sentence, and a reference dropped from that set is a source whose edit leaves a stale
-# step list looking healthy, which is the silent direction this gate must not fail in.
-DOCUMENT_REF = re.compile(r'(?<![\w./-])[\w./-]+\.md\b')
 INLINE_CITATION = re.compile(r'`(%s):(\d+)(?:\s*[-\u2013]\s*(\d+))?`' % PATH_REF)
 LINE_RANGE = re.compile(r'\bL(\d+)(?:\s*[-\u2013]\s*(\d+))?\b')
-
-
-def referenced_documents(path):
-    """Return existing Markdown documents referenced from one gear's input spec."""
-    found = set()
-    for reference in DOCUMENT_REF.findall(read(path)):
-        candidates = (
-            os.path.normpath(os.path.join(os.path.dirname(path), reference)),
-            os.path.normpath(reference),
-        )
-        for candidate in candidates:
-            if not os.path.isfile(candidate):
-                continue
-            if candidate != path:
-                found.add(candidate)
-            break
-    return found
-
-
-def provenance_inputs(gear):
-    """Existing source files whose hashes define a compiled step list."""
-    instructions = os.path.join('spec', gear, 'instructions.md')
-    fusion = os.path.join('spec', gear, 'fusion.md')
-    playbook = os.path.join('.claude', 'skills', 'generate-gear', 'PLAYBOOK.md')
-    specs = [path for path in (instructions, fusion) if os.path.isfile(path)]
-    inputs = {
-        path for path in (instructions, fusion, playbook) if os.path.isfile(path)
-    }
-    for path in specs:
-        inputs.update(referenced_documents(path))
-    return inputs
-
-
-def read(path):
-    with open(path) as fh:
-        return fh.read()
-
-
-def blob_hash(path):
-    return subprocess.run(['git', 'hash-object', path],
-                          capture_output=True, text=True).stdout.strip()
 
 
 def steps_of(src):
@@ -1705,7 +1658,7 @@ def main(argv):
                            '; the nearest names it does have are %s' % ', '.join(near)))
 
     # 4. inputs have not drifted
-    stamped = dict(re.findall(r'\|\s*`([\w./-]+)`\s*\|\s*`([0-9a-f]{40})`\s*\|', src))
+    stamped = dict(STAMPED_ROW.findall(src))
     if not stamped:
         problems.append("  the step list carries no provenance table, so staleness cannot be seen")
     for path in sorted(provenance_inputs(gear) - set(stamped)):

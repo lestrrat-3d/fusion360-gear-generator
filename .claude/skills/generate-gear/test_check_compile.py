@@ -20,6 +20,7 @@ from unittest import mock
 
 
 COMPILE_CHECKER_PATH = Path(__file__).with_name('check_compile.py')
+PROVENANCE_MODULE_PATH = Path(__file__).with_name('provenance.py')
 COMPILE_MODULE_SPEC = importlib.util.spec_from_file_location('check_compile', COMPILE_CHECKER_PATH)
 COMPILE_CHECKER = importlib.util.module_from_spec(COMPILE_MODULE_SPEC)
 COMPILE_MODULE_SPEC.loader.exec_module(COMPILE_CHECKER)
@@ -2137,6 +2138,8 @@ class GoPatternClassTest(unittest.TestCase):
             'proof_paths, a proof path named in the step-list summary',
         r'\|\s*`([\w./-]+)`\s*\|\s*`([0-9a-f]{40})`\s*\|':
             'stamped, a row of the provenance table',
+        r'^##\s':
+            'SECTION_END, the next `## ` heading after a step list\'s provenance section',
         r'<!--\s*proof-run:(.*?)-->':
             'PROOF_RUN_ANNOTATION_LOOSE, any proof-run directive in a step body, however written',
         r'<!--\s*proof-run:\s*(?P<package>%(name)s)\s*\.\s*(?P<method>Run%(part)s*)\s*\('
@@ -2183,7 +2186,11 @@ class GoPatternClassTest(unittest.TestCase):
             if PYTHON_CHARACTER_CLASS.search(text) and text not in allowed)
 
     def checker_source(self):
-        return COMPILE_CHECKER_PATH.read_text()
+        # provenance.py is a sibling module check_compile.py imports its Markdown-matching
+        # patterns from (DOCUMENT_REF, STAMPED_ROW); this scan follows them there so an
+        # allowlist entry for either still points at a pattern that is actually written down,
+        # just no longer inside check_compile.py itself.
+        return COMPILE_CHECKER_PATH.read_text() + '\n' + PROVENANCE_MODULE_PATH.read_text()
 
     def test_no_pattern_that_reads_go_source_spells_a_python_class(self):
         """The gate itself, under its own rule."""
