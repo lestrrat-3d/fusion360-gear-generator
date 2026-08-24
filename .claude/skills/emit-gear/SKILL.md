@@ -72,9 +72,11 @@ complaint the candidate draws that no shipped gear in `lib/geargen/` draws, on t
 complaint working code never produces is worth a look.
 
 This reports rather than gates, because an API the shipped gears never touch has no baseline and
-correct code using it reads as new. Read each finding and decide. It is the only check that has
-caught a method called on a class that does not define it, or a `BRepBodies` handed to a parameter
-typed `ObjectCollection` — both of which passed all seven gates.
+correct code using it reads as new. Read each finding and decide. Record a finding judged to be
+stub noise by re-running the same command with `--accept N --why "<reason>"`, naming it by its
+printed index, which writes the `accepted_type_noise.json` entry for you. It is the only check
+that has caught a method called on a class that does not define it, or a `BRepBodies` handed to a
+parameter typed `ObjectCollection` — both of which passed all seven gates.
 
 Pass `run_gates.py --gate-novel-types` to make findings fail the run, once the baseline covers the
 API surface in question.
