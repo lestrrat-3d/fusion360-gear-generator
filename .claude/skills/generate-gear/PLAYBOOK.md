@@ -227,6 +227,20 @@ feature inputs capture the expression only intermittently. So the user parameter
 `<prefix>_…` stay visible for reference but are not design-editable; re-run the dialog to change a
 gear.)
 
+**[PB-DIM-VALUE-SEMANTICS] A linear sketch dimension's value is a magnitude plus a direction
+captured at creation — never assign an axis-signed delta.** `addDistanceDimension(...)` measures
+the geometry as it sits and creates its parameter at the **absolute** distance: a point at
+Δy = −0.5 yields `parameter.value == +0.5`, with the dimension remembering which side the second
+point sat on. Assigning a **negative** value flips the point to the **opposite** side of wherever
+it currently is (verified in-Fusion: assigning −0.5 to that dimension moved the point to
+Δy = +0.5, and assigning +0.5 moved it back). So a point's side is chosen by **seeding the
+geometry on the intended side before creating the dimension**; the value, when assigned at all,
+is the **absolute** magnitude `abs(Δ)`. Writing the axis-signed delta instead mirrors the point
+whenever the delta is negative, the sketch still solves, and the failure surfaces only later as a
+missing profile ([PB-PROFILE-MATCH]). The bench engine's `NewHorizontalDistance` /
+`NewVerticalDistance` take **signed** targets; when transcribing to Fusion, the target's sign is
+realized by the seed side and only `abs(target)` may go into `parameter.value`.
+
 ## `generate` orchestration
 
 `generate(inputs)`:
@@ -378,7 +392,11 @@ dim→`NewDiameter`/`NewRadius`; `addCoincident`→`NewCoincident` (or grounding
 `Fix`); `addHorizontal`/`addVertical`→`NewHorizontal`/`NewVertical`; `addPerpendicular`→`NewPerpendicular`;
 `addMidPoint`→`NewMidpoint`; a point-on-line/`addCollinear`→`NewPointOnLine`/`NewCollinear`;
 point-on-circle→`NewPointOnCircle`; an angular/`addAngularDimension`→`NewAngle`; a fitted
-spline→`CreateSpline`. Share a `*Point` between entities to express a shared vertex (the engine's
+spline→`CreateSpline`; a horizontal/vertical
+`addDistanceDimension`→`NewHorizontalDistance`/`NewVerticalDistance` — but the engine's target is
+**signed** while Fusion's dimension value is a magnitude whose direction is captured from the
+seeded geometry at creation, so the sign crosses over as the seed side, never as a negative
+`parameter.value` ([PB-DIM-VALUE-SEMANTICS]). Share a `*Point` between entities to express a shared vertex (the engine's
 analog of `[PB-SHARE-XOR-COINCIDENT]`). A Fusion three-point arc with a diameter dim maps to
 `CreateArc(freeCenter, start, end)` + `NewDiameter` (the arc's own free centre is pinned by the two
 shared ends + the diameter). The anchor coincidence that grounds the whole sketch maps to fixing the

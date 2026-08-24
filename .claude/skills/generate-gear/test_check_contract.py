@@ -166,12 +166,12 @@ class ShippedManifestTests(unittest.TestCase):
 
     def test_reverted_root_end_recipe_fails_the_shipped_guard(self):
         text = self.generated.read_text()
-        self.assertIn('horizontalDimension.parameter.value = dx', text)
+        self.assertIn('dimH.parameter.value = abs(rootEndX)', text)
         with tempfile.TemporaryDirectory() as directory:
             candidate = Path(directory) / 'spurgear.generated.py'
             candidate.write_text(text.replace(
-                'horizontalDimension.parameter.value = dx',
-                'sketch.geometricConstraints.addCoincident(rootEndPoint, self.rootCircle)'))
+                'dimH.parameter.value = abs(rootEndX)',
+                'sketch.geometricConstraints.addCoincident(rootEnd, self.rootCircle)'))
 
             problems = MODULE.guard_problems(
                 self.guards, str(candidate), 'lib/geargen/spurgear.py', str(REPO))
@@ -181,12 +181,12 @@ class ShippedManifestTests(unittest.TestCase):
 
     def test_bore_anchor_grounded_on_sketch_origin_fails_the_shipped_guard(self):
         text = self.generated.read_text()
-        self.assertIn('generator.anchorPoint, generator.projectedAnchorPoint', text)
+        self.assertIn('toothGenerator.anchorPoint, projectedAnchor', text)
         with tempfile.TemporaryDirectory() as directory:
             candidate = Path(directory) / 'spurgear.generated.py'
             candidate.write_text(text.replace(
-                'generator.anchorPoint, generator.projectedAnchorPoint',
-                'generator.anchorPoint, boreSketch.originPoint'))
+                'toothGenerator.anchorPoint, projectedAnchor',
+                'toothGenerator.anchorPoint, boreSketch.originPoint'))
 
             problems = MODULE.guard_problems(
                 self.guards, str(candidate), 'lib/geargen/spurgear.py', str(REPO))

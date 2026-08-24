@@ -39,6 +39,14 @@ and reject `Horizontal`/`Vertical`, which they do not, so a generated gear using
 27 findings that are all stub inconsistency. Expect to triage, and expect the noise to fall as the
 shipped gears cover more of the API.
 
+A triaged finding is recorded, not re-argued: `accepted_type_noise.json` beside this script holds
+the complaint signatures a human has judged to be stub noise, each with its reason, and those
+signatures never gate again. This is what lets a gear whose complaints no other gear draws (the
+baseline always excludes the gear under check, so single-gear noise cannot self-baseline) stay
+green after its finding is triaged. Only add an entry after deciding the complaint is really stub
+pessimism; a signature is location-free, so an over-broad entry silences that complaint
+everywhere.
+
 Usage:
     python3 check_novel_types.py <candidate.py> [--reference lib/geargen]
 
@@ -50,6 +58,7 @@ import contextlib
 import filecmp
 import importlib.util
 import io
+import json
 import os
 import re
 import sys
@@ -292,6 +301,31 @@ def signature(diag):
     return (rule, message)
 
 
+ACCEPTED_NOISE_PATH = os.path.join(HERE, 'accepted_type_noise.json')
+
+
+def accepted_signatures(path=ACCEPTED_NOISE_PATH):
+    """Complaint signatures a human has triaged as stub noise, from the checked-in record.
+
+    Each JSON entry mirrors one signature() form: a wrong-argument entry carries
+    `rule`/`param`/`want`/`func`, any other entry carries `rule`/`message` (first line).
+    The `why` field is for the reader; it is required but not matched on.
+    """
+    if not os.path.isfile(path):
+        return set()
+    with open(path, encoding='utf-8') as handle:
+        entries = json.load(handle)
+    accepted = set()
+    for entry in entries:
+        if not entry.get('why'):
+            raise ValueError('accepted_type_noise.json: every entry needs a "why": %r' % entry)
+        if 'param' in entry:
+            accepted.add((entry['rule'], entry['param'], entry['want'], entry['func']))
+        else:
+            accepted.add((entry['rule'], entry['message']))
+    return accepted
+
+
 def reference_gears(reference, candidate):
     """Return shipped gears that are not the source represented by candidate.
 
@@ -346,9 +380,16 @@ def main():
             baseline.add(signature(diag))
 
     verified_by_line = verified_fusion_classes(args.candidate)
-    novel = [d for d in diagnostics(pc, args.candidate)
+    accepted = accepted_signatures()
+    candidate_diagnostics = diagnostics(pc, args.candidate)
+    accepted_hits = sum(1 for d in candidate_diagnostics if signature(d) in accepted)
+    novel = [d for d in candidate_diagnostics
              if signature(d) not in baseline
+             and signature(d) not in accepted
              and not is_unverified_api_diagnostic(d, verified_by_line)]
+    if accepted_hits:
+        print('novel-type check: %d complaint(s) matched accepted_type_noise.json '
+              '(triaged stub noise; see its "why" entries)' % accepted_hits)
     if novel:
         print('novel-type check: %d complaint(s) no shipped gear produces — triage each'
               % len(novel))

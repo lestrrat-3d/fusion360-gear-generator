@@ -1254,7 +1254,7 @@ class CheckCompileTest(unittest.TestCase):
         """Go compiles `var stepFoo = func(…)`, so calling the directory undefining it misleads.
 
         The gate keeps requiring the `func` form, matching the one-function-per-step contract in
-        `.claude/skills/compile-gear/SKILL.md`. Only the message changed, to name the shape the
+        `.claude/skills/compile-gear/prompt.md`. Only the message changed, to name the shape the
         step has to be written in.
         """
         proof_body = (
@@ -1276,7 +1276,7 @@ class CheckCompileTest(unittest.TestCase):
     # Go's layout is free and nothing in this repository holds a proof file to `gofmt`, so every
     # line below can arrive indented and Go still compiles it. Two of the four patterns that read
     # such a line are widened to match Go, and two keep a column-1 anchor because their line is
-    # part of the registration shape `.claude/skills/compile-gear/SKILL.md` states to the drafter.
+    # part of the registration shape `.claude/skills/compile-gear/prompt.md` states to the drafter.
     # `ProofDeclarationColumnTest` holds the Go half of each pairing; these hold the gate half, so
     # neither decision can be reversed without a failure here.
 
@@ -1515,7 +1515,7 @@ class CheckCompileTest(unittest.TestCase):
         keep an anchor no document mentions, which is how the same defect arose on the step side.
         """
         contract = (Path(__file__).parents[3] / '.claude' / 'skills' / 'compile-gear'
-                    / 'SKILL.md').read_text(encoding='utf-8')
+                    / 'prompt.md').read_text(encoding='utf-8')
 
         self.assertIn('The header and the closing `}` each', contract)
         self.assertIn('start at column 1', contract)
@@ -1529,7 +1529,7 @@ class CheckCompileTest(unittest.TestCase):
         The contract is where the drafter finds out what that means.
         """
         contract = (Path(__file__).parents[3] / '.claude' / 'skills' / 'compile-gear'
-                    / 'SKILL.md').read_text(encoding='utf-8')
+                    / 'prompt.md').read_text(encoding='utf-8')
 
         self.assertIn('Between two tokens Go skips', contract)
         self.assertIn('a name is a Unicode letter or `_`', contract)

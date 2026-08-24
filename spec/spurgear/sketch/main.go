@@ -168,7 +168,12 @@ func checkGearProfile(ctx context.Context, module, toothNumber, pressureAng, ang
 	}
 
 	// flank-to-root lines (non-embedded): radial line root circle -> flank start,
-	// with exactly two signed dimensions from the local origin ([SPUR-F-FLANK-ROOT]).
+	// with exactly two axis dimensions from the local origin ([SPUR-F-FLANK-ROOT]).
+	// The bench cannot reach Fusion's dimension-value semantics: these targets are
+	// signed, but a Fusion dimension holds a magnitude plus a direction captured at
+	// creation, and assigning a negative value flips the point to the other side
+	// ([PB-DIM-VALUE-SEMANTICS], found in-Fusion 2026-08-24). A transcription that
+	// writes ry < 0 into parameter.value passes here and mirrors the root end there.
 	addFlankRoot := func(flankStart *sketch.Point, seed pt) *sketch.Point {
 		n := math.Hypot(seed.x, seed.y)
 		rx, ry := rootR*seed.x/n, rootR*seed.y/n
