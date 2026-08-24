@@ -1,6 +1,7 @@
 __pycache__
 .vscode
 .env
+.deploy.conf
 .tmp/
 .gauntlet/
 .worktrees/
