@@ -26,10 +26,14 @@ the pipeline exists to make trustworthy.
    `<gear>`. It writes `.tmp/<gear>.generated.py`. Add no per-gear hints; anything the drafter
    needs belongs in the step list.
 
-4. **Gate.** Run all seven checks below. Every one must exit 0.
+4. **Gate.** Run `python3 .claude/skills/generate-gear/run_gates.py <gear>`. It runs all seven
+   checks below plus the advisory novel-type report, and prints one verdict. Exit 0 = every gate
+   that ran passed; exit 1 = a gate failed; exit 2 = a setup error (missing input, missing stubs,
+   unreachable API database) that no new draft can fix.
 
-5. **Diagnose and loop.** Classify any failure with the table below. An emit fault goes back to
-   step 3 with the failure text appended, up to about three rounds. A compile fault stops the run.
+5. **Diagnose and loop.** The runner prints a first-pass fault classification; confirm the rows it
+   marks NEEDS JUDGMENT against the table below. An emit fault goes back to step 3 with the runner
+   output appended, up to about three rounds. A compile fault, or an exit 2, stops the run.
 
 6. **Place.** On success, move the draft to `lib/geargen/<gear>.py`. This writes a file only; it
    does not commit, push, or touch Fusion's add-in directory.
@@ -37,6 +41,11 @@ the pipeline exists to make trustworthy.
 7. **Report.** State the gate results and every step that was thin or wrong.
 
 ## Gates
+
+`run_gates.py` runs every row below, in a cost-ordered sequence, and continues past a failure so
+one round reports every problem. The one exception is a parse failure, which skips the gates that
+read the candidate as Python and runs only the anchor check. The commands are listed so a single
+gate can be re-run by hand; the runner prints the exact command for each row it reports.
 
 | Gate | Command | What it catches |
 |---|---|---|
@@ -50,19 +59,23 @@ the pipeline exists to make trustworthy.
 
 `pyright_check.py` REVIEW findings are advisory stub noise. Only BLOCKING gates.
 
+A gear with no `spec/<gear>/contract.json` gets the contract gate reported as SKIP, and its
+contract is prose-checked by the reviewing agent instead (`generate-gear/SKILL.md`). Pass
+`--require-contract` where the manifest must exist, as it must for `spurgear`.
+
 ## Triage the type complaints
 
-After the seven gates pass, run
-`python3 .claude/skills/generate-gear/check_novel_types.py .tmp/<gear>.generated.py`. It reports
-every type complaint the candidate draws that no shipped gear in `lib/geargen/` draws, on the
-grounds that a complaint working code never produces is worth a look.
+`run_gates.py` runs `check_novel_types.py` last, as its advisory row. It reports every type
+complaint the candidate draws that no shipped gear in `lib/geargen/` draws, on the grounds that a
+complaint working code never produces is worth a look.
 
 This reports rather than gates, because an API the shipped gears never touch has no baseline and
 correct code using it reads as new. Read each finding and decide. It is the only check that has
 caught a method called on a class that does not define it, or a `BRepBodies` handed to a parameter
 typed `ObjectCollection` — both of which passed all seven gates.
 
-Pass `--gate` to make findings fail the run, once the baseline covers the API surface in question.
+Pass `run_gates.py --gate-novel-types` to make findings fail the run, once the baseline covers the
+API surface in question.
 
 ## Telling an emit fault from a compile fault
 
@@ -114,9 +127,12 @@ step list by hand, and never work around it in the Python.
 > **Do every step.** A step you cannot finish is a defect to report, never a comment left in the
 > file and never a silent omission.
 >
-> **Self-check before finishing**, fixing until all seven gates pass: parse, `pyright_check.py` with
-> 0 BLOCKING, `check_input_read.py`, `check_contract.py`, `check_anchors.py`, `check_step_calls.py`
-> and `check_api_calls.py`. Never silence a finding by deleting a comment, renaming a variable, or
+> **Self-check before finishing**, by running
+> `python3 .claude/skills/generate-gear/run_gates.py <gear> --no-advisory` and fixing until it
+> exits 0. It runs every gate and reports all failures at once, so fix the whole list before
+> re-running. Exit 2 is a setup problem, not a draft problem: report it and stop rather than
+> editing around it. Run it once more without `--no-advisory` before you finish, and report what
+> its advisory row says. Never silence a finding by deleting a comment, renaming a variable, or
 > removing the call it objects to.
 >
 > **Report:** the gate results, the final line count, and every step that was unclear, incomplete,
