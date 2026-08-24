@@ -1,6 +1,6 @@
 ---
 name: generate-gear
-description: Generate (or regenerate) a gear generator implementation `lib/geargen/<gear>.py` from its natural-language spec `spec/<gear>/instructions.md` plus the shared `PLAYBOOK.md`, using the spec as the SOLE source of truth — no reference implementation is consulted during generation. Use when asked to (re)generate gear code from a spec, or to check that a spec is complete enough to drive generation on its own. Args: optional `<gear>` name (default `spurgear`).
+description: Generate (or regenerate) a gear generator implementation `lib/geargen/<gear>.py` from its natural-language spec `spec/<gear>/instructions.md` plus the shared `PLAYBOOK.md`, using the spec as the SOLE source of truth — no reference implementation is consulted during generation. Use when asked to (re)generate gear code from a spec, or to check that a spec is complete enough to drive generation on its own. For a gear that already has a compiled step list `spec/<gear>/steps.md`, use `/compile-gear` + `/emit-gear` instead; this skill is for gears without one, or when named explicitly. Args: optional `<gear>` name (default `spurgear`).
 ---
 
 # Generate gear code from a spec
@@ -8,6 +8,13 @@ description: Generate (or regenerate) a gear generator implementation `lib/gearg
 This repo generates gear implementations from natural-language design docs:
 `spec/<gear>/instructions.md` (the spec) → `lib/geargen/<gear>.py` (the implementation). This skill
 runs that generation as a repeatable, agent-driven workflow.
+
+**Check for a compiled step list first.** If `spec/<gear>/steps.md` exists, stop and use the
+compile+emit pipeline instead: `/emit-gear <gear>` when
+`python3 .claude/skills/generate-gear/check_compile.py <gear>` passes, `/compile-gear <gear>`
+first when it does not. That pipeline transcribes from the checked step list rather than
+re-interpreting the prose spec and playbook every round. Proceed with this skill only when no
+step list exists, or when the user asked for this skill by name.
 
 **The spec is the sole source of truth.** Generation reads only the spec, the shared playbook,
 and the framework files. It does **not** read any existing `lib/geargen/<gear>.py` — if a spec

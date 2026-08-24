@@ -4,6 +4,15 @@ Gear implementations in `lib/geargen/` are generated from the specs in `spec/`. 
 `.claude/skills/` own how that generation runs. This file covers the one thing that happens
 outside a skill run.
 
+## Which skill regenerates a gear
+
+A gear that has a compiled step list `spec/<gear>/steps.md` is regenerated with the
+compile+emit pipeline: run `/emit-gear <gear>` when
+`python3 .claude/skills/generate-gear/check_compile.py <gear>` passes, and `/compile-gear <gear>`
+first when it does not. `/generate-gear` re-interprets the full prose spec and playbook on
+every round, so it is only for a gear with no step list yet, or when the user asks for it by
+name.
+
 ## When Fusion gives a verdict
 
 Loading a gear into Fusion is the only check that sees the real thing, and it happens with no
