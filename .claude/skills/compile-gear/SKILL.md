@@ -51,12 +51,17 @@ proof is where the next reader is looking for the missing check.
    `PLAYBOOK.md`, the gear's spec end to end, and both harness APIs, `proof/proofkit/` and
    `proof/proofkit3d/`.
 
-2. **Record provenance.** Use the provenance input set owned by
-   `.claude/skills/generate-gear/check_compile.py`: existing `spec/<gear>/instructions.md`, optional
+2. **Stamp provenance.** The provenance table is generated, never typed. After each drafting round
+   in step 3, run `python3 .claude/skills/generate-gear/gen_provenance.py <gear> --write
+   .tmp/<gear>.steps.md` from the repo root. It computes the input set owned by
+   `.claude/skills/generate-gear/check_compile.py` — existing `spec/<gear>/instructions.md`, optional
    `spec/<gear>/fusion.md`, `.claude/skills/generate-gear/PLAYBOOK.md`, and existing auxiliary Markdown
-   documents referenced by those two spec files. Take `git hash-object` of every member and put each
-   row in the step list's provenance table. Step 5 checks them. The playbook belongs there because
-   steps cite its rules by anchor, so a playbook fix leaves every step list stale until it is recompiled.
+   documents referenced by those two spec files — and writes the table under the heading the draft
+   left empty. The table travels with the file when it is copied, so nothing else needs stamping,
+   and step 5 checks the result. A hash mismatch there means a source changed after the stamp: run
+   the same command against the copy the check reads, then check again. The playbook belongs in the
+   set because steps cite its rules by anchor, so a playbook fix leaves every step list stale until
+   it is recompiled.
 
 3. **Draft.** Spawn a subagent with the standard drafting prompt: run
    `python3 .claude/skills/generate-gear/render_prompt.py compile-gear <gear>` and pass its
@@ -109,7 +114,7 @@ proof is where the next reader is looking for the missing check.
 | A step and its proof function disagree | Draft fault |
 | A step names a call the module is not required to make | Draft fault |
 | A named API call does not exist, and the spec did not name it | Draft fault |
-| A provenance hash does not match | Draft fault, or someone edited the spec mid-run |
+| A provenance hash does not match | A source changed after the table was stamped; re-run `gen_provenance.py` and check again |
 | **A named API call does not exist, and the spec named it** | **Prose fault** |
 | **The proof cannot fully constrain after three rounds** | **Prose fault** |
 | **The proof cannot build a sound solid after three rounds** | **Prose fault** |
