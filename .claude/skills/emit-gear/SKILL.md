@@ -23,7 +23,11 @@ the pipeline exists to make trustworthy.
    step list fails here instead of mid-run. If `steps-current` fails, run `/compile-gear <gear>`
    first.
 
-2. **Draft.** Spawn a subagent with the standard drafting prompt: run
+2. **Draft.** First run `python3 .claude/skills/generate-gear/extract_playbook.py <gear>` from the
+   repo root. It writes `.tmp/<gear>.playbook-extract.md`, the playbook rules the step list cites
+   by anchor plus the fixed core sections, which is the only playbook text the drafter reads. A
+   non-zero exit means the steps file and playbook disagree; run `check_anchors.py` and fix before
+   drafting. Then spawn a subagent with the standard drafting prompt: run
    `python3 .claude/skills/generate-gear/render_prompt.py emit-gear <gear>` and pass its printed
    output to the subagent unchanged. It writes `.tmp/<gear>.generated.py`. Add no per-gear
    hints; anything the drafter needs belongs in the step list.

@@ -4,8 +4,11 @@ only exist inside Fusion, so parsing is as far as it goes.
 
 **Read, in this order:** `spec/{{gear}}/steps.md`, which is your instruction set and which you work
 through in order; `proof/{{gear}}/`, the checked geometry, which steps tagged `[GO]` tell you to
-transliterate literally rather than re-derive; `.claude/skills/generate-gear/PLAYBOOK.md` for the
-rules the steps cite by anchor; and the framework you build on and must not reimplement, which is
+transliterate literally rather than re-derive; `.tmp/{{gear}}.playbook-extract.md`, the generated
+extract of the playbook rules the steps cite by anchor plus the shared core sections (it replaces
+reading `PLAYBOOK.md`, which you must not open — an anchor the extract lacks and the step list
+still needs is a defect to report, not a reason to go find the full playbook); and the framework
+you build on and must not reimplement, which is
 `lib/geargen/base.py`, `misc.py`, `utilities.py`, `spurproxy.py` and `lib/fusion360utils/`.
 
 **Do not read** `lib/geargen/{{gear}}.py`, `spec/{{gear}}/instructions.md`, `spec/{{gear}}/fusion.md`,
