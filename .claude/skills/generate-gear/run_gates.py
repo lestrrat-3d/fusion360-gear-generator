@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Run the whole emit-gear gate battery for one gear and print one verdict.
+"""Run the whole gate battery for one gear and print one verdict.
 
-Why this exists: `/emit-gear` step 4 used to ask the orchestrating LLM to run seven gate
-commands one at a time, then classify any failure by hand against the fault table in
+It serves both stages that validate a candidate module: `/emit-gear` step 4 and
+`/generate-gear` step 5. Both used to ask the orchestrating LLM to run the gate commands one
+at a time, then (at the emit stage) classify any failure by hand against the fault table in
 `.claude/skills/emit-gear/SKILL.md`. Every part of that is mechanical — the commands are
 fixed, their arguments are derived from `<gear>`, their exit codes already say pass/fail —
 and leaving it to the model meant gates silently dropped under context pressure, argument
@@ -29,6 +30,10 @@ options:
   --fail-fast            stop scheduling gates after the first failure. Off by default.
   --require-contract     a missing spec/<gear>/contract.json fails the run instead of
                          skipping the contract gate.
+  --skip-missing-steps   a missing spec/<gear>/steps.md skips the step_calls gate instead
+                         of being a setup error. This is what /generate-gear passes: it
+                         runs from the prose spec, so a gear may have no compiled step
+                         list. When steps.md exists the gate runs as usual.
   --gate-novel-types     pass --gate to check_novel_types.py, making its findings
                          blocking (this is what CI does).
   --no-advisory          do not run check_novel_types.py at all.
@@ -158,7 +163,7 @@ def _root_relative(abs_path, root):
 def parse_args(argv):
     p = argparse.ArgumentParser(
         prog="run_gates.py",
-        description="Run the emit-gear gate battery for one gear and print one verdict.")
+        description="Run the gate battery for one gear and print one verdict.")
     p.add_argument("gear")
     p.add_argument("candidate", nargs="?", default=None)
     p.add_argument("--root", default=None)
@@ -166,6 +171,9 @@ def parse_args(argv):
                     help="comma-separated gate keys to run; the rest are skipped")
     p.add_argument("--fail-fast", action="store_true")
     p.add_argument("--require-contract", action="store_true")
+    p.add_argument("--skip-missing-steps", action="store_true",
+                    help="a missing spec/<gear>/steps.md skips the step_calls gate instead "
+                         "of being a setup error (generate stage)")
     p.add_argument("--gate-novel-types", action="store_true")
     p.add_argument("--no-advisory", action="store_true")
     p.add_argument("--json-out", default=None)
@@ -203,7 +211,8 @@ def _active_keys(args):
 
 def setup_errors(paths, args):
     """Pre-flight, returns human messages. Checks: root is a directory; candidate exists;
-    steps.md exists; every gate script the plan needs exists in scripts_dir();
+    steps.md exists unless --skip-missing-steps; every gate script the plan needs exists in
+    scripts_dir();
     --require-contract implies contract.json exists; --only names are known keys."""
     errors = []
     if not os.path.isdir(paths.root):
@@ -219,11 +228,12 @@ def setup_errors(paths, args):
     if not os.path.isfile(cand_abs):
         errors.append("candidate not found: %s" % paths.candidate)
 
-    steps_abs = _abs(paths.root, paths.steps)
-    if not os.path.isfile(steps_abs):
-        errors.append(
-            "step list not found: %s -- /emit-gear cannot run without it; "
-            "run /compile-gear first" % paths.steps)
+    if not args.skip_missing_steps:
+        steps_abs = _abs(paths.root, paths.steps)
+        if not os.path.isfile(steps_abs):
+            errors.append(
+                "step list not found: %s -- /emit-gear cannot run without it; "
+                "run /compile-gear first" % paths.steps)
 
     if args.require_contract:
         contract_abs = _abs(paths.root, paths.contract)
@@ -272,7 +282,8 @@ def gate_command(key, paths, args):
 
 def build_plan(paths, args):
     """(key, title, command, skip_reason). Command is None exactly when skip_reason is set.
-    Applies --only, --no-advisory, --gate-novel-types, and the missing-contract skip.
+    Applies --only, --no-advisory, --gate-novel-types, the missing-contract skip, and (under
+    --skip-missing-steps) the missing-step-list skip.
     Order is GATE_ORDER."""
     active = set(_active_keys(args))
     plan = []
@@ -286,6 +297,13 @@ def build_plan(paths, args):
                 "no manifest at %s -- the prose contract check is the reviewing agent's "
                 "job (generate-gear/SKILL.md); pass --require-contract to make this fatal"
                 % paths.contract)
+            plan.append((key, title, None, reason))
+            continue
+        if key == "step_calls" and args.skip_missing_steps \
+                and not os.path.isfile(_abs(paths.root, paths.steps)):
+            reason = ("no compiled step list at %s -- the generate stage runs from the "
+                      "prose spec; omit --skip-missing-steps to make this fatal"
+                      % paths.steps)
             plan.append((key, title, None, reason))
             continue
         plan.append((key, title, gate_command(key, paths, args), None))

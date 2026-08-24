@@ -99,71 +99,50 @@ The spec + playbook together MUST be sufficient. If they are not, fix the spec o
      override one only with a stated reason.
 
 5. **Validate (reference-free).** The output is checked against the **spec**, not against any
-   implementation:
-   - **Parse:** `python3 -c "import ast; ast.parse(open('.tmp/<gear>.generated.py').read())"`.
-     (Fusion's `adsk` modules can't be imported here; the repo has no runnable tests — parse is
-     the available mechanical gate.)
-   - **Static analysis (pyright + Fusion API stubs).** Run
-     `python3 .claude/skills/generate-gear/pyright_check.py .tmp/<gear>.generated.py`. With the
-     Fusion stubs on the path, pyright (standard mode) resolves `adsk.core`/`adsk.fusion` and the
-     framework's `from .misc import *` star-exports, so one tool catches both bug classes:
-     **undefined names / typos** (`NameError`) and
-     **wrong adsk submodule** (`adsk.fusion.SurfaceTypes` → `adsk.core`). Only **BLOCKING** findings
-     (exit 1) gate — they are real; fix the **spec/playbook** and regenerate. **REVIEW** findings are
-     advisory stub pessimism (idiomatic downcasts, Optional-typed API returns); correct code like
-     `spurgear.py` emits ~27 with zero real bugs, so **never gate or thrash the spec on them** —
-     expand with `--review` only when chasing a specific runtime `AttributeError`/`NoneType`. Stubs
-     come from `$FUSION_API_STUBS` (or `--stubs <dir>`); if neither is set the script **auto-clones**
-     the `FusionAPIReference` repo (sparse/shallow/blobless — ~13M, not the full 338M) into
-     `~/.cache/fusion360-gear-generator/` on first run and reuses it. If pyright is missing the
-     script auto-installs the pyright wrapper into `~/.cache/fusion360-gear-generator/` (pass
-     `--no-install` to forbid network use); the wrapper's first run may additionally download
-     node / the pyright npm bundle. Why standard mode, not `--strict`:
-     the stubs are intellisense-only and leave many return types unannotated, so `--strict` buries
-     the file in thousands of `reportUnknown*` lines with zero extra real bugs. If the stubs are
-     unavailable the script exits 2; fall back to a pyflakes undefined-name grep for the first bug
-     class, and to `fusion:query-api` `show <Name>` ([PB-ADSK-MODULES]) for the second. That lookup
-     reads the plugin's compiled database, so it needs no stubs and answers the module outright.
-   - **Contract self-check:** every class name, hook method, tooth/profile-generator entry point,
-     `ctx` field, Fusion user-parameter name, and dialog input id the spec's Contract sections
-     declare is present in the generated file. If the spec declares dependent gears, confirm the
-     surface those dependents bind to (by name) exists unchanged. Where the gear carries a
-     machine-readable manifest `spec/<gear>/contract.json`, run
-     `python3 .claude/skills/generate-gear/check_contract.py spec/<gear>/contract.json
-     .tmp/<gear>.generated.py` — it mechanically gates (exit 1 = BLOCKING) the manifest's classes,
-     bases, pinned methods, `ctx` fields, module-level constants (the Python identifiers
-     dependents import AND their exact string values — the breakage class no other gate sees), and
-     its `source_guards`, which pin the constraint recipes the spec chose over an alternative that
-     also solves, in the generated module and in the hand-written sources that teach it. The
-     spec **prose** stays authoritative; the manifest mirrors its Contract sections, and a
-     spec/manifest mismatch is a spec bug — fix both together. Prose-check whatever the manifest
-     doesn't carry. (`spec/spurgear/contract.json` is the worked example; gears without a manifest
-     get the full prose check.)
-   - **Anchor check:** run `python3 .claude/skills/generate-gear/check_anchors.py` (repo root).
-     Every `[PB-…]`/`[<GEAR>-F-…]` anchor cited anywhere in `spec/` or the playbook must resolve to
-     a defined anchor, defined in exactly one file, with no truncated cites. Exit 1 gates: an
-     unresolved cite silently unbinds the rule at that point of use.
-   - **Dependency resolution:** every name the generated file imports from another gear or
-     framework module actually exists in that module. (`check_contract.py` verifies this
-     mechanically for `lib/geargen/` imports, plus the no-`import *` module-layout rule.)
-   - **Helper-shadowing check:** the generated file must not re-define (via `def` or `class`) any
-     name the framework helper library provides (PLAYBOOK "Shared geargen helper library":
-     `find_profile_by_curve_counts`, `find_circle_by_radius`, the `solids.*` functions,
-     `VirtualSpurProxy`/`Val`), nor carry a private re-implementation of one. A shadow or
-     re-implementation means the spec/playbook failed to direct the generator to the helper — fix
-     there and regenerate. (`check_contract.py` catches the literal re-definition case
-     mechanically; private re-implementations under a different name still need the prose check.)
-   - **Input-read consistency check:** run
-     `python3 .claude/skills/generate-gear/check_input_read.py .tmp/<gear>.generated.py`. It pairs
-     each `add*Input(id, …)` declaration in `configure()` with the `get_*(inputs, id, …)` read by
-     input id and **exits 1 (BLOCKING)** on a type mismatch — reading an `addBoolValueInput` with
-     `get_value` (a runtime `AttributeError: 'BoolValueCommandInput' has no attribute 'expression'`),
-     a value input with `get_boolean`, etc. The pyright gate **cannot** catch this — the readers
-     resolve the input by a runtime string key, so the concrete input type is invisible to static
-     typing. A mismatch means the spec under-specified how that input is read (`[PB-INPUT-READ]`);
-     fix the spec/playbook and regenerate.
+   implementation. Run the mechanical battery with one command from the repo root:
 
-6. **Iterate.** A parse error, a missing contract item, or an unresolved dependency means the
+   ```
+   python3 .claude/skills/generate-gear/run_gates.py <gear> --skip-missing-steps
+   ```
+
+   It runs parse, input-read pairing, the contract manifest (auto-skipped with a note when the
+   gear has no `spec/<gear>/contract.json`), step-calls (auto-skipped when the gear has no
+   compiled `spec/<gear>/steps.md`, which is what `--skip-missing-steps` permits), anchors,
+   API-call existence, and pyright with the Fusion stubs, then prints one verdict plus the
+   advisory novel-type report. Exit 0 means every gate that ran passed; exit 1 means a gate
+   failed on content — fix the **spec/playbook** and regenerate (step 4), never the generated
+   file; exit 2 means a setup problem (missing candidate, unreachable stubs or API database)
+   that no new draft can fix. Ignore the runner's emit-vs-compile fault labels at this stage:
+   in the one-shot workflow every content failure routes the same way, to a spec or playbook
+   fix followed by a regeneration. Two reading notes carry over from the per-check era:
+
+   - **pyright:** only **BLOCKING** findings gate. **REVIEW** findings are advisory stub
+     pessimism (idiomatic downcasts, Optional-typed API returns); correct code like
+     `spurgear.py` emits ~27 with zero real bugs, so never gate or thrash the spec on them.
+     Stubs come from `$FUSION_API_STUBS`; on first run the check auto-clones a sparse copy of
+     `FusionAPIReference` into `~/.cache/fusion360-gear-generator/` and auto-installs pyright
+     there. If the stubs are unavailable (the gate reports a setup error), fall back to a
+     pyflakes undefined-name grep and to `fusion:query-api` `show <Name>`
+     ([PB-ADSK-MODULES]) for submodule questions.
+   - **Novel types:** read each advisory finding and decide; record stub noise with
+     `check_novel_types.py --accept N --why "<reason>"`. It is the only check that has caught
+     a method called on a class that does not define it.
+
+   The runner cannot see prose, so after it passes, prose-check what no gate carries:
+
+   - **Contract (no manifest):** for a gear without `spec/<gear>/contract.json`, check every
+     class name, hook method, tooth/profile-generator entry point, `ctx` field, Fusion
+     user-parameter name, and dialog input id the spec's Contract sections declare, and the
+     surface any declared dependent gears bind to. (`spec/spurgear/contract.json` is the
+     worked example of moving this into the manifest.)
+   - **Helper shadowing:** the manifest gate catches a literal re-definition of a framework
+     helper (PLAYBOOK "Shared geargen helper library"), but a private re-implementation under
+     a different name still needs a prose check. A shadow means the spec/playbook failed to
+     direct the generator to the helper; fix there and regenerate.
+   - **Dependency resolution:** `check_contract.py` verifies `lib/geargen/` imports
+     mechanically; confirm any other imported surface the spec's Dependencies section names.
+
+6. **Iterate.** A failed gate, a missing contract item, or an unresolved dependency means the
    **spec or playbook** is incomplete or wrong — fix it there (never hand-edit the generated file,
    never copy from an existing implementation) and regenerate from the Generate step (step 4).
    Repeat up to ~3 rounds. Converges when the output parses and satisfies the full declared contract.

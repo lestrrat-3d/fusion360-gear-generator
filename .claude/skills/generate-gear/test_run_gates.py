@@ -84,16 +84,17 @@ def make_all_stubs(scripts, overrides=None):
 
 
 def make_repo(tmp, gear=GEAR, *, candidate='x = 1\n', steps='# steps\n', contract=None):
-    """Create <tmp>/.tmp/<gear>.generated.py, spec/<gear>/steps.md and, when `contract` is not
-    None, spec/<gear>/contract.json. Return the root path."""
+    """Create <tmp>/.tmp/<gear>.generated.py and, when the argument is not None,
+    spec/<gear>/steps.md and spec/<gear>/contract.json. Return the root path."""
     root = tmp
     os.makedirs(os.path.join(root, '.tmp'), exist_ok=True)
     os.makedirs(os.path.join(root, 'spec', gear), exist_ok=True)
     cand_path = os.path.join(root, '.tmp', '%s.generated.py' % gear)
     with open(cand_path, 'w') as fh:
         fh.write(candidate)
-    with open(os.path.join(root, 'spec', gear, 'steps.md'), 'w') as fh:
-        fh.write(steps)
+    if steps is not None:
+        with open(os.path.join(root, 'spec', gear, 'steps.md'), 'w') as fh:
+            fh.write(steps)
     if contract is not None:
         with open(os.path.join(root, 'spec', gear, 'contract.json'), 'w') as fh:
             fh.write(contract)
@@ -301,6 +302,59 @@ class SetupErrorTests(BaseGateTest):
         by_key = {g['key']: g for g in parsed['gates']}
         self.assertEqual(by_key['pyright']['status'], 'error')
         self.assertLess(elapsed, 3)
+
+
+class SkipMissingStepsTests(BaseGateTest):
+    """--skip-missing-steps: the generate stage runs from the prose spec, so a gear with no
+    compiled spec/<gear>/steps.md skips the step_calls gate instead of erroring out."""
+
+    def test_missing_steps_skips_step_calls(self):
+        root = make_repo(self.tmp, steps=None, contract='{}')
+        marker = os.path.join(self.tmp, 'step-calls-invoked.marker')
+        make_all_stubs(self.scripts, overrides={
+            'step_calls': dict(argv_marker=marker),
+        })
+        exit_code, text, parsed = run(root, self.scripts, GEAR, '--skip-missing-steps')
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(parsed['verdict'], 'pass')
+        by_key = {g['key']: g for g in parsed['gates']}
+        self.assertEqual(by_key['step_calls']['status'], 'skip')
+        self.assertIn('spec/%s/steps.md' % GEAR, by_key['step_calls']['skip_reason'])
+        self.assertIn('--skip-missing-steps', by_key['step_calls']['skip_reason'])
+        self.assertFalse(os.path.exists(marker))
+        for key in ('parse', 'input_read', 'contract', 'anchors', 'api_calls', 'pyright',
+                    'novel_types'):
+            self.assertEqual(by_key[key]['status'], 'pass', msg=by_key[key])
+
+    def test_missing_steps_without_flag_still_errors(self):
+        root = make_repo(self.tmp, steps=None, contract='{}')
+        make_all_stubs(self.scripts)
+        exit_code, text, parsed = run(root, self.scripts, GEAR)
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(parsed['verdict'], 'setup_error')
+        self.assertIn('spec/%s/steps.md' % GEAR, text)
+
+    def test_flag_with_steps_present_runs_gate(self):
+        root = make_repo(self.tmp, contract='{}')
+        make_all_stubs(self.scripts)
+        exit_code, text, parsed = run(root, self.scripts, GEAR, '--skip-missing-steps')
+        self.assertEqual(exit_code, 0)
+        by_key = {g['key']: g for g in parsed['gates']}
+        self.assertEqual(by_key['step_calls']['status'], 'pass')
+
+    def test_api_fault_classification_survives_missing_step_list(self):
+        root = make_repo(self.tmp, steps=None, contract='{}')
+        make_all_stubs(self.scripts, overrides={
+            'api_calls': dict(
+                exit_code=1,
+                stdout="api-call check: BLOCKING (1)\n"
+                       "  x.py:1 calls 'setExtentDefinition(' -- no such name, ..."),
+        })
+        exit_code, text, parsed = run(root, self.scripts, GEAR, '--skip-missing-steps')
+        self.assertEqual(exit_code, 1)
+        row = next(c for c in parsed['classification'] if c['gate'] == 'api_calls')
+        self.assertEqual(row['fault'], 'emit')
+        self.assertIn('could not read the step list', row['why'])
 
 
 class ClassificationTests(BaseGateTest):
