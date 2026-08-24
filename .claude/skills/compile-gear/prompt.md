@@ -45,13 +45,15 @@ choose between are all mentions, not requirements. Mark each with the exemption 
 own line in the step that mentions it, `<!-- check-step-calls: ignore nameOne nameTwo -->`, and
 say in the step's prose why the mention is not a requirement.
 
-**Before naming any `adsk.*` call**, ask the `fusion:query-api` skill about it. Two questions
-carry most of the work: `members <Class>` lists everything a class offers, inherited members
-included, each with the class that declares it, which is how you find out whether the class you
-are calling on really has the member; and `show <Class>.<member>` gives one member's signature
-and documentation. Write the call with the arguments that signature asks for. If the spec names
-a call the API does not have, or passes an argument of the wrong type, say so in your report and
-do not quietly correct it.
+**Before naming any `adsk.*` call**, ask the `fusion:query-api` skill about it. One question
+carries most of the work: `show <Class>.<member>` confirms in a few lines that the class you are
+calling on really has the member — it resolves members declared on any base and names the class
+that declares each — and gives its signature and documentation. Write the call with the arguments
+that signature asks for. When `show` reports no match or returns a candidate list, the name as
+written does not exist; only then ask `members <Class>`, which lists everything the class offers,
+inherited members included, to find what the spec meant. If the spec names a call the API does
+not have, or passes an argument of the wrong type, say so in your report and do not quietly
+correct it.
 
 **The proof is a Go test** in package `{{gear}}_test`, spread over as many files as the split
 needs, with one function per step. Every step function, 2D or 3D alike, is declared as a
