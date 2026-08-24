@@ -4,18 +4,12 @@ This step list is proven by `proof/spurgear/geometry_test.go`, `proof/spurgear/s
 
 ## Provenance
 
-| Input | `git hash-object` |
+| file | `git hash-object` |
 |---|---|
 | `spec/spurgear/instructions.md` | `f5ffe3451454bb3b187b1318e47b92281d9f0bb0` |
 | `spec/spurgear/fusion.md` | `ea678245854cfec80055d67c46a8788772b0f9d4` |
-| `.claude/skills/generate-gear/PLAYBOOK.md` | `29c38dc687f7d6b88f7c36ff3275482b2eff051f` |
 | `spec/helicalgear/fusion.md` | `83fac920272341e3c4584f16031478a69b7472e7` |
-
-Steps 1–5 are the module surface — classes, dialog, parameters, orchestration — which
-Fusion's timeline never shows but the emitted module cannot exist without. Steps 6–20 are
-the build itself, one timeline entry (or control-flow gate) each. Lengths in Fusion's
-internal units are cm; the proof models the same geometry in mm, which scales lengths and
-changes no count, ratio or angle.
+| `.claude/skills/generate-gear/PLAYBOOK.md` | `4b5b47887e4c8b26b12ec7de679f922bc2d474c2` |
 
 ## 1 `[PROSE]` Module surface and exported constants
 
