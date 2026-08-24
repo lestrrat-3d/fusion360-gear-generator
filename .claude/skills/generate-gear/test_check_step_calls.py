@@ -428,27 +428,26 @@ class CheckApiCallsTest(unittest.TestCase):
 
 
 class SpurDimensionContractTest(unittest.TestCase):
-    def test_rib_and_midpoint_chain_dimensions_are_signed(self):
+    def test_rib_and_midpoint_chain_dimensions_use_axis_orientations(self):
         source = (Path(__file__).parents[3] / 'lib' / 'geargen' / 'spurgear.py').read_text()
-        ribs = source.split('        # 8. Ribs ([SPUR-F-RIBS])', 1)[1].split(
-            '        # 9. Close the tooth at the root', 1)[0]
+        ribs = source.split('        # 9.8 Ribs [SPUR-F-RIBS]', 1)[1].split(
+            '        # 9.9 Close the tooth at the root', 1)[0]
 
         self.assertNotIn('AlignedDimensionOrientation', ribs)
         self.assertIn('VerticalDimensionOrientation', ribs)
         self.assertIn('HorizontalDimensionOrientation', ribs)
-        self.assertIn('ribOrientation', ribs)
-        self.assertIn('chainOrientation', ribs)
+        self.assertIn('acrossVertical', ribs)
 
     def test_spine_uses_pinned_reference_for_zero_angle(self):
         source = (Path(__file__).parents[3] / 'lib' / 'geargen' / 'spurgear.py').read_text()
-        spine = source.split('        # 7. Spine + +X reference', 1)[1].split(
-            '        # 8. Ribs', 1)[0]
+        spine = source.split('        # 9.7 Spine and +X reference', 1)[1].split(
+            '        # 9.8 Ribs', 1)[0]
 
-        self.assertIn('referenceEnd = sketch.sketchPoints.add', spine)
+        self.assertIn('refEnd = sketch.sketchPoints.add', spine)
         self.assertIn('HorizontalDimensionOrientation', spine)
         self.assertIn('VerticalDimensionOrientation', spine)
-        self.assertIn('addAngularDimension(\n            reference, spine', spine)
-        self.assertNotIn('addHorizontal(spine)', spine)
+        self.assertIn('addAngularDimension(\n            refLine, spineLine', spine)
+        self.assertNotIn('addHorizontal', spine)
 
 
 class CheckCompileTest(unittest.TestCase):

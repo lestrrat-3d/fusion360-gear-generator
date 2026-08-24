@@ -94,11 +94,13 @@ build on the shared `[PB-FULL-CONSTRAINT]`, `[PB-SHARE-XOR-COINCIDENT]`, `[PB-NO
   the tip circle).
 
   Build the **+X reference construction line** for **every** `angle`, including 0:
-  1. Add a far endpoint at `(Tip Circle Radius, 0)` and pin it with **two signed dimensions from
+  1. Add a far endpoint at `(Tip Circle Radius, 0)` and pin it with **two axis dimensions from
      the local origin** — `addDistanceDimension(..., HorizontalDimensionOrientation, Tip Circle
-     Radius)` and the vertical one at `0`. Pin it this way rather than with `addCoincident(end,
-     tipCircle)`: a point on a circle has two answers, and pinning its x at the tip radius instead
-     touches the circle at its extreme, where the numbers go unstable.
+     Radius)` and the vertical one at `0`; both values are non-negative magnitudes and the
+     endpoint is seeded on the +X side, per `[PB-DIM-VALUE-SEMANTICS]`. Pin it this way rather
+     than with `addCoincident(end, tipCircle)`: a point on a circle has two answers, and pinning
+     its x at the tip radius instead touches the circle at its extreme, where the numbers go
+     unstable.
   2. Draw the reference line from the origin to that endpoint and mark it construction.
   3. Add an angular dimension **from the reference to the spine, in that argument order**
      (`addAngularDimension(reference, spine, …)`); place its text on the **bisector of the intended
@@ -120,13 +122,17 @@ build on the shared `[PB-FULL-CONSTRAINT]`, `[PB-SHARE-XOR-COINCIDENT]`, `[PB-NO
   over-constrains the sketch (`VCS_SKETCH_OVER_CONSTRAINTS`):
   1. Add the rib with `addByTwoPoints(leftSpline.fitPoints[i], rightSpline.fitPoints[i])` — pass the
      two fit-point `SketchPoint`s **directly** so the rib shares them; mark it construction.
-  2. Dimension the rib with a **signed** dimension, not an aligned one: for `angle = 0` use
-     `addDistanceDimension(left, right, VerticalDimensionOrientation, …)` at the measured Δy; for a
-     rotated tooth, the rib takes the axis **across** the spine and the midpoint chain takes the
-     one **along** it: use vertical for the rib and horizontal for the chain when
-     `|cos(angle)| >= |sin(angle)|`, and swap both otherwise. That reduces to the pair above at
-     `angle = 0`, and a tooth at 90° fails without it. An **aligned** dimension gives only the length, which the left and right flanks satisfy
-     equally well swapped over, so the tooth can come out mirrored.
+  2. Dimension the rib with an **axis** dimension (horizontal/vertical), not an aligned one: for
+     `angle = 0` use `addDistanceDimension(left, right, VerticalDimensionOrientation, …)`, created
+     with the fit points already at their seeded positions and its value left at the measured
+     magnitude — the direction is captured from the seed at creation, per
+     `[PB-DIM-VALUE-SEMANTICS]`. For a rotated tooth, the rib takes the axis **across** the spine
+     and the midpoint chain takes the one **along** it: use vertical for the rib and horizontal
+     for the chain when `|cos(angle)| >= |sin(angle)|`, and swap both otherwise. That reduces to
+     the pair above at `angle = 0`, and a tooth at 90° fails without it. An **aligned** dimension
+     gives only the length, which the left and right flanks satisfy equally well swapped over, so
+     the tooth can come out mirrored; the axis dimension's captured direction is what forbids the
+     swap.
   3. Add a fresh `SketchPoint` for the midpoint, created **already on the spine**. The spine is the
      line at `angle` through the local origin, so seed the midpoint at the **foot of the left fit
      point on that line**: with `t = fitX·cos(angle) + fitY·sin(angle)`, the seed is
@@ -139,11 +145,12 @@ build on the shared `[PB-FULL-CONSTRAINT]`, `[PB-SHARE-XOR-COINCIDENT]`, `[PB-NO
      equal radius either side of the spine (`[SPUR-F-TOOTHTOP-ARC]`), so its perpendicular says
      nothing new and Fusion rejects it with `VCS_SKETCH_OVER_CONSTRAINTS`.
 
-  Then dimension the distance from each rib's midpoint to the previous rib's midpoint with a
-  **signed** dimension along the spine direction (horizontal for `angle = 0`) — and **for the first
+  Then dimension the distance from each rib's midpoint to the previous rib's midpoint with an
+  **axis** dimension along the spine direction (horizontal for `angle = 0`) — and **for the first
   rib, dimension it from the local origin to its midpoint** (start the chain with
-  `previous = local origin`). Signed, so the chain runs outward; an aligned dimension is equally
-  happy running the other way, which is one of the ways the tooth ends up reversed. Without that origin-to-first dim the whole rib chain has
+  `previous = local origin`). The axis dimension's direction, captured from the seeded midpoints
+  at creation (`[PB-DIM-VALUE-SEMANTICS]`), makes the chain run outward; an aligned dimension is
+  equally happy running the other way, which is one of the ways the tooth ends up reversed. Without that origin-to-first dim the whole rib chain has
   one residual DOF (it slides along the spine as a unit) and the sketch never fully constrains. Per
   rib this is exactly determined; any further constraint, wrong order, or off-spine midpoint seed
   over-constrains it.
@@ -153,19 +160,24 @@ build on the shared `[PB-FULL-CONSTRAINT]`, `[PB-SHARE-XOR-COINCIDENT]`, `[PB-NO
   a short radial line from the root circle up to that start point on each side. Build each as
   `addByTwoPoints(rootEndGeometry, flankStartFitPoint)` — pass the flank spline's **start
   `SketchPoint` directly** as the far endpoint (share it; no separate coincident). Then place the
-  root end with **exactly these two signed dimensions from the local origin**, no others:
-  - (a) `addDistanceDimension(localOrigin, rootEnd, HorizontalDimensionOrientation, …)` at the
-    root end's Δx;
-  - (b) the same with `VerticalDimensionOrientation` at its Δy.
+  root end with **exactly these two axis dimensions from the local origin**, no others:
+  - (a) `addDistanceDimension(localOrigin, rootEnd, HorizontalDimensionOrientation, …)`;
+  - (b) the same with `VerticalDimensionOrientation`.
 
-  Together they exactly constrain the root end (2 DOF → 0), and being signed they say **which side
-  of the gear centre** it sits on.
+  The root end is seeded at its exact computed position **before** the dimensions are created, so
+  each dimension captures its direction from that seed and its created value is already the exact
+  magnitude — set values only to `abs(Δx)` / `abs(Δy)`, and **never to the axis-signed deltas: a
+  negative `parameter.value` flips the point to the other side of the origin**
+  (`[PB-DIM-VALUE-SEMANTICS]`; this exact flip mirrored the right-hand root end and left the
+  tooth loop open, found in-Fusion 2026-08-24). Together the two dimensions exactly constrain the
+  root end (2 DOF → 0), and their captured directions say **which side of the gear centre** it
+  sits on.
 
   ⚠️ Do **not** place it instead with "root end on the root circle" plus "local origin on the
   line". Those two are satisfied by **two** points, because the line through the flank start and
   the centre carries on and meets the root circle again on the far side. The stub then stops being
   a stub and becomes a long line straight across the gear, and the sketch reaches DOF 0 with both
-  answers available. The signed offsets are what rule the far one out. This common case yields a tooth loop
+  answers available. The dimensions' captured directions are what rule the far one out. This common case yields a tooth loop
   of **6 curves** (2 splines + 2 flank-to-root lines + 2 arcs). If instead the flank starts
   **inside** the root circle (**high** tooth counts drop the base circle below the root: it happens
   above `2.5 / (1 - cos(PressureAngle))` teeth, which is 41.5 at 20°, 78.5 at 14.5° and 26.7 at
