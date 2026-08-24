@@ -87,7 +87,9 @@ proof is where the next reader is looking for the missing check.
    tracked-or-committed check can see a first-time proof. Exit 2 means the placement was refused
    and nothing moved. Do not pass `--run`; the gate runner below runs the proof.
 
-   Then run `python3 .claude/skills/generate-gear/run_compile_gates.py <gear>` from the repo root.
+   Then run `python3 .claude/skills/generate-gear/run_compile_gates.py <gear> >
+   .tmp/<gear>.compile-gates.txt` from the repo root and read the file for the verdict. The stored
+   copy is also what a retry round hands back to the drafter.
    It runs `bash proof/run.sh`, then `check_compile.py <gear>`, then — only when
    `lib/geargen/<gear>.py` exists — `check_step_calls.py`, in that order, and prints one verdict
    plus a first-pass fault classification. The proof wrapper enters the `proof/` module and
@@ -112,7 +114,11 @@ proof is where the next reader is looking for the missing check.
    has to be able to compile a gear that has no implementation yet.
 
 6. **Diagnose and loop.** Classify any failure with the table below. A draft fault goes back to
-   step 3 with the failure text appended, up to about three rounds. A prose fault stops the run.
+   step 3, up to about three rounds: re-render the prompt with
+   `python3 .claude/skills/generate-gear/render_prompt.py compile-gear <gear> --failure-file
+   .tmp/<gear>.compile-gates.txt` and hand the printed output to the drafter unchanged. The
+   renderer appends the stored gate report verbatim; never paste failure text into the prompt by
+   hand. A prose fault stops the run.
 
 7. **Place.** On success, run `python3 .claude/skills/generate-gear/stage.py <gear> steps` and
    `python3 .claude/skills/generate-gear/stage.py <gear> proof` from the repo root. They put the
@@ -165,6 +171,8 @@ placeholder. Render it — never retype or paraphrase it — with:
 
     python3 .claude/skills/generate-gear/render_prompt.py compile-gear <gear>
 
-Hand the printed output to the drafting subagent unchanged. The renderer refuses to print
-anything for an unknown skill name, a missing template, or a template carrying a placeholder it
-was not given, so a garbled render can never reach the subagent.
+Hand the printed output to the drafting subagent unchanged. On a retry round, `--failure-file`
+appends the previous round's gate report verbatim; the framing text is fixed in the renderer, so
+the retry prompt is as standard as the first. The renderer refuses to print anything for an
+unknown skill name, a missing template, or a template carrying a placeholder it was not given, so
+a garbled render can never reach the subagent.

@@ -30,14 +30,18 @@ the pipeline exists to make trustworthy.
    output to the subagent unchanged. It writes `.tmp/<gear>.generated.py`. Add no per-gear
    hints; anything the drafter needs belongs in the step list.
 
-4. **Gate.** Run `python3 .claude/skills/generate-gear/run_gates.py <gear>`. It runs all seven
-   checks below plus the advisory novel-type report, and prints one verdict. Exit 0 = every gate
-   that ran passed; exit 1 = a gate failed; exit 2 = a setup error (missing input, missing stubs,
-   unreachable API database) that no new draft can fix.
+4. **Gate.** Run `python3 .claude/skills/generate-gear/run_gates.py <gear> > .tmp/<gear>.gates.txt`
+   from the repo root and read the file for the verdict. The stored copy is also what a retry round
+   hands back to the drafter. It runs all seven checks below plus the advisory novel-type report,
+   and prints one verdict. Exit 0 = every gate that ran passed; exit 1 = a gate failed; exit 2 = a
+   setup error (missing input, missing stubs, unreachable API database) that no new draft can fix.
 
 5. **Diagnose and loop.** The runner prints a first-pass fault classification; confirm the rows it
-   marks NEEDS JUDGMENT against the table below. An emit fault goes back to step 3 with the runner
-   output appended, up to about three rounds. A compile fault, or an exit 2, stops the run.
+   marks NEEDS JUDGMENT against the table below. An emit fault goes back to step 3, up to about
+   three rounds: re-render the prompt with `python3 .claude/skills/generate-gear/render_prompt.py
+   emit-gear <gear> --failure-file .tmp/<gear>.gates.txt` and hand the printed output to the
+   drafter unchanged. The renderer appends the stored gate report verbatim; never paste failure
+   text into the prompt by hand. A compile fault, or an exit 2, stops the run.
 
 6. **Place.** On success, run `python3 .claude/skills/generate-gear/stage.py <gear> module` from
    the repo root. It puts `.tmp/<gear>.generated.py` at `lib/geargen/<gear>.py` and reports what
@@ -113,6 +117,8 @@ placeholder. Render it — never retype or paraphrase it — with:
 
     python3 .claude/skills/generate-gear/render_prompt.py emit-gear <gear>
 
-Hand the printed output to the drafting subagent unchanged. The renderer refuses to print
-anything for an unknown skill name, a missing template, or a template carrying a placeholder it
-was not given, so a garbled render can never reach the subagent.
+Hand the printed output to the drafting subagent unchanged. On a retry round, `--failure-file`
+appends the previous round's gate report verbatim; the framing text is fixed in the renderer, so
+the retry prompt is as standard as the first. The renderer refuses to print anything for an
+unknown skill name, a missing template, or a template carrying a placeholder it was not given, so
+a garbled render can never reach the subagent.
