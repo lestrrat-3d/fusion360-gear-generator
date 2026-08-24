@@ -94,8 +94,9 @@ proof is where the next reader is looking for the missing check.
    Then, **only if `lib/geargen/<gear>.py` already exists**, run
    `python3 .claude/skills/generate-gear/check_step_calls.py spec/<gear>/steps.md
    lib/geargen/<gear>.py`. That gate runs in CI against the checked-in module, so a recompiled step
-   list that disagrees with it breaks the build even though both other checks are green. Read its
-   output as a list of call names to classify, and pass only the names back to the drafter: a name
+   list that disagrees with it breaks the build even though both other checks are green. Run it
+   with `--names`, which prints exactly the missing call names, one per line; classify each name
+   and pass only the names back to the drafter: a name
    the step list mentions without requiring takes the exemption directive, and a call the module
    genuinely fails to make is work for `/emit-gear`, not for this stage. Never hand the drafter
    anything the module does or does not contain, and never let it read the module — the pipeline
