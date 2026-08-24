@@ -73,13 +73,26 @@ The spec + playbook together MUST be sufficient. If they are not, fix the spec o
      no longer proves the *spec* states it well enough. Identical prompt every run ⇒ a pass/fail is
      attributable to the spec, which is the whole point. When a regen reveals a gap, fix the
      **spec/playbook** and re-run the **same** standard prompt — never patch the prompt.
-   - **Launch in the background and watch the heartbeat.** Run the subagent as a background task
-     and poll `.tmp/<gear>.progress.log` every ~2–3 minutes (the standard prompt makes the subagent
-     append one milestone line per phase). Stall rules: **no `start` line within ~5 minutes** ⇒ the
-     launch never began (e.g. an unanswered approval gate) — stop and surface it; **no new line for
-     >10 minutes** ⇒ the agent stalled — stop the run, relaunch once, and only then involve the
-     user. A healthy round is ~10–15 minutes end-to-end; never let a silent run sit for an hour.
-     Delete any stale `.tmp/<gear>.progress.log` before launching so the heartbeat is unambiguous.
+   - **Launch in the background and let the watcher do the waiting.** Clear the previous run's
+     telemetry first — `rm -f .tmp/<gear>.progress.log .tmp/<gear>.progress.log.watch` — then run
+     the subagent as a background task (the standard prompt makes it append one milestone line per
+     phase). Do **not** poll the log by hand. Wait with one foreground call, Bash timeout 600000:
+
+     ```
+     python3 .claude/skills/generate-gear/watch_progress.py .tmp/<gear>.progress.log
+     ```
+
+     It blocks until the run reaches a verdict or its 9-minute call budget expires, then prints the
+     status, the elapsed time, the milestone counts and the tail of the log. Report from that
+     output; do not re-read the log. Act on the exit code: **0** the subagent is done — go to step
+     5; **4** still healthy — run the identical command again (a healthy 10–15 minute round takes
+     one or two of these); **1** no heartbeat within the launch window, so the launch never began
+     (e.g. an unanswered approval gate) — stop and surface it; **2** silent past the stall window —
+     stop the run, relaunch once, and only then involve the user; **3** past the 45-minute ceiling
+     with the run still alive — stop it and surface the elapsed time; **5** the progress log is not
+     in the state the watch assumed — inspect before relaunching. The script carries SKILL.md's
+     windows as its defaults (`--launch-window 300`, `--stall-window 600`, `--max-runtime 2700`);
+     override one only with a stated reason.
 
 5. **Validate (reference-free).** The output is checked against the **spec**, not against any
    implementation:
