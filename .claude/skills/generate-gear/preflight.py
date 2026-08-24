@@ -41,7 +41,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
-    sys.path.insert(0, HERE)  # fusion_api / fusion_stubs are siblings, imported lazily below
+    sys.path.insert(0, HERE)  # fusion_api / fusion_stubs / pick_model are siblings, imported
+    #                           lazily below
 
 GEAR_NAME = re.compile(r'[a-z][a-z0-9_]*\Z')  # same spelling stage.py accepts
 TIMEOUT = 10  # seconds; every subprocess here is a version probe
@@ -75,11 +76,18 @@ class Usage(Exception):
 
 
 class Context(object):
-    """What every check is handed: the absolute root and the gear under test."""
+    """What every check is handed: the absolute root and the gear under test.
 
-    def __init__(self, root, gear):
+    `default_model` is the session's default model when the caller passed one.
+    It is the only field no check can derive for itself — the orchestrating
+    agent is the only thing that knows it — so it stays None when unstated and
+    the row that reads it skips.
+    """
+
+    def __init__(self, root, gear, default_model=None):
         self.root = root
         self.gear = gear
+        self.default_model = default_model
 
     def path(self, *parts):
         return os.path.join(self.root, *parts)
@@ -236,6 +244,24 @@ def check_revision_pin(ctx):
     return OK, 'revisions pinned to $SKETCH_COMMIT and $DECAD_COMMIT'
 
 
+def check_model_tiers(ctx):
+    """Record which model each role resolves to for this session.
+
+    Informational only. An off-ladder default is legal (MODELS.md), so there is
+    nothing here that can fail a stage; the row exists so a run's report says
+    which tier its drafter ran on instead of leaving it to be reconstructed.
+    """
+    if not ctx.default_model:
+        return SKIP, 'no --default-model given, so the tiers cannot be resolved'
+    try:
+        import pick_model
+    except ImportError as exc:
+        return SKIP, 'the sibling module pick_model could not be imported (%s)' % exc
+    design, _ = pick_model.resolve('design', ctx.default_model)
+    mechanical, reason = pick_model.resolve('mechanical', ctx.default_model)
+    return OK, 'design=%s, mechanical=%s (%s)' % (design, mechanical, reason)
+
+
 def check_api_db(ctx):
     try:
         import fusion_api
@@ -382,6 +408,7 @@ COMMON = (
     ('git', check_git, False),
     ('tmp-dir', check_tmp_dir, False),
     ('worktree', check_worktree, False),
+    ('model-tiers', check_model_tiers, False),
 )
 
 STAGES = {
@@ -490,6 +517,10 @@ def parse_args(argv):
     parser.add_argument('--stage', choices=['compile', 'emit', 'generate', 'all'], default='all')
     parser.add_argument('--root', default=None)
     parser.add_argument('--format', choices=['text', 'json'], default='text')
+    parser.add_argument(
+        '--default-model', default=None, metavar='MODEL',
+        help="the session's default model; makes the model-tiers row report which model each "
+             'role resolves to (see MODELS.md)')
     return parser.parse_args(argv)
 
 
@@ -505,7 +536,7 @@ def main(argv):
     args = parse_args(argv)
     if not GEAR_NAME.match(args.gear):
         raise Usage("'%s' is not a gear name; expected %s" % (args.gear, GEAR_NAME.pattern))
-    ctx = Context(resolve_root(args.root), args.gear)
+    ctx = Context(resolve_root(args.root), args.gear, args.default_model)
     results = run_checks(ctx, args.stage)
     render = render_json if args.format == 'json' else render_text
     print(render(args.gear, args.stage, results))

@@ -1,6 +1,6 @@
 ---
 name: emit-gear
-description: Write `lib/geargen/<gear>.py` from a compiled step list `spec/<gear>/steps.md` and its proof `proof/<gear>/`, without reading the prose spec or any existing implementation. The interpretation already happened during `/compile-gear`, so this stage is transcription against a fixed API and a small model should manage it. Use after `/compile-gear`. Args: optional `<gear>` name (default `spurgear`).
+description: Write `lib/geargen/<gear>.py` from a compiled step list `spec/<gear>/steps.md` and its proof `proof/<gear>/`, without reading the prose spec or any existing implementation. The interpretation already happened during `/compile-gear`, so this stage is transcription against a fixed API and its drafter takes the mechanical model tier. Use after `/compile-gear`. Args: optional `<gear>` name (default `spurgear`).
 ---
 
 # Emit the add-in from a compiled step list
@@ -17,7 +17,8 @@ the pipeline exists to make trustworthy.
 ## Procedure
 
 1. **Setup.** Work in a worktree, never the root checkout. Ensure `.tmp/` exists. Run
-   `python3 .claude/skills/generate-gear/preflight.py <gear> --stage emit` and fix every `[FAIL]`
+   `python3 .claude/skills/generate-gear/preflight.py <gear> --stage emit --default-model <the
+   session's default model>` and fix every `[FAIL]`
    before drafting; it verifies the engines, the go toolchain and the API database, and runs
    `check_compile.py <gear>` as its `steps-current` row, so a broken environment or a stale
    step list fails here instead of mid-run. If `steps-current` fails, run `/compile-gear <gear>`
@@ -31,12 +32,14 @@ the pipeline exists to make trustworthy.
    `python3 .claude/skills/generate-gear/render_prompt.py emit-gear <gear>` and pass its printed
    output to the subagent unchanged. It writes `.tmp/<gear>.generated.py`. Add no per-gear
    hints; anything the drafter needs belongs in the step list.
-   Spawn the drafter on a small model — pass the Agent tool's `model` option (e.g. `haiku`)
-   when the harness offers one, and skip the option where it does not. This stage is
-   transcription against a fixed API, and step 4's gates, not the drafter, judge the output.
-   If small-model drafts fail the gates with emit faults in two consecutive rounds, respawn
-   the next round on the session's default model. The compile-gear drafter stays on the
-   default model; that stage interprets prose, only this one transcribes.
+   This drafter takes the `mechanical` role: the stage is transcription against a fixed API,
+   and step 4's gates, not the drafter, judge the output. Resolve its model with
+   `python3 .claude/skills/generate-gear/pick_model.py --role mechanical --default <the
+   session's default model>` and pass the printed name as the Agent tool's `model` option,
+   skipping the option where the harness offers none. Never write a model name into this file;
+   `.claude/skills/generate-gear/MODELS.md` holds the ladder and the reason the tier is
+   relative. The compile-gear drafter takes the `design` role instead, because that stage
+   interprets prose and only this one transcribes.
 
 3. **Gate.** Run `python3 .claude/skills/generate-gear/run_gates.py <gear> > .tmp/<gear>.gates.txt`
    from the repo root and read the file for the verdict. The stored copy is also what a retry round
@@ -57,7 +60,12 @@ the pipeline exists to make trustworthy.
    Spawn a fresh drafting subagent (a full step 2) only when one of these holds: this is the
    first round; an input file (`steps.md`, the proof, the playbook, or a framework module)
    changed since the drafter read it; the same gate fails in two consecutive continued rounds;
-   or the drafter is no longer reachable. A fresh retry round re-renders the prompt with
+   or the drafter is no longer reachable. Resolve a fresh spawn's model the same way step 2
+   does, except where drafts have failed the gates with emit faults in two consecutive rounds:
+   add `--escalated` to the `pick_model.py` call, which steps the drafter back up to the
+   session's default model for the rounds that remain. A continued round changes no model,
+   because a resumed agent keeps the one it was spawned on. A fresh retry round re-renders the
+   prompt with
    `python3 .claude/skills/generate-gear/render_prompt.py emit-gear <gear> --failure-file
    .tmp/<gear>.gates.txt`, which appends the stored gate report verbatim; hand the printed
    output to the drafter unchanged. The first round's prompt is always the rendered standard

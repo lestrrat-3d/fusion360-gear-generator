@@ -48,7 +48,8 @@ proof is where the next reader is looking for the missing check.
 ## Procedure
 
 1. **Setup.** Work in a worktree, never the root checkout. Ensure `.tmp/` exists. Run
-   `python3 .claude/skills/generate-gear/preflight.py <gear> --stage compile` and fix every
+   `python3 .claude/skills/generate-gear/preflight.py <gear> --stage compile --default-model
+   <the session's default model>` and fix every
    `[FAIL]` before drafting; it verifies the engines, the go toolchain and the API database so a
    broken environment fails here instead of mid-run. Read this file end to end. Do **not** read
    `PLAYBOOK.md`, the spec, or the harness APIs up front: the drafting subagent reads them in
@@ -71,7 +72,10 @@ proof is where the next reader is looking for the missing check.
 3. **Draft.** Spawn a subagent with the standard drafting prompt: run
    `python3 .claude/skills/generate-gear/render_prompt.py compile-gear <gear>` and pass its
    printed output to the subagent unchanged. It writes `.tmp/<gear>.steps.md` and the proof
-   files under `.tmp/<gear>-proof/`. Do
+   files under `.tmp/<gear>-proof/`. This drafter takes the `design` role, because the stage
+   interprets prose, so it runs on the session's default model; resolve it with
+   `python3 .claude/skills/generate-gear/pick_model.py --role design --default <the session's
+   default model>` and see `.claude/skills/generate-gear/MODELS.md` for the rule. Do
    **not** add per-gear hints, gotcha reminders or "high-risk" lists to that prompt. A hand-tuned
    prompt varies run to run and hides gaps by spoon-feeding what the prose should have said, so a
    green run would no longer say anything about the spec.
@@ -134,7 +138,9 @@ proof is where the next reader is looking for the missing check.
    Spawn a fresh drafting subagent (a full step 3) only when one of these holds: this is the
    first round; an input file (the spec, `fusion.md`, the playbook, or a harness package)
    changed since the drafter read it; the same check fails on the same step in two consecutive
-   continued rounds; or the drafter is no longer reachable. A fresh retry round re-renders the
+   continued rounds; or the drafter is no longer reachable. A fresh spawn keeps the `design`
+   role, and a continued round changes no model, because a resumed agent keeps the one it was
+   spawned on. A fresh retry round re-renders the
    prompt with `python3 .claude/skills/generate-gear/render_prompt.py compile-gear <gear>
    --failure-file .tmp/<gear>.compile-gates.txt`, which appends the stored gate report verbatim;
    hand the printed output to the drafter unchanged. The first round's prompt is always the

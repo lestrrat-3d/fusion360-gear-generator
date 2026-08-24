@@ -431,6 +431,45 @@ class StubTests(Fixture):
         self.assertEqual(os.listdir(str(cache)), [])
 
 
+class ModelTierTests(Fixture):
+    """The row records the tiers; it never decides whether a stage may run."""
+
+    def test_the_row_skips_when_no_default_model_is_given(self):
+        status, detail = MODULE.check_model_tiers(self.ctx)
+
+        self.assertEqual(status, MODULE.SKIP)
+        self.assertIn('--default-model', detail)
+
+    def test_the_row_reports_both_roles(self):
+        ctx = MODULE.Context(str(self.root), GEAR, 'opus')
+
+        status, detail = MODULE.check_model_tiers(ctx)
+
+        self.assertEqual(status, MODULE.OK)
+        self.assertIn('design=opus', detail)
+        self.assertIn('mechanical=sonnet', detail)
+
+    def test_an_off_ladder_default_still_passes(self):
+        ctx = MODULE.Context(str(self.root), GEAR, 'something-unreleased')
+
+        status, detail = MODULE.check_model_tiers(ctx)
+
+        self.assertEqual(status, MODULE.OK)
+        self.assertIn('not on the ladder', detail)
+
+    def test_the_flag_reaches_the_row(self):
+        with mock.patch.dict(os.environ, self.resolved()):
+            _, out = self.run_cli(GEAR, '--stage', 'emit', '--root', str(self.root),
+                                  '--default-model', 'opus')
+
+        self.assertIn('model-tiers: design=opus, mechanical=sonnet', out)
+
+    def test_every_stage_records_the_tiers(self):
+        for stage in MODULE.STAGE_ORDER:
+            with self.subTest(stage=stage):
+                self.assertIn('model-tiers', [key for key, _, _ in MODULE.STAGES[stage]])
+
+
 class ReportTests(Fixture):
     """The two output shapes, and the promise that warnings alone still exit 0."""
 
