@@ -16,7 +16,10 @@ the pipeline exists to make trustworthy.
 
 ## Procedure
 
-1. **Setup.** Work in a worktree, never the root checkout. Ensure `.tmp/` exists.
+1. **Setup.** Work in a worktree, never the root checkout. Ensure `.tmp/` exists. Run
+   `python3 .claude/skills/generate-gear/preflight.py <gear> --stage emit` and fix every `[FAIL]`
+   before drafting; it verifies the engines, the go toolchain and the API database so a broken
+   environment fails here instead of mid-run.
 
 2. **Check the inputs are current.** Run
    `python3 .claude/skills/generate-gear/check_compile.py <gear>`. Emitting from a stale step list
