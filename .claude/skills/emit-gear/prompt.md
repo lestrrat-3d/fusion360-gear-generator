@@ -12,16 +12,20 @@ rules the steps cite by anchor; and the framework you build on and must not reim
 or any previous draft. The step list is deliberately the only description of the gear you get. If
 a step is unclear, record it as a defect in your report and make your best attempt.
 
-**Before writing any `adsk.*` call**, ask the `fusion:query-api` skill about it. One question
-carries most of the work: `show <Class>.<member>` confirms in a few lines that the class you are
-calling on really has the member — it resolves members declared on any base and names the class
-that declares each — and gives its signature and documentation. Pass what the signature asks
-for. Where it says `ValueInput`, a bare number raises. Where it says `ObjectCollection`, a
-Python list raises. Where it says `Point3D`, a `SketchPoint` raises. When `show` reports no
-match or returns a candidate list, the name as written does not exist; only then ask
-`members <Class>`, which lists everything the class offers, inherited members included, to find
-what the step list meant. If the step list names a call the API does not have, report it and do
-not quietly correct it.
+**The step list's call spans are pre-verified.** Every Fusion call written in a code span in
+`spec/{{gear}}/steps.md` was checked against the API database when the step list was compiled, and
+the spans carry the argument shapes the signatures ask for. Write those calls as the steps give
+them; do not re-query them. Ask the `fusion:query-api` skill only about a call you introduce that
+the step list does not carry, a span whose arguments the step leaves unstated, or a call a gate
+flags. One question carries most of the work: `show <Class>.<member>` confirms in a few lines
+that the class you are calling on really has the member — it resolves members declared on any
+base and names the class that declares each — and gives its signature and documentation. Pass
+what the signature asks for. Where it says `ValueInput`, a bare number raises. Where it says
+`ObjectCollection`, a Python list raises. Where it says `Point3D`, a `SketchPoint` raises. When
+`show` reports no match or returns a candidate list, the name as written does not exist; only
+then ask `members <Class>`, which lists everything the class offers, inherited members included,
+to find what the step list meant. If the step list names a call the API does not have, report it
+and do not quietly correct it.
 
 **Do every step.** A step you cannot finish is a defect to report, never a comment left in the
 file and never a silent omission.
