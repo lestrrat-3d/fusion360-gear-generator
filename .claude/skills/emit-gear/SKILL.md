@@ -29,6 +29,12 @@ the pipeline exists to make trustworthy.
    `python3 .claude/skills/generate-gear/render_prompt.py emit-gear <gear>` and pass its printed
    output to the subagent unchanged. It writes `.tmp/<gear>.generated.py`. Add no per-gear
    hints; anything the drafter needs belongs in the step list.
+   Spawn the drafter on a small model — pass the Agent tool's `model` option (e.g. `haiku`)
+   when the harness offers one, and skip the option where it does not. This stage is
+   transcription against a fixed API, and step 4's gates, not the drafter, judge the output.
+   If small-model drafts fail the gates with emit faults in two consecutive rounds, respawn
+   the next round on the session's default model. The compile-gear drafter stays on the
+   default model; that stage interprets prose, only this one transcribes.
 
 4. **Gate.** Run `python3 .claude/skills/generate-gear/run_gates.py <gear>`. It runs all seven
    checks below plus the advisory novel-type report, and prints one verdict. Exit 0 = every gate
