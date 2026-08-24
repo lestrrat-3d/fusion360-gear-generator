@@ -1826,7 +1826,9 @@ class CheckCompileTest(unittest.TestCase):
         """One `[GO]` step whose body names `span` in a code span, otherwise canonical."""
         return ('## S1 `[GO]` One — `stepOne`\n\n'
                 'Call `%s`.\n\n'
-                '**From:** `spec/gear/instructions.md` L1\n\n' % span)
+                '%s'
+                '**From:** `spec/gear/instructions.md` L1\n\n'
+                % (span, self.annotation_line(self.CANONICAL_ANNOTATION)))
 
     def test_nonexistent_call_named_by_spec_is_a_prose_fault(self):
         result, output = self.run_checker(
