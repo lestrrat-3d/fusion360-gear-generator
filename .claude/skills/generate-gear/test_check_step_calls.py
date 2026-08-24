@@ -505,6 +505,7 @@ class CheckCompileTest(unittest.TestCase):
                 step_body = (
                     '## S1 `[GO]` One — `stepOne`\n\n'
                     'Build the thing.\n\n'
+                    '<!-- proof-run: proofkit.Run(profileCases, stepOne) -->\n\n'
                     '%s\n\n' % from_line)
             steps = (
                 '# Steps\n\n'
@@ -746,8 +747,12 @@ class CheckCompileTest(unittest.TestCase):
     def test_compile_allows_legitimate_unwatched_namesake_from_api(self):
         result, output = self.run_checker(
             step_body=(
-                '## S1 `[PROSE]` Chamfer call — `stepOne`\n\n'
+                # The step is `[GO]` and carries its annotation because the default proof body
+                # registers `stepOne`, and a registration no step annotates is BLOCKING. The
+                # subject here is the API-reality check, so the fixture has to be clean elsewhere.
+                '## S1 `[GO]` Chamfer call — `stepOne`\n\n'
                 'Call `chamferFeatures.createInput2(edges)`.\n\n'
+                '<!-- proof-run: proofkit.Run(profileCases, stepOne) -->\n\n'
                 '**From:** `spec/gear/instructions.md` L1\n\n'),
             api_lookup={
                 'createInput2': [('adsk.fusion.ChamferFeatures.createInput2', 'method')]})

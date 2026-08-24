@@ -129,30 +129,6 @@ var filletCases = []proofkit3d.Case{
 		"involuteSteps": 15, "thickness": 10, "noRootEdges": 1}},
 }
 
-func TestExtrudeTooth(t *testing.T) {
-	proofkit3d.RunSolid(t, solidCases, stepExtrudeTooth, assertExtrudeTooth)
-}
-
-func TestExtrudeBody(t *testing.T) {
-	proofkit3d.RunSolid(t, solidCases, stepExtrudeBody, assertExtrudeBody)
-}
-
-func TestPatternTeeth(t *testing.T) {
-	proofkit3d.RunSolid(t, patternCases, stepPatternTeeth, assertPatternTeeth)
-}
-
-func TestCombineTeeth(t *testing.T) {
-	proofkit3d.RunSolid(t, solidCases, stepCombineTeeth, assertCombineTeeth)
-}
-
-func TestRootFillets(t *testing.T) {
-	proofkit3d.RunSolid(t, filletCases, stepRootFillets, assertRootFillets)
-}
-
-func TestBoreCut(t *testing.T) {
-	proofkit3d.RunSolid(t, boreCutCases, stepBoreCut, assertBoreCut)
-}
-
 // stepExtrudeTooth is step 7: extrude the tooth cross-section from the target
 // plane to the Extrusion End Plane as a new body.
 //

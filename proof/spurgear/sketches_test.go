@@ -76,18 +76,6 @@ var profileCases = []proofkit.Case{
 		"module": 2, "toothNumber": 30, "pressureAngle": 25 * math.Pi / 180, "angle": math.Pi / 6, "involuteSteps": 15}},
 }
 
-func TestToolsSketch(t *testing.T) {
-	proofkit.Run(t, profileCases, stepToolsSketch)
-}
-
-func TestGearProfileSketch(t *testing.T) {
-	proofkit.Run(t, profileCases, stepGearProfileSketch)
-}
-
-func TestBoreProfileSketch(t *testing.T) {
-	proofkit.Run(t, boreCases, stepBoreProfileSketch)
-}
-
 // stepToolsSketch is step 2: the Tools sketch.
 //
 // It draws no geometry of its own. Its whole content is the projection of the

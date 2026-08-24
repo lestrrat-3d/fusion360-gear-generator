@@ -310,8 +310,15 @@ class CheckCompileTest(unittest.TestCase):
             '| `%s` | `%s` |' % (path, COMPILE_CHECKER.blob_hash(str(root / path)))
             for path in paths)
 
+    # The annotation the canonical step body carries. A `[GO]` step without one is BLOCKING, and
+    # a registration no annotation covers is BLOCKING the other way, so the default fixture has to
+    # declare the registration its default proof body writes. A fixture that moves one moves both:
+    # `annotation` is the knob for the step list's side, `registration` for the proof's.
+    CANONICAL_ANNOTATION = 'proofkit.Run(profileCases, stepOne)'
+
     def run_checker(self, provenance=None, from_line='**From:** `spec/gear/instructions.md` L1',
                     proof_body=None, proof_filename='proof_test.go', step_body=None,
+                    annotation=CANONICAL_ANNOTATION,
                     include_fusion=True, auxiliary=False, mutate_auxiliary=False,
                     api_lookup=None, unverified_findings=None, proof_directories=()):
         with tempfile.TemporaryDirectory() as directory:
@@ -354,7 +361,7 @@ class CheckCompileTest(unittest.TestCase):
                 step_body = (
                     '## S1 `[GO]` One — `stepOne`\n\n'
                     'Build the thing.\n\n'
-                    '%s\n\n' % from_line)
+                    '%s%s\n\n' % (self.annotation_line(annotation), from_line))
             steps = (
                 '# Steps\n\n'
                 '%s'
@@ -379,6 +386,12 @@ class CheckCompileTest(unittest.TestCase):
                 os.chdir(prior)
             return result, output.getvalue()
 
+    def annotation_line(self, annotation):
+        """The `proof-run` directive as a step body writes it, or nothing when there is none."""
+        if annotation is None:
+            return ''
+        return '<!-- proof-run: %s -->\n\n' % annotation
+
     def registration(self, test, call, build, cases='profileCases', extra=''):
         """The canonical three-line registration, plus the step definition it names.
 
@@ -391,15 +404,24 @@ class CheckCompileTest(unittest.TestCase):
             '}\n\n'
             'func stepOne() {}\n' % (test, call, cases, build, extra))
 
-    def claim_step(self, claim):
+    def claim_step(self, claim, annotation=None):
         """One `[GO]` step whose title carries `claim`, with citation and body canonical.
 
         The title is where the committed step lists write the proof function, so a fixture that
         only differs in what is claimed reads as exactly that difference.
+
+        The annotation is derived from the claim rather than fixed, because the two name the same
+        function and a fixture that let them disagree would be testing that disagreement instead
+        of the claim. A claim that is not a Go name makes an annotation the gate cannot parse,
+        which is what such a step list really carries.
         """
+        if annotation is None:
+            annotation = 'proofkit.Run(profileCases, %s)' % claim
         return ('## S1 `[GO]` One — `%s`\n\n'
                 'Build the thing.\n\n'
-                '**From:** `spec/gear/instructions.md` L1\n\n' % claim)
+                '%s'
+                '**From:** `spec/gear/instructions.md` L1\n\n'
+                % (claim, self.annotation_line(annotation)))
 
     def body(self, statements, test='TestTwo'):
         """A proof whose first registration is canonical and whose second Test is `statements`."""
@@ -427,7 +449,9 @@ class CheckCompileTest(unittest.TestCase):
             with self.subTest(call=call):
                 proof_body = self.registration('TestOne', call, 'stepOne', extra=extra)
 
-                result, output = self.run_checker(proof_body=proof_body)
+                result, output = self.run_checker(
+                    proof_body=proof_body,
+                    annotation='%s(profileCases, stepOne%s)' % (call, extra))
 
                 self.assertEqual(result, 0, output)
                 self.assertIn('compile check: OK', output)
@@ -561,7 +585,9 @@ class CheckCompileTest(unittest.TestCase):
             with self.subTest(call=call):
                 proof_body = self.registration('TestOne', call, 'stepOne', extra=extra)
 
-                result, output = self.run_checker(proof_body=proof_body)
+                result, output = self.run_checker(
+                    proof_body=proof_body,
+                    annotation='%s(profileCases, stepOne%s)' % (call, extra))
 
                 self.assertEqual(result, 0, output)
                 self.assertIn('compile check: OK', output)
@@ -628,6 +654,162 @@ class CheckCompileTest(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertIn(
             'S1 names proof function stepOne, which TestOne does not build with', output)
+
+    # The `proof-run` annotation, which is where a registration's four inputs are written.
+    #
+    # The registration file is generated from these, so a step list and a generated file that
+    # disagree are a stale build output, not two opinions. Every rule below is the gate holding
+    # one half of that: the step list declares a run per `[GO]` step, and the proof registers
+    # exactly what was declared.
+
+    def two_steps(self, second_annotation, second='stepTwo'):
+        """Two `[GO]` steps, the first canonical, the second annotated as asked."""
+        return ('## S1 `[GO]` One — `stepOne`\n\n'
+                'Build the thing.\n\n'
+                '%s'
+                '**From:** `spec/gear/instructions.md` L1\n\n'
+                '## S2 `[GO]` Two — `%s`\n\n'
+                'Build the other thing.\n\n'
+                '%s'
+                '**From:** `spec/gear/instructions.md` L1\n\n'
+                % (self.annotation_line(self.CANONICAL_ANNOTATION), second,
+                   self.annotation_line(second_annotation)))
+
+    def test_go_step_without_an_annotation_is_blocking(self):
+        """The annotation is what the scaffolder reads, so a forgotten one is a missing Test."""
+        result, output = self.run_checker(annotation=None)
+
+        self.assertEqual(result, 1, output)
+        self.assertIn('S1 is tagged [GO] but carries no proof-run annotation; write '
+                      '`<!-- proof-run: <package>.<Run…>(<cases>, step<Title>[, …]) -->` in the '
+                      'step body', output)
+
+    def test_prose_step_with_an_annotation_is_blocking(self):
+        """A step no harness reaches has no run to register, so an annotation on one is a mistake."""
+        step_body = ('## S1 `[PROSE]` One — `stepOne`\n\n'
+                     'Describe the thing.\n\n'
+                     '<!-- proof-run: proofkit.Run(profileCases, stepOne) -->\n\n'
+                     '**From:** `spec/gear/instructions.md` L1\n\n')
+
+        result, output = self.run_checker(step_body=step_body)
+
+        self.assertEqual(result, 1, output)
+        self.assertIn('S1 is tagged [PROSE] but carries a proof-run annotation; a step no harness '
+                      'reaches registers nothing', output)
+
+    def test_annotation_and_registration_that_disagree_are_blocking(self):
+        """Method, table and extras are each compared, and each names the regeneration command.
+
+        Without this the gate never held a run method or a case table against anything, so an
+        annotation that moved over a stale generated file passed every check.
+        """
+        cases = (
+            ('the method', 'proofkit3d.RunSolid(profileCases, stepOne, assertOne)',
+             self.registration('TestOne', 'proofkit.Run', 'stepOne'),
+             'proofkit.Run(profileCases, stepOne)'),
+            ('the case table', 'proofkit.Run(solidCases, stepOne)',
+             self.registration('TestOne', 'proofkit.Run', 'stepOne'),
+             'proofkit.Run(profileCases, stepOne)'),
+            ('an extra argument', 'proofkit3d.RunSolid(profileCases, stepOne, assertTwo)',
+             self.registration('TestOne', 'proofkit3d.RunSolid', 'stepOne', extra=', assertOne'),
+             'proofkit3d.RunSolid(profileCases, stepOne, assertOne)'),
+        )
+        for subject, annotation, proof_body, registered in cases:
+            with self.subTest(subject=subject):
+                result, output = self.run_checker(proof_body=proof_body, annotation=annotation)
+
+                self.assertEqual(result, 1, output)
+                self.assertIn(
+                    'S1 annotates stepOne as %s, but proof/gear/proof_test.go:2 registers it as '
+                    '%s; regenerate with `python3 '
+                    '.claude/skills/generate-gear/scaffold_proof.py gear`'
+                    % (annotation, registered), output)
+
+    def test_registration_no_step_annotates_is_blocking(self):
+        """The other direction: a Test nothing declared is one the scaffolder never wrote."""
+        proof_body = (
+            'func TestOne(t *testing.T) {\n'
+            '\tproofkit.Run(t, profileCases, stepOne)\n'
+            '}\n\n'
+            'func TestTwo(t *testing.T) {\n'
+            '\tproofkit.Run(t, profileCases, stepTwo)\n'
+            '}\n\n'
+            'func stepOne() {}\n\n'
+            'func stepTwo() {}\n')
+        step_body = self.two_steps(None, second='stepTwo')
+
+        result, output = self.run_checker(proof_body=proof_body, step_body=step_body)
+
+        self.assertEqual(result, 1, output)
+        self.assertIn(
+            'proof/gear/proof_test.go:6 registers stepTwo, but no step carries a proof-run '
+            "annotation for it; registrations are generated from the step list's annotations",
+            output)
+
+    def test_two_steps_annotating_one_function_are_blocking(self):
+        """One step owns a registration, or the generated file would hold two of the same Test."""
+        step_body = self.two_steps('proofkit.Run(profileCases, stepOne)', second='stepOne')
+
+        result, output = self.run_checker(step_body=step_body)
+
+        self.assertEqual(result, 1, output)
+        self.assertIn('S1 and S2 both annotate stepOne; one step owns a registration', output)
+
+    def test_annotation_on_a_method_no_harness_declares_is_blocking(self):
+        """The run table is derived from the harness, and the annotation is held to it."""
+        result, output = self.run_checker(annotation='proofkit.RunSolid(profileCases, stepOne)')
+
+        self.assertEqual(result, 1, output)
+        self.assertIn('S1 annotates a run on proofkit.RunSolid, which no harness package '
+                      'declares; the run methods are ', output)
+
+    def test_annotation_argument_count_is_held_to_the_declared_arity(self):
+        """The count includes the `t` the scaffolder inserts, so the annotation lists one fewer."""
+        result, output = self.run_checker(
+            annotation='proofkit3d.RunSolid(profileCases, stepOne)')
+
+        self.assertEqual(result, 1, output)
+        self.assertIn('S1 annotates proofkit3d.RunSolid with 3 arguments, but the method takes 4',
+                      output)
+
+    def test_annotation_build_argument_must_be_a_step_name(self):
+        """The Test title is derived from this argument, so it has to be a `step<Title>` name."""
+        result, output = self.run_checker(annotation='proofkit.Run(profileCases, buildOne)')
+
+        self.assertEqual(result, 1, output)
+        self.assertIn('S1 annotates proofkit.Run with buildOne as its build argument, but that '
+                      'argument must be a step<Title> function so a step can claim it', output)
+
+    def test_annotation_inside_a_fenced_block_is_not_read(self):
+        """A step quoting the directive in an example registers nothing, so the step has none."""
+        step_body = ('## S1 `[GO]` One — `stepOne`\n\n'
+                     'Build the thing, whose annotation is written like this:\n\n'
+                     '```\n'
+                     '<!-- proof-run: proofkit.Run(profileCases, stepOne) -->\n'
+                     '```\n\n'
+                     '**From:** `spec/gear/instructions.md` L1\n\n')
+
+        result, output = self.run_checker(step_body=step_body)
+
+        self.assertEqual(result, 1, output)
+        self.assertIn('S1 is tagged [GO] but carries no proof-run annotation', output)
+
+    def test_malformed_annotation_is_named_rather_than_skipped(self):
+        """A directive the strict grammar will not parse is a finding, never a silent pass."""
+        for directive in ('<!-- proof-run: whatever -->',
+                          '<!-- proof-run: proofkit.Run(profileCases, stepOne, 3) -->',
+                          '<!-- proof-run: proofkit.Run(makeCases(), stepOne) -->'):
+            with self.subTest(directive=directive):
+                step_body = ('## S1 `[GO]` One — `stepOne`\n\n'
+                             'Build the thing.\n\n'
+                             '%s\n\n'
+                             '**From:** `spec/gear/instructions.md` L1\n\n' % directive)
+
+                result, output = self.run_checker(step_body=step_body)
+
+                self.assertEqual(result, 1, output)
+                self.assertIn('S1 carries a proof-run annotation this gate cannot parse: %s'
+                              % directive, output)
 
     # Everything off the shape is refused rather than read. These are the shapes that cost the
     # brace-matching reader its rounds; here each one is one line of expected output.
@@ -1940,6 +2122,12 @@ class GoPatternClassTest(unittest.TestCase):
             'proof_paths, a proof path named in the step-list summary',
         r'\|\s*`([\w./-]+)`\s*\|\s*`([0-9a-f]{40})`\s*\|':
             'stamped, a row of the provenance table',
+        r'<!--\s*proof-run:(.*?)-->':
+            'PROOF_RUN_ANNOTATION_LOOSE, any proof-run directive in a step body, however written',
+        r'<!--\s*proof-run:\s*(?P<package>%(name)s)\s*\.\s*(?P<method>Run%(part)s*)\s*\('
+        r'\s*(?P<arguments>%(qualified)s(?:\s*,\s*%(qualified)s)*)\s*\)\s*-->':
+            'PROOF_RUN_ANNOTATION, a well-formed proof-run directive. The names inside it are '
+            'Go-strict; the separation around them is Markdown, which is why the gaps are `\\s`',
     }
 
     # The two classes that say what a Go identifier rune is. They are written as `\w` with what
@@ -2045,6 +2233,7 @@ GO_IDENTIFIER_SAMPLES = {
     'STEP_NAME_CLAIM': ('The step builds the profile with `%s`.', 'stepOne'),
     'PROOF_RUN_MENTION': ('\tproofkit3d.%s(t, profileCases, stepOne)', 'RunSolid'),
     'proof_run_shape': ('\tproofkit.Run(t, profileCases, %s)', 'stepOne'),
+    'PROOF_RUN_ANNOTATION': ('<!-- proof-run: %s.Run(profileCases, stepOne) -->', 'proofkit'),
 }
 
 # The patterns that need no edge at all, with the reason each one does not. `fullmatch` makes the

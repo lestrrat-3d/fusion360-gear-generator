@@ -1,7 +1,8 @@
 # Spur Gear — compiled step list
 
-The proof is `proof/spurgear/sketches_test.go`, `proof/spurgear/solids_test.go` and
-`proof/spurgear/geometry_test.go`, in package `spurgear_test`.
+The proof is `proof/spurgear/sketches_test.go`, `proof/spurgear/solids_test.go`,
+`proof/spurgear/geometry_test.go` and the generated
+`proof/spurgear/zz_registrations_test.go`, in package `spurgear_test`.
 
 ## Provenance
 
@@ -248,6 +249,8 @@ The proof function is `stepToolsSketch`. It models the projection with the sketc
 externally-locked reference point, because a Fusion projection is a reference that the sketch may
 not move, and asserts what the spec pins here — that the sketch holds that one point and no curves.
 
+<!-- proof-run: proofkit.Run(profileCases, stepToolsSketch) -->
+
 **From:** `spec/spurgear/instructions.md` L41, L228–230, L258, L285, L425–427, L481–485;
 `spec/spurgear/fusion.md` L19–24;
 `.claude/skills/generate-gear/PLAYBOOK.md` L92–96, L376–385, L430–444, L558–570
@@ -398,6 +401,8 @@ asserts the spine really sits at `angle`, that the tooth region carries the cont
 and two spline flanks, that its boundary takes only part of the root circle, and that the disc
 region's area is the root circle's.
 
+<!-- proof-run: proofkit.Run(profileCases, stepGearProfileSketch) -->
+
 **From:** `spec/spurgear/instructions.md` L180–251, L260, L265, L308–310, L338–380, L431–440,
 L442–479, L481–485;
 `spec/spurgear/fusion.md` L17–43, L45–60, L62–67, L69–87, L89–112, L114–149, L151–186;
@@ -462,6 +467,8 @@ samples, because `decad` refuses to record a profile boundary whose trim it cann
 sketch engine withholds certification from every edge of a sketch holding a spline, and because a
 spline-walled loop is separately refused by the extruder. The curve-count contract this step
 matches on is therefore asserted in step 4, on the sketch that really draws it.
+
+<!-- proof-run: proofkit3d.RunSolid(solidCases, stepExtrudeTooth, assertExtrudeTooth) -->
 
 **From:** `spec/spurgear/instructions.md` L218–226, L261, L265, L311–315, L491–495;
 `.claude/skills/generate-gear/PLAYBOOK.md` L151–158, L571–580, L607–614
@@ -550,6 +557,8 @@ Substitution: the proof draws the disc as one whole circle rather than as the tw
 splits it into, for the recording reason given in step 6; the two-arc count is asserted in step 4 on
 the sketch that draws it, and both descriptions bound the same disc.
 
+<!-- proof-run: proofkit3d.RunSolid(solidCases, stepExtrudeBody, assertExtrudeBody) -->
+
 **From:** `spec/spurgear/instructions.md` L218–226, L262–264, L291, L505–514;
 `.claude/skills/generate-gear/PLAYBOOK.md` L151–158, L410, L571–580, L639–660, L686–689
 
@@ -584,6 +593,8 @@ it should, since an undecided pair is not a proven-disjoint one. The seed, its i
 and the place one short of a full turn are what the proof holds; the rest are the same operation at
 the same spacing. The chorded flank substitution of step 6 applies here too.
 
+<!-- proof-run: proofkit3d.RunSolid(patternCases, stepPatternTeeth, assertPatternTeeth) -->
+
 **From:** `spec/spurgear/instructions.md` L263, L292, L516–520;
 `.claude/skills/generate-gear/PLAYBOOK.md` L592–602
 
@@ -612,6 +623,8 @@ unchanged and is what the assertion checks. And only one tooth is joined: a seco
 first result as an operand, and `decad` refuses a boolean whose faceted operand shares a cap plane
 with its tool, which two bodies both running from the sketch plane to the end plane always do. That
 leaves the mutual disjointness of the remaining teeth unproven here.
+
+<!-- proof-run: proofkit3d.RunSolid(solidCases, stepCombineTeeth, assertCombineTeeth) -->
 
 **From:** `spec/spurgear/instructions.md` L262, L292, L516–520;
 `.claude/skills/generate-gear/PLAYBOOK.md` L592–596
@@ -663,6 +676,8 @@ because a finely chorded flank has segments shorter than the fillet's own setbac
 crossing, which is an artefact of the chording — the real flank there is one smooth spline with no
 corner at all.
 
+<!-- proof-run: proofkit3d.RunSolid(filletCases, stepRootFillets, assertRootFillets) -->
+
 **From:** `spec/spurgear/instructions.md` L86–88, L292, L318–323, L522–531;
 `.claude/skills/generate-gear/PLAYBOOK.md` L480–486, L571–580
 
@@ -703,6 +718,8 @@ reached at all, through a small bore, one close to the root circle, and a coarse
 gates the sketch on the same full verdict step 4 uses, so a stray point left free would fail here,
 and asserts the region drawn is the bore circle's.
 
+<!-- proof-run: proofkit.Run(boreCases, stepBoreProfileSketch) -->
+
 **From:** `spec/spurgear/instructions.md` L54, L242–248, L293, L357–362, L533–537;
 `spec/spurgear/fusion.md` L26–31;
 `.claude/skills/generate-gear/PLAYBOOK.md` L413–429, L534–535
@@ -733,6 +750,8 @@ exists, so there is no body for this step to build or for the proof to measure.
 Substitution: the cut ends on a tool that spans the same range as the to-entity extent would, since
 `decad` has no named face to end on; the reach the extent guarantees is asserted directly instead,
 by checking the bored body still spans the full thickness.
+
+<!-- proof-run: proofkit3d.RunSolid(boreCutCases, stepBoreCut, assertBoreCut) -->
 
 **From:** `spec/spurgear/instructions.md` L264, L293, L533–537;
 `.claude/skills/generate-gear/PLAYBOOK.md` L607–614, L628–631
