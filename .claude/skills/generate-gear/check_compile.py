@@ -427,7 +427,7 @@ def strip_go_comments_and_literals(src):
 # What this buys is that the gate never has to decide what a brace means. What it costs is that a
 # run written any other way is refused rather than read. That is the safe direction: a refusal
 # names the file and line and says what to write, while a misreading silently credits a step no
-# test builds. `.claude/skills/compile-gear/SKILL.md` states the same shape to the drafter, so the
+# test builds. `.claude/skills/compile-gear/prompt.md` states the same shape to the drafter, so the
 # refusal is a contract violation rather than a surprise.
 #
 # Comments and literals are blanked before matching, so a registration quoted inside a doc comment
@@ -717,7 +717,7 @@ GO_TOKEN_SEPARATION = re.compile('%(sp1)s' % GO_TOKENS)
 
 # A step is read only from a function declaration. Go would also accept `var stepFoo = func(...)`,
 # and that form is deliberately not recognised: the drafting contract in
-# `.claude/skills/compile-gear/SKILL.md` is one function per step, and a gate that reads both forms
+# `.claude/skills/compile-gear/prompt.md` is one function per step, and a gate that reads both forms
 # has two shapes to keep right instead of one. What the refusal must not do is call a
 # variable-bound step undefined, so the complaint says the step has to be declared as a function.
 #
@@ -731,7 +731,7 @@ STEP_DEFINITION = re.compile(
     r'^%(sp)sfunc%(sp1)s(step[A-Z]%(part)s*)%(sp)s[\[(]' % GO_TOKENS)
 
 # The header is anchored at column 1, and that is a decision rather than an oversight. It is the
-# first of the three lines of the registration shape `.claude/skills/compile-gear/SKILL.md` states
+# first of the three lines of the registration shape `.claude/skills/compile-gear/prompt.md` states
 # to the drafter, and that shape is a contract: the example there writes the header at column 1,
 # `gofmt` writes it there, and holding the contract is what this pattern is for. Go does run an indented
 # `Test`, so the refusal is this gate holding its own shape rather than following Go, and it is
