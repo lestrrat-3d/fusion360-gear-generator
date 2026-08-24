@@ -71,26 +71,31 @@ proof is where the next reader is looking for the missing check.
    prompt varies run to run and hides gaps by spoon-feeding what the prose should have said, so a
    green run would no longer say anything about the spec.
 
-4. **Run the proof.** Run `python3 .claude/skills/generate-gear/stage.py <gear> proof --run` from
-   the repo root. It copies every drafted proof file from `.tmp/<gear>-proof/` into
-   `proof/<gear>/`, deletes any `.go` file there the draft no longer produces, indexes the result
-   so step 5's tracked-or-committed check can see a first-time proof, and then runs
-   `bash proof/run.sh`. The wrapper enters the `proof/` module and configures the local engine
-   replacements; the proof must pass with nothing waived. Exit 2 means the placement was refused
-   and nothing moved; exit 1 means the proof itself is red.
+4. **Run the gates.** Run `python3 .claude/skills/generate-gear/stage.py <gear> proof` from the
+   repo root. It copies every drafted proof file from `.tmp/<gear>-proof/` into `proof/<gear>/`,
+   deletes any `.go` file there the draft no longer produces, and indexes the result so step 5's
+   tracked-or-committed check can see a first-time proof. Exit 2 means the placement was refused
+   and nothing moved.
 
-5. **Check.** Run `python3 .claude/skills/generate-gear/check_compile.py <gear>` from the repo
-   root. It gates citations, step-to-proof agreement, the reality of every named API call, and the
-   provenance hashes. It also prints the spec lines no step claims, and every call on the
-   unverified watchlist the step list makes; both are worth reading and neither gates.
+   Then run `python3 .claude/skills/generate-gear/run_compile_gates.py <gear>` from the repo root.
+   It runs `bash proof/run.sh`, then `check_compile.py <gear>`, then — only when
+   `lib/geargen/<gear>.py` exists — `check_step_calls.py`, in that order, and prints one verdict
+   plus a first-pass fault classification. The proof wrapper enters the `proof/` module and
+   configures the local engine replacements; the proof must pass with nothing waived. Exit 1 means
+   a gate failed on content; exit 2 is a setup error, and a setup error never goes back to the
+   drafter.
 
-   Then, **only if `lib/geargen/<gear>.py` already exists**, run
-   `python3 .claude/skills/generate-gear/check_step_calls.py spec/<gear>/steps.md
-   lib/geargen/<gear>.py`. That gate runs in CI against the checked-in module, so a recompiled step
-   list that disagrees with it breaks the build even though both other checks are green. Read its
-   output as a list of call names to classify, and pass only the names back to the drafter: a name
-   the step list mentions without requiring takes the exemption directive, and a call the module
-   genuinely fails to make is work for `/emit-gear`, not for this stage. Never hand the drafter
+5. **Check.** The runner already ran both checks. `check_compile.py` gates citations,
+   step-to-proof agreement, the reality of every named API call, and the provenance hashes. It
+   also prints the spec lines no step claims, and every call on the unverified watchlist the step
+   list makes; both are worth reading and neither gates.
+
+   `check_step_calls.py` runs **only if `lib/geargen/<gear>.py` already exists**, and the runner
+   reports it as skipped when it does not. That gate runs in CI against the checked-in module, so a
+   recompiled step list that disagrees with it breaks the build even though both other checks are
+   green. Read its output as a list of call names to classify, and pass only the names back to the
+   drafter: a name the step list mentions without requiring takes the exemption directive, and a
+   call the module genuinely fails to make is work for `/emit-gear`, not for this stage. Never hand the drafter
    anything the module does or does not contain, and never let it read the module — the pipeline
    has to be able to compile a gear that has no implementation yet.
 

@@ -1,0 +1,554 @@
+#!/usr/bin/env python3
+"""Run the whole compile-gear gate battery for one gear and print one verdict.
+
+Why this exists: `/compile-gear` (`.claude/skills/compile-gear/SKILL.md`) steps 4-5 used to ask
+the orchestrating LLM to run three commands by hand, in a fixed order, with one conditional —
+the proof, then `check_compile.py`, then `check_step_calls.py` but only when
+`lib/geargen/<gear>.py` already exists. Every part of that is mechanical: the commands are
+fixed, their arguments are derived from `<gear>`, their exit codes already say pass/fail, and
+the conditional is a file-existence test. Leaving it to the model meant a gate silently dropped
+under context pressure, argument order improvised (`check_step_calls.py` takes the step list
+first), and a retry loop that saw one failure at a time instead of all of them. This script runs
+the battery once, in a fixed order, and reports every result plus a first-pass fault
+classification.
+
+It is the compile-stage counterpart of the emit-stage `run_gates.py`, and it is deliberately
+standalone: it imports nothing from that script.
+
+What it does not do: it never copies, moves, or indexes a file. The proof is expected to be in
+`proof/<gear>/` already — `stage.py <gear> proof` puts it there — because a runner that also
+placed artifacts would hide a failed placement behind a failed gate.
+
+Usage:
+    run_compile_gates.py <gear> [options]
+
+positional:
+  gear                   gear name, e.g. spurgear. Names spec/<gear>/steps.md, proof/<gear>/
+                         and lib/geargen/<gear>.py.
+
+options:
+  --root PATH            repo root. Default: three levels above this script.
+  --only KEY[,KEY...]    run only these stages. Keys: proof, compile, step_calls.
+                         Unselected stages are reported with status "skip",
+                         reason "not selected". An unknown key is a usage error.
+  --fail-fast            stop scheduling stages after the first failure. Off by default, so
+                         one run shows the drafter every failure at once.
+  --format {text,json}   text (default) = human report followed by one JSON line.
+                         json = the JSON line only, nothing else on stdout.
+  --json-out PATH        also write the full JSON verdict (pretty-printed) to PATH.
+  --timeout SECONDS      per-stage timeout. Default 900. A stage that exceeds it gets
+                         status "error".
+
+Exit codes:
+    0  every stage that ran passed. Skips are allowed.
+    1  at least one stage failed on content. Classify with the printed table: a draft fault
+       goes back to the drafter with the report text appended; a prose fault stops the run.
+    2  setup error: bad usage, a failed preflight check, a stage exited 2, or a stage timed
+       out. Fix the environment or the inputs; never retry the drafter.
+"""
+import argparse
+import dataclasses
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from dataclasses import dataclass
+
+# --- constants ---------------------------------------------------------------------------
+SCHEMA = 1
+DEFAULT_TIMEOUT = 900
+STAGE_ORDER = ("proof", "compile", "step_calls")
+JSON_MARKER = "COMPILE_GATES_JSON: "
+
+# The same gear-name rule stage.py and the other per-gear scripts use.
+GEAR_NAME = re.compile(r'[a-z][a-z0-9_]*\Z')
+
+STAGE_TITLES = {
+    "proof": "Proof",
+    "compile": "Compile check",
+    "step_calls": "Step calls",
+}
+
+STAGE_SCRIPTS = {
+    "compile": "check_compile.py",
+    "step_calls": "check_step_calls.py",
+}
+
+PROOF_RUNNER = os.path.join("proof", "run.sh")
+
+# The headline a stage's report line shows: `compile check: OK (...)`,
+# `step-call check: BLOCKING (2)`, and the like.
+HEADLINE_PATTERN = re.compile(r'^\S.*check.*:')
+
+# check_compile's own wording for the three compile problems this runner can tell apart.
+API_CALL_NAME_RE = re.compile(r"names '(\w+)\(', which the Fusion API database does not have")
+PROVENANCE_DRIFT_RE = re.compile(r'has changed since the step list was compiled')
+
+# The fault sentences, one per row of SKILL.md's "Telling a draft fault from a prose fault".
+FAULT_PROOF = 'DRAFT FAULT by default ("The proof fails to build")'
+FAULT_DRAFT = "DRAFT FAULT"
+FAULT_DRIFT = "DRAFT FAULT, or someone edited the spec mid-run"
+FAULT_JUDGMENT = ("NEEDS JUDGMENT: a call the spec itself names is a PROSE FAULT; one the "
+                  "drafter invented is a DRAFT FAULT")
+FAULT_STEP_CALLS = ("NEEDS CLASSIFICATION: read the output as call names and pass only the "
+                    "names back to the drafter (SKILL.md step 5)")
+FAULT_SETUP = "SETUP ERROR: fix the environment or inputs; never retry the drafter"
+
+# Why a missing module is a skip rather than a failure. The wording is fixed because the
+# drafter is told the same thing in SKILL.md step 5.
+MODULE_ABSENT_REASON = ("lib/geargen/%s.py does not exist; the CI cross-check applies only "
+                        "after /emit-gear places a module")
+
+
+# --- small value types --------------------------------------------------------------------
+@dataclass
+class StageResult:
+    key: str
+    title: str
+    status: str
+    exit_code: int | None
+    duration_s: float | None
+    command: list[str]
+    stdout: str
+    stderr: str
+    skip_reason: str | None
+    fault: str | None
+
+
+@dataclass
+class Paths:
+    root: str          # absolute
+    gear: str
+    steps: str         # root-relative "spec/<gear>/steps.md"
+    proof_dir: str     # root-relative "proof/<gear>"
+    module: str        # root-relative "lib/geargen/<gear>.py"
+
+
+# --- path and argument plumbing -------------------------------------------------------------
+def scripts_dir():
+    """Directory holding the gate scripts. Its own __file__ dir. Patched by tests."""
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def repo_root():
+    """Three levels above scripts_dir(), same rule pyright_check.repo_root() uses."""
+    return os.path.abspath(os.path.join(scripts_dir(), "..", "..", ".."))
+
+
+def _abs(root, path):
+    return path if os.path.isabs(path) else os.path.join(root, path)
+
+
+def _root_relative(abs_path, root):
+    try:
+        rel = os.path.relpath(abs_path, root)
+    except ValueError:
+        return abs_path
+    return abs_path if rel.startswith("..") else rel
+
+
+def parse_args(argv):
+    p = argparse.ArgumentParser(
+        prog="run_compile_gates.py",
+        description="Run the compile-gear gate battery for one gear and print one verdict.")
+    p.add_argument("gear")
+    p.add_argument("--root", default=None)
+    p.add_argument("--only", default=None,
+                   help="comma-separated stage keys to run; the rest are skipped")
+    p.add_argument("--fail-fast", action="store_true")
+    p.add_argument("--json-out", default=None)
+    p.add_argument("--format", choices=["text", "json"], default="text")
+    p.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
+    args = p.parse_args(argv)
+    if args.only:
+        args.only = [k.strip() for k in args.only.split(",") if k.strip()]
+    return args
+
+
+def resolve_paths(gear, root_arg):
+    """Absolutise the root and express every input root-relative, so a printed command is
+    copy-pasteable from the repo root."""
+    root = os.path.abspath(root_arg) if root_arg else repo_root()
+    return Paths(root=root,
+                 gear=gear,
+                 steps=os.path.join("spec", gear, "steps.md"),
+                 proof_dir=os.path.join("proof", gear),
+                 module=os.path.join("lib", "geargen", "%s.py" % gear))
+
+
+def active_keys(args):
+    """The stages --only selects, in STAGE_ORDER."""
+    if args.only:
+        return [k for k in STAGE_ORDER if k in args.only]
+    return list(STAGE_ORDER)
+
+
+def module_exists(paths):
+    return os.path.isfile(_abs(paths.root, paths.module))
+
+
+def _proof_go_files(proof_abs):
+    try:
+        return [e for e in sorted(os.listdir(proof_abs)) if e.endswith(".go")]
+    except OSError:
+        return []
+
+
+def setup_errors(paths, args):
+    """Preflight, returning human messages. Every one of them is exit 2 and stops the run
+    before a stage is started.
+
+    check_step_calls.py raises an uncaught IOError on a missing input, so both of its paths are
+    verified here rather than left to produce a traceback; the same care costs nothing for the
+    other stages. Only the checks a selected stage actually needs are made, so `--only compile`
+    does not demand a proof runner.
+    """
+    errors = []
+    if not GEAR_NAME.match(args.gear):
+        errors.append("gear name %r does not match [a-z][a-z0-9_]*" % args.gear)
+        return errors
+
+    if not os.path.isdir(paths.root):
+        errors.append("repo root is not a directory: %s" % paths.root)
+        return errors
+
+    if args.only:
+        unknown = sorted(set(args.only) - set(STAGE_ORDER))
+        if unknown:
+            errors.append("unknown --only key(s): %s (known: %s)"
+                          % (", ".join(unknown), ", ".join(STAGE_ORDER)))
+            return errors
+        if not active_keys(args):
+            errors.append("--only selected no stage")
+            return errors
+
+    keys = set(active_keys(args))
+
+    if keys & {"compile", "step_calls"}:
+        if not os.path.isfile(_abs(paths.root, paths.steps)):
+            errors.append("step list not found: %s -- draft it before checking it" % paths.steps)
+
+    if keys & {"proof", "compile"}:
+        proof_abs = _abs(paths.root, paths.proof_dir)
+        if not os.path.isdir(proof_abs):
+            errors.append(
+                "proof directory not found: %s -- the drafted proof was never placed there; "
+                "run stage.py %s proof first" % (paths.proof_dir, args.gear))
+        elif not _proof_go_files(proof_abs):
+            errors.append("proof directory %s holds no .go file -- the drafted proof was never "
+                          "placed there; run stage.py %s proof first"
+                          % (paths.proof_dir, args.gear))
+
+    if "proof" in keys and not os.path.isfile(_abs(paths.root, PROOF_RUNNER)):
+        errors.append("proof runner not found: %s" % PROOF_RUNNER)
+
+    for key in sorted(keys):
+        if key == "step_calls" and not module_exists(paths):
+            continue  # the stage skips, so its script is never needed
+        script_name = STAGE_SCRIPTS.get(key)
+        if script_name and not os.path.isfile(os.path.join(scripts_dir(), script_name)):
+            errors.append("gate script missing: %s (needed for '%s')" % (script_name, key))
+
+    return errors
+
+
+# --- stage plan ------------------------------------------------------------------------------
+def _script_path(name, paths):
+    return _root_relative(os.path.join(scripts_dir(), name), paths.root)
+
+
+def stage_command(key, paths):
+    """The one place that knows each stage's argument order. `check_step_calls.py` takes the
+    step list FIRST and the module second, which is the order a hand-run got wrong."""
+    if key == "proof":
+        return ["bash", PROOF_RUNNER]
+    if key == "compile":
+        return [sys.executable, _script_path("check_compile.py", paths), paths.gear]
+    if key == "step_calls":
+        return [sys.executable, _script_path("check_step_calls.py", paths),
+                paths.steps, paths.module]
+    raise ValueError("unknown stage key: %s" % key)
+
+
+def build_plan(paths, args):
+    """(key, title, command, skip_reason), in STAGE_ORDER. Command is None exactly when
+    skip_reason is set. Applies --only and the missing-module skip."""
+    active = set(active_keys(args))
+    plan = []
+    for key in STAGE_ORDER:
+        title = STAGE_TITLES[key]
+        if key not in active:
+            plan.append((key, title, None, "not selected"))
+            continue
+        if key == "step_calls" and not module_exists(paths):
+            plan.append((key, title, None, MODULE_ABSENT_REASON % args.gear))
+            continue
+        plan.append((key, title, stage_command(key, paths), None))
+    return plan
+
+
+# --- execution --------------------------------------------------------------------------------
+def status_for(key, returncode):
+    """Exit code to status, per stage.
+
+    `proof/run.sh` exits 2 for a setup problem — a missing sketch or decad checkout, a revision
+    mismatch — and otherwise propagates `go test`, so anything else nonzero is a red proof. The
+    two Python checkers use the repo-wide 0/1/2 = OK/BLOCKING/bad-input contract.
+    """
+    if returncode == 0:
+        return "pass"
+    if returncode == 2:
+        return "error"
+    return "fail"
+
+
+def run_stage(key, title, command, cwd, timeout):
+    """Run one stage as a subprocess, capturing stdout and stderr and timing it."""
+    start = time.monotonic()
+    try:
+        proc = subprocess.run(command, cwd=cwd, capture_output=True, text=True,
+                              timeout=timeout, env=os.environ)
+    except subprocess.TimeoutExpired as exc:
+        duration = round(time.monotonic() - start, 2)
+        stdout = exc.stdout or ""
+        if isinstance(stdout, bytes):
+            stdout = stdout.decode("utf-8", "replace")
+        stderr = exc.stderr or ""
+        if isinstance(stderr, bytes):
+            stderr = stderr.decode("utf-8", "replace")
+        stderr += "\nstage timed out after %ss" % timeout
+        return StageResult(key, title, "error", None, duration, command, stdout, stderr,
+                           None, None)
+    duration = round(time.monotonic() - start, 2)
+    return StageResult(key, title, status_for(key, proc.returncode), proc.returncode, duration,
+                       command, proc.stdout, proc.stderr, None, None)
+
+
+def execute(plan, paths, args):
+    """Walk the plan in order. With --fail-fast, every stage after the first failure becomes a
+    skip naming the stage that stopped the run."""
+    results = []
+    stopped_by = None
+    for key, title, command, skip_reason in plan:
+        if skip_reason is not None:
+            results.append(StageResult(key, title, "skip", None, None, [], "", "",
+                                       skip_reason, None))
+            continue
+        if stopped_by is not None:
+            reason = "not run (--fail-fast after %s failed)" % stopped_by
+            results.append(StageResult(key, title, "skip", None, None, command, "", "",
+                                       reason, None))
+            continue
+        result = run_stage(key, title, command, paths.root, args.timeout)
+        results.append(result)
+        if args.fail_fast and result.status in ("fail", "error") and stopped_by is None:
+            stopped_by = key
+    return results
+
+
+# --- classification -----------------------------------------------------------------------
+def unresolved_api_names(stdout):
+    """The calls check_compile says the API database does not have."""
+    return [m.group(1) for m in API_CALL_NAME_RE.finditer(stdout or "")]
+
+
+def classify_compile(stdout):
+    """Which SKILL.md row a BLOCKING compile check falls under.
+
+    Precedence is by how much of a decision the row needs. A named call the database does not
+    have is the only compile problem this runner cannot settle — the same failure is a prose
+    fault when the spec named the call and a draft fault when the drafter invented it — so it
+    wins over the rows that are always the drafter's. Which of the two it is stays unanswered
+    here on purpose: `check_compile.py` is being taught to annotate it mechanically, and a
+    second guess made by grepping the spec from this side would only disagree with that one.
+    """
+    names = unresolved_api_names(stdout)
+    if names:
+        return "%s (calls: %s)" % (FAULT_JUDGMENT, ", ".join(sorted(set(names))))
+    if PROVENANCE_DRIFT_RE.search(stdout or ""):
+        return FAULT_DRIFT
+    return FAULT_DRAFT
+
+
+def classify(results):
+    """One fault sentence per stage that did not pass, mirroring SKILL.md's "Telling a draft
+    fault from a prose fault" table. Pure function of the results, so it is directly testable."""
+    faults = {}
+    for r in results:
+        if r.status == "error":
+            faults[r.key] = FAULT_SETUP
+        elif r.status == "fail":
+            if r.key == "proof":
+                faults[r.key] = FAULT_PROOF
+            elif r.key == "compile":
+                faults[r.key] = classify_compile(r.stdout)
+            elif r.key == "step_calls":
+                faults[r.key] = FAULT_STEP_CALLS
+    return faults
+
+
+# --- rendering ------------------------------------------------------------------------------
+def headline(result):
+    """The stage's headline: its first stdout line matching ^\\S.*check.*: -- otherwise its
+    first non-empty stdout line."""
+    if result.status == "skip":
+        return result.skip_reason or ""
+    lines = (result.stdout or "").splitlines()
+    for line in lines:
+        if HEADLINE_PATTERN.match(line):
+            return line
+    for line in lines:
+        if line.strip():
+            return line.strip()
+    return ""
+
+
+def compute_counts(results):
+    counts = {"pass": 0, "fail": 0, "skip": 0, "error": 0}
+    for r in results:
+        if r.status in counts:
+            counts[r.status] += 1
+    return counts
+
+
+def overall(results):
+    """('error', 2) if any stage errored; else ('fail', 1) if any failed; else ('pass', 0)."""
+    if any(r.status == "error" for r in results):
+        return "error", 2
+    if any(r.status == "fail" for r in results):
+        return "fail", 1
+    return "pass", 0
+
+
+def render_text(results, paths, args):
+    lines = ["run_compile_gates: %s  root=%s" % (args.gear, paths.root), ""]
+    status_tag = {"pass": "PASS", "fail": "FAIL", "error": "ERROR"}
+    for r in results:
+        if r.status == "skip":
+            lines.append("  SKIP  %-11s %s" % (r.key, r.skip_reason))
+            continue
+        tag = status_tag[r.status]
+        dur = "(%.2fs)" % r.duration_s if r.duration_s is not None else ""
+        head = headline(r)
+        lines.append(("  %-5s %-11s %s  %s" % (tag, r.key, dur, head)).rstrip())
+        # Every stage that ran echoes its whole output, not just a failing one. check_compile
+        # prints `coverage:` and `unverified:` advisories on a passing run, and those are read
+        # by a human rather than gated, so hiding them behind a failure would lose them. The
+        # headline itself is already on the line above, so it is not repeated.
+        body = (r.stdout or "").splitlines()
+        if head in body:
+            body.remove(head)
+        for line in body:
+            lines.append(" " * 8 + line)
+        if r.stderr:
+            lines.append(" " * 8 + "stderr:")
+            for line in r.stderr.splitlines():
+                lines.append(" " * 8 + line)
+
+    counts = compute_counts(results)
+    verdict, _exit_code = overall(results)
+    lines.append("")
+    lines.append("verdict: %s -- %d passed, %d failed, %d skipped, %d errored"
+                 % (verdict.upper(), counts["pass"], counts["fail"], counts["skip"],
+                    counts["error"]))
+
+    faulted = [r for r in results if r.fault]
+    if faulted:
+        lines.append("")
+        lines.append('first-pass fault classification (SKILL.md "Telling a draft fault from a '
+                     'prose fault"):')
+        for r in faulted:
+            lines.append("  %-11s %s" % (r.key, r.fault))
+
+    rerun = [r for r in results if r.status in ("fail", "error")]
+    if rerun:
+        lines.append("")
+        lines.append("re-run one stage by hand:")
+        for r in rerun:
+            lines.append("  " + " ".join(r.command))
+
+    return "\n".join(lines)
+
+
+def build_json(results, paths, args):
+    verdict, exit_code = overall(results)
+    stages = []
+    for r in results:
+        stages.append({
+            "key": r.key,
+            "title": r.title,
+            "status": r.status,
+            "exit_code": r.exit_code,
+            "duration_s": r.duration_s,
+            "command": r.command,
+            "headline": headline(r),
+            "stdout": r.stdout,
+            "stderr": r.stderr,
+            "skip_reason": r.skip_reason,
+            "fault": r.fault,
+        })
+    return {
+        "schema": SCHEMA,
+        "gear": args.gear,
+        "root": paths.root,
+        "verdict": verdict,
+        "exit_code": exit_code,
+        "counts": compute_counts(results),
+        "stages": stages,
+    }
+
+
+def _setup_error_json(errors, paths, args):
+    return {
+        "schema": SCHEMA,
+        "gear": args.gear,
+        "root": paths.root,
+        "verdict": "error",
+        "exit_code": 2,
+        "counts": {"pass": 0, "fail": 0, "skip": 0, "error": 0},
+        "stages": [],
+        "setup_errors": errors,
+    }
+
+
+def _write_json_out(path, obj):
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(obj, fh, indent=2)
+        fh.write("\n")
+
+
+def _emit(obj, text, args):
+    line = JSON_MARKER + json.dumps(obj)
+    if args.json_out:
+        _write_json_out(args.json_out, obj)
+    if args.format == "json":
+        print(line)
+    else:
+        print(text)
+        print(line)
+    return obj["exit_code"]
+
+
+def main(argv=None):
+    args = parse_args(sys.argv[1:] if argv is None else argv)
+    paths = resolve_paths(args.gear, args.root)
+
+    errors = setup_errors(paths, args)
+    if errors:
+        obj = _setup_error_json(errors, paths, args)
+        report = ["run_compile_gates: %s  root=%s" % (args.gear, paths.root), "", "setup error:"]
+        report.extend("  - %s" % e for e in errors)
+        return _emit(obj, "\n".join(report), args)
+
+    results = execute(build_plan(paths, args), paths, args)
+    faults = classify(results)
+    results = [dataclasses.replace(r, fault=faults.get(r.key)) for r in results]
+
+    obj = build_json(results, paths, args)
+    return _emit(obj, render_text(results, paths, args), args)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
