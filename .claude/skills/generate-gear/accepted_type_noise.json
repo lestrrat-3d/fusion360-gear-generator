@@ -1,0 +1,9 @@
+[
+  {
+    "rule": "reportArgumentType",
+    "param": "orientation",
+    "want": "DimensionOrientations",
+    "func": "addDistanceDimension",
+    "why": "The stubs type the DimensionOrientations members as int while the parameter wants the class, so every axis-oriented addDistanceDimension call draws this. Fusion accepts the members at runtime; the shipped spur gear passing Horizontal/Vertical orientations was verified in the GUI on 2026-08-24 during the [PB-DIM-VALUE-SEMANTICS] work."
+  }
+]
