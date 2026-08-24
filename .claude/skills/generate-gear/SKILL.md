@@ -160,8 +160,17 @@ The spec + playbook together MUST be sufficient. If they are not, fix the spec o
 
 6. **Iterate.** A failed gate, a missing contract item, or an unresolved dependency means the
    **spec or playbook** is incomplete or wrong — fix it there (never hand-edit the generated file,
-   never copy from an existing implementation) and regenerate from the Generate step (step 4).
-   Repeat up to ~3 rounds. Converges when the output parses and satisfies the full declared contract.
+   never copy from an existing implementation) and regenerate from the Generate step (step 4) with
+   a fresh subagent, because the edit made the context the previous drafter read stale. Repeat up
+   to ~3 rounds. Converges when the output parses and satisfies the full declared contract.
+
+   One failure class skips the fresh spawn: a mechanical slip no spec wording caused (a syntax
+   error, a typo in a name the spec spells correctly). No input file changed, so send the check
+   output to the same drafting subagent with `SendMessage` and let it fix
+   `.tmp/<gear>.generated.py` in place. Skip step 4's telemetry reset and the watcher for such a
+   round — the fix runs without re-reading inputs, and completion arrives as the subagent's
+   reply. If no reply comes within about ten minutes, or the same check fails again, treat the
+   failure as a spec/playbook gap and take the fresh-spawn path above.
 
 7. **Install (on approval).** The generated file is the product. With the user's approval, copy
    `.tmp/<gear>.generated.py` to `lib/geargen/<gear>.py`. Without approval, leave it in `.tmp/`.
