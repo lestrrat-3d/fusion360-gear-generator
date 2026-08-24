@@ -44,7 +44,8 @@ The spec + playbook together MUST be sufficient. If they are not, fix the spec o
 ## Procedure
 
 1. **Setup.** Work in a worktree (per the repo's CLAUDE.md — never the root checkout). Ensure
-   `.tmp/` exists. Run `python3 .claude/skills/generate-gear/preflight.py <gear> --stage generate`
+   `.tmp/` exists. Run `python3 .claude/skills/generate-gear/preflight.py <gear> --stage generate
+   --default-model <the session's default model>`
    and fix every `[FAIL]` before drafting; it verifies the engines, the go toolchain and the API
    database so a broken environment fails here instead of mid-run. Read this skill end-to-end.
    Do **not** read `PLAYBOOK.md`, the spec body, or the framework files up front: the generation
@@ -79,7 +80,10 @@ The spec + playbook together MUST be sufficient. If they are not, fix the spec o
 
 4. **Generate.** Spawn a subagent that writes `.tmp/<gear>.generated.py` from **the spec +
    playbook + the framework files + any declared dependency files only**. It MUST NOT read an
-   existing `lib/geargen/<gear>.py` if one is present.
+   existing `lib/geargen/<gear>.py` if one is present. This drafter takes the `design` role,
+   because it re-interprets the whole prose spec, so it runs on the session's default model;
+   resolve it with `python3 .claude/skills/generate-gear/pick_model.py --role design --default
+   <the session's default model>` and see `MODELS.md` (next to this file) for the rule.
    - **Use the standard generation prompt: run
      `python3 .claude/skills/generate-gear/render_prompt.py generate-gear <gear>` and pass its
      printed output to the subagent unchanged — do NOT improvise the prompt, and do NOT add
@@ -165,7 +169,9 @@ The spec + playbook together MUST be sufficient. If they are not, fix the spec o
 6. **Iterate.** A failed gate, a missing contract item, or an unresolved dependency means the
    **spec or playbook** is incomplete or wrong — fix it there (never hand-edit the generated file,
    never copy from an existing implementation) and regenerate from the Generate step (step 4) with
-   a fresh subagent, because the edit made the context the previous drafter read stale. Repeat up
+   a fresh subagent, because the edit made the context the previous drafter read stale. A fresh
+   spawn keeps the `design` role, and a continued round changes no model, because a resumed
+   agent keeps the one it was spawned on. Repeat up
    to ~3 rounds. Converges when the output parses and satisfies the full declared contract. When
    diagnosing, read only the spec or playbook sections the failure implicates; the diagnosis is
    when they earn their read.
