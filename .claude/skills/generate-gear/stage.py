@@ -9,7 +9,8 @@ first-time proof that fails `check_compile`'s tracked-or-committed gate for
 reasons that have nothing to do with the draft. This script replaces the
 shell moves with one mechanical, atomic, idempotent placement per target.
 
-Three subcommands, one per artifact this pipeline stages:
+Four subcommands, one per artifact this pipeline stages plus one that
+places a whole stage's artifacts together:
 
   stage.py <gear> proof  [--run] [--no-index] [--force] [--dry-run]
       Copies every `*.go` file from `.tmp/<gear>-proof/` into `proof/<gear>/`,
@@ -24,6 +25,12 @@ Three subcommands, one per artifact this pipeline stages:
   stage.py <gear> module [--force] [--dry-run]
       Copies `.tmp/<gear>.generated.py` to `lib/geargen/<gear>.py`.
 
+  stage.py <gear> compile [--no-index] [--force] [--dry-run]
+      Places the compile stage's two artifacts in one call: `steps` then
+      `proof`, exactly as the two single-target commands would, refusing
+      both if it would refuse either. There is no `--run`; the compile
+      gate runner (`run_compile_gates.py`) runs the proof.
+
 `--root DIR` (default `.`) is the repo root; every path above is relative to
 it. `--force` overwrites a destination file that is neither this script's
 own prior output nor clean against HEAD. `--dry-run` validates and reports
@@ -34,7 +41,7 @@ idempotent: running it again over the same draft reports every file
 unchanged.
 
 Usage:
-    python3 stage.py [--root DIR] <gear> {proof,steps,module} [options]
+    python3 stage.py [--root DIR] <gear> {proof,steps,module,compile} [options]
 
 Run from the repo root.
 
@@ -63,6 +70,10 @@ class Refusal(Exception):
 Plan = collections.namedtuple(
     'Plan', 'target gear source destination sources_are_dir')
 Actions = collections.namedtuple('Actions', 'write unchanged prune extra')
+PlannedTarget = collections.namedtuple(
+    'PlannedTarget', 'plan sources existing actions')
+
+COMPILE_TARGETS = ('steps', 'proof')
 
 
 def _joined(root, *parts):
@@ -301,6 +312,23 @@ def plan_actions(sources, existing):
     return Actions(sorted(write), sorted(unchanged), sorted(prune), [])
 
 
+def plan_target(root, gear, target, force):
+    """Everything one target does before `apply_actions`. Raises `Refusal`.
+
+    Pulling phase 1 out of `main` is what lets a composite target plan every
+    child before any of them writes, so a refusal anywhere leaves the whole
+    working tree untouched.
+    """
+    plan = gear_paths(root, gear, target)
+    sources = read_sources(plan)
+    existing = existing_destination(plan)
+    extras = destination_extras(plan)
+    receipt = load_receipt(root, gear, plan.target)
+    classify_destination(plan, existing, receipt, force, root)
+    actions = plan_actions(sources, existing)._replace(extra=extras)
+    return PlannedTarget(plan, sources, existing, actions)
+
+
 def _temp_path(path):
     directory = os.path.dirname(path) or '.'
     base = os.path.basename(path)
@@ -372,6 +400,21 @@ def apply_actions(plan, actions, sources, existing):
         raise
 
 
+def rollback_target(planned):
+    """Undo a target that `apply_actions` already completed.
+
+    `apply_actions` unwinds its own target when it fails part way through, so
+    this exists only for a composite run: when a later child refuses to
+    place, an earlier child that already succeeded has to go back to the
+    bytes it replaced (or be removed again, when there were none).
+    """
+    plan = planned.plan
+    for name in list(planned.actions.write) + list(planned.actions.prune):
+        full = (os.path.join(plan.destination, name)
+                if plan.sources_are_dir else plan.destination)
+        _restore(full, planned.existing.get(name))
+
+
 def index_paths(root, plan):
     """`git add -A -- proof/<gear>`. Returns False (with a printed note) if git fails."""
     relpath = os.path.relpath(plan.destination, root)
@@ -435,8 +478,8 @@ def report(plan, actions, dry_run, sources):
 def build_parser():
     parser = argparse.ArgumentParser(
         prog='stage.py',
-        description='Stage a drafted gear artifact (proof, steps or module) into the '
-                     'working tree.')
+        description='Stage a drafted gear artifact (proof, steps or module), or a whole '
+                     'stage of them, into the working tree.')
     parser.add_argument('--root', default='.', help='repo root (default .)')
     parser.add_argument('gear', help='gear name, e.g. spurgear')
     sub = parser.add_subparsers(dest='target', required=True)
@@ -464,7 +507,64 @@ def build_parser():
     module.add_argument('--dry-run', action='store_true',
                          help='validate and report; write nothing')
 
+    compile_ = sub.add_parser(
+        'compile',
+        help='place the compile stage: steps then proof, refusing both if either refuses')
+    compile_.add_argument('--no-index', action='store_true',
+                           help='skip `git add -A -- proof/<gear>`')
+    compile_.add_argument('--force', action='store_true',
+                           help='overwrite a destination file that is not clean or ours')
+    compile_.add_argument('--dry-run', action='store_true',
+                           help='validate and report; write nothing')
+
     return parser
+
+
+def run_compile(root, args):
+    """The `compile` target: place `steps` and `proof` together, or neither.
+
+    Every child is planned before any of them writes, so a refusal in either
+    one leaves the working tree exactly as it was. Once writing starts, a
+    failure in the second child rolls the first one back as well, and the
+    receipts and the proof indexing are the same ones the two single-target
+    commands write, so a later single-target run still recognises its own
+    output.
+    """
+    try:
+        planned = [plan_target(root, args.gear, target, args.force)
+                   for target in COMPILE_TARGETS]
+    except Refusal as exc:
+        print("stage: %s" % exc, file=sys.stderr)
+        return 2
+
+    if args.dry_run:
+        for item in planned:
+            report(item.plan, item.actions, True, item.sources)
+        return 0
+
+    applied = []
+    for item in planned:
+        try:
+            apply_actions(item.plan, item.actions, item.sources, item.existing)
+        except Exception as exc:
+            for done in reversed(applied):
+                rollback_target(done)
+            print("stage: compile: %s placement failed and the whole compile placement "
+                  "was rolled back (%s)" % (item.plan.target, exc), file=sys.stderr)
+            return 2
+        applied.append(item)
+
+    for item in planned:
+        save_receipt(root, args.gear, item.plan.target, item.sources)
+
+    for item in planned:
+        if item.plan.target == 'proof' and not getattr(args, 'no_index', False):
+            index_paths(root, item.plan)
+
+    for item in planned:
+        report(item.plan, item.actions, False, item.sources)
+    print("stage: compile OK (steps + proof)")
+    return 0
 
 
 def main(argv):
@@ -472,14 +572,12 @@ def main(argv):
     args = parser.parse_args(argv[1:])
     root = args.root
 
+    if args.target == 'compile':
+        return run_compile(root, args)
+
     try:
-        plan = gear_paths(root, args.gear, args.target)
-        sources = read_sources(plan)
-        existing = existing_destination(plan)
-        extras = destination_extras(plan)
-        receipt = load_receipt(root, args.gear, plan.target)
-        classify_destination(plan, existing, receipt, args.force, root)
-        actions = plan_actions(sources, existing)._replace(extra=extras)
+        plan, sources, existing, actions = plan_target(
+            root, args.gear, args.target, args.force)
     except Refusal as exc:
         print("stage: %s" % exc, file=sys.stderr)
         return 2
