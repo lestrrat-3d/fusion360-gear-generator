@@ -380,12 +380,12 @@ class RunIndexDryRunTests(unittest.TestCase):
     def test_run_flag_rejected_for_steps_and_module(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_root(tmp, steps='# steps\n', module='# gen\n')
-            with self.assertRaises(SystemExit) as cm:
-                MODULE.main(['stage.py', '--root', str(root), 'spurgear', 'steps', '--run'])
-            self.assertEqual(cm.exception.code, 2)
-            with self.assertRaises(SystemExit) as cm:
-                MODULE.main(['stage.py', '--root', str(root), 'spurgear', 'module', '--run'])
-            self.assertEqual(cm.exception.code, 2)
+            for target in ('steps', 'module'):
+                err = io.StringIO()
+                with self.assertRaises(SystemExit) as cm, contextlib.redirect_stderr(err):
+                    MODULE.main(['stage.py', '--root', str(root), 'spurgear', target, '--run'])
+                self.assertEqual(cm.exception.code, 2)
+                self.assertIn('unrecognized arguments: --run', err.getvalue())
 
     def test_proof_indexes_writes_and_prunes_unless_no_index(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -598,9 +598,11 @@ class CompileTargetTests(unittest.TestCase):
     def test_run_flag_rejected_for_compile(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_root(tmp, draft={'a_test.go': 'x\n'}, steps='# steps\n')
-            with self.assertRaises(SystemExit) as cm:
+            err = io.StringIO()
+            with self.assertRaises(SystemExit) as cm, contextlib.redirect_stderr(err):
                 MODULE.main(['stage.py', '--root', str(root), 'spurgear', 'compile', '--run'])
             self.assertEqual(cm.exception.code, 2)
+            self.assertIn('unrecognized arguments: --run', err.getvalue())
 
 
 if __name__ == '__main__':

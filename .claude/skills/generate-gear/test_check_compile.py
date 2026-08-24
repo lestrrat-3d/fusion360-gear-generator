@@ -21,6 +21,17 @@ from unittest import mock
 
 COMPILE_CHECKER_PATH = Path(__file__).with_name('check_compile.py')
 PROVENANCE_MODULE_PATH = Path(__file__).with_name('provenance.py')
+
+# `provenance` is registered in sys.modules before the checker is loaded, so check_compile.py's own
+# `from provenance import (...)` binds these exact objects rather than a second copy. A test that
+# raises `PROVENANCE.ProvenanceError` at the checker relies on that: two copies of the module would
+# be two distinct exception classes, and the checker's `except` would not see the one raised here.
+PROVENANCE_MODULE_SPEC = importlib.util.spec_from_file_location(
+    'provenance', PROVENANCE_MODULE_PATH)
+PROVENANCE = importlib.util.module_from_spec(PROVENANCE_MODULE_SPEC)
+sys.modules['provenance'] = PROVENANCE
+PROVENANCE_MODULE_SPEC.loader.exec_module(PROVENANCE)
+
 COMPILE_MODULE_SPEC = importlib.util.spec_from_file_location('check_compile', COMPILE_CHECKER_PATH)
 COMPILE_CHECKER = importlib.util.module_from_spec(COMPILE_MODULE_SPEC)
 COMPILE_MODULE_SPEC.loader.exec_module(COMPILE_CHECKER)
@@ -304,6 +315,26 @@ class CheckCompileTest(unittest.TestCase):
         'spec/gear/fusion.md',
         '.claude/skills/generate-gear/PLAYBOOK.md',
     )
+
+    @classmethod
+    def setUpClass(cls):
+        """Prove ambient `git hash-object` works before any fixture stamps a provenance table.
+
+        Almost every fixture here builds its rows with `blob_hash`, and a run where git cannot be
+        called would fail those tests on their own assertions — including the one pinning an exact
+        BLOCKING count, which any extra problem breaks. Skipping with the real reason keeps a
+        broken environment from reading as a broken gate.
+        """
+        with tempfile.TemporaryDirectory() as probe:
+            sample = os.path.join(probe, 'probe.md')
+            with open(sample, 'w') as fh:
+                fh.write('probe\n')
+            try:
+                COMPILE_CHECKER.blob_hash(sample)
+            except Exception as exc:
+                raise unittest.SkipTest(
+                    'git hash-object is unusable here, so provenance fixtures cannot be built: %s'
+                    % exc)
 
     def provenance_rows(self, root, paths=None):
         paths = paths or self.SOURCE_PATHS
@@ -1907,6 +1938,26 @@ class CheckCompileTest(unittest.TestCase):
 
         self.assertEqual(result, 1, output)
         self.assertIn('compile check: BLOCKING (1)', output)
+
+    def test_a_broken_provenance_hasher_is_a_setup_error_not_a_content_failure(self):
+        """A hasher that cannot run is exit 2, so a drafter is never handed a git problem.
+
+        The rows are written out here rather than built by the fixture: `provenance_rows` hashes
+        the fixture's own files, and the patch below has to be in force before the checker reads
+        them.
+        """
+        rows = '\n'.join('| `%s` | `%s` |' % (path, 'a' * 40) for path in self.SOURCE_PATHS)
+        err = io.StringIO()
+        with mock.patch.object(COMPILE_CHECKER, 'blob_hash',
+                               side_effect=PROVENANCE.ProvenanceError('boom')), \
+                contextlib.redirect_stderr(err):
+            result, output = self.run_checker(
+                provenance=rows,
+                step_body=self.call_step('thing.frobnicate(1)'),
+                api_lookup={'frobnicate': []})
+        self.assertEqual(result, 2, output)
+        self.assertIn('check_compile: boom', err.getvalue())
+        self.assertNotIn('BLOCKING', output)
 
 
 # The proof-side probe. The gate's answers about where a line may start are only worth anything
