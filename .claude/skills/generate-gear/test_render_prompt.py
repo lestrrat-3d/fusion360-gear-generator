@@ -17,21 +17,40 @@ MODULE_SPEC.loader.exec_module(RENDERER)
 SKILLS_ROOT = RENDERER_PATH.resolve().parent.parent
 
 
-class RenderUnitTest(unittest.TestCase):
+class RenderCase(unittest.TestCase):
     """Drive `main` against a temporary skills tree."""
 
-    def run_main(self, args, templates=None):
+    def run_main(self, args, templates=None, files=None):
+        """Render `args` against a temp skills tree, with optional extra files.
+
+        `files` maps a name under the temp root to its content: `str` is written as UTF-8,
+        `bytes` verbatim. `{root}` in an argument is filled in with the temp root, so a
+        case can point `--failure-file` at one of those files.
+        """
         templates = templates or {}
+        files = files or {}
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             for skill, text in templates.items():
                 skill_dir = root / skill
                 skill_dir.mkdir(parents=True, exist_ok=True)
                 (skill_dir / 'prompt.md').write_text(text, encoding='utf-8')
+            for name, content in files.items():
+                target = root / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if isinstance(content, bytes):
+                    target.write_bytes(content)
+                else:
+                    target.write_text(content, encoding='utf-8')
+            args = [str(arg).replace('{root}', str(root)) for arg in args]
             out, err = io.StringIO(), io.StringIO()
             with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
                 code = RENDERER.main(['render_prompt.py'] + list(args), skills_root=root)
         return code, out.getvalue(), err.getvalue()
+
+
+class RenderUnitTest(RenderCase):
+    """Rendering, substitution and the refusals that predate `--failure-file`."""
 
     def test_renders_and_substitutes(self):
         code, out, err = self.run_main(
@@ -99,6 +118,107 @@ class RenderUnitTest(unittest.TestCase):
         code, out, err = self.run_main(['emit-gear', 'helical'], {'emit-gear': template})
         self.assertEqual(code, 0, err)
         self.assertEqual(out, template.replace('{{gear}}', 'helical'))
+
+
+class FailureFileTest(RenderCase):
+    """`--failure-file` appends a stored gate report, or refuses."""
+
+    TEMPLATE = 'draft {{gear}} now\n'
+    REPORT = (
+        'GATE parse FAIL\n'
+        '```\n'
+        'File ".tmp/spurgear.generated.py", line 3\n'
+        '```\n'
+        'trailing }} brace and a { single one\n'
+    )
+
+    def render_with_report(self, skill='emit-gear', gear='spurgear', report=None):
+        report = self.REPORT if report is None else report
+        return self.run_main(
+            [skill, gear, '--failure-file', '{root}/gates.txt'],
+            {skill: self.TEMPLATE},
+            {'gates.txt': report})
+
+    def test_failure_file_appends_verbatim(self):
+        code, out, err = self.render_with_report()
+        self.assertEqual(code, 0, err)
+        self.assertTrue(out.startswith('draft spurgear now\n'), out)
+        self.assertEqual(out.count(RENDERER.BEGIN_MARKER), 1)
+        self.assertEqual(out.count(RENDERER.END_MARKER), 1)
+        body = out.split(RENDERER.BEGIN_MARKER + '\n', 1)[1]
+        body = body.split('\n' + RENDERER.END_MARKER, 1)[0]
+        self.assertEqual(body + '\n', self.REPORT)
+
+    def test_failure_file_content_not_substituted(self):
+        code, out, err = self.render_with_report(report='saw {{gear}} in the report\n')
+        self.assertEqual(code, 0, err)
+        self.assertIn('draft spurgear now', out)
+        self.assertIn('saw {{gear}} in the report', out)
+
+    def test_failure_file_missing_exits_2(self):
+        code, out, err = self.run_main(
+            ['emit-gear', 'spurgear', '--failure-file', '{root}/nope.txt'],
+            {'emit-gear': self.TEMPLATE})
+        self.assertEqual(code, 2)
+        self.assertEqual(out, '')
+        self.assertIn('nope.txt', err.replace('\\', '/'))
+
+    def test_failure_file_empty_exits_2(self):
+        for report in ('', '   \n\n\t\n'):
+            with self.subTest(report=report):
+                code, out, err = self.render_with_report(report=report)
+                self.assertEqual(code, 2)
+                self.assertEqual(out, '')
+                self.assertIn('empty', err)
+
+    def test_failure_file_refused_for_generate_gear(self):
+        code, out, err = self.render_with_report(skill='generate-gear')
+        self.assertEqual(code, 2)
+        self.assertEqual(out, '')
+        for skill in RENDERER.FAILURE_FEEDBACK_SKILLS:
+            self.assertIn(skill, err)
+
+    def test_failure_file_flag_needs_value(self):
+        cases = {
+            'last arg': ['emit-gear', 'spurgear', '--failure-file'],
+            'given twice': [
+                'emit-gear', 'spurgear',
+                '--failure-file', '{root}/gates.txt',
+                '--failure-file', '{root}/gates.txt'],
+        }
+        for name, args in cases.items():
+            with self.subTest(case=name):
+                code, out, err = self.run_main(
+                    args, {'emit-gear': self.TEMPLATE}, {'gates.txt': self.REPORT})
+                self.assertEqual(code, 2)
+                self.assertEqual(out, '')
+                self.assertIn('--failure-file', err)
+
+    def test_failure_file_not_utf8_exits_2(self):
+        code, out, err = self.render_with_report(report=b'\xff\xfe GATE parse FAIL\n')
+        self.assertEqual(code, 2)
+        self.assertEqual(out, '')
+        self.assertIn('UTF-8', err)
+
+    def test_without_flag_output_unchanged(self):
+        with_flag = self.render_with_report()
+        without = self.run_main(['emit-gear', 'spurgear'], {'emit-gear': self.TEMPLATE})
+        self.assertEqual(without, (0, 'draft spurgear now\n', ''))
+        self.assertTrue(with_flag[1].startswith(without[1]), with_flag[1])
+        self.assertEqual(
+            with_flag[1][len(without[1]):],
+            RENDERER.failure_block(self.REPORT))
+
+    def test_trailing_newline_normalized(self):
+        code, out, err = self.render_with_report(report='GATE parse FAIL')
+        self.assertEqual(code, 0, err)
+        self.assertIn('\nGATE parse FAIL\n' + RENDERER.END_MARKER + '\n', out)
+        self.assertTrue(out.endswith(RENDERER.END_MARKER + '\n'), out)
+
+    def test_compile_gear_is_allowed(self):
+        code, out, err = self.render_with_report(skill='compile-gear')
+        self.assertEqual(code, 0, err)
+        self.assertIn(RENDERER.BEGIN_MARKER, out)
 
 
 class CommittedTemplatesTest(unittest.TestCase):
