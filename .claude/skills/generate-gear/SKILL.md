@@ -46,11 +46,11 @@ The spec + playbook together MUST be sufficient. If they are not, fix the spec o
 1. **Setup.** Work in a worktree (per the repo's CLAUDE.md — never the root checkout). Ensure
    `.tmp/` exists. Run `python3 .claude/skills/generate-gear/preflight.py <gear> --stage generate`
    and fix every `[FAIL]` before drafting; it verifies the engines, the go toolchain and the API
-   database so a broken environment fails here instead of mid-run. Read this skill, `PLAYBOOK.md`, and the spec end-to-end. Skim the shared
-   framework the output builds on: `lib/geargen/base.py`, `misc.py`, `utilities.py`, `solids.py`,
-   `spurproxy.py`, `lib/fusion360utils/`, and `commands/<gear>/entry.py` (the same file set the
-   standard generation prompt hands the subagent). Note the gear's sketch-first proof at
-   `spec/<gear>/sketch/` if present (run in step 3).
+   database so a broken environment fails here instead of mid-run. Read this skill end-to-end.
+   Do **not** read `PLAYBOOK.md`, the spec body, or the framework files up front: the generation
+   subagent reads all of them, and each orchestrator decision that needs a section names that
+   section in the step that makes the decision (steps 2, 3, 5, 6 and 8 below). Note the gear's
+   sketch-first proof at `spec/<gear>/sketch/` if present (run in step 3).
 
 2. **Extract the contract from the spec.** Read the spec's **Contract** sections (the classes,
    hook methods, generation-context fields, generation order, and exact input ids / parameter-name
@@ -72,7 +72,9 @@ The spec + playbook together MUST be sufficient. If they are not, fix the spec o
    (see `[PB-SKETCH-FIRST]`).
    If the proof does not yet exist for this gear, build it from the spec's sketch recipes (the spur
    `spec/spurgear/sketch/` is the worked example) — a scheme that cannot reach `DOF == 0` on the
-   bench is a spec/playbook defect to fix here, not to discover inside Fusion. Requires a local
+   bench is a spec/playbook defect to fix here, not to discover inside Fusion. Read the playbook's
+   `[PB-SKETCH-FIRST]` section here when interpreting the advisory signals, and the spec's
+   sketch-recipe sections only if the proof has to be built at this step. Requires a local
    checkout of the `sketch` engine (`$SKETCH_DIR` or a sibling `../sketch`).
 
 4. **Generate.** Spawn a subagent that writes `.tmp/<gear>.generated.py` from **the spec +
@@ -154,7 +156,9 @@ The spec + playbook together MUST be sufficient. If they are not, fix the spec o
    - **Helper shadowing:** the manifest gate catches a literal re-definition of a framework
      helper (PLAYBOOK "Shared geargen helper library"), but a private re-implementation under
      a different name still needs a prose check. A shadow means the spec/playbook failed to
-     direct the generator to the helper; fix there and regenerate.
+     direct the generator to the helper; fix there and regenerate. Perform the prose half by
+     reading the playbook's "Shared geargen helper library" section and the `def` names in
+     `lib/geargen/solids.py` at this point; no earlier read supports it.
    - **Dependency resolution:** `check_contract.py` verifies `lib/geargen/` imports
      mechanically; confirm any other imported surface the spec's Dependencies section names.
 
@@ -162,7 +166,9 @@ The spec + playbook together MUST be sufficient. If they are not, fix the spec o
    **spec or playbook** is incomplete or wrong — fix it there (never hand-edit the generated file,
    never copy from an existing implementation) and regenerate from the Generate step (step 4) with
    a fresh subagent, because the edit made the context the previous drafter read stale. Repeat up
-   to ~3 rounds. Converges when the output parses and satisfies the full declared contract.
+   to ~3 rounds. Converges when the output parses and satisfies the full declared contract. When
+   diagnosing, read only the spec or playbook sections the failure implicates; the diagnosis is
+   when they earn their read.
 
    One failure class skips the fresh spawn: a mechanical slip no spec wording caused (a syntax
    error, a typo in a name the spec spells correctly). No input file changed, so send the check
@@ -178,7 +184,9 @@ The spec + playbook together MUST be sufficient. If they are not, fix the spec o
 8. **Report.** State whether the spec drove a complete, contract-satisfying generation, the
    spec/playbook edits made, and any **asserted-but-unproven** gaps (geometry the spec describes
    that no mechanical check can confirm — see the honesty note). Commit spec/playbook improvements
-   (and the installed `.py` if approved). No push without explicit approval.
+   (and the installed `.py` if approved). No push without explicit approval. Source the
+   asserted-but-unproven list from the subagent's own report plus a skim of the spec's geometry
+   sections at this step, not from an up-front spec read.
 
 ## Required spec sections (the contract surface)
 
