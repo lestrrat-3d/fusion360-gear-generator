@@ -1,6 +1,6 @@
 # Spur Gear — compiled step list
 
-This step list is proven by `proof/spurgear/geometry_test.go`, `proof/spurgear/sketches_test.go` and `proof/spurgear/solids_test.go`.
+This step list is proven by `proof/spurgear/geometry_test.go`, `proof/spurgear/sketches_test.go`, `proof/spurgear/solids_test.go` and the generated `proof/spurgear/zz_registrations_test.go`.
 
 ## Provenance
 
@@ -285,6 +285,8 @@ the user's anchor. The sketch draws nothing else; leave it visible until cleanup
 — hiding it earlier breaks the bore's re-projection. Store the sketch on
 `self.toolsSketch`.
 
+<!-- proof-run: proofkit.Run(toolsCases, stepToolsSketch) -->
+
 **From:** `spec/spurgear/instructions.md` L41 L228–231 L425–427,
 `spec/spurgear/fusion.md` L19–24
 
@@ -442,6 +444,8 @@ and 13 match on: the tooth section (6 curves, or 4 embedded) and the disc inside
 circle, split out of the solid root circle by the tooth's contact points. The proof counts
 both on the sketch it actually draws.
 
+<!-- proof-run: proofkit.Run(profileCases, stepGearProfileSketch) -->
+
 **From:** `spec/spurgear/instructions.md` L180–251 L431–485,
 `spec/spurgear/fusion.md` L26–43 L45–60 L69–114 L116–156 L158–198,
 `.claude/skills/generate-gear/PLAYBOOK.md` L230–242 L441–447 L484–491 L543–553 L565–573 L599–609
@@ -476,6 +480,8 @@ circle-fragment boundary) and asserts the volume is section-area × Thickness, t
 sits at Thickness, and the front face carries what step 12 selects on: 6 edges (4
 embedded), exactly one of them the root-radius arc.
 
+<!-- proof-run: proofkit3d.Run(toothCases, stepExtrudeTooth, assertExtrudeTooth) -->
+
 **From:** `spec/spurgear/instructions.md` L218–226 L491–495,
 `.claude/skills/generate-gear/PLAYBOOK.md` L145–158 L589–598
 
@@ -509,6 +515,8 @@ harness evaluates exactly, and asserts the equal-distance band removes exactly t
 volume; the selection inputs it cannot reach — 6 edges, one root-radius arc — are
 asserted by stepExtrudeTooth, and the reasons are recorded on the step function.
 
+<!-- proof-run: proofkit3d.Run(chamferCases, stepChamferTooth, assertChamferTooth) -->
+
 **From:** `spec/spurgear/instructions.md` L497–503,
 `spec/helicalgear/fusion.md` L67–84,
 `.claude/skills/generate-gear/PLAYBOOK.md` L498–504 L589–598
@@ -529,6 +537,8 @@ Extrusion End Plane as a new body — `extrudeFeatures.createInput(profile, adsk
 
 The proof asserts the disc body: volume π·root²·Thickness, exactly two planar caps and
 one root-radius cylinder, near cap coplanar with the sketch plane, far cap at Thickness.
+
+<!-- proof-run: proofkit3d.Run(bodyCases, stepExtrudeBody, assertExtrudeBody) -->
 
 **From:** `spec/spurgear/instructions.md` L218–226 L505–514
 
@@ -555,6 +565,8 @@ The proof derives the axis the way `setByCircularFace` does — from the cylindr
 and asserts it is parallel to the plane normal through the gear centre, and that the
 parallel-not-coplanar predicate selects exactly one face, at Thickness.
 
+<!-- proof-run: proofkit3d.Run(bodyCases, stepGearCenterAxis, assertGearCenterAxis) -->
+
 **From:** `spec/spurgear/instructions.md` L505–514,
 `.claude/skills/generate-gear/PLAYBOOK.md` L430 L704–707
 
@@ -575,6 +587,8 @@ prisms coexist, recorded on the step function) and asserts each copy is the seed
 by exactly k·360°/N about the axis with volume unchanged; the full count is carried by
 step 16's tiling equality.
 
+<!-- proof-run: proofkit3d.Run(patternCases, stepPatternTeeth, assertPatternTeeth) -->
+
 **From:** `spec/spurgear/instructions.md` L516–520,
 `.claude/skills/generate-gear/PLAYBOOK.md` L610–620
 
@@ -594,6 +608,8 @@ The proof builds the combine's one result — the whole-gear prism from the sing
 outline (decad's boolean refuses the tooth-on-root-cylinder tangent contact the real join
 crosses; recorded on the step function) — and asserts the exact tiling equality: whole
 gear = root disc + N teeth, one watertight lump.
+
+<!-- proof-run: proofkit3d.RunSolid(combineCases, stepCombineTeeth, assertCombineTeeth) -->
 
 **From:** `spec/spurgear/instructions.md` L516–521,
 `.claude/skills/generate-gear/PLAYBOOK.md` L610–614
@@ -631,6 +647,8 @@ The proof fillets the whole-gear prism's concave axial edges at the derived Fill
 and asserts the selection finds exactly two corners per valley (2N cylinder blends at that
 radius), drops the rims, and adds material.
 
+<!-- proof-run: proofkit3d.RunSolid(filletCases, stepRootFillets, assertRootFillets) -->
+
 **From:** `spec/spurgear/instructions.md` L86–88 L522–531,
 `.claude/skills/generate-gear/PLAYBOOK.md` L430 L498–504
 
@@ -657,6 +675,8 @@ projection: `addCoincident(toothGen.anchorPoint, projectedAnchor)`. Never ground
 Ungrounded, the point keeps two free DOF and the sketch never fully constrains — which is
 exactly what the proof's gate checks.
 
+<!-- proof-run: proofkit.Run(boreCases, stepBoreProfileSketch) -->
+
 **From:** `spec/spurgear/instructions.md` L54 L533–537,
 `spec/spurgear/fusion.md` L26–31,
 `.claude/skills/generate-gear/PLAYBOOK.md` L441–447
@@ -676,6 +696,8 @@ The proof cuts a bore cylinder through the whole-gear prism (the tool extruded p
 caps, since the harness's boolean refuses flush face-on-face contact; recorded on the
 step function) and asserts the removed volume is exactly the full-thickness bore
 cylinder.
+
+<!-- proof-run: proofkit3d.RunSolid(boreCutCases, stepBoreCut, assertBoreCut) -->
 
 **From:** `spec/spurgear/instructions.md` L533–537,
 `.claude/skills/generate-gear/PLAYBOOK.md` L646–649

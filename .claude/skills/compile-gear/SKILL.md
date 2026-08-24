@@ -71,7 +71,14 @@ proof is where the next reader is looking for the missing check.
    prompt varies run to run and hides gaps by spoon-feeding what the prose should have said, so a
    green run would no longer say anything about the spec.
 
-4. **Run the proof.** Run `python3 .claude/skills/generate-gear/stage.py <gear> proof --run` from
+4. **Scaffold and run the proof.** First run
+   `python3 .claude/skills/generate-gear/scaffold_proof.py <gear> --steps .tmp/<gear>.steps.md
+   --out .tmp/<gear>-proof/zz_registrations_test.go`. It turns each `[GO]` step's `proof-run`
+   annotation into the Go `Test` registrations the drafter never writes; a scaffolder finding is a
+   draft fault, handled as step 6 handles one. The two tools have separate jobs: `scaffold_proof.py`
+   generates that one file, and `stage.py` places every drafted file including it.
+
+   Then run `python3 .claude/skills/generate-gear/stage.py <gear> proof --run` from
    the repo root. It copies every drafted proof file from `.tmp/<gear>-proof/` into
    `proof/<gear>/`, deletes any `.go` file there the draft no longer produces, indexes the result
    so step 5's tracked-or-committed check can see a first-time proof, and then runs
@@ -115,6 +122,7 @@ proof is where the next reader is looking for the missing check.
 | A step names a call the module is not required to make | Draft fault |
 | A named API call does not exist, and the spec did not name it | Draft fault |
 | A provenance hash does not match | A source changed after the table was stamped; re-run `gen_provenance.py` and check again |
+| The scaffolder refuses an annotation, or the registration check names a mismatch | Draft fault |
 | **A named API call does not exist, and the spec named it** | **Prose fault** |
 | **The proof cannot fully constrain after three rounds** | **Prose fault** |
 | **The proof cannot build a sound solid after three rounds** | **Prose fault** |
@@ -135,6 +143,8 @@ this skill: a compiler that rewrites its own source removes the thing being chec
 - Never hand-edit the drafted artifacts to get a check to pass. They are build output, and a wrong
   step list means the prose or this procedure is wrong.
 - Never add gear-specific guidance to the drafting prompt.
+- Never write or hand-edit `proof/<gear>/zz_registrations_test.go`. It is generated; rerun
+  `scaffold_proof.py` instead.
 
 ## Standard drafting prompt
 

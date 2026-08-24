@@ -47,10 +47,6 @@ func stepToolsSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
 	}
 }
 
-func TestToolsSketch(t *testing.T) {
-	proofkit.Run(t, toolsCases, stepToolsSketch)
-}
-
 // profileCases is the regime the Gear Profile scheme must hold across
 // (instructions.md Sketch Discipline): sizes coarse and fine, the whole
 // signed range of the draw() angle including a quarter turn each way, the
@@ -367,10 +363,6 @@ func assertGearProfileRegions(t testing.TB, s *sketch.Sketch, g *gearGeom) {
 	}
 }
 
-func TestGearProfileSketch(t *testing.T) {
-	proofkit.Run(t, profileCases, stepGearProfileSketch)
-}
-
 // boreCases: bore diameters with the anchor on and off the plane origin. The
 // zero-diameter dialog default never reaches this step — buildBore
 // early-returns on BoreDiameter <= 0 (steps.md step 18).
@@ -409,8 +401,4 @@ func stepBoreProfileSketch(t testing.TB, s *sketch.Sketch, p map[string]float64)
 	} else if want := math.Pi * p[pBoreDiameter] * p[pBoreDiameter] / 4; relDiff(profiles[0].Area, want) > 1e-6 {
 		t.Errorf("bore area %.6f, want %.6f", profiles[0].Area, want)
 	}
-}
-
-func TestBoreProfileSketch(t *testing.T) {
-	proofkit.Run(t, boreCases, stepBoreProfileSketch)
 }
