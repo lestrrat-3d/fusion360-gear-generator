@@ -47,7 +47,10 @@ proof is where the next reader is looking for the missing check.
 
 ## Procedure
 
-1. **Setup.** Work in a worktree, never the root checkout. Ensure `.tmp/` exists. Read this file,
+1. **Setup.** Work in a worktree, never the root checkout. Ensure `.tmp/` exists. Run
+   `python3 .claude/skills/generate-gear/preflight.py <gear> --stage compile` and fix every
+   `[FAIL]` before drafting; it verifies the engines, the go toolchain and the API database so a
+   broken environment fails here instead of mid-run. Read this file,
    `PLAYBOOK.md`, the gear's spec end to end, and both harness APIs, `proof/proofkit/` and
    `proof/proofkit3d/`.
 
