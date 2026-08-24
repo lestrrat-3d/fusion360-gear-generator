@@ -30,9 +30,20 @@ None of these prove the geometry is right. They prove the generator did what the
 which is the layer that was entirely unguarded.
 
 Usage:
-    python3 check_step_calls.py spec/<gear>/steps.md .tmp/<gear>.generated.py
+    python3 check_step_calls.py [--names | --json] spec/<gear>/steps.md .tmp/<gear>.generated.py
 
-Exit 0 = OK, 1 = BLOCKING.
+Exit 0 = OK, 1 = BLOCKING, 2 = usage error.
+
+Without a flag the report is prose, for a human. Two machine-readable modes exist so a caller
+does not have to parse that prose:
+
+  --names  print only the bare names of the missing calls, sorted and de-duplicated, one per
+           line. That is the form the `<!-- check-step-calls: ignore ... -->` directive takes,
+           and the only thing `/compile-gear` step 5 is allowed to pass on to its drafter.
+  --json   print one JSON object carrying everything the prose report carries.
+
+Neither flag changes the exit code: a run whose only problems are stub markers prints no names
+and still exits 1.
 
 The step list may exempt a name it mentions but does not require — a call the framework makes on
 the generator's behalf, or one named only to forbid it. Calls in code spans introduced by a
@@ -42,6 +53,7 @@ exemption uses a line of the form:
     <!-- check-step-calls: ignore nameOne nameTwo -->
 """
 import ast
+import json
 import re
 import sys
 
@@ -394,21 +406,50 @@ def actual_call_shapes(gen_tree):
     return ReachableCallCollector(gen_tree).collect(gen_tree)
 
 
+def _usage_error():
+    print('usage: check_step_calls.py <steps.md> <generated.py>', file=sys.stderr)
+    return 2
+
+
+def _parse_argv(argv):
+    """Split argv into the two output-mode flags and the two positionals.
+
+    Hand-rolled on purpose. argparse raises SystemExit on a bad argument, and every caller of
+    ``main`` — the tests included — expects an int back instead.
+
+    Returns ``(names_mode, json_mode, positionals)``, or None when the usage is wrong.
+    """
+    names_mode = False
+    json_mode = False
+    positionals = []
+    for argument in argv[1:]:
+        if argument == '--names':
+            names_mode = True
+        elif argument == '--json':
+            json_mode = True
+        elif argument.startswith('--'):
+            return None
+        else:
+            positionals.append(argument)
+    if len(positionals) != 2 or (names_mode and json_mode):
+        return None
+    return names_mode, json_mode, positionals
+
+
 def main(argv):
-    if len(argv) != 3:
-        print('usage: check_step_calls.py <steps.md> <generated.py>', file=sys.stderr)
-        return 2
-    steps_path, gen_path = argv[1], argv[2]
+    parsed = _parse_argv(argv)
+    if parsed is None:
+        return _usage_error()
+    names_mode, json_mode, (steps_path, gen_path) = parsed
     steps_src = open(steps_path).read()
     gen_src = open(gen_path).read()
 
-    problems = []
-
     wanted = named_call_shapes(steps_src)
+    parse_error = None
     try:
         gen_tree = ast.parse(gen_src, filename=gen_path)
     except SyntaxError as err:
-        problems.append("  generated candidate is not valid Python: %s" % err)
+        parse_error = str(err)
         actual = set()
     else:
         actual = actual_call_shapes(gen_tree)
@@ -416,34 +457,72 @@ def main(argv):
     # Keep the textual scan only to explain whether a missing reachable call has a misleading
     # match in a comment or string. The AST result above is the coverage gate.
     textual = {name for name, _ in wanted if name + '(' in gen_src}
-    missing = sorted(
+    missing_shapes = sorted(
         ((name, has_receiver) for name, has_receiver in wanted
          if not any(actual_name == name and (not has_receiver or actual_receiver)
                     for actual_name, actual_receiver in actual)),
         key=lambda row: (row[0], row[1] or ''))
-    for name, has_receiver in missing:
-        note = " (textual match exists, but it is not a reachable executable call)" if name in textual else ""
-        call = ('receiver.%s' if has_receiver else '%s') % name
-        problems.append(
-                "  named-call coverage: '%s(' is named in %s but has no reachable executable %s call in %s%s"
-            % (call, steps_path, 'method' if has_receiver else 'function', gen_path, note))
+    missing = [
+        {'name': name, 'has_receiver': bool(has_receiver), 'textual_match': name in textual}
+        for name, has_receiver in missing_shapes]
 
+    stubs = []
     for lineno, line in enumerate(gen_src.splitlines(), 1):
         hit = STUB_PATTERN.search(line)
         if hit:
-            problems.append(
-                "  stub marker: %s:%d carries '%s' — %s"
-                % (gen_path, lineno, hit.group(1), line.strip()))
+            stubs.append({'line': lineno, 'marker': hit.group(1), 'text': line.strip()})
 
     # Scan the whole source, not line by line: these calls routinely wrap, and the argument
     # lands on the following line.
+    shared_point = []
     for match in SHARE_CALL.finditer(gen_src):
         arg = match.group(1)
         if arg.endswith('.geometry'):
-            lineno = gen_src.count('\n', 0, match.start()) + 1
-            problems.append(
-                "  shared-point misuse: %s:%d passes '%s' where the SketchPoint itself "
-                "must be shared ([PB-SHARE-XOR-COINCIDENT])" % (gen_path, lineno, arg))
+            shared_point.append(
+                {'line': gen_src.count('\n', 0, match.start()) + 1, 'argument': arg})
+
+    # The prose report is rendered from those records, in the order it has always used, so the
+    # flagless output stays byte for byte what it was.
+    problems = []
+    if parse_error is not None:
+        problems.append("  generated candidate is not valid Python: %s" % parse_error)
+    for record in missing:
+        note = (" (textual match exists, but it is not a reachable executable call)"
+                if record['textual_match'] else "")
+        call = ('receiver.%s' if record['has_receiver'] else '%s') % record['name']
+        problems.append(
+                "  named-call coverage: '%s(' is named in %s but has no reachable executable %s call in %s%s"
+            % (call, steps_path, 'method' if record['has_receiver'] else 'function', gen_path, note))
+    for record in stubs:
+        problems.append(
+            "  stub marker: %s:%d carries '%s' — %s"
+            % (gen_path, record['line'], record['marker'], record['text']))
+    for record in shared_point:
+        problems.append(
+            "  shared-point misuse: %s:%d passes '%s' where the SketchPoint itself "
+            "must be shared ([PB-SHARE-XOR-COINCIDENT])"
+            % (gen_path, record['line'], record['argument']))
+
+    if json_mode:
+        print(json.dumps({
+            'ok': not problems,
+            'named_calls': len(wanted),
+            'missing': missing,
+            'stubs': stubs,
+            'shared_point': shared_point,
+            'parse_error': parse_error,
+        }, sort_keys=True))
+        return 1 if problems else 0
+
+    if names_mode:
+        # A name is all the caller may forward, so the parse error goes to stderr rather than
+        # contaminating the list.
+        if parse_error is not None:
+            print('check_step_calls: candidate is not valid Python: %s' % parse_error,
+                  file=sys.stderr)
+        for name in sorted({record['name'] for record in missing}):
+            print(name)
+        return 1 if problems else 0
 
     if problems:
         print('step-call check: BLOCKING (%d)' % len(problems))
