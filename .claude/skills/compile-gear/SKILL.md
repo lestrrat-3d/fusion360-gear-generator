@@ -81,11 +81,14 @@ proof is where the next reader is looking for the missing check.
    draft fault, handled as step 6 handles one. The two tools have separate jobs: `scaffold_proof.py`
    generates that one file, and `stage.py` places every drafted file including it.
 
-   Then run `python3 .claude/skills/generate-gear/stage.py <gear> proof` from the repo root. It
-   copies every drafted proof file from `.tmp/<gear>-proof/` into `proof/<gear>/`, deletes any
-   `.go` file there the draft no longer produces, and indexes the result so step 5's
-   tracked-or-committed check can see a first-time proof. Exit 2 means the placement was refused
-   and nothing moved. Do not pass `--run`; the gate runner below runs the proof.
+   Then run `python3 .claude/skills/generate-gear/stage.py <gear> compile` from the repo root. It
+   places both drafted artifacts in one call: `.tmp/<gear>.steps.md` at `spec/<gear>/steps.md`,
+   and every drafted proof file from `.tmp/<gear>-proof/` into `proof/<gear>/`, deleting any `.go`
+   file there the draft no longer produces and indexing the result so step 5's
+   tracked-or-committed check can see a first-time proof. The step list must be placed here too,
+   because `check_compile.py` reads `spec/<gear>/steps.md`, never the draft in `.tmp/`. The
+   command refuses both placements if it would refuse either; exit 2 means nothing moved. There
+   is no `--run`; the gate runner below runs the proof.
 
    Then run `python3 .claude/skills/generate-gear/run_compile_gates.py <gear> >
    .tmp/<gear>.compile-gates.txt` from the repo root and read the file for the verdict. The stored
@@ -120,11 +123,11 @@ proof is where the next reader is looking for the missing check.
    renderer appends the stored gate report verbatim; never paste failure text into the prompt by
    hand. A prose fault stops the run.
 
-7. **Place.** On success, run `python3 .claude/skills/generate-gear/stage.py <gear> steps` and
-   `python3 .claude/skills/generate-gear/stage.py <gear> proof` from the repo root. They put the
-   drafted step list and every drafted proof file into the working tree and report what moved; the
-   proof call repeats step 4's placement, so it should report every file unchanged. This writes
-   files and the git index only; it does not commit, push, or touch Fusion's add-in directory.
+7. **Place.** On success, run `python3 .claude/skills/generate-gear/stage.py <gear> compile`
+   from the repo root. It repeats step 4's placement of the step list and the proof, so it
+   should report every file unchanged; it exists as a step so a run whose gates were green
+   ends with the working tree verified to match the draft. This writes files and the git index
+   only; it does not commit, push, or touch Fusion's add-in directory.
 
 8. **Report.** State what was produced, the coverage list, and every prose fault found.
 

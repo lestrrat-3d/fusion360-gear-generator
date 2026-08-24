@@ -437,5 +437,171 @@ class RunIndexDryRunTests(unittest.TestCase):
             self.assertEqual(err_dry.strip(), err_real.strip())
 
 
+class CompileTargetTests(unittest.TestCase):
+    """The `compile` target places the step list and the proof, or neither."""
+
+    def test_compile_places_steps_and_proof_in_one_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_root(tmp, draft={'a_test.go': 'package spurgear_test\n',
+                                          'b_test.go': 'package spurgear_test\n'},
+                              steps='# steps\n')
+            code, out, _ = run_stage(root, 'spurgear', 'compile')
+            self.assertEqual(code, 0)
+            self.assertEqual((root / 'spec' / 'spurgear' / 'steps.md').read_text(), '# steps\n')
+            dest = root / 'proof' / 'spurgear'
+            self.assertEqual((dest / 'a_test.go').read_text(), 'package spurgear_test\n')
+            self.assertEqual((dest / 'b_test.go').read_text(), 'package spurgear_test\n')
+            self.assertIn('stage: steps OK', out)
+            self.assertIn('stage: proof OK', out)
+            self.assertIn('stage: compile OK (steps + proof)', out)
+
+    def test_compile_rerun_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_root(tmp, draft={'a_test.go': 'x\n'}, steps='# steps\n')
+            code1, _, _ = run_stage(root, 'spurgear', 'compile')
+            self.assertEqual(code1, 0)
+            code2, out2, _ = run_stage(root, 'spurgear', 'compile')
+            self.assertEqual(code2, 0)
+            self.assertNotIn('wrote', out2)
+            self.assertIn('stage: unchanged %s' % (root / 'spec' / 'spurgear' / 'steps.md'),
+                          out2)
+            self.assertIn('stage: unchanged %s'
+                          % (root / 'proof' / 'spurgear' / 'a_test.go'), out2)
+            self.assertIn('stage: compile OK (steps + proof)', out2)
+
+    def test_compile_refuses_when_steps_draft_missing_and_writes_no_proof_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_root(tmp, draft={'a_test.go': 'x\n'})
+            code, _, err = run_stage(root, 'spurgear', 'compile')
+            self.assertEqual(code, 2)
+            self.assertIn('spurgear.steps.md', err)
+            self.assertFalse((root / 'proof' / 'spurgear' / 'a_test.go').exists())
+
+    def test_compile_refuses_when_proof_draft_missing_and_leaves_steps_untouched(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_root(tmp, steps='# steps\n')
+            code, _, err = run_stage(root, 'spurgear', 'compile')
+            self.assertEqual(code, 2)
+            self.assertIn('spurgear-proof', err)
+            self.assertFalse((root / 'spec' / 'spurgear' / 'steps.md').exists())
+
+    def test_compile_dirty_steps_destination_refuses_before_any_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_root(tmp, draft={'a_test.go': 'draft-2\n'}, steps='# steps-2\n')
+            (root / 'spec' / 'spurgear' / 'steps.md').write_text('# steps-1\n')
+            git_init(root)
+            git_commit_all(root)
+            (root / 'spec' / 'spurgear' / 'steps.md').write_text('hand-edited\n')
+
+            code, _, err = run_stage(root, 'spurgear', 'compile')
+            self.assertEqual(code, 2)
+            self.assertIn('steps.md', err)
+            self.assertEqual((root / 'spec' / 'spurgear' / 'steps.md').read_text(),
+                             'hand-edited\n')
+            self.assertFalse((root / 'proof' / 'spurgear' / 'a_test.go').exists())
+
+    def test_compile_force_overwrites_both(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_root(tmp, draft={'a_test.go': 'draft-2\n'},
+                              placed={'a_test.go': 'draft-1\n'}, steps='# steps-2\n')
+            (root / 'spec' / 'spurgear' / 'steps.md').write_text('# steps-1\n')
+            git_init(root)
+            git_commit_all(root)
+            (root / 'spec' / 'spurgear' / 'steps.md').write_text('hand-edited\n')
+            (root / 'proof' / 'spurgear' / 'a_test.go').write_text('hand-edited\n')
+
+            code, _, _ = run_stage(root, 'spurgear', 'compile', '--force')
+            self.assertEqual(code, 0)
+            self.assertEqual((root / 'spec' / 'spurgear' / 'steps.md').read_text(),
+                             '# steps-2\n')
+            self.assertEqual((root / 'proof' / 'spurgear' / 'a_test.go').read_text(),
+                             'draft-2\n')
+
+    def test_compile_dry_run_reports_both_and_touches_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_root(tmp, draft={'a_test.go': 'x\n'}, steps='# steps\n')
+            code, out, _ = run_stage(root, 'spurgear', 'compile', '--dry-run')
+            self.assertEqual(code, 0)
+            self.assertEqual(out.count('would write'), 2)
+            self.assertIn('steps.md', out)
+            self.assertIn('a_test.go', out)
+            self.assertFalse((root / 'spec' / 'spurgear' / 'steps.md').exists())
+            self.assertFalse((root / 'proof' / 'spurgear' / 'a_test.go').exists())
+            self.assertFalse((root / '.tmp' / 'stage').exists())
+
+    def test_compile_writes_both_receipts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_root(tmp, draft={'a_test.go': 'x\n'}, steps='# steps\n')
+            code, _, _ = run_stage(root, 'spurgear', 'compile')
+            self.assertEqual(code, 0)
+            self.assertTrue((root / '.tmp' / 'stage' / 'spurgear.steps.json').exists())
+            self.assertTrue((root / '.tmp' / 'stage' / 'spurgear.proof.json').exists())
+
+            code_steps, out_steps, _ = run_stage(root, 'spurgear', 'steps')
+            self.assertEqual(code_steps, 0)
+            self.assertIn('unchanged', out_steps)
+            self.assertNotIn('wrote', out_steps)
+
+    def test_compile_indexes_proof_unless_no_index(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_root(tmp, draft={'a_test.go': 'new\n'},
+                              placed={'stale_test.go': 'stale\n'}, steps='# steps\n')
+            git_init(root)
+            git_commit_all(root)
+
+            code, _, _ = run_stage(root, 'spurgear', 'compile')
+            self.assertEqual(code, 0)
+            staged = subprocess.run(
+                ['git', 'diff', '--cached', '--name-only'], cwd=str(root),
+                capture_output=True, text=True, check=True).stdout
+            self.assertIn('proof/spurgear/a_test.go', staged)
+            self.assertIn('proof/spurgear/stale_test.go', staged)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_root(tmp, draft={'a_test.go': 'new\n'}, steps='# steps\n')
+            git_init(root)
+            git_commit_all(root)
+
+            code, _, _ = run_stage(root, 'spurgear', 'compile', '--no-index')
+            self.assertEqual(code, 0)
+            staged = subprocess.run(
+                ['git', 'diff', '--cached', '--name-only'], cwd=str(root),
+                capture_output=True, text=True, check=True).stdout
+            self.assertEqual(staged.strip(), '')
+
+    def test_compile_proof_failure_rolls_back_placed_steps(self):
+        real_replace = os.replace
+
+        def fail_on_proof(src, dst):
+            if os.sep + 'proof' + os.sep in str(dst):
+                raise OSError('synthetic proof failure')
+            return real_replace(src, dst)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_root(tmp, draft={'a_test.go': 'new\n'}, steps='# steps-2\n')
+            (root / 'spec' / 'spurgear' / 'steps.md').write_text('# steps-1\n')
+            with mock.patch.object(MODULE.os, 'replace', side_effect=fail_on_proof):
+                code, _, err = run_stage(root, 'spurgear', 'compile')
+            self.assertEqual(code, 2)
+            self.assertTrue(err.strip())
+            self.assertEqual((root / 'spec' / 'spurgear' / 'steps.md').read_text(),
+                             '# steps-1\n')
+            self.assertFalse((root / 'proof' / 'spurgear' / 'a_test.go').exists())
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_root(tmp, draft={'a_test.go': 'new\n'}, steps='# steps-2\n')
+            with mock.patch.object(MODULE.os, 'replace', side_effect=fail_on_proof):
+                code, _, err = run_stage(root, 'spurgear', 'compile')
+            self.assertEqual(code, 2)
+            self.assertFalse((root / 'spec' / 'spurgear' / 'steps.md').exists())
+
+    def test_run_flag_rejected_for_compile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_root(tmp, draft={'a_test.go': 'x\n'}, steps='# steps\n')
+            with self.assertRaises(SystemExit) as cm:
+                MODULE.main(['stage.py', '--root', str(root), 'spurgear', 'compile', '--run'])
+            self.assertEqual(cm.exception.code, 2)
+
+
 if __name__ == '__main__':
     unittest.main()
