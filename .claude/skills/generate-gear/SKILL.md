@@ -53,11 +53,16 @@ The spec + playbook together MUST be sufficient. If they are not, fix the spec o
    they bind to as part of the required contract.
 
 3. **Prove the sketch fully constrains (sketch-first gate — `[PB-SKETCH-FIRST]`).** If the gear's
-   profile is a non-trivial constrained sketch, run its bench proof at `spec/<gear>/sketch/`
-   (`./run.sh`) and confirm the **primary gate passes** — `Status == FullyConstrained` and healthy
-   conditioning (`DOF == 0`, no redundant/conflicting constraints). This proves the constraint scheme
-   is sound *before* any Fusion code is emitted; the advisory signals (`ProfilesValid`,
-   `Probe.Ambiguous()`) are reported and interpreted, not hard-blocking (see `[PB-SKETCH-FIRST]`).
+   profile is a non-trivial constrained sketch, run
+   `python3 .claude/skills/generate-gear/run_sketch_bench.py <gear>` and act on the exit code:
+   **0** the primary gate passed (the bench proved `Status == FullyConstrained` with healthy
+   conditioning) — proceed; **1** the constraint scheme does not fully constrain — a spec/playbook
+   defect to fix here, never inside Fusion; **2** a setup problem (no bench yet, missing
+   sketch-engine checkout, a bench that does not build, or a bench that printed no verdict) — fix
+   the environment or build the bench first. This proves the constraint scheme is sound *before*
+   any Fusion code is emitted; the advisory signals (`ProfilesValid`, `Probe.Ambiguous()`) remain
+   in the bench output and are reported and interpreted, not hard-blocking
+   (see `[PB-SKETCH-FIRST]`).
    If the proof does not yet exist for this gear, build it from the spec's sketch recipes (the spur
    `spec/spurgear/sketch/` is the worked example) — a scheme that cannot reach `DOF == 0` on the
    bench is a spec/playbook defect to fix here, not to discover inside Fusion. Requires a local
