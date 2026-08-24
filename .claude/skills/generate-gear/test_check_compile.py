@@ -314,20 +314,23 @@ class CheckCompileTest(unittest.TestCase):
     def run_checker(self, provenance=None, from_line='**From:** `spec/gear/instructions.md` L1',
                     proof_body=None, proof_filename='proof_test.go', step_body=None,
                     include_fusion=True, auxiliary=False, mutate_auxiliary=False,
-                    api_lookup=None, unverified_findings=None, proof_directories=()):
+                    api_lookup=None, unverified_findings=None, proof_directories=(),
+                    instruction_text=None, fusion_text=None, api_similar=None):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / 'spec' / 'gear').mkdir(parents=True)
             (root / 'proof' / 'gear').mkdir(parents=True)
             (root / '.claude' / 'skills' / 'generate-gear').mkdir(parents=True)
-            instruction_text = 'source\nline two\nline three\n'
+            if instruction_text is None:
+                instruction_text = 'source\nline two\nline three\n'
+                if auxiliary:
+                    instruction_text = 'source\nSee `trace.md` for details.\nline three\n'
             if auxiliary:
-                instruction_text = 'source\nSee `trace.md` for details.\nline three\n'
                 (root / 'spec' / 'gear' / 'trace.md').write_text('trace\n')
             (root / 'spec' / 'gear' / 'instructions.md').write_text(instruction_text)
             if include_fusion:
                 (root / 'spec' / 'gear' / 'fusion.md').write_text(
-                    'source\nline two\nline three\n')
+                    'source\nline two\nline three\n' if fusion_text is None else fusion_text)
             (root / '.claude' / 'skills' / 'generate-gear' / 'PLAYBOOK.md').write_text(
                 'source\nline two\nline three\n')
             if provenance is None:
@@ -374,7 +377,13 @@ class CheckCompileTest(unittest.TestCase):
                 findings_patch = mock.patch.object(
                     COMPILE_CHECKER.fusion_api, 'unverified_findings',
                     return_value=[] if unverified_findings is None else unverified_findings)
-                with lookup_patch, findings_patch, contextlib.redirect_stdout(output):
+                # The nonexistent-call branch asks the database for near names, which shells out
+                # to the plugin. A fixture reaching that branch must not depend on it.
+                similar_patch = mock.patch.object(
+                    COMPILE_CHECKER.fusion_api, 'similar',
+                    return_value=[] if api_similar is None else api_similar)
+                with lookup_patch, findings_patch, similar_patch, \
+                        contextlib.redirect_stdout(output):
                     result = COMPILE_CHECKER.main(['check_compile.py', 'gear'])
             finally:
                 os.chdir(prior)
@@ -1611,6 +1620,95 @@ class CheckCompileTest(unittest.TestCase):
                       output)
         self.assertNotIn('in a shape this gate does not read', output)
 
+    # Who is to blame for a call the API database cannot resolve. The compile-gear fault table
+    # separates the two API rows by one question — did the prose name the call, or only the
+    # draft? — and these hold the gate answering it from the provenance input set rather than
+    # leaving the search to the reader.
+
+    def call_step(self, span):
+        """One `[GO]` step whose body names `span` in a code span, otherwise canonical."""
+        return ('## S1 `[GO]` One — `stepOne`\n\n'
+                'Call `%s`.\n\n'
+                '**From:** `spec/gear/instructions.md` L1\n\n' % span)
+
+    def test_nonexistent_call_named_by_spec_is_a_prose_fault(self):
+        result, output = self.run_checker(
+            instruction_text='source\ncall frobnicate here\nline three\n',
+            step_body=self.call_step('thing.frobnicate(1)'),
+            api_lookup={'frobnicate': []})
+
+        self.assertEqual(result, 1, output)
+        self.assertIn("the step list names 'frobnicate(', which the Fusion API database does not "
+                      "have", output)
+        self.assertIn('fault: prose — named in spec/gear/instructions.md:2', output)
+        self.assertIn('fix the spec', output)
+
+    def test_nonexistent_call_only_in_steps_is_a_draft_fault(self):
+        result, output = self.run_checker(
+            step_body=self.call_step('thing.frobnicate(1)'),
+            api_lookup={'frobnicate': []})
+
+        self.assertEqual(result, 1, output)
+        self.assertIn('fault: draft', output)
+        self.assertIn('send the failure back to the drafter', output)
+        self.assertNotIn('fault: prose', output)
+
+    def test_prose_fault_names_every_spec_file_that_hits(self):
+        result, output = self.run_checker(
+            instruction_text='source\ncall frobnicate here\nline three\n',
+            fusion_text='source\nline two\nfrobnicate again\n',
+            step_body=self.call_step('thing.frobnicate(1)'),
+            api_lookup={'frobnicate': []})
+
+        self.assertEqual(result, 1, output)
+        self.assertIn('fault: prose — named in spec/gear/fusion.md:3, '
+                      'spec/gear/instructions.md:2', output)
+
+    def test_wrong_receiver_problem_carries_the_same_fault_line(self):
+        """The receiver variant is the same fault-table row, so it gets the same blame line."""
+        watchlist = (('frobnicate', 'adsk.fusion.SketchCurves', ('SketchCurves',),
+                      'a watchlist entry so the receiver mismatch reaches the database'),)
+        with mock.patch.object(COMPILE_CHECKER.fusion_api, 'UNVERIFIED_CALLS', watchlist):
+            result, output = self.run_checker(
+                instruction_text='source\ncall frobnicate here\nline three\n',
+                step_body=self.call_step('sketch.frobnicate(1)'),
+                api_lookup={'frobnicate': [('adsk.fusion.SketchCurves.frobnicate', 'method')]})
+
+        self.assertEqual(result, 1, output)
+        self.assertIn("the step list names 'frobnicate(' on receiver 'sketch', but the Fusion API "
+                      "database declares it on SketchCurves", output)
+        self.assertIn('fault: prose — named in spec/gear/instructions.md:2', output)
+
+    def test_bare_prose_mention_counts_as_a_naming(self):
+        """The bar is that the prose named it, so a mention with no call syntax still counts."""
+        result, output = self.run_checker(
+            instruction_text='source\nfrobnicate\nline three\n',
+            step_body=self.call_step('thing.frobnicate(1)'),
+            api_lookup={'frobnicate': []})
+
+        self.assertEqual(result, 1, output)
+        self.assertIn('fault: prose — named in spec/gear/instructions.md:2', output)
+
+    def test_substring_does_not_count_as_a_naming(self):
+        """`frobnicateAll` is a different name, so it does not move the blame to the prose."""
+        result, output = self.run_checker(
+            instruction_text='source\ncall frobnicateAll here\nline three\n',
+            step_body=self.call_step('thing.frobnicate(1)'),
+            api_lookup={'frobnicate': []})
+
+        self.assertEqual(result, 1, output)
+        self.assertIn('fault: draft', output)
+        self.assertNotIn('fault: prose', output)
+
+    def test_the_fault_line_does_not_change_the_blocking_count(self):
+        """The blame rides on the problem string, so one unresolved call is still one problem."""
+        result, output = self.run_checker(
+            step_body=self.call_step('thing.frobnicate(1)'),
+            api_lookup={'frobnicate': []})
+
+        self.assertEqual(result, 1, output)
+        self.assertIn('compile check: BLOCKING (1)', output)
+
 
 # The proof-side probe. The gate's answers about where a line may start are only worth anything
 # next to what Go does with the same file, so each case below is a real proof file handed to the
@@ -1937,6 +2035,8 @@ class GoPatternClassTest(unittest.TestCase):
             'from_block, the From block under a step heading',
         r'<!--\s*check-compile:\s*ignore\s+([^>]*?)-->':
             'named_calls and named_call_shapes, an HTML comment waiving a named call',
+        r'(?<!\w)%s(?!\w)':
+            'spec_namings, a call name written as a whole word anywhere in a spec source',
         r'(?<![\w./-])(?:proof|\.tmp)/[\w./-]+':
             'proof_paths, a proof path named in the step-list summary',
         r'\|\s*`([\w./-]+)`\s*\|\s*`([0-9a-f]{40})`\s*\|':

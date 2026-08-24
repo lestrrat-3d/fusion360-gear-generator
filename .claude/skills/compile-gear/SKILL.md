@@ -122,7 +122,9 @@ proof is where the next reader is looking for the missing check.
 
 The two bold API rows are the same check with different blame. When the spec itself writes
 `setByOffset(plane, 0)` and the signature wants a `ValueInput`, the drafter is right to reproduce
-it and the spec is what needs fixing.
+it and the spec is what needs fixing. For the "does not exist" half, `check_compile.py` prints the
+blame itself as a `fault: prose`/`fault: draft` line under each unresolved call, naming the spec
+file and line when one names the call, so the row needs no manual spec search.
 
 A prose fault ends the run with a report. Never edit `instructions.md` or `fusion.md` from inside
 this skill: a compiler that rewrites its own source removes the thing being checked.

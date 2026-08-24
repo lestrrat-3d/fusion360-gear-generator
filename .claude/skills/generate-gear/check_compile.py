@@ -20,7 +20,12 @@ Four checks gate, and one is reported:
      an unchecked one. A call to a run method the harness does not declare is reported wherever it
      is written, registration or not, because Go calls that `undefined` wherever it sits.
   3. API CALLS ARE REAL. Every Fusion call the step list names exists in the API database the
-     `fusion` plugin ships. Catches a spec that names a method Fusion does not have.
+     `fusion` plugin ships. Catches a spec that names a method Fusion does not have. Each
+     unresolved call carries a second `fault:` line saying whether a prose source names it: a
+     word-boundary search of the provenance input set decides `fault: prose` (a spec file or the
+     playbook wrote the name, so the fix belongs there) from `fault: draft` (only the step list
+     under test wrote it, so the failure goes back to the drafter). That is the compile-gear
+     fault table's own discriminator, so the reader no longer has to grep the spec by hand.
   4. INPUTS HAVE NOT DRIFTED. The provenance table contains and matches the existing instructions,
      optional fusion sidecar, playbook, and auxiliary documents referenced by the specs,
      so an edited source cannot leave a stale step list looking healthy.
@@ -274,6 +279,39 @@ def api_owner_matches_receiver(hits, receiver):
     return any(
         qualified.rsplit('.', 2)[-2].lower() == receiver_name
         for qualified, _ in hits)
+
+
+def spec_namings(names, gear):
+    """Map each bare call name to the spec sources that name it, as 'path:line' strings.
+
+    The sources are the provenance input set: the gear's instructions, its fusion sidecar,
+    the playbook, and the auxiliary documents those reference. The step list under test is
+    not a source. A name counts wherever it appears as a whole word, call syntax or not,
+    because the fault table's bar is only that the prose named it.
+    """
+    names = sorted(set(names))
+    if not names:
+        return {}
+    patterns = [(name, re.compile(r'(?<!\w)%s(?!\w)' % re.escape(name))) for name in names]
+    found = {name: [] for name in names}
+    # One read per file, however many names are failing, and one hit per file: the annotation
+    # points the reader at a source to fix, not at every mention inside it.
+    for path in sorted(provenance_inputs(gear)):
+        lines = read(path).splitlines()
+        for name, pattern in patterns:
+            for number, line in enumerate(lines, 1):
+                if pattern.search(line):
+                    found[name].append('%s:%d' % (path, number))
+                    break
+    return found
+
+
+def fault_note(namings):
+    """The second line under an unresolved call, blaming the prose or the draft."""
+    if namings:
+        return ("\n    fault: prose — named in %s — fix the spec, not the draft"
+                % ', '.join(namings))
+    return "\n    fault: draft — no spec source names it — send the failure back to the drafter"
 
 
 def proof_paths(src):
@@ -1432,25 +1470,28 @@ def main(argv):
     except fusion_api.Unavailable as exc:
         print('check_compile: %s' % exc, file=sys.stderr)
         return 2
+    namings = spec_namings(candidates, gear) if candidates else {}
     for call in candidates:
         wrong_receivers = wrong_watchlist_receivers.get(call, ())
         if (hits[call]
                 and all(api_owner_matches_receiver(hits[call], receiver)
                         for receiver in wrong_receivers)):
             continue
+        note = fault_note(namings.get(call, []))
         if hits[call] and wrong_receivers:
             owners = sorted({qualified.rsplit('.', 2)[-2] for qualified, _ in hits[call]})
             for receiver in sorted(wrong_receivers, key=lambda value: value or ''):
                 if not api_owner_matches_receiver(hits[call], receiver):
                     problems.append(
                         "  the step list names '%s(' on receiver '%s', but the Fusion API "
-                        "database declares it on %s"
-                        % (call, receiver, ', '.join(owners)))
+                        "database declares it on %s%s"
+                        % (call, receiver, ', '.join(owners), note))
             continue
         near = fusion_api.similar(call)
-        problems.append("  the step list names '%s(', which the Fusion API database does not have%s"
+        problems.append("  the step list names '%s(', which the Fusion API database does not "
+                        "have%s%s"
                         % (call, '' if not near else
-                           '; the nearest names it does have are %s' % ', '.join(near)))
+                           '; the nearest names it does have are %s' % ', '.join(near), note))
 
     # 4. inputs have not drifted
     stamped = dict(STAMPED_ROW.findall(src))
