@@ -62,7 +62,8 @@ sys.path.insert(0, HERE)
 import fusion_api  # noqa: E402  (sibling module; sys.path is fixed up just above)
 from call_parser import call_shapes  # noqa: E402
 from provenance import (  # noqa: E402  (sibling module; sys.path is fixed up just above)
-    DOCUMENT_REF, STAMPED_ROW, blob_hash, provenance_inputs, read, referenced_documents)
+    DOCUMENT_REF, STAMPED_ROW, ProvenanceError, blob_hash, provenance_inputs, read,
+    referenced_documents)
 
 PATH_REF = r'[\w./-]+\.(?:md|go|py|json|sh)'
 PATH_TOKEN = re.compile(r'`(%s)`' % PATH_REF)
@@ -1546,6 +1547,20 @@ def step_list_annotations(steps, arities):
 
 
 def main(argv):
+    """Run the gate, turning an unusable provenance hasher into exit 2.
+
+    A `git hash-object` that cannot run is a broken environment, the same class of failure as an
+    unreadable harness or a missing API database. It is reported here at exit 2 so a drafter is
+    never handed a git problem dressed up as a fault in the step list.
+    """
+    try:
+        return check(argv)
+    except ProvenanceError as exc:
+        print('check_compile: %s' % exc, file=sys.stderr)
+        return 2
+
+
+def check(argv):
     if len(argv) != 2:
         print('usage: check_compile.py <gear>', file=sys.stderr)
         return 2

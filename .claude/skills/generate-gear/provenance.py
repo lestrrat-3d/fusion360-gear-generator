@@ -61,20 +61,34 @@ def read(path):
         return fh.read()
 
 
-def blob_hash(path):
-    return subprocess.run(['git', 'hash-object', path],
-                          capture_output=True, text=True).stdout.strip()
-
-
-HEADING = '## Provenance'
-TABLE_HEADER = ('| file | `git hash-object` |', '|---|---|')
 BLOB_HASH = re.compile(r'^[0-9a-f]{40}$')
-STAMPED_ROW = re.compile(r'\|\s*`([\w./-]+)`\s*\|\s*`([0-9a-f]{40})`\s*\|')
-SECTION_END = re.compile(r'^##\s', re.M)
 
 
 class ProvenanceError(Exception):
     """A provenance input cannot be hashed, or a step list has nowhere to put the table."""
+
+
+def blob_hash(path):
+    """The 40-character blob hash of one file.
+
+    Raises ProvenanceError when `git hash-object` cannot run or returns anything else. An empty
+    string returned here instead would match no stamped row, and the gate above would blame the
+    step list for a git problem that has nothing to do with it.
+    """
+    result = subprocess.run(['git', 'hash-object', path],
+                            capture_output=True, text=True)
+    digest = result.stdout.strip()
+    if result.returncode != 0 or not BLOB_HASH.match(digest):
+        raise ProvenanceError(
+            'git hash-object failed for %s (exit %d): %s'
+            % (path, result.returncode, result.stderr.strip() or 'no hash on stdout'))
+    return digest
+
+
+HEADING = '## Provenance'
+TABLE_HEADER = ('| file | `git hash-object` |', '|---|---|')
+STAMPED_ROW = re.compile(r'\|\s*`([\w./-]+)`\s*\|\s*`([0-9a-f]{40})`\s*\|')
+SECTION_END = re.compile(r'^##\s', re.M)
 
 
 def ordered_provenance_inputs(gear):
