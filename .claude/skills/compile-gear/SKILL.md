@@ -47,7 +47,10 @@ proof is where the next reader is looking for the missing check.
 
 ## Procedure
 
-1. **Setup.** Work in a worktree, never the root checkout. Ensure `.tmp/` exists. Read this file,
+1. **Setup.** Work in a worktree, never the root checkout. Ensure `.tmp/` exists. Run
+   `python3 .claude/skills/generate-gear/preflight.py <gear> --stage compile` and fix every
+   `[FAIL]` before drafting; it verifies the engines, the go toolchain and the API database so a
+   broken environment fails here instead of mid-run. Read this file,
    `PLAYBOOK.md`, the gear's spec end to end, and both harness APIs, `proof/proofkit/` and
    `proof/proofkit3d/`.
 
@@ -71,11 +74,18 @@ proof is where the next reader is looking for the missing check.
    prompt varies run to run and hides gaps by spoon-feeding what the prose should have said, so a
    green run would no longer say anything about the spec.
 
-4. **Run the gates.** Run `python3 .claude/skills/generate-gear/stage.py <gear> proof` from the
-   repo root. It copies every drafted proof file from `.tmp/<gear>-proof/` into `proof/<gear>/`,
-   deletes any `.go` file there the draft no longer produces, and indexes the result so step 5's
+4. **Scaffold, place, and run the gates.** First run
+   `python3 .claude/skills/generate-gear/scaffold_proof.py <gear> --steps .tmp/<gear>.steps.md
+   --out .tmp/<gear>-proof/zz_registrations_test.go`. It turns each `[GO]` step's `proof-run`
+   annotation into the Go `Test` registrations the drafter never writes; a scaffolder finding is a
+   draft fault, handled as step 6 handles one. The two tools have separate jobs: `scaffold_proof.py`
+   generates that one file, and `stage.py` places every drafted file including it.
+
+   Then run `python3 .claude/skills/generate-gear/stage.py <gear> proof` from the repo root. It
+   copies every drafted proof file from `.tmp/<gear>-proof/` into `proof/<gear>/`, deletes any
+   `.go` file there the draft no longer produces, and indexes the result so step 5's
    tracked-or-committed check can see a first-time proof. Exit 2 means the placement was refused
-   and nothing moved.
+   and nothing moved. Do not pass `--run`; the gate runner below runs the proof.
 
    Then run `python3 .claude/skills/generate-gear/run_compile_gates.py <gear>` from the repo root.
    It runs `bash proof/run.sh`, then `check_compile.py <gear>`, then — only when
@@ -93,9 +103,11 @@ proof is where the next reader is looking for the missing check.
    `check_step_calls.py` runs **only if `lib/geargen/<gear>.py` already exists**, and the runner
    reports it as skipped when it does not. That gate runs in CI against the checked-in module, so a
    recompiled step list that disagrees with it breaks the build even though both other checks are
-   green. Read its output as a list of call names to classify, and pass only the names back to the
-   drafter: a name the step list mentions without requiring takes the exemption directive, and a
-   call the module genuinely fails to make is work for `/emit-gear`, not for this stage. Never hand the drafter
+   green. On a failure, run `python3 .claude/skills/generate-gear/check_step_calls.py
+   spec/<gear>/steps.md lib/geargen/<gear>.py --names`, which prints exactly the missing call
+   names, one per line; classify each name and pass only the names back to the drafter: a name the
+   step list mentions without requiring takes the exemption directive, and a call the module
+   genuinely fails to make is work for `/emit-gear`, not for this stage. Never hand the drafter
    anything the module does or does not contain, and never let it read the module — the pipeline
    has to be able to compile a gear that has no implementation yet.
 
@@ -120,6 +132,7 @@ proof is where the next reader is looking for the missing check.
 | A step names a call the module is not required to make | Draft fault |
 | A named API call does not exist, and the spec did not name it | Draft fault |
 | A provenance hash does not match | A source changed after the table was stamped; re-run `gen_provenance.py` and check again |
+| The scaffolder refuses an annotation, or the registration check names a mismatch | Draft fault |
 | **A named API call does not exist, and the spec named it** | **Prose fault** |
 | **The proof cannot fully constrain after three rounds** | **Prose fault** |
 | **The proof cannot build a sound solid after three rounds** | **Prose fault** |
@@ -127,7 +140,9 @@ proof is where the next reader is looking for the missing check.
 
 The two bold API rows are the same check with different blame. When the spec itself writes
 `setByOffset(plane, 0)` and the signature wants a `ValueInput`, the drafter is right to reproduce
-it and the spec is what needs fixing.
+it and the spec is what needs fixing. For the "does not exist" half, `check_compile.py` prints the
+blame itself as a `fault: prose`/`fault: draft` line under each unresolved call, naming the spec
+file and line when one names the call, so the row needs no manual spec search.
 
 A prose fault ends the run with a report. Never edit `instructions.md` or `fusion.md` from inside
 this skill: a compiler that rewrites its own source removes the thing being checked.
@@ -140,6 +155,8 @@ this skill: a compiler that rewrites its own source removes the thing being chec
 - Never hand-edit the drafted artifacts to get a check to pass. They are build output, and a wrong
   step list means the prose or this procedure is wrong.
 - Never add gear-specific guidance to the drafting prompt.
+- Never write or hand-edit `proof/<gear>/zz_registrations_test.go`. It is generated; rerun
+  `scaffold_proof.py` instead.
 
 ## Standard drafting prompt
 

@@ -37,7 +37,9 @@ The spec + playbook together MUST be sufficient. If they are not, fix the spec o
 ## Procedure
 
 1. **Setup.** Work in a worktree (per the repo's CLAUDE.md — never the root checkout). Ensure
-   `.tmp/` exists. Read this skill, `PLAYBOOK.md`, and the spec end-to-end. Skim the shared
+   `.tmp/` exists. Run `python3 .claude/skills/generate-gear/preflight.py <gear> --stage generate`
+   and fix every `[FAIL]` before drafting; it verifies the engines, the go toolchain and the API
+   database so a broken environment fails here instead of mid-run. Read this skill, `PLAYBOOK.md`, and the spec end-to-end. Skim the shared
    framework the output builds on: `lib/geargen/base.py`, `misc.py`, `utilities.py`, `solids.py`,
    `spurproxy.py`, `lib/fusion360utils/`, and `commands/<gear>/entry.py` (the same file set the
    standard generation prompt hands the subagent). Note the gear's sketch-first proof at
@@ -113,8 +115,10 @@ The spec + playbook together MUST be sufficient. If they are not, fix the spec o
      expand with `--review` only when chasing a specific runtime `AttributeError`/`NoneType`. Stubs
      come from `$FUSION_API_STUBS` (or `--stubs <dir>`); if neither is set the script **auto-clones**
      the `FusionAPIReference` repo (sparse/shallow/blobless — ~13M, not the full 338M) into
-     `~/.cache/fusion360-gear-generator/` on first run and reuses it. Install pyright once with
-     `python3 -m pip install --break-system-packages pyright`. Why standard mode, not `--strict`:
+     `~/.cache/fusion360-gear-generator/` on first run and reuses it. If pyright is missing the
+     script auto-installs the pyright wrapper into `~/.cache/fusion360-gear-generator/` (pass
+     `--no-install` to forbid network use); the wrapper's first run may additionally download
+     node / the pyright npm bundle. Why standard mode, not `--strict`:
      the stubs are intellisense-only and leave many return types unannotated, so `--strict` buries
      the file in thousands of `reportUnknown*` lines with zero extra real bugs. If the stubs are
      unavailable the script exits 2; fall back to a pyflakes undefined-name grep for the first bug

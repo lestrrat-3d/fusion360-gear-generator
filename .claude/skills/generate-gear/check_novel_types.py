@@ -48,9 +48,14 @@ pessimism; a signature is location-free, so an over-broad entry silences that co
 everywhere.
 
 Usage:
-    python3 check_novel_types.py <candidate.py> [--reference lib/geargen]
+    python3 check_novel_types.py <candidate.py> [--reference lib/geargen] [--gate]
+    python3 check_novel_types.py <candidate.py> --accept N --why "<reason>"
 
-Run from the repo root. Exit 0 = OK, 1 = BLOCKING, 2 = no reference gears to compare against.
+Recording a triaged finding goes through `--accept N --why "<reason>"`, naming the finding by its
+printed index, rather than through a hand edit of `accepted_type_noise.json`.
+
+Run from the repo root. Exit 0 = OK, 1 = BLOCKING, 2 = no reference gears to compare against
+(also: a refused or unrecordable accept run).
 """
 import argparse
 import ast
@@ -304,6 +309,13 @@ def signature(diag):
 ACCEPTED_NOISE_PATH = os.path.join(HERE, 'accepted_type_noise.json')
 
 
+def entry_signature(entry):
+    """The signature of one accepted_type_noise.json entry, keyed as signature() keys a diag."""
+    if 'param' in entry:
+        return (entry['rule'], entry['param'], entry['want'], entry['func'])
+    return (entry['rule'], entry['message'])
+
+
 def accepted_signatures(path=ACCEPTED_NOISE_PATH):
     """Complaint signatures a human has triaged as stub noise, from the checked-in record.
 
@@ -319,11 +331,52 @@ def accepted_signatures(path=ACCEPTED_NOISE_PATH):
     for entry in entries:
         if not entry.get('why'):
             raise ValueError('accepted_type_noise.json: every entry needs a "why": %r' % entry)
-        if 'param' in entry:
-            accepted.add((entry['rule'], entry['param'], entry['want'], entry['func']))
-        else:
-            accepted.add((entry['rule'], entry['message']))
+        accepted.add(entry_signature(entry))
     return accepted
+
+
+def record_accepted(path, diag, why):
+    """Write one triaged complaint into the accepted-noise record; return (status, entry).
+
+    The entry is derived from signature(), so what is recorded is exactly what the check
+    matches on later. An existing entry with the same signature has its `why` replaced in
+    place, which keeps the file's order stable and makes re-accepting idempotent.
+    """
+    if not why or not why.strip():
+        raise ValueError('an accepted entry needs a non-empty "why"')
+
+    sig = signature(diag)
+    if len(sig) == 4:
+        rule, param, want, func = sig
+        entry = {'rule': rule, 'param': param, 'want': want, 'func': func, 'why': why}
+    else:
+        rule, message = sig
+        entry = {'rule': rule, 'message': message, 'why': why}
+
+    entries = []
+    if os.path.isfile(path):
+        with open(path, encoding='utf-8') as handle:
+            entries = json.load(handle)
+
+    status = 'added'
+    for existing in entries:
+        if entry_signature(existing) == sig:
+            existing['why'] = why
+            entry = existing
+            status = 'updated'
+            break
+    else:
+        entries.append(entry)
+
+    with open(path, 'w', encoding='utf-8') as handle:
+        handle.write(json.dumps(entries, indent=2, ensure_ascii=False) + '\n')
+    return status, entry
+
+
+def novel_sort_key(diag):
+    """Order findings so their printed indices mean the same thing on the next run."""
+    return (diag['range']['start']['line'], diag.get('rule') or '',
+            diag.get('message', '').split('\n')[0])
 
 
 def reference_gears(reference, candidate):
@@ -364,7 +417,17 @@ def main():
                     help='directory of shipped gears to take the baseline from')
     ap.add_argument('--gate', action='store_true',
                     help='exit 1 on any finding instead of only reporting them')
+    ap.add_argument('--accept', type=int, metavar='N',
+                    help='record the Nth reported finding (1-based) as triaged stub noise')
+    ap.add_argument('--why', metavar='TEXT',
+                    help='the reason the accepted finding is stub noise; required with --accept')
     args = ap.parse_args()
+
+    if args.accept is not None:
+        if args.gate:
+            ap.error('--accept records one triaged verdict and cannot be combined with --gate')
+        if not args.why or not args.why.strip():
+            ap.error('--accept needs --why "<reason>": an accepted entry states why it is noise')
 
     pc = load_pyright_check()
 
@@ -383,19 +446,46 @@ def main():
     accepted = accepted_signatures()
     candidate_diagnostics = diagnostics(pc, args.candidate)
     accepted_hits = sum(1 for d in candidate_diagnostics if signature(d) in accepted)
-    novel = [d for d in candidate_diagnostics
-             if signature(d) not in baseline
-             and signature(d) not in accepted
-             and not is_unverified_api_diagnostic(d, verified_by_line)]
+    novel = sorted((d for d in candidate_diagnostics
+                    if signature(d) not in baseline
+                    and signature(d) not in accepted
+                    and not is_unverified_api_diagnostic(d, verified_by_line)),
+                   key=novel_sort_key)
+
+    if args.accept is not None:
+        if not novel:
+            print('nothing to accept: no novel findings', file=sys.stderr)
+            return 2
+        if not 1 <= args.accept <= len(novel):
+            print('--accept %d out of range: %d novel finding(s)' % (args.accept, len(novel)),
+                  file=sys.stderr)
+            return 2
+        chosen = novel[args.accept - 1]
+        try:
+            status, entry = record_accepted(ACCEPTED_NOISE_PATH, chosen, args.why)
+        except ValueError as error:
+            print('cannot accept: %s' % error, file=sys.stderr)
+            return 2
+        print('novel-type check: %s accepted_type_noise.json entry' % status)
+        print(json.dumps(entry, indent=2, ensure_ascii=False))
+        print('  recorded from %s:%d [%s] %s'
+              % (args.candidate, chosen['range']['start']['line'] + 1, chosen.get('rule'),
+                 chosen.get('message', '').split('\n')[0]))
+        return 0
+
     if accepted_hits:
         print('novel-type check: %d complaint(s) matched accepted_type_noise.json '
               '(triaged stub noise; see its "why" entries)' % accepted_hits)
     if novel:
         print('novel-type check: %d complaint(s) no shipped gear produces — triage each'
               % len(novel))
-        for d in sorted(novel, key=lambda d: d['range']['start']['line']):
-            print('  %s:%d [%s] %s' % (args.candidate, d['range']['start']['line'] + 1,
-                                       d.get('rule'), d.get('message', '').split('\n')[0]))
+        for index, d in enumerate(novel, start=1):
+            print('  [%d] %s:%d [%s] %s'
+                  % (index, args.candidate, d['range']['start']['line'] + 1,
+                     d.get('rule'), d.get('message', '').split('\n')[0]))
+        print('  Record one as triaged stub noise: python3 '
+              '.claude/skills/generate-gear/check_novel_types.py %s --accept N --why "<reason>"'
+              % args.candidate)
         print('  Baseline came from %d shipped gear(s) drawing %d distinct complaint(s).'
               % (len(gears), len(baseline)))
         return 1 if args.gate else 0

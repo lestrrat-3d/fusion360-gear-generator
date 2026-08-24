@@ -25,7 +25,17 @@ star-export becomes a phantom "undefined". So a candidate living elsewhere (the 
 `.tmp/<gear>.generated.py`) is copied to a throwaway module inside the package for the run.
 
 Usage:
-    python3 pyright_check.py <candidate.py> [--stubs <dir>] [--review]
+    python3 pyright_check.py <candidate.py> [--stubs <dir>] [--review] [--no-install]
+
+Pyright resolution order:
+    1. importable module        `import pyright` works -> run `python -m pyright` as-is
+    2. PATH binary              a `pyright` executable on $PATH
+    3. cached install           a previous `pip install --target` under
+                                ~/.cache/fusion360-gear-generator/, put on PYTHONPATH
+    4. auto-install             else pip-install the pyright wrapper into that cache
+`--no-install` forbids step 4 (no network, no provisioning) and exits 2 instead. Nothing outside
+the cache dir is ever written — the user's Python environment is left alone. The wrapper's first
+run may additionally download node / the pyright npm bundle into its own cache.
 
 Stubs dir resolution order:
     1. --stubs <dir>            (authoritative; a wrong path fails, no fallback)
@@ -39,7 +49,8 @@ auto-clone fetches ONLY `Fusion_API_Python_Reference/defs` via a blobless sparse
 Exit codes:
     0  no blocking findings (REVIEW items, if any, are printed for a human/agent glance)
     1  blocking findings (undefined name, wrong adsk module, or syntax error)
-    2  setup error (stubs unresolvable/clone failed, pyright missing, candidate missing)
+    2  setup error (stubs unresolvable/clone failed, pyright unresolvable/bootstrap failed,
+       candidate missing)
 """
 import json
 import os
@@ -50,6 +61,7 @@ import sys
 # Stub resolution/clone lives in a sibling module (sys.path[0] is this file's dir when run as a
 # script). One clone, one resolution policy.
 from fusion_stubs import resolve_defs, StubsUnavailable
+from pyright_boot import resolve_pyright, PyrightUnavailable
 
 
 def repo_root():
@@ -98,6 +110,9 @@ def main():
     show_review = "--review" in args
     if show_review:
         args.remove("--review")
+    no_install = "--no-install" in args
+    if no_install:
+        args.remove("--no-install")
     if len(args) != 1:
         print(__doc__)
         sys.exit(2)
@@ -121,6 +136,14 @@ def main():
         print("  Stub-free fallback: pyflakes for undefined names, and the fusion plugin's "
               "compiled database")
         print("  ('query_fusion_api.py show <Name>', see fusion_api.py) for the adsk submodule.")
+        sys.exit(2)
+
+    # Resolve pyright itself (shared policy): use it wherever it already is, otherwise
+    # bootstrap a copy into the cache — never into the user's Python environment.
+    try:
+        pyright_argv, extra_env = resolve_pyright(no_install=no_install)
+    except PyrightUnavailable as e:
+        print(f"ERROR: {e}")
         sys.exit(2)
 
     tmp = os.path.join(root, ".tmp")
@@ -150,11 +173,12 @@ def main():
         with open(config_path, "w") as fh:
             json.dump(config, fh)
         proc = subprocess.run(
-            [sys.executable, "-m", "pyright", "-p", config_path, "--outputjson"],
-            cwd=root, capture_output=True, text=True)
+            pyright_argv + ["-p", config_path, "--outputjson"],
+            cwd=root, capture_output=True, text=True, env={**os.environ, **extra_env})
         if proc.returncode not in (0, 1) or not proc.stdout.strip():
-            print("ERROR: pyright did not run. Install it with "
-                  "`python3 -m pip install --break-system-packages pyright`.")
+            print("ERROR: pyright did not run (it was resolved but failed to execute).")
+            print("  If this is the wrapper's first run it may have failed downloading node or the")
+            print("  pyright npm bundle; re-run, or install pyright yourself and retry.")
             print(proc.stderr.strip()[:500])
             sys.exit(2)
         data = json.loads(proc.stdout)

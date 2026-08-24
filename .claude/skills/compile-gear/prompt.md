@@ -22,6 +22,8 @@ are writing the files themselves to `.tmp/{{gear}}-proof/`, since the step list 
 placed proof, not next to your scratch copy. A gate reads only the text above the provenance
 heading for those paths and requires each one to exist and be committed, so a sentence written
 below that heading, or one naming bare file names, leaves the gate with nothing to check.
+Include `proof/{{gear}}/zz_registrations_test.go`, the generated registration file, among the
+paths.
 
 **Write the `## Provenance` heading and leave its section empty.** The provenance table is
 generated from the spec files after you finish, by
@@ -33,7 +35,7 @@ heading, since a gate reads the text above it for those paths and the generator 
 **Each step carries** a heading of the form `## <id> `[GO]` <title>` or with `[PROSE]`, the
 instructions themselves, a `**From:**` line naming the spec files and line ranges you compiled it
 from, and every Fusion API call it requires written inside a code span. A `[GO]` step also names
-the proof function that realises it.
+the proof function that realises it and carries the `proof-run` annotation described below.
 
 **A call span in a step is a call the module must make.** A later gate reads every call written
 in a code span and requires the generated module to make it. A name a step mentions without
@@ -54,49 +56,28 @@ do not quietly correct it.
 **The proof is a Go test** in package `{{gear}}_test`, spread over as many files as the split
 needs, with one function per step. Every step function, 2D or 3D alike, is declared as a
 function, `func step<Title>(...)`, matching what the step list names — a step bound to a
-variable is not read — and is registered by the Go `Test` of the same title, in a shape that is
-fixed and has no variants:
+variable is not read.
 
-```go
-func TestGearProfileSketch(t *testing.T) {
-        proofkit.Run(t, profileCases, stepGearProfileSketch)
-}
-```
+**Write no Go `Test` function.** Registrations are generated, not drafted. In each `[GO]`
+step's body, on its own line, write one annotation:
 
-Three lines, headed exactly as above, with the testing package named in full: `go test` also
-runs `Test_Foo`, `Test1x` and a header written against an aliased import of `testing`, and the
-gate refuses all three by name rather than reading them. The header and the closing `}` each
-start at column 1, which is where `gofmt` writes them. Go compiles an indented one, and the gate
-refuses it anyway, because these three lines are the shape rather than ordinary code; the refusal
-names the header or quotes the shape, so it is never silent. The step function is not part of
-that shape and is read wherever it starts on its line. The `Test` function holds nothing else.
-Use `proofkit3d.Run`, `proofkit3d.RunSolid` or `proofkit3d.RunWithGate` in place of
-`proofkit.Run` for a solid step, and put the assertion after the build where the run takes one. The build argument is always the
-third, each argument is written out as a plain name, and the case table is a named variable
-rather than a call built in place. Each run takes a table of parameter cases, one subtest each.
-Pass exactly the arguments the run's own signature declares — `proofkit3d.RunWithGate` takes the
-gate as well as the assertion, and `proofkit.Run` takes neither — since a count the method does
-not declare is a call Go cannot compile. The gate reads the run methods and their argument
-counts out of `proof/proofkit/` and `proof/proofkit3d/`, so those sources are what a run is
-checked against.
+`<!-- proof-run: proofkit3d.RunSolid(solidCases, stepExtrudeTooth, assertExtrudeTooth) -->`
 
-The gate reads this shape by line rather than by parsing Go, so anything else is refused, not
-interpreted. A build under another name, a `Test` header outside the shape shown above, a `Test`
-whose title does not match the step it builds, a run reached through a loop, a condition or a
-closure, a run whose arguments come from one forwarded call as in `proofkit3d.Run(runArgs(t))`,
-a run passing a different number of arguments than its method declares, and a proof file whose
-header carries a build constraint all fail the check by name and line. A call to a `Run…` method
-no harness package declares fails the same way, and that one is not confined to a registration:
-a misspelled run in a helper is `undefined` to Go wherever it sits, so it is named wherever it
-is written. Go reads a constraint from `//go:build` when nothing sits
-between the slashes and the directive, whitespace or the end of the line follows the directive,
-and the line is above the package clause. A leading byte order mark hides nothing: Go strips one
-and honours what is under it, and the gate reads it the same way. The same text further down,
-inside a string, inside a `/* */` comment in the header, written `// go:build …` with a space, or
-run straight on as `//go:build!ignore`, is content rather than a constraint, and all of it
-passes. The legacy `+build` form is refused in every spelling, including the near-misses Go
-builds, because a proof file needs no build constraint at all. The refusal says what to write;
-write that.
+naming a run method a harness package declares — `proofkit.Run` for a sketch step;
+`proofkit3d.Run`, `proofkit3d.RunSolid` or `proofkit3d.RunWithGate` for a solid step — then, in
+order: the case-table variable, the step function, and the remaining arguments the method's own
+signature declares after the build, in declaration order (`proofkit.Run` takes none,
+`proofkit3d.Run` and `RunSolid` take the assertion, `RunWithGate` takes the gate then the
+assertion). Each argument is a plain name — the gate argument may be qualified, like
+`proofkit3d.RequireSolid` — and the case table is a package-level named variable, not a call
+built in place. Each run takes a table of parameter cases, one subtest each. The scaffolder
+turns these annotations into `proof/{{gear}}/zz_registrations_test.go`; never write that file,
+and never register a step yourself — a hand-written registration collides with the generated
+one or fails the check by name.
+
+**A proof file carries no build constraint.** Any `//go:build` header line, and every `+build`
+spelling, is refused by name and line; write the header without one. The refusal says what to
+write; write that.
 
 **Name proof files so Go compiles them.** Go decides which files are in a package from their
 names alone: a name starting with `_` or `.` is invisible to it, and a name whose trailing
@@ -160,7 +141,8 @@ than drawing boundary arcs by hand. Call `proofkit.Step` as you move between par
 the bodies the step leaves behind. Every `proofkit3d` run also takes an assertion,
 `func(t *testing.T, doc *decad.Document, bodies []*decad.Body, params map[string]float64)`, which
 runs after the gate and checks the measurements the step is supposed to produce; it is required,
-and a nil one fails the run. `proofkit3d.Unmodelled` is the 3D counterpart of
+and a nil one fails the run. Name it in the step's `proof-run` annotation.
+`proofkit3d.Unmodelled` is the 3D counterpart of
 `proofkit.Unmodelled`, for a case `decad` cannot represent.
 
 **The proof must pass with nothing waived.** `proofkit` gates a sketch on

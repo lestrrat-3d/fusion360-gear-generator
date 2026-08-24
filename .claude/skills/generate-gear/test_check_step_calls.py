@@ -3,6 +3,7 @@
 import contextlib
 import importlib.util
 import io
+import json
 import os
 import sys
 import tempfile
@@ -29,18 +30,28 @@ COMPILE_MODULE_SPEC.loader.exec_module(COMPILE_CHECKER)
 
 
 class CheckStepCallsTest(unittest.TestCase):
-    def run_checker(self, steps, candidate):
+    def run_checker_argv(self, steps, candidate, flags=(), flags_first=False):
+        """Run the checker with optional output-mode flags, capturing stdout and stderr."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             steps_path = root / 'steps.md'
             candidate_path = root / 'candidate.py'
             steps_path.write_text(steps)
             candidate_path.write_text(candidate)
+            positionals = [str(steps_path), str(candidate_path)]
+            flags = list(flags)
+            tail = flags + positionals if flags_first else positionals + flags
             output = io.StringIO()
-            with warnings.catch_warnings(), contextlib.redirect_stdout(output):
+            errors = io.StringIO()
+            with warnings.catch_warnings(), contextlib.redirect_stdout(output), \
+                    contextlib.redirect_stderr(errors):
                 warnings.simplefilter('ignore', ResourceWarning)
-                result = CHECKER.main(['check_step_calls.py', str(steps_path), str(candidate_path)])
-            return result, output.getvalue()
+                result = CHECKER.main(['check_step_calls.py'] + tail)
+            return result, output.getvalue(), errors.getvalue()
+
+    def run_checker(self, steps, candidate):
+        result, output, _ = self.run_checker_argv(steps, candidate)
+        return result, output
 
     def test_forbidden_call_is_not_required(self):
         steps = 'Call `safeCall()`. Do not read the direction via `getTangent(0)`.'
@@ -277,6 +288,130 @@ class CheckStepCallsTest(unittest.TestCase):
         self.assertEqual(result, 0, output)
 
 
+    # The two machine-readable modes `/compile-gear` step 5 consumes.
+
+    def test_names_prints_bare_names_of_missing_calls(self):
+        steps = 'Call `sketch.addByTwoPoints(start, end)` and `helperCall(value)`.'
+
+        result, output, errors = self.run_checker_argv(steps, 'pass\n', flags=['--names'])
+
+        self.assertEqual(result, 1, output)
+        self.assertEqual(output, 'addByTwoPoints\nhelperCall\n')
+        self.assertEqual(errors, '')
+
+    def test_names_is_empty_but_still_blocking_for_a_stub_marker(self):
+        steps = 'Call `safeCall()`.'
+
+        result, output, _ = self.run_checker_argv(
+            steps, 'safeCall()\n# TODO fill in\n', flags=['--names'])
+
+        self.assertEqual(result, 1)
+        self.assertEqual(output, '')
+
+    def test_names_is_empty_on_a_green_pair(self):
+        steps = 'Call `safeCall()`.'
+
+        result, output, _ = self.run_checker_argv(steps, 'safeCall()\n', flags=['--names'])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(output, '')
+
+    def test_names_deduplicates_the_bare_and_dotted_shapes_of_one_name(self):
+        steps = 'Call `foo()` and `obj.foo()`.'
+
+        result, output, _ = self.run_checker_argv(steps, 'pass\n', flags=['--names'])
+
+        self.assertEqual(result, 1)
+        self.assertEqual(output, 'foo\n')
+
+    def test_names_sends_a_parse_error_to_stderr_and_still_lists_names(self):
+        steps = 'Call `safeCall()`.'
+
+        result, output, errors = self.run_checker_argv(
+            steps, 'def broken(:\n', flags=['--names'])
+
+        self.assertEqual(result, 1)
+        self.assertEqual(output, 'safeCall\n')
+        self.assertIn('check_step_calls: candidate is not valid Python:', errors)
+
+    def test_json_green_case(self):
+        steps = 'Call `safeCall()`.'
+
+        result, output, _ = self.run_checker_argv(steps, 'safeCall()\n', flags=['--json'])
+        report = json.loads(output)
+
+        self.assertEqual(result, 0)
+        self.assertTrue(report['ok'])
+        self.assertEqual(report['named_calls'], 1)
+        self.assertEqual(report['missing'], [])
+        self.assertEqual(report['stubs'], [])
+        self.assertEqual(report['shared_point'], [])
+        self.assertIsNone(report['parse_error'])
+
+    def test_json_reports_every_problem_category(self):
+        steps = 'Call `sketch.missingCall(entity)`.'
+        candidate = (
+            '# missingCall(entity)\n'
+            'circles.addByCenterRadius(center.geometry, radius)\n'
+            '# TODO wire the rest\n')
+
+        result, output, _ = self.run_checker_argv(steps, candidate, flags=['--json'])
+        report = json.loads(output)
+
+        self.assertEqual(result, 1)
+        self.assertFalse(report['ok'])
+        self.assertEqual(report['named_calls'], 1)
+        self.assertEqual(
+            report['missing'],
+            [{'name': 'missingCall', 'has_receiver': True, 'textual_match': True}])
+        self.assertEqual(
+            report['stubs'],
+            [{'line': 3, 'marker': 'TODO', 'text': '# TODO wire the rest'}])
+        self.assertEqual(
+            report['shared_point'], [{'line': 2, 'argument': 'center.geometry'}])
+        self.assertIsNone(report['parse_error'])
+
+    def test_json_reports_a_syntax_error_and_counts_every_call_missing(self):
+        steps = 'Call `safeCall()` and `sketch.otherCall(entity)`.'
+
+        result, output, _ = self.run_checker_argv(steps, 'def broken(:\n', flags=['--json'])
+        report = json.loads(output)
+
+        self.assertEqual(result, 1)
+        self.assertFalse(report['ok'])
+        self.assertIsInstance(report['parse_error'], str)
+        self.assertTrue(report['parse_error'])
+        self.assertEqual(report['named_calls'], 2)
+        self.assertEqual(
+            sorted(record['name'] for record in report['missing']),
+            ['otherCall', 'safeCall'])
+
+    def test_both_output_modes_at_once_is_a_usage_error(self):
+        result, output, errors = self.run_checker_argv(
+            'Call `safeCall()`.', 'safeCall()\n', flags=['--names', '--json'])
+
+        self.assertEqual(result, 2)
+        self.assertEqual(output, '')
+        self.assertIn('usage: check_step_calls.py', errors)
+
+    def test_unknown_flag_is_a_usage_error(self):
+        result, output, errors = self.run_checker_argv(
+            'Call `safeCall()`.', 'safeCall()\n', flags=['--bogus'])
+
+        self.assertEqual(result, 2)
+        self.assertEqual(output, '')
+        self.assertIn('usage: check_step_calls.py', errors)
+
+    def test_a_flag_is_position_independent(self):
+        steps = 'Call `helperCall(value)`.'
+
+        trailing = self.run_checker_argv(steps, 'pass\n', flags=['--names'])
+        leading = self.run_checker_argv(steps, 'pass\n', flags=['--names'], flags_first=True)
+
+        self.assertEqual(trailing, (1, 'helperCall\n', ''))
+        self.assertEqual(leading, trailing)
+
+
 class CheckApiCallsTest(unittest.TestCase):
     def run_checker(self, candidate, framework, framework_name='helpers.py'):
         with tempfile.TemporaryDirectory() as directory:
@@ -504,6 +639,7 @@ class CheckCompileTest(unittest.TestCase):
                 step_body = (
                     '## S1 `[GO]` One — `stepOne`\n\n'
                     'Build the thing.\n\n'
+                    '<!-- proof-run: proofkit.Run(profileCases, stepOne) -->\n\n'
                     '%s\n\n' % from_line)
             steps = (
                 '# Steps\n\n'
@@ -745,8 +881,12 @@ class CheckCompileTest(unittest.TestCase):
     def test_compile_allows_legitimate_unwatched_namesake_from_api(self):
         result, output = self.run_checker(
             step_body=(
-                '## S1 `[PROSE]` Chamfer call — `stepOne`\n\n'
+                # The step is `[GO]` and carries its annotation because the default proof body
+                # registers `stepOne`, and a registration no step annotates is BLOCKING. The
+                # subject here is the API-reality check, so the fixture has to be clean elsewhere.
+                '## S1 `[GO]` Chamfer call — `stepOne`\n\n'
                 'Call `chamferFeatures.createInput2(edges)`.\n\n'
+                '<!-- proof-run: proofkit.Run(profileCases, stepOne) -->\n\n'
                 '**From:** `spec/gear/instructions.md` L1\n\n'),
             api_lookup={
                 'createInput2': [('adsk.fusion.ChamferFeatures.createInput2', 'method')]})

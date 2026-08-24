@@ -19,8 +19,16 @@ Four checks gate, and one is reported:
      run written any other way is reported rather than read, because an unread build argument is
      an unchecked one. A call to a run method the harness does not declare is reported wherever it
      is written, registration or not, because Go calls that `undefined` wherever it sits.
+     Registrations are generated from the step list rather than drafted, so each `[GO]` step also
+     carries a `proof-run` annotation naming the run its registration is built from, and an
+     annotation and a registration that disagree are a stale generated file.
   3. API CALLS ARE REAL. Every Fusion call the step list names exists in the API database the
-     `fusion` plugin ships. Catches a spec that names a method Fusion does not have.
+     `fusion` plugin ships. Catches a spec that names a method Fusion does not have. Each
+     unresolved call carries a second `fault:` line saying whether a prose source names it: a
+     word-boundary search of the provenance input set decides `fault: prose` (a spec file or the
+     playbook wrote the name, so the fix belongs there) from `fault: draft` (only the step list
+     under test wrote it, so the failure goes back to the drafter). That is the compile-gear
+     fault table's own discriminator, so the reader no longer has to grep the spec by hand.
   4. INPUTS HAVE NOT DRIFTED. The provenance table contains and matches the existing instructions,
      optional fusion sidecar, playbook, and auxiliary documents referenced by the specs,
      so an edited source cannot leave a stale step list looking healthy.
@@ -276,6 +284,39 @@ def api_owner_matches_receiver(hits, receiver):
         for qualified, _ in hits)
 
 
+def spec_namings(names, gear):
+    """Map each bare call name to the spec sources that name it, as 'path:line' strings.
+
+    The sources are the provenance input set: the gear's instructions, its fusion sidecar,
+    the playbook, and the auxiliary documents those reference. The step list under test is
+    not a source. A name counts wherever it appears as a whole word, call syntax or not,
+    because the fault table's bar is only that the prose named it.
+    """
+    names = sorted(set(names))
+    if not names:
+        return {}
+    patterns = [(name, re.compile(r'(?<!\w)%s(?!\w)' % re.escape(name))) for name in names]
+    found = {name: [] for name in names}
+    # One read per file, however many names are failing, and one hit per file: the annotation
+    # points the reader at a source to fix, not at every mention inside it.
+    for path in sorted(provenance_inputs(gear)):
+        lines = read(path).splitlines()
+        for name, pattern in patterns:
+            for number, line in enumerate(lines, 1):
+                if pattern.search(line):
+                    found[name].append('%s:%d' % (path, number))
+                    break
+    return found
+
+
+def fault_note(namings):
+    """The second line under an unresolved call, blaming the prose or the draft."""
+    if namings:
+        return ("\n    fault: prose — named in %s — fix the spec, not the draft"
+                % ', '.join(namings))
+    return "\n    fault: draft — no spec source names it — send the failure back to the drafter"
+
+
 def proof_paths(src):
     """Return proof paths named by the step-list summary.
 
@@ -380,8 +421,9 @@ def strip_go_comments_and_literals(src):
 # What this buys is that the gate never has to decide what a brace means. What it costs is that a
 # run written any other way is refused rather than read. That is the safe direction: a refusal
 # names the file and line and says what to write, while a misreading silently credits a step no
-# test builds. `.claude/skills/compile-gear/prompt.md` states the same shape to the drafter, so the
-# refusal is a contract violation rather than a surprise.
+# test builds. `.claude/skills/generate-gear/scaffold_proof.py` writes exactly this shape, from
+# the step list's `proof-run` annotations, so a refusal here means something other than the
+# scaffolder wrote the registration.
 #
 # Comments and literals are blanked before matching, so a registration quoted inside a doc comment
 # or a raw string is not mistaken for a real one. Blanking preserves newlines, so a line number in
@@ -684,8 +726,8 @@ STEP_DEFINITION = re.compile(
     r'^%(sp)sfunc%(sp1)s(step[A-Z]%(part)s*)%(sp)s[\[(]' % GO_TOKENS)
 
 # The header is anchored at column 1, and that is a decision rather than an oversight. It is the
-# first of the three lines of the registration shape `.claude/skills/compile-gear/prompt.md` states
-# to the drafter, and that shape is a contract: the example there writes the header at column 1,
+# first of the three lines of the registration shape `.claude/skills/generate-gear/scaffold_proof.py`
+# writes, and that shape is a contract: the scaffolder emits the header at column 1,
 # `gofmt` writes it there, and holding the contract is what this pattern is for. Go does run an indented
 # `Test`, so the refusal is this gate holding its own shape rather than following Go, and it is
 # intended. It is also loud rather than silent: `TEST_FUNCTION` below reads the indented header and
@@ -853,7 +895,7 @@ def go_name_alternation(names):
 
 
 # The closing brace is anchored at column 1 for the reason `TEST_HEADER` gives: it is the third
-# line of the declared registration shape, the SKILL.md example writes it at column 1, and `gofmt`
+# line of the declared registration shape, the scaffolder writes it at column 1, and `gofmt`
 # writes it there. Go compiles an indented `}`, so refusing one is this gate holding the contract
 # rather than following Go, and the refusal is intended. It is loud: the three lines are reported
 # as a run written outside the shape, and the shape quoted in that complaint names all three of
@@ -1088,16 +1130,24 @@ def harness_source(path):
 
 
 def proof_run_shape(arguments):
-    """The registration shape, over the run methods the harness packages declare."""
+    """The registration shape, over the run methods the harness packages declare.
+
+    The four slots are named rather than numbered, because a registration is now compared
+    argument by argument against the step list's `proof-run` annotation and a positional group
+    number says nothing about which argument it holds. The first slot after the method is `t`,
+    which is fixed and so is not captured.
+    """
     method = '|'.join(
         '%s%s\\.%s(?:%s)' % (re.escape(package), GO_TOKENS['sp'], GO_TOKENS['sp'],
                              go_name_alternation(names))
         for package, names in sorted(run_methods_by_package(arguments).items(),
                                      key=lambda item: (-len(item[0]), item[0])))
     return re.compile(
-        r'^%(sp)s(%(method)s)%(sp)s\('
-        r'%(sp)s%(qualified)s%(sp)s,%(sp)s%(qualified)s%(sp)s,%(sp)s(%(name)s)'
-        r'%(sp)s((?:,%(sp)s%(qualified)s%(sp)s)*)\)%(sp)s$' % dict(GO_TOKENS, method=method))
+        r'^%(sp)s(?P<method>%(method)s)%(sp)s\('
+        r'%(sp)s%(qualified)s%(sp)s,%(sp)s(?P<table>%(qualified)s)%(sp)s,'
+        r'%(sp)s(?P<build>%(name)s)'
+        r'%(sp)s(?P<extras>(?:,%(sp)s%(qualified)s%(sp)s)*)\)%(sp)s$'
+        % dict(GO_TOKENS, method=method))
 
 
 ProofRunShapes = collections.namedtuple('ProofRunShapes', 'arguments shape')
@@ -1165,15 +1215,29 @@ PROOF_RUN_MENTION = re.compile(
 
 def proof_run_arguments(match):
     """Return a matched proof run's method name and the number of arguments it passes."""
-    method = GO_TOKEN_SEPARATION.sub('', match.group(1))
-    return method, 3 + match.group(3).count(',')
+    method = GO_TOKEN_SEPARATION.sub('', match.group('method'))
+    return method, 3 + match.group('extras').count(',')
+
+
+def proof_run_extras(text):
+    """The trailing argument names a matched proof run passes after its build, in order.
+
+    The separation the shape allows inside a qualified name is stripped, so
+    `proofkit3d . RequireSolid` and `proofkit3d.RequireSolid` are the same argument. That is the
+    same normalisation `proof_run_arguments` does to the method, and it is what lets a
+    registration be compared name for name against the step list's annotation, which is prose and
+    carries no such spacing.
+    """
+    return [GO_TOKEN_SEPARATION.sub('', part) for part in text.split(',') if part.strip()]
 
 
 def scan_proof_file(path):
     """Return one proof file's step definitions, registrations and complaints.
 
-    A registration comes back as (line number, Test name, build argument) so a complaint can say
-    where to go. Complaints here are the ones only this file can see: a build constraint in the
+    A registration comes back as (line number, Test name, build argument, method, case table,
+    extra arguments) so a complaint can say where to go and so the run can be compared with the
+    `proof-run` annotation the step list carries for the same function. Complaints here are the
+    ones only this file can see: a build constraint in the
     file header, a Test header Go runs but this gate cannot read, a proof run written outside the
     registration shape, a run whose argument count is not the one its method declares, and a call
     to a run method no harness package declares.
@@ -1236,7 +1300,9 @@ def scan_proof_file(path):
                 "registration; pass exactly the arguments the method declares"
                 % (path, index + 2, passed, method, declared))
             continue
-        registrations.append((index + 2, header.group(1), run.group(2)))
+        registrations.append((
+            index + 2, header.group(1), run.group('build'), method,
+            GO_TOKEN_SEPARATION.sub('', run.group('table')), proof_run_extras(run.group('extras'))))
 
     # A run on a method the harness does not declare is named as that, wherever it is written. It
     # is not the same defect as a run off the shape: the shape complaint sends the drafter to the
@@ -1277,19 +1343,28 @@ def scan_proof_file(path):
     return defined, registrations, complaints
 
 
+ProofRegistration = collections.namedtuple('ProofRegistration', 'path line method table extras')
+
+
 def proof_registrations(proof_dir):
-    """Return the proof's step functions, its registered ones, and every complaint about them.
+    """Return the proof's step functions, its registered ones, their detail, and every complaint.
 
     A step function is registered when the Test of the same title builds with it. Requiring the
     titles to agree is what makes the mapping readable from names alone, and it catches a crossed
     pair — a Test building with some other step — which a gate that only looked for a `step<Title>`
     argument would pass.
+
+    `details` maps each registered build to the `ProofRegistration` that accepted it, so the run
+    can be held against the step list's `proof-run` annotation for the same function. The first
+    writer wins: two Tests of one title is Go's `redeclared in this block`, which `bash
+    proof/run.sh` reports before this gate has anything useful to add.
     """
     defined = set()
     registered = set()
+    details = {}
     complaints = []
     if not os.path.isdir(proof_dir):
-        return defined, registered, complaints
+        return defined, registered, details, complaints
     for entry in sorted(os.listdir(proof_dir)):
         if not entry.endswith('.go'):
             continue
@@ -1307,7 +1382,7 @@ def proof_registrations(proof_dir):
         found, registrations, file_complaints = scan_proof_file(path)
         defined |= found
         complaints.extend(file_complaints)
-        for number, test, build in registrations:
+        for number, test, build, method, table, extras in registrations:
             if not entry.endswith('_test.go'):
                 complaints.append(
                     "  %s:%d registers %s, but `go test` only runs tests in a _test.go file, so "
@@ -1316,6 +1391,8 @@ def proof_registrations(proof_dir):
             expected = 'step' + test[len('Test'):]
             if build == expected:
                 registered.add(build)
+                details.setdefault(
+                    build, ProofRegistration(path, number, method, table, extras))
             elif STEP_NAME.fullmatch(build):
                 complaints.append(
                     "  %s:%d registers %s inside %s, but a step is registered by the Test of its "
@@ -1326,7 +1403,146 @@ def proof_registrations(proof_dir):
                     "  %s:%d registers %s as a proof run's build argument, but that argument "
                     "must be a step<Title> function so a step can claim it"
                     % (path, number, build))
-    return defined, registered, complaints
+    return defined, registered, details, complaints
+
+
+# The registration file is generated, and the step list is where its inputs are written.
+#
+# A registration is a pure function of four things — the run method, the case table, the step
+# function and the remaining arguments the method declares — and nothing else about the three
+# lines is a decision. `.claude/skills/generate-gear/scaffold_proof.py` turns those four into
+# `proof/<gear>/zz_registrations_test.go`, so the drafter writes no `Test` function at all.
+#
+# The four arrive in one directive per `[GO]` step, written as an HTML comment on its own line:
+#
+#     <!-- proof-run: proofkit3d.RunSolid(solidCases, stepExtrudeTooth, assertExtrudeTooth) -->
+#
+# An HTML comment rather than a backtick span, because `named_calls` reads only backtick spans:
+# written in one, the directive would reach the Fusion-API-reality check and need a
+# `check-compile: ignore` escort beside every annotation in every step list. `STEP_NAME_CLAIM`
+# scans the raw body, so the annotation's `step<Title>` token doubles as the step's proof-function
+# claim.
+#
+# The arguments are the emitted call's arguments after `t`, which the scaffolder inserts, so an
+# annotation lists one fewer than the arity derived from the harness. Two patterns read the
+# directive: a loose one that finds every `proof-run:` comment however it is written, and a strict
+# one that parses a well-formed one. A directive the loose pattern finds and the strict pattern
+# will not parse is a named complaint rather than a silent skip, which is the same decision
+# `PROOF_RUN_MENTION` makes about a run written outside the registration shape.
+PROOF_RUN_ANNOTATION_LOOSE = re.compile(r'<!--\s*proof-run:(.*?)-->', re.S)
+
+# The strict grammar. The package and the method are checked against the derived run table
+# afterwards rather than here, so a run on a method no harness declares is named as that instead
+# of arriving as an unparseable directive. Every argument is a plain or package-qualified Go name:
+# no literal, no call, no expression built in place, which is the same rule the registration shape
+# holds the run's own arguments to.
+PROOF_RUN_ANNOTATION = re.compile(
+    r'<!--\s*proof-run:\s*(?P<package>%(name)s)\s*\.\s*(?P<method>Run%(part)s*)\s*\('
+    r'\s*(?P<arguments>%(qualified)s(?:\s*,\s*%(qualified)s)*)\s*\)\s*-->' % GO_TOKENS)
+
+# One parsed annotation: the qualified run method, the case table, the step function, and the
+# remaining argument names in the order the method declares them.
+Annotation = collections.namedtuple('Annotation', 'method table build extras text')
+
+PROOF_RUN_ANNOTATION_SHAPE = ('`<!-- proof-run: <package>.<Run…>(<cases>, step<Title>[, …]) -->`')
+
+SCAFFOLD_COMMAND = 'python3 .claude/skills/generate-gear/scaffold_proof.py'
+
+
+def step_annotations(body):
+    """Every `proof-run` annotation one step body carries, and every directive that will not parse.
+
+    Fenced code blocks are blanked first, the way `named_calls` blanks them, so a step quoting an
+    annotation in an example does not register anything.
+    """
+    text = re.sub(r'```.*?```', '', body, flags=re.S)
+    found = []
+    malformed = []
+    for loose in PROOF_RUN_ANNOTATION_LOOSE.finditer(text):
+        strict = PROOF_RUN_ANNOTATION.match(text, loose.start())
+        if strict is None or strict.end() != loose.end():
+            malformed.append(' '.join(loose.group(0).split()))
+            continue
+        arguments = [argument.strip() for argument in strict.group('arguments').split(',')]
+        found.append(Annotation(
+            '%s.%s' % (strict.group('package'), strict.group('method')),
+            arguments[0], arguments[1] if len(arguments) > 1 else '', arguments[2:],
+            ' '.join(strict.group(0).split())))
+    return found, malformed
+
+
+def annotation_findings(step_id, annotation, arities):
+    """Everything wrong with one parsed annotation, judged against the derived run table alone.
+
+    These are the findings the step list settles on its own, so the scaffolder and this gate reach
+    them from the same code and word them the same way. What a proof file says is not consulted
+    here; that comparison is `main`'s, because only it has read the proof.
+    """
+    problems = []
+    if annotation.method not in arities:
+        return ["  %s annotates a run on %s, which no harness package declares; the run methods "
+                "are %s" % (step_id, annotation.method, ', '.join(sorted(arities)))]
+    passed = 2 + len(annotation.extras)
+    declared = arities[annotation.method]
+    if passed + 1 != declared:
+        problems.append("  %s annotates %s with %d arguments, but the method takes %d"
+                        % (step_id, annotation.method, passed + 1, declared))
+    if not STEP_NAME.fullmatch(annotation.build):
+        problems.append(
+            "  %s annotates %s with %s as its build argument, but that argument must be a "
+            "step<Title> function so a step can claim it"
+            % (step_id, annotation.method, annotation.build))
+    return problems
+
+
+def annotation_call(annotation_or_registration, build):
+    """A run's arguments after `t`, written the way both the gate and the scaffolder print them."""
+    return '%s(%s)' % (annotation_or_registration.method,
+                       ', '.join([annotation_or_registration.table, build]
+                                 + list(annotation_or_registration.extras)))
+
+
+def step_list_annotations(steps, arities):
+    """Every annotation the step list declares, in step order, with every complaint about them.
+
+    Returns `(list of (step id, annotation, sound), complaints)`, where `sound` says the
+    annotation drew no finding of its own and so is worth comparing with a proof or rendering into
+    a registration. An unsound one still comes back, because it names a build the proof may
+    register and a caller that dropped it would then report that registration as one no step
+    annotates.
+
+    This is the whole step-list half of the registration contract, and both readers of it run this
+    one function: the gate, which then compares what comes back with the proof, and the
+    scaffolder, which renders it. Two implementations of these rules would be two answers to the
+    question of what the step list declares, and the file the scaffolder writes has to be the file
+    the gate expects.
+    """
+    found = []
+    complaints = []
+    owner = {}
+    for step_id, tag, body in steps:
+        annotations, malformed = step_annotations(body)
+        for text in malformed:
+            complaints.append("  %s carries a proof-run annotation this gate cannot parse: %s"
+                              % (step_id, text))
+        if tag == 'GO' and not annotations and not malformed:
+            complaints.append(
+                "  %s is tagged [GO] but carries no proof-run annotation; write %s in the step "
+                "body" % (step_id, PROOF_RUN_ANNOTATION_SHAPE))
+        if tag == 'PROSE' and annotations:
+            complaints.append(
+                "  %s is tagged [PROSE] but carries a proof-run annotation; a step no harness "
+                "reaches registers nothing" % step_id)
+        for annotation in annotations:
+            problems = annotation_findings(step_id, annotation, arities)
+            complaints.extend(problems)
+            if annotation.build in owner:
+                complaints.append("  %s and %s both annotate %s; one step owns a registration"
+                                  % (owner[annotation.build], step_id, annotation.build))
+                continue
+            owner[annotation.build] = step_id
+            found.append((step_id, annotation, not problems))
+    return found, complaints
 
 
 def main(argv):
@@ -1355,7 +1571,7 @@ def main(argv):
     # system — `chmod 000` on a harness source raises `PermissionError` from `open()` — and says
     # nothing about why this checker was reading the file, so it is named here.
     try:
-        proof_run_shapes()
+        runs = proof_run_shapes()
     except RuntimeError as exc:
         print(exc, file=sys.stderr)
         return 2
@@ -1387,7 +1603,7 @@ def main(argv):
             cited.setdefault(path, set()).update(range(first, last + 1))
 
     # 2. steps and proof agree
-    functions, registered, registration_problems = proof_registrations(proof_dir)
+    functions, registered, details, registration_problems = proof_registrations(proof_dir)
     problems.extend(registration_problems)
     claimed = set()
     for sid, tag, body in steps:
@@ -1409,6 +1625,33 @@ def main(argv):
     for fn in sorted(functions - registered - claimed):
         problems.append("  proof function %s is defined but no Test%s builds with it; %s"
                         % (fn, fn[len('step'):], REGISTRATION_SHAPE))
+
+    # The registration file is generated from the annotations, so the two have to say the same
+    # thing. Without this the gate never compared a run method or a case table against anything,
+    # and a step list whose annotation moved to another run over a stale generated file passed.
+    annotated, annotation_problems = step_list_annotations(steps, runs.arguments)
+    problems.extend(annotation_problems)
+    for step_id, annotation, sound in annotated:
+        registration = details.get(annotation.build)
+        # A function with an annotation and no accepted registration is already the existing
+        # "which Test<Title> does not build with" complaint, so it is not said twice here. An
+        # annotation that drew a finding of its own is not compared either: the finding is the
+        # thing to fix, and a disagreement with the proof beside it names the same defect twice.
+        if registration is None or not sound:
+            continue
+        if (registration.method, registration.table, registration.extras) == (
+                annotation.method, annotation.table, annotation.extras):
+            continue
+        problems.append(
+            "  %s annotates %s as %s, but %s:%d registers it as %s; regenerate with `%s %s`"
+            % (step_id, annotation.build, annotation_call(annotation, annotation.build),
+               registration.path, registration.line,
+               annotation_call(registration, annotation.build), SCAFFOLD_COMMAND, gear))
+    for fn in sorted(set(details) - {annotation.build for _, annotation, _ in annotated}):
+        problems.append(
+            "  %s:%d registers %s, but no step carries a proof-run annotation for it; "
+            "registrations are generated from the step list's annotations"
+            % (details[fn].path, details[fn].line, fn))
 
     # 3. API calls are real
     local = PYTHON_METHODS | defined_names(FRAMEWORK) | contract_names(gear)
@@ -1432,25 +1675,28 @@ def main(argv):
     except fusion_api.Unavailable as exc:
         print('check_compile: %s' % exc, file=sys.stderr)
         return 2
+    namings = spec_namings(candidates, gear) if candidates else {}
     for call in candidates:
         wrong_receivers = wrong_watchlist_receivers.get(call, ())
         if (hits[call]
                 and all(api_owner_matches_receiver(hits[call], receiver)
                         for receiver in wrong_receivers)):
             continue
+        note = fault_note(namings.get(call, []))
         if hits[call] and wrong_receivers:
             owners = sorted({qualified.rsplit('.', 2)[-2] for qualified, _ in hits[call]})
             for receiver in sorted(wrong_receivers, key=lambda value: value or ''):
                 if not api_owner_matches_receiver(hits[call], receiver):
                     problems.append(
                         "  the step list names '%s(' on receiver '%s', but the Fusion API "
-                        "database declares it on %s"
-                        % (call, receiver, ', '.join(owners)))
+                        "database declares it on %s%s"
+                        % (call, receiver, ', '.join(owners), note))
             continue
         near = fusion_api.similar(call)
-        problems.append("  the step list names '%s(', which the Fusion API database does not have%s"
+        problems.append("  the step list names '%s(', which the Fusion API database does not "
+                        "have%s%s"
                         % (call, '' if not near else
-                           '; the nearest names it does have are %s' % ', '.join(near)))
+                           '; the nearest names it does have are %s' % ', '.join(near), note))
 
     # 4. inputs have not drifted
     stamped = dict(STAMPED_ROW.findall(src))
