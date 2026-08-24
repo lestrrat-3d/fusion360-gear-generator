@@ -267,6 +267,10 @@ class SpurGearInvoluteToothDesignGenerator:
         # flank (atan2(-py, px)), computed rather than interpolated so the
         # tooth lands right at any sample count.
         pitchPoint = self.calculateInvolutePoint(baseRadius, pitchRadius)
+        if pitchPoint is None:
+            raise ValueError(
+                'drawTooth: no involute point at the pitch radius — pitch '
+                'radius {} is inside base radius {}'.format(pitchRadius, baseRadius))
         rotateAngle = math.pi / (2 * toothNumber) - math.atan2(-pitchPoint.y, pitchPoint.x)
 
         # 9.4 Rotate the mirrored samples (left flank), mirror across X for
@@ -639,7 +643,7 @@ class SpurGearGenerator(Generator):
         component.name = self.generateName()
         self._normalizeTargetPlane()
         ctx = self.newContext()
-        ctx.plane = self.plane
+        ctx.plane = adsk.fusion.ConstructionPlane.cast(self.plane)
         futil.log('SpurGearGenerator: preparing tools')
         self.prepareTools(ctx)
         futil.log('SpurGearGenerator: building the main gear body')

@@ -163,5 +163,61 @@ class DiagnosticFilterTests(unittest.TestCase):
         self.assertFalse(MODULE.is_unverified_api_diagnostic(diagnostic))
 
 
+class AcceptedNoiseTests(unittest.TestCase):
+    def test_argument_entry_matches_wrong_argument_signature(self):
+        diagnostic = {
+            'rule': 'reportArgumentType',
+            'message': 'Argument of type "int" cannot be assigned to parameter "orientation" '
+                       'of type "DimensionOrientations" in function "addDistanceDimension"',
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'accepted.json'
+            path.write_text(
+                '[{"rule": "reportArgumentType", "param": "orientation",'
+                ' "want": "DimensionOrientations", "func": "addDistanceDimension",'
+                ' "why": "stub types the enum members as int"}]')
+
+            accepted = MODULE.accepted_signatures(str(path))
+
+        self.assertIn(MODULE.signature(diagnostic), accepted)
+
+    def test_message_entry_matches_plain_signature(self):
+        diagnostic = {
+            'rule': 'reportOptionalMemberAccess',
+            'message': '"x" is not a known attribute of "None"',
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'accepted.json'
+            path.write_text(
+                '[{"rule": "reportOptionalMemberAccess",'
+                ' "message": "\\"x\\" is not a known attribute of \\"None\\"",'
+                ' "why": "example"}]')
+
+            accepted = MODULE.accepted_signatures(str(path))
+
+        self.assertIn(MODULE.signature(diagnostic), accepted)
+
+    def test_entry_without_why_is_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'accepted.json'
+            path.write_text('[{"rule": "reportArgumentType", "param": "orientation",'
+                            ' "want": "DimensionOrientations", "func": "addDistanceDimension"}]')
+
+            with self.assertRaises(ValueError):
+                MODULE.accepted_signatures(str(path))
+
+    def test_missing_file_accepts_nothing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(
+                MODULE.accepted_signatures(str(Path(directory) / 'absent.json')), set())
+
+    def test_checked_in_record_parses_and_names_only_triaged_noise(self):
+        accepted = MODULE.accepted_signatures()
+        self.assertIn(
+            ('reportArgumentType', 'orientation', 'DimensionOrientations',
+             'addDistanceDimension'),
+            accepted)
+
+
 if __name__ == '__main__':
     unittest.main()
