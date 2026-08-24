@@ -159,10 +159,6 @@ func assertExtrudeTooth(t *testing.T, doc *decad.Document, bodies []*decad.Body,
 	}
 }
 
-func TestExtrudeTooth(t *testing.T) {
-	proofkit3d.Run(t, toothCases, stepExtrudeTooth, assertExtrudeTooth)
-}
-
 // chamferCases: the chamfer distances against the m1 z17 gear's root disc.
 var chamferCases = []proofkit3d.Case{
 	{Name: "0.3mm chamfer", Params: map[string]float64{
@@ -234,10 +230,6 @@ func assertChamferTooth(t *testing.T, doc *decad.Document, bodies []*decad.Body,
 	}
 }
 
-func TestChamferTooth(t *testing.T) {
-	proofkit3d.Run(t, chamferCases, stepChamferTooth, assertChamferTooth)
-}
-
 // bodyCases: the gear body disc at both sizes.
 var bodyCases = []proofkit3d.Case{
 	{Name: "default m1 z17", Params: map[string]float64{
@@ -300,10 +292,6 @@ func assertExtrudeBody(t *testing.T, doc *decad.Document, bodies []*decad.Body, 
 	}
 }
 
-func TestExtrudeBody(t *testing.T) {
-	proofkit3d.Run(t, bodyCases, stepExtrudeBody, assertExtrudeBody)
-}
-
 // stepGearCenterAxis models step 14: while iterating the new body's faces,
 // the cylindrical face yields the Gear Center axis and the far planar cap
 // becomes ctx.extrusionExtent.
@@ -339,10 +327,6 @@ func assertGearCenterAxis(t *testing.T, doc *decad.Document, bodies []*decad.Bod
 	if math.Hypot(cyl.Origin.X, cyl.Origin.Y) > 1e-9 {
 		t.Errorf("Gear Center axis passes through (%.9f, %.9f), want the gear centre", cyl.Origin.X, cyl.Origin.Y)
 	}
-}
-
-func TestGearCenterAxis(t *testing.T) {
-	proofkit3d.Run(t, bodyCases, stepGearCenterAxis, assertGearCenterAxis)
 }
 
 // patternCases: the tooth placements sampled from the full pattern.
@@ -426,10 +410,6 @@ func assertPatternTeeth(t *testing.T, doc *decad.Document, bodies []*decad.Body,
 	}
 }
 
-func TestPatternTeeth(t *testing.T) {
-	proofkit3d.Run(t, patternCases, stepPatternTeeth, assertPatternTeeth)
-}
-
 // combineCases: the whole-gear result at both sizes.
 var combineCases = []proofkit3d.Case{
 	{Name: "default m1 z17", Params: map[string]float64{
@@ -481,10 +461,6 @@ func assertCombineTeeth(t *testing.T, doc *decad.Document, bodies []*decad.Body,
 	if got := mm3(vol.Value, t); relDiff(got, want) > 1e-9 {
 		t.Errorf("whole gear volume %.6f, want disc + N teeth = %.6f", got, want)
 	}
-}
-
-func TestCombineTeeth(t *testing.T) {
-	proofkit3d.RunSolid(t, combineCases, stepCombineTeeth, assertCombineTeeth)
 }
 
 // filletCases: the root fillet at both sizes, radius from the spec formula.
@@ -560,10 +536,6 @@ func assertRootFillets(t *testing.T, doc *decad.Document, bodies []*decad.Body, 
 	}
 }
 
-func TestRootFillets(t *testing.T) {
-	proofkit3d.RunSolid(t, filletCases, stepRootFillets, assertRootFillets)
-}
-
 // boreCutCases: bores through both gear sizes.
 var boreCutCases = []proofkit3d.Case{
 	{Name: "5mm bore m1 z17", Params: map[string]float64{
@@ -631,8 +603,4 @@ func assertBoreCut(t *testing.T, doc *decad.Document, bodies []*decad.Body, para
 	if got := mm3(vol.Value, t); relDiff(got, want) > 1e-3 {
 		t.Errorf("bored volume %.4f, want gear minus through-bore = %.4f", got, want)
 	}
-}
-
-func TestBoreCut(t *testing.T) {
-	proofkit3d.RunSolid(t, boreCutCases, stepBoreCut, assertBoreCut)
 }

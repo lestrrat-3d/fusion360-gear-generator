@@ -1688,19 +1688,34 @@ class CheckCompileTest(unittest.TestCase):
                       output)
         self.assertIn('S1 names proof function stepOne, which TestOne does not build with', output)
 
-    def test_the_drafting_contract_states_the_column_the_gate_holds(self):
-        """The checker and the contract the drafter is given have to say the same thing.
+    def test_the_writer_of_a_registration_holds_the_column_the_gate_reads(self):
+        """The checker and whatever writes a registration have to agree about column 1.
 
         `TEST_HEADER` and `BLOCK_END` refuse a line Go compiles, so the rule is this repository's
-        and has to be written down where the drafter reads it. Without this, the two patterns could
-        keep an anchor no document mentions, which is how the same defect arose on the step side.
+        and something has to hold it where the registrations are written. That used to be the
+        drafting contract, in prose; since registrations are generated it is `scaffold_proof.py`,
+        so the rule is held against the text that script actually emits. The contract's own half
+        is now that the drafter writes no `Test` at all, asserted below it.
         """
+        path = Path(__file__).with_name('scaffold_proof.py')
+        spec = importlib.util.spec_from_file_location('scaffold_proof', path)
+        scaffold = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(scaffold)
+        registration = scaffold.Registration('S1', 'proofkit.Run', 'profileCases', 'stepOne', [])
+
+        text = scaffold.render('gear', [registration], 'example.test/proof')
+
+        self.assertIn('\nfunc TestOne(t *testing.T) {\n', text)
+        self.assertIn('\n}\n', text)
+        for line in text.split('\n'):
+            if line.startswith((' ', '\t')):
+                self.assertNotIn('func TestOne', line)
+
         contract = (Path(__file__).parents[3] / '.claude' / 'skills' / 'compile-gear'
                     / 'prompt.md').read_text(encoding='utf-8')
 
-        self.assertIn('The header and the closing `}` each', contract)
-        self.assertIn('start at column 1', contract)
-        self.assertIn('The step function is not part of', contract)
+        self.assertIn('Write no Go `Test` function.', contract)
+        self.assertIn('proof-run:', contract)
 
     def test_the_drafting_contract_states_the_separation_and_names_go_reads(self):
         """The gate reads a proof under Go's rules, so the contract says which those are.

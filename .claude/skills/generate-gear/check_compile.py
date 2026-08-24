@@ -19,6 +19,9 @@ Four checks gate, and one is reported:
      run written any other way is reported rather than read, because an unread build argument is
      an unchecked one. A call to a run method the harness does not declare is reported wherever it
      is written, registration or not, because Go calls that `undefined` wherever it sits.
+     Registrations are generated from the step list rather than drafted, so each `[GO]` step also
+     carries a `proof-run` annotation naming the run its registration is built from, and an
+     annotation and a registration that disagree are a stale generated file.
   3. API CALLS ARE REAL. Every Fusion call the step list names exists in the API database the
      `fusion` plugin ships. Catches a spec that names a method Fusion does not have.
   4. INPUTS HAVE NOT DRIFTED. The provenance table contains and matches the existing instructions,
@@ -427,8 +430,9 @@ def strip_go_comments_and_literals(src):
 # What this buys is that the gate never has to decide what a brace means. What it costs is that a
 # run written any other way is refused rather than read. That is the safe direction: a refusal
 # names the file and line and says what to write, while a misreading silently credits a step no
-# test builds. `.claude/skills/compile-gear/prompt.md` states the same shape to the drafter, so the
-# refusal is a contract violation rather than a surprise.
+# test builds. `.claude/skills/generate-gear/scaffold_proof.py` writes exactly this shape, from
+# the step list's `proof-run` annotations, so a refusal here means something other than the
+# scaffolder wrote the registration.
 #
 # Comments and literals are blanked before matching, so a registration quoted inside a doc comment
 # or a raw string is not mistaken for a real one. Blanking preserves newlines, so a line number in
@@ -731,8 +735,8 @@ STEP_DEFINITION = re.compile(
     r'^%(sp)sfunc%(sp1)s(step[A-Z]%(part)s*)%(sp)s[\[(]' % GO_TOKENS)
 
 # The header is anchored at column 1, and that is a decision rather than an oversight. It is the
-# first of the three lines of the registration shape `.claude/skills/compile-gear/prompt.md` states
-# to the drafter, and that shape is a contract: the example there writes the header at column 1,
+# first of the three lines of the registration shape `.claude/skills/generate-gear/scaffold_proof.py`
+# writes, and that shape is a contract: the scaffolder emits the header at column 1,
 # `gofmt` writes it there, and holding the contract is what this pattern is for. Go does run an indented
 # `Test`, so the refusal is this gate holding its own shape rather than following Go, and it is
 # intended. It is also loud rather than silent: `TEST_FUNCTION` below reads the indented header and
@@ -900,7 +904,7 @@ def go_name_alternation(names):
 
 
 # The closing brace is anchored at column 1 for the reason `TEST_HEADER` gives: it is the third
-# line of the declared registration shape, the SKILL.md example writes it at column 1, and `gofmt`
+# line of the declared registration shape, the scaffolder writes it at column 1, and `gofmt`
 # writes it there. Go compiles an indented `}`, so refusing one is this gate holding the contract
 # rather than following Go, and the refusal is intended. It is loud: the three lines are reported
 # as a run written outside the shape, and the shape quoted in that complaint names all three of

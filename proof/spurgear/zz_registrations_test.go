@@ -10,7 +10,7 @@ import (
 )
 
 func TestToolsSketch(t *testing.T) {
-	proofkit.Run(t, profileCases, stepToolsSketch)
+	proofkit.Run(t, toolsCases, stepToolsSketch)
 }
 
 func TestGearProfileSketch(t *testing.T) {
@@ -18,19 +18,27 @@ func TestGearProfileSketch(t *testing.T) {
 }
 
 func TestExtrudeTooth(t *testing.T) {
-	proofkit3d.RunSolid(t, solidCases, stepExtrudeTooth, assertExtrudeTooth)
+	proofkit3d.Run(t, toothCases, stepExtrudeTooth, assertExtrudeTooth)
+}
+
+func TestChamferTooth(t *testing.T) {
+	proofkit3d.Run(t, chamferCases, stepChamferTooth, assertChamferTooth)
 }
 
 func TestExtrudeBody(t *testing.T) {
-	proofkit3d.RunSolid(t, solidCases, stepExtrudeBody, assertExtrudeBody)
+	proofkit3d.Run(t, bodyCases, stepExtrudeBody, assertExtrudeBody)
+}
+
+func TestGearCenterAxis(t *testing.T) {
+	proofkit3d.Run(t, bodyCases, stepGearCenterAxis, assertGearCenterAxis)
 }
 
 func TestPatternTeeth(t *testing.T) {
-	proofkit3d.RunSolid(t, patternCases, stepPatternTeeth, assertPatternTeeth)
+	proofkit3d.Run(t, patternCases, stepPatternTeeth, assertPatternTeeth)
 }
 
 func TestCombineTeeth(t *testing.T) {
-	proofkit3d.RunSolid(t, solidCases, stepCombineTeeth, assertCombineTeeth)
+	proofkit3d.RunSolid(t, combineCases, stepCombineTeeth, assertCombineTeeth)
 }
 
 func TestRootFillets(t *testing.T) {
