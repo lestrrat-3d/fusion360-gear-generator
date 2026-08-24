@@ -18,36 +18,34 @@ the pipeline exists to make trustworthy.
 
 1. **Setup.** Work in a worktree, never the root checkout. Ensure `.tmp/` exists. Run
    `python3 .claude/skills/generate-gear/preflight.py <gear> --stage emit` and fix every `[FAIL]`
-   before drafting; it verifies the engines, the go toolchain and the API database so a broken
-   environment fails here instead of mid-run.
+   before drafting; it verifies the engines, the go toolchain and the API database, and runs
+   `check_compile.py <gear>` as its `steps-current` row, so a broken environment or a stale
+   step list fails here instead of mid-run. If `steps-current` fails, run `/compile-gear <gear>`
+   first.
 
-2. **Check the inputs are current.** Run
-   `python3 .claude/skills/generate-gear/check_compile.py <gear>`. Emitting from a stale step list
-   wastes the round. If it fails, run `/compile-gear <gear>` first.
-
-3. **Draft.** Spawn a subagent with the standard drafting prompt: run
+2. **Draft.** Spawn a subagent with the standard drafting prompt: run
    `python3 .claude/skills/generate-gear/render_prompt.py emit-gear <gear>` and pass its printed
    output to the subagent unchanged. It writes `.tmp/<gear>.generated.py`. Add no per-gear
    hints; anything the drafter needs belongs in the step list.
 
-4. **Gate.** Run `python3 .claude/skills/generate-gear/run_gates.py <gear> > .tmp/<gear>.gates.txt`
+3. **Gate.** Run `python3 .claude/skills/generate-gear/run_gates.py <gear> > .tmp/<gear>.gates.txt`
    from the repo root and read the file for the verdict. The stored copy is also what a retry round
    hands back to the drafter. It runs all seven checks below plus the advisory novel-type report,
    and prints one verdict. Exit 0 = every gate that ran passed; exit 1 = a gate failed; exit 2 = a
    setup error (missing input, missing stubs, unreachable API database) that no new draft can fix.
 
-5. **Diagnose and loop.** The runner prints a first-pass fault classification; confirm the rows it
-   marks NEEDS JUDGMENT against the table below. An emit fault goes back to step 3, up to about
+4. **Diagnose and loop.** The runner prints a first-pass fault classification; confirm the rows it
+   marks NEEDS JUDGMENT against the table below. An emit fault goes back to step 2, up to about
    three rounds: re-render the prompt with `python3 .claude/skills/generate-gear/render_prompt.py
    emit-gear <gear> --failure-file .tmp/<gear>.gates.txt` and hand the printed output to the
    drafter unchanged. The renderer appends the stored gate report verbatim; never paste failure
    text into the prompt by hand. A compile fault, or an exit 2, stops the run.
 
-6. **Place.** On success, run `python3 .claude/skills/generate-gear/stage.py <gear> module` from
+5. **Place.** On success, run `python3 .claude/skills/generate-gear/stage.py <gear> module` from
    the repo root. It puts `.tmp/<gear>.generated.py` at `lib/geargen/<gear>.py` and reports what
    moved. This writes a file only; it does not commit, push, or touch Fusion's add-in directory.
 
-7. **Report.** State the gate results and every step that was thin or wrong.
+6. **Report.** State the gate results and every step that was thin or wrong.
 
 ## Gates
 

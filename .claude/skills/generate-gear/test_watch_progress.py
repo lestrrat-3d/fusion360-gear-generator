@@ -449,5 +449,124 @@ class RenderAndMainTests(unittest.TestCase):
         self.assertEqual(code, MODULE.EXIT_DONE)
 
 
+class ClearTests(unittest.TestCase):
+    """`--clear` replaces the `rm -f` /generate-gear step 4 used to prescribe: it must be
+    safe to run when there is nothing to clear, and refuse when a run may still be live."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmpdir.cleanup)
+        self.dir = self._tmpdir.name
+        self.log_path = os.path.join(self.dir, 'sample.progress.log')
+        self.anchor = MODULE.anchor_path(self.log_path)
+
+    def _write_with_mtime(self, lines, mtime):
+        with open(self.log_path, 'w') as f:
+            f.write('\n'.join(lines) + '\n')
+        os.utime(self.log_path, (mtime, mtime))
+
+    def _write_anchor(self, epoch):
+        with open(self.anchor, 'w') as f:
+            f.write('%d\n' % epoch)
+
+    def test_52_clear_removes_an_old_log_and_its_sidecar(self):
+        clock = FakeClock(start=1755990000)
+        self._write_with_mtime(['%d start' % (clock.t - 3600)], clock.t - 3600)
+        self._write_anchor(int(clock.t) - 3600)
+
+        out = io.StringIO()
+        code = MODULE.clear(self.log_path, clock, out)
+
+        self.assertEqual(code, MODULE.EXIT_DONE)
+        self.assertFalse(os.path.exists(self.log_path))
+        self.assertFalse(os.path.exists(self.anchor))
+        self.assertIn('removed: %s' % self.log_path, out.getvalue())
+        self.assertIn('removed: %s' % self.anchor, out.getvalue())
+
+    def test_53_clearing_a_clean_state_succeeds(self):
+        clock = FakeClock(start=1755990000)
+        out = io.StringIO()
+
+        code = MODULE.clear(self.log_path, clock, out)
+
+        self.assertEqual(code, MODULE.EXIT_DONE)
+        self.assertIn('absent:  %s' % self.log_path, out.getvalue())
+        self.assertIn('absent:  %s' % self.anchor, out.getvalue())
+
+    def test_54_orphan_sidecar_is_removed(self):
+        clock = FakeClock(start=1755990000)
+        self._write_anchor(int(clock.t) - 3600)
+
+        out = io.StringIO()
+        code = MODULE.clear(self.log_path, clock, out)
+
+        self.assertEqual(code, MODULE.EXIT_DONE)
+        self.assertFalse(os.path.exists(self.anchor))
+
+    def test_55_a_fresh_log_is_refused(self):
+        clock = FakeClock(start=1755990000)
+        self._write_with_mtime(['%d start' % clock.t], clock.t)
+        self._write_anchor(int(clock.t))
+
+        out = io.StringIO()
+        code = MODULE.clear(self.log_path, clock, out)
+
+        self.assertEqual(code, MODULE.EXIT_ANOMALY)
+        self.assertTrue(os.path.exists(self.log_path))
+        self.assertTrue(os.path.exists(self.anchor))
+        self.assertIn('--force', out.getvalue())
+
+    def test_56_force_clears_a_fresh_log(self):
+        clock = FakeClock(start=1755990000)
+        self._write_with_mtime(['%d start' % clock.t], clock.t)
+        self._write_anchor(int(clock.t))
+
+        out = io.StringIO()
+        code = MODULE.main([self.log_path, '--clear', '--force'], clock=clock, out=out)
+
+        self.assertEqual(code, MODULE.EXIT_DONE)
+        self.assertFalse(os.path.exists(self.log_path))
+        self.assertFalse(os.path.exists(self.anchor))
+
+    def test_57_watch_only_flags_are_a_usage_error(self):
+        for extra in (['--since', '123'], ['--reset'], ['--allow-stale'], ['--once']):
+            with self.subTest(extra=extra[0]):
+                self._write_with_mtime(['1 start'], 1)
+                err = io.StringIO()
+                with mock.patch.object(MODULE.sys, 'stderr', err):
+                    code = MODULE.main([self.log_path, '--clear'] + extra,
+                                       clock=FakeClock(start=1755990000), out=io.StringIO())
+
+                self.assertEqual(code, MODULE.EXIT_USAGE)
+                self.assertTrue(err.getvalue())
+                self.assertTrue(os.path.exists(self.log_path))
+
+    def test_58_cleared_stale_log_no_longer_makes_the_next_watch_anomalous(self):
+        # The original bug: a forgotten `rm -f` left last round's log in place, and the
+        # next watch read it as a stale pre-existing log and returned ANOMALY.
+        anchor_epoch = 1755990000
+        clock = FakeClock(start=anchor_epoch)
+        stale_epoch = anchor_epoch - 3600
+        self._write_with_mtime(['%d start' % stale_epoch, '%d done' % stale_epoch], stale_epoch)
+        self._write_anchor(stale_epoch)
+
+        self.assertEqual(MODULE.main([self.log_path, '--clear'], clock=clock, out=io.StringIO()),
+                         MODULE.EXIT_DONE)
+
+        with mock.patch.object(MODULE.time, 'sleep') as real_sleep:
+            # The watch that follows writes a fresh anchor and finds nothing stale to trip on.
+            first = MODULE.watch(self.log_path, windows(launch=300, budget=0), clock,
+                                 io.StringIO())
+            self.assertNotEqual(first, MODULE.EXIT_ANOMALY)
+            self.assertEqual(first, MODULE.EXIT_RUNNING)
+
+            clock.t += 400
+            second = MODULE.watch(self.log_path, windows(launch=300, budget=0), clock,
+                                  io.StringIO())
+
+        self.assertEqual(second, MODULE.EXIT_NO_START)
+        self.assertFalse(real_sleep.called)
+
+
 if __name__ == '__main__':
     unittest.main()

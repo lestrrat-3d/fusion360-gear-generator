@@ -10,6 +10,14 @@ poll it by hand: call it once after launching the subagent, and if it exits
 with status RUNNING, call the identical command again — one foreground call
 per wait, repeated until the exit code is not RUNNING.
 
+`--clear` is the other half of that contract, and it does not watch anything. A
+previous round leaves its log and its `.watch` sidecar behind, and a watch that
+meets one reports ANOMALY, so the skill has to clear both before it launches.
+Run `watch_progress.py <log> --clear` to remove the pair. Clearing an already
+clean state is a success, so the skill can run it unconditionally; a log written
+within the last minute is refused instead, because it probably belongs to a run
+still in flight, and `--force` is the override.
+
 Exit codes:
   0  DONE         a `done` heartbeat is present; the subagent finished.
   1  NO_START     no heartbeat at all, and the launch window has passed.
@@ -20,6 +28,14 @@ Exit codes:
   5  ANOMALY      the log vanished/became unreadable mid-watch, or a stale
                   pre-existing log was detected at first read.
   64 USAGE        bad arguments.
+
+In `--clear` mode only three of those codes can appear:
+  0  the log and its sidecar are gone, whether this call removed them or they
+     were already absent.
+  5  refused: the log was written within the last minute, so a run may still be
+     using it. Re-run with `--force` once that is ruled out.
+  64 usage: `--clear` given with an argument that only a watch can act on
+     (`--since`, `--reset`, `--allow-stale`, `--once`).
 """
 import argparse
 import collections
@@ -220,6 +236,40 @@ def reset_anchor(log_path):
         pass
 
 
+def _remove(path, out):
+    """Remove one path and say what happened. Never raises."""
+    try:
+        os.remove(path)
+    except OSError:
+        out.write('absent:  %s\n' % path)
+        return
+    out.write('removed: %s\n' % path)
+
+
+def clear(log_path, clock, out, force=False):
+    """Delete the progress log and its anchor sidecar, so the next watch starts clean.
+
+    A log touched within STALE_SLACK of now is refused rather than deleted: it most
+    likely belongs to a run still in flight, and taking its log away is the one way
+    this mode could destroy something. `--force` says the freshness is understood."""
+    try:
+        mtime = os.stat(log_path).st_mtime
+    except OSError:
+        mtime = None
+
+    if mtime is not None and not force:
+        age = clock.now() - mtime
+        if age <= STALE_SLACK:
+            out.write('watch_progress: refusing to clear %s — written %ds ago, so a run may still '
+                      'be appending to it; re-run with --force if it is not.\n'
+                      % (log_path, max(0, int(age))))
+            return EXIT_ANOMALY
+
+    _remove(log_path, out)
+    _remove(anchor_path(log_path), out)
+    return EXIT_DONE
+
+
 def is_stale_log(state, summary, reference):
     """A leftover log from a previous run predates this watch. Pure."""
     if not state.exists or not state.lines:
@@ -408,6 +458,8 @@ def build_parser():
     parser.add_argument('--since', type=int, default=None)
     parser.add_argument('--reset', action='store_true')
     parser.add_argument('--allow-stale', action='store_true')
+    parser.add_argument('--clear', action='store_true')
+    parser.add_argument('--force', action='store_true')
     return parser
 
 
@@ -429,6 +481,19 @@ def main(argv, clock=None, out=None):
         if value < 0:
             sys.stderr.write('watch_progress: %s must not be negative\n' % name)
             return EXIT_USAGE
+
+    if args.clear:
+        # Everything below only means something inside a watch; silently ignoring one of
+        # these would leave the caller believing a watch option took effect.
+        conflicting = [name for name, given in (('--since', args.since is not None),
+                                                ('--reset', args.reset),
+                                                ('--allow-stale', args.allow_stale),
+                                                ('--once', args.once)) if given]
+        if conflicting:
+            sys.stderr.write('watch_progress: --clear does not watch, so %s cannot apply\n'
+                             % ' and '.join(conflicting))
+            return EXIT_USAGE
+        return clear(args.log, clock, out, force=args.force)
 
     budget = 0 if args.once else args.budget
 
