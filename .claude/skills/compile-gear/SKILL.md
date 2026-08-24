@@ -117,11 +117,22 @@ proof is where the next reader is looking for the missing check.
    has to be able to compile a gear that has no implementation yet.
 
 6. **Diagnose and loop.** Classify any failure with the table below. A draft fault goes back to
-   step 3, up to about three rounds: re-render the prompt with
-   `python3 .claude/skills/generate-gear/render_prompt.py compile-gear <gear> --failure-file
-   .tmp/<gear>.compile-gates.txt` and hand the printed output to the drafter unchanged. The
-   renderer appends the stored gate report verbatim; never paste failure text into the prompt by
-   hand. A prose fault stops the run.
+   the drafter, up to about three rounds in total. A prose fault stops the run.
+
+   A draft fault does not change any input file, so the drafter that produced it still holds
+   every input in context. Send it the stored gate report `.tmp/<gear>.compile-gates.txt`
+   verbatim with `SendMessage` and let it revise `.tmp/<gear>.steps.md` and
+   `.tmp/<gear>-proof/`; never paste failure text edited by hand, and do not tell the drafter to
+   re-read inputs it has already read.
+
+   Spawn a fresh drafting subagent (a full step 3) only when one of these holds: this is the
+   first round; an input file (the spec, `fusion.md`, the playbook, or a harness package)
+   changed since the drafter read it; the same check fails on the same step in two consecutive
+   continued rounds; or the drafter is no longer reachable. A fresh retry round re-renders the
+   prompt with `python3 .claude/skills/generate-gear/render_prompt.py compile-gear <gear>
+   --failure-file .tmp/<gear>.compile-gates.txt`, which appends the stored gate report verbatim;
+   hand the printed output to the drafter unchanged. The first round's prompt is always the
+   rendered standard prompt with no failure file.
 
 7. **Place.** On success, run `python3 .claude/skills/generate-gear/stage.py <gear> compile`
    from the repo root. It repeats step 4's placement of the step list and the proof, so it

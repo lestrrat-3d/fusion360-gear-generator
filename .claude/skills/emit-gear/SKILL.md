@@ -41,11 +41,23 @@ the pipeline exists to make trustworthy.
    setup error (missing input, missing stubs, unreachable API database) that no new draft can fix.
 
 4. **Diagnose and loop.** The runner prints a first-pass fault classification; confirm the rows it
-   marks NEEDS JUDGMENT against the table below. An emit fault goes back to step 2, up to about
-   three rounds: re-render the prompt with `python3 .claude/skills/generate-gear/render_prompt.py
-   emit-gear <gear> --failure-file .tmp/<gear>.gates.txt` and hand the printed output to the
-   drafter unchanged. The renderer appends the stored gate report verbatim; never paste failure
-   text into the prompt by hand. A compile fault, or an exit 2, stops the run.
+   marks NEEDS JUDGMENT against the table below. An emit fault goes back to the drafter, up to
+   about three rounds in total. A compile fault, or an exit 2, stops the run.
+
+   An emit fault does not change any input file, so the drafter that produced it still holds the
+   step list, the proof and the framework in context. Send it the stored gate report
+   `.tmp/<gear>.gates.txt` verbatim with `SendMessage` and let it revise
+   `.tmp/<gear>.generated.py`; never paste failure text edited by hand, and do not tell the
+   drafter to re-read inputs it has already read.
+
+   Spawn a fresh drafting subagent (a full step 2) only when one of these holds: this is the
+   first round; an input file (`steps.md`, the proof, the playbook, or a framework module)
+   changed since the drafter read it; the same gate fails in two consecutive continued rounds;
+   or the drafter is no longer reachable. A fresh retry round re-renders the prompt with
+   `python3 .claude/skills/generate-gear/render_prompt.py emit-gear <gear> --failure-file
+   .tmp/<gear>.gates.txt`, which appends the stored gate report verbatim; hand the printed
+   output to the drafter unchanged. The first round's prompt is always the rendered standard
+   prompt with no failure file.
 
 5. **Place.** On success, run `python3 .claude/skills/generate-gear/stage.py <gear> module` from
    the repo root. It puts `.tmp/<gear>.generated.py` at `lib/geargen/<gear>.py` and reports what
