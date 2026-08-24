@@ -85,8 +85,20 @@ try:
             log('   profile %d loop %d curve types: %s' % (i, j, kinds))
 finally:
     text = '\n'.join(lines)
-    out = 'C:/Users/lestr/AppData/Roaming/Autodesk/Autodesk Fusion 360/API/AddIns/Gear Generator/diag_dimsign_out.txt'
-    with open(out, 'w') as f:
-        f.write(text)
+    # The console print is the primary output; the file beside the deployed
+    # add-in (found via the standard per-OS AddIns location) is a convenience.
+    import os
+    appdata = os.environ.get('APPDATA')
+    if appdata:
+        addin = os.path.join(appdata, 'Autodesk', 'Autodesk Fusion 360', 'API',
+                             'AddIns', 'Gear Generator')
+    else:
+        addin = os.path.expanduser('~/Library/Application Support/Autodesk/'
+                                   'Autodesk Fusion 360/API/AddIns/Gear Generator')
+    try:
+        with open(os.path.join(addin, 'diag_dimsign_out.txt'), 'w') as f:
+            f.write(text)
+    except OSError:
+        pass
     print(text)
     doc.close(False)
