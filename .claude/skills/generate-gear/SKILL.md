@@ -90,7 +90,10 @@ The spec + playbook together MUST be sufficient. If they are not, fix the spec o
      attributable to the spec, which is the whole point. When a regen reveals a gap, fix the
      **spec/playbook** and re-run the **same** standard prompt — never patch the prompt.
    - **Launch in the background and let the watcher do the waiting.** Clear the previous run's
-     telemetry first — `rm -f .tmp/<gear>.progress.log .tmp/<gear>.progress.log.watch` — then run
+     telemetry first — run
+     `python3 .claude/skills/generate-gear/watch_progress.py .tmp/<gear>.progress.log --clear`,
+     which removes the log and its `.watch` sidecar and refuses (exit 5) if the log was written in
+     the last minute, since that suggests a run still in flight — then run
      the subagent as a background task (the standard prompt makes it append one milestone line per
      phase). Do **not** poll the log by hand. Wait with one foreground call, Bash timeout 600000:
 
@@ -106,7 +109,8 @@ The spec + playbook together MUST be sufficient. If they are not, fix the spec o
      (e.g. an unanswered approval gate) — stop and surface it; **2** silent past the stall window —
      stop the run, relaunch once, and only then involve the user; **3** past the 45-minute ceiling
      with the run still alive — stop it and surface the elapsed time; **5** the progress log is not
-     in the state the watch assumed — inspect before relaunching. The script carries SKILL.md's
+     in the state the watch assumed — inspect before relaunching, and clear a confirmed-stale log
+     with the same script's `--clear` before the relaunch. The script carries SKILL.md's
      windows as its defaults (`--launch-window 300`, `--stall-window 600`, `--max-runtime 2700`);
      override one only with a stated reason.
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run the whole gate battery for one gear and print one verdict.
 
-It serves both stages that validate a candidate module: `/emit-gear` step 4 and
+It serves both stages that validate a candidate module: `/emit-gear` step 3 and
 `/generate-gear` step 5. Both used to ask the orchestrating LLM to run the gate commands one
 at a time, then (at the emit stage) classify any failure by hand against the fault table in
 `.claude/skills/emit-gear/SKILL.md`. Every part of that is mechanical — the commands are

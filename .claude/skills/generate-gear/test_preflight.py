@@ -55,6 +55,12 @@ def make_repo(root, gear=GEAR):
     return root
 
 
+def completed(returncode, stdout='', stderr=''):
+    """What the check_compile.py seam hands back, without running it."""
+    return subprocess.CompletedProcess(args=['check_compile.py'], returncode=returncode,
+                                       stdout=stdout, stderr=stderr)
+
+
 def stub_defs(root):
     """A directory that satisfies fusion_stubs.defs_at()."""
     defs = root / 'defs'
@@ -129,7 +135,8 @@ class EmitStageTests(Fixture):
         (self.root / 'spec' / GEAR / 'steps.md').write_text('# steps\n')
         (self.root / 'proof' / GEAR / 'x.go').write_text('package proof\n')
 
-        with mock.patch.dict(os.environ, self.resolved()):
+        with mock.patch.dict(os.environ, self.resolved()), \
+                mock.patch.object(MODULE, '_run_check_compile', return_value=completed(0)):
             code, out = self.run_cli(GEAR, '--stage', 'emit', '--root', str(self.root))
 
         self.assertEqual(code, 0, out)
@@ -148,6 +155,91 @@ class EmitStageTests(Fixture):
 
         self.assertEqual(status, MODULE.SKIP)
         self.assertIn('prose-checked', detail)
+
+
+class StepsCurrentTests(Fixture):
+    """The emit stage's freshness row: it stands where `/emit-gear` step 2 stood, so it must
+    reach the same verdicts check_compile.py reaches, and it must belong to no other stage."""
+
+    def steps(self):
+        (self.root / 'spec' / GEAR / 'steps.md').write_text('# steps\n')
+
+    def test_only_the_emit_stage_runs_it(self):
+        self.assertIn('steps-current', [k for k, _, _ in MODULE.plan('emit')])
+        self.assertNotIn('steps-current', [k for k, _, _ in MODULE.plan('compile')])
+        self.assertNotIn('steps-current', [k for k, _, _ in MODULE.plan('generate')])
+        self.assertIn('steps-current', [k for k, _, _ in MODULE.plan('all')])
+
+    def test_a_missing_step_list_is_skipped_here_and_failed_by_the_steps_row(self):
+        status, detail = MODULE.check_steps_current(self.ctx)
+
+        self.assertEqual(status, MODULE.SKIP)
+        self.assertIn('steps row', detail)
+
+        with mock.patch.dict(os.environ, self.resolved()):
+            results = MODULE.run_checks(self.ctx, 'emit')
+        by_key = {r['key']: r for r in results}
+        self.assertEqual(by_key['steps-current']['status'], MODULE.SKIP)
+        self.assertEqual(by_key['steps']['status'], MODULE.FAIL)
+
+    def test_exit_zero_is_ok(self):
+        self.steps()
+
+        with mock.patch.object(MODULE, '_run_check_compile',
+                               return_value=completed(0, 'compile check: OK (12 steps)\n')):
+            status, detail = MODULE.check_steps_current(self.ctx)
+
+        self.assertEqual(status, MODULE.OK)
+        self.assertIn('current', detail)
+
+    def test_blocking_findings_fail_and_name_the_drift(self):
+        self.steps()
+        report = ('coverage: spec/x.md — 3/4 lines claimed by a step\n'
+                  'compile check: BLOCKING (1)\n'
+                  '  spec/testgear/instructions.md has changed since the step list was compiled\n')
+
+        with mock.patch.object(MODULE, '_run_check_compile', return_value=completed(1, report)):
+            status, detail = MODULE.check_steps_current(self.ctx)
+
+        self.assertEqual(status, MODULE.FAIL)
+        self.assertIn('compile check: BLOCKING (1)', detail)
+        self.assertIn('run /compile-gear %s' % GEAR, detail)
+        self.assertNotIn('coverage:', detail)
+
+    def test_exit_two_fails_as_a_setup_error(self):
+        self.steps()
+
+        with mock.patch.object(MODULE, '_run_check_compile',
+                               return_value=completed(2, '', 'no spec/testgear/steps.md\n')):
+            status, detail = MODULE.check_steps_current(self.ctx)
+
+        self.assertEqual(status, MODULE.FAIL)
+        self.assertIn('exit 2', detail)
+        self.assertIn('no spec/testgear/steps.md', detail)
+
+    def test_a_timeout_fails_the_row_rather_than_raising(self):
+        self.steps()
+        timed_out = subprocess.TimeoutExpired(cmd='check_compile.py',
+                                              timeout=MODULE.CHECK_COMPILE_TIMEOUT)
+
+        with mock.patch.object(MODULE, '_run_check_compile', side_effect=timed_out):
+            status, detail = MODULE.check_steps_current(self.ctx)
+
+        self.assertEqual(status, MODULE.FAIL)
+        self.assertIn('did not finish', detail)
+
+    def test_the_command_runs_the_skill_s_script_from_the_repo_root(self):
+        self.steps()
+
+        with mock.patch.object(MODULE.subprocess, 'run', return_value=completed(0)) as run:
+            MODULE.check_steps_current(self.ctx)
+
+        argv = run.call_args[0][0]
+        self.assertEqual(argv[0], MODULE.sys.executable)
+        self.assertEqual(argv[1], os.path.join(MODULE.HERE, 'check_compile.py'))
+        self.assertEqual(argv[2], GEAR)
+        self.assertEqual(run.call_args[1]['cwd'], str(self.root))
+        self.assertEqual(run.call_args[1]['timeout'], MODULE.CHECK_COMPILE_TIMEOUT)
 
 
 class TmpDirTests(Fixture):

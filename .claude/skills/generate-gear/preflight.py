@@ -12,7 +12,10 @@ It reports, it does not repair. The only thing it writes is `.tmp/` under the ro
 every stage needs that directory and creating it is cheaper than reporting it missing. It
 never clones the stubs, never installs pyright, never runs `go test`, and never touches the
 network. A check that cannot be answered without doing one of those says so and leaves the
-work to the tool that owns it.
+work to the tool that owns it. The one heavier thing it runs is `check_compile.py`, on the emit
+stage only, because emitting from a stale step list wastes a whole drafting round and the tool
+that owns that verdict is cheap enough to consult here — it still needs no network and runs no
+`go test`.
 
 Resolution rules are borrowed, never re-derived: the engine directories resolve exactly as
 `proof/run.sh` resolves them ($SKETCH_DIR / $DECAD_DIR, else siblings of the main checkout),
@@ -42,6 +45,8 @@ if HERE not in sys.path:
 
 GEAR_NAME = re.compile(r'[a-z][a-z0-9_]*\Z')  # same spelling stage.py accepts
 TIMEOUT = 10  # seconds; every subprocess here is a version probe
+# The one exception: check_compile.py parses the proof and queries the API database.
+CHECK_COMPILE_TIMEOUT = 300
 
 OK = 'ok'
 WARN = 'warn'
@@ -84,16 +89,16 @@ class Context(object):
 
 
 # --- subprocess helpers --------------------------------------------------------------------
-def _run(argv, cwd=None):
+def _run(argv, cwd=None, timeout=TIMEOUT):
     """Run a probe. Returns (ok, first line of output or the reason it failed)."""
     try:
-        proc = subprocess.run(argv, capture_output=True, text=True, timeout=TIMEOUT, cwd=cwd)
+        proc = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, cwd=cwd)
     except FileNotFoundError:
         return False, '%s is not on PATH' % argv[0]
     except OSError as exc:
         return False, '%s could not be run (%s)' % (argv[0], exc)
     except subprocess.TimeoutExpired:
-        return False, '%s did not answer within %ds' % (argv[0], TIMEOUT)
+        return False, '%s did not answer within %ds' % (argv[0], timeout)
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout or '').strip().splitlines()
         return False, '%s exited %d%s' % (
@@ -252,6 +257,56 @@ def check_steps(ctx):
     return FAIL, 'no step list at %s; run /compile-gear %s first' % (path, ctx.gear)
 
 
+def _first_line_with(text, needle):
+    """The first line holding `needle`, else the last nonempty line, else ''."""
+    lines = [l.strip() for l in (text or '').splitlines() if l.strip()]
+    for line in lines:
+        if needle in line:
+            return line
+    return lines[-1] if lines else ''
+
+
+def _run_check_compile(ctx):
+    """Run the freshness gate the way `/emit-gear` used to run it by hand.
+
+    `check_compile.py` resolves every path it reads against the working directory, so it must
+    be started from the repo root. It parses the proof and queries the API database, which the
+    10s probe timeout does not cover; this one is generous enough to fail rather than hang.
+    Kept as its own function so a test can stand in for the whole subprocess."""
+    return subprocess.run(
+        [sys.executable, os.path.join(HERE, 'check_compile.py'), ctx.gear],
+        capture_output=True, text=True, timeout=CHECK_COMPILE_TIMEOUT, cwd=ctx.root)
+
+
+def check_steps_current(ctx):
+    """Whether the step list still matches the spec it was compiled from.
+
+    This is the one row that runs a real tool rather than a version probe. It stands where
+    `/emit-gear` step 2 stood, and it costs the round nothing: that step ran the same command
+    a moment later anyway."""
+    if not os.path.isfile(ctx.spec('steps.md')):
+        return SKIP, 'no step list, which the steps row already reports'
+
+    try:
+        proc = _run_check_compile(ctx)
+    except subprocess.TimeoutExpired:
+        return FAIL, ('check_compile.py did not finish within %ds; run it by hand to see where it '
+                      'stopped' % CHECK_COMPILE_TIMEOUT)
+    except OSError as exc:
+        return FAIL, 'check_compile.py could not be run (%s)' % exc
+
+    if proc.returncode == 0:
+        return OK, 'check_compile.py: step list is current'
+    if proc.returncode == 1:
+        return FAIL, ('check_compile.py found BLOCKING findings (%s); run /compile-gear %s first'
+                      % (_first_line_with(proc.stdout, 'BLOCKING'), ctx.gear))
+    if proc.returncode == 2:
+        return FAIL, ('check_compile.py exit 2 (%s): an input is missing or unreadable'
+                      % _first_line_with(proc.stderr or proc.stdout, ''))
+    return FAIL, ('check_compile.py exited %d (%s), which is not one of its documented codes'
+                  % (proc.returncode, _first_line_with(proc.stderr or proc.stdout, '')))
+
+
 def check_proof_dir(ctx):
     path = ctx.path('proof', ctx.gear)
     if not os.path.isdir(path):
@@ -342,6 +397,7 @@ STAGES = {
     'emit': COMMON + (
         ('steps', check_steps, False),
         ('proof-dir', check_proof_dir, False),
+        ('steps-current', check_steps_current, False),
         ('api-db', check_api_db, False),
         ('contract-manifest', check_contract_manifest, False),
         ('framework', check_framework, False),
