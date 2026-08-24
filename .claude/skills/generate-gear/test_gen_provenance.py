@@ -40,6 +40,10 @@ DEFAULT_STEPS = (
     '## Provenance\n\n'
     '## S1 `[GO]` One — `stepOne`\n\n'
     'Build the thing.\n\n'
+    # A `[GO]` step declares the run its registration is generated from, and
+    # `check_compile.py` blocks on a step that carries no such annotation, so the fixture that
+    # is fed to that checker below has to carry one.
+    '<!-- proof-run: proofkit.Run(profileCases, stepOne) -->\n\n'
     '**From:** `spec/gear/instructions.md` L1\n')
 
 PROOF_BODY = (
