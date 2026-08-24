@@ -64,9 +64,13 @@ proof is where the next reader is looking for the missing check.
    prompt varies run to run and hides gaps by spoon-feeding what the prose should have said, so a
    green run would no longer say anything about the spec.
 
-4. **Run the proof.** Copy every drafted proof file into `proof/<gear>/` and run
+4. **Run the proof.** Run `python3 .claude/skills/generate-gear/stage.py <gear> proof --run` from
+   the repo root. It copies every drafted proof file from `.tmp/<gear>-proof/` into
+   `proof/<gear>/`, deletes any `.go` file there the draft no longer produces, indexes the result
+   so step 5's tracked-or-committed check can see a first-time proof, and then runs
    `bash proof/run.sh`. The wrapper enters the `proof/` module and configures the local engine
-   replacements; the proof must pass with nothing waived.
+   replacements; the proof must pass with nothing waived. Exit 2 means the placement was refused
+   and nothing moved; exit 1 means the proof itself is red.
 
 5. **Check.** Run `python3 .claude/skills/generate-gear/check_compile.py <gear>` from the repo
    root. It gates citations, step-to-proof agreement, the reality of every named API call, and the
@@ -86,8 +90,11 @@ proof is where the next reader is looking for the missing check.
 6. **Diagnose and loop.** Classify any failure with the table below. A draft fault goes back to
    step 3 with the failure text appended, up to about three rounds. A prose fault stops the run.
 
-7. **Place.** On success, move the drafted step list and every drafted proof file into the working
-   tree. This writes files only; it does not commit, push, or touch Fusion's add-in directory.
+7. **Place.** On success, run `python3 .claude/skills/generate-gear/stage.py <gear> steps` and
+   `python3 .claude/skills/generate-gear/stage.py <gear> proof` from the repo root. They put the
+   drafted step list and every drafted proof file into the working tree and report what moved; the
+   proof call repeats step 4's placement, so it should report every file unchanged. This writes
+   files and the git index only; it does not commit, push, or touch Fusion's add-in directory.
 
 8. **Report.** State what was produced, the coverage list, and every prose fault found.
 
