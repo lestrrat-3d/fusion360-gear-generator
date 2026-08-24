@@ -33,6 +33,16 @@ ALL PASS — the spur Gear Profile constraint scheme fully constrains across siz
 Cleared to generate Fusion add-in code.
 ```
 
+**Exit codes.** `run.sh` reports the verdict as its exit status: **0** = every case passes
+the primary gate (final `ALL PASS` line), **1** = some case fails it (final `FAIL` line),
+**2** = the sketch engine checkout was not found. This is the contract every gear's bench
+implements ([PB-SKETCH-FIRST]). The canonical way to run the gate is the repo-side wrapper,
+which turns that status into the house 0/1/2 verdict convention:
+
+```sh
+python3 .claude/skills/generate-gear/run_sketch_bench.py spurgear
+```
+
 ## What it models
 
 `main.go` rebuilds the spur **Gear Profile** sketch exactly as
