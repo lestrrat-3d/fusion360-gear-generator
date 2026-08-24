@@ -9,7 +9,7 @@ This step list is proven by `proof/spurgear/geometry_test.go`, `proof/spurgear/s
 | `spec/spurgear/instructions.md` | `f5ffe3451454bb3b187b1318e47b92281d9f0bb0` |
 | `spec/spurgear/fusion.md` | `ea678245854cfec80055d67c46a8788772b0f9d4` |
 | `spec/helicalgear/fusion.md` | `83fac920272341e3c4584f16031478a69b7472e7` |
-| `.claude/skills/generate-gear/PLAYBOOK.md` | `4b5b47887e4c8b26b12ec7de679f922bc2d474c2` |
+| `.claude/skills/generate-gear/PLAYBOOK.md` | `dadae022d2220a73b25e07b24ef99075a8be23a5` |
 
 ## 1 `[PROSE]` Module surface and exported constants
 
