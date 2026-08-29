@@ -19,14 +19,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: lestrrat-3d/sketch
-          ref: faabd98deadabd7a313023cbe9a3f79d74763e7f
+          ref: 879d774f8d0e3230f158968bdf123193cb3ce4ea
           path: sketch
 
       - name: Check out the decad engine
         uses: actions/checkout@v4
         with:
           repository: lestrrat-3d/decad
-          ref: ae27f4cd56884c9f507c47752f322d85f5c56542
+          ref: 3ff4b3bb55cc70acfc68d770dd723e9350820f9d
           path: decad
 
       - name: Check out the Fusion API lookup database
@@ -95,7 +95,7 @@ jobs:
           SKETCH_DIR: ${{ github.workspace }}/sketch
           DECAD_DIR: ${{ github.workspace }}/decad
           PROOF_VERIFY_REVISIONS: '1'
-          SKETCH_COMMIT: faabd98deadabd7a313023cbe9a3f79d74763e7f
-          DECAD_COMMIT: ae27f4cd56884c9f507c47752f322d85f5c56542
+          SKETCH_COMMIT: 879d774f8d0e3230f158968bdf123193cb3ce4ea
+          DECAD_COMMIT: 3ff4b3bb55cc70acfc68d770dd723e9350820f9d
         run: ./run.sh
         working-directory: gears/proof
