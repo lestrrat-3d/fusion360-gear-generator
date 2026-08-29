@@ -183,7 +183,38 @@ class ReachableCallCollector(ast.NodeVisitor):
         for name in self.ENTRY_POINTS:
             for node in self.functions.get(name, ()):
                 self.visit_function(node)
+        for node in self.inherited_entry_points():
+            self.visit_function(node)
         return self.calls
+
+    def inherited_entry_points(self):
+        """Every method of a class that extends a base this module does not define.
+
+        A gear module for a subclass — helical over spur, herringbone over helical —
+        carries no `generate` of its own: the base's `generate` drives the build and
+        calls back into the overrides here. Those overrides have no local caller by
+        construction, so seeding only from ENTRY_POINTS reaches none of them and the
+        whole module reads as dead code. Such a class is reachable through its base,
+        so treat each of its methods as an entry point. A class whose bases are all
+        defined in this file is left to the ordinary walk, which already reaches it
+        from whichever local entry point constructs it.
+        """
+        for nodes in self.classes.values():
+            for node in nodes:
+                if not node.bases:
+                    continue
+                if any(self.base_is_foreign(base) for base in node.bases):
+                    for child in node.body:
+                        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                            yield child
+
+    def base_is_foreign(self, base):
+        """True when this base class is not defined in the module under check."""
+        if isinstance(base, ast.Name):
+            return base.id not in self.classes
+        if isinstance(base, ast.Attribute):
+            return base.attr not in self.classes
+        return False
 
     def visit_statements(self, statements):
         falls_through = True
