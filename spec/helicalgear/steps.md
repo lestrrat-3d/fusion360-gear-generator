@@ -13,10 +13,10 @@ is inherited unchanged and is not restated here.
 
 | file | `git hash-object` |
 |---|---|
-| `spec/helicalgear/instructions.md` | `4d8f006dba8ea21852790cd3aaa4729143fc1707` |
-| `spec/helicalgear/fusion.md` | `2da95c32ecc528aae264673733412ce9f603d696` |
+| `spec/helicalgear/instructions.md` | `21ad4667c0a7ebefab1d2d4fb7145512b66a8869` |
+| `spec/helicalgear/fusion.md` | `f981173cb314094f2fd98cdd78d5bd8287cdc8ee` |
 | `spec/spurgear/fusion.md` | `ea678245854cfec80055d67c46a8788772b0f9d4` |
-| `spec/spurgear/instructions.md` | `036cc824fffa1c38b494d9c5760b8c412d8acae2` |
+| `spec/spurgear/instructions.md` | `560549a350c789b6598ee49b72d3cd7b4460e214` |
 | `.claude/skills/generate-gear/PLAYBOOK.md` | `dadae022d2220a73b25e07b24ef99075a8be23a5` |
 
 ## 1 `[PROSE]` Module surface: imports and the two exported constants
@@ -299,50 +299,30 @@ matches), L218–226 (the counts as a contract);
 `.claude/skills/generate-gear/PLAYBOOK.md` L648–652 (`[PB-LOFT]`, the API shape and that section
 order is loft order), L596–605 (`[PB-PROFILE-MATCH]`), L151–157 (the helper's contract).
 
-## 11 `[PROSE]` Chamfer the lofted tooth
+## 11 `[PROSE]` Loft the tooth
 
-`buildTooth(self, ctx: GenerationContext)` is `self.loftTooth(ctx)` followed by
-`self.chamferTooth(ctx)`, and nothing else. It does not extrude. Ending with the chamfer is spur's
-boundary: `buildMainGearBody` does not chamfer separately, so a `buildTooth` that omits the call
-silently drops the chamfer.
+`buildTooth(self, ctx: GenerationContext)` is `self.loftTooth(ctx)`, and nothing else. It does not
+extrude or chamfer. The inherited spur pipeline applies `chamferTeeth` after the full gear is
+patterned, root-filleted, and optionally bore-cut.
 
-`chamferTooth` is inherited unchanged and selects the tooth's front face by an edge count and a
-coplanarity test against the sketch plane. Helical does **not** override `chamferWantEdges()` and
-must not define one: the inherited 6 is correct, because helical's lofted tooth is built from the
-non-embedded six-curve profile and its cap face carries the same six curves spur's extruded tooth
-does. That count was confirmed in Fusion; an earlier 4 was a defect carried from the pre-pipeline
-module, not a Fusion behaviour.
+The loft uses the non-embedded six-curve profile. Embedded helical gears remain unsupported because
+`loftTooth` still requires two flank-to-root lines.
 
-An embedded gear still raises here, exactly as an embedded spur gear does and for the same reason —
-its cap carries four edges, the inherited count is 6, no face matches, and the whole new component
-is rolled back by the entry point. Keep the raise a raise; do not soften it into a skip.
+<!-- check-step-calls: ignore buildTooth buildMainGearBody -->
+`buildTooth` is defined here for the inherited `buildMainGearBody` to call. The required
+`self.loftTooth(ctx)` call is above.
 
-What a design-time proof reaches here is the sketch loop's curve count, which step 9 asserts at 6
-non-embedded and 4 embedded. The cap's edge count follows from it only through the
-one-curve-one-edge correspondence, which is a Fusion behaviour the anchor asserts rather than a
-proof result, and `proof/helicalgear/solids_test.go` says so next to the geometry it does build.
-
-<!-- check-step-calls: ignore buildTooth chamferWantEdges buildMainGearBody -->
-`buildTooth` is defined here for the inherited `buildMainGearBody` to call; `chamferWantEdges` is
-named only to forbid an override of it; `buildMainGearBody` is inherited unchanged and is named
-only to place the boundary. The two calls this step does require, `self.loftTooth(ctx)` and
-`self.chamferTooth(ctx)`, are above.
-
-**From:** `spec/helicalgear/instructions.md` L118–120 (`chamferWantEdges` is not overridden),
-L130–132 (`buildTooth` must end by calling `chamferTooth`), L161–163 (Delta 2), L200–203 (an embedded
-helical gear still aborts on a non-zero chamfer); `spec/helicalgear/fusion.md` L67–101
-(`[HELI-F-CHAMFER-COUNT]`, the Fusion confirmation and what a proof can and cannot establish);
-`spec/spurgear/instructions.md` L306–316 (the `buildTooth` boundary subclasses depend on), L497–503
-(spur step 8, the face predicate and the inherited edge count).
+**From:** `spec/helicalgear/instructions.md` L127–132, L160–164;
+`spec/spurgear/instructions.md` L306–319, L547–560.
 
 ## 12 `[PROSE]` Leave the rest of the pipeline alone
 
 Nothing else is written. `processInputs`, `prepareTools`, `buildMainGearBody`, `buildBody`,
-`patternTeeth`, `createFillets`, `chamferTooth`, `buildBore`, `cleanup` and the whole
+`patternTeeth`, `createFillets`, `buildBore`, `chamferTeeth`, `cleanup` and the whole
 `SpurGearInvoluteToothDesignGenerator` are inherited and must not be re-implemented, and the call
 graph and override boundaries must not move: `generate → processInputs → prepareTools →
-buildMainGearBody(buildSketches → buildTooth → buildBody → patternTeeth[→createFillets]) →
-buildBore → cleanup`.
+buildMainGearBody(buildSketches → buildTooth → buildBody → patternTeeth → createFillets) →
+buildBore → chamferTeeth → cleanup`.
 
 Two visibility facts follow from adding no cleanup, and both are deliberate:
 

@@ -178,18 +178,6 @@ class HelicalGearGenerator(SpurGearGenerator):
         ctx.toothBody.name = 'Tooth Body'
 
     def buildTooth(self, ctx: GenerationContext):
-        """Step 11: loft, then chamfer, and nothing else — helical does not
-        extrude. Ending with the chamfer is spur's boundary: the inherited
-        buildMainGearBody does not chamfer separately, so omitting the call
-        would silently drop the chamfer.
-
-        chamferTooth is inherited unchanged and selects the tooth's front face
-        by an edge count and a coplanarity test against the sketch plane.
-        Helical does NOT override chamferWantEdges: the inherited 6 is correct,
-        because helical's lofted tooth is built from the non-embedded six-curve
-        profile and its cap face carries the same six curves spur's extruded
-        tooth does ([HELI-F-CHAMFER-COUNT]). An embedded gear still raises
-        here, exactly as an embedded spur gear does, and the whole new
-        component is rolled back by the entry point; the raise stays a raise."""
+        """Step 11: loft the tooth. The inherited pipeline chamfers the
+        completed gear after the optional bore and root fillets."""
         self.loftTooth(ctx)
-        self.chamferTooth(ctx)

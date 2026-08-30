@@ -476,11 +476,6 @@ class SpurGearGenerator(Generator):
     def newContext(self):
         return SpurGearGenerationContext()
 
-    def chamferWantEdges(self) -> int:
-        """Front-face edge count chamferTooth selects on; helical overrides
-        only this count."""
-        return 6
-
     def filletHelixFactorExpression(self) -> str:
         """Hook consumed only in registerDerivedParameters' FilletRadius
         splice; createFillets reads the resulting parameter's numeric value,
@@ -650,6 +645,7 @@ class SpurGearGenerator(Generator):
         self.buildMainGearBody(ctx)
         futil.log('SpurGearGenerator: building the bore')
         self.buildBore(ctx)
+        self.chamferTeeth(ctx)
         # Unconditionally the very last action, after buildBore: buildBore
         # re-projects ctx.anchorPoint from the Tools sketch, and projection
         # fails once that sketch is hidden.
@@ -704,6 +700,7 @@ class SpurGearGenerator(Generator):
         self.buildTooth(ctx)
         self.buildBody(ctx)
         self.patternTeeth(ctx)
+        self.createFillets(ctx)
 
     def buildSketches(self, ctx: SpurGearGenerationContext):
         """Step 9: the Gear Profile sketch, drawn by the tooth generator."""
@@ -733,48 +730,45 @@ class SpurGearGenerator(Generator):
         extrude = extrudeFeatures.add(extrudeInput)
         extrude.name = 'Extrude tooth'
         ctx.toothBody = extrude.bodies.item(0)
-        self.chamferTooth(ctx)
 
-    def chamferTooth(self, ctx: SpurGearGenerationContext):
-        """Step 12: chamfer the tooth's front-face edges, except the root
-        arc. (Known, accepted: an embedded profile's front face has 4 edges
-        while chamferWantEdges() stays 6, so chamfering an embedded spur
-        tooth raises — users disable chamfer there.)"""
+    def chamferTeeth(self, ctx: SpurGearGenerationContext):
+        """Chamfer the completed gear's outer end-cap edges."""
+        if self.getParameterAsBoolean(PARAM_SKETCH_ONLY):
+            return
         chamferValue = self.getParameter(PARAM_CHAMFER_TOOTH).value
         if chamferValue == 0:
             return
-        futil.log('SpurGearGenerator: chamfering the tooth')
-        wantEdges = self.chamferWantEdges()
+        futil.log('SpurGearGenerator: chamfering gear teeth')
         sketchPlane = adsk.fusion.ConstructionPlane.cast(
             ctx.gearProfileSketch.referencePlane).geometry
-        frontFace = None
-        for face in ctx.toothBody.faces:
-            # A single conjunction predicate: the edge count AND coplanarity
-            # with the sketch plane; never a partial match.
-            if face.edges.count != wantEdges:
-                continue
+        capFaces = []
+        for face in ctx.gearBody.faces:
             facePlane = adsk.core.Plane.cast(face.geometry)
-            if facePlane is None:
+            if facePlane is None or not sketchPlane.isParallelToPlane(facePlane):
                 continue
-            if sketchPlane.isCoPlanarTo(facePlane):
-                frontFace = face
-                break
-        if frontFace is None:
+            capFaces.append(face)
+        if not capFaces:
             raise Exception(
-                'chamferTooth: no face of the tooth body has {} edges and is '
-                'coplanar with the sketch plane (faces: {})'.format(
-                    wantEdges, ctx.toothBody.faces.count))
-        # Every front-face edge except the root arc, identified by radius,
-        # not size — chamfering the root arc eats the neighbouring tooth.
-        rootRadius = self.getParameter(PARAM_ROOT_RADIUS).value
+                'chamferTeeth: no planar end-cap faces parallel to the gear '
+                'sketch plane (faces: {})'.format(ctx.gearBody.faces.count))
         edges = adsk.core.ObjectCollection.create()
-        for edge in frontFace.edges:
-            geometry = edge.geometry
-            if geometry.curveType == adsk.core.Curve3DTypes.Arc3DCurveType:
-                arc = adsk.core.Arc3D.cast(geometry)
-                if abs(arc.radius - rootRadius) < 0.001:
+        seenEdgeIds = []
+        boreRadius = self.getParameter(PARAM_BORE_DIAMETER).value / 2
+        for capFace in capFaces:
+            for edge in capFace.edges:
+                if edge.tempId in seenEdgeIds:
                     continue
-            edges.add(edge)
+                curve = edge.geometry
+                if (boreRadius > 0 and
+                        curve.curveType == adsk.core.Curve3DTypes.Circle3DCurveType and
+                        abs(curve.radius - boreRadius) < 0.001):
+                    continue
+                seenEdgeIds.append(edge.tempId)
+                edges.add(edge)
+        if edges.count == 0:
+            raise Exception(
+                'chamferTeeth: no end-cap edges found on {} cap faces'.format(
+                    len(capFaces)))
         chamferFeatures = self.getComponent().features.chamferFeatures
         chamferInput = chamferFeatures.createInput2()
         # The chamfer-side shape of [PB-FILLET-CHAMFER]: the edge set goes on
@@ -870,8 +864,6 @@ class SpurGearGenerator(Generator):
         combineInput = combineFeatures.createInput(ctx.gearBody, toolBodies)
         combineInput.operation = adsk.fusion.FeatureOperations.JoinFeatureOperation
         combineFeatures.add(combineInput)
-
-        self.createFillets(ctx)
 
     def createFillets(self, ctx: SpurGearGenerationContext):
         """Step 17: round the corner where each root valley floor meets a

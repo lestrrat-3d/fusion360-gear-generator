@@ -64,38 +64,17 @@ the chamfer edge count. These are the only helical-specific anchors; the tooth i
   `lines=0`) would fail to find the profile. This is faithful to the current code — a documented
   limitation, not a bug to fix in the spec.
 
-## Chamfer edge count
+## Completed-gear chamfer
 
-- **[HELI-F-CHAMFER-COUNT] Helical does NOT override `chamferWantEdges()`; it inherits spur's `6`.**
-  The inherited `chamferTooth` (spur `chamferTooth`, spur instructions step 8 — no `[SPUR-F-…]`
-  anchor covers it) selects the tooth's front face by `face.edges.count == chamferWantEdges()` plus
-  the sketch-plane coplanarity test. Helical's lofted tooth is built from the non-embedded
-  **6-curve** profile, so its cap face carries **6** edges, exactly as spur's extruded tooth does.
-  Helical overrides `chamferTooth` not at all, adds no "must contain two NURBS flanks" content
-  filter, and now adds no count override either.
-  **✅ Confirmed in Fusion, 2026-08-30.** This anchor previously carried `4` with an
-  asserted/unverified flag. A default helical gear at **chamfer 0.2** raised, aborting the whole
-  component through the execute handler's `deleteComponent()`:
-  `chamferTooth: no face of the tooth body has 4 edges and is coplanar with the sketch plane
-  (faces: 8)`. The `4` was a defect carried from the pre-pipeline module, not a Fusion behaviour.
-  **The load-bearing number here is the cap's edge count, `6`, and that alone.** Fusion's own
-  total of 8 faces is consistent with a 6-curve section lofted into six walls and two caps, which
-  is what corroborated the count at the time; it is a Fusion reading, not a figure any proof
-  reproduces, since a faceting harness splits each ruled wall and counts more. Assert the cap
-  edge count, never a total face count.
-  **What the embedded branch does is unchanged and still raises.** An embedded tooth's section is
-  the **4-curve** loop, so its cap carries 4 edges and the inherited count of 6 finds nothing: an
-  embedded helical gear at a non-zero chamfer raises exactly as an embedded **spur** gear does, and
-  for the same reason. That is spur's documented behaviour, not a helical special case: users
-  disable chamfer there. A regen must keep the raise a raise — it must NOT soften it into a skip.
-  **What a design-time proof can establish here, and what it cannot.** No harness measures a Fusion
-  cap face, so the provable fact is the **sketch loop's curve count**, 6 non-embedded and 4
-  embedded; the cap's edge count follows from it only through the one-curve-one-edge
-  correspondence, and that correspondence is a Fusion behaviour this anchor asserts rather than a
-  proof result. Prove the loop count and say the cap count follows. This anchor names no proof
-  case: which cases carry the count is the proof's own business, and a spec that names them makes
-  the two artifacts one.
-  **Herringbone inherits this and is unverified.** Herringbone subclasses helical and overrides no
-  count of its own, so it moves from the old `4` to `6` with this change. Its tooth is a mirrored
-  pair and its cap topology has never been measured or loaded, so treat `6` there as inherited
-  rather than confirmed until a Fusion session says otherwise.
+- **[HELI-F-CHAMFER-COUNT] The shared `chamferTeeth` no longer uses a tooth-cap edge count.** The
+  earlier `4` predicate aborted the feature, and the later `6` predicate chamfered only the bottom
+  cap because it required coplanarity with the base sketch plane. Those observations were confirmed
+  in Fusion on 2026-08-30.
+  The current shared pipeline runs after patterning, root fillets, and the optional bore. It scans
+  every planar face of the completed `ctx.gearBody` that is parallel to the Gear Profile plane and
+  adds every unique boundary edge once. Root-radius arcs are deliberately included. When a bore is
+  present, its two circular cap edges are excluded by the positive bore radius. Helical and
+  herringbone inherit this behavior without an override.
+  The final completed-gear selection remains pending Fusion verification. The local proof covers
+  the final patterned geometry and the bore-edge exclusion, but it does not reproduce Fusion BRep
+  topology.

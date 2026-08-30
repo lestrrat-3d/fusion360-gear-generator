@@ -6,9 +6,9 @@ The proof for this step list is `proof/spurgear/geometry_test.go`, `proof/spurge
 
 | file | `git hash-object` |
 |---|---|
-| `spec/spurgear/instructions.md` | `036cc824fffa1c38b494d9c5760b8c412d8acae2` |
+| `spec/spurgear/instructions.md` | `560549a350c789b6598ee49b72d3cd7b4460e214` |
 | `spec/spurgear/fusion.md` | `ea678245854cfec80055d67c46a8788772b0f9d4` |
-| `spec/helicalgear/fusion.md` | `2da95c32ecc528aae264673733412ce9f603d696` |
+| `spec/helicalgear/fusion.md` | `f981173cb314094f2fd98cdd78d5bd8287cdc8ee` |
 | `.claude/skills/generate-gear/PLAYBOOK.md` | `dadae022d2220a73b25e07b24ef99075a8be23a5` |
 
 ## S01 `[PROSE]` Module surface — imports, exported constants, the four classes
@@ -254,11 +254,13 @@ generate(inputs)
         → buildSketches(ctx)   # Gear Profile sketch; runs the tooth generator      (S08)
         → if SketchOnly: show the Gear Profile sketch and stop                      (S09)
           else:
-            → buildTooth(ctx)  # extrude the tooth → ctx.toothBody, then chamferTooth(ctx) (S10, S11)
+            → buildTooth(ctx)  # extrude the tooth → ctx.toothBody (S10)
             → buildBody(ctx)   # extrude the annular body → ctx.gearBody, centerAxis, extrusionExtent (S12)
-            → patternTeeth(ctx) # circular pattern + combine, then createFillets(ctx) (S13, S14, S15)
+            → patternTeeth(ctx) # circular pattern + combine (S13, S14)
+            → createFillets(ctx) # root fillets (S15)
   → buildBore(ctx)             # optional bore                                       (S16, S17)
-  → cleanup(ctx)               # always                                              (S18)
+  → chamferTeeth(ctx)          # completed-gear chamfer                            (S18)
+  → cleanup(ctx)               # always                                              (S19)
 ```
 
 `cleanup(ctx)` is the last action of `generate()`, after `buildBore`, and is called
@@ -269,13 +271,11 @@ sketch is hidden.
 
 `buildSketches(ctx)` owns creating the Gear Profile sketch and invoking the tooth generator; helical
 overrides it, calls `super().buildSketches(ctx)`, then draws a second twisted profile sketch.
-`buildTooth(ctx)` owns turning the profile into `ctx.toothBody` and **must call
-`self.chamferTooth(ctx)` as its last action**, so `buildMainGearBody` must not chamfer separately.
-`chamferWantEdges()` returns `6` on the spur base and is read by `chamferTooth`.
+`buildTooth(ctx)` owns turning the profile into `ctx.toothBody`. `chamferTeeth(ctx)` runs after the
+optional bore, so it sees the completed patterned and filleted gear.
 
 Every method named in the graph is defined by this module and called by it, except the ones a
-subclass reaches: `newContext` is inherited, and `chamferWantEdges` is a hook whose only caller is
-S11.
+subclass reaches: `newContext` is inherited.
 
 `generate` is the one name in the graph that runs the other way round. It is the abstract method
 `base.Generator` declares and this module implements, and its caller is the Fusion command
@@ -284,7 +284,7 @@ and calls generate on it from the execute handler. So the module defines `genera
 it, and the same holds for the two later steps that name `generate()` to say where they sit in it,
 S16 and S18.
 
-<!-- check-step-calls: ignore newContext chamferWantEdges generate -->
+<!-- check-step-calls: ignore newContext generate -->
 
 This step is `[PROSE]` because a call graph is control flow: it produces no timeline entry and no
 geometry either harness can hold.
@@ -688,10 +688,9 @@ ctx.toothBody = extrude.bodies.item(0)
 The proof builds the tooth section with its flanks as fitted splines, extrudes it the distance the
 Extrusion End Plane sits at, and asserts what the next two steps select on: the body starts on the
 target plane and ends on the end plane, its volume is the section area carried that far, and its
-front face — the one coplanar with the sketch plane — carries exactly **6** edges, or **4** when the
-profile is embedded, with exactly one edge on the root circle and one on the tip circle. Those are
-`chamferWantEdges()` and the root arc S11 picks out by radius, measured on the body that actually
-got built.
+two planar cap faces each carry exactly **6** edges, or **4** when the profile is embedded, with
+exactly one edge on the root circle and one on the tip circle. Those counts describe the single
+tooth only; the completed-gear chamfer later scans its final end caps instead.
 
 Two substitutions, both recorded in the proof beside the code that makes them. The tooth section is
 drawn as its own closed loop with an explicit root arc, because decad refuses to record a fragment
@@ -708,30 +707,18 @@ work budget above eight samples on a section carrying two splines.
 **From:** `spec/spurgear/instructions.md` L218-226, L262, L265, L491-495;
 `.claude/skills/generate-gear/PLAYBOOK.md` L151-157, L596-605.
 
-## S11 `[GO]` Chamfer the tooth
+## S18 `[GO]` Chamfer the completed gear
 
-`buildTooth` calls `self.chamferTooth(ctx)` as its last action. If `ChamferTooth` is not greater
-than zero, return without creating anything.
+After the optional bore, `generate` calls `self.chamferTeeth(ctx)`. It returns in SketchOnly mode
+or when `ChamferTooth` is zero.
 
-Otherwise round off every edge of the tooth's front face **except** the arc it shares with the root
-valley. Find the front face with a **single conjunction predicate**: walk `ctx.toothBody.faces` and
-take the first face for which **both** `face.edges.count == self.chamferWantEdges()` — 6 on the spur
-base — **and** the face is coplanar with the gear's sketch plane. Both conditions are required of the
-same face; this is not an edge-count match followed by a coplanarity tiebreak. If no face satisfies
-both, raise; do not fall back to a partial match.
+Walk every planar face of `ctx.gearBody` that is parallel to the Gear Profile sketch plane. There
+must be at least one such end-cap face; raise otherwise. The selection is deliberately made after
+the pattern, root fillets, and optional bore, not on the single tooth.
 
-```python
-sketchPlane = ctx.gearProfileSketch.referencePlane.geometry
-if face.edges.count == self.chamferWantEdges() and sketchPlane.isCoPlanarTo(face.geometry):
-```
-
-Identify the root arc **by radius, not by relative size**. Walk the front face's edges and add each
-to the chamfer edge set except any edge whose `edge.geometry.curveType` is
-`adsk.core.Curve3DTypes.Arc3DCurveType` and whose `edge.geometry.radius` equals the registered
-`RootCircleRadius` parameter's `.value` within 0.001 cm. That match is exact — the root arc is the
-only edge lying on the root circle — and more robust than "the smallest-radius arc". Everything else
-on the face is chamfered: the two flanks, the tooth-top arc, and the two flank-to-root lines.
-Chamfering the root arc would eat into the neighbouring tooth.
+Add every selected face edge once, deduplicated by `edge.tempId`. Root-radius arcs remain in the
+set. Exclude only a `Circle3DCurveType` edge whose radius matches the positive Bore Diameter divided
+by two within `0.001` cm. If no edge remains, raise rather than create a partial chamfer.
 
 ```python
 chamferInput = component.features.chamferFeatures.createInput2()
@@ -742,26 +729,22 @@ component.features.chamferFeatures.add(chamferInput)
 The edge set goes on the input's `chamferEdgeSets` collection — the chamfer side of the asymmetry
 with fillet, which takes its edge set the other way (S15).
 
-Known and accepted: an embedded profile yields a 4-edge front face while `chamferWantEdges()` stays
-6, so chamfering an embedded spur tooth raises the front-face-not-found error. Users disable chamfer
-for such gears. Helical and herringbone inherit this step unchanged, expected edge count included;
-neither overrides it.
+Helical and herringbone inherit this step unchanged. The selection does not depend on a single
+tooth's profile edge count, so embedded spur geometry does not create a separate chamfer branch.
 
-The proof asserts the selection on the body it built — the front face found by coplanarity, the one
-root-radius arc found and taken out, and the remaining edges left as the chamfer set — and then
-builds an equal-distance chamfer and checks it removed material. Both sides of the
-`ChamferTooth > 0` guard have a case.
+The proof asserts completed-gear cap selection, including root-radius arcs, and verifies that bore
+cap circles are excluded. Both sides of the `ChamferTooth > 0` guard have a case.
 
 Two substitutions, recorded in the proof next to the code: the body is the chorded tooth, because
 decad refuses every modify operation on a spline-walled prism; and the edges actually chamfered are
 the tooth's axial flank edges rather than the front-face loop, because a cap-loop chamfer of this
 contour builds but its volume reading's proven bound lands outside decad's default relative
 tolerance at every size and setback tried, so the solid gate cannot bless it. What is still proved
-is the selection — which is the part the spec says goes wrong.
+is both-cap selection — which is the part the spec says goes wrong.
 
-**Proof:** `stepChamferTooth` in `proof/spurgear/solids_test.go`.
+**Proof:** `stepChamferTeeth` in `proof/spurgear/solids_test.go`.
 
-<!-- proof-run: proofkit3d.RunSolid(chamferCases, stepChamferTooth, assertChamferTooth) -->
+<!-- proof-run: proofkit3d.RunSolid(chamferCases, stepChamferTeeth, assertChamferTeeth) -->
 
 **Playbook:** [PB-FILLET-CHAMFER] — the chamfer half of the asymmetry: the edge set goes on the
 input's chamfer-edge-set collection, which is the opposite of where the fillet's goes.
@@ -769,7 +752,7 @@ input's chamfer-edge-set collection, which is the opposite of where the fillet's
 enum named in that anchor. [PB-EMPTY-RESULT] — a face search can legitimately find nothing, and
 this one must raise rather than fall back to a partial match.
 
-**From:** `spec/spurgear/instructions.md` L58, L290, L306-323, L497-503;
+**From:** `spec/spurgear/instructions.md` L58, L290, L306-323, L547-560;
 `.claude/skills/generate-gear/PLAYBOOK.md` L505-511, L596-605.
 
 ## S12 `[GO]` Extrude the body

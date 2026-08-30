@@ -29,8 +29,8 @@ func TestExtrudeTooth(t *testing.T) {
 	proofkit3d.RunSolid(t, toothCases, stepExtrudeTooth, assertExtrudeTooth)
 }
 
-func TestChamferTooth(t *testing.T) {
-	proofkit3d.RunSolid(t, chamferCases, stepChamferTooth, assertChamferTooth)
+func TestChamferTeeth(t *testing.T) {
+	proofkit3d.RunSolid(t, chamferCases, stepChamferTeeth, assertChamferTeeth)
 }
 
 func TestExtrudeBody(t *testing.T) {

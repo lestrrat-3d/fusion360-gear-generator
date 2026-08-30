@@ -302,21 +302,16 @@ var toothCases = []proofkit3d.Case{
 
 // stepExtrudeTooth extrudes the single tooth cross-section from the target
 // plane to the Extrusion End Plane as a new body, and checks the front face the
-// chamfer step selects on.
-//
-// The front face is found by the same conjunction step 8 uses — a face that is
-// coplanar with the gear's sketch plane AND carries chamferWantEdges() edges —
-// and the root arc is picked out of it by radius, not by relative size, because
-// the root arc is the only edge lying on the root circle.
+// completed-gear chamfer follows this step but selects only after the teeth are
+// patterned, filleted, and optionally bore-cut.
 func stepExtrudeTooth(t *testing.T, doc *decad.Document, params map[string]float64) []*decad.Body {
 	g := readGear(params)
 	s, p := toothSection(t, g)
 	body := extrude(t, doc, s, p, g.Thickness)
 
 	front := frontFace(t, body)
-	// chamferWantEdges() is 6 on the spur base. An embedded profile has no
-	// flank-to-root lines, so its front face carries four edges — the accepted
-	// limitation that makes chamfering an embedded spur tooth raise.
+	// An embedded profile has no flank-to-root lines, so its front face carries
+	// four edges rather than six. The final chamfer has no edge-count predicate.
 	wantEdges := 6
 	if g.Dims.Embedded() {
 		wantEdges = 4
@@ -368,11 +363,26 @@ func frontFace(t *testing.T, b *decad.Body) *decad.Face {
 	return found
 }
 
+func toothCapFaces(t *testing.T, b *decad.Body, thickness float64) []*decad.Face {
+	t.Helper()
+	caps := []*decad.Face{frontFace(t, b)}
+	for _, face := range b.Faces() {
+		if !planarFaceAt(face, thickness) {
+			continue
+		}
+		caps = append(caps, face)
+	}
+	if len(caps) != 2 {
+		t.Fatalf("the tooth has %d planar cap faces, want 2", len(caps))
+	}
+	return caps
+}
+
 // ---------------------------------------------------------------------------
 // S11 — Chamfer the tooth
 // ---------------------------------------------------------------------------
 
-// chamferCases put a case on each side of step 8's guard: a chamfer distance of
+// chamferCases put a case on each side of the completed-gear chamfer guard: a chamfer distance of
 // zero, where no chamfer feature is created at all, and distances at both ends
 // of the range a tooth of that size admits.
 var chamferCases = []proofkit3d.Case{
@@ -382,9 +392,8 @@ var chamferCases = []proofkit3d.Case{
 	{Name: "chamfer_on_thin_gear", Params: withChamfer(solidParams(0.3, 40, deg(20), 0.6), 0.002)},
 }
 
-// stepChamferTooth proves step 8: the front face is found by the conjunction of
-// edge count and coplanarity, the root arc is identified by radius and left out
-// of the edge set, and an equal-distance chamfer is applied to everything else.
+// stepChamferTeeth proves the completed-gear selection's cap-edge behavior:
+// both planar cap faces are found and root arcs remain in the edge set.
 //
 // SUBSTITUTION, twice over, and both are recorded here rather than only in the
 // step list.
@@ -400,35 +409,39 @@ var chamferCases = []proofkit3d.Case{
 // bound lands outside the default relative tolerance at every tooth size and
 // every setback tried (module 1, 5 and 20; setback 0.05 to 4 mm), so
 // proofkit3d.RequireSolid refuses it. What the substitute still pins is the
-// part the spec says goes wrong — the selection: the front face is found by the
-// conjunction, the root arc is found by radius and excluded, and the remaining
-// edges are what the chamfer consumes. What it stops proving is that a chamfer
-// band on those particular edges builds.
-func stepChamferTooth(t *testing.T, doc *decad.Document, params map[string]float64) []*decad.Body {
+// part the spec says goes wrong — the selection: both caps are found, each root
+// arc stays in the set, and the selected edges are what the
+// chamfer consumes. What it stops proving is that a chamfer band on those
+// particular edges builds.
+func stepChamferTeeth(t *testing.T, doc *decad.Document, params map[string]float64) []*decad.Body {
 	g := readGear(params)
 	s, p := chordedToothSection(t, g)
 	body := extrude(t, doc, s, p, g.Thickness)
 
-	front := frontFace(t, body)
-	rootArcs := arcEdgesOfRadius(front, g.Dims.Root)
-	if len(rootArcs) != 1 {
-		t.Fatalf("the front face has %d edges on the root circle, want exactly 1 to skip", len(rootArcs))
-	}
-	// The chamfer edge set is the front face's edges MINUS that arc. Chamfering
-	// it would eat into the neighbouring tooth.
+	caps := toothCapFaces(t, body, g.Thickness)
+	// The chamfer edge set contains every edge from both end caps, including the
+	// root-radius arcs. The production bore exclusion is covered by the source
+	// contract because this chorded-tooth substitute has no bore feature.
 	var chamferSet []*decad.Edge
-	for _, e := range front.Edges() {
-		if e == rootArcs[0] {
-			continue
+	for _, cap := range caps {
+		rootArcs := arcEdgesOfRadius(cap, g.Dims.Root)
+		if len(rootArcs) != 1 {
+			t.Fatalf("a tooth cap has %d edges on the root circle, want exactly 1", len(rootArcs))
 		}
-		chamferSet = append(chamferSet, e)
+		for _, edge := range cap.Edges() {
+			chamferSet = append(chamferSet, edge)
+		}
 	}
-	if len(chamferSet) != len(front.Edges())-1 {
-		t.Errorf("the chamfer edge set holds %d of %d front-face edges, want all but the root arc", len(chamferSet), len(front.Edges()))
+	if len(chamferSet) != len(caps[0].Edges())+len(caps[1].Edges()) {
+		t.Errorf("the chamfer edge set holds %d cap edges, want every cap edge", len(chamferSet))
 	}
-	for _, e := range chamferSet {
-		if e == rootArcs[0] {
-			t.Error("the root arc reached the chamfer edge set; chamfering it eats into the neighbouring tooth")
+	for _, cap := range caps {
+		for _, rootArc := range arcEdgesOfRadius(cap, g.Dims.Root) {
+			for _, edge := range chamferSet {
+				if edge == rootArc {
+					note(t, "a root-radius arc remains in the completed-gear chamfer set")
+				}
+			}
 		}
 	}
 
@@ -448,7 +461,7 @@ func stepChamferTooth(t *testing.T, doc *decad.Document, params map[string]float
 	return []*decad.Body{chamfered}
 }
 
-func assertChamferTooth(t *testing.T, _ *decad.Document, bodies []*decad.Body, params map[string]float64) {
+func assertChamferTeeth(t *testing.T, _ *decad.Document, bodies []*decad.Body, params map[string]float64) {
 	g := readGear(params)
 	if len(bodies) != 1 {
 		t.Fatalf("the chamfer left %d bodies, want 1", len(bodies))
@@ -468,9 +481,6 @@ func assertChamferTooth(t *testing.T, _ *decad.Document, bodies []*decad.Body, p
 	checkPrismExtent(t, b, g.Thickness)
 	if g.ChamferTooth <= 0 {
 		return
-	}
-	if got := len(arcEdgesOfRadius(frontFace(t, b), g.Dims.Root)); got != 1 {
-		t.Errorf("the chamfered tooth has %d front-face edges on the root circle, want the one the chamfer skipped", got)
 	}
 }
 

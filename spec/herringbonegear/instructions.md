@@ -66,21 +66,21 @@ Herringbone keeps the full inherited call graph (`spec/helicalgear/instructions.
   produce a **numeric snapshot** at generation time, but helical snapshots the `Thickness`
   parameter's value via `getParameterAsValueInput`, while herringbone computes a **raw value**
   (`thickness / 2`) that corresponds to no registered parameter.
-- **`buildTooth(self, ctx)`** → loft one half, mirror it across `ctx.helixPlane`, combine, then chamfer
+- **`buildTooth(self, ctx)`** → loft one half, mirror it across `ctx.helixPlane`, then combine
   (`[HERR-F-MIRROR-COMBINE]`).
 
-**Inherited unchanged — do NOT re-implement:** `addExtraPrimaryParameters`, `chamferWantEdges` (→4),
+**Inherited unchanged — do NOT re-implement:** `addExtraPrimaryParameters`,
 `filletHelixFactorExpression`, `buildSketches` (draws the twisted profile using the overridden
 half-thickness `helicalPlaneOffset`), `loftTooth`, and the entire spur pipeline
-(`prepareTools`/`buildBody`/`patternTeeth`/`createFillets`/`buildBore`/`cleanup`) and tooth generator.
+(`prepareTools`/`buildBody`/`patternTeeth`/`createFillets`/`buildBore`/`chamferTeeth`/`cleanup`) and tooth generator.
 
 ## Generation Order — helical's, with one delta
 
 Cite `spec/helicalgear/instructions.md` Generation Order. The `buildSketches` twisted-profile step is
 unchanged in code but its plane now lands at **half thickness** (via the overridden
-`helicalPlaneOffset`). The only code delta is **`buildTooth`**: instead of helical's `loftTooth` +
-`chamferTooth`, herringbone does loft → mirror → combine → chamfer (`[HERR-F-MIRROR-COMBINE]`). Body
-extrude, pattern+combine, fillets, bore, and cleanup remain spur's, unchanged. (The gear body is still
+`helicalPlaneOffset`). The only code delta is **`buildTooth`**: herringbone does loft → mirror →
+combine (`[HERR-F-MIRROR-COMBINE]`). Body extrude, pattern+combine, fillets, bore, the completed-gear
+chamfer, and cleanup remain spur's, unchanged. (The gear body is still
 extruded across the **full** thickness by the inherited `buildBody`; only the lofted tooth is built
 half-then-mirrored.)
 
@@ -98,7 +98,7 @@ reads `spec/helicalgear/instructions.md` + `spec/helicalgear/fusion.md`, `spec/s
 current `lib/geargen/helicalgear.py` surface. Borrowed surface that must exist unchanged:
 
 - **`HelicalGearGenerator`** and its overridable methods — `loftTooth(ctx)` (called first in
-  `buildTooth`), `helicalPlaneOffset()` (overridden here), `chamferTooth(ctx)` (called last),
+  `buildTooth`), `helicalPlaneOffset()` (overridden here),
   `buildSketches` (inherited; consumes the overridden offset), and `PARAM_HELIX_ANGLE`.
 - **Context fields** `ctx.helixPlane` and `ctx.toothBody` (produced by `loftTooth`).
 - **Inherited framework helpers** `getComponent()`, `getParameter(name)`.

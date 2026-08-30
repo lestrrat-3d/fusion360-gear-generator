@@ -55,7 +55,7 @@ Bore Diameter: user-specified positive number in mm. Default 0mm (i.e. no bore).
 
 Thickness: user-specified positive number in mm. Default 10mm. Axial length of the gear body.
 
-Apply chamfer to teeth: user-specified positive number in mm. Default 0mm (i.e. no chamfer). Distance of the equal-distance chamfer applied to the tooth edges on the front (sketch-plane) face.
+Apply chamfer to teeth: user-specified positive number in mm. Default 0mm (i.e. no chamfer). Distance of the equal-distance chamfer applied to the completed gear's outer end-cap edges.
 
 Generate sketches, but do not build body: user-specified boolean, default `false`. When `true`, stop after the Gear Profile sketch is drawn (no extrude, no pattern, no fillet, no bore, no chamfer). Useful for inspecting the involute construction.
 
@@ -287,36 +287,35 @@ generate(inputs)
         → buildSketches(ctx)     # Gear Profile sketch; runs the tooth generator (steps 3–5)
         → if SketchOnly: show the Gear Profile sketch and stop (step 6)
           else:
-            → buildTooth(ctx)    # extrude the tooth → ctx.toothBody, then call chamferTooth(ctx) (steps 7–8)
+            → buildTooth(ctx)    # extrude the tooth → ctx.toothBody (step 7)
             → buildBody(ctx)     # extrude the annular body → ctx.gearBody, centerAxis, extrusionExtent (step 9)
-            → patternTeeth(ctx)  # circular pattern + combine, then call createFillets(ctx) (steps 10–11)
+            → patternTeeth(ctx)  # circular pattern + combine (step 10)
+            → createFillets(ctx) # root fillets (step 11)
   → buildBore(ctx)               # optional bore (step 12)
+  → chamferTeeth(ctx)            # optional completed-gear chamfer (step 13)
   → cleanup(ctx)                 # always: hide construction planes/axes; sketches hidden only when NOT SketchOnly
 ```
 
-**`cleanup(ctx)` is the very last action of `generate()` — after `buildBore`, not inside
+**`cleanup(ctx)` is the very last action of `generate()` — after `chamferTeeth`, not inside
 `buildMainGearBody`.** Call it **unconditionally** (in both modes); the SketchOnly distinction
 lives *inside* `cleanup` — the recipe (which entities, the per-mode split) is owned by
 `[SPUR-F-CLEANUP]`. Placement after
 `buildBore` matters because `buildBore` re-projects `ctx.anchorPoint` from the Tools sketch and
 projection fails once that sketch is hidden — so the Tools sketch must stay visible through the
-bore. Do not move `cleanup` up into `buildMainGearBody`, and do not guard the *call* (guard the
-sketch-hiding inside it instead).
+bore and chamfer. Do not move `cleanup` up into `buildMainGearBody`, and do not guard the *call*
+(guard the sketch-hiding inside it instead).
 
 Specific boundaries subclasses depend on (do not move the work elsewhere):
 
 - **`buildSketches(ctx)`** owns creating the Gear Profile sketch and invoking the tooth
   generator. Helical overrides it, calls `super().buildSketches(ctx)`, then draws a *second*
   twisted profile sketch with `SpurGearInvoluteToothDesignGenerator(loftSketch, self).draw(ctx.anchorPoint, angle=helixAngle)`.
-- **`buildTooth(ctx)`** owns turning the profile into `ctx.toothBody` **and must call
-  `self.chamferTooth(ctx)` as its last action.** Helical overrides it to loft (instead of
-  extrude) and herringbone to loft+mirror; both still end by calling `chamferTooth`. Because the
-  chamfer is triggered from inside `buildTooth`, `buildMainGearBody` must **not** chamfer
-  separately.
-- **`chamferWantEdges()` / `filletHelixFactorExpression()`** are overridable hooks that must exist
-  on the generator, but they are consumed at different points. `chamferTooth` reads
-  `chamferWantEdges()` (spur base: `6`) when picking the front face. `filletHelixFactorExpression()`
-  is **not** read by `createFillets`: it returns an **expression string** (spur base: `'1'`;
+- **`buildTooth(ctx)`** owns turning the profile into `ctx.toothBody`. Helical overrides it to loft
+  instead of extruding, and herringbone to loft and mirror. It does not apply a chamfer.
+- **`chamferTeeth(ctx)`** runs from `generate` after `buildBore`, so it sees the patterned and
+  filleted gear and an optional bore. It is shared unchanged by spur, helical, and herringbone.
+- **`filletHelixFactorExpression()`** is an overridable hook. It is **not** read by
+  `createFillets`: it returns an **expression string** (spur base: `'1'`;
   helical: `'cos(<prefix>_HelixAngle)'`) that is consumed exactly once, in
   `registerDerivedParameters`, where it is spliced in as the last factor of the live `FilletRadius`
   parameter expression (`(ToothSpaceArcAtRoot / 2) * FilletClearance * <factor>`). `createFillets`
@@ -494,14 +493,6 @@ Find the single tooth cross-section profile in the Gear Profile sketch. The prof
 
 Extrude this profile from the target plane to the Extrusion End Plane (`ToEntityExtentDefinition`, PositiveExtentDirection) as a **New Body**. Name the feature `Extrude tooth`. Store the resulting body as `ctx.toothBody`.
 
-### 8: Chamfer Tooth (optional)
-
-If Apply-Chamfer-To-Teeth > 0, round off every edge of the tooth's front face *except* the arc shared with the root valley. The target face is found with a **single conjunction predicate**: walk `ctx.toothBody.faces` and take the first face for which **both** `face.edges.count == chamferWantEdges()` (6 for the spur base) **and** the face is coplanar with the gear's sketch plane (`sketchPlane.isCoPlanarTo(face.geometry)` with `sketchPlane = ctx.gearProfileSketch.referencePlane.geometry` — the same test step 9 uses, inverted). Both conditions are required of the *same* face — this is not an edge-count match followed by a coplanarity tiebreak. If **no** face satisfies both, raise (front face not found); do not fall back to a partial match. Skipping the root arc is the critical part: chamfering it would eat into the neighbouring tooth. (Known, accepted limitation: an **embedded** profile yields a 4-edge front face while `chamferWantEdges()` stays 6 for spur, so chamfering an embedded spur tooth raises the front-face-not-found error — users disable chamfer for such gears.)
-
-**Identify the root arc by radius, not by relative size.** Walk the front face's edges and add each to the chamfer edge set, *except* skip any edge that is an `Arc3DCurveType` whose `edge.geometry.radius` equals `Root Circle Radius` (compare against the registered parameter's `.value`, tolerance `0.001` cm). That radius match is exact — the root arc is the only edge lying on the root circle — so it is more robust than "the smallest-radius arc." (This is the same radius-matching technique step 11 uses to find the root cylinders.) Everything else on the face — the two flanks, the tooth-top arc, and the two flank-to-root lines — gets chamfered. Apply with `chamferFeatures.createInput2()` → `chamferEdgeSets.addEqualDistanceChamferEdgeSet(edges, <ChamferTooth value>, False)`.
-
-Helical and herringbone inherit this step unchanged, including the expected edge count `chamferWantEdges()` returns — their lofted tooth's cap face carries the same six curves this extruded one does. Neither overrides it. That was settled in Fusion and is owned by the subclass spec — see `spec/helicalgear/fusion.md` `[HELI-F-CHAMFER-COUNT]`; do not restate or second-guess it here.
-
 ### 9: Extrude the Body
 
 Find the gear body profile — the solid disc inside the root circle, whose boundary is **exactly 2 arcs**: the two pieces the tooth's flank-to-root lines cut the root circle into. `find_profile_by_curve_counts(sketch, arcs=2)` (from `.utilities`). It is not an annulus and the tip circle is not part of it: the tip circle is construction geometry (step 3), and construction geometry bounds no profile. Extrude it from the target plane to the Extrusion End Plane (`ToEntityExtentDefinition.create(ctx.extrusionEndPlane, False)`, `PositiveExtentDirection`) as a **New Body**. Name the feature `Extrude body` and the resulting body `Gear Body`.
@@ -535,3 +526,20 @@ If the edge collection ends up **empty** (no axial root edge matched), silently 
 `buildBore` runs unconditionally from `generate()` (after `buildMainGearBody`), so it MUST itself early-return in two cases: when **SketchOnly** is set, and when **Bore Diameter ≤ 0**. The SketchOnly guard is essential — in sketch-only mode `buildMainGearBody` short-circuits before `buildBody`, so `ctx.gearBody` and `ctx.extrusionExtent` are never set; proceeding into the cut would dereference `None`. (Do not rely on the bore diameter being 0 in sketch-only mode — the user may have set both.)
 
 Otherwise (full build, Bore Diameter > 0), create a separate `Bore Profile` sketch on the target plane and draw the bore circle **by instantiating the tooth generator on that sketch** — `SpurGearInvoluteToothDesignGenerator(boreSketch, self)` — and calling its `drawBore(ctx.anchorPoint, boreDiameter)`, which projects the anchor in and draws the construction-less circle of that diameter with a driving diameter dimension. Note the accepted side effect: the tooth generator's **constructor** always adds its local-origin `(0, 0, 0)` `SketchPoint` (see `[SPUR-F-LOCAL-ORIGIN]`), so the Bore Profile sketch carries one stray unused sketch point at (0,0,0) — faithful behavior, don't suppress it. **Ground that point on the projected anchor**, exactly as step 5 does for the Gear Profile sketch: `drawBore` already projects `ctx.anchorPoint` into this sketch to place the circle's centre, so add `addCoincident(toothGen.anchorPoint, projectedAnchor)` using that same projection. The local origin then rides on the anchor like every other sketch's does, the Bore Profile sketch is fully constrained, and the bore follows the anchor if the user moves it. Do **not** ground it on `boreSketch.originPoint` instead — that pins the point to the plane rather than the gear, and `[PB-CIRCLE-CENTER]` records a solver failure from constraining to `originPoint`. Without any grounding the point is free in two directions and the sketch never reaches `isFullyConstrained`. Then extrude-cut the bore profile from the target plane to `ctx.extrusionExtent` (the far end-cap face), affecting only `ctx.gearBody`. The `ToEntityExtentDefinition` to the far face guarantees the bore goes all the way through regardless of Thickness.
+
+### 13: Chamfer Completed Gear (optional)
+
+`generate` calls `chamferTeeth(ctx)` after the optional bore, so the chamfer runs after the teeth
+are patterned and joined, after the root fillets, and after the bore cut. It returns in SketchOnly
+mode and when Apply-Chamfer-To-Teeth is zero.
+
+Walk every planar face of `ctx.gearBody` parallel to the Gear Profile sketch plane. Add each edge
+from those end-cap faces once, using `edge.tempId` to remove duplicates. This includes the tooth
+flanks, tooth tops, and root-radius arcs. Exclude only a `Circle3DCurveType` edge whose radius is
+the positive Bore Diameter divided by two, within `0.001` cm, so a bore never receives a chamfer.
+Raise when no end-cap face or no chamfer edge remains; do not create a partial chamfer.
+
+Apply the resulting set with `chamferFeatures.createInput2()` and
+`chamferEdgeSets.addEqualDistanceChamferEdgeSet(edges, <ChamferTooth value>, False)`. Helical and
+herringbone inherit this completed-gear selection unchanged. The final Fusion verification is
+recorded in `spec/helicalgear/fusion.md` `[HELI-F-CHAMFER-COUNT]`.
