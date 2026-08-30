@@ -32,6 +32,22 @@ parameter **`HelixAngle`**, registered in **radians** (from a **degree** dialog 
 the root-fillet transverse correction via `filletHelixFactorExpression()` = `cos(HelixAngle)` (spur's
 `* 1` fillet-factor hook — see spur Variables "Fillet Radius").
 
+**Signed, and the sign is the hand of the helix.** The value is passed straight through as the
+tooth generator's `draw()` `angle` argument, so spur's rule for that argument governs it verbatim:
+**negative is a left-hand helix**, and the dialog input accepts a negative value (see spur
+Variables, "The whole signed range of the `angle` argument", and `[SPUR-F-ROTATE-CONFIRM]`, which
+is the angular dimension carrying that sign). Nothing rescales it: the twist between the two loft
+sections **is** the Helix Angle, not a lead angle derived from it, so `Thickness` does not enter.
+
+**No range is enforced, and none is asserted here.** The dialog accepts whatever the user types,
+and neither this spec nor the code clamps it. What Fusion does at a large helix angle is
+**unverified** — do not add a clamp, a warning, or a documented maximum until a Fusion session
+settles it. The design-time proof has its own bound, beyond which it stops verifying the lofted
+solid. That bound is a property of the proof's modelling choices and of the solid engine's own
+limits rather than of the gear, and it need not be symmetric about zero — a left-hand and a
+right-hand twist of the same size are not guaranteed to behave alike there. So it lives in
+`proof/helicalgear/`, where it is measured per sign, and is deliberately not quoted here.
+
 ### Exact input ids and parameter-name strings
 
 Inherits every spur input id and user-parameter name unchanged, and adds exactly one of each:
@@ -99,8 +115,9 @@ boundaries.** Helical overrides exactly these methods:
 - **`filletHelixFactorExpression(self)`** → `f'cos({self.parameterName(PARAM_HELIX_ANGLE)})'` (spur base
   returns `'1'`). Multiplies the root-fillet radius by `cos(HelixAngle)` so it reads correctly on the
   tilted tooth's transverse plane.
-- **`chamferWantEdges(self)`** → `4` (spur base returns 6). See `fusion.md` `[HELI-F-CHAMFER-COUNT]`
-  (reproduce verbatim; it is flagged there).
+- **`chamferWantEdges(self)`** — **not overridden.** Spur's base `6` is correct for helical's lofted
+  tooth, whose cap face carries the same six curves spur's extruded tooth does. Do not add an
+  override; see `fusion.md` `[HELI-F-CHAMFER-COUNT]` for the Fusion session that settled it.
 - **`helicalPlaneOffset(self)`** → the offset of the twisted-profile plane from the base plane, as a
   `ValueInput`. Helical returns the full thickness: `self.getParameterAsValueInput(PARAM_THICKNESS)`.
   Note this is a **numeric snapshot**, not a live parameter reference — `getParameterAsValueInput`
@@ -180,10 +197,10 @@ Reproduced verbatim from `lib/geargen/helicalgear.py`; **do not "fix" them in th
 changes behavior and belongs in a separate, deliberate change once verified in Fusion):
 
 - **Helix Angle sits last in the dialog**, after Parent Component (`[SPUR-SUBCLASS-INPUT]` consequence).
-- **`chamferWantEdges()` returns 4** for a non-embedded 6-curve lofted tooth — see
-  `[HELI-F-CHAMFER-COUNT]`: with chamfer > 0 on a default helical gear, `chamferTooth` raises and
-  the whole new component is rolled back (abort, not skip), so helical chamfer is effectively
-  exercised only at chamfer 0.
+- **An embedded helical gear still aborts on a non-zero chamfer**, exactly as an embedded spur gear
+  does and for the same reason — see `[HELI-F-CHAMFER-COUNT]`. An embedded tooth's cap face carries
+  4 edges, the inherited count is 6, so `chamferTooth` finds no face, raises, and the whole new
+  component is rolled back (abort, not skip). A **non-embedded** helical gear chamfers normally.
 - **Embedded (low-tooth-count) helical is unsupported** — `loftTooth` hardcodes `lines=2` and never
   reads `ctx.toothProfileIsEmbedded` (`[HELI-F-LOFT]`).
 - **The helix construction plane is left visible after generation** — spur's cleanup hides only its
