@@ -92,7 +92,8 @@ which are a module, a package, a logging facade and two base classes rather than
 This step is `[PROSE]` because it declares names and constants and builds no geometry; there is
 nothing for either harness to construct or measure.
 
-**Playbook:** [PB-API-LOOKUP] — every adsk name in this module is looked up before it is written, never guessed, which is how the three conflicts recorded below were found. [PB-ADSK-MODULES] — the import list pulls in both adsk submodules and the wrong one is a runtime AttributeError that no parse or lint catches, so each name's module is resolved at authoring time. [PB-PRECOMPUTED-MODE] — the bevel proxy serves the tooth generator precomputed values instead of real user parameters, which is why the borrowing key set above is closed.
+**Playbook:** [PB-PRECOMPUTED-MODE] — the bevel proxy serves the tooth generator precomputed
+values instead of real user parameters, which is why the borrowing key set above is closed.
 
 **From:** `spec/spurgear/instructions.md` L13-33, L152-169, L253-268, L338-379, L381-406;
 `.claude/skills/generate-gear/PLAYBOOK.md` L17-40, L42-98.
@@ -137,7 +138,11 @@ account.
 This step is `[PROSE]` because a command dialog is not geometry: neither harness models Fusion
 command inputs, so there is nothing to build or measure.
 
-**Playbook:** [PB-DIALOG-DEFAULT-UNITS] — every createByReal default above is in internal units, cm for length and radians for angle, whatever the display unit string says; no mechanical gate catches a wrong one. [PB-SELECTION-DECL] — a selection input's filter set and its selection limits are contract surface the spec declares per input, not something to improvise. [PB-SELECTION-FILTER-ENUM] — the filters are enum constants on the selection input class, never quoted strings. [PB-AUTOFOCUS-FIRST] — Fusion focuses the first selection input and ignores a later focus flag, which is part of why Target Plane is added first.
+**Playbook:** [PB-DIALOG-DEFAULT-UNITS] — every createByReal default above is in internal units,
+cm for length and radians for angle, whatever the display unit string says; no mechanical gate
+catches a wrong one. [PB-SELECTION-FILTER-ENUM] — the filters are enum constants on the selection
+input class, never quoted strings. [PB-AUTOFOCUS-FIRST] — Fusion focuses the first selection input
+and ignores a later focus flag, which is part of why Target Plane is added first.
 
 **From:** `spec/spurgear/instructions.md` L90-150, L171-178;
 `.claude/skills/generate-gear/PLAYBOOK.md` L53-61, L128-144, L499-504.
@@ -224,7 +229,10 @@ transitive route is the one `processInputs` actually takes.
 This step is `[PROSE]` because a user-parameter table is not geometry; the numbers it registers are
 proved where they become geometry, in S08 and the solid steps.
 
-**Playbook:** [PB-SELECTION-STASH] — the ordering rule above is this anchor: stash every selection entity before anything creates the occurrence. [PB-INPUT-READ] — the read helper is fixed by the add-input method each field was declared with, which is why the boolean is read with the boolean helper. [PB-GET-VALUE-CONTRACT] — the value helper always returns a ValueInput ready to register and raises on a bad expression, so there is no ok-flag to handle and no wrapping to do.
+**Playbook:** [PB-INPUT-READ] — the read helper is fixed by the add-input method each field was
+declared with, which is why the boolean is read with the boolean helper.
+[PB-GET-VALUE-CONTRACT] — the value helper always returns a ValueInput ready to register and raises
+on a bad expression, so there is no ok-flag to handle and no wrapping to do.
 
 **From:** `spec/spurgear/instructions.md` L36-88, L324-336, L408-417;
 `.claude/skills/generate-gear/PLAYBOOK.md` L99-127, L196-219.
@@ -355,7 +363,8 @@ anchor well off the plane origin, which is the case the whole projection chain e
 
 <!-- proof-run: proofkit.Run(toolsSketchCases, stepToolsSketch) -->
 
-**Playbook:** [PB-PROJECT-NOT-FIXED] — a projection is brought in associatively and still carries free motion, which is why the Gear Profile sketch constrains its own local origin to it rather than hanging geometry off it. [PB-HIDE-AFTER-USE] — draw, project, constrain, run the features, and only then hide; this sketch stays visible until the bore is cut. [PB-API-LOOKUP] — the rule that turned up the projection-name conflict recorded above.
+**Playbook:** [PB-HIDE-AFTER-USE] — draw, project, constrain, run the features, and only then
+hide; this sketch stays visible until the bore is cut.
 
 **From:** `spec/spurgear/instructions.md` L41, L230-235, L425-427;
 `spec/spurgear/fusion.md` L19-31; `.claude/skills/generate-gear/PLAYBOOK.md` L455-469, L583-595.
@@ -625,7 +634,16 @@ routes into the embedded profile, and the anchor off the plane origin.
 
 <!-- proof-run: proofkit.Run(gearProfileCases, stepGearProfileSketch) -->
 
-**Playbook:** [PB-SKETCH-FIRST] — this scheme is proven to fully constrain before any Fusion code is written, which is exactly what this step's proof is. [PB-FULL-CONSTRAINT] — the sketch ends with zero free degrees of freedom, verified rather than assumed. [PB-NO-OVERCONSTRAIN] — and it gets there by the missing constraint, not by piling on dimensions, which is why the last rib carries no perpendicular. [PB-SKETCHCURVES] — the curve collections live under the sketch's curve container, never on the sketch itself. [PB-SHARE-XOR-COINCIDENT] — share a point or coincident a fresh one, never both; this is the rule the four circle centres, the arc, the spine and the ribs all rest on. [PB-SEED-NEAR] — the solver is seed-sensitive, so the rib midpoints and the root ends are seeded where they will end up and on the correct side. [PB-DIM-VALUE-SEMANTICS] — a linear dimension is a magnitude plus a direction captured at creation, so the side is chosen by the seed and only the absolute magnitude is ever assigned. [PB-REFLINE-DIRECTION] — a reference line's direction is pinned rather than left spinning, which is what the +X reference and its angular dimension do. [PB-ANGULAR-DIM] — the angular dimension measures the wedge its text point sits in, which is why that point goes on the bisector. [PB-DRIVING-DIM] — every dimension here is driving; the trailing driven flag is never passed. [PB-RADIAL-DIM] — a diameter dimension's text point must be off the centre or Fusion rejects the arguments. [PB-SKETCH-TEXT] — the fixed three-call shape of the along-path label. [PB-API-SPELLING] — the constraint method names are exact, including the capital P in the midpoint constraint and the double l in collinear. [PB-PROFILE-MATCH] — the two regions this sketch owes the extrude steps are found by curve count and type, not by index.
+**Playbook:** [PB-SHARE-XOR-COINCIDENT] — share a point or coincident a fresh one, never both;
+this is the rule the four circle centres, the arc, the spine and the ribs all rest on.
+[PB-DIM-VALUE-SEMANTICS] — a linear dimension is a magnitude plus a direction captured at
+creation, so the side is chosen by the seed and only the absolute magnitude is ever assigned.
+[PB-ANGULAR-DIM] — the angular dimension measures the wedge its text point sits in, which is why
+that point goes on the bisector. [PB-DRIVING-DIM] — every dimension here is driving; the trailing
+driven flag is never passed. [PB-RADIAL-DIM] — a diameter dimension's text point must be off the
+centre or Fusion rejects the arguments. [PB-SKETCH-TEXT] — the fixed three-call shape of the
+along-path label. [PB-PROFILE-MATCH] — the two regions this sketch owes the extrude steps are
+found by curve count and type, not by index.
 
 **From:** `spec/spurgear/instructions.md` L180-251, L338-379, L431-440, L442-479, L481-485;
 `spec/spurgear/fusion.md` L19-43, L47-60, L69-87, L90-114, L116-156, L158-198;
@@ -745,7 +763,11 @@ is the selection — which is the part the spec says goes wrong.
 
 <!-- proof-run: proofkit3d.RunSolid(chamferCases, stepChamferTooth, assertChamferTooth) -->
 
-**Playbook:** [PB-FILLET-CHAMFER] — the chamfer half of the asymmetry: the edge set goes on the input's chamfer-edge-set collection, which is the opposite of where the fillet's goes. [PB-PROFILE-MATCH] — the arc type constant used to test the root edge comes from the Curve3DTypes enum named in that anchor. [PB-EMPTY-RESULT] — a face search can legitimately find nothing, and this one must raise rather than fall back to a partial match. [PB-SELF-DIAGNOSING] — that raise is the only telemetry a headless run gets, so it names what was searched for and what was found.
+**Playbook:** [PB-FILLET-CHAMFER] — the chamfer half of the asymmetry: the edge set goes on the
+input's chamfer-edge-set collection, which is the opposite of where the fillet's goes.
+[PB-PROFILE-MATCH] — the arc type constant used to test the root edge comes from the Curve3DTypes
+enum named in that anchor. [PB-EMPTY-RESULT] — a face search can legitimately find nothing, and
+this one must raise rather than fall back to a partial match.
 
 **From:** `spec/spurgear/instructions.md` L58, L290, L306-323, L497-503;
 `.claude/skills/generate-gear/PLAYBOOK.md` L505-511, L596-605.
@@ -797,7 +819,9 @@ to but not coplanar with the sketch plane, at the end plane. It also checks the 
 
 <!-- proof-run: proofkit3d.RunSolid(bodyCases, stepExtrudeBody, assertExtrudeBody) -->
 
-**Playbook:** [PB-PROFILE-MATCH] — the disc profile is found by curve count, and the tip circle bounds nothing because it is construction geometry. [PB-FACE-BY-MIDPOINT] — faces are classified by their surface type against the SurfaceTypes enum, which is the first half of that anchor; the cone-disambiguation half does not apply to a single cylinder. [PB-ADSK-MODULES] — SurfaceTypes lives in the core submodule, not the fusion one, and the wrong module here is a runtime AttributeError. [PB-CONSTRUCTION-AXES] — the axis is built from the cylindrical face through the circular-face constructor. [PB-EMPTY-RESULT] — neither reference may be assumed present; both are guarded where they are produced. [PB-SELF-DIAGNOSING] — and the raise says which reference was missing.
+**Playbook:** [PB-PROFILE-MATCH] — the disc profile is found by curve count, and the tip circle
+bounds nothing because it is construction geometry. [PB-EMPTY-RESULT] — neither reference may be
+assumed present; both are guarded where they are produced.
 
 **From:** `spec/spurgear/instructions.md` L262-264, L505-514;
 `.claude/skills/generate-gear/PLAYBOOK.md` L151-157, L664-685, L711-714.
@@ -939,7 +963,11 @@ radius per valley. Both sides of the radius guard have a case.
 
 <!-- proof-run: proofkit3d.RunSolid(filletCases, stepRootFillets, assertRootFillets) -->
 
-**Playbook:** [PB-FILLET-CHAMFER] — the fillet half of the asymmetry, and the anchor the conflict below is recorded against. [PB-PROFILE-MATCH] — the straight-edge filter uses the line type constant from the Curve3DTypes enum. [PB-WORLD-FRAME] — the edge direction is measured against the target plane's normal, so the two must be sampled in the same frame; mixing frames here returns wrong numbers silently and no gate catches it. [PB-EMPTY-RESULT] — an empty edge collection is a legitimate outcome that must skip gracefully rather than reach the fillet feature. [PB-NUMERIC-SNAPSHOT] — the radius is the parameter's current numeric value at generation time, not a live link.
+**Playbook:** [PB-FILLET-CHAMFER] — the fillet half of the asymmetry, and the anchor the conflict
+below is recorded against. [PB-PROFILE-MATCH] — the straight-edge filter uses the line type
+constant from the Curve3DTypes enum. [PB-EMPTY-RESULT] — an empty edge collection is a legitimate
+outcome that must skip gracefully rather than reach the fillet feature. [PB-NUMERIC-SNAPSHOT] — the
+radius is the parameter's current numeric value at generation time, not a live link.
 
 **From:** `spec/spurgear/instructions.md` L86-88, L292, L316-323, L522-531;
 `.claude/skills/generate-gear/PLAYBOOK.md` L151-157, L505-511, L596-605.
@@ -994,7 +1022,11 @@ range above zero.
 
 <!-- proof-run: proofkit.Run(boreProfileCases, stepBoreProfileSketch) -->
 
-**Playbook:** [PB-CIRCLE-CENTER] — the anchor that records the solver failure from constraining to the sketch's own origin point, which is why the stray local origin is grounded on the projected anchor instead. [PB-FULL-CONSTRAINT] — without that grounding the point is free in two directions and this sketch never fully constrains. [PB-SHARE-XOR-COINCIDENT] — the bore circle shares the projection as its centre and the stray point gets exactly one coincident to it; never both on the same point. [PB-DRIVING-DIM] — the bore's diameter dimension is driving.
+**Playbook:** [PB-CIRCLE-CENTER] — the stray local origin is grounded on the projected anchor,
+rather than constrained to the sketch's own origin point. [PB-SHARE-XOR-COINCIDENT] — the bore
+circle shares the projection as its centre and the stray point gets exactly one coincident to it;
+never both on the same point.
+[PB-DRIVING-DIM] — the bore's diameter dimension is driving.
 
 **From:** `spec/spurgear/instructions.md` L54, L246-248, L357-362, L533-537;
 `spec/spurgear/fusion.md` L26-31; `.claude/skills/generate-gear/PLAYBOOK.md` L448-454, L438-447.
@@ -1029,8 +1061,6 @@ through hole.
 **Proof:** `stepBoreCut` in `proof/spurgear/solids_test.go`.
 
 <!-- proof-run: proofkit3d.RunSolid(boreCases, stepBoreCut, assertBoreCut) -->
-
-**Playbook:** [PB-THROUGH-CUT] — only its second half applies: the cut is restricted to the gear body through the participant-bodies list. Spur reaches through the body with a to-entity extent onto the far end-cap face rather than the symmetric extent that anchor opens with, so do not substitute one for the other.
 
 **From:** `spec/spurgear/instructions.md` L264, L533-537;
 `.claude/skills/generate-gear/PLAYBOOK.md` L653-656.
