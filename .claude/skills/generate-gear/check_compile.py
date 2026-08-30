@@ -49,6 +49,7 @@ Usage:
 Run from the repo root. Exit 0 = OK, 1 = BLOCKING, 2 = an input is missing or unreadable.
 """
 import collections
+import glob
 import json
 import os
 import platform
@@ -210,19 +211,40 @@ def defined_names(paths):
     return names
 
 
-def contract_names(gear):
-    """The classes and methods the gear's own contract manifest declares."""
-    path = os.path.join('spec', gear, 'contract.json')
+def _contract_classes(path):
+    """The `classes` mapping of one manifest, or an empty one if it cannot be read."""
     if not os.path.exists(path):
-        return set()
-    names = set()
+        return {}
     try:
-        data = json.loads(read(path))
+        return json.loads(read(path)).get('classes') or {}
     except ValueError:
-        return names
-    for cls, spec in (data.get('classes') or {}).items():
-        names.add(cls)
-        names.update(spec.get('methods') or [])
+        return {}
+
+
+def contract_names(_gear):
+    """Every class and method any gear's contract manifest declares.
+
+    This set exists to answer one question — is this name a Fusion API call the
+    step list guessed, or something we wrote? — so it takes the whole family's
+    declared surface rather than one gear's. A subclass-only gear (helical over
+    spur, herringbone over helical) declares only what it overrides and reaches
+    the rest two ways: `chamferTooth` and `chamferWantEdges` through its declared
+    base, `draw` through a class it merely instantiates. Following declared bases
+    alone would resolve the first pair and leave the third looking like a guessed
+    Fusion call, so a step naming it would need a hand-written exemption.
+
+    Taking the union is the same rule `defined_names(FRAMEWORK)` already applies
+    to the shared modules, extended to the per-gear ones, and it is sound for this
+    question: a name any manifest declares is ours by construction. It is looser
+    than following bases — one gear may name another's method without complaint —
+    and that costs only a missed typo in a name that is a real method elsewhere,
+    which `check_step_calls.py` catches against the module anyway.
+    """
+    names = set()
+    for entry in sorted(glob.glob(os.path.join('spec', '*', 'contract.json'))):
+        for cls, spec in _contract_classes(entry).items():
+            names.add(cls)
+            names.update(spec.get('methods') or [])
     return names
 
 

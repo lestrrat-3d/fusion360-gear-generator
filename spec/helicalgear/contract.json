@@ -1,0 +1,67 @@
+{
+  "_comment": "Machine-readable mirror of the spec's contract sections, checked by .claude/skills/generate-gear/check_contract.py. The spec prose (instructions.md/fusion.md) is authoritative — a mismatch between this file and the spec is a spec bug; fix both together. Helical is subclass-only: it pins its own three classes and the override surface named in instructions.md 'Method contract', and inherits everything else from spur, which its own manifest pins. module_constants pins the two identifiers herringbone imports AND their exact string values. source_guards pins the two recipes the spec chose over an alternative that also builds a solid — reverting either renames nothing, so nothing else here would see it.",
+  "module": "lib/geargen/helicalgear.py",
+  "module_constants": {
+    "PARAM_HELIX_ANGLE": "HelixAngle",
+    "INPUT_ID_HELIX_ANGLE": "helixAngle"
+  },
+  "classes": {
+    "HelicalGearCommandConfigurator": {
+      "bases": [
+        "SpurGearCommandInputsConfigurator"
+      ],
+      "methods": [
+        "configure"
+      ]
+    },
+    "HelicalGearGenerationContext": {
+      "bases": [
+        "SpurGearGenerationContext"
+      ],
+      "methods": [
+        "__init__"
+      ],
+      "ctx_fields": [
+        "helixPlane",
+        "twistedGearProfileSketch"
+      ]
+    },
+    "HelicalGearGenerator": {
+      "bases": [
+        "SpurGearGenerator"
+      ],
+      "methods": [
+        "newContext",
+        "prefixBase",
+        "generateName",
+        "addExtraPrimaryParameters",
+        "filletHelixFactorExpression",
+        "helicalPlaneOffset",
+        "buildSketches",
+        "buildTooth",
+        "loftTooth"
+      ]
+    }
+  },
+  "source_guards": [
+    {
+      "file": "lib/geargen/helicalgear.py",
+      "in_function": "buildSketches",
+      "why": "[SPUR-F-ROTATE-CONFIRM] and [SPUR-F-SPINE]: the twist is delivered as the tooth generator's own draw() angle, which rotates the tooth in its point math and confirms the rotation with the spine's angular dimension. Drawing the tooth flat and rotating the sketch geometry afterward also produces a twisted profile, but leaves the spine dimension measuring the unrotated angle, so the sketch no longer proves its own twist.",
+      "required": [
+        "SpurGearInvoluteToothDesignGenerator\\(",
+        "angle\\s*=",
+        "PARAM_HELIX_ANGLE"
+      ]
+    },
+    {
+      "file": "lib/geargen/helicalgear.py",
+      "in_function": "loftTooth",
+      "why": "[HELI-F-LOFT]: the bottom section is added to loftSections before the top. Adding them in the other order also lofts a valid solid, and the handedness does NOT flip — the proof builds both orders and reads the same twist, same sign, off each centroid. What changes is the ruled walls, which are built outward from the FROM section, and with them about 12% of the volume at a 14.5 degree helix. The swap is therefore silent in the one reading a caller is most likely to check, which is why the order is pinned here rather than left to the implementation.",
+      "required": [
+        "loftSections\\.add\\(bottomToothProfile\\)[\\s\\S]*loftSections\\.add\\(topToothProfile\\)",
+        "find_profile_by_curve_counts\\("
+      ]
+    }
+  ]
+}

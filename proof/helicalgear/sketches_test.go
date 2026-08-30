@@ -1,6 +1,7 @@
 package helicalgear_test
 
 import (
+	"context"
 	"math"
 	"testing"
 
@@ -9,266 +10,306 @@ import (
 	"github.com/lestrrat-3d/sketch"
 )
 
-func deg(d float64) float64 { return d * math.Pi / 180 }
-
-// twistedProfileCases is the regime the twisted profile has to hold across.
+// twistedProfileCases is the regime the twisted profile's constraint scheme has
+// to hold across.
 //
-// It is spur's own Sketch Discipline regime, because the twisted profile IS the
-// spur tooth generator run at a non-zero angle and nothing about it is helical's
-// except the value of that angle. Each group is here because the scheme fails
-// differently outside it:
-//
-//   - SIZE. Coarse and fine module and tooth-count pairs, because the rib
-//     chain's dimensions scale with the tooth and the conditioning does not.
-//   - THE WHOLE SIGNED RANGE OF THE ANGLE. A left-hand helix is a NEGATIVE
-//     helix angle and the dialog accepts one, so a negative angle is swept
-//     beside its positive twin: the confirming angular dimension carries the
-//     sign, and a scheme that drops or flips it still solves at +angle and comes
-//     out mirrored at -angle. Zero is the spur-equivalent baseline. A quarter
-//     turn is swept both ways, where |sin| > |cos| swaps which axis the rib and
-//     the midpoint chain take.
-//   - THE RIB COUNT. One rib, one across-spine dimension and one chain
-//     dimension exist per involute sample, so a four-sample case is where one
-//     missing or redundant dimension is a large fraction of the system.
-//   - BOTH ROUTES INTO THE EMBEDDED SHAPE. High tooth count at the ordinary 20
-//     degree pressure angle, and a moderate tooth count at a large pressure
-//     angle. Helical does not support an embedded tooth; the two cases are here
-//     to prove WHY, by measuring the four-curve loop its fixed six-curve profile
-//     search cannot match.
+// Spur's Sketch Discipline names that regime and helical adds a sign to it. The
+// table therefore sweeps sizes, the whole signed range of the draw() angle
+// argument — a negative angle is a left-hand helix, and the dialog accepts one —
+// the rib count that Involute Steps sets, and both routes into the embedded
+// shape. A quarter turn is in the table because that is where |sin| exceeds
+// |cos| and the rib and chain dimensions swap axes ([SPUR-F-RIBS]); it is a
+// twist no gear would be cut with, and it is here because the scheme, not the
+// gear, is what is on trial.
 var twistedProfileCases = []proofkit.Case{
-	{Name: "default_m1_n17_helix14.5", Params: map[string]float64{
-		"module": 1, "toothNumber": 17, "pressureAngle": deg(20),
-		"helixAngle": deg(14.5), "involuteSteps": 15}},
-	{Name: "lefthand_m1_n17_helix-14.5", Params: map[string]float64{
-		"module": 1, "toothNumber": 17, "pressureAngle": deg(20),
-		"helixAngle": deg(-14.5), "involuteSteps": 15}},
-	{Name: "spurbaseline_m1_n17_helix0", Params: map[string]float64{
-		"module": 1, "toothNumber": 17, "pressureAngle": deg(20),
-		"helixAngle": 0, "involuteSteps": 15}},
-	{Name: "quarterturn_m1_n17_helix90", Params: map[string]float64{
-		"module": 1, "toothNumber": 17, "pressureAngle": deg(20),
-		"helixAngle": deg(90), "involuteSteps": 5}},
-	{Name: "quarterturn_m1_n17_helix-90", Params: map[string]float64{
-		"module": 1, "toothNumber": 17, "pressureAngle": deg(20),
-		"helixAngle": deg(-90), "involuteSteps": 5}},
-	{Name: "coarse_m3_n15_helix35", Params: map[string]float64{
-		"module": 3, "toothNumber": 15, "pressureAngle": deg(20),
-		"helixAngle": deg(35), "involuteSteps": 5}},
-	{Name: "fine_m2_n20_helix-25", Params: map[string]float64{
-		"module": 2, "toothNumber": 20, "pressureAngle": deg(20),
-		"helixAngle": deg(-25), "involuteSteps": 5}},
-	{Name: "lowribcount_m1_n12_helix14.5", Params: map[string]float64{
-		"module": 1, "toothNumber": 12, "pressureAngle": deg(20),
-		"helixAngle": deg(14.5), "involuteSteps": 4}},
-	{Name: "embedded_by_toothcount_m1_n45", Params: map[string]float64{
-		"module": 1, "toothNumber": 45, "pressureAngle": deg(20),
-		"helixAngle": deg(14.5), "involuteSteps": 5}},
-	{Name: "embedded_by_pressureangle_m1_n20_pa30", Params: map[string]float64{
-		"module": 1, "toothNumber": 20, "pressureAngle": deg(30),
-		"helixAngle": deg(14.5), "involuteSteps": 5}},
+	{Name: "default-m1-z17-plus14.5", Params: map[string]float64{
+		"module": 1, "toothNumber": 17, "pressureAngle": rad(20), "helixAngle": rad(14.5), "involuteSteps": 15}},
+	{Name: "left-hand-m1-z17-minus14.5", Params: map[string]float64{
+		"module": 1, "toothNumber": 17, "pressureAngle": rad(20), "helixAngle": rad(-14.5), "involuteSteps": 15}},
+	{Name: "untwisted-m1-z17-zero", Params: map[string]float64{
+		"module": 1, "toothNumber": 17, "pressureAngle": rad(20), "helixAngle": 0, "involuteSteps": 15}},
+	{Name: "coarse-m3-z15-plus14.5", Params: map[string]float64{
+		"module": 3, "toothNumber": 15, "pressureAngle": rad(20), "helixAngle": rad(14.5), "involuteSteps": 15}},
+	{Name: "coarse-m2-z20-minus35", Params: map[string]float64{
+		"module": 2, "toothNumber": 20, "pressureAngle": rad(20), "helixAngle": rad(-35), "involuteSteps": 15}},
+	{Name: "fine-m1-z12-plus35", Params: map[string]float64{
+		"module": 1, "toothNumber": 12, "pressureAngle": rad(20), "helixAngle": rad(35), "involuteSteps": 15}},
+	{Name: "quarter-turn-plus90", Params: map[string]float64{
+		"module": 1, "toothNumber": 17, "pressureAngle": rad(20), "helixAngle": rad(90), "involuteSteps": 15}},
+	{Name: "quarter-turn-minus90", Params: map[string]float64{
+		"module": 1, "toothNumber": 17, "pressureAngle": rad(20), "helixAngle": rad(-90), "involuteSteps": 15}},
+	{Name: "few-ribs-4-steps", Params: map[string]float64{
+		"module": 1, "toothNumber": 17, "pressureAngle": rad(20), "helixAngle": rad(14.5), "involuteSteps": 4}},
+	{Name: "few-ribs-4-steps-negative", Params: map[string]float64{
+		"module": 1, "toothNumber": 17, "pressureAngle": rad(20), "helixAngle": rad(-14.5), "involuteSteps": 4}},
+	{Name: "embedded-by-tooth-count-z45", Params: map[string]float64{
+		"module": 1, "toothNumber": 45, "pressureAngle": rad(20), "helixAngle": rad(14.5), "involuteSteps": 15}},
+	{Name: "embedded-by-pressure-angle-z30-pa25", Params: map[string]float64{
+		"module": 1, "toothNumber": 30, "pressureAngle": rad(25), "helixAngle": rad(14.5), "involuteSteps": 15}},
 }
 
-// stepTwistedGearProfileSketch draws the "Twisted Gear Profile" sketch: the spur
-// tooth generator run at angle = HelixAngle, on the offset construction plane.
+// stepTwistedGearProfile draws the "Twisted Gear Profile" sketch: the spur
+// tooth generator run at angle=HelixAngle on the offset helix plane.
 //
-// Everything here is spur's constraint recipe taken verbatim — helical passes an
-// angle and changes nothing else — so the recipe anchors are cited at the place
-// each one is applied. What this proves that the spur sketch bench does not is
-// the angle != 0 path: the tooth is drawn already rotated by the helix angle and
-// the spine's angular dimension confirms that rotation, both required.
+// Helical writes no geometry of its own here. It hands the helix angle to
+// draw(anchorPoint, angle=...) and the spur generator draws the whole tooth
+// already rotated by it, so what this step proves is spur's angle != 0 path
+// ([SPUR-F-SPINE], [SPUR-F-ROTATE-CONFIRM]) at the angles helical passes it.
 //
-// The sketch is drawn on the world XY plane, not on the offset plane the Fusion
-// code puts it on. proofkit.Run hands the build a sketch it made itself, and a
-// sketch's constraint system is plane-local, so the offset changes nothing here;
-// the offset is what the helix-plane step proves.
-func stepTwistedGearProfileSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
-	d, teeth, steps, angle := dims(p)
+// The sketch is drawn the way Fusion draws it, not the way a stand-in would be:
+// the anchor arrives as a projected reference point and the local origin is
+// constrained onto it rather than fixed; the root circle is solid and the other
+// three are construction; and the tooth loop's root arc is left to profile
+// detection, which splits the root circle where the two flank-to-root lines
+// land on it. That last point is why this step can assert the curve counts at
+// all — they are counted on the loops the drawn sketch actually closed.
+func stepTwistedGearProfile(t testing.TB, s *sketch.Sketch, raw map[string]float64) {
+	p := params(raw)
+	dim := p.dimensions()
+	angle := p.helixAngle()
 
-	proofkit.Step(t, "local origin on the projected Tools anchor")
-	// [SPUR-F-ANCHOR-CHAIN]: the Tools-sketch projection of the user's anchor is
-	// the canonical handle, re-projected into this sketch. A projection is
-	// externally located and the solver never moves it, which is what a reference
-	// point is. [SPUR-F-LOCAL-ORIGIN]: the sketch's own movable local origin is a
-	// fresh point at (0,0), never the sketch's origin point, and everything is
-	// drawn relative to it. The anchoring coincidence is step 5, performed inside
-	// draw() itself.
-	anchor := s.CreateReferencePoint(0, 0, "Tools sketch: projected anchorPoint")
-	origin := s.CreatePoint(0, 0)
-	s.AddConstraint(sketch.NewCoincident(origin, anchor))
+	proofkit.Step(t, "anchor the sketch on the projected Tools-sketch point")
+	// [SPUR-F-ANCHOR-CHAIN] / [SPUR-F-LOCAL-ORIGIN]: the Tools-sketch anchor is
+	// projected in (reference geometry, externally locked) and the sketch's own
+	// movable local origin is constrained coincident with it. Fixing the local
+	// origin's coordinates instead would ground the sketch without modelling the
+	// projection chain the whole gear tracks the anchor through.
+	projectedAnchor := s.CreateReferencePoint(0, 0, "Tools sketch anchor projection")
+	localOrigin := s.CreatePoint(0, 0)
+	s.AddConstraint(sketch.NewCoincident(localOrigin, projectedAnchor))
 
-	proofkit.Step(t, "four gear circles, all sharing the local origin as centre")
-	// Spur step 3. The root circle is solid and the other three are construction,
-	// so the root circle is what bounds a region and the tip, base and pitch
-	// circles bound none. Each carries a driving diameter dimension
-	// ([PB-DRIVING-DIM]); the centre is SHARED, not re-coincided
-	// ([PB-SHARE-XOR-COINCIDENT]).
+	proofkit.Step(t, "four gear circles on the shared local origin")
 	circle := func(radius float64, construction bool) *sketch.Circle {
-		c := s.CreateCircle(origin, radius)
+		c := s.CreateCircle(localOrigin, radius)
 		c.SetConstruction(construction)
 		s.AddConstraint(sketch.NewDiameter(c, 2*radius))
 		return c
 	}
-	circle(d.Root, false)
-	tipCircle := circle(d.Tip, true)
-	circle(d.Base, true)
-	circle(d.Pitch, true)
+	// The root circle is solid; the tip, base and pitch circles are construction
+	// (spur step 3). Only the solid one bounds a profile, and the tooth loop's
+	// root arc is a piece of it.
+	circle(dim.Root, false)
+	tipCircle := circle(dim.Tip, true)
+	circle(dim.Base, true)
+	circle(dim.Pitch, true)
 
 	proofkit.Step(t, "involute flanks, drawn already rotated by the helix angle")
-	// Spur step 4 and [SPUR-F-ROTATE-CONFIRM]'s first half: the geometry is drawn
-	// at its rotated position in the point math, not swung there afterwards by
-	// the dimension. proof/involute owns the sampling, the mirror across +X, the
-	// pitch-crossing rotation and the final rotation by the requested angle.
-	left, right := involute.Flanks(d.Base, d.Tip, d.Pitch, teeth, steps, angle)
-	leftPts := make([]*sketch.Point, len(left))
-	rightPts := make([]*sketch.Point, len(right))
+	left, right := involute.Flanks(dim.Base, dim.Tip, dim.Pitch, p.toothNumber(), p.involuteSteps(), angle)
+	leftPoints := make([]*sketch.Point, len(left))
+	rightPoints := make([]*sketch.Point, len(right))
 	for i := range left {
-		leftPts[i] = s.CreatePoint(left[i].X, left[i].Y)
-		rightPts[i] = s.CreatePoint(right[i].X, right[i].Y)
+		leftPoints[i] = s.CreatePoint(left[i].X, left[i].Y)
+		rightPoints[i] = s.CreatePoint(right[i].X, right[i].Y)
 	}
-	if _, err := s.CreateFitSpline(leftPts...); err != nil {
-		t.Fatalf("left flank: %v", err)
+	if _, err := s.CreateFitSpline(leftPoints...); err != nil {
+		t.Fatalf("left flank spline: %v", err)
 	}
-	if _, err := s.CreateFitSpline(rightPts...); err != nil {
-		t.Fatalf("right flank: %v", err)
+	if _, err := s.CreateFitSpline(rightPoints...); err != nil {
+		t.Fatalf("right flank spline: %v", err)
 	}
 
-	proofkit.Step(t, "tooth-top arc centred on the local origin")
-	// [SPUR-F-TOOTHTOP-ARC]: the arc shares the local origin as its centre and
-	// the two flanks' end points, and carries no diameter dimension. A free
-	// centre plus a diameter would leave an arc of the same radius that bulges
-	// inward through the tooth, which is a second discrete answer at DOF 0 and
-	// exactly what the ambiguity probe in this gate refuses.
-	topX, topY := involute.Rotate(d.Tip, 0, angle)
+	proofkit.Step(t, "tooth-top arc sharing the local origin as its centre")
+	// [SPUR-F-TOOTHTOP-ARC]: centre shared with the local origin, ends shared
+	// with the flanks, and no diameter dimension. The arc sweeps counter-
+	// clockwise from the right flank's end to the left flank's, so it caps the
+	// tooth rather than cutting back through it.
+	toothTopArc := s.CreateArc(localOrigin, rightPoints[len(rightPoints)-1], leftPoints[len(leftPoints)-1])
+
+	proofkit.Step(t, "spine, +X reference and the angular pin that carries the sign")
+	// [SPUR-F-SPINE]: the tooth-top point is materialised at its rotated
+	// position and pinned onto the tip circle; the spine shares it and the local
+	// origin.
+	topX, topY := involute.Rotate(dim.Tip, 0, angle)
 	toothTop := s.CreatePoint(topX, topY)
 	s.AddConstraint(sketch.NewPointOnCircle(toothTop, tipCircle))
-	s.CreateArc(origin, rightPts[len(rightPts)-1], leftPts[len(leftPts)-1])
-
-	proofkit.Step(t, "spine, +X reference and the confirming angular dimension")
-	// [SPUR-F-SPINE]: the spine shares both existing points. The +X reference is
-	// built for EVERY angle including zero, its far end pinned by a signed
-	// horizontal and a signed vertical distance from the origin rather than by a
-	// point-on-circle, which has two answers. The angular dimension runs FROM the
-	// reference TO the spine, and its value is the requested angle
-	// ([SPUR-F-ROTATE-CONFIRM]'s second half). A plain horizontal on the spine at
-	// angle 0 would fix the direction and not the sense, leaving the tooth free
-	// to settle 180 degrees around.
-	spine := s.CreateLine(origin, toothTop)
+	spine := s.CreateLine(localOrigin, toothTop)
 	spine.SetConstruction(true)
-	refEnd := s.CreatePoint(d.Tip, 0)
+	// The reference line is built for every angle including 0. Its far end is
+	// pinned with two axis distances from the local origin rather than by
+	// touching the tip circle, and the angular dimension runs from the reference
+	// to the spine in that argument order. That dimension is what says which way
+	// the spine points: it carries the sign, so a left-hand helix and a
+	// right-hand one of the same size are different sketches here, not the same
+	// sketch read two ways.
+	referenceEnd := s.CreatePoint(dim.Tip, 0)
 	s.AddConstraint(
-		sketch.NewHorizontalDistance(origin, refEnd, d.Tip),
-		sketch.NewVerticalDistance(origin, refEnd, 0),
+		sketch.NewHorizontalDistance(localOrigin, referenceEnd, dim.Tip),
+		sketch.NewVerticalDistance(localOrigin, referenceEnd, 0),
 	)
-	reference := s.CreateLine(origin, refEnd)
-	reference.SetConstruction(true)
-	s.AddConstraint(sketch.NewAngle(reference, spine, angle*180/math.Pi))
+	referenceLine := s.CreateLine(localOrigin, referenceEnd)
+	referenceLine.SetConstruction(true)
+	s.AddConstraint(sketch.NewAngle(referenceLine, spine, deg(angle)))
 
-	proofkit.Step(t, "one rib per fit-point index, in [SPUR-F-RIBS] order")
-	// The rib takes the axis ACROSS the spine and the midpoint chain takes the
-	// one ALONG it; vertical rib and horizontal chain while |cos| >= |sin|, and
-	// both swapped otherwise. That reduces to spur's pair at angle 0 and is why
-	// the quarter-turn cases are in the table. The order is fixed: rib, axis
-	// dimension, midpoint seeded on the spine, coincident to the spine, midpoint
-	// of the rib, then perpendicular — and the LAST rib gets no perpendicular,
-	// because the tooth-top arc already holds those two ends at equal radius
-	// either side of the spine. The chain starts at the local origin, without
-	// which the whole chain slides along the spine as one free unit.
+	proofkit.Step(t, "one rib per involute sample, in [SPUR-F-RIBS] order")
+	// The rib takes the axis ACROSS the spine and the midpoint chain the axis
+	// ALONG it; which axis is which swaps once |sin| passes |cos|, which is why
+	// the quarter-turn cases are in the table.
 	acrossIsVertical := math.Abs(math.Cos(angle)) >= math.Abs(math.Sin(angle))
-	previous := origin
-	previousX, previousY := 0.0, 0.0
+	previousMid := localOrigin
+	previousMidX, previousMidY := 0.0, 0.0
 	for i := range left {
-		rib := s.CreateLine(leftPts[i], rightPts[i])
+		rib := s.CreateLine(leftPoints[i], rightPoints[i])
 		rib.SetConstruction(true)
 		if acrossIsVertical {
-			s.AddConstraint(sketch.NewVerticalDistance(leftPts[i], rightPts[i], right[i].Y-left[i].Y))
+			s.AddConstraint(sketch.NewVerticalDistance(leftPoints[i], rightPoints[i], right[i].Y-left[i].Y))
 		} else {
-			s.AddConstraint(sketch.NewHorizontalDistance(leftPts[i], rightPts[i], right[i].X-left[i].X))
+			s.AddConstraint(sketch.NewHorizontalDistance(leftPoints[i], rightPoints[i], right[i].X-left[i].X))
 		}
+		// The midpoint is seeded at the foot of the left fit point on the spine,
+		// not at the rib's own 2-D midpoint and not at (fitX, 0).
 		foot := left[i].X*math.Cos(angle) + left[i].Y*math.Sin(angle)
 		midX, midY := foot*math.Cos(angle), foot*math.Sin(angle)
 		mid := s.CreatePoint(midX, midY)
 		s.AddConstraint(sketch.NewPointOnLine(mid, spine))
 		s.AddConstraint(sketch.NewMidpoint(mid, rib))
 		if i != len(left)-1 {
+			// The last rib carries no perpendicular: the tooth-top arc already
+			// holds the two flank tips at equal radius either side of the spine,
+			// so adding it is the redundant constraint Fusion rejects.
 			s.AddConstraint(sketch.NewPerpendicular(spine, rib))
 		}
 		if acrossIsVertical {
-			s.AddConstraint(sketch.NewHorizontalDistance(previous, mid, midX-previousX))
+			s.AddConstraint(sketch.NewHorizontalDistance(previousMid, mid, midX-previousMidX))
 		} else {
-			s.AddConstraint(sketch.NewVerticalDistance(previous, mid, midY-previousY))
+			s.AddConstraint(sketch.NewVerticalDistance(previousMid, mid, midY-previousMidY))
 		}
-		previous, previousX, previousY = mid, midX, midY
+		previousMid, previousMidX, previousMidY = mid, midX, midY
 	}
 
-	if !d.Embedded() {
+	embedded := dim.Embedded()
+	if !embedded {
 		proofkit.Step(t, "flank-to-root lines, two axis dimensions each")
-		// [SPUR-F-FLANK-ROOT]: each stub shares the flank spline's start point
-		// and its root end is placed by exactly two axis dimensions from the
-		// local origin — never by "on the root circle" plus "origin on the line",
-		// which the far intersection satisfies equally well. The engine's
-		// distances are signed and the seed sits at the computed position, which
-		// is how Fusion's magnitude-plus-captured-direction crosses over
-		// ([PB-DIM-VALUE-SEMANTICS]).
+		// [SPUR-F-FLANK-ROOT]: the root end is seeded at its computed position and
+		// placed with exactly two axis dimensions from the local origin. The
+		// engine's targets are signed, which is how the seed side crosses over
+		// from Fusion, where the same side is carried by the seed and the value is
+		// a magnitude ([PB-DIM-VALUE-SEMANTICS]).
 		stub := func(flankStart *sketch.Point, seed involute.Pt) {
-			x, y := onRoot(d, seed)
-			end := s.CreatePoint(x, y)
-			s.CreateLine(end, flankStart)
+			end := footOnRoot(seed, dim.Root)
+			rootEnd := s.CreatePoint(end.X, end.Y)
+			s.CreateLine(rootEnd, flankStart)
 			s.AddConstraint(
-				sketch.NewHorizontalDistance(origin, end, x),
-				sketch.NewVerticalDistance(origin, end, y),
+				sketch.NewHorizontalDistance(localOrigin, rootEnd, end.X),
+				sketch.NewVerticalDistance(localOrigin, rootEnd, end.Y),
 			)
 		}
-		stub(leftPts[0], left[0])
-		stub(rightPts[0], right[0])
+		stub(leftPoints[0], left[0])
+		stub(rightPoints[0], right[0])
 	}
 
-	assertTwistedProfileLoops(t, s, d)
+	proofkit.Step(t, "solve, then read the twist and the loop counts off the drawing")
+	if _, err := s.Solve(context.Background()); err != nil {
+		t.Fatalf("solve: %v", err)
+	}
+
+	// The twist the sketch delivers is the helix angle itself. Nothing rescales
+	// it — no lead angle, no dependence on Thickness — so the solved tooth-top
+	// point sits at exactly the helix angle from +X, sign included. A scheme
+	// that dropped the angular dimension's sign would still solve, and would
+	// fail here.
+	if got, want := polarAngle(toothTop.X(), toothTop.Y()), angleInPi(angle); math.Abs(got-want) > 1e-9 {
+		t.Errorf("solved tooth-top sits at %.6f deg from +X, helix angle is %.6f deg", deg(got), deg(want))
+	}
+
+	// The curve counts of the two loops are a contract, not a description:
+	// loftTooth finds both loft sections with find_profile_by_curve_counts at a
+	// fixed nurbs=2, arcs=2, lines=2, and the inherited chamferTooth picks the
+	// cap face by an edge count that follows from the same loop
+	// ([HELI-F-CHAMFER-COUNT] asserts the one-curve-one-edge correspondence;
+	// no harness measures a Fusion cap face, so the loop count is the provable
+	// half and this is where it is proven).
+	tooth, disc := toothAndDisc(t, s, toothTopArc)
+	nurbs, arcs, lines := countCurves(tooth)
+	wantLines := 2
+	if embedded {
+		// The embedded tooth has no flank-to-root stubs: the flanks themselves
+		// cross the root circle. Its loop is the 4-curve one, which the fixed
+		// lines=2 search does not match — helical's documented limitation, and
+		// the reason an embedded helical gear at a non-zero chamfer raises.
+		wantLines = 0
+	}
+	if nurbs != 2 || arcs != 2 || lines != wantLines {
+		t.Errorf("tooth loop has nurbs=%d arcs=%d lines=%d, want nurbs=2 arcs=2 lines=%d (embedded=%v)",
+			nurbs, arcs, lines, wantLines, embedded)
+	}
+
+	// The disc inside the root circle is the second region the sketch closes.
+	// Fusion reports its boundary as the two arcs the flank-to-root lines cut
+	// the root circle into; this engine reports the same region bounded by the
+	// whole circle. The area is the reading both agree on, so that is what is
+	// asserted here rather than a curve count that is an artifact of which
+	// engine is looking.
+	if want := math.Pi * dim.Root * dim.Root; math.Abs(disc.Area-want) > 1e-6*want {
+		t.Errorf("disc region area %.6f mm^2, want %.6f mm^2", disc.Area, want)
+	}
 }
 
-// assertTwistedProfileLoops holds the sketch to the curve counts the loft step
-// searches on.
+// angleInPi folds an angle into (-pi, pi], the range Atan2 reports in, so a
+// quarter-turn case compares against the same branch the reading comes back on.
+func angleInPi(a float64) float64 {
+	for a > math.Pi {
+		a -= 2 * math.Pi
+	}
+	for a <= -math.Pi {
+		a += 2 * math.Pi
+	}
+	return a
+}
+
+// toothAndDisc splits the two regions the sketch closes: the tooth, which is
+// the one bounded by the tooth-top arc, and the disc inside the root circle.
 //
-// [HELI-F-LOFT] finds BOTH loft sections with a fixed nurbs=2, arcs=2, lines=2 —
-// the non-embedded six-curve tooth — and never reads ctx.toothProfileIsEmbedded.
-// So the count is not decoration: it is the key the step matches on, and it is
-// asserted here on the loop the sketch actually closed, with the root circle
-// solid and split by the stubs exactly as Fusion splits it.
-//
-// The embedded cases are asserted on the other side of that branch: four curves,
-// zero lines, which the fixed six-curve search cannot match. That is the
-// documented limitation stated as a measurement rather than as prose.
-//
-// One harness difference is worth recording. Fusion reports the disc inside the
-// root circle as two arcs — the two pieces the stubs cut the root circle into,
-// which is spur's body-extrude key. The sketch engine reports that region's
-// boundary as the whole circle, one edge, while still handing the tooth loop the
-// fragment it needs. The tooth count, which is helical's key, agrees; the disc
-// count does not, and no helical step reads it.
-func assertTwistedProfileLoops(t testing.TB, s *sketch.Sketch, d involute.Dimensions) {
+// Both come out of a single Profiles call. Each call rebuilds the arrangement
+// and hands back fresh values, so two calls cannot be compared against each
+// other.
+func toothAndDisc(t testing.TB, s *sketch.Sketch, toothTopArc sketch.Entity) (tooth, disc *sketch.Profile) {
 	t.Helper()
-	profiles := s.Profiles()
-	if len(profiles) != 2 {
-		t.Fatalf("gear profile closed %d regions, want 2 (the tooth and the root disc)", len(profiles))
+	all := s.Profiles()
+	if len(all) != 2 {
+		t.Fatalf("sketch closed %d region(s), want the tooth and the disc inside the root circle", len(all))
 	}
-	tooth := smallestProfile(profiles)
-	got := countCurves(tooth)
-	want := curveCounts{nurbs: 2, arcs: 2, lines: 2}
-	if d.Embedded() {
-		want = curveCounts{nurbs: 2, arcs: 2, lines: 0}
+	for i, p := range all {
+		for _, e := range p.Entities {
+			if e == toothTopArc {
+				return all[i], all[1-i]
+			}
+		}
 	}
-	if got != want {
-		t.Errorf("tooth loop is nurbs=%d arcs=%d lines=%d, want nurbs=%d arcs=%d lines=%d",
-			got.nurbs, got.arcs, got.lines, want.nurbs, want.arcs, want.lines)
+	t.Fatal("neither detected region is bounded by the tooth-top arc")
+	return nil, nil
+}
+
+// countCurves counts a region's boundary by the curve types Fusion's profile
+// search matches on.
+//
+// It counts distinct entities rather than boundary edges. A closed curve's own
+// seam can split one fragment into two edges when the seam falls inside it —
+// the untwisted case does exactly that — and Fusion, which splits the root
+// circle into curves at the crossings only, would count one arc there. Counting
+// entities is the faithful reading; counting edges would make the untwisted
+// case report a curve Fusion does not have.
+func countCurves(p *sketch.Profile) (nurbs, arcs, lines int) {
+	partial := map[sketch.Entity]bool{}
+	for _, e := range p.Outer {
+		if e.Partial {
+			partial[e.Entity] = true
+		}
 	}
-	if !tooth.Valid {
-		t.Error("tooth loop is not an extrudable region, so no loft section can be found in it")
+	for _, e := range p.Entities {
+		switch e.(type) {
+		case *sketch.Line:
+			lines++
+		case *sketch.Arc:
+			arcs++
+		case *sketch.Circle:
+			// A circle on a region's boundary reaches Fusion's profile search as
+			// an arc: it is there as the piece the tooth cut out of it.
+			if partial[e] {
+				arcs++
+			}
+		case *sketch.FitSpline, *sketch.Spline, *sketch.NURBS:
+			nurbs++
+		}
 	}
-	if d.Embedded() && got.lines == 2 {
-		t.Error("an embedded tooth drew flank-to-root lines; the embedded test is strict <")
-	}
-	if d.Embedded() {
-		t.Logf("embedded: the loop carries %d curves and no lines, so loftTooth's fixed "+
-			"nurbs=2, arcs=2, lines=2 search finds nothing and an embedded helical gear "+
-			"cannot be built at all", got.nurbs+got.arcs+got.lines)
-	}
+	return nurbs, arcs, lines
 }
