@@ -1,144 +1,195 @@
-"""Helical gear generator.
+"""Helical gear generator, emitted from spec/helicalgear/steps.md.
 
-Helical is a subclass-only module: it inherits spur's whole build — the Tools sketch
-and anchor chain, the Gear Profile sketch, the circular pattern, the root fillets, the
-bore and the cleanup — and changes three things. It adds a Helix Angle input, draws a
-second "Twisted Gear Profile" sketch on a construction plane offset from the target
-plane by the full Thickness, and lofts the bottom profile to that twisted top profile
-instead of extruding it.
+Helical is a subclass module: it inherits spur's whole build pipeline and adds
+three timeline entries of its own — the helix construction plane (step 8), the
+Twisted Gear Profile sketch (step 9) and the loft (step 10). Everything else is
+spur's and is inherited unchanged (step 12).
+
+The three added steps are transliterated from proof/helicalgear/
+(tooth_test.go, sketches_test.go, solids_test.go), not re-derived. Lengths in
+Fusion's internal units are cm; the Helix Angle parameter is in radians.
 """
 
 import math
 
-import adsk.core
-import adsk.fusion
+import adsk.core, adsk.fusion
 
 from .base import GenerationContext, get_value
-from .spurgear import (PARAM_MODULE, PARAM_THICKNESS, PARAM_TOOTH_NUMBER,
-                       SpurGearCommandInputsConfigurator,
-                       SpurGearGenerationContext,
-                       SpurGearGenerator,
-                       SpurGearInvoluteToothDesignGenerator)
+from .spurgear import (
+    PARAM_MODULE,
+    PARAM_TOOTH_NUMBER,
+    PARAM_THICKNESS,
+    SpurGearCommandInputsConfigurator,
+    SpurGearGenerationContext,
+    SpurGearGenerator,
+    SpurGearInvoluteToothDesignGenerator,
+)
 from .utilities import find_profile_by_curve_counts
 
+# Public API (step 1): herringbone imports both by name, and the contract
+# manifest pins their exact string values.
 PARAM_HELIX_ANGLE = 'HelixAngle'
 INPUT_ID_HELIX_ANGLE = 'helixAngle'
 
 
 class HelicalGearCommandConfigurator(SpurGearCommandInputsConfigurator):
+    """Adds the Helix Angle dialog input (step 2)."""
+
     @classmethod
     def configure(cls, cmd: adsk.core.Command):
-        # Spur's configure() adds Parent Component last, so Helix Angle necessarily
-        # lands after it in the dialog. That is the shipped ordering.
+        # Spur's inputs first; its configure has already added Parent
+        # Component last, so Helix Angle lands after it. That is the current
+        # behaviour and it is reproduced deliberately.
         super().configure(cmd)
 
-        # The default is passed in Fusion internal units, which for an angle is
-        # radians, even though the field displays degrees.
+        # The default is in Fusion's internal unit for an angle
+        # ([PB-DIALOG-DEFAULT-UNITS]): a bare createByReal(14.5) would ship a
+        # 14.5-radian default that the dialog still renders as degrees.
         cmd.commandInputs.addValueInput(
-            INPUT_ID_HELIX_ANGLE,
-            'Helix Angle',
-            'deg',
+            INPUT_ID_HELIX_ANGLE, 'Helix Angle', 'deg',
             adsk.core.ValueInput.createByReal(math.radians(14.5)))
 
 
 class HelicalGearGenerationContext(SpurGearGenerationContext):
+    """Spur's build context plus the two fields helical adds (step 3). Both
+    names are read from outside this module, so they are public API."""
+
     def __init__(self):
         super().__init__()
-        # The offset plane the twisted top profile is drawn on, and the plane
-        # herringbone later mirrors across.
+        # The offset construction plane the twisted profile is drawn on, and
+        # the plane herringbone later mirrors across.
         self.helixPlane = adsk.fusion.ConstructionPlane.cast(None)
-        # The top loft section.
+        # The second sketch, the loft's top section.
         self.twistedGearProfileSketch = adsk.fusion.Sketch.cast(None)
 
 
 class HelicalGearGenerator(SpurGearGenerator):
-    def newContext(self) -> HelicalGearGenerationContext:
+    """Spur's generator with the helix angle threaded through it (steps 4-11).
+    The call graph and override boundaries are spur's and do not move."""
+
+    def newContext(self):
         return HelicalGearGenerationContext()
 
     def prefixBase(self) -> str:
         return 'HelicalGear'
 
     def generateName(self) -> str:
+        # Spur's rule with HelixAngle appended, reading each parameter's
+        # .expression string, not .value, so units show through.
         module = self.getParameter(PARAM_MODULE)
         toothNumber = self.getParameter(PARAM_TOOTH_NUMBER)
         thickness = self.getParameter(PARAM_THICKNESS)
         helixAngle = self.getParameter(PARAM_HELIX_ANGLE)
-        # .expression, never .value, so the units show through in the name.
         return 'Helical Gear (M={}, Tooth={}, Thickness={}, Angle={})'.format(
-            module.expression,
-            toothNumber.expression,
-            thickness.expression,
+            module.expression, toothNumber.expression, thickness.expression,
             helixAngle.expression)
 
     def addExtraPrimaryParameters(self, inputs: adsk.core.CommandInputs):
-        # The dialog is in degrees; the parameter is registered in radians. This hook
-        # runs before the derived parameters, which reference HelixAngle.
+        """Step 5: register HelixAngle. The inherited processInputs calls this
+        between the input-sourced parameters and the derived ones, which is
+        what lets step 6's FilletRadius expression reference HelixAngle.
+
+        The dialog is in degrees and the parameter is in radians; get_value
+        returns a ValueInput ready to hand straight to addParameter
+        ([PB-INPUT-READ], [PB-GET-VALUE-CONTRACT])."""
         helixAngle = get_value(inputs, INPUT_ID_HELIX_ANGLE, 'rad')
         self.addParameter(PARAM_HELIX_ANGLE, helixAngle, 'rad',
                           'Helix angle for the helical gear')
 
     def filletHelixFactorExpression(self) -> str:
-        # Spliced in as the last factor of the FilletRadius expression, which makes the
-        # root fillet read correctly on the transverse plane of a tilted tooth.
+        """Step 6: the spur base returns '1'. This string is spliced in once,
+        as the last factor of the live FilletRadius expression at
+        parameter-registration time, so the root fillet reads correctly on the
+        tilted tooth's transverse plane. The inherited createFillets never
+        calls this hook — it reads only the resulting parameter's value."""
         return f'cos({self.parameterName(PARAM_HELIX_ANGLE)})'
 
     def helicalPlaneOffset(self) -> adsk.core.ValueInput:
-        # Its own hook, not inlined: herringbone re-points it at half the thickness so
-        # its mirror plane lands mid-body. The value is a numeric snapshot of Thickness
-        # as it stood at generation time, not a live parameter reference.
+        """Step 7: the full Thickness for helical. A method of its own because
+        it is the seam herringbone re-points at half the thickness so its
+        mirror plane lands mid-body.
+
+        What it returns is a numeric snapshot, not a live parameter reference
+        ([PB-NUMERIC-SNAPSHOT]): getParameterAsValueInput wraps param.value in
+        ValueInput.createByReal, so the plane is placed at the Thickness that
+        held at generation time and editing the parameter afterwards does not
+        move it."""
         return self.getParameterAsValueInput(PARAM_THICKNESS)
 
     def buildSketches(self, ctx: GenerationContext):
-        # Draws the bottom Gear Profile and runs the spur tooth generator at angle 0.
+        """Steps 8-9: spur's bottom Gear Profile, then the helix plane and the
+        twisted profile drawn on it."""
+        # Draws the bottom Gear Profile and runs the spur tooth generator at
+        # angle 0.
         super().buildSketches(ctx)
 
+        # Step 8: the offset plane, on the gear's own component. The offset
+        # argument is a ValueInput, never a bare number
+        # ([PB-CONSTRUCTION-PLANES]).
         component: adsk.fusion.Component = self.getComponent()
         constructionPlaneInput = component.constructionPlanes.createInput()
         constructionPlaneInput.setByOffset(self.plane, self.helicalPlaneOffset())
-        ctx.helixPlane = component.constructionPlanes.add(constructionPlaneInput)
+        plane = component.constructionPlanes.add(constructionPlaneInput)
+        ctx.helixPlane = plane
+        # The plane is left visible when the build finishes: spur's cleanup
+        # hides only the entities spur created, and helical adds no cleanup of
+        # its own. That is deliberate — do not add cleanup for it (step 12).
 
-        # createSketchObject() returns a hidden sketch, and nothing ever shows this one:
-        # reading its profiles for the loft works while it stays hidden.
-        loftSketch = self.createSketchObject('Twisted Gear Profile', plane=ctx.helixPlane)
+        # Step 9: the second sketch, created hidden and never shown, in either
+        # mode including SketchOnly. Declared delta from [PB-HIDE-AFTER-USE]:
+        # profile finding for the loft works on it hidden.
+        loftSketch = self.createSketchObject('Twisted Gear Profile', plane=plane)
+        # The twist is delivered as the tooth generator's own draw() angle
+        # ([SPUR-F-ROTATE-CONFIRM], [SPUR-F-SPINE]): the generator rotates the
+        # whole tooth by it in the Python point math and then confirms the
+        # rotation with the spine's angular dimension, so the sketch says which
+        # way it is turned. Drawing the tooth flat and rotating the geometry
+        # afterwards leaves the spine dimension measuring the unrotated angle,
+        # and Fusion is then free to settle the tooth on the far solver branch.
+        # The angle is the raw radian .value and it is signed — a negative
+        # value is a left-hand helix. Nothing rescales it: the twist between
+        # the two loft sections is the Helix Angle itself, so Thickness does
+        # not enter.
+        SpurGearInvoluteToothDesignGenerator(loftSketch, self).draw(
+            ctx.anchorPoint, angle=self.getParameter(PARAM_HELIX_ANGLE).value)
         ctx.twistedGearProfileSketch = loftSketch
 
-        # The twist is delivered as draw()'s angle argument and nothing else: the spur
-        # tooth generator rotates the tooth in its own point math and confirms the
-        # rotation with the spine's angular dimension. The angle is a raw .value, which
-        # is radians. The anchor keeps this sketch on the same projection chain as every
-        # other sketch, and draw() does the anchoring itself.
-        SpurGearInvoluteToothDesignGenerator(loftSketch, self).draw(
-            ctx.anchorPoint,
-            angle=self.getParameter(PARAM_HELIX_ANGLE).value)
-
-    def buildTooth(self, ctx: GenerationContext):
-        # Replaces spur's tooth extrude. chamferTooth is the last action, because
-        # buildMainGearBody relies on this method's boundary and does not chamfer
-        # separately.
-        self.loftTooth(ctx)
-        self.chamferTooth(ctx)
-
     def loftTooth(self, ctx: GenerationContext):
-        # Both searches use the fixed non-embedded six-curve key: 2 NURBS flanks,
-        # 2 arcs, 2 flank-to-root lines. There is no embedded branch, so an embedded
-        # low-tooth-count gear finds no profile here.
+        """Step 10: loft the bottom tooth loop to the twisted one, bottom
+        section added before the top ([HELI-F-LOFT], [PB-LOFT])."""
+        component: adsk.fusion.Component = self.getComponent()
+        lofts: adsk.fusion.LoftFeatures = component.features.loftFeatures
+        # Both searches pass a fixed lines=2, the non-embedded six-curve tooth,
+        # and neither reads ctx.toothProfileIsEmbedded. An embedded
+        # low-tooth-count gear's loop has four curves, so the search finds
+        # nothing and the build fails there ([PB-PROFILE-MATCH]). That is the
+        # current implementation's documented limitation, reproduced as it
+        # stands — there is no embedded branch.
         bottomToothProfile = find_profile_by_curve_counts(
             ctx.gearProfileSketch, nurbs=2, arcs=2, lines=2)
         topToothProfile = find_profile_by_curve_counts(
             ctx.twistedGearProfileSketch, nurbs=2, arcs=2, lines=2)
-
-        component: adsk.fusion.Component = self.getComponent()
-        lofts = component.features.loftFeatures
         loftInput = lofts.createInput(
             adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
-        # Bottom section first, top second: loftSections.add order is the loft order,
-        # and reversing it turns a right-hand helix into a left-hand one.
         loftInput.loftSections.add(bottomToothProfile)
         loftInput.loftSections.add(topToothProfile)
         loftResult = lofts.add(loftInput)
-
         ctx.toothBody = loftResult.bodies.item(0)
         ctx.toothBody.name = 'Tooth Body'
 
-    def chamferWantEdges(self) -> int:
-        return 4
+    def buildTooth(self, ctx: GenerationContext):
+        """Step 11: loft, then chamfer, and nothing else — helical does not
+        extrude. Ending with the chamfer is spur's boundary: the inherited
+        buildMainGearBody does not chamfer separately, so omitting the call
+        would silently drop the chamfer.
+
+        chamferTooth is inherited unchanged and selects the tooth's front face
+        by an edge count and a coplanarity test against the sketch plane.
+        Helical does NOT override chamferWantEdges: the inherited 6 is correct,
+        because helical's lofted tooth is built from the non-embedded six-curve
+        profile and its cap face carries the same six curves spur's extruded
+        tooth does ([HELI-F-CHAMFER-COUNT]). An embedded gear still raises
+        here, exactly as an embedded spur gear does, and the whole new
+        component is rolled back by the entry point; the raise stays a raise."""
+        self.loftTooth(ctx)
+        self.chamferTooth(ctx)

@@ -13,14 +13,10 @@ func TestHelixPlane(t *testing.T) {
 	proofkit3d.RunSolid(t, helixPlaneCases, stepHelixPlane, assertHelixPlane)
 }
 
-func TestTwistedGearProfileSketch(t *testing.T) {
-	proofkit.Run(t, twistedProfileCases, stepTwistedGearProfileSketch)
+func TestTwistedGearProfile(t *testing.T) {
+	proofkit.Run(t, twistedProfileCases, stepTwistedGearProfile)
 }
 
 func TestLoftTooth(t *testing.T) {
-	proofkit3d.RunSolid(t, loftCases, stepLoftTooth, assertLoftTooth)
-}
-
-func TestChamferFrontFace(t *testing.T) {
-	proofkit3d.RunSolid(t, chamferCases, stepChamferFrontFace, assertChamferFrontFace)
+	proofkit3d.RunSolid(t, loftToothCases, stepLoftTooth, assertLoftTooth)
 }
