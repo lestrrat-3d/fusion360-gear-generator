@@ -1,281 +1,275 @@
-// Package spurgear_test proves the spur gear build described by
-// spec/spurgear/steps.md.
+// Package spurgear_test proves the spur gear build compiled in
+// spec/spurgear/steps.md: the Gear Profile constraint scheme in the sketch
+// engine, and the solid steps (extrude, chamfer, body, pattern, combine,
+// fillet, bore) in decad.
 //
-// Two harnesses carry it. proofkit rebuilds each constraint-bearing sketch in
-// the sketch engine and gates it on the engine's own verdict; proofkit3d
-// rebuilds each solid step in decad and gates it on decad's. Everything the
-// spec pins about a step — a curve count a later profile search keys on, a face
-// or edge count a selection keys on, an extent, a volume — is asserted against
-// the geometry the step actually built.
-//
-// Where a harness refuses the real geometry the proof substitutes geometry it
-// accepts and says, at the substitution, what the substitute stops proving.
-// Every such note is on the step it belongs to, so a reader of the proof finds
-// the limit next to the thing that has it.
+// This file holds the shared geometry: parameter derivation, the involute
+// flank placement (imported from proof/involute, never re-derived), and the
+// scaffold sketches the solid steps extrude. All bench lengths are in
+// millimetres, the sketch engine's base unit; Fusion's internal unit is cm,
+// which scales every length by 10 and changes no count, ratio or angle this
+// proof asserts.
 package spurgear_test
 
 import (
+	"context"
 	"math"
 	"testing"
 
-	"github.com/lestrrat-3d/decad"
 	"github.com/lestrrat-3d/fusion360-gear-generator/proof/involute"
-	"github.com/lestrrat-3d/r3"
 	"github.com/lestrrat-3d/sketch"
 )
 
-// tol is the length comparison tolerance in millimetres. It is loose enough to
-// absorb the solver's residual and decad's faceting, and far tighter than any
-// difference the spec's rules turn on.
-const tol = 1e-6
+// Parameter keys shared by every case table. Angles are radians, lengths mm.
+const (
+	pModule        = "Module"
+	pToothNumber   = "ToothNumber"
+	pPressureAngle = "PressureAngle"
+	pInvoluteSteps = "InvoluteSteps"
+	pAngle         = "Angle"
+	pThickness     = "Thickness"
+	pBoreDiameter  = "BoreDiameter"
+	pChamferTooth  = "ChamferTooth"
+	pAnchorX       = "AnchorX"
+	pAnchorY       = "AnchorY"
+)
 
-// gear is one proof case's parameter set, reduced to the four circle radii the
-// spur family builds on. The names match the spec's user parameters.
-type gear struct {
-	Module        float64
-	ToothNumber   float64
-	PressureAngle float64 // radians
-	Steps         int     // InvoluteSteps
-	Angle         float64 // radians; draw()'s angle argument
-	Thickness     float64
-	BoreDiameter  float64
-	ChamferTooth  float64
-	FilletRadius  float64
-	Dims          involute.Dimensions
+// gearGeom bundles what every step derives from the three primary inputs.
+type gearGeom struct {
+	module, toothNumber, pressureAngle float64
+	steps                              int
+	angle                              float64
+	dims                               involute.Dimensions
+	left, right                        []involute.Pt
 }
 
-func readGear(p map[string]float64) gear {
-	g := gear{
-		Module:        p["module"],
-		ToothNumber:   p["toothNumber"],
-		PressureAngle: p["pressureAngle"],
-		Steps:         int(p["involuteSteps"]),
-		Angle:         p["angle"],
-		Thickness:     p["thickness"],
-		BoreDiameter:  p["boreDiameter"],
-		ChamferTooth:  p["chamferTooth"],
-		FilletRadius:  p["filletRadius"],
+// geom derives the circle radii and flank samples for one case, using the
+// shared involute package for the tooth math (spec instructions.md step 4;
+// the exact involute parameterisation is pinned there and implemented once in
+// proof/involute).
+func geomOf(t testing.TB, p map[string]float64) *gearGeom {
+	t.Helper()
+	g := &gearGeom{
+		module:        p[pModule],
+		toothNumber:   p[pToothNumber],
+		pressureAngle: p[pPressureAngle],
+		steps:         int(p[pInvoluteSteps]),
+		angle:         p[pAngle],
 	}
-	g.Dims = involute.Derive(g.Module, g.ToothNumber, g.PressureAngle)
+	if g.module <= 0 || g.toothNumber <= 0 || g.steps < 2 {
+		t.Fatalf("case is missing Module/ToothNumber/InvoluteSteps")
+	}
+	g.dims = involute.Derive(g.module, g.toothNumber, g.pressureAngle)
+	g.left, g.right = involute.Flanks(g.dims.Base, g.dims.Tip, g.dims.Pitch,
+		g.toothNumber, g.steps, g.angle)
 	return g
 }
 
-func deg(d float64) float64 { return d * math.Pi / 180 }
-
-// zAxis is the gear's main axis. Every proof case sketches on the world XY
-// datum, so the target plane's normal is +Z throughout.
-func zAxis() r3.Vec { return r3.NewVec(0, 0, 1) }
-
-// rootFoot is the point on the circle of radius r that lies on the ray from the
-// gear centre through p — the foot of a flank-to-root line.
-func rootFoot(r float64, p involute.Pt) involute.Pt {
-	d := math.Hypot(p.X, p.Y)
-	return involute.Pt{X: r * p.X / d, Y: r * p.Y / d}
+// embedded reports the profile shape the way the generator decides it
+// (fusion.md [SPUR-F-FLANK-ROOT]): the first drawn flank sample's radius
+// against the root radius, strict less-than, no tolerance.
+func (g *gearGeom) embedded() bool {
+	first := math.Hypot(g.left[0].X, g.left[0].Y)
+	return first < g.dims.Root
 }
 
-// flankSamples is involute.Flanks with the first sample radius chosen by the
-// caller rather than fixed at the base circle.
-//
-// The spline flank of the sketch steps starts on the base circle, exactly as
-// step 4.1 prescribes, and involute.Flanks is used directly there. The solid
-// steps need a flank whose first point is where the tooth actually meets the
-// root circle, because decad records a boundary segment only when both of its
-// bounds are the segment's own ends: a flank left running to the base circle
-// and trimmed by the root circle becomes a fragment with an uncertified trim,
-// which Extrude refuses outright (ErrUnrecordableProfile). Starting the
-// sampling at the root radius in the embedded case puts the same involute
-// through a start point the root arc can share. The involute itself is
-// unchanged — the curve parameter is still taken from the base circle.
-func flankSamples(d involute.Dimensions, toothNumber float64, steps int, angle, startR float64) (left, right []involute.Pt) {
-	mirrored := make([]involute.Pt, 0, steps)
-	for i := range steps {
-		r := startR + (d.Tip-startR)*float64(i)/float64(steps-1)
-		x, y, ok := involute.Point(d.Base, r)
-		if !ok {
-			continue
-		}
-		mirrored = append(mirrored, involute.Pt{X: x, Y: -y})
-	}
-	px, py, _ := involute.Point(d.Base, d.Pitch)
-	rotateAngle := math.Pi/(2*toothNumber) - math.Atan2(-py, px)
-	for _, p := range mirrored {
-		lx, ly := involute.Rotate(p.X, p.Y, rotateAngle)
-		rx, ry := lx, -ly
-		lx, ly = involute.Rotate(lx, ly, angle)
-		rx, ry = involute.Rotate(rx, ry, angle)
-		left = append(left, involute.Pt{X: lx, Y: ly})
-		right = append(right, involute.Pt{X: rx, Y: ry})
-	}
-	return left, right
+// filletRadius is the spec's derived FilletRadius: half the root valley arc
+// scaled by the 0.9 clearance and the spur helix factor 1
+// (instructions.md Variables, Tooth Space Angle At Root onward).
+func (g *gearGeom) filletRadius() float64 {
+	spaceAngle := math.Pi/g.toothNumber - 2*(math.Tan(g.pressureAngle)-g.pressureAngle)
+	return (g.dims.Root * spaceAngle / 2) * 0.9 * 1
 }
 
-// flankStartRadius is the radius the solid steps sample the flank from: the
-// base circle when the tooth stands clear of the root circle, the root circle
-// when the profile is embedded and the flank would otherwise start inside it.
-func flankStartRadius(d involute.Dimensions) float64 {
-	if d.Embedded() {
-		return d.Root
-	}
-	return d.Base
+// rotate turns (x, y) counter-clockwise by a.
+func rotate(x, y, a float64) (float64, float64) {
+	c, s := math.Cos(a), math.Sin(a)
+	return x*c - y*s, x*s + y*c
 }
 
-// curveCounts is a tally of one detected region's DISTINCT boundary entities,
-// by entity kind.
-//
-// This is the sketch-engine reading of the count Fusion's
-// find_profile_by_curve_counts matches on, and the two differ in exactly one
-// place. Fusion splits the solid root circle into two arcs where the tooth
-// meets it, so Fusion's tooth loop counts a root ARC and Fusion's disc loop
-// counts TWO arcs. The sketch engine leaves a closed curve whole and reports
-// the same two regions with the root CIRCLE standing in for both: the tooth
-// loop carries Circles 1 where Fusion carries the root arc, and the disc loop
-// carries Circles 1 where Fusion carries its two arcs. Nothing else differs,
-// and the number of places the tooth cuts the root circle — which is what makes
-// Fusion's count two — is asserted separately by rootCircleCuts.
-type curveCounts struct {
-	Splines int
-	Arcs    int
-	Circles int
-	Lines   int
+// rootCrossing returns the left flank's crossing of the root circle for an
+// embedded tooth, run through the same mirror-then-centre transform as the
+// flank samples (instructions.md step 4.2-4.4): mirror across +X, rotate so
+// the pitch crossing lands at +pi/(2N), then apply the requested angle.
+func (g *gearGeom) rootCrossing() (float64, float64) {
+	cx, cy, ok := involute.Point(g.dims.Base, g.dims.Root)
+	if !ok {
+		panic("rootCrossing called on a non-embedded gear")
+	}
+	px, py, _ := involute.Point(g.dims.Base, g.dims.Pitch)
+	rotateAngle := math.Pi/(2*g.toothNumber) - math.Atan2(-py, px)
+	x, y := rotate(cx, -cy, rotateAngle)
+	return rotate(x, y, g.angle)
 }
 
-func countCurves(p *sketch.Profile) curveCounts {
-	var c curveCounts
-	for _, e := range p.Entities {
-		switch e.(type) {
-		case *sketch.FitSpline:
-			c.Splines++
-		case *sketch.Arc:
-			c.Arcs++
-		case *sketch.Circle:
-			c.Circles++
-		case *sketch.Line:
-			c.Lines++
-		}
+// newXYSketch returns a fresh sketch on the world XY plane for the 3D
+// scaffolds; the 2D constraint steps get theirs from proofkit.
+func newXYSketch(t *testing.T) *sketch.Sketch {
+	t.Helper()
+	w := sketch.NewWorld()
+	s, err := w.CreateSketch(w.XY())
+	if err != nil {
+		t.Fatalf("create sketch: %v", err)
 	}
+	return s
+}
+
+func mustSolve(t *testing.T, s *sketch.Sketch) {
+	t.Helper()
+	if _, err := s.Solve(context.Background()); err != nil {
+		t.Fatalf("solve scaffold sketch: %v", err)
+	}
+}
+
+// toothCorners are the chorded tooth section's corner points for one tooth,
+// already rotated to its slot: stub feet on the root circle, flank starts,
+// and flank tips. For an embedded gear the "feet" and "starts" coincide at
+// the involute's root-circle crossing and no stub exists.
+type toothCorners struct {
+	rsf, rs, rt, lt, ls, lsf [2]float64
+	stubbed                  bool
+}
+
+func (g *gearGeom) corners(slot float64) toothCorners {
+	last := len(g.left) - 1
+	var c toothCorners
+	rot := func(p involute.Pt) [2]float64 {
+		x, y := rotate(p.X, p.Y, slot)
+		return [2]float64{x, y}
+	}
+	c.rt = rot(g.right[last])
+	c.lt = rot(g.left[last])
+	if g.embedded() {
+		// The flanks cross the root circle; the chord stands in for the
+		// involute from that crossing to the tip, and no stub exists. The
+		// right crossing is the left one mirrored across the tooth's angle
+		// direction.
+		lx, ly := g.rootCrossing()
+		mx, my := rotate(lx, ly, -g.angle)
+		rx, ry := rotate(mx, -my, g.angle)
+		lx, ly = rotate(lx, ly, slot)
+		rx, ry = rotate(rx, ry, slot)
+		c.ls = [2]float64{lx, ly}
+		c.rs = [2]float64{rx, ry}
+		c.lsf, c.rsf = c.ls, c.rs
+		c.stubbed = false
+		return c
+	}
+	c.rs = rot(g.right[0])
+	c.ls = rot(g.left[0])
+	first := math.Hypot(g.left[0].X, g.left[0].Y)
+	c.rsf = [2]float64{g.dims.Root * c.rs[0] / first, g.dims.Root * c.rs[1] / first}
+	c.lsf = [2]float64{g.dims.Root * c.ls[0] / first, g.dims.Root * c.ls[1] / first}
+	c.stubbed = true
 	return c
 }
 
-// findProfileByCurveCounts is the proof's stand-in for the framework helper
-// find_profile_by_curve_counts: it returns the one region whose distinct
-// boundary entities match want exactly, and fails naming what it saw when none
-// does or more than one does. Like the helper, it never falls back to a region
-// with a different count.
-func findProfileByCurveCounts(t testing.TB, s *sketch.Sketch, want curveCounts) *sketch.Profile {
-	t.Helper()
-	var found *sketch.Profile
-	seen := make([]curveCounts, 0, len(s.Profiles()))
-	for _, p := range s.Profiles() {
-		got := countCurves(p)
-		seen = append(seen, got)
-		if got != want {
-			continue
-		}
-		if found != nil {
-			t.Fatalf("profile search: %+v matches more than one region; saw %+v", want, seen)
-		}
-		found = p
-	}
-	if found == nil {
-		t.Fatalf("profile search: no region has curve counts %+v; saw %+v", want, seen)
-	}
-	return found
-}
-
-// rootCircleCuts counts the distinct parameters at which the tooth cuts the
-// root circle, ignoring the circle's own seam.
+// chordedToothProfile draws the single-tooth section with straight chords in
+// place of the involute splines and an explicit root arc, and returns its one
+// region.
 //
-// Fusion's two profiles exist only because the tooth splits the root circle in
-// two, and both of the spec's curve counts follow from that split being exactly
-// two-fold: the tooth loop takes one of the pieces and the disc loop takes both.
-// The sketch engine reports a run that straddles the circle's seam as two
-// fragments, so the fragment count is not the cut count; the distinct interior
-// bounds are.
-func rootCircleCuts(p *sketch.Profile, root *sketch.Circle) int {
-	cuts := make(map[float64]struct{})
-	for _, e := range p.Outer {
-		c, ok := e.Entity.(*sketch.Circle)
-		if !ok || c != root {
-			continue
-		}
-		for _, v := range []float64{e.TStart, e.TEnd} {
-			if v <= 1e-12 || v >= 1-1e-12 {
-				continue // the circle's own seam, not a cut
-			}
-			cuts[v] = struct{}{}
-		}
-	}
-	return len(cuts)
-}
-
-// planarFaceAt reports whether f is a planar face whose plane is the plane
-// through height along +Z — the test the spec spells as
-// sketchPlane.isCoPlanarTo(face.geometry) once the target plane is the world XY
-// datum and the extrude runs along +Z.
-func planarFaceAt(f *decad.Face, height float64) bool {
-	pl, ok := f.Surface().(decad.Plane)
-	if !ok {
-		return false
-	}
-	n := pl.Frame.N()
-	if math.Abs(math.Abs(n.Z)-1) > tol {
-		return false
-	}
-	return math.Abs(pl.Frame.Origin().Z-height) < tol
-}
-
-// cylindricalFacesOfRadius returns the cylindrical faces of b whose radius is
-// r — the spec's "collect EVERY cylindrical face whose radius equals Root
-// Circle Radius", and the same radius match step 8 uses on the root arc.
-func cylindricalFacesOfRadius(b *decad.Body, r float64) []*decad.Face {
-	var out []*decad.Face
-	for _, f := range b.Faces() {
-		cy, ok := f.Surface().(decad.Cylinder)
-		if !ok {
-			continue
-		}
-		if math.Abs(cy.Radius.Mag()-r) < 1e-4 {
-			out = append(out, f)
-		}
-	}
-	return out
-}
-
-// arcEdgesOfRadius returns the circular edges of f whose radius is r. The
-// tolerance is the spec's own 0.001 cm, expressed in millimetres.
-func arcEdgesOfRadius(f *decad.Face, r float64) []*decad.Edge {
-	var out []*decad.Edge
-	for _, e := range f.Edges() {
-		var got float64
-		switch c := e.Curve().(type) {
-		case decad.Arc3:
-			got = c.Radius.Mag()
-		case decad.Circle3:
-			got = c.Radius.Mag()
-		default:
-			continue
-		}
-		if math.Abs(got-r) < 0.01 {
-			out = append(out, e)
-		}
-	}
-	return out
-}
-
-func centroidAngle(t *testing.T, b *decad.Body) (angle, radius float64) {
+// Two substitutions against the real Gear Profile geometry, both forced by
+// the solid harness and recorded here because the step list alone would lose
+// them (steps.md steps 11-19 all build on this section):
+//
+//   - The flanks are straight chords between the flank start and tip, not
+//     fitted splines. decad refuses to extrude the involute fit spline
+//     outright ("a free-form wall edge's chain has curvature signs that
+//     conflict across its spans or joints" — the natural-cubic interpolant
+//     through the involute samples wobbles in curvature), so no spline-walled
+//     prism survives the gate. What the chord keeps: the flank's endpoints,
+//     the stub lines, both arcs, and every curve COUNT the profile search
+//     matches on. What it costs: the flank's curvature is not carried into
+//     3D, so nothing solid-side asserts the involute shape — that is pinned
+//     by stepGearProfileSketch on the real splines.
+//   - The root arc is drawn as an explicit arc between the stub feet rather
+//     than derived by profile-splitting the solid root circle. decad refuses
+//     a profile whose boundary is a circle fragment ("a *sketch.Circle
+//     fragment has an uncertified trim"). The split-derived boundary itself
+//     is proven in stepGearProfileSketch, which draws the full solid circle
+//     and lets profile detection cut it.
+func chordedToothProfile(t *testing.T, s *sketch.Sketch, g *gearGeom) *sketch.Profile {
 	t.Helper()
-	c, err := b.Centroid()
-	if err != nil {
-		t.Fatalf("centroid: %v", err)
+	origin := s.CreatePoint(0, 0)
+	c := g.corners(0)
+	rs := s.CreatePoint(c.rs[0], c.rs[1])
+	rt := s.CreatePoint(c.rt[0], c.rt[1])
+	lt := s.CreatePoint(c.lt[0], c.lt[1])
+	ls := s.CreatePoint(c.ls[0], c.ls[1])
+	s.CreateLine(rs, rt)
+	s.CreateArc(origin, rt, lt)
+	s.CreateLine(lt, ls)
+	if c.stubbed {
+		rsf := s.CreatePoint(c.rsf[0], c.rsf[1])
+		lsf := s.CreatePoint(c.lsf[0], c.lsf[1])
+		s.CreateLine(rsf, rs)
+		s.CreateLine(ls, lsf)
+		s.CreateArc(origin, rsf, lsf)
+	} else {
+		s.CreateArc(origin, rs, ls)
 	}
-	return math.Atan2(c.Value.Y, c.Value.X), math.Hypot(c.Value.X, c.Value.Y)
+	mustSolve(t, s)
+	profiles := s.Profiles()
+	if len(profiles) != 1 {
+		t.Fatalf("chorded tooth section: expected 1 region, got %d", len(profiles))
+	}
+	return profiles[0]
 }
 
-func volumeOf(t *testing.T, b *decad.Body) float64 {
+// discProfile draws the solid disc of the given radius and returns its region.
+func discProfile(t *testing.T, s *sketch.Sketch, radius float64) *sketch.Profile {
 	t.Helper()
-	v, err := b.Volume()
-	if err != nil {
-		t.Fatalf("volume: %v", err)
+	origin := s.CreatePoint(0, 0)
+	s.CreateCircle(origin, radius)
+	mustSolve(t, s)
+	profiles := s.Profiles()
+	if len(profiles) != 1 {
+		t.Fatalf("disc: expected 1 region, got %d", len(profiles))
 	}
-	return v.Value.Mag()
+	return profiles[0]
+}
+
+// wholeGearOutline draws the full N-tooth gear outline as one closed loop —
+// per tooth: stub up, chord flank, tip arc, chord flank, stub down, root
+// valley arc to the next tooth — and returns its single region. This is the
+// exact shape the pattern-and-combine steps leave behind, built as one
+// profile because decad's boolean refuses the tangent tooth-on-root-cylinder
+// contact the real combine performs (see stepCombineTeeth).
+func wholeGearOutline(t *testing.T, s *sketch.Sketch, g *gearGeom) *sketch.Profile {
+	t.Helper()
+	if g.embedded() {
+		t.Fatalf("wholeGearOutline models the stubbed (non-embedded) shape")
+	}
+	origin := s.CreatePoint(0, 0)
+	n := int(g.toothNumber)
+	pitchAngle := 2 * math.Pi / g.toothNumber
+	type pts struct{ rsf, rs, rt, lt, ls, lsf *sketch.Point }
+	teeth := make([]pts, n)
+	for k := 0; k < n; k++ {
+		c := g.corners(float64(k) * pitchAngle)
+		mk := func(xy [2]float64) *sketch.Point { return s.CreatePoint(xy[0], xy[1]) }
+		teeth[k] = pts{mk(c.rsf), mk(c.rs), mk(c.rt), mk(c.lt), mk(c.ls), mk(c.lsf)}
+	}
+	for k := 0; k < n; k++ {
+		tp := teeth[k]
+		next := teeth[(k+1)%n]
+		s.CreateLine(tp.rsf, tp.rs)
+		s.CreateLine(tp.rs, tp.rt)
+		s.CreateArc(origin, tp.rt, tp.lt)
+		s.CreateLine(tp.lt, tp.ls)
+		s.CreateLine(tp.ls, tp.lsf)
+		s.CreateArc(origin, tp.lsf, next.rsf)
+	}
+	mustSolve(t, s)
+	profiles := s.Profiles()
+	if len(profiles) != 1 {
+		t.Fatalf("whole-gear outline: expected 1 region, got %d", len(profiles))
+	}
+	return profiles[0]
+}
+
+// relDiff returns |a-b| / max(|a|,|b|,1).
+func relDiff(a, b float64) float64 {
+	scale := math.Max(math.Max(math.Abs(a), math.Abs(b)), 1)
+	return math.Abs(a-b) / scale
 }

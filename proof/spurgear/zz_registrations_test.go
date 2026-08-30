@@ -9,36 +9,32 @@ import (
 	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit3d"
 )
 
-func TestNormalizeTargetPlane(t *testing.T) {
-	proofkit.Run(t, normalizePlaneCases, stepNormalizeTargetPlane)
-}
-
 func TestToolsSketch(t *testing.T) {
-	proofkit.Run(t, toolsSketchCases, stepToolsSketch)
-}
-
-func TestExtrusionEndPlane(t *testing.T) {
-	proofkit.Run(t, extrusionEndPlaneCases, stepExtrusionEndPlane)
+	proofkit.Run(t, toolsCases, stepToolsSketch)
 }
 
 func TestGearProfileSketch(t *testing.T) {
-	proofkit.Run(t, gearProfileCases, stepGearProfileSketch)
+	proofkit.Run(t, profileCases, stepGearProfileSketch)
 }
 
 func TestExtrudeTooth(t *testing.T) {
-	proofkit3d.RunSolid(t, toothCases, stepExtrudeTooth, assertExtrudeTooth)
+	proofkit3d.Run(t, toothCases, stepExtrudeTooth, assertExtrudeTooth)
 }
 
 func TestChamferTooth(t *testing.T) {
-	proofkit3d.RunSolid(t, chamferCases, stepChamferTooth, assertChamferTooth)
+	proofkit3d.Run(t, chamferCases, stepChamferTooth, assertChamferTooth)
 }
 
 func TestExtrudeBody(t *testing.T) {
-	proofkit3d.RunSolid(t, bodyCases, stepExtrudeBody, assertExtrudeBody)
+	proofkit3d.Run(t, bodyCases, stepExtrudeBody, assertExtrudeBody)
+}
+
+func TestGearCenterAxis(t *testing.T) {
+	proofkit3d.Run(t, bodyCases, stepGearCenterAxis, assertGearCenterAxis)
 }
 
 func TestPatternTeeth(t *testing.T) {
-	proofkit3d.RunSolid(t, patternCases, stepPatternTeeth, assertPatternTeeth)
+	proofkit3d.Run(t, patternCases, stepPatternTeeth, assertPatternTeeth)
 }
 
 func TestCombineTeeth(t *testing.T) {
@@ -50,9 +46,9 @@ func TestRootFillets(t *testing.T) {
 }
 
 func TestBoreProfileSketch(t *testing.T) {
-	proofkit.Run(t, boreProfileCases, stepBoreProfileSketch)
+	proofkit.Run(t, boreCases, stepBoreProfileSketch)
 }
 
 func TestBoreCut(t *testing.T) {
-	proofkit3d.RunSolid(t, boreCases, stepBoreCut, assertBoreCut)
+	proofkit3d.RunSolid(t, boreCutCases, stepBoreCut, assertBoreCut)
 }

@@ -500,7 +500,7 @@ If Apply-Chamfer-To-Teeth > 0, round off every edge of the tooth's front face *e
 
 **Identify the root arc by radius, not by relative size.** Walk the front face's edges and add each to the chamfer edge set, *except* skip any edge that is an `Arc3DCurveType` whose `edge.geometry.radius` equals `Root Circle Radius` (compare against the registered parameter's `.value`, tolerance `0.001` cm). That radius match is exact — the root arc is the only edge lying on the root circle — so it is more robust than "the smallest-radius arc." (This is the same radius-matching technique step 11 uses to find the root cylinders.) Everything else on the face — the two flanks, the tooth-top arc, and the two flank-to-root lines — gets chamfered. Apply with `chamferFeatures.createInput2()` → `chamferEdgeSets.addEqualDistanceChamferEdgeSet(edges, <ChamferTooth value>, False)`.
 
-Helical and herringbone inherit this step unchanged, including the expected edge count `chamferWantEdges()` returns — their lofted tooth's cap face carries the same six curves this extruded one does. Neither overrides it. That was settled in Fusion and is owned by the subclass spec — see `spec/helicalgear/fusion.md` `[HELI-F-CHAMFER-COUNT]`; do not restate or second-guess it here.
+Helical and herringbone subclasses override only the expected edge count, via `chamferWantEdges()`; they change nothing else about this step. Their value (4) and its flagged caveat are owned by the subclass specs — see `spec/helicalgear/fusion.md` `[HELI-F-CHAMFER-COUNT]`; do not restate or second-guess them here.
 
 ### 9: Extrude the Body
 
