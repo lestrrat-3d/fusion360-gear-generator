@@ -752,7 +752,7 @@ input's chamfer-edge-set collection, which is the opposite of where the fillet's
 enum named in that anchor. [PB-EMPTY-RESULT] — a face search can legitimately find nothing, and
 this one must raise rather than fall back to a partial match.
 
-**From:** `spec/spurgear/instructions.md` L58, L290, L306-323, L547-560;
+**From:** `spec/spurgear/instructions.md` L58, L287-323, L530-545;
 `.claude/skills/generate-gear/PLAYBOOK.md` L505-511, L596-605.
 
 ## S12 `[GO]` Extrude the body
