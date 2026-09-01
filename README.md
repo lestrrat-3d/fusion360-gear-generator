@@ -21,6 +21,22 @@ The add-in installs one command per generator into a **Gears** dropdown in the F
 * **Bevel Gear** - straight or spiral from the same command. *Mean Spiral Angle* selects between them (0 gives a straight bevel), and *Hand of Spiral* picks the direction.
 * **Cycloidal Drive** - a speed reducer rather than a single gear. It builds the lobed disc(s), the eccentric cam, a pinless ring housing and the output plate with its pins, each in its own sub-component.
 
+## Examples
+
+| Spur Gear | Helical Gear | Herringbone Gear |
+| --- | --- | --- |
+| ![A cyan spur gear with a central bore, teeth running straight across the rim](docs/images/gears/spur.png) | ![A violet helical gear, its teeth twisting evenly around the rim](docs/images/gears/helical.png) | ![An amber herringbone gear, its teeth meeting in a chevron at mid-height](docs/images/gears/herringbone.png) |
+| Module 2, 24 teeth, 20° pressure angle, 12 mm thick, 10 mm bore | The same gear, 16 mm thick, twisted 20° | The same gear, 20 mm thick, twisted 20° to mid-body and back |
+
+Every flank in those pictures is the involute the generator itself cuts: the tooth math comes from
+[`proof/involute`](proof/involute), the package the 3D proofs draw their teeth from, and each gear is
+swept the way its spec sweeps it. The renderer is
+[SolidLens](https://github.com/lestrrat-3d/solidlens). Regenerate them with
+`proof/render_examples.sh`.
+
+Bevel and cycloidal are not shown. Their profiles are not involutes and they have no 3D proof to draw
+from, so an image of either would be a drawing rather than a render of the real thing.
+
 # INSTALLATION
 
 This is a standard Fusion 360 add-in. There is no Marketplace package yet, so install it manually:
