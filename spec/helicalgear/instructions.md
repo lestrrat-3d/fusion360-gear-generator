@@ -32,6 +32,22 @@ parameter **`HelixAngle`**, registered in **radians** (from a **degree** dialog 
 the root-fillet transverse correction via `filletHelixFactorExpression()` = `cos(HelixAngle)` (spur's
 `* 1` fillet-factor hook — see spur Variables "Fillet Radius").
 
+**Signed, and the sign is the hand of the helix.** The value is passed straight through as the
+tooth generator's `draw()` `angle` argument, so spur's rule for that argument governs it verbatim:
+**negative is a left-hand helix**, and the dialog input accepts a negative value (see spur
+Variables, "The whole signed range of the `angle` argument", and `[SPUR-F-ROTATE-CONFIRM]`, which
+is the angular dimension carrying that sign). Nothing rescales it: the twist between the two loft
+sections **is** the Helix Angle, not a lead angle derived from it, so `Thickness` does not enter.
+
+**No range is enforced, and none is asserted here.** The dialog accepts whatever the user types,
+and neither this spec nor the code clamps it. What Fusion does at a large helix angle is
+**unverified** — do not add a clamp, a warning, or a documented maximum until a Fusion session
+settles it. The design-time proof has its own bound, beyond which it stops verifying the lofted
+solid. That bound is a property of the proof's modelling choices and of the solid engine's own
+limits rather than of the gear, and it need not be symmetric about zero — a left-hand and a
+right-hand twist of the same size are not guaranteed to behave alike there. So it lives in
+`proof/helicalgear/`, where it is measured per sign, and is deliberately not quoted here.
+
 ### Exact input ids and parameter-name strings
 
 Inherits every spur input id and user-parameter name unchanged, and adds exactly one of each:
@@ -87,7 +103,7 @@ list here; it drifts). Helical adds two:
 
 Helical keeps spur's entire call graph and override boundaries (`spec/spurgear/instructions.md` Method
 contract): `generate → processInputs → prepareTools → buildMainGearBody(buildSketches → buildTooth →
-buildBody → patternTeeth[→createFillets]) → buildBore → cleanup`. **Do not move work across those
+buildBody → patternTeeth → createFillets) → buildBore → chamferTeeth → cleanup`. **Do not move work across those
 boundaries.** Helical overrides exactly these methods:
 
 - **`newContext()`** → `HelicalGearGenerationContext()`.
@@ -99,8 +115,6 @@ boundaries.** Helical overrides exactly these methods:
 - **`filletHelixFactorExpression(self)`** → `f'cos({self.parameterName(PARAM_HELIX_ANGLE)})'` (spur base
   returns `'1'`). Multiplies the root-fillet radius by `cos(HelixAngle)` so it reads correctly on the
   tilted tooth's transverse plane.
-- **`chamferWantEdges(self)`** → `4` (spur base returns 6). See `fusion.md` `[HELI-F-CHAMFER-COUNT]`
-  (reproduce verbatim; it is flagged there).
 - **`helicalPlaneOffset(self)`** → the offset of the twisted-profile plane from the base plane, as a
   `ValueInput`. Helical returns the full thickness: `self.getParameterAsValueInput(PARAM_THICKNESS)`.
   Note this is a **numeric snapshot**, not a live parameter reference — `getParameterAsValueInput`
@@ -110,13 +124,11 @@ boundaries.** Helical overrides exactly these methods:
 - **`buildSketches(self, ctx)`** → calls `super().buildSketches(ctx)` (which draws the bottom Gear
   Profile and runs the spur tooth generator at angle 0), then draws the twisted top profile
   (`[HELI-F-TWIST-PLANE]`; see Generation Order).
-- **`buildTooth(self, ctx)`** → `self.loftTooth(ctx)` then `self.chamferTooth(ctx)`. **Must end by
-  calling `chamferTooth`** (spur's boundary — `buildMainGearBody` does not chamfer separately). Does
-  **not** extrude.
+- **`buildTooth(self, ctx)`** → `self.loftTooth(ctx)`. It does **not** extrude or chamfer.
 - **`loftTooth(self, ctx)`** → lofts the two profiles into `ctx.toothBody` (`[HELI-F-LOFT]`).
 
 **Inherited unchanged — do NOT re-implement:** `processInputs`, `prepareTools`, `buildMainGearBody`,
-`buildBody`, `patternTeeth`, `createFillets`, `chamferTooth`, `buildBore`, `cleanup`, and the entire
+`buildBody`, `patternTeeth`, `createFillets`, `buildBore`, `chamferTeeth`, `cleanup`, and the entire
 `SpurGearInvoluteToothDesignGenerator`.
 
 The three `ctx`-taking overrides — `buildSketches`, `buildTooth`, `loftTooth` — **annotate the
@@ -127,7 +139,8 @@ is used.
 ## Generation Order — spur's 12 steps, with two deltas
 
 Cite `spec/spurgear/instructions.md` Generation Order. Helical changes exactly two steps; everything
-else (body extrude step 9, pattern+combine step 10, fillets step 11, bore step 12, cleanup) runs
+else (body extrude step 9, pattern+combine step 10, fillets step 11, bore step 12, completed-gear
+chamfer step 13, and cleanup) runs
 spur's code untouched.
 
 **Delta 1 — `buildSketches` (extends spur steps 3–5).** After `super().buildSketches(ctx)` has drawn
@@ -142,7 +155,8 @@ the bottom Gear Profile and run the tooth generator (at angle 0):
 See `[HELI-F-TWIST-PLANE]`.
 
 **Delta 2 — `buildTooth` (replaces spur step 7's extrude).** Loft the bottom Gear Profile tooth loop
-to the top twisted tooth loop → `ctx.toothBody` named `'Tooth Body'`, then `self.chamferTooth(ctx)`.
+to the top twisted tooth loop → `ctx.toothBody` named `'Tooth Body'`. The inherited
+`chamferTeeth` later runs on the completed gear, after fillets and the optional bore.
 See `[HELI-F-LOFT]`.
 
 ## Sketch-discipline deltas
@@ -165,7 +179,7 @@ Helical **subclasses `SpurGearGenerator`, `SpurGearCommandInputsConfigurator`, a
 surface. The borrowed surface that must exist unchanged on spur:
 
 - **The three base classes and their method boundaries** (spur Method contract): the full call graph
-  and the overridable hooks `addExtraPrimaryParameters` (`[SPUR-EXTRA-PARAMS]`), `chamferWantEdges`,
+  and the overridable hooks `addExtraPrimaryParameters` (`[SPUR-EXTRA-PARAMS]`),
   `filletHelixFactorExpression`, and the configurator extension seam `[SPUR-SUBCLASS-INPUT]`.
 - **The tooth generator** `SpurGearInvoluteToothDesignGenerator(sketch, parent)` with
   `draw(anchorPoint, angle=0)` — the `angle` rotates the whole tooth (`[SPUR-F-ROTATE-CONFIRM]`).
@@ -180,10 +194,6 @@ Reproduced verbatim from `lib/geargen/helicalgear.py`; **do not "fix" them in th
 changes behavior and belongs in a separate, deliberate change once verified in Fusion):
 
 - **Helix Angle sits last in the dialog**, after Parent Component (`[SPUR-SUBCLASS-INPUT]` consequence).
-- **`chamferWantEdges()` returns 4** for a non-embedded 6-curve lofted tooth — see
-  `[HELI-F-CHAMFER-COUNT]`: with chamfer > 0 on a default helical gear, `chamferTooth` raises and
-  the whole new component is rolled back (abort, not skip), so helical chamfer is effectively
-  exercised only at chamfer 0.
 - **Embedded (low-tooth-count) helical is unsupported** — `loftTooth` hardcodes `lines=2` and never
   reads `ctx.toothProfileIsEmbedded` (`[HELI-F-LOFT]`).
 - **The helix construction plane is left visible after generation** — spur's cleanup hides only its

@@ -63,5 +63,3 @@ class HerringboneGearGenerator(HelicalGearGenerator):
             entities,
         )
         self.getComponent().features.combineFeatures.add(combineInput)
-
-        self.chamferTooth(ctx)

@@ -29,8 +29,6 @@ and combine into a single tooth body before the pattern. Everything else is heli
       entities,
   )
   self.getComponent().features.combineFeatures.add(combineInput)
-
-  self.chamferTooth(ctx)
   ```
   Key points, exactly as the current code does them:
   - The mirror **target plane is `ctx.helixPlane`** (the mid-body plane), not a fresh plane. Like
@@ -42,9 +40,8 @@ and combine into a single tooth body before the pattern. Everything else is heli
     name** — `self.getComponent().bRepBodies.itemByName('Tooth Body')` — and the mirrored half is the
     tool. After the combine there is a single `'Tooth Body'` spanning the full thickness, which the
     inherited `patternTeeth` then circular-patterns and joins into the gear body.
-  - **`chamferTooth(ctx)` is still the last action** (spur's `buildTooth` boundary). Herringbone
-    inherits helical's `chamferWantEdges()` of 4 — see `[HELI-F-CHAMFER-COUNT]` for the same flagged
-    caveat (chamfer is fragile for the default non-embedded tooth; effectively exercised only at
-    chamfer 0).
+  - The inherited `chamferTeeth(ctx)` runs only after the full gear is patterned, root-filleted,
+    and optionally bore-cut. It chamfers both end caps, includes root-radius arcs, and excludes
+    bore edges.
   - The gear **body** is still extruded across the **full** thickness by the inherited `buildBody`;
     only the tooth is built half-then-mirrored.
