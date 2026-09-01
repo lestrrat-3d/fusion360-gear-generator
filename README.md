@@ -15,11 +15,19 @@ On top of the above, there were also a few minor issues that I wanted to see hap
 
 The add-in installs one command per generator into a **Gears** dropdown in the Fusion **SOLID > CREATE** panel:
 
-* **Spur Gear**
-* **Helical Gear**
-* **Herringbone Gear**
-* **Bevel Gear** - straight or spiral from the same command. *Mean Spiral Angle* selects between them (0 gives a straight bevel), and *Hand of Spiral* picks the direction.
-* **Cycloidal Drive** - a speed reducer rather than a single gear. It builds the lobed disc(s), the eccentric cam, a pinless ring housing and the output plate with its pins, each in its own sub-component.
+| Gear | Example |
+| --- | --- |
+| **Spur Gear**<br>Straight teeth across the rim. Rendered at module 2, 24 teeth, 20° pressure angle, 12 mm thick, 10 mm bore. | <img src="docs/images/gears/spur.png" width="320" alt="A cyan spur gear with a central bore, teeth running straight across the rim"> |
+| **Helical Gear**<br>The same tooth twisted to the far face, which is what *Helix Angle* sets. Rendered 16 mm thick at 20°. | <img src="docs/images/gears/helical.png" width="320" alt="A violet helical gear, its teeth twisting evenly around the rim"> |
+| **Herringbone Gear**<br>Twisted to mid-body and mirrored, so the teeth meet in a chevron and the thrust cancels. Rendered 20 mm thick at 20°. | <img src="docs/images/gears/herringbone.png" width="320" alt="An amber herringbone gear, its teeth meeting in a chevron at mid-height"> |
+| **Bevel Gear**<br>Straight or spiral from the same command. *Mean Spiral Angle* selects between them (0 gives a straight bevel), and *Hand of Spiral* picks the direction. | |
+| **Cycloidal Drive**<br>A speed reducer rather than a single gear. It builds the lobed disc(s), the eccentric cam, a pinless ring housing and the output plate with its pins, each in its own sub-component. | |
+
+Every flank in those pictures is the involute the generator itself cuts: the tooth math comes from
+[`proof/involute`](proof/involute), the package the 3D proofs draw their teeth from, and each gear is
+swept the way its spec sweeps it. The renderer is
+[SolidLens](https://github.com/lestrrat-3d/solidlens). Regenerate the images with
+`proof/render_examples.sh`.
 
 # INSTALLATION
 
