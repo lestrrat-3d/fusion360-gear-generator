@@ -127,7 +127,7 @@ func (ex example) scene(ctx context.Context) (solidlens.Scene, error) {
 		Camera:            ex.camera(),
 		Models:            []solidlens.Model{{Mesh: mesh, Material: solidlens.Matte(ex.color)}},
 		DirectionalLights: lights(),
-		Background:        solidlens.RGB(0.10, 0.12, 0.15),
+		Background:        solidlens.RGB(0.35, 0.37, 0.42),
 	}, nil
 }
 
@@ -138,7 +138,7 @@ func (ex example) camera() solidlens.Camera {
 	radius := ex.gear.tipRadius()
 	centre := ex.gear.thickness / 2
 	reach := math.Hypot(radius, ex.gear.thickness) * 3.4
-	const elevation = 36 * math.Pi / 180
+	const elevation = 44 * math.Pi / 180
 	const azimuth = -58 * math.Pi / 180
 	horizontal := reach * math.Cos(elevation)
 	return solidlens.Camera{
