@@ -124,11 +124,29 @@ func (ex example) scene(ctx context.Context) (solidlens.Scene, error) {
 		return solidlens.Scene{}, err
 	}
 	return solidlens.Scene{
-		Camera:            ex.camera(),
-		Models:            []solidlens.Model{{Mesh: mesh, Material: solidlens.Matte(ex.color)}},
+		Camera: ex.camera(),
+		Models: []solidlens.Model{{
+			Mesh:     mesh,
+			Material: solidlens.Matte(ex.color),
+			Edges:    ex.outline(),
+		}},
 		DirectionalLights: lights(),
 		Background:        solidlens.RGB(0.35, 0.37, 0.42),
 	}, nil
+}
+
+// outline draws the gear's own edges in a darkened version of its colour. It
+// is what separates one tooth from the next where two flanks face the camera
+// at nearly the same angle and flat shading gives them nearly the same value.
+// The crease angle is left at its default, which picks up the tooth corners
+// and skips the seams between the bands the sweep is cut into.
+func (ex example) outline() solidlens.Edges {
+	const darken = 0.28
+	return solidlens.Edges{
+		Enabled: true,
+		Color:   solidlens.RGB(ex.color.R*darken, ex.color.G*darken, ex.color.B*darken),
+		Width:   1.4,
+	}
 }
 
 // camera looks down on the gear from the front left at a fixed elevation,

@@ -12,7 +12,7 @@ require (
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/lestrrat-3d/r3 v0.0.0-20260713000132-2e6d6464affc // indirect
-	github.com/lestrrat-3d/solidlens v0.0.0-20260831001230-67b9c9dbcb0a // indirect
+	github.com/lestrrat-3d/solidlens v0.0.0-20260901122545-ab42e298f5b6 // indirect
 	github.com/lestrrat-go/3mf v0.0.0-20260519040824-7ad46c6b825b // indirect
 	github.com/lestrrat-go/helium v0.0.1 // indirect
 	github.com/lestrrat-go/option/v3 v3.0.0-alpha1 // indirect
