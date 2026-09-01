@@ -20,8 +20,8 @@ The add-in installs one command per generator into a **Gears** dropdown in the F
 | **Spur Gear**<br>Straight teeth across the rim. Rendered at module 2, 24 teeth, 20° pressure angle, 12 mm thick, 10 mm bore. | <img src="docs/images/gears/spur.png" width="320" alt="A cyan spur gear with a central bore, teeth running straight across the rim"> |
 | **Helical Gear**<br>The same tooth twisted to the far face, which is what *Helix Angle* sets. Rendered 16 mm thick at 20°. | <img src="docs/images/gears/helical.png" width="320" alt="A violet helical gear, its teeth twisting evenly around the rim"> |
 | **Herringbone Gear**<br>Twisted to mid-body and mirrored, so the teeth meet in a chevron and the thrust cancels. Rendered 20 mm thick at 20°. | <img src="docs/images/gears/herringbone.png" width="320" alt="An amber herringbone gear, its teeth meeting in a chevron at mid-height"> |
-| **Bevel Gear**<br>Straight or spiral from the same command. *Mean Spiral Angle* selects between them (0 gives a straight bevel), and *Hand of Spiral* picks the direction. | Not rendered. Its tooth is not an involute and it has no 3D proof to draw from, so a picture here would be a drawing rather than a render of the real thing. |
-| **Cycloidal Drive**<br>A speed reducer rather than a single gear. It builds the lobed disc(s), the eccentric cam, a pinless ring housing and the output plate with its pins, each in its own sub-component. | Not rendered, for the same reason as the bevel gear. |
+| **Bevel Gear**<br>Straight or spiral from the same command. *Mean Spiral Angle* selects between them (0 gives a straight bevel), and *Hand of Spiral* picks the direction. | |
+| **Cycloidal Drive**<br>A speed reducer rather than a single gear. It builds the lobed disc(s), the eccentric cam, a pinless ring housing and the output plate with its pins, each in its own sub-component. | |
 
 Every flank in those pictures is the involute the generator itself cuts: the tooth math comes from
 [`proof/involute`](proof/involute), the package the 3D proofs draw their teeth from, and each gear is
