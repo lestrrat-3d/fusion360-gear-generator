@@ -5,6 +5,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -961,33 +962,78 @@ class CheckCompileTest(unittest.TestCase):
 
 
 class WorkflowGateWiringTest(unittest.TestCase):
-    def test_workflow_runs_all_generated_candidate_gates(self):
-        root = Path(__file__).parents[3]
-        workflow = (root / '.github' / 'workflows' / '3d-proof.yml').read_text()
+    """CI must gate every compiled gear with the whole battery.
 
-        for gate in (
-                'check_compile.py spurgear',
-                'pyright_check.py .tmp/spurgear.generated.py',
-                'check_novel_types.py .tmp/spurgear.generated.py',
-                'check_contract.py spec/spurgear/contract.json',
-                'check_input_read.py .tmp/spurgear.generated.py',
-                'check_anchors.py',
-                'check_step_calls.py spec/spurgear/steps.md .tmp/spurgear.generated.py',
-                'check_api_calls.py .tmp/spurgear.generated.py'):
-            self.assertIn(gate, workflow)
+    The workflow used to spell each gate out as its own command line for spurgear alone, and
+    this test pinned those literal strings so a gate could not be quietly dropped. The battery
+    now runs through run_gates.py under a per-gear matrix, so the same guard is expressed in
+    two halves: the workflow has to invoke run_gates.py for each gear, and run_gates.py has to
+    schedule every gate script the old list named. Neither half alone is enough — a workflow
+    that calls the runner proves nothing if the runner stopped running a gate.
+    """
 
+    ROOT = Path(__file__).parents[3]
+
+    def setUp(self):
+        self.workflow = (self.ROOT / '.github' / 'workflows' / '3d-proof.yml').read_text()
+        self.matrix_gears = re.findall(r'(?m)^\s*- gear: (\S+)$', self.workflow)
+
+    def test_runner_still_schedules_every_candidate_gate(self):
+        runner_path = Path(__file__).with_name('run_gates.py')
+        spec = importlib.util.spec_from_file_location('run_gates', runner_path)
+        runner = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(runner)
+
+        for script in ('check_input_read.py', 'check_contract.py', 'check_step_calls.py',
+                       'check_anchors.py', 'check_api_calls.py', 'pyright_check.py',
+                       'check_novel_types.py'):
+            self.assertIn(script, runner.GATE_SCRIPTS.values())
+        # parse has no script of its own; it is run in-process, so assert its key instead.
+        self.assertIn('parse', runner.GATE_ORDER)
+        self.assertEqual(set(runner.GATE_ORDER), set(runner.GATE_TITLES))
+
+    def test_workflow_gates_every_matrix_gear(self):
+        self.assertTrue(self.matrix_gears, 'the gates matrix names no gear')
+
+        self.assertIn('check_compile.py ${{ matrix.gear }}', self.workflow)
+        self.assertIn('run_gates.py ${{ matrix.gear }}', self.workflow)
+        self.assertIn('--gate-novel-types', self.workflow)
+        self.assertIn(
+            'cp lib/geargen/${{ matrix.gear }}.py .tmp/${{ matrix.gear }}.generated.py',
+            self.workflow)
+
+    def test_every_compiled_gear_is_in_the_matrix(self):
+        """A gear with a step list is a gear CI can gate, so it must be listed.
+
+        This is the check that keeps coverage from silently lagging the repo: compiling a new
+        gear produces spec/<gear>/steps.md, and without this the gear would sit ungated until
+        somebody noticed. helicalgear sat ungated for exactly that reason.
+        """
+        compiled = sorted(path.parent.name
+                          for path in (self.ROOT / 'spec').glob('*/steps.md'))
+        self.assertEqual(sorted(self.matrix_gears), compiled)
+
+    def test_gear_with_a_contract_manifest_requires_it(self):
+        """--require-contract turns a deleted manifest into a failure, not a silent skip."""
+        for gear in self.matrix_gears:
+            has_manifest = (self.ROOT / 'spec' / gear / 'contract.json').exists()
+            leg = self.workflow.split('- gear: %s\n' % gear, 1)[1].split('- gear:', 1)[0]
+            self.assertEqual(
+                "require_contract: '--require-contract'" in leg, has_manifest,
+                '%s: require_contract must be set exactly when spec/%s/contract.json exists'
+                % (gear, gear))
+
+    def test_workflow_keeps_its_shared_wiring(self):
         # The checker regression tests run as one discovery pass, so adding a
         # test file needs no workflow edit and cannot be forgotten.
         self.assertIn(
-            "unittest discover -s .claude/skills/generate-gear -p 'test_*.py'", workflow)
+            "unittest discover -s .claude/skills/generate-gear -p 'test_*.py'", self.workflow)
 
-        self.assertIn('FUSION_QUERY_API', workflow)
-        self.assertIn('FUSION_API_STUBS', workflow)
-        self.assertIn('cp lib/geargen/spurgear.py .tmp/spurgear.generated.py', workflow)
+        self.assertIn('FUSION_QUERY_API', self.workflow)
+        self.assertIn('FUSION_API_STUBS', self.workflow)
 
-        lookup_step = workflow.split('name: Check out the Fusion API lookup database', 1)[1]
-        lookup_step = lookup_step.split('name:', 1)[0]
-        self.assertRegex(lookup_step, r'(?m)^\s+ref: [0-9a-f]{40}$')
+        for commit in ('SKETCH_COMMIT', 'DECAD_COMMIT', 'FUSION_API_COMMIT'):
+            self.assertRegex(self.workflow, r'(?m)^\s+%s: [0-9a-f]{40}$' % commit)
 
 
 if __name__ == '__main__':

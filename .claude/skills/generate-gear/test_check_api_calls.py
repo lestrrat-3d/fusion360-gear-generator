@@ -3,6 +3,7 @@
 import contextlib
 import importlib.util
 import io
+import subprocess
 import sys
 import tempfile
 import textwrap
@@ -272,6 +273,49 @@ class CheckApiReceiverOwnershipTest(unittest.TestCase):
         self.assertEqual(result, 0, output)
         self.assertIn('api-call check: OK', output)
         self.assertIn('UNVERIFIED call', output)
+
+
+
+class RefutedCallTest(unittest.TestCase):
+    """A call the database declares and Fusion does not have must block.
+
+    adsk.core.Base.cast is the first of these. The database reports it as a staticmethod and the
+    intellisense stub declares it, so pyright, the API-call check and the novel-type check all
+    passed a bevel gear that raised AttributeError on the very first line of its constructor.
+    Only running the add-in found it, which is why the finding lives in a list rather than in
+    someone's memory.
+    """
+
+    def test_base_cast_is_refuted(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            'fusion_api', str(Path(__file__).with_name('fusion_api.py')))
+        fusion_api = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fusion_api)
+
+        rows = [row for row in fusion_api.REFUTED_CALLS
+                if row[0] == 'cast' and row[1] == 'adsk.core.Base']
+        self.assertEqual(len(rows), 1, 'adsk.core.Base.cast must stay refuted')
+        self.assertIn('AttributeError', rows[0][2])
+        for row in fusion_api.REFUTED_CALLS:
+            with self.subTest(call='%s.%s' % (row[1], row[0])):
+                self.assertTrue(row[2], 'every refuted call states its evidence')
+
+    def test_checker_blocks_a_refuted_call(self):
+        with tempfile.TemporaryDirectory() as directory:
+            candidate = Path(directory) / 'candidate.py'
+            candidate.write_text(
+                'import adsk.core\n'
+                'class Gear:\n'
+                '    def __init__(self):\n'
+                '        self.plane = adsk.core.Base.cast(None)\n')
+            result = subprocess.run(
+                [sys.executable, str(Path(__file__).with_name('check_api_calls.py')),
+                 str(candidate)],
+                capture_output=True, text=True)
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn('the database declares it but Fusion does NOT have it', result.stdout)
 
 
 if __name__ == '__main__':

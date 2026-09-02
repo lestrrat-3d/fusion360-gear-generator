@@ -35,5 +35,12 @@
     "rule": "reportAttributeAccessIssue",
     "message": "Cannot assign to attribute \"plane\" for class \"SpurGearGenerationContext\"",
     "why": "Inference pessimism, not an ordering bug: generate() calls _normalizeTargetPlane() before 'ctx.plane = self.plane', and that method replaces self.plane with the coplanar ConstructionPlane it builds, so the assigned value really is a ConstructionPlane. pyright widens self.plane's type from its earlier processInputs assignment, get_selection(inputs, INPUT_ID_PLANE)[0], which is the raw user selection and may be a planar BRepFace until S3 normalizes it. Verified the call order in lib/geargen/spurgear.py on 2026-09-02."
+  },
+  {
+    "rule": "reportArgumentType",
+    "param": "dropDownStyle",
+    "want": "DropDownStyles",
+    "func": "addDropDownCommandInput",
+    "why": "Stub noise: the Fusion stub declares DropDownStyles as a plain class whose members are bare ints (LabeledIconDropDownStyle = 0), while addDropDownCommandInput types its dropDownStyle parameter as DropDownStyles. Passing adsk.core.DropDownStyles.TextListDropDownStyle is the documented call; pyright reads the member as int only because the stub gives it no enum type."
   }
 ]

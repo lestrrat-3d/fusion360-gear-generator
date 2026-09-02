@@ -1,13 +1,34 @@
 name: 3D proof
 
+# Runs the geometry proofs and re-gates every checked-in generator as if it were a fresh
+# candidate. Three jobs, so a failure says which layer broke:
+#
+#   checkers  the gate scripts' own regression tests, which are gear-independent
+#   proof     proof/run.sh, which builds every gear's proof against pinned engine revisions
+#   gates     one leg per gear, running that gear's compile check and gate battery
+#
+# The gates matrix covers every gear /compile-gear has produced a step list for. Add a gear to it
+# when it gains a spec/<gear>/steps.md; check_step_calls.py's WorkflowGateWiringTest fails the
+# build if a compiled gear is missing here, so the matrix cannot silently lag the repo.
+# herringbonegear and cycloidal are absent because they have no step list yet.
+#
+# The engines publish no tags, so a SHA is the only stable handle. Bumping one is a deliberate
+# PR, and these proofs are what decide whether the new engine is acceptable.
+
 on:
   pull_request:
   push:
     branches: [main]
   workflow_dispatch:
 
+env:
+  SKETCH_COMMIT: 879d774f8d0e3230f158968bdf123193cb3ce4ea
+  DECAD_COMMIT: 3ff4b3bb55cc70acfc68d770dd723e9350820f9d
+  FUSION_API_COMMIT: 0ea1fd792e3da6d9e3727262f7904673295af931
+
 jobs:
-  proof:
+  checkers:
+    name: Gate script tests
     runs-on: ubuntu-latest
     steps:
       - name: Check out the gear repository
@@ -15,32 +36,18 @@ jobs:
         with:
           path: gears
 
-      - name: Check out the sketch engine
-        uses: actions/checkout@v4
-        with:
-          repository: lestrrat-3d/sketch
-          ref: 879d774f8d0e3230f158968bdf123193cb3ce4ea
-          path: sketch
-
-      - name: Check out the decad engine
-        uses: actions/checkout@v4
-        with:
-          repository: lestrrat-3d/decad
-          ref: 3ff4b3bb55cc70acfc68d770dd723e9350820f9d
-          path: decad
-
       - name: Check out the Fusion API lookup database
         uses: actions/checkout@v4
         with:
           repository: lestrrat-ai/claude-code-plugins
-          ref: 0ea1fd792e3da6d9e3727262f7904673295af931
+          ref: ${{ env.FUSION_API_COMMIT }}
           path: fusion-api
           sparse-checkout: |
             plugins/fusion/skills/query-api/data
             plugins/fusion/skills/query-api/scripts
           sparse-checkout-cone-mode: false
 
-      - name: Install generated-candidate gate dependencies
+      - name: Install gate dependencies
         env:
           FUSION_API_STUBS: ${{ runner.temp }}/FusionAPIReference/Fusion_API_Python_Reference/defs
           FUSION_QUERY_API: ${{ github.workspace }}/fusion-api/plugins/fusion/skills/query-api/scripts/query_fusion_api.py
@@ -57,13 +64,9 @@ jobs:
             echo "FUSION_API_STUBS=$FUSION_API_STUBS"
           } >> "$GITHUB_ENV"
 
-      - name: Prepare the checked-in spur candidate
-        run: |
-          set -euo pipefail
-          mkdir -p .tmp
-          cp lib/geargen/spurgear.py .tmp/spurgear.generated.py
-        working-directory: gears
-
+      # The checker suite shells out to the real Go toolchain (test_check_compile.py asks
+      # what it makes of odd build-constraint headers), so it needs the same pinned Go the
+      # proofs use. Without this the job silently tests against whatever Go the runner ships.
       - uses: actions/setup-go@v5
         with:
           go-version-file: gears/proof/go.mod
@@ -72,30 +75,107 @@ jobs:
         run: python3 -m unittest discover -s .claude/skills/generate-gear -p 'test_*.py'
         working-directory: gears
 
-      - name: Run compile and generated-candidate gates
-        run: |
-          set -euo pipefail
-          python3 .claude/skills/generate-gear/check_compile.py spurgear
-          python3 -c "import ast; ast.parse(open('.tmp/spurgear.generated.py').read())"
-          python3 .claude/skills/generate-gear/pyright_check.py .tmp/spurgear.generated.py
-          python3 .claude/skills/generate-gear/check_novel_types.py .tmp/spurgear.generated.py --reference lib/geargen --gate
-          python3 .claude/skills/generate-gear/check_contract.py spec/spurgear/contract.json .tmp/spurgear.generated.py
-          python3 .claude/skills/generate-gear/check_input_read.py .tmp/spurgear.generated.py
-          python3 .claude/skills/generate-gear/check_anchors.py
-          python3 .claude/skills/generate-gear/check_step_calls.py spec/spurgear/steps.md .tmp/spurgear.generated.py
-          python3 .claude/skills/generate-gear/check_api_calls.py .tmp/spurgear.generated.py
-        working-directory: gears
+  proof:
+    name: Geometry proofs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the gear repository
+        uses: actions/checkout@v4
+        with:
+          path: gears
+
+      - name: Check out the sketch engine
+        uses: actions/checkout@v4
+        with:
+          repository: lestrrat-3d/sketch
+          ref: ${{ env.SKETCH_COMMIT }}
+          path: sketch
+
+      - name: Check out the decad engine
+        uses: actions/checkout@v4
+        with:
+          repository: lestrrat-3d/decad
+          ref: ${{ env.DECAD_COMMIT }}
+          path: decad
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: gears/proof/go.mod
 
       - name: Run proof runner regression tests
         run: bash proof/run_test.sh
         working-directory: gears
 
-      - name: Run the 3D proof
+      - name: Run the proofs
         env:
           SKETCH_DIR: ${{ github.workspace }}/sketch
           DECAD_DIR: ${{ github.workspace }}/decad
           PROOF_VERIFY_REVISIONS: '1'
-          SKETCH_COMMIT: 879d774f8d0e3230f158968bdf123193cb3ce4ea
-          DECAD_COMMIT: 3ff4b3bb55cc70acfc68d770dd723e9350820f9d
         run: ./run.sh
         working-directory: gears/proof
+
+  gates:
+    name: Gates
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # require_contract is set for a gear whose spec/<gear>/contract.json must exist, so a
+          # deleted manifest fails the run instead of silently skipping the contract gate.
+          - gear: spurgear
+            require_contract: '--require-contract'
+          - gear: helicalgear
+            require_contract: '--require-contract'
+          - gear: bevelgear
+            require_contract: ''
+    steps:
+      - name: Check out the gear repository
+        uses: actions/checkout@v4
+        with:
+          path: gears
+
+      - name: Check out the Fusion API lookup database
+        uses: actions/checkout@v4
+        with:
+          repository: lestrrat-ai/claude-code-plugins
+          ref: ${{ env.FUSION_API_COMMIT }}
+          path: fusion-api
+          sparse-checkout: |
+            plugins/fusion/skills/query-api/data
+            plugins/fusion/skills/query-api/scripts
+          sparse-checkout-cone-mode: false
+
+      - name: Install gate dependencies
+        env:
+          FUSION_API_STUBS: ${{ runner.temp }}/FusionAPIReference/Fusion_API_Python_Reference/defs
+          FUSION_QUERY_API: ${{ github.workspace }}/fusion-api/plugins/fusion/skills/query-api/scripts/query_fusion_api.py
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --no-input pyright
+          git clone --depth 1 --filter=blob:none --sparse \
+            https://github.com/AutodeskFusion360/FusionAPIReference.git "$RUNNER_TEMP/FusionAPIReference"
+          git -C "$RUNNER_TEMP/FusionAPIReference" sparse-checkout set Fusion_API_Python_Reference/defs
+          test -f "$FUSION_QUERY_API"
+          test -f "$FUSION_API_STUBS/adsk/core.py"
+          {
+            echo "FUSION_QUERY_API=$FUSION_QUERY_API"
+            echo "FUSION_API_STUBS=$FUSION_API_STUBS"
+          } >> "$GITHUB_ENV"
+
+      - name: Prepare the checked-in ${{ matrix.gear }} candidate
+        run: |
+          set -euo pipefail
+          mkdir -p .tmp
+          cp lib/geargen/${{ matrix.gear }}.py .tmp/${{ matrix.gear }}.generated.py
+        working-directory: gears
+
+      - name: Check the ${{ matrix.gear }} step list is current
+        run: python3 .claude/skills/generate-gear/check_compile.py ${{ matrix.gear }}
+        working-directory: gears
+
+      - name: Gate the ${{ matrix.gear }} candidate
+        run: |
+          python3 .claude/skills/generate-gear/run_gates.py ${{ matrix.gear }} \
+            --gate-novel-types ${{ matrix.require_contract }}
+        working-directory: gears
