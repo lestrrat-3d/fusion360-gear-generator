@@ -8,6 +8,7 @@ all stay green. These tests hold the guards to catching it.
 """
 import importlib.util
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -165,13 +166,21 @@ class ShippedManifestTests(unittest.TestCase):
                 self.assertTrue(entry.get('required') or entry.get('banned'))
 
     def test_reverted_root_end_recipe_fails_the_shipped_guard(self):
+        # The mutation is located by the guard's own required pattern rather than by a
+        # literal from one emit. The module is build output and its local names change
+        # between regenerations; the recipe the guard protects does not.
         text = self.generated.read_text()
-        self.assertIn('dimH.parameter.value = abs(rootEndX)', text)
+        match = re.search(r'^.*\.parameter\.value\s*=\s*abs\(.*$', text, re.M)
+        self.assertIsNotNone(
+            match, 'no signed axis-dimension assignment found to mutate')
         with tempfile.TemporaryDirectory() as directory:
             candidate = Path(directory) / 'spurgear.generated.py'
+            original = match.group(0)
+            indent = original[:len(original) - len(original.lstrip())]
             candidate.write_text(text.replace(
-                'dimH.parameter.value = abs(rootEndX)',
-                'sketch.geometricConstraints.addCoincident(rootEnd, self.rootCircle)'))
+                original,
+                indent + 'sketch.geometricConstraints.addCoincident('
+                'rootEnd, self.rootCircle)'))
 
             problems = MODULE.guard_problems(
                 self.guards, str(candidate), 'lib/geargen/spurgear.py', str(REPO))
@@ -180,13 +189,22 @@ class ShippedManifestTests(unittest.TestCase):
         self.assertTrue(any('SPUR-F-FLANK-ROOT' in p for p in problems), problems)
 
     def test_bore_anchor_grounded_on_sketch_origin_fails_the_shipped_guard(self):
+        # Located by the guard's own required patterns, for the reason above: the
+        # grounding coincident is what matters, not what the emit called its second
+        # argument.
         text = self.generated.read_text()
-        self.assertIn('toothGenerator.anchorPoint, projectedAnchor', text)
+        start = text.index('def buildBore')
+        end = text.find('\n    def ', start + 1)
+        bore = text[start:end if end != -1 else len(text)]
+        match = re.search(r'^.*\.anchorPoint,.*$', bore, re.M)
+        self.assertIsNotNone(
+            match, 'no anchor-grounding coincident found in buildBore to mutate')
+        grounded = match.group(0)
         with tempfile.TemporaryDirectory() as directory:
             candidate = Path(directory) / 'spurgear.generated.py'
             candidate.write_text(text.replace(
-                'toothGenerator.anchorPoint, projectedAnchor',
-                'toothGenerator.anchorPoint, boreSketch.originPoint'))
+                grounded,
+                grounded.split('.anchorPoint,')[0] + '.originPoint, boreSketch.originPoint)'))
 
             problems = MODULE.guard_problems(
                 self.guards, str(candidate), 'lib/geargen/spurgear.py', str(REPO))

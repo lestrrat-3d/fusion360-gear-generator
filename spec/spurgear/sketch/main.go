@@ -38,7 +38,7 @@ type pt struct{ x, y float64 }
 
 // checkGearProfile builds the spur Gear Profile sketch for the given parameters
 // and returns whether it PASSES the primary full-constraint gate.
-func checkGearProfile(ctx context.Context, module, toothNumber, pressureAng, angle float64, involSteps int) bool {
+func checkGearProfile(ctx context.Context, module, toothNumber, pressureAng, angle float64, involSteps int, toothTopArcCentreFree bool) bool {
 	pitchR := module * toothNumber / 2
 	baseR := pitchR * math.Cos(pressureAng)
 	rootR := (module*toothNumber - 2.5*module) / 2
@@ -47,8 +47,7 @@ func checkGearProfile(ctx context.Context, module, toothNumber, pressureAng, ang
 	fmt.Printf("\n=== M=%.2f N=%.0f PA=%.1f° angle=%.1f°  pitch=%.3f base=%.3f root=%.3f tip=%.3f embedded=%v ===\n",
 		module, toothNumber, pressureAng*180/math.Pi, angle*180/math.Pi, pitchR, baseR, rootR, tipR, embedded)
 	if embedded {
-		fmt.Println("(embedded 4-curve variant not modelled by this prototype — see README)")
-		return true
+		fmt.Println("(embedded 4-curve variant: no flank-to-root stubs, root boundary is the solid root circle)")
 	}
 
 	// sample the involute flank (base -> tip, equal radial steps), mirror across
@@ -91,16 +90,20 @@ func checkGearProfile(ctx context.Context, module, toothNumber, pressureAng, ang
 	// root circle is solid in Fusion; tip/base/pitch are construction. (This
 	// prototype models the tooth's root boundary with an explicit root arc, so
 	// the root circle is construction here too — see the flank-to-root block.)
-	mkCircle := func(r float64) *sketch.Circle {
+	mkCircle := func(r float64, construction bool) *sketch.Circle {
 		c := s.CreateCircle(origin, r)
-		c.SetConstruction(true)
+		c.SetConstruction(construction)
 		s.AddConstraint(sketch.NewDiameter(c, 2*r))
 		return c
 	}
-	mkCircle(rootR)
-	tipCircle := mkCircle(tipR)
-	mkCircle(baseR)
-	mkCircle(pitchR)
+	// In Fusion the root circle is the one SOLID circle. The non-embedded model
+	// replaces its role in the tooth loop with an explicit root arc between the two
+	// feet, so it is construction there; the embedded tooth has no feet and is
+	// bounded by the circle itself, so it stays solid.
+	mkCircle(rootR, !embedded)
+	tipCircle := mkCircle(tipR, true)
+	mkCircle(baseR, true)
+	mkCircle(pitchR, true)
 
 	// flank fit points + splines
 	leftPts := make([]*sketch.Point, len(left))
@@ -133,9 +136,25 @@ func checkGearProfile(ctx context.Context, module, toothNumber, pressureAng, ang
 	reference.SetConstruction(true)
 	s.AddConstraint(sketch.NewAngle(reference, spine, angle*180/math.Pi)) // [SPUR-F-SPINE]
 
-	// tooth-top arc: caps the flank ends. Faithful to Fusion's shared-origin
-	// addByCenterStartEnd call, with no diameter dimension.
-	s.CreateArc(origin, rightPts[len(rightPts)-1], leftPts[len(leftPts)-1]) // [SPUR-F-TOOTHTOP-ARC]
+	// tooth-top arc: caps the flank ends, with no diameter dimension.
+	//
+	// Fusion's SketchArcs.addByCenterStartEnd does NOT share the SketchPoint handed to
+	// it as the centre — it creates a fresh point at that location ([PB-SHARE-XOR-COINCIDENT]).
+	// Modelling it as a shared origin proves a scheme the add-in does not build, so the
+	// centre is a free point here and is then tied back to the local origin explicitly.
+	// Without that coincidence the centre keeps only the arc's own equal-radius relation
+	// to the two flank ends, which leaves it one degree of freedom along their
+	// perpendicular bisector. Everything else is built about the local origin and dragged
+	// onto the anchor, so the stranded centre stays behind by the drag distance and the
+	// arc's radius comes out as anything at all. Measured in Fusion 2026-09-02 on a
+	// default bevel pair: centre 22.9 mm behind the origin on the pinion for a 0.5743 mm
+	// radius, 5.5 mm behind on the driving gear for 17.0204 mm, against the 22.5 mm tip
+	// radius both should have had.
+	arcCentre := s.CreatePoint(0, 0)
+	s.CreateArc(arcCentre, rightPts[len(rightPts)-1], leftPts[len(leftPts)-1]) // [SPUR-F-TOOTHTOP-ARC]
+	if !toothTopArcCentreFree {
+		s.AddConstraint(sketch.NewCoincident(arcCentre, origin))
+	}
 
 	// ribs: lock each flank pair to the spine. Exact [SPUR-F-RIBS] order.
 	// The rib takes the axis across the spine and the chain takes the axis along it.
@@ -185,13 +204,20 @@ func checkGearProfile(ctx context.Context, module, toothNumber, pressureAng, ang
 		)
 		return re
 	}
-	leftFoot := addFlankRoot(leftPts[0], left[0])
-	rightFoot := addFlankRoot(rightPts[0], right[0])
+	// The embedded tooth draws neither stub: its flank already starts inside the root
+	// circle, so there is nothing to bridge and Fusion derives the bottom boundary by
+	// splitting the solid root circle where the flanks cross it. Nothing else in the
+	// scheme replaces what the stubs' four axis dimensions were pinning, which is the
+	// question this case exists to answer.
+	if !embedded {
+		leftFoot := addFlankRoot(leftPts[0], left[0])
+		rightFoot := addFlankRoot(rightPts[0], right[0])
 
-	// explicit root arc — the boundary Fusion derives by splitting the solid root
-	// circle at the two feet. Completes the 6-curve tooth loop.
-	rootArc := s.CreateArc(s.CreatePoint(0, -rootR*0.1), rightFoot, leftFoot)
-	s.AddConstraint(sketch.NewDiameter(rootArc, 2*rootR))
+		// explicit root arc — the boundary Fusion derives by splitting the solid root
+		// circle at the two feet. Completes the 6-curve tooth loop.
+		rootArc := s.CreateArc(s.CreatePoint(0, -rootR*0.1), rightFoot, leftFoot)
+		s.AddConstraint(sketch.NewDiameter(rootArc, 2*rootR))
+	}
 
 	// --- solve & verify ---
 	res, err := s.Solve(ctx)
@@ -240,14 +266,34 @@ func main() {
 		{2, 20, 30 * math.Pi / 180},
 		{1, 17, 90 * math.Pi / 180},
 		{3, 15, -60 * math.Pi / 180},
+		// Embedded sizes (base < root, above ~N=42 at PA=20°). These are not an
+		// exotic corner: the bevel gear borrows this drawer through VirtualSpurProxy
+		// and its virtual tooth count is embedded for every ordinary bevel, so the
+		// bevel tooth has only ever been drawn on this branch. N=43 at module 1 with
+		// a 180 degree angle is the exact case a default 31/31 bevel pair draws.
+		{1, 43, 0},
+		{1, 43, 180 * math.Pi / 180},
+		{1, 50, 0},
+		{2, 60, 30 * math.Pi / 180},
 	}
 	ctx := context.Background()
 	allPass := true
 	for _, c := range cases {
-		if !checkGearProfile(ctx, c.module, c.teeth, pa, c.angle, 15) {
+		if !checkGearProfile(ctx, c.module, c.teeth, pa, c.angle, 15, false) {
 			allPass = false
 		}
 	}
+	// The tooth-top arc's centre must be tied to the local origin. Prove the bench
+	// actually detects its absence, so this cannot regress back into a silent free
+	// centre: the same case with the coincidence dropped has to FAIL the gate.
+	fmt.Println("\n--- negative control: tooth-top arc centre left free (must FAIL) ---")
+	if checkGearProfile(ctx, 1, 43, pa, 180*math.Pi/180, 15, true) {
+		fmt.Println("NEGATIVE CONTROL DID NOT FAIL — the bench no longer detects a free tooth-top arc centre.")
+		allPass = false
+	} else {
+		fmt.Println("negative control failed as required: a free arc centre does not fully constrain.")
+	}
+
 	fmt.Println()
 	if allPass {
 		fmt.Println("ALL PASS — the spur Gear Profile constraint scheme fully constrains across sizes.")

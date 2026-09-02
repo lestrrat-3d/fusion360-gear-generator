@@ -68,23 +68,40 @@ build on the shared `[PB-FULL-CONSTRAINT]`, `[PB-SHARE-XOR-COINCIDENT]`, `[PB-NO
 
 - **[SPUR-F-TOOTHTOP-ARC] Tooth-top arc — centred on the local origin (step 6).** The arc caps the
   tooth at the tip circle, so it *is* part of that circle and must bulge outward. Say that by
-  **sharing the local origin as the arc's centre**, and add nothing else.
+  **putting the arc's centre on the local origin**, and add nothing else.
   1. Materialize a **tooth-top point**: a `SketchPoint` at the tip, **rotated by `angle`** to match
      the rotated flanks — `(Tip Circle Radius · cos(angle), Tip Circle Radius · sin(angle))` —
      constrained **coincident to the tip circle**.
   2. Create the arc with `sketchArcs.addByCenterStartEnd(localOrigin, rightFlankEndPoint,
-     leftFlankEndPoint)` — pass the local origin and the two flank splines' **end `SketchPoint`s
-     directly**, so the arc shares all three and needs no separate coincidences.
-  3. Add **no diameter dimension**. The shared centre and the two shared ends already determine the
-     arc, and its radius follows from the flank ends being on the tip circle.
+     leftFlankEndPoint)` — pass the two flank splines' **end `SketchPoint`s directly**, which the
+     arc does share, so they need no coincidences.
+  3. **Then tie the centre back:** `addCoincident(arc.centerSketchPoint, localOrigin)`. The call
+     shares the start and end points but **copies the centre** into a fresh `SketchPoint`
+     (`[PB-SHARE-XOR-COINCIDENT]`), so passing `localOrigin` as the first argument fixes nothing.
+     This is the one arc in this sketch whose centre must be coincident rather than shared, and it
+     is not the redundant double-bind that rule otherwise forbids.
+  4. Add **no diameter dimension**. The coincident centre and the two shared ends already determine
+     the arc, and its radius follows from the flank ends being on the tip circle.
+
+  ⚠️ Without step 3 the centre is a **free point** carrying only the arc's own equal-radius
+  relation to the two flank ends, which leaves 2 DOF. Everything else in the tooth is built about
+  the local origin and then dragged onto the anchor in step 5, and the stranded centre does not
+  follow: it stays behind by the drag distance and the arc's radius becomes whatever the solver
+  lands on. A spur gear hides this because its anchor sits at the sketch origin, so the drag is
+  zero and the copied centre happens to stay put. The bevel gear drags its tooth 8–36 mm onto K′/L′
+  and the arc collapses — measured in Fusion 2026-09-02 on a default 31/31 pair, a 0.5743 mm radius
+  on the pinion and 17.0204 mm on the driving gear where both should have been the 22.5 mm tip
+  radius, from two sketches with byte-identical constraint counts and dimension values. The bench
+  carries this as a negative control: `spec/spurgear/sketch/main.go` run with the centre left free
+  reports `DOF=2, underconstrained`, and must keep failing.
 
   ⚠️ A **free centre plus a diameter dimension** determines the arc's size but not which way it
   curves: an arc of the same radius through the same two ends can bulge inward, back through the
   tooth. The sketch then reaches DOF 0 with two valid answers and the solver picks by where the
-  centre was seeded. Sharing the origin removes the choice.
+  centre was seeded. Putting the centre on the origin removes the choice.
 
-  ⚠️ Sharing the centre makes the **last rib's perpendicular redundant** — see `[SPUR-F-RIBS]`,
-  which omits it. Keeping both is what throws `VCS_SKETCH_OVER_CONSTRAINTS`.
+  ⚠️ Putting the centre on the origin makes the **last rib's perpendicular redundant** — see
+  `[SPUR-F-RIBS]`, which omits it. Keeping both is what throws `VCS_SKETCH_OVER_CONSTRAINTS`.
 
 - **[SPUR-F-SPINE] Spine + +X reference + angular pin (step 7).** Draw the spine as a construction
   line `addByTwoPoints(localOrigin, toothTopPoint)` — pass **both** existing `SketchPoint`s
