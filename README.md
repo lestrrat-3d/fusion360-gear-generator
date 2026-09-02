@@ -73,9 +73,11 @@ keeping OK disabled until the values work.
 
 The generators under `lib/geargen/` are build output, not hand-written source. Each one is generated
 from its natural-language spec in `spec/<gear>/`, driven by the skills in `.claude/skills/`. Geometry
-checking is uneven so far: the spur gear has Go proofs under `proof/spurgear/`, the helical sketch
-scheme has a bench at `spec/helicalgear/sketch/`, and the remaining gears are checked only by loading
-them into Fusion.
+checking is uneven so far: the spur, helical and bevel gears have Go proofs under `proof/spurgear/`,
+`proof/helicalgear/` and `proof/bevelgear/`, which build the real sketches and solids and check them
+before anything reaches Fusion; the spur and helical sketch schemes also have benches at
+`spec/spurgear/sketch/` and `spec/helicalgear/sketch/`; and the herringbone gear and the cycloidal
+drive are checked only by loading them into Fusion.
 
 So a fix goes into the spec, or into the shared `.claude/skills/generate-gear/PLAYBOOK.md` when the
 behaviour applies to every gear, and then you regenerate. Editing `lib/geargen/<gear>.py` directly

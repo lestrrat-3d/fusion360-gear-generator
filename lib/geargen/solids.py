@@ -161,6 +161,15 @@ def slice_body_by_offset_planes(component, body, basePlane, offsets):
 def rotate_body_about_edge(component, body, edge, angle):
     # Rotate `body` by `angle` (radians) about the axis through the sketch
     # edge's WORLD endpoints, via a free-move matrix ([PB-MOVE-ROTATE]).
+    #
+    # A zero angle is a no-op, not a move: setToRotation(0, ...) builds the identity
+    # and Fusion refuses to move a body by it with
+    # `RuntimeError: 3 : invalid transform` (observed 2026-09-02, the bevel pinion,
+    # whose mesh phase is 0 by default). Every caller that computes an angle can
+    # legitimately arrive at zero, so the helper absorbs it rather than making each
+    # one guard the call.
+    if angle == 0:
+        return
     startW = edge.startSketchPoint.worldGeometry
     endW = edge.endSketchPoint.worldGeometry
     axisVec = adsk.core.Vector3D.create(

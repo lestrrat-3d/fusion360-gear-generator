@@ -1037,6 +1037,16 @@ def main():
         if receiver_type is None:
             unresolved.append((name, node.lineno, None, 'unknown receiver'))
             continue
+        # receiver_type may be the qualified name or just the class tail, so match either.
+        refuted = next(
+            (row for row in fusion_api.REFUTED_CALLS
+             if row[0] == name
+             and receiver_type in (row[1], row[1].rsplit('.', 1)[-1])), None)
+        if refuted:
+            # The database declares it and Fusion does not have it, so resolving against the
+            # database would wave through a call that raises at runtime.
+            unresolved.append((name, node.lineno, receiver_type, 'refuted: ' + refuted[2]))
+            continue
         info = api_member_info(receiver_type, name)
         if info:
             resolved_names.add(name)
@@ -1056,7 +1066,14 @@ def main():
         print('api-call check: BLOCKING (%d)' % len(unresolved))
         for name, lineno, receiver_type, reason in sorted(unresolved, key=lambda row: row[1]):
             near = fusion_api.similar(name)
-            if hits.get(name):
+            if reason.startswith('refuted: '):
+                # The database declares this one, so the generic "no such name" text would be
+                # wrong and the evidence is the whole point of the entry.
+                print("  %s:%d calls '%s(' on %s — the database declares it but Fusion does "
+                      "NOT have it. %s"
+                      % (args.target, lineno, name, receiver_type,
+                         reason[len('refuted: '):]))
+            elif hits.get(name):
                 if receiver_type is None:
                     detail = "the receiver type is not known"
                 else:

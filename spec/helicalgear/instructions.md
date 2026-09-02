@@ -86,8 +86,10 @@ no standalone generator; the spur pipeline is inherited. These names are the rep
 Imports (explicit, no `import *`, per the PLAYBOOK Module-layout rule): from `.spurgear` —
 `PARAM_MODULE, PARAM_TOOTH_NUMBER, PARAM_THICKNESS, SpurGearCommandInputsConfigurator,
 SpurGearGenerationContext, SpurGearGenerator, SpurGearInvoluteToothDesignGenerator`; from `.base` —
-`GenerationContext, get_value`; from `.utilities` — `find_profile_by_curve_counts`; plus `math`,
-`adsk.core`, `adsk.fusion`.
+`get_value`; from `.utilities` — `find_profile_by_curve_counts`; plus `math`,
+`adsk.core`, `adsk.fusion`. `GenerationContext` is **not** imported: the overrides annotate
+`ctx: SpurGearGenerationContext` and narrow with an assertion, so nothing in this module names the
+base type.
 
 ## Generation Context — spur's, plus two fields
 
@@ -132,9 +134,26 @@ boundaries.** Helical overrides exactly these methods:
 `SpurGearInvoluteToothDesignGenerator`.
 
 The three `ctx`-taking overrides — `buildSketches`, `buildTooth`, `loftTooth` — **annotate the
-parameter as `ctx: GenerationContext`** (the base type imported from `.base`), matching the inherited
-signatures. This is why `GenerationContext` is in the import list; keep the annotation so the import
-is used.
+parameter as `ctx: SpurGearGenerationContext`**, which is what the inherited signatures actually
+declare, and then **narrow it to this gear's context at the top of each body**:
+
+```python
+def buildSketches(self, ctx: SpurGearGenerationContext):
+    assert isinstance(ctx, HelicalGearGenerationContext)
+```
+
+`newContext()` returns a `HelicalGearGenerationContext`, so the assertion always holds at runtime and
+fails loudly and immediately if a caller ever passes something else. Every read and write of a
+helical-only field — `ctx.helixPlane`, `ctx.twistedGearProfileSketch` — happens after it.
+
+⚠️ **Do not annotate the parameter as `GenerationContext`.** That is *wider* than the inherited
+signature, not equal to it: `SpurGearGenerator.buildSketches` declares
+`ctx: SpurGearGenerationContext`. Under the wider annotation every helical-only field access is a
+type error against a class that does not declare it, and `super().buildSketches(ctx)` passes a base
+type to a parameter wanting the spur one — seven complaints on a module that runs correctly, which is
+exactly the noise that trains a reader to stop reading them. **Do not narrow the parameter to
+`HelicalGearGenerationContext` either**, since narrowing a parameter in an override is its own error.
+The annotation matches the base and the assertion does the narrowing.
 
 ## Generation Order — spur's 12 steps, with two deltas
 

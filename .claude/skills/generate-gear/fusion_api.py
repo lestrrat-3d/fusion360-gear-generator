@@ -73,6 +73,23 @@ _MEMBER = re.compile(r'^\s{2}(\w+)')
 # They are not failures either, because nothing has established that Fusion rejects them — the
 # shipped add-in makes all three and is believed to run. Only loading the add-in settles it, and
 # whichever way it goes the fix belongs in the spec, not in a generated file.
+# The inverse of UNVERIFIED_CALLS: calls the database and the intellisense stubs both DECLARE,
+# and which Fusion's runtime does not actually have. The database cannot refute these on its own —
+# it is built from the same published reference the stubs are — so only running the add-in finds
+# them, and the finding has to be written down here or the next generation re-emits the same call
+# past a green gate. check_api_calls.py treats a match as BLOCKING.
+#
+# Each row is (attribute, receiver class, evidence).
+REFUTED_CALLS = (
+    ('cast', 'adsk.core.Base',
+     "Fusion raises AttributeError: type object 'Base' has no attribute 'cast' — observed "
+     "2026-09-02 building a bevel pair, from bevelgear seeding an optional field with "
+     "adsk.core.Base.cast(None). The database reports Base.cast as a staticmethod and the stub "
+     "declares it at core.py, so pyright, check_api_calls and the novel-type check all pass it. "
+     "Every concrete subclass does have cast, so seed such a field with the cast of the class the "
+     "field actually holds, e.g. adsk.fusion.ConstructionPlane.cast(None)."),
+)
+
 UNVERIFIED_CALLS = (
     ('project', 'adsk.fusion.Sketch', ('Sketch',),
      'the shipped add-ins call `sketch.project(entity)`, and the spur step list names it'),

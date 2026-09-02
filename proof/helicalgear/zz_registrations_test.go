@@ -9,10 +9,10 @@ import (
 	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit3d"
 )
 
-func TestTwistedGearProfileSketch(t *testing.T) {
-	proofkit.Run(t, sketchCases, stepTwistedGearProfileSketch)
+func TestTwistedGearProfile(t *testing.T) {
+	proofkit.Run(t, twistedProfileCases, stepTwistedGearProfile)
 }
 
 func TestLoftTooth(t *testing.T) {
-	proofkit3d.RunSolid(t, solidCases, stepLoftTooth, assertLoftTooth)
+	proofkit3d.RunSolid(t, loftCases, stepLoftTooth, assertLoftTooth)
 }

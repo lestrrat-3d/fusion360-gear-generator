@@ -28,17 +28,39 @@ in `PLAYBOOK.md` still apply).
   direction is fixed, the §2 lattice is fully determined by its existing net; the per-gear Profile
   sketches are made fully constrained by recreating their six vertices as **fixed points** per the
   `[PB-PROJECT-NOT-FIXED]` recreate-share-fix recipe, not by projecting §2 points.
-  - **Exemption — the two tooth-profile sketches.** They are drawn by the borrowed spur generator,
-    which leaves the **embedded** (low-tooth-count) tooth under-constrained: when the involute flank
-    starts *inside* the root circle the generator omits the flank-to-root lines that radially pin the
-    flanks (see `spec/spurgear/fusion.md`, `[SPUR-F-FLANK-ROOT]`), so the flanks keep a free radial
-    DOF. This is **benign here** — the spur generator places every involute point at its computed
-    position and the tooth profile is consumed immediately by the apex→profile loft, so the residual
-    DOF never moves anything. After `draw()` returns, do **NOT** raise on the tooth sketch — at most
-    `futil.log` it if `not toothSketch.isFullyConstrained`. Forcing full constraint would require
-    pinning the embedded tooth inside the shared spur generator, risking the whole
-    spur/helical/herringbone family for no benefit. (Lower-tooth-count gears — e.g. module 2 /
-    driving 19 / pinion 13 — fail the gate otherwise.)
+  - **Exemption — the two tooth-profile sketches, and ONLY because they are labelled.** They are
+    drawn by the borrowed spur generator, whose `drawCircles` labels each of the four circles with
+    along-path sketch text (`[PB-SKETCH-TEXT]`). `sketch.isFullyConstrained` counts sketch text, and
+    text placed with `setAsAlongPath` carries its own position along the curve, which nothing in
+    these recipes pins — so a tooth sketch whose geometry is completely determined still reads
+    `False` purely because it is labelled. Measured in Fusion 2026-09-02: `False` with the four
+    circle labels, `True` for the same sketch with the labels deleted and no other change. Bevel's
+    own four sketches carry no text, which is why they gate normally. (This behaviour holds for any
+    gear that labels a sketch, so it belongs in `PLAYBOOK.md`; it is recorded here for now because
+    promoting it restamps every other gear's step list.) After `draw()`
+    returns, do **NOT** raise on the tooth sketch — at most `futil.log` it if
+    `not toothSketch.isFullyConstrained`.
+
+    ⚠️ **This exemption covers the labels and nothing else. Never read it as licence for loose
+    geometry.** Its earlier wording claimed the embedded tooth kept a free radial DOF because the
+    flank-to-root stubs are omitted, that the residual DOF was benign since the profile is consumed
+    immediately by the loft, and that fixing it would mean pinning the embedded tooth inside the
+    shared generator at risk to the whole spur family. All three were wrong. Each stub is
+    DOF-neutral (it adds a free root end and the two dimensions that pin it), and
+    `spec/spurgear/sketch/main.go` proves the embedded scheme reaches DOF 0 without them. The
+    residual DOF was the tooth-top arc's **centre**, which `addByCenterStartEnd` copies rather than
+    shares, and step 5's anchor coincidence moves it a great deal: everything else is dragged onto
+    K′/L′ while the stranded centre stays put. And the fix was one coincident constraint in the
+    shared generator, which all eleven bench cases pass.
+
+    That wrong reasoning let a deformed tooth ship. Measured in Fusion 2026-09-02 on a default
+    31/31 pair, the pinion's tooth-top arc came out at 0.5743 mm and the driving gear's at
+    17.0204 mm where both should have been the 22.5 mm tip radius, giving the pinion a 27% larger
+    cross-section and a visible crown, from two sketches with byte-identical constraint counts and
+    dimension values. With the fix both read 22.5 mm exactly, a centre gap of 0.000000 mm, and an
+    identical 3.5475 mm² profile. Before renewing this exemption, delete the four labels and
+    re-check: the geometry must read `True` on its own (it does, on both gears), and if it ever
+    does not, that is a defect to fix rather than to excuse.
   - **Exemption — the spiral build's auxiliary sketches.** When ψ > 0 the spiral tooth build (§3a)
     authors transient construction sketches — the `{gear} 2D Tooth Trace` (cutter arc) and the
     `{gear} Cone Element` line / `{gear} Trace Plane` it sits on. (There is **no** 3-D projection,
