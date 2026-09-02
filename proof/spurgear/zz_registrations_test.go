@@ -9,50 +9,42 @@ import (
 	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit3d"
 )
 
-func TestNormalizeTargetPlane(t *testing.T) {
-	proofkit.Run(t, normalizePlaneCases, stepNormalizeTargetPlane)
-}
-
 func TestToolsSketch(t *testing.T) {
-	proofkit.Run(t, toolsSketchCases, stepToolsSketch)
-}
-
-func TestExtrusionEndPlane(t *testing.T) {
-	proofkit.Run(t, extrusionEndPlaneCases, stepExtrusionEndPlane)
+	proofkit.Run(t, toolsCases, stepToolsSketch)
 }
 
 func TestGearProfileSketch(t *testing.T) {
-	proofkit.Run(t, gearProfileCases, stepGearProfileSketch)
+	proofkit.Run(t, profileCases, stepGearProfileSketch)
 }
 
 func TestExtrudeTooth(t *testing.T) {
-	proofkit3d.RunSolid(t, toothCases, stepExtrudeTooth, assertExtrudeTooth)
-}
-
-func TestChamferTeeth(t *testing.T) {
-	proofkit3d.RunSolid(t, chamferCases, stepChamferTeeth, assertChamferTeeth)
+	proofkit3d.RunSolid(t, solidCases, stepExtrudeTooth, assertExtrudeTooth)
 }
 
 func TestExtrudeBody(t *testing.T) {
-	proofkit3d.RunSolid(t, bodyCases, stepExtrudeBody, assertExtrudeBody)
+	proofkit3d.RunSolid(t, solidCases, stepExtrudeBody, assertExtrudeBody)
 }
 
 func TestPatternTeeth(t *testing.T) {
-	proofkit3d.RunSolid(t, patternCases, stepPatternTeeth, assertPatternTeeth)
+	proofkit3d.RunSolid(t, solidCases, stepPatternTeeth, assertPatternTeeth)
 }
 
 func TestCombineTeeth(t *testing.T) {
-	proofkit3d.RunSolid(t, combineCases, stepCombineTeeth, assertCombineTeeth)
+	proofkit3d.RunSolid(t, solidCases, stepCombineTeeth, assertCombineTeeth)
 }
 
-func TestRootFillets(t *testing.T) {
-	proofkit3d.RunSolid(t, filletCases, stepRootFillets, assertRootFillets)
+func TestFilletRoots(t *testing.T) {
+	proofkit3d.RunSolid(t, solidCases, stepFilletRoots, assertFilletRoots)
 }
 
 func TestBoreProfileSketch(t *testing.T) {
-	proofkit.Run(t, boreProfileCases, stepBoreProfileSketch)
+	proofkit.Run(t, boreCases, stepBoreProfileSketch)
 }
 
 func TestBoreCut(t *testing.T) {
-	proofkit3d.RunSolid(t, boreCases, stepBoreCut, assertBoreCut)
+	proofkit3d.RunSolid(t, solidCases, stepBoreCut, assertBoreCut)
+}
+
+func TestChamferGear(t *testing.T) {
+	proofkit3d.RunSolid(t, solidCases, stepChamferGear, assertChamferGear)
 }

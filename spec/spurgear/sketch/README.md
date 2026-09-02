@@ -54,7 +54,8 @@ prescribe, mapping each Fusion constraint to its sketch-engine equivalent:
 | local origin `SketchPoint` at (0,0), anchored by coincidence (step 5) | `CreatePoint(0,0)` + `MoveTo` + `Fix` |
 | 4 circles sharing the origin center + driving diameter dims (step 3) | `CreateCircle(origin, r)` + `NewDiameter` |
 | involute flanks as fitted splines (step 4) | `CreateSpline(pts...)` |
-| tooth-top arc `addByCenterStartEnd` without a diameter; root-circle split (`[SPUR-F-TOOTHTOP-ARC]`) | `CreateArc(origin, a, b)`; root split uses `CreateArc(freeCenter, a, b)` + `NewDiameter` |
+| tooth-top arc `addByCenterStartEnd` without a diameter, centre coincident to the local origin (`[SPUR-F-TOOTHTOP-ARC]`) | `CreateArc(freeCentre, a, b)` + `NewCoincident(freeCentre, origin)` |
+| root-circle split into the tooth's bottom boundary (non-embedded only) | `CreateArc(freeCenter, a, b)` + `NewDiameter` |
 | +X reference and angular pin (`[SPUR-F-SPINE]`, every angle) | `NewHorizontalDistance` + `NewVerticalDistance` + `NewAngle` |
 | ribs: signed across-spine dimension, midpoint-on-spine, midpoint, ⊥ except on the final rib, signed along-spine chain dims (`[SPUR-F-RIBS]`) | `NewHorizontalDistance` or `NewVerticalDistance` by axis, `NewPointOnLine`, `NewMidpoint`, `NewPerpendicular` except on the final rib |
 | flank-to-root lines: root endpoint pinned by signed Δx and Δy from the local origin (`[SPUR-F-FLANK-ROOT]`) | `NewHorizontalDistance(origin, rootEnd, dx)` + `NewVerticalDistance(origin, rootEnd, dy)` |
@@ -91,6 +92,26 @@ all of solvable + DOF 0 + no redundant + no conflict.
   Fusion relies on initial geometry placement. `DOF == 0` means each discrete
   solution is itself rigid, so this is not an under-constraint.
 
+## The negative control
+
+The tooth-top arc's centre is the one place this bench earns its keep, so it also proves
+it can still *detect* the defect. `addByCenterStartEnd` shares its start and end points
+but **copies** the centre, so the arc's centre is a fresh free point and the spec's
+explicit `addCoincident` is what pins it (`[SPUR-F-TOOTHTOP-ARC]`, `[PB-SHARE-XOR-COINCIDENT]`).
+After the normal sweep the bench re-runs one embedded case with that coincidence dropped
+and **requires it to fail**:
+
+```
+--- negative control: tooth-top arc centre left free (must FAIL) ---
+Solve: converged=true DOF=2 redundant=0 | Verify: status=underconstrained conditioning=+Inf
+negative control failed as required: a free arc centre does not fully constrain.
+```
+
+If that control ever passes, the bench has stopped seeing a free arc centre and the run
+fails on that alone. This is the defect that shipped a crowned bevel pinion in Fusion on
+2026-09-02: a stranded centre 22.9 mm behind its origin gave a 0.5743 mm tooth-top arc
+where 22.5 mm was intended, with no error anywhere.
+
 ## A fragility the gate catches
 
 Near the embedded transition (`base ≈ root`, about `N = 42` at 20° pressure
@@ -100,7 +121,15 @@ runs are comfortably clear of it.
 
 ## Scope
 
-Models the non-embedded Gear Profile sketch (the `base > root` case, the default
-spur). The Tools sketch carries no geometry (just an anchor projection — nothing
-to constrain). The embedded 4-curve variant (`base < root`) is not modelled here;
-its bottom-arc constraint recipe is not separately pinned in the spec.
+Models both variants of the Gear Profile sketch. The **non-embedded** 6-curve case
+(`base > root`, the default spur) draws the two flank-to-root stubs and an explicit
+root arc. The **embedded** 4-curve case (`base < root`, above about `N = 42` at 20°
+pressure angle) draws neither: its flanks already start inside the root circle, so
+the bottom boundary is the solid root circle itself, which is what Fusion splits.
+
+The embedded case is not a curiosity. The bevel gear borrows this drawer through
+`VirtualSpurProxy`, and its virtual tooth count is embedded for every ordinary bevel,
+so the bevel tooth has only ever been drawn on that branch. `M=1 N=43 angle=180°` is
+exactly what a default 31/31 bevel pair draws.
+
+The Tools sketch carries no geometry (just an anchor projection — nothing to constrain).

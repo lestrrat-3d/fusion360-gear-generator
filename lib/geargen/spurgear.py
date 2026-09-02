@@ -1,21 +1,23 @@
-"""Spur gear generator, emitted from spec/spurgear/steps.md.
+"""Spur gear generator, emitted from the compiled step list spec/spurgear/steps.md (S1-S16).
 
-The geometry and constraint scheme are proven in proof/spurgear/
-(geometry_test.go, sketches_test.go, solids_test.go); the [GO]-tagged steps
-are transliterated from that proof, not re-derived. Lengths in Fusion's
-internal units are cm.
+The geometry is transliterated from proof/spurgear/ (sketches_test.go, solids_test.go) for the
+steps the step list tags [GO]; nothing here is re-derived.
+
+Units: Fusion's internal units are centimetres for length and radians for angle. A dialog's unit
+string controls display and expression parsing only, so every ValueInput.createByReal default is
+written in internal units ([PB-DIALOG-DEFAULT-UNITS]).
 """
 
 import math
 
 import adsk.core, adsk.fusion
 
-from ...lib import fusion360utils as futil
-from .misc import to_cm, get_design
-from .base import Generator, GenerationContext, get_value, get_boolean, get_selection
-from .utilities import get_normal, find_profile_by_curve_counts
+from .base import Generator, GenerationContext, get_boolean, get_selection, get_value
+from .misc import get_design, to_cm
+from .utilities import find_profile_by_curve_counts, get_normal
 
-# Dialog input ids (step 1). Public API: dependents import these by name.
+# Dialog input ids (S1). helicalgear.py and herringbonegear.py import these by name, so the
+# identifiers and their string values are contract surface ([SPUR-EXPORTED-CONSTANTS]).
 INPUT_ID_PARENT = 'parentComponent'
 INPUT_ID_PLANE = 'plane'
 INPUT_ID_ANCHOR_POINT = 'anchorPoint'
@@ -27,7 +29,7 @@ INPUT_ID_THICKNESS = 'thickness'
 INPUT_ID_CHAMFER_TOOTH = 'chamferTooth'
 INPUT_ID_SKETCH_ONLY = 'sketchOnly'
 
-# Parameter names (step 1). Public API: dependents import these by name.
+# Registered user-parameter names (S2). The prefix base below turns each into SpurGear<N>_<name>.
 PARAM_MODULE = 'Module'
 PARAM_TOOTH_NUMBER = 'ToothNumber'
 PARAM_PRESSURE_ANGLE = 'PressureAngle'
@@ -49,70 +51,79 @@ PARAM_TOOTH_SPACE_ARC = 'ToothSpaceArcAtRoot'
 PARAM_FILLET_CLEARANCE = 'FilletClearance'
 PARAM_FILLET_RADIUS = 'FilletRadius'
 
+# The label of the sketch-only check box (S1 item 9), quoted from the step list.
+SKETCH_ONLY_LABEL = 'Generate sketches, but do not build body'
 
-def _rotate(x, y, a):
-    """Turn (x, y) counter-clockwise by a radians."""
-    ca, sa = math.cos(a), math.sin(a)
+# Tolerance, in internal centimetres, for matching a face or edge radius against a parameter.
+RADIUS_TOLERANCE = 0.001
+
+
+def _rotate(x, y, angle):
+    """Turn (x, y) counter-clockwise by angle radians."""
+    sa, ca = math.sin(angle), math.cos(angle)
     return x * ca - y * sa, x * sa + y * ca
 
 
 class SpurGearCommandInputsConfigurator:
-    """Adds the dialog inputs (step 2). The shared command entry invokes
-    configure when the dialog opens; subclass configurators reach it through
-    super().configure(cmd) and append their extras after Parent Component
-    [SPUR-SUBCLASS-INPUT]."""
+    """S1: the command dialog. `configure` is called by the shared command wiring in
+    commands/_gear_command.py; this module declares it and never calls it.
+
+    The add order below is the display order, not the processInputs read order. Target Plane is
+    first because Fusion auto-focuses the first selection input ([PB-AUTOFOCUS-FIRST]), and
+    Parent Component is last so a subclass appending its own input after super().configure(cmd)
+    lands below it ([SPUR-SUBCLASS-INPUT])."""
 
     @classmethod
     def configure(cls, cmd: adsk.core.Command):
         inputs = cmd.commandInputs
 
-        # Target Plane and Anchor Point come first so plane selection owns
-        # the dialog's initial focus ([PB-AUTOFOCUS-FIRST]). Filters are the
-        # enum attributes of SelectionCommandInput ([PB-SELECTION-FILTER-ENUM]).
+        # 1. Target Plane. Filters and limits are declared per input ([PB-SELECTION-DECL]) and
+        # each filter is the named enum member, never a string ([PB-SELECTION-FILTER-ENUM]).
         planeInput = inputs.addSelectionInput(
-            INPUT_ID_PLANE, 'Target Plane',
-            'Select the plane or planar face the gear is built on')
+            INPUT_ID_PLANE, 'Target Plane', 'Select the plane to build the gear on')
         planeInput.addSelectionFilter(adsk.core.SelectionCommandInput.ConstructionPlanes)
         planeInput.addSelectionFilter(adsk.core.SelectionCommandInput.PlanarFaces)
         planeInput.setSelectionLimits(1, 1)
 
+        # 2. Anchor Point.
         anchorInput = inputs.addSelectionInput(
-            INPUT_ID_ANCHOR_POINT, 'Anchor Point',
-            'Select the point the gear is centred on')
+            INPUT_ID_ANCHOR_POINT, 'Anchor Point', 'Select the point the gear is centered on')
         anchorInput.addSelectionFilter(adsk.core.SelectionCommandInput.ConstructionPoints)
         anchorInput.addSelectionFilter(adsk.core.SelectionCommandInput.SketchPoints)
         anchorInput.setSelectionLimits(1, 1)
 
+        # 3. Module: unitless, so the unit string is empty and not 'mm'.
         inputs.addValueInput(
-            INPUT_ID_MODULE, 'Module', '',
-            adsk.core.ValueInput.createByReal(1))
+            INPUT_ID_MODULE, 'Module', '', adsk.core.ValueInput.createByReal(1))
+
+        # 4. Tooth Number.
         inputs.addValueInput(
-            INPUT_ID_TOOTH_NUMBER, 'Tooth Number', '',
-            adsk.core.ValueInput.createByReal(17))
-        # createByReal defaults are in internal units whatever the display
-        # unit says ([PB-DIALOG-DEFAULT-UNITS]): radians here, cm below.
+            INPUT_ID_TOOTH_NUMBER, 'Tooth Number', '', adsk.core.ValueInput.createByReal(17))
+
+        # 5. Pressure Angle: displayed in degrees, defaulted in internal radians.
         inputs.addValueInput(
             INPUT_ID_PRESSURE_ANGLE, 'Pressure Angle', 'deg',
             adsk.core.ValueInput.createByReal(math.radians(20)))
-        # A string input so it accepts expressions.
+
+        # 6. Bore Diameter is a string input so it accepts an expression.
         inputs.addStringValueInput(INPUT_ID_BORE_DIAMETER, 'Bore Diameter', '0 mm')
+
+        # 7. Thickness: displayed in millimetres, defaulted in internal centimetres.
         inputs.addValueInput(
             INPUT_ID_THICKNESS, 'Thickness', 'mm',
             adsk.core.ValueInput.createByReal(to_cm(10)))
+
+        # 8. Tooth chamfer distance.
         inputs.addValueInput(
             INPUT_ID_CHAMFER_TOOTH, 'Apply chamfer to teeth', 'mm',
             adsk.core.ValueInput.createByReal(0))
-        inputs.addBoolValueInput(
-            INPUT_ID_SKETCH_ONLY, 'Generate sketches, but do not build body',
-            True, '', False)
 
-        # Parent Component is last; the spec pins the pre-selection outcome
-        # (the root component starts selected). addSelection is the API for
-        # adding to a selection input; Fusion documents it as invalid during
-        # commandCreated, which is when configure runs — see the emit report.
+        # 9. The sketch-only switch. The trailing True makes it a check box, not a button.
+        inputs.addBoolValueInput(INPUT_ID_SKETCH_ONLY, SKETCH_ONLY_LABEL, True)
+
+        # 10. Parent Component, last, pre-selected on the root component.
         parentInput = inputs.addSelectionInput(
-            INPUT_ID_PARENT, 'Parent Component',
-            'Select the component the gear is created under')
+            INPUT_ID_PARENT, 'Parent Component', 'Select the component to build the gear in')
         parentInput.addSelectionFilter(adsk.core.SelectionCommandInput.Occurrences)
         parentInput.addSelectionFilter(adsk.core.SelectionCommandInput.RootComponents)
         parentInput.setSelectionLimits(1, 1)
@@ -120,102 +131,125 @@ class SpurGearCommandInputsConfigurator:
 
 
 class SpurGearGenerationContext(GenerationContext):
-    """Data carrier for one spur gear build (step 1). The field names are
-    public API; subclasses read and add to them."""
+    """The build context the spur pipeline threads through its steps."""
 
     def __init__(self):
+        super().__init__()
+        # The normalized target plane (S3).
         self.plane = adsk.fusion.ConstructionPlane.cast(None)
+        # The anchor projected into the Tools sketch; every later sketch re-projects this one
+        # point ([SPUR-F-ANCHOR-CHAIN]).
         self.anchorPoint = adsk.fusion.SketchPoint.cast(None)
+        # The to-entity target both extrudes end on (S5).
         self.extrusionEndPlane = adsk.fusion.ConstructionPlane.cast(None)
         self.gearProfileSketch = adsk.fusion.Sketch.cast(None)
         self.toothBody = adsk.fusion.BRepBody.cast(None)
         self.gearBody = adsk.fusion.BRepBody.cast(None)
         self.centerAxis = adsk.fusion.ConstructionAxis.cast(None)
+        # The far end-cap face the bore cut runs to (S9, S14).
         self.extrusionExtent = adsk.fusion.BRepFace.cast(None)
         self.toothProfileIsEmbedded = False
+        # The two sketches cleanup hides alongside the Gear Profile sketch (S4, S13, S16). The
+        # step list keeps every entity a later step consumes on the context, and cleanup takes
+        # only the context, so these live here too.
+        self.toolsSketch = adsk.fusion.Sketch.cast(None)
+        self.boreProfileSketch = adsk.fusion.Sketch.cast(None)
 
 
 class SpurGearInvoluteToothDesignGenerator:
-    """Draws the involute tooth profile into a sketch (steps 5 and 9).
+    """S6 and S13: the drawing of one involute tooth, and of the bore circle, in one sketch.
 
-    The parent is the generator (or a VirtualSpurProxy when bevel borrows
-    this drawer, [PB-PRECOMPUTED-MODE]); on the drawing paths only the keys
-    the proxy serves are read: Module, ToothNumber, PressureAngle, the
-    Pitch/Base/Root/Tip circle diameters and radii, and InvoluteSteps.
-    """
+    The generator is instantiated on the sketch it draws into. helicalgear.py instantiates it on
+    its own loft sketch and calls draw() with a non-zero angle, so everything here is written for
+    an arbitrary requested angle."""
 
-    def __init__(self, sketch: adsk.fusion.Sketch, parent, angle=0):
+    def __init__(self, sketch: adsk.fusion.Sketch, parent):
         self.sketch = sketch
         self.parent = parent
-        # Retained but never used by drawTooth: the live rotation always
-        # comes from draw()'s runtime argument. Reading self.toothAngle
-        # instead draws a flat tooth and kills the helical loft's twist.
-        self.toothAngle = angle
-        # [SPUR-F-LOCAL-ORIGIN] the movable local origin: a fresh SketchPoint
-        # at (0, 0, 0), never the sketch's own origin point.
+
+        # The local origin ([SPUR-F-LOCAL-ORIGIN]): a fresh, movable SketchPoint at the sketch
+        # origin, never sketch.originPoint, which is immutable and cannot be made coincident with
+        # a projection ([PB-CIRCLE-CENTER]). Every piece of geometry below is drawn relative to
+        # it, and the anchoring at the end of draw() slides the whole drawing onto the user's
+        # anchor point.
         self.anchorPoint = sketch.sketchPoints.add(adsk.core.Point3D.create(0, 0, 0))
-        self.spineDimension = adsk.fusion.SketchAngularDimension.cast(None)
+
+        # Filled in by drawCircles / drawTooth / drawBore.
         self.rootCircle = adsk.fusion.SketchCircle.cast(None)
         self.tipCircle = adsk.fusion.SketchCircle.cast(None)
         self.baseCircle = adsk.fusion.SketchCircle.cast(None)
         self.pitchCircle = adsk.fusion.SketchCircle.cast(None)
+        self.toothAngleDimension = adsk.fusion.SketchAngularDimension.cast(None)
+        self.projectedAnchorPoint = adsk.fusion.SketchPoint.cast(None)
 
-    def getParameter(self, name):
+    # --- parameter access -----------------------------------------------------------------
+
+    def getParameter(self, name: str):
         return self.parent.getParameter(name)
 
-    def getParameterValue(self, name):
-        return self.parent.getParameter(name).value
+    def getParameterValue(self, name: str) -> float:
+        return self.getParameter(name).value
 
-    def calculateInvolutePoint(self, baseRadius, intersectionRadius):
-        """The involute point at the radius where the unrolled string reaches
-        intersectionRadius, or None inside the base circle. The curve
-        parameter is tan(alpha), NOT inv(alpha) = tan(alpha) - alpha; using
-        the involute function mis-parameterises the flank (step 5)."""
-        if intersectionRadius < baseRadius:
+    # --- involute math --------------------------------------------------------------------
+
+    def calculateInvolutePoint(self, baseCircleRadius: float, intersectionRadius: float):
+        """The point on the involute of baseCircleRadius where the unrolled string reaches
+        intersectionRadius, or None inside the base circle, where the curve does not exist.
+
+        The curve parameter is tan(alpha), NOT the involute function tan(alpha) - alpha."""
+        if intersectionRadius < baseCircleRadius:
             return None
-        alpha = math.acos(baseRadius / intersectionRadius)
+        alpha = math.acos(baseCircleRadius / intersectionRadius)
         t = math.tan(alpha)
-        x = baseRadius * (math.cos(t) + t * math.sin(t))
-        y = baseRadius * (math.sin(t) - t * math.cos(t))
+        x = baseCircleRadius * (math.cos(t) + t * math.sin(t))
+        y = baseCircleRadius * (math.sin(t) - t * math.cos(t))
         return adsk.core.Point3D.create(x, y, 0)
 
-    def draw(self, anchorPoint, angle=0):
-        """Step 9: circles, tooth, anchoring, and — very last, only when
-        angle != 0 — the confirming angular dimension [SPUR-F-ROTATE-CONFIRM].
-        The anchoring lives here, not in buildSketches: helical calls draw
-        directly on its twisted sketch and relies on this one call."""
+    # --- the Gear Profile sketch (S6) -----------------------------------------------------
+
+    def draw(self, anchorPoint, angle: float = 0):
+        """Draw the circles, the tooth, and the anchoring that ties the drawing to the user's
+        anchor point; then, for a rotated tooth only, confirm the rotation."""
         self.drawCircles()
         self.drawTooth(angle)
-        # [SPUR-F-ANCHOR-CHAIN] everything above hangs off the local origin;
-        # this one coincidence to the re-projected Tools anchor slides the
-        # whole tooth onto the user's anchor.
-        projectedAnchor = adsk.fusion.SketchPoint.cast(
-            self.sketch.project(anchorPoint).item(0))
-        self.sketch.geometricConstraints.addCoincident(self.anchorPoint, projectedAnchor)
+
+        # The anchoring ([SPUR-F-ANCHOR-CHAIN]). It happens here rather than in buildSketches
+        # because helical and herringbone call draw() directly on their own loft sketch and rely
+        # on this one call to anchor it. A projection is associative but not fixed
+        # ([PB-PROJECT-NOT-FIXED]), so this coincidence is what carries the sketch to full
+        # constraint ([PB-FULL-CONSTRAINT]).
+        projected = self.sketch.project(anchorPoint)
+        self.sketch.geometricConstraints.addCoincident(self.anchorPoint, projected.item(0))
+        self.projectedAnchorPoint = projected.item(0)
+
+        # [SPUR-F-ROTATE-CONFIRM]: the value-set is the very last action of draw, after the whole
+        # constraint network exists, and it carries the sign a mirrored scheme would lose.
         if angle != 0:
-            # Set only after the entire constraint network exists.
-            self.spineDimension.parameter.value = angle
+            self.toothAngleDimension.parameter.value = angle
 
     def drawCircles(self):
-        """The four circles, all centred by sharing the one local-origin
-        SketchPoint ([PB-SHARE-XOR-COINCIDENT], [SPUR-F-SHARED-ADJACENCY]):
-        root solid, tip/base/pitch construction, each with a driving diameter
-        dimension and an along-path label."""
+        """The four gear circles, all sharing the local origin SketchPoint."""
         sketch = self.sketch
-        origin = self.anchorPoint
+        circles = sketch.sketchCurves.sketchCircles
+
         rootRadius = self.getParameterValue(PARAM_ROOT_RADIUS)
         tipRadius = self.getParameterValue(PARAM_TIP_RADIUS)
         baseRadius = self.getParameterValue(PARAM_BASE_RADIUS)
         pitchRadius = self.getParameterValue(PARAM_PITCH_RADIUS)
+
+        # The text height, and the size the labels report.
         size = tipRadius - rootRadius
 
-        circles = sketch.sketchCurves.sketchCircles
-        self.rootCircle = circles.addByCenterRadius(origin, rootRadius)
-        self.tipCircle = circles.addByCenterRadius(origin, tipRadius)
+        # The local-origin SketchPoint object is passed in, so all four circles SHARE it
+        # ([PB-SHARE-XOR-COINCIDENT] via [SPUR-F-SHARED-ADJACENCY]) and none of them gets a
+        # coincident to it. Only the root circle is solid: the tip circle is construction
+        # geometry, which is why the body extrude sees a disc and not an annulus.
+        self.rootCircle = circles.addByCenterRadius(self.anchorPoint, rootRadius)
+        self.tipCircle = circles.addByCenterRadius(self.anchorPoint, tipRadius)
+        self.baseCircle = circles.addByCenterRadius(self.anchorPoint, baseRadius)
+        self.pitchCircle = circles.addByCenterRadius(self.anchorPoint, pitchRadius)
         self.tipCircle.isConstruction = True
-        self.baseCircle = circles.addByCenterRadius(origin, baseRadius)
         self.baseCircle.isConstruction = True
-        self.pitchCircle = circles.addByCenterRadius(origin, pitchRadius)
         self.pitchCircle.isConstruction = True
 
         for name, circle, radius in (
@@ -223,268 +257,292 @@ class SpurGearInvoluteToothDesignGenerator:
                 ('Tip Circle', self.tipCircle, tipRadius),
                 ('Base Circle', self.baseCircle, baseRadius),
                 ('Pitch Circle', self.pitchCircle, pitchRadius)):
-            # Driving is the default; never pass isDriven ([PB-DRIVING-DIM]).
-            # The text point is off-centre, near the curve ([PB-RADIAL-DIM]).
-            sketch.sketchDimensions.addDiameterDimension(
-                circle,
-                adsk.core.Point3D.create(radius * 0.7071, radius * 0.7071, 0))
-            # Along-path label ([PB-SKETCH-TEXT]).
-            label = '{} (r={:.2f}, size={:.2f})'.format(name, radius, size)
-            textInput = sketch.sketchTexts.createInput2(label, size)
+            # A driving diameter dimension: driving is the default and the trailing driven flag
+            # is never passed ([PB-DRIVING-DIM]). The text point sits on the circle, because a
+            # diameter dimension rejects a text point at the centre ([PB-RADIAL-DIM]).
+            textPoint = adsk.core.Point3D.create(
+                radius * math.cos(math.pi / 4), radius * math.sin(math.pi / 4), 0)
+            sketch.sketchDimensions.addDiameterDimension(circle, textPoint)
+
+            # Label the circle along its own path ([PB-SKETCH-TEXT]'s fixed three-call shape).
+            text = '{} (r={:.2f}, size={:.2f})'.format(name, radius, size)
+            textInput = sketch.sketchTexts.createInput2(text, size)
             textInput.setAsAlongPath(
-                circle, True,
-                adsk.core.HorizontalAlignments.CenterHorizontalAlignment, 0)
+                circle, True, adsk.core.HorizontalAlignments.CenterHorizontalAlignment, 0)
             sketch.sketchTexts.add(textInput)
 
-    def drawTooth(self, angle=0):
-        """One involute tooth, drawn already at its final rotation (step 9).
-        Rotates by the angle argument, never self.toothAngle."""
-        sketch = self.sketch
-        origin = self.anchorPoint
+    def drawTooth(self, angle: float = 0):
+        """One involute tooth, drawn at its final angular position."""
+        toothNumber = self.getParameterValue(PARAM_TOOTH_NUMBER)
         baseRadius = self.getParameterValue(PARAM_BASE_RADIUS)
         tipRadius = self.getParameterValue(PARAM_TIP_RADIUS)
         pitchRadius = self.getParameterValue(PARAM_PITCH_RADIUS)
-        rootRadius = self.getParameterValue(PARAM_ROOT_RADIUS)
-        toothNumber = self.getParameterValue(PARAM_TOOTH_NUMBER)
         steps = int(self.getParameterValue(PARAM_INVOLUTE_STEPS))
 
-        # 9.1 Sample the flank endpoint-inclusively, first sample exactly at
-        # the base radius, last exactly at the tip radius; the start is NOT
-        # clamped to the root circle — the embedded case is detected from
-        # where the flank start lands. Samples inside the base circle drop.
+        leftFlank, rightFlank = self._drawFlanks(
+            baseRadius, tipRadius, pitchRadius, toothNumber, steps, angle)
+        toothTopPoint = self._drawToothTop(leftFlank, rightFlank, tipRadius, angle)
+        spine = self._drawSpine(toothTopPoint, tipRadius, angle)
+        self._drawRibs(leftFlank, rightFlank, spine, angle)
+        self._drawFlankToRoot(leftFlank, rightFlank)
+
+    def _drawFlanks(self, baseRadius, tipRadius, pitchRadius, toothNumber, steps, angle):
+        """The two involute flanks, as fitted splines through endpoint-inclusive samples.
+
+        Three things happen to the samples, in this order. They are mirrored across +X, because
+        the standard parametric involute spirals the wrong way for a left flank; they are rotated
+        so the pitch crossing lands at +pi/(2N), which centres the tooth on +X; and only then is
+        the requested angle applied to both flanks together."""
+        sketch = self.sketch
+
         mirrored = []
         for i in range(steps):
-            r = baseRadius + (tipRadius - baseRadius) * i / (steps - 1)
-            sample = self.calculateInvolutePoint(baseRadius, r)
-            if sample is None:
+            radius = baseRadius + (tipRadius - baseRadius) * i / (steps - 1)
+            point = self.calculateInvolutePoint(baseRadius, radius)
+            if point is None:
                 continue
-            # 9.2 Mirror across +X (negate y) before rotating: the raw
-            # involute's angular position grows with radius, which as a left
-            # flank makes a tooth wider at the tip.
-            mirrored.append((sample.x, -sample.y))
+            mirrored.append((point.x, -point.y))
 
-        # 9.3 Centre the tooth on the analytic pitch crossing of the MIRRORED
-        # flank (atan2(-py, px)), computed rather than interpolated so the
-        # tooth lands right at any sample count.
         pitchPoint = self.calculateInvolutePoint(baseRadius, pitchRadius)
         if pitchPoint is None:
-            raise ValueError(
-                'drawTooth: no involute point at the pitch radius — pitch '
-                'radius {} is inside base radius {}'.format(pitchRadius, baseRadius))
+            raise Exception(
+                'Spur gear: the pitch circle lies inside the base circle, so the involute has '
+                'no pitch crossing to centre the tooth on')
         rotateAngle = math.pi / (2 * toothNumber) - math.atan2(-pitchPoint.y, pitchPoint.x)
 
-        # 9.4 Rotate the mirrored samples (left flank), mirror across X for
-        # the right flank, then rotate BOTH flanks by the requested angle.
-        leftPoints = []
-        rightPoints = []
+        leftPoints = adsk.core.ObjectCollection.create()
+        rightPoints = adsk.core.ObjectCollection.create()
         for x, y in mirrored:
             lx, ly = _rotate(x, y, rotateAngle)
             rx, ry = lx, -ly
-            leftPoints.append(_rotate(lx, ly, angle))
-            rightPoints.append(_rotate(rx, ry, angle))
+            lx, ly = _rotate(lx, ly, angle)
+            rx, ry = _rotate(rx, ry, angle)
+            leftPoints.add(adsk.core.Point3D.create(lx, ly, 0))
+            rightPoints.add(adsk.core.Point3D.create(rx, ry, 0))
 
-        # 9.5 Each flank is a fitted spline through its point collection.
-        leftCollection = adsk.core.ObjectCollection.create()
-        for x, y in leftPoints:
-            leftCollection.add(adsk.core.Point3D.create(x, y, 0))
-        leftSpline = sketch.sketchCurves.sketchFittedSplines.add(leftCollection)
-        rightCollection = adsk.core.ObjectCollection.create()
-        for x, y in rightPoints:
-            rightCollection.add(adsk.core.Point3D.create(x, y, 0))
-        rightSpline = sketch.sketchCurves.sketchFittedSplines.add(rightCollection)
+        leftFlank = sketch.sketchCurves.sketchFittedSplines.add(leftPoints)
+        rightFlank = sketch.sketchCurves.sketchFittedSplines.add(rightPoints)
+        return leftFlank, rightFlank
 
-        last = len(leftPoints) - 1
-        ca, sa = math.cos(angle), math.sin(angle)
+    def _drawToothTop(self, leftFlank, rightFlank, tipRadius, angle):
+        """The tooth-top point and the arc that caps the tooth ([SPUR-F-TOOTHTOP-ARC])."""
+        sketch = self.sketch
 
-        # 9.6 Tooth-top arc [SPUR-F-TOOTHTOP-ARC]: the shared origin as
-        # centre, the flank splines' end SketchPoints passed directly, and no
-        # diameter dimension (a free centre plus a diameter leaves the inward
-        # bulge available; the shared centre also makes the last rib's
-        # perpendicular redundant).
-        toothTopPoint = sketch.sketchPoints.add(
-            adsk.core.Point3D.create(tipRadius * ca, tipRadius * sa, 0))
+        toothTopPoint = sketch.sketchPoints.add(adsk.core.Point3D.create(
+            tipRadius * math.cos(angle), tipRadius * math.sin(angle), 0))
         sketch.geometricConstraints.addCoincident(toothTopPoint, self.tipCircle)
-        sketch.sketchCurves.sketchArcs.addByCenterStartEnd(
-            origin, rightSpline.fitPoints.item(last), leftSpline.fitPoints.item(last))
 
-        # 9.7 Spine and +X reference [SPUR-F-SPINE], built for EVERY angle, 0
-        # included. The far reference endpoint is pinned by two axis
-        # dimensions, not by coincidence onto the tip circle, whose extreme-x
-        # touch is numerically unstable. The signed angular dimension is what
-        # forbids the mirrored answer; a plain horizontal has no direction.
-        spineLine = sketch.sketchCurves.sketchLines.addByTwoPoints(origin, toothTopPoint)
-        spineLine.isConstruction = True
-        refEnd = sketch.sketchPoints.add(adsk.core.Point3D.create(tipRadius, 0, 0))
-        sketch.sketchDimensions.addDistanceDimension(
-            origin, refEnd,
+        # addByCenterStartEnd shares the start and end points but COPIES the centre, so this is
+        # the one place [PB-SHARE-XOR-COINCIDENT] calls for a coincident on a point that was
+        # passed in: without it the arc's centre is a free point that stays behind when the
+        # drawing is dragged onto the anchor. No diameter dimension — the coincident centre and
+        # the two shared ends already determine the arc.
+        toothTopArc = sketch.sketchCurves.sketchArcs.addByCenterStartEnd(
+            self.anchorPoint, rightFlank.endSketchPoint, leftFlank.endSketchPoint)
+        sketch.geometricConstraints.addCoincident(toothTopArc.centerSketchPoint, self.anchorPoint)
+        return toothTopPoint
+
+    def _drawSpine(self, toothTopPoint, tipRadius, angle):
+        """The spine, the +X reference and the angular pin ([SPUR-F-SPINE]).
+
+        The reference and its dimension are built for every angle, zero included. A horizontal
+        constraint on the spine is deliberately not used: it fixes the line's direction but not
+        which way it points, and the tooth can come out a half turn around."""
+        sketch = self.sketch
+
+        spine = sketch.sketchCurves.sketchLines.addByTwoPoints(self.anchorPoint, toothTopPoint)
+        spine.isConstruction = True
+
+        # The reference endpoint is seeded on the +X side and both dimensions carry non-negative
+        # magnitudes: a linear dimension's value is a magnitude and its direction is captured
+        # from the geometry at creation ([PB-DIM-VALUE-SEMANTICS]).
+        referenceEnd = sketch.sketchPoints.add(adsk.core.Point3D.create(tipRadius, 0, 0))
+        horizontal = sketch.sketchDimensions.addDistanceDimension(
+            self.anchorPoint, referenceEnd,
             adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation,
-            adsk.core.Point3D.create(tipRadius * 0.5, -tipRadius * 0.1, 0))
-        sketch.sketchDimensions.addDistanceDimension(
-            origin, refEnd,
+            adsk.core.Point3D.create(tipRadius / 2, -tipRadius / 8, 0))
+        horizontal.parameter.value = tipRadius
+        vertical = sketch.sketchDimensions.addDistanceDimension(
+            self.anchorPoint, referenceEnd,
             adsk.fusion.DimensionOrientations.VerticalDimensionOrientation,
-            adsk.core.Point3D.create(tipRadius * 1.1, -tipRadius * 0.05, 0))
-        refLine = sketch.sketchCurves.sketchLines.addByTwoPoints(origin, refEnd)
-        refLine.isConstruction = True
-        # Text on the bisector of the intended angle so Fusion selects it,
-        # not its supplement ([PB-ANGULAR-DIM]).
-        half = angle / 2
-        self.spineDimension = sketch.sketchDimensions.addAngularDimension(
-            refLine, spineLine,
-            adsk.core.Point3D.create(0.6 * tipRadius * math.cos(half),
-                                     0.6 * tipRadius * math.sin(half), 0))
+            adsk.core.Point3D.create(tipRadius * 1.1, -tipRadius / 8, 0))
+        vertical.parameter.value = 0
 
-        # 9.8 Ribs [SPUR-F-RIBS], one per fit-point index, first and last
-        # included, in exactly this per-rib order — any other over-constrains.
-        acrossVertical = abs(ca) >= abs(sa)
-        prevPoint = origin
-        prevT = 0.0
-        for i in range(len(leftPoints)):
-            leftFit = leftSpline.fitPoints.item(i)
-            rightFit = rightSpline.fitPoints.item(i)
-            # 1. The rib, sharing the fit points; construction.
-            ribLine = sketch.sketchCurves.sketchLines.addByTwoPoints(leftFit, rightFit)
-            ribLine.isConstruction = True
-            lx, ly = leftPoints[i]
-            rx, ry = rightPoints[i]
-            # 2. An AXIS dimension across the rib, created with the points
-            # already seeded on their sides; an aligned dimension lets the
-            # flanks swap and mirror the tooth ([PB-DIM-VALUE-SEMANTICS]).
-            ribText = adsk.core.Point3D.create(
-                (lx + rx) / 2 - 0.05 * tipRadius * sa,
-                (ly + ry) / 2 + 0.05 * tipRadius * ca, 0)
-            if acrossVertical:
+        referenceLine = sketch.sketchCurves.sketchLines.addByTwoPoints(
+            self.anchorPoint, referenceEnd)
+        referenceLine.isConstruction = True
+
+        # An angular dimension measures the wedge its text point lies in ([PB-ANGULAR-DIM]), so
+        # the text goes on the bisector at a small radius. The argument order is reference then
+        # spine, which is what carries the sign of the requested rotation.
+        textRadius = tipRadius / 4
+        self.toothAngleDimension = sketch.sketchDimensions.addAngularDimension(
+            referenceLine, spine,
+            adsk.core.Point3D.create(
+                textRadius * math.cos(angle / 2), textRadius * math.sin(angle / 2), 0))
+        return spine
+
+    def _drawRibs(self, leftFlank: adsk.fusion.SketchFittedSpline,
+                  rightFlank: adsk.fusion.SketchFittedSpline,
+                  spine: adsk.fusion.SketchLine, angle):
+        """One rib per fit-point index, endpoints included ([SPUR-F-RIBS]).
+
+        The rib takes the axis ACROSS the spine and the midpoint chain the one ALONG it; past the
+        |cos| >= |sin| test the two swap, which is what keeps a tooth at a quarter turn
+        solvable."""
+        sketch = self.sketch
+        count = leftFlank.fitPoints.count
+        ribAcrossVertical = abs(math.cos(angle)) >= abs(math.sin(angle))
+        previous = self.anchorPoint
+
+        for i in range(count):
+            leftFit = leftFlank.fitPoints.item(i)
+            rightFit = rightFlank.fitPoints.item(i)
+            rib = sketch.sketchCurves.sketchLines.addByTwoPoints(leftFit, rightFit)
+            rib.isConstruction = True
+
+            # One axis dimension across the spine, created at the seeded positions and left at
+            # the measured magnitude, so the direction that forbids a mirrored tooth comes from
+            # the seed ([PB-DIM-VALUE-SEMANTICS]).
+            leftGeometry = leftFit.geometry
+            rightGeometry = rightFit.geometry
+            ribTextPoint = adsk.core.Point3D.create(
+                (leftGeometry.x + rightGeometry.x) / 2,
+                (leftGeometry.y + rightGeometry.y) / 2, 0)
+            if ribAcrossVertical:
                 sketch.sketchDimensions.addDistanceDimension(
                     leftFit, rightFit,
                     adsk.fusion.DimensionOrientations.VerticalDimensionOrientation,
-                    ribText)
+                    ribTextPoint)
             else:
                 sketch.sketchDimensions.addDistanceDimension(
                     leftFit, rightFit,
                     adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation,
-                    ribText)
-            # 3. A fresh midpoint seeded ON the spine at the foot of the left
-            # fit point.
-            t = lx * ca + ly * sa
-            midPoint = sketch.sketchPoints.add(
-                adsk.core.Point3D.create(t * ca, t * sa, 0))
-            # 4-6. Coincident first, then midpoint, then perpendicular —
-            # skipped for the last rib, which the tooth-top arc already
-            # implies; keeping it throws VCS_SKETCH_OVER_CONSTRAINTS.
-            sketch.geometricConstraints.addCoincident(midPoint, spineLine)
-            sketch.geometricConstraints.addMidPoint(midPoint, ribLine)
-            if i != last:
-                sketch.geometricConstraints.addPerpendicular(spineLine, ribLine)
-            # Chain the midpoints down the spine, the first from the local
-            # origin; without the origin-to-first dimension the chain slides
-            # along the spine as a unit.
-            chainText = adsk.core.Point3D.create(
-                ((prevT + t) / 2) * ca + 0.08 * tipRadius * sa,
-                ((prevT + t) / 2) * sa - 0.08 * tipRadius * ca, 0)
-            if acrossVertical:
+                    ribTextPoint)
+
+            # The midpoint is seeded at the foot of the left fit point ON the spine: the solver
+            # is seed-sensitive and a point that must end up on a line belongs near that line
+            # ([PB-SEED-NEAR]).
+            along = leftGeometry.x * math.cos(angle) + leftGeometry.y * math.sin(angle)
+            midX, midY = along * math.cos(angle), along * math.sin(angle)
+            midPoint = sketch.sketchPoints.add(adsk.core.Point3D.create(midX, midY, 0))
+            sketch.geometricConstraints.addCoincident(midPoint, spine)
+            sketch.geometricConstraints.addMidPoint(midPoint, rib)
+            if i != count - 1:
+                # The last rib carries no perpendicular: the tooth-top arc already holds its two
+                # ends at equal radius either side of the spine, and adding a constraint an
+                # existing one already drives over-constrains the sketch ([PB-NO-OVERCONSTRAIN]).
+                sketch.geometricConstraints.addPerpendicular(spine, rib)
+
+            # Chain the midpoints along the spine direction, the first from the local origin.
+            previousGeometry = previous.geometry
+            chainTextPoint = adsk.core.Point3D.create(
+                (previousGeometry.x + midX) / 2, (previousGeometry.y + midY) / 2, 0)
+            if ribAcrossVertical:
                 sketch.sketchDimensions.addDistanceDimension(
-                    prevPoint, midPoint,
+                    previous, midPoint,
                     adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation,
-                    chainText)
+                    chainTextPoint)
             else:
                 sketch.sketchDimensions.addDistanceDimension(
-                    prevPoint, midPoint,
+                    previous, midPoint,
                     adsk.fusion.DimensionOrientations.VerticalDimensionOrientation,
-                    chainText)
-            prevPoint = midPoint
-            prevT = t
+                    chainTextPoint)
+            previous = midPoint
 
-        # 9.9 Close the tooth at the root [SPUR-F-FLANK-ROOT]: strict
-        # less-than, raw values, no tolerance; exact equality counts as
-        # non-embedded and draws a zero-length stub. The tooth generator has
-        # no ctx, so the embedded flag goes to the parent.
-        firstX, firstY = leftPoints[0]
-        firstRadius = math.hypot(firstX, firstY)
+    def _drawFlankToRoot(self, leftFlank: adsk.fusion.SketchFittedSpline,
+                         rightFlank: adsk.fusion.SketchFittedSpline):
+        """The flank-to-root lines ([SPUR-F-FLANK-ROOT]).
+
+        The root endpoint is pinned by exactly two axis dimensions from the local origin.
+        Constraining it onto the root circle, or the local origin onto the stub line, also
+        reaches zero degrees of freedom but leaves the far root-circle intersection equally
+        valid, and the stub then runs across the gear."""
+        sketch = self.sketch
+        rootRadius = self.getParameterValue(PARAM_ROOT_RADIUS)
+
+        firstPoint = leftFlank.fitPoints.item(0).geometry
+        firstRadius = self.anchorPoint.geometry.distanceTo(firstPoint)
+
+        # Compared raw, with no tolerance: exact equality counts as NOT embedded and draws a
+        # zero-length stub.
         embedded = firstRadius < rootRadius
-        self.parent._lastToothEmbedded = embedded
         if not embedded:
-            self._drawFlankToRoot(leftSpline.fitPoints.item(0), firstX, firstY,
-                                  rootRadius, firstRadius, tipRadius)
-            self._drawFlankToRoot(rightSpline.fitPoints.item(0),
-                                  rightPoints[0][0], rightPoints[0][1],
-                                  rootRadius, firstRadius, tipRadius)
+            scale = rootRadius / firstRadius
+            for flank in (leftFlank, rightFlank):
+                start = flank.startSketchPoint.geometry
+                endX, endY = start.x * scale, start.y * scale
 
-    def _drawFlankToRoot(self, flankStartPoint, startX, startY, rootRadius,
-                         firstRadius, tipRadius):
-        """[SPUR-F-FLANK-ROOT] one radial stub, sharing the spline's start
-        point, its root end seeded at its exact computed position on the root
-        circle and pinned by exactly two axis dimensions from the local
-        origin. The dimension values are only the unsigned abs magnitudes: a
-        negative parameter.value flips the point to the origin's other side
-        ([PB-DIM-VALUE-SEMANTICS]). Root-end-on-circle plus origin-on-line is
-        also satisfied on the far side of the gear, and the stub becomes a
-        chord across it."""
-        sketch = self.sketch
-        rootEndX = rootRadius * startX / firstRadius
-        rootEndY = rootRadius * startY / firstRadius
-        rootEnd = sketch.sketchPoints.add(
-            adsk.core.Point3D.create(rootEndX, rootEndY, 0))
-        sketch.sketchCurves.sketchLines.addByTwoPoints(rootEnd, flankStartPoint)
-        dimH = sketch.sketchDimensions.addDistanceDimension(
-            self.anchorPoint, rootEnd,
-            adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation,
-            adsk.core.Point3D.create(rootEndX + 0.05 * tipRadius,
-                                     rootEndY - 0.05 * tipRadius, 0))
-        dimH.parameter.value = abs(rootEndX)
-        dimV = sketch.sketchDimensions.addDistanceDimension(
-            self.anchorPoint, rootEnd,
-            adsk.fusion.DimensionOrientations.VerticalDimensionOrientation,
-            adsk.core.Point3D.create(rootEndX - 0.05 * tipRadius,
-                                     rootEndY + 0.05 * tipRadius, 0))
-        dimV.parameter.value = abs(rootEndY)
+                # Seed the root end at its exact computed position BEFORE the dimensions exist,
+                # then set each to the ABSOLUTE magnitude: a negative value flips the point to
+                # the other side of the origin ([PB-DIM-VALUE-SEMANTICS]).
+                rootEndPoint = sketch.sketchPoints.add(adsk.core.Point3D.create(endX, endY, 0))
+                sketch.sketchCurves.sketchLines.addByTwoPoints(
+                    rootEndPoint, flank.startSketchPoint)
+                horizontal = sketch.sketchDimensions.addDistanceDimension(
+                    self.anchorPoint, rootEndPoint,
+                    adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation,
+                    adsk.core.Point3D.create(endX / 2, endY / 2, 0))
+                horizontal.parameter.value = abs(endX)
+                vertical = sketch.sketchDimensions.addDistanceDimension(
+                    self.anchorPoint, rootEndPoint,
+                    adsk.fusion.DimensionOrientations.VerticalDimensionOrientation,
+                    adsk.core.Point3D.create(endX / 2, endY / 2, 0))
+                vertical.parameter.value = abs(endY)
 
-    def drawBore(self, anchorPoint, diameter):
-        """Step 18: re-project the anchor into this sketch, draw the solid
-        bore circle centred on the projection by sharing it, and give it a
-        driving diameter dimension. Returns the projected SketchPoint so the
-        caller can ground this generator's stray local origin on it."""
+        self.parent._lastToothEmbedded = embedded
+
+    # --- the Bore Profile sketch (S13) ----------------------------------------------------
+
+    def drawBore(self, anchorPoint, boreDiameter: float):
+        """Project the anchor into this sketch and draw the dimensioned bore circle on it."""
         sketch = self.sketch
-        projectedAnchor = adsk.fusion.SketchPoint.cast(
-            sketch.project(anchorPoint).item(0))
-        radius = diameter / 2.0
-        center = projectedAnchor.geometry
-        circle = sketch.sketchCurves.sketchCircles.addByCenterRadius(
-            projectedAnchor, radius)
+        projected = sketch.project(anchorPoint)
+        projectedAnchor = projected.item(0)
+        self.projectedAnchorPoint = projectedAnchor
+
+        boreCircle = sketch.sketchCurves.sketchCircles.addByCenterRadius(
+            projectedAnchor, boreDiameter / 2)
         sketch.sketchDimensions.addDiameterDimension(
-            circle,
-            adsk.core.Point3D.create(center.x + radius * 0.7071,
-                                     center.y + radius * 0.7071, 0))
-        return projectedAnchor
+            boreCircle, adsk.core.Point3D.create(
+                projectedAnchor.geometry.x + boreDiameter / 2,
+                projectedAnchor.geometry.y, 0))
+        return boreCircle
 
 
 class SpurGearGenerator(Generator):
-    """The orchestrator (steps 3-4). Method boundaries are public API:
-    helical/herringbone override at them and call super() at specific
-    points."""
+    """The spur build pipeline. helicalgear.py and herringbonegear.py subclass it and override
+    at these method boundaries, so the boundaries and names do not move."""
 
     def __init__(self, design: adsk.fusion.Design):
         super().__init__(design)
-        self._lastToothEmbedded = False
-        self.toolsSketch = None
-        self.boreSketch = None
         self.plane = None
         self.anchorPoint = None
-        self._normalizedPlane = None
+        # The construction plane S3 built when the user picked a planar face; cleanup switches
+        # its light bulb off, and None means the user's own plane was used unchanged.
+        self.normalizedPlane = adsk.fusion.ConstructionPlane.cast(None)
+        # The output slot the tooth generator writes during draw() ([SPUR-F-FLANK-ROOT]).
+        self._lastToothEmbedded = False
 
     def prefixBase(self) -> str:
         return 'SpurGear'
 
-    def newContext(self):
+    def newContext(self) -> SpurGearGenerationContext:
         return SpurGearGenerationContext()
 
+    # --- S2: inputs and parameters --------------------------------------------------------
+
+    def addExtraPrimaryParameters(self, inputs: adsk.core.CommandInputs):
+        """[SPUR-EXTRA-PARAMS]: the hook a subclass registers its own primary parameters in,
+        called between the input-sourced parameters and the derived ones. A no-op on the spur
+        base; the call site is what a subclass hooks."""
+        pass
+
     def filletHelixFactorExpression(self) -> str:
-        """Hook consumed only in registerDerivedParameters' FilletRadius
-        splice; createFillets reads the resulting parameter's numeric value,
-        never this hook."""
+        """The last factor of the live FilletRadius expression. The spur base has no helix."""
         return '1'
 
     def generateName(self) -> str:
-        # The parameters' .expression strings, not .value, so units show
-        # through.
         module = self.getParameter(PARAM_MODULE)
         toothNumber = self.getParameter(PARAM_TOOTH_NUMBER)
         thickness = self.getParameter(PARAM_THICKNESS)
@@ -492,482 +550,455 @@ class SpurGearGenerator(Generator):
             module.expression, toothNumber.expression, thickness.expression)
 
     def processInputs(self, inputs: adsk.core.CommandInputs):
-        """Step 3: selections first — anything that creates the child
-        occurrence (the first addParameter does) can drop selection inputs
-        holding entities in another component."""
-        parents = get_selection(inputs, INPUT_ID_PARENT)
-        if len(parents) != 1:
-            raise Exception(
-                'processInputs: expected exactly 1 Parent Component selection, '
-                'got {}'.format(len(parents)))
-        occurrence = adsk.fusion.Occurrence.cast(parents[0])
-        if occurrence:
-            self.parentComponent = occurrence.component
-        else:
-            self.parentComponent = adsk.fusion.Component.cast(parents[0])
+        """Read the dialog and register the parameters.
 
-        planes = get_selection(inputs, INPUT_ID_PLANE)
-        if len(planes) != 1:
-            raise Exception(
-                'processInputs: expected exactly 1 Target Plane selection, '
-                'got {}'.format(len(planes)))
-        self.plane = planes[0]
+        This runs before anything touches the design: creating the gear occurrence shifts
+        Fusion's active component, and a selection input holding an entity from another component
+        can drop it ([PB-SELECTION-STASH]), so the three selections are read and stashed first."""
+        parentEntity = get_selection(inputs, INPUT_ID_PARENT)[0]
+        occurrence = adsk.fusion.Occurrence.cast(parentEntity)
+        if occurrence is not None:
+            parentEntity = occurrence.component
+        self.parentComponent = parentEntity
+        self.plane = get_selection(inputs, INPUT_ID_PLANE)[0]
+        self.anchorPoint = get_selection(inputs, INPUT_ID_ANCHOR_POINT)[0]
 
-        anchors = get_selection(inputs, INPUT_ID_ANCHOR_POINT)
-        if len(anchors) != 1:
-            raise Exception(
-                'processInputs: expected exactly 1 Anchor Point selection, '
-                'got {}'.format(len(anchors)))
-        self.anchorPoint = anchors[0]
-
-        # Each remaining input read with the helper matching its declared
-        # type ([PB-INPUT-READ]); get_value returns a ready ValueInput and
-        # raises on a bad expression ([PB-GET-VALUE-CONTRACT]). Never
-        # get_value on the checkbox: BoolValueCommandInput has no expression.
-        module = get_value(inputs, INPUT_ID_MODULE, '')
-        toothNumber = get_value(inputs, INPUT_ID_TOOTH_NUMBER, '')
-        pressureAngle = get_value(inputs, INPUT_ID_PRESSURE_ANGLE, 'rad')
-        boreDiameter = get_value(inputs, INPUT_ID_BORE_DIAMETER, 'mm')
-        thickness = get_value(inputs, INPUT_ID_THICKNESS, 'mm')
-        chamferTooth = get_value(inputs, INPUT_ID_CHAMFER_TOOTH, 'mm')
+        # Each input is read with the helper that matches the type it was declared with
+        # ([PB-INPUT-READ]); get_value returns a ValueInput ready for addParameter and raises on
+        # a bad expression, so nothing is wrapped or ok-flagged here ([PB-GET-VALUE-CONTRACT]).
+        self.addParameter(PARAM_MODULE, get_value(inputs, INPUT_ID_MODULE, ''), '',
+                          'Module of the gear')
+        self.addParameter(PARAM_TOOTH_NUMBER, get_value(inputs, INPUT_ID_TOOTH_NUMBER, ''), '',
+                          'Number of teeth')
+        self.addParameter(PARAM_PRESSURE_ANGLE,
+                          get_value(inputs, INPUT_ID_PRESSURE_ANGLE, 'rad'), 'rad',
+                          'Pressure angle')
+        self.addParameter(PARAM_BORE_DIAMETER,
+                          get_value(inputs, INPUT_ID_BORE_DIAMETER, 'mm'), 'mm',
+                          'Bore diameter')
+        self.addParameter(PARAM_THICKNESS, get_value(inputs, INPUT_ID_THICKNESS, 'mm'), 'mm',
+                          'Thickness of the gear')
+        self.addParameter(PARAM_CHAMFER_TOOTH,
+                          get_value(inputs, INPUT_ID_CHAMFER_TOOTH, 'mm'), 'mm',
+                          'Chamfer distance applied to the teeth')
+        # A check box has no expression, so it is read with get_boolean and registered as a real
+        # 1 or 0 that getParameterAsBoolean reads back.
         sketchOnly = get_boolean(inputs, INPUT_ID_SKETCH_ONLY)
-
-        # Module is unitless — NOT 'mm' — so generateName renders M=1 and the
-        # derived mm expressions accept it.
-        self.addParameter(PARAM_MODULE, module, '', 'module of the gear')
-        self.addParameter(PARAM_TOOTH_NUMBER, toothNumber, '', 'number of teeth')
-        self.addParameter(PARAM_PRESSURE_ANGLE, pressureAngle, 'rad', 'pressure angle')
-        self.addParameter(PARAM_BORE_DIAMETER, boreDiameter, 'mm', 'bore diameter')
-        self.addParameter(PARAM_THICKNESS, thickness, 'mm', 'gear thickness')
-        self.addParameter(PARAM_CHAMFER_TOOTH, chamferTooth, 'mm', 'tooth chamfer distance')
-        # The framework reads booleans back with getParameterAsBoolean.
         self.addParameter(PARAM_SKETCH_ONLY,
-                          adsk.core.ValueInput.createByReal(1 if sketchOnly else 0),
-                          '', 'generate sketches only (1/0)')
+                          adsk.core.ValueInput.createByReal(1 if sketchOnly else 0), '',
+                          'Generate sketches only')
 
         self.addExtraPrimaryParameters(inputs)
         self.registerDerivedParameters()
 
-    def addExtraPrimaryParameters(self, inputs: adsk.core.CommandInputs):
-        """[SPUR-EXTRA-PARAMS] a no-op on the spur base: subclasses register
-        their own primary parameters here, before any derived expression
-        references them."""
-
     def registerDerivedParameters(self):
-        """Step 3.5: derived parameters as live expressions, in dependency
-        order, mm unless noted."""
-        pn = self.parameterName
+        """The derived parameters, as live expression strings referencing the ones above.
+
+        They stay in the parameter table for reference only: every dimension and feature input
+        later in the build takes the current numeric value of its parameter, never a live
+        expression ([PB-NUMERIC-SNAPSHOT], [SPUR-F-SNAPSHOT])."""
+        name = self.parameterName
+
         self.addParameter(
             PARAM_PITCH_DIAMETER,
             adsk.core.ValueInput.createByString(
-                '{} * {}'.format(pn(PARAM_MODULE), pn(PARAM_TOOTH_NUMBER))),
-            'mm', 'pitch circle diameter')
+                '{} * {}'.format(name(PARAM_MODULE), name(PARAM_TOOTH_NUMBER))),
+            'mm', 'Pitch circle diameter')
         self.addParameter(
             PARAM_PITCH_RADIUS,
-            adsk.core.ValueInput.createByString(
-                '{} / 2'.format(pn(PARAM_PITCH_DIAMETER))),
-            'mm', 'pitch circle radius')
+            adsk.core.ValueInput.createByString('{} / 2'.format(name(PARAM_PITCH_DIAMETER))),
+            'mm', 'Pitch circle radius')
         self.addParameter(
             PARAM_BASE_DIAMETER,
             adsk.core.ValueInput.createByString(
-                '{} * cos({})'.format(pn(PARAM_PITCH_DIAMETER), pn(PARAM_PRESSURE_ANGLE))),
-            'mm', 'base circle diameter')
+                '{} * cos({})'.format(name(PARAM_PITCH_DIAMETER), name(PARAM_PRESSURE_ANGLE))),
+            'mm', 'Base circle diameter')
         self.addParameter(
             PARAM_BASE_RADIUS,
-            adsk.core.ValueInput.createByString(
-                '{} / 2'.format(pn(PARAM_BASE_DIAMETER))),
-            'mm', 'base circle radius')
+            adsk.core.ValueInput.createByString('{} / 2'.format(name(PARAM_BASE_DIAMETER))),
+            'mm', 'Base circle radius')
         self.addParameter(
             PARAM_ROOT_DIAMETER,
             adsk.core.ValueInput.createByString(
-                '{} - 2.5 * {}'.format(pn(PARAM_PITCH_DIAMETER), pn(PARAM_MODULE))),
-            'mm', 'root circle diameter (dedendum 1.25 module)')
+                '{} - 2.5 * {}'.format(name(PARAM_PITCH_DIAMETER), name(PARAM_MODULE))),
+            'mm', 'Root circle diameter')
         self.addParameter(
             PARAM_ROOT_RADIUS,
-            adsk.core.ValueInput.createByString(
-                '{} / 2'.format(pn(PARAM_ROOT_DIAMETER))),
-            'mm', 'root circle radius')
+            adsk.core.ValueInput.createByString('{} / 2'.format(name(PARAM_ROOT_DIAMETER))),
+            'mm', 'Root circle radius')
         self.addParameter(
             PARAM_TIP_DIAMETER,
             adsk.core.ValueInput.createByString(
-                '{} + 2 * {}'.format(pn(PARAM_PITCH_DIAMETER), pn(PARAM_MODULE))),
-            'mm', 'tip circle diameter (addendum 1 module)')
+                '{} + 2 * {}'.format(name(PARAM_PITCH_DIAMETER), name(PARAM_MODULE))),
+            'mm', 'Tip circle diameter')
         self.addParameter(
             PARAM_TIP_RADIUS,
-            adsk.core.ValueInput.createByString(
-                '{} / 2'.format(pn(PARAM_TIP_DIAMETER))),
-            'mm', 'tip circle radius')
+            adsk.core.ValueInput.createByString('{} / 2'.format(name(PARAM_TIP_DIAMETER))),
+            'mm', 'Tip circle radius')
         self.addParameter(
-            PARAM_INVOLUTE_STEPS,
-            adsk.core.ValueInput.createByString('15'),
-            '', 'involute flank sample count')
-        # Pre-computed in Python: Fusion's expression engine refuses to mix
-        # unitless tan() output with a radian value. Registered unitless, not
-        # 'rad' — the next parameter multiplies it by a length, and a 'rad'
-        # factor makes that product mm*rad, which Fusion rejects with
-        # RuntimeError: Invalid expression.
-        toothNumberValue = self.getParameter(PARAM_TOOTH_NUMBER).value
-        pressureAngleValue = self.getParameter(PARAM_PRESSURE_ANGLE).value
-        spaceAngle = (math.pi / toothNumberValue
-                      - 2 * (math.tan(pressureAngleValue) - pressureAngleValue))
+            PARAM_INVOLUTE_STEPS, adsk.core.ValueInput.createByString('15'), '',
+            'Number of points sampled along each involute flank')
+
+        # The one parameter computed in Python: Fusion's expression engine will not subtract a
+        # radian-valued PressureAngle from the unitless output of tan. It is registered UNITLESS,
+        # not 'rad', so ToothSpaceArcAtRoot below reads as a length.
+        toothNumber = self.getParameter(PARAM_TOOTH_NUMBER).value
+        pressureAngle = self.getParameter(PARAM_PRESSURE_ANGLE).value
+        toothSpaceAngle = math.pi / toothNumber - 2 * (math.tan(pressureAngle) - pressureAngle)
         self.addParameter(
-            PARAM_TOOTH_SPACE_ANGLE,
-            adsk.core.ValueInput.createByReal(spaceAngle),
-            '', 'tooth space angle at the root (radian magnitude, unitless)')
+            PARAM_TOOTH_SPACE_ANGLE, adsk.core.ValueInput.createByReal(toothSpaceAngle), '',
+            'Angular width of the tooth space at the root circle')
+
         self.addParameter(
             PARAM_TOOTH_SPACE_ARC,
             adsk.core.ValueInput.createByString(
-                '{} * {}'.format(pn(PARAM_ROOT_RADIUS), pn(PARAM_TOOTH_SPACE_ANGLE))),
-            'mm', 'tooth space arc length at the root')
+                '{} * {}'.format(name(PARAM_ROOT_RADIUS), name(PARAM_TOOTH_SPACE_ANGLE))),
+            'mm', 'Arc length of the tooth space at the root circle')
         self.addParameter(
-            PARAM_FILLET_CLEARANCE,
-            adsk.core.ValueInput.createByString('0.9'),
-            '', 'root fillet clearance factor')
+            PARAM_FILLET_CLEARANCE, adsk.core.ValueInput.createByString('0.9'), '',
+            'Clearance factor applied to the root fillet radius')
         self.addParameter(
             PARAM_FILLET_RADIUS,
             adsk.core.ValueInput.createByString(
-                '({} / 2) * {} * {}'.format(pn(PARAM_TOOTH_SPACE_ARC),
-                                            pn(PARAM_FILLET_CLEARANCE),
-                                            self.filletHelixFactorExpression())),
-            'mm', 'root fillet radius')
+                '({} / 2) * {} * {}'.format(
+                    name(PARAM_TOOTH_SPACE_ARC), name(PARAM_FILLET_CLEARANCE),
+                    self.filletHelixFactorExpression())),
+            'mm', 'Radius of the root fillets')
+
+    # --- orchestration --------------------------------------------------------------------
 
     def generate(self, inputs: adsk.core.CommandInputs):
-        futil.log('SpurGearGenerator: reading inputs and registering parameters')
         self.processInputs(inputs)
-        component = self.getComponent()
+
+        component: adsk.fusion.Component = self.getComponent()
         component.name = self.generateName()
-        self._normalizeTargetPlane()
+
+        self._normalizeTargetPlane(component)
+
         ctx = self.newContext()
-        ctx.plane = adsk.fusion.ConstructionPlane.cast(self.plane)
-        futil.log('SpurGearGenerator: preparing tools')
+        ctx.plane = self.plane
+
         self.prepareTools(ctx)
-        futil.log('SpurGearGenerator: building the main gear body')
         self.buildMainGearBody(ctx)
-        futil.log('SpurGearGenerator: building the bore')
         self.buildBore(ctx)
         self.chamferTeeth(ctx)
-        # Unconditionally the very last action, after buildBore: buildBore
-        # re-projects ctx.anchorPoint from the Tools sketch, and projection
-        # fails once that sketch is hidden.
         self.cleanup(ctx)
 
-    def _normalizeTargetPlane(self):
-        """Step 6: if the user picked a planar face, replace self.plane with
-        a coplanar construction plane so profile detection never sees the
-        picked face's native profile. self.plane stays readable by
-        subclasses."""
-        if adsk.fusion.ConstructionPlane.cast(self.plane):
+    def _normalizeTargetPlane(self, component: adsk.fusion.Component):
+        """S3: the user may have picked a planar face, so replace it with a coplanar
+        construction plane. The offset argument is a ValueInput, never a bare number
+        ([PB-CONSTRUCTION-PLANES])."""
+        if adsk.fusion.ConstructionPlane.cast(self.plane) is not None:
             return
-        constructionPlanes = self.getComponent().constructionPlanes
-        planeInput = constructionPlanes.createInput()
-        # The offset is a ValueInput, never a bare number, which is a runtime
-        # TypeError ([PB-CONSTRUCTION-PLANES]).
+        planeInput = component.constructionPlanes.createInput()
         planeInput.setByOffset(self.plane, adsk.core.ValueInput.createByReal(0))
-        self._normalizedPlane = constructionPlanes.add(planeInput)
-        self.plane = self._normalizedPlane
+        self.normalizedPlane = component.constructionPlanes.add(planeInput)
+        self.plane = self.normalizedPlane
 
     def prepareTools(self, ctx: SpurGearGenerationContext):
-        """Steps 7-8: the Tools sketch and the Extrusion End Plane."""
-        # The Tools sketch draws nothing else; its projection is the
-        # canonical handle of the anchor chain [SPUR-F-ANCHOR-CHAIN]. It
-        # stays visible until cleanup — hiding it earlier breaks the bore's
-        # re-projection.
-        sketch = self.createSketchObject('Tools', plane=self.plane)
-        sketch.isVisible = True
-        ctx.anchorPoint = adsk.fusion.SketchPoint.cast(
-            sketch.project(self.anchorPoint).item(0))
-        self.toolsSketch = sketch
+        """S4 and S5: the Tools sketch that owns the anchor projection, and the Extrusion End
+        Plane both extrudes end on."""
+        component: adsk.fusion.Component = self.getComponent()
 
-        # The Extrusion End Plane's only purpose is to be the to-entity
-        # target of the tooth and body extrudes, so both end on the same
-        # face. It stays visible while the extrudes run; step 20 hides it
-        # with isLightBulbOn.
-        constructionPlanes = self.getComponent().constructionPlanes
-        planeInput = constructionPlanes.createInput()
-        planeInput.setByOffset(self.plane, self.getParameterAsValueInput(PARAM_THICKNESS))
-        endPlane = constructionPlanes.add(planeInput)
-        endPlane.name = 'Extrusion End Plane'
-        ctx.extrusionEndPlane = endPlane
+        toolsSketch = self.createSketchObject('Tools', self.plane)
+        # It stays visible through the bore, which re-projects from it; projection has failed on
+        # an invisible sketch in this repository's history ([PB-HIDE-AFTER-USE]).
+        toolsSketch.isVisible = True
+        projected = toolsSketch.project(self.anchorPoint)
+        ctx.anchorPoint = projected.item(0)
+        ctx.toolsSketch = toolsSketch
+
+        thickness = self.getParameter(PARAM_THICKNESS).value
+        planeInput = component.constructionPlanes.createInput()
+        planeInput.setByOffset(self.plane, adsk.core.ValueInput.createByReal(thickness))
+        extrusionEndPlane = component.constructionPlanes.add(planeInput)
+        extrusionEndPlane.name = 'Extrusion End Plane'
+        ctx.extrusionEndPlane = extrusionEndPlane
 
     def buildMainGearBody(self, ctx: SpurGearGenerationContext):
+        """S7: the sketches, then — unless the user asked for sketches only — the two extrudes,
+        the pattern and the fillets."""
         self.buildSketches(ctx)
+
         if self.getParameterAsBoolean(PARAM_SKETCH_ONLY):
-            # Step 10: sketch-only short circuit. buildBore and cleanup still
-            # run from generate with their own guards.
-            futil.log('SpurGearGenerator: sketch-only mode, no body is built')
             ctx.gearProfileSketch.isVisible = True
             return
+
         self.buildTooth(ctx)
         self.buildBody(ctx)
         self.patternTeeth(ctx)
         self.createFillets(ctx)
 
     def buildSketches(self, ctx: SpurGearGenerationContext):
-        """Step 9: the Gear Profile sketch, drawn by the tooth generator."""
-        sketch = self.createSketchObject('Gear Profile', plane=self.plane)
-        sketch.isVisible = True
-        ctx.gearProfileSketch = sketch
-        toothGenerator = SpurGearInvoluteToothDesignGenerator(sketch, self)
-        toothGenerator.draw(ctx.anchorPoint, angle=0)
+        """S6: one sketch, one timeline entry, and the whole involute construction inside it."""
+        gearProfileSketch = self.createSketchObject('Gear Profile', self.plane)
+        gearProfileSketch.isVisible = True
+        ctx.gearProfileSketch = gearProfileSketch
+
+        SpurGearInvoluteToothDesignGenerator(gearProfileSketch, self).draw(
+            ctx.anchorPoint, angle=0)
         ctx.toothProfileIsEmbedded = self._lastToothEmbedded
 
+    # --- S8: the tooth --------------------------------------------------------------------
+
     def buildTooth(self, ctx: SpurGearGenerationContext):
-        """Step 11: extrude the tooth section to the Extrusion End Plane."""
-        futil.log('SpurGearGenerator: extruding the tooth')
-        sketch = ctx.gearProfileSketch
-        # The tooth section by its curve counts; the helper raises when
-        # nothing matches ([PB-PROFILE-MATCH]).
+        component: adsk.fusion.Component = self.getComponent()
+
+        # Profiles are found by the curve-type counts of their loop, never by index
+        # ([PB-PROFILE-MATCH]); the helper raises when nothing matches.
         profile = find_profile_by_curve_counts(
-            sketch, nurbs=2, arcs=2,
+            ctx.gearProfileSketch, nurbs=2, arcs=2,
             lines=0 if ctx.toothProfileIsEmbedded else 2)
-        extrudeFeatures = self.getComponent().features.extrudeFeatures
-        extrudeInput = extrudeFeatures.createInput(
+
+        extrudeInput = component.features.extrudeFeatures.createInput(
             profile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
-        extentDefinition = adsk.fusion.ToEntityExtentDefinition.create(
-            ctx.extrusionEndPlane, False)
         extrudeInput.setOneSideExtent(
-            extentDefinition, adsk.fusion.ExtentDirections.PositiveExtentDirection)
-        extrude = extrudeFeatures.add(extrudeInput)
+            adsk.fusion.ToEntityExtentDefinition.create(ctx.extrusionEndPlane, False),
+            adsk.fusion.ExtentDirections.PositiveExtentDirection)
+        extrude = component.features.extrudeFeatures.add(extrudeInput)
         extrude.name = 'Extrude tooth'
         ctx.toothBody = extrude.bodies.item(0)
 
-    def chamferTeeth(self, ctx: SpurGearGenerationContext):
-        """Chamfer the completed gear's outer end-cap edges."""
-        if self.getParameterAsBoolean(PARAM_SKETCH_ONLY):
-            return
-        chamferValue = self.getParameter(PARAM_CHAMFER_TOOTH).value
-        if chamferValue == 0:
-            return
-        futil.log('SpurGearGenerator: chamfering gear teeth')
-        sketchPlane = adsk.fusion.ConstructionPlane.cast(
-            ctx.gearProfileSketch.referencePlane).geometry
-        capFaces = []
-        for face in ctx.gearBody.faces:
-            facePlane = adsk.core.Plane.cast(face.geometry)
-            if facePlane is None or not sketchPlane.isParallelToPlane(facePlane):
-                continue
-            capFaces.append(face)
-        if not capFaces:
-            raise Exception(
-                'chamferTeeth: no planar end-cap faces parallel to the gear '
-                'sketch plane (faces: {})'.format(ctx.gearBody.faces.count))
-        edges = adsk.core.ObjectCollection.create()
-        seenEdgeIds = []
-        boreRadius = self.getParameter(PARAM_BORE_DIAMETER).value / 2
-        for capFace in capFaces:
-            for edge in capFace.edges:
-                if edge.tempId in seenEdgeIds:
-                    continue
-                curve = edge.geometry
-                if (boreRadius > 0 and
-                        curve.curveType == adsk.core.Curve3DTypes.Circle3DCurveType and
-                        abs(curve.radius - boreRadius) < 0.001):
-                    continue
-                seenEdgeIds.append(edge.tempId)
-                edges.add(edge)
-        if edges.count == 0:
-            raise Exception(
-                'chamferTeeth: no end-cap edges found on {} cap faces'.format(
-                    len(capFaces)))
-        chamferFeatures = self.getComponent().features.chamferFeatures
-        chamferInput = chamferFeatures.createInput2()
-        # The chamfer-side shape of [PB-FILLET-CHAMFER]: the edge set goes on
-        # the input's chamferEdgeSets collection.
-        chamferInput.chamferEdgeSets.addEqualDistanceChamferEdgeSet(
-            edges, adsk.core.ValueInput.createByReal(chamferValue), False)
-        chamferFeatures.add(chamferInput)
+    # --- S9: the body, the Gear Center axis and the far end cap ---------------------------
 
     def buildBody(self, ctx: SpurGearGenerationContext):
-        """Steps 13-14: extrude the gear body disc, then capture the Gear
-        Center axis and the extrusion-extent face from it."""
-        futil.log('SpurGearGenerator: extruding the gear body')
-        sketch = ctx.gearProfileSketch
-        # The solid disc inside the root circle: its boundary is exactly the
-        # 2 arcs the tooth's contact points split the root circle into. Not
-        # an annulus; the tip circle is construction geometry and bounds
-        # nothing.
-        profile = find_profile_by_curve_counts(sketch, arcs=2)
-        extrudeFeatures = self.getComponent().features.extrudeFeatures
-        extrudeInput = extrudeFeatures.createInput(
-            profile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
-        extentDefinition = adsk.fusion.ToEntityExtentDefinition.create(
-            ctx.extrusionEndPlane, False)
-        extrudeInput.setOneSideExtent(
-            extentDefinition, adsk.fusion.ExtentDirections.PositiveExtentDirection)
-        extrude = extrudeFeatures.add(extrudeInput)
-        extrude.name = 'Extrude body'
-        body = extrude.bodies.item(0)
-        body.name = 'Gear Body'
-        ctx.gearBody = body
+        component: adsk.fusion.Component = self.getComponent()
 
-        # Step 14: classify the new body's faces; raise if either capture is
-        # missing — never let a failed search surface three calls later
-        # ([PB-EMPTY-RESULT]).
-        sketchPlane = adsk.fusion.ConstructionPlane.cast(
-            ctx.gearProfileSketch.referencePlane).geometry
-        centerAxis = None
+        # Exactly two arcs: the two pieces the tooth cut the root circle into.
+        profile = find_profile_by_curve_counts(ctx.gearProfileSketch, arcs=2)
+
+        extrudeInput = component.features.extrudeFeatures.createInput(
+            profile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+        extrudeInput.setOneSideExtent(
+            adsk.fusion.ToEntityExtentDefinition.create(ctx.extrusionEndPlane, False),
+            adsk.fusion.ExtentDirections.PositiveExtentDirection)
+        extrude = component.features.extrudeFeatures.add(extrudeInput)
+        extrude.name = 'Extrude body'
+
+        gearBody = extrude.bodies.item(0)
+        gearBody.name = 'Gear Body'
+        ctx.gearBody = gearBody
+
+        # Both references are found by surface type and then disambiguated against the sketch
+        # plane, never by enumeration order ([PB-FACE-BY-MIDPOINT] is the cross-gear form).
+        sketchPlane = ctx.gearProfileSketch.referencePlane.geometry
+        cylindricalFace = None
         extrusionExtent = None
-        for face in extrude.bodies.item(0).faces:
+        faces = extrude.bodies.item(0).faces
+        for i in range(faces.count):
+            face = faces.item(i)
             surfaceType = face.geometry.surfaceType
             if surfaceType == adsk.core.SurfaceTypes.CylinderSurfaceType:
-                if centerAxis is None:
-                    constructionAxes = self.getComponent().constructionAxes
-                    axisInput = constructionAxes.createInput()
-                    axisInput.setByCircularFace(face)
-                    axis = constructionAxes.add(axisInput)
-                    axis.name = 'Gear Center'
-                    axis.isLightBulbOn = False
-                    centerAxis = axis
+                cylindricalFace = face
             elif surfaceType == adsk.core.SurfaceTypes.PlaneSurfaceType:
-                facePlane = adsk.core.Plane.cast(face.geometry)
-                # The far cap is the only face parallel to but not coplanar
-                # with the sketch plane.
-                if (sketchPlane.isParallelToPlane(facePlane)
-                        and not sketchPlane.isCoPlanarTo(facePlane)):
+                if sketchPlane.isParallelToPlane(face.geometry) and \
+                        not sketchPlane.isCoPlanarTo(face.geometry):
                     extrusionExtent = face
-        if centerAxis is None:
+
+        if cylindricalFace is None:
             raise Exception(
-                'buildBody: no cylindrical face on the gear body to build '
-                'the Gear Center axis from')
+                'Spur gear: the Gear Body has no cylindrical face to build the Gear Center '
+                'axis from')
         if extrusionExtent is None:
             raise Exception(
-                'buildBody: no planar face parallel to but not coplanar with '
-                'the sketch plane on the gear body')
+                'Spur gear: the Gear Body has no end-cap face parallel to but not coplanar '
+                'with the Gear Profile sketch plane')
+
+        axisInput = component.constructionAxes.createInput()
+        axisInput.setByCircularFace(cylindricalFace)
+        centerAxis = component.constructionAxes.add(axisInput)
+        centerAxis.name = 'Gear Center'
+        centerAxis.isLightBulbOn = False
         ctx.centerAxis = centerAxis
         ctx.extrusionExtent = extrusionExtent
 
+    # --- S10 and S11: pattern the tooth, then join the copies into the Gear Body -----------
+
     def patternTeeth(self, ctx: SpurGearGenerationContext):
-        """Steps 15-16: circular-pattern the tooth body about the Gear
-        Center axis, then combine-join the pattern's bodies into the gear
-        body; ends by calling createFillets."""
-        futil.log('SpurGearGenerator: patterning the teeth')
+        component: adsk.fusion.Component = self.getComponent()
         toothNumber = self.getParameter(PARAM_TOOTH_NUMBER).value
-        bodies = adsk.core.ObjectCollection.create()
-        bodies.add(ctx.toothBody)
-        circularPatternFeatures = self.getComponent().features.circularPatternFeatures
-        patternInput = circularPatternFeatures.createInput(bodies, ctx.centerAxis)
-        # Pin all three inputs explicitly ([PB-CIRCULAR-PATTERN]).
+
+        bodyCollection = adsk.core.ObjectCollection.create()
+        bodyCollection.add(ctx.toothBody)
+        patternInput = component.features.circularPatternFeatures.createInput(
+            bodyCollection, ctx.centerAxis)
+        # All three are pinned explicitly, never left to Fusion's defaults
+        # ([PB-CIRCULAR-PATTERN]).
         patternInput.quantity = adsk.core.ValueInput.createByReal(toothNumber)
         patternInput.totalAngle = adsk.core.ValueInput.createByString('360 deg')
         patternInput.isSymmetric = False
-        pattern = circularPatternFeatures.add(patternInput)
+        pattern = component.features.circularPatternFeatures.add(patternInput)
 
-        # Step 16: one Combine-Join. pattern.bodies already includes the
-        # original tooth body — never re-add it — and createInput rejects a
-        # raw BRepBodies, so copy into a fresh collection
-        # ([PB-PATTERN-BODIES]).
-        futil.log('SpurGearGenerator: combining the teeth into the body')
+        # The pattern's own bodies collection already holds the seed alongside the copies, so the
+        # seed is not added twice; a BRepBodies is not an ObjectCollection, so its items are
+        # copied into a fresh one ([PB-PATTERN-BODIES]).
         toolBodies = adsk.core.ObjectCollection.create()
         for i in range(pattern.bodies.count):
             toolBodies.add(pattern.bodies.item(i))
-        combineFeatures = self.getComponent().features.combineFeatures
-        combineInput = combineFeatures.createInput(ctx.gearBody, toolBodies)
+
+        combineInput = component.features.combineFeatures.createInput(ctx.gearBody, toolBodies)
         combineInput.operation = adsk.fusion.FeatureOperations.JoinFeatureOperation
-        combineFeatures.add(combineInput)
+        component.features.combineFeatures.add(combineInput)
+
+    # --- S12: the root fillets ------------------------------------------------------------
 
     def createFillets(self, ctx: SpurGearGenerationContext):
-        """Step 17: round the corner where each root valley floor meets a
-        tooth flank — the structurally loaded corner, not the cosmetic
-        front/back rims."""
         filletRadius = self.getParameter(PARAM_FILLET_RADIUS).value
         if filletRadius <= 0:
             return
-        futil.log('SpurGearGenerator: filleting the root corners')
+
+        component: adsk.fusion.Component = self.getComponent()
         rootRadius = self.getParameter(PARAM_ROOT_RADIUS).value
         axisNormal = get_normal(self.plane)
-        edges = adsk.core.ObjectCollection.create()
-        # Every cylindrical face at the root radius: the pattern-and-combine
-        # usually splits the root cylinder into one patch per valley.
-        for face in ctx.gearBody.faces:
+
+        # Every root cylinder patch, not just the first: after the pattern and the combine the
+        # root cylinder is usually one patch per valley. On each, only the AXIAL straight edges
+        # are structural root corners; the circular edges wrapping the end caps are rims.
+        edgeCollection = adsk.core.ObjectCollection.create()
+        faces = ctx.gearBody.faces
+        for i in range(faces.count):
+            face = faces.item(i)
             if face.geometry.surfaceType != adsk.core.SurfaceTypes.CylinderSurfaceType:
                 continue
-            cylinder = adsk.core.Cylinder.cast(face.geometry)
-            if abs(cylinder.radius - rootRadius) > 0.001:
+            if abs(face.geometry.radius - rootRadius) > RADIUS_TOLERANCE:
                 continue
-            # Keep only the AXIAL straight edges. Directions come from the
-            # geometry endpoints — parameter 0 of an edge evaluator need not
-            # lie in the edge's range and Fusion raises on it. The circular
-            # end-cap rim edges fail the direction test. Use exactly this
-            # tolerance: a tighter one drops slightly-off tessellated edges
-            # and leaves fillets missing.
-            for edge in face.edges:
+            for j in range(face.edges.count):
+                edge = face.edges.item(j)
                 if edge.geometry.curveType != adsk.core.Curve3DTypes.Line3DCurveType:
                     continue
-                line = adsk.core.Line3D.cast(edge.geometry)
-                direction = line.startPoint.vectorTo(line.endPoint)
+                direction = edge.geometry.startPoint.vectorTo(edge.geometry.endPoint)
                 direction.normalize()
                 if abs(abs(direction.dotProduct(axisNormal)) - 1.0) < 0.01:
-                    edges.add(edge)
-        if edges.count == 0:
-            # An empty edge set must not reach filletFeatures.add.
+                    edgeCollection.add(edge)
+
+        # A search that legitimately finds nothing is guarded where it is produced
+        # ([PB-EMPTY-RESULT]): an empty edge set must not reach add().
+        if edgeCollection.count == 0:
             return
-        filletFeatures = self.getComponent().features.filletFeatures
-        filletInput = filletFeatures.createInput()
-        # The edge set goes on the input ITSELF — there is no edgeSetInputs
-        # member; that is the chamfer-side shape ([PB-FILLET-CHAMFER]).
-        # isTangentChain=False so Fusion cannot chain past the corner.
+
+        # The edge set goes on the fillet input ITSELF — the fillet side of the asymmetry in
+        # [PB-FILLET-CHAMFER]. The trailing False keeps Fusion from pulling in tangent-adjacent
+        # edges and rounding more than the root corner.
+        filletInput = component.features.filletFeatures.createInput()
         filletInput.addConstantRadiusEdgeSet(
-            edges, adsk.core.ValueInput.createByReal(filletRadius), False)
-        filletFeatures.add(filletInput)
+            edgeCollection, adsk.core.ValueInput.createByReal(filletRadius), False)
+        component.features.filletFeatures.add(filletInput)
+
+    # --- S13 and S14: the bore sketch and the bore cut ------------------------------------
 
     def buildBore(self, ctx: SpurGearGenerationContext):
-        """Steps 18-19: the Bore Profile sketch and the bore cut."""
-        # In sketch-only mode ctx.gearBody and ctx.extrusionExtent were never
-        # set — do not rely on the bore being 0.
+        """Runs unconditionally from generate, so it returns early twice: in SketchOnly mode,
+        where buildMainGearBody short-circuited and ctx.gearBody and ctx.extrusionExtent were
+        never set, and when Bore Diameter is not positive. The user may set both."""
         if self.getParameterAsBoolean(PARAM_SKETCH_ONLY):
             return
         boreDiameter = self.getParameter(PARAM_BORE_DIAMETER).value
         if boreDiameter <= 0:
             return
-        futil.log('SpurGearGenerator: cutting the bore')
-        boreSketch = self.createSketchObject('Bore Profile', plane=self.plane)
-        boreSketch.isVisible = True
-        self.boreSketch = boreSketch
-        toothGenerator = SpurGearInvoluteToothDesignGenerator(boreSketch, self)
-        projectedAnchor = toothGenerator.drawBore(ctx.anchorPoint, boreDiameter)
-        # The constructor's stray local-origin SketchPoint at (0,0,0) is
-        # faithful behaviour — keep it, and ground it on that same
-        # projection. Grounding it on the sketch's own origin pins it to the
-        # plane rather than the gear, and [PB-CIRCLE-CENTER] records a solver
-        # failure from constraining to the sketch origin. Ungrounded, the
-        # point keeps two free DOF and the sketch never fully constrains.
-        boreSketch.geometricConstraints.addCoincident(
-            toothGenerator.anchorPoint, projectedAnchor)
 
-        # Step 19: extrude-cut to ctx.extrusionExtent — the far end-cap face
-        # captured in step 14 — so the bore pierces the whole body regardless
-        # of Thickness.
-        profile = boreSketch.profiles.item(0)
-        extrudeFeatures = self.getComponent().features.extrudeFeatures
-        extrudeInput = extrudeFeatures.createInput(
-            profile, adsk.fusion.FeatureOperations.CutFeatureOperation)
-        extentDefinition = adsk.fusion.ToEntityExtentDefinition.create(
-            ctx.extrusionExtent, False)
+        component: adsk.fusion.Component = self.getComponent()
+
+        boreSketch = self.createSketchObject('Bore Profile', self.plane)
+        boreSketch.isVisible = True
+        ctx.boreProfileSketch = boreSketch
+
+        toothGenerator = SpurGearInvoluteToothDesignGenerator(boreSketch, self)
+        toothGenerator.drawBore(ctx.anchorPoint, boreDiameter)
+        # The tooth generator's constructor always adds its local origin, so this sketch carries
+        # one stray unused point. It is grounded on the same projection the bore circle sits on,
+        # never on the sketch's own origin, which pins it to the plane rather than to the gear
+        # and has been observed to fail the solver ([PB-CIRCLE-CENTER], [SPUR-F-LOCAL-ORIGIN]).
+        boreSketch.geometricConstraints.addCoincident(
+            toothGenerator.anchorPoint, toothGenerator.projectedAnchorPoint)
+
+        if boreSketch.profiles.count != 1:
+            raise Exception(
+                'Spur gear: the Bore Profile sketch closes {} regions, expected exactly the '
+                'bore circle'.format(boreSketch.profiles.count))
+        boreProfile = boreSketch.profiles.item(0)
+
+        # The extent is the far end-cap face, so the bore pierces the gear whatever the
+        # thickness, and participantBodies restricts the cut to the gear ([PB-THROUGH-CUT]).
+        extrudeInput = component.features.extrudeFeatures.createInput(
+            boreProfile, adsk.fusion.FeatureOperations.CutFeatureOperation)
         extrudeInput.setOneSideExtent(
-            extentDefinition, adsk.fusion.ExtentDirections.PositiveExtentDirection)
+            adsk.fusion.ToEntityExtentDefinition.create(ctx.extrusionExtent, False),
+            adsk.fusion.ExtentDirections.PositiveExtentDirection)
         extrudeInput.participantBodies = [ctx.gearBody]
-        extrudeFeatures.add(extrudeInput)
+        component.features.extrudeFeatures.add(extrudeInput)
+
+    # --- S15: the chamfer -----------------------------------------------------------------
+
+    def chamferTeeth(self, ctx: SpurGearGenerationContext):
+        """Runs from generate after buildBore, so it sees the patterned, joined, filleted gear
+        and an optional bore."""
+        if self.getParameterAsBoolean(PARAM_SKETCH_ONLY):
+            return
+        chamferDistance = self.getParameter(PARAM_CHAMFER_TOOTH).value
+        if chamferDistance <= 0:
+            return
+
+        component: adsk.fusion.Component = self.getComponent()
+        boreRadius = self.getParameter(PARAM_BORE_DIAMETER).value / 2
+        sketchPlane = ctx.gearProfileSketch.referencePlane.geometry
+
+        # Every edge of every end-cap face, once: the tooth flanks, the tooth tops and the
+        # root-radius arcs. Only a circular edge at the bore radius is excluded, so a bore never
+        # receives a chamfer.
+        edgeCollection = adsk.core.ObjectCollection.create()
+        seenEdges = []
+        endCapCount = 0
+        faces = ctx.gearBody.faces
+        for i in range(faces.count):
+            face = faces.item(i)
+            if face.geometry.surfaceType != adsk.core.SurfaceTypes.PlaneSurfaceType:
+                continue
+            if not sketchPlane.isParallelToPlane(face.geometry):
+                continue
+            endCapCount += 1
+            for j in range(face.edges.count):
+                edge = face.edges.item(j)
+                if edge.tempId in seenEdges:
+                    continue
+                if boreRadius > 0 and \
+                        edge.geometry.curveType == adsk.core.Curve3DTypes.Circle3DCurveType and \
+                        abs(edge.geometry.radius - boreRadius) < RADIUS_TOLERANCE:
+                    continue
+                seenEdges.append(edge.tempId)
+                edgeCollection.add(edge)
+
+        if endCapCount == 0:
+            raise Exception(
+                'Spur gear: no end-cap face parallel to the Gear Profile sketch plane to chamfer')
+        if edgeCollection.count == 0:
+            raise Exception('Spur gear: no chamfer edge left on the end-cap faces')
+
+        # The edge set goes on the input's chamferEdgeSets collection — the chamfer side of the
+        # asymmetry in [PB-FILLET-CHAMFER], not the fillet's.
+        chamferInput = component.features.chamferFeatures.createInput2()
+        chamferInput.chamferEdgeSets.addEqualDistanceChamferEdgeSet(
+            edgeCollection, adsk.core.ValueInput.createByReal(chamferDistance), False)
+        component.features.chamferFeatures.add(chamferInput)
+
+    # --- S16: cleanup ---------------------------------------------------------------------
 
     def cleanup(self, ctx: SpurGearGenerationContext):
-        """Step 20 [SPUR-F-CLEANUP]: the last action of generate, both modes,
-        never guarded at the call site. isVisible hides sketches;
-        isLightBulbOn hides construction geometry — isVisible has no effect
-        on it ([PB-HIDE-AFTER-USE]). Each entity is guarded individually: the
-        Gear Center axis and Bore Profile sketch do not exist in sketch-only
-        mode, and the bore sketch does not exist when no bore was cut."""
+        """The very last action of generate, in both modes. It must not move up into
+        buildMainGearBody: buildBore re-projects the anchor out of the Tools sketch, and
+        projection fails once that sketch is hidden.
+
+        Construction geometry is hidden with isLightBulbOn and sketches with isVisible; the two
+        are never crossed ([PB-HIDE-AFTER-USE], [SPUR-F-CLEANUP])."""
         if ctx.extrusionEndPlane is not None:
             ctx.extrusionEndPlane.isLightBulbOn = False
         if ctx.centerAxis is not None:
             ctx.centerAxis.isLightBulbOn = False
-        if self._normalizedPlane is not None:
-            self._normalizedPlane.isLightBulbOn = False
+        if self.normalizedPlane is not None:
+            self.normalizedPlane.isLightBulbOn = False
+
+        # Sketch-only mode leaves the sketches visible, which is the point of that mode.
         if self.getParameterAsBoolean(PARAM_SKETCH_ONLY):
-            # Sketch-only mode leaves Tools and Gear Profile visible — that
-            # is the mode's whole point.
             return
-        if self.toolsSketch is not None:
-            self.toolsSketch.isVisible = False
-        if ctx.gearProfileSketch is not None:
-            ctx.gearProfileSketch.isVisible = False
-        if self.boreSketch is not None:
-            self.boreSketch.isVisible = False
+        for sketch in (ctx.toolsSketch, ctx.gearProfileSketch, ctx.boreProfileSketch):
+            if sketch is not None:
+                sketch.isVisible = False

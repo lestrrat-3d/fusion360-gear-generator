@@ -556,6 +556,18 @@ the check.
   `RuntimeError … VCS_SKETCH_SOLVING_FAILED`. Same trap: never `addCoincident` two points that are
   already the same shared point. (This is the single most common over-constraint failure; it bit
   both spur and bevel.)
+
+  ⚠️ **Not every creation call shares every `SketchPoint` you hand it — verify, never assume.**
+  `sketchArcs.addByCenterStartEnd(centre, start, end)` shares the **start and end** points but
+  **copies the centre**: the arc gets a fresh `SketchPoint` at that location, with nothing tying it
+  to the point you passed. Branch (a) above therefore does not apply to that centre, and the arc
+  needs an explicit `addCoincident(arc.centerSketchPoint, existingPoint)` — which is the one place
+  in this rule where passing a point *and* adding a coincident to it is correct rather than
+  redundant. Confirm sharing by comparing `entityToken`s rather than trusting the argument name; a
+  copied centre is a free point, and if the surrounding geometry is later dragged onto an anchor it
+  stays behind by the drag distance and silently deforms the curve. Found in Fusion 2026-09-02:
+  the bevel tooth-top arc's centre stranded 22.9 mm behind its origin, giving a 0.5743 mm arc where
+  22.5 mm was intended, on a sketch that raised no error.
 - **[PB-DRIVING-DIM] Driving vs driven dimensions:** `add*Dimension(...)` is *driving* by default; never pass the
   trailing `isDriven=True`/`True` (it inverts to a measured dimension and lets geometry float).
 - **[PB-OFFSET-DIM] Line-to-line / parallel-offset dimension:** to dimension the gap between two (parallel) lines —

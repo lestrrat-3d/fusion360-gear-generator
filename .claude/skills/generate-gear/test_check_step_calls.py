@@ -563,26 +563,53 @@ class CheckApiCallsTest(unittest.TestCase):
 
 
 class SpurDimensionContractTest(unittest.TestCase):
-    def test_rib_and_midpoint_chain_dimensions_use_axis_orientations(self):
-        source = (Path(__file__).parents[3] / 'lib' / 'geargen' / 'spurgear.py').read_text()
-        ribs = source.split('        # 9.8 Ribs [SPUR-F-RIBS]', 1)[1].split(
-            '        # 9.9 Close the tooth at the root', 1)[0]
+    """Guards on the shipped tooth drawer.
 
+    These read lib/geargen/spurgear.py, which is build output, so they anchor on code
+    the recipe requires rather than on comment numbering or local names — both of which
+    legitimately change when the gear is recompiled and re-emitted.
+    """
+
+    @staticmethod
+    def drawer_source():
+        # The whole tooth-generator class, not one method: the emit is free to split
+        # drawTooth into helpers, and it has.
+        source = (Path(__file__).parents[3] / 'lib' / 'geargen' / 'spurgear.py').read_text()
+        start = source.index('class SpurGearInvoluteToothDesignGenerator')
+        end = source.find('\nclass ', start + 1)
+        return source[start:end if end != -1 else len(source)]
+
+    def test_rib_and_midpoint_chain_dimensions_use_axis_orientations(self):
+        ribs = self.drawer_source()
+
+        # [SPUR-F-RIBS]: the rib takes the axis across the spine and the chain takes the
+        # axis along it, so both axis orientations appear and the aligned one never does.
         self.assertNotIn('AlignedDimensionOrientation', ribs)
         self.assertIn('VerticalDimensionOrientation', ribs)
         self.assertIn('HorizontalDimensionOrientation', ribs)
-        self.assertIn('acrossVertical', ribs)
+        self.assertRegex(ribs, r'addMidPoint\(|MidPoint')
 
     def test_spine_uses_pinned_reference_for_zero_angle(self):
-        source = (Path(__file__).parents[3] / 'lib' / 'geargen' / 'spurgear.py').read_text()
-        spine = source.split('        # 9.7 Spine and +X reference', 1)[1].split(
-            '        # 9.8 Ribs', 1)[0]
+        spine = self.drawer_source()
 
-        self.assertIn('refEnd = sketch.sketchPoints.add', spine)
+        # [SPUR-F-SPINE]: the far reference endpoint is pinned by two axis dimensions,
+        # and the signed angular dimension is what forbids the mirrored answer. A plain
+        # addHorizontal carries no direction and must not stand in for it.
         self.assertIn('HorizontalDimensionOrientation', spine)
         self.assertIn('VerticalDimensionOrientation', spine)
-        self.assertIn('addAngularDimension(\n            refLine, spineLine', spine)
-        self.assertNotIn('addHorizontal', spine)
+        self.assertIn('addAngularDimension(', spine)
+        self.assertNotIn('addHorizontal(', spine)
+
+    def test_toothtop_arc_centre_is_tied_to_the_local_origin(self):
+        drawer = self.drawer_source()
+
+        # [SPUR-F-TOOTHTOP-ARC]: addByCenterStartEnd COPIES the centre point it is
+        # handed, so the arc needs an explicit coincident or its centre is free. Without
+        # it the centre strands behind when the sketch is dragged onto the anchor, which
+        # collapsed a bevel pinion's tooth-top arc to 0.5743 mm against a 22.5 mm tip
+        # radius in Fusion on 2026-09-02.
+        self.assertIn('addByCenterStartEnd(', drawer)
+        self.assertRegex(drawer, r'addCoincident\([^)]*centerSketchPoint')
 
 
 class CheckCompileTest(unittest.TestCase):

@@ -5,5 +5,35 @@
     "want": "DimensionOrientations",
     "func": "addDistanceDimension",
     "why": "The stubs type the DimensionOrientations members as int while the parameter wants the class, so every axis-oriented addDistanceDimension call draws this. Fusion accepts the members at runtime; the shipped spur gear passing Horizontal/Vertical orientations was verified in the GUI on 2026-08-24 during the [PB-DIM-VALUE-SEMANTICS] work."
+  },
+  {
+    "rule": "reportAttributeAccessIssue",
+    "message": "Cannot access attribute \"geometry\" for class \"Base\"",
+    "why": "Stub noise: the Fusion stub types Sketch.referencePlane as core.Base, which declares no geometry, while its own docstring says the value is 'the construction plane or planar face the sketch is associated to' — both of which have .geometry. spec/spurgear/instructions.md:499 and :512 prescribe the bare 'ctx.gearProfileSketch.referencePlane.geometry' expression, and the step list transcribes it. Note that the previously shipped module wrapped it in adsk.fusion.ConstructionPlane.cast(...) before reading .geometry, which is why no baseline gear draws this complaint; the cast is a type assertion rather than a runtime guard, since a planar-face referencePlane would make the cast return None and .geometry raise either way."
+  },
+  {
+    "rule": "reportAttributeAccessIssue",
+    "message": "Cannot access attribute \"radius\" for class \"Surface\"",
+    "why": "Stub-narrowing pessimism: spec/spurgear/instructions.md:500-503 prescribes classifying a face by 'face.geometry.surfaceType' and then reading the narrowed geometry directly, and the step list transcribes that. The stubs type BRepFace.geometry as core.Surface and BRepEdge.geometry as core.Curve3D, so a radius/startPoint/endPoint read after a surfaceType or curveType test is flagged even though the runtime object is a Cylinder, Line3D or Circle3D. The previously shipped module added adsk.core.Cylinder.cast / Line3D.cast narrowings the spec never asks for, which is why no baseline gear draws this."
+  },
+  {
+    "rule": "reportAttributeAccessIssue",
+    "message": "Cannot access attribute \"endPoint\" for class \"Curve3D\"",
+    "why": "Stub-narrowing pessimism, same cause as the Surface entry: the stubs type BRepEdge.geometry as core.Curve3D, so reading startPoint, endPoint or radius after a curveType test is flagged even though the runtime object is a Line3D or Circle3D. spec/spurgear/instructions.md prescribes the direct read after the type test; the previously shipped module added adsk.core.Line3D.cast narrowings the spec never asks for."
+  },
+  {
+    "rule": "reportAttributeAccessIssue",
+    "message": "Cannot access attribute \"startPoint\" for class \"Curve3D\"",
+    "why": "Stub-narrowing pessimism, same cause as the Surface entry: the stubs type BRepEdge.geometry as core.Curve3D, so reading startPoint, endPoint or radius after a curveType test is flagged even though the runtime object is a Line3D or Circle3D. spec/spurgear/instructions.md prescribes the direct read after the type test; the previously shipped module added adsk.core.Line3D.cast narrowings the spec never asks for."
+  },
+  {
+    "rule": "reportAttributeAccessIssue",
+    "message": "Cannot access attribute \"radius\" for class \"Curve3D\"",
+    "why": "Stub-narrowing pessimism, same cause as the Surface entry: the stubs type BRepEdge.geometry as core.Curve3D, so reading startPoint, endPoint or radius after a curveType test is flagged even though the runtime object is a Line3D or Circle3D. spec/spurgear/instructions.md prescribes the direct read after the type test; the previously shipped module added adsk.core.Line3D.cast narrowings the spec never asks for."
+  },
+  {
+    "rule": "reportAttributeAccessIssue",
+    "message": "Cannot assign to attribute \"plane\" for class \"SpurGearGenerationContext\"",
+    "why": "Inference pessimism, not an ordering bug: generate() calls _normalizeTargetPlane() before 'ctx.plane = self.plane', and that method replaces self.plane with the coplanar ConstructionPlane it builds, so the assigned value really is a ConstructionPlane. pyright widens self.plane's type from its earlier processInputs assignment, get_selection(inputs, INPUT_ID_PLANE)[0], which is the raw user selection and may be a planar BRepFace until S3 normalizes it. Verified the call order in lib/geargen/spurgear.py on 2026-09-02."
   }
 ]
