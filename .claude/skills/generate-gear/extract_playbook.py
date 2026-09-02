@@ -34,13 +34,27 @@ files the emit stage is forbidden to read, so they were unresolvable at emit
 time before this script existed and remain so after. The generated header names
 them, so a drafter meeting one knows why it cannot be looked up.
 
+`--min-anchors N` turns the extractor into a gate as well as a slicer. A step
+list that cites no playbook anchor at all extracts cleanly today: the header says
+every cited anchor was found, and the emit drafter is handed the core sections
+and nothing else. That is not a slice of the playbook, it is the absence of one,
+and it happened twice while bevelgear was being compiled. `--min-anchors 1` makes
+it a failure at compile time instead of a silent 8% extract at emit time.
+`run_compile_gates.py` passes it, and so does the `gates` job of
+`.github/workflows/3d-proof.yml`, so a step list cannot reach `main` without a
+citation either. The emit stage does not pass it: by then the step list is
+already committed and the gate belongs upstream of it.
+
 Usage:
     python3 extract_playbook.py <gear> [--steps PATH] [--playbook PATH] [--out PATH]
+                                       [--min-anchors N]
 
 Run from the repo root. Exit 0 = written; 1 = a cited `PB-…` anchor (or a core
-section) has no definition in the playbook; 2 = a missing or unreadable input.
+section) has no definition in the playbook, or fewer than `--min-anchors`
+playbook anchors are cited; 2 = a missing or unreadable input.
 """
 import argparse
+import collections
 import os
 import re
 import sys
@@ -83,6 +97,14 @@ OPENING_DEF_RE = re.compile(
 # Definition ranks, strongest first: a heading owns a whole section, a bold span
 # opening a line owns the block it starts, an inline mention owns nothing better.
 RANK_HEADING, RANK_OPENING, RANK_INLINE = 3, 2, 1
+
+
+# What one extraction measured. `cited` counts every anchor the step list names;
+# `playbook_cited` counts only the ones the playbook defines, which is the number
+# `--min-anchors` gates on, because a per-gear sidecar anchor resolves to nothing
+# here and so buys the emit drafter no rule.
+Summary = collections.namedtuple(
+    "Summary", ("cited", "playbook_cited", "blocks", "playbook_bytes"))
 
 
 class InputError(Exception):
@@ -334,7 +356,7 @@ def extract(gear, steps_path, playbook_path, core_sections=None):
     header = build_header(gear, playbook_rel.replace(os.sep, "/"), unresolved)
     text = render(playbook_lines, blocks, header)
     playbook_bytes = len(("\n".join(playbook_lines) + "\n").encode("utf-8"))
-    return text, (len(cites), len(blocks), playbook_bytes)
+    return text, Summary(len(cites), len(cited_here), len(blocks), playbook_bytes)
 
 
 def main(argv, core_sections=None):
@@ -345,10 +367,18 @@ def main(argv, core_sections=None):
     parser.add_argument("--steps", help="step list (default spec/<gear>/steps.md)")
     parser.add_argument("--playbook", help="playbook (default the one beside this script)")
     parser.add_argument("--out", help="output (default .tmp/<gear>.playbook-extract.md)")
+    parser.add_argument("--min-anchors", type=int, default=0, metavar="N",
+                        help="fail with exit 1 when the step list cites fewer than N "
+                             "playbook-defined anchors (default 0, which gates nothing)")
     args = parser.parse_args(argv[1:])
 
     if not GEAR_RE.match(args.gear):
         print("extract_playbook: not a gear name: %r" % args.gear, file=sys.stderr)
+        return 2
+
+    if args.min_anchors < 0:
+        print("extract_playbook: --min-anchors cannot be negative: %d" % args.min_anchors,
+              file=sys.stderr)
         return 2
 
     steps = args.steps or os.path.join(REPO_ROOT, "spec", args.gear, "steps.md")
@@ -356,8 +386,7 @@ def main(argv, core_sections=None):
     out = args.out or os.path.join(REPO_ROOT, ".tmp", "%s.playbook-extract.md" % args.gear)
 
     try:
-        text, (cited, blocks, playbook_bytes) = extract(
-            args.gear, steps, playbook, core_sections)
+        text, summary = extract(args.gear, steps, playbook, core_sections)
     except InputError as exc:
         print("extract_playbook: %s" % exc, file=sys.stderr)
         return 2
@@ -375,10 +404,20 @@ def main(argv, core_sections=None):
         print("extract_playbook: cannot write %s: %s" % (out, exc), file=sys.stderr)
         return 2
 
+    playbook_bytes = summary.playbook_bytes
     share = 100.0 * len(text.encode("utf-8")) / playbook_bytes if playbook_bytes else 0.0
-    print("extract_playbook: %s: %d anchors cited, %d blocks written, %d bytes vs %d "
-          "playbook bytes (%.0f%%) -> %s"
-          % (args.gear, cited, blocks, len(text.encode("utf-8")), playbook_bytes, share, out))
+    print("playbook-extract check: %s: %d anchors cited (%d defined in the playbook), "
+          "%d blocks written, %d bytes vs %d playbook bytes (%.0f%%) -> %s"
+          % (args.gear, summary.cited, summary.playbook_cited, summary.blocks,
+             len(text.encode("utf-8")), playbook_bytes, share, out))
+
+    if summary.playbook_cited < args.min_anchors:
+        print("extract_playbook: the step list cites %d playbook anchor(s); at least %d is "
+              "required." % (summary.playbook_cited, args.min_anchors), file=sys.stderr)
+        print("extract_playbook: a step list that cites nothing hands the emit drafter only the "
+              "core sections, so every rule the build depends on goes unstated. Cite the "
+              "playbook rule each step relies on by its `[PB-…]` anchor.", file=sys.stderr)
+        return 1
     return 0
 
 

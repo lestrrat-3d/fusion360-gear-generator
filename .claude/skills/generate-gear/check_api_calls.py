@@ -326,9 +326,16 @@ def imported_framework_modules(tree, exports):
     return modules
 
 
-def imported_class_methods(tree, root, inherited_methods):
-    """Resolve methods only for classes explicitly imported by the target."""
-    imported_paths = []
+def imported_module_trees(tree, root):
+    """Parse every sibling module the target imports, following imports transitively.
+
+    These are the gear modules — `spurgear.py`, `helicalgear.py` — that a derived gear inherits
+    from.  They are neither the target nor shared framework, so nothing else here reads them, and
+    a gear two levels down its family (`herringbonegear` -> `helicalgear` -> `spurgear` ->
+    `Generator`) has its class hierarchy broken in the middle without them.
+    """
+    pending = []
+    seen = set()
 
     def module_path(module):
         candidates = (
@@ -345,38 +352,56 @@ def imported_class_methods(tree, root, inherited_methods):
             if module:
                 path = module_path(module)
                 if path is not None:
-                    imported_paths.append(path)
+                    pending.append(path)
             else:
-                imported_paths.extend(
+                pending.extend(
                     path for path in (module_path(alias.name) for alias in node.names)
                     if path is not None)
 
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.ImportFrom):
-            continue
-        module = node.module.rsplit('.', 1)[-1] if node.module else None
-        if module:
-            path = module_path(module)
-            if path is not None:
-                imported_paths.append(path)
-        else:
-            imported_paths.extend(
-                path for path in (module_path(alias.name) for alias in node.names)
-                if path is not None)
+    add_imports(tree)
 
-    own = {}
-    bases = {}
-    seen_paths = set()
-    while imported_paths:
-        path = imported_paths.pop()
-        if path in seen_paths:
+    trees = []
+    while pending:
+        path = pending.pop()
+        if path in seen:
             continue
-        seen_paths.add(path)
+        seen.add(path)
         try:
             source = ast.parse(read_source(path))
         except (OSError, SyntaxError):
             continue
+        trees.append(source)
         add_imports(source)
+    return trees
+
+
+def imported_class_bases(trees):
+    """Base classes declared by the imported sibling modules, at module level."""
+    bases = {}
+    for source in trees:
+        for class_node in source.body:
+            if not isinstance(class_node, ast.ClassDef):
+                continue
+            bases[class_node.name] = {
+                base.id if isinstance(base, ast.Name) else base.attr
+                for base in class_node.bases
+                if isinstance(base, (ast.Name, ast.Attribute))
+            }
+    return bases
+
+
+def imported_method_returns(trees, known_classes):
+    """Method return types declared by the imported sibling modules."""
+    returns = {}
+    for source in trees:
+        returns.update(method_returns_from_tree(source, known_classes))
+    return returns
+
+
+def imported_class_methods(trees, inherited_methods):
+    """Resolve methods only for classes explicitly imported by the target."""
+    own = {}
+    for source in trees:
         for class_node in source.body:
             if not isinstance(class_node, ast.ClassDef):
                 continue
@@ -384,11 +409,7 @@ def imported_class_methods(tree, root, inherited_methods):
                 child.name for child in class_node.body
                 if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
             }
-            bases[class_node.name] = {
-                base.id if isinstance(base, ast.Name) else base.attr
-                for base in class_node.bases
-                if isinstance(base, (ast.Name, ast.Attribute))
-            }
+    bases = imported_class_bases(trees)
 
     resolved = {}
 
@@ -913,16 +934,24 @@ def main():
     framework_paths = framework_files(args.framework)
     framework_class_methods = framework_methods(framework_paths)
     framework_module_exports = framework_exports(framework_paths)
-    imported_methods = imported_class_methods(
-        tree, args.framework, framework_class_methods)
+    imported_trees = imported_module_trees(tree, args.framework)
+    imported_methods = imported_class_methods(imported_trees, framework_class_methods)
     inherited_methods = dict(framework_class_methods)
     inherited_methods.update(imported_methods)
     target_class_methods = target_methods(tree, inherited_methods)
     known_class_methods = dict(inherited_methods)
     known_class_methods.update(target_class_methods)
+    # The imported gear modules go between the framework and the target in all three maps, so a
+    # derived gear's class chain reaches the framework's annotated methods. Without them
+    # `HerringboneGearGenerator -> HelicalGearGenerator` is where the walk stops, and
+    # `self.getComponent()` — declared on `Generator` two links further up, annotated
+    # `-> adsk.fusion.Component` — resolves to nothing, so every call chained off it is reported
+    # as having an unknown receiver.
     bases = framework_bases(framework_paths)
+    bases.update(imported_class_bases(imported_trees))
     bases.update(class_bases_from_tree(tree))
     method_returns = framework_method_returns(framework_paths, known_class_methods)
+    method_returns.update(imported_method_returns(imported_trees, known_class_methods))
     method_returns.update(method_returns_from_tree(tree, known_class_methods))
     containing_classes = call_classes(tree)
     framework_modules = imported_framework_modules(tree, framework_module_exports)

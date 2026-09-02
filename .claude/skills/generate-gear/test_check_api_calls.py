@@ -130,6 +130,80 @@ class CheckApiReceiverOwnershipTest(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertIn("calls 'getParameterValue('", output)
 
+    # `HerringboneGearGenerator` reaches `Generator.getComponent` only through two gear modules
+    # that are neither the target nor shared framework. Before those modules' base classes and
+    # return annotations were read, the walk stopped at the first of them and every call chained
+    # off `self.getComponent()` was reported as having an unknown receiver.
+    DERIVED_GEAR_FRAMEWORK = {
+        'base.py': (
+            "class Generator:\n"
+            "    def getComponent(self) -> adsk.fusion.Component:\n"
+            "        return self.component\n"
+        ),
+        'spurgear.py': (
+            "from .base import Generator\n"
+            "\n"
+            "class SpurGearGenerator(Generator):\n"
+            "    def buildTooth(self, ctx):\n"
+            "        pass\n"
+        ),
+        'helicalgear.py': (
+            "from .spurgear import SpurGearGenerator\n"
+            "\n"
+            "class HelicalGearGenerator(SpurGearGenerator):\n"
+            "    def loftTooth(self, ctx):\n"
+            "        pass\n"
+        ),
+    }
+
+    DERIVED_GEAR_MEMBERS = {
+        ('Component', 'features'): api_member('Features', kind='property'),
+        ('Features', 'mirrorFeatures'): api_member('MirrorFeatures', kind='property'),
+        ('MirrorFeatures', 'createInput'): api_member('MirrorFeatureInput'),
+    }
+
+    def test_receiver_resolves_through_two_imported_gear_modules(self):
+        result, output = self.run_checker(
+            """
+            from .helicalgear import HelicalGearGenerator
+
+            class HerringboneGearGenerator(HelicalGearGenerator):
+                def buildTooth(self, ctx):
+                    return self.getComponent().features.mirrorFeatures.createInput(
+                        ctx.entities, ctx.helixPlane)
+            """,
+            api_names={'createInput'},
+            members=self.DERIVED_GEAR_MEMBERS,
+            framework_files=self.DERIVED_GEAR_FRAMEWORK)
+
+        self.assertEqual(result, 0, output)
+        self.assertNotIn('receiver ownership is required', output)
+
+    def test_a_broken_middle_module_still_reports_the_unknown_receiver(self):
+        # The negative control for the test above: with `helicalgear` naming a base nothing
+        # defines, the chain to `Generator` really is broken and the finding must come back.
+        framework = dict(self.DERIVED_GEAR_FRAMEWORK)
+        framework['helicalgear.py'] = (
+            "class HelicalGearGenerator(NoSuchBase):\n"
+            "    def loftTooth(self, ctx):\n"
+            "        pass\n"
+        )
+        result, output = self.run_checker(
+            """
+            from .helicalgear import HelicalGearGenerator
+
+            class HerringboneGearGenerator(HelicalGearGenerator):
+                def buildTooth(self, ctx):
+                    return self.getComponent().features.mirrorFeatures.createInput(
+                        ctx.entities, ctx.helixPlane)
+            """,
+            api_names={'createInput'},
+            members=self.DERIVED_GEAR_MEMBERS,
+            framework_files=framework)
+
+        self.assertEqual(result, 1)
+        self.assertIn('receiver ownership is required', output)
+
     def test_valid_fusion_chain_and_exact_unverified_receiver_are_allowed(self):
         result, output = self.run_checker(
             """

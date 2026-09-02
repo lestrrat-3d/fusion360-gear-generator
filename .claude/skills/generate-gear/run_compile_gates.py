@@ -17,7 +17,15 @@ standalone: it imports nothing from that script.
 
 What it does not do: it never copies, moves, or indexes a file. The proof is expected to be in
 `proof/<gear>/` already — `stage.py <gear> proof` puts it there — because a runner that also
-placed artifacts would hide a failed placement behind a failed gate.
+placed artifacts would hide a failed placement behind a failed gate. The one file it writes is
+the `playbook` stage's scratch extract under `.tmp/`, which is the extractor's own default
+output path and is read by nothing this stage does.
+
+The `playbook` stage is here because a step list that cites no `[PB-…]` anchor used to pass
+every compile gate. `check_compile.py` gates the spec lines a step cites, not the playbook rules
+it leans on, so a citation-free step list looked clean at compile time and handed the emit
+drafter an extract holding the core sections and nothing else. This runner calls
+`extract_playbook.py --min-anchors 1`, which turns that into a compile-time failure.
 
 Usage:
     run_compile_gates.py <gear> [options]
@@ -28,7 +36,7 @@ positional:
 
 options:
   --root PATH            repo root. Default: three levels above this script.
-  --only KEY[,KEY...]    run only these stages. Keys: proof, compile, step_calls.
+  --only KEY[,KEY...]    run only these stages. Keys: proof, compile, playbook, step_calls.
                          Unselected stages are reported with status "skip",
                          reason "not selected". An unknown key is a usage error.
   --fail-fast            stop scheduling stages after the first failure. Off by default, so
@@ -59,8 +67,15 @@ from dataclasses import dataclass
 # --- constants ---------------------------------------------------------------------------
 SCHEMA = 1
 DEFAULT_TIMEOUT = 900
-STAGE_ORDER = ("proof", "compile", "step_calls")
+STAGE_ORDER = ("proof", "compile", "playbook", "step_calls")
 JSON_MARKER = "COMPILE_GATES_JSON: "
+
+# The floor the `playbook` stage holds the step list to. One is deliberately the lowest number
+# that still refuses the failure this stage was added for: a step list citing nothing, whose
+# extract is the 8% of the playbook the core sections alone make up. A higher floor would be a
+# guess about how many rules a gear ought to need, and the three compiled gears cite 25, 9 and 39
+# playbook-defined anchors, so nothing near a real step list is being defended here.
+MIN_PLAYBOOK_ANCHORS = 1
 
 # The same gear-name rule stage.py and the other per-gear scripts use.
 GEAR_NAME = re.compile(r'[a-z][a-z0-9_]*\Z')
@@ -68,11 +83,13 @@ GEAR_NAME = re.compile(r'[a-z][a-z0-9_]*\Z')
 STAGE_TITLES = {
     "proof": "Proof",
     "compile": "Compile check",
+    "playbook": "Playbook extract",
     "step_calls": "Step calls",
 }
 
 STAGE_SCRIPTS = {
     "compile": "check_compile.py",
+    "playbook": "extract_playbook.py",
     "step_calls": "check_step_calls.py",
 }
 
@@ -86,6 +103,9 @@ HEADLINE_PATTERN = re.compile(r'^\S.*check.*:')
 API_CALL_NAME_RE = re.compile(r"names '(\w+)\(', which the Fusion API database does not have")
 PROVENANCE_DRIFT_RE = re.compile(r'has changed since the step list was compiled')
 
+# extract_playbook's own wording for the too-few-anchors defect, as opposed to its other exit-1.
+PLAYBOOK_UNCITED_RE = re.compile(r'playbook anchor\(s\); at least \d+ is required')
+
 # The fault sentences, one per row of SKILL.md's "Telling a draft fault from a prose fault".
 FAULT_PROOF = 'DRAFT FAULT by default ("The proof fails to build")'
 FAULT_DRAFT = "DRAFT FAULT"
@@ -94,6 +114,10 @@ FAULT_JUDGMENT = ("NEEDS JUDGMENT: a call the spec itself names is a PROSE FAULT
                   "drafter invented is a DRAFT FAULT")
 FAULT_STEP_CALLS = ("NEEDS CLASSIFICATION: read the output as call names and pass only the "
                     "names back to the drafter (SKILL.md step 5)")
+FAULT_PLAYBOOK_UNCITED = ("DRAFT FAULT: the step list cites no playbook rule, so the emit "
+                          "drafter would be handed the core sections and nothing else")
+FAULT_PLAYBOOK_UNDEFINED = ("DRAFT FAULT, or someone edited the playbook: the step list cites "
+                            "a [PB-...] anchor the playbook does not define")
 FAULT_SETUP = "SETUP ERROR: fix the environment or inputs; never retry the drafter"
 
 # Why a missing module is a skip rather than a failure. The wording is fixed because the
@@ -226,7 +250,10 @@ def setup_errors(paths, args):
 
     keys = set(active_keys(args))
 
-    if keys & {"compile", "step_calls"}:
+    # The playbook stage needs `PLAYBOOK.md` as well, and it is not checked here: the extractor
+    # resolves that path itself and exits 2 on an unreadable one, which this runner already
+    # reports as a setup error. Repeating the test would only let the two disagree.
+    if keys & {"compile", "playbook", "step_calls"}:
         if not os.path.isfile(_abs(paths.root, paths.steps)):
             errors.append("step list not found: %s -- draft it before checking it" % paths.steps)
 
@@ -266,6 +293,9 @@ def stage_command(key, paths):
         return ["bash", PROOF_RUNNER]
     if key == "compile":
         return [sys.executable, _script_path("check_compile.py", paths), paths.gear]
+    if key == "playbook":
+        return [sys.executable, _script_path("extract_playbook.py", paths), paths.gear,
+                "--min-anchors", str(MIN_PLAYBOOK_ANCHORS)]
     if key == "step_calls":
         return [sys.executable, _script_path("check_step_calls.py", paths),
                 paths.steps, paths.module]
@@ -372,6 +402,19 @@ def classify_compile(stdout):
     return FAULT_DRAFT
 
 
+def classify_playbook(stderr):
+    """Which of `extract_playbook.py`'s two exit-1 defects a failed playbook stage hit.
+
+    Both are the drafter's, so the distinction is only about what to tell it. The
+    too-few-anchors message is matched on the phrase the extractor prints; anything else
+    exit 1 can mean is the undefined-anchor defect, which is also what a playbook edit made
+    after the step list was drafted looks like from here.
+    """
+    if PLAYBOOK_UNCITED_RE.search(stderr or ""):
+        return FAULT_PLAYBOOK_UNCITED
+    return FAULT_PLAYBOOK_UNDEFINED
+
+
 def classify(results):
     """One fault sentence per stage that did not pass, mirroring SKILL.md's "Telling a draft
     fault from a prose fault" table. Pure function of the results, so it is directly testable."""
@@ -384,6 +427,8 @@ def classify(results):
                 faults[r.key] = FAULT_PROOF
             elif r.key == "compile":
                 faults[r.key] = classify_compile(r.stdout)
+            elif r.key == "playbook":
+                faults[r.key] = classify_playbook(r.stderr)
             elif r.key == "step_calls":
                 faults[r.key] = FAULT_STEP_CALLS
     return faults

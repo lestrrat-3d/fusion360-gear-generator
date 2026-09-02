@@ -37,6 +37,14 @@ instructions themselves, a `**From:**` line naming the spec files and line range
 from, and every Fusion API call it requires written inside a code span. A `[GO]` step also names
 the proof function that realises it and carries the `proof-run` annotation described below.
 
+**Cite by anchor every playbook rule a step relies on.** Write the anchor in the step, as
+`[PB-SKETCH-FIRST]`, wherever the step's instructions only make sense because of a rule the
+playbook states. You are the only stage that reads `PLAYBOOK.md`: `/emit-gear` is handed an
+extract built from your citations alone, so a rule you leaned on without naming is a rule the
+transcriber never sees. Cite a per-gear `fusion.md` anchor the same way; those resolve to nothing
+in the extract, and it says so, but the citation still records where the instruction came from.
+A gate refuses a step list that cites no playbook anchor at all.
+
 **A call span in a step is a call the module must make.** A later gate reads every call written
 in a code span and requires the generated module to make it. A name a step mentions without
 requiring it therefore has to be marked: a method the module defines for the framework to call, a
