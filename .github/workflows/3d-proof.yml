@@ -5,7 +5,8 @@ name: 3D proof
 #
 #   checkers  the gate scripts' own regression tests, which are gear-independent
 #   proof     proof/run.sh, which builds every gear's proof against pinned engine revisions
-#   gates     one leg per gear, running that gear's compile check and gate battery
+#   gates     one leg per gear, running that gear's compile check, playbook-citation check and
+#             gate battery
 #
 # The gates matrix covers every gear /compile-gear has produced a step list for. Add a gear to it
 # when it gains a spec/<gear>/steps.md; check_step_calls.py's WorkflowGateWiringTest fails the
@@ -172,6 +173,16 @@ jobs:
 
       - name: Check the ${{ matrix.gear }} step list is current
         run: python3 .claude/skills/generate-gear/check_compile.py ${{ matrix.gear }}
+        working-directory: gears
+
+      # The step list is the only thing that decides which playbook rules /emit-gear gets to
+      # read. One citing nothing extracts to the core sections alone, which is 8% of the file,
+      # and every other compile gate passes it. /compile-gear's runner gates this too; the step
+      # is repeated here so a step list cannot reach main without it.
+      - name: Check the ${{ matrix.gear }} step list cites the playbook
+        run: |
+          python3 .claude/skills/generate-gear/extract_playbook.py ${{ matrix.gear }} \
+            --min-anchors 1
         working-directory: gears
 
       - name: Gate the ${{ matrix.gear }} candidate

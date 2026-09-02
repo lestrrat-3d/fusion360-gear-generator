@@ -60,7 +60,7 @@ class ExtractorTestCase(unittest.TestCase):
     """Drive `main` against a fixture playbook in a temporary directory."""
 
     def run_main(self, cites, playbook=FIXTURE_PLAYBOOK, core_sections=(),
-                 write_steps=True):
+                 write_steps=True, min_anchors=None):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             steps = root / 'steps.md'
@@ -75,6 +75,8 @@ class ExtractorTestCase(unittest.TestCase):
                 '--playbook', str(book),
                 '--out', str(out_path),
             ]
+            if min_anchors is not None:
+                argv += ['--min-anchors', str(min_anchors)]
             stdout, stderr = io.StringIO(), io.StringIO()
             with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
                 code = EXTRACTOR.main(argv, core_sections=core_sections)
@@ -170,6 +172,41 @@ class ExtractorTestCase(unittest.TestCase):
         self.assertEqual(out, '')
         self.assertIn('## No Such Section', err)
         self.assertNotIn('## Alpha', err)
+
+
+class MinAnchorsTest(ExtractorTestCase):
+    """`--min-anchors` refuses a step list that cites nothing from the playbook."""
+
+    def test_no_floor_by_default(self):
+        code, _text, out, err = self.run_main('a step that cites nothing at all\n')
+        self.assertEqual(code, 0, err)
+        self.assertIn('0 anchors cited (0 defined in the playbook)', out)
+
+    def test_uncited_step_list_fails_the_floor(self):
+        code, _text, out, err = self.run_main(
+            'a step that cites nothing at all\n', min_anchors=1)
+        self.assertEqual(code, 1)
+        self.assertIn('cites 0 playbook anchor(s); at least 1 is required', err)
+        # The summary still prints, so the count that failed is visible beside the refusal.
+        self.assertIn('0 anchors cited (0 defined in the playbook)', out)
+
+    def test_one_citation_clears_a_floor_of_one(self):
+        code, _text, out, err = self.run_main('cites [PB-ONE]\n', min_anchors=1)
+        self.assertEqual(code, 0, err)
+        self.assertIn('1 anchors cited (1 defined in the playbook)', out)
+
+    def test_a_sidecar_anchor_alone_does_not_clear_the_floor(self):
+        # `[SPUR-F-X]` resolves to nothing in the extract, so it buys the emit drafter no rule
+        # and must not be counted toward the floor.
+        code, _text, _out, err = self.run_main('cites [SPUR-F-X] only\n', min_anchors=1)
+        self.assertEqual(code, 1)
+        self.assertIn('cites 0 playbook anchor(s)', err)
+
+    def test_a_negative_floor_is_a_usage_error(self):
+        code, _text, out, err = self.run_main('cites [PB-ONE]\n', min_anchors=-1)
+        self.assertEqual(code, 2)
+        self.assertEqual(out, '')
+        self.assertIn('--min-anchors cannot be negative', err)
 
 
 class CommittedRepoTest(unittest.TestCase):

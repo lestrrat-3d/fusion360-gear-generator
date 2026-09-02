@@ -27,6 +27,8 @@ GEAR = 'spurgear'
 
 STUB_HEADLINE = {
     'compile': 'compile check: OK (12 steps, 4 proof functions, 3 spec files stamped)',
+    'playbook': ('playbook-extract check: spurgear: 38 anchors cited (25 defined in the '
+                 'playbook), 27 blocks written'),
     'step_calls': 'step-call check: OK (0 named calls present, no stubs, no shared-point misuse)',
 }
 
@@ -275,6 +277,65 @@ class CompileClassificationTests(BaseRunnerTest):
         self.assertEqual(exit_code, 1)
         self.assertEqual(self.by_key(parsed)['step_calls']['fault'], RUNNER.FAULT_STEP_CALLS)
         self.assertIn('NEEDS CLASSIFICATION', text)
+
+
+class PlaybookStageTests(BaseRunnerTest):
+    """The stage that refuses a step list citing no playbook rule."""
+
+    def _run_playbook_failure(self, stderr):
+        root = make_repo(self.tmp)
+        make_stubs(self.scripts, overrides={
+            'playbook': dict(exit_code=1, stdout='', stderr=stderr),
+        })
+        make_proof_runner(root)
+        return run(root, self.scripts, GEAR)
+
+    def test_stage_gets_the_gear_name_and_the_anchor_floor(self):
+        root = make_repo(self.tmp)
+        marker = os.path.join(self.tmp, 'playbook-argv.json')
+        make_stubs(self.scripts, overrides={'playbook': dict(argv_marker=marker)})
+        make_proof_runner(root)
+        exit_code, _text, _parsed = run(root, self.scripts, GEAR)
+        self.assertEqual(exit_code, 0)
+        with open(marker) as fh:
+            self.assertEqual(json.load(fh),
+                             [GEAR, '--min-anchors', str(RUNNER.MIN_PLAYBOOK_ANCHORS)])
+
+    def test_stage_runs_even_without_a_module(self):
+        root = make_repo(self.tmp)  # no lib/geargen/<gear>.py
+        make_stubs(self.scripts)
+        make_proof_runner(root)
+        _exit_code, _text, parsed = run(root, self.scripts, GEAR)
+        self.assertEqual(self.by_key(parsed)['playbook']['status'], 'pass')
+
+    def test_uncited_step_list_is_a_draft_fault(self):
+        exit_code, text, parsed = self._run_playbook_failure(
+            'extract_playbook: the step list cites 0 playbook anchor(s); at least 1 is required.')
+        self.assertEqual(exit_code, 1)
+        stage = self.by_key(parsed)['playbook']
+        self.assertEqual(stage['status'], 'fail')
+        self.assertEqual(stage['fault'], RUNNER.FAULT_PLAYBOOK_UNCITED)
+        self.assertIn('cites no playbook rule', text)
+
+    def test_undefined_anchor_is_the_other_fault(self):
+        exit_code, _text, parsed = self._run_playbook_failure(
+            'extract_playbook: cited but defined nowhere in the playbook: PB-MADE-UP')
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(self.by_key(parsed)['playbook']['fault'],
+                         RUNNER.FAULT_PLAYBOOK_UNDEFINED)
+
+    def test_unreadable_playbook_is_a_setup_error_not_a_draft_fault(self):
+        root = make_repo(self.tmp)
+        make_stubs(self.scripts, overrides={
+            'playbook': dict(exit_code=2,
+                             stderr='extract_playbook: cannot read playbook PLAYBOOK.md'),
+        })
+        make_proof_runner(root)
+        exit_code, _text, parsed = run(root, self.scripts, GEAR)
+        self.assertEqual(exit_code, 2)
+        stage = self.by_key(parsed)['playbook']
+        self.assertEqual(stage['status'], 'error')
+        self.assertEqual(stage['fault'], RUNNER.FAULT_SETUP)
 
 
 class SelectionTests(BaseRunnerTest):

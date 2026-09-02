@@ -99,21 +99,31 @@ proof is where the next reader is looking for the missing check.
    Then run `python3 .claude/skills/generate-gear/run_compile_gates.py <gear> >
    .tmp/<gear>.compile-gates.txt` from the repo root and read the file for the verdict. The stored
    copy is also what a retry round hands back to the drafter.
-   It runs `bash proof/run.sh`, then `check_compile.py <gear>`, then — only when
-   `lib/geargen/<gear>.py` exists — `check_step_calls.py`, in that order, and prints one verdict
+   It runs `bash proof/run.sh`, then `check_compile.py <gear>`, then
+   `extract_playbook.py <gear> --min-anchors 1`, then — only when `lib/geargen/<gear>.py`
+   exists — `check_step_calls.py`, in that order, and prints one verdict
    plus a first-pass fault classification. The proof wrapper enters the `proof/` module and
    configures the local engine replacements; the proof must pass with nothing waived. Exit 1 means
    a gate failed on content; exit 2 is a setup error, and a setup error never goes back to the
    drafter.
 
-5. **Check.** The runner already ran both checks. `check_compile.py` gates citations,
+5. **Check.** The runner already ran every check. `check_compile.py` gates spec citations,
    step-to-proof agreement, the reality of every named API call, and the provenance hashes. It
    also prints the spec lines no step claims, and every call on the unverified watchlist the step
    list makes; both are worth reading and neither gates.
 
+   `extract_playbook.py` builds the playbook slice `/emit-gear` will read and, with
+   `--min-anchors 1`, refuses a step list that cites no `[PB-…]` anchor. That extract is the only
+   playbook text the emit drafter sees, so a step list citing nothing leaves it with the core
+   sections and nothing else — about 8% of the file. The failure is the drafter's: send the report
+   back and let it cite the rules the steps lean on. The stage exits 1 for one other reason, an
+   anchor cited that the playbook does not define, which is either an invented anchor or a
+   playbook edited since the step list was drafted; the printed fault line says which of the two
+   it read.
+
    `check_step_calls.py` runs **only if `lib/geargen/<gear>.py` already exists**, and the runner
    reports it as skipped when it does not. That gate runs in CI against the checked-in module, so a
-   recompiled step list that disagrees with it breaks the build even though both other checks are
+   recompiled step list that disagrees with it breaks the build even though the other checks are
    green. On a failure, run `python3 .claude/skills/generate-gear/check_step_calls.py
    spec/<gear>/steps.md lib/geargen/<gear>.py --names`, which prints exactly the missing call
    names, one per line; classify each name and pass only the names back to the drafter: a name the
@@ -164,6 +174,8 @@ proof is where the next reader is looking for the missing check.
 | A step names a call the module is not required to make | Draft fault |
 | A named API call does not exist, and the spec did not name it | Draft fault |
 | A provenance hash does not match | A source changed after the table was stamped; re-run `gen_provenance.py` and check again |
+| The step list cites no playbook anchor | Draft fault |
+| A cited `[PB-…]` anchor is defined nowhere in the playbook | Draft fault, unless the playbook changed after the step list was drafted |
 | The scaffolder refuses an annotation, or the registration check names a mismatch | Draft fault |
 | **A named API call does not exist, and the spec named it** | **Prose fault** |
 | **The proof cannot fully constrain after three rounds** | **Prose fault** |
