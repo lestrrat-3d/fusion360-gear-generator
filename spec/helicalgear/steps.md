@@ -20,7 +20,7 @@ step 12, which says what must **not** be re-implemented.
 | `spec/helicalgear/instructions.md` | `6c1d3b4d7aa824d90f9f0f851d4115179e754707` |
 | `spec/helicalgear/fusion.md` | `f981173cb314094f2fd98cdd78d5bd8287cdc8ee` |
 | `spec/spurgear/fusion.md` | `7cd4e5b0fa38dcd39cbd1b5bad1cf8489e2bc2ae` |
-| `spec/spurgear/instructions.md` | `cb69a85ed9efdb4e1408c509c3fa2aed08ef971f` |
+| `spec/spurgear/instructions.md` | `8cb886a7827d6745fde7c876475066918c328283` |
 | `.claude/skills/generate-gear/PLAYBOOK.md` | `1b3078d6767d6a3f56c228e1e934c82ccfbf53fe` |
 
 ## 1 `[PROSE]` Module surface: imports and the two exported constants
@@ -59,7 +59,7 @@ The three spur constants imported here are the only ones this module uses: `PARA
 ## 2 `[PROSE]` The Helix Angle dialog input
 
 **From:** `spec/helicalgear/instructions.md` L25–49, L51–70, L78–79, L215;
-`spec/spurgear/instructions.md` L90–107, L157–194, L220–227;
+`spec/spurgear/instructions.md` L90–107, L182–219, L245–252;
 `.claude/skills/generate-gear/PLAYBOOK.md` L128–136
 
 `class HelicalGearCommandConfigurator(SpurGearCommandInputsConfigurator)` with
@@ -115,7 +115,7 @@ names above belong to spur's inherited `configure`, which this module does not w
 ## 3 `[PROSE]` The generation context: spur's fields plus two
 
 **From:** `spec/helicalgear/instructions.md` L80–83, L94–102, L136–156;
-`spec/spurgear/instructions.md` L302–317
+`spec/spurgear/instructions.md` L327–342
 
 `class HelicalGearGenerationContext(SpurGearGenerationContext)`. Its `__init__` calls
 `super().__init__()` and then initialises exactly two new fields, each to a cast-`None`:
@@ -140,7 +140,7 @@ Spur's own context fields are inherited unchanged and are not restated in this m
 ## 4 `[PROSE]` Generator identity: `newContext`, `prefixBase`, `generateName`
 
 **From:** `spec/helicalgear/instructions.md` L84, L110–114;
-`spec/spurgear/instructions.md` L380–384
+`spec/spurgear/instructions.md` L108–124, L405–409
 
 `class HelicalGearGenerator(SpurGearGenerator)` overrides three identity methods:
 
@@ -154,6 +154,16 @@ Spur's own context fields are inherited unchanged and are not restated in this m
   `self.getParameter(PARAM_THICKNESS)` and `self.getParameter(PARAM_HELIX_ANGLE)`. This extends
   spur's three-parameter rule with `HelixAngle` as the fourth.
 
+**Return annotations.** Write `def prefixBase(self) -> str`. Spur's base declares the same five
+overridable returns — `prefixBase -> str`, `generateName -> str`,
+`filletHelixFactorExpression -> str`, `newContext -> SpurGearGenerationContext`, and the tooth
+generator's `getParameterValue -> float` — precisely so a subclass may annotate its own. A
+subclass's return may repeat the parent's or narrow it, never widen it: if `generateName` carries
+an annotation it is `-> str`, and if `newContext` carries one it is `HelicalGearGenerationContext`
+or the parent's `SpurGearGenerationContext`, both of which a type checker accepts because a
+narrowed RETURN is a legal override. ⚠️ Do not read that as licence to narrow a *parameter* — step
+8's rule against narrowing `ctx` still holds, and the two are opposite directions.
+
 <!-- check-step-calls: ignore newContext prefixBase generateName -->
 All three are methods this module DEFINES for `base.Generator` to call; the module never calls them
 itself, so naming them here is a mention, not a required call. `HelicalGearGenerationContext()`,
@@ -162,7 +172,7 @@ itself, so naming them here is a mention, not a required call. `HelicalGearGener
 ## 5 `[PROSE]` Register the `HelixAngle` user parameter
 
 **From:** `spec/helicalgear/instructions.md` L29–34, L65–68, L115–116;
-`spec/spurgear/instructions.md` L372–379;
+`spec/spurgear/instructions.md` L397–404;
 `.claude/skills/generate-gear/PLAYBOOK.md` L103–126, L196–218
 
 Override spur's no-op hook `addExtraPrimaryParameters(self, inputs)` ([SPUR-EXTRA-PARAMS]).
@@ -190,10 +200,12 @@ inherited from spur and not written by this module.
 ## 6 `[PROSE]` The root-fillet transverse correction
 
 **From:** `spec/helicalgear/instructions.md` L31–33, L117–119;
-`spec/spurgear/instructions.md` L86–88, L366–371
+`spec/spurgear/instructions.md` L86–88, L108–124, L391–396
 
 Override `filletHelixFactorExpression(self)` to return the **expression string**
-`f'cos({self.parameterName(PARAM_HELIX_ANGLE)})'` — the spur base returns `'1'`.
+`f'cos({self.parameterName(PARAM_HELIX_ANGLE)})'` — the spur base returns `'1'`. Write the
+signature as `def filletHelixFactorExpression(self) -> str`, the annotation spur's base declares on
+this method for exactly this override (see step 4).
 
 It is **not** read by `createFillets`. `registerDerivedParameters` splices it in as the last factor
 of the live `FilletRadius` expression, `(ToothSpaceArcAtRoot / 2) * FilletClearance * <factor>`, so
@@ -293,7 +305,7 @@ refused as degenerate — so the plane is proven load-bearing rather than assume
 
 **From:** `spec/helicalgear/instructions.md` L4–8, L36–40, L165–174, L181–190, L216–222;
 `spec/helicalgear/fusion.md` L9–24, L29–42;
-`spec/spurgear/instructions.md` L359–361, L386–427, L479–533;
+`spec/spurgear/instructions.md` L384–386, L411–452, L504–558;
 `spec/spurgear/fusion.md` L19–43, L47–60, L69–215
 
 Proof function: `stepTwistedGearProfile`.
@@ -358,7 +370,7 @@ the contract step 10 keys on.
 
 **From:** `spec/helicalgear/instructions.md` L129–130, L176–179, L186–188, L216–217;
 `spec/helicalgear/fusion.md` L46–65;
-`spec/spurgear/instructions.md` L362–363, L539–543;
+`spec/spurgear/instructions.md` L387–388, L564–568;
 `.claude/skills/generate-gear/PLAYBOOK.md` L151–155, L691–695
 
 Proof function: `stepLoftTooth`, asserted by `assertLoftTooth`.
@@ -466,7 +478,7 @@ this module writes none of them.
 
 ## 12 `[PROSE]` The inherited completed-gear chamfer
 
-**From:** `spec/helicalgear/fusion.md` L69–80; `spec/spurgear/instructions.md` L579–594
+**From:** `spec/helicalgear/fusion.md` L69–80; `spec/spurgear/instructions.md` L604–619
 
 Helical inherits `chamferTeeth` with **no override**. `generate` calls it after the optional bore, so
 it runs on the patterned, filleted, optionally bored gear. It uses **no tooth-cap edge count**: the

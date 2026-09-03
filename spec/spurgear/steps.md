@@ -7,7 +7,7 @@ the generated registration file `proof/spurgear/zz_registrations_test.go`.
 
 | file | `git hash-object` |
 |---|---|
-| `spec/spurgear/instructions.md` | `cb69a85ed9efdb4e1408c509c3fa2aed08ef971f` |
+| `spec/spurgear/instructions.md` | `8cb886a7827d6745fde7c876475066918c328283` |
 | `spec/spurgear/fusion.md` | `7cd4e5b0fa38dcd39cbd1b5bad1cf8489e2bc2ae` |
 | `spec/helicalgear/fusion.md` | `f981173cb314094f2fd98cdd78d5bd8287cdc8ee` |
 | `.claude/skills/generate-gear/PLAYBOOK.md` | `1b3078d6767d6a3f56c228e1e934c82ccfbf53fe` |
@@ -130,13 +130,26 @@ inference, and a Fusion session or a spec edit is what settles it.
 
 This step draws no geometry, so no proof function realises it.
 
-**From:** `spec/spurgear/instructions.md` L13-34, L35-89, L90-228; `.claude/skills/generate-gear/PLAYBOOK.md` L42-74, L128-143, L346-349.
+**From:** `spec/spurgear/instructions.md` L13-34, L35-89, L90-253; `.claude/skills/generate-gear/PLAYBOOK.md` L42-74, L128-143, L346-349.
 
 ## S2 `[PROSE]` Read the inputs and register the user parameters
 
 `SpurGearGenerator(Generator)` is the orchestrator and subclasses `base.Generator`;
 `SpurGearGenerationContext(GenerationContext)` is the data carrier. `GenerationContext` and
 `Generator` are imported from `.base`. `prefixBase` returns `'SpurGear'`.
+
+**Two of this step's methods carry a return annotation.** `helicalgear` and `herringbonegear`
+override both and annotate their own returns. Python does not care, but a type checker reads an
+unannotated parent as returning the literal it happens to return — `prefixBase` infers as
+`Literal['SpurGear']` — and the subclass's wider `str` is then reported as an incompatible
+override. A regeneration that dropped them made `helicalgear` draw two
+`reportIncompatibleMethodOverride` complaints no shipped gear had produced before. They are
+contract surface for the subclasses, not implementation taste:
+
+| class | method | return |
+|---|---|---|
+| `SpurGearGenerator` | `prefixBase` | `-> str` |
+| `SpurGearGenerator` | `filletHelixFactorExpression` | `-> str` |
 
 **Order is load-bearing.** As soon as anything creates the gear occurrence — `getOccurrence`
 directly, or `parameterName()` / `addParameter()` transitively — Fusion's active component context
@@ -231,7 +244,7 @@ re-runs the dialog.
 
 This step registers parameters and draws no geometry, so no proof function realises it.
 
-**From:** `spec/spurgear/instructions.md` L35-89, L180-200, L302-318, L367-385, L456-466; `spec/spurgear/fusion.md` L231-238; `.claude/skills/generate-gear/PLAYBOOK.md` L75-102, L103-143, L196-228.
+**From:** `spec/spurgear/instructions.md` L35-89, L108-124, L205-225, L327-343, L392-410, L481-491; `spec/spurgear/fusion.md` L231-238; `.claude/skills/generate-gear/PLAYBOOK.md` L75-102, L103-143, L196-228.
 
 ## S3 `[PROSE]` Create the gear occurrence and name the component
 
@@ -285,6 +298,16 @@ user-selected Parent Component.
 - `ctx.extrusionExtent` — the far end-cap face, the bore cut's to-entity.
 - `ctx.toothProfileIsEmbedded` — `True` when the base circle sits inside the root circle.
 
+**Two of this step's methods carry a return annotation.** `helicalgear` and `herringbonegear`
+override both and annotate their own returns, and a type checker reads an unannotated parent as
+returning the literal it happens to return, so the subclass's wider annotation is then reported as
+an incompatible override. They are contract surface for the subclasses, not implementation taste:
+
+| class | method | return |
+|---|---|---|
+| `SpurGearGenerator` | `generateName` | `-> str` |
+| `SpurGearGenerator` | `newContext` | `-> SpurGearGenerationContext` |
+
 `SpurGearGenerator.__init__` must additionally pre-initialise `self._lastToothEmbedded = False`,
 `self.toolsSketch = None` and `self.boreSketch = None` (`[SPUR-F-FLANK-ROOT]`).
 
@@ -300,7 +323,7 @@ This step creates a component and draws no geometry, so no proof function realis
 itself never calls it. Every other method in the graph above is called by the module, from the
 method the graph shows above it.
 
-**From:** `spec/spurgear/instructions.md` L9-12, L302-318, L319-385, L429-455; `.claude/skills/generate-gear/PLAYBOOK.md` L75-102, L244-255, L256-281.
+**From:** `spec/spurgear/instructions.md` L9-12, L108-124, L327-343, L344-410, L454-480; `.claude/skills/generate-gear/PLAYBOOK.md` L75-102, L244-255, L256-281.
 
 ## S4 `[PROSE]` Normalize the Target Plane
 
@@ -318,7 +341,7 @@ and `ctx.plane`, and keep a handle so S17 can switch its light bulb off if one w
 
 This step creates a construction plane and no measurable geometry, so no proof function realises it.
 
-**From:** `spec/spurgear/instructions.md` L469-471; `.claude/skills/generate-gear/PLAYBOOK.md` L742-753.
+**From:** `spec/spurgear/instructions.md` L494-496; `.claude/skills/generate-gear/PLAYBOOK.md` L742-753.
 
 ## S5 `[GO]` Tools sketch and the anchor projection
 
@@ -357,7 +380,7 @@ point is coordinate-locked, so the projection is modelled as already pinned and 
 as a foreign handle, exactly as Fusion does, so what each sketch carries is its own local endpoint
 of the chain.
 
-**From:** `spec/spurgear/instructions.md` L473-475, L277-282, L348-356; `spec/spurgear/fusion.md` L17-32; `.claude/skills/generate-gear/PLAYBOOK.md` L455-469, L626-638.
+**From:** `spec/spurgear/instructions.md` L498-500, L302-307, L373-381; `spec/spurgear/fusion.md` L17-32; `.claude/skills/generate-gear/PLAYBOOK.md` L455-469, L626-638.
 
 ## S6 `[PROSE]` Extrusion End Plane
 
@@ -376,7 +399,7 @@ with `isLightBulbOn = False`, since `isVisible = False` does not hide a construc
 
 This step creates a construction plane and no measurable geometry, so no proof function realises it.
 
-**From:** `spec/spurgear/instructions.md` L477, L288-290; `.claude/skills/generate-gear/PLAYBOOK.md` L626-638, L742-753.
+**From:** `spec/spurgear/instructions.md` L502, L313-315; `.claude/skills/generate-gear/PLAYBOOK.md` L626-638, L742-753.
 
 ## S7 `[GO]` Gear Profile sketch — circles, involute tooth, anchoring
 
@@ -416,6 +439,15 @@ accessors `getParameter(name)` and `getParameterValue(name)`.
 `getParameterValue` is named as a member the module must DEFINE — it is part of the reproduced
 surface a borrowing gear may read — not as a call this step requires; the drawing code reads its
 parameters through `getParameter`.
+
+**One of this step's methods carries a return annotation.** A subclass that overrides it and
+annotates its own return is reported as an incompatible override whenever the parent is
+unannotated, because a type checker reads the parent as returning the literal it happens to return.
+It is contract surface for the subclasses, not implementation taste:
+
+| class | method | return |
+|---|---|---|
+| `SpurGearInvoluteToothDesignGenerator` | `getParameterValue` | `-> float` |
 
 **Borrowing constraint.** `bevelgear.py` constructs this generator with a
 `spurproxy.VirtualSpurProxy` as `parent` (`[PB-PRECOMPUTED-MODE]`). Inside `drawCircles`,
@@ -711,7 +743,7 @@ their curve counts on the sketch it actually drew, which is what S9 and S10 matc
 <!-- check-step-calls: ignore addHorizontal -->
 `addHorizontal` is named only to forbid it on the spine; the module must not call it there.
 
-**From:** `spec/spurgear/instructions.md` L229-301, L359-362, L386-428, L479-488, L490-528, L529-534; `spec/spurgear/fusion.md` L17-44, L45-61, L62-68, L69-105, L106-132, L133-174, L175-216; `.claude/skills/generate-gear/PLAYBOOK.md` L438-475, L491-523, L581-601, L602-603, L615-623, L649-659.
+**From:** `spec/spurgear/instructions.md` L108-124, L254-326, L384-387, L411-453, L504-513, L515-553, L554-559; `spec/spurgear/fusion.md` L17-44, L45-61, L62-68, L69-105, L106-132, L133-174, L175-216; `.claude/skills/generate-gear/PLAYBOOK.md` L438-475, L491-523, L581-601, L602-603, L615-623, L649-659.
 
 ## S8 `[PROSE]` Sketch-only short-circuit
 
@@ -724,7 +756,7 @@ from `generate` and return early themselves, and S17 runs unconditionally.
 This step builds no geometry, so no proof function realises it. Its effect on the later steps is
 carried in their own early returns.
 
-**From:** `spec/spurgear/instructions.md` L60, L535-537, L337-346.
+**From:** `spec/spurgear/instructions.md` L60, L560-562, L362-371.
 
 ## S9 `[GO]` Extrude the tooth
 
@@ -764,7 +796,7 @@ no chamfer.
 out as one new body, exactly `Thickness` tall — which is what ending on the Extrusion End Plane
 means — and reaching the tip circle.
 
-**From:** `spec/spurgear/instructions.md` L267-275, L359-366, L539-543; `.claude/skills/generate-gear/PLAYBOOK.md` L151-158, L639-648.
+**From:** `spec/spurgear/instructions.md` L292-300, L384-391, L564-568; `.claude/skills/generate-gear/PLAYBOOK.md` L151-158, L639-648.
 
 ## S10 `[GO]` Extrude the gear body
 
@@ -807,7 +839,7 @@ Raise if either reference is not found; a face search that finds nothing must no
 `stepExtrudeBody` sweeps the root disc and `assertExtrudeBody` checks its volume is the whole root
 disc's, `pi * RootCircleRadius^2 * Thickness`, which a ring bounded by the tip circle could not be.
 
-**From:** `spec/spurgear/instructions.md` L267-275, L311-313, L339-340, L545-554; `.claude/skills/generate-gear/PLAYBOOK.md` L430-437, L707-728, L729-736, L754-757.
+**From:** `spec/spurgear/instructions.md` L292-300, L336-338, L364-365, L570-579; `.claude/skills/generate-gear/PLAYBOOK.md` L430-437, L707-728, L729-736, L754-757.
 
 ## S11 `[GO]` Pattern the teeth
 
@@ -841,7 +873,7 @@ Number, that every copy carries the seed tooth's own volume, and that copy `k`'s
 which a symmetric pattern or a different total angle would not produce. The proof file records that
 the copies are measured one document at a time, and why the harness will not hold them all at once.
 
-**From:** `spec/spurgear/instructions.md` L341, L556-558; `.claude/skills/generate-gear/PLAYBOOK.md` L665-670.
+**From:** `spec/spurgear/instructions.md` L366, L581-583; `.claude/skills/generate-gear/PLAYBOOK.md` L665-670.
 
 ## S12 `[GO]` Combine the patterned teeth into the Gear Body
 
@@ -874,7 +906,7 @@ and then that the whole gear, extruded from one outline, has the volume of the d
 Number teeth — which a join that dropped or doubled a tooth, or a pattern whose copies overlapped,
 could not satisfy. The proof file records the substitutions and what they cost.
 
-**From:** `spec/spurgear/instructions.md` L341, L558-560; `.claude/skills/generate-gear/PLAYBOOK.md` L660-664.
+**From:** `spec/spurgear/instructions.md` L366, L583-585; `.claude/skills/generate-gear/PLAYBOOK.md` L660-664.
 
 ## S13 `[GO]` Root fillets
 
@@ -893,7 +925,11 @@ Two things make the edge selection fiddly:
 
 - After the pattern and combine, the root cylinder is usually split into one patch per valley rather
   than one continuous surface. Collect **every** cylindrical face whose radius equals
-  `RootCircleRadius`, not just the first one found.
+  `RootCircleRadius`, not just the first one found. Floating-point radii differ in the last bits, so
+  the test carries a tolerance and it is `0.0001` cm:
+  `abs(face.geometry.radius - rootRadius) <= 0.0001`. That is the same default
+  `utilities.find_circle_by_radius` uses, so the two ways of finding a circle in this codebase
+  agree.
 - On each such face keep the **axial straight edges** — the two valley-floor-to-tooth-flank corners
   on that patch. Filter first to edges whose `edge.geometry.curveType` is
   `adsk.core.Curve3DTypes.Line3DCurveType` (`[PB-PROFILE-MATCH]` gives the exact member names; the
@@ -941,7 +977,7 @@ selection matching nothing is a real outcome the empty-collection guard has to h
 `filletInput.edgeSetInputs` and `edge.evaluator.getTangent` are named only to forbid them; the
 module must call neither.
 
-**From:** `spec/spurgear/instructions.md` L86-89, L342, L367-371, L562-571; `.claude/skills/generate-gear/PLAYBOOK.md` L151-158, L437, L536-542, L639-648.
+**From:** `spec/spurgear/instructions.md` L86-89, L126-131, L367, L392-396, L587-596; `.claude/skills/generate-gear/PLAYBOOK.md` L151-158, L437, L536-542, L639-648.
 
 ## S14 `[GO]` Bore Profile sketch
 
@@ -993,7 +1029,7 @@ reaches DOF 0 in the engine exactly as grounding on the projection does; the eng
 a constraint that solves but tracks the wrong thing, and `[PB-CIRCLE-CENTER]`'s solver failure is a
 Fusion observation only. The proof file records that beside the check.
 
-**From:** `spec/spurgear/instructions.md` L54, L295-297, L343, L405-410, L573-577; `spec/spurgear/fusion.md` L26-32; `.claude/skills/generate-gear/PLAYBOOK.md` L438-454.
+**From:** `spec/spurgear/instructions.md` L54, L320-322, L368, L430-435, L598-602; `spec/spurgear/fusion.md` L26-32; `.claude/skills/generate-gear/PLAYBOOK.md` L438-454.
 
 ## S15 `[GO]` Bore cut
 
@@ -1026,7 +1062,7 @@ and above 0 `assertBoreCut` checks exactly the bore cylinder's volume is gone an
 the full Thickness tall. The proof file records that its receiver is the Gear Body cylinder rather
 than the completed gear, and why.
 
-**From:** `spec/spurgear/instructions.md` L54, L313, L343, L573-577; `.claude/skills/generate-gear/PLAYBOOK.md` L438-454.
+**From:** `spec/spurgear/instructions.md` L54, L338, L368, L598-602; `.claude/skills/generate-gear/PLAYBOOK.md` L438-454.
 
 ## S16 `[GO]` Chamfer the completed gear
 
@@ -1075,7 +1111,7 @@ section builds but leaves decad's volume reading beyond tolerance and the solid 
 rather than waive it; and only one cap is chamfered, because decad will not compose a second modify
 operation onto a cap-loop chamfer result.
 
-**From:** `spec/spurgear/instructions.md` L58, L363-365, L344, L579-594; `spec/helicalgear/fusion.md` L69-80; `.claude/skills/generate-gear/PLAYBOOK.md` L437, L536-542, L639-648, L729-736.
+**From:** `spec/spurgear/instructions.md` L58, L388-390, L369, L604-619; `spec/helicalgear/fusion.md` L69-80; `.claude/skills/generate-gear/PLAYBOOK.md` L437, L536-542, L639-648, L729-736.
 
 ## S17 `[PROSE]` Cleanup
 
@@ -1102,4 +1138,4 @@ and the Bore Profile sketch do not exist in sketch-only mode.
 
 This step changes visibility only and builds no geometry, so no proof function realises it.
 
-**From:** `spec/spurgear/instructions.md` L288-290, L345-356, L537; `spec/spurgear/fusion.md` L217-230; `.claude/skills/generate-gear/PLAYBOOK.md` L626-638.
+**From:** `spec/spurgear/instructions.md` L313-315, L370-381, L562; `spec/spurgear/fusion.md` L217-230; `.claude/skills/generate-gear/PLAYBOOK.md` L626-638.
