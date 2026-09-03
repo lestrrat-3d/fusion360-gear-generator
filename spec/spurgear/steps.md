@@ -7,7 +7,7 @@ the generated registration file `proof/spurgear/zz_registrations_test.go`.
 
 | file | `git hash-object` |
 |---|---|
-| `spec/spurgear/instructions.md` | `486f78e9844f07a1ab7ebf4af110260aafac6c99` |
+| `spec/spurgear/instructions.md` | `cb69a85ed9efdb4e1408c509c3fa2aed08ef971f` |
 | `spec/spurgear/fusion.md` | `7cd4e5b0fa38dcd39cbd1b5bad1cf8489e2bc2ae` |
 | `spec/helicalgear/fusion.md` | `f981173cb314094f2fd98cdd78d5bd8287cdc8ee` |
 | `.claude/skills/generate-gear/PLAYBOOK.md` | `1b3078d6767d6a3f56c228e1e934c82ccfbf53fe` |
@@ -130,7 +130,7 @@ inference, and a Fusion session or a spec edit is what settles it.
 
 This step draws no geometry, so no proof function realises it.
 
-**From:** `spec/spurgear/instructions.md` L13-34, L35-89, L90-194; `.claude/skills/generate-gear/PLAYBOOK.md` L42-74, L128-143, L346-349.
+**From:** `spec/spurgear/instructions.md` L13-34, L35-89, L90-228; `.claude/skills/generate-gear/PLAYBOOK.md` L42-74, L128-143, L346-349.
 
 ## S2 `[PROSE]` Read the inputs and register the user parameters
 
@@ -192,6 +192,38 @@ shifts, and a `SelectionCommandInput` holding an entity in another component can
      on the spur base. That hook is read **only here**; `createFillets` reads the resulting
      `FilletRadius` parameter's numeric `.value` and never calls the hook.
 
+**Every parameter's comment.** The registration call is
+`addParameter(name, ValueInput, units, comment)`, and the fourth argument is the string Fusion shows
+in the parameter table's Comment column, beside all twenty `<prefix>_…` parameters. It is what the
+user reads there, so it is reproduced surface and each one is written out here with its unit string
+beside it, the two being read together:
+
+| constant | units | `comment` |
+|---|---|---|
+| `PARAM_MODULE` | `''` | `Module of the gear` |
+| `PARAM_TOOTH_NUMBER` | `''` | `Number of teeth` |
+| `PARAM_PRESSURE_ANGLE` | `'rad'` | `Pressure angle` |
+| `PARAM_BORE_DIAMETER` | `'mm'` | `Bore diameter` |
+| `PARAM_THICKNESS` | `'mm'` | `Thickness of the gear` |
+| `PARAM_CHAMFER_TOOTH` | `'mm'` | `Chamfer distance applied to the teeth` |
+| `PARAM_SKETCH_ONLY` | `''` | `Generate sketches only` |
+| `PARAM_PITCH_DIAMETER` | `'mm'` | `Pitch circle diameter` |
+| `PARAM_PITCH_RADIUS` | `'mm'` | `Pitch circle radius` |
+| `PARAM_BASE_DIAMETER` | `'mm'` | `Base circle diameter` |
+| `PARAM_BASE_RADIUS` | `'mm'` | `Base circle radius` |
+| `PARAM_ROOT_DIAMETER` | `'mm'` | `Root circle diameter` |
+| `PARAM_ROOT_RADIUS` | `'mm'` | `Root circle radius` |
+| `PARAM_TIP_DIAMETER` | `'mm'` | `Tip circle diameter` |
+| `PARAM_TIP_RADIUS` | `'mm'` | `Tip circle radius` |
+| `PARAM_INVOLUTE_STEPS` | `''` | `Number of points sampled along each involute flank` |
+| `PARAM_TOOTH_SPACE_ANGLE` | `''` | `Angular width of the tooth space at the root circle` |
+| `PARAM_TOOTH_SPACE_ARC` | `'mm'` | `Arc length of the tooth space at the root circle` |
+| `PARAM_FILLET_CLEARANCE` | `''` | `Clearance factor applied to the root fillet radius` |
+| `PARAM_FILLET_RADIUS` | `'mm'` | `Radius of the root fillets` |
+
+The units column above and the ones given per parameter in items 3 and 5 are the same values, said
+twice; a comment filled with the parameter's own name is the failure this table exists to stop.
+
 Every sketch dimension and feature input below is set from the *current numeric value* of its
 source parameter at generation time, never as a live expression (`[SPUR-F-SNAPSHOT]`,
 `[PB-NUMERIC-SNAPSHOT]`). Editing a `<p>_…` parameter afterwards does not change an existing gear; the user
@@ -199,7 +231,7 @@ re-runs the dialog.
 
 This step registers parameters and draws no geometry, so no proof function realises it.
 
-**From:** `spec/spurgear/instructions.md` L35-89, L146-166, L268-284, L333-351, L422-432; `spec/spurgear/fusion.md` L231-238; `.claude/skills/generate-gear/PLAYBOOK.md` L75-102, L103-143, L196-228.
+**From:** `spec/spurgear/instructions.md` L35-89, L180-200, L302-318, L367-385, L456-466; `spec/spurgear/fusion.md` L231-238; `.claude/skills/generate-gear/PLAYBOOK.md` L75-102, L103-143, L196-228.
 
 ## S3 `[PROSE]` Create the gear occurrence and name the component
 
@@ -268,7 +300,7 @@ This step creates a component and draws no geometry, so no proof function realis
 itself never calls it. Every other method in the graph above is called by the module, from the
 method the graph shows above it.
 
-**From:** `spec/spurgear/instructions.md` L9-12, L268-284, L285-351, L395-421; `.claude/skills/generate-gear/PLAYBOOK.md` L75-102, L244-255, L256-281.
+**From:** `spec/spurgear/instructions.md` L9-12, L302-318, L319-385, L429-455; `.claude/skills/generate-gear/PLAYBOOK.md` L75-102, L244-255, L256-281.
 
 ## S4 `[PROSE]` Normalize the Target Plane
 
@@ -286,7 +318,7 @@ and `ctx.plane`, and keep a handle so S17 can switch its light bulb off if one w
 
 This step creates a construction plane and no measurable geometry, so no proof function realises it.
 
-**From:** `spec/spurgear/instructions.md` L435-437; `.claude/skills/generate-gear/PLAYBOOK.md` L742-753.
+**From:** `spec/spurgear/instructions.md` L469-471; `.claude/skills/generate-gear/PLAYBOOK.md` L742-753.
 
 ## S5 `[GO]` Tools sketch and the anchor projection
 
@@ -325,7 +357,7 @@ point is coordinate-locked, so the projection is modelled as already pinned and 
 as a foreign handle, exactly as Fusion does, so what each sketch carries is its own local endpoint
 of the chain.
 
-**From:** `spec/spurgear/instructions.md` L439-441, L243-248, L314-322; `spec/spurgear/fusion.md` L17-32; `.claude/skills/generate-gear/PLAYBOOK.md` L455-469, L626-638.
+**From:** `spec/spurgear/instructions.md` L473-475, L277-282, L348-356; `spec/spurgear/fusion.md` L17-32; `.claude/skills/generate-gear/PLAYBOOK.md` L455-469, L626-638.
 
 ## S6 `[PROSE]` Extrusion End Plane
 
@@ -344,7 +376,7 @@ with `isLightBulbOn = False`, since `isVisible = False` does not hide a construc
 
 This step creates a construction plane and no measurable geometry, so no proof function realises it.
 
-**From:** `spec/spurgear/instructions.md` L443, L254-256; `.claude/skills/generate-gear/PLAYBOOK.md` L626-638, L742-753.
+**From:** `spec/spurgear/instructions.md` L477, L288-290; `.claude/skills/generate-gear/PLAYBOOK.md` L626-638, L742-753.
 
 ## S7 `[GO]` Gear Profile sketch — circles, involute tooth, anchoring
 
@@ -679,7 +711,7 @@ their curve counts on the sketch it actually drew, which is what S9 and S10 matc
 <!-- check-step-calls: ignore addHorizontal -->
 `addHorizontal` is named only to forbid it on the spine; the module must not call it there.
 
-**From:** `spec/spurgear/instructions.md` L195-267, L325-328, L352-394, L445-454, L456-494, L495-500; `spec/spurgear/fusion.md` L17-44, L45-61, L62-68, L69-105, L106-132, L133-174, L175-216; `.claude/skills/generate-gear/PLAYBOOK.md` L438-475, L491-523, L581-601, L602-603, L615-623, L649-659.
+**From:** `spec/spurgear/instructions.md` L229-301, L359-362, L386-428, L479-488, L490-528, L529-534; `spec/spurgear/fusion.md` L17-44, L45-61, L62-68, L69-105, L106-132, L133-174, L175-216; `.claude/skills/generate-gear/PLAYBOOK.md` L438-475, L491-523, L581-601, L602-603, L615-623, L649-659.
 
 ## S8 `[PROSE]` Sketch-only short-circuit
 
@@ -692,7 +724,7 @@ from `generate` and return early themselves, and S17 runs unconditionally.
 This step builds no geometry, so no proof function realises it. Its effect on the later steps is
 carried in their own early returns.
 
-**From:** `spec/spurgear/instructions.md` L60, L501-503, L303-312.
+**From:** `spec/spurgear/instructions.md` L60, L535-537, L337-346.
 
 ## S9 `[GO]` Extrude the tooth
 
@@ -732,7 +764,7 @@ no chamfer.
 out as one new body, exactly `Thickness` tall — which is what ending on the Extrusion End Plane
 means — and reaching the tip circle.
 
-**From:** `spec/spurgear/instructions.md` L233-241, L325-332, L505-509; `.claude/skills/generate-gear/PLAYBOOK.md` L151-158, L639-648.
+**From:** `spec/spurgear/instructions.md` L267-275, L359-366, L539-543; `.claude/skills/generate-gear/PLAYBOOK.md` L151-158, L639-648.
 
 ## S10 `[GO]` Extrude the gear body
 
@@ -775,7 +807,7 @@ Raise if either reference is not found; a face search that finds nothing must no
 `stepExtrudeBody` sweeps the root disc and `assertExtrudeBody` checks its volume is the whole root
 disc's, `pi * RootCircleRadius^2 * Thickness`, which a ring bounded by the tip circle could not be.
 
-**From:** `spec/spurgear/instructions.md` L233-241, L277-279, L305-306, L511-520; `.claude/skills/generate-gear/PLAYBOOK.md` L430-437, L707-728, L729-736, L754-757.
+**From:** `spec/spurgear/instructions.md` L267-275, L311-313, L339-340, L545-554; `.claude/skills/generate-gear/PLAYBOOK.md` L430-437, L707-728, L729-736, L754-757.
 
 ## S11 `[GO]` Pattern the teeth
 
@@ -809,7 +841,7 @@ Number, that every copy carries the seed tooth's own volume, and that copy `k`'s
 which a symmetric pattern or a different total angle would not produce. The proof file records that
 the copies are measured one document at a time, and why the harness will not hold them all at once.
 
-**From:** `spec/spurgear/instructions.md` L307, L522-524; `.claude/skills/generate-gear/PLAYBOOK.md` L665-670.
+**From:** `spec/spurgear/instructions.md` L341, L556-558; `.claude/skills/generate-gear/PLAYBOOK.md` L665-670.
 
 ## S12 `[GO]` Combine the patterned teeth into the Gear Body
 
@@ -842,7 +874,7 @@ and then that the whole gear, extruded from one outline, has the volume of the d
 Number teeth — which a join that dropped or doubled a tooth, or a pattern whose copies overlapped,
 could not satisfy. The proof file records the substitutions and what they cost.
 
-**From:** `spec/spurgear/instructions.md` L307, L524-526; `.claude/skills/generate-gear/PLAYBOOK.md` L660-664.
+**From:** `spec/spurgear/instructions.md` L341, L558-560; `.claude/skills/generate-gear/PLAYBOOK.md` L660-664.
 
 ## S13 `[GO]` Root fillets
 
@@ -909,7 +941,7 @@ selection matching nothing is a real outcome the empty-collection guard has to h
 `filletInput.edgeSetInputs` and `edge.evaluator.getTangent` are named only to forbid them; the
 module must call neither.
 
-**From:** `spec/spurgear/instructions.md` L86-89, L308, L333-337, L528-537; `.claude/skills/generate-gear/PLAYBOOK.md` L151-158, L437, L536-542, L639-648.
+**From:** `spec/spurgear/instructions.md` L86-89, L342, L367-371, L562-571; `.claude/skills/generate-gear/PLAYBOOK.md` L151-158, L437, L536-542, L639-648.
 
 ## S14 `[GO]` Bore Profile sketch
 
@@ -961,7 +993,7 @@ reaches DOF 0 in the engine exactly as grounding on the projection does; the eng
 a constraint that solves but tracks the wrong thing, and `[PB-CIRCLE-CENTER]`'s solver failure is a
 Fusion observation only. The proof file records that beside the check.
 
-**From:** `spec/spurgear/instructions.md` L54, L261-263, L309, L371-376, L539-543; `spec/spurgear/fusion.md` L26-32; `.claude/skills/generate-gear/PLAYBOOK.md` L438-454.
+**From:** `spec/spurgear/instructions.md` L54, L295-297, L343, L405-410, L573-577; `spec/spurgear/fusion.md` L26-32; `.claude/skills/generate-gear/PLAYBOOK.md` L438-454.
 
 ## S15 `[GO]` Bore cut
 
@@ -994,7 +1026,7 @@ and above 0 `assertBoreCut` checks exactly the bore cylinder's volume is gone an
 the full Thickness tall. The proof file records that its receiver is the Gear Body cylinder rather
 than the completed gear, and why.
 
-**From:** `spec/spurgear/instructions.md` L54, L279, L309, L539-543; `.claude/skills/generate-gear/PLAYBOOK.md` L438-454.
+**From:** `spec/spurgear/instructions.md` L54, L313, L343, L573-577; `.claude/skills/generate-gear/PLAYBOOK.md` L438-454.
 
 ## S16 `[GO]` Chamfer the completed gear
 
@@ -1043,7 +1075,7 @@ section builds but leaves decad's volume reading beyond tolerance and the solid 
 rather than waive it; and only one cap is chamfered, because decad will not compose a second modify
 operation onto a cap-loop chamfer result.
 
-**From:** `spec/spurgear/instructions.md` L58, L329-331, L310, L545-560; `spec/helicalgear/fusion.md` L69-80; `.claude/skills/generate-gear/PLAYBOOK.md` L437, L536-542, L639-648, L729-736.
+**From:** `spec/spurgear/instructions.md` L58, L363-365, L344, L579-594; `spec/helicalgear/fusion.md` L69-80; `.claude/skills/generate-gear/PLAYBOOK.md` L437, L536-542, L639-648, L729-736.
 
 ## S17 `[PROSE]` Cleanup
 
@@ -1070,4 +1102,4 @@ and the Bore Profile sketch do not exist in sketch-only mode.
 
 This step changes visibility only and builds no geometry, so no proof function realises it.
 
-**From:** `spec/spurgear/instructions.md` L254-256, L311-322, L503; `spec/spurgear/fusion.md` L217-230; `.claude/skills/generate-gear/PLAYBOOK.md` L626-638.
+**From:** `spec/spurgear/instructions.md` L288-290, L345-356, L537; `spec/spurgear/fusion.md` L217-230; `.claude/skills/generate-gear/PLAYBOOK.md` L626-638.
