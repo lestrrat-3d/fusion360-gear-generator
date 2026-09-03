@@ -124,5 +124,15 @@
     "want": "slice[SupportsIndex | None, SupportsIndex | None, SupportsIndex | None]",
     "func": "__getitem__",
     "why": "lat['sides']['Pinion']: same lattice-dict widening; 'sides' holds a dict keyed by gear label, not a sequence"
+  },
+  {
+    "rule": "reportOptionalMemberAccess",
+    "message": "\"isVisible\" is not a known attribute of \"None\"",
+    "why": "self.toolsSketch.isVisible in cleanup(): generate() calls prepareTools() unconditionally before cleanup() in a straight-line sequence, and if prepareTools raised then cleanup never runs; pyright keeps the None from __init__ because it cannot see a fixed call order across methods"
+  },
+  {
+    "rule": "reportGeneralTypeIssues",
+    "message": "\"None\" is not iterable",
+    "why": "unpacking calculateInvolutePoint(baseRadius, pitchRadius): it returns None only when intersectionRadius < baseRadius, and BaseDiameter is registered as PitchDiameter * cos(PressureAngle), so baseRadius <= pitchRadius for every real pressure angle and the None branch is unreachable; the invariant lives in registerDerivedParameters, which pyright cannot connect to this call"
   }
 ]
