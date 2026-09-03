@@ -12,7 +12,7 @@ The proof for this step list is `proof/bevelgear/geometry_test.go`, `proof/bevel
 | `spec/bevelgear/instructions.md` | `6cb50bdb875e150a1504b22f13126f4d672c6eca` |
 | `spec/bevelgear/fusion.md` | `40d165fbc2f47ffba45d7c3c0f73ca67ec488d42` |
 | `spec/bevelgear/spiral-tooth-trace.md` | `c9ec08561ced7975aa0ed9ad6a330186259c0d08` |
-| `spec/spurgear/instructions.md` | `486f78e9844f07a1ab7ebf4af110260aafac6c99` |
+| `spec/spurgear/instructions.md` | `cb69a85ed9efdb4e1408c509c3fa2aed08ef971f` |
 | `.claude/skills/generate-gear/PLAYBOOK.md` | `1b3078d6767d6a3f56c228e1e934c82ccfbf53fe` |
 
 ## S1 `[PROSE]` Module layout, imports, classes and constants
