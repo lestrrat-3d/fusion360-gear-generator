@@ -105,6 +105,40 @@ post-generation user-parameter table, and saved designs reference them). Use the
 | Apply chamfer to teeth | `chamferTooth` | `ChamferTooth` |
 | Generate sketches, but do not build body | `sketchOnly` | `SketchOnly` |
 
+**Every registered parameter's `comment` is reproduced surface — write it exactly.**
+`addParameter(name, ValueInput, units, comment)` takes a fourth string that Fusion shows in the
+parameter table's Comment column, beside all twenty `<prefix>_…` parameters. It is what the user
+reads there, so it is not free text for the implementation to choose. These are the strings, with
+each parameter's unit string alongside so the two are read together:
+
+| constant | units | `comment` |
+|---|---|---|
+| `PARAM_MODULE` | '' | `Module of the gear` |
+| `PARAM_TOOTH_NUMBER` | '' | `Number of teeth` |
+| `PARAM_PRESSURE_ANGLE` | 'rad' | `Pressure angle` |
+| `PARAM_BORE_DIAMETER` | 'mm' | `Bore diameter` |
+| `PARAM_THICKNESS` | 'mm' | `Thickness of the gear` |
+| `PARAM_CHAMFER_TOOTH` | 'mm' | `Chamfer distance applied to the teeth` |
+| `PARAM_SKETCH_ONLY` | '' | `Generate sketches only` |
+| `PARAM_PITCH_DIAMETER` | 'mm' | `Pitch circle diameter` |
+| `PARAM_PITCH_RADIUS` | 'mm' | `Pitch circle radius` |
+| `PARAM_BASE_DIAMETER` | 'mm' | `Base circle diameter` |
+| `PARAM_BASE_RADIUS` | 'mm' | `Base circle radius` |
+| `PARAM_ROOT_DIAMETER` | 'mm' | `Root circle diameter` |
+| `PARAM_ROOT_RADIUS` | 'mm' | `Root circle radius` |
+| `PARAM_TIP_DIAMETER` | 'mm' | `Tip circle diameter` |
+| `PARAM_TIP_RADIUS` | 'mm' | `Tip circle radius` |
+| `PARAM_INVOLUTE_STEPS` | '' | `Number of points sampled along each involute flank` |
+| `PARAM_TOOTH_SPACE_ANGLE` | '' | `Angular width of the tooth space at the root circle` |
+| `PARAM_TOOTH_SPACE_ARC` | 'mm' | `Arc length of the tooth space at the root circle` |
+| `PARAM_FILLET_CLEARANCE` | '' | `Clearance factor applied to the root fillet radius` |
+| `PARAM_FILLET_RADIUS` | 'mm' | `Radius of the root fillets` |
+
+Earlier revisions pinned the parameter names and units but not these comments, and a regeneration
+that could not find them filled the column with the parameter's own name, so `Module of the gear`
+came back as `Module`. Like the command prompts below, a value the user sees has to live here
+rather than only in the generated module.
+
 **The three selection inputs' command prompts are reproduced surface — write them exactly.**
 `addSelectionInput(id, name, commandPrompt)` takes a third string that Fusion shows beside the
 cursor while the user picks, and it is not the label. These are the strings:
