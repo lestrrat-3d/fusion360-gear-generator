@@ -105,6 +105,31 @@ post-generation user-parameter table, and saved designs reference them). Use the
 | Apply chamfer to teeth | `chamferTooth` | `ChamferTooth` |
 | Generate sketches, but do not build body | `sketchOnly` | `SketchOnly` |
 
+**Five overridable methods must carry their return annotation, because a subclass narrows on
+them.** `helicalgear` and `herringbonegear` override these and annotate their own returns. Python
+does not care, but a type checker reads an unannotated parent as returning the literal it happens
+to return — `prefixBase` becomes `Literal['SpurGear']` — so a subclass annotating the wider `str`
+is then reported as an incompatible override. Write these five annotations:
+
+| class | method | return |
+|---|---|---|
+| `SpurGearGenerator` | `prefixBase` | `-> str` |
+| `SpurGearGenerator` | `generateName` | `-> str` |
+| `SpurGearGenerator` | `filletHelixFactorExpression` | `-> str` |
+| `SpurGearGenerator` | `newContext` | `-> SpurGearGenerationContext` |
+| `SpurGearInvoluteToothDesignGenerator` | `getParameterValue` | `-> float` |
+
+A regeneration that dropped all five made `helicalgear` draw two `reportIncompatibleMethodOverride`
+complaints that no shipped gear had produced before. These annotations are contract surface for the
+subclasses, not implementation taste.
+
+**The root-fillet face search needs a radius tolerance, and it is `0.0001` cm.** Step 13 selects
+every cylindrical face whose radius equals the Root Circle Radius. Floating-point radii never
+compare exactly equal, so the test is `abs(face.geometry.radius - rootRadius) <= 0.0001`. The value
+matches `utilities.find_circle_by_radius`'s own default, so the two ways of finding a circle in this
+codebase agree. Step 13 already pins `0.01` for the axis-direction dot product; this is the other
+tolerance that step needs and it was previously left to the implementer.
+
 **Every registered parameter's `comment` is reproduced surface — write it exactly.**
 `addParameter(name, ValueInput, units, comment)` takes a fourth string that Fusion shows in the
 parameter table's Comment column, beside all twenty `<prefix>_…` parameters. It is what the user
