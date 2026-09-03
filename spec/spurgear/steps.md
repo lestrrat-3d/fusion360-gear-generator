@@ -80,12 +80,12 @@ radians for angle — whatever the display unit string says (`[PB-DIALOG-DEFAULT
   dialog label from the table above, reproduced there verbatim, and the trailing `True` makes it a
   check box. Its default is `false`.
 
-**[SPUR-SUBCLASS-INPUT]** `configure` is a `@classmethod`, and a subclass gear adds its own input by
-subclassing the configurator and appending after a `super()` call to it. Because Parent Component
+`configure` is a `@classmethod` (`[SPUR-SUBCLASS-INPUT]`), and a subclass gear adds its own input
+by subclassing the configurator and appending after a `super()` call to it. Because Parent Component
 is already last, a subclass's extra input necessarily lands below it. Keep the seam.
 
-**[SPUR-EXPORTED-CONSTANTS]** Every id and parameter name above is a module-level constant of
-`spurgear.py`, imported by name elsewhere; renaming one is a breaking change. The full roster, with
+Every id and parameter name above is a module-level constant of `spurgear.py`
+(`[SPUR-EXPORTED-CONSTANTS]`), imported by name elsewhere; renaming one is a breaking change. The full roster, with
 its value:
 
 - `INPUT_ID_PARENT = 'parentComponent'`, `INPUT_ID_PLANE = 'plane'`,
@@ -145,8 +145,8 @@ shifts, and a `SelectionCommandInput` holding an entity in another component can
    with no unit suffix, and the `mm` expressions below read the unitless factor),
    `ToothNumber` `''`, `PressureAngle` `'rad'`, `BoreDiameter` `'mm'`, `Thickness` `'mm'`,
    `ChamferTooth` `'mm'`, `SketchOnly` `''`.
-4. `self.addExtraPrimaryParameters(inputs)` — **[SPUR-EXTRA-PARAMS]** an overridable hook that is a
-   no-op on the spur base. It must exist and be called here, **between** the input-sourced
+4. `self.addExtraPrimaryParameters(inputs)` — an overridable hook (`[SPUR-EXTRA-PARAMS]`) that is
+   a no-op on the spur base. It must exist and be called here, **between** the input-sourced
    parameters and the derived ones, so a subclass can register its own primary parameter before
    anything derived references it.
 5. Register the derived parameters as live Fusion expression strings via
@@ -178,9 +178,9 @@ shifts, and a `SelectionCommandInput` holding an entity in another component can
      on the spur base. That hook is read **only here**; `createFillets` reads the resulting
      `FilletRadius` parameter's numeric `.value` and never calls the hook.
 
-**[SPUR-F-SNAPSHOT] / [PB-NUMERIC-SNAPSHOT]** Every sketch dimension and feature input below is set
-from the *current numeric value* of its source parameter at generation time, never as a live
-expression. Editing a `<p>_…` parameter afterwards does not change an existing gear; the user
+Every sketch dimension and feature input below is set from the *current numeric value* of its
+source parameter at generation time, never as a live expression (`[SPUR-F-SNAPSHOT]`,
+`[PB-NUMERIC-SNAPSHOT]`). Editing a `<p>_…` parameter afterwards does not change an existing gear; the user
 re-runs the dialog.
 
 This step registers parameters and draws no geometry, so no proof function realises it.
@@ -283,7 +283,7 @@ Create a sketch named `Tools` on the target plane with
 `toolsSketch.project(self.anchorPoint)` and keep the resulting `SketchPoint` as `ctx.anchorPoint`.
 
 The sketch draws no geometry of its own; it exists to own this one reference.
-**[SPUR-F-ANCHOR-CHAIN]** makes this projection the canonical handle: a sketch cannot reference a
+That projection is the canonical handle (`[SPUR-F-ANCHOR-CHAIN]`): a sketch cannot reference a
 `SketchPoint` owned by another sketch, so every later sketch projects *this* point in again,
 forming a chain back to the user's original anchor entity, and the whole gear moves if the anchor
 moves. Note `[PB-PROJECT-NOT-FIXED]`: the projection is associative, not fixed, so it carries free
@@ -355,7 +355,7 @@ flows in from `draw()` at call time. Helical constructs the generator with the d
 and then calls `draw(ctx.anchorPoint, angle=helixAngle)`; a `drawTooth` reading `self.toothAngle`
 would draw a flat tooth and the helical loft would have no twist.
 
-**[SPUR-F-LOCAL-ORIGIN]** The movable local origin is a field named `self.anchorPoint` — a fresh
+The movable local origin is a field named `self.anchorPoint` (`[SPUR-F-LOCAL-ORIGIN]`) — a fresh
 `SketchPoint` added at (0, 0, 0) in the constructor with
 `sketch.sketchPoints.add(adsk.core.Point3D.create(0, 0, 0))`. It is **not** `sketch.originPoint`,
 which is immutable and cannot be coincident-constrained to anything brought in from elsewhere. All
@@ -442,8 +442,8 @@ fall back to an arbitrary circle on a failed radius match.
 implementation that keeps the references `drawCircles` already has needs neither the helper nor the
 lookup.
 
-**[PB-TEXT-HOLDS-DOF]** This text is why the Gear Profile sketch never reports
-`isFullyConstrained`: text placed with `setAsAlongPath` carries its own position along the curve
+This text is why the Gear Profile sketch never reports `isFullyConstrained`
+(`[PB-TEXT-HOLDS-DOF]`): text placed with `setAsAlongPath` carries its own position along the curve
 and nothing pins it. Log the result rather than raising on it. The exemption covers the labels and
 nothing else.
 
@@ -476,9 +476,10 @@ nothing else.
    collect the points into `adsk.core.ObjectCollection.create()` and call
    `sketch.sketchCurves.sketchFittedSplines.add(pointCollection)`.
 
-### 3. Tooth-top arc — `[SPUR-F-TOOTHTOP-ARC]`
+### 3. Tooth-top arc
 
-The arc caps the tooth at the tip circle, so it *is* part of that circle and must bulge outward.
+The arc caps the tooth at the tip circle (`[SPUR-F-TOOTHTOP-ARC]`), so it *is* part of that circle
+and must bulge outward.
 Exactly these four things, and nothing else:
 
 1. Materialize a **tooth-top point** — a `SketchPoint` at
@@ -507,9 +508,9 @@ Exactly these four things, and nothing else:
 Putting the centre on the origin also makes the **last rib's perpendicular redundant**; the rib
 recipe below omits it, and keeping both throws `VCS_SKETCH_OVER_CONSTRAINTS`.
 
-### 4. Spine, +X reference and angular pin — `[SPUR-F-SPINE]`
+### 4. Spine, +X reference and angular pin
 
-Draw the spine as a construction line
+Draw the spine (`[SPUR-F-SPINE]`) as a construction line
 `sketch.sketchCurves.sketchLines.addByTwoPoints(localOrigin, toothTopPoint)` — pass **both**
 existing `SketchPoint`s directly so the line shares them — and set `spine.isConstruction = True`.
 Do not create it from `.geometry`, do not add a separate start-coincident to the origin (sharing
@@ -543,9 +544,10 @@ end of the tip circle and the tooth comes out 180 degrees around. The angular di
 +X-pinned reference is what says which way, and it is used for every angle so spur, helical,
 herringbone and the bevel virtual tooth stay on one path.
 
-### 5. Ribs — `[SPUR-F-RIBS]`, exact order
+### 5. Ribs, exact order
 
-One rib per fit-point index `i`, for **all N indices, endpoints included** — the base-circle pair
+One rib per fit-point index `i` (`[SPUR-F-RIBS]`), for **all N indices, endpoints included** — the
+base-circle pair
 `i = 0` and the tip pair `i = N-1` both get one. The fit points carry no other constraint, so an
 omitted endpoint rib leaves the sketch under-constrained. Per rib, in exactly this order; a
 different order throws `VCS_SKETCH_OVER_CONSTRAINTS` (`[PB-NO-OVERCONSTRAIN]`):
@@ -586,11 +588,11 @@ the other way, which is one of the ways the tooth ends up reversed. Per rib this
 determined: any further constraint, a different order, or an off-spine midpoint seed over-constrains
 it.
 
-### 6. Flank-to-root lines and the embedded test — `[SPUR-F-FLANK-ROOT]`
+### 6. Flank-to-root lines and the embedded test
 
 **The embedded test is strict `<`.** With `firstRadius` the distance from the local origin to the
-**left** flank's first fit point, `embedded = firstRadius < RootCircleRadius`, comparing raw values
-with no tolerance. Exact equality therefore counts as **non**-embedded and draws a zero-length stub.
+**left** flank's first fit point, `embedded = firstRadius < RootCircleRadius`
+(`[SPUR-F-FLANK-ROOT]`), comparing raw values with no tolerance. Exact equality therefore counts as **non**-embedded and draws a zero-length stub.
 Keep the strict comparison; do not "improve" it to `<=` or add a tolerance.
 
 When the flank starts **outside** the root circle, draw one short radial line per side. Build each
@@ -802,8 +804,8 @@ the copies are measured one document at a time, and why the harness will not hol
 Still inside `patternTeeth(ctx)`, and a second timeline entry: one Combine-Join of the patterned
 tooth bodies into `Gear Body`.
 
-**[PB-PATTERN-BODIES]** `pattern.bodies` already holds the seed tooth plus the copies, so feed it to
-the combine as-is and do not re-add the seed — but copy it into a fresh
+`pattern.bodies` already holds the seed tooth plus the copies (`[PB-PATTERN-BODIES]`), so feed it
+to the combine as-is and do not re-add the seed — but copy it into a fresh
 `adsk.core.ObjectCollection.create()` first, item by item through `pattern.bodies.item(i)`, because
 `pattern.bodies` is a `BRepBodies` and `combineFeatures.createInput` rejects it:
 
@@ -1037,7 +1039,7 @@ distinction lives inside it, not at the call site. Placement after `buildBore` m
 `buildBore` re-projects `ctx.anchorPoint` out of the Tools sketch and projection fails once that
 sketch is hidden, so the Tools sketch must stay visible through the bore and the chamfer.
 
-**[SPUR-F-CLEANUP]** Hide each entity with the right property, and never cross them
+Hide each entity with the right property (`[SPUR-F-CLEANUP]`), and never cross them
 (`[PB-HIDE-AFTER-USE]`): `isLightBulbOn = False` for construction planes and axes,
 `isVisible = False` for sketches.
 
