@@ -105,6 +105,21 @@ post-generation user-parameter table, and saved designs reference them). Use the
 | Apply chamfer to teeth | `chamferTooth` | `ChamferTooth` |
 | Generate sketches, but do not build body | `sketchOnly` | `SketchOnly` |
 
+**The three selection inputs' command prompts are reproduced surface — write them exactly.**
+`addSelectionInput(id, name, commandPrompt)` takes a third string that Fusion shows beside the
+cursor while the user picks, and it is not the label. These are the strings:
+
+| input id | `name` | `commandPrompt` |
+|---|---|---|
+| `plane` | `Target Plane` | `Select the plane to build the gear on` |
+| `anchorPoint` | `Anchor Point` | `Select the point the gear is centered on` |
+| `parentComponent` | `Parent Component` | `Select the component to build the gear in` |
+
+Earlier revisions of this spec pinned the ids and labels but not these three prompts, and a
+regeneration that could not find them filled all three with the label text instead, so the dialog
+came back reading `Target Plane` where it had read `Select the plane to build the gear on`. A value
+the user sees has to live here, not only in the generated module.
+
 **Dialog display order (the order `configure()` adds inputs) is fixed and must be exactly:**
 
 1. Target Plane (`plane`)
