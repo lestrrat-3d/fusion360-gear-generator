@@ -9,6 +9,10 @@ import (
 	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit3d"
 )
 
+func TestInputBounds(t *testing.T) {
+	proofkit.Run(t, inputCases, stepInputBounds)
+}
+
 func TestAnchorSketch(t *testing.T) {
 	proofkit.Run(t, anchorCases, stepAnchorSketch)
 }
@@ -17,62 +21,66 @@ func TestGearProfiles(t *testing.T) {
 	proofkit.Run(t, latticeCases, stepGearProfiles)
 }
 
-func TestToothSketch(t *testing.T) {
-	proofkit.Run(t, toothCases, stepToothSketch)
+func TestVirtualSpurTooth(t *testing.T) {
+	proofkit.Run(t, toothCases, stepVirtualSpurTooth)
 }
 
-func TestProfileSketch(t *testing.T) {
-	proofkit.Run(t, profileCases, stepProfileSketch)
+func TestProfileHexagon(t *testing.T) {
+	proofkit.Run(t, profileCases, stepProfileHexagon)
 }
 
-func TestRevolveGearBody(t *testing.T) {
-	proofkit3d.RunSolid(t, solidCases, stepRevolveGearBody, assertRevolveGearBody)
+func TestGearBody(t *testing.T) {
+	proofkit3d.RunSolid(t, solidCases, stepGearBody, assertGearBody)
 }
 
-func TestLoftTooth(t *testing.T) {
-	proofkit3d.RunSolid(t, solidCases, stepLoftTooth, assertLoftTooth)
+func TestToothLoft(t *testing.T) {
+	proofkit3d.RunSolid(t, solidCases, stepToothLoft, assertToothLoft)
 }
 
-func TestToothTrace(t *testing.T) {
-	proofkit.Run(t, spiralCases, stepToothTrace)
+func TestConicalTrim(t *testing.T) {
+	proofkit3d.RunSolid(t, solidCases, stepConicalTrim, assertConicalTrim)
 }
 
-func TestSliceSegments(t *testing.T) {
-	proofkit3d.RunSolid(t, spiralSolidCases, stepSliceSegments, assertSliceSegments)
+func TestToothPattern(t *testing.T) {
+	proofkit3d.RunSolid(t, patternCases, stepToothPattern, assertToothPattern)
 }
 
-func TestDropScrap(t *testing.T) {
-	proofkit3d.RunSolid(t, spiralSolidCases, stepDropScrap, assertDropScrap)
-}
-
-func TestTwistTooth(t *testing.T) {
-	proofkit3d.RunSolid(t, spiralSolidCases, stepTwistTooth, assertTwistTooth)
-}
-
-func TestCrownSegments(t *testing.T) {
-	proofkit3d.RunSolid(t, spiralSolidCases, stepCrownSegments, assertCrownSegments)
-}
-
-func TestLoftSpiralTooth(t *testing.T) {
-	proofkit3d.RunSolid(t, spiralSolidCases, stepLoftSpiralTooth, assertLoftSpiralTooth)
-}
-
-func TestCutConicalEnds(t *testing.T) {
-	proofkit3d.RunSolid(t, solidCases, stepCutConicalEnds, assertCutConicalEnds)
-}
-
-func TestPatternTeeth(t *testing.T) {
-	proofkit3d.RunSolid(t, solidCases, stepPatternTeeth, assertPatternTeeth)
-}
-
-func TestCombineTeeth(t *testing.T) {
-	proofkit3d.RunSolid(t, solidCases, stepCombineTeeth, assertCombineTeeth)
+func TestCombineSeat(t *testing.T) {
+	proofkit3d.RunSolid(t, solidCases, stepCombineSeat, assertCombineSeat)
 }
 
 func TestBoreCut(t *testing.T) {
-	proofkit3d.RunSolid(t, solidCases, stepBoreCut, assertBoreCut)
+	proofkit3d.RunSolid(t, boreCases, stepBoreCut, assertBoreCut)
 }
 
-func TestMeshRotate(t *testing.T) {
-	proofkit3d.RunSolid(t, solidCases, stepMeshRotate, assertMeshRotate)
+func TestMeshRotation(t *testing.T) {
+	proofkit3d.RunSolid(t, solidCases, stepMeshRotation, assertMeshRotation)
+}
+
+func TestConeElement(t *testing.T) {
+	proofkit.Run(t, spiralCases, stepConeElement)
+}
+
+func TestSpiralTrace(t *testing.T) {
+	proofkit.Run(t, spiralCases, stepSpiralTrace)
+}
+
+func TestSpiralSlices(t *testing.T) {
+	proofkit3d.RunSolid(t, spiralSolidCases, stepSpiralSlices, assertSpiralSlices)
+}
+
+func TestSpiralScrap(t *testing.T) {
+	proofkit3d.RunSolid(t, spiralSolidCases, stepSpiralScrap, assertSpiralScrap)
+}
+
+func TestSpiralTwist(t *testing.T) {
+	proofkit3d.RunSolid(t, spiralSolidCases, stepSpiralTwist, assertSpiralTwist)
+}
+
+func TestSpiralCrown(t *testing.T) {
+	proofkit.Run(t, spiralCases, stepSpiralCrown)
+}
+
+func TestSpiralLoft(t *testing.T) {
+	proofkit3d.RunSolid(t, spiralSolidCases, stepSpiralLoft, assertSpiralLoft)
 }

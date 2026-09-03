@@ -9,340 +9,360 @@ import (
 	"github.com/lestrrat-3d/sketch"
 )
 
-// The borrowed spur tooth generator's fixed inputs. Neither is a bevel dialog
-// input: the proxy's defaults are a 20 degree pressure angle and 15 involute
-// samples, and bevel supplies only the module and the virtual tooth count.
-const (
-	proxyPressureAngle = math.Pi / 9 // 20 degrees
-	proxyInvoluteSteps = 15
-	// The rotation bevel passes as draw()'s angle argument. The whole tooth is
-	// drawn already turned by it, in the point math, never rotated afterwards.
-	bevelToothAngle = math.Pi
-)
+// pressureAngle and involuteSteps are what the framework's VirtualSpurProxy
+// serves the borrowed spur tooth generator; neither is a bevel dialog input.
+var pressureAngle = 20 * math.Pi / 180
 
-// toothCases sweeps both gears of several pairs, because the virtual tooth
-// count — and with it the embedded branch the profile search keys on — is a
-// function of that gear's own cone angle, so the two members of one pair land on
-// opposite sides of it.
-//
-// The default 31/31 pair is already embedded on both sides: its virtual count is
-// 43, above the 41.5 at which the base circle falls inside the root circle at a
-// 20 degree pressure angle. The 31/17 pair reaches the other branch on its
-// pinion, at 19 virtual teeth, while its driving gear is embedded at 64. So both
-// values of the wantLines selector are reached from both gears, which is what
-// the spec's warning about the impostor loop needs.
+const involuteSteps = 15
+
+// toothCases prove the virtual spur tooth §3 draws per gear. The branch that
+// matters is the borrowed generator's `embedded` flag, which decides the line
+// count the profile search keys on, so the table reaches it from both sides:
+// the flag turns on at high virtual tooth counts (41.5 teeth at a 20 degree
+// pressure angle), and the virtual count is the real count divided by cos(gamma),
+// so a modest gear crosses it while a small one does not.
 var toothCases = []proofkit.Case{
-	{Name: "default_31_31_pinion_embedded", Params: defaultParams()},
-	{Name: "default_31_31_driving_embedded", Params: with(defaultParams(), pGear, 1.0)},
-	{Name: "ratio_31_17_pinion_not_embedded", Params: with(defaultParams(), pPinionTeeth, 17.0)},
-	{Name: "ratio_31_17_driving_embedded", Params: with(defaultParams(),
-		pPinionTeeth, 17.0, pGear, 1.0)},
-	{Name: "minimum_teeth_4_4_pinion", Params: with(defaultParams(),
-		pDrivingTeeth, 4.0, pPinionTeeth, 4.0)},
-	{Name: "coarse_module_3_20_20_driving", Params: with(defaultParams(),
-		pModule, 3.0, pDrivingTeeth, 20.0, pPinionTeeth, 20.0, pGear, 1.0)},
-	{Name: "shaft_angle_140deg_pinion", Params: with(defaultParams(), pShaftAngle, deg(140))},
-	{Name: "shaft_angle_35deg_driving", Params: with(defaultParams(),
-		pShaftAngle, deg(35), pGear, 1.0)},
-	{Name: "tooth_spacing_1mm_pinion", Params: with(defaultParams(),
-		pPinionTeeth, 17.0, pToothSpacing, 1.0)},
+	{Name: "pinion-31-31-90", Params: map[string]float64{"gear": 0}},
+	{Name: "driving-31-31-90", Params: map[string]float64{"gear": 1}},
+	{Name: "pinion-of-31-17", Params: map[string]float64{"drivingTeeth": 31, "pinionTeeth": 17, "gear": 0}},
+	{Name: "driving-of-31-17", Params: map[string]float64{"drivingTeeth": 31, "pinionTeeth": 17, "gear": 1}},
+	{Name: "small-pair-4-4", Params: map[string]float64{"drivingTeeth": 4, "pinionTeeth": 4, "gear": 0}},
+	{Name: "shallow-cone-at-30", Params: map[string]float64{"shaftAngleDeg": 30, "gear": 1}},
+	{Name: "with-tooth-spacing", Params: map[string]float64{"toothSpacing": 0.4, "gear": 0}},
+	{Name: "module-2-19-13", Params: map[string]float64{"module": 2, "drivingTeeth": 19, "pinionTeeth": 13, "gear": 1}},
 }
 
-// stepToothSketch draws the `{gearLabel} Tooth` sketch: the borrowed spur tooth,
-// at this gear's virtual tooth number, already rotated by 180 degrees.
-//
-// WHAT THIS SKETCH SUBSTITUTES. The Fusion sketch carries four along-path
-// labels, one per circle ([PB-SKETCH-TEXT]), and sketch text placed with
-// setAsAlongPath carries a position nothing in these recipes pins, which is why
-// [BEVEL-F-FULL-CONSTRAINT] exempts the two tooth sketches from the gate. The
-// bench engine has no sketch text, so what is drawn here is the same sketch with
-// the labels absent — which is exactly the state that exemption says must read
-// fully constrained on its own. This step therefore gates it normally, and a
-// pass here is the measurement the exemption asks for before it is renewed.
-//
-// <!-- proof-run: proofkit.Run(toothCases, stepToothSketch) -->
-func stepToothSketch(t testing.TB, s *sketch.Sketch, params map[string]float64) {
-	q := pairOf(t, params)
-	side := q.gearOf(params)
-	virtual := side.virtualTeeth(q.module)
-
-	proofkit.Step(t, "%s: virtual pitch radius %.6f mm at cone angle %.6f rad gives %.0f virtual teeth",
-		side.label, side.pitchDia/2/math.Cos(side.gamma), side.gamma, virtual)
-	assertVirtualTeeth(t, q, side, virtual)
-
-	d := involute.Derive(q.module, virtual, proxyPressureAngle)
-	tooth := drawSpurTooth(t, s, d, virtual, bevelToothAngle)
-	solve(t, s)
-
-	proofkit.Step(t, "the tooth sits at the 180 degrees draw() was given")
-	if got := math.Atan2(tooth.toothTop.Y(), tooth.toothTop.X()); math.Abs(math.Abs(got)-math.Pi) > 1e-7 {
-		t.Errorf("the tooth top sits at %.9f rad, not at the %.9f rad draw() was passed",
-			got, bevelToothAngle)
-	}
-	if got := math.Hypot(tooth.toothTop.X(), tooth.toothTop.Y()); math.Abs(got-d.Tip) > 1e-7 {
-		t.Errorf("the tooth top sits at radius %.6f, not on the tip circle at %.6f", got, d.Tip)
-	}
-
-	proofkit.Step(t, "the loop the tooth-profile search selects, and the count it selects on")
-	assertToothProfile(t, s, d, virtual)
+// profileCases prove the per-gear Profile sketch. Both gears are drawn, since
+// the hexagon and its first edge differ per gear, and the table reaches the
+// Shaft Angle ends and both ratio directions because the Face Width cap that
+// keeps the toe off the axis binds differently on each.
+var profileCases = []proofkit.Case{
+	{Name: "pinion-default", Params: map[string]float64{"gear": 0}},
+	{Name: "driving-default", Params: map[string]float64{"gear": 1}},
+	{Name: "pinion-of-31-17", Params: map[string]float64{"drivingTeeth": 31, "pinionTeeth": 17, "gear": 0}},
+	{Name: "driving-of-17-31", Params: map[string]float64{"drivingTeeth": 17, "pinionTeeth": 31, "gear": 1}},
+	{Name: "pinion-at-150", Params: map[string]float64{"shaftAngleDeg": 150, "gear": 0}},
+	{Name: "driving-at-30", Params: map[string]float64{"shaftAngleDeg": 30, "gear": 1}},
+	{Name: "mirrored-grow-side", Params: map[string]float64{"growSign": -1, "gear": 1}},
+	{Name: "teeth-floor-4", Params: map[string]float64{"drivingTeeth": 4, "pinionTeeth": 4, "gear": 0}},
 }
 
-// assertVirtualTeeth checks the back-cone tooth count against the closed form,
-// and against the one wrong answer the spec names: measuring Apex2->K' instead.
-//
-// The two disagree by construction. K sits at cone distance R/cos(gamma) along
-// the shaft axis, so Apex2->K is R*tan(gamma), while the virtual pitch radius is
-// r/cos(gamma). The proof compares them so a build that measured the lattice
-// instead of computing the closed form would be caught here rather than in a
-// tooth of the wrong size.
-func assertVirtualTeeth(t testing.TB, q pair, side gearSide, virtual float64) {
-	t.Helper()
-	radius := side.pitchDia / 2 / math.Cos(side.gamma)
-	if want := math.Floor(2 * radius / q.module); virtual != want {
-		t.Fatalf("%s: the virtual tooth number is %.0f, not floor(2 * %.6f / %.6f) = %.0f",
-			side.label, virtual, radius, q.module, want)
-	}
-	if virtual < 3 {
-		t.Fatalf("%s: a virtual tooth count of %.0f cannot carry an involute tooth",
-			side.label, virtual)
-	}
-	// The lattice does carry this radius: Apex2->K is R*tan(gamma), which is
-	// exactly r/cos(gamma). What it does not carry is a radius independent of the
-	// Tooth Spacing — Apex2->K' is longer by the whole spacing — and the spec's
-	// rule that the count comes from the closed form and never from measuring
-	// Apex2->K' is what keeps the drawn tooth the same size at every spacing.
-	if measured := q.pitchConeDist * math.Tan(side.gamma); math.Abs(measured-radius) > 1e-9 {
-		t.Errorf("%s: Apex2->K measures %.9f against the virtual pitch radius %.9f; the two are "+
-			"the same length", side.label, measured, radius)
-	}
-	if q.toothSpacing > 0 {
-		spaced := math.Floor(2 * (radius + q.toothSpacing) / q.module)
-		if spaced == virtual {
-			t.Errorf("%s: measuring Apex2->K' would give the same %.0f virtual teeth at a Tooth "+
-				"Spacing of %.6f, so this case cannot show why the spec forbids measuring it",
-				side.label, virtual, q.toothSpacing)
-		}
-	}
-}
-
-// spurTooth is the drawn tooth and the handles its assertions read.
-type spurTooth struct {
-	origin   *sketch.Point
-	spine    *sketch.Line
-	toothTop *sketch.Point
+// toothProfile is one drawn virtual spur tooth, in the tooth plane's own frame
+// with the tooth centre at the origin.
+type toothProfile struct {
+	dims     involute.Dimensions
 	embedded bool
+	teeth    float64
+	rootEnd  float64 // radius the drawn flanks end at
+	left     []involute.Pt
+	right    []involute.Pt
 }
 
-// drawSpurTooth draws one involute tooth the way the borrowed generator does.
+// stepVirtualSpurTooth draws §3 step 3: the borrowed spur tooth, at the virtual
+// tooth number, on the tooth plane, already rotated 180 degrees by the draw
+// angle rather than by a later sketch rotation.
 //
-// The construction is spur's, cited from spec/spurgear/instructions.md §3 and
-// §4: four circles on the shared local origin with driving diameter dimensions,
-// the two flanks as fitted splines through samples that run base circle to tip
-// circle endpoint-inclusive, the tooth-top arc, the spine with its +X reference
-// and confirming angular dimension, one rib per sample with the last carrying no
-// perpendicular, and the flank-to-root lines only when the flank starts outside
-// the root circle. Bevel adds nothing to it — it supplies the module and the
-// virtual tooth count through the proxy and passes 180 degrees as the angle.
-func drawSpurTooth(t testing.TB, s *sketch.Sketch, d involute.Dimensions,
-	toothNumber, angle float64) *spurTooth {
-	t.Helper()
-
-	// The projected tooth-centre point, and the movable local origin the whole
-	// tooth is built relative to. Fusion projects K'/L' in and coincides the
-	// generator's own anchorPoint to it; the engine's reference point is the same
-	// thing, a point this sketch does not own the coordinates of.
-	anchor := s.CreateReferencePoint(0, 0, "toothCenterPoint")
-	anchor.SetName("projected tooth centre")
-	origin := s.CreatePoint(0, 0)
-	origin.SetName("local origin")
-	s.AddConstraint(sketch.NewCoincident(origin, anchor))
-
-	circle := func(r float64, construction bool, name string) *sketch.Circle {
-		c := s.CreateCircle(origin, r)
-		c.SetConstruction(construction)
-		c.SetName(name)
-		s.AddConstraint(sketch.NewDiameter(c, 2*r))
-		return c
-	}
-	circle(d.Root, false, "root circle")
-	tip := circle(d.Tip, true, "tip circle")
-	circle(d.Base, true, "base circle")
-	circle(d.Pitch, true, "pitch circle")
-
-	left, right := involute.Flanks(d.Base, d.Tip, d.Pitch, toothNumber, proxyInvoluteSteps, angle)
-	leftPts := make([]*sketch.Point, len(left))
-	rightPts := make([]*sketch.Point, len(right))
-	for i := range left {
-		leftPts[i] = s.CreatePoint(left[i].X, left[i].Y)
-		rightPts[i] = s.CreatePoint(right[i].X, right[i].Y)
-	}
-	if _, err := s.CreateFitSpline(leftPts...); err != nil {
-		t.Fatalf("left flank spline: %v", err)
-	}
-	if _, err := s.CreateFitSpline(rightPts...); err != nil {
-		t.Fatalf("right flank spline: %v", err)
-	}
-
-	// The tooth-top arc caps the tooth at the tip circle. Fusion's
-	// addByCenterStartEnd COPIES the centre rather than sharing it, so the Fusion
-	// build needs an explicit coincidence back to the origin — the fix that took
-	// a 0.5743 mm arc back to the intended 22.5 mm tip radius. The engine shares
-	// the point handle it is given, which is the same constraint by the other of
-	// the two routes [PB-SHARE-XOR-COINCIDENT] allows.
-	last := len(leftPts) - 1
-	s.CreateArc(origin, rightPts[last], leftPts[last])
-
-	// Spine, +X reference and the angular pin. The reference line's far end is
-	// held by signed distances, and the angular dimension runs from it to the
-	// spine, so the tooth's placement carries a direction and a sign.
-	ttx, tty := involute.Rotate(d.Tip, 0, angle)
-	toothTop := s.CreatePoint(ttx, tty)
-	toothTop.SetName("tooth top")
-	s.AddConstraint(sketch.NewPointOnCircle(toothTop, tip))
-	spine := s.CreateLine(origin, toothTop)
-	spine.SetConstruction(true)
-	spine.SetName("spine")
-	refEnd := s.CreatePoint(d.Tip, 0)
-	s.AddConstraint(
-		sketch.NewHorizontalDistance(origin, refEnd, d.Tip),
-		sketch.NewVerticalDistance(origin, refEnd, 0),
-	)
-	reference := s.CreateLine(origin, refEnd)
-	reference.SetConstruction(true)
-	reference.SetName("+X reference")
-	s.AddConstraint(sketch.NewAngle(reference, spine, angle*180/math.Pi))
-
-	// Ribs, one per sample. The rib takes the axis across the spine and the
-	// midpoint chain the axis along it, and which axis that is swaps once the
-	// tooth passes 45 degrees.
-	acrossIsVertical := math.Abs(math.Cos(angle)) >= math.Abs(math.Sin(angle))
-	prevMid := origin
-	prevX, prevY := 0.0, 0.0
-	for i := range left {
-		rib := s.CreateLine(leftPts[i], rightPts[i])
-		rib.SetConstruction(true)
-		if acrossIsVertical {
-			s.AddConstraint(sketch.NewVerticalDistance(leftPts[i], rightPts[i], right[i].Y-left[i].Y))
-		} else {
-			s.AddConstraint(sketch.NewHorizontalDistance(leftPts[i], rightPts[i], right[i].X-left[i].X))
-		}
-		foot := left[i].X*math.Cos(angle) + left[i].Y*math.Sin(angle)
-		mx, my := foot*math.Cos(angle), foot*math.Sin(angle)
-		mid := s.CreatePoint(mx, my)
-		s.AddConstraint(
-			sketch.NewPointOnLine(mid, spine),
-			sketch.NewMidpoint(mid, rib),
-		)
-		// The last rib joins the two flank tips, which the tooth-top arc already
-		// holds either side of the spine, so its perpendicular is redundant.
-		if i != last {
-			s.AddConstraint(sketch.NewPerpendicular(spine, rib))
-		}
-		if acrossIsVertical {
-			s.AddConstraint(sketch.NewHorizontalDistance(prevMid, mid, mx-prevX))
-		} else {
-			s.AddConstraint(sketch.NewVerticalDistance(prevMid, mid, my-prevY))
-		}
-		prevMid, prevX, prevY = mid, mx, my
-	}
-
-	// The flank-to-root lines, and the strict embedded test. Above roughly 41.5
-	// virtual teeth at a 20 degree pressure angle the base circle falls inside
-	// the root circle, no stub is drawn, and the tooth loop loses its two lines —
-	// which is the branch bevel's profile search selects with wantLines = 0.
-	embedded := d.Embedded()
-	if !embedded {
-		stub := func(flankStart *sketch.Point, seed involute.Pt) {
-			n := math.Hypot(seed.X, seed.Y)
-			rx, ry := d.Root*seed.X/n, d.Root*seed.Y/n
-			foot := s.CreatePoint(rx, ry)
-			s.CreateLine(foot, flankStart)
-			s.AddConstraint(
-				sketch.NewHorizontalDistance(origin, foot, rx),
-				sketch.NewVerticalDistance(origin, foot, ry),
-			)
-		}
-		stub(leftPts[0], left[0])
-		stub(rightPts[0], right[0])
-	}
-	return &spurTooth{origin: origin, spine: spine, toothTop: toothTop, embedded: embedded}
-}
-
-// curveCounts is one profile's boundary, counted by curve type.
-type curveCounts struct {
-	splines int
-	lines   int
-	arcs    int
-	circles int
-}
-
-func countCurves(p *sketch.Profile) curveCounts {
-	var c curveCounts
-	for _, e := range p.Entities {
-		switch e.(type) {
-		case *sketch.FitSpline:
-			c.splines++
-		case *sketch.Line:
-			c.lines++
-		case *sketch.Arc:
-			c.arcs++
-		case *sketch.Circle:
-			c.circles++
-		}
-	}
-	return c
-}
-
-// assertToothProfile checks the count the tooth-profile search selects on, and
-// that exactly one loop carries it.
+// What bevel owns here is the virtual tooth number, the module handed to the
+// drawer, the tooth centre K'/L' and the 180 degree draw angle; the tooth's own
+// constraint scheme belongs to spec/spurgear and its own bench proof. This step
+// therefore draws the tooth from proof/involute on fixed points and proves the
+// facts bevel depends on: the closed-form virtual count, the four circle radii
+// the drawer derives from it, the 180 degree placement, and — the one a later
+// step selects on — the curve-count key, 2 splines and 2 arcs with 0 connecting
+// lines when the tooth is embedded and 2 when it is not.
 //
-// The spec is emphatic that the line count is DETERMINED by the embedded flag
-// and never accepted as "0 or 2": an unrelated loop between the drawCircles
-// circles can carry the same two NURBS and two arcs with the other line count,
-// and lofting that impostor dies with LOFT_NO_TOOLBODY. So the assertion is not
-// only that the tooth loop has the right count — it is that no other loop in the
-// sketch shares it.
-//
-// The engine reports a curve split by the arrangement against its parent entity,
-// so the root arc the tooth borrows from the root circle comes back as that
-// Circle rather than as an Arc. Fusion's nurbs=2, arcs=2, lines=N is therefore
-// read here as splines=2, arcs=1, circles=1, lines=N.
-func assertToothProfile(t testing.TB, s *sketch.Sketch, d involute.Dimensions, toothNumber float64) {
-	t.Helper()
+// Not reached here: the four labelled circles the drawer also draws
+// ([PB-SKETCH-TEXT]), and with them the impostor loop the spec warns about — an
+// unrelated region between those circles carrying the same 2 splines and 2 arcs
+// with the other line count. The proof shows the key is a function of the flag;
+// it does not show what else is in the sketch to be confused with.
+func stepVirtualSpurTooth(t testing.TB, s *sketch.Sketch, p map[string]float64) {
+	c := mustResolve(t, p)
+	g := c.gearOf(p)
+
+	proofkit.Step(t, "%s: virtual tooth number from the back-cone closed form", g.Label)
+	virtualPitchRadius := (g.PitchDia / 2) / math.Cos(g.Gamma)
+	virtualTeeth := math.Floor(2 * virtualPitchRadius / c.Module)
+	near(t, virtualTeeth, g.VirtualTeeth, 1e-12, "%s virtual tooth number", g.Label)
+	if virtualTeeth < g.Teeth {
+		t.Errorf("%s: the virtual tooth number %v must be at least the real count %v", g.Label, virtualTeeth, g.Teeth)
+	}
+	// The Units note: the stashed pitch diameters are internal centimetres while
+	// Module is raw millimetres, so a virtual radius computed without the cm->mm
+	// conversion comes out ten times small.
+	unconverted := math.Floor(2 * (virtualPitchRadius / 10) / c.Module)
+	if unconverted == virtualTeeth && virtualTeeth > 1 {
+		t.Errorf("%s: the case cannot tell a converted virtual count from an unconverted one", g.Label)
+	}
+
+	tooth := drawTooth(t, s, c.Module, virtualTeeth)
+
+	proofkit.Step(t, "%s: the four circle radii the drawer derives", g.Label)
+	near(t, tooth.dims.Pitch, c.Module*virtualTeeth/2, 1e-12, "virtual pitch radius")
+	near(t, tooth.dims.Base, tooth.dims.Pitch*math.Cos(pressureAngle), 1e-12, "base radius")
+	near(t, tooth.dims.Tip, (c.Module*virtualTeeth+2*c.Module)/2, 1e-12, "tip radius (one module addendum)")
+	near(t, tooth.dims.Root, (c.Module*virtualTeeth-2.5*c.Module)/2, 1e-12, "root radius (1.25 module dedendum)")
+
+	proofkit.Step(t, "%s: the profile the loft consumes and the curve-count key", g.Label)
 	wantLines := 2
-	if d.Embedded() {
+	if tooth.embedded {
 		wantLines = 0
 	}
-	want := curveCounts{splines: 2, arcs: 1, circles: 1, lines: wantLines}
+	profiles := s.Profiles()
+	if len(profiles) != 1 {
+		t.Fatalf("%s: the tooth is one closed region, got %d", g.Label, len(profiles))
+	}
+	prof := profiles[0]
+	if !prof.Valid {
+		t.Errorf("%s: the tooth region is not extrudable", g.Label)
+	}
+	var arcs, splines, lines int
+	for _, e := range prof.Entities {
+		switch e.(type) {
+		case *sketch.Arc:
+			arcs++
+		case *sketch.FitSpline:
+			splines++
+		case *sketch.Line:
+			lines++
+		}
+	}
+	if splines != 2 || arcs != 2 || lines != wantLines {
+		t.Errorf("%s: tooth loop is %d splines, %d arcs, %d lines; the profile search asks for 2, 2 and %d (embedded=%v)",
+			g.Label, splines, arcs, lines, wantLines, tooth.embedded)
+	}
+	if tooth.embedded != (tooth.dims.Base < tooth.dims.Root) {
+		t.Errorf("%s: the embedded flag must be base < root", g.Label)
+	}
 
-	matches := make([]*sketch.Profile, 0, 1)
-	for _, p := range s.Profiles() {
-		if !p.Valid {
-			t.Errorf("a detected region is not an extrudable profile: area %.6f", p.Area)
+	proofkit.Step(t, "%s: the 180 degree draw angle places the tooth", g.Label)
+	lastLeft, lastRight := tooth.left[len(tooth.left)-1], tooth.right[len(tooth.right)-1]
+	mid := math.Atan2(lastLeft.Y+lastRight.Y, lastLeft.X+lastRight.X)
+	near(t, math.Abs(mid), math.Pi, 1e-9, "%s tooth centreline sits at 180 degrees", g.Label)
+	for i := range tooth.left {
+		near(t, math.Hypot(tooth.left[i].X, tooth.left[i].Y), math.Hypot(tooth.right[i].X, tooth.right[i].Y), 1e-12,
+			"%s flanks are mirror images at sample %d", g.Label, i)
+	}
+	// The Tooth Spacing moves the tooth CENTRE only; the drawn tooth keeps the
+	// size the virtual count gives it.
+	near(t, tooth.teeth, g.VirtualTeeth, 1e-12, "%s drawn tooth size ignores the Tooth Spacing", g.Label)
+}
+
+// drawTooth draws one involute tooth centred on the sketch origin and rotated
+// by 180 degrees, on fixed points.
+//
+// Two substitutions, both of the kind the playbook's sketch-first note allows.
+// Fusion derives the root boundary by splitting the drawn root circle; the
+// bench draws that same derived arc directly. And an embedded tooth's flank
+// starts inside the root circle, where Fusion trims it: the bench drops the
+// samples inside the root radius, so the drawn flank starts at the first sample
+// outside it rather than exactly on it, and the step checks that landing is
+// within one sampling step of the root circle.
+func drawTooth(t testing.TB, s *sketch.Sketch, module, teeth float64) toothProfile {
+	t.Helper()
+	dims := involute.Derive(module, teeth, pressureAngle)
+	left, right := involute.Flanks(dims.Base, dims.Tip, dims.Pitch, teeth, involuteSteps, math.Pi)
+	embedded := dims.Embedded()
+
+	keep := func(pts []involute.Pt) []involute.Pt {
+		if !embedded {
+			return pts
 		}
-		if countCurves(p) == want {
-			matches = append(matches, p)
+		out := make([]involute.Pt, 0, len(pts))
+		for _, q := range pts {
+			if math.Hypot(q.X, q.Y) >= dims.Root {
+				out = append(out, q)
+			}
+		}
+		return out
+	}
+	left, right = keep(left), keep(right)
+	if len(left) < 2 || len(right) < 2 {
+		proofkit.Unmodelled(t, "the tooth keeps %d flank samples outside the root circle, too few to draw", len(left))
+	}
+	rootEnd := math.Hypot(left[0].X, left[0].Y)
+	if embedded {
+		step := (dims.Tip - dims.Base) / float64(involuteSteps-1)
+		if rootEnd-dims.Root > step {
+			t.Errorf("the drawn flank starts %.4f mm outside the root circle, more than one sampling step %.4f mm",
+				rootEnd-dims.Root, step)
+		}
+	} else {
+		near(t, rootEnd, dims.Base, 1e-9, "a non-embedded flank starts on the base circle")
+	}
+
+	centre := s.CreatePoint(0, 0)
+	centre.SetName("tooth centre")
+	s.Fix(centre)
+
+	// An arc drawn on the tooth centre does not SHARE that point: Fusion's
+	// addByCenterStartEnd copies the centre, which is how a tooth-top arc came
+	// out at 0.5743 mm where 22.5 mm was meant, from a sketch that raised no
+	// error ([PB-SHARE-XOR-COINCIDENT]). The bench models the copy the same way —
+	// a fresh centre point — and pins it back to the tooth centre, then checks
+	// the gap it closes. The pin is one row, not two: the arc's own endpoint rows
+	// already leave its centre on the tooth centreline, so a full coincidence is
+	// redundant there and the engine says so.
+	arcCentre := func(name string) *sketch.Point {
+		q := s.CreatePoint(0, 0)
+		q.SetName(name)
+		s.AddConstraint(sketch.NewHorizontalDistance(centre, q, 0))
+		return q
+	}
+
+	pt := func(q involute.Pt, name string) *sketch.Point {
+		sp := s.CreatePoint(q.X, q.Y)
+		sp.SetName(name)
+		return sp
+	}
+	leftPts := make([]*sketch.Point, 0, len(left))
+	rightPts := make([]*sketch.Point, 0, len(right))
+	for i, q := range left {
+		leftPts = append(leftPts, pt(q, "left flank"))
+		rightPts = append(rightPts, pt(right[i], "right flank"))
+	}
+	leftFlank, err := s.CreateFitSpline(leftPts...)
+	if err != nil {
+		t.Fatalf("left flank: %v", err)
+	}
+	leftFlank.SetName("left flank")
+	rightFlank, err := s.CreateFitSpline(rightPts...)
+	if err != nil {
+		t.Fatalf("right flank: %v", err)
+	}
+	rightFlank.SetName("right flank")
+
+	last := len(left) - 1
+	tipCentre := arcCentre("tooth top arc centre")
+	tip := s.CreateArc(tipCentre, leftPts[last], rightPts[last])
+	tip.SetName("tooth top arc")
+
+	var rootStart, rootEndPt *sketch.Point
+	if embedded {
+		rootStart, rootEndPt = rightPts[0], leftPts[0]
+	} else {
+		// The flank-to-root connecting lines run radially inward to the root
+		// circle; they are the two lines the profile search counts.
+		radial := func(from *sketch.Point, name string) *sketch.Point {
+			r := math.Hypot(from.X(), from.Y())
+			to := s.CreatePoint(from.X()*dims.Root/r, from.Y()*dims.Root/r)
+			to.SetName(name)
+			l := s.CreateLine(from, to)
+			l.SetName(name)
+			return to
+		}
+		rootEndPt = radial(leftPts[0], "left flank-to-root")
+		rootStart = radial(rightPts[0], "right flank-to-root")
+	}
+	rootCentre := arcCentre("root arc centre")
+	root := s.CreateArc(rootCentre, rootStart, rootEndPt)
+	root.SetName("root arc")
+
+	for _, q := range append(append([]*sketch.Point{}, leftPts...), rightPts...) {
+		s.Fix(q)
+	}
+	if !embedded {
+		s.Fix(rootStart)
+		s.Fix(rootEndPt)
+	}
+	solveHere(t, s)
+
+	// Both arc centres must close onto the tooth centre exactly; a stranded
+	// centre is the defect fusion.md records, and it deforms the tooth without
+	// raising anything.
+	near(t, math.Hypot(tipCentre.X()-centre.X(), tipCentre.Y()-centre.Y()), 0, 1e-9, "tooth top arc centre gap")
+	near(t, math.Hypot(rootCentre.X()-centre.X(), rootCentre.Y()-centre.Y()), 0, 1e-9, "root arc centre gap")
+	near(t, math.Hypot(leftPts[last].X()-tipCentre.X(), leftPts[last].Y()-tipCentre.Y()), dims.Tip, 1e-9,
+		"tooth top arc radius is the tip radius")
+	wantRoot := dims.Root
+	if embedded {
+		// The embedded tooth's root boundary is the arc through the first flank
+		// samples outside the root circle, the substitution named above.
+		wantRoot = rootEnd
+	}
+	near(t, math.Hypot(rootStart.X()-rootCentre.X(), rootStart.Y()-rootCentre.Y()), wantRoot, 1e-9,
+		"root arc radius")
+	return toothProfile{dims: dims, embedded: embedded, teeth: teeth, rootEnd: rootEnd, left: left, right: right}
+}
+
+// stepProfileHexagon draws the per-gear Profile sketch: the six §2 vertices
+// recreated as new points at their world positions, the closed hexagon drawn
+// sharing those points, and the points fixed AFTER the lines exist
+// ([PB-PROJECT-NOT-FIXED]).
+//
+// The sketch holds exactly one loop, so the revolve takes its single profile
+// ([PB-SINGLE-PROFILE]), and the loop's FIRST edge is the shaft axis every body
+// operation below uses — the revolve, the pattern, the bore plane and the
+// meshing rotation — so the step checks that edge is on the axis and that no
+// other vertex crosses it, which is the ASM_WIRE_X_AXIS failure the Maximum
+// Face Width exists to prevent ([PB-REVOLVE]).
+func stepProfileHexagon(t testing.TB, s *sketch.Sketch, p map[string]float64) {
+	c := mustResolve(t, p)
+	g := c.gearOf(p)
+
+	proofkit.Step(t, "%s Profile: recreate A, G, H, C, M, N and draw the hexagon", g.Label)
+	verts := []vec2{g.Axis, g.G, g.H, g.Ded, g.M, g.N}
+	names := []string{"A", "G", "H", "C", "M", "N"}
+	if g.Label == "Driving" {
+		names = []string{"B", "I", "J", "D", "O", "P"}
+	}
+	pts := make([]*sketch.Point, len(verts))
+	for i, v := range verts {
+		pts[i] = s.CreatePoint(v.X, v.Y)
+		pts[i].SetName(g.Label + " " + names[i])
+	}
+	edges := make([]*sketch.Line, len(pts))
+	for i := range pts {
+		edges[i] = s.CreateLine(pts[i], pts[(i+1)%len(pts)])
+		edges[i].SetName(g.Label + " " + names[i] + "->" + names[(i+1)%len(names)])
+	}
+	// The points are fixed only once the lines exist; fixing a bare point first
+	// does not leave the sketch fully constrained ([PB-PROJECT-NOT-FIXED]).
+	for _, e := range edges {
+		s.Fix(e.Start)
+		s.Fix(e.End)
+	}
+	solveHere(t, s)
+
+	proofkit.Step(t, "%s Profile: the first edge is the shaft axis every body operation uses", g.Label)
+	axisDir := v2unit(v2sub(g.G, g.Axis))
+	near(t, math.Abs(v2dot(axisDir, v2unit(v2sub(g.Axis, c.Apex)))), 1, 1e-9,
+		"%s first edge is collinear with the section-2 Apex->A shaft line", g.Label)
+	near(t, v2len(v2sub(g.G, g.Axis)), g.BaseHeight, 1e-9, "%s first edge spans the resolved base height", g.Label)
+
+	side := 0.0
+	for i, v := range verts {
+		d := v2cross(axisDir, v2sub(v, g.Axis))
+		if math.Abs(d) < 1e-9 {
+			continue // A and G lie on the axis of revolution
+		}
+		if side == 0 {
+			side = math.Copysign(1, d)
+		} else if math.Copysign(1, d) != side {
+			t.Errorf("%s: vertex %s crosses the axis of revolution; the revolve fails with ASM_WIRE_X_AXIS",
+				g.Label, names[i])
 		}
 	}
-	if len(matches) != 1 {
-		counts := make([]curveCounts, 0, len(s.Profiles()))
-		for _, p := range s.Profiles() {
-			counts = append(counts, countCurves(p))
-		}
-		t.Fatalf("%d of the sketch's %d regions carry the loop %+v the tooth-profile search "+
-			"selects on; the search takes exactly one. The regions are %+v",
-			len(matches), len(s.Profiles()), want, counts)
+
+	proofkit.Step(t, "%s Profile: the toe and heel edges the trims and the spiral hand-off name", g.Label)
+	near(t, v2distToLine(g.M, g.Ded, g.DedDir), c.FaceWidth, 1e-9,
+		"%s toe edge sits one Face Width from the heel edge", g.Label)
+	near(t, v2len(v2sub(g.H, g.Ded)), g.BaseHeight/math.Sin(g.Gamma)-1.25*c.Module, 1e-9,
+		"%s heel edge length C->H", g.Label)
+	rootDir := g.RootDir(c.Apex)
+	if v2dot(v2sub(g.M, c.Apex), rootDir) >= v2dot(v2sub(g.Ded, c.Apex), rootDir) {
+		t.Errorf("%s: the toe edge is not the inner one", g.Label)
 	}
-	tooth := matches[0]
-	if tooth.Area <= 0 {
-		t.Fatalf("the tooth region encloses %.9f", tooth.Area)
+
+	profiles := s.Profiles()
+	if len(profiles) != 1 {
+		t.Fatalf("the Profile sketch holds exactly one hexagon loop, got %d region(s)", len(profiles))
 	}
-	// One tooth of a gear of this many teeth cannot be more than a whole turn's
-	// worth of the annulus between root and tip.
-	annulus := math.Pi * (d.Tip*d.Tip - d.Root*d.Root)
-	if tooth.Area > annulus/toothNumber*2 {
-		t.Errorf("the tooth region measures %.6f against %.6f for one tooth's share of the "+
-			"root-to-tip annulus; the search has selected something larger than a tooth",
-			tooth.Area, annulus/toothNumber)
+	prof := profiles[0]
+	if !prof.Valid || prof.Area <= 0 {
+		t.Errorf("the hexagon region is not extrudable: valid=%v area=%.6f", prof.Valid, prof.Area)
+	}
+	if len(prof.Outer) != 6 {
+		t.Errorf("the hexagon loop has %d edges, want 6", len(prof.Outer))
 	}
 }
