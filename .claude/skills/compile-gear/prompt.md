@@ -45,6 +45,22 @@ transcriber never sees. Cite a per-gear `fusion.md` anchor the same way; those r
 in the extract, and it says so, but the citation still records where the instruction came from.
 A gate refuses a step list that cites no playbook anchor at all.
 
+**Carry into the step every value the emit stage cannot look up.** `/emit-gear` reads your step
+list, the proof and a playbook extract, and nothing else — it is forbidden to open the prose spec.
+So a step that says "verbatim from the input table", "as the spec gives", or "per the table above"
+with no table following resolves to nothing, and the transcriber fills the gap with a plausible
+invention. Measured: a step list that pointed at the dialog's input table instead of reproducing it
+shipped nine of seventeen input ids wrong, because `boreEnable` reads more naturally as
+`enableBore`. Reproduce the whole table. The same holds for any id, label, tooltip, constant name
+and its value, unit string, tolerance, magic number or fixed string a step depends on. A `**From:**`
+citation records where a step came from; it is not a way for the reader to go and look.
+
+**Name the exact entity a call is made against.** Where the spec pins the operand, write it; never
+reduce it to "again", "the same as above", or "likewise". Two operands that describe the same
+geometry are not interchangeable as constraint arguments — measured, a step that said "collinear
+again" was transcribed against the shaft axis rather than the line the spec named, and Fusion
+refused the sketch with `VCS_SKETCH_OVER_CONSTRAINTS`.
+
 **A call span in a step is a call the module must make.** A later gate reads every call written
 in a code span and requires the generated module to make it. A name a step mentions without
 requiring it therefore has to be marked: a method the module defines for the framework to call, a

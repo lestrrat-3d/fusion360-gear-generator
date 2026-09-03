@@ -30,6 +30,25 @@ then ask `members <Class>`, which lists everything the class offers, inherited m
 to find what the step list meant. If the step list names a call the API does not have, report it
 and do not quietly correct it.
 
+**Every literal the step list states is exact — copy it, never regularise it.** Input ids, label
+strings, tooltips, constant names and their values, unit strings and default expressions are
+contract surface: the step list carries them because nothing you can read recovers them. An id
+written `boreEnable` is `boreEnable`, not `enableBore`; `spiralAngle` is not `meanSpiralAngle`.
+The failure here is not carelessness but tidying, and it has already shipped a broken dialog once.
+If a value you need is genuinely absent from the step list, that is a defect to report, never a gap
+to fill with a plausible invention.
+
+**Where a step names the entity a call is made against, use that entity and no other.** A step that
+says a line is collinear with `A->E` means `A->E`, not the axis further up the same chain, even
+though both describe the same infinite line. Substituting a geometrically equivalent operand there
+has already drawn a Fusion `VCS_SKETCH_OVER_CONSTRAINTS` refusal.
+
+**Ask the database before calling a type complaint a stub artifact.** Where a complaint is about
+whether a member exists at all, `show <Class>.<member>` settles it in one call. Reasoning from what
+the type ought to be has already passed a real bug through: three assignments to `SketchLine.name`,
+a property that class does not declare, which Fusion refuses at runtime. Every required gate passed
+on that build, and only the advisory novel-type row caught it.
+
 **Do every step.** A step you cannot finish is a defect to report, never a comment left in the
 file and never a silent omission.
 
