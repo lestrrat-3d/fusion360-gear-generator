@@ -42,5 +42,51 @@
     "want": "DropDownStyles",
     "func": "addDropDownCommandInput",
     "why": "Stub noise: the Fusion stub declares DropDownStyles as a plain class whose members are bare ints (LabeledIconDropDownStyle = 0), while addDropDownCommandInput types its dropDownStyle parameter as DropDownStyles. Passing adsk.core.DropDownStyles.TextListDropDownStyle is the documented call; pyright reads the member as int only because the stub gives it no enum type."
+  },
+  {
+    "rule": "reportArgumentType",
+    "param": "entity",
+    "want": "Base",
+    "func": "add",
+    "why": "loftSections.add(heelFace): heelFaceOf returns Optional only for a body with no faces, which a solid BRepBody never is; the loft would have nothing to section either way"
+  },
+  {
+    "rule": "reportCallIssue",
+    "message": "No overloads for \"sorted\" match the provided arguments",
+    "why": "sorted(key=heelFaceDistAlong): the key returns Optional only for a faceless body; every segment sorted here is a lofted solid"
+  },
+  {
+    "rule": "reportArgumentType",
+    "param": "key",
+    "want": "(_T@sorted) -> SupportsRichComparison",
+    "func": "sorted",
+    "why": "sorted(segments, key=heelFaceDistAlong): the key returns Optional only for a body with no faces; every segment sorted here is a lofted solid"
+  },
+  {
+    "rule": "reportOptionalMemberAccess",
+    "message": "\"vertices\" is not a known attribute of \"None\"",
+    "why": "heelFace.vertices: heelFaceOf returns None only for a faceless body, and the crown step only ever passes it a sliced solid segment"
+  },
+  {
+    "rule": "reportOperatorIssue",
+    "message": "Operator \"-\" not supported for types \"float\" and \"float | None\"",
+    "why": "R_heel minus rHeelFace: the cone distance is Optional only for a faceless body; the crown step operates on sliced solid segments"
+  },
+  {
+    "rule": "reportCallIssue",
+    "message": "No overloads for \"max\" match the provided arguments",
+    "why": "max over segment indices: the key reads a heel-face cone distance that is Optional only for a body with no faces"
+  },
+  {
+    "rule": "reportArgumentType",
+    "param": "key",
+    "want": "(_T@max) -> SupportsRichComparison",
+    "func": "max",
+    "why": "max key typed Optional: heelFaceOf returns None only for a faceless body, which a sliced solid segment never is"
+  },
+  {
+    "rule": "reportAttributeAccessIssue",
+    "message": "Cannot access attribute \"selectedItem\" for class \"CommandInput\"",
+    "why": "DropDownCommandInput.selectedItem: inputs.itemById returns the base CommandInput, which erases the dropdown subtype that declares it; the call site already guards the result for None"
   }
 ]
