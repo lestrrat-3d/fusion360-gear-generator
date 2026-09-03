@@ -30,16 +30,11 @@ in `PLAYBOOK.md` still apply).
   `[PB-PROJECT-NOT-FIXED]` recreate-share-fix recipe, not by projecting §2 points.
   - **Exemption — the two tooth-profile sketches, and ONLY because they are labelled.** They are
     drawn by the borrowed spur generator, whose `drawCircles` labels each of the four circles with
-    along-path sketch text (`[PB-SKETCH-TEXT]`). `sketch.isFullyConstrained` counts sketch text, and
-    text placed with `setAsAlongPath` carries its own position along the curve, which nothing in
-    these recipes pins — so a tooth sketch whose geometry is completely determined still reads
-    `False` purely because it is labelled. Measured in Fusion 2026-09-02: `False` with the four
-    circle labels, `True` for the same sketch with the labels deleted and no other change. Bevel's
-    own four sketches carry no text, which is why they gate normally. (This behaviour holds for any
-    gear that labels a sketch, so it belongs in `PLAYBOOK.md`; it is recorded here for now because
-    promoting it restamps every other gear's step list.) After `draw()`
-    returns, do **NOT** raise on the tooth sketch — at most `futil.log` it if
-    `not toothSketch.isFullyConstrained`.
+    along-path sketch text (`[PB-SKETCH-TEXT]`), and sketch text holds a DOF
+    (`[PB-TEXT-HOLDS-DOF]`) — so a tooth sketch whose geometry is completely determined still reads
+    `False` purely because it is labelled. Bevel's own four sketches carry no text, which is why
+    they gate normally. After `draw()` returns, do **NOT** raise on the tooth sketch — at most
+    `futil.log` it if `not toothSketch.isFullyConstrained`.
 
     ⚠️ **This exemption covers the labels and nothing else. Never read it as licence for loose
     geometry.** Its earlier wording claimed the embedded tooth kept a free radial DOF because the
@@ -105,34 +100,14 @@ in `PLAYBOOK.md` still apply).
     been observed to solve and even pass the full-constraint gate. The rule stands unchanged — one
     segment ⇒ one line — but an over-constraint failure is NOT a guaranteed tripwire, so do not
     rely on the solver or the gate to catch a duplicate for you.
-- **[BEVEL-F-COLLINEAR-CHAIN] A §2 `addCollinear` names the line the new line's start point
-  actually sits ON, never a farther line up the same chain.** The module-length extensions form a
-  chain along each shaft: A→E is collinear with the pinion axis Apex→A, and E→G is collinear with
-  **A→E** — not with Apex→A. The same on the driving side: B→F against Apex→B, then F→I against
-  **B→F**. C→H names the Pinion Dedendum Apex2→C, and D→J the Driving Dedendum Apex2→D.
-
-  Both readings describe the same infinite line, so this looks like a free choice. It is not.
-  Fusion's `addCollinear` carries **two** point-on-line rows. When the new line's start point is
-  already pinned to the reference line's own endpoint — E is A→E's endpoint — one of those rows is
-  already satisfied and Fusion absorbs the other. When the start point reaches the named line only
-  *through an earlier collinear* — E reaches Apex→A only because A→E is collinear with it — the two
-  chains assert the same fact independently and the sketch over-determines.
-
-  Measured in Fusion, on the default pair, from `addCollinear(E→G, Apex→A)`:
-  `RuntimeError: 3 : failed to create offset: VCS_SKETCH_OVER_CONSTRAINTS`, raised at the second
-  such call while the first was absorbed. Writing the same constraint as `addCollinear(E→G, A→E)`
-  builds. **This is not a bench-versus-Fusion divergence**: the sketch engine counts collinear the
-  same two rows, which is why the proof substitutes the single point-on-line row that is not already
-  implied. That substitution is also why **the proof cannot catch this** — it never models Fusion's
-  collinear, so it cannot tell the two readings apart, and only a Fusion session distinguishes them.
-
-  This is the general form of the rule `[BEVEL-F-LINE-ONCE]` already states for K and L, where §2
-  uses two point-on-line `addCoincident` calls precisely because "G and C are already fixed, so an
-  `addCollinear` here over-constrains". K and L were the special case; this is the rule.
-
-  It belongs in `PLAYBOOK.md` as a cross-gear Fusion rule and is stated here instead, so that
-  adopting it does not restamp every gear's step-list provenance and force a recompile per gear.
-  Move it when the batched playbook PR runs.
+- **[BEVEL-F-COLLINEAR-CHAIN] The §2 chains' collinears, named one by one.** The cross-gear rule is
+  `[PB-COLLINEAR-CHAIN]`: a collinear names the line the new line's start point sits on, never a
+  farther line up the same chain, because `addCollinear` carries two point-on-line rows and the
+  farther reading asserts one of them twice. Bevel's §2 has four places it bites, so they are spelled
+  out here. A→E is collinear with the pinion axis Apex→A, and E→G with **A→E** — not with Apex→A.
+  B→F is collinear with Apex→B, then F→I with **B→F**. C→H names the Pinion Dedendum Apex2→C, and
+  D→J the Driving Dedendum Apex2→D. K and L are the case where both ends are already fixed, so they
+  take two point-on-line `addCoincident` calls and no collinear at all.
 
 - **[BEVEL-F-DRIVEN-DIMS] The §2 driven lengths are NOT dimensioned.** The along-shaft lengths
   (Apex→A, Apex→B) and the module-length extensions are DRIVEN by the closing/collinear constraints —
