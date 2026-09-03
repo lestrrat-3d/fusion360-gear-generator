@@ -1,987 +1,1054 @@
-# Bevel gear — compiled step list
+# Bevel Gear — compiled step list
 
-The proof for this step list is `proof/bevelgear/bevel_test.go`, `proof/bevelgear/lattice_test.go`,
-`proof/bevelgear/gearprofiles_test.go`, `proof/bevelgear/tooth_test.go`,
-`proof/bevelgear/sketches_test.go`, `proof/bevelgear/solids_test.go`,
-`proof/bevelgear/bodies_test.go`, `proof/bevelgear/spiral_test.go` and the generated
-`proof/bevelgear/zz_registrations_test.go`.
+The proof for this step list is `proof/bevelgear/geometry_test.go`, `proof/bevelgear/sketches_test.go`, `proof/bevelgear/tooth_test.go`, `proof/bevelgear/solids_test.go`, `proof/bevelgear/frustum_test.go`, `proof/bevelgear/bodies_test.go`, `proof/bevelgear/segments_test.go`, `proof/bevelgear/spiral_test.go` and the generated `proof/bevelgear/zz_registrations_test.go`.
 
 ## Provenance
 
 | file | `git hash-object` |
 |---|---|
-| `spec/bevelgear/instructions.md` | `5553a86f44036bfd1a6aad20b1d49bb6e922b842` |
+| `spec/bevelgear/instructions.md` | `0d2d197ed8d4f921a520066e18075e5463cabf5c` |
 | `spec/bevelgear/fusion.md` | `f4c93cac37dc49e16bfc1672a7e5fc601a4ff925` |
 | `spec/bevelgear/spiral-tooth-trace.md` | `c9ec08561ced7975aa0ed9ad6a330186259c0d08` |
 | `spec/spurgear/instructions.md` | `560549a350c789b6598ee49b72d3cd7b4460e214` |
 | `.claude/skills/generate-gear/PLAYBOOK.md` | `aa97523b214dbc98b679e8eea73c56c5115c4e54` |
 
-## S01 `[PROSE]` Command dialog inputs
+## 1 `[PROSE]` Add the seventeen dialog inputs
 
-Add the 17 dialog inputs to `cmd.commandInputs` in this display order, from
-`BevelGearCommandInputsConfigurator.configure(cmd)`. The order is fixed: Target Plane first so it
-wins Fusion's auto-focus (`[PB-AUTOFOCUS-FIRST]`), then Center Point, then the pre-selected Parent
-Component, then the numeric and boolean fields.
+Add a `BevelGearCommandInputsConfigurator` class with `@classmethod def configure(cls, cmd)`, which
+adds the seventeen inputs to `cmd.commandInputs` in this display order. The order is contract
+surface: Target Plane is first so Fusion's auto-focus lands on it (`[PB-AUTOFOCUS-FIRST]`), Center
+Point follows so the user flows from plane to point, and Parent Component is third because it is
+already pre-selected.
 
-| # | label | id | call | unit | default | filters / tooltip |
-|---|---|---|---|---|---|---|
-| 1 | Target Plane | `targetPlane` | `addSelectionInput(id, name, tooltip)` | — | — | `ConstructionPlanes`, `PlanarFaces`; limits 1,1; tooltip `Plane the bottom of the driving gear sits flush against` |
-| 2 | Center Point | `centerPoint` | `addSelectionInput(id, name, tooltip)` | — | — | `ConstructionPoints`, `SketchPoints`; limits 1,1; tooltip `Point the driving bevel gear is centered on` |
-| 3 | Parent Component | `parentComponent` | `addSelectionInput(id, name, tooltip)` | — | root pre-selected | `Occurrences`, `RootComponents`; limits 1,1; tooltip `Component the gear pair is created under` |
-| 4 | Module | `module` | `addValueInput(id, name, unit, default)` | `''` | `createByReal(1)` | — |
-| 5 | Shaft Angle | `shaftAngle` | `addValueInput(id, name, unit, default)` | `deg` | `createByString('90 deg')` | — |
-| 6 | Driving Gear Teeth | `drivingTeeth` | `addValueInput(id, name, unit, default)` | `''` | `createByReal(31)` | — |
-| 7 | Pinion Gear Teeth | `pinionTeeth` | `addValueInput(id, name, unit, default)` | `''` | `createByReal(31)` | — |
-| 8 | Driving Gear Base Height | `drivingBaseHeight` | `addValueInput(id, name, unit, default)` | `mm` | `createByReal(to_cm(0))` | — |
-| 9 | Pinion Gear Base Height | `pinionBaseHeight` | `addValueInput(id, name, unit, default)` | `mm` | `createByReal(to_cm(0))` | — |
-| 10 | Enable Bore | `boreEnable` | `addBoolValueInput(id, name, isCheckBox, folder, initial)` | — | `True` | checkbox |
-| 11 | Driving Gear Bore Diameter | `drivingBore` | `addValueInput(id, name, unit, default)` | `mm` | `createByReal(to_cm(0))` | — |
-| 12 | Pinion Gear Bore Diameter | `pinionBore` | `addValueInput(id, name, unit, default)` | `mm` | `createByReal(to_cm(0))` | — |
-| 13 | Face Width | `faceWidth` | `addValueInput(id, name, unit, default)` | `mm` | `createByReal(to_cm(0))` | — |
-| 14 | Tooth Spacing | `toothSpacing` | `addValueInput(id, name, unit, default)` | `mm` | `createByReal(to_cm(0))` | — |
-| 15 | Mean Spiral Angle | `spiralAngle` | `addValueInput(id, name, unit, default)` | `deg` | `createByString('35 deg')` | — |
-| 16 | Hand of Spiral | `spiralHand` | `addDropDownCommandInput(id, name, style)` | — | items `Right` selected, `Left` | `DropDownStyles.TextListDropDownStyle` |
-| 17 | Cutter Radius | `cutterRadius` | `addValueInput(id, name, unit, default)` | `mm` | `createByReal(to_cm(0))` | — |
+| # | label | id | call | unit | default |
+|---|---|---|---|---|---|
+| 1 | Target Plane | `targetPlane` | `addSelectionInput` | — | tooltip `Plane the bottom of the driving gear sits flush against` |
+| 2 | Center Point | `centerPoint` | `addSelectionInput` | — | tooltip `Point the driving bevel gear is centered on` |
+| 3 | Parent Component | `parentComponent` | `addSelectionInput` | — | tooltip `Component the gear pair is created under`; pre-selects the root component |
+| 4 | Module | `module` | `addValueInput` | `''` | `createByReal(1)` |
+| 5 | Shaft Angle | `shaftAngle` | `addValueInput` | `deg` | `createByString('90 deg')` |
+| 6 | Driving Gear Teeth | `drivingTeeth` | `addValueInput` | `''` | `createByReal(31)` |
+| 7 | Pinion Gear Teeth | `pinionTeeth` | `addValueInput` | `''` | `createByReal(31)` |
+| 8 | Driving Gear Base Height | `drivingBaseHeight` | `addValueInput` | `mm` | `createByReal(to_cm(0))` |
+| 9 | Pinion Gear Base Height | `pinionBaseHeight` | `addValueInput` | `mm` | `createByReal(to_cm(0))` |
+| 10 | Enable Bore | `boreEnable` | `addBoolValueInput` | — | `True` |
+| 11 | Driving Gear Bore Diameter | `drivingBore` | `addValueInput` | `mm` | `createByReal(to_cm(0))` |
+| 12 | Pinion Gear Bore Diameter | `pinionBore` | `addValueInput` | `mm` | `createByReal(to_cm(0))` |
+| 13 | Face Width | `faceWidth` | `addValueInput` | `mm` | `createByReal(to_cm(0))` |
+| 14 | Tooth Spacing | `toothSpacing` | `addValueInput` | `mm` | `createByReal(to_cm(0))` |
+| 15 | Mean Spiral Angle | `spiralAngle` | `addValueInput` | `deg` | `createByString('35 deg')` |
+| 16 | Hand of Spiral | `spiralHand` | `addDropDownCommandInput` | — | `DropDownStyles.TextListDropDownStyle`, items `Right` selected and `Left` |
+| 17 | Cutter Radius | `cutterRadius` | `addValueInput` | `mm` | `createByReal(to_cm(0))` |
 
-The 17 id strings are held in module constants `INPUT_ID_PLANE`, `INPUT_ID_CENTER_POINT`,
-`INPUT_ID_PARENT`, `INPUT_ID_MODULE`, `INPUT_ID_SHAFT_ANGLE`, `INPUT_ID_DRIVING_TEETH`,
-`INPUT_ID_PINION_TEETH`, `INPUT_ID_DRIVING_BASE_HEIGHT`, `INPUT_ID_PINION_BASE_HEIGHT`,
-`INPUT_ID_BORE_ENABLE`, `INPUT_ID_DRIVING_BORE`, `INPUT_ID_PINION_BORE`, `INPUT_ID_FACE_WIDTH`,
-`INPUT_ID_TOOTH_SPACING`, `INPUT_ID_SPIRAL_ANGLE`, `INPUT_ID_HAND`, `INPUT_ID_CUTTER_RADIUS`, in
-row order, plus `_HAND_RIGHT = 'Right'` and `_HAND_LEFT = 'Left'`. There are no `PARAM_*`
-constants: bevel registers no Fusion user parameters and writes every value numerically
-(`[PB-PRECOMPUTED-MODE]`).
+The three selection inputs take their filter enums through `addSelectionFilter` and their limits
+through `setSelectionLimits(1, 1)` (`[PB-SELECTION-FILTER-ENUM]`, `[PB-SELECTION-DECL]`): plane —
+`ConstructionPlanes`, `PlanarFaces`; point — `ConstructionPoints`, `SketchPoints`; parent —
+`Occurrences`, `RootComponents`. Every numeric default is passed in internal units
+(`[PB-DIALOG-DEFAULT-UNITS]`). Seventeen module-level `INPUT_ID_*` constants hold the id strings in
+row order, plus `_HAND_RIGHT = 'Right'` and `_HAND_LEFT = 'Left'`. Bevel registers **no** Fusion user
+parameters at all — every value is precomputed in Python and written into geometry numerically
+(`[PB-PRECOMPUTED-MODE]`), so there are no `PARAM_*` names.
 
-Each selection input takes its filter set with `addSelectionFilter(filter)` and its limits with
-`setSelectionLimits(1, 1)`, both declared per input, never improvised. A filter is the enum
-attribute `adsk.core.SelectionCommandInput.ConstructionPlanes` and its kin; a quoted literal in its
-place raises (`[PB-SELECTION-FILTER-ENUM]`). The Parent input pre-selects the root component with
-`addSelection(entity)`. The `mm` and `deg` defaults are passed in Fusion internal units
-(`[PB-DIALOG-DEFAULT-UNITS]`). The Hand dropdown adds `Right` selected and `Left` unselected
-through its `listItems` collection. `configure(cmd)` calls
-`cls._updateSpiralInputVisibility(inputs)` as its last step, so the initial state is right.
+**Conditional visibility.** Hand of Spiral and Cutter Radius are shown only when the Mean Spiral
+Angle is above zero. Add `@classmethod _updateSpiralInputVisibility(cls, inputs)`, which reads the
+spiral input's `.expression` through `evaluateExpression` in `'rad'` and sets `isVisible` on the two
+spiral-only inputs to that value being positive; it returns early when any of the three inputs is
+missing, and wraps the evaluation in `try`/`except`, leaving both shown on failure. `configure` calls
+it as its last step, and `@classmethod def handle_input_changed(cls, args)` calls it again on every
+input change. Both `configure` and `handle_input_changed` are bound by name from
+`commands/bevelgear/entry.py`, so they are methods this module defines for the framework to call
+rather than calls it makes.
 
-`configure` is a method the entry point binds by name and calls; the module defines it rather
-than calling it.
-
-<!-- check-step-calls: ignore configure -->
-
-**From:** `spec/bevelgear/instructions.md` L25–115, `spec/bevelgear/instructions.md` L177–203
-
-## S02 `[PROSE]` Conditional visibility of the spiral-only inputs
-
-Hand of Spiral and Cutter Radius are relevant only for a curved bevel, so they are hidden while
-the Mean Spiral Angle is 0 and shown once it is above 0. Mean Spiral Angle itself is always
-visible — it is how the user reaches a curved bevel.
-
-Realise it with the `isVisible` property; the Fusion API has no declarative show-if. A
-`@classmethod _updateSpiralInputVisibility(cls, inputs)` reads the spiral-angle input's
-`expression` through `evaluateExpression(expression, 'rad')` — the expression, not the input's
-`value` — and sets `isVisible` on the Hand and Cutter Radius inputs to whether that value is
-above 0. Guard it: return early if any of the three `itemById(id)` lookups is `None`, and wrap
-the evaluation in try/except, leaving both inputs shown on failure. Hiding is cosmetic — the
-inputs still exist and are read normally.
-
-The dialog's `inputChanged` event drives the update through
-`BevelGearCommandInputsConfigurator.handle_input_changed(args)`, which delegates one line to the
-helper and recomputes on every change. The entry point binds it by name; the module defines it
-rather than calling it, which is why it is exempted below.
-
-<!-- check-step-calls: ignore handle_input_changed -->
+<!-- check-step-calls: ignore configure handle_input_changed -->
 <!-- check-compile: ignore handle_input_changed -->
 
-**From:** `spec/bevelgear/instructions.md` L116–134, `spec/bevelgear/instructions.md` L227–240
+**From:** `spec/bevelgear/instructions.md` L131–172, L246–256; `.claude/skills/generate-gear/PLAYBOOK.md` L124–146, L336–343
 
-## S03 `[PROSE]` Read and validate every input, and derive the cone geometry
+## 2 `[PROSE]` Read and validate every input, and resolve the derived values
 
-`_readInputs(inputs)` runs first, before anything creates an occurrence, and reads every input in
-one pass. Selections come from `get_selection(inputs, id)` and the checkbox from
-`get_boolean(inputs, id)`, each matched to the type its input was declared with
-— a boolean input has no expression, so reading it with a value helper raises. Every numeric and
-angular input is read by evaluating its expression with
-`evaluateExpression(expression, units)`, which returns Fusion internal units — centimetres and
-radians — whatever unit string is passed (`[PB-EVAL-EXPRESSION]`). The Hand dropdown is read
-through `itemById(id)` and its `selectedItem.name`, defaulting to `Right`.
+`BevelGearGenerator.__init__(self, design)` stores `self.design` and `self.bevelOccurrence = None`.
+`generate(inputs)` calls `_readInputs(inputs)` first, before anything creates an occurrence, and
+`_readInputs` returns the 7-tuple `(parentComponent, targetPlane, centerPoint, module, drivingTeeth,
+pinionTeeth, shaftAngle_deg)` and stashes the rest on `self`.
 
-Units, and this is where a bevel build goes ten times wrong. The `mm` and `deg` inputs come back
-already in internal units; use them as they are. `Module` is read with the unit string `''`, so
-it comes back as a raw number that means MILLIMETRES. Every length derived from Module is
-therefore `to_cm`-converted before it touches geometry: both pitch diameters, the cone distance,
-the dedendum `1.25 * Module`, the module-length extensions, and the default face width. The
-virtual spur proxy receives Module in millimetres and converts the radii it serves.
+Read each numeric and angle input with `evaluateExpression` on the input's expression
+(`[PB-EVAL-EXPRESSION]`): every one comes back in Fusion internal units — centimetres for length,
+radians for angle — whatever unit string is passed, so a `deg` field needs `math.degrees` before any
+degree range check. The boolean is read with `get_boolean` and the dropdown through its
+`selectedItem` name, defaulting to `Right`. Both tooth counts are coerced with `int(round(...))`.
 
-Validate: module above 0, both teeth counts coerced with `int(round(...))` and at least 3, shaft
-angle converted with `math.degrees(...)` and inside 30 to 150 degrees, mean spiral angle
-converted the same way and inside 0 up to but not including 60 degrees, and non-negative base
-heights, bore diameters, face width, tooth spacing and cutter radius.
+**Units.** `Module` is read with `''` and comes back as a raw number that means millimetres, so every
+length derived from it must be converted to centimetres before it touches geometry: the two pitch
+diameters, the Cone Distance, the dedendum, the module-length extensions, and the default Face Width.
+The `mm` and `deg` inputs are already internal and must not be converted again. Mixing the two makes
+the gear come out about ten times off and the Face Width bound meaningless.
 
-Return the 7-tuple `(parentComponent, targetPlane, centerPoint, module, drivingTeeth,
-pinionTeeth, shaftAngle_deg)` and stash the rest on `self`: `_drivingBaseHeight_cm`,
-`_pinionBaseHeight_cm`, `_boreEnable`, `_drivingBore_cm`, `_pinionBore_cm`, `_faceWidth_cm`,
-`_toothSpacing_cm`, `_spiralAngle_rad`, `_hand`, `_cutterRadius_cm`. Then derive, in Python, and
-stash: both pitch diameters `Module * teeth`, the Variables section's Cone Distance
-`sqrt((Module * drivingTeeth)**2 + (Module * pinionTeeth)**2)`, the two pitch cone half angles
-`tan gamma_p = sin(Sigma) * PPD / (DPD + PPD * cos(Sigma))` and `gamma_g = Sigma - gamma_p`, and
-the resolved bore diameters.
+Validate in this order, because each check is what makes the next one well posed.
 
-This step is `[PROSE]` because it builds no geometry: it reads a dialog and does arithmetic, and
-neither harness has anything to gate. Every derived quantity it produces IS proved, one step
-later, off the solved §2 lattice that consumes it — `proof/bevelgear/gearprofiles_test.go`
-measures the two pitch cone angles, the cone distance and both along-shaft lengths on the sketch
-rather than restating them, and `proof/bevelgear/tooth_test.go` measures the virtual tooth
-numbers and the millimetre conversion the same way.
+1. Module above zero; both tooth counts at least three; the heights, bores, width and tooth spacing
+   non-negative; the Mean Spiral Angle in `[0, 60)` degrees; the Cutter Radius non-negative.
+2. Shaft Angle at least 30 degrees and below the **Maximum Shaft Angle**, which is
+   `min(degrees(acos(-smaller / larger)), 150)` over the two pitch diameters, with the `acos` half
+   exclusive and the 150 half inclusive. Name the computed limit in the rejection message. The
+   `acos` is a hard singularity: a pitch cone angle reaching 90 degrees turns that gear's cone
+   inside out, so `R * cos(gamma)` passes through zero and changes sign.
+3. Compute the two pitch cone angles from the closed form —
+   `tan(gamma_p) = sin(Sigma) * PPD / (DPD + PPD * cos(Sigma))`, `gamma_g = Sigma - gamma_p`,
+   `R = (PPD / 2) / sin(gamma_p)` — and stash them as `self._gamma_p`, `self._gamma_g`.
+4. Check each gear's tooth count against its own **Minimum Teeth** floor, `5.27 * cos(gamma)` for
+   that gear's own gamma, on top of the blanket three. Name the computed floor.
+5. Resolve each gear's base height against its own two bounds:
+   `Minimum Base Height = 1.05 * 1.25 * Module * sin(gamma)` and
+   `Maximum Base Height = 0.95 * (r - 1.25 * Module * cos(gamma)) * tan(gamma)`. Raise a fallback
+   below the minimum, cap one above the maximum, and reject a user value outside either end naming
+   the bound it broke. The driving fallback is `Module * drivingTeeth / 8`; the pinion fallback is
+   the **resolved** driving height times the tooth ratio, then held to the pinion's own bounds.
+   Running the Minimum Teeth check first is what makes this window non-empty.
 
-`generate(inputs)` is the entry point's own binding, and `deleteComponent()` is what the entry
-point calls on failure; the module defines both rather than calling them.
+**Two bounds this step cannot resolve yet.** The Maximum Face Width needs the solved §2 geometry, so
+Face Width is resolved in step 6; the bore diameters resolve to `Pitch Diameter / 4` when the input
+is zero, and are consulted only when Enable Bore is checked.
 
-<!-- check-step-calls: ignore generate deleteComponent -->
+No harness reaches this step, and no substitute was attempted, because validation builds nothing: it
+reads numbers and either raises or returns them. There is no geometry to substitute for. What every
+bound resolved here is FOR is checked in step 6, on the figure those numbers build: `assertHeel`
+measures the heel corner's distance from the shaft axis on the solved lattice and compares it with
+`r - baseHeight / tan(gamma)`, so the Maximum Base Height is checked against the crossing at
+`r * tan(gamma)` it exists to stay under, and `stepGearProfiles` re-checks the Shaft Angle, the
+Minimum Teeth floors and both base-height windows on every case it builds.
 
-**From:** `spec/bevelgear/instructions.md` L29–77, `spec/bevelgear/instructions.md` L136–176,
-`spec/bevelgear/instructions.md` L204–226, `spec/bevelgear/instructions.md` L320–331
+**From:** `spec/bevelgear/instructions.md` L27–129, L212–244, L273–295, L390–400;
+`.claude/skills/generate-gear/PLAYBOOK.md` L106–118, L791–797
 
-## S04 `[PROSE]` The Bevel Gear and Design components
+## 3 `[PROSE]` Build the occurrence tree
 
-With every selection already read, create the occurrence tree with
-`addNewComponent(transform)` on each parent's `occurrences`, passing
-`adsk.core.Matrix3D.create()` (`[PB-OCCURRENCE-TREE]`). Under the user's Parent Component create
-the component named `Bevel Gear`; under that, the component named `Design`, which owns every
-sketch, construction plane, axis and feature the build authors. The two per-gear components are
-created later, in the body step, as children of Bevel Gear.
+Create the occurrences directly with `parent.occurrences.addNewComponent(...)`, passing
+`adsk.core.Matrix3D.create()`, and name each through `occurrence.component.name`
+(`[PB-OCCURRENCE-TREE]`). The tree is the Bevel Gear component under the user's Parent Component,
+and a Design component under it. The two per-gear components are created later, one at the start of
+each gear's body chain. Bevel does not subclass `base.Generator`, so none of `getOccurrence`,
+`addParameter` or `createSketchObject` is used.
 
-Never activate any occurrence (`[PB-NEVER-ACTIVATE]`): the Anchor sketch is authored on the
-user's external, root-owned target plane, and an activated occurrence resolves that plane in its
-own local frame, collapsing the whole build onto world XY. The one exception is the spiral
-crown's scale, which is its own step. Because every feature runs in Design, no cross-sibling
-reference is ever needed (`[PB-NO-CROSS-SIBLING]`).
+**Never call `activate` on any occurrence** (`[PB-NEVER-ACTIVATE]`, `[BEVEL-F-NEVER-ACTIVATE]`). The
+Anchor Sketch is created on the user's external, root-owned target plane, and an activated occurrence
+resolves that external plane in its own local frame, collapsing the build onto world XY whatever
+plane the user picked. Every feature runs in the single Design component, so no cross-sibling
+reference is ever needed (`[PB-NO-CROSS-SIBLING]`). The one exception is the spiral crown's scale
+feature, in step 19.
 
-Nothing here is geometry either harness models — an occurrence tree is a Fusion document
-structure, not a sketch or a solid — so the step is `[PROSE]`.
+`deleteComponent()` calls `deleteMe()` on the top occurrence, and the shared entry point calls it on
+any exception.
 
-**From:** `spec/bevelgear/instructions.md` L364–372, `spec/bevelgear/instructions.md` L177–203,
-`spec/bevelgear/fusion.md` L143–150
+No harness reaches this step, and no substitute was attempted: `decad.Document` owns a flat list of
+bodies with no owner and no assembly context, and `sketch.World` owns planes and sketches the same
+way, so there is no tree to build and no body whose geometry would differ if one were.
 
-## S05 `[GO]` Anchor sketch
+Three of the names above are mentions rather than calls this module makes. `generate` and
+`deleteComponent` are the two methods the entry point binds by name, so the module defines them; and
+`deleteMe` is reached only from inside `deleteComponent`, which the entry point enters on an
+exception, so it is not reachable from `generate`.
 
-Add the sketch named `Anchor` directly on the user-selected target plane with `add(planarEntity)`
-on the Design component's `sketches`, whether the selection is a construction plane or a planar
-face. Do not re-derive or offset it (`[PB-USE-SELECTED-PLANE]`); re-deriving collapses the gear
-onto XY.
+<!-- check-step-calls: ignore activate generate deleteComponent deleteMe -->
 
-Mark the centre by projecting the user-selected centre point into the sketch with
-`sketch.project(entity)`.
+**From:** `spec/bevelgear/instructions.md` L19–23, L246–272, L434–442;
+`spec/bevelgear/fusion.md` L145–150; `.claude/skills/generate-gear/PLAYBOOK.md` L735–752
 
-Draw the Anchor Line through the projection with `addByTwoPoints(startPoint, endPoint)` on
-`sketch.sketchCurves.sketchLines`, seeding its two endpoints at exactly plus and minus 0.5 cm from
-the projected centre along the sketch's local X, so the seeded length is 10 mm. Then apply, in
-this order:
+## 4 `[GO]` Anchor Sketch
 
-- `addCoincident(point, entity)` pinning the projected centre onto the line;
-- `addMidPoint(point, midPointCurve)` making the centre bisect it;
-- `addDistanceDimension(pointOne, pointTwo, orientation, textPoint)` on the two endpoints,
-  locking the seeded 10 mm without assigning `dimension.parameter.value` — the value is arbitrary,
-  the line is only a reference;
-- `addHorizontal(line)`, which is sketch-local and so survives a tilted target plane
-  (`[PB-REFLINE-DIRECTION]`); an absolute world-axis lock would mis-orient the figure.
+Create the sketch with `sketches.add` **directly on the user-selected target plane**, whether the
+selection is a `ConstructionPlane` or a `PlanarFace`, and name it `Anchor`. Do not re-derive or
+offset it: a coplanar construction plane built inside a sub-component resolves in that component's
+own frame and silently loses the selected plane's orientation (`[PB-USE-SELECTED-PLANE]`).
 
-The line's absolute direction is arbitrary — §2 takes every direction relative to it — but it must
-not be a free degree of freedom. Stash the projected-centre sketch point on `self`, since §2
-re-projects THAT point rather than the raw user selection. Gate the finished sketch on
-`isFullyConstrained` and raise, naming the sketch (`[PB-FULL-CONSTRAINT]`,
-`[BEVEL-F-FULL-CONSTRAINT]`).
+Mark the centre by projecting the user's centre point in with `sketch.project(centerPoint)`.
 
-The proof function is `stepAnchorSketch`. It records one defect: the coincident and the midpoint
-are redundant, because a midpoint already puts the point on the line. It adds the midpoint alone
-and measures that the coincident's own condition holds regardless.
+Draw the Anchor Line with `sketchCurves.sketchLines.addByTwoPoints`, seeding its two endpoints at
+exactly plus and minus 0.5 cm from the projected centre along sketch-local X, so the seeded length is
+10 mm. Then constrain it:
+
+- `geometricConstraints.addCoincident(projectedCenter, anchorLine)` — the centre lies on the line;
+- `geometricConstraints.addMidPoint(projectedCenter, anchorLine)` — and bisects it. Add both, not
+  the midpoint alone;
+- `sketchDimensions.addDistanceDimension(...)` on the two endpoints, with **no** assignment to
+  `.parameter.value`: the dimension simply locks the seeded 10 mm, and the value is arbitrary
+  because nothing downstream reads this length;
+- `geometricConstraints.addHorizontal(anchorLine)` — sketch-local, per `[PB-REFLINE-DIRECTION]`.
+  A world-axis lock would mis-orient the line on a tilted target plane.
+
+Stash the projected-centre `SketchPoint` on `self`, because step 6 re-projects **that** point rather
+than the raw user selection. End the step by gating `sketch.isFullyConstrained` and raising, naming
+the sketch (`[PB-FULL-CONSTRAINT]`, `[BEVEL-F-FULL-CONSTRAINT]`).
+
+The proof draws this sketch as `stepAnchorSketch` and checks the solved length, the bisection and the
+line's direction. Its length dimension is written there as a signed horizontal distance, because the
+engine's target is signed while Fusion's aligned dimension is a magnitude whose direction comes from
+the seed (`[PB-DIM-VALUE-SEMANTICS]`); the sign is what refuses the end-for-end flip that midpoint
+plus magnitude plus horizontal would otherwise leave as a second answer.
 
 <!-- proof-run: proofkit.Run(anchorCases, stepAnchorSketch) -->
 
-**From:** `spec/bevelgear/instructions.md` L374–378, `spec/bevelgear/fusion.md` L19–33
+**From:** `spec/bevelgear/instructions.md` L444–448; `spec/bevelgear/fusion.md` L21–26;
+`.claude/skills/generate-gear/PLAYBOOK.md` L470–479, L753–764
 
-## S06 `[PROSE]` Gear Profiles plane
+## 5 `[PROSE]` Gear Profiles Plane
 
-Create the construction plane named `Gear Profiles Plane` through the Anchor Line, at 90 degrees
-to the target plane: `createInput()` on the Design component's `constructionPlanes`, then
-`setByAngle(linearEntity, angle, planarEntity)` with the Anchor Line, `createByString('90 deg')`
-and the ORIGINAL `targetPlane` as the reference, then `add(input)`. Build it off the user's
-selected plane, not off a re-derived copy (`[PB-USE-SELECTED-PLANE]`): this is the second place
-the target plane's orientation reaches the bodies, and substituting another plane here collapses
-the gear onto XY as surely as the first.
+Build the plane with `constructionPlanes.createInput()` then
+`setByAngle(anchorLine, ValueInput.createByString('90 deg'), targetPlane)` and
+`constructionPlanes.add(...)`, and name it `Gear Profiles Plane`. Pass the `SketchLine` directly;
+never wrap it in `Path.create` (`[PB-CONSTRUCTION-PLANES]`).
 
-Pass the sketch line straight to `setByAngle`; never wrap it in `Path.create(curve, ...)` first
-(`[PB-CONSTRUCTION-PLANES]`).
+**Build it off the original `targetPlane`**, not a re-derived copy (`[PB-USE-SELECTED-PLANE]`). This
+is the second and last place the target plane's orientation reaches the bodies, and substituting a
+different plane here collapses the gear onto world XY exactly as re-deriving the Anchor Sketch's
+plane does.
 
-This step is `[PROSE]`. proofkit gates a sketch and proofkit3d gates a solid; neither models a
-construction plane, so there is no substitute geometry that carries the plane's angle. The
-orientation it produces is what the next step's sketch is expressed in, and that sketch is proved.
+A construction plane on its own closes no sketch and bounds no body, so there is nothing for a gate
+to hold. The substitute that was considered and rejected is building a sketch on it and gating that:
+the sketch would be step 6's, which is already gated, and the plane's own contribution — its
+orientation relative to the target plane — is not a property of any sketch drawn on it, because the
+sketch engine places a sketch in whatever frame it is given. What the plane is for is proved one step
+later all the same: the §2 lattice is built in this plane's own 2-D frame, and `stepGearProfiles`
+reaches DOF 0 there with the apex placed by an in-plane perpendicular to the projected anchor line —
+which is only the target-plane normal because this plane is perpendicular to the target plane and
+contains the anchor line.
 
-**From:** `spec/bevelgear/instructions.md` L382–383, `spec/bevelgear/instructions.md` L472–473
+<!-- check-step-calls: ignore Path.create -->
 
-## S07 `[GO]` Gear Profiles sketch — the §2 lattice
+**From:** `spec/bevelgear/instructions.md` L450–452; `spec/bevelgear/fusion.md` L115–126;
+`.claude/skills/generate-gear/PLAYBOOK.md` L716–727
 
-One sketch, named `Gear Profiles`, on the Gear Profiles Plane, holding the whole lattice. Every
-line in it is a construction line: set `isConstruction` on each. Solid features later consume the
-per-gear Profile sketches, never a §2 curve.
+## 6 `[GO]` Gear Profiles sketch — the §2 lattice
 
-Two construction rules govern every line here. Build each from raw `Point3D.create(x, y, z)`
-coordinates and pin each endpoint that meets existing geometry with exactly one
-`addCoincident(point, entity)` — never pass an existing sketch point into `addByTwoPoints` to
-share it, and never do both (`[BEVEL-F-COINCIDENT-STYLE]`, `[PB-SHARE-XOR-COINCIDENT]`). This
-covers the short reference and connector lines too. And each named line is created once and
-reused; a second line over the same segment carries its own constraints and over-determines the
-net (`[BEVEL-F-LINE-ONCE]`).
+Create the sketch on the Gear Profiles Plane and name it `Gear Profiles`. **Every line in it is a
+construction line** — `isConstruction = True` — the lattice lines, the two toe lines and the short
+reference lines alike; the solid features later consume the per-gear Profile sketches, never a §2
+curve. **Every length dimension in it is an aligned distance dimension**: this figure has no
+axis-aligned line in it, so `addDistanceDimension` is called with
+`adsk.fusion.DimensionOrientations.AlignedDimensionOrientation` and a horizontal or vertical
+orientation would dimension a projection instead of a length.
 
-Project the ANCHOR SKETCH's stashed centre point with `sketch.project(entity)`, not the raw
-user selection: the projection keeps the chain inside Design.
+Three construction rules govern the whole sketch and are as binding as the geometry.
 
-Place the figure in the sketch's own 2-D coordinates, never through a world round-trip
-(`[BEVEL-F-APEX-LOCAL]`). With `c` the projected centre and `d` the projected anchor line's unit
-direction, the in-plane perpendicular is `(-d.y, d.x)`, and its SIGN is chosen so it points toward
-the target plane's normal — read as `targetPlane.geometry.normal`, which is a `core.Plane`
-carrying `.normal` for both selection kinds — not by the sketch's local +Y
-(`[BEVEL-F-GROW-SIDE]`).
+- **`[BEVEL-F-COINCIDENT-STYLE]`** — build **every** §2 line, lattice and short reference line
+  alike, from raw `adsk.core.Point3D.create` coordinates, then `addCoincident` each endpoint to the
+  point it meets. Never pass an existing `SketchPoint` into `addByTwoPoints` to share it. Sharing
+  without a coincident leaves the sketch under-constrained; sharing *and* coinciding makes the solve
+  fail outright.
+- **`[BEVEL-F-LINE-ONCE]`** — each named segment is drawn once and the helper that draws it returns
+  the line object, which later steps reuse. A second line over the same segment carries its own
+  constraints and over-determines the coupled net.
+- **`[BEVEL-F-DRIVEN-DIMS]`** — the along-shaft lengths Apex→A and Apex→B and the four
+  module-length extensions carry **no** dimension. They are driven by the closing and collinear
+  constraints, and dimensioning them is the over-constraint `[PB-NO-OVERCONSTRAIN]` warns about.
 
-Then, in order:
+**Projection.** Project the Anchor Sketch's stashed centre `SketchPoint` and the Anchor Line with
+`sketch.project(entity)`. Project the anchor-sketch point, not the raw user selection: both are
+coincident, but the anchor-sketch point keeps the chain inside the Design component. Write the call
+as `project`. The compiled API reference declares `project2(entities, isLinked)` and no `project`, so
+every gate in this repo reports the call as unverified; that report is expected, this repo's settled
+position is to keep the call and keep reporting it, and `project2` is not a drop-in replacement since
+it takes and returns lists.
 
-1. **Centre to Apex.** A construction line from the projected centre, its far end seeded at
-   `c + perp * (Driving Gear Pitch Diameter)`, with `addCoincident(point, entity)` on the start and
-   `addPerpendicular(lineOne, lineTwo)` against the projected anchor line. No length constraint.
-   The far end is the Apex.
-2. **Driving Gear Shaft Axis.** From the Apex back toward the anchor line, seeded at
-   `c - perp * length`, coincident at the Apex and `addParallel(lineOne, lineTwo)` to the
-   centre-to-apex line. Do not use `addVertical(line)` — it forces the sketch's world-vertical,
-   which is wrong on a tilted plane. The far end is point B; do not dimension the length.
-3. **Pinion Gear Shaft Axis.** From the Apex, coincident at the Apex, at the Shaft Angle from the
-   driving axis. Choose the sense by forming BOTH candidates — the driving direction rotated about
-   the apex by plus and by minus the Shaft Angle — and keeping the one whose endpoint has the
-   greater sketch X. Compare the two; never rotate one fixed sense and flip only on a negative X.
-   The far end is point A; do not dimension the length. Dimension the angle with
-   `addAngularDimension(lineOne, lineTwo, textPoint)`, its text point inside the wedge so it
-   measures the shaft angle and not its supplement: put it on the interior bisector of the two
-   shaft directions, a quarter of the Pinion Gear Pitch Diameter out from the apex along the
-   normalised sum of the two unit directions (`[PB-ANGULAR-DIM]`).
-4. **The two drops to Apex 2.** From A, a line perpendicular to the pinion shaft, aimed at the
-   OTHER shaft — pick the perpendicular sense by the sign of its dot product with the A-to-B
-   direction — with `addPerpendicular(lineOne, lineTwo)` and a distance dimension of Pinion Gear
-   Pitch Diameter over 2. From B the mirror, aimed at point A by the sign of its dot with the
-   B-to-A direction. Never choose the B-side sense against a toward-the-anchor-line reference: the
-   driving shaft is itself parallel to that direction, so the test is degenerate and picks a side
-   at random, and a wrong side makes the solver flip the entire frame to the mirror answer. Close
-   the two drops with `addCoincident(point, entity)` on their far ends; that point is Apex 2.
-   Throughout this list, "A to Apex 2" always names this drop line, never the Apex-to-A shaft axis.
-5. **Seeds for the along-shaft lengths.** Seed `|Apex to A| = R * cos(gamma_p)` and
-   `|Apex to B| = R * cos(gamma_g)` from the closed form, with `R = (PPD / 2) / sin(gamma_p)`.
-   They stay undimensioned (`[BEVEL-F-DRIVEN-DIMS]`); the seed only picks the branch.
-6. **Pitch Line.** Apex to Apex 2, coincident at both ends.
-7. **The two dedendum lines.** From Apex 2 to either side, each perpendicular to the Pitch Line
-   with `addPerpendicular(lineOne, lineTwo)` and a distance dimension of `Module * 1.25`. The one
-   drawn toward the anchor line is the Driving Gear Dedendum, ending at point D; the one away is
-   the Pinion Gear Dedendum, ending at point C.
-8. **The two root axes.** Apex to D and Apex to C, coincident at both ends.
-9. **The module-length extensions.** From A, collinear with Apex to A by
-   `addCollinear(lineOne, lineTwo)`, seeded one module long and NOT dimensioned, ending at E; then
-   C to E, coincident at both ends, with `addPerpendicular(lineOne, lineTwo)` between A-to-E and
-   C-to-E. The mirror on the driving side gives F. Then E to G collinear with A to E, C to H
-   collinear with Apex 2 to C, G to H coincident at both ends with E-to-G perpendicular to H-to-G;
-   and the driving mirror F to I, D to J, I to J.
-10. **The two base-height offsets.** `addOffsetDimension(line, entityTwo, textPoint)` between the
-    B-to-Apex-2 DROP and I-to-J, its value the Driving Gear Base Height if given, otherwise
-    `module * drivingTeeth / 8`; and between the A-to-Apex-2 drop and G-to-H, its value the Pinion
-    Gear Base Height if given, otherwise the RESOLVED driving offset times
-    `pinionTeeth / drivingTeeth`. The two lines are already parallel by construction, so add no
-    parallel constraint — a redundant one over-constrains the sketch (`[PB-OFFSET-DIM]`).
-11. **A to G**, coincident at both ends, and **point I coincident with the projected centre**,
-    which is what fixes the figure's position along the grow direction.
-12. **Resolve the Maximum Face Width.** A, B, C, D, H and J are now solved, so read their
-    `geometry` — the SOLVED positions, never the seed coordinates (`[PB-SOLVED-GEOMETRY]`) — and
-    take 0.95 times the smaller of the perpendicular distance from A to the line through C and H
-    and from B to the line through D and J. Cap the auto face width, `min(coneDistance / 6,
-    maximum)`, at it, and reject a user value above it with a message naming the maximum.
-13. **K, and the tooth-centre point K prime.** From G along Apex-to-A extended, its far end pinned
-    with two point-on-line `addCoincident(point, entity)` constraints — onto the Apex-to-A line and
-    onto the Apex-2-to-C dedendum line — never with `addCollinear`, which over-constrains here
-    because G and C are already fixed. That end is K. Draw C to K for reference. When Tooth Spacing
-    is above 0, draw one more line from K, its far end seeded on the far side of K from C, pinned
-    onto the dedendum line the same way, with a length dimension equal to Tooth Spacing; that end
-    is K prime, and C to K prime is the §3 reference line. At Tooth Spacing 0, K prime IS K and the
-    existing C-to-K line is reused — a zero-length line would be degenerate and a second line over
-    C-to-K a duplicate. The driving mirror gives L, L prime and D to L prime.
-14. **The two toe lines.** Seed M near its solved position and N slid along C-to-H far enough to
-    reach the A-to-Apex-2 drop (`[PB-SEED-NEAR]`), then apply exactly four constraints:
-    `addCoincident(point, entity)` putting M on the Apex-to-C root axis, `addCoincident(point,
-    entity)` putting N on the A-to-Apex-2 DROP — not the shaft axis, which would put N on the axis
-    of revolution — `addParallel(lineOne, lineTwo)` to C-to-H, and
-    `addOffsetDimension(line, entityTwo, textPoint)` from C-to-H set to the Face Width, its text
-    point in the gap on the apex side. The driving mirror gives O and P. Then the reference lines
-    M to C, N to A, O to D, P to B and B to I.
+<!-- check-step-calls: ignore project2 -->
 
-Gate the sketch on `isFullyConstrained` and raise (`[BEVEL-F-FULL-CONSTRAINT]`). Full constraint
-comes from the missing constraint, never from dimensioning a driven length
-(`[PB-NO-OVERCONSTRAIN]`); every dimension added here is driving, so never pass the trailing
-`isDriving` argument as false (`[PB-DRIVING-DIM]`). Curve collections live under
-`sketch.sketchCurves` (`[PB-SKETCHCURVES]`), the constraint spellings are exact — `addCollinear`
-has two l's (`[PB-API-SPELLING]`) — and a helper that turns a 2-D coordinate into a `Point3D` must
-take both raw tuples and objects with `.x`/`.y`, because this step feeds it both seeds and solved
-geometry (`[PB-POINT-HELPER]`).
+**The figure, in the sketch's own 2-D frame** (`[BEVEL-F-APEX-LOCAL]` — never compute a §2 position
+from a world round trip; the single permitted world use is reading `targetPlane.geometry.normal` as a
+*direction* to pick the grow side, per `[BEVEL-F-GROW-SIDE]`). With `c` the projected centre and `d`
+the projected anchor line's unit direction, `perp = (-d.y, d.x)` signed toward the target normal:
 
-`addVertical` and `addCollinear` appear above only where the step forbids them for a particular
-line; `addCollinear` is required elsewhere in the same step and stays required.
+1. **Centre to Apex.** A construction line from `c`, `addCoincident` on its start, and
+   `addPerpendicular` against the projected anchor line. Seed its free end at
+   `c + perp * (R * cos(gamma_g) + resolved Driving Gear Base Height)` — that is where the net closes
+   it, and the old `Driving Gear Pitch Diameter` seed sat 11.6 mm away on the default pair
+   (`[PB-SEED-NEAR]`). Add no length constraint. Its end is the **Apex**.
+2. **Driving Gear Shaft Axis.** From the Apex toward the anchor line, seeded at
+   `apex - perp * (R * cos(gamma_g))`, with `addCoincident` on its start and
+   `addParallel(drivingShaftAxis, centerToApex)`. Do **not** use `addVertical`: it forces the
+   sketch's world vertical, which is wrong on any tilted target plane. Its end is **B**, undimensioned.
+3. **Pinion Gear Shaft Axis.** From the Apex, its direction the driving direction rotated about the
+   Apex by the Shaft Angle. Form **both** candidate ends and keep the one with the greater X in this
+   sketch; do not rotate one fixed sense and flip only on a negative X, because when both candidates
+   have positive X that shortcut keeps the wrong one and mirrors the whole gear. Add
+   `addCoincident` on its start and `sketchDimensions.addAngularDimension(pinionAxis, drivingAxis,
+   textPoint)` set to the Shaft Angle, with the text point inside the wedge — on the interior
+   bisector at `apex + normalize(pinionDir + drivingDir) * (PPD / 4)` — so it measures the angle and
+   not its supplement (`[PB-ANGULAR-DIM]`). Its end is **A**, undimensioned.
+4. **The two drops to Apex 2.** From A, a line with `addPerpendicular` against the pinion axis and an
+   aligned dimension of `PPD / 2`; from B, the same against the driving axis with `DPD / 2`. Both
+   must point into the interior wedge *between* the two shafts: pick each sense by the sign of its
+   dot product with the direction toward the other shaft's point, never against a "toward the anchor
+   line" reference. The driving side is the trap — the driving shaft is itself parallel to the grow
+   direction, so that dot product is about zero and silently selects an arbitrary side, after which
+   the coincidence closing the two drops flips the entire frame to the mirror solution. Close them
+   with `addCoincident` on the two far ends; that point is **Apex 2**.
+5. **Pitch Line** Apex→Apex 2, coincident at both ends.
+6. **The two dedendum lines** from Apex 2, each `addPerpendicular` to the Pitch Line with an aligned
+   dimension of `Module * 1.25`. The one drawn toward the anchor line is the Driving Gear Dedendum,
+   ending at **D**; the one away from it is the Pinion Gear Dedendum, ending at **C**.
+7. **The two Root Axes** Apex→C and Apex→D, coincident at both ends.
+8. **The module-length extensions.** From A a line with `addCollinear` against the pinion axis and
+   `addCoincident` joining it to A, ending at **E**; then C→E with `addPerpendicular` against A→E.
+   From E, collinear again, ending at **G**. Mirror on the driving side for **F** and **I**.
+9. **The two heel edges.** From C a line of module length with `addCollinear` against the Pinion
+   Dedendum, ending at **H**; then G→H, and `addPerpendicular` between E→G and H→G. The same on the
+   driving side for **J** and I→J. That perpendicular is required in Fusion because
+   `addOffsetDimension` needs its second entity already parallel to the first, and this is what
+   supplies the parallelism.
+10. **The two base-height offsets.** `sketchDimensions.addOffsetDimension(dropB, lineIJ, textPoint)`
+    set to the resolved Driving Gear Base Height, and the same between the A→Apex 2 drop and G→H set
+    to the resolved Pinion Gear Base Height. Both lines are already parallel by construction, so add
+    **no** `addParallel` (`[PB-OFFSET-DIM]`). The value is the one after that gear's own Maximum and
+    Minimum Base Height have been applied, because this offset is what drives the heel edge toward
+    the shaft axis.
+11. **Close the figure.** Draw A→G and B→I, then `addCoincident` **Point I with the projected centre
+    point**. That single coincidence is what pins the whole figure's height above the anchor line;
+    without it the net reaches every angle and length and still slides along the perpendicular.
+12. **The tooth centres.** From G a line ending at **K**, pinned with two point-on-line coincidents —
+    `addCoincident(K, pinionAxis)` and `addCoincident(K, pinionDedendum)` — rather than
+    `addCollinear`, which over-constrains here because G and C are already fixed. Draw C→K for
+    reference. The same on the driving side for **L** and D→L.
+13. **The Tooth Spacing offsets.** When Tooth Spacing is zero, build nothing: K′ is K and the
+    existing C→K line is the reference line, because a zero-length dimensioned line is degenerate and
+    one segment gets one line. When it is positive, draw one line from K with its far end seeded past
+    K along the dedendum direction, pinned the same way K is, with an aligned length dimension equal
+    to the Tooth Spacing; its far end is **K′**. Then draw C→K′. The same for **L′** and D→L′. Build
+    both here, before this sketch's gate, so the gate covers them.
+14. **The Maximum Face Width.** A, B, C, D, H and J are now solved, so read their `.geometry` —
+    never the seed coordinates (`[PB-SOLVED-GEOMETRY]`) — and resolve
+    `0.95 * min(distance(A, line C-H), distance(B, line D-J))`. Cap the automatic default to it and
+    reject a user value above it.
+15. **The two toe edges.** Seed M near the midpoint of Apex→C and N by sliding from that seed along
+    the C→H direction far enough to reach the A→Apex 2 drop; do not seed them a Face Width from C and
+    H, which starts N near H and the solve fails to converge (`[PB-SEED-NEAR]`). Then apply exactly
+    four constraints: `addCoincident(M, pinionRootAxis)`; `addCoincident(N, dropA)` — the
+    perpendicular **drop**, never the Apex→A shaft axis, because pinning N to the axis puts it on the
+    axis of revolution and the later conical split fails for asymmetric tooth counts;
+    `addParallel(lineMN, lineCH)`; and `addOffsetDimension(lineCH, lineMN, textPoint)` set to the
+    resolved Face Width, its text point in the gap on the apex side. Mirror all of it for O→P on the
+    driving side. Then draw M→C, N→A, O→D, P→B and B→I.
 
-The proof function is `stepGearProfiles`. It reaches DOF 0 with nothing redundant and no discrete
-ambiguity, and measures every lattice point, both cone angles, the cone distance, the face-width
-bound and the toe-line pins against the closed form. It records four defects it had to work
-around: the apex seed, the toe-line seeds, the redundant half of the I-onto-centre closure, and
-the mirror answers the unsigned perpendicular constraints leave open.
+End the step by gating `sketch.isFullyConstrained` and raising, naming the sketch.
+
+The proof builds this whole lattice as `stepGearProfiles` and asserts the solved positions of all
+twenty named points against the closed form, the two solved cone angles to nine decimals, the two
+driven along-shaft lengths, Point I landing on the projected centre, the tooth centres at the
+back-cone distance `R / cos(gamma)`, the Maximum Face Width measured on the solved figure against
+`R * sin(gamma)^2` per side, and that no toe or heel corner has reached its own shaft axis
+(`[PB-REVOLVE]`). Its case table sweeps the Shaft Angle from the documented 30 degree floor to 142
+degrees, both ratio directions, the Minimum Teeth floor at four teeth, both ends of each base
+height's range, the Face Width at its maximum, and both sides of the Tooth Spacing branch.
+
+Three of the spec's constraints are written differently in the proof and the proof says why at each
+site: an unsigned `addPerpendicular` plus a length admits both sides, so each side choice the spec
+makes with a seed is written there as a signed angle of the same arity; the engine's collinear is two
+point-on-line rows and one of them is implied by the coincident already on that end; and the engine's
+offset holds both endpoints of its target, so it carries the parallelism the offset dimension needs.
+That last one reaches **two** pairs of constraints, not one. The spec's paragraph spells the reason
+out for the E→G / F→I perpendiculars; the two toe lines' `addParallel` constraints fall to exactly
+the same argument, and measured, a toe line carrying both its parallel and its offset comes back with
+one redundant row that the engine names as the offset. Both pairs are therefore left out of the
+proof, and the spec's paragraph should name both.
+
+**Two configurations in that table are refused by the sketch engine as near-singular**, and each is
+recorded rather than waived. The 30 degree Shaft Angle floor comes back at conditioning 2.94e-05 on
+the default pair, reproducing to three figures one of the three lattices the spec measured, and this
+net first clears at 35 degrees. Base heights at their **minima** come back at 2.68e-05, which the
+spec does not record: at the minimum the heel edge C→H is only `0.0625 * Module` long, 62 microns at
+module 1, and its direction is what carries the point-on-line pin that locates H.
+
+<!-- proof-run: proofkit.Run(latticeCases, stepGearProfiles) -->
 
 <!-- check-step-calls: ignore addVertical -->
-<!-- proof-run: proofkit.Run(gearProfilesCases, stepGearProfiles) -->
 
-**From:** `spec/bevelgear/instructions.md` L384–468, `spec/bevelgear/instructions.md` L57–77,
-`spec/bevelgear/fusion.md` L74–142
+**From:** `spec/bevelgear/instructions.md` L88–129, L450–546; `spec/bevelgear/fusion.md` L76–142;
+`.claude/skills/generate-gear/PLAYBOOK.md` L480–520, L556–566, L604–613
 
-## S08 `[PROSE]` Tooth plane, per gear
+## 7 `[PROSE]` `{gearLabel} Plane` — the tooth plane
 
-Once per gear, pinion first: create the construction plane named `{gearLabel} Plane` through that
-gear's tooth-centre reference line — C to K prime for the pinion, D to L prime for the driving
-gear — perpendicular to the Gear Profiles sketch plane. Use the framework helper
-`plane_by_angle(component, line, refPlane, angleDeg)` with 90 degrees; it passes the sketch line
-directly to `setByAngle` and never wraps it in a path (`[PB-CONSTRUCTION-PLANES]`).
+Once per gear, pinion first. Create a construction plane that includes this gear's tooth-centre
+reference line — C→K′ for the pinion, D→L′ for the driving gear — and is perpendicular to the Gear
+Profiles sketch plane, through the framework's `plane_by_angle`, which wraps
+`setByAngle` at 90 degrees. Name it `{gearLabel} Plane`. Pass the sketch line straight in; never wrap
+it in `Path.create` (`[PB-CONSTRUCTION-PLANES]`).
 
-`[PROSE]` for the reason S06 gives: neither harness carries a construction plane. The frame this
-plane defines is the frame the next step's tooth is drawn in, and that tooth is proved.
+A bare construction plane bounds no body, so no gate holds one, and the substitute — gating a sketch
+drawn on it — would gate step 8's sketch rather than this plane. What this plane is for is asserted
+in step 13's proof instead, and there it is asserted about the plane itself:
+`assertToothPlacement` checks that it sits at exactly the Pitch Cone Distance R from the apex along
+its own normal, so it is the back-cone plane through Apex 2, and that the tooth centre on it lies on
+the shaft axis at cone distance `R / cos(gamma)`.
 
-**From:** `spec/bevelgear/instructions.md` L481, `spec/bevelgear/instructions.md` L472–476
+<!-- check-step-calls: ignore Path.create -->
 
-## S09 `[GO]` Virtual spur tooth sketch, per gear
+**From:** `spec/bevelgear/instructions.md` L548–556;
+`.claude/skills/generate-gear/PLAYBOOK.md` L716–727
 
-Once per gear, in a sketch named `{gearLabel} Tooth` on that gear's tooth plane.
+## 8 `[GO]` `{gearLabel} Tooth` sketch — the virtual spur tooth
 
-First the virtual tooth number, from the closed form and never by measuring the lattice: the
-virtual pitch radius is this gear's pitch radius over `cos(gamma)`, with gamma the pitch cone half
-angle from §2. Pin the unit conversion — the stashed pitch diameters are internal CENTIMETRES
-while Module is the raw MILLIMETRE number — so
-`virtualPitchRadius_mm = (pitchDia_cm * 10 / 2) / cos(gamma)` and
-`virtualTeeth = floor(2 * virtualPitchRadius_mm / Module)` as an int. Dropping the factor of ten
-makes the count about ten times wrong.
+Compute this gear's virtual, back-cone tooth number from the closed form and **never** by measuring
+the lattice: `virtualPitchRadius_mm = (pitchDiameter_cm * 10 / 2) / cos(gamma)` and
+`virtualTeeth = floor(2 * virtualPitchRadius_mm / Module)` as an int. The times-ten is the
+centimetre-to-millimetre conversion, and skipping it makes the count about ten times off.
 
-Then draw the tooth with the borrowed spur generator. Construct
-`VirtualSpurProxy(module_mm=module, virtualTeeth=virtualTeeth)`, hand it to
-`SpurGearInvoluteToothDesignGenerator(sketch, proxy)`, and call
-`drawer.draw(anchorPoint, angle=math.radians(180))`. Import the framework's proxy; a local copy of
-it is a contract violation. The 180 degree rotation is delivered through
-that angle argument, which rotates the whole tooth as it is drawn; it is not a later move or
-sketch rotation. The drawer lays down the four circles — root solid, tip, base and pitch as
-construction, all centred on the tooth-centre point — and one involute tooth.
+Create a sketch on `{gearLabel} Plane` named `{gearLabel} Tooth`, and draw the tooth by borrowing the
+spur generator:
 
-After `draw` returns, read `proxy._lastToothEmbedded` back and thread it to the profile selection:
-the drawer writes that slot during the draw, and it is the deterministic selector for the tooth
-loop's line count, not optional bookkeeping.
+```python
+proxy  = VirtualSpurProxy(module_mm=module, virtualTeeth=virtualTeeth)
+drawer = SpurGearInvoluteToothDesignGenerator(sketch, proxy)
+drawer.draw(anchorPoint, angle=math.radians(180))
+```
 
-Do NOT gate this sketch. Log it if `isFullyConstrained` is false and never raise: the drawer
-labels its four circles with along-path sketch text, and sketch text placed along a path carries
-its own unpinned position, so a tooth whose geometry is completely determined still reads false
-(`[BEVEL-F-FULL-CONSTRAINT]`).
+The anchor point is this gear's tooth-centre point, K′ or L′. The 180 degree rotation is delivered
+**through `draw`'s angle argument** — the generator rotates the whole tooth in its own point math —
+never as a post-hoc move. Import `VirtualSpurProxy` from the framework; do not define a local copy.
 
-The proof function is `stepToothProfile`. It draws the four circles and the tooth outline from the
-shared involute math, measures the virtual tooth number and the millimetre conversion, and reads
-the tooth region's curve mix out of the detected profiles — two NURBS, two arcs and the line count
-the embedded flag decides. It substitutes the drawer's rib-and-spine constraint scheme for a
-recreate-and-fix outline, which is spur's scheme to prove and which this gate exempts anyway.
+After `draw` returns, read `proxy._lastToothEmbedded` back and thread it onward: it is the
+deterministic selector for the tooth loop's line count in step 12, and skipping it grabs an unrelated
+loop whose loft dies with `LOFT_NO_TOOLBODY`.
 
-<!-- proof-run: proofkit.Run(toothCases, stepToothProfile) -->
+Do **not** raise on this sketch's `isFullyConstrained`; at most log it. The two tooth sketches are
+the one exemption from the full-constraint gate, and `[BEVEL-F-FULL-CONSTRAINT]` is explicit that the
+exemption covers the four along-path circle labels (`[PB-SKETCH-TEXT]`) and nothing else — the
+geometry itself must read fully constrained with the labels deleted.
 
-**From:** `spec/bevelgear/instructions.md` L477–484, `spec/bevelgear/instructions.md` L332–360,
-`spec/bevelgear/fusion.md` L34–61
+The proof draws exactly that: the same tooth with no labels, gated normally, which is the measurement
+the exemption asks for before it is renewed. `stepToothSketch` also checks the virtual tooth count
+against the closed form, the tooth sitting at the 180 degrees it was given with its top on the tip
+circle, and that **exactly one** loop in the sketch carries the curve count the profile search selects
+on — the spec's warning about an impostor loop with two NURBS, two arcs and the other line count.
 
-## S10 `[PROSE]` Tooth axis, per gear
+<!-- proof-run: proofkit.Run(toothCases, stepToothSketch) -->
 
-Create the construction axis named `{gearLabel} Tooth Axis` through the tooth-centre point, normal
-to the plane the tooth was drawn on: `createInput()` on the Design component's `constructionAxes`,
-then `setByTwoPlanes(planarEntityOne, planarEntityTwo)` with the Gear Profiles plane and a helper
-plane built `setByDistanceOnPath(pathEntity, distance)` on the tooth-centre reference line at 1.0 —
-perpendicular to that line at its far end, the tooth-centre point — then `add(input)`. Their
-intersection is the line through the tooth centre normal to the tooth plane
-(`[PB-CONSTRUCTION-AXES]`). `setByPerpendicularAtPoint` is the obvious alternative and is not
-usable here: it needs a `BRepFace` this step does not have.
+<!-- check-step-calls: ignore isFullyConstrained -->
 
-Adding this axis in the never-activated Design component is proven to work, so keep it
-(`[PB-CONSTRUCTION-NEEDS-ACTIVE]`).
+**From:** `spec/bevelgear/instructions.md` L316–334, L402–430, L548–560;
+`spec/bevelgear/fusion.md` L27–45; `.claude/skills/generate-gear/PLAYBOOK.md` L188–192, L640–652
 
-`[PROSE]` for the reason S06 gives: neither harness carries a construction axis.
+## 9 `[PROSE]` `{gearLabel} Tooth Axis`
+
+Create a construction axis through the tooth-centre point, normal to the plane the tooth was drawn
+on, with `constructionAxes.createInput()` then `setByTwoPlanes(gearProfilesPlane, helperPlane)` and
+`constructionAxes.add(...)`, named `{gearLabel} Tooth Axis`. The helper plane is built
+`setByDistanceOnPath(<tooth-centre reference line>, 1.0)` — perpendicular to that line at its far
+end, the tooth centre. Use `setByTwoPlanes`; `setByPerpendicularAtPoint` would need a `BRepFace` this
+build does not have (`[PB-CONSTRUCTION-AXES]`).
+
+Creating this axis inside the never-activated Design component is proven to work, so it does not hit
+`[PB-CONSTRUCTION-NEEDS-ACTIVE]`; keep it.
+
+A bare construction axis bounds nothing, so no gate holds one. The substitute considered was to
+revolve or pattern about it and gate that body, which is what steps 12 and 22 do — but they turn
+about the profile sketch's own first edge, which the spec is explicit is the axis every body
+operation uses, not this one. This axis is created for the user to see and for nothing downstream to
+consume, so there is no body whose geometry would differ if it were absent.
 
 <!-- check-step-calls: ignore setByPerpendicularAtPoint -->
 
-**From:** `spec/bevelgear/instructions.md` L485, `spec/bevelgear/instructions.md` L472–473
+**From:** `spec/bevelgear/instructions.md` L562–563;
+`.claude/skills/generate-gear/PLAYBOOK.md` L728–731
 
-## S11 `[GO]` Gear profile sketch, per gear
+## 10 `[PROSE]` Create the `{gearLabel} Gear` component
 
-Once per gear, a FRESH sketch on the axial Gear Profiles plane, named `Pinion Profile` or
-`Driving Profile`, holding exactly one hexagon loop. Do not draw both gears' hexagons in the
-shared §2 sketch: that would leave two identically shaped loops to disambiguate.
-
-Build the six vertices by the recreate-share-fix recipe (`[PB-PROJECT-NOT-FIXED]`), never by
-projecting the §2 points: recreate each of the six at its exact world-mapped position with
-`add(point)` on `sketch.sketchPoints`, using `modelToSketchSpace(modelCoordinate)` on the source
-point's `worldGeometry` — a point-transforming method, not a matrix (`[PB-SPACE-METHODS]`) — then
-draw the closed hexagon as six `addByTwoPoints(startPoint, endPoint)` lines SHARING those points,
-and only then set `isFixed` on the lines' endpoints. Order matters: fixing a bare point before a
-line consumes it does not leave the sketch fully constrained.
-
-The draw order is A, G, H, C, M, N, back to A for the pinion, and B, I, J, D, O, P, back to B for
-the driving gear. The FIRST edge — A to G, or B to I — is the gear's shaft axis for the revolve,
-the pattern, the bore plane and the meshing rotation, so it has to carry a trustworthy world
-position; fixed endpoints give it one, and a free edge resolves against a default frame and
-silently moves the body onto world XY (`[PB-WORLDGEO-CONSTRAINED]`). Gate the sketch on
-`isFullyConstrained` and raise (`[BEVEL-F-FULL-CONSTRAINT]`).
-
-The proof function is `stepGearHexagon`. It checks the sketch holds exactly one valid six-line
-loop, that the first edge runs along the gear's shaft direction, and that every vertex sits on one
-side of that edge — the condition the revolve needs. It measures the Maximum Face Width bound
-sharp, by pushing the offset two per cent past the reach and watching the toe end change sides,
-and it records a second way across the axis that the spec does not bound at all: the heel edge
-itself, once the resolved base height passes `(pitchRadius - 1.25 * module * cos(gamma)) *
-tan(gamma)`.
-
-<!-- proof-run: proofkit.Run(hexagonCases, stepGearHexagon) -->
-
-**From:** `spec/bevelgear/instructions.md` L579–597, `spec/bevelgear/fusion.md` L19–33
-
-## S12 `[GO]` Revolve the gear body, per gear
-
-Create the gear's own component first — `addNewComponent(transform)` under the BEVEL GEAR
-component, not under the user's Parent Component — named `Pinion Gear` or `Driving Gear`. The
-finished bodies land there at the end; every feature below runs in Design and the bodies are moved
-across afterwards, because Fusion rejects cross-sibling sketch and project calls
+Create a new component as a child of the **Bevel Gear** component — the same component that owns
+Design, not the user's Parent Component — named `Pinion Gear` or `Driving Gear`. The finished bodies
+for this gear end up here, moved in at the end of its chain; every feature until then runs in Design,
+because Fusion rejects cross-sibling sketch and project calls even through assembly-context proxies
 (`[PB-NO-CROSS-SIBLING]`).
 
-The profile sketch holds exactly one closed loop, so take `sketch.profiles.item(0)` directly
-(`[PB-SINGLE-PROFILE]`). Resist inventing a search that filters by loop or curve type. Revolve it
-around the hexagon's first edge:
-`createInput(profile, axis, operation)` on the Design component's `revolveFeatures`,
-`setAngleExtent(isSymmetric, angle)` with false and `createByString('360 deg')`, then `add(input)`
-(`[PB-REVOLVE]`). The result is the Gear Body, the frustum. The axis is the in-sketch edge, never
-the §2 Apex-to-A or Apex-to-B construction line, which lives in a different sketch.
+No harness reaches this step, and no substitute was attempted, for the reason step 3 gives: neither
+harness has a component to create, and no geometry changes when one is.
 
-The profile must not cross the axis of revolution or Fusion aborts the revolve; that is what the
-Maximum Face Width exists to guarantee, and S11 proves both the bound and the gap in it.
+**From:** `spec/bevelgear/instructions.md` L659–667;
+`.claude/skills/generate-gear/PLAYBOOK.md` L747–752
+
+## 11 `[GO]` `{gearLabel} Profile` sketch — the frustum hexagon
+
+Open a **fresh** sketch on the axial Gear Profiles plane, named `Pinion Profile` or
+`Driving Profile`. One profile sketch per gear, so `sketch.profiles` holds exactly this one hexagon
+loop; drawing both gears' hexagons in the shared §2 sketch would leave two identically shaped loops
+to disambiguate.
+
+Build it on fixed vertices by the `[PB-PROJECT-NOT-FIXED]` recreate-share-fix recipe, and the order
+is the constraint:
+
+1. recreate the six §2 vertices as new points at their exact world-mapped positions —
+   `sketchPoints.add(sketch.modelToSketchSpace(src.worldGeometry))`, valid because §2 is fully
+   constrained by now (`[PB-SPACE-METHODS]`);
+2. draw the closed hexagon as six `addByTwoPoints` lines **sharing** those points, in the draw order
+   A→G→H→C→M→N→A for the pinion and B→I→J→D→O→P→B for the driving gear;
+3. only then set `isFixed` on the lines' endpoints. Fixing a bare point before it is consumed as a
+   line endpoint does not leave the sketch fully constrained.
+
+The hexagon's **first edge is the gear's shaft axis** for the revolve, the pattern, the bore plane
+and the meshing rotation, so it must be fixed well enough to carry a trustworthy `worldGeometry`
+(`[PB-WORLDGEO-CONSTRAINED]`); a free edge resolves against a default frame and silently moves the
+body onto world XY. The §2 `Apex->A` / `Apex->B` construction line is **not** usable as that axis: it
+is collinear but lives in a different sketch, which the revolve and pattern reject.
+
+Gate `isFullyConstrained` and raise, naming the sketch.
+
+The proof draws this hexagon as `stepProfileSketch` and checks that it closes exactly one loop of six
+lines, that its area is the §2 hexagon's, that the first edge lies on the shaft axis and every other
+corner is strictly off it. It also reads off the section itself the two
+quantities the steps below it consume — the volume a full turn of it sweeps, and the half-angles of
+the two conical faces the trim's face search matches on — so a hexagon drawn on the wrong corners is
+caught here as well as there.
+
+<!-- proof-run: proofkit.Run(profileCases, stepProfileSketch) -->
+
+<!-- check-step-calls: ignore isFixed -->
+
+**From:** `spec/bevelgear/instructions.md` L659–673;
+`.claude/skills/generate-gear/PLAYBOOK.md` L493–504, L523–527, L529–535
+
+## 12 `[GO]` Revolve the hexagon into the Gear Body
+
+This sketch holds exactly one closed loop, so take `sketch.profiles.item(0)` directly rather than
+filtering (`[PB-SINGLE-PROFILE]`), and revolve it about the hexagon's first edge:
+`revolveFeatures.createInput(profile, axis, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)`,
+then `setAngleExtent(False, adsk.core.ValueInput.createByString('360 deg'))`, then
+`revolveFeatures.add(input)`. The result is the Gear Body, the frustum.
+
+The profile must not cross the axis of revolution, or Fusion aborts with `ASM_WIRE_X_AXIS`
+(`[PB-REVOLVE]`); that is what the Maximum Face Width and the two base-height bounds are for, and
+step 6's proof asserts it on the solved figure.
 
 Because the toe edge is one edge of the revolved profile, the body already carries the conical face
-that edge sweeps, and likewise the heel edge's cone. Those two faces are the cutting tools the next
-trim step uses.
+that edge sweeps, and likewise the heel edge's cone. Those two faces are the cutting tools step 21
+reuses.
 
-The proof function is `stepRevolveGearBody`. It records the harness limit that shapes it: decad's
-revolve is the one feature verb whose bodies neither proofkit3d gate accepts, so the proof lofts
-the frustum's root-cone band between two coaxial circles instead — the same surface the hexagon's
-C-to-M edge sweeps, over the same toe-to-heel span — and measures its radii and volume.
+SUBSTITUTE IN THE PROOF. decad returns a revolved body's area and volume with a bound of 200 per
+cent of the reading — measured with a plain rectangle swept into a solid cylinder, where 785.398 mm³
+comes back carrying a bound of 1570.796 — so the document verifies Suspect and no gate accepts it.
+A solid of revolution is the union of the bands its profile edges sweep, though, and a band between
+two coaxial sections is a loft, which this evaluator does record exactly. So `stepRevolveGearBody`
+builds the Gear Body as the three bands its three non-axial hexagon edges sweep, laid apart along the
+shaft axis. Each band's volume is checked against the exact volume its own two sections bound, each
+band's cone half-angle against the edge that swept it, and the three signed contributions are summed
+and compared with the hexagon's own Pappus volume — the identity a wrongly ordered or wrongly signed
+decomposition cannot satisfy. What it costs: the sections are chorded to 48-sided polygons, because a
+circular one needs 257 chord cells against the 250 its share of the loft's 500-station cap allows, so
+every volume is the chorded solid's and the circular value is quoted beside it; and the union that
+makes the three bands one body is not exercised, because decad refuses a boolean on a loft operand.
 
 <!-- proof-run: proofkit3d.RunSolid(solidCases, stepRevolveGearBody, assertRevolveGearBody) -->
 
-**From:** `spec/bevelgear/instructions.md` L593–600, `spec/bevelgear/instructions.md` L579–592
+**From:** `spec/bevelgear/instructions.md` L675–677;
+`.claude/skills/generate-gear/PLAYBOOK.md` L654–661, L521–528
 
-## S13 `[GO]` Loft the tooth body, per gear
+## 13 `[GO]` Loft the Apex to the tooth profile
 
-Loft the §2 Apex sketch point to this gear's §3 tooth profile:
-`createInput(operation)` on the Design component's `loftFeatures`, then `add(entity)` on the
-input's `loftSections` for the apex point and then for the tooth profile, then `add(input)`. A
-loft section may be a single sketch point, and lofting one to a profile yields the tapered,
-pointed body the bevel tooth is (`[PB-LOFT]`). Section order is loft order.
+Select the tooth cross-section with
+`find_profile_by_curve_counts(toothSketch, nurbs=2, arcs=2, lines=wantLines)`, where
+`wantLines = 0 if embedded else 2` and `embedded` is the flag read back off the proxy in step 8. Do
+**not** accept "0 or 2": for a given gear only one of those is the real tooth, an unrelated loop
+between the drawCircles circles can carry the same two NURBS and two arcs with the other line count,
+and lofting that impostor fails with `ASM_RBI_INTERNAL` / `LOFT_NO_TOOLBODY`.
 
-Use the §2 Apex SKETCH point — `centerToApex.endSketchPoint` from the Gear Profiles sketch —
-directly. Do not create a construction point for it: construction geometry needs an active
-component and Design is never activated (`[PB-CONSTRUCTION-NEEDS-ACTIVE]`).
+Loft the **§2 Apex sketch point** — `centerToApex.endSketchPoint`, the degenerate point section — to
+that profile: `loftFeatures.createInput(adsk.fusion.FeatureOperations.NewBodyFeatureOperation)`, then
+`loftSections.add(...)` for the apex point and then the profile, then `loftFeatures.add(input)`
+(`[PB-LOFT]`). Use the sketch point directly; do not create a construction point for it, because the
+Design component is never active (`[PB-CONSTRUCTION-NEEDS-ACTIVE]`). The result is the Tooth Body.
 
-Select the tooth cross-section with `find_profile_by_curve_counts(sketch, nurbs, arcs, lines)`,
-asking for 2 NURBS, 2 arcs and a line count DETERMINED by the embedded flag read back in S09 —
-0 when embedded, 2 when not. Never accept either count: an unrelated loop between the drawer's
-circles can carry the same NURBS and arc counts with the other line count, and selecting it makes
-this loft fail with no tool body.
+The proof builds this as `stepLoftTooth`. decad's loft takes two profiles and has no point section,
+so the apex end is replaced by the same tooth section scaled about the apex on a parallel plane a
+tenth of R out from it. A uniform scale about the apex is exactly the section the point loft passes
+through there, so the ruled walls are the same walls; what the truncation costs is the sliver between
+that plane and the apex, and `assertLoftTooth` measures the body against the closed-form frustum
+volume `area * R * (1 - s^3) / 3` that truncation predicts rather than against the full cone. The
+tooth section is chorded there for the reason `proof/bevelgear/bodies_test.go` gives at the top: one
+fitted spline withdraws exact trims from every region of its sketch, so the drawn tooth cannot be
+lofted at all.
 
-The proof function is `stepLoftTooth`. It substitutes a section a fixed two per cent out from the
-apex for the point section decad has no verb for, and measures the taper: the body's volume is a
-third of its section's area times the apex's perpendicular distance to the section plane. It also
-measures where the tooth profile sits along the cone element, and how far the virtual tooth
-number's floor leaves its root from the dedendum corner.
+`assertToothPlacement` carries the three placement facts the surrounding steps rest on: the tooth
+plane at R from the apex, the tooth centre on the shaft axis at `R / cos(gamma)`, and the dedendum
+corner C at the virtual root radius from that centre — which is what makes the tooth drawn at 180
+degrees sit with its root on C and its tip a module beyond, pointing away from the shaft axis.
 
 <!-- proof-run: proofkit3d.RunSolid(solidCases, stepLoftTooth, assertLoftTooth) -->
 
-**From:** `spec/bevelgear/instructions.md` L601–602, `spec/bevelgear/instructions.md` L268–277
+**From:** `spec/bevelgear/instructions.md` L352–366, L679–681;
+`.claude/skills/generate-gear/PLAYBOOK.md` L662–666
 
-## S14 `[GO]` Conical end trims — the straight tooth-body branch
+## 14 `[PROSE]` `{gear} Cone Element` sketch and `{gear} Trace Plane` (ψ > 0 only)
 
-This is the tooth-body hook. Its first line is the gate: when the Mean Spiral Angle is 0 or below,
-return `cut_conical_ends(component, toothBody, gearBody, toeMid, heelMid, apexWorld, label)` and
-stop — that is the straight bevel, byte for byte the prior behaviour. Above 0, steps S15 to S23
-run in its place, and this trim runs again at the end of them.
+Everything from here to step 20 runs only when the Mean Spiral Angle is above zero. The tooth-body
+hook's first line is the gate `if self._spiralAngle_rad <= 0: return cut_conical_ends(...)`, so a
+straight bevel skips straight to step 20 and is byte-for-byte the prior behaviour.
 
-The helper is the framework's; do not re-implement the cut machinery. Two different bodies are
-involved and conflating them is the classic error: the cutting TOOLS are the cone-type faces of
-the GEAR BODY, the revolved frustum, and the TARGET being split is the TOOTH BODY, the loft. The
-lofted tooth has no cone faces at all, so searching it for one finds none.
+Build the frame first (§3a step A), from the geometry this gear already has: `axisDir` from the two
+world endpoints of the profile sketch's first edge; `coneVec = normalize(heelConeWorld - apex)`, the
+root cone element Apex→C or Apex→D; `v = axisDir x coneVec`, the circumferential direction; and
+the cone distance `distAlong` of a point, `(p - apex) . coneVec`. The four points the caller hands in are exactly: `toeMid` the
+midpoint of the **toe** edge M→N or O→P, `heelMid` the midpoint of the **heel** edge C→H or D→J,
+`toeConeWorld` the toe edge's inner endpoint M or O, and `heelConeWorld` the dedendum corner C or D —
+never H or J, which sit one module off the root cone element. Before building `coneVec`, check the
+two midpoints and swap both pairs if the heel is nearer the apex: a negative span silently inverts
+the whole spiral frame, flipping the cutter arc, the slice direction and the per-segment twist with
+no error. Then `R_toe`, `R_heel`, `R_mean` and `span = R_heel - R_toe`.
 
-What the helper does, and what the caller owes it. It cuts the toe first, finding its cone face by
-the toe edge's world MIDPOINT rather than an endpoint, because an endpoint sits near the cone's
-apex singularity where the distance is unevaluable; it orders the candidate faces best-first and
-tries each as the actual split tool, keeping the first that splits. After each cut it drops the
-apex-containing pieces and keeps the largest
-(`[PB-REMOVE-PIECES]`). Then it cuts the heel on the keeper alone, which is what makes it exactly
-two split features for every gear ratio. A heel cone that does not reach the keeper is raised as a
-typed non-intersect error and caught, and the keeper is returned whole; the toe cut is strict and
-its failure propagates, because an untrimmed tooth is unusable. Every failure carries its measured
-per-face distances, and a piece list that comes back empty is checked at the point it is produced,
-never fed into a later max.
+Draw a cone-element construction line Apex→(Apex + R_heel·coneVec) in a sketch on the axial plane
+named `{gear} Cone Element`, then build the tangent plane as that axial plane rotated 90 degrees
+about it, through `plane_by_angle`, named `{gear} Trace Plane`. Both sketches are transient, are
+hidden in cleanup, and are **exempt** from the full-constraint gate.
 
-The caller passes `toeMid` as the toe edge's world midpoint — half of M plus N for the pinion, half
-of O plus P for the driving gear — `heelMid` as the heel edge's world midpoint, half of C plus H
-and half of D plus J, `apexWorld` as the §2 Apex sketch point's world geometry, and `gearBody` as
-the revolved frustum.
+The world points are passed straight into the sketch calls and consumed as sketch-space input, with
+no `modelToSketchSpace` conversion. That is deliberate and it is safe only because nothing downstream
+consumes either sketch: the twist is computed analytically in step 17, and the Trace Plane carries
+only the inspection-only trace sketch. If a later revision ever makes a feature consume either, both
+sketches need the conversion on every point.
 
-The proof function is `stepTrimToothBand`. decad has no split verb and refuses booleans on both
-payloads involved, so the proof lofts the flush band directly between the tooth's sections at the
-toe and heel cone distances, and measures its volume, that the heel really is the outer end, and
-that the corner-to-corner extent along the cone element is the face width over the sine of the
-angle the dedendum line makes with that element.
+No gate holds a construction plane, and the cone-element sketch is one construction line whose only
+consumer is that plane. Two substitutes were considered. Gating the cone-element sketch through
+`proofkit` fails on its own terms: the line has two free endpoints seeded from world coordinates and
+is deliberately left that way, so it cannot reach DOF 0 without dimensions the build does not add,
+and adding them would be gating a different sketch. Gating the Trace Plane through a body built on it
+fails because the only thing built on it is step 15's inspection-only sketch, which no feature
+consumes. The frame the two of them set up is what `spiralOf` builds in
+`proof/bevelgear/spiral_test.go`, including the swap guard, and every quantity derived from it is
+asserted in steps 15 and 18.
 
-<!-- proof-run: proofkit3d.RunSolid(solidCases, stepTrimToothBand, assertTrimToothBand) -->
+**From:** `spec/bevelgear/instructions.md` L565–595, L296–316;
+`spec/bevelgear/spiral-tooth-trace.md` L30–88; `spec/bevelgear/fusion.md` L46–54
 
-**From:** `spec/bevelgear/instructions.md` L603–629, `spec/bevelgear/instructions.md` L260–266,
-`spec/bevelgear/instructions.md` L487–490
+## 15 `[GO]` `{gear} 2D Tooth Trace` sketch (ψ > 0 only)
 
-## S15 `[GO]` Cone element sketch, per gear, when the spiral angle is above 0
+The cutter radius `r_c` is the Cutter Radius input when non-zero and `R_mean` otherwise. The hand
+sign is `+1` for `Right` and `-1` for `Left`, then **negated for the pinion**, because a meshing pair
+is cut with opposite hands. In the tangent-plane frame — apex at the origin, x along `coneVec` so a
+point's x is its cone distance, y along `v` — the cutter circle's centre is
 
-Build the frame this branch works in. From the geometry already constructed for this gear:
-`axisDir` is the shaft axis direction taken from the two WORLD endpoints of the profile sketch's
-first edge; `coneVec` is the root cone element, the unit direction from the apex to the heel
-dedendum corner — C for the pinion, D for the driving gear, never H or J, which lie a module beyond
-it and skew the vector; `v` is `axisDir` crossed with `coneVec`, the circumferential direction; and
-a point's cone distance is its offset from the apex projected on `coneVec`. Take every one of these
-from world geometry, never from a sketch-local frame (`[PB-WORLD-FRAME]`).
+```
+Cx = R_mean - r_c * sin(psi)
+Cy = handSign * r_c * cos(psi)
+```
 
-Guard the ends before anything else: if the apex is nearer the passed heel midpoint than the toe
-midpoint, swap toe and heel — both the midpoints and the cone points — and rebuild `coneVec`. A
-negative span silently inverts the whole spiral, flipping the cutter arc, the slice direction and
-every segment's twist, with no error. Then read the toe and heel cone distances off the two
-midpoints, the mean as their average, and the span as heel minus toe.
+The hand sign goes on the **cos** term. Opposite hands are mirror images across the cone element,
+which flips `Cy`; putting the sign on `Cx` mirrors about `x = R_mean` instead, which is a different
+curve and gives the two gears unequal twist.
 
-Now the sketch. In a sketch named `{gear} Cone Element` on the axial Gear Profiles plane, draw one
-construction line from the apex to the apex plus the heel cone distance along `coneVec`, using
-`addByTwoPoints(startPoint, endPoint)`. This is a transient auxiliary sketch: do NOT gate it on
-`isFullyConstrained` (`[BEVEL-F-FULL-CONSTRAINT]`).
+The arc's ends are taken a hair past the face so the kept arc reaches cleanly through the end trims:
+`circle_intersect_nearest` against apex circles of radius `R_toe - 0.06 * span` and
+`R_heel + 0.06 * span`, keeping the intersection nearest the mean point `(R_mean, 0)`.
 
-The proof function is `stepConeElementSketch`. proofkit gates every sketch it is handed, so the
-proof pins the free end the recreate-and-fix way and measures the line's length against the heel
-cone distance and its direction against the root cone element.
+Add a sketch on the Trace Plane named `{gear} 2D Tooth Trace` and draw, mapping 2-D coordinates to
+world with `combine_point`:
 
-<!-- proof-run: proofkit.Run(spiralSketchCases, stepConeElementSketch) -->
+- the **cutter circle**, `sketchCurves.sketchCircles.addByCenterRadius` at the centre with radius
+  `r_c`, `isConstruction`, its `centerSketchPoint.isFixed = True` (`[PB-CIRCLE-CENTER]`) and a
+  `sketchDimensions.addDiameterDimension` of `2 * r_c`;
+- the **trace arc**, `sketchCurves.sketchArcs.addByThreePoints` through the toe end, the mean point
+  and the heel end, with `addCoincident` tying its centre to the cutter circle's and a
+  `sketchDimensions.addRadialDimension` of `r_c`, so it is the genuine cutter circle rather than a
+  look-alike spline. Both dimension text points sit off-centre, on or near their curve
+  (`[PB-RADIAL-DIM]`).
 
-**From:** `spec/bevelgear/instructions.md` L491–519, `spec/bevelgear/instructions.md` L531,
-`spec/bevelgear/spiral-tooth-trace.md` L30–65, `spec/bevelgear/fusion.md` L62–73
+This sketch is **deliberately left with free DOF** — the arc's ends are pinned by the three-point
+construction, not by endpoint dimensions — and is exempt from the full-constraint gate. Do not gate
+it.
 
-## S16 `[PROSE]` Trace plane, per gear, when the spiral angle is above 0
+The proof draws it as `stepToothTrace` and, because the harness has no such exemption, pins the two
+ends by the signed coordinates `circle_intersect_nearest` computes. What that substitution costs is
+the constraint form of the circle intersection, which carries the two-branch ambiguity the helper
+resolves by picking the branch the mean point sits on, and a scheme whose answer depends on that
+choice is one the harness refuses. So the step proves the arithmetic: that the computed ends lie on
+both circles, that the arc through them is the cutter circle, that the trace meets the cone element
+at exactly the Mean Spiral Angle at the mean point, that flipping the hand mirrors the centre across
+the element and moves nothing else, and that at psi = 0 the centre would sit due north of the mean
+point. Those are `spiral-tooth-trace.md`'s invariants 1 through 7, one for one. The engine's arc
+carries its own equal-radius row, so the centre is held on the perpendicular bisector of the two ends
+and one signed coordinate closes it; fixing the centre outright the way `[PB-CIRCLE-CENTER]` has
+Fusion do it would make that implicit row redundant.
 
-Build the cone's tangent plane as the axial plane rotated 90 degrees about the cone-element line:
-`plane_by_angle(component, line, refPlane, angleDeg)` with the `{gear} Cone Element` line, the
-axial plane and 90. Name it `{gear} Trace Plane`. The helper passes the sketch line straight to
-`setByAngle` (`[PB-CONSTRUCTION-PLANES]`).
+<!-- proof-run: proofkit.Run(spiralCases, stepToothTrace) -->
 
-`[PROSE]` for the reason S06 gives: neither harness carries a construction plane. The 2-D frame it
-establishes — apex at the origin, x along the cone element so a point's x IS its cone distance, y
-circumferential — is the frame the next step's sketch is expressed in, and that sketch is proved.
+<!-- check-step-calls: ignore isFixed -->
 
-**From:** `spec/bevelgear/instructions.md` L531, `spec/bevelgear/spiral-tooth-trace.md` L30–65
+**From:** `spec/bevelgear/instructions.md` L577–595;
+`spec/bevelgear/spiral-tooth-trace.md` L108–184, L218–238;
+`.claude/skills/generate-gear/PLAYBOOK.md` L484–492, L610–614
 
-## S17 `[GO]` Tooth trace sketch, per gear, when the spiral angle is above 0
+## 16 `[GO]` Slice the straight tooth into cross-section slabs (ψ > 0 only)
 
-First the cutter-arc geometry, in the tangent plane's 2-D frame. The cutter radius is the Cutter
-Radius input when it is non-zero and the mean cone distance otherwise. The hand sign is plus 1 for
-`Right` and minus 1 for `Left`, then NEGATED for the pinion, so the pair meshes with opposite
-hands. The centre is `Cx = R_mean - r_c * sin(psi)` and `Cy = handSign * r_c * cos(psi)`. The hand
-sign belongs on the cosine term: on the sine term it mirrors the centre about `x = R_mean` instead
-of across the cone element, which is a different curve and gives the two gears unequal twist.
+Split the uncut apex-to-heel Tooth Body into slabs with planes perpendicular to the cone element,
+through `slice_body_by_offset_planes(designComponent, toothBody, parentToothPlane, offsets)`. The
+base is the parent transverse tooth plane from step 7. The first cut plane is that plane offset
+toward the apex by `span / 6`, and the offsets are `sign * (k + 1) * span / 6` for k = 0 through 7 —
+a fixed scheme of about eight planes, not user-configurable. Choose `sign` per gear so it moves
+apex-ward, by testing `(apex - planeOrigin) . normal`, because the parent plane's normal points
+opposite ways for the two gears.
 
-The arc's two ends are circle-against-circle intersections taken a hair past the face, so the kept
-arc reaches cleanly past the end trims: `circle_intersect_nearest(R, Cx, Cy, r_c, refX, refY)` with
-`R_lo = R_toe - 0.06 * span` and `R_hi = R_heel + 0.06 * span`. The helper keeps the solution
-nearest the mean point, which is the branch the mean point sits on.
+**The slice must actually split the tooth.** If the body is still in one piece after the loop, retry
+the whole cut once with the opposite sign; if it is still one piece, `raise` a self-diagnosing error
+naming the gear, the final piece count, the span and the sign tried (`[PB-EMPTY-RESULT]`,
+`[PB-SELF-DIAGNOSING]`). Returning an unsliced result leaves the next step's segment list empty and
+the crown then dies with `max() iterable argument is empty` far from the cause.
 
-Then the sketch, named `{gear} 2D Tooth Trace`, on the trace plane, with
-`combine_point(base, a, e1, b, e2)` mapping a 2-D coordinate to a world point:
+SUBSTITUTE IN THE PROOF. decad has no split-by-plane, so `stepSliceSegments` lofts each slab
+directly between the two sections its cut planes would have produced, and lays the slabs apart along
+the shaft axis, because the read-only interference pass cannot tessellate a loft payload and so
+cannot judge two slabs whose boxes meet. It asserts the piece count the scheme produces — eight
+cross-section slabs and the apex scrap — each slab's volume against the exact volume its own two
+sections bound, and the tiling, from the sections rather than from the positions: consecutive slabs
+share a section, so one's heel section is the next one's toe section. What it costs: the cut planes
+are drawn parallel to the tooth plane, which is perpendicular to the pitch line, where the build cuts
+perpendicular to the cone element — the two differ by the dedendum angle `atan(1.25 * Module / R)`,
+under two degrees on every case in the table — and the retry-with-the-opposite-sign guard is not
+reached, because nothing here can produce the single piece that triggers it.
 
-- the cutter circle, `addByCenterRadius(centerPoint, radius)` at the centre with the cutter radius,
-  marked `isConstruction`, its centre pinned by setting `isFixed` on `centerSketchPoint` rather than
-  coinciding it to the sketch origin (`[PB-CIRCLE-CENTER]`), and a
-  `addDiameterDimension(entity, textPoint)` of twice the cutter radius;
-- the trace arc, `addByThreePoints(startPoint, point, endPoint)` through the toe point, the mean
-  point on the cone element and the heel point, with `addCoincident(point, entity)` tying its
-  centre to the cutter circle's and a `addRadialDimension(entity, textPoint)` of the cutter radius,
-  so it is the genuine cutter circle and not a look-alike spline.
+<!-- proof-run: proofkit3d.RunSolid(spiralSolidCases, stepSliceSegments, assertSliceSegments) -->
 
-Both dimension text points must be off-centre, on or near their curve — the mean point for the
-arc's radius, a point on the circle such as centre plus the cutter radius along x for the
-diameter — because a text point AT the centre is rejected (`[PB-RADIAL-DIM]`).
+**From:** `spec/bevelgear/instructions.md` L597–601;
+`.claude/skills/generate-gear/PLAYBOOK.md` L468–469, L692–700
 
-The world points go straight into the sketch calls and are consumed as sketch-space input, with no
-`modelToSketchSpace` conversion. That is deliberate and harmless: no downstream feature consumes
-this sketch — the twist is computed analytically in S20 — and it exists only so the genuine cutter
-arc is inspectable before cleanup hides it. The sketch is deliberately left with free degrees of
-freedom and is NOT gated (`[BEVEL-F-FULL-CONSTRAINT]`).
+## 17 `[GO]` Order the segments and drop the apex scrap (ψ > 0 only)
 
-There is no 3-D projection anywhere in this branch. Never project the arc onto the root cone with
-`projectToSurface(faces, curves, projectType)`: for unequal-ratio pairs it wraps and comes back as
-disjoint fragments, and the measured azimuth collapses to a fraction of the true sweep.
+Sort the segments by the `distAlong` of their centroid, read from
+`body.physicalProperties.centerOfMass`. The first, apex-most piece is the long scrap below the toe.
+Re-slice the list first and delete afterwards — `segments = segments[1:]` before
+`removeFeatures.add(scrap)` (`[PB-REMOVE-PIECES]`). After the drop, `segments` must be non-empty; if
+it is empty the slice failed in step 16, so `raise` a clear error rather than proceeding into the
+twist and the crown, which both assume at least one segment.
 
-The proof function is `stepCutterArcSketch`. It pins the arc's two ends and the one component of
-its centre the arc's own construction leaves free, then MEASURES the rest: that the centre is the
-cutter centre, that the radius is the cutter radius, that the arc passes through the mean point,
-that its ends sit at the toe and heel cone distances, that the spiral angle is realised at the mean
-point, that flipping the hand mirrors the construction across the cone element and changes nothing
-else, and that the zero-spiral-angle limit puts the centre due circumferential of the mean point.
+SUBSTITUTE IN THE PROOF. `stepDropScrap` builds the same slab set as step 16, orders it, and returns
+everything but the apex-most piece, which is the drop. It asserts that the piece dropped is the one
+running from the tooth's own apex end, that it is the LONG one — more than a slab's span, since it
+reaches from the apex to the first cut while every kept slab is exactly one step — and that eight
+slabs remain. What it costs is the removal feature itself: the drop is a re-slice of the list here,
+so nothing exercises `removeFeatures.add` or the timeline entry it leaves.
 
-<!-- check-step-calls: ignore projectToSurface -->
-<!-- proof-run: proofkit.Run(spiralSketchCases, stepCutterArcSketch) -->
+<!-- proof-run: proofkit3d.RunSolid(spiralSolidCases, stepDropScrap, assertDropScrap) -->
 
-**From:** `spec/bevelgear/instructions.md` L520–541, `spec/bevelgear/spiral-tooth-trace.md` L90–185,
-`spec/bevelgear/spiral-tooth-trace.md` L218–239
+**From:** `spec/bevelgear/instructions.md` L603–605;
+`.claude/skills/generate-gear/PLAYBOOK.md` L468–469, L701–707
 
-## S18 `[GO]` Slice the tooth into slabs, when the spiral angle is above 0
+## 18 `[GO]` Twist the segments about the shaft axis (ψ > 0 only)
 
-Split the uncut apex-to-heel tooth body into cross-section slabs with a FIXED scheme of eight
-planes; the count is not user-configurable. The first cut plane is the parent transverse tooth
-plane — this gear's `{label} Plane` from S08, passed into the hook — offset toward the apex by a
-sixth of the span. Choose the offset sign per gear so it really moves apex-ward, by testing the
-sign of the apex-minus-plane-origin vector against the plane's normal; the two gears' normals point
-opposite ways. The eight offsets are then `sign * (k + 1) * span / 6` for k from 0 to 7.
-
-Split with `slice_body_by_offset_planes(component, body, basePlane, offsets)`, the framework
-helper: it splits piece by piece and leaves a piece whole where a plane misses it.
-
-The slice MUST actually split the tooth. If the body is still in one piece after the loop, the sign
-was wrong or the parent plane sits outside the tooth's span — retry the whole cut once with the
-opposite sign. If it is STILL one piece, raise a self-diagnosing error naming the gear, the final
-piece count, the span and the sign tried, so the message names the measured quantities rather than
-a bare count. Never return an unsliced result:
-the next step then drops that single piece as scrap, leaves the segment list empty, and the crown
-crashes far from the cause.
-
-The proof function is `stepSliceTooth`; its case table walks the segment index, so each run builds
-the one slab that index names. decad has no split verb and refuses booleans on a lofted payload, so
-the proof lofts each slab between the tooth's sections at the two cut planes and measures its
-volume, the step between planes against a sixth of the span, and that the scheme reaches past the
-toe at one end and inside the heel at the other.
-
-<!-- proof-run: proofkit3d.RunSolid(segmentCases, stepSliceTooth, assertSliceTooth) -->
-
-**From:** `spec/bevelgear/instructions.md` L542–543, `spec/bevelgear/instructions.md` L268–277
-
-## S19 `[GO]` Order the slabs and drop the apex scrap, when the spiral angle is above 0
-
-Sort the slabs by the cone distance of their centroid, read from `physicalProperties` and its
-`centerOfMass`. The first, apex-most piece is the long scrap below the toe: re-slice the list
-first and delete afterwards — take `segments[1:]`, THEN remove the scrap with `add(itemToRemove)`
-on the Design component's `removeFeatures`, which is timeline-visible, rather than a bare delete
-(`[PB-REMOVE-PIECES]`).
-
-After the drop the segment list must be non-empty. If it is, the slice failed in S18 — raise a
-clear error rather than proceeding into the twist and the crown, both of which assume at least one
-segment. A collection that can legitimately come back empty is guarded where it is produced,
-never three steps later.
-
-The proof function is `stepDropApexScrap`. It builds the scrap piece and measures that its centroid
-really is apex-most, that it lies below the toe, and that eight segments remain after it goes.
-
-<!-- proof-run: proofkit3d.RunSolid(spiralSolidCases, stepDropApexScrap, assertDropApexScrap) -->
-
-**From:** `spec/bevelgear/instructions.md` L544–545
-
-## S20 `[GO]` Twist the slabs about the shaft axis, when the spiral angle is above 0
-
-Rotate each segment about the shaft axis through the apex so the tooth follows the trace, centred
-on the mean cone distance so the mid-face section stays UNROTATED — that section then meshes
-exactly as the straight tooth does, which is why the pinion needs no extra mesh phase.
-
-The total toe-to-heel twist comes from the conjugate crown-gear generation law, analytically, with
-no projection and no curve sampling:
+Rotate each segment about the shaft axis through the apex, centred on `R_mean` so the mid-face
+section stays unrotated — that section then meshes exactly like the straight tooth, and the pinion's
+zero mesh nudge depends on it. The total toe-to-heel twist comes from the conjugate crown-gear
+generation law, computed analytically with no projection and no curve sampling:
 
 ```
 phi_crown = atan2(heel2d[1], heel2d[0]) - atan2(toe2d[1], toe2d[0])
 total     = abs(phi_crown) / math.sin(gamma)
 ```
 
-`phi_crown` is the angle the cutter arc's toe and heel endpoints subtend at the apex in the flat
-2-D crown frame — the pairs from S17. `gamma` is this gear's PITCH cone angle, `_gamma_p` or
-`_gamma_g` from §2. Never use the root cone angle, which is what the arccosine of `coneVec` against
-`axisDir` measures: it is a different, smaller angle and inflates the twist. The two members of a
-meshing pair legitimately get different twists, because the same spiral angle and cutter meet
-different pitch cone angles.
+`phi_crown` is the angle the cutter arc's two ends subtend **at the apex** in the flat crown frame,
+and `gamma` is this gear's **pitch** cone angle from §2 — `self._gamma_p` or `self._gamma_g`. Do not
+use `acos(coneVec . axisDir)`: that is the root cone angle, smaller by the dedendum angle, and it
+inflates the twist by about 1.6 times on a 17-tooth pinion. The two members of a pair legitimately
+get different twists — same cutter, same spiral angle, different gamma, so different `1 / sin(gamma)`
+— which is why equal-teeth pairs meshed under methods that got the factor wrong while ratio pairs did
+not.
 
-Each segment's rotation is a linear share keyed on the cone distance of its HEEL FACE, not its
-centroid — the loft samples that face, and centroid keying leaves the mid-face section rotated by
-half a segment:
+Each segment's share is linear in the cone distance of its **heel face**:
 
 ```
 ang = -handSign * total * (R_mean - R_heelFace(seg)) / span
 ```
 
-Find a slab's heel face as the face whose centroid has the GREATEST cone distance, searched across
-ALL of the slab's faces with NO surface-type filter; its toe face is the least. A sliced slab is
-bounded by a mix of planar cut faces and ruled side faces, and a type filter picks the wrong one or
-misses the cut face. The same all-faces rule is used everywhere a slab end face is needed: here,
-in the crown, and in the loft.
+A slab's heel face is the face whose centroid has the **greatest** `distAlong`, searched across
+**all** of the slab's faces with no surface-type filter; the toe face is the least. Do not restrict
+the search to planar faces — a sliced slab is bounded by a mix of the two planar cuts and ruled side
+faces, and a type filter picks the wrong one, after which the step 20 loft fails with
+`ASM_NOT_ALL_SECTIONS_MEET` / `LOFT_NO_TOOLBODY`. Key the twist on that face and not on the
+centroid: the loft samples the heel face, so that face is what must land at the right azimuth, and
+centroid-keying leaves the mid-face section rotated by half a segment.
 
-Apply the rotation as a free move: build the matrix with
-`setToRotation(angle, axis, origin)` on `adsk.core.Matrix3D.create()`, then
-`moveFeatures.createInput2(inputEntities)` on the Design component with an
-`ObjectCollection.create()` holding the body, `defineAsFreeMove(transform)`, and `add(input)`
-(`[PB-MOVE-ROTATE]`).
+Apply each rotation as a free move: `moveFeatures.createInput2(bodyCollection)` then
+`defineAsFreeMove(matrix)` then `moveFeatures.add(input)`, with the matrix built by
+`adsk.core.Matrix3D.setToRotation(ang, axisDir, apex)` (`[PB-MOVE-ROTATE]`). Use `defineAsFreeMove`
+with a matrix, not `defineAsRotate`, which rejects a sketch-line axis.
 
-The proof function is `stepTwistSegments`; its case table walks the segment index. It measures the
-rotated body's azimuth against the untwisted one, the developed crown azimuth against the arc's own
-endpoints, the total against the law, this segment's share against the linear rule, that the pitch
-and root cone angles differ enough for the choice between them to matter, and that heel-face keying
-differs from centroid keying by exactly half a segment's share.
+The proof applies this law in `stepTwistTooth`, and it stands in for the whole slice-twist-crown-loft
+chain because decad has neither a multi-section loft nor a scale: instead of slicing the tooth into
+slabs and lofting through their heel faces, it lofts one band of the tooth directly between its toe
+and heel sections, each already turned by the share this step gives it. The two ends therefore carry
+the same total twist, in the same sense, as the sliced build's outermost slabs.
+`assertTwistTooth` checks that the two end angles are symmetric about zero, that their difference is
+`handSign * total`, that the mid-face section does not move, and — read off the finished solid rather
+than off the numbers that built it — that the band's centroid lies on the heel side of the mid face
+and inside its own angular span, and that the opposite hand mirrors it. The step also asserts that
+the root cone angle is strictly below the pitch cone angle and that keying the twist on it would come
+out larger, which is the error this paragraph forbids.
 
-<!-- proof-run: proofkit3d.RunSolid(segmentCases, stepTwistSegments, assertTwistSegments) -->
+<!-- proof-run: proofkit3d.RunSolid(spiralSolidCases, stepTwistTooth, assertTwistTooth) -->
 
-**From:** `spec/bevelgear/instructions.md` L546–560, `spec/bevelgear/spiral-tooth-trace.md` L186–217
+<!-- check-step-calls: ignore defineAsRotate -->
 
-## S21 `[GO]` Lengthwise crown, when the spiral angle is above 0
+**From:** `spec/bevelgear/instructions.md` L607–637;
+`spec/bevelgear/spiral-tooth-trace.md` L186–216;
+`.claude/skills/generate-gear/PLAYBOOK.md` L708–713
 
-Crown the tooth by scaling each segment EXCEPT the outermost down by a monotonic factor: full at
-the heel, growing smoothly toward the toe. For each segment take the heel-distance fraction
-`u = (R_heel - R_heelFace) / span`, with the heel face found by the S20 all-faces rule but
-RECOMPUTED here, after the twist has moved the slabs. Then
-`factor = 1 - _CROWN_PER_RAD * (abs(total) / 2) * u`, with `_CROWN_PER_RAD` a class constant
-defaulting to 0.5. `u` runs from 0 at the held-full heel to 1 at the toe, so the relief grows
-monotonically and the slab heights stay strictly ordered heel to toe. Key it on `u`, never on the
-twist magnitude, which is symmetric about the mid-face and would make the slab just inside the held
-heel the most relieved one — a notch that reverses the taper. If a computed factor comes out at or
-below 0, raise a self-diagnosing error naming the gear, the segment's `u` and the factor; never
-scale by a non-positive factor.
+## 19 `[GO]` Lengthwise crown (ψ > 0 only)
 
-Three things the scale itself needs.
+Scale every segment **except the outermost** down by a monotonic factor, full at the heel and growing
+toward the toe. For each segment compute its heel-distance fraction `u = (R_heel - R_heelFace) /
+span`, with `R_heelFace` found by step 18's all-faces-by-centroid rule but **recomputed after the
+twist has moved the slabs**; `u` runs 0 at the held-full heel to 1 at the toe. The outermost segment
+is the one with the greatest post-twist heel-face `distAlong`. Then
 
-The base must be a sketch point — one added on the heel face, or a BRep vertex — because
-construction points need an active component. And `scaleFeatures` is the one exception to
-never-activate: call `activate()` on the DESIGN OCCURRENCE before the crown scales and restore the
-root in a `finally` with `activateRootComponent()` on the design. Only an occurrence has
-`activate`; a component does not, and reaching for it raises an attribute error
-(`[PB-CONSTRUCTION-NEEDS-ACTIVE]`).
+```
+factor = 1 - _CROWN_PER_RAD * (abs(total) / 2) * u
+```
 
-Skip the outermost segment — the one with the greatest post-twist heel-face cone distance, found by
-sorting the segments on that value. Its heel face is the loft's heel end and has to stay full so the
-heel cone trims it flush with the gear base.
+with `_CROWN_PER_RAD` a tunable class constant, default `0.5`. A factor at or below zero is a
+`raise`, naming the gear, the segment's `u` and the factor — never scale by a non-positive factor.
 
-Anchor the scale on the heel face's ROOT edge, not its centroid. A uniform scale keeps every line
-through its base point where it is, so a base on the root keeps the root edge on the seating cone
-while the tip is relieved; a base at the face's centroid, at mid tooth height, lifts the root by the
-shrinkage times half the tooth height and the tooth floats off the gear base. Take the heel face's
-vertices, keep the TWO whose perpendicular distance to the shaft axis is smallest — the root corners,
-since the tip corners are farthest from the axis — and put the base point at their midpoint, mapped
-into a sketch on the heel face with `modelToSketchSpace(modelCoordinate)` (`[PB-SPACE-METHODS]`).
+Do **not** key the relief on the twist magnitude. That is symmetric about the mid face and maximal at
+both ends, so with the heel slab held full the slab just inside it becomes the most relieved one and
+dips below both its neighbours, reversing the heel-to-toe taper — observed at factor 0.932 against
+0.972 on the next slab inward.
 
-Then `createInput(inputEntities, point, scaleFactor)` on the Design component's `scaleFeatures`
-with an `ObjectCollection.create()` holding the segment, the base sketch point and
-`createByReal(factor)`, and `add(input)`.
+Three mechanics. The scale base must be a **sketch point** or a BRep vertex, and `scaleFeatures`
+through `scaleFeatures.createInput(entities, point, ValueInput)` is the one exception to
+never-activate: call `designOccurrence.activate()` before the crown scales and restore afterwards, in
+a `finally`, with `design.activateRootComponent()`. A `Component` has no `.activate()` — writing
+`design.rootComponent.activate()` raises `AttributeError`; only an `Occurrence` has it, and the root
+comes back through `Design.activateRootComponent()`. Skip the outermost segment, whose heel face is
+the loft's heel end and must stay full so the heel cone trims it flush. And anchor the scale on the
+heel face's **root edge**, not its centroid: a uniform scale keeps every line through its base point
+invariant, so a centroid base pulls the tooth's root upward by half the relief and the Combine-Join
+leaves a visible gap. Take the two vertices of `heelFace.vertices` with the smallest perpendicular
+distance to the shaft axis — the root corners, since the tip corners are farthest — and put the base
+sketch point at their midpoint, mapped in with `modelToSketchSpace`.
 
-The proof function is `stepCrownSegments`; its case table walks the segment index. It measures the
-factor against the law, that the relief grows monotonically outward-to-inward, that the outermost
-segment is held full, that the scale base sits on the root edge rather than at mid height, and that
-the centroid anchor would lift the root by a positive amount.
+SUBSTITUTE IN THE PROOF. decad has no scale feature and `r3.Transform` is rigid, so a uniform scale
+about a point cannot be performed; but it can be drawn, because a uniform scale about a point carries
+a plane to a parallel plane and a section to a scaled copy of itself. `stepCrownSegments` therefore
+draws each slab's two sections already scaled about the anchor. It asserts the factor's shape — every
+factor positive and at most one, falling monotonically from the held-full outermost slab toward the
+toe, so the relief grows that way and the heel-to-toe taper is never reversed — and then reads the anchor back off the drawn solid: the two
+root corners land where a uniform scale about that anchor puts them, they are a symmetric pair
+equidistant from the shaft axis, the anchor is the midpoint of the two, and the slab's centroid sits
+FARTHER from the axis than the anchor, which is the difference between anchoring on the root edge and
+anchoring on the face centroid. What it costs is the feature: `scaleFeatures` and the
+activate-and-restore dance it needs go unexercised.
 
-<!-- proof-run: proofkit3d.RunSolid(segmentCases, stepCrownSegments, assertCrownSegments) -->
+<!-- proof-run: proofkit3d.RunSolid(spiralSolidCases, stepCrownSegments, assertCrownSegments) -->
 
-**From:** `spec/bevelgear/instructions.md` L561–574
+<!-- check-step-calls: ignore activate -->
 
-## S22 `[GO]` Loft the curved tooth, when the spiral angle is above 0
+**From:** `spec/bevelgear/instructions.md` L639–645;
+`.claude/skills/generate-gear/PLAYBOOK.md` L732–742
 
-Re-sort the segments by their heel-face cone distance HERE, after the twist and the crown; do not
-reuse the pre-twist slice order. The twist rotates each slab about the shaft axis, and for a
-high-twist unequal-ratio pair that rotation changes the slabs' along-cone order enough to reorder
-adjacent ones. Lofting in the stale order assembles the cross-sections out of sequence and the
-crowned tooth comes out distorted — which is why an equal-teeth pair meshes with the stale order
-while a ratio pair does not.
+## 20 `[GO]` Loft the crowned segments into `{gear} Spiral Tooth` (ψ > 0 only)
 
-Then loft a new body through, in that order: first the toe-most segment's apex-side face, added
-first so the loft pushes past the toe cone and the toe trim bites, then the heel-facing face of
-every segment iterated in order, each found by the S20 all-faces rule. Use
-`createInput(operation)` on `loftFeatures`, `add(entity)` on `loftSections` per section in order,
-then `add(input)` (`[PB-LOFT]`). Name the result `{gear} Spiral Tooth`, then remove the segment
-scaffolding with `add(itemToRemove)` on `removeFeatures`; the loft has captured their faces.
+Re-sort the segments by their heel-face cone distance **here**, after the twist and the crown — never
+reuse the pre-twist slice order. The twist rotates each slab about the shaft axis, and for high-twist
+unequal-ratio pairs that rotation reorders adjacent slabs; lofting in the stale order assembles the
+cross-sections out of sequence and the crowned tooth comes out distorted, which is the single thing
+that makes a ratio pair like 31/17 fail while 31/31 looks fine.
 
-The proof function is `stepLoftSpiralTooth`. decad's loft rules between two profiles, so the proof
-lofts between the two ends of the recomputed order, each carrying its own twist, and reports which
-order came out. It measures that the two ends lie on opposite sides of the unrotated mid-face and
-that the twist across them matches the law. The case table stops at 57 degrees rather than the 60
-the range reaches: at 59 the two end sections are turned far enough apart that the evaluator refuses
-the single loft as degenerate, which is a limit of the two-section substitute — S18, S20 and S21
-each carry a 59 degree case, where every loft spans one slab.
+Loft a new body through, in that order: first the **toe-most** segment's apex-side face, so the loft
+runs past the toe cone and the toe trim bites, then the heel-facing face of every segment in order,
+the last reaching past the heel cone. Name the body `{gear} Spiral Tooth`, then remove the segment
+scaffolding — the loft has captured their faces.
+
+SUBSTITUTE IN THE PROOF. decad's `Loft` takes exactly two sections, so a nine-section loft cannot be
+expressed as one call; it can be expressed as the chain of bands between consecutive sections, which
+carries the same sections in the same order. `stepLoftSpiralTooth` builds that chain, laid apart, and
+asserts what the step is actually about: the sections arrive in strictly increasing post-twist cone
+distance, computed after the twist has turned each slab about the shaft axis — which moves it,
+because the cone element is inclined to that axis. It also reports, per case, whether the post-twist
+order and the stale pre-twist order differ, rather than assuming they do. What it costs is the single
+body: the chain is not fused, so the loft's own tool-body formation goes unexercised, and the
+toe-most segment's apex-side face leading the section list is a claim about that formation rather
+than about the order.
 
 <!-- proof-run: proofkit3d.RunSolid(spiralSolidCases, stepLoftSpiralTooth, assertLoftSpiralTooth) -->
 
-**From:** `spec/bevelgear/instructions.md` L575–576
+**From:** `spec/bevelgear/instructions.md` L647–651;
+`.claude/skills/generate-gear/PLAYBOOK.md` L662–666
 
-## S23 `[GO]` Flush trim of the curved tooth, when the spiral angle is above 0
+## 21 `[GO]` Conical cuts — the toe-then-heel flush trim
 
-Return `cut_conical_ends(component, toothBody, gearBody, toeMid, heelMid, apexWorld, label)` on the
-curved tooth — the same toe-then-heel two-cone trim S14 describes, with the same caller obligations
-— so the curved tooth's ends sit flush on the gear base. The toe and heel mesh phasing is not done
-here: it belongs to the mesh-rotate step, and the pinion's extra phase is 0 by default precisely
-because the mid-face section came out of S20 unrotated and already meshes.
+Trim the tooth to a flush band by returning
+`cut_conical_ends(designComponent, toothBody, gearBody, toeMid, heelMid, apexWorld, gearLabel)`. For
+a straight bevel this is the whole tooth-body step; for a spiral it runs on the curved tooth after
+step 20. Do not re-implement the cut machinery.
 
-The proof function is `stepTrimSpiralTooth`, substituted the way S14's is. It measures that the
-trimmed tooth's toe-to-heel twist is the full total, that the mid-face section is unrotated, and
-that the opposite hand comes out as an exact mirror — same magnitude, opposite sense.
+**Two distinct bodies are involved.** The cutting tools are `ConeSurfaceType` faces of the **Gear
+Body**, the revolved-hexagon frustum — the lofted tooth has no cone faces, so searching it finds none
+— and the target being split is the **Tooth Body**. The caller's obligations are the four arguments:
+`toeMid` the toe edge's world midpoint, `heelMid` the heel edge's, `apexWorld` the §2 Apex sketch
+point's world geometry, and `gearBody` the frustum. The helper does the toe cut first, identifying
+its cone face by the toe edge's world **midpoint** best-first across the frustum's cone faces
+(`[PB-FACE-BY-MIDPOINT]` — endpoints sit near the apex singularity) and trying each candidate as the
+actual split tool; then it selects the keeper (`[PB-REMOVE-PIECES]`); then the heel cut on the keeper
+alone. The toe cut must split and its failure propagates; only the heel cut is lenient, and only
+through the typed `NonIntersectError` the helper raises when the heel cone does not reach the keeper
+at all.
 
-<!-- proof-run: proofkit3d.RunSolid(spiralSolidCases, stepTrimSpiralTooth, assertTrimSpiralTooth) -->
+SUBSTITUTE IN THE PROOF. decad refuses a boolean whose operand is a loft — "tessellation does not
+support payload decad.loftPayload" — so the split cannot be performed on the lofted tooth with any
+tool. Its RESULT can be drawn: `stepCutConicalEnds` builds the band of the tooth between the toe and
+heel cone distances directly. It asserts that the toe cut falls strictly inside the uncut tooth,
+since the toe cut has to bite and its failure is not lenient; reports whether the heel cut falls
+inside the tooth or past it, which is the `NonIntersectError` branch; and measures the band against
+the exact volume that stretch of the tooth holds. What it costs: the two cuts are drawn as PLANES
+where the build cuts with CONES, so the band's ends are flat where the trimmed tooth's are conical,
+and the flushness against the gear base rests on the cone half-angles step 12's proof reads off the
+bands themselves. The face search, the candidate ordering and the keeper selection are not reached at
+all.
 
-**From:** `spec/bevelgear/instructions.md` L577–578, `spec/bevelgear/instructions.md` L603–629
+<!-- proof-run: proofkit3d.RunSolid(solidCases, stepCutConicalEnds, assertCutConicalEnds) -->
 
-## S24 `[GO]` Circular pattern of the tooth, per gear
+**From:** `spec/bevelgear/instructions.md` L336–341, L653–657, L683–699;
+`.claude/skills/generate-gear/PLAYBOOK.md` L667–691
 
-Circular-pattern the remaining tooth piece around the SHAFT-AXIS EDGE — the same in-sketch profile
-edge the revolve used, never the §2 construction line. `createInput(inputEntities, axis)` on the
-Design component's `circularPatternFeatures` with an `ObjectCollection.create()` holding the tooth
-and that edge, then pin all three inputs explicitly: `quantity` from `createByReal(teeth)`,
-`totalAngle` from `createByString('360 deg')`, and `isSymmetric` false. Do not rely on Fusion's
-defaults matching them (`[PB-CIRCULAR-PATTERN]`). Then `add(input)`.
+## 22 `[GO]` Circular-pattern the tooth
 
-The angular spacing stays a constant 360 degrees over the tooth number across the whole face width,
-even though the pitch diameter shrinks from heel toward apex: the radial taper is already produced
-by the loft from the apex to the heel-end profile, so the pattern only rotates that one tapered
-tooth into evenly spaced copies.
+Pattern the trimmed tooth about the **shaft-axis edge** — the profile sketch's first edge, not the §2
+construction line: `circularPatternFeatures.createInput(bodies, axis)`, then `quantity` set to this
+gear's Teeth Number, `totalAngle = ValueInput.createByString('360 deg')` and `isSymmetric = False`,
+then `add(input)`. Pin all three explicitly (`[PB-CIRCULAR-PATTERN]`). The count is the gear's Teeth
+Number, never the virtual tooth number the tooth was drawn at.
 
-The pattern's `bodies` already include the seed body plus the copies, so do not re-add the seed
-(`[PB-PATTERN-BODIES]`).
+Although the pitch diameter shrinks from heel toward apex, the angular spacing about the shaft axis
+stays `360 / N` for the whole face width; the radial taper is already in the loft, so the pattern only
+rotates that one tapered tooth into N copies. The pattern's `bodies` collection already holds the
+seed alongside the copies, so do not re-add the seed, and copy them into a fresh
+`adsk.core.ObjectCollection.create()` before the combine, because `combineFeatures.createInput`
+rejects a `BRepBodies` (`[PB-PATTERN-BODIES]`).
 
-The proof function is `stepPatternTeeth`. It substitutes a prism over the tooth's transverse
-footprint for the tapered tooth, because decad's booleans take a prism where they refuse a loft,
-and measures each copy's volume and azimuth. The gate carries the real content: decad reports any
-proven overlap between two bodies as a diagnostic, so a pattern whose teeth collided would fail
-here, and the proof also measures the tooth's angular half-width against half the angular pitch.
+SUBSTITUTE IN THE PROOF. decad's read-only interference pass cannot tessellate a loft payload, so two
+teeth whose bounding boxes meet cannot be judged as a pair — measured on two copies of this tooth at
+every involute sample count from three to fifteen, and on a bare test loft where an eight-sided
+section is already refused while a seven-sided one passes. The copies are therefore slid apart ALONG
+the shaft axis, which is the axis the pattern turns about, so every azimuth about it, every radius
+from it and every volume is exactly the pattern's; measured, four teeth placed that way verify Sound
+with no diagnostics. `stepPatternTeeth` asserts the count against Teeth Number, each copy's volume
+against the seed's, each copy's distance from the axis against the seed's, and each copy's azimuth
+against a full turn divided by Teeth Number. What it costs is the clearance: the copies no longer sit
+where they really would, so the gap between neighbours is asserted from the seed's own angular width
+against the tooth pitch instead of from the copies meeting or not.
 
-<!-- proof-run: proofkit3d.RunSolid(patternCases, stepPatternTeeth, assertPatternTeeth) -->
+<!-- proof-run: proofkit3d.RunSolid(solidCases, stepPatternTeeth, assertPatternTeeth) -->
 
-**From:** `spec/bevelgear/instructions.md` L631–632
+**From:** `spec/bevelgear/instructions.md` L701–703;
+`.claude/skills/generate-gear/PLAYBOOK.md` L714–719, L595–599
 
-## S25 `[GO]` Combine-join the teeth to the gear body, per gear
+## 23 `[GO]` Combine-Join the teeth into the Gear Body
 
-Join all patterned tooth pieces with the Gear Body in a SINGLE Combine-Join: the Gear Body is the
-target and the patterned tooth bodies are the tools. `createInput(targetBody, toolBodies)` on the
-Design component's `combineFeatures`, with the tools copied into an `ObjectCollection.create()` —
-the pattern's `bodies` is a `BRepBodies` collection and the input rejects it (`[PB-PATTERN-BODIES]`)
-— then set the input's `operation` to the join and `add(input)`.
+Join all patterned tooth pieces with the Gear Body in a single Combine-Join:
+`combineFeatures.createInput(gearBody, toolCollection)` with the frustum as the target and the
+patterned bodies as the tools, `operation` set to
+`adsk.fusion.FeatureOperations.JoinFeatureOperation`, then `combineFeatures.add(input)`.
 
-The proof function is `stepCombineTeeth`. It joins the same transverse prisms the pattern step
-builds to a cylinder standing in for the gear body, and measures that one lump comes out with every
-tooth attached and that the joined volume lies between the body alone and the body plus every whole
-tooth. The stand-in reaches slightly past the tooth roots and past the teeth at both ends, because
-two bodies that merely touch, or whose end faces are coplanar, are not a boolean the evaluator will
-take.
+SUBSTITUTE IN THE PROOF. decad refuses a union whose operand is a loft, and the joined gear is a
+shape neither a loft nor a revolve draws in one piece — its blank has a three-segment meridian and
+its teeth stand on the root cone, so no single pair of sections sweeps it. So `stepCombineTeeth`
+builds the join's two operands side by side, laid apart, and asserts what the join has to produce and
+what it needs. It produces the blank's volume plus this gear's Teeth Number times one tooth's, read
+back as the signed sum of the blank's three bands and off the tooth body that was actually built. It
+needs SEATING: every tooth's root corners lying on the blank's root cone, which is the one thing that
+decides whether the join closes or leaves the gap the crown's root anchoring exists to prevent. They
+sit on it to within half a module, which is exactly the error the floored virtual tooth count
+introduces, and a tooth further off than that would stand clear of the blank. What it costs is the
+boolean: a defect only a union would surface — a tool body that fails to fuse, a lump that comes out
+in two pieces — is out of reach.
 
-<!-- proof-run: proofkit3d.RunSolid(patternCases, stepCombineTeeth, assertCombineTeeth) -->
+<!-- proof-run: proofkit3d.RunSolid(solidCases, stepCombineTeeth, assertCombineTeeth) -->
 
-**From:** `spec/bevelgear/instructions.md` L633–634
+**From:** `spec/bevelgear/instructions.md` L705;
+`.claude/skills/generate-gear/PLAYBOOK.md` L667–671
 
-## S26 `[PROSE]` Bore plane, per gear
+## 24 `[GO]` Bore
 
-Skip this and the two steps after it entirely when Enable Bore is unchecked.
+Skip this step entirely when Enable Bore is unchecked. Otherwise the diameter is this gear's Bore
+Diameter when non-zero and `Pitch Diameter / 4` otherwise.
 
-Build the plane normal to the shaft at its start: `createInput()` on the Design component's
-`constructionPlanes`, `setByDistanceOnPath(pathEntity, distance)` with the SHAFT-AXIS EDGE — the
-in-sketch profile edge, not the §2 construction line — and `createByReal(0.0)`, then `add(input)`.
-Pass the edge directly; never wrap it in a path (`[PB-CONSTRUCTION-PLANES]`).
+Build the bore plane normal to the shaft at its start with
+`setByDistanceOnPath(<shaft-axis edge>, ValueInput.createByReal(0.0))`, passing the in-sketch edge
+and not the §2 construction line. In a sketch named `{gearLabel} Bore`, draw the bore circle centred
+at the sketch origin — the plane is rooted at the shaft start, so the origin is on the axis — fix its
+centre and add a diameter dimension of the bore diameter (`[PB-CIRCLE-CENTER]`). Cut it as a
+symmetric through-cut restricted to this Gear Body: `extrudeFeatures.createInput(profile,
+adsk.fusion.FeatureOperations.CutFeatureOperation)`, then
+`setSymmetricExtent(ValueInput.createByReal(2 * coneDistance), False)` — the second argument false
+means that is the half-length per side — then `participantBodies` set to this body, then
+`extrudeFeatures.add(input)` (`[PB-THROUGH-CUT]`). Gate the Bore sketch's `isFullyConstrained` and
+raise.
 
-`[PROSE]` for the reason S06 gives: neither harness carries a construction plane. What the plane
-decides — that the sketch origin lands on the shaft axis — is what the next step's circle is
-centred on, and that circle is proved.
+SUBSTITUTE IN THE PROOF. The cut's target is the revolve, which decad will not tessellate for a
+boolean, and a through-all sweep cannot even decide a path against a body whose extent is known only
+to that 200 per cent bound. The cut's RESULT is drawable: `stepBoreCut` builds each band the bore
+passes through as a loft between two ANNULAR sections, the hole being the bore. It asserts the
+resolved diameter against the rule it comes from, and each bored band against the volume left once
+the bore's cylinder is taken out of it. A band the bore is wider than is asserted as consumed rather
+than drawn, since an annulus whose hole outgrows its rim closes no region — and the blank tapers to
+nothing at its toe corner, which sits ON the shaft axis, so a bore of any diameter takes the toe end
+with it. NOTHING IN THE SPEC BOUNDS THE BORE AGAINST THE BLANK, so the step logs which bands each
+case's bore consumes. What it costs is the boolean and the extent: the symmetric through-cut and its
+`participantBodies` restriction go unexercised.
 
-**From:** `spec/bevelgear/instructions.md` L635–636
+<!-- proof-run: proofkit3d.RunSolid(solidCases, stepBoreCut, assertBoreCut) -->
 
-## S27 `[GO]` Bore sketch, per gear
+**From:** `spec/bevelgear/instructions.md` L707–709;
+`.claude/skills/generate-gear/PLAYBOOK.md` L484–492, L672–676
 
-In a sketch named `{gearLabel} Bore` on the bore plane, draw the bore circle centred at the sketch
-origin — the plane is rooted at the shaft's start, so the origin is on the axis. Use
-`addByCenterRadius(centerPoint, radius)`, then FIX the circle's centre by setting `isFixed` on its
-`centerSketchPoint` and add `addDiameterDimension(entity, textPoint)` set to the bore diameter. A
-circle's centre is free even when it is created at the origin, and coinciding it to the sketch
-origin has been observed to fail the solve, so `isFixed` is the reliable pin (`[PB-CIRCLE-CENTER]`).
+## 25 `[GO]` Meshing rotation
 
-The bore diameter is this gear's Bore Diameter input when non-zero, and this gear's Pitch Diameter
-over 4 otherwise. Gate the sketch on `isFullyConstrained` and raise
-(`[BEVEL-F-FULL-CONSTRAINT]`).
+**Driving gear only**, and here, in the Design component, before the body is moved out: rotate the
+driving body by `180 / drivingTeeth` degrees — half a tooth pitch — about its shaft axis, through
+`rotate_body_about_edge(designComponent, gearBody, shaftAxisEdge, angle)`, which takes the rotation
+axis and origin from the B→I profile edge's **world** endpoints (`[PB-MOVE-ROTATE]`). Both gears are
+patterned from a starting tooth in the axial plane, so without the offset a driving tooth and a
+pinion tooth would both sit at the axial-plane crossing and visually collide. It runs before the move
+because a construction axis cannot be added in the moved-out gear component
+(`[PB-CONSTRUCTION-NEEDS-ACTIVE]`), so the rotation has to use the edge's world geometry while the
+body is still in Design. The pinion additionally gets `_pinionMeshPhase(pinionTeeth)`, which returns
+`_PINION_MESH_PHASE_TEETH * 2 * pi / pinionTeeth` radians and is zero by default, because the spiral
+tooth's mid-face section is unrotated and already meshes.
 
-The proof function is `stepBoreSketch`. It measures the resolved diameter on both sides of the auto
-branch and that it stays inside the pitch diameter, and reports the unchecked Enable Bore case as
-one with no sketch to gate.
+SUBSTITUTE IN THE PROOF. The rotation is applied to one tooth rather than to the finished joined
+gear, since no gate here holds a joined gear. What the rotation is for survives that exactly: it
+moves every tooth by half a pitch about the shaft axis, and one tooth is where that is visible — a
+rotationally symmetric blank could be turned by any angle with nothing to measure.
+`stepMeshRotate` asserts the turn is `180 / Teeth Number` degrees, that this is half of the
+`360 / Teeth Number` the pattern steps by, and that the body's distance from the shaft axis and its
+volume are both untouched, since the rotation is about that axis. The lay-apart slide runs along the
+same axis and changes none of the three. What it costs is the framework helper's own edge handling:
+the rotation is built from the axis directly rather than from a profile edge's world endpoints.
 
-<!-- proof-run: proofkit.Run(boreCases, stepBoreSketch) -->
+<!-- proof-run: proofkit3d.RunSolid(solidCases, stepMeshRotate, assertMeshRotate) -->
 
-**From:** `spec/bevelgear/instructions.md` L635–636
+**From:** `spec/bevelgear/instructions.md` L342–350, L711–713;
+`.claude/skills/generate-gear/PLAYBOOK.md` L708–713
 
-## S28 `[GO]` Bore through-cut, per gear
+## 26 `[PROSE]` Move the finished bodies into the gear component
 
-Extrude-cut the bore circle as a SYMMETRIC through-cut restricted to this gear's body:
-`createInput(profile, operation)` on the Design component's `extrudeFeatures` with the cut
-operation, `setSymmetricExtent(distance, isFullLength)` with `createByReal(2 * coneDistance)` and
-false — so that distance is the half-length PER SIDE, generously past any face width — and the
-input's `participantBodies` set to this Gear Body alone. Pass no taper argument
-(`[PB-THROUGH-CUT]`). Then `add(input)`.
+Relocate each finished body with `body.moveToComponent(targetOccurrence)`, which preserves world
+position and needs no activation (`[PB-NO-CROSS-SIBLING]`). Every feature ran in Design because
+Fusion rejects cross-sibling sketch and project references; this is the step that puts the result
+where the user sees it.
 
-The proof function is `stepCutBore`. It cuts the bore cylinder from a cylinder standing in for the
-gear body, and measures the bored volume against the analytic annulus and that the bore stays
-inside the root radius. The stand-in is the same one S25 uses, for the same reason.
+No harness reaches this step, and no substitute was attempted, because neither harness has a
+component tree at all: `decad.Document` owns a flat list of bodies with no owner and no assembly
+context, so there is no relocation to perform and nothing that would change if one were. The
+substitutes elsewhere in this list all replace one geometric operation with another that reaches the
+same solid; there is no solid here.
 
-<!-- proof-run: proofkit3d.RunSolid(boreSolidCases, stepCutBore, assertCutBore) -->
+**From:** `spec/bevelgear/instructions.md` L659–667, L711–713;
+`.claude/skills/generate-gear/PLAYBOOK.md` L747–752
 
-**From:** `spec/bevelgear/instructions.md` L635–636
+## 27 `[PROSE]` Cleanup
 
-## S29 `[GO]` Meshing rotation, per gear
+Call `hide_construction_geometry(bevelComponent)`. It walks the Bevel Gear component tree
+recursively, deduping by `entityToken`, and sets `isLightBulbOn = False` on every sketch,
+construction plane and construction axis — construction planes and axes are **not** hidden by
+`isVisible` (`[PB-HIDE-AFTER-USE]`, `[PB-TREE-CLEANUP]`, `[BEVEL-F-CLEANUP]`). Do not re-implement
+the walk, and do not add a sketch-only mode or a per-mode guard: bevel always builds solids. Only the
+two finished gear bodies are left visible.
 
-Do this HERE, in the Design component, before the body is moved out. A construction axis cannot be
-added in the moved-out gear component, so the rotation has to use the profile edge's world geometry
-while the body is still in Design.
+No harness reaches this step, and no substitute was attempted: the step changes no geometry at all.
+Its whole effect is `isLightBulbOn` on sketches, planes and axes, and neither harness has a
+visibility flag to set — `sketch.Sketch` and `decad.Body` carry no such property, so there is nothing
+a substitute could build that would differ from what is already built.
 
-Rotate the DRIVING body by 180 degrees over the Driving Gear Teeth Number — half a tooth pitch —
-about its own shaft axis, with `rotate_body_about_edge(component, body, edge, angleRad)`, the
-framework helper, which takes the rotation axis and origin from the B-to-I profile edge's WORLD
-endpoints (`[PB-MOVE-ROTATE]`). Without the offset a driving tooth and a pinion tooth would both
-sit at the axial-plane crossing and visually collide; with it a driving valley sits where the
-pinion tooth crosses, which is the interlocked meshing look.
-
-The pinion additionally gets `_pinionMeshPhase(pinionTeeth)`, which returns
-`_PINION_MESH_PHASE_TEETH * 2 * pi / pinionTeeth` in radians. `_PINION_MESH_PHASE_TEETH` is 0 by
-default and 0 for every straight bevel: the spiral build leaves the mid-face section unrotated, so
-the pinion already meshes where the straight tooth did.
-
-The proof function is `stepMeshRotate`. It measures that the rotation moves the body's azimuth by
-exactly the phase and leaves its radius alone, and that the phase is half a tooth pitch for the
-driving gear and zero for the pinion.
-
-<!-- proof-run: proofkit3d.RunSolid(meshCases, stepMeshRotate, assertMeshRotate) -->
-
-**From:** `spec/bevelgear/instructions.md` L637–639, `spec/bevelgear/instructions.md` L260–267
-
-## S30 `[PROSE]` Move the finished bodies into the gear component
-
-Relocate each finished gear body into its own `{gearLabel} Gear` component with
-`moveToComponent(target)`, which preserves world position and needs no activation. Every feature
-above ran in Design because Fusion rejects cross-sibling sketch and project calls even when the
-target is activated or the entities are wrapped in assembly-context proxies
-(`[PB-NO-CROSS-SIBLING]`); the visible end state is identical.
-
-`[PROSE]`: relocating a body between components changes no geometry, and neither harness has
-components for it to change nothing in.
-
-**From:** `spec/bevelgear/instructions.md` L593–594, `spec/bevelgear/instructions.md` L579–592
-
-## S31 `[PROSE]` Hide the construction geometry
-
-Call `hide_construction_geometry(component)` on the Bevel Gear component. The framework helper
-walks the component tree recursively, dedupes by `entityToken`, and sets `isLightBulbOn` to false
-on every sketch, construction plane and construction axis. Construction planes and axes are NOT
-hidden by `isVisible` — that is the property for sketches, and crossing the two leaves the planes
-on screen (`[PB-TREE-CLEANUP]`, `[BEVEL-F-CLEANUP]`). There is no
-sketch-only mode and no per-mode guard: bevel always builds solids. Leave only the two finished
-gear bodies visible.
-
-`[PROSE]`: visibility is a display property of entities neither harness has.
-
-**From:** `spec/bevelgear/instructions.md` L641–644, `spec/bevelgear/fusion.md` L151–156
+**From:** `spec/bevelgear/instructions.md` L721–723; `spec/bevelgear/fusion.md` L151–156;
+`.claude/skills/generate-gear/PLAYBOOK.md` L607–613, L743–746

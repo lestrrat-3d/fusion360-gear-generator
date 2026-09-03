@@ -1,313 +1,259 @@
 package bevelgear_test
 
 import (
-	"context"
 	"math"
 	"testing"
 
-	"github.com/lestrrat-3d/decad"
-	"github.com/lestrrat-3d/fusion360-gear-generator/proof/involute"
-	"github.com/lestrrat-3d/r3"
+	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit"
+	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit3d"
 	"github.com/lestrrat-3d/sketch"
-	"github.com/lestrrat-3d/units"
 )
 
-// The solid proofs work in ONE frame per gear: the apex at the world origin, +X
-// along that gear's shaft axis, +Y the in-axial-plane perpendicular on the side
-// the gear's material lies, +Z out of the axial plane. Every §2 point maps into
-// it, the shaft-axis rotations are rotations about +X, and a point's cone
-// distance is its projection on the root cone element. It is the same figure §2
-// draws, read in the frame the body operations use.
-type frame struct {
-	apex, u, v vec
-}
-
-// gearFrame builds one gear's shaft frame from the solved lattice.
-func gearFrame(l lattice, pinion bool) frame {
-	shaft := unit(sub(l.A, l.Apex))
-	off := l.C
-	if !pinion {
-		shaft = unit(sub(l.B, l.Apex))
-		off = l.D
-	}
-	perp := left(shaft)
-	if dot(perp, sub(off, l.Apex)) < 0 {
-		perp = scale(perp, -1)
-	}
-	return frame{apex: l.Apex, u: shaft, v: unit(perp)}
-}
-
-// at maps an axial-plane point into the shaft frame: x is its station along the
-// shaft, y its perpendicular offset.
-func (f frame) at(p vec) vec {
-	d := sub(p, f.apex)
-	return vec{dot(d, f.u), dot(d, f.v)}
-}
-
-// dir maps an axial-plane direction into the shaft frame.
-func (f frame) dir(d vec) vec { return vec{dot(d, f.u), dot(d, f.v)} }
-
-// gearGeometry is everything the solid steps read off the lattice for one gear,
-// already in that gear's shaft frame.
-type gearGeometry struct {
-	frame    frame
-	teeth    float64 // the real tooth number this gear is patterned to
-	dims     involute.Dimensions
-	virtual  int
-	centre   vec // the tooth-centre point K' or L'
-	hat      vec // the dedendum direction, C->K' or D->L'
-	coneVec  vec // the root cone element, unit apex->C or apex->D
-	toe      vec // M or O
-	heel     vec // C or D
-	toeMid   vec // midpoint of the toe edge M->N or O->P
-	heelMid  vec // midpoint of the heel edge C->H or D->J
-	gamma    float64
-	rTip     float64 // the section's tip radius, straight from the virtual gear
-	apexDist float64 // perpendicular distance from the apex to the tooth plane
-}
-
-// gearOf reads one gear's geometry out of the solved lattice.
-func gearOf(p params) gearGeometry {
-	l := solveLattice(p)
-	f := gearFrame(l, p.Pinion)
-	_, gamma, teeth := toothOf(p)
-	g := gearGeometry{
-		frame:   f,
-		teeth:   p.DrivingTeeth,
-		virtual: teeth,
-		dims:    involute.Derive(p.Module, float64(teeth), pressureAngle),
-		centre:  f.at(l.LPrime),
-		hat:     f.dir(l.DHat),
-		coneVec: unit(f.at(l.D)),
-		toe:     f.at(l.O),
-		heel:    f.at(l.D),
-		toeMid:  f.at(scale(add(l.O, l.P), 0.5)),
-		heelMid: f.at(scale(add(l.D, l.J), 0.5)),
-		gamma:   gamma,
-	}
-	if p.Pinion {
-		g.teeth = p.PinionTeeth
-		g.centre = f.at(l.KPrime)
-		g.hat = f.dir(l.CHat)
-		g.coneVec = unit(f.at(l.C))
-		g.toe = f.at(l.M)
-		g.heel = f.at(l.C)
-		g.toeMid = f.at(scale(add(l.M, l.N), 0.5))
-		g.heelMid = f.at(scale(add(l.C, l.H), 0.5))
-	}
-	g.rTip = g.dims.Tip
-	normal := vec{g.hat.Y, -g.hat.X}
-	g.apexDist = dot(scale(g.centre, -1), normal)
-	return g
-}
-
-// distAlong is a shaft-frame point's cone distance: its projection on the root
-// cone element measured from the apex.
-func (g gearGeometry) distAlong(p vec) float64 { return dot(p, g.coneVec) }
-
-// section returns one cross-section of the straight tooth, in world 3-D, at the
-// tooth-plane parameter t. t = 1 is the tooth profile itself and t = 0 the apex,
-// so the section is the drawn tooth scaled by t about the apex.
+// THE PROFILE SKETCH IS DRAWN IN ITS OWN GEAR'S AXIAL FRAME. Fusion draws both
+// hexagons on the one Gear Profiles plane, at the world positions §2 solved, and
+// revolves each about its own first edge. The frame used below puts that first
+// edge on the sketch's x axis, which is a rigid motion of the same plane — every
+// length, angle and area is the one §2 solved, and the revolve axis is then the
+// sketch's own x axis. What it costs: nothing measurable, but the proof does not
+// show that the two hexagons coexist in one plane, which is why the §2 step
+// checks both of them there.
 //
-// The outline is the polygon through the same involute samples the tooth sketch
-// draws its two fitted splines from, closed at the root by a chord. A loft ruled
-// between two spline sections and one ruled between the polygons through their
-// samples differ only by the sampling, and the polygon keeps every section a
-// single closed loop the harness will loft and extrude.
-func (g gearGeometry) section(t float64) []r3.Vec {
-	leftPts, rightPts := involute.Flanks(g.dims.Base, g.dims.Tip, g.dims.Pitch,
-		float64(g.virtual), involuteSteps, math.Pi)
-	outline := make([]involute.Pt, 0, 2*involuteSteps)
-	for i := len(leftPts) - 1; i >= 0; i-- {
-		outline = append(outline, leftPts[i])
-	}
-	outline = append(outline, rightPts...)
+// The substitutions the SOLID steps make, and what each costs, are set out at
+// the top of frustum_test.go, bodies_test.go and segments_test.go, next to the
+// steps that make them.
 
-	origin := scale(g.centre, t)
-	out := make([]r3.Vec, 0, len(outline))
-	for _, pt := range outline {
-		plane := add(origin, scale(g.hat, t*pt.X))
-		out = append(out, r3.NewVec(plane.X, plane.Y, t*pt.Y))
-	}
-	return out
+// solidCases sweeps the pairs and both gears through the solid chain.
+//
+// The two ratio directions are both here because the frustum's binding
+// dimension — the Maximum Face Width — is set by whichever gear is smaller, and
+// because the conical trims and the spiral both behave differently once the two
+// cone angles diverge. The bore branch is swept on both sides: enabled with the
+// auto diameter, enabled with a given one, and disabled.
+var solidCases = []proofkit3d.Case{
+	{Name: "default_31_31_pinion", Params: defaultParams()},
+	{Name: "default_31_31_driving", Params: with(defaultParams(), pGear, 1.0)},
+	{Name: "ratio_31_17_pinion", Params: with(defaultParams(), pPinionTeeth, 17.0)},
+	{Name: "ratio_31_17_driving", Params: with(defaultParams(), pPinionTeeth, 17.0, pGear, 1.0)},
+	{Name: "ratio_17_31_pinion", Params: with(defaultParams(), pDrivingTeeth, 17.0)},
+	{Name: "module_2_19_13_driving", Params: with(defaultParams(),
+		pModule, 2.0, pDrivingTeeth, 19.0, pPinionTeeth, 13.0, pGear, 1.0)},
+	{Name: "shaft_angle_35deg_pinion", Params: with(defaultParams(), pShaftAngle, deg(35))},
+	{Name: "shaft_angle_140deg_driving", Params: with(defaultParams(),
+		pShaftAngle, deg(140), pGear, 1.0)},
+	{Name: "minimum_teeth_4_4_pinion", Params: with(defaultParams(),
+		pDrivingTeeth, 4.0, pPinionTeeth, 4.0)},
+	{Name: "given_bore_diameter", Params: with(defaultParams(), pPinionBore, 4.0)},
+	{Name: "bore_disabled", Params: with(defaultParams(), pBoreEnable, 0.0)},
 }
 
-// rotateAboutShaft turns a section about the shaft axis, which is +X.
-func rotateAboutShaft(pts []r3.Vec, angle float64) []r3.Vec {
-	s, c := math.Sin(angle), math.Cos(angle)
-	out := make([]r3.Vec, 0, len(pts))
-	for _, p := range pts {
-		out = append(out, r3.NewVec(p.X, p.Y*c-p.Z*s, p.Y*s+p.Z*c))
-	}
-	return out
+// profileCases is solidCases as a sketch table: the hexagon has to close and be
+// fully constrained for every pair either gear can be built from.
+var profileCases = []proofkit.Case{
+	{Name: "default_31_31_pinion", Params: defaultParams()},
+	{Name: "default_31_31_driving", Params: with(defaultParams(), pGear, 1.0)},
+	{Name: "ratio_31_17_pinion", Params: with(defaultParams(), pPinionTeeth, 17.0)},
+	{Name: "ratio_31_17_driving", Params: with(defaultParams(), pPinionTeeth, 17.0, pGear, 1.0)},
+	{Name: "shaft_angle_35deg_driving", Params: with(defaultParams(),
+		pShaftAngle, deg(35), pGear, 1.0)},
+	{Name: "shaft_angle_140deg_pinion", Params: with(defaultParams(), pShaftAngle, deg(140))},
+	{Name: "minimum_teeth_4_4_driving", Params: with(defaultParams(),
+		pDrivingTeeth, 4.0, pPinionTeeth, 4.0, pGear, 1.0)},
+	{Name: "face_width_at_the_maximum_pinion", Params: with(defaultParams(),
+		pFaceWidth, atMaxFaceWidth)},
+	{Name: "base_heights_at_their_minima_driving", Params: with(defaultParams(),
+		pDrivingHeight, atMinBaseHeight, pPinionHeight, atMinBaseHeight, pGear, 1.0)},
 }
 
-// scaleAbout shrinks a section uniformly toward base, which is the crown's
-// uniform scale about a point on the heel face's root edge.
-func scaleAbout(pts []r3.Vec, base r3.Vec, factor float64) []r3.Vec {
-	out := make([]r3.Vec, 0, len(pts))
-	for _, p := range pts {
-		out = append(out, r3.NewVec(
-			base.X+(p.X-base.X)*factor,
-			base.Y+(p.Y-base.Y)*factor,
-			base.Z+(p.Z-base.Z)*factor))
-	}
-	return out
+// hexagonOf resolves one case into the six frustum corners in the gear's own
+// axial frame, in the spec's draw order.
+func hexagonOf(t testing.TB, params map[string]float64) (pair, gearSide, []vec2) {
+	t.Helper()
+	p := resolveSentinels(t, params)
+	q := pairOf(t, p)
+	side := q.gearOf(p)
+	return q, side, q.hexagon(q.build(), side)
 }
 
-// planarSection commits one planar loop of world points as a sketch on its own
-// plane, as a closed polygon with every vertex fixed once the lines exist.
-func planarSection(w *sketch.World, pts []r3.Vec) (*sketch.Sketch, error) {
-	origin := pts[0]
-	u := pts[1].Sub(origin)
-	var v r3.Vec
-	for _, p := range pts[2:] {
-		cand := p.Sub(origin)
-		if u.Cross(cand).Len() > 1e-9*u.Len()*cand.Len() {
-			v = cand
-			break
+// stepProfileSketch draws one gear's `{gearLabel} Profile` sketch: the six §2
+// vertices recreated as new points and the closed hexagon drawn on them.
+//
+// The recipe is [PB-PROJECT-NOT-FIXED]'s recreate-share-fix: recreate each
+// vertex at its exact world-mapped position, draw the six lines SHARING those
+// points, and fix the lines' endpoints only AFTER the lines exist. Fixing a bare
+// point before it is consumed as an endpoint does not leave the sketch fully
+// constrained, so the order is the constraint. What the fixing buys is a first
+// edge with a trustworthy worldGeometry ([PB-WORLDGEO-CONSTRAINED]) — the edge
+// the revolve, the pattern, the bore plane and the meshing rotation all take as
+// the shaft axis.
+//
+// <!-- proof-run: proofkit.Run(profileCases, stepProfileSketch) -->
+func stepProfileSketch(t testing.TB, s *sketch.Sketch, params map[string]float64) {
+	q, side, hex := hexagonOf(t, params)
+
+	proofkit.Step(t, "%s: recreate the six §2 vertices as new points", side.label)
+	pts := make([]*sketch.Point, len(hex))
+	names := []string{"A/B", "G/I", "H/J", "C/D", "M/O", "N/P"}
+	for i, v := range hex {
+		pts[i] = s.CreatePoint(v.X, v.Y)
+		pts[i].SetName(names[i])
+	}
+
+	proofkit.Step(t, "draw the closed hexagon sharing those points, in the spec's draw order")
+	lines := make([]*sketch.Line, len(pts))
+	for i := range pts {
+		lines[i] = s.CreateLine(pts[i], pts[(i+1)%len(pts)])
+	}
+
+	proofkit.Step(t, "fix the endpoints, after the lines exist and not before")
+	for _, l := range lines {
+		s.Fix(l.Start)
+		s.Fix(l.End)
+	}
+
+	solve(t, s)
+
+	proofkit.Step(t, "the one loop the revolve takes [PB-SINGLE-PROFILE]")
+	profiles := s.Profiles()
+	if len(profiles) != 1 {
+		t.Fatalf("%s: the Profile sketch closes %d regions; one profile sketch per gear means it "+
+			"holds exactly this one hexagon loop", side.label, len(profiles))
+	}
+	if !profiles[0].Valid {
+		t.Fatalf("%s: the hexagon is not an extrudable profile", side.label)
+	}
+	if got := countCurves(profiles[0]); got != (curveCounts{lines: 6}) {
+		t.Errorf("%s: the hexagon loop is %+v, not the six lines it is drawn from", side.label, got)
+	}
+	if got, want := profiles[0].Area, math.Abs(shoelace(hex)); math.Abs(got-want) > 1e-7 {
+		t.Errorf("%s: the loop encloses %.9f against the §2 hexagon's %.9f", side.label, got, want)
+	}
+
+	proofkit.Step(t, "the first edge is the shaft axis, and the profile lies on one side of it")
+	if math.Abs(pts[0].Y()) > 1e-9 || math.Abs(pts[1].Y()) > 1e-9 {
+		t.Errorf("%s: the first edge runs off the shaft axis, from y %.9f to y %.9f",
+			side.label, pts[0].Y(), pts[1].Y())
+	}
+	for i := 2; i < len(pts); i++ {
+		if pts[i].Y() <= 0 {
+			t.Errorf("%s: corner %s sits at y %.9f; the revolved profile must not cross its axis "+
+				"[PB-REVOLVE]", side.label, names[i], pts[i].Y())
 		}
 	}
-	plane, err := w.CreatePlaneFromPoints(origin, origin.Add(u), origin.Add(v))
-	if err != nil {
-		return nil, err
+
+	proofkit.Step(t, "what the revolve and the bore that follow it are for")
+	solved := make([]vec2, len(pts))
+	for i, p := range pts {
+		solved[i] = at(p)
 	}
-	s, err := w.CreateSketch(plane)
-	if err != nil {
-		return nil, err
-	}
-	f, err := plane.Frame()
-	if err != nil {
-		return nil, err
-	}
-	handles := make([]*sketch.Point, 0, len(pts))
-	for _, p := range pts {
-		local := f.ToLocal(p)
-		handles = append(handles, s.CreatePoint(local.X, local.Y))
-	}
-	for i := range handles {
-		s.CreateLine(handles[i], handles[(i+1)%len(handles)])
-	}
-	for _, h := range handles {
-		s.Fix(h)
-	}
-	if _, err := s.Solve(context.Background()); err != nil {
-		return nil, err
-	}
-	return s, nil
+	assertRevolveAndBore(t, q, side, solved)
 }
 
-// loftBetween lofts a solid between two planar sections.
-func loftBetween(doc *decad.Document, a, b []r3.Vec) (*decad.Body, error) {
-	w := sketch.NewWorld()
-	s0, err := planarSection(w, a)
-	if err != nil {
-		return nil, err
-	}
-	s1, err := planarSection(w, b)
-	if err != nil {
-		return nil, err
-	}
-	return doc.Loft(s0, s0.Profiles()[0], s1, s1.Profiles()[0])
-}
-
-// mustVolume reads a body's volume in cubic millimetres.
-func mustVolume(t *testing.T, b *decad.Body) float64 {
-	t.Helper()
-	m, err := b.Volume()
-	if err != nil {
-		t.Fatalf("volume: %v", err)
-	}
-	v, err := m.Value.In(units.CubicMillimeter)
-	if err != nil {
-		t.Fatalf("volume units: %v", err)
-	}
-	return v
-}
-
-// centroidOf reads a body's centroid in the shaft frame.
-func centroidOf(t *testing.T, b *decad.Body) r3.Vec {
-	t.Helper()
-	c, err := b.Centroid()
-	if err != nil {
-		t.Fatalf("centroid: %v", err)
-	}
-	return c.Value
-}
-
-// transverse is the tooth's outline seen ALONG the shaft axis: the heel section's
-// points projected onto the plane through their mean station, perpendicular to
-// the shaft.
+// pappusVolume is the exact volume a closed section sweeps in a full turn about
+// the sketch's x axis: 2*pi times the section's first moment about that axis.
 //
-// It is what the pattern, the combine and the bore stand on. Those three steps
-// are decided by the tooth's angular footprint about the shaft, the tooth count
-// and the bore diameter, none of which the taper changes, and decad's booleans
-// take a prism where they refuse a loft — its own message names prism, cup and
-// faceted as the payloads it tessellates. So the proof extrudes this footprint
-// where the gear extrudes nothing, and what that costs is the taper: the prism
-// stands where the tapered tooth stands and reaches the same radii, but its
-// section does not shrink toward the apex.
-func (g gearGeometry) transverse() []r3.Vec {
-	pts := g.section(1)
-	mean := 0.0
-	for _, p := range pts {
-		mean += p.X
+// It is exact for a polygon, so the Gear Body the revolve step builds has a
+// closed-form volume even though no solid gate here can measure one.
+func pappusVolume(pts []vec2) float64 {
+	moment := 0.0
+	for i := range pts {
+		j := (i + 1) % len(pts)
+		cross := pts[i].X*pts[j].Y - pts[j].X*pts[i].Y
+		moment += cross * (pts[i].Y + pts[j].Y)
 	}
-	mean /= float64(len(pts))
-	out := make([]r3.Vec, 0, len(pts))
-	for _, p := range pts {
-		out = append(out, r3.NewVec(mean, p.Y, p.Z))
-	}
-	return out
+	return math.Abs(2 * math.Pi * moment / 6)
 }
 
-// radialExtent returns the smallest and largest distance from the shaft axis over
-// a set of world points.
-func radialExtent(pts []r3.Vec) (lo, hi float64) {
-	lo, hi = math.Inf(1), 0
-	for _, p := range pts {
-		r := math.Hypot(p.Y, p.Z)
-		lo, hi = math.Min(lo, r), math.Max(hi, r)
+// minRadius and maxRadius are the frustum's smallest and largest distances from
+// the shaft axis over the corners that are off it. The first two corners sit on
+// the axis by construction and are not part of either.
+func minRadius(hex []vec2) float64 {
+	best := math.Inf(1)
+	for i := 2; i < len(hex); i++ {
+		best = math.Min(best, hex[i].Y)
 	}
-	return lo, hi
+	return best
 }
 
-// angularExtent returns the half-width of a set of world points about the shaft
-// axis, in radians.
-func angularExtent(pts []r3.Vec) float64 {
-	widest := 0.0
-	for _, p := range pts {
-		widest = math.Max(widest, math.Abs(math.Atan2(p.Z, p.Y)))
+func maxRadius(hex []vec2) float64 {
+	best := 0.0
+	for i := 2; i < len(hex); i++ {
+		best = math.Max(best, hex[i].Y)
 	}
-	return widest
+	return best
 }
 
-// extrudeAlongShaft extrudes a section that lies in a plane perpendicular to the
-// shaft, by length along the shaft.
-func extrudeAlongShaft(doc *decad.Document, pts []r3.Vec, length float64) (*decad.Body, error) {
-	w := sketch.NewWorld()
-	s, err := planarSection(w, pts)
-	if err != nil {
-		return nil, err
+// assertRevolveAndBore reads off the section the two quantities the steps below
+// it consume. Both of those steps have gates of their own — stepRevolveGearBody
+// builds the blank as the bands its edges sweep and stepBoreCut draws the bore's
+// result — so this is not standing in for either; it catches a hexagon drawn on
+// the wrong corners here, on the sketch, as well as there, on the solid.
+//
+// THE REVOLVE. The Gear Body's volume is the section's Pappus volume, and the
+// two cone faces the conical trim later searches for are the ones the toe and
+// heel edges sweep. Both are read off the hexagon this step gated, so a hexagon
+// drawn on the wrong corners misses them.
+//
+// THE BORE. The bore diameter resolves to this gear's own input when it is
+// non-zero and to its Pitch Diameter / 4 when it is not, and the resulting
+// cylinder has to stay inside the frustum's smallest radius, or the through-cut
+// would break the body into pieces rather than bore it.
+func assertRevolveAndBore(t testing.TB, q pair, side gearSide, hex []vec2) {
+	t.Helper()
+	if v := pappusVolume(hex); v <= 0 {
+		t.Errorf("%s: the section sweeps a volume of %.9f", side.label, v)
 	}
-	return doc.Extrude(s, s.Profiles()[0],
-		decad.Distance{D: units.Millimeters(math.Abs(length)), Dir: decad.Along})
+	assertSweptCone(t, side.label, "toe", hex[4], hex[5])
+	assertSweptCone(t, side.label, "heel", hex[2], hex[3])
+
+	if !q.boreEnable {
+		return
+	}
+	if got, want := side.bore, side.pitchDia/4; !closeTo(got, want, 1e-12) {
+		// A given diameter is used as given; only a zero one auto-resolves.
+		if side.label == "Pinion" && q.pinionBore == got {
+			return
+		}
+		if side.label == "Driving" && q.drivingBore == got {
+			return
+		}
+		t.Errorf("%s: the bore diameter resolved to %.9f, neither the given value nor the "+
+			"Pitch Diameter / 4 = %.9f", side.label, got, want)
+	}
+	// The blank tapers to zero radius at its toe corner A/B, which sits ON the
+	// shaft axis, so a bore of any diameter necessarily truncates the toe end;
+	// that much is ordinary for a bevel blank. What would leave nothing at all is
+	// a bore wider than the blank ever gets, and NOTHING IN THE SPEC BOUNDS THE
+	// BORE DIAMETER AGAINST THE BLANK. The default Pitch Diameter / 4 clears the
+	// widest radius comfortably on every case in this table, but it eats a real
+	// share of the face: the numbers are logged so the margin is visible rather
+	// than assumed.
+	r := side.bore / 2
+	if r >= maxRadius(hex) {
+		t.Errorf("%s: the bore radius %.9f is at or beyond the blank's widest radius %.9f, so the "+
+			"through-cut would consume the whole Gear Body", side.label, r, maxRadius(hex))
+	}
+	t.Logf("%s: a bore radius of %.6f against a blank running %.6f to %.6f", side.label, r,
+		minRadius(hex), maxRadius(hex))
 }
 
-// diskSection returns a circle of the given radius, centred on the shaft axis at
-// the given station, as a closed polygon fine enough to carry the radius.
-func diskSection(station, radius float64, sides int) []r3.Vec {
-	out := make([]r3.Vec, 0, sides)
-	for i := range sides {
-		a := 2 * math.Pi * float64(i) / float64(sides)
-		out = append(out, r3.NewVec(station, radius*math.Cos(a), radius*math.Sin(a)))
+// assertSweptCone checks that one hexagon edge really sweeps a cone, and names
+// its half-angle — the angle the conical-cut step's face search has to match.
+func assertSweptCone(t testing.TB, label, what string, from, to vec2) {
+	t.Helper()
+	rise := math.Abs(to.Y - from.Y)
+	run := math.Abs(to.X - from.X)
+	if rise < 1e-12 {
+		t.Errorf("%s: the %s edge is parallel to the shaft axis, so it sweeps a cylinder and the "+
+			"conical cut has no cone face to find [PB-FACE-BY-MIDPOINT]", label, what)
+		return
 	}
-	return out
-}
-
-// rotationAboutShaft is the free-move matrix the meshing rotations and the
-// circular pattern are built on: a rotation about the shaft axis through the
-// apex.
-func rotationAboutShaft(angle float64) (r3.Transform, error) {
-	return r3.RotationAround(r3.NewVec(0, 0, 0), r3.NewVec(1, 0, 0), units.Radians(angle))
+	if run < 1e-12 {
+		t.Errorf("%s: the %s edge is perpendicular to the shaft axis, so it sweeps a flat annulus "+
+			"rather than a cone", label, what)
+		return
+	}
+	half := math.Atan2(rise, run)
+	if half <= 0 || half >= math.Pi/2 {
+		t.Errorf("%s: the %s cone's half-angle is %.9f rad", label, what, half)
+	}
 }
