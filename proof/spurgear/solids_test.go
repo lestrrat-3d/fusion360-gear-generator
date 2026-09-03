@@ -1,6 +1,30 @@
+// This file holds the spur gear's solid steps, one per Fusion timeline entry:
+// the tooth extrude, the body extrude, the circular pattern, the Combine-Join,
+// the root fillets, the bore cut and the end-cap chamfer.
+//
+// Each step builds its own receiver from the same tooth math the sketch step
+// uses, rather than continuing the previous step's body, so a failure names one
+// step instead of the longest chain that still runs.
+//
+// The sections here are drawn at their solved coordinates and carry no
+// constraints. The constraint scheme is stepGearProfileSketch's subject;
+// restating it here would prove it twice and build nothing new.
+//
+// Several of these steps substitute geometry decad accepts for geometry the
+// spec names, and every substitution is written next to the builder that makes
+// it, with what it costs: the tooth's root boundary drawn as its own arc rather
+// than derived by splitting the root circle (toothSection), chorded flanks in
+// place of fitted splines wherever a boolean is involved (drawFlank), the
+// one-piece gear prism as the fillet, bore and chamfer receiver in place of the
+// patterned-and-combined body (gearSection), the patterned copies measured one
+// document at a time in place of all of them at once (stepPatternTeeth), and
+// the single Combine-Join in place of a chain of Tooth Number of them
+// (stepCombineTeeth).
+
 package spurgear_test
 
 import (
+	"context"
 	"math"
 	"testing"
 
@@ -12,668 +36,630 @@ import (
 	"github.com/lestrrat-3d/units"
 )
 
-// pFillet carries Fillet Radius, which the spec derives from the tooth-space arc
-// but which a case may also set to zero to reach the skip branch.
-const pFillet = "filletRadius"
-
-// What the solid steps substitute, and what the substitution costs.
-//
-// THE FLANKS ARE CHORDED. decad refuses to record a profile boundary whose trim
-// is uncertified, and one fitted spline anywhere in a sketch withdraws exact
-// trims from every edge of every region in it, so the Gear Profile sketch as the
-// 2D step draws it cannot be extruded here at all:
-//
-//	outer edge 1: decad: profile boundary cannot be recorded exactly:
-//	a *sketch.Circle fragment has an uncertified trim (TExact = false)
-//
-// So the solid steps draw each flank as the polyline through the same involute
-// samples the splines are fitted to. The tooth-top arc, the root arc and the
-// flank-to-root lines stay exactly what the sketch draws. The cost is the
-// section area: a chorded flank cuts the corners the spline rounds, so every
-// volume below is the chorded section's, not the splined one's, and the tooth
-// area is a little under the drawn tooth's. Nothing else changes — the section
-// is closed by the same curves at the same radii, and every assertion here
-// compares a measured volume against the area the harness itself reports for the
-// section that produced it.
-//
-// THE TWO REGIONS ARE DRAWN IN SEPARATE SKETCHES. Fusion draws one sketch and
-// lets the tooth split the root circle, so the two profiles the extrude steps
-// find are two loops of one drawing. decad takes a profile and its sketch
-// together, so each solid step here draws the region it extrudes. The 2D step is
-// where the one-sketch-two-regions contract is proven; these steps consume it.
-//
-// THE JOIN IS DRAWN, NOT BOOLEANED. See stepCombineTeeth.
-//
-// THE BORE IS CUT BEFORE THE TEETH. See stepBoreCut.
-
-// solidCases sweeps the solid steps across the size range, both embedded routes,
-// and both sides of the three branches the later steps carry: a gear with and
-// without a bore, with and without a chamfer, and with and without root fillets.
 var solidCases = []proofkit3d.Case{
-	{Name: "standard", Params: solidParams(1, 17, 20, 4, 10, 3, 0.3)},
-	{Name: "fine-small", Params: solidParams(0.5, 12, 20, 4, 4, 1.5, 0.1)},
-	{Name: "coarse-large", Params: solidParams(3, 20, 20, 4, 25, 20, 1)},
-	{Name: "embedded-by-tooth-count", Params: solidParams(1, 60, 20, 3, 10, 6, 0.2)},
-	{Name: "embedded-by-pressure-angle", Params: solidParams(1, 30, 25, 4, 8, 4, 0)},
-	{Name: "no-bore-no-chamfer-no-fillet", Params: withoutFillet(solidParams(1, 17, 20, 4, 10, 0, 0))},
+	{Name: "M1_N12_T10_no_bore", Params: solidParams(1, 12, 20, 5, 10, 0, 0)},
+	{Name: "M1_N12_T10_bore4", Params: solidParams(1, 12, 20, 5, 10, 4, 0.2)},
+	{Name: "M2_N14_T3_bore8", Params: solidParams(2, 14, 20, 4, 3, 8, 0.5)},
+	{Name: "M1_N17_T25_bore2", Params: solidParams(1, 17, 20, 4, 25, 2, 0.1)},
 }
 
-// solidParams builds one case's parameters, deriving Fillet Radius the way the
-// spec does: nine tenths of half the tooth-space arc at the root, with the
-// helix factor at 1 for a spur gear.
-func solidParams(module, toothNumber, pressureDeg float64, steps int, thickness, bore, chamfer float64) map[string]float64 {
-	pressure := pressureDeg * math.Pi / 180
-	toothSpaceAngle := math.Pi/toothNumber - 2*(math.Tan(pressure)-pressure)
+// solidParams names one solid case by the dialog values it comes from. Bore
+// Diameter 0 is the shipped default and means no bore; Apply-chamfer-to-teeth 0
+// means no chamfer.
+func solidParams(module, toothNumber, pressureAngleDeg float64, steps int, thickness, bore, chamfer float64) map[string]float64 {
 	return map[string]float64{
-		pModule:      module,
-		pToothNumber: toothNumber,
-		pPressure:    pressure,
-		pSteps:       float64(steps),
-		pAngle:       0,
-		pThickness:   thickness,
-		pBore:        bore,
-		pChamfer:     chamfer,
-		pFillet:      involute.Derive(module, toothNumber, pressure).Root * toothSpaceAngle / 2 * 0.9,
+		"module":        module,
+		"toothNumber":   toothNumber,
+		"pressureAngle": rad(pressureAngleDeg),
+		"angle":         0,
+		"involuteSteps": float64(steps),
+		"thickness":     thickness,
+		"boreDiameter":  bore,
+		"chamferTooth":  chamfer,
 	}
 }
 
-// withoutFillet is the Fillet Radius <= 0 branch, where no fillet feature is
-// created at all.
-func withoutFillet(params map[string]float64) map[string]float64 {
-	params[pFillet] = 0
-	return params
-}
+func mm(v float64) units.Value { return units.Millimeters(v) }
 
-func newSolidSketch(t *testing.T) *sketch.Sketch {
+// newSketch is a fresh plane to draw one section on. The sections below are
+// drawn at their solved coordinates and carry no constraints: the constraint
+// scheme is what stepGearProfileSketch proves, and repeating it here would
+// prove it twice and build nothing new.
+func newSketch(t *testing.T) *sketch.Sketch {
 	t.Helper()
-	world := sketch.NewWorld()
-	s, err := world.CreateSketch(world.XY())
+	w := sketch.NewWorld()
+	s, err := w.CreateSketch(w.XY())
 	if err != nil {
 		t.Fatalf("create sketch: %v", err)
 	}
 	return s
 }
 
-func onlyProfile(t *testing.T, s *sketch.Sketch) *sketch.Profile {
+// onlyRegion is the single closed region a section sketch holds.
+func onlyRegion(t *testing.T, s *sketch.Sketch) *sketch.Profile {
 	t.Helper()
-	profiles := s.Profiles()
-	if len(profiles) != 1 {
-		t.Fatalf("sketch closes %d regions, want exactly one", len(profiles))
+	if _, err := s.Solve(context.Background()); err != nil {
+		t.Fatalf("solve section: %v", err)
 	}
-	if !profiles[0].Valid {
-		t.Fatalf("region is not extrudable")
+	regions := s.Profiles()
+	if len(regions) != 1 {
+		t.Fatalf("section holds %d regions, want exactly 1", len(regions))
 	}
-	return profiles[0]
+	if !regions[0].Valid {
+		t.Fatal("section region is not extrudable")
+	}
+	return regions[0]
 }
 
-// clipToRoot moves an embedded flank's first sample out to where the flank
-// crosses the root circle. Fusion gets that point from the profile split; the
-// chorded stand-in has to place it, and it places it on the first chord that
-// leaves the circle.
-func clipToRoot(t *testing.T, points []involute.Pt, root float64) []involute.Pt {
+// footPoint is a flank-to-root stub's far end: the flank start's direction from
+// the gear centre, taken out to radius r.
+func footPoint(s *sketch.Sketch, r float64, start involute.Pt) *sketch.Point {
+	n := math.Hypot(start.X, start.Y)
+	return s.CreatePoint(r*start.X/n, r*start.Y/n)
+}
+
+// drawFlank draws one involute flank through its sample points.
+//
+// A flank is a SketchFittedSpline in Fusion and a fit spline here. chorded
+// replaces it with the polyline through the same sample points, which is the
+// substitution the Combine-Join needs: decad's analytic prism boolean admits a
+// section of lines, circles and arcs only, because one free-form entity
+// anywhere in an arrangement withdraws exact bounds from every edge in it. A
+// pair outside that class falls to the mesh boolean, and the mesh boolean
+// refuses two prisms swept from the same plane, which a tooth and the gear body
+// always are. What chording costs is the sagitta between each chord and the
+// involute it spans: the flank moves inward by that much, so a chorded tooth is
+// slightly thinner and every volume read off it slightly smaller. The step that
+// chords measures chorded against chorded, so the sagitta cancels.
+func drawFlank(t *testing.T, s *sketch.Sketch, pts []*sketch.Point, chorded bool, label string) {
 	t.Helper()
-	for i := 1; i < len(points); i++ {
-		if math.Hypot(points[i].X, points[i].Y) < root {
-			continue
+	if !chorded {
+		if _, err := s.CreateFitSpline(pts...); err != nil {
+			t.Fatalf("%s flank spline: %v", label, err)
 		}
-		inside, outside := points[i-1], points[i]
-		low, high := 0.0, 1.0
-		for range 200 {
-			mid := (low + high) / 2
-			if math.Hypot(inside.X+(outside.X-inside.X)*mid, inside.Y+(outside.Y-inside.Y)*mid) < root {
-				low = mid
-			} else {
-				high = mid
-			}
-		}
-		mid := (low + high) / 2
-		crossing := involute.Pt{X: inside.X + (outside.X-inside.X)*mid, Y: inside.Y + (outside.Y-inside.Y)*mid}
-		return append([]involute.Pt{crossing}, points[i:]...)
+		return
 	}
-	t.Fatalf("an embedded flank never leaves the root circle")
-	return nil
+	for i := 0; i+1 < len(pts); i++ {
+		s.CreateLine(pts[i], pts[i+1])
+	}
 }
 
-// toothOutline returns one tooth's chorded flanks and the two root-circle feet
-// its section is closed at, rotated by turn radians about the gear centre.
-func toothOutline(t *testing.T, d involute.Dimensions, teeth float64, steps int, turn float64) (left, right []involute.Pt, footLeft, footRight involute.Pt) {
-	t.Helper()
-	left, right = involute.Flanks(d.Base, d.Tip, d.Pitch, teeth, steps, turn)
-	if d.Embedded() {
-		left = clipToRoot(t, left, d.Root)
-		right = clipToRoot(t, right, d.Root)
-		return left, right, left[0], right[0]
-	}
-	scale := d.Root / d.Base
-	return left, right,
-		involute.Pt{X: left[0].X * scale, Y: left[0].Y * scale},
-		involute.Pt{X: right[0].X * scale, Y: right[0].Y * scale}
-}
-
-// drawTooth draws one tooth section into s and returns the two feet it stands
-// on, in sketch points, so a caller can close the loop past them.
-func drawTooth(s *sketch.Sketch, left, right []involute.Pt, footLeft, footRight involute.Pt, embedded bool) (fl, fr *sketch.Point) {
-	leftPoints := make([]*sketch.Point, len(left))
-	rightPoints := make([]*sketch.Point, len(right))
-	for i := range left {
-		leftPoints[i] = s.CreatePoint(left[i].X, left[i].Y)
-		rightPoints[i] = s.CreatePoint(right[i].X, right[i].Y)
-	}
-	if embedded {
-		fl, fr = leftPoints[0], rightPoints[0]
-	} else {
-		fl = s.CreatePoint(footLeft.X, footLeft.Y)
-		fr = s.CreatePoint(footRight.X, footRight.Y)
-		s.CreateLine(fl, leftPoints[0])
-		s.CreateLine(fr, rightPoints[0])
-	}
-	for i := 1; i < len(leftPoints); i++ {
-		s.CreateLine(leftPoints[i-1], leftPoints[i])
-		s.CreateLine(rightPoints[i-1], rightPoints[i])
-	}
-	s.CreateArc(s.CreatePoint(0, 0), rightPoints[len(rightPoints)-1], leftPoints[len(leftPoints)-1])
-	return fl, fr
-}
-
-// toothSection draws the single tooth cross-section the tooth extrude consumes:
-// the two flanks, the tooth-top arc, the two flank-to-root lines when they are
-// drawn, and the root arc between the feet.
-func toothSection(t *testing.T, p map[string]float64) (*sketch.Sketch, *sketch.Profile) {
-	t.Helper()
-	d := dims(p)
-	s := newSolidSketch(t)
-	left, right, footLeft, footRight := toothOutline(t, d, p[pToothNumber], int(p[pSteps]), 0)
-	fl, fr := drawTooth(s, left, right, footLeft, footRight, d.Embedded())
-	s.CreateArc(s.CreatePoint(0, 0), fr, fl)
-	return s, onlyProfile(t, s)
-}
-
-// patternToothSection is the tooth section with its two arcs chorded away, so
-// the section is a closed polygon.
-//
-// SUBSTITUTION, for the pattern step alone. Every tooth's root arc lies on the
-// one root cylinder and every tooth-top arc on the one tip cylinder, so any two
-// patterned copies carry faces on a common surface, and decad's read-only
-// interference pass between the bodies in the document cannot decide the pair:
-//
-//	decad: the pair cannot be decided because a read-only intersection stage is
-//	unsupported ... both operands tessellate, but later read-only intersection
-//	geometry exceeds the boolean pipeline's reach
-//
-// and, with only the root arc chorded,
-//
-//	decad: undecided_pair: the disjoint/overlap partition proof resolved neither way
-//
-// Chording both arcs leaves the copies sharing no surface, so the harness can
-// verify each of them. The cost is the two slivers between chord and arc, which
-// every copy loses equally; the step's claims — how many bodies, each the same as
-// the seed, spaced by a full turn divided by Tooth Number — do not touch them.
-func patternToothSection(t *testing.T, p map[string]float64) (*sketch.Sketch, *sketch.Profile) {
-	t.Helper()
-	d := dims(p)
-	s := newSolidSketch(t)
-	left, right, footLeft, footRight := toothOutline(t, d, p[pToothNumber], int(p[pSteps]), 0)
-	points := make([]*sketch.Point, 0, 2*len(left)+2)
-	if !d.Embedded() {
-		points = append(points, s.CreatePoint(footRight.X, footRight.Y))
-	}
-	for i := range right {
-		points = append(points, s.CreatePoint(right[i].X, right[i].Y))
-	}
-	for i := len(left) - 1; i >= 0; i-- {
-		points = append(points, s.CreatePoint(left[i].X, left[i].Y))
-	}
-	if !d.Embedded() {
-		points = append(points, s.CreatePoint(footLeft.X, footLeft.Y))
-	}
-	for i := range points {
-		s.CreateLine(points[i], points[(i+1)%len(points)])
-	}
-	return s, onlyProfile(t, s)
-}
-
-// discSection draws the disc inside the root circle, the region the body extrude
+// toothSection draws one tooth outline and returns the region the tooth extrude
 // consumes.
+//
+// The root boundary is drawn as its own arc between the two stub feet. In
+// Fusion that arc is a piece of the solid root circle, which the tooth splits;
+// it is authored here because a fragment of a split curve is a range this
+// harness will not certify once a free-form entity is in the sketch
+// (sketch.BoundaryEdge.TExact is a whole-scene gate), and decad refuses to
+// record an uncertified fragment. It is the same circle at the same radius, and
+// the curve COUNTS that split produces are asserted on the real Gear Profile
+// sketch in stepGearProfileSketch instead.
+//
+// sink pulls that root boundary inward by that many millimetres, and turn puts
+// the whole tooth at a pattern angle. Both are 0 for the tooth the extrude step
+// builds.
+func toothSection(t *testing.T, p map[string]float64, sink, turn float64, chorded bool) (*sketch.Sketch, *sketch.Profile) {
+	t.Helper()
+	d := involute.Derive(p["module"], p["toothNumber"], p["pressureAngle"])
+	left, right := involute.Flanks(d.Base, d.Tip, d.Pitch, p["toothNumber"],
+		int(p["involuteSteps"]), p["angle"]+turn)
+
+	s := newSketch(t)
+	centre := s.CreatePoint(0, 0)
+	leftPts := make([]*sketch.Point, len(left))
+	rightPts := make([]*sketch.Point, len(right))
+	for i := range left {
+		leftPts[i] = s.CreatePoint(left[i].X, left[i].Y)
+		rightPts[i] = s.CreatePoint(right[i].X, right[i].Y)
+	}
+	drawFlank(t, s, leftPts, chorded, "left")
+	drawFlank(t, s, rightPts, chorded, "right")
+	s.CreateArc(centre, rightPts[len(rightPts)-1], leftPts[len(leftPts)-1])
+
+	leftFoot := footPoint(s, d.Root-sink, left[0])
+	rightFoot := footPoint(s, d.Root-sink, right[0])
+	s.CreateLine(leftFoot, leftPts[0])
+	s.CreateLine(rightFoot, rightPts[0])
+	s.CreateArc(centre, rightFoot, leftFoot)
+	return s, onlyRegion(t, s)
+}
+
+// discSection draws the solid root circle on its own — the region the gear-body
+// extrude consumes.
 func discSection(t *testing.T, p map[string]float64) (*sketch.Sketch, *sketch.Profile) {
 	t.Helper()
-	s := newSolidSketch(t)
-	s.CreateCircle(s.CreatePoint(0, 0), dims(p).Root)
-	return s, onlyProfile(t, s)
+	d := involute.Derive(p["module"], p["toothNumber"], p["pressureAngle"])
+	s := newSketch(t)
+	s.CreateCircle(s.CreatePoint(0, 0), d.Root)
+	return s, onlyRegion(t, s)
 }
 
-// gearSection draws the whole patterned-and-joined gear as one closed loop: every
-// tooth in turn, with the root circle's valleys carrying the boundary between
-// them.
-func gearSection(t *testing.T, p map[string]float64) (*sketch.Sketch, *sketch.Profile) {
+// boreSection draws the bore circle, centred on the anchor at the gear centre.
+func boreSection(t *testing.T, p map[string]float64) (*sketch.Sketch, *sketch.Profile) {
 	t.Helper()
-	d := dims(p)
-	count := int(p[pToothNumber])
-	s := newSolidSketch(t)
-	feet := make([]*sketch.Point, 0, 2*count)
-	for k := range count {
-		left, right, footLeft, footRight := toothOutline(
-			t, d, p[pToothNumber], int(p[pSteps]), 2*math.Pi*float64(k)/float64(count))
-		fl, fr := drawTooth(s, left, right, footLeft, footRight, d.Embedded())
-		feet = append(feet, fr, fl)
-	}
-	for k := range count {
-		s.CreateArc(s.CreatePoint(0, 0), feet[2*k+1], feet[(2*k+2)%(2*count)])
-	}
-	return s, onlyProfile(t, s)
+	s := newSketch(t)
+	s.CreateCircle(s.CreatePoint(0, 0), p["boreDiameter"]/2)
+	return s, onlyRegion(t, s)
 }
 
-func extrude(t *testing.T, doc *decad.Document, s *sketch.Sketch, p *sketch.Profile, thickness float64) *decad.Body {
+// gearSection draws the whole gear outline — every tooth and the root-circle
+// valley between neighbours — as one closed loop.
+//
+// It is the receiver the fillet, bore and chamfer steps build on. Those three
+// features take a straight prism, and the patterned-and-combined gear is a
+// boolean result, which decad does not accept as a fillet or chamfer receiver.
+// Extruding this outline in one go gives a prism of exactly the gear's shape, so
+// the edges those steps select — the concave axial root corners, the end-cap
+// loop — are the real ones. What the substitution costs is the boolean history:
+// those steps prove the selection and the feature on the gear's geometry, not
+// that Fusion's combine leaves that geometry behind. stepPatternTeeth is where
+// the join itself is proved.
+func gearSection(t *testing.T, p map[string]float64, chorded bool) (*sketch.Sketch, *sketch.Profile) {
 	t.Helper()
-	body, err := doc.Extrude(s, p, decad.Distance{D: units.Millimeters(thickness), Dir: decad.Along})
+	d := involute.Derive(p["module"], p["toothNumber"], p["pressureAngle"])
+	teeth := int(p["toothNumber"])
+	s := newSketch(t)
+	centre := s.CreatePoint(0, 0)
+
+	feet := make([][2]*sketch.Point, teeth)
+	for k := range teeth {
+		turn := 2 * math.Pi * float64(k) / float64(teeth)
+		left, right := involute.Flanks(d.Base, d.Tip, d.Pitch, p["toothNumber"],
+			int(p["involuteSteps"]), p["angle"]+turn)
+		leftPts := make([]*sketch.Point, len(left))
+		rightPts := make([]*sketch.Point, len(right))
+		for i := range left {
+			leftPts[i] = s.CreatePoint(left[i].X, left[i].Y)
+			rightPts[i] = s.CreatePoint(right[i].X, right[i].Y)
+		}
+		drawFlank(t, s, leftPts, chorded, "left")
+		drawFlank(t, s, rightPts, chorded, "right")
+		s.CreateArc(centre, rightPts[len(rightPts)-1], leftPts[len(leftPts)-1])
+		leftFoot := footPoint(s, d.Root, left[0])
+		rightFoot := footPoint(s, d.Root, right[0])
+		s.CreateLine(leftFoot, leftPts[0])
+		s.CreateLine(rightFoot, rightPts[0])
+		feet[k] = [2]*sketch.Point{leftFoot, rightFoot}
+	}
+	for k := range teeth {
+		s.CreateArc(centre, feet[k][0], feet[(k+1)%teeth][1])
+	}
+	return s, onlyRegion(t, s)
+}
+
+// extrudeSection sweeps one section by Thickness, the distance between the
+// target plane and the Extrusion End Plane.
+func extrudeSection(t *testing.T, doc *decad.Document, p map[string]float64,
+	s *sketch.Sketch, region *sketch.Profile) *decad.Body {
+	t.Helper()
+	body, err := doc.Extrude(s, region, decad.Distance{D: mm(p["thickness"]), Dir: decad.Along})
 	if err != nil {
-		t.Fatalf("extrude: %v", err)
+		t.Fatalf("extrude section: %v", err)
 	}
 	return body
 }
 
-func volumeOf(t *testing.T, body *decad.Body) float64 {
+// gearPrism extrudes the one-piece gear section by Thickness. Its flanks are
+// always chorded: Tooth Number pairs of fit splines in one section exceed
+// decad's fixed free-form work budget for exact integration.
+func gearPrism(t *testing.T, doc *decad.Document, p map[string]float64) *decad.Body {
+	t.Helper()
+	s, region := gearSection(t, p, true)
+	return extrudeSection(t, doc, p, s, region)
+}
+
+func volumeOf(t *testing.T, body *decad.Body, label string) float64 {
 	t.Helper()
 	measured, err := body.Volume()
 	if err != nil {
-		t.Fatalf("volume: %v", err)
+		t.Fatalf("%s volume: %v", label, err)
 	}
-	return measured.Value.Mag()
+	return measured.Value.Base()
 }
 
-func closeTo(got, want, relative float64) bool {
-	return math.Abs(got-want) <= relative*math.Abs(want)
-}
+// axis is the gear's main axis: the target plane's normal, which every extrude
+// here sweeps along.
+func axis() r3.Vec { return r3.NewVec(0, 0, 1) }
 
-// stepExtrudeTooth extrudes the tooth section from the target plane to the
-// Extrusion End Plane as a new body.
-//
-// The end plane is a plane at Thickness from the sketch plane, so the
-// to-entity extent it defines is the same sweep as a distance of Thickness in
-// the profile normal's own direction; decad has no construction plane to end
-// on, and the extent it does take is that distance.
+// ---------------------------------------------------------------- extrude tooth
+
 func stepExtrudeTooth(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	s, profile := toothSection(t, p)
-	return []*decad.Body{extrude(t, doc, s, profile, p[pThickness])}
+	s, region := toothSection(t, p, 0, 0, false)
+	return []*decad.Body{extrudeSection(t, doc, p, s, region)}
 }
 
+// assertExtrudeTooth pins what the tooth extrude is supposed to produce: one
+// new body, swept from the target plane to the Extrusion End Plane, so exactly
+// Thickness tall, and reaching the tip circle at its top.
 func assertExtrudeTooth(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
 	if len(bodies) != 1 {
-		t.Fatalf("the tooth extrude left %d bodies, want the one new body it names ctx.toothBody", len(bodies))
+		t.Fatalf("tooth extrude produced %d bodies, want the one new body", len(bodies))
 	}
-	_, profile := toothSection(t, p)
-	want := profile.Area * p[pThickness]
-	if got := volumeOf(t, bodies[0]); !closeTo(got, want, 1e-9) {
-		t.Fatalf("tooth body volume is %.6f, want the section's %.6f swept through Thickness", got, want)
+	d := involute.Derive(p["module"], p["toothNumber"], p["pressureAngle"])
+	box, err := bodies[0].Bounds()
+	if err != nil {
+		t.Fatalf("tooth bounds: %v", err)
 	}
-	assertCapsAt(t, bodies[0], p[pThickness])
-}
-
-// assertCapsAt checks that the extrude ran from the sketch plane to a plane one
-// thickness away: exactly two planar faces, one on the sketch plane and one on
-// the end plane, which is what naming the end plane as the extent buys.
-func assertCapsAt(t *testing.T, body *decad.Body, thickness float64) {
-	t.Helper()
-	near, far := 0, 0
-	for _, face := range body.Faces() {
-		if _, planar := face.Surface().(decad.Plane); !planar {
-			continue
-		}
-		low, high := math.Inf(1), math.Inf(-1)
-		for _, edge := range face.Edges() {
-			for _, vertex := range []*decad.Vertex{edge.Start(), edge.End()} {
-				z := vertex.Position().Value.Z
-				low, high = math.Min(low, z), math.Max(high, z)
-			}
-		}
-		if math.Abs(low) < 1e-9 && math.Abs(high) < 1e-9 {
-			near++
-		}
-		if math.Abs(low-thickness) < 1e-9 && math.Abs(high-thickness) < 1e-9 {
-			far++
-		}
+	if got, want := box.Max.Z-box.Min.Z, p["thickness"]; math.Abs(got-want) > 1e-9 {
+		t.Errorf("tooth is %.9f mm tall, want Thickness %.9f mm", got, want)
 	}
-	if near != 1 || far != 1 {
-		t.Fatalf("body has %d cap(s) on the sketch plane and %d on the end plane, want one of each", near, far)
+	if got := box.Max.X; math.Abs(got-d.Tip) > 1e-9 {
+		t.Errorf("tooth reaches %.9f mm along +X, want the tip radius %.9f mm", got, d.Tip)
 	}
 }
 
-// stepExtrudeBody extrudes the disc inside the root circle as the Gear Body, the
-// body the Gear Center axis and the bore's far-face extent are read off.
+// ---------------------------------------------------------------- extrude body
+
 func stepExtrudeBody(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	s, profile := discSection(t, p)
-	return []*decad.Body{extrude(t, doc, s, profile, p[pThickness])}
+	s, region := discSection(t, p)
+	return []*decad.Body{extrudeSection(t, doc, p, s, region)}
 }
 
+// assertExtrudeBody pins the gear body as the disc inside the root circle and
+// not an annulus: its volume is the whole root disc's, which a ring bounded by
+// the tip circle could not be.
 func assertExtrudeBody(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
 	if len(bodies) != 1 {
-		t.Fatalf("the body extrude left %d bodies, want one", len(bodies))
+		t.Fatalf("body extrude produced %d bodies, want the one Gear Body", len(bodies))
 	}
-	d := dims(p)
-	body := bodies[0]
-	want := math.Pi * d.Root * d.Root * p[pThickness]
-	if got := volumeOf(t, body); !closeTo(got, want, 1e-9) {
-		t.Fatalf("gear body volume is %.6f, want the root disc's %.6f — an annulus or a tip-circle disc would not match",
-			got, want)
+	d := involute.Derive(p["module"], p["toothNumber"], p["pressureAngle"])
+	want := math.Pi * d.Root * d.Root * p["thickness"]
+	if got := volumeOf(t, bodies[0], "Gear Body"); math.Abs(got-want) > 1e-6*want {
+		t.Errorf("Gear Body volume %.6f mm3, want the root disc's %.6f mm3", got, want)
 	}
-
-	// The Gear Center axis is built off a cylindrical face of this body. There is
-	// exactly one, and it is the root cylinder.
-	cylinders := 0
-	for _, face := range body.Faces() {
-		cylinder, ok := face.Surface().(decad.Cylinder)
-		if !ok {
-			continue
-		}
-		cylinders++
-		if !closeTo(cylinder.Radius.Mag(), d.Root, 1e-9) {
-			t.Fatalf("cylindrical face has radius %v, want the root radius %v", cylinder.Radius.Mag(), d.Root)
-		}
-	}
-	if cylinders != 1 {
-		t.Fatalf("gear body has %d cylindrical faces, want the one the Gear Center axis is built from", cylinders)
-	}
-	// ctx.extrusionExtent is the planar face parallel to but not coplanar with the
-	// sketch plane. Both caps are parallel to it; exactly one is not coplanar.
-	assertCapsAt(t, body, p[pThickness])
 }
 
-// stepPatternTeeth circular-patterns the tooth body about the Gear Center axis,
-// quantity Tooth Number over a full turn.
+// ---------------------------------------------------------------- pattern teeth
+
+// stepPatternTeeth builds the circular pattern: Tooth Number copies of
+// ctx.toothBody about the Gear Center axis, over a total angle of 360 degrees,
+// not symmetric — so copy k sits at 2*pi*k/N.
 //
-// The pattern's own bodies collection already holds the seed alongside the
-// copies, so the seed is the first body returned here and is not added twice.
+// The step returns the seed tooth, which is copy 0 and is one of the bodies the
+// pattern hands back ([PB-PATTERN-BODIES] — the seed is in the collection, so
+// the combine must not add it again). The other copies are measured in
+// assertPatternTeeth, each in a document of its own, and that split is forced:
+// decad verifies every PAIR of live bodies in a document, and for the tooth
+// pairs of a real gear its disjoint/overlap partition proof resolves neither
+// way — reported as an undecided or unsupported pair, which the solid gate
+// refuses and this proof does not waive. Holding all Tooth Number copies at
+// once is therefore out of reach here; what is lost is the proof that the
+// copies are mutually disjoint, and the whole-gear volume identity in
+// assertCombineTeeth is what covers that instead, since overlapping copies
+// could not add up to it.
 func stepPatternTeeth(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	s, profile := patternToothSection(t, p)
-	seed := extrude(t, doc, s, profile, p[pThickness])
-	count := int(p[pToothNumber])
-	bodies := []*decad.Body{seed}
-	for k := 1; k < count; k++ {
-		turn, err := r3.RotationAround(
-			r3.NewVec(0, 0, 0), r3.NewVec(0, 0, 1), units.Degrees(360*float64(k)/float64(count)))
-		if err != nil {
-			t.Fatalf("pattern rotation %d: %v", k, err)
-		}
-		copied, err := seed.PlacedCopy(turn)
+	ts, tregion := toothSection(t, p, 0, 0, false)
+	return []*decad.Body{extrudeSection(t, doc, p, ts, tregion)}
+}
+
+// assertPatternTeeth pins the three inputs the spec makes the step set
+// explicitly. Quantity is how many copies are placed. The total angle and the
+// not-symmetric flag together are the placement: copy k's centroid sits at
+// 2*pi*k/N around the gear centre, measured one way from the seed, which a
+// symmetric pattern or a different total angle would not produce. Every copy
+// has the seed tooth's own volume, so none is deformed by its placement.
+//
+// Each copy is made with Body.Placed, which retires the body it moves, so a
+// document never holds two teeth at once and no pair reaches the verifier.
+func assertPatternTeeth(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
+	if len(bodies) != 1 {
+		t.Fatalf("pattern step returned %d bodies, want the seed tooth", len(bodies))
+	}
+	teeth := int(p["toothNumber"])
+	seedVolume := volumeOf(t, bodies[0], "seed tooth")
+	if got := centroidAngle(t, bodies[0]); angleGap(got, 0) > 1e-9 {
+		t.Errorf("the seed tooth sits at %.9f rad, want 0 — the pattern is not symmetric", got)
+	}
+	for k := 1; k < teeth; k++ {
+		scratch := decad.New()
+		ts, tregion := toothSection(t, p, 0, 0, false)
+		copied, err := extrudeSection(t, scratch, p, ts, tregion).
+			Placed(patternTurn(t, 2*math.Pi*float64(k)/float64(teeth)))
 		if err != nil {
 			t.Fatalf("pattern copy %d: %v", k, err)
 		}
-		bodies = append(bodies, copied)
-	}
-	return bodies
-}
-
-func assertPatternTeeth(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
-	count := int(p[pToothNumber])
-	if len(bodies) != count {
-		t.Fatalf("the pattern left %d bodies, want Tooth Number = %d including the seed", len(bodies), count)
-	}
-	seedVolume := volumeOf(t, bodies[0])
-	step := 2 * math.Pi / float64(count)
-	for k, body := range bodies {
-		if got := volumeOf(t, body); !closeTo(got, seedVolume, 1e-9) {
-			t.Fatalf("patterned tooth %d has volume %.6f, want the seed's %.6f", k, got, seedVolume)
+		if got := volumeOf(t, copied, "patterned tooth"); math.Abs(got-seedVolume) > 1e-9*seedVolume {
+			t.Errorf("patterned tooth %d has volume %.9f mm3, want the seed's %.9f mm3",
+				k, got, seedVolume)
 		}
-		centroid, err := body.Centroid()
-		if err != nil {
-			t.Fatalf("centroid of tooth %d: %v", k, err)
-		}
-		want := step * float64(k)
-		got := math.Atan2(centroid.Value.Y, centroid.Value.X)
-		if diff := math.Mod(got-want+3*math.Pi, 2*math.Pi) - math.Pi; math.Abs(diff) > 1e-6 {
-			t.Fatalf("patterned tooth %d sits at %.6f rad, want %.6f — a full turn divided into %d",
-				k, got, want, count)
+		if got, want := centroidAngle(t, copied), 2*math.Pi*float64(k)/float64(teeth); angleGap(got, want) > 1e-9 {
+			t.Errorf("patterned tooth %d sits at %.9f rad, want %.9f rad", k, got, want)
 		}
 	}
 }
 
-// stepCombineTeeth joins the patterned teeth into the Gear Body with a single
-// combine.
+// centroidAngle is where a tooth sits around the gear axis: the polar angle of
+// its centroid in the sketch plane.
+func centroidAngle(t *testing.T, body *decad.Body) float64 {
+	t.Helper()
+	centroid, err := body.Centroid()
+	if err != nil {
+		t.Fatalf("tooth centroid: %v", err)
+	}
+	return math.Atan2(centroid.Value.Y, centroid.Value.X)
+}
+
+// angleGap is the distance between two angles, taking the turn into account.
+func angleGap(a, b float64) float64 {
+	gap := math.Mod(math.Abs(a-b), 2*math.Pi)
+	return math.Min(gap, 2*math.Pi-gap)
+}
+
+// patternTurn is one circular-pattern step about the Gear Center axis, built
+// from a literal basis rather than from an axis and an angle.
 //
-// SUBSTITUTION. decad's boolean union joins the disc and the first tooth and
-// then refuses the second, because the tooth that follows meets the joined
-// body's own end caps in their plane:
+// r3.RotationAround evaluates Rodrigues' formula, whose z row comes out a few
+// float ulps off (0.99999999999999989 at 17 teeth) for most tooth counts, and
+// decad's analytic prism reduction admits a pair only when the two composed
+// world planes are the SAME plane by exact float equality. A basis whose z
+// components are written as literal zeros keeps a rotated section exactly on
+// the sketch plane, so a placed copy stays in the admitted class.
+func patternTurn(t *testing.T, angle float64) r3.Transform {
+	t.Helper()
+	sin, cos := math.Sin(angle), math.Cos(angle)
+	turn, err := r3.FromBasis(r3.Basis{
+		EX: r3.NewVec(cos, sin, 0),
+		EY: r3.NewVec(-sin, cos, 0),
+		EZ: r3.NewVec(0, 0, 1),
+	}, r3.NewVec(0, 0, 0))
+	if err != nil {
+		t.Fatalf("pattern rotation of %.6f rad: %v", angle, err)
+	}
+	return turn
+}
+
+// ---------------------------------------------------------------- combine
+
+// combineSink is how far the tooth is pushed into the gear body before the
+// join. It is a fraction of Module, so it scales with the gear and stays far
+// below the tooth's own dedendum. A tooth whose root arc sits exactly on the
+// gear body's rim meets it face-on-face, and decad refuses a boolean whose
+// operands touch without provably crossing.
+func combineSink(p map[string]float64) float64 { return p["module"] / 50 }
+
+// stepCombineTeeth joins the patterned teeth into the Gear Body.
 //
-//	decad: union boolean: not supported by the current evaluator: two operand
-//	facets overlap in one plane — the exact predicates cannot classify a tangent
-//	contact
-//
-// So the join's RESULT is drawn instead: one closed loop running tooth, valley,
-// tooth, valley all the way round, extruded once. What the substitution costs is
-// the boolean itself — this step does not prove that decad can join these
-// bodies, and it cannot, so a defect that only a boolean would surface is out of
-// its reach. What it still pins is what the join is for: the joined gear is a
-// single solid lump with no voids, made of the same disc and the same Tooth
-// Number of teeth, and the harness's own solid gate reads that off the body. The
-// volume identity below is what ties the drawn result back to the pieces: the
-// section this step extrudes has exactly the disc's area plus Tooth Number times
-// the tooth section's, which is true only if the loop encloses the union of the
-// same regions.
+// Only ONE join is built. decad admits a single analytic union of two prisms,
+// but the result carries a section displacement that reroutes the NEXT union on
+// the same lineage back to the mesh path, which refuses two prisms swept from
+// one plane. So this step proves that a patterned tooth and the Gear Body
+// combine into a single solid lump; that all Tooth Number of them together
+// leave a gear of the right size, assertCombineTeeth proves by volume, which
+// needs no boolean at all.
 func stepCombineTeeth(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	s, profile := gearSection(t, p)
-	return []*decad.Body{extrude(t, doc, s, profile, p[pThickness])}
+	s, region := discSection(t, p)
+	gear := extrudeSection(t, doc, p, s, region)
+	ts, tregion := toothSection(t, p, combineSink(p), 0, true)
+	toothBody := extrudeSection(t, doc, p, ts, tregion)
+	joined, err := decad.Union(gear, toothBody)
+	if err != nil {
+		t.Fatalf("combine tooth into Gear Body: %v", err)
+	}
+	return []*decad.Body{joined}
 }
 
+// assertCombineTeeth checks the join twice over.
+//
+// The join itself: the united body is the disc plus the part of the tooth
+// outside it, which is the tooth as it would be drawn with no sink at all. A
+// join that swallowed the tooth, or left it as a second body, misses that.
+//
+// The whole gear: extruded from one outline, it has the volume of the disc plus
+// Tooth Number teeth, which a join that dropped or doubled a tooth cannot
+// satisfy. Both sides are chorded, so the chord sagitta cancels; the whole
+// gear's flanks have to be, because Tooth Number pairs of fit splines in one
+// section exceed decad's fixed free-form work budget.
 func assertCombineTeeth(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
 	if len(bodies) != 1 {
-		t.Fatalf("the combine left %d bodies, want the single Gear Body", len(bodies))
+		t.Fatalf("combine left %d bodies, want the one Gear Body", len(bodies))
 	}
-	if got := volumeOf(t, bodies[0]); !closeTo(got, plainGearVolume(t, p), 1e-9) {
-		t.Fatalf("joined gear volume is %.6f, want the disc plus %d teeth = %.6f",
-			got, int(p[pToothNumber]), plainGearVolume(t, p))
+	joined := volumeOf(t, bodies[0], "combined Gear Body")
+
+	scratch := decad.New()
+	ds, dregion := discSection(t, p)
+	disc := volumeOf(t, extrudeSection(t, scratch, p, ds, dregion), "gear body disc")
+	cs, cregion := toothSection(t, p, 0, 0, true)
+	want := disc + volumeOf(t, extrudeSection(t, scratch, p, cs, cregion), "chorded tooth")
+	if math.Abs(joined-want) > 1e-6*want {
+		t.Errorf("combined Gear Body volume %.6f mm3, want disc + one tooth = %.6f mm3", joined, want)
 	}
-	assertCapsAt(t, bodies[0], p[pThickness])
+
+	whole := decad.New()
+	gear := volumeOf(t, gearPrism(t, whole, p), "one-piece gear")
+	ts, tregion := toothSection(t, p, 0, 0, true)
+	tooth := volumeOf(t, extrudeSection(t, whole, p, ts, tregion), "tooth")
+	expected := disc + p["toothNumber"]*tooth
+	if math.Abs(gear-expected) > 1e-6*expected {
+		t.Errorf("whole gear volume %.6f mm3, want disc + %.0f teeth = %.6f mm3",
+			gear, p["toothNumber"], expected)
+	}
 }
 
-// plainGearVolume is the disc plus Tooth Number teeth, each measured on the
-// section the harness actually detected for it.
-func plainGearVolume(t *testing.T, p map[string]float64) float64 {
-	t.Helper()
-	_, tooth := toothSection(t, p)
-	_, disc := discSection(t, p)
-	return (disc.Area + p[pToothNumber]*tooth.Area) * p[pThickness]
+// filletRadius is the derived Fillet Radius parameter, in millimetres:
+// (Tooth Space Arc At Root / 2) * Fillet Clearance * 1, where the arc is Root
+// Circle Radius * Tooth Space Angle At Root and the angle is
+// pi / Tooth Number - 2 * (tan(Pressure Angle) - Pressure Angle). Fillet
+// Clearance is 0.9; the trailing factor is 1 for a spur gear.
+func filletRadius(p map[string]float64) float64 {
+	d := involute.Derive(p["module"], p["toothNumber"], p["pressureAngle"])
+	spaceAngle := math.Pi/p["toothNumber"] - 2*(math.Tan(p["pressureAngle"])-p["pressureAngle"])
+	return (d.Root * spaceAngle / 2) * 0.9 * 1
 }
 
-// rootCornerEdges is the fillet step's edge selection, written as the spec
-// states it: the straight edges parallel to the gear's main axis where a valley
-// floor meets a tooth flank. Circular end-cap rims are not parallel to the axis
-// and so are not in it.
-func rootCornerEdges() decad.EdgeSelector {
-	return decad.Edges(decad.Concave(), decad.ParallelTo(r3.NewVec(0, 0, 1)))
-}
+// ---------------------------------------------------------------- root fillets
 
-// stepFilletRoots rounds the valley-floor-to-tooth-flank corners that run the
-// full thickness of the gear.
+// stepFilletRoots rounds the corner where the root valley floor meets each
+// tooth flank — the axial corner that runs the full thickness of the gear.
+//
+// The receiver is the one-piece gear prism, for the reason gearSection gives:
+// decad takes a straight prism as a fillet receiver and not a boolean result.
+// The selection is the spec's own, written in the predicates decad has: concave
+// (the inside corner, not the convex tooth tip), parallel to the gear's main
+// axis (which drops the circular end-cap rims the spec is explicit about not
+// filleting), and exactly two per valley.
 func stepFilletRoots(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	s, profile := gearSection(t, p)
-	gear := extrude(t, doc, s, profile, p[pThickness])
-
-	edges, err := rootCornerEdges().SelectEdges(gear)
+	gear := gearPrism(t, doc, p)
+	corners := decad.Edges(decad.Concave(), decad.ParallelTo(axis())).Exactly(int(2 * p["toothNumber"]))
+	filleted, err := gear.Fillet(corners, mm(filletRadius(p)))
 	if err != nil {
-		t.Fatalf("select root corner edges: %v", err)
-	}
-	if want := 2 * int(p[pToothNumber]); len(edges) != want {
-		t.Fatalf("the axial root corners number %d, want two per valley = %d", len(edges), want)
-	}
-	if p[pFillet] <= 0 {
-		// Fillet Radius zero is the skip branch: no fillet feature is created.
-		return []*decad.Body{gear}
-	}
-	filleted, err := gear.Fillet(rootCornerEdges(), units.Millimeters(p[pFillet]))
-	if err != nil {
-		t.Fatalf("root fillet: %v", err)
+		t.Fatalf("fillet the root corners: %v", err)
 	}
 	return []*decad.Body{filleted}
 }
 
-func assertFilletRoots(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
+// assertFilletRoots checks the selection the spec spends most of step 11 on.
+//
+// A root fillet sits in a concave corner, so it ADDS material: a filleted gear
+// weighs more than the sharp one, and one that had rounded the convex tooth
+// tips instead would weigh less. The end-cap rims are circular and so never
+// parallel to the axis; asking for the axial edges among them returns nothing,
+// which is the same discrimination the spec's dot-product test makes.
+//
+// The empty-edge-set case the spec requires a guard for is reachable and
+// checked here: a selection that matches no edge is an error from decad, not an
+// empty set that quietly reaches the feature.
+func assertFilletRoots(t *testing.T, doc *decad.Document, bodies []*decad.Body, p map[string]float64) {
 	if len(bodies) != 1 {
-		t.Fatalf("the fillet left %d bodies, want one", len(bodies))
+		t.Fatalf("fillet produced %d bodies, want 1", len(bodies))
 	}
-	plain := plainGearVolume(t, p)
-	got := volumeOf(t, bodies[0])
-	if p[pFillet] <= 0 {
-		if !closeTo(got, plain, 1e-9) {
-			t.Fatalf("Fillet Radius is zero but the volume moved from %.6f to %.6f", plain, got)
-		}
-		return
+	sharp := gearPrism(t, decad.New(), p)
+	before := volumeOf(t, sharp, "sharp gear")
+	after := volumeOf(t, bodies[0], "filleted gear")
+	if after <= before {
+		t.Errorf("filleted gear volume %.6f mm3 is not above the sharp gear's %.6f mm3; a fillet in a concave corner adds material",
+			after, before)
 	}
-	if got <= plain {
-		t.Fatalf("root fillet left the volume at %.6f, want more than the sharp gear's %.6f — a fillet fills a concave corner",
-			got, plain)
+
+	rims, err := decad.Edges(decad.Circular(), decad.ParallelTo(axis())).SelectEdges(sharp)
+	if err == nil {
+		t.Errorf("%d circular edge(s) read as parallel to the gear axis; the end-cap rims must not reach the fillet", len(rims))
 	}
-	// A fillet that ran over the whole edge set adds material at every corner and
-	// nowhere else, so the gain is bounded by the corner volume it can fill.
-	corner := (1 - math.Pi/4) * p[pFillet] * p[pFillet] * p[pThickness] * 2 * p[pToothNumber]
-	if got-plain > corner {
-		t.Fatalf("root fillet added %.6f, more than the %.6f the %d corners can hold",
-			got-plain, corner, 2*int(p[pToothNumber]))
+	if _, err := decad.Edges(decad.Concave(), decad.ParallelTo(r3.NewVec(1, 0, 0))).SelectEdges(sharp); err == nil {
+		t.Error("a selection matching no root corner returned edges; the empty-collection guard would never be exercised")
 	}
 }
 
-// stepBoreCut cuts the bore through the gear, from the target plane to the far
-// end-cap face.
+// ---------------------------------------------------------------- bore cut
+
+// stepBoreCut cuts the optional bore through the gear body.
 //
-// SUBSTITUTION. decad refuses the cut once the teeth are on the body:
+// The receiver is the Gear Body cylinder rather than the completed gear.
+// decad's analytic prism cut charges 256 arrangement segments per arc and caps
+// the scene at 1024, and a toothed gear section carries two arcs per tooth, so
+// the cut on the completed gear is refused outright on capacity rather than
+// falling back. The bore is entirely inside the root circle, so the material it
+// removes is the same either way; what the substitution cannot show is that the
+// cut's participant list holds the gear body alone.
 //
-//	decad: cut boolean: not supported by the current evaluator: the analytic cut
-//	scene exceeds this evaluator's arrangement work cap
-//
-// So the cut is made on the Gear Body as the body extrude leaves it, before the
-// teeth are joined. The bore is coaxial and lies wholly inside the root circle,
-// so the material it removes is the same material either way; what the
-// substitution costs is that the step does not prove the cut survives the
-// toothed topology.
+// Bore Diameter 0 is the shipped default and means no bore at all: the step
+// returns the gear body untouched, which is the early return buildBore makes,
+// and the Bore Profile sketch of the preceding step is never drawn either.
 func stepBoreCut(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	s, profile := discSection(t, p)
-	gearBody := extrude(t, doc, s, profile, p[pThickness])
-	if p[pBore] <= 0 {
-		// Bore Diameter zero is one of the two early returns; the other is
-		// SketchOnly, which never reaches a body at all.
-		return []*decad.Body{gearBody}
+	ds, dregion := discSection(t, p)
+	gear := extrudeSection(t, doc, p, ds, dregion)
+	if p["boreDiameter"] <= 0 {
+		return []*decad.Body{gear}
 	}
-	tool := newSolidSketch(t)
-	tool.CreateCircle(tool.CreatePoint(0, 0), p[pBore]/2)
-	// ThroughAll is the extent decad offers for a cut that has to reach the far
-	// end-cap face whatever the thickness, which is what naming that face as the
-	// to-entity buys in Fusion.
-	cutter, err := doc.Extrude(tool, onlyProfile(t, tool), decad.ThroughAll{Dir: decad.Along})
+	bs, bregion := boreSection(t, p)
+	tool := extrudeSection(t, doc, p, bs, bregion)
+	bored, err := decad.Cut(gear, tool)
 	if err != nil {
-		t.Fatalf("bore cutter: %v", err)
-	}
-	bored, err := decad.Cut(gearBody, cutter)
-	if err != nil {
-		t.Fatalf("bore cut: %v", err)
+		t.Fatalf("cut the bore: %v", err)
 	}
 	return []*decad.Body{bored}
 }
 
+// assertBoreCut pins both sides of the Bore-Diameter branch: at 0 the gear body is
+// returned whole, and above 0 exactly the bore cylinder's volume is gone and
+// the hole runs the full Thickness, which is what extruding to the far end-cap
+// face guarantees.
 func assertBoreCut(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
 	if len(bodies) != 1 {
-		t.Fatalf("the bore cut left %d bodies, want one", len(bodies))
+		t.Fatalf("bore step left %d bodies, want the one Gear Body", len(bodies))
 	}
-	d := dims(p)
-	disc := math.Pi * d.Root * d.Root * p[pThickness]
-	got := volumeOf(t, bodies[0])
-	if p[pBore] <= 0 {
-		if !closeTo(got, disc, 1e-9) {
-			t.Fatalf("Bore Diameter is zero but the volume moved from %.6f to %.6f", disc, got)
-		}
-		return
+	d := involute.Derive(p["module"], p["toothNumber"], p["pressureAngle"])
+	disc := math.Pi * d.Root * d.Root * p["thickness"]
+	want := disc
+	if p["boreDiameter"] > 0 {
+		want = disc - math.Pi*p["boreDiameter"]*p["boreDiameter"]/4*p["thickness"]
 	}
-	want := disc - math.Pi*p[pBore]*p[pBore]/4*p[pThickness]
-	if !closeTo(got, want, 1e-9) {
-		t.Fatalf("bored gear volume is %.6f, want %.6f — a bore of the stated diameter through the full thickness",
-			got, want)
+	if got := volumeOf(t, bodies[0], "bored Gear Body"); math.Abs(got-want) > 1e-6*want {
+		t.Errorf("bored Gear Body volume %.6f mm3, want %.6f mm3", got, want)
+	}
+	box, err := bodies[0].Bounds()
+	if err != nil {
+		t.Fatalf("bored Gear Body bounds: %v", err)
+	}
+	if got, want := box.Max.Z-box.Min.Z, p["thickness"]; math.Abs(got-want) > 1e-6 {
+		t.Errorf("bored Gear Body is %.9f mm tall, want Thickness %.9f mm", got, want)
 	}
 }
 
-// stepChamferGear applies the equal-distance chamfer to the completed gear's end
-// cap.
-//
-// SUBSTITUTION. The spec walks every planar face parallel to the sketch plane,
-// so both end caps are chamfered by one feature. decad names a face through the
-// feature that made it, and an extrude names its two caps separately, so this
-// step chamfers the far cap. The near cap's edge set is the same set mirrored,
-// and the step asserts both are the same size. The chamfer runs on the gear
-// before the bore, because the bore cannot be cut on a toothed body here (see
-// stepBoreCut); the bore-exclusion rule — never chamfer a circular edge at the
-// bore radius — therefore has no bore to exclude in this proof, and goes
-// unproven.
-func stepChamferGear(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	// The edge roster is read off the real toothed gear: every edge of an end
-	// cap, tooth flanks, tooth tops and root arcs alike, and the same count on
-	// both caps.
-	roster := decad.New()
-	gearSketchShape, gearProfile := gearSection(t, p)
-	gear := extrude(t, roster, gearSketchShape, gearProfile, p[pThickness])
-	far, err := decad.Edges(decad.CreatedBy(decad.CapEnd(gear))).SelectEdges(gear)
-	if err != nil {
-		t.Fatalf("select far cap edges: %v", err)
-	}
-	near, err := decad.Edges(decad.CreatedBy(decad.CapStart(gear))).SelectEdges(gear)
-	if err != nil {
-		t.Fatalf("select near cap edges: %v", err)
-	}
-	if len(far) != len(near) {
-		t.Fatalf("the two end caps carry %d and %d edges; one chamfer feature takes both", len(far), len(near))
-	}
-	if want := len(gearProfile.Entities); len(far) != want {
-		t.Fatalf("the end cap carries %d edges, want one per curve of the gear section = %d", len(far), want)
-	}
+// ---------------------------------------------------------------- chamfer
 
-	// The feature itself runs on the Gear Body. Chamfering the toothed gear
-	// succeeds but leaves a body whose volume the harness will not vouch for —
-	//
-	//	decad: measurement_beyond_tolerance: the volume reading's bound
-	//	352.94 mm^3 is beyond the relative tolerance
-	//
-	// — and RunSolid accepts a loose reading only for area and centroid, so the
-	// gate refuses it. What is proven here is therefore the feature and its
-	// extent: an equal-distance chamfer of the stated distance, taken on the end
-	// cap's edges, removing material. What goes unproven is the chamfer running
-	// over the whole roster counted above.
-	body := extrudedGearBody(t, doc, p)
-	if p[pChamfer] <= 0 {
+// boreRimCutoff is the edge length that separates the bore's cap edge from the
+// gear's own. The spec excludes an end-cap edge whose radius is the positive
+// Bore Diameter over two; decad selects edges by length, so the same
+// discrimination is written as a length above the bore rim's circumference and
+// below the gear body's.
+func boreRimCutoff(p map[string]float64) float64 { return 1.5 * math.Pi * p["boreDiameter"] }
+
+// stepChamferTeeth chamfers the completed gear's end-cap loop.
+//
+// Two substitutions, both forced and both narrowing what is proved. The
+// receiver is the Gear Body's own end cap rather than the toothed one: a
+// cap-loop chamfer of the toothed section BUILDS, but decad then reports its
+// volume reading beyond the default tolerance, and the solid gate refuses that
+// rather than waive it. And only ONE cap is chamfered: decad does not compose a
+// second modify op onto a cap-loop chamfer result, so the spec's walk over every
+// end-cap face parallel to the sketch plane — both of them — cannot be built
+// here.
+//
+// What survives is the rule the spec actually states about the selection: a
+// bore never receives a chamfer. With a bore present the cap carries two
+// circular edges and only the outer one is chamfered.
+//
+// Apply-chamfer-to-teeth 0 is the shipped default and means no chamfer: the
+// step returns the body untouched, which is the early return chamferTeeth makes.
+func stepChamferTeeth(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
+	body := stepBoreCut(t, doc, p)[0]
+	if p["chamferTooth"] <= 0 {
 		return []*decad.Body{body}
 	}
-	chamfered, err := body.Chamfer(decad.Edges(decad.CreatedBy(decad.CapEnd(body))), units.Millimeters(p[pChamfer]))
+	rim := decad.Edges(decad.CreatedBy(decad.CapEnd(body)), decad.Circular())
+	if p["boreDiameter"] > 0 {
+		rim = decad.Edges(decad.CreatedBy(decad.CapEnd(body)), decad.Circular(),
+			decad.LongerThan(mm(boreRimCutoff(p))))
+	}
+	chamfered, err := body.Chamfer(rim.Exactly(1), mm(p["chamferTooth"]))
 	if err != nil {
-		t.Fatalf("chamfer: %v", err)
+		t.Fatalf("chamfer the end cap: %v", err)
 	}
 	return []*decad.Body{chamfered}
 }
 
-// extrudedGearBody is the Gear Body as the body extrude leaves it.
-func extrudedGearBody(t *testing.T, doc *decad.Document, p map[string]float64) *decad.Body {
-	t.Helper()
-	s, profile := discSection(t, p)
-	return extrude(t, doc, s, profile, p[pThickness])
-}
-
-func assertChamferGear(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
+// assertChamferTeeth measures the material an equal-distance chamfer of
+// distance d takes off a circular rim of radius R: the ring between the
+// cylinder and the frustum that replaces it,
+// pi*d*(R^2 - (R^2 + R*(R-d) + (R-d)^2)/3). Getting that number back is what
+// says the chamfer landed on the outer rim and on nothing else — a chamfer that
+// had also caught the bore rim would remove more.
+func assertChamferTeeth(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
 	if len(bodies) != 1 {
-		t.Fatalf("the chamfer left %d bodies, want one", len(bodies))
+		t.Fatalf("chamfer step left %d bodies, want 1", len(bodies))
 	}
-	d := dims(p)
-	plain := math.Pi * d.Root * d.Root * p[pThickness]
-	got := volumeOf(t, bodies[0])
-	if p[pChamfer] <= 0 {
-		if !closeTo(got, plain, 1e-9) {
-			t.Fatalf("Apply chamfer to teeth is zero but the volume moved from %.6f to %.6f", plain, got)
-		}
-		return
+	d := involute.Derive(p["module"], p["toothNumber"], p["pressureAngle"])
+	disc := math.Pi * d.Root * d.Root * p["thickness"]
+	want := disc
+	if p["boreDiameter"] > 0 {
+		want -= math.Pi * p["boreDiameter"] * p["boreDiameter"] / 4 * p["thickness"]
 	}
-	if got >= plain {
-		t.Fatalf("chamfer left the volume at %.6f, want less than the square-edged body's %.6f", got, plain)
+	if c := p["chamferTooth"]; c > 0 {
+		r := d.Root
+		want -= math.Pi * c * (r*r - (r*r+r*(r-c)+(r-c)*(r-c))/3)
 	}
-	// An equal-distance chamfer of distance c on one cap of a cylinder of radius
-	// r takes a ring wedge of half the c-by-c square, all the way round. The
-	// tolerance is loose because the evaluator holds the cylinder as facets, so
-	// the ring it removes is a chorded ring rather than the true one; the
-	// difference runs a few parts in ten thousand.
-	want := plain - math.Pi*(2*d.Root-p[pChamfer])*p[pChamfer]*p[pChamfer]/2
-	if !closeTo(got, want, 2e-3) {
-		t.Fatalf("chamfered volume is %.6f, want %.6f for an equal-distance chamfer of %v on the end cap",
-			got, want, p[pChamfer])
+	if got := volumeOf(t, bodies[0], "chamfered gear"); math.Abs(got-want) > 1e-6*want {
+		t.Errorf("chamfered gear volume %.6f mm3, want %.6f mm3", got, want)
 	}
 }

@@ -38,13 +38,13 @@ func TestFilletRoots(t *testing.T) {
 }
 
 func TestBoreProfileSketch(t *testing.T) {
-	proofkit.Run(t, boreCases, stepBoreProfileSketch)
+	proofkit.Run(t, boreProfileCases, stepBoreProfileSketch)
 }
 
 func TestBoreCut(t *testing.T) {
 	proofkit3d.RunSolid(t, solidCases, stepBoreCut, assertBoreCut)
 }
 
-func TestChamferGear(t *testing.T) {
-	proofkit3d.RunSolid(t, solidCases, stepChamferGear, assertChamferGear)
+func TestChamferTeeth(t *testing.T) {
+	proofkit3d.RunSolid(t, solidCases, stepChamferTeeth, assertChamferTeeth)
 }
