@@ -491,9 +491,9 @@ From point B, create a construction line collinear with Apex->B, extending for l
 
 Draw a construction line from point D to point F. constrain each end to respective points from pre-existing lines. The lines B->F and D->F should be constrained with perpendicular constraint.
 
-Draw a construction line from point E collinear to line A->E, with length equal to module (but do NOT add dimensional constraint). Constrain point E and the beginning of this line. Let the end be known as point G.
+Draw a construction line from point E collinear to **line A->E** — the collinear names A->E, **never the Apex->A shaft axis further up the chain**, even though both describe the same infinite line (`[BEVEL-F-COLLINEAR-CHAIN]`; naming the axis raises `VCS_SKETCH_OVER_CONSTRAINTS`). Give it length equal to module (but do NOT add dimensional constraint). Constrain point E and the beginning of this line. Let the end be known as point G.
 
-From point C, draw a line with length equal to module (but do NOT add dimensional constraint). Constrain point C and the beginning of this line. Let the end of the new line be point H. Line C->H should be collinear with line Apex2->C.
+From point C, draw a line with length equal to module (but do NOT add dimensional constraint). Constrain point C and the beginning of this line. Let the end of the new line be point H. Line C->H should be collinear with **line Apex2->C**, the Pinion Dedendum line C is the endpoint of (`[BEVEL-F-COLLINEAR-CHAIN]`).
 
 Connect point G and H with a line. Constrain end points of line accordingly with coincidence constraints. **Constrain line E->G and H->G with a perpendicular constraint.**
 
@@ -502,9 +502,9 @@ Connect point G and H with a line. Constrain end points of line accordingly with
 The proof harness's offset constraint is not the same shape. It emits **two** residual rows, holding *both* endpoints of the target line at the same signed perpendicular distance from the source, so it carries the parallelism itself. Adding this perpendicular there is a third row for the same two freedoms: measured, the lattice comes back **overconstrained at DOF 0 with 2 redundant constraints, and the engine names the two base-height offsets as the redundant pair**. A proof that models Fusion's arity here will therefore fail its own gate, and the right response is to leave the perpendicular out of the proof and say so, never to weaken the gate (`[PB-NO-OVERCONSTRAIN]`).
 
 
-Draw a construction line from point F collinear to line B->F, with length equal to module (but do NOT add dimensional constraint). Constrain point F and the beginning of this line. Let the end be known as point I.
+Draw a construction line from point F collinear to **line B->F** — the driving twin of the E->G case above, and the collinear names B->F, never the Apex->B shaft axis (`[BEVEL-F-COLLINEAR-CHAIN]`). Give it length equal to module (but do NOT add dimensional constraint). Constrain point F and the beginning of this line. Let the end be known as point I.
 
-From point D, draw a line with length equal to module (but do NOT add dimensional constraint). Constrain point D and the beginning of this line. Let the end of the new line be point J. Line D->J should be collinear with line Apex2->D.
+From point D, draw a line with length equal to module (but do NOT add dimensional constraint). Constrain point D and the beginning of this line. Let the end of the new line be point J. Line D->J should be collinear with **line Apex2->D**, the Driving Dedendum line D is the endpoint of (`[BEVEL-F-COLLINEAR-CHAIN]`).
 
 Connect point I and J with a line. Constrain end points of line accordingly with coincidence constraints. **Constrain line F->I and J->I with a perpendicular constraint** — the driving-side twin of the G->H case just above, required in Fusion and omitted in the proof for the same reason, which that paragraph gives in full.
 

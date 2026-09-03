@@ -88,5 +88,41 @@
     "rule": "reportAttributeAccessIssue",
     "message": "Cannot access attribute \"selectedItem\" for class \"CommandInput\"",
     "why": "DropDownCommandInput.selectedItem: inputs.itemById returns the base CommandInput, which erases the dropdown subtype that declares it; the call site already guards the result for None"
+  },
+  {
+    "rule": "reportArgumentType",
+    "param": "line",
+    "want": "SketchLine",
+    "func": "addOffsetDimension",
+    "why": "addOffsetDimension(side['dedLine'], ...): the per-gear bookkeeping dict holds points and lines under one value type, so pyright widens the entry to a union; dedLine is a SketchLine by construction"
+  },
+  {
+    "rule": "reportArgumentType",
+    "param": "lineTwo",
+    "want": "SketchLine",
+    "func": "addParallel",
+    "why": "addParallel(lineMN, side['dedLine']): the bookkeeping dict mixes points and lines, so pyright widens the entry; dedLine is a SketchLine by construction"
+  },
+  {
+    "rule": "reportAttributeAccessIssue",
+    "message": "Cannot access attribute \"y\" for class \"Line3D\"",
+    "why": "reading .geometry.y off sides[label]['h']: the entry is a SketchPoint whose geometry is a Point3D, but the mixed-value dict widens it and pyright follows the SketchLine branch to Line3D"
+  },
+  {
+    "rule": "reportAttributeAccessIssue",
+    "message": "Cannot access attribute \"x\" for class \"Line3D\"",
+    "why": "reading .geometry.x off a mixed-value dict entry that is a SketchPoint; pyright follows the SketchLine branch to Line3D"
+  },
+  {
+    "rule": "reportCallIssue",
+    "message": "No overloads for \"__getitem__\" match the provided arguments",
+    "why": "lat['sides']['Driving']: the lattice dict returns a union of tuples and nested dicts, so pyright reads the outer subscript as a sequence index; 'sides' holds a dict keyed by gear label"
+  },
+  {
+    "rule": "reportArgumentType",
+    "param": "key",
+    "want": "slice[SupportsIndex | None, SupportsIndex | None, SupportsIndex | None]",
+    "func": "__getitem__",
+    "why": "lat['sides']['Pinion']: same lattice-dict widening; 'sides' holds a dict keyed by gear label, not a sequence"
   }
 ]
