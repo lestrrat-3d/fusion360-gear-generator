@@ -185,16 +185,32 @@ var boreSolidCases = perGear([]proofkit3d.Case{
 	{Name: "ratio_driving_31_pinion_17", Params: params(map[string]float64{keyPinionTeeth: 17})},
 })
 
-// spiralSolidCases carry both branches of the tooth-body hook and both hands,
-// since the hand is what the spiral's only signed quantity turns on.
-var spiralSolidCases = perGear([]proofkit3d.Case{
-	{Name: "psi_0_straight_bevel", Params: params(map[string]float64{keySpiralAngle: 0})},
-	{Name: "psi_35_right", Params: params(nil)},
-	{Name: "psi_35_left", Params: params(map[string]float64{keyHand: -1})},
-	{Name: "psi_35_ratio_31_17_right", Params: params(map[string]float64{keyPinionTeeth: 17})},
-	{Name: "psi_10_right", Params: params(map[string]float64{keySpiralAngle: 10})},
-	{Name: "psi_just_under_60_right", Params: params(map[string]float64{keySpiralAngle: 59.9})},
-})
+// spiralSolidCases carry both branches of the tooth-body hook and both hands.
+//
+// Unlike the other solid tables this one names its gear side per case instead
+// of doubling every row. Each spiral step builds eight or nine slab solids per
+// case, so a row costs real time, and the pinion/driving distinction only
+// carries information where the hand negation or the differing gamma is what
+// is being exercised: the default pair for both, the ratio pair for both —
+// which is where the two members legitimately get different twists — and one
+// side each for the remaining sweeps.
+var spiralSolidCases = []proofkit3d.Case{
+	spiralCase("psi_0_straight_bevel", 0, map[string]float64{keySpiralAngle: 0}),
+	spiralCase("psi_35_right_pinion", 0, nil),
+	spiralCase("psi_35_right_driving", 1, nil),
+	spiralCase("psi_35_left_pinion", 0, map[string]float64{keyHand: -1}),
+	spiralCase("psi_35_ratio_31_17_pinion", 0, map[string]float64{keyPinionTeeth: 17}),
+	spiralCase("psi_35_ratio_31_17_driving", 1, map[string]float64{keyPinionTeeth: 17}),
+	spiralCase("psi_10_right_pinion", 0, map[string]float64{keySpiralAngle: 10}),
+	spiralCase("psi_just_under_60_right_pinion", 0, map[string]float64{keySpiralAngle: 59.9}),
+}
+
+// spiralCase builds one spiral solid case on the named gear side.
+func spiralCase(name string, side float64, overrides map[string]float64) proofkit3d.Case {
+	p := params(overrides)
+	p[keyGearSide] = side
+	return proofkit3d.Case{Name: name, Params: p}
+}
 
 // toothSolidCases and patternCases and meshCases pick the per-gear side
 // explicitly: every one of these steps runs once per gear, pinion first, so a

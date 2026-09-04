@@ -329,10 +329,13 @@ func sectionPlane(t *testing.T, w *sketch.World, f gearFrame, k float64) *sketch
 // parts in ten thousand.
 // ---------------------------------------------------------------------------
 
-// sweepFacets is the polygon count each revolved band is chorded to. At 96 the
-// polygon's area is 1 - 1.6e-3 of the circle's, which is the tolerance every
-// tie-back below allows.
-const sweepFacets = 64
+// sweepFacets is the polygon count each revolved band is chorded to. Every
+// reading below is written against the polygon rather than the circle — the
+// band volumes come from sweptVolume and the Pappus tie-back carries
+// chordFactor — so the count trades run time against fidelity to the true
+// solid of revolution and against no tolerance at all. It must stay divisible
+// by four, so a vertex lands on each axis and chordRadius is exactly 1.
+const sweepFacets = 32
 
 // chordFactor is the ratio of the inscribed regular polygon's area to the
 // circle's, which is what the polygonal sweep's volume is short by.
@@ -387,36 +390,25 @@ func ringProfile(t *testing.T, w *sketch.World, z float64, st station, n int) (*
 	return nil, nil
 }
 
-// sweepBands lofts each consecutive pair of stations and unions the chain.
-func sweepBands(t *testing.T, doc *decad.Document, sts []station, n int) *decad.Body {
+// sweptBand lofts one pair of coaxial polygonal stations into the band the
+// corresponding profile edge sweeps. It is ONE loft and no boolean: at the
+// pinned decad revision a boolean refuses a loft operand outright, so nothing
+// in this proof may join two bands.
+func sweptBand(t *testing.T, doc *decad.Document, a, b station, n int) *decad.Body {
 	t.Helper()
-	if len(sts) < 2 {
-		t.Fatalf("a swept solid needs at least two stations, got %d", len(sts))
-	}
 	w := sketch.NewWorld()
-	var solid *decad.Body
-	for i := 0; i+1 < len(sts); i++ {
-		s0, p0 := ringProfile(t, w, sts[i].Z, sts[i], n)
-		s1, p1 := ringProfile(t, w, sts[i+1].Z, sts[i+1], n)
-		band, err := doc.Loft(s0, p0, s1, p1)
-		if err != nil {
-			t.Fatalf("band %d of the swept solid: %v", i, err)
-		}
-		if solid == nil {
-			solid = band
-			continue
-		}
-		solid, err = decad.Union(solid, band)
-		if err != nil {
-			t.Fatalf("joining band %d of the swept solid: %v", i, err)
-		}
+	s0, p0 := ringProfile(t, w, a.Z, a, n)
+	s1, p1 := ringProfile(t, w, b.Z, b, n)
+	body, err := doc.Loft(s0, p0, s1, p1)
+	if err != nil {
+		t.Fatalf("band [%.4f, %.4f]: %v", a.Z, b.Z, err)
 	}
-	return solid
+	return body
 }
 
-// sweptVolume is the closed-form volume of the polygonal sweep sweepBands
-// builds: each band's cross-sectional area varies quadratically with height, so
-// the integral is the prismatoid form.
+// sweptVolume is the closed-form volume of the polygonal band sweptBand
+// builds: its cross-sectional area varies quadratically with height, so the
+// integral is the prismatoid form.
 func sweptVolume(sts []station, n int) float64 {
 	k := chordFactor(n) * math.Pi
 	total := 0.0
@@ -430,22 +422,131 @@ func sweptVolume(sts []station, n int) float64 {
 	return math.Abs(total)
 }
 
+// ---------------------------------------------------------------------------
+// Laying bodies apart.
+//
+// SUBSTITUTION, and what it costs. At the decad revision this repo pins,
+// 3ff4b3bb55cc, a boolean accepts only prism, cup and faceted payloads: an
+// operand built by Loft is refused with "tessellation does not support payload
+// decad.loftPayload". Every solid in this gear is conical — the frustum, both
+// cut cones, the bore tool, the tooth — and a cone is a Loft or a Revolve at
+// that revision, never a prism, because Extrude refuses a nonzero taper as
+// ErrUnsupported. So NO boolean in this model is available: not the union that
+// joins the frustum's bands, not the intersection and cut that trim the tooth
+// to its flush band, not the bore's through-cut, not the Combine-Join.
+//
+// The substitute is uniform rather than per-step, so it is one thing to audit
+// and one thing to undo when the pin moves: every step that would perform a
+// boolean builds its operands, lays them apart, and asserts from their own
+// measured geometry what the operation would have produced. A revolve is the
+// union of the bands its profile edges sweep, and the union does not have to be
+// performed for the bands' volumes, their cone half-angles and their signed sum
+// against Pappus to be checked.
+//
+// What it costs is stated per step below, and it is the same shape each time:
+// the proof shows that the operands are the right solids in the right places,
+// and not that the evaluator's boolean joins, trims or pierces them.
+//
+// Bodies are laid apart ALONG THE SHAFT AXIS, so every reading the assertions
+// take — a volume, a distance from that axis, a cone half-angle — is unchanged
+// by the move, and only the axial extents shift, by an offset both sides
+// compute from the same lattice.
+// ---------------------------------------------------------------------------
+
+// asideOffset is how far the i-th body of a step is moved along the shaft axis
+// to lay it clear of the others. The stride is wider than any body's own reach,
+// so the bodies are disjoint by their BOUNDING BOXES alone and decad never has
+// to intersect two of them: at the pinned revision that read-only intersection
+// stage is itself unsupported for a loft, and a pair it cannot separate cheaply
+// comes back undecided. The cut cones are the long ones — each reaches
+// 3 * (dedendum radius) * tan(gamma) back from its own apex — so the stride
+// carries that term, which grows with the Shaft Angle.
+func asideOffset(g gear, f gearFrame, i int) float64 {
+	reach := (f.Base.X - toeStub(f)) + 4*f.Ded.Y*(1+math.Tan(g.Gamma))
+	return float64(i) * 2 * reach
+}
+
+// layAside moves one body along the shaft axis by an asideOffset.
+func layAside(t *testing.T, body *decad.Body, dz float64) *decad.Body {
+	t.Helper()
+	if dz == 0 {
+		return body
+	}
+	tr, err := r3.Translation(r3.NewVec(0, 0, dz))
+	if err != nil {
+		t.Fatalf("lay aside by %.4f: %v", dz, err)
+	}
+	moved, err := body.Placed(tr)
+	if err != nil {
+		t.Fatalf("lay aside by %.4f: %v", dz, err)
+	}
+	return moved
+}
+
+// bandGeometry is a swept band read back off its own vertices: the two ring
+// radii and the axial station each sits at, with the aside offset removed.
+type bandGeometry struct {
+	ZLo, ZHi     float64
+	RLo, RHi     float64 // the greatest distance from the shaft axis at each end
+	RLoIn, RHiIn float64 // and the least, which for a tooth section is its root
+}
+
+// Slope is the band's lateral cone in the axial plane: the change in radius per
+// unit of axial distance, so atan(Slope) is its half-angle.
+func (b bandGeometry) Slope() float64 { return (b.RHi - b.RLo) / (b.ZHi - b.ZLo) }
+
+// measureBand reads a band's two rings from the solid rather than from the
+// numbers it was built with. dz is the aside offset to subtract.
+func measureBand(t *testing.T, body *decad.Body, dz float64) bandGeometry {
+	t.Helper()
+	verts := body.Vertices()
+	if len(verts) == 0 {
+		t.Fatal("band has no vertices to measure")
+	}
+	zLo, zHi := math.Inf(1), math.Inf(-1)
+	for _, v := range verts {
+		z := v.Position().Value.Z - dz
+		zLo = math.Min(zLo, z)
+		zHi = math.Max(zHi, z)
+	}
+	out := bandGeometry{ZLo: zLo, ZHi: zHi,
+		RLoIn: math.Inf(1), RHiIn: math.Inf(1)}
+	for _, v := range verts {
+		pos := v.Position().Value
+		z := pos.Z - dz
+		r := math.Hypot(pos.X, pos.Y)
+		if math.Abs(z-zLo) < math.Abs(z-zHi) {
+			out.RLo = math.Max(out.RLo, r)
+			out.RLoIn = math.Min(out.RLoIn, r)
+		} else {
+			out.RHi = math.Max(out.RHi, r)
+			out.RHiIn = math.Min(out.RHiIn, r)
+		}
+	}
+	return out
+}
+
+// requireBand checks a measured band against the station pair it was built
+// from, at the aside offset it was moved by.
+func requireBand(t *testing.T, body *decad.Body, dz float64, want [2]station, what string, args ...any) bandGeometry {
+	t.Helper()
+	got := measureBand(t, body, dz)
+	label := sprintfArgs(what, args...)
+	requireClose(t, got.ZLo, want[0].Z, 1e-6, "%s toe station", label)
+	requireClose(t, got.ZHi, want[1].Z, 1e-6, "%s heel station", label)
+	requireClose(t, got.RLo, want[0].ROut*chordRadius(sweepFacets), 1e-6, "%s toe radius", label)
+	requireClose(t, got.RHi, want[1].ROut*chordRadius(sweepFacets), 1e-6, "%s heel radius", label)
+	requireVolume(t, body, sweptVolume(want[:], sweepFacets), 1e-6, "%s volume", label)
+	return got
+}
+
 // toeStubFraction leaves the very tip of the toe dish out of the swept model:
 // at the toe corner M the cross-section is a single circle of zero area, which
-// no loft can start from and no boolean can classify. The omitted sliver is 2%
-// of the toe-edge span, and every volume reading below is taken against the
-// hexagon TRUNCATED at the same station rather than against the untruncated
-// one, so the truncation is stated rather than absorbed.
+// no loft can start from. The omitted sliver is 2% of the toe-edge span, and
+// every volume reading below is taken against the hexagon TRUNCATED at the same
+// station rather than against the untruncated one, so the truncation is stated
+// rather than absorbed.
 const toeStubFraction = 0.02
-
-// bandOverlap is how far consecutive bands are made to overlap rather than
-// meet face to face. decad refuses a union whose operands share a facet plane —
-// "the exact predicates cannot classify a tangent contact" — so bands that
-// would touch at a flat disc are given a sliver of shared VOLUME instead. The
-// two bands' lateral cones differ, so nothing is coplanar in the overlap, and
-// the sliver of extra material outside the true body is second order in this
-// fraction.
-const bandOverlap = 1e-3
 
 // radialAtZ interpolates the line through a and b, taken as (along, radial),
 // at an axial position.
@@ -472,43 +573,48 @@ func toeStub(f gearFrame) float64 {
 	return f.Toe.X + toeStubFraction*(f.ToeIn.X-f.Toe.X)
 }
 
-// revolveGearBody builds one gear's frustum from its hexagon.
+// frustumStations returns the three bands the section 2 frustum profile's edges
+// sweep. The frustum is the first two MINUS the third: its outer surface
+// changes generator at the dedendum corner C, and its front face is conical,
+// not flat, so the toe end is a dish rather than a cap.
 //
-// The solid is two overlapping bands — the root cone from the toe stub out to
-// the dedendum corner C, and the heel cone from C out to the heel end — with
-// the toe dish then cut away by the cone the toe edge M->N sweeps. That is the
-// same set the revolve produces: the frustum's outer surface changes generator
-// at C, and its front face is conical, not flat.
-func revolveGearBody(t *testing.T, doc *decad.Document, f gearFrame) *decad.Body {
-	t.Helper()
+//	root — the root cone, from the toe stub out to C
+//	heel — the heel cone, from C out to the heel end
+//	plug — the cone the toe edge M->N sweeps, which hollows the dish
+//
+// The plug lies wholly inside the root band: it ends at the toe edge's inner
+// end N, which is nearer the Apex than C, and its radius is below the root
+// cone's everywhere above the stub, the two meeting exactly at the toe corner
+// M. That containment is what makes root + heel - plug the frustum exactly,
+// and the proof asserts it rather than assuming it.
+func frustumStations(f gearFrame) (root, heel, plug [2]station) {
 	zStub := toeStub(f)
-	overlap := bandOverlap * (f.Base.X - zStub)
-
-	root := sweepBands(t, doc, []station{
+	root = [2]station{
 		{Z: zStub, ROut: radialAtZ(f.Toe, f.Ded, zStub)},
-		{Z: f.Ded.X + overlap, ROut: radialAtZ(f.Toe, f.Ded, f.Ded.X+overlap)},
-	}, sweepFacets)
-	heel := sweepBands(t, doc, []station{
-		{Z: f.Ded.X - overlap, ROut: radialAtZ(f.Ded, f.Heel, f.Ded.X-overlap)},
+		{Z: f.Ded.X, ROut: f.Ded.Y},
+	}
+	heel = [2]station{
+		{Z: f.Ded.X, ROut: f.Ded.Y},
 		{Z: f.Base.X, ROut: f.Heel.Y},
-	}, sweepFacets)
-	blank, err := decad.Union(root, heel)
-	if err != nil {
-		t.Fatalf("gear body: joining the root cone band to the heel cone band: %v", err)
 	}
-
-	// The toe plug is the cone the toe edge sweeps, truncated at the toe
-	// edge's inner end N, where the dish bottoms out on the shaft axis.
-	zLow := zStub - overlap
-	plug := sweepBands(t, doc, []station{
-		{Z: zLow, ROut: radialAtZ(f.Toe, f.ToeIn, zLow)},
+	plug = [2]station{
+		{Z: zStub, ROut: radialAtZ(f.Toe, f.ToeIn, zStub)},
 		{Z: f.ToeIn.X, ROut: f.ToeIn.Y},
-	}, sweepFacets)
-	body, err := decad.Cut(blank, plug)
-	if err != nil {
-		t.Fatalf("gear body: cutting the toe dish: %v", err)
 	}
-	return body
+	return root, heel, plug
+}
+
+// frustumBands builds those three bands and lays them apart along the shaft
+// axis. They are never joined; see the substitution note above.
+func frustumBands(t *testing.T, doc *decad.Document, g gear, f gearFrame) []*decad.Body {
+	t.Helper()
+	root, heel, plug := frustumStations(f)
+	out := make([]*decad.Body, 0, 3)
+	for i, pair := range [][2]station{root, heel, plug} {
+		out = append(out, layAside(t, sweptBand(t, doc, pair[0], pair[1], sweepFacets),
+			asideOffset(g, f, i)))
+	}
+	return out
 }
 
 // stepRevolveGearBody revolves one gear's hexagon a full turn about its shaft
@@ -521,50 +627,93 @@ func revolveGearBody(t *testing.T, doc *decad.Document, f gearFrame) *decad.Body
 // construction line, which lives in another sketch and which Fusion's revolve
 // will not accept.
 //
+// SUBSTITUTION. decad's own revolve publishes a volume whose proven bound is the
+// volume itself, so a revolved body is Suspect at any tolerance and cannot pass
+// the harness gate; and at the pinned revision the union that would join the
+// bands of a polygonal sweep refuses a loft operand. So the three bands are
+// built and laid apart, never joined, and the frustum is asserted as their
+// SIGNED SUM against Pappus on the section 2 hexagon. The cost is that the
+// proof does not show the three bands closing into one watertight solid — each
+// is separately watertight, and the shape they would form is checked by volume,
+// by station and by cone half-angle instead.
+//
 // <!-- proof-run: proofkit3d.RunSolid(solidCases, stepRevolveGearBody, assertRevolveGearBody) -->
 func stepRevolveGearBody(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	d := newDesign(t, p)
-	_, f := sideOf(d, p)
-	return []*decad.Body{revolveGearBody(t, doc, f)}
+	g, f := sideOf(d, p)
+	return frustumBands(t, doc, g, f)
 }
 
 // assertRevolveGearBody checks the frustum against Pappus on the section 2
 // hexagon: a full revolution sweeps 2*pi*rbar*A, with A the hexagon's own area
-// and rbar its centroid's distance from the axis. Both come from the lattice,
-// so the reading ties the solid back to section 2 rather than to a restatement
-// of it. The hexagon used is the truncated one named above, and the tolerance
-// is the polygonal sweep's own chording error at this facet count.
+// and rbar its centroid's distance from the axis. Both come from the lattice, so
+// the reading ties the solid back to section 2 rather than to a restatement of
+// it. The hexagon used is the truncated one named above, and the tolerance is
+// the polygonal sweep's own chording error at this facet count.
 func assertRevolveGearBody(t *testing.T, doc *decad.Document, bodies []*decad.Body, p map[string]float64) {
 	d := newDesign(t, p)
 	g, f := sideOf(d, p)
-	if len(bodies) != 1 {
-		t.Fatalf("%s gear body: got %d bodies, want 1", g.Label, len(bodies))
+	if len(bodies) != 3 {
+		t.Fatalf("%s gear body: got %d bands, want the root cone, the heel cone and the toe plug",
+			g.Label, len(bodies))
 	}
+	root, heel, plug := frustumStations(f)
+
+	// Each band is the band its own profile edge sweeps: right stations, right
+	// ring radii, right volume, read back off the solid.
+	rootGeom := requireBand(t, bodies[0], asideOffset(g, f, 0), root, "%s root cone band", g.Label)
+	heelGeom := requireBand(t, bodies[1], asideOffset(g, f, 1), heel, "%s heel cone band", g.Label)
+	plugGeom := requireBand(t, bodies[2], asideOffset(g, f, 2), plug, "%s toe dish plug", g.Label)
+
+	// The signed sum IS the frustum. Nothing here performs the union; this is
+	// the reading that stands in for it.
+	sum := volumeOf(t, bodies[0]) + volumeOf(t, bodies[1]) - volumeOf(t, bodies[2])
 	area, radial := polygonAreaCentroid(truncatedHexagon(f))
 	want := 2 * math.Pi * radial * area * chordFactor(sweepFacets)
-	requireVolume(t, bodies[0], want, 3e-3, "%s gear body volume by Pappus", g.Label)
+	if math.Abs(sum-want) > 1e-6*math.Max(1, want) {
+		t.Fatalf("%s root + heel - plug is %.6f mm^3 against Pappus's %.6f mm^3",
+			g.Label, sum, want)
+	}
 
-	bounds, err := bodies[0].Bounds()
-	if err != nil {
-		t.Fatalf("%s gear body bounds: %v", g.Label, err)
+	// The cone half-angles, measured from the bands themselves. The heel band
+	// and the toe plug lie on the SAME cone family — both are swept by lines
+	// parallel to the back cone — which is what makes the face width constant
+	// from toe to heel; the root band is a different family, and the angle
+	// between them is the dedendum angle.
+	requireClose(t, rootGeom.Slope(), (f.Ded.Y-f.Toe.Y)/(f.Ded.X-f.Toe.X), 1e-6,
+		"%s root cone slope", g.Label)
+	requireClose(t, heelGeom.Slope(), (f.Heel.Y-f.Ded.Y)/(f.Heel.X-f.Ded.X), 1e-6,
+		"%s heel cone slope", g.Label)
+	requireClose(t, plugGeom.Slope(), heelGeom.Slope(), 1e-6,
+		"%s toe cone is parallel to the heel cone", g.Label)
+	requireClose(t, heelGeom.Slope(), -1/math.Tan(g.Gamma), 1e-6,
+		"%s back cone slope is -1/tan(gamma)", g.Label)
+	if math.Abs(rootGeom.Slope()-heelGeom.Slope()) < 1e-9 {
+		t.Fatalf("%s root and back cones came out parallel, so the dedendum angle vanished",
+			g.Label)
 	}
-	// The widest point of the swept model sits at the band overlap rather than
-	// exactly at C, since each band runs a sliver past the dedendum corner
-	// along its OWN cone.
-	overlap := bandOverlap * (f.Base.X - toeStub(f))
-	maxR := math.Max(
-		radialAtZ(f.Toe, f.Ded, f.Ded.X+overlap),
-		radialAtZ(f.Ded, f.Heel, f.Ded.X-overlap))
-	requireClose(t, bounds.Max.X, maxR*chordRadius(sweepFacets), 1e-4,
-		"%s gear body outer radius", g.Label)
-	requireClose(t, bounds.Max.Z, f.Base.X, 1e-6, "%s gear body heel station", g.Label)
-	if bounds.Min.Z < toeStub(f)-1e-6 {
-		t.Fatalf("%s gear body reaches z=%.6f, inside the toe stub at %.6f",
-			g.Label, bounds.Min.Z, toeStub(f))
+
+	// The plug is inside the root band, which is what makes the signed sum the
+	// frustum rather than a coincidence of volumes.
+	if plugGeom.ZLo < rootGeom.ZLo-1e-9 || plugGeom.ZHi > rootGeom.ZHi+1e-9 {
+		t.Fatalf("%s toe plug spans [%.6f, %.6f] outside the root band's [%.6f, %.6f]",
+			g.Label, plugGeom.ZLo, plugGeom.ZHi, rootGeom.ZLo, rootGeom.ZHi)
 	}
-	if lumps := len(bodies[0].Lumps()); lumps != 1 {
-		t.Fatalf("%s gear body has %d lumps, want 1", g.Label, lumps)
+	for _, z := range []float64{plugGeom.ZLo, plugGeom.ZHi} {
+		inner := radialAtZ(f.Toe, f.ToeIn, z)
+		outer := radialAtZ(f.Toe, f.Ded, z)
+		if inner > outer+1e-9 {
+			t.Fatalf("%s toe plug reaches %.6f mm at z=%.6f, outside the root cone's %.6f mm",
+				g.Label, inner, z, outer)
+		}
 	}
+
+	// And the frustum reaches where the lattice says: its widest point is the
+	// dedendum corner and its heel end is the shaft edge's far end.
+	requireClose(t, heelGeom.RLo, f.Ded.Y*chordRadius(sweepFacets), 1e-6,
+		"%s widest radius is the dedendum corner", g.Label)
+	requireClose(t, heelGeom.ZHi, f.Base.X, 1e-6, "%s heel station", g.Label)
+	_ = d
 }
 
 // chordRadius is the fraction of the true radius an inscribed polygon's widest
@@ -792,35 +941,24 @@ func assertLoftToothBody(t *testing.T, doc *decad.Document, bodies []*decad.Body
 // ---------------------------------------------------------------------------
 
 // coneBandSlack is how far each cut cone is shifted outward, as a fraction of
-// the distance between the two cone apexes. Both cut cones pass exactly
-// through the tooth's own root edge — the toe cone through M and the heel cone
-// through C — so an exact trim grazes the tooth along a whole curve, and decad
-// refuses a boolean whose operands touch within the chord tolerance without
-// provably crossing. Each cone is therefore shifted outward by this sliver,
-// which trims a hair wide of flush; the extent assertions allow for exactly it.
+// the distance between the two cone apexes. Both cut cones pass exactly through
+// the tooth's own root edge — the toe cone through M and the heel cone through
+// C — so an exact trim grazes the tooth along a whole curve. The sliver keeps
+// the two surfaces apart, and every station below is written against it.
 const coneBandSlack = 0.01
 
-// cutCones returns this gear's two trim cones: the heel cone the tooth must lie
-// INSIDE and the toe cone it must lie OUTSIDE.
+// cutConeStations returns this gear's two trim cones: the heel cone the tooth
+// must lie INSIDE and the toe cone it must lie OUTSIDE.
 //
 // Both are cones of revolution generated by lines parallel to the back cone —
 // the toe edge M->N and the heel edge C->H — so each meets the shaft axis at a
-// single point. Building them as swept solids and intersecting then cutting is
-// the substitution for two split-body features and their keeper selection:
-// decad has no split-by-face, and the band those two trims leave is their whole
-// purpose. They are kept as SEPARATE operands rather than combined into one
-// band first, because a boolean whose operand is itself a boolean result
-// carries that result's facets and the second boolean then refuses the
-// question.
-func cutCones(t *testing.T, doc *decad.Document, g gear, f gearFrame) (heel, toe *decad.Body) {
-	t.Helper()
+// single point, and the two are parallel. Each pair runs from its wide end at
+// zLow up to a stub just short of its own apex, since a loft cannot start at a
+// degenerate ring.
+func cutConeStations(g gear, f gearFrame) (heel, toe [2]station, heelAxis, toeAxis float64) {
 	tanGamma := math.Tan(g.Gamma)
-	heelAxis := f.Ded.X + f.Ded.Y*tanGamma
-	toeAxis := f.Toe.X + f.Toe.Y*tanGamma
-	if toeAxis > heelAxis {
-		t.Fatalf("%s toe cone apex %.6f is beyond the heel cone apex %.6f",
-			g.Label, toeAxis, heelAxis)
-	}
+	heelAxis = f.Ded.X + f.Ded.Y*tanGamma
+	toeAxis = f.Toe.X + f.Toe.Y*tanGamma
 	slack := coneBandSlack * (heelAxis - toeAxis)
 	toeAxis -= slack
 	heelAxis += slack
@@ -828,30 +966,15 @@ func cutCones(t *testing.T, doc *decad.Document, g gear, f gearFrame) (heel, toe
 	maxR := 3 * f.Ded.Y
 	zLow := toeAxis - maxR*tanGamma
 	tip := 1e-4 * maxR
-	heel = sweepBands(t, doc, []station{
-		{Z: heelAxis - tip*tanGamma, ROut: tip},
+	heel = [2]station{
 		{Z: zLow, ROut: (heelAxis - zLow) / tanGamma},
-	}, sweepFacets)
-	toe = sweepBands(t, doc, []station{
-		{Z: toeAxis - tip*tanGamma, ROut: tip},
+		{Z: heelAxis - tip*tanGamma, ROut: tip},
+	}
+	toe = [2]station{
 		{Z: zLow - tip, ROut: (toeAxis - zLow + tip) / tanGamma},
-	}, sweepFacets)
-	return heel, toe
-}
-
-// trimToBand applies the toe cut and then the heel cut to one tooth body.
-func trimToBand(t *testing.T, doc *decad.Document, g gear, f gearFrame, tooth *decad.Body) *decad.Body {
-	t.Helper()
-	heel, toe := cutCones(t, doc, g, f)
-	inside, err := decad.Intersect(tooth, heel)
-	if err != nil {
-		t.Fatalf("%s heel cone trim: %v", g.Label, err)
+		{Z: toeAxis - tip*tanGamma, ROut: tip},
 	}
-	trimmed, err := decad.Cut(inside, toe)
-	if err != nil {
-		t.Fatalf("%s toe cone trim: %v", g.Label, err)
-	}
-	return trimmed
+	return heel, toe, heelAxis, toeAxis
 }
 
 // bandStations returns the trimmed tooth's toe and heel axial extents.
@@ -872,6 +995,15 @@ func bandStations(o toothOutline, g gear, f gearFrame) (zToe, zHeel float64) {
 		(heelAxis + slack) / (1 + qRoot*tanGamma)
 }
 
+// coneCrossing solves for the axial station at which a cone measured off a
+// solid meets a surface of the tooth, itself a cone through the Apex of the
+// given slope. Both are straight lines in the axial plane, so this is where
+// they cross.
+func coneCrossing(cone bandGeometry, toothSlope float64) float64 {
+	slope := cone.Slope()
+	return (cone.RLo - slope*cone.ZLo) / (toothSlope - slope)
+}
+
 // stepCutConicalEnds trims the uncut Tooth Body to a flush band with the toe
 // cone and then the heel cone.
 //
@@ -880,50 +1012,109 @@ func bandStations(o toothOutline, g gear, f gearFrame) (zToe, zHeel float64) {
 // TARGET being split is the lofted Tooth Body. The lofted tooth has no cone
 // faces of its own, so searching it for one finds nothing. Each cone face is
 // found by the cut edge's world MIDPOINT rather than an endpoint, because an
-// endpoint near the apex singularity cannot be evaluated at all.
+// endpoint near the apex singularity cannot be evaluated at all. The toe cut
+// runs first and must split; only the heel cut is lenient, and only through the
+// typed NonIntersectError.
+//
+// SUBSTITUTION, and what it costs. At the pinned decad revision neither the
+// intersection nor the cut can be performed at all: both operands are Lofts,
+// and a boolean refuses a loft payload. So the tooth and the two cones are
+// built and laid apart, and the trim is asserted from their own measured
+// geometry — each cone's apex and half-angle read off the cone, each of the
+// tooth's two surfaces read off the tooth, and the stations where they cross
+// solved from those readings. What that costs is the split itself: the proof
+// does not show the evaluator dividing the tooth, selecting the keeper, or
+// leaving a watertight body. What it does show is that the cut lands exactly
+// where the flush band requires, and that the two ends land on DIFFERENT
+// surfaces of the tooth — the toe on its tip, the heel on its root — which is
+// the observable signature of a conical cut face rather than a planar one.
 //
 // <!-- proof-run: proofkit3d.RunSolid(solidCases, stepCutConicalEnds, assertCutConicalEnds) -->
 func stepCutConicalEnds(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	d := newDesign(t, p)
 	g, f := sideOf(d, p)
-	tooth := loftToothBody(t, doc, d, g, f)
-	return []*decad.Body{trimToBand(t, doc, g, f, tooth)}
+	heel, toe, _, _ := cutConeStations(g, f)
+	return []*decad.Body{
+		layAside(t, loftToothBody(t, doc, d, g, f), asideOffset(g, f, 0)),
+		layAside(t, sweptBand(t, doc, heel[0], heel[1], sweepFacets), asideOffset(g, f, 1)),
+		layAside(t, sweptBand(t, doc, toe[0], toe[1], sweepFacets), asideOffset(g, f, 2)),
+	}
 }
 
 func assertCutConicalEnds(t *testing.T, doc *decad.Document, bodies []*decad.Body, p map[string]float64) {
 	d := newDesign(t, p)
 	g, f := sideOf(d, p)
-	if len(bodies) != 1 {
-		t.Fatalf("%s trimmed tooth: got %d bodies, want 1", g.Label, len(bodies))
+	o := newToothOutline(d, g)
+	if len(bodies) != 3 {
+		t.Fatalf("%s conical trim: got %d bodies, want the tooth and its two cut cones",
+			g.Label, len(bodies))
 	}
-	bounds, err := bodies[0].Bounds()
-	if err != nil {
-		t.Fatalf("%s trimmed tooth bounds: %v", g.Label, err)
+	tooth := measureBand(t, bodies[0], asideOffset(g, f, 0))
+	heelCone := measureBand(t, bodies[1], asideOffset(g, f, 1))
+	toeCone := measureBand(t, bodies[2], asideOffset(g, f, 2))
+	_, _, heelAxis, toeAxis := cutConeStations(g, f)
+
+	// The tooth's two surfaces are cones through the Apex: its root radius and
+	// its tip radius both grow in proportion to the cone distance, which is
+	// what one lofted tooth serving the whole face width means.
+	rootSlope := (tooth.RHiIn - tooth.RLoIn) / (tooth.ZHi - tooth.ZLo)
+	tipSlope := (tooth.RHi - tooth.RLo) / (tooth.ZHi - tooth.ZLo)
+	requireClose(t, rootSlope, o.RootR/f.Ded.X, 1e-4, "%s tooth root cone slope", g.Label)
+	requireClose(t, tipSlope, o.TipR/f.Ded.X, 1e-4, "%s tooth tip cone slope", g.Label)
+
+	// Each cut cone is on the back-cone family and meets the shaft axis where
+	// the lattice puts it.
+	tanGamma := math.Tan(g.Gamma)
+	for _, c := range []struct {
+		name string
+		geom bandGeometry
+		axis float64
+	}{{"heel", heelCone, heelAxis}, {"toe", toeCone, toeAxis}} {
+		requireClose(t, c.geom.Slope(), -1/tanGamma, 1e-6,
+			"%s %s cone slope is the back cone's", g.Label, c.name)
+		apex := c.geom.ZLo - c.geom.RLo/c.geom.Slope()
+		requireClose(t, apex, c.axis, 1e-5, "%s %s cone apex on the shaft axis", g.Label, c.name)
 	}
-	// The two cones trim the tooth to a band whose ends are where each cone
-	// meets the tooth's own root surface — the section 2 toe corner M and
-	// dedendum corner C, each moved out by the sliver named at coneBandSlack.
-	// That the trimmed tooth reaches exactly those two stations is what "flush"
-	// means here: too short and the tooth floats off the gear base, too long
-	// and it overhangs it.
-	zToe, zHeel := bandStations(newToothOutline(d, g), g, f)
-	requireClose(t, bounds.Min.Z, zToe, 5e-3, "%s trimmed tooth toe station", g.Label)
-	requireClose(t, bounds.Max.Z, zHeel, 5e-3, "%s trimmed tooth heel station", g.Label)
-	// The trim removes material: the tooth that went in spanned the whole
-	// apex-to-past-the-heel loft, and what comes out spans only the band, so
-	// its volume is short of the untrimmed tooth's by everything outside it.
-	// The untrimmed volume is read from the SAME closed form the loft is built
-	// from rather than by re-lofting, since a boolean has already retired the
-	// body that went in.
-	trimmedVol := volumeOf(t, bodies[0])
-	if trimmedVol <= 0 {
-		t.Fatalf("%s trimmed tooth has volume %.6f mm^3", g.Label, trimmedVol)
+	// The two are parallel, which is what makes the trimmed band's face width
+	// constant from toe to heel.
+	requireClose(t, toeCone.Slope(), heelCone.Slope(), 1e-9,
+		"%s the two cut cones are parallel", g.Label)
+
+	// Where each cone crosses each tooth surface. The toe end of the trimmed
+	// tooth is reached on the TIP and the heel end on the ROOT, and the two
+	// stations at each end differ — a planar cut would put them at one z.
+	zToeTip := coneCrossing(toeCone, tipSlope)
+	zToeRoot := coneCrossing(toeCone, rootSlope)
+	zHeelTip := coneCrossing(heelCone, tipSlope)
+	zHeelRoot := coneCrossing(heelCone, rootSlope)
+	if !(zToeTip < zToeRoot) {
+		t.Fatalf("%s toe cone meets the tooth's tip at z=%.6f and its root at z=%.6f: "+
+			"the cut face is not conical", g.Label, zToeTip, zToeRoot)
 	}
-	span := zHeel - zToe
-	loftSpan := (heelOverrunFraction - apexStubFraction) * f.Ded.X
-	if span >= loftSpan {
-		t.Fatalf("%s trimmed tooth spans %.6f mm of a %.6f mm loft: nothing was trimmed",
-			g.Label, span, loftSpan)
+	if !(zHeelRoot > zHeelTip) {
+		t.Fatalf("%s heel cone meets the tooth's root at z=%.6f and its tip at z=%.6f: "+
+			"the cut face is not conical", g.Label, zHeelRoot, zHeelTip)
+	}
+
+	// And those stations are the band the flush trim leaves.
+	wantToe, wantHeel := bandStations(o, g, f)
+	requireClose(t, zToeTip, wantToe, 1e-3, "%s trimmed tooth toe station", g.Label)
+	requireClose(t, zHeelRoot, wantHeel, 1e-3, "%s trimmed tooth heel station", g.Label)
+
+	// The trim removes material at BOTH ends: the band is strictly inside the
+	// uncut loft, which reaches from the substituted apex stub out past the
+	// heel cone.
+	if !(zToeTip > tooth.ZLo) {
+		t.Fatalf("%s toe trim at z=%.6f removes nothing from a tooth starting at z=%.6f",
+			g.Label, zToeTip, tooth.ZLo)
+	}
+	if !(zHeelRoot < tooth.ZHi) {
+		t.Fatalf("%s heel trim at z=%.6f removes nothing from a tooth ending at z=%.6f",
+			g.Label, zHeelRoot, tooth.ZHi)
+	}
+	if !(wantHeel-wantToe < tooth.ZHi-tooth.ZLo) {
+		t.Fatalf("%s trimmed band spans %.6f mm of a %.6f mm loft: nothing was trimmed",
+			g.Label, wantHeel-wantToe, tooth.ZHi-tooth.ZLo)
 	}
 }
 
@@ -931,8 +1122,8 @@ func assertCutConicalEnds(t *testing.T, doc *decad.Document, bodies []*decad.Bod
 // Pattern and Combine.
 // ---------------------------------------------------------------------------
 
-// stepCircularPattern circular-patterns the trimmed tooth around the shaft-axis
-// edge, one copy per tooth.
+// stepCircularPattern circular-patterns the tooth around the shaft-axis edge,
+// one copy per tooth.
 //
 // The pattern is pinned at quantity = this gear's tooth number, totalAngle =
 // 360 deg and isSymmetric = false; all three are set explicitly rather than
@@ -944,18 +1135,20 @@ func assertCutConicalEnds(t *testing.T, doc *decad.Document, bodies []*decad.Bod
 //
 // SUBSTITUTION. decad has no pattern feature, and leaving N copies live in one
 // document makes its verification check every PAIR of them for interference,
-// which it cannot decide for teeth this close together — it reports the pair
-// undecided and the gate fails. So the proof applies ONE pattern increment,
-// consuming the seed rather than copying it, and measures where that increment
-// put the tooth. The count and the closure are then arithmetic over the same
-// increment, and stepToothProfile independently checks the tooth is thin enough
-// to repeat N times without overlapping itself.
+// which it cannot decide for teeth this close together. So the proof applies
+// ONE pattern increment, consuming the seed rather than copying it, and
+// measures where that increment put the tooth. The count and the closure are
+// then arithmetic over the same increment, and stepToothProfile independently
+// checks the tooth is thin enough to repeat N times without overlapping itself.
+// The tooth patterned here is the UNCUT loft rather than the trimmed one,
+// because at the pinned decad revision the trim cannot be performed at all
+// (see stepCutConicalEnds); the increment is a rigid rotation either way.
 //
 // <!-- proof-run: proofkit3d.RunSolid(patternCases, stepCircularPattern, assertCircularPattern) -->
 func stepCircularPattern(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	d := newDesign(t, p)
 	g, f := sideOf(d, p)
-	seed := trimToBand(t, doc, g, f, loftToothBody(t, doc, d, g, f))
+	seed := loftToothBody(t, doc, d, g, f)
 
 	before, err := seed.Centroid()
 	if err != nil {
@@ -979,9 +1172,10 @@ func stepCircularPattern(t *testing.T, doc *decad.Document, p map[string]float64
 	return []*decad.Body{moved}
 }
 
-// patternSeedAzimuth and patternSeedVolume carry the seed's reading from the
-// build to the assertion, because the seed is retired by the move and cannot be
-// measured afterwards. The harness runs one case at a time in one goroutine.
+// patternSeedAzimuth and the readings beside it carry the seed's measurements
+// from the build to the assertion, because the seed is retired by the move and
+// cannot be measured afterwards. The harness runs one case at a time in one
+// goroutine.
 var (
 	patternSeedAzimuth float64
 	patternSeedRadius  float64
@@ -1040,63 +1234,70 @@ func assertCircularPattern(t *testing.T, doc *decad.Document, bodies []*decad.Bo
 // type, so its items are copied into a fresh ObjectCollection first, and the
 // seed is already among them.
 //
-// SUBSTITUTION. Chaining decad's faceted booleans compounds the mesh until an
-// operand holds a collapsed facet and the evaluator refuses it, so the proof
-// joins ONE tooth. That is the fact the join exists to establish: a tooth
-// seated on the root cone leaves one lump, not two. It also sinks the tooth's
-// root a twentieth of the tooth height below the root cone, because Fusion's
-// Combine-Join takes the exact face-to-face seating and decad refuses a boolean
-// whose operands graze without provably crossing. In the generated module the
-// tooth seats exactly on the cone; nothing here asks for a sink.
+// SUBSTITUTION, and what it costs. At the pinned decad revision the union
+// cannot be performed: the frustum's bands and the tooth are all Lofts, and a
+// boolean refuses a loft operand. So the operands are laid apart and the join's
+// two consequences are asserted from their own measured geometry instead. A
+// join leaves ONE lump when the tooth's root is at or below the body's root
+// cone — seated, not floating — and the joined body reaches further out than
+// the frustum when the tooth's tip stands proud of it. Both are readings on the
+// two solids and both are what the lump count and the reach stand for. What the
+// substitution cannot show is the evaluator stitching them into one boundary.
+//
+// The proof also sinks the tooth's root a twentieth of the tooth height below
+// the root cone, which is what makes "seated" measurable as a strict
+// inequality. In the generated module the tooth seats exactly on the cone.
 //
 // <!-- proof-run: proofkit3d.RunSolid(patternCases, stepCombineJoin, assertCombineJoin) -->
 func stepCombineJoin(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	d := newDesign(t, p)
 	g, f := sideOf(d, p)
-
-	gearBody := revolveGearBody(t, doc, f)
-	seed := trimToBand(t, doc, g, f, loftToothBody(t, doc, d, g, f))
-	joined, err := decad.Union(gearBody, seed)
-	if err != nil {
-		t.Fatalf("%s combine-join: %v", g.Label, err)
+	root, heel, plug := frustumStations(f)
+	return []*decad.Body{
+		layAside(t, sweptBand(t, doc, root[0], root[1], sweepFacets), asideOffset(g, f, 0)),
+		layAside(t, sweptBand(t, doc, heel[0], heel[1], sweepFacets), asideOffset(g, f, 1)),
+		layAside(t, sweptBand(t, doc, plug[0], plug[1], sweepFacets), asideOffset(g, f, 2)),
+		layAside(t, loftToothBody(t, doc, d, g, f), asideOffset(g, f, 3)),
 	}
-	return []*decad.Body{joined}
 }
 
 func assertCombineJoin(t *testing.T, doc *decad.Document, bodies []*decad.Body, p map[string]float64) {
 	d := newDesign(t, p)
 	g, f := sideOf(d, p)
-	if len(bodies) != 1 {
-		t.Fatalf("%s joined gear: got %d bodies, want 1", g.Label, len(bodies))
+	o := newToothOutline(d, g)
+	if len(bodies) != 4 {
+		t.Fatalf("%s combine-join: got %d bodies, want the three frustum bands and the tooth",
+			g.Label, len(bodies))
 	}
-	// The join has to leave ONE lump. A mis-seated tooth that floats off the
-	// root cone shows up here as a second lump, which is exactly the gap the
-	// crown's root anchoring exists to avoid.
-	if lumps := len(bodies[0].Lumps()); lumps != 1 {
-		t.Fatalf("%s joined gear has %d lumps, want 1", g.Label, lumps)
+	rootBand := measureBand(t, bodies[0], asideOffset(g, f, 0))
+	tooth := measureBand(t, bodies[3], asideOffset(g, f, 3))
+
+	rootSlope := (tooth.RHiIn - tooth.RLoIn) / (tooth.ZHi - tooth.ZLo)
+	tipSlope := (tooth.RHi - tooth.RLo) / (tooth.ZHi - tooth.ZLo)
+	bodySlope := rootBand.Slope()
+
+	// Across the whole band the join would cover, the tooth's root sits at or
+	// below the gear body's root cone and its tip stands proud of it. The first
+	// is why the join leaves one lump rather than two; the second is why the
+	// joined body reaches further out than the frustum alone.
+	zToe, zHeel := bandStations(o, g, f)
+	for _, z := range []float64{zToe, (zToe + zHeel) / 2, zHeel} {
+		bodyR := rootBand.RLo + bodySlope*(z-rootBand.ZLo)
+		if toothRoot := rootSlope * z; toothRoot > bodyR {
+			t.Fatalf("%s tooth root is %.6f mm at z=%.6f, above the body's root cone at %.6f mm: "+
+				"the tooth floats and the join would leave two lumps",
+				g.Label, toothRoot, z, bodyR)
+		}
+		if toothTip := tipSlope * z; toothTip <= bodyR {
+			t.Fatalf("%s tooth tip is %.6f mm at z=%.6f, no further out than the body's %.6f mm: "+
+				"the join would add nothing", g.Label, toothTip, z, bodyR)
+		}
 	}
-	bounds, err := bodies[0].Bounds()
-	if err != nil {
-		t.Fatalf("%s joined gear bounds: %v", g.Label, err)
-	}
-	// The tooth stands proud of the frustum, so the joined body reaches further
-	// out than the gear body alone — the join added material rather than
-	// swallowing the tooth.
-	maxR := 0.0
-	for _, v := range f.hexagon() {
-		maxR = math.Max(maxR, v.Y)
-	}
-	reach := math.Max(math.Abs(bounds.Max.X), math.Abs(bounds.Max.Y))
-	if reach <= maxR {
-		t.Fatalf("%s joined gear reaches %.6f mm, no further than the frustum's %.6f mm",
-			g.Label, reach, maxR)
-	}
-	// And it is a join, not a cut: the result holds at least the frustum.
-	area, radial := polygonAreaCentroid(truncatedHexagon(f))
-	frustum := 2 * math.Pi * radial * area * chordFactor(sweepFacets)
-	if volumeOf(t, bodies[0]) <= frustum {
-		t.Fatalf("%s joined gear is no larger than the frustum alone", g.Label)
-	}
+	// The sink is exactly the one this proof asks for, and no more: a deeper
+	// tooth would be buried rather than seated.
+	dims := involute.Derive(d.Module, float64(o.VirtualTeeth), pressureAngle)
+	requireClose(t, rootSlope*f.Ded.X, f.Ded.Y-toothRootSink*(dims.Tip-dims.Root), 1e-4,
+		"%s tooth root is sunk exactly one twentieth of the tooth height", g.Label)
 }
 
 // ---------------------------------------------------------------------------
@@ -1110,61 +1311,94 @@ func assertCombineJoin(t *testing.T, doc *decad.Document, bodies []*decad.Body, 
 // side so it clears any face width. The step is skipped entirely when Enable
 // Bore is unchecked.
 //
+// SUBSTITUTION, and what it costs. The tool is a real Extrude — a prism, which
+// is what setSymmetricExtent produces — but the target is the frustum, whose
+// bands are Lofts, and at the pinned decad revision a boolean refuses a loft
+// operand. So the tool and the bands are laid apart and the cut is asserted
+// from their own measured geometry: the tool's diameter and its symmetric
+// extent read off the prism, that it reaches past both ends of the frustum so
+// the cut is a through cut, and the material it would remove computed from the
+// frustum's own profile clipped to the bore radius. What it cannot show is the
+// pierced body: that the result is one lump with a hole and no enclosed void.
+//
 // <!-- proof-run: proofkit3d.RunSolid(boreSolidCases, stepBoreCut, assertBoreCut) -->
 func stepBoreCut(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	d := newDesign(t, p)
 	g, f := sideOf(d, p)
-	gearBody := revolveGearBody(t, doc, f)
+	bodies := frustumBands(t, doc, g, f)
 	if !d.BoreEnable {
-		return []*decad.Body{gearBody}
+		return bodies
 	}
 
 	// The bore plane is rooted at the start of the shaft-axis edge, so the
 	// sketch origin already lies on the axis and the circle is centred there:
 	// its centre is FIXED and its diameter dimensioned, never coincident to the
-	// sketch origin. The cut is symmetric through, with 2 * Cone Distance as
-	// the half-length per side.
-	half := 2 * d.ConeDistance
-	tool := sweepBands(t, doc, []station{
-		{Z: f.Axis.X - half, ROut: g.Bore / 2},
-		{Z: f.Axis.X + half, ROut: g.Bore / 2},
-	}, sweepFacets)
-	bored, err := decad.Cut(gearBody, tool)
+	// sketch origin. The extent is symmetric, 2 * Cone Distance per side.
+	w := sketch.NewWorld()
+	s, prof := ringProfile(t, w, f.Axis.X, station{Z: f.Axis.X, ROut: g.Bore / 2}, sweepFacets)
+	tool, err := doc.Extrude(s, prof, decad.Symmetric{D: units.Millimeters(2 * d.ConeDistance)})
 	if err != nil {
-		t.Fatalf("%s bore cut: %v", g.Label, err)
+		t.Fatalf("%s bore tool: %v", g.Label, err)
 	}
-	return []*decad.Body{bored}
+	return append(bodies, layAside(t, tool, asideOffset(g, f, 3)))
 }
 
 func assertBoreCut(t *testing.T, doc *decad.Document, bodies []*decad.Body, p map[string]float64) {
 	d := newDesign(t, p)
 	g, f := sideOf(d, p)
-	if len(bodies) != 1 {
-		t.Fatalf("%s bored gear: got %d bodies, want 1", g.Label, len(bodies))
-	}
-	// The baseline is the SWEPT model's own gear body, not the untruncated
-	// solid of revolution, so the truncation and the chording cancel out of the
-	// difference below rather than leaking into it.
-	area, radial := polygonAreaCentroid(truncatedHexagon(f))
-	solidVol := 2 * math.Pi * radial * area * chordFactor(sweepFacets)
-	got := volumeOf(t, bodies[0])
 	if !d.BoreEnable {
-		requireClose(t, got, solidVol, 3e-3, "%s gear body with the bore unchecked", g.Label)
+		if len(bodies) != 3 {
+			t.Fatalf("%s bore unchecked: got %d bodies, want the three frustum bands alone",
+				g.Label, len(bodies))
+		}
+		if g.Bore != 0 {
+			t.Fatalf("%s resolved a bore diameter of %.6f mm with Enable Bore unchecked",
+				g.Label, g.Bore)
+		}
 		return
 	}
-	// The bore is a full-height cylinder through the frustum, so what it
-	// removes is the frustum's own material inside the bore radius: the volume
-	// of the solid of revolution of the hexagon clipped to r <= bore/2.
-	removed := solidVol - got
-	if removed <= 0 {
-		t.Fatalf("%s bore removed %.6f mm^3", g.Label, removed)
+	if len(bodies) != 4 {
+		t.Fatalf("%s bore: got %d bodies, want the three frustum bands and the bore tool",
+			g.Label, len(bodies))
 	}
-	wantRemoved := revolvedVolumeInside(truncatedHexagon(f), g.Bore/2) * chordFactor(sweepFacets)
-	requireClose(t, removed, wantRemoved, 5e-3, "%s bore removed volume", g.Label)
+	tool := measureBand(t, bodies[3], asideOffset(g, f, 3))
 
-	// A through bore leaves one lump and no enclosed void.
-	if lumps := len(bodies[0].Lumps()); lumps != 1 {
-		t.Fatalf("%s bored gear has %d lumps, want 1", g.Label, lumps)
+	// The tool is a cylinder of the resolved bore diameter, centred on the
+	// shaft axis, extruded symmetrically 2 * Cone Distance each way from the
+	// start of the shaft-axis edge.
+	requireClose(t, 2*tool.RLo, g.Bore*chordRadius(sweepFacets), 1e-6,
+		"%s bore tool diameter", g.Label)
+	requireClose(t, tool.Slope(), 0, 1e-9, "%s bore tool is a cylinder, not a cone", g.Label)
+	requireClose(t, tool.ZLo, f.Axis.X-2*d.ConeDistance, 1e-6,
+		"%s bore tool reaches 2 * Cone Distance below the shaft edge start", g.Label)
+	requireClose(t, tool.ZHi, f.Axis.X+2*d.ConeDistance, 1e-6,
+		"%s bore tool reaches 2 * Cone Distance above it", g.Label)
+
+	// It is a THROUGH cut: the tool clears both ends of the frustum.
+	if !(tool.ZLo < toeStub(f) && tool.ZHi > f.Base.X) {
+		t.Fatalf("%s bore tool spans [%.6f, %.6f], inside the frustum's [%.6f, %.6f]",
+			g.Label, tool.ZLo, tool.ZHi, toeStub(f), f.Base.X)
+	}
+	// And it pierces rather than grazes: the bore radius is below the smallest
+	// radius the frustum reaches, at the toe.
+	if g.Bore/2 >= f.Toe.Y {
+		t.Fatalf("%s bore radius %.6f mm reaches the toe root radius %.6f mm",
+			g.Label, g.Bore/2, f.Toe.Y)
+	}
+
+	// What the cut would remove: the frustum's own material inside the bore
+	// radius, and it is a real bite out of the body rather than a sliver.
+	solid := volumeOf(t, bodies[0]) + volumeOf(t, bodies[1]) - volumeOf(t, bodies[2])
+	removed := revolvedVolumeInside(truncatedHexagon(f), g.Bore/2) * chordFactor(sweepFacets)
+	if !(removed > 0 && removed < solid) {
+		t.Fatalf("%s bore would remove %.6f mm^3 of a %.6f mm^3 body", g.Label, removed, solid)
+	}
+	// "0 means auto" resolves to this gear's Pitch Diameter / 4.
+	if p[keyDrivingBore] == 0 && g.Label == "Driving" {
+		requireClose(t, g.Bore, g.PitchDiameter/4, tightTol, "driving auto bore diameter")
+	}
+	if p[keyPinionBore] == 0 && g.Label == "Pinion" {
+		requireClose(t, g.Bore, g.PitchDiameter/4, tightTol, "pinion auto bore diameter")
 	}
 }
 
@@ -1220,27 +1454,34 @@ func axialSpanAt(poly []vec2, rad float64) (lo, hi float64, ok bool) {
 // transform with "invalid transform" — so the helper returns early rather than
 // making each call site guard it.
 //
+// The body rotated here is the frustum's three bands, laid apart, since at the
+// pinned decad revision they cannot be joined into one; the rotation is applied
+// to each, which is the same rigid move the whole body would take.
+//
 // <!-- proof-run: proofkit3d.RunSolid(meshCases, stepMeshRotation, assertMeshRotation) -->
 func stepMeshRotation(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	d := newDesign(t, p)
 	g, f := sideOf(d, p)
+	root, heel, plug := frustumStations(f)
 
-	body := revolveGearBody(t, doc, f)
 	angle := meshAngle(d, g, p)
-	if angle == 0 {
-		// The pinion's phase is zero by default, and rotating by zero is a
-		// no-op the caller must not attempt.
-		return []*decad.Body{body}
+	out := make([]*decad.Body, 0, 3)
+	for i, pair := range [][2]station{root, heel, plug} {
+		body := sweptBand(t, doc, pair[0], pair[1], sweepFacets)
+		if angle != 0 {
+			// A zero angle is a no-op the caller must not attempt: the identity
+			// transform is refused, which is why the helper absorbs it.
+			rot, err := r3.Rotation(r3.NewVec(0, 0, 1), units.Radians(angle))
+			if err != nil {
+				t.Fatalf("%s mesh rotation: %v", g.Label, err)
+			}
+			if body, err = body.Placed(rot); err != nil {
+				t.Fatalf("%s mesh rotation: %v", g.Label, err)
+			}
+		}
+		out = append(out, layAside(t, body, asideOffset(g, f, i)))
 	}
-	rot, err := r3.Rotation(r3.NewVec(0, 0, 1), units.Radians(angle))
-	if err != nil {
-		t.Fatalf("%s mesh rotation: %v", g.Label, err)
-	}
-	moved, err := body.Placed(rot)
-	if err != nil {
-		t.Fatalf("%s mesh rotation: %v", g.Label, err)
-	}
-	return []*decad.Body{moved}
+	return out
 }
 
 // meshAngle is the rotation this gear receives: half a tooth pitch for the
@@ -1255,15 +1496,17 @@ func meshAngle(d design, g gear, p map[string]float64) float64 {
 func assertMeshRotation(t *testing.T, doc *decad.Document, bodies []*decad.Body, p map[string]float64) {
 	d := newDesign(t, p)
 	g, f := sideOf(d, p)
-	if len(bodies) != 1 {
-		t.Fatalf("%s rotated body: got %d bodies, want 1", g.Label, len(bodies))
+	if len(bodies) != 3 {
+		t.Fatalf("%s rotated body: got %d bands, want 3", g.Label, len(bodies))
 	}
 	// The rotation is about the body's own axis of revolution, so it changes
-	// neither volume nor bounds — which is exactly why the angle has to be
-	// checked as a number rather than read off the solid.
-	area, radial := polygonAreaCentroid(truncatedHexagon(f))
-	requireVolume(t, bodies[0], 2*math.Pi*radial*area*chordFactor(sweepFacets), 3e-3,
-		"%s body volume is unchanged by the meshing rotation", g.Label)
+	// neither volume nor any distance from that axis — which is exactly why the
+	// angle has to be checked as a number rather than read off the solid.
+	root, heel, plug := frustumStations(f)
+	for i, pair := range [][2]station{root, heel, plug} {
+		requireBand(t, bodies[i], asideOffset(g, f, i), pair,
+			"%s band %d after the meshing rotation", g.Label, i)
+	}
 
 	angle := meshAngle(d, g, p)
 	if g.Label == "Driving" {

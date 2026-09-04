@@ -1142,11 +1142,25 @@ aborts with `RuntimeError … ASM_WIRE_X_AXIS … the profile crosses the axis o
 (`[PB-REVOLVE]`). The Maximum Face Width and Maximum Base Height caps of S5 and S10 are exactly what
 keeps it from doing so; reproduce them.
 
-The proof substitutes a polygonal sweep for the revolve and says so in `solids_test.go`: decad
-publishes a revolved body's volume with a proven bound equal to the volume itself, so a revolved body
-is Suspect at any tolerance and cannot pass the harness gate, while its loft and union of polygonal
-profiles are Sound. It measures the same solid to a few parts in ten thousand and ties the reading
-back to Pappus on the §2 hexagon.
+The proof substitutes a polygonal sweep for the revolve, because decad publishes a revolved body's
+volume with a proven bound equal to the volume itself, so a revolved body is Suspect at any tolerance
+and cannot pass the harness gate. It then builds the three bands the frustum's profile edges sweep —
+the root cone out to C, the heel cone out to the heel end, and the toe-dish plug that hollows the
+front face — lays them apart and never joins them. The frustum is asserted as their SIGNED SUM
+against Pappus on the §2 hexagon, band by band against its own stations and ring radii, and cone
+half-angle by cone half-angle: the heel band and the toe plug come out parallel, on the back-cone
+family, and the root band at the dedendum angle to them. No boolean is performed here, and the reason is the decad revision this repo pins. At
+3ff4b3bb55cc a boolean accepts only prism, cup and faceted payloads and refuses an operand built by
+Loft; every solid in this gear is conical, and a cone is a Loft there, since Extrude refuses a
+nonzero taper. So the union that joins the frustum, the intersection and cut that trim the tooth,
+the bore's through-cut and the Combine-Join are all unavailable. Each step below builds its
+operands, lays them apart along the shaft axis — which leaves every volume, radius and cone angle
+unchanged — and asserts from their own measured geometry what the operation would have produced.
+`solids_test.go` states the substitution once and its cost at each site.
+
+What that costs is the union itself: the proof does not show the three bands closing into one
+watertight solid. Each is separately watertight, and the shape they would form is checked by volume,
+by station and by half-angle instead.
 
 `profileLoops` is named only to forbid filtering on it.
 
@@ -1270,9 +1284,18 @@ This same call is what `_transformToothBody` returns immediately when ψ = 0 —
 byte-for-byte the prior behaviour — and it is also step J of the spiral branch, applied to the curved
 tooth so its ends sit flush on the gear base.
 
-The proof substitutes an intersection with the band between the two cones for the two split features
-and their keeper selection: decad has no split-by-face, and the band that intersection leaves is the
-trims' whole purpose.
+The proof performs neither cut. At the pinned decad revision both operands are Lofts — the tooth and
+each cone alike — and a boolean refuses a loft payload, so the tooth and the two cones are built and
+laid apart instead. Each cone's apex and half-angle are read off the cone, each of the tooth's two
+surfaces off the tooth, and the stations where they cross are solved from those readings and checked
+against the flush band. The two cut cones come out parallel, which is what makes the face width
+constant from toe to heel.
+
+What that costs is the split: the proof does not show the evaluator dividing the tooth, selecting the
+keeper, or leaving a watertight body. What it does show is that each cut lands exactly where the
+flush band requires, and that the two ends land on DIFFERENT surfaces of the tooth — the toe on its
+tip, the heel on its root — which is the observable signature of a conical cut face rather than a
+planar one.
 
 **From:** `spec/bevelgear/instructions.md` L683-L709 (Conical cuts and caller obligations), L332-L334
 (the ψ = 0 gate), L657 (step J);
@@ -1867,7 +1890,9 @@ rather than copying it: decad has no pattern feature, and leaving N copies live 
 makes its verification check every pair of them for interference, which it cannot decide for
 teeth this close together. `solids_test.go` says so. The count and the closure are then
 arithmetic over that same increment, and the tooth's angular thickness is checked against the
-tooth pitch so a tooth that would not fit N times is caught.
+tooth pitch so a tooth that would not fit N times is caught. The tooth patterned is the UNCUT
+loft rather than the trimmed one, since at the pinned decad revision the trim cannot be performed
+at all; the increment is a rigid rotation either way.
 
 **From:** `spec/bevelgear/instructions.md` L711 (Pattern);
 `.claude/skills/generate-gear/PLAYBOOK.md` L660-L670 (`[PB-PATTERN-BODIES]`,
@@ -1895,15 +1920,18 @@ designComponent.features.combineFeatures.add(combineInput)
 (`[PB-PATTERN-BODIES]`). It is a `BRepBodies`, and `combineFeatures.createInput` rejects that type, so
 copy the items into a fresh `adsk.core.ObjectCollection` and pass that.
 
-The proof joins ONE tooth, because chaining decad's faceted booleans compounds the mesh until an
-operand holds a collapsed facet and the evaluator refuses it. What survives is the fact the join
-exists to establish: a tooth seated on the root cone leaves one lump, not two, and the joined
-body reaches further out than the frustum alone. `solids_test.go` says so.
+The proof performs no join: at the pinned decad revision the frustum's bands and the tooth are all
+Lofts and a boolean refuses a loft operand. The operands are laid apart and the join's two
+consequences are asserted from their own measured geometry instead. A join leaves ONE lump when the
+tooth's root is at or below the body's root cone — seated, not floating — and the joined body
+reaches further out than the frustum when the tooth's tip stands proud of it; both are readings on
+the two solids, taken at the toe, the middle and the heel of the band the join would cover, and both
+are what the lump count and the reach stand for. What it cannot show is the evaluator stitching the
+two into one boundary.
 
 The proof also sinks the tooth's root a twentieth of the tooth height below the gear body's root
-cone, because Fusion's Combine-Join takes the exact face-to-face seating and decad refuses a
-boolean whose operands graze without provably crossing. In the generated module the tooth seats
-exactly on the cone; nothing here asks for a sink.
+cone, which is what makes "seated" measurable as a strict inequality. In the generated module the
+tooth seats exactly on the cone; nothing here asks for a sink.
 
 `range` is a Python builtin.
 
@@ -1983,6 +2011,15 @@ half-length **per side**, so `2 * Cone Distance` per side is generously past any
 (`[PB-THROUGH-CUT]`). Do not pass a third taper argument. Restrict the cut with `participantBodies`
 so it pierces only this gear.
 
+The proof builds the tool as a real extrude — a prism, which is what a symmetric extent produces —
+but performs no cut: the target is the frustum, whose bands are Lofts, and at the pinned decad
+revision a boolean refuses a loft operand. Tool and bands are laid apart, and the cut is asserted
+from the tool's own measured geometry: its diameter, that its two ends sit exactly `2 * Cone
+Distance` either side of the shaft edge's start, and that both clear the frustum, which is what makes
+the cut a THROUGH cut. The material it would remove is computed from the frustum's own profile
+clipped to the bore radius. What it cannot show is the pierced body — one lump with a hole and no
+enclosed void.
+
 **From:** `spec/bevelgear/instructions.md` L715;
 `.claude/skills/generate-gear/PLAYBOOK.md` L696-L699 (`[PB-THROUGH-CUT]`).
 
@@ -2019,6 +2056,12 @@ so the call site does not need to guard it.
 This runs in Design before `moveToComponent` because a construction axis cannot be added in the
 moved-out gear component (`[PB-CONSTRUCTION-NEEDS-ACTIVE]`), so the rotation must use the edge's
 world geometry while the body is still in Design.
+
+The proof rotates the frustum's three bands, which at the pinned decad revision is as close to "the
+gear body" as it can get, since they cannot be joined into one. The rotation is about the body's own
+axis of revolution, so it changes neither a volume nor any distance from that axis — which is exactly
+why the angle has to be checked as a number rather than read off the solid, and why the zero-angle
+branch has to be checked as a branch.
 
 `Matrix3D.setToRotation` is named here to explain what the helper builds; this step calls the helper.
 `_pinionMeshPhase` is a private helper whose spelling the spec lets vary.
