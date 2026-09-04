@@ -45,7 +45,7 @@ trap 'rm -rf -- "$work"' EXIT
 	cd "$work"
 	go work init "$here"
 	go work edit \
-		-go=1.26.1 \
+		-go=1.26.8 \
 		"-replace=github.com/lestrrat-3d/sketch=$sketch_dir" \
 		"-replace=github.com/lestrrat-3d/decad=$decad_dir" \
 		go.work
