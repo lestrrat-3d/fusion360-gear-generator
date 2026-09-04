@@ -151,5 +151,10 @@
     "want": "CalculationAccuracy",
     "func": "areaProperties",
     "why": "Stub noise: the database gives Profile.areaProperties(accuracy: CalculationAccuracy) and CalculationAccuracy.LowCalculationAccuracy is a real member of that enum, but the stub types the member as a bare int, so every accuracy-qualified areaProperties call draws this. The call shape is copied from the step list's pre-verified span."
+  },
+  {
+    "rule": "reportAttributeAccessIssue",
+    "message": "Cannot assign to attribute \"patternComputeOption\" for class \"CircularPatternFeatureInput\"",
+    "why": "Stub noise: the database gives CircularPatternFeatureInput.patternComputeOption as a read/write PatternComputeOptions property, and AdjustPatternCompute as a real member of that enum, but the stub declares the members as bare ints (AdjustPatternCompute = 2), so assigning one to the PatternComputeOptions-typed setter reads as a type mismatch. The step list requires the assignment and calls it not optional (spec/cycloidal/steps.md:695). cycloidal is the only gear that sets this property, which is why no baseline covers it."
   }
 ]
