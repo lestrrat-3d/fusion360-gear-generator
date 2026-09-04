@@ -104,19 +104,31 @@ jobs:
           } | tee -a "$GITHUB_ENV"
         working-directory: gears
 
+      # Cloned in full and moved to the pinned commit below, rather than passed as
+      # `ref`. go.mod records a 12-digit short commit, and actions/checkout reads
+      # anything shorter than a full 40-digit SHA as a branch or tag name — it
+      # fetches refs/heads/<value>* and fails when nothing matches.
       - name: Check out the sketch engine
         uses: actions/checkout@v4
         with:
           repository: lestrrat-3d/sketch
-          ref: ${{ env.SKETCH_COMMIT }}
+          fetch-depth: 0
           path: sketch
 
       - name: Check out the decad engine
         uses: actions/checkout@v4
         with:
           repository: lestrrat-3d/decad
-          ref: ${{ env.DECAD_COMMIT }}
+          fetch-depth: 0
           path: decad
+
+      - name: Move the engines to the revisions proof/go.mod pins
+        run: |
+          set -euo pipefail
+          git -C "$GITHUB_WORKSPACE/sketch" checkout --detach "$SKETCH_COMMIT"
+          git -C "$GITHUB_WORKSPACE/decad" checkout --detach "$DECAD_COMMIT"
+          echo "sketch now at $(git -C "$GITHUB_WORKSPACE/sketch" rev-parse --short=12 HEAD)"
+          echo "decad now at $(git -C "$GITHUB_WORKSPACE/decad" rev-parse --short=12 HEAD)"
 
       - uses: actions/setup-go@v5
         with:
