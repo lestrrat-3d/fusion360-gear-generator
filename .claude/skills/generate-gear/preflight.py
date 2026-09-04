@@ -234,14 +234,61 @@ def check_proof_harness(ctx):
     return OK, 'proof harness present (run.sh, proofkit, proofkit3d, involute)'
 
 
+PSEUDO_VERSION = re.compile(
+    r'^\s*github\.com/lestrrat-3d/(sketch|decad) v\S*-([0-9a-f]{12})$', re.M)
+
+
+def _pinned_revisions(ctx):
+    """The engine revisions proof/go.mod pins, as a {module: short sha} mapping.
+
+    go.mod is the only place they are written. Reading them here rather than from
+    a copy is what keeps this check honest about what proof/run.sh will enforce.
+    """
+    try:
+        with open(ctx.path('proof', 'go.mod'), encoding='utf-8') as handle:
+            return dict(PSEUDO_VERSION.findall(handle.read()))
+    except OSError:
+        return None
+
+
 def check_revision_pin(ctx):
-    if os.environ.get('PROOF_VERIFY_REVISIONS') != '1':
-        return OK, 'PROOF_VERIFY_REVISIONS is unset, so proof/run.sh pins no revision'
-    unset = [v for v in ('SKETCH_COMMIT', 'DECAD_COMMIT') if not os.environ.get(v)]
-    if unset:
-        return FAIL, ('PROOF_VERIFY_REVISIONS=1 requires %s, which proof/run.sh reads with a `:?` '
-                      'guard' % ' and '.join('$' + v for v in unset))
-    return OK, 'revisions pinned to $SKETCH_COMMIT and $DECAD_COMMIT'
+    """Compare the engine checkouts against the revisions proof/go.mod pins.
+
+    This used to report that nothing was pinned unless PROOF_VERIFY_REVISIONS=1 was
+    set. That is no longer how run.sh behaves — it reads go.mod and verifies by
+    default — and the old wording actively misled: a proof could pass locally
+    against a newer engine and fail CI against the pin, which happened twice.
+    """
+    if os.environ.get('PROOF_VERIFY_REVISIONS') == '0':
+        return OK, ('PROOF_VERIFY_REVISIONS=0, so proof/run.sh runs against whatever is checked '
+                    'out; that is for deciding an engine bump, not for a normal run')
+    pins = _pinned_revisions(ctx)
+    if not pins:
+        return FAIL, 'proof/go.mod names no sketch or decad pseudo-version to pin the engines to'
+    problems = []
+    for name in ('sketch', 'decad'):
+        want = pins.get(name)
+        if not want:
+            problems.append('proof/go.mod pins no %s revision' % name)
+            continue
+        override = os.environ.get('%s_DIR' % name.upper())
+        if override:
+            resolved = os.path.abspath(override)
+        else:
+            main = main_checkout(ctx.root)
+            if main is None:
+                problems.append('cannot locate the main checkout to find the %s engine' % name)
+                continue
+            resolved = os.path.abspath(os.path.join(main, os.pardir, name))
+        ok, have = _run(['git', '-C', resolved, 'rev-parse', '--short=12', '--verify',
+                         'HEAD^{commit}'])
+        if not ok or have != want:
+            problems.append('%s at %s is %s, but go.mod pins %s'
+                            % (name, resolved, have if ok else 'not a git checkout', want))
+    if problems:
+        return FAIL, ('; '.join(problems) + ' -- proof/run.sh verifies by default and will refuse '
+                      'the run, so check out the pinned revision or pass PROOF_VERIFY_REVISIONS=0')
+    return OK, 'engine checkouts match the revisions proof/go.mod pins'
 
 
 def check_model_tiers(ctx):

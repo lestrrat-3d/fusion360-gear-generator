@@ -13,6 +13,22 @@ first when it does not. `/generate-gear` re-interprets the full prose spec and p
 every round, so it is only for a gear with no step list yet, or when the user asks for it by
 name.
 
+## Running the proofs
+
+The engine revisions are pinned in `proof/go.mod`, in the pseudo-version Go records for a module
+with no tags, and that is the only place they are written. `proof/run.sh` reads them and verifies
+the checkout before it runs anything; CI reads the same lines to decide what to check out. So a
+local run and CI test one revision, and `go get` is the only thing that moves a pin.
+
+A `sketch` or `decad` checkout beside the repo at any other revision makes the run refuse rather
+than quietly proceed. Point `SKETCH_DIR` and `DECAD_DIR` at checkouts of the pinned commits — a
+detached `git worktree` of each is the cheapest way — or pass `PROOF_VERIFY_REVISIONS=0` to run
+against whatever is there.
+
+Use that escape hatch only to decide whether an engine bump is acceptable. A green run with it
+set proves nothing about the pinned engine: this was learned twice, both times by trusting a
+local pass that CI then failed. Raising a pin is its own PR, and the proofs are what decide it.
+
 ## When Fusion gives a verdict
 
 Loading a gear into Fusion is the only check that sees the real thing, and it happens with no

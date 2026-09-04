@@ -1032,8 +1032,40 @@ class WorkflowGateWiringTest(unittest.TestCase):
         self.assertIn('FUSION_QUERY_API', self.workflow)
         self.assertIn('FUSION_API_STUBS', self.workflow)
 
-        for commit in ('SKETCH_COMMIT', 'DECAD_COMMIT', 'FUSION_API_COMMIT'):
-            self.assertRegex(self.workflow, r'(?m)^\s+%s: [0-9a-f]{40}$' % commit)
+        # The Fusion API database is still pinned in the workflow itself, because
+        # nothing outside CI checks it out.
+        self.assertRegex(self.workflow, r'(?m)^\s+FUSION_API_COMMIT: [0-9a-f]{40}$')
+
+    def test_engine_revisions_are_pinned_only_in_go_mod(self):
+        """proof/go.mod is the one place the engine revisions are written.
+
+        They used to be written in the workflow as well, which meant a local
+        `proof/run.sh` ran against whatever engine checkout happened to sit beside
+        the repo. A proof could then pass locally against a newer engine and fail
+        CI against the pin, which happened twice. go.mod already pins both in the
+        pseudo-version Go records for an untagged module, so a second copy could
+        only drift from it.
+        """
+        gomod = (self.ROOT / 'proof' / 'go.mod').read_text()
+        for module in ('sketch', 'decad'):
+            self.assertRegex(
+                gomod, r'(?m)^\s*github\.com/lestrrat-3d/%s v\S*-[0-9a-f]{12}$' % module,
+                '%s must be pinned by a pseudo-version in proof/go.mod' % module)
+
+        # And nowhere else: no SHA for either engine may appear in the workflow.
+        for commit in ('SKETCH_COMMIT', 'DECAD_COMMIT'):
+            self.assertNotRegex(
+                self.workflow, r'(?m)^\s+%s: [0-9a-f]{12,40}$' % commit,
+                '%s belongs only in proof/go.mod' % commit)
+
+        # CI has to read go.mod before it checks an engine out, or the refs it
+        # resolves are empty.
+        read_at = self.workflow.find('proof/go.mod pins')
+        sketch_at = self.workflow.find('repository: lestrrat-3d/sketch')
+        self.assertNotEqual(read_at, -1, 'the workflow must read the pins out of proof/go.mod')
+        self.assertNotEqual(sketch_at, -1)
+        self.assertLess(read_at, sketch_at,
+                        'the workflow must read the pins before checking out an engine')
 
 
 if __name__ == '__main__':

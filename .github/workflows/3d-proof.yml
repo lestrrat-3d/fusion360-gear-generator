@@ -23,8 +23,10 @@ on:
   workflow_dispatch:
 
 env:
-  SKETCH_COMMIT: 9bd954eb894754c6efb0fa1502b2e39648ee7ef0
-  DECAD_COMMIT: a57413aa91db9bbb339d6b65579ab34afbfec6f7
+  # The sketch and decad revisions are NOT written here. proof/go.mod already
+  # pins them, in the pseudo-version Go records for a module with no tags, and
+  # the proof job reads that so CI and a local proof/run.sh use one revision.
+  # Only `go get` moves a pin, and it moves it in one place.
   FUSION_API_COMMIT: 0ea1fd792e3da6d9e3727262f7904673295af931
 
 jobs:
@@ -84,6 +86,23 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: gears
+
+      - name: Read the engine revisions proof/go.mod pins
+        run: |
+          set -euo pipefail
+          pin() {
+            sed -n "s|^[[:space:]]*github.com/lestrrat-3d/$1 v[^ ]*-\([0-9a-f]\{12\}\)$|\1|p" \
+              proof/go.mod | head -1
+          }
+          sketch=$(pin sketch)
+          test -n "$sketch" || { echo "proof/go.mod pins no sketch revision" >&2; exit 1; }
+          decad=$(pin decad)
+          test -n "$decad" || { echo "proof/go.mod pins no decad revision" >&2; exit 1; }
+          {
+            echo "SKETCH_COMMIT=$sketch"
+            echo "DECAD_COMMIT=$decad"
+          } | tee -a "$GITHUB_ENV"
+        working-directory: gears
 
       - name: Check out the sketch engine
         uses: actions/checkout@v4
