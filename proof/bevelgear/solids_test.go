@@ -391,9 +391,8 @@ func ringProfile(t *testing.T, w *sketch.World, z float64, st station, n int) (*
 }
 
 // sweptBand lofts one pair of coaxial polygonal stations into the band the
-// corresponding profile edge sweeps. It is ONE loft and no boolean: at the
-// pinned decad revision a boolean refuses a loft operand outright, so nothing
-// in this proof may join two bands.
+// corresponding profile edge sweeps. It is ONE loft and no boolean: nothing in
+// this proof joins two bands, per the lay-apart substitution above.
 func sweptBand(t *testing.T, doc *decad.Document, a, b station, n int) *decad.Body {
 	t.Helper()
 	w := sketch.NewWorld()
@@ -425,23 +424,29 @@ func sweptVolume(sts []station, n int) float64 {
 // ---------------------------------------------------------------------------
 // Laying bodies apart.
 //
-// SUBSTITUTION, and what it costs. At the decad revision this repo pins,
-// 3ff4b3bb55cc, a boolean accepts only prism, cup and faceted payloads: an
-// operand built by Loft is refused with "tessellation does not support payload
+// SUBSTITUTION, and what it costs. This substitute was introduced because a
+// boolean then accepted only prism, cup and faceted payloads: an operand built
+// by Loft was refused with "tessellation does not support payload
 // decad.loftPayload". Every solid in this gear is conical — the frustum, both
-// cut cones, the bore tool, the tooth — and a cone is a Loft or a Revolve at
-// that revision, never a prism, because Extrude refuses a nonzero taper as
-// ErrUnsupported. So NO boolean in this model is available: not the union that
+// cut cones, the bore tool, the tooth — and a cone is a Loft or a Revolve,
+// never a prism, because Extrude still refuses a nonzero taper as
+// ErrUnsupported. So no boolean in this model was available: not the union that
 // joins the frustum's bands, not the intersection and cut that trim the tooth
 // to its flush band, not the bore's through-cut, not the Combine-Join.
 //
+// That reason NO LONGER HOLDS. At the decad revision this repo now pins,
+// a57413aa91db, a Loft body tessellates and a union of two Loft operands
+// returns a body with a volume. Undoing the substitute is a rewrite of every
+// step below rather than a pin move, so the lay-apart scheme stands until that
+// rewrite lands, and the cost stated below is still the cost it carries.
+//
 // The substitute is uniform rather than per-step, so it is one thing to audit
-// and one thing to undo when the pin moves: every step that would perform a
-// boolean builds its operands, lays them apart, and asserts from their own
-// measured geometry what the operation would have produced. A revolve is the
-// union of the bands its profile edges sweep, and the union does not have to be
-// performed for the bands' volumes, their cone half-angles and their signed sum
-// against Pappus to be checked.
+// and one thing to undo: every step that would perform a boolean builds its
+// operands, lays them apart, and asserts from their own measured geometry what
+// the operation would have produced. A revolve is the union of the bands its
+// profile edges sweep, and the union does not have to be performed for the
+// bands' volumes, their cone half-angles and their signed sum against Pappus to
+// be checked.
 //
 // What it costs is stated per step below, and it is the same shape each time:
 // the proof shows that the operands are the right solids in the right places,
@@ -456,9 +461,11 @@ func sweptVolume(sts []station, n int) float64 {
 // asideOffset is how far the i-th body of a step is moved along the shaft axis
 // to lay it clear of the others. The stride is wider than any body's own reach,
 // so the bodies are disjoint by their BOUNDING BOXES alone and decad never has
-// to intersect two of them: at the pinned revision that read-only intersection
-// stage is itself unsupported for a loft, and a pair it cannot separate cheaply
-// comes back undecided. The cut cones are the long ones — each reaches
+// to intersect two of them. That stride was sized when the read-only
+// intersection stage was itself unsupported for a loft, so a pair it could not
+// separate cheaply came back undecided; at a57413aa91db the stage does decide a
+// loft pair, and the stride is now only what keeps the bodies clear of each
+// other. The cut cones are the long ones — each reaches
 // 3 * (dedendum radius) * tan(gamma) back from its own apex — so the stride
 // carries that term, which grows with the Shaft Angle.
 func asideOffset(g gear, f gearFrame, i int) float64 {
@@ -629,10 +636,11 @@ func frustumBands(t *testing.T, doc *decad.Document, g gear, f gearFrame) []*dec
 //
 // SUBSTITUTION. decad's own revolve publishes a volume whose proven bound is the
 // volume itself, so a revolved body is Suspect at any tolerance and cannot pass
-// the harness gate; and at the pinned revision the union that would join the
-// bands of a polygonal sweep refuses a loft operand. So the three bands are
-// built and laid apart, never joined, and the frustum is asserted as their
-// SIGNED SUM against Pappus on the section 2 hexagon. The cost is that the
+// the harness gate. That is still true at a57413aa91db, and it alone is why the
+// revolve is not built here; the union that would join the bands of a polygonal
+// sweep no longer refuses a loft operand. So the three bands are built and laid
+// apart, never joined, and the frustum is asserted as their SIGNED SUM against
+// Pappus on the section 2 hexagon. The cost is that the
 // proof does not show the three bands closing into one watertight solid — each
 // is separately watertight, and the shape they would form is checked by volume,
 // by station and by cone half-angle instead.
@@ -1016,10 +1024,10 @@ func coneCrossing(cone bandGeometry, toothSlope float64) float64 {
 // runs first and must split; only the heel cut is lenient, and only through the
 // typed NonIntersectError.
 //
-// SUBSTITUTION, and what it costs. At the pinned decad revision neither the
-// intersection nor the cut can be performed at all: both operands are Lofts,
-// and a boolean refuses a loft payload. So the tooth and the two cones are
-// built and laid apart, and the trim is asserted from their own measured
+// SUBSTITUTION, and what it costs. Neither the intersection nor the cut is
+// performed here: both operands are Lofts, and the lay-apart substitution above
+// stands. So the tooth and the two cones are built and laid apart, and the
+// trim is asserted from their own measured
 // geometry — each cone's apex and half-angle read off the cone, each of the
 // tooth's two surfaces read off the tooth, and the stations where they cross
 // solved from those readings. What that costs is the split itself: the proof
@@ -1141,8 +1149,8 @@ func assertCutConicalEnds(t *testing.T, doc *decad.Document, bodies []*decad.Bod
 // then arithmetic over the same increment, and stepToothProfile independently
 // checks the tooth is thin enough to repeat N times without overlapping itself.
 // The tooth patterned here is the UNCUT loft rather than the trimmed one,
-// because at the pinned decad revision the trim cannot be performed at all
-// (see stepCutConicalEnds); the increment is a rigid rotation either way.
+// because the trim is not performed here (see stepCutConicalEnds); the
+// increment is a rigid rotation either way.
 //
 // <!-- proof-run: proofkit3d.RunSolid(patternCases, stepCircularPattern, assertCircularPattern) -->
 func stepCircularPattern(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
@@ -1234,10 +1242,10 @@ func assertCircularPattern(t *testing.T, doc *decad.Document, bodies []*decad.Bo
 // type, so its items are copied into a fresh ObjectCollection first, and the
 // seed is already among them.
 //
-// SUBSTITUTION, and what it costs. At the pinned decad revision the union
-// cannot be performed: the frustum's bands and the tooth are all Lofts, and a
-// boolean refuses a loft operand. So the operands are laid apart and the join's
-// two consequences are asserted from their own measured geometry instead. A
+// SUBSTITUTION, and what it costs. The union is not performed here: the
+// frustum's bands and the tooth are all Lofts, and the lay-apart substitution
+// above stands. So the operands are laid apart and the join's two consequences
+// are asserted from their own measured geometry instead. A
 // join leaves ONE lump when the tooth's root is at or below the body's root
 // cone — seated, not floating — and the joined body reaches further out than
 // the frustum when the tooth's tip stands proud of it. Both are readings on the
@@ -1313,9 +1321,9 @@ func assertCombineJoin(t *testing.T, doc *decad.Document, bodies []*decad.Body, 
 //
 // SUBSTITUTION, and what it costs. The tool is a real Extrude — a prism, which
 // is what setSymmetricExtent produces — but the target is the frustum, whose
-// bands are Lofts, and at the pinned decad revision a boolean refuses a loft
-// operand. So the tool and the bands are laid apart and the cut is asserted
-// from their own measured geometry: the tool's diameter and its symmetric
+// bands are Lofts, and the lay-apart substitution above stands. So the tool
+// and the bands are laid apart and the cut is asserted from their own measured
+// geometry: the tool's diameter and its symmetric
 // extent read off the prism, that it reaches past both ends of the frustum so
 // the cut is a through cut, and the material it would remove computed from the
 // frustum's own profile clipped to the bore radius. What it cannot show is the
@@ -1454,8 +1462,8 @@ func axialSpanAt(poly []vec2, rad float64) (lo, hi float64, ok bool) {
 // transform with "invalid transform" — so the helper returns early rather than
 // making each call site guard it.
 //
-// The body rotated here is the frustum's three bands, laid apart, since at the
-// pinned decad revision they cannot be joined into one; the rotation is applied
+// The body rotated here is the frustum's three bands, laid apart, since the
+// lay-apart substitution above leaves them unjoined; the rotation is applied
 // to each, which is the same rigid move the whole body would take.
 //
 // <!-- proof-run: proofkit3d.RunSolid(meshCases, stepMeshRotation, assertMeshRotation) -->
