@@ -11,7 +11,7 @@ name: 3D proof
 # The gates matrix covers every gear /compile-gear has produced a step list for. Add a gear to it
 # when it gains a spec/<gear>/steps.md; check_step_calls.py's WorkflowGateWiringTest fails the
 # build if a compiled gear is missing here, so the matrix cannot silently lag the repo.
-# cycloidal is absent because it has no step list yet.
+# Every gear is compiled, so the matrix covers all of them.
 #
 # The engines publish no tags, so a SHA is the only stable handle. Bumping one is a deliberate
 # PR, and these proofs are what decide whether the new engine is acceptable.
@@ -162,6 +162,8 @@ jobs:
           - gear: bevelgear
             require_contract: ''
           - gear: herringbonegear
+            require_contract: ''
+          - gear: cycloidal
             require_contract: ''
     steps:
       - name: Check out the gear repository
