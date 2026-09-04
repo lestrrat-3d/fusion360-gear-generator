@@ -473,6 +473,21 @@ the check.
     free, a runtime gate (`if not sketch.isFullyConstrained: raise ...` naming the sketch) surfaces
     exactly which sketch fell short the moment it builds in Fusion — far better than eyeballing the
     timeline for blue geometry.
+  - **[PB-COLLINEAR-CHAIN] A collinear names the line the new line's start point actually sits ON,
+    never a farther line up the same chain.** `addCollinear` carries **two** point-on-line rows.
+    When the new line's start is pinned to the reference line's own endpoint, one of those rows is
+    already satisfied and Fusion absorbs the other. When the start reaches the named line only
+    *through an earlier collinear*, the two chains assert the same fact independently and the sketch
+    over-determines. So in a chain A→E then E→G, the second collinear names **A→E**, not the axis
+    A→E is itself collinear with, even though both describe the same infinite line.
+    - Measured 2026-09-03 on the bevel §2 lattice: `addCollinear(E→G, Apex→A)` raised
+      `RuntimeError: 3 : failed to create offset: VCS_SKETCH_OVER_CONSTRAINTS` at the second such
+      call, the first having been absorbed; `addCollinear(E→G, A→E)` builds. Where both endpoints
+      are already fixed, drop the collinear entirely and pin the point with two point-on-line
+      `addCoincident` calls instead.
+    - **A proof cannot catch this.** The sketch engine counts collinear the same two rows, so a
+      proof written against it substitutes the single point-on-line row that is not already implied,
+      and that substitution makes both readings identical. Only a Fusion session tells them apart.
 - **[PB-SINGLE-PROFILE] When a sketch has exactly one closed loop, grab `sketch.profiles.item(0)` — don't filter.** If
   you build a sketch whose only geometry is one closed region, it has `profiles.count == 1`; take
   that profile directly. Resist inventing a search that filters by `profileLoops` /
@@ -496,12 +511,28 @@ the check.
   `sketch.profiles` ARE direct members of the sketch — only the *curve* collections sit under
   `sketchCurves`.) The API database ([PB-API-LOOKUP]) confirms ownership: `members SketchCurves`
   lists `sketchCircles`, so the access path must go through `sketchCurves`.
-- **[PB-SELECTION-FILTER-ENUM] Selection filters take enum constants, not strings.** `selectionInput.addSelectionFilter(...)`
-  expects `adsk.core.SelectionCommandInput.<Member>` (an int enum), e.g.
-  `addSelectionFilter(adsk.core.SelectionCommandInput.ConstructionPlanes)`. Passing the string
-  `'ConstructionPlanes'` raises a `TypeError` on the argument. The member names match the entity
-  kinds (`ConstructionPlanes`, `PlanarFaces`, `ConstructionPoints`, `SketchPoints`, `Occurrences`,
-  `RootComponents`, `Bodies`, …) — but they must be the enum attribute, not a quoted literal.
+- **[PB-TEXT-HOLDS-DOF] Sketch text counts toward `isFullyConstrained`, so a labelled sketch never
+  reports fully constrained.** Text placed with `setAsAlongPath` (`[PB-SKETCH-TEXT]`) carries its
+  own position along the curve, and nothing in the recipes here pins it. A sketch whose geometry is
+  completely determined therefore still reads `False` purely because it is labelled. Measured in
+  Fusion 2026-09-02 on the spur tooth sketch: `False` with its four circle labels, `True` for the
+  same sketch with the labels deleted and no other change.
+  - **What to do.** A gear that labels a sketch cannot gate that sketch on `isFullyConstrained`;
+    log the result rather than raising. **This exempts the labels and nothing else** — never read it
+    as licence for loose geometry, and gate every sketch that carries no text normally.
+
+- **[PB-SELECTION-FILTER-ENUM] Write a selection filter as the named constant, never a quoted
+  literal.** Use `addSelectionFilter(adsk.core.SelectionCommandInput.ConstructionPlanes)`. The
+  member names match the entity kinds (`ConstructionPlanes`, `PlanarFaces`, `ConstructionPoints`,
+  `SketchPoints`, `Occurrences`, `RootComponents`, `Bodies`, …).
+  - **Why, accurately.** An earlier wording of this rule said the parameter is an int enum and that
+    passing `'ConstructionPlanes'` raises `TypeError`. That is false, and believing it will send you
+    hunting for a type error that cannot happen. The API database types the parameter as
+    `addSelectionFilter(filter: str)`, and `SelectionCommandInput.ConstructionPlanes` is an
+    attribute whose value is the string `'ConstructionPlanes'` — so the constant and the literal are
+    the same value and both work. The rule stands anyway, on different grounds: the constant is
+    checked for typos at import, reads as the API's own vocabulary, and survives a renamed filter,
+    where a quoted literal fails silently by selecting nothing.
 - **[PB-FILLET-CHAMFER] Fillet vs chamfer edge-sets are asymmetric — easy to get backwards:**
   - **Fillet:** add the edge set on the input **itself** —
     `filletInput.addConstantRadiusEdgeSet(edges, ValueInput, isTangentChain)`. There is no
@@ -738,6 +769,11 @@ authoritative description of the behavior the helpers encode.
   `Matrix3D.setToRotation(angleRadians, axisVector, originPoint)`. Use `defineAsFreeMove` with a
   matrix (not `defineAsRotate`, which rejects a `SketchLine` axis). Used for aesthetic/meshing
   rotations.
+  - **A zero angle is a no-op, not a move.** `setToRotation(0, axis, origin)` builds the identity
+    and Fusion refuses to move a body by it, with `RuntimeError: 3 : invalid transform`. Measured
+    2026-09-02 on the bevel pinion, whose mesh phase is 0 by default. Any caller that *computes* an
+    angle can legitimately arrive at zero, so return early rather than making each call site guard
+    it; `solids.rotate_body_about_edge` absorbs it for exactly this reason.
 
 ## Multi-component orchestration (a gear that builds several sibling components, e.g. a pair)
 

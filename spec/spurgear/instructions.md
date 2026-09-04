@@ -105,6 +105,80 @@ post-generation user-parameter table, and saved designs reference them). Use the
 | Apply chamfer to teeth | `chamferTooth` | `ChamferTooth` |
 | Generate sketches, but do not build body | `sketchOnly` | `SketchOnly` |
 
+**Five overridable methods must carry their return annotation, because a subclass narrows on
+them.** `helicalgear` and `herringbonegear` override these and annotate their own returns. Python
+does not care, but a type checker reads an unannotated parent as returning the literal it happens
+to return — `prefixBase` becomes `Literal['SpurGear']` — so a subclass annotating the wider `str`
+is then reported as an incompatible override. Write these five annotations:
+
+| class | method | return |
+|---|---|---|
+| `SpurGearGenerator` | `prefixBase` | `-> str` |
+| `SpurGearGenerator` | `generateName` | `-> str` |
+| `SpurGearGenerator` | `filletHelixFactorExpression` | `-> str` |
+| `SpurGearGenerator` | `newContext` | `-> SpurGearGenerationContext` |
+| `SpurGearInvoluteToothDesignGenerator` | `getParameterValue` | `-> float` |
+
+A regeneration that dropped all five made `helicalgear` draw two `reportIncompatibleMethodOverride`
+complaints that no shipped gear had produced before. These annotations are contract surface for the
+subclasses, not implementation taste.
+
+**The root-fillet face search needs a radius tolerance, and it is `0.0001` cm.** Step 13 selects
+every cylindrical face whose radius equals the Root Circle Radius. Floating-point radii never
+compare exactly equal, so the test is `abs(face.geometry.radius - rootRadius) <= 0.0001`. The value
+matches `utilities.find_circle_by_radius`'s own default, so the two ways of finding a circle in this
+codebase agree. Step 13 already pins `0.01` for the axis-direction dot product; this is the other
+tolerance that step needs and it was previously left to the implementer.
+
+**Every registered parameter's `comment` is reproduced surface — write it exactly.**
+`addParameter(name, ValueInput, units, comment)` takes a fourth string that Fusion shows in the
+parameter table's Comment column, beside all twenty `<prefix>_…` parameters. It is what the user
+reads there, so it is not free text for the implementation to choose. These are the strings, with
+each parameter's unit string alongside so the two are read together:
+
+| constant | units | `comment` |
+|---|---|---|
+| `PARAM_MODULE` | '' | `Module of the gear` |
+| `PARAM_TOOTH_NUMBER` | '' | `Number of teeth` |
+| `PARAM_PRESSURE_ANGLE` | 'rad' | `Pressure angle` |
+| `PARAM_BORE_DIAMETER` | 'mm' | `Bore diameter` |
+| `PARAM_THICKNESS` | 'mm' | `Thickness of the gear` |
+| `PARAM_CHAMFER_TOOTH` | 'mm' | `Chamfer distance applied to the teeth` |
+| `PARAM_SKETCH_ONLY` | '' | `Generate sketches only` |
+| `PARAM_PITCH_DIAMETER` | 'mm' | `Pitch circle diameter` |
+| `PARAM_PITCH_RADIUS` | 'mm' | `Pitch circle radius` |
+| `PARAM_BASE_DIAMETER` | 'mm' | `Base circle diameter` |
+| `PARAM_BASE_RADIUS` | 'mm' | `Base circle radius` |
+| `PARAM_ROOT_DIAMETER` | 'mm' | `Root circle diameter` |
+| `PARAM_ROOT_RADIUS` | 'mm' | `Root circle radius` |
+| `PARAM_TIP_DIAMETER` | 'mm' | `Tip circle diameter` |
+| `PARAM_TIP_RADIUS` | 'mm' | `Tip circle radius` |
+| `PARAM_INVOLUTE_STEPS` | '' | `Number of points sampled along each involute flank` |
+| `PARAM_TOOTH_SPACE_ANGLE` | '' | `Angular width of the tooth space at the root circle` |
+| `PARAM_TOOTH_SPACE_ARC` | 'mm' | `Arc length of the tooth space at the root circle` |
+| `PARAM_FILLET_CLEARANCE` | '' | `Clearance factor applied to the root fillet radius` |
+| `PARAM_FILLET_RADIUS` | 'mm' | `Radius of the root fillets` |
+
+Earlier revisions pinned the parameter names and units but not these comments, and a regeneration
+that could not find them filled the column with the parameter's own name, so `Module of the gear`
+came back as `Module`. Like the command prompts below, a value the user sees has to live here
+rather than only in the generated module.
+
+**The three selection inputs' command prompts are reproduced surface — write them exactly.**
+`addSelectionInput(id, name, commandPrompt)` takes a third string that Fusion shows beside the
+cursor while the user picks, and it is not the label. These are the strings:
+
+| input id | `name` | `commandPrompt` |
+|---|---|---|
+| `plane` | `Target Plane` | `Select the plane to build the gear on` |
+| `anchorPoint` | `Anchor Point` | `Select the point the gear is centered on` |
+| `parentComponent` | `Parent Component` | `Select the component to build the gear in` |
+
+Earlier revisions of this spec pinned the ids and labels but not these three prompts, and a
+regeneration that could not find them filled all three with the label text instead, so the dialog
+came back reading `Target Plane` where it had read `Select the plane to build the gear on`. A value
+the user sees has to live here, not only in the generated module.
+
 **Dialog display order (the order `configure()` adds inputs) is fixed and must be exactly:**
 
 1. Target Plane (`plane`)
