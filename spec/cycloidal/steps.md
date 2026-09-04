@@ -98,6 +98,63 @@ handles live on `self`, and the per-disc ones are **lists** indexed by the disc 
 `self.cam`, `self.outputPlate`, and `self.lobePinCircle` (disc 0's pin circle, stashed and never
 read — legacy of the pinned-ring design).
 
+**Declare every one of those fields before anything reads it, in the `cast(None)` form.** The
+playbook's rule for a field passed between steps is that it is "`cast(None)` initialised", so the
+declaration names the field's concrete type rather than leaving it `None`. That rule lives in the
+playbook's four-class-pattern section, which carries no `[PB-…]` anchor of its own and so cannot
+travel in the extract this list's citations build — it is reproduced here in full for that reason.
+This gear carries the fields on `self` instead of in a context object, and its constructor is the
+inherited 1-arg `(design)` one, so the declarations go at the **top of `processInputs`**, before the
+selections are read: assigning a plain Python attribute does not create the occurrence, so nothing
+here disturbs the selection-first ordering below.
+
+⚠️ Never write `adsk.core.Base.cast(None)`. The database and the type stubs both declare
+`Base.cast`, and Fusion's runtime does not have it: it raises
+`AttributeError: type object 'Base' has no attribute 'cast'`, observed while building a bevel pair.
+Every concrete subclass does have `cast`, so each field is seeded with the cast of the class it
+actually holds. Resolve each class's module with the API database rather than from memory
+(`[PB-API-LOOKUP]`); all of the classes below are `adsk.fusion`, not `adsk.core`
+(`[PB-ADSK-MODULES]`).
+
+The scalar fields, declared first, verbatim:
+
+| field | declaration |
+|---|---|
+| `self.plane` | `adsk.fusion.ConstructionPlane.cast(None)` |
+| `self.anchorPoint` | `adsk.fusion.SketchPoint.cast(None)` |
+| `self.driveAxis` | `adsk.fusion.ConstructionAxis.cast(None)` |
+| `self.housingRing` | `adsk.fusion.BRepBody.cast(None)` |
+| `self.ringCasing` | `adsk.fusion.BRepBody.cast(None)` |
+| `self.cam` | `adsk.fusion.BRepBody.cast(None)` |
+| `self.outputPlate` | `adsk.fusion.BRepBody.cast(None)` |
+| `self.lobePinCircle` | `adsk.fusion.SketchCircle.cast(None)` |
+| `self.chamferSize` | `0.0` |
+| `self.chamfersSkipped` | `0` |
+| `self.Rr` | `0.0` |
+| `self.D_hole` | `0.0` |
+
+`self.anchorPoint` also holds an `adsk.fusion.ConstructionPoint` when the user picks one — the
+selection filter allows either — and the declaration names the sketch-point type so the field has a
+concrete type at all; its only use is `sketch.project(self.anchorPoint)`, whose parameter is a
+`core.Base`, so either class satisfies it. `self.chamferSize` is the resolved Chamfer Size in
+internal cm, which the chamfer helper and the skipped-chamfer message both read. `self.Rr` and
+`self.D_hole` are what `_resolveDimensions` stashes for the two snapshot parameters to register.
+`self.parentComponent` is **not** declared here: the inherited `__init__` already sets it, along
+with `self.design`, `self.occurrence`, `self.prefix` and `self.cleaner`.
+
+The six per-disc fields are **lists indexed by `d`**, assigned as `self.diskBodies[d] = body`, so
+each is sized to `D` as soon as the disc count is read in step 2 below, with its element type named
+the same way:
+
+| field | declaration |
+|---|---|
+| `self.diskBodies` | `[adsk.fusion.BRepBody.cast(None) for _ in range(D)]` |
+| `self.diskAxes` | `[adsk.fusion.ConstructionAxis.cast(None) for _ in range(D)]` |
+| `self.lobeSplines` | `[adsk.fusion.SketchFittedSpline.cast(None) for _ in range(D)]` |
+| `self.outputHoles` | `[adsk.fusion.SketchCircle.cast(None) for _ in range(D)]` |
+| `self.lobeDiskCentres` | `[adsk.fusion.SketchPoint.cast(None) for _ in range(D)]` |
+| `self.discPlanes` | `[adsk.fusion.ConstructionPlane.cast(None) for _ in range(D)]` |
+
 `processInputs(inputs)` runs in this fixed order, because creating the occurrence shifts Fusion's
 active component and drops selections (`[PB-SELECTION-STASH]`):
 
@@ -140,8 +197,8 @@ Registration mode is fixed per parameter and is not a free choice:
   `adsk.core.ValueInput.createByString(...)`; they compose cleanly from the registered inputs,
   including the snapshot `PinRadius`.
 
-Also initialise `self.chamfersSkipped = 0` here, before any build step, since S34 and S36 both count
-into it.
+`self.chamfersSkipped` starts at `0` in that first block, before any build step, since S34 and S36
+both count into it, and `self.chamferSize` is set from the resolved Chamfer Size in step 3.
 
 Every parameter name written into any expression string — a dimension's expression, a construction
 plane's offset, an extrude's extent — must be the **prefixed** name from
@@ -154,7 +211,7 @@ itself; they are named here, not required as API calls.
 <!-- check-step-calls: ignore processInputs -->
 <!-- check-compile: ignore processInputs -->
 
-**From:** `spec/cycloidal/instructions.md` L20-38 L125-152 L183-216 L331-348 L382-385 L636-639, `spec/cycloidal/epitrochoid-trace.md` L40-54, `.claude/skills/generate-gear/PLAYBOOK.md` L75-126 L196-228 L624-625
+**From:** `spec/cycloidal/instructions.md` L20-38 L125-152 L183-216 L331-348 L382-385 L636-639, `spec/cycloidal/epitrochoid-trace.md` L40-54, `.claude/skills/generate-gear/PLAYBOOK.md` L42-73 L75-126 L196-228 L432-436 L624-625
 
 ## S03 `[PROSE]` Validate the geometry live and at execute time
 
