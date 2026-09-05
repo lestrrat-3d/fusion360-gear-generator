@@ -23,13 +23,12 @@ The add-in installs one command per generator into a **Gears** dropdown in the F
 | **Bevel Gear**<br>Straight or spiral from the same command. *Mean Spiral Angle* selects between them (0 gives a straight bevel), and *Hand of Spiral* picks the direction. Rendered as a 24/16 pair in mesh at a right angle, module 2, spiral angle 0. | <img src="docs/images/gears/bevel.png" width="320" alt="A green straight bevel pair meshing at a right angle: a flat 24-tooth gear with a 16-tooth pinion standing on its rim"> |
 | **Cycloidal Drive**<br>A speed reducer rather than a single gear. It builds the lobed disc(s), the eccentric cam, a pinless ring housing and the output plate with its pins, each in its own sub-component. Rendered at the dialog's defaults with two discs, the plate lifted clear on its own pins so the rest can be seen. | <img src="docs/images/gears/cycloidal.png" width="320" alt="A cycloidal drive with its output plate lifted off: a blue ring housing holding a red lobed disc and a gold eccentric cam, and a teal plate above it on six pins"> |
 
-None of those pictures is a drawing of a gear. Every spur, helical and herringbone flank is the
-involute the generator itself cuts, sampled from [`proof/involute`](proof/involute), and each of the
-three is swept the way its spec sweeps it. Both bevel gears are built from the lattice their own
-proof resolves and trimmed by the cones it places, meshing at the phase that proof fixes, and every
-part of the cycloidal drive is a body its proof extrudes. A change to the proved geometry moves the
-picture with it. The renderer is
-[SolidLens](https://github.com/lestrrat-3d/solidlens). Regenerate all five with
+Those pictures are renders of the proof geometry, not illustrations. The spur, helical and
+herringbone flanks are involute curves sampled from [`proof/involute`](proof/involute), the package
+the 3D proofs draw their teeth from, and each of the three is swept the way its spec sweeps it. The
+bevel pair and the cycloidal drive are rendered from the solids their own proofs build, positioned
+and phased the way those proofs fix them. So a change to the proved geometry changes the pictures
+too. The renderer is [SolidLens](https://github.com/lestrrat-3d/solidlens). Regenerate all five with
 `proof/render_examples.sh`, which runs against the engine revisions `proof/go.mod` pins.
 
 # INSTALLATION
