@@ -17,11 +17,11 @@ The add-in installs one command per generator into a **Gears** dropdown in the F
 
 | Gear | Example |
 | --- | --- |
-| **Spur Gear**<br>Straight teeth across the rim. Rendered at module 2, 24 teeth, 20° pressure angle, 12 mm thick, 10 mm bore. | <img src="docs/images/gears/spur.png" width="320" alt="A cyan spur gear with a central bore, teeth running straight across the rim"> |
-| **Helical Gear**<br>The same tooth twisted to the far face, which is what *Helix Angle* sets. Rendered 16 mm thick at 20°. | <img src="docs/images/gears/helical.png" width="320" alt="A violet helical gear, its teeth twisting evenly around the rim"> |
-| **Herringbone Gear**<br>Twisted to mid-body and mirrored, so the teeth meet in a chevron and the thrust cancels. Rendered 20 mm thick at 20°. | <img src="docs/images/gears/herringbone.png" width="320" alt="An amber herringbone gear, its teeth meeting in a chevron at mid-height"> |
-| **Bevel Gear**<br>Straight or spiral from the same command. *Mean Spiral Angle* selects between them (0 gives a straight bevel), and *Hand of Spiral* picks the direction. Rendered as a 24/16 pair in mesh at a right angle, module 2, spiral angle 0. | <img src="docs/images/gears/bevel.png" width="320" alt="A green straight bevel pair meshing at a right angle: a flat 24-tooth gear with a 16-tooth pinion standing on its rim"> |
-| **Cycloidal Drive**<br>A speed reducer rather than a single gear. It builds the lobed disc(s), the eccentric cam, a pinless ring housing and the output plate with its pins, each in its own sub-component. Rendered at the dialog's defaults with two discs, the plate lifted clear on its own pins so the rest can be seen. | <img src="docs/images/gears/cycloidal.png" width="320" alt="A cycloidal drive with its output plate lifted off: a blue ring housing holding a red lobed disc and a gold eccentric cam, and a teal plate above it on six pins"> |
+| **Spur Gear**<br>Straight teeth across the rim. This is the plain case: it drives a parallel shaft and pushes nothing along the axis. | <img src="docs/images/gears/spur.png" width="320" alt="A cyan spur gear with a central bore, teeth running straight across the rim"> |
+| **Helical Gear**<br>The same tooth twisted to the far face, which is what *Helix Angle* sets. Each tooth comes into contact gradually rather than all at once, so it runs more quietly than a spur gear, at the price of a thrust load along the shaft. | <img src="docs/images/gears/helical.png" width="320" alt="A violet helical gear, its teeth twisting evenly around the rim"> |
+| **Herringbone Gear**<br>Twisted to mid-body and mirrored, so the teeth meet in a chevron. The two halves lean opposite ways and their thrust cancels, which keeps the helical gear's quiet running without the load on the shaft. | <img src="docs/images/gears/herringbone.png" width="320" alt="An amber herringbone gear, its teeth meeting in a chevron at mid-height"> |
+| **Bevel Gear**<br>Teeth on a cone, for two shafts whose axes cross. Straight and spiral bevels come from the same command: *Mean Spiral Angle* selects between them (0 gives a straight bevel), and *Hand of Spiral* picks the direction. | <img src="docs/images/gears/bevel.png" width="320" alt="A green straight bevel pair meshing at a right angle: a flat 24-tooth gear with a 16-tooth pinion standing on its rim"> |
+| **Cycloidal Drive**<br>A speed reducer rather than a single gear. It builds the lobed disc(s), the eccentric cam, a pinless ring housing and the output plate with its pins, each in its own sub-component. | <img src="docs/images/gears/cycloidal.png" width="320" alt="A cycloidal drive with its output plate lifted off: a blue ring housing holding a red lobed disc and a gold eccentric cam, and a teal plate above it on six pins"> |
 
 Those pictures are renders of the proof geometry, not illustrations. The spur, helical and
 herringbone flanks are involute curves sampled from [`proof/involute`](proof/involute), the package
@@ -30,6 +30,12 @@ bevel pair and the cycloidal drive are rendered from the solids their own proofs
 and phased the way those proofs fix them. So a change to the proved geometry changes the pictures
 too. The renderer is [SolidLens](https://github.com/lestrrat-3d/solidlens). Regenerate all five with
 `proof/render_examples.sh`, which runs against the engine revisions `proof/go.mod` pins.
+
+The settings behind each picture are these. The spur gear is module 2, 24 teeth, 20° pressure angle,
+12 mm thick with a 10 mm bore. The helical gear is 16 mm thick at a 20° helix angle, and the
+herringbone gear 20 mm thick at 20°. The bevel picture is a 24/16 pair meshing at a right angle,
+module 2, spiral angle 0. The cycloidal drive is at the dialog's defaults with two discs, and its
+output plate is lifted clear on its own pins so the rest can be seen.
 
 # INSTALLATION
 
