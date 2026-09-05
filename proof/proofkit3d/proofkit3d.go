@@ -116,7 +116,7 @@ func RequireSolid(t *testing.T, doc *decad.Document, bodies []*decad.Body) {
 		}
 	}
 	for _, body := range bodies {
-		bodyReport := BodyReport(t, doc, body)
+		bodyReport := bodyReportFrom(t, report, body)
 		if !bodyReport.Solid || !bodyReport.Watertight || !bodyReport.Manifold || bodyReport.SelfIntersecting {
 			t.Fatalf("body is not a sound solid: %+v", bodyReport)
 		}
@@ -134,6 +134,11 @@ func BodyReport(t *testing.T, doc *decad.Document, body *decad.Body) *decad.Body
 	if err != nil {
 		t.Fatalf("verify failed: %v", err)
 	}
+	return bodyReportFrom(t, report, body)
+}
+
+func bodyReportFrom(t *testing.T, report *decad.Report, body *decad.Body) *decad.BodyReport {
+	t.Helper()
 	for _, bodyReport := range report.Bodies {
 		if bodyReport.Body == body {
 			return bodyReport
