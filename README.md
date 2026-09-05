@@ -20,14 +20,17 @@ The add-in installs one command per generator into a **Gears** dropdown in the F
 | **Spur Gear**<br>Straight teeth across the rim. Rendered at module 2, 24 teeth, 20° pressure angle, 12 mm thick, 10 mm bore. | <img src="docs/images/gears/spur.png" width="320" alt="A cyan spur gear with a central bore, teeth running straight across the rim"> |
 | **Helical Gear**<br>The same tooth twisted to the far face, which is what *Helix Angle* sets. Rendered 16 mm thick at 20°. | <img src="docs/images/gears/helical.png" width="320" alt="A violet helical gear, its teeth twisting evenly around the rim"> |
 | **Herringbone Gear**<br>Twisted to mid-body and mirrored, so the teeth meet in a chevron and the thrust cancels. Rendered 20 mm thick at 20°. | <img src="docs/images/gears/herringbone.png" width="320" alt="An amber herringbone gear, its teeth meeting in a chevron at mid-height"> |
-| **Bevel Gear**<br>Straight or spiral from the same command. *Mean Spiral Angle* selects between them (0 gives a straight bevel), and *Hand of Spiral* picks the direction. | |
-| **Cycloidal Drive**<br>A speed reducer rather than a single gear. It builds the lobed disc(s), the eccentric cam, a pinless ring housing and the output plate with its pins, each in its own sub-component. | |
+| **Bevel Gear**<br>Straight or spiral from the same command. *Mean Spiral Angle* selects between them (0 gives a straight bevel), and *Hand of Spiral* picks the direction. Rendered as a 24/16 pair in mesh at a right angle, module 2, spiral angle 0. | <img src="docs/images/gears/bevel.png" width="320" alt="A green straight bevel pair meshing at a right angle: a flat 24-tooth gear with a 16-tooth pinion standing on its rim"> |
+| **Cycloidal Drive**<br>A speed reducer rather than a single gear. It builds the lobed disc(s), the eccentric cam, a pinless ring housing and the output plate with its pins, each in its own sub-component. Rendered at the dialog's defaults with two discs, the plate lifted clear on its own pins so the rest can be seen. | <img src="docs/images/gears/cycloidal.png" width="320" alt="A cycloidal drive with its output plate lifted off: a blue ring housing holding a red lobed disc and a gold eccentric cam, and a teal plate above it on six pins"> |
 
-Every flank in those pictures is the involute the generator itself cuts: the tooth math comes from
-[`proof/involute`](proof/involute), the package the 3D proofs draw their teeth from, and each gear is
-swept the way its spec sweeps it. The renderer is
-[SolidLens](https://github.com/lestrrat-3d/solidlens). Regenerate the images with
-`proof/render_examples.sh`.
+None of those pictures is a drawing of a gear. Every spur, helical and herringbone flank is the
+involute the generator itself cuts, sampled from [`proof/involute`](proof/involute), and each of the
+three is swept the way its spec sweeps it. Both bevel gears are built from the lattice their own
+proof resolves and trimmed by the cones it places, meshing at the phase that proof fixes, and every
+part of the cycloidal drive is a body its proof extrudes. A change to the proved geometry moves the
+picture with it. The renderer is
+[SolidLens](https://github.com/lestrrat-3d/solidlens). Regenerate all five with
+`proof/render_examples.sh`, which runs against the engine revisions `proof/go.mod` pins.
 
 # INSTALLATION
 
@@ -73,11 +76,10 @@ keeping OK disabled until the values work.
 
 The generators under `lib/geargen/` are build output, not hand-written source. Each one is generated
 from its natural-language spec in `spec/<gear>/`, driven by the skills in `.claude/skills/`. Geometry
-checking is uneven so far: the spur, helical and bevel gears have Go proofs under `proof/spurgear/`,
-`proof/helicalgear/` and `proof/bevelgear/`, which build the real sketches and solids and check them
-before anything reaches Fusion; the spur and helical sketch schemes also have benches at
-`spec/spurgear/sketch/` and `spec/helicalgear/sketch/`; and the herringbone gear and the cycloidal
-drive are checked only by loading them into Fusion.
+checking is uneven so far: the spur, helical, bevel and cycloidal generators have Go proofs under
+`proof/`, which build the real sketches and solids and check them before anything reaches Fusion; the
+spur and helical sketch schemes also have benches at `spec/spurgear/sketch/` and
+`spec/helicalgear/sketch/`; and the herringbone gear is checked only by loading it into Fusion.
 
 So a fix goes into the spec, or into the shared `.claude/skills/generate-gear/PLAYBOOK.md` when the
 behaviour applies to every gear, and then you regenerate. Editing `lib/geargen/<gear>.py` directly

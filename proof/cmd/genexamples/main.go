@@ -7,11 +7,12 @@
 // spur straight through, helical twisting to the far face, herringbone
 // twisting to mid-body and back.
 //
-// Only the three gears whose tooth math lives in proof/involute are rendered.
-// Bevel and cycloidal derive their profiles elsewhere and have no 3D proof to
-// draw from, so putting them here would mean inventing geometry.
+// Only the three gears whose tooth math lives in proof/involute are rendered
+// here. The bevel gear and the cycloidal drive draw their shapes from their own
+// proof packages instead, so each is rendered by an opt-in test inside the
+// package that already holds its geometry; render_examples.sh runs both stages.
 //
-// Run it from the proof module with the sketch engine wired up:
+// Run it through that script rather than by hand:
 //
 //	./render_examples.sh
 package main
@@ -24,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/lestrrat-3d/fusion360-gear-generator/proof/render"
 	"github.com/lestrrat-3d/solidlens"
 )
 
@@ -92,7 +94,7 @@ func run(ctx context.Context, out string, settings solidlens.Settings) error {
 			return err
 		}
 		path := filepath.Join(out, ex.file)
-		if err := writePNG(ctx, path, scene, settings); err != nil {
+		if err := render.WritePNG(ctx, path, scene, settings); err != nil {
 			return err
 		}
 		fmt.Printf("wrote %s\n", path)
@@ -100,88 +102,25 @@ func run(ctx context.Context, out string, settings solidlens.Settings) error {
 	return nil
 }
 
-func writePNG(ctx context.Context, path string, scene solidlens.Scene, settings solidlens.Settings) error {
-	f, err := os.Create(path) //nolint:gosec // the path is a flag-controlled output directory
-	if err != nil {
-		return fmt.Errorf("create %s: %w", path, err)
-	}
-	renderErr := solidlens.RenderPNG(ctx, f, scene, settings)
-	closeErr := f.Close()
-	if renderErr != nil {
-		return fmt.Errorf("render %s: %w", path, renderErr)
-	}
-	if closeErr != nil {
-		return fmt.Errorf("close %s: %w", path, closeErr)
-	}
-	return nil
-}
-
 // scene builds the gear and stages it. The camera is derived from the gear's
-// own size so every example is framed identically no matter how thick it is.
+// own size so every example is framed identically no matter how thick it is:
+// it looks down on the gear from the front left at a fixed elevation, standing
+// back far enough that the whole tip circle and the full thickness fit whatever
+// the example's proportions are.
 func (ex example) scene(ctx context.Context) (solidlens.Scene, error) {
 	mesh, err := ex.gear.mesh(ctx)
 	if err != nil {
 		return solidlens.Scene{}, err
 	}
-	return solidlens.Scene{
-		Camera: ex.camera(),
-		Models: []solidlens.Model{{
-			Mesh:     mesh,
-			Material: solidlens.Matte(ex.color),
-			Edges:    ex.outline(),
-		}},
-		DirectionalLights: lights(),
-		Background:        solidlens.RGB(0.35, 0.37, 0.42),
-	}, nil
-}
-
-// outline draws the gear's own edges in a darkened version of its colour. It
-// is what separates one tooth from the next where two flanks face the camera
-// at nearly the same angle and flat shading gives them nearly the same value.
-// The crease angle is left at its default, which picks up the tooth corners
-// and skips the seams between the bands the sweep is cut into.
-func (ex example) outline() solidlens.Edges {
-	const darken = 0.28
-	return solidlens.Edges{
-		Enabled: true,
-		Color:   solidlens.RGB(ex.color.R*darken, ex.color.G*darken, ex.color.B*darken),
-		Width:   1.4,
+	view := render.View{
+		Target:       solidlens.Vec{Z: ex.gear.thickness / 2},
+		Size:         math.Hypot(ex.gear.tipRadius(), ex.gear.thickness),
+		Distance:     3.4,
+		ElevationDeg: 44,
+		AzimuthDeg:   -58,
+		FOV:          32,
 	}
-}
-
-// camera looks down on the gear from the front left at a fixed elevation,
-// standing back far enough that the whole tip circle and the full thickness
-// fit whatever the example's proportions are.
-func (ex example) camera() solidlens.Camera {
-	radius := ex.gear.tipRadius()
-	centre := ex.gear.thickness / 2
-	reach := math.Hypot(radius, ex.gear.thickness) * 3.4
-	const elevation = 44 * math.Pi / 180
-	const azimuth = -58 * math.Pi / 180
-	horizontal := reach * math.Cos(elevation)
-	return solidlens.Camera{
-		Position: solidlens.Vec{
-			X: horizontal * math.Cos(azimuth),
-			Y: horizontal * math.Sin(azimuth),
-			Z: centre + reach*math.Sin(elevation),
-		},
-		Target: solidlens.Vec{Z: centre},
-		Up:     solidlens.Vec{Z: 1},
-		FOV:    32,
-	}
-}
-
-// lights are all directional on purpose. solidlens shades a triangle flat,
-// from one of its own corners, so a point light makes a large flat face band
-// triangle by triangle as the distance changes across it. A directional light
-// depends on the normal alone, which leaves the gear's end faces even and
-// still separates the three tooth surfaces by their angle.
-func lights() []solidlens.DirectionalLight {
-	return []solidlens.DirectionalLight{
-		{Direction: solidlens.Vec{X: 0.35, Y: 0.62, Z: -0.70}, Color: solidlens.RGB(1, 0.97, 0.92), Intensity: 0.95},
-		{Direction: solidlens.Vec{X: -0.75, Y: 0.30, Z: -0.30}, Color: solidlens.RGB(0.62, 0.74, 0.92), Intensity: 0.45},
-		{Direction: solidlens.Vec{X: 0.20, Y: -0.85, Z: 0.15}, Color: solidlens.RGB(0.45, 0.55, 0.75), Intensity: 0.30},
-	}
+	return render.Scene(view.Camera(), render.Part{Mesh: mesh, Color: ex.color}), nil
 }
 
 // tipRadius is the outermost radius the camera has to fit in frame.

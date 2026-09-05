@@ -1,36 +1,30 @@
 #!/usr/bin/env bash
 # Regenerate the README's gear example images from the proof geometry.
 #
-# It wires the same local sketch engine run.sh does, so the outline check
-# runs against the engine the proofs were run against rather than whatever
-# the module cache happens to hold.
+# Everything here runs against the engine revisions proof/go.mod pins, out of the
+# module cache, and there is no local-checkout wiring for that reason: an image
+# rendered against an engine the proofs were never run against would be a picture
+# of a gear nothing checked. go.mod is the one place a revision is written, which
+# is what run.sh verifies a local checkout against, so reading the images off the
+# same file is what keeps a picture and its proof on one engine.
+#
+# Two stages, because the geometry lives in two places. The spur, helical and
+# herringbone gears are drawn from proof/involute by cmd/genexamples. The bevel
+# gear and the cycloidal drive are drawn by an opt-in test inside their own proof
+# package, where the lattice and the bodies they are built from already live; the
+# test is skipped whenever -render.out is not given, so an ordinary proof run
+# writes no images.
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/.." && pwd)
+out=$repo/docs/images/gears
 
-common=$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)
-main_repo=$(cd "$(dirname "$common")" && pwd)
-sketch_dir=${SKETCH_DIR:-"$main_repo/../sketch"}
-
-if [[ ! -f "$sketch_dir/go.mod" ]]; then
-	echo "Go module not found at: $sketch_dir" >&2
-	exit 2
-fi
-
-mkdir -p "$repo/.tmp"
-work=$(mktemp -d "$repo/.tmp/render-go-work.XXXXXX")
-gowork="$work/go.work"
-trap 'rm -rf -- "$work"' EXIT
-(
-	cd "$work"
-	go work init "$here"
-	go work edit \
-		-go=1.26.8 \
-		"-replace=github.com/lestrrat-3d/sketch=$sketch_dir" \
-		go.work
-)
-
-echo "using sketch engine at: $sketch_dir"
+mkdir -p "$out"
 cd "$here"
-GOWORK="$gowork" go run ./cmd/genexamples -out "$repo/docs/images/gears" "$@"
+export GOWORK=off
+
+go run ./cmd/genexamples -out "$out" "$@"
+# -count=1 because a cached PASS writes no file.
+go test ./bevelgear ./cycloidal -run TestRenderExample -render.out="$out" -count=1 -v |
+	grep -E '^\s+render_test\.go:[0-9]+: wrote '
