@@ -115,8 +115,11 @@ func RequireSolid(t *testing.T, doc *decad.Document, bodies []*decad.Body) {
 			t.Fatalf("unexpected verification diagnostic: %+v", diagnostic)
 		}
 	}
+	// The report above already carries a record per live body, and nothing here
+	// touches the document between producing it and reading it, so every body is
+	// looked up in that one report rather than verified again per body.
 	for _, body := range bodies {
-		bodyReport := BodyReport(t, doc, body)
+		bodyReport := bodyReportFrom(t, report, body)
 		if !bodyReport.Solid || !bodyReport.Watertight || !bodyReport.Manifold || bodyReport.SelfIntersecting {
 			t.Fatalf("body is not a sound solid: %+v", bodyReport)
 		}
@@ -127,13 +130,24 @@ func RequireSolid(t *testing.T, doc *decad.Document, bodies []*decad.Body) {
 }
 
 // BodyReport returns the verification record for body, or fails the test when
-// the body was not included in the document report.
+// the body was not included in the document report. It verifies the document on
+// every call, so a caller may build or consume bodies between two calls and
+// still read the model as it stands.
 func BodyReport(t *testing.T, doc *decad.Document, body *decad.Body) *decad.BodyReport {
 	t.Helper()
 	report, err := doc.Verify(t.Context())
 	if err != nil {
 		t.Fatalf("verify failed: %v", err)
 	}
+	return bodyReportFrom(t, report, body)
+}
+
+// bodyReportFrom finds body's record in a report already produced for its
+// document. The caller owns the report's freshness: a report describes the
+// document as it stood when Verify ran, so only a caller that has not touched
+// the document since may read one.
+func bodyReportFrom(t *testing.T, report *decad.Report, body *decad.Body) *decad.BodyReport {
+	t.Helper()
 	for _, bodyReport := range report.Bodies {
 		if bodyReport.Body == body {
 			return bodyReport
