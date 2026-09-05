@@ -56,6 +56,16 @@ const renderTolerance = 0.08
 // the hole it seats into rather than reaching into it.
 const renderLift = 34
 
+// renderMargin is how much of the half-frame is left clear around the drive.
+// The image is a table cell 320 pixels wide, so the parts have to be as large
+// in it as they go.
+const renderMargin = 0.05
+
+// renderSettings is the raster the image is written at, which the framing has
+// to know as well, because the aspect ratio is what decides whether the frame's
+// width or its height binds.
+var renderSettings = solidlens.Settings{Width: 960, Height: 720}
+
 // The parts' colours. The drive is an assembly rather than a single gear, so
 // each sub-component the generator creates gets its own.
 var (
@@ -89,7 +99,7 @@ func TestRenderExample(t *testing.T) {
 
 	scene := render.Scene(renderView(t, parts), parts...)
 	path := filepath.Join(*renderOut, "cycloidal.png")
-	if err := render.WritePNG(t.Context(), path, scene, solidlens.Settings{Width: 960, Height: 720}); err != nil {
+	if err := render.WritePNG(t.Context(), path, scene, renderSettings); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
 	t.Logf("wrote %s", path)
@@ -211,14 +221,15 @@ func renderView(t *testing.T, parts []render.Part) solidlens.Camera {
 	for _, part := range parts {
 		meshes = append(meshes, part.Mesh)
 	}
-	view, err := render.View{
-		Distance:     2.7,
+	camera, err := render.Fit{
 		ElevationDeg: 30,
 		AzimuthDeg:   -58,
 		FOV:          32,
-	}.FitTo(meshes...)
+		Margin:       renderMargin,
+		Settings:     renderSettings,
+	}.Camera(meshes...)
 	if err != nil {
 		t.Fatalf("frame the drive: %v", err)
 	}
-	return view.Camera()
+	return camera
 }

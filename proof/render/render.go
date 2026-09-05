@@ -86,6 +86,11 @@ func Lights() []solidlens.DirectionalLight {
 // aimed with: an elevation above the plane the part is centred in, an azimuth
 // about the vertical axis, and a reach that is a multiple of the part's own
 // size so a bigger gear is framed the same as a smaller one.
+//
+// Use it where several parts have to be framed by ONE rule, so that a spur, a
+// helical and a herringbone gear of the same tooth count come out the same size
+// beside each other however thick they are. Where a single part should simply
+// be as large as its frame allows, [Fit] solves for the camera instead.
 type View struct {
 	// Target is the point the camera looks at.
 	Target solidlens.Vec
@@ -99,32 +104,192 @@ type View struct {
 	FOV float64
 }
 
-// FitTo fills in the view's Target and Size from what the meshes actually
-// occupy: the target is the centre of their common bounding box and the size
-// its half-diagonal.
+// Fit places a camera by what it has to hold, rather than by a distance a
+// caller keeps in step by hand.
 //
-// It is here so that framing survives a change to the thing being framed. A
-// part whose reach a caller works out by hand — a bevel gear's, say, whose
-// teeth stand proud of every point its lattice names — is framed by a number
-// that a new tooth count quietly invalidates.
-func (v View) FitTo(meshes ...solidlens.TriangleSource) (View, error) {
-	if len(meshes) == 0 {
-		return View{}, fmt.Errorf("fitting a view needs at least one mesh")
+// The elevation, azimuth and field of view say where the camera stands and how
+// wide it sees. Everything else is solved: the camera walks in until the meshes
+// fill the frame bar Margin, and aims so that what it holds sits in the middle
+// of it. A gear whose teeth stand proud of every point its lattice names is
+// then framed correctly without anyone working out how far proud.
+type Fit struct {
+	// ElevationDeg and AzimuthDeg place the camera on a sphere about what it
+	// is looking at, the elevation measured up from the horizontal.
+	ElevationDeg, AzimuthDeg float64
+	// FOV is the vertical field of view in degrees.
+	FOV float64
+	// Margin is the fraction of the half-frame left clear on whichever side
+	// binds, so 0.05 leaves a twentieth of the way from the middle to the edge
+	// empty. Zero puts the outermost point on the edge itself.
+	Margin float64
+	// Settings is the raster the frame is measured against; its width and
+	// height set the aspect ratio.
+	Settings solidlens.Settings
+}
+
+// fitSteps is how many times the distance bracket is halved, and fitAimSteps
+// how many times the aim is corrected at each distance. The aim correction is a
+// fixed point that converges quickly, because a small move of the target moves
+// the picture by very nearly the same amount at every depth; six passes take it
+// below a pixel at these sizes.
+const (
+	fitSteps    = 40
+	fitAimSteps = 6
+)
+
+// Camera solves for the camera that frames the meshes.
+func (f Fit) Camera(meshes ...solidlens.TriangleSource) (solidlens.Camera, error) {
+	points, err := vertices(meshes)
+	if err != nil {
+		return solidlens.Camera{}, err
 	}
-	lo := solidlens.Vec{X: math.Inf(1), Y: math.Inf(1), Z: math.Inf(1)}
-	hi := solidlens.Vec{X: math.Inf(-1), Y: math.Inf(-1), Z: math.Inf(-1)}
-	for _, m := range meshes {
-		for _, p := range m.Vertices() {
-			lo = solidlens.Vec{X: math.Min(lo.X, p.X), Y: math.Min(lo.Y, p.Y), Z: math.Min(lo.Z, p.Z)}
-			hi = solidlens.Vec{X: math.Max(hi.X, p.X), Y: math.Max(hi.Y, p.Y), Z: math.Max(hi.Z, p.Z)}
+	if f.Margin < 0 || f.Margin >= 1 {
+		return solidlens.Camera{}, fmt.Errorf("margin %g is not a fraction of the frame below one", f.Margin)
+	}
+	if f.Settings.Width <= 0 || f.Settings.Height <= 0 {
+		return solidlens.Camera{}, fmt.Errorf("framing needs a raster size, got %dx%d", f.Settings.Width, f.Settings.Height)
+	}
+	centre, radius := boundingSphere(points)
+	if radius == 0 {
+		return solidlens.Camera{}, fmt.Errorf("the meshes occupy a single point, which no distance frames")
+	}
+	l := newLens(f)
+
+	// The bracket. Inside the bounding sphere the camera sits among the meshes
+	// and frames nothing; from there outward the picture only shrinks as the
+	// camera retreats, so what is wanted is the smallest distance that fits.
+	// The far end starts at what would frame the sphere with the frame's own
+	// half angle and doubles until it really does fit, which is what makes the
+	// bisection's invariant true before it starts.
+	near := radius * 1.001
+	far := radius * (1 + 1/math.Tan(l.halfAngle))
+	target, ok := l.frame(points, centre, far)
+	for range fitSteps {
+		if ok {
+			break
 		}
+		far *= 2
+		target, ok = l.frame(points, centre, far)
 	}
-	if !(lo.X <= hi.X) {
-		return View{}, fmt.Errorf("fitting a view needs at least one vertex")
+	if !ok {
+		return solidlens.Camera{}, fmt.Errorf("no distance frames these meshes at %g degrees of elevation", f.ElevationDeg)
 	}
-	v.Target = solidlens.Vec{X: (lo.X + hi.X) / 2, Y: (lo.Y + hi.Y) / 2, Z: (lo.Z + hi.Z) / 2}
-	v.Size = hi.Sub(lo).Len() / 2
-	return v, nil
+	for range fitSteps {
+		middle := (near + far) / 2
+		if aim, ok := l.frame(points, centre, middle); ok {
+			far, target = middle, aim
+			continue
+		}
+		near = middle
+	}
+	return solidlens.Camera{
+		Position: target.Add(l.offset.Scale(far)),
+		Target:   target,
+		Up:       cameraUp,
+		FOV:      f.FOV,
+	}, nil
+}
+
+// cameraUp is the camera's up hint, which solidlens defaults to and which the
+// frame arithmetic here has to use as well for its answer to be a fit for the
+// picture that actually renders.
+var cameraUp = solidlens.Vec{Z: 1}
+
+// lens is the fixed part of that arithmetic: where the camera stands relative
+// to what it looks at, and how a point in front of it lands in the frame. It
+// restates solidlens's own projection, because a fit computed by any other
+// projection is a fit for a picture nobody is going to render.
+type lens struct {
+	offset        solidlens.Vec // unit, from the target toward the camera
+	right, upward solidlens.Vec
+	focal, aspect float64
+	halfAngle     float64
+	limit         float64 // the largest frame coordinate kept, after the margin
+}
+
+func newLens(f Fit) lens {
+	elevation := f.ElevationDeg * math.Pi / 180
+	azimuth := f.AzimuthDeg * math.Pi / 180
+	offset := solidlens.Vec{
+		X: math.Cos(elevation) * math.Cos(azimuth),
+		Y: math.Cos(elevation) * math.Sin(azimuth),
+		Z: math.Sin(elevation),
+	}
+	forward := offset.Scale(-1)
+	right, _ := forward.Cross(cameraUp).Normalize()
+	upward, _ := right.Cross(forward).Normalize()
+	return lens{
+		offset:    offset,
+		right:     right,
+		upward:    upward,
+		focal:     1 / math.Tan(f.FOV*math.Pi/360),
+		aspect:    float64(f.Settings.Width) / float64(f.Settings.Height),
+		halfAngle: f.FOV * math.Pi / 360,
+		limit:     1 - f.Margin,
+	}
+}
+
+// frame returns where a camera at the given distance has to aim for the points
+// to sit in the middle of its frame, and whether they fit there.
+func (l lens) frame(points []solidlens.Vec, centre solidlens.Vec, distance float64) (solidlens.Vec, bool) {
+	target := centre
+	var loX, hiX, loY, hiY float64
+	for range fitAimSteps {
+		position := target.Add(l.offset.Scale(distance))
+		loX, hiX = math.Inf(1), math.Inf(-1)
+		loY, hiY = math.Inf(1), math.Inf(-1)
+		for _, p := range points {
+			relative := p.Sub(position)
+			depth := -relative.Dot(l.offset)
+			if depth <= 0 {
+				return target, false
+			}
+			x := relative.Dot(l.right) * l.focal / (depth * l.aspect)
+			y := relative.Dot(l.upward) * l.focal / depth
+			loX, hiX = math.Min(loX, x), math.Max(hiX, x)
+			loY, hiY = math.Min(loY, y), math.Max(hiY, y)
+		}
+		// Move the aim by however far off centre the picture came out,
+		// converted back to the world at the target's own depth. That
+		// conversion is exact only there, which is why this repeats rather
+		// than correcting once.
+		target = target.
+			Add(l.right.Scale((loX + hiX) / 2 * distance * l.aspect / l.focal)).
+			Add(l.upward.Scale((loY + hiY) / 2 * distance / l.focal))
+	}
+	return target, (hiX-loX)/2 <= l.limit && (hiY-loY)/2 <= l.limit
+}
+
+// vertices gathers every mesh vertex into one slice.
+func vertices(meshes []solidlens.TriangleSource) ([]solidlens.Vec, error) {
+	if len(meshes) == 0 {
+		return nil, fmt.Errorf("framing needs at least one mesh")
+	}
+	var out []solidlens.Vec
+	for _, m := range meshes {
+		out = append(out, m.Vertices()...)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("framing needs at least one vertex")
+	}
+	return out, nil
+}
+
+// boundingSphere is the bounding box's centre and the distance from it to the
+// furthest point. It only has to bound, not to be the smallest such sphere: it
+// is the bracket the distance search starts from.
+func boundingSphere(points []solidlens.Vec) (solidlens.Vec, float64) {
+	lo, hi := points[0], points[0]
+	for _, p := range points {
+		lo = solidlens.Vec{X: math.Min(lo.X, p.X), Y: math.Min(lo.Y, p.Y), Z: math.Min(lo.Z, p.Z)}
+		hi = solidlens.Vec{X: math.Max(hi.X, p.X), Y: math.Max(hi.Y, p.Y), Z: math.Max(hi.Z, p.Z)}
+	}
+	centre := lo.Add(hi).Scale(0.5)
+	radius := 0.0
+	for _, p := range points {
+		radius = math.Max(radius, p.Sub(centre).Len())
+	}
+	return centre, radius
 }
 
 // Camera is the solidlens camera the view describes.

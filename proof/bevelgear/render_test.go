@@ -50,6 +50,11 @@ import (
 var renderOut = flag.String("render.out", "",
 	"directory the README example image is written to; the render is skipped when it is empty")
 
+// renderSettings is the raster the image is written at, which the framing has
+// to know as well, because the aspect ratio is what decides whether the frame's
+// width or its height binds.
+var renderSettings = solidlens.Settings{Width: 960, Height: 720}
+
 // renderCase is the pair the README shows: 24 driving teeth against 16 on the
 // pinion, at a right angle in module 2, with the face width left to resolve and
 // the bore on. A right angle is the Shaft Angle a bevel pair is nearly always
@@ -93,6 +98,11 @@ const renderSegments = 240
 // root arcs is drawn with.
 const renderArcSamples = 10
 
+// renderMargin is how much of the half-frame is left clear around the pair.
+// The image is a table cell 320 pixels wide, so the gears have to be as large
+// in it as they go.
+const renderMargin = 0.05
+
 func TestRenderExample(t *testing.T) {
 	if *renderOut == "" {
 		t.Skip("no -render.out directory; the example image is not being regenerated")
@@ -120,7 +130,7 @@ func TestRenderExample(t *testing.T) {
 
 	scene := render.Scene(renderView(t, meshes...), parts...)
 	path := filepath.Join(*renderOut, "bevel.png")
-	if err := render.WritePNG(t.Context(), path, scene, solidlens.Settings{Width: 960, Height: 720}); err != nil {
+	if err := render.WritePNG(t.Context(), path, scene, renderSettings); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
 	t.Logf("wrote %s", path)
@@ -347,16 +357,23 @@ func rotated(section []render.Vec2, angle float64) []render.Vec2 {
 // renderView frames the pair on what it actually occupies, which is not
 // anything the lattice names: the teeth stand proud of every point in it, and
 // the two gears reach along different shafts.
+//
+// The azimuth stands the camera round past the pinion's toe rather than behind
+// its back, which is what opens the pinion's dished front face and the bore
+// through it. The elevation is then low, so that the two gears are seen to
+// mesh: from higher up the driving gear's near rim hides the one place they
+// touch, and the pair reads as two gears that merely sit near each other.
 func renderView(t *testing.T, meshes ...solidlens.TriangleSource) solidlens.Camera {
 	t.Helper()
-	view, err := render.View{
-		Distance:     2.75,
-		ElevationDeg: 34,
-		AzimuthDeg:   -58,
+	camera, err := render.Fit{
+		ElevationDeg: 18,
+		AzimuthDeg:   -112,
 		FOV:          32,
-	}.FitTo(meshes...)
+		Margin:       renderMargin,
+		Settings:     renderSettings,
+	}.Camera(meshes...)
 	if err != nil {
-		t.Fatalf("frame the gear: %v", err)
+		t.Fatalf("frame the pair: %v", err)
 	}
-	return view.Camera()
+	return camera
 }
