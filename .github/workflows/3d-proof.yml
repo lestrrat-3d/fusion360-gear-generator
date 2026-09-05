@@ -70,9 +70,17 @@ jobs:
       # The checker suite shells out to the real Go toolchain (test_check_compile.py asks
       # what it makes of odd build-constraint headers), so it needs the same pinned Go the
       # proofs use. Without this the job silently tests against whatever Go the runner ships.
+      #
+      # It never builds proof/: every package it compiles is a throwaway fixture module written
+      # into a temporary directory with no requirements, so there is no dependency cache worth
+      # keeping. Caching is off rather than pointed at gears/proof/go.sum on purpose. The cache
+      # key setup-go derives from that file would be identical in both jobs, entries are
+      # immutable, and this job finishes minutes before the proofs do — so it would claim the
+      # key with stdlib fixture artifacts and lock the geometry job's real cache out.
       - uses: actions/setup-go@v5
         with:
           go-version-file: gears/proof/go.mod
+          cache: false
 
       - name: Run checker regression tests
         run: python3 -m unittest discover -s .claude/skills/generate-gear -p 'test_*.py'
@@ -130,9 +138,14 @@ jobs:
           echo "sketch now at $(git -C "$GITHUB_WORKSPACE/sketch" rev-parse --short=12 HEAD)"
           echo "decad now at $(git -C "$GITHUB_WORKSPACE/decad" rev-parse --short=12 HEAD)"
 
+      # Both paths are workspace-relative, and the repository is checked out into gears/, so
+      # the module sits at gears/proof/. setup-go only looks for a bare go.sum at the workspace
+      # root when cache-dependency-path is unset, and finding none it warns, derives no cache
+      # key, and saves nothing at the end of the job — caching was inert here, not merely cold.
       - uses: actions/setup-go@v5
         with:
           go-version-file: gears/proof/go.mod
+          cache-dependency-path: gears/proof/go.sum
 
       - name: Run proof runner regression tests
         run: bash proof/run_test.sh
