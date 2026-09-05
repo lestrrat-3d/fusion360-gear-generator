@@ -340,8 +340,9 @@ func stepPatternTeeth(t *testing.T, doc *decad.Document, p map[string]float64) [
 // symmetric pattern or a different total angle would not produce. Every copy
 // has the seed tooth's own volume, so none is deformed by its placement.
 //
-// Each copy is made with Body.Placed, which retires the body it moves, so a
-// document never holds two teeth at once and no pair reaches the verifier.
+// The solved section is reused for every copy in this case. Each copy is
+// extruded in a fresh document and made with Body.Placed, so no document holds
+// two teeth at once and no pair reaches the verifier.
 func assertPatternTeeth(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
 	if len(bodies) != 1 {
 		t.Fatalf("pattern step returned %d bodies, want the seed tooth", len(bodies))
@@ -351,9 +352,13 @@ func assertPatternTeeth(t *testing.T, _ *decad.Document, bodies []*decad.Body, p
 	if got := centroidAngle(t, bodies[0]); angleGap(got, 0) > 1e-9 {
 		t.Errorf("the seed tooth sits at %.9f rad, want 0 — the pattern is not symmetric", got)
 	}
+	var ts *sketch.Sketch
+	var tregion *sketch.Profile
+	if teeth > 1 {
+		ts, tregion = toothSection(t, p, 0, 0, false)
+	}
 	for k := 1; k < teeth; k++ {
 		scratch := decad.New()
-		ts, tregion := toothSection(t, p, 0, 0, false)
 		copied, err := extrudeSection(t, scratch, p, ts, tregion).
 			Placed(patternTurn(t, 2*math.Pi*float64(k)/float64(teeth)))
 		if err != nil {
@@ -366,6 +371,51 @@ func assertPatternTeeth(t *testing.T, _ *decad.Document, bodies []*decad.Body, p
 		if got, want := centroidAngle(t, copied), 2*math.Pi*float64(k)/float64(teeth); angleGap(got, want) > 1e-9 {
 			t.Errorf("patterned tooth %d sits at %.9f rad, want %.9f rad", k, got, want)
 		}
+	}
+}
+
+func TestPatternSectionReusableAcrossDocuments(t *testing.T) {
+	p := solidCases[0].Params
+	s, region := toothSection(t, p, 0, 0, false)
+	revision := s.Revision()
+	stale := region.IsStale()
+	if stale {
+		t.Fatal("newly solved tooth section profile is stale")
+	}
+
+	first, err := extrudeSection(t, decad.New(), p, s, region).
+		Placed(patternTurn(t, math.Pi/3))
+	if err != nil {
+		t.Fatalf("first reused pattern copy: %v", err)
+	}
+	second, err := extrudeSection(t, decad.New(), p, s, region).
+		Placed(patternTurn(t, 2*math.Pi/3))
+	if err != nil {
+		t.Fatalf("second reused pattern copy: %v", err)
+	}
+
+	firstVolume := volumeOf(t, first, "first reused pattern copy")
+	secondVolume := volumeOf(t, second, "second reused pattern copy")
+	if math.Abs(firstVolume-secondVolume) > 1e-9*firstVolume {
+		t.Errorf("reused pattern copies have volumes %.9f and %.9f", firstVolume, secondVolume)
+	}
+	for _, copy := range []struct {
+		name string
+		body *decad.Body
+		want float64
+	}{
+		{name: "first", body: first, want: math.Pi / 3},
+		{name: "second", body: second, want: 2 * math.Pi / 3},
+	} {
+		if got := centroidAngle(t, copy.body); angleGap(got, copy.want) > 1e-9 {
+			t.Errorf("%s reused pattern copy sits at %.9f rad, want %.9f rad", copy.name, got, copy.want)
+		}
+	}
+	if got := s.Revision(); got != revision {
+		t.Errorf("reusing the section changed sketch revision from %d to %d", revision, got)
+	}
+	if got := region.IsStale(); got != stale {
+		t.Errorf("reusing the section changed profile stale status from %t to %t", stale, got)
 	}
 }
 
