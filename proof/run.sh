@@ -4,6 +4,68 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/.." && pwd)
 
+# run.sh [--package ./PATTERN]... [-- GO_TEST_ARG...]
+#
+#   run.sh
+#   run.sh --package ./bevelgear -- -run '^TestGearProfiles$' -count=1
+#   run.sh --package ./proofkit --package ./proofkit3d -- -race -count=1
+#
+# Selection exists so a focused local run does not pay for every gear. It is not a
+# way to run less than the suite promises: a bad option fails here, before any
+# reassuring setup output, and the engine verification below runs whatever was
+# selected. Parsing comes first so a typo costs nothing.
+usage="usage: run.sh [--package ./PATTERN]... [-- GO_TEST_ARG...]"
+packages=()
+go_args=()
+
+while [[ $# -gt 0 ]]; do
+	case $1 in
+	--package)
+		if [[ $# -lt 2 ]]; then
+			echo "--package needs a package pattern" >&2
+			echo "$usage" >&2
+			exit 2
+		fi
+		# Module-relative only. An import path or an absolute directory would name
+		# something outside this module, and `..` would climb out of proof/.
+		case $2 in
+		./*) ;;
+		*)
+			echo "package pattern must begin with ./: '$2'" >&2
+			echo "$usage" >&2
+			exit 2
+			;;
+		esac
+		if [[ "/$2/" == */../* ]]; then
+			echo "package pattern must stay inside proof/: '$2'" >&2
+			echo "$usage" >&2
+			exit 2
+		fi
+		packages+=("$2")
+		shift 2
+		;;
+	--)
+		# Everything after this belongs to go test, one array element per token, so
+		# a -run expression holding a space stays one argument. Go validates them.
+		shift
+		go_args=("$@")
+		break
+		;;
+	*)
+		echo "unknown option: '$1'" >&2
+		echo "$usage" >&2
+		exit 2
+		;;
+	esac
+done
+
+# No --package means the whole suite, including when only go-test flags were given.
+# ./... rather than .: a bare . would build the one package holding no gear proof
+# at all and still report success.
+if [[ ${#packages[@]} -eq 0 ]]; then
+	packages=(./...)
+fi
+
 common=$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)
 main_repo=$(cd "$(dirname "$common")" && pwd)
 sketch_dir=${SKETCH_DIR:-"$main_repo/../sketch"}
@@ -78,5 +140,9 @@ trap 'rm -rf -- "$work"' EXIT
 
 echo "using sketch engine at: $sketch_dir"
 echo "using decad engine at: $decad_dir"
+# From proof/, so a package pattern means the same thing wherever run.sh was called.
 cd "$here"
-GOWORK="$gowork" go test ./...
+printf 'running: go test'
+printf ' %q' "${go_args[@]}" "${packages[@]}"
+printf '\n'
+GOWORK="$gowork" go test "${go_args[@]}" "${packages[@]}"

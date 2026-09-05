@@ -29,6 +29,21 @@ Use that escape hatch only to decide whether an engine bump is acceptable. A gre
 set proves nothing about the pinned engine: this was learned twice, both times by trusting a
 local pass that CI then failed. Raising a pin is its own PR, and the proofs are what decide it.
 
+## Running less than the whole proof
+
+`proof/run.sh` with no arguments runs the whole suite, which is what CI runs and what a handoff
+means. For a focused local run it also takes `--package ./<dir>`, which may repeat, and forwards
+every token after `--` to `go test`:
+
+```sh
+proof/run.sh --package ./bevelgear -- -run '^TestGearProfiles$' -count=1
+```
+
+Selection is a way to wait less while working on one gear, not a way to be told the suite passed.
+It changes nothing else: the engine revisions are still verified first, a bad option fails before
+any of that output appears, and `go test` still decides the exit status. Run the whole suite
+before handing work over.
+
 ## When Fusion gives a verdict
 
 Loading a gear into Fusion is the only check that sees the real thing, and it happens with no
