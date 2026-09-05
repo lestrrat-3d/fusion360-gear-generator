@@ -17,32 +17,32 @@ The add-in installs one command per generator into a **Gears** dropdown in the F
 
 <table>
 <thead>
-<tr><th>Gear</th><th>Example</th><th>Rendered at</th></tr>
+<tr><th>Example</th><th>Gear</th><th>Rendered at</th></tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>Spur Gear</strong><br>Straight teeth across the rim. This is the plain case: it drives a parallel shaft and pushes nothing along the axis.</td>
 <td width="350"><img src="docs/images/gears/spur.png" width="320" alt="A cyan spur gear with a central bore, teeth running straight across the rim"></td>
+<td><strong>Spur Gear</strong><br>Straight teeth across the rim. This is the plain case: it drives a parallel shaft and pushes nothing along the axis.</td>
 <td>Module 2, 24 teeth, 20&deg; pressure angle, 12 mm thick, 10 mm bore.</td>
 </tr>
 <tr>
-<td><strong>Helical Gear</strong><br>The same tooth twisted to the far face, which is what <em>Helix Angle</em> sets. Each tooth comes into contact gradually rather than all at once, so it runs more quietly than a spur gear, at the price of a thrust load along the shaft.</td>
 <td width="350"><img src="docs/images/gears/helical.png" width="320" alt="A violet helical gear, its teeth twisting evenly around the rim"></td>
+<td><strong>Helical Gear</strong><br>The same tooth twisted to the far face, which is what <em>Helix Angle</em> sets. Each tooth comes into contact gradually rather than all at once, so it runs more quietly than a spur gear, at the price of a thrust load along the shaft.</td>
 <td>16 mm thick at a 20&deg; helix angle.</td>
 </tr>
 <tr>
-<td><strong>Herringbone Gear</strong><br>Twisted to mid-body and mirrored, so the teeth meet in a chevron. The two halves lean opposite ways and their thrust cancels, which keeps the helical gear's quiet running without the load on the shaft.</td>
 <td width="350"><img src="docs/images/gears/herringbone.png" width="320" alt="An amber herringbone gear, its teeth meeting in a chevron at mid-height"></td>
+<td><strong>Herringbone Gear</strong><br>Twisted to mid-body and mirrored, so the teeth meet in a chevron. The two halves lean opposite ways and their thrust cancels, which keeps the helical gear's quiet running without the load on the shaft.</td>
 <td>20 mm thick at a 20&deg; helix angle.</td>
 </tr>
 <tr>
-<td><strong>Bevel Gear</strong><br>Teeth on a cone, for two shafts whose axes cross. Straight and spiral bevels come from the same command: <em>Mean Spiral Angle</em> selects between them (0 gives a straight bevel), and <em>Hand of Spiral</em> picks the direction.</td>
 <td width="350"><img src="docs/images/gears/bevel.png" width="320" alt="A green straight bevel pair meshing at a right angle: a flat 24-tooth gear with a 16-tooth pinion standing on its rim"></td>
+<td><strong>Bevel Gear</strong><br>Teeth on a cone, for two shafts whose axes cross. Straight and spiral bevels come from the same command: <em>Mean Spiral Angle</em> selects between them (0 gives a straight bevel), and <em>Hand of Spiral</em> picks the direction.</td>
 <td>A 24/16 pair meshing at a right angle, module 2, spiral angle 0.</td>
 </tr>
 <tr>
-<td><strong>Cycloidal Drive</strong><br>A speed reducer rather than a single gear. It builds the lobed disc(s), the eccentric cam, a pinless ring housing and the output plate with its pins, each in its own sub-component.</td>
 <td width="350"><img src="docs/images/gears/cycloidal.png" width="320" alt="A cycloidal drive with its output plate lifted off: a blue ring housing holding a red lobed disc and a gold eccentric cam, and a teal plate above it on six pins"></td>
+<td><strong>Cycloidal Drive</strong><br>A speed reducer rather than a single gear. It builds the lobed disc(s), the eccentric cam, a pinless ring housing and the output plate with its pins, each in its own sub-component.</td>
 <td>The dialog's defaults with two discs, the output plate lifted clear on its own pins so the rest can be seen.</td>
 </tr>
 </tbody>
