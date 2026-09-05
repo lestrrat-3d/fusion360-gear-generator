@@ -260,6 +260,44 @@ class CommittedTemplatesTest(unittest.TestCase):
                     (SKILLS_ROOT / 'generate-gear' / name).is_file(),
                     '{} named by the emit prompt does not exist'.format(name))
 
+    def test_emit_prompt_leaves_complete_validation_to_orchestrator(self):
+        prompt = (SKILLS_ROOT / 'emit-gear' / 'prompt.md').read_text(encoding='utf-8')
+        skill = (SKILLS_ROOT / 'emit-gear' / 'SKILL.md').read_text(encoding='utf-8')
+
+        self.assertEqual(prompt.count('run_gates.py'), 1)
+        self.assertIn('Do not run `run_gates.py` or its individual check scripts', prompt)
+        self.assertNotIn('--no-advisory', prompt)
+        self.assertNotIn('Self-check before finishing', prompt)
+        self.assertIn('cheap syntax check', prompt)
+        self.assertIn('does not validate Fusion behavior', prompt)
+        self.assertIn('Do not execute the generated module', prompt)
+        self.assertIn('Never silence a gate finding', prompt)
+        self.assertIn('After every draft submission, run the complete battery', skill)
+        self.assertIn('Read the entire stored', skill)
+        self.assertIn('artifact or any relevant input changed after validation', skill)
+
+    def test_emit_first_and_retry_prompts_keep_same_owner_for_spur_and_bevel(self):
+        report = 'run_gates: sample\nverdict: FAIL\n'
+        for gear in ('spurgear', 'bevelgear'):
+            with self.subTest(gear=gear):
+                code, first, err = self.render('emit-gear', gear)
+                self.assertEqual(code, 0, err)
+                self.assertIn('.tmp/{}.generated.py'.format(gear), first)
+                self.assertIn('complete gate battery', first)
+                with tempfile.TemporaryDirectory() as directory:
+                    failure = Path(directory) / 'gates.txt'
+                    failure.write_text(report, encoding='utf-8')
+                    out, retry_err = io.StringIO(), io.StringIO()
+                    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(retry_err):
+                        retry_code = RENDERER.main(
+                            ['render_prompt.py', 'emit-gear', gear, '--failure-file', str(failure)],
+                            skills_root=SKILLS_ROOT)
+                    self.assertEqual(retry_code, 0, retry_err.getvalue())
+                    retry = out.getvalue()
+                    self.assertIn('.tmp/{}.generated.py'.format(gear), retry)
+                    self.assertIn(RENDERER.BEGIN_MARKER, retry)
+                    self.assertIn(report, retry)
+
     def test_skill_md_references_renderer_not_a_copy(self):
         for skill in RENDERER.KNOWN_SKILLS:
             with self.subTest(skill=skill):
