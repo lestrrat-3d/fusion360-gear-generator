@@ -23,7 +23,7 @@ runs with its own range beside it.
 | Solid cases | Included. Sketch cases alone reach 1.19×, because `proof/bevelgear` spends about 16 s of its 75 in sketch proofs. |
 | `stepCircularPattern` | Excluded by name. Its proof carries per-case readings in package-level vars, and running its cases together produced a wrong verdict. |
 | Serial APIs | Unchanged in behaviour. No regression is established; see "What the small differences are". |
-| Any gear enabled | No. This branch adds the capability only; enabling belongs to `/compile-gear`. |
+| Any gear enabled | No. This branch adds the capability only. See "How to enable a gear safely" for the route, which is not a full recompile. |
 | CI benefit | Not measured and not claimed, because no gear is enabled on this branch. |
 
 A PR is warranted on these numbers. It is not merged.
@@ -173,6 +173,11 @@ expression on `/` and applies each part to one subtest level, so a single-part e
 top-level tests and runs everything beneath them. A filter that names a case explicitly, such as
 `-run 'TestGearProfiles/lattice_1'`, would need `cases/` inserted.
 
+That reasoning was read out of Go's `-run` handling rather than tested here, since no gear is
+enabled on this branch. It has since been confirmed against a real enabled gear on branch
+`perf-bevel-parallel-cases`, where the documented filter ran all 16 cases under
+`TestGearProfiles/cases/` and passed.
+
 ### The generator
 
 `spec/<gear>/steps.md` carries one `proof-run` annotation per `[GO]` step, and
@@ -199,8 +204,8 @@ documented as the place a new run method "fails here and gets reviewed", and
 list of declared methods a complaint prints.
 
 No generated registration file is changed on this branch. Enabling a gear means changing its step
-list, which is a compiled artifact, and that belongs to `/compile-gear` rather than to a hand edit.
-See "What is not done".
+list, which is a compiled artifact, so the decision has to be written where a regeneration will
+reproduce it. See "How to enable a gear safely".
 
 ## Coverage and verdicts
 
@@ -410,8 +415,39 @@ Enabling a gear means changing `proofkit.Run` to `proofkit.RunParallel` in that 
 `spec/<gear>/steps.md` annotations. The step list is a compiled artifact. `CLAUDE.md` and
 `emit-gear/SKILL.md` both say it is never hand-edited, and the reason applies here: the next
 `/compile-gear` run would rewrite the annotation back unless the spec itself asks for the parallel
-runner, so a hand edit would drift on the first regeneration. Enabling therefore belongs to
-`/compile-gear`, and it is a separate change with its own review.
+runner, so a hand edit alone would drift on the first regeneration. Enabling is therefore a separate
+change with its own review, and "How to enable a gear safely" gives the route.
+
+### How to enable a gear safely
+
+An earlier draft of this document said enabling "belongs to `/compile-gear`", which reads as an
+instruction to run a full recompile. Do not do that. A full recompile deletes hand-written proof
+files.
+
+`stage.py` places every drafted proof file and prunes the rest: `plan_actions` computes
+`prune` as every `.go` name present in `proof/<gear>/` and absent from the draft's sources, and
+`compile-gear/SKILL.md` states the same behaviour at its step 4, "deleting any `.go` file there the
+draft no longer produces". The clean-tree guard does not catch it. `classify_destination` refuses a
+file that is neither `stage.py`'s own output nor clean against HEAD, so a committed, clean file
+passes and is then pruned, leaving only a printed `pruned <path>` line behind.
+
+Two files are exposed today, `proof/bevelgear/render_test.go` and `proof/cycloidal/render_test.go`,
+both added by `88b1ea4` (#85). Nothing in `compile-gear/prompt.md` mentions rendering, so a re-draft
+would not produce either one. The deletion is recoverable from git, and it is quiet enough to ride
+along unnoticed in a large diff.
+
+The safe route writes the decision into the spec and regenerates only the one generated file:
+
+1. Ask for the parallel entry points in `spec/<gear>/instructions.md`, naming the steps that must
+   stay serial. This is what makes a later regeneration reproduce the choice instead of reverting it.
+2. Move the eligible `proof-run` annotations in `spec/<gear>/steps.md` so the step list matches its
+   own source.
+3. Regenerate `proof/<gear>/zz_registrations_test.go` with
+   `python3 .claude/skills/generate-gear/scaffold_proof.py <gear>`, which is the only generated file
+   involved and rewrites nothing else.
+
+Branch `perf-bevel-parallel-cases` carries that work for `bevelgear`. The prune behaviour itself is
+raised separately; this section only records why enabling must not go through a full recompile.
 
 The measurements below use a scripted flip (`.tmp/flip_parallel.py`) that rewrites those
 annotations, regenerates the registration file through `scaffold_proof.py`, and is reverted from
