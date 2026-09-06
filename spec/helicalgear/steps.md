@@ -19,9 +19,9 @@ step 12, which says what must **not** be re-implemented.
 |---|---|
 | `spec/helicalgear/instructions.md` | `71b7993007b17cc4948569313c23614b8fbd246c` |
 | `spec/helicalgear/fusion.md` | `f981173cb314094f2fd98cdd78d5bd8287cdc8ee` |
-| `spec/spurgear/fusion.md` | `88f059051067c7b55c9a39bf31b3d6e38bef1ac0` |
+| `spec/spurgear/fusion.md` | `5dccd871606c3709ecfa07c05f58c126369f2927` |
 | `spec/spurgear/instructions.md` | `2a98a801da25e77958488252bc87b499475ac95d` |
-| `.claude/skills/generate-gear/PLAYBOOK.md` | `3eb5424176c6d539d19040a8fb619114488ee558` |
+| `.claude/skills/generate-gear/PLAYBOOK.md` | `30c7c0f8b66207cc4ecb7b8fd96d6461242afbaf` |
 
 ## 1 `[PROSE]` Module surface: imports and the two exported constants
 

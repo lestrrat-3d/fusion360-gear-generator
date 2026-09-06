@@ -358,39 +358,33 @@ under- or over-constrained (`[PB-FULL-CONSTRAINT]`, `[PB-NO-OVERCONSTRAIN]`) is 
 discover inside Fusion and hard to attribute. The sketch engine is a headless, scriptable oracle
 for exactly this question, so the scheme is proven on the bench before it is committed to geometry.
 
-**Where it lives.** The proof is a small, committed, runnable Go program per gear at
+**Where it lives.** The proof is a committed Go test per gear at
 `proof/<gear>/sketches_test.go` (registered from `spec/<gear>/steps.md`). It reproduces the gear's
 constraint-bearing sketch(es) from the same `[SPUR-F-…]`/spec recipes the Fusion code will use, runs
-the solver, and reports the verdict **as an exit code**: exit **0** with a final line starting
-`ALL PASS` when every case passes the primary gate, exit **1** with a line starting `FAIL` when any
-case fails it, and exit **2** for environment trouble (the engine checkout not found). `run.sh` uses
-`set -euo pipefail` so the Go program's exit status propagates. Every gear's bench MUST implement
-this contract — it is what lets `.claude/skills/generate-gear/run_sketch_bench.py` gate mechanically
-instead of a human or model reading the output. Run it via `proof/run.sh`, not by eyeballing output.
+the solver, and reports success through `proof/run.sh`: exit **0** means selected Go tests pass,
+exit **1** means proof compilation or execution failed, and exit **2** means runner setup failed.
+Every gear's proof MUST use this contract. Run the compiled gear package, such as
+`proof/run.sh --package ./helicalgear -- -count=1`; a selector that runs zero tests is a failed proof.
+Proof-specific deviations belong beside the maintained proof or in the authoritative gear spec.
+The proof comments record Fusion behavior that the sketch engine cannot reproduce.
+The gear spec records behavioral waivers and scope when a proof cannot model a Fusion operation.
 `proof/spurgear/sketches_test.go` is the worked example (the spur
 Gear Profile: four circles, involute flanks, ribs, spine, flank-to-root lines). `run.sh` resolves a
 local checkout of the engine (source-available, not go-gettable) via `$SKETCH_DIR` or a sibling
 `<repo>/../sketch` located with `git --git-common-dir`, injecting the replace through a throwaway
 `GOWORK` so the committed `go.mod` stays portable.
 
-**The gate.** Build geometry from points, add the constraints, `Solve()`, then read `Verify()`:
+**The gate.** Register sketch cases through `proofkit.Run`, `proofkit.RunParallel`, or
+`proofkit.RunWithExpectedFailures`. `proofkit.RequireSound` in `proof/proofkit/proofkit.go` owns
+the positive gate: the solve must converge and the pinned engine's `VerificationReport.Check()`
+must pass. Follow that gate instead of copying selected verification fields into a second runner.
 
-- **Primary gate (must pass) — full constraint.** `report.Status == FullyConstrained` **and**
-  `report.Conditioning >= max(1e-6, 4·√tolerance)`. `Status == FullyConstrained` already implies
-  solvable + `DOF == 0` + no redundant + no conflicting constraints; it is the faithful analog of
-  Fusion's `sketch.isFullyConstrained` plus "not over-constrained." The conditioning check rejects a
-  `DOF == 0` verdict that is decided by a near-singular constraint set (it catches, e.g., a
-  vanishing-length reference line whose direction constraint is ill-defined). `VerificationReport.Trustworthy()`
-  bundles this **and** the advisories below; gate on the primary fields, not on `Trustworthy()`
-  alone, so a benign advisory does not block a genuinely fully-constrained scheme.
-- **Advisory (report and interpret, do not hard-block):**
-  - `ProfilesValid` — should be **true**: the profile forms one clean, extrudable loop with the curve
-    count the spec's extrude step expects. A false here on a valid loop is usually an engine
-    limitation (see the corner-join note below), not a scheme defect — investigate before dismissing.
-  - `Probe.Ambiguous()` — a draw-then-constrain CAD sketch is seeded at its pose (`MoveTo`) and then
-    constrained; the pure-constraint system may still admit branch/mirror flips that the seed
-    resolves, exactly as Fusion relies on initial geometry placement. `DOF == 0` means each discrete
-    solution is itself rigid, so this is expected and is **not** an under-constraint.
+- Treat invalid profiles and discrete ambiguity as failures, as the maintained gate does.
+  Investigate engine limitations before changing the proof; record any scoped exception at its
+  call site and in the gear spec. A seeded pose can hide a mirrored solution even at `DOF == 0`.
+- Declare negative controls through `ExpectedFailureCase`; its gate requires the declared status,
+  DOF, and sole failure reason while retaining mandatory positive cases. A process crash or an
+  unrelated verification failure is not a passing negative control.
 
 **Constraint mapping (Fusion → sketch engine).** The two constraint sets are near-identical, so the
 scheme translates almost verbatim: `addByCenterRadius`→`CreateCircle`; a driving diameter/radius
@@ -409,7 +403,8 @@ shared ends + the diameter). The anchor coincidence that grounds the whole sketc
 local-origin point (`MoveTo` + `Fix`).
 
 **The proof is a bench model, not the Fusion code.** Where an engine primitive differs, use the
-closest faithful equivalent and say so in the gear's `README.md` — e.g. Fusion derives a tooth's
+closest faithful equivalent and document it beside the maintained proof and in the gear spec.
+For example, Fusion derives a tooth's
 root arc by profile-splitting a solid root circle, which the prototype models with an explicit root
 arc (the same derived boundary) while keeping the root circle construction. The point is to prove
 the *constraint logic* reaches `DOF == 0` across a parameter sweep, not to byte-match Fusion's entity

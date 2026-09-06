@@ -434,16 +434,18 @@ def check_stubs(ctx):
 
 
 def check_sketch_bench(ctx):
-    steps = ctx.spec('steps.md')
-    proof = ctx.path('proof', ctx.gear)
-    if os.path.isfile(steps) and os.path.isdir(proof):
+    if has_sketch_bench(ctx):
         return OK, 'compiled sketch proof at proof/%s/' % ctx.gear
     return WARN, ('no compiled sketch proof at spec/%s/steps.md plus proof/%s/; this is work rather '
                   'than a broken environment' % (ctx.gear, ctx.gear))
 
 
 def has_sketch_bench(ctx):
-    return os.path.isfile(ctx.spec('steps.md')) and os.path.isdir(ctx.path('proof', ctx.gear))
+    registration = ctx.path('proof', ctx.gear, 'zz_registrations_test.go')
+    if not (os.path.isfile(ctx.spec('steps.md')) and os.path.isfile(registration)):
+        return False
+    with open(registration, encoding='utf-8') as handle:
+        return bool(re.search(r'\bproofkit\.Run(?:Parallel|WithExpectedFailures)?\s*\(', handle.read()))
 
 
 # --- the stage matrix ----------------------------------------------------------------------

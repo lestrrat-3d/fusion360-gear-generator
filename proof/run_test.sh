@@ -56,6 +56,20 @@ func TestConditionalFailure(t *testing.T) {
 		t.Fatal("deliberate fixture failure")
 	}
 }
+
+func TestRunsOnce(t *testing.T) {
+	path := os.Getenv("PROOF_FIXTURE_ONCE")
+	if path == "" {
+		return
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		t.Fatalf("focused test ran more than once: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
 GO
 printf 'package beta\n' > "$fixture/repo/proof/beta/beta.go"
 cat > "$fixture/repo/proof/beta/beta_test.go" <<'GO'
@@ -139,9 +153,34 @@ test "$(printf '%s\n' "$output" | grep -c '^ok')" -eq 3
 # reach go test as a package pattern and the run would fail instead of filtering.
 output=$(cd "$fixture/repo/proof" && ./run.sh --package ./alpha -- -v -count=1 \
 	-run 'TestSpaced/name_with[ _]space')
-printf '%s\n' "$output" | grep -Fq 'running: go test -v -count=1 -run TestSpaced/name_with\[\ _\]space ./alpha'
+printf '%s\n' "$output" | grep -Fq 'running: go test -v -count=1 -run TestSpaced/name_with\[\ _\]space -v ./alpha'
 printf '%s\n' "$output" | grep -Fq -- '--- PASS: TestSpaced/name_with_space'
 refute "$output" plain_sibling
+
+# A focused run from the repository root executes the selected test exactly once.
+output=$(cd "$fixture/repo" && PROOF_FIXTURE_ONCE="$fixture/once" ./proof/run.sh \
+	--package ./alpha -- -count=1 -run='^TestRunsOnce$')
+test -f "$fixture/once"
+printf '%s\n' "$output" | grep -Fq -- '--- PASS: TestRunsOnce'
+
+# JSON callers retain structured output and the same selection check.
+output=$(cd "$fixture/repo" && ./proof/run.sh --package ./alpha -- -json -count=1 -run='^TestAlpha$')
+printf '%s\n' "$output" | grep -Fq '"Action":"run"'
+
+# A misspelled focused selector is a runner failure rather than a false green.
+set +e
+output=$(cd "$fixture/repo/proof" && ./run.sh --package ./alpha -- -count=1 -run '^TestMissing$' 2>&1)
+status=$?
+set -e
+test "$status" -eq 1
+printf '%s\n' "$output" | grep -Fq 'focused selector matched zero tests'
+
+set +e
+output=$(cd "$fixture/repo" && ./proof/run.sh --package ./alpha -- -json -count=1 -run='^TestMissing$' 2>&1)
+status=$?
+set -e
+test "$status" -eq 1
+printf '%s\n' "$output" | grep -Fq 'focused selector matched zero tests'
 
 # A selected test that fails fails the run; selection is not a way to be told
 # everything passed.

@@ -349,6 +349,8 @@ class ToolTests(Fixture):
     def test_go_missing_fails_generate_once_a_sketch_bench_exists(self):
         (self.root / 'spec' / GEAR / 'steps.md').write_text('steps\n')
         (self.root / 'proof' / GEAR).mkdir(parents=True, exist_ok=True)
+        (self.root / 'proof' / GEAR / 'zz_registrations_test.go').write_text(
+            'proofkit.Run(t, profileCases, stepProfile)\n')
 
         with mock.patch.dict(os.environ, self.empty_path()):
             results = MODULE.run_checks(self.ctx, 'generate')
@@ -356,6 +358,29 @@ class ToolTests(Fixture):
         by_key = {r['key']: r for r in results}
         self.assertEqual(by_key['go']['status'], MODULE.FAIL)
         self.assertEqual(by_key['sketch-bench']['status'], MODULE.OK)
+
+    def test_empty_or_solid_only_proof_is_not_a_sketch_proof(self):
+        steps = self.root / 'spec' / GEAR / 'steps.md'
+        proof = self.root / 'proof' / GEAR
+        steps.write_text('steps\n')
+        proof.mkdir(parents=True, exist_ok=True)
+        registration = proof / 'zz_registrations_test.go'
+        for text in ('', 'proofkit3d.RunSolid(t, solidCases, stepSolid, assertSolid)\n'):
+            registration.write_text(text)
+            status, _ = MODULE.check_sketch_bench(self.ctx)
+            self.assertEqual(status, MODULE.WARN)
+            self.assertFalse(MODULE.has_sketch_bench(self.ctx))
+
+    def test_serial_parallel_and_expected_failure_sketch_proofs_are_detected(self):
+        (self.root / 'spec' / GEAR / 'steps.md').write_text('steps\n')
+        proof = self.root / 'proof' / GEAR
+        proof.mkdir(parents=True, exist_ok=True)
+        for runner in ('Run', 'RunParallel', 'RunWithExpectedFailures'):
+            with self.subTest(runner=runner):
+                (proof / 'zz_registrations_test.go').write_text('proofkit.%s(t, cases, build)\n' % runner)
+                status, _ = MODULE.check_sketch_bench(self.ctx)
+                self.assertEqual(status, MODULE.OK)
+                self.assertTrue(MODULE.has_sketch_bench(self.ctx))
 
     def test_pyright_absence_is_a_warning(self):
         with mock.patch.object(MODULE.importlib.util, 'find_spec', return_value=None):
