@@ -10,105 +10,105 @@ import (
 )
 
 func TestRotorLobeSketch(t *testing.T) {
-	proofkit.Run(t, discSketchCases, stepRotorLobeSketch)
+	proofkit.RunParallel(t, discSketchCases, stepRotorLobeSketch)
 }
 
 func TestExtrudeLobeSector(t *testing.T) {
-	proofkit3d.RunSolid(t, discSolidCases, stepExtrudeLobeSector, assertExtrudeLobeSector)
+	proofkit3d.RunSolidParallel(t, discSolidCases, stepExtrudeLobeSector, assertExtrudeLobeSector)
 }
 
 func TestPatternLobeSectors(t *testing.T) {
-	proofkit3d.RunSolid(t, discSolidCases, stepPatternLobeSectors, assertPatternLobeSectors)
+	proofkit3d.RunSolidParallel(t, discSolidCases, stepPatternLobeSectors, assertPatternLobeSectors)
 }
 
 func TestJoinDiskSectors(t *testing.T) {
-	proofkit3d.RunSolid(t, discSolidCases, stepJoinDiskSectors, assertJoinDiskSectors)
+	proofkit3d.RunSolidParallel(t, discSolidCases, stepJoinDiskSectors, assertJoinDiskSectors)
 }
 
 func TestOutputHoleSketch(t *testing.T) {
-	proofkit.Run(t, discSketchCases, stepOutputHoleSketch)
+	proofkit.RunParallel(t, discSketchCases, stepOutputHoleSketch)
 }
 
 func TestCutOutputHole(t *testing.T) {
-	proofkit3d.RunSolid(t, discSolidCases, stepCutOutputHole, assertCutOutputHole)
+	proofkit3d.RunSolidParallel(t, discSolidCases, stepCutOutputHole, assertCutOutputHole)
 }
 
 func TestPatternOutputHoles(t *testing.T) {
-	proofkit3d.RunSolid(t, discSolidCases, stepPatternOutputHoles, assertPatternOutputHoles)
+	proofkit3d.RunSolidParallel(t, discSolidCases, stepPatternOutputHoles, assertPatternOutputHoles)
 }
 
 func TestDiscBoreSketch(t *testing.T) {
-	proofkit.Run(t, discSketchCases, stepDiscBoreSketch)
+	proofkit.RunParallel(t, discSketchCases, stepDiscBoreSketch)
 }
 
 func TestCutDiscBore(t *testing.T) {
-	proofkit3d.RunSolid(t, discSolidCases, stepCutDiscBore, assertCutDiscBore)
+	proofkit3d.RunSolidParallel(t, discSolidCases, stepCutDiscBore, assertCutDiscBore)
 }
 
 func TestEccentricCamSketch(t *testing.T) {
-	proofkit.Run(t, discSketchCases, stepEccentricCamSketch)
+	proofkit.RunParallel(t, discSketchCases, stepEccentricCamSketch)
 }
 
 func TestExtrudeCamSection(t *testing.T) {
-	proofkit3d.RunSolid(t, camSolidCases, stepExtrudeCamSection, assertExtrudeCamSection)
+	proofkit3d.RunSolidParallel(t, camSolidCases, stepExtrudeCamSection, assertExtrudeCamSection)
 }
 
 func TestJoinCamSections(t *testing.T) {
-	proofkit3d.RunSolid(t, camSolidCases, stepJoinCamSections, assertJoinCamSections)
+	proofkit3d.RunSolidParallel(t, camSolidCases, stepJoinCamSections, assertJoinCamSections)
 }
 
 func TestHousingRingSketch(t *testing.T) {
-	proofkit.Run(t, casingSketchCases, stepHousingRingSketch)
+	proofkit.RunParallel(t, casingSketchCases, stepHousingRingSketch)
 }
 
 func TestExtrudeHousingBase(t *testing.T) {
-	proofkit3d.RunSolid(t, casingSolidCases, stepExtrudeHousingBase, assertExtrudeHousingBase)
+	proofkit3d.RunSolidParallel(t, casingSolidCases, stepExtrudeHousingBase, assertExtrudeHousingBase)
 }
 
 func TestRingCasingSketch(t *testing.T) {
-	proofkit.Run(t, casingSketchCases, stepRingCasingSketch)
+	proofkit.RunParallel(t, casingSketchCases, stepRingCasingSketch)
 }
 
 func TestExtrudeCasingSector(t *testing.T) {
-	proofkit3d.RunSolid(t, casingSolidCases, stepExtrudeCasingSector, assertExtrudeCasingSector)
+	proofkit3d.RunSolidParallel(t, casingSolidCases, stepExtrudeCasingSector, assertExtrudeCasingSector)
 }
 
 func TestPatternCasingSectors(t *testing.T) {
-	proofkit3d.RunSolid(t, casingSolidCases, stepPatternCasingSectors, assertPatternCasingSectors)
+	proofkit3d.RunSolidParallel(t, casingSolidCases, stepPatternCasingSectors, assertPatternCasingSectors)
 }
 
 func TestJoinCasingSectors(t *testing.T) {
-	proofkit3d.RunSolid(t, casingSolidCases, stepJoinCasingSectors, assertJoinCasingSectors)
+	proofkit3d.RunSolidParallel(t, casingSolidCases, stepJoinCasingSectors, assertJoinCasingSectors)
 }
 
 func TestJoinHousing(t *testing.T) {
-	proofkit3d.RunSolid(t, housingJoinCases, stepJoinHousing, assertJoinHousing)
+	proofkit3d.RunSolidParallel(t, housingJoinCases, stepJoinHousing, assertJoinHousing)
 }
 
 func TestOutputPlateSketch(t *testing.T) {
-	proofkit.Run(t, outputSketchCases, stepOutputPlateSketch)
+	proofkit.RunParallel(t, outputSketchCases, stepOutputPlateSketch)
 }
 
 func TestExtrudeOutputPlate(t *testing.T) {
-	proofkit3d.RunSolid(t, outputSolidCases, stepExtrudeOutputPlate, assertExtrudeOutputPlate)
+	proofkit3d.RunSolidParallel(t, outputSolidCases, stepExtrudeOutputPlate, assertExtrudeOutputPlate)
 }
 
 func TestExtrudeOutputPin(t *testing.T) {
-	proofkit3d.RunSolid(t, outputSolidCases, stepExtrudeOutputPin, assertExtrudeOutputPin)
+	proofkit3d.RunSolidParallel(t, outputSolidCases, stepExtrudeOutputPin, assertExtrudeOutputPin)
 }
 
 func TestCutOutputSocket(t *testing.T) {
-	proofkit3d.RunSolid(t, outputSolidCases, stepCutOutputSocket, assertCutOutputSocket)
+	proofkit3d.RunSolidParallel(t, outputSolidCases, stepCutOutputSocket, assertCutOutputSocket)
 }
 
 func TestChamferOutputPinEnds(t *testing.T) {
-	proofkit3d.RunSolid(t, outputSolidCases, stepChamferOutputPinEnds, assertChamferOutputPinEnds)
+	proofkit3d.RunSolidParallel(t, outputSolidCases, stepChamferOutputPinEnds, assertChamferOutputPinEnds)
 }
 
 func TestPatternOutputPins(t *testing.T) {
-	proofkit3d.RunSolid(t, outputSolidCases, stepPatternOutputPins, assertPatternOutputPins)
+	proofkit3d.RunSolidParallel(t, outputSolidCases, stepPatternOutputPins, assertPatternOutputPins)
 }
 
 func TestChamferOuterRims(t *testing.T) {
-	proofkit3d.RunSolid(t, outputSolidCases, stepChamferOuterRims, assertChamferOuterRims)
+	proofkit3d.RunSolidParallel(t, outputSolidCases, stepChamferOuterRims, assertChamferOuterRims)
 }
