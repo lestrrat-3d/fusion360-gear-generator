@@ -748,7 +748,7 @@ class HandoffBindingTests(unittest.TestCase):
             review_path.write_text(json.dumps(review), encoding='utf-8')
             _records, error = RUNNER._validate_review(str(review_path), 'x', 'a' * 40,
                                                       paths, requirements)
-            self.assertIn('reason', error)
+            self.assertIn('malformed', error)
 
     def test_compile_policy_records_handoff_and_requires_complete_proof(self):
         args = type('Args', (), {'only': None})()

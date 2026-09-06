@@ -308,6 +308,18 @@ def _validate_review(path, gear, base, paths, requirements):
     records = review.get("requirements")
     if not isinstance(binding, dict) or not isinstance(records, list):
         return None, "malformed step-call review: binding and requirements are required"
+    for item in records:
+        if (not isinstance(item, dict) or not isinstance(item.get("name"), str) or
+                not item["name"].strip() or not isinstance(item.get("has_receiver"), bool) or
+                item.get("decision") not in ("emit_required", "draft_fault") or
+                not isinstance(item.get("reason"), str) or not item["reason"].strip() or
+                not isinstance(item.get("evidence"), list) or not item["evidence"]):
+            return None, "malformed step-call review requirement"
+        for ev in item["evidence"]:
+            if (not isinstance(ev, dict) or not isinstance(ev.get("path"), str) or
+                    not ev["path"] or not isinstance(ev.get("line"), int) or
+                    isinstance(ev["line"], bool) or not isinstance(ev.get("sha256"), str)):
+                return None, "malformed step-call review evidence"
     try:
         steps_bytes = _read_bytes(os.path.join(paths.root, paths.steps))
         module_bytes = _read_bytes(os.path.join(paths.root, paths.module))
@@ -378,8 +390,12 @@ def _validate_checker_payload(payload):
                 not isinstance(item.get("textual_match"), bool)):
             return "checker JSON missing records have invalid types"
     for key in ("stubs", "shared_point"):
-        if not all(isinstance(item, dict) for item in payload[key]):
-            return "checker JSON %s records have invalid types" % key
+        for item in payload[key]:
+            if (not isinstance(item, dict) or not isinstance(item.get("line"), int) or
+                    isinstance(item["line"], bool) or item["line"] < 1 or
+                    not isinstance(item.get("marker", item.get("argument")), str) or
+                    not item.get("marker", item.get("argument"))):
+                return "checker JSON %s records have invalid types" % key
     return None
 
 
