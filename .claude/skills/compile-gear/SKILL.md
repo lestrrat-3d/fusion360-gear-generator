@@ -103,8 +103,12 @@ proof is where the next reader is looking for the missing check.
    Then run `python3 .claude/skills/generate-gear/stage.py <gear> compile` from the repo root. It
    places both drafted artifacts in one call: `.tmp/<gear>.steps.md` at `spec/<gear>/steps.md`,
    and every drafted proof file from `.tmp/<gear>-proof/` into `proof/<gear>/`, deleting any `.go`
-   file there the draft no longer produces and indexing the result so step 5's
-   tracked-or-committed check can see a first-time proof. The step list must be placed here too,
+   file there that it generated and the draft no longer produces, and indexing the result so
+   step 5's tracked-or-committed check can see a first-time proof. It deletes only what
+   `proof/<gear>/stage-manifest.json` names, so a `.go` file the pipeline does not generate —
+   `proof/bevelgear/render_test.go` and `proof/cycloidal/render_test.go` are the two today —
+   survives a recompile of its gear. A `.go` file the draft does not produce and the manifest
+   does not claim is reported and left alone; delete it by hand if it is genuinely stale. The step list must be placed here too,
    because `check_compile.py` reads `spec/<gear>/steps.md`, never the draft in `.tmp/`. The
    command refuses both placements if it would refuse either; exit 2 means nothing moved. There
    is no `--run`; the gate runner below runs the proof.
@@ -227,6 +231,9 @@ this skill: a compiler that rewrites its own source removes the thing being chec
 - Never add gear-specific guidance to the drafting prompt.
 - Never write or hand-edit `proof/<gear>/zz_registrations_test.go`. It is generated; rerun
   `scaffold_proof.py` instead.
+- Never hand-edit `proof/<gear>/stage-manifest.json`. `stage.py` writes it on every successful
+  placement to record which `.go` files it may delete; editing it by hand either strands a
+  generated file or hands the deletion an auxiliary one.
 
 ## Standard drafting prompt
 
