@@ -1,12 +1,27 @@
 name: 3D proof
 
 # Runs the geometry proofs and re-gates every checked-in generator as if it were a fresh
-# candidate. Three jobs, so a failure says which layer broke:
+# candidate. Three layers, so a failure says which one broke:
 #
 #   checkers  the gate scripts' own regression tests, which are gear-independent
-#   proof     proof/run.sh, which builds every gear's proof against pinned engine revisions
+#   proof     the geometry proofs, built against pinned engine revisions and split across jobs
 #   gates     one leg per gear, running that gear's compile check, playbook-citation check and
 #             gate battery
+#
+# The proof layer is four job definitions rather than one. The suite used to be a single
+# `go test ./...`, and on a four-core runner its wall clock was its longest single package:
+# bevelgear alone was 122 of the 143 seconds. The harness registers no t.Parallel, so a
+# package's top-level tests run one after another and nothing inside `go test` can shorten
+# that. Splitting the tests across jobs can, and proof/shards.json says how.
+#
+#   proof-groups     reads proof/shards.json and emits the matrix
+#   proof-inventory  asks the toolchain what tests exist and fails if the manifest has drifted
+#   proof-run        one job per group, each running its own selection through proof/run.sh
+#   proof            the aggregate the branch's required check names; green only if all passed
+#
+# Neither the group list nor any -run expression is written here. proof_shards.py emits both
+# from proof/shards.json, because a hand-kept -run list in YAML fails open: a test that stops
+# being selected still leaves every job green. test_proof_shards.py holds this file to that.
 #
 # The gates matrix covers every gear /compile-gear has produced a step list for. Add a gear to it
 # when it gains a spec/<gear>/steps.md; check_step_calls.py's WorkflowGateWiringTest fails the
@@ -73,10 +88,8 @@ jobs:
       #
       # It never builds proof/: every package it compiles is a throwaway fixture module written
       # into a temporary directory with no requirements, so there is no dependency cache worth
-      # keeping. Caching is off rather than pointed at gears/proof/go.sum on purpose. The cache
-      # key setup-go derives from that file would be identical in both jobs, entries are
-      # immutable, and this job finishes minutes before the proofs do — so it would claim the
-      # key with stdlib fixture artifacts and lock the geometry job's real cache out.
+      # keeping, and this job caches nothing. The proof jobs below cache under keys of their
+      # own, for reasons set out there; this job must not write into those.
       - uses: actions/setup-go@v5
         with:
           go-version-file: gears/proof/go.mod
@@ -86,8 +99,35 @@ jobs:
         run: python3 -m unittest discover -s .claude/skills/generate-gear -p 'test_*.py'
         working-directory: gears
 
-  proof:
-    name: Geometry proofs
+  # Nothing here but a checkout and one Python call, so the group jobs start about eight seconds
+  # after the workflow does. The alternative, deriving the matrix in the job that also takes the
+  # inventory, would put a full Go build in front of every group.
+  proof-groups:
+    name: Proof groups
+    runs-on: ubuntu-latest
+    outputs:
+      groups: ${{ steps.read.outputs.groups }}
+    steps:
+      - name: Check out the gear repository
+        uses: actions/checkout@v4
+        with:
+          path: gears
+
+      - name: Read the group names out of proof/shards.json
+        id: read
+        run: |
+          set -euo pipefail
+          groups=$(python3 .claude/skills/generate-gear/proof_shards.py matrix)
+          echo "$groups"
+          echo "groups=$groups" >> "$GITHUB_OUTPUT"
+        working-directory: gears
+
+  # Runs beside the group jobs rather than in front of them. It is the job that would notice a
+  # test nobody assigned, and a group job cannot notice that on its own — a -run expression that
+  # selects nothing passes. It is not on the critical path: the aggregate below needs it, so a
+  # drifted manifest fails the workflow whatever the groups reported.
+  proof-inventory:
+    name: Proof inventory
     runs-on: ubuntu-latest
     steps:
       - name: Check out the gear repository
@@ -138,26 +178,169 @@ jobs:
           echo "sketch now at $(git -C "$GITHUB_WORKSPACE/sketch" rev-parse --short=12 HEAD)"
           echo "decad now at $(git -C "$GITHUB_WORKSPACE/decad" rev-parse --short=12 HEAD)"
 
-      # Both paths are workspace-relative, and the repository is checked out into gears/, so
-      # the module sits at gears/proof/. setup-go only looks for a bare go.sum at the workspace
-      # root when cache-dependency-path is unset, and finding none it warns, derives no cache
-      # key, and saves nothing at the end of the job — caching was inert here, not merely cold.
+      # setup-go's own caching is off in every proof job; the two steps below replace it. See
+      # the comment on the group job's cache steps for why one shared entry could not work.
       - uses: actions/setup-go@v5
         with:
           go-version-file: gears/proof/go.mod
-          cache-dependency-path: gears/proof/go.sum
+          cache: false
+
+      - name: Restore the module cache
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: proof-mod-${{ runner.os }}-${{ hashFiles('gears/proof/go.sum', 'gears/proof/go.mod') }}
+
+      - name: Restore this job's build and test cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: proof-build-inventory-${{ runner.os }}-${{ hashFiles('gears/proof/go.sum', 'gears/proof/go.mod', 'gears/proof/shards.json') }}
+          restore-keys: |
+            proof-build-inventory-${{ runner.os }}-
 
       - name: Run proof runner regression tests
         run: bash proof/run_test.sh
         working-directory: gears
 
-      - name: Run the proofs
+      # Takes the inventory through proof/run.sh, so the names come from the same engine
+      # revisions and module graph the group jobs execute against, and so a drifted checkout
+      # fails here the way it fails everywhere else.
+      - name: Check proof/shards.json against the tests that exist
         env:
           SKETCH_DIR: ${{ github.workspace }}/sketch
           DECAD_DIR: ${{ github.workspace }}/decad
           PROOF_VERIFY_REVISIONS: '1'
-        run: ./run.sh
-        working-directory: gears/proof
+        run: python3 .claude/skills/generate-gear/proof_shards.py check
+        working-directory: gears
+
+  proof-run:
+    name: Proof (${{ matrix.group }})
+    needs: proof-groups
+    runs-on: ubuntu-latest
+    strategy:
+      # Every group's verdict is wanted. Cancelling the rest on the first failure would hide
+      # whether one gear broke or all of them did, which is the question this split exists to
+      # answer quickly.
+      fail-fast: false
+      matrix:
+        group: ${{ fromJSON(needs.proof-groups.outputs.groups) }}
+    steps:
+      - name: Check out the gear repository
+        uses: actions/checkout@v4
+        with:
+          path: gears
+
+      - name: Read the engine revisions proof/go.mod pins
+        run: |
+          set -euo pipefail
+          pin() {
+            sed -n "s|^[[:space:]]*github.com/lestrrat-3d/$1 v[^ ]*-\([0-9a-f]\{12\}\)$|\1|p" \
+              proof/go.mod | head -1
+          }
+          sketch=$(pin sketch)
+          test -n "$sketch" || { echo "proof/go.mod pins no sketch revision" >&2; exit 1; }
+          decad=$(pin decad)
+          test -n "$decad" || { echo "proof/go.mod pins no decad revision" >&2; exit 1; }
+          {
+            echo "SKETCH_COMMIT=$sketch"
+            echo "DECAD_COMMIT=$decad"
+          } | tee -a "$GITHUB_ENV"
+        working-directory: gears
+
+      - name: Check out the sketch engine
+        uses: actions/checkout@v4
+        with:
+          repository: lestrrat-3d/sketch
+          fetch-depth: 0
+          path: sketch
+
+      - name: Check out the decad engine
+        uses: actions/checkout@v4
+        with:
+          repository: lestrrat-3d/decad
+          fetch-depth: 0
+          path: decad
+
+      - name: Move the engines to the revisions proof/go.mod pins
+        run: |
+          set -euo pipefail
+          git -C "$GITHUB_WORKSPACE/sketch" checkout --detach "$SKETCH_COMMIT"
+          git -C "$GITHUB_WORKSPACE/decad" checkout --detach "$DECAD_COMMIT"
+          echo "sketch now at $(git -C "$GITHUB_WORKSPACE/sketch" rev-parse --short=12 HEAD)"
+          echo "decad now at $(git -C "$GITHUB_WORKSPACE/decad" rev-parse --short=12 HEAD)"
+
+      # setup-go's own caching is off here, and the two steps below do the work instead. It
+      # derives one key from go.sum, which every group would share, and a cache entry is
+      # immutable: the first job to finish saves it and every other is told it already exists.
+      # Go's test cache keys on the test binary AND its arguments, the -run expression among
+      # them, so one shared entry can only ever hold one group's results. Measured, that meant
+      # every group executed on every run and no proof was ever served from the test cache.
+      #
+      # So the build and test cache is per group and the module cache is shared. The module
+      # cache's content is decided by go.sum alone, so whichever group writes it writes the
+      # same bytes; the build cache holds each group's own test results and cannot be shared.
+      # The cost is one copy of the dependency build artifacts per group.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: gears/proof/go.mod
+          cache: false
+
+      # Both paths here are workspace-relative, and the repository is checked out into gears/,
+      # so the module files sit at gears/proof/.
+      - name: Restore the module cache
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: proof-mod-${{ runner.os }}-${{ hashFiles('gears/proof/go.sum', 'gears/proof/go.mod') }}
+
+      # shards.json is in the key because a group's -run expression is part of what Go's test
+      # cache matches on: edit the manifest and the old results stop applying, and without a new
+      # key the stale entry would never be replaced and the group would re-execute forever. The
+      # restore-keys line still recovers the previous entry's build artifacts, so a manifest
+      # edit costs one execution rather than one compile as well.
+      - name: Restore this group's build and test cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: proof-build-${{ matrix.group }}-${{ runner.os }}-${{ hashFiles('gears/proof/go.sum', 'gears/proof/go.mod', 'gears/proof/shards.json') }}
+          restore-keys: |
+            proof-build-${{ matrix.group }}-${{ runner.os }}-
+
+      # The group's packages and -run expression come from proof/shards.json, not from this
+      # file. No -count=1: an unchanged test binary should come back from Go's test cache.
+      - name: Run the ${{ matrix.group }} proofs
+        env:
+          SKETCH_DIR: ${{ github.workspace }}/sketch
+          DECAD_DIR: ${{ github.workspace }}/decad
+          PROOF_VERIFY_REVISIONS: '1'
+        run: python3 .claude/skills/generate-gear/proof_shards.py run '${{ matrix.group }}'
+        working-directory: gears
+
+  # The name a branch protection rule would ask for, kept through the split. A matrix job's
+  # result is success only when every leg succeeded, so this is one check that still means
+  # "the whole geometry suite ran and passed".
+  proof:
+    name: Geometry proofs
+    needs: [proof-groups, proof-inventory, proof-run]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every proof job to have passed
+        env:
+          RESULTS: >-
+            ${{ needs.proof-groups.result }}
+            ${{ needs.proof-inventory.result }}
+            ${{ needs.proof-run.result }}
+        run: |
+          set -euo pipefail
+          echo "proof-groups proof-inventory proof-run: $RESULTS"
+          for result in $RESULTS; do
+            if [ "$result" != success ]; then
+              echo "a proof job did not succeed" >&2
+              exit 1
+            fi
+          done
 
   gates:
     name: Gates

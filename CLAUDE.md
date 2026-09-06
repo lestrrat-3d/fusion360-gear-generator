@@ -44,6 +44,32 @@ It changes nothing else: the engine revisions are still verified first, a bad op
 any of that output appears, and `go test` still decides the exit status. Run the whole suite
 before handing work over.
 
+## Adding or renaming a proof test
+
+Every top-level test belongs to exactly one CI group, and `proof/shards.json` says which. Add,
+rename or delete one and that file needs the same edit, or the `Proof inventory` job fails with
+the name it could not place. Nothing is swept into a catch-all: a group's runtime is a decision,
+so a new test says out loud which group pays for it.
+
+The manifest is the only place the split is written. `proof_shards.py` reads it and emits both
+the workflow's matrix and each job's `proof/run.sh` arguments, so no `-run` expression is written
+in the workflow, where a stale one would fail open — a selection that matches nothing is a pass.
+
+```sh
+python3 .claude/skills/generate-gear/proof_shards.py check          # asks the toolchain
+python3 .claude/skills/generate-gear/proof_shards.py select spurgear  # what one group runs
+python3 .claude/skills/generate-gear/proof_shards.py run spurgear     # run just that group
+```
+
+Each group carries a runtime, measured rather than guessed, and they are balanced so no job is
+much longer than the rest. Moving a test between groups is fine; re-measure first, and say in the
+manifest what the new numbers were.
+
+Expect the CI run right after a manifest edit to be a slow one. Go's test cache matches on the
+`-run` expression as well as the test binary, so changing which tests a group runs expires that
+group's cached results, and CI keys its cache on `proof/shards.json` for exactly that reason. One
+run repopulates it and the next is fast again.
+
 ## When Fusion gives a verdict
 
 Loading a gear into Fusion is the only check that sees the real thing, and it happens with no

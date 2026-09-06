@@ -1,0 +1,143 @@
+{
+  "about": "Which geometry proofs each CI job runs. .claude/skills/generate-gear/proof_shards.py is the only reader: it checks this against `go list` and `go test -list`, emits the workflow matrix, and emits each job's proof/run.sh arguments. Every package and every top-level test belongs to exactly one group, and a name that is added, renamed or removed without an edit here fails the Proof inventory job.",
+  "seconds_measured": "Seconds the group spent in its \"Run the <group> proofs\" step on a four-core ubuntu-latest runner with a warm build cache and every test actually executing, from GitHub Actions run 34000135972. About four of those seconds are proof/run.sh building its go.work. Nothing checks these numbers; they record why the split is where it is, and they are what to re-measure before moving a test between groups. The runner varies enough that a difference under about ten seconds is noise.",
+  "groups": [
+    {
+      "name": "bevelgear-body",
+      "why": "The bevel sketches, the cone and lattice proofs and the revolved-body solids. TestGearProfiles alone is about half of it.",
+      "seconds": 42.0,
+      "packages": {
+        "./bevelgear": [
+          "TestAnchorSketch",
+          "TestBoreCut",
+          "TestBoreSketch",
+          "TestCircularPattern",
+          "TestCombineJoin",
+          "TestConeElementSketch",
+          "TestCutConicalEnds",
+          "TestGearProfileHexagon",
+          "TestGearProfiles",
+          "TestLoftToothBody",
+          "TestMeshRotation",
+          "TestRenderExample",
+          "TestResolveInputBounds",
+          "TestRevolveGearBody",
+          "TestSpiralTrace",
+          "TestToothProfile"
+        ]
+      }
+    },
+    {
+      "name": "cycloidal",
+      "why": "The whole cycloidal package, disc and housing together.",
+      "seconds": 50.0,
+      "packages": {
+        "./cycloidal": [
+          "TestChamferOuterRims",
+          "TestChamferOutputPinEnds",
+          "TestCutDiscBore",
+          "TestCutOutputHole",
+          "TestCutOutputSocket",
+          "TestDiscBoreSketch",
+          "TestEccentricCamSketch",
+          "TestExtrudeCamSection",
+          "TestExtrudeCasingSector",
+          "TestExtrudeHousingBase",
+          "TestExtrudeLobeSector",
+          "TestExtrudeOutputPin",
+          "TestExtrudeOutputPlate",
+          "TestHousingRingSketch",
+          "TestJoinCamSections",
+          "TestJoinCasingSectors",
+          "TestJoinDiskSectors",
+          "TestJoinHousing",
+          "TestOutputHoleSketch",
+          "TestOutputPlateSketch",
+          "TestPatternCasingSectors",
+          "TestPatternLobeSectors",
+          "TestPatternOutputHoles",
+          "TestPatternOutputPins",
+          "TestRenderExample",
+          "TestRingCasingSketch",
+          "TestRotorLobeSketch"
+        ]
+      }
+    },
+    {
+      "name": "spurgear",
+      "why": "The whole spur package, plus every package small enough that its runtime does not matter: the two harnesses, the renderer, the example command and involute, which has no tests and is here so a job still compiles it.",
+      "seconds": 41.0,
+      "packages": {
+        "./cmd/genexamples": [
+          "TestSweptMeshIsClosed"
+        ],
+        "./involute": [],
+        "./proofkit": [
+          "TestRunAllowsCompletedCase",
+          "TestRunAllowsMixedCompletedAndSkippedCases",
+          "TestRunRejectsAllSkippedCases",
+          "TestRunRejectsEmptyBuild"
+        ],
+        "./proofkit3d": [
+          "TestBodyReportFromFindsEachBodyByPointer",
+          "TestBodyReportRejectsBodyOutsideTheDocument",
+          "TestBodyReportSeesABodyAddedSinceTheLastCall",
+          "TestRequireSolidChecksEveryRequestedBody",
+          "TestRequireSoundRejectsNilBody",
+          "TestRunWithGateAllowsCompletedCase",
+          "TestRunWithGateAllowsMixedCompletedAndSkippedCases",
+          "TestRunWithGateRejectsAllSkippedCases"
+        ],
+        "./render": [
+          "TestClipRadius",
+          "TestEarClipRejectsDegenerate",
+          "TestFitFillsTheFrame",
+          "TestFitIsIndependentOfScale",
+          "TestFitRejects",
+          "TestMerge",
+          "TestPrism",
+          "TestPrismSlantedEnds",
+          "TestRevolve",
+          "TestRevolveRejects"
+        ],
+        "./spurgear": [
+          "TestBoreCut",
+          "TestBoreProfileSketch",
+          "TestChamferTeeth",
+          "TestCombineTeeth",
+          "TestExtrudeBody",
+          "TestExtrudeTooth",
+          "TestFilletRoots",
+          "TestGearProfileSketch",
+          "TestPatternTeeth",
+          "TestToolsSketch"
+        ]
+      }
+    },
+    {
+      "name": "twisted-teeth",
+      "why": "Every gear whose teeth are swept along a twist: the five spiral-bevel slab solids, all of helicalgear and all of herringbonegear. Three packages, so go test overlaps them and the group costs about what its longest one does.",
+      "seconds": 52.0,
+      "packages": {
+        "./bevelgear": [
+          "TestCrownSlabs",
+          "TestDropApexScrap",
+          "TestLoftSpiralTooth",
+          "TestSliceToothSlabs",
+          "TestTwistSlabs"
+        ],
+        "./helicalgear": [
+          "TestHelixPlane",
+          "TestLoftTooth",
+          "TestTwistedGearProfile"
+        ],
+        "./herringbonegear": [
+          "TestCombineToothHalves",
+          "TestLoftToothHalf",
+          "TestMirrorToothHalf",
+          "TestTwistedGearProfileSketch"
+        ]
+      }
+    }
+  ]
+}
