@@ -2713,6 +2713,7 @@ class ProofRunArityDerivationTest(unittest.TestCase):
         self.assertEqual(COMPILE_CHECKER.proof_run_shapes().arguments, {
             'proofkit.Run': 3,
             'proofkit.RunParallel': 3,
+            'proofkit.RunWithExpectedFailures': 4,
             'proofkit3d.Run': 4,
             'proofkit3d.RunSolid': 4,
             'proofkit3d.RunSolidParallel': 4,

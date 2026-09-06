@@ -12,7 +12,7 @@ helical's *deltas* and cites spur's contract by anchor (`[SPUR-F-…]`) and sect
 restate spur's geometry. The Fusion-API mechanics unique to helical (the offset plane, the loft, the
 chamfer edge count) live in `fusion.md` (`[HELI-F-…]`). The twisted profile's constraint scheme — the
 spur tooth at a non-zero angle, i.e. the `[SPUR-F-SPINE]` angle≠0 path — is proven to fully constrain
-in `spec/helicalgear/sketch/` (the sketch-first gate, `[PB-SKETCH-FIRST]`).
+in `proof/helicalgear/sketches_test.go` (the sketch-first gate, `[PB-SKETCH-FIRST]`).
 
 ## Component Setup
 
@@ -183,7 +183,7 @@ See `[HELI-F-LOFT]`.
 - **The twisted profile is drawn at `angle=helixAngle`** — the spur tooth generator's **angle≠0**
   path applies verbatim (`[SPUR-F-SPINE]`, `[SPUR-F-ROTATE-CONFIRM]`).
   Helical does nothing special here — it just passes `angle=helixAngle` to `draw()`; the generator
-  builds the fully-constrained rotated tooth. This angle≠0 path is proven in `spec/helicalgear/sketch/`.
+  builds the fully-constrained rotated tooth. This angle≠0 path is proven in `proof/helicalgear/sketches_test.go`.
 - **Both profiles are the non-embedded 6-curve tooth** (2 splines + 2 arcs + 2 lines). Helical
   **requires non-embedded** — see `[HELI-F-LOFT]` and its limitation note.
 - **No runtime full-constraint gate.** Spur registers none, and helical adds none; the twisted

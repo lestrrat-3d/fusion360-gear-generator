@@ -112,7 +112,7 @@
       "banned": ["originPoint"]
     },
     {
-      "file": "spec/spurgear/sketch/main.go",
+      "file": "proof/spurgear/sketches_test.go",
       "why": "The sketch bench is where [SPUR-F-FLANK-ROOT] was proven; it has to keep proving the recipe the generator is required to use.",
       "required": [
         "sketch\\.NewHorizontalDistance\\(origin, re, rx\\)",
@@ -121,7 +121,7 @@
       "banned": ["NewPointOnCircle\\(re,", "NewPointOnLine\\(origin,"]
     },
     {
-      "file": "spec/spurgear/sketch/README.md",
+      "file": "proof/spurgear/sketches_test.go",
       "why": "The bench README is the constraint-by-constraint map a reader trusts; a stale row there sends the next generation back to the rejected recipe.",
       "required": [
         "flank-to-root lines: root endpoint pinned by signed",

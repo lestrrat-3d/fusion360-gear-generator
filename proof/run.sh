@@ -140,9 +140,32 @@ trap 'rm -rf -- "$work"' EXIT
 
 echo "using sketch engine at: $sketch_dir"
 echo "using decad engine at: $decad_dir"
+# A focused selector must match at least one registered test. Go otherwise exits
+# successfully when -run matches nothing, which can hide a misspelled proof name.
+selected=0
+for arg in "${go_args[@]}"; do
+	case $arg in
+	-run|-run=*) selected=1 ;;
+	esac
+done
+if [[ $selected -eq 1 ]]; then
+	# Observe the actual run instead of executing the selected tests twice.
+	# Verbose output records test starts; -json callers receive run events.
+	go_args+=(-v)
+fi
 # From proof/, so a package pattern means the same thing wherever run.sh was called.
 cd "$here"
 printf 'running: go test'
 printf ' %q' "${go_args[@]}" "${packages[@]}"
 printf '\n'
-GOWORK="$gowork" go test "${go_args[@]}" "${packages[@]}"
+set +e
+GOWORK="$gowork" go test "${go_args[@]}" "${packages[@]}" 2>&1 | tee "$work/test-output"
+status=$?
+set -e
+if [[ $status -ne 0 ]]; then
+	exit 1
+fi
+if [[ $selected -eq 1 ]] && ! grep -Eq '^=== RUN   |"Action":"run"' "$work/test-output"; then
+	echo "focused selector matched zero tests" >&2
+	exit 1
+fi

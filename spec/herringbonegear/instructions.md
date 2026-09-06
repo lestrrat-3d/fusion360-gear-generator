@@ -9,7 +9,7 @@ it puts the twisted-profile plane at **mid-body** (half thickness) instead of th
 only herringbone's deltas over helical and cites those specs by anchor/section. Herringbone adds **no
 new dialog input and no new user parameter** — its dialog and parameters are exactly helical's (Helix
 Angle and all inherited spur parameters). The tooth profile is helical's twisted profile at the same
-`angle=helixAngle`, already proven fully-constrained in `spec/helicalgear/sketch/`; herringbone's only
+`angle=helixAngle`, already proven fully-constrained in `proof/helicalgear/sketches_test.go`; herringbone's only
 extra work — a mirror and a combine — is a **solid-body** operation, not a sketch, so it needs no
 separate sketch-first proof.
 
@@ -87,7 +87,7 @@ half-then-mirrored.)
 ## Sketch-discipline deltas
 
 **None beyond helical's.** Herringbone draws no new sketches: the twisted profile is helical's
-(same `angle=helixAngle` path, proven in `spec/helicalgear/sketch/`), and the mirror and combine
+(same `angle=helixAngle` path, proven in `proof/helicalgear/sketches_test.go`), and the mirror and combine
 are solid-body operations, not sketches.
 
 ## Dependencies

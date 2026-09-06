@@ -14,7 +14,7 @@ func TestToolsSketch(t *testing.T) {
 }
 
 func TestGearProfileSketch(t *testing.T) {
-	proofkit.Run(t, profileCases, stepGearProfileSketch)
+	proofkit.RunWithExpectedFailures(t, profileCases, stepGearProfileSketch, profileFailureCases)
 }
 
 func TestExtrudeTooth(t *testing.T) {

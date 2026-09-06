@@ -17,11 +17,11 @@ step 12, which says what must **not** be re-implemented.
 
 | file | `git hash-object` |
 |---|---|
-| `spec/helicalgear/instructions.md` | `6c1d3b4d7aa824d90f9f0f851d4115179e754707` |
+| `spec/helicalgear/instructions.md` | `71b7993007b17cc4948569313c23614b8fbd246c` |
 | `spec/helicalgear/fusion.md` | `f981173cb314094f2fd98cdd78d5bd8287cdc8ee` |
-| `spec/spurgear/fusion.md` | `7cd4e5b0fa38dcd39cbd1b5bad1cf8489e2bc2ae` |
-| `spec/spurgear/instructions.md` | `8cb886a7827d6745fde7c876475066918c328283` |
-| `.claude/skills/generate-gear/PLAYBOOK.md` | `1b3078d6767d6a3f56c228e1e934c82ccfbf53fe` |
+| `spec/spurgear/fusion.md` | `5dccd871606c3709ecfa07c05f58c126369f2927` |
+| `spec/spurgear/instructions.md` | `2a98a801da25e77958488252bc87b499475ac95d` |
+| `.claude/skills/generate-gear/PLAYBOOK.md` | `30c7c0f8b66207cc4ecb7b8fd96d6461242afbaf` |
 
 ## 1 `[PROSE]` Module surface: imports and the two exported constants
 

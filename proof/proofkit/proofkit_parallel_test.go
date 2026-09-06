@@ -1,6 +1,8 @@
 package proofkit
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"os"
 	"os/exec"
@@ -247,10 +249,34 @@ func parallelLimit(t *testing.T) int {
 // fixture observes a t.Fatal the parent process would treat as its own failure.
 func runHelper(t *testing.T, run, env string) (string, error) {
 	t.Helper()
-	cmd := exec.Command(os.Args[0], "-test.run="+run)
-	cmd.Env = append(os.Environ(), env)
+	// Reject nesting before starting a process, even if a fixture accidentally
+	// checks its own environment marker after calling runHelper.
+	if os.Getenv(helperProcessEnv) != "" {
+		return "", errNestedHelper
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run="+run, "-test.timeout=10s")
+	cmd.Env = append(os.Environ(), env, helperProcessEnv+"=1")
+	cmd.WaitDelay = time.Second
 	output, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		t.Fatalf("proofkit helper exceeded its deadline: %v\n%s", ctx.Err(), output)
+	}
 	return string(output), err
+}
+
+const helperProcessEnv = "PROOFKIT_HELPER_PROCESS"
+
+var errNestedHelper = errors.New("proofkit: helper subprocess cannot launch another helper")
+
+func TestRunHelperRejectsNestedProcess(t *testing.T) {
+	t.Setenv(helperProcessEnv, "1")
+	// This target is harmless even if the nesting guard regresses.
+	output, err := runHelper(t, "^TestRunAllowsCompletedCase$", "PROOFKIT_UNUSED_HELPER=1")
+	if !errors.Is(err, errNestedHelper) || output != "" {
+		t.Fatalf("nested helper was not rejected before execution: err=%v, output=%q", err, output)
+	}
 }
 
 const (

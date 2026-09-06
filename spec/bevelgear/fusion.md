@@ -42,7 +42,7 @@ in `PLAYBOOK.md` still apply).
     immediately by the loft, and that fixing it would mean pinning the embedded tooth inside the
     shared generator at risk to the whole spur family. All three were wrong. Each stub is
     DOF-neutral (it adds a free root end and the two dimensions that pin it), and
-    `spec/spurgear/sketch/main.go` proves the embedded scheme reaches DOF 0 without them. The
+    `proof/spurgear/sketches_test.go` proves the embedded scheme reaches DOF 0 without them. The
     residual DOF was the tooth-top arc's **centre**, which `addByCenterStartEnd` copies rather than
     shares, and step 5's anchor coincidence moves it a great deal: everything else is dragged onto
     K′/L′ while the stranded centre stays put. And the fix was one coincident constraint in the

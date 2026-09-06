@@ -62,7 +62,7 @@ the advisory findings.
    Do **not** read `PLAYBOOK.md`, the spec body, or the framework files up front: the generation
    subagent reads all of them, and each orchestrator decision that needs a section names that
    section in the step that makes the decision (steps 2, 3, 5, 6 and 8 below). Note the gear's
-   sketch-first proof at `spec/<gear>/sketch/` if present (run in step 3).
+   compiled sketch proof under `proof/<gear>/` when registered in `spec/<gear>/steps.md` (run in step 3).
 
 2. **Extract the contract from the spec.** Read the spec's **Contract** sections (the classes,
    hook methods, generation-context fields, generation order, and exact input ids / parameter-name
@@ -73,19 +73,18 @@ the advisory findings.
 
 3. **Prove the sketch fully constrains (sketch-first gate — `[PB-SKETCH-FIRST]`).** If the gear's
    profile is a non-trivial constrained sketch, run
-   `python3 .claude/skills/generate-gear/run_sketch_bench.py <gear>` and act on the exit code:
-   **0** the primary gate passed (the bench proved `Status == FullyConstrained` with healthy
-   conditioning) — proceed; **1** the constraint scheme does not fully constrain — a spec/playbook
-   defect to fix here, never inside Fusion; **2** a setup problem (no bench yet, missing
-   sketch-engine checkout, a bench that does not build, or a bench that printed no verdict) — fix
-   the environment or build the bench first. This proves the constraint scheme is sound *before*
-   any Fusion code is emitted; the advisory signals (`ProfilesValid`, `Probe.Ambiguous()`) remain
-   in the bench output and are reported and interpreted, not hard-blocking
-   (see `[PB-SKETCH-FIRST]`).
+   `proof/run.sh --package ./spurgear -- -count=1` or
+   `proof/run.sh --package ./helicalgear -- -count=1`, using the compiled proof package for the
+   gear, and act on its exit code:
+   **0** the selected proof passed; **1** the proof or its Go build failed, so fix the proof or
+   its source recipe; **2** runner setup failed, so fix the environment or engine checkout. A
+   passing selected proof proves the constraint scheme is sound *before*
+   any Fusion code is emitted. Use the maintained proof gate described in `[PB-SKETCH-FIRST]`;
+   do not downgrade a failed verification condition to an advisory.
    If the proof does not yet exist for this gear, build it from the spec's sketch recipes (the spur
-   `spec/spurgear/sketch/` is the worked example) — a scheme that cannot reach `DOF == 0` on the
-   bench is a spec/playbook defect to fix here, not to discover inside Fusion. Read the playbook's
-   `[PB-SKETCH-FIRST]` section here when interpreting the advisory signals, and the spec's
+   `proof/spurgear/sketches_test.go` is the worked example) — a scheme that cannot reach `DOF == 0` on the
+   proof is a spec/playbook defect to fix here, not to discover inside Fusion. Read the playbook's
+   `[PB-SKETCH-FIRST]` section here when interpreting verification failures, and the spec's
    sketch-recipe sections only if the proof has to be built at this step. Requires a local
    checkout of the `sketch` engine (`$SKETCH_DIR` or a sibling `../sketch`).
 

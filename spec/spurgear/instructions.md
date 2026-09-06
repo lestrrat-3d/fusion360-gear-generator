@@ -258,9 +258,9 @@ the whole construction falls apart without them. The Fusion-API mechanics are in
 `PLAYBOOK.md`; this section states the *intent* and points to the binding rule for each.
 
 The Gear Profile constraint scheme below is **proven to fully constrain** (`DOF == 0`, no
-redundant/conflicting constraints, across a size sweep) on the bench in `spec/spurgear/sketch/`
+redundant/conflicting constraints, across a size sweep) in `proof/spurgear/sketches_test.go`
 before any Fusion code is generated — the sketch-first gate `[PB-SKETCH-FIRST]`. That proof is the
-executable check that these rules add up to a fully-constrained sketch; run it (`./run.sh`) when
+executable check that these rules add up to a fully-constrained sketch; run it through `proof/run.sh` when
 changing any of them.
 
 **The scheme is parametric, and the regime it has to hold across is part of the design.** Proving

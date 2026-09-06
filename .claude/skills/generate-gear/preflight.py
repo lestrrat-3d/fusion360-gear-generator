@@ -434,15 +434,18 @@ def check_stubs(ctx):
 
 
 def check_sketch_bench(ctx):
-    path = ctx.spec('sketch', 'run.sh')
-    if os.path.isfile(path):
-        return OK, 'sketch bench at spec/%s/sketch/run.sh' % ctx.gear
-    return WARN, ('no sketch bench at %s; the skill builds one from the spec\'s recipes, so this '
-                  'is work rather than a broken environment' % path)
+    if has_sketch_bench(ctx):
+        return OK, 'compiled sketch proof at proof/%s/' % ctx.gear
+    return WARN, ('no compiled sketch proof at spec/%s/steps.md plus proof/%s/; this is work rather '
+                  'than a broken environment' % (ctx.gear, ctx.gear))
 
 
 def has_sketch_bench(ctx):
-    return os.path.isfile(ctx.spec('sketch', 'run.sh'))
+    registration = ctx.path('proof', ctx.gear, 'zz_registrations_test.go')
+    if not (os.path.isfile(ctx.spec('steps.md')) and os.path.isfile(registration)):
+        return False
+    with open(registration, encoding='utf-8') as handle:
+        return bool(re.search(r'\bproofkit\.Run(?:Parallel|WithExpectedFailures)?\s*\(', handle.read()))
 
 
 # --- the stage matrix ----------------------------------------------------------------------
