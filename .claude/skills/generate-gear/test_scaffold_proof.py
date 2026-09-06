@@ -226,7 +226,8 @@ class ScaffoldProofTest(unittest.TestCase):
             step('S1', 'One', 'stepOne', 'proofkit.RunSolid(profileCases, stepOne)'),
             'S1 annotates a run on proofkit.RunSolid, which no harness package declares')
 
-        self.assertIn('the run methods are proofkit.Run, proofkit3d.Run', output)
+        self.assertIn('the run methods are proofkit.Run, proofkit.RunParallel, proofkit3d.Run',
+                      output)
 
     def test_wrong_argument_count_for_the_method_is_a_finding(self):
         self.assert_finding(

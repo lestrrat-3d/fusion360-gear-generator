@@ -2,9 +2,12 @@
 package proofkit3d
 
 import (
+	"maps"
+	"sync/atomic"
 	"testing"
 
 	"github.com/lestrrat-3d/decad"
+	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit"
 )
 
 // Case is one parameter set to prove. Name becomes the subtest name.
@@ -22,7 +25,19 @@ type Assert func(t *testing.T, doc *decad.Document, bodies []*decad.Body, params
 // Gate applies the common verification gate before the proof-specific assertion.
 type Gate func(t *testing.T, doc *decad.Document, bodies []*decad.Body)
 
-// Run proves every case with a fresh document.
+// ParallelGroup is the subtest the parallel entry points nest their cases
+// under, for the reason [proofkit.ParallelGroup] gives: Go releases a parallel
+// subtest only after its parent's function has returned, so cases started
+// directly by a runner would still be waiting when that runner reached its
+// completion check. The group is a synchronous subtest whose t.Run does not
+// return until every parallel child has finished.
+//
+// It adds one level to every case's name: `TestX/cases/name`. That is a
+// deliberate consequence of opting in, which is why the serial entry points do
+// not add it.
+const ParallelGroup = proofkit.ParallelGroup
+
+// Run proves every case with a fresh document, one case at a time.
 func Run(t *testing.T, cases []Case, build Build, assert Assert) {
 	RunWithGate(t, cases, build, RequireSound, assert)
 }
@@ -33,10 +48,50 @@ func RunSolid(t *testing.T, cases []Case, build Build, assert Assert) {
 	RunWithGate(t, cases, build, RequireSolid, assert)
 }
 
-// RunWithGate proves every case with the supplied verification gate. At least
-// one case must complete; a proof table where every case is unmodelled proves
-// no solid.
+// RunSolidParallel is [RunSolid] with the cases running concurrently.
+//
+// It proves the same thing in the same way: same build, same gate, same
+// assertion, same completion invariant, same failure and skip behaviour. Only
+// the scheduling differs, and every case's name gains the [ParallelGroup]
+// level.
+//
+// Each case still gets its own [decad.Document], and is additionally handed its
+// own copy of Params so a build that writes to the map it is given cannot reach
+// a sibling. Within one case that copy is shared by build, gate and assert
+// exactly as the serial path shares the original.
+//
+// Nothing else is per-case, and that is the whole reason opting in is decided
+// one step at a time. proof/bevelgear's stepCircularPattern measures its seed
+// solid, stores the readings in package-level vars, and retires the seed; its
+// assertion reads them back. Two cases running at once overwrite each other's
+// readings and the proof reports a wrong verdict rather than failing loudly, so
+// that step keeps [RunSolid]. Audit a proof for state held between build and
+// assert before moving it to this runner.
+//
+// -parallel bounds how many cases run at once. It defaults to GOMAXPROCS.
+func RunSolidParallel(t *testing.T, cases []Case, build Build, assert Assert) {
+	t.Helper()
+	runCases(t, cases, build, RequireSolid, assert, true)
+}
+
+// RunWithGate proves every case with the supplied verification gate, one case
+// at a time. At least one case must complete; a proof table where every case is
+// unmodelled proves no solid.
 func RunWithGate(t *testing.T, cases []Case, build Build, gate Gate, assert Assert) {
+	t.Helper()
+	runCases(t, cases, build, gate, assert, false)
+}
+
+// RunWithGateParallel is [RunWithGate] with the cases running concurrently, on
+// the terms [RunSolidParallel] describes.
+func RunWithGateParallel(t *testing.T, cases []Case, build Build, gate Gate, assert Assert) {
+	t.Helper()
+	runCases(t, cases, build, gate, assert, true)
+}
+
+// runCases owns the rules every entry point shares, so the parallel paths
+// cannot drift from the serial ones. Only the scheduling is decided here.
+func runCases(t *testing.T, cases []Case, build Build, gate Gate, assert Assert, parallel bool) {
 	t.Helper()
 	if len(cases) == 0 {
 		t.Fatal("proofkit3d: no cases — a proof with nothing to prove passes vacuously")
@@ -50,18 +105,34 @@ func RunWithGate(t *testing.T, cases []Case, build Build, gate Gate, assert Asse
 	if assert == nil {
 		t.Fatal("proofkit3d: nil assertion function")
 	}
-	completed := 0
-	for _, c := range cases {
-		c := c
-		t.Run(c.Name, func(t *testing.T) {
-			doc := decad.New()
-			bodies := build(t, doc, c.Params)
-			gate(t, doc, bodies)
-			assert(t, doc, bodies, c.Params)
-			completed++
+	// Atomic because the parallel path increments it from several cases at once.
+	// The serial path reads the same value it always did.
+	var completed atomic.Int64
+	prove := func(t *testing.T, c Case) {
+		doc := decad.New()
+		bodies := build(t, doc, c.Params)
+		gate(t, doc, bodies)
+		assert(t, doc, bodies, c.Params)
+		completed.Add(1)
+	}
+
+	if !parallel {
+		for _, c := range cases {
+			t.Run(c.Name, func(t *testing.T) { prove(t, c) })
+		}
+	} else {
+		t.Run(ParallelGroup, func(t *testing.T) {
+			for _, c := range cases {
+				c := Case{Name: c.Name, Params: maps.Clone(c.Params)}
+				t.Run(c.Name, func(t *testing.T) {
+					t.Parallel()
+					prove(t, c)
+				})
+			}
 		})
 	}
-	if completed == 0 && !t.Failed() {
+
+	if completed.Load() == 0 && !t.Failed() {
 		t.Fatal("proofkit3d: no non-skipped proof cases completed — every proof must prove at least one solid")
 	}
 }

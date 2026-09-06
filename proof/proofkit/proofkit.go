@@ -22,8 +22,10 @@ package proofkit
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/lestrrat-3d/sketch"
@@ -43,31 +45,93 @@ type Case struct {
 // return quietly, which reads as a pass.
 type Build func(t testing.TB, s *sketch.Sketch, p map[string]float64)
 
+// ParallelGroup is the subtest [RunParallel] nests its cases under.
+//
+// A parallel case cannot be a direct child of the proof's own test. Go releases
+// a parallel subtest only after its parent's function has returned, so cases
+// started directly by Run would still be waiting when Run reached the
+// completion check below. The group is an ordinary synchronous subtest whose
+// own t.Run does not return until every parallel child of it has finished,
+// which is what lets that check, and the caller, see completed work.
+//
+// The cost is one extra level in every case's name: `TestX/cases/name` rather
+// than `TestX/name`. That is a deliberate, visible consequence of opting in,
+// which is why the serial APIs do not add it.
+const ParallelGroup = "cases"
+
 // Run proves build against every case, one subtest each.
 //
 // Each case gets a fresh world and sketch, and is gated with [RequireSound]
 // after build returns. A case that creates no authored points or entities fails
 // before solving. A case that fails does not stop the others. At least one case
 // must complete; a proof table where every case is unmodelled proves no sketch.
+//
+// Cases run one at a time. Use [RunParallel] to run them concurrently.
 func Run(t *testing.T, cases []Case, build Build) {
+	t.Helper()
+	runCases(t, cases, build, false)
+}
+
+// RunParallel is [Run] with the cases running concurrently.
+//
+// It proves the same thing in the same way: same build, same empty-geometry
+// check, same [RequireSound] gate, same completion invariant, same failure and
+// skip behaviour. Only the scheduling differs, and every case's name gains the
+// [ParallelGroup] level described there.
+//
+// Each case still gets its own world and sketch, and is additionally handed its
+// own copy of Params, so a build that writes to the map it is given cannot
+// reach a sibling case. Within one case the copy is shared by build and gate
+// exactly as the serial path shares the original.
+//
+// Nothing else is per-case. A build that carries readings between itself and its
+// gate through package-level state is not safe here, and one registered proof
+// does exactly that, so opting in is a per-step decision rather than a
+// package-wide one. Its counterpart is described at [proofkit3d.RunSolidParallel].
+//
+// -parallel bounds how many cases run at once. It defaults to GOMAXPROCS.
+func RunParallel(t *testing.T, cases []Case, build Build) {
+	t.Helper()
+	runCases(t, cases, build, true)
+}
+
+// runCases owns the rules both entry points share, so the parallel path cannot
+// drift from the serial one. Only the scheduling is decided here.
+func runCases(t *testing.T, cases []Case, build Build, parallel bool) {
 	t.Helper()
 	if len(cases) == 0 {
 		t.Fatal("proofkit: no cases — a proof with nothing to prove passes vacuously")
 	}
-	completed := 0
-	for _, c := range cases {
-		c := c
-		t.Run(c.Name, func(t *testing.T) {
-			s := NewSketch(t)
-			build(t, s, c.Params)
-			if len(s.Points()) == 0 && len(s.Entities()) == 0 {
-				t.Fatalf("proofkit: case %q created no authored geometry", c.Name)
+	// Atomic because the parallel path increments it from several cases at once.
+	// The serial path reads the same value it always did.
+	var completed atomic.Int64
+	prove := func(t *testing.T, c Case) {
+		s := NewSketch(t)
+		build(t, s, c.Params)
+		if len(s.Points()) == 0 && len(s.Entities()) == 0 {
+			t.Fatalf("proofkit: case %q created no authored geometry", c.Name)
+		}
+		RequireSound(t, s)
+		completed.Add(1)
+	}
+
+	if !parallel {
+		for _, c := range cases {
+			t.Run(c.Name, func(t *testing.T) { prove(t, c) })
+		}
+	} else {
+		t.Run(ParallelGroup, func(t *testing.T) {
+			for _, c := range cases {
+				c := Case{Name: c.Name, Params: maps.Clone(c.Params)}
+				t.Run(c.Name, func(t *testing.T) {
+					t.Parallel()
+					prove(t, c)
+				})
 			}
-			RequireSound(t, s)
-			completed++
 		})
 	}
-	if completed == 0 && !t.Failed() {
+
+	if completed.Load() == 0 && !t.Failed() {
 		t.Fatal("proofkit: no non-skipped proof cases completed — every proof must prove at least one sketch")
 	}
 }
