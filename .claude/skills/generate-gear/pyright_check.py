@@ -59,6 +59,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import re
 from dataclasses import dataclass, field
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -97,6 +98,8 @@ class AnalysisMetadata:
     pyright_argv: tuple[str, ...] = ()
     invocations: list[AnalysisInvocation] = field(default_factory=list)
     duration_s: float | None = None
+    requested_source_count: int = 0
+    diagnostic_count: int = 0
 
 
 @dataclass
@@ -234,6 +237,47 @@ def _remap_diagnostic(diagnostic, target_to_source, root, config_directory):
     return result
 
 
+def normalize_diagnostic(diagnostic, source, root=None):
+    """Return stable, root-relative fields used to compare standalone and batch runs."""
+    resolved_root = os.path.abspath(root or repo_root())
+    reported = diagnostic.get("file") or source
+    source_path = os.path.abspath(source)
+    if reported:
+        reported = os.path.abspath(os.path.normpath(reported))
+    else:
+        reported = source_path
+    try:
+        relative = os.path.relpath(reported, resolved_root)
+    except ValueError:
+        relative = reported
+    if relative.startswith(".."):
+        relative = reported
+    relative = relative.replace(os.sep, "/")
+    relative = re.sub(r"(?:^|/)(__pyright_candidate_|\.pyright-check-)[^/]+", "", relative)
+    rng = diagnostic.get("range") or {}
+    start = rng.get("start") or {}
+    end = rng.get("end") or {}
+    return {
+        "source": relative,
+        "severity": diagnostic.get("severity", "error"),
+        "rule": diagnostic.get("rule"),
+        "start": {"line": start.get("line", 0), "character": start.get("character", 0)},
+        "end": {"line": end.get("line", 0), "character": end.get("character", 0)},
+        "message": diagnostic.get("message", ""),
+    }
+
+
+def normalized_diagnostics(result, root=None):
+    """Return deterministically sorted normalized diagnostics for all requested sources."""
+    values = []
+    for source in sorted(result.diagnostics):
+        for diagnostic in result.diagnostics[source]:
+            values.append(normalize_diagnostic(diagnostic, source, root or result.metadata.root))
+    return sorted(values, key=lambda item: (
+        item["source"], item["start"]["line"], item["start"]["character"],
+        item["end"]["line"], item["end"]["character"], item["rule"] or "", item["message"]))
+
+
 def _valid_paths(paths):
     """Normalize and validate paths before resolving tools or creating scratch files."""
     if isinstance(paths, (str, bytes, os.PathLike)):
@@ -289,6 +333,7 @@ def analyze_paths(paths, *, stubs=None, no_install=False, root=None,
     metadata = AnalysisMetadata(root=resolved_root)
     if path_error:
         return AnalysisResult({}, metadata, path_error)
+    metadata.requested_source_count = len(normalized)
 
     pkg = os.path.join(resolved_root, "lib", "geargen")
     tmp = os.path.join(resolved_root, ".tmp")
@@ -402,6 +447,11 @@ def analyze_paths(paths, *, stubs=None, no_install=False, root=None,
                 # Imported files are attributed to the sole requested source, matching the
                 # standalone checker behavior from task 01.
                 diagnostics[normalized[0]].append(remapped)
+            else:
+                return AnalysisResult(
+                    diagnostics, metadata,
+                    "pyright reported a diagnostic for an unknown source: %s" % source)
+        metadata.diagnostic_count = sum(len(items) for items in diagnostics.values())
         return AnalysisResult(diagnostics, metadata)
     finally:
         metadata.duration_s = round(time.monotonic() - started, 2)

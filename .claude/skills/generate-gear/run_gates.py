@@ -412,7 +412,9 @@ def _pyright_result(module, diagnostics, paths, command, duration, timing_note=N
                       None, None, timing_note)
 
 
-def run_shared_type_gates(selected, paths, args, commands, metadata):
+def run_shared_type_gates(selected, paths, args, commands, metadata,
+                          analysis_result=None, novelty_plan=None,
+                          owns_duration=True, shared_owner_gear=None):
     """Run selected type consumers from one run-local Pyright analysis result.
 
     ``None`` means the installed gate scripts are test doubles or an older checkout, so the
@@ -424,30 +426,43 @@ def run_shared_type_gates(selected, paths, args, commands, metadata):
     pyright = modules["pyright"]
     novel_types = modules["novel_types"]
     candidate = _abs(paths.root, paths.candidate)
-    references = []
-    if "novel_types" in selected:
+    references = list(novelty_plan.references) if novelty_plan is not None else []
+    if "novel_types" in selected and novelty_plan is None:
         references = novel_types.reference_gears(
             os.path.join(paths.root, "lib", "geargen"), candidate)
-    analysis_paths = references + [candidate]
     started = time.monotonic()
-    try:
-        result = pyright.analyze_paths(analysis_paths, root=paths.root, timeout=args.timeout)
-    except Exception as error:
-        result = None
-        setup_error = str(error)
+    if analysis_result is None:
+        try:
+            result = pyright.analyze_paths(references + [candidate], root=paths.root,
+                                           timeout=args.timeout)
+        except Exception as error:
+            result = None
+            setup_error = str(error)
+        else:
+            setup_error = getattr(result, "setup_error", None)
     else:
+        result = analysis_result
         setup_error = getattr(result, "setup_error", None)
-    outer_elapsed = round(time.monotonic() - started, 2)
+    outer_elapsed = (round(time.monotonic() - started, 2) if analysis_result is None else
+                     (getattr(getattr(result, "metadata", None), "duration_s", None) or 0.0))
     inner_elapsed = getattr(getattr(result, "metadata", None), "duration_s", None)
     elapsed = outer_elapsed
     metadata.update({
-        "analysis_duration_s": elapsed,
+        "analysis_duration_s": elapsed if owns_duration else 0.0,
         "analysis_pyright_duration_s": inner_elapsed,
         "analysis_invocations": (len(getattr(result.metadata, "invocations", []))
-                                 if result is not None else 0),
+                                 if result is not None and owns_duration else 0),
         "analysis_shared": len(selected) > 1,
         "analysis_timing_note": ("The first selected type row owns the shared Pyright duration; "
-                                  "later rows use that result and report 0 seconds."),
+                                 "later rows use that result and report 0 seconds."),
+        "analysis_source_count": (getattr(getattr(result, "metadata", None),
+                                           "requested_source_count", 0)
+                                   if result is not None else 0),
+        "analysis_diagnostic_count": (getattr(getattr(result, "metadata", None),
+                                               "diagnostic_count", 0)
+                                      if result is not None else 0),
+        "batch_shared": analysis_result is not None,
+        "shared_owner_gear": shared_owner_gear,
     })
 
     rows = {}
@@ -472,7 +487,10 @@ def run_shared_type_gates(selected, paths, args, commands, metadata):
                     os.path.join(paths.root, "lib", "geargen"), row_duration, timing_note)
                 continue
             try:
-                evaluation = novel_types.evaluate_analysis(result, candidate, references)
+                if novelty_plan is not None:
+                    evaluation = novel_types.evaluate_planned_analysis(result, novelty_plan)
+                else:
+                    evaluation = novel_types.evaluate_analysis(result, candidate, references)
                 output, exit_code = novel_types.render_evaluation(
                     evaluation, gate=args.gate_novel_types)
                 status = "fail" if exit_code == 1 else "pass"
@@ -504,7 +522,9 @@ def classify_advisory(result, args):
     return result
 
 
-def execute(plan, paths, args, analysis_metadata=None):
+def execute(plan, paths, args, analysis_metadata=None, *, shared_anchors=None,
+            shared_analysis=None, novelty_plan=None, shared_owner_gear=None,
+            owns_shared_duration=True):
     """Walk the plan. If the parse gate fails, convert every not-yet-run CANDIDATE_READING gate
     to status 'skip', reason 'candidate does not parse'. With --fail-fast, convert every
     remaining gate to 'skip', reason 'not run (--fail-fast after <key> failed)'."""
@@ -535,6 +555,11 @@ def execute(plan, paths, args, analysis_metadata=None):
 
         if key == "parse":
             result = run_parse_gate(paths, args.timeout)
+        elif key == "anchors" and shared_anchors is not None:
+            result = dataclasses.replace(shared_anchors, duration_s=(
+                shared_anchors.duration_s if owns_shared_duration else 0.0),
+                timing_note=("shared anchor duration owned by %s" % shared_owner_gear
+                             if shared_owner_gear else shared_anchors.timing_note))
         elif key in ("pyright", "novel_types") and key in type_keys:
             if not shared_attempted:
                 shared_attempted = True
@@ -542,7 +567,9 @@ def execute(plan, paths, args, analysis_metadata=None):
                     type_keys, paths, args,
                     {plan_key: plan_command for plan_key, _plan_title, plan_command, _reason
                      in plan if plan_key in type_keys},
-                    analysis_metadata)
+                    analysis_metadata, analysis_result=shared_analysis,
+                    novelty_plan=novelty_plan, owns_duration=owns_shared_duration,
+                    shared_owner_gear=shared_owner_gear)
             if shared_rows is not None:
                 result = shared_rows[key]
             else:
@@ -857,6 +884,34 @@ def _write_json_out(path, obj):
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(obj, fh, indent=2)
         fh.write("\n")
+
+
+def prepare_run(gear, candidate=None, options=None):
+    """Resolve one candidate and return ``(args, paths, setup_errors)`` for batch callers."""
+    if options is None:
+        args = parse_args([gear] + ([candidate] if candidate else []))
+    else:
+        values = vars(options).copy()
+        values.update(gear=gear, candidate=candidate or getattr(options, "candidate", None))
+        args = argparse.Namespace(**values)
+    paths = resolve_paths(gear, candidate or getattr(args, "candidate", None), args.root)
+    return args, paths, setup_errors(paths, args)
+
+
+def run_candidate(paths, args, *, shared_anchors=None, shared_analysis=None,
+                  novelty_plan=None, shared_owner_gear=None, owns_shared_duration=True):
+    """Run and serialize one complete candidate report, optionally using batch results."""
+    metadata = {}
+    results = execute(build_plan(paths, args), paths, args, metadata,
+                      shared_anchors=shared_anchors, shared_analysis=shared_analysis,
+                      novelty_plan=novelty_plan, shared_owner_gear=shared_owner_gear,
+                      owns_shared_duration=owns_shared_duration)
+    classification = classify(results, paths)
+    fault_by_gate = {row["gate"]: row["fault"] for row in classification}
+    results = [dataclasses.replace(row, fault=fault_by_gate.get(row.key, row.fault))
+               for row in results]
+    return build_json(results, classification, paths, args, metadata,
+                      timing_metadata(args, results, 0.0, metadata))
 
 
 def main(argv=None):
