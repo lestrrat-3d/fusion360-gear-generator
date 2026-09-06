@@ -191,12 +191,14 @@ jobs:
           path: ~/go/pkg/mod
           key: proof-mod-${{ runner.os }}-${{ hashFiles('gears/proof/go.sum', 'gears/proof/go.mod') }}
 
+      # Keyed the same way as a group's, and for the same reason — see the comment on that step.
       - name: Restore this job's build and test cache
         uses: actions/cache@v4
         with:
           path: ~/.cache/go-build
-          key: proof-build-inventory-${{ runner.os }}-${{ hashFiles('gears/proof/go.sum', 'gears/proof/go.mod', 'gears/proof/shards.json') }}
+          key: proof-build-inventory-${{ runner.os }}-${{ hashFiles('gears/proof/go.sum', 'gears/proof/go.mod', 'gears/proof/shards.json') }}-${{ hashFiles('gears/proof/**/*.go') }}
           restore-keys: |
+            proof-build-inventory-${{ runner.os }}-${{ hashFiles('gears/proof/go.sum', 'gears/proof/go.mod', 'gears/proof/shards.json') }}-
             proof-build-inventory-${{ runner.os }}-
 
       - name: Run proof runner regression tests
@@ -294,17 +296,29 @@ jobs:
           path: ~/go/pkg/mod
           key: proof-mod-${{ runner.os }}-${{ hashFiles('gears/proof/go.sum', 'gears/proof/go.mod') }}
 
-      # shards.json is in the key because a group's -run expression is part of what Go's test
-      # cache matches on: edit the manifest and the old results stop applying, and without a new
-      # key the stale entry would never be replaced and the group would re-execute forever. The
-      # restore-keys line still recovers the previous entry's build artifacts, so a manifest
-      # edit costs one execution rather than one compile as well.
+      # The key names everything a group's cached results depend on, because a cache entry can
+      # never be rewritten: actions/cache skips its save whenever the restore hit the primary
+      # key, so an entry is frozen at whatever the run that created it stored. A key that stays
+      # the same while its contents go stale is therefore not a cold cache, it is a permanently
+      # wrong one — the group re-executes on every run from then on and saves nothing.
+      #
+      # Three things move those results. shards.json decides the group's -run expression, which
+      # Go's test cache matches on. go.mod and go.sum decide the module graph and the engine
+      # revisions. The proof's own Go sources decide the test binary, and they are the case a
+      # module-file key misses: editing a proof changes what must be re-run without touching a
+      # single module file.
+      #
+      # The two restore-keys are the fallbacks, longest prefix first. The first recovers a
+      # sibling entry built from the same module graph and manifest, so a source edit costs one
+      # execution rather than a full rebuild as well. The second matches the key shape used
+      # before the source component existed, so an entry saved by an older run still restores.
       - name: Restore this group's build and test cache
         uses: actions/cache@v4
         with:
           path: ~/.cache/go-build
-          key: proof-build-${{ matrix.group }}-${{ runner.os }}-${{ hashFiles('gears/proof/go.sum', 'gears/proof/go.mod', 'gears/proof/shards.json') }}
+          key: proof-build-${{ matrix.group }}-${{ runner.os }}-${{ hashFiles('gears/proof/go.sum', 'gears/proof/go.mod', 'gears/proof/shards.json') }}-${{ hashFiles('gears/proof/**/*.go') }}
           restore-keys: |
+            proof-build-${{ matrix.group }}-${{ runner.os }}-${{ hashFiles('gears/proof/go.sum', 'gears/proof/go.mod', 'gears/proof/shards.json') }}-
             proof-build-${{ matrix.group }}-${{ runner.os }}-
 
       # The group's packages and -run expression come from proof/shards.json, not from this

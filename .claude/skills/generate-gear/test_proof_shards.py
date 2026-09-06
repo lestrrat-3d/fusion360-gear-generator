@@ -425,6 +425,56 @@ class WorkflowShardWiringTest(unittest.TestCase):
         self.assertTrue(build_key, 'the group build cache declares no key')
         self.assertIn('shards.json', build_key[0])
 
+    def build_cache_steps(self):
+        """The key line and restore-key lines of every build-and-test cache step, by job."""
+        steps = {}
+        lines = self.commands.splitlines()
+        for index, line in enumerate(lines):
+            if 'key:' not in line or 'proof-build-' not in line:
+                continue
+            job = line.split('proof-build-', 1)[1].split('-', 1)[0]
+            restores = []
+            for follow in lines[index + 1:]:
+                if follow.strip() == 'restore-keys: |':
+                    continue
+                if not follow.startswith('            proof-build-'):
+                    break
+                restores.append(follow.strip())
+            steps[job] = (line, restores)
+        return steps
+
+    def test_a_proof_source_edit_rolls_the_build_cache_key(self):
+        """A proof edit that touches no module file must still roll the key.
+
+        actions/cache never rewrites an entry: a restore that hits the primary key skips the
+        save, so an entry is frozen at whatever the run that created it stored. A key built from
+        the module files and the manifest alone therefore goes stale the moment a proof source
+        changes, and the job re-executes on every run from then on while saving nothing.
+        """
+        steps = self.build_cache_steps()
+        self.assertTrue(steps, 'no build-and-test cache step declares a key')
+        for job, (key, _) in steps.items():
+            self.assertIn("hashFiles('gears/proof/**/*.go')", key,
+                          'the %s build cache key ignores the proof source' % job)
+
+    def test_the_build_cache_falls_back_to_its_older_key_shapes(self):
+        """The fallbacks must recover a sibling entry and one saved before the source component
+        existed, or adding that component costs every job a full rebuild once."""
+        module_hash = ("${{ hashFiles('gears/proof/go.sum', 'gears/proof/go.mod', "
+                       "'gears/proof/shards.json') }}")
+        steps = self.build_cache_steps()
+        self.assertTrue(steps, 'no build-and-test cache step declares a key')
+        for job, (_, restores) in steps.items():
+            self.assertEqual(2, len(restores),
+                             'the %s build cache declares %d fallbacks, want 2'
+                             % (job, len(restores)))
+            self.assertTrue(restores[0].endswith(module_hash + '-'),
+                            'the %s build cache has no same-module-graph fallback' % job)
+            self.assertTrue(restores[1].endswith('${{ runner.os }}-'),
+                            'the %s build cache drops the pre-source key shape' % job)
+            self.assertTrue(restores[0].startswith(restores[1]),
+                            'the %s build cache fallbacks are not longest-prefix-first' % job)
+
     def test_the_module_cache_is_shared_and_the_build_cache_is_not(self):
         # go.sum decides the module cache's content, so every group writes the same bytes and
         # one entry is right. Nothing group-specific may appear in its key.
