@@ -147,6 +147,20 @@ class BatchRunnerTests(unittest.TestCase):
         self.assertEqual(aggregate["gears"][1]["verdict"], "pass")
         self.assertEqual(len(fake_pyright.calls), 1)
 
+    def test_parse_failure_is_content_failure_and_skips_candidate_readers(self):
+        with open(self.candidates["one"], "w") as handle:
+            handle.write("def (:\n")
+        code, aggregate, fake_pyright = self.invoke([])
+        self.assertEqual(code, 1)
+        self.assertEqual(aggregate["gears"][0]["verdict"], "fail")
+        self.assertEqual(aggregate["gears"][1]["verdict"], "pass")
+        self.assertEqual(len(fake_pyright.calls), 1)
+        with open(os.path.join(self.root, "reports", "one.gates.json")) as handle:
+            data = json.load(handle)
+        self.assertEqual(data["gates"][0]["status"], "fail")
+        self.assertEqual(data["gates"][0]["fault"], "emit")
+        self.assertEqual(data["gates"][1]["status"], "skip")
+
     def test_shared_failure_fans_out_and_content_failure_precedes_setup(self):
         fake = FakePyright(self.root)
         fake.analyze_paths = lambda *_paths, **_kwargs: fake.AnalysisResult(

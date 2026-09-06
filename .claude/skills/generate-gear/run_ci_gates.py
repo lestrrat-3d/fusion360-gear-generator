@@ -79,23 +79,33 @@ def _writable_destination(path, directory=False):
 
 def _setup_report(args, paths, errors, anchor=None):
     rows = []
+    parse_failure = any("does not parse" in error for error in errors)
     for key in run_gates.GATE_ORDER:
-        status = ((anchor.status if anchor is not None else "error") if key == "anchors" else
-                  ("fail" if key == "parse" and
-                                                     any("does not parse" in e for e in errors)
-                                                     else "error"))
+        if key == "anchors":
+            status = anchor.status if anchor is not None else "error"
+        elif key == "parse" and parse_failure:
+            status = "fail"
+        elif parse_failure and key in run_gates.CANDIDATE_READING:
+            status = "skip"
+        else:
+            status = "error"
         rows.append({"key": key, "title": run_gates.GATE_TITLES[key], "status": status,
                      "advisory": key == "novel_types", "exit_code": 1 if status == "fail" else
-                     (0 if status == "pass" else 2),
+                     (0 if status in ("pass", "skip") else 2),
                      "duration_s": 0.0, "command": [], "headline": "setup error",
                      "stdout": "parse: SyntaxError" if status == "fail" else "",
                      "stderr": ("ERROR: " + "; ".join(errors) if status == "error" else
                                 (anchor.stderr if key == "anchors" and anchor else "")),
-                     "skip_reason": None, "fault": "setup", "timing_note": None})
+                     "skip_reason": "candidate does not parse" if status == "skip" else None,
+                     "fault": "emit" if status == "fail" else ("setup" if status == "error" else None),
+                     "timing_note": None})
+    counts = {key: sum(row["status"] == key for row in rows) for key in
+              ("pass", "fail", "skip", "error")}
+    verdict = "setup_error" if counts["error"] else ("fail" if counts["fail"] else "pass")
+    code = 2 if verdict == "setup_error" else (1 if verdict == "fail" else 0)
     return {"schema": 1, "gear": args.gear, "candidate": paths.candidate, "root": paths.root,
-            "verdict": "setup_error", "exit_code": 2,
-            "counts": {"pass": 0, "fail": 0, "skip": 0, "error": len(rows),
-                       "advisory_findings": 0}, "gates": rows, "classification": [],
+            "verdict": verdict, "exit_code": code,
+            "counts": {**counts, "advisory_findings": 0}, "gates": rows, "classification": [],
             "setup_errors": errors, "metadata": {}, "timing": {}}
 
 
@@ -205,7 +215,9 @@ def main(argv=None):
         analysis.setup_error = "batch analysis expected one invocation, got %d" % \
             len(analysis.metadata.invocations)
     analysis_duration = round(time.monotonic() - analysis_start, 2)
-    shared = {"anchors": {"invocations": 1, "duration_s": anchor_duration,
+    shared = {"anchors": {"invocations": 0 if args.skip_anchors else 1,
+                           "duration_s": 0.0 if args.skip_anchors else anchor_duration,
+                           "full_policy_eligible": not args.skip_anchors,
                            "status": anchor.status},
               "type_analysis": {"invocations": len(analysis.metadata.invocations),
                                  "duration_s": analysis_duration,
@@ -224,12 +236,20 @@ def main(argv=None):
                 novelty_plan=plans[gear], shared_owner_gear=next(iter(plans), specs[0][0]),
                 owns_shared_duration=gear == next(iter(plans), specs[0][0]))
         report_path = os.path.join(report_dir, gear + ".gates.json")
-        _write(report_path, report)
+        try:
+            _write(report_path, report)
+        except OSError as error:
+            print("run_ci_gates: could not write %s: %s" % (report_path, error), file=sys.stderr)
+            return 2
         reports.append({"gear": gear, "candidate": paths.candidate,
                         "report": _root_relative(report_path, root),
                         "verdict": report["verdict"], "exit_code": report["exit_code"]})
     aggregate = _aggregate(root, reports, shared, started, runner_started)
-    _write(json_out, aggregate)
+    try:
+        _write(json_out, aggregate)
+    except OSError as error:
+        print("run_ci_gates: could not write %s: %s" % (json_out, error), file=sys.stderr)
+        return 2
     if args.format == "json":
         print(json.dumps(aggregate))
     else:

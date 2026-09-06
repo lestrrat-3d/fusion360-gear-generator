@@ -901,6 +901,7 @@ def prepare_run(gear, candidate=None, options=None):
 def run_candidate(paths, args, *, shared_anchors=None, shared_analysis=None,
                   novelty_plan=None, shared_owner_gear=None, owns_shared_duration=True):
     """Run and serialize one complete candidate report, optionally using batch results."""
+    started = time.monotonic()
     metadata = {}
     results = execute(build_plan(paths, args), paths, args, metadata,
                       shared_anchors=shared_anchors, shared_analysis=shared_analysis,
@@ -911,7 +912,7 @@ def run_candidate(paths, args, *, shared_anchors=None, shared_analysis=None,
     results = [dataclasses.replace(row, fault=fault_by_gate.get(row.key, row.fault))
                for row in results]
     return build_json(results, classification, paths, args, metadata,
-                      timing_metadata(args, results, 0.0, metadata))
+                      timing_metadata(args, results, time.monotonic() - started, metadata))
 
 
 def main(argv=None):

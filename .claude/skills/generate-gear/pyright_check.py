@@ -365,10 +365,14 @@ def analyze_paths(paths, *, stubs=None, no_install=False, root=None,
     config_directory = tmp
     targets = []
     cleanup_targets = []
-    target_to_source = {}
+    target_to_sources = {}
+    source_realpaths = set()
     for source in normalized:
         target = source
-        if os.path.dirname(source) != os.path.abspath(pkg):
+        source_realpath = os.path.realpath(source)
+        aliased_source = source_realpath in source_realpaths
+        source_realpaths.add(source_realpath)
+        if os.path.dirname(source) != os.path.abspath(pkg) or aliased_source:
             cleanup_target = None
             try:
                 cleanup_target = _scratch_file(pkg, "__pyright_candidate_", ".py")
@@ -382,8 +386,8 @@ def analyze_paths(paths, *, stubs=None, no_install=False, root=None,
                 return AnalysisResult(diagnostics, metadata,
                                       f"could not prepare candidate {source}: {error}")
         targets.append(target)
-        target_to_source.setdefault(os.path.abspath(target), source)
-        target_to_source.setdefault(os.path.realpath(target), source)
+        target_to_sources.setdefault(os.path.abspath(target), []).append(source)
+        target_to_sources.setdefault(os.path.realpath(target), []).append(source)
 
     config_path = None
     invocation = None
@@ -438,19 +442,26 @@ def analyze_paths(paths, *, stubs=None, no_install=False, root=None,
             if not isinstance(diagnostic, dict):
                 return AnalysisResult(diagnostics, metadata,
                                       "pyright returned malformed JSON: diagnostic is not an object")
-            remapped = _remap_diagnostic(
-                diagnostic, target_to_source, resolved_root, config_directory)
-            source = remapped.get("file")
-            if source in diagnostics:
-                diagnostics[source].append(remapped)
+            reported = _reported_paths(diagnostic.get("file"), resolved_root, config_directory)
+            matching = []
+            for reported_path in reported:
+                matching.extend(target_to_sources.get(reported_path, ()))
+            matching = list(dict.fromkeys(matching))
+            if matching:
+                for source in matching:
+                    remapped = dict(diagnostic)
+                    remapped["file"] = source
+                    diagnostics[source].append(remapped)
             elif len(normalized) == 1:
                 # Imported files are attributed to the sole requested source, matching the
                 # standalone checker behavior from task 01.
+                remapped = _remap_diagnostic(diagnostic, {}, resolved_root, config_directory)
                 diagnostics[normalized[0]].append(remapped)
             else:
                 return AnalysisResult(
                     diagnostics, metadata,
-                    "pyright reported a diagnostic for an unknown source: %s" % source)
+                    "pyright reported a diagnostic for an unknown source: %s" %
+                    diagnostic.get("file"))
         metadata.diagnostic_count = sum(len(items) for items in diagnostics.values())
         return AnalysisResult(diagnostics, metadata)
     finally:
