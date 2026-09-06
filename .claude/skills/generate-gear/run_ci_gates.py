@@ -7,6 +7,7 @@ import importlib.util
 import json
 import os
 import sys
+import tempfile
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -110,9 +111,21 @@ def _setup_report(args, paths, errors, anchor=None):
 
 
 def _write(path, value):
-    with open(path, "w", encoding="utf-8") as handle:
-        json.dump(value, handle, indent=2)
-        handle.write("\n")
+    directory = os.path.dirname(os.path.abspath(path))
+    descriptor, temporary = tempfile.mkstemp(prefix=".ci-gates-", suffix=".json", dir=directory,
+                                              text=True)
+    os.close(descriptor)
+    try:
+        with open(temporary, "w", encoding="utf-8") as handle:
+            json.dump(value, handle, indent=2)
+            handle.write("\n")
+        os.replace(temporary, path)
+    except OSError:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
 
 
 def _aggregate(root, entries, shared, started, runner_started):

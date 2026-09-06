@@ -524,7 +524,7 @@ def classify_advisory(result, args):
 
 def execute(plan, paths, args, analysis_metadata=None, *, shared_anchors=None,
             shared_analysis=None, novelty_plan=None, shared_owner_gear=None,
-            owns_shared_duration=True):
+            owns_shared_duration=True, precomputed_results=None):
     """Walk the plan. If the parse gate fails, convert every not-yet-run CANDIDATE_READING gate
     to status 'skip', reason 'candidate does not parse'. With --fail-fast, convert every
     remaining gate to 'skip', reason 'not run (--fail-fast after <key> failed)'."""
@@ -542,6 +542,12 @@ def execute(plan, paths, args, analysis_metadata=None, *, shared_anchors=None,
         if skip_reason is not None:
             results.append(GateResult(key, title, "skip", advisory, None, None, [],
                                        "", "", skip_reason, None))
+            continue
+        if precomputed_results and key in precomputed_results:
+            result = precomputed_results[key]
+            results.append(result)
+            if key == "parse" and result.status == "fail":
+                parse_failed = True
             continue
         if parse_failed and key in CANDIDATE_READING:
             results.append(GateResult(key, title, "skip", advisory, None, None, command,
@@ -899,14 +905,16 @@ def prepare_run(gear, candidate=None, options=None):
 
 
 def run_candidate(paths, args, *, shared_anchors=None, shared_analysis=None,
-                  novelty_plan=None, shared_owner_gear=None, owns_shared_duration=True):
+                  novelty_plan=None, shared_owner_gear=None, owns_shared_duration=True,
+                  precomputed_results=None):
     """Run and serialize one complete candidate report, optionally using batch results."""
     started = time.monotonic()
     metadata = {}
     results = execute(build_plan(paths, args), paths, args, metadata,
                       shared_anchors=shared_anchors, shared_analysis=shared_analysis,
                       novelty_plan=novelty_plan, shared_owner_gear=shared_owner_gear,
-                      owns_shared_duration=owns_shared_duration)
+                      owns_shared_duration=owns_shared_duration,
+                      precomputed_results=precomputed_results)
     classification = classify(results, paths)
     fault_by_gate = {row["gate"]: row["fault"] for row in classification}
     results = [dataclasses.replace(row, fault=fault_by_gate.get(row.key, row.fault))
