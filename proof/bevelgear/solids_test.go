@@ -645,7 +645,7 @@ func frustumBands(t *testing.T, doc *decad.Document, g gear, f gearFrame) []*dec
 // is separately watertight, and the shape they would form is checked by volume,
 // by station and by cone half-angle instead.
 //
-// <!-- proof-run: proofkit3d.RunSolid(solidCases, stepRevolveGearBody, assertRevolveGearBody) -->
+// <!-- proof-run: proofkit3d.RunSolidParallel(solidCases, stepRevolveGearBody, assertRevolveGearBody) -->
 func stepRevolveGearBody(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	d := newDesign(t, p)
 	g, f := sideOf(d, p)
@@ -772,7 +772,7 @@ const toothSectionThickness = 0.5
 // inventory the profile search selects on. The spur tooth's own constraint
 // scheme belongs to spec/spurgear and is proved there.
 //
-// <!-- proof-run: proofkit3d.RunSolid(toothSolidCases, stepToothProfile, assertToothProfile) -->
+// <!-- proof-run: proofkit3d.RunSolidParallel(toothSolidCases, stepToothProfile, assertToothProfile) -->
 func stepToothProfile(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	d := newDesign(t, p)
 	g, f := sideOf(d, p)
@@ -913,7 +913,7 @@ func loftToothBody(t *testing.T, doc *decad.Document, d design, g gear, f gearFr
 // proportional to its cone distance, which is what makes one lofted tooth
 // serve the whole face width.
 //
-// <!-- proof-run: proofkit3d.RunSolid(solidCases, stepLoftToothBody, assertLoftToothBody) -->
+// <!-- proof-run: proofkit3d.RunSolidParallel(solidCases, stepLoftToothBody, assertLoftToothBody) -->
 func stepLoftToothBody(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	d := newDesign(t, p)
 	g, f := sideOf(d, p)
@@ -1037,7 +1037,7 @@ func coneCrossing(cone bandGeometry, toothSlope float64) float64 {
 // surfaces of the tooth — the toe on its tip, the heel on its root — which is
 // the observable signature of a conical cut face rather than a planar one.
 //
-// <!-- proof-run: proofkit3d.RunSolid(solidCases, stepCutConicalEnds, assertCutConicalEnds) -->
+// <!-- proof-run: proofkit3d.RunSolidParallel(solidCases, stepCutConicalEnds, assertCutConicalEnds) -->
 func stepCutConicalEnds(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	d := newDesign(t, p)
 	g, f := sideOf(d, p)
@@ -1182,8 +1182,14 @@ func stepCircularPattern(t *testing.T, doc *decad.Document, p map[string]float64
 
 // patternSeedAzimuth and the readings beside it carry the seed's measurements
 // from the build to the assertion, because the seed is retired by the move and
-// cannot be measured afterwards. The harness runs one case at a time in one
-// goroutine.
+// cannot be measured afterwards.
+//
+// These four variables are why the circular pattern step is the one bevel step
+// registered on proofkit3d.RunSolid rather than RunSolidParallel: the hand-off
+// leaves the case, so two cases running together overwrite each other's
+// readings. That failure does not announce itself either, since a pair of cases
+// whose seeds measured alike would pass on each other's numbers. Anything that
+// makes these readings per-case is what would let the step run in parallel.
 var (
 	patternSeedAzimuth float64
 	patternSeedRadius  float64
@@ -1256,7 +1262,7 @@ func assertCircularPattern(t *testing.T, doc *decad.Document, bodies []*decad.Bo
 // the root cone, which is what makes "seated" measurable as a strict
 // inequality. In the generated module the tooth seats exactly on the cone.
 //
-// <!-- proof-run: proofkit3d.RunSolid(patternCases, stepCombineJoin, assertCombineJoin) -->
+// <!-- proof-run: proofkit3d.RunSolidParallel(patternCases, stepCombineJoin, assertCombineJoin) -->
 func stepCombineJoin(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	d := newDesign(t, p)
 	g, f := sideOf(d, p)
@@ -1329,7 +1335,7 @@ func assertCombineJoin(t *testing.T, doc *decad.Document, bodies []*decad.Body, 
 // frustum's own profile clipped to the bore radius. What it cannot show is the
 // pierced body: that the result is one lump with a hole and no enclosed void.
 //
-// <!-- proof-run: proofkit3d.RunSolid(boreSolidCases, stepBoreCut, assertBoreCut) -->
+// <!-- proof-run: proofkit3d.RunSolidParallel(boreSolidCases, stepBoreCut, assertBoreCut) -->
 func stepBoreCut(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	d := newDesign(t, p)
 	g, f := sideOf(d, p)
@@ -1466,7 +1472,7 @@ func axialSpanAt(poly []vec2, rad float64) (lo, hi float64, ok bool) {
 // lay-apart substitution above leaves them unjoined; the rotation is applied
 // to each, which is the same rigid move the whole body would take.
 //
-// <!-- proof-run: proofkit3d.RunSolid(meshCases, stepMeshRotation, assertMeshRotation) -->
+// <!-- proof-run: proofkit3d.RunSolidParallel(meshCases, stepMeshRotation, assertMeshRotation) -->
 func stepMeshRotation(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	d := newDesign(t, p)
 	g, f := sideOf(d, p)

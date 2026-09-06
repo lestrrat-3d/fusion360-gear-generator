@@ -546,7 +546,7 @@ func (b *latticeBuilder) buildToe(h *sideHandles, g sideGeometry, d design, toeN
 //     since section 3 computes the virtual tooth number from that radius
 //     rather than by measuring it.
 //
-// <!-- proof-run: proofkit.Run(latticeCases, stepGearProfiles) -->
+// <!-- proof-run: proofkit.RunParallel(latticeCases, stepGearProfiles) -->
 func stepGearProfiles(t testing.TB, s *sketch.Sketch, p map[string]float64) {
 	d := newDesign(t, p)
 	if p[keyNetLimited] != 0 {

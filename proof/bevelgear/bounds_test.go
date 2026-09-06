@@ -76,7 +76,7 @@ func requireAccepted(t testing.TB, base map[string]float64, key string, value fl
 //   - that the resolved values build: the frustum hexagon at those values is a
 //     single closed all-line loop that never crosses the shaft axis.
 //
-// <!-- proof-run: proofkit.Run(boundsCases, stepResolveInputBounds) -->
+// <!-- proof-run: proofkit.RunParallel(boundsCases, stepResolveInputBounds) -->
 func stepResolveInputBounds(t testing.TB, s *sketch.Sketch, p map[string]float64) {
 	d := newDesign(t, p)
 	b := d.Bounds

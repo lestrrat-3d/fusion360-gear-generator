@@ -203,7 +203,7 @@ func buildSlabs(t *testing.T, doc *decad.Document, f gearFrame, o toothOutline, 
 // or the parent plane sits outside the tooth's span, and the generator retries
 // once with the opposite sign and then raises.
 //
-// <!-- proof-run: proofkit3d.RunSolid(spiralSolidCases, stepSliceToothSlabs, assertSliceToothSlabs) -->
+// <!-- proof-run: proofkit3d.RunSolidParallel(spiralSolidCases, stepSliceToothSlabs, assertSliceToothSlabs) -->
 func stepSliceToothSlabs(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	d, _, f, o, tf := spiralContext(t, p, "slices anything")
 	_ = d
@@ -297,7 +297,7 @@ func gearOf(d design, p map[string]float64) gear {
 // An empty list here is the slice having failed in step E, and it has to raise
 // now rather than surfacing later as an empty max() inside the crown.
 //
-// <!-- proof-run: proofkit3d.RunSolid(spiralSolidCases, stepDropApexScrap, assertDropApexScrap) -->
+// <!-- proof-run: proofkit3d.RunSolidParallel(spiralSolidCases, stepDropApexScrap, assertDropApexScrap) -->
 func stepDropApexScrap(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	d, g, f, o, tf := spiralContext(t, p, "drops any scrap")
 	// The whole set is built so the sort has something to sort, exactly as the
@@ -356,7 +356,7 @@ func assertDropApexScrap(t *testing.T, doc *decad.Document, bodies []*decad.Body
 // step-I loft samples. Keying on the centroid instead leaves the loft's
 // mid-face section rotated by half a segment and overlapping.
 //
-// <!-- proof-run: proofkit3d.RunSolid(spiralSolidCases, stepTwistSlabs, assertTwistSlabs) -->
+// <!-- proof-run: proofkit3d.RunSolidParallel(spiralSolidCases, stepTwistSlabs, assertTwistSlabs) -->
 func stepTwistSlabs(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	d, g, f, o, tf := spiralContext(t, p, "twists anything")
 	slabs := spiralSlabs(d, g, f, tf)
@@ -467,7 +467,7 @@ func assertSlabRadii(t *testing.T, g gear, f gearFrame, o toothOutline,
 // radius scales, which is exactly the invariant a uniform scale about a root
 // point has.
 //
-// <!-- proof-run: proofkit3d.RunSolid(spiralSolidCases, stepCrownSlabs, assertCrownSlabs) -->
+// <!-- proof-run: proofkit3d.RunSolidParallel(spiralSolidCases, stepCrownSlabs, assertCrownSlabs) -->
 func stepCrownSlabs(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	d, g, f, o, tf := spiralContext(t, p, "crowns anything")
 	return buildSlabs(t, doc, f, o, spiralSlabs(d, g, f, tf))
@@ -584,7 +584,7 @@ func (sl slab) sectionRadii(o toothOutline, lo, hi float64) (loRoot, loTip, root
 // step is required to loft in. What the substitution cannot check is that
 // Fusion's nine-section loft closes into one lump.
 //
-// <!-- proof-run: proofkit3d.RunSolid(spiralSolidCases, stepLoftSpiralTooth, assertLoftSpiralTooth) -->
+// <!-- proof-run: proofkit3d.RunSolidParallel(spiralSolidCases, stepLoftSpiralTooth, assertLoftSpiralTooth) -->
 func stepLoftSpiralTooth(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	d, g, f, o, tf := spiralContext(t, p, "lofts through slab faces")
 	slabs := spiralSlabs(d, g, f, tf)

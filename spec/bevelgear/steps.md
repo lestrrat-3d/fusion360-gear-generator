@@ -9,7 +9,7 @@ The proof for this step list is `proof/bevelgear/geometry_test.go`, `proof/bevel
 
 | file | `git hash-object` |
 |---|---|
-| `spec/bevelgear/instructions.md` | `6cb50bdb875e150a1504b22f13126f4d672c6eca` |
+| `spec/bevelgear/instructions.md` | `6e56983e0e2a58ab73aac7a16dcaad8918d17fd8` |
 | `spec/bevelgear/fusion.md` | `40d165fbc2f47ffba45d7c3c0f73ca67ec488d42` |
 | `spec/bevelgear/spiral-tooth-trace.md` | `c9ec08561ced7975aa0ed9ad6a330186259c0d08` |
 | `spec/spurgear/instructions.md` | `8cb886a7827d6745fde7c876475066918c328283` |
@@ -266,7 +266,7 @@ L126 (Mean Spiral Angle range), L130 (Cutter Radius);
 
 Proof function: `stepResolveInputBounds`.
 
-<!-- proof-run: proofkit.Run(boundsCases, stepResolveInputBounds) -->
+<!-- proof-run: proofkit.RunParallel(boundsCases, stepResolveInputBounds) -->
 
 All of this is closed form and resolves during input validation, before any geometry exists. Work in
 whatever units each formula states and convert per S4; the proof works in millimetres throughout.
@@ -460,7 +460,7 @@ activate); `spec/bevelgear/fusion.md` L149-L154 (`[BEVEL-F-NEVER-ACTIVATE]`);
 
 Proof function: `stepAnchorSketch`.
 
-<!-- proof-run: proofkit.Run(anchorCases, stepAnchorSketch) -->
+<!-- proof-run: proofkit.RunParallel(anchorCases, stepAnchorSketch) -->
 
 Create the sketch with `designComponent.sketches.add(targetPlane)` — **directly on the user-selected
 target plane**, whether that selection is a `ConstructionPlane` or a `PlanarFace`. Do not re-derive
@@ -550,7 +550,7 @@ Stash the plane as `self._gearProfilesPlane`.
 
 Proof function: `stepGearProfiles`.
 
-<!-- proof-run: proofkit.Run(latticeCases, stepGearProfiles) -->
+<!-- proof-run: proofkit.RunParallel(latticeCases, stepGearProfiles) -->
 
 `sketch = designComponent.sketches.add(gearProfilesPlane)`, named `Gear Profiles`. Stash it as
 `self._gpSketch`. One sketch holds the whole lattice for both gears.
@@ -957,7 +957,7 @@ L742-L753 (`[PB-CONSTRUCTION-PLANES]`).
 
 Proof function: `stepToothProfile`.
 
-<!-- proof-run: proofkit3d.RunSolid(toothSolidCases, stepToothProfile, assertToothProfile) -->
+<!-- proof-run: proofkit3d.RunSolidParallel(toothSolidCases, stepToothProfile, assertToothProfile) -->
 
 `toothSketch = designComponent.sketches.add(toothPlane)`, named `{gearLabel} Tooth`. Draw the spur
 tooth into it with the borrowed generator, using this gear's tooth-centre point (K′ or L′) as the
@@ -1072,7 +1072,7 @@ named here only to say where it happens; the call itself is S33.
 
 Proof function: `stepGearProfileHexagon`.
 
-<!-- proof-run: proofkit.Run(profileCases, stepGearProfileHexagon) -->
+<!-- proof-run: proofkit.RunParallel(profileCases, stepGearProfileHexagon) -->
 
 Open a **fresh sketch on the axial (Gear Profiles) plane**, named per the table in S11 — **one
 profile sketch per gear**, so `sketch.profiles` holds exactly this one hexagon loop. Do not draw both
@@ -1119,7 +1119,7 @@ Gate the sketch: `if not sketch.isFullyConstrained: raise ...` naming it
 
 Proof function: `stepRevolveGearBody`.
 
-<!-- proof-run: proofkit3d.RunSolid(solidCases, stepRevolveGearBody, assertRevolveGearBody) -->
+<!-- proof-run: proofkit3d.RunSolidParallel(solidCases, stepRevolveGearBody, assertRevolveGearBody) -->
 
 The sketch holds exactly one closed loop, so take its single profile directly with
 `sketch.profiles.item(0)` (`[PB-SINGLE-PROFILE]`) — do not invent a filter by `profileLoops` or by
@@ -1176,7 +1176,7 @@ by station and by half-angle instead.
 
 Proof function: `stepLoftToothBody`.
 
-<!-- proof-run: proofkit3d.RunSolid(solidCases, stepLoftToothBody, assertLoftToothBody) -->
+<!-- proof-run: proofkit3d.RunSolidParallel(solidCases, stepLoftToothBody, assertLoftToothBody) -->
 
 Select the tooth cross-section loop with
 
@@ -1238,7 +1238,7 @@ sections for the back-cone tooth plane; `solids_test.go` states both and what th
 
 Proof function: `stepCutConicalEnds`.
 
-<!-- proof-run: proofkit3d.RunSolid(solidCases, stepCutConicalEnds, assertCutConicalEnds) -->
+<!-- proof-run: proofkit3d.RunSolidParallel(solidCases, stepCutConicalEnds, assertCutConicalEnds) -->
 
 Trim the Tooth Body to a flush band with the framework helper — do **not** re-implement the cut
 machinery:
@@ -1405,7 +1405,7 @@ centre), L149-L168 (toe and heel ends);
 
 Proof function: `stepConeElementSketch`.
 
-<!-- proof-run: proofkit.Run(coneElementCases, stepConeElementSketch) -->
+<!-- proof-run: proofkit.RunParallel(coneElementCases, stepConeElementSketch) -->
 
 Open a sketch on the **axial (Gear Profiles) plane**, named `{gearLabel} Cone Element`, and draw one
 construction line in it from the apex to `apex + R_heel * coneVec`:
@@ -1495,7 +1495,7 @@ exemption); `.claude/skills/generate-gear/PLAYBOOK.md` L180-L181 (`plane_by_angl
 
 Proof function: `stepSpiralTrace`.
 
-<!-- proof-run: proofkit.Run(traceCases, stepSpiralTrace) -->
+<!-- proof-run: proofkit.RunParallel(traceCases, stepSpiralTrace) -->
 
 Add a sketch on the Trace Plane named `{gearLabel} 2D Tooth Trace`. In it, with
 `tanW(px, py) = combine_point(apexWorld, px, coneVec, py, v)` mapping 2-D tangent-plane coordinates to
@@ -1564,7 +1564,7 @@ is the module's to choose.
 
 Proof function: `stepSliceToothSlabs`.
 
-<!-- proof-run: proofkit3d.RunSolid(spiralSolidCases, stepSliceToothSlabs, assertSliceToothSlabs) -->
+<!-- proof-run: proofkit3d.RunSolidParallel(spiralSolidCases, stepSliceToothSlabs, assertSliceToothSlabs) -->
 
 **Step E — slice.** Split the uncut apex→heel `toothBody` into cross-section slabs by planes
 perpendicular to the cone element, spanning a touch past the toe and the heel, by a **fixed** slice
@@ -1611,7 +1611,7 @@ body, which is the failure step E tells the generator to retry and then raise on
 
 Proof function: `stepDropApexScrap`.
 
-<!-- proof-run: proofkit3d.RunSolid(spiralSolidCases, stepDropApexScrap, assertDropApexScrap) -->
+<!-- proof-run: proofkit3d.RunSolidParallel(spiralSolidCases, stepDropApexScrap, assertDropApexScrap) -->
 
 **Step F — order and drop the scrap.** Sort the pieces by the `distAlong` of their centroid,
 `body.physicalProperties.centerOfMass`. The first, apex-most piece is the long **apex-side scrap**
@@ -1637,7 +1637,7 @@ body, which is the failure step E tells the generator to retry and then raise on
 
 Proof function: `stepTwistSlabs`.
 
-<!-- proof-run: proofkit3d.RunSolid(spiralSolidCases, stepTwistSlabs, assertTwistSlabs) -->
+<!-- proof-run: proofkit3d.RunSolidParallel(spiralSolidCases, stepTwistSlabs, assertTwistSlabs) -->
 
 **Step G — twist.** Rotate each segment about the **shaft axis** (`axisDir` through `apex`) so the
 tooth follows the trace, **centred on R_mean so the mid-face section stays unrotated** — that section
@@ -1717,7 +1717,7 @@ zero-angle note), L436 (`[PB-WORLD-FRAME]`).
 
 Proof function: `stepCrownSlabs`.
 
-<!-- proof-run: proofkit3d.RunSolid(spiralSolidCases, stepCrownSlabs, assertCrownSlabs) -->
+<!-- proof-run: proofkit3d.RunSolidParallel(spiralSolidCases, stepCrownSlabs, assertCrownSlabs) -->
 
 **Step H — the lengthwise crown.** Crown the tooth by scaling each segment **except the outermost
 (heel) one** down by a **monotonic** factor — full at the heel, growing smoothly toward the toe —
@@ -1804,7 +1804,7 @@ L788-L795 (`[PB-NEVER-ACTIVATE]` and the scale feature's exception to it), L552-
 
 Proof function: `stepLoftSpiralTooth`.
 
-<!-- proof-run: proofkit3d.RunSolid(spiralSolidCases, stepLoftSpiralTooth, assertLoftSpiralTooth) -->
+<!-- proof-run: proofkit3d.RunSolidParallel(spiralSolidCases, stepLoftSpiralTooth, assertLoftSpiralTooth) -->
 
 ⚠️ **Re-sort the segments by their heel-face cone distance HERE, after the twist and the crown — do
 NOT reuse the pre-twist slice or centroid order from step F.** The twist rotates each slab about the
@@ -1894,7 +1894,13 @@ tooth pitch so a tooth that would not fit N times is caught. The tooth patterned
 loft rather than the trimmed one, since at the pinned decad revision the trim cannot be performed
 at all; the increment is a rigid rotation either way.
 
-**From:** `spec/bevelgear/instructions.md` L711 (Pattern);
+This is the one bevel step registered on the serial runner. The seed is retired by the increment
+and cannot be measured afterwards, so the build takes its azimuth, radius, height and volume and
+the assertion reads them back through package-level variables in `solids_test.go`. That hand-off
+leaves the case, and two cases running together overwrite each other's readings. Every other
+`[GO]` step here registers on the parallel runner.
+
+**From:** `spec/bevelgear/instructions.md` L711 (Pattern), L727-L750 (Proof Case Scheduling);
 `.claude/skills/generate-gear/PLAYBOOK.md` L660-L670 (`[PB-PATTERN-BODIES]`,
 `[PB-CIRCULAR-PATTERN]`).
 
@@ -1902,7 +1908,7 @@ at all; the increment is a rigid rotation either way.
 
 Proof function: `stepCombineJoin`.
 
-<!-- proof-run: proofkit3d.RunSolid(patternCases, stepCombineJoin, assertCombineJoin) -->
+<!-- proof-run: proofkit3d.RunSolidParallel(patternCases, stepCombineJoin, assertCombineJoin) -->
 
 **Combine.** Join all patterned tooth pieces to the Gear Body in a single Combine-Join, the Gear Body
 as the target and the patterned tooth bodies as the tools:
@@ -1944,7 +1950,7 @@ tooth seats exactly on the cone; nothing here asks for a sink.
 
 Proof function: `stepBoreSketch`.
 
-<!-- proof-run: proofkit.Run(boreCases, stepBoreSketch) -->
+<!-- proof-run: proofkit.RunParallel(boreCases, stepBoreSketch) -->
 
 Skip S30 and S31 entirely when Enable Bore is unchecked.
 
@@ -1994,7 +2000,7 @@ The `addCoincident` to `originPoint` above is named ONLY to forbid it; this step
 
 Proof function: `stepBoreCut`.
 
-<!-- proof-run: proofkit3d.RunSolid(boreSolidCases, stepBoreCut, assertBoreCut) -->
+<!-- proof-run: proofkit3d.RunSolidParallel(boreSolidCases, stepBoreCut, assertBoreCut) -->
 
 Extrude-cut the bore circle as a symmetric through-cut restricted to this Gear Body:
 
@@ -2029,7 +2035,7 @@ enclosed void.
 
 Proof function: `stepMeshRotation`.
 
-<!-- proof-run: proofkit3d.RunSolid(meshCases, stepMeshRotation, assertMeshRotation) -->
+<!-- proof-run: proofkit3d.RunSolidParallel(meshCases, stepMeshRotation, assertMeshRotation) -->
 
 Do this **here, in the Design component, before the body is moved out**.
 
