@@ -722,15 +722,14 @@ class HandoffBindingTests(unittest.TestCase):
             root = Path(directory)
             (root / 'spec').mkdir()
             (root / 'lib' / 'geargen').mkdir(parents=True)
-            (root / 'evidence.md').write_text('reason\n', encoding='utf-8')
             (root / 'spec' / 'x' ).mkdir()
             (root / 'spec' / 'x' / 'steps.md').write_text('Call `newOp()`\n', encoding='utf-8')
             (root / 'lib' / 'geargen' / 'x.py').write_text('newOp()\n', encoding='utf-8')
             paths = RUNNER.Paths(str(root), 'x', 'spec/x/steps.md', 'proof/x', 'lib/geargen/x.py')
             requirements = [{'name': 'newOp', 'has_receiver': False, 'textual_match': False,
                              'origin': 'new_since_base'}]
-            evidence = {'path': 'evidence.md', 'line': 1,
-                        'sha256': RUNNER.sha256_bytes((root / 'evidence.md').read_bytes())}
+            evidence = {'path': 'spec/x/steps.md', 'line': 1,
+                        'sha256': RUNNER.sha256_bytes((root / 'spec/x/steps.md').read_bytes())}
             record = {'name': 'newOp', 'has_receiver': False, 'decision': 'emit_required',
                       'evidence': [evidence], 'reason': 'The source requires this call.'}
             binding = {'comparison_base': 'a' * 40,

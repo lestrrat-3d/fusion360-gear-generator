@@ -262,8 +262,11 @@ def _canonical(value):
 
 
 def _review_requirements(missing, base_steps):
-    old_shapes = _load_checker_module().named_call_shapes(base_steps.decode("utf-8")) \
-        if base_steps is not None else set()
+    try:
+        old_text = base_steps.decode("utf-8") if base_steps is not None else None
+    except UnicodeDecodeError:
+        old_text = None
+    old_shapes = _load_checker_module().named_call_shapes(old_text) if old_text is not None else set()
     old = {(name, bool(receiver)) for name, receiver in old_shapes}
     return [dict(record, origin=("baseline_unknown" if base_steps is None else
                                  "new_since_base" if (record["name"], record["has_receiver"]) not in old
@@ -286,7 +289,7 @@ def _review_input_hash(root, steps_path, review_requirements):
             except OSError:
                 evidence.append({"path": path, "line": item.get("line"),
                                  "sha256": item.get("sha256"), "bytes_sha256": None})
-    payload = {"steps": _read_bytes(os.path.join(root, steps_path)).decode("utf-8"),
+    payload = {"steps_sha256": sha256_bytes(_read_bytes(os.path.join(root, steps_path))),
                "evidence": sorted(evidence, key=lambda item: (item["path"], item["line"] or 0))}
     return sha256_bytes(_canonical(payload))
 
@@ -340,6 +343,9 @@ def _validate_review(path, gear, base, paths, requirements):
             if os.path.commonpath((os.path.realpath(paths.root), os.path.realpath(source))) != \
                     os.path.realpath(paths.root):
                 return None, "step-call review evidence path is outside repository"
+            if not (ev["path"] == paths.steps or ev["path"].startswith("spec/") or
+                    ev["path"] in ("PLAYBOOK.md", "PLAYBOOK.md")):
+                return None, "step-call review evidence is not a compiler input"
             try:
                 source_bytes = _read_bytes(source)
                 line_count = source_bytes.count(b"\n") + (1 if source_bytes else 0)
@@ -695,6 +701,12 @@ def run_stage(key, title, command, cwd, timeout):
             payload_error = _validate_checker_payload(payload)
             if payload_error:
                 raise ValueError(payload_error)
+            if proc.returncode not in (0, 1):
+                raise ValueError("checker exit status must be 0 or 1")
+            has_problems = bool(payload["missing"] or payload["stubs"] or
+                                payload["shared_point"] or payload["parse_error"])
+            if payload["ok"] == has_problems:
+                raise ValueError("checker JSON ok does not match diagnostics")
             if payload["ok"] != (proc.returncode == 0):
                 raise ValueError("checker JSON ok does not match exit status")
             result.checker_json = payload
@@ -712,8 +724,9 @@ def execute(plan, paths, args):
     stopped_by = None
     for key, title, command, skip_reason in plan:
         if skip_reason is not None:
+            code = "missing_module" if key == "step_calls" and "does not exist" in skip_reason else None
             results.append(StageResult(key, title, "skip", None, None, [], "", "",
-                                       skip_reason, None))
+                                       skip_reason, None, code))
             continue
         if stopped_by is not None:
             reason = "not run (--fail-fast after %s failed)" % stopped_by
@@ -732,9 +745,9 @@ def handoff_for(results, paths, args):
     module = paths.module
     step_result = next((item for item in results if item.key == "step_calls"), None)
     if step_result is None:
-        return {"status": "not_applicable", "module": module, "requirements": []}
+        return {"status": "blocked", "module": module, "requirements": []}
     if step_result.status == "skip":
-        return {"status": "not_applicable" if "does not exist" in (step_result.skip_reason or "")
+        return {"status": "not_applicable" if step_result.skip_reason_code == "missing_module"
                 else "blocked", "module": module, "requirements": []}
     payload = step_result.checker_json
     if payload is None:
