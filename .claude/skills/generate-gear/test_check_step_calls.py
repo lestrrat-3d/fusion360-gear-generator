@@ -1068,5 +1068,83 @@ class WorkflowGateWiringTest(unittest.TestCase):
                         'the workflow must read the pins before checking out an engine')
 
 
+class WorkflowProofCacheTest(unittest.TestCase):
+    """The proof job's cache must be able to go stale and then refresh.
+
+    A cache entry is never rewritten: actions/cache skips its save whenever the restore hit the
+    primary key. A key that stays the same while its contents go stale is therefore not a cold
+    cache, it is a permanently wrong one — the affected package re-executes on every run and
+    nothing is ever saved. setup-go's built-in cache keys on the dependency files alone and
+    passes no restore-keys, so it has exactly that hole for a proof source edit, and it cannot
+    be closed by widening its key without also losing the fallback.
+    """
+
+    ROOT = Path(__file__).parents[3]
+
+    def setUp(self):
+        workflow = (self.ROOT / '.github' / 'workflows' / '3d-proof.yml').read_text()
+        # Comments discuss the keys by name; a comment caches nothing.
+        self.lines = [line for line in workflow.splitlines()
+                      if not line.lstrip().startswith('#')]
+        self.commands = '\n'.join(self.lines)
+
+    def cache_step(self, marker):
+        """The key line and the restore-key lines of the cache step whose key holds marker."""
+        for index, line in enumerate(self.lines):
+            if 'key:' not in line or marker not in line:
+                continue
+            restores = []
+            for follow in self.lines[index + 1:]:
+                if follow.strip() == 'restore-keys: |':
+                    continue
+                if not follow.startswith('            proof-'):
+                    break
+                restores.append(follow.strip())
+            return line, restores
+        return None, []
+
+    def test_setup_go_does_no_caching_of_its_own(self):
+        """setup-go's key cannot carry the proof source and keep a fallback, so it owns neither.
+
+        cache-dependency-path decides its whole key, and its restore is a bare primary-key
+        lookup. Listing the sources there would turn every source edit into a total miss that
+        re-downloads the module cache; leaving them out is the staleness this class exists for.
+        """
+        self.assertNotIn('cache-dependency-path', self.commands,
+                         'a job still lets setup-go derive its own cache key')
+
+    def test_the_build_cache_key_carries_the_proof_source(self):
+        key, _ = self.cache_step('proof-build-')
+        self.assertIsNotNone(key, 'the proof job declares no build and test cache')
+        self.assertIn("hashFiles('gears/proof/**/*.go')", key,
+                      'the build cache key ignores the proof source, so it can never refresh')
+
+    def test_the_build_cache_falls_back_to_its_older_key_shapes(self):
+        """Without the fallbacks, adding the source component costs a full rebuild every edit."""
+        module_hash = "${{ hashFiles('gears/proof/go.sum', 'gears/proof/go.mod') }}"
+        _, restores = self.cache_step('proof-build-')
+        self.assertEqual(2, len(restores),
+                         'the build cache declares %d fallbacks, want 2' % len(restores))
+        self.assertTrue(restores[0].endswith(module_hash + '-'),
+                        'the build cache has no same-module-graph fallback')
+        self.assertTrue(restores[1].endswith('${{ runner.os }}-'),
+                        'the build cache drops the pre-source key shape')
+        self.assertTrue(restores[0].startswith(restores[1]),
+                        'the build cache fallbacks are not longest-prefix-first')
+
+    def test_the_module_cache_is_kept_separate_from_the_proof_source(self):
+        """The dependency files decide the module cache's content, and nothing else does.
+
+        Rolling it on a source edit would re-download every module for a change that cannot
+        affect one.
+        """
+        key, restores = self.cache_step('proof-mod-')
+        self.assertIsNotNone(key, 'the proof job declares no module cache')
+        self.assertNotIn("gears/proof/**/*.go", key)
+        self.assertEqual([], restores, 'the module cache needs no fallback: its key is exact')
+        self.assertIn('path: ~/go/pkg/mod', self.commands)
+        self.assertIn('path: ~/.cache/go-build', self.commands)
+
+
 if __name__ == '__main__':
     unittest.main()
