@@ -56,6 +56,7 @@ Exit codes:
 """
 import argparse
 import dataclasses
+import hashlib
 import importlib.util
 import json
 import os
@@ -64,6 +65,8 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
+
+import provenance
 
 # --- constants ---------------------------------------------------------------------------
 SCHEMA = 1
@@ -125,6 +128,9 @@ FAULT_SETUP = "SETUP ERROR: fix the environment or inputs; never retry the draft
 # drafter is told the same thing in SKILL.md step 5.
 MODULE_ABSENT_REASON = ("lib/geargen/%s.py does not exist; the CI cross-check applies only "
                         "after /emit-gear places a module")
+MISSING_MODULE_SKIP_CODE = "missing_module"
+HEX40 = re.compile(r"[0-9a-f]{40}\Z")
+HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 
 
 # --- small value types --------------------------------------------------------------------
@@ -141,6 +147,9 @@ class StageResult:
     skip_reason: str | None
     fault: str | None
     skip_reason_code: str | None = None
+    checker_json: dict | None = None
+    policy_status: str | None = None
+    disposition: str | None = None
 
 
 @dataclass
@@ -189,6 +198,10 @@ def parse_args(argv):
     p.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
     p.add_argument("--iteration-base", default=None,
                    help="run a focused retry based on changes after COMMIT")
+    p.add_argument("--handoff-base", default=None,
+                   help="immutable commit used to classify compile-to-emit changes")
+    p.add_argument("--step-call-review", default=None,
+                   help="reviewing-agent JSON record for missing step calls")
     args = p.parse_args(argv)
     if args.only:
         args.only = [k.strip() for k in args.only.split(",") if k.strip()]
@@ -221,6 +234,362 @@ def resolve_iteration_base(root, base):
         detail = proc.stderr.strip() or "unknown commit or ref"
         return None, "cannot resolve iteration base %r: %s" % (base, detail)
     return resolved, None
+
+
+def sha256_bytes(value):
+    return hashlib.sha256(value).hexdigest()
+
+
+def _load_checker_module():
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "check_step_calls.py")
+    spec = importlib.util.spec_from_file_location("compile_step_call_shapes", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _read_bytes(path):
+    with open(path, "rb") as handle:
+        return handle.read()
+
+
+def _git_show(root, commit, path):
+    proc = subprocess.run(["git", "-C", root, "show", "%s:%s" % (commit, path)],
+                          capture_output=True)
+    if proc.returncode:
+        return None
+    return proc.stdout
+
+
+def _canonical(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+
+
+def _review_requirements(missing, base_steps):
+    baseline_known = base_steps is not None
+    try:
+        old_text = base_steps.decode("utf-8") if base_steps is not None else None
+    except UnicodeDecodeError:
+        old_text = None
+        baseline_known = False
+    old_shapes = _load_checker_module().named_call_shapes(old_text) if baseline_known else set()
+    old = {(name, bool(receiver)) for name, receiver in old_shapes}
+    return [dict(record, origin=("baseline_unknown" if base_steps is None else
+                                 "baseline_unknown" if not baseline_known else
+                                 "new_since_base" if (record["name"], record["has_receiver"]) not in old
+                                 else "already_required"))
+            for record in missing]
+
+
+def _review_input_hash(root, steps_path, review_requirements):
+    evidence = []
+    for requirement in review_requirements:
+        for item in requirement.get("evidence", ()):
+            path = item.get("path")
+            if not isinstance(path, str):
+                continue
+            absolute = os.path.join(root, path)
+            try:
+                evidence.append({"path": path, "line": item.get("line"),
+                                 "sha256": item.get("sha256"),
+                                 "bytes_sha256": sha256_bytes(_read_bytes(absolute))})
+            except OSError:
+                evidence.append({"path": path, "line": item.get("line"),
+                                 "sha256": item.get("sha256"), "bytes_sha256": None})
+    payload = {"steps_sha256": sha256_bytes(_read_bytes(os.path.join(root, steps_path))),
+               "evidence": sorted(evidence, key=lambda item: (item["path"], item["line"] or 0))}
+    return sha256_bytes(_canonical(payload))
+
+
+def _validate_review_legacy(path, gear, base, paths, requirements):
+    if not path or not base:
+        return None, "review record is required"
+    try:
+        with open(path, encoding="utf-8") as handle:
+            review = json.load(handle)
+    except (OSError, ValueError) as error:
+        return None, "malformed step-call review: %s" % error
+    if not isinstance(review, dict) or review.get("schema") != 1 or review.get("gear") != gear:
+        return None, "malformed step-call review: schema and gear are required"
+    binding = review.get("binding")
+    records = review.get("requirements")
+    if not isinstance(binding, dict) or not isinstance(records, list):
+        return None, "malformed step-call review: binding and requirements are required"
+    for item in records:
+        if (not isinstance(item, dict) or not isinstance(item.get("name"), str) or
+                not item["name"].strip() or not isinstance(item.get("has_receiver"), bool) or
+                item.get("decision") not in ("emit_required", "draft_fault") or
+                not isinstance(item.get("reason"), str) or not item["reason"].strip() or
+                not isinstance(item.get("evidence"), list) or not item["evidence"]):
+            return None, "malformed step-call review requirement"
+        for ev in item["evidence"]:
+            if (not isinstance(ev, dict) or not isinstance(ev.get("path"), str) or
+                    not ev["path"] or not isinstance(ev.get("line"), int) or
+                    isinstance(ev["line"], bool) or not isinstance(ev.get("sha256"), str)):
+                return None, "malformed step-call review evidence"
+    try:
+        steps_bytes = _read_bytes(os.path.join(paths.root, paths.steps))
+        module_bytes = _read_bytes(os.path.join(paths.root, paths.module))
+    except OSError as error:
+        return None, "cannot bind step-call review: %s" % error
+    expected = {"comparison_base": base,
+                "steps_sha256": sha256_bytes(steps_bytes),
+                "module_sha256": sha256_bytes(module_bytes),
+                "requirements_sha256": sha256_bytes(_canonical(requirements)),
+                "review_inputs_sha256": _review_input_hash(paths.root, paths.steps, records)}
+    if any(binding.get(key) != value for key, value in expected.items()):
+        return None, "stale step-call review binding"
+    wanted = {(item["name"], bool(item["has_receiver"])) for item in requirements}
+    seen = set()
+    evidence_seen = set()
+    for item in records:
+        if (not isinstance(item, dict) or not isinstance(item.get("name"), str) or
+                not isinstance(item.get("has_receiver"), bool) or
+                (item.get("name"), item.get("has_receiver")) not in wanted):
+            return None, "step-call review has an unknown requirement"
+        key = (item["name"], bool(item["has_receiver"]))
+        if key in seen or item.get("decision") not in ("emit_required", "draft_fault"):
+            return None, "step-call review has duplicate or invalid decisions"
+        seen.add(key)
+        if not isinstance(item.get("reason"), str) or not item["reason"].strip():
+            return None, "step-call review reason must be non-empty"
+        evidence = item.get("evidence")
+        if not isinstance(evidence, list) or not evidence:
+            return None, "step-call review evidence is required"
+        for ev in evidence:
+            if not isinstance(ev, dict) or not isinstance(ev.get("path"), str):
+                return None, "step-call review evidence is malformed"
+            source = os.path.join(paths.root, ev["path"])
+            if os.path.commonpath((os.path.realpath(paths.root), os.path.realpath(source))) != \
+                    os.path.realpath(paths.root):
+                return None, "step-call review evidence path is outside repository"
+            if not (ev["path"] == paths.steps or ev["path"].startswith("spec/") or
+                    ev["path"] in ("PLAYBOOK.md", "PLAYBOOK.md")):
+                return None, "step-call review evidence is not a compiler input"
+            try:
+                source_bytes = _read_bytes(source)
+                line_count = source_bytes.count(b"\n") + (1 if source_bytes else 0)
+            except OSError:
+                return None, "step-call review evidence path is unreadable"
+            line = ev.get("line")
+            if not isinstance(line, int) or isinstance(line, bool) or line < 1 or line > line_count:
+                return None, "step-call review evidence line is out of range"
+            if ev.get("sha256") != sha256_bytes(source_bytes):
+                return None, "step-call review evidence is stale"
+    if seen != wanted:
+        return None, "step-call review must decide every missing requirement"
+    return records, None
+
+
+def _canonical_repo_path(value, root):
+    if not isinstance(value, str) or not value or os.path.isabs(value) or "\\" in value:
+        return None
+    if value in (".", "..") or value.startswith("../") or "/../" in value or value.endswith("/.."):
+        return None
+    if os.path.normpath(value).replace(os.sep, "/") != value:
+        return None
+    absolute = os.path.join(root, *value.split("/"))
+    root_real = os.path.realpath(root)
+    try:
+        if os.path.commonpath((root_real, os.path.realpath(absolute))) != root_real:
+            return None
+    except ValueError:
+        return None
+    return absolute
+
+
+def _allowed_evidence(root, gear):
+    old_cwd = os.getcwd()
+    try:
+        os.chdir(root)
+        values = sorted(os.path.normpath(item).replace(os.sep, "/")
+                        for item in provenance.provenance_inputs(gear))
+        rows = []
+        for path in values:
+            absolute = _canonical_repo_path(path, root)
+            if absolute is None:
+                raise ValueError("invalid provenance path")
+            rows.append({"path": path, "sha256": sha256_bytes(_read_bytes(absolute))})
+        return rows, None
+    except (OSError, UnicodeError, ValueError, TypeError) as error:
+        return [], "cannot build review evidence allowlist: %s" % error
+    finally:
+        os.chdir(old_cwd)
+
+
+def _review_template(gear, base, paths, requirements):
+    allowed, error = _allowed_evidence(paths.root, gear)
+    if error:
+        return None, error
+    rows = [{"name": item["name"], "has_receiver": item["has_receiver"],
+             "decision": None, "evidence": [], "reason": ""}
+            for item in requirements]
+    try:
+        binding = {
+            "comparison_base": base or "",
+            "steps_sha256": sha256_bytes(_read_bytes(os.path.join(paths.root, paths.steps))),
+            "module_sha256": sha256_bytes(_read_bytes(os.path.join(paths.root, paths.module))),
+            "requirements_sha256": sha256_bytes(_canonical(rows)),
+            "allowed_evidence_sha256": sha256_bytes(_canonical(allowed)),
+        }
+    except (OSError, UnicodeError, ValueError, TypeError) as error:
+        return None, "cannot build review template: %s" % error
+    return {"schema": 1, "gear": gear, "binding": binding,
+            "allowed_evidence": allowed, "requirements": rows}, None
+
+
+def _validate_review(path, gear, base, paths, requirements):
+    if not path or not base:
+        return None, "--handoff-base is required for step-call review"
+    try:
+        with open(path, encoding="utf-8") as handle:
+            review = json.load(handle)
+    except (OSError, UnicodeError, ValueError, TypeError, json.JSONDecodeError) as error:
+        return None, "malformed step-call review: %s" % error
+    if (not isinstance(review, dict) or type(review.get("schema")) is not int or
+            review.get("schema") != 1 or type(review.get("gear")) is not str or
+            review.get("gear") != gear):
+        return None, "malformed step-call review: schema and gear are required"
+    binding, allowed, records = review.get("binding"), review.get("allowed_evidence"), review.get("requirements")
+    if not isinstance(binding, dict) or not isinstance(allowed, list) or not isinstance(records, list):
+        return None, "malformed step-call review: binding, allowed-evidence, and requirements are required"
+    digest_keys = ("steps_sha256", "module_sha256", "requirements_sha256", "allowed_evidence_sha256")
+    if (not isinstance(binding.get("comparison_base"), str) or not HEX40.fullmatch(binding["comparison_base"]) or
+            binding["comparison_base"] != base or
+            any(not isinstance(binding.get(key), str) or not HEX64.fullmatch(binding[key]) for key in digest_keys)):
+        return None, "malformed step-call review binding"
+    allowed_map = {}
+    for item in allowed:
+        if (not isinstance(item, dict) or set(item) != {"path", "sha256"} or
+                not isinstance(item.get("sha256"), str) or not HEX64.fullmatch(item["sha256"])):
+            return None, "malformed allowed-evidence row"
+        absolute = _canonical_repo_path(item.get("path"), paths.root)
+        if absolute is None or item["path"] in allowed_map:
+            return None, "malformed or duplicate allowed-evidence path"
+        try:
+            if not os.path.isfile(absolute) or sha256_bytes(_read_bytes(absolute)) != item["sha256"]:
+                return None, "stale allowed-evidence row"
+        except (OSError, UnicodeError, ValueError, TypeError):
+            return None, "allowed-evidence path is unreadable"
+        allowed_map[item["path"]] = item["sha256"]
+    if sha256_bytes(_canonical(allowed)) != binding["allowed_evidence_sha256"]:
+        return None, "stale allowed-evidence binding"
+    current_allowed, allowlist_error = _allowed_evidence(paths.root, gear)
+    if allowlist_error or current_allowed != allowed:
+        return None, "stale allowed-evidence membership"
+    wanted = {(item["name"], item["has_receiver"]) for item in requirements}
+    if len(wanted) != len(requirements):
+        return None, "duplicate current requirement shape"
+    seen = set()
+    evidence_seen = set()
+    for item in records:
+        if (not isinstance(item, dict) or set(item) != {"name", "has_receiver", "decision", "evidence", "reason"} or
+                not isinstance(item.get("name"), str) or not item["name"].strip() or
+                type(item.get("has_receiver")) is not bool or
+                item.get("decision") not in ("emit_required", "draft_fault") or
+                not isinstance(item.get("reason"), str) or not item["reason"].strip() or
+                not isinstance(item.get("evidence"), list) or not item["evidence"]):
+            return None, "malformed step-call review requirement"
+        shape = (item["name"], item["has_receiver"])
+        if shape not in wanted or shape in seen:
+            return None, "step-call review has duplicate or unknown requirement"
+        seen.add(shape)
+        for evidence in item["evidence"]:
+            if (not isinstance(evidence, dict) or set(evidence) != {"path", "line", "sha256"} or
+                    not isinstance(evidence.get("path"), str) or
+                    type(evidence.get("line")) is not int or evidence["line"] < 1 or
+                    not isinstance(evidence.get("sha256"), str) or not HEX64.fullmatch(evidence["sha256"])):
+                return None, "malformed step-call review evidence"
+            evidence_key = (evidence["path"], evidence["line"], evidence["sha256"])
+            if evidence_key in evidence_seen:
+                return None, "duplicate step-call review evidence"
+            evidence_seen.add(evidence_key)
+            if evidence["path"] not in allowed_map or allowed_map[evidence["path"]] != evidence["sha256"]:
+                return None, "step-call review evidence is not allowed"
+            absolute = _canonical_repo_path(evidence["path"], paths.root)
+            try:
+                if evidence["line"] > len(_read_bytes(absolute).splitlines()):
+                    return None, "step-call review evidence line is out of range"
+            except (OSError, UnicodeError, ValueError, TypeError):
+                return None, "step-call review evidence path is unreadable"
+    if seen != wanted:
+        return None, "step-call review must decide every missing requirement"
+    try:
+        expected = {
+            "steps_sha256": sha256_bytes(_read_bytes(os.path.join(paths.root, paths.steps))),
+            "module_sha256": sha256_bytes(_read_bytes(os.path.join(paths.root, paths.module))),
+            "requirements_sha256": sha256_bytes(_canonical([
+                {"name": item["name"], "has_receiver": item["has_receiver"],
+                 "decision": None, "evidence": [], "reason": ""}
+                for item in requirements])),
+        }
+    except (OSError, UnicodeError, ValueError, TypeError) as error:
+        return None, "cannot bind step-call review: %s" % error
+    if any(binding[key] != value for key, value in expected.items()):
+        return None, "stale step-call review binding"
+    return records, None
+
+
+def _validate_checker_payload_legacy(payload):
+    if not isinstance(payload, dict) or not isinstance(payload.get("ok"), bool):
+        return "checker JSON must be an object with boolean ok"
+    if (not isinstance(payload.get("named_calls"), int) or isinstance(payload["named_calls"], bool)
+            or payload["named_calls"] < 0):
+        return "checker JSON named_calls must be an integer"
+    for key in ("missing", "stubs", "shared_point"):
+        if not isinstance(payload.get(key), list):
+            return "checker JSON %s must be a list" % key
+    if payload.get("parse_error") is not None and not isinstance(payload.get("parse_error"), str):
+        return "checker JSON parse_error must be a string or null"
+    for item in payload["missing"]:
+        if (not isinstance(item, dict) or not isinstance(item.get("name"), str) or
+                not isinstance(item.get("has_receiver"), bool) or
+                not isinstance(item.get("textual_match"), bool)):
+            return "checker JSON missing records have invalid types"
+    for key in ("stubs", "shared_point"):
+        for item in payload[key]:
+            if (not isinstance(item, dict) or not isinstance(item.get("line"), int) or
+                    isinstance(item["line"], bool) or item["line"] < 1 or
+                    not isinstance(item.get("marker", item.get("argument")), str) or
+                    not item.get("marker", item.get("argument"))):
+                return "checker JSON %s records have invalid types" % key
+    return None
+
+
+def _validate_checker_payload(payload, returncode=0):
+    if not isinstance(payload, dict) or type(payload.get("ok")) is not bool:
+        return "checker JSON must be an object with boolean ok"
+    if type(payload.get("named_calls")) is not int or payload["named_calls"] < 0:
+        return "checker JSON named_calls must be a non-bool integer >= 0"
+    for key in ("missing", "stubs", "shared_point"):
+        if not isinstance(payload.get(key), list):
+            return "checker JSON %s must be a list" % key
+    if payload.get("parse_error") is not None and \
+            (not isinstance(payload["parse_error"], str) or not payload["parse_error"].strip()):
+        return "checker JSON parse_error must be null or a nonempty string"
+    for item in payload["missing"]:
+        if (not isinstance(item, dict) or set(item) != {"name", "has_receiver", "textual_match"} or
+                not isinstance(item["name"], str) or not item["name"].strip() or
+                type(item["has_receiver"]) is not bool or type(item["textual_match"]) is not bool):
+            return "checker JSON missing records have invalid types"
+    for item in payload["stubs"]:
+        if (not isinstance(item, dict) or set(item) != {"line", "marker", "text"} or
+                type(item["line"]) is not int or item["line"] < 1 or
+                not isinstance(item["marker"], str) or not item["marker"] or
+                not isinstance(item["text"], str) or not item["text"]):
+            return "checker JSON stubs records have invalid types"
+    for item in payload["shared_point"]:
+        if (not isinstance(item, dict) or set(item) != {"line", "argument"} or
+                type(item["line"]) is not int or item["line"] < 1 or
+                not isinstance(item["argument"], str) or not item["argument"]):
+            return "checker JSON shared_point records have invalid types"
+    has_problems = bool(payload["parse_error"] or payload["missing"] or payload["stubs"] or payload["shared_point"])
+    if payload["ok"] != (not has_problems):
+        return "checker JSON ok does not match diagnostics"
+    if (returncode, payload["ok"]) not in ((0, True), (1, False)):
+        return "checker exit status and JSON ok are inconsistent"
+    return None
 
 
 def _parse_name_status_z(payload):
@@ -510,7 +879,13 @@ def run_stage(key, title, command, cwd, timeout):
     """Run one stage as a subprocess, capturing stdout and stderr and timing it."""
     start = time.monotonic()
     try:
-        proc = subprocess.run(command, cwd=cwd, capture_output=True, text=True,
+        effective_command = list(command)
+        checker_path = os.path.realpath(os.path.join(scripts_dir(), "check_step_calls.py"))
+        checker_run = key == "step_calls" and len(command) > 1 and \
+            os.path.realpath(command[1]) == checker_path
+        if checker_run:
+            effective_command.append("--json")
+        proc = subprocess.run(effective_command, cwd=cwd, capture_output=True, text=True,
                               timeout=timeout, env=os.environ)
     except subprocess.TimeoutExpired as exc:
         duration = round(time.monotonic() - start, 2)
@@ -524,8 +899,23 @@ def run_stage(key, title, command, cwd, timeout):
         return StageResult(key, title, "error", None, duration, command, stdout, stderr,
                            None, None)
     duration = round(time.monotonic() - start, 2)
-    return StageResult(key, title, status_for(key, proc.returncode), proc.returncode, duration,
-                       command, proc.stdout, proc.stderr, None, None)
+    result = StageResult(key, title, status_for(key, proc.returncode), proc.returncode, duration,
+                         command, proc.stdout, proc.stderr, None, None)
+    if key == "step_calls":
+        checker_path = os.path.realpath(os.path.join(scripts_dir(), "check_step_calls.py"))
+        if not (len(command) > 1 and os.path.realpath(command[1]) == checker_path):
+            return result
+        try:
+            payload = json.loads(proc.stdout)
+            payload_error = _validate_checker_payload(payload, proc.returncode)
+            if payload_error:
+                raise ValueError(payload_error)
+            result.checker_json = payload
+        except (ValueError, TypeError, json.JSONDecodeError) as error:
+            result.status = "error"
+            result.exit_code = 2
+            result.stderr = (result.stderr + "\n" if result.stderr else "") + str(error)
+    return result
 
 
 def execute(plan, paths, args):
@@ -535,8 +925,9 @@ def execute(plan, paths, args):
     stopped_by = None
     for key, title, command, skip_reason in plan:
         if skip_reason is not None:
+            code = MISSING_MODULE_SKIP_CODE if key == "step_calls" and skip_reason == MODULE_ABSENT_REASON % args.gear else None
             results.append(StageResult(key, title, "skip", None, None, [], "", "",
-                                       skip_reason, None))
+                                       skip_reason, None, code))
             continue
         if stopped_by is not None:
             reason = "not run (--fail-fast after %s failed)" % stopped_by
@@ -547,6 +938,69 @@ def execute(plan, paths, args):
         results.append(result)
         if args.fail_fast and result.status in ("fail", "error") and stopped_by is None:
             stopped_by = key
+    return results
+
+
+def handoff_for(results, paths, args):
+    """Classify step-call output using the explicit compile-to-emit state machine."""
+    module = paths.module
+    step_result = next((item for item in results if item.key == "step_calls"), None)
+    supplied = getattr(args, "step_call_review", None)
+    base = getattr(args, "_handoff_base", None)
+    if step_result is None:
+        return {"status": "blocked", "module": module, "requirements": []}
+    if step_result.status == "skip":
+        status = "not_applicable" if step_result.skip_reason_code == MISSING_MODULE_SKIP_CODE else "blocked"
+        result = {"status": status, "module": module, "requirements": []}
+        if supplied:
+            result["review_error"] = "step-call review is unused for %s" % status
+        return result
+    payload = step_result.checker_json
+    if payload is None:
+        return {"status": "blocked", "module": module, "requirements": [],
+                "review_error": "step-call review is unused for a structural blocker" if supplied else None}
+    missing = payload["missing"]
+    if payload.get("parse_error") or payload.get("stubs") or payload.get("shared_point"):
+        return {"status": "blocked", "module": module, "requirements": [],
+                "review_error": "step-call review is unused for checker diagnostics" if supplied else None}
+    if any(item.key in ("compile", "playbook") and item.status in ("fail", "error") for item in results):
+        return {"status": "blocked", "module": module, "requirements": [],
+                "review_error": "step-call review is unused for a structural blocker" if supplied else None}
+    base_steps = _git_show(paths.root, base, paths.steps) if base else None
+    requirements = _review_requirements(missing, base_steps)
+    if not requirements:
+        result = {"status": "ready", "module": module, "requirements": []}
+        if supplied:
+            result["review_error"] = "step-call review is unused when no calls are missing"
+        return result
+    template, template_error = _review_template(args.gear, base, paths, requirements)
+    records, error = _validate_review(supplied, args.gear,
+                                      base, paths, requirements)
+    if error:
+        result = {"status": "review_required", "module": module, "requirements": requirements,
+                  "review_error": template_error or error}
+        if template is not None:
+            result["review_template"] = template
+        return result
+    for requirement in requirements:
+        review = next(item for item in records if item["name"] == requirement["name"] and
+                      bool(item["has_receiver"]) == bool(requirement["has_receiver"]))
+        requirement["review"] = review["decision"]
+    if any(item["review"] == "draft_fault" for item in requirements):
+        return {"status": "blocked", "module": module, "requirements": requirements}
+    return {"status": "emit_required", "module": module, "requirements": requirements}
+
+
+def apply_handoff_policy(results, handoff):
+    if handoff.get("status") != "emit_required":
+        return results
+    for index, result in enumerate(results):
+        if result.key == "step_calls":
+            results[index] = dataclasses.replace(result, status="pass", policy_status="pass",
+                                                  disposition="emit_required")
+        elif result.key == "compile":
+            results[index] = dataclasses.replace(result, policy_status="pass",
+                                                  disposition="emit_required")
     return results
 
 
@@ -704,7 +1158,7 @@ def overall(results):
     return "pass", 0
 
 
-def render_text(results, paths, args):
+def render_text(results, paths, args, handoff=None):
     lines = ["run_compile_gates: %s  root=%s" % (args.gear, paths.root), ""]
     metadata = getattr(args, "_iteration_metadata", None)
     if metadata and metadata["iteration_mode"]:
@@ -727,7 +1181,7 @@ def render_text(results, paths, args):
                 reason = "%s [%s]" % (reason, r.skip_reason_code)
             lines.append("  SKIP  %-11s %s" % (r.key, reason))
             continue
-        tag = status_tag[r.status]
+        tag = "EMIT" if r.disposition == "emit_required" else status_tag[r.status]
         dur = "(%.2fs)" % r.duration_s if r.duration_s is not None else ""
         head = headline(r)
         lines.append(("  %-5s %-11s %s  %s" % (tag, r.key, dur, head)).rstrip())
@@ -747,6 +1201,8 @@ def render_text(results, paths, args):
 
     counts = compute_counts(results)
     verdict, _exit_code = overall(results)
+    if handoff and getattr(args, "step_call_review", None) and handoff.get("review_error") and verdict == "pass":
+        verdict = "fail"
     lines.append("")
     lines.append("verdict: %s -- %d passed, %d failed, %d skipped, %d errored"
                  % (verdict.upper(), counts["pass"], counts["fail"], counts["skip"],
@@ -787,6 +1243,11 @@ def build_json(results, paths, args, metadata=None):
             "skip_reason": r.skip_reason,
             "fault": r.fault,
             "skip_reason_code": r.skip_reason_code,
+            "check_status": ("fail" if r.disposition == "emit_required" else None),
+            "check_exit_code": (1 if r.disposition == "emit_required" else None),
+            "checker_json": r.checker_json,
+            "policy_status": r.policy_status,
+            "disposition": r.disposition,
         })
     obj = {
         "schema": SCHEMA,
@@ -871,10 +1332,34 @@ def _emit(obj, text, args):
     return obj["exit_code"]
 
 
+def _reject_unused_review(obj, handoff, args):
+    if getattr(args, "step_call_review", None) and handoff.get("review_error") and obj["exit_code"] == 0:
+        obj["verdict"] = "fail"
+        obj["exit_code"] = 1
+    return obj
+
+
 def main(argv=None):
     args = parse_args(sys.argv[1:] if argv is None else argv)
     paths = resolve_paths(args.gear, args.root)
     started = time.monotonic()
+    args._handoff_setup_error = None
+
+    if args.handoff_base is not None:
+        args._handoff_base, handoff_error = resolve_iteration_base(paths.root, args.handoff_base)
+        if handoff_error:
+            args._handoff_base = None
+            args._handoff_setup_error = handoff_error
+    else:
+        args._handoff_base = None
+    if args._handoff_setup_error:
+        args._iteration_metadata = _default_metadata()
+        obj = _setup_error_json([args._handoff_setup_error], paths, args, args._iteration_metadata)
+        obj["handoff"] = {"status": "blocked", "module": paths.module, "requirements": []}
+        obj["timing"] = timing_metadata(args, [], args._iteration_metadata,
+                                         time.monotonic() - started)
+        return _emit(obj, "run_compile_gates: %s  root=%s\n\nsetup error:\n  - %s" %
+                     (args.gear, paths.root, args._handoff_setup_error), args)
 
     if args.iteration_base is not None:
         resolved_base, base_error = resolve_iteration_base(paths.root, args.iteration_base)
@@ -907,9 +1392,14 @@ def main(argv=None):
             metadata["effective_proof_scope"] = "omitted"
         faults = classify(results)
         results = [dataclasses.replace(r, fault=faults.get(r.key)) for r in results]
+        handoff = handoff_for(results, paths, args)
+        args._handoff_status = handoff["status"]
+        results = apply_handoff_policy(results, handoff)
         obj = build_json(results, paths, args, metadata)
+        obj["handoff"] = handoff
+        _reject_unused_review(obj, handoff, args)
         obj["timing"] = timing_metadata(args, results, metadata, time.monotonic() - started)
-        return _emit(obj, render_text(results, paths, args), args)
+        return _emit(obj, render_text(results, paths, args, handoff), args)
 
     errors = setup_errors(paths, args)
     if errors:
@@ -926,11 +1416,16 @@ def main(argv=None):
     finalize_default_metadata(args._iteration_metadata, results)
     faults = classify(results)
     results = [dataclasses.replace(r, fault=faults.get(r.key)) for r in results]
+    handoff = handoff_for(results, paths, args)
+    args._handoff_status = handoff["status"]
+    results = apply_handoff_policy(results, handoff)
 
     obj = build_json(results, paths, args, args._iteration_metadata)
+    obj["handoff"] = handoff
+    _reject_unused_review(obj, handoff, args)
     obj["timing"] = timing_metadata(args, results, args._iteration_metadata,
                                      time.monotonic() - started)
-    return _emit(obj, render_text(results, paths, args), args)
+    return _emit(obj, render_text(results, paths, args, handoff), args)
 
 
 if __name__ == "__main__":

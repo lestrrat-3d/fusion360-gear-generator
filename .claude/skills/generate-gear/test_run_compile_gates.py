@@ -7,6 +7,7 @@ throwaway repo in a tempfile.TemporaryDirectory(), writes stub gate scripts and 
 unittest.mock.patch.object.
 """
 import contextlib
+import copy
 import importlib.util
 import io
 import json
@@ -699,6 +700,89 @@ class CompileWorkflowInstructionTests(unittest.TestCase):
         self.assertIn('ordinary complete', skill)
         self.assertIn('require a pass from the ordinary complete', skill)
         self.assertIn('Reuse the latest report', skill)
+
+
+class HandoffBindingTests(unittest.TestCase):
+    def test_checker_payload_requires_exact_machine_types(self):
+        payload = {'ok': True, 'named_calls': 1, 'missing': [], 'stubs': [],
+                   'shared_point': [], 'parse_error': None}
+        self.assertIsNone(RUNNER._validate_checker_payload(payload))
+        payload['missing'] = [{'name': 'op', 'has_receiver': 1, 'textual_match': False}]
+        self.assertIn('invalid types', RUNNER._validate_checker_payload(payload))
+
+    def test_missing_shapes_keep_new_existing_and_unknown_origins(self):
+        missing = [{'name': 'old', 'has_receiver': True, 'textual_match': False},
+                   {'name': 'new', 'has_receiver': True, 'textual_match': False}]
+        self.assertEqual([item['origin'] for item in RUNNER._review_requirements(
+            missing, b'Call `sketch.old()`.')], ['already_required', 'new_since_base'])
+        self.assertEqual({item['origin'] for item in RUNNER._review_requirements(missing, None)},
+                         {'baseline_unknown'})
+
+    def test_review_binding_rejects_missing_duplicate_and_stale_decisions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'spec').mkdir()
+            (root / 'lib' / 'geargen').mkdir(parents=True)
+            (root / 'spec' / 'x' ).mkdir()
+            (root / 'spec' / 'x' / 'steps.md').write_text('Call `newOp()`\n', encoding='utf-8')
+            (root / 'lib' / 'geargen' / 'x.py').write_text('newOp()\n', encoding='utf-8')
+            paths = RUNNER.Paths(str(root), 'x', 'spec/x/steps.md', 'proof/x', 'lib/geargen/x.py')
+            requirements = [{'name': 'newOp', 'has_receiver': False, 'textual_match': False,
+                             'origin': 'new_since_base'}]
+            allowed = [{'path': 'spec/x/steps.md',
+                        'sha256': RUNNER.sha256_bytes((root / 'spec/x/steps.md').read_bytes())}]
+            with mock.patch.object(RUNNER, '_allowed_evidence', return_value=(allowed, None)):
+                review, error = RUNNER._review_template('x', 'a' * 40, paths, requirements)
+            self.assertIsNone(error)
+            self.assertEqual(review['requirements'], [
+                {'name': 'newOp', 'has_receiver': False, 'decision': None, 'evidence': [], 'reason': ''}])
+            review['requirements'][0].update({
+                'decision': 'emit_required',
+                'evidence': [dict(allowed[0], line=1)],
+                'reason': 'The source requires this call.',
+            })
+            review_path = root / 'review.json'
+            review_path.write_text(json.dumps(review), encoding='utf-8')
+            with mock.patch.object(RUNNER, '_allowed_evidence', return_value=(allowed, None)):
+                records, error = RUNNER._validate_review(str(review_path), 'x', 'a' * 40,
+                                                         paths, requirements)
+            self.assertIsNone(error)
+            self.assertEqual(records[0]['decision'], 'emit_required')
+            for name, expected in (
+                    ('missing', 'must decide every missing requirement'),
+                    ('duplicate', 'duplicate or unknown requirement'),
+                    ('stale', 'stale step-call review binding'),
+                    ('empty-reason', 'malformed step-call review requirement')):
+                with self.subTest(name=name):
+                    invalid = copy.deepcopy(review)
+                    if name == 'missing':
+                        invalid['requirements'] = []
+                    elif name == 'duplicate':
+                        invalid['requirements'].append(copy.deepcopy(invalid['requirements'][0]))
+                    elif name == 'stale':
+                        invalid['binding']['module_sha256'] = '0' * 64
+                    else:
+                        invalid['requirements'][0]['reason'] = ''
+                    review_path.write_text(json.dumps(invalid), encoding='utf-8')
+                    with mock.patch.object(RUNNER, '_allowed_evidence', return_value=(allowed, None)):
+                        records, error = RUNNER._validate_review(str(review_path), 'x', 'a' * 40,
+                                                                 paths, requirements)
+                    self.assertIsNone(records)
+                    self.assertIn(expected, error)
+
+    def test_compile_policy_records_handoff_and_requires_complete_proof(self):
+        args = type('Args', (), {'only': None})()
+        metadata = {'iteration_mode': False, 'proof_is_complete': True,
+                    'effective_proof_scope': 'full'}
+        results = [type('Stage', (), {'key': 'proof', 'status': 'pass', 'skip_reason': None})(),
+                   type('Stage', (), {'key': 'step_calls', 'status': 'pass', 'skip_reason': None})()]
+        args._handoff_status = 'emit_required'
+        timing = importlib.util.spec_from_file_location('timing_handoff_test',
+            CHECKER_PATH.with_name('pipeline_timing.py'))
+        module = importlib.util.module_from_spec(timing)
+        timing.loader.exec_module(module)
+        self.assertEqual(module.compile_policy_for_run(args, results, metadata)['handoff_status'],
+                         'emit_required')
 
 
 if __name__ == '__main__':

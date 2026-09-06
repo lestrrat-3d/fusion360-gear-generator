@@ -113,9 +113,10 @@ proof is where the next reader is looking for the missing check.
    command refuses both placements if it would refuse either; exit 2 means nothing moved. There
    is no `--run`; the gate runner below runs the proof.
 
-   Then run `python3 .claude/skills/generate-gear/run_compile_gates.py <gear> >
-   .tmp/<gear>.compile-gates.txt` from the repo root and read the file for the verdict. The stored
-   copy is also what a retry round hands back to the drafter.
+   Then run
+   `python3 .claude/skills/generate-gear/run_compile_gates.py <gear> --handoff-base <commit>
+   --json-out .tmp/<gear>.compile-gates.json > .tmp/<gear>.compile-gates.txt`. Repeat both options
+   on every retry and final invocation. The JSON file is authoritative for emission.
    It runs `bash proof/run.sh`, then `check_compile.py <gear>`, then
    `extract_playbook.py <gear> --min-anchors 1`, then — only when `lib/geargen/<gear>.py`
    exists — `check_step_calls.py`, in that order, and prints one verdict
@@ -150,6 +151,26 @@ proof is where the next reader is looking for the missing check.
    has to be able to compile a gear that has no implementation yet. Classify by reading the
    drafted step list around each printed name in `.tmp/<gear>.steps.md`; that is the only text
    the classification needs.
+
+Missing step calls require an explicit reviewing-agent JSON record copied from the runner's
+noncircular template. Create and complete it with:
+
+```sh
+jq '.handoff.review_template' .tmp/<gear>.compile-gates.json \
+  > .tmp/<gear>.step-call-review.json
+python3 .claude/skills/generate-gear/run_compile_gates.py <gear> \
+  --handoff-base <the commit in .tmp/<gear>.compile-base> \
+  --step-call-review .tmp/<gear>.step-call-review.json \
+  --json-out .tmp/<gear>.compile-gates.json \
+  > .tmp/<gear>.compile-gates.txt
+```
+
+Edit the review file between these commands. Select allowed source evidence, add a positive line
+number, and fill each decision and reason. Do not compute a digest. The runner reports
+`review_required` until that record is supplied, and reports `emit_required` only when every
+missing shape is classified for emission. Parse, stub, shared-point and draft-fault findings remain
+blocked. Invoke `/emit-gear <gear>` only after the reviewed compile JSON passes, and report success
+only after the ordinary complete emit battery passes.
 
 6. **Diagnose and loop.** Classify any failure with the table below. A draft fault goes back to
    the drafter, up to about three rounds in total. A prose fault stops the run. Read, at this
