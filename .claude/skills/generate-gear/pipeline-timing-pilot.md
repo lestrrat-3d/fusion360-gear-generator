@@ -75,7 +75,8 @@ For the compile run, use `run_compile_gates.py <gear> --json-out "$TIMING/compil
 and import that report. Then create a fresh timing directory for the emit run after placement.
 A selective, fail-fast, no-advisory, or incomplete proof report remains evidence for diagnostics
 and cannot qualify as a full first pass. Contract skips qualify only when the runner reports an
-actual not-applicable manifest reason.
+actual not-applicable manifest reason. A linked compile-plus-emit result is incomplete until the
+ordinary emit runner passes with `check_step_calls` blocking.
 
 Repeat the direct-emit run for each pilot gear. Keep retries as separate numbered rounds in one
 run, and import every complete report once per round. Compare `drafting_time_s`,

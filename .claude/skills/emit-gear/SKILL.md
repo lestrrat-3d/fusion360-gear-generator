@@ -100,7 +100,8 @@ the advisory findings.
 ## Gates
 
 `run_gates.py` runs every row below, in a cost-ordered sequence, and continues past a failure so
-one complete submission battery reports every problem. The one exception is a parse failure, which
+one complete submission battery reports every problem. The `check_step_calls` result remains
+blocking, including after a reviewed compile handoff. The one exception is a parse failure, which
 skips the gates that read the candidate as Python and runs only the anchor check. The commands are
 listed so a single gate can be re-run by hand; the runner prints the exact command for each row it
 reports. A manual re-run diagnoses a row only; it never replaces the complete submission battery.

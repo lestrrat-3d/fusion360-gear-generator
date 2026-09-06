@@ -606,6 +606,7 @@ def compile_policy_for_run(args, results, metadata):
         "mode": "full" if full else "selected",
         "proof_scope": metadata.get("effective_proof_scope"),
         "proof_is_complete": bool(metadata.get("proof_is_complete")),
+        "handoff_status": getattr(args, "_handoff_status", "ready"),
         "first_pass_eligible": eligible,
     }
 
