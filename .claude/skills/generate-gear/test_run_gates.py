@@ -13,6 +13,7 @@ import os
 import stat
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -491,6 +492,119 @@ class SelectionTests(BaseGateTest):
         make_all_stubs(self.scripts)
         exit_code, text, parsed = run(root, self.scripts, GEAR, '--only', 'nope')
         self.assertEqual(exit_code, 2)
+
+
+class SharedTypeGateTests(BaseGateTest):
+    def fake_modules(self, calls, *, setup_error=None, novel=False):
+        root = self.tmp
+        reference = os.path.join(root, 'lib', 'geargen', 'reference.py')
+        os.makedirs(os.path.dirname(reference), exist_ok=True)
+        with open(reference, 'w') as handle:
+            handle.write('reference = 1\n')
+
+        class FakePyright:
+            @staticmethod
+            def analyze_paths(paths, **kwargs):
+                calls.append((list(paths), kwargs))
+                candidate = os.path.abspath(paths[-1])
+                diagnostics = {os.path.abspath(path): [] for path in paths}
+                if novel:
+                    diagnostics[candidate] = [{
+                        'rule': 'reportUndefinedVariable',
+                        'message': 'new finding',
+                        'range': {'start': {'line': 0}},
+                    }]
+                return SimpleNamespace(
+                    setup_error=setup_error,
+                    diagnostics=diagnostics,
+                    metadata=SimpleNamespace(duration_s=1.25, invocations=[object()]),
+                )
+
+            @staticmethod
+            def classify(diagnostic):
+                return 'BLOCK' if diagnostic.get('rule') == 'reportUndefinedVariable' else 'REVIEW'
+
+            @staticmethod
+            def report_diagnostics(diagnostics, name, **_kwargs):
+                blocking = [diagnostic for diagnostic in diagnostics
+                            if diagnostic.get('rule') == 'reportUndefinedVariable']
+                return {
+                    'text': 'pyright_check %s: %d blocking, 0 review, 0 ignored' %
+                            (name, len(blocking)),
+                    'blocking': blocking,
+                }
+
+        class FakeNovel:
+            @staticmethod
+            def reference_gears(_reference, _candidate):
+                return [reference]
+
+            @staticmethod
+            def evaluate_analysis(_result, candidate, references):
+                return {
+                    'candidate': os.path.abspath(candidate),
+                    'gears': references,
+                    'accepted_hits': 0,
+                    'baseline_count': 0,
+                    'novel': ([{'rule': 'reportUndefinedVariable', 'message': 'new finding',
+                               'range': {'start': {'line': 0}}}] if novel else []),
+                }
+
+            @staticmethod
+            def render_evaluation(evaluation, *, gate=False):
+                if evaluation['novel']:
+                    return 'novel-type check: 1 complaint(s) no shipped gear produces', 1 if gate else 0
+                return 'novel-type check: OK', 0
+
+        return {'pyright': FakePyright, 'novel_types': FakeNovel}
+
+    def test_both_type_gates_share_one_analysis_and_duration(self):
+        root = make_repo(self.tmp, contract='{}')
+        calls = []
+        make_all_stubs(self.scripts)
+        fake_modules = self.fake_modules(calls, novel=True)
+        with mock.patch.object(RUNNER, 'load_type_modules', return_value=fake_modules):
+            exit_code, _text, parsed = run(root, self.scripts, GEAR)
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0][-1], os.path.join(root, '.tmp', 'spurgear.generated.py'))
+        by_key = {gate['key']: gate for gate in parsed['gates']}
+        self.assertEqual(by_key['pyright']['status'], 'fail')
+        self.assertEqual(by_key['novel_types']['status'], 'note')
+        self.assertEqual(by_key['pyright']['duration_s'], parsed['metadata']['analysis_duration_s'])
+        self.assertEqual(by_key['novel_types']['duration_s'], 0.0)
+        self.assertEqual(parsed['metadata']['analysis_invocations'], 1)
+        self.assertEqual(parsed['metadata']['analysis_pyright_duration_s'], 1.25)
+
+    def test_selection_passes_only_required_paths_to_analysis(self):
+        root = make_repo(self.tmp, contract='{}')
+        make_all_stubs(self.scripts)
+        for selection, expected_count in (('pyright', 1), ('novel_types', 2)):
+            calls = []
+            fake_modules = self.fake_modules(calls)
+            with self.subTest(selection=selection):
+                with mock.patch.object(RUNNER, 'load_type_modules', return_value=fake_modules):
+                    _exit_code, _text, parsed = run(root, self.scripts, GEAR, '--only', selection)
+                self.assertEqual(len(calls), 1)
+                self.assertEqual(len(calls[0][0]), expected_count)
+                selected = next(gate for gate in parsed['gates'] if gate['key'] == selection)
+                self.assertEqual(selected['status'], 'pass')
+
+    def test_shared_setup_error_is_reported_to_both_type_consumers(self):
+        root = make_repo(self.tmp, contract='{}')
+        make_all_stubs(self.scripts)
+        calls = []
+        fake_modules = self.fake_modules(calls, setup_error='analysis timed out')
+        with mock.patch.object(RUNNER, 'load_type_modules', return_value=fake_modules):
+            exit_code, _text, parsed = run(root, self.scripts, GEAR)
+
+        self.assertEqual(exit_code, 2)
+        by_key = {gate['key']: gate for gate in parsed['gates']}
+        self.assertEqual(by_key['pyright']['status'], 'error')
+        self.assertEqual(by_key['novel_types']['status'], 'error')
+        self.assertEqual(by_key['pyright']['fault'], 'setup')
+        self.assertEqual(by_key['novel_types']['fault'], 'setup')
 
 
 def GATE_TITLES_MINUS(*exclude):
