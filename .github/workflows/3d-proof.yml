@@ -138,14 +138,50 @@ jobs:
           echo "sketch now at $(git -C "$GITHUB_WORKSPACE/sketch" rev-parse --short=12 HEAD)"
           echo "decad now at $(git -C "$GITHUB_WORKSPACE/decad" rev-parse --short=12 HEAD)"
 
-      # Both paths are workspace-relative, and the repository is checked out into gears/, so
-      # the module sits at gears/proof/. setup-go only looks for a bare go.sum at the workspace
-      # root when cache-dependency-path is unset, and finding none it warns, derives no cache
-      # key, and saves nothing at the end of the job — caching was inert here, not merely cold.
+      # setup-go's own caching is off, and the two steps below do the work instead. It derives
+      # ONE key from the dependency files alone, and it hands actions/cache no restore-keys at
+      # all: its cache-restore.ts calls restoreCache with a primary key and nothing else. Two
+      # things follow, and the second is a defect.
+      #
+      # A cache entry is never rewritten. When the restore hits the primary key actions/cache
+      # skips the save, so a key that stays the same while its contents go stale is not a cold
+      # cache, it is a permanently wrong one. Editing a proof source moves no dependency file,
+      # so under setup-go's key the entry froze at whatever the run that created it stored, the
+      # edited package re-executed on every run from then on, and nothing was ever saved. That
+      # was measured on a throwaway branch: after one source edit, two runs with identical
+      # inputs each re-ran the edited package and each logged "not saving cache".
+      #
+      # Adding the sources to cache-dependency-path would fix the staleness and lose the
+      # fallback, because setup-go has no restore-keys: every source edit would miss outright
+      # and re-download the module cache with it. So the two caches are separated here. The
+      # module cache's content is decided by the dependency files alone. The build and test
+      # cache's content is decided by those AND by the proof sources, which decide the test
+      # binary Go's test cache matches on, and it carries the fallbacks setup-go cannot: the
+      # first recovers a sibling entry built from the same module graph, so a source edit costs
+      # one execution rather than a rebuild as well, and the second matches the key shape used
+      # before the source component existed.
+      #
+      # Every path below is workspace-relative, and the repository is checked out into gears/,
+      # so the module sits at gears/proof/.
       - uses: actions/setup-go@v5
         with:
           go-version-file: gears/proof/go.mod
-          cache-dependency-path: gears/proof/go.sum
+          cache: false
+
+      - name: Restore the module cache
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: proof-mod-${{ runner.os }}-${{ hashFiles('gears/proof/go.sum', 'gears/proof/go.mod') }}
+
+      - name: Restore the build and test cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: proof-build-${{ runner.os }}-${{ hashFiles('gears/proof/go.sum', 'gears/proof/go.mod') }}-${{ hashFiles('gears/proof/**/*.go') }}
+          restore-keys: |
+            proof-build-${{ runner.os }}-${{ hashFiles('gears/proof/go.sum', 'gears/proof/go.mod') }}-
+            proof-build-${{ runner.os }}-
 
       - name: Run proof runner regression tests
         run: bash proof/run_test.sh
