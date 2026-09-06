@@ -41,6 +41,17 @@ The spec + playbook together MUST be sufficient. If they are not, fix the spec o
 - `gear` (default `spurgear`): names the spec `spec/<gear>/instructions.md` and the output
   `lib/geargen/<gear>.py` (generated first to the scratch path `.tmp/<gear>.generated.py`).
 
+## Optional pipeline timing
+
+For an opt-in timing run, use `.claude/skills/generate-gear/pipeline_timing.py` and follow the
+event boundaries in [the pipeline timing pilot](pipeline-timing-pilot.md). Record observed
+`preflight`, `input_reading`, `drafting`, `validation`,
+`placement`, and `overall` events around the existing commands. Import the complete gate JSON
+after validation so its runner policy remains attached to the timing data.
+Use one `drafting` round per draft attempt, including retries. A validation event covers the
+complete runner invocation and its report import; record advisory triage only after reviewing
+the advisory findings.
+
 ## Procedure
 
 1. **Setup.** Work in a worktree (per the repo's CLAUDE.md — never the root checkout). Ensure

@@ -709,6 +709,40 @@ def compute_counts(results):
     return counts
 
 
+def _timing_policy(args, results):
+    """Ask the timing module to describe this runner's real gate policy."""
+    try:
+        module_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                   "pipeline_timing.py")
+        spec = importlib.util.spec_from_file_location("run_gates_pipeline_timing", module_path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        return module.gate_policy_for_run(args, results)
+    except Exception as error:
+        return {"kind": "run_gates", "available": False, "error": str(error)}
+
+
+def timing_metadata(args, results, wall_time_s, analysis_metadata=None):
+    """Return additive elapsed-time metadata while retaining every gate row unchanged."""
+    gate_duration = round(sum(result.duration_s for result in results
+                              if result.duration_s is not None), 6)
+    timing = {
+        "schema": 1,
+        "wall_time_s": round(float(wall_time_s), 6),
+        "gate_duration_s": gate_duration,
+        "gate_policy": _timing_policy(args, results),
+    }
+    if analysis_metadata:
+        for key in ("analysis_duration_s", "analysis_pyright_duration_s",
+                    "analysis_invocations", "analysis_shared", "analysis_timing_note"):
+            if key in analysis_metadata:
+                timing[key] = analysis_metadata[key]
+    policy = timing["gate_policy"]
+    timing["first_pass_eligible"] = bool(policy.get("first_pass_eligible", False))
+    return timing
+
+
 def overall(results, args):
     """('setup_error', 2) if any status is 'error'; else ('fail', 1) if any status is 'fail';
     else ('pass', 0)."""
@@ -768,7 +802,7 @@ def render_text(results, classification, paths, args):
     return "\n".join(lines)
 
 
-def build_json(results, classification, paths, args, analysis_metadata=None):
+def build_json(results, classification, paths, args, analysis_metadata=None, timing=None):
     verdict, exit_code = overall(results, args)
     counts = compute_counts(results)
     gates = []
@@ -799,6 +833,7 @@ def build_json(results, classification, paths, args, analysis_metadata=None):
         "gates": gates,
         "classification": classification,
         "metadata": analysis_metadata or {},
+        "timing": timing or {},
     }
 
 
@@ -814,6 +849,7 @@ def _setup_error_json(errors, paths, args):
         "gates": [],
         "classification": [],
         "setup_errors": errors,
+        "timing": {},
     }
 
 
@@ -826,10 +862,12 @@ def _write_json_out(path, obj):
 def main(argv=None):
     args = parse_args(sys.argv[1:] if argv is None else argv)
     paths = resolve_paths(args.gear, args.candidate, args.root)
+    started = time.monotonic()
 
     errors = setup_errors(paths, args)
     if errors:
         obj = _setup_error_json(errors, paths, args)
+        obj["timing"] = timing_metadata(args, [], time.monotonic() - started)
         line = JSON_MARKER + json.dumps(obj)
         if args.json_out:
             _write_json_out(args.json_out, obj)
@@ -851,7 +889,8 @@ def main(argv=None):
     results = [dataclasses.replace(r, fault=fault_by_gate.get(r.key, r.fault))
                for r in results]
 
-    obj = build_json(results, classification, paths, args, analysis_metadata)
+    timing = timing_metadata(args, results, time.monotonic() - started, analysis_metadata)
+    obj = build_json(results, classification, paths, args, analysis_metadata, timing)
     line = JSON_MARKER + json.dumps(obj)
     if args.json_out:
         _write_json_out(args.json_out, obj)
