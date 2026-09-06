@@ -14,6 +14,17 @@ the pipeline exists to make trustworthy.
 - `gear` (default `spurgear`) names `spec/<gear>/steps.md` and `proof/<gear>/`, and the output
   `lib/geargen/<gear>.py`.
 
+## Optional pipeline timing
+
+For an opt-in timing run, use `.claude/skills/generate-gear/pipeline_timing.py` and follow the
+event boundaries in [the pipeline timing pilot](../generate-gear/pipeline-timing-pilot.md).
+Record observed `preflight`, `input_reading`, `drafting`, `validation`,
+`placement`, and `overall` events around the existing commands. Import the complete gate JSON
+after validation so its runner policy remains attached to the timing data.
+Use one `drafting` round per draft attempt, including retries. A validation event covers the
+complete runner invocation and its report import; record advisory triage only after reviewing
+the advisory findings.
+
 ## Procedure
 
 1. **Setup.** Work in a worktree, never the root checkout. Ensure `.tmp/` exists. Run
