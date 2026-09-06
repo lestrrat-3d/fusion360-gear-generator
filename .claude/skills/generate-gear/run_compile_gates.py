@@ -139,6 +139,7 @@ class StageResult:
     stderr: str
     skip_reason: str | None
     fault: str | None
+    skip_reason_code: str | None = None
 
 
 @dataclass
@@ -185,6 +186,8 @@ def parse_args(argv):
     p.add_argument("--json-out", default=None)
     p.add_argument("--format", choices=["text", "json"], default="text")
     p.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
+    p.add_argument("--iteration-base", default=None,
+                   help="run a focused retry based on changes after COMMIT")
     args = p.parse_args(argv)
     if args.only:
         args.only = [k.strip() for k in args.only.split(",") if k.strip()]
@@ -200,6 +203,124 @@ def resolve_paths(gear, root_arg):
                  steps=os.path.join("spec", gear, "steps.md"),
                  proof_dir=os.path.join("proof", gear),
                  module=os.path.join("lib", "geargen", "%s.py" % gear))
+
+
+def resolve_iteration_base(root, base):
+    """Resolve an iteration base to one full commit before any gate starts."""
+    if not base:
+        return None, "iteration base must be a non-empty commit or ref"
+    command = ["git", "-C", root, "rev-parse", "--verify", "--end-of-options",
+               "%s^{commit}" % base]
+    try:
+        proc = subprocess.run(command, capture_output=True, text=True)
+    except OSError as exc:
+        return None, "cannot resolve iteration base %r: %s" % (base, exc)
+    resolved = proc.stdout.strip()
+    if proc.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}", resolved):
+        detail = proc.stderr.strip() or "unknown commit or ref"
+        return None, "cannot resolve iteration base %r: %s" % (base, detail)
+    return resolved, None
+
+
+def _parse_name_status_z(payload):
+    """Return paths named by `git diff --name-status -z`, including rename endpoints."""
+    fields = payload.split(b"\0")
+    if fields and fields[-1] == b"":
+        fields.pop()
+    paths = []
+    index = 0
+    while index < len(fields):
+        status = fields[index]
+        index += 1
+        if not status:
+            continue
+        if status[:1] in (b"R", b"C"):
+            if index + 1 >= len(fields):
+                return None, "incomplete rename record from git"
+            paths.extend((os.fsdecode(fields[index]), os.fsdecode(fields[index + 1])))
+            index += 2
+        else:
+            if index >= len(fields):
+                return None, "incomplete path record from git"
+            paths.append(os.fsdecode(fields[index]))
+            index += 1
+    return paths, None
+
+
+def _git_name_status(root, args):
+    command = ["git", "-C", root] + list(args)
+    try:
+        proc = subprocess.run(command, capture_output=True)
+    except OSError as exc:
+        return [], "cannot inspect Git changes: %s" % exc
+    if proc.returncode != 0:
+        detail = os.fsdecode(proc.stderr).strip() or "git command failed"
+        return [], "cannot inspect Git changes: %s" % detail
+    return _parse_name_status_z(proc.stdout)
+
+
+def changed_paths(root, base):
+    """Collect committed, staged, unstaged, and relevant untracked paths via NUL output."""
+    all_paths = []
+    commands = [
+        ["diff", "--name-status", "--find-renames", "-z", base, "HEAD", "--"],
+        ["diff", "--name-status", "--find-renames", "-z", "HEAD", "--"],
+        ["diff", "--cached", "--name-status", "--find-renames", "-z", "--"],
+    ]
+    for command_args in commands:
+        paths, error = _git_name_status(root, command_args)
+        if error:
+            return None, error
+        all_paths.extend(paths)
+
+    command = ["git", "-C", root, "ls-files", "--others", "--exclude-standard", "-z", "--"]
+    try:
+        proc = subprocess.run(command, capture_output=True)
+    except OSError as exc:
+        return None, "cannot inspect untracked Git files: %s" % exc
+    if proc.returncode != 0:
+        detail = os.fsdecode(proc.stderr).strip() or "git command failed"
+        return None, "cannot inspect untracked Git files: %s" % detail
+    fields = proc.stdout.split(b"\0")
+    if fields and fields[-1] == b"":
+        fields.pop()
+    all_paths.extend(os.fsdecode(field) for field in fields if field)
+    return set(all_paths), None
+
+
+def iteration_scope(root, gear, base):
+    """Return proof scope metadata; unknown Git state deliberately expands to full."""
+    paths, error = changed_paths(root, base)
+    if error:
+        return {
+            "effective_proof_scope": "expanded-full",
+            "selected_packages": [],
+            "full_suite_reason": "git_state_unknown",
+            "full_suite_detail": error,
+        }
+    allowed = ("spec/%s/" % gear, "proof/%s/" % gear)
+    outside = sorted(path for path in paths if not path.startswith(allowed))
+    if outside:
+        return {
+            "effective_proof_scope": "expanded-full",
+            "selected_packages": [],
+            "full_suite_reason": "shared_or_other_path_changed",
+            "full_suite_detail": "changed paths outside the gear inputs: %s" % ", ".join(outside),
+        }
+    if not paths:
+        return {
+            "effective_proof_scope": "expanded-full",
+            "selected_packages": [],
+            "full_suite_reason": "no_relevant_changes",
+            "full_suite_detail": "no non-ignored paths changed after the supplied base",
+        }
+    package = "./%s" % gear
+    return {
+        "effective_proof_scope": "selected",
+        "selected_packages": [package],
+        "full_suite_reason": None,
+        "full_suite_detail": None,
+    }
 
 
 def active_keys(args):
@@ -281,6 +402,40 @@ def setup_errors(paths, args):
     return errors
 
 
+def iteration_setup_errors(paths, args):
+    """Check only inputs needed before the cheap iteration stages can begin."""
+    errors = []
+    if not GEAR_NAME.match(args.gear):
+        errors.append("gear name %r does not match [a-z][a-z0-9_]*" % args.gear)
+        return errors
+    if not os.path.isdir(paths.root):
+        errors.append("repo root is not a directory: %s" % paths.root)
+        return errors
+    if args.only:
+        errors.append("--only cannot be combined with --iteration-base")
+        return errors
+    if not os.path.isfile(_abs(paths.root, paths.steps)):
+        errors.append("step list not found: %s -- draft it before checking" % paths.steps)
+    for key in ("compile", "playbook"):
+        script_name = STAGE_SCRIPTS[key]
+        if not os.path.isfile(os.path.join(scripts_dir(), script_name)):
+            errors.append("gate script missing: %s (needed for '%s')" % (script_name, key))
+    return errors
+
+
+def iteration_proof_setup_errors(paths):
+    """Return proof setup errors after cheap checks have passed."""
+    errors = []
+    proof_abs = _abs(paths.root, paths.proof_dir)
+    if not os.path.isdir(proof_abs):
+        errors.append("proof directory not found: %s" % paths.proof_dir)
+    elif not _proof_go_files(proof_abs):
+        errors.append("proof directory %s holds no .go file" % paths.proof_dir)
+    if not os.path.isfile(_abs(paths.root, PROOF_RUNNER)):
+        errors.append("proof runner not found: %s" % PROOF_RUNNER)
+    return errors
+
+
 # --- stage plan ------------------------------------------------------------------------------
 def _script_path(name, paths):
     return _root_relative(os.path.join(scripts_dir(), name), paths.root)
@@ -316,6 +471,22 @@ def build_plan(paths, args):
             plan.append((key, title, None, MODULE_ABSENT_REASON % args.gear))
             continue
         plan.append((key, title, stage_command(key, paths), None))
+    return plan
+
+
+def build_iteration_plan(paths, args, scope):
+    """Build cheap-first commands; proof is appended only after their results are known."""
+    plan = []
+    for key in ("compile", "playbook", "step_calls"):
+        title = STAGE_TITLES[key]
+        if key == "step_calls" and not module_exists(paths):
+            plan.append((key, title, None, MODULE_ABSENT_REASON % args.gear))
+            continue
+        plan.append((key, title, stage_command(key, paths), None))
+    proof_args = [] if scope["effective_proof_scope"] == "expanded-full" else [
+        "--package", scope["selected_packages"][0]]
+    proof_command = ["bash", PROOF_RUNNER] + proof_args
+    plan.append(("proof", STAGE_TITLES["proof"], proof_command, None))
     return plan
 
 
@@ -376,6 +547,43 @@ def execute(plan, paths, args):
         if args.fail_fast and result.status in ("fail", "error") and stopped_by is None:
             stopped_by = key
     return results
+
+
+def _iteration_failure_code(result):
+    if result.status == "error":
+        return "%s_setup_failure" % result.key
+    return "%s_content_failure" % result.key
+
+
+def execute_iteration(paths, args, scope):
+    """Run compile/playbook first, retain step-call output, and gate proof execution."""
+    preliminary = build_iteration_plan(paths, args, scope)[:3]
+    results = execute(preliminary, paths, args)
+    cheap_failures = [r for r in results if r.key in ("compile", "playbook") and
+                      r.status in ("fail", "error")]
+    failures = [r for r in results if r.status in ("fail", "error")]
+    if cheap_failures or (args.fail_fast and failures):
+        codes = [_iteration_failure_code(result) for result in
+                 (cheap_failures if cheap_failures else failures)]
+        reason = "proof_omitted_after_%s" % "_and_".join(codes)
+        results.append(StageResult(
+            "proof", STAGE_TITLES["proof"], "skip", None, None,
+            build_iteration_plan(paths, args, scope)[-1][2], "", "",
+            "proof omitted: %s" % ", ".join(codes), None, reason))
+        return results, reason, codes
+
+    proof_errors = iteration_proof_setup_errors(paths)
+    proof_command = build_iteration_plan(paths, args, scope)[-1][2]
+    if proof_errors:
+        result = StageResult("proof", STAGE_TITLES["proof"], "error", 2, None,
+                             proof_command, "", "\n".join(proof_errors), None, None,
+                             "proof_setup_failure")
+        results.append(result)
+        return results, None, []
+
+    results.append(run_stage("proof", STAGE_TITLES["proof"], proof_command,
+                             paths.root, args.timeout))
+    return results, None, []
 
 
 # --- classification -----------------------------------------------------------------------
@@ -469,10 +677,26 @@ def overall(results):
 
 def render_text(results, paths, args):
     lines = ["run_compile_gates: %s  root=%s" % (args.gear, paths.root), ""]
+    metadata = getattr(args, "_iteration_metadata", None)
+    if metadata and metadata["iteration_mode"]:
+        lines.append("iteration: base=%s" % metadata["iteration_base"])
+        scope = metadata["effective_proof_scope"]
+        lines.append("proof scope: %s" % scope)
+        if metadata.get("full_suite_reason"):
+            detail = metadata.get("full_suite_detail")
+            lines.append("full-suite expansion reason: %s%s" % (
+                metadata["full_suite_reason"], " (%s)" % detail if detail else ""))
+        if metadata.get("proof_omission_reason"):
+            lines.append("proof omission reason: %s" % metadata["proof_omission_reason"])
+        lines.append("iteration proof is not a complete final proof")
+        lines.append("")
     status_tag = {"pass": "PASS", "fail": "FAIL", "error": "ERROR"}
     for r in results:
         if r.status == "skip":
-            lines.append("  SKIP  %-11s %s" % (r.key, r.skip_reason))
+            reason = r.skip_reason or ""
+            if r.skip_reason_code:
+                reason = "%s [%s]" % (reason, r.skip_reason_code)
+            lines.append("  SKIP  %-11s %s" % (r.key, reason))
             continue
         tag = status_tag[r.status]
         dur = "(%.2fs)" % r.duration_s if r.duration_s is not None else ""
@@ -517,7 +741,7 @@ def render_text(results, paths, args):
     return "\n".join(lines)
 
 
-def build_json(results, paths, args):
+def build_json(results, paths, args, metadata=None):
     verdict, exit_code = overall(results)
     stages = []
     for r in results:
@@ -533,8 +757,9 @@ def build_json(results, paths, args):
             "stderr": r.stderr,
             "skip_reason": r.skip_reason,
             "fault": r.fault,
+            "skip_reason_code": r.skip_reason_code,
         })
-    return {
+    obj = {
         "schema": SCHEMA,
         "gear": args.gear,
         "root": paths.root,
@@ -543,10 +768,13 @@ def build_json(results, paths, args):
         "counts": compute_counts(results),
         "stages": stages,
     }
+    if metadata:
+        obj.update(metadata)
+    return obj
 
 
-def _setup_error_json(errors, paths, args):
-    return {
+def _setup_error_json(errors, paths, args, metadata=None):
+    obj = {
         "schema": SCHEMA,
         "gear": args.gear,
         "root": paths.root,
@@ -556,12 +784,50 @@ def _setup_error_json(errors, paths, args):
         "stages": [],
         "setup_errors": errors,
     }
+    if metadata:
+        obj.update(metadata)
+    return obj
 
 
 def _write_json_out(path, obj):
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(obj, fh, indent=2)
         fh.write("\n")
+
+
+def _default_metadata():
+    return {
+        "iteration_mode": False,
+        "iteration_base": None,
+        "effective_proof_scope": "omitted",
+        "planned_proof_scope": "full",
+        "selected_packages": [],
+        "full_suite_reason": None,
+        "full_suite_detail": None,
+        "proof_omission_reason": None,
+        "proof_omission_reasons": [],
+        "proof_is_complete": False,
+    }
+
+
+def _iteration_metadata(base):
+    metadata = _default_metadata()
+    metadata.update({
+        "iteration_mode": True,
+        "iteration_base": base,
+        "proof_is_complete": False,
+    })
+    return metadata
+
+
+def finalize_default_metadata(metadata, results):
+    proof = next((result for result in results if result.key == "proof"), None)
+    if proof and proof.status != "skip":
+        metadata["effective_proof_scope"] = "full"
+        metadata["proof_is_complete"] = proof.status == "pass" and "--package" not in proof.command
+    else:
+        metadata["effective_proof_scope"] = "omitted"
+        metadata["proof_is_complete"] = False
 
 
 def _emit(obj, text, args):
@@ -580,18 +846,53 @@ def main(argv=None):
     args = parse_args(sys.argv[1:] if argv is None else argv)
     paths = resolve_paths(args.gear, args.root)
 
+    if args.iteration_base is not None:
+        resolved_base, base_error = resolve_iteration_base(paths.root, args.iteration_base)
+        metadata = _iteration_metadata(resolved_base)
+        args._iteration_metadata = metadata
+        if base_error:
+            obj = _setup_error_json([base_error], paths, args, metadata)
+            report = ["run_compile_gates: %s  root=%s" % (args.gear, paths.root), "",
+                      "setup error:", "  - %s" % base_error]
+            return _emit(obj, "\n".join(report), args)
+
+        errors = iteration_setup_errors(paths, args)
+        if errors:
+            obj = _setup_error_json(errors, paths, args, metadata)
+            report = ["run_compile_gates: %s  root=%s" % (args.gear, paths.root), "",
+                      "setup error:"]
+            report.extend("  - %s" % error for error in errors)
+            return _emit(obj, "\n".join(report), args)
+
+        scope = iteration_scope(paths.root, args.gear, resolved_base)
+        metadata.update(scope)
+        metadata["planned_proof_scope"] = metadata["effective_proof_scope"]
+        results, omission_reason, omission_reasons = execute_iteration(paths, args, scope)
+        metadata["proof_omission_reason"] = omission_reason
+        metadata["proof_omission_reasons"] = omission_reasons
+        proof_result = next(result for result in results if result.key == "proof")
+        if omission_reason or proof_result.skip_reason_code == "proof_setup_failure":
+            metadata["effective_proof_scope"] = "omitted"
+        faults = classify(results)
+        results = [dataclasses.replace(r, fault=faults.get(r.key)) for r in results]
+        obj = build_json(results, paths, args, metadata)
+        return _emit(obj, render_text(results, paths, args), args)
+
     errors = setup_errors(paths, args)
     if errors:
-        obj = _setup_error_json(errors, paths, args)
+        args._iteration_metadata = _default_metadata()
+        obj = _setup_error_json(errors, paths, args, args._iteration_metadata)
         report = ["run_compile_gates: %s  root=%s" % (args.gear, paths.root), "", "setup error:"]
         report.extend("  - %s" % e for e in errors)
         return _emit(obj, "\n".join(report), args)
 
+    args._iteration_metadata = _default_metadata()
     results = execute(build_plan(paths, args), paths, args)
+    finalize_default_metadata(args._iteration_metadata, results)
     faults = classify(results)
     results = [dataclasses.replace(r, fault=faults.get(r.key)) for r in results]
 
-    obj = build_json(results, paths, args)
+    obj = build_json(results, paths, args, args._iteration_metadata)
     return _emit(obj, render_text(results, paths, args), args)
 
 
