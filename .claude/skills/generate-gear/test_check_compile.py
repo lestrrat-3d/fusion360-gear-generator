@@ -2712,9 +2712,12 @@ class ProofRunArityDerivationTest(unittest.TestCase):
         """
         self.assertEqual(COMPILE_CHECKER.proof_run_shapes().arguments, {
             'proofkit.Run': 3,
+            'proofkit.RunParallel': 3,
             'proofkit3d.Run': 4,
             'proofkit3d.RunSolid': 4,
+            'proofkit3d.RunSolidParallel': 4,
             'proofkit3d.RunWithGate': 5,
+            'proofkit3d.RunWithGateParallel': 5,
         })
 
     def test_parameter_count_is_of_parameters_not_commas_in_the_source(self):
