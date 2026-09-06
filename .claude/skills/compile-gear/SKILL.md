@@ -19,6 +19,17 @@ until the proof is green and both describe the same build.
   single file: a gear splits its sketch proof, its solid proof and the geometry they share across
   as many Go files as the split needs.
 
+## Optional pipeline timing
+
+For an opt-in timing run, use `.claude/skills/generate-gear/pipeline_timing.py` and follow the
+event boundaries in [the pipeline timing pilot](../generate-gear/pipeline-timing-pilot.md).
+Record observed `preflight`, `input_reading`, `drafting`, `validation`,
+`placement`, and `overall` events around the existing commands. Import the complete gate JSON
+after validation so its runner policy and proof completeness remain attached to the timing data.
+Use one `drafting` round per draft attempt, including retries. A validation event covers the
+complete runner invocation and its report import; record advisory triage only after reviewing
+the advisory findings.
+
 ## What a step is
 
 A step is one entry in the Fusion timeline. Drawing a whole sketch is a single step, however much
@@ -158,7 +169,8 @@ proof is where the next reader is looking for the missing check.
    hand the printed output to the drafter unchanged. The first round's prompt is always the
    rendered standard prompt with no failure file.
 
-   After staging a retry draft, run
+   For every returned retry draft, repeat step 4's scaffold and placement commands before its
+   iteration validation starts. Then run
    `python3 .claude/skills/generate-gear/run_compile_gates.py <gear> --iteration-base
    "$(cat .tmp/<gear>.compile-base)" > .tmp/<gear>.compile-gates.txt`. This runs compile and
    playbook checks first, then selects `proof/<gear>/` only when changed paths stay within that

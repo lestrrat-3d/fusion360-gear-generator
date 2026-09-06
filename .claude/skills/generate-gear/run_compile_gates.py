@@ -56,6 +56,7 @@ Exit codes:
 """
 import argparse
 import dataclasses
+import importlib.util
 import json
 import os
 import re
@@ -666,6 +667,34 @@ def compute_counts(results):
     return counts
 
 
+def _timing_policy(args, results, metadata):
+    """Ask the timing module to describe this runner's proof policy."""
+    try:
+        module_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                   "pipeline_timing.py")
+        spec = importlib.util.spec_from_file_location("run_compile_pipeline_timing", module_path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        return module.compile_policy_for_run(args, results, metadata)
+    except Exception as error:
+        return {"kind": "run_compile_gates", "available": False, "error": str(error)}
+
+
+def timing_metadata(args, results, metadata, wall_time_s):
+    """Return additive elapsed-time metadata while retaining the stage report unchanged."""
+    stage_duration = round(sum(result.duration_s for result in results
+                               if result.duration_s is not None), 6)
+    policy = _timing_policy(args, results, metadata)
+    return {
+        "schema": 1,
+        "wall_time_s": round(float(wall_time_s), 6),
+        "stage_duration_s": stage_duration,
+        "gate_policy": policy,
+        "first_pass_eligible": bool(policy.get("first_pass_eligible", False)),
+    }
+
+
 def overall(results):
     """('error', 2) if any stage errored; else ('fail', 1) if any failed; else ('pass', 0)."""
     if any(r.status == "error" for r in results):
@@ -845,6 +874,7 @@ def _emit(obj, text, args):
 def main(argv=None):
     args = parse_args(sys.argv[1:] if argv is None else argv)
     paths = resolve_paths(args.gear, args.root)
+    started = time.monotonic()
 
     if args.iteration_base is not None:
         resolved_base, base_error = resolve_iteration_base(paths.root, args.iteration_base)
@@ -852,6 +882,7 @@ def main(argv=None):
         args._iteration_metadata = metadata
         if base_error:
             obj = _setup_error_json([base_error], paths, args, metadata)
+            obj["timing"] = timing_metadata(args, [], metadata, time.monotonic() - started)
             report = ["run_compile_gates: %s  root=%s" % (args.gear, paths.root), "",
                       "setup error:", "  - %s" % base_error]
             return _emit(obj, "\n".join(report), args)
@@ -859,6 +890,7 @@ def main(argv=None):
         errors = iteration_setup_errors(paths, args)
         if errors:
             obj = _setup_error_json(errors, paths, args, metadata)
+            obj["timing"] = timing_metadata(args, [], metadata, time.monotonic() - started)
             report = ["run_compile_gates: %s  root=%s" % (args.gear, paths.root), "",
                       "setup error:"]
             report.extend("  - %s" % error for error in errors)
@@ -876,12 +908,15 @@ def main(argv=None):
         faults = classify(results)
         results = [dataclasses.replace(r, fault=faults.get(r.key)) for r in results]
         obj = build_json(results, paths, args, metadata)
+        obj["timing"] = timing_metadata(args, results, metadata, time.monotonic() - started)
         return _emit(obj, render_text(results, paths, args), args)
 
     errors = setup_errors(paths, args)
     if errors:
         args._iteration_metadata = _default_metadata()
         obj = _setup_error_json(errors, paths, args, args._iteration_metadata)
+        obj["timing"] = timing_metadata(args, [], args._iteration_metadata,
+                                         time.monotonic() - started)
         report = ["run_compile_gates: %s  root=%s" % (args.gear, paths.root), "", "setup error:"]
         report.extend("  - %s" % e for e in errors)
         return _emit(obj, "\n".join(report), args)
@@ -893,6 +928,8 @@ def main(argv=None):
     results = [dataclasses.replace(r, fault=faults.get(r.key)) for r in results]
 
     obj = build_json(results, paths, args, args._iteration_metadata)
+    obj["timing"] = timing_metadata(args, results, args._iteration_metadata,
+                                     time.monotonic() - started)
     return _emit(obj, render_text(results, paths, args), args)
 
 
