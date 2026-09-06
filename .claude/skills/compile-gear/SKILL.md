@@ -47,8 +47,10 @@ proof is where the next reader is looking for the missing check.
 
 ## Procedure
 
-1. **Setup.** Work in a worktree, never the root checkout. Ensure `.tmp/` exists. Run
-   `python3 .claude/skills/generate-gear/preflight.py <gear> --stage compile --default-model
+1. **Setup.** Work in a worktree, never the root checkout. Ensure `.tmp/` exists. Record the
+   immutable retry base before drafting with `git rev-parse HEAD > .tmp/<gear>.compile-base`.
+   Keep this commit unchanged throughout retries; shared changes must expand iteration scope.
+   Run `python3 .claude/skills/generate-gear/preflight.py <gear> --stage compile --default-model
    <the session's default model>` and fix every
    `[FAIL]` before drafting; it verifies the engines, the go toolchain and the API database so a
    broken environment fails here instead of mid-run. Read this file end to end. Do **not** read
@@ -156,7 +158,16 @@ proof is where the next reader is looking for the missing check.
    hand the printed output to the drafter unchanged. The first round's prompt is always the
    rendered standard prompt with no failure file.
 
-7. **Place.** On success, run `python3 .claude/skills/generate-gear/stage.py <gear> compile`
+   After staging a retry draft, run
+   `python3 .claude/skills/generate-gear/run_compile_gates.py <gear> --iteration-base
+   "$(cat .tmp/<gear>.compile-base)" > .tmp/<gear>.compile-iteration.txt`. This runs compile and
+   playbook checks first, then selects `proof/<gear>/` only when changed paths stay within that
+   gear. Shared or unknown changes expand the proof to the full suite. Iteration output is feedback
+   only and is never the final proof.
+
+7. **Place.** Before successful placement or reporting, rerun the ordinary complete gate runner
+   from step 4 and require its pass verdict. On success, run
+   `python3 .claude/skills/generate-gear/stage.py <gear> compile`
    from the repo root. It repeats step 4's placement of the step list and the proof, so it
    should report every file unchanged; it exists as a step so a run whose gates were green
    ends with the working tree verified to match the draft. This writes files and the git index
