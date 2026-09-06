@@ -160,13 +160,16 @@ proof is where the next reader is looking for the missing check.
 
    After staging a retry draft, run
    `python3 .claude/skills/generate-gear/run_compile_gates.py <gear> --iteration-base
-   "$(cat .tmp/<gear>.compile-base)" > .tmp/<gear>.compile-iteration.txt`. This runs compile and
+   "$(cat .tmp/<gear>.compile-base)" > .tmp/<gear>.compile-gates.txt`. This runs compile and
    playbook checks first, then selects `proof/<gear>/` only when changed paths stay within that
    gear. Shared or unknown changes expand the proof to the full suite. Iteration output is feedback
-   only and is never the final proof.
+   only and is never the final proof. The canonical report path stays the same so the next retry
+   receives the latest diagnostics.
 
-7. **Place.** Before successful placement or reporting, rerun the ordinary complete gate runner
-   from step 4 and require its pass verdict. On success, run
+7. **Place.** Before successful placement or reporting, require a pass from the ordinary complete
+   gate runner for the current artifacts. Reuse the latest report when it is an ordinary full pass
+   and no inputs or artifacts changed since that run; rerun the ordinary runner after any focused
+   iteration, failed run, or change. On success, run
    `python3 .claude/skills/generate-gear/stage.py <gear> compile`
    from the repo root. It repeats step 4's placement of the step list and the proof, so it
    should report every file unchanged; it exists as a step so a run whose gates were green

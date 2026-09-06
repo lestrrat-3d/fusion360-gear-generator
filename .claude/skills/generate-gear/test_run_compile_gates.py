@@ -694,8 +694,11 @@ class CompileWorkflowInstructionTests(unittest.TestCase):
         root = CHECKER_PATH.parents[3]
         skill = (root / '.claude' / 'skills' / 'compile-gear' / 'SKILL.md').read_text()
         self.assertIn('--iteration-base', skill)
-        self.assertIn('ordinary complete gate runner', skill)
-        self.assertIn('require its pass verdict', skill)
+        self.assertIn('> .tmp/<gear>.compile-gates.txt', skill)
+        self.assertNotIn('.tmp/<gear>.compile-iteration.txt', skill)
+        self.assertIn('ordinary complete', skill)
+        self.assertIn('require a pass from the ordinary complete', skill)
+        self.assertIn('Reuse the latest report', skill)
 
 
 if __name__ == '__main__':
