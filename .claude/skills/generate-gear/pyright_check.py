@@ -59,6 +59,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import re
 from dataclasses import dataclass, field
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -97,6 +98,8 @@ class AnalysisMetadata:
     pyright_argv: tuple[str, ...] = ()
     invocations: list[AnalysisInvocation] = field(default_factory=list)
     duration_s: float | None = None
+    requested_source_count: int = 0
+    diagnostic_count: int = 0
 
 
 @dataclass
@@ -234,6 +237,47 @@ def _remap_diagnostic(diagnostic, target_to_source, root, config_directory):
     return result
 
 
+def normalize_diagnostic(diagnostic, source, root=None):
+    """Return stable, root-relative fields used to compare standalone and batch runs."""
+    resolved_root = os.path.abspath(root or repo_root())
+    reported = diagnostic.get("file") or source
+    source_path = os.path.abspath(source)
+    if reported:
+        reported = os.path.abspath(os.path.normpath(reported))
+    else:
+        reported = source_path
+    try:
+        relative = os.path.relpath(reported, resolved_root)
+    except ValueError:
+        relative = reported
+    if relative.startswith(".."):
+        relative = reported
+    relative = relative.replace(os.sep, "/")
+    relative = re.sub(r"(?:^|/)(__pyright_candidate_|\.pyright-check-)[^/]+", "", relative)
+    rng = diagnostic.get("range") or {}
+    start = rng.get("start") or {}
+    end = rng.get("end") or {}
+    return {
+        "source": relative,
+        "severity": diagnostic.get("severity", "error"),
+        "rule": diagnostic.get("rule"),
+        "start": {"line": start.get("line", 0), "character": start.get("character", 0)},
+        "end": {"line": end.get("line", 0), "character": end.get("character", 0)},
+        "message": diagnostic.get("message", ""),
+    }
+
+
+def normalized_diagnostics(result, root=None):
+    """Return deterministically sorted normalized diagnostics for all requested sources."""
+    values = []
+    for source in sorted(result.diagnostics):
+        for diagnostic in result.diagnostics[source]:
+            values.append(normalize_diagnostic(diagnostic, source, root or result.metadata.root))
+    return sorted(values, key=lambda item: (
+        item["source"], item["start"]["line"], item["start"]["character"],
+        item["end"]["line"], item["end"]["character"], item["rule"] or "", item["message"]))
+
+
 def _valid_paths(paths):
     """Normalize and validate paths before resolving tools or creating scratch files."""
     if isinstance(paths, (str, bytes, os.PathLike)):
@@ -289,6 +333,7 @@ def analyze_paths(paths, *, stubs=None, no_install=False, root=None,
     metadata = AnalysisMetadata(root=resolved_root)
     if path_error:
         return AnalysisResult({}, metadata, path_error)
+    metadata.requested_source_count = len(normalized)
 
     pkg = os.path.join(resolved_root, "lib", "geargen")
     tmp = os.path.join(resolved_root, ".tmp")
@@ -320,10 +365,14 @@ def analyze_paths(paths, *, stubs=None, no_install=False, root=None,
     config_directory = tmp
     targets = []
     cleanup_targets = []
-    target_to_source = {}
+    target_to_sources = {}
+    source_realpaths = set()
     for source in normalized:
         target = source
-        if os.path.dirname(source) != os.path.abspath(pkg):
+        source_realpath = os.path.realpath(source)
+        aliased_source = source_realpath in source_realpaths
+        source_realpaths.add(source_realpath)
+        if os.path.dirname(source) != os.path.abspath(pkg) or aliased_source:
             cleanup_target = None
             try:
                 cleanup_target = _scratch_file(pkg, "__pyright_candidate_", ".py")
@@ -337,8 +386,8 @@ def analyze_paths(paths, *, stubs=None, no_install=False, root=None,
                 return AnalysisResult(diagnostics, metadata,
                                       f"could not prepare candidate {source}: {error}")
         targets.append(target)
-        target_to_source[os.path.abspath(target)] = source
-        target_to_source[os.path.realpath(target)] = source
+        target_to_sources.setdefault(os.path.abspath(target), []).append(source)
+        target_to_sources.setdefault(os.path.realpath(target), []).append(source)
 
     config_path = None
     invocation = None
@@ -393,15 +442,27 @@ def analyze_paths(paths, *, stubs=None, no_install=False, root=None,
             if not isinstance(diagnostic, dict):
                 return AnalysisResult(diagnostics, metadata,
                                       "pyright returned malformed JSON: diagnostic is not an object")
-            remapped = _remap_diagnostic(
-                diagnostic, target_to_source, resolved_root, config_directory)
-            source = remapped.get("file")
-            if source in diagnostics:
-                diagnostics[source].append(remapped)
+            reported = _reported_paths(diagnostic.get("file"), resolved_root, config_directory)
+            matching = []
+            for reported_path in reported:
+                matching.extend(target_to_sources.get(reported_path, ()))
+            matching = list(dict.fromkeys(matching))
+            if matching:
+                for source in matching:
+                    remapped = dict(diagnostic)
+                    remapped["file"] = source
+                    diagnostics[source].append(remapped)
             elif len(normalized) == 1:
                 # Imported files are attributed to the sole requested source, matching the
                 # standalone checker behavior from task 01.
+                remapped = _remap_diagnostic(diagnostic, {}, resolved_root, config_directory)
                 diagnostics[normalized[0]].append(remapped)
+            else:
+                return AnalysisResult(
+                    diagnostics, metadata,
+                    "pyright reported a diagnostic for an unknown source: %s" %
+                    diagnostic.get("file"))
+        metadata.diagnostic_count = sum(len(items) for items in diagnostics.values())
         return AnalysisResult(diagnostics, metadata)
     finally:
         metadata.duration_s = round(time.monotonic() - started, 2)

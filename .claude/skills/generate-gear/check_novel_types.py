@@ -65,6 +65,7 @@ import json
 import os
 import re
 import sys
+from dataclasses import dataclass
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -403,6 +404,22 @@ def reference_gears(reference, candidate):
     return gears
 
 
+@dataclass(frozen=True)
+class NoveltyPlan:
+    candidate: str
+    references: tuple[str, ...]
+
+
+def plan_evaluation(reference_dir, candidate):
+    """Build one plan while retaining all existing candidate exclusions."""
+    candidate = os.path.abspath(candidate)
+    references = tuple(reference_gears(reference_dir, candidate))
+    if not references:
+        raise AnalysisSetupError("no reference gears under %s, nothing to compare against" %
+                                 reference_dir)
+    return NoveltyPlan(candidate, references)
+
+
 def evaluate_analysis(result, candidate, gears):
     """Compare one batched analysis result with the candidate and reference paths.
 
@@ -440,6 +457,11 @@ def evaluate_analysis(result, candidate, gears):
         'gears': list(gears),
         'candidate': candidate_path,
     }
+
+
+def evaluate_planned_analysis(result, plan):
+    """Evaluate shared analysis with the exact references captured by ``plan``."""
+    return evaluate_analysis(result, plan.candidate, plan.references)
 
 
 def render_evaluation(evaluation, *, gate=False):
