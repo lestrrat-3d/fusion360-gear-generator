@@ -58,6 +58,21 @@ class ReferenceGearTests(unittest.TestCase):
                 [str(shipped)],
             )
 
+    def test_symlink_and_path_alias_candidates_exclude_the_same_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            reference = Path(directory) / 'reference'
+            reference.mkdir()
+            source = reference / 'spurgear.py'
+            source.write_text('source gear\n')
+            (reference / 'othergear.py').write_text('other gear\n')
+            alias = Path(directory) / 'alias.py'
+            alias.symlink_to(source)
+
+            self.assertEqual(
+                MODULE.reference_gears(str(reference), str(alias)),
+                [str(reference / 'othergear.py')],
+            )
+
 
 class DiagnosticFilterTests(unittest.TestCase):
     def test_unverified_fusion_member_is_non_gating(self):

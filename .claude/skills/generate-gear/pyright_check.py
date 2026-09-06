@@ -58,6 +58,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass, field
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -76,12 +77,15 @@ except ImportError:
 
 @dataclass
 class AnalysisInvocation:
-    """Metadata for one serial Pyright invocation."""
+    """Metadata for one Pyright invocation."""
 
     source_path: str
     target_path: str
     config_path: str
     exit_code: int | None = None
+    source_paths: tuple[str, ...] = ()
+    target_paths: tuple[str, ...] = ()
+    duration_s: float | None = None
 
 
 @dataclass
@@ -92,6 +96,7 @@ class AnalysisMetadata:
     stubs: str | None = None
     pyright_argv: tuple[str, ...] = ()
     invocations: list[AnalysisInvocation] = field(default_factory=list)
+    duration_s: float | None = None
 
 
 @dataclass
@@ -161,19 +166,71 @@ def classify(diag):
     return "REVIEW"
 
 
-def _remap_diagnostic(diagnostic, target, source, root, config_directory):
-    """Copy a diagnostic and restore the source path after an internal candidate copy."""
-    result = dict(diagnostic)
-    reported = result.get("file")
-    reported_paths = set()
-    if reported:
-        if os.path.isabs(reported):
-            reported_paths.add(os.path.abspath(reported))
+def report_diagnostics(diagnostics, name, *, show_review=False):
+    """Format the CLI report and counts for one source's raw diagnostics."""
+    blocking, review, ignored = [], [], 0
+    for diagnostic in diagnostics:
+        verdict = classify(diagnostic)
+        line = diagnostic.get("range", {}).get("start", {}).get("line", 0) + 1
+        record = (line, diagnostic.get("rule") or "syntax",
+                  diagnostic.get("message", "").splitlines()[0])
+        if verdict == "BLOCK":
+            blocking.append(record)
+        elif verdict == "REVIEW":
+            review.append(record)
         else:
-            reported_paths.add(os.path.abspath(os.path.join(root, reported)))
-            reported_paths.add(os.path.abspath(os.path.join(config_directory, reported)))
-    if os.path.abspath(target) in reported_paths:
-        result["file"] = source
+            ignored += 1
+
+    lines = []
+    if blocking:
+        lines.append("BLOCKING (%d) — fix the spec/playbook and regenerate:" % len(blocking))
+        lines.extend("  L%d [%s] %s" % record for record in sorted(blocking))
+    if review:
+        if show_review:
+            lines.append("REVIEW (%d) — advisory; mostly stub artifacts, NOT a gate:" %
+                         len(review))
+            lines.extend("  L%d [%s] %s" % record for record in sorted(review))
+        else:
+            by_rule = {}
+            for _, rule, _ in review:
+                by_rule[rule] = by_rule.get(rule, 0) + 1
+            summary = ", ".join("%s×%d" % (rule, count)
+                                for rule, count in sorted(by_rule.items()))
+            lines.append("REVIEW (%d) advisory (stub pessimism dominates; not a gate — "
+                         "re-run with --review to list): %s" %
+                         (len(review), summary))
+    lines.append("pyright_check %s: %d blocking, %d review, %d ignored (stub false positives)"
+                 % (name, len(blocking), len(review), ignored))
+    return {
+        "text": "\n".join(lines),
+        "blocking": blocking,
+        "review": review,
+        "ignored": ignored,
+    }
+
+
+def _reported_paths(reported, root, config_directory):
+    """Return absolute forms Pyright may use for a reported file name."""
+    if not reported:
+        return set()
+    if os.path.isabs(reported):
+        return {os.path.abspath(reported)}
+    return {
+        os.path.abspath(os.path.join(root, reported)),
+        os.path.abspath(os.path.join(config_directory, reported)),
+    }
+
+
+def _remap_diagnostic(diagnostic, target_to_source, root, config_directory):
+    """Copy a diagnostic and restore the original path after internal candidate copies."""
+    result = dict(diagnostic)
+    for reported_path in _reported_paths(result.get("file"), root, config_directory):
+        source = target_to_source.get(reported_path)
+        if source is None:
+            source = target_to_source.get(os.path.realpath(reported_path))
+        if source is not None:
+            result["file"] = source
+            break
     return result
 
 
@@ -218,15 +275,14 @@ def _remove_scratch(path):
 
 
 def analyze_paths(paths, *, stubs=None, no_install=False, root=None,
-                  pyright_argv=None, quiet=True):
-    """Analyze source paths and return raw findings grouped by their original paths.
+                  pyright_argv=None, quiet=True, timeout=None):
+    """Analyze source paths in one Pyright invocation.
 
-    Pyright runs once per path in deterministic input order. Candidates outside ``root/lib``
-    are copied into a unique temporary module under ``lib/geargen`` so package-relative imports
-    continue to work. A unique config file is created for every invocation, includes are relative
-    to that config's directory, and both files are removed on every return path. Callers receive
-    :class:`AnalysisResult`; ``setup_error`` is explicit and means the empty diagnostics mapping
-    is not a successful analysis.
+    Candidates outside ``root/lib`` are copied into unique temporary modules under
+    ``lib/geargen`` so package-relative imports continue to work. The config includes every
+    target in deterministic input order, and all files created by this call are removed on every
+    return path. ``setup_error`` is explicit and means an empty diagnostics mapping is not a
+    successful analysis.
     """
     normalized, path_error = _valid_paths(paths)
     resolved_root = os.path.abspath(root or repo_root())
@@ -262,72 +318,98 @@ def analyze_paths(paths, *, stubs=None, no_install=False, root=None,
 
     diagnostics = {source: [] for source in normalized}
     config_directory = tmp
+    targets = []
+    cleanup_targets = []
+    target_to_source = {}
     for source in normalized:
         target = source
-        cleanup_target = None
         if os.path.dirname(source) != os.path.abspath(pkg):
+            cleanup_target = None
             try:
                 cleanup_target = _scratch_file(pkg, "__pyright_candidate_", ".py")
                 shutil.copyfile(source, cleanup_target)
                 target = cleanup_target
+                cleanup_targets.append(cleanup_target)
             except OSError as error:
                 _remove_scratch(cleanup_target)
+                for path in cleanup_targets:
+                    _remove_scratch(path)
                 return AnalysisResult(diagnostics, metadata,
                                       f"could not prepare candidate {source}: {error}")
+        targets.append(target)
+        target_to_source[os.path.abspath(target)] = source
+        target_to_source[os.path.realpath(target)] = source
 
-        config_path = None
-        invocation = None
+    config_path = None
+    invocation = None
+    started = time.monotonic()
+    try:
+        config_path = _scratch_file(config_directory, ".pyright-check-", ".json")
+        invocation = AnalysisInvocation(
+            normalized[0], targets[0], config_path,
+            source_paths=tuple(normalized), target_paths=tuple(targets))
+        metadata.invocations.append(invocation)
+        config = {
+            "typeCheckingMode": "standard",
+            "include": [os.path.relpath(target, config_directory) for target in targets],
+            "extraPaths": [stubs_path],
+            "reportMissingModuleSource": "none",
+        }
         try:
-            config_path = _scratch_file(config_directory, ".pyright-check-", ".json")
-            invocation = AnalysisInvocation(source, target, config_path)
-            metadata.invocations.append(invocation)
-            config = {
-                "typeCheckingMode": "standard",
-                "include": [os.path.relpath(target, config_directory)],
-                "extraPaths": [stubs_path],
-                "reportMissingModuleSource": "none",
-            }
-            try:
-                with open(config_path, "w", encoding="utf-8") as handle:
-                    json.dump(config, handle)
-            except (OSError, TypeError, ValueError) as error:
+            with open(config_path, "w", encoding="utf-8") as handle:
+                json.dump(config, handle)
+        except (OSError, TypeError, ValueError) as error:
+            return AnalysisResult(diagnostics, metadata,
+                                  f"could not write Pyright config {config_path}: {error}")
+        run_kwargs = dict(cwd=resolved_root, capture_output=True, text=True,
+                          env={**os.environ, **extra_env})
+        if timeout is not None:
+            run_kwargs["timeout"] = timeout
+        try:
+            proc = subprocess.run(
+                list(pyright_argv) + ["-p", config_path, "--outputjson"], **run_kwargs)
+        except subprocess.TimeoutExpired:
+            return AnalysisResult(diagnostics, metadata,
+                                  "pyright analysis timed out after %ss" % timeout)
+        except (OSError, subprocess.SubprocessError) as error:
+            return AnalysisResult(diagnostics, metadata,
+                                  f"pyright failed to execute: {error}")
+        invocation.exit_code = proc.returncode
+        if proc.returncode not in (0, 1):
+            detail = str(proc.stderr or "").strip()[:500]
+            message = "pyright exited with status %d" % proc.returncode
+            if detail:
+                message += ": " + detail
+            return AnalysisResult(diagnostics, metadata, message)
+        try:
+            data = json.loads(proc.stdout)
+        except (TypeError, json.JSONDecodeError) as error:
+            return AnalysisResult(diagnostics, metadata,
+                                  f"pyright returned malformed JSON: {error}")
+        if not isinstance(data, dict) or not isinstance(data.get("generalDiagnostics"), list):
+            return AnalysisResult(diagnostics, metadata,
+                                  "pyright returned malformed JSON: generalDiagnostics is missing")
+        for diagnostic in data["generalDiagnostics"]:
+            if not isinstance(diagnostic, dict):
                 return AnalysisResult(diagnostics, metadata,
-                                      f"could not write Pyright config {config_path}: {error}")
-            try:
-                proc = subprocess.run(
-                    list(pyright_argv) + ["-p", config_path, "--outputjson"],
-                    cwd=resolved_root, capture_output=True, text=True,
-                    env={**os.environ, **extra_env})
-            except (OSError, subprocess.SubprocessError) as error:
-                return AnalysisResult(diagnostics, metadata,
-                                      f"pyright failed to execute: {error}")
-            invocation.exit_code = proc.returncode
-            if proc.returncode not in (0, 1):
-                detail = str(proc.stderr or "").strip()[:500]
-                message = "pyright exited with status %d" % proc.returncode
-                if detail:
-                    message += ": " + detail
-                return AnalysisResult(diagnostics, metadata, message)
-            try:
-                data = json.loads(proc.stdout)
-            except (TypeError, json.JSONDecodeError) as error:
-                return AnalysisResult(diagnostics, metadata,
-                                      f"pyright returned malformed JSON: {error}")
-            if not isinstance(data, dict) or not isinstance(data.get("generalDiagnostics"), list):
-                return AnalysisResult(diagnostics, metadata,
-                                      "pyright returned malformed JSON: generalDiagnostics is missing")
-            source_diagnostics = []
-            for diagnostic in data["generalDiagnostics"]:
-                if not isinstance(diagnostic, dict):
-                    return AnalysisResult(diagnostics, metadata,
-                                          "pyright returned malformed JSON: diagnostic is not an object")
-                source_diagnostics.append(_remap_diagnostic(
-                    diagnostic, target, source, resolved_root, config_directory))
-            diagnostics.setdefault(source, []).extend(source_diagnostics)
-        finally:
-            _remove_scratch(config_path)
-            _remove_scratch(cleanup_target)
-    return AnalysisResult(diagnostics, metadata)
+                                      "pyright returned malformed JSON: diagnostic is not an object")
+            remapped = _remap_diagnostic(
+                diagnostic, target_to_source, resolved_root, config_directory)
+            source = remapped.get("file")
+            if source in diagnostics:
+                diagnostics[source].append(remapped)
+            elif len(normalized) == 1:
+                # Imported files are attributed to the sole requested source, matching the
+                # standalone checker behavior from task 01.
+                diagnostics[normalized[0]].append(remapped)
+        return AnalysisResult(diagnostics, metadata)
+    finally:
+        metadata.duration_s = round(time.monotonic() - started, 2)
+        if invocation is not None:
+            invocation.duration_s = metadata.duration_s
+        _remove_scratch(config_path)
+        for path in cleanup_targets:
+            _remove_scratch(path)
 
 
 def main():
@@ -356,41 +438,11 @@ def main():
             print("  ('query_fusion_api.py show <Name>', see fusion_api.py) for the adsk submodule.")
         sys.exit(2)
 
-    blocking, review, ignored = [], [], 0
-    for d in result.diagnostics.get(candidate, []):
-        verdict = classify(d)
-        line = d.get("range", {}).get("start", {}).get("line", 0) + 1
-        rec = (line, d.get("rule") or "syntax", d.get("message", "").splitlines()[0])
-        if verdict == "BLOCK":
-            blocking.append(rec)
-        elif verdict == "REVIEW":
-            review.append(rec)
-        else:
-            ignored += 1
-
     name = os.path.basename(candidate)
-    if blocking:
-        print(f"BLOCKING ({len(blocking)}) — fix the spec/playbook and regenerate:")
-        for ln, rule, msg in sorted(blocking):
-            print(f"  L{ln} [{rule}] {msg}")
-    # REVIEW is advisory and does NOT gate: on correct, shipped code (spurgear.py) it runs
-    # ~25-30, all stub pessimism / idiomatic downcasts. Collapse to a per-rule summary;
-    # expand with --review only when chasing a specific runtime AttributeError/NoneType.
-    if review:
-        if show_review:
-            print(f"REVIEW ({len(review)}) — advisory; mostly stub artifacts, NOT a gate:")
-            for ln, rule, msg in sorted(review):
-                print(f"  L{ln} [{rule}] {msg}")
-        else:
-            by_rule = {}
-            for _, rule, _ in review:
-                by_rule[rule] = by_rule.get(rule, 0) + 1
-            summary = ", ".join(f"{r}×{n}" for r, n in sorted(by_rule.items()))
-            print(f"REVIEW ({len(review)}) advisory (stub pessimism dominates; "
-                  f"not a gate — re-run with --review to list): {summary}")
-    print(f"pyright_check {name}: {len(blocking)} blocking, {len(review)} review, "
-          f"{ignored} ignored (stub false positives)")
-    sys.exit(1 if blocking else 0)
+    report = report_diagnostics(result.diagnostics.get(candidate, []), name,
+                                show_review=show_review)
+    print(report["text"])
+    sys.exit(1 if report["blocking"] else 0)
 
 
 if __name__ == "__main__":
