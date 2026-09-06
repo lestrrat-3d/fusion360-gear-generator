@@ -44,6 +44,10 @@ It changes nothing else: the engine revisions are still verified first, a bad op
 any of that output appears, and `go test` still decides the exit status. Run the whole suite
 before handing work over.
 
+Compile retries can use `run_compile_gates.py --iteration-base <commit>` to select one gear after
+cheap compile and playbook checks. The compile-gear skill owns that workflow; run the ordinary
+complete compile gate runner before handoff.
+
 ## When Fusion gives a verdict
 
 Loading a gear into Fusion is the only check that sees the real thing, and it happens with no

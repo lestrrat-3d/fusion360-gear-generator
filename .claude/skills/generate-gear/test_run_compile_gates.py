@@ -12,6 +12,7 @@ import io
 import json
 import os
 import stat
+import subprocess
 import tempfile
 import time
 import unittest
@@ -78,11 +79,14 @@ def make_stubs(scripts, overrides=None):
     return scripts
 
 
-def make_proof_runner(root, exit_code=0, stdout=PROOF_OK, stderr='', sleep=0.0, marker=None):
+def make_proof_runner(root, exit_code=0, stdout=PROOF_OK, stderr='', sleep=0.0, marker=None,
+                      argv_marker=None):
     """A stub `proof/run.sh` standing in for the Go proof."""
     lines = ['#!/usr/bin/env bash']
     if marker:
         lines.append('echo "$PWD" > %s' % marker)
+    if argv_marker:
+        lines.append('printf "%s\\n" "$@" > %s' % ("%s", argv_marker))
     if sleep:
         lines.append('sleep %s' % sleep)
     for line in stdout.splitlines():
@@ -127,6 +131,20 @@ def run(root, scripts, *argv):
     return exit_code, text, parsed
 
 
+def git(root, *args):
+    return subprocess.run(['git', '-C', root] + list(args), check=True,
+                          capture_output=True, text=True)
+
+
+def init_fixture_git(root):
+    git(root, 'init', '--quiet')
+    git(root, 'config', 'user.email', 'fixture@example.invalid')
+    git(root, 'config', 'user.name', 'fixture')
+    git(root, 'add', '.')
+    git(root, 'commit', '--quiet', '-m', 'base')
+    return git(root, 'rev-parse', 'HEAD').stdout.strip()
+
+
 class BaseRunnerTest(unittest.TestCase):
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
@@ -148,6 +166,8 @@ class HappyPathTests(BaseRunnerTest):
         exit_code, text, parsed = run(root, self.scripts, GEAR)
         self.assertEqual(exit_code, 0)
         self.assertEqual(parsed['verdict'], 'pass')
+        self.assertEqual(parsed['effective_proof_scope'], 'full')
+        self.assertTrue(parsed['proof_is_complete'])
         self.assertEqual([s['key'] for s in parsed['stages']], list(RUNNER.STAGE_ORDER))
         for stage in parsed['stages']:
             self.assertEqual(stage['status'], 'pass', msg=stage)
@@ -176,6 +196,16 @@ class HappyPathTests(BaseRunnerTest):
         run(root, self.scripts, GEAR)
         with open(marker) as fh:
             self.assertEqual(json.load(fh), [GEAR])
+
+    def test_default_proof_invocation_keeps_complete_wrapper_scope(self):
+        root = make_repo(self.tmp)
+        marker = os.path.join(self.tmp, 'proof-argv.txt')
+        make_stubs(self.scripts)
+        make_proof_runner(root, argv_marker=marker)
+        exit_code, _text, _parsed = run(root, self.scripts, GEAR)
+        self.assertEqual(exit_code, 0)
+        with open(marker) as fh:
+            self.assertEqual(fh.read().strip(), '')
 
 
 class ModuleAbsentTests(BaseRunnerTest):
@@ -359,6 +389,8 @@ class SelectionTests(BaseRunnerTest):
             self.assertEqual(by_key[key]['skip_reason'], 'not selected')
         self.assertFalse(os.path.exists(step_marker))
         self.assertFalse(os.path.exists(proof_marker))
+        self.assertEqual(parsed['effective_proof_scope'], 'omitted')
+        self.assertFalse(parsed['proof_is_complete'])
 
     def test_only_compile_does_not_need_the_proof_runner(self):
         root = make_repo(self.tmp)
@@ -491,6 +523,182 @@ class SetupErrorTests(BaseRunnerTest):
         self.assertEqual(stage['fault'], RUNNER.FAULT_SETUP)
         self.assertIn('timed out', stage['stderr'])
         self.assertLess(elapsed, 4)
+
+
+class IterationTests(BaseRunnerTest):
+    def setUp(self):
+        super().setUp()
+        make_repo(self.tmp, module='x = 1\n')
+        with open(os.path.join(self.tmp, 'PLAYBOOK.md'), 'w') as fh:
+            fh.write('# fixture playbook\n')
+        with open(os.path.join(self.tmp, '.gitignore'), 'w') as fh:
+            fh.write('scratch/\n')
+        self.proof_args = os.path.join(self.tmp, 'proof-args.txt')
+        make_stubs(self.scripts)
+        make_proof_runner(self.tmp, argv_marker=self.proof_args)
+        self.base = init_fixture_git(self.tmp)
+
+    def test_gear_only_change_selects_one_package_and_marks_iteration(self):
+        with open(os.path.join(self.tmp, 'spec', GEAR, 'instructions.md'), 'w') as fh:
+            fh.write('changed gear input\n')
+        exit_code, text, parsed = run(self.tmp, self.scripts, GEAR,
+                                     '--iteration-base', self.base)
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(parsed['iteration_mode'], True)
+        self.assertEqual(parsed['iteration_base'], self.base)
+        self.assertEqual(parsed['effective_proof_scope'], 'selected')
+        self.assertEqual(parsed['selected_packages'], ['./%s' % GEAR])
+        self.assertFalse(parsed['proof_is_complete'])
+        self.assertIn('proof scope: selected', text)
+        with open(self.proof_args) as fh:
+            self.assertEqual(fh.read().splitlines(), ['--package', './%s' % GEAR])
+
+    def test_shared_change_expands_full_scope(self):
+        with open(os.path.join(self.tmp, 'PLAYBOOK.md'), 'a') as fh:
+            fh.write('shared change\n')
+        exit_code, text, parsed = run(self.tmp, self.scripts, GEAR,
+                                     '--iteration-base', self.base)
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(parsed['effective_proof_scope'], 'expanded-full')
+        self.assertEqual(parsed['selected_packages'], [])
+        self.assertEqual(parsed['full_suite_reason'], 'shared_or_other_path_changed')
+        self.assertIn('full-suite expansion reason:', text)
+        with open(self.proof_args) as fh:
+            self.assertEqual(fh.read().strip(), '')
+
+    def test_committed_change_after_base_expands_scope(self):
+        with open(os.path.join(self.tmp, 'shared.txt'), 'w') as fh:
+            fh.write('shared\n')
+        git(self.tmp, 'add', 'shared.txt')
+        git(self.tmp, 'commit', '--quiet', '-m', 'shared')
+        exit_code, _text, parsed = run(self.tmp, self.scripts, GEAR,
+                                       '--iteration-base', self.base)
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(parsed['effective_proof_scope'], 'expanded-full')
+
+    def test_staged_unstaged_renamed_deleted_and_untracked_shared_paths_expand(self):
+        cases = ('staged', 'unstaged', 'renamed', 'deleted', 'untracked')
+        for case in cases:
+            with self.subTest(case=case):
+                root = tempfile.mkdtemp(dir=self.tmp)
+                make_repo(root, module='x = 1\n')
+                with open(os.path.join(root, 'PLAYBOOK.md'), 'w') as fh:
+                    fh.write('playbook\n')
+                marker = os.path.join(root, 'proof-args.txt')
+                scripts = os.path.join(root, 'scripts')
+                os.makedirs(scripts)
+                make_stubs(scripts)
+                make_proof_runner(root, argv_marker=marker)
+                with open(os.path.join(root, 'shared.txt'), 'w') as fh:
+                    fh.write('shared\n')
+                base = init_fixture_git(root)
+                if case == 'staged':
+                    with open(os.path.join(root, 'shared.txt'), 'a') as fh:
+                        fh.write('staged\n')
+                    git(root, 'add', 'shared.txt')
+                elif case == 'unstaged':
+                    with open(os.path.join(root, 'shared.txt'), 'a') as fh:
+                        fh.write('unstaged\n')
+                elif case == 'renamed':
+                    git(root, 'mv', 'shared.txt', 'other-shared.txt')
+                elif case == 'deleted':
+                    os.remove(os.path.join(root, 'shared.txt'))
+                else:
+                    with open(os.path.join(root, 'shared-untracked.txt'), 'w') as fh:
+                        fh.write('untracked\n')
+                exit_code, _text, parsed = run(root, scripts, GEAR,
+                                               '--iteration-base', base)
+                self.assertEqual(exit_code, 0)
+                self.assertEqual(parsed['effective_proof_scope'], 'expanded-full')
+
+    def test_ignored_scratch_does_not_expand_a_gear_only_change(self):
+        with open(os.path.join(self.tmp, 'spec', GEAR, 'instructions.md'), 'w') as fh:
+            fh.write('changed gear input\n')
+        os.makedirs(os.path.join(self.tmp, 'scratch'))
+        with open(os.path.join(self.tmp, 'scratch', 'ignored.txt'), 'w') as fh:
+            fh.write('ignored\n')
+        exit_code, _text, parsed = run(self.tmp, self.scripts, GEAR,
+                                       '--iteration-base', self.base)
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(parsed['effective_proof_scope'], 'selected')
+
+    def test_untracked_proof_go_source_is_relevant(self):
+        os.remove(os.path.join(self.tmp, 'proof', GEAR, 'proof.go'))
+        with open(os.path.join(self.tmp, 'proof', GEAR, 'new.go'), 'w') as fh:
+            fh.write('package spurgear\n')
+        exit_code, _text, parsed = run(self.tmp, self.scripts, GEAR,
+                                       '--iteration-base', self.base)
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(parsed['effective_proof_scope'], 'selected')
+
+    def test_invalid_base_and_only_fail_before_execution(self):
+        marker = os.path.join(self.tmp, 'ran.marker')
+        make_proof_runner(self.tmp, marker=marker)
+        for args in (('--iteration-base', 'not-a-commit'),
+                     ('--iteration-base', self.base, '--only', 'compile')):
+            with self.subTest(args=args):
+                exit_code, _text, parsed = run(self.tmp, self.scripts, GEAR, *args)
+                self.assertEqual(exit_code, 2)
+                self.assertEqual(parsed['stages'], [])
+                self.assertFalse(os.path.exists(marker))
+
+    def test_content_and_setup_failures_omit_proof_with_distinct_reasons(self):
+        for code, reason in ((1, 'compile_content_failure'), (2, 'compile_setup_failure')):
+            with self.subTest(code=code):
+                marker = os.path.join(self.tmp, 'proof-ran-%s.marker' % code)
+                make_proof_runner(self.tmp, marker=marker)
+                make_stubs(self.scripts, overrides={
+                    'compile': dict(exit_code=code, stdout='compile failed')})
+                exit_code, text, parsed = run(self.tmp, self.scripts, GEAR,
+                                             '--iteration-base', self.base)
+                self.assertEqual(exit_code, code)
+                self.assertEqual(parsed['effective_proof_scope'], 'omitted')
+                self.assertEqual(parsed['planned_proof_scope'], 'expanded-full')
+                self.assertEqual(parsed['proof_omission_reasons'], [reason])
+                self.assertIn(reason, parsed['proof_omission_reason'])
+                self.assertIn(reason, text)
+                self.assertFalse(os.path.exists(marker))
+
+    def test_selected_and_expanded_proof_failures_propagate(self):
+        make_proof_runner(self.tmp, exit_code=1, stdout='proof failed')
+        with open(os.path.join(self.tmp, 'spec', GEAR, 'instructions.md'), 'w') as fh:
+            fh.write('changed gear input\n')
+        exit_code, _text, parsed = run(self.tmp, self.scripts, GEAR,
+                                       '--iteration-base', self.base)
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(parsed['stages'][-1]['status'], 'fail')
+        make_proof_runner(self.tmp, exit_code=2, stderr='engine mismatch')
+        exit_code, _text, parsed = run(self.tmp, self.scripts, GEAR,
+                                       '--iteration-base', self.base)
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(parsed['stages'][-1]['status'], 'error')
+
+    def test_fail_fast_step_call_failure_omits_proof(self):
+        marker = os.path.join(self.tmp, 'proof-ran.marker')
+        make_proof_runner(self.tmp, marker=marker)
+        make_stubs(self.scripts, overrides={
+            'step_calls': dict(exit_code=1, stdout='step-call failed')})
+        exit_code, _text, parsed = run(self.tmp, self.scripts, GEAR,
+                                       '--iteration-base', self.base, '--fail-fast')
+        self.assertEqual(exit_code, 1)
+        by_key = {stage['key']: stage for stage in parsed['stages']}
+        self.assertEqual(by_key['step_calls']['status'], 'fail')
+        self.assertEqual(by_key['proof']['status'], 'skip')
+        self.assertEqual(parsed['proof_omission_reasons'], ['step_calls_content_failure'])
+        self.assertEqual(parsed['effective_proof_scope'], 'omitted')
+        self.assertFalse(os.path.exists(marker))
+
+
+class CompileWorkflowInstructionTests(unittest.TestCase):
+    def test_retry_instructions_require_final_complete_runner(self):
+        root = CHECKER_PATH.parents[3]
+        skill = (root / '.claude' / 'skills' / 'compile-gear' / 'SKILL.md').read_text()
+        self.assertIn('--iteration-base', skill)
+        self.assertIn('> .tmp/<gear>.compile-gates.txt', skill)
+        self.assertNotIn('.tmp/<gear>.compile-iteration.txt', skill)
+        self.assertIn('ordinary complete', skill)
+        self.assertIn('require a pass from the ordinary complete', skill)
+        self.assertIn('Reuse the latest report', skill)
 
 
 if __name__ == '__main__':
