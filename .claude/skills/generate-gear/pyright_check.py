@@ -57,11 +57,72 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
+from dataclasses import dataclass, field
+
+HERE = os.path.dirname(os.path.abspath(__file__))
 
 # Stub resolution/clone lives in a sibling module (sys.path[0] is this file's dir when run as a
 # script). One clone, one resolution policy.
-from fusion_stubs import resolve_defs, StubsUnavailable
-from pyright_boot import resolve_pyright, PyrightUnavailable
+try:
+    from .fusion_stubs import resolve_defs, StubsUnavailable
+    from .pyright_boot import resolve_pyright, PyrightUnavailable
+except ImportError:
+    if HERE not in sys.path:
+        sys.path.insert(0, HERE)
+    from fusion_stubs import resolve_defs, StubsUnavailable
+    from pyright_boot import resolve_pyright, PyrightUnavailable
+
+
+@dataclass
+class AnalysisInvocation:
+    """Metadata for one serial Pyright invocation."""
+
+    source_path: str
+    target_path: str
+    config_path: str
+    exit_code: int | None = None
+
+
+@dataclass
+class AnalysisMetadata:
+    """Execution metadata returned separately from raw diagnostics."""
+
+    root: str
+    stubs: str | None = None
+    pyright_argv: tuple[str, ...] = ()
+    invocations: list[AnalysisInvocation] = field(default_factory=list)
+
+
+@dataclass
+class AnalysisResult:
+    """Raw Pyright findings grouped by source path and an optional setup failure.
+
+    ``diagnostics`` contains the unclassified JSON diagnostic objects returned by Pyright.
+    Its keys are the original absolute paths passed to :func:`analyze_paths`, even when a
+    candidate was copied into ``lib/geargen`` to resolve relative imports. ``metadata`` records
+    the tool, config, and temporary target used for each invocation. ``setup_error`` is a
+    human-readable string when analysis could not run; callers must treat that as an exit-2
+    setup failure instead of interpreting an empty diagnostics mapping as success.
+    """
+
+    diagnostics: dict[str, list[dict]]
+    metadata: AnalysisMetadata
+    setup_error: str | None = None
+
+    @property
+    def findings(self):
+        """Alias for callers that use findings as the name for raw diagnostics."""
+        return self.diagnostics
+
+    @property
+    def ok(self):
+        """Whether every requested path produced valid Pyright JSON."""
+        return self.setup_error is None
+
+
+class AnalysisSetupError(Exception):
+    """Raised by adapters that need to turn an :class:`AnalysisResult` failure into exit 2."""
 
 
 def repo_root():
@@ -100,6 +161,175 @@ def classify(diag):
     return "REVIEW"
 
 
+def _remap_diagnostic(diagnostic, target, source, root, config_directory):
+    """Copy a diagnostic and restore the source path after an internal candidate copy."""
+    result = dict(diagnostic)
+    reported = result.get("file")
+    reported_paths = set()
+    if reported:
+        if os.path.isabs(reported):
+            reported_paths.add(os.path.abspath(reported))
+        else:
+            reported_paths.add(os.path.abspath(os.path.join(root, reported)))
+            reported_paths.add(os.path.abspath(os.path.join(config_directory, reported)))
+    if os.path.abspath(target) in reported_paths:
+        result["file"] = source
+    return result
+
+
+def _valid_paths(paths):
+    """Normalize and validate paths before resolving tools or creating scratch files."""
+    if isinstance(paths, (str, bytes, os.PathLike)):
+        paths = [paths]
+    try:
+        values = [os.path.abspath(os.fspath(path)) for path in paths]
+    except (TypeError, ValueError):
+        return None, "analysis paths must be an iterable of filesystem paths"
+    if not values:
+        return None, "analysis needs at least one source path"
+    for path in values:
+        if not os.path.isfile(path):
+            return None, f"candidate not found: {path}"
+        try:
+            with open(path, "rb"):
+                pass
+        except OSError as error:
+            return None, f"candidate is unreadable: {path}: {error}"
+    return values, None
+
+
+def _scratch_file(directory, prefix, suffix):
+    """Create a unique empty scratch file and return its path."""
+    descriptor, path = tempfile.mkstemp(prefix=prefix, suffix=suffix, dir=directory)
+    os.close(descriptor)
+    return path
+
+
+def _remove_scratch(path):
+    """Remove a scratch file owned by this invocation, tolerating a concurrent cleanup."""
+    if not path:
+        return
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
+    except OSError:
+        pass
+
+
+def analyze_paths(paths, *, stubs=None, no_install=False, root=None,
+                  pyright_argv=None, quiet=True):
+    """Analyze source paths and return raw findings grouped by their original paths.
+
+    Pyright runs once per path in deterministic input order. Candidates outside ``root/lib``
+    are copied into a unique temporary module under ``lib/geargen`` so package-relative imports
+    continue to work. A unique config file is created for every invocation, includes are relative
+    to that config's directory, and both files are removed on every return path. Callers receive
+    :class:`AnalysisResult`; ``setup_error`` is explicit and means the empty diagnostics mapping
+    is not a successful analysis.
+    """
+    normalized, path_error = _valid_paths(paths)
+    resolved_root = os.path.abspath(root or repo_root())
+    metadata = AnalysisMetadata(root=resolved_root)
+    if path_error:
+        return AnalysisResult({}, metadata, path_error)
+
+    pkg = os.path.join(resolved_root, "lib", "geargen")
+    tmp = os.path.join(resolved_root, ".tmp")
+    if not os.path.isdir(pkg):
+        return AnalysisResult({}, metadata,
+                              f"lib/geargen not found under repo root {resolved_root}")
+    try:
+        os.makedirs(tmp, exist_ok=True)
+    except OSError as error:
+        return AnalysisResult({}, metadata, f"could not create scratch directory {tmp}: {error}")
+
+    try:
+        stubs_path = resolve_defs(stubs, quiet=quiet)
+    except StubsUnavailable as error:
+        return AnalysisResult({}, metadata, str(error))
+    metadata.stubs = stubs_path
+
+    if pyright_argv is None:
+        try:
+            pyright_argv, extra_env = resolve_pyright(no_install=no_install, quiet=quiet)
+        except PyrightUnavailable as error:
+            return AnalysisResult({}, metadata, str(error))
+    else:
+        pyright_argv = list(pyright_argv)
+        extra_env = {}
+    metadata.pyright_argv = tuple(pyright_argv)
+
+    diagnostics = {source: [] for source in normalized}
+    config_directory = tmp
+    for source in normalized:
+        target = source
+        cleanup_target = None
+        if os.path.dirname(source) != os.path.abspath(pkg):
+            try:
+                cleanup_target = _scratch_file(pkg, ".pyright-candidate-", ".py")
+                shutil.copyfile(source, cleanup_target)
+                target = cleanup_target
+            except OSError as error:
+                _remove_scratch(cleanup_target)
+                return AnalysisResult(diagnostics, metadata,
+                                      f"could not prepare candidate {source}: {error}")
+
+        config_path = None
+        invocation = None
+        try:
+            config_path = _scratch_file(config_directory, ".pyright-check-", ".json")
+            invocation = AnalysisInvocation(source, target, config_path)
+            metadata.invocations.append(invocation)
+            config = {
+                "typeCheckingMode": "standard",
+                "include": [os.path.relpath(target, config_directory)],
+                "extraPaths": [stubs_path],
+                "reportMissingModuleSource": "none",
+            }
+            try:
+                with open(config_path, "w", encoding="utf-8") as handle:
+                    json.dump(config, handle)
+            except (OSError, TypeError, ValueError) as error:
+                return AnalysisResult(diagnostics, metadata,
+                                      f"could not write Pyright config {config_path}: {error}")
+            try:
+                proc = subprocess.run(
+                    list(pyright_argv) + ["-p", config_path, "--outputjson"],
+                    cwd=resolved_root, capture_output=True, text=True,
+                    env={**os.environ, **extra_env})
+            except (OSError, subprocess.SubprocessError) as error:
+                return AnalysisResult(diagnostics, metadata,
+                                      f"pyright failed to execute: {error}")
+            invocation.exit_code = proc.returncode
+            if proc.returncode not in (0, 1):
+                detail = str(proc.stderr or "").strip()[:500]
+                message = "pyright exited with status %d" % proc.returncode
+                if detail:
+                    message += ": " + detail
+                return AnalysisResult(diagnostics, metadata, message)
+            try:
+                data = json.loads(proc.stdout)
+            except (TypeError, json.JSONDecodeError) as error:
+                return AnalysisResult(diagnostics, metadata,
+                                      f"pyright returned malformed JSON: {error}")
+            if not isinstance(data, dict) or not isinstance(data.get("generalDiagnostics"), list):
+                return AnalysisResult(diagnostics, metadata,
+                                      "pyright returned malformed JSON: generalDiagnostics is missing")
+            source_diagnostics = []
+            for diagnostic in data["generalDiagnostics"]:
+                if not isinstance(diagnostic, dict):
+                    return AnalysisResult(diagnostics, metadata,
+                                          "pyright returned malformed JSON: diagnostic is not an object")
+                source_diagnostics.append(_remap_diagnostic(
+                    diagnostic, target, source, resolved_root, config_directory))
+            diagnostics.setdefault(source, []).extend(source_diagnostics)
+        finally:
+            _remove_scratch(config_path)
+            _remove_scratch(cleanup_target)
+    return AnalysisResult(diagnostics, metadata)
+
+
 def main():
     args = sys.argv[1:]
     stubs_arg = None
@@ -117,79 +347,17 @@ def main():
         print(__doc__)
         sys.exit(2)
     candidate = os.path.abspath(args[0])
-    if not os.path.isfile(candidate):
-        print(f"ERROR: candidate not found: {candidate}")
+    result = analyze_paths([candidate], stubs=stubs_arg, no_install=no_install, quiet=False)
+    if result.setup_error:
+        print(f"ERROR: {result.setup_error}")
+        if "Fusion API stubs" in result.setup_error or "stubs" in result.setup_error:
+            print("  Stub-free fallback: pyflakes for undefined names, and the fusion plugin's "
+                  "compiled database")
+            print("  ('query_fusion_api.py show <Name>', see fusion_api.py) for the adsk submodule.")
         sys.exit(2)
-
-    root = repo_root()
-    pkg = os.path.join(root, "lib", "geargen")
-    if not os.path.isdir(pkg):
-        print(f"ERROR: lib/geargen not found under repo root {root}")
-        sys.exit(2)
-
-    # Resolve stubs (shared policy): --stubs and $FUSION_API_STUBS are authoritative (a wrong
-    # path fails loudly, no silent fallback); otherwise clone the repo into the cache and reuse.
-    try:
-        stubs = resolve_defs(stubs_arg)
-    except StubsUnavailable as e:
-        print(f"ERROR: {e}")
-        print("  Stub-free fallback: pyflakes for undefined names, and the fusion plugin's "
-              "compiled database")
-        print("  ('query_fusion_api.py show <Name>', see fusion_api.py) for the adsk submodule.")
-        sys.exit(2)
-
-    # Resolve pyright itself (shared policy): use it wherever it already is, otherwise
-    # bootstrap a copy into the cache — never into the user's Python environment.
-    try:
-        pyright_argv, extra_env = resolve_pyright(no_install=no_install)
-    except PyrightUnavailable as e:
-        print(f"ERROR: {e}")
-        sys.exit(2)
-
-    tmp = os.path.join(root, ".tmp")
-    os.makedirs(tmp, exist_ok=True)
-
-    # Analyse from inside the package so relative imports resolve. If the candidate is
-    # already in lib/geargen, use it in place; otherwise copy to a throwaway module.
-    in_place = os.path.dirname(candidate) == pkg
-    if in_place:
-        target = candidate
-        cleanup = None
-    else:
-        target = os.path.join(pkg, "__pyright_candidate__.py")
-        shutil.copyfile(candidate, target)
-        cleanup = target
-
-    # pyright resolves `include` relative to the CONFIG FILE's directory and rejects
-    # absolute include paths, so the config must sit at the repo root next to lib/.
-    config_path = os.path.join(root, ".pyright_check.tmp.json")
-    config = {
-        "typeCheckingMode": "standard",
-        "include": [os.path.relpath(target, root)],
-        "extraPaths": [stubs],
-        "reportMissingModuleSource": "none",
-    }
-    try:
-        with open(config_path, "w") as fh:
-            json.dump(config, fh)
-        proc = subprocess.run(
-            pyright_argv + ["-p", config_path, "--outputjson"],
-            cwd=root, capture_output=True, text=True, env={**os.environ, **extra_env})
-        if proc.returncode not in (0, 1) or not proc.stdout.strip():
-            print("ERROR: pyright did not run (it was resolved but failed to execute).")
-            print("  If this is the wrapper's first run it may have failed downloading node or the")
-            print("  pyright npm bundle; re-run, or install pyright yourself and retry.")
-            print(proc.stderr.strip()[:500])
-            sys.exit(2)
-        data = json.loads(proc.stdout)
-    finally:
-        if cleanup and os.path.isfile(cleanup):
-            os.remove(cleanup)
-        if os.path.isfile(config_path):
-            os.remove(config_path)
 
     blocking, review, ignored = [], [], 0
-    for d in data.get("generalDiagnostics", []):
+    for d in result.diagnostics.get(candidate, []):
         verdict = classify(d)
         line = d.get("range", {}).get("start", {}).get("line", 0) + 1
         rec = (line, d.get("rule") or "syntax", d.get("message", "").splitlines()[0])
