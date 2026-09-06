@@ -7,6 +7,7 @@ throwaway repo in a tempfile.TemporaryDirectory(), writes stub gate scripts and 
 unittest.mock.patch.object.
 """
 import contextlib
+import copy
 import importlib.util
 import io
 import json
@@ -728,27 +729,46 @@ class HandoffBindingTests(unittest.TestCase):
             paths = RUNNER.Paths(str(root), 'x', 'spec/x/steps.md', 'proof/x', 'lib/geargen/x.py')
             requirements = [{'name': 'newOp', 'has_receiver': False, 'textual_match': False,
                              'origin': 'new_since_base'}]
-            evidence = {'path': 'spec/x/steps.md', 'line': 1,
-                        'sha256': RUNNER.sha256_bytes((root / 'spec/x/steps.md').read_bytes())}
-            record = {'name': 'newOp', 'has_receiver': False, 'decision': 'emit_required',
-                      'evidence': [evidence], 'reason': 'The source requires this call.'}
-            binding = {'comparison_base': 'a' * 40,
-                       'steps_sha256': RUNNER.sha256_bytes((root / 'spec/x/steps.md').read_bytes()),
-                       'module_sha256': RUNNER.sha256_bytes((root / 'lib/geargen/x.py').read_bytes()),
-                       'requirements_sha256': RUNNER.sha256_bytes(RUNNER._canonical(requirements)),
-                       'review_inputs_sha256': RUNNER._review_input_hash(str(root), 'spec/x/steps.md', [record])}
-            review = {'schema': 1, 'gear': 'x', 'binding': binding, 'requirements': [record]}
+            allowed = [{'path': 'spec/x/steps.md',
+                        'sha256': RUNNER.sha256_bytes((root / 'spec/x/steps.md').read_bytes())}]
+            with mock.patch.object(RUNNER, '_allowed_evidence', return_value=(allowed, None)):
+                review, error = RUNNER._review_template('x', 'a' * 40, paths, requirements)
+            self.assertIsNone(error)
+            self.assertEqual(review['requirements'], [
+                {'name': 'newOp', 'has_receiver': False, 'decision': None, 'evidence': [], 'reason': ''}])
+            review['requirements'][0].update({
+                'decision': 'emit_required',
+                'evidence': [dict(allowed[0], line=1)],
+                'reason': 'The source requires this call.',
+            })
             review_path = root / 'review.json'
             review_path.write_text(json.dumps(review), encoding='utf-8')
-            records, error = RUNNER._validate_review(str(review_path), 'x', 'a' * 40,
-                                                     paths, requirements)
+            with mock.patch.object(RUNNER, '_allowed_evidence', return_value=(allowed, None)):
+                records, error = RUNNER._validate_review(str(review_path), 'x', 'a' * 40,
+                                                         paths, requirements)
             self.assertIsNone(error)
             self.assertEqual(records[0]['decision'], 'emit_required')
-            review['requirements'][0]['reason'] = ''
-            review_path.write_text(json.dumps(review), encoding='utf-8')
-            _records, error = RUNNER._validate_review(str(review_path), 'x', 'a' * 40,
-                                                      paths, requirements)
-            self.assertIn('malformed', error)
+            for name, expected in (
+                    ('missing', 'must decide every missing requirement'),
+                    ('duplicate', 'duplicate or unknown requirement'),
+                    ('stale', 'stale step-call review binding'),
+                    ('empty-reason', 'malformed step-call review requirement')):
+                with self.subTest(name=name):
+                    invalid = copy.deepcopy(review)
+                    if name == 'missing':
+                        invalid['requirements'] = []
+                    elif name == 'duplicate':
+                        invalid['requirements'].append(copy.deepcopy(invalid['requirements'][0]))
+                    elif name == 'stale':
+                        invalid['binding']['module_sha256'] = '0' * 64
+                    else:
+                        invalid['requirements'][0]['reason'] = ''
+                    review_path.write_text(json.dumps(invalid), encoding='utf-8')
+                    with mock.patch.object(RUNNER, '_allowed_evidence', return_value=(allowed, None)):
+                        records, error = RUNNER._validate_review(str(review_path), 'x', 'a' * 40,
+                                                                 paths, requirements)
+                    self.assertIsNone(records)
+                    self.assertIn(expected, error)
 
     def test_compile_policy_records_handoff_and_requires_complete_proof(self):
         args = type('Args', (), {'only': None})()

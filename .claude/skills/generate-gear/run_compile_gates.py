@@ -422,7 +422,8 @@ def _review_template(gear, base, paths, requirements):
     allowed, error = _allowed_evidence(paths.root, gear)
     if error:
         return None, error
-    rows = [{key: item[key] for key in ("name", "has_receiver", "decision", "evidence", "reason")}
+    rows = [{"name": item["name"], "has_receiver": item["has_receiver"],
+             "decision": None, "evidence": [], "reason": ""}
             for item in requirements]
     try:
         binding = {
