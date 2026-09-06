@@ -30,7 +30,8 @@ def api_member(returns=None, kind='method', lookup=None):
 
 
 class CheckApiReceiverOwnershipTest(unittest.TestCase):
-    def run_checker(self, candidate, api_names=(), members=None, framework_files=None):
+    def run_checker(self, candidate, api_names=(), members=None, framework_files=None,
+                    member_failure=None):
         framework_files = framework_files or {'base.py': ''}
         members = members or {}
         with tempfile.TemporaryDirectory() as directory:
@@ -49,6 +50,8 @@ class CheckApiReceiverOwnershipTest(unittest.TestCase):
                 }
 
             def member_info(cls, name):
+                if member_failure is not None:
+                    raise member_failure
                 return members.get((CHECKER.normalize_api_type(cls), name))
 
             output = io.StringIO()
@@ -69,6 +72,40 @@ class CheckApiReceiverOwnershipTest(unittest.TestCase):
                             '--framework', str(framework_path)]):
                         result = CHECKER.main()
             return result, output.getvalue()
+
+    def test_unavailable_during_receiver_inference_is_a_setup_error(self):
+        result, _output = self.run_checker(
+            """
+            def build(sketch: adsk.fusion.Sketch, center):
+                return sketch.sketchCircles.addByCenterRadius(center, 1)
+            """,
+            member_failure=CHECKER.fusion_api.Unavailable('session startup failed'))
+
+        self.assertEqual(result, 2)
+
+    def test_help_does_not_require_api_script_discovery(self):
+        with mock.patch.object(
+                CHECKER.fusion_api, 'query_script',
+                side_effect=CHECKER.fusion_api.Unavailable('missing query tool')), \
+                mock.patch.object(sys, 'argv', ['check_api_calls.py', '--help']), \
+                contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(SystemExit) as raised:
+                CHECKER.main()
+
+        self.assertEqual(raised.exception.code, 0)
+
+    def test_query_free_check_does_not_require_api_script_discovery(self):
+        with tempfile.TemporaryDirectory() as directory:
+            candidate = Path(directory) / 'candidate.py'
+            candidate.write_text('def build():\n    return 1\n')
+            with mock.patch.object(
+                    CHECKER.fusion_api, 'query_script',
+                    side_effect=CHECKER.fusion_api.Unavailable('missing query tool')), \
+                    mock.patch.object(sys, 'argv', ['check_api_calls.py', str(candidate)]), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                result = CHECKER.main()
+
+        self.assertEqual(result, 0)
 
     def test_fusion_method_on_wrong_inferred_receiver_is_blocking(self):
         result, output = self.run_checker(
