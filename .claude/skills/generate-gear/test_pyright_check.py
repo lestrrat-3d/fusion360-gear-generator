@@ -43,6 +43,31 @@ sys.exit(1)
 '''
 
 
+FAKE_BATCH_PYRIGHT = '''\
+#!/usr/bin/env python3
+import json
+import os
+import sys
+
+config = sys.argv[sys.argv.index("-p") + 1]
+with open(config, encoding="utf-8") as handle:
+    settings = json.load(handle)
+diagnostics = []
+for index, include in enumerate(settings["include"], start=1):
+    target = os.path.abspath(os.path.join(os.path.dirname(config), include))
+    diagnostics.append({
+        "file": target,
+        "severity": "error",
+        "message": "fixture finding %d" % index,
+        "range": {"start": {"line": index, "character": 0},
+                  "end": {"line": index, "character": 1}},
+        "rule": "reportUndefinedVariable"
+    })
+print(json.dumps({"generalDiagnostics": diagnostics}))
+sys.exit(1)
+'''
+
+
 def executable(path, text):
     path.write_text(text, encoding='utf-8')
     path.chmod(path.stat().st_mode | stat.S_IEXEC)
@@ -111,6 +136,27 @@ class AnalysisFixtureTests(unittest.TestCase):
         self.assertTrue(result.ok)
         self.assertEqual(result.metadata.invocations[0].exit_code, 1)
 
+    def test_multiple_paths_use_one_invocation_and_restore_each_source(self):
+        first = self.fixtures / 'first.py'
+        second = self.fixtures / 'second.py'
+        first.write_text('first = 1\n', encoding='utf-8')
+        second.write_text('second = 1\n', encoding='utf-8')
+        batch = Path(self.tmpdir.name) / 'batch pyright'
+        executable(batch, FAKE_BATCH_PYRIGHT)
+
+        result = MODULE.analyze_paths(
+            [first, second], root=str(self.root), stubs=str(self.defs),
+            pyright_argv=[str(batch)])
+
+        self.assertIsNone(result.setup_error)
+        self.assertEqual(len(result.metadata.invocations), 1)
+        invocation = result.metadata.invocations[0]
+        self.assertEqual(invocation.source_paths, (str(first.resolve()), str(second.resolve())))
+        self.assertEqual(set(result.diagnostics), {str(first.resolve()), str(second.resolve())})
+        self.assertEqual(result.diagnostics[str(first.resolve())][0]['file'], str(first.resolve()))
+        self.assertEqual(result.diagnostics[str(second.resolve())][0]['file'], str(second.resolve()))
+        self.assertEqual(result.metadata.invocations[0].exit_code, 1)
+
     def test_invalid_stubs_and_malformed_output_are_setup_errors(self):
         candidate = self.fixtures / 'candidate.py'
         candidate.write_text('first = 1\n', encoding='utf-8')
@@ -135,6 +181,21 @@ class AnalysisFixtureTests(unittest.TestCase):
         with mock.patch.object(MODULE.subprocess, 'run', side_effect=OSError('cannot execute')):
             failed = self.analyze([candidate])
         self.assertIn('failed to execute', failed.setup_error)
+
+    def test_timeout_is_a_setup_error_after_batch_cleanup(self):
+        candidate = self.fixtures / 'candidate.py'
+        candidate.write_text('first = 1\n', encoding='utf-8')
+
+        with mock.patch.object(
+                MODULE.subprocess, 'run',
+                side_effect=MODULE.subprocess.TimeoutExpired('pyright', 0.01)):
+            timed_out = MODULE.analyze_paths(
+                [candidate], root=str(self.root), stubs=str(self.defs),
+                pyright_argv=[str(self.pyright)], timeout=0.01)
+
+        self.assertIn('timed out', timed_out.setup_error)
+        self.assertEqual(list(Path(self.root / '.tmp').glob('.pyright-check-*')), [])
+        self.assertEqual(list(Path(self.root / 'lib' / 'geargen').glob('__pyright_candidate_*')), [])
 
 
 if __name__ == '__main__':

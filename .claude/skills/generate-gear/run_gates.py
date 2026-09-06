@@ -127,6 +127,7 @@ class GateResult:
     stderr: str
     skip_reason: str | None
     fault: str | None
+    timing_note: str | None = None
 
 
 @dataclass
@@ -363,6 +364,130 @@ def run_script_gate(key, title, command, cwd, timeout, advisory):
                        proc.stdout, proc.stderr, None, fault)
 
 
+def load_type_modules():
+    """Load the reusable analysis and novel-type modules when this is a real gate suite."""
+    module_paths = {
+        "pyright": os.path.join(scripts_dir(), "pyright_check.py"),
+        "novel_types": os.path.join(scripts_dir(), "check_novel_types.py"),
+    }
+    if not all(os.path.isfile(path) for path in module_paths.values()):
+        return None
+    try:
+        with open(module_paths["pyright"], encoding="utf-8") as handle:
+            if "def analyze_paths" not in handle.read():
+                return None
+        with open(module_paths["novel_types"], encoding="utf-8") as handle:
+            if "def evaluate_analysis" not in handle.read():
+                return None
+    except OSError:
+        return None
+    modules = {}
+    for key, path in module_paths.items():
+        try:
+            name = "_run_gates_%s_%d" % (key, id(path))
+            spec = importlib.util.spec_from_file_location(name, path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+        except (ImportError, OSError, SyntaxError, SystemExit):
+            return None
+        modules[key] = module
+    if not hasattr(modules["pyright"], "analyze_paths"):
+        return None
+    if not hasattr(modules["novel_types"], "evaluate_analysis"):
+        return None
+    return modules
+
+
+def _type_error_result(key, title, command, message, duration, timing_note=None):
+    return GateResult(key, title, "error", key == "novel_types", 2, duration, command,
+                      "", "ERROR: " + message, None, "setup", timing_note)
+
+
+def _pyright_result(module, diagnostics, paths, command, duration, timing_note=None):
+    """Build the normal type gate row from raw candidate diagnostics."""
+    report = module.report_diagnostics(diagnostics, os.path.basename(paths.candidate))
+    status = "fail" if report["blocking"] else "pass"
+    return GateResult("pyright", "Types", status, False,
+                      1 if report["blocking"] else 0, duration, command, report["text"], "",
+                      None, None, timing_note)
+
+
+def run_shared_type_gates(selected, paths, args, commands, metadata):
+    """Run selected type consumers from one run-local Pyright analysis result.
+
+    ``None`` means the installed gate scripts are test doubles or an older checkout, so the
+    caller should use the normal subprocess path. ``metadata`` receives additive timing fields.
+    """
+    modules = load_type_modules()
+    if modules is None:
+        return None
+    pyright = modules["pyright"]
+    novel_types = modules["novel_types"]
+    candidate = _abs(paths.root, paths.candidate)
+    references = []
+    if "novel_types" in selected:
+        references = novel_types.reference_gears(
+            os.path.join(paths.root, "lib", "geargen"), candidate)
+    analysis_paths = references + [candidate]
+    started = time.monotonic()
+    try:
+        result = pyright.analyze_paths(analysis_paths, root=paths.root, timeout=args.timeout)
+    except Exception as error:
+        result = None
+        setup_error = str(error)
+    else:
+        setup_error = getattr(result, "setup_error", None)
+    outer_elapsed = round(time.monotonic() - started, 2)
+    inner_elapsed = getattr(getattr(result, "metadata", None), "duration_s", None)
+    elapsed = outer_elapsed
+    metadata.update({
+        "analysis_duration_s": elapsed,
+        "analysis_pyright_duration_s": inner_elapsed,
+        "analysis_invocations": (len(getattr(result.metadata, "invocations", []))
+                                 if result is not None else 0),
+        "analysis_shared": len(selected) > 1,
+        "analysis_timing_note": ("The first selected type row owns the shared Pyright duration; "
+                                  "later rows use that result and report 0 seconds."),
+    })
+
+    rows = {}
+    first = selected[0]
+    for key in selected:
+        row_duration = elapsed if key == first else 0.0
+        timing_note = ("shared analysis duration" if key == first
+                       else "classification uses shared analysis; duration is in first type row")
+        if setup_error:
+            rows[key] = _type_error_result(
+                key, GATE_TITLES[key], commands[key], setup_error, row_duration, timing_note)
+            continue
+        if key == "pyright":
+            diagnostics = result.diagnostics.get(os.path.abspath(candidate), [])
+            rows[key] = _pyright_result(
+                pyright, diagnostics, paths, commands[key], row_duration, timing_note)
+        elif key == "novel_types":
+            if not references:
+                rows[key] = _type_error_result(
+                    key, GATE_TITLES[key], commands[key],
+                    "no reference gears under %s, nothing to compare against" %
+                    os.path.join(paths.root, "lib", "geargen"), row_duration, timing_note)
+                continue
+            try:
+                evaluation = novel_types.evaluate_analysis(result, candidate, references)
+                output, exit_code = novel_types.render_evaluation(
+                    evaluation, gate=args.gate_novel_types)
+                status = "fail" if exit_code == 1 else "pass"
+                if status == "pass" and evaluation["novel"] and not args.gate_novel_types:
+                    status = "note"
+                rows[key] = GateResult(
+                    key, GATE_TITLES[key], status, True,
+                    exit_code, row_duration, commands[key], output, "", None, None,
+                    timing_note)
+            except Exception as error:
+                rows[key] = _type_error_result(
+                    key, GATE_TITLES[key], commands[key], str(error), row_duration, timing_note)
+    return rows
+
+
 def classify_advisory(result, args):
     """check_novel_types exits 0 both when clean and when it found complaints (without --gate).
     Detect findings with NOVEL_COUNT_RE and set status 'note' when the count is > 0 and the
@@ -379,13 +504,19 @@ def classify_advisory(result, args):
     return result
 
 
-def execute(plan, paths, args):
+def execute(plan, paths, args, analysis_metadata=None):
     """Walk the plan. If the parse gate fails, convert every not-yet-run CANDIDATE_READING gate
     to status 'skip', reason 'candidate does not parse'. With --fail-fast, convert every
     remaining gate to 'skip', reason 'not run (--fail-fast after <key> failed)'."""
     results = []
+    analysis_metadata = analysis_metadata if analysis_metadata is not None else {}
     parse_failed = False
     fail_fast_stop = None
+    type_keys = [key for key, _title, command, skip_reason in plan
+                 if key in ("pyright", "novel_types") and command is not None
+                 and skip_reason is None]
+    shared_rows = None
+    shared_attempted = False
     for key, title, command, skip_reason in plan:
         advisory = key == "novel_types"
         if skip_reason is not None:
@@ -404,6 +535,20 @@ def execute(plan, paths, args):
 
         if key == "parse":
             result = run_parse_gate(paths, args.timeout)
+        elif key in ("pyright", "novel_types") and key in type_keys:
+            if not shared_attempted:
+                shared_attempted = True
+                shared_rows = run_shared_type_gates(
+                    type_keys, paths, args,
+                    {plan_key: plan_command for plan_key, _plan_title, plan_command, _reason
+                     in plan if plan_key in type_keys},
+                    analysis_metadata)
+            if shared_rows is not None:
+                result = shared_rows[key]
+            else:
+                result = run_script_gate(key, title, command, paths.root, args.timeout, advisory)
+            if key == "novel_types" and shared_rows is None:
+                result = classify_advisory(result, args)
         else:
             result = run_script_gate(key, title, command, paths.root, args.timeout, advisory)
             if key == "novel_types":
@@ -585,7 +730,9 @@ def render_text(results, classification, paths, args):
         else:
             tag = status_tag[r.status]
             dur = "(%.2fs)" % r.duration_s if r.duration_s is not None else ""
-            lines.append(("  %-5s %-11s %s  %s" % (tag, r.key, dur, headline(r))).rstrip())
+            timing = " [%s]" % r.timing_note if r.timing_note else ""
+            lines.append(("  %-5s %-11s %s%s  %s" %
+                          (tag, r.key, dur, timing, headline(r))).rstrip())
         if r.status in ("fail", "error", "note"):
             for line in (r.stdout or "").splitlines():
                 lines.append(" " * 8 + line)
@@ -621,7 +768,7 @@ def render_text(results, classification, paths, args):
     return "\n".join(lines)
 
 
-def build_json(results, classification, paths, args):
+def build_json(results, classification, paths, args, analysis_metadata=None):
     verdict, exit_code = overall(results, args)
     counts = compute_counts(results)
     gates = []
@@ -639,6 +786,7 @@ def build_json(results, classification, paths, args):
             "stderr": r.stderr,
             "skip_reason": r.skip_reason,
             "fault": r.fault,
+            "timing_note": r.timing_note,
         })
     return {
         "schema": SCHEMA,
@@ -650,6 +798,7 @@ def build_json(results, classification, paths, args):
         "counts": counts,
         "gates": gates,
         "classification": classification,
+        "metadata": analysis_metadata or {},
     }
 
 
@@ -695,13 +844,14 @@ def main(argv=None):
         return 2
 
     plan = build_plan(paths, args)
-    results = execute(plan, paths, args)
+    analysis_metadata = {}
+    results = execute(plan, paths, args, analysis_metadata)
     classification = classify(results, paths)
     fault_by_gate = {row["gate"]: row["fault"] for row in classification}
     results = [dataclasses.replace(r, fault=fault_by_gate.get(r.key, r.fault))
                for r in results]
 
-    obj = build_json(results, classification, paths, args)
+    obj = build_json(results, classification, paths, args, analysis_metadata)
     line = JSON_MARKER + json.dumps(obj)
     if args.json_out:
         _write_json_out(args.json_out, obj)
