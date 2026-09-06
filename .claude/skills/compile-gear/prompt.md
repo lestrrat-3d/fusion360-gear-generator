@@ -101,6 +101,19 @@ turns these annotations into `proof/{{gear}}/zz_registrations_test.go`; never wr
 and never register a step yourself — a hand-written registration collides with the generated
 one or fails the check by name.
 
+**Use a parallel entry point only where the spec for this gear asks for one.** Each harness also
+declares parallel counterparts — `proofkit.RunParallel` beside `proofkit.Run`, and
+`proofkit3d.RunSolidParallel` and `proofkit3d.RunWithGateParallel` beside `RunSolid` and
+`RunWithGate` — which run a table's cases at the same time under a `cases` grouping subtest
+rather than one after another. A counterpart takes the same arguments in the same order as the
+serial method it sits beside. The serial method is the default: write a parallel one for a step
+only where the spec says that step's cases may run together, and the serial one everywhere else,
+including for every step the spec does not mention. A parallel run is sound only when nothing
+outside a case carries state from that case's build to its assertion, so where a step needs such
+a hand-off — a reading the build takes that the assertion cannot take again — hold it in a
+package-level variable only for a step the spec keeps serial, and write beside that variable, in
+the proof file, that the step is serial because of it.
+
 **A proof file carries no build constraint.** Any `//go:build` header line, and every `+build`
 spelling, is refused by name and line; write the header without one. The refusal says what to
 write; write that.

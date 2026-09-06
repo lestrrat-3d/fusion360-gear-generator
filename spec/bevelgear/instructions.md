@@ -723,3 +723,29 @@ is lenient, and only via the typed `NonIntersectError`.
 Call the framework's `hide_construction_geometry(bevelComponent)` (from `.solids`) — it recursively walks the Bevel Gear component tree (dedupe by `entityToken`) and hides every sketch, construction plane, and construction axis with `isLightBulbOn = False` (construction planes/axes are **not** hidden by `isVisible` — `[PB-HIDE-AFTER-USE]`). Leave only the two finished gear bodies visible.
 
 (The driving gear's half-tooth-pitch **meshing rotation** is performed earlier, at the end of "Create the Gear Bodies", in the Design component before the body is moved out — not a cleanup step; see that section for the rationale.)
+
+## Proof Case Scheduling (bevel-specific)
+
+This section is about the proof rather than about Fusion, and it says which of a step's proof cases
+may run at the same time as each other. It sits at the end of the file so that adding it moves no
+line a compiled step list already cites.
+
+**Register every `[GO]` step through the parallel harness entry point**, with the single exception
+named below: `proofkit.RunParallel` where the step would otherwise take `proofkit.Run`, and
+`proofkit3d.RunSolidParallel` where it would otherwise take `proofkit3d.RunSolid`. A bevel case
+builds its own sketch, or its own document, from its own parameters, and measures only the geometry
+that case constructed, so two cases of one step have nothing between them to corrupt. Running them
+together is what keeps the bevel proof, the slowest package in the suite, from setting the suite's
+wall time on its own.
+
+**The Pattern step is the exception and stays serial**, on `proofkit3d.RunSolid`. The pattern
+increment retires the seed tooth, so the seed cannot be measured after the step runs, and its
+azimuth, radius, height and volume have to be read during the build and handed to the assertion.
+That hand-off leaves the case, and two cases sharing one set of seed readings overwrite each
+other. It is not a hazard that announces itself: the two gear sides differ enough in volume that
+the overwrite was caught when it happened, and a pair of cases whose seeds measured alike would
+have passed on each other's numbers instead. Keep the carried readings where the proof keeps them,
+and record in the proof file beside them that this step is serial because of them.
+
+No other bevel step carries a reading from its build into its assertion. A step that acquires one
+moves to the serial runner in the same change.

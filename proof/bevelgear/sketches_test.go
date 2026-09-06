@@ -50,7 +50,7 @@ func sideOf(d design, p map[string]float64) (gear, gearFrame) {
 //     cannot show the aligned orientation is the right one to have asked
 //     Fusion for; the step list carries that separately.
 //
-// <!-- proof-run: proofkit.Run(anchorCases, stepAnchorSketch) -->
+// <!-- proof-run: proofkit.RunParallel(anchorCases, stepAnchorSketch) -->
 func stepAnchorSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
 	_ = newDesign(t, p) // the anchor sketch depends on no numeric input
 
@@ -200,7 +200,7 @@ func requireFrustumProfile(t testing.TB, s *sketch.Sketch, g gear,
 // line curves, a positive area, and — the fact the revolve depends on — that
 // the loop never crosses the shaft axis it is spun about.
 //
-// <!-- proof-run: proofkit.Run(profileCases, stepGearProfileHexagon) -->
+// <!-- proof-run: proofkit.RunParallel(profileCases, stepGearProfileHexagon) -->
 func stepGearProfileHexagon(t testing.TB, s *sketch.Sketch, p map[string]float64) {
 	d := newDesign(t, p)
 	g, f := sideOf(d, p)
@@ -226,7 +226,7 @@ func stepGearProfileHexagon(t testing.TB, s *sketch.Sketch, p map[string]float64
 // which has been observed to fail the solve outright on a
 // setByDistanceOnPath plane.
 //
-// <!-- proof-run: proofkit.Run(boreCases, stepBoreSketch) -->
+// <!-- proof-run: proofkit.RunParallel(boreCases, stepBoreSketch) -->
 func stepBoreSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
 	d := newDesign(t, p)
 	g, _ := sideOf(d, p)
@@ -298,7 +298,7 @@ func stepBoreSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
 // either of those the whole spiral frame is skewed, and nothing downstream
 // reports it.
 //
-// <!-- proof-run: proofkit.Run(coneElementCases, stepConeElementSketch) -->
+// <!-- proof-run: proofkit.RunParallel(coneElementCases, stepConeElementSketch) -->
 func stepConeElementSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
 	d := newDesign(t, p)
 	g, f := sideOf(d, p)
@@ -388,7 +388,7 @@ const traceSamples = 61
 // the cone element, its ends sit on the toe and heel apex circles, and the
 // opposite hand is the exact mirror across the cone element.
 //
-// <!-- proof-run: proofkit.Run(traceCases, stepSpiralTrace) -->
+// <!-- proof-run: proofkit.RunParallel(traceCases, stepSpiralTrace) -->
 func stepSpiralTrace(t testing.TB, s *sketch.Sketch, p map[string]float64) {
 	d := newDesign(t, p)
 	if d.Psi <= 0 {
