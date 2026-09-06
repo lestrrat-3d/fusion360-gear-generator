@@ -267,7 +267,7 @@ def analyze_paths(paths, *, stubs=None, no_install=False, root=None,
         cleanup_target = None
         if os.path.dirname(source) != os.path.abspath(pkg):
             try:
-                cleanup_target = _scratch_file(pkg, ".pyright-candidate-", ".py")
+                cleanup_target = _scratch_file(pkg, "__pyright_candidate_", ".py")
                 shutil.copyfile(source, cleanup_target)
                 target = cleanup_target
             except OSError as error:

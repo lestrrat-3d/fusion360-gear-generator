@@ -82,7 +82,7 @@ class AnalysisFixtureTests(unittest.TestCase):
         self.assertTrue(os.path.relpath(
             result.metadata.invocations[0].target_path,
             os.path.dirname(result.metadata.invocations[0].config_path)).startswith('../'))
-        self.assertEqual(list(Path(self.root / 'lib' / 'geargen').glob('.pyright-candidate-*')), [])
+        self.assertEqual(list(Path(self.root / 'lib' / 'geargen').glob('__pyright_candidate_*')), [])
         self.assertEqual(list(Path(self.root / '.tmp').glob('.pyright-check-*')), [])
 
     def test_two_concurrent_analyses_use_independent_scratch_files(self):
@@ -126,7 +126,7 @@ class AnalysisFixtureTests(unittest.TestCase):
             [candidate], root=str(self.root), stubs=str(self.defs), pyright_argv=[str(malformed)])
         self.assertIn('malformed JSON', malformed_result.setup_error)
         self.assertEqual(list(Path(self.root / '.tmp').glob('.pyright-check-*')), [])
-        self.assertEqual(list(Path(self.root / 'lib' / 'geargen').glob('.pyright-candidate-*')), [])
+        self.assertEqual(list(Path(self.root / 'lib' / 'geargen').glob('__pyright_candidate_*')), [])
 
     def test_executable_failure_is_a_setup_error(self):
         candidate = self.fixtures / 'candidate.py'
