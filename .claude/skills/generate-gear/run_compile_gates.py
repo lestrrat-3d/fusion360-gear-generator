@@ -262,8 +262,9 @@ def _canonical(value):
 
 
 def _review_requirements(missing, base_steps):
-    old = set(_load_checker_module().named_call_shapes(base_steps.decode("utf-8"))) \
+    old_shapes = _load_checker_module().named_call_shapes(base_steps.decode("utf-8")) \
         if base_steps is not None else set()
+    old = {(name, bool(receiver)) for name, receiver in old_shapes}
     return [dict(record, origin=("baseline_unknown" if base_steps is None else
                                  "new_since_base" if (record["name"], record["has_receiver"]) not in old
                                  else "already_required"))
@@ -291,7 +292,7 @@ def _review_input_hash(root, steps_path, review_requirements):
 
 
 def _validate_review(path, gear, base, paths, requirements):
-    if not path:
+    if not path or not base:
         return None, "review record is required"
     try:
         with open(path, encoding="utf-8") as handle:
@@ -319,7 +320,9 @@ def _validate_review(path, gear, base, paths, requirements):
     wanted = {(item["name"], bool(item["has_receiver"])) for item in requirements}
     seen = set()
     for item in records:
-        if not isinstance(item, dict) or (item.get("name"), bool(item.get("has_receiver"))) not in wanted:
+        if (not isinstance(item, dict) or not isinstance(item.get("name"), str) or
+                not isinstance(item.get("has_receiver"), bool) or
+                (item.get("name"), item.get("has_receiver")) not in wanted):
             return None, "step-call review has an unknown requirement"
         key = (item["name"], bool(item["has_receiver"]))
         if key in seen or item.get("decision") not in ("emit_required", "draft_fault"):
@@ -334,6 +337,9 @@ def _validate_review(path, gear, base, paths, requirements):
             if not isinstance(ev, dict) or not isinstance(ev.get("path"), str):
                 return None, "step-call review evidence is malformed"
             source = os.path.join(paths.root, ev["path"])
+            if os.path.commonpath((os.path.realpath(paths.root), os.path.realpath(source))) != \
+                    os.path.realpath(paths.root):
+                return None, "step-call review evidence path is outside repository"
             try:
                 source_bytes = _read_bytes(source)
                 line_count = source_bytes.count(b"\n") + (1 if source_bytes else 0)
@@ -352,7 +358,8 @@ def _validate_review(path, gear, base, paths, requirements):
 def _validate_checker_payload(payload):
     if not isinstance(payload, dict) or not isinstance(payload.get("ok"), bool):
         return "checker JSON must be an object with boolean ok"
-    if not isinstance(payload.get("named_calls"), int) or isinstance(payload["named_calls"], bool):
+    if (not isinstance(payload.get("named_calls"), int) or isinstance(payload["named_calls"], bool)
+            or payload["named_calls"] < 0):
         return "checker JSON named_calls must be an integer"
     for key in ("missing", "stubs", "shared_point"):
         if not isinstance(payload.get(key), list):
@@ -724,8 +731,11 @@ def handoff_for(results, paths, args):
     """Classify the step-call disagreement without changing the checker contract."""
     module = paths.module
     step_result = next((item for item in results if item.key == "step_calls"), None)
-    if step_result is None or step_result.status == "skip":
+    if step_result is None:
         return {"status": "not_applicable", "module": module, "requirements": []}
+    if step_result.status == "skip":
+        return {"status": "not_applicable" if "does not exist" in (step_result.skip_reason or "")
+                else "blocked", "module": module, "requirements": []}
     payload = step_result.checker_json
     if payload is None:
         return {"status": "blocked", "module": module, "requirements": []}
@@ -734,16 +744,21 @@ def handoff_for(results, paths, args):
         return {"status": "blocked", "module": module, "requirements": []}
     base = getattr(args, "_handoff_base", None)
     base_steps = _git_show(paths.root, base, paths.steps) if base else None
+    if payload.get("parse_error") or payload.get("stubs") or payload.get("shared_point"):
+        return {"status": "blocked", "module": module, "requirements": []}
     requirements = _review_requirements(missing, base_steps)
     if not requirements:
         return {"status": "ready", "module": module, "requirements": []}
-    if payload.get("parse_error") or payload.get("stubs") or payload.get("shared_point"):
-        return {"status": "blocked", "module": module, "requirements": requirements}
     records, error = _validate_review(getattr(args, "step_call_review", None), args.gear,
                                       base, paths, requirements)
     if error:
         return {"status": "review_required", "module": module, "requirements": requirements,
-                "review_error": error}
+                "review_error": error,
+                "review_binding": {"comparison_base": base,
+                                    "steps_sha256": sha256_bytes(_read_bytes(os.path.join(paths.root, paths.steps))),
+                                    "module_sha256": sha256_bytes(_read_bytes(os.path.join(paths.root, paths.module))),
+                                    "requirements_sha256": sha256_bytes(_canonical(requirements)),
+                                    "review_inputs_sha256": None}}
     for requirement in requirements:
         review = next(item for item in records if item["name"] == requirement["name"] and
                       bool(item["has_receiver"]) == bool(requirement["has_receiver"]))

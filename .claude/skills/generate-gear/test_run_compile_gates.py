@@ -701,5 +701,70 @@ class CompileWorkflowInstructionTests(unittest.TestCase):
         self.assertIn('Reuse the latest report', skill)
 
 
+class HandoffBindingTests(unittest.TestCase):
+    def test_checker_payload_requires_exact_machine_types(self):
+        payload = {'ok': True, 'named_calls': 1, 'missing': [], 'stubs': [],
+                   'shared_point': [], 'parse_error': None}
+        self.assertIsNone(RUNNER._validate_checker_payload(payload))
+        payload['missing'] = [{'name': 'op', 'has_receiver': 1, 'textual_match': False}]
+        self.assertIn('invalid types', RUNNER._validate_checker_payload(payload))
+
+    def test_missing_shapes_keep_new_existing_and_unknown_origins(self):
+        missing = [{'name': 'old', 'has_receiver': True, 'textual_match': False},
+                   {'name': 'new', 'has_receiver': True, 'textual_match': False}]
+        self.assertEqual([item['origin'] for item in RUNNER._review_requirements(
+            missing, b'Call `sketch.old()`.')], ['already_required', 'new_since_base'])
+        self.assertEqual({item['origin'] for item in RUNNER._review_requirements(missing, None)},
+                         {'baseline_unknown'})
+
+    def test_review_binding_rejects_missing_duplicate_and_stale_decisions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'spec').mkdir()
+            (root / 'lib' / 'geargen').mkdir(parents=True)
+            (root / 'evidence.md').write_text('reason\n', encoding='utf-8')
+            (root / 'spec' / 'x' ).mkdir()
+            (root / 'spec' / 'x' / 'steps.md').write_text('Call `newOp()`\n', encoding='utf-8')
+            (root / 'lib' / 'geargen' / 'x.py').write_text('newOp()\n', encoding='utf-8')
+            paths = RUNNER.Paths(str(root), 'x', 'spec/x/steps.md', 'proof/x', 'lib/geargen/x.py')
+            requirements = [{'name': 'newOp', 'has_receiver': False, 'textual_match': False,
+                             'origin': 'new_since_base'}]
+            evidence = {'path': 'evidence.md', 'line': 1,
+                        'sha256': RUNNER.sha256_bytes((root / 'evidence.md').read_bytes())}
+            record = {'name': 'newOp', 'has_receiver': False, 'decision': 'emit_required',
+                      'evidence': [evidence], 'reason': 'The source requires this call.'}
+            binding = {'comparison_base': 'a' * 40,
+                       'steps_sha256': RUNNER.sha256_bytes((root / 'spec/x/steps.md').read_bytes()),
+                       'module_sha256': RUNNER.sha256_bytes((root / 'lib/geargen/x.py').read_bytes()),
+                       'requirements_sha256': RUNNER.sha256_bytes(RUNNER._canonical(requirements)),
+                       'review_inputs_sha256': RUNNER._review_input_hash(str(root), 'spec/x/steps.md', [record])}
+            review = {'schema': 1, 'gear': 'x', 'binding': binding, 'requirements': [record]}
+            review_path = root / 'review.json'
+            review_path.write_text(json.dumps(review), encoding='utf-8')
+            records, error = RUNNER._validate_review(str(review_path), 'x', 'a' * 40,
+                                                     paths, requirements)
+            self.assertIsNone(error)
+            self.assertEqual(records[0]['decision'], 'emit_required')
+            review['requirements'][0]['reason'] = ''
+            review_path.write_text(json.dumps(review), encoding='utf-8')
+            _records, error = RUNNER._validate_review(str(review_path), 'x', 'a' * 40,
+                                                      paths, requirements)
+            self.assertIn('reason', error)
+
+    def test_compile_policy_records_handoff_and_requires_complete_proof(self):
+        args = type('Args', (), {'only': None})()
+        metadata = {'iteration_mode': False, 'proof_is_complete': True,
+                    'effective_proof_scope': 'full'}
+        results = [type('Stage', (), {'key': 'proof', 'status': 'pass', 'skip_reason': None})(),
+                   type('Stage', (), {'key': 'step_calls', 'status': 'pass', 'skip_reason': None})()]
+        args._handoff_status = 'emit_required'
+        timing = importlib.util.spec_from_file_location('timing_handoff_test',
+            CHECKER_PATH.with_name('pipeline_timing.py'))
+        module = importlib.util.module_from_spec(timing)
+        timing.loader.exec_module(module)
+        self.assertEqual(module.compile_policy_for_run(args, results, metadata)['handoff_status'],
+                         'emit_required')
+
+
 if __name__ == '__main__':
     unittest.main()
