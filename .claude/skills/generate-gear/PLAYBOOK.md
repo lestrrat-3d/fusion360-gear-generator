@@ -359,16 +359,15 @@ discover inside Fusion and hard to attribute. The sketch engine is a headless, s
 for exactly this question, so the scheme is proven on the bench before it is committed to geometry.
 
 **Where it lives.** The proof is a small, committed, runnable Go program per gear at
-`spec/<gear>/sketch/` (module + `main.go` + `run.sh` + `README.md`). It reproduces the gear's
+`proof/<gear>/sketches_test.go` (registered from `spec/<gear>/steps.md`). It reproduces the gear's
 constraint-bearing sketch(es) from the same `[SPUR-F-…]`/spec recipes the Fusion code will use, runs
 the solver, and reports the verdict **as an exit code**: exit **0** with a final line starting
 `ALL PASS` when every case passes the primary gate, exit **1** with a line starting `FAIL` when any
 case fails it, and exit **2** for environment trouble (the engine checkout not found). `run.sh` uses
 `set -euo pipefail` so the Go program's exit status propagates. Every gear's bench MUST implement
 this contract — it is what lets `.claude/skills/generate-gear/run_sketch_bench.py` gate mechanically
-instead of a human or model reading the output. Run it via that wrapper
-(`python3 .claude/skills/generate-gear/run_sketch_bench.py <gear>`), not by eyeballing `./run.sh`
-output. `spec/spurgear/sketch/` is the worked example (the spur
+instead of a human or model reading the output. Run it via `proof/run.sh`, not by eyeballing output.
+`proof/spurgear/sketches_test.go` is the worked example (the spur
 Gear Profile: four circles, involute flanks, ribs, spine, flank-to-root lines). `run.sh` resolves a
 local checkout of the engine (source-available, not go-gettable) via `$SKETCH_DIR` or a sibling
 `<repo>/../sketch` located with `git --git-common-dir`, injecting the replace through a throwaway

@@ -347,9 +347,8 @@ class ToolTests(Fixture):
         self.assertEqual(by_key['sketch-bench']['status'], MODULE.WARN)
 
     def test_go_missing_fails_generate_once_a_sketch_bench_exists(self):
-        bench = self.root / 'spec' / GEAR / 'sketch'
-        bench.mkdir()
-        (bench / 'run.sh').write_text('#!/usr/bin/env bash\n')
+        (self.root / 'spec' / GEAR / 'steps.md').write_text('steps\n')
+        (self.root / 'proof' / GEAR).mkdir(parents=True, exist_ok=True)
 
         with mock.patch.dict(os.environ, self.empty_path()):
             results = MODULE.run_checks(self.ctx, 'generate')

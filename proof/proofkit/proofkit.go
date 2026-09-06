@@ -21,6 +21,7 @@ package proofkit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"sort"
@@ -44,6 +45,21 @@ type Case struct {
 // happened, and [Unmodelled] for a case the proof cannot represent — never
 // return quietly, which reads as a pass.
 type Build func(t testing.TB, s *sketch.Sketch, p map[string]float64)
+
+// ExpectedFailure describes the one intentional verification failure a case
+// must produce. The reason is matched with errors.Is, so its diagnostic text
+// may continue to include useful engine details.
+type ExpectedFailure struct {
+	Status sketch.Status
+	DOF    int
+	Reason error
+}
+
+// ExpectedFailureCase pairs a normal parameter case with its expected result.
+type ExpectedFailureCase struct {
+	Case     Case
+	Expected ExpectedFailure
+}
 
 // ParallelGroup is the subtest [RunParallel] nests its cases under.
 //
@@ -70,6 +86,53 @@ const ParallelGroup = "cases"
 func Run(t *testing.T, cases []Case, build Build) {
 	t.Helper()
 	runCases(t, cases, build, false)
+}
+
+// RunWithExpectedFailures runs the positive table and then checks each
+// controlled failure in a fresh sketch. Positive cases remain mandatory.
+func RunWithExpectedFailures(t *testing.T, cases []Case, build Build, failures []ExpectedFailureCase) {
+	t.Helper()
+	runCases(t, cases, build, false)
+	if len(failures) == 0 {
+		t.Fatal("proofkit: no expected-failure cases")
+	}
+	for _, f := range failures {
+		f := f
+		t.Run(f.Case.Name, func(t *testing.T) {
+			s := NewSketch(t)
+			build(t, s, f.Case.Params)
+			if len(s.Points()) == 0 && len(s.Entities()) == 0 {
+				t.Fatalf("proofkit: case %q created no authored geometry", f.Case.Name)
+			}
+			res, rep, err := solveVerify(s)
+			if err != nil {
+				t.Fatalf("expected controlled failure to solve: %v", err)
+			}
+			if !res.Converged {
+				t.Fatalf("expected controlled failure to converge: residual %.3e, DOF %d", res.Residual, res.DOF)
+			}
+			if !rep.Analysed() || !rep.Solvable {
+				t.Fatalf("expected analysed, solvable report: %s", detail(s, rep))
+			}
+			if rep.Status != f.Expected.Status || rep.DOF != f.Expected.DOF {
+				t.Fatalf("expected status=%s DOF=%d, got status=%s DOF=%d\n%s",
+					f.Expected.Status, f.Expected.DOF, rep.Status, rep.DOF, detail(s, rep))
+			}
+			if len(rep.Conflicts) != 0 || len(rep.Redundant) != 0 || !rep.ProfilesValid ||
+				!rep.ParametersValid || rep.Stale || len(rep.BrokenReferences) != 0 || rep.ForeignHandles ||
+				len(rep.NonFinitePoints)+len(rep.NonFiniteEntities)+len(rep.NonFiniteDimensions)+len(rep.NonFiniteConstraints) != 0 {
+				t.Fatalf("expected only the declared failure, got:\n%s", detail(s, rep))
+			}
+			reasons := rep.Check()
+			if reasons == nil {
+				t.Fatalf("expected verification failure %v", f.Expected.Reason)
+			}
+			unwrapped := reasons.Unwrap()
+			if len(unwrapped) != 1 || f.Expected.Reason == nil || !errors.Is(unwrapped[0], f.Expected.Reason) {
+				t.Fatalf("expected exactly one reason matching %v, got %v\n%s", f.Expected.Reason, unwrapped, detail(s, rep))
+			}
+		})
+	}
 }
 
 // RunParallel is [Run] with the cases running concurrently.
@@ -182,9 +245,7 @@ func Unmodelled(t testing.TB, format string, args ...any) {
 // judgement for whoever reads it.
 func RequireSound(t testing.TB, s *sketch.Sketch) {
 	t.Helper()
-	ctx := context.Background()
-
-	res, err := s.Solve(ctx)
+	res, rep, err := solveVerify(s)
 	if err != nil {
 		t.Fatalf("solve failed: %v", err)
 	}
@@ -193,7 +254,6 @@ func RequireSound(t testing.TB, s *sketch.Sketch) {
 			res.Residual, res.DOF, res.Redundant)
 	}
 
-	rep := s.Verify(ctx, sketch.WithProbe())
 	failed := rep.Check()
 	if failed == nil {
 		return
@@ -202,6 +262,15 @@ func RequireSound(t testing.TB, s *sketch.Sketch) {
 		t.Error(reason)
 	}
 	t.Log(detail(s, rep))
+}
+
+func solveVerify(s *sketch.Sketch) (*sketch.Result, *sketch.VerificationReport, error) {
+	ctx := context.Background()
+	res, err := s.Solve(ctx)
+	if err != nil {
+		return res, nil, err
+	}
+	return res, s.Verify(ctx, sketch.WithProbe()), nil
 }
 
 // detail adds the specifics behind a failed condition. Check names what failed;

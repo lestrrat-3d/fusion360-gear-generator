@@ -20,12 +20,8 @@
 // against a sketch engine cannot reproduce that, and a gear that labels a
 // sketch cannot gate on isFullyConstrained in Fusion either.
 //
-// The negative control for the tooth-top arc's free centre
-// ([SPUR-F-TOOTHTOP-ARC]) is not here. proofkit has no expect-failure mode: a
-// case that must NOT fully constrain cannot be written as a proofkit run
-// without inverting its gate. That control lives in the committed bench,
-// spec/spurgear/sketch/main.go, which re-runs one case with the coincidence
-// dropped and requires DOF 2.
+// The tooth-top arc's free-centre negative control is registered beside the
+// positive cases and uses proofkit's declarative expected-failure gate.
 package spurgear_test
 
 import (
@@ -78,19 +74,31 @@ var profileCases = []proofkit.Case{
 	{Name: "M2_N20_plus30_anchor_off_origin", Params: at(params(2, 20, 20, 30, 15), -12, 7)},
 }
 
+var profileFailureCases = []proofkit.ExpectedFailureCase{{
+	Case:     proofkit.Case{Name: "M1_N43_flat_tooth_top_arc_centre_free", Params: failureParams()},
+	Expected: proofkit.ExpectedFailure{Status: sketch.Underconstrained, DOF: 2, Reason: sketch.ErrNotFullyConstrained},
+}}
+
+func failureParams() map[string]float64 {
+	p := params(1, 43, 20, 180, 15)
+	p["omitToothTopCentreCoincidence"] = 1
+	return p
+}
+
 // params names one case by the dialog values it comes from. Module and Tooth
 // Number are the two size inputs, the pressure angle and the tooth angle are
 // given in degrees and carried in radians, and involuteSteps is the derived
 // Involute Steps parameter, 15 in the shipped gear.
 func params(module, toothNumber, pressureAngleDeg, angleDeg float64, steps int) map[string]float64 {
 	return map[string]float64{
-		"module":        module,
-		"toothNumber":   toothNumber,
-		"pressureAngle": rad(pressureAngleDeg),
-		"angle":         rad(angleDeg),
-		"involuteSteps": float64(steps),
-		"anchorX":       0,
-		"anchorY":       0,
+		"module":                        module,
+		"toothNumber":                   toothNumber,
+		"pressureAngle":                 rad(pressureAngleDeg),
+		"angle":                         rad(angleDeg),
+		"involuteSteps":                 float64(steps),
+		"anchorX":                       0,
+		"anchorY":                       0,
+		"omitToothTopCentreCoincidence": 0,
 	}
 }
 
@@ -108,6 +116,8 @@ func at(p map[string]float64, x, y float64) map[string]float64 {
 func rad(deg float64) float64 { return deg * math.Pi / 180 }
 
 func stepGearProfileSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
+	// flank-to-root lines: root endpoint pinned by signed dimensions:
+	// NewHorizontalDistance(origin, rootEnd, dx) and NewVerticalDistance(origin, rootEnd, dy).
 	module := p["module"]
 	toothNumber := p["toothNumber"]
 	pressureAngle := p["pressureAngle"]
@@ -151,7 +161,9 @@ func stepGearProfileSketch(t testing.TB, s *sketch.Sketch, p map[string]float64)
 	s.AddConstraint(sketch.NewPointOnCircle(toothTop, tip))
 	arcCentre := s.CreatePoint(0, 0)
 	s.CreateArc(arcCentre, rightPts[len(rightPts)-1], leftPts[len(leftPts)-1])
-	s.AddConstraint(sketch.NewCoincident(arcCentre, origin))
+	if p["omitToothTopCentreCoincidence"] == 0 {
+		s.AddConstraint(sketch.NewCoincident(arcCentre, origin))
+	}
 
 	proofkit.Step(t, "spine and angular pin")
 	spine := s.CreateLine(origin, toothTop)

@@ -14,12 +14,12 @@ leaves behind.
 
 | file | `git hash-object` |
 |---|---|
-| `spec/herringbonegear/instructions.md` | `45c8836ef944f9c0e4a188572b4a0ffc83250f1e` |
+| `spec/herringbonegear/instructions.md` | `0ca177828c06bbf8472200559b5dd47b8cb359a9` |
 | `spec/herringbonegear/fusion.md` | `62755ad2d376481cf449893ab2a445772357d218` |
 | `spec/helicalgear/fusion.md` | `f981173cb314094f2fd98cdd78d5bd8287cdc8ee` |
-| `spec/helicalgear/instructions.md` | `6c1d3b4d7aa824d90f9f0f851d4115179e754707` |
-| `spec/spurgear/instructions.md` | `8cb886a7827d6745fde7c876475066918c328283` |
-| `.claude/skills/generate-gear/PLAYBOOK.md` | `1b3078d6767d6a3f56c228e1e934c82ccfbf53fe` |
+| `spec/helicalgear/instructions.md` | `71b7993007b17cc4948569313c23614b8fbd246c` |
+| `spec/spurgear/instructions.md` | `2a98a801da25e77958488252bc87b499475ac95d` |
+| `.claude/skills/generate-gear/PLAYBOOK.md` | `3eb5424176c6d539d19040a8fb619114488ee558` |
 
 ## H1 `[PROSE]` Module layout, imports and constants
 

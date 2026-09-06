@@ -434,15 +434,16 @@ def check_stubs(ctx):
 
 
 def check_sketch_bench(ctx):
-    path = ctx.spec('sketch', 'run.sh')
-    if os.path.isfile(path):
-        return OK, 'sketch bench at spec/%s/sketch/run.sh' % ctx.gear
-    return WARN, ('no sketch bench at %s; the skill builds one from the spec\'s recipes, so this '
-                  'is work rather than a broken environment' % path)
+    steps = ctx.spec('steps.md')
+    proof = ctx.path('proof', ctx.gear)
+    if os.path.isfile(steps) and os.path.isdir(proof):
+        return OK, 'compiled sketch proof at proof/%s/' % ctx.gear
+    return WARN, ('no compiled sketch proof at spec/%s/steps.md plus proof/%s/; this is work rather '
+                  'than a broken environment' % (ctx.gear, ctx.gear))
 
 
 def has_sketch_bench(ctx):
-    return os.path.isfile(ctx.spec('sketch', 'run.sh'))
+    return os.path.isfile(ctx.spec('steps.md')) and os.path.isdir(ctx.path('proof', ctx.gear))
 
 
 # --- the stage matrix ----------------------------------------------------------------------

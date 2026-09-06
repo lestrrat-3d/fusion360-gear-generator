@@ -7,10 +7,10 @@ the generated registration file `proof/spurgear/zz_registrations_test.go`.
 
 | file | `git hash-object` |
 |---|---|
-| `spec/spurgear/instructions.md` | `8cb886a7827d6745fde7c876475066918c328283` |
-| `spec/spurgear/fusion.md` | `7cd4e5b0fa38dcd39cbd1b5bad1cf8489e2bc2ae` |
+| `spec/spurgear/instructions.md` | `2a98a801da25e77958488252bc87b499475ac95d` |
+| `spec/spurgear/fusion.md` | `88f059051067c7b55c9a39bf31b3d6e38bef1ac0` |
 | `spec/helicalgear/fusion.md` | `f981173cb314094f2fd98cdd78d5bd8287cdc8ee` |
-| `.claude/skills/generate-gear/PLAYBOOK.md` | `1b3078d6767d6a3f56c228e1e934c82ccfbf53fe` |
+| `.claude/skills/generate-gear/PLAYBOOK.md` | `3eb5424176c6d539d19040a8fb619114488ee558` |
 
 ## S1 `[PROSE]` Dialog inputs — `SpurGearCommandInputsConfigurator.configure`
 
@@ -403,7 +403,7 @@ This step creates a construction plane and no measurable geometry, so no proof f
 
 ## S7 `[GO]` Gear Profile sketch — circles, involute tooth, anchoring
 
-<!-- proof-run: proofkit.Run(profileCases, stepGearProfileSketch) -->
+<!-- proof-run: proofkit.RunWithExpectedFailures(profileCases, stepGearProfileSketch, profileFailureCases) -->
 
 One sketch, one timeline entry. `buildSketches(ctx)` creates it —
 `ctx.gearProfileSketch = self.createSketchObject('Gear Profile', plane=self.plane)` — then

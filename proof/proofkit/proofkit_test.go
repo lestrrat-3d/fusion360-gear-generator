@@ -71,6 +71,23 @@ func TestRunRejectsEmptyBuild(t *testing.T) {
 	}
 }
 
+func TestRunWithExpectedFailures(t *testing.T) {
+	RunWithExpectedFailures(t,
+		[]Case{{Name: "positive", Params: map[string]float64{}}},
+		func(_ testing.TB, s *sketch.Sketch, p map[string]float64) {
+			point := s.CreatePoint(0, 0)
+			if p["free"] == 1 {
+				return
+			}
+			s.Fix(point)
+		},
+		[]ExpectedFailureCase{{
+			Case:     Case{Name: "free_point", Params: map[string]float64{"free": 1}},
+			Expected: ExpectedFailure{Status: sketch.Underconstrained, DOF: 2, Reason: sketch.ErrNotFullyConstrained},
+		}},
+	)
+}
+
 func countingBuild(count *int) Build {
 	return func(t testing.TB, s *sketch.Sketch, params map[string]float64) {
 		(*count)++

@@ -92,7 +92,7 @@ build on the shared `[PB-FULL-CONSTRAINT]`, `[PB-SHARE-XOR-COINCIDENT]`, `[PB-NO
   and the arc collapses — measured in Fusion 2026-09-02 on a default 31/31 pair, a 0.5743 mm radius
   on the pinion and 17.0204 mm on the driving gear where both should have been the 22.5 mm tip
   radius, from two sketches with byte-identical constraint counts and dimension values. The bench
-  carries this as a negative control: `spec/spurgear/sketch/main.go` run with the centre left free
+  carries this as a negative control: `proof/spurgear/sketches_test.go` runs with the centre left free
   reports `DOF=2, underconstrained`, and must keep failing.
 
   ⚠️ A **free centre plus a diameter dimension** determines the arc's size but not which way it

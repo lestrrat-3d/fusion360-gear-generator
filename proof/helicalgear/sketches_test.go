@@ -37,7 +37,9 @@ import (
 // embedded shape, which helical does not support and which this proof measures
 // rather than assumes.
 var twistedCases = []proofkit.Case{
+	{Name: "M1_N12_helix14.5", Params: params(1, 12, 20, 14.5, 15)},
 	{Name: "default_M1_N17_helix14.5", Params: params(1, 17, 20, 14.5, 15)},
+	{Name: "M1_N17_helix_plus25", Params: params(1, 17, 20, 25, 15)},
 	{Name: "coarse_M3_N15_helix14.5", Params: params(3, 15, 20, 14.5, 15)},
 	{Name: "fine_M0.5_N24_helix14.5", Params: params(0.5, 24, 20, 14.5, 15)},
 	{Name: "large_M2_N20_helix14.5", Params: params(2, 20, 20, 14.5, 15)},
