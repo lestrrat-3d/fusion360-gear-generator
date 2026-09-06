@@ -382,8 +382,8 @@ def analyze_paths(paths, *, stubs=None, no_install=False, root=None,
                 return AnalysisResult(diagnostics, metadata,
                                       f"could not prepare candidate {source}: {error}")
         targets.append(target)
-        target_to_source[os.path.abspath(target)] = source
-        target_to_source[os.path.realpath(target)] = source
+        target_to_source.setdefault(os.path.abspath(target), source)
+        target_to_source.setdefault(os.path.realpath(target), source)
 
     config_path = None
     invocation = None

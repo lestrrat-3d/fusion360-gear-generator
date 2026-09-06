@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run the complete gate policy for several gears with shared anchor and type work."""
 import argparse
+import ast
 import dataclasses
 import importlib.util
 import json
@@ -72,17 +73,24 @@ def _writable_destination(path, directory=False):
         if not os.access(parent, os.W_OK):
             raise ValueError("report destination is not writable: %s" % path)
     else:
-        if os.path.exists(target) and not os.access(target, os.W_OK):
+        if os.path.isdir(target) or (os.path.exists(target) and not os.access(target, os.W_OK)):
             raise ValueError("report destination is not writable: %s" % path)
 
 
-def _setup_report(args, paths, errors):
+def _setup_report(args, paths, errors, anchor=None):
     rows = []
     for key in run_gates.GATE_ORDER:
-        rows.append({"key": key, "title": run_gates.GATE_TITLES[key], "status": "error",
-                     "advisory": key == "novel_types", "exit_code": 2,
+        status = ((anchor.status if anchor is not None else "error") if key == "anchors" else
+                  ("fail" if key == "parse" and
+                                                     any("does not parse" in e for e in errors)
+                                                     else "error"))
+        rows.append({"key": key, "title": run_gates.GATE_TITLES[key], "status": status,
+                     "advisory": key == "novel_types", "exit_code": 1 if status == "fail" else
+                     (0 if status == "pass" else 2),
                      "duration_s": 0.0, "command": [], "headline": "setup error",
-                     "stdout": "", "stderr": "ERROR: " + "; ".join(errors),
+                     "stdout": "parse: SyntaxError" if status == "fail" else "",
+                     "stderr": ("ERROR: " + "; ".join(errors) if status == "error" else
+                                (anchor.stderr if key == "anchors" and anchor else "")),
                      "skip_reason": None, "fault": "setup", "timing_note": None})
     return {"schema": 1, "gear": args.gear, "candidate": paths.candidate, "root": paths.root,
             "verdict": "setup_error", "exit_code": 2,
@@ -135,8 +143,6 @@ def main(argv=None):
                              (report_dir, error))
         _writable_destination(report_dir, directory=True)
         _writable_destination(json_out)
-        if args.skip_anchors:
-            raise ValueError("--skip-anchors is reserved for test/debug use")
     except (SystemExit, ValueError) as error:
         if isinstance(error, SystemExit) and error.code == 0:
             raise
@@ -156,7 +162,9 @@ def main(argv=None):
 
     anchor_start = time.monotonic()
     anchor_cmd = [sys.executable, os.path.join(HERE, "check_anchors.py")]
-    anchor = run_gates.run_script_gate("anchors", "Anchors", anchor_cmd, root, args.timeout, False)
+    anchor = (run_gates.GateResult("anchors", "Anchors", "skip", False, None, 0.0, [], "", "",
+                                   "--skip-anchors", None) if args.skip_anchors else
+              run_gates.run_script_gate("anchors", "Anchors", anchor_cmd, root, args.timeout, False))
     anchor_duration = round(time.monotonic() - anchor_start, 2)
     anchor = dataclasses.replace(anchor, duration_s=anchor_duration)
 
@@ -167,6 +175,12 @@ def main(argv=None):
     valid = []
     for gear, (candidate_args, paths, errors) in zip((item[0] for item in specs), prepared):
         if errors:
+            continue
+        try:
+            with open(os.path.join(root, paths.candidate), encoding="utf-8") as handle:
+                ast.parse(handle.read())
+        except (OSError, SyntaxError) as error:
+            plan_errors[gear] = "candidate does not parse: %s" % error
             continue
         try:
             plan = novel.plan_evaluation(os.path.join(root, "lib", "geargen"),
@@ -187,6 +201,9 @@ def main(argv=None):
     analysis_start = time.monotonic()
     analysis = pyright.analyze_paths(union, root=root, timeout=args.timeout) if union else \
         pyright.AnalysisResult({}, pyright.AnalysisMetadata(root), "no valid candidates")
+    if not analysis.setup_error and len(analysis.metadata.invocations) != 1:
+        analysis.setup_error = "batch analysis expected one invocation, got %d" % \
+            len(analysis.metadata.invocations)
     analysis_duration = round(time.monotonic() - analysis_start, 2)
     shared = {"anchors": {"invocations": 1, "duration_s": anchor_duration,
                            "status": anchor.status},
@@ -197,15 +214,15 @@ def main(argv=None):
     reports = []
     for index, ((gear, candidate), (candidate_args, paths, errors)) in enumerate(zip(specs, prepared)):
         if errors:
-            report = _setup_report(candidate_args, paths, errors)
+            report = _setup_report(candidate_args, paths, errors, anchor)
         elif gear not in plans:
             report = _setup_report(candidate_args, paths,
-                                   [plan_errors.get(gear, "could not form novelty plan")])
+                                   [plan_errors.get(gear, "could not form novelty plan")], anchor)
         else:
             report = run_gates.run_candidate(
                 paths, candidate_args, shared_anchors=anchor, shared_analysis=analysis,
-                novelty_plan=plans[gear], shared_owner_gear=specs[0][0],
-                owns_shared_duration=index == 0)
+                novelty_plan=plans[gear], shared_owner_gear=next(iter(plans), specs[0][0]),
+                owns_shared_duration=gear == next(iter(plans), specs[0][0]))
         report_path = os.path.join(report_dir, gear + ".gates.json")
         _write(report_path, report)
         reports.append({"gear": gear, "candidate": paths.candidate,
