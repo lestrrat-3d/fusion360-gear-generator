@@ -14,10 +14,12 @@ places a whole stage's artifacts together:
 
   stage.py <gear> proof  [--run] [--no-index] [--force] [--dry-run]
       Copies every `*.go` file from `.tmp/<gear>-proof/` into `proof/<gear>/`,
-      deleting any `.go` file already there that the draft no longer
-      produces. Indexes the result (`git add -A -- proof/<gear>`) unless
-      `--no-index` is given, so a first-time proof passes the
-      tracked-or-committed check. `--run` then runs `bash proof/run.sh`.
+      deleting any `.go` file already there that this script generated and the
+      draft no longer produces. Ownership is read from
+      `proof/<gear>/stage-manifest.json`; see "Ownership" below. Indexes the
+      result (`git add -A -- proof/<gear>`) unless `--no-index` is given, so a
+      first-time proof passes the tracked-or-committed check. `--run` then
+      runs `bash proof/run.sh`.
 
   stage.py <gear> steps  [--force] [--dry-run]
       Copies `.tmp/<gear>.steps.md` to `spec/<gear>/steps.md`.
@@ -39,6 +41,34 @@ what would happen, writing nothing.
 The source is always copied, never deleted, so every subcommand is
 idempotent: running it again over the same draft reports every file
 unchanged.
+
+Ownership
+---------
+
+`proof/<gear>/` is allowed to hold `.go` files this pipeline does not
+generate. `proof/bevelgear/render_test.go` and `proof/cycloidal/render_test.go`
+are the two that exist today; no step list names either, so no draft produces
+them, and an earlier version of this script deleted both on any recompile of
+their gear. `destination_extras` already stated the intent for non-`.go`
+files, that the destination "may be legitimately extended by a human", and
+this is that same rule widened to `.go` with a signal to read it from.
+
+`proof/<gear>/stage-manifest.json` is that signal. It records the file names
+this script placed on its last successful run, it is committed, and it is
+rewritten on every successful `proof` placement. Pruning is restricted to the
+names it lists, so a file the pipeline never generated is never deleted, and
+no filename is special-cased.
+
+A destination with no manifest has no ownership record, so **nothing there is
+pruned**. Each `.go` file the draft does not produce is reported and left in
+place, and the manifest written at the end of that run makes the next one
+able to prune. A file stranded that way has to be deleted by hand once; the
+alternative is guessing, and guessing wrong deletes work.
+
+The manifest is not the overwrite guard. `classify_destination` still decides
+what may be replaced, from the `.tmp/stage/` receipt and the clean-tree check,
+and it is unchanged: it refuses to clobber uncommitted work, and a committed
+clean file is still replaceable.
 
 Usage:
     python3 stage.py [--root DIR] <gear> {proof,steps,module,compile} [options]
@@ -69,11 +99,18 @@ class Refusal(Exception):
 
 Plan = collections.namedtuple(
     'Plan', 'target gear source destination sources_are_dir')
-Actions = collections.namedtuple('Actions', 'write unchanged prune extra')
+Actions = collections.namedtuple('Actions', 'write unchanged prune extra unowned')
 PlannedTarget = collections.namedtuple(
-    'PlannedTarget', 'plan sources existing actions')
+    'PlannedTarget', 'plan sources existing actions manifest')
 
 COMPILE_TARGETS = ('steps', 'proof')
+
+MANIFEST_NAME = 'stage-manifest.json'
+MANIFEST_COMMENT = (
+    'Names in "files" are the .go files .claude/skills/generate-gear/stage.py '
+    'generates in this directory and may delete when a draft stops producing '
+    'them. Every other file here is left alone. Written by stage.py on each '
+    'successful placement; do not hand-edit.')
 
 
 def _joined(root, *parts):
@@ -204,17 +241,70 @@ def destination_extras(plan):
     Reported in the summary, never touched: the destination directory may be
     legitimately extended by a human (testdata, a README), so only the
     extension the pipeline actually generates is ever pruned.
+
+    The manifest is excluded because it is this script's own bookkeeping
+    rather than something a human put there, and reporting it as an extra on
+    every run would say the opposite.
     """
     if not plan.sources_are_dir or not os.path.isdir(plan.destination):
         return []
     extras = []
     for name in sorted(os.listdir(plan.destination)):
-        if name.endswith('.go'):
+        if name.endswith('.go') or name == MANIFEST_NAME:
             continue
         full = os.path.join(plan.destination, name)
         if os.path.isfile(full):
             extras.append(name)
     return extras
+
+
+def manifest_path(plan):
+    """Where this target's ownership record lives, or `None` if it has none.
+
+    Only the `proof` target prunes, so only it keeps a manifest.
+    """
+    if not plan.sources_are_dir:
+        return None
+    return os.path.join(plan.destination, MANIFEST_NAME)
+
+
+def parse_manifest(data):
+    """The set of names a manifest's bytes claim, or `None` when unreadable.
+
+    `None` and `set()` mean different things and the caller must not conflate
+    them. `None` is "this directory has no usable ownership record", which
+    forbids pruning entirely. An empty set is a record that claims nothing,
+    which permits pruning and prunes nothing.
+
+    A manifest that is absent, not valid UTF-8 JSON, not an object, or
+    carrying a `files` value that is not a list of strings reads as `None`,
+    because a damaged record is not evidence about any file.
+    """
+    if data is None:
+        return None
+    try:
+        parsed = json.loads(data.decode('utf-8'))
+    except (UnicodeDecodeError, ValueError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    files = parsed.get('files')
+    if not isinstance(files, list):
+        return None
+    if not all(isinstance(name, str) for name in files):
+        return None
+    return set(files)
+
+
+def manifest_bytes(plan, names):
+    """The manifest this run would write, as bytes, for `names`."""
+    payload = {
+        'comment': MANIFEST_COMMENT,
+        'gear': plan.gear,
+        'target': plan.target,
+        'files': sorted(names),
+    }
+    return (json.dumps(payload, indent=2, sort_keys=True) + '\n').encode('utf-8')
 
 
 def receipt_path(root, gear, target):
@@ -294,12 +384,18 @@ def classify_destination(plan, existing, receipt, force, root):
             "commit it, revert it, or pass --force" % full)
 
 
-def plan_actions(sources, existing):
+def plan_actions(sources, existing, owned=None):
     """Diff sources against what already exists. Pure, no I/O.
 
-    `prune` only ever contains names present in `existing` but absent from
-    `sources`; the caller only builds a nonempty `existing` for `proof`, so
-    this is naturally scoped to that target.
+    `prune` contains a name only when it is present in `existing`, absent from
+    `sources`, and named by `owned`. `owned` is the manifest's set of names, or
+    `None` when the destination has no manifest; `None` prunes nothing, which
+    is what makes a directory this script has never staged safe to stage into.
+
+    Everything `sources` does not produce and `owned` does not claim goes to
+    `unowned`, which is reported and left in place. The caller only builds a
+    nonempty `existing` for `proof`, so both lists are naturally scoped to
+    that target.
     """
     write = []
     unchanged = []
@@ -308,8 +404,13 @@ def plan_actions(sources, existing):
             unchanged.append(name)
         else:
             write.append(name)
-    prune = [name for name in existing if name not in sources]
-    return Actions(sorted(write), sorted(unchanged), sorted(prune), [])
+    obsolete = [name for name in existing if name not in sources]
+    if owned is None:
+        prune, unowned = [], obsolete
+    else:
+        prune = [name for name in obsolete if name in owned]
+        unowned = [name for name in obsolete if name not in owned]
+    return Actions(sorted(write), sorted(unchanged), sorted(prune), [], sorted(unowned))
 
 
 def plan_target(root, gear, target, force):
@@ -325,8 +426,10 @@ def plan_target(root, gear, target, force):
     extras = destination_extras(plan)
     receipt = load_receipt(root, gear, plan.target)
     classify_destination(plan, existing, receipt, force, root)
-    actions = plan_actions(sources, existing)._replace(extra=extras)
-    return PlannedTarget(plan, sources, existing, actions)
+    manifest = read_manifest_bytes(plan)
+    actions = plan_actions(
+        sources, existing, parse_manifest(manifest))._replace(extra=extras)
+    return PlannedTarget(plan, sources, existing, actions, manifest)
 
 
 def _temp_path(path):
@@ -368,14 +471,37 @@ def _restore(full, previous):
             pass
 
 
+def read_manifest_bytes(plan):
+    """The manifest file's current bytes, or `None` when there is no file.
+
+    Kept so a rollback can put a directory back exactly as it was, including
+    the case where this run created the manifest and the rollback has to
+    remove it again.
+    """
+    path = manifest_path(plan)
+    if path is None:
+        return None
+    try:
+        with open(path, 'rb') as fh:
+            return fh.read()
+    except OSError:
+        return None
+
+
 def apply_actions(plan, actions, sources, existing):
-    """Phase 2: write, then prune, restoring everything touched on any failure.
+    """Phase 2: write, then prune, then record ownership, restoring on failure.
 
     Each write goes to a temp name in the destination directory and is moved
     into place with `os.replace`, so no half-written file is ever visible.
     If any write or unlink raises, every file this call already touched is
     restored from the in-memory `existing` snapshot before the exception is
     re-raised.
+
+    The manifest is written last and names exactly what `sources` produced, so
+    it describes the directory as it now stands rather than as it was asked to
+    be. It is written even when nothing changed, which is what gives a
+    directory staged before this script tracked ownership a record on its
+    first run afterwards.
     """
     if plan.sources_are_dir:
         os.makedirs(plan.destination, exist_ok=True)
@@ -394,6 +520,11 @@ def apply_actions(plan, actions, sources, existing):
             previous = existing.get(name)
             os.unlink(full)
             touched.append((full, previous))
+        path = manifest_path(plan)
+        if path is not None:
+            previous = read_manifest_bytes(plan)
+            _atomic_write(path, manifest_bytes(plan, sources.keys()))
+            touched.append((path, previous))
     except Exception:
         for full, previous in reversed(touched):
             _restore(full, previous)
@@ -407,12 +538,18 @@ def rollback_target(planned):
     this exists only for a composite run: when a later child refuses to
     place, an earlier child that already succeeded has to go back to the
     bytes it replaced (or be removed again, when there were none).
+
+    The manifest is restored the same way, from the bytes read while planning,
+    so a rolled-back run leaves no ownership record it did not find.
     """
     plan = planned.plan
     for name in list(planned.actions.write) + list(planned.actions.prune):
         full = (os.path.join(plan.destination, name)
                 if plan.sources_are_dir else plan.destination)
         _restore(full, planned.existing.get(name))
+    path = manifest_path(plan)
+    if path is not None:
+        _restore(path, planned.manifest)
 
 
 def index_paths(root, plan):
@@ -461,14 +598,18 @@ def report(plan, actions, dry_run, sources):
     for name in actions.unchanged:
         print("stage: unchanged %s" % full_path(name))
     for name in actions.prune:
-        print("stage: %s%s %s (the draft no longer produces it)"
+        print("stage: %s%s %s (generated here, and the draft no longer produces it)"
               % (prefix, prune_verb, full_path(name)))
+    for name in actions.unowned:
+        print("stage: %s left alone (the draft does not produce it and %s does not "
+              "claim it)" % (full_path(name), MANIFEST_NAME))
     for name in actions.extra:
         print("stage: %s left alone (not produced by the draft)" % full_path(name))
 
     if plan.target == 'proof':
-        print("stage: proof OK (%d written, %d unchanged, %d pruned)"
-              % (len(actions.write), len(actions.unchanged), len(actions.prune)))
+        print("stage: proof OK (%d written, %d unchanged, %d pruned, %d left alone)"
+              % (len(actions.write), len(actions.unchanged), len(actions.prune),
+                 len(actions.unowned)))
     elif actions.write:
         print("stage: %s OK (%d written)" % (plan.target, len(actions.write)))
     else:
@@ -576,7 +717,7 @@ def main(argv):
         return run_compile(root, args)
 
     try:
-        plan, sources, existing, actions = plan_target(
+        plan, sources, existing, actions, _ = plan_target(
             root, args.gear, args.target, args.force)
     except Refusal as exc:
         print("stage: %s" % exc, file=sys.stderr)

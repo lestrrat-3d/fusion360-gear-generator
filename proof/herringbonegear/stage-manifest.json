@@ -1,0 +1,10 @@
+{
+  "comment": "Names in \"files\" are the .go files .claude/skills/generate-gear/stage.py generates in this directory and may delete when a draft stops producing them. Every other file here is left alone. Written by stage.py on each successful placement; do not hand-edit.",
+  "files": [
+    "sketches_test.go",
+    "solids_test.go",
+    "zz_registrations_test.go"
+  ],
+  "gear": "herringbonegear",
+  "target": "proof"
+}

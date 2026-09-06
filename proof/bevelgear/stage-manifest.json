@@ -1,0 +1,15 @@
+{
+  "comment": "Names in \"files\" are the .go files .claude/skills/generate-gear/stage.py generates in this directory and may delete when a draft stops producing them. Every other file here is left alone. Written by stage.py on each successful placement; do not hand-edit.",
+  "files": [
+    "bounds_test.go",
+    "cases_test.go",
+    "geometry_test.go",
+    "lattice_test.go",
+    "sketches_test.go",
+    "solids_test.go",
+    "spiral_test.go",
+    "zz_registrations_test.go"
+  ],
+  "gear": "bevelgear",
+  "target": "proof"
+}
