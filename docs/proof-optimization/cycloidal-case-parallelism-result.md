@@ -74,9 +74,11 @@ through package-level variables.
 its landing would move the baseline; #112 landed it, which is why the combined measurement below
 uses `1dbc16b` as the before-state rather than carrying #110's numbers forward.
 
-The local engine checkouts beside the repository are at other revisions, so every run here used
-detached worktrees of both engines at the pinned commits, pointed at through `SKETCH_DIR` and
-`DECAD_DIR`. `proof/run.sh` verified them on every single run, and its two `verified` lines are in
+The `decad` checkout beside the repository sits at `1080cbf4c0a7`, which is the pin #112 replaced,
+so every run here used detached worktrees of both engines at the pinned commits, pointed at through
+`SKETCH_DIR` and `DECAD_DIR`. `sketch` happened to be at the pinned revision already, and it was
+given its own worktree anyway, so that another session moving it mid-run could not change what was
+measured. `proof/run.sh` verified both on every single run, and its two `verified` lines are in
 each stored log.
 
 ## What #110, #111 and #112 did together
