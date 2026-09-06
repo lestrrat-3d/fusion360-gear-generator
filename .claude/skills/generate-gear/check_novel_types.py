@@ -71,6 +71,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import fusion_api  # noqa: E402  (sibling module; sys.path is fixed up above)
 
+
+class AnalysisSetupError(Exception):
+    """Raised when a shared analysis result cannot provide diagnostics."""
+
 # Import noise: the candidate lives in .tmp/ and the gears live in a package, so their
 # relative imports resolve differently. That difference is about where the file sits,
 # not about what it does.
@@ -399,6 +403,73 @@ def reference_gears(reference, candidate):
     return gears
 
 
+def evaluate_analysis(result, candidate, gears):
+    """Compare one batched analysis result with the candidate and reference paths.
+
+    The returned values are deliberately plain data so the gate runner can feed the same raw
+    analysis to both type consumers without invoking Pyright again.
+    """
+    if result.setup_error:
+        raise AnalysisSetupError(result.setup_error)
+    candidate_path = os.path.abspath(candidate)
+
+    def path_diagnostics(path):
+        return [diagnostic for diagnostic in result.diagnostics.get(os.path.abspath(path), [])
+                if diagnostic.get('rule') not in IGNORED_RULES]
+
+    baseline = set()
+    for gear in gears:
+        for diagnostic in path_diagnostics(gear):
+            baseline.add(signature(diagnostic))
+
+    candidate_diagnostics = path_diagnostics(candidate_path)
+    accepted = accepted_signatures()
+    verified_by_line = verified_fusion_classes(candidate_path)
+    accepted_hits = sum(1 for diagnostic in candidate_diagnostics
+                        if signature(diagnostic) in accepted)
+    novel = sorted((diagnostic for diagnostic in candidate_diagnostics
+                    if signature(diagnostic) not in baseline
+                    and signature(diagnostic) not in accepted
+                    and not is_unverified_api_diagnostic(diagnostic, verified_by_line)),
+                   key=novel_sort_key)
+    return {
+        'baseline_count': len(baseline),
+        'candidate_diagnostics': candidate_diagnostics,
+        'accepted_hits': accepted_hits,
+        'novel': novel,
+        'gears': list(gears),
+        'candidate': candidate_path,
+    }
+
+
+def render_evaluation(evaluation, *, gate=False):
+    """Render a normal novel-type report and return ``(text, exit_code)``."""
+    candidate = evaluation['candidate']
+    gears = evaluation['gears']
+    accepted_hits = evaluation['accepted_hits']
+    novel = evaluation['novel']
+    lines = []
+    if accepted_hits:
+        lines.append('novel-type check: %d complaint(s) matched accepted_type_noise.json '
+                     '(triaged stub noise; see its "why" entries)' % accepted_hits)
+    if novel:
+        lines.append('novel-type check: %d complaint(s) no shipped gear produces — triage each'
+                     % len(novel))
+        for index, diagnostic in enumerate(novel, start=1):
+            lines.append('  [%d] %s:%d [%s] %s'
+                         % (index, candidate, diagnostic['range']['start']['line'] + 1,
+                            diagnostic.get('rule'), diagnostic.get('message', '').split('\n')[0]))
+        lines.append('  Record one as triaged stub noise: python3 '
+                     '.claude/skills/generate-gear/check_novel_types.py %s '
+                     '--accept N --why "<reason>"' % candidate)
+        lines.append('  Baseline came from %d shipped gear(s) drawing %d distinct complaint(s).'
+                     % (len(gears), evaluation['baseline_count']))
+        return '\n'.join(lines), (1 if gate else 0)
+    lines.append('novel-type check: OK (nothing the %d shipped gear(s) do not already produce)'
+                 % len(gears))
+    return '\n'.join(lines), 0
+
+
 def main():
     ap = argparse.ArgumentParser(add_help=True)
     ap.add_argument('candidate')
@@ -426,24 +497,13 @@ def main():
               % args.reference, file=sys.stderr)
         return 2
 
-    baseline = set()
     try:
-        for gear in gears:
-            for diag in diagnostics(pc, gear):
-                baseline.add(signature(diag))
-
-        verified_by_line = verified_fusion_classes(args.candidate)
-        accepted = accepted_signatures()
-        candidate_diagnostics = diagnostics(pc, args.candidate)
-    except pc.AnalysisSetupError as error:
+        result = pc.analyze_paths(gears + [args.candidate])
+        evaluation = evaluate_analysis(result, args.candidate, gears)
+    except (pc.AnalysisSetupError, AnalysisSetupError) as error:
         print('ERROR: %s' % error, file=sys.stderr)
         return 2
-    accepted_hits = sum(1 for d in candidate_diagnostics if signature(d) in accepted)
-    novel = sorted((d for d in candidate_diagnostics
-                    if signature(d) not in baseline
-                    and signature(d) not in accepted
-                    and not is_unverified_api_diagnostic(d, verified_by_line)),
-                   key=novel_sort_key)
+    novel = evaluation['novel']
 
     if args.accept is not None:
         if not novel:
@@ -466,26 +526,9 @@ def main():
                  chosen.get('message', '').split('\n')[0]))
         return 0
 
-    if accepted_hits:
-        print('novel-type check: %d complaint(s) matched accepted_type_noise.json '
-              '(triaged stub noise; see its "why" entries)' % accepted_hits)
-    if novel:
-        print('novel-type check: %d complaint(s) no shipped gear produces — triage each'
-              % len(novel))
-        for index, d in enumerate(novel, start=1):
-            print('  [%d] %s:%d [%s] %s'
-                  % (index, args.candidate, d['range']['start']['line'] + 1,
-                     d.get('rule'), d.get('message', '').split('\n')[0]))
-        print('  Record one as triaged stub noise: python3 '
-              '.claude/skills/generate-gear/check_novel_types.py %s --accept N --why "<reason>"'
-              % args.candidate)
-        print('  Baseline came from %d shipped gear(s) drawing %d distinct complaint(s).'
-              % (len(gears), len(baseline)))
-        return 1 if args.gate else 0
-
-    print('novel-type check: OK (nothing the %d shipped gear(s) do not already produce)'
-          % len(gears))
-    return 0
+    report, exit_code = render_evaluation(evaluation, gate=args.gate)
+    print(report)
+    return exit_code
 
 
 if __name__ == '__main__':
