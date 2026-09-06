@@ -921,7 +921,7 @@ def infer_api_receiver_types(tree, classes, bases, method_returns, api_member_in
     return types, field_types, expression_type, verified_bindings, verified_fields
 
 
-def main():
+def _check():
     ap = argparse.ArgumentParser(add_help=True)
     ap.add_argument('target')
     ap.add_argument('--framework', default='lib',
@@ -1128,6 +1128,15 @@ def main():
         for line in findings:
             print('  %s' % line)
     return 0
+
+
+def main():
+    try:
+        with fusion_api.query_session():
+            return _check()
+    except fusion_api.Unavailable as exc:
+        print('check_api_calls: %s' % exc, file=sys.stderr)
+        return 2
 
 
 if __name__ == '__main__':
