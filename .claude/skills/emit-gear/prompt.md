@@ -1,6 +1,13 @@
 Write the Fusion 360 add-in implementation for `{{gear}}` by following its compiled step list. Work
-in the repo worktree. Write `.tmp/{{gear}}.generated.py`. Do not try to run it; the `adsk` modules
-only exist inside Fusion, so parsing is as far as it goes.
+in the repo worktree. Write `.tmp/{{gear}}.generated.py`, then stop drafting and report what you
+produced. Do not run `run_gates.py` or its individual check scripts, and do not start an internal
+correction loop before submitting the artifact. You may run this cheap syntax check once:
+
+    python3 -c "import ast; ast.parse(open('.tmp/{{gear}}.generated.py').read())"
+
+It does not validate Fusion behavior and never replaces the orchestrator's complete gate battery.
+Do not execute the generated module; the `adsk` modules exist only inside Fusion, so runtime
+behavior cannot be checked during drafting.
 
 **Read, in this order:** `spec/{{gear}}/steps.md`, which is your instruction set and which you work
 through in order; `proof/{{gear}}/`, the checked geometry, which steps tagged `[GO]` tell you to
@@ -52,13 +59,10 @@ on that build, and only the advisory novel-type row caught it.
 **Do every step.** A step you cannot finish is a defect to report, never a comment left in the
 file and never a silent omission.
 
-**Self-check before finishing**, by running
-`python3 .claude/skills/generate-gear/run_gates.py {{gear}} --no-advisory` and fixing until it
-exits 0. It runs every gate and reports all failures at once, so fix the whole list before
-re-running. Exit 2 is a setup problem, not a draft problem: report it and stop rather than
-editing around it. Run it once more without `--no-advisory` before you finish, and report what
-its advisory row says. Never silence a finding by deleting a comment, renaming a variable, or
-removing the call it objects to.
+Never silence a gate finding by deleting a comment, renaming a variable, or removing the call it
+objects to. Preserve the step's intent while correcting the reported defect.
 
-**Report:** the gate results, the final line count, and every step that was unclear, incomplete,
-or that you could not carry out as written, named by its step ID.
+**Report:** the artifact path, its final line count if useful, and every step that was unclear,
+incomplete, contradictory, or that you could not carry out as written, named by its step ID.
+The orchestrator owns gate results, advisory triage, and retry decisions; report facts you can
+know from the artifact and the step list only.
