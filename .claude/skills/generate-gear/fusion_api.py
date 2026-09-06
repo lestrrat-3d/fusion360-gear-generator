@@ -151,11 +151,11 @@ def query_script():
     raise Unavailable('%s records no usable install of %s, so %s' % (INSTALLED, PLUGIN, INSTALL_HINT))
 
 
-def _run_legacy(*args):
+def _run_legacy(*args, script=None):
     """Run one query through the original one-shot command transport."""
     try:
-        proc = subprocess.run([sys.executable, query_script()] + list(args),
-                              capture_output=True, text=True,
+        proc = subprocess.run([sys.executable, script or query_script()] + list(args),
+                              capture_output=True, text=True, encoding='utf-8',
                               timeout=SESSION_REQUEST_TIMEOUT)
     except subprocess.TimeoutExpired as exc:
         raise Unavailable('Fusion API query timed out') from exc
@@ -180,10 +180,12 @@ class _QuerySession:
         """Return whether ``script --help`` advertises the session command."""
         try:
             result = subprocess.run([sys.executable, script, '--help'],
-                                    capture_output=True, text=True,
+                                    capture_output=True, text=True, encoding='utf-8',
                                     timeout=CAPABILITY_TIMEOUT)
         except subprocess.TimeoutExpired as exc:
             raise Unavailable('Fusion API query tool capability check timed out') from exc
+        except UnicodeError as exc:
+            raise Unavailable('Fusion API query tool capability check was not UTF-8') from exc
         except OSError as exc:
             raise Unavailable('Fusion API query tool capability check failed (%s)' % exc) from exc
         if result.returncode != 0:
@@ -241,7 +243,8 @@ class _QuerySession:
             raise Unavailable('Fusion API query session sent an invalid ready response (%s)' % exc) from exc
         commands = ready.get('commands') if isinstance(ready, dict) else None
         if (not isinstance(ready, dict) or ready.get('type') != 'ready'
-                or ready.get('protocol') != 1 or not isinstance(commands, list)
+                or ready.get('protocol') != 1 or isinstance(ready.get('protocol'), bool)
+                or not isinstance(commands, list)
                 or not all(isinstance(command, str) for command in commands)
                 or not {'show', 'members', 'search'}.issubset(commands)):
             self._terminate()
@@ -255,7 +258,7 @@ class _QuerySession:
                 self.mode = ('legacy' if self.transport == 'legacy' else
                              ('session' if self._capability(self.script) else 'legacy'))
             if self.mode == 'legacy':
-                return _run_legacy(*args)
+                return _run_legacy(*args, script=self.script)
             if self.process is None:
                 self._start()
             request_id = self.next_id
@@ -279,6 +282,7 @@ class _QuerySession:
                                   % response.get('message', 'unknown error'))
             if response.get('type') != 'result' \
                     or not isinstance(response.get('returncode'), int) \
+                    or isinstance(response.get('returncode'), bool) \
                     or not isinstance(response.get('stdout'), str) \
                     or not isinstance(response.get('stderr'), str):
                 self._terminate()
@@ -357,7 +361,7 @@ def lookup(name):
 
 
 def lookup_many(names, workers=8):
-    """lookup() over many names at once. One process each, run concurrently."""
+    """Run lookup() over many names concurrently, serializing active session transactions."""
     names = list(names)
     if not names:
         return {}
