@@ -43,6 +43,21 @@ class ReferenceGearTests(unittest.TestCase):
                 [str(other)],
             )
 
+    def test_live_pyright_scratch_candidate_is_excluded(self):
+        with tempfile.TemporaryDirectory() as directory:
+            reference = Path(directory)
+            scratch = reference / '__pyright_candidate_live.py'
+            scratch.write_text('scratch candidate\n')
+            shipped = reference / 'spurgear.py'
+            shipped.write_text('shipped gear\n')
+            candidate = Path(directory) / 'candidate.py'
+            candidate.write_text('new candidate\n')
+
+            self.assertEqual(
+                MODULE.reference_gears(str(reference), str(candidate)),
+                [str(shipped)],
+            )
+
 
 class DiagnosticFilterTests(unittest.TestCase):
     def test_unverified_fusion_member_is_non_gating(self):

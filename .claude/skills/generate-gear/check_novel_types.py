@@ -59,10 +59,8 @@ Run from the repo root. Exit 0 = OK, 1 = BLOCKING, 2 = no reference gears to com
 """
 import argparse
 import ast
-import contextlib
 import filecmp
 import importlib.util
-import io
 import json
 import os
 import re
@@ -260,28 +258,19 @@ def load_pyright_check():
 
 
 def diagnostics(pc, path):
-    """Every diagnostic pyright reports for one file, whatever pyright_check makes of it."""
-    found = []
-    original = pc.classify
+    """Return raw diagnostics for one file through the shared analysis boundary.
 
-    def spy(diag):
-        if diag.get('rule') not in IGNORED_RULES:
-            found.append(diag)
-        return original(diag)
-
-    pc.classify = spy
-    argv = sys.argv
-    sys.argv = ['pyright_check.py', path]
-    try:
-        with contextlib.redirect_stdout(io.StringIO()):
-            try:
-                pc.main()
-            except SystemExit:
-                pass
-    finally:
-        pc.classify = original
-        sys.argv = argv
-    return found
+    The advisory needs every non-import diagnostic, including findings that the CLI classifies
+    as REVIEW. It therefore consumes raw results instead of intercepting ``classify`` or
+    suppressing ``SystemExit``. A setup failure is raised so the advisory cannot report success
+    for an empty collection.
+    """
+    result = pc.analyze_paths([path])
+    if result.setup_error:
+        raise pc.AnalysisSetupError(result.setup_error)
+    original = result.diagnostics.get(os.path.abspath(path), [])
+    return [diagnostic for diagnostic in original
+            if diagnostic.get('rule') not in IGNORED_RULES]
 
 
 ARGUMENT_TYPE = re.compile(
@@ -438,13 +427,17 @@ def main():
         return 2
 
     baseline = set()
-    for gear in gears:
-        for diag in diagnostics(pc, gear):
-            baseline.add(signature(diag))
+    try:
+        for gear in gears:
+            for diag in diagnostics(pc, gear):
+                baseline.add(signature(diag))
 
-    verified_by_line = verified_fusion_classes(args.candidate)
-    accepted = accepted_signatures()
-    candidate_diagnostics = diagnostics(pc, args.candidate)
+        verified_by_line = verified_fusion_classes(args.candidate)
+        accepted = accepted_signatures()
+        candidate_diagnostics = diagnostics(pc, args.candidate)
+    except pc.AnalysisSetupError as error:
+        print('ERROR: %s' % error, file=sys.stderr)
+        return 2
     accepted_hits = sum(1 for d in candidate_diagnostics if signature(d) in accepted)
     novel = sorted((d for d in candidate_diagnostics
                     if signature(d) not in baseline
