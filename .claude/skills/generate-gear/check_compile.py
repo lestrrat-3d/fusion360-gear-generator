@@ -1576,8 +1576,12 @@ def main(argv):
     never handed a git problem dressed up as a fault in the step list.
     """
     try:
-        return check(argv)
+        with fusion_api.query_session():
+            return check(argv)
     except ProvenanceError as exc:
+        print('check_compile: %s' % exc, file=sys.stderr)
+        return 2
+    except fusion_api.Unavailable as exc:
         print('check_compile: %s' % exc, file=sys.stderr)
         return 2
 

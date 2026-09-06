@@ -27,7 +27,7 @@ env:
   # pins them, in the pseudo-version Go records for a module with no tags, and
   # the proof job reads that so CI and a local proof/run.sh use one revision.
   # Only `go get` moves a pin, and it moves it in one place.
-  FUSION_API_COMMIT: 0ea1fd792e3da6d9e3727262f7904673295af931
+  FUSION_API_COMMIT: a5e6aa196bd3e21d11e1b936415caadd1ed6bf0c
 
 jobs:
   checkers:

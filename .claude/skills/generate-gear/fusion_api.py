@@ -23,11 +23,14 @@ them and never suppress them. The novel-type check uses the same list to recogni
 diagnostics as non-gating; see that list's comment for why the calls cannot simply be deleted or
 fixed.
 """
+import contextlib
 import json
 import os
+import queue
 import re
 import subprocess
 import sys
+import threading
 from concurrent.futures import ThreadPoolExecutor
 
 PLUGIN = 'fusion@lestrrat-ai'
@@ -110,6 +113,17 @@ class Unavailable(Exception):
 
 _script = None
 
+# The session is deliberately run-scoped. A checker wraps its database work in
+# query_session(), and the child is closed when that scope ends. Set this to
+# ``legacy`` when comparing transport cost or testing an older query tool; the
+# default probes a selected script once and uses its session when advertised.
+QUERY_TRANSPORT = 'FUSION_QUERY_TRANSPORT'
+CAPABILITY_TIMEOUT = 5.0
+SESSION_STARTUP_TIMEOUT = 10.0
+SESSION_REQUEST_TIMEOUT = 10.0
+SESSION_CLOSE_TIMEOUT = 1.0
+_active_client = None
+
 
 def query_script():
     """Absolute path to the plugin's query script."""
@@ -137,16 +151,199 @@ def query_script():
     raise Unavailable('%s records no usable install of %s, so %s' % (INSTALLED, PLUGIN, INSTALL_HINT))
 
 
-def _run(*args):
-    """Run one query and return its stdout.
-
-    The exit code is deliberately ignored. The script exits non-zero both for a name it cannot
-    find and for a name that reaches several members, and the second case still prints every
-    candidate, which is exactly what we came for.
-    """
-    proc = subprocess.run([sys.executable, query_script()] + list(args),
-                          capture_output=True, text=True)
+def _run_legacy(*args, script=None):
+    """Run one query through the original one-shot command transport."""
+    try:
+        proc = subprocess.run([sys.executable, script or query_script()] + list(args),
+                              capture_output=True, text=True, encoding='utf-8',
+                              timeout=SESSION_REQUEST_TIMEOUT)
+    except subprocess.TimeoutExpired as exc:
+        raise Unavailable('Fusion API query timed out') from exc
+    except OSError as exc:
+        raise Unavailable('Fusion API query could not be run (%s)' % exc) from exc
     return proc.stdout
+
+
+class _QuerySession:
+    """One serialized JSON Lines connection to a session-capable query script."""
+
+    def __init__(self, script, transport='auto'):
+        self.script = script
+        self.transport = transport
+        self.mode = None
+        self.process = None
+        self.lock = threading.Lock()
+        self.next_id = 1
+
+    @staticmethod
+    def _capability(script):
+        """Return whether ``script --help`` advertises the session command."""
+        try:
+            result = subprocess.run([sys.executable, script, '--help'],
+                                    capture_output=True, text=True, encoding='utf-8',
+                                    timeout=CAPABILITY_TIMEOUT)
+        except subprocess.TimeoutExpired as exc:
+            raise Unavailable('Fusion API query tool capability check timed out') from exc
+        except UnicodeError as exc:
+            raise Unavailable('Fusion API query tool capability check was not UTF-8') from exc
+        except OSError as exc:
+            raise Unavailable('Fusion API query tool capability check failed (%s)' % exc) from exc
+        if result.returncode != 0:
+            raise Unavailable('Fusion API query tool capability check exited %d: %s'
+                              % (result.returncode, result.stderr.strip()))
+        return bool(re.search(r'(?m)^\s+serve(?:\s|$)', result.stdout))
+
+    def _readline(self, timeout):
+        """Read one line with a portable timeout, terminating this child on expiry."""
+        if self.process is None or self.process.stdout is None:
+            raise Unavailable('Fusion API query session is not running')
+        result = queue.Queue(maxsize=1)
+
+        def read():
+            try:
+                result.put(('line', self.process.stdout.readline()))
+            except BaseException as exc:  # the result is re-raised in the caller thread
+                result.put(('error', exc))
+
+        threading.Thread(target=read, daemon=True).start()
+        try:
+            kind, value = result.get(timeout=timeout)
+        except queue.Empty as exc:
+            self._terminate()
+            raise Unavailable('Fusion API query session timed out') from exc
+        if kind == 'error':
+            raise Unavailable('Fusion API query session could not read (%s)' % value) from value
+        if value == '':
+            raise Unavailable('Fusion API query session ended unexpectedly')
+        return value
+
+    def _terminate(self):
+        process = self.process
+        if process is None or process.poll() is not None:
+            return
+        process.terminate()
+        try:
+            process.wait(timeout=SESSION_CLOSE_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=SESSION_CLOSE_TIMEOUT)
+
+    def _start(self):
+        try:
+            self.process = subprocess.Popen(
+                [sys.executable, self.script, 'serve'],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, encoding='utf-8', bufsize=1)
+        except OSError as exc:
+            raise Unavailable('Fusion API query session could not start (%s)' % exc) from exc
+        try:
+            ready = json.loads(self._readline(SESSION_STARTUP_TIMEOUT))
+        except (TypeError, ValueError, Unavailable) as exc:
+            self._terminate()
+            raise Unavailable('Fusion API query session sent an invalid ready response (%s)' % exc) from exc
+        commands = ready.get('commands') if isinstance(ready, dict) else None
+        if (not isinstance(ready, dict) or ready.get('type') != 'ready'
+                or ready.get('protocol') != 1 or isinstance(ready.get('protocol'), bool)
+                or not isinstance(commands, list)
+                or not all(isinstance(command, str) for command in commands)
+                or not {'show', 'members', 'search'}.issubset(commands)):
+            self._terminate()
+            raise Unavailable('Fusion API query session did not advertise the required commands')
+
+    def run(self, args):
+        with self.lock:
+            if self.script is None:
+                self.script = query_script()
+            if self.mode is None:
+                self.mode = ('legacy' if self.transport == 'legacy' else
+                             ('session' if self._capability(self.script) else 'legacy'))
+            if self.mode == 'legacy':
+                return _run_legacy(*args, script=self.script)
+            if self.process is None:
+                self._start()
+            request_id = self.next_id
+            self.next_id += 1
+            try:
+                assert self.process is not None and self.process.stdin is not None
+                self.process.stdin.write(json.dumps({'id': request_id, 'argv': list(args)}) + '\n')
+                self.process.stdin.flush()
+                response = json.loads(self._readline(SESSION_REQUEST_TIMEOUT))
+            except (BrokenPipeError, OSError, TypeError, ValueError, Unavailable) as exc:
+                self._terminate()
+                if isinstance(exc, Unavailable):
+                    raise
+                raise Unavailable('Fusion API query session sent an invalid response (%s)' % exc) from exc
+            if not isinstance(response, dict) or response.get('id') != request_id:
+                self._terminate()
+                raise Unavailable('Fusion API query session returned a mismatched response ID')
+            if response.get('type') == 'error':
+                self._terminate()
+                raise Unavailable('Fusion API query session reported an error: %s'
+                                  % response.get('message', 'unknown error'))
+            if response.get('type') != 'result' \
+                    or not isinstance(response.get('returncode'), int) \
+                    or isinstance(response.get('returncode'), bool) \
+                    or not isinstance(response.get('stdout'), str) \
+                    or not isinstance(response.get('stderr'), str):
+                self._terminate()
+                raise Unavailable('Fusion API query session returned a malformed result')
+            return response['stdout']
+
+    def close(self):
+        process = self.process
+        self.process = None
+        if process is None:
+            return
+        try:
+            if process.stdin is not None:
+                process.stdin.close()
+        except OSError:
+            pass
+        try:
+            process.wait(timeout=SESSION_CLOSE_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=SESSION_CLOSE_TIMEOUT)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=SESSION_CLOSE_TIMEOUT)
+        for stream in (process.stdout, process.stderr):
+            if stream is not None:
+                stream.close()
+
+
+@contextlib.contextmanager
+def query_session(transport=None):
+    """Use one query session for a checker invocation, with legacy fallback for old tools.
+
+    ``transport='legacy'`` or ``FUSION_QUERY_TRANSPORT=legacy`` selects one-shot subprocesses for
+    transport comparisons. Capability probing is otherwise performed once, on the first query.
+    A tool that advertises ``serve`` but fails to start or answer is unavailable; it is never
+    silently retried through the legacy path.
+    """
+    global _active_client
+    if _active_client is not None:
+        yield
+        return
+    selected = transport or os.environ.get(QUERY_TRANSPORT, 'auto')
+    if selected not in ('auto', 'legacy'):
+        raise Unavailable('unknown Fusion API query transport %r' % selected)
+    client = _QuerySession(None, selected)
+    _active_client = client
+    try:
+        yield
+    finally:
+        _active_client = None
+        client.close()
+
+
+def _run(*args):
+    """Run one query and return its stdout, preserving nonzero lookup results."""
+    if _active_client is not None:
+        return _active_client.run(args)
+    return _run_legacy(*args)
 
 
 def lookup(name):
@@ -164,7 +361,7 @@ def lookup(name):
 
 
 def lookup_many(names, workers=8):
-    """lookup() over many names at once. One process each, run concurrently."""
+    """Run lookup() over many names concurrently, serializing active session transactions."""
     names = list(names)
     if not names:
         return {}
