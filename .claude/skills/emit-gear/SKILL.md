@@ -41,11 +41,14 @@ the pipeline exists to make trustworthy.
    relative. The compile-gear drafter takes the `design` role instead, because that stage
    interprets prose and only this one transcribes.
 
-3. **Gate.** Run `python3 .claude/skills/generate-gear/run_gates.py <gear> > .tmp/<gear>.gates.txt`
-   from the repo root and read the file for the verdict. The stored copy is also what a retry round
-   hands back to the drafter. It runs all seven checks below plus the advisory novel-type report,
-   and prints one verdict. Exit 0 = every gate that ran passed; exit 1 = a gate failed; exit 2 = a
-   setup error (missing input, missing stubs, unreachable API database) that no new draft can fix.
+3. **Gate (authoritative owner).** After every draft submission, run the complete battery with
+   `python3 .claude/skills/generate-gear/run_gates.py <gear> > .tmp/<gear>.gates.txt` from the repo
+   root. Run this command without `--no-advisory`, `--only`, or `--fail-fast`; it runs all seven
+   checks below plus the advisory novel-type report and prints one verdict. Read the entire stored
+   report, including every gate row, advisory finding, and classification. This is the only
+   validation pass for that submitted draft, and the stored copy is what a retry round hands back
+   to the drafter. Exit 0 = every gate that ran passed; exit 1 = a gate failed; exit 2 = a setup
+   error (missing input, missing stubs, unreachable API database) that no new draft can fix.
 
 4. **Diagnose and loop.** The runner prints a first-pass fault classification; confirm the rows it
    marks NEEDS JUDGMENT against the table below. An emit fault goes back to the drafter, up to
@@ -55,7 +58,8 @@ the pipeline exists to make trustworthy.
    step list, the proof and the framework in context. Send it the stored gate report
    `.tmp/<gear>.gates.txt` verbatim with `SendMessage` and let it revise
    `.tmp/<gear>.generated.py`; never paste failure text edited by hand, and do not tell the
-   drafter to re-read inputs it has already read.
+   drafter to re-read inputs it has already read. Submit the revised artifact to the complete Gate
+   battery again before any placement.
 
    Spawn a fresh drafting subagent (a full step 2) only when one of these holds: this is the
    first round; an input file (`steps.md`, the proof, the playbook, or a framework module)
@@ -71,18 +75,24 @@ the pipeline exists to make trustworthy.
    output to the drafter unchanged. The first round's prompt is always the rendered standard
    prompt with no failure file.
 
-5. **Place.** On success, run `python3 .claude/skills/generate-gear/stage.py <gear> module` from
-   the repo root. It puts `.tmp/<gear>.generated.py` at `lib/geargen/<gear>.py` and reports what
-   moved. This writes a file only; it does not commit, push, or touch Fusion's add-in directory.
+5. **Place.** Place only the artifact that passed the most recent complete Gate battery. If the
+   artifact or any relevant input changed after validation, return to step 3 and run the complete
+   battery again; never substitute an older passing report. On success, run
+   `python3 .claude/skills/generate-gear/stage.py <gear> module` from the repo root. It puts
+   `.tmp/<gear>.generated.py` at `lib/geargen/<gear>.py` and reports what moved. This writes a
+   file only; it does not commit, push, or touch Fusion's add-in directory.
 
-6. **Report.** State the gate results and every step that was thin or wrong.
+6. **Report.** State the complete gate results, every advisory finding and its triage decision, and
+   every step that was thin or wrong. The drafter's report supplies only the artifact facts and
+   unresolved step IDs described in the standard drafting prompt.
 
 ## Gates
 
 `run_gates.py` runs every row below, in a cost-ordered sequence, and continues past a failure so
-one round reports every problem. The one exception is a parse failure, which skips the gates that
-read the candidate as Python and runs only the anchor check. The commands are listed so a single
-gate can be re-run by hand; the runner prints the exact command for each row it reports.
+one complete submission battery reports every problem. The one exception is a parse failure, which
+skips the gates that read the candidate as Python and runs only the anchor check. The commands are
+listed so a single gate can be re-run by hand; the runner prints the exact command for each row it
+reports. A manual re-run diagnoses a row only; it never replaces the complete submission battery.
 
 | Gate | Command | What it catches |
 |---|---|---|
