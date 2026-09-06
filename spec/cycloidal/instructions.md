@@ -665,3 +665,26 @@ return (the body is already relocated).
 **Finally, hide all construction geometry.** Call **`solids.hide_construction_geometry(component)`** (recursive
 — hides every sketch, construction plane, and construction axis under the Cycloidal Drive component and its new
 sub-components, leaving only the solid bodies visible). Use the shared helper; do NOT re-implement it. Done.
+
+## Proof Case Scheduling (cycloidal-specific)
+
+This section is about the proof rather than about Fusion, and it says which of a step's proof cases
+may run at the same time as each other. It sits at the end of the file so that adding it moves no
+line a compiled step list already cites.
+
+**Register every `[GO]` step through the parallel harness entry point**, with no exception:
+`proofkit.RunParallel` where the step would otherwise take `proofkit.Run`, and
+`proofkit3d.RunSolidParallel` where it would otherwise take `proofkit3d.RunSolid`. A cycloidal case
+derives its own dimensions from its own parameters, draws its own sketch or builds its own document,
+and measures only the geometry that case constructed, so two cases of one step have nothing between
+them to corrupt.
+
+What makes the whole gear safe here is a discipline the proof already keeps for another reason.
+decad's Verify judges every pair of live bodies in one document, and a stray comparison body makes
+the report Suspect, so every step that needs to compare against a body its own Fusion feature does
+not leave behind already builds that body in a scratch document inside the case that needs it.
+There is therefore no reading carried from a build into its assertion anywhere in this gear, and so
+nothing for a sibling case to overwrite.
+
+A step that acquires a build-to-assertion hand-off moves to the serial runner in the same change,
+and says beside the carried reading that this is why it is serial.

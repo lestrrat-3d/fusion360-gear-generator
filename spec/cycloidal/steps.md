@@ -7,7 +7,7 @@ The proof for this step list is `proof/cycloidal/geometry_test.go`, `proof/cyclo
 
 | file | `git hash-object` |
 |---|---|
-| `spec/cycloidal/instructions.md` | `64188398aca7e6c9244b1d23d654ad85cdc82c42` |
+| `spec/cycloidal/instructions.md` | `aeadefabc96be386cc9610f01d38a3a1d096f444` |
 | `spec/cycloidal/fusion.md` | `afa5a99986f2e0d9f82fb5e21591553cdc54aac4` |
 | `spec/cycloidal/epitrochoid-trace.md` | `2dd150ac312ca9c673812661e4fa229df433dade` |
 | `.claude/skills/generate-gear/PLAYBOOK.md` | `1b3078d6767d6a3f56c228e1e934c82ccfbf53fe` |
@@ -350,7 +350,7 @@ Every disc's sketches are anchored to `O` on its own plane, and every disc extru
 `buildLobeSketch(d)` creates a sketch named `'Rotor Lobe {}'.format(d + 1)` on `plane(d)` and leaves
 it visible, with no bodies built. Proof function: `stepRotorLobeSketch`.
 
-<!-- proof-run: proofkit.Run(discSketchCases, stepRotorLobeSketch) -->
+<!-- proof-run: proofkit.RunParallel(discSketchCases, stepRotorLobeSketch) -->
 
 **Anchor chain** (`[CYCLOIDAL-F-ANCHOR-CHAIN]`). Project the user's Anchor with
 `sketch.project(self.anchorPoint)` and take `.item(0)`; add a fresh local origin with
@@ -478,7 +478,7 @@ S11 needs, and then extrudes the Rotor Lobe sketch's one closed profile: the lob
 by spoke 1, the lobe spline and spoke 2 (`[CYCLOIDAL-F-DISK-BODY]`). Proof function:
 `stepExtrudeLobeSector`.
 
-<!-- proof-run: proofkit3d.RunSolid(discSolidCases, stepExtrudeLobeSector, assertExtrudeLobeSector) -->
+<!-- proof-run: proofkit3d.RunSolidParallel(discSolidCases, stepExtrudeLobeSector, assertExtrudeLobeSector) -->
 
 **Select the profile by identity, never by index.** The three along-path text labels add their own
 letter outline profiles, so `sketch.profiles.item(0)` is not the sector (`[PB-PROFILE-MATCH]`,
@@ -552,7 +552,7 @@ Pattern the **extrude feature** of S08 — not its body — `L = N - 1` times ab
 over a full turn (`[CYCLOIDAL-F-DISK-BODY]`, `[PB-CIRCULAR-PATTERN]`, `[PB-PATTERN-BODIES]`).
 Proof function: `stepPatternLobeSectors`.
 
-<!-- proof-run: proofkit3d.RunSolid(discSolidCases, stepPatternLobeSectors, assertPatternLobeSectors) -->
+<!-- proof-run: proofkit3d.RunSolidParallel(discSolidCases, stepPatternLobeSectors, assertPatternLobeSectors) -->
 
 ```
 coll = adsk.core.ObjectCollection.create()
@@ -584,7 +584,7 @@ so `component.bRepBodies.item(0)` is the wrong target. Disc `d`'s sectors are
 `component.bRepBodies.item(base)` through `item(base + L - 1)`, where `base` was recorded before S08's
 extrude (`[CYCLOIDAL-F-TWO-DISC]`). Proof function: `stepJoinDiskSectors`.
 
-<!-- proof-run: proofkit3d.RunSolid(discSolidCases, stepJoinDiskSectors, assertJoinDiskSectors) -->
+<!-- proof-run: proofkit3d.RunSolidParallel(discSolidCases, stepJoinDiskSectors, assertJoinDiskSectors) -->
 
 ```
 target = component.bRepBodies.item(base)
@@ -611,7 +611,7 @@ rather than survived as `L` separate bodies.
 `plane(d)`, so the lobe and hole profiles never share a sketch and never interfere
 (`[CYCLOIDAL-F-OUTPUT-HOLE]`). Proof function: `stepOutputHoleSketch`.
 
-<!-- proof-run: proofkit.Run(discSketchCases, stepOutputHoleSketch) -->
+<!-- proof-run: proofkit.RunParallel(discSketchCases, stepOutputHoleSketch) -->
 
 Anchor a local origin to `O` and rebuild `Od_d` exactly as S07 does — project, coincident, signed
 seed point, construction line, `addHorizontal`, and the driving distance dimension whose expression
@@ -653,7 +653,7 @@ sketch visible and build no bodies.
 `buildOutputHoles(d)` cuts the `Output Hole {d+1}` sketch's solid hole through
 `self.diskBodies[d]` (`[CYCLOIDAL-F-OUTPUT-HOLES]`). Proof function: `stepCutOutputHole`.
 
-<!-- proof-run: proofkit3d.RunSolid(discSolidCases, stepCutOutputHole, assertCutOutputHole) -->
+<!-- proof-run: proofkit3d.RunSolidParallel(discSolidCases, stepCutOutputHole, assertCutOutputHole) -->
 
 Select the hole profile by identity — the profile whose loop contains `self.outputHoles[d]` — not
 `sketch.profiles.item(0)`, since the construction circle and the text label contribute other
@@ -690,7 +690,7 @@ Pattern the cut **feature** `M = Output Pin Count` times about `self.diskAxes[d]
 with the same input shape as S10 and `pat.quantity = adsk.core.ValueInput.createByReal(M)`. Proof
 function: `stepPatternOutputHoles`.
 
-<!-- proof-run: proofkit3d.RunSolid(discSolidCases, stepPatternOutputHoles, assertPatternOutputHoles) -->
+<!-- proof-run: proofkit3d.RunSolidParallel(discSolidCases, stepPatternOutputHoles, assertPatternOutputHoles) -->
 
 `pat.patternComputeOption = adsk.fusion.PatternComputeOptions.AdjustPatternCompute` is not optional
 here: this is a lone patterned **cut**, with no body-creating feature to anchor it, and under the
@@ -709,7 +709,7 @@ one per `M`-th of a turn.
 `O`, with `Od_d` rebuilt as in S07 (`[CYCLOIDAL-F-CAM]`, `[CYCLOIDAL-F-ANCHOR-CHAIN]`,
 `[CYCLOIDAL-F-DISK-CENTER]`). Proof function: `stepDiscBoreSketch`.
 
-<!-- proof-run: proofkit.Run(discSketchCases, stepDiscBoreSketch) -->
+<!-- proof-run: proofkit.RunParallel(discSketchCases, stepDiscBoreSketch) -->
 
 One **solid** circle on `Od_d` of radius `(CenterBearingDiameter + BearingClearance) / 2`:
 `sketch.sketchCurves.sketchCircles.addByCenterRadius(adsk.core.Point3D.create(s_d * E, 0, 0), (CBD + clr) / 2)`,
@@ -731,7 +731,7 @@ centre.
 
 Cut the Disc Bore sketch through `self.diskBodies[d]`. Proof function: `stepCutDiscBore`.
 
-<!-- proof-run: proofkit3d.RunSolid(discSolidCases, stepCutDiscBore, assertCutDiscBore) -->
+<!-- proof-run: proofkit3d.RunSolidParallel(discSolidCases, stepCutDiscBore, assertCutDiscBore) -->
 
 Collect **every** profile in that sketch — there is only the one disc — into an
 `adsk.core.ObjectCollection.create()` and pass the collection as the profile:
@@ -759,7 +759,7 @@ is half the Bearing Clearance.
 Section `d` starts with a sketch named `'Eccentric Cam {}'.format(d + 1)` on `plane(d)`, anchored to
 `O`, with `Od_d` rebuilt as in S07 (`[CYCLOIDAL-F-CAM]`). Proof function: `stepEccentricCamSketch`.
 
-<!-- proof-run: proofkit.Run(discSketchCases, stepEccentricCamSketch) -->
+<!-- proof-run: proofkit.RunParallel(discSketchCases, stepEccentricCamSketch) -->
 
 - **Cam outer circle**, on the disc centre:
   `sketch.sketchCurves.sketchCircles.addByCenterRadius(adsk.core.Point3D.create(s_d * E, 0, 0), CBD / 2)`,
@@ -787,7 +787,7 @@ Extrude the cam cross-section as a new body named `'Eccentric Cam {}'.format(d +
 direction from `plane(d)` toward the disk (`[CYCLOIDAL-F-CAM]`). Proof function:
 `stepExtrudeCamSection`.
 
-<!-- proof-run: proofkit3d.RunSolid(camSolidCases, stepExtrudeCamSection, assertExtrudeCamSection) -->
+<!-- proof-run: proofkit3d.RunSolidParallel(camSolidCases, stepExtrudeCamSection, assertExtrudeCamSection) -->
 
 **Select the cross-section by loop count.** With an input shaft it is the **two-loop** annulus —
 outer loop the cam outer, inner loop the bore — found by `profile.profileLoops.count == 2`. Without
@@ -818,7 +818,7 @@ With two discs, join the `D` section bodies into one: target the first section's
 rest, `JoinFeatureOperation`, exactly the `combineFeatures` shape of S11. Name the result
 `'Eccentric Cam'` and stash it on `self.cam`. Proof function: `stepJoinCamSections`.
 
-<!-- proof-run: proofkit3d.RunSolid(camSolidCases, stepJoinCamSections, assertJoinCamSections) -->
+<!-- proof-run: proofkit3d.RunSolidParallel(camSolidCases, stepJoinCamSections, assertJoinCamSections) -->
 
 The `+E` and `-E` sections have centres only `2E` apart against a radius of
 `CenterBearingDiameter / 2`, so they overlap across most of their area and the join is one continuous
@@ -864,7 +864,7 @@ A sketch named `'Housing Ring'` on the housing plane, anchored to `O`
 (`[CYCLOIDAL-F-ANCHOR-CHAIN]`), holding a plain annulus (`[CYCLOIDAL-F-RING-PINS]`). Proof function:
 `stepHousingRingSketch`.
 
-<!-- proof-run: proofkit.Run(casingSketchCases, stepHousingRingSketch) -->
+<!-- proof-run: proofkit.RunParallel(casingSketchCases, stepHousingRingSketch) -->
 
 - Outer circle:
   `sketch.sketchCurves.sketchCircles.addByCenterRadius(adsk.core.Point3D.create(0, 0, 0), R - Rr + 2 * E + Wall)`,
@@ -898,7 +898,7 @@ Extrude the **annulus** profile — the one with `profile.profileLoops.count == 
 direction, away from the disc, as a new body named `'Housing Ring'`. Proof function:
 `stepExtrudeHousingBase`.
 
-<!-- proof-run: proofkit3d.RunSolid(casingSolidCases, stepExtrudeHousingBase, assertExtrudeHousingBase) -->
+<!-- proof-run: proofkit3d.RunSolidParallel(casingSolidCases, stepExtrudeHousingBase, assertExtrudeHousingBase) -->
 
 ```
 ext = component.features.extrudeFeatures.createInput(
@@ -938,7 +938,7 @@ about it, so it is created once here and reused.
 A sketch named `'Ring Casing'` on `self.plane`, anchored to `O`, holding one pin-pitch of the casing
 (`[CYCLOIDAL-F-RING-PINS]`). Proof function: `stepRingCasingSketch`.
 
-<!-- proof-run: proofkit.Run(casingSketchCases, stepRingCasingSketch) -->
+<!-- proof-run: proofkit.RunParallel(casingSketchCases, stepRingCasingSketch) -->
 
 **Compute the contour in Python first.** The inner wall follows the disc's swept envelope offset
 outward by the clearance, `contour(phi) = env(phi) + c` — a smooth conjugate curve, not a
@@ -1006,7 +1006,7 @@ above; neither is a call the module makes.
 Extrude the thin annular pie wedge bounded by the outer arc, the contour spline and the two spokes,
 as a new body (`[CYCLOIDAL-F-RING-PINS]`). Proof function: `stepExtrudeCasingSector`.
 
-<!-- proof-run: proofkit3d.RunSolid(casingSolidCases, stepExtrudeCasingSector, assertExtrudeCasingSector) -->
+<!-- proof-run: proofkit3d.RunSolidParallel(casingSolidCases, stepExtrudeCasingSector, assertExtrudeCasingSector) -->
 
 **Select it by MINIMUM AREA among the profiles whose loop contains the contour spline** — not by
 "contains the spline" alone, and not `sketch.profiles.item(0)`. The outer circle is solid, so the open
@@ -1047,7 +1047,7 @@ same input shape as S10 and `pat.quantity = adsk.core.ValueInput.createByReal(N)
 `pat.patternComputeOption = adsk.fusion.PatternComputeOptions.AdjustPatternCompute`, as on every
 pattern here. Proof function: `stepPatternCasingSectors`.
 
-<!-- proof-run: proofkit3d.RunSolid(casingSolidCases, stepPatternCasingSectors, assertPatternCasingSectors) -->
+<!-- proof-run: proofkit3d.RunSolidParallel(casingSolidCases, stepPatternCasingSectors, assertPatternCasingSectors) -->
 
 The pattern steps by exactly `2*pi/N`, which is the angle the contour's ends at `±pi/N` were chosen
 for: adjacent sectors then share a spoke face rather than leaving a gap between them. The proof
@@ -1062,7 +1062,7 @@ Collect the `N` sector bodies by a pre-extrude `base = component.bRepBodies.coun
 as S11 does for the disc, and Join them with `combineFeatures` and `JoinFeatureOperation` into one
 casing body. Proof function: `stepJoinCasingSectors`.
 
-<!-- proof-run: proofkit3d.RunSolid(casingSolidCases, stepJoinCasingSectors, assertJoinCasingSectors) -->
+<!-- proof-run: proofkit3d.RunSolidParallel(casingSolidCases, stepJoinCasingSectors, assertJoinCasingSectors) -->
 
 The section ends fall on the contour's mid-gap peaks, where it is tangential by symmetry, so the
 joined inner wall is smooth: the disc's valleys roll on the contour near each pin with clearance `c`,
@@ -1082,7 +1082,7 @@ Join the casing body into the base with `combineFeatures`: target `self.housingR
 `self.ringCasing = None`, since the casing was consumed by the Join
 (`[CYCLOIDAL-F-RING-PINS]`). Proof function: `stepJoinHousing`.
 
-<!-- proof-run: proofkit3d.RunSolid(housingJoinCases, stepJoinHousing, assertJoinHousing) -->
+<!-- proof-run: proofkit3d.RunSolidParallel(housingJoinCases, stepJoinHousing, assertJoinHousing) -->
 
 Do not leave the base and the casing as two bodies: the housing is one printable part. Because the
 casing's bottom face is coincident with the base's top face, the result is one connected solid
@@ -1131,7 +1131,7 @@ drive axis, not the disc centre: the plate and its pins are the fixed output mem
 disc's holes that orbit around them (`[CYCLOIDAL-F-OUTPUT-PINS]`). Proof function:
 `stepOutputPlateSketch`.
 
-<!-- proof-run: proofkit.Run(outputSketchCases, stepOutputPlateSketch) -->
+<!-- proof-run: proofkit.RunParallel(outputSketchCases, stepOutputPlateSketch) -->
 
 - **Plate outer circle**,
   `sketch.sketchCurves.sketchCircles.addByCenterRadius(adsk.core.Point3D.create(0, 0, 0), OutputPlateDiameter / 2)`,
@@ -1164,7 +1164,7 @@ disc together, so the footprint under the pin is solid plate — away from the d
 `Output Plate Thickness`, as a new body named `'Output Plate'`. Proof function:
 `stepExtrudeOutputPlate`.
 
-<!-- proof-run: proofkit3d.RunSolid(outputSolidCases, stepExtrudeOutputPlate, assertExtrudeOutputPlate) -->
+<!-- proof-run: proofkit3d.RunSolidParallel(outputSolidCases, stepExtrudeOutputPlate, assertExtrudeOutputPlate) -->
 
 ```
 coll = adsk.core.ObjectCollection.create()        # every profile in the Output Plate sketch
@@ -1190,7 +1190,7 @@ pin circle, not an any-loop-contains match, which returns the surrounding plate 
 both ways as a new body named `'Output Pin'` (`[CYCLOIDAL-F-OUTPUT-PINS]`). Proof function:
 `stepExtrudeOutputPin`.
 
-<!-- proof-run: proofkit3d.RunSolid(outputSolidCases, stepExtrudeOutputPin, assertExtrudeOutputPin) -->
+<!-- proof-run: proofkit3d.RunSolidParallel(outputSolidCases, stepExtrudeOutputPin, assertExtrudeOutputPin) -->
 
 ```
 pinExt = component.features.extrudeFeatures.createInput(
@@ -1221,7 +1221,7 @@ A combine-cut whose tool survives: target `self.outputPlate`, tool an
 `ci.isKeepToolBodies = True` — which leaves a matching hole in the plate with the pin seated in it
 (`[CYCLOIDAL-F-OUTPUT-PINS]`). Proof function: `stepCutOutputSocket`.
 
-<!-- proof-run: proofkit3d.RunSolid(outputSolidCases, stepCutOutputSocket, assertCutOutputSocket) -->
+<!-- proof-run: proofkit3d.RunSolidParallel(outputSolidCases, stepCutOutputSocket, assertCutOutputSocket) -->
 
 ```
 tools = adsk.core.ObjectCollection.create()
@@ -1244,7 +1244,7 @@ If `Chamfer Size > 0`, chamfer the pin body's two ends with `self._chamferCapRim
 helper the rim chamfers use (`[CYCLOIDAL-F-CHAMFERS]`). Keep the returned `ChamferFeature`, which may
 be `None`. Proof function: `stepChamferOutputPinEnds`.
 
-<!-- proof-run: proofkit3d.RunSolid(outputSolidCases, stepChamferOutputPinEnds, assertChamferOutputPinEnds) -->
+<!-- proof-run: proofkit3d.RunSolidParallel(outputSolidCases, stepChamferOutputPinEnds, assertChamferOutputPinEnds) -->
 
 The helper's contract, in full, since S36 uses it too:
 
@@ -1295,7 +1295,7 @@ selects an edge and the pin is left exactly as extruded.
 One pattern carries all three features round the drive axis (`[CYCLOIDAL-F-OUTPUT-PINS]`). Proof
 function: `stepPatternOutputPins`.
 
-<!-- proof-run: proofkit3d.RunSolid(outputSolidCases, stepPatternOutputPins, assertPatternOutputPins) -->
+<!-- proof-run: proofkit3d.RunSolidParallel(outputSolidCases, stepPatternOutputPins, assertPatternOutputPins) -->
 
 ```
 coll = adsk.core.ObjectCollection.create()
@@ -1333,7 +1333,7 @@ Otherwise call `self._chamferCapRims(body)` — the helper whose contract S34 se
 combined `Housing`, base and casing in one body; and `self.outputPlate`. Proof function:
 `stepChamferOuterRims`.
 
-<!-- proof-run: proofkit3d.RunSolid(outputSolidCases, stepChamferOuterRims, assertChamferOuterRims) -->
+<!-- proof-run: proofkit3d.RunSolidParallel(outputSolidCases, stepChamferOuterRims, assertChamferOuterRims) -->
 
 **Guard each against `None`.** `self.ringCasing` is `None` after S28's Join consumed it, so it is
 skipped, and chamfering only `self.housingRing` covers the whole housing exactly once. Inner edges —
