@@ -295,6 +295,18 @@ class CommittedTemplatesTest(unittest.TestCase):
                 self.assertIn('show <Class>.<member>', prompt)
                 self.assertIn('unverified', prompt)
 
+    def test_emit_prompt_requires_rendered_emitter_interfaces(self):
+        prompt = (SKILLS_ROOT / 'emit-gear' / 'prompt.md').read_text(encoding='utf-8')
+        skill = (SKILLS_ROOT / 'emit-gear' / 'SKILL.md').read_text(encoding='utf-8')
+
+        self.assertIn('.tmp/{{gear}}.emitter-interfaces.md', prompt)
+        self.assertIn('signatures final code must implement', prompt)
+        command = ('render_emitter_interfaces.py <gear> --out '
+                   '.tmp/<gear>.emitter-interfaces.md')
+        self.assertIn(command, ' '.join(skill.split()))
+        self.assertLess(skill.index('render_emitter_interfaces.py <gear>'),
+                        skill.index('render_prompt.py emit-gear <gear>'))
+
     def test_call_metadata_prompts_keep_roles_and_conditions(self):
         compile_prompt = (SKILLS_ROOT / 'compile-gear/prompt.md').read_text(encoding='utf-8')
         emit_prompt = (SKILLS_ROOT / 'emit-gear/prompt.md').read_text(encoding='utf-8')

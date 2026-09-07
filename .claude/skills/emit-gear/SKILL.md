@@ -16,6 +16,8 @@ the pipeline exists to make trustworthy.
   `lib/geargen/<gear>.py`.
 - `docs/prose-pipeline-handoffs/formats.md#version-2` defines call roles for the execution checklist;
   `.claude/skills/generate-gear/step_metadata.py` owns accepted syntax.
+- `.claude/skills/generate-gear/render_emitter_interfaces.py` renders the typed entry points and
+  typing conventions the drafter must implement.
 
 ## Optional pipeline timing
 
@@ -48,7 +50,11 @@ the advisory findings.
    repo root. It writes `.tmp/<gear>.playbook-extract.md`, the playbook rules the step list cites
    by anchor plus the fixed core sections, which is the only playbook text the drafter reads. A
    non-zero exit means the steps file and playbook disagree; run `check_anchors.py` and fix before
-   drafting. Then spawn a subagent with the standard drafting prompt: run
+   drafting. Render the typed emitter sheet with `python3
+   .claude/skills/generate-gear/render_emitter_interfaces.py <gear> --out
+   .tmp/<gear>.emitter-interfaces.md`. A non-zero exit means the framework entry points or contract
+   cannot supply the fixed emitter interface; stop for design review instead of drafting. Then spawn
+   a subagent with the standard drafting prompt: run
    `python3 .claude/skills/generate-gear/render_prompt.py emit-gear <gear>` and pass its printed
    output to the subagent unchanged. It writes `.tmp/<gear>.generated.py`. Add no per-gear
    hints; anything the drafter needs belongs in the step list.

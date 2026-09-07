@@ -451,6 +451,69 @@ class CheckApiReceiverOwnershipTest(unittest.TestCase):
         self.assertEqual(result, 0, output)
         self.assertIn('UNVERIFIED call', output)
 
+    def test_typed_command_chain(self):
+        result, output = self.run_checker(
+            """
+            def configure(cmd: adsk.core.Command):
+                return cmd.commandInputs.itemById('module')
+            """,
+            members={
+                ('Command', 'commandInputs'): api_member(
+                    'adsk.core.CommandInputs', kind='property', lookup='adsk.core.Command'),
+                ('CommandInputs', 'itemById'): api_member(
+                    'adsk.core.CommandInput', lookup='adsk.core.CommandInputs'),
+            })
+
+        self.assertEqual(result, 0, output)
+        self.assertNotIn('receiver ownership is required', output)
+
+    def test_typed_local_binding(self):
+        result, output = self.run_checker(
+            """
+            def build(source, entity):
+                sketch: adsk.fusion.Sketch = source
+                return sketch.project(entity)
+            """,
+            api_names={'project'})
+
+        self.assertEqual(result, 0, output)
+        self.assertIn('UNVERIFIED call', output)
+
+    def test_wrong_member_still_fails(self):
+        result, output = self.run_checker(
+            """
+            def configure(cmd: adsk.core.Command):
+                return cmd.notACommandMember()
+            """,
+            api_names={'notACommandMember'})
+
+        self.assertEqual(result, 1)
+        self.assertIn('Command does not declare it', output)
+
+    def test_untyped_cast_still_unresolved(self):
+        result, output = self.run_checker(
+            """
+            import typing
+
+            def build(source, entity):
+                sketch = typing.cast(adsk.fusion.Sketch, source)
+                return sketch.project(entity)
+            """,
+            api_names={'project'})
+
+        self.assertEqual(result, 1)
+        self.assertIn('receiver type is not known', output)
+
+    def test_refuted_call_still_fails(self):
+        result, output = self.run_checker(
+            """
+            def seed(value: adsk.core.Base):
+                return value.cast(None)
+            """)
+
+        self.assertEqual(result, 1)
+        self.assertIn('Fusion does NOT have it', output)
+
 
 
 class RefutedCallTest(unittest.TestCase):

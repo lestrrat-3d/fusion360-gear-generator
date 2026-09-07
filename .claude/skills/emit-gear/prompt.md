@@ -16,7 +16,10 @@ which steps tagged `[GO]` tell you to
 transliterate literally rather than re-derive; `.tmp/{{gear}}.playbook-extract.md`, the generated
 extract of the playbook rules the steps cite by anchor plus the shared core sections (it replaces
 reading `PLAYBOOK.md`, which you must not open — an anchor the extract lacks and the step list
-still needs is a defect to report, not a reason to go find the full playbook); and the framework
+still needs is a defect to report, not a reason to go find the full playbook);
+`.tmp/{{gear}}.emitter-interfaces.md`, whose typed entry-point signatures final code must implement
+and whose typing conventions guide local Fusion API bindings without overriding the compiled
+contract; and the framework
 you build on and must not reimplement, which is
 `lib/geargen/base.py`, `misc.py`, `utilities.py`, `spurproxy.py` and `lib/fusion360utils/`.
 Read `docs/prose-pipeline-handoffs/formats.md` for step metadata.
