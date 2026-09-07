@@ -250,8 +250,9 @@ realized by the seed side and only `abs(target)` may go into `parameter.value`.
 `generate(inputs)`:
 1. `processInputs(inputs)`.
 2. `component = self.getComponent(); component.name = self.generateName()`.
-3. Normalise the plane: if `self.plane` is not a `ConstructionPlane`, create a coplanar one via
-   `constructionPlanes.add(createInput().setByOffset(self.plane, 0))` and replace `self.plane`.
+3. Normalise the plane: if `self.plane` is not a `ConstructionPlane`, create `planeInput` with
+   `constructionPlanes.createInput()`, call `planeInput.setByOffset(self.plane,
+   adsk.core.ValueInput.createByReal(0))`, then set `self.plane = constructionPlanes.add(planeInput)`.
 4. `ctx = self.newContext()`.
 5. Run the build steps in the order the spec's "Generation Order" lists. The spec's "Method
    contract" section pins which build methods own which steps; preserve those method boundaries

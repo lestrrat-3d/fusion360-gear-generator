@@ -112,12 +112,16 @@ build on the shared `[PB-FULL-CONSTRAINT]`, `[PB-SHARE-XOR-COINCIDENT]`, `[PB-NO
 
   Build the **+X reference construction line** for **every** `angle`, including 0:
   1. Add a far endpoint at `(Tip Circle Radius, 0)` and pin it with **two axis dimensions from
-     the local origin** — `addDistanceDimension(..., HorizontalDimensionOrientation, Tip Circle
-     Radius)` and the vertical one at `0`; both values are non-negative magnitudes and the
+     the local origin**. Create separate `horizontalText = adsk.core.Point3D.create(...)` and
+     `verticalText = adsk.core.Point3D.create(...)` positions. Create `horizontalDimension` with
+     `addDistanceDimension(localOrigin, endpoint, HorizontalDimensionOrientation, horizontalText)`
+     and `verticalDimension` with
+     `addDistanceDimension(localOrigin, endpoint, VerticalDimensionOrientation, verticalText)`;
+     then assign `horizontalDimension.parameter.value = Tip Circle Radius` and
+     `verticalDimension.parameter.value = 0`. Both values are non-negative magnitudes and the
      endpoint is seeded on the +X side, per `[PB-DIM-VALUE-SEMANTICS]`. Pin it this way rather
-     than with `addCoincident(end, tipCircle)`: a point on a circle has two answers, and pinning
-     its x at the tip radius instead touches the circle at its extreme, where the numbers go
-     unstable.
+     than with `addCoincident(end, tipCircle)`: a point on a circle has two answers, and pinning its x at the
+     tip radius instead touches the circle at its extreme, where the numbers go unstable.
   2. Draw the reference line from the origin to that endpoint and mark it construction.
   3. Add an angular dimension **from the reference to the spine, in that argument order**
      (`addAngularDimension(reference, spine, …)`); place its text on the **bisector of the intended

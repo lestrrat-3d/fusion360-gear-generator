@@ -10,9 +10,9 @@ The proof for this step list is `proof/helicalgear/geometry_test.go`, `proof/hel
 | `spec/helicalgear/instructions.md` | `f24b67c01eecd0c193319f192e73e48ac62e7ed5` |
 | `spec/helicalgear/fusion.md` | `c636a3b7bb6fd13cd8a4153fe63a123137d32262` |
 | `spec/helicalgear/contract.json` | `b76c17b25ecc90caad199e10f4bb35308899ee79` |
-| `spec/spurgear/fusion.md` | `7cd4e5b0fa38dcd39cbd1b5bad1cf8489e2bc2ae` |
+| `spec/spurgear/fusion.md` | `933fe3b43c7d74696313b460cdf921a367e779a6` |
 | `spec/spurgear/instructions.md` | `4a0bca4ab7b0fd275571f3408de06d013738ca53` |
-| `.claude/skills/generate-gear/PLAYBOOK.md` | `b2a724566f469283211a645d83fbefe00f71ec3a` |
+| `.claude/skills/generate-gear/PLAYBOOK.md` | `bee2bf5c5d058504d0284fea00f6a4cd74ce2a36` |
 
 ## Compilation contract
 

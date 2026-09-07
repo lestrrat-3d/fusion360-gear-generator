@@ -419,8 +419,10 @@ their sections + `[CYCLOIDAL-F-TWO-DISC]` for the `stackTop`/two-section deltas)
 reduces to today's single-disc build.
 
 ### 1: Normalize the Target Plane
-If the selected plane is not a `ConstructionPlane`, make a coplanar one via
-`ConstructionPlaneInput.setByOffset(selectedPlane, 0)` and use it (the same normalization the spur
+If the selected plane is not a `ConstructionPlane`, create an input with
+`constructionPlanes.createInput()`, call
+`input.setByOffset(selectedPlane, adsk.core.ValueInput.createByReal(0))`, pass that same input to
+`constructionPlanes.add(input)`, and use the returned coplanar plane (the same normalization the spur
 generator does).
 
 ### 2: Fully-constrained lobe, on the eccentric disk centre — `buildLobeSketch(d)`
