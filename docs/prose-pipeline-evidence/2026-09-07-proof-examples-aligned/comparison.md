@@ -47,6 +47,31 @@ Candidate trial two is excluded from accepted-latency comparisons because its ea
 was unverified. Its raw wall time includes the recorded 940.437558-second parent-directed pause.
 Concurrent non-trial work prevents an isolated speedup claim from affected observations.
 
+## Measured mechanical feedback completion
+
+This metric runs from the compile `overall.start` event to the earliest completed mechanical feedback
+endpoint backed by retained evidence. The endpoint is either a failed preparation operation with its
+diagnostic or a compile validation finish with its imported gate report. It measures feedback completion;
+drafter delivery or receipt was not observed.
+
+| Gear | Condition | Trial | First measured feedback seconds | Interval usable |
+|---|---|---|---:|---|
+| spurgear | control | warm-up | Unavailable | No |
+| spurgear | candidate | warm-up | Unavailable | No |
+| spurgear | control | 1 | 1275.900650 | Yes |
+| spurgear | candidate | 1 | 1160.868244 | Yes |
+| spurgear | candidate | 2 | 1711.573746 | Yes |
+| spurgear | control | 2 | 1186.869352 | Yes |
+| spurgear | control | 3 | 1334.353457 | Yes |
+| spurgear | candidate | 3 | Unavailable | No |
+
+The candidate warm-up remains unusable because its nested timing intervals are invalid.
+The control warm-up and candidate trial three have no retained mechanical feedback endpoint.
+Candidate trial two has a usable interval, but its early command cache environment remains unverified.
+Concurrent host work means the values are descriptive and do not support a causal speedup claim.
+The exact event paths, report paths, timestamps, formula, and null reasons are in
+[first-feedback.json](first-feedback.json).
+
 ## Acceptance counts
 
 | Gear | Condition | Scored observations | Accepted outputs | Timing-eligible accepted outputs | Accepted median seconds |
