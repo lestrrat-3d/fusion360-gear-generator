@@ -138,7 +138,10 @@ def native_set_constructor_calls(tree):
 
         def visit_ImportFrom(self, node):
             for alias in node.names:
-                self.names.add(alias.asname or alias.name)
+                if alias.name == '*':
+                    self.names.add('set')
+                else:
+                    self.names.add(alias.asname or alias.name)
 
         def visit_ExceptHandler(self, node):
             if node.name:
@@ -154,6 +157,11 @@ def native_set_constructor_calls(tree):
         def visit_MatchStar(self, node):
             if node.name:
                 self.names.add(node.name)
+
+        def visit_MatchMapping(self, node):
+            if node.rest:
+                self.names.add(node.rest)
+            self.generic_visit(node)
 
     def scope_binds_set(node):
         bindings = Bindings()

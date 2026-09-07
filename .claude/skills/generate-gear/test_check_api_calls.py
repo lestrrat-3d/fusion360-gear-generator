@@ -191,6 +191,34 @@ class CheckApiReceiverOwnershipTest(unittest.TestCase):
                 self.assertEqual(result, 1)
                 self.assertIn("calls 'add('", output)
 
+    def test_wildcard_import_makes_set_constructor_unknown(self):
+        result, output = self.run_checker(
+            """
+            from fixture import *
+
+            def collect():
+                seen = set()
+                seen.add('next')
+            """,
+            api_names={'add'})
+
+        self.assertEqual(result, 1)
+        self.assertIn('receiver type is not known', output)
+
+    def test_mapping_rest_named_set_shadows_builtin(self):
+        result, output = self.run_checker(
+            """
+            def collect(value):
+                match value:
+                    case {'item': item, **set}:
+                        seen = set()
+                        seen.add(item)
+            """,
+            api_names={'add'})
+
+        self.assertEqual(result, 1)
+        self.assertIn('receiver type is not known', output)
+
     def test_reassignment_removes_native_set_receiver_type(self):
         result, output = self.run_checker(
             """
