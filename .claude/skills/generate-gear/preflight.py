@@ -25,6 +25,7 @@ those policies (`fusion_api`, `fusion_stubs`).
 Usage:
     python3 preflight.py <gear> [--stage {compile,emit,generate,all}]
                                 [--root DIR] [--format {text,json}]
+                                [--default-model MODEL] [--mapping JSON_PATH]
 
 Exit codes:
     0  ready (warnings are allowed; they name work to do, not a broken environment)
@@ -84,10 +85,11 @@ class Context(object):
     the row that reads it skips.
     """
 
-    def __init__(self, root, gear, default_model=None):
+    def __init__(self, root, gear, default_model=None, mapping=None):
         self.root = root
         self.gear = gear
         self.default_model = default_model
+        self.mapping = mapping
 
     def path(self, *parts):
         return os.path.join(self.root, *parts)
@@ -304,8 +306,8 @@ def check_model_tiers(ctx):
         import pick_model
     except ImportError as exc:
         return SKIP, 'the sibling module pick_model could not be imported (%s)' % exc
-    design, _ = pick_model.resolve('design', ctx.default_model)
-    mechanical, reason = pick_model.resolve('mechanical', ctx.default_model)
+    design, _ = pick_model.resolve('design', ctx.default_model, mapping=ctx.mapping)
+    mechanical, reason = pick_model.resolve('mechanical', ctx.default_model, mapping=ctx.mapping)
     return OK, 'design=%s, mechanical=%s (%s)' % (design, mechanical, reason)
 
 
@@ -568,6 +570,9 @@ def parse_args(argv):
         '--default-model', default=None, metavar='MODEL',
         help="the session's default model; makes the model-tiers row report which model each "
              'role resolves to (see MODELS.md)')
+    parser.add_argument(
+        '--mapping', default=None, metavar='JSON_PATH',
+        help='optional schema-1 mechanical-model mapping used for both role resolutions')
     return parser.parse_args(argv)
 
 
@@ -583,7 +588,16 @@ def main(argv):
     args = parse_args(argv)
     if not GEAR_NAME.match(args.gear):
         raise Usage("'%s' is not a gear name; expected %s" % (args.gear, GEAR_NAME.pattern))
-    ctx = Context(resolve_root(args.root), args.gear, args.default_model)
+    mapping = None
+    if args.mapping is not None:
+        try:
+            import pick_model
+            mapping = pick_model.load_mapping(args.mapping)
+        except ImportError as exc:
+            raise Usage('the sibling module pick_model could not be imported (%s)' % exc)
+        except pick_model.MappingError as exc:
+            raise Usage(str(exc))
+    ctx = Context(resolve_root(args.root), args.gear, args.default_model, mapping)
     results = run_checks(ctx, args.stage)
     render = render_json if args.format == 'json' else render_text
     print(render(args.gear, args.stage, results))

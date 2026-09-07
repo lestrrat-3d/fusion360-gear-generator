@@ -26,6 +26,8 @@ event boundaries in [the pipeline timing pilot](../generate-gear/pipeline-timing
 Record observed `preflight`, `input_reading`, `drafting`, `validation`,
 `placement`, and `overall` events around the existing commands. Import the complete gate JSON
 after validation so its runner policy remains attached to the timing data.
+Record the host-confirmed launched model in the timing `model` field. Resolve once for the spawn;
+do not run the resolver a second time for timing.
 Use one `drafting` round per draft attempt, including retries. A validation event covers the
 complete runner invocation and its report import; record advisory triage only after reviewing
 the advisory findings.
@@ -34,7 +36,7 @@ the advisory findings.
 
 1. **Setup.** Work in a worktree, never the root checkout. Ensure `.tmp/` exists. Run
    `python3 .claude/skills/generate-gear/preflight.py <gear> --stage emit --default-model <the
-   session's default model>` and fix every `[FAIL]`
+   session's default model> [--mapping <json-path>]` and fix every `[FAIL]`
    before drafting; it verifies the engines, the go toolchain and the API database, and runs
    `check_compile.py <gear>` as its `steps-current` row, so a broken environment or a stale
    step list fails here instead of mid-run. If `steps-current` fails, run `/compile-gear <gear>`
@@ -61,8 +63,13 @@ the advisory findings.
    This drafter takes the `mechanical` role: the stage is transcription against a fixed API,
    and step 4's gates, not the drafter, judge the output. Resolve its model with
    `python3 .claude/skills/generate-gear/pick_model.py --role mechanical --default <the
-   session's default model>` and pass the printed name as the Agent tool's `model` option,
-   skipping the option where the harness offers none. Never write a model name into this file;
+   session's default model> [--mapping <the same json-path>]` and pass the printed name as the
+   Agent tool's `model` option. Omit both mapping options when no mapping was supplied. When
+   a mapping is supplied, confirm that the host offers both the session default and mapped target
+   before launch, then confirm the launched agent reports the mapped target. If the host cannot
+   select and confirm the mapped target, or the launched model differs, stop the measured trial
+   as `setup_error`. Record only that confirmed actual model in timing. Without a mapping, skip
+   the model option where the harness offers none. Never write a model name into this file;
    `.claude/skills/generate-gear/MODELS.md` holds the ladder and the reason the tier is
    relative. The compile-gear drafter takes the `design` role instead, because that stage
    interprets prose and only this one transcribes.
@@ -97,7 +104,8 @@ the advisory findings.
    or the drafter is no longer reachable. Resolve a fresh spawn's model the same way step 2
    does, except where drafts have failed the gates with emit faults in two consecutive rounds:
    add `--escalated` to the `pick_model.py` call, which steps the drafter back up to the
-   session's default model for the rounds that remain. A continued round changes no model,
+   session's default model for the rounds that remain. Keep the same `--mapping` path on that
+   call when one was supplied; escalation takes precedence over it. A continued round changes no model,
    because a resumed agent keeps the one it was spawned on. A fresh retry round re-renders the
    prompt with
    `python3 .claude/skills/generate-gear/render_prompt.py emit-gear <gear> --failure-file

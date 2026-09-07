@@ -119,6 +119,16 @@ class UsageTests(Fixture):
     def test_root_naming_the_repository_is_accepted(self):
         self.assertEqual(MODULE.resolve_root(str(self.root)), str(self.root))
 
+    def test_bad_mapping_is_a_usage_error_with_empty_stdout(self):
+        mapping = self.root / 'mapping.json'
+        mapping.write_text('{bad', encoding='utf-8')
+
+        code, out = self.run_cli(
+            GEAR, '--root', str(self.root), '--mapping', str(mapping))
+
+        self.assertEqual(code, 2)
+        self.assertEqual(out, '')
+
 
 class EmitStageTests(Fixture):
     """The emit stage stands or falls on the compiled artifacts."""
@@ -463,6 +473,34 @@ class ModelTierTests(Fixture):
                                   '--default-model', 'opus')
 
         self.assertIn('model-tiers: design=opus, mechanical=sonnet', out)
+
+    def test_preflight_loads_once_and_forwards_mapping_to_both_roles(self):
+        import pick_model
+
+        mapping = self.root / 'mapping.json'
+        mapping.write_text(json.dumps({
+            'schema': 1,
+            'mechanical': {'fixture-large': 'fixture-small'},
+        }), encoding='utf-8')
+        with mock.patch('pick_model.load_mapping', wraps=pick_model.load_mapping) as loader:
+            with mock.patch('pick_model.resolve', wraps=pick_model.resolve) as resolver:
+                with mock.patch.dict(os.environ, self.resolved()):
+                    _, out = self.run_cli(
+                        GEAR, '--stage', 'generate', '--root', str(self.root),
+                        '--default-model', 'fixture-large', '--mapping', str(mapping))
+
+        loader.assert_called_once_with(str(mapping))
+        calls = resolver.call_args_list
+        self.assertEqual([call.args[:2] for call in calls], [
+            ('design', 'fixture-large'),
+            ('mechanical', 'fixture-large'),
+        ])
+        self.assertEqual(calls[0].kwargs['mapping'], {
+            'schema': 1,
+            'mechanical': {'fixture-large': 'fixture-small'},
+        })
+        self.assertIs(calls[0].kwargs['mapping'], calls[1].kwargs['mapping'])
+        self.assertIn('model-tiers: design=fixture-large, mechanical=fixture-small', out)
 
     def test_every_stage_records_the_tiers(self):
         for stage in MODULE.STAGE_ORDER:

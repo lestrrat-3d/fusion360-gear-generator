@@ -19,12 +19,14 @@ The session's default model is the one fact the script cannot discover — only
 the orchestrating agent knows it — so it is an argument, not a probe.
 
 Usage:  python3 pick_model.py --role <design|mechanical> --default <model>
-                              [--escalated]
+                              [--escalated] [--mapping <json-path>]
 
 stdout is the model name and nothing else, so the caller can read one token.
 The one-line reason goes to stderr. Exit 0 = resolved; exit 2 = bad usage.
 """
 import argparse
+import json
+import re
 import sys
 
 # Highest to lowest. A model absent from this list is off-ladder: legal to
@@ -38,6 +40,63 @@ MECHANICAL = 'mechanical'
 ROLES = {DESIGN: DESIGN, 'orchestrator': DESIGN, MECHANICAL: MECHANICAL}
 
 USAGE_EXIT = 2
+MODEL_ID = re.compile(r'\S+\Z')
+
+
+class MappingError(ValueError):
+    """A model mapping that cannot be read or does not match schema 1."""
+
+
+def _object(pairs):
+    """Build one JSON object while rejecting duplicate keys."""
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise MappingError("duplicate key %r" % key)
+        result[key] = value
+    return result
+
+
+def _constant(value):
+    raise MappingError('invalid JSON constant %s' % value)
+
+
+def load_mapping(path):
+    """Read and validate a complete schema-1 model mapping."""
+    try:
+        with open(path, 'r', encoding='utf-8') as handle:
+            mapping = json.load(
+                handle, object_pairs_hook=_object, parse_constant=_constant)
+    except MappingError:
+        raise
+    except (OSError, UnicodeError, ValueError) as exc:
+        raise MappingError('%s could not be read as JSON (%s)' % (path, exc))
+
+    if not isinstance(mapping, dict):
+        raise MappingError('mapping root must be an object')
+    if set(mapping) != {'schema', 'mechanical'}:
+        raise MappingError('mapping must contain exactly schema and mechanical')
+    if type(mapping['schema']) is not int or mapping['schema'] != 1:
+        raise MappingError('mapping schema must be the integer 1')
+    mechanical = mapping['mechanical']
+    if not isinstance(mechanical, dict):
+        raise MappingError('mapping mechanical value must be an object')
+    for source, target in mechanical.items():
+        if not _valid_model_id(source):
+            raise MappingError('mechanical mapping source must be a nonempty, whitespace-free string')
+        if not _valid_model_id(target):
+            raise MappingError('mechanical mapping target must be a nonempty, whitespace-free string')
+    return mapping
+
+
+def _valid_model_id(value):
+    if not isinstance(value, str) or not MODEL_ID.fullmatch(value):
+        return False
+    try:
+        value.encode('utf-8')
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 def step_down(model):
@@ -55,7 +114,7 @@ def step_down(model):
     return LADDER[index + 1]
 
 
-def resolve(role, default, escalated=False):
+def resolve(role, default, escalated=False, mapping=None):
     """Return (model, reason) for a role against a session default.
 
     Never raises on an unrecognised `default`: an off-ladder name is a
@@ -67,6 +126,9 @@ def resolve(role, default, escalated=False):
         return default, 'design role runs on the session default'
     if escalated:
         return default, 'escalated: mechanical role stepped back up to the session default'
+    if mapping is not None and default in mapping['mechanical']:
+        target = mapping['mechanical'][default]
+        return target, 'mechanical mapping sends %s to %s' % (default, target)
     lower = step_down(default)
     if lower is None:
         if default in LADDER:
@@ -90,12 +152,20 @@ def parse_args(argv):
         '--escalated', action='store_true',
         help='a mechanical role that has already failed its rounds; run it on '
              'the session default instead of a step down')
+    parser.add_argument(
+        '--mapping', default=None, metavar='JSON_PATH',
+        help='optional schema-1 mechanical-model mapping')
     return parser.parse_args(argv)
 
 
 def main(argv, out=sys.stdout, err=sys.stderr):
     args = parse_args(argv)
-    model, reason = resolve(args.role, args.default, args.escalated)
+    try:
+        mapping = load_mapping(args.mapping) if args.mapping is not None else None
+    except MappingError as exc:
+        err.write('pick_model.py: %s\n' % exc)
+        return USAGE_EXIT
+    model, reason = resolve(args.role, args.default, args.escalated, mapping)
     out.write('%s\n' % model)
     err.write('pick_model: %s\n' % reason)
     return 0

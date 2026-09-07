@@ -9,7 +9,7 @@ it is the only place that says it — a SKILL.md names the *role* and lets the t
 |---|---|
 | The orchestrator itself | the session's default model |
 | A subagent that interprets prose or designs | the session's default model |
-| A subagent doing mechanical transcription | one step down the ladder |
+| A subagent doing mechanical transcription | exact configured mapping, else one step down the ladder |
 
 Work that interprets prose stays on the default model because getting it wrong produces a
 wrong artifact that reads as a right one. Mechanical transcription steps down because the
@@ -43,6 +43,24 @@ for itself. stdout is the model name and nothing else; the reason goes to stderr
 Pass `--escalated` for a mechanical role that has already burned its rounds, and it returns the
 session default instead of a step down. That is how a skill's "respawn on the default model
 after two failed rounds" rule gets applied, rather than remembered.
+
+An experiment may pass `--mapping <json-path>` to the resolver and preflight. The complete file
+has schema 1 and maps exact session defaults for the mechanical role:
+
+```json
+{
+  "schema": 1,
+  "mechanical": {"fixture-large": "fixture-small"}
+}
+```
+
+Design and orchestrator roles still use the session default. Mechanical escalation also uses
+the session default. An unmapped mechanical default follows the ladder and fallbacks above.
+The pipeline uses no mapping unless the operator supplies this path.
+
+Before a measured mapped run, confirm that the execution host offers both the session default
+and mapped target. Confirm the launched agent's actual model matches the target. An unavailable
+or mismatched target is `setup_error`; do not record the requested target as the launched model.
 
 ## What this does not cover
 

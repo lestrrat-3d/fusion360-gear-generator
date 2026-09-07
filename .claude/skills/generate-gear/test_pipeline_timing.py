@@ -13,6 +13,13 @@ SPEC = importlib.util.spec_from_file_location("pipeline_timing_tests_module", MO
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 
+PICK_MODEL_PATH = Path(__file__).with_name("pick_model.py")
+PICK_MODEL_SPEC = importlib.util.spec_from_file_location(
+    "pipeline_timing_pick_model_tests_module", PICK_MODEL_PATH)
+PICK_MODEL = importlib.util.module_from_spec(PICK_MODEL_SPEC)
+PICK_MODEL_SPEC.loader.exec_module(PICK_MODEL)
+EMIT_SKILL = Path(__file__).parents[1] / "emit-gear" / "SKILL.md"
+
 
 class FakeClock:
     def __init__(self, epoch=100.0):
@@ -76,6 +83,35 @@ class PipelineTimingTests(unittest.TestCase):
         self.assertEqual(len(run["inputs"][0]["sha256"]), 64)
         with self.assertRaises(MODULE.TimingError):
             MODULE.start_run(self.run_dir, "spurgear", "emit", clock=self.clock)
+
+    def test_actual_model_recorded(self):
+        mapping = {
+            "schema": 1,
+            "mechanical": {"fixture-large": "fixture-small"},
+        }
+        model, _ = PICK_MODEL.resolve(
+            "mechanical", "fixture-large", mapping=mapping)
+        run_dir = self.root / "mapped-run"
+
+        MODULE.start_run(
+            run_dir, "spurgear", "emit", root=self.root,
+            inputs=["input.md"], model_role="mechanical", model=model,
+            clock=self.clock)
+
+        run = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+        self.assertEqual(run["model_role"], "mechanical")
+        self.assertEqual(run["model"], "fixture-small")
+
+    def test_mapped_workflow_rejects_requested_actual_model_mismatch(self):
+        instructions = EMIT_SKILL.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "If the host cannot\n   select and confirm the mapped target, or the launched model differs, "
+            "stop the measured trial\n   as `setup_error`.",
+            instructions)
+        self.assertIn(
+            "Record only that confirmed actual model in timing.",
+            instructions)
 
     def _complete_run(self, report_first_pass=True, failed=False, triage="complete"):
         MODULE.record_event(self.run_dir, "drafting", "start", round=1, clock=self.clock)
