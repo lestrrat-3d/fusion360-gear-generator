@@ -155,6 +155,23 @@ class FailureFileTest(RenderCase):
         self.assertIn('draft spurgear now', out)
         self.assertIn('saw {{gear}} in the report', out)
 
+    def test_canonical_json_feedback_is_preserved(self):
+        report = (
+            '{\n'
+            '  "gates": [\n'
+            '    {\n'
+            '      "stderr": "```json\\n{\\"歯車\\": \\"{{gear}}\\"}\\n```\\n"\n'
+            '    }\n'
+            '  ],\n'
+            '  "schema": 1\n'
+            '}\n'
+        )
+        code, out, err = self.render_with_report(report=report)
+        self.assertEqual(code, 0, err)
+        body = out.split(RENDERER.BEGIN_MARKER + '\n', 1)[1]
+        body = body.rsplit('\n' + RENDERER.END_MARKER, 1)[0] + '\n'
+        self.assertEqual(body, report)
+
     def test_failure_file_missing_exits_2(self):
         code, out, err = self.run_main(
             ['emit-gear', 'spurgear', '--failure-file', '{root}/nope.txt'],

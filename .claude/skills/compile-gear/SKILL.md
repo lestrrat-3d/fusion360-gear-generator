@@ -24,8 +24,9 @@ until the proof is green and both describe the same build.
 For an opt-in timing run, use `.claude/skills/generate-gear/pipeline_timing.py` and follow the
 event boundaries in [the pipeline timing pilot](../generate-gear/pipeline-timing-pilot.md).
 Record observed `preflight`, `input_reading`, `drafting`, `validation`,
-`placement`, and `overall` events around the existing commands. Import the complete gate JSON
-after validation so its runner policy and proof completeness remain attached to the timing data.
+`placement`, and `overall` events around the existing commands. Import the raw complete gate JSON
+exactly once after validation so its hash, runner policy, and proof completeness remain attached to
+the timing data. Never import the rendered feedback file.
 Use one `drafting` round per draft attempt, including retries. A validation event covers the
 complete runner invocation and its report import; record advisory triage only after reviewing
 the advisory findings.
@@ -122,9 +123,14 @@ proof is where the next reader is looking for the missing check.
    command refuses both placements if it would refuse either; exit 2 means nothing moved. There
    is no `--run`; the gate runner below runs the proof.
 
-   Then run `python3 .claude/skills/generate-gear/run_compile_gates.py <gear> >
-   .tmp/<gear>.compile-gates.txt` from the repo root and read the file for the verdict. The stored
-   copy is also what a retry round hands back to the drafter.
+   Then run `python3 .claude/skills/generate-gear/run_compile_gates.py <gear> --json-out
+   .tmp/<gear>.compile-gates.round-1.json > .tmp/<gear>.compile-gates.round-1.log` from the repo root. Preserve
+   the raw JSON unchanged. Render its one lossless retry representation with `python3
+   .claude/skills/generate-gear/render_retry_feedback.py --report
+   .tmp/<gear>.compile-gates.round-1.json --out .tmp/<gear>.compile-feedback.txt`. Read the complete
+   feedback file for the verdict. Never send the console report or another diagnostic view to the
+   drafter. Never use `> .tmp/<gear>.compile-gates.txt`; that legacy path overwrites prior rounds
+   and stores the console view instead of the complete raw JSON.
    It runs `check_compile.py <gear>`, then `extract_playbook.py <gear> --min-anchors 1`, then —
    only when `lib/geargen/<gear>.py` exists — `check_step_calls.py --json`, then `bash proof/run.sh`.
    A compile or playbook failure omits the proof. A step-call failure still runs the proof unless
@@ -176,8 +182,8 @@ proof is where the next reader is looking for the missing check.
    current implementation. Finish placement and continue to `/emit-gear`.
 
    A draft fault does not change any input file, so the drafter that produced it still holds
-   every input in context. Send it the stored gate report `.tmp/<gear>.compile-gates.txt`
-   verbatim with `SendMessage` and let it revise `.tmp/<gear>.steps.md` and
+   every input in context. Send it the stored feedback file `.tmp/<gear>.compile-feedback.txt`
+   unchanged with `SendMessage` and let it revise `.tmp/<gear>.steps.md` and
    `.tmp/<gear>-proof/`; never paste failure text edited by hand, and do not tell the drafter to
    re-read inputs it has already read.
 
@@ -188,18 +194,22 @@ proof is where the next reader is looking for the missing check.
    role, and a continued round changes no model, because a resumed agent keeps the one it was
    spawned on. A fresh retry round re-renders the
    prompt with `python3 .claude/skills/generate-gear/render_prompt.py compile-gear <gear>
-   --failure-file .tmp/<gear>.compile-gates.txt`, which appends the stored gate report verbatim;
+   --failure-file .tmp/<gear>.compile-feedback.txt`, which appends the lossless feedback unchanged;
    hand the printed output to the drafter unchanged. The first round's prompt is always the
    rendered standard prompt with no failure file.
 
    For every returned retry draft, repeat step 2's renderer and provenance commands, then repeat
    step 4's scaffold and placement commands before its iteration validation starts. Then run
    `python3 .claude/skills/generate-gear/run_compile_gates.py <gear> --iteration-base
-   "$(cat .tmp/<gear>.compile-base)" > .tmp/<gear>.compile-gates.txt`. This runs compile and
+   "$(cat .tmp/<gear>.compile-base)" --json-out
+   .tmp/<gear>.compile-gates.round-<round>.json >
+   .tmp/<gear>.compile-gates.round-<round>.log`, then render the fixed
+   `.tmp/<gear>.compile-feedback.txt` from that round-specific raw JSON with
+   `render_retry_feedback.py` as above. This runs compile and
    playbook checks first, then selects `proof/<gear>/` only when changed paths stay within that
    gear. Shared or unknown changes expand the proof to the full suite. Iteration output is feedback
-   only and is never the final proof. The canonical report path stays the same so the next retry
-   receives the latest diagnostics.
+   only and is never the final proof. Keep every round-specific raw report. The canonical feedback
+   path stays the same so the next retry receives the latest diagnostics exactly once.
 
 7. **Place.** Before placement or reporting, require an ordinary complete gate report whose
    `handoff.ready_for_emit` is true for the current artifacts. Reuse the latest report when it has
@@ -267,7 +277,7 @@ placeholder. Render it — never retype or paraphrase it — with:
     python3 .claude/skills/generate-gear/render_prompt.py compile-gear <gear>
 
 Hand the printed output to the drafting subagent unchanged. On a retry round, `--failure-file`
-appends the previous round's gate report verbatim; the framing text is fixed in the renderer, so
+appends the previous round's canonical feedback unchanged; the framing text is fixed in the renderer, so
 the retry prompt is as standard as the first. The renderer refuses to print anything for an
 unknown skill name, a missing template, or a template carrying a placeholder it was not given, so
 a garbled render can never reach the subagent.

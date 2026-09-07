@@ -53,9 +53,11 @@ python3 .claude/skills/generate-gear/pipeline_timing.py event \
 
 python3 .claude/skills/generate-gear/pipeline_timing.py event \
   --run-dir "$TIMING" --phase validation --action start --round 1
-python3 .claude/skills/generate-gear/run_gates.py <gear> --json-out "$TIMING/gates.json"
+python3 .claude/skills/generate-gear/run_gates.py <gear> --json-out "$TIMING/gates-round-1.json"
+python3 .claude/skills/generate-gear/render_retry_feedback.py \
+  --report "$TIMING/gates-round-1.json" --out "$TIMING/gates-feedback.txt"
 python3 .claude/skills/generate-gear/pipeline_timing.py import-gates \
-  --run-dir "$TIMING" --round 1 --file "$TIMING/gates.json"
+  --run-dir "$TIMING" --round 1 --file "$TIMING/gates-round-1.json"
 # Review all advisory findings before recording this complete state.
 python3 .claude/skills/generate-gear/pipeline_timing.py event \
   --run-dir "$TIMING" --phase validation --action record --round 1 \
@@ -74,10 +76,23 @@ python3 .claude/skills/generate-gear/pipeline_timing.py summarize \
   --run-dir "$TIMING" --format json
 ```
 
-For the compile run, use `run_compile_gates.py <gear> --json-out "$TIMING/compile-gates.json"`
-and import that report. Preserve its `handoff` separately as the pre-emission readiness result;
-do not rewrite its verdict after emission. Then create a fresh timing directory for the emit run
-after compile placement.
+For compile round `<round>`, retain the raw report, render the one current feedback file, and
+import only the raw report:
+
+```sh
+python3 .claude/skills/generate-gear/run_compile_gates.py <gear> \
+  --json-out "$TIMING/compile-gates-round-<round>.json"
+python3 .claude/skills/generate-gear/render_retry_feedback.py \
+  --report "$TIMING/compile-gates-round-<round>.json" \
+  --out "$TIMING/compile-gates-feedback.txt"
+python3 .claude/skills/generate-gear/pipeline_timing.py import-gates \
+  --run-dir "$TIMING" --round <round> \
+  --file "$TIMING/compile-gates-round-<round>.json"
+```
+
+The import records the retained raw report's hash. Never import the feedback file. Preserve the
+report's `handoff` separately as the pre-emission readiness result; do not rewrite its verdict
+after emission. Then create a fresh timing directory for the emit run after compile placement.
 A selective, fail-fast, no-advisory, or incomplete proof report remains evidence for diagnostics
 and cannot qualify as a full first pass. Contract skips qualify only when the runner reports an
 actual not-applicable manifest reason.
@@ -91,9 +106,13 @@ python3 .claude/skills/generate-gear/pipeline_timing.py event \
   --run-dir "$TIMING" --phase validation --action start --round <round> \
   --event-name final-compile
 python3 .claude/skills/generate-gear/run_compile_gates.py <gear> \
-  --json-out "$TIMING/final-compile-gates.json"
+  --json-out "$TIMING/final-compile-gates-round-<round>.json"
+python3 .claude/skills/generate-gear/render_retry_feedback.py \
+  --report "$TIMING/final-compile-gates-round-<round>.json" \
+  --out "$TIMING/final-compile-gates-feedback.txt"
 python3 .claude/skills/generate-gear/pipeline_timing.py import-gates \
-  --run-dir "$TIMING" --round <round> --file "$TIMING/final-compile-gates.json"
+  --run-dir "$TIMING" --round <round> \
+  --file "$TIMING/final-compile-gates-round-<round>.json"
 python3 .claude/skills/generate-gear/pipeline_timing.py event \
   --run-dir "$TIMING" --phase validation --action finish --round <round> \
   --event-name final-compile
@@ -104,7 +123,8 @@ to pass on the staged module and current compiled artifacts. Keep a failed pre-e
 round in the timing events; the summary never changes its `first_pass` result after a later pass.
 
 Repeat the direct-emit run for each pilot gear. Keep retries as separate numbered rounds in one
-run, and import every complete report once per round. Compare `drafting_time_s`,
+run, and import each retained raw report exactly once per round. The feedback file is retry input,
+not a gate import. Compare `drafting_time_s`,
 `validation_time_s`, `gate_duration_s`, `total_wall_time_s`, `completed_rounds`, `first_pass`, and
 the `advisory_triage` state from the JSON summary. Shared Pyright time is owned by the runner's
 timing metadata and is counted once during import.

@@ -24,8 +24,9 @@ the pipeline exists to make trustworthy.
 For an opt-in timing run, use `.claude/skills/generate-gear/pipeline_timing.py` and follow the
 event boundaries in [the pipeline timing pilot](../generate-gear/pipeline-timing-pilot.md).
 Record observed `preflight`, `input_reading`, `drafting`, `validation`,
-`placement`, and `overall` events around the existing commands. Import the complete gate JSON
-after validation so its runner policy remains attached to the timing data.
+`placement`, and `overall` events around the existing commands. Import the raw complete gate JSON
+exactly once after validation so its hash and runner policy remain attached to the timing data.
+Never import the rendered feedback file.
 Use one `drafting` round per draft attempt, including retries. A validation event covers the
 complete runner invocation and its report import; record advisory triage only after reviewing
 the advisory findings.
@@ -42,7 +43,10 @@ the advisory findings.
    Require an ordinary full `run_compile_gates.py` report for the current step list and proof.
    Reuse the compile run's report when its inputs and artifacts have not changed. Otherwise run
    `python3 .claude/skills/generate-gear/run_compile_gates.py <gear> --json-out
-   .tmp/<gear>.pre-emit-compile.json > .tmp/<gear>.compile-gates.txt`. Continue only when its
+   .tmp/<gear>.pre-emit-compile.json > .tmp/<gear>.pre-emit-compile.log`, then render exactly one
+   lossless feedback file with `python3 .claude/skills/generate-gear/render_retry_feedback.py
+   --report .tmp/<gear>.pre-emit-compile.json --out
+   .tmp/<gear>.pre-emit-compile-feedback.txt`. Preserve the raw JSON unchanged. Continue only when its
    JSON has `handoff.ready_for_emit: true`. Exit 1 is allowed here only when that readiness is true;
    the compile verdict remains failed until the implementation is synchronized.
 
@@ -68,12 +72,18 @@ the advisory findings.
    interprets prose and only this one transcribes.
 
 3. **Gate (authoritative owner).** After every draft submission, run the complete battery with
-   `python3 .claude/skills/generate-gear/run_gates.py <gear> > .tmp/<gear>.gates.txt` from the repo
-   root. Run this command without `--no-advisory`, `--only`, or `--fail-fast`; it runs all seven
+   `python3 .claude/skills/generate-gear/run_gates.py <gear> --json-out
+   .tmp/<gear>.gates.round-<round>.json > .tmp/<gear>.gates.round-<round>.log` from the repo root.
+   Start with round 1 and never overwrite a prior round's raw report. Render exactly one current
+   feedback file with `python3 .claude/skills/generate-gear/render_retry_feedback.py --report
+   .tmp/<gear>.gates.round-<round>.json --out
+   .tmp/<gear>.gates-feedback.txt`. Preserve the raw JSON unchanged. Run the gate command without
+   `--no-advisory`, `--only`, or `--fail-fast`; it runs all seven
    checks below plus the advisory novel-type report and prints one verdict. Read the entire stored
    report, including every gate row, advisory finding, and classification. This is the only
-   validation pass for that submitted draft, and the stored copy is what a retry round hands back
-   to the drafter. Exit 0 = every gate that ran passed; exit 1 = a gate failed; exit 2 = a setup
+   validation pass for that submitted draft. Read the complete feedback file. It is the only view
+   handed to a retry drafter; never send the console report or another diagnostic view. Exit 0 =
+   every gate that ran passed; exit 1 = a gate failed; exit 2 = a setup
    error (missing input, missing stubs, unreachable API database) that no new draft can fix.
 
    Version-2 required declarations supply the execution checklist. Preserve stated conditions;
@@ -85,8 +95,8 @@ the advisory findings.
    about three rounds in total. A compile fault, or an exit 2, stops the run.
 
    An emit fault does not change any input file, so the drafter that produced it still holds the
-   step list, the proof and the framework in context. Send it the stored gate report
-   `.tmp/<gear>.gates.txt` verbatim with `SendMessage` and let it revise
+   step list, the proof and the framework in context. Send it the stored feedback file
+   `.tmp/<gear>.gates-feedback.txt` unchanged with `SendMessage` and let it revise
    `.tmp/<gear>.generated.py`; never paste failure text edited by hand, and do not tell the
    drafter to re-read inputs it has already read. Submit the revised artifact to the complete Gate
    battery again before any placement.
@@ -101,7 +111,7 @@ the advisory findings.
    because a resumed agent keeps the one it was spawned on. A fresh retry round re-renders the
    prompt with
    `python3 .claude/skills/generate-gear/render_prompt.py emit-gear <gear> --failure-file
-   .tmp/<gear>.gates.txt`, which appends the stored gate report verbatim; hand the printed
+   .tmp/<gear>.gates-feedback.txt`, which appends the lossless feedback unchanged; hand the printed
    output to the drafter unchanged. The first round's prompt is always the rendered standard
    prompt with no failure file.
 
@@ -112,7 +122,10 @@ the advisory findings.
    `.tmp/<gear>.generated.py` at `lib/geargen/<gear>.py` and reports what moved. This writes a
    file only; it does not commit, push, or touch Fusion's add-in directory. Then run the ordinary
    full compile gates again with `python3 .claude/skills/generate-gear/run_compile_gates.py <gear>
-   --json-out .tmp/<gear>.final-compile.json > .tmp/<gear>.final-compile-gates.txt`. Final pipeline
+   --json-out .tmp/<gear>.final-compile.round-<round>.json >
+   .tmp/<gear>.final-compile.round-<round>.log`, then render exactly one
+   `.tmp/<gear>.final-compile-feedback.txt` from that round-specific raw report with
+   `render_retry_feedback.py`. Final pipeline
    acceptance requires both the complete emit report and this final compile report to pass on the
    staged module and current compiled artifacts. A failed final compile report returns to diagnosis;
    it never becomes accepted because the earlier handoff was ready.
@@ -192,7 +205,7 @@ placeholder. Render it — never retype or paraphrase it — with:
     python3 .claude/skills/generate-gear/render_prompt.py emit-gear <gear>
 
 Hand the printed output to the drafting subagent unchanged. On a retry round, `--failure-file`
-appends the previous round's gate report verbatim; the framing text is fixed in the renderer, so
+appends the previous round's canonical feedback unchanged; the framing text is fixed in the renderer, so
 the retry prompt is as standard as the first. The renderer refuses to print anything for an
 unknown skill name, a missing template, or a template carrying a placeholder it was not given, so
 a garbled render can never reach the subagent.
