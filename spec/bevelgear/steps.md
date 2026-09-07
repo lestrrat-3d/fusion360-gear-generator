@@ -13,7 +13,7 @@ The proof for this step list is `proof/bevelgear/geometry_test.go`, `proof/bevel
 | `spec/bevelgear/fusion.md` | `40d165fbc2f47ffba45d7c3c0f73ca67ec488d42` |
 | `spec/bevelgear/spiral-tooth-trace.md` | `c9ec08561ced7975aa0ed9ad6a330186259c0d08` |
 | `spec/spurgear/instructions.md` | `8fea86624775c0c0740a357fc4c5f5f55ccb14dd` |
-| `.claude/skills/generate-gear/PLAYBOOK.md` | `1b3078d6767d6a3f56c228e1e934c82ccfbf53fe` |
+| `.claude/skills/generate-gear/PLAYBOOK.md` | `4fa39825852a8743b38df07df4d5e16008e1be6f` |
 
 ## S1 `[PROSE]` Module layout, imports, classes and constants
 
@@ -1091,9 +1091,10 @@ and the order is the whole recipe:
    `for e in lines: e.startSketchPoint.isFixed = True; e.endSketchPoint.isFixed = True`.
 
 Setting `isFixed = True` on a bare point *before* it is consumed as a line endpoint does not leave
-the sketch fully constrained. Projecting the §2 points instead of recreating them does not fix them
-either: a projection is brought in associatively and still carries free DOF, so the sketch would
-report under-constrained even though every point already sits in the right place.
+the sketch fully constrained. Keep this bevel-specific recreation instead of projecting the §2
+points: the profile needs independent local fixed endpoints so its shaft-axis edge has trustworthy
+`worldGeometry`. This recipe does not imply that linked reference geometry has free DOF
+([PB-PROJECT-NOT-FIXED]).
 
 The hexagon's **first edge is the gear's shaft axis** for the revolve, the pattern, the bore plane and
 the meshing rotation, so it must be fixed well enough to carry a trustworthy world position: fixed

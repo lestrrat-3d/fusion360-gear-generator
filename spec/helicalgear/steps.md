@@ -12,7 +12,7 @@ The proof for this step list is `proof/helicalgear/geometry_test.go`, `proof/hel
 | `spec/helicalgear/contract.json` | `b76c17b25ecc90caad199e10f4bb35308899ee79` |
 | `spec/spurgear/fusion.md` | `7cd4e5b0fa38dcd39cbd1b5bad1cf8489e2bc2ae` |
 | `spec/spurgear/instructions.md` | `8fea86624775c0c0740a357fc4c5f5f55ccb14dd` |
-| `.claude/skills/generate-gear/PLAYBOOK.md` | `1b3078d6767d6a3f56c228e1e934c82ccfbf53fe` |
+| `.claude/skills/generate-gear/PLAYBOOK.md` | `4fa39825852a8743b38df07df4d5e16008e1be6f` |
 
 ## Compilation contract
 

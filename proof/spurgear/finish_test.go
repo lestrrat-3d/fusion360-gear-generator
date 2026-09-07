@@ -1,6 +1,7 @@
 package spurgear_test
 
 import (
+	"context"
 	"errors"
 	"math"
 	"testing"
@@ -154,17 +155,71 @@ func assertRootFillets(t *testing.T, doc *decad.Document, bodies []*decad.Body, 
 
 // ---------------------------------------------------------------- step 12
 
-// boreSketch draws the Bore Profile: a circle of Bore Diameter centred on
-// the projected anchor. The tooth generator's constructor also adds its
-// local origin at (0,0,0), which the real sketch grounds on the same
-// projected anchor; the substitute has no constraints to ground, so the
-// circle is placed on the anchor directly.
+// boreSketch draws the Bore Profile: a circle of Bore Diameter centred on the
+// projected anchor, plus the tooth generator's free local origin and its
+// coincidence to that anchor. Reference geometry is an externally locked
+// snapshot in this abstract engine. It can prove the resulting constraint net
+// and reference refresh, but only the retained native probe can determine
+// Fusion's isFixed/isLinked/isReference/isFullyConstrained flags.
 func boreSketch(t *testing.T, g gear) (*sketch.Sketch, *sketch.Profile) {
 	t.Helper()
 	s := newXYSketch(t)
-	centre := s.CreatePoint(g.anchorX, g.anchorY)
-	s.CreateCircle(centre, g.bore/2)
+	localOrigin := s.CreatePoint(0, 0)
+	localOrigin.SetName("local origin")
+	anchor := s.CreateReferencePoint(g.anchorX, g.anchorY, "Tools anchor projection")
+	anchor.SetName("projected anchor")
+	circle := s.CreateCircle(anchor, g.bore/2)
+	circle.SetName("Bore Diameter")
+	s.AddConstraint(sketch.NewDiameter(circle, g.bore))
+
+	before, err := s.Solve(context.Background())
+	if err != nil {
+		t.Fatalf("solve Bore Profile before anchoring: %v", err)
+	}
+	if !before.Converged || before.DOF != 2 || before.Redundant != 0 {
+		t.Fatalf("Bore Profile before anchoring: converged=%v DOF=%d redundant=%d, want true/2/0",
+			before.Converged, before.DOF, before.Redundant)
+	}
+
+	s.AddConstraint(sketch.NewCoincident(localOrigin, anchor))
+	requireBoreAnchorSound(t, s, localOrigin, anchor, circle, g.anchorX, g.anchorY)
+
+	// RefreshReference is the abstract engine's public 3D re-feed path. It is
+	// not evidence of Fusion association, which the native source-move stage
+	// supplies, but it proves the compiled constraint net follows a new anchor.
+	const dx, dy = 5.0, 2.5
+	if err := s.RefreshReference(anchor, g.anchorX+dx, g.anchorY+dy); err != nil {
+		t.Fatalf("refresh projected anchor: %v", err)
+	}
+	requireBoreAnchorSound(t, s, localOrigin, anchor, circle, g.anchorX+dx, g.anchorY+dy)
+	if err := s.RefreshReference(anchor, g.anchorX, g.anchorY); err != nil {
+		t.Fatalf("restore projected anchor: %v", err)
+	}
+	requireBoreAnchorSound(t, s, localOrigin, anchor, circle, g.anchorX, g.anchorY)
 	return s, singleProfile(t, s, "Bore Profile")
+}
+
+func requireBoreAnchorSound(t *testing.T, s *sketch.Sketch, localOrigin, anchor *sketch.Point,
+	circle *sketch.Circle, wantX, wantY float64) {
+	t.Helper()
+	result, err := s.Solve(context.Background())
+	if err != nil {
+		t.Fatalf("solve Bore Profile after anchoring: %v", err)
+	}
+	if !result.Converged || result.DOF != 0 || result.Redundant != 0 {
+		t.Fatalf("Bore Profile after anchoring: converged=%v DOF=%d redundant=%d, want true/0/0",
+			result.Converged, result.DOF, result.Redundant)
+	}
+	for name, point := range map[string]*sketch.Point{
+		"local origin":     localOrigin,
+		"projected anchor": anchor,
+		"circle centre":    circle.Center,
+	} {
+		if !near(point.X(), wantX, 1e-9) || !near(point.Y(), wantY, 1e-9) {
+			t.Fatalf("%s solved to (%.6f, %.6f), want (%.6f, %.6f)",
+				name, point.X(), point.Y(), wantX, wantY)
+		}
+	}
 }
 
 // boreTool extrudes the Bore Profile from the target plane to the body's far

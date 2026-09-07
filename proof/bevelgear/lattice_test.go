@@ -256,15 +256,15 @@ func buildLattice(t testing.TB, s *sketch.Sketch, d design) *latticeBuilder {
 	g := sharedLattice(d)
 	b := &latticeBuilder{t: t, s: s, g: g, d: d}
 
-	// The projected anchor centre and the projected anchor line. Section 1
-	// leaves the Anchor sketch fully constrained, so its projection into this
-	// sketch is reference geometry here: a projected curve tracks its source
-	// and carries no freedom of its own once that source is rigid. Fusion's
-	// own projection does keep free DOF ([PB-PROJECT-NOT-FIXED]), which is why
-	// the per-gear Profile sketches recreate their vertices instead; section 2
-	// reaches full constraint through the net below rather than through the
-	// projection, so modelling it as locked is faithful to what the net has to
-	// do and costs the proof nothing it could otherwise check.
+	// The projected anchor centre and line are externally locked reference
+	// snapshots here. That agrees with the native observation that a linked
+	// projection can carry no free DOF while isFixed remains false
+	// ([PB-PROJECT-NOT-FIXED]), and lets this proof test the section 2
+	// constraint net. The abstract engine cannot determine Fusion's native
+	// isFixed/isLinked/isReference/isFullyConstrained flags or association;
+	// the retained native probe decides that mapping. The bevel Profile
+	// sketches still recreate and fix independent local vertices because their
+	// shaft-axis edges need trustworthy world coordinates.
 	b.centre = s.CreateReferencePoint(0, 0, "Anchor sketch centre point")
 	b.centre.SetName("projected centre")
 	half := 5.0 // the Anchor Line is seeded at +-0.5 cm about its centre

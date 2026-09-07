@@ -452,21 +452,21 @@ the check.
     1 DOF = 0). Do NOT `addCoincident(circle.centerSketchPoint, sketch.originPoint)` — observed to
     throw `VCS_SKETCH_SOLVING_FAILED` (at least on a `setByDistanceOnPath` plane). `isFixed` on the
     center is the reliable pin.
-  - **[PB-PROJECT-NOT-FIXED] `sketch.project(...)` does NOT fix the projected geometry.** A projected point/curve is brought
-    in *associatively* (it tracks its source) but still carries **free DOF** — it is a reference, not
-    a fixed point. A sketch whose geometry hangs off shared projected points therefore reports
-    **under-constrained**, even though every projected point already has a correct position (so
-    `worldGeometry` looks fine and the feature builds — the defect is silent until you check
-    `isFullyConstrained`). To turn another sketch's points into *fully-constrained* local geometry,
-    either (a) `addCoincident` the projection to an already-fixed point (works when you have one
-    natural anchor, e.g. spur's tooth anchor), or (b) **recreate each as a brand-new point and fix it
-    AFTER the geometry that uses it is built** — `verts = [sketch.sketchPoints.add(
-    sketch.modelToSketchSpace(src.worldGeometry)) for src in pts]`, draw the curves *sharing* those
-    `verts`, then `for e in lines: e.startSketchPoint.isFixed = True; e.endSketchPoint.isFixed =
-    True`. **Order matters:** setting `isFixed = True` on a bare point *before* it is consumed as a
-    line endpoint does NOT leave the sketch fully constrained — fix the endpoints once the lines
-    exist. (`modelToSketchSpace(worldGeometry)` is exact when source and target sketches share a
-    plane; it needs the source sketch fully constrained so `worldGeometry` is defined.)
+  - **[PB-PROJECT-NOT-FIXED] `SketchPoint.isFixed == False` does not mean a projection has free DOF.**
+    `sketch.project(...)` brings geometry in associatively: it can be linked reference geometry that
+    tracks its source and is fully constrained while `isFixed` stays false. Fusion 2704.1.53 showed
+    this for a fixed point projected into a reference-only Tools sketch on a child component's XY
+    plane. For a local anchor that must move with it, create the local point freely and
+    `addCoincident(local, projected)`: a driving diameter on a circle centred on the projection plus
+    that coincidence fully constrained spur's Bore sketch and followed a moved source. Do not add a
+    second fixed point coincident with a projection as a generic repair; the native probe raised
+    `VCS_SKETCH_OVER_CONSTRAINTS`. Keep the `sketch.isFullyConstrained` gate because the whole sketch,
+    not `isFixed`, decides whether DOF remain. Bevel profiles use a separate **recreate-share-fix**
+    recipe for independent local geometry with trustworthy `worldGeometry`: recreate each source
+    point with `sketch.sketchPoints.add(sketch.modelToSketchSpace(src.worldGeometry))`, draw curves
+    sharing those points, then fix their endpoints. Fix only after the lines exist. This bevel recipe
+    needs a fully constrained, coplanar source so mapped `worldGeometry` is defined and exact; it is
+    not a general rule about projection constraint state. See `diagnostics/projection_probe/README.md`.
   - **[PB-NO-OVERCONSTRAIN] But do NOT over-constrain to get there:** dimensioning a length that is already *driven* by a
     perpendicular/collinear/closing constraint throws `VCS_SKETCH_OVER_CONSTRAINTS`. Full constraint
     comes from the *missing* constraint, not from piling on dimensions. When unsure which DOF is

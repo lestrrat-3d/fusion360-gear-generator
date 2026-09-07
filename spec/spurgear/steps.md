@@ -10,7 +10,7 @@ The proof for this step list is `proof/spurgear/geometry_test.go`, `proof/spurge
 | `spec/spurgear/fusion.md` | `7cd4e5b0fa38dcd39cbd1b5bad1cf8489e2bc2ae` |
 | `spec/helicalgear/fusion.md` | `f981173cb314094f2fd98cdd78d5bd8287cdc8ee` |
 | `spec/spurgear/contract.json` | `fc62129c377504ba778823007f52a956767c46f2` |
-| `.claude/skills/generate-gear/PLAYBOOK.md` | `1b3078d6767d6a3f56c228e1e934c82ccfbf53fe` |
+| `.claude/skills/generate-gear/PLAYBOOK.md` | `4fa39825852a8743b38df07df4d5e16008e1be6f` |
 
 ## Compilation contract
 
@@ -430,9 +430,10 @@ hidden), `sketch.isVisible = True`, `self.toolsSketch = sketch`. Project the use
 with `projected = sketch.project(self.anchorPoint)` and keep
 `ctx.anchorPoint = projected.item(0)`, a `SketchPoint`. The sketch draws nothing else; this projection
 is the canonical handle every later sketch re-projects from [SPUR-F-ANCHOR-CHAIN]. A projected
-point tracks its source and carries no free DOF of its own here, but it is a reference, not a
-fixed point [PB-PROJECT-NOT-FIXED]. Gate `sketch.isFullyConstrained` (raise if false). Leave the
-sketch visible until `cleanup` [PB-HIDE-AFTER-USE].
+point tracks its source and carries no free DOF of its own here even though its `isFixed` property
+is false; it is linked reference geometry [PB-PROJECT-NOT-FIXED]. Gate
+`sketch.isFullyConstrained` (raise if false). Leave the sketch visible until `cleanup`
+[PB-HIDE-AFTER-USE].
 
 The API database backing the gates declares no `project` on `Sketch`; it declares only a
 `project2` taking an entity list and a linked flag. The shipped add-ins call `sketch.project`, the

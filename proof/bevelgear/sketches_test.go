@@ -189,11 +189,11 @@ func requireFrustumProfile(t testing.TB, s *sketch.Sketch, g gear,
 // exact positions, the closed hexagon drawn SHARING those points, and the
 // endpoints fixed only AFTER the lines exist.
 //
-// That order is the whole recipe. A projected point is a reference, not a
-// fixed point, so a sketch hung off projections reports under-constrained even
-// though every point is already in the right place; and fixing a bare point
-// BEFORE it is consumed as a line endpoint does not leave the sketch fully
-// constrained either. Recreate, share, then fix.
+// That order is the whole recipe. This bevel profile needs independent local
+// fixed endpoints so its shaft-axis edge has trustworthy world coordinates;
+// the recipe does not claim reference projections have free DOF. Fixing a bare
+// point BEFORE it is consumed as a line endpoint does not leave this profile
+// fully constrained either. Recreate, share, then fix.
 //
 // The sketch holds exactly one closed loop, which is what lets the revolve take
 // its single profile without filtering. The proof asserts that count, the six
