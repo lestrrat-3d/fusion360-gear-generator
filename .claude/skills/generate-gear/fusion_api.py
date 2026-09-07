@@ -51,6 +51,8 @@ _RETURNS = re.compile(r'^signature:.*\s->\s*([A-Za-z0-9_.]+)')
 # `members` groups its output by declaring class: a header, then two-space-indented members.
 _GROUP = re.compile(r'^(adsk\.[A-Za-z0-9_.]+)\s+\(\d+\s+members?\):\s*$')
 _MEMBER = re.compile(r'^\s{2}(\w+)')
+_OWNER = re.compile(r'^adsk\.[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$')
+_MEMBER_NAME = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
 
 # Calls the shipped add-in makes that the API database does not back. Every entry is
 # (member, the class the shipped code calls it on, the words that make a receiver denote that
@@ -174,6 +176,9 @@ class _QuerySession:
         self.process = None
         self.lock = threading.Lock()
         self.next_id = 1
+        self.lookup_cache = {}
+        self.member_cache = {}
+        self.call_cache = {}
 
     @staticmethod
     def _capability(script):
@@ -252,6 +257,8 @@ class _QuerySession:
 
     def run(self, args):
         with self.lock:
+            if self.transport not in ('auto', 'legacy'):
+                raise Unavailable('unknown Fusion API query transport %r' % self.transport)
             if self.script is None:
                 self.script = query_script()
             if self.mode is None:
@@ -328,8 +335,6 @@ def query_session(transport=None):
         yield
         return
     selected = transport or os.environ.get(QUERY_TRANSPORT, 'auto')
-    if selected not in ('auto', 'legacy'):
-        raise Unavailable('unknown Fusion API query transport %r' % selected)
     client = _QuerySession(None, selected)
     _active_client = client
     try:
@@ -351,12 +356,16 @@ def lookup(name):
 
     Matching is exact on the last path segment, so `add` never answers for `addByTwoPoints`.
     """
+    if _active_client is not None and name in _active_client.lookup_cache:
+        return list(_active_client.lookup_cache[name])
     out = _run('show', name)
     hits = []
     for line in out.splitlines():
         m = _HIT.match(line)
         if m and m.group(1).rsplit('.', 1)[-1] == name:
             hits.append((m.group(1), m.group(2)))
+    if _active_client is not None:
+        _active_client.lookup_cache[name] = list(hits)
     return hits
 
 
@@ -367,7 +376,22 @@ def lookup_many(names, workers=8):
         return {}
     query_script()  # fail once, before fanning out
     with ThreadPoolExecutor(max_workers=min(workers, len(names))) as pool:
-        return dict(zip(names, pool.map(lookup, names)))
+        found = dict(zip(names, pool.map(lookup, names)))
+    cache_lookups(found)
+    return found
+
+
+def cache_lookups(found):
+    """Make already-batched name lookups available to shared status resolution."""
+    if _active_client is not None:
+        _active_client.lookup_cache.update(
+            (name, list(hits)) for name, hits in found.items())
+
+
+def cache_member_info(owner, name, info):
+    """Reuse a member query a checker already made while inferring receiver types."""
+    if _active_client is not None:
+        _active_client.member_cache[(owner, name)] = info
 
 
 def similar(name, limit=5):
@@ -419,10 +443,10 @@ def member_info(cls, name):
         m = _MEMBER_HIT.match(line)
         if m and m.group(2) == name:
             info = {
-                'lookup': m.group(1).rsplit('.', 1)[0],
+                'lookup': m.group(1),
                 'name': m.group(2),
                 'kind': m.group(3),
-                'declared_on': m.group(1).rsplit('.', 1)[0],
+                'declared_on': m.group(1),
                 'returns': None,
             }
             continue
@@ -436,6 +460,121 @@ def member_info(cls, name):
         if typed:
             info['returns'] = typed.group(1)
     return info
+
+
+def _call_result(owner, name, status, disposition, declared_on=None, returns=None,
+                 evidence=(), stale_watchlist=False):
+    """Build the stable API-status result shared by drafting and validation."""
+    return {
+        'schema': 1,
+        'owner': owner,
+        'name': name,
+        'status': status,
+        'scope': 'receiver' if owner is not None else 'name_only',
+        'disposition': disposition,
+        'declared_on': declared_on,
+        'returns': returns,
+        'evidence': list(evidence),
+        'stale_watchlist': stale_watchlist,
+    }
+
+
+def _refuted_call(owner, name):
+    return next((row for row in REFUTED_CALLS if row[0] == name and row[1] == owner), None)
+
+
+def _unverified_call(owner, name):
+    return next((row for row in UNVERIFIED_CALLS if row[0] == name and row[1] == owner), None)
+
+
+def _remember_call_result(result):
+    if _active_client is not None:
+        _active_client.call_cache[(result['owner'], result['name'])] = result
+    return result
+
+
+def validate_call(owner, name):
+    """Reject malformed inputs before a CLI attempts database setup."""
+    if owner is not None and (not isinstance(owner, str) or _OWNER.fullmatch(owner) is None):
+        raise ValueError('owner must be a qualified adsk class')
+    if not isinstance(name, str) or _MEMBER_NAME.fullmatch(name) is None:
+        raise ValueError('member must be a Python identifier')
+
+
+def describe_call(owner: str | None, name: str) -> dict:
+    """Describe the shared support decision for one Fusion API call.
+
+    An explicit owner is receiver-specific. ``None`` preserves the compiler's legacy name-only
+    lookup without applying receiver-specific policy exceptions.
+    """
+    validate_call(owner, name)
+
+    refuted = _refuted_call(owner, name) if owner is not None else None
+    if refuted is not None:
+        return _remember_call_result(
+            _call_result(owner, name, 'refuted', 'block', evidence=(refuted[2],)))
+
+    key = (owner, name)
+    if _active_client is not None and key in _active_client.call_cache:
+        return _active_client.call_cache[key]
+
+    if owner is None:
+        try:
+            hits = lookup(name)
+        except Unavailable as exc:
+            return _remember_call_result(
+                _call_result(owner, name, 'unavailable', 'setup_error', evidence=(str(exc),)))
+        if hits:
+            return _remember_call_result(
+                _call_result(
+                    owner, name, 'documented', 'allow',
+                    evidence=('The database declares at least one member with the requested name.',)))
+        return _remember_call_result(
+            _call_result(
+                owner, name, 'not_found', 'block',
+                evidence=('The database has no declaration with the requested member name.',)))
+
+    watchlist = _unverified_call(owner, name)
+    try:
+        key = (owner, name)
+        cached = _active_client is not None and key in _active_client.member_cache
+        info = _active_client.member_cache[key] if cached else member_info(owner, name)
+        if _active_client is not None and not cached:
+            _active_client.member_cache[key] = info
+        if info is None:
+            inherited = class_members(owner)
+            declared_on = inherited.get(name)
+            if declared_on is not None:
+                info = {'declared_on': declared_on, 'returns': None}
+    except Unavailable as exc:
+        return _remember_call_result(
+            _call_result(owner, name, 'unavailable', 'setup_error', evidence=(str(exc),)))
+
+    if info is not None:
+        evidence = ['The database declares the requested member.']
+        stale = watchlist is not None
+        if stale:
+            evidence.append(
+                "The database now declares this UNVERIFIED_CALLS entry; remove the stale "
+                "watchlist entry after reviewing the new evidence.")
+        return _remember_call_result(
+            _call_result(
+                owner, name, 'documented', 'allow', info.get('declared_on'), info.get('returns'),
+                evidence, stale))
+
+    if watchlist is not None:
+        return _remember_call_result(
+            _call_result(
+                owner, name, 'unverified', 'advisory',
+                evidence=(
+                    'The database does not declare the requested member on this owner.',
+                    watchlist[3],
+                    'Whether Fusion accepts the call is unsettled; only running the add-in decides.',
+                )))
+    return _remember_call_result(
+        _call_result(
+            owner, name, 'not_found', 'block',
+            evidence=('The database does not declare the requested member on this owner.',)))
 
 
 def receiver_tail(receiver):

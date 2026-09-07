@@ -135,8 +135,8 @@ proof is where the next reader is looking for the missing check.
 
 5. **Check.** The runner already ran every check. `check_compile.py` gates spec citations,
    step-to-proof agreement, the reality of every named API call, and the provenance hashes. It
-   also prints the spec lines no step claims, and every call on the unverified watchlist the step
-   list makes; both are worth reading and neither gates.
+   also prints the spec lines no step claims and each advisory API-status result the step list
+   makes. Both are worth reading and neither gates.
 
    `extract_playbook.py` builds the playbook slice `/emit-gear` will read and, with
    `--min-anchors 1`, refuses a step list that cites no `[PB-…]` anchor. That extract is the only

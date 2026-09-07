@@ -263,9 +263,15 @@ def attr_chain(expr):
 
 
 def fusion_class_expr(expr):
+    qualified = qualified_fusion_class_expr(expr)
+    return qualified.rsplit('.', 1)[-1] if qualified is not None else None
+
+
+def qualified_fusion_class_expr(expr):
+    """Return the qualified Fusion class named by an expression, when it names one."""
     parts = attr_chain(expr)
     if parts and len(parts) >= 3 and parts[0] == 'adsk' and parts[1] in ('core', 'fusion'):
-        return parts[2]
+        return '.'.join(parts[:3])
     return None
 
 
@@ -955,9 +961,11 @@ def _check():
     method_returns.update(method_returns_from_tree(tree, known_class_methods))
     containing_classes = call_classes(tree)
     framework_modules = imported_framework_modules(tree, framework_module_exports)
-    qualified_fusion_types = {
-        fusion_class_expr(node) for node in ast.walk(tree)
+    api_type_owners = {
+        fusion_class_expr(node): qualified_fusion_class_expr(node)
+        for node in ast.walk(tree)
         if fusion_class_expr(node) is not None}
+    qualified_fusion_types = set(api_type_owners)
     member_cache = {}
 
     def api_member_info(cls, name):
@@ -969,18 +977,25 @@ def _check():
         key = (cls, name)
         if key not in member_cache:
             member_cache[key] = fusion_api.member_info(cls, name)
+            info = member_cache[key]
+            if info is not None:
+                lookup = info.get('lookup')
+                returned = info.get('returns')
+                if lookup and lookup.startswith(('adsk.core.', 'adsk.fusion.')):
+                    api_type_owners.setdefault(cls, lookup)
+                normalized_return = normalize_api_type(returned)
+                if (normalized_return is not None and returned
+                        and returned.startswith(('adsk.core.', 'adsk.fusion.'))):
+                    api_type_owners[normalized_return] = returned
+            owner = api_type_owners.get(cls)
+            if owner is not None:
+                fusion_api.cache_member_info(owner, name, member_cache[key])
         return member_cache[key]
 
     (receiver_bindings, field_types, expression_type,
      verified_bindings, verified_fields) = infer_api_receiver_types(
         tree, known_class_methods, bases, method_returns, api_member_info)
     receiver_scopes = node_scopes(tree)
-
-    called = {}
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            called.setdefault(node.func.attr, []).append((
-                node.lineno, receiver_expression(node.func), node, containing_classes[node]))
 
     def allowed(name, func, containing_class):
         if name in PYTHON_METHODS:
@@ -1025,83 +1040,76 @@ def _check():
 
         return explicitly_bound(receiver) is not None
 
-    def exact_unverified(name, func, receiver_type, containing_class):
-        receiver = receiver_expression(func)
-        for watched, cls, receivers, _ in fusion_api.UNVERIFIED_CALLS:
-            if watched != name or not fusion_api.receiver_matches(receivers, receiver):
-                continue
-            expected = normalize_api_type(cls)
-            # The watchlist reads a receiver by the class its name denotes, which is all a
-            # step list can offer. Here there are types, so the name alone waives nothing:
-            # `self.sketch` and `other.sketch` both still have to be proven Fusion Sketches.
-            if receiver.startswith('self.') and not has_verified_receiver_binding(
-                    func.value, receiver_type, containing_class):
-                continue
-            if receiver_type == expected and has_verified_receiver_binding(
-                    func.value, receiver_type, containing_class):
-                return True
-        return False
-
-    # Where each watchlist call is actually made, receiver and all, so a legitimate namesake on
-    # another class is not dragged into the report or exempted from receiver validation.
-    seen = {}
-    for name, _, receivers, _ in fusion_api.UNVERIFIED_CALLS:
-        lines = sorted(line for line, receiver, _, _ in called.get(name, [])
-                       if fusion_api.receiver_matches(receivers, receiver))
-        if lines:
-            seen[name] = '%s:%s' % (args.target, ','.join(str(line) for line in lines))
-
     unresolved = []
     resolved_names = set()
+    status_findings = {}
+    status_cache = {}
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
             continue
         name = node.func.attr
         if name.startswith('_') or allowed(name, node.func, containing_classes[node]):
             continue
-        tail = receiver_tail(node.func)
         receiver_type = expression_type(node.func.value, containing_classes[node])
-        if exact_unverified(name, node.func, receiver_type, containing_classes[node]):
-            continue
         if receiver_type is None:
-            unresolved.append((name, node.lineno, None, 'unknown receiver'))
+            unresolved.append((name, node.lineno, None, 'unknown receiver', None))
             continue
-        # receiver_type may be the qualified name or just the class tail, so match either.
-        refuted = next(
-            (row for row in fusion_api.REFUTED_CALLS
-             if row[0] == name
-             and receiver_type in (row[1], row[1].rsplit('.', 1)[-1])), None)
-        if refuted:
-            # The database declares it and Fusion does not have it, so resolving against the
-            # database would wave through a call that raises at runtime.
-            unresolved.append((name, node.lineno, receiver_type, 'refuted: ' + refuted[2]))
+        verified = has_verified_receiver_binding(
+            node.func.value, receiver_type, containing_classes[node])
+        named_watchlist_owner = fusion_api.unverified_class(
+            name, receiver_expression(node.func))
+        owner = api_type_owners.get(normalize_api_type(receiver_type))
+        if (owner is None and verified and named_watchlist_owner is not None
+                and normalize_api_type(named_watchlist_owner) == normalize_api_type(receiver_type)):
+            owner = named_watchlist_owner
+        if owner is None:
+            info = api_member_info(receiver_type, name)
+            if info is not None:
+                owner = info.get('lookup')
+        if owner is None:
+            unresolved.append((name, node.lineno, receiver_type, 'wrong receiver', None))
             continue
-        info = api_member_info(receiver_type, name)
-        if info:
+        key = (owner, name)
+        if key not in status_cache:
+            status_cache[key] = fusion_api.describe_call(owner, name)
+        status = status_cache[key]
+        if status['disposition'] == 'setup_error':
+            print('check_api_calls: %s' % ' '.join(status['evidence']), file=sys.stderr)
+            return 2
+        if (status['disposition'] == 'advisory'
+                and (not verified or named_watchlist_owner != owner)):
+            unresolved.append((name, node.lineno, receiver_type, 'wrong receiver', status))
+            continue
+        if status['disposition'] in ('allow', 'advisory'):
             resolved_names.add(name)
+            if status['disposition'] == 'advisory' or status['stale_watchlist']:
+                status_findings.setdefault(key, {'status': status, 'lines': []})['lines'].append(
+                    node.lineno)
             continue
-        unresolved.append((name, node.lineno, receiver_type, 'wrong receiver'))
+        unresolved.append((name, node.lineno, receiver_type, status['status'], status))
 
-    candidates = sorted({name for name, _, _, _ in unresolved})
+    candidates = sorted({name for name, _, _, _, _ in unresolved})
 
     try:
         hits = fusion_api.lookup_many(candidates)
-        findings = fusion_api.unverified_findings(seen)
+        hits = {name: hits.get(name, []) for name in candidates}
+        fusion_api.cache_lookups(hits)
     except fusion_api.Unavailable as exc:
         print('check_api_calls: %s' % exc, file=sys.stderr)
         return 2
 
     if unresolved:
         print('api-call check: BLOCKING (%d)' % len(unresolved))
-        for name, lineno, receiver_type, reason in sorted(unresolved, key=lambda row: row[1]):
+        for name, lineno, receiver_type, reason, status in sorted(
+                unresolved, key=lambda row: row[1]):
             near = fusion_api.similar(name)
-            if reason.startswith('refuted: '):
+            if reason == 'refuted':
                 # The database declares this one, so the generic "no such name" text would be
                 # wrong and the evidence is the whole point of the entry.
                 print("  %s:%d calls '%s(' on %s — the database declares it but Fusion does "
                       "NOT have it. %s"
                       % (args.target, lineno, name, receiver_type,
-                         reason[len('refuted: '):]))
+                         ' '.join(status['evidence'])))
             elif hits.get(name):
                 if receiver_type is None:
                     detail = "the receiver type is not known"
@@ -1122,11 +1130,14 @@ def _check():
         return 1
 
     print('api-call check: OK (%d call names resolve)' % len(resolved_names))
-    if findings:
+    if status_findings:
         print('api-call check: %d UNVERIFIED call(s) — reported, not blocking, not waived'
-              % len(findings))
-        for line in findings:
-            print('  %s' % line)
+              % len(status_findings))
+        for (owner, name), finding in sorted(status_findings.items()):
+            lines = ','.join(str(line) for line in sorted(finding['lines']))
+            print("  %s:%s: '%s(' on %s — %s"
+                  % (args.target, lines, name, owner,
+                     ' '.join(finding['status']['evidence'])))
     return 0
 
 

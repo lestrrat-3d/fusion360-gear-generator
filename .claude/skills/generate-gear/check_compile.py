@@ -303,6 +303,14 @@ def api_owner_matches_receiver(hits, receiver):
         for qualified, _ in hits)
 
 
+def api_status_owner(name, receiver):
+    """Deduce an explicit owner only where legacy step syntax makes it reliable."""
+    if receiver and re.fullmatch(
+            r'adsk\.(?:core|fusion)\.[A-Za-z_][A-Za-z0-9_]*', receiver):
+        return receiver
+    return fusion_api.unverified_class(name, receiver)
+
+
 def spec_namings(names, gear):
     """Map each bare call name to the spec sources that name it, as 'path:line' strings.
 
@@ -1727,42 +1735,65 @@ def check(argv):
 
     # 3. API calls are real
     local = PYTHON_METHODS | defined_names(FRAMEWORK) | contract_names(gear)
-    watched = {name for name, _, _, _ in fusion_api.UNVERIFIED_CALLS}
     shapes = named_call_shapes(src)
-    wrong_watchlist_receivers = {}
-    for called, receiver in shapes:
-        if called in watched and not is_watched_call(called, receiver):
-            wrong_watchlist_receivers.setdefault(called, set()).add(receiver)
-    candidates = sorted(
-        name for name in named_calls(src)
-        if name not in local
-        and (name not in watched or any(
-            called == name and not is_watched_call(called, receiver)
-            for called, receiver in shapes)))
+    checked_shapes = sorted(
+        ((name, receiver) for name, receiver in shapes if name not in local),
+        key=lambda shape: (shape[0], shape[1] or ''))
+    status_owners = {
+        shape: api_status_owner(*shape)
+        for shape in checked_shapes
+    }
+    name_only = sorted({name for (name, _), owner in status_owners.items() if owner is None})
     try:
-        # Every candidate is either an ordinary call or a watchlist method on the wrong
-        # receiver. The latter must reach the database instead of being exempted by name.
-        hits = fusion_api.lookup_many(candidates)
-        findings = fusion_api.unverified_findings(watched_calls(src, steps_path))
+        hits = fusion_api.lookup_many(name_only)
+        hits = {name: hits.get(name, []) for name in name_only}
+        fusion_api.cache_lookups(hits)
+        statuses = {
+            shape: fusion_api.describe_call(status_owners[shape], shape[0])
+            for shape in checked_shapes
+        }
     except fusion_api.Unavailable as exc:
         print('check_compile: %s' % exc, file=sys.stderr)
         return 2
-    namings = spec_namings(candidates, gear) if candidates else {}
-    for call in candidates:
-        wrong_receivers = wrong_watchlist_receivers.get(call, ())
-        if (hits[call]
-                and all(api_owner_matches_receiver(hits[call], receiver)
-                        for receiver in wrong_receivers)):
+
+    unavailable = next(
+        (result for result in statuses.values() if result['disposition'] == 'setup_error'), None)
+    if unavailable is not None:
+        print('check_compile: %s' % ' '.join(unavailable['evidence']), file=sys.stderr)
+        return 2
+
+    watched_names = {name for name, _, _, _ in fusion_api.UNVERIFIED_CALLS}
+    blocked = []
+    findings = {}
+    where = watched_calls(src, steps_path)
+    for (call, receiver), result in statuses.items():
+        owner = status_owners[(call, receiver)]
+        if result['disposition'] == 'advisory' or result['stale_watchlist']:
+            findings[(owner, call)] = (
+                "%s: '%s(' on %s — %s"
+                % (where.get(call, steps_path), call, owner, ' '.join(result['evidence'])))
+        if result['disposition'] == 'block':
+            blocked.append((call, receiver, result, False))
             continue
+        if (owner is None and call in watched_names
+                and not api_owner_matches_receiver(hits.get(call, []), receiver)):
+            blocked.append((call, receiver, result, True))
+
+    blocked_names = sorted({call for call, _, _, _ in blocked})
+    namings = spec_namings(blocked_names, gear) if blocked_names else {}
+    for call, receiver, result, wrong_receiver in blocked:
         note = fault_note(namings.get(call, []))
-        if hits[call] and wrong_receivers:
+        if result['status'] == 'refuted':
+            problems.append(
+                "  the step list names '%s(' on %s, but Fusion refutes it: %s%s"
+                % (call, result['owner'], ' '.join(result['evidence']), note))
+            continue
+        if wrong_receiver and hits.get(call):
             owners = sorted({qualified.rsplit('.', 2)[-2] for qualified, _ in hits[call]})
-            for receiver in sorted(wrong_receivers, key=lambda value: value or ''):
-                if not api_owner_matches_receiver(hits[call], receiver):
-                    problems.append(
-                        "  the step list names '%s(' on receiver '%s', but the Fusion API "
-                        "database declares it on %s%s"
-                        % (call, receiver, ', '.join(owners), note))
+            problems.append(
+                "  the step list names '%s(' on receiver '%s', but the Fusion API database "
+                "declares it on %s%s"
+                % (call, receiver, ', '.join(owners), note))
             continue
         near = fusion_api.similar(call)
         problems.append("  the step list names '%s(', which the Fusion API database does not "
@@ -1797,7 +1828,7 @@ def check(argv):
     if findings:
         print('unverified: %d call(s) the API database does not back — reported, not blocking, '
               'not waived' % len(findings))
-        for line in findings:
+        for line in findings.values():
             print('  %s' % line)
 
     if problems:

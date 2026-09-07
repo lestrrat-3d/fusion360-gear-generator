@@ -82,15 +82,17 @@ choose between are all mentions, not requirements. Mark each with the exemption 
 own line in the step that mentions it, `<!-- check-step-calls: ignore nameOne nameTwo -->`, and
 say in the step's prose why the mention is not a requirement.
 
-**Before naming any `adsk.*` call**, ask the `fusion:query-api` skill about it. One question
-carries most of the work: `show <Class>.<member>` confirms in a few lines that the class you are
-calling on really has the member — it resolves members declared on any base and names the class
-that declares each — and gives its signature and documentation. Write the call with the arguments
-that signature asks for. When `show` reports no match or returns a candidate list, the name as
-written does not exist; only then ask `members <Class>`, which lists everything the class offers,
-inherited members included, to find what the spec meant. If the spec names a call the API does
-not have, or passes an argument of the wrong type, say so in your report and do not quietly
-correct it.
+**Before naming any `adsk.*` call**, run
+`python3 .claude/skills/generate-gear/query_api_status.py --owner <qualified-class> --member
+<member>`. Its shared status is the support decision used by both validation gates: `documented`
+is allowed, `unverified` is visible advisory evidence, `refuted` and `not_found` block, and
+`unavailable` is a setup failure. A `not_found` result says the database has no declaration for
+that receiver; it does not prove runtime absence. For signature and argument detail, ask the
+`fusion:query-api` skill `show <Class>.<member>`. It resolves inherited declarations and gives the
+member's signature and documentation. Write the call with the arguments that signature asks for.
+Use `members <Class>` to discover the documented alternative when status blocks. If the spec
+names a blocked call or passes an argument of the wrong type, say so in your report and do not
+quietly correct it.
 
 **The proof is a Go test** in package `{{gear}}_test`, spread over as many files as the split
 needs, with one function per step. Every step function, 2D or 3D alike, is declared as a

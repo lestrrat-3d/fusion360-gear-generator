@@ -1966,6 +1966,35 @@ class CheckCompileTest(unittest.TestCase):
                       "database declares it on SketchCurves", output)
         self.assertIn('fault: prose — named in spec/gear/instructions.md:2', output)
 
+    def test_shared_policy_for_explicit_typed_pair(self):
+        cases = (
+            ('documented', 'allow', 0),
+            ('not_found', 'block', 1),
+            ('unavailable', 'setup_error', 2),
+        )
+        for status, disposition, expected in cases:
+            with self.subTest(status=status):
+                decision = {
+                    'schema': 1,
+                    'owner': 'adsk.fusion.WidgetTools',
+                    'name': 'addWidget',
+                    'status': status,
+                    'scope': 'receiver',
+                    'disposition': disposition,
+                    'declared_on': None,
+                    'returns': None,
+                    'evidence': ['fixture evidence'],
+                    'stale_watchlist': False,
+                }
+                with mock.patch.object(
+                        COMPILE_CHECKER.fusion_api, 'describe_call',
+                        return_value=decision) as describe_call:
+                    result, output = self.run_checker(
+                        step_body=self.call_step('adsk.fusion.WidgetTools.addWidget()'))
+
+                self.assertEqual(result, expected, output)
+                describe_call.assert_called_once_with('adsk.fusion.WidgetTools', 'addWidget')
+
     def test_bare_prose_mention_counts_as_a_naming(self):
         """The bar is that the prose named it, so a mention with no call syntax still counts."""
         result, output = self.run_checker(

@@ -286,6 +286,15 @@ class CommittedTemplatesTest(unittest.TestCase):
         self.assertIn(renderer, skill.replace('\n', ' '))
         self.assertLess(skill.index('render_step_metadata.py'), skill.index('gen_provenance.py'))
 
+    def test_compile_and_emit_prompts_share_api_status_and_keep_signature_lookup(self):
+        for skill_name in ('compile-gear', 'emit-gear'):
+            with self.subTest(skill=skill_name):
+                prompt = (SKILLS_ROOT / skill_name / 'prompt.md').read_text(encoding='utf-8')
+                self.assertIn('query_api_status.py --owner <qualified-class> --member', prompt)
+                self.assertIn('fusion:query-api', prompt)
+                self.assertIn('show <Class>.<member>', prompt)
+                self.assertIn('unverified', prompt)
+
     def test_emit_first_and_retry_prompts_keep_same_owner_for_spur_and_bevel(self):
         report = 'run_gates: sample\nverdict: FAIL\n'
         for gear in ('spurgear', 'bevelgear'):

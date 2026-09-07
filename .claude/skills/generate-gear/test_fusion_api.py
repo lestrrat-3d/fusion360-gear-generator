@@ -3,6 +3,7 @@
 import importlib.util
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 API_PATH = Path(__file__).with_name('fusion_api.py')
@@ -140,6 +141,137 @@ class IsWatchedCallTest(unittest.TestCase):
     def test_fillet_input_receiver_is_watched(self):
         self.assertTrue(
             COMPILE_CHECKER.is_watched_call('addConstantRadiusEdgeSet', 'filletInput'))
+
+
+class DescribeCallTest(unittest.TestCase):
+    KEYS = {
+        'schema', 'owner', 'name', 'status', 'scope', 'disposition', 'declared_on',
+        'returns', 'evidence', 'stale_watchlist',
+    }
+
+    def describe_typed(self, owner, name, info=None, members=None):
+        with mock.patch.object(FUSION_API, 'member_info', return_value=info), \
+                mock.patch.object(FUSION_API, 'class_members', return_value=members or {}):
+            return FUSION_API.describe_call(owner, name)
+
+    def test_member_info_keeps_qualified_owner_from_query_output(self):
+        response = (
+            'adsk.core.CommandInputs.addSelectionInput  [method]\n'
+            'signature: (self, id: str, name: str, commandPrompt: str) '
+            '-> SelectionCommandInput\n')
+        with mock.patch.object(FUSION_API, '_run', return_value=response):
+            info = FUSION_API.member_info('CommandInputs', 'addSelectionInput')
+
+        self.assertEqual(info['lookup'], 'adsk.core.CommandInputs')
+        self.assertEqual(info['declared_on'], 'adsk.core.CommandInputs')
+        self.assertEqual(info['returns'], 'SelectionCommandInput')
+
+    def test_member_info_keeps_qualified_inherited_owner_from_query_output(self):
+        response = (
+            'adsk.fusion.ChildTools.addWidget  [method inherited]\n'
+            'inherited from: adsk.fusion.BaseTools\n'
+            'signature: (self) -> adsk.fusion.Widget\n')
+        with mock.patch.object(FUSION_API, '_run', return_value=response):
+            info = FUSION_API.member_info('adsk.fusion.ChildTools', 'addWidget')
+
+        self.assertEqual(info['lookup'], 'adsk.fusion.ChildTools')
+        self.assertEqual(info['declared_on'], 'adsk.fusion.BaseTools')
+        self.assertEqual(info['returns'], 'adsk.fusion.Widget')
+
+    def test_documented_member(self):
+        result = self.describe_typed(
+            'adsk.fusion.WidgetTools', 'addWidget',
+            {'declared_on': 'adsk.fusion.WidgetTools', 'returns': 'adsk.fusion.Widget'})
+
+        self.assertEqual(set(result), self.KEYS)
+        self.assertEqual((result['status'], result['scope'], result['disposition']),
+                         ('documented', 'receiver', 'allow'))
+        self.assertEqual(result['declared_on'], 'adsk.fusion.WidgetTools')
+        self.assertEqual(result['returns'], 'adsk.fusion.Widget')
+
+    def test_inherited_member(self):
+        result = self.describe_typed(
+            'adsk.fusion.WidgetTools', 'addWidget', members={
+                'addWidget': 'adsk.fusion.BaseWidgetTools',
+            })
+
+        self.assertEqual(result['status'], 'documented')
+        self.assertEqual(result['declared_on'], 'adsk.fusion.BaseWidgetTools')
+
+    def test_repeated_lookup_reuses_session_after_seeded_member_miss(self):
+        owner = 'adsk.fusion.WidgetTools'
+        with FUSION_API.query_session(), \
+                mock.patch.object(FUSION_API, 'member_info') as member_info, \
+                mock.patch.object(
+                    FUSION_API, 'class_members',
+                    return_value={'addWidget': 'adsk.fusion.BaseWidgetTools'}) as class_members:
+            FUSION_API.cache_member_info(owner, 'addWidget', None)
+            first = FUSION_API.describe_call(owner, 'addWidget')
+            second = FUSION_API.describe_call(owner, 'addWidget')
+
+        member_info.assert_not_called()
+        class_members.assert_called_once_with(owner)
+        self.assertEqual(first, second)
+        self.assertEqual(first['declared_on'], 'adsk.fusion.BaseWidgetTools')
+
+    def test_watchlist_entries(self):
+        for name, owner, _, _ in FUSION_API.UNVERIFIED_CALLS:
+            with self.subTest(owner=owner, name=name):
+                result = self.describe_typed(owner, name)
+                self.assertEqual((result['status'], result['disposition']),
+                                 ('unverified', 'advisory'))
+
+    def test_wrong_owner_not_exempt(self):
+        result = self.describe_typed('adsk.fusion.Component', 'project')
+        self.assertEqual((result['status'], result['disposition']), ('not_found', 'block'))
+
+    def test_refuted_precedence(self):
+        with mock.patch.object(FUSION_API, 'member_info') as member_info:
+            result = FUSION_API.describe_call('adsk.core.Base', 'cast')
+
+        member_info.assert_not_called()
+        self.assertEqual((result['status'], result['disposition']), ('refuted', 'block'))
+
+    def test_database_unavailable(self):
+        with mock.patch.object(
+                FUSION_API, 'member_info', side_effect=FUSION_API.Unavailable('offline')):
+            result = FUSION_API.describe_call('adsk.fusion.WidgetTools', 'addWidget')
+
+        self.assertEqual((result['status'], result['disposition']),
+                         ('unavailable', 'setup_error'))
+        self.assertEqual(result['evidence'], ['offline'])
+
+    def test_stale_watchlist(self):
+        result = self.describe_typed(
+            'adsk.fusion.Sketch', 'project',
+            {'declared_on': 'adsk.fusion.Sketch', 'returns': 'adsk.core.ObjectCollection'})
+        self.assertEqual(result['status'], 'documented')
+        self.assertTrue(result['stale_watchlist'])
+        self.assertTrue(any('UNVERIFIED_CALLS' in line for line in result['evidence']))
+
+    def test_name_only_is_not_typed(self):
+        with mock.patch.object(
+                FUSION_API, 'lookup', return_value=[('adsk.fusion.Sketch.project', 'method')]):
+            result = FUSION_API.describe_call(None, 'project')
+
+        self.assertEqual((result['status'], result['scope'], result['disposition']),
+                         ('documented', 'name_only', 'allow'))
+        self.assertFalse(result['stale_watchlist'])
+        self.assertIsNone(result['declared_on'])
+
+    def test_name_only_does_not_apply_refuted_pair(self):
+        with mock.patch.object(
+                FUSION_API, 'lookup', return_value=[('adsk.core.Base.cast', 'staticmethod')]):
+            result = FUSION_API.describe_call(None, 'cast')
+
+        self.assertEqual((result['status'], result['scope'], result['disposition']),
+                         ('documented', 'name_only', 'allow'))
+
+    def test_invalid_inputs(self):
+        for owner, name in (('Sketch', 'project'), ('adsk.fusion.Sketch.extra', 'project'),
+                            ('adsk.fusion.Sketch', 'not-a-member')):
+            with self.subTest(owner=owner, name=name), self.assertRaises(ValueError):
+                FUSION_API.describe_call(owner, name)
 
 
 class StepListTest(unittest.TestCase):

@@ -54,11 +54,21 @@ class CheckApiReceiverOwnershipTest(unittest.TestCase):
                     raise member_failure
                 return members.get((CHECKER.normalize_api_type(cls), name))
 
+            def class_members(cls):
+                normalized = CHECKER.normalize_api_type(cls)
+                return {
+                    name: info['declared_on']
+                    for (owner, name), info in members.items()
+                    if owner == normalized
+                }
+
             output = io.StringIO()
             with mock.patch.object(CHECKER.fusion_api, 'lookup_many',
                                    side_effect=lookup_many), \
                     mock.patch.object(CHECKER.fusion_api, 'member_info',
                                       side_effect=member_info), \
+                    mock.patch.object(CHECKER.fusion_api, 'class_members',
+                                      side_effect=class_members), \
                     mock.patch.object(CHECKER.fusion_api, 'similar', return_value=[]), \
                     mock.patch.object(CHECKER.fusion_api, 'query_script',
                                       return_value='/hermetic/fusion-query-api.py'), \
@@ -106,6 +116,36 @@ class CheckApiReceiverOwnershipTest(unittest.TestCase):
                 result = CHECKER.main()
 
         self.assertEqual(result, 0)
+
+    def test_shared_policy_for_explicit_typed_pair(self):
+        cases = (
+            ('documented', 'allow', 0),
+            ('not_found', 'block', 1),
+            ('unavailable', 'setup_error', 2),
+        )
+        for status, disposition, expected in cases:
+            with self.subTest(status=status):
+                decision = {
+                    'schema': 1,
+                    'owner': 'adsk.fusion.WidgetTools',
+                    'name': 'addWidget',
+                    'status': status,
+                    'scope': 'receiver',
+                    'disposition': disposition,
+                    'declared_on': None,
+                    'returns': None,
+                    'evidence': ['fixture evidence'],
+                    'stale_watchlist': False,
+                }
+                with mock.patch.object(
+                        CHECKER.fusion_api, 'describe_call',
+                        return_value=decision) as describe_call:
+                    result, output = self.run_checker(
+                        'def build():\n'
+                        '    return adsk.fusion.WidgetTools.addWidget()\n')
+
+                self.assertEqual(result, expected, output)
+                describe_call.assert_called_once_with('adsk.fusion.WidgetTools', 'addWidget')
 
     def test_fusion_method_on_wrong_inferred_receiver_is_blocking(self):
         result, output = self.run_checker(
@@ -357,6 +397,18 @@ class CheckApiReceiverOwnershipTest(unittest.TestCase):
         self.assertIn("calls 'project('", output)
         self.assertIn('receiver ownership is required', output)
 
+    def test_verified_alias_without_watchlist_receiver_name_is_blocking(self):
+        result, output = self.run_checker(
+            """
+            def build(s: adsk.fusion.Sketch, entity):
+                return s.project(entity)
+            """,
+            api_names={'project'})
+
+        self.assertEqual(result, 1)
+        self.assertIn("calls 'project('", output)
+        self.assertIn('receiver ownership is required', output)
+
     def test_prefixed_unverified_receiver_is_blocking(self):
         result, output = self.run_checker(
             """
@@ -383,6 +435,20 @@ class CheckApiReceiverOwnershipTest(unittest.TestCase):
 
         self.assertEqual(result, 0, output)
         self.assertIn('api-call check: OK', output)
+        self.assertIn('UNVERIFIED call', output)
+
+    def test_short_factory_return_keeps_exact_watchlist_owner(self):
+        result, output = self.run_checker(
+            """
+            def build(sketches: adsk.fusion.Sketches, plane, entity):
+                sketch = sketches.add(plane)
+                return sketch.project(entity)
+            """,
+            members={
+                ('Sketches', 'add'): api_member('Sketch', lookup='adsk.fusion.Sketches'),
+            })
+
+        self.assertEqual(result, 0, output)
         self.assertIn('UNVERIFIED call', output)
 
 

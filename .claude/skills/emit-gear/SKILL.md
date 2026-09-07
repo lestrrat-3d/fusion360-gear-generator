@@ -114,7 +114,7 @@ reports. A manual re-run diagnoses a row only; it never replaces the complete su
 | Contract | `check_contract.py spec/<gear>/contract.json .tmp/<gear>.generated.py` | Missing classes, hooks, `ctx` fields, constants; a guarded constraint recipe reverted to its rejected alternative |
 | Step calls | `check_step_calls.py spec/<gear>/steps.md .tmp/<gear>.generated.py` | A named call never made, an abandoned stub, a shared point passed as `.geometry` |
 | Anchors | `python3 .claude/skills/generate-gear/check_anchors.py` | A proof or step-list anchor is missing or stale |
-| API calls | `check_api_calls.py .tmp/<gear>.generated.py` | A method that exists nowhere in the Fusion API |
+| API calls | `check_api_calls.py .tmp/<gear>.generated.py` | A blocked receiver/member status or unknown receiver |
 
 `pyright_check.py` REVIEW findings are advisory stub noise. Only BLOCKING gates.
 

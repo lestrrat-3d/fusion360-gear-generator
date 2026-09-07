@@ -24,20 +24,17 @@ you build on and must not reimplement, which is
 or any previous draft. The step list is deliberately the only description of the gear you get. If
 a step is unclear, record it as a defect in your report and make your best attempt.
 
-**The step list's call spans are pre-verified.** Every Fusion call written in a code span in
-`spec/{{gear}}/steps.md` was checked against the API database when the step list was compiled, and
-the spans carry the argument shapes the signatures ask for. Write those calls as the steps give
-them; do not re-query them. Ask the `fusion:query-api` skill only about a call you introduce that
-the step list does not carry, a span whose arguments the step leaves unstated, or a call a gate
-flags. One question carries most of the work: `show <Class>.<member>` confirms in a few lines
-that the class you are calling on really has the member — it resolves members declared on any
-base and names the class that declares each — and gives its signature and documentation. Pass
+**The step list's call spans have shared API-status decisions.** Compilation allows documented
+calls and preserves visible advisory evidence for exact unverified receiver/member pairs; it
+blocks refuted pairs and missing declarations. Write those calls as the steps give them. For a
+call you introduce, a span whose arguments are unstated, or a call a gate flags, run
+`python3 .claude/skills/generate-gear/query_api_status.py --owner <qualified-class> --member
+<member>` for the same support decision the gates use. For signature and argument detail, ask the
+`fusion:query-api` skill `show <Class>.<member>`; status does not provide a full signature. Pass
 what the signature asks for. Where it says `ValueInput`, a bare number raises. Where it says
-`ObjectCollection`, a Python list raises. Where it says `Point3D`, a `SketchPoint` raises. When
-`show` reports no match or returns a candidate list, the name as written does not exist; only
-then ask `members <Class>`, which lists everything the class offers, inherited members included,
-to find what the step list meant. If the step list names a call the API does not have, report it
-and do not quietly correct it.
+`ObjectCollection`, a Python list raises. Where it says `Point3D`, a `SketchPoint` raises. Use
+`members <Class>` to discover the documented alternative when status blocks. If the step list
+names a blocked call, report it and do not quietly correct it.
 
 **Every literal the step list states is exact — copy it, never regularise it.** Input ids, label
 strings, tooltips, constant names and their values, unit strings and default expressions are
