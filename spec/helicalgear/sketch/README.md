@@ -1,10 +1,10 @@
-# Helical twisted Gear Profile — sketch-first constraint proof
+# Helical twisted Gear Profile — historical sketch-first bench
 
-The **sketch-first gate** ([PB-SKETCH-FIRST]) for the helical gear. Helical reuses the whole spur
-build pipeline but draws a **second, twisted** "Twisted Gear Profile" sketch — the spur tooth
+This historical bench records the earlier constraint criterion for the helical gear. Helical reuses
+the whole spur build pipeline but draws a **second, twisted** "Twisted Gear Profile" sketch — the spur tooth
 generator run at `angle=helixAngle` — and lofts the bottom (untwisted) profile to this top one. This
 bench reproduces that twisted profile in the [lestrrat-3d/sketch](https://github.com/lestrrat-3d/sketch)
-engine and proves its constraint scheme **fully constrains** before any Fusion code is generated.
+engine and records its full-constraint observations across sizes and helix angles.
 
 ## Run it
 
@@ -39,12 +39,14 @@ sweep** (0°, 10°, 25°, 35°) at N=17, confirming the angle ≠ 0 path reaches
 redundant/conflicting constraints, well-conditioned, for every combination. (angle 0° is included as
 the spur-equivalent baseline.)
 
-## The gate
+## Historical criterion and current acceptance
 
-Identical to the spur bench: **primary gate** = `Status == FullyConstrained` and healthy
-`Conditioning` (⇒ `DOF == 0`, no redundant/conflicting constraints). `ProfilesValid` is **true** (needs
-the engine's #12 corner-join fix, now in sketch `main`); probe ambiguity is expected for a seeded
-draw-then-constrain sketch. See `spec/spurgear/sketch/README.md` for the full rationale.
+The retained bench criterion is `Status == FullyConstrained` with healthy `Conditioning`
+(⇒ `DOF == 0`, no redundant/conflicting constraints). Its historical observations show
+`ProfilesValid` is true with the engine's #12 corner-join fix and the probe is ambiguous for the
+seeded draw-then-constrain sketch. Historical bench success does not establish compiler acceptance.
+`[PB-SKETCH-FIRST]` owns the complete acceptance rule; see also
+`spec/spurgear/sketch/README.md`.
 
 ## Scope
 

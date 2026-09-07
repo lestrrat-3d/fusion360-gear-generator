@@ -7,10 +7,10 @@ The proof for this step list is `proof/cycloidal/geometry_test.go`, `proof/cyclo
 
 | file | `git hash-object` |
 |---|---|
-| `spec/cycloidal/instructions.md` | `aeadefabc96be386cc9610f01d38a3a1d096f444` |
+| `spec/cycloidal/instructions.md` | `7588f77e232f75c0c1673fc9602556d8b8f27be2` |
 | `spec/cycloidal/fusion.md` | `afa5a99986f2e0d9f82fb5e21591553cdc54aac4` |
 | `spec/cycloidal/epitrochoid-trace.md` | `2dd150ac312ca9c673812661e4fa229df433dade` |
-| `.claude/skills/generate-gear/PLAYBOOK.md` | `4fa39825852a8743b38df07df4d5e16008e1be6f` |
+| `.claude/skills/generate-gear/PLAYBOOK.md` | `ea3f8f6a1a4e62fc4370030fd304ba53eb73bba6` |
 
 ## S01 `[PROSE]` Add the dialog inputs
 

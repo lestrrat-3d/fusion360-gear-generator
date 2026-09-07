@@ -257,11 +257,11 @@ A few rules apply across every sketch created below. They're not obvious from th
 the whole construction falls apart without them. The Fusion-API mechanics are in `fusion.md` and
 `PLAYBOOK.md`; this section states the *intent* and points to the binding rule for each.
 
-The Gear Profile constraint scheme below is **proven to fully constrain** (`DOF == 0`, no
-redundant/conflicting constraints, across a size sweep) on the bench in `spec/spurgear/sketch/`
-before any Fusion code is generated — the sketch-first gate `[PB-SKETCH-FIRST]`. That proof is the
-executable check that these rules add up to a fully-constrained sketch; run it (`./run.sh`) when
-changing any of them.
+The Gear Profile constraint scheme below was reproduced across a size sweep in the historical
+bench at `spec/spurgear/sketch/`. That bench supplied the extra reference-line pin and exact
+far-end Δx/Δy chain below. Its success does not establish current compiler acceptance, which is
+owned by `[PB-SKETCH-FIRST]`. Run the bench (`./run.sh`) when changing the scheme and preserve its
+diagnostic findings.
 
 **The scheme is parametric, and the regime it has to hold across is part of the design.** Proving
 one gear proves nothing about the next one, so a check of these rules sweeps the regime below.
@@ -313,7 +313,7 @@ on a simplified stand-in.
 - **Hide each entity with the right property, after it's consumed** — `isVisible=False` for
   sketches, `isLightBulbOn=False` for construction planes/axes (`[PB-HIDE-AFTER-USE]`); the
   spur cleanup recipe (which entities, the per-mode split) is `[SPUR-F-CLEANUP]`.
-- **Dimensions are driving by default** — never pass `isDriven=True` (`[PB-DRIVING-DIM]`). All
+- **Dimensions are driving by default** — omit the optional `isDriving` argument and never pass `isDriving=False` (`[PB-DRIVING-DIM]`). All
   diameter dimensions here (the four gear circles and the bore circle) must be driving. The
   tooth-top arc carries no diameter dimension at all; it shares the local origin as its centre
   instead (`[SPUR-F-TOOTHTOP-ARC]`).

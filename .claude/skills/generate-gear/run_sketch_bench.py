@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Run one gear's sketch-first bench and turn its verdict into an exit code.
+"""Run one gear's historical sketch-first bench and preserve its verdict as an exit code.
 
-Why this exists: `/generate-gear` step 3 (the sketch-first gate, `[PB-SKETCH-FIRST]`) used to
+Why this exists: `/generate-gear` step 3 (`[PB-SKETCH-FIRST]`) used to
 tell the orchestrating LLM to run `spec/<gear>/sketch/run.sh` and *read the output* to confirm
 `Status == FullyConstrained` and healthy conditioning. Reading output is the failure mode the
-gate runners were built to remove: the verdict gets skimmed, the advisory lines
-(`ProfilesValid`, `Probe.Ambiguous()`) get mistaken for the gate, and nothing pins the
+gate runners were built to remove: the verdict gets skimmed, the retained observation lines
+(`ProfilesValid`, `Probe.Ambiguous()`) get mistaken for acceptance, and nothing pins the
 bench's own contract. This script runs the bench once and reports the result in the same
 0/1/2 convention the other scripts in this directory use, so the orchestrator acts on an exit
-code instead of on prose.
+code instead of on prose. This historical status does not establish current compiler acceptance;
+the complete acceptance rule is `[PB-SKETCH-FIRST]` in `PLAYBOOK.md`.
 
 Classification uses the bench's exit code **plus** a verdict sentinel scanned from its output
 (a line whose stripped text starts with `ALL PASS` or with `FAIL`). The sentinel is what
@@ -17,7 +18,7 @@ build failure inside `run.sh` also exits 1, and without the sentinel that would 
 scheme defect. It also forces a future gear's bench to actually print a verdict rather than
 exiting 0 after printing diagnostics only.
 
-Bench output is passed through untouched; no advisory line is ever parsed, and nothing but
+Bench output is passed through untouched; no observation line is ever parsed, and nothing but
 the final `[GATE]`/`[SETUP]` line is added.
 
 Usage:
@@ -32,11 +33,11 @@ options:
                         the sketch engine from source, so do not lower it casually.
 
 Exit codes:
-    0  the primary gate passed: the bench exited 0 and printed an `ALL PASS` verdict line.
-       The constraint scheme fully constrains; proceed to generation.
-    1  the primary gate failed: the bench exited nonzero and printed a `FAIL` verdict line.
-       The constraint scheme does not fully constrain. That is a spec/playbook defect to fix
-       here, never inside Fusion; never proceed to generation.
+    0  the historical criterion passed: the bench exited 0 and printed an `ALL PASS` verdict line.
+       Proceed to generation, but do not treat this status as current compiler acceptance.
+    1  the historical criterion failed: the bench exited nonzero and printed a `FAIL` verdict line.
+       The constraint scheme does not meet that criterion. Fix the spec/playbook defect here,
+       never inside Fusion; never proceed to generation.
     2  setup error: no bench for this gear yet, the sketch-engine checkout was not found, the
        bench did not build, the bench timed out, or the bench ran but printed no verdict
        line. Fix the environment or build the bench; this is not a verdict on the scheme.

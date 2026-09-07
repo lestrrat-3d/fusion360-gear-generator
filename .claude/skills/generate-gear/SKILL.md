@@ -71,21 +71,19 @@ the advisory findings.
    family, or another gear it borrows a class from), read those files too and treat the surface
    they bind to as part of the required contract.
 
-3. **Prove the sketch fully constrains (sketch-first gate — `[PB-SKETCH-FIRST]`).** If the gear's
-   profile is a non-trivial constrained sketch, run
+3. **Check the sketch before generation (`[PB-SKETCH-FIRST]`).** If the gear's profile is a
+   non-trivial constrained sketch, run
    `python3 .claude/skills/generate-gear/run_sketch_bench.py <gear>` and act on the exit code:
-   **0** the primary gate passed (the bench proved `Status == FullyConstrained` with healthy
-   conditioning) — proceed; **1** the constraint scheme does not fully constrain — a spec/playbook
-   defect to fix here, never inside Fusion; **2** a setup problem (no bench yet, missing
+   **0** the historical bench criterion passed — proceed to generation but do not treat it as
+   current compiler acceptance; **1** the constraint scheme does not satisfy that criterion — a
+   spec/playbook defect to fix here, never inside Fusion; **2** a setup problem (no bench yet, missing
    sketch-engine checkout, a bench that does not build, or a bench that printed no verdict) — fix
-   the environment or build the bench first. This proves the constraint scheme is sound *before*
-   any Fusion code is emitted; the advisory signals (`ProfilesValid`, `Probe.Ambiguous()`) remain
-   in the bench output and are reported and interpreted, not hard-blocking
-   (see `[PB-SKETCH-FIRST]`).
+   the environment or build the bench first. Preserve every reported finding. Bench success does
+   not establish compiler acceptance; the complete acceptance rule is `[PB-SKETCH-FIRST]`.
    If the proof does not yet exist for this gear, build it from the spec's sketch recipes (the spur
    `spec/spurgear/sketch/` is the worked example) — a scheme that cannot reach `DOF == 0` on the
    bench is a spec/playbook defect to fix here, not to discover inside Fusion. Read the playbook's
-   `[PB-SKETCH-FIRST]` section here when interpreting the advisory signals, and the spec's
+   `[PB-SKETCH-FIRST]` section here when interpreting the historical signals, and the spec's
    sketch-recipe sections only if the proof has to be built at this step. Requires a local
    checkout of the `sketch` engine (`$SKETCH_DIR` or a sibling `../sketch`).
 

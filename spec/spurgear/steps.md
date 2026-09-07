@@ -6,11 +6,11 @@ The proof for this step list is `proof/spurgear/geometry_test.go`, `proof/spurge
 
 | file | `git hash-object` |
 |---|---|
-| `spec/spurgear/instructions.md` | `c2aaaae7fbc5972934786b3ec861007f60c4a7ca` |
+| `spec/spurgear/instructions.md` | `50d2145b23b6d25a7ad96c8d6ed6fd9d44f5d5b7` |
 | `spec/spurgear/fusion.md` | `7cd4e5b0fa38dcd39cbd1b5bad1cf8489e2bc2ae` |
 | `spec/helicalgear/fusion.md` | `f981173cb314094f2fd98cdd78d5bd8287cdc8ee` |
 | `spec/spurgear/contract.json` | `fc62129c377504ba778823007f52a956767c46f2` |
-| `.claude/skills/generate-gear/PLAYBOOK.md` | `4fa39825852a8743b38df07df4d5e16008e1be6f` |
+| `.claude/skills/generate-gear/PLAYBOOK.md` | `ea3f8f6a1a4e62fc4370030fd304ba53eb73bba6` |
 
 ## Compilation contract
 

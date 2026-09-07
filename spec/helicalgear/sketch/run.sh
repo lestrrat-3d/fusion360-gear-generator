@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run the spur Gear Profile sketch-first proof (main.go) against a local checkout
+# Run the helical Gear Profile historical sketch-first bench (main.go) against a local checkout
 # of github.com/lestrrat-3d/sketch, without committing a machine-specific replace
 # path. The sketch engine is source-available (not go-gettable from the public
 # proxy), so it must be resolved from a local checkout.

@@ -3,9 +3,9 @@
 // angle=helixAngle. It reproduces the SPUR-F constraint scheme (from
 // spec/spurgear/fusion.md) with the [SPUR-F-SPINE] *angle != 0* path — the
 // horizontal reference line + far-end pin + angular dimension — which the spur
-// bench (angle == 0) never exercised, and proves it FULLY CONSTRAINS (DOF==0, no
-// redundant/conflicting constraints, well-conditioned) BEFORE any Fusion code is
-// generated ([PB-SKETCH-FIRST]). It runs across sizes AND helix angles.
+// bench (angle == 0) never exercised, and records the historical full-constraint
+// criterion (DOF==0, no redundant/conflicting constraints, well-conditioned).
+// Its success does not establish current compiler acceptance ([PB-SKETCH-FIRST]).
 //
 //	go run .
 package main
@@ -198,11 +198,11 @@ func checkTwistedProfile(ctx context.Context, module, toothNumber, pressureAng, 
 		res.Converged, res.DOF, res.Redundant, res.Residual, rep.Status, rep.Conditioning)
 
 	condGate := math.Max(1e-6, 4*math.Sqrt(1e-10))
-	primary := rep.Status == sketch.FullyConstrained && rep.Conditioning >= condGate
-	fmt.Printf("  PRIMARY GATE (full constraint) = %v\n", primary)
-	fmt.Printf("  advisory: profilesValid=%v (true with the engine's #12 corner-join fix) probeAmbiguous=%v (expected — seeded)\n",
+	historicalCriterion := rep.Status == sketch.FullyConstrained && rep.Conditioning >= condGate
+	fmt.Printf("  HISTORICAL BENCH CRITERION (full constraint) = %v\n", historicalCriterion)
+	fmt.Printf("  retained observation: profilesValid=%v probeAmbiguous=%v (historical success is not compiler acceptance)\n",
 		rep.ProfilesValid, rep.Probe != nil && rep.Probe.Ambiguous())
-	return primary
+	return historicalCriterion
 }
 
 func main() {
@@ -231,7 +231,7 @@ func main() {
 	fmt.Println()
 	if allPass {
 		fmt.Println("ALL PASS — the helical twisted Gear Profile fully constrains across sizes and helix angles.")
-		fmt.Println("Cleared to generate Fusion add-in code.")
+		fmt.Println("Historical bench criterion passed; current compiler acceptance remains separate.")
 	} else {
 		fmt.Println("FAIL — scheme does not fully constrain; fix the scheme before generating Fusion code.")
 		os.Exit(1)

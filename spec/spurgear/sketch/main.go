@@ -1,9 +1,10 @@
 // Prototype of the spur gear "Gear Profile" sketch in the lestrrat-3d/sketch
 // engine. It reproduces the SPUR-F constraint scheme from spec/spurgear/fusion.md
-// and proves it FULLY CONSTRAINS (DOF==0, no redundant/conflicting constraints,
-// well-conditioned) BEFORE any Fusion add-in code is generated — the sketch-first
-// gate ([PB-SKETCH-FIRST]). It runs the check across several tooth counts and angles
-// to show the parametric scheme holds as Module / Tooth Number / angle change.
+// and records the historical full-constraint criterion (DOF==0, no
+// redundant/conflicting constraints, well-conditioned). Its success does not
+// establish current compiler acceptance ([PB-SKETCH-FIRST]). This bench runs
+// across several tooth counts and angles to show the parametric scheme holds as
+// Module / Tooth Number / angle change.
 //
 //	go run .
 package main
@@ -228,28 +229,28 @@ func checkGearProfile(ctx context.Context, module, toothNumber, pressureAng, ang
 	fmt.Printf("Solve: converged=%v DOF=%d redundant=%d residual=%.1e | Verify: status=%s conditioning=%.2e profiles=%d\n",
 		res.Converged, res.DOF, res.Redundant, res.Residual, rep.Status, rep.Conditioning, len(rep.Profiles))
 
-	// PRIMARY gate: the "fully constrained" proof — the faithful analog of
+	// Historical bench criterion: the faithful analog of
 	// Fusion's isFullyConstrained + not-over-constrained. Status==FullyConstrained
 	// already implies solvable + DOF 0 + no redundant + no conflict; add the
 	// scale-invariant conditioning check so the DOF-0 verdict isn't near-singular.
 	condGate := math.Max(1e-6, 4*math.Sqrt(1e-10)) // 4e-5 at the default tolerance
-	primary := rep.Status == sketch.FullyConstrained && rep.Conditioning >= condGate
+	historicalCriterion := rep.Status == sketch.FullyConstrained && rep.Conditioning >= condGate
 
-	// ADVISORY signals (reported, not part of the full-constraint gate; see README):
+	// Retained observations (reported, not part of the historical criterion; see README):
 	//   * ProfilesValid: TRUE — the tooth forms one clean, extrudable 6-curve loop.
 	//     (This required a fix in the sketch engine: a line meeting an arc at a
 	//     shared loop corner — the flank-to-root line meeting the root arc — was
 	//     false-flagged as a degenerate arrangement. Fixed in lestrrat-3d/sketch
 	//     main (PR #12). Against an older engine WITHOUT that fix this reads false,
 	//     which is a tool bug, not a gear-scheme defect.)
-	//   * Probe ambiguity: TRUE and expected — a draw-then-constrain tooth is seeded
+	//   * Probe ambiguity: TRUE in retained runs — a draw-then-constrain tooth is seeded
 	//     at its pose and constrained; the pure-constraint system still admits
 	//     branch/mirror flips the seed resolves, exactly as Fusion relies on initial
-	//     geometry placement. DOF==0 means each discrete solution is itself rigid.
-	fmt.Printf("  PRIMARY GATE (full constraint) = %v\n", primary)
-	fmt.Printf("  advisory: profilesValid=%v (true with the engine's #12 corner-join fix) probeAmbiguous=%v (expected — seeded)\n",
+	//     geometry placement. Current compiler Check rejects this ambiguity.
+	fmt.Printf("  HISTORICAL BENCH CRITERION (full constraint) = %v\n", historicalCriterion)
+	fmt.Printf("  retained observation: profilesValid=%v probeAmbiguous=%v (historical success is not compiler acceptance)\n",
 		rep.ProfilesValid, rep.Probe != nil && rep.Probe.Ambiguous())
-	return primary
+	return historicalCriterion
 }
 
 func main() {
@@ -297,7 +298,7 @@ func main() {
 	fmt.Println()
 	if allPass {
 		fmt.Println("ALL PASS — the spur Gear Profile constraint scheme fully constrains across sizes.")
-		fmt.Println("Cleared to generate Fusion add-in code.")
+		fmt.Println("Historical bench criterion passed; current compiler acceptance remains separate.")
 	} else {
 		fmt.Println("FAIL — scheme does not fully constrain; fix the scheme before generating Fusion code.")
 		os.Exit(1)

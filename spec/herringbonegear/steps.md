@@ -17,9 +17,9 @@ leaves behind.
 | `spec/herringbonegear/instructions.md` | `45c8836ef944f9c0e4a188572b4a0ffc83250f1e` |
 | `spec/herringbonegear/fusion.md` | `62755ad2d376481cf449893ab2a445772357d218` |
 | `spec/helicalgear/fusion.md` | `f981173cb314094f2fd98cdd78d5bd8287cdc8ee` |
-| `spec/helicalgear/instructions.md` | `6c1d3b4d7aa824d90f9f0f851d4115179e754707` |
-| `spec/spurgear/instructions.md` | `c2aaaae7fbc5972934786b3ec861007f60c4a7ca` |
-| `.claude/skills/generate-gear/PLAYBOOK.md` | `4fa39825852a8743b38df07df4d5e16008e1be6f` |
+| `spec/helicalgear/instructions.md` | `bb75fd3ac4a0fb0119f6a4ddec12f62943a41ea7` |
+| `spec/spurgear/instructions.md` | `50d2145b23b6d25a7ad96c8d6ed6fd9d44f5d5b7` |
+| `.claude/skills/generate-gear/PLAYBOOK.md` | `ea3f8f6a1a4e62fc4370030fd304ba53eb73bba6` |
 
 ## H1 `[PROSE]` Module layout, imports and constants
 

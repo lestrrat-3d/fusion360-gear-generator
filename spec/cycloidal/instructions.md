@@ -279,7 +279,7 @@ without a number.
 - **The lobe is one OPEN fitted spline** — never set `isClosed`; **no closing arc** at this step
   (`[CYCLOIDAL-F-DISK-LOBE]`,
   `[PB-SHARE-XOR-COINCIDENT]` — share *xor* coincide, never both).
-- **Dimensions are driving by default** — never `isDriven=True` (`[PB-DRIVING-DIM]`).
+- **Dimensions are driving by default** — omit the optional `isDriving` argument and never pass `isDriving=False` (`[PB-DRIVING-DIM]`).
 - **Every driving dimension is PARAMETER-REFERENCED (coded, not a numeric fluke).** Set each driving
   dimension's `.parameter.expression` to reference the registered user parameter(s) **by name** (the
   generator registers all of them and keeps handles), so the sketch is genuinely parametric and the

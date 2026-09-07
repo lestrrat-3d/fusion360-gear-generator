@@ -1,16 +1,14 @@
-# Spur Gear Profile — sketch-first constraint proof
+# Spur Gear Profile — historical sketch-first bench
 
-This is the **sketch-first gate** ([PB-SKETCH-FIRST]) for the spur gear: a
-runnable reproduction of the "Gear Profile" sketch in the
+This is the historical sketch-first bench for the spur gear: a runnable reproduction of the
+"Gear Profile" sketch in the
 [lestrrat-3d/sketch](https://github.com/lestrrat-3d/sketch) constraint engine that
-**proves the constraint scheme fully constrains the geometry before any Fusion
-add-in code is generated.**
+records the constraint criterion and observations used when the bench was created.
 
 The idea: constraint sketching is easy to get subtly wrong (an under- or
 over-constrained profile, a branch that flips). Rather than discover that inside
-Fusion after committing to a build, we reproduce the sketch here first and check
-it programmatically. Only once the scheme is proven sound do we generate the
-Fusion Python.
+Fusion after committing to a build, this bench reproduces the sketch and checks
+it programmatically. Current compiler acceptance is stricter and is described below.
 
 ## Run it
 
@@ -30,14 +28,13 @@ stays portable. Expected tail:
 
 ```
 ALL PASS — the spur Gear Profile constraint scheme fully constrains across sizes.
-Cleared to generate Fusion add-in code.
+Historical bench criterion passed; current compiler acceptance remains separate.
 ```
 
-**Exit codes.** `run.sh` reports the verdict as its exit status: **0** = every case passes
-the primary gate (final `ALL PASS` line), **1** = some case fails it (final `FAIL` line),
+**Exit codes.** `run.sh` reports the historical bench verdict as its exit status: **0** = every
+case passes its criterion (final `ALL PASS` line), **1** = some case fails it (final `FAIL` line),
 **2** = the sketch engine checkout was not found. This is the contract every gear's bench
-implements ([PB-SKETCH-FIRST]). The canonical way to run the gate is the repo-side wrapper,
-which turns that status into the house 0/1/2 verdict convention:
+implements. The repo-side wrapper preserves that status in the house 0/1/2 convention:
 
 ```sh
 python3 .claude/skills/generate-gear/run_sketch_bench.py spurgear
@@ -65,16 +62,16 @@ exact math. The check runs across several `Module` / `Tooth Number` sizes and ze
 positive, negative, and axis-swapping tooth angles to prove the **parametric** scheme
 holds, not just one instance.
 
-## The gate
+## Historical criterion and observations
 
-**Primary gate — full constraint (this is what must pass):**
+The historical bench criterion is:
 `report.Status == FullyConstrained` **and** `Conditioning >= gate`. This is the
 faithful analog of Fusion's `sketch.isFullyConstrained` plus "not
 over-constrained": a solvable, well-conditioned, `DOF == 0` sketch with no
 redundant or conflicting constraints. `Status == FullyConstrained` already implies
 all of solvable + DOF 0 + no redundant + no conflict.
 
-**Advisory signals — reported, interpreted, not part of the gate:**
+The bench also recorded these observations, which were not part of its criterion:
 
 - `ProfilesValid` — **true**: the tooth forms one clean, extrudable 6-curve loop
   (2 splines + 2 arcs + 2 lines), the exact curve count the spec's extrude step
@@ -86,11 +83,17 @@ all of solvable + DOF 0 + no redundant + no conflict.
   in `geom/arrange.go` + `TestRegionsLineArcCornerJoinNotDegenerate`). Against an
   older engine *without* that fix this reads false — a tool bug, not a defect in
   the gear scheme.
-- `probeAmbiguous` — **true and expected**: a draw-then-constrain CAD tooth is
+- `probeAmbiguous` — **true in the retained historical runs**: a draw-then-constrain CAD tooth is
   seeded at its target pose (`MoveTo`) and then constrained; the pure-constraint
   system still admits mirror/branch flips that the seed resolves, exactly as
-  Fusion relies on initial geometry placement. `DOF == 0` means each discrete
-  solution is itself rigid, so this is not an under-constraint.
+  Fusion relies on initial geometry placement. This observation does not satisfy current compiler
+  acceptance.
+
+## Current compiler acceptance
+
+The compile pipeline generates the current proof under `proof/spurgear/`. The historical bench
+result and its seeded geometry do not establish compiler acceptance. `[PB-SKETCH-FIRST]` owns the
+complete acceptance rule.
 
 ## The negative control
 

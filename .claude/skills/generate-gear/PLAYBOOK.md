@@ -9,6 +9,10 @@ Deliberately, this file contains **no gear-specific geometry** (no involute math
 tooth/root/flank construction). That belongs in the spec, so that regenerating a `.py` from its
 spec is an honest test of the spec's completeness.
 
+**Navigation (non-authoritative).** Use the section headings to find module structure, generation
+patterns, sketch proof, Fusion API rules, parameters, UI behavior, and cleanup. The anchored rules
+in those sections are authoritative; this navigation sentence does not add or replace requirements.
+
 **Anchor convention.** Rules below carry stable IDs like `**[PB-RADIAL-DIM]**`. Specs cite a rule
 as `[PB-…]` instead of restating it; the anchor text HERE is authoritative, and the spec states
 only its gear-specific delta. When generating, a `[PB-…]` citation binds the full anchored rule at
@@ -351,47 +355,37 @@ ignores a later `hasFocus=True`; add the selection input that should own initial
 
 **[PB-SKETCH-FIRST] Before emitting Fusion code for a gear whose profile is a non-trivial
 constrained sketch, first reproduce that sketch in the standalone
-[lestrrat-3d/sketch](https://github.com/lestrrat-3d/sketch) engine and prove the constraint scheme
-fully constrains — `DOF == 0`, no redundant or conflicting constraints, well-conditioned. Only
-once that passes do you generate the Fusion add-in code.** A constraint scheme that is silently
+[lestrrat-3d/sketch](https://github.com/lestrrat-3d/sketch) engine and check the constraint scheme.
+The compiled proof MUST satisfy the Current compiler acceptance paragraph below; a standalone
+bench success does not establish compiler acceptance.** A constraint scheme that is silently
 under- or over-constrained (`[PB-FULL-CONSTRAINT]`, `[PB-NO-OVERCONSTRAIN]`) is expensive to
 discover inside Fusion and hard to attribute. The sketch engine is a headless, scriptable oracle
-for exactly this question, so the scheme is proven on the bench before it is committed to geometry.
+for exactly this question, so the scheme is checked before it is committed to geometry.
 
-**Where it lives.** The proof is a small, committed, runnable Go program per gear at
-`spec/<gear>/sketch/` (module + `main.go` + `run.sh` + `README.md`). It reproduces the gear's
-constraint-bearing sketch(es) from the same `[SPUR-F-…]`/spec recipes the Fusion code will use, runs
-the solver, and reports the verdict **as an exit code**: exit **0** with a final line starting
-`ALL PASS` when every case passes the primary gate, exit **1** with a line starting `FAIL` when any
-case fails it, and exit **2** for environment trouble (the engine checkout not found). `run.sh` uses
-`set -euo pipefail` so the Go program's exit status propagates. Every gear's bench MUST implement
-this contract — it is what lets `.claude/skills/generate-gear/run_sketch_bench.py` gate mechanically
-instead of a human or model reading the output. Run it via that wrapper
-(`python3 .claude/skills/generate-gear/run_sketch_bench.py <gear>`), not by eyeballing `./run.sh`
-output. `spec/spurgear/sketch/` is the worked example (the spur
+**Where it lives.** A historical standalone bench may live at `spec/<gear>/sketch/` (module +
+`main.go` + `run.sh` + `README.md`). It reproduces the gear's constraint-bearing sketch(es), runs
+the solver, and records the criterion used when that bench was created. Its exit code is useful
+diagnostic evidence, but it is not current compiler acceptance and MUST NOT override or replace
+the Current compiler acceptance paragraph below. Run a historical bench via its wrapper
+(`python3 .claude/skills/generate-gear/run_sketch_bench.py <gear>`) when its evidence is useful.
+`spec/spurgear/sketch/` is the worked example (the spur
 Gear Profile: four circles, involute flanks, ribs, spine, flank-to-root lines). `run.sh` resolves a
 local checkout of the engine (source-available, not go-gettable) via `$SKETCH_DIR` or a sibling
 `<repo>/../sketch` located with `git --git-common-dir`, injecting the replace through a throwaway
 `GOWORK` so the committed `go.mod` stays portable.
 
-**The gate.** Build geometry from points, add the constraints, `Solve()`, then read `Verify()`:
+**Current compiler acceptance.** Build geometry from points, add the constraints, `Solve()`, then
+call `proofkit.RequireSound` on the sketch. `RequireSound` runs `Verify(ctx, sketch.WithProbe())`
+and applies the pinned engine's `VerificationReport.Check()` without reproducing part of that logic
+locally. Acceptance requires a fully constrained, well-conditioned sketch, valid profiles, a
+complete probe, and no discrete ambiguity. Report every `Check()` reason and fix the source scheme;
+do not waive a reason because the seeded solution looks correct.
 
-- **Primary gate (must pass) — full constraint.** `report.Status == FullyConstrained` **and**
-  `report.Conditioning >= max(1e-6, 4·√tolerance)`. `Status == FullyConstrained` already implies
-  solvable + `DOF == 0` + no redundant + no conflicting constraints; it is the faithful analog of
-  Fusion's `sketch.isFullyConstrained` plus "not over-constrained." The conditioning check rejects a
-  `DOF == 0` verdict that is decided by a near-singular constraint set (it catches, e.g., a
-  vanishing-length reference line whose direction constraint is ill-defined). `VerificationReport.Trustworthy()`
-  bundles this **and** the advisories below; gate on the primary fields, not on `Trustworthy()`
-  alone, so a benign advisory does not block a genuinely fully-constrained scheme.
-- **Advisory (report and interpret, do not hard-block):**
-  - `ProfilesValid` — should be **true**: the profile forms one clean, extrudable loop with the curve
-    count the spec's extrude step expects. A false here on a valid loop is usually an engine
-    limitation (see the corner-join note below), not a scheme defect — investigate before dismissing.
-  - `Probe.Ambiguous()` — a draw-then-constrain CAD sketch is seeded at its pose (`MoveTo`) and then
-    constrained; the pure-constraint system may still admit branch/mirror flips that the seed
-    resolves, exactly as Fusion relies on initial geometry placement. `DOF == 0` means each discrete
-    solution is itself rigid, so this is expected and is **not** an under-constraint.
+**Historical bench observations.** Older standalone benches used a narrower criterion:
+`report.Status == FullyConstrained` and
+`report.Conditioning >= max(1e-6, 4·√tolerance)`. Their saved observations about profile validity
+and seeded branch or mirror ambiguity remain useful diagnostic evidence, but those observations do
+not define current compiler acceptance.
 
 **Constraint mapping (Fusion → sketch engine).** The two constraint sets are near-identical, so the
 scheme translates almost verbatim: `addByCenterRadius`→`CreateCircle`; a driving diameter/radius
@@ -538,7 +532,7 @@ the check.
     `filletInput.addConstantRadiusEdgeSet(edges, ValueInput, isTangentChain)`. There is no
     `filletInput.edgeSetInputs`; reaching for it raises `AttributeError`.
   - **Chamfer:** add the edge set on the input's **`chamferEdgeSets`** collection —
-    `chamferInput.chamferEdgeSets.addEqualDistanceChamferEdgeSet(edges, ValueInput, isFlipped)`.
+    `chamferInput.chamferEdgeSets.addEqualDistanceChamferEdgeSet(edges, ValueInput, isTangentChain)`.
   Do not mirror one onto the other.
 - **[PB-POINT-HELPER] A 2-D-coord→`Point3D` helper MUST tolerate both raw `(x, y[, z])` tuples AND objects with
   `.x/.y/.z` (`Point3D` / `SketchPoint.geometry`).** Generators routinely mix **seed tuples** (e.g.
@@ -599,8 +593,9 @@ the check.
   stays behind by the drag distance and silently deforms the curve. Found in Fusion 2026-09-02:
   the bevel tooth-top arc's centre stranded 22.9 mm behind its origin, giving a 0.5743 mm arc where
   22.5 mm was intended, on a sketch that raised no error.
-- **[PB-DRIVING-DIM] Driving vs driven dimensions:** `add*Dimension(...)` is *driving* by default; never pass the
-  trailing `isDriven=True`/`True` (it inverts to a measured dimension and lets geometry float).
+- **[PB-DRIVING-DIM] Driving vs driven dimensions:** `add*Dimension(...)` is *driving* by default;
+  omit the optional trailing `isDriving` argument. Never pass `isDriving=False`/`False`, which
+  creates a driven measured dimension and lets geometry float.
 - **[PB-OFFSET-DIM] Line-to-line / parallel-offset dimension:** to dimension the gap between two (parallel) lines —
   used for base heights, face widths, and similar offsets — use
   `sketch.sketchDimensions.addOffsetDimension(lineA, lineB, textPoint)` and set the value via the
@@ -655,8 +650,9 @@ the check.
   sketch.sketchTexts.add(textInput)
   ```
   `createInput2(text, height)` takes the string and a text height; `setAsAlongPath(curve,
-  isAbovePath, horizontalAlignment, offset)` lays it along the curve. The spec gives the text
-  content and the height to use.
+  isAbovePath, horizontalAlignment, characterSpacing)` lays it along the curve. The final argument
+  is the percentage change in character spacing; the call above preserves the default spacing with
+  `0`. The spec gives the text content and the height to use.
 - **[PB-PATTERN-BODIES] Patterns return original + copies:** `CircularPatternFeature.bodies` already includes the
   seed body plus copies, so don't re-add the seed. **Copy them into an `ObjectCollection` first** —
   `pattern.bodies` is a `BRepBodies`, and `combineFeatures.createInput(targetBody: BRepBody,

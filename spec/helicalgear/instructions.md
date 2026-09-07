@@ -12,7 +12,7 @@ helical's *deltas* and cites spur's contract by anchor (`[SPUR-F-…]`) and sect
 restate spur's geometry. The Fusion-API mechanics unique to helical (the offset plane, the loft, the
 chamfer edge count) live in `fusion.md` (`[HELI-F-…]`). The twisted profile's constraint scheme — the
 spur tooth at a non-zero angle, i.e. the `[SPUR-F-SPINE]` angle≠0 path — is proven to fully constrain
-in `spec/helicalgear/sketch/` (the sketch-first gate, `[PB-SKETCH-FIRST]`).
+in the historical bench at `spec/helicalgear/sketch/`; its success does not establish current compiler acceptance (`[PB-SKETCH-FIRST]`).
 
 ## Component Setup
 
