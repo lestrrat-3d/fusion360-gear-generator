@@ -26,7 +26,7 @@ the difference and request an updated handoff, not to redesign the task.
 | T6 | [Typed emitter guidance](06-types.md) | T1, T5 |
 | T7 | [Proof examples](07-proof-examples.md) | T0 |
 | T8 | [Controlled measurements](08-measurement.md) | T0; serial trials also require T4B |
-| T9A, T9B, T9C | [Context and model trials](09-context-models.md) | An accepted T8 baseline |
+| T9A, T9B, T9C | [Context and model trials](09-context-models.md) | Named tooling prerequisites; accepted T8 baseline before trials |
 
 T8 records trials after each completed change. Before T4B, a trial that cannot reach emission is recorded
 as a failed compilation; the dispatcher does not bypass the existing stage rules.
