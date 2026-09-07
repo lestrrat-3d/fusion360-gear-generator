@@ -1,0 +1,233 @@
+{
+  "schema_version": 1,
+  "snapshot_date": "2026-09-07",
+  "snapshot_commit": "37e47b33a57b2bc61e98c743ed5b6ab011279a72",
+  "checker": ".claude/skills/generate-gear/check_contract.py",
+  "original_manifest_owner": "spec/<gear>/instructions.md and spec/<gear>/fusion.md",
+  "manifests": [
+    {
+      "gear": "spurgear",
+      "path": "spec/spurgear/contract.json",
+      "sha256": "17b92b8210ddcb3a65232944c974dfc95d4e7c0b46e708b11fde24a8a3b10ef0",
+      "metadata": [
+        {
+          "selector": "/_comment",
+          "role": "documentation"
+        },
+        {
+          "selector": "/module",
+          "role": "candidate-routing"
+        },
+        {
+          "selector": "/source_guards/*/why",
+          "role": "diagnostic-rationale"
+        }
+      ],
+      "groups": [
+        {
+          "id": "spur-interface-surface",
+          "selectors": [
+            "/module_constants/*",
+            "/classes/*",
+            "/classes/*/bases/*",
+            "/classes/*/methods/*",
+            "/classes/*/ctx_fields/*"
+          ],
+          "classification": "interface",
+          "checker_evidence": [
+            "check_contract.py: main / module-level constants",
+            "check_contract.py: main / classes"
+          ],
+          "source_evidence": [
+            "spec/spurgear/instructions.md#architecture",
+            "spec/spurgear/instructions.md#exact-input-ids-and-parameter-name-strings",
+            "spec/spurgear/instructions.md#generation-context--canonical-field-names",
+            "spec/spurgear/instructions.md#method-contract--call-graph-and-override-boundaries",
+            "spec/spurgear/instructions.md#tooth-generator-spurgearinvolutetoothdesigngenerator-reproduced-surface",
+            "spec/spurgear/instructions.md#dependencies-and-dependents"
+          ],
+          "rationale": [
+            "Names, literal values, inheritance, hooks, and context fields are reproduced or subclassed surfaces."
+          ]
+        },
+        {
+          "id": "spur-flank-root-candidate-recipe",
+          "selectors": [
+            "/source_guards/0/file",
+            "/source_guards/0/in_function",
+            "/source_guards/0/required/*",
+            "/source_guards/0/banned/*"
+          ],
+          "classification": "intentional_implementation_structure",
+          "checker_evidence": [
+            "check_contract.py: function_source",
+            "check_contract.py: guard_problems"
+          ],
+          "source_evidence": [
+            "spec/spurgear/fusion.md#per-step-constraint-recipes-the-over-constraint-sensitive-ones",
+            "spec/spurgear/fusion.md anchor SPUR-F-FLANK-ROOT",
+            ".claude/skills/generate-gear/test_check_contract.py: ScopedGuardTests",
+            ".claude/skills/generate-gear/test_check_contract.py: ShippedManifestTests"
+          ],
+          "rationale": [
+            "The chosen signed-axis-dimension recipe must remain in the uniquely named helper.",
+            "The guard rejects a fully constrained alternative that can select the far root-circle intersection."
+          ]
+        },
+        {
+          "id": "spur-bore-anchor-candidate-recipe",
+          "selectors": [
+            "/source_guards/1/file",
+            "/source_guards/1/in_function",
+            "/source_guards/1/required/*",
+            "/source_guards/1/banned/*"
+          ],
+          "classification": "intentional_implementation_structure",
+          "checker_evidence": [
+            "check_contract.py: function_source",
+            "check_contract.py: guard_problems"
+          ],
+          "source_evidence": [
+            "spec/spurgear/instructions.md#13-bore-optional",
+            "spec/spurgear/fusion.md#sketch-following-the-anchor-design",
+            ".claude/skills/generate-gear/test_check_contract.py: ShippedManifestTests"
+          ],
+          "rationale": [
+            "Bore grounding must stay inside buildBore and use the projected anchor.",
+            "Moving the coincidence to originPoint pins the sketch to the plane instead of the gear."
+          ]
+        },
+        {
+          "id": "spur-sketch-bench-recipe",
+          "selectors": [
+            "/source_guards/2/file",
+            "/source_guards/2/required/*",
+            "/source_guards/2/banned/*"
+          ],
+          "classification": "intentional_implementation_structure",
+          "checker_evidence": [
+            "check_contract.py: guard_problems"
+          ],
+          "source_evidence": [
+            "spec/spurgear/fusion.md anchor SPUR-F-FLANK-ROOT",
+            "spec/spurgear/sketch/main.go flank-to-root block"
+          ],
+          "rationale": [
+            "The proof bench must exercise the same signed-axis-dimension recipe as the generator.",
+            "It must not restore either rejected geometric constraint."
+          ]
+        },
+        {
+          "id": "spur-sketch-readme-recipe",
+          "selectors": [
+            "/source_guards/3/file",
+            "/source_guards/3/required/*",
+            "/source_guards/3/banned/*"
+          ],
+          "classification": "intentional_implementation_structure",
+          "checker_evidence": [
+            "check_contract.py: guard_problems"
+          ],
+          "source_evidence": [
+            "spec/spurgear/fusion.md anchor SPUR-F-FLANK-ROOT",
+            "spec/spurgear/sketch/README.md constraint map"
+          ],
+          "rationale": [
+            "The bench map must name the recipe its executable bench proves.",
+            "The banned labels describe the rejected construction and would make the map stale."
+          ]
+        }
+      ]
+    },
+    {
+      "gear": "helicalgear",
+      "path": "spec/helicalgear/contract.json",
+      "sha256": "60958a138466c92235af8f30b0ec7cf91704951c619d24f8c3a39f96781d53c1",
+      "metadata": [
+        {
+          "selector": "/_comment",
+          "role": "documentation"
+        },
+        {
+          "selector": "/module",
+          "role": "candidate-routing"
+        },
+        {
+          "selector": "/source_guards/*/why",
+          "role": "diagnostic-rationale"
+        }
+      ],
+      "groups": [
+        {
+          "id": "helical-interface-surface",
+          "selectors": [
+            "/module_constants/*",
+            "/classes/*",
+            "/classes/*/bases/*",
+            "/classes/*/methods/*",
+            "/classes/*/ctx_fields/*"
+          ],
+          "classification": "interface",
+          "checker_evidence": [
+            "check_contract.py: main / module-level constants",
+            "check_contract.py: main / classes"
+          ],
+          "source_evidence": [
+            "spec/helicalgear/instructions.md#exact-input-ids-and-parameter-name-strings",
+            "spec/helicalgear/instructions.md#architecture",
+            "spec/helicalgear/instructions.md#generation-context--spurs-plus-two-fields",
+            "spec/helicalgear/instructions.md#method-contract--overrides-only-spurs-call-graph-is-inherited",
+            "spec/helicalgear/instructions.md#dependencies"
+          ],
+          "rationale": [
+            "Names, literal values, inheritance, override boundaries, and added context fields are shared surfaces.",
+            "Helical and herringbone generation consume those surfaces."
+          ]
+        },
+        {
+          "id": "helical-twist-candidate-recipe",
+          "selectors": [
+            "/source_guards/0/file",
+            "/source_guards/0/in_function",
+            "/source_guards/0/required/*"
+          ],
+          "classification": "intentional_implementation_structure",
+          "checker_evidence": [
+            "check_contract.py: function_source",
+            "check_contract.py: guard_problems"
+          ],
+          "source_evidence": [
+            "spec/helicalgear/fusion.md#twisted-top-profile",
+            "spec/helicalgear/instructions.md#generation-order--spurs-12-steps-with-two-deltas",
+            "spec/spurgear/fusion.md#rotation-shared-with-helical--herringbone--bevel-virtual-tooth"
+          ],
+          "rationale": [
+            "buildSketches must pass the helix angle into the spur tooth generator.",
+            "Drawing flat geometry and rotating later disconnects the confirming spine dimension from the twist."
+          ]
+        },
+        {
+          "id": "helical-loft-candidate-recipe",
+          "selectors": [
+            "/source_guards/1/file",
+            "/source_guards/1/in_function",
+            "/source_guards/1/required/*"
+          ],
+          "classification": "intentional_implementation_structure",
+          "checker_evidence": [
+            "check_contract.py: function_source",
+            "check_contract.py: guard_problems"
+          ],
+          "source_evidence": [
+            "spec/helicalgear/fusion.md#loft-the-tooth",
+            "spec/helicalgear/instructions.md#method-contract--overrides-only-spurs-call-graph-is-inherited"
+          ],
+          "rationale": [
+            "loftTooth must use the shared profile finder and add the bottom section before the top.",
+            "Reversing the valid section order changes the ruled walls and measured volume."
+          ]
+        }
+      ]
+    }
+  ]
+}
