@@ -26,6 +26,10 @@ below that heading, or one naming bare file names, leaves the gate with nothing 
 Include `proof/{{gear}}/zz_registrations_test.go`, the generated registration file, among the
 paths.
 
+**Immediately after the proof-file sentence, write `<!-- step-metadata: 1 -->` on its own line.**
+It must precede `## Provenance`, because provenance stamping replaces that whole section. Write
+the marker exactly once and before the first step.
+
 **Write the `## Provenance` heading and leave its section empty.** The provenance table and the
 complete `## Compilation contract` section are generated from the source files after you finish,
 by `.claude/skills/generate-gear/gen_provenance.py`. Do not write the contract section yourself.
@@ -36,9 +40,15 @@ heading, since a gate reads the text above it for those paths and the generator 
 contract after provenance and before that first step.
 
 **Each step carries** a heading of the form `## <id> `[GO]` <title>` or with `[PROSE]`, the
-instructions themselves, a `**From:**` line naming the spec files and line ranges you compiled it
-from, and every Fusion API call it requires written inside a code span. A `[GO]` step also names
-the proof function that realises it and carries the `proof-run` annotation described below.
+instructions themselves, one version-1 `step-meta` JSON comment naming the spec files and line
+ranges you compiled it from, and every Fusion API call it requires written inside a code span.
+Write the comment before any rendered citation line, with an opening line exactly
+`<!-- step-meta`, a closing line exactly `-->`, and the JSON produced by
+`json.dumps(payload, sort_keys=True, ensure_ascii=False, indent=2)`. Use exactly the `schema` and
+`citations` keys; each citation has exactly `path`, `first`, and `last`, with inclusive integer
+line numbers. Do not write a `**From:**` line. The orchestrator renders it mechanically after the
+draft. A `[GO]` step also names the proof function that realises it and carries the `proof-run`
+annotation described below.
 
 **Cite by anchor every playbook rule a step relies on.** Write the anchor in the step, as
 `[PB-SKETCH-FIRST]`, wherever the step's instructions only make sense because of a rule the
@@ -55,8 +65,8 @@ with no table following resolves to nothing, and the transcriber fills the gap w
 invention. Measured: a step list that pointed at the dialog's input table instead of reproducing it
 shipped nine of seventeen input ids wrong, because `boreEnable` reads more naturally as
 `enableBore`. Reproduce the whole table. The same holds for any id, label, tooltip, constant name
-and its value, unit string, tolerance, magic number or fixed string a step depends on. A `**From:**`
-citation records where a step came from; it is not a way for the reader to go and look.
+and its value, unit string, tolerance, magic number or fixed string a step depends on. Citation
+metadata records where a step came from; it is not a way for the reader to go and look.
 
 **Name the exact entity a call is made against.** Where the spec pins the operand, write it; never
 reduce it to "again", "the same as above", or "likewise". Two operands that describe the same

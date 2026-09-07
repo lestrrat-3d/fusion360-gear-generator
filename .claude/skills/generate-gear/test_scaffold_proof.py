@@ -102,6 +102,29 @@ class ScaffoldProofTest(unittest.TestCase):
         self.assertEqual(text, CANONICAL_FILE)
         self.assertIn('scaffold: wrote %s (1 registrations)' % OUT, output)
 
+    def test_proof_annotations_preserved_with_step_metadata(self):
+        metadata = (
+            '<!-- step-meta\n'
+            '{\n'
+            '  "citations": [\n'
+            '    {\n'
+            '      "first": 1,\n'
+            '      "last": 1,\n'
+            '      "path": "spec/gear/instructions.md"\n'
+            '    }\n'
+            '  ],\n'
+            '  "schema": 1\n'
+            '}\n'
+            '-->\n\n')
+        metadata_step = CANONICAL_STEP.replace(
+            'Build the thing.\n\n', 'Build the thing.\n\n' + metadata)
+
+        result, output, text = self.run_scaffold(
+            steps='<!-- step-metadata: 1 -->\n\n' + metadata_step)
+
+        self.assertEqual(result, 0, output)
+        self.assertEqual(text, CANONICAL_FILE)
+
     def test_each_3d_method_emits_the_arguments_it_declares(self):
         for annotation, call in (
                 ('proofkit3d.Run(solidCases, stepOne, assertOne)',

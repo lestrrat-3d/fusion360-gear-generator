@@ -62,6 +62,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.abspath(os.path.join(HERE, os.pardir, os.pardir, os.pardir))
 sys.path.insert(0, HERE)
 import fusion_api  # noqa: E402  (sibling module; sys.path is fixed up just above)
+from step_metadata import (  # noqa: E402
+    MetadataError, PATH_REF, file_version, parse_step, render_from,
+    steps_of, validate_citations as validate_metadata_citations)
 from contract_handoff import (  # noqa: E402
     ContractHandoffError, mask_contract, validate_contract)
 from call_parser import call_shapes  # noqa: E402
@@ -69,23 +72,10 @@ from provenance import (  # noqa: E402  (sibling module; sys.path is fixed up ju
     DOCUMENT_REF, STAMPED_ROW, ProvenanceError, blob_hash, provenance_inputs, read,
     referenced_documents)
 
-PATH_REF = r'[\w./-]+\.(?:md|go|py|json|sh)'
 PATH_TOKEN = re.compile(r'`(%s)`' % PATH_REF)
 
 INLINE_CITATION = re.compile(r'`(%s):(\d+)(?:\s*[-\u2013]\s*(\d+))?`' % PATH_REF)
 LINE_RANGE = re.compile(r'\bL(\d+)(?:\s*[-\u2013]\s*(\d+))?\b')
-
-
-def steps_of(src):
-    """Split the step list into (id, tag, body) triples, in file order."""
-    out = []
-    heads = list(re.finditer(r'^##\s+(\S+)\s+`\[(GO|PROSE)\]`\s+(.*)$', src, re.M))
-    for i, m in enumerate(heads):
-        end = heads[i + 1].start() if i + 1 < len(heads) else len(src)
-        # The title counts as part of the step. A step may name its proof function
-        # there rather than in the prose below, and both readings are reasonable.
-        out.append((m.group(1), m.group(2), m.group(3) + '\n' + src[m.end():end]))
-    return out
 
 
 def from_block(body):
@@ -1606,6 +1596,12 @@ def check(argv):
         print('check_compile: no step list at %s' % steps_path, file=sys.stderr)
         return 2
     src = read(steps_path)
+    try:
+        metadata_version = file_version(src)
+    except MetadataError as exc:
+        print('compile check: BLOCKING (1)')
+        print('  %s: %s' % (steps_path, exc))
+        return 1
     steps = steps_of(src)
     if not steps:
         print('check_compile: %s declares no steps' % steps_path, file=sys.stderr)
@@ -1646,7 +1642,31 @@ def check(argv):
     # 1. citations resolve
     cited = {}
     for sid, _, body in steps:
-        valid, citation_problems = validate_citations(body, gear)
+        if metadata_version is None:
+            valid, citation_problems = validate_citations(body, gear)
+        else:
+            try:
+                payload = parse_step(body, metadata_version)
+                citation_problems = validate_metadata_citations(payload, '.')
+            except MetadataError as exc:
+                problems.append('  %s %s' % (sid, exc))
+                continue
+            canonical = render_from(payload)
+            block = from_block(body)
+            actual = None if block is None else '**From:**' + block
+            if actual is not None and actual.endswith('\r\n') and body.endswith('\r\n'):
+                actual = actual[:-2]
+            elif actual is not None and actual.endswith('\n') and body.endswith('\n'):
+                actual = actual[:-1]
+            if actual != canonical:
+                citation_problems.append(
+                    'has a **From:** line that differs from metadata; run '
+                    '`python3 .claude/skills/generate-gear/render_step_metadata.py %s '
+                    '--write %s`' % (gear, steps_path))
+            valid = [
+                (citation['path'], citation['first'], citation['last'])
+                for citation in payload['citations']
+                if not citation_problems]
         for problem in citation_problems:
             problems.append("  %s %s" % (sid, problem))
         for path, first, last in valid:

@@ -276,6 +276,16 @@ class CommittedTemplatesTest(unittest.TestCase):
         self.assertIn('Read the entire stored', skill)
         self.assertIn('artifact or any relevant input changed after validation', skill)
 
+    def test_compile_prompt_delegates_citation_rendering_to_metadata_tool(self):
+        prompt = (SKILLS_ROOT / 'compile-gear' / 'prompt.md').read_text(encoding='utf-8')
+        skill = (SKILLS_ROOT / 'compile-gear' / 'SKILL.md').read_text(encoding='utf-8')
+
+        self.assertIn('<!-- step-metadata: 1 -->', prompt)
+        self.assertIn('Do not write a `**From:**` line', prompt)
+        renderer = 'render_step_metadata.py <gear> --write .tmp/<gear>.steps.md'
+        self.assertIn(renderer, skill.replace('\n', ' '))
+        self.assertLess(skill.index('render_step_metadata.py'), skill.index('gen_provenance.py'))
+
     def test_emit_first_and_retry_prompts_keep_same_owner_for_spur_and_bevel(self):
         report = 'run_gates: sample\nverdict: FAIL\n'
         for gear in ('spurgear', 'bevelgear'):

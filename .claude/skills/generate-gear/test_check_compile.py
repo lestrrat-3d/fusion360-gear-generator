@@ -21,6 +21,7 @@ from unittest import mock
 
 COMPILE_CHECKER_PATH = Path(__file__).with_name('check_compile.py')
 PROVENANCE_MODULE_PATH = Path(__file__).with_name('provenance.py')
+STEP_METADATA_MODULE_PATH = Path(__file__).with_name('step_metadata.py')
 
 # `provenance` is registered in sys.modules before the checker is loaded, so check_compile.py's own
 # `from provenance import (...)` binds these exact objects rather than a second copy. A test that
@@ -355,7 +356,7 @@ class CheckCompileTest(unittest.TestCase):
                     include_fusion=True, auxiliary=False, mutate_auxiliary=False,
                     api_lookup=None, unverified_findings=None, proof_directories=(),
                     instruction_text=None, fusion_text=None, api_similar=None,
-                    contract_manifest=None, contract_section=None):
+                    contract_manifest=None, contract_section=None, metadata=False):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / 'spec' / 'gear').mkdir(parents=True)
@@ -404,19 +405,20 @@ class CheckCompileTest(unittest.TestCase):
                     '## S1 `[GO]` One — `stepOne`\n\n'
                     'Build the thing.\n\n'
                     '%s%s\n\n' % (self.annotation_line(annotation), from_line))
+            prefix = '<!-- step-metadata: 1 -->\n\n' if metadata else ''
             if contract_section is None:
                 steps = (
-                    '# Steps\n\n'
+                    '%s# Steps\n\n'
                     '%s'
                     '## Provenance\n\n'
-                    '%s\n' % (step_body, table))
+                    '%s\n' % (prefix, step_body, table))
             else:
                 steps = (
-                    '# Steps\n\n'
+                    '%s# Steps\n\n'
                     '## Provenance\n\n'
                     '%s\n\n'
                     '%s\n\n'
-                    '%s' % (table, contract_section, step_body))
+                    '%s' % (prefix, table, contract_section, step_body))
             (root / 'spec' / 'gear' / 'steps.md').write_text(steps)
             if mutate_auxiliary:
                 (root / 'spec' / 'gear' / 'trace.md').write_text('changed\n')
@@ -459,6 +461,46 @@ class CheckCompileTest(unittest.TestCase):
             '\t%s(t, %s, %s%s)\n'
             '}\n\n'
             'func stepOne() {}\n' % (test, call, cases, build, extra))
+
+    def metadata_step(self, from_line, final_newline=True):
+        body = (
+            '## S1 `[GO]` One — `stepOne`\n\n'
+            'Build the thing.\n\n'
+            '<!-- proof-run: proofkit.Run(profileCases, stepOne) -->\n\n'
+            '<!-- step-meta\n'
+            '{\n'
+            '  "citations": [\n'
+            '    {\n'
+            '      "first": 2,\n'
+            '      "last": 2,\n'
+            '      "path": "spec/gear/instructions.md"\n'
+            '    }\n'
+            '  ],\n'
+            '  "schema": 1\n'
+            '}\n'
+            '-->\n\n'
+            '%s' % from_line)
+        return body + ('\n' if final_newline else '')
+
+    def test_metadata_from_drift_is_blocking(self):
+        step_body = self.metadata_step('**From:** `spec/gear/instructions.md` L1.')
+
+        result, output = self.run_checker(step_body=step_body, metadata=True)
+
+        self.assertEqual(result, 1, output)
+        self.assertIn('S1 has a **From:** line that differs from metadata', output)
+        self.assertIn('render_step_metadata.py gear', output)
+
+    def test_metadata_canonical_from_at_eof_accepts_optional_final_newline(self):
+        canonical = '**From:** `spec/gear/instructions.md` L2.'
+        for final_newline in (False, True):
+            with self.subTest(final_newline=final_newline):
+                result, output = self.run_checker(
+                    step_body=self.metadata_step(canonical, final_newline=final_newline),
+                    contract_section='', metadata=True)
+
+                self.assertEqual(result, 0, output)
+                self.assertIn('compile check: OK', output)
 
     def claim_step(self, claim, annotation=None):
         """One `[GO]` step whose title carries `claim`, with citation and body canonical.
@@ -2334,6 +2376,8 @@ class GoPatternClassTest(unittest.TestCase):
             'LINE_RANGE, an `L12-L20` range in a From block',
         r'^##\s+(\S+)\s+`\[(GO|PROSE)\]`\s+(.*)$':
             'steps_of, a step heading in the step list',
+        r'<!--[ \t\r\n]*step-metadata\b':
+            'FILE_MARKER_RESERVED, a reserved metadata marker in the step list',
         r'^\*\*From:\*\*(.*?)(?=\n\s*\n|\Z)':
             'from_block, the From block under a step heading',
         r'<!--\s*check-compile:\s*ignore\s+([^>]*?)-->':
@@ -2396,7 +2440,9 @@ class GoPatternClassTest(unittest.TestCase):
         # patterns from (DOCUMENT_REF, STAMPED_ROW); this scan follows them there so an
         # allowlist entry for either still points at a pattern that is actually written down,
         # just no longer inside check_compile.py itself.
-        return COMPILE_CHECKER_PATH.read_text() + '\n' + PROVENANCE_MODULE_PATH.read_text()
+        return '\n'.join((
+            COMPILE_CHECKER_PATH.read_text(), PROVENANCE_MODULE_PATH.read_text(),
+            STEP_METADATA_MODULE_PATH.read_text()))
 
     def test_no_pattern_that_reads_go_source_spells_a_python_class(self):
         """The gate itself, under its own rule."""

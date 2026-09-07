@@ -70,9 +70,14 @@ proof is where the next reader is looking for the missing check.
    classifies, the spec lines a `fault:` line names in step 6, and a harness or playbook section
    only when a specific diagnosis calls for it.
 
-2. **Stamp provenance.** The provenance table is generated, never typed. After each drafting round
-   in step 3, run `python3 .claude/skills/generate-gear/gen_provenance.py <gear> --write
-   .tmp/<gear>.steps.md` from the repo root. It computes the input set owned by
+2. **Render citations and stamp provenance.** Both sections are generated, never typed. After each
+   drafting round in step 3, first run `python3
+   .claude/skills/generate-gear/render_step_metadata.py <gear> --write .tmp/<gear>.steps.md` from
+   the repo root. It validates every version-1 metadata payload before atomically rendering all
+   `**From:**` lines. A finding is a draft fault, and the original draft remains unchanged.
+
+   After rendering succeeds, run `python3 .claude/skills/generate-gear/gen_provenance.py <gear>
+   --write .tmp/<gear>.steps.md` from the repo root. It computes the input set owned by
    `.claude/skills/generate-gear/provenance.py` — existing `spec/<gear>/instructions.md`, optional
    `spec/<gear>/fusion.md`, optional `spec/<gear>/contract.json`,
    `.claude/skills/generate-gear/PLAYBOOK.md`, and existing auxiliary Markdown documents referenced
@@ -96,7 +101,8 @@ proof is where the next reader is looking for the missing check.
    prompt varies run to run and hides gaps by spoon-feeding what the prose should have said, so a
    green run would no longer say anything about the spec.
 
-4. **Scaffold, place, and run the gates.** First run
+4. **Scaffold, place, and run the gates.** Run both step 2 commands for the current draft first.
+   Then run
    `python3 .claude/skills/generate-gear/scaffold_proof.py <gear> --steps .tmp/<gear>.steps.md
    --out .tmp/<gear>-proof/zz_registrations_test.go`. It turns each `[GO]` step's `proof-run`
    annotation into the Go `Test` registrations the drafter never writes; a scaffolder finding is a
@@ -176,8 +182,8 @@ proof is where the next reader is looking for the missing check.
    hand the printed output to the drafter unchanged. The first round's prompt is always the
    rendered standard prompt with no failure file.
 
-   For every returned retry draft, repeat step 4's scaffold and placement commands before its
-   iteration validation starts. Then run
+   For every returned retry draft, repeat step 2's renderer and provenance commands, then repeat
+   step 4's scaffold and placement commands before its iteration validation starts. Then run
    `python3 .claude/skills/generate-gear/run_compile_gates.py <gear> --iteration-base
    "$(cat .tmp/<gear>.compile-base)" > .tmp/<gear>.compile-gates.txt`. This runs compile and
    playbook checks first, then selects `proof/<gear>/` only when changed paths stay within that

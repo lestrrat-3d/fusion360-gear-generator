@@ -330,6 +330,21 @@ class GenProvenanceTest(unittest.TestCase):
         self.assertIn('## Provenance', err)
         self.assertEqual(steps_path.read_bytes(), before)
 
+    def test_metadata_marker_inside_provenance_exits_2_without_writing(self):
+        steps = DEFAULT_STEPS.replace(
+            '## Provenance\n\n',
+            '## Provenance\n\n<!-- step-metadata: 1 -->\n\n')
+        root = self.repo(steps=steps)
+        steps_path = root / 'spec' / 'gear' / 'steps.md'
+        before = steps_path.read_bytes()
+
+        result, out, err = self.run_generator(
+            ['gen_provenance.py', 'gear', '--write', str(steps_path)])
+
+        self.assertEqual(result, 2, out)
+        self.assertIn('move it before ## Provenance', err)
+        self.assertEqual(steps_path.read_bytes(), before)
+
     def test_unhashable_source_exits_2_without_writing(self):
         root = self.repo()
         steps_path = root / 'spec' / 'gear' / 'steps.md'

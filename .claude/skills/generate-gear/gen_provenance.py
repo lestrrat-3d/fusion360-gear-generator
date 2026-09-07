@@ -30,6 +30,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import provenance  # noqa: E402  (sibling module; sys.path is fixed up just above)
 import contract_handoff  # noqa: E402
+import step_metadata  # noqa: E402
 
 USAGE = 'usage: gen_provenance.py <gear> [--write <steps.md>]'
 
@@ -76,6 +77,7 @@ def write_section(path, gear):
         src = provenance.read(path)
     except OSError as exc:
         raise provenance.ProvenanceError('%s: %s' % (path, exc.strerror or exc)) from exc
+    version = step_metadata.file_version(src)
     rows = provenance.table_rows(provenance.ordered_provenance_inputs(gear))
     section = '%s\n\n%s' % (provenance.HEADING, provenance.render_table(rows))
     updated = provenance.replace_section(src, section)
@@ -87,6 +89,10 @@ def write_section(path, gear):
     else:
         rendered = contract_handoff.render_contract(manifest)
         updated = contract_handoff.replace_contract(updated, rendered)
+    if step_metadata.file_version(updated) != version:
+        raise provenance.ProvenanceError(
+            'the step-metadata marker is inside ## Provenance and would be removed; '
+            'move it before ## Provenance')
     with open(path, 'w') as fh:
         fh.write(updated)
     return len(rows)
@@ -111,7 +117,8 @@ def main(argv):
         count = write_section(write_path, gear)
         print('gen_provenance: stamped %d source(s) into %s' % (count, write_path))
         return 0
-    except (provenance.ProvenanceError, contract_handoff.ContractHandoffError) as exc:
+    except (provenance.ProvenanceError, contract_handoff.ContractHandoffError,
+            step_metadata.MetadataError) as exc:
         print('gen_provenance: %s' % exc, file=sys.stderr)
         return 2
     except OSError as exc:
