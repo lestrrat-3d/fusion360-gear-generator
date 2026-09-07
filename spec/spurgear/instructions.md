@@ -362,7 +362,7 @@ generate(inputs)
         → if SketchOnly: show the Gear Profile sketch and stop (step 6)
           else:
             → buildTooth(ctx)    # extrude the tooth → ctx.toothBody (step 7)
-            → buildBody(ctx)     # extrude the annular body → ctx.gearBody, centerAxis, extrusionExtent (step 9)
+            → buildBody(ctx)     # extrude the solid root disc → ctx.gearBody, centerAxis, extrusionExtent (step 9)
             → patternTeeth(ctx)  # circular pattern + combine (step 10)
             → createFillets(ctx) # root fillets (step 11)
   → buildBore(ctx)               # optional bore (step 12)
@@ -615,5 +615,5 @@ Raise when no end-cap face or no chamfer edge remains; do not create a partial c
 
 Apply the resulting set with `chamferFeatures.createInput2()` and
 `chamferEdgeSets.addEqualDistanceChamferEdgeSet(edges, <ChamferTooth value>, False)`. Helical and
-herringbone inherit this completed-gear selection unchanged. The final Fusion verification is
-recorded in `spec/helicalgear/fusion.md` `[HELI-F-CHAMFER-COUNT]`.
+herringbone inherit this completed-gear selection unchanged. Its Fusion verification status is
+owned by `spec/helicalgear/fusion.md` `[HELI-F-CHAMFER-COUNT]`.
