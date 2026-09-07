@@ -1,0 +1,50 @@
+{
+  "accepted": false,
+  "advisory_triage": {
+    "complete": null,
+    "findings": [],
+    "status": "unknown"
+  },
+  "complete": false,
+  "completed_rounds": 0,
+  "completeness": {
+    "complete": false,
+    "reasons": [
+      "validation boundary is missing",
+      "advisory triage completion was not recorded",
+      "round 1 is not a complete full-policy first pass"
+    ]
+  },
+  "drafting_time_s": 301.099944,
+  "final_compile_acceptance": {
+    "accepted": false,
+    "observed": false,
+    "round": null
+  },
+  "first_pass": false,
+  "gate_duration_s": 0.0,
+  "gate_failure_details": [],
+  "gate_failures": 0,
+  "gear": "spurgear",
+  "issues": [
+    "validation boundary is missing",
+    "advisory triage completion was not recorded"
+  ],
+  "placement_time_s": null,
+  "pre_emission_readiness": {
+    "handoff": null,
+    "observed": false,
+    "round": null
+  },
+  "preflight_time_s": 0.224522,
+  "run_id": "2026-09-07-proof-examples-candidate-warm-up-spurgear-compile",
+  "schema": 1,
+  "stage": "compile",
+  "starting_git_commit": "f43942d540db978e88c1c1a218ec8d5358296f2a",
+  "token_counts": {
+    "input": null,
+    "output": null
+  },
+  "total_wall_time_s": 318.401261,
+  "validation_time_s": null
+}

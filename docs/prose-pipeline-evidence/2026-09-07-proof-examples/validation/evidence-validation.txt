@@ -1,0 +1,1 @@
+PASS: 2 actual partial trial records, 58 raw hashes, exact wrappers, serial intervals.

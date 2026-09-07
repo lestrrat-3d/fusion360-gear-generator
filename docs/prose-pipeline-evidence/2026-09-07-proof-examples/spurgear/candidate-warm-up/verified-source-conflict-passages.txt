@@ -1,0 +1,38 @@
+spec/spurgear/instructions.md
+320: - **Every sketch here is fully constrained** (`[PB-FULL-CONSTRAINT]`), with no exceptions. Every
+321:   sketch's local origin rides on the projected anchor, including the Bore Profile sketch's, whose
+322:   local origin the tooth generator creates and nothing else uses. See step 12.
+
+spec/spurgear/instructions.md
+513: Center every circle on the local-origin `SketchPoint` by passing it **directly** as the center — `sketchCircles.addByCenterRadius(localOrigin, radius)` — so all four share that one point (see Sketch Discipline: share, don't re-coincident; do not pass `localOrigin.geometry` and then add a center coincident). Give each a driving diameter dimension. Each circle is also labeled with along-path sketch text (see the playbook for the exact `sketchTexts.createInput2(...)` + `setAsAlongPath(...)` call). The label string is `'{} (r={:.2f}, size={:.2f})'.format(name, radius, size)` — the circle's name, its radius, and `size`, all using the radii's internal `.value` (cm) — where `size = Tip Circle Radius − Root Circle Radius`. Pass that same `size` as the text **height** argument to `createInput2`.
+
+spec/spurgear/instructions.md
+585: Feed the pattern's `bodies` collection to the combine as-is — it already includes the original tooth body, per `[PB-PATTERN-BODIES]`.
+
+.claude/skills/generate-gear/PLAYBOOK.md
+514: - **[PB-TEXT-HOLDS-DOF] Sketch text counts toward `isFullyConstrained`, so a labelled sketch never
+515:   reports fully constrained.** Text placed with `setAsAlongPath` (`[PB-SKETCH-TEXT]`) carries its
+516:   own position along the curve, and nothing in the recipes here pins it. A sketch whose geometry is
+517:   completely determined therefore still reads `False` purely because it is labelled. Measured in
+518:   Fusion 2026-09-02 on the spur tooth sketch: `False` with its four circle labels, `True` for the
+519:   same sketch with the labels deleted and no other change.
+520:   - **What to do.** A gear that labels a sketch cannot gate that sketch on `isFullyConstrained`;
+521:     log the result rather than raising. **This exempts the labels and nothing else** — never read it
+522:     as licence for loose geometry, and gate every sketch that carries no text normally.
+
+.claude/skills/generate-gear/PLAYBOOK.md
+660: - **[PB-PATTERN-BODIES] Patterns return original + copies:** `CircularPatternFeature.bodies` already includes the
+661:   seed body plus copies, so don't re-add the seed. **Copy them into an `ObjectCollection` first** —
+662:   `pattern.bodies` is a `BRepBodies`, and `combineFeatures.createInput(targetBody: BRepBody,
+663:   toolBodies: core.ObjectCollection)` rejects it. Loop `pattern.bodies.item(i)` into a fresh
+664:   `adsk.core.ObjectCollection.create()` and pass that.
+
+.tmp/t8/drafter-api-details.txt
+410: adsk.fusion.CombineFeatures.createInput  [method]
+411: signature: (self, targetBody: BRepBody, toolBodies: core.ObjectCollection) -> CombineFeatureInput
+412: Creates a CombineFeatureInput object. Use properties and methods on this object
+413: to define the combine you want to create and then use the Add method, passing in
+414: the CombineFeatureInput object.
+415: targetBody : A BRep body that represents the blank body.
+416: toolBodies : An ObjectCollection containing one or more BRep bodies that represent tool bodies.
+417: Returns the newly created CombineFeatureInput object or null if the creation failed.

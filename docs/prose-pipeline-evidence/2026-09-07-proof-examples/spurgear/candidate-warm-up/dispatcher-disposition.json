@@ -1,0 +1,11 @@
+{
+  "recorded_at": "2026-09-07T03:19:06.816625+00:00",
+  "reviewer": "/root",
+  "result": "Both source conflicts confirmed; stop experiment after two warm-ups.",
+  "citation_correction": "The label requirement is spec/spurgear/instructions.md:513, not :516. Original drafter citation retained in raw report.",
+  "proposed_corrections": [
+    "Defer labelled-sketch checks to PB-TEXT-HOLDS-DOF while preserving fully constrained geometry.",
+    "Preserve pattern body membership while applying existing ObjectCollection conversion rule."
+  ],
+  "next_step": "Separate source-alignment change, followed by a newly pinned experiment; do not reuse stopped trial IDs."
+}

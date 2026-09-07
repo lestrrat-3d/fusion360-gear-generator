@@ -1,0 +1,57 @@
+45:    def monotonic(self):
+48:    def epoch(self):
+52:def _utc(epoch):
+56:def _atomic_json(path, value):
+75:def _read_json(path):
+83:def _git_commit(root):
+97:def _input_record(path, root):
+111:def _load_run(run_dir):
+114:    if not isinstance(metadata, dict) or metadata.get("schema") != SCHEMA:
+115:        raise TimingError("%s has an unsupported run schema" % run_dir)
+121:def start_run(run_dir, gear, stage, *, root=None, inputs=(), model_role=None,
+139:        "schema": SCHEMA,
+171:def _event_files(run_dir):
+181:def load_events(run_dir):
+191:            if event.get("schema") != SCHEMA:
+192:                raise TimingError("unsupported event schema")
+234:def _next_event_path(run_dir):
+246:def record_event(run_dir, phase, action, *, round=1, event_name=None, clock=None,
+271:        "schema": SCHEMA,
+283:        "event": event_name or "%s.%s" % (phase, action),
+315:def round_seconds(value):
+319:def _union(intervals):
+336:def _gate_timing(report):
+341:def _valid_emission_handoff(handoff):
+363:def gate_import(run_dir, round, file_path):
+374:    if (not isinstance(report, dict) or isinstance(report.get("schema"), bool)
+375:            or not isinstance(report.get("schema"), int)):
+376:        raise TimingError("gate JSON must be an object with an integer schema")
+424:    first_pass = bool(timing.get("first_pass_eligible", False))
+426:        first_pass = False
+430:        "report_schema": report["schema"],
+445:        "first_pass_eligible": first_pass,
+451:                        event_name="gate_import", metadata=payload)
+454:def _intervals(events):
+488:def summarize(run_dir):
+523:    first_pass = False
+529:        if event.get("round") == 1 and payload.get("first_pass_eligible"):
+530:            first_pass = True
+545:        first_pass = False
+560:        first_pass = False
+581:    final_compile_accepted = bool(
+591:        emit_payload.get("first_pass_eligible") is True)
+592:    pipeline_accepted = complete and emit_accepted and final_compile_accepted
+594:    if not first_pass:
+597:        "schema": SCHEMA,
+613:        "first_pass": first_pass,
+619:        "final_compile_acceptance": {
+622:            "accepted": final_compile_accepted,
+633:def gate_policy_for_run(args, results):
+660:        "first_pass_eligible": eligible,
+664:def compile_policy_for_run(args, results, metadata):
+678:        "first_pass_eligible": eligible,
+682:def cli_error(message):
+687:def _parser():
+725:def main(argv=None):
+734:                                  event_name=args.event_name, duration_s=args.duration_s,
+750:              (result["completed_rounds"], result["gate_failures"], result["complete"], result["first_pass"]))

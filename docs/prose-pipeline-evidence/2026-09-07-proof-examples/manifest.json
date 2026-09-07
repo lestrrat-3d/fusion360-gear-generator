@@ -1,0 +1,338 @@
+{
+  "schema": 1,
+  "experiment_id": "2026-09-07-proof-examples",
+  "status": "stopped_incomplete",
+  "reason": "Dispatcher confirmed shared source conflicts after candidate warm-up.",
+  "control_commit": "667f24f20375a7d12ab1da84af2bb393c97bef0d",
+  "candidate_commit": "f43942d540db978e88c1c1a218ec8d5358296f2a",
+  "observed_trials": [
+    "spurgear/control-warm-up/trial.json",
+    "spurgear/candidate-warm-up/trial.json"
+  ],
+  "scheduled_trial_count": 16,
+  "observed_trial_count": 2,
+  "scored_trial_count": 0,
+  "accepted_trial_count": 0,
+  "files": [
+    {
+      "path": "comparison.md",
+      "sha256": "b9ed8f714a9c67fc92d322a93fd0674f884edba5eeefe44713cded6da0f2fb76",
+      "bytes": 6000
+    },
+    {
+      "path": "spurgear/candidate-warm-up/commands.jsonl",
+      "sha256": "eeb6de2f18cd9a4a5d38ac3538c4dfcd31a7f59bc068649f4c699dbe9fef325f",
+      "bytes": 335
+    },
+    {
+      "path": "spurgear/candidate-warm-up/compile/events/event-000001-2e6c44f9.json",
+      "sha256": "46d371e2bd600c31ffad513e8997272f5bd4854f4ec2b378cf9c269597d42c75",
+      "bytes": 15950
+    },
+    {
+      "path": "spurgear/candidate-warm-up/compile/events/event-000002-600cf209.json",
+      "sha256": "16cca747ccba49a5d89773f14f1ea85d111972a659e8e740bc897d8288ab932d",
+      "bytes": 15938
+    },
+    {
+      "path": "spurgear/candidate-warm-up/compile/events/event-000003-d2d08f6a.json",
+      "sha256": "200da09e20ca449f7113e431246e18becae4f361c9a893878af2760691035383",
+      "bytes": 15944
+    },
+    {
+      "path": "spurgear/candidate-warm-up/compile/events/event-000004-f5e9e174.json",
+      "sha256": "2ea773780dc056bac3408b7953698297f1610379abe4bba7465eebd583f09d43",
+      "bytes": 15935
+    },
+    {
+      "path": "spurgear/candidate-warm-up/compile/events/event-000005-a7fd0926.json",
+      "sha256": "3ddaf601749ce96e3ec80773db5f4264ef77fcb5857915f41b4a240464b48821",
+      "bytes": 15944
+    },
+    {
+      "path": "spurgear/candidate-warm-up/compile/events/event-000006-4a5e63ca.json",
+      "sha256": "2bb1f7f912e15ffe803a7ea8cbe4b5f5e08803d1f6de0ca4c263ee4215ba915a",
+      "bytes": 15942
+    },
+    {
+      "path": "spurgear/candidate-warm-up/compile/run.json",
+      "sha256": "32c6dfa3961d7cf690532606aef875d925bdf607724bbae34dfdffbd65eed2ef",
+      "bytes": 15683
+    },
+    {
+      "path": "spurgear/candidate-warm-up/compile-drafting-finish-r1-default.json",
+      "sha256": "3ddaf601749ce96e3ec80773db5f4264ef77fcb5857915f41b4a240464b48821",
+      "bytes": 15944
+    },
+    {
+      "path": "spurgear/candidate-warm-up/compile-prompt-r1.md",
+      "sha256": "8cba8608ef8957ddd902cdc70c84cf239da7825ef892134b0d5b079dd5de52d0",
+      "bytes": 17373
+    },
+    {
+      "path": "spurgear/candidate-warm-up/compile-summary.json",
+      "sha256": "e5a787433a2afa6c4c0ec6d31d96bb33acf1d0b64c0db45cc1c579075b0fb458",
+      "bytes": 1215
+    },
+    {
+      "path": "spurgear/candidate-warm-up/delivery-verification.json",
+      "sha256": "33cf7347bf1bf0c3710e4d51dbb1cad11058c0f147c5b099c3b1d35457a7a603",
+      "bytes": 75
+    },
+    {
+      "path": "spurgear/candidate-warm-up/dispatcher-disposition.json",
+      "sha256": "a6f43ca2416c9572c9d706d16bf9b9072caee822de0f3cd6523abe318ec65811",
+      "bytes": 666
+    },
+    {
+      "path": "spurgear/candidate-warm-up/drafter-api-details.raw.json",
+      "sha256": "2d067e55dc6572d4b208366079b5c74ad22cdc8e3d7555a9b0773f5453e2501e",
+      "bytes": 34435
+    },
+    {
+      "path": "spurgear/candidate-warm-up/drafter-api-status.jsonl",
+      "sha256": "0897de762453de999572fe365e025bd9eca78ade529dc6ec527d18b3f17d9479",
+      "bytes": 16601
+    },
+    {
+      "path": "spurgear/candidate-warm-up/drafter-report.md",
+      "sha256": "139b26579753fba5fb9e1ec3bf5496b1b8a181c38d6f91d5ae0e011ca217bd14",
+      "bytes": 1755
+    },
+    {
+      "path": "spurgear/candidate-warm-up/drafting-r1-start.json",
+      "sha256": "2ea773780dc056bac3408b7953698297f1610379abe4bba7465eebd583f09d43",
+      "bytes": 15935
+    },
+    {
+      "path": "spurgear/candidate-warm-up/environment.json",
+      "sha256": "de503b24cf7b0f1068a76ff211caec3e6ab574c5f4d48d6ac1b39fd1a95e7bd7",
+      "bytes": 724
+    },
+    {
+      "path": "spurgear/candidate-warm-up/immutable-input-digests.json",
+      "sha256": "9bf32d312c9e0827ad532cdd5129fa1d8c6228526617d1f4826957302933c0e0",
+      "bytes": 44950
+    },
+    {
+      "path": "spurgear/candidate-warm-up/model-design-reason.txt",
+      "sha256": "c5e08a1c8b2adc5b717090cc795f23fed38a99541aac927c15e33de8ff5fc7bb",
+      "bytes": 52
+    },
+    {
+      "path": "spurgear/candidate-warm-up/model-design.txt",
+      "sha256": "d42c580f631bd8f792f25ff85eabede512c3ed572facd81ef8a6b5a909b76d84",
+      "bytes": 12
+    },
+    {
+      "path": "spurgear/candidate-warm-up/model-mechanical-reason.txt",
+      "sha256": "44d3acb1d0e4d53f9c44611bc4051f44be6ab98e25e02cf4feacbeb730762346",
+      "bytes": 67
+    },
+    {
+      "path": "spurgear/candidate-warm-up/model-mechanical.txt",
+      "sha256": "d42c580f631bd8f792f25ff85eabede512c3ed572facd81ef8a6b5a909b76d84",
+      "bytes": 12
+    },
+    {
+      "path": "spurgear/candidate-warm-up/overall-stop.json",
+      "sha256": "2bb1f7f912e15ffe803a7ea8cbe4b5f5e08803d1f6de0ca4c263ee4215ba915a",
+      "bytes": 15942
+    },
+    {
+      "path": "spurgear/candidate-warm-up/pre-draft.json",
+      "sha256": "759e4b231a631fa860d74b3164c276582eb1d99ae443907722a5d404c6b651a7",
+      "bytes": 1202
+    },
+    {
+      "path": "spurgear/candidate-warm-up/preflight-compile.json",
+      "sha256": "0617ccd300a33891b86ea799f533b5368b4982358d5fe1a9692ae6da84a21897",
+      "bytes": 1671
+    },
+    {
+      "path": "spurgear/candidate-warm-up/preflight-finish.json",
+      "sha256": "200da09e20ca449f7113e431246e18becae4f361c9a893878af2760691035383",
+      "bytes": 15944
+    },
+    {
+      "path": "spurgear/candidate-warm-up/preflight-start.json",
+      "sha256": "16cca747ccba49a5d89773f14f1ea85d111972a659e8e740bc897d8288ab932d",
+      "bytes": 15938
+    },
+    {
+      "path": "spurgear/candidate-warm-up/raw-evidence-digests.json",
+      "sha256": "73afe91f795bdc58d30ea7c31f7f60ff7f0c2a71dd64f8148249ed0b452cdeea",
+      "bytes": 5278
+    },
+    {
+      "path": "spurgear/candidate-warm-up/source-condition-comparison.json",
+      "sha256": "9827d900bd8f0601e37c5faa5d80861e0577d57d740ee82782f4374e83394200",
+      "bytes": 530
+    },
+    {
+      "path": "spurgear/candidate-warm-up/source-conflict-passages.raw.json",
+      "sha256": "36fbca0dfb090c2b15ccd6f21a85d423280fc9f4a0ab2d8d669575297d812ef8",
+      "bytes": 3201
+    },
+    {
+      "path": "spurgear/candidate-warm-up/stop-input-verification.json",
+      "sha256": "123d4b199e3c4ceb0328bef1274191abbcd2c6766e12160e4c56e163839aca21",
+      "bytes": 75
+    },
+    {
+      "path": "spurgear/candidate-warm-up/timing-api-index.txt",
+      "sha256": "2694a703b2ecc0f41f731bb446cdd2213aea6a7347616f4ec84a30ddb18df3ad",
+      "bytes": 2649
+    },
+    {
+      "path": "spurgear/candidate-warm-up/timing-start.txt",
+      "sha256": "32c6dfa3961d7cf690532606aef875d925bdf607724bbae34dfdffbd65eed2ef",
+      "bytes": 15683
+    },
+    {
+      "path": "spurgear/candidate-warm-up/trial.json",
+      "sha256": "b95e8685e2b0685c929c9bfa34ca1b5fec23dc4f313953621d988f3bd5d592a9",
+      "bytes": 1372
+    },
+    {
+      "path": "spurgear/candidate-warm-up/verified-source-conflict-passages.txt",
+      "sha256": "0c5079d832b9cd9a1b9054944e499d61f4affdedbb0946f557337949da28b495",
+      "bytes": 3437
+    },
+    {
+      "path": "spurgear/control-warm-up/compile/events/event-000001-cfa12ca4.json",
+      "sha256": "7f5638c6e46a5853f81f9084f320dbd5166246eeeadf7956c9b5e9af8b475a73",
+      "bytes": 15584
+    },
+    {
+      "path": "spurgear/control-warm-up/compile/events/event-000002-d136b5d5.json",
+      "sha256": "454c1f4b114c6cb089ff1ab0ec89a0688f6a764c546f1d2b6f212fa4f0048421",
+      "bytes": 15571
+    },
+    {
+      "path": "spurgear/control-warm-up/compile/events/event-000003-2f2c118b.json",
+      "sha256": "0eecf29a00a6e2ebc9060ae3a097663c12031ca5759ca1736ab2be582b16adf4",
+      "bytes": 15577
+    },
+    {
+      "path": "spurgear/control-warm-up/compile/events/event-000004-2bd52243.json",
+      "sha256": "4d3d023ee8227c215373e42ee33f6994085ea89debfaca0889853e88d219025c",
+      "bytes": 15569
+    },
+    {
+      "path": "spurgear/control-warm-up/compile/events/event-000005-f0136799.json",
+      "sha256": "40dcee0e1963f859fe32dec743ba3fe0777c1ede5dc6d825d970ec60a952e018",
+      "bytes": 15576
+    },
+    {
+      "path": "spurgear/control-warm-up/compile/events/event-000006-b808b2e2.json",
+      "sha256": "6b0d58e1596af28fd91f36f4cd898d3052e213198462d490b38cdaece2fa353c",
+      "bytes": 15575
+    },
+    {
+      "path": "spurgear/control-warm-up/compile/run.json",
+      "sha256": "ad3ae4e0cb04e58a4f16f343875d958efeecb59e78a0e8481abba0c9a348a617",
+      "bytes": 15316
+    },
+    {
+      "path": "spurgear/control-warm-up/compile-prompt-r1.md",
+      "sha256": "77e7a33142ac677a2d32165398a5759d0a8fc85cceeea655a0232af206e53ddd",
+      "bytes": 17166
+    },
+    {
+      "path": "spurgear/control-warm-up/compile-summary.json",
+      "sha256": "bb93819ce98af5539e736636b0ee981dbdb57b73b8d2995735eab3826b7cd3f4",
+      "bytes": 1213
+    },
+    {
+      "path": "spurgear/control-warm-up/delivery-error.json",
+      "sha256": "07ffa30cf4202ea6041590eec4d749070f63b1a503ff7905647ccc83be97ea2e",
+      "bytes": 447
+    },
+    {
+      "path": "spurgear/control-warm-up/drafting-r1-finish.json",
+      "sha256": "40dcee0e1963f859fe32dec743ba3fe0777c1ede5dc6d825d970ec60a952e018",
+      "bytes": 15576
+    },
+    {
+      "path": "spurgear/control-warm-up/drafting-r1-start.json",
+      "sha256": "4d3d023ee8227c215373e42ee33f6994085ea89debfaca0889853e88d219025c",
+      "bytes": 15569
+    },
+    {
+      "path": "spurgear/control-warm-up/environment.json",
+      "sha256": "b33b70ae95a18cec6b0cee4193b2dd51f5466edbcfe638f3565ded94976558ff",
+      "bytes": 718
+    },
+    {
+      "path": "spurgear/control-warm-up/immutable-input-digests.json",
+      "sha256": "a5c1c1ed6d69fd994df04ab35e6a40878348ffe1142cf353e76a2bc4fafbc2e2",
+      "bytes": 44615
+    },
+    {
+      "path": "spurgear/control-warm-up/model-design-reason.txt",
+      "sha256": "c5e08a1c8b2adc5b717090cc795f23fed38a99541aac927c15e33de8ff5fc7bb",
+      "bytes": 52
+    },
+    {
+      "path": "spurgear/control-warm-up/model-design.txt",
+      "sha256": "d42c580f631bd8f792f25ff85eabede512c3ed572facd81ef8a6b5a909b76d84",
+      "bytes": 12
+    },
+    {
+      "path": "spurgear/control-warm-up/model-mechanical-reason.txt",
+      "sha256": "44d3acb1d0e4d53f9c44611bc4051f44be6ab98e25e02cf4feacbeb730762346",
+      "bytes": 67
+    },
+    {
+      "path": "spurgear/control-warm-up/model-mechanical.txt",
+      "sha256": "d42c580f631bd8f792f25ff85eabede512c3ed572facd81ef8a6b5a909b76d84",
+      "bytes": 12
+    },
+    {
+      "path": "spurgear/control-warm-up/overall-r1-finish.json",
+      "sha256": "6b0d58e1596af28fd91f36f4cd898d3052e213198462d490b38cdaece2fa353c",
+      "bytes": 15575
+    },
+    {
+      "path": "spurgear/control-warm-up/pre-draft.json",
+      "sha256": "937dce38c11ebfbc228b9de747f8566039021273cc35ceef3dbbc82f72b5d77c",
+      "bytes": 1109
+    },
+    {
+      "path": "spurgear/control-warm-up/preflight-compile.json",
+      "sha256": "28d8d603d300f8debce305df97c91a70573198be63e0acaaac380e121ffc6742",
+      "bytes": 1667
+    },
+    {
+      "path": "spurgear/control-warm-up/raw-evidence-digests.json",
+      "sha256": "506cc4a6cc0afa5d06656e5721239d0b9653173aee2da9b5899e3b48e94fe3e7",
+      "bytes": 3461
+    },
+    {
+      "path": "spurgear/control-warm-up/timing-start.txt",
+      "sha256": "ad3ae4e0cb04e58a4f16f343875d958efeecb59e78a0e8481abba0c9a348a617",
+      "bytes": 15316
+    },
+    {
+      "path": "spurgear/control-warm-up/trial.json",
+      "sha256": "966d1e7cde486d057a53874440e65fe7b5f6930551fa670edb4b9cd9653e0a5a",
+      "bytes": 1287
+    },
+    {
+      "path": "validation/check_evidence.py",
+      "sha256": "d8ff2aebaae7c3e17c78541369627ddc7d17b5bc445ae7b3556ab7e400c2467b",
+      "bytes": 2907
+    },
+    {
+      "path": "validation/evidence-validation.txt",
+      "sha256": "450660d3aff53579e1a390697756042e7936512ee558200027f454cdf2e8b9c7",
+      "bytes": 87
+    },
+    {
+      "path": "validation/python-tests.txt",
+      "sha256": "a185d1b6ca6f93e73418a989345546e06f17b1b1f55468a40cae6bbecefd43de",
+      "bytes": 1050
+    }
+  ]
+}

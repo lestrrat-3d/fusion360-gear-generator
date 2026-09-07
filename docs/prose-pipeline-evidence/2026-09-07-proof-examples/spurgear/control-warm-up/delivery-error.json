@@ -1,0 +1,8 @@
+{
+  "expected_fragment": "which is what a\nfile saved as UTF-16 opens with; any other bytes",
+  "delivered_fragment": "which is what a\nfile saved as UTF-16 opens with, any other bytes",
+  "agent": "/root/measure_t8/control_warm_spur_compile",
+  "observed_status": "interrupted",
+  "reason": "Operator punctuation transcription mismatch; no valid draft submitted.",
+  "delivery": "Rendered text manually transferred through spawn_agent message"
+}

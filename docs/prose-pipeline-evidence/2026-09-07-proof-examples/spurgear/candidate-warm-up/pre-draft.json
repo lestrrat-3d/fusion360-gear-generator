@@ -1,0 +1,23 @@
+{
+  "commit": "f43942d540db978e88c1c1a218ec8d5358296f2a",
+  "recorded_at": "2026-09-07T03:08:23.236506+00:00",
+  "environment": {
+    "GOTOOLCHAIN": "go1.26.8",
+    "GOMAXPROCS": "8",
+    "GOCACHE": "/home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/docs-prose-example-measurements/.tmp/t8-cache/candidate/go-build",
+    "TMPDIR": "/home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/docs-prose-example-measurements/.tmp/t8-cache/candidate/tmp",
+    "GIT_CEILING_DIRECTORIES": "/home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/docs-prose-example-measurements/.tmp/t8-cache/candidate/tmp",
+    "SKETCH_DIR": "/home/lestrrat/dev/src/github.com/lestrrat-3d/sketch",
+    "DECAD_DIR": "/home/lestrrat/dev/src/github.com/lestrrat-3d/decad/.worktrees/chore-gear-pipeline-pin"
+  },
+  "models": {
+    "design": "gpt-6-astra",
+    "mechanical": "gpt-6-astra"
+  },
+  "reasoning": "high",
+  "prompt_sha256": "8cba8608ef8957ddd902cdc70c84cf239da7825ef892134b0d5b079dd5de52d0",
+  "engines": {
+    "SKETCH_DIR": "34765bc10360aefd3015133afb0f3bb1586abbba",
+    "DECAD_DIR": "f200324e2a14ac657cd190b0e90cad54acb2f4c9"
+  }
+}
