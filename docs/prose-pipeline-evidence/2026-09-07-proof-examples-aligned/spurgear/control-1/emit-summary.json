@@ -1,0 +1,63 @@
+{
+  "accepted": false,
+  "advisory_triage": {
+    "complete": true,
+    "findings": [
+      {
+        "findings": 8,
+        "round": 1
+      }
+    ],
+    "status": "complete"
+  },
+  "complete": true,
+  "completed_rounds": 1,
+  "completeness": {
+    "complete": true,
+    "reasons": [
+      "round 1 is not a complete full-policy first pass"
+    ]
+  },
+  "drafting_time_s": 486.836953,
+  "final_compile_acceptance": {
+    "accepted": false,
+    "observed": false,
+    "round": null
+  },
+  "first_pass": false,
+  "gate_duration_s": 2.16,
+  "gate_failure_details": [
+    {
+      "advisory": false,
+      "key": "anchors",
+      "round": 1,
+      "status": "fail"
+    },
+    {
+      "advisory": false,
+      "key": "api_calls",
+      "round": 1,
+      "status": "fail"
+    }
+  ],
+  "gate_failures": 2,
+  "gear": "spurgear",
+  "issues": [],
+  "placement_time_s": null,
+  "pre_emission_readiness": {
+    "handoff": null,
+    "observed": false,
+    "round": null
+  },
+  "preflight_time_s": 0.357502,
+  "run_id": "2026-09-07-proof-examples-aligned-control-1-spurgear-emit",
+  "schema": 1,
+  "stage": "emit",
+  "starting_git_commit": "9bd932f626cecdd5146f7b93c3fd69fca3ed47fc",
+  "token_counts": {
+    "input": null,
+    "output": null
+  },
+  "total_wall_time_s": 685.330732,
+  "validation_time_s": 2.32208
+}

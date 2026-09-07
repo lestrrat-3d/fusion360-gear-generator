@@ -1,0 +1,16 @@
+package decad // import "."
+
+type EdgePredicate struct {
+	// Has unexported fields.
+}
+    EdgePredicate is one clause of an EdgeQuery (core §6.2). Predicates
+    come only from the package constructors — Convex, Concave, ParallelTo,
+    LongerThan, CreatedBy, Circular — and compose by conjunction; the zero value
+    names no predicate and refuses to encode.
+
+func Circular() EdgePredicate
+func Concave() EdgePredicate
+func Convex() EdgePredicate
+func CreatedBy(f FeatureRef) EdgePredicate
+func LongerThan(l units.Value) EdgePredicate
+func ParallelTo(v r3.Vec) EdgePredicate

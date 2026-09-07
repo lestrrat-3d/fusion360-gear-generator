@@ -1,0 +1,42 @@
+{
+  "round": 3,
+  "failure_category": null,
+  "decision": "Focused iteration passes; ordinary full report is required before emission.",
+  "proof_failures": [],
+  "source_fault_confirmed": false,
+  "api_advisories": [
+    {
+      "owner": "adsk.fusion.Sketch",
+      "name": "project",
+      "status": "unverified",
+      "decision": "Retain unverified advisory; no waiver or source change; Fusion acceptance remains unsettled."
+    },
+    {
+      "owner": "adsk.fusion.SketchTexts",
+      "name": "createInput2",
+      "status": "unverified",
+      "decision": "Retain unverified advisory; no waiver or source change; Fusion acceptance remains unsettled."
+    },
+    {
+      "owner": "adsk.fusion.FilletFeatureInput",
+      "name": "addConstantRadiusEdgeSet",
+      "status": "unverified",
+      "decision": "Retain unverified advisory; no waiver or source change; Fusion acceptance remains unsettled."
+    }
+  ],
+  "coverage_advisories": {
+    "spec/spurgear/fusion.md": {
+      "claimed": 196,
+      "total": 209,
+      "unclaimed": 13
+    },
+    "spec/spurgear/instructions.md": {
+      "claimed": 486,
+      "total": 498,
+      "unclaimed": 12
+    }
+  },
+  "diagnosis_interval_s": null,
+  "recorded_at_utc": "2026-09-07T07:13:21.452338+00:00",
+  "coverage": "See compile-r3-coverage.json. Removed completed-gear chamfer assertions and joint pattern partition checks prevent an unchanged-coverage claim."
+}

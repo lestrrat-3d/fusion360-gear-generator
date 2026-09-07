@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "encoding": "utf8-chunks",
+  "original_name": "decad-doc-BodyReport.log",
+  "original_sha256": "406fa66c6ff273dcca08a9583119e9facb6085a4cbe85ded9badc0fb32df71d3",
+  "original_bytes": 1370,
+  "chunks": [
+    "package decad // import \".\"\n\ntype BodyReport struct {\n\tBody   *Body\n\tStatus Status\n\n\tSolid          ",
+    "  bool\n\tWatertight       bool\n\tManifold         bool\n\tSelfIntersecting bool\n\tLumps            int\n\tV",
+    "oids            int\n\n\tArea   Measurement\n\tBounds Box\n\n\tVolume   *Measurement\n\tCentroid *VecMeasureme",
+    "nt\n\n\tExactness Exactness\n\n\tMinWallThickness *Measurement\n\tUndercuts        []*Face\n\tMinRadius       ",
+    " *Measurement\n}\n    BodyReport is one live body's verdict and readings (verification §1).\n\n    The v",
+    "alidity predicates report the boundary the evaluator holds — exact as\n    data; what they prove abou",
+    "t the PART is Status's to say. A quantity a body\n    does not have is absent — nil, never zero: Area",
+    " and Bounds are boundary\n    properties every body has, so they are unconditional; Volume and Centro",
+    "id\n    are region properties only a proven solid has, so both are non-nil exactly\n    when the body ",
+    "is one. The opt-in fields are nil unless their option asks AND\n    the body is a proven solid AND (f",
+    "or the two feature measures) the feature\n    exists: on this evaluator's analytic bodies the surveys",
+    " decide them outright\n    (survey.go), so a nil MinWallThickness or MinRadius on a proven solid insi",
+    "de\n    a Sound report is the PROVEN determination that no wall / no concave feature\n    exists, and ",
+    "an empty Undercuts the proven all-clear (verification §1/§6).\n\n"
+  ]
+}

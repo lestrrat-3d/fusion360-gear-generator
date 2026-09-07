@@ -1,0 +1,49 @@
+package sketch // import "."
+
+type Profile struct {
+	// Entities is the de-duplicated set of distinct sketch entities on the
+	// OUTER boundary, in first-seen walk order. For a boundary with no bare
+	// crossings this is the historical contract unchanged (a rectangle is four
+	// lines, a circle is one circle); a curve split at a crossing appears once.
+	Entities []Entity
+	// Outer is the ordered outer-boundary edge loop, counter-clockwise. Each
+	// edge is a whole entity or a fragment of one.
+	Outer []BoundaryEdge
+	// Holes are inner boundary loops (each clockwise), nil when the region is
+	// simply connected. A hole is a void in this region — a separate region may
+	// also occupy it.
+	Holes [][]BoundaryEdge
+	// Area is the net region area (outer minus holes) in base units (mm²),
+	// >= 0 for a clean region, 0 for a degenerate one.
+	Area float64
+	// Valid is false when the region cannot be trusted as an extrudable profile:
+	// a self-intersecting or zero-area boundary, or an unresolvable (degenerate)
+	// arrangement condition that REACHES this region — one involving a curve its own
+	// boundary is built from, or one no curve could be blamed for at all.
+	//
+	// An ATTRIBUTABLE condition, on curves this region's boundary does not use,
+	// leaves this region valid, so a sketch can hold both valid and invalid
+	// profiles. An unattributable one has no such reach limit and invalidates every
+	// region detected. Whether the sketch as a whole is verifiable is a different
+	// question, answered by [VerificationReport.ProfilesValid], which also covers a
+	// condition that produced no region to report.
+	Valid bool
+	// SelfIntersecting marks the specific invalidity that the boundary the
+	// region derives from crosses or touches itself.
+	SelfIntersecting bool
+
+	// Has unexported fields.
+}
+    Profile is a closed planar region detected in a sketch. Its outer boundary
+    is an ordered loop of edges; each edge is a whole sketch entity or a
+    fragment of one (a curve split where it crosses another). A region may
+    enclose holes. A single closed primitive (circle or ellipse) is a region on
+    its own.
+
+    Profiles are what downstream operations (eventually extrude/revolve)
+    consume, so an Entity's shape, closure, area and validity are observable
+    here.
+
+func (p *Profile) IsStale() bool
+func (p *Profile) Revision() uint64
+func (p *Profile) Sketch() *Sketch

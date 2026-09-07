@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "encoding": "utf8-chunks",
+  "original_name": "decad-doc-Axis.log",
+  "original_sha256": "67ec8c887584ff9f172ae39e37c655393c97b21e4b5e65f3b42458522ee5dd33",
+  "original_bytes": 224,
+  "chunks": [
+    "package decad // import \".\"\n\ntype Axis interface {\n\t// Has unexported methods.\n}\n    Axis is what a ",
+    "revolve may spin about (docs/api-design.md §6.2). Sealed:\n    the variants are SketchLine, Construct",
+    "ionAxis and EdgeAxis.\n\n"
+  ]
+}

@@ -1,0 +1,14 @@
+REVIEW (12) — advisory; mostly stub artifacts, NOT a gate:
+  L213 [reportArgumentType] Argument of type "Unknown | None" cannot be assigned to parameter "planarEntity" of type "Base" in function "setByOffset"
+  L230 [reportAttributeAccessIssue] Cannot access attribute "project" for class "Sketch"
+  L299 [reportAttributeAccessIssue] Cannot access attribute "geometry" for class "Base"
+  L340 [reportAttributeAccessIssue] Cannot assign to attribute "operation" for class "CombineFeatureInput"
+  L361 [reportAssignmentType] Type "Surface" is not assignable to declared type "Cylinder"
+  L368 [reportAssignmentType] Type "Curve3D" is not assignable to declared type "Line3D"
+  L378 [reportAttributeAccessIssue] Cannot access attribute "addConstantRadiusEdgeSet" for class "FilletFeatureInput"
+  L419 [reportAttributeAccessIssue] Cannot access attribute "geometry" for class "Base"
+  L435 [reportAssignmentType] Type "Curve3D" is not assignable to declared type "Circle3D"
+  L492 [reportAttributeAccessIssue] Cannot access attribute "project" for class "Sketch"
+  L527 [reportAttributeAccessIssue] Cannot access attribute "createInput2" for class "SketchTexts"
+  L647 [reportAttributeAccessIssue] Cannot access attribute "project" for class "Sketch"
+pyright_check spurgear.generated.py: 0 blocking, 12 review, 15 ignored (stub false positives)

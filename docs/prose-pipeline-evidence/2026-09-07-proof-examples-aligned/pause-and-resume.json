@@ -1,0 +1,23 @@
+{
+  "recorded_resume_at": "2026-09-07T06:06:31.731459+00:00",
+  "pause_boundary_recorded_at": "2026-09-07T05:52:34.643363+00:00",
+  "after_trial": {
+    "gear": "spurgear",
+    "condition": "candidate",
+    "trial": 1
+  },
+  "resume_at": {
+    "gear": "spurgear",
+    "condition": "candidate",
+    "trial": 2
+  },
+  "reason": "Parent-directed pause for user-requested PR120 CI repair",
+  "parent_report": {
+    "pr120_commit": "9517d531b70a98c16e2c955398712356073f6774",
+    "checks_passed": 9,
+    "repair_worktree": "Separate PR120 worktree",
+    "private_t8_caches_used": false,
+    "general_go_cache_used": true
+  },
+  "methodology": "Private T8 condition caches remain preserved. Installed module/toolchain caches are shared and may have changed during the separate repair. No PR120 artifacts or changes enter trial inputs. The between-trial pause is excluded from each trial interval."
+}

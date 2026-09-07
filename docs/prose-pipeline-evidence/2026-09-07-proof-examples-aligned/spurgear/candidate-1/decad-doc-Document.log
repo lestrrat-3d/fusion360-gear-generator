@@ -1,0 +1,18 @@
+package decad // import "."
+
+type Document struct {
+	// Has unexported fields.
+}
+    Document is the mutable root of a model: it owns the live body set and the
+    step list. It is immediate-mode — the caller's Go function is the feature
+    tree (core §6) — and it is NOT safe for concurrent mutation (core §12);
+    the bodies it hands out are immutable and safe to read from anywhere.
+
+func New(_ ...DocumentOption) *Document
+func (d *Document) Bodies() []*Body
+func (d *Document) Extrude(s *sketch.Sketch, p *sketch.Profile, e Extent, opts ...ExtrudeOption) (*Body, error)
+func (d *Document) Loft(s0 *sketch.Sketch, p0 *sketch.Profile, s1 *sketch.Sketch, p1 *sketch.Profile, ...) (*Body, error)
+func (d *Document) LoftContext(ctx context.Context, s0 *sketch.Sketch, p0 *sketch.Profile, s1 *sketch.Sketch, ...) (*Body, error)
+func (d *Document) Recipe() Recipe
+func (d *Document) Revolve(s *sketch.Sketch, p *sketch.Profile, axis Axis, a AngularExtent, ...) (*Body, error)
+func (d *Document) Verify(ctx context.Context, opts ...VerifyOption) (*Report, error)

@@ -1,0 +1,9 @@
+{
+  "GOTOOLCHAIN": "go1.26.8",
+  "GOMAXPROCS": "8",
+  "GOCACHE": "/home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/docs-prose-aligned-measurements/.tmp/t8-cache/control/go-build",
+  "TMPDIR": "/home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/docs-prose-aligned-measurements/.tmp/t8-cache/control/tmp",
+  "GIT_CEILING_DIRECTORIES": "/home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/docs-prose-aligned-measurements/.tmp/t8-cache/control/tmp",
+  "SKETCH_DIR": "/home/lestrrat/dev/src/github.com/lestrrat-3d/sketch",
+  "DECAD_DIR": "/home/lestrrat/dev/src/github.com/lestrrat-3d/decad/.worktrees/chore-gear-pipeline-pin"
+}

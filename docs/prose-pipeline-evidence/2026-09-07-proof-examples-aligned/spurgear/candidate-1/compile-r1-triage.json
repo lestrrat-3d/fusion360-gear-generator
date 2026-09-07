@@ -1,0 +1,15 @@
+{
+  "recorded_at": "2026-09-07T05:29:59.966444+00:00",
+  "round": 1,
+  "classification": "draft_fault",
+  "tool": "render_step_metadata.py",
+  "exit_code": 1,
+  "findings": [
+    "Step 4 call 2 name and receiver do not match its span",
+    "Step 11 call 2 name and receiver do not match its span"
+  ],
+  "full_gate_report": null,
+  "first_submission_passed": false,
+  "feedback_sha256": "aab6b7cc805f1ebf97f1d495b2e46e586ddd81a6eb821c72855ccd9a04c88652",
+  "source_concerns": "Both prefix and annular-body behavioral conflicts withdrawn in read-only clarification; inputs unchanged."
+}

@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "encoding": "utf8-chunks",
+  "original_name": "go-doc-NewDiameter.log",
+  "original_sha256": "3d779dacba6234af5afe50402ef3bee2980f7546313b95f401eaf985a2d93b68",
+  "original_bytes": 331,
+  "chunks": [
+    "package sketch // import \".\"\n\nfunc NewDiameter(c Circular, d float64) *Diameter\n    NewDiameter cons",
+    "trains a circular entity's diameter. It accepts a *Circle or\n    an *Arc. As with NewRadius, an arc ",
+    "operand must have a nonzero radius (its\n    start must not coincide with its center) or the solver h",
+    "as no gradient to\n    act on.\n\n"
+  ]
+}

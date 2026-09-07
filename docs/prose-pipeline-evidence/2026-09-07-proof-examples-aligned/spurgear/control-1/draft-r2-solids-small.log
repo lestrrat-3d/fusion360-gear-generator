@@ -1,0 +1,26 @@
+--- FAIL: TestBoreCut (0.96s)
+    --- FAIL: TestBoreCut/positive_bore (0.10s)
+        solids_test.go:344: step: four circles with shared local origin and driving diameters
+        solids_test.go:344: step: copied arc center, shared ends, directed spine
+        solids_test.go:344: step: rib 0, including both endpoints
+        solids_test.go:344: step: rib 1, including both endpoints
+        solids_test.go:344: step: rib 2, including both endpoints
+        solids_test.go:344: step: rib 3, including both endpoints
+        solids_test.go:344: step: rib 4, including both endpoints
+        solids_test.go:344: step: rib 5, including both endpoints
+        solids_test.go:344: step: rib 6, including both endpoints
+        solids_test.go:344: step: rib 7, including both endpoints
+        solids_test.go:344: step: rib 8, including both endpoints
+        solids_test.go:344: step: rib 9, including both endpoints
+        solids_test.go:344: step: rib 10, including both endpoints
+        solids_test.go:344: step: rib 11, including both endpoints
+        solids_test.go:344: step: rib 12, including both endpoints
+        solids_test.go:344: step: rib 13, including both endpoints
+        solids_test.go:344: step: rib 14, including both endpoints
+        solids_test.go:344: step: anchor the complete network through the Tools projection
+        solids_test.go:344: profile boundary: lines=2 splines=2 arcs=2
+        solids_test.go:344: profile boundary: lines=0 splines=0 arcs=2
+        solids_test.go:344: bored outline has no through-hole region
+FAIL
+FAIL	github.com/lestrrat-3d/fusion360-gear-generator/proof/spurgear	10.113s
+FAIL

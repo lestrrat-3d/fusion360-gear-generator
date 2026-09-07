@@ -1,0 +1,42 @@
+package decad // import "."
+
+type Body struct {
+	// Has unexported fields.
+}
+    Body is an immutable solid: every operation returns a new one, and the input
+    body is retired from its document (core §6).
+
+func Cut(target, tool *Body) (*Body, error)
+func CutContext(ctx context.Context, target, tool *Body) (*Body, error)
+func Intersect(a, b *Body) (*Body, error)
+func IntersectContext(ctx context.Context, a, b *Body) (*Body, error)
+func Union(a, b *Body) (*Body, error)
+func UnionContext(ctx context.Context, a, b *Body) (*Body, error)
+func (b *Body) Area() (Measurement, error)
+func (b *Body) Bounds() (Box, error)
+func (b *Body) Centroid() (VecMeasurement, error)
+func (b *Body) Chamfer(sel EdgeSelector, d units.Value, opts ...ChamferOption) (*Body, error)
+func (b *Body) ChamferContext(ctx context.Context, sel EdgeSelector, d units.Value, opts ...ChamferOption) (*Body, error)
+func (b *Body) Document() *Document
+func (b *Body) Duplicate() (*Body, error)
+func (b *Body) DuplicateContext(ctx context.Context) (*Body, error)
+func (b *Body) Edges() []*Edge
+func (b *Body) Faces() []*Face
+func (b *Body) Fillet(sel EdgeSelector, r units.Value, opts ...FilletOption) (*Body, error)
+func (b *Body) FilletContext(ctx context.Context, sel EdgeSelector, r units.Value, opts ...FilletOption) (*Body, error)
+func (b *Body) IsSolid() bool
+func (b *Body) Lumps() []*Lump
+func (b *Body) OBJ(w io.Writer, opts ...OBJOption) error
+func (b *Body) Origin() FeatureRef
+func (b *Body) Placed(t r3.Transform) (*Body, error)
+func (b *Body) PlacedContext(ctx context.Context, t r3.Transform) (*Body, error)
+func (b *Body) PlacedCopy(t r3.Transform) (*Body, error)
+func (b *Body) PlacedCopyContext(ctx context.Context, t r3.Transform) (*Body, error)
+func (b *Body) STL(w io.Writer, opts ...STLOption) error
+func (b *Body) Shell(sel FaceSelector, t units.Value, opts ...ShellOption) (*Body, error)
+func (b *Body) ShellContext(ctx context.Context, sel FaceSelector, t units.Value, opts ...ShellOption) (*Body, error)
+func (b *Body) Shells() []*Shell
+func (b *Body) Tessellate(tol units.Value) (*Mesh, error)
+func (b *Body) TessellateContext(ctx context.Context, tol units.Value) (*Mesh, error)
+func (b *Body) Vertices() []*Vertex
+func (b *Body) Volume() (Measurement, error)

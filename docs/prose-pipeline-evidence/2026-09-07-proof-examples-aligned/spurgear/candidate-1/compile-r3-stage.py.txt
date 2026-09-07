@@ -1,0 +1,8 @@
+stage: indexed proof/spurgear
+stage: wrote spec/spurgear/steps.md (137292 bytes)
+stage: steps OK (1 written)
+stage: wrote proof/spurgear/sketches_test.go (9055 bytes)
+stage: unchanged proof/spurgear/solids_test.go
+stage: unchanged proof/spurgear/zz_registrations_test.go
+stage: proof OK (1 written, 2 unchanged, 0 pruned, 0 left alone)
+stage: compile OK (steps + proof)

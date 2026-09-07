@@ -1,0 +1,28 @@
+{
+  "round": 3,
+  "no_dropped_assertions_established": false,
+  "substitutions": [
+    "Actual root-circle contacts and seam cancellation replace direct profile fragment counts.",
+    "Solid tooth extrusion chords flank samples rather than using the trimmed fitted-spline region.",
+    "Completed outline skips early root samples until the new chord spans at least two fillet radii.",
+    "Bore is a hole in the extruded section followed by root fillets rather than a Boolean cut after filleting."
+  ],
+  "retained_checks": [
+    "Actual sketch keeps original flank samples and stub constraints.",
+    "Bored/unbored solid volume difference uses the existing relative 1e-5 bore-volume tolerance."
+  ],
+  "omitted_operations": [
+    "Completed-gear chamfer remains PROSE from the initial draft.",
+    "Fusion-style combine and through-bore Boolean operations are not executed by their substitutes."
+  ],
+  "diff_evidence": [
+    {
+      "path": "round3-sketches_test.go-diff.txt",
+      "sha256": "6300108bcc197a5abad4a423c570ffd7d2a34baaca128e42e9d299734561fadf"
+    },
+    {
+      "path": "round3-solids_test.go-diff.txt",
+      "sha256": "3e3e1ae8a01cd0fbd3c2983b585e8862796a6b7a826b0cc37c9aa2e156c597f2"
+    }
+  ]
+}

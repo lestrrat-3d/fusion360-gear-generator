@@ -1,0 +1,14 @@
+package decad // import "."
+
+type Edge struct {
+	// Has unexported fields.
+}
+    Edge is a topological edge: a tagged curve between two vertices, with the
+    faces adjacent to it.
+
+func (e *Edge) Curve() Curve
+func (e *Edge) End() *Vertex
+func (e *Edge) Faces() []*Face
+func (e *Edge) IsConvex() bool
+func (e *Edge) Length() (Measurement, error)
+func (e *Edge) Start() *Vertex

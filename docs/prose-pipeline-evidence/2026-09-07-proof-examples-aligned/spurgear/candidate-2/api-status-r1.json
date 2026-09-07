@@ -1,0 +1,778 @@
+[
+  {
+    "declared_on": "adsk.core.CommandInputs",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "addSelectionInput",
+    "owner": "adsk.core.CommandInputs",
+    "returns": "SelectionCommandInput",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.core.CommandInputs",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "addValueInput",
+    "owner": "adsk.core.CommandInputs",
+    "returns": "ValueCommandInput",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.core.CommandInputs",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "addStringValueInput",
+    "owner": "adsk.core.CommandInputs",
+    "returns": "StringValueCommandInput",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.core.CommandInputs",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "addBoolValueInput",
+    "owner": "adsk.core.CommandInputs",
+    "returns": "BoolValueCommandInput",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.core.SelectionCommandInput",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "addSelectionFilter",
+    "owner": "adsk.core.SelectionCommandInput",
+    "returns": "bool",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.core.SelectionCommandInput",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "setSelectionLimits",
+    "owner": "adsk.core.SelectionCommandInput",
+    "returns": "bool",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.core.SelectionCommandInput",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "addSelection",
+    "owner": "adsk.core.SelectionCommandInput",
+    "returns": "bool",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.core.ValueInput",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "createByReal",
+    "owner": "adsk.core.ValueInput",
+    "returns": "ValueInput",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.core.ValueInput",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "createByString",
+    "owner": "adsk.core.ValueInput",
+    "returns": "ValueInput",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.core.Point3D",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "create",
+    "owner": "adsk.core.Point3D",
+    "returns": "Point3D",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.core.Point3D",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "vectorTo",
+    "owner": "adsk.core.Point3D",
+    "returns": "Vector3D",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.core.ObjectCollection",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "create",
+    "owner": "adsk.core.ObjectCollection",
+    "returns": "ObjectCollection",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.core.ObjectCollection",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "add",
+    "owner": "adsk.core.ObjectCollection",
+    "returns": "bool",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.core.ObjectCollection",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "item",
+    "owner": "adsk.core.ObjectCollection",
+    "returns": "Base",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.core.Vector3D",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "normalize",
+    "owner": "adsk.core.Vector3D",
+    "returns": "bool",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.core.Vector3D",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "dotProduct",
+    "owner": "adsk.core.Vector3D",
+    "returns": "float",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.core.Plane",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "isParallelToPlane",
+    "owner": "adsk.core.Plane",
+    "returns": "bool",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.core.Plane",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "isCoPlanarTo",
+    "owner": "adsk.core.Plane",
+    "returns": "bool",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.fusion.ConstructionPlanes",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "createInput",
+    "owner": "adsk.fusion.ConstructionPlanes",
+    "returns": "ConstructionPlaneInput",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.fusion.ConstructionPlanes",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "add",
+    "owner": "adsk.fusion.ConstructionPlanes",
+    "returns": "ConstructionPlane",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.fusion.ConstructionPlaneInput",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "setByOffset",
+    "owner": "adsk.fusion.ConstructionPlaneInput",
+    "returns": "bool",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": null,
+    "disposition": "advisory",
+    "evidence": [
+      "The database does not declare the requested member on this owner.",
+      "the shipped add-ins call `sketch.project(entity)`, and the spur step list names it",
+      "Whether Fusion accepts the call is unsettled; only running the add-in decides."
+    ],
+    "name": "project",
+    "owner": "adsk.fusion.Sketch",
+    "returns": null,
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "unverified"
+  },
+  {
+    "declared_on": "adsk.fusion.SketchPoints",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "add",
+    "owner": "adsk.fusion.SketchPoints",
+    "returns": "SketchPoint",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.fusion.SketchCircles",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "addByCenterRadius",
+    "owner": "adsk.fusion.SketchCircles",
+    "returns": "SketchCircle",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.fusion.SketchLines",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "addByTwoPoints",
+    "owner": "adsk.fusion.SketchLines",
+    "returns": "SketchLine",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.fusion.SketchArcs",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "addByCenterStartEnd",
+    "owner": "adsk.fusion.SketchArcs",
+    "returns": "SketchArc",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.fusion.SketchFittedSplines",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "add",
+    "owner": "adsk.fusion.SketchFittedSplines",
+    "returns": "SketchFittedSpline",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.fusion.SketchDimensions",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "addDiameterDimension",
+    "owner": "adsk.fusion.SketchDimensions",
+    "returns": "SketchDiameterDimension",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.fusion.SketchDimensions",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "addDistanceDimension",
+    "owner": "adsk.fusion.SketchDimensions",
+    "returns": "SketchLinearDimension",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.fusion.SketchDimensions",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "addAngularDimension",
+    "owner": "adsk.fusion.SketchDimensions",
+    "returns": "SketchAngularDimension",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.fusion.GeometricConstraints",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "addCoincident",
+    "owner": "adsk.fusion.GeometricConstraints",
+    "returns": "CoincidentConstraint",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.fusion.GeometricConstraints",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "addMidPoint",
+    "owner": "adsk.fusion.GeometricConstraints",
+    "returns": "MidPointConstraint",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.fusion.GeometricConstraints",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "addPerpendicular",
+    "owner": "adsk.fusion.GeometricConstraints",
+    "returns": "PerpendicularConstraint",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": null,
+    "disposition": "advisory",
+    "evidence": [
+      "The database does not declare the requested member on this owner.",
+      "the shipped add-ins call `sketch.sketchTexts.createInput2(text, height)`, and the spur step list names it; `ChamferFeatures.createInput2` and `MoveFeatures.createInput2` are real and not at issue",
+      "Whether Fusion accepts the call is unsettled; only running the add-in decides."
+    ],
+    "name": "createInput2",
+    "owner": "adsk.fusion.SketchTexts",
+    "returns": null,
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "unverified"
+  },
+  {
+    "declared_on": "adsk.fusion.SketchTexts",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "add",
+    "owner": "adsk.fusion.SketchTexts",
+    "returns": "SketchText",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.fusion.SketchTextInput",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "setAsAlongPath",
+    "owner": "adsk.fusion.SketchTextInput",
+    "returns": "bool",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.fusion.ExtrudeFeatures",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "createInput",
+    "owner": "adsk.fusion.ExtrudeFeatures",
+    "returns": "ExtrudeFeatureInput",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.fusion.ExtrudeFeatures",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "add",
+    "owner": "adsk.fusion.ExtrudeFeatures",
+    "returns": "ExtrudeFeature",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.fusion.ExtrudeFeatureInput",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "setOneSideExtent",
+    "owner": "adsk.fusion.ExtrudeFeatureInput",
+    "returns": "bool",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.fusion.ToEntityExtentDefinition",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "create",
+    "owner": "adsk.fusion.ToEntityExtentDefinition",
+    "returns": "ToEntityExtentDefinition",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.fusion.ConstructionAxes",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "createInput",
+    "owner": "adsk.fusion.ConstructionAxes",
+    "returns": "ConstructionAxisInput",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.fusion.ConstructionAxes",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "add",
+    "owner": "adsk.fusion.ConstructionAxes",
+    "returns": "ConstructionAxis",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.fusion.ConstructionAxisInput",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "setByCircularFace",
+    "owner": "adsk.fusion.ConstructionAxisInput",
+    "returns": "bool",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.fusion.CircularPatternFeatures",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "createInput",
+    "owner": "adsk.fusion.CircularPatternFeatures",
+    "returns": "CircularPatternFeatureInput",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.fusion.CircularPatternFeatures",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "add",
+    "owner": "adsk.fusion.CircularPatternFeatures",
+    "returns": "CircularPatternFeature",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.fusion.CombineFeatures",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "createInput",
+    "owner": "adsk.fusion.CombineFeatures",
+    "returns": "CombineFeatureInput",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.fusion.CombineFeatures",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "add",
+    "owner": "adsk.fusion.CombineFeatures",
+    "returns": "CombineFeature",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.fusion.FilletFeatures",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "createInput",
+    "owner": "adsk.fusion.FilletFeatures",
+    "returns": "FilletFeatureInput",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.fusion.FilletFeatures",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "add",
+    "owner": "adsk.fusion.FilletFeatures",
+    "returns": "FilletFeature",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": null,
+    "disposition": "advisory",
+    "evidence": [
+      "The database does not declare the requested member on this owner.",
+      "the shipped add-in calls `filletInput.addConstantRadiusEdgeSet(...)`, and the spur step list states that `filletInput.edgeSetInputs` does not exist",
+      "Whether Fusion accepts the call is unsettled; only running the add-in decides."
+    ],
+    "name": "addConstantRadiusEdgeSet",
+    "owner": "adsk.fusion.FilletFeatureInput",
+    "returns": null,
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "unverified"
+  },
+  {
+    "declared_on": "adsk.fusion.ChamferFeatures",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "createInput2",
+    "owner": "adsk.fusion.ChamferFeatures",
+    "returns": "ChamferFeatureInput",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.fusion.ChamferFeatures",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "add",
+    "owner": "adsk.fusion.ChamferFeatures",
+    "returns": "ChamferFeature",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.fusion.ChamferEdgeSets",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "addEqualDistanceChamferEdgeSet",
+    "owner": "adsk.fusion.ChamferEdgeSets",
+    "returns": "bool",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.fusion.Profiles",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "item",
+    "owner": "adsk.fusion.Profiles",
+    "returns": "Profile",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  },
+  {
+    "declared_on": "adsk.fusion.BRepBodies",
+    "disposition": "allow",
+    "evidence": [
+      "The database declares the requested member."
+    ],
+    "name": "item",
+    "owner": "adsk.fusion.BRepBodies",
+    "returns": "BRepBody",
+    "schema": 1,
+    "scope": "receiver",
+    "stale_watchlist": false,
+    "status": "documented"
+  }
+]

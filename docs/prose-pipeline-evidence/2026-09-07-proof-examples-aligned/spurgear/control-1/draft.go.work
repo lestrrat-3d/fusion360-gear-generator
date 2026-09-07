@@ -1,0 +1,6 @@
+go 1.26.8
+use (
+/home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/chore-prose-2026-09-07-proof-examples-aligned-control-1-spurgear/proof
+/home/lestrrat/dev/src/github.com/lestrrat-3d/sketch
+/home/lestrrat/dev/src/github.com/lestrrat-3d/decad/.worktrees/chore-gear-pipeline-pin
+)

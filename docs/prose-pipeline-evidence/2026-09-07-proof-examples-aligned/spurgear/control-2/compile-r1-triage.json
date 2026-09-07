@@ -1,0 +1,9 @@
+{
+  "round": 1,
+  "failure_category": "draft_fault",
+  "tool": "render_step_metadata.py",
+  "decision": "Continue with unchanged complete preparation failure report. No full gate report was produced.",
+  "first_submission_passed": false,
+  "feedback_sha256": "281f643c0abb8cc4dd05adeab456c7470dabf4c98888eea641d3aab2147136a2",
+  "recorded_at_utc": "2026-09-07T07:45:41.846527+00:00"
+}

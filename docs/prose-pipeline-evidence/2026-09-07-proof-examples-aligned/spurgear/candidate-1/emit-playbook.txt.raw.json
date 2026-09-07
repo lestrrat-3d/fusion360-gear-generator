@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "encoding": "utf8-chunks",
+  "original_name": "emit-playbook.txt",
+  "original_sha256": "8b438e73434f078ac812c439d4c2b03117a894c3040fb064fcebb0a964159c56",
+  "original_bytes": 328,
+  "chunks": [
+    "playbook-extract check: spurgear: 48 anchors cited (34 defined in the playbook), 36 blocks written, ",
+    "40831 bytes vs 72144 playbook bytes (57%) -> /home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360",
+    "-gear-generator/.worktrees/chore-prose-2026-09-07-proof-examples-aligned-candidate-1-spurgear/.tmp/s",
+    "purgear.playbook-extract.md\n"
+  ]
+}

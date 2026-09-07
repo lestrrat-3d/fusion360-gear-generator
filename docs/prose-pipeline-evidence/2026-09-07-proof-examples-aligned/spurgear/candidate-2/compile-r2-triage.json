@@ -1,0 +1,46 @@
+{
+  "round": 2,
+  "failure_category": "draft_fault",
+  "decision": "Continue normal third drafting round with unchanged complete runner output.",
+  "proof_failures": [
+    "Detected root-disc profile count fails.",
+    "Root solid profile selection returns nil.",
+    "Pattern verification has undecided pair diagnostics.",
+    "Embedded bore and cap chamfer construction report unsupported geometry."
+  ],
+  "source_fault_confirmed": false,
+  "api_advisories": [
+    {
+      "owner": "adsk.fusion.Sketch",
+      "name": "project",
+      "status": "unverified",
+      "decision": "Retain unverified advisory; no waiver or source change; Fusion acceptance remains unsettled."
+    },
+    {
+      "owner": "adsk.fusion.SketchTexts",
+      "name": "createInput2",
+      "status": "unverified",
+      "decision": "Retain unverified advisory; no waiver or source change; Fusion acceptance remains unsettled."
+    },
+    {
+      "owner": "adsk.fusion.FilletFeatureInput",
+      "name": "addConstantRadiusEdgeSet",
+      "status": "unverified",
+      "decision": "Retain unverified advisory; no waiver or source change; Fusion acceptance remains unsettled."
+    }
+  ],
+  "coverage_advisories": {
+    "spec/spurgear/fusion.md": {
+      "claimed": 196,
+      "total": 209,
+      "unclaimed": 13
+    },
+    "spec/spurgear/instructions.md": {
+      "claimed": 486,
+      "total": 498,
+      "unclaimed": 12
+    }
+  },
+  "diagnosis_interval_s": null,
+  "recorded_at_utc": "2026-09-07T06:59:38.975285+00:00"
+}

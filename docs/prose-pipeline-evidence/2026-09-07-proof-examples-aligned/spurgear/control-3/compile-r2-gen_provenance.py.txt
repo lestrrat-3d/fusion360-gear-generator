@@ -1,0 +1,1 @@
+gen_provenance: stamped 5 source(s) into .tmp/spurgear.steps.md

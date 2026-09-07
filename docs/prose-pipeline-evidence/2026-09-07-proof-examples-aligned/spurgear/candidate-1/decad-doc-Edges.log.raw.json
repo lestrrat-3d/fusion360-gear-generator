@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "encoding": "utf8-chunks",
+  "original_name": "decad-doc-Edges.log",
+  "original_sha256": "7ed753f25798fe0f71c5d60b8a8210ddc80eb7e3b4c56293b6997d594fdbbf76",
+  "original_bytes": 313,
+  "chunks": [
+    "package decad // import \".\"\n\nfunc Edges(preds ...EdgePredicate) *EdgeQuery\n    Edges returns a query",
+    " matching every edge that satisfies all of preds;\n    no predicates matches every edge. A query that",
+    " matches nothing at resolve is\n    an error, loudly — ErrNoMatch, or ErrCardinality when asserted (c",
+    "ore §9).\n\n"
+  ]
+}

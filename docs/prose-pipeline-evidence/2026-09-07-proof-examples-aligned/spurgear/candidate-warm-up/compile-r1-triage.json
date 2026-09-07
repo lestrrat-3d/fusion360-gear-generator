@@ -1,0 +1,22 @@
+{
+  "round": 1,
+  "report": "compile-r1.json",
+  "sha256": "7b9522c810ece3e18bfd1268e7535ad83b1c679ef7f754c3b57f8c06758d2263",
+  "classification": "draft_fault",
+  "reason": "Draft proof fails profile-count assertions, produces unsound patterned/combined solids, and selects fillet geometry refused by the evaluator. First attempt; return unchanged report for repair.",
+  "advisories": [
+    {
+      "member": "adsk.fusion.FilletFeatureInput.addConstantRadiusEdgeSet",
+      "decision": "Retain as visible unverified API evidence; not blocking and not waived."
+    },
+    {
+      "member": "adsk.fusion.SketchTexts.createInput2",
+      "decision": "Retain as visible unverified API evidence; not blocking and not waived."
+    },
+    {
+      "member": "adsk.fusion.Sketch.project",
+      "decision": "Retain as visible unverified API evidence; not blocking and not waived."
+    }
+  ],
+  "ready_for_emit": false
+}

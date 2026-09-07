@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "encoding": "utf8-chunks",
+  "original_name": "preflight-compile.json",
+  "original_sha256": "00d824ed43d6ba77944eb71a622d43e46e05366ad0530d51cb5c8bb1626ff657",
+  "original_bytes": 1675,
+  "chunks": [
+    "{\"gear\": \"spurgear\", \"stage\": \"compile\", \"ready\": true, \"checks\": [{\"key\": \"repo-root\", \"status\": \"o",
+    "k\", \"detail\": \"repository root at /home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-gener",
+    "ator/.worktrees/chore-prose-2026-09-07-proof-examples-aligned-candidate-1-spurgear\"}, {\"key\": \"git\",",
+    " \"status\": \"ok\", \"detail\": \"git version 2.43.0\"}, {\"key\": \"tmp-dir\", \"status\": \"ok\", \"detail\": \".tmp",
+    "/ exists\"}, {\"key\": \"worktree\", \"status\": \"ok\", \"detail\": \"linked worktree (git dir /home/lestrrat/d",
+    "ev/src/github.com/lestrrat-3d/fusion360-gear-generator/.git/worktrees/chore-prose-2026-09-07-proof-e",
+    "xamples-aligned-candidate-1-spurgear)\"}, {\"key\": \"model-tiers\", \"status\": \"ok\", \"detail\": \"design=gp",
+    "t-6-astra, mechanical=gpt-6-astra (default gpt-6-astra is not on the ladder; no step down)\"}, {\"key\"",
+    ": \"spec\", \"status\": \"ok\", \"detail\": \"spec at spec/spurgear/instructions.md\"}, {\"key\": \"go\", \"status\"",
+    ": \"ok\", \"detail\": \"go version go1.26.8 linux/amd64\"}, {\"key\": \"sketch-engine\", \"status\": \"ok\", \"deta",
+    "il\": \"sketch engine at /home/lestrrat/dev/src/github.com/lestrrat-3d/sketch ($SKETCH_DIR)\"}, {\"key\":",
+    " \"decad-engine\", \"status\": \"ok\", \"detail\": \"decad engine at /home/lestrrat/dev/src/github.com/lestrr",
+    "at-3d/decad/.worktrees/chore-gear-pipeline-pin ($DECAD_DIR)\"}, {\"key\": \"proof-harness\", \"status\": \"o",
+    "k\", \"detail\": \"proof harness present (run.sh, proofkit, proofkit3d, involute)\"}, {\"key\": \"revision-p",
+    "in\", \"status\": \"ok\", \"detail\": \"engine checkouts match the revisions proof/go.mod pins\"}, {\"key\": \"a",
+    "pi-db\", \"status\": \"ok\", \"detail\": \"API database query script at /home/lestrrat/.claude/plugins/cache",
+    "/lestrrat-ai/fusion/0.1.0/skills/query-api/scripts/query_fusion_api.py\"}]}\n"
+  ]
+}

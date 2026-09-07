@@ -1,0 +1,68 @@
+[
+  {
+    "path": "artifacts/compile-r1-submitted/proof/sketches_test.go",
+    "sha256": "c3124596a0fd55dbbcca5ce284259fa428ada685c8856e0f68c9b6b97f83894a",
+    "bytes": 7354,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "artifacts/compile-r1-submitted/proof/solids_test.go",
+    "sha256": "cae51f563c9263601b744e601428f54eb4c921dbe5a22b2bc521a8081cabb42a",
+    "bytes": 10717,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "artifacts/compile-r1-submitted/spurgear.steps.md",
+    "sha256": "879984f18d00bc51980341750f94fc2ae5080283070e12d122d606e0e59b2bdf",
+    "bytes": 130535,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "artifacts/compile-r2-submitted/proof/sketches_test.go",
+    "sha256": "c3124596a0fd55dbbcca5ce284259fa428ada685c8856e0f68c9b6b97f83894a",
+    "bytes": 7354,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "artifacts/compile-r2-submitted/proof/solids_test.go",
+    "sha256": "cae51f563c9263601b744e601428f54eb4c921dbe5a22b2bc521a8081cabb42a",
+    "bytes": 10717,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "artifacts/compile-r2-submitted/proof/zz_registrations_test.go",
+    "sha256": "f2c56352a4724debe16520f53221e5a2578290a83ede56b734d951bd04252631",
+    "bytes": 1197,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "artifacts/compile-r2-submitted/spurgear.steps.md",
+    "sha256": "ce00108103cf3bf606b7c56cad3d7debd143c73ebc141a906cc07ea65ba58f92",
+    "bytes": 130554,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "artifacts/compile-r3-submitted/proof/sketches_test.go",
+    "sha256": "c68240016b65b8cc9fcd9f47fc1bf7c4fb7d43d0dd64bda647586c3dc7c311f3",
+    "bytes": 9096,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "artifacts/compile-r3-submitted/proof/solids_test.go",
+    "sha256": "2465b521e75896003e69fcb838e25d8325cc2910ecb3b7882f76f25c3160943f",
+    "bytes": 13606,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "artifacts/compile-r3-submitted/proof/zz_registrations_test.go",
+    "sha256": "f2c56352a4724debe16520f53221e5a2578290a83ede56b734d951bd04252631",
+    "bytes": 1197,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "artifacts/compile-r3-submitted/spurgear.steps.md",
+    "sha256": "f423522a483f7196b125b6785d72fd50d2650dc062f94dc463647d1b4c5e9a2e",
+    "bytes": 132156,
+    "publication": "hash only; local generated artifact/helper"
+  }
+]

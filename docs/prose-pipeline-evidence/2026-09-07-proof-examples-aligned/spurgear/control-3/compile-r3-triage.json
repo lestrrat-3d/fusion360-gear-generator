@@ -1,0 +1,36 @@
+{
+  "round": 3,
+  "failure_category": "retry_exhaustion_solid_build",
+  "decision": "Stop after three compile drafts under owning skill; no readiness or emission.",
+  "blocking_finding": "Pattern partition verification remains undecided; no valid through-bore section is found.",
+  "proof_scope": "Selected gear iteration; readiness remains false.",
+  "source_concerns": "Withdrawn after precise reading without artifact or source changes; API terminology errors retained separately.",
+  "api_advisories": [
+    {
+      "owner": "adsk.fusion.Sketch",
+      "name": "project",
+      "status": "unverified",
+      "decision": "Retain advisory without waiver; Fusion behavior unsettled."
+    },
+    {
+      "owner": "adsk.fusion.SketchTexts",
+      "name": "createInput2",
+      "status": "unverified",
+      "decision": "Retain advisory without waiver; Fusion behavior unsettled."
+    },
+    {
+      "owner": "adsk.fusion.FilletFeatureInput",
+      "name": "addConstantRadiusEdgeSet",
+      "status": "unverified",
+      "decision": "Retain advisory without waiver; Fusion behavior unsettled."
+    }
+  ],
+  "unclaimed_source_lines": {
+    "spec/spurgear/instructions.md": 0,
+    "spec/spurgear/fusion.md": 13,
+    "spec/helicalgear/fusion.md": 60
+  },
+  "recorded_at_utc": "2026-09-07T08:37:16.642412+00:00",
+  "source_fault_confirmed": false,
+  "skill_stop_classification": "Owning skill treats inability to build a sound solid after three rounds as prose-fault stop; no new textual incompatibility confirmed."
+}

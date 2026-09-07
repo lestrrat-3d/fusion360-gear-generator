@@ -1,0 +1,63 @@
+{
+  "recorded_at": "2026-09-07T07:13:50.372694+00:00",
+  "model": "gpt-6-astra",
+  "model_role": "mechanical",
+  "reasoning": "high",
+  "compile_report": "compile-r3-full.json",
+  "prompt_sha256": "b39797362a9110b021bdad7f6c56933040fefd5b141954964c3d1b2aa5cc4d3f",
+  "operator_helper_sha256": "f41311a7a494ecd4a5e9a374abefe18616a45cb49f337afc34734a1d658da02e",
+  "compile_output_digests": [
+    {
+      "path": "proof/spurgear/sketches_test.go",
+      "sha256": "7045d51e9f78c783da17d199dcbaa36f6b4d91c0c5da42cf8a0b65b985294588",
+      "bytes": 10475
+    },
+    {
+      "path": "proof/spurgear/solids_test.go",
+      "sha256": "3e68053507716c3844113f00e65cef165a512a0641285db4614930490eeeb83c",
+      "bytes": 16397
+    },
+    {
+      "path": "proof/spurgear/stage-manifest.json",
+      "sha256": "c28f9533dbcf4da9578a499ec8be6ab590f20b6ef6ba4a720c3ae812e830d60f",
+      "bytes": 415
+    },
+    {
+      "path": "proof/spurgear/zz_registrations_test.go",
+      "sha256": "c700e5f943377f6fd967780664d232bc94ca2c7f44614e2bf764b72f1909318f",
+      "bytes": 1209
+    },
+    {
+      "path": "spec/spurgear/steps.md",
+      "sha256": "59b6a47a01b24e3e4910747082cff272f0ebcc07591ff1e43f6593861d29c478",
+      "bytes": 85777
+    }
+  ],
+  "emit_input_digests": [
+    {
+      "path": "proof/spurgear/sketches_test.go",
+      "sha256": "7045d51e9f78c783da17d199dcbaa36f6b4d91c0c5da42cf8a0b65b985294588",
+      "bytes": 10475
+    },
+    {
+      "path": "proof/spurgear/solids_test.go",
+      "sha256": "3e68053507716c3844113f00e65cef165a512a0641285db4614930490eeeb83c",
+      "bytes": 16397
+    },
+    {
+      "path": "proof/spurgear/stage-manifest.json",
+      "sha256": "c28f9533dbcf4da9578a499ec8be6ab590f20b6ef6ba4a720c3ae812e830d60f",
+      "bytes": 415
+    },
+    {
+      "path": "proof/spurgear/zz_registrations_test.go",
+      "sha256": "c700e5f943377f6fd967780664d232bc94ca2c7f44614e2bf764b72f1909318f",
+      "bytes": 1209
+    },
+    {
+      "path": "spec/spurgear/steps.md",
+      "sha256": "59b6a47a01b24e3e4910747082cff272f0ebcc07591ff1e43f6593861d29c478",
+      "bytes": 85777
+    }
+  ]
+}

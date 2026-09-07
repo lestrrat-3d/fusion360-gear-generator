@@ -1,0 +1,72 @@
+{
+  "accepted": false,
+  "advisory_triage": {
+    "complete": true,
+    "findings": [],
+    "status": "complete"
+  },
+  "complete": true,
+  "completed_rounds": 3,
+  "completeness": {
+    "complete": true,
+    "reasons": [
+      "round 1 is not a complete full-policy first pass"
+    ]
+  },
+  "drafting_time_s": 1872.838049,
+  "final_compile_acceptance": {
+    "accepted": false,
+    "observed": false,
+    "round": null
+  },
+  "first_pass": false,
+  "gate_duration_s": 77.58,
+  "gate_failure_details": [
+    {
+      "advisory": false,
+      "key": "compile",
+      "round": 1,
+      "status": "fail"
+    },
+    {
+      "advisory": false,
+      "key": "proof",
+      "round": 2,
+      "status": "fail"
+    },
+    {
+      "advisory": false,
+      "key": "proof",
+      "round": 3,
+      "status": "fail"
+    }
+  ],
+  "gate_failures": 3,
+  "gear": "spurgear",
+  "issues": [],
+  "placement_time_s": 0.839358,
+  "pre_emission_readiness": {
+    "handoff": {
+      "implementation_sync_required": false,
+      "missing_call_names": [],
+      "ready_for_emit": false,
+      "reasons": [
+        "non_full_run",
+        "proof_incomplete"
+      ]
+    },
+    "observed": true,
+    "round": 3
+  },
+  "preflight_time_s": 0.231107,
+  "run_id": "2026-09-07-proof-examples-aligned-control-3-spurgear-compile",
+  "schema": 1,
+  "stage": "compile",
+  "starting_git_commit": "9bd932f626cecdd5146f7b93c3fd69fca3ed47fc",
+  "token_counts": {
+    "input": null,
+    "output": null
+  },
+  "total_wall_time_s": 2215.986373,
+  "validation_time_s": 78.012132
+}

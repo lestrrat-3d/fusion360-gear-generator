@@ -1,0 +1,34 @@
+{
+  "round": 1,
+  "failure_category": "draft_fault",
+  "decision": "Continue same drafter with complete unchanged full gate report.",
+  "blocking_finding": "Proof path includes a trailing period and does not exist.",
+  "proof_scope": "Omitted by normal compile failure policy.",
+  "source_concerns": "Withdrawn after precise reading without artifact or source changes; API terminology errors retained separately.",
+  "api_advisories": [
+    {
+      "owner": "adsk.fusion.Sketch",
+      "name": "project",
+      "status": "unverified",
+      "decision": "Retain advisory without waiver; Fusion behavior unsettled."
+    },
+    {
+      "owner": "adsk.fusion.SketchTexts",
+      "name": "createInput2",
+      "status": "unverified",
+      "decision": "Retain advisory without waiver; Fusion behavior unsettled."
+    },
+    {
+      "owner": "adsk.fusion.FilletFeatureInput",
+      "name": "addConstantRadiusEdgeSet",
+      "status": "unverified",
+      "decision": "Retain advisory without waiver; Fusion behavior unsettled."
+    }
+  ],
+  "unclaimed_source_lines": {
+    "spec/spurgear/instructions.md": 0,
+    "spec/spurgear/fusion.md": 13,
+    "spec/helicalgear/fusion.md": 60
+  },
+  "recorded_at_utc": "2026-09-07T08:23:12.238763+00:00"
+}

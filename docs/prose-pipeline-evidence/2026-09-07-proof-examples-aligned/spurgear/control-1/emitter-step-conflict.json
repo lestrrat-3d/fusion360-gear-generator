@@ -1,0 +1,59 @@
+{
+  "recorded_at": "2026-09-07T05:06:59.206959+00:00",
+  "path": "spec/spurgear/steps.md",
+  "sha256": "d6b6eb05b0c99131813cdb0d97fe52a845cec2da67a2cf410096fbac7c9364ce",
+  "passages": [
+    {
+      "start": 496,
+      "end": 501,
+      "lines": [
+        "These method names **and the boundaries between them** are public API: helicalgear.py and",
+        "herringbonegear.py subclass SpurGearGenerator and override specific methods, calling",
+        "super() at specific points. A reconstruction that merges or reorders these steps \u2014 even if it",
+        "draws an identical spur gear \u2014 breaks the helical and herringbone gears. Keep the call graph",
+        "exactly as below; only the *contents* of each method (local variables, comments, further private",
+        "helpers) may vary."
+      ]
+    },
+    {
+      "start": 504,
+      "end": 520,
+      "lines": [
+        "generate(inputs)",
+        "  \u2192 processInputs(inputs)",
+        "  \u2192 name the component (generateName)",
+        "  \u2192 normalize self.plane to a ConstructionPlane",
+        "  \u2192 ctx = newContext()",
+        "  \u2192 prepareTools(ctx)            # Tools sketch + ctx.anchorPoint + ctx.extrusionEndPlane (steps 1\u20132)",
+        "  \u2192 buildMainGearBody(ctx)",
+        "        \u2192 buildSketches(ctx)     # Gear Profile sketch; runs the tooth generator (steps 3\u20135)",
+        "        \u2192 if SketchOnly: show the Gear Profile sketch and stop (step 6)",
+        "          else:",
+        "            \u2192 buildTooth(ctx)    # extrude the tooth \u2192 ctx.toothBody (step 7)",
+        "            \u2192 buildBody(ctx)     # extrude the annular body \u2192 ctx.gearBody, centerAxis, extrusionExtent (step 9)",
+        "            \u2192 patternTeeth(ctx)  # circular pattern + combine (step 10)",
+        "            \u2192 createFillets(ctx) # root fillets (step 11)",
+        "  \u2192 buildBore(ctx)               # optional bore (step 12)",
+        "  \u2192 chamferTeeth(ctx)            # optional completed-gear chamfer (step 13)",
+        "  \u2192 cleanup(ctx)                 # always: hide construction planes/axes; sketches hidden only when NOT SketchOnly"
+      ]
+    },
+    {
+      "start": 1739,
+      "end": 1744,
+      "lines": [
+        "Extrude this profile from the target plane to the Extrusion End Plane (ToEntityExtentDefinition,",
+        "PositiveExtentDirection) as a **New Body**. Name the feature Extrude tooth. Store the resulting body as",
+        "ctx.toothBody.",
+        "The short-circuit is control flow at the end of buildSketches, not another timeline entry.",
+        "All solid features below require SketchOnly false. cleanup still runs unconditionally at the end of generate.",
+        "Use [PB-PROFILE-MATCH], [PB-NUMERIC-SNAPSHOT] and [SPUR-F-CLEANUP]."
+      ]
+    }
+  ],
+  "classification": "compile_fault",
+  "reason": "Step 1 explicitly preserves the call graph with the SketchOnly return in buildMainGearBody after buildSketches. Step 5 places that short-circuit at the end of buildSketches.",
+  "drafter_decision": "Followed step 1 method contract",
+  "skill_rule": "Two steps contradict each other: compile fault; ends the run. Never patch the step list by hand or work around it in Python.",
+  "parent_disposition": "Confirmed contradictory/unclear compiled-step placement instruction. The manifest only lists required methods and does not decide placement; this is not a manifest contract conflict."
+}

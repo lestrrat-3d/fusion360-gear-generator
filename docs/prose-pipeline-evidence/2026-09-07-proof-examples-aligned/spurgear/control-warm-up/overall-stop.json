@@ -1,0 +1,429 @@
+{
+  "action": "finish",
+  "clock": "utc_epoch",
+  "clock_id": null,
+  "duration_s": 181.675953,
+  "event": "overall.finish",
+  "gear": "spurgear",
+  "input_digests": [
+    {
+      "path": ".claude/skills/compile-gear/SKILL.md",
+      "sha256": "8104de9504327cfc8ac6b7d9c7528decb6cbdddf240181eb499bd62c62278163",
+      "size_bytes": 19649
+    },
+    {
+      "path": ".claude/skills/compile-gear/prompt.md",
+      "sha256": "929978ab791fb8390a490cd0a964ca4199a43d05b2d34bdd598f758d8a105bb9",
+      "size_bytes": 17166
+    },
+    {
+      "path": ".claude/skills/emit-gear/SKILL.md",
+      "sha256": "813a9866558f12419ab20fbdc5381ae40ed5fbc3242cad1e7c6e355726b9e831",
+      "size_bytes": 13389
+    },
+    {
+      "path": ".claude/skills/emit-gear/prompt.md",
+      "sha256": "a316f97af453d6f9b78366167c983d2d21cd2bdd0dd9bf829abf695f553275c0",
+      "size_bytes": 6019
+    },
+    {
+      "path": ".claude/skills/generate-gear/MODELS.md",
+      "sha256": "1e544cbf7d6a9b7765cfb3bc9172eedc3f97ed29cc240a30eefda6191b39971f",
+      "size_bytes": 2598
+    },
+    {
+      "path": ".claude/skills/generate-gear/PLAYBOOK.md",
+      "sha256": "aeafe2eb1cd663fd210f717a26a95c887f990ef85a4f0de43e5c144f7b06dc59",
+      "size_bytes": 72144
+    },
+    {
+      "path": ".claude/skills/generate-gear/SKILL.md",
+      "sha256": "9d3ea9181270a5366e915afbb8788e6811e1a982fa7e6e90b6e993590bb60894",
+      "size_bytes": 19787
+    },
+    {
+      "path": ".claude/skills/generate-gear/accepted_type_noise.json",
+      "sha256": "eac0c0a252a1aadb655d51d02afb163fb96993112fb9a2b087e3e9fc7125e54a",
+      "size_bytes": 11924
+    },
+    {
+      "path": ".claude/skills/generate-gear/call_parser.py",
+      "sha256": "b418d4981ba80d6b962d04e8a2026e5efdfeb3b0f5b6590d0a78ba66a5914a9e",
+      "size_bytes": 830
+    },
+    {
+      "path": ".claude/skills/generate-gear/check_anchors.py",
+      "sha256": "3d4d6b4e11ea85b34d7e7f34fbed6203e69134881638ca882234ac4770531ce9",
+      "size_bytes": 5057
+    },
+    {
+      "path": ".claude/skills/generate-gear/check_api_calls.py",
+      "sha256": "6ccb2b91250b3a21a2770af81b3fd4c33024155d8246ff6dadbe98483f424802",
+      "size_bytes": 48560
+    },
+    {
+      "path": ".claude/skills/generate-gear/check_compile.py",
+      "sha256": "7d66b6a5bec3f48c15a1e320274d779678ea8178bb1c88a8f28e044ce2852842",
+      "size_bytes": 94700
+    },
+    {
+      "path": ".claude/skills/generate-gear/check_contract.py",
+      "sha256": "5cbda8162250807c5370cb74223b90c95f572d60731c8ed549fb9745d3eb8796",
+      "size_bytes": 11125
+    },
+    {
+      "path": ".claude/skills/generate-gear/check_input_read.py",
+      "sha256": "a03076420073582efe03a218b5845a204940ba615ae48f40a17ea857d71b719d",
+      "size_bytes": 4522
+    },
+    {
+      "path": ".claude/skills/generate-gear/check_novel_types.py",
+      "sha256": "4f09b30fe95fda8dbcac00eb2adf7edf49197574a61a777a381074a9ca2449d5",
+      "size_bytes": 23365
+    },
+    {
+      "path": ".claude/skills/generate-gear/check_step_calls.py",
+      "sha256": "b3a712350ea6cb8d531bbe309c8df58246d4929afa6b4419e91b22abc1aa682a",
+      "size_bytes": 25036
+    },
+    {
+      "path": ".claude/skills/generate-gear/contract_handoff.py",
+      "sha256": "8879cb1c8211abd4e795a33c24dc9d009cdea8362dc8df1e9c5f30387261b768",
+      "size_bytes": 9222
+    },
+    {
+      "path": ".claude/skills/generate-gear/extract_playbook.py",
+      "sha256": "2170e1a7210ab8f6c1e3070b28af479e516329ed6aef9ea8d42f57ca673c66b4",
+      "size_bytes": 17289
+    },
+    {
+      "path": ".claude/skills/generate-gear/fusion_api.py",
+      "sha256": "89988769589110fb4cc50b4ae651ef5e78fbbb8feffa0950d331f84f653625c4",
+      "size_bytes": 28164
+    },
+    {
+      "path": ".claude/skills/generate-gear/fusion_stubs.py",
+      "sha256": "b06f438016cd88f0efa904762df681988920f425b7a524014f92cce298f83dc1",
+      "size_bytes": 4590
+    },
+    {
+      "path": ".claude/skills/generate-gear/gen_provenance.py",
+      "sha256": "86b8144c300a0b480855aa021c019db34aa70afe3b84992e0a71f496fff13b25",
+      "size_bytes": 5677
+    },
+    {
+      "path": ".claude/skills/generate-gear/pick_model.py",
+      "sha256": "bb6d95fa5a544e0b8825c283acb667cea302ffb50bdce75dbde3d647a670118c",
+      "size_bytes": 4253
+    },
+    {
+      "path": ".claude/skills/generate-gear/pipeline-timing-pilot.md",
+      "sha256": "627faa6cf78838d5310e1279961c6a109336274cc316ef97fa50b17b637ec503",
+      "size_bytes": 6720
+    },
+    {
+      "path": ".claude/skills/generate-gear/pipeline_timing.py",
+      "sha256": "04ba112352a5099c4435f02f5729ac69d13de437489ae0e3fbc1b061a1470e38",
+      "size_bytes": 35644
+    },
+    {
+      "path": ".claude/skills/generate-gear/preflight.py",
+      "sha256": "01e6ff8b0a4b30f157fbb00ee85e8922246557272588e9d0e59a23d262de0854",
+      "size_bytes": 24630
+    },
+    {
+      "path": ".claude/skills/generate-gear/prompt.md",
+      "sha256": "8ebf909b254aa64f01b64fe0bdd83b1c0f8c44c671e4b8bc86187a49f020c68b",
+      "size_bytes": 3889
+    },
+    {
+      "path": ".claude/skills/generate-gear/provenance.py",
+      "sha256": "eaab91bad58fc194ea1b7e8c58f43116fe724553f9295bbe7b940976599eb0db",
+      "size_bytes": 6663
+    },
+    {
+      "path": ".claude/skills/generate-gear/pyright_boot.py",
+      "sha256": "3ba60284941c94ebd2e7172adf4d1073e98c81e94573eb7ed633c9217ebb206f",
+      "size_bytes": 4681
+    },
+    {
+      "path": ".claude/skills/generate-gear/pyright_check.py",
+      "sha256": "7758723e2445bf9d9ebd6d03f7fd17aafe72be67571b7031aa4423d840c23d12",
+      "size_bytes": 19078
+    },
+    {
+      "path": ".claude/skills/generate-gear/query_api_status.py",
+      "sha256": "ed211bc36bb08a854b4fee574d9c6998da9645de0cc9fb87c9acecc9ac7bd091",
+      "size_bytes": 1264
+    },
+    {
+      "path": ".claude/skills/generate-gear/render_emitter_interfaces.py",
+      "sha256": "87bd725edf2302f8126a5fbf589afc16e9f593fd9c59f31fa1ae3bf04276f565",
+      "size_bytes": 9343
+    },
+    {
+      "path": ".claude/skills/generate-gear/render_prompt.py",
+      "sha256": "1209a3b528e72f6eabba3291231c674cbd3a7e72e0aa27efab6083a6f5f127a9",
+      "size_bytes": 7871
+    },
+    {
+      "path": ".claude/skills/generate-gear/render_step_metadata.py",
+      "sha256": "1312d66edbc16df7bb6b566de51b5d2b4808cb4976db9c4d33a97167f67ffb12",
+      "size_bytes": 2845
+    },
+    {
+      "path": ".claude/skills/generate-gear/run_compile_gates.py",
+      "sha256": "4e014d6eb8c9858f50609c2064196e6e6a170fc2a9e3f1a3b903ae29092f38b4",
+      "size_bytes": 50842
+    },
+    {
+      "path": ".claude/skills/generate-gear/run_gates.py",
+      "sha256": "daf56f3b972cd5a57ef85e738452974bf89d3dc10ade9bdc3978ac5c310ee357",
+      "size_bytes": 38733
+    },
+    {
+      "path": ".claude/skills/generate-gear/run_sketch_bench.py",
+      "sha256": "37df47bd313c3deef99c354514a9b8d71c1e2ad611c1bd090cc6e523870e46b2",
+      "size_bytes": 7544
+    },
+    {
+      "path": ".claude/skills/generate-gear/scaffold_proof.py",
+      "sha256": "9159929bcd0bf3e9fc5ac0e113d220ebef7b4446967b6646b394af5120b67c8e",
+      "size_bytes": 8848
+    },
+    {
+      "path": ".claude/skills/generate-gear/stage.py",
+      "sha256": "54eed7e76ea6661b4ce9da4f2bc84a58a3b395fdb4ee3cf79a88403336011cb3",
+      "size_bytes": 29761
+    },
+    {
+      "path": ".claude/skills/generate-gear/step_metadata.py",
+      "sha256": "63a47e372c1c228708e3634a08d784b8459bb95247cb41ce3e1d6a5255491275",
+      "size_bytes": 16827
+    },
+    {
+      "path": ".claude/skills/generate-gear/test_check_api_calls.py",
+      "sha256": "b7bac68281b37e14f0b3c381772739115cebd8e4c109904f7f4dba95357fbb24",
+      "size_bytes": 23114
+    },
+    {
+      "path": ".claude/skills/generate-gear/test_check_compile.py",
+      "sha256": "b779c237b4216df8a494acd44c1efe1c240d4a0ea8435a9716cd09f74c07bc62",
+      "size_bytes": 180337
+    },
+    {
+      "path": ".claude/skills/generate-gear/test_check_contract.py",
+      "sha256": "3bcbc861e0495900054d694f1c9b10ee036e1cf23da7c8c6561102f3d76111aa",
+      "size_bytes": 9159
+    },
+    {
+      "path": ".claude/skills/generate-gear/test_check_novel_types.py",
+      "sha256": "5dd93f815b00c6cfb7f2c0fe57a620470dae8a08324429271dc1011254cad0f7",
+      "size_bytes": 15225
+    },
+    {
+      "path": ".claude/skills/generate-gear/test_check_step_calls.py",
+      "sha256": "786681cd07719c1797b8ff7c19617a6a243a70f590f2a3633feb27573b9242cc",
+      "size_bytes": 55105
+    },
+    {
+      "path": ".claude/skills/generate-gear/test_contract_handoff.py",
+      "sha256": "eb53ed5ade3e79245b7268be07c39ca178f684484ffdd9f868b0555fe9f9f7c0",
+      "size_bytes": 11310
+    },
+    {
+      "path": ".claude/skills/generate-gear/test_extract_playbook.py",
+      "sha256": "c1dcb685ba2ab4e4ad5bd4b54870a91e8b2d9d84329bd3bcf2dabc0baf4adc01",
+      "size_bytes": 11575
+    },
+    {
+      "path": ".claude/skills/generate-gear/test_fusion_api.py",
+      "sha256": "5cee3a41b8defc42f8282c8c99ea5b9893eca4755ad89574fb677944ec7c1b3b",
+      "size_bytes": 14318
+    },
+    {
+      "path": ".claude/skills/generate-gear/test_fusion_api_session.py",
+      "sha256": "ad99332f4f53c41da8fe3ed8407de3c7c0ee5ccd9bbb834bb1476b0448409fee",
+      "size_bytes": 7377
+    },
+    {
+      "path": ".claude/skills/generate-gear/test_gen_provenance.py",
+      "sha256": "615417439e92703fb1ef3fcb0f1d91ccf58c1ff83933a03d3c5404d0c10f5ea4",
+      "size_bytes": 15825
+    },
+    {
+      "path": ".claude/skills/generate-gear/test_pick_model.py",
+      "sha256": "3ff6db649c7723be7cee36ac3891c89a126563f751edba9301719de92a3e5152",
+      "size_bytes": 5243
+    },
+    {
+      "path": ".claude/skills/generate-gear/test_pipeline_timing.py",
+      "sha256": "11d56e46d8acf772f4a36330b2683cc20883b4258e3436c7287b41a0e57480e5",
+      "size_bytes": 17124
+    },
+    {
+      "path": ".claude/skills/generate-gear/test_preflight.py",
+      "sha256": "6df9ed88b7e8d215c1e99684a947cc24296c2a30274dc83797e759b09343500a",
+      "size_bytes": 20513
+    },
+    {
+      "path": ".claude/skills/generate-gear/test_pyright_boot.py",
+      "sha256": "30726a199c908d56403284bc68b1dfae64fd0d92d180b698c6fe85cb82b72a2a",
+      "size_bytes": 5960
+    },
+    {
+      "path": ".claude/skills/generate-gear/test_pyright_check.py",
+      "sha256": "2087be3b168d38c64aec37a5311ad7686b8578556b0b5cea7e2db74dda8c38b8",
+      "size_bytes": 8543
+    },
+    {
+      "path": ".claude/skills/generate-gear/test_query_api_status.py",
+      "sha256": "64ebae8ddedcf1b4298daac93f62c010f459937aae79f2d1f10ce710306c80c9",
+      "size_bytes": 3622
+    },
+    {
+      "path": ".claude/skills/generate-gear/test_render_emitter_interfaces.py",
+      "sha256": "1c863f1e7ecee29c4e841991ff756d1b5720f4874e506b0d2120a044800cb361",
+      "size_bytes": 8244
+    },
+    {
+      "path": ".claude/skills/generate-gear/test_render_prompt.py",
+      "sha256": "66bdfc53a03dfddb146f74811475b2b2879fbf8258f6fceb75b74e8106642118",
+      "size_bytes": 17085
+    },
+    {
+      "path": ".claude/skills/generate-gear/test_render_step_metadata.py",
+      "sha256": "0dee0eed0b68050da704e5a7cebd2c14af1d230e50354a930cfbdc40fc526d77",
+      "size_bytes": 7847
+    },
+    {
+      "path": ".claude/skills/generate-gear/test_run_compile_gates.py",
+      "sha256": "258f98f541c9b23abcb4794253bec48d63a429a45a8b1d3063d6b87a4d4ac8c6",
+      "size_bytes": 47506
+    },
+    {
+      "path": ".claude/skills/generate-gear/test_run_gates.py",
+      "sha256": "add5691b33aecdea75e0d6d50addabe92e873fcf999846968a35c6ff8a84a8ca",
+      "size_bytes": 30706
+    },
+    {
+      "path": ".claude/skills/generate-gear/test_run_sketch_bench.py",
+      "sha256": "688d85e0051daf600d3f05e21f2c4c7262c6dec0775d483bfd32b3953993e62f",
+      "size_bytes": 5812
+    },
+    {
+      "path": ".claude/skills/generate-gear/test_scaffold_proof.py",
+      "sha256": "9fb5dd3b7997651d0a0ef098db4b4bfd201dbe3f5f3b61baaf49bb57d369d2f8",
+      "size_bytes": 17396
+    },
+    {
+      "path": ".claude/skills/generate-gear/test_stage.py",
+      "sha256": "cf8ff9989dd5d57479f52e4024699fc3efc4df91e57b9ebfc8a88943acb1755d",
+      "size_bytes": 42884
+    },
+    {
+      "path": ".claude/skills/generate-gear/test_step_metadata.py",
+      "sha256": "4b6f1a2cb0b9f09cae7715b8af040503edc85d96f9ae94cae31e404c6b4a4e9c",
+      "size_bytes": 12073
+    },
+    {
+      "path": ".claude/skills/generate-gear/test_watch_progress.py",
+      "sha256": "eab28c2b554e2bdb0ba2f1388048566ec2f8895cb8f8ed7631e89e489ceedbf7",
+      "size_bytes": 24718
+    },
+    {
+      "path": ".claude/skills/generate-gear/watch_progress.py",
+      "sha256": "5fbd3e3fe3827a69a18d28da47bdc26a8194e5aeed4881ce27a5725ad90b5f73",
+      "size_bytes": 19309
+    },
+    {
+      "path": "docs/prose-pipeline-handoffs/formats.md",
+      "sha256": "9c196fadee20ef7844b4ccdaabce06518ca6a97e9de6910125ac23e616fd6ed8",
+      "size_bytes": 5977
+    },
+    {
+      "path": "proof/involute/involute.go",
+      "sha256": "b59196abb566d08ddd9713e16857d581781062f4c20fb5bed10383cb4d792d3a",
+      "size_bytes": 4365
+    },
+    {
+      "path": "proof/proofkit/proofkit.go",
+      "sha256": "42dc75d11e5d63fcc840c5b8f51e37b1d965d3bbbf60ff16fab6ba393406856d",
+      "size_bytes": 9570
+    },
+    {
+      "path": "proof/proofkit/proofkit_parallel_test.go",
+      "sha256": "2352f8bf6472c6303ce435144141b668e5ab72bebe89b1ca4082e1165e7dc051",
+      "size_bytes": 9283
+    },
+    {
+      "path": "proof/proofkit/proofkit_test.go",
+      "sha256": "d5316112f71ce71edc9f4471c28a1fdf3c037e03843f75294126a1483425a7d8",
+      "size_bytes": 2408
+    },
+    {
+      "path": "proof/proofkit3d/proofkit3d.go",
+      "sha256": "2969d54dab9b64975d6cf129ea0659fea2a903eb45a8ff1b349105ed957aea0b",
+      "size_bytes": 8747
+    },
+    {
+      "path": "proof/proofkit3d/proofkit3d_parallel_test.go",
+      "sha256": "0f6bfd7eead1d2fa7840c7b9c8523abcb575073a319ee29fe80613b2aeba8e17",
+      "size_bytes": 11428
+    },
+    {
+      "path": "proof/proofkit3d/proofkit3d_test.go",
+      "sha256": "6344b89c023ad0dc0650ff458a6cb9ccc11d86fb012090206a4ea0ede425b518",
+      "size_bytes": 7052
+    },
+    {
+      "path": "spec/spurgear/contract.json",
+      "sha256": "17b92b8210ddcb3a65232944c974dfc95d4e7c0b46e708b11fde24a8a3b10ef0",
+      "size_bytes": 5431
+    },
+    {
+      "path": "spec/spurgear/fusion.md",
+      "sha256": "77e2d9fdadcfec85e7463d50132211f419e761c2dc984b427d705622a44b0100",
+      "size_bytes": 18944
+    },
+    {
+      "path": "spec/spurgear/instructions.md",
+      "sha256": "4dd8dcf235c2bd5f9d6026570bdc2990a0432e5a948bfbee11daf3f501b55502",
+      "size_bytes": 57218
+    },
+    {
+      "path": "spec/spurgear/sketch/README.md",
+      "sha256": "2877f1ba57e56597cb2bb1a46738c60b90a0d9706b2a6dafdc244276fbb3751b",
+      "size_bytes": 7433
+    },
+    {
+      "path": "spec/spurgear/sketch/go.mod",
+      "sha256": "92e4e33aa1cefc92c9a6e663604caeb432c0e83e4405f9d8917990843d3bd8eb",
+      "size_bytes": 77
+    },
+    {
+      "path": "spec/spurgear/sketch/main.go",
+      "sha256": "3fee37cf871e151dbb24423ee53298ed240a8e1adec87ed4934e96823f8a4d2a",
+      "size_bytes": 13987
+    },
+    {
+      "path": "spec/spurgear/sketch/run.sh",
+      "sha256": "84f4de03990c462578b343e719bc676e9e554cd6b791d904cd91e5aac1119769",
+      "size_bytes": 1336
+    }
+  ],
+  "input_tokens": null,
+  "model": "gpt-6-astra",
+  "model_role": "design",
+  "monotonic_s": null,
+  "output_tokens": null,
+  "phase": "overall",
+  "round": 1,
+  "run_id": "2026-09-07-proof-examples-aligned-control-warm-up-spurgear-compile",
+  "schema": 1,
+  "sequence": 6,
+  "stage": "compile",
+  "starting_git_commit": "9bd932f626cecdd5146f7b93c3fd69fca3ed47fc",
+  "timestamp_epoch_s": 1788752450.089284,
+  "timestamp_utc": "2026-09-07T03:40:50.089284+00:00"
+}

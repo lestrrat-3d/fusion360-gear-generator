@@ -1,0 +1,9 @@
+{
+  "resumed_at_utc": "2026-09-07T06:58:58.019600+00:00",
+  "pause_start_recorded_at_utc": "2026-09-07T06:43:17.582042+00:00",
+  "elapsed_pause_s": 940.437558,
+  "parent_instruction": "Resume frozen aligned T8 concurrently with separate Luna published-stack rebases. Preserve all frozen inputs, worktrees and private caches. Continue candidate2 round3 from unchanged round2 report.",
+  "benchmark_eligible": false,
+  "timing_disposition": "Preserve full raw elapsed wall interval and pause duration separately; no subtraction or accepted-latency comparison.",
+  "concurrent_work_caveat": "Published PR121-129 rebase work may use shared machine resources and installed module/toolchain caches; frozen T8 worktrees/private caches are excluded from that work."
+}

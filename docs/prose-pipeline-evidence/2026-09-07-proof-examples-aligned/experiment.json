@@ -1,0 +1,81 @@
+{
+  "schema": 1,
+  "experiment_id": "2026-09-07-proof-examples-aligned",
+  "control_commit": "9bd932f626cecdd5146f7b93c3fd69fca3ed47fc",
+  "candidate_commit": "76e1d7f07fc3eae472278b29a528a73641056b7d",
+  "default_model": "gpt-6-astra",
+  "reasoning": "high",
+  "report_branch": "docs-prose-aligned-measurements",
+  "first_study": {
+    "url": "https://github.com/lestrrat-3d/fusion360-gear-generator/pull/128",
+    "status": "blocked_incomplete",
+    "timings_pooled": false
+  },
+  "source_alignment": {
+    "url": "https://github.com/lestrrat-3d/fusion360-gear-generator/pull/129",
+    "applies_to": "Both conditions identically"
+  },
+  "isolated_paths": [
+    ".claude/skills/compile-gear/prompt.md",
+    ".claude/skills/generate-gear/test_render_prompt.py",
+    "proof/examples/CONSTRUCTION.md",
+    "proof/examples/proofkit3d_construction_example_test.go"
+  ],
+  "schedule_per_gear": [
+    {
+      "position": 1,
+      "condition": "control",
+      "trial": "warm-up",
+      "scored": false
+    },
+    {
+      "position": 2,
+      "condition": "candidate",
+      "trial": "warm-up",
+      "scored": false
+    },
+    {
+      "position": 3,
+      "condition": "control",
+      "trial": 1,
+      "scored": true
+    },
+    {
+      "position": 4,
+      "condition": "candidate",
+      "trial": 1,
+      "scored": true
+    },
+    {
+      "position": 5,
+      "condition": "candidate",
+      "trial": 2,
+      "scored": true
+    },
+    {
+      "position": 6,
+      "condition": "control",
+      "trial": 2,
+      "scored": true
+    },
+    {
+      "position": 7,
+      "condition": "control",
+      "trial": 3,
+      "scored": true
+    },
+    {
+      "position": 8,
+      "condition": "candidate",
+      "trial": 3,
+      "scored": true
+    }
+  ],
+  "gear_order": [
+    "spurgear",
+    "helicalgear"
+  ],
+  "helical_prerequisite": "Run after combined changes pass on spurgear; if no spur output is accepted, retain helical as unrun.",
+  "draft_delivery": "Fresh fork_turns=none agent reads complete saved rendered standard prompt and verifies SHA256; generic launcher contains no prior-trial findings.",
+  "cache_policy": "Fresh private Go build cache and TMPDIR per condition; no previous experiment state reused. Shared installed toolchain/module caches remain shared; provider prompt-cache state is unknown."
+}

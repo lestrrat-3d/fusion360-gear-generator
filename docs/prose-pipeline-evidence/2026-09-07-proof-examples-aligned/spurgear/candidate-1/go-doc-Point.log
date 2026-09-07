@@ -1,0 +1,28 @@
+package sketch // import "."
+
+type Point struct {
+	// Has unexported fields.
+}
+    Point is a solver-bound point. Its coordinates are unknowns solved for
+    by the constraint solver unless the point is grounded with Sketch.Fix.
+    Create one with Sketch.CreatePoint and share it between entities to express
+    topology.
+
+func (p *Point) DistanceTo(other *Point) float64
+func (p *Point) DistanceToLine(l *Line) float64
+func (p *Point) Geometry() *geom.Point
+func (p *Point) ID() int
+func (p *Point) IsConstruction() bool
+func (p *Point) IsFixed() bool
+func (p *Point) IsFullyConstrained() bool
+func (r Point) IsReference() bool
+func (p *Point) IsStale() bool
+func (p *Point) MoveTo(x, y float64)
+func (p *Point) Name() string
+func (p *Point) SetConstruction(v bool)
+func (p *Point) SetName(name string)
+func (r Point) Source() string
+func (p *Point) World() r3.Vec
+func (p *Point) WorldErr() error
+func (p *Point) X() float64
+func (p *Point) Y() float64

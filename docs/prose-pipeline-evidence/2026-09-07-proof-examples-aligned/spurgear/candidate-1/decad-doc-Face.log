@@ -1,0 +1,13 @@
+package decad // import "."
+
+type Face struct {
+	// Has unexported fields.
+}
+    Face is a topological face: a tagged surface bounded by loops.
+
+func (f *Face) Area() (Measurement, error)
+func (f *Face) Edges() []*Edge
+func (f *Face) Loops() []*Loop
+func (f *Face) NormalAt(p r3.Vec) (VecMeasurement, error)
+func (f *Face) Origins() []FeatureRef
+func (f *Face) Surface() Surface

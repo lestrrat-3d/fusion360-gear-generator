@@ -1,0 +1,100 @@
+.tmp/spurgear.playbook-extract.md:67:`INPUT_ID_ANCHOR_POINT = 'anchorPoint'`. A subclass may add its own (e.g. a helix-angle param).
+.tmp/spurgear.playbook-extract.md:152:3. Normalise the plane: if `self.plane` is not a `ConstructionPlane`, create a coplanar one via
+.tmp/spurgear.playbook-extract.md:153:   `constructionPlanes.add(createInput().setByOffset(self.plane, 0))` and replace `self.plane`.
+.tmp/spurgear.playbook-extract.md:272:  - **[PB-PROJECT-NOT-FIXED] `sketch.project(...)` does NOT fix the projected geometry.** A projected point/curve is brought
+.tmp/spurgear.playbook-extract.md:284:    line endpoint does NOT leave the sketch fully constrained — fix the endpoints once the lines
+.tmp/spurgear.playbook-extract.md:286:    plane; it needs the source sketch fully constrained so `worldGeometry` is defined.)
+.tmp/spurgear.playbook-extract.md:327:  reports fully constrained.** Text placed with `setAsAlongPath` (`[PB-SKETCH-TEXT]`) carries its
+.tmp/spurgear.generated.py:14:INPUT_ID_ANCHOR_POINT = 'anchorPoint'
+.tmp/spurgear.generated.py:83:        self.plane: adsk.fusion.ConstructionPlane | None = None
+.tmp/spurgear.generated.py:84:        self.anchorPoint: adsk.fusion.SketchPoint | None = None
+.tmp/spurgear.generated.py:90:        self.extrusionExtent: adsk.fusion.BRepFace | None = None
+.tmp/spurgear.generated.py:99:        self.anchorPoint = sketch.sketchPoints.add(adsk.core.Point3D.create(0, 0, 0))
+.tmp/spurgear.generated.py:118:    def draw(self, anchorPoint: adsk.fusion.SketchPoint, angle=0):
+.tmp/spurgear.generated.py:123:        projected = sketch.project(anchorPoint)
+.tmp/spurgear.generated.py:129:        constraints.addCoincident(self.anchorPoint, projectedAnchor)
+.tmp/spurgear.generated.py:137:        localOrigin = self.anchorPoint
+.tmp/spurgear.generated.py:161:        localOrigin = self.anchorPoint
+.tmp/spurgear.generated.py:268:        localOrigin = self.anchorPoint
+.tmp/spurgear.generated.py:287:    def drawBore(self, anchorPoint: adsk.fusion.SketchPoint, diameter: float) -> adsk.fusion.SketchCircle:
+.tmp/spurgear.generated.py:289:        projected = sketch.project(anchorPoint)
+.tmp/spurgear.generated.py:310:        self.plane: adsk.fusion.ConstructionPlane | adsk.fusion.BRepFace | None = None
+.tmp/spurgear.generated.py:311:        self.anchorPoint: adsk.fusion.ConstructionPoint | adsk.fusion.SketchPoint | None = None
+.tmp/spurgear.generated.py:351:        self.plane = plane
+.tmp/spurgear.generated.py:355:        self.anchorPoint = anchor
+.tmp/spurgear.generated.py:418:        selectedPlane = self.plane
+.tmp/spurgear.generated.py:426:            self.plane = self._normalizedPlane
+.tmp/spurgear.generated.py:428:        self.prepareTools(ctx)
+.tmp/spurgear.generated.py:434:    def prepareTools(self, ctx: SpurGearGenerationContext):
+.tmp/spurgear.generated.py:435:        futil.log('Spur Gear: creating Tools and Extrusion End Plane')
+.tmp/spurgear.generated.py:436:        if not isinstance(self.plane, adsk.fusion.ConstructionPlane) or self.anchorPoint is None:
+.tmp/spurgear.generated.py:438:        ctx.plane = self.plane
+.tmp/spurgear.generated.py:439:        toolsSketch: adsk.fusion.Sketch = self.createSketchObject('Tools', plane=self.plane)
+.tmp/spurgear.generated.py:442:        projected = toolsSketch.project(self.anchorPoint)
+.tmp/spurgear.generated.py:444:            raise RuntimeError(f'Tools anchor projection returned {projected.count} entities')
+.tmp/spurgear.generated.py:447:            raise RuntimeError('Tools anchor projection is not a SketchPoint')
+.tmp/spurgear.generated.py:448:        ctx.anchorPoint = projectedAnchor
+.tmp/spurgear.generated.py:450:            raise RuntimeError('Tools sketch is not fully constrained')
+.tmp/spurgear.generated.py:474:        if ctx.plane is None or ctx.anchorPoint is None:
+.tmp/spurgear.generated.py:475:            raise RuntimeError('Gear Profile needs the Tools plane and anchor')
+.tmp/spurgear.generated.py:480:        toothGen.draw(ctx.anchorPoint, angle=0)
+.tmp/spurgear.generated.py:525:                    ctx.extrusionExtent = face
+.tmp/spurgear.generated.py:528:        if ctx.extrusionExtent is None:
+.tmp/spurgear.generated.py:614:        if ctx.plane is None or ctx.anchorPoint is None or ctx.gearBody is None or ctx.extrusionExtent is None:
+.tmp/spurgear.generated.py:615:            raise RuntimeError('Bore requires Tools, Gear Body, and its far cap')
+.tmp/spurgear.generated.py:621:        circle = toothGen.drawBore(ctx.anchorPoint, boreDiameter)
+.tmp/spurgear.generated.py:623:        boreSketch.geometricConstraints.addCoincident(toothGen.anchorPoint, projectedAnchor)
+.tmp/spurgear.generated.py:625:            raise RuntimeError('Bore Profile is not fully constrained')
+.tmp/spurgear.generated.py:631:        extent = adsk.fusion.ToEntityExtentDefinition.create(ctx.extrusionExtent, False)
+spec/spurgear/steps.md:33:        "anchorPoint",
+spec/spurgear/steps.md:39:        "extrusionExtent",
+spec/spurgear/steps.md:60:        "prepareTools",
+spec/spurgear/steps.md:88:    "INPUT_ID_ANCHOR_POINT": "anchorPoint",
+spec/spurgear/steps.md:143:        "\\.anchorPoint"
+spec/spurgear/steps.md:193:and _lastToothEmbedded=False after its base constructor. The context declares plane, anchorPoint,
+spec/spurgear/steps.md:194:extrusionEndPlane, gearProfileSketch, toothBody, gearBody, centerAxis, extrusionExtent with typed
+spec/spurgear/steps.md:195:None initializers, and toothProfileIsEmbedded=False. Keep both self.plane and ctx.plane.
+spec/spurgear/steps.md:198:and adds a movable origin point in self.anchorPoint. Its getParameter forwards to its parent;
+spec/spurgear/steps.md:200:and calculateInvolutePoint. draw takes anchorPoint and runtime angle=0; drawTooth uses that runtime
+spec/spurgear/steps.md:217:| `INPUT_ID_ANCHOR_POINT` | `anchorPoint` |
+spec/spurgear/steps.md:252:| 2 | anchorPoint | Anchor Point | selection | | | Select the point the gear is centered on; ConstructionPoints, SketchPoints |
+spec/spurgear/steps.md:351:generate: processInputs; component naming; plane normalization; newContext; prepareTools;
+spec/spurgear/steps.md:365:`self.prepareTools(ctx)` , `self.buildMainGearBody(ctx)` , `self.buildBore(ctx)` , `self.chamferTeeth(ctx)` ,
+spec/spurgear/steps.md:370:Retain the created plane for cleanup, and replace self.plane. Do not pass the bare number zero.
+spec/spurgear/steps.md:602:      "name": "prepareTools",
+spec/spurgear/steps.md:607:      "span": "self.prepareTools(ctx)"
+spec/spurgear/steps.md:696:## 2 `[GO]` Create the Tools sketch
+spec/spurgear/steps.md:698:The proof function is `stepTools` .
+spec/spurgear/steps.md:700:<!-- proof-run: proofkit.Run(anchorCases, stepTools) -->
+spec/spurgear/steps.md:702:prepareTools creates Tools on self.plane, sets ctx.plane, and leaves Tools visible.
+spec/spurgear/steps.md:703:Project the original selected anchor, retain the projected SketchPoint as ctx.anchorPoint, and draw
+spec/spurgear/steps.md:707:[PB-PROJECT-NOT-FIXED] [PB-FULL-CONSTRAINT] [PB-SKETCH-FIRST]
+spec/spurgear/steps.md:709:Create with `self.createSketchObject('Tools', plane=self.plane)` , set isVisible=True,
+spec/spurgear/steps.md:710:then use `toolsSketch.project(self.anchorPoint)` .
+spec/spurgear/steps.md:724:      "span": "self.createSketchObject('Tools', plane=self.plane)"
+spec/spurgear/steps.md:733:      "span": "toolsSketch.project(self.anchorPoint)"
+spec/spurgear/steps.md:770:prepareTools adds the construction plane named Extrusion End Plane, offset by Thickness from
+spec/spurgear/steps.md:858:The constructor adds a fresh local origin at (0,0,0), in self.anchorPoint. Never use sketch.originPoint.
+spec/spurgear/steps.md:920:draw executes drawCircles, drawTooth(runtime angle), then re-projects the Tools anchor and coincides
+spec/spurgear/steps.md:921:its own self.anchorPoint with that projection. Only after anchoring, and only when angle != 0,
+spec/spurgear/steps.md:926:`SpurGearInvoluteToothDesignGenerator(gearSketch, self)` , `toothGen.draw(ctx.anchorPoint, angle=0)` ,
+spec/spurgear/steps.md:965:Finish with `sketch.project(anchorPoint)` and `constraints.addCoincident(self.anchorPoint, projectedAnchor)` .
+spec/spurgear/steps.md:995:      "span": "toothGen.draw(ctx.anchorPoint, angle=0)"
+spec/spurgear/steps.md:1283:      "span": "sketch.project(anchorPoint)"
+spec/spurgear/steps.md:1292:      "span": "constraints.addCoincident(self.anchorPoint, projectedAnchor)"
+spec/spurgear/steps.md:1439:Scan planar faces for ctx.extrusionExtent: the far cap must be parallel to the Gear Profile reference
+spec/spurgear/steps.md:1946:drawBore projects ctx.anchorPoint from Tools into this sketch, shares that projection as the bore
+spec/spurgear/steps.md:1947:circle center, adds a driving diameter dimension, and returns the circle. Ground toothGen.anchorPoint
+spec/spurgear/steps.md:1949:The plain circle is solid, not construction. Store self.boreSketch and verify it is fully constrained.
+spec/spurgear/steps.md:1955:`SpurGearInvoluteToothDesignGenerator(boreSketch, self)` , `toothGen.drawBore(ctx.anchorPoint, boreDiameter)` .
+spec/spurgear/steps.md:1956:Inside drawBore use `sketch.project(anchorPoint)` , `projected.item(0)` ,
+spec/spurgear/steps.md:1960:`boreSketch.geometricConstraints.addCoincident(toothGen.anchorPoint, projectedAnchor)` .
+spec/spurgear/steps.md:1981:      "span": "toothGen.drawBore(ctx.anchorPoint, boreDiameter)"
+spec/spurgear/steps.md:1990:      "span": "sketch.project(anchorPoint)"
+spec/spurgear/steps.md:2026:      "span": "boreSketch.geometricConstraints.addCoincident(toothGen.anchorPoint, projectedAnchor)"
+spec/spurgear/steps.md:2054:Use CutFeatureOperation, a positive to-entity extent ending at ctx.extrusionExtent with isChained=False,
+spec/spurgear/steps.md:2056:Keep Tools and Bore Profile visible until final cleanup. The proof performs an explicit cut with a
+spec/spurgear/steps.md:2063:`adsk.fusion.ToEntityExtentDefinition.create(ctx.extrusionExtent, False)` ,
+spec/spurgear/steps.md:2095:      "span": "adsk.fusion.ToEntityExtentDefinition.create(ctx.extrusionExtent, False)"
+spec/spurgear/steps.md:2150:user-supplied target plane. On the full-body path also set isVisible=False on Tools, Gear Profile,
+spec/spurgear/steps.md:2151:and Bore Profile when they exist. In SketchOnly leave Tools and Gear Profile visible for inspection.

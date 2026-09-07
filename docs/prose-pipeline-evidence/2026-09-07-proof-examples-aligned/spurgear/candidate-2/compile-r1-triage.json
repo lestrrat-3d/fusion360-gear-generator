@@ -1,0 +1,14 @@
+{
+  "recorded_at": "2026-09-07T06:36:33.765554+00:00",
+  "round": 1,
+  "classification": "draft_fault",
+  "tool": "render_step_metadata.py",
+  "exit_code": 1,
+  "findings": [
+    "Step 4 call 3 name and receiver do not match span",
+    "Step 11 call 2 name and receiver do not match span"
+  ],
+  "full_gate_report": null,
+  "first_submission_passed": false,
+  "feedback_sha256": "ebdcd7bff05d6c727bfeadf58131a0c1b0e135989ee0308593f29cbf52e47b62"
+}

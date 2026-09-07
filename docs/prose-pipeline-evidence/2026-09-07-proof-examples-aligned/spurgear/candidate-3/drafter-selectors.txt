@@ -1,0 +1,10 @@
+/home/lestrrat/dev/src/github.com/lestrrat-3d/decad/.worktrees/chore-gear-pipeline-pin/boolean_cut.go:475:func (tc *triCutter) splitEdgesAtU(c *big.Rat) error {
+/home/lestrrat/dev/src/github.com/lestrrat-3d/decad/.worktrees/chore-gear-pipeline-pin/boolean_cut.go:738:func (tc *triCutter) regionOf(poly []int, chainEdges map[[2]int]chainAnchor) (cutRegion, error) {
+/home/lestrrat/dev/src/github.com/lestrrat-3d/decad/.worktrees/chore-gear-pipeline-pin/fillet.go:278:func selectedEdgesContext(edges []*Edge) string {
+/home/lestrrat/dev/src/github.com/lestrrat-3d/decad/.worktrees/chore-gear-pipeline-pin/selector.go:75:type EdgeQuery struct {
+/home/lestrrat/dev/src/github.com/lestrrat-3d/decad/.worktrees/chore-gear-pipeline-pin/selector.go:91:func Edges(preds ...EdgePredicate) *EdgeQuery {
+/home/lestrrat/dev/src/github.com/lestrrat-3d/decad/.worktrees/chore-gear-pipeline-pin/selector.go:107:func (q *EdgeQuery) SelectEdges(body *Body) ([]*Edge, error) {
+/home/lestrrat/dev/src/github.com/lestrrat-3d/decad/.worktrees/chore-gear-pipeline-pin/topology.go:388:func (l *Loop) CoEdges() []CoEdge {
+/home/lestrrat/dev/src/github.com/lestrrat-3d/decad/.worktrees/chore-gear-pipeline-pin/topology.go:394:func (l *Loop) Edges() []*Edge {
+/home/lestrrat/dev/src/github.com/lestrrat-3d/decad/.worktrees/chore-gear-pipeline-pin/topology.go:551:func (f *Face) Edges() []*Edge {
+/home/lestrrat/dev/src/github.com/lestrrat-3d/decad/.worktrees/chore-gear-pipeline-pin/topology.go:657:func (b *Body) Edges() []*Edge {

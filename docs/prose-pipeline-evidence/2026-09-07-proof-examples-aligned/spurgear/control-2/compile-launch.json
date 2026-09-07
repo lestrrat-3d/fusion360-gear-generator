@@ -1,0 +1,7 @@
+{
+  "agent": "/root/measure_t8/aligned_control_2_spur_compile",
+  "delivery": "Complete unchanged standard rendered prompt delivered by file; fork_turns=none fresh context.",
+  "prompt_sha256": "77e7a33142ac677a2d32165398a5759d0a8fc85cceeea655a0232af206e53ddd",
+  "verified_at_utc": "2026-09-07T07:26:07.672045+00:00",
+  "concurrent_work_caveat": "Parent-authorized independent published-stack rebases may share machine resources/module/toolchain caches. Frozen T8 worktrees and private caches excluded."
+}

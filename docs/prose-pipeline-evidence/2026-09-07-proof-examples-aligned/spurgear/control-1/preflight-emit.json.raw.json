@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "encoding": "utf8-chunks",
+  "original_name": "preflight-emit.json",
+  "original_sha256": "027751dcc3c7c99b6beedd23e5cbe923ec81c4c452e79bfb863bbb96152e0177",
+  "original_bytes": 1728,
+  "chunks": [
+    "{\"gear\": \"spurgear\", \"stage\": \"emit\", \"ready\": true, \"checks\": [{\"key\": \"repo-root\", \"status\": \"ok\",",
+    " \"detail\": \"repository root at /home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generato",
+    "r/.worktrees/chore-prose-2026-09-07-proof-examples-aligned-control-1-spurgear\"}, {\"key\": \"git\", \"sta",
+    "tus\": \"ok\", \"detail\": \"git version 2.43.0\"}, {\"key\": \"tmp-dir\", \"status\": \"ok\", \"detail\": \".tmp/ exi",
+    "sts\"}, {\"key\": \"worktree\", \"status\": \"ok\", \"detail\": \"linked worktree (git dir /home/lestrrat/dev/sr",
+    "c/github.com/lestrrat-3d/fusion360-gear-generator/.git/worktrees/chore-prose-2026-09-07-proof-exampl",
+    "es-aligned-control-1-spurgear)\"}, {\"key\": \"model-tiers\", \"status\": \"ok\", \"detail\": \"design=gpt-6-ast",
+    "ra, mechanical=gpt-6-astra (default gpt-6-astra is not on the ladder; no step down)\"}, {\"key\": \"step",
+    "s\", \"status\": \"ok\", \"detail\": \"step list at spec/spurgear/steps.md\"}, {\"key\": \"proof-dir\", \"status\":",
+    " \"ok\", \"detail\": \"proof/spurgear/ holds 3 .go file(s)\"}, {\"key\": \"steps-current\", \"status\": \"ok\", \"d",
+    "etail\": \"check_compile.py: step list is current\"}, {\"key\": \"api-db\", \"status\": \"ok\", \"detail\": \"API ",
+    "database query script at /home/lestrrat/.claude/plugins/cache/lestrrat-ai/fusion/0.1.0/skills/query-",
+    "api/scripts/query_fusion_api.py\"}, {\"key\": \"contract-manifest\", \"status\": \"ok\", \"detail\": \"contract ",
+    "manifest at spec/spurgear/contract.json\"}, {\"key\": \"framework\", \"status\": \"ok\", \"detail\": \"framework",
+    " sources present (base.py, misc.py, utilities.py, spurproxy.py, fusion360utils)\"}, {\"key\": \"pyright\"",
+    ", \"status\": \"ok\", \"detail\": \"pyright is importable\"}, {\"key\": \"stubs\", \"status\": \"ok\", \"detail\": \"Fu",
+    "sion API stubs cached at /home/lestrrat/.cache/fusion360-gear-generator/FusionAPIReference/Fusion_AP",
+    "I_Python_Reference/defs\"}]}\n"
+  ]
+}

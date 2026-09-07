@@ -1,0 +1,38 @@
+{
+  "round": 2,
+  "failure_category": "draft_fault",
+  "decision": "Continue third drafting round using complete unchanged report.",
+  "proof_failures": [
+    "Profile curve counts differ from expected circle segmentation.",
+    "Pattern verification reports undecided_pair.",
+    "Tooth/root union cannot establish intersection beyond chord tolerance.",
+    "Root fillet, bore and chamfer cases also fail at their shared union prerequisite."
+  ],
+  "source_fault_confirmed": false,
+  "api_advisories": [
+    {
+      "owner": "adsk.fusion.Sketch",
+      "name": "project",
+      "status": "unverified",
+      "decision": "Retain advisory without waiver; Fusion behavior unsettled."
+    },
+    {
+      "owner": "adsk.fusion.SketchTexts",
+      "name": "createInput2",
+      "status": "unverified",
+      "decision": "Retain advisory without waiver; Fusion behavior unsettled."
+    },
+    {
+      "owner": "adsk.fusion.FilletFeatureInput",
+      "name": "addConstantRadiusEdgeSet",
+      "status": "unverified",
+      "decision": "Retain advisory without waiver; Fusion behavior unsettled."
+    }
+  ],
+  "unclaimed_source_lines": {
+    "spec/spurgear/instructions.md": 7,
+    "spec/spurgear/fusion.md": 12,
+    "spec/helicalgear/fusion.md": 60
+  },
+  "recorded_at_utc": "2026-09-07T07:48:11.368853+00:00"
+}

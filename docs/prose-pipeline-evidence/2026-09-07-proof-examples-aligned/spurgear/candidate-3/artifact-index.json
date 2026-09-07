@@ -1,0 +1,26 @@
+[
+  {
+    "path": "artifacts/compile-r1-submitted/proof/sketches_test.go",
+    "sha256": "69a088075662946cf8d0ea184886c9af573dedf54116f2094618a444db27e1ae",
+    "bytes": 6899,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "artifacts/compile-r1-submitted/proof/solids_test.go",
+    "sha256": "dacb27331474498936f3fbd9c729f79b198e825f3eab296966ad0c2dca830add",
+    "bytes": 9107,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "artifacts/compile-r1-submitted/spurgear.steps.md",
+    "sha256": "eb20aeb50a8593d3ffc16a7c4d2a08ad0f2bc6cf1493bb809926b917ce98f4ec",
+    "bytes": 129441,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "write-spur-draft.py",
+    "sha256": "d9f36c29c447c98d146f3cf7c445baf4d332ed687a21d662a19983fa0efdbbbf",
+    "bytes": 23819,
+    "publication": "hash only; local generated artifact/helper"
+  }
+]

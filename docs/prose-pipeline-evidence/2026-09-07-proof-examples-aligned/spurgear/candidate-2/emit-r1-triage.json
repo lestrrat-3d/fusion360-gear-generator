@@ -1,0 +1,88 @@
+{
+  "round": 1,
+  "decision": "Stop under owning compile-fault rule; no emitter retry or module placement.",
+  "parent_disposition": "Apply the documented Tools contradiction stop consistently with control warm-up. Preserve textual conflict separately from unconfirmed Fusion behavior. Continue next control2 under unchanged conditions.",
+  "compile_fault": {
+    "kind": "contradictory_compiled_step_requirements",
+    "step": 2,
+    "evidence": "emit-r1-exact-passages.txt",
+    "fusion_behavior_confirmed": false
+  },
+  "gate_findings": [
+    {
+      "gate": "contract",
+      "count": 8,
+      "observation": "Fields exist as annotated assignments with values at candidate lines 83-90. Checker _ctx_fields inspects ast.Assign, so the reported omission does not establish actual missing initialization. No checker changes or waiver."
+    },
+    {
+      "gate": "api_calls",
+      "count": 2,
+      "lines": [
+        598,
+        665
+      ],
+      "observation": "Both receiver calls are Python set.add. The blocked result is preserved without treating the Fusion ownership finding as proof that these calls are invalid Python."
+    }
+  ],
+  "novel_type_findings": [
+    {
+      "line": 524,
+      "method": "isCoPlanarTo",
+      "observation": "Surface argument guarded by surfaceType enum; no Plane narrowing recognized. Retain unresolved typing finding."
+    },
+    {
+      "line": 524,
+      "method": "isParallelToPlane",
+      "observation": "Surface argument guarded by surfaceType enum; no Plane narrowing recognized. Retain unresolved typing finding."
+    },
+    {
+      "line": 654,
+      "method": "isParallelToPlane",
+      "observation": "Surface argument guarded by surfaceType enum; no Plane narrowing recognized. Retain unresolved typing finding."
+    }
+  ],
+  "pyright_review": [
+    {
+      "lines": [
+        123,
+        289,
+        442
+      ],
+      "finding": "Sketch.project",
+      "decision": "Known unverified API advisory, not waived; Fusion behavior unsettled."
+    },
+    {
+      "lines": [
+        153
+      ],
+      "finding": "SketchTexts.createInput2",
+      "decision": "Known unverified API advisory, not waived; Fusion behavior unsettled."
+    },
+    {
+      "lines": [
+        605
+      ],
+      "finding": "FilletFeatureInput.addConstantRadiusEdgeSet",
+      "decision": "Known unverified API advisory, not waived; Fusion behavior unsettled."
+    },
+    {
+      "lines": [
+        518,
+        644
+      ],
+      "finding": "Base.geometry",
+      "decision": "Broad referencePlane stub return lacks geometry; retain unresolved typing finding."
+    },
+    {
+      "lines": [
+        564
+      ],
+      "finding": "CombineFeatureInput.operation assignment",
+      "decision": "Retain advisory setter/stub mismatch; no baseline edits or waiver."
+    }
+  ],
+  "raw_runner_advisory_count": 8,
+  "new_novel_rows": 3,
+  "advisory_count_discrepancy": "Raw headline count reflects accepted noise rather than three displayed new rows; retain both.",
+  "recorded_at_utc": "2026-09-07T07:24:18.224894+00:00"
+}

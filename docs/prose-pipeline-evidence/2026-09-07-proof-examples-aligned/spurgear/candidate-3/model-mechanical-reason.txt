@@ -1,0 +1,1 @@
+pick_model: default gpt-6-astra is not on the ladder; no step down

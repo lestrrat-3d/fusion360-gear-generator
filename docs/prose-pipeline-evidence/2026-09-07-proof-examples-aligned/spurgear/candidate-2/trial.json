@@ -1,0 +1,91 @@
+{
+  "schema": 1,
+  "experiment_id": "2026-09-07-proof-examples-aligned",
+  "condition": "candidate",
+  "trial": 2,
+  "scored": true,
+  "gear": "spurgear",
+  "commit": "76e1d7f07fc3eae472278b29a528a73641056b7d",
+  "status": "failed",
+  "stop_reason": "Compile fault: Tools projection-only sketch and full-constraint requirement conflict textually; Fusion behavior unconfirmed. Parent stopped after complete first emitter battery.",
+  "compile_run_id": "2026-09-07-proof-examples-aligned-candidate-2-spurgear-compile",
+  "emit_run_id": "2026-09-07-proof-examples-aligned-candidate-2-spurgear-emit",
+  "compile_output_digests": [
+    {
+      "path": "proof/spurgear/sketches_test.go",
+      "sha256": "7045d51e9f78c783da17d199dcbaa36f6b4d91c0c5da42cf8a0b65b985294588",
+      "bytes": 10475
+    },
+    {
+      "path": "proof/spurgear/solids_test.go",
+      "sha256": "3e68053507716c3844113f00e65cef165a512a0641285db4614930490eeeb83c",
+      "bytes": 16397
+    },
+    {
+      "path": "proof/spurgear/stage-manifest.json",
+      "sha256": "c28f9533dbcf4da9578a499ec8be6ab590f20b6ef6ba4a720c3ae812e830d60f",
+      "bytes": 415
+    },
+    {
+      "path": "proof/spurgear/zz_registrations_test.go",
+      "sha256": "c700e5f943377f6fd967780664d232bc94ca2c7f44614e2bf764b72f1909318f",
+      "bytes": 1209
+    },
+    {
+      "path": "spec/spurgear/steps.md",
+      "sha256": "59b6a47a01b24e3e4910747082cff272f0ebcc07591ff1e43f6593861d29c478",
+      "bytes": 85777
+    }
+  ],
+  "emit_input_digests": [
+    {
+      "path": "proof/spurgear/sketches_test.go",
+      "sha256": "7045d51e9f78c783da17d199dcbaa36f6b4d91c0c5da42cf8a0b65b985294588",
+      "bytes": 10475
+    },
+    {
+      "path": "proof/spurgear/solids_test.go",
+      "sha256": "3e68053507716c3844113f00e65cef165a512a0641285db4614930490eeeb83c",
+      "bytes": 16397
+    },
+    {
+      "path": "proof/spurgear/stage-manifest.json",
+      "sha256": "c28f9533dbcf4da9578a499ec8be6ab590f20b6ef6ba4a720c3ae812e830d60f",
+      "bytes": 415
+    },
+    {
+      "path": "proof/spurgear/zz_registrations_test.go",
+      "sha256": "c700e5f943377f6fd967780664d232bc94ca2c7f44614e2bf764b72f1909318f",
+      "bytes": 1209
+    },
+    {
+      "path": "spec/spurgear/steps.md",
+      "sha256": "59b6a47a01b24e3e4910747082cff272f0ebcc07591ff1e43f6593861d29c478",
+      "bytes": 85777
+    }
+  ],
+  "final_artifact_digests": [],
+  "final_compile_report": null,
+  "final_emit_report": null,
+  "serial_wall_time_s": 4615.938531,
+  "input_tokens": null,
+  "output_tokens": null,
+  "cost": null,
+  "drafter": "/root/measure_t8/aligned_candidate_2_spur_emit",
+  "draft_rounds_started": 4,
+  "compile_draft_rounds": 3,
+  "emit_draft_rounds": 1,
+  "completed_draft_rounds": 4,
+  "gate_reports_observed": 4,
+  "compile_first_pass": false,
+  "emit_first_pass": false,
+  "compile_summary": "compile-summary.json",
+  "emit_summary": "emit-summary.json",
+  "diagnosis_time_s": null,
+  "pre_emission_readiness": "compile-r3-full.json",
+  "delivery": "Fresh context agent reads complete byte-exact rendered prompt from saved file.",
+  "stopped_at": "2026-09-07T07:24:20.016496+00:00",
+  "benchmark_eligible": false,
+  "protocol_deviations": "protocol-deviations.json",
+  "full_protocol_compliance": false
+}

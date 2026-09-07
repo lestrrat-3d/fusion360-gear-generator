@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "encoding": "utf8-chunks",
+  "original_name": "decad-doc-CreatedBy.log",
+  "original_sha256": "b83bd7b9a382d30a72824d2274aa48a0aac4212162801df1c1c643188f622de4",
+  "original_bytes": 329,
+  "chunks": [
+    "package decad // import \".\"\n\nfunc CreatedBy(f FeatureRef) EdgePredicate\n    CreatedBy matches edges ",
+    "by provenance: edges created by the feature\n    role f names. Provenance is structural, so it surviv",
+    "es re-evaluation\n    (docs/evaluator-design.md §3). A negative step or empty role is rejected at\n   ",
+    " resolve as ErrDegenerate.\n\n"
+  ]
+}

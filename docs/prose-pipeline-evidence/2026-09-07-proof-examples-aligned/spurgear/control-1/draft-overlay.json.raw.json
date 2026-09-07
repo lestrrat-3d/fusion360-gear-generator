@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "encoding": "utf8-chunks",
+  "original_name": "draft-overlay.json",
+  "original_sha256": "3bd4a11cf4b862dd2c1eb897bd7cc2401bc3b7a98100474a04f35f583f37a4a9",
+  "original_bytes": 747,
+  "chunks": [
+    "{\"Replace\": {\"/home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/chor",
+    "e-prose-2026-09-07-proof-examples-aligned-control-1-spurgear/proof/spurgear/sketches_test.go\": \"/hom",
+    "e/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/chore-prose-2026-09-07",
+    "-proof-examples-aligned-control-1-spurgear/.tmp/spurgear-proof/sketches_test.go\", \"/home/lestrrat/de",
+    "v/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/chore-prose-2026-09-07-proof-exampl",
+    "es-aligned-control-1-spurgear/proof/spurgear/solids_test.go\": \"/home/lestrrat/dev/src/github.com/les",
+    "trrat-3d/fusion360-gear-generator/.worktrees/chore-prose-2026-09-07-proof-examples-aligned-control-1",
+    "-spurgear/.tmp/spurgear-proof/solids_test.go\"}}"
+  ]
+}

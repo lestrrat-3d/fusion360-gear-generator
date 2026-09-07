@@ -1,0 +1,22 @@
+{
+  "recorded_at": "2026-09-07T05:11:45.465216+00:00",
+  "note": "Operator-only emission and evidence helpers added as their checkpoints became reachable. Frozen condition tooling remains unchanged.",
+  "helpers": [
+    {
+      "path": "t8_emit_setup.py",
+      "sha256": "f41311a7a494ecd4a5e9a374abefe18616a45cb49f337afc34734a1d658da02e"
+    },
+    {
+      "path": "t8_emit_round.py",
+      "sha256": "5eeb78af1c64bb898cb6c6ae1518fc46347c69b619724c96444ba4828f887582"
+    },
+    {
+      "path": "t8_end_serial.py",
+      "sha256": "00db4e7202b5fcd206a101446faf002dcc830cbebe5dbad006bd67b20e56656c"
+    },
+    {
+      "path": "t8_collect.py",
+      "sha256": "8c41c079655a70d49eee29afed62f77e9a040eb4a9b9e12da12f0141cc44c4e2"
+    }
+  ]
+}

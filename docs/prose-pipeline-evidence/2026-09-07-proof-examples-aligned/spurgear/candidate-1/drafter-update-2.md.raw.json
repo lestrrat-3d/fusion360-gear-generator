@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "encoding": "utf8-chunks",
+  "original_name": "drafter-update-2.md",
+  "original_sha256": "fe982dcc5b03b18617717ab7249916badbd1fd74500b6a08fbb50459995c612d",
+  "original_bytes": 371,
+  "chunks": [
+    "I drafted sketch and solid proofs in the assigned .tmp directory. The solid draft preserves explicit",
+    " bore cutting and records chord substitutions. Root fillets and the completed-gear chamfer remain ex",
+    "plicit proof limits because the chorded valley boundary cannot reproduce their cylindrical-face sele",
+    "ction. I am finishing the timeline metadata and exact API obligations.\n"
+  ]
+}

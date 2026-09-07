@@ -1,0 +1,35 @@
+{
+  "recorded_at": "2026-09-07T04:58:46.814951+00:00",
+  "round": 2,
+  "gate_results": {
+    "iteration": "pass",
+    "ordinary_full": "pass"
+  },
+  "readiness": true,
+  "advisories": [
+    {
+      "call": "FilletFeatureInput.addConstantRadiusEdgeSet",
+      "decision": "unverified; retained, not waived; Fusion behavior unsettled"
+    },
+    {
+      "call": "SketchTexts.createInput2",
+      "decision": "unverified; retained, not waived; Fusion behavior unsettled"
+    },
+    {
+      "call": "Sketch.project",
+      "decision": "unverified; retained, not waived; Fusion behavior unsettled"
+    }
+  ],
+  "coverage_limits": [
+    "boundaryCounts normalizes circle seam and coalesced-arc representation",
+    "Chorded tooth area comparison permits 0.1 percent difference",
+    "Tooth volume comparison adds 1e-5 times expected volume to reported bound",
+    "Assembled outline extrusion substitutes for union",
+    "Embedded root contacts adjusted by at most 0.01 percent of root radius",
+    "Root fillet and completed-gear chamfer checks absent",
+    "Bore checks unfilleted geometry using a tool extended 1 mm beyond each cap"
+  ],
+  "parent_scope_review": "Broad claim that decad.Chamfer supports only lateral edges is overbroad relative to candidate examples. Preserve as unverified scope rationale; do not feed candidate-only knowledge into control drafter.",
+  "no_dropped_assertions_established": false,
+  "assessment": "Passing mechanical reports do not establish equivalent proof coverage or provisional improvement."
+}

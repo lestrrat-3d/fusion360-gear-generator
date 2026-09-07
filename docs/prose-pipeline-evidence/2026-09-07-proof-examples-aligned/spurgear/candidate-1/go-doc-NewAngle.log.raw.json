@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "encoding": "utf8-chunks",
+  "original_name": "go-doc-NewAngle.log",
+  "original_sha256": "bbbb6d01c71543a29ec274d6a01011dad20908fb34b83f37e1f1f83340f773e4",
+  "original_bytes": 754,
+  "chunks": [
+    "package sketch // import \".\"\n\nfunc NewAngle(l1, l2 *Line, a float64) *Angle\n    NewAngle constrains ",
+    "the angle from line l1 to line l2. The angle is signed:\n    it is measured counterclockwise from l1'",
+    "s start→end direction to l2's,\n    so a and -a pin mirror-image configurations and swapping a line's",
+    " endpoints\n    flips the measurement. Values wrap modulo a full turn (270° ≡ −90°). Unlike\n    an un",
+    "signed dimension, a signed angle admits a single configuration — to put\n    the geometry on the othe",
+    "r side, negate the value rather than reseeding.\n\n    The value a is interpreted in the sketch's defa",
+    "ult angle unit (degrees for\n    units.Metric) once added; use Angle.SetValue with a typed quantity s",
+    "uch as\n    units.Radians for another unit.\n\n"
+  ]
+}

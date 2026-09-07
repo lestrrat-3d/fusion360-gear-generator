@@ -1,0 +1,72 @@
+panic: test timed out after 1m0s
+	running tests:
+		TestCombine (1m0s)
+		TestCombine/fine (1s)
+
+goroutine 33 [running]:
+testing.(*M).startAlarm.func1()
+	/home/lestrrat/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.8.linux-amd64/src/testing/testing.go:2802 +0x354
+created by time.goFunc
+	/home/lestrrat/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.8.linux-amd64/src/time/sleep.go:215 +0x2d
+
+goroutine 1 [chan receive]:
+testing.(*T).Run(0x1a3ab01c2008, {0x7b65a4?, 0x0?}, 0x7ccf68)
+	/home/lestrrat/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.8.linux-amd64/src/testing/testing.go:2109 +0x4e5
+testing.runTests.func1(0x1a3ab01c2008)
+	/home/lestrrat/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.8.linux-amd64/src/testing/testing.go:2585 +0x3e
+testing.tRunner(0x1a3ab01c2008, 0x1a3ab01bdc58)
+	/home/lestrrat/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.8.linux-amd64/src/testing/testing.go:2036 +0xea
+testing.runTests({0x7c4d26, 0x35}, {0x7c6862, 0x3e}, 0x1a3ab007c0a8, {0xa33fe0, 0x8, 0x8}, {0xc29fae2c8e4840e2, 0xdf84bc7b7, ...})
+	/home/lestrrat/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.8.linux-amd64/src/testing/testing.go:2583 +0x505
+testing.(*M).Run(0x1a3ab00fa140)
+	/home/lestrrat/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.8.linux-amd64/src/testing/testing.go:2443 +0x6ac
+main.main()
+	_testmain.go:60 +0x9b
+
+goroutine 7 [chan receive]:
+testing.(*T).Run(0x1a3ab01c2248, {0x7b4bb0?, 0x4f78ec?}, 0x1a3b949f0090)
+	/home/lestrrat/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.8.linux-amd64/src/testing/testing.go:2109 +0x4e5
+github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit3d.runCases(0x1a3ab01c2248, {0xa33d80, 0x5, 0x5}, 0x7cd078, 0x7cd038, 0x7cd048, 0x0)
+	/home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/chore-prose-2026-09-07-proof-examples-aligned-control-1-spurgear/proof/proofkit3d/proofkit3d.go:121 +0x325
+github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit3d.RunWithGate(0x1a3ab01c2248, {0xa33d80, 0x5, 0x5}, 0x7cd078, 0x7cd038, 0x7cd048)
+	/home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/chore-prose-2026-09-07-proof-examples-aligned-control-1-spurgear/proof/proofkit3d/proofkit3d.go:82 +0x69
+github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit3d.RunSolid(...)
+	/home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/chore-prose-2026-09-07-proof-examples-aligned-control-1-spurgear/proof/proofkit3d/proofkit3d.go:48
+github.com/lestrrat-3d/fusion360-gear-generator/proof/spurgear_test.TestCombine(0x1a3ab01c2248?)
+	/home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/chore-prose-2026-09-07-proof-examples-aligned-control-1-spurgear/proof/spurgear/zz_registrations_test.go:33 +0x3d
+testing.tRunner(0x1a3ab01c2248, 0x7ccf68)
+	/home/lestrrat/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.8.linux-amd64/src/testing/testing.go:2036 +0xea
+created by testing.(*T).Run in goroutine 1
+	/home/lestrrat/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.8.linux-amd64/src/testing/testing.go:2101 +0x4c5
+
+goroutine 17 [runnable]:
+internal/runtime/maps.newTable(0x76ac60, 0x400, 0xffffffffffffffff, 0xb)
+	/home/lestrrat/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.8.linux-amd64/src/internal/runtime/maps/table.go:73 +0xc7
+internal/runtime/maps.(*table).split(0x1a3ab0563240, 0x76ac60, 0x1a3b949f0e70)
+	/home/lestrrat/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.8.linux-amd64/src/internal/runtime/maps/table.go:1185 +0x71
+internal/runtime/maps.(*table).rehash(0x1?, 0xc0088d9cc5629b2b?, 0x3ffaeaf36b3eefa3?)
+	/home/lestrrat/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.8.linux-amd64/src/internal/runtime/maps/table.go:1167 +0x30
+github.com/lestrrat-3d/sketch/geom.(*arranger).analyticPrepass(0x1a3ab1e51800)
+	/home/lestrrat/dev/src/github.com/lestrrat-3d/sketch/geom/arrange.go:1260 +0x805
+github.com/lestrrat-3d/sketch/geom.(*arranger).intersect(0x1a3ab1e51800)
+	/home/lestrrat/dev/src/github.com/lestrrat-3d/sketch/geom/arrange.go:1051 +0x2a
+github.com/lestrrat-3d/sketch/geom.Regions({0x1a3ab1f46000, 0x654, 0xa00}, {0x0, 0x0, 0x0}, {0x0, 0x0, 0x4f78ec?})
+	/home/lestrrat/dev/src/github.com/lestrrat-3d/sketch/geom/arrange.go:26 +0x105
+github.com/lestrrat-3d/sketch.(*Sketch).buildProfiles(0x1a3ab0268c00)
+	/home/lestrrat/dev/src/github.com/lestrrat-3d/sketch/profiles.go:329 +0x2119
+github.com/lestrrat-3d/sketch.(*Sketch).Profiles(...)
+	/home/lestrrat/dev/src/github.com/lestrrat-3d/sketch/profiles.go:214
+github.com/lestrrat-3d/fusion360-gear-generator/proof/spurgear_test.combinedProfile(0x1a3ab01c2908, 0x1a3ab0189230)
+	/home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/chore-prose-2026-09-07-proof-examples-aligned-control-1-spurgear/proof/spurgear/solids_test.go:263 +0x1513
+github.com/lestrrat-3d/fusion360-gear-generator/proof/spurgear_test.stepCombine(0x1a3ab01c2908, 0x1a3b949f00f0, 0x1a3ab0189230)
+	/home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/chore-prose-2026-09-07-proof-examples-aligned-control-1-spurgear/proof/spurgear/solids_test.go:182 +0x3a
+github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit3d.runCases.func1(0x1a3ab01c2908, {{0x7b4bb0?, 0x4f7d33?}, 0x1a3ab0189230?})
+	/home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/chore-prose-2026-09-07-proof-examples-aligned-control-1-spurgear/proof/proofkit3d/proofkit3d.go:113 +0x87
+github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit3d.runCases.func2(0x1a3ab01c2908?)
+	/home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/chore-prose-2026-09-07-proof-examples-aligned-control-1-spurgear/proof/proofkit3d/proofkit3d.go:121 +0x23
+testing.tRunner(0x1a3ab01c2908, 0x1a3b949f0090)
+	/home/lestrrat/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.8.linux-amd64/src/testing/testing.go:2036 +0xea
+created by testing.(*T).Run in goroutine 7
+	/home/lestrrat/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.8.linux-amd64/src/testing/testing.go:2101 +0x4c5
+FAIL	github.com/lestrrat-3d/fusion360-gear-generator/proof/spurgear	60.046s
+FAIL

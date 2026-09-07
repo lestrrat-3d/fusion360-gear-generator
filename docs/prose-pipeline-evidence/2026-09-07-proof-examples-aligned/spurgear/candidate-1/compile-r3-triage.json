@@ -1,0 +1,26 @@
+{
+  "recorded_at": "2026-09-07T05:43:37.816470+00:00",
+  "round": 3,
+  "classification": "passing_repair",
+  "reports": [
+    "compile-r3.json",
+    "compile-r3-full.json"
+  ],
+  "ordinary_full_ready_for_emit": true,
+  "advisories": [
+    {
+      "call": "FilletFeatureInput.addConstantRadiusEdgeSet",
+      "decision": "Unverified, retained, not waived; Fusion behavior unsettled"
+    },
+    {
+      "call": "SketchTexts.createInput2",
+      "decision": "Unverified, retained, not waived; Fusion behavior unsettled"
+    },
+    {
+      "call": "Sketch.project",
+      "decision": "Unverified, retained, not waived; Fusion behavior unsettled"
+    }
+  ],
+  "coverage_report": "compile-r3-coverage.json",
+  "prior_failures_preserved": true
+}

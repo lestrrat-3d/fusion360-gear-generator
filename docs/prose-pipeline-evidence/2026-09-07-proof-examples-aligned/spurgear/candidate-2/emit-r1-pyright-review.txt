@@ -1,0 +1,10 @@
+REVIEW (8) — advisory; mostly stub artifacts, NOT a gate:
+  L123 [reportAttributeAccessIssue] Cannot access attribute "project" for class "Sketch"
+  L153 [reportAttributeAccessIssue] Cannot access attribute "createInput2" for class "SketchTexts"
+  L289 [reportAttributeAccessIssue] Cannot access attribute "project" for class "Sketch"
+  L442 [reportAttributeAccessIssue] Cannot access attribute "project" for class "Sketch"
+  L518 [reportAttributeAccessIssue] Cannot access attribute "geometry" for class "Base"
+  L564 [reportAttributeAccessIssue] Cannot assign to attribute "operation" for class "CombineFeatureInput"
+  L605 [reportAttributeAccessIssue] Cannot access attribute "addConstantRadiusEdgeSet" for class "FilletFeatureInput"
+  L644 [reportAttributeAccessIssue] Cannot access attribute "geometry" for class "Base"
+pyright_check spurgear.generated.py: 0 blocking, 8 review, 15 ignored (stub false positives)

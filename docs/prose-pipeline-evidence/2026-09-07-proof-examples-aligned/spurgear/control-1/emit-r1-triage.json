@@ -1,0 +1,129 @@
+{
+  "recorded_at": "2026-09-07T05:08:44.150742+00:00",
+  "round": 1,
+  "classification": "compile_fault",
+  "stop_reasons": [
+    "13 duplicate anchor definitions in generated steps; emitter anchor gate cannot be repaired by changing the emitted module",
+    "Contradictory placement of SketchOnly short-circuit between compiled steps 1 and 5"
+  ],
+  "api_findings": [
+    {
+      "line": 355,
+      "call": "normalize",
+      "decision": "Receiver from get_normal lacks proven static ownership; unresolved emitter typing"
+    },
+    {
+      "line": 432,
+      "call": "add",
+      "decision": "Receiver is a locally created Python set; checker reports unknown API ownership; retained failure"
+    },
+    {
+      "line": 527,
+      "call": "createInput2",
+      "decision": "Known unverified SketchTexts member; API gate nevertheless blocks this submitted expression; no waiver"
+    },
+    {
+      "line": 529,
+      "call": "setAsAlongPath",
+      "decision": "Receiver from unverified createInput2 lacks proven ownership; unresolved"
+    },
+    {
+      "line": 650,
+      "call": "item",
+      "decision": "Projection result lacks proven static collection ownership; unresolved emitter typing"
+    }
+  ],
+  "novel_type_findings": [
+    {
+      "index": 1,
+      "line": 213,
+      "decision": "Optional/unknown plane not narrowed to required Base; not accepted as stub noise"
+    },
+    {
+      "index": 2,
+      "line": 307,
+      "decision": "Plane enum branch lacks typed Plane narrowing; not accepted as stub noise"
+    },
+    {
+      "index": 3,
+      "line": 307,
+      "decision": "Plane enum branch lacks typed Plane narrowing; not accepted as stub noise"
+    },
+    {
+      "index": 4,
+      "line": 361,
+      "decision": "Surface assigned directly to Cylinder after enum check; typed narrowing missing"
+    },
+    {
+      "index": 5,
+      "line": 368,
+      "decision": "Curve3D assigned directly to Line3D after enum check; typed narrowing missing"
+    },
+    {
+      "index": 6,
+      "line": 426,
+      "decision": "Plane enum branch lacks typed Plane narrowing; not accepted as stub noise"
+    },
+    {
+      "index": 7,
+      "line": 435,
+      "decision": "Curve3D assigned directly to Circle3D after enum check; typed narrowing missing"
+    }
+  ],
+  "type_review_findings": [
+    {
+      "line": 213,
+      "decision": "Optional/unknown Base argument remains unresolved"
+    },
+    {
+      "line": 230,
+      "decision": "Unverified Sketch.project status retained"
+    },
+    {
+      "line": 299,
+      "decision": "Base referencePlane geometry requires typed refinement"
+    },
+    {
+      "line": 340,
+      "decision": "Combine operation setter review remains unverified; no acceptance baseline edit"
+    },
+    {
+      "line": 361,
+      "decision": "Cylinder typed refinement missing"
+    },
+    {
+      "line": 368,
+      "decision": "Line3D typed refinement missing"
+    },
+    {
+      "line": 378,
+      "decision": "Unverified fillet member status retained"
+    },
+    {
+      "line": 419,
+      "decision": "Base referencePlane geometry requires typed refinement"
+    },
+    {
+      "line": 435,
+      "decision": "Circle3D typed refinement missing"
+    },
+    {
+      "line": 492,
+      "decision": "Unverified Sketch.project status retained"
+    },
+    {
+      "line": 527,
+      "decision": "Unverified SketchTexts.createInput2 status retained"
+    },
+    {
+      "line": 647,
+      "decision": "Unverified Sketch.project status retained"
+    }
+  ],
+  "existing_accepted_noise_matches": 8,
+  "new_novel_rows": 7,
+  "runner_advisory_count": 8,
+  "advisory_count_note": "Raw runner count is retained; displayed novel rows number seven while its count reports eight.",
+  "advisory_acceptance_changes": false,
+  "emitter_repairs_started": false
+}

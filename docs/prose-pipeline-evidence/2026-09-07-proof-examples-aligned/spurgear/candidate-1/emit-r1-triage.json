@@ -1,0 +1,84 @@
+{
+  "recorded_at": "2026-09-07T05:52:03.189384+00:00",
+  "round": 1,
+  "classification": "compile_fault",
+  "stop_reason": "Generated steps duplicate 13 source anchor definitions; emitter repairs cannot change this input.",
+  "api_findings": [
+    {
+      "line": 364,
+      "call": "add",
+      "decision": "Receiver is a locally created Python set; API checker reports unknown ownership. Retain failure; do not change condition tooling."
+    },
+    {
+      "line": 422,
+      "call": "add",
+      "decision": "Receiver is a locally created Python set; API checker reports unknown ownership. Retain failure; do not change condition tooling."
+    }
+  ],
+  "novel_type_findings": [
+    {
+      "index": 1,
+      "line": 211,
+      "decision": "Optional/unknown Base argument lacks static narrowing; not accepted as stub noise"
+    },
+    {
+      "index": 2,
+      "line": 304,
+      "decision": "Enum-checked Surface lacks typed Plane refinement; not accepted as stub noise"
+    },
+    {
+      "index": 3,
+      "line": 304,
+      "decision": "Enum-checked Surface lacks typed Plane refinement; not accepted as stub noise"
+    },
+    {
+      "index": 4,
+      "line": 416,
+      "decision": "Enum-checked Surface lacks typed Plane refinement; not accepted as stub noise"
+    }
+  ],
+  "type_review_findings": [
+    {
+      "line": 211,
+      "decision": "Optional/unknown Base argument remains unresolved"
+    },
+    {
+      "line": 227,
+      "decision": "Unverified Sketch.project status retained"
+    },
+    {
+      "line": 290,
+      "decision": "Base referencePlane geometry requires typed refinement"
+    },
+    {
+      "line": 329,
+      "decision": "Combine operation setter review remains unverified; no baseline edit"
+    },
+    {
+      "line": 370,
+      "decision": "Unverified fillet member status retained"
+    },
+    {
+      "line": 407,
+      "decision": "Base referencePlane geometry requires typed refinement"
+    },
+    {
+      "line": 482,
+      "decision": "Unverified Sketch.project status retained"
+    },
+    {
+      "line": 514,
+      "decision": "Unverified SketchTexts.createInput2 status retained"
+    },
+    {
+      "line": 625,
+      "decision": "Unverified Sketch.project status retained"
+    }
+  ],
+  "existing_accepted_noise_matches": 8,
+  "new_novel_rows": 4,
+  "runner_advisory_count": 8,
+  "advisory_count_note": "Raw runner count is retained; displayed novel rows number four while count reports eight.",
+  "advisory_acceptance_changes": false,
+  "emitter_repairs_started": false
+}

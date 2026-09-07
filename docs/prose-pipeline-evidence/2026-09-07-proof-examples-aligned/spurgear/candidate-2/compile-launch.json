@@ -1,0 +1,10 @@
+{
+  "recorded_at": "2026-09-07T06:08:05.801616+00:00",
+  "agent": "/root/measure_t8/aligned_candidate_2_spur_compile",
+  "role": "design",
+  "model": "gpt-6-astra",
+  "reasoning": "high",
+  "fork_turns": "none",
+  "delivery": "Complete saved rendered prompt file; original SHA256 verified after delivery",
+  "prompt_sha256": "8cba8608ef8957ddd902cdc70c84cf239da7825ef892134b0d5b079dd5de52d0"
+}

@@ -1,0 +1,40 @@
+{
+  "recorded_at": "2026-09-07T04:36:18.950641+00:00",
+  "source": "artifacts/compile-r1-submitted/proof/solids_test.go",
+  "source_sha256": "5bb5a8049ba68bc407519e2eef3c783708167323a990b260940cf9576c3d8b1d",
+  "drafter_scope_passage": [
+    {
+      "line": 154,
+      "text": "// Root filleting remains PROSE: the joined boolean is not an exact prism"
+    },
+    {
+      "line": 155,
+      "text": "// payload, which decad.Fillet requires. A chorded replacement changes the"
+    },
+    {
+      "line": 156,
+      "text": "// cylindrical-face radius selection and cannot prove that selected edge set."
+    },
+    {
+      "line": 157,
+      "text": "// Completed-gear chamfer remains PROSE: decad.Chamfer supports lateral edges,"
+    },
+    {
+      "line": 158,
+      "text": "// and refuses the end-cap edges explicitly required here. A lateral chamfer"
+    },
+    {
+      "line": 159,
+      "text": "// would prove a different operation. Bore-after-fillet therefore proves the"
+    },
+    {
+      "line": 160,
+      "text": "// through-cut on the available unfilleted joined geometry; it does not prove"
+    },
+    {
+      "line": 161,
+      "text": "// Fusion's final fillet/chamfer face topology or their integration."
+    }
+  ],
+  "operator_assessment": "Fillet/chamfer and their integration with bore are outside the submitted proof coverage. Gate acceptance cannot establish no-dropped-assertions by itself."
+}

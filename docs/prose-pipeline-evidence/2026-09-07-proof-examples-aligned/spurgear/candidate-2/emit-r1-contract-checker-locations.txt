@@ -1,0 +1,9 @@
+22:        "ctx_fields": ["plane", ...]     // self.<field> assigned in __init__
+68:        elif isinstance(node, ast.Assign):
+72:        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+85:def _ctx_fields(classnode):
+90:                if isinstance(sub, ast.Assign):
+158:        if isinstance(node, ast.Assign) and len(node.targets) == 1 \
+184:        want_fields = decl.get("ctx_fields", [])
+186:            have_fields = set(_ctx_fields(cls))
+189:                    problems.append("  class %s: ctx field self.%s not assigned in __init__" % (cname, f))

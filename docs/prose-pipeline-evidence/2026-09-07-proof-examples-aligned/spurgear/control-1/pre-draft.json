@@ -1,0 +1,58 @@
+{
+  "commit": "9bd932f626cecdd5146f7b93c3fd69fca3ed47fc",
+  "recorded_at": "2026-09-07T04:09:23.295080+00:00",
+  "environment": {
+    "GOTOOLCHAIN": "go1.26.8",
+    "GOMAXPROCS": "8",
+    "GOCACHE": "/home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/docs-prose-aligned-measurements/.tmp/t8-cache/control/go-build",
+    "TMPDIR": "/home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/docs-prose-aligned-measurements/.tmp/t8-cache/control/tmp",
+    "GIT_CEILING_DIRECTORIES": "/home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/docs-prose-aligned-measurements/.tmp/t8-cache/control/tmp",
+    "SKETCH_DIR": "/home/lestrrat/dev/src/github.com/lestrrat-3d/sketch",
+    "DECAD_DIR": "/home/lestrrat/dev/src/github.com/lestrrat-3d/decad/.worktrees/chore-gear-pipeline-pin"
+  },
+  "models": {
+    "design": "gpt-6-astra",
+    "mechanical": "gpt-6-astra"
+  },
+  "reasoning": "high",
+  "prompt_sha256": "77e7a33142ac677a2d32165398a5759d0a8fc85cceeea655a0232af206e53ddd",
+  "engines": {
+    "SKETCH_DIR": "34765bc10360aefd3015133afb0f3bb1586abbba",
+    "DECAD_DIR": "f200324e2a14ac657cd190b0e90cad54acb2f4c9"
+  },
+  "operator_helpers": [
+    {
+      "path": "t8_collect.py",
+      "sha256": "8fe4626151e84ed715df9fef2398a431e60440f54eb787d88a60e9ff5fe51fa8"
+    },
+    {
+      "path": "t8_compile_round.py",
+      "sha256": "1eb8f1069e9532799ce9c5c83b070c0d9bc3e1beb87fa9bf580583aa5fbfa28a"
+    },
+    {
+      "path": "t8_event_guard.py",
+      "sha256": "73bc4f45464c21a46da1004aa3068b57888921f666ff3f70544d423b49a2ed6d"
+    },
+    {
+      "path": "t8_finish.py",
+      "sha256": "8910bd3e5b3670276ff6537d2371a75ed7a5e801a2cc722b7f160d416c14bf10"
+    },
+    {
+      "path": "t8_guard_check.py",
+      "sha256": "794fbd9417dbed90cdf4853e379c22ddde67ff840ee2d9a16bd1371212493cc7"
+    },
+    {
+      "path": "t8_ops.py",
+      "sha256": "8835494bcf433a180aca9d8969c3b36d673d3c31a3fd2f7f7dffabeae7066ced"
+    },
+    {
+      "path": "t8_setup.py",
+      "sha256": "c65facb346597e58e427a50e0fafc431f307f33b0acbbbb092cb061e528fe290"
+    },
+    {
+      "path": "t8_summarize_trials.py",
+      "sha256": "2c8c49f9a11841d0da81c067683b5da59786bcd99ffee5a22fa556669659bb36"
+    }
+  ],
+  "measurement_method": "Guard phase+round transitions before event writes; no nested validation intervals."
+}

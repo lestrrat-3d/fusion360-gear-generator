@@ -1,0 +1,41 @@
+{
+  "compile-r1-submitted": [
+    {
+      "path": "proof/sketches_test.go",
+      "sha256": "ef01346ac84feebc9adf1340bf74a26b39bc5fe620c4e0e31d6aa99d30891096",
+      "bytes": 6396
+    },
+    {
+      "path": "proof/solids_test.go",
+      "sha256": "fc5ac9645ae0d4c1dd41bec04db9893a37053df0e78ef62d7f0163e8e8f8606d",
+      "bytes": 11590
+    },
+    {
+      "path": "spurgear.steps.md",
+      "sha256": "078675db638062f58565bcb38f8fe5a8fed313170ecf4b4ba778a78c75e10efa",
+      "bytes": 124645
+    }
+  ],
+  "compile-r2-interrupted": [
+    {
+      "path": "spurgear-proof/sketches_test.go",
+      "sha256": "ef01346ac84feebc9adf1340bf74a26b39bc5fe620c4e0e31d6aa99d30891096",
+      "bytes": 6396
+    },
+    {
+      "path": "spurgear-proof/solids_test.go",
+      "sha256": "fc5ac9645ae0d4c1dd41bec04db9893a37053df0e78ef62d7f0163e8e8f8606d",
+      "bytes": 11590
+    },
+    {
+      "path": "spurgear-proof/zz_registrations_test.go",
+      "sha256": "2896ec95ed8f830edf32b1eae2ed45e1e6adab35f29574a5ac115482e0413105",
+      "bytes": 1323
+    },
+    {
+      "path": "spurgear.steps.md",
+      "sha256": "ab2366c51a8ba5c17911875ce29410cd7386673845a14c0c1993f640f3e93880",
+      "bytes": 131887
+    }
+  ]
+}

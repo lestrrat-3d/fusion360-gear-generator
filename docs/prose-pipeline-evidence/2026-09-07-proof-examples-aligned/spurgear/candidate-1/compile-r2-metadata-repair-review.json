@@ -1,0 +1,22 @@
+{
+  "recorded_at": "2026-09-07T05:33:05.284297+00:00",
+  "round": 2,
+  "changed_artifacts": [
+    "spurgear.steps.md metadata only"
+  ],
+  "proof_files_changed": false,
+  "removed_metadata": [
+    {
+      "step": 4,
+      "name": "SpurGearInvoluteToothDesignGenerator",
+      "reason": "call_parser.CALL_PATTERN recognizes lowercase-leading bare names; this uppercase constructor span has no call_shapes pair"
+    },
+    {
+      "step": 11,
+      "name": "SpurGearInvoluteToothDesignGenerator",
+      "reason": "call_parser.CALL_PATTERN recognizes lowercase-leading bare names; this uppercase constructor span has no call_shapes pair"
+    }
+  ],
+  "prose_constructor_instructions_changed": false,
+  "existing_module_used_for_removal": false
+}

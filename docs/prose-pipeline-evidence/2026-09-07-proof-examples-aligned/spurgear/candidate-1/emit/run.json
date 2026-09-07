@@ -1,0 +1,39 @@
+{
+  "clock": "utc_epoch",
+  "gear": "spurgear",
+  "inputs": [
+    {
+      "path": "proof/spurgear/sketches_test.go",
+      "sha256": "f1ab8293e6395bda184b8c7a5203319c56e6358276f92d41629e7e022a30f124",
+      "size_bytes": 9055
+    },
+    {
+      "path": "proof/spurgear/solids_test.go",
+      "sha256": "936b447a1a69ddaebe32bdb7691755158670d124bf96135aa262371221fa2f7a",
+      "size_bytes": 9813
+    },
+    {
+      "path": "proof/spurgear/stage-manifest.json",
+      "sha256": "c28f9533dbcf4da9578a499ec8be6ab590f20b6ef6ba4a720c3ae812e830d60f",
+      "size_bytes": 415
+    },
+    {
+      "path": "proof/spurgear/zz_registrations_test.go",
+      "sha256": "820c56eef6f8a4b833354fb091e190e4d0ca93482bdfe46f1dacf4a6b52e0011",
+      "size_bytes": 1104
+    },
+    {
+      "path": "spec/spurgear/steps.md",
+      "sha256": "73d09d245db0006f8090ebee62950fb1c8ba2737428e36ad708cbb260de46727",
+      "size_bytes": 137292
+    }
+  ],
+  "model": "gpt-6-astra",
+  "model_role": "mechanical",
+  "round": 1,
+  "run_id": "2026-09-07-proof-examples-aligned-candidate-1-spurgear-emit",
+  "schema": 1,
+  "stage": "emit",
+  "started_at_utc": "2026-09-07T05:42:00.331333+00:00",
+  "starting_git_commit": "76e1d7f07fc3eae472278b29a528a73641056b7d"
+}

@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "encoding": "utf8-chunks",
+  "original_name": "emit-playbook.txt",
+  "original_sha256": "102740dc0f097ef01b8f2879731fa046297d735287761c63fbe79bd0799a68e2",
+  "original_bytes": 326,
+  "chunks": [
+    "playbook-extract check: spurgear: 48 anchors cited (34 defined in the playbook), 36 blocks written, ",
+    "41518 bytes vs 72144 playbook bytes (58%) -> /home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360",
+    "-gear-generator/.worktrees/chore-prose-2026-09-07-proof-examples-aligned-control-1-spurgear/.tmp/spu",
+    "rgear.playbook-extract.md\n"
+  ]
+}

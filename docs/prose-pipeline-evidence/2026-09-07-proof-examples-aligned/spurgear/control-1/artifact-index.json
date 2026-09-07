@@ -1,0 +1,62 @@
+[
+  {
+    "path": "artifacts/compile-r1-submitted/proof/sketches_test.go",
+    "sha256": "58d2159b33ac361091028196ab3988fa53565aa23059b40130a3060524b0a65e",
+    "bytes": 6649,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "artifacts/compile-r1-submitted/proof/solids_test.go",
+    "sha256": "5bb5a8049ba68bc407519e2eef3c783708167323a990b260940cf9576c3d8b1d",
+    "bytes": 7882,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "artifacts/compile-r1-submitted/spurgear.steps.md",
+    "sha256": "c4f7a3613108ee69ef3c923841cd2846aff71ff71b01d4279a2b9350cabd3e1a",
+    "bytes": 122266,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "artifacts/compile-r2-proof-diff.txt",
+    "sha256": "8cc4e6f61962ad2a22750f9878590d13e7be88b0db35da54e925661798cb71f0",
+    "bytes": 14675,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "artifacts/compile-r2-submitted/proof/sketches_test.go",
+    "sha256": "7bb5640975d99302ea5c223df9c91485ffad88d0b37674ae86b521fef640ddc3",
+    "bytes": 8592,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "artifacts/compile-r2-submitted/proof/solids_test.go",
+    "sha256": "38b56ac84e9d84c782ab6dc9bf034db05ddc1e49ef622e1c1c01efa559090b73",
+    "bytes": 14326,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "artifacts/compile-r2-submitted/proof/zz_registrations_test.go",
+    "sha256": "73f42bf1e7cfef70ad2353fe2b8c717600dd8c5c4004e2bc80bb13b3675b8cf0",
+    "bytes": 1081,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "artifacts/compile-r2-submitted/spurgear.steps.md",
+    "sha256": "3b6aeeab6fad99683db36a3c12a09da69f0e620349d292d222d1199c62c351c8",
+    "bytes": 123870,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "artifacts/emit-r1-submitted/spurgear.generated.py",
+    "sha256": "82fe9c3912dc7b6fa0a95c47ef577f69f5125b32d9553a2721af269c738b9e3e",
+    "bytes": 34259,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "draft_steps.py",
+    "sha256": "2bfd1e09d5aa6bafc370f406192c5883a7dc272571e34daa3e2656c0046da0b6",
+    "bytes": 23127,
+    "publication": "hash only; local generated artifact/helper"
+  }
+]

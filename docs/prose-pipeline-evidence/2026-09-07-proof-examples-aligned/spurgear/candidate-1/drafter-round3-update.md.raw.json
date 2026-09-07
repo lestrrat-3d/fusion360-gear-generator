@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "encoding": "utf8-chunks",
+  "original_name": "drafter-round3-update.md",
+  "original_sha256": "af37a5ae09c22752ffdb1dcaee6f266536205770c324b26492a70d6a024907d2",
+  "original_bytes": 321,
+  "chunks": [
+    "The gate report shows only Gear Profile count assertions failing. The engine retains one whole root-",
+    "circle boundary and may split a tooth arc at the circle seam. I am changing the proof to count joine",
+    "d boundary fragments and actual tooth/root contact points, preserving the source’s two root arcs and",
+    " 4/6 tooth curves.\n"
+  ]
+}

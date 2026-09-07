@@ -1,0 +1,7 @@
+{
+  "recorded_at": "2026-09-07T05:29:19.070409+00:00",
+  "helper": "t8_compile_round.py",
+  "sha256": "5e057c1086dd771d51446e3840d0a5fdbe73261902a6b1c7063fea6b1412615c",
+  "mode": "submitted",
+  "reason": "Drafting was already closed and the submission preserved before read-only source clarification. This mode runs unchanged preparation and initial full gates without a duplicate drafting finish."
+}

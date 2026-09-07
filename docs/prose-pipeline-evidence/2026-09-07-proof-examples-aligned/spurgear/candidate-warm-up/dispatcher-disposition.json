@@ -1,0 +1,6 @@
+{
+  "recorded_at": "2026-09-07T04:05:16.879740+00:00",
+  "reviewer": "/root",
+  "decision": "Stop candidate warm-up as setup_error; interrupt owned round-2 drafter. Preserve raw invalid events and first-pass proof failure. Do not substitute corrected phase totals as benchmark data.",
+  "next_step": "Guard operator event writes and validate synthetic scratch sequence before parent review of next trial outline."
+}

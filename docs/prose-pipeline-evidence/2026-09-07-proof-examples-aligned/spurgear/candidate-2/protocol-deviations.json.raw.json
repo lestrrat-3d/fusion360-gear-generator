@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "encoding": "utf8-chunks",
+  "original_name": "protocol-deviations.json",
+  "original_sha256": "661baacfb278b7f778162cb235145661c44345bff4c033cb909202c28bea905f",
+  "original_bytes": 735,
+  "chunks": [
+    "{\n  \"recorded_at\": \"2026-09-07T06:35:25.677979+00:00\",\n  \"classification\": \"protocol_deviation\",\n  \"",
+    "command_observation_duration_s\": 1.398618278,\n  \"effective_environment\": null,\n  \"cache_isolation\": ",
+    "\"unverified for the four-query go doc invocation\",\n  \"evidence\": \"environment-clarification.md\",\n  \"",
+    "parent_disposition\": \"Continue normal preparation and gates. Documentation came from the pinned sket",
+    "ch checkout; no source mismatch established. Keep scheduled scored flag and actual outcome. Retain o",
+    "bserved wall time but exclude this trial from accepted-latency comparison. Any correctness acceptanc",
+    "e remains separate from timing comparability.\",\n  \"benchmark_eligible\": false,\n  \"scored\": true,\n  \"",
+    "full_protocol_compliance\": false\n}\n"
+  ]
+}

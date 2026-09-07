@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "encoding": "utf8-chunks",
+  "original_name": "drafter-final-report.md",
+  "original_sha256": "d564d0eb516212b49fd578c42a9fb1755bd970b77749c12b122b2c75f80f718f",
+  "original_bytes": 1167,
+  "chunks": [
+    "I wrote these drafts in `.worktrees/chore-prose-2026-09-07-proof-examples-aligned-candidate-2-spurge",
+    "ar`:\n\n- `.tmp/spurgear.steps.md` contains 13 timeline steps and version-2 metadata.\n- `.tmp/spurgear",
+    "-proof/sketches_test.go` contains the sketch proof.\n- `.tmp/spurgear-proof/solids_test.go` contains ",
+    "the solid proof.\n\nI formatted the Go files. I did not create registrations, stage files, or run oper",
+    "ator gates.\n\nThe source leaves parameter-range endpoints and minimum sample count unspecified. Stric",
+    "t base/root equality creates the documented zero-length stub. Step-number references are inconsisten",
+    "t, and the helical sidecar says final chamfer verification remains pending.\n\nAPI status reports thre",
+    "e advisories: `Sketch.project`, `SketchTexts.createInput2`, and `FilletFeatureInput.addConstantRadiu",
+    "sEdgeSet`. No queried call was blocked.\n\nThe proof records its chord, joined-outline, extended-cut-t",
+    "ool, and sequential-cap substitutions. Native fillet, cut, and chamfer attempts require operator val",
+    "idation.\n\nOne early `go doc` invocation used the inherited environment; subsequent Go commands used ",
+    "the recorded environment. The saved prompt hash remains unchanged.\n"
+  ]
+}

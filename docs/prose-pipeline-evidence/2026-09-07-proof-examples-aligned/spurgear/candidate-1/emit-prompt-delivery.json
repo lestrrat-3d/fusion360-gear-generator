@@ -1,0 +1,6 @@
+{
+  "checked_at": "2026-09-07T05:42:51.433837+00:00",
+  "sha256": "b39797362a9110b021bdad7f6c56933040fefd5b141954964c3d1b2aa5cc4d3f",
+  "agent": "/root/measure_t8/aligned_candidate_1_spur_emit",
+  "delivery": "byte-exact saved prompt file; fresh context; generic launcher"
+}

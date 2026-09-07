@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "encoding": "utf8-chunks",
+  "original_name": "go-doc-NewMidpoint.log",
+  "original_sha256": "5f83cde15fec84d4b127cefe9ff527e67e379be220ac7ed722e419f293b62c30",
+  "original_bytes": 139,
+  "chunks": [
+    "package sketch // import \".\"\n\nfunc NewMidpoint(p *Point, l *Line) Constraint\n    NewMidpoint forces ",
+    "a point to be the midpoint of a line.\n\n"
+  ]
+}

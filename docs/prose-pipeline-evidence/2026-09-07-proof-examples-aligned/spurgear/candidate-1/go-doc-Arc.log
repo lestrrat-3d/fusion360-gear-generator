@@ -1,0 +1,23 @@
+package sketch // import "."
+
+type Arc struct {
+	Center, Start, End *Point
+
+	// Has unexported fields.
+}
+    Arc is a circular arc swept counter-clockwise from Start to End about
+    Center. Its radius is implied by the geometry; an internal constraint keeps
+    the start and end equidistant from the center so the arc stays valid.
+
+func (a *Arc) EndAngle() float64
+func (a *Arc) Geometry() *geom.Arc
+func (a *Arc) IsConstruction() bool
+func (r Arc) IsReference() bool
+func (a *Arc) IsStale() bool
+func (n *Arc) Name() string
+func (a *Arc) R() float64
+func (a *Arc) SetConstruction(v bool)
+func (n *Arc) SetName(name string)
+func (r Arc) Source() string
+func (a *Arc) StartAngle() float64
+func (a *Arc) Sweep() float64

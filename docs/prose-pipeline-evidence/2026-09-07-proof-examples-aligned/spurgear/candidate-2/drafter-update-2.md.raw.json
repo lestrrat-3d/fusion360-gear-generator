@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "encoding": "utf8-chunks",
+  "original_name": "drafter-update-2.md",
+  "original_sha256": "49690a1ac04ce22035300ee9b0f1c5be4782289dbddd789b04c09bdcb0517dc6",
+  "original_bytes": 368,
+  "chunks": [
+    "The draft now has a full fitted-spline sketch proof across signed rotations, low/default sample coun",
+    "ts, and both embedded routes. Solid steps will use explicitly documented chord substitutions for exa",
+    "ct trims, with real profile and volume assertions. Source gaps include the strict equality zero-leng",
+    "th stub and the sidecar's still-pending final chamfer verification.\n"
+  ]
+}

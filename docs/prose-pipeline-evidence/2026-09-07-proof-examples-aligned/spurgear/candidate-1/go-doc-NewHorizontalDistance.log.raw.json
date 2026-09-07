@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "encoding": "utf8-chunks",
+  "original_name": "go-doc-NewHorizontalDistance.log",
+  "original_sha256": "7d9061bfe9c09837a6ef9c5d88c0c82d44e7af14c20217d01a268cad98a429c2",
+  "original_bytes": 183,
+  "chunks": [
+    "package sketch // import \".\"\n\nfunc NewHorizontalDistance(p1, p2 *Point, d float64) *HorizontalDistan",
+    "ce\n    NewHorizontalDistance constrains the signed horizontal distance (x2−x1).\n\n"
+  ]
+}

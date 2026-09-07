@@ -1,0 +1,19 @@
+package sketch // import "."
+
+type Line struct {
+	Start, End *Point
+
+	// Has unexported fields.
+}
+    Line is a straight segment between two sketch points.
+
+func (l *Line) AngleTo(other *Line) float64
+func (l *Line) Geometry() *geom.Line
+func (l *Line) IsConstruction() bool
+func (r Line) IsReference() bool
+func (l *Line) IsStale() bool
+func (l *Line) Length() float64
+func (n *Line) Name() string
+func (l *Line) SetConstruction(v bool)
+func (n *Line) SetName(name string)
+func (r Line) Source() string

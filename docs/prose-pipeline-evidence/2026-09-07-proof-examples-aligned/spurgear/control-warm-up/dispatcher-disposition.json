@@ -1,0 +1,10 @@
+{
+  "recorded_at": "2026-09-07T03:42:39.252635+00:00",
+  "reviewer": "/root",
+  "disposition": "Retain failed warm-up. Projection concern is textually supported for Tools; no Fusion behavior fix confirmed. Continue prescribed candidate warm-up and scored schedule unchanged.",
+  "boundary_disposition": "Exact base=root is explicitly specified; the earlier unspecified-gap claim is refuted.",
+  "source_changes_allowed": false,
+  "next_condition": "candidate",
+  "next_trial": "warm-up",
+  "helical_prerequisite": "If the complete spurgear schedule has no accepted output, helical remains unstarted and evidence is insufficient."
+}

@@ -1,0 +1,80 @@
+[
+  {
+    "path": "artifacts/compile-r1-submitted/proof/sketches_test.go",
+    "sha256": "d08709e361cc37cbe1342af7b64f9328721d7a907f5765e2eca0a97babef23b3",
+    "bytes": 6728,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "artifacts/compile-r1-submitted/proof/solids_test.go",
+    "sha256": "936b447a1a69ddaebe32bdb7691755158670d124bf96135aa262371221fa2f7a",
+    "bytes": 9813,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "artifacts/compile-r1-submitted/spurgear.steps.md",
+    "sha256": "2670e2c9e2d91309ae442c9090a3549d13514d7d682d9b2abc07f368dceb3dd3",
+    "bytes": 130071,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "artifacts/compile-r2-step-diff.txt",
+    "sha256": "c388644b1781ab310513b44f1e70ebed4bb1e2785920dcc55a3e2536cd311b91",
+    "bytes": 916,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "artifacts/compile-r2-submitted/proof/sketches_test.go",
+    "sha256": "d08709e361cc37cbe1342af7b64f9328721d7a907f5765e2eca0a97babef23b3",
+    "bytes": 6728,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "artifacts/compile-r2-submitted/proof/solids_test.go",
+    "sha256": "936b447a1a69ddaebe32bdb7691755158670d124bf96135aa262371221fa2f7a",
+    "bytes": 9813,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "artifacts/compile-r2-submitted/spurgear.steps.md",
+    "sha256": "77ebe805d69ec17b1d2a990f8239e09d6724bf481b4c5a07416ce26ff0730667",
+    "bytes": 129521,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "artifacts/compile-r3-sketch-diff.txt",
+    "sha256": "4c5695650491dfa83b3f40345c12907b359cf58502cf12b4321cc65a95db05a4",
+    "bytes": 3720,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "artifacts/compile-r3-submitted/proof/sketches_test.go",
+    "sha256": "f1ab8293e6395bda184b8c7a5203319c56e6358276f92d41629e7e022a30f124",
+    "bytes": 9055,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "artifacts/compile-r3-submitted/proof/solids_test.go",
+    "sha256": "936b447a1a69ddaebe32bdb7691755158670d124bf96135aa262371221fa2f7a",
+    "bytes": 9813,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "artifacts/compile-r3-submitted/proof/zz_registrations_test.go",
+    "sha256": "820c56eef6f8a4b833354fb091e190e4d0ca93482bdfe46f1dacf4a6b52e0011",
+    "bytes": 1104,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "artifacts/compile-r3-submitted/spurgear.steps.md",
+    "sha256": "73d09d245db0006f8090ebee62950fb1c8ba2737428e36ad708cbb260de46727",
+    "bytes": 137292,
+    "publication": "hash only; local generated artifact/helper"
+  },
+  {
+    "path": "artifacts/emit-r1-submitted/spurgear.generated.py",
+    "sha256": "a565f6f6d2ce7d7e6de37129680a3b256c9bead3bbeb415cbe3aac5b7201429f",
+    "bytes": 33953,
+    "publication": "hash only; local generated artifact/helper"
+  }
+]

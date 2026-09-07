@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "encoding": "utf8-chunks",
+  "original_name": "commands.jsonl",
+  "original_sha256": "8817ce2988bb0b9c422fe3277139792bd2588dc067e760fa6d89af7c047e8c07",
+  "original_bytes": 668,
+  "chunks": [
+    "{\"command\": [\"python3\", \".claude/skills/generate-gear/pipeline_timing.py\", \"event\", \"--run-dir\", \".t",
+    "mp/t8/compile\", \"--phase\", \"drafting\", \"--action\", \"start\", \"--round\", \"1\"], \"log\": \"compile-draftin",
+    "g-start-r1-default.json\", \"start\": \"2026-09-07T08:38:39.423953+00:00\", \"finish\": \"2026-09-07T08:38:3",
+    "9.513094+00:00\", \"exit_code\": 0}\n{\"command\": [\"python3\", \".claude/skills/generate-gear/pipeline_timi",
+    "ng.py\", \"event\", \"--run-dir\", \".tmp/t8/compile\", \"--phase\", \"drafting\", \"--action\", \"finish\", \"--rou",
+    "nd\", \"1\"], \"log\": \"compile-drafting-finish-r1-default.json\", \"start\": \"2026-09-07T08:54:05.474027+00",
+    ":00\", \"finish\": \"2026-09-07T08:54:05.522568+00:00\", \"exit_code\": 0}\n"
+  ]
+}

@@ -1,0 +1,72 @@
+{
+  "recorded_at": "2026-09-07T05:39:09.867537+00:00",
+  "round": 3,
+  "path": "artifacts/compile-r3-submitted/proof/solids_test.go",
+  "sha256": "936b447a1a69ddaebe32bdb7691755158670d124bf96135aa262371221fa2f7a",
+  "passages": [
+    {
+      "start": 56,
+      "end": 59,
+      "lines": [
+        "\t// A standalone exact root circle substitutes for the profile split already",
+        "\t// asserted in stepGearProfile. It proves disc extent and volume, not the",
+        "\t// Fusion face-selection API or that API's two-arc loop representation.",
+        "\treturn []*decad.Body{cylinder(t, doc, p, dimensions(p).Root, p[\"thickness\"])}"
+      ]
+    },
+    {
+      "start": 69,
+      "end": 76,
+      "lines": [
+        "// toothBoundary chords the sampled fitted flanks and circular arcs for decad.",
+        "// It retains every prescribed involute sample outside the root and computes",
+        "// chord/root crossings. This loses spline curvature, exact tooth volume and",
+        "// Fusion's 4/6 curve topology; the actual sketch proves that topology separately.",
+        "func toothBoundary(p map[string]float64) []involute.Pt {",
+        "\td := dimensions(p)",
+        "\tleft, right := involute.Flanks(d.Base, d.Tip, d.Pitch, p[\"teeth\"], int(p[\"samples\"]), 0)",
+        "\tclip := func(flank []involute.Pt) []involute.Pt {"
+      ]
+    },
+    {
+      "start": 146,
+      "end": 149,
+      "lines": [
+        "\t// Fusion pattern API and its inclusion of the seed remain PROSE obligations.",
+        "\tseed := toothBoundary(p)",
+        "\tvar bodies []*decad.Body",
+        "\tfor i := range int(p[\"teeth\"]) {"
+      ]
+    },
+    {
+      "start": 188,
+      "end": 194,
+      "lines": [
+        "\t// One explicit outer boundary is the substitute for repeated faceted",
+        "\t// unions. It preserves the combined section without a boolean arrangement",
+        "\t// budget depending on how the operands were grouped. It does not prove a",
+        "\t// native Combine feature or exact circular valley faces.",
+        "\ts := polygonSketch(t, p, gearBoundary(p))",
+        "\treturn extruded(t, doc, s, solved(t, s, 0), p[\"thickness\"])",
+        "}"
+      ]
+    },
+    {
+      "start": 227,
+      "end": 234,
+      "lines": [
+        "// Root fillets and the subsequent completed-gear chamfer remain PROSE. The",
+        "// line substitute for valley arcs has no cylindrical faces on which to select",
+        "// exactly the source's axial root edges. Applying all concave-edge fillets",
+        "// would additionally round the involute chord joints, changing the prescribed",
+        "// operation. The separate-cylinder cap-chamfer recipe proves neither both",
+        "// gear caps together nor the chamfer after root fillets; it is not substituted",
+        "// here as if it did. These limitations also mean stepBoreCut proves the cut on",
+        "// the joined unfilleted section, not interaction with native root fillets."
+      ]
+    }
+  ],
+  "profile_assertion_change": "Raw boundary-edge counts replaced with source-entity run counts and two distinct actual root/tooth junctions; exactly two valid regions remains asserted.",
+  "no_dropped_assertions_established": false,
+  "interpretation": "Passing gates alone cannot establish comparable coverage for substituted solids and omitted fillet/chamfer integration."
+}

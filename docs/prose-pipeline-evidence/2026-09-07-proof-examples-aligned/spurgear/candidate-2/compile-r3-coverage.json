@@ -1,0 +1,29 @@
+{
+  "round": 3,
+  "mechanical_gate_acceptance_separate": true,
+  "no_dropped_assertions_established": false,
+  "removed_checks": [
+    "Completed-gear chamfer zero, outer-cap and bored-cap cases and volume-reduction assertions were removed; step becomes PROSE.",
+    "All-tooth joint-document partition verification replaced by one tooth per document."
+  ],
+  "substitutions": [
+    "Root disk accepts a preserved circle and checks two actual contacts rather than requiring two arc records.",
+    "Embedded short root facets are coalesced into longer chords; fitted-spline fillet behavior remains outside proof."
+  ],
+  "added_checks": [
+    "Root disk area and actual root-circle contact count.",
+    "Every pattern index and each rotated centroid.",
+    "Stricter fillet volume increase using both uncertainty bounds."
+  ],
+  "diff_evidence": [
+    {
+      "path": "round3-sketches_test-diff.txt",
+      "sha256": "b6b0c9fdcc0f23bbc8f901ab3be8ce83c1c68a5d9848a89b2093810292a9d9d8"
+    },
+    {
+      "path": "round3-solids_test-diff.txt",
+      "sha256": "af2e68b431e67e8184b20717042262d05a0423e081ccfa0746a5a6316261a735"
+    }
+  ],
+  "interpretation": "No provisional improvement follows from mechanical gates alone; current assertions do not cover all attempted round-two operations."
+}

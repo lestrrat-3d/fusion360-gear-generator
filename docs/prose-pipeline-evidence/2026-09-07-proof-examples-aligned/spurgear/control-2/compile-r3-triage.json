@@ -1,0 +1,36 @@
+{
+  "round": 3,
+  "failure_category": "retry_exhaustion_solid_build",
+  "decision": "Stop after three compile drafts under the owning skill; no readiness or emission.",
+  "proof_failures": [
+    "Bore cuts require at least 4144 or 4128 arranger segments against evaluator cap 4096."
+  ],
+  "source_fault_confirmed": false,
+  "api_advisories": [
+    {
+      "owner": "adsk.fusion.Sketch",
+      "name": "project",
+      "status": "unverified",
+      "decision": "Retain advisory without waiver; Fusion behavior unsettled."
+    },
+    {
+      "owner": "adsk.fusion.SketchTexts",
+      "name": "createInput2",
+      "status": "unverified",
+      "decision": "Retain advisory without waiver; Fusion behavior unsettled."
+    },
+    {
+      "owner": "adsk.fusion.FilletFeatureInput",
+      "name": "addConstantRadiusEdgeSet",
+      "status": "unverified",
+      "decision": "Retain advisory without waiver; Fusion behavior unsettled."
+    }
+  ],
+  "unclaimed_source_lines": {
+    "spec/spurgear/instructions.md": 7,
+    "spec/spurgear/fusion.md": 12,
+    "spec/helicalgear/fusion.md": 60
+  },
+  "recorded_at_utc": "2026-09-07T07:59:47.559410+00:00",
+  "skill_stop_classification": "Proof cannot build a sound solid after three rounds; owning skill treats this as prose-fault stop. No new textual source contradiction confirmed."
+}

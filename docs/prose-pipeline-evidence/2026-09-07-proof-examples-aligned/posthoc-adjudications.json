@@ -1,0 +1,12 @@
+[
+  {
+    "recorded_at_utc": "2026-09-07T08:33:55.283414+00:00",
+    "source": "Parent independent read-only diagnosis",
+    "trial": "spurgear/candidate-2",
+    "finding": "Eight ctx-field contract reports are checker false positives.",
+    "evidence": "check_contract._ctx_fields handles ast.Assign but ignores initialized ast.AnnAssign. Candidate module lines 83-90 initialize the reported fields to None.",
+    "disposition": "Preserve original failed trial, exact gate reports, other faults and timings. A separate checker fix is outside frozen conditions.",
+    "supplied_to_drafters": false,
+    "source_or_trial_tooling_changed": false
+  }
+]

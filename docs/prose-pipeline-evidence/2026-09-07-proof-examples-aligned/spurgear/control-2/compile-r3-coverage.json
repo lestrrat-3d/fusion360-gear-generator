@@ -1,0 +1,32 @@
+{
+  "round": 3,
+  "no_dropped_assertions_established": false,
+  "removed_checks": [
+    "Completed-gear chamfer operation and volume-change assertions removed.",
+    "Curved face-contact combine is replaced by direct outline construction."
+  ],
+  "substitutions": [
+    "From pattern onward, flank/tip/valley geometry uses endpoint polygons with two flank samples.",
+    "Root fillet selector uses concave axial vertices at root radius instead of cylindrical root faces.",
+    "Circle parameter-seam accounting replaces direct boundary-edge counts."
+  ],
+  "added_checks": [
+    "Two actual root contact parameters and complete circle coverage.",
+    "Polygon outline area against root polygon plus tooth polygon areas.",
+    "Built-in fillet query checked against measured root-radius edge set.",
+    "Completed gear cap-edge selection, duplicate exclusion and bore-rim exclusion checked in bore proof."
+  ],
+  "unreached_checks": [
+    "Failed bore cuts prevent later selection checks in nonzero-bore cases."
+  ],
+  "diff_evidence": [
+    {
+      "path": "round3-sketches_test.go-diff.txt",
+      "sha256": "9ae27b9fe95f8f49e4f730857c6ad4be440f855120f58124ddec647bedee1414"
+    },
+    {
+      "path": "round3-solids_test.go-diff.txt",
+      "sha256": "9b80ba4aac2b3ebc01bf400b88f01ae2ed8ab44348127003b5375af15636a8c2"
+    }
+  ]
+}

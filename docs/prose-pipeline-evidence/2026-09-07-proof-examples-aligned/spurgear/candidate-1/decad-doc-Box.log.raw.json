@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "encoding": "utf8-chunks",
+  "original_name": "decad-doc-Box.log",
+  "original_sha256": "f7e148d60bab683028302abc585b966db0340c77fb1cc2db0790a19c800fa608",
+  "original_bytes": 550,
+  "chunks": [
+    "package decad // import \".\"\n\ntype Box struct {\n\tMin, Max  r3.Vec\n\tExactness Exactness\n\tBound     uni",
+    "ts.Value\n}\n    Box is an axis-aligned bounding box, as tight as the evaluator can prove —\n    and it",
+    " reports its own exactness: a box around a curved body produced by a\n    tessellation-backed boolean",
+    " is bounded by faceted faces and is therefore\n    not tight, and says so. Min and Max are positions,",
+    " lengths in millimetres\n    (docs/api-design.md §5.2); Bound is the absolute error bound on them,\n  ",
+    "  of Kind Length, zero when the box is Exact.\n\n"
+  ]
+}

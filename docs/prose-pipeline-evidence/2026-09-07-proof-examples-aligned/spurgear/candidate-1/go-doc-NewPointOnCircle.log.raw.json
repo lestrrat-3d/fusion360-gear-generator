@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "encoding": "utf8-chunks",
+  "original_name": "go-doc-NewPointOnCircle.log",
+  "original_sha256": "b61af12fdd0d1ccf803ef030a16c268d1b3608c30047eb45a878d95b9ce784e5",
+  "original_bytes": 141,
+  "chunks": [
+    "package sketch // import \".\"\n\nfunc NewPointOnCircle(p *Point, c *Circle) Constraint\n    NewPointOnCi",
+    "rcle forces a point to lie on a circle.\n\n"
+  ]
+}

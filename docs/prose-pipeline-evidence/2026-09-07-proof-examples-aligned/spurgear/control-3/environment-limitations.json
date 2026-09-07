@@ -1,0 +1,19 @@
+{
+  "recorded_at_utc": "2026-09-07T07:27:42.526382+00:00",
+  "source": "Parent instruction and user authorization",
+  "concurrent_nontrial_work": [
+    "Published-stack rebases",
+    "Local checker suites for separate repository work",
+    "Documentation preparation"
+  ],
+  "affected_observations": [
+    "candidate-2-spurgear",
+    "control-2-spurgear",
+    "Later trials while this work continues; exact task intervals unobserved"
+  ],
+  "private_t8_caches_remain_separate": true,
+  "overlapping_t8_trials": false,
+  "shared_host_cpu_load_isolation_established": false,
+  "exact_load_or_task_timings": null,
+  "interpretation": "Retain descriptive measured times; do not claim isolated T7 speedup from concurrently affected observations."
+}

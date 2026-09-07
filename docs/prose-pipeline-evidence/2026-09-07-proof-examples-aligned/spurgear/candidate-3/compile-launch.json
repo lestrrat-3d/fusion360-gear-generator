@@ -1,0 +1,6 @@
+{
+  "agent": "/root/measure_t8/aligned_candidate_3_spur_compile",
+  "delivery": "Complete unchanged standard prompt by file; fork_turns=none fresh context.",
+  "prompt_sha256": "8cba8608ef8957ddd902cdc70c84cf239da7825ef892134b0d5b079dd5de52d0",
+  "verified_at_utc": "2026-09-07T08:39:19.662164+00:00"
+}

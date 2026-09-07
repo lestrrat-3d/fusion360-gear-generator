@@ -1,0 +1,95 @@
+package sketch // import "."
+
+type Sketch struct {
+	// Has unexported fields.
+}
+    Sketch holds solver-bound geometry and the constraints that relate it.
+    All scalar unknowns — every point's coordinates, plus whichever intrinsic
+    shape variables entityShapeVars reports for an entity's type, a circle's
+    radius being one example — live in a single flat parameter vector so the
+    constraint solver can treat the whole sketch as one nonlinear system.
+
+    Geometry is authored directly against the sketch: Sketch.CreatePoint
+    takes coordinates and returns a durable Point handle; the curve builders
+    (Sketch.CreateLine, Sketch.CreateCircle, Sketch.CreateArc, …) take those
+    points. Topology is expressed by sharing a Point between entities.
+    The geom package is the transient math/snapshot layer: Entity values expose
+    their current geometry as a fresh geom value via their Geometry method,
+    and the modification tools use geom for intermediate math, but geom values
+    are never committed as sketch geometry.
+
+    A Sketch is not safe for concurrent use.
+
+func (s *Sketch) AddConstraint(cs ...Constraint)
+func (s *Sketch) ApplyParameters() error
+func (s *Sketch) Bind(d Dimension, table *param.Table, expr string) error
+func (s *Sketch) Break(e Entity, x, y float64) (Entity, Entity, bool)
+func (s *Sketch) CheckConstraint(c Constraint) error
+func (s *Sketch) ConstraintByName(name string) Constraint
+func (s *Sketch) ConstraintName(c Constraint) string
+func (s *Sketch) Constraints() []Constraint
+func (s *Sketch) CreateArc(center, start, end *Point) *Arc
+func (s *Sketch) CreateChamfer(l1, l2 *Line, d float64) (*Chamfer, error)
+func (s *Sketch) CreateCircle(center *Point, r float64) *Circle
+func (s *Sketch) CreateClosedSpline(control ...*Point) (*ClosedSpline, error)
+func (s *Sketch) CreateConic(start, apex, end *Point, rho float64) (*Conic, error)
+func (s *Sketch) CreateEllipse(center *Point, rx, ry, rotation float64) *Ellipse
+func (s *Sketch) CreateEllipticalArc(center, start, end *Point, rx, ry, rotation float64) *EllipticalArc
+func (s *Sketch) CreateFillet(l1, l2 *Line, r float64) (*Fillet, error)
+func (s *Sketch) CreateFitSpline(fit ...*Point) (*FitSpline, error)
+func (s *Sketch) CreateLine(start, end *Point) *Line
+func (s *Sketch) CreateMirror(ents []Entity, axis *Line) *Mirror
+func (s *Sketch) CreateNURBS(degree int, control []*Point, weights, knots []float64) (*NURBS, error)
+func (s *Sketch) CreateOffset(ents []Entity, d float64) (*OffsetGroup, error)
+func (s *Sketch) CreatePatternCircular(ents []Entity, center *Point, n int) (*Pattern, error)
+func (s *Sketch) CreatePatternRect(ents []Entity, nx, ny int, dx, dy float64) (*Pattern, error)
+func (s *Sketch) CreatePoint(x, y float64) *Point
+func (s *Sketch) CreatePolygon(cx, cy float64, n int, r float64) (*Polygon, error)
+func (s *Sketch) CreateRectangle(x1, y1, x2, y2 float64) *Rectangle
+func (s *Sketch) CreateReferenceArc(center, start, end *Point, source string) (*Arc, error)
+func (s *Sketch) CreateReferenceCircle(center *Point, r float64, source string) (*Circle, error)
+func (s *Sketch) CreateReferenceLine(p1, p2 *Point, source string) (*Line, error)
+func (s *Sketch) CreateReferencePoint(x, y float64, source string) *Point
+func (s *Sketch) CreateSlot(x1, y1, x2, y2, r float64) (*Slot, error)
+func (s *Sketch) CreateSpline(control ...*Point) (*Spline, error)
+func (s *Sketch) DOF() int
+func (s *Sketch) DXF(opts ...DXFOption) (string, error)
+func (s *Sketch) Diagnose() *Diagnosis
+func (s *Sketch) Entities() []Entity
+func (s *Sketch) EntityByName(name string) Entity
+func (s *Sketch) EntityFixed(e Entity) bool
+func (s *Sketch) EntityIsFullyConstrained(e Entity) bool
+func (s *Sketch) Extend(l *Line, end *Point) (*Line, bool)
+func (s *Sketch) Fix(p *Point)
+func (s *Sketch) FixEntity(e Entity)
+func (s *Sketch) FreePoints() []*Point
+func (s *Sketch) MarkStale(source string)
+func (s *Sketch) MarshalJSON() ([]byte, error)
+func (s *Sketch) Origin() *Point
+func (s *Sketch) PNG(options ...PNGOption) ([]byte, error)
+func (s *Sketch) Params() *param.Table
+func (s *Sketch) Plane() *Plane
+func (s *Sketch) PointByName(name string) *Point
+func (s *Sketch) Points() []*Point
+func (s *Sketch) ProbeConfigurations(ctx context.Context, options ...ProbeOption) (*ProbeResult, error)
+func (s *Sketch) Profiles() []*Profile
+func (s *Sketch) RedundantConstraints() []Constraint
+func (s *Sketch) RefreshReference(p *Point, x, y float64) error
+func (s *Sketch) RefreshReferenceCircle(c *Circle, r float64) error
+func (s *Sketch) RemoveConstraint(c Constraint) bool
+func (s *Sketch) RemoveEntity(e Entity) bool
+func (s *Sketch) RemovePoint(p *Point) bool
+func (s *Sketch) Revision() uint64
+func (s *Sketch) SVG(options ...SVGOption) (string, error)
+func (s *Sketch) SetConstraintName(c Constraint, name string)
+func (s *Sketch) SetUnits(sys units.System)
+func (s *Sketch) Solve(ctx context.Context, options ...SolveOption) (*Result, error)
+func (s *Sketch) Trim(l *Line, x, y float64) (*Line, bool)
+func (s *Sketch) Unbind(d Dimension)
+func (s *Sketch) Unfix(p *Point)
+func (s *Sketch) UnfixEntity(e Entity)
+func (s *Sketch) Units() units.System
+func (s *Sketch) UnmarshalJSON(data []byte) error
+func (s *Sketch) Verify(ctx context.Context, options ...VerifyOption) *VerificationReport
+func (s *Sketch) World() *World
+func (s *Sketch) WorldPolyline(e Entity) ([]r3.Vec, error)

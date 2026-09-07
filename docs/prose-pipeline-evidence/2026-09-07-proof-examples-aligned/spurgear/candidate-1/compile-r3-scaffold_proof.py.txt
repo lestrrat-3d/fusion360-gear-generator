@@ -1,0 +1,1 @@
+scaffold: wrote .tmp/spurgear-proof/zz_registrations_test.go (8 registrations)
