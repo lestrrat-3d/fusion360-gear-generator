@@ -125,14 +125,14 @@ exclusion.
    output to the drafter unchanged. The first round's prompt is always the rendered standard
    prompt with no failure file.
 
-   In the bundle condition, render a fresh retry with that same `--failure-file
-   .tmp/<gear>.gates.txt` command. Compare the first N bytes of its output with the N bytes
-   reconstructed from the bundle's `@rendered-prompt` entry and require exact equality. Deliver the
-   complete retry rendering once; do not also send `@rendered-prompt` separately. A continued round
-   receives the unchanged `.tmp/<gear>.gates.txt` through the existing `SendMessage` path, receives
-   no new prompt, and does not reread packed sources. If any packed input changes, stop the
-   frozen-input comparison instead of repacking it within that condition. Keep every existing fresh
-   spawn and model rule above unchanged.
+   In the bundle condition, use the retry feedback file that **Diagnose and loop** supplies to
+   `--failure-file`. Render one fresh retry with that file. Compare the first N bytes of its output
+   with the N bytes reconstructed from the bundle's `@rendered-prompt` entry and require exact
+   equality. Deliver the complete retry rendering once; do not also send `@rendered-prompt`
+   separately. A continued round receives that file unchanged through the existing `SendMessage`
+   path, receives no new prompt, and does not reread packed sources. If any packed input changes,
+   stop the frozen-input comparison instead of repacking it within that condition. Keep every
+   existing fresh spawn and model rule above unchanged.
 
 5. **Place.** Place only the artifact that passed the most recent complete Gate battery. If the
    artifact or any relevant input changed after validation, return to step 3 and run the complete

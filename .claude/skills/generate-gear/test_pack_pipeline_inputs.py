@@ -483,6 +483,23 @@ class PromptAgreementTest(unittest.TestCase):
                 self.assertIn('do not also send `@rendered-prompt` separately', normalized_owner)
                 self.assertIn('does not reread packed sources', normalized_owner)
 
+    def test_bundle_retry_uses_feedback_file_designated_by_owner(self):
+        forbidden = ('.compile-gates.txt', '.gates.txt',
+                     '.compile-feedback.txt', '.gates-feedback.txt')
+        for skill in ('compile-gear', 'emit-gear'):
+            owner = (REPO_ROOT / '.claude/skills' / skill / 'SKILL.md').read_text(
+                encoding='utf-8')
+            bundle_retry = owner.split('In the bundle condition,', 1)[1]
+            bundle_retry = bundle_retry.split('\n\n', 1)[0]
+            normalized = ' '.join(bundle_retry.split())
+            with self.subTest(skill=skill):
+                self.assertIn(
+                    'retry feedback file that **Diagnose and loop** supplies to `--failure-file`',
+                    normalized)
+                self.assertIn('Render one fresh retry', normalized)
+                for path in forbidden:
+                    self.assertNotIn(path, bundle_retry)
+
 
 if __name__ == '__main__':
     unittest.main()

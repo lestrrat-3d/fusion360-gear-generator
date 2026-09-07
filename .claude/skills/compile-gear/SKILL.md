@@ -208,14 +208,14 @@ proof is where the next reader is looking for the missing check.
    hand the printed output to the drafter unchanged. The first round's prompt is always the
    rendered standard prompt with no failure file.
 
-   In the bundle condition, render a fresh retry with that same `--failure-file
-   .tmp/<gear>.compile-gates.txt` command. Compare the first N bytes of its output with the N bytes
-   reconstructed from the bundle's `@rendered-prompt` entry and require exact equality. Deliver the
-   complete retry rendering once; do not also send `@rendered-prompt` separately. A continued round
-   receives the unchanged `.tmp/<gear>.compile-gates.txt` through the existing `SendMessage` path,
-   receives no new prompt, and does not reread packed sources. If any packed input changes, stop the
-   frozen-input comparison instead of repacking it within that condition. Keep every existing fresh
-   spawn and model rule above unchanged.
+   In the bundle condition, use the retry feedback file that **Diagnose and loop** supplies to
+   `--failure-file`. Render one fresh retry with that file. Compare the first N bytes of its output
+   with the N bytes reconstructed from the bundle's `@rendered-prompt` entry and require exact
+   equality. Deliver the complete retry rendering once; do not also send `@rendered-prompt`
+   separately. A continued round receives that file unchanged through the existing `SendMessage`
+   path, receives no new prompt, and does not reread packed sources. If any packed input changes,
+   stop the frozen-input comparison instead of repacking it within that condition. Keep every
+   existing fresh spawn and model rule above unchanged.
 
    For every returned retry draft, repeat step 2's renderer and provenance commands, then repeat
    step 4's scaffold and placement commands before its iteration validation starts. Then run
