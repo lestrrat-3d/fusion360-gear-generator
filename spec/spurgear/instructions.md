@@ -317,9 +317,10 @@ on a simplified stand-in.
   diameter dimensions here (the four gear circles and the bore circle) must be driving. The
   tooth-top arc carries no diameter dimension at all; it shares the local origin as its centre
   instead (`[SPUR-F-TOOTHTOP-ARC]`).
-- **Every sketch here is fully constrained** (`[PB-FULL-CONSTRAINT]`), with no exceptions. Every
-  sketch's local origin rides on the projected anchor, including the Bore Profile sketch's, whose
-  local origin the tooth generator creates and nothing else uses. See step 12.
+- **Fully constrain every sketch's geometry.** Verify the labelled Gear Profile sketch according to
+  `[PB-TEXT-HOLDS-DOF]` and every unlabelled sketch according to `[PB-FULL-CONSTRAINT]`. Every sketch's
+  local origin rides on the projected anchor, including the Bore Profile sketch's, whose local origin
+  the tooth generator creates and nothing else uses. See step 12.
 - **Dimensions and feature inputs are numeric snapshots** — editing a `<prefix>_…` parameter does
   not change an existing gear; regenerate (`[PB-NUMERIC-SNAPSHOT]`, spur application
   `[SPUR-F-SNAPSHOT]`).
@@ -527,9 +528,10 @@ Still inside the Gear Profile sketch, draw a single involute tooth centered on t
    rib's perpendicular is added). Use the exact minimal constraint set in `[SPUR-F-TOOTHTOP-ARC]`.
 7. Draw the **spine** — a construction line from the local origin to the tooth-top point, defining
    the tooth's axis of symmetry — and pin its absolute rotation so the tooth sits at `angle` and the
-   sketch is fully constrained. The exact construction (sharing the endpoints, the +X horizontal
-   reference and its required end-pin, built for every angle including 0, and the confirming angular
-   dimension) is in `[SPUR-F-SPINE]`; the draw-and-confirm rule is `[SPUR-F-ROTATE-CONFIRM]`.
+   sketch's geometry is fully constrained. The exact construction (sharing the endpoints, the +X
+   horizontal reference and its required end-pin, built for every angle including 0, and the confirming
+   angular dimension) is in `[SPUR-F-SPINE]`; the draw-and-confirm rule is
+   `[SPUR-F-ROTATE-CONFIRM]`.
 8. Draw a **rib** construction line between each matching pair of left/right flank fit-points, with
    a midpoint on the spine; the ribs lock the flanks to the spine so the tooth rebuilds cleanly when
    `Module` or `Tooth Number` changes, without pinning any point to an absolute coordinate. **Build a
@@ -582,7 +584,7 @@ Finally store `ctx.gearBody` (the `Gear Body` body).
 
 Circular-pattern `ctx.toothBody` around the `Gear Center` axis, quantity = Tooth Number. Pin the two other pattern inputs: `patternInput.totalAngle = ValueInput.createByString('360 deg')` (a full turn, set as a string expression) and `patternInput.isSymmetric = False`. Combine the patterned tooth bodies into `Gear Body` via a single Combine-Join.
 
-Feed the pattern's `bodies` collection to the combine as-is — it already includes the original tooth body, per `[PB-PATTERN-BODIES]`.
+Prepare the Combine tool collection from `pattern.bodies` according to `[PB-PATTERN-BODIES]`.
 
 ### 11: Fillets
 
