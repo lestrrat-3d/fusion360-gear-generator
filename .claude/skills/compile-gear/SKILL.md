@@ -125,13 +125,13 @@ proof is where the next reader is looking for the missing check.
    Then run `python3 .claude/skills/generate-gear/run_compile_gates.py <gear> >
    .tmp/<gear>.compile-gates.txt` from the repo root and read the file for the verdict. The stored
    copy is also what a retry round hands back to the drafter.
-   It runs `bash proof/run.sh`, then `check_compile.py <gear>`, then
-   `extract_playbook.py <gear> --min-anchors 1`, then — only when `lib/geargen/<gear>.py`
-   exists — `check_step_calls.py`, in that order, and prints one verdict
-   plus a first-pass fault classification. The proof wrapper enters the `proof/` module and
-   configures the local engine replacements; the proof must pass with nothing waived. Exit 1 means
-   a gate failed on content; exit 2 is a setup error, and a setup error never goes back to the
-   drafter.
+   It runs `check_compile.py <gear>`, then `extract_playbook.py <gear> --min-anchors 1`, then —
+   only when `lib/geargen/<gear>.py` exists — `check_step_calls.py`, then `bash proof/run.sh`.
+   A compile or playbook failure omits the proof. A step-call failure still runs the proof unless
+   `--fail-fast` was requested. The runner prints one verdict plus a first-pass fault
+   classification. The proof wrapper enters the `proof/` module and configures the local engine
+   replacements; the proof must pass with nothing waived. Exit 1 means a gate failed on content;
+   exit 2 is a setup error, and a setup error never goes back to the drafter.
 
 5. **Check.** The runner already ran every check. `check_compile.py` gates spec citations,
    step-to-proof agreement, the reality of every named API call, and the provenance hashes. It

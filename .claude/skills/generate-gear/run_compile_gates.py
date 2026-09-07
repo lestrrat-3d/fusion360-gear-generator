@@ -1,16 +1,11 @@
 #!/usr/bin/env python3
 """Run the whole compile-gear gate battery for one gear and print one verdict.
 
-Why this exists: `/compile-gear` (`.claude/skills/compile-gear/SKILL.md`) steps 4-5 used to ask
-the orchestrating LLM to run three commands by hand, in a fixed order, with one conditional —
-the proof, then `check_compile.py`, then `check_step_calls.py` but only when
-`lib/geargen/<gear>.py` already exists. Every part of that is mechanical: the commands are
-fixed, their arguments are derived from `<gear>`, their exit codes already say pass/fail, and
-the conditional is a file-existence test. Leaving it to the model meant a gate silently dropped
-under context pressure, argument order improvised (`check_step_calls.py` takes the step list
-first), and a retry loop that saw one failure at a time instead of all of them. This script runs
-the battery once, in a fixed order, and reports every result plus a first-pass fault
-classification.
+`/compile-gear` (`.claude/skills/compile-gear/SKILL.md`) uses this runner for its mechanical gate
+battery. It runs the compile, playbook, and step-call checks before the complete proof, and starts
+that proof only after the blocking structural checks pass. Commands and arguments are derived from
+`<gear>`; `check_step_calls.py` runs only when `lib/geargen/<gear>.py` exists. The runner reports
+every result plus a first-pass fault classification.
 
 It is the compile-stage counterpart of the emit-stage `run_gates.py`, and it is deliberately
 standalone: it imports nothing from that script.
@@ -36,11 +31,11 @@ positional:
 
 options:
   --root PATH            repo root. Default: three levels above this script.
-  --only KEY[,KEY...]    run only these stages. Keys: proof, compile, playbook, step_calls.
+  --only KEY[,KEY...]    run only these stages. Keys: compile, playbook, step_calls, proof.
                          Unselected stages are reported with status "skip",
                          reason "not selected". An unknown key is a usage error.
-  --fail-fast            stop scheduling stages after the first failure. Off by default, so
-                         one run shows the drafter every failure at once.
+  --fail-fast            stop scheduling stages after the first failure. Without it, all
+                         structural stages run; compile or playbook failure still omits proof.
   --format {text,json}   text (default) = human report followed by one JSON line.
                          json = the JSON line only, nothing else on stdout.
   --json-out PATH        also write the full JSON verdict (pretty-printed) to PATH.
@@ -68,7 +63,7 @@ from dataclasses import dataclass
 # --- constants ---------------------------------------------------------------------------
 SCHEMA = 1
 DEFAULT_TIMEOUT = 900
-STAGE_ORDER = ("proof", "compile", "playbook", "step_calls")
+STAGE_ORDER = ("compile", "playbook", "step_calls", "proof")
 JSON_MARKER = "COMPILE_GATES_JSON: "
 
 # The floor the `playbook` stage holds the step list to. One is deliberately the lowest number
@@ -556,6 +551,38 @@ def _iteration_failure_code(result):
     return "%s_content_failure" % result.key
 
 
+def _omitted_proof_result(proof_command, failures):
+    """Build the proof skip and metadata values shared by initial and iteration runs."""
+    codes = [_iteration_failure_code(result) for result in failures]
+    reason = "proof_omitted_after_%s" % "_and_".join(codes)
+    result = StageResult(
+        "proof", STAGE_TITLES["proof"], "skip", None, None, proof_command, "", "",
+        "proof omitted: %s" % ", ".join(codes), None, reason)
+    return result, reason, codes
+
+
+def execute_initial(paths, args):
+    """Run ordinary structural stages first and omit proof after a blocking result."""
+    plan = build_plan(paths, args)
+    if args.only:
+        return execute(plan, paths, args), None, []
+
+    results = execute(plan[:3], paths, args)
+    structural_failures = [result for result in results
+                           if result.key in ("compile", "playbook") and
+                           result.status in ("fail", "error")]
+    failures = [result for result in results if result.status in ("fail", "error")]
+    if structural_failures or (args.fail_fast and failures):
+        blockers = structural_failures if structural_failures else failures
+        proof, reason, codes = _omitted_proof_result(plan[-1][2], blockers)
+        results.append(proof)
+        return results, reason, codes
+
+    results.append(run_stage("proof", STAGE_TITLES["proof"], plan[-1][2],
+                             paths.root, args.timeout))
+    return results, None, []
+
+
 def execute_iteration(paths, args, scope):
     """Run compile/playbook first, retain step-call output, and gate proof execution."""
     preliminary = build_iteration_plan(paths, args, scope)[:3]
@@ -564,13 +591,10 @@ def execute_iteration(paths, args, scope):
                       r.status in ("fail", "error")]
     failures = [r for r in results if r.status in ("fail", "error")]
     if cheap_failures or (args.fail_fast and failures):
-        codes = [_iteration_failure_code(result) for result in
-                 (cheap_failures if cheap_failures else failures)]
-        reason = "proof_omitted_after_%s" % "_and_".join(codes)
-        results.append(StageResult(
-            "proof", STAGE_TITLES["proof"], "skip", None, None,
-            build_iteration_plan(paths, args, scope)[-1][2], "", "",
-            "proof omitted: %s" % ", ".join(codes), None, reason))
+        blockers = cheap_failures if cheap_failures else failures
+        proof, reason, codes = _omitted_proof_result(
+            build_iteration_plan(paths, args, scope)[-1][2], blockers)
+        results.append(proof)
         return results, reason, codes
 
     proof_errors = iteration_proof_setup_errors(paths)
@@ -922,7 +946,9 @@ def main(argv=None):
         return _emit(obj, "\n".join(report), args)
 
     args._iteration_metadata = _default_metadata()
-    results = execute(build_plan(paths, args), paths, args)
+    results, omission_reason, omission_reasons = execute_initial(paths, args)
+    args._iteration_metadata["proof_omission_reason"] = omission_reason
+    args._iteration_metadata["proof_omission_reasons"] = omission_reasons
     finalize_default_metadata(args._iteration_metadata, results)
     faults = classify(results)
     results = [dataclasses.replace(r, fault=faults.get(r.key)) for r in results]
