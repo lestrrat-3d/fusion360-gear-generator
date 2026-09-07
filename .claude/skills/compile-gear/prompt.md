@@ -6,6 +6,8 @@ to `.tmp/{{gear}}-proof/`.
 exists, `spec/{{gear}}/contract.json` if it exists, every Markdown document the prose sources
 reference by name, `.claude/skills/generate-gear/PLAYBOOK.md`,
 `docs/prose-pipeline-handoffs/formats.md` for step metadata,
+`proof/examples/CONSTRUCTION.md` for generic executable solid-construction recipes and their limits,
+`proof/examples/proofkit3d_construction_example_test.go` for the tested implementations of those recipes,
 `proof/proofkit/` for the sketch harness API, `proof/proofkit3d/` for the solid harness API, and
 `proof/involute/` for the involute tooth math the spur family shares, so you import it rather
 than deriving it again.

@@ -286,6 +286,16 @@ class CommittedTemplatesTest(unittest.TestCase):
         self.assertIn(renderer, skill.replace('\n', ' '))
         self.assertLess(skill.index('render_step_metadata.py'), skill.index('gen_provenance.py'))
 
+    def test_compile_prompt_requires_generic_construction_recipes(self):
+        code, prompt, err = self.render('compile-gear', 'fixturegear')
+        self.assertEqual(code, 0, err)
+        required = prompt.split('**Read, in full, only these:**', 1)[1].split('**Do not read**', 1)[0]
+        for document in ('proof/examples/CONSTRUCTION.md',
+                         'proof/examples/proofkit3d_construction_example_test.go'):
+            with self.subTest(document=document):
+                self.assertIn(document, required)
+                self.assertTrue((SKILLS_ROOT.parents[1] / document).is_file())
+
     def test_compile_and_emit_prompts_share_api_status_and_keep_signature_lookup(self):
         for skill_name in ('compile-gear', 'emit-gear'):
             with self.subTest(skill=skill_name):
