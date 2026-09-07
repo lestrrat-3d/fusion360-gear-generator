@@ -663,11 +663,15 @@ def gate_policy_for_run(args, results):
 
 def compile_policy_for_run(args, results, metadata):
     """Build additive policy metadata for ``run_compile_gates.py``."""
-    full = not metadata.get("iteration_mode") and not getattr(args, "only", None)
+    required = {"compile", "playbook", "anchors", "step_calls", "proof"}
+    full = (not metadata.get("iteration_mode") and not getattr(args, "only", None) and
+            not getattr(args, "fail_fast", False))
     allowed_skip = [result.key for result in results if result.status == "skip" and
                     result.key == "step_calls" and "module" in (result.skip_reason or "")]
-    required_ok = bool(results) and all(result.status == "pass" or result.key in allowed_skip
-                                        for result in results)
+    present = {result.key for result in results}
+    required_ok = (required.issubset(present) and
+                   all(result.status == "pass" or result.key in allowed_skip
+                       for result in results if result.key in required))
     eligible = full and bool(metadata.get("proof_is_complete")) and required_ok and not any(
         result.status in ("fail", "error") for result in results)
     return {

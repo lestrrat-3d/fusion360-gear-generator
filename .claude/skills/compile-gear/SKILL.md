@@ -125,10 +125,11 @@ proof is where the next reader is looking for the missing check.
    Then run `python3 .claude/skills/generate-gear/run_compile_gates.py <gear> >
    .tmp/<gear>.compile-gates.txt` from the repo root and read the file for the verdict. The stored
    copy is also what a retry round hands back to the drafter.
-   It runs `check_compile.py <gear>`, then `extract_playbook.py <gear> --min-anchors 1`, then —
-   only when `lib/geargen/<gear>.py` exists — `check_step_calls.py --json`, then `bash proof/run.sh`.
-   A compile or playbook failure omits the proof. A step-call failure still runs the proof unless
-   `--fail-fast` was requested. The runner prints one verdict plus a first-pass fault
+   It runs `check_compile.py <gear>`, then `extract_playbook.py <gear> --min-anchors 1`, then the
+   repository-wide `check_anchors.py`, then — only when `lib/geargen/<gear>.py` exists —
+   `check_step_calls.py --json`, then `bash proof/run.sh`. A compile, playbook, or anchor failure
+   omits the proof. A step-call failure still runs the proof unless `--fail-fast` was requested.
+   The runner prints one verdict plus a first-pass fault
    classification. The proof wrapper enters the `proof/` module and configures the local engine
    replacements; the proof must pass with nothing waived. Exit 1 means a gate failed on content;
    exit 2 is a setup error, and a setup error never goes back to the drafter.
@@ -149,6 +150,11 @@ proof is where the next reader is looking for the missing check.
    anchor cited that the playbook does not define, which is either an invented anchor or a
    playbook edited since the step list was drafted; the printed fault line says which of the two
    it read.
+
+   `check_anchors.py` scans all Markdown under `spec/` and the generate-gear skill, using the same
+   repository-wide scope and definitions as the final emit gate. It runs here because copied,
+   unresolved, or malformed anchors are compile inputs and artifacts; a failure omits the proof
+   and blocks emission readiness. Preserve its complete report when returning a draft fault.
 
    `check_step_calls.py` runs **only if `lib/geargen/<gear>.py` already exists**, and the runner
    reports it as skipped when it does not. That gate runs in CI against the checked-in module, so a
@@ -196,10 +202,10 @@ proof is where the next reader is looking for the missing check.
    step 4's scaffold and placement commands before its iteration validation starts. Then run
    `python3 .claude/skills/generate-gear/run_compile_gates.py <gear> --iteration-base
    "$(cat .tmp/<gear>.compile-base)" > .tmp/<gear>.compile-gates.txt`. This runs compile and
-   playbook checks first, then selects `proof/<gear>/` only when changed paths stay within that
-   gear. Shared or unknown changes expand the proof to the full suite. Iteration output is feedback
-   only and is never the final proof. The canonical report path stays the same so the next retry
-   receives the latest diagnostics.
+   playbook and anchor checks first, then selects `proof/<gear>/` only when changed paths stay
+   within that gear. Shared or unknown changes expand the proof to the full suite. Iteration output
+   is feedback only and is never the final proof. The canonical report path stays the same so the
+   next retry receives the latest diagnostics.
 
 7. **Place.** Before placement or reporting, require an ordinary complete gate report whose
    `handoff.ready_for_emit` is true for the current artifacts. Reuse the latest report when it has
@@ -230,6 +236,7 @@ proof is where the next reader is looking for the missing check.
 | A provenance hash does not match | A source changed after the table was stamped; re-run `gen_provenance.py` and check again |
 | The step list cites no playbook anchor | Draft fault |
 | A cited `[PB-…]` anchor is defined nowhere in the playbook | Draft fault, unless the playbook changed after the step list was drafted |
+| The repository-wide anchor check fails | Draft fault when the draft copied or broke an anchor; otherwise source prose already conflicts |
 | The scaffolder refuses an annotation, or the registration check names a mismatch | Draft fault |
 | **A named API call does not exist, and the spec named it** | **Prose fault** |
 | **The proof cannot fully constrain after three rounds** | **Prose fault** |

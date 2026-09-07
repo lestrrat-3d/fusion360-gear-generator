@@ -11,6 +11,7 @@ import importlib.util
 import io
 import json
 import os
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -28,6 +29,7 @@ MODULE_SPEC.loader.exec_module(RUNNER)
 GEAR = 'spurgear'
 
 STUB_HEADLINE = {
+    'anchors': 'anchor check: OK (1 anchors defined, 1 cited, 2 files)',
     'compile': 'compile check: OK (12 steps, 4 proof functions, 3 spec files stamped)',
     'playbook': ('playbook-extract check: spurgear: 38 anchors cited (25 defined in the '
                  'playbook), 27 blocks written'),
@@ -338,8 +340,8 @@ class EmissionHandoffTests(BaseRunnerTest):
             return RUNNER.StageResult(key, key, 'pass', 0, 0.1, [], '', '', None, None,
                                       details=details_value)
 
-        results = [result('compile'), result('playbook'), result('step_calls', details_value=details),
-                   result('proof')]
+        results = [result('compile'), result('playbook'), result('anchors'),
+                   result('step_calls', details_value=details), result('proof')]
         malformed_metadata = {
             'iteration_mode': False,
             'proof_is_complete': 1,
@@ -366,6 +368,7 @@ class EmissionHandoffTests(BaseRunnerTest):
         results = [
             RUNNER.StageResult('compile', 'compile', 'pass', 0, 0.1, [], '', '', None, None),
             RUNNER.StageResult('playbook', 'playbook', 'pass', 0, 0.1, [], '', '', None, None),
+            RUNNER.StageResult('anchors', 'anchors', 'pass', 0, 0.1, [], '', '', None, None),
             RUNNER.StageResult('step_calls', 'step_calls', 'fail', None, 0.1, [], '', '', None,
                                None, details=missing),
             RUNNER.StageResult('proof', 'proof', 'pass', 0, 0.1, [], '', '', None, None),
@@ -447,7 +450,7 @@ class InitialOrderTests(BaseRunnerTest):
 
         self.assertEqual(exit_code, 0)
         self.assertEqual([stage['key'] for stage in parsed['stages']],
-                         ['compile', 'playbook', 'step_calls', 'proof'])
+                         ['compile', 'playbook', 'anchors', 'step_calls', 'proof'])
         self.assertEqual(self.by_key(parsed)['proof']['command'], ['bash', 'proof/run.sh'])
 
     def test_initial_fail_fast_missing_calls_omits_proof(self):
@@ -657,6 +660,90 @@ class PlaybookStageTests(BaseRunnerTest):
         stage = self.by_key(parsed)['playbook']
         self.assertEqual(stage['status'], 'error')
         self.assertEqual(stage['fault'], RUNNER.FAULT_SETUP)
+
+
+class AnchorStageTests(BaseRunnerTest):
+    def test_duplicate_source_definition_without_module_omits_proof(self):
+        root = make_repo(
+            self.tmp,
+            steps='**[SPUR-F-DUPLICATE]** Draft copied the source definition.\n')
+        with open(os.path.join(root, 'spec', GEAR, 'instructions.md'), 'w') as fh:
+            fh.write('**[SPUR-F-DUPLICATE]** Source definition.\n')
+        proof_marker = os.path.join(self.tmp, 'proof-ran.txt')
+        make_stubs(self.scripts)
+        shutil.copy2(CHECKER_PATH.with_name('check_anchors.py'),
+                     os.path.join(self.scripts, 'check_anchors.py'))
+        make_proof_runner(root, marker=proof_marker)
+
+        exit_code, text, parsed = run(root, self.scripts, GEAR)
+
+        self.assertEqual(exit_code, 1)
+        anchors = self.by_key(parsed)['anchors']
+        self.assertEqual(anchors['status'], 'fail')
+        diagnostic = ('[SPUR-F-DUPLICATE] defined in 2 files: '
+                      'spec/spurgear/instructions.md, spec/spurgear/steps.md')
+        self.assertIn(diagnostic, anchors['stdout'])
+        self.assertIn(diagnostic, text)
+        self.assertEqual(anchors['fault'], RUNNER.FAULT_ANCHORS)
+        self.assertEqual(self.by_key(parsed)['step_calls']['status'], 'skip')
+        self.assertEqual(self.by_key(parsed)['proof']['status'], 'skip')
+        self.assertEqual(parsed['proof_omission_reasons'], ['anchors_content_failure'])
+        self.assertFalse(parsed['handoff']['ready_for_emit'])
+        self.assertIn('anchors_not_passed', parsed['handoff']['reasons'])
+        self.assertFalse(os.path.exists(proof_marker))
+
+    def test_anchor_checker_success_is_part_of_full_readiness(self):
+        root = make_repo(self.tmp)
+        marker = os.path.join(self.tmp, 'anchors-argv.json')
+        make_stubs(self.scripts, overrides={'anchors': dict(argv_marker=marker)})
+        make_proof_runner(root)
+
+        exit_code, _text, parsed = run(root, self.scripts, GEAR)
+
+        self.assertEqual(exit_code, 0)
+        self.assertLess([stage['key'] for stage in parsed['stages']].index('anchors'),
+                        [stage['key'] for stage in parsed['stages']].index('proof'))
+        self.assertTrue(parsed['handoff']['ready_for_emit'])
+        with open(marker) as fh:
+            self.assertEqual(json.load(fh), [])
+
+    def test_anchor_checker_execution_failure_omits_proof(self):
+        root = make_repo(self.tmp)
+        proof_marker = os.path.join(self.tmp, 'proof-ran.txt')
+        make_stubs(self.scripts, overrides={
+            'anchors': dict(exit_code=2, stderr='anchor check could not read markdown'),
+        })
+        make_proof_runner(root, marker=proof_marker)
+
+        exit_code, _text, parsed = run(root, self.scripts, GEAR)
+
+        self.assertEqual(exit_code, 2)
+        anchors = self.by_key(parsed)['anchors']
+        self.assertEqual(anchors['status'], 'error')
+        self.assertEqual(anchors['fault'], RUNNER.FAULT_SETUP)
+        self.assertEqual(parsed['proof_omission_reasons'], ['anchors_setup_failure'])
+        self.assertFalse(parsed['handoff']['ready_for_emit'])
+        self.assertFalse(os.path.exists(proof_marker))
+
+    def test_only_anchors_runs_the_repository_wide_checker(self):
+        root = make_repo(self.tmp, steps=None, proof_go=None)
+        with open(os.path.join(root, 'spec', GEAR, 'instructions.md'), 'w') as fh:
+            fh.write('# Fixture prose\n')
+        marker = os.path.join(self.tmp, 'anchors-argv.json')
+        make_stubs(self.scripts, overrides={'anchors': dict(argv_marker=marker)})
+
+        exit_code, _text, parsed = run(root, self.scripts, GEAR, '--only', 'anchors')
+
+        self.assertEqual(exit_code, 0)
+        by_key = self.by_key(parsed)
+        self.assertEqual(by_key['anchors']['status'], 'pass')
+        for key in ('compile', 'playbook', 'step_calls', 'proof'):
+            self.assertEqual(by_key[key]['status'], 'skip')
+            self.assertEqual(by_key[key]['skip_reason'], 'not selected')
+        with open(marker) as fh:
+            self.assertEqual(json.load(fh), [])
+        self.assertFalse(parsed['handoff']['ready_for_emit'])
+        self.assertIn('non_full_run', parsed['handoff']['reasons'])
 
 
 class SelectionTests(BaseRunnerTest):
@@ -981,6 +1068,23 @@ class IterationTests(BaseRunnerTest):
         self.assertEqual(by_key['step_calls']['status'], 'fail')
         self.assertEqual(by_key['proof']['status'], 'skip')
         self.assertEqual(parsed['proof_omission_reasons'], ['step_calls_content_failure'])
+        self.assertEqual(parsed['effective_proof_scope'], 'omitted')
+        self.assertFalse(os.path.exists(marker))
+
+    def test_anchor_failure_omits_iteration_proof(self):
+        marker = os.path.join(self.tmp, 'proof-ran-anchor.marker')
+        make_proof_runner(self.tmp, marker=marker)
+        make_stubs(self.scripts, overrides={
+            'anchors': dict(exit_code=1, stdout='anchor check: 1 problem(s):\n  duplicate'),
+        })
+
+        exit_code, _text, parsed = run(self.tmp, self.scripts, GEAR,
+                                       '--iteration-base', self.base)
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(self.by_key(parsed)['anchors']['status'], 'fail')
+        self.assertEqual(self.by_key(parsed)['proof']['status'], 'skip')
+        self.assertEqual(parsed['proof_omission_reasons'], ['anchors_content_failure'])
         self.assertEqual(parsed['effective_proof_scope'], 'omitted')
         self.assertFalse(os.path.exists(marker))
 

@@ -143,12 +143,20 @@ class PipelineTimingTests(unittest.TestCase):
         self.assertFalse(MODULE.gate_policy_for_run(args, results)["first_pass_eligible"])
 
     def test_compile_policy_requires_complete_proof_and_full_scope(self):
-        args = SimpleNamespace(only=None)
-        results = [SimpleNamespace(key="proof", status="pass", skip_reason=None),
-                   SimpleNamespace(key="compile", status="pass", skip_reason=None)]
+        args = SimpleNamespace(only=None, fail_fast=False)
+        results = [SimpleNamespace(key=key, status="pass", skip_reason=None)
+                   for key in ("compile", "playbook", "anchors", "step_calls", "proof")]
         metadata = {"iteration_mode": False, "proof_is_complete": True, "effective_proof_scope": "full"}
         self.assertTrue(MODULE.compile_policy_for_run(args, results, metadata)["first_pass_eligible"])
         metadata["proof_is_complete"] = False
+        self.assertFalse(MODULE.compile_policy_for_run(args, results, metadata)["first_pass_eligible"])
+
+    def test_compile_policy_requires_anchor_stage(self):
+        args = SimpleNamespace(only=None, fail_fast=False)
+        results = [SimpleNamespace(key=key, status="pass", skip_reason=None)
+                   for key in ("compile", "playbook", "step_calls", "proof")]
+        metadata = {"iteration_mode": False, "proof_is_complete": True,
+                    "effective_proof_scope": "full"}
         self.assertFalse(MODULE.compile_policy_for_run(args, results, metadata)["first_pass_eligible"])
 
     def test_missing_finish_and_triage_are_incomplete(self):

@@ -2,8 +2,8 @@
 """Run the whole compile-gear gate battery for one gear and print one verdict.
 
 `/compile-gear` (`.claude/skills/compile-gear/SKILL.md`) uses this runner for its mechanical gate
-battery. It runs the compile, playbook, and step-call checks before the complete proof, and starts
-that proof only after the blocking structural checks pass. Commands and arguments are derived from
+battery. It runs the compile, playbook, anchor, and step-call checks before the complete proof,
+and starts that proof only after the blocking structural checks pass. Commands and arguments are derived from
 `<gear>`; `check_step_calls.py` runs only when `lib/geargen/<gear>.py` exists. The runner reports
 every result plus a first-pass fault classification.
 
@@ -31,11 +31,12 @@ positional:
 
 options:
   --root PATH            repo root. Default: three levels above this script.
-  --only KEY[,KEY...]    run only these stages. Keys: compile, playbook, step_calls, proof.
+  --only KEY[,KEY...]    run only these stages. Keys: compile, playbook, anchors, step_calls, proof.
                          Unselected stages are reported with status "skip",
                          reason "not selected". An unknown key is a usage error.
   --fail-fast            stop scheduling stages after the first failure. Without it, all
-                         structural stages run; compile or playbook failure still omits proof.
+                         structural stages run; compile, playbook, or anchor failure still omits
+                         proof.
   --format {text,json}   text (default) = human report followed by one JSON line.
                          json = the JSON line only, nothing else on stdout.
   --json-out PATH        also write the full JSON verdict (pretty-printed) to PATH.
@@ -63,7 +64,7 @@ from dataclasses import dataclass
 # --- constants ---------------------------------------------------------------------------
 SCHEMA = 1
 DEFAULT_TIMEOUT = 900
-STAGE_ORDER = ("compile", "playbook", "step_calls", "proof")
+STAGE_ORDER = ("compile", "playbook", "anchors", "step_calls", "proof")
 JSON_MARKER = "COMPILE_GATES_JSON: "
 
 # The floor the `playbook` stage holds the step list to. One is deliberately the lowest number
@@ -77,6 +78,7 @@ MIN_PLAYBOOK_ANCHORS = 1
 GEAR_NAME = re.compile(r'[a-z][a-z0-9_]*\Z')
 
 STAGE_TITLES = {
+    "anchors": "Anchors",
     "proof": "Proof",
     "compile": "Compile check",
     "playbook": "Playbook extract",
@@ -84,6 +86,7 @@ STAGE_TITLES = {
 }
 
 STAGE_SCRIPTS = {
+    "anchors": "check_anchors.py",
     "compile": "check_compile.py",
     "playbook": "extract_playbook.py",
     "step_calls": "check_step_calls.py",
@@ -114,6 +117,8 @@ FAULT_PLAYBOOK_UNCITED = ("DRAFT FAULT: the step list cites no playbook rule, so
                           "drafter would be handed the core sections and nothing else")
 FAULT_PLAYBOOK_UNDEFINED = ("DRAFT FAULT, or someone edited the playbook: the step list cites "
                             "a [PB-...] anchor the playbook does not define")
+FAULT_ANCHORS = ("DRAFT FAULT, or source prose already conflicts: the repository-wide anchor "
+                 "check failed; fix the anchor and recompile")
 FAULT_SETUP = "SETUP ERROR: fix the environment or inputs; never retry the drafter"
 
 # Why a missing module is a skip rather than a failure. The wording is fixed because the
@@ -415,7 +420,7 @@ def iteration_setup_errors(paths, args):
         return errors
     if not os.path.isfile(_abs(paths.root, paths.steps)):
         errors.append("step list not found: %s -- draft it before checking" % paths.steps)
-    for key in ("compile", "playbook"):
+    for key in ("compile", "playbook", "anchors"):
         script_name = STAGE_SCRIPTS[key]
         if not os.path.isfile(os.path.join(scripts_dir(), script_name)):
             errors.append("gate script missing: %s (needed for '%s')" % (script_name, key))
@@ -450,6 +455,8 @@ def stage_command(key, paths):
     if key == "playbook":
         return [sys.executable, _script_path("extract_playbook.py", paths), paths.gear,
                 "--min-anchors", str(MIN_PLAYBOOK_ANCHORS)]
+    if key == "anchors":
+        return [sys.executable, _script_path("check_anchors.py", paths)]
     if key == "step_calls":
         return [sys.executable, _script_path("check_step_calls.py", paths),
                 "--json", paths.steps, paths.module]
@@ -476,7 +483,7 @@ def build_plan(paths, args):
 def build_iteration_plan(paths, args, scope):
     """Build cheap-first commands; proof is appended only after their results are known."""
     plan = []
-    for key in ("compile", "playbook", "step_calls"):
+    for key in ("compile", "playbook", "anchors", "step_calls"):
         title = STAGE_TITLES[key]
         if key == "step_calls" and not module_exists(paths):
             plan.append((key, title, None, MODULE_ABSENT_REASON % args.gear))
@@ -495,7 +502,7 @@ def status_for(key, returncode):
 
     `proof/run.sh` exits 2 for a setup problem — a missing sketch or decad checkout, a revision
     mismatch — and otherwise propagates `go test`, so anything else nonzero is a red proof. The
-    two Python checkers use the repo-wide 0/1/2 = OK/BLOCKING/bad-input contract.
+    Python checkers use the repo-wide 0/1/2 = OK/BLOCKING/bad-input contract.
     """
     if returncode == 0:
         return "pass"
@@ -673,9 +680,9 @@ def execute_initial(paths, args):
     if args.only:
         return execute(plan, paths, args), None, []
 
-    results = execute(plan[:3], paths, args)
+    results = execute(plan[:-1], paths, args)
     structural_failures = [result for result in results
-                           if result.key in ("compile", "playbook") and
+                           if result.key in ("compile", "playbook", "anchors") and
                            result.status in ("fail", "error")]
     failures = [result for result in results if result.status in ("fail", "error")]
     if structural_failures or (args.fail_fast and failures):
@@ -690,10 +697,10 @@ def execute_initial(paths, args):
 
 
 def execute_iteration(paths, args, scope):
-    """Run compile/playbook first, retain step-call output, and gate proof execution."""
-    preliminary = build_iteration_plan(paths, args, scope)[:3]
+    """Run structural checks first, retain step-call output, and gate proof execution."""
+    preliminary = build_iteration_plan(paths, args, scope)[:-1]
     results = execute(preliminary, paths, args)
-    cheap_failures = [r for r in results if r.key in ("compile", "playbook") and
+    cheap_failures = [r for r in results if r.key in ("compile", "playbook", "anchors") and
                       r.status in ("fail", "error")]
     failures = [r for r in results if r.status in ("fail", "error")]
     if cheap_failures or (args.fail_fast and failures):
@@ -768,6 +775,8 @@ def classify(results):
                 faults[r.key] = classify_compile(r.stdout)
             elif r.key == "playbook":
                 faults[r.key] = classify_playbook(r.stderr)
+            elif r.key == "anchors":
+                faults[r.key] = FAULT_ANCHORS
             elif r.key == "step_calls":
                 faults[r.key] = FAULT_STEP_CALLS
     return faults
@@ -860,12 +869,15 @@ def emission_handoff(args, results, metadata):
 
     compile_result = _single_stage(results, "compile")
     playbook_result = _single_stage(results, "playbook")
+    anchors_result = _single_stage(results, "anchors")
     proof_result = _single_stage(results, "proof")
     step_result = _single_stage(results, "step_calls")
     if compile_result is None or compile_result.status != "pass" or compile_result.exit_code != 0:
         reasons.append("compile_not_passed")
     if playbook_result is None or playbook_result.status != "pass" or playbook_result.exit_code != 0:
         reasons.append("playbook_not_passed")
+    if anchors_result is None or anchors_result.status != "pass" or anchors_result.exit_code != 0:
+        reasons.append("anchors_not_passed")
     if (proof_result is None or proof_result.status != "pass" or proof_result.exit_code != 0 or
             metadata.get("proof_is_complete") is not True or
             metadata.get("effective_proof_scope") != "full"):

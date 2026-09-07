@@ -13,12 +13,12 @@ The implementer reads `build_plan`, `execute`, `execute_iteration`, `build_json`
 
 ## Submission A: Initial gate order
 
-T0 must be complete. Normal initial runs use `compile`, `playbook`, `step_calls`, `proof` order.
+T0 must be complete. Normal initial runs use `compile`, `playbook`, `anchors`, `step_calls`, `proof` order.
 `--iteration-base` keeps its existing scope selection. Explicit `--only` runs retain their current
 selection semantics; this change does not start unselected prerequisites.
 
-1. The implementer adds an initial-run executor that runs the three inexpensive stages first.
-2. A compile or playbook `fail` or `error` omits proof execution, even without `--fail-fast`.
+1. The implementer adds an initial-run executor that runs the inexpensive stages first.
+2. A compile, playbook, or anchor `fail` or `error` omits proof execution, even without `--fail-fast`.
 3. A step-call content failure alone does not omit the proof in a normal run.
    `--fail-fast` retains its explicit stop behavior for any failed stage.
 4. An omitted proof has `status=skip`, null duration, and the same deterministic omission-reason codes
@@ -60,7 +60,8 @@ The runner adds this JSON object:
 `ready_for_emit` is true only when all of the following are true:
 
 1. The report is an ordinary full run without `--only`, `--fail-fast`, or `--iteration-base`.
-2. Compile and playbook stages pass, and the complete proof passes for the current artifacts.
+2. Compile, playbook, and repository-wide anchor stages pass, and the complete proof passes for
+   the current artifacts.
 3. The step-call stage passes, is skipped solely because the implementation module does not exist,
    or fails exclusively on missing required reachable calls.
 4. Every required report field is present and structurally valid.
@@ -70,7 +71,7 @@ There must be at least one `missing` entry. A setup error, malformed report, or 
 `implementation_sync_required` is true for missing calls or an absent implementation module.
 `missing_call_names` contains sorted unique names; it is empty when the module is absent.
 `reasons` contains sorted failed-condition codes when readiness is false and is otherwise empty.
-The codes are `non_full_run`, `compile_not_passed`, `playbook_not_passed`, `proof_incomplete`,
+The codes are `non_full_run`, `compile_not_passed`, `playbook_not_passed`, `anchors_not_passed`, `proof_incomplete`,
 `step_calls_not_ready`, and `step_calls_report_invalid`.
 
 ### Mechanical integration
@@ -88,6 +89,7 @@ The codes are `non_full_run`, `compile_not_passed`, `playbook_not_passed`, `proo
    compile gates. Final pipeline acceptance requires both ordinary complete reports to pass on the current artifacts.
 7. The timing pilot records pre-emission readiness separately from the final compile acceptance report.
    A previously failed first pass stays failed; a later final acceptance does not rewrite its history.
+8. The emit runner retains its final repository-wide anchor stage with the existing checker criteria.
 
 ### Fixture matrix
 
@@ -100,6 +102,10 @@ The codes are `non_full_run`, `compile_not_passed`, `playbook_not_passed`, `proo
 | `test_shared_point_blocks_readiness` | Missing calls plus shared-point misuse. | Not ready. |
 | `test_malformed_details_blocks_readiness` | Invalid JSON or missing expected fields. | Setup error; not ready. |
 | `test_selected_proof_blocks_readiness` | All selected iteration checks pass. | Not ready. |
+| `test_duplicate_source_definition_without_module_omits_proof` | A draft repeats a source anchor and no module exists. | The complete anchor diagnostic is retained; proof is omitted; readiness is false. |
+| `test_anchor_checker_execution_failure_omits_proof` | The checker exits 2. | Setup error; proof is omitted; readiness is false. |
+| `test_only_anchors_runs_the_repository_wide_checker` | Only the anchor stage is selected. | The checker retains full scope; the report is not ready. |
+| `test_anchor_failure_omits_iteration_proof` | The anchor stage fails during retry validation. | Iteration proof is omitted with an anchor reason. |
 | `test_final_acceptance_requires_resync` | Emission passes but final compile still fails. | The pipeline remains unaccepted. |
 | `test_first_pass_not_rewritten` | A later final report passes after a failed round. | The recorded first pass remains false. |
 
