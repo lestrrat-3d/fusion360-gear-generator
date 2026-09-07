@@ -565,11 +565,13 @@ def go_ignores_file(name, goos=None, goarch=None):
 # separators, every one of which Go's scanner refuses outright. `GO_DECLARATION_INDENT` below is
 # the set for separating tokens on a line.
 #
-# Go trims every header line with `bytes.TrimSpace`, which uses `unicode.IsSpace`, before it looks
-# at the line at all. Python's `\s` is nearly that set but also counts U+001C to U+001F, which Go
-# does not, so a header opening with one of those reads to Python as an indented comment and to Go
-# as a line that does not begin with `//`. The set is written out rather than borrowed. A
-# non-breaking space is in it, which is why `\xa0//go:build ignore` is a constraint Go honours.
+# `go/build` trims every header line with `bytes.TrimSpace`, which uses `unicode.IsSpace`, before
+# it looks at the line at all. Python's `\s` is nearly that set but also counts U+001C to U+001F,
+# which `go/build` does not, so a header opening with one of those reads to Python as an indented
+# comment and to `go/build` as a line that does not begin with `//`. The set is written out rather
+# than borrowed. A non-breaking space is in it, which is why `\xa0//go:build ignore` is a
+# constraint `go/build` honours. Go 1.26's module index also reports that spelling as invalid,
+# but this gate still rejects it as a constraint, so the loader difference cannot credit a proof.
 GO_SPACE = ('\t\n\v\f\r \u0085\u00a0\u1680'
             '\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a'
             '\u2028\u2029\u202f\u205f\u3000')

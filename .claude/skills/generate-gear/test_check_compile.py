@@ -202,12 +202,12 @@ class VersionTwoCompileTest(unittest.TestCase):
 # Every header spelling the gate has an opinion about, with what Go does to it and what the gate
 # does about that. The whole class of defect on this boundary is the gate disagreeing with Go
 # about a spelling, so a spelling is not settled until both halves are written down and both are
-# checked: `test_go_agrees_with_every_recorded_header_verdict` runs the Go toolchain over this
-# corpus and fails if a `go` column ever stops being true, and the three gate tests below run the
-# checker over the same corpus.
+# checked: `test_go_agrees_with_every_recorded_header_verdict` runs the Go toolchain through its
+# `go/build` loader over this corpus and fails if a `go` column ever stops being true, and the
+# three gate tests below run the checker over the same corpus.
 #
 # A row carries the bytes above the package clause and nothing else; the file under test is that
-# header followed by a body. The `go` column is what Go does with the header:
+# header followed by a body. The `go` column is what Go's `go/build` path does with the header:
 #
 #   ignored             the constraint is honoured and excludes the file — `IgnoredGoFiles`
 #   invalid-constraint  the constraint is read but does not parse — `InvalidGoFiles`
@@ -249,7 +249,7 @@ GO_HEADER_CASES = (
      'ignored', 'refuse-constraint'),
     ('a byte order mark above the legacy form', BOM + b'// +build ignore\n\n',
      'ignored', 'refuse-constraint'),
-    # Go trims the header line with `unicode.IsSpace`, which counts a non-breaking space.
+    # `go/build` trims the header line with `unicode.IsSpace`, which counts a non-breaking space.
     ('a non-breaking space before the slashes', b'\xc2\xa0//go:build ignore\n\n',
      'ignored', 'refuse-constraint'),
     ('a closed block comment on the line above', b'/* note */\n//go:build ignore\n\n',
@@ -343,13 +343,20 @@ GO_UNREADABLE_MESSAGES = (
 
 
 def go_verdicts(headers, body=b'package p\n\nfunc F() {}\n'):
-    """Ask the Go toolchain what it does with each header, in one `go list` run and a build each.
+    """Ask Go's `go/build` loader what it does with each header, by listing and building each.
 
     Every header becomes its own package directory holding the header plus `body`, alongside a
     file that carries the package on its own so a header Go excludes still leaves a package to
     report. `go list -e` classifies a file without compiling it, which is exactly the constraint
     question: `IgnoredGoFiles` means a constraint excluded the file, and a `parsing //go:build
     line` error means one was read and would not parse.
+
+    Go 1.26's module index records a parser error before applying a build constraint, while
+    `go/build` applies the constraint first. The difference matters for U+00A0 before a directive:
+    `go/build` trims it and excludes the file, but the index also reports the file invalid. Select
+    `go/build` in this child environment because that is the loader the production gate
+    transcribes. The fixed old mtimes below ensure removing this selection reproduces the index
+    disagreement instead of making the test depend on whether the files have aged two seconds.
 
     A file whose bytes Go refuses is settled first and reported `unreadable`, because for such a
     file there is no constraint question: Go never reads one. That verdict comes from `go build`
@@ -358,22 +365,33 @@ def go_verdicts(headers, body=b'package p\n\nfunc F() {}\n'):
     one package at a time on purpose: `go build ./...` stops at the load errors and never compiles
     the packages whose refusal only the compiler sees.
     """
+    go_env = os.environ.copy()
+    inherited_go_debug = go_env.get('GODEBUG')
+    go_env['GODEBUG'] = '%s%sgoindex=0' % (
+        inherited_go_debug or '', ',' if inherited_go_debug else '')
     root = Path(tempfile.mkdtemp(prefix='go-header-'))
     try:
         (root / 'go.mod').write_text('module headerprobe\n\ngo 1.21\n')
         for index, header in enumerate(headers):
             package = root / ('c%d' % index)
             package.mkdir()
-            (package / 'x.go').write_bytes(header + body)
-            (package / 'keep.go').write_text('package p\n\nfunc Keep() {}\n')
+            source = package / 'x.go'
+            keep = package / 'keep.go'
+            source.write_bytes(header + body)
+            keep.write_text('package p\n\nfunc Keep() {}\n')
+            # Go's module index skips a package directory while any file is under two seconds
+            # old. Fixing both mtimes in the past makes the original loader-dependent failure
+            # deterministic: without the `go/build` selection below, the NBSP row is unreadable.
+            for path in (source, keep):
+                os.utime(path, ns=(1_000_000_000, 1_000_000_000))
         unreadable = set()
         for index in range(len(headers)):
             built = subprocess.run(['go', 'build', './c%d' % index],
-                                   cwd=root, capture_output=True, text=True)
+                                   cwd=root, env=go_env, capture_output=True, text=True)
             if any(message in built.stderr for message in GO_UNREADABLE_MESSAGES):
                 unreadable.add('c%d' % index)
         listed = subprocess.run(['go', 'list', '-e', '-json', './...'],
-                                cwd=root, capture_output=True, text=True)
+                                cwd=root, env=go_env, capture_output=True, text=True)
         decoder = json.JSONDecoder()
         verdicts = {}
         text = listed.stdout.strip()
@@ -1471,13 +1489,14 @@ class CheckCompileTest(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which('go'), 'the Go toolchain establishes these verdicts')
     def test_go_agrees_with_every_recorded_header_verdict(self):
-        """The `go` column of every row is what the toolchain actually does with that header.
+        """The `go` column records what the toolchain's `go/build` loader does with each header.
 
         The gate's rules are transcribed from `go/build`, and a transcription is only worth what
-        keeps it true. This runs `go build` and `go list -e -json` over the whole corpus and
-        reconciles it row by row, so a Go release that changed the boundary, or a row written from
-        memory, fails here rather than in a proof nobody can explain. It is what keeps `unreadable`
-        honest as well: that column claims Go refuses the file, and this is the run that shows it.
+        keeps it true. This runs `go build` and `go list -e -json` with the module index disabled
+        over the whole corpus and reconciles it row by row, so a Go release that changed the
+        boundary, or a row written from memory, fails here rather than in a proof nobody can
+        explain. It is what keeps `unreadable` honest as well: that column claims Go refuses the
+        file, and this is the run that shows it.
         """
         headers = [header for _, header, _, _ in GO_HEADER_CASES]
 
