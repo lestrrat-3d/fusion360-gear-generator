@@ -1218,8 +1218,8 @@ def _check():
         if status['disposition'] == 'setup_error':
             print('check_api_calls: %s' % ' '.join(status['evidence']), file=sys.stderr)
             return 2
-        if (status['disposition'] == 'advisory'
-                and (not verified or named_watchlist_owner != owner)):
+        # Once the exact owner is verified, its shared status does not depend on the local name.
+        if status['disposition'] == 'advisory' and not verified:
             unresolved.append((name, node.lineno, receiver_type, 'wrong receiver', status))
             continue
         if status['disposition'] in ('allow', 'advisory'):

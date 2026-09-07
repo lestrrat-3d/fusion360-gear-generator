@@ -512,7 +512,7 @@ class CheckApiReceiverOwnershipTest(unittest.TestCase):
         self.assertIn("calls 'project('", output)
         self.assertIn('receiver ownership is required', output)
 
-    def test_verified_alias_without_watchlist_receiver_name_is_blocking(self):
+    def test_verified_qualified_parameter_uses_receiver_status(self):
         result, output = self.run_checker(
             """
             def build(s: adsk.fusion.Sketch, entity):
@@ -520,8 +520,55 @@ class CheckApiReceiverOwnershipTest(unittest.TestCase):
             """,
             api_names={'project'})
 
+        self.assertEqual(result, 0, output)
+        self.assertIn('api-call check: OK', output)
+        self.assertIn('UNVERIFIED call', output)
+
+    def test_verified_qualified_assignment_uses_receiver_status(self):
+        result, output = self.run_checker(
+            """
+            def build(sketch: adsk.fusion.Sketch, text, height):
+                texts: adsk.fusion.SketchTexts = sketch.sketchTexts
+                return texts.createInput2(text, height)
+            """,
+            api_names={'createInput2'},
+            members={
+                ('Sketch', 'sketchTexts'): api_member(
+                    'SketchTexts', kind='property', lookup='adsk.fusion.Sketch'),
+            })
+
+        self.assertEqual(result, 0, output)
+        self.assertIn('api-call check: OK', output)
+        self.assertIn('UNVERIFIED call', output)
+
+    def test_verified_wrong_owner_does_not_use_unverified_status(self):
+        result, output = self.run_checker(
+            """
+            def build(component: adsk.fusion.Component, text, height):
+                return component.createInput2(text, height)
+            """,
+            api_names={'createInput2'})
+
         self.assertEqual(result, 1)
-        self.assertIn("calls 'project('", output)
+        self.assertIn("calls 'createInput2('", output)
+        self.assertIn('receiver ownership is required', output)
+
+    def test_reassigned_verified_alias_is_blocking(self):
+        result, output = self.run_checker(
+            """
+            def build(sketch: adsk.fusion.Sketch, other, text, height):
+                texts: adsk.fusion.SketchTexts = sketch.sketchTexts
+                texts = other
+                return texts.createInput2(text, height)
+            """,
+            api_names={'createInput2'},
+            members={
+                ('Sketch', 'sketchTexts'): api_member(
+                    'SketchTexts', kind='property', lookup='adsk.fusion.Sketch'),
+            })
+
+        self.assertEqual(result, 1)
+        self.assertIn("calls 'createInput2('", output)
         self.assertIn('receiver ownership is required', output)
 
     def test_prefixed_unverified_receiver_is_blocking(self):
