@@ -126,12 +126,15 @@ proof is where the next reader is looking for the missing check.
    .tmp/<gear>.compile-gates.txt` from the repo root and read the file for the verdict. The stored
    copy is also what a retry round hands back to the drafter.
    It runs `check_compile.py <gear>`, then `extract_playbook.py <gear> --min-anchors 1`, then —
-   only when `lib/geargen/<gear>.py` exists — `check_step_calls.py`, then `bash proof/run.sh`.
+   only when `lib/geargen/<gear>.py` exists — `check_step_calls.py --json`, then `bash proof/run.sh`.
    A compile or playbook failure omits the proof. A step-call failure still runs the proof unless
    `--fail-fast` was requested. The runner prints one verdict plus a first-pass fault
    classification. The proof wrapper enters the `proof/` module and configures the local engine
    replacements; the proof must pass with nothing waived. Exit 1 means a gate failed on content;
    exit 2 is a setup error, and a setup error never goes back to the drafter.
+   Read the JSON `handoff` too. `ready_for_emit: true` means the compiled artifacts are ready for
+   `/emit-gear`; it does not mean final compilation passed. This state may accompany exit 1 when
+   the only step-call findings are required calls missing from the current implementation.
 
 5. **Check.** The runner already ran every check. `check_compile.py` gates spec citations,
    step-to-proof agreement, the reality of every named API call, and the provenance hashes. It
@@ -153,7 +156,9 @@ proof is where the next reader is looking for the missing check.
    green. On a failure, run `python3 .claude/skills/generate-gear/check_step_calls.py
    spec/<gear>/steps.md lib/geargen/<gear>.py --names`, which prints exactly the missing call
    names, one per line. For version 2, required declarations are execution obligations; missing calls
-   belong to `/emit-gear`. Changing an existing required declaration to another role requires source
+   belong to `/emit-gear`. A report with only those missing calls may have
+   `handoff.ready_for_emit: true`; continue to emission and preserve the failed compile verdict.
+   Changing an existing required declaration to another role requires source
    review. Never remove a requirement because the current module omits it. Legacy and version-1 files
    retain their existing ignore behavior until normal recompilation; never guess roles to migrate them.
    Use the role rules in `docs/prose-pipeline-handoffs/formats.md#version-2` and the syntax owner
@@ -167,6 +172,8 @@ proof is where the next reader is looking for the missing check.
    the drafter, up to about three rounds in total. A prose fault stops the run. Read, at this
    point, only what the failure names: the spec file and line a `fault: prose` line prints, the
    step and proof text the failure quotes, and any playbook anchor the step cites.
+   When `handoff.ready_for_emit` is true, do not retry the compile drafter for missing calls in the
+   current implementation. Finish placement and continue to `/emit-gear`.
 
    A draft fault does not change any input file, so the drafter that produced it still holds
    every input in context. Send it the stored gate report `.tmp/<gear>.compile-gates.txt`
@@ -194,17 +201,22 @@ proof is where the next reader is looking for the missing check.
    only and is never the final proof. The canonical report path stays the same so the next retry
    receives the latest diagnostics.
 
-7. **Place.** Before successful placement or reporting, require a pass from the ordinary complete
-   gate runner for the current artifacts. Reuse the latest report when it is an ordinary full pass
-   and no inputs or artifacts changed since that run; rerun the ordinary runner after any focused
-   iteration, failed run, or change. On success, run
+7. **Place.** Before placement or reporting, require an ordinary complete gate report whose
+   `handoff.ready_for_emit` is true for the current artifacts. Reuse the latest report when it has
+   that readiness and no inputs or artifacts changed since that run; rerun the ordinary runner after
+   any focused iteration or change. A passing report completes compilation immediately only when
+   `implementation_sync_required` is false. A report that is ready because required calls are
+   missing remains failed, and a report that is ready because the module is absent still needs
+   implementation. Both proceed to `/emit-gear`. Run
    `python3 .claude/skills/generate-gear/stage.py <gear> compile`
    from the repo root. It repeats step 4's placement of the step list and the proof, so it
    should report every file unchanged; it exists as a step so a run whose gates were green
    ends with the working tree verified to match the draft. This writes files and the git index
    only; it does not commit, push, or touch Fusion's add-in directory.
 
-8. **Report.** State what was produced, the coverage list, and every prose fault found.
+8. **Report.** State what was produced, the coverage list, every prose fault found, and whether the
+   report passed or is only ready for emission. Final pipeline acceptance comes after `/emit-gear`
+   stages its module and the ordinary complete compile runner passes on those current artifacts.
 
 ## Telling a draft fault from a prose fault
 

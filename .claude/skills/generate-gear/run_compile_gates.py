@@ -120,6 +120,7 @@ FAULT_SETUP = "SETUP ERROR: fix the environment or inputs; never retry the draft
 # drafter is told the same thing in SKILL.md step 5.
 MODULE_ABSENT_REASON = ("lib/geargen/%s.py does not exist; the CI cross-check applies only "
                         "after /emit-gear places a module")
+MODULE_ABSENT_CODE = "implementation_module_absent"
 
 
 # --- small value types --------------------------------------------------------------------
@@ -136,6 +137,7 @@ class StageResult:
     skip_reason: str | None
     fault: str | None
     skip_reason_code: str | None = None
+    details: dict | None = None
 
 
 @dataclass
@@ -185,6 +187,7 @@ def parse_args(argv):
     p.add_argument("--iteration-base", default=None,
                    help="run a focused retry based on changes after COMMIT")
     args = p.parse_args(argv)
+    args._only_requested = args.only is not None
     if args.only:
         args.only = [k.strip() for k in args.only.split(",") if k.strip()]
     return args
@@ -449,7 +452,7 @@ def stage_command(key, paths):
                 "--min-anchors", str(MIN_PLAYBOOK_ANCHORS)]
     if key == "step_calls":
         return [sys.executable, _script_path("check_step_calls.py", paths),
-                paths.steps, paths.module]
+                "--json", paths.steps, paths.module]
     raise ValueError("unknown stage key: %s" % key)
 
 
@@ -501,6 +504,97 @@ def status_for(key, returncode):
     return "fail"
 
 
+def _is_int(value):
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def step_call_details_error(details, returncode=None):
+    """Return the first structural error in a check_step_calls JSON report."""
+    if not isinstance(details, dict):
+        return "report is not an object"
+    required = {
+        "ok": bool,
+        "named_calls": int,
+        "missing": list,
+        "stubs": list,
+        "shared_point": list,
+    }
+    allowed = set(required) | {"parse_error", "metadata_error"}
+    unexpected = sorted(set(details) - allowed)
+    if unexpected:
+        return "unexpected field(s): %s" % ", ".join(unexpected)
+    for field, expected in required.items():
+        if field not in details:
+            return "missing field %r" % field
+        value = details[field]
+        if expected is int:
+            valid = _is_int(value) and value >= 0
+        else:
+            valid = isinstance(value, expected)
+        if not valid:
+            return "field %r has the wrong shape" % field
+    if "parse_error" not in details:
+        return "missing field 'parse_error'"
+    if details["parse_error"] is not None and not isinstance(details["parse_error"], str):
+        return "field 'parse_error' has the wrong shape"
+    if "metadata_error" in details and not isinstance(details["metadata_error"], str):
+        return "field 'metadata_error' has the wrong shape"
+
+    record_shapes = {
+        "missing": {"name": str, "has_receiver": bool, "textual_match": bool},
+        "stubs": {"line": int, "marker": str, "text": str},
+        "shared_point": {"line": int, "argument": str},
+    }
+    for field, shape in record_shapes.items():
+        for index, record in enumerate(details[field]):
+            if not isinstance(record, dict):
+                return "field %r entry %d is not an object" % (field, index)
+            if set(record) != set(shape):
+                return "field %r entry %d has unexpected fields" % (field, index)
+            for name, expected in shape.items():
+                if name not in record:
+                    return "field %r entry %d is missing %r" % (field, index, name)
+                value = record[name]
+                valid = (_is_int(value) and value >= 1) if expected is int else isinstance(
+                    value, expected)
+                if not valid or (expected is str and not value):
+                    return "field %r entry %d has invalid %r" % (field, index, name)
+    has_problems = bool(details["missing"] or details["stubs"] or details["shared_point"] or
+                        details["parse_error"] is not None or
+                        details.get("metadata_error") is not None)
+    if details["ok"] == has_problems:
+        return "field 'ok' disagrees with the reported findings"
+    if returncode is not None:
+        if returncode not in (0, 1):
+            return "step-call JSON report accompanied unexpected exit code %r" % returncode
+        if details["ok"] != (returncode == 0):
+            return "field 'ok' disagrees with exit code %d" % returncode
+    return None
+
+
+class _DuplicateJSONKey(ValueError):
+    pass
+
+
+def _unique_json_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise _DuplicateJSONKey("duplicate key %r" % key)
+        result[key] = value
+    return result
+
+
+def parse_step_call_details(stdout, returncode=None):
+    """Decode and validate the machine report without reading diagnostic prose."""
+    try:
+        details = json.loads(stdout, object_pairs_hook=_unique_json_object)
+    except (TypeError, ValueError) as error:
+        return None, str(error)
+    error = step_call_details_error(details, returncode)
+    return (None, error) if error else (details, None)
+
+
 def run_stage(key, title, command, cwd, timeout):
     """Run one stage as a subprocess, capturing stdout and stderr and timing it."""
     start = time.monotonic()
@@ -519,8 +613,18 @@ def run_stage(key, title, command, cwd, timeout):
         return StageResult(key, title, "error", None, duration, command, stdout, stderr,
                            None, None)
     duration = round(time.monotonic() - start, 2)
-    return StageResult(key, title, status_for(key, proc.returncode), proc.returncode, duration,
-                       command, proc.stdout, proc.stderr, None, None)
+    result = StageResult(key, title, status_for(key, proc.returncode), proc.returncode, duration,
+                         command, proc.stdout, proc.stderr, None, None)
+    if key != "step_calls":
+        return result
+    details, error = parse_step_call_details(proc.stdout, proc.returncode)
+    if error is not None:
+        stderr = proc.stderr
+        if stderr and not stderr.endswith("\n"):
+            stderr += "\n"
+        stderr += "invalid step-call JSON report: %s" % error
+        return dataclasses.replace(result, status="error", exit_code=2, stderr=stderr)
+    return dataclasses.replace(result, details=details)
 
 
 def execute(plan, paths, args):
@@ -530,8 +634,10 @@ def execute(plan, paths, args):
     stopped_by = None
     for key, title, command, skip_reason in plan:
         if skip_reason is not None:
+            reason_code = (MODULE_ABSENT_CODE if key == "step_calls" and
+                           skip_reason == MODULE_ABSENT_REASON % args.gear else None)
             results.append(StageResult(key, title, "skip", None, None, [], "", "",
-                                       skip_reason, None))
+                                       skip_reason, None, reason_code))
             continue
         if stopped_by is not None:
             reason = "not run (--fail-fast after %s failed)" % stopped_by
@@ -673,6 +779,15 @@ def headline(result):
     first non-empty stdout line."""
     if result.status == "skip":
         return result.skip_reason or ""
+    if result.key == "step_calls" and result.details is not None:
+        count = (len(result.details["missing"]) + len(result.details["stubs"]) +
+                 len(result.details["shared_point"]) +
+                 int(result.details["parse_error"] is not None) +
+                 int(result.details.get("metadata_error") is not None))
+        if result.details["ok"]:
+            return ("step-call check: OK (%d named calls present, no stubs, "
+                    "no shared-point misuse)" % result.details["named_calls"])
+        return "step-call check: BLOCKING (%d)" % count
     lines = (result.stdout or "").splitlines()
     for line in lines:
         if HEADLINE_PATTERN.match(line):
@@ -728,6 +843,98 @@ def overall(results):
     return "pass", 0
 
 
+def _single_stage(results, key):
+    matches = [result for result in results if result.key == key]
+    return matches[0] if len(matches) == 1 else None
+
+
+def emission_handoff(args, results, metadata):
+    """Return the compile-to-emit handoff without changing the compile verdict."""
+    reasons = []
+    full_run = (getattr(args, "_only_requested", None) is False and args.only is None and
+                hasattr(args, "fail_fast") and args.fail_fast is False and
+                hasattr(args, "iteration_base") and args.iteration_base is None and
+                metadata.get("iteration_mode") is False)
+    if not full_run:
+        reasons.append("non_full_run")
+
+    compile_result = _single_stage(results, "compile")
+    playbook_result = _single_stage(results, "playbook")
+    proof_result = _single_stage(results, "proof")
+    step_result = _single_stage(results, "step_calls")
+    if compile_result is None or compile_result.status != "pass" or compile_result.exit_code != 0:
+        reasons.append("compile_not_passed")
+    if playbook_result is None or playbook_result.status != "pass" or playbook_result.exit_code != 0:
+        reasons.append("playbook_not_passed")
+    if (proof_result is None or proof_result.status != "pass" or proof_result.exit_code != 0 or
+            metadata.get("proof_is_complete") is not True or
+            metadata.get("effective_proof_scope") != "full"):
+        reasons.append("proof_incomplete")
+
+    implementation_sync_required = False
+    missing_call_names = []
+    step_ready = False
+    report_invalid = False
+    if step_result is None:
+        report_invalid = True
+    elif (step_result.status == "skip" and
+          step_result.skip_reason_code == MODULE_ABSENT_CODE and
+          step_result.skip_reason == MODULE_ABSENT_REASON % args.gear and
+          step_result.exit_code is None and step_result.details is None):
+        step_ready = True
+        implementation_sync_required = True
+    elif step_result.status in ("pass", "fail", "error"):
+        expected_exit = {"pass": 0, "fail": 1, "error": 2}[step_result.status]
+        error = ("stage status disagrees with exit code" if
+                 step_result.exit_code != expected_exit else
+                 step_call_details_error(step_result.details, step_result.exit_code))
+        if error is not None:
+            report_invalid = True
+        else:
+            details = step_result.details
+            missing_call_names = sorted({record["name"] for record in details["missing"]})
+            implementation_sync_required = bool(missing_call_names)
+            clean_findings = (details["parse_error"] is None and
+                              details.get("metadata_error") is None and
+                              not details["stubs"] and not details["shared_point"])
+            if step_result.status == "pass":
+                step_ready = details["ok"] and clean_findings and not details["missing"]
+            elif step_result.status == "fail":
+                step_ready = (not details["ok"] and clean_findings and
+                              bool(details["missing"]))
+    if report_invalid:
+        reasons.append("step_calls_report_invalid")
+    elif not step_ready:
+        reasons.append("step_calls_not_ready")
+
+    reasons = sorted(set(reasons))
+    return {
+        "ready_for_emit": not reasons,
+        "implementation_sync_required": implementation_sync_required,
+        "missing_call_names": missing_call_names,
+        "reasons": reasons,
+    }
+
+
+def _step_call_detail_lines(details):
+    lines = []
+    if details.get("metadata_error") is not None:
+        lines.append("step metadata: %s" % details["metadata_error"])
+    if details["parse_error"] is not None:
+        lines.append("generated candidate is not valid Python: %s" % details["parse_error"])
+    for record in details["missing"]:
+        call = (("receiver.%s" if record["has_receiver"] else "%s") % record["name"]) + "("
+        note = " (textual match only)" if record["textual_match"] else ""
+        lines.append("missing reachable %s call: %s%s" % (
+            "method" if record["has_receiver"] else "function", call, note))
+    for record in details["stubs"]:
+        lines.append("stub marker at line %d: %s" % (record["line"], record["text"]))
+    for record in details["shared_point"]:
+        lines.append("shared-point misuse at line %d: %s" % (
+            record["line"], record["argument"]))
+    return lines
+
+
 def render_text(results, paths, args):
     lines = ["run_compile_gates: %s  root=%s" % (args.gear, paths.root), ""]
     metadata = getattr(args, "_iteration_metadata", None)
@@ -759,9 +966,12 @@ def render_text(results, paths, args):
         # prints `coverage:` and `unverified:` advisories on a passing run, and those are read
         # by a human rather than gated, so hiding them behind a failure would lose them. The
         # headline itself is already on the line above, so it is not repeated.
-        body = (r.stdout or "").splitlines()
-        if head in body:
-            body.remove(head)
+        if r.key == "step_calls" and r.details is not None:
+            body = _step_call_detail_lines(r.details)
+        else:
+            body = (r.stdout or "").splitlines()
+            if head in body:
+                body.remove(head)
         for line in body:
             lines.append(" " * 8 + line)
         if r.stderr:
@@ -775,6 +985,17 @@ def render_text(results, paths, args):
     lines.append("verdict: %s -- %d passed, %d failed, %d skipped, %d errored"
                  % (verdict.upper(), counts["pass"], counts["fail"], counts["skip"],
                     counts["error"]))
+
+    handoff = emission_handoff(args, results, metadata or _default_metadata())
+    if handoff["ready_for_emit"]:
+        lines.append("emission handoff: READY FOR EMIT")
+        if handoff["missing_call_names"]:
+            lines.append("  missing required calls: %s" %
+                         ", ".join(handoff["missing_call_names"]))
+        elif handoff["implementation_sync_required"]:
+            lines.append("  implementation module is absent")
+    else:
+        lines.append("emission handoff: NOT READY (%s)" % ", ".join(handoff["reasons"]))
 
     faulted = [r for r in results if r.fault]
     if faulted:
@@ -811,6 +1032,7 @@ def build_json(results, paths, args, metadata=None):
             "skip_reason": r.skip_reason,
             "fault": r.fault,
             "skip_reason_code": r.skip_reason_code,
+            "details": r.details,
         })
     obj = {
         "schema": SCHEMA,
@@ -823,6 +1045,7 @@ def build_json(results, paths, args, metadata=None):
     }
     if metadata:
         obj.update(metadata)
+    obj["handoff"] = emission_handoff(args, results, metadata or {})
     return obj
 
 
@@ -839,6 +1062,7 @@ def _setup_error_json(errors, paths, args, metadata=None):
     }
     if metadata:
         obj.update(metadata)
+    obj["handoff"] = emission_handoff(args, [], metadata or {})
     return obj
 
 

@@ -28,7 +28,8 @@ class FakeClock:
         self.value += seconds
 
 
-def gate_report(path, *, first_pass=True, failed=False, shared=False):
+def gate_report(path, *, first_pass=True, failed=False, shared=False,
+                kind="run_gates", handoff=None, proof_is_complete=None):
     rows = [
         {"key": "parse", "status": "fail" if failed else "pass", "duration_s": 1.0},
         {"key": "pyright", "status": "pass", "duration_s": 3.0},
@@ -46,9 +47,14 @@ def gate_report(path, *, first_pass=True, failed=False, shared=False):
             "analysis_duration_s": 3.0,
             "analysis_shared": shared,
             "first_pass_eligible": first_pass,
-            "gate_policy": {"mode": "full", "first_pass_eligible": first_pass},
+            "gate_policy": {"kind": kind, "mode": "full",
+                            "first_pass_eligible": first_pass},
         },
     }
+    if handoff is not None:
+        report["handoff"] = handoff
+    if proof_is_complete is not None:
+        report["proof_is_complete"] = proof_is_complete
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(report, handle)
 
@@ -230,11 +236,88 @@ class PipelineTimingTests(unittest.TestCase):
         later = MODULE.gate_import(self.run_dir, 2, report_path)
         self.assertEqual(later["metadata"]["source_reused_from_round"], 1)
 
+    def test_malformed_emission_handoff_is_rejected(self):
+        report_path = self.root / "gates.json"
+        gate_report(report_path, kind="run_compile_gates",
+                    handoff={"ready_for_emit": True})
+        with self.assertRaises(MODULE.TimingError):
+            MODULE.gate_import(self.run_dir, 1, report_path)
+
     def test_failed_round_cannot_be_first_pass(self):
         self._complete_run(failed=True)
         summary = MODULE.summarize(self.run_dir)
         self.assertFalse(summary["first_pass"])
         self.assertEqual(summary["gate_failures"], 1)
+
+    def test_final_acceptance_requires_resync(self):
+        ready = {
+            "ready_for_emit": True,
+            "implementation_sync_required": True,
+            "missing_call_names": ["addWidget"],
+            "reasons": [],
+        }
+        pre_path = self.root / "pre-compile.json"
+        gate_report(pre_path, first_pass=False, failed=True, kind="run_compile_gates",
+                    handoff=ready, proof_is_complete=True)
+        MODULE.gate_import(self.run_dir, 1, pre_path)
+
+        MODULE.record_event(self.run_dir, "drafting", "start", round=1, clock=self.clock)
+        MODULE.record_event(self.run_dir, "drafting", "finish", round=1, clock=self.clock)
+        MODULE.record_event(self.run_dir, "validation", "start", round=1, clock=self.clock)
+        emit_path = self.root / "emit.json"
+        gate_report(emit_path)
+        MODULE.gate_import(self.run_dir, 1, emit_path)
+        final_path = self.root / "final-compile.json"
+        gate_report(final_path, first_pass=False, failed=True, kind="run_compile_gates",
+                    handoff={**ready, "ready_for_emit": False,
+                             "reasons": ["compile_not_passed"]},
+                    proof_is_complete=True)
+        MODULE.gate_import(self.run_dir, 1, final_path)
+        MODULE.record_event(self.run_dir, "validation", "finish", round=1, clock=self.clock)
+        MODULE.record_event(self.run_dir, "overall", "finish", round=1, clock=self.clock)
+        MODULE.record_event(self.run_dir, "validation", "record", round=99,
+                            clock=self.clock, event_name="advisory_triage",
+                            metadata={"advisory_triage": "complete"})
+
+        summary = MODULE.summarize(self.run_dir)
+        self.assertTrue(summary["pre_emission_readiness"]["handoff"]["ready_for_emit"])
+        self.assertTrue(summary["final_compile_acceptance"]["observed"])
+        self.assertFalse(summary["final_compile_acceptance"]["accepted"])
+        self.assertFalse(summary["accepted"])
+
+    def test_first_pass_not_rewritten(self):
+        ready = {
+            "ready_for_emit": True,
+            "implementation_sync_required": True,
+            "missing_call_names": ["addWidget"],
+            "reasons": [],
+        }
+        pre_path = self.root / "pre-compile.json"
+        gate_report(pre_path, first_pass=False, failed=True, kind="run_compile_gates",
+                    handoff=ready, proof_is_complete=True)
+        MODULE.gate_import(self.run_dir, 1, pre_path)
+
+        MODULE.record_event(self.run_dir, "drafting", "start", round=1, clock=self.clock)
+        MODULE.record_event(self.run_dir, "drafting", "finish", round=1, clock=self.clock)
+        passed_emit = self.root / "passed-emit.json"
+        gate_report(passed_emit)
+        MODULE.gate_import(self.run_dir, 1, passed_emit)
+        final_compile = self.root / "accepted-compile.json"
+        gate_report(final_compile, kind="run_compile_gates",
+                    handoff={**ready, "implementation_sync_required": False,
+                             "missing_call_names": []}, proof_is_complete=True)
+        MODULE.gate_import(self.run_dir, 1, final_compile)
+        MODULE.record_event(self.run_dir, "validation", "start", round=1, clock=self.clock)
+        MODULE.record_event(self.run_dir, "validation", "finish", round=1, clock=self.clock)
+        MODULE.record_event(self.run_dir, "overall", "finish", round=1, clock=self.clock)
+        MODULE.record_event(self.run_dir, "validation", "record", round=99,
+                            clock=self.clock, event_name="advisory_triage",
+                            metadata={"advisory_triage": "complete"})
+
+        summary = MODULE.summarize(self.run_dir)
+        self.assertTrue(summary["accepted"])
+        self.assertFalse(summary["first_pass"])
+        self.assertEqual(summary["completed_rounds"], 1)
 
     def test_advisory_triage_state_is_separate(self):
         self._complete_run(triage="incomplete")

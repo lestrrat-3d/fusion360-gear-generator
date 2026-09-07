@@ -37,6 +37,12 @@ the advisory findings.
    `check_compile.py <gear>` as its `steps-current` row, so a broken environment or a stale
    step list fails here instead of mid-run. If `steps-current` fails, run `/compile-gear <gear>`
    first.
+   Require an ordinary full `run_compile_gates.py` report for the current step list and proof.
+   Reuse the compile run's report when its inputs and artifacts have not changed. Otherwise run
+   `python3 .claude/skills/generate-gear/run_compile_gates.py <gear> --json-out
+   .tmp/<gear>.pre-emit-compile.json > .tmp/<gear>.compile-gates.txt`. Continue only when its
+   JSON has `handoff.ready_for_emit: true`. Exit 1 is allowed here only when that readiness is true;
+   the compile verdict remains failed until the implementation is synchronized.
 
 2. **Draft.** First run `python3 .claude/skills/generate-gear/extract_playbook.py <gear>` from the
    repo root. It writes `.tmp/<gear>.playbook-extract.md`, the playbook rules the step list cites
@@ -98,11 +104,17 @@ the advisory findings.
    battery again; never substitute an older passing report. On success, run
    `python3 .claude/skills/generate-gear/stage.py <gear> module` from the repo root. It puts
    `.tmp/<gear>.generated.py` at `lib/geargen/<gear>.py` and reports what moved. This writes a
-   file only; it does not commit, push, or touch Fusion's add-in directory.
+   file only; it does not commit, push, or touch Fusion's add-in directory. Then run the ordinary
+   full compile gates again with `python3 .claude/skills/generate-gear/run_compile_gates.py <gear>
+   --json-out .tmp/<gear>.final-compile.json > .tmp/<gear>.final-compile-gates.txt`. Final pipeline
+   acceptance requires both the complete emit report and this final compile report to pass on the
+   staged module and current compiled artifacts. A failed final compile report returns to diagnosis;
+   it never becomes accepted because the earlier handoff was ready.
 
-6. **Report.** State the complete gate results, every advisory finding and its triage decision, and
-   every step that was thin or wrong. The drafter's report supplies only the artifact facts and
-   unresolved step IDs described in the standard drafting prompt.
+6. **Report.** State the pre-emission readiness, complete emit gate results, final compile gate
+   results, every advisory finding and its triage decision, and every step that was thin or wrong.
+   The drafter's report supplies only the artifact facts and unresolved step IDs described in the
+   standard drafting prompt.
 
 ## Gates
 

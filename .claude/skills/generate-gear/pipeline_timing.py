@@ -338,6 +338,28 @@ def _gate_timing(report):
     return timing if isinstance(timing, dict) else {}
 
 
+def _valid_emission_handoff(handoff):
+    if not isinstance(handoff, dict):
+        return False
+    if not isinstance(handoff.get("ready_for_emit"), bool):
+        return False
+    if not isinstance(handoff.get("implementation_sync_required"), bool):
+        return False
+    names = handoff.get("missing_call_names")
+    reasons = handoff.get("reasons")
+    if (not isinstance(names, list) or
+            any(not isinstance(name, str) or not name for name in names) or
+            names != sorted(set(names))):
+        return False
+    if (not isinstance(reasons, list) or
+            any(not isinstance(reason, str) or not reason for reason in reasons) or
+            reasons != sorted(set(reasons))):
+        return False
+    if handoff["ready_for_emit"] != (not reasons):
+        return False
+    return not names or handoff["implementation_sync_required"]
+
+
 def gate_import(run_dir, round, file_path):
     """Import only counters and timing metadata from a gate runner JSON report."""
     if not isinstance(round, int) or isinstance(round, bool) or round < 1:
@@ -396,6 +418,9 @@ def gate_import(run_dir, round, file_path):
     policy = timing.get("gate_policy")
     if not isinstance(policy, dict):
         policy = {}
+    handoff = report.get("handoff")
+    if handoff is not None and not _valid_emission_handoff(handoff):
+        raise TimingError("gate JSON handoff has an invalid shape")
     first_pass = bool(timing.get("first_pass_eligible", False))
     if report.get("verdict") not in ("pass",):
         first_pass = False
@@ -415,6 +440,7 @@ def gate_import(run_dir, round, file_path):
         "analysis_invocations": timing.get("analysis_invocations"),
         "analysis_shared": timing.get("analysis_shared"),
         "gate_policy": policy,
+        "emission_handoff": handoff,
         "proof_is_complete": report.get("proof_is_complete"),
         "first_pass_eligible": first_pass,
         "advisory_findings": advisory_findings,
@@ -532,6 +558,38 @@ def summarize(run_dir):
                        and issue != "advisory triage is incomplete"]
     if evidence_issues or not overall_intervals:
         first_pass = False
+    compile_imports = [event for event in imports
+                       if event.get("metadata", {}).get("gate_policy", {}).get("kind") ==
+                       "run_compile_gates"]
+    emit_imports = [event for event in imports
+                    if event.get("metadata", {}).get("gate_policy", {}).get("kind") ==
+                    "run_gates"]
+    first_emit_sequence = min((event["sequence"] for event in emit_imports), default=None)
+    pre_candidates = [event for event in compile_imports
+                      if first_emit_sequence is None or event["sequence"] < first_emit_sequence]
+    pre_event = pre_candidates[-1] if pre_candidates else None
+    pre_payload = pre_event.get("metadata", {}) if pre_event else {}
+    pre_handoff = pre_payload.get("emission_handoff")
+    if not _valid_emission_handoff(pre_handoff):
+        pre_handoff = None
+    last_emit = emit_imports[-1] if emit_imports else None
+    final_candidates = [event for event in compile_imports
+                        if last_emit is not None and event["sequence"] > last_emit["sequence"]]
+    final_event = final_candidates[-1] if final_candidates else None
+    final_payload = final_event.get("metadata", {}) if final_event else {}
+    final_handoff = final_payload.get("emission_handoff")
+    final_compile_accepted = bool(
+        final_event and final_payload.get("verdict") == "pass" and
+        final_payload.get("proof_is_complete") is True and
+        final_payload.get("gate_policy", {}).get("mode") == "full" and
+        _valid_emission_handoff(final_handoff) and final_handoff.get("ready_for_emit") is True and
+        final_handoff.get("implementation_sync_required") is False)
+    emit_payload = last_emit.get("metadata", {}) if last_emit else {}
+    emit_accepted = bool(
+        last_emit and emit_payload.get("verdict") == "pass" and
+        emit_payload.get("gate_policy", {}).get("mode") == "full" and
+        emit_payload.get("first_pass_eligible") is True)
+    pipeline_accepted = complete and emit_accepted and final_compile_accepted
     reasons = list(issues)
     if not first_pass:
         reasons.append("round 1 is not a complete full-policy first pass")
@@ -553,6 +611,17 @@ def summarize(run_dir):
         "token_counts": {"input": round_seconds(input_tokens) if have_input else None,
                          "output": round_seconds(output_tokens) if have_output else None},
         "first_pass": first_pass,
+        "pre_emission_readiness": {
+            "observed": pre_event is not None and pre_handoff is not None,
+            "round": pre_event.get("round") if pre_event else None,
+            "handoff": pre_handoff,
+        },
+        "final_compile_acceptance": {
+            "observed": final_event is not None,
+            "round": final_event.get("round") if final_event else None,
+            "accepted": final_compile_accepted,
+        },
+        "accepted": pipeline_accepted,
         "advisory_triage": {"complete": triage_complete, "status": triage_state or "unknown",
                             "findings": advisory},
         "complete": complete,

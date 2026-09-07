@@ -88,7 +88,8 @@ The following checklist is non-authoritative; the format owner wins over this su
 - Use `prose` only when the whole span fails Python expression parsing.
 - Keep call-shaped spans inside their relevant steps and never write global ignore directives.
 - Do not change an existing required call's role because an existing module omits it.
-  Reclassification requires source review. Never guess production roles for automatic migration.
+  Reclassification requires source review. A missing implementation call remains emission work.
+  Never guess production roles for automatic migration.
 
 Declarations do not prove that every prose requirement was captured. Proof and source review still
 check that boundary. A `forbidden` role does not replace source guards.

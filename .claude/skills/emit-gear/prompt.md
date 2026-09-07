@@ -32,6 +32,8 @@ Read `docs/prose-pipeline-handoffs/formats.md#version-2` for role rules;
 `.claude/skills/generate-gear/step_metadata.py` owns accepted syntax.
 Other roles create no positive execution requirement. Existing source guards still enforce prohibitions.
 Legacy and version-1 step lists retain their existing call checks.
+A pre-emission compile report may remain failed solely because the current module lacks these required
+calls. Implement them here; only the orchestrator's post-placement full compile rerun can accept the pipeline.
 
 **The step list's required API calls have shared API-status decisions.** Compilation allows documented
 calls and preserves visible advisory evidence for exact unverified receiver/member pairs; it

@@ -12,10 +12,13 @@ emit workflow, and import its complete `run_gates.py` JSON.
 
 Use **compile plus emit** as two linked timing runs, one with `--stage compile` and one with
 `--stage emit`, when `/compile-gear` produces the snapshot in this run. Both runs must have
-complete full-policy evidence. Report their durations together only after both summaries pass;
-this prevents a selective compile report from qualifying the emit run's first pass. The compile
-retry path must scaffold and place every returned draft before its iteration gates, as required
-by `compile-gear/SKILL.md`.
+complete full-policy evidence. The compile report records `pre_emission_readiness`; it may retain
+a failed verdict when required calls are missing from the old module. The emit run records its
+complete gate report and a separate post-placement `final_compile_acceptance` report. Report their
+durations together only after the emit report and final compile report pass; this prevents a
+selective or readiness-only compile report from qualifying final acceptance. The compile retry path
+must scaffold and place every returned draft before its iteration gates, as required by
+`compile-gear/SKILL.md`.
 
 ## One run
 
@@ -72,10 +75,33 @@ python3 .claude/skills/generate-gear/pipeline_timing.py summarize \
 ```
 
 For the compile run, use `run_compile_gates.py <gear> --json-out "$TIMING/compile-gates.json"`
-and import that report. Then create a fresh timing directory for the emit run after placement.
+and import that report. Preserve its `handoff` separately as the pre-emission readiness result;
+do not rewrite its verdict after emission. Then create a fresh timing directory for the emit run
+after compile placement.
 A selective, fail-fast, no-advisory, or incomplete proof report remains evidence for diagnostics
 and cannot qualify as a full first pass. Contract skips qualify only when the runner reports an
 actual not-applicable manifest reason.
+
+After the emit gates pass, stage the module as `emit-gear/SKILL.md` requires. Before recording the
+emit run's overall finish, rerun and import the final compile report in the current emit round.
+Use a named validation interval because this check does not create another draft round:
+
+```sh
+python3 .claude/skills/generate-gear/pipeline_timing.py event \
+  --run-dir "$TIMING" --phase validation --action start --round <round> \
+  --event-name final-compile
+python3 .claude/skills/generate-gear/run_compile_gates.py <gear> \
+  --json-out "$TIMING/final-compile-gates.json"
+python3 .claude/skills/generate-gear/pipeline_timing.py import-gates \
+  --run-dir "$TIMING" --round <round> --file "$TIMING/final-compile-gates.json"
+python3 .claude/skills/generate-gear/pipeline_timing.py event \
+  --run-dir "$TIMING" --phase validation --action finish --round <round> \
+  --event-name final-compile
+```
+
+Final pipeline acceptance requires the ordinary emit report and this later ordinary compile report
+to pass on the staged module and current compiled artifacts. Keep a failed pre-emission or emit
+round in the timing events; the summary never changes its `first_pass` result after a later pass.
 
 Repeat the direct-emit run for each pilot gear. Keep retries as separate numbered rounds in one
 run, and import every complete report once per round. Compare `drafting_time_s`,

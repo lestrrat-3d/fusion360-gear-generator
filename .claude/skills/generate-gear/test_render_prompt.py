@@ -305,6 +305,8 @@ class CommittedTemplatesTest(unittest.TestCase):
         self.assertIn('Reclassification requires source review', compile_prompt)
         self.assertIn('`required` call declarations as the execution checklist', emit_prompt)
         self.assertIn('Conditional requirements still need execution', emit_prompt)
+        self.assertIn('missing implementation call remains emission work', compile_prompt)
+        self.assertIn('post-placement full compile rerun', emit_prompt)
 
     def test_emit_first_and_retry_prompts_keep_same_owner_for_spur_and_bevel(self):
         report = 'run_gates: sample\nverdict: FAIL\n'

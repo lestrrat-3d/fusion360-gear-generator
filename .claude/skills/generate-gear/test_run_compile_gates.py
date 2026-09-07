@@ -17,6 +17,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 CHECKER_PATH = Path(__file__).with_name('run_compile_gates.py')
@@ -34,6 +35,26 @@ STUB_HEADLINE = {
 }
 
 PROOF_OK = 'ok  \tgithub.com/lestrrat-3d/fusion360-gear-generator/proof/spurgear\t0.4s'
+
+
+def step_call_report(*, missing=None, stubs=None, shared_point=None, parse_error=None,
+                     metadata_error=None):
+    report = {
+        'ok': not any((missing, stubs, shared_point, parse_error, metadata_error)),
+        'named_calls': len(missing or []),
+        'missing': missing or [],
+        'stubs': stubs or [],
+        'shared_point': shared_point or [],
+        'parse_error': parse_error,
+    }
+    if metadata_error is not None:
+        report['metadata_error'] = metadata_error
+    return json.dumps(report, sort_keys=True)
+
+
+MISSING_ADD_WIDGET = {
+    'name': 'addWidget', 'has_receiver': True, 'textual_match': False,
+}
 
 
 def _write_script(path, lines):
@@ -73,7 +94,8 @@ def make_stubs(scripts, overrides=None):
     key -> kwargs for make_stub)."""
     overrides = overrides or {}
     for key, name in RUNNER.STAGE_SCRIPTS.items():
-        kwargs = dict(exit_code=0, stdout=STUB_HEADLINE[key])
+        stdout = step_call_report() if key == 'step_calls' else STUB_HEADLINE[key]
+        kwargs = dict(exit_code=0, stdout=stdout)
         kwargs.update(overrides.get(key, {}))
         make_stub(scripts, name, **kwargs)
     return scripts
@@ -173,7 +195,7 @@ class HappyPathTests(BaseRunnerTest):
             self.assertEqual(stage['status'], 'pass', msg=stage)
         with open(marker) as fh:
             argv = json.load(fh)
-        self.assertEqual(argv, [os.path.join('spec', GEAR, 'steps.md'),
+        self.assertEqual(argv, ['--json', os.path.join('spec', GEAR, 'steps.md'),
                                 os.path.join('lib', 'geargen', '%s.py' % GEAR)])
 
     def test_every_stage_runs_from_the_repo_root(self):
@@ -206,6 +228,153 @@ class HappyPathTests(BaseRunnerTest):
         self.assertEqual(exit_code, 0)
         with open(marker) as fh:
             self.assertEqual(fh.read().strip(), '')
+
+
+class EmissionHandoffTests(BaseRunnerTest):
+    def _run_with_step_calls(self, *, exit_code=0, stdout=None, extra_args=()):
+        root = make_repo(self.tmp, module='x = 1\n')
+        make_stubs(self.scripts, overrides={
+            'step_calls': dict(exit_code=exit_code,
+                               stdout=step_call_report() if stdout is None else stdout),
+        })
+        make_proof_runner(root)
+        return run(root, self.scripts, GEAR, *extra_args)
+
+    def test_ready_full_pass(self):
+        exit_code, text, parsed = self._run_with_step_calls()
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(parsed['handoff'], {
+            'ready_for_emit': True,
+            'implementation_sync_required': False,
+            'missing_call_names': [],
+            'reasons': [],
+        })
+        self.assertIn('emission handoff: READY FOR EMIT', text)
+
+    def test_ready_missing_calls_only(self):
+        missing = [MISSING_ADD_WIDGET,
+                   {'name': 'addAlpha', 'has_receiver': False, 'textual_match': True},
+                   MISSING_ADD_WIDGET]
+        exit_code, text, parsed = self._run_with_step_calls(
+            exit_code=1, stdout=step_call_report(missing=missing))
+        self.assertEqual(exit_code, 1)
+        self.assertTrue(parsed['handoff']['ready_for_emit'])
+        self.assertTrue(parsed['handoff']['implementation_sync_required'])
+        self.assertEqual(parsed['handoff']['missing_call_names'], ['addAlpha', 'addWidget'])
+        self.assertEqual(parsed['handoff']['reasons'], [])
+        self.assertIn('missing required calls: addAlpha, addWidget', text)
+
+    def test_ready_no_module(self):
+        root = make_repo(self.tmp)
+        make_stubs(self.scripts)
+        make_proof_runner(root)
+        exit_code, _text, parsed = run(root, self.scripts, GEAR)
+        self.assertEqual(exit_code, 0)
+        stage = self.by_key(parsed)['step_calls']
+        self.assertEqual(stage['skip_reason_code'], RUNNER.MODULE_ABSENT_CODE)
+        self.assertTrue(parsed['handoff']['ready_for_emit'])
+        self.assertTrue(parsed['handoff']['implementation_sync_required'])
+        self.assertEqual(parsed['handoff']['missing_call_names'], [])
+
+    def test_stub_blocks_readiness(self):
+        stdout = step_call_report(
+            missing=[MISSING_ADD_WIDGET],
+            stubs=[{'line': 8, 'marker': 'TODO', 'text': '# TODO'}])
+        exit_code, _text, parsed = self._run_with_step_calls(exit_code=1, stdout=stdout)
+        self.assertEqual(exit_code, 1)
+        self.assertFalse(parsed['handoff']['ready_for_emit'])
+        self.assertEqual(parsed['handoff']['reasons'], ['step_calls_not_ready'])
+
+    def test_shared_point_blocks_readiness(self):
+        stdout = step_call_report(
+            missing=[MISSING_ADD_WIDGET],
+            shared_point=[{'line': 9, 'argument': 'center.geometry'}])
+        exit_code, _text, parsed = self._run_with_step_calls(exit_code=1, stdout=stdout)
+        self.assertEqual(exit_code, 1)
+        self.assertFalse(parsed['handoff']['ready_for_emit'])
+        self.assertEqual(parsed['handoff']['reasons'], ['step_calls_not_ready'])
+
+    def test_malformed_details_blocks_readiness(self):
+        fixtures = {
+            'invalid JSON': '{bad',
+            'missing field': json.dumps({'ok': False}),
+            'duplicate key': ('{"ok":false,"ok":false,"named_calls":0,"missing":[],'
+                              '"stubs":[],"shared_point":[],"parse_error":"bad"}'),
+            'bad nested field': step_call_report(
+                missing=[{'name': 'addWidget', 'has_receiver': 1, 'textual_match': False}]),
+            'unexpected finding field': step_call_report(missing=[MISSING_ADD_WIDGET]).replace(
+                '"stubs": []', '"new_finding": [{"line": 3}], "stubs": []'),
+            'ok mismatch': step_call_report(missing=[MISSING_ADD_WIDGET]).replace(
+                '"ok": false', '"ok": true'),
+        }
+        for name, stdout in fixtures.items():
+            with self.subTest(name=name):
+                exit_code, _text, parsed = self._run_with_step_calls(
+                    exit_code=1, stdout=stdout)
+                self.assertEqual(exit_code, 2)
+                self.assertEqual(self.by_key(parsed)['step_calls']['status'], 'error')
+                self.assertFalse(parsed['handoff']['ready_for_emit'])
+                self.assertIn('step_calls_report_invalid', parsed['handoff']['reasons'])
+
+    def test_metadata_error_blocks_readiness(self):
+        stdout = step_call_report(metadata_error='bad call metadata')
+        exit_code, _text, parsed = self._run_with_step_calls(exit_code=1, stdout=stdout)
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(parsed['handoff']['reasons'], ['step_calls_not_ready'])
+        self.assertEqual(parsed['handoff']['missing_call_names'], [])
+
+    def test_selected_proof_blocks_readiness(self):
+        exit_code, _text, parsed = self._run_with_step_calls(extra_args=('--only', 'proof'))
+        self.assertEqual(exit_code, 0)
+        self.assertFalse(parsed['handoff']['ready_for_emit'])
+        self.assertIn('non_full_run', parsed['handoff']['reasons'])
+
+    def test_pure_handoff_rejects_bad_metadata_and_duplicate_stages(self):
+        args = SimpleNamespace(gear=GEAR, only=None, fail_fast=False, iteration_base=None,
+                               _only_requested=False)
+        details = json.loads(step_call_report())
+
+        def result(key, *, details_value=None):
+            return RUNNER.StageResult(key, key, 'pass', 0, 0.1, [], '', '', None, None,
+                                      details=details_value)
+
+        results = [result('compile'), result('playbook'), result('step_calls', details_value=details),
+                   result('proof')]
+        malformed_metadata = {
+            'iteration_mode': False,
+            'proof_is_complete': 1,
+            'effective_proof_scope': 'full',
+        }
+        handoff = RUNNER.emission_handoff(args, results, malformed_metadata)
+        self.assertFalse(handoff['ready_for_emit'])
+        self.assertIn('proof_incomplete', handoff['reasons'])
+
+        valid_metadata = dict(malformed_metadata, proof_is_complete=True)
+        duplicate = RUNNER.emission_handoff(args, results + [result('compile')], valid_metadata)
+        self.assertFalse(duplicate['ready_for_emit'])
+        self.assertIn('compile_not_passed', duplicate['reasons'])
+
+        missing_metadata = RUNNER.emission_handoff(args, results, {})
+        self.assertFalse(missing_metadata['ready_for_emit'])
+        self.assertIn('non_full_run', missing_metadata['reasons'])
+        self.assertIn('proof_incomplete', missing_metadata['reasons'])
+
+    def test_pure_handoff_rejects_status_exit_mismatch(self):
+        args = SimpleNamespace(gear=GEAR, only=None, fail_fast=False, iteration_base=None,
+                               _only_requested=False)
+        missing = json.loads(step_call_report(missing=[MISSING_ADD_WIDGET]))
+        results = [
+            RUNNER.StageResult('compile', 'compile', 'pass', 0, 0.1, [], '', '', None, None),
+            RUNNER.StageResult('playbook', 'playbook', 'pass', 0, 0.1, [], '', '', None, None),
+            RUNNER.StageResult('step_calls', 'step_calls', 'fail', None, 0.1, [], '', '', None,
+                               None, details=missing),
+            RUNNER.StageResult('proof', 'proof', 'pass', 0, 0.1, [], '', '', None, None),
+        ]
+        metadata = {'iteration_mode': False, 'proof_is_complete': True,
+                    'effective_proof_scope': 'full'}
+        handoff = RUNNER.emission_handoff(args, results, metadata)
+        self.assertFalse(handoff['ready_for_emit'])
+        self.assertIn('step_calls_report_invalid', handoff['reasons'])
 
 
 class InitialOrderTests(BaseRunnerTest):
@@ -256,7 +425,8 @@ class InitialOrderTests(BaseRunnerTest):
         root = make_repo(self.tmp, module='x = 1\n')
         proof_marker = os.path.join(self.tmp, 'proof-ran.txt')
         make_stubs(self.scripts, overrides={
-            'step_calls': dict(exit_code=1, stdout='step-call check: BLOCKING (1)'),
+            'step_calls': dict(exit_code=1,
+                               stdout=step_call_report(missing=[MISSING_ADD_WIDGET])),
         })
         make_proof_runner(root, marker=proof_marker)
 
@@ -284,7 +454,8 @@ class InitialOrderTests(BaseRunnerTest):
         root = make_repo(self.tmp, module='x = 1\n')
         proof_marker = os.path.join(self.tmp, 'proof-ran.txt')
         make_stubs(self.scripts, overrides={
-            'step_calls': dict(exit_code=1, stdout='step-call check: BLOCKING (1)'),
+            'step_calls': dict(exit_code=1,
+                               stdout=step_call_report(missing=[MISSING_ADD_WIDGET])),
         })
         make_proof_runner(root, marker=proof_marker)
 
@@ -420,8 +591,7 @@ class CompileClassificationTests(BaseRunnerTest):
         root = make_repo(self.tmp, module='x = 1\n')
         make_stubs(self.scripts, overrides={
             'step_calls': dict(exit_code=1,
-                               stdout="step-call check: BLOCKING (1)\n"
-                                      "  never calls 'addByCenterRadius('"),
+                               stdout=step_call_report(missing=[MISSING_ADD_WIDGET])),
         })
         make_proof_runner(root)
         exit_code, text, parsed = run(root, self.scripts, GEAR)
@@ -802,7 +972,8 @@ class IterationTests(BaseRunnerTest):
         marker = os.path.join(self.tmp, 'proof-ran.marker')
         make_proof_runner(self.tmp, marker=marker)
         make_stubs(self.scripts, overrides={
-            'step_calls': dict(exit_code=1, stdout='step-call failed')})
+            'step_calls': dict(exit_code=1,
+                               stdout=step_call_report(missing=[MISSING_ADD_WIDGET]))})
         exit_code, _text, parsed = run(self.tmp, self.scripts, GEAR,
                                        '--iteration-base', self.base, '--fail-fast')
         self.assertEqual(exit_code, 1)
@@ -815,14 +986,15 @@ class IterationTests(BaseRunnerTest):
 
 
 class CompileWorkflowInstructionTests(unittest.TestCase):
-    def test_retry_instructions_require_final_complete_runner(self):
+    def test_retry_instructions_require_readiness_and_final_resync(self):
         root = CHECKER_PATH.parents[3]
         skill = (root / '.claude' / 'skills' / 'compile-gear' / 'SKILL.md').read_text()
         self.assertIn('--iteration-base', skill)
         self.assertIn('> .tmp/<gear>.compile-gates.txt', skill)
         self.assertNotIn('.tmp/<gear>.compile-iteration.txt', skill)
         self.assertIn('ordinary complete', skill)
-        self.assertIn('require a pass from the ordinary complete', skill)
+        self.assertIn('`handoff.ready_for_emit` is true', skill)
+        self.assertIn('ordinary complete compile runner passes', skill)
         self.assertIn('Reuse the latest report', skill)
 
 
