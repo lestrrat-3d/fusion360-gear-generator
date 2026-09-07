@@ -2,6 +2,7 @@
 import contextlib
 import hashlib
 import importlib.util
+import io
 import json
 import os
 import tempfile
@@ -368,6 +369,41 @@ class RegistrationOmissionTest(FixtureCase):
         self.assertFalse(out.exists())
 
 
+class BundleRetryTest(FixtureCase):
+    def test_fresh_retry_delivers_bundled_prompt_once_with_verbatim_feedback(self):
+        self.compile_fixture()
+        out = self.root / 'bundle'
+        PACKER.pack(self.root, self.gear, 'compile', out)
+        report = 'GATE proof FAIL\n```\nUnicode π and {{gear}} stay literal.\n```\n'
+        failure = write(self.root, '.tmp/fixturegear.compile-gates.txt', report)
+
+        prompt_entry = next(
+            entry for entry in manifest(out)['files']
+            if entry['path'] == '@rendered-prompt'
+        )
+        bundled_prompt = reconstruct(out, prompt_entry).decode('utf-8')
+        rendered, errors = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(rendered), contextlib.redirect_stderr(errors):
+            code = PACKER.render_prompt.main(
+                [
+                    'render_prompt.py',
+                    'compile-gear',
+                    self.gear,
+                    '--failure-file',
+                    str(failure),
+                ],
+                skills_root=self.root / '.claude/skills',
+            )
+        retry = rendered.getvalue()
+
+        self.assertEqual(code, 0, errors.getvalue())
+        self.assertEqual(retry[:len(bundled_prompt)], bundled_prompt)
+        self.assertEqual(retry.count(bundled_prompt), 1)
+        feedback = retry.split(PACKER.render_prompt.BEGIN_MARKER + '\n', 1)[1]
+        feedback = feedback.split('\n' + PACKER.render_prompt.END_MARKER, 1)[0]
+        self.assertEqual(feedback + '\n', report)
+
+
 class PromptAgreementTest(unittest.TestCase):
     @staticmethod
     def declared_paths(prompt_path, start, end):
@@ -442,6 +478,10 @@ class PromptAgreementTest(unittest.TestCase):
                 normalized_owner = ' '.join(owner.split())
                 self.assertIn('complete outputs unchanged', normalized_owner)
                 self.assertIn('undocumented dynamic input', normalized_owner)
+                self.assertIn('Compare the first N bytes', normalized_owner)
+                self.assertIn('complete retry rendering once', normalized_owner)
+                self.assertIn('do not also send `@rendered-prompt` separately', normalized_owner)
+                self.assertIn('does not reread packed sources', normalized_owner)
 
 
 if __name__ == '__main__':
