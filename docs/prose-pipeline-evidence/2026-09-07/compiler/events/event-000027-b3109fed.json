@@ -1,0 +1,76 @@
+{
+  "action": "record",
+  "clock": "utc_epoch",
+  "clock_id": null,
+  "duration_s": null,
+  "event": "gate_import",
+  "gear": "spurgear",
+  "input_digests": [
+    {
+      "path": "spec/spurgear/instructions.md",
+      "sha256": "23cd32d32c678ffb43b8d5cc6e984de4befdcb42e41fdbc94f2e6c95dab82959",
+      "size_bytes": 57148
+    },
+    {
+      "path": "spec/spurgear/fusion.md",
+      "sha256": "77e2d9fdadcfec85e7463d50132211f419e761c2dc984b427d705622a44b0100",
+      "size_bytes": 18944
+    },
+    {
+      "path": ".claude/skills/generate-gear/PLAYBOOK.md",
+      "sha256": "aeafe2eb1cd663fd210f717a26a95c887f990ef85a4f0de43e5c144f7b06dc59",
+      "size_bytes": 72144
+    }
+  ],
+  "input_tokens": null,
+  "metadata": {
+    "advisory_findings": 0,
+    "analysis_duration_s": null,
+    "analysis_invocations": null,
+    "analysis_pyright_duration_s": null,
+    "analysis_shared": null,
+    "exit_code": 1,
+    "first_pass_eligible": false,
+    "gate_count": 4,
+    "gate_duration_s": 15.32,
+    "gate_failures": [
+      {
+        "advisory": false,
+        "key": "step_calls",
+        "status": "fail"
+      },
+      {
+        "advisory": false,
+        "key": "proof",
+        "status": "fail"
+      }
+    ],
+    "gate_policy": {
+      "first_pass_eligible": false,
+      "kind": "run_compile_gates",
+      "mode": "selected",
+      "proof_is_complete": false,
+      "proof_scope": "selected"
+    },
+    "proof_is_complete": false,
+    "report_schema": 1,
+    "skipped_gates": [],
+    "source_name": "gates-round-3.json",
+    "source_sha256": "e18fae595392f04bdc391dbda8d00658f3397cb354ca0f4a387c8c0cfafe64d2",
+    "verdict": "fail",
+    "wall_time_s": 15.33032
+  },
+  "model": "gpt-6",
+  "model_role": "design",
+  "monotonic_s": null,
+  "output_tokens": null,
+  "phase": "validation",
+  "round": 3,
+  "run_id": "9ecd7106-8834-49dd-b423-09777ffcea51",
+  "schema": 1,
+  "sequence": 27,
+  "stage": "compile",
+  "starting_git_commit": "f38c26da97f27dd9ec962a65646d19c3cf106cf0",
+  "timestamp_epoch_s": 1788726442.8047678,
+  "timestamp_utc": "2026-09-06T20:27:22.804768+00:00"
+}

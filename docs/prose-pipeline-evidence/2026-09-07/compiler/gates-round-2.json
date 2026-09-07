@@ -1,0 +1,118 @@
+{
+  "schema": 1,
+  "gear": "spurgear",
+  "root": "/home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/chore-prose-compile-study",
+  "verdict": "fail",
+  "exit_code": 1,
+  "counts": {
+    "pass": 1,
+    "fail": 2,
+    "skip": 1,
+    "error": 0
+  },
+  "stages": [
+    {
+      "key": "compile",
+      "title": "Compile check",
+      "status": "fail",
+      "exit_code": 1,
+      "duration_s": 0.36,
+      "command": [
+        "/usr/bin/python3",
+        ".claude/skills/generate-gear/check_compile.py",
+        "spurgear"
+      ],
+      "headline": "compile check: BLOCKING (2)",
+      "stdout": "coverage: .claude/skills/generate-gear/PLAYBOOK.md \u2014 274/767 lines claimed by a step, 493 unclaimed\ncoverage: spec/spurgear/fusion.md \u2014 194/209 lines claimed by a step, 15 unclaimed\ncoverage: spec/spurgear/instructions.md \u2014 482/496 lines claimed by a step, 14 unclaimed\nunverified: 2 call(s) the API database does not back \u2014 reported, not blocking, not waived\n  spec/spurgear/steps.md:551,690: 'project(' on adsk.fusion.Sketch \u2014 adsk.fusion.Sketch does not declare it, and no class in the database declares that name at all (the shipped add-ins call `sketch.project(entity)`, and the spur step list names it). Whether Fusion accepts the call is unsettled; only running the add-in decides, and the fix then goes in the spec.\n  spec/spurgear/steps.md:594: 'createInput2(' on adsk.fusion.SketchTexts \u2014 adsk.fusion.SketchTexts does not declare it, and the database declares that name only on adsk.fusion.ChamferFeatures, adsk.fusion.MoveFeatures (the shipped add-ins call `sketch.sketchTexts.createInput2(text, height)`, and the spur step list names it; `ChamferFeatures.createInput2` and `MoveFeatures.createInput2` are real and not at issue). Whether Fusion accepts the call is unsettled; only running the add-in decides, and the fix then goes in the spec.\ncompile check: BLOCKING (2)\n  13 cites spec/helicalgear/fusion.md L74\u201387, but that file has 80 lines\n  the step list names 'unitless(', which the Fusion API database does not have\n    fault: prose \u2014 named in .claude/skills/generate-gear/PLAYBOOK.md:213, spec/spurgear/instructions.md:43 \u2014 fix the spec, not the draft\n",
+      "stderr": "",
+      "skip_reason": null,
+      "fault": "NEEDS JUDGMENT: a call the spec itself names is a PROSE FAULT; one the drafter invented is a DRAFT FAULT (calls: unitless)",
+      "skip_reason_code": null
+    },
+    {
+      "key": "playbook",
+      "title": "Playbook extract",
+      "status": "pass",
+      "exit_code": 0,
+      "duration_s": 0.03,
+      "command": [
+        "/usr/bin/python3",
+        ".claude/skills/generate-gear/extract_playbook.py",
+        "spurgear",
+        "--min-anchors",
+        "1"
+      ],
+      "headline": "playbook-extract check: spurgear: 48 anchors cited (34 defined in the playbook), 37 blocks written, 42418 bytes vs 72144 playbook bytes (59%) -> /home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/chore-prose-compile-study/.tmp/spurgear.playbook-extract.md",
+      "stdout": "playbook-extract check: spurgear: 48 anchors cited (34 defined in the playbook), 37 blocks written, 42418 bytes vs 72144 playbook bytes (59%) -> /home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/chore-prose-compile-study/.tmp/spurgear.playbook-extract.md\n",
+      "stderr": "",
+      "skip_reason": null,
+      "fault": null,
+      "skip_reason_code": null
+    },
+    {
+      "key": "step_calls",
+      "title": "Step calls",
+      "status": "fail",
+      "exit_code": 1,
+      "duration_s": 0.08,
+      "command": [
+        "/usr/bin/python3",
+        ".claude/skills/generate-gear/check_step_calls.py",
+        "spec/spurgear/steps.md",
+        "lib/geargen/spurgear.py"
+      ],
+      "headline": "step-call check: BLOCKING (4)",
+      "stdout": "step-call check: BLOCKING (4)\n  named-call coverage: 'receiver.createInput3(' is named in spec/spurgear/steps.md but has no reachable executable method call in lib/geargen/spurgear.py\n  named-call coverage: 'receiver.project2(' is named in spec/spurgear/steps.md but has no reachable executable method call in lib/geargen/spurgear.py\n  named-call coverage: 'receiver.project2(' is named in spec/spurgear/steps.md but has no reachable executable method call in lib/geargen/spurgear.py\n  named-call coverage: 'receiver.project2(' is named in spec/spurgear/steps.md but has no reachable executable method call in lib/geargen/spurgear.py\n",
+      "stderr": "",
+      "skip_reason": null,
+      "fault": "NEEDS CLASSIFICATION: read the output as call names and pass only the names back to the drafter (SKILL.md step 5)",
+      "skip_reason_code": null
+    },
+    {
+      "key": "proof",
+      "title": "Proof",
+      "status": "skip",
+      "exit_code": null,
+      "duration_s": null,
+      "command": [
+        "bash",
+        "proof/run.sh",
+        "--package",
+        "./spurgear"
+      ],
+      "headline": "proof omitted: compile_content_failure",
+      "stdout": "",
+      "stderr": "",
+      "skip_reason": "proof omitted: compile_content_failure",
+      "fault": null,
+      "skip_reason_code": "proof_omitted_after_compile_content_failure"
+    }
+  ],
+  "iteration_mode": true,
+  "iteration_base": "f38c26da97f27dd9ec962a65646d19c3cf106cf0",
+  "effective_proof_scope": "omitted",
+  "planned_proof_scope": "selected",
+  "selected_packages": [
+    "./spurgear"
+  ],
+  "full_suite_reason": null,
+  "full_suite_detail": null,
+  "proof_omission_reason": "proof_omitted_after_compile_content_failure",
+  "proof_omission_reasons": [
+    "compile_content_failure"
+  ],
+  "proof_is_complete": false,
+  "timing": {
+    "schema": 1,
+    "wall_time_s": 0.491795,
+    "stage_duration_s": 0.47,
+    "gate_policy": {
+      "kind": "run_compile_gates",
+      "mode": "selected",
+      "proof_scope": "omitted",
+      "proof_is_complete": false,
+      "first_pass_eligible": false
+    },
+    "first_pass_eligible": false
+  }
+}

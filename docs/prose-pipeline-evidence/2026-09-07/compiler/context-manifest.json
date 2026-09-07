@@ -1,0 +1,62 @@
+[
+  {
+    "path": ".claude/skills/compile-gear/prompt.md",
+    "bytes": 15383,
+    "sha256": "f4038fcd6f3393f473d61b583cdecf58f6fcd82bf7e012ecab58054b1e9136f0"
+  },
+  {
+    "path": ".claude/skills/generate-gear/PLAYBOOK.md",
+    "bytes": 72144,
+    "sha256": "aeafe2eb1cd663fd210f717a26a95c887f990ef85a4f0de43e5c144f7b06dc59"
+  },
+  {
+    "path": "proof/involute/involute.go",
+    "bytes": 4365,
+    "sha256": "b59196abb566d08ddd9713e16857d581781062f4c20fb5bed10383cb4d792d3a"
+  },
+  {
+    "path": "proof/proofkit/proofkit.go",
+    "bytes": 9570,
+    "sha256": "42dc75d11e5d63fcc840c5b8f51e37b1d965d3bbbf60ff16fab6ba393406856d"
+  },
+  {
+    "path": "proof/proofkit/proofkit_parallel_test.go",
+    "bytes": 9283,
+    "sha256": "2352f8bf6472c6303ce435144141b668e5ab72bebe89b1ca4082e1165e7dc051"
+  },
+  {
+    "path": "proof/proofkit/proofkit_test.go",
+    "bytes": 2408,
+    "sha256": "d5316112f71ce71edc9f4471c28a1fdf3c037e03843f75294126a1483425a7d8"
+  },
+  {
+    "path": "proof/proofkit3d/proofkit3d.go",
+    "bytes": 8747,
+    "sha256": "2969d54dab9b64975d6cf129ea0659fea2a903eb45a8ff1b349105ed957aea0b"
+  },
+  {
+    "path": "proof/proofkit3d/proofkit3d_parallel_test.go",
+    "bytes": 11428,
+    "sha256": "0f6bfd7eead1d2fa7840c7b9c8523abcb575073a319ee29fe80613b2aeba8e17"
+  },
+  {
+    "path": "proof/proofkit3d/proofkit3d_test.go",
+    "bytes": 7052,
+    "sha256": "6344b89c023ad0dc0650ff458a6cb9ccc11d86fb012090206a4ea0ede425b518"
+  },
+  {
+    "path": "spec/helicalgear/fusion.md",
+    "bytes": 5208,
+    "sha256": "3c7ebd3ba3ae46a7bc9ab19e9293a537bcac82dc759e53aa9fcd5c4bafb9fbba"
+  },
+  {
+    "path": "spec/spurgear/fusion.md",
+    "bytes": 18944,
+    "sha256": "77e2d9fdadcfec85e7463d50132211f419e761c2dc984b427d705622a44b0100"
+  },
+  {
+    "path": "spec/spurgear/instructions.md",
+    "bytes": 57148,
+    "sha256": "23cd32d32c678ffb43b8d5cc6e984de4befdcb42e41fdbc94f2e6c95dab82959"
+  }
+]

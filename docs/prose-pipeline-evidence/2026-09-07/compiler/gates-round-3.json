@@ -1,0 +1,116 @@
+{
+  "schema": 1,
+  "gear": "spurgear",
+  "root": "/home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/chore-prose-compile-study",
+  "verdict": "fail",
+  "exit_code": 1,
+  "counts": {
+    "pass": 2,
+    "fail": 2,
+    "skip": 0,
+    "error": 0
+  },
+  "stages": [
+    {
+      "key": "compile",
+      "title": "Compile check",
+      "status": "pass",
+      "exit_code": 0,
+      "duration_s": 0.32,
+      "command": [
+        "/usr/bin/python3",
+        ".claude/skills/generate-gear/check_compile.py",
+        "spurgear"
+      ],
+      "headline": "compile check: OK (13 steps, 10 proof functions, 4 spec files stamped)",
+      "stdout": "coverage: .claude/skills/generate-gear/PLAYBOOK.md \u2014 274/767 lines claimed by a step, 493 unclaimed\ncoverage: spec/helicalgear/fusion.md \u2014 12/71 lines claimed by a step, 59 unclaimed\ncoverage: spec/spurgear/fusion.md \u2014 194/209 lines claimed by a step, 15 unclaimed\ncoverage: spec/spurgear/instructions.md \u2014 482/496 lines claimed by a step, 14 unclaimed\nunverified: 2 call(s) the API database does not back \u2014 reported, not blocking, not waived\n  spec/spurgear/steps.md:552,691: 'project(' on adsk.fusion.Sketch \u2014 adsk.fusion.Sketch does not declare it, and no class in the database declares that name at all (the shipped add-ins call `sketch.project(entity)`, and the spur step list names it). Whether Fusion accepts the call is unsettled; only running the add-in decides, and the fix then goes in the spec.\n  spec/spurgear/steps.md:595: 'createInput2(' on adsk.fusion.SketchTexts \u2014 adsk.fusion.SketchTexts does not declare it, and the database declares that name only on adsk.fusion.ChamferFeatures, adsk.fusion.MoveFeatures (the shipped add-ins call `sketch.sketchTexts.createInput2(text, height)`, and the spur step list names it; `ChamferFeatures.createInput2` and `MoveFeatures.createInput2` are real and not at issue). Whether Fusion accepts the call is unsettled; only running the add-in decides, and the fix then goes in the spec.\ncompile check: OK (13 steps, 10 proof functions, 4 spec files stamped)\n",
+      "stderr": "",
+      "skip_reason": null,
+      "fault": null,
+      "skip_reason_code": null
+    },
+    {
+      "key": "playbook",
+      "title": "Playbook extract",
+      "status": "pass",
+      "exit_code": 0,
+      "duration_s": 0.03,
+      "command": [
+        "/usr/bin/python3",
+        ".claude/skills/generate-gear/extract_playbook.py",
+        "spurgear",
+        "--min-anchors",
+        "1"
+      ],
+      "headline": "playbook-extract check: spurgear: 48 anchors cited (34 defined in the playbook), 37 blocks written, 42418 bytes vs 72144 playbook bytes (59%) -> /home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/chore-prose-compile-study/.tmp/spurgear.playbook-extract.md",
+      "stdout": "playbook-extract check: spurgear: 48 anchors cited (34 defined in the playbook), 37 blocks written, 42418 bytes vs 72144 playbook bytes (59%) -> /home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/chore-prose-compile-study/.tmp/spurgear.playbook-extract.md\n",
+      "stderr": "",
+      "skip_reason": null,
+      "fault": null,
+      "skip_reason_code": null
+    },
+    {
+      "key": "step_calls",
+      "title": "Step calls",
+      "status": "fail",
+      "exit_code": 1,
+      "duration_s": 0.08,
+      "command": [
+        "/usr/bin/python3",
+        ".claude/skills/generate-gear/check_step_calls.py",
+        "spec/spurgear/steps.md",
+        "lib/geargen/spurgear.py"
+      ],
+      "headline": "step-call check: BLOCKING (4)",
+      "stdout": "step-call check: BLOCKING (4)\n  named-call coverage: 'receiver.createInput3(' is named in spec/spurgear/steps.md but has no reachable executable method call in lib/geargen/spurgear.py\n  named-call coverage: 'receiver.project2(' is named in spec/spurgear/steps.md but has no reachable executable method call in lib/geargen/spurgear.py\n  named-call coverage: 'receiver.project2(' is named in spec/spurgear/steps.md but has no reachable executable method call in lib/geargen/spurgear.py\n  named-call coverage: 'receiver.project2(' is named in spec/spurgear/steps.md but has no reachable executable method call in lib/geargen/spurgear.py\n",
+      "stderr": "",
+      "skip_reason": null,
+      "fault": "NEEDS CLASSIFICATION: read the output as call names and pass only the names back to the drafter (SKILL.md step 5)",
+      "skip_reason_code": null
+    },
+    {
+      "key": "proof",
+      "title": "Proof",
+      "status": "fail",
+      "exit_code": 1,
+      "duration_s": 14.89,
+      "command": [
+        "bash",
+        "proof/run.sh",
+        "--package",
+        "./spurgear"
+      ],
+      "headline": "verified sketch revision: 34765bc10360",
+      "stdout": "verified sketch revision: 34765bc10360\nverified decad revision: f200324e2a14\nusing sketch engine at: /home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/../sketch\nusing decad engine at: /home/lestrrat/dev/src/github.com/lestrrat-3d/decad/.worktrees/chore-gear-pipeline-pin\nrunning: go test ./spurgear\n--- FAIL: TestBoreCut (0.97s)\n    --- FAIL: TestBoreCut/enabled (0.26s)\n        sketches_test.go:234: step: project Tools anchor and constrain the constructor's unused local origin\n        solids_test.go:323: \n            \tError Trace:\t/home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/chore-prose-compile-study/proof/spurgear/solids_test.go:335\n            \t            \t\t\t\t/home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/chore-prose-compile-study/proof/spurgear/solids_test.go:323\n            \t            \t\t\t\t/home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/chore-prose-compile-study/proof/proofkit3d/proofkit3d.go:113\n            \t            \t\t\t\t/home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/chore-prose-compile-study/proof/proofkit3d/proofkit3d.go:121\n            \tError:      \tReceived unexpected error:\n            \t            \tdecad: cut boolean: not supported by the current evaluator: the analytic cut scene charges at least 4322 arranger segments against this evaluator's cap of 4096 (each circle or arc costs 256, each line 1); combine the sections into one profile instead of applying this op once per feature, or accept the mesh path by making the pair non-coplanar\n            \tTest:       \tTestBoreCut/enabled\n--- FAIL: TestChamferGear (0.69s)\n    --- FAIL: TestChamferGear/enabled (0.12s)\n        sketches_test.go:234: step: project Tools anchor and constrain the constructor's unused local origin\n        solids_test.go:356: \n            \tError Trace:\t/home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/chore-prose-compile-study/proof/spurgear/solids_test.go:335\n            \t            \t\t\t\t/home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/chore-prose-compile-study/proof/spurgear/solids_test.go:366\n            \t            \t\t\t\t/home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/chore-prose-compile-study/proof/spurgear/solids_test.go:356\n            \t            \t\t\t\t/home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/chore-prose-compile-study/proof/proofkit3d/proofkit3d.go:113\n            \t            \t\t\t\t/home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/chore-prose-compile-study/proof/proofkit3d/proofkit3d.go:121\n            \t            \t\t\t\t/home/lestrrat/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.8.linux-amd64/src/runtime/asm_amd64.s:1771\n            \tError:      \tReceived unexpected error:\n            \t            \tdecad: cut boolean: not supported by the current evaluator: the analytic cut scene charges at least 4111 arranger segments against this evaluator's cap of 4096 (each circle or arc costs 256, each line 1); combine the sections into one profile instead of applying this op once per feature, or accept the mesh path by making the pair non-coplanar\n            \tTest:       \tTestChamferGear/enabled\n    --- FAIL: TestChamferGear/negative (0.49s)\n        proofkit3d.go:114: unexpected verification diagnostic: {Code:measurement_beyond_tolerance Status:Suspect Body:0xa91288861c0 Pair:<nil> Reading:volume Observed:0xa912873c420 ObservedVec:<nil> ObservedBox:<nil> Required:2.161970815568596 mm^3 Message:the volume reading's bound 26.681246800847408 mm^3 is beyond the relative tolerance}\nFAIL\nFAIL\tgithub.com/lestrrat-3d/fusion360-gear-generator/proof/spurgear\t13.813s\nFAIL\n",
+      "stderr": "",
+      "skip_reason": null,
+      "fault": "DRAFT FAULT by default (\"The proof fails to build\")",
+      "skip_reason_code": null
+    }
+  ],
+  "iteration_mode": true,
+  "iteration_base": "f38c26da97f27dd9ec962a65646d19c3cf106cf0",
+  "effective_proof_scope": "selected",
+  "planned_proof_scope": "selected",
+  "selected_packages": [
+    "./spurgear"
+  ],
+  "full_suite_reason": null,
+  "full_suite_detail": null,
+  "proof_omission_reason": null,
+  "proof_omission_reasons": [],
+  "proof_is_complete": false,
+  "timing": {
+    "schema": 1,
+    "wall_time_s": 15.33032,
+    "stage_duration_s": 15.32,
+    "gate_policy": {
+      "kind": "run_compile_gates",
+      "mode": "selected",
+      "proof_scope": "selected",
+      "proof_is_complete": false,
+      "first_pass_eligible": false
+    },
+    "first_pass_eligible": false
+  }
+}

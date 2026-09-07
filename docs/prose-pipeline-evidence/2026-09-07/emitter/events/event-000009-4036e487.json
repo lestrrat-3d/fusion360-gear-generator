@@ -1,0 +1,98 @@
+{
+  "action": "record",
+  "clock": "utc_epoch",
+  "clock_id": null,
+  "duration_s": null,
+  "event": "gate_import",
+  "gear": "spurgear",
+  "input_digests": [
+    {
+      "path": "spec/spurgear/steps.md",
+      "sha256": "020bef53d315a741e300e06a23d3a22de0cdcb110a91500b8521ca8ad11f3e38",
+      "size_bytes": 70967
+    },
+    {
+      "path": "proof/spurgear/sketches_test.go",
+      "sha256": "da7c7e6347457f54bb15568858d621add08fac5ba6832c9e8249543e203ef2d6",
+      "size_bytes": 20615
+    },
+    {
+      "path": "proof/spurgear/solids_test.go",
+      "sha256": "5e03c453e4c7c7bcf00d33063f39e2d225b132e2a8caf78243836e3876e455bb",
+      "size_bytes": 29909
+    },
+    {
+      "path": "proof/spurgear/zz_registrations_test.go",
+      "sha256": "6ab1c93e635b07df71e88aa5d719c62a034e6e3bad6729d8e7d82994b84f8bea",
+      "size_bytes": 1365
+    },
+    {
+      "path": ".claude/skills/generate-gear/PLAYBOOK.md",
+      "sha256": "aeafe2eb1cd663fd210f717a26a95c887f990ef85a4f0de43e5c144f7b06dc59",
+      "size_bytes": 72144
+    }
+  ],
+  "input_tokens": null,
+  "metadata": {
+    "advisory_findings": 1,
+    "analysis_duration_s": 1.67,
+    "analysis_invocations": 1,
+    "analysis_pyright_duration_s": 1.67,
+    "analysis_shared": true,
+    "exit_code": 1,
+    "first_pass_eligible": false,
+    "gate_count": 8,
+    "gate_duration_s": 2.25,
+    "gate_failures": [
+      {
+        "advisory": false,
+        "key": "contract",
+        "status": "fail"
+      },
+      {
+        "advisory": false,
+        "key": "api_calls",
+        "status": "fail"
+      }
+    ],
+    "gate_policy": {
+      "advisory_enabled": true,
+      "allowed_skips": [],
+      "fail_fast": false,
+      "first_pass_eligible": false,
+      "kind": "run_gates",
+      "mode": "full",
+      "novel_types_blocking": false,
+      "required_gates": [
+        "parse",
+        "input_read",
+        "contract",
+        "step_calls",
+        "anchors",
+        "api_calls",
+        "pyright"
+      ],
+      "skipped_gates": []
+    },
+    "proof_is_complete": null,
+    "report_schema": 1,
+    "skipped_gates": [],
+    "source_name": "gates-round-1.json",
+    "source_sha256": "4bb676050f058559e6789601050fa30fecfd68cc88617e83dfa39c91cc0a08b1",
+    "verdict": "fail",
+    "wall_time_s": 2.33242
+  },
+  "model": "gpt-6",
+  "model_role": "mechanical",
+  "monotonic_s": null,
+  "output_tokens": null,
+  "phase": "validation",
+  "round": 1,
+  "run_id": "69d022b1-74fe-4d31-ae8b-dfacdefbe2f2",
+  "schema": 1,
+  "sequence": 9,
+  "stage": "emit",
+  "starting_git_commit": "f38c26da97f27dd9ec962a65646d19c3cf106cf0",
+  "timestamp_epoch_s": 1788724863.6297746,
+  "timestamp_utc": "2026-09-06T20:01:03.629775+00:00"
+}

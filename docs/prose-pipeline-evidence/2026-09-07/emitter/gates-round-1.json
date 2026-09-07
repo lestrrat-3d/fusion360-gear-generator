@@ -1,0 +1,227 @@
+{
+  "schema": 1,
+  "gear": "spurgear",
+  "candidate": ".tmp/spurgear.generated.py",
+  "root": "/home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/chore-prose-emit-study",
+  "verdict": "fail",
+  "exit_code": 1,
+  "counts": {
+    "pass": 5,
+    "fail": 2,
+    "skip": 0,
+    "error": 0,
+    "advisory_findings": 1
+  },
+  "gates": [
+    {
+      "key": "parse",
+      "title": "Parse",
+      "status": "pass",
+      "advisory": false,
+      "exit_code": 0,
+      "duration_s": 0.01,
+      "command": [
+        "/usr/bin/python3",
+        "-c",
+        "import ast; ast.parse(open('.tmp/spurgear.generated.py').read())"
+      ],
+      "headline": "parse: OK",
+      "stdout": "parse: OK",
+      "stderr": "",
+      "skip_reason": null,
+      "fault": null,
+      "timing_note": null
+    },
+    {
+      "key": "input_read",
+      "title": "Input reads",
+      "status": "pass",
+      "advisory": false,
+      "exit_code": 0,
+      "duration_s": 0.03,
+      "command": [
+        "/usr/bin/python3",
+        ".claude/skills/generate-gear/check_input_read.py",
+        ".tmp/spurgear.generated.py"
+      ],
+      "headline": "input-read check: OK (10 inputs declared, 10 read; all helpers match)",
+      "stdout": "input-read check: OK (10 inputs declared, 10 read; all helpers match)\n",
+      "stderr": "",
+      "skip_reason": null,
+      "fault": null,
+      "timing_note": null
+    },
+    {
+      "key": "contract",
+      "title": "Contract",
+      "status": "fail",
+      "advisory": false,
+      "exit_code": 1,
+      "duration_s": 0.04,
+      "command": [
+        "/usr/bin/python3",
+        ".claude/skills/generate-gear/check_contract.py",
+        "spec/spurgear/contract.json",
+        ".tmp/spurgear.generated.py"
+      ],
+      "headline": "contract check: 3 BLOCKING violation(s) vs spec/spurgear/contract.json:",
+      "stdout": "contract check: 3 BLOCKING violation(s) vs spec/spurgear/contract.json:\n  class SpurGearGenerator: method registerDerivedParameters missing\n  guard lib/geargen/spurgear.py (candidate spurgear.generated.py): no definition of _drawFlankToRoot\n  guard lib/geargen/spurgear.py (candidate spurgear.generated.py) in buildBore: required pattern 'addCoincident\\\\(' no longer matches \u2014 [SPUR-F-LOCAL-ORIGIN] and [PB-CIRCLE-CENTER]: the Bore Profile sketch's stray local origin is grounded on the anchor projected into that sketch, never on the sketch's own originPoint, which pins it to the plane instead of to the gear.\n",
+      "stderr": "",
+      "skip_reason": null,
+      "fault": "judgment",
+      "timing_note": null
+    },
+    {
+      "key": "step_calls",
+      "title": "Step calls",
+      "status": "pass",
+      "advisory": false,
+      "exit_code": 0,
+      "duration_s": 0.08,
+      "command": [
+        "/usr/bin/python3",
+        ".claude/skills/generate-gear/check_step_calls.py",
+        "spec/spurgear/steps.md",
+        ".tmp/spurgear.generated.py"
+      ],
+      "headline": "step-call check: OK (100 named calls present, no stubs, no shared-point misuse)",
+      "stdout": "step-call check: OK (100 named calls present, no stubs, no shared-point misuse)\n",
+      "stderr": "",
+      "skip_reason": null,
+      "fault": null,
+      "timing_note": null
+    },
+    {
+      "key": "anchors",
+      "title": "Anchors",
+      "status": "pass",
+      "advisory": false,
+      "exit_code": 0,
+      "duration_s": 0.03,
+      "command": [
+        "/usr/bin/python3",
+        ".claude/skills/generate-gear/check_anchors.py"
+      ],
+      "headline": "anchor check: OK (99 anchors defined, 99 cited, 24 files)",
+      "stdout": "anchor check: OK (99 anchors defined, 99 cited, 24 files)\ncross-directory citations (informational \u2014 fine for declared dependencies):\n  [HELI-F-CHAMFER-COUNT] cited from spec/spurgear/instructions.md:619, defined in spec/helicalgear\n  [HELI-F-CHAMFER-COUNT] cited from spec/spurgear/steps.md:1102, defined in spec/helicalgear\n  [HELI-F-LOFT] cited from spec/herringbonegear/steps.md:236, defined in spec/helicalgear\n  [HELI-F-TWIST-PLANE] cited from spec/herringbonegear/fusion.md:36, defined in spec/helicalgear\n  [HELI-F-TWIST-PLANE] cited from spec/herringbonegear/steps.md:201, defined in spec/helicalgear\n  [SPUR-EXPORTED-CONSTANTS] cited from spec/helicalgear/steps.md:57, defined in spec/spurgear\n  [SPUR-EXTRA-PARAMS] cited from spec/helicalgear/instructions.md:66, defined in spec/spurgear\n  [SPUR-EXTRA-PARAMS] cited from spec/helicalgear/instructions.md:116, defined in spec/spurgear\n  [SPUR-EXTRA-PARAMS] cited from spec/helicalgear/instructions.md:201, defined in spec/spurgear\n  [SPUR-EXTRA-PARAMS] cited from spec/helicalgear/steps.md:178, defined in spec/spurgear\n  [SPUR-F-ANCHOR-CHAIN] cited from spec/helicalgear/steps.md:340, defined in spec/spurgear\n  [SPUR-F-FLANK-ROOT] cited from spec/helicalgear/steps.md:342, defined in spec/spurgear\n  [SPUR-F-FLANK-ROOT] cited from spec/herringbonegear/steps.md:201, defined in spec/spurgear\n  [SPUR-F-FLANK-ROOT] cited from spec/spurgear/sketch/README.md:61, defined in spec/spurgear\n  [SPUR-F-LOCAL-ORIGIN] cited from spec/helicalgear/steps.md:340, defined in spec/spurgear\n  [SPUR-F-RIBS] cited from spec/helicalgear/steps.md:341, defined in spec/spurgear\n  [SPUR-F-RIBS] cited from spec/herringbonegear/steps.md:200, defined in spec/spurgear\n  [SPUR-F-RIBS] cited from spec/spurgear/sketch/README.md:60, defined in spec/spurgear\n  [SPUR-F-ROTATE-CONFIRM] cited from spec/helicalgear/fusion.md:24, defined in spec/spurgear\n  [SPUR-F-ROTATE-CONFIRM] cited from spec/helicalgear/instructions.md:38, defined in spec/spurgear\n  [SPUR-F-ROTATE-CONFIRM] cited from spec/helicalgear/instructions.md:172, defined in spec/spurgear\n  [SPUR-F-ROTATE-CONFIRM] cited from spec/helicalgear/instructions.md:184, defined in spec/spurgear\n  [SPUR-F-ROTATE-CONFIRM] cited from spec/helicalgear/instructions.md:204, defined in spec/spurgear\n  [SPUR-F-ROTATE-CONFIRM] cited from spec/helicalgear/steps.md:334, defined in spec/spurgear\n  [SPUR-F-ROTATE-CONFIRM] cited from spec/herringbonegear/steps.md:201, defined in spec/spurgear\n  [SPUR-F-SHARED-ADJACENCY] cited from spec/helicalgear/steps.md:341, defined in spec/spurgear\n  [SPUR-F-SNAPSHOT] cited from spec/helicalgear/steps.md:236, defined in spec/spurgear\n  [SPUR-F-SPINE] cited from spec/helicalgear/fusion.md:24, defined in spec/spurgear\n  [SPUR-F-SPINE] cited from spec/helicalgear/instructions.md:14, defined in spec/spurgear\n  [SPUR-F-SPINE] cited from spec/helicalgear/instructions.md:184, defined in spec/spurgear\n  [SPUR-F-SPINE] cited from spec/helicalgear/sketch/README.md:33, defined in spec/spurgear\n  [SPUR-F-SPINE] cited from spec/helicalgear/steps.md:334, defined in spec/spurgear\n  [SPUR-F-SPINE] cited from spec/helicalgear/steps.md:341, defined in spec/spurgear\n  [SPUR-F-SPINE] cited from spec/herringbonegear/steps.md:200, defined in spec/spurgear\n  [SPUR-F-SPINE] cited from spec/spurgear/sketch/README.md:59, defined in spec/spurgear\n  [SPUR-F-TOOTHTOP-ARC] cited from spec/helicalgear/steps.md:341, defined in spec/spurgear\n  [SPUR-F-TOOTHTOP-ARC] cited from spec/herringbonegear/steps.md:201, defined in spec/spurgear\n  [SPUR-F-TOOTHTOP-ARC] cited from spec/spurgear/sketch/README.md:57, defined in spec/spurgear\n  [SPUR-F-TOOTHTOP-ARC] cited from spec/spurgear/sketch/README.md:100, defined in spec/spurgear\n  [SPUR-SUBCLASS-INPUT] cited from spec/helicalgear/instructions.md:61, defined in spec/spurgear\n  [SPUR-SUBCLASS-INPUT] cited from spec/helicalgear/instructions.md:202, defined in spec/spurgear\n  [SPUR-SUBCLASS-INPUT] cited from spec/helicalgear/instructions.md:215, defined in spec/spurgear\n  [SPUR-SUBCLASS-INPUT] cited from spec/helicalgear/steps.md:67, defined in spec/spurgear\n",
+      "stderr": "",
+      "skip_reason": null,
+      "fault": null,
+      "timing_note": null
+    },
+    {
+      "key": "api_calls",
+      "title": "API calls",
+      "status": "fail",
+      "advisory": false,
+      "exit_code": 1,
+      "duration_s": 0.39,
+      "command": [
+        "/usr/bin/python3",
+        ".claude/skills/generate-gear/check_api_calls.py",
+        ".tmp/spurgear.generated.py"
+      ],
+      "headline": "api-call check: BLOCKING (28)",
+      "stdout": "api-call check: BLOCKING (28)\n  .tmp/spurgear.generated.py:50 calls 'addSelectionInput(' \u2014 the receiver type is not known; receiver ownership is required; the nearest names the database has are adsk.core.CommandInputs.addSelectionInput\n  .tmp/spurgear.generated.py:52 calls 'addSelectionFilter(' \u2014 the receiver type is not known; receiver ownership is required; the nearest names the database has are adsk.core.SelectionCommandInput.addSelectionFilter\n  .tmp/spurgear.generated.py:53 calls 'addSelectionFilter(' \u2014 the receiver type is not known; receiver ownership is required; the nearest names the database has are adsk.core.SelectionCommandInput.addSelectionFilter\n  .tmp/spurgear.generated.py:54 calls 'setSelectionLimits(' \u2014 the receiver type is not known; receiver ownership is required; the nearest names the database has are adsk.core.SelectionCommandInput.setSelectionLimits\n  .tmp/spurgear.generated.py:55 calls 'addSelectionInput(' \u2014 the receiver type is not known; receiver ownership is required; the nearest names the database has are adsk.core.CommandInputs.addSelectionInput\n  .tmp/spurgear.generated.py:57 calls 'addSelectionFilter(' \u2014 the receiver type is not known; receiver ownership is required; the nearest names the database has are adsk.core.SelectionCommandInput.addSelectionFilter\n  .tmp/spurgear.generated.py:58 calls 'addSelectionFilter(' \u2014 the receiver type is not known; receiver ownership is required; the nearest names the database has are adsk.core.SelectionCommandInput.addSelectionFilter\n  .tmp/spurgear.generated.py:59 calls 'setSelectionLimits(' \u2014 the receiver type is not known; receiver ownership is required; the nearest names the database has are adsk.core.SelectionCommandInput.setSelectionLimits\n  .tmp/spurgear.generated.py:60 calls 'addValueInput(' \u2014 the receiver type is not known; receiver ownership is required; the nearest names the database has are adsk.core.CommandInputs.addValueInput\n  .tmp/spurgear.generated.py:62 calls 'addValueInput(' \u2014 the receiver type is not known; receiver ownership is required; the nearest names the database has are adsk.core.CommandInputs.addValueInput\n  .tmp/spurgear.generated.py:64 calls 'addValueInput(' \u2014 the receiver type is not known; receiver ownership is required; the nearest names the database has are adsk.core.CommandInputs.addValueInput\n  .tmp/spurgear.generated.py:67 calls 'addStringValueInput(' \u2014 the receiver type is not known; receiver ownership is required; the nearest names the database has are adsk.core.CommandInputs.addStringValueInput\n  .tmp/spurgear.generated.py:68 calls 'addValueInput(' \u2014 the receiver type is not known; receiver ownership is required; the nearest names the database has are adsk.core.CommandInputs.addValueInput\n  .tmp/spurgear.generated.py:70 calls 'addValueInput(' \u2014 the receiver type is not known; receiver ownership is required; the nearest names the database has are adsk.core.CommandInputs.addValueInput\n  .tmp/spurgear.generated.py:72 calls 'addBoolValueInput(' \u2014 the receiver type is not known; receiver ownership is required; the nearest names the database has are adsk.core.CommandInputs.addBoolValueInput\n  .tmp/spurgear.generated.py:74 calls 'addSelectionInput(' \u2014 the receiver type is not known; receiver ownership is required; the nearest names the database has are adsk.core.CommandInputs.addSelectionInput\n  .tmp/spurgear.generated.py:76 calls 'addSelectionFilter(' \u2014 the receiver type is not known; receiver ownership is required; the nearest names the database has are adsk.core.SelectionCommandInput.addSelectionFilter\n  .tmp/spurgear.generated.py:77 calls 'addSelectionFilter(' \u2014 the receiver type is not known; receiver ownership is required; the nearest names the database has are adsk.core.SelectionCommandInput.addSelectionFilter\n  .tmp/spurgear.generated.py:78 calls 'setSelectionLimits(' \u2014 the receiver type is not known; receiver ownership is required; the nearest names the database has are adsk.core.SelectionCommandInput.setSelectionLimits\n  .tmp/spurgear.generated.py:79 calls 'addSelection(' \u2014 the receiver type is not known; receiver ownership is required; the nearest names the database has are adsk.core.CommandInputs.addSelectionInput, adsk.core.SelectionCommandInput.addSelection, adsk.core.SelectionCommandInput.addSelectionFilter\n  .tmp/spurgear.generated.py:238 calls 'item(' \u2014 the receiver type is not known; receiver ownership is required; the nearest names the database has are adsk.cam.MachineItem, adsk.cam.MachineItemType, adsk.cam.PrintSettingItem, adsk.cam.PrintSettingItemTypes, adsk.core.FavoriteMaterials\n  .tmp/spurgear.generated.py:469 calls 'isParallelToPlane(' \u2014 the receiver type is not known; receiver ownership is required; the nearest names the database has are adsk.core.Plane.isParallelToPlane\n  .tmp/spurgear.generated.py:469 calls 'isCoPlanarTo(' \u2014 the receiver type is not known; receiver ownership is required; the nearest names the database has are adsk.core.Plane.isCoPlanarTo\n  .tmp/spurgear.generated.py:516 calls 'vectorTo(' \u2014 the receiver type is not known; receiver ownership is required; the nearest names the database has are adsk.core.Point2D.vectorTo, adsk.core.Point3D.vectorTo\n  .tmp/spurgear.generated.py:517 calls 'normalize(' \u2014 the receiver type is not known; receiver ownership is required; the nearest names the database has are adsk.core.Vector2D.normalize, adsk.core.Vector3D.normalize\n  .tmp/spurgear.generated.py:518 calls 'dotProduct(' \u2014 the receiver type is not known; receiver ownership is required; the nearest names the database has are adsk.core.Vector2D.dotProduct, adsk.core.Vector3D.dotProduct\n  .tmp/spurgear.generated.py:563 calls 'isParallelToPlane(' \u2014 the receiver type is not known; receiver ownership is required; the nearest names the database has are adsk.core.Plane.isParallelToPlane\n  .tmp/spurgear.generated.py:569 calls 'add(' \u2014 the receiver type is not known; receiver ownership is required; the nearest names the database has are adsk.cam.AdditiveFEAAnalysisType, adsk.cam.AdditiveFEACard, adsk.cam.AdditiveFEAConvection, adsk.cam.AdditiveFEADeckBuilder, adsk.cam.AdditiveFEADeckBuilderCard\n  Ask the database what a class offers: python3 /home/lestrrat/.claude/plugins/cache/lestrrat-ai/fusion/0.1.0/skills/query-api/scripts/query_fusion_api.py members <Class>\n",
+      "stderr": "",
+      "skip_reason": null,
+      "fault": "judgment",
+      "timing_note": null
+    },
+    {
+      "key": "pyright",
+      "title": "Types",
+      "status": "pass",
+      "advisory": false,
+      "exit_code": 0,
+      "duration_s": 1.67,
+      "command": [
+        "/usr/bin/python3",
+        ".claude/skills/generate-gear/pyright_check.py",
+        ".tmp/spurgear.generated.py"
+      ],
+      "headline": "pyright_check spurgear.generated.py: 0 blocking, 6 review, 6 ignored (stub false positives)",
+      "stdout": "REVIEW (6) advisory (stub pessimism dominates; not a gate \u2014 re-run with --review to list): reportArgumentType\u00d72, reportAttributeAccessIssue\u00d74\npyright_check spurgear.generated.py: 0 blocking, 6 review, 6 ignored (stub false positives)",
+      "stderr": "",
+      "skip_reason": null,
+      "fault": null,
+      "timing_note": "shared analysis duration"
+    },
+    {
+      "key": "novel_types",
+      "title": "Novel types",
+      "status": "note",
+      "advisory": true,
+      "exit_code": 0,
+      "duration_s": 0.0,
+      "command": [
+        "/usr/bin/python3",
+        ".claude/skills/generate-gear/check_novel_types.py",
+        ".tmp/spurgear.generated.py"
+      ],
+      "headline": "novel-type check: 1 complaint(s) matched accepted_type_noise.json (triaged stub noise; see its \"why\" entries)",
+      "stdout": "novel-type check: 1 complaint(s) matched accepted_type_noise.json (triaged stub noise; see its \"why\" entries)\nnovel-type check: 2 complaint(s) no shipped gear produces \u2014 triage each\n  [1] /home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/chore-prose-emit-study/.tmp/spurgear.generated.py:388 [reportArgumentType] Argument of type \"Unknown | None\" cannot be assigned to parameter \"planarEntity\" of type \"Base\" in function \"setByOffset\"\n  [2] /home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/chore-prose-emit-study/.tmp/spurgear.generated.py:409 [reportArgumentType] Argument of type \"Unknown | ConstructionPlane | None\" cannot be assigned to parameter \"planarEntity\" of type \"Base\" in function \"setByOffset\"\n  Record one as triaged stub noise: python3 .claude/skills/generate-gear/check_novel_types.py /home/lestrrat/dev/src/github.com/lestrrat-3d/fusion360-gear-generator/.worktrees/chore-prose-emit-study/.tmp/spurgear.generated.py --accept N --why \"<reason>\"\n  Baseline came from 10 shipped gear(s) drawing 26 distinct complaint(s).",
+      "stderr": "",
+      "skip_reason": null,
+      "fault": "judgment",
+      "timing_note": "classification uses shared analysis; duration is in first type row"
+    }
+  ],
+  "classification": [
+    {
+      "gate": "contract",
+      "fault": "judgment",
+      "certain": false,
+      "why": "a missing class or ctx field can be a drafter omission (emit) or a manifest that no longer matches the spec (compile); a source_guards hit can point at a hand-written source file the draft does not own"
+    },
+    {
+      "gate": "api_calls",
+      "fault": "judgment",
+      "certain": false,
+      "why": "'addSelectionInput' is named in spec/<gear>/steps.md, so the step list may be naming a call that does not exist (compile fault); if the step list does not name it, it is an emit fault"
+    },
+    {
+      "gate": "novel_types",
+      "fault": "judgment",
+      "certain": false,
+      "why": "advisory only -- read each finding and decide"
+    }
+  ],
+  "metadata": {
+    "analysis_duration_s": 1.67,
+    "analysis_pyright_duration_s": 1.67,
+    "analysis_invocations": 1,
+    "analysis_shared": true,
+    "analysis_timing_note": "The first selected type row owns the shared Pyright duration; later rows use that result and report 0 seconds."
+  },
+  "timing": {
+    "schema": 1,
+    "wall_time_s": 2.33242,
+    "gate_duration_s": 2.25,
+    "gate_policy": {
+      "kind": "run_gates",
+      "mode": "full",
+      "required_gates": [
+        "parse",
+        "input_read",
+        "contract",
+        "step_calls",
+        "anchors",
+        "api_calls",
+        "pyright"
+      ],
+      "skipped_gates": [],
+      "allowed_skips": [],
+      "advisory_enabled": true,
+      "novel_types_blocking": false,
+      "fail_fast": false,
+      "first_pass_eligible": false
+    },
+    "analysis_duration_s": 1.67,
+    "analysis_pyright_duration_s": 1.67,
+    "analysis_invocations": 1,
+    "analysis_shared": true,
+    "analysis_timing_note": "The first selected type row owns the shared Pyright duration; later rows use that result and report 0 seconds.",
+    "first_pass_eligible": false
+  }
+}

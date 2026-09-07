@@ -1,0 +1,39 @@
+{
+  "action": "finish",
+  "clock": "utc_epoch",
+  "clock_id": null,
+  "duration_s": 2244.094976,
+  "event": "overall.finish",
+  "gear": "spurgear",
+  "input_digests": [
+    {
+      "path": "spec/spurgear/instructions.md",
+      "sha256": "23cd32d32c678ffb43b8d5cc6e984de4befdcb42e41fdbc94f2e6c95dab82959",
+      "size_bytes": 57148
+    },
+    {
+      "path": "spec/spurgear/fusion.md",
+      "sha256": "77e2d9fdadcfec85e7463d50132211f419e761c2dc984b427d705622a44b0100",
+      "size_bytes": 18944
+    },
+    {
+      "path": ".claude/skills/generate-gear/PLAYBOOK.md",
+      "sha256": "aeafe2eb1cd663fd210f717a26a95c887f990ef85a4f0de43e5c144f7b06dc59",
+      "size_bytes": 72144
+    }
+  ],
+  "input_tokens": null,
+  "model": "gpt-6",
+  "model_role": "design",
+  "monotonic_s": null,
+  "output_tokens": null,
+  "phase": "overall",
+  "round": 1,
+  "run_id": "9ecd7106-8834-49dd-b423-09777ffcea51",
+  "schema": 1,
+  "sequence": 30,
+  "stage": "compile",
+  "starting_git_commit": "f38c26da97f27dd9ec962a65646d19c3cf106cf0",
+  "timestamp_epoch_s": 1788726443.1478856,
+  "timestamp_utc": "2026-09-06T20:27:23.147886+00:00"
+}

@@ -1,0 +1,77 @@
+{
+  "advisory_triage": {
+    "complete": true,
+    "findings": [],
+    "status": "complete"
+  },
+  "complete": true,
+  "completed_rounds": 3,
+  "completeness": {
+    "complete": true,
+    "reasons": [
+      "round 1 is not a complete full-policy first pass"
+    ]
+  },
+  "drafting_time_s": 1582.982377,
+  "first_pass": false,
+  "gate_duration_s": 268.96,
+  "gate_failure_details": [
+    {
+      "advisory": false,
+      "key": "proof",
+      "round": 1,
+      "status": "fail"
+    },
+    {
+      "advisory": false,
+      "key": "compile",
+      "round": 1,
+      "status": "fail"
+    },
+    {
+      "advisory": false,
+      "key": "step_calls",
+      "round": 1,
+      "status": "fail"
+    },
+    {
+      "advisory": false,
+      "key": "compile",
+      "round": 2,
+      "status": "fail"
+    },
+    {
+      "advisory": false,
+      "key": "step_calls",
+      "round": 2,
+      "status": "fail"
+    },
+    {
+      "advisory": false,
+      "key": "step_calls",
+      "round": 3,
+      "status": "fail"
+    },
+    {
+      "advisory": false,
+      "key": "proof",
+      "round": 3,
+      "status": "fail"
+    }
+  ],
+  "gate_failures": 7,
+  "gear": "spurgear",
+  "issues": [],
+  "placement_time_s": 7.714027,
+  "preflight_time_s": 0.191714,
+  "run_id": "9ecd7106-8834-49dd-b423-09777ffcea51",
+  "schema": 1,
+  "stage": "compile",
+  "starting_git_commit": "f38c26da97f27dd9ec962a65646d19c3cf106cf0",
+  "token_counts": {
+    "input": null,
+    "output": null
+  },
+  "total_wall_time_s": 2244.094976,
+  "validation_time_s": 508.655151
+}
