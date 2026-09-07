@@ -58,6 +58,9 @@ PYTHON_METHODS = {
     'degrees', 'floor', 'ceil', 'fabs', 'pow', 'log', 'exp', 'isclose',
 }
 
+PYTHON_SET_TYPE = 'builtins.set'
+PYTHON_SET_METHODS = {'add'}
+
 # Only these modules are shared by generated gear files.  Gear implementations are
 # deliberately excluded: a method on one gear must not become an API allowance for
 # an unrelated receiver in another generated file.
@@ -105,6 +108,129 @@ def receiver_tail(func):
 def receiver_expression(func):
     """Return the complete expression the call is made on."""
     return ast.unparse(func.value)
+
+
+def native_set_constructor_calls(tree):
+    """Return `set(...)` calls that definitely resolve to the Python builtin."""
+
+    class Bindings(ast.NodeVisitor):
+        def __init__(self):
+            self.names = set()
+
+        def visit_Name(self, node):
+            if isinstance(node.ctx, (ast.Store, ast.Del)):
+                self.names.add(node.id)
+
+        def visit_FunctionDef(self, node):
+            self.names.add(node.name)
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_ClassDef(self, node):
+            self.names.add(node.name)
+
+        def visit_Lambda(self, node):
+            pass
+
+        def visit_Import(self, node):
+            for alias in node.names:
+                self.names.add(alias.asname or alias.name.split('.', 1)[0])
+
+        def visit_ImportFrom(self, node):
+            for alias in node.names:
+                self.names.add(alias.asname or alias.name)
+
+        def visit_ExceptHandler(self, node):
+            if node.name:
+                self.names.add(node.name)
+            for statement in node.body:
+                self.visit(statement)
+
+        def visit_MatchAs(self, node):
+            if node.name:
+                self.names.add(node.name)
+            self.generic_visit(node)
+
+        def visit_MatchStar(self, node):
+            if node.name:
+                self.names.add(node.name)
+
+    def scope_binds_set(node):
+        bindings = Bindings()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            arguments = node.args
+            for argument in (*arguments.posonlyargs, *arguments.args,
+                             *arguments.kwonlyargs):
+                bindings.names.add(argument.arg)
+            if arguments.vararg:
+                bindings.names.add(arguments.vararg.arg)
+            if arguments.kwarg:
+                bindings.names.add(arguments.kwarg.arg)
+            body = node.body if not isinstance(node, ast.Lambda) else (node.body,)
+        else:
+            body = node.body
+        for statement in body:
+            bindings.visit(statement)
+        return 'set' in bindings.names
+
+    found = set()
+
+    class Visitor(ast.NodeVisitor):
+        def __init__(self):
+            self.scopes = []
+
+        def set_is_builtin(self):
+            active = [shadowed for kind, shadowed in self.scopes if kind != 'class']
+            if self.scopes and self.scopes[-1][0] == 'class':
+                active.append(self.scopes[-1][1])
+            return not any(active)
+
+        def visit_Module(self, node):
+            self.scopes.append(('module', scope_binds_set(node)))
+            for statement in node.body:
+                self.visit(statement)
+            self.scopes.pop()
+
+        def visit_FunctionDef(self, node):
+            for expression in (*node.decorator_list, *node.args.defaults,
+                               *node.args.kw_defaults):
+                if expression is not None:
+                    self.visit(expression)
+            if node.returns is not None:
+                self.visit(node.returns)
+            self.scopes.append(('function', scope_binds_set(node)))
+            for statement in node.body:
+                self.visit(statement)
+            self.scopes.pop()
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_Lambda(self, node):
+            for expression in (*node.args.defaults, *node.args.kw_defaults):
+                if expression is not None:
+                    self.visit(expression)
+            self.scopes.append(('function', scope_binds_set(node)))
+            self.visit(node.body)
+            self.scopes.pop()
+
+        def visit_ClassDef(self, node):
+            for expression in (*node.decorator_list, *node.bases):
+                self.visit(expression)
+            for keyword in node.keywords:
+                self.visit(keyword.value)
+            self.scopes.append(('class', scope_binds_set(node)))
+            for statement in node.body:
+                self.visit(statement)
+            self.scopes.pop()
+
+        def visit_Call(self, node):
+            if (isinstance(node.func, ast.Name) and node.func.id == 'set'
+                    and self.set_is_builtin()):
+                found.add(node)
+            self.generic_visit(node)
+
+    Visitor().visit(tree)
+    return found
 
 
 def framework_files(root):
@@ -652,6 +778,7 @@ def infer_api_receiver_types(tree, classes, bases, method_returns, api_member_in
     """Infer receiver types used to check Fusion calls, staying within simple AST facts."""
     containing = node_classes(tree)
     scopes = node_scopes(tree)
+    native_set_calls = native_set_constructor_calls(tree)
     types = {}
     field_types = {}
     verified_bindings = set()
@@ -698,6 +825,8 @@ def infer_api_receiver_types(tree, classes, bases, method_returns, api_member_in
     def expression_type(expression, containing_class):
         if expression is None:
             return None
+        if isinstance(expression, (ast.Set, ast.SetComp)):
+            return PYTHON_SET_TYPE
         direct_class = fusion_class_expr(expression)
         if direct_class is not None:
             return direct_class
@@ -727,6 +856,8 @@ def infer_api_receiver_types(tree, classes, bases, method_returns, api_member_in
                 return normalize_api_type(info.get('returns'))
             return implied_member_return(owner_type, expression.attr, expression)
         if isinstance(expression, ast.Call):
+            if expression in native_set_calls:
+                return PYTHON_SET_TYPE
             if isinstance(expression.func, ast.Name):
                 if expression.func.id in classes:
                     return expression.func.id
@@ -1001,6 +1132,9 @@ def _check():
         if name in PYTHON_METHODS:
             return True
         receiver = func.value
+        if (expression_type(receiver, containing_class) == PYTHON_SET_TYPE
+                and name in PYTHON_SET_METHODS):
+            return True
         if (isinstance(receiver, ast.Call)
               and isinstance(receiver.func, ast.Name)
               and receiver.func.id == 'super'):

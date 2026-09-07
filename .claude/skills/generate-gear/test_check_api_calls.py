@@ -117,6 +117,93 @@ class CheckApiReceiverOwnershipTest(unittest.TestCase):
 
         self.assertEqual(result, 0)
 
+    def test_native_set_add_is_allowed(self):
+        result, output = self.run_checker(
+            """
+            def collect(values):
+                constructed = set()
+                literal = {'seed'}
+                comprehension = {value for value in values}
+                constructed.add('next')
+                literal.add('next')
+                comprehension.add('next')
+            """,
+            api_names={'add'})
+
+        self.assertEqual(result, 0, output)
+        self.assertIn('api-call check: OK', output)
+
+    def test_native_set_alias_add_is_allowed(self):
+        result, output = self.run_checker(
+            """
+            def collect():
+                seen = set()
+                alias = seen
+                alias.add('next')
+            """,
+            api_names={'add'})
+
+        self.assertEqual(result, 0, output)
+        self.assertIn('api-call check: OK', output)
+
+    def test_unknown_add_receiver_is_still_blocking(self):
+        result, output = self.run_checker(
+            """
+            def collect(receiver):
+                receiver.add('next')
+            """,
+            api_names={'add'})
+
+        self.assertEqual(result, 1)
+        self.assertIn('receiver type is not known', output)
+
+    def test_typed_fusion_add_receiver_is_still_checked(self):
+        result, output = self.run_checker(
+            """
+            def collect(receiver: adsk.core.ObjectCollection):
+                receiver.add('next')
+            """,
+            api_names={'add'})
+
+        self.assertEqual(result, 1)
+        self.assertIn('ObjectCollection does not declare it', output)
+
+    def test_shadowed_set_constructor_is_not_treated_as_builtin(self):
+        candidates = (
+            """
+            class set:
+                pass
+
+            def collect():
+                seen = set()
+                seen.add('next')
+            """,
+            """
+            def collect(set):
+                seen = set()
+                seen.add('next')
+            """,
+        )
+        for candidate in candidates:
+            with self.subTest(candidate=candidate):
+                result, output = self.run_checker(candidate, api_names={'add'})
+
+                self.assertEqual(result, 1)
+                self.assertIn("calls 'add('", output)
+
+    def test_reassignment_removes_native_set_receiver_type(self):
+        result, output = self.run_checker(
+            """
+            def collect(source):
+                seen = set()
+                seen = source
+                seen.add('next')
+            """,
+            api_names={'add'})
+
+        self.assertEqual(result, 1)
+        self.assertIn('receiver type is not known', output)
+
     def test_shared_policy_for_explicit_typed_pair(self):
         cases = (
             ('documented', 'allow', 0),
