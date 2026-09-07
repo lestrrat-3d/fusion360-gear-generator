@@ -162,6 +162,28 @@ class VersionTwoCompileTest(unittest.TestCase):
                 self.assertEqual(code, 0, output)
                 self.assertEqual(queries, [])
 
+    def test_required_refuted_owner_is_blocking(self):
+        call = call_declaration(span='adsk.core.Base.cast(None)', name='cast',
+                                receiver='adsk.core.Base', owner='adsk.core.Base')
+        with mock.patch.object(COMPILE_CHECKER.fusion_api, 'describe_call',
+                               wraps=COMPILE_CHECKER.fusion_api.describe_call) as describe:
+            code, output, queries = self.run_checker(version_two([call], '`adsk.core.Base.cast(None)`'))
+        self.assertEqual(code, 1, output)
+        self.assertIn("'cast(' on adsk.core.Base, but Fusion refutes it", output)
+        describe.assert_called_once_with('adsk.core.Base', 'cast')
+        self.assertEqual(queries, [])
+
+    def test_forbidden_refuted_owner_does_not_query_api(self):
+        call = call_declaration(span='adsk.core.Base.cast(None)', name='cast',
+                                receiver='adsk.core.Base', owner='adsk.core.Base',
+                                role='forbidden', reason='Use a concrete subclass under the existing API policy.')
+        with mock.patch.object(COMPILE_CHECKER.fusion_api, 'describe_call',
+                               wraps=COMPILE_CHECKER.fusion_api.describe_call) as describe:
+            code, output, queries = self.run_checker(version_two([call], 'Never call `adsk.core.Base.cast(None)`.'))
+        self.assertEqual(code, 0, output)
+        describe.assert_not_called()
+        self.assertEqual(queries, [])
+
     def test_metadata_errors_are_blocking(self):
         for text in (version_two().replace('Call `tools.addWidget(item)`.', 'No call.'),
                      version_two(preamble='`tools.addWidget(item)`'),
