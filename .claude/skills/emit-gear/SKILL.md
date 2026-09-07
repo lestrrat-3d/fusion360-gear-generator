@@ -65,11 +65,13 @@ the advisory findings.
    `python3 .claude/skills/generate-gear/pick_model.py --role mechanical --default <the
    session's default model> [--mapping <the same json-path>]` and pass the printed name as the
    Agent tool's `model` option. Omit both mapping options when no mapping was supplied. When
-   a mapping is supplied, confirm that the host offers both the session default and mapped target
-   before launch, then confirm the launched agent reports the mapped target. If the host cannot
-   select and confirm the mapped target, or the launched model differs, stop the measured trial
-   as `setup_error`. Record only that confirmed actual model in timing. Without a mapping, skip
-   the model option where the harness offers none. Never write a model name into this file;
+   a mapping is supplied, treat the printed output as the resolved target. Confirm that the host
+   offers both the session default and resolved target before launch, then confirm the launched
+   agent reports the resolved target. If the host cannot select and confirm the resolved target,
+   or the launched model differs, stop the measured trial as `setup_error`. This rule covers an
+   exact mapping, the unchanged ladder and off-ladder fallbacks, and escalation. Record only that
+   confirmed actual model in timing. Without a mapping, skip the model option where the harness
+   offers none. Never write a model name into this file;
    `.claude/skills/generate-gear/MODELS.md` holds the ladder and the reason the tier is
    relative. The compile-gear drafter takes the `design` role instead, because that stage
    interprets prose and only this one transcribes.

@@ -19,6 +19,7 @@ PICK_MODEL_SPEC = importlib.util.spec_from_file_location(
 PICK_MODEL = importlib.util.module_from_spec(PICK_MODEL_SPEC)
 PICK_MODEL_SPEC.loader.exec_module(PICK_MODEL)
 EMIT_SKILL = Path(__file__).parents[1] / "emit-gear" / "SKILL.md"
+MODELS_DOC = Path(__file__).with_name("MODELS.md")
 
 
 class FakeClock:
@@ -102,16 +103,43 @@ class PipelineTimingTests(unittest.TestCase):
         self.assertEqual(run["model_role"], "mechanical")
         self.assertEqual(run["model"], "fixture-small")
 
-    def test_mapped_workflow_rejects_requested_actual_model_mismatch(self):
+    def test_mapping_workflow_checks_the_resolved_target_for_every_branch(self):
         instructions = EMIT_SKILL.read_text(encoding="utf-8")
+        models = MODELS_DOC.read_text(encoding="utf-8")
+        workflow = " ".join(instructions.split())
+        policy = " ".join(models.split())
+        mapping = {
+            "schema": 1,
+            "mechanical": {"fixture-large": "fixture-small"},
+        }
+
+        cases = (
+            ("fixture-large", False, "fixture-small"),
+            ("opus", False, "sonnet"),
+            ("fixture-large", True, "fixture-large"),
+        )
+        for default, escalated, expected in cases:
+            with self.subTest(default=default, escalated=escalated):
+                resolved, _ = PICK_MODEL.resolve(
+                    "mechanical", default, escalated=escalated, mapping=mapping)
+                self.assertEqual(resolved, expected)
 
         self.assertIn(
-            "If the host cannot\n   select and confirm the mapped target, or the launched model differs, "
-            "stop the measured trial\n   as `setup_error`.",
-            instructions)
+            "treat the printed output as the resolved target",
+            workflow)
+        self.assertIn(
+            "the resolver's returned target",
+            policy)
+        self.assertIn(
+            "If the host cannot select and confirm the resolved target,",
+            workflow)
         self.assertIn(
             "Record only that confirmed actual model in timing.",
-            instructions)
+            workflow)
+        self.assertIn(
+            "the unchanged ladder and off-ladder fallbacks, and escalation",
+            workflow)
+        self.assertNotIn("mapped target", workflow + policy)
 
     def _complete_run(self, report_first_pass=True, failed=False, triage="complete"):
         MODULE.record_event(self.run_dir, "drafting", "start", round=1, clock=self.clock)

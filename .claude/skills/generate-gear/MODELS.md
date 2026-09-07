@@ -58,9 +58,11 @@ Design and orchestrator roles still use the session default. Mechanical escalati
 the session default. An unmapped mechanical default follows the ladder and fallbacks above.
 The pipeline uses no mapping unless the operator supplies this path.
 
-Before a measured mapped run, confirm that the execution host offers both the session default
-and mapped target. Confirm the launched agent's actual model matches the target. An unavailable
-or mismatched target is `setup_error`; do not record the requested target as the launched model.
+Before a measured run with a mapping path, resolve the role first. Confirm that the execution
+host offers both the session default and the resolver's returned target. Confirm that the
+launched agent's actual model matches that resolved target. An unavailable or mismatched target
+is `setup_error`; do not record the requested target as the launched model. This applies when
+resolution uses an exact mapping, a ladder or off-ladder fallback, or escalation.
 
 ## What this does not cover
 
