@@ -295,6 +295,20 @@ class CommittedTemplatesTest(unittest.TestCase):
             with self.subTest(document=document):
                 self.assertIn(document, required)
                 self.assertTrue((SKILLS_ROOT.parents[1] / document).is_file())
+        self.assertIn('proof/involute/involute.go', required)
+        self.assertNotIn('`proof/involute/`', required)
+
+    def test_compile_and_emit_prompts_define_bundle_consumption(self):
+        for skill_name in ('compile-gear', 'emit-gear'):
+            with self.subTest(skill=skill_name):
+                code, prompt, err = self.render(skill_name, 'fixturegear')
+                self.assertEqual(code, 0, err)
+                normalized = ' '.join(prompt.split())
+                self.assertEqual(normalized.count('@rendered-prompt'), 1)
+                self.assertIn('manifest.json', normalized)
+                self.assertIn('chunks in manifest order', normalized)
+                self.assertIn('sorted manifest file entries beneath that prefix', normalized)
+                self.assertIn('Do not reopen a packed original source path', normalized)
 
     def test_compile_and_emit_prompts_share_api_status_and_keep_signature_lookup(self):
         for skill_name in ('compile-gear', 'emit-gear'):

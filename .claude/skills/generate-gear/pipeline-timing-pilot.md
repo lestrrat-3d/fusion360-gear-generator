@@ -20,6 +20,19 @@ selective or readiness-only compile report from qualifying final acceptance. The
 must scaffold and place every returned draft before its iteration gates, as required by
 `compile-gear/SKILL.md`.
 
+## Deterministic input bundle conditions
+
+Run a T9A bundle condition only from an accepted T8 baseline. Pack compile or emit inputs with
+`pack_pipeline_inputs.py <gear> --stage <stage> --out <new-directory>` and record the bundle
+`manifest.json` plus its digest with the run. The registration-omission emit condition adds
+`--omit-registrations`; record it as a separate comparison from the full bundle.
+
+Give the drafter the bundle directory and manifest. Deliver the standard rendered prompt once from
+`@rendered-prompt`, and resolve every source read through manifest chunks in manifest order. Resolve
+directory inputs through sorted manifest file entries beneath the declared prefix. Do not reopen
+packed originals. Keep documented API queries and complete saved outputs identical across compared
+conditions. Stop the comparison when an undocumented dynamic input or differing query policy appears.
+
 ## One run
 
 Run these commands from the repository root. Replace `<gear>`, `<stage>`, and input paths with the

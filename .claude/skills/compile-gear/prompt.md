@@ -2,15 +2,30 @@ Compile the specification for `{{gear}}` into a step list and a runnable proof. 
 worktree. Write the step list to `.tmp/{{gear}}.steps.md`, and the proof, as one or more Go files,
 to `.tmp/{{gear}}-proof/`.
 
-**Read, in full, only these:** `spec/{{gear}}/instructions.md`, `spec/{{gear}}/fusion.md` if it
-exists, `spec/{{gear}}/contract.json` if it exists, every Markdown document the prose sources
-reference by name, `.claude/skills/generate-gear/PLAYBOOK.md`,
-`docs/prose-pipeline-handoffs/formats.md` for step metadata,
-`proof/examples/CONSTRUCTION.md` for generic executable solid-construction recipes and their limits,
-`proof/examples/proofkit3d_construction_example_test.go` for the tested implementations of those recipes,
-`proof/proofkit/` for the sketch harness API, `proof/proofkit3d/` for the solid harness API, and
-`proof/involute/` for the involute tooth math the spur family shares, so you import it rather
-than deriving it again.
+**Read, in full, only these:**
+
+- `spec/{{gear}}/instructions.md`, which is required.
+- `spec/{{gear}}/fusion.md`, if it exists.
+- `spec/{{gear}}/contract.json`, if it exists.
+- Every Markdown document either prose source references by name. In the bundle condition, each
+  resolved repository-relative path is a manifest file entry.
+- `.claude/skills/generate-gear/PLAYBOOK.md`.
+- `docs/prose-pipeline-handoffs/formats.md` for step metadata.
+- `proof/examples/CONSTRUCTION.md` for generic executable solid-construction recipes and their limits.
+- `proof/examples/proofkit3d_construction_example_test.go` for the tested implementations of those recipes.
+- `proof/proofkit/`, meaning every Go file beneath the sketch harness directory.
+- `proof/proofkit3d/`, meaning every Go file beneath the solid harness directory.
+- `proof/involute/involute.go` for the involute tooth math the spur family shares, so you import it
+  rather than deriving it again.
+
+**Bundle consumption:** When the operator supplies an input bundle, this rendered prompt is the
+`@rendered-prompt` entry and is delivered exactly once. Resolve every logical source path above
+through `manifest.json`, then read all of that file's chunks in manifest order. Resolve a directory
+to sorted manifest file entries beneath that prefix, then read every chunk for each entry; the
+manifest contains file entries, not directory entries. Do not reopen a packed original source path.
+The documented API-status and signature queries below remain available. Save their complete outputs
+unchanged under the same policy in every compared condition. Report an undocumented dynamic input or
+a different query policy instead of guessing a bundle exclusion.
 
 **Do not read** `lib/geargen/{{gear}}.py`, any other gear's implementation, or a previous
 `steps.md` or proof for this gear. If the spec is unclear, record it as a spec gap in your report

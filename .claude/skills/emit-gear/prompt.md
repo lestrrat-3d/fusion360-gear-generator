@@ -9,20 +9,32 @@ It does not validate Fusion behavior and never replaces the orchestrator's compl
 Do not execute the generated module; the `adsk` modules exist only inside Fusion, so runtime
 behavior cannot be checked during drafting.
 
-**Read, in this order:** `spec/{{gear}}/steps.md`, including its complete generated
-`## Compilation contract` section when present, which carries every manifest rule the output must
-satisfy, then work through the timeline steps in order; `proof/{{gear}}/`, the checked geometry,
-which steps tagged `[GO]` tell you to
-transliterate literally rather than re-derive; `.tmp/{{gear}}.playbook-extract.md`, the generated
-extract of the playbook rules the steps cite by anchor plus the shared core sections (it replaces
-reading `PLAYBOOK.md`, which you must not open — an anchor the extract lacks and the step list
-still needs is a defect to report, not a reason to go find the full playbook);
-`.tmp/{{gear}}.emitter-interfaces.md`, whose typed entry-point signatures final code must implement
-and whose typing conventions guide local Fusion API bindings without overriding the compiled
-contract; and the framework
-you build on and must not reimplement, which is
-`lib/geargen/base.py`, `misc.py`, `utilities.py`, `spurproxy.py` and `lib/fusion360utils/`.
-Read `docs/prose-pipeline-handoffs/formats.md` for step metadata.
+**Read, in this order:**
+
+- `spec/{{gear}}/steps.md`, including its complete generated `## Compilation contract` section when
+  present, which carries every manifest rule the output must satisfy, then work through the timeline
+  steps in order.
+- `proof/{{gear}}/`, the checked geometry, excluding `stage-manifest.json`. Steps tagged `[GO]` tell
+  you to transliterate it literally rather than re-derive it.
+- `.tmp/{{gear}}.playbook-extract.md`, the generated extract of cited playbook rules plus shared core
+  sections. It replaces reading `PLAYBOOK.md`; report a required missing anchor instead of opening it.
+- `.tmp/{{gear}}.emitter-interfaces.md`, whose typed entry-point signatures final code must implement
+  and whose typing conventions guide local Fusion API bindings without overriding the contract.
+- `docs/prose-pipeline-handoffs/formats.md` for step metadata.
+- `lib/geargen/base.py`, which is framework code you build on and must not reimplement.
+- `lib/geargen/misc.py`, which is framework code you build on and must not reimplement.
+- `lib/geargen/utilities.py`, which is framework code you build on and must not reimplement.
+- `lib/geargen/spurproxy.py`, which is framework code you build on and must not reimplement.
+- `lib/fusion360utils/`, meaning every Python file beneath that framework directory.
+
+**Bundle consumption:** When the operator supplies an input bundle, this rendered prompt is the
+`@rendered-prompt` entry and is delivered exactly once. Resolve every logical source path above
+through `manifest.json`, then read all of that file's chunks in manifest order. Resolve a directory
+to sorted manifest file entries beneath that prefix, then read every chunk for each entry; the
+manifest contains file entries, not directory entries. Do not reopen a packed original source path.
+The documented API-status and signature queries below remain available. Save their complete outputs
+unchanged under the same policy in every compared condition. Report an undocumented dynamic input or
+a different query policy instead of guessing a bundle exclusion.
 
 **Do not read** `lib/geargen/{{gear}}.py`, `spec/{{gear}}/instructions.md`, `spec/{{gear}}/fusion.md`,
 or any previous draft. The step list is deliberately the only description of the gear you get. If

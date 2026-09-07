@@ -30,6 +30,24 @@ Use one `drafting` round per draft attempt, including retries. A validation even
 complete runner invocation and its report import; record advisory triage only after reviewing
 the advisory findings.
 
+## Deterministic input bundle condition
+
+Use this condition only as an explicitly selected T9A trial on an accepted T8 baseline. After
+generating the playbook extract and emitter interface sheet, create a new bundle directory with
+`python3 .claude/skills/generate-gear/pack_pipeline_inputs.py <gear> --stage emit --out
+<new-directory>`. Supply that directory and `manifest.json` to the drafter. Deliver the standard
+rendered prompt exactly once from the `@rendered-prompt` entry. Resolve every logical source read
+through its listed chunks in manifest order. Resolve a directory read through sorted manifest file
+entries beneath its prefix, then read each entry's chunks in manifest order. Do not reopen any
+packed original source path.
+
+The registration-omission condition adds `--omit-registrations`; the packer first requires the
+current `scaffold_proof.py <gear> --check` result. Compare the full bundle and omission condition
+separately. Documented conditional API-status and signature queries remain available. Save their
+complete outputs unchanged under the same policy for every compared condition. Report an
+undocumented dynamic input or a query policy that differs between conditions; do not guess an
+exclusion.
+
 ## Procedure
 
 1. **Setup.** Work in a worktree, never the root checkout. Ensure `.tmp/` exists. Run
@@ -66,6 +84,8 @@ the advisory findings.
    `.claude/skills/generate-gear/MODELS.md` holds the ladder and the reason the tier is
    relative. The compile-gear drafter takes the `design` role instead, because that stage
    interprets prose and only this one transcribes.
+   For the deterministic input bundle condition, use its owning section above instead of direct
+   source-path reads while keeping this prompt and model policy unchanged.
 
 3. **Gate (authoritative owner).** After every draft submission, run the complete battery with
    `python3 .claude/skills/generate-gear/run_gates.py <gear> > .tmp/<gear>.gates.txt` from the repo

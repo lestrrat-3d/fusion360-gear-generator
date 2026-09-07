@@ -30,6 +30,20 @@ Use one `drafting` round per draft attempt, including retries. A validation even
 complete runner invocation and its report import; record advisory triage only after reviewing
 the advisory findings.
 
+## Deterministic input bundle condition
+
+Use this condition only as an explicitly selected T9A trial on an accepted T8 baseline. Create a
+new bundle directory with `python3 .claude/skills/generate-gear/pack_pipeline_inputs.py <gear>
+--stage compile --out <new-directory>`. Supply that directory and `manifest.json` to the drafter.
+Deliver the standard rendered prompt exactly once from the `@rendered-prompt` entry. Resolve every
+logical source read through its listed chunks in manifest order. Resolve a directory read through
+sorted manifest file entries beneath its prefix, then read each entry's chunks in manifest order.
+Do not reopen any packed original source path.
+
+Documented conditional API-status and signature queries remain available. Save their complete
+outputs unchanged under the same policy for every compared condition. Report an undocumented
+dynamic input or a query policy that differs between conditions; do not guess an exclusion.
+
 ## What a step is
 
 A step is one entry in the Fusion timeline. Drawing a whole sketch is a single step, however much
@@ -100,6 +114,8 @@ proof is where the next reader is looking for the missing check.
    **not** add per-gear hints, gotcha reminders or "high-risk" lists to that prompt. A hand-tuned
    prompt varies run to run and hides gaps by spoon-feeding what the prose should have said, so a
    green run would no longer say anything about the spec.
+   For the deterministic input bundle condition, use its owning section above instead of direct
+   source-path reads while keeping this prompt and model policy unchanged.
 
 4. **Scaffold, place, and run the gates.** Run both step 2 commands for the current draft first.
    Then run
