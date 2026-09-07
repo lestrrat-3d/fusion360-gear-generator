@@ -48,9 +48,9 @@ geometry. Runtime and proof behavior remains owned by the cited prose, benches, 
   file or function.
 
 The implementation-structure rationales in `classification.json` come from the corresponding guard
-reason, its cited specification anchor, the current source, and focused checker tests. All six function
-location choices are supported by the source specification or compiled steps. This snapshot has no
-unverified source-intent classification.
+reason, its cited specification anchor, the current source, and focused checker tests. All four function
+scopes and six file selections are supported by the source specification or compiled steps. This snapshot
+has no unverified source-intent classification.
 
 ## Metadata
 
