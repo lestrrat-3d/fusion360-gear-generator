@@ -58,6 +58,7 @@ import re
 import sys
 
 from call_parser import call_shapes
+from contract_handoff import mask_contract
 
 NEGATIVE_CALL_CONTEXT = re.compile(
     r'\b(?:do\s+not|must\s+not|never|avoid|forbid(?:den)?|prohibit(?:ed|s)?|'
@@ -127,6 +128,7 @@ def named_call_shapes(steps_src):
     # Strip fenced blocks FIRST. Their ``` fences desync single-backtick pairing, which
     # silently drops most of the corpus — the bug that made the first draft of this check
     # report a clean pass on a file that was missing calls.
+    steps_src = mask_contract(steps_src)
     body = re.sub(r'```.*?```', '', steps_src, flags=re.S)
     calls = set()
     for match in re.finditer(r'`([^`\n]+)`', body):

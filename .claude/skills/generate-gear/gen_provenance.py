@@ -2,10 +2,11 @@
 """Generate the `## Provenance` table of a compiled step list, so nothing hand-types a hash.
 
 `provenance.py` owns the input set for one gear (the gear's `instructions.md`, its optional
-`fusion.md`, the shared `PLAYBOOK.md`, and any auxiliary Markdown document those reference) and the
-`git hash-object` of each one. `check_compile.py` shares that same module to gate a step list's
-provenance table against drift. This script is the other side of that gate: it renders the table
-and, with `--write`, replaces the provenance section of a step list with it in place.
+`fusion.md`, its optional `contract.json`, the shared `PLAYBOOK.md`, and any auxiliary Markdown
+document the prose sources reference) and the `git hash-object` of each one. `check_compile.py`
+shares that same module to gate a step list's provenance table against drift. This script is the
+other side of that gate: it renders the table and, with `--write`, replaces the provenance section
+and writes the complete parsed manifest into `## Compilation contract` when the manifest exists.
 
 No language model should ever type a hash into a step list. Run this instead, from the repo root:
 
@@ -15,8 +16,9 @@ No language model should ever type a hash into a step list. Run this instead, fr
 Run from the repo root, like every other script in this directory: every path in the input set is
 built relative to the current working directory.
 
-Exit 0 = the table was printed or written. Exit 2 = bad usage, a missing or unreadable input, a
-target with no `## Provenance` heading, or a `git hash-object` failure — message on stderr,
+Exit 0 = the table was printed or the two generated sections were written. Exit 2 = bad usage, a
+missing or unreadable input, invalid manifest data, a target with no `## Provenance` heading, or a
+`git hash-object` failure — message on stderr,
 prefixed `gen_provenance:`. Exit 1 is deliberately unused; this script makes no findings about an
 artifact, so it never gates anything. That is check 4 of `check_compile.py`, and a second copy
 here could disagree with it.
@@ -27,6 +29,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import provenance  # noqa: E402  (sibling module; sys.path is fixed up just above)
+import contract_handoff  # noqa: E402
 
 USAGE = 'usage: gen_provenance.py <gear> [--write <steps.md>]'
 
@@ -65,7 +68,7 @@ def parse_args(argv):
 
 
 def write_section(path, gear):
-    """Stamp one step list. Reads path, replaces the section, writes it back.
+    """Stamp one step list's provenance and optional compilation contract.
 
     Returns the number of rows written, for the summary line.
     """
@@ -76,6 +79,14 @@ def write_section(path, gear):
     rows = provenance.table_rows(provenance.ordered_provenance_inputs(gear))
     section = '%s\n\n%s' % (provenance.HEADING, provenance.render_table(rows))
     updated = provenance.replace_section(src, section)
+    manifest = contract_handoff.load_contract('.', gear)
+    if manifest is None:
+        problems = contract_handoff.validate_contract(updated, '.', gear)
+        if problems:
+            raise contract_handoff.ContractHandoffError(problems[0])
+    else:
+        rendered = contract_handoff.render_contract(manifest)
+        updated = contract_handoff.replace_contract(updated, rendered)
     with open(path, 'w') as fh:
         fh.write(updated)
     return len(rows)
@@ -100,7 +111,7 @@ def main(argv):
         count = write_section(write_path, gear)
         print('gen_provenance: stamped %d source(s) into %s' % (count, write_path))
         return 0
-    except provenance.ProvenanceError as exc:
+    except (provenance.ProvenanceError, contract_handoff.ContractHandoffError) as exc:
         print('gen_provenance: %s' % exc, file=sys.stderr)
         return 2
     except OSError as exc:

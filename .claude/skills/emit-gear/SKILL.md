@@ -5,7 +5,8 @@ description: Write `lib/geargen/<gear>.py` from a compiled step list `spec/<gear
 
 # Emit the add-in from a compiled step list
 
-The step list and the proof are the only description of the gear this stage gets. Reading the
+The step list, including its generated compilation contract, and the proof are the only description
+of the gear this stage gets. Reading the
 prose here would hide a thin step list behind a working add-in, and the step list is the artifact
 the pipeline exists to make trustworthy.
 

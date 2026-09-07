@@ -29,9 +29,10 @@ Four checks gate, and one is reported:
      playbook wrote the name, so the fix belongs there) from `fault: draft` (only the step list
      under test wrote it, so the failure goes back to the drafter). That is the compile-gear
      fault table's own discriminator, so the reader no longer has to grep the spec by hand.
-  4. INPUTS HAVE NOT DRIFTED. The provenance table contains and matches the existing instructions,
-     optional fusion sidecar, playbook, and auxiliary documents referenced by the specs,
-     so an edited source cannot leave a stale step list looking healthy.
+  4. INPUTS AND CONTRACT HAVE NOT DRIFTED. The provenance table contains and matches the existing
+     instructions, optional fusion sidecar, optional contract manifest, playbook, and auxiliary
+     documents referenced by the specs. When a manifest exists, the generated compilation contract
+     also equals it completely, so an edited source cannot leave a stale step list looking healthy.
 
   COVERAGE is printed, never gated. The spec lines no step claims are worth skimming for
   omissions, but most of that list is headings and introductions, and the compiler is reporting on
@@ -61,6 +62,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.abspath(os.path.join(HERE, os.pardir, os.pardir, os.pardir))
 sys.path.insert(0, HERE)
 import fusion_api  # noqa: E402  (sibling module; sys.path is fixed up just above)
+from contract_handoff import (  # noqa: E402
+    ContractHandoffError, mask_contract, validate_contract)
 from call_parser import call_shapes  # noqa: E402
 from provenance import (  # noqa: E402  (sibling module; sys.path is fixed up just above)
     DOCUMENT_REF, STAMPED_ROW, ProvenanceError, blob_hash, provenance_inputs, read,
@@ -249,6 +252,7 @@ def contract_names(_gear):
 
 
 def named_calls(src):
+    src = mask_contract(src)
     body = re.sub(r'```.*?```', '', src, flags=re.S)
     names = set()
     for span in re.findall(r'`([^`\n]+)`', body):
@@ -260,6 +264,7 @@ def named_calls(src):
 
 def named_call_shapes(src):
     """Return the calls named in inline step-list code spans with receivers intact."""
+    src = mask_contract(src)
     body = re.sub(r'```.*?```', '', src, flags=re.S)
     shapes = set()
     for span in re.findall(r'`([^`\n]+)`', body):
@@ -283,6 +288,7 @@ def watched_calls(src, path):
     An entry that names receivers only counts a call written on one of them, so the legitimate
     `chamferFeatures.createInput2()` is not dragged in beside `sketchTexts.createInput2(...)`.
     """
+    src = mask_contract(src)
     seen = {}
     for name, _, receivers, _ in fusion_api.UNVERIFIED_CALLS:
         lines = sorted({
@@ -1578,7 +1584,10 @@ def main(argv):
     try:
         with fusion_api.query_session():
             return check(argv)
-    except ProvenanceError as exc:
+    except (ProvenanceError, ContractHandoffError) as exc:
+        print('check_compile: %s' % exc, file=sys.stderr)
+        return 2
+    except OSError as exc:
         print('check_compile: %s' % exc, file=sys.stderr)
         return 2
     except fusion_api.Unavailable as exc:
@@ -1623,7 +1632,9 @@ def check(argv):
               file=sys.stderr)
         return 2
 
-    problems = []
+    problems = [
+        '  %s' % problem for problem in validate_contract(src, '.', gear)
+    ]
 
     # The summary must point at the committed proof, not an ignored compiler output.
     for path in proof_paths(src):
@@ -1739,7 +1750,7 @@ def check(argv):
                         % (call, '' if not near else
                            '; the nearest names it does have are %s' % ', '.join(near), note))
 
-    # 4. inputs have not drifted
+    # 4. inputs and contract have not drifted
     stamped = dict(STAMPED_ROW.findall(src))
     if not stamped:
         problems.append("  the step list carries no provenance table, so staleness cannot be seen")

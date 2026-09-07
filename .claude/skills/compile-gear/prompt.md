@@ -3,7 +3,8 @@ worktree. Write the step list to `.tmp/{{gear}}.steps.md`, and the proof, as one
 to `.tmp/{{gear}}-proof/`.
 
 **Read, in full, only these:** `spec/{{gear}}/instructions.md`, `spec/{{gear}}/fusion.md` if it
-exists, every document those reference by name, `.claude/skills/generate-gear/PLAYBOOK.md`,
+exists, `spec/{{gear}}/contract.json` if it exists, every Markdown document the prose sources
+reference by name, `.claude/skills/generate-gear/PLAYBOOK.md`,
 `proof/proofkit/` for the sketch harness API, `proof/proofkit3d/` for the solid harness API, and
 `proof/involute/` for the involute tooth math the spur family shares, so you import it rather
 than deriving it again.
@@ -25,12 +26,14 @@ below that heading, or one naming bare file names, leaves the gate with nothing 
 Include `proof/{{gear}}/zz_registrations_test.go`, the generated registration file, among the
 paths.
 
-**Write the `## Provenance` heading and leave its section empty.** The provenance table is
-generated from the spec files after you finish, by
-`.claude/skills/generate-gear/gen_provenance.py`, and written into that section. Never run
+**Write the `## Provenance` heading and leave its section empty.** The provenance table and the
+complete `## Compilation contract` section are generated from the source files after you finish,
+by `.claude/skills/generate-gear/gen_provenance.py`. Do not write the contract section yourself.
+Never run
 `git hash-object` and never type a hash: a hand-copied hash is a defect the gate can only report
 as drift. Put the heading below the sentence naming the proof files and above the first step
-heading, since a gate reads the text above it for those paths and the generator writes below it.
+heading, since a gate reads the text above it for those paths and the generator inserts the
+contract after provenance and before that first step.
 
 **Each step carries** a heading of the form `## <id> `[GO]` <title>` or with `[PROSE]`, the
 instructions themselves, a `**From:**` line naming the spec files and line ranges you compiled it

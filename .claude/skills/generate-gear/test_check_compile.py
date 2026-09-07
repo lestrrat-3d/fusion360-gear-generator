@@ -35,6 +35,7 @@ PROVENANCE_MODULE_SPEC.loader.exec_module(PROVENANCE)
 COMPILE_MODULE_SPEC = importlib.util.spec_from_file_location('check_compile', COMPILE_CHECKER_PATH)
 COMPILE_CHECKER = importlib.util.module_from_spec(COMPILE_MODULE_SPEC)
 COMPILE_MODULE_SPEC.loader.exec_module(COMPILE_CHECKER)
+CONTRACT_HANDOFF = sys.modules['contract_handoff']
 
 
 # Every header spelling the gate has an opinion about, with what Go does to it and what the gate
@@ -353,7 +354,8 @@ class CheckCompileTest(unittest.TestCase):
                     annotation=CANONICAL_ANNOTATION,
                     include_fusion=True, auxiliary=False, mutate_auxiliary=False,
                     api_lookup=None, unverified_findings=None, proof_directories=(),
-                    instruction_text=None, fusion_text=None, api_similar=None):
+                    instruction_text=None, fusion_text=None, api_similar=None,
+                    contract_manifest=None, contract_section=None):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / 'spec' / 'gear').mkdir(parents=True)
@@ -371,11 +373,16 @@ class CheckCompileTest(unittest.TestCase):
                     'source\nline two\nline three\n' if fusion_text is None else fusion_text)
             (root / '.claude' / 'skills' / 'generate-gear' / 'PLAYBOOK.md').write_text(
                 'source\nline two\nline three\n')
+            if contract_manifest is not None:
+                (root / 'spec' / 'gear' / 'contract.json').write_text(
+                    json.dumps(contract_manifest))
             if provenance is None:
                 paths = self.SOURCE_PATHS if include_fusion else (
                     self.SOURCE_PATHS[0], self.SOURCE_PATHS[2])
                 if auxiliary:
                     paths = (*paths[:-1], 'spec/gear/trace.md', paths[-1])
+                if contract_manifest is not None:
+                    paths = (*paths[:-1], 'spec/gear/contract.json', paths[-1])
                 provenance = self.provenance_rows(root, paths)
             if proof_body is None:
                 proof_body = self.registration('TestOne', 'proofkit.Run', 'stepOne')
@@ -397,11 +404,19 @@ class CheckCompileTest(unittest.TestCase):
                     '## S1 `[GO]` One — `stepOne`\n\n'
                     'Build the thing.\n\n'
                     '%s%s\n\n' % (self.annotation_line(annotation), from_line))
-            steps = (
-                '# Steps\n\n'
-                '%s'
-                '## Provenance\n\n'
-                '%s\n' % (step_body, table))
+            if contract_section is None:
+                steps = (
+                    '# Steps\n\n'
+                    '%s'
+                    '## Provenance\n\n'
+                    '%s\n' % (step_body, table))
+            else:
+                steps = (
+                    '# Steps\n\n'
+                    '## Provenance\n\n'
+                    '%s\n\n'
+                    '%s\n\n'
+                    '%s' % (table, contract_section, step_body))
             (root / 'spec' / 'gear' / 'steps.md').write_text(steps)
             if mutate_auxiliary:
                 (root / 'spec' / 'gear' / 'trace.md').write_text('changed\n')
@@ -1957,6 +1972,44 @@ class CheckCompileTest(unittest.TestCase):
                 api_lookup={'frobnicate': []})
         self.assertEqual(result, 2, output)
         self.assertIn('check_compile: boom', err.getvalue())
+        self.assertNotIn('BLOCKING', output)
+
+    def test_missing_contract_handoff_is_a_content_failure(self):
+        manifest = {
+            'module': 'lib/geargen/fixturegear.py',
+            'classes': {'FixtureGenerator': {'methods': ['buildFixture']}},
+        }
+
+        result, output = self.run_checker(contract_manifest=manifest)
+
+        self.assertEqual(result, 1, output)
+        self.assertIn('carries no compilation contract section', output)
+
+    def test_stale_contract_handoff_is_a_content_failure(self):
+        embedded = {
+            'module': 'lib/geargen/fixturegear.py',
+            'classes': {'FixtureGenerator': {'methods': ['buildFixture']}},
+        }
+        current = json.loads(json.dumps(embedded))
+        current['classes']['FixtureGenerator']['methods'].append('newMethod')
+        section = CONTRACT_HANDOFF.render_contract(embedded)
+
+        result, output = self.run_checker(
+            contract_manifest=current, contract_section=section)
+
+        self.assertEqual(result, 1, output)
+        self.assertIn('does not match spec/gear/contract.json', output)
+
+    def test_unreadable_contract_manifest_is_a_setup_error(self):
+        err = io.StringIO()
+        with mock.patch.object(
+                CONTRACT_HANDOFF, 'load_contract',
+                side_effect=PermissionError('spec/gear/contract.json: permission denied')), \
+                contextlib.redirect_stderr(err):
+            result, output = self.run_checker()
+
+        self.assertEqual(result, 2, output)
+        self.assertIn('permission denied', err.getvalue())
         self.assertNotIn('BLOCKING', output)
 
 

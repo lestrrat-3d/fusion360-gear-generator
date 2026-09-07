@@ -46,10 +46,11 @@ def provenance_inputs(gear):
     """Existing source files whose hashes define a compiled step list."""
     instructions = os.path.join('spec', gear, 'instructions.md')
     fusion = os.path.join('spec', gear, 'fusion.md')
+    contract = os.path.join('spec', gear, 'contract.json')
     playbook = PLAYBOOK
     specs = [path for path in (instructions, fusion) if os.path.isfile(path)]
     inputs = {
-        path for path in (instructions, fusion, playbook) if os.path.isfile(path)
+        path for path in (instructions, fusion, contract, playbook) if os.path.isfile(path)
     }
     for path in specs:
         inputs.update(referenced_documents(path))

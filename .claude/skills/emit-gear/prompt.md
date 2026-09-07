@@ -9,8 +9,10 @@ It does not validate Fusion behavior and never replaces the orchestrator's compl
 Do not execute the generated module; the `adsk` modules exist only inside Fusion, so runtime
 behavior cannot be checked during drafting.
 
-**Read, in this order:** `spec/{{gear}}/steps.md`, which is your instruction set and which you work
-through in order; `proof/{{gear}}/`, the checked geometry, which steps tagged `[GO]` tell you to
+**Read, in this order:** `spec/{{gear}}/steps.md`, including its complete generated
+`## Compilation contract` section when present, which carries every manifest rule the output must
+satisfy, then work through the timeline steps in order; `proof/{{gear}}/`, the checked geometry,
+which steps tagged `[GO]` tell you to
 transliterate literally rather than re-derive; `.tmp/{{gear}}.playbook-extract.md`, the generated
 extract of the playbook rules the steps cite by anchor plus the shared core sections (it replaces
 reading `PLAYBOOK.md`, which you must not open — an anchor the extract lacks and the step list
