@@ -87,7 +87,7 @@ and the spec describes that). When inherited, `lib/geargen/base.py` provides:
 - `getOccurrence()` — lazily creates the child occurrence under `self.parentComponent`, and on
   first creation builds the `ParamNamePrefix` as `f'{self.prefixBase()}_{component.id without
   dashes}'` and a `ComponentCleaner`. **Calling this (or anything that calls it transitively,
-  including `parameterName()`/`addParameter()`) shifts Fusion's active component context.**
+  including `parameterName()`/`addParameter()`) can invalidate cross-component selections; it does not call `occurrence.activate()`.**
 - `getComponent()` → `getOccurrence().component`.
 - `addParameter(name, ValueInput, units, comment)` → `design.userParameters.add(parameterName(name), …)`.
 - `getParameter(name)`, `getParameterAsValueInput(name)`, `getParameterAsBoolean(name)`.
@@ -751,15 +751,15 @@ authoritative description of the behavior the helpers encode.
   `setByLine(infiniteLine)` (axis along a sketch/3D line), `setByCircularFace(face)` (off a
   cylinder/cone), or `setByTwoPlanes(planeA, planeB)` (their intersection — a usable workaround when
   `setByPerpendicularAtPoint` would need a `BRepFace` you don't have).
-- **[PB-CONSTRUCTION-NEEDS-ACTIVE] Construction geometry (points/axes/planes) needs an ACTIVE component — sketch geometry does
-  not.** `component.constructionPoints.add(...)` / `constructionAxes.add(...)` raise `RuntimeError:
-  3 : Environment is not supported` when `component` is not the activated one. Sketches, solids, and
-  features happily build on a non-activated component, but construction geometry does not — and the
-  cross-gear rule is to **never** activate (activating mis-resolves externally-selected planes onto
-  world XY). So when you'd reach for a construction point/axis, prefer geometry that needs no active
-  component: use a **`SketchPoint`** as a loft point-section (not a `ConstructionPoint`), and feed
-  rotations a `Matrix3D` axis from a sketch edge's `worldGeometry` (not a `ConstructionAxis`). Reserve
-  construction geometry for code paths that genuinely run in the active/root component.
+- **[PB-CONSTRUCTION-NEEDS-ACTIVE] Construction creation context is method-specific; UI activation is not a general prerequisite.**
+  Autodesk's [components/proxies guide](https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/ComponentsProxies_UM.htm) says API geometry is created through the component used to access its collection.
+  NEVER call `occurrence.activate()` merely to add geometry (`[PB-NEVER-ACTIVATE]`). When defining non-root
+  construction geometry from another component, pass `occurrenceForCreation` or set the matching
+  [creation occurrence](https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/ConstructionAxisInput_creationOccurrence.htm).
+  Respect documented direct-mode-only forms: [axis `setByLine`](https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/ConstructionAxes_add.htm),
+  [point `setByPoint(Point3D)`](https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/ConstructionPoints_add.htm), and
+  [plane `setByPlane`](https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/ConstructionPlanes_add.htm). The parametric cycloidal `setByLine` failure, which activation did not fix, belongs to
+  `[CYCLOIDAL-F-DISK-AXIS]`; bevel's tooth-axis recipe records `setByTwoPlanes` working without activation.
 - **[PB-MOVE-ROTATE] Move/rotate a body** (`component.features.moveFeatures`): `createInput2(bodyCollection)` →
   `defineAsFreeMove(matrix3D)` → `add(input)`, where the matrix is built with
   `Matrix3D.setToRotation(angleRadians, axisVector, originPoint)`. Use `defineAsFreeMove` with a

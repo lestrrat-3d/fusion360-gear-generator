@@ -315,8 +315,8 @@ on a simplified stand-in.
   spur cleanup recipe (which entities, the per-mode split) is `[SPUR-F-CLEANUP]`.
 - **Dimensions are driving by default** — omit the optional `isDriving` argument and never pass `isDriving=False` (`[PB-DRIVING-DIM]`). All
   diameter dimensions here (the four gear circles and the bore circle) must be driving. The
-  tooth-top arc carries no diameter dimension at all; it shares the local origin as its centre
-  instead (`[SPUR-F-TOOTHTOP-ARC]`).
+  tooth-top arc carries no diameter dimension; tie its copied centre to the local origin exactly as
+  `[SPUR-F-TOOTHTOP-ARC]` requires.
 - **Fully constrain every sketch's geometry.** Verify the labelled Gear Profile sketch according to `[PB-TEXT-HOLDS-DOF]`
   and every unlabelled sketch according to `[PB-FULL-CONSTRAINT]`. Every sketch's local origin rides on the projected
   anchor, including the Bore Profile sketch's, whose local origin the tooth generator creates and nothing else uses. See step 12.
@@ -480,7 +480,7 @@ must not break either:
 
 ## Generation Order
 
-The 12 steps below are preceded by a dialog-reading pass. The order matters for one specific reason: as soon as you call `parentComponent.occurrences.addNewComponent(...)` (directly via `getOccurrence()`, or indirectly via the first `addParameter()` / `parameterName()` call), Fusion's active component context shifts to the newly created occurrence. `SelectionCommandInput`s holding entities that live in a *different* component — for example a `SketchPoint` on a sketch in the root component, while the new gear is being added under the root — can drop their selections when that context shift happens. Numeric and boolean inputs are unaffected.
+The 12 steps below are preceded by a dialog-reading pass. The order matters for one specific reason: as soon as you call `parentComponent.occurrences.addNewComponent(...)` (directly via `getOccurrence()`, or indirectly via the first `addParameter()` / `parameterName()` call), Fusion can drop `SelectionCommandInput` entities that live in a *different* component — for example a `SketchPoint` on a sketch in the root component, while the new gear is being added under the root. This creation does not call `occurrence.activate()`; numeric and boolean inputs are unaffected.
 
 So the rule is: pull every selection input (Parent, Target Plane, Anchor Point) out of `inputs` and stash the entities on `self` *before* triggering occurrence creation. The order inside `generate()` is therefore:
 
@@ -573,7 +573,7 @@ Find the gear body profile — the solid disc inside the root circle, whose boun
 
 While iterating the new body's faces (`extrude.bodies.item(0).faces`), capture two references needed later. Classify each face by `face.geometry.surfaceType`:
 
-- **`Gear Center` construction axis** — from any face whose `surfaceType` is `CylinderSurfaceType`. Build it with `constructionAxes.createInput()` → `axisInput.setByCircularFace(cylindrical_face)` → `constructionAxes.add(axisInput)`. Name it `Gear Center`; set `isLightBulbOn = False`. Store on `ctx.centerAxis`.
+- **`Gear Center` construction axis** — from any face whose `surfaceType` is `CylinderSurfaceType`. Build it with `constructionAxes.createInput()` → `axisInput.setByCircularFace(cylindrical_face)` → `constructionAxes.add(axisInput)`. The face and collection belong to the same gear component, so do not activate the occurrence (`[PB-CONSTRUCTION-NEEDS-ACTIVE]`). Name it `Gear Center`; set `isLightBulbOn = False`. Store on `ctx.centerAxis`.
 - **`ctx.extrusionExtent`** (the far end-cap face, used later by the bore cut) — among faces whose `surfaceType` is `PlaneSurfaceType`, the one that is parallel to but **not** coplanar with the gear's sketch plane. Test it with the plane-geometry API rather than a hand-rolled dot-product: let `sketchPlane = ctx.gearProfileSketch.referencePlane.geometry`, and pick the face where `sketchPlane.isParallelToPlane(face.geometry) and not sketchPlane.isCoPlanarTo(face.geometry)`. (The near cap is coplanar with the sketch plane, so `isCoPlanarTo` rules it out; the cylindrical and side faces aren't planar.) Raise if either reference isn't found.
 
 Finally store `ctx.gearBody` (the `Gear Body` body).

@@ -213,7 +213,7 @@ Reproduced verbatim from `lib/geargen/helicalgear.py`; **do not "fix" them in th
 changes behavior and belongs in a separate, deliberate change once verified in Fusion):
 
 - **Helix Angle sits last in the dialog**, after Parent Component (`[SPUR-SUBCLASS-INPUT]` consequence).
-- **Embedded (low-tooth-count) helical is unsupported** — `loftTooth` hardcodes `lines=2` and never
+- **Embedded helical is unsupported** — `loftTooth` hardcodes `lines=2` and never
   reads `ctx.toothProfileIsEmbedded` (`[HELI-F-LOFT]`).
 - **The helix construction plane is left visible after generation** — spur's cleanup hides only its
   own entities, and helical adds no cleanup of its own. The Twisted Gear Profile sketch, by

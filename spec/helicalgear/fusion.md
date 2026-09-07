@@ -60,7 +60,7 @@ the chamfer edge count. These are the only helical-specific anchors; the tooth i
   (do not re-implement the loop search — PLAYBOOK "Shared geargen helper library").
   **⚠️ Non-embedded only.** Both sections pass a fixed `nurbs=2, arcs=2, lines=2` (the non-embedded
   6-curve tooth). This implementation does **not** read `ctx.toothProfileIsEmbedded` and has **no
-  embedded branch**: an embedded low-tooth-count helical gear (flank starts inside the root circle,
+  embedded branch**: an embedded helical gear (flank starts inside the root circle,
   `lines=0`) would fail to find the profile. This is faithful to the current code — a documented
   limitation, not a bug to fix in the spec.
 

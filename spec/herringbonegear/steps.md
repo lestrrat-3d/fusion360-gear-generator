@@ -16,10 +16,10 @@ leaves behind.
 |---|---|
 | `spec/herringbonegear/instructions.md` | `45c8836ef944f9c0e4a188572b4a0ffc83250f1e` |
 | `spec/herringbonegear/fusion.md` | `62755ad2d376481cf449893ab2a445772357d218` |
-| `spec/helicalgear/fusion.md` | `f981173cb314094f2fd98cdd78d5bd8287cdc8ee` |
-| `spec/helicalgear/instructions.md` | `bb75fd3ac4a0fb0119f6a4ddec12f62943a41ea7` |
-| `spec/spurgear/instructions.md` | `50d2145b23b6d25a7ad96c8d6ed6fd9d44f5d5b7` |
-| `.claude/skills/generate-gear/PLAYBOOK.md` | `ea3f8f6a1a4e62fc4370030fd304ba53eb73bba6` |
+| `spec/helicalgear/fusion.md` | `c636a3b7bb6fd13cd8a4153fe63a123137d32262` |
+| `spec/helicalgear/instructions.md` | `f24b67c01eecd0c193319f192e73e48ac62e7ed5` |
+| `spec/spurgear/instructions.md` | `4a0bca4ab7b0fd275571f3408de06d013738ca53` |
+| `.claude/skills/generate-gear/PLAYBOOK.md` | `b2a724566f469283211a645d83fbefe00f71ec3a` |
 
 ## H1 `[PROSE]` Module layout, imports and constants
 

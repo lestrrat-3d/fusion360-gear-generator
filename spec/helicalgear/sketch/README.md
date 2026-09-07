@@ -52,7 +52,7 @@ seeded draw-then-constrain sketch. Historical bench success does not establish c
 
 Models the **non-embedded** twisted profile, which is all helical supports: `helicalgear.py`'s
 `loftTooth` finds both loft sections with a fixed `nurbs=2, arcs=2, lines=2` (6-curve) count and never
-reads `ctx.toothProfileIsEmbedded`, so an embedded low-tooth-count helical gear is unsupported by the
+reads `ctx.toothProfileIsEmbedded`, so an embedded helical gear is unsupported by the
 implementation. The bench matches that and skips embedded sizes. Herringbone reuses this exact twisted
 profile (same tooth at the helix angle); its extra work — mirror + combine — is a solid-body
 operation, not a sketch, so it needs no separate proof.

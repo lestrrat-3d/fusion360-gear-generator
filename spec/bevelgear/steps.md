@@ -9,11 +9,11 @@ The proof for this step list is `proof/bevelgear/geometry_test.go`, `proof/bevel
 
 | file | `git hash-object` |
 |---|---|
-| `spec/bevelgear/instructions.md` | `6e56983e0e2a58ab73aac7a16dcaad8918d17fd8` |
+| `spec/bevelgear/instructions.md` | `10facc6ebcb4a1a31ea0bc99883f43c5ae2d0808` |
 | `spec/bevelgear/fusion.md` | `40d165fbc2f47ffba45d7c3c0f73ca67ec488d42` |
 | `spec/bevelgear/spiral-tooth-trace.md` | `c9ec08561ced7975aa0ed9ad6a330186259c0d08` |
-| `spec/spurgear/instructions.md` | `50d2145b23b6d25a7ad96c8d6ed6fd9d44f5d5b7` |
-| `.claude/skills/generate-gear/PLAYBOOK.md` | `ea3f8f6a1a4e62fc4370030fd304ba53eb73bba6` |
+| `spec/spurgear/instructions.md` | `4a0bca4ab7b0fd275571f3408de06d013738ca53` |
+| `.claude/skills/generate-gear/PLAYBOOK.md` | `b2a724566f469283211a645d83fbefe00f71ec3a` |
 
 ## S1 `[PROSE]` Module layout, imports, classes and constants
 
