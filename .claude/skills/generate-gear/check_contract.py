@@ -88,10 +88,15 @@ def _ctx_fields(classnode):
         if isinstance(node, ast.FunctionDef) and node.name == "__init__":
             for sub in ast.walk(node):
                 if isinstance(sub, ast.Assign):
-                    for t in sub.targets:
-                        if isinstance(t, ast.Attribute) and \
-                                isinstance(t.value, ast.Name) and t.value.id == "self":
-                            fields.append(t.attr)
+                    targets = sub.targets
+                elif isinstance(sub, ast.AnnAssign) and sub.value is not None:
+                    targets = [sub.target]
+                else:
+                    continue
+                for target in targets:
+                    if isinstance(target, ast.Attribute) and \
+                            isinstance(target.value, ast.Name) and target.value.id == "self":
+                        fields.append(target.attr)
     return fields
 
 

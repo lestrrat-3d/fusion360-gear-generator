@@ -6,11 +6,14 @@ cannot see: a constraint recipe reverting to an alternative that also solves.
 Nothing is renamed when that happens, so the constant, class and method checks
 all stay green. These tests hold the guards to catching it.
 """
+import ast
 import importlib.util
+import io
 import json
 import re
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 
@@ -49,6 +52,56 @@ def guard(**overrides):
     }
     base.update(overrides)
     return base
+
+
+class ContextFieldTests(unittest.TestCase):
+    """Context fields are initialized instance attributes in `__init__`."""
+
+    def test_initialized_annotation_satisfies_manifest_field(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = root / 'contract.json'
+            candidate = root / 'fixture.py'
+            manifest.write_text(json.dumps({
+                'module': 'fixture.py',
+                'classes': {'FixtureContext': {'ctx_fields': ['anchor']}},
+            }))
+            candidate.write_text('''\
+class FixtureContext:
+    def __init__(self):
+        self.anchor: object | None = None
+''')
+
+            with redirect_stdout(io.StringIO()):
+                result = MODULE.main(str(manifest), str(candidate), str(root))
+
+            self.assertEqual(result, 0)
+
+    def test_plain_and_initialized_annotated_assignments_count_the_same(self):
+        plain = MODULE._ctx_fields(ast.parse('''\
+class FixtureContext:
+    def __init__(self):
+        self.anchor = None
+''').body[0])
+        annotated = MODULE._ctx_fields(ast.parse('''\
+class FixtureContext:
+    def __init__(self):
+        self.anchor: object | None = None
+''').body[0])
+
+        self.assertEqual(annotated, plain)
+
+    def test_non_instance_or_uninitialized_annotations_do_not_count(self):
+        class_node = ast.parse('''\
+class FixtureContext:
+    class_anchor: object | None = None
+
+    def __init__(self):
+        self.uninitialized: object | None
+        other.anchor: object | None = None
+''').body[0]
+
+        self.assertEqual(MODULE._ctx_fields(class_node), [])
 
 
 class ScopedGuardTests(unittest.TestCase):
