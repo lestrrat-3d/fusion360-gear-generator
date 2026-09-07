@@ -1,0 +1,13 @@
+{
+  "autodeskProduct": "Fusion360",
+  "type": "script",
+  "id": "49eb52f4-cbb6-4498-9d68-f0b7b1ad2d52",
+  "author": "fusion360-gear-generator contributors",
+  "description": {
+    "": "Records native constraint and tracking behavior for the spur anchor projection chain."
+  },
+  "version": "1.0.0",
+  "runOnStartup": false,
+  "supportedOS": "windows|mac",
+  "editEnabled": true
+}
