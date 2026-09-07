@@ -59,6 +59,7 @@ import sys
 
 from call_parser import call_shapes
 from contract_handoff import mask_contract
+from step_metadata import MetadataError, file_calls, file_version
 
 NEGATIVE_CALL_CONTEXT = re.compile(
     r'\b(?:do\s+not|must\s+not|never|avoid|forbid(?:den)?|prohibit(?:ed|s)?|'
@@ -125,6 +126,9 @@ def named_calls(steps_src):
 
 def named_call_shapes(steps_src):
     """Extract required calls, retaining whether the step names a receiver."""
+    if file_version(steps_src) == 2:
+        return {(call['name'], call['receiver'] is not None)
+                for call in file_calls(steps_src) if call['role'] == 'required'}
     # Strip fenced blocks FIRST. Their ``` fences desync single-backtick pairing, which
     # silently drops most of the corpus — the bug that made the first draft of this check
     # report a clean pass on a file that was missing calls.
@@ -477,7 +481,12 @@ def main(argv):
     steps_src = open(steps_path).read()
     gen_src = open(gen_path).read()
 
-    wanted = named_call_shapes(steps_src)
+    metadata_error = None
+    try:
+        wanted = named_call_shapes(steps_src)
+    except MetadataError as exc:
+        metadata_error = str(exc)
+        wanted = set()
     parse_error = None
     try:
         gen_tree = ast.parse(gen_src, filename=gen_path)
@@ -517,6 +526,8 @@ def main(argv):
     # The prose report is rendered from those records, in the order it has always used, so the
     # flagless output stays byte for byte what it was.
     problems = []
+    if metadata_error is not None:
+        problems.append('  step metadata: %s' % metadata_error)
     if parse_error is not None:
         problems.append("  generated candidate is not valid Python: %s" % parse_error)
     for record in missing:
@@ -537,17 +548,22 @@ def main(argv):
             % (gen_path, record['line'], record['argument']))
 
     if json_mode:
-        print(json.dumps({
+        report = {
             'ok': not problems,
             'named_calls': len(wanted),
             'missing': missing,
             'stubs': stubs,
             'shared_point': shared_point,
             'parse_error': parse_error,
-        }, sort_keys=True))
+        }
+        if metadata_error is not None:
+            report['metadata_error'] = metadata_error
+        print(json.dumps(report, sort_keys=True))
         return 1 if problems else 0
 
     if names_mode:
+        if metadata_error is not None:
+            print('check_step_calls: step metadata: %s' % metadata_error, file=sys.stderr)
         # A name is all the caller may forward, so the parse error goes to stderr rather than
         # contaminating the list.
         if parse_error is not None:

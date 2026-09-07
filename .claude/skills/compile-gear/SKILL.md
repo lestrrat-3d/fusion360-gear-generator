@@ -73,7 +73,7 @@ proof is where the next reader is looking for the missing check.
 2. **Render citations and stamp provenance.** Both sections are generated, never typed. After each
    drafting round in step 3, first run `python3
    .claude/skills/generate-gear/render_step_metadata.py <gear> --write .tmp/<gear>.steps.md` from
-   the repo root. It validates every version-1 metadata payload before atomically rendering all
+   the repo root. New drafts use version 2; the renderer accepts versions 1 and 2 before atomically rendering all
    `**From:**` lines. A finding is a draft fault, and the original draft remains unchanged.
 
    After rendering succeeds, run `python3 .claude/skills/generate-gear/gen_provenance.py <gear>
@@ -152,9 +152,12 @@ proof is where the next reader is looking for the missing check.
    recompiled step list that disagrees with it breaks the build even though the other checks are
    green. On a failure, run `python3 .claude/skills/generate-gear/check_step_calls.py
    spec/<gear>/steps.md lib/geargen/<gear>.py --names`, which prints exactly the missing call
-   names, one per line; classify each name and pass only the names back to the drafter: a name the
-   step list mentions without requiring takes the exemption directive, and a call the module
-   genuinely fails to make is work for `/emit-gear`, not for this stage. Never hand the drafter
+   names, one per line. For version 2, required declarations are execution obligations; missing calls
+   belong to `/emit-gear`. Changing an existing required declaration to another role requires source
+   review. Never remove a requirement because the current module omits it. Legacy and version-1 files
+   retain their existing ignore behavior until normal recompilation; never guess roles to migrate them.
+   Use the role rules in `docs/prose-pipeline-handoffs/formats.md#version-2` and the syntax owner
+   `.claude/skills/generate-gear/step_metadata.py`. Never hand the drafter
    anything the module does or does not contain, and never let it read the module — the pipeline
    has to be able to compile a gear that has no implementation yet. Classify by reading the
    drafted step list around each printed name in `.tmp/<gear>.steps.md`; that is the only text
@@ -210,7 +213,7 @@ proof is where the next reader is looking for the missing check.
 | The proof fails to build | Draft fault |
 | A cited line range does not exist | Draft fault |
 | A step and its proof function disagree | Draft fault |
-| A step names a call the module is not required to make | Draft fault |
+| An existing required call needs a different role | Source-review escalation |
 | A named API call does not exist, and the spec did not name it | Draft fault |
 | A provenance hash does not match | A source changed after the table was stamped; re-run `gen_provenance.py` and check again |
 | The step list cites no playbook anchor | Draft fault |

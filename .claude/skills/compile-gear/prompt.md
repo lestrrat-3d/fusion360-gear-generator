@@ -5,6 +5,7 @@ to `.tmp/{{gear}}-proof/`.
 **Read, in full, only these:** `spec/{{gear}}/instructions.md`, `spec/{{gear}}/fusion.md` if it
 exists, `spec/{{gear}}/contract.json` if it exists, every Markdown document the prose sources
 reference by name, `.claude/skills/generate-gear/PLAYBOOK.md`,
+`docs/prose-pipeline-handoffs/formats.md` for step metadata,
 `proof/proofkit/` for the sketch harness API, `proof/proofkit3d/` for the solid harness API, and
 `proof/involute/` for the involute tooth math the spur family shares, so you import it rather
 than deriving it again.
@@ -26,7 +27,7 @@ below that heading, or one naming bare file names, leaves the gate with nothing 
 Include `proof/{{gear}}/zz_registrations_test.go`, the generated registration file, among the
 paths.
 
-**Immediately after the proof-file sentence, write `<!-- step-metadata: 1 -->` on its own line.**
+**Immediately after the proof-file sentence, write `<!-- step-metadata: 2 -->` on its own line.**
 It must precede `## Provenance`, because provenance stamping replaces that whole section. Write
 the marker exactly once and before the first step.
 
@@ -40,13 +41,14 @@ heading, since a gate reads the text above it for those paths and the generator 
 contract after provenance and before that first step.
 
 **Each step carries** a heading of the form `## <id> `[GO]` <title>` or with `[PROSE]`, the
-instructions themselves, one version-1 `step-meta` JSON comment naming the spec files and line
+instructions themselves, one version-2 `step-meta` JSON comment naming the spec files and line
 ranges you compiled it from, and every Fusion API call it requires written inside a code span.
 Write the comment before any rendered citation line, with an opening line exactly
 `<!-- step-meta`, a closing line exactly `-->`, and the JSON produced by
-`json.dumps(payload, sort_keys=True, ensure_ascii=False, indent=2)`. Use exactly the `schema` and
-`citations` keys; each citation has exactly `path`, `first`, and `last`, with inclusive integer
-line numbers. Do not write a `**From:**` line. The orchestrator renders it mechanically after the
+`json.dumps(payload, sort_keys=True, ensure_ascii=False, indent=2)`.
+Read `docs/prose-pipeline-handoffs/formats.md#version-2` for the exact fields and role rules;
+`.claude/skills/generate-gear/step_metadata.py` owns accepted syntax.
+Do not write a `**From:**` line. The orchestrator renders it mechanically after the
 draft. A `[GO]` step also names the proof function that realises it and carries the `proof-run`
 annotation described below.
 
@@ -74,13 +76,22 @@ geometry are not interchangeable as constraint arguments — measured, a step th
 again" was transcribed against the shaft axis rather than the line the spec named, and Fusion
 refused the sketch with `VCS_SKETCH_OVER_CONSTRAINTS`.
 
-**A call span in a step is a call the module must make.** A later gate reads every call written
-in a code span and requires the generated module to make it. A name a step mentions without
-requiring it therefore has to be marked: a method the module defines for the framework to call, a
-call named only to forbid it, and one of several alternatives the spec lets the implementation
-choose between are all mentions, not requirements. Mark each with the exemption directive on its
-own line in the step that mentions it, `<!-- check-step-calls: ignore nameOne nameTwo -->`, and
-say in the step's prose why the mention is not a requirement.
+**Declare every call-shaped inline span using the version-2 format owner above.**
+The following checklist is non-authoritative; the format owner wins over this summary.
+
+- Give each `(span, name, receiver)` exactly one declaration, including calls in step titles.
+- Use `required` for execution obligations and preserve any stated condition.
+- Give required API calls qualified owners; owner-null required locals must belong to the existing
+  Python/math, framework, or contract name sets used by `check_compile.py`.
+- Use `inherited` only for an actual definition in the shared framework, never a contract-only method.
+- Give `example`, `forbidden`, `inherited`, and `prose` entries reasons under the format owner's rules.
+- Use `prose` only when the whole span fails Python expression parsing.
+- Keep call-shaped spans inside their relevant steps and never write global ignore directives.
+- Do not change an existing required call's role because an existing module omits it.
+  Reclassification requires source review. Never guess production roles for automatic migration.
+
+Declarations do not prove that every prose requirement was captured. Proof and source review still
+check that boundary. A `forbidden` role does not replace source guards.
 
 **Before naming any `adsk.*` call**, run
 `python3 .claude/skills/generate-gear/query_api_status.py --owner <qualified-class> --member

@@ -14,6 +14,8 @@ the pipeline exists to make trustworthy.
 
 - `gear` (default `spurgear`) names `spec/<gear>/steps.md` and `proof/<gear>/`, and the output
   `lib/geargen/<gear>.py`.
+- `docs/prose-pipeline-handoffs/formats.md#version-2` defines call roles for the execution checklist;
+  `.claude/skills/generate-gear/step_metadata.py` owns accepted syntax.
 
 ## Optional pipeline timing
 
@@ -61,6 +63,10 @@ the advisory findings.
    validation pass for that submitted draft, and the stored copy is what a retry round hands back
    to the drafter. Exit 0 = every gate that ran passed; exit 1 = a gate failed; exit 2 = a setup
    error (missing input, missing stubs, unreachable API database) that no new draft can fix.
+
+   Version-2 required declarations supply the execution checklist. Preserve stated conditions;
+   conditional requirements still need reachable executable calls. Other roles create no positive
+   execution obligation and do not replace source guards. Legacy and version-1 checks remain unchanged.
 
 4. **Diagnose and loop.** The runner prints a first-pass fault classification; confirm the rows it
    marks NEEDS JUDGMENT against the table below. An emit fault goes back to the drafter, up to
@@ -112,7 +118,7 @@ reports. A manual re-run diagnoses a row only; it never replaces the complete su
 | Types | `pyright_check.py .tmp/<gear>.generated.py` | Undefined names, wrong `adsk` submodule |
 | Input reads | `check_input_read.py .tmp/<gear>.generated.py` | A dialog input read with the wrong helper |
 | Contract | `check_contract.py spec/<gear>/contract.json .tmp/<gear>.generated.py` | Missing classes, hooks, `ctx` fields, constants; a guarded constraint recipe reverted to its rejected alternative |
-| Step calls | `check_step_calls.py spec/<gear>/steps.md .tmp/<gear>.generated.py` | A named call never made, an abandoned stub, a shared point passed as `.geometry` |
+| Step calls | `check_step_calls.py spec/<gear>/steps.md .tmp/<gear>.generated.py` | A required call never made, invalid metadata, an abandoned stub, a shared point passed as `.geometry` |
 | Anchors | `python3 .claude/skills/generate-gear/check_anchors.py` | A proof or step-list anchor is missing or stale |
 | API calls | `check_api_calls.py .tmp/<gear>.generated.py` | A blocked receiver/member status or unknown receiver |
 

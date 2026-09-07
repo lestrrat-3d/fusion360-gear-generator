@@ -37,6 +37,144 @@ COMPILE_MODULE_SPEC = importlib.util.spec_from_file_location('check_compile', CO
 COMPILE_CHECKER = importlib.util.module_from_spec(COMPILE_MODULE_SPEC)
 COMPILE_MODULE_SPEC.loader.exec_module(COMPILE_CHECKER)
 CONTRACT_HANDOFF = sys.modules['contract_handoff']
+from test_step_metadata import call_declaration, version_two  # noqa: E402
+
+
+class VersionTwoCompileTest(unittest.TestCase):
+    def run_checker(self, text=None, framework='', contract=None, unavailable=False):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'spec/fixturegear/instructions.md'
+            source.parent.mkdir(parents=True)
+            source.write_text('Fixture source.\nWidget instruction.\n')
+            framework_path = root / 'lib/geargen/base.py'
+            framework_path.parent.mkdir(parents=True)
+            framework_path.write_text(framework)
+            (root / 'proof/fixturegear').mkdir(parents=True)
+            playbook = root / '.claude/skills/generate-gear/PLAYBOOK.md'
+            playbook.parent.mkdir(parents=True)
+            playbook.write_text('Fixture rule.\n')
+            if contract is not None:
+                contract_path = root / 'spec/otherfixture/contract.json'
+                contract_path.parent.mkdir(parents=True)
+                contract_path.write_text(json.dumps(contract))
+            rows = '\n'.join('| `%s` | `%s` |' % (path.relative_to(root), COMPILE_CHECKER.blob_hash(str(path)))
+                             for path in (source, playbook))
+            text = version_two() if text is None else text
+            text = text.replace('<!-- step-metadata: 2 -->',
+                                '<!-- step-metadata: 2 -->\n\n## Provenance\n\n' + rows)
+            (root / 'spec/fixturegear/steps.md').write_text(text)
+            output = io.StringIO()
+            errors = io.StringIO()
+            prior = os.getcwd()
+
+            def member(owner, name):
+                if unavailable:
+                    raise COMPILE_CHECKER.fusion_api.Unavailable('Fixture database unavailable')
+                if (owner, name) == ('adsk.fusion.WidgetTools', 'addWidget'):
+                    return dict(lookup=owner, declared_on=owner, name=name, kind='method', returns=None)
+                return None
+
+            try:
+                os.chdir(root)
+                with mock.patch.object(COMPILE_CHECKER, 'proof_run_shapes',
+                                       return_value=mock.Mock(arguments={})), \
+                        mock.patch.object(COMPILE_CHECKER, 'proof_registrations',
+                                          return_value=(set(), set(), {}, [])), \
+                        mock.patch.object(COMPILE_CHECKER.fusion_api, 'member_info', side_effect=member) as query, \
+                        mock.patch.object(COMPILE_CHECKER.fusion_api, 'class_members', return_value={}), \
+                        mock.patch.object(COMPILE_CHECKER.fusion_api, 'lookup_many', return_value={}) as lookup, \
+                        contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
+                    code = COMPILE_CHECKER.main(['check_compile.py', 'fixturegear'])
+                    queries = query.call_args_list
+                    self.assertTrue(all(call.args == ([],) for call in lookup.call_args_list))
+            finally:
+                os.chdir(prior)
+            return code, output.getvalue() + errors.getvalue(), queries
+
+    def test_required_call_present(self):
+        code, output, queries = self.run_checker()
+        self.assertEqual(code, 0, output)
+        self.assertEqual(queries, [mock.call('adsk.fusion.WidgetTools', 'addWidget')])
+
+    def test_wrong_owner(self):
+        code, output, queries = self.run_checker(version_two([call_declaration(owner='adsk.fusion.OtherTools')]))
+        self.assertEqual(code, 1, output)
+        self.assertIn('adsk.fusion.OtherTools', output)
+        self.assertEqual(queries, [mock.call('adsk.fusion.OtherTools', 'addWidget')])
+
+    def test_same_member_with_two_owners_checks_both(self):
+        calls = [call_declaration(), call_declaration(span='other.addWidget(item)', receiver='other',
+                                                     owner='adsk.fusion.OtherTools')]
+        code, output, queries = self.run_checker(version_two(calls, '`tools.addWidget(item)` and `other.addWidget(item)`'))
+        self.assertEqual(code, 1, output)
+        self.assertCountEqual(queries, [mock.call('adsk.fusion.WidgetTools', 'addWidget'),
+                                        mock.call('adsk.fusion.OtherTools', 'addWidget')])
+
+    def test_api_owner_is_checked_even_when_name_is_local(self):
+        code, output, queries = self.run_checker(framework='def addWidget():\n    pass\n')
+        self.assertEqual(code, 0, output)
+        self.assertEqual(len(queries), 1)
+
+    def test_owner_null_required_api_name_is_rejected(self):
+        code, output, queries = self.run_checker(version_two([call_declaration(owner=None)]))
+        self.assertEqual(code, 1, output)
+        self.assertIn('API calls need a qualified owner', output)
+        self.assertEqual(queries, [])
+
+    def test_owner_null_required_locals_use_existing_sets(self):
+        cases = [('items.append(item)', 'append', 'items', '', None),
+                 ('self.fixtureHelper(item)', 'fixtureHelper', 'self', 'def fixtureHelper():\n    pass\n', None),
+                 ('fixtureHelper(item)', 'fixtureHelper', None, '',
+                  {'classes': {'FixtureGear': {'methods': ['fixtureHelper']}}})]
+        for span, name, receiver, framework, contract in cases:
+            with self.subTest(span=span):
+                call = call_declaration(span=span, name=name, receiver=receiver, owner=None)
+                code, output, queries = self.run_checker(version_two([call], '`%s`' % span), framework, contract)
+                self.assertEqual(code, 0, output)
+                self.assertEqual(queries, [])
+
+    def test_inherited_name_must_exist(self):
+        call = call_declaration(span='self.fixtureHelper(item)', name='fixtureHelper', receiver='self',
+                                owner=None, role='inherited', reason='Framework behavior.')
+        text = version_two([call], '`self.fixtureHelper(item)`')
+        for contract in (None, {'classes': {'FixtureGear': {'methods': ['fixtureHelper']}}}):
+            with self.subTest(contract=contract):
+                code, output, _ = self.run_checker(text, contract=contract)
+                self.assertEqual(code, 1, output)
+                self.assertIn('S1 inherited call fixtureHelper has no shared-framework definition', output)
+        code, output, _ = self.run_checker(text, framework='def fixtureHelper():\n    pass\n')
+        self.assertEqual(code, 0, output)
+
+    def test_prose_parenthesis(self):
+        span = "dimensionless (units '')"
+        call = call_declaration(span=span, name='dimensionless', receiver=None, owner=None,
+                                role='prose', reason='Unit description.')
+        code, output, queries = self.run_checker(version_two([call], '`%s`' % span))
+        self.assertEqual(code, 0, output)
+        self.assertEqual(queries, [])
+
+    def test_example_and_forbidden_do_not_query_api(self):
+        for role in ('example', 'forbidden'):
+            with self.subTest(role=role):
+                call = call_declaration(role=role, reason='Fixture classification.')
+                code, output, queries = self.run_checker(version_two([call]))
+                self.assertEqual(code, 0, output)
+                self.assertEqual(queries, [])
+
+    def test_metadata_errors_are_blocking(self):
+        for text in (version_two().replace('Call `tools.addWidget(item)`.', 'No call.'),
+                     version_two(preamble='`tools.addWidget(item)`'),
+                     version_two(body='`tools.addWidget(item)`\n<!-- check-compile: ignore addWidget -->')):
+            with self.subTest(text=text):
+                code, output, _ = self.run_checker(text)
+                self.assertEqual(code, 1, output)
+                self.assertIn('BLOCKING', output)
+
+    def test_unavailable_api_is_setup_failure(self):
+        code, output, _ = self.run_checker(unavailable=True)
+        self.assertEqual(code, 2, output)
+        self.assertIn('Fixture database unavailable', output)
 
 
 # Every header spelling the gate has an opinion about, with what Go does to it and what the gate
@@ -2428,6 +2566,8 @@ class GoPatternClassTest(unittest.TestCase):
             'from_block, the From block under a step heading',
         r'<!--\s*check-compile:\s*ignore\s+([^>]*?)-->':
             'named_calls and named_call_shapes, an HTML comment waiving a named call',
+        r'<!--\s*check-(?:compile|step-calls):\s*ignore\b':
+            'file_version, a legacy ignore directive rejected in version-2 Markdown, not Go source',
         r'(?<!\w)%s(?!\w)':
             'spec_namings, a call name written as a whole word anywhere in a spec source',
         r'(?<![\w./-])(?:proof|\.tmp)/[\w./-]+':

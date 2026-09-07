@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Parse and render the metadata shared by compiled gear steps."""
+import ast
 import json
 import os
 import posixpath
 import re
 
 from contract_handoff import mask_contract
+from call_parser import call_shapes
 
 
 PATH_REF = r'[\w./-]+\.(?:md|go|py|json|sh)'
@@ -52,8 +54,14 @@ def file_version(text: str) -> int | None:
         raise MetadataError('the step-metadata marker must appear before the first step')
 
     version = int(marker.group(1))
-    if version != 1:
-        raise MetadataError('unsupported step-metadata version %d; expected version 1' % version)
+    if version not in (1, 2):
+        raise MetadataError('unsupported step-metadata version %d; expected version 1 or 2' % version)
+    if version == 2:
+        if re.search(r'<!--\s*check-(?:compile|step-calls):\s*ignore\b', inspected):
+            raise MetadataError('version 2 rejects global ignore directives; declare each call role')
+        preamble = inspected[:first_step.start()] if first_step else inspected
+        if any(call_shapes(span) for span in _inline_spans(preamble)):
+            raise MetadataError('preamble contains a call-shaped span; place it in the relevant step')
     return version
 
 
@@ -119,9 +127,10 @@ def _require_exact_keys(value, expected, label):
 
 
 def _validate_payload(payload, version):
-    if isinstance(version, bool) or not isinstance(version, int) or version != 1:
-        raise MetadataError('unsupported step-metadata version %r; expected version 1' % version)
-    _require_exact_keys(payload, ('schema', 'citations'), 'step metadata')
+    if isinstance(version, bool) or not isinstance(version, int) or version not in (1, 2):
+        raise MetadataError('unsupported step-metadata version %r; expected version 1 or 2' % version)
+    keys = ('schema', 'citations', 'calls') if version == 2 else ('schema', 'citations')
+    _require_exact_keys(payload, keys, 'step metadata')
     schema = payload['schema']
     if isinstance(schema, bool) or not isinstance(schema, int) or schema != version:
         raise MetadataError('step metadata schema must be integer %d' % version)
@@ -150,6 +159,102 @@ def _validate_payload(payload, version):
         if key in seen:
             raise MetadataError('%s repeats an identical citation' % label)
         seen.add(key)
+    if version == 2:
+        _validate_calls(payload['calls'])
+
+
+def _inline_spans(text):
+    # Keep ordinary comments visible, as in legacy scanning; only metadata is excluded.
+    text = mask_contract(text)
+    visible = []
+    fence = None
+    for line in text.splitlines(keepends=True):
+        if fence is not None:
+            if re.fullmatch(r' {0,3}%s{%d,}[ \t]*\r?\n?' % (re.escape(fence[0]), len(fence)), line):
+                fence = None
+            continue
+        opening = re.match(r' {0,3}(`{3,}|~{3,})', line)
+        if opening is not None:
+            fence = opening.group(1)
+        else:
+            visible.append(line)
+    return re.findall(r'`([^`\n]+)`', ''.join(visible))
+
+
+def _validate_calls(calls):
+    if not isinstance(calls, list):
+        raise MetadataError('step metadata calls must be an array')
+    seen = set()
+    for index, call in enumerate(calls, 1):
+        label = 'call %d' % index
+        _require_exact_keys(call, ('span', 'name', 'receiver', 'owner', 'role', 'condition', 'reason'), label)
+        for field, value in call.items():
+            nullable = field in ('receiver', 'owner', 'condition', 'reason')
+            if value is None and nullable:
+                continue
+            if not isinstance(value, str) or not value.strip() or any(c in value for c in ('\n', '\r', '-->')):
+                raise MetadataError('%s %s must be nonempty single-line text without -->' % (label, field))
+        if (call['name'], call['receiver']) not in call_shapes(call['span']):
+            raise MetadataError('%s name and receiver do not match its span' % label)
+        owner = call['owner']
+        if owner is not None and re.fullmatch(r'adsk\.(?:core|fusion)\.[A-Za-z_][A-Za-z0-9_]*', owner) is None:
+            raise MetadataError('%s owner must be a qualified adsk.core or adsk.fusion class' % label)
+        role = call['role']
+        if role not in ('required', 'inherited', 'example', 'forbidden', 'prose'):
+            raise MetadataError('%s has unknown role %r' % (label, role))
+        if role == 'required':
+            if call['reason'] is not None:
+                raise MetadataError('%s required role needs reason=null' % label)
+        else:
+            if call['condition'] is not None or call['reason'] is None:
+                raise MetadataError('%s %s role needs condition=null and a reason' % (label, role))
+            if role in ('inherited', 'prose') and owner is not None:
+                raise MetadataError('%s %s role needs owner=null' % (label, role))
+        if role == 'prose':
+            try:
+                ast.parse(call['span'], mode='eval')
+            except SyntaxError:
+                pass
+            else:
+                raise MetadataError('%s prose span is valid Python expression syntax' % label)
+        key = (call['span'], call['name'], call['receiver'])
+        if key in seen:
+            raise MetadataError('%s repeats a call declaration for %r' % (label, key))
+        seen.add(key)
+
+
+def declared_calls(body: str, payload: dict) -> list[dict]:
+    """Validate the exact span/name/receiver coverage and return declarations in order."""
+    _validate_payload(payload, 2)
+    # Strip the payload before scanning: its own span strings are never evidence.
+    _, start, end, _ = _metadata_comment(body)
+    spans = _inline_spans(body[:start] + body[end:])
+    wanted = {(span, name, receiver) for span in spans for name, receiver in call_shapes(span)}
+    declared = {(call['span'], call['name'], call['receiver']) for call in payload['calls']}
+    key_order = lambda key: (key[0], key[1], key[2] or '')
+    missing = sorted(wanted - declared, key=key_order)
+    extra = sorted(declared - wanted, key=key_order)
+    if missing:
+        raise MetadataError('missing call declaration for %r' % (missing[0],))
+    if extra:
+        raise MetadataError('call declaration has no matching inline span: %r' % (extra[0],))
+    return payload['calls']
+
+
+def file_calls(text: str) -> list[dict]:
+    """Validate a version-2 file and return declarations with step IDs in errors."""
+    if file_version(text) != 2:
+        raise MetadataError('call declarations require version 2')
+    steps = steps_of(mask_contract(text))
+    if not steps:
+        raise MetadataError('the step list declares no steps')
+    calls = []
+    for sid, _, body in steps:
+        try:
+            calls.extend(parse_step(body, 2)['calls'])
+        except MetadataError as exc:
+            raise MetadataError('%s: %s' % (sid, exc)) from exc
+    return calls
 
 
 def parse_step(body: str, version: int) -> dict:
@@ -169,6 +274,8 @@ def parse_step(body: str, version: int) -> dict:
     except (json.JSONDecodeError, TypeError) as exc:
         raise MetadataError('has invalid step-meta JSON: %s' % exc) from exc
     _validate_payload(payload, version)
+    if version == 2:
+        declared_calls(body, payload)
     return payload
 
 
@@ -182,7 +289,7 @@ def _source_line_count(path):
 
 def validate_citations(payload: dict, root: str) -> list[str]:
     """Return every source-path or line-range problem in declaration order."""
-    _validate_payload(payload, 1)
+    _validate_payload(payload, payload.get('schema') if isinstance(payload, dict) else None)
     root_path = os.path.realpath(os.path.abspath(root))
     problems = []
     for citation in payload['citations']:
@@ -216,7 +323,7 @@ def validate_citations(payload: dict, root: str) -> list[str]:
 
 def render_from(payload: dict) -> str:
     """Render one validated payload's canonical From line."""
-    _validate_payload(payload, 1)
+    _validate_payload(payload, payload.get('schema') if isinstance(payload, dict) else None)
     rendered = []
     for citation in payload['citations']:
         suffix = 'L%d' % citation['first']

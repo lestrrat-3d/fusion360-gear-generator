@@ -280,7 +280,7 @@ class CommittedTemplatesTest(unittest.TestCase):
         prompt = (SKILLS_ROOT / 'compile-gear' / 'prompt.md').read_text(encoding='utf-8')
         skill = (SKILLS_ROOT / 'compile-gear' / 'SKILL.md').read_text(encoding='utf-8')
 
-        self.assertIn('<!-- step-metadata: 1 -->', prompt)
+        self.assertIn('<!-- step-metadata: 2 -->', prompt)
         self.assertIn('Do not write a `**From:**` line', prompt)
         renderer = 'render_step_metadata.py <gear> --write .tmp/<gear>.steps.md'
         self.assertIn(renderer, skill.replace('\n', ' '))
@@ -294,6 +294,17 @@ class CommittedTemplatesTest(unittest.TestCase):
                 self.assertIn('fusion:query-api', prompt)
                 self.assertIn('show <Class>.<member>', prompt)
                 self.assertIn('unverified', prompt)
+
+    def test_call_metadata_prompts_keep_roles_and_conditions(self):
+        compile_prompt = (SKILLS_ROOT / 'compile-gear/prompt.md').read_text(encoding='utf-8')
+        emit_prompt = (SKILLS_ROOT / 'emit-gear/prompt.md').read_text(encoding='utf-8')
+        owner = 'docs/prose-pipeline-handoffs/formats.md'
+        self.assertIn(owner, compile_prompt.split('**Do not read**')[0])
+        self.assertIn(owner, emit_prompt.split('**Do not read**')[0])
+        self.assertNotIn('check-step-calls: ignore', compile_prompt)
+        self.assertIn('Reclassification requires source review', compile_prompt)
+        self.assertIn('`required` call declarations as the execution checklist', emit_prompt)
+        self.assertIn('Conditional requirements still need execution', emit_prompt)
 
     def test_emit_first_and_retry_prompts_keep_same_owner_for_spur_and_bevel(self):
         report = 'run_gates: sample\nverdict: FAIL\n'

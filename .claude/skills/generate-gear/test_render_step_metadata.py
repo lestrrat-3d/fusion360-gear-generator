@@ -13,6 +13,7 @@ from pathlib import Path
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
 import render_step_metadata as RENDERER  # noqa: E402
+from test_step_metadata import call_declaration, version_two  # noqa: E402
 
 
 def metadata(first=2, last=2, raw=None):
@@ -46,6 +47,26 @@ def document(steps, marker='<!-- step-metadata: 1 -->'):
 
 
 class RenderStepMetadataTest(unittest.TestCase):
+    def test_version_two_preserves_calls_and_is_idempotent(self):
+        call = call_declaration(condition='When enabled.')
+        original = version_two([call]).replace('**From:** `spec/fixturegear/instructions.md` L2.', '')
+        target = self.repo(original)
+        code, _, err = self.run_renderer(target)
+        self.assertEqual(code, 0, err)
+        rendered = target.read_text()
+        self.assertIn('**From:** `spec/fixturegear/instructions.md` L2.', rendered)
+        self.assertEqual(RENDERER.step_metadata.file_calls(rendered), [call])
+        code, _, err = self.run_renderer(target)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(target.read_text(), rendered)
+
+    def test_version_two_missing_call_is_atomic(self):
+        text = version_two().replace('Call `tools.addWidget(item)`.', 'No call.')
+        self.assert_content_failure_unchanged(text, 'S1: call declaration')
+
+    def test_version_two_preamble_call_is_atomic(self):
+        self.assert_content_failure_unchanged(
+            version_two(preamble='`tools.addWidget(item)`'), 'preamble contains a call-shaped span')
     def repo(self, text):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)

@@ -63,7 +63,7 @@ REPO_ROOT = os.path.abspath(os.path.join(HERE, os.pardir, os.pardir, os.pardir))
 sys.path.insert(0, HERE)
 import fusion_api  # noqa: E402  (sibling module; sys.path is fixed up just above)
 from step_metadata import (  # noqa: E402
-    MetadataError, PATH_REF, file_version, parse_step, render_from,
+    MetadataError, PATH_REF, file_calls, file_version, parse_step, render_from,
     steps_of, validate_citations as validate_metadata_citations)
 from contract_handoff import (  # noqa: E402
     ContractHandoffError, mask_contract, validate_contract)
@@ -242,6 +242,8 @@ def contract_names(_gear):
 
 
 def named_calls(src):
+    if file_version(src) == 2:
+        return {name for name, _ in named_call_shapes(src)}
     src = mask_contract(src)
     body = re.sub(r'```.*?```', '', src, flags=re.S)
     names = set()
@@ -254,6 +256,8 @@ def named_calls(src):
 
 def named_call_shapes(src):
     """Return the calls named in inline step-list code spans with receivers intact."""
+    if file_version(src) == 2:
+        return {(call['name'], call['receiver']) for call in file_calls(src) if call['role'] == 'required'}
     src = mask_contract(src)
     body = re.sub(r'```.*?```', '', src, flags=re.S)
     shapes = set()
@@ -1646,6 +1650,7 @@ def check(argv):
 
     # 1. citations resolve
     cited = {}
+    declarations = []
     for sid, _, body in steps:
         if metadata_version is None:
             valid, citation_problems = validate_citations(body, gear)
@@ -1653,6 +1658,8 @@ def check(argv):
             try:
                 payload = parse_step(body, metadata_version)
                 citation_problems = validate_metadata_citations(payload, '.')
+                if metadata_version == 2:
+                    declarations.extend((sid, call) for call in payload['calls'])
             except MetadataError as exc:
                 problems.append('  %s %s' % (sid, exc))
                 continue
@@ -1731,15 +1738,33 @@ def check(argv):
             % (details[fn].path, details[fn].line, fn))
 
     # 3. API calls are real
-    local = PYTHON_METHODS | defined_names(FRAMEWORK) | contract_names(gear)
-    shapes = named_call_shapes(src)
-    checked_shapes = sorted(
-        ((name, receiver) for name, receiver in shapes if name not in local),
-        key=lambda shape: (shape[0], shape[1] or ''))
-    status_owners = {
-        shape: api_status_owner(*shape)
-        for shape in checked_shapes
-    }
+    framework = defined_names(FRAMEWORK)
+    local = PYTHON_METHODS | framework | contract_names(gear)
+    if metadata_version == 2:
+        status_owners = {}
+        for sid, call in declarations:
+            name, owner, role = call['name'], call['owner'], call['role']
+            if role == 'inherited' and name not in framework:
+                problems.append('  %s inherited call %s has no shared-framework definition' % (sid, name))
+            if role != 'required':
+                continue
+            if owner is None:
+                if name not in local:
+                    problems.append('  %s required call %s has no known local definition; '
+                                    'API calls need a qualified owner' % (sid, name))
+                continue
+            # Qualified owners are authoritative, even when the member also names a local helper.
+            status_owners[(name, owner)] = owner
+        checked_shapes = sorted(status_owners)
+    else:
+        shapes = named_call_shapes(src)
+        checked_shapes = sorted(
+            ((name, receiver) for name, receiver in shapes if name not in local),
+            key=lambda shape: (shape[0], shape[1] or ''))
+        status_owners = {
+            shape: api_status_owner(*shape)
+            for shape in checked_shapes
+        }
     name_only = sorted({name for (name, _), owner in status_owners.items() if owner is None})
     try:
         hits = fusion_api.lookup_many(name_only)
@@ -1762,7 +1787,7 @@ def check(argv):
     watched_names = {name for name, _, _, _ in fusion_api.UNVERIFIED_CALLS}
     blocked = []
     findings = {}
-    where = watched_calls(src, steps_path)
+    where = {} if metadata_version == 2 else watched_calls(src, steps_path)
     for (call, receiver), result in statuses.items():
         owner = status_owners[(call, receiver)]
         if result['disposition'] == 'advisory' or result['stale_watchlist']:
@@ -1791,6 +1816,10 @@ def check(argv):
                 "  the step list names '%s(' on receiver '%s', but the Fusion API database "
                 "declares it on %s%s"
                 % (call, receiver, ', '.join(owners), note))
+            continue
+        if metadata_version == 2:
+            problems.append("  the step list names '%s(' on %s, but the Fusion API database does not "
+                            "declare it: %s%s" % (call, result['owner'], ' '.join(result['evidence']), note))
             continue
         near = fusion_api.similar(call)
         problems.append("  the step list names '%s(', which the Fusion API database does not "

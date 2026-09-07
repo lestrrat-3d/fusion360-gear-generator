@@ -19,12 +19,21 @@ reading `PLAYBOOK.md`, which you must not open — an anchor the extract lacks a
 still needs is a defect to report, not a reason to go find the full playbook); and the framework
 you build on and must not reimplement, which is
 `lib/geargen/base.py`, `misc.py`, `utilities.py`, `spurproxy.py` and `lib/fusion360utils/`.
+Read `docs/prose-pipeline-handoffs/formats.md` for step metadata.
 
 **Do not read** `lib/geargen/{{gear}}.py`, `spec/{{gear}}/instructions.md`, `spec/{{gear}}/fusion.md`,
 or any previous draft. The step list is deliberately the only description of the gear you get. If
 a step is unclear, record it as a defect in your report and make your best attempt.
 
-**The step list's call spans have shared API-status decisions.** Compilation allows documented
+**Use version-2 `required` call declarations as the execution checklist.** Preserve each declaration's
+stated condition and write a reachable executable call; comments and dead branches do not satisfy it.
+Conditional requirements still need execution; the gate does not prove branch coverage.
+Read `docs/prose-pipeline-handoffs/formats.md#version-2` for role rules;
+`.claude/skills/generate-gear/step_metadata.py` owns accepted syntax.
+Other roles create no positive execution requirement. Existing source guards still enforce prohibitions.
+Legacy and version-1 step lists retain their existing call checks.
+
+**The step list's required API calls have shared API-status decisions.** Compilation allows documented
 calls and preserves visible advisory evidence for exact unverified receiver/member pairs; it
 blocks refuted pairs and missing declarations. Write those calls as the steps give them. For a
 call you introduce, a span whose arguments are unstated, or a call a gate flags, run
