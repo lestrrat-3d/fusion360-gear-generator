@@ -304,10 +304,7 @@ def api_owner_matches_receiver(hits, receiver):
 
 
 def api_status_owner(name, receiver):
-    """Deduce an explicit owner only where legacy step syntax makes it reliable."""
-    if receiver and re.fullmatch(
-            r'adsk\.(?:core|fusion)\.[A-Za-z_][A-Za-z0-9_]*', receiver):
-        return receiver
+    """Preserve the compiler's legacy watchlist-based receiver deduction."""
     return fusion_api.unverified_class(name, receiver)
 
 

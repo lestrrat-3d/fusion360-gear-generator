@@ -1987,13 +1987,30 @@ class CheckCompileTest(unittest.TestCase):
                     'stale_watchlist': False,
                 }
                 with mock.patch.object(
-                        COMPILE_CHECKER.fusion_api, 'describe_call',
-                        return_value=decision) as describe_call:
+                        COMPILE_CHECKER.fusion_api, 'unverified_class',
+                        return_value='adsk.fusion.WidgetTools'), mock.patch.object(
+                            COMPILE_CHECKER.fusion_api, 'describe_call',
+                            return_value=decision) as describe_call:
                     result, output = self.run_checker(
-                        step_body=self.call_step('adsk.fusion.WidgetTools.addWidget()'))
+                        step_body=self.call_step('widgetTools.addWidget()'))
 
                 self.assertEqual(result, expected, output)
                 describe_call.assert_called_once_with('adsk.fusion.WidgetTools', 'addWidget')
+
+    def refuted_cast_step(self, instruction):
+        return ('## S1 `[GO]` One — `stepOne`\n\n'
+                '%s\n\n'
+                '%s'
+                '**From:** `spec/gear/instructions.md` L1\n\n'
+                % (instruction, self.annotation_line(self.CANONICAL_ANNOTATION)))
+
+    def test_legacy_qualified_receiver_keeps_name_only_lookup(self):
+        result, output = self.run_checker(
+            step_body=self.refuted_cast_step(
+                'Never write `adsk.core.Base.cast(None)`; use a concrete subclass.'),
+            api_lookup={'cast': [('adsk.core.Base.cast', 'staticmethod')]})
+
+        self.assertEqual(result, 0, output)
 
     def test_bare_prose_mention_counts_as_a_naming(self):
         """The bar is that the prose named it, so a mention with no call syntax still counts."""
