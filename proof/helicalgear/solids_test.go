@@ -2,442 +2,343 @@ package helicalgear_test
 
 import (
 	"context"
-	"errors"
 	"math"
 	"testing"
 
 	"github.com/lestrrat-3d/decad"
-	"github.com/lestrrat-3d/fusion360-gear-generator/proof/involute"
-	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit3d"
 	"github.com/lestrrat-3d/sketch"
+
+	"github.com/lestrrat-3d/fusion360-gear-generator/proof/involute"
+	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit"
+	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit3d"
 )
 
-// WHAT THIS PROOF SUBSTITUTES, AND WHAT THE SUBSTITUTION COSTS.
+// loftCases is the regime the loft has to hold across. The helix angle is
+// swept per sign, because the spec leaves the bound to this proof and says it
+// need not be symmetric about zero.
 //
-// Fusion lofts two profiles whose flanks are fitted splines and whose tooth-top
-// and root boundaries are arcs. decad's Loft pairs the two sections segment by
-// segment and refuses a free-form pair outright (ErrUnsupported), so a spline
-// flank cannot cross this harness at all. Keeping the two arcs as arcs does
-// build, but its volume reading then carries a chord error bound past decad's
-// own relative tolerance and the document verdict comes back Suspect — measured
-// here at every helix angle, 32.38 mm^3 with a 0.0407 mm^3 bound against a
-// 0.0324 mm^3 requirement — and neither proofkit3d gate may waive a volume
-// diagnostic.
+// The bound, measured at M=1, N=17, T=10 with 15 involute steps on the
+// loft-ready sections: every left-hand twist tried builds a sound solid, down
+// to −179°; a right-hand twist builds up to +90° and is refused from +120° on
+// by decad's wall audit ("loft triangles 0 and 4 share no recorded vertex, but
+// make contact"). The asymmetry is in the ruled walls: decad splits each
+// ruled quad into two triangles along one fixed diagonal, so a right-hand
+// twist folds the facets one way and a left-hand twist the other. It is a
+// property of this model and of the solid engine, not of the gear, which is
+// why the table stops at ±90° on the right and carries −120° on the left as
+// the record of the asymmetry, and why nothing here is quoted in the spec.
 //
-// So each section is CHORDED: every flank runs through the same involute sample
-// points the Fusion spline interpolates, joined by straight segments, and the
-// tooth-top and root arcs are chorded too. The sections stay the same shape,
-// the same point set, and the same pairing.
-//
-// What that costs is the wall surface: between two chords the loft rules a flat
-// quad where Fusion rules the surface between two splines, so the volume here
-// is the chorded body's, not the gear tooth's. What it still pins is everything
-// the loft step is responsible for — that the two sections pair at all, the
-// order they are added in, the extent between the two planes, the sign and the
-// size of the twist, and that the result is one sound solid lump.
-//
-// The tooth's own 6-curve profile contract — 2 splines, 2 arcs, 2 lines, the
-// count both of loftTooth's find_profile_by_curve_counts calls key on — is not
-// reachable here, since the chorded section is all lines. It is asserted in the
-// sketch proof, on the sketch that actually draws those curves.
-
-// arcChordCount is how many straight segments each chorded arc becomes. Six is
-// enough that the chorded section's area is within a part in a thousand of the
-// arc's, and small enough to keep the loft's pair-test budget clear.
-const arcChordCount = 6
-
-// solidCases sweeps the loft across the regime the spec states.
-//
-// Both signs, because the sign is the hand of the helix and a scheme that drops
-// it still lofts at +angle. Both ends of what this harness can build, per sign,
-// because the two are not the same size: see loftTwistBound. Two thicknesses at
-// one angle, because the spec says the twist between the sections IS the helix
-// angle and that Thickness does not enter — a rule that only shows up as a
-// disagreement between two thicknesses. And a coarse and a fine gear, because
-// the section scales with the tooth.
-var solidCases = []proofkit3d.Case{
-	{Name: "default_M1_N17_helix14.5_t10", Params: params(1, 17, 20, 14.5, 15)},
-	{Name: "default_helix14.5_t30_thickness_does_not_enter", Params: thickness(params(1, 17, 20, 14.5, 15), 30)},
-	{Name: "default_helix14.5_t3_thickness_does_not_enter", Params: thickness(params(1, 17, 20, 14.5, 15), 3)},
-	{Name: "helix0_straight_prism", Params: params(1, 17, 20, 0, 15)},
-	{Name: "helix_minus14.5_left_hand", Params: params(1, 17, 20, -14.5, 15)},
-	{Name: "helix_plus35", Params: params(1, 17, 20, 35, 15)},
-	{Name: "helix_minus35_left_hand", Params: params(1, 17, 20, -35, 15)},
-	{Name: "helix_plus90_upper_bound", Params: params(1, 17, 20, 90, 15)},
-	{Name: "helix_minus90", Params: params(1, 17, 20, -90, 15)},
-	{Name: "helix_minus150_left_hand_reaches_further", Params: params(1, 17, 20, -150, 15)},
-	{Name: "coarse_M3_N15_helix14.5", Params: params(3, 15, 20, 14.5, 15)},
-	{Name: "fine_M0.5_N24_helix_minus14.5", Params: params(0.5, 24, 20, -14.5, 15)},
-	{Name: "ribs_low_count_5_helix14.5", Params: params(1, 17, 20, 14.5, 5)},
-	{Name: "beyond_the_proof_bound_helix_plus150", Params: params(1, 17, 20, 150, 15)},
+// The embedded case is here so the loft step's one branch — the fixed
+// lines=2 profile search finding nothing — has a case on its side too.
+var loftCases = []proofkit3d.Case{
+	{Name: "M1_N17_helix+14.5_T10", Params: caseParams(1, 17, 20, 14.5, defaultInvoluteSteps, defaultThickness)},
+	{Name: "M1_N17_helix-14.5_T10_left_hand", Params: caseParams(1, 17, 20, -14.5, defaultInvoluteSteps, defaultThickness)},
+	{Name: "M1_N12_helix+14.5_T5", Params: caseParams(1, 12, 20, 14.5, defaultInvoluteSteps, 5)},
+	{Name: "M2_N20_helix-14.5_T20", Params: caseParams(2, 20, 20, -14.5, defaultInvoluteSteps, 20)},
+	{Name: "M3_N15_helix+14.5_T10", Params: caseParams(3, 15, 20, 14.5, defaultInvoluteSteps, defaultThickness)},
+	{Name: "M1_N35_helix+14.5_T10_short_stub", Params: caseParams(1, 35, 20, 14.5, defaultInvoluteSteps, defaultThickness)},
+	{Name: "M1_N17_helix+14.5_T10_steps4", Params: caseParams(1, 17, 20, 14.5, 4, defaultThickness)},
+	{Name: "M1_N17_helix-14.5_T10_steps4", Params: caseParams(1, 17, 20, -14.5, 4, defaultThickness)},
+	{Name: "M1_N17_helix+30_T10", Params: caseParams(1, 17, 20, 30, defaultInvoluteSteps, defaultThickness)},
+	{Name: "M1_N17_helix-30_T10", Params: caseParams(1, 17, 20, -30, defaultInvoluteSteps, defaultThickness)},
+	{Name: "M1_N17_helix+45_T10", Params: caseParams(1, 17, 20, 45, defaultInvoluteSteps, defaultThickness)},
+	{Name: "M1_N17_helix-45_T10", Params: caseParams(1, 17, 20, -45, defaultInvoluteSteps, defaultThickness)},
+	{Name: "M1_N17_helix+60_T10", Params: caseParams(1, 17, 20, 60, defaultInvoluteSteps, defaultThickness)},
+	{Name: "M1_N17_helix-60_T10", Params: caseParams(1, 17, 20, -60, defaultInvoluteSteps, defaultThickness)},
+	{Name: "M1_N17_helix+90_T10_right_hand_bound", Params: caseParams(1, 17, 20, 90, defaultInvoluteSteps, defaultThickness)},
+	{Name: "M1_N17_helix-90_T10", Params: caseParams(1, 17, 20, -90, defaultInvoluteSteps, defaultThickness)},
+	{Name: "M1_N17_helix-120_T10_left_hand_builds_where_right_is_refused", Params: caseParams(1, 17, 20, -120, defaultInvoluteSteps, defaultThickness)},
+	{Name: "M1_N17_helix+90_T40", Params: caseParams(1, 17, 20, 90, defaultInvoluteSteps, 40)},
+	{Name: "M1_N60_PA20_helix+14.5_embedded_unsupported", Params: caseParams(1, 60, 20, 14.5, defaultInvoluteSteps, defaultThickness)},
 }
 
-// planeCases sweeps the offset the helix plane is created at. The angle is held
-// at the default and the thickness varies, because the offset is what these
-// cases are about.
-var planeCases = []proofkit3d.Case{
-	{Name: "thickness10_default", Params: params(1, 17, 20, 14.5, 15)},
-	{Name: "thickness3_thin", Params: thickness(params(1, 17, 20, 14.5, 15), 3)},
-	{Name: "thickness30_thick", Params: thickness(params(1, 17, 20, 14.5, 15), 30)},
-	{Name: "thickness10_left_hand", Params: params(1, 17, 20, -14.5, 15)},
-	{Name: "thickness30_helix0", Params: thickness(params(1, 17, 20, 0, 15), 30)},
-}
-
-// thickness returns p with Thickness replaced.
-func thickness(p map[string]float64, mm float64) map[string]float64 {
-	out := make(map[string]float64, len(p))
-	for k, v := range p {
-		out[k] = v
-	}
-	out["thickness"] = mm
-	return out
-}
-
-// loftTwistBound is the largest twist, per sign, that this harness builds and
-// verifies for the default gear — measured here, not assumed, and stated per
-// sign because the two are not equal.
+// loftFrame turns both loft sections half a turn from Fusion's sketch frame.
 //
-// Measured 2026-09-03, in 5-degree steps, at thicknesses 5, 10 and 30 mm:
-// a RIGHT-hand (positive) twist verifies through +90 degrees and is refused at
-// +95 with "loft triangles 0 and 2 do not meet exactly at their recorded shared
-// vertex"; a LEFT-hand (negative) twist verifies through -175 and is refused at
-// -180. Every bound was identical at all three thicknesses, which is itself the
-// measured form of the spec's claim that the twist is the helix angle and that
-// Thickness does not enter.
-//
-// This is a property of the chorded section and of decad's loft audit, NOT of
-// the gear: helicalgear.py clamps nothing, the dialog accepts whatever the user
-// types, and what Fusion does at a large helix angle is unverified. A case past
-// the bound is proven to be REFUSED rather than skipped, so the bound stays
-// measured as the harness changes.
-const (
-	loftTwistBoundPositive = 90.0
-	loftTwistBoundNegative = -175.0
-)
+// The sketch engine parametrises a circle from its local +X. A tooth centred
+// on +X, which is where the bottom Gear Profile tooth sits, straddles that
+// seam, and the root-circle piece under it is reported as two edges, one either
+// side of the seam. Fusion has no seam and reports one arc. decad pairs loft
+// segments one to one, so a bottom loop of 33 edges against a top loop of 32
+// is refused before any geometry is built. Turning the frame puts both teeth
+// on the far side of the circle from the seam for every helix angle in the
+// table. The recipe is unchanged: the reference line, the seeds and the
+// signed axis dimensions all turn with the frame, the angular dimension still
+// measures the helix angle from the reference line, and the centroid reading
+// is turned back before it is compared. What the turn costs is that the loft
+// proof is not drawn on the same absolute bearing as the Fusion sketch; the
+// sketch step, which pairs nothing, stays in Fusion's frame.
+const loftFrame = math.Pi
 
-// stepHelixPlane creates the offset construction plane the twisted profile is
-// drawn on, at helicalPlaneOffset() = the full Thickness, and lofts across it.
+// stepLoftTooth is buildTooth → loftTooth ([HELI-F-LOFT]): the bottom Gear
+// Profile tooth loop (the spur tooth at angle 0, on the target plane) lofted to
+// the Twisted Gear Profile tooth loop (the same tooth at angle HelixAngle, on
+// the plane offset by Thickness — [HELI-F-TWIST-PLANE], helicalPlaneOffset()),
+// bottom section added first, as a new body.
 //
-// The plane is only observable through what is built on it, so the step builds
-// the loft and the assertion measures the gap it spans. The build also proves
-// why the plane exists at all: with the twisted profile drawn on the gear's own
-// plane instead, the two sections are coplanar and there is no solid to build.
-func stepHelixPlane(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	dims := involute.Derive(p["module"], p["toothNumber"], p["pressureAngle"])
-	steps := int(p["involuteSteps"])
-	offset := p["thickness"] // helicalPlaneOffset(): the FULL thickness
+// Two substitutions, and what each costs:
+//
+//   - Both sections are drawn loft-ready (see drawToothProfile): the involute
+//     flanks chorded through their fit points, the tooth-top arc and the root
+//     piece each replaced by a chord on the same endpoints. decad's loft pairs
+//     LineSeg, ArcSeg and CircleSeg only; a free-form entity anywhere in a
+//     sketch withdraws the exact trim every fragment needs to be recorded; and
+//     a circular pair is chorded by decad with a volume bound its verification
+//     then refuses. The chorded loop keeps every constraint and every point, so
+//     the twist it carries is the sketch's; the walls are faceted and the caps
+//     flat, so the volume read here is the faceted body's, not Fusion's. The
+//     6-curve count the module's profile search keys on is proven by
+//     stepTwistedGearProfile on the splined sketch with the solid root circle;
+//     here the same loop is found by its loft-ready count, 2·(steps−1) + 4 lines.
+//
+//   - Fusion's loftSections.add(profile) takes the whole profile and pairs the
+//     curves itself. decad pairs recorded segments by index and takes the
+//     rotation of the top loop that pairs with the bottom's first segment as
+//     WithLoftAlignment; the proof computes that rotation by rotating the
+//     bottom loop's first vertex by the helix angle and finding the top edge
+//     that starts there. Fusion does not have this argument, so the step list
+//     does not carry it.
+func stepLoftTooth(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
+	steps := int(p[keyInvoluteSteps])
+	helix := p[keyHelixAngle]
+	thickness := p[keyThickness]
 
 	world := sketch.NewWorld()
-	basePlane := world.XY()
-	bottomSketch, bottomProfile := loftSection(t, world, basePlane, dims, p, steps, 0)
+	proofkit.Step(t, "bottom Gear Profile on the target plane, angle 0")
+	bottomSketch, err := world.CreateSketch(world.XY())
+	if err != nil {
+		t.Fatalf("create bottom sketch: %v", err)
+	}
+	bottom := drawToothProfile(t, bottomSketch, p, loftFrame, 0, true)
 
-	// The zero-offset control. helicalPlaneOffset is a distinct overridable
-	// hook and the offset is what it returns; an offset of zero leaves both
-	// sections on the gear's own plane, where every wall vertex lies in one
-	// plane and the body has zero volume by construction.
-	coplanarSketch, coplanarProfile := loftSection(t, world, basePlane, dims, p, steps, p["helixAngle"])
-	if _, err := doc.Loft(bottomSketch, bottomProfile, coplanarSketch, coplanarProfile); err == nil {
-		t.Fatal("a loft between two coplanar sections built a body; the helix plane's offset is " +
-			"then not load-bearing, and this control has stopped controlling anything")
-	} else if !errors.Is(err, decad.ErrDegenerate) {
-		t.Fatalf("a coplanar loft must be refused as degenerate, got %v", err)
+	// [HELI-F-TWIST-PLANE]: constructionPlanes.createInput() + setByOffset(self.plane,
+	// helicalPlaneOffset()) — the offset is the full Thickness for helical.
+	proofkit.Step(t, "helix plane at Thickness and the Twisted Gear Profile on it")
+	helixPlane, err := world.CreateOffsetPlane(world.XY(), thickness)
+	if err != nil {
+		t.Fatalf("create helix plane: %v", err)
+	}
+	helixPlane.SetName("helixPlane")
+	topSketch, err := world.CreateSketch(helixPlane)
+	if err != nil {
+		t.Fatalf("create twisted sketch: %v", err)
+	}
+	top := drawToothProfile(t, topSketch, p, loftFrame, helix, true)
+
+	if bottom.embedded != top.embedded {
+		t.Fatalf("the two sections disagree on the embedded shape (bottom %v, top %v)", bottom.embedded, top.embedded)
 	}
 
-	helixPlane, err := world.CreateOffsetPlane(basePlane, offset)
-	if err != nil {
-		t.Fatalf("helix plane at offset %g: %v", offset, err)
-	}
-	topSketch, topProfile := loftSection(t, world, helixPlane, dims, p, steps, p["helixAngle"])
+	// Both sections must solve soundly before their loops are read; the sketch
+	// gate is the same one proofkit applies to the sketch step.
+	proofkit.Step(t, "solve both sections")
+	proofkit.RequireSound(t, bottomSketch)
+	proofkit.RequireSound(t, topSketch)
 
-	body, err := doc.Loft(bottomSketch, bottomProfile, topSketch, topProfile)
+	// find_profile_by_curve_counts(sketch, nurbs=2, arcs=2, lines=2) on each
+	// sketch. In loft-ready form the same loop reads as 2·(steps−1) + 4 lines.
+	proofkit.Step(t, "find the tooth loop in each section")
+	want := loftLoopCounts(steps)
+	bottomProfiles := bottomSketch.Profiles()
+	topProfiles := topSketch.Profiles()
+	bottomLoop := findProfile(t, bottomProfiles, want)
+	topLoop := findProfile(t, topProfiles, want)
+	if bottom.embedded {
+		// The module's search is fixed at lines=2 and has no embedded branch; an
+		// embedded gear finds no loop and raises. The proof pins that the 6-curve
+		// loop is absent and stops, because decad has no "raise" to build.
+		if bottomLoop != nil || topLoop != nil {
+			t.Fatalf("embedded profile unexpectedly closed a loop with flank-to-root lines:%s", describeProfiles(bottomProfiles))
+		}
+		proofkit3d.Unmodelled(t, "embedded profile: find_profile_by_curve_counts(nurbs=2, arcs=2, lines=2) finds no loop, "+
+			"so loftTooth raises rather than building — helical does not support the embedded shape ([HELI-F-LOFT])")
+		return nil
+	}
+	if bottomLoop == nil {
+		t.Fatalf("bottom section has no tooth loop with lines=%d:%s", want.lines, describeProfiles(bottomProfiles))
+	}
+	if topLoop == nil {
+		t.Fatalf("twisted section has no tooth loop with lines=%d:%s", want.lines, describeProfiles(topProfiles))
+	}
+	if len(bottomProfiles) != 1 || len(topProfiles) != 1 {
+		t.Fatalf("a loft-ready section closes exactly one region, got %d and %d:%s%s",
+			len(bottomProfiles), len(topProfiles), describeProfiles(bottomProfiles), describeProfiles(topProfiles))
+	}
+
+	// loftInput.loftSections.add(bottomToothProfile) then .add(topToothProfile):
+	// bottom is the FROM section, top the TO section, in that order.
+	proofkit.Step(t, "loft bottom → top")
+	offset := loftAlignment(t, bottomLoop, topLoop, helix)
+	body, err := doc.LoftContext(context.Background(), bottomSketch, bottomLoop, topSketch, topLoop, decad.WithLoftAlignment(offset))
 	if err != nil {
-		t.Fatalf("loft across the helix plane at offset %g: %v", offset, err)
+		t.Fatalf("loft: %v", err)
 	}
 	return []*decad.Body{body}
 }
 
-// assertHelixPlane measures the gap the helix plane was created at.
-//
-// helicalPlaneOffset() returns the FULL Thickness for helical. Herringbone
-// re-points the same hook at half the thickness so its mirror plane lands
-// mid-body, so the number this asserts is the one thing that separates the two
-// gears' planes, and half a thickness is the wrong answer this catches.
-func assertHelixPlane(t *testing.T, doc *decad.Document, bodies []*decad.Body, p map[string]float64) {
-	if len(bodies) != 1 {
-		t.Fatalf("the loft leaves exactly one body, got %d", len(bodies))
+// loftAlignment finds the index of the top loop's edge that corresponds to the
+// bottom loop's first edge. The twisted section is the bottom one rotated by
+// the helix angle about the anchor, so the bottom's first edge start, rotated,
+// lands on exactly one top edge start.
+func loftAlignment(t *testing.T, bottom, top *sketch.Profile, helix float64) int {
+	t.Helper()
+	if len(bottom.Outer) != len(top.Outer) {
+		t.Fatalf("section loops have %d and %d edges; the loft needs one-to-one pairs", len(bottom.Outer), len(top.Outer))
 	}
-	want := p["thickness"]
-	box, err := bodies[0].Bounds()
+	start := bottom.Outer[0].Polyline[0]
+	rx := start[0]*math.Cos(helix) - start[1]*math.Sin(helix)
+	ry := start[0]*math.Sin(helix) + start[1]*math.Cos(helix)
+	best, bestDist := -1, math.Inf(1)
+	for i, e := range top.Outer {
+		d := math.Hypot(e.Polyline[0][0]-rx, e.Polyline[0][1]-ry)
+		if d < bestDist {
+			best, bestDist = i, d
+		}
+	}
+	if best < 0 || bestDist > 1e-6 {
+		t.Fatalf("no top edge starts where the bottom's first edge start lands after a %.4f rad twist (nearest %.3e away)", helix, bestDist)
+	}
+	return best
+}
+
+// assertLoftTooth reads the lofted tooth against what the spec pins:
+//
+//   - it spans exactly the plane offset, Thickness, along the plane normal;
+//   - its centroid sits at half the offset and, in the plane, on the bisector
+//     of the twist: the ruled body is symmetric under a reflection across the
+//     line at HelixAngle/2 combined with z → Thickness − z, so the centroid's
+//     polar angle is HelixAngle/2, sign included. That reading is what tells a
+//     left-hand helix from a right-hand one, which no volume or extent can.
+//   - the centroid's radius is bounded by the tooth's own: no farther out than
+//     the tip circle, and no closer in than the root circle drawn in by
+//     cos(HelixAngle/2), which is where a straight ruling between a root point
+//     and its twisted copy passes at mid-height. A twist large enough to drag
+//     the ruled walls through the gear centre — the [SPUR-F-ROTATE-CONFIRM]
+//     failure — fails here.
+//   - the volume is the tooth's, bracketed against the straight prism of the
+//     bottom loop's area. The true ruled body is mirror-symmetric in the sign
+//     of the twist, but decad's facets are not (see loftCases): measured at
+//     M=1, N=17, T=10, a right-hand twist reads 96.2% of the prism at 14.5°
+//     and 82.4% at 45°, a left-hand one 101.7% and 98.0%. So the bracket is
+//     loose, [50%, 105%], and the reading is logged rather than pinned.
+func assertLoftTooth(t *testing.T, doc *decad.Document, bodies []*decad.Body, p map[string]float64) {
+	if len(bodies) != 1 {
+		t.Fatalf("loftTooth leaves exactly one Tooth Body, got %d", len(bodies))
+	}
+	body := bodies[0]
+	helix := p[keyHelixAngle]
+	thickness := p[keyThickness]
+	dims := toothDimensions(p)
+
+	box, err := body.Bounds()
 	if err != nil {
 		t.Fatalf("bounds: %v", err)
 	}
-	span := box.Max.Z - box.Min.Z
-	tolerance := 1e-9 * want
-	if math.Abs(box.Min.Z) > tolerance {
-		t.Errorf("the body starts at z=%.12g, not on the gear's own plane", box.Min.Z)
+	slack := 1e-6 + box.Bound.Base()
+	if math.Abs(box.Min.Z) > slack || math.Abs(box.Max.Z-thickness) > slack {
+		t.Fatalf("tooth spans z ∈ [%.6f, %.6f], want [0, %.6f] (the helix plane offset)", box.Min.Z, box.Max.Z, thickness)
 	}
-	if math.Abs(span-want) > tolerance {
-		t.Errorf("the helix plane sits %.12g mm off the gear plane, want the full Thickness %.12g mm "+
-			"(half of it, %.12g, is herringbone's offset, not helical's)", span, want, want/2)
+	radial := math.Max(math.Hypot(box.Min.X, box.Min.Y), math.Hypot(box.Max.X, box.Max.Y))
+	if radial > dims.Tip*math.Sqrt2+slack {
+		t.Fatalf("tooth reaches %.4f mm from the axis, beyond the tip circle box of %.4f", radial, dims.Tip*math.Sqrt2)
 	}
-}
 
-// stepLoftTooth lofts the bottom Gear Profile tooth loop to the top twisted
-// tooth loop, bottom section first ([HELI-F-LOFT]).
-func stepLoftTooth(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	dims := involute.Derive(p["module"], p["toothNumber"], p["pressureAngle"])
-	steps := int(p["involuteSteps"])
-	helix := p["helixAngle"]
-	helixDegrees := helix * 180 / math.Pi
-
-	world := sketch.NewWorld()
-	bottomSketch, bottomProfile := loftSection(t, world, world.XY(), dims, p, steps, 0)
-	helixPlane, err := world.CreateOffsetPlane(world.XY(), p["thickness"])
+	centroid, err := body.Centroid()
 	if err != nil {
-		t.Fatalf("helix plane: %v", err)
+		t.Fatalf("centroid: %v", err)
 	}
-	topSketch, topProfile := loftSection(t, world, helixPlane, dims, p, steps, helix)
-
-	// Both sections are the same tooth, so they carry the same segment count.
-	// The loft pairs them positionally, and a count mismatch is exactly what
-	// decad refuses as ErrUnsupported — the harness form of Fusion's rule that
-	// both loft sections are the same non-embedded 6-curve tooth.
-	wantSegments := 2*steps + 2*arcChordCount
-	if got := len(bottomProfile.Outer); got != wantSegments {
-		t.Fatalf("bottom section has %d segments, want %d", got, wantSegments)
+	c := centroid.Value
+	cSlack := 1e-6 + centroid.Bound.Base()
+	if math.Abs(c.Z-thickness/2) > cSlack {
+		t.Fatalf("centroid z = %.6f, want %.6f (half the offset)", c.Z, thickness/2)
 	}
-	if got := len(topProfile.Outer); got != wantSegments {
-		t.Fatalf("top section has %d segments, want %d", got, wantSegments)
+	radius := math.Hypot(c.X, c.Y)
+	innermost := dims.Root * math.Cos(helix/2)
+	if radius < innermost-cSlack || radius > dims.Tip+cSlack {
+		t.Fatalf("centroid radius %.4f is outside [%.4f, %.4f] (root·cos(HelixAngle/2) to tip): the ruled tooth does not sit where the profile does",
+			radius, innermost, dims.Tip)
 	}
-
-	body, err := doc.Loft(bottomSketch, bottomProfile, topSketch, topProfile)
-	if err != nil {
-		// Past the measured bound the refusal is the finding, and it is proven
-		// rather than skipped. Inside the bound a refusal is a real failure.
-		if helixDegrees > loftTwistBoundPositive || helixDegrees < loftTwistBoundNegative {
-			proofkit3d.Unmodelled(t, "a %+.1f degree twist is past this harness's measured bound "+
-				"(%+.1f to %+.1f degrees for the chorded section); decad refused it with %v, which "+
-				"is a limit of the proof and not of the gear — helicalgear.py clamps nothing",
-				helixDegrees, loftTwistBoundNegative, loftTwistBoundPositive, err)
-		}
-		t.Fatalf("loft at %+.1f degrees: %v", helixDegrees, err)
+	// Turn the reading back out of loftFrame, then compare on the circle.
+	gotAngle := wrapAngle(math.Atan2(c.Y, c.X) - loftFrame)
+	wantAngle := helix / 2
+	angleSlack := math.Asin(math.Min(1, cSlack/radius)) + 1e-9
+	if math.Abs(wrapAngle(gotAngle-wantAngle)) > angleSlack {
+		t.Fatalf("centroid polar angle %.6f rad, want HelixAngle/2 = %.6f rad (twist sign %+.0f): the loft twists by the wrong amount or the wrong way",
+			gotAngle, wantAngle, math.Copysign(1, helix))
 	}
-	if helixDegrees > loftTwistBoundPositive || helixDegrees < loftTwistBoundNegative {
-		t.Fatalf("a %+.1f degree twist built, but the recorded bound says it cannot; re-measure "+
-			"loftTwistBoundPositive/loftTwistBoundNegative", helixDegrees)
-	}
-	return []*decad.Body{body}
-}
-
-// assertLoftTooth measures what the loft is supposed to produce: one solid
-// tooth body, spanning the two planes, twisted by exactly the helix angle.
-func assertLoftTooth(t *testing.T, doc *decad.Document, bodies []*decad.Body, p map[string]float64) {
-	if len(bodies) != 1 {
-		t.Fatalf("loftTooth leaves exactly one body in ctx.toothBody, got %d", len(bodies))
-	}
-	body := bodies[0]
-	dims := involute.Derive(p["module"], p["toothNumber"], p["pressureAngle"])
-	steps := int(p["involuteSteps"])
-
-	// The section order. loftSections.add takes the bottom profile first, so
-	// the loft's START cap is the bottom Gear Profile, on the gear's own plane,
-	// and its END cap is the twisted profile on the helix plane.
-	startZ := capPlaneHeight(t, body, decad.CapStart(body))
-	endZ := capPlaneHeight(t, body, decad.CapEnd(body))
-	if math.Abs(startZ) > 1e-9*p["thickness"] {
-		t.Errorf("the loft's start cap sits at z=%.12g, so the bottom Gear Profile was not the "+
-			"first section added", startZ)
-	}
-	if math.Abs(endZ-p["thickness"]) > 1e-9*p["thickness"] {
-		t.Errorf("the loft's end cap sits at z=%.12g, want the helix plane at %.12g", endZ, p["thickness"])
+	if helix != 0 && math.Signbit(gotAngle) != math.Signbit(helix) {
+		t.Fatalf("centroid polar angle %.6f has the opposite sign to the helix angle %.6f: the hand is flipped", gotAngle, helix)
 	}
 
-	// The twist. Each section is symmetric about its own tooth axis, so the
-	// centroid of a cap's vertices lies on that axis and the angle between the
-	// two axes is the twist the loft carries.
-	//
-	// This is the assertion that catches [SPUR-F-ROTATE-CONFIRM]'s failure: a
-	// top profile drawn flat and swung by the confirming dimension can settle
-	// half a turn away, and the loft then passes through the gear centre. That
-	// body reads here as a twist of helix+180, not helix.
-	twist := capAxisAngle(t, body, decad.CapEnd(body)) - capAxisAngle(t, body, decad.CapStart(body))
-	twist = normalizeAngle(twist)
-	want := normalizeAngle(p["helixAngle"])
-	if math.Abs(twist-want) > 1e-9 {
-		t.Errorf("the loft twists by %.9f rad (%.4f deg), want the Helix Angle %.9f rad (%.4f deg) — "+
-			"nothing rescales it, so Thickness %.4g must not enter",
-			twist, twist*180/math.Pi, want, want*180/math.Pi, p["thickness"])
-	}
-
-	// The volume. At zero twist the loft is a straight prism on the section, so
-	// its volume is the section area times the thickness exactly; that is the
-	// reading that says the extent really is the plane gap and the section
-	// really is this tooth.
 	volume, err := body.Volume()
 	if err != nil {
 		t.Fatalf("volume: %v", err)
 	}
-	prism := ringArea(sectionRing(dims, p["toothNumber"], steps, 0)) * p["thickness"]
-	measured := volume.Value.Base()
-	if measured <= 0 {
-		t.Fatalf("the tooth body has volume %.6g", measured)
+	prism := prismVolume(t, doc, p, thickness)
+	got := volume.Value.Base()
+	lo, hi := 0.5*prism, 1.05*prism+volume.Bound.Base()
+	if got < lo || got > hi {
+		t.Fatalf("lofted tooth volume %.4f mm³ is outside [%.4f, %.4f], the bracket around the straight prism %.4f mm³ of the same loop",
+			got, lo, hi, prism)
 	}
-	if p["helixAngle"] == 0 {
-		if math.Abs(measured-prism) > 1e-9*prism {
-			t.Errorf("at zero twist the loft is a straight prism of %.9g mm^3, measured %.9g", prism, measured)
-		}
-		return
-	}
-	if measured > prism*1.5 || measured < prism*0.4 {
-		t.Errorf("the twisted tooth measures %.6g mm^3 against a %.6g mm^3 prism on the same "+
-			"section, which is not a tooth swept between the two planes", measured, prism)
-	}
+	t.Logf("helix %+.1f°: volume %.4f mm³ (%.1f%% of the straight prism), centroid angle %.4f°",
+		helix*180/math.Pi, got, 100*got/prism, gotAngle*180/math.Pi)
 }
 
-// loftSection draws one loft section — a chorded tooth loop — on plane, at the
-// given twist, and returns it with its detected profile.
-//
-// Every point is fixed. The constraint scheme that holds this tooth together is
-// proven in the sketch proof, on the sketch that carries it; here the geometry
-// is a fixed input to the solid, and fixing it is what makes the profile
-// recordable without restating a scheme that is proven elsewhere.
-func loftSection(t *testing.T, world *sketch.World, plane *sketch.Plane, dims involute.Dimensions,
-	p map[string]float64, steps int, angle float64) (*sketch.Sketch, *sketch.Profile) {
+// prismVolume is the bottom tooth loop's area times the thickness: the volume
+// the spur extrude would have made from the same loop, drawn again here so the
+// assertion measures against a fresh solve rather than a number carried over
+// from the build.
+func prismVolume(t *testing.T, _ *decad.Document, p map[string]float64, thickness float64) float64 {
 	t.Helper()
-
-	s, err := world.CreateSketch(plane)
+	steps := int(p[keyInvoluteSteps])
+	world := sketch.NewWorld()
+	s, err := world.CreateSketch(world.XY())
 	if err != nil {
-		t.Fatalf("create sketch: %v", err)
+		t.Fatalf("create reference sketch: %v", err)
 	}
-	ring := sectionRing(dims, p["toothNumber"], steps, angle)
-	points := make([]*sketch.Point, len(ring))
-	for i, pt := range ring {
-		points[i] = s.CreatePoint(pt.X, pt.Y)
-		s.Fix(points[i])
-	}
-	for i := range points {
-		s.CreateLine(points[i], points[(i+1)%len(points)])
-	}
+	drawToothProfile(t, s, p, loftFrame, 0, true)
 	if _, err := s.Solve(context.Background()); err != nil {
-		t.Fatalf("solve section: %v", err)
+		t.Fatalf("solve reference sketch: %v", err)
 	}
-	profiles := s.Profiles()
-	if len(profiles) != 1 {
-		t.Fatalf("a loft section closes exactly one region, got %d", len(profiles))
+	loop := findProfile(t, s.Profiles(), loftLoopCounts(steps))
+	if loop == nil {
+		t.Fatalf("reference sketch has no tooth loop")
 	}
-	if !profiles[0].Valid {
-		t.Fatal("the loft section's region is not an extrudable profile")
-	}
-	return s, profiles[0]
+	return loop.Area * thickness
 }
 
-// sectionRing returns the chorded tooth loop, counter-clockwise, at the given
-// twist: root foot, left flank, tooth-top arc, right flank back down, root
-// foot, root arc home.
-func sectionRing(dims involute.Dimensions, toothNumber float64, steps int, angle float64) []involute.Pt {
-	left, right := involute.Flanks(dims.Base, dims.Tip, dims.Pitch, toothNumber, steps, angle)
-	foot := func(p involute.Pt) involute.Pt {
-		n := math.Hypot(p.X, p.Y)
-		return involute.Pt{X: dims.Root * p.X / n, Y: dims.Root * p.Y / n}
-	}
-	leftFoot, rightFoot := foot(left[0]), foot(right[0])
-
-	ring := []involute.Pt{leftFoot}
-	ring = append(ring, left...)
-	ring = append(ring, chordArc(left[len(left)-1], right[len(right)-1], dims.Tip)...)
-	for i := len(right) - 1; i >= 0; i-- {
-		ring = append(ring, right[i])
-	}
-	ring = append(ring, rightFoot)
-	ring = append(ring, chordArc(rightFoot, leftFoot, dims.Root)...)
-	return ring
+// wrapAngle reduces an angle into (-π, π].
+func wrapAngle(a float64) float64 {
+	return math.Atan2(math.Sin(a), math.Cos(a))
 }
 
-// chordArc returns the interior points of the SHORT arc from a to b at radius
-// r, as arcChordCount straight segments.
-func chordArc(a, b involute.Pt, r float64) []involute.Pt {
-	from := math.Atan2(a.Y, a.X)
-	to := normalizeAngle(math.Atan2(b.Y, b.X)-from) + from
-	out := make([]involute.Pt, 0, arcChordCount-1)
-	for i := 1; i < arcChordCount; i++ {
-		at := from + (to-from)*float64(i)/float64(arcChordCount)
-		out = append(out, involute.Pt{X: r * math.Cos(at), Y: r * math.Sin(at)})
-	}
-	return out
-}
-
-// ringArea is the shoelace area of a closed polygon.
-func ringArea(ring []involute.Pt) float64 {
-	sum := 0.0
-	for i := range ring {
-		j := (i + 1) % len(ring)
-		sum += ring[i].X*ring[j].Y - ring[j].X*ring[i].Y
-	}
-	return math.Abs(sum) / 2
-}
-
-// capVertices returns the distinct vertex positions of the one face the given
-// cap role created.
-func capVertices(t *testing.T, body *decad.Body, role decad.FeatureRef) []decad.VecMeasurement {
-	t.Helper()
-	faces, err := decad.Faces(decad.FaceCreatedBy(role)).Exactly(1).SelectFaces(body)
-	if err != nil {
-		t.Fatalf("select the %s cap face: %v", role.Role, err)
-	}
-	seen := map[*decad.Vertex]bool{}
-	var out []decad.VecMeasurement
-	for _, loop := range faces[0].Loops() {
-		for _, edge := range loop.Edges() {
-			for _, vertex := range []*decad.Vertex{edge.Start(), edge.End()} {
-				if seen[vertex] {
-					continue
-				}
-				seen[vertex] = true
-				out = append(out, vertex.Position())
-			}
-		}
-	}
-	if len(out) == 0 {
-		t.Fatalf("the %s cap face has no vertices", role.Role)
-	}
-	return out
-}
-
-// capPlaneHeight is the height of a cap face above the gear's own plane.
-func capPlaneHeight(t *testing.T, body *decad.Body, role decad.FeatureRef) float64 {
-	t.Helper()
-	vertices := capVertices(t, body, role)
-	height := vertices[0].Value.Z
-	for _, vertex := range vertices[1:] {
-		if math.Abs(vertex.Value.Z-height) > 1e-9 {
-			t.Fatalf("the %s cap face is not planar in z: %.12g and %.12g", role.Role, height, vertex.Value.Z)
-		}
-	}
-	return height
-}
-
-// capAxisAngle is the polar angle of a cap section's own axis of symmetry.
+// What this proof does not build, and why, recorded beside the nearest thing
+// it does build.
 //
-// The tooth section is symmetric about that axis — mirrored flanks, symmetric
-// chords on both arcs — so the centroid of its vertices lies on it.
-func capAxisAngle(t *testing.T, body *decad.Body, role decad.FeatureRef) float64 {
-	t.Helper()
-	vertices := capVertices(t, body, role)
-	var x, y float64
-	for _, vertex := range vertices {
-		x += vertex.Value.X
-		y += vertex.Value.Y
-	}
-	return math.Atan2(y/float64(len(vertices)), x/float64(len(vertices)))
-}
+// The helix construction plane (step H7 of the step list) is not a step of its
+// own here: a plane leaves no body for proofkit3d to gate. It is built inside
+// stepLoftTooth as the World offset plane the twisted section is drawn on, and
+// assertLoftTooth reads the offset back as the lofted body's extent along the
+// plane normal, which is exactly what the plane exists to fix.
+//
+// The body extrude, the circular pattern and combine, the root fillets, the
+// bore and the completed-gear chamfer (step H10) run spur's inherited code
+// with no helical override, so they are spur's proof to carry, and
+// proof/spurgear carries them. They are also out of decad's reach for the
+// helical body: the lofted tooth and the extruded disc share the root arc's
+// edge and lie in the same two cap planes, which is the coplanar, grazing-edge
+// contact decad's booleans refuse (BooleanUnsupportedContact), and the fillet
+// and chamfer verbs take a straight prism receiver, which a loft is not. The
+// one helical contribution to those steps, the cos(HelixAngle) factor in the
+// FilletRadius expression, is a parameter expression Fusion evaluates, and no
+// engine here evaluates Fusion expressions.
+//
+// The SketchOnly path (spur step 6) stops before buildTooth, so nothing in it
+// is helical geometry; what helical adds to it — the twisted sketch drawn but
+// left hidden, the plane left lit — is visibility state the sketch engine does
+// not model.
 
-// normalizeAngle folds an angle into (-pi, pi].
-func normalizeAngle(a float64) float64 {
-	for a > math.Pi {
-		a -= 2 * math.Pi
-	}
-	for a <= -math.Pi {
-		a += 2 * math.Pi
-	}
-	return a
+// toothDimensions derives the circle radii for a case, in millimetres.
+func toothDimensions(p map[string]float64) involute.Dimensions {
+	return involute.Derive(p[keyModule], p[keyToothNumber], p[keyPressureAngle])
 }

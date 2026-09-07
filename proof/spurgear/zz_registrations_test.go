@@ -10,11 +10,11 @@ import (
 )
 
 func TestToolsSketch(t *testing.T) {
-	proofkit.Run(t, toolsCases, stepToolsSketch)
+	proofkit.Run(t, profileCases, stepToolsSketch)
 }
 
-func TestGearProfileSketch(t *testing.T) {
-	proofkit.Run(t, profileCases, stepGearProfileSketch)
+func TestGearProfile(t *testing.T) {
+	proofkit.Run(t, profileCases, stepGearProfile)
 }
 
 func TestExtrudeTooth(t *testing.T) {
@@ -33,18 +33,14 @@ func TestCombineTeeth(t *testing.T) {
 	proofkit3d.RunSolid(t, solidCases, stepCombineTeeth, assertCombineTeeth)
 }
 
-func TestFilletRoots(t *testing.T) {
-	proofkit3d.RunSolid(t, solidCases, stepFilletRoots, assertFilletRoots)
+func TestRootFillets(t *testing.T) {
+	proofkit3d.RunSolid(t, filletCases, stepRootFillets, assertRootFillets)
 }
 
-func TestBoreProfileSketch(t *testing.T) {
-	proofkit.Run(t, boreProfileCases, stepBoreProfileSketch)
-}
-
-func TestBoreCut(t *testing.T) {
-	proofkit3d.RunSolid(t, solidCases, stepBoreCut, assertBoreCut)
+func TestBore(t *testing.T) {
+	proofkit3d.RunSolid(t, boreCases, stepBore, assertBore)
 }
 
 func TestChamferTeeth(t *testing.T) {
-	proofkit3d.RunSolid(t, solidCases, stepChamferTeeth, assertChamferTeeth)
+	proofkit3d.RunSolid(t, chamferCases, stepChamferTeeth, assertChamferTeeth)
 }
