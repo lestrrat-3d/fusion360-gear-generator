@@ -514,6 +514,36 @@ the check.
   - **What to do.** A gear that labels a sketch cannot gate that sketch on `isFullyConstrained`;
     log the result rather than raising. **This exempts the labels and nothing else** — never read it
     as licence for loose geometry, and gate every sketch that carries no text normally.
+  - ⚠️ **"Never" overstates it, measured.** The bevel tooth sketches, labelled with the same four
+    circle labels, read `False` in one Fusion run on 2026-09-12 and `True` in the two runs after it,
+    with byte-identical counts (53 points, 47 constraints, 41 dimensions, 4 texts) and the same
+    coordinates to four decimals. So a labelled sketch sometimes does report fully constrained, and
+    the reading is not stable between runs — see `[PB-SETTLE-DISPLAY]` for why a just-authored
+    sketch's state can be read before it has settled. The instruction above does not change: log,
+    never raise, because the answer cannot be relied on either way.
+
+- **[PB-SETTLE-DISPLAY] Fusion's browser shows a stale constraint icon for every sketch a generator
+  authors, until something makes it settle.** A sketch created through the API gets a browser node
+  whose constraint icon reflects the sketch as it was at creation, which is before any of its
+  constraints exist, so a finished, fully constrained sketch still shows the unconstrained icon.
+  Opening the sketch in the editor and closing it again refreshes the icon, which is how this was
+  first noticed: every sketch in a finished bevel gear looked unconstrained, and each one flipped to
+  fully constrained after a double-click and an escape.
+  - **The icon is not evidence.** Measured in Fusion on 2026-09-12, `isFullyConstrained` returned
+    `True` for the Anchor, Gear Profiles and both per-gear Profile sketches at the moment each was
+    built and again after the last feature, while all four icons showed otherwise. Never conclude
+    anything about constraint state from the browser; read the property.
+  - **What to do.** `commands/_gear_command.py` calls `geargen.settle_sketch_display` once after
+    `generate()` returns, which recomputes and re-reads each sketch the generator authored and then
+    calls `adsk.doEvents()` so Fusion processes the updates it has queued. Every gear command runs
+    through that one call, so **a generator must not add its own** — nothing about this belongs in a
+    generated module or in a step list.
+  - **It is display-only.** Across three instrumented bevel builds the geometry, constraint and
+    dimension counts were identical with and without the settle, so this changes what the browser
+    shows and nothing else. It also reached sketches it was never applied to, including a control
+    sketch deliberately left untouched, which points at `adsk.doEvents()` rather than the per-sketch
+    recompute as the part that does the work. Both are kept because the cost is nil and only their
+    combination has been measured.
 
 - **[PB-SELECTION-FILTER-ENUM] Write a selection filter as the named constant, never a quoted
   literal.** Use `addSelectionFilter(adsk.core.SelectionCommandInput.ConstructionPlanes)`. The
