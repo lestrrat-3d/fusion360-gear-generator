@@ -12,7 +12,7 @@ ui = adsk.core.Application.get().userInterface
 # Bump this string on every deploy of THIS file. It proves whether the
 # commands/ layer reloaded: if the dialog's Build line shows an old tag, the
 # add-in Stop/Run did not re-import commands/_gear_command.py.
-BUILD_TAG = 'r4-2026-06-19'
+BUILD_TAG = 'r5-2026-09-12'
 
 # Plain (undecorated) generator methods used as canaries to detect whether the
 # *loaded* generator module matches the file on disk. co_firstlineno comes from
@@ -174,8 +174,16 @@ class GearCommand:
         futil.log(f'{self.name} Command Execute Event')
         g = None
         try:
-            g = self.generator_class(geargen.get_design())
+            design = geargen.get_design()
+            # [PB-SETTLE-DISPLAY]: remember the user's own sketches, so the settle below only
+            # touches the ones this generator is about to author.
+            preexisting = geargen.sketch_tokens(design)
+            g = self.generator_class(design)
             g.generate(args.command.commandInputs)
+            # Every gear runs through here, so one call covers all of them and no generated
+            # module carries its own copy.
+            settled = geargen.settle_sketch_display(design, preexisting)
+            futil.log(f'{self.name} settled the display of {settled} new sketches')
         except Exception:
             # Put the build marker in the error box so any traceback the user
             # reports is attributable to a specific running version.

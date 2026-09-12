@@ -10,7 +10,7 @@ the generated registration file `proof/spurgear/zz_registrations_test.go`.
 | `spec/spurgear/instructions.md` | `2a98a801da25e77958488252bc87b499475ac95d` |
 | `spec/spurgear/fusion.md` | `5dccd871606c3709ecfa07c05f58c126369f2927` |
 | `spec/helicalgear/fusion.md` | `f981173cb314094f2fd98cdd78d5bd8287cdc8ee` |
-| `.claude/skills/generate-gear/PLAYBOOK.md` | `30c7c0f8b66207cc4ecb7b8fd96d6461242afbaf` |
+| `.claude/skills/generate-gear/PLAYBOOK.md` | `abb1123b5910f10c5c96c1ad936a38691ea3e7fb` |
 
 ## S1 `[PROSE]` Dialog inputs — `SpurGearCommandInputsConfigurator.configure`
 
