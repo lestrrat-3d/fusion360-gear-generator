@@ -250,6 +250,6 @@ func stepResolveInputBounds(t testing.TB, s *sketch.Sketch, p map[string]float64
 	// revolved about. Drawing it at the resolved values is what makes the
 	// arithmetic above a statement about geometry.
 	pts, lines, names := drawFrustumHexagon(t, s, d.Pinion,
-		gearLattice(d.Pinion, d.Module, d.R, d.FaceWidth, d.ToothSpacing))
+		gearLattice(d, d.Pinion))
 	requireFrustumProfile(t, s, d.Pinion, pts, lines, names)
 }

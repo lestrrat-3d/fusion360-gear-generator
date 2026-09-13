@@ -38,6 +38,11 @@ const (
 	keyPinionBase   = "pinionBaseHeight"
 	keyFaceWidth    = "faceWidth"
 	keyToothSpacing = "toothSpacing"
+	// keyToeExtension is the Toe Extension percentage and the two toe radii
+	// are its per-gear companions, 0 meaning "resolve it".
+	keyToeExtension     = "toeExtension"
+	keyDrivingToeRadius = "drivingToeRadius"
+	keyPinionToeRadius  = "pinionToeRadius"
 	keySpiralAngle  = "spiralAngleDeg" // Mean Spiral Angle psi, degrees
 	keyHand         = "hand"           // +1 Right, -1 Left (the DRIVING gear's hand)
 	keyCutterRadius = "cutterRadius"
@@ -134,6 +139,7 @@ type gear struct {
 	Gamma         float64 // pitch cone half angle, radians
 	BaseHeight    float64 // RESOLVED base height, mm
 	Bore          float64 // RESOLVED bore diameter, mm (0 when Enable Bore is off)
+	ToeRadius     float64 // RESOLVED toe radius, mm: the radius the inner toe corner rides
 }
 
 // design holds every resolved value of one case.
@@ -143,6 +149,8 @@ type design struct {
 	R            float64 // Pitch Cone Distance: (PPD/2) / sin gamma_p
 	ConeDistance float64 // sqrt(DPD^2 + PPD^2) — the OTHER length, the diagonal
 	FaceWidth    float64 // resolved, already capped by MaximumFaceWidth
+	ToeExtension float64 // Toe Extension as a fraction, already past toeExtensionCeiling
+	RootLength   float64 // RESOLVED |Ded->Toe|, what the Toe Extension actually sets
 	ToothSpacing float64
 	Psi          float64 // Mean Spiral Angle, radians
 	HandSign     float64 // +1 Right, -1 Left, as read for the DRIVING gear
@@ -219,6 +227,16 @@ func resolveBaseHeight(raw, fallback, minimum, maximum float64) (resolved float6
 	return math.Min(math.Max(fallback, minimum), maximum), ""
 }
 
+// resolveToeRadius applies the one rule the Toe Radius has: 0 means "resolve
+// it" and anything positive is taken as typed. The ceiling check is the
+// caller's, because its message names which gear broke it.
+func resolveToeRadius(raw, fallback float64) float64 {
+	if raw > 0 {
+		return raw
+	}
+	return fallback
+}
+
 // maximumFaceWidth is 0.95 times the smaller of the perpendicular distance
 // from A to line C-H and from B to line D-J. Both distances reduce to
 // R * sin(gamma)^2 for the gear in question, so the binding side is the gear
@@ -229,6 +247,67 @@ func maximumFaceWidth(r, gammaP, gammaG float64) float64 {
 	sg := math.Sin(gammaG)
 	return 0.95 * r * math.Min(sp*sp, sg*sg)
 }
+
+// ---------------------------------------------------------------------------
+// The toe end: Toe Radius, X, and the root length the Toe Extension resolves.
+//
+// Every quantity here is closed form in Module, R, gamma and the resolved Face
+// Width, so the generator resolves all of it during input validation — unlike
+// the Maximum Face Width, which instructions.md pins to solved sketch geometry.
+// ---------------------------------------------------------------------------
+
+// rootConeDistance is |Apex->Ded|, the root element's own length, which is
+// hypot(R, 1.25*Module) because Ded sits 1.25*Module off the pitch line at the
+// heel. It is longer than R by the dedendum angle's cosine.
+func rootConeDistance(module, r float64) float64 {
+	return math.Hypot(r, 1.25*module)
+}
+
+// rootConeAngle is the angle the root element Apex->Ded makes with the shaft
+// axis: the pitch cone angle less the dedendum angle atan(1.25*Module/R).
+func rootConeAngle(module, r, gamma float64) float64 {
+	return gamma - math.Atan2(1.25*module, r)
+}
+
+// toeCornerRadius is the perpendicular distance from the shaft axis to the
+// INNER toe corner (N resp. P) at Toe Extension 0, where that corner still
+// sits on the Apex 2 drop line. It is the value the Toe Radius defaults to,
+// which is what makes Toe Extension 0 reproduce today's toe end exactly.
+func toeCornerRadius(pitchRadius, gamma, faceWidth float64) float64 {
+	return pitchRadius - faceWidth/math.Sin(gamma)
+}
+
+// rootToeCornerRadius is the same distance for the OUTER toe corner (M resp.
+// O), the one on the root element. The Toe Radius has to stay strictly below
+// it: at or above, X falls behind the toe corner and the Toe Extension has
+// nowhere to go.
+func rootToeCornerRadius(module, pitchRadius, r, gamma, faceWidth float64) float64 {
+	return (pitchRadius - 1.25*module*math.Cos(gamma)) * (1 - faceWidth/r)
+}
+
+// toeLimit is |Ded->X|, the longest root length this gear's Toe Radius admits.
+// X is the point on Apex->Ded at the Toe Radius, so the Toe Extension's 100%
+// is where the toe corner reaches it and the toe face closes to nothing.
+func toeLimit(module, r, gamma, toeRadius float64) float64 {
+	return rootConeDistance(module, r) -
+		toeRadius/math.Sin(rootConeAngle(module, r, gamma))
+}
+
+// rootLengthAt0 is |Ded->Toe| at Toe Extension 0: the resolved Face Width
+// re-measured along the root element instead of perpendicular to the pitch
+// line, which is longer by the same dedendum-angle cosine.
+func rootLengthAt0(module, r, faceWidth float64) float64 {
+	return faceWidth * rootConeDistance(module, r) / r
+}
+
+// toeExtensionCeiling is the fraction of the way from the Toe Extension 0 root
+// length to the smaller toe limit that 100% actually resolves to. It stops
+// short of 1 because AT 1 the toe face has zero length, so the gear body
+// carries no cone at its toe end and S18's toe cut — which must split or the
+// build fails — has no ConeSurfaceType face to find. The last percent is worth
+// well under a tenth of a millimetre of root length on every case in the
+// table, so the reach given up is nil and the failure avoided is total.
+const toeExtensionCeiling = 0.99
 
 // virtualTeeth is the back-cone (Tredgold) tooth number this gear's spur tooth
 // is drawn with: floor(2 * virtualPitchRadius / Module) with virtualPitchRadius
@@ -263,6 +342,19 @@ type bounds struct {
 
 	MaxFaceWidth      float64
 	FaceWidthFallback float64 // Cone Distance / 6
+
+	// The toe-end window. RootLengthBase is |Ded->Toe| at Toe Extension 0 and
+	// is shared by both gears, because Face Width is. Each toe limit is that
+	// gear's own |Ded->X|, and MaxRootLength is the smaller of the two after
+	// the ceiling, which is what a Toe Extension of 100 resolves to.
+	ToeRadiusDefaultPinion  float64
+	ToeRadiusDefaultDriving float64
+	ToeRadiusCeilingPinion  float64 // the outer toe corner: the Toe Radius must stay below it
+	ToeRadiusCeilingDriving float64
+	ToeLimitPinion          float64
+	ToeLimitDriving         float64
+	RootLengthBase          float64
+	MaxRootLength           float64
 }
 
 // resolveDesign resolves one case the way _readInputs plus the section 2
@@ -365,6 +457,58 @@ func resolveDesign(p map[string]float64) (design, []string) {
 		reject("Face Width %g mm exceeds the Maximum Face Width %.4f mm", faceWidth, b.MaxFaceWidth)
 	}
 
+	// The toe end. Each gear's Toe Radius defaults to its own inner toe corner
+	// at Toe Extension 0, which is what makes 0 reproduce today's toe end
+	// exactly; a user value has to stay strictly below the OUTER toe corner,
+	// since at or above it X falls behind the toe corner. The two toe limits
+	// then bound the root length, and the smaller one wins because the pair
+	// shares a single root length the way it shares a single Face Width.
+	b.RootLengthBase = rootLengthAt0(module, r, faceWidth)
+	b.ToeRadiusDefaultPinion = toeCornerRadius(ppd/2, gammaP, faceWidth)
+	b.ToeRadiusDefaultDriving = toeCornerRadius(dpd/2, gammaG, faceWidth)
+	b.ToeRadiusCeilingPinion = rootToeCornerRadius(module, ppd/2, r, gammaP, faceWidth)
+	b.ToeRadiusCeilingDriving = rootToeCornerRadius(module, dpd/2, r, gammaG, faceWidth)
+
+	pinionToe := resolveToeRadius(p[keyPinionToeRadius], b.ToeRadiusDefaultPinion)
+	drivingToe := resolveToeRadius(p[keyDrivingToeRadius], b.ToeRadiusDefaultDriving)
+	if p[keyPinionToeRadius] > 0 && pinionToe >= b.ToeRadiusCeilingPinion {
+		reject("Pinion Gear Toe Radius %g mm is at or above the toe corner %.4f mm",
+			p[keyPinionToeRadius], b.ToeRadiusCeilingPinion)
+	}
+	if p[keyDrivingToeRadius] > 0 && drivingToe >= b.ToeRadiusCeilingDriving {
+		reject("Driving Gear Toe Radius %g mm is at or above the toe corner %.4f mm",
+			p[keyDrivingToeRadius], b.ToeRadiusCeilingDriving)
+	}
+	b.ToeLimitPinion = toeLimit(module, r, gammaP, pinionToe)
+	b.ToeLimitDriving = toeLimit(module, r, gammaG, drivingToe)
+	smallestLimit := math.Min(b.ToeLimitPinion, b.ToeLimitDriving)
+	b.MaxRootLength = b.RootLengthBase +
+		toeExtensionCeiling*(smallestLimit-b.RootLengthBase)
+
+	toeExtPct := p[keyToeExtension]
+	if toeExtPct < 0 || toeExtPct > 100 {
+		reject("Toe Extension %g%% is outside [0, 100]", toeExtPct)
+	}
+	// A defaulted Toe Radius can leave no room at all, which is what happens
+	// whenever this gear's inner toe corner already sits OUTSIDE its outer one
+	// — a real configuration on high-ratio pairs, where the toe dish leans
+	// toward the heel rather than away from it. Extension 0 is still exactly
+	// today's gear there, so the refusal is only of the extension itself.
+	if toeExtPct > 0 && smallestLimit <= b.RootLengthBase {
+		which, ceiling := "Pinion", b.ToeRadiusCeilingPinion
+		if b.ToeLimitDriving < b.ToeLimitPinion {
+			which, ceiling = "Driving", b.ToeRadiusCeilingDriving
+		}
+		reject("Toe Extension %g%% needs a %s Gear Toe Radius below %.4f mm; "+
+			"it defaults to %.4f mm on this pair, which leaves no room",
+			toeExtPct, which, ceiling,
+			map[string]float64{"Pinion": b.ToeRadiusDefaultPinion,
+				"Driving": b.ToeRadiusDefaultDriving}[which])
+	}
+	toeExtension := toeExtPct / 100
+	rootLength := b.RootLengthBase +
+		toeExtension*toeExtensionCeiling*(smallestLimit-b.RootLengthBase)
+
 	psiDeg := p[keySpiralAngle]
 	if psiDeg < 0 || psiDeg >= 60 {
 		reject("Mean Spiral Angle %g deg is outside [0, 60)", psiDeg)
@@ -388,6 +532,8 @@ func resolveDesign(p map[string]float64) (design, []string) {
 		R:            r,
 		ConeDistance: coneDistance,
 		FaceWidth:    faceWidth,
+		ToeExtension: toeExtension,
+		RootLength:   rootLength,
 		ToothSpacing: p[keyToothSpacing],
 		Psi:          psiDeg * math.Pi / 180,
 		HandSign:     hand,
@@ -397,12 +543,14 @@ func resolveDesign(p map[string]float64) (design, []string) {
 		Pinion: gear{
 			Label: "Pinion", Teeth: np, PitchDiameter: ppd,
 			Gamma: gammaP, BaseHeight: pinionBase,
-			Bore: resolveBore(boreEnable, p[keyPinionBore], ppd),
+			Bore:      resolveBore(boreEnable, p[keyPinionBore], ppd),
+			ToeRadius: pinionToe,
 		},
 		Driving: gear{
 			Label: "Driving", Teeth: nd, PitchDiameter: dpd,
 			Gamma: gammaG, BaseHeight: drivingBase,
-			Bore: resolveBore(boreEnable, p[keyDrivingBore], dpd),
+			Bore:      resolveBore(boreEnable, p[keyDrivingBore], dpd),
+			ToeRadius: drivingToe,
 		},
 	}, problems
 }
@@ -464,7 +612,12 @@ type gearFrame struct {
 	Ded   vec2 // C (pinion) / D (driving): the dedendum corner
 	Heel  vec2 // H (pinion) / J (driving): the heel outer corner
 	Toe   vec2 // M (pinion) / O (driving): the toe corner on the root element
-	ToeIn vec2 // N (pinion) / P (driving): the toe corner on the drop line
+	ToeIn vec2 // N (pinion) / P (driving): the toe corner on the toe-radius line
+	// Front is A' (pinion) / B' (driving): the foot of the front face on the
+	// shaft axis, and the hexagon's FIRST vertex. It coincides with Axis at Toe
+	// Extension 0 with a defaulted Toe Radius, which is every case that leaves
+	// the new inputs alone.
+	Front vec2
 	Foot  vec2 // E (pinion) / F (driving): the foot of the dedendum perpendicular
 	Back  vec2 // K (pinion) / L (driving): the back-cone apex on the shaft axis
 	Tooth vec2 // K' (pinion) / L' (driving): the tooth centre after Tooth Spacing
@@ -476,9 +629,10 @@ type gearFrame struct {
 // the constraint net rather than from the seeds: A/B sit at R*cos(gamma) along
 // the axis, Apex2 at pitch radius above that station, the dedendum line leaves
 // Apex2 perpendicular to the pitch line, G/I sit one resolved base height
-// beyond A/B, and the toe line is the dedendum line offset by the Face Width
-// toward the Apex.
-func gearLattice(g gear, module, r, faceWidth, toothSpacing float64) gearFrame {
+// beyond A/B, and the toe line is the dedendum line offset toward the Apex by
+// the resolved root length re-measured perpendicular to the pitch line.
+func gearLattice(d design, g gear) gearFrame {
+	module, r, toothSpacing := d.Module, d.R, d.ToothSpacing
 	sin, cos, tan := math.Sin(g.Gamma), math.Cos(g.Gamma), math.Tan(g.Gamma)
 	pitchRadius := g.PitchDiameter / 2
 	along := r * cos
@@ -496,13 +650,24 @@ func gearLattice(g gear, module, r, faceWidth, toothSpacing float64) gearFrame {
 	foot := v2(along+1.25*module*sin, 0)
 	back := apex2.add(ded.scale(pitchRadius / cos))
 
-	// M/O lie on the root element Apex->Ded at the fraction that puts them one
-	// Face Width from the dedendum line, measured perpendicular to it. The
-	// Apex is exactly R from that line, so the fraction is 1 - FaceWidth/R.
-	toe := dedendum.scale(1 - faceWidth/r)
-	// N/P lie on the Apex2 drop line (the radial line through Axis and Apex2)
-	// at the same perpendicular distance.
-	toeIn := v2(along, pitchRadius-faceWidth/sin)
+	// M/O lie on the root element Apex->Ded, the resolved root length back from
+	// Ded. At Toe Extension 0 that length is FaceWidth * |Apex->Ded| / R, so
+	// the fraction below is the 1 - FaceWidth/R the earlier revision wrote
+	// directly, and every case that leaves the toe inputs alone is unmoved.
+	rootDist := dedendum.len()
+	toe := dedendum.scale(1 - d.RootLength/rootDist)
+
+	// N/P ride the toe-radius line, a line parallel to the shaft axis at this
+	// gear's resolved Toe Radius. The toe line through M/O stays parallel to
+	// Ded->Heel, as it always has, so the station is that line's own crossing
+	// of the toe radius: faceOffset is the toe line's perpendicular distance
+	// from the dedendum line, the quantity the offset dimension carries.
+	faceOffset := d.RootLength * r / rootDist
+	toeIn := v2(along+(-faceOffset-(g.ToeRadius-pitchRadius)*sin)/cos, g.ToeRadius)
+
+	// A'/B' is the front face's foot on the shaft axis, directly beneath N/P
+	// because the front face stays perpendicular to the shaft.
+	front := v2(toeIn.X, 0)
 
 	tooth := back
 	if toothSpacing > 0 {
@@ -511,17 +676,19 @@ func gearLattice(g gear, module, r, faceWidth, toothSpacing float64) gearFrame {
 	_ = tan
 	return gearFrame{
 		Apex: apex, Axis: axis, Base: base, Apex2: apex2,
-		Ded: dedendum, Heel: heel, Toe: toe, ToeIn: toeIn,
+		Ded: dedendum, Heel: heel, Toe: toe, ToeIn: toeIn, Front: front,
 		Foot: foot, Back: back, Tooth: tooth, DedDir: ded,
 	}
 }
 
 // hexagon is the frustum profile the gear body is revolved from, in the draw
-// order instructions.md fixes: A -> G -> H -> C -> M -> N -> A for the pinion
-// and B -> I -> J -> D -> O -> P -> B for the driving gear. Its FIRST edge is
-// the shaft axis every later body operation uses.
+// order instructions.md fixes: A' -> G -> H -> C -> M -> N -> A' for the pinion
+// and B' -> I -> J -> D -> O -> P -> B' for the driving gear. Its FIRST edge is
+// the shaft axis every later body operation uses, which the front face's foot
+// carries as well as the drop foot did — both sit on that axis, and at Toe
+// Extension 0 with a defaulted Toe Radius they are the same point.
 func (f gearFrame) hexagon() []vec2 {
-	return []vec2{f.Axis, f.Base, f.Heel, f.Ded, f.Toe, f.ToeIn}
+	return []vec2{f.Front, f.Base, f.Heel, f.Ded, f.Toe, f.ToeIn}
 }
 
 // sharedFrame maps this gear's own frame into the shared Gear Profiles sketch

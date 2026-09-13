@@ -21,7 +21,7 @@ func sideOf(d design, p map[string]float64) (gear, gearFrame) {
 	if p[keyGearSide] != 0 {
 		g = d.Driving
 	}
-	return g, gearLattice(g, d.Module, d.R, d.FaceWidth, d.ToothSpacing)
+	return g, gearLattice(d, g)
 }
 
 // ---------------------------------------------------------------------------
@@ -265,7 +265,7 @@ func stepBoreSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
 
 	// The bore has to pierce the body, so it must be smaller than the smallest
 	// radius the frustum reaches: the toe end's root radius.
-	f := gearLattice(g, d.Module, d.R, d.FaceWidth, d.ToothSpacing)
+	f := gearLattice(d, g)
 	if g.Bore/2 >= f.Toe.Y {
 		t.Fatalf("%s bore radius %.6f mm reaches the toe root radius %.6f mm",
 			g.Label, g.Bore/2, f.Toe.Y)
@@ -399,7 +399,7 @@ func stepSpiralTrace(t testing.TB, s *sketch.Sketch, p map[string]float64) {
 	// The pinion is the member whose hand is negated, so proving it proves the
 	// sign rule as well as the arc.
 	g := d.Pinion
-	f := gearLattice(g, d.Module, d.R, d.FaceWidth, d.ToothSpacing)
+	f := gearLattice(d, g)
 	rToe, rHeel := coneDistances(f)
 	tf := newTraceFrame(d, g, rToe, rHeel)
 

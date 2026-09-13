@@ -79,8 +79,8 @@ func sharedLattice(d design) sharedGeometry {
 	return sharedGeometry{
 		Centre:  centre,
 		Apex:    apex,
-		Pinion:  placeSide(apex, pinionDir, pinionRad, gearLattice(d.Pinion, d.Module, d.R, d.FaceWidth, d.ToothSpacing)),
-		Driving: placeSide(apex, drivingDir, drivingRad, gearLattice(d.Driving, d.Module, d.R, d.FaceWidth, d.ToothSpacing)),
+		Pinion:  placeSide(apex, pinionDir, pinionRad, gearLattice(d, d.Pinion)),
+		Driving: placeSide(apex, drivingDir, drivingRad, gearLattice(d, d.Driving)),
 	}
 }
 

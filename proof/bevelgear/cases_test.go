@@ -28,20 +28,23 @@ import (
 // it"), the bore enabled and a 35 degree right-hand spiral.
 func baseParams() map[string]float64 {
 	return map[string]float64{
-		keyModule:       1,
-		keyDrivingTeeth: 31,
-		keyPinionTeeth:  31,
-		keyShaftAngle:   90,
-		keyDrivingBase:  0,
-		keyPinionBase:   0,
-		keyFaceWidth:    0,
-		keyToothSpacing: 0,
-		keySpiralAngle:  35,
-		keyHand:         1,
-		keyCutterRadius: 0,
-		keyBoreEnable:   1,
-		keyDrivingBore:  0,
-		keyPinionBore:   0,
+		keyModule:           1,
+		keyDrivingTeeth:     31,
+		keyPinionTeeth:      31,
+		keyShaftAngle:       90,
+		keyDrivingBase:      0,
+		keyPinionBase:       0,
+		keyFaceWidth:        0,
+		keyToeExtension:     0,
+		keyDrivingToeRadius: 0,
+		keyPinionToeRadius:  0,
+		keyToothSpacing:     0,
+		keySpiralAngle:      35,
+		keyHand:             1,
+		keyCutterRadius:     0,
+		keyBoreEnable:       1,
+		keyDrivingBore:      0,
+		keyPinionBore:       0,
 	}
 }
 
