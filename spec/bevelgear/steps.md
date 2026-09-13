@@ -913,9 +913,9 @@ Run S11 through S33 **once per gear**, pinion first, then driving, with these su
 
 | | Pinion | Driving |
 |---|---|---|
-| hexagon vertices, in draw order | A → G → H → C → M → N → A | B → I → J → D → O → P → B |
+| hexagon vertices, in draw order | A' → G → H → C → M → N → A' | B' → I → J → D → O → P → B' |
 | profile sketch name | `Pinion Profile` | `Driving Profile` |
-| shaft-axis edge (the hexagon's FIRST edge) | A→G | B→I |
+| shaft-axis edge (the hexagon's FIRST edge) | A'→G | B'→I |
 | toe cut edge | M→N | O→P |
 | heel cut edge | C→H | D→J |
 | tooth centre / reference line | K′ / C→K′ | L′ / D→L′ |
