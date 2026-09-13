@@ -3,10 +3,10 @@
 These pictures are the gear the command builds, taken step by step, at the numbers
 [`spec/bevelgear/steps.md`](../../spec/bevelgear/steps.md) gives each step. The solid ones are
 meshed by [render_test.go](render_test.go)'s model, the one the repository README's bevel
-picture is drawn with; the sketch ones are drawn by the proof's own sketch steps, which draw the
-sketch the generator draws. `TestStepSnapshots` in [snapshots_test.go](snapshots_test.go) writes
-them, and it runs only when `-snapshot.out` names a directory, so an ordinary proof run writes
-no images.
+picture is drawn with. The lattice is a drawing of the sketch the proof's own step draws, which
+is the sketch the generator draws. `TestStepSnapshots` in [snapshots_test.go](snapshots_test.go)
+writes them all, and it runs only when `-snapshot.out` names a directory, so an ordinary proof
+run writes no images.
 
 One gear runs through the sequence: the shipped dialog default with the Mean Spiral Angle at 0,
 which is module 1, an equal 31/31 pair at a 90 degree shaft angle, taken on the pinion — the
@@ -33,14 +33,6 @@ about the Apex, which is the Tredgold mapping the tooth's own construction alrea
 tooth's size, its curve inventory, its taper and both conical trims are the real ones; the tilt
 of the plane it is drawn on is not.
 
-## S8 — Anchor sketch
-
-![The Anchor Line with its projected centre point at the midpoint](images/s08-anchor-sketch.svg)
-
-The line is 10 mm long and horizontal in the sketch's own frame, and the black point is the
-user's Center Point projected onto the target plane. That point is the line's midpoint, and the
-line is what section 2 measures its directions against.
-
 ## S10 — Gear Profiles sketch, the section 2 lattice
 
 ![The lattice: construction lines between the section 2 points](images/s10-gear-profiles.svg)
@@ -49,24 +41,6 @@ The whole lattice in the axial plane, with the anchor line projected into it in 
 left. The dashed lines are construction geometry and the red points are the vertices both gears'
 profiles are later recreated from. The thirteen dimensions that hold the lattice are not drawn:
 their labels overlap into a block of text at this size.
-
-## S12 — `{gearLabel} Tooth` sketch, the virtual spur tooth
-
-![The tooth cross-section, small, at the left of an otherwise empty frame](images/s12-tooth-section.svg)
-
-The tooth's cross-section at the heel: two spline flanks, a tip arc and a root arc. The frame
-runs from the shaft axis on the right to the tooth on the left, which is why most of it is
-empty — the tooth is 2.25 mm from root to tip and sits 14.5 mm out from the axis. The point
-markers are off here, because one marker per spline sample covers the flanks they sample.
-
-## S15 — `{gearLabel} Profile` sketch, the frustum hexagon
-
-![The filled hexagon of the gear body profile](images/s15-profile-hexagon.svg)
-
-The six section 2 vertices recreated as new points, the closed hexagon drawn sharing them, and
-the endpoints fixed only after the lines exist. The fill is the sketch's one closed region,
-which is what lets the revolve take its profile without filtering. Its left edge lies on the
-shaft axis.
 
 ## S16 — Revolve the hexagon into the Gear Body
 
@@ -109,14 +83,6 @@ because the taper is already in the lofted tooth.
 The same geometry in one colour, which is what the join makes of it: the Gear Body and its 31
 teeth stop being separate bodies and become one.
 
-## S30 — `{gearLabel} Bore` sketch
-
-![The bore circle with its diameter dimension](images/s30-bore-sketch.svg)
-
-The bore circle, its centre fixed at the sketch origin and its diameter dimensioned. The
-diameter shown, 7.75 mm, is the "0 means auto" branch resolving to this gear's pitch diameter
-divided by four.
-
 ## S31 — Bore through-cut
 
 ![The finished single gear, seen down the shaft axis, with the bore through it](images/s31-bore-cut.png)
@@ -124,7 +90,8 @@ divided by four.
 The bore cut along the shaft axis, through the whole body. The camera stands steeper for this
 one picture: the bore comes out in the floor of the toe dish, and from the viewpoint the rest of
 the sequence is shot from the dish's own rim hides all but a few pixels of it. The diameter is
-the 7.75 mm S30 dimensioned.
+7.75 mm, which is what S30's "0 means auto" branch resolves to: this gear's pitch diameter
+divided by four.
 
 ## S32 — Meshing rotation
 
@@ -141,6 +108,12 @@ builds them.
 the tooth-body hook returns the conical end trims of S18 and no trace, no slices, no twist and
 no crown are built. A spiral bevel builds its tooth through those steps instead, and nothing
 here shows that.
+
+**S8, S12, S15 and S30, the other sketches.** Each is a figure whose caption would be longer
+than the figure. The Anchor Line is a line, the frustum hexagon is the outline S16 revolves and
+shows in the round, the bore is a circle, and the tooth section is a 2 mm tooth in a 16 mm
+frame. The lattice above is the sketch that carries what no solid picture shows, because every
+length the gear is built from is in it.
 
 **The steps that build no geometry.** S1 to S4 and S6 are the module layout, the command dialog,
 the conditional inputs and the input reading. S5 resolves the derived values and the input

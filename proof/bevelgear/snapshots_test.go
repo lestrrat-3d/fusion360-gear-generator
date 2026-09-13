@@ -36,9 +36,8 @@ import (
 // already applies. The tooth's size, its curve inventory, its taper and both
 // conical trims are the real ones; the tilt of the plane it is drawn on is not.
 //
-// The SKETCH pictures are drawn by the proof's own sketch steps, since those
-// steps draw the sketch the generator draws. The tooth section carries the same
-// plane substitution, for the same reason, and its step says so.
+// The one SKETCH picture is drawn by the proof's own step, since that step draws
+// the sketch the generator draws.
 //
 // The gear is the shipped dialog default with the Mean Spiral Angle at 0, which
 // is a STRAIGHT bevel: module 1, an equal 31/31 pair at a 90 degree shaft angle.
@@ -123,24 +122,21 @@ func drawnBy(step proofkit.Build) func(*testing.T, map[string]float64) *sketch.S
 	}
 }
 
-// sketchSnapshots are the sketch steps a straight bevel runs, in step order.
+// sketchSnapshots is the one sketch worth a picture of its own.
+//
+// The other sketches a straight bevel draws are each a figure whose caption
+// would be longer than the figure: the Anchor Line is a line, the frustum
+// hexagon is the outline the very next picture revolves, the bore is a circle,
+// and the tooth section is a 2 mm tooth in a 16 mm frame. The lattice is the
+// one that carries something no solid picture shows, because every length the
+// gear is built from is in it.
 var sketchSnapshots = []sketchSnapshot{
-	{Step: "S8", File: "s08-anchor-sketch", Draw: drawnBy(stepAnchorSketch)},
 	{
 		Step: "S10", File: "s10-gear-profiles", Draw: drawnBy(stepGearProfiles),
 		// Thirteen dimensions inside one 30 mm figure. Drawn together their
 		// labels overlap into a block of text with the lattice behind it.
 		Options: []sketch.SVGOption{sketch.WithDimensions(false)},
 	},
-	{
-		Step: "S12", File: "s12-tooth-section", Draw: drawToothSection,
-		// The flanks are splines through sampled points, one marker each, and
-		// the tooth is 2 mm wide in a 16 mm frame: the markers cover the curve
-		// they are sampling.
-		Options: []sketch.SVGOption{sketch.WithShowPoints(false)},
-	},
-	{Step: "S15", File: "s15-profile-hexagon", Draw: drawnBy(stepGearProfileHexagon)},
-	{Step: "S30", File: "s30-bore-sketch", Draw: drawnBy(stepBoreSketch)},
 }
 
 // solidSnapshots are the body steps a straight bevel runs, in step order. Each
@@ -468,10 +464,9 @@ func writeSolidSnapshot(t *testing.T, sn solidSnapshot) {
 // stroke width, the point marker's radius and the blank border, each as a
 // fraction of the drawing's own long side. They are fractions rather than
 // lengths because the sketch engine takes all three in SKETCH UNITS while the
-// drawing is displayed at a fixed pixel width: a millimetre is 23 pixels on the
-// 40 mm lattice and 250 on the 4 mm tooth section, so one fixed stroke is a
-// hairline in one picture and covers the geometry in the other. A fraction lands
-// on the same pixel width in both.
+// drawing is displayed at a fixed pixel width, so a stroke set in millimetres is
+// a hairline on a large figure and covers a small one. A fraction lands on the
+// same pixel width whatever the figure measures.
 const (
 	sketchStrokeFraction = 0.0035
 	sketchPointFraction  = 0.005
@@ -479,8 +474,8 @@ const (
 )
 
 // sketchPixelWidth is the width the SVG asks to be displayed at. Without it the
-// drawing carries its own sketch units into the page, so a 4 mm tooth section
-// would be laid out four millimetres wide.
+// drawing carries its own sketch units into the page, so a 30 mm lattice would
+// be laid out thirty millimetres wide.
 const sketchPixelWidth = 900
 
 // sketchStyle sizes a sketch's stroke, markers and margin from what the sketch
@@ -524,16 +519,4 @@ func sketchSpan(s *sketch.Sketch) float64 {
 		return 0
 	}
 	return math.Max(hi.X-lo.X, hi.Y-lo.Y)
-}
-
-// drawToothSection draws the `{gearLabel} Tooth` sketch S12 draws, through the
-// same drawSection the step itself calls. The curved loop is drawn rather than
-// the chorded twin, because the picture is of the sketch Fusion is asked for and
-// the chording exists only so decad can integrate the solid.
-func drawToothSection(t *testing.T, p map[string]float64) *sketch.Sketch {
-	d := newDesign(t, p)
-	g, f := sideOf(d, p)
-	w := sketch.NewWorld()
-	s, _ := drawSection(t, w, sectionPlane(t, w, f, 1), newToothOutline(d, g), 1, 0, 1, false)
-	return s
 }
