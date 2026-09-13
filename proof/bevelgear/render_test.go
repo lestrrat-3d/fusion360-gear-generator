@@ -224,11 +224,17 @@ func compose(t *testing.T, first, next r3.Transform) r3.Transform {
 // instead is there because a LOFT cannot start at a degenerate ring; a
 // revolution has no such end, so the picture carries the real toe corner.
 func frustumProfile(g gear, f gearFrame) []render.Vec2 {
+	return render.ClipRadius(frustumPolygon(f), g.Bore/2)
+}
+
+// frustumPolygon is that hexagon before the bore is taken out of it, which is
+// the Gear Body as the revolve leaves it and before the bore cut runs.
+func frustumPolygon(f gearFrame) []render.Vec2 {
 	poly := make([]render.Vec2, 0, len(f.hexagon()))
 	for _, v := range f.hexagon() {
 		poly = append(poly, render.Vec2{X: v.X, Y: v.Y})
 	}
-	return render.ClipRadius(poly, g.Bore/2)
+	return poly
 }
 
 // toothRing meshes the gear's whole ring of teeth as one mesh.

@@ -1,38 +1,37 @@
 # The bevel gear, one step at a time
 
-Every picture below is of geometry a step in this proof built. A sketch step's picture is the
-sketch that step drew and solved; a solid step's picture is the bodies that step returned. They
-are written by `TestStepSnapshots` in [snapshots_test.go](snapshots_test.go), which runs only
-when `-snapshot.out` names a directory, so an ordinary proof run writes no images.
+These pictures are the gear the command builds, taken step by step, at the numbers
+[`spec/bevelgear/steps.md`](../../spec/bevelgear/steps.md) gives each step. The solid ones are
+meshed by [render_test.go](render_test.go)'s model, the one the repository README's bevel
+picture is drawn with; the sketch ones are drawn by the proof's own sketch steps, which draw the
+sketch the generator draws. `TestStepSnapshots` in [snapshots_test.go](snapshots_test.go) writes
+them, and it runs only when `-snapshot.out` names a directory, so an ordinary proof run writes
+no images.
 
-The steps are the ones [`spec/bevelgear/steps.md`](../../spec/bevelgear/steps.md) numbers, and
-the headings below carry those numbers. One gear runs through the whole sequence: the shipped
-dialog default, which is module 1, an equal 31/31 pair at a 90 degree shaft angle with a 35
-degree right-hand spiral, taken on the pinion — the member the generator builds first. The
-Combine-Join is the one exception, and it says so where it appears.
+One gear runs through the sequence: the shipped dialog default with the Mean Spiral Angle at 0,
+which is module 1, an equal 31/31 pair at a 90 degree shaft angle, taken on the pinion — the
+member the generator builds first. The last picture is the pair.
+
+Each picture is the gear as that step leaves it, so the sequence is cumulative. Where a step
+adds a body the new body is drawn in the lighter shade until the Combine-Join, after which the
+gear is one body and takes one colour.
 
 ## What these pictures are not
 
-They are not Fusion's output. The proof substitutes for three things the evaluator will not do,
-each of them stated in full at the top of [solids_test.go](solids_test.go), and all three are
-visible here:
+No image here comes from Fusion. Loading a gear into Fusion is still the only check that sees
+the real thing, and it is the one this repository cannot run.
 
-- **Every solid of revolution is a 32-sided sweep.** decad's revolve publishes a volume no
-  measurement can use, so the frustum, the cut cones and the bore tool are each built as a chain
-  of lofts between coaxial polygons. The flats on the gear body below are those 32 sides.
-- **The tooth's sections are perpendicular to the shaft axis**, not on the back cone, and the
-  tooth's loft starts at a stub 5% of the way out from the Apex rather than at a point. decad's
-  loft takes two profiles and no point section.
-- **No boolean is performed.** A step that would union, trim or pierce builds its operands and
-  lays them apart along the shaft axis, and asserts from their own measured geometry what the
-  operation would have produced. The pictures move those operands back to where the step
-  measures them from, so a body that overlaps another here is a body Fusion would have joined
-  or cut.
+The solid model performs what the geometry proof in this directory substitutes for: the Gear
+Body is a real solid of revolution, the tooth is trimmed exactly on the two cones the body's toe
+and heel faces lie on, the ring carries every tooth, and the bore is taken out of the revolve
+profile. Nothing is laid apart and nothing is faceted to 32 sides.
 
-A finished pair, with both conical trims meshed exactly and the teeth patterned around the ring,
-is the bevel picture in the repository README. `TestRenderExample` in
-[render_test.go](render_test.go) draws it from this same lattice, at Mean Spiral Angle 0, which
-is the straight bevel rather than the spiral one shown here.
+It simplifies one thing. Fusion draws the virtual spur tooth on the `{gearLabel} Plane`, which
+is tilted from the axis-perpendicular plane by the pitch cone angle, and lofts to it from the
+Apex point. These pictures put that same tooth outline on axis-perpendicular sections scaled
+about the Apex, which is the Tredgold mapping the tooth's own construction already applies. The
+tooth's size, its curve inventory, its taper and both conical trims are the real ones; the tilt
+of the plane it is drawn on is not.
 
 ## S8 — Anchor sketch
 
@@ -60,13 +59,6 @@ runs from the shaft axis on the right to the tooth on the left, which is why mos
 empty — the tooth is 2.25 mm from root to tip and sits 14.5 mm out from the axis. The point
 markers are off here, because one marker per spline sample covers the flanks they sample.
 
-![The same section extruded into a solid](images/s12-tooth-extrude.png)
-
-The solid the harness gates is that loop's chorded twin, extruded a nominal thickness. This is
-the one bevel sketch not gated on `isFullyConstrained`: the borrowed spur generator labels its
-circles with along-path text, and sketch text holds a degree of freedom, so the step is proved
-through the solid instead.
-
 ## S15 — `{gearLabel} Profile` sketch, the frustum hexagon
 
 ![The filled hexagon of the gear body profile](images/s15-profile-hexagon.svg)
@@ -78,84 +70,44 @@ shaft axis.
 
 ## S16 — Revolve the hexagon into the Gear Body
 
-![The revolved gear body, faceted, seen from above the heel](images/s16-gear-body.png)
+![The revolved gear body, a shallow dish seen from above the toe](images/s16-gear-body.png)
 
-The hexagon swept a full turn. The flat face at the top is the heel, at 19.4 mm from the Apex
-along the shaft; the surface tapering below it runs toward the toe and the Apex. Three bands are
-drawn, each in its own colour and each gathered back to where the step measures it: the cone the
-root edge sweeps, the band at the heel, and a plug that lies inside the first two and hollows
-the toe dish. The gear body is the first two minus the plug, and no boolean is performed here,
-so all three are present and overlapping.
+The hexagon spun a full turn. The dish facing the camera is the toe end, the end the teeth
+taper to; the heel is the wide face underneath. The bore is not in it yet — S30 draws it and
+S31 cuts it.
 
 ## S17 — Loft the Apex point to the tooth profile
 
-![The uncut tooth, a long taper from the apex stub past the heel](images/s17-tooth-loft.png)
+![One long tooth running from the Apex across the gear body and out past it](images/s17-tooth-loft.png)
 
-One tooth, lofted from the stub near the Apex out past the heel. Its radial size at any station
-is proportional to its cone distance, which is what makes one lofted tooth serve the whole face
-width. Both ends overrun on purpose: S18 is what trims them.
+One tooth, lofted from the Apex point to the tooth profile at the heel. It is drawn in the
+lighter shade because it is a separate body until the Combine-Join, and the picture is taken
+from its own side of the gear. Both of its ends run past the Gear Body, which is what S18 is
+there to cut back: the Apex end reaches up into free space and the heel end stands out past the
+body's rim.
 
-## S20 — `{gearLabel} Cone Element` sketch
+## S18 — Conical end trims, the flush band
 
-![A single construction line from the Apex out along the root cone](images/s20-cone-element.svg)
+![The same tooth cut flush with the gear body at both ends](images/s18-conical-trims.png)
 
-One construction line, from the Apex to the heel cone distance, along the root cone element. The
-Trace Plane is the axial plane rotated about this line, so the line being the root cone element
-and not the pitch line or the shaft axis is the whole content of the step.
+The same tooth, trimmed by the two cones the Gear Body's own toe and heel faces lie on. What is
+left is the flush band: the tooth now starts and ends exactly where the body does, and its two
+end faces are conical rather than flat because the cones they were cut by are.
 
-## S22 — `{gear} 2D Tooth Trace` sketch, the cutter arc
+## S28 — Circular pattern
 
-![Two apex circles, the cutter circle, and the trace arc between them](images/s22-tooth-trace.svg)
+![The gear body carrying all 31 teeth](images/s28-circular-pattern.png)
 
-The tangent plane, with the Apex at the upper dot and the cutter circle's centre at the lower
-one. The two orange circles are the toe and heel apex circles, the dashed circle is the cutter,
-and the black arc between the two orange circles is the tooth's lengthwise centreline. The
-proof samples the genuine cutter circle rather than building Fusion's three-point arc, for the
-reason [sketches_test.go](sketches_test.go) gives at that step.
-
-## S23 — Slice the tooth into cross-section slabs
-
-![Eight slabs stacked on the long apex scrap](images/s23-slice-slabs.png)
-
-Eight planes leave nine pieces. The long piece running down to the Apex is the scrap; the eight
-above it are the cross-section slabs the spiral is built from. Each slab is pulled back from its
-cut plane by a fortieth of its own length at both ends, which is the gap visible between them:
-two bodies that share a face come back from decad's verification undecided rather than
-disjoint.
-
-## S24 — Order the slabs and drop the apex scrap
-
-![The same eight slabs with the scrap gone](images/s24-drop-apex-scrap.png)
-
-The pieces sorted by the cone distance of their centroid, with the apex-most one removed. What
-remains starts at the last cut plane. The piece that went is the material a toe trim would
-otherwise have had to take off.
-
-## S25 — Twist the slabs about the shaft axis
-
-![The slab stack, each slab rotated about the shaft axis](images/s25-twist-slabs.png)
-
-Each slab turned about the shaft axis by its own share of the total twist, keyed to the cone
-distance of its heel face. The share is centred on the mean cone distance, so the middle of the
-stack is where it was and the two ends carry equal and opposite turns.
-
-## S26 — Crown the slabs lengthwise
-
-![The twisted stack again, with the slab tips relieved](images/s26-crown-slabs.png)
-
-The same stack with each slab built at its crowned size. The change from S25 is at the tips: the
-root radius is untouched and the tip radius scales, which is what a uniform scale about a root
-point does. Six percent of the pixels differ between this picture and the last.
+That one tooth patterned into all 31 of them, at 360/31 degrees apart. The spacing stays the
+same the whole way along the face width even though the pitch diameter shrinks toward the toe,
+because the taper is already in the lofted tooth.
 
 ## S29 — Combine-Join
 
-![The gear body's three bands with one uncut tooth through them](images/s29-combine-join.png)
+![The same gear in a single colour](images/s29-combine-join.png)
 
-The frustum's three bands and one tooth, gathered to where the join would happen. The tooth here
-is the uncut loft, because the trim is not performed in this proof, and it runs from the Apex
-out past the heel for that reason. This is the one picture taken on a different case: the join
-is one boolean per tooth, so its proof table keeps the count at 8, and 8 teeth on a module 1
-gear is also what leaves a tooth wide enough to see.
+The same geometry in one colour, which is what the join makes of it: the Gear Body and its 31
+teeth stop being separate bodies and become one.
 
 ## S30 — `{gearLabel} Bore` sketch
 
@@ -167,36 +119,33 @@ divided by four.
 
 ## S31 — Bore through-cut
 
-![The bore tool, a long cylinder, piercing the gear body](images/s31-bore-cut.png)
+![The finished single gear, seen down the shaft axis, with the bore through it](images/s31-bore-cut.png)
 
-The gear body's three bands, and the tool in gold. The tool is a symmetric extrude of the bore
-circle, two cone distances per side, which is why it stands so far past both ends of the body.
-That overrun is what makes the cut a through cut, and it is one of the things the step measures.
+The bore cut along the shaft axis, through the whole body. The camera stands steeper for this
+one picture: the bore comes out in the floor of the toe dish, and from the viewpoint the rest of
+the sequence is shot from the dish's own rim hides all but a few pixels of it. The diameter is
+the 7.75 mm S30 dimensioned.
+
+## S32 — Meshing rotation
+
+![The finished pair meshing at a right angle](images/s32-meshing-rotation.png)
+
+The pair, which is the only thing the meshing rotation can be seen in. The driving gear is
+turned half a tooth pitch about its own shaft, so that its valley meets the pinion's tooth
+rather than tooth meeting tooth. Both members come out of the one case, exactly as the command
+builds them.
 
 ## Steps with no picture
 
-Four steps build geometry and are still absent above, and in each case it is that step's own
-substitution that leaves nothing to photograph.
+**S19 to S27, the spiral path.** At Mean Spiral Angle 0 the command does not run them at all:
+the tooth-body hook returns the conical end trims of S18 and no trace, no slices, no twist and
+no crown are built. A spiral bevel builds its tooth through those steps instead, and nothing
+here shows that.
 
-**S18, the conical end trims.** The step returns the tooth and the two cones that would trim it.
-Each cone reaches three dedendum radii times `tan(gamma)` back from its own apex, so it is
-several times the size of the tooth, and the renderer has no transparency: an opaque cone fills
-the frame. The trim is not performed either, so the tooth inside it is the uncut loft S17
-already shows.
-
-**S27, lofting the curved tooth.** The bands it lofts are the slabs S26 already built, from the
-same stations at the same twist and crown. Its image came out byte-identical to S26's.
-
-**S28, the circular pattern.** The proof applies one pattern increment to the seed tooth rather
-than making N copies, and that increment turns the only body in the frame.
-
-**S32, the meshing rotation.** The bodies rotated are the frustum's bands, which are solids of
-revolution turned about their own axis. Every pixel stays where it was.
-
-The remaining steps build no geometry at all: S1 to S4 and S6 are the module layout, the command
-dialog, the conditional inputs and the input reading; S5 resolves the derived values and bounds
-as numbers; S7, S9, S11, S13, S14, S19, S21, S33 and S34 create components, planes, axes and the
-occurrence tree, or move and clean up at the end.
+**The steps that build no geometry.** S1 to S4 and S6 are the module layout, the command dialog,
+the conditional inputs and the input reading. S5 resolves the derived values and the input
+bounds as numbers. S7, S9, S11, S13, S14, S33 and S34 create components, planes, axes and the
+occurrence tree, or move the finished body and clean up.
 
 ## Regenerating
 

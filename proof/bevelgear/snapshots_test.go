@@ -7,9 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/lestrrat-3d/decad"
 	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit"
-	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit3d"
 	"github.com/lestrrat-3d/fusion360-gear-generator/proof/render"
 	"github.com/lestrrat-3d/r3"
 	"github.com/lestrrat-3d/sketch"
@@ -20,111 +18,97 @@ import (
 // One picture per step, for proof/bevelgear/README.md.
 //
 // This is not a proof and it is skipped unless -snapshot.out names a directory.
-// Every picture is taken of geometry a registered step built: a sketch step's
-// picture is the sketch that step drew and solved, and a solid step's picture is
-// the bodies that step returned. Nothing here builds a gear of its own, so a
-// change to a step moves its picture, and a step renamed out from under this
-// file fails the build rather than going on showing the old shape.
 //
-// What a picture therefore shows is the PROOF's model, which is not Fusion's
-// output. The substitutions are stated at the top of solids_test.go; three of
-// them are visible in these images and the README repeats them:
+// The SOLID pictures are the gear the generator builds, not the bodies the
+// proof builds. They are meshed by render_test.go's own model — the same one the
+// README's bevel picture is drawn with — because that model performs what the
+// proof substitutes for: the Gear Body is a real solid of revolution rather than
+// a 32-gon sweep, the tooth is trimmed exactly on the two cones section 2's toe
+// and heel edges lie on, the ring carries every tooth, and the bore is taken out
+// of the revolve profile. Nothing is laid apart, because nothing here asks the
+// evaluator for a boolean it would refuse.
 //
-//   - Each solid of revolution is a 32-gon sweep (sweepFacets), so a frustum
-//     has visible flats rather than a round side.
-//   - The tooth's sections are perpendicular to the shaft axis rather than on
-//     the back cone, and the loft starts at an apex STUB rather than a point.
-//   - No boolean is performed. A step that would union, trim or pierce builds
-//     its operands and lays them apart along the shaft axis, which is why
-//     [solidSnapshot.LaidAside] exists: a picture gathers those operands back
-//     to where the step measured them from, so the image shows the operands in
-//     place and overlapping rather than strung along the axis.
+// What the model still simplifies is the TOOTH'S SECTION PLANE. Fusion draws the
+// virtual spur tooth on the `{gearLabel} Plane`, which is tilted from the
+// axis-perpendicular plane by the pitch cone angle, and lofts to it from the
+// Apex point. These pictures put that same tooth outline on axis-perpendicular
+// sections scaled about the Apex, which is the Tredgold mapping newToothOutline
+// already applies. The tooth's size, its curve inventory, its taper and both
+// conical trims are the real ones; the tilt of the plane it is drawn on is not.
 //
-// FOUR registered steps get no picture, and in every case it is that step's own
-// substitution that leaves nothing to photograph. The README carries them as
-// rows without an image, naming the same reasons:
+// The SKETCH pictures are drawn by the proof's own sketch steps, since those
+// steps draw the sketch the generator draws. The tooth section carries the same
+// plane substitution, for the same reason, and its step says so.
 //
-//   - stepCutConicalEnds returns the tooth and the two cut cones it would be
-//     trimmed by. Each cone reaches 3 * (dedendum radius) * tan(gamma) back
-//     from its own apex, so it is several times the size of the tooth and, with
-//     no transparency in the renderer, an opaque cone is the whole picture.
-//     The trim itself is not performed, so the tooth in it is the same uncut
-//     loft S17 already shows.
-//   - stepLoftSpiralTooth lofts the slabs pairwise in an order it recomputes
-//     after the twist. The BANDS it returns are the slabs stepCrownSlabs
-//     already built, from the same stations at the same twist and crown, so its
-//     picture came out byte-identical to that step's.
-//   - stepCircularPattern applies ONE pattern increment to the seed tooth
-//     rather than making N copies, and the increment is a rotation of the only
-//     body in frame.
-//   - stepMeshRotation rotates the frustum's bands — a solid of revolution —
-//     about their own axis, which leaves every pixel where it was.
+// The gear is the shipped dialog default with the Mean Spiral Angle at 0, which
+// is a STRAIGHT bevel: module 1, an equal 31/31 pair at a 90 degree shaft angle.
+// On that branch the generator never runs S19 to S27 — the tooth-body hook
+// returns the conical end trims and no spiral geometry is built at all — so
+// those steps have no picture here because the command does not take them.
 // ---------------------------------------------------------------------------
 
 var snapshotOut = flag.String("snapshot.out", "",
 	"directory the per-step snapshot images are written to; the snapshots are skipped when it is empty")
-
-// snapshotTolerance is the chord tolerance every body is tessellated at. It is
-// chosen for how smooth a 30 mm cone has to look at the output size, and no
-// measurement is taken off these meshes.
-const snapshotTolerance = 0.04
 
 // snapshotMargin is how much of the half-frame is left clear around a step's
 // bodies. It is wider than the README picture's own margin because these images
 // are read one at a time rather than as a row of table cells.
 const snapshotMargin = 0.08
 
-// snapshotElevationDeg and snapshotAzimuthDeg place the camera for every solid
-// step, so the sequence reads as one model seen from one place. The elevation is
-// above the toe end and the azimuth stands the camera off the axial plane, which
-// is what opens both the tooth's flank and the frustum's end faces in the same
-// frame.
+// snapshotElevationDeg and snapshotAzimuthDeg place the camera for most of the
+// single-gear pictures, so the sequence reads as one model seen from one place.
+// The elevation stands the camera above the toe and the azimuth takes it off the
+// axial plane, which opens a tooth's flank and the heel face in one frame. Two
+// steps move it, each for a reason given where it is moved, and the pair at the
+// end is framed by renderView instead, which is the view that shows two gears
+// meshing.
 const (
 	snapshotElevationDeg = 22
 	snapshotAzimuthDeg   = -58
 	snapshotFOV          = 32
 )
 
-// snapshotPalette colours a step's bodies in the order the step returned them,
-// so one body is told from the next where two of them meet. It is not a legend:
-// body 0 of one step and body 0 of another are not the same part.
-var snapshotPalette = []solidlens.Color{
-	solidlens.RGB(0.13, 0.45, 0.35),
-	solidlens.RGB(0.35, 0.64, 0.45),
-	solidlens.RGB(0.20, 0.34, 0.52),
-	solidlens.RGB(0.58, 0.44, 0.20),
-	solidlens.RGB(0.48, 0.26, 0.40),
-	solidlens.RGB(0.24, 0.52, 0.54),
-	solidlens.RGB(0.62, 0.32, 0.26),
-	solidlens.RGB(0.40, 0.48, 0.24),
-	solidlens.RGB(0.30, 0.30, 0.46),
+// eye is where the camera stands for one picture.
+type eye struct{ ElevationDeg, AzimuthDeg float64 }
+
+// standingEye is the viewpoint the sequence is shot from.
+func standingEye() eye { return eye{snapshotElevationDeg, snapshotAzimuthDeg} }
+
+// The colours. A gear is one part, so its body and its teeth share a hue: the
+// teeth take the lighter shade while they are still separate bodies, and the
+// whole gear takes the darker one from the Combine-Join onward.
+var (
+	snapshotBodyColor  = solidlens.RGB(0.13, 0.45, 0.35)
+	snapshotToothColor = solidlens.RGB(0.35, 0.64, 0.45)
+)
+
+// straightParams is the pair every picture is taken of: the dialog's own
+// defaults with the Mean Spiral Angle at 0.
+func straightParams() map[string]float64 {
+	return params(map[string]float64{keySpiralAngle: 0})
 }
 
-// sketchSnapshot is one picture of a sketch step. Case names the row of that
-// step's own proof table the parameters come from, which is what the README
-// prints beside the image.
+// straightCase is that pair's pinion, the member the generator builds first.
+func straightCase() map[string]float64 {
+	return withSide(straightParams(), pinionSide)
+}
+
+// sketchSnapshot is one picture of a sketch step.
 type sketchSnapshot struct {
-	Step   string
-	File   string
-	Case   string
-	Params map[string]float64
-	Draw   func(t *testing.T, p map[string]float64) *sketch.Sketch
+	Step string
+	File string
+	Draw func(t *testing.T, p map[string]float64) *sketch.Sketch
 	// Options are applied after the shared ones and therefore override them,
 	// for a sketch whose own shape defeats a default. Each is given a reason
 	// where it is set.
 	Options []sketch.SVGOption
 }
 
-// solidSnapshot is one picture of a solid step. LaidAside says whether the step
-// lays its operands apart along the shaft axis, which the picture undoes; see
-// the note at the top of this file.
+// solidSnapshot is one picture of the gear as a step leaves it.
 type solidSnapshot struct {
-	Step      string
-	File      string
-	Case      string
-	Params    map[string]float64
-	Build     proofkit3d.Build
-	LaidAside bool
+	Step  string
+	File  string
+	Scene func(t *testing.T) solidlens.Scene
 }
 
 // drawnBy adapts a registered sketch step to a snapshot's Draw. The step is
@@ -139,100 +123,36 @@ func drawnBy(step proofkit.Build) func(*testing.T, map[string]float64) *sketch.S
 	}
 }
 
-// sketchSnapshots are the sketch steps, in step order.
-//
-// Every case is the shipped dialog default — module 1, an equal 31/31 pair at a
-// 90 degree shaft angle, a 35 degree right-hand spiral — because a sequence of
-// pictures is only a sequence if one gear runs through all of it. The per-gear
-// steps are taken on the PINION, the member the generator builds first.
+// sketchSnapshots are the sketch steps a straight bevel runs, in step order.
 var sketchSnapshots = []sketchSnapshot{
+	{Step: "S8", File: "s08-anchor-sketch", Draw: drawnBy(stepAnchorSketch)},
 	{
-		Step: "S8", File: "s08-anchor-sketch", Case: "default",
-		Params: params(nil), Draw: drawnBy(stepAnchorSketch),
-	},
-	{
-		Step: "S10", File: "s10-gear-profiles", Case: "default_31_31_at_90",
-		Params: params(nil), Draw: drawnBy(stepGearProfiles),
+		Step: "S10", File: "s10-gear-profiles", Draw: drawnBy(stepGearProfiles),
 		// Thirteen dimensions inside one 30 mm figure. Drawn together their
 		// labels overlap into a block of text with the lattice behind it.
 		Options: []sketch.SVGOption{sketch.WithDimensions(false)},
 	},
 	{
-		Step: "S12", File: "s12-tooth-section", Case: "default_31_31_embedded_pinion",
-		Params: withSide(params(nil), pinionSide), Draw: drawToothSection,
+		Step: "S12", File: "s12-tooth-section", Draw: drawToothSection,
 		// The flanks are splines through sampled points, one marker each, and
 		// the tooth is 2 mm wide in a 16 mm frame: the markers cover the curve
 		// they are sampling.
 		Options: []sketch.SVGOption{sketch.WithShowPoints(false)},
 	},
-	{
-		Step: "S15", File: "s15-profile-hexagon", Case: "default_31_31_at_90_pinion",
-		Params: withSide(params(nil), pinionSide), Draw: drawnBy(stepGearProfileHexagon),
-	},
-	{
-		Step: "S20", File: "s20-cone-element", Case: "default_31_31_at_90_pinion",
-		Params: withSide(params(nil), pinionSide), Draw: drawnBy(stepConeElementSketch),
-	},
-	{
-		Step: "S22", File: "s22-tooth-trace", Case: "psi_35_right_auto_cutter",
-		Params: params(nil), Draw: drawnBy(stepSpiralTrace),
-		// The cutter diameter resolves to 36.897890490184324 mm and the label
-		// carries every digit of it across the figure. The fill is dropped with
-		// it: the only closed region here is the ring between the two apex
-		// reference circles, which is no profile anything consumes.
-		Options: []sketch.SVGOption{sketch.WithDimensions(false), sketch.WithProfileFill(false)},
-	},
-	{
-		Step: "S30", File: "s30-bore-sketch", Case: "auto_from_pitch_diameter_pinion",
-		Params: withSide(params(nil), pinionSide), Draw: drawnBy(stepBoreSketch),
-	},
+	{Step: "S15", File: "s15-profile-hexagon", Draw: drawnBy(stepGearProfileHexagon)},
+	{Step: "S30", File: "s30-bore-sketch", Draw: drawnBy(stepBoreSketch)},
 }
 
-// solidSnapshots are the solid steps, in step order.
-//
-// The cases are the same default pair the sketch pictures use, with one
-// exception that the step's own table already makes: the Combine-Join is one
-// boolean per tooth, so patternCases keeps the count at 8 and this picture does
-// too. A ring of 8 teeth is also what shows the join at all, since at 31 teeth
-// on a module 1 gear one tooth is a few pixels wide.
+// solidSnapshots are the body steps a straight bevel runs, in step order. Each
+// scene is the gear as that step leaves it, so the sequence is cumulative.
 var solidSnapshots = []solidSnapshot{
-	{
-		Step: "S12", File: "s12-tooth-extrude", Case: "default_31_31_embedded_pinion",
-		Params: withSide(params(nil), pinionSide), Build: stepToothProfile,
-	},
-	{
-		Step: "S16", File: "s16-gear-body", Case: "default_31_31_at_90_pinion",
-		Params: withSide(params(nil), pinionSide), Build: stepRevolveGearBody, LaidAside: true,
-	},
-	{
-		Step: "S17", File: "s17-tooth-loft", Case: "default_31_31_at_90_pinion",
-		Params: withSide(params(nil), pinionSide), Build: stepLoftToothBody,
-	},
-	{
-		Step: "S23", File: "s23-slice-slabs", Case: "psi_35_right_pinion",
-		Params: withSide(params(nil), pinionSide), Build: stepSliceToothSlabs,
-	},
-	{
-		Step: "S24", File: "s24-drop-apex-scrap", Case: "psi_35_right_pinion",
-		Params: withSide(params(nil), pinionSide), Build: stepDropApexScrap,
-	},
-	{
-		Step: "S25", File: "s25-twist-slabs", Case: "psi_35_right_pinion",
-		Params: withSide(params(nil), pinionSide), Build: stepTwistSlabs,
-	},
-	{
-		Step: "S26", File: "s26-crown-slabs", Case: "psi_35_right_pinion",
-		Params: withSide(params(nil), pinionSide), Build: stepCrownSlabs,
-	},
-	{
-		Step: "S29", File: "s29-combine-join", Case: "small_teeth_8_8_pinion",
-		Params: withSide(params(map[string]float64{keyDrivingTeeth: 8, keyPinionTeeth: 8}), pinionSide),
-		Build:  stepCombineJoin, LaidAside: true,
-	},
-	{
-		Step: "S31", File: "s31-bore-cut", Case: "auto_from_pitch_diameter_pinion",
-		Params: withSide(params(nil), pinionSide), Build: stepBoreCut, LaidAside: true,
-	},
+	{Step: "S16", File: "s16-gear-body", Scene: sceneGearBody},
+	{Step: "S17", File: "s17-tooth-loft", Scene: sceneToothLoft},
+	{Step: "S18", File: "s18-conical-trims", Scene: sceneConicalTrims},
+	{Step: "S28", File: "s28-circular-pattern", Scene: sceneCircularPattern},
+	{Step: "S29", File: "s29-combine-join", Scene: sceneCombineJoin},
+	{Step: "S31", File: "s31-bore-cut", Scene: sceneBoreCut},
+	{Step: "S32", File: "s32-meshing-rotation", Scene: sceneMeshingRotation},
 }
 
 func TestStepSnapshots(t *testing.T) {
@@ -246,6 +166,257 @@ func TestStepSnapshots(t *testing.T) {
 		t.Run(sn.File, func(t *testing.T) { writeSolidSnapshot(t, sn) })
 	}
 }
+
+// ---------------------------------------------------------------------------
+// The scenes, one per body step.
+// ---------------------------------------------------------------------------
+
+// sceneGearBody is the Gear Body as the revolve leaves it: the hexagon spun a
+// full turn, with no bore in it yet.
+func sceneGearBody(t *testing.T) solidlens.Scene {
+	_, _, f := snapshotGear(t)
+	return staged(t, standingEye(),
+		render.Part{Mesh: revolved(t, frustumPolygon(f)), Color: snapshotBodyColor})
+}
+
+// sceneToothLoft is the Tooth Body the loft produces: one tooth from the Apex
+// out to the tooth profile at the heel, with neither end trimmed. It runs past
+// the Gear Body at both ends, which is what S18 is there to cut back.
+func sceneToothLoft(t *testing.T) solidlens.Scene {
+	d, g, f := snapshotGear(t)
+	section, _ := toothEnds(t, d, g)
+	return staged(t, toothEye(section),
+		render.Part{Mesh: revolved(t, frustumPolygon(f)), Color: snapshotBodyColor},
+		render.Part{Mesh: uncutTooth(t, d, g, f), Color: snapshotToothColor})
+}
+
+// sceneConicalTrims is that tooth cut flush with the Gear Body's own toe and
+// heel faces, by the two cones those faces lie on.
+func sceneConicalTrims(t *testing.T) solidlens.Scene {
+	d, g, f := snapshotGear(t)
+	section, _ := toothEnds(t, d, g)
+	return staged(t, toothEye(section),
+		render.Part{Mesh: revolved(t, frustumPolygon(f)), Color: snapshotBodyColor},
+		render.Part{Mesh: oneTooth(t, d, g, f), Color: snapshotToothColor})
+}
+
+// sceneCircularPattern is that tooth patterned into all 31 of them.
+func sceneCircularPattern(t *testing.T) solidlens.Scene {
+	d, g, f := snapshotGear(t)
+	return staged(t, standingEye(),
+		render.Part{Mesh: revolved(t, frustumPolygon(f)), Color: snapshotBodyColor},
+		render.Part{Mesh: ring(t, d, g, f), Color: snapshotToothColor})
+}
+
+// sceneCombineJoin is the same geometry in one colour, which is what the join
+// makes of it: the body and its 31 teeth stop being separate bodies.
+func sceneCombineJoin(t *testing.T) solidlens.Scene {
+	d, g, f := snapshotGear(t)
+	return staged(t, standingEye(),
+		render.Part{Mesh: revolved(t, frustumPolygon(f)), Color: snapshotBodyColor},
+		render.Part{Mesh: ring(t, d, g, f), Color: snapshotBodyColor})
+}
+
+// sceneBoreCut is the finished single gear, with the bore taken out along the
+// shaft axis through the whole body.
+func sceneBoreCut(t *testing.T) solidlens.Scene {
+	d, g, f := snapshotGear(t)
+	return staged(t, boreEye(),
+		render.Part{Mesh: revolved(t, frustumProfile(g, f)), Color: snapshotBodyColor},
+		render.Part{Mesh: ring(t, d, g, f), Color: snapshotBodyColor})
+}
+
+// sceneMeshingRotation is the pair, which is the only thing the meshing rotation
+// shows: the driving gear turned half a tooth pitch about its own shaft, so its
+// valley meets the pinion's tooth.
+//
+// Both members come out of the one case, exactly as the command builds them, and
+// are placed by the same placement the README picture uses.
+func sceneMeshingRotation(t *testing.T) solidlens.Scene {
+	base := straightParams()
+	d := newDesign(t, base)
+
+	var parts []render.Part
+	var meshes []solidlens.TriangleSource
+	for _, member := range renderSides {
+		p := withSide(base, member.side)
+		g, f := sideOf(d, p)
+		place := placement(t, d, g, p)
+		for _, mesh := range gearMeshes(t, d, g, f) {
+			moved, err := render.Placed(mesh, place)
+			if err != nil {
+				t.Fatalf("place the %s gear: %v", g.Label, err)
+			}
+			parts = append(parts, render.Part{Mesh: moved, Color: member.color})
+			meshes = append(meshes, moved)
+		}
+	}
+	return render.Scene(renderView(t, meshes...), parts...)
+}
+
+// ---------------------------------------------------------------------------
+// The meshes the scenes are built from.
+// ---------------------------------------------------------------------------
+
+// snapshotGear resolves the gear every single-gear picture is taken of.
+func snapshotGear(t *testing.T) (design, gear, gearFrame) {
+	t.Helper()
+	p := straightCase()
+	d := newDesign(t, p)
+	g, f := sideOf(d, p)
+	return d, g, f
+}
+
+// revolved meshes a profile spun about the shaft axis, at the segment count the
+// README picture uses.
+func revolved(t *testing.T, profile []render.Vec2) *solidlens.Mesh {
+	t.Helper()
+	mesh, err := render.Revolve(profile, renderSegments)
+	if err != nil {
+		t.Fatalf("revolve the profile: %v", err)
+	}
+	return mesh
+}
+
+// oneTooth meshes a single tooth, trimmed flush at both ends by the cones the
+// Gear Body's toe and heel faces lie on. It is the tooth toothRing repeats.
+func oneTooth(t *testing.T, d design, g gear, f gearFrame) *solidlens.Mesh {
+	t.Helper()
+	section, ends := toothEnds(t, d, g)
+	mesh, err := tooth(g, f, section, ends)
+	if err != nil {
+		t.Fatalf("%s tooth: %v", g.Label, err)
+	}
+	return mesh
+}
+
+// ring meshes the gear's whole ring of teeth.
+func ring(t *testing.T, d design, g gear, f gearFrame) *solidlens.Mesh {
+	t.Helper()
+	mesh, err := toothRing(t, d, g, f)
+	if err != nil {
+		t.Fatalf("%s teeth: %v", g.Label, err)
+	}
+	return mesh
+}
+
+// uncutTooth meshes the Tooth Body the loft produces before either trim: the
+// Apex point at one end, the tooth profile at the heel at the other.
+//
+// The Apex end is a genuine point here, so the tooth is a fan of triangles from
+// that one vertex out to the heel section's ring rather than a prism between two
+// rings. A section at cone-distance fraction k is the heel section scaled by k,
+// which is what makes the straight ray from the Apex through a section point the
+// tooth's own edge.
+func uncutTooth(t *testing.T, d design, g gear, f gearFrame) *solidlens.Mesh {
+	t.Helper()
+	section, ends := toothEnds(t, d, g)
+
+	vertices := make([]solidlens.Vec, 0, len(section)+1)
+	vertices = append(vertices, solidlens.Vec{})
+	for _, q := range section {
+		vertices = append(vertices, solidlens.Vec{X: q.X, Y: q.Y, Z: f.Ded.X})
+	}
+
+	n := len(section)
+	triangles := make([][3]int, 0, n+len(ends))
+	for i := range n {
+		triangles = append(triangles, [3]int{0, 1 + (i+1)%n, 1 + i})
+	}
+	for _, e := range ends {
+		triangles = append(triangles, [3]int{1 + e[0], 1 + e[1], 1 + e[2]})
+	}
+	mesh, err := solidlens.NewMesh(vertices, triangles)
+	if err != nil {
+		t.Fatalf("%s uncut tooth: %v", g.Label, err)
+	}
+	return mesh
+}
+
+// toothEnds is the tooth's heel section and its triangulation, which every tooth
+// mesh here is built from.
+func toothEnds(t *testing.T, d design, g gear) ([]render.Vec2, [][3]int) {
+	t.Helper()
+	section := toothSection(newToothOutline(d, g))
+	ends, err := render.EarClip(section)
+	if err != nil {
+		t.Fatalf("%s tooth section: %v", g.Label, err)
+	}
+	return section, ends
+}
+
+// staged frames one gear's parts and lights them, after a half turn about X that
+// leaves the toe end — the end the teeth taper to — meeting a camera standing
+// above it. That turn is the one the README picture applies, for the same
+// reason, and it moves no part relative to another.
+func staged(t *testing.T, from eye, parts ...render.Part) solidlens.Scene {
+	t.Helper()
+	flip := turn(t, r3.NewVec(1, 0, 0), math.Pi)
+	placed := make([]render.Part, 0, len(parts))
+	meshes := make([]solidlens.TriangleSource, 0, len(parts))
+	for _, p := range parts {
+		moved, err := render.Placed(p.Mesh, flip)
+		if err != nil {
+			t.Fatalf("stage a part: %v", err)
+		}
+		placed = append(placed, render.Part{Mesh: moved, Color: p.Color})
+		meshes = append(meshes, moved)
+	}
+	return render.Scene(snapshotView(t, from, meshes...), placed...)
+}
+
+// toothEye is where a camera has to stand to face the single tooth the loft and
+// the trims work on.
+//
+// A gear with one tooth on it has to be looked at from that tooth's own side,
+// and one tooth is where the spur drawer left it rather than anywhere this file
+// chooses, so the bearing is read off the section. The half turn [staged]
+// applies mirrors it, and the picture is then taken a further 25 degrees round
+// so the flank is seen at an angle rather than edge on.
+func toothEye(section []render.Vec2) eye {
+	var sx, sy float64
+	for _, q := range section {
+		sx, sy = sx+q.X, sy+q.Y
+	}
+	bearing := math.Atan2(sy, sx) * 180 / math.Pi
+	return eye{snapshotElevationDeg, -bearing - toothViewOffsetDeg}
+}
+
+// boreEye is the one steeper viewpoint in the sequence. The bore runs along the
+// shaft axis and comes out in the floor of the toe dish, which the dish's own
+// rim hides from the standing viewpoint: at that elevation the hole covers a
+// patch 27 pixels across. From boreElevationDeg the camera looks far enough down
+// the axis to see through it.
+func boreEye() eye { return eye{boreElevationDeg, snapshotAzimuthDeg} }
+
+// boreElevationDeg is that steeper elevation.
+const boreElevationDeg = 62
+
+// toothViewOffsetDeg is how far round from the tooth's own bearing the camera
+// is taken, so that a flank and the tooth's end face are both open to it.
+const toothViewOffsetDeg = 25
+
+// snapshotView frames a step's bodies on what they actually occupy. Each step is
+// framed on its own extent, so one tooth and a whole gear both fill their image
+// and the scale differs between pictures.
+func snapshotView(t *testing.T, from eye, meshes ...solidlens.TriangleSource) solidlens.Camera {
+	t.Helper()
+	camera, err := render.Fit{
+		ElevationDeg: from.ElevationDeg,
+		AzimuthDeg:   from.AzimuthDeg,
+		FOV:          snapshotFOV,
+		Margin:       snapshotMargin,
+		Settings:     renderSettings,
+	}.Camera(meshes...)
+	if err != nil {
+		t.Fatalf("frame the step: %v", err)
+	}
+	return camera
+}
+
+// ---------------------------------------------------------------------------
+// Writing the files.
+// ---------------------------------------------------------------------------
 
 // writeSketchSnapshot draws one sketch step and writes the sketch engine's own
 // drawing of it.
@@ -262,7 +433,7 @@ func TestStepSnapshots(t *testing.T) {
 // horizontal and a distance on a 10 mm line, and the badges cover the line they
 // are anchored to.
 func writeSketchSnapshot(t *testing.T, sn sketchSnapshot) {
-	s := sn.Draw(t, sn.Params)
+	s := sn.Draw(t, straightCase())
 	options := append(sketchStyle(s),
 		sketch.WithDimensions(true),
 		sketch.WithProfileFill(true),
@@ -276,85 +447,31 @@ func writeSketchSnapshot(t *testing.T, sn sketchSnapshot) {
 	if err := os.WriteFile(path, []byte(svg), 0o644); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
-	t.Logf("wrote %s: %s, case %s", path, sn.Step, sn.Case)
+	t.Logf("wrote %s: %s", path, sn.Step)
 }
 
-// writeSolidSnapshot builds one solid step's bodies and renders them.
+// writeSolidSnapshot renders one step's scene.
 func writeSolidSnapshot(t *testing.T, sn solidSnapshot) {
-	d := newDesign(t, sn.Params)
-	g, f := sideOf(d, sn.Params)
-	doc := decad.New()
-	bodies := sn.Build(t, doc, sn.Params)
-
-	parts := make([]render.Part, 0, len(bodies))
-	meshes := make([]solidlens.TriangleSource, 0, len(bodies))
-	for i, body := range bodies {
-		mesh, err := render.MeshOfBody(t.Context(), body, snapshotTolerance)
-		if err != nil {
-			t.Fatalf("%s body %d: %v", sn.Step, i, err)
-		}
-		if sn.LaidAside {
-			mesh = gathered(t, mesh, -asideOffset(g, f, i))
-		}
-		parts = append(parts, render.Part{Mesh: mesh, Color: snapshotPalette[i%len(snapshotPalette)]})
-		meshes = append(meshes, mesh)
-	}
-
-	scene := render.Scene(snapshotView(t, meshes...), parts...)
+	scene := sn.Scene(t)
 	path := filepath.Join(*snapshotOut, sn.File+".png")
 	if err := render.WritePNG(t.Context(), path, scene, renderSettings); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
-	t.Logf("wrote %s: %s, case %s", path, sn.Step, sn.Case)
+	t.Logf("wrote %s: %s", path, sn.Step)
 }
 
-// gathered moves a laid-apart body back along the shaft axis by the offset the
-// step laid it aside with, so the picture shows the operands where the step's
-// own assertions measure them from. The move is a translation along the axis and
-// changes nothing else, which is the same reason the lay-apart scheme is allowed
-// to make it in the first place.
-func gathered(t *testing.T, mesh *solidlens.Mesh, dz float64) *solidlens.Mesh {
-	t.Helper()
-	if dz == 0 {
-		return mesh
-	}
-	tr, err := r3.Translation(r3.NewVec(0, 0, dz))
-	if err != nil {
-		t.Fatalf("gather by %.4f: %v", dz, err)
-	}
-	moved, err := render.Placed(mesh, tr)
-	if err != nil {
-		t.Fatalf("gather by %.4f: %v", dz, err)
-	}
-	return moved
-}
-
-// snapshotView frames a step's bodies on what they actually occupy. Each step is
-// framed on its own extent, so a tooth and a whole gear body both fill their
-// image and the scale differs between pictures.
-func snapshotView(t *testing.T, meshes ...solidlens.TriangleSource) solidlens.Camera {
-	t.Helper()
-	camera, err := render.Fit{
-		ElevationDeg: snapshotElevationDeg,
-		AzimuthDeg:   snapshotAzimuthDeg,
-		FOV:          snapshotFOV,
-		Margin:       snapshotMargin,
-		Settings:     renderSettings,
-	}.Camera(meshes...)
-	if err != nil {
-		t.Fatalf("frame the step: %v", err)
-	}
-	return camera
-}
+// ---------------------------------------------------------------------------
+// Sketch drawing style.
+// ---------------------------------------------------------------------------
 
 // sketchStrokeFraction, sketchPointFraction and sketchMarginFraction are the
 // stroke width, the point marker's radius and the blank border, each as a
 // fraction of the drawing's own long side. They are fractions rather than
 // lengths because the sketch engine takes all three in SKETCH UNITS while the
-// raster it writes fits the drawing's long side to a fixed pixel width: a
-// millimetre is 23 pixels on the 40 mm lattice and 250 on the 4 mm tooth
-// section, so one fixed stroke is a hairline in one picture and covers the
-// geometry in the other. A fraction lands on the same pixel width in both.
+// drawing is displayed at a fixed pixel width: a millimetre is 23 pixels on the
+// 40 mm lattice and 250 on the 4 mm tooth section, so one fixed stroke is a
+// hairline in one picture and covers the geometry in the other. A fraction lands
+// on the same pixel width in both.
 const (
 	sketchStrokeFraction = 0.0035
 	sketchPointFraction  = 0.005
