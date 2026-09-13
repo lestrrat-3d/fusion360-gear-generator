@@ -36,6 +36,7 @@ type sideGeometry struct {
 	Heel  vec2 // H / J
 	Toe   vec2 // M / O
 	ToeIn vec2 // N / P
+	Front vec2 // A' / B': the front face's foot on the shaft axis
 	Foot  vec2 // E / F
 	Back  vec2 // K / L
 	Tooth vec2 // K' / L'
@@ -94,7 +95,8 @@ func placeSide(apex, axisDir, radDir vec2, f gearFrame) sideGeometry {
 		DedDir:  axisDir.scale(f.DedDir.X).add(radDir.scale(f.DedDir.Y)),
 		Axis:    at(f.Axis), Base: at(f.Base), Apex2: at(f.Apex2),
 		Ded: at(f.Ded), Heel: at(f.Heel), Toe: at(f.Toe), ToeIn: at(f.ToeIn),
-		Foot: at(f.Foot), Back: at(f.Back), Tooth: at(f.Tooth),
+		Front: at(f.Front),
+		Foot:  at(f.Foot), Back: at(f.Back), Tooth: at(f.Tooth),
 	}
 }
 
@@ -133,9 +135,10 @@ type sideHandles struct {
 	DedToHeel *sketch.Line // C -> H / D -> J
 	EndToHeel *sketch.Line // G -> H / I -> J
 	ToeLine   *sketch.Line // M -> N / O -> P
+	FrontLine *sketch.Line // N -> A' / P -> B', the front face
 	ToothRef  *sketch.Line // C -> K' / D -> L'
 
-	Axis, Base, Ded, Heel, Foot, Toe, ToeIn, Back, Tooth *sketch.Point
+	Axis, Base, Ded, Heel, Foot, Toe, ToeIn, Front, Back, Tooth *sketch.Point
 }
 
 // seg is the section 2 line constructor: every line is created from RAW
@@ -373,8 +376,8 @@ func buildLattice(t testing.TB, s *sketch.Sketch, d design) *latticeBuilder {
 	b.buildToothCentre(b.drv, g.Driving, "L")
 
 	proofkit.Step(t, "the toe lines M->N and O->P at the resolved Face Width")
-	b.buildToe(b.pin, g.Pinion, d, "M", "N")
-	b.buildToe(b.drv, g.Driving, d, "O", "P")
+	b.buildToe(b.pin, g.Pinion, d, d.Pinion, "M", "N")
+	b.buildToe(b.drv, g.Driving, d, d.Driving, "O", "P")
 
 	// The hexagon's first edge, drawn last on each side: A->G and B->I.
 	b.seg("A->G", g.Pinion.Axis, g.Pinion.Base, b.pin.Axis, b.pin.Base)
@@ -479,7 +482,7 @@ func pointName(h *sideHandles, name string) string {
 // coincident pins are what make the Maximum Face Width guarantee real: N
 // reaches A exactly at the cap, so a capped Face Width keeps N between Apex 2
 // and A and the revolved profile never crosses its own axis.
-func (b *latticeBuilder) buildToe(h *sideHandles, g sideGeometry, d design, toeName, toeInName string) {
+func (b *latticeBuilder) buildToe(h *sideHandles, g sideGeometry, d design, gr gear, toeName, toeInName string) {
 	// Seed M near the midpoint of Apex->Ded and N by sliding from that seed
 	// along the dedendum direction far enough to reach the drop line. Seeding
 	// them a Face Width from the dedendum corner instead starts N near the
@@ -505,19 +508,39 @@ func (b *latticeBuilder) buildToe(h *sideHandles, g sideGeometry, d design, toeN
 	h.ToeIn.SetName(toeInName)
 
 	b.add(toeName+" on the root axis", sketch.NewPointOnLine(h.Toe, h.RootAxis))
-	// N is pinned to the A->Apex2 perpendicular DROP, never to the Apex->A
-	// shaft axis: pinning it to the axis puts it ON the axis of revolution and
-	// the later conical split fails for asymmetric tooth counts.
-	b.add(toeInName+" on the drop line", sketch.NewPointOnLine(h.ToeIn, h.Drop))
-	b.offset("face width "+toeName+"->"+toeInName, h.DedToHeel, h.ToeLine, d.FaceWidth, g.Toe)
+	// The offset carries the ROOT LENGTH, re-measured perpendicular to the
+	// pitch line, which is the quantity an offset dimension can express. At Toe
+	// Extension 0 it is exactly the resolved Face Width, so a case that leaves
+	// the toe inputs alone emits the dimension it always did.
+	faceOffset := d.RootLength * d.R / rootConeDistance(d.Module, d.R)
+	b.offset("root length "+toeName+"->"+toeInName, h.DedToHeel, h.ToeLine, faceOffset, g.Toe)
 
 	dedName := "C"
 	axisName := "A"
+	frontName := "A'"
 	if toeName == "O" {
-		dedName, axisName = "D", "B"
+		dedName, axisName, frontName = "D", "B", "B'"
 	}
 	b.seg(toeName+"->"+dedName, mSeed, g.Ded, h.Toe, h.Ded)
-	b.seg(toeInName+"->"+axisName, nSeed, g.Axis, h.ToeIn, h.Axis)
+
+	// The front face replaces the old N->A connector, and with it the pin that
+	// held N on the Apex 2 drop. N is now held by this line instead: its foot
+	// rides the shaft axis, it stands perpendicular to that axis, and its
+	// length is this gear's Toe Radius. Three rows for N's one remaining
+	// freedom and the new foot's two, which is the arity the drop pin plus the
+	// old connector had between them.
+	//
+	// Pinning N to the shaft axis ITSELF remains forbidden: that would put it
+	// on the axis of revolution and the later conical split fails for
+	// asymmetric tooth counts. The foot sits on the axis; N never does, because
+	// the Toe Radius is positive.
+	h.FrontLine = b.seg(toeInName+"->"+frontName, nSeed, g.Front, h.ToeIn, nil)
+	h.Front = h.FrontLine.End
+	h.Front.SetName(frontName)
+	b.add(frontName+" on the shaft axis", sketch.NewPointOnLine(h.Front, h.ShaftAxis))
+	b.angle(toeInName+"->"+frontName+" perpendicular to Apex->"+axisName,
+		h.ShaftAxis, h.FrontLine, g.AxisDir, g.Front.sub(g.ToeIn))
+	b.length(toeInName+"->"+frontName+" = Toe Radius", h.FrontLine, gr.ToeRadius)
 }
 
 // ---------------------------------------------------------------------------
@@ -606,10 +629,14 @@ func stepGearProfiles(t testing.TB, s *sketch.Sketch, p map[string]float64) {
 			d.FaceWidth, measured)
 	}
 
-	// N between Apex 2 and A, P between Apex 2 and B: the revolve fails with
-	// ASM_WIRE_X_AXIS the moment the toe corner crosses the shaft axis.
-	assertToeInside(t, solved(b.apex2), solved(b.pin.Axis), solved(b.pin.ToeIn), "N")
-	assertToeInside(t, solved(b.apex2), solved(b.drv.Axis), solved(b.drv.ToeIn), "P")
+	// N and P stand off their own shaft axis by the resolved Toe Radius, and
+	// the front foot sits ON that axis directly beneath. Together those are
+	// what keep the revolved profile clear of its own axis of revolution, which
+	// the drop-line pin used to guarantee before the Toe Radius replaced it.
+	assertToeStandoff(t, solved(b.apex), solved(b.pin.Axis), solved(b.pin.ToeIn),
+		solved(b.pin.Front), d.Pinion.ToeRadius, "N")
+	assertToeStandoff(t, solved(b.apex), solved(b.drv.Axis), solved(b.drv.ToeIn),
+		solved(b.drv.Front), d.Driving.ToeRadius, "P")
 
 	// Toe nearer the Apex than heel, per gear.
 	for _, side := range []struct {
@@ -655,7 +682,8 @@ func assertSide(t testing.TB, h *sideHandles, g sideGeometry, label string) {
 		{"heel corner", h.Heel, g.Heel},
 		{"dedendum foot", h.Foot, g.Foot},
 		{"toe root corner", h.Toe, g.Toe},
-		{"toe drop corner", h.ToeIn, g.ToeIn},
+		{"toe radius corner", h.ToeIn, g.ToeIn},
+		{"front face foot", h.Front, g.Front},
 		{"back-cone point", h.Back, g.Back},
 		{"tooth centre", h.Tooth, g.Tooth},
 	} {
@@ -663,15 +691,34 @@ func assertSide(t testing.TB, h *sideHandles, g sideGeometry, label string) {
 	}
 }
 
-// assertToeInside checks that the toe corner sits strictly between Apex 2 and
-// the shaft pitch point on the drop line, which is the Maximum Face Width
-// guarantee expressed on the solved geometry.
-func assertToeInside(t testing.TB, apex2, axisPoint, toeIn vec2, name string) {
+// assertToeStandoff checks the toe corner's clearance from its own shaft axis
+// on the solved geometry: it stands off by exactly the resolved Toe Radius,
+// that radius is positive, and the front face's foot sits on the axis directly
+// beneath it. A toe corner ON the axis is the ASM_WIRE_X_AXIS revolve failure,
+// and one on the far side is the frame inversion section 2 warns about.
+func assertToeStandoff(t testing.TB, apex, axisPoint, toeIn, front vec2,
+	toeRadius float64, name string) {
 	t.Helper()
-	span := axisPoint.sub(apex2)
-	u := toeIn.sub(apex2).dot(span) / span.dot(span)
-	if u < 0 || u > 1 {
-		t.Fatalf("%s is not between Apex 2 and the shaft axis: parameter %.6f", name, u)
+	if toeRadius <= 0 {
+		t.Fatalf("%s: resolved Toe Radius %.6f mm is not positive", name, toeRadius)
+	}
+	axisDir := axisPoint.sub(apex).unit()
+	// The foot is on the axis: its offset from the axis line through the Apex
+	// has no perpendicular component.
+	rel := front.sub(apex)
+	if off := math.Abs(rel.cross(axisDir)); off > slackTol {
+		t.Fatalf("%s: the front face's foot stands %.9f mm off the shaft axis", name, off)
+	}
+	// The toe corner stands off by the Toe Radius, on the same side as Apex 2.
+	perp := toeIn.sub(apex).cross(axisDir)
+	if math.Abs(math.Abs(perp)-toeRadius) > slackTol {
+		t.Fatalf("%s: stands %.6f mm off the shaft axis, want the Toe Radius %.6f mm",
+			name, math.Abs(perp), toeRadius)
+	}
+	// The front face is perpendicular to the shaft, so the foot and the corner
+	// share a station along it.
+	if d := math.Abs(toeIn.sub(apex).dot(axisDir) - front.sub(apex).dot(axisDir)); d > slackTol {
+		t.Fatalf("%s: the front face is not square to the shaft: stations differ by %.9f mm", name, d)
 	}
 }
 

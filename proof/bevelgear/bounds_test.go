@@ -249,7 +249,7 @@ func stepResolveInputBounds(t testing.TB, s *sketch.Sketch, p map[string]float64
 	// The bounds exist so that this profile stays on one side of the axis it is
 	// revolved about. Drawing it at the resolved values is what makes the
 	// arithmetic above a statement about geometry.
-	pts, lines, names := drawFrustumHexagon(t, s, d.Pinion,
-		gearLattice(d, d.Pinion))
-	requireFrustumProfile(t, s, d.Pinion, pts, lines, names)
+	pinionFrame := gearLattice(d, d.Pinion)
+	pts, lines, names := drawFrustumHexagon(t, s, d.Pinion, pinionFrame)
+	requireFrustumProfile(t, s, d.Pinion, pinionFrame, pts, lines, names)
 }

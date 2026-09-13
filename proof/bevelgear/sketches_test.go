@@ -140,7 +140,7 @@ func drawFrustumHexagon(t testing.TB, s *sketch.Sketch, g gear, f gearFrame) (
 // requireFrustumProfile checks that the hexagon is the one closed all-line loop
 // the revolve takes without filtering, and that it never crosses the axis it is
 // spun about.
-func requireFrustumProfile(t testing.TB, s *sketch.Sketch, g gear,
+func requireFrustumProfile(t testing.TB, s *sketch.Sketch, g gear, f gearFrame,
 	pts []*sketch.Point, lines []*sketch.Line, names []string) {
 	t.Helper()
 	// The hexagon's FIRST edge is the shaft axis every body operation uses —
@@ -148,8 +148,15 @@ func requireFrustumProfile(t testing.TB, s *sketch.Sketch, g gear,
 	// both its endpoints must sit exactly on that axis.
 	requireClose(t, pts[0].X(), 0, tightTol, "%s shaft edge start on the axis", g.Label)
 	requireClose(t, pts[1].X(), 0, tightTol, "%s shaft edge end on the axis", g.Label)
-	requireClose(t, lines[0].Length(), g.BaseHeight, slackTol,
-		"%s shaft edge length equals the resolved base height", g.Label)
+	// The shaft edge runs from the front face's foot to the heel end, so it is
+	// the resolved base height plus however far the Toe Extension pulled that
+	// foot toward the Apex. At Toe Extension 0 the foot is the Apex 2 drop's
+	// own foot and the edge is the base height exactly, which is the length the
+	// earlier revision asserted.
+	requireClose(t, lines[0].Length(), f.Base.X-f.Front.X, slackTol,
+		"%s shaft edge spans the front face's foot to the heel end", g.Label)
+	requireClose(t, f.Base.X-f.Axis.X, g.BaseHeight, slackTol,
+		"%s heel end still sits one resolved base height beyond the drop foot", g.Label)
 
 	// Every other vertex is strictly off the axis and on ONE side of it. A
 	// profile that crosses its axis of revolution aborts the revolve with
@@ -207,7 +214,7 @@ func stepGearProfileHexagon(t testing.TB, s *sketch.Sketch, p map[string]float64
 
 	pts, lines, names := drawFrustumHexagon(t, s, g, f)
 
-	requireFrustumProfile(t, s, g, pts, lines, names)
+	requireFrustumProfile(t, s, g, f, pts, lines, names)
 	// The revolved frustum's volume follows from the profile by Pappus, so a
 	// positive area is what makes the revolve meaningful; the solid step
 	// measures the body itself.

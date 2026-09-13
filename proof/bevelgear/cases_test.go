@@ -93,6 +93,16 @@ var latticeCases = []proofkit.Case{
 	{Name: "user_face_width_at_the_cap", Params: params(map[string]float64{
 		keyFaceWidth: 5.2})},
 	{Name: "user_face_width_small", Params: params(map[string]float64{keyFaceWidth: 1.5})},
+	// The Toe Extension sweep. 0 is every case above, so the table carries the
+	// middle, the top, and the top with a user Toe Radius well inside its own
+	// ceiling — which is the only way a pair inside the reversal band reaches an
+	// extension at all.
+	{Name: "toe_extension_50", Params: params(map[string]float64{keyToeExtension: 50})},
+	{Name: "toe_extension_100", Params: params(map[string]float64{keyToeExtension: 100})},
+	{Name: "toe_extension_100_ratio_pair", Params: params(map[string]float64{
+		keyPinionTeeth: 17, keyToeExtension: 100})},
+	{Name: "toe_extension_user_toe_radii", Params: params(map[string]float64{
+		keyToeExtension: 70, keyDrivingToeRadius: 4, keyPinionToeRadius: 3})},
 }
 
 // anchorCases only needs the target plane and centre point, neither of which
@@ -117,6 +127,12 @@ var profileCases = perGearSketch([]proofkit.Case{
 		keyDrivingTeeth: 4, keyPinionTeeth: 4})},
 	{Name: "module_2_driving_19_pinion_13", Params: params(map[string]float64{
 		keyModule: 2, keyDrivingTeeth: 19, keyPinionTeeth: 13})},
+	// The hexagon's first vertex is the front face's foot, which only leaves
+	// the Apex 2 drop's foot once the Toe Extension is positive. Both of these
+	// draw it somewhere the earlier revision could not put it.
+	{Name: "toe_extension_100", Params: params(map[string]float64{keyToeExtension: 100})},
+	{Name: "toe_extension_50_ratio_pair", Params: params(map[string]float64{
+		keyPinionTeeth: 17, keyToeExtension: 50})},
 })
 
 // toothCases must reach the embedded flag from both sides, since it is what
