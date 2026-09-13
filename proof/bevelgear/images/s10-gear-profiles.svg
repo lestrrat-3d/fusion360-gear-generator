@@ -194,11 +194,11 @@
   <text x="27.0402" y="9.4265" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">N</text>
   <text x="20.1441" y="18.603" font-size="1.9003" fill="white" stroke="white" stroke-width="0.4181" stroke-linejoin="round" text-anchor="middle" dominant-baseline="central">O</text>
   <text x="20.1441" y="18.603" font-size="1.9003" fill="#5f6368" text-anchor="middle" dominant-baseline="central">O</text>
-  <line x1="19.555" y1="19.7432" x2="20.7332" y2="19.7432" stroke="white" stroke-width="0.2646"/>
-  <line x1="19.555" y1="19.7432" x2="20.7332" y2="19.7432" stroke="#5f6368" stroke-width="0.0756"/>
-  <line x1="20.7332" y1="19.7432" x2="20.2892" y2="17.1653" stroke="white" stroke-width="0.2646"/>
-  <line x1="20.7332" y1="19.7432" x2="20.2892" y2="17.1653" stroke="#5f6368" stroke-width="0.0756"/>
-  <path d="M20.2892 17.1653 L20.7782 18.0453 L20.1227 18.1581 Z" fill="#5f6368"/>
+  <line x1="19.555" y1="17.4628" x2="20.7332" y2="17.4628" stroke="white" stroke-width="0.2646"/>
+  <line x1="19.555" y1="17.4628" x2="20.7332" y2="17.4628" stroke="#5f6368" stroke-width="0.0756"/>
+  <line x1="20.7332" y1="17.4628" x2="20.5366" y2="17.0823" stroke="white" stroke-width="0.2646"/>
+  <line x1="20.7332" y1="17.4628" x2="20.5366" y2="17.0823" stroke="#5f6368" stroke-width="0.0756"/>
+  <path d="M20.5366 17.0823 L20.7015 17.2381 L20.5683 17.3069 Z" fill="#5f6368"/>
   <text x="17.847" y="23.1804" font-size="1.9003" fill="white" stroke="white" stroke-width="0.4181" stroke-linejoin="round" text-anchor="start" dominant-baseline="central">P</text>
   <text x="17.847" y="23.1804" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">P</text>
   <line x1="17.847" y1="24.3206" x2="19.0252" y2="24.3206" stroke="white" stroke-width="0.2646"/>
