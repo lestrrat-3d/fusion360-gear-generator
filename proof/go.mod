@@ -5,7 +5,7 @@ go 1.26.8
 require (
 	github.com/lestrrat-3d/decad v0.0.0-20260906113258-f200324e2a14
 	github.com/lestrrat-3d/r3 v0.0.0-20260904102550-456163073bdd
-	github.com/lestrrat-3d/sketch v0.0.0-20260905104222-34765bc10360
+	github.com/lestrrat-3d/sketch v0.0.0-20260913073732-4d857c5acb55
 	github.com/lestrrat-3d/solidlens v0.0.0-20260905044249-315b59149f90
 	github.com/lestrrat-3d/units v0.0.0-20260904073908-07332345ff86
 	github.com/stretchr/testify v1.12.1
