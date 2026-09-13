@@ -102,20 +102,20 @@
   <circle cx="10.4" cy="24.775" r="0.3801" fill="#d93025"/>
   <text x="11.5402" y="4.2598" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">Apex</text>
   <text x="11.5402" y="19.7598" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">B</text>
-  <text x="27.0402" y="4.2598" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">A</text>
-  <text x="27.0402" y="19.7598" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">Apex 2</text>
-  <text x="26.1563" y="20.6437" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">D</text>
-  <text x="27.9241" y="18.8759" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">C</text>
-  <text x="27.9241" y="6.7302" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">E</text>
+  <text x="24.7598" y="4.2598" font-size="1.9003" fill="#5f6368" text-anchor="end" dominant-baseline="central">A</text>
+  <text x="27.0402" y="22.0402" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">Apex 2</text>
+  <text x="27.2965" y="24.0643" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">D</text>
+  <text x="27.9241" y="20.0161" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">C</text>
+  <text x="27.9241" y="4.2598" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">E</text>
   <text x="30.9152" y="4.2598" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">G</text>
-  <text x="30.9152" y="15.8848" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">H</text>
-  <text x="11.5402" y="23.1141" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">F</text>
-  <text x="11.5402" y="23.6348" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">I</text>
-  <text x="23.1652" y="23.6348" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">J</text>
+  <text x="30.9152" y="17.025" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">H</text>
+  <text x="11.5402" y="22.9241" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">F</text>
+  <text x="11.5402" y="25.9152" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">I</text>
+  <text x="23.1652" y="24.775" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">J</text>
   <text x="42.5402" y="4.2598" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">K</text>
-  <text x="11.5402" y="35.2598" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">L</text>
-  <text x="22.4628" y="14.0039" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">M</text>
+  <text x="11.5402" y="36.4" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">L</text>
+  <text x="22.4628" y="15.1441" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">M</text>
   <text x="27.0402" y="9.4265" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">N</text>
-  <text x="21.2843" y="15.1824" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">O</text>
-  <text x="16.7069" y="19.7598" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">P</text>
+  <text x="19.0039" y="16.3226" font-size="1.9003" fill="#5f6368" text-anchor="end" dominant-baseline="central">O</text>
+  <text x="14.4265" y="19.7598" font-size="1.9003" fill="#5f6368" text-anchor="end" dominant-baseline="central">P</text>
 </svg>
