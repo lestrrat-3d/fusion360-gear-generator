@@ -103,6 +103,13 @@ var latticeCases = []proofkit.Case{
 		keyPinionTeeth: 17, keyToeExtension: 100})},
 	{Name: "toe_extension_user_toe_radii", Params: params(map[string]float64{
 		keyToeExtension: 70, keyDrivingToeRadius: 4, keyPinionToeRadius: 3})},
+	// A pair inside the reversal band, where the driving gear's toe corner
+	// already sits OUTSIDE its own root toe corner and a defaulted Toe Radius
+	// puts X behind it. The extension is refused here and the bounds step
+	// asserts that refusal; the case itself is the gear at extension 0, which
+	// still builds exactly as it always did.
+	{Name: "reversal_band_ratio_45_15", Params: params(map[string]float64{
+		keyDrivingTeeth: 45, keyPinionTeeth: 15})},
 }
 
 // anchorCases only needs the target plane and centre point, neither of which

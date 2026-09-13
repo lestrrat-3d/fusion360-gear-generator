@@ -245,6 +245,101 @@ func stepResolveInputBounds(t testing.TB, s *sketch.Sketch, p map[string]float64
 	requireRejected(t, base, keyToothSpacing, -1, "is negative")
 	requireRejected(t, base, keyModule, 0, "Module must be positive")
 
+	proofkit.Step(t, "resolve the toe end: the Toe Radius, X, and what the extension reaches")
+	// Toe Extension 0 puts the root length at the resolved Face Width measured
+	// along the root element instead of perpendicular to the pitch line, and
+	// leaves each toe corner where it has always been. That equality is what
+	// makes 0 a no-op for every gear built before the extension existed.
+	requireClose(t, b.RootLengthBase, d.FaceWidth*rootConeDistance(d.Module, d.R)/d.R,
+		tightTol, "root length at Toe Extension 0 is the Face Width along the root element")
+	if p[keyToeExtension] == 0 {
+		requireClose(t, d.RootLength, b.RootLengthBase, tightTol,
+			"Toe Extension 0 resolves to the base root length")
+		for _, side := range []struct {
+			g     gear
+			gamma float64
+		}{{d.Pinion, d.Pinion.Gamma}, {d.Driving, d.Driving.Gamma}} {
+			f := gearLattice(d, side.g)
+			requireCloseVec(t, f.Front, f.Axis, slackTol,
+				"%s front foot is the drop foot at Toe Extension 0", side.g.Label)
+			requireClose(t, f.ToeIn.Y,
+				side.g.PitchDiameter/2-d.FaceWidth/math.Sin(side.gamma), slackTol,
+				"%s toe corner is still on the Apex 2 drop at Toe Extension 0", side.g.Label)
+		}
+	}
+	// A defaulted Toe Radius IS that corner's own radius, which is the same
+	// statement read the other way round.
+	if p[keyPinionToeRadius] == 0 {
+		requireClose(t, d.Pinion.ToeRadius, b.ToeRadiusDefaultPinion, tightTol,
+			"the pinion Toe Radius defaults to its own toe corner")
+	}
+	if p[keyDrivingToeRadius] == 0 {
+		requireClose(t, d.Driving.ToeRadius, b.ToeRadiusDefaultDriving, tightTol,
+			"the driving Toe Radius defaults to its own toe corner")
+	}
+	// X is the point on Apex->Ded at the Toe Radius, so |Ded->X| is the toe
+	// limit and the extension's 100% lands the ceiling's fraction short of it.
+	for _, side := range []struct {
+		label          string
+		g              gear
+		limit, ceiling float64
+	}{
+		{"pinion", d.Pinion, b.ToeLimitPinion, b.ToeRadiusCeilingPinion},
+		{"driving", d.Driving, b.ToeLimitDriving, b.ToeRadiusCeilingDriving},
+	} {
+		rhoX := side.limit
+		requireClose(t, rootConeDistance(d.Module, d.R)-rhoX,
+			side.g.ToeRadius/math.Sin(rootConeAngle(d.Module, d.R, side.g.Gamma)),
+			slackTol, "%s X sits at the Toe Radius on Apex->Ded", side.label)
+		// The ceiling is the OUTER toe corner's radius. Below it the extension
+		// has room; at or above it X falls behind the toe corner.
+		hasRoom := side.limit > b.RootLengthBase
+		if hasRoom != (side.g.ToeRadius < side.ceiling) {
+			t.Fatalf("%s toe room disagrees with the Toe Radius ceiling: "+
+				"limit %.6f, base %.6f, radius %.6f, ceiling %.6f",
+				side.label, side.limit, b.RootLengthBase, side.g.ToeRadius, side.ceiling)
+		}
+	}
+	smallestLimit := math.Min(b.ToeLimitPinion, b.ToeLimitDriving)
+	if smallestLimit > b.RootLengthBase {
+		requireClose(t, b.MaxRootLength,
+			b.RootLengthBase+toeExtensionCeiling*(smallestLimit-b.RootLengthBase),
+			tightTol, "Toe Extension 100 stops the ceiling's fraction short of the smaller X")
+		requireClose(t, d.RootLength,
+			b.RootLengthBase+d.ToeExtension*toeExtensionCeiling*(smallestLimit-b.RootLengthBase),
+			tightTol, "the resolved root length is linear in the Toe Extension")
+		// The pair shares one root length, so the SMALLER toe limit decides and
+		// the other gear simply stops short of its own X.
+		if d.RootLength > smallestLimit {
+			t.Fatalf("the resolved root length %.6f passes the smaller toe limit %.6f",
+				d.RootLength, smallestLimit)
+		}
+	}
+
+	toeBase := map[string]float64{}
+	for k, v := range p {
+		toeBase[k] = v
+	}
+	delete(toeBase, keyToeExtension)
+	delete(toeBase, keyPinionToeRadius)
+	delete(toeBase, keyDrivingToeRadius)
+	requireRejected(t, toeBase, keyToeExtension, 100.01, "is outside [0, 100]")
+	requireRejected(t, toeBase, keyToeExtension, -0.01, "is outside [0, 100]")
+	if smallestLimit > b.RootLengthBase {
+		requireAccepted(t, toeBase, keyToeExtension, 100)
+	} else {
+		// A pair whose defaulted Toe Radius leaves no room refuses the
+		// extension itself and names the radius that would buy some. Extension
+		// 0 still resolves, which is what keeps the gear buildable.
+		requireRejected(t, toeBase, keyToeExtension, 50, "which leaves no room")
+		requireAccepted(t, toeBase, keyToeExtension, 0)
+	}
+	requireRejected(t, toeBase, keyPinionToeRadius, b.ToeRadiusCeilingPinion,
+		"is at or above the toe corner")
+	requireRejected(t, toeBase, keyDrivingToeRadius, b.ToeRadiusCeilingDriving,
+		"is at or above the toe corner")
+	requireAccepted(t, toeBase, keyPinionToeRadius, b.ToeRadiusCeilingPinion*0.999)
+
 	proofkit.Step(t, "the witness: the frustum these resolved values produce")
 	// The bounds exist so that this profile stays on one side of the axis it is
 	// revolved about. Drawing it at the resolved values is what makes the
