@@ -38,9 +38,10 @@ of the plane it is drawn on is not.
 
 ![The lattice: construction lines between the section 2 points](images/s10-gear-profiles.svg)
 
-The picture is the whole lattice in the axial plane, with the anchor line projected into it in
-orange at the left. The dashed lines are construction geometry, and the red points are the
-vertices both gears' profiles are later recreated from, each labelled with the letter
+The step draws the whole lattice in the axial plane. The orange line at the left is S8's Anchor
+Line, projected into this sketch as reference geometry. The dashed lines are construction
+geometry, and the red points are the vertices both gears' profiles are later recreated from,
+each labelled with the letter
 [`spec/bevelgear/instructions.md`](../../spec/bevelgear/instructions.md) calls it by.
 
 Two things the sketch holds are left off the picture. The thirteen dimensions that hold the
