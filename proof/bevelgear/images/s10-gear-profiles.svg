@@ -102,20 +102,32 @@
   <circle cx="10.4" cy="24.775" r="0.3801" fill="#d93025"/>
   <text x="11.5402" y="4.2598" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">Apex</text>
   <text x="11.5402" y="19.7598" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">B</text>
+  <line x1="25.0565" y1="5.2594" x2="24.7598" y2="5.21" stroke="#5f6368" stroke-width="0.0756"/>
   <text x="24.7598" y="4.2598" font-size="1.9003" fill="#5f6368" text-anchor="end" dominant-baseline="central">A</text>
+  <line x1="26.7435" y1="21.0406" x2="27.0402" y2="21.09" stroke="#5f6368" stroke-width="0.0756"/>
   <text x="27.0402" y="22.0402" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">Apex 2</text>
+  <line x1="25.7548" y1="22.2148" x2="27.2965" y2="23.1141" stroke="#5f6368" stroke-width="0.0756"/>
   <text x="27.2965" y="24.0643" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">D</text>
+  <line x1="27.639" y1="20.0161" x2="27.9241" y2="20.0161" stroke="#5f6368" stroke-width="0.0756"/>
   <text x="27.9241" y="20.0161" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">C</text>
   <text x="27.9241" y="4.2598" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">E</text>
   <text x="30.9152" y="4.2598" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">G</text>
+  <line x1="30.6301" y1="17.025" x2="30.9152" y2="17.025" stroke="#5f6368" stroke-width="0.0756"/>
   <text x="30.9152" y="17.025" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">H</text>
+  <line x1="11.2435" y1="21.9245" x2="11.5402" y2="21.9739" stroke="#5f6368" stroke-width="0.0756"/>
   <text x="11.5402" y="22.9241" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">F</text>
+  <line x1="11.2435" y1="24.9156" x2="11.5402" y2="24.965" stroke="#5f6368" stroke-width="0.0756"/>
   <text x="11.5402" y="25.9152" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">I</text>
+  <line x1="22.8801" y1="24.775" x2="23.1652" y2="24.775" stroke="#5f6368" stroke-width="0.0756"/>
   <text x="23.1652" y="24.775" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">J</text>
   <text x="42.5402" y="4.2598" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">K</text>
+  <line x1="11.2551" y1="36.4" x2="11.5402" y2="36.4" stroke="#5f6368" stroke-width="0.0756"/>
   <text x="11.5402" y="36.4" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">L</text>
+  <line x1="22.1777" y1="15.1441" x2="22.4628" y2="15.1441" stroke="#5f6368" stroke-width="0.0756"/>
   <text x="22.4628" y="15.1441" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">M</text>
   <text x="27.0402" y="9.4265" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">N</text>
+  <line x1="19.2889" y1="16.3226" x2="19.0039" y2="16.3226" stroke="#5f6368" stroke-width="0.0756"/>
   <text x="19.0039" y="16.3226" font-size="1.9003" fill="#5f6368" text-anchor="end" dominant-baseline="central">O</text>
+  <line x1="14.7232" y1="20.7594" x2="14.4265" y2="20.71" stroke="#5f6368" stroke-width="0.0756"/>
   <text x="14.4265" y="19.7598" font-size="1.9003" fill="#5f6368" text-anchor="end" dominant-baseline="central">P</text>
 </svg>
