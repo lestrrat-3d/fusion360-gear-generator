@@ -39,8 +39,14 @@ of the plane it is drawn on is not.
 
 The whole lattice in the axial plane, with the anchor line projected into it in orange at the
 left. The dashed lines are construction geometry and the red points are the vertices both gears'
-profiles are later recreated from. The thirteen dimensions that hold the lattice are not drawn:
-their labels overlap into a block of text at this size.
+profiles are later recreated from, each carrying the letter
+[`spec/bevelgear/instructions.md`](../../spec/bevelgear/instructions.md) argues about it by.
+
+Two things the sketch holds are left off the picture. The thirteen dimensions that hold the
+lattice are not drawn, because thirteen labels inside one 30 mm figure overlap into a block of
+text. The step also names every construction line and every line endpoint, for its own failure
+messages to quote, and those hundred names are cleared on the picture's copy of the sketch
+before it is drawn.
 
 ## S16 — Revolve the hexagon into the Gear Body
 

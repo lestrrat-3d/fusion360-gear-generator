@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 
 	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit"
@@ -132,12 +133,42 @@ func drawnBy(step proofkit.Build) func(*testing.T, map[string]float64) *sketch.S
 // gear is built from is in it.
 var sketchSnapshots = []sketchSnapshot{
 	{
-		Step: "S10", File: "s10-gear-profiles", Draw: drawnBy(stepGearProfiles),
-		// Thirteen dimensions inside one 30 mm figure. Drawn together their
-		// labels overlap into a block of text with the lattice behind it.
-		Options: []sketch.SVGOption{sketch.WithDimensions(false)},
+		Step: "S10", File: "s10-gear-profiles", Draw: drawGearProfiles,
+		// The vertex names are drawn and the thirteen dimensions are not.
+		// Thirteen dimension labels inside one 30 mm figure overlap into a block
+		// of text with the lattice behind it, and the names are what a reader
+		// holding instructions.md needs: that document argues about point C and
+		// point D by those letters.
+		Options: []sketch.SVGOption{sketch.WithDimensions(false), sketch.WithLabels(true)},
 	},
 }
+
+// drawGearProfiles draws the lattice S10 draws and then clears every name but
+// the section 2 vertices.
+//
+// The step names all of its geometry, because those names are what its failure
+// messages quote: a construction line called `Apex->B` and endpoints called
+// `Apex->B.start` and `Apex->B.end`. Labelled all together that is a hundred
+// names over a 30 mm figure, and the lattice disappears under its own text.
+// Clearing the rest happens on the picture's own copy of the sketch, after the
+// step has drawn and checked it, and nothing the proof asserts reads a name.
+func drawGearProfiles(t *testing.T, p map[string]float64) *sketch.Sketch {
+	s := proofkit.NewSketch(t)
+	stepGearProfiles(t, s, p)
+	for _, pt := range s.Points() {
+		if !latticeVertex.MatchString(pt.Name()) {
+			pt.SetName("")
+		}
+	}
+	for _, e := range s.Entities() {
+		e.SetName("")
+	}
+	return s
+}
+
+// latticeVertex matches the names section 2's own vertices carry: one capital
+// letter, or either apex. Everything else the step names is derived from a line.
+var latticeVertex = regexp.MustCompile(`^([A-Z]|Apex|Apex 2)$`)
 
 // solidSnapshots are the body steps a straight bevel runs, in step order. Each
 // scene is the gear as that step leaves it, so the sequence is cumulative.
