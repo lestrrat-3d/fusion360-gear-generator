@@ -146,10 +146,10 @@ var sketchSnapshots = []sketchSnapshot{
 // drawGearProfiles draws the lattice S10 draws and then clears every name but
 // the section 2 vertices.
 //
-// The step names all of its geometry, because those names are what its failure
-// messages quote: a construction line called `Apex->B` and endpoints called
-// `Apex->B.start` and `Apex->B.end`. Labelled all together that is a hundred
-// names over a 30 mm figure, and the lattice disappears under its own text.
+// The step names all of its geometry: a construction line called `Apex->B` and
+// its endpoints called `Apex->B.start` and `Apex->B.end`. Labelled all together
+// that is a hundred names over a 30 mm figure, and the lattice disappears under
+// its own text.
 // Clearing the rest happens on the picture's own copy of the sketch, after the
 // step has drawn and checked it, and nothing the proof asserts reads a name.
 func drawGearProfiles(t *testing.T, p map[string]float64) *sketch.Sketch {
