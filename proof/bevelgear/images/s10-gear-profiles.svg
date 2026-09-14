@@ -7,31 +7,31 @@
   <line x1="25.9" y1="5.4" x2="25.9" y2="20.9" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
   <line x1="10.4" y1="20.9" x2="25.9" y2="20.9" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
   <line x1="10.4" y1="5.4" x2="25.9" y2="20.9" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
-  <line x1="25.9" y1="20.9" x2="25.0161" y2="21.7839" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
   <line x1="25.9" y1="20.9" x2="26.7839" y2="20.0161" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
-  <line x1="10.4" y1="5.4" x2="25.0161" y2="21.7839" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
+  <line x1="25.9" y1="20.9" x2="25.0161" y2="21.7839" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
   <line x1="10.4" y1="5.4" x2="26.7839" y2="20.0161" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
+  <line x1="10.4" y1="5.4" x2="25.0161" y2="21.7839" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
   <line x1="25.9" y1="5.4" x2="26.7839" y2="5.4" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
   <line x1="26.7839" y1="20.0161" x2="26.7839" y2="5.4" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
+  <line x1="10.4" y1="20.9" x2="10.4" y2="21.7839" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
+  <line x1="25.0161" y1="21.7839" x2="10.4" y2="21.7839" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
   <line x1="26.7839" y1="5.4" x2="29.775" y2="5.4" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
   <line x1="26.7839" y1="20.0161" x2="29.775" y2="17.025" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
   <line x1="29.775" y1="5.4" x2="29.775" y2="17.025" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
-  <line x1="10.4" y1="20.9" x2="10.4" y2="21.7839" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
-  <line x1="25.0161" y1="21.7839" x2="10.4" y2="21.7839" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
   <line x1="10.4" y1="21.7839" x2="10.4" y2="24.775" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
   <line x1="25.0161" y1="21.7839" x2="22.025" y2="24.775" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
   <line x1="10.4" y1="24.775" x2="22.025" y2="24.775" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
   <line x1="29.775" y1="5.4" x2="41.4" y2="5.4" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
-  <line x1="26.7839" y1="20.0161" x2="41.4" y2="5.4" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
   <line x1="10.4" y1="24.775" x2="10.4" y2="36.4" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
+  <line x1="26.7839" y1="20.0161" x2="41.4" y2="5.4" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
   <line x1="25.0161" y1="21.7839" x2="10.4" y2="36.4" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
   <line x1="21.3226" y1="15.1441" x2="25.9" y2="10.5667" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
   <line x1="21.3226" y1="15.1441" x2="26.7839" y2="20.0161" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
   <line x1="25.9" y1="10.5667" x2="25.9" y2="5.4" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
+  <line x1="25.9" y1="5.4" x2="29.775" y2="5.4" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
   <line x1="20.1441" y1="16.3226" x2="15.5667" y2="20.9" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
   <line x1="20.1441" y1="16.3226" x2="25.0161" y2="21.7839" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
   <line x1="15.5667" y1="20.9" x2="10.4" y2="20.9" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
-  <line x1="25.9" y1="5.4" x2="29.775" y2="5.4" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
   <line x1="10.4" y1="20.9" x2="10.4" y2="24.775" stroke="#bbbbbb" stroke-width="0.126" stroke-dasharray="0.504,0.378"/>
   <circle cx="10.4" cy="24.775" r="0.3801" fill="#202124"/>
   <circle cx="5.4" cy="24.775" r="0.3801" fill="#202124"/>
@@ -49,27 +49,27 @@
   <circle cx="10.4" cy="5.4" r="0.3801" fill="#d93025"/>
   <circle cx="25.9" cy="20.9" r="0.3801" fill="#d93025"/>
   <circle cx="25.9" cy="20.9" r="0.3801" fill="#d93025"/>
-  <circle cx="25.0161" cy="21.7839" r="0.3801" fill="#d93025"/>
+  <circle cx="26.7839" cy="20.0161" r="0.3801" fill="#d93025"/>
   <circle cx="25.9" cy="20.9" r="0.3801" fill="#d93025"/>
-  <circle cx="26.7839" cy="20.0161" r="0.3801" fill="#d93025"/>
-  <circle cx="10.4" cy="5.4" r="0.3801" fill="#d93025"/>
   <circle cx="25.0161" cy="21.7839" r="0.3801" fill="#d93025"/>
   <circle cx="10.4" cy="5.4" r="0.3801" fill="#d93025"/>
   <circle cx="26.7839" cy="20.0161" r="0.3801" fill="#d93025"/>
+  <circle cx="10.4" cy="5.4" r="0.3801" fill="#d93025"/>
+  <circle cx="25.0161" cy="21.7839" r="0.3801" fill="#d93025"/>
   <circle cx="25.9" cy="5.4" r="0.3801" fill="#d93025"/>
   <circle cx="26.7839" cy="5.4" r="0.3801" fill="#d93025"/>
   <circle cx="26.7839" cy="20.0161" r="0.3801" fill="#d93025"/>
   <circle cx="26.7839" cy="5.4" r="0.3801" fill="#d93025"/>
+  <circle cx="10.4" cy="20.9" r="0.3801" fill="#d93025"/>
+  <circle cx="10.4" cy="21.7839" r="0.3801" fill="#d93025"/>
+  <circle cx="25.0161" cy="21.7839" r="0.3801" fill="#d93025"/>
+  <circle cx="10.4" cy="21.7839" r="0.3801" fill="#d93025"/>
   <circle cx="26.7839" cy="5.4" r="0.3801" fill="#d93025"/>
   <circle cx="29.775" cy="5.4" r="0.3801" fill="#d93025"/>
   <circle cx="26.7839" cy="20.0161" r="0.3801" fill="#d93025"/>
   <circle cx="29.775" cy="17.025" r="0.3801" fill="#d93025"/>
   <circle cx="29.775" cy="5.4" r="0.3801" fill="#d93025"/>
   <circle cx="29.775" cy="17.025" r="0.3801" fill="#d93025"/>
-  <circle cx="10.4" cy="20.9" r="0.3801" fill="#d93025"/>
-  <circle cx="10.4" cy="21.7839" r="0.3801" fill="#d93025"/>
-  <circle cx="25.0161" cy="21.7839" r="0.3801" fill="#d93025"/>
-  <circle cx="10.4" cy="21.7839" r="0.3801" fill="#d93025"/>
   <circle cx="10.4" cy="21.7839" r="0.3801" fill="#d93025"/>
   <circle cx="10.4" cy="24.775" r="0.3801" fill="#d93025"/>
   <circle cx="25.0161" cy="21.7839" r="0.3801" fill="#d93025"/>
@@ -78,10 +78,10 @@
   <circle cx="22.025" cy="24.775" r="0.3801" fill="#d93025"/>
   <circle cx="29.775" cy="5.4" r="0.3801" fill="#d93025"/>
   <circle cx="41.4" cy="5.4" r="0.3801" fill="#d93025"/>
+  <circle cx="10.4" cy="24.775" r="0.3801" fill="#d93025"/>
+  <circle cx="10.4" cy="36.4" r="0.3801" fill="#d93025"/>
   <circle cx="26.7839" cy="20.0161" r="0.3801" fill="#d93025"/>
   <circle cx="41.4" cy="5.4" r="0.3801" fill="#d93025"/>
-  <circle cx="10.4" cy="24.775" r="0.3801" fill="#d93025"/>
-  <circle cx="10.4" cy="36.4" r="0.3801" fill="#d93025"/>
   <circle cx="25.0161" cy="21.7839" r="0.3801" fill="#d93025"/>
   <circle cx="10.4" cy="36.4" r="0.3801" fill="#d93025"/>
   <circle cx="21.3226" cy="15.1441" r="0.3801" fill="#d93025"/>
@@ -90,120 +90,14 @@
   <circle cx="26.7839" cy="20.0161" r="0.3801" fill="#d93025"/>
   <circle cx="25.9" cy="10.5667" r="0.3801" fill="#d93025"/>
   <circle cx="25.9" cy="5.4" r="0.3801" fill="#d93025"/>
+  <circle cx="25.9" cy="5.4" r="0.3801" fill="#d93025"/>
+  <circle cx="29.775" cy="5.4" r="0.3801" fill="#d93025"/>
   <circle cx="20.1441" cy="16.3226" r="0.3801" fill="#d93025"/>
   <circle cx="15.5667" cy="20.9" r="0.3801" fill="#d93025"/>
   <circle cx="20.1441" cy="16.3226" r="0.3801" fill="#d93025"/>
   <circle cx="25.0161" cy="21.7839" r="0.3801" fill="#d93025"/>
   <circle cx="15.5667" cy="20.9" r="0.3801" fill="#d93025"/>
   <circle cx="10.4" cy="20.9" r="0.3801" fill="#d93025"/>
-  <circle cx="25.9" cy="5.4" r="0.3801" fill="#d93025"/>
-  <circle cx="29.775" cy="5.4" r="0.3801" fill="#d93025"/>
   <circle cx="10.4" cy="20.9" r="0.3801" fill="#d93025"/>
   <circle cx="10.4" cy="24.775" r="0.3801" fill="#d93025"/>
-  <text x="11.5402" y="4.2598" font-size="1.9003" fill="white" stroke="white" stroke-width="0.4181" stroke-linejoin="round" text-anchor="start" dominant-baseline="central">Apex</text>
-  <text x="11.5402" y="4.2598" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">Apex</text>
-  <text x="9.2598" y="22.0402" font-size="1.9003" fill="white" stroke="white" stroke-width="0.4181" stroke-linejoin="round" text-anchor="end" dominant-baseline="central">B</text>
-  <text x="9.2598" y="22.0402" font-size="1.9003" fill="#5f6368" text-anchor="end" dominant-baseline="central">B</text>
-  <line x1="8.0816" y1="23.1804" x2="9.2598" y2="23.1804" stroke="white" stroke-width="0.2646"/>
-  <line x1="8.0816" y1="23.1804" x2="9.2598" y2="23.1804" stroke="#5f6368" stroke-width="0.0756"/>
-  <line x1="9.2598" y1="23.1804" x2="10.0176" y2="21.6649" stroke="white" stroke-width="0.2646"/>
-  <line x1="9.2598" y1="23.1804" x2="10.0176" y2="21.6649" stroke="#5f6368" stroke-width="0.0756"/>
-  <path d="M10.0176 21.6649 L9.9039 22.5552 L9.3735 22.29 Z" fill="#5f6368"/>
-  <text x="24.7598" y="6.5402" font-size="1.9003" fill="white" stroke="white" stroke-width="0.4181" stroke-linejoin="round" text-anchor="end" dominant-baseline="central">A</text>
-  <text x="24.7598" y="6.5402" font-size="1.9003" fill="#5f6368" text-anchor="end" dominant-baseline="central">A</text>
-  <line x1="23.5816" y1="7.6804" x2="24.7598" y2="7.6804" stroke="white" stroke-width="0.2646"/>
-  <line x1="23.5816" y1="7.6804" x2="24.7598" y2="7.6804" stroke="#5f6368" stroke-width="0.0756"/>
-  <line x1="24.7598" y1="7.6804" x2="25.5176" y2="6.1649" stroke="white" stroke-width="0.2646"/>
-  <line x1="24.7598" y1="7.6804" x2="25.5176" y2="6.1649" stroke="#5f6368" stroke-width="0.0756"/>
-  <path d="M25.5176 6.1649 L25.4039 7.0552 L24.8735 6.79 Z" fill="#5f6368"/>
-  <text x="27.0402" y="22.0402" font-size="1.9003" fill="white" stroke="white" stroke-width="0.4181" stroke-linejoin="round" text-anchor="start" dominant-baseline="central">Apex 2</text>
-  <text x="27.0402" y="22.0402" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">Apex 2</text>
-  <line x1="27.0402" y1="23.1804" x2="34.1094" y2="23.1804" stroke="white" stroke-width="0.2646"/>
-  <line x1="27.0402" y1="23.1804" x2="34.1094" y2="23.1804" stroke="#5f6368" stroke-width="0.0756"/>
-  <line x1="27.0402" y1="23.1804" x2="26.2824" y2="21.6649" stroke="white" stroke-width="0.2646"/>
-  <line x1="27.0402" y1="23.1804" x2="26.2824" y2="21.6649" stroke="#5f6368" stroke-width="0.0756"/>
-  <path d="M26.2824 21.6649 L26.9265 22.29 L26.3961 22.5552 Z" fill="#5f6368"/>
-  <text x="28.4367" y="25.2045" font-size="1.9003" fill="white" stroke="white" stroke-width="0.4181" stroke-linejoin="round" text-anchor="start" dominant-baseline="central">D</text>
-  <text x="28.4367" y="25.2045" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">D</text>
-  <line x1="28.4367" y1="26.3446" x2="29.6149" y2="26.3446" stroke="white" stroke-width="0.2646"/>
-  <line x1="28.4367" y1="26.3446" x2="29.6149" y2="26.3446" stroke="#5f6368" stroke-width="0.0756"/>
-  <line x1="28.4367" y1="26.3446" x2="25.5292" y2="22.468" stroke="white" stroke-width="0.2646"/>
-  <line x1="28.4367" y1="26.3446" x2="25.5292" y2="22.468" stroke="#5f6368" stroke-width="0.0756"/>
-  <path d="M25.5292 22.468 L26.3653 23.0286 L25.8333 23.4277 Z" fill="#5f6368"/>
-  <text x="30.2045" y="16.5955" font-size="1.9003" fill="white" stroke="white" stroke-width="0.4181" stroke-linejoin="round" text-anchor="start" dominant-baseline="central">C</text>
-  <text x="30.2045" y="16.5955" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">C</text>
-  <line x1="30.2045" y1="17.7357" x2="31.3826" y2="17.7357" stroke="white" stroke-width="0.2646"/>
-  <line x1="30.2045" y1="17.7357" x2="31.3826" y2="17.7357" stroke="#5f6368" stroke-width="0.0756"/>
-  <line x1="30.2045" y1="17.7357" x2="27.4954" y2="19.5418" stroke="white" stroke-width="0.2646"/>
-  <line x1="30.2045" y1="17.7357" x2="27.4954" y2="19.5418" stroke="#5f6368" stroke-width="0.0756"/>
-  <path d="M27.4954 19.5418 L28.1015 18.738 L28.4705 19.2914 Z" fill="#5f6368"/>
-  <text x="27.9241" y="6.5402" font-size="1.9003" fill="white" stroke="white" stroke-width="0.4181" stroke-linejoin="round" text-anchor="start" dominant-baseline="central">E</text>
-  <text x="27.9241" y="6.5402" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">E</text>
-  <line x1="27.9241" y1="7.6804" x2="29.1023" y2="7.6804" stroke="white" stroke-width="0.2646"/>
-  <line x1="27.9241" y1="7.6804" x2="29.1023" y2="7.6804" stroke="#5f6368" stroke-width="0.0756"/>
-  <line x1="27.9241" y1="7.6804" x2="27.1663" y2="6.1649" stroke="white" stroke-width="0.2646"/>
-  <line x1="27.9241" y1="7.6804" x2="27.1663" y2="6.1649" stroke="#5f6368" stroke-width="0.0756"/>
-  <path d="M27.1663 6.1649 L27.8104 6.79 L27.28 7.0552 Z" fill="#5f6368"/>
-  <text x="30.9152" y="4.2598" font-size="1.9003" fill="white" stroke="white" stroke-width="0.4181" stroke-linejoin="round" text-anchor="start" dominant-baseline="central">G</text>
-  <text x="30.9152" y="4.2598" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">G</text>
-  <text x="32.0554" y="19.3054" font-size="1.9003" fill="white" stroke="white" stroke-width="0.4181" stroke-linejoin="round" text-anchor="start" dominant-baseline="central">H</text>
-  <text x="32.0554" y="19.3054" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">H</text>
-  <line x1="32.0554" y1="20.4456" x2="33.2336" y2="20.4456" stroke="white" stroke-width="0.2646"/>
-  <line x1="32.0554" y1="20.4456" x2="33.2336" y2="20.4456" stroke="#5f6368" stroke-width="0.0756"/>
-  <line x1="32.0554" y1="20.4456" x2="30.2493" y2="17.7365" stroke="white" stroke-width="0.2646"/>
-  <line x1="32.0554" y1="20.4456" x2="30.2493" y2="17.7365" stroke="#5f6368" stroke-width="0.0756"/>
-  <path d="M30.2493 17.7365 L31.0531 18.3426 L30.4997 18.7116 Z" fill="#5f6368"/>
-  <text x="11.5402" y="22.9241" font-size="1.9003" fill="white" stroke="white" stroke-width="0.4181" stroke-linejoin="round" text-anchor="start" dominant-baseline="central">F</text>
-  <text x="11.5402" y="22.9241" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">F</text>
-  <line x1="11.5402" y1="24.0643" x2="12.7184" y2="24.0643" stroke="white" stroke-width="0.2646"/>
-  <line x1="11.5402" y1="24.0643" x2="12.7184" y2="24.0643" stroke="#5f6368" stroke-width="0.0756"/>
-  <line x1="11.5402" y1="24.0643" x2="10.7824" y2="22.5487" stroke="white" stroke-width="0.2646"/>
-  <line x1="11.5402" y1="24.0643" x2="10.7824" y2="22.5487" stroke="#5f6368" stroke-width="0.0756"/>
-  <path d="M10.7824 22.5487 L11.4265 23.1739 L10.8961 23.4391 Z" fill="#5f6368"/>
-  <text x="11.5402" y="25.9152" font-size="1.9003" fill="white" stroke="white" stroke-width="0.4181" stroke-linejoin="round" text-anchor="start" dominant-baseline="central">I</text>
-  <text x="11.5402" y="25.9152" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">I</text>
-  <line x1="11.5402" y1="27.0554" x2="12.7184" y2="27.0554" stroke="white" stroke-width="0.2646"/>
-  <line x1="11.5402" y1="27.0554" x2="12.7184" y2="27.0554" stroke="#5f6368" stroke-width="0.0756"/>
-  <line x1="11.5402" y1="27.0554" x2="10.7824" y2="25.5399" stroke="white" stroke-width="0.2646"/>
-  <line x1="11.5402" y1="27.0554" x2="10.7824" y2="25.5399" stroke="#5f6368" stroke-width="0.0756"/>
-  <path d="M10.7824 25.5399 L11.4265 26.165 L10.8961 26.4302 Z" fill="#5f6368"/>
-  <text x="23.1652" y="25.9152" font-size="1.9003" fill="white" stroke="white" stroke-width="0.4181" stroke-linejoin="round" text-anchor="start" dominant-baseline="central">J</text>
-  <text x="23.1652" y="25.9152" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">J</text>
-  <line x1="23.1652" y1="27.0554" x2="24.3434" y2="27.0554" stroke="white" stroke-width="0.2646"/>
-  <line x1="23.1652" y1="27.0554" x2="24.3434" y2="27.0554" stroke="#5f6368" stroke-width="0.0756"/>
-  <line x1="23.1652" y1="27.0554" x2="22.4074" y2="25.5399" stroke="white" stroke-width="0.2646"/>
-  <line x1="23.1652" y1="27.0554" x2="22.4074" y2="25.5399" stroke="#5f6368" stroke-width="0.0756"/>
-  <path d="M22.4074 25.5399 L23.0515 26.165 L22.5211 26.4302 Z" fill="#5f6368"/>
-  <text x="42.5402" y="4.2598" font-size="1.9003" fill="white" stroke="white" stroke-width="0.4181" stroke-linejoin="round" text-anchor="start" dominant-baseline="central">K</text>
-  <text x="42.5402" y="4.2598" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">K</text>
-  <text x="11.5402" y="37.5402" font-size="1.9003" fill="white" stroke="white" stroke-width="0.4181" stroke-linejoin="round" text-anchor="start" dominant-baseline="central">L</text>
-  <text x="11.5402" y="37.5402" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">L</text>
-  <line x1="11.5402" y1="38.6804" x2="12.7184" y2="38.6804" stroke="white" stroke-width="0.2646"/>
-  <line x1="11.5402" y1="38.6804" x2="12.7184" y2="38.6804" stroke="#5f6368" stroke-width="0.0756"/>
-  <line x1="11.5402" y1="38.6804" x2="10.7824" y2="37.1649" stroke="white" stroke-width="0.2646"/>
-  <line x1="11.5402" y1="38.6804" x2="10.7824" y2="37.1649" stroke="#5f6368" stroke-width="0.0756"/>
-  <path d="M10.7824 37.1649 L11.4265 37.79 L10.8961 38.0552 Z" fill="#5f6368"/>
-  <text x="23.603" y="15.1441" font-size="1.9003" fill="white" stroke="white" stroke-width="0.4181" stroke-linejoin="round" text-anchor="start" dominant-baseline="central">M</text>
-  <text x="23.603" y="15.1441" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">M</text>
-  <line x1="23.603" y1="16.2843" x2="24.7812" y2="16.2843" stroke="white" stroke-width="0.2646"/>
-  <line x1="23.603" y1="16.2843" x2="24.7812" y2="16.2843" stroke="#5f6368" stroke-width="0.0756"/>
-  <line x1="23.603" y1="16.2843" x2="22.0875" y2="15.5265" stroke="white" stroke-width="0.2646"/>
-  <line x1="23.603" y1="16.2843" x2="22.0875" y2="15.5265" stroke="#5f6368" stroke-width="0.0756"/>
-  <path d="M22.0875 15.5265 L22.9778 15.6402 L22.7126 16.1706 Z" fill="#5f6368"/>
-  <text x="27.0402" y="9.4265" font-size="1.9003" fill="white" stroke="white" stroke-width="0.4181" stroke-linejoin="round" text-anchor="start" dominant-baseline="central">N</text>
-  <text x="27.0402" y="9.4265" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">N</text>
-  <text x="17.8637" y="16.3226" font-size="1.9003" fill="white" stroke="white" stroke-width="0.4181" stroke-linejoin="round" text-anchor="end" dominant-baseline="central">O</text>
-  <text x="17.8637" y="16.3226" font-size="1.9003" fill="#5f6368" text-anchor="end" dominant-baseline="central">O</text>
-  <line x1="16.6855" y1="17.4628" x2="17.8637" y2="17.4628" stroke="white" stroke-width="0.2646"/>
-  <line x1="16.6855" y1="17.4628" x2="17.8637" y2="17.4628" stroke="#5f6368" stroke-width="0.0756"/>
-  <line x1="17.8637" y1="17.4628" x2="19.3792" y2="16.705" stroke="white" stroke-width="0.2646"/>
-  <line x1="17.8637" y1="17.4628" x2="19.3792" y2="16.705" stroke="#5f6368" stroke-width="0.0756"/>
-  <path d="M19.3792 16.705 L18.7541 17.3491 L18.4888 16.8187 Z" fill="#5f6368"/>
-  <text x="17.847" y="23.1804" font-size="1.9003" fill="white" stroke="white" stroke-width="0.4181" stroke-linejoin="round" text-anchor="start" dominant-baseline="central">P</text>
-  <text x="17.847" y="23.1804" font-size="1.9003" fill="#5f6368" text-anchor="start" dominant-baseline="central">P</text>
-  <line x1="17.847" y1="24.3206" x2="19.0252" y2="24.3206" stroke="white" stroke-width="0.2646"/>
-  <line x1="17.847" y1="24.3206" x2="19.0252" y2="24.3206" stroke="#5f6368" stroke-width="0.0756"/>
-  <line x1="17.847" y1="24.3206" x2="16.041" y2="21.6115" stroke="white" stroke-width="0.2646"/>
-  <line x1="17.847" y1="24.3206" x2="16.041" y2="21.6115" stroke="#5f6368" stroke-width="0.0756"/>
-  <path d="M16.041 21.6115 L16.8448 22.2176 L16.2914 22.5866 Z" fill="#5f6368"/>
 </svg>
