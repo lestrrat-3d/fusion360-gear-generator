@@ -54,6 +54,7 @@ exemption uses a line of the form:
 """
 import ast
 import json
+import os
 import re
 import sys
 
@@ -143,9 +144,12 @@ def named_call_shapes(steps_src):
 class ReachableCallCollector(ast.NodeVisitor):
     """Collect calls from module code and locally reachable entry-point functions."""
 
+    # The names the add-in's command layer is known to reach on a generator even
+    # when `commands/` cannot be read. framework_entry_points() supplies the rest.
     ENTRY_POINTS = {'configure', 'generate'}
 
-    def __init__(self, tree):
+    def __init__(self, tree, extra_entry_points=()):
+        self.entry_points = set(self.ENTRY_POINTS) | set(extra_entry_points)
         self.functions = {}
         self.classes = {}
         self.methods = {}
@@ -180,7 +184,7 @@ class ReachableCallCollector(ast.NodeVisitor):
 
     def collect(self, tree):
         self.visit_statements(tree.body)
-        for name in self.ENTRY_POINTS:
+        for name in self.entry_points:
             for node in self.functions.get(name, ()):
                 self.visit_function(node)
         for node in self.inherited_entry_points():
@@ -427,14 +431,70 @@ class ReachableCallCollector(ast.NodeVisitor):
             if method_name == name:
                 self.visit_function(node)
 
-def actual_call_names(gen_tree):
+def framework_entry_points(module_path):
+    """Method names the add-in's own command layer reaches on a generator.
+
+    The checker walks the generated module from its entry points, and anything only
+    an entry point reaches otherwise reads as dead code. Two of those names used to be
+    written here as a literal pair, so the other two — `deleteComponent`, which the
+    command's except branch calls, and `handle_input_changed`, which is handed to
+    Fusion as a callback — were unreachable. A step list then had to exempt them, and
+    exempting an entry point silently excuses every call inside it: that is how a
+    required `deleteMe()` passed unchecked.
+
+    So read the callers instead of naming them. `commands/` is the add-in's own layer
+    and the only thing that invokes a generator from outside, so scan it for both
+    shapes a Python caller can use: `obj.name(...)` invokes, and a bare `obj.name`
+    handed somewhere else is a callback Fusion will invoke later.
+
+    Over-collecting from `commands/` is harmless, because the caller intersects this
+    with the names the generated module itself defines. A name only becomes a root
+    when both sides mention it, so an unrelated attribute like `sys.modules` cannot
+    seed anything. Returns the literal pair unchanged when `commands/` is absent, so
+    a checkout without it behaves as before.
+    """
+    root = os.path.dirname(os.path.dirname(os.path.abspath(module_path)))
+    for _ in range(4):
+        if os.path.isdir(os.path.join(root, 'commands')):
+            break
+        parent = os.path.dirname(root)
+        if parent == root:
+            break
+        root = parent
+    commands = os.path.join(root, 'commands')
+    if not os.path.isdir(commands):
+        return set()
+    names = set()
+    for dirpath, _dirnames, filenames in os.walk(commands):
+        for filename in filenames:
+            if not filename.endswith('.py'):
+                continue
+            try:
+                with open(os.path.join(dirpath, filename), encoding='utf-8') as fh:
+                    tree = ast.parse(fh.read())
+            except (OSError, SyntaxError):
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Attribute) and not node.attr.startswith('__'):
+                    names.add(node.attr)
+    return names
+
+
+def actual_call_names(gen_tree, module_path=None):
     """Return function and method names used by reachable Call nodes."""
-    return {name for name, _ in actual_call_shapes(gen_tree)}
+    return {name for name, _ in actual_call_shapes(gen_tree, module_path)}
 
 
-def actual_call_shapes(gen_tree):
+def actual_call_shapes(gen_tree, module_path=None):
     """Return reachable calls, retaining whether each call has an attribute receiver."""
-    return ReachableCallCollector(gen_tree).collect(gen_tree)
+    extra = ()
+    if module_path:
+        # Only a name BOTH the command layer touches and this module defines becomes a
+        # root, so over-collecting from commands/ cannot invent one.
+        defined = {node.name for node in ast.walk(gen_tree)
+                   if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+        extra = framework_entry_points(module_path) & defined
+    return ReachableCallCollector(gen_tree, extra).collect(gen_tree)
 
 
 def _usage_error():
@@ -483,7 +543,7 @@ def main(argv):
         parse_error = str(err)
         actual = set()
     else:
-        actual = actual_call_shapes(gen_tree)
+        actual = actual_call_shapes(gen_tree, gen_path)
 
     # Keep the textual scan only to explain whether a missing reachable call has a misleading
     # match in a comment or string. The AST result above is the coverage gate.
