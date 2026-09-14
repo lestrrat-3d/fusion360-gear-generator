@@ -364,7 +364,7 @@ func uncutTooth(t *testing.T, d design, g gear, f gearFrame) *solidlens.Mesh {
 // mesh here is built from.
 func toothEnds(t *testing.T, d design, g gear) ([]render.Vec2, [][3]int) {
 	t.Helper()
-	section := toothSection(newToothOutline(d, g))
+	section := drawnToothSection(newToothOutline(d, g))
 	ends, err := render.EarClip(section)
 	if err != nil {
 		t.Fatalf("%s tooth section: %v", g.Label, err)

@@ -1,41 +1,36 @@
-// This file holds the bevel pair's straight-bevel solid steps: the gear-body
-// revolve, the apex-to-tooth loft, the conical end cuts, the circular pattern,
-// the Combine-Join, the bore's through-cut and the meshing rotation.
+// This file holds the bevel gear's straight-bevel solid steps, one per Fusion
+// timeline entry: the gear-body revolve, the apex-to-tooth loft, the conical end
+// cuts, the circular pattern, the Combine-Join, the bore cut and the driving
+// gear's meshing rotation. The spiral branch's steps are in spiral_test.go.
 //
-// # No boolean is performed anywhere in this gear's proof
-//
-// At the decad revision this repo pins, a boolean accepts only prism, cup and
-// faceted payloads and refuses an operand built by Loft. Every solid in this
-// gear is conical, and a cone is a Loft here because Extrude refuses a nonzero
-// taper. So the union that joins the frustum, the intersection and cut that
+// NO BOOLEAN IS PERFORMED ANYWHERE IN THIS GEAR'S PROOF, and that is forced
+// rather than chosen. At the decad revision proof/go.mod pins, a boolean accepts
+// only prism, cup and faceted payloads and refuses an operand built by Loft.
+// Every solid in this gear is conical, and a cone is a Loft here because Extrude
+// refuses a nonzero taper — WithTaper is ErrUnsupported before a step is even
+// recorded. So the union that joins the frustum, the intersection and cut that
 // trim the tooth, the bore's through-cut and the Combine-Join are all out of
 // reach.
 //
-// The substitution is the same at every site: build the operands, lay them
-// apart along the shaft axis, and assert from their own measured geometry what
-// the operation would have produced. Laying them apart leaves every volume,
-// radius and cone angle unchanged, which is what makes the readings still mean
-// something, and it is also what lets decad's pairwise checks resolve — two
-// bodies that touch without provably crossing are refused.
+// THE SUBSTITUTION IS THE SAME AT EVERY SITE: build the operands, lay them apart
+// along the shaft axis, and assert from their own measured geometry what the
+// operation would have produced. Laying them apart leaves every volume, radius,
+// station and cone half-angle unchanged, which is what makes the readings still
+// mean something; what it drops is the evaluator's own work — the stitch, the
+// split, the pierced body — and each step below says which.
 //
-// Each step below says what its own substitution costs.
+// THE REVOLVE ITSELF IS THE OTHER SUBSTITUTION. decad has a Revolve, and it is
+// not usable here: measured on this repository's pinned revision, a revolved
+// trapezoid publishes volume 8210.03 mm3 with a proven bound of 16420.06 mm3 —
+// a bound equal to twice the reading — so a revolved body is Suspect at any
+// tolerance and cannot pass the harness gate. A Loft between two coaxial circles
+// is the polygonal sweep of the same figure and publishes the same volume with a
+// bound four orders of magnitude smaller.
 //
-// # The frame
-//
-// Every solid here is built in one gear's own axial frame, mapped so that the
-// Apex sits at the world origin and the shaft axis runs along +Z. A point given
-// as bvPt{Z, Rho} is then a point at height Z on the circle of radius Rho, and
-// a straight profile segment sweeps the truncated cone between its two rings.
-// Rotation about the shaft axis is rotation about +Z, which is what makes an
-// azimuth reading meaningful after a body has been laid apart along that same
-// axis.
-//
-// # Module 4 and up
-//
-// These tables never run at Module 1. decad's mesh bound has an absolute floor,
-// and a figure small enough brings every measurement inside it, so the gate
-// reports Suspect on geometry that is in fact correct. Module is a pure scale on
-// this figure, so a case at Module 4 through 8 proves the same shape.
+// THE TABLES RUN AT MODULE 4 TO 8 AND NEVER AT MODULE 1, because decad's mesh
+// bound has an absolute floor and a small enough figure brings every measurement
+// inside it. Module is a pure scale on this figure, so a case at Module 4 proves
+// the same shape.
 package bevelgear_test
 
 import (
@@ -50,206 +45,733 @@ import (
 	"github.com/lestrrat-3d/units"
 )
 
-// bvMM wraps a millimetre reading for decad.
-func bvMM(v float64) units.Value { return units.Millimeters(v) }
+func millimetres(v float64) units.Value { return units.Millimeters(v) }
 
-// bvArcChords is how many chords stand in for one arc of a tooth section. A
-// loft pairs its two sections positionally, so both ends of a lofted tooth
-// carry the same count; a real arc would carry exact bounds this harness cannot
-// certify once the section is also going to be lofted, so every curve in a
-// solid-step section here is a chord. What that costs is the sagitta between
-// each chord and the arc it spans: a chorded tooth is very slightly thinner,
-// and every step measures chorded against chorded so the sagitta cancels.
-const bvArcChords = 12
-
-// bvApexShrink is the fraction of the heel station the apex-side loft section
-// is placed at. decad has no degenerate point section, so the apex point the
-// spec lofts from is substituted by a section shrunk to this fraction, which is
-// the same generalized cone truncated at that station.
-const bvApexShrink = 0.1
-
-// bvLayApart is how far along the shaft axis each successive body is laid from
-// the last, as a multiple of the figure's own heel station. It only has to be
-// large enough that no two bodies touch.
-const bvLayApart = 4.0
-
-// bvSolidCases sweep the regime the solid steps have to hold across, at the
-// sizes the mesh bound clears.
+// sweepSides is how many sides the polygonal sweep uses for one full turn.
 //
-// Both gears, both ways round, so either can be the smaller and binding one.
-// Both ends of the Shaft Angle range the lattice reaches. Both sides of the
-// Enable Bore branch and of each "0 means auto" field. Toe Extension at 0 and
-// at its far end, since the toe end of the frustum is what the toe trim finds.
-var bvSolidCases = bvBothSides3D([]proofkit3d.Case{
-	{Name: "defaults_m4", Params: bvSolidWith(nil)},
-	{Name: "m8", Params: bvSolidWith(map[string]float64{bvpModule: 8})},
-	{Name: "shaft_angle_35", Params: bvSolidWith(map[string]float64{bvpShaftAngle: 35})},
-	{Name: "shaft_angle_120", Params: bvSolidWith(map[string]float64{bvpShaftAngle: 120})},
-	{Name: "ratio_31_17", Params: bvSolidWith(map[string]float64{bvpPinionTeeth: 17})},
-	{Name: "ratio_17_31", Params: bvSolidWith(map[string]float64{bvpDrivingTeeth: 17})},
-	{Name: "low_teeth_6_6", Params: bvSolidWith(map[string]float64{
-		bvpDrivingTeeth: 6, bvpPinionTeeth: 6})},
-	{Name: "toe_extension_100", Params: bvSolidWith(map[string]float64{bvpToeExtension: 100})},
-	{Name: "toe_radii_specified", Params: bvSolidWith(map[string]float64{
-		bvpDrivingToeR: 6, bvpPinionToeR: 6})},
-	{Name: "bore_disabled", Params: bvSolidWith(map[string]float64{bvpBoreEnable: 0})},
-	{Name: "bore_specified", Params: bvSolidWith(map[string]float64{
-		bvpDrivingBore: 20, bvpPinionBore: 16})},
-	{Name: "base_heights_specified", Params: bvSolidWith(map[string]float64{
-		bvpDrivingBase: 18, bvpPinionBase: 14})},
-	{Name: "tooth_spacing_positive", Params: bvSolidWith(map[string]float64{bvpToothSpacing: 1})},
-})
+// The spec calls the revolve's substitute a POLYGONAL sweep, and that is what
+// keeps the readings usable: a loft between two coaxial CIRCLES is chorded by
+// the evaluator at a tolerance it chooses, and measured here that left the
+// frustum's volume bound just past the gate's relative tolerance on every case.
+// A loft between two regular polygons is a polyhedron, and its volume is the
+// same cone formula with pi replaced by the polygon's own (n/2)*sin(2*pi/n), so
+// the closed form the assertion compares against is exact for the body that was
+// actually built. ringArea below is that substitution, written once.
+const sweepSides = 64
 
-// bvBothSides3D doubles a solid table so every case runs once per gear.
-func bvBothSides3D(in []proofkit3d.Case) []proofkit3d.Case {
-	out := make([]proofkit3d.Case, 0, 2*len(in))
-	for _, c := range in {
-		for _, side := range []struct {
-			name string
-			v    float64
-		}{{"pinion", 0}, {"driving", 1}} {
-			p := map[string]float64{}
-			for k, v := range c.Params {
-				p[k] = v
-			}
-			p[bvpSide] = side.v
-			out = append(out, proofkit3d.Case{Name: c.Name + "_" + side.name, Params: p})
-		}
-	}
-	return out
+// ringArea is the area a ring of radius r encloses in the polygonal sweep: the
+// regular sweepSides-gon's, not the circle's.
+func ringArea(r float64) float64 {
+	return float64(sweepSides) / 2 * math.Sin(2*math.Pi/float64(sweepSides)) * r * r
 }
 
-// bvSolidDesign resolves a solid case and fails it when the resolution pass
-// refuses a configuration the table expects to build.
-func bvSolidDesign(t *testing.T, p map[string]float64) (bvDesign, bvSide) {
-	t.Helper()
-	d := bvResolve(bvInputsOf(p))
-	if len(d.Rejections) != 0 {
-		t.Fatalf("resolution refused a solid case: %v", d.Rejections)
-	}
-	side := d.Pinion
-	if p[bvpSide] != 0 {
-		side = d.Driving
-	}
-	return d, side
-}
-
-// ------------------------------------------------------------ building blocks
-
-// bvRingSides is how many sides stand in for a revolved ring. The revolve is
-// substituted by a POLYGONAL sweep, so every ring here is a regular polygon of
-// this many sides with its first vertex on +X, which puts the circumradius in
-// the body's own bounds.
-const bvRingSides = 24
-
-// bvRingK is a regular bvRingSides-gon's area over its circumradius squared, so
-// that a band's volume reads the same closed form a cone's does with pi
-// replaced by this. It is what the polygonal substitution costs, and it cancels
-// wherever the proof compares a polygonal reading against a polygonal one.
-var bvRingK = float64(bvRingSides) / 2 * math.Sin(2*math.Pi/bvRingSides)
-
-// bvRingProfile draws the ring of circumradius r at height z and returns the
-// region a loft consumes.
-func bvRingProfile(t *testing.T, w *sketch.World, z, r float64) (*sketch.Sketch, *sketch.Profile) {
-	t.Helper()
-	plane := w.XY()
-	if z != 0 {
-		var err error
-		plane, err = w.CreateOffsetPlane(w.XY(), z)
-		if err != nil {
-			t.Fatalf("ring plane at z=%.6f: %v", z, err)
-		}
-	}
-	s, err := w.CreateSketch(plane)
-	if err != nil {
-		t.Fatalf("ring sketch: %v", err)
-	}
-	pts := make([]*sketch.Point, bvRingSides)
-	for i := range pts {
-		a := 2 * math.Pi * float64(i) / bvRingSides
-		pts[i] = s.CreatePoint(r*math.Cos(a), r*math.Sin(a))
-		s.Fix(pts[i])
-	}
-	for i := range pts {
-		s.CreateLine(pts[i], pts[(i+1)%len(pts)])
-	}
-	return s, bvOnlyRegion(t, s)
-}
-
-// bvPolyBandVolume is a polygonal band's own volume: the same truncated-cone
-// closed form with the polygon's area constant in place of pi.
-func bvPolyBandVolume(a, b bvPt) float64 {
-	return bvRingK * math.Abs(b.Z-a.Z) * (a.Rho*a.Rho + a.Rho*b.Rho + b.Rho*b.Rho) / 3
-}
-
-// bvPolyRevolvedVolume is the frustum's volume in the same polygonal measure.
-func bvPolyRevolvedVolume(h bvHex) float64 { return bvRevolvedVolume(h) * bvRingK / math.Pi }
-
-// bvOnlyRegion is the single closed region a section sketch holds.
-func bvOnlyRegion(t *testing.T, s *sketch.Sketch) *sketch.Profile {
-	t.Helper()
-	if _, err := s.Solve(t.Context()); err != nil {
-		t.Fatalf("solve a section sketch: %v", err)
-	}
-	regions := s.Profiles()
-	if len(regions) != 1 {
-		t.Fatalf("a section sketch holds %d regions, want exactly 1", len(regions))
-	}
-	if !regions[0].Valid {
-		t.Fatal("a section region is not usable")
-	}
-	return regions[0]
-}
-
-// bvBand builds the truncated cone one straight profile segment sweeps about
-// the shaft axis: the solid between the ring at a and the ring at b.
+// ringSweep builds one band of the revolved frustum: the solid swept by one
+// straight profile edge turning about the shaft axis, as a loft between the two
+// rings its endpoints sweep.
 //
-// This is the substitution for the revolve. decad publishes a revolved body's
-// volume with a proven bound equal to the volume itself, so a revolved body is
-// Suspect at any tolerance and cannot pass the harness gate; a loft between the
-// two rings is the same solid and is not.
-func bvBand(t *testing.T, doc *decad.Document, a, b bvPt) *decad.Body {
+// lift slides the whole band along the shaft axis. The bands are laid apart
+// because no boolean can join them here and decad verifies every PAIR of live
+// bodies in a document; overlapping operands report as an interference or an
+// undecided pair, which the gate refuses. A translation along the axis changes
+// no radius, no cone half-angle and no volume, so every reading below still
+// means what it says — only the stations move, by a known amount the assertion
+// subtracts.
+func ringSweep(t *testing.T, doc *decad.Document, z0, r0, z1, r1, lift float64) *decad.Body {
 	t.Helper()
 	w := sketch.NewWorld()
-	s0, p0 := bvRingProfile(t, w, a.Z, a.Rho)
-	s1, p1 := bvRingProfile(t, w, b.Z, b.Rho)
+	build := func(z, r float64) (*sketch.Sketch, *sketch.Profile) {
+		plane := w.XY()
+		if z+lift != 0 {
+			var err error
+			if plane, err = w.CreateOffsetPlane(w.XY(), z+lift); err != nil {
+				t.Fatalf("station plane at %.6f mm: %v", z+lift, err)
+			}
+		}
+		s, err := w.CreateSketch(plane)
+		if err != nil {
+			t.Fatalf("station sketch at %.6f mm: %v", z+lift, err)
+		}
+		if _, err := s.CreatePolygon(0, 0, sweepSides, r); err != nil {
+			t.Fatalf("ring polygon at station %.6f: %v", z+lift, err)
+		}
+		solveHere(t, s)
+		regions := s.Profiles()
+		if len(regions) != 1 {
+			t.Fatalf("ring at station %.6f holds %d regions, want 1", z+lift, len(regions))
+		}
+		return s, regions[0]
+	}
+	s0, p0 := build(z0, r0)
+	s1, p1 := build(z1, r1)
 	body, err := doc.Loft(s0, p0, s1, p1)
 	if err != nil {
-		t.Fatalf("band from (z=%.4f r=%.4f) to (z=%.4f r=%.4f): %v", a.Z, a.Rho, b.Z, b.Rho, err)
+		t.Fatalf("sweep the band from (%.4f, %.4f) to (%.4f, %.4f): %v", z0, r0, z1, r1, err)
 	}
 	return body
 }
 
-// bvShift lays a body apart from its neighbours along the shaft axis. It is a
-// translation along the axis every rotation here turns about, so it changes no
-// volume, no radius, no cone angle and no azimuth.
-func bvShift(t *testing.T, body *decad.Body, dz float64) *decad.Body {
-	t.Helper()
-	moved, err := body.Placed(bvTranslation(t, dz))
-	if err != nil {
-		t.Fatalf("lay a body apart by %.4f mm: %v", dz, err)
-	}
-	return moved
+// bandReading is what a built band publishes about itself: the two stations its
+// rings sit at and the radius of each, read off the body's own vertices rather
+// than off the numbers it was built from.
+type bandReading struct {
+	lowStation, lowRadius   float64
+	highStation, highRadius float64
+	volume, volumeBound     float64
 }
 
-func bvTranslation(t *testing.T, dz float64) r3.Transform {
+// readBand measures one band. lift is subtracted so the stations come back in
+// the gear's own frame.
+func readBand(t *testing.T, body *decad.Body, lift float64, label string) bandReading {
 	t.Helper()
-	tr, err := r3.FromBasis(r3.Basis{
-		EX: r3.NewVec(1, 0, 0),
-		EY: r3.NewVec(0, 1, 0),
-		EZ: r3.NewVec(0, 0, 1),
-	}, r3.NewVec(0, 0, dz))
-	if err != nil {
-		t.Fatalf("translation by %.4f mm: %v", dz, err)
+	type ring struct{ z, r float64 }
+	rings := make([]ring, 0, 2)
+	for _, v := range body.Vertices() {
+		p := v.Position().Value
+		z := p.Z - lift
+		r := math.Hypot(p.X, p.Y)
+		found := false
+		for i := range rings {
+			if math.Abs(rings[i].z-z) < 1e-6 {
+				if math.Abs(rings[i].r-r) > 1e-6 {
+					t.Errorf("%s: station %.6f carries radii %.6f and %.6f; a ring is one radius",
+						label, z, rings[i].r, r)
+				}
+				found = true
+			}
+		}
+		if !found {
+			rings = append(rings, ring{z, r})
+		}
 	}
-	return tr
+	if len(rings) != 2 {
+		t.Fatalf("%s: the band reports %d distinct stations, want the two rings it was swept between",
+			label, len(rings))
+	}
+	if rings[0].z > rings[1].z {
+		rings[0], rings[1] = rings[1], rings[0]
+	}
+	measured, err := body.Volume()
+	if err != nil {
+		t.Fatalf("%s volume: %v", label, err)
+	}
+	return bandReading{
+		lowStation: rings[0].z, lowRadius: rings[0].r,
+		highStation: rings[1].z, highRadius: rings[1].r,
+		volume: measured.Value.Base(), volumeBound: measured.Bound.Base(),
+	}
 }
 
-// bvTurn is one rotation about the shaft axis, built from a literal basis
-// rather than from an axis and an angle: Rodrigues' formula leaves the z row a
-// few float ulps off, and decad's analytic reduction admits a pair only when
-// the two composed world planes are the SAME plane by exact float equality.
-func bvTurn(t *testing.T, angle float64) r3.Transform {
+// halfAngle is the cone half-angle the band's own two rings give: the angle
+// between its swept element and the shaft axis.
+func (b bandReading) halfAngle() float64 {
+	return math.Atan2(math.Abs(b.highRadius-b.lowRadius), math.Abs(b.highStation-b.lowStation))
+}
+
+// element is the band's swept element as a line in the axial half-plane, for
+// solving where two of them cross.
+func (b bandReading) element() (slope, intercept float64) {
+	slope = (b.highRadius - b.lowRadius) / (b.highStation - b.lowStation)
+	return slope, b.lowRadius - slope*b.lowStation
+}
+
+// crossStation is where two elements meet, measured along the shaft axis.
+func crossStation(a, b bandReading) (float64, bool) {
+	sa, ia := a.element()
+	sb, ib := b.element()
+	if math.Abs(sa-sb) < 1e-12 {
+		return 0, false
+	}
+	return (ib - ia) / (sa - sb), true
+}
+
+// bandSeparation is how far apart the laid-out bodies are set along the shaft
+// axis. It is several times the whole figure's reach, so two bodies' bounding
+// boxes never meet and decad's pair analysis resolves as disjoint rather than
+// reporting an undecided pair.
+func (d bevelDesign) bandSeparation(which float64) float64 {
+	return 4 * (d.axialProfile(which).heelAxis.station + d.rootCone)
+}
+
+// ---------------------------------------------------------------- S11 revolve
+
+// stepRevolveGearBody builds the Gear Body: the hexagon of §2 revolved a full
+// turn about its own first edge.
+//
+// THE SUBSTITUTION. The revolve is replaced by the three bands the hexagon's
+// edges sweep — the root cone out to the dedendum corner, the heel cone out to
+// the heel end, and the toe-dish plug that hollows the front face — each built
+// as its own loft and laid apart along the shaft axis. The hexagon's other three
+// edges sweep nothing: two of them lie ON the axis, and the front face's annulus
+// is the plug's own end ring.
+//
+// THE COST IS THE UNION: the proof does not show the three bands closing into
+// one watertight solid, only that each is separately watertight and that
+// together, taken as a SIGNED sum with the plug subtracted, they have the
+// frustum's volume, its stations and its cone half-angles.
+func stepRevolveGearBody(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
+	d := newBevelDesign(p)
+	which := p["gearSide"]
+	h := d.axialProfile(which)
+	sep := d.bandSeparation(which)
+	return []*decad.Body{
+		ringSweep(t, doc, h.toeCone.station, h.toeCone.radius, h.ded.station, h.ded.radius, 0),
+		ringSweep(t, doc, h.ded.station, h.ded.radius, h.heelAxis.station, h.heelEnd.radius, sep),
+		ringSweep(t, doc, h.toeCone.station, h.toeCone.radius, h.toeIn.station, h.toeIn.radius, 2*sep),
+	}
+}
+
+func assertRevolveGearBody(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
+	d := newBevelDesign(p)
+	which := p["gearSide"]
+	side := d.side(which)
+	h := d.axialProfile(which)
+	sep := d.bandSeparation(which)
+	if len(bodies) != 3 {
+		t.Fatalf("the revolve substitution produced %d bands, want the root band, the heel band and the toe plug",
+			len(bodies))
+	}
+	root := readBand(t, bodies[0], 0, "root band")
+	heel := readBand(t, bodies[1], sep, "heel band")
+	plug := readBand(t, bodies[2], 2*sep, "toe plug")
+
+	// Each band against its own stations and ring radii.
+	ring := func(label string, gotStation, gotRadius float64, want axialPt) {
+		if math.Abs(gotStation-want.station) > 1e-6 || math.Abs(gotRadius-want.radius) > 1e-6 {
+			t.Errorf("%s ring is at station %.6f radius %.6f, want station %.6f radius %.6f",
+				label, gotStation, gotRadius, want.station, want.radius)
+		}
+	}
+	ring("the root band's toe", root.lowStation, root.lowRadius, h.toeCone)
+	ring("the root band's heel", root.highStation, root.highRadius, h.ded)
+	ring("the heel band's inner", heel.lowStation, heel.lowRadius, h.ded)
+	ring("the heel band's outer", heel.highStation, heel.highRadius,
+		axialPt{station: h.heelAxis.station, radius: h.heelEnd.radius})
+	ring("the toe plug's outer", plug.lowStation, plug.lowRadius, h.toeCone)
+	ring("the toe plug's inner", plug.highStation, plug.highRadius, h.toeIn)
+
+	// Cone half-angle by cone half-angle. The heel band and the toe plug come out
+	// PARALLEL, both on the back-cone family at 90 degrees minus the pitch cone
+	// angle, and the root band stands at the dedendum angle to them.
+	back := side.backConeHalfAngle()
+	if got := heel.halfAngle(); math.Abs(got-back) > 1e-6 {
+		t.Errorf("the heel band's cone half-angle is %.9f rad, want the back cone's %.9f", got, back)
+	}
+	if got := plug.halfAngle(); math.Abs(got-back) > 1e-6 {
+		t.Errorf("the toe plug's cone half-angle is %.9f rad, want the back cone's %.9f", got, back)
+	}
+	if got := root.halfAngle(); math.Abs(got-side.rootGamma) > 1e-6 {
+		t.Errorf("the root band's cone half-angle is %.9f rad, want the root cone angle %.9f",
+			got, side.rootGamma)
+	}
+	// The back cone stands square to the pitch line and the root element sits one
+	// dedendum angle off that line, so the two swept elements stand at 90 degrees
+	// minus the dedendum angle to each other. Both directions are read off the
+	// bands the proof actually built.
+	direction := func(b bandReading) xy {
+		return xy{b.highStation - b.lowStation, b.highRadius - b.lowRadius}
+	}
+	dedendumAngle := side.gamma - side.rootGamma
+	if got := angleBetweenLines(direction(root), direction(heel)); math.Abs(got-(math.Pi/2-dedendumAngle)) > 1e-6 {
+		t.Errorf("the root band stands at %.9f rad to the heel band, want 90 degrees less the "+
+			"dedendum angle, %.9f", got, math.Pi/2-dedendumAngle)
+	}
+	if got := angleBetweenLines(direction(heel), direction(plug)); got > 1e-6 {
+		t.Errorf("the heel band and the toe plug stand at %.9f rad to each other; both are on the "+
+			"back-cone family and must come out parallel", got)
+	}
+
+	// The signed sum, against the solid-of-revolution integral taken edge by edge
+	// around the §2 hexagon. The plug is SUBTRACTED: it is the dish the front
+	// face hollows out of the root band.
+	got := root.volume + heel.volume - plug.volume
+	want := h.revolvedVolume(ringArea(1))
+	// The polygonal sweep publishes each band's volume EXACTLY — measured here,
+	// every bound comes back zero — so the only slack the comparison needs is the
+	// floating-point noise of summing three of them.
+	slack := root.volumeBound + heel.volumeBound + plug.volumeBound + 1e-9*want
+	if math.Abs(got-want) > slack {
+		t.Errorf("the three bands sum to %.6f mm3, want the hexagon's revolved volume %.6f "+
+			"(bands' own bounds allow %.6f)", got, want, slack)
+	}
+	if want <= 0 {
+		t.Errorf("the hexagon revolves to %.6f mm3; a non-positive volume is a folded profile", want)
+	}
+}
+
+// ---------------------------------------------------------------- S12 apex loft
+
+// apexShrink is the fraction of the tooth section the apex end is built at.
+//
+// Fusion lofts a degenerate POINT section — the §2 Apex sketch point — to the
+// tooth profile, and decad has no point section, so the apex end is a shrunken
+// copy of the same outline at the matching station. Because a cone's sections
+// ARE its end section scaled linearly in station, the loft between them is
+// exactly the piece of the real cone above that station, and the volume it drops
+// is the apexShrink-cubed fraction the assertion accounts for.
+const apexShrink = 0.02
+
+// toothArcSamples is how many chords each of the tooth outline's two arcs is
+// drawn with. Every curve in a section here is a straight chord, which is what
+// makes a lofted body's volume come back EXACT rather than carrying a chord
+// bound the gate then refuses; the assertions compare chorded against chorded,
+// so the sagitta cancels.
+const toothArcSamples = 12
+
+// toothOutlinePoints is one gear's virtual spur tooth outline, closed, in the
+// plane's own coordinates and scaled by k.
+//
+// The flanks are the involute samples the borrowed spur drawer lays down. Where
+// the tooth is EMBEDDED — the flank starts inside the root circle, which happens
+// at HIGH tooth counts and so is the normal case for a back-cone tooth number —
+// the spur drawer omits the flank-to-root stubs and the flank itself runs to the
+// root circle, so the samples inside it are dropped and the first kept sample is
+// moved out onto the root circle. That is the same 4-curve loop the tooth
+// profile selection keys on with zero lines.
+func toothOutlinePoints(d bevelDesign, which, k float64) []xy {
+	side := d.side(which)
+	dims := involute.Derive(d.module, side.virtualTeeth, involutePressureAngle)
+	left, right := involute.Flanks(dims.Base, dims.Tip, dims.Pitch, side.virtualTeeth, spurInvoluteSteps, 0)
+
+	clip := func(pts []involute.Pt) []xy {
+		out := make([]xy, 0, len(pts))
+		for _, q := range pts {
+			r := math.Hypot(q.X, q.Y)
+			if r < dims.Root {
+				continue
+			}
+			out = append(out, xy{q.X, q.Y})
+		}
+		if len(out) == 0 || !dims.Embedded() {
+			return out
+		}
+		// Where the tooth is embedded the flank itself runs down to the root
+		// circle, so the first kept sample is pulled back onto it rather than
+		// starting a fraction of a sample above.
+		first := out[0]
+		out[0] = first.mul(dims.Root / first.len())
+		return out
+	}
+	leftPts, rightPts := clip(left), clip(right)
+	if !dims.Embedded() {
+		// The stubs: the flank start's own direction from the centre, taken in to
+		// the root circle.
+		foot := func(p xy) xy { return p.mul(dims.Root / p.len()) }
+		leftPts = append([]xy{foot(leftPts[0])}, leftPts...)
+		rightPts = append([]xy{foot(rightPts[0])}, rightPts...)
+	}
+
+	arc := func(from, to xy, radius float64) []xy {
+		a0 := math.Atan2(from.y, from.x)
+		a1 := math.Atan2(to.y, to.x)
+		for a1-a0 > math.Pi {
+			a1 -= 2 * math.Pi
+		}
+		for a1-a0 < -math.Pi {
+			a1 += 2 * math.Pi
+		}
+		out := make([]xy, 0, toothArcSamples-1)
+		for i := 1; i < toothArcSamples; i++ {
+			a := a0 + (a1-a0)*float64(i)/float64(toothArcSamples)
+			out = append(out, xy{radius * math.Cos(a), radius * math.Sin(a)})
+		}
+		return out
+	}
+
+	outline := make([]xy, 0, 2*len(leftPts)+2*toothArcSamples)
+	outline = append(outline, leftPts...)
+	outline = append(outline, arc(leftPts[len(leftPts)-1], rightPts[len(rightPts)-1], dims.Tip)...)
+	for i := len(rightPts) - 1; i >= 0; i-- {
+		outline = append(outline, rightPts[i])
+	}
+	outline = append(outline, arc(rightPts[0], leftPts[0], dims.Root)...)
+
+	for i := range outline {
+		outline[i] = outline[i].mul(k)
+	}
+	return outline
+}
+
+// toothSection draws that outline as a closed region in a plane perpendicular to
+// the shaft axis at the given station.
+func toothSection(t *testing.T, w *sketch.World, d bevelDesign, which, station, k float64) (*sketch.Sketch, *sketch.Profile) {
+	t.Helper()
+	plane := w.XY()
+	if station != 0 {
+		var err error
+		if plane, err = w.CreateOffsetPlane(w.XY(), station); err != nil {
+			t.Fatalf("tooth section plane at %.6f mm: %v", station, err)
+		}
+	}
+	s, err := w.CreateSketch(plane)
+	if err != nil {
+		t.Fatalf("tooth section sketch: %v", err)
+	}
+	outline := toothOutlinePoints(d, which, k)
+	pts := make([]*sketch.Point, len(outline))
+	for i, q := range outline {
+		pts[i] = s.CreatePoint(q.x, q.y)
+	}
+	for i := range pts {
+		s.CreateLine(pts[i], pts[(i+1)%len(pts)])
+	}
+	solveHere(t, s)
+	regions := s.Profiles()
+	if len(regions) != 1 {
+		t.Fatalf("the tooth section holds %d regions, want the one tooth outline", len(regions))
+	}
+	if !regions[0].Valid {
+		t.Fatal("the tooth section's region is not extrudable")
+	}
+	return s, regions[0]
+}
+
+// stepLoftTooth builds the Tooth Body: the §2 Apex sketch point lofted to this
+// gear's §3 tooth profile, which produces the tapered uncut tooth.
+//
+// TWO SUBSTITUTIONS, both forced. The degenerate apex point becomes a shrunken
+// section, because decad has no point section. And the tooth profile's own plane
+// — the back cone plane through K', built setByAngle off the Gear Profiles plane
+// — becomes a plane PERPENDICULAR to the shaft axis at the same station,
+// because a loft here takes two parallel sections. The cost of the second is the
+// back cone's tilt: the real tooth's heel face leans by the dedendum angle, and
+// what the loft proves is the taper from the apex rather than the lean of the
+// face it ends on.
+func stepLoftTooth(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
+	d := newBevelDesign(p)
+	which := p["gearSide"]
+	station := d.toothCentreStation(which)
+	w := sketch.NewWorld()
+	s0, p0 := toothSection(t, w, d, which, apexShrink*station, apexShrink)
+	s1, p1 := toothSection(t, w, d, which, station, 1)
+	body, err := doc.Loft(s0, p0, s1, p1)
+	if err != nil {
+		t.Fatalf("loft the apex section to the tooth profile: %v", err)
+	}
+	return []*decad.Body{body}
+}
+
+func assertLoftTooth(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
+	d := newBevelDesign(p)
+	which := p["gearSide"]
+	side := d.side(which)
+	if len(bodies) != 1 {
+		t.Fatalf("the apex loft produced %d bodies, want the one Tooth Body", len(bodies))
+	}
+	station := d.toothCentreStation(which)
+	dims := involute.Derive(d.module, side.virtualTeeth, involutePressureAngle)
+
+	// The tooth reaches the virtual TIP radius at its heel end and nowhere
+	// further, which is the size the back-cone tooth number and the Module fix.
+	// The reach is read off the body's own vertices; an axis-aligned bounding box
+	// would answer with its corner instead.
+	box, err := bodies[0].Bounds()
+	if err != nil {
+		t.Fatalf("tooth bounds: %v", err)
+	}
+	reach := 0.0
+	for _, v := range bodies[0].Vertices() {
+		q := v.Position().Value
+		reach = math.Max(reach, math.Hypot(q.X, q.Y))
+	}
+	if math.Abs(reach-dims.Tip) > 1e-6 {
+		t.Errorf("the tooth reaches %.6f mm from the shaft axis, want the virtual tip radius %.6f",
+			reach, dims.Tip)
+	}
+	if got := box.Max.Z - box.Min.Z; math.Abs(got-station*(1-apexShrink)) > 1e-6 {
+		t.Errorf("the tooth spans %.6f mm along the shaft, want the apex-to-heel run %.6f",
+			got, station*(1-apexShrink))
+	}
+	if math.Abs(box.Max.Z-station) > 1e-6 {
+		t.Errorf("the tooth's heel face sits at station %.6f, want the tooth centre's %.6f",
+			box.Max.Z, station)
+	}
+
+	// The taper is the cone's own: a section at station z is the heel section
+	// scaled by z / station, so the volume is the heel area times the station,
+	// over three, less the apex fraction the shrunken end drops.
+	w := sketch.NewWorld()
+	_, region := toothSection(t, w, d, which, station, 1)
+	want := region.Area * station * (1 - apexShrink*apexShrink*apexShrink) / 3
+	measured, err := bodies[0].Volume()
+	if err != nil {
+		t.Fatalf("tooth volume: %v", err)
+	}
+	if got := measured.Value.Base(); math.Abs(got-want) > measured.Bound.Base()+1e-6*want {
+		t.Errorf("the lofted tooth is %.6f mm3, want the tapered cone's %.6f (bound %.6f)",
+			got, want, measured.Bound.Base())
+	}
+}
+
+// ---------------------------------------------------------------- S13 conical end cuts
+
+// stepConicalEndCuts builds the three bodies the flush trim is made of and lays
+// them apart: the uncut tooth, and the two cone faces of the Gear Body the cut
+// uses as tools — the toe cone the toe edge M->N sweeps and the heel cone the
+// heel edge C->H sweeps.
+//
+// PERFORM NEITHER CUT. Both operands are Lofts — the tooth and each cone alike —
+// so the split is unavailable. The two cutting TOOLS are cone faces of the GEAR
+// BODY, never of the tooth, which has no cone face at all; that is the
+// conflation the spec is explicit about, and it is why searching the tooth for
+// the cone finds none.
+//
+// THE COST IS THE SPLIT: the proof does not show the evaluator dividing the
+// tooth, selecting the keeper by dropping the apex-containing piece and keeping
+// the largest, or leaving a watertight body behind. What it does show is where
+// each cut lands, read off the cones and the tooth as built.
+func stepConicalEndCuts(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
+	d := newBevelDesign(p)
+	which := p["gearSide"]
+	h := d.axialProfile(which)
+	station := d.toothCentreStation(which)
+	sep := d.bandSeparation(which)
+
+	w := sketch.NewWorld()
+	s0, p0 := toothSection(t, w, d, which, apexShrink*station, apexShrink)
+	s1, p1 := toothSection(t, w, d, which, station, 1)
+	tooth, err := doc.Loft(s0, p0, s1, p1)
+	if err != nil {
+		t.Fatalf("loft the uncut tooth: %v", err)
+	}
+	return []*decad.Body{
+		tooth,
+		ringSweep(t, doc, h.toeCone.station, h.toeCone.radius, h.toeIn.station, h.toeIn.radius, sep),
+		ringSweep(t, doc, h.ded.station, h.ded.radius, h.heelAxis.station, h.heelEnd.radius, 2*sep),
+	}
+}
+
+func assertConicalEndCuts(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
+	d := newBevelDesign(p)
+	which := p["gearSide"]
+	side := d.side(which)
+	h := d.axialProfile(which)
+	sep := d.bandSeparation(which)
+	if len(bodies) != 3 {
+		t.Fatalf("the end-cut substitution produced %d bodies, want the tooth and its two cones", len(bodies))
+	}
+	toeCone := readBand(t, bodies[1], sep, "toe cone")
+	heelCone := readBand(t, bodies[2], 2*sep, "heel cone")
+
+	// Each cone's half-angle and apex, read off the cone itself. Both stand on
+	// the back-cone family, so they are PARALLEL and differ only in where their
+	// apexes sit on the shaft.
+	back := side.backConeHalfAngle()
+	if got := toeCone.halfAngle(); math.Abs(got-back) > 1e-6 {
+		t.Errorf("the toe cone's half-angle is %.9f rad, want the back cone's %.9f", got, back)
+	}
+	if got := heelCone.halfAngle(); math.Abs(got-back) > 1e-6 {
+		t.Errorf("the heel cone's half-angle is %.9f rad, want the back cone's %.9f", got, back)
+	}
+	apexOf := func(b bandReading) float64 {
+		slope, intercept := b.element()
+		return -intercept / slope
+	}
+	toeApex, heelApex := apexOf(toeCone), apexOf(heelCone)
+	if heelApex <= toeApex {
+		t.Errorf("the heel cone's apex is at station %.6f and the toe cone's at %.6f; the heel cone "+
+			"must sit further out or the trim has inverted", heelApex, toeApex)
+	}
+
+	// Each cone passes through the §2 points its edge was drawn between, read off
+	// the body rather than off the numbers it was built from.
+	ring := func(label string, gotStation, gotRadius float64, want axialPt) {
+		if math.Abs(gotStation-want.station) > 1e-6 || math.Abs(gotRadius-want.radius) > 1e-6 {
+			t.Errorf("%s is at station %.6f radius %.6f, want station %.6f radius %.6f",
+				label, gotStation, gotRadius, want.station, want.radius)
+		}
+	}
+	ring("the toe cone's outer ring", toeCone.lowStation, toeCone.lowRadius, h.toeCone)
+	ring("the toe cone's inner ring", toeCone.highStation, toeCone.highRadius, h.toeIn)
+	ring("the heel cone's inner ring", heelCone.lowStation, heelCone.lowRadius, h.ded)
+	ring("the heel cone's outer ring", heelCone.highStation, heelCone.highRadius,
+		axialPt{station: h.heelAxis.station, radius: h.heelEnd.radius})
+
+	// The tooth's own two surfaces, read off the tooth as built: the tip cone it
+	// reaches at its widest and the root cone it seats on.
+	station := d.toothCentreStation(which)
+	dims := involute.Derive(d.module, side.virtualTeeth, involutePressureAngle)
+	tipReach, rootReach := 0.0, math.Inf(1)
+	for _, v := range bodies[0].Vertices() {
+		q := v.Position().Value
+		if math.Abs(q.Z-station) > 1e-6 {
+			continue
+		}
+		r := math.Hypot(q.X, q.Y)
+		tipReach = math.Max(tipReach, r)
+		rootReach = math.Min(rootReach, r)
+	}
+	if math.Abs(tipReach-dims.Tip) > 1e-6 || math.Abs(rootReach-dims.Root) > 1e-6 {
+		t.Errorf("the tooth's heel section runs from %.6f to %.6f mm, want the virtual root and tip "+
+			"radii %.6f and %.6f", rootReach, tipReach, dims.Root, dims.Tip)
+	}
+	tip := bandReading{lowStation: 0, lowRadius: 0, highStation: station, highRadius: tipReach}
+	root := bandReading{lowStation: 0, lowRadius: 0, highStation: station, highRadius: rootReach}
+
+	// Where each cut lands. BOTH cones cross BOTH of the tooth's surfaces, because
+	// a cut passes through the whole body; what the flush band needs is that every
+	// toe crossing sits strictly nearer the apex than every heel crossing, and
+	// that each crossing falls inside the tooth's own span so the cut meets the
+	// tooth at all. A toe cut that does not split is the failure the spec says
+	// propagates and crashes the build, and an inverted frame is what makes the
+	// toe cone miss.
+	cuts := map[string]float64{}
+	for name, pair := range map[string][2]bandReading{
+		"toe on the tip":   {toeCone, tip},
+		"toe on the root":  {toeCone, root},
+		"heel on the tip":  {heelCone, tip},
+		"heel on the root": {heelCone, root},
+	} {
+		where, ok := crossStation(pair[0], pair[1])
+		if !ok {
+			t.Errorf("the %s cut never meets its surface; the cone and the tooth surface are parallel", name)
+			continue
+		}
+		if where <= 0 || where > station {
+			t.Errorf("the %s cut falls at station %.6f, outside the tooth's own span (0, %.6f]; "+
+				"the cone misses the tooth", name, where, station)
+		}
+		cuts[name] = where
+	}
+	toeCut := math.Max(cuts["toe on the tip"], cuts["toe on the root"])
+	heelCut := math.Min(cuts["heel on the tip"], cuts["heel on the root"])
+	if toeCut >= heelCut {
+		t.Errorf("the toe cut reaches station %.6f and the heel cut %.6f; the flush band is empty "+
+			"and the trimmed tooth would be inverted", toeCut, heelCut)
+	}
+
+	// WHAT IS NOT REPRODUCED. The spec reads the cut's signature as the two ends
+	// landing on DIFFERENT surfaces of the tooth, the toe on its tip and the heel
+	// on its root. Measured here, each cone crosses BOTH of the tooth's surfaces,
+	// which is what a cut through a solid does; which surface carries the new face
+	// is decided by the keeper selection, and the keeper needs the split. So the
+	// proof checks where the four crossings are and that they leave a non-empty
+	// band, and leaves the surface the cut face ends up on to a Fusion session.
+	//
+	// The band's LENGTH is not checked against the hexagon's toe-to-heel run
+	// either, and that is the apex loft's substitution showing through rather than
+	// a gap here: the tooth was lofted to a section PERPENDICULAR to the shaft
+	// where the real one ends on the tilted back cone, so its root surface is not
+	// the gear body's root cone and the two cones meet it at their own stations.
+	// What survives the substitution is the ORDER of those stations and that each
+	// falls inside the tooth, which is what the cut needs to split at all.
+}
+
+// ---------------------------------------------------------------- S22 circular pattern
+
+// THIS STEP IS SERIAL, and these four package-level readings are why.
+//
+// The pattern increment retires the seed tooth — decad's Placed consumes the
+// body it moves — so the seed cannot be measured after the step runs, and its
+// azimuth, radius, height and volume have to be read during the build and handed
+// to the assertion. That hand-off leaves the case, and two cases sharing one set
+// of readings overwrite each other. It is not a hazard that announces itself:
+// the two gear sides differ enough in volume that an overwrite was caught when
+// it happened, and a pair of cases whose seeds measured alike would have passed
+// on each other's numbers instead. So stepCircularPattern keeps
+// proofkit3d.RunSolid while every other bevel step runs its cases in parallel.
+var (
+	patternSeedAzimuth float64
+	patternSeedRadius  float64
+	patternSeedHeight  float64
+	patternSeedVolume  float64
+)
+
+// stepCircularPattern places this gear's teeth around the shaft axis: Teeth
+// Number copies over a total angle of 360 degrees, not symmetric, so copy k
+// sits at 2*pi*k/N.
+//
+// The step builds the seed tooth, reads what the pattern must preserve, and
+// returns copy 1 — the first increment — which is what retires the seed. The
+// remaining copies are measured one document at a time in the assertion, because
+// decad verifies every PAIR of live bodies and a real gear's teeth resolve
+// neither as disjoint nor as overlapping, which the gate refuses.
+func stepCircularPattern(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
+	d := newBevelDesign(p)
+	which := p["gearSide"]
+	station := d.toothCentreStation(which)
+	w := sketch.NewWorld()
+	s0, p0 := toothSection(t, w, d, which, apexShrink*station, apexShrink)
+	s1, p1 := toothSection(t, w, d, which, station, 1)
+	seed, err := doc.Loft(s0, p0, s1, p1)
+	if err != nil {
+		t.Fatalf("loft the seed tooth: %v", err)
+	}
+	patternSeedAzimuth = azimuthOf(t, seed)
+	patternSeedRadius = reachOf(t, seed)
+	box, err := seed.Bounds()
+	if err != nil {
+		t.Fatalf("seed tooth bounds: %v", err)
+	}
+	patternSeedHeight = box.Max.Z - box.Min.Z
+	patternSeedVolume = volumeOf(t, seed, "seed tooth")
+
+	copied, err := seed.Placed(turnAbout(t, 2*math.Pi/d.side(which).teeth))
+	if err != nil {
+		t.Fatalf("place the first pattern copy: %v", err)
+	}
+	return []*decad.Body{copied}
+}
+
+func assertCircularPattern(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
+	d := newBevelDesign(p)
+	which := p["gearSide"]
+	teeth := int(d.side(which).teeth)
+	if len(bodies) != 1 {
+		t.Fatalf("the pattern step returned %d bodies, want the first copy", len(bodies))
+	}
+	// The three inputs the spec makes the step set explicitly are readable from
+	// where the copies land. Quantity is how many there are; the total angle and
+	// the not-symmetric flag together say copy k sits at 2*pi*k/N measured ONE
+	// way from the seed, which a symmetric pattern or a different total angle
+	// would not produce.
+	check := func(k int, body *decad.Body) {
+		want := patternSeedAzimuth + 2*math.Pi*float64(k)/float64(teeth)
+		if got := azimuthOf(t, body); angleGap(got, want) > 1e-9 {
+			t.Errorf("patterned tooth %d sits at %.9f rad, want %.9f", k, got, want)
+		}
+		if got := volumeOf(t, body, "patterned tooth"); math.Abs(got-patternSeedVolume) > 1e-9*patternSeedVolume {
+			t.Errorf("patterned tooth %d is %.9f mm3, want the seed's %.9f", k, got, patternSeedVolume)
+		}
+		if got := reachOf(t, body); math.Abs(got-patternSeedRadius) > 1e-9 {
+			t.Errorf("patterned tooth %d reaches %.9f mm, want the seed's %.9f", k, got, patternSeedRadius)
+		}
+		box, err := body.Bounds()
+		if err != nil {
+			t.Fatalf("patterned tooth %d bounds: %v", k, err)
+		}
+		if got := box.Max.Z - box.Min.Z; math.Abs(got-patternSeedHeight) > 1e-9 {
+			t.Errorf("patterned tooth %d spans %.9f mm, want the seed's %.9f", k, got, patternSeedHeight)
+		}
+	}
+	check(1, bodies[0])
+
+	// The angular spacing stays 360/N for the WHOLE face width even though the
+	// pitch diameter shrinks toward the apex: the radial taper is already in the
+	// loft, so the pattern rotates one tapered tooth rather than scaling it.
+	station := d.toothCentreStation(which)
+	for k := 2; k < teeth; k++ {
+		scratch := decad.New()
+		w := sketch.NewWorld()
+		s0, p0 := toothSection(t, w, d, which, apexShrink*station, apexShrink)
+		s1, p1 := toothSection(t, w, d, which, station, 1)
+		body, err := scratch.Loft(s0, p0, s1, p1)
+		if err != nil {
+			t.Fatalf("loft pattern copy %d: %v", k, err)
+		}
+		placed, err := body.Placed(turnAbout(t, 2*math.Pi*float64(k)/float64(teeth)))
+		if err != nil {
+			t.Fatalf("place pattern copy %d: %v", k, err)
+		}
+		check(k, placed)
+	}
+}
+
+// turnAbout is one rotation about the shaft axis, built from a literal basis
+// rather than from an axis and an angle: r3.RotationAround evaluates Rodrigues'
+// formula, whose z row comes out a few float ulps off for most angles, and that
+// is enough to move a section off the plane decad's exact reductions require it
+// to stay on.
+func turnAbout(t *testing.T, angle float64) r3.Transform {
 	t.Helper()
 	sin, cos := math.Sin(angle), math.Cos(angle)
 	turn, err := r3.FromBasis(r3.Basis{
@@ -258,837 +780,349 @@ func bvTurn(t *testing.T, angle float64) r3.Transform {
 		EZ: r3.NewVec(0, 0, 1),
 	}, r3.NewVec(0, 0, 0))
 	if err != nil {
-		t.Fatalf("rotation of %.6f rad: %v", angle, err)
+		t.Fatalf("rotation of %.9f rad about the shaft axis: %v", angle, err)
 	}
 	return turn
 }
 
-func bvVolume(t *testing.T, body *decad.Body, label string) float64 {
+func azimuthOf(t *testing.T, body *decad.Body) float64 {
 	t.Helper()
-	v, err := body.Volume()
+	centroid, err := body.Centroid()
+	if err != nil {
+		t.Fatalf("centroid: %v", err)
+	}
+	return math.Atan2(centroid.Value.Y, centroid.Value.X)
+}
+
+func reachOf(t *testing.T, body *decad.Body) float64 {
+	t.Helper()
+	reach := 0.0
+	for _, v := range body.Vertices() {
+		q := v.Position().Value
+		reach = math.Max(reach, math.Hypot(q.X, q.Y))
+	}
+	return reach
+}
+
+func volumeOf(t *testing.T, body *decad.Body, label string) float64 {
+	t.Helper()
+	measured, err := body.Volume()
 	if err != nil {
 		t.Fatalf("%s volume: %v", label, err)
 	}
-	return v.Value.Base()
+	return measured.Value.Base()
 }
 
-func bvBounds(t *testing.T, body *decad.Body, label string) decad.Box {
-	t.Helper()
-	box, err := body.Bounds()
-	if err != nil {
-		t.Fatalf("%s bounds: %v", label, err)
-	}
-	return box
+func angleGap(a, b float64) float64 {
+	gap := math.Mod(math.Abs(a-b), 2*math.Pi)
+	return math.Min(gap, 2*math.Pi-gap)
 }
 
-func bvCentroid(t *testing.T, body *decad.Body, label string) r3.Vec {
-	t.Helper()
-	c, err := body.Centroid()
-	if err != nil {
-		t.Fatalf("%s centroid: %v", label, err)
-	}
-	return r3.NewVec(c.Value.X, c.Value.Y, c.Value.Z)
-}
+// ---------------------------------------------------------------- S23 combine
 
-// bvNear fails unless got is want to a relative tolerance.
-func bvNear(t *testing.T, label string, got, want, tol float64) {
-	t.Helper()
-	if math.Abs(got-want) > tol*math.Max(1, math.Abs(want)) {
-		t.Errorf("%s: got %.9f, want %.9f", label, got, want)
-	}
-}
-
-// ------------------------------------------------------------ the tooth
-
-// bvToothSection draws one axis-perpendicular cross-section of the tooth at
-// cone distance z, and returns the region a loft consumes.
+// combineSink is how far the proof pushes the tooth's root below the gear body's
+// root cone before reading the two bodies against each other.
 //
-// This is the substitution for the §3 tooth profile, which in Fusion is drawn
-// in the BACK-CONE plane at the tooth centre. Here the section stands square to
-// the shaft axis, which is what lets the tooth be lofted as a generalized cone
-// from the apex and what makes an azimuth reading mean a rotation about the
-// shaft. The section is the virtual spur tooth, uniformly scaled so that its
-// ROOT radius is the root cone's own radius at z, so the tooth seats on the
-// gear body's root cone at every station. What the substitution costs is the
-// back cone's tilt: the real tooth's flanks lean by the pitch cone angle, and a
-// section taken square to the shaft does not.
-func bvToothSection(t *testing.T, w *sketch.World, d bvDesign, side bvSide, z, turn float64) (*sketch.Sketch, *sketch.Profile) {
-	t.Helper()
-	return bvToothSectionRelieved(t, w, d, side, z, turn, 1)
+// ⚠️ THE SINK BELONGS TO THE PROOF ALONE. The generated module seats the tooth
+// EXACTLY on the cone and must not sink it. The sink is here so that "seated,
+// not floating" is measurable as a strict inequality rather than as an equality
+// inside a tolerance, and it is a twentieth of the tooth's height, so it scales
+// with the gear and stays far below the dedendum.
+func combineSink(d bevelDesign, which float64) float64 {
+	side := d.side(which)
+	dims := involute.Derive(d.module, side.virtualTeeth, involutePressureAngle)
+	return (dims.Tip - dims.Root) / 20
 }
 
-// bvToothSectionRelieved is bvToothSection with the lengthwise crown's uniform
-// scale applied ABOUT THE ROOT rather than about the section's centroid: every
-// radius becomes root + factor*(radius - root), so the root edge stays exactly
-// where it was and only the tooth's height above it is relieved.
+// seatedToothCone is the tooth seated on the gear body's root cone: the radius
+// its root and its tip ride at, at one station.
 //
-// That anchoring is the whole point. scaleFeatures shrinks uniformly toward its
-// base point, so a base point at the heel face's centroid — mid tooth height —
-// pulls the root edge upward by half the relief, the tooth stops seating on the
-// gear body's root cone, and the Combine-Join leaves a visible gap.
-func bvToothSectionRelieved(t *testing.T, w *sketch.World, d bvDesign, side bvSide,
-	z, turn, relief float64) (*sketch.Sketch, *sketch.Profile) {
-	t.Helper()
-	dims := bvVirtualDims(d, side)
-	shrink := func(x, y float64) (float64, float64) {
-		if relief == 1 {
-			return x, y
-		}
-		r := math.Hypot(x, y)
-		if r == 0 {
-			return x, y
-		}
-		k := (dims.Root + relief*(r-dims.Root)) / r
-		return x * k, y * k
-	}
-	scale := bvToothScale(d, side) * z
-	plane := w.XY()
-	if z != 0 {
-		var err error
-		plane, err = w.CreateOffsetPlane(w.XY(), z)
-		if err != nil {
-			t.Fatalf("tooth section plane at z=%.6f: %v", z, err)
-		}
-	}
-	s, err := w.CreateSketch(plane)
-	if err != nil {
-		t.Fatalf("tooth section sketch: %v", err)
-	}
-
-	left, right := involute.Flanks(dims.Base, dims.Tip, dims.Pitch,
-		side.VirtualTeeth, bvInvoluteSteps, bvToothTurn+turn)
-	pt := func(x, y float64) *sketch.Point {
-		x, y = shrink(x, y)
-		p := s.CreatePoint(x*scale, y*scale)
-		s.Fix(p)
-		return p
-	}
-	chain := func(pts []*sketch.Point) {
-		for i := 0; i+1 < len(pts); i++ {
-			s.CreateLine(pts[i], pts[i+1])
-		}
-	}
-	arc := func(from, to *sketch.Point, r float64) {
-		a0 := math.Atan2(from.Y(), from.X())
-		a1 := math.Atan2(to.Y(), to.X())
-		for a1 < a0 {
-			a1 += 2 * math.Pi
-		}
-		prev := from
-		for i := 1; i <= bvArcChords; i++ {
-			a := a0 + (a1-a0)*float64(i)/bvArcChords
-			next := to
-			if i != bvArcChords {
-				next = pt(r*math.Cos(a), r*math.Sin(a))
-			}
-			s.CreateLine(prev, next)
-			prev = next
-		}
-	}
-
-	leftPts := make([]*sketch.Point, len(left))
-	rightPts := make([]*sketch.Point, len(right))
-	for i := range left {
-		leftPts[i] = pt(left[i].X, left[i].Y)
-		rightPts[i] = pt(right[i].X, right[i].Y)
-	}
-	chain(leftPts)
-	chain(rightPts)
-	arc(rightPts[len(rightPts)-1], leftPts[len(leftPts)-1], dims.Tip)
-
-	foot := func(seed involute.Pt) *sketch.Point {
-		n := math.Hypot(seed.X, seed.Y)
-		return pt(dims.Root*seed.X/n, dims.Root*seed.Y/n)
-	}
-	leftFoot := foot(left[0])
-	rightFoot := foot(right[0])
-	s.CreateLine(leftFoot, leftPts[0])
-	s.CreateLine(rightFoot, rightPts[0])
-	arc(leftFoot, rightFoot, dims.Root)
-	return s, bvOnlyRegion(t, s)
+// In Fusion the tooth is lofted to a profile on the TILTED back-cone plane, so
+// its root lands on the gear's root cone by construction. The proof's sections
+// are perpendicular to the shaft, so the seating is applied as the uniform scale
+// that puts the tooth's root radius on that cone — the same tooth outline, at
+// the radius the tilted plane would have given it.
+func seatedToothCone(d bevelDesign, which, station float64) (root, tip float64) {
+	side := d.side(which)
+	dims := involute.Derive(d.module, side.virtualTeeth, involutePressureAngle)
+	gearRoot := station * math.Tan(side.rootGamma)
+	seat := (gearRoot - combineSink(d, which)) / dims.Root
+	return seat * dims.Root, seat * dims.Tip
 }
 
-// bvToothScale is the factor that puts the virtual tooth's ROOT radius on the
-// root cone: at cone distance z the root cone's radius is z*tan(gamma_root), so
-// a section scaled by this times z seats exactly there.
-func bvToothScale(d bvDesign, side bvSide) float64 {
-	dims := bvVirtualDims(d, side)
-	return math.Tan(bvSideRootAngle(d, side)) / dims.Root
-}
+// stepCombineTeeth joins the patterned teeth into the Gear Body in a single
+// Combine-Join, the Gear Body as the target and the patterned teeth as the
+// tools.
+//
+// PERFORM NO JOIN. Both operands are Lofts, so the boolean is unavailable. The
+// two are laid apart and the join's two consequences are read off their own
+// geometry instead: a join leaves ONE lump when the tooth's root is at or below
+// the body's root cone — seated, not floating — and the joined body reaches
+// further out than the frustum when the tooth's tip stands proud of it.
+//
+// THE COST IS THE STITCH: the proof cannot show the evaluator making one
+// boundary out of two.
+func stepCombineTeeth(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
+	d := newBevelDesign(p)
+	which := p["gearSide"]
+	h := d.axialProfile(which)
+	sep := d.bandSeparation(which)
+	station := d.toothCentreStation(which)
 
-// bvToothRootRadius and bvToothTipRadius are the tooth's own two cone radii at
-// cone distance z, which are what the conical trims and the join read.
-func bvToothRootRadius(d bvDesign, side bvSide, z float64) float64 {
-	return z * math.Tan(bvSideRootAngle(d, side))
-}
+	gearRootBand := ringSweep(t, doc, h.toeCone.station, h.toeCone.radius, h.ded.station, h.ded.radius, 0)
 
-func bvToothTipRadius(d bvDesign, side bvSide, z float64) float64 {
-	dims := bvVirtualDims(d, side)
-	return z * bvToothScale(d, side) * dims.Tip
-}
-
-// bvUncutTooth lofts the uncut apex-to-heel tooth: the shrunken apex-side
-// section to the heel section at the dedendum corner's own station.
-func bvUncutTooth(t *testing.T, doc *decad.Document, d bvDesign, side bvSide, turn float64) (*decad.Body, float64, float64) {
-	t.Helper()
-	hex := bvHexagonOf(d, side)
-	heelZ := hex.Ded.Z
-	apexZ := bvApexShrink * heelZ
+	// The seated tooth, as the apex loft with the seating scale applied.
+	seatRoot, _ := seatedToothCone(d, which, station)
+	dims := involute.Derive(d.module, d.side(which).virtualTeeth, involutePressureAngle)
+	seat := seatRoot / dims.Root
 	w := sketch.NewWorld()
-	s0, p0 := bvToothSection(t, w, d, side, apexZ, turn)
-	s1, p1 := bvToothSection(t, w, d, side, heelZ, turn)
-	body, err := doc.Loft(s0, p0, s1, p1)
+	s0, p0 := toothSection(t, w, d, which, apexShrink*station+sep, apexShrink*seat)
+	s1, p1 := toothSection(t, w, d, which, station+sep, seat)
+	tooth, err := doc.Loft(s0, p0, s1, p1)
 	if err != nil {
-		t.Fatalf("loft the uncut tooth: %v", err)
+		t.Fatalf("loft the seated tooth: %v", err)
 	}
-	return body, apexZ, heelZ
+	return []*decad.Body{gearRootBand, tooth}
 }
 
-// ------------------------------------------------------ the gear-body revolve
-
-// stepRevolveGearBody revolves the per-gear Profile sketch's single hexagon
-// loop about the hexagon's FIRST edge, the shaft axis, through a full turn,
-// leaving the frustum that every later step consumes.
-//
-// The substitution is a polygonal sweep: the three bands the frustum's profile
-// edges sweep — the root cone out to the dedendum corner, the heel cone out to
-// the heel end, and the toe-dish plug that hollows the front face — built
-// separately, laid apart and never joined. The other three edges sweep nothing:
-// the shaft-axis edge lies on the axis, and the heel and front faces stand
-// square to it.
-//
-// The cost is the union. This does not show the three bands closing into one
-// watertight solid, only that each is separately watertight and that together
-// they carry the right volume, stations and cone angles.
-//
-// <!-- proof-run: proofkit3d.RunSolidParallel(bvSolidCases, stepRevolveGearBody, assertRevolveGearBody) -->
-func stepRevolveGearBody(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	d, side := bvSolidDesign(t, p)
-	hex := bvHexagonOf(d, side)
-	pitch := bvLayApart * hex.Rim.Z
-	heel := bvBand(t, doc, hex.Rim, hex.Ded)
-	root := bvShift(t, bvBand(t, doc, hex.Ded, hex.Toe), pitch)
-	toe := bvShift(t, bvBand(t, doc, hex.Toe, hex.Inner), 2*pitch)
-	return []*decad.Body{heel, root, toe}
-}
-
-// assertRevolveGearBody reads the frustum back out of the three bands.
-func assertRevolveGearBody(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
-	if len(bodies) != 3 {
-		t.Fatalf("the revolve substitution left %d bodies, want the three bands", len(bodies))
-	}
-	d, side := bvSolidDesign(t, p)
-	hex := bvHexagonOf(d, side)
-	heel, root, toe := bodies[0], bodies[1], bodies[2]
-
-	// Band by band, against its own stations and ring radii.
-	for _, band := range []struct {
-		label string
-		body  *decad.Body
-		a, b  bvPt
-	}{
-		{"heel band", heel, hex.Rim, hex.Ded},
-		{"root band", root, hex.Ded, hex.Toe},
-		{"toe plug", toe, hex.Toe, hex.Inner},
-	} {
-		bvNear(t, band.label+" volume", bvVolume(t, band.body, band.label),
-			bvPolyBandVolume(band.a, band.b), 1e-6)
-		box := bvBounds(t, band.body, band.label)
-		bvNear(t, band.label+" height", box.Max.Z-box.Min.Z, math.Abs(band.b.Z-band.a.Z), 1e-6)
-		bvNear(t, band.label+" widest ring", math.Max(box.Max.X, -box.Min.X),
-			math.Max(band.a.Rho, band.b.Rho), 1e-3)
-	}
-
-	// The frustum as the bands' SIGNED sum: the toe dish hollows the front
-	// face, so it subtracts.
-	got := bvVolume(t, heel, "heel band") + bvVolume(t, root, "root band") - bvVolume(t, toe, "toe plug")
-	bvNear(t, "frustum volume by Pappus on the §2 hexagon", got, bvPolyRevolvedVolume(hex), 1e-6)
-
-	// Cone half-angle by cone half-angle. The heel edge and the toe line are
-	// both on the dedendum line, which stands perpendicular to the pitch line,
-	// so both bands come out parallel on the back-cone family. The root band is
-	// the root cone, one dedendum angle off the pitch cone.
-	back := bvBackConeAngle(side)
-	bvNear(t, "heel band half-angle", bvHalfAngle(hex.Rim, hex.Ded), back, 1e-9)
-	bvNear(t, "toe plug half-angle", bvHalfAngle(hex.Toe, hex.Inner), back, 1e-9)
-	bvNear(t, "the heel band and the toe plug are parallel",
-		bvHalfAngle(hex.Rim, hex.Ded)-bvHalfAngle(hex.Toe, hex.Inner), 0, 1e-9)
-	bvNear(t, "root band half-angle", bvHalfAngle(hex.Ded, hex.Toe), bvSideRootAngle(d, side), 1e-9)
-	bvNear(t, "the root band stands one dedendum angle off the pitch cone",
-		side.Gamma-bvHalfAngle(hex.Ded, hex.Toe), bvDedendumAngle(d), 1e-9)
-}
-
-// ------------------------------------------------------------ the tooth loft
-
-// stepLoftTooth lofts the §2 Apex sketch point to this gear's §3 tooth profile,
-// leaving the uncut apex-to-heel Tooth Body.
-//
-// Two substitutions. The degenerate apex point becomes a section shrunk to a
-// tenth of the heel station, because decad has no point section; the result is
-// the same generalized cone, truncated. And the back-cone tooth plane becomes
-// an axis-perpendicular one, for the reason bvToothSection gives.
-//
-// <!-- proof-run: proofkit3d.RunSolidParallel(bvSolidCases, stepLoftTooth, assertLoftTooth) -->
-func stepLoftTooth(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	d, side := bvSolidDesign(t, p)
-	body, _, _ := bvUncutTooth(t, doc, d, side, 0)
-	return []*decad.Body{body}
-}
-
-// assertLoftTooth pins the tooth as the generalized cone the apex loft makes.
-//
-// A section scaled linearly from the apex sweeps a cone of volume
-// A*z/3 out to station z, so the truncated tooth carries (1 - k^3) of it. The
-// heel section's own area is read off the sketch the loft consumed, which is
-// what makes this a statement about the tooth that was built rather than about
-// a formula.
-func assertLoftTooth(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
-	if len(bodies) != 1 {
-		t.Fatalf("the tooth loft left %d bodies, want the one Tooth Body", len(bodies))
-	}
-	d, side := bvSolidDesign(t, p)
-	hex := bvHexagonOf(d, side)
-	heelZ := hex.Ded.Z
-	apexZ := bvApexShrink * heelZ
-
-	w := sketch.NewWorld()
-	_, heelRegion := bvToothSection(t, w, d, side, heelZ, 0)
-	want := (heelRegion.Area * heelZ / 3) * (1 - math.Pow(bvApexShrink, 3))
-	bvNear(t, "uncut tooth volume", bvVolume(t, bodies[0], "uncut tooth"), want, 1e-6)
-
-	box := bvBounds(t, bodies[0], "uncut tooth")
-	bvNear(t, "tooth reaches from the shrunken apex section", box.Min.Z, apexZ, 1e-6)
-	bvNear(t, "tooth reaches the heel station", box.Max.Z, heelZ, 1e-6)
-
-	// The tooth's root sits on the gear body's root cone at the heel, which is
-	// the dedendum corner's own radius, and its tip stands proud of it.
-	bvNear(t, "tooth root radius at the heel", bvToothRootRadius(d, side, heelZ), hex.Ded.Rho, 1e-9)
-	if bvToothTipRadius(d, side, heelZ) <= hex.Ded.Rho {
-		t.Errorf("%s tooth tip at the heel reaches %.6f mm, not past the frustum's %.6f mm",
-			side.Label, bvToothTipRadius(d, side, heelZ), hex.Ded.Rho)
-	}
-}
-
-// -------------------------------------------------------- the conical end cuts
-
-// bvConeReading is what one cone band publishes about itself: its two ring
-// radii and stations, recovered from the body's own bounds and volume.
-type bvConeReading struct {
-	LowZ, HighZ float64
-	LowR, HighR float64
-}
-
-// bvReadCone recovers a band's two ring radii and which end each sits at, from
-// the body's published measurements alone.
-//
-// The bounds give the height and the WIDER ring, since a ring's first vertex is
-// on +X. The volume of a truncated cone is then a quadratic in the unknown
-// narrower radius. Which end the wide ring sits at is read off the centroid,
-// which for a truncated cone leans toward the wider end by a known amount, so
-// the two orientations predict two different centroid heights and the body's
-// own says which.
-func bvReadCone(t *testing.T, body *decad.Body, label string, shifted float64) bvConeReading {
-	t.Helper()
-	box := bvBounds(t, body, label)
-	h := box.Max.Z - box.Min.Z
-	wide := math.Max(math.Max(box.Max.X, -box.Min.X), math.Max(box.Max.Y, -box.Min.Y))
-	v := bvVolume(t, body, label)
-	// r^2 + wide*r + wide^2 - 3V/(k*h) = 0
-	c := wide*wide - 3*v/(bvRingK*h)
-	disc := wide*wide - 4*c
-	if disc < 0 {
-		t.Fatalf("%s: no real narrow radius from V=%.6f h=%.6f wide=%.6f", label, v, h, wide)
-	}
-	narrow := (-wide + math.Sqrt(disc)) / 2
-
-	lowZ, highZ := box.Min.Z-shifted, box.Max.Z-shifted
-	centroidZ := bvCentroid(t, body, label).Z - shifted
-	predict := func(a, b float64) float64 {
-		return lowZ + h*(a*a+2*a*b+3*b*b)/(4*(a*a+a*b+b*b))
-	}
-	if math.Abs(predict(narrow, wide)-centroidZ) <= math.Abs(predict(wide, narrow)-centroidZ) {
-		return bvConeReading{LowZ: lowZ, HighZ: highZ, LowR: narrow, HighR: wide}
-	}
-	return bvConeReading{LowZ: lowZ, HighZ: highZ, LowR: wide, HighR: narrow}
-}
-
-// HalfAngle is the cone's own half-angle about the shaft axis, and Apex is the
-// station its rings would close to nothing at.
-func (c bvConeReading) HalfAngle() float64 {
-	return math.Atan2(math.Abs(c.HighR-c.LowR), c.HighZ-c.LowZ)
-}
-
-// Radius is the cone's radius at a station, read off the two rings it published.
-func (c bvConeReading) Radius(z float64) float64 {
-	slope := (c.HighR - c.LowR) / (c.HighZ - c.LowZ)
-	return c.LowR + slope*(z-c.LowZ)
-}
-
-// stepCutConicalEnds trims the uncut Tooth Body to a flush band with the two
-// conical cuts: the toe cut first, then the heel cut on the keeper alone.
-//
-// The cutting TOOLS are cone faces of the GEAR BODY, the revolved-hexagon
-// frustum; the lofted Tooth Body has no cone faces of its own, so searching it
-// finds none. The TARGET being split is the Tooth Body.
-//
-// Neither cut is performed. Both operands are Lofts here, so the split is out
-// of reach: the tooth and each cone alike. What is built is the tooth and the
-// two cones, laid apart; each cone's half-angle and apex station are read off
-// the cone and each of the tooth's two surfaces off the tooth, and the stations
-// where they cross are solved from those readings and checked against the flush
-// band.
-//
-// The cost is the split: this does not show the evaluator dividing the tooth,
-// selecting the keeper, or leaving a watertight body. What it does show is that
-// each cut lands where the flush band requires, and that the two ends land on
-// DIFFERENT surfaces of the tooth — which is the observable signature of a
-// conical cut face rather than a planar one, since a plane would meet the tip
-// and the root at one station.
-//
-// <!-- proof-run: proofkit3d.RunSolidParallel(bvSolidCases, stepCutConicalEnds, assertCutConicalEnds) -->
-func stepCutConicalEnds(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	d, side := bvSolidDesign(t, p)
-	hex := bvHexagonOf(d, side)
-	pitch := bvLayApart * hex.Rim.Z
-	tooth, _, _ := bvUncutTooth(t, doc, d, side, 0)
-	toeCone := bvShift(t, bvBand(t, doc, hex.Toe, hex.Inner), pitch)
-	heelCone := bvShift(t, bvBand(t, doc, hex.Rim, hex.Ded), 2*pitch)
-	return []*decad.Body{tooth, toeCone, heelCone}
-}
-
-func assertCutConicalEnds(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
-	if len(bodies) != 3 {
-		t.Fatalf("the conical-cut substitution left %d bodies, want the tooth and its two cones", len(bodies))
-	}
-	d, side := bvSolidDesign(t, p)
-	hex := bvHexagonOf(d, side)
-	pitch := bvLayApart * hex.Rim.Z
-	toe := bvReadCone(t, bodies[1], "toe cone", pitch)
-	heelCone := bvReadCone(t, bodies[2], "heel cone", 2*pitch)
-
-	// Each cone is on the back-cone family, which is what a conical trim of a
-	// bevel tooth has to be.
-	back := bvBackConeAngle(side)
-	bvNear(t, "toe cone half-angle read off the cone", toe.HalfAngle(), back, 1e-3)
-	bvNear(t, "heel cone half-angle read off the cone", heelCone.HalfAngle(), back, 1e-3)
-
-	// Where each cone crosses the tooth's root surface and its tip surface. The
-	// tooth's two surfaces are read off the tooth the same way: both are cones
-	// about the shaft axis, at the root and tip angles the built tooth carries.
-	crossing := func(cone bvConeReading, toothSlope float64) float64 {
-		// cone.Radius(z) = LowR + s*(z - LowZ); tooth radius = toothSlope*z.
-		s := (cone.HighR - cone.LowR) / (cone.HighZ - cone.LowZ)
-		return (cone.LowR - s*cone.LowZ) / (toothSlope - s)
-	}
-	rootSlope := math.Tan(bvSideRootAngle(d, side))
-	tipSlope := bvToothTipRadius(d, side, 1)
-
-	toeAtRoot := crossing(toe, rootSlope)
-	heelAtRoot := crossing(heelCone, rootSlope)
-	bvNear(t, "the toe cut lands on the tooth's root at the toe corner", toeAtRoot, hex.Toe.Z, 1e-3)
-	bvNear(t, "the heel cut lands on the tooth's root at the dedendum corner", heelAtRoot, hex.Ded.Z, 1e-3)
-
-	toeAtTip := crossing(toe, tipSlope)
-	heelAtTip := crossing(heelCone, tipSlope)
-	// A planar cut would meet the tip and the root at ONE station. A conical
-	// one does not, and the gap is what says the cut face is a cone.
-	if math.Abs(toeAtTip-toeAtRoot) < 1e-6*hex.Ded.Z {
-		t.Errorf("the toe cut meets the tooth's tip and root at the same station %.6f; that is a planar cut",
-			toeAtRoot)
-	}
-	if math.Abs(heelAtTip-heelAtRoot) < 1e-6*hex.Ded.Z {
-		t.Errorf("the heel cut meets the tooth's tip and root at the same station %.6f; that is a planar cut",
-			heelAtRoot)
-	}
-	// And the flush band is what is left between them: the toe end inside the
-	// heel end, with the trimmed tooth spanning the face width.
-	if !(toeAtRoot < heelAtRoot) {
-		t.Errorf("the trimmed band runs backwards: toe at %.6f, heel at %.6f", toeAtRoot, heelAtRoot)
-	}
-	// The toe cut must land inside the uncut tooth, or it would not split it.
-	_, apexZ, heelZ := bvUncutToothSpan(d, side)
-	if toeAtTip <= apexZ || heelAtRoot > heelZ*(1+1e-6) {
-		t.Errorf("a cut falls outside the uncut tooth's span [%.6f, %.6f]: toe tip %.6f, heel root %.6f",
-			apexZ, heelZ, toeAtTip, heelAtRoot)
-	}
-}
-
-// bvUncutToothSpan is the station range the uncut tooth occupies.
-func bvUncutToothSpan(d bvDesign, side bvSide) (span, apexZ, heelZ float64) {
-	heelZ = bvHexagonOf(d, side).Ded.Z
-	apexZ = bvApexShrink * heelZ
-	return heelZ - apexZ, apexZ, heelZ
-}
-
-// ------------------------------------------------------------ the pattern
-
-// The circular-pattern step measures its seed tooth and then retires it, so the
-// readings have to leave the build and reach the assertion. These package-level
-// variables are where they are kept, and they are the whole reason THIS step
-// stays on the serial runner while every other bevel step takes the parallel
-// one: two cases running at once would overwrite each other's readings and the
-// proof would report a wrong verdict rather than failing loudly.
-var (
-	bvSeedAzimuth float64
-	bvSeedRadius  float64
-	bvSeedHeight  float64
-	bvSeedVolume  float64
-)
-
-// stepCircularPattern patterns the trimmed tooth about the shaft-axis edge,
-// once per tooth of this gear, over a full turn and not symmetric.
-//
-// The angular spacing stays 360/N for the entire face width even though the
-// pitch diameter shrinks from heel toward apex: the radial taper is already in
-// the loft from the Apex, so the pattern only rotates one tapered tooth into N
-// evenly spaced copies.
-//
-// The seed is one of the bodies the pattern hands back, so a later Combine must
-// not add it again. Here the increment is made with a placement that retires
-// the body it moves, which is why the seed is measured during the build.
-//
-// <!-- proof-run: proofkit3d.RunSolid(bvSolidCases, stepCircularPattern, assertCircularPattern) -->
-func stepCircularPattern(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	d, side := bvSolidDesign(t, p)
-	seed, _, _ := bvUncutTooth(t, doc, d, side, 0)
-	box := bvBounds(t, seed, "seed tooth")
-	centroid := bvCentroid(t, seed, "seed tooth")
-	bvSeedAzimuth = math.Atan2(centroid.Y, centroid.X)
-	bvSeedRadius = math.Max(box.Max.X, -box.Min.X)
-	bvSeedHeight = box.Max.Z - box.Min.Z
-	bvSeedVolume = bvVolume(t, seed, "seed tooth")
-
-	copy1, err := seed.Placed(bvTurn(t, 2*math.Pi/side.Teeth))
-	if err != nil {
-		t.Fatalf("pattern increment: %v", err)
-	}
-	return []*decad.Body{copy1}
-}
-
-func assertCircularPattern(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
-	if len(bodies) != 1 {
-		t.Fatalf("the pattern step left %d bodies, want the first copy", len(bodies))
-	}
-	d, side := bvSolidDesign(t, p)
-	teeth := int(side.Teeth)
-
-	// The quantity is this gear's tooth number and the increment is one full
-	// turn divided by it, measured one way from the seed: a symmetric pattern
-	// or a different total angle would not place copy 1 there.
-	first := bvCentroid(t, bodies[0], "patterned tooth 1")
-	bvAngleNear(t, "the first copy's azimuth",
-		math.Atan2(first.Y, first.X), bvSeedAzimuth+2*math.Pi/side.Teeth)
-	bvNear(t, "the first copy's volume", bvVolume(t, bodies[0], "patterned tooth 1"), bvSeedVolume, 1e-9)
-	box := bvBounds(t, bodies[0], "patterned tooth 1")
-	bvNear(t, "the first copy's height", box.Max.Z-box.Min.Z, bvSeedHeight, 1e-9)
-
-	// The seed's own reach, carried out of the build: the tooth's widest point
-	// is its tip at the heel, which is what the pattern spaces around the axis.
-	bvNear(t, "the seed tooth's reach", bvSeedRadius,
-		bvToothTipRadius(d, side, bvHexagonOf(d, side).Ded.Z), 1e-2)
-
-	// A sample of the remaining copies, each in a document of its own: decad
-	// verifies every PAIR of live bodies, and for the tooth pairs of a real
-	// gear the disjoint/overlap partition resolves neither way, which the solid
-	// gate refuses and this proof does not waive. What is given up is the proof
-	// that the copies are mutually disjoint. The sample is the copies a wrong
-	// total angle or a symmetric pattern would move first — the second, the
-	// opposite one and the last — rather than all of them, because a loft per
-	// tooth per case costs more wall time than the extra copies buy.
-	for _, k := range bvPatternSample(teeth) {
-		scratch := decad.New()
-		fresh, _, _ := bvUncutTooth(t, scratch, d, side, 0)
-		placed, err := fresh.Placed(bvTurn(t, 2*math.Pi*float64(k)/side.Teeth))
-		if err != nil {
-			t.Fatalf("pattern copy %d: %v", k, err)
-		}
-		c := bvCentroid(t, placed, "patterned tooth")
-		bvAngleNear(t, "a patterned tooth's azimuth",
-			math.Atan2(c.Y, c.X), bvSeedAzimuth+2*math.Pi*float64(k)/side.Teeth)
-		bvNear(t, "a patterned tooth's volume", bvVolume(t, placed, "patterned tooth"), bvSeedVolume, 1e-9)
-		pbox := bvBounds(t, placed, "patterned tooth")
-		bvNear(t, "a patterned tooth's height", pbox.Max.Z-pbox.Min.Z, bvSeedHeight, 1e-9)
-	}
-}
-
-// bvPatternSample picks the copies to measure: the second, the one opposite the
-// seed and the last, deduplicated and never the seed itself.
-func bvPatternSample(teeth int) []int {
-	seen := map[int]bool{0: true, 1: true}
-	out := []int{}
-	for _, k := range []int{2, teeth / 2, teeth - 1} {
-		if k > 1 && k < teeth && !seen[k] {
-			seen[k] = true
-			out = append(out, k)
-		}
-	}
-	return out
-}
-
-// bvAngleNear compares two angles, taking the turn into account.
-func bvAngleNear(t *testing.T, label string, got, want float64) {
-	t.Helper()
-	gap := math.Mod(math.Abs(got-want), 2*math.Pi)
-	if math.Min(gap, 2*math.Pi-gap) > 1e-9 {
-		t.Errorf("%s: got %.9f rad, want %.9f rad", label, got, want)
-	}
-}
-
-// ------------------------------------------------------------ the Combine-Join
-
-// bvJoinSink is how far the proof sinks the tooth's root below the gear body's
-// root cone, as a fraction of the tooth's height. It is what makes "seated"
-// measurable as a strict inequality. THE GENERATED MODULE SEATS THE TOOTH
-// EXACTLY ON THE CONE AND MUST NOT SINK IT: the sink belongs to the proof alone.
-const bvJoinSink = 1.0 / 20.0
-
-// stepCombineJoin joins the patterned tooth pieces into the Gear Body in one
-// Combine-Join, the frustum as the target and the tooth bodies as the tools.
-//
-// No join is performed: both operands are Lofts. The operands are built and
-// laid apart, and the join's two consequences are asserted from their own
-// measured geometry — one lump where the tooth's root is at or below the body's
-// root cone, and a joined body that reaches further out than the frustum where
-// the tooth's tip stands proud of it — taken at the toe, the middle and the
-// heel of the band the join covers.
-//
-// The cost is the stitch: this cannot show the evaluator making one boundary
-// out of two.
-//
-// <!-- proof-run: proofkit3d.RunSolidParallel(bvSolidCases, stepCombineJoin, assertCombineJoin) -->
-func stepCombineJoin(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	d, side := bvSolidDesign(t, p)
-	hex := bvHexagonOf(d, side)
-	pitch := bvLayApart * hex.Rim.Z
-	rootBand := bvBand(t, doc, hex.Ded, hex.Toe)
-	tooth, _, _ := bvUncutTooth(t, doc, d, side, 0)
-	return []*decad.Body{rootBand, bvShift(t, tooth, pitch)}
-}
-
-func assertCombineJoin(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
+func assertCombineTeeth(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
+	d := newBevelDesign(p)
+	which := p["gearSide"]
+	side := d.side(which)
+	h := d.axialProfile(which)
+	sep := d.bandSeparation(which)
 	if len(bodies) != 2 {
-		t.Fatalf("the join substitution left %d bodies, want the frustum band and the tooth", len(bodies))
+		t.Fatalf("the combine substitution produced %d bodies, want the Gear Body band and the tooth", len(bodies))
 	}
-	d, side := bvSolidDesign(t, p)
-	hex := bvHexagonOf(d, side)
-
-	// The band the join would cover is the face width, from the toe corner to
-	// the dedendum corner, and the readings are taken at both ends and the
-	// middle of it.
-	for _, z := range []float64{hex.Toe.Z, (hex.Toe.Z + hex.Ded.Z) / 2, hex.Ded.Z} {
-		bodyRadius := bvBandRadiusAt(hex.Ded, hex.Toe, z)
-		toothRoot := bvToothRootRadius(d, side, z)
-		toothTip := bvToothTipRadius(d, side, z)
-		height := toothTip - toothRoot
-		sunk := toothRoot - bvJoinSink*height
-
-		// Seated, not floating: with the proof's sink applied the tooth's root
-		// is STRICTLY inside the body's root cone, so a join leaves one lump.
-		if sunk >= bodyRadius {
-			t.Errorf("at z=%.4f the sunk tooth root sits at %.6f mm, not inside the body's %.6f mm",
-				z, sunk, bodyRadius)
+	band := readBand(t, bodies[0], 0, "gear body root band")
+	toothReach := 0.0
+	toothSeat := math.Inf(1)
+	for _, v := range bodies[1].Vertices() {
+		q := v.Position().Value
+		if math.Abs(q.Z-sep-d.toothCentreStation(which)) > 1e-6 {
+			continue
 		}
-		// And the unsunk root seats exactly on the cone, which is what the
-		// generated module does and what the sink above is a proof-only offset
-		// from.
-		bvNear(t, "the tooth root seats on the body's root cone", toothRoot, bodyRadius, 1e-9)
-		// Proud: the joined body reaches further out than the frustum.
-		if toothTip <= bodyRadius {
-			t.Errorf("at z=%.4f the tooth tip reaches %.6f mm, not past the body's %.6f mm",
-				z, toothTip, bodyRadius)
-		}
+		r := math.Hypot(q.X, q.Y)
+		toothReach = math.Max(toothReach, r)
+		toothSeat = math.Min(toothSeat, r)
 	}
 
-	// The tooth really is the taller body of the two where it stands proud: the
-	// join's outer reach is the tooth's, not the frustum's.
-	bandBox := bvBounds(t, bodies[0], "root band")
-	toothBox := bvBounds(t, bodies[1], "tooth")
-	if math.Max(toothBox.Max.X, -toothBox.Min.X) <= math.Max(bandBox.Max.X, -bandBox.Min.X) {
-		t.Error("the tooth does not reach past the frustum anywhere, so a join would add nothing")
+	// Both readings are taken at the toe, the middle and the heel of the band the
+	// join would cover.
+	slope, intercept := band.element()
+	for _, where := range []struct {
+		label   string
+		station float64
+	}{
+		{"toe", h.toeCone.station},
+		{"middle", (h.toeCone.station + h.ded.station) / 2},
+		{"heel", h.ded.station},
+	} {
+		gearRadius := slope*where.station + intercept
+		toothRoot, toothTip := seatedToothCone(d, which, where.station)
+		if toothRoot >= gearRadius {
+			t.Errorf("at the %s the tooth's root rides at %.6f mm and the gear body's root cone at "+
+				"%.6f; a tooth that does not sit at or below the cone floats and the join leaves a gap",
+				where.label, toothRoot, gearRadius)
+		}
+		if toothTip <= gearRadius {
+			t.Errorf("at the %s the tooth's tip reaches %.6f mm and the gear body's root cone %.6f; "+
+				"a tooth that does not stand proud adds nothing to the joined body",
+				where.label, toothTip, gearRadius)
+		}
+	}
+
+	// The seated tooth really is the tooth this gear's virtual tooth number and
+	// Module draw, scaled onto the cone rather than reshaped.
+	dims := involute.Derive(d.module, side.virtualTeeth, involutePressureAngle)
+	if toothSeat <= 0 || math.Abs(toothReach/toothSeat-dims.Tip/dims.Root) > 1e-9 {
+		t.Errorf("the seated tooth's tip-to-root ratio is %.9f, want the virtual tooth's %.9f",
+			toothReach/toothSeat, dims.Tip/dims.Root)
+	}
+	if got := combineSink(d, which); got <= 0 {
+		t.Errorf("the proof's sink is %.9f mm; it has to be positive for `seated` to be a strict reading", got)
 	}
 }
 
-// bvBandRadiusAt is the frustum's own radius at a station inside one band.
-func bvBandRadiusAt(a, b bvPt, z float64) float64 {
-	return a.Rho + (b.Rho-a.Rho)*(z-a.Z)/(b.Z-a.Z)
-}
+// ---------------------------------------------------------------- S25 bore cut
 
-// ------------------------------------------------------------ the bore cut
-
-// stepBoreCut cuts a cylindrical through bore along the shaft axis, as a
-// symmetric extrude-cut restricted to this Gear Body, using twice the Cone
-// Distance as the per-side half-length.
+// stepBoreCut cuts the optional cylindrical through bore along the shaft axis.
 //
-// The tool is built as a real extrude, which a symmetric extent produces as a
-// prism, but no cut is performed: the target is the frustum, whose bands are
-// Lofts. The tool and the bands are laid apart, and the cut is asserted from
-// the tool's own measured geometry — its diameter, that its two ends sit exactly
-// 2 * Cone Distance either side of the shaft edge's start, and that both clear
-// the frustum, which is what makes it a THROUGH cut — together with the
-// material it would remove, computed from the frustum's own profile clipped to
-// the bore radius.
+// THE TOOL IS A REAL EXTRUDE, which a symmetric extent produces as a prism, and
+// the extent is the spec's own: 2 * Cone Distance per side, generously past any
+// face width. NO CUT IS PERFORMED — the target is the frustum, whose bands are
+// Lofts — so the tool and the frustum's root band are laid apart and the cut is
+// read off the tool's own geometry.
 //
-// The cost is the pierced body: one lump with a hole and no enclosed void is
-// not shown.
-//
-// <!-- proof-run: proofkit3d.RunSolidParallel(bvSolidCases, stepBoreCut, assertBoreCut) -->
+// THE COST IS THE PIERCED BODY: one lump with a hole and no enclosed void is not
+// shown.
 func stepBoreCut(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	d, side := bvSolidDesign(t, p)
-	hex := bvHexagonOf(d, side)
-	pitch := bvLayApart * hex.Rim.Z
-	band := bvBand(t, doc, hex.Ded, hex.Toe)
-	if !d.In.BoreEnable {
-		// Enable Bore unchecked skips the step entirely: no sketch, no tool and
-		// no cut, and the per-gear diameters are ignored.
-		return []*decad.Body{band}
+	d := newBevelDesign(p)
+	which := p["gearSide"]
+	side := d.side(which)
+	h := d.axialProfile(which)
+	if side.boreDiameter <= 0 {
+		proofkit3d.Unmodelled(t, "Enable Bore is unchecked, so the bore step is skipped entirely")
 	}
-	// The bore plane is rooted at the shaft-axis edge's START, which is the
-	// front face's foot A' / B'.
+	sep := d.bandSeparation(which)
+	band := ringSweep(t, doc, h.toeCone.station, h.toeCone.radius, h.ded.station, h.ded.radius, 0)
+
+	// The bore plane is rooted at the shaft-axis edge's START — the hexagon's
+	// first edge begins at the front face's foot — so the symmetric extent is
+	// centred there.
 	w := sketch.NewWorld()
-	start := hex.Foot.Z
-	half := 2 * d.ConeDistance
-	plane, err := w.CreateOffsetPlane(w.XY(), start-half)
+	plane, err := w.CreateOffsetPlane(w.XY(), h.toeFoot.station+sep)
 	if err != nil {
-		t.Fatalf("bore tool plane: %v", err)
+		t.Fatalf("bore plane: %v", err)
 	}
 	s, err := w.CreateSketch(plane)
 	if err != nil {
-		t.Fatalf("bore tool sketch: %v", err)
+		t.Fatalf("bore sketch: %v", err)
 	}
-	s.CreateCircle(s.CreatePoint(0, 0), side.Bore/2)
-	tool, err := doc.Extrude(s, bvOnlyRegion(t, s),
-		decad.Distance{D: bvMM(2 * half), Dir: decad.Along})
+	if _, err := s.CreatePolygon(0, 0, sweepSides, side.boreDiameter/2); err != nil {
+		t.Fatalf("bore circle: %v", err)
+	}
+	solveHere(t, s)
+	tool, err := doc.Extrude(s, s.Profiles()[0],
+		decad.Symmetric{D: millimetres(2 * d.coneDistance), FullLength: false})
 	if err != nil {
 		t.Fatalf("extrude the bore tool: %v", err)
 	}
-	return []*decad.Body{band, bvShift(t, tool, 3*pitch)}
+	return []*decad.Body{band, tool}
 }
 
 func assertBoreCut(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
-	d, side := bvSolidDesign(t, p)
-	hex := bvHexagonOf(d, side)
-	if !d.In.BoreEnable {
-		if len(bodies) != 1 {
-			t.Fatalf("with Enable Bore unchecked the step left %d bodies, want the untouched Gear Body",
-				len(bodies))
-		}
-		return
-	}
+	d := newBevelDesign(p)
+	which := p["gearSide"]
+	side := d.side(which)
+	h := d.axialProfile(which)
+	sep := d.bandSeparation(which)
 	if len(bodies) != 2 {
-		t.Fatalf("the bore substitution left %d bodies, want the frustum band and the tool", len(bodies))
+		t.Fatalf("the bore substitution produced %d bodies, want the frustum band and the tool", len(bodies))
 	}
-	laid := 3 * bvLayApart * hex.Rim.Z
-	box := bvBounds(t, bodies[1], "bore tool")
-	half := 2 * d.ConeDistance
-	start := hex.Foot.Z
-
-	bvNear(t, "bore tool diameter", math.Max(box.Max.X, -box.Min.X)*2, side.Bore, 1e-3)
-	bvNear(t, "the tool's near end sits 2*Cone Distance before the shaft edge's start",
-		box.Min.Z-laid, start-half, 1e-6)
-	bvNear(t, "the tool's far end sits 2*Cone Distance past it",
-		box.Max.Z-laid, start+half, 1e-6)
-
-	// Both ends clear the frustum, which is what makes it a through cut.
-	if box.Min.Z-laid >= hex.Foot.Z || box.Max.Z-laid <= hex.Rim.Z {
-		t.Errorf("the tool spans [%.4f, %.4f] and does not clear the frustum's [%.4f, %.4f]",
-			box.Min.Z-laid, box.Max.Z-laid, hex.Foot.Z, hex.Rim.Z)
-	}
-
-	// The material the cut would remove, from the frustum's own profile clipped
-	// to the bore radius.
-	removed := bvBoreRemoval(hex, side.Bore/2)
-	if removed <= 0 {
-		t.Errorf("the bore would remove %.6f mm3; a through bore always removes material", removed)
-	}
-	if removed >= bvRevolvedVolume(hex) {
-		t.Errorf("the bore would remove %.6f mm3 of a %.6f mm3 frustum", removed, bvRevolvedVolume(hex))
-	}
-	// The bored body's volume is the frustum's less that.
-	bvNear(t, "the volume a bored Gear Body would carry",
-		bvRevolvedVolume(hex)-removed, bvRevolvedVolume(hex)-removed, 1e-12)
-}
-
-// bvBoreRemoval is the volume the bore cylinder takes out of the frustum: the
-// frustum's profile clipped to the bore radius, swept about the shaft axis.
-func bvBoreRemoval(h bvHex, boreR float64) float64 {
-	order := h.Order()
-	sum := 0.0
-	clip := func(r float64) float64 { return math.Min(r, boreR) }
-	for i := range order {
-		a, b := order[i], order[(i+1)%len(order)]
-		ra, rb := clip(a.Rho), clip(b.Rho)
-		sum += (b.Z - a.Z) * (ra*ra + ra*rb + rb*rb) / 3
-	}
-	return math.Pi * math.Abs(sum)
-}
-
-// ------------------------------------------------------ the meshing rotation
-
-// stepMeshRotation rotates the DRIVING body by half a tooth pitch about its own
-// shaft axis, taking the axis and the origin from the B->I profile edge's world
-// endpoints, so a driving valley sits where the pinion tooth crosses the axial
-// plane.
-//
-// The pinion takes its own extra mesh phase, which is 0 tooth-fractions by
-// default, and a zero angle is a no-op rather than a move: a rotation matrix
-// built from a zero angle is the identity and Fusion refuses to move a body by
-// it, so the helper returns early instead of each call site guarding it.
-//
-// The body rotated here is the TOOTH rather than the joined gear body, and it
-// has to be: the frustum alone is a solid of revolution about the very axis the
-// rotation turns about, so no reading off it could tell a rotated body from an
-// unrotated one. The joined body, which does carry teeth, is what the
-// Combine-Join step cannot build.
-//
-// <!-- proof-run: proofkit3d.RunSolidParallel(bvSolidCases, stepMeshRotation, assertMeshRotation) -->
-func stepMeshRotation(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	d, side := bvSolidDesign(t, p)
-	tooth, _, _ := bvUncutTooth(t, doc, d, side, 0)
-	angle := bvMeshRotation(d, side)
-	if angle == 0 {
-		// The pinion's phase is zero, so no move is made at all.
-		return []*decad.Body{tooth}
-	}
-	turned, err := tooth.Placed(bvTurn(t, angle))
+	tool := bodies[1]
+	box, err := tool.Bounds()
 	if err != nil {
-		t.Fatalf("meshing rotation: %v", err)
+		t.Fatalf("bore tool bounds: %v", err)
+	}
+	start := h.toeFoot.station + sep
+	if got := box.Min.Z; math.Abs(got-(start-2*d.coneDistance)) > 1e-6 {
+		t.Errorf("the bore tool starts at station %.6f, want 2 * Cone Distance below the shaft "+
+			"edge's start, %.6f", got-sep, start-2*d.coneDistance-sep)
+	}
+	if got := box.Max.Z; math.Abs(got-(start+2*d.coneDistance)) > 1e-6 {
+		t.Errorf("the bore tool ends at station %.6f, want 2 * Cone Distance above the shaft "+
+			"edge's start, %.6f", got-sep, start+2*d.coneDistance-sep)
+	}
+	// A THROUGH cut: both ends of the tool clear the frustum, which spans from
+	// the toe corner to the heel end.
+	if box.Min.Z-sep >= h.toeCone.station || box.Max.Z-sep <= h.heelAxis.station {
+		t.Errorf("the bore tool spans stations %.6f to %.6f and the frustum %.6f to %.6f; a tool "+
+			"that does not clear both ends is not a through cut",
+			box.Min.Z-sep, box.Max.Z-sep, h.toeCone.station, h.heelAxis.station)
+	}
+	if got := reachOf(t, tool); math.Abs(got-side.boreDiameter/2) > 1e-6 {
+		t.Errorf("the bore tool's radius is %.6f mm, want the bore diameter's half %.6f",
+			got, side.boreDiameter/2)
+	}
+
+	// What the cut would remove: the frustum's own profile clipped to the bore
+	// radius, revolved. It has to be a real bite — positive, and short of the
+	// whole frustum.
+	removed := h.revolvedVolumeClipped(ringArea(1), side.boreDiameter/2)
+	whole := h.revolvedVolume(ringArea(1))
+	if removed <= 0 {
+		t.Errorf("the bore would remove %.6f mm3; a through bore of %.6f mm has to take material",
+			removed, side.boreDiameter)
+	}
+	if removed >= whole {
+		t.Errorf("the bore would remove %.6f mm3 of a %.6f mm3 frustum; it would take the whole body",
+			removed, whole)
+	}
+}
+
+// ---------------------------------------------------------------- S26 meshing rotation
+
+// stepMeshRotation applies the meshing rotation: the DRIVING gear turns half a
+// tooth pitch, 180 degrees over its own Teeth Number, about its shaft axis, so a
+// driving valley sits where the pinion tooth crosses the axial plane. The pinion
+// takes its own mesh phase, which is 0 for a straight bevel and 0 by default for
+// a spiral one because the mid-face section is left unrotated.
+//
+// ⚠️ A ZERO ANGLE IS A NO-OP, NOT A MOVE. Fusion refuses to move a body by the
+// identity with `RuntimeError: 3 : invalid transform`, measured on the bevel
+// pinion whose mesh phase is 0 by default, and the framework's
+// rotate_body_about_edge returns early for exactly that reason. r3 refuses the
+// zero angle too — Rotation rejects a zero units.Value — so the proof takes the
+// same early return.
+func stepMeshRotation(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
+	d := newBevelDesign(p)
+	which := p["gearSide"]
+	station := d.toothCentreStation(which)
+	w := sketch.NewWorld()
+	s0, p0 := toothSection(t, w, d, which, apexShrink*station, apexShrink)
+	s1, p1 := toothSection(t, w, d, which, station, 1)
+	body, err := doc.Loft(s0, p0, s1, p1)
+	if err != nil {
+		t.Fatalf("loft the tooth to rotate: %v", err)
+	}
+	angle := meshRotation(d, which)
+	if angle == 0 {
+		return []*decad.Body{body}
+	}
+	turned, err := body.Placed(turnAbout(t, angle))
+	if err != nil {
+		t.Fatalf("rotate the gear body by %.9f rad: %v", angle, err)
 	}
 	return []*decad.Body{turned}
 }
 
-// bvMeshRotation is the extra rotation one gear takes. The driving gear takes
-// half a tooth pitch; the pinion takes its mesh phase, which is
-// _PINION_MESH_PHASE_TEETH tooth-fractions and therefore zero.
-func bvMeshRotation(d bvDesign, side bvSide) float64 {
-	if side.Label == "Driving" {
-		return math.Pi / side.Teeth
+// meshRotation is this gear's own mesh offset in radians: half a tooth pitch for
+// the driving gear, and the pinion's _PINION_MESH_PHASE_TEETH tooth-fractions —
+// default 0 — for the pinion.
+func meshRotation(d bevelDesign, which float64) float64 {
+	if which == sideDriving {
+		return math.Pi / d.driving.teeth
 	}
-	return bvPinionMeshPhaseTeeth * 2 * math.Pi / side.Teeth
+	return pinionMeshPhaseTeeth * 2 * math.Pi / d.pinion.teeth
 }
 
+// pinionMeshPhaseTeeth is _PINION_MESH_PHASE_TEETH, the pinion's extra mesh
+// rotation in tooth-fractions. It is 0: the spiral build leaves the mid-face
+// section unrotated, so the pinion already meshes.
+const pinionMeshPhaseTeeth = 0.0
+
 func assertMeshRotation(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
+	d := newBevelDesign(p)
+	which := p["gearSide"]
 	if len(bodies) != 1 {
-		t.Fatalf("the meshing rotation left %d bodies, want the one body", len(bodies))
+		t.Fatalf("the mesh rotation produced %d bodies, want the one gear body", len(bodies))
 	}
-	d, side := bvSolidDesign(t, p)
-	angle := bvMeshRotation(d, side)
-
+	station := d.toothCentreStation(which)
 	scratch := decad.New()
-	before, _, _ := bvUncutTooth(t, scratch, d, side, 0)
-	was := bvCentroid(t, before, "unrotated tooth")
-	now := bvCentroid(t, bodies[0], "rotated tooth")
-
-	bvAngleNear(t, "the azimuth the meshing rotation moved the body to",
-		math.Atan2(now.Y, now.X), math.Atan2(was.Y, was.X)+angle)
-	bvNear(t, "the rotation changed no volume",
-		bvVolume(t, bodies[0], "rotated tooth"), bvVolume(t, before, "unrotated tooth"), 1e-9)
-	bvNear(t, "the rotation left the body on the shaft axis",
-		math.Hypot(now.X, now.Y), math.Hypot(was.X, was.Y), 1e-6)
-
-	if side.Label == "Driving" {
-		bvNear(t, "the driving gear's half tooth pitch", angle, math.Pi/side.Teeth, 1e-12)
-	} else if angle != 0 {
-		t.Errorf("the pinion's mesh phase came out %.9f rad; it is %v tooth-fractions and therefore zero",
-			angle, bvPinionMeshPhaseTeeth)
+	w := sketch.NewWorld()
+	s0, p0 := toothSection(t, w, d, which, apexShrink*station, apexShrink)
+	s1, p1 := toothSection(t, w, d, which, station, 1)
+	unturned, err := scratch.Loft(s0, p0, s1, p1)
+	if err != nil {
+		t.Fatalf("loft the unrotated tooth: %v", err)
+	}
+	want := meshRotation(d, which)
+	got := azimuthOf(t, bodies[0]) - azimuthOf(t, unturned)
+	if angleGap(got, want) > 1e-9 {
+		t.Errorf("the %s gear turned %.9f rad, want %.9f", d.side(which).label, got, want)
+	}
+	if which == sideDriving {
+		half := math.Pi / d.driving.teeth
+		if math.Abs(want-half) > 1e-12 {
+			t.Errorf("the driving mesh rotation is %.9f rad, want half a tooth pitch %.9f", want, half)
+		}
+	} else if want != 0 {
+		t.Errorf("the pinion mesh phase is %.9f rad, want 0 unless a spiral pair asks for one", want)
+	}
+	// The rotation moves the body and changes nothing about it.
+	if before, after := volumeOf(t, unturned, "unrotated"), volumeOf(t, bodies[0], "rotated"); math.Abs(after-before) > 1e-9*before {
+		t.Errorf("the rotated body is %.9f mm3 against %.9f before; a rotation is not a reshaping",
+			after, before)
 	}
 }
