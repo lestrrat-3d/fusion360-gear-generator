@@ -754,6 +754,87 @@ Call the framework's `hide_construction_geometry(bevelComponent)` (from `.solids
 
 (The driving gear's half-tooth-pitch **meshing rotation** is performed earlier, at the end of "Create the Gear Bodies", in the Design component before the body is moved out — not a cleanup step; see that section for the rationale.)
 
+## Proving the Solid Steps (bevel-specific)
+
+This section is about the proof rather than about Fusion. It says how every solid step of this gear
+is proved, because the solid harness refuses the operations those steps are made of and a compiler
+that does not know the substitutions marks the steps `[PROSE]` and drops them. It sits near the end
+of the file so that adding it moves no line a compiled step list already cites.
+
+**Every solid step is `[GO]`. None of them is `[PROSE]`.** The substitutions below are what make
+that true, and each one is a real build measured against a closed form — not a weakened gate, and
+not a comment standing in for a check.
+
+### No boolean is performed anywhere in this gear's proof
+
+**At the decad revision this repo pins, a boolean accepts only prism, cup and faceted payloads and
+refuses an operand built by Loft.** Every solid in this gear is conical, and a cone is a Loft there,
+because Extrude refuses a nonzero taper. So the union that joins the frustum, the intersection and
+cut that trim the tooth, the bore's through-cut and the Combine-Join are all unavailable.
+
+**The substitution is the same at every site: build the operands, lay them apart along the shaft
+axis, and assert from their own measured geometry what the operation would have produced.** Laying
+them apart leaves every volume, radius and cone angle unchanged, which is what makes the readings
+still mean something. State the substitution once in the proof file and its cost at each site.
+
+### Each step's substitution and what it costs
+
+- **The gear-body revolve.** Substitute a polygonal sweep, because decad publishes a revolved body's
+  volume with a proven bound equal to the volume itself, so a revolved body is Suspect at any
+  tolerance and cannot pass the harness gate. Build the three bands the frustum's profile edges
+  sweep — the root cone out to the dedendum corner, the heel cone out to the heel end, and the
+  toe-dish plug that hollows the front face — lay them apart and never join them. Assert the frustum
+  as their SIGNED SUM against Pappus on the §2 hexagon, band by band against its own stations and
+  ring radii, and cone half-angle by cone half-angle: the heel band and the toe plug come out
+  parallel, on the back-cone family, and the root band at the dedendum angle to them. **The cost is
+  the union**: the proof does not show the three bands closing into one watertight solid, only that
+  each is separately watertight and that together they have the right volume, stations and angles.
+- **The apex loft.** Substitute a shrunken section for the degenerate apex point, and
+  axis-perpendicular sections for the back-cone tooth plane.
+- **The conical end cut.** Perform neither cut. Both operands are Lofts — the tooth and each cone
+  alike. Build the tooth and the two cones and lay them apart; read each cone's apex and half-angle
+  off the cone and each of the tooth's two surfaces off the tooth; solve the stations where they
+  cross from those readings and check them against the flush band. **The cost is the split**: the
+  proof does not show the evaluator dividing the tooth, selecting the keeper, or leaving a
+  watertight body. What it does show is that each cut lands where the flush band requires and that
+  the two ends land on DIFFERENT surfaces of the tooth, the toe on its tip and the heel on its root,
+  which is the observable signature of a conical cut face rather than a planar one.
+- **The Combine-Join.** Perform no join. Lay the operands apart and assert the join's two
+  consequences from their own measured geometry: a join leaves ONE lump when the tooth's root is at
+  or below the body's root cone — seated, not floating — and the joined body reaches further out
+  than the frustum when the tooth's tip stands proud of it. Take both readings at the toe, the
+  middle and the heel of the band the join would cover. **The cost is the stitch**: the proof cannot
+  show the evaluator making one boundary out of two. ⚠️ **The proof sinks the tooth's root a
+  twentieth of the tooth height below the gear body's root cone**, which is what makes "seated"
+  measurable as a strict inequality. **The generated module seats the tooth exactly on the cone and
+  must not sink it** — the sink belongs to the proof alone.
+- **The bore cut.** Build the tool as a real extrude, which a symmetric extent produces as a prism,
+  but perform no cut: the target is the frustum, whose bands are Lofts. Lay the tool and the bands
+  apart and assert the cut from the tool's own measured geometry — its diameter, that its two ends
+  sit exactly `2 * Cone Distance` either side of the shaft edge's start, and that both clear the
+  frustum, which is what makes it a THROUGH cut. Compute the material it would remove from the
+  frustum's own profile clipped to the bore radius. **The cost is the pierced body**: one lump with
+  a hole and no enclosed void is not shown.
+- **The spiral tooth chain.** The slab slicing, the apex-scrap drop, the twist, the crown and the
+  spiral loft are each `[GO]` on the same terms: real slabs, laid apart where a boolean would
+  otherwise be needed, asserted against the closed form the spiral trace fixes.
+
+### The solid tables run at Module 4 to 8
+
+**Do not put Module 1 in a solid case table.** decad's mesh bound has an absolute floor, so a figure
+small enough brings every measurement inside it and the gate reports Suspect on geometry that is in
+fact correct. Module is a pure scale on this figure, so a case at Module 4 through 8 proves the same
+shape as one at Module 1 and clears the floor. The sketch tables are unaffected and stay at the
+dialog's own default.
+
+### A refusal the case table records rather than avoids
+
+Where this gear's §2 lattice cannot reach a configuration the spec admits — the Shaft Angle floor of
+30° is the one measured today, where the net's conditioning reads below the sketch engine's floor —
+**the case stays in the table and is marked as a declared refusal**, through a case-table flag the
+step reads, not by narrowing the range the spec states. A configuration the spec admits and this
+particular net cannot reach is a property of the net, and the table is where that is recorded.
+
 ## Proof Case Scheduling (bevel-specific)
 
 This section is about the proof rather than about Fusion, and it says which of a step's proof cases
