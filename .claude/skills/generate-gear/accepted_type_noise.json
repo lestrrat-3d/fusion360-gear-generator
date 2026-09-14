@@ -176,5 +176,55 @@
     "rule": "reportAttributeAccessIssue",
     "message": "Cannot assign to attribute \"bevelOccurrence\" for class \"BevelGearGenerator*\"",
     "why": "bevelOccurrence is genuinely None between __init__ and step 3, and the class declaration names the Occurrence it later holds rather than an Optional. A declaration nicety, not a runtime path."
+  },
+  {
+    "rule": "reportAttributeAccessIssue",
+    "message": "Cannot assign to attribute \"bevelComponent\" for class \"BevelGearGenerator*\"",
+    "why": "A class attribute declared with the Fusion type it eventually holds and initialised to None in __init__. Every one is assigned during generate() before anything reads it; pyright reports the None initialiser against the declared type."
+  },
+  {
+    "rule": "reportAttributeAccessIssue",
+    "message": "Cannot assign to attribute \"designOccurrence\" for class \"BevelGearGenerator*\"",
+    "why": "A class attribute declared with the Fusion type it eventually holds and initialised to None in __init__. Every one is assigned during generate() before anything reads it; pyright reports the None initialiser against the declared type."
+  },
+  {
+    "rule": "reportAttributeAccessIssue",
+    "message": "Cannot assign to attribute \"designComponent\" for class \"BevelGearGenerator*\"",
+    "why": "A class attribute declared with the Fusion type it eventually holds and initialised to None in __init__. Every one is assigned during generate() before anything reads it; pyright reports the None initialiser against the declared type."
+  },
+  {
+    "rule": "reportAttributeAccessIssue",
+    "message": "Cannot assign to attribute \"_anchorSketch\" for class \"BevelGearGenerator*\"",
+    "why": "A class attribute declared with the Fusion type it eventually holds and initialised to None in __init__. Every one is assigned during generate() before anything reads it; pyright reports the None initialiser against the declared type."
+  },
+  {
+    "rule": "reportAttributeAccessIssue",
+    "message": "Cannot assign to attribute \"_anchorCenterPoint\" for class \"BevelGearGenerator*\"",
+    "why": "A class attribute declared with the Fusion type it eventually holds and initialised to None in __init__. Every one is assigned during generate() before anything reads it; pyright reports the None initialiser against the declared type."
+  },
+  {
+    "rule": "reportAttributeAccessIssue",
+    "message": "Cannot assign to attribute \"_anchorLine\" for class \"BevelGearGenerator*\"",
+    "why": "A class attribute declared with the Fusion type it eventually holds and initialised to None in __init__. Every one is assigned during generate() before anything reads it; pyright reports the None initialiser against the declared type."
+  },
+  {
+    "rule": "reportAttributeAccessIssue",
+    "message": "Cannot assign to attribute \"_gearProfilesPlane\" for class \"BevelGearGenerator*\"",
+    "why": "A class attribute declared with the Fusion type it eventually holds and initialised to None in __init__. Every one is assigned during generate() before anything reads it; pyright reports the None initialiser against the declared type."
+  },
+  {
+    "rule": "reportAttributeAccessIssue",
+    "message": "Cannot assign to attribute \"_gpSketch\" for class \"BevelGearGenerator*\"",
+    "why": "A class attribute declared with the Fusion type it eventually holds and initialised to None in __init__. Every one is assigned during generate() before anything reads it; pyright reports the None initialiser against the declared type."
+  },
+  {
+    "rule": "reportAttributeAccessIssue",
+    "message": "Cannot assign to attribute \"_apexSketchPoint\" for class \"BevelGearGenerator*\"",
+    "why": "A class attribute declared with the Fusion type it eventually holds and initialised to None in __init__. Every one is assigned during generate() before anything reads it; pyright reports the None initialiser against the declared type."
+  },
+  {
+    "rule": "reportOperatorIssue",
+    "message": "Operator \"*\" not supported for types \"float\" and \"float | None\"",
+    "why": "self._coneDistance_cm is set in _buildGearProfiles and read in _cutBore, and generate() always runs them in that order, so it is never None at this multiplication. Pyright cannot see ordering across methods."
   }
 ]
