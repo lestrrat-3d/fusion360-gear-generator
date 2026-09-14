@@ -9,8 +9,8 @@ import (
 	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit3d"
 )
 
-func TestResolveInputBounds(t *testing.T) {
-	proofkit.RunParallel(t, boundsCases, stepResolveInputBounds)
+func TestResolveInputs(t *testing.T) {
+	proofkit.RunParallel(t, variableCases, stepResolveInputs)
 }
 
 func TestAnchorSketch(t *testing.T) {
@@ -21,60 +21,56 @@ func TestGearProfiles(t *testing.T) {
 	proofkit.RunParallel(t, latticeCases, stepGearProfiles)
 }
 
-func TestToothProfile(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, toothSolidCases, stepToothProfile, assertToothProfile)
+func TestToothSketch(t *testing.T) {
+	proofkit.RunParallel(t, toothCases, stepToothSketch)
 }
 
-func TestGearProfileHexagon(t *testing.T) {
-	proofkit.RunParallel(t, profileCases, stepGearProfileHexagon)
+func TestGearProfileSketch(t *testing.T) {
+	proofkit.RunParallel(t, profileCases, stepGearProfileSketch)
 }
 
-func TestRevolveGearBody(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, solidCases, stepRevolveGearBody, assertRevolveGearBody)
+func TestRevolveFrustum(t *testing.T) {
+	proofkit3d.RunSolidParallel(t, solidCases, stepRevolveFrustum, assertRevolveFrustum)
 }
 
-func TestLoftToothBody(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, solidCases, stepLoftToothBody, assertLoftToothBody)
+func TestApexLoft(t *testing.T) {
+	proofkit3d.RunSolidParallel(t, solidCases, stepApexLoft, assertApexLoft)
 }
 
-func TestCutConicalEnds(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, solidCases, stepCutConicalEnds, assertCutConicalEnds)
-}
-
-func TestConeElementSketch(t *testing.T) {
-	proofkit.RunParallel(t, coneElementCases, stepConeElementSketch)
+func TestConicalCut(t *testing.T) {
+	proofkit3d.RunSolidParallel(t, solidCases, stepConicalCut, assertConicalCut)
 }
 
 func TestSpiralTrace(t *testing.T) {
 	proofkit.RunParallel(t, traceCases, stepSpiralTrace)
 }
 
-func TestSliceToothSlabs(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, spiralSolidCases, stepSliceToothSlabs, assertSliceToothSlabs)
+func TestSliceTooth(t *testing.T) {
+	proofkit3d.RunSolidParallel(t, spiralCases, stepSliceTooth, assertSliceTooth)
 }
 
-func TestDropApexScrap(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, spiralSolidCases, stepDropApexScrap, assertDropApexScrap)
+func TestDropScrap(t *testing.T) {
+	proofkit3d.RunSolidParallel(t, spiralCases, stepDropScrap, assertDropScrap)
 }
 
-func TestTwistSlabs(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, spiralSolidCases, stepTwistSlabs, assertTwistSlabs)
+func TestTwistSegments(t *testing.T) {
+	proofkit3d.RunSolidParallel(t, spiralCases, stepTwistSegments, assertTwistSegments)
 }
 
-func TestCrownSlabs(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, spiralSolidCases, stepCrownSlabs, assertCrownSlabs)
+func TestCrownSegments(t *testing.T) {
+	proofkit3d.RunSolidParallel(t, spiralCases, stepCrownSegments, assertCrownSegments)
 }
 
-func TestLoftSpiralTooth(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, spiralSolidCases, stepLoftSpiralTooth, assertLoftSpiralTooth)
+func TestSpiralLoft(t *testing.T) {
+	proofkit3d.RunSolidParallel(t, spiralCases, stepSpiralLoft, assertSpiralLoft)
 }
 
 func TestCircularPattern(t *testing.T) {
-	proofkit3d.RunSolid(t, patternCases, stepCircularPattern, assertCircularPattern)
+	proofkit3d.RunSolid(t, solidCases, stepCircularPattern, assertCircularPattern)
 }
 
 func TestCombineJoin(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, patternCases, stepCombineJoin, assertCombineJoin)
+	proofkit3d.RunSolidParallel(t, solidCases, stepCombineJoin, assertCombineJoin)
 }
 
 func TestBoreSketch(t *testing.T) {
@@ -82,9 +78,9 @@ func TestBoreSketch(t *testing.T) {
 }
 
 func TestBoreCut(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, boreSolidCases, stepBoreCut, assertBoreCut)
+	proofkit3d.RunSolidParallel(t, solidCases, stepBoreCut, assertBoreCut)
 }
 
-func TestMeshRotation(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, meshCases, stepMeshRotation, assertMeshRotation)
+func TestMeshRotate(t *testing.T) {
+	proofkit3d.RunSolidParallel(t, solidCases, stepMeshRotate, assertMeshRotate)
 }

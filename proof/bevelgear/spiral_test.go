@@ -1,663 +1,745 @@
+// This file holds the spiral branch: the 2-D cutter-arc trace, and the five
+// solid steps that replace the straight tooth's two conical trims when the Mean
+// Spiral Angle is above zero — slice, drop the apex scrap, twist, crown, loft.
+//
+// The arc math these prove is derived in spec/bevelgear/spiral-tooth-trace.md
+// and realized in §3a of the instructions; what is proved here is the
+// construction, not the derivation.
+//
+// # What the spiral steps substitute
+//
+// decad has no split and no scale. So the slab slicing is built as the slabs
+// themselves rather than by cutting one body, the apex scrap is built and then
+// left out rather than removed by a feature, and the crown's scaleFeatures is
+// built as the already-scaled slab rather than applied to one. Each is the same
+// substitution the rest of this proof makes: build the operands, lay them
+// apart, and assert from their own measured geometry what the operation would
+// have produced.
+//
+// The multi-section loft is the fourth. decad's Loft takes exactly two
+// profiles, and the spiral loft runs through one face per segment, so the proof
+// builds the consecutive pairs and asserts the ORDER they have to be assembled
+// in — which is the thing that step is actually about, since lofting in the
+// stale pre-twist order is what distorts a ratio pair.
+//
+// The tooth's own substitutions — the chorded section and the
+// axis-perpendicular section plane — are the ones solids_test.go describes, and
+// the slabs here inherit them. One more is this file's own: the spec's slice
+// planes are perpendicular to the CONE ELEMENT and these are perpendicular to
+// the SHAFT AXIS, placed at the station each cone-distance offset reaches along
+// the root cone. The offsets are therefore the spec's own, measured where the
+// tooth's root sits.
 package bevelgear_test
 
 import (
 	"math"
-	"sort"
 	"testing"
 
 	"github.com/lestrrat-3d/decad"
+	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit"
 	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit3d"
 	"github.com/lestrrat-3d/sketch"
 )
 
-// ---------------------------------------------------------------------------
-// Section 3a — the spiral tooth body.
-//
-// This is the psi > 0 branch of the tooth-body hook. At psi = 0 the hook
-// returns immediately with the straight tooth's two conical trims, which is
-// stepCutConicalEnds; everything here runs only when psi > 0.
-//
-// SUBSTITUTION, and what it costs, for every step in this file. The Fusion
-// build slices the straight tooth into slabs with eight offset planes, drops
-// the apex-side scrap, rotates each remaining slab about the shaft axis, scales
-// each one down about a point on its heel face's root edge, and lofts through
-// the resulting faces. decad has neither a split-by-plane nor a scale feature,
-// and it refuses a union whose operands share a facet plane, so each slab is
-// BUILT at its station rather than cut out of a body and then moved: a slab is
-// the loft between its own two cross-sections, already carrying that slab's
-// twist and crown. The set of solids is the same one the
-// slice-drop-rotate-scale sequence produces, and every quantity the section
-// pins is read off those solids or off the numbers that place them.
-//
-// What the substitution cannot check is that the cut planes really do split the
-// body, which is the failure step E tells the generator to retry with the
-// opposite sign and then raise on.
-//
-// The slabs are also laid apart by slabGapFraction rather than left touching.
-// A split leaves coincident faces, and decad's document verification cannot
-// decide whether two bodies that share a face are disjoint or overlapping — it
-// reports the pair undecided and the gate fails. The gap is a fortieth of a
-// slab; every station assertion below is written against the gapped value, so
-// the gap is stated rather than absorbed.
-// ---------------------------------------------------------------------------
+// ------------------------------------------------------------- the closed form
 
-// slicePlanes is the fixed slice count section 3a step E specifies: eight
-// planes, stepped toward the Apex in span/6 increments from the parent
-// transverse tooth plane. The count is not user-configurable.
-const slicePlanes = 8
+// spiral is one gear's spiral construction: the three cone-distance marks, the
+// cutter circle the trace is an arc of, the arc's two ends, and the shaft-axis
+// twist the crown-gear law turns them into.
+type spiral struct {
+	gamma    float64 // this gear's PITCH cone angle, which the roll ratio uses
+	psi      float64 // Mean Spiral Angle, radians
+	rc       float64 // cutter radius, mm
+	handSign float64
 
-// sliceStep is the fraction of the span each slice plane advances by.
-const sliceStep = 1.0 / 6.0
-
-// slabGapFraction is how far each slab is pulled back from its cut plane at
-// both ends, as a fraction of the slab's own extent. See the note above.
-const slabGapFraction = 0.025
-
-// slab is one cross-section segment of the tooth, with the twist and crown it
-// carries after steps G and H.
-type slab struct {
-	KLo, KHi     float64 // cone-distance fractions of its toe and heel faces
-	RToeFace     float64 // cone distance of the toe face
-	RHeelFace    float64 // cone distance of the heel face
-	Twist        float64 // shaft-axis rotation, radians
-	Crown        float64 // lengthwise crown factor
-	OutermostSeg bool    // the heel slab, held full
-	Scrap        bool    // the apex-side piece step F drops
+	rToe, rHeel, rMean, span float64
+	cx, cy                   float64
+	toe2d, heel2d            [2]float64
+	phiCrown, total          float64
 }
 
-// sliceSegments realises step E: the eight cut planes and the nine pieces they
-// leave, apex-most first. Piece 0 is the long apex-side scrap below the toe.
-func sliceSegments(d design, g gear, f gearFrame, tf traceFrame) []slab {
-	coneLen := f.Ded.sub(f.Apex).len() // cone distance of the heel station, k = 1
-	kToe := tf.RToe / coneLen
-	kHeel := tf.RHeel / coneLen
-	spanK := kHeel - kToe
+// newSpiral builds the spiral frame for one gear, in the order §3a builds it.
+func (f figure) newSpiral(gear string, p map[string]float64) spiral {
+	apex, _, _, coneVec := f.axisFrame(gear)
+	distAlong := func(v vec) float64 { return v.sub(apex).dot(coneVec) }
 
-	// The cut planes, apex-ward of the parent plane in span/6 steps. The parent
-	// plane is the tooth-profile plane at the heel, so the pieces run from the
-	// heel inward.
-	stations := make([]float64, 0, slicePlanes+2)
-	stations = append(stations, apexStubFraction, kHeel)
-	for k := range slicePlanes {
-		stations = append(stations, kHeel-float64(k+1)*sliceStep*spanK)
+	var toeMid, heelMid vec
+	if gear == "Driving" {
+		toeMid = f.O.add(f.P).scale(0.5)
+		heelMid = f.D.add(f.J).scale(0.5)
+	} else {
+		toeMid = f.M.add(f.N).scale(0.5)
+		heelMid = f.C.add(f.H).scale(0.5)
 	}
-	sort.Float64s(stations)
+	// The swap guard §3a step A requires: the heel MUST be the outer end, or
+	// coneVec points inward, span comes out negative, and the whole spiral
+	// frame inverts silently — the cutter-arc direction, the slice direction
+	// and the per-segment twist all flip and the gear comes out wrong with no
+	// error at all.
+	if apex.sub(heelMid).len() < apex.sub(toeMid).len() {
+		toeMid, heelMid = heelMid, toeMid
+	}
 
-	out := make([]slab, 0, slicePlanes+1)
-	for i := 0; i+1 < len(stations); i++ {
-		lo, hi := stations[i], stations[i+1]
-		out = append(out, slab{
-			KLo: lo, KHi: hi,
-			RToeFace:  lo * coneLen,
-			RHeelFace: hi * coneLen,
-			Crown:     1,
-			Scrap:     i == 0,
-		})
+	s := spiral{
+		gamma: f.sideOf(gear).gamma,
+		psi:   rad(p["spiralAngleDeg"]),
+		rToe:  distAlong(toeMid),
+		rHeel: distAlong(heelMid),
 	}
-	return out
+	s.rMean = (s.rToe + s.rHeel) / 2
+	s.span = s.rHeel - s.rToe
+
+	s.rc = p["cutterRadius"]
+	if s.rc <= 0 {
+		s.rc = s.rMean
+	}
+	// Right is +1 and Left is -1, then negated for the pinion, because the pair
+	// meshes with opposite hands.
+	s.handSign = p["handSign"]
+	if gear != "Driving" {
+		s.handSign = -s.handSign
+	}
+
+	// The cutter-circle centre. The hand sign belongs on the cos term, which
+	// mirrors the centre across the cone element; putting it on the sin term
+	// mirrors it about x = R_mean instead, a different curve that gives the two
+	// gears unequal twist.
+	s.cx = s.rMean - s.rc*math.Sin(s.psi)
+	s.cy = s.handSign * s.rc * math.Cos(s.psi)
+
+	s.toe2d = circleIntersectNearest(s.rToe-0.06*s.span, s.cx, s.cy, s.rc, s.rMean, 0)
+	s.heel2d = circleIntersectNearest(s.rHeel+0.06*s.span, s.cx, s.cy, s.rc, s.rMean, 0)
+
+	s.phiCrown = math.Atan2(s.heel2d[1], s.heel2d[0]) - math.Atan2(s.toe2d[1], s.toe2d[0])
+	s.total = math.Abs(s.phiCrown) / math.Sin(s.gamma)
+	return s
 }
 
-// spiralSlabs realises steps F, G and H on top of the slice: the apex scrap is
-// dropped, each remaining slab takes its twist, and each but the outermost
-// takes its crown.
-func spiralSlabs(d design, g gear, f gearFrame, tf traceFrame) []slab {
-	all := sliceSegments(d, g, f, tf)
+// circleIntersectNearest is the intersection of the apex circle of radius r
+// with the cutter circle, keeping the solution nearest the reference point —
+// the branch the mean point sits on. A non-overlapping pair clamps to tangency.
+func circleIntersectNearest(r, cx, cy, rc, refX, refY float64) [2]float64 {
+	d := math.Hypot(cx, cy)
+	if d == 0 {
+		return [2]float64{r, 0}
+	}
+	a := (r*r - rc*rc + d*d) / (2 * d)
+	h2 := r*r - a*a
+	if h2 < 0 {
+		h2 = 0
+	}
+	h := math.Sqrt(h2)
+	mx, my := a*cx/d, a*cy/d
+	ox, oy := -h*cy/d, h*cx/d
+	first := [2]float64{mx + ox, my + oy}
+	second := [2]float64{mx - ox, my - oy}
+	if math.Hypot(first[0]-refX, first[1]-refY) <= math.Hypot(second[0]-refX, second[1]-refY) {
+		return first
+	}
+	return second
+}
 
-	// Step F: sort by the cone distance of the centroid and drop the apex-most
-	// piece. Re-slice the list FIRST, then delete the body it names.
-	sort.Slice(all, func(a, b int) bool {
-		return all[a].centroid() < all[b].centroid()
+// twistOf is the shaft-axis rotation a segment whose heel face sits at cone
+// distance d receives: a linear share of the total, centred on the mean cone
+// distance so the mid-face section stays unrotated.
+func (s spiral) twistOf(d float64) float64 {
+	return -s.handSign * s.total * (s.rMean - d) / s.span
+}
+
+// crownFactor is the lengthwise relief a segment whose heel face sits at cone
+// distance d receives: full at the heel and growing monotonically toward the
+// toe, so slab heights stay strictly ordered heel to toe and the natural cone
+// taper is never reversed.
+func (s spiral) crownFactor(d float64) float64 {
+	u := (s.rHeel - d) / s.span
+	return 1 - crownPerRad*(math.Abs(s.total)/2)*u
+}
+
+// tangentAtMean is the angle between the trace's tangent at the mean point and
+// the cone element, which is what the Mean Spiral Angle is defined as. A
+// circle's tangent is perpendicular to its radius, so it is read off the radius
+// from the mean point to the cutter centre.
+func (s spiral) tangentAtMean() float64 {
+	dx, dy := s.cx-s.rMean, s.cy
+	tangent := math.Atan2(-dx, dy)
+	return math.Abs(wrapPi(2*tangent)) / 2
+}
+
+// crownPerRad is the crown's tunable constant. Zero disables the crown; the
+// spec's value is 0.5 and it is not left unset.
+const crownPerRad = 0.5
+
+// ------------------------------------------------------------- the case table
+
+// spiralCases sweeps what the spiral branch branches on: the hand, both sides
+// of the auto cutter radius, the Mean Spiral Angle across its range, and both
+// gears of a ratio pair, where the two legitimately get different twists
+// because the roll ratio 1/sin(gamma) differs between them.
+//
+// Mean Spiral Angle 0 is NOT here. At zero the hook returns before any of this
+// runs and the straight tooth's two conical trims are what build the tooth, and
+// that path is solids_test.go's stepConicalCut.
+var spiralCases = []proofkit3d.Case{
+	{Name: "M4_31x31_90deg_psi35_right_pinion", Params: spiralOf(
+		pinionDialog(dialog(4, 31, 31, 90)), 35, 1, 0)},
+	{Name: "M4_31x31_90deg_psi35_right_driving", Params: spiralOf(
+		drivingDialog(dialog(4, 31, 31, 90)), 35, 1, 0)},
+	{Name: "M4_31x31_90deg_psi35_left_driving", Params: spiralOf(
+		drivingDialog(dialog(4, 31, 31, 90)), 35, -1, 0)},
+	{Name: "M4_31x31_90deg_psi10_right_driving", Params: spiralOf(
+		drivingDialog(dialog(4, 31, 31, 90)), 10, 1, 0)},
+	{Name: "M4_31x31_90deg_psi59_right_driving", Params: spiralOf(
+		drivingDialog(dialog(4, 31, 31, 90)), 59, 1, 0)},
+	{Name: "M6_31x17_90deg_psi35_right_pinion", Params: spiralOf(
+		pinionDialog(dialog(6, 31, 17, 90)), 35, 1, 0)},
+	{Name: "M6_31x17_90deg_psi35_right_driving", Params: spiralOf(
+		drivingDialog(dialog(6, 31, 17, 90)), 35, 1, 0)},
+	{Name: "M6_31x17_90deg_psi35_cutter40_driving", Params: spiralOf(
+		drivingDialog(dialog(6, 31, 17, 90)), 35, 1, 40)},
+	{Name: "M8_19x13_60deg_psi25_left_pinion", Params: spiralOf(
+		pinionDialog(dialog(8, 19, 13, 60)), 25, -1, 0)},
+}
+
+func spiralOf(p map[string]float64, psiDeg, hand, cutter float64) map[string]float64 {
+	return override(p, map[string]float64{
+		"spiralAngleDeg": psiDeg,
+		"handSign":       hand,
+		"cutterRadius":   cutter,
 	})
-	out := append([]slab(nil), all[1:]...)
+}
 
-	// Step G: each slab's rotation is a linear share of the total, keyed to the
-	// cone distance of its HEEL FACE — the exact section the step-I loft
-	// samples — and centred on R_mean so the mid-face section stays unrotated.
-	for i := range out {
-		out[i].Twist = segmentTwist(tf, out[i].RHeelFace)
-	}
-	// Step H: relief grows monotonically from the held heel to the toe, keyed
-	// to the heel-distance fraction u and never to the twist magnitude, which
-	// is symmetric about mid-face and would notch the slab just inside the
-	// heel. The outermost slab by POST-TWIST heel-face cone distance is held
-	// full, because its heel face is the loft's heel end.
-	outermost := 0
-	for i := range out {
-		if out[i].RHeelFace > out[outermost].RHeelFace {
-			outermost = i
-		}
-	}
-	for i := range out {
-		if i == outermost {
-			out[i].Crown = 1
-			out[i].OutermostSeg = true
-			continue
-		}
-		out[i].Crown = crownFactor(tf, out[i].RHeelFace)
+// ------------------------------------------------------------- the trace sketch
+
+var traceCases = spiralSketchCases()
+
+func spiralSketchCases() []proofkit.Case {
+	out := make([]proofkit.Case, 0, len(spiralCases))
+	for _, c := range spiralCases {
+		out = append(out, proofkit.Case{Name: c.Name, Params: c.Params})
 	}
 	return out
 }
 
-// centroid is the slab's own mid cone distance, which is where its centre of
-// mass sits for a section that varies linearly along it.
-func (sl slab) centroid() float64 { return (sl.RToeFace + sl.RHeelFace) / 2 }
+// stepSpiralTrace draws the `{gear} 2D Tooth Trace` sketch: the cutter circle
+// and the genuine cutter arc the tooth follows across the cone face.
+//
+// The sketch is drawn in the tangent plane's own 2-D frame — the apex at the
+// origin, x the cone element so a point's x IS its cone distance, y the
+// circumferential direction. In Fusion that frame is reached by building the
+// `{gear} Cone Element` line on the axial plane and rotating the axial plane 90
+// degrees about it; the proof works in the frame directly, since nothing
+// downstream consumes either the plane or this sketch.
+//
+// The geometry is reference geometry here, for the reason stepToothSketch
+// gives: an ordinary arc carries an internal radius-consistency row that a
+// fully placed arc makes dependent, and the gate refuses a redundant
+// constraint. In Fusion this sketch is deliberately left with free degrees of
+// freedom instead — its endpoints are pinned by the three-point construction
+// and not dimensioned — and is exempt from the full-constraint gate. Neither
+// engine gates it on the same terms; what the step proves is the arc.
+func stepSpiralTrace(t testing.TB, s *sketch.Sketch, p map[string]float64) {
+	f := newFigure(p)
+	if p["refuse"] != 0 {
+		proofkit.Unmodelled(t, "declared refusal: the §2 lattice the trace's cone marks "+
+			"come from is refused at Shaft Angle %.0f degrees", p["shaftAngleDeg"])
+	}
+	gear := gearOf(p)
+	sp := f.newSpiral(gear, p)
 
-// gapped returns the slab's stations pulled back from its cut planes at both
-// ends, which is where the proof actually builds it.
-func (sl slab) gapped() (lo, hi float64) {
-	gap := slabGapFraction * (sl.KHi - sl.KLo)
-	return sl.KLo + gap, sl.KHi - gap
-}
+	proofkit.Step(t, "%s cone marks: toe %.4f, mean %.4f, heel %.4f",
+		gear, sp.rToe, sp.rMean, sp.rHeel)
+	// The roll ratio divides by sin of the PITCH cone angle. Measuring the
+	// angle off the cone element instead gives the ROOT cone angle, which is a
+	// dedendum angle smaller and inflates the twist by about 1.6 times for a
+	// 17-tooth pinion — the difference between a pair that meshes and one that
+	// interferes.
+	near(t, sp.gamma-f.sideOf(gear).gammaRoot, math.Atan(1.25*f.module/f.R), 1e-12,
+		"the twist's angle is the pitch cone angle, a dedendum angle above the root cone's")
+	apex := s.CreateReferencePoint(0, 0, anchorProjection)
+	apex.SetName(gear + " apex")
 
-// slabBody builds one slab as the loft between its own two cross-sections,
-// both carrying that slab's twist and crown.
-func slabBody(t *testing.T, doc *decad.Document, w *sketch.World,
-	f gearFrame, o toothOutline, sl slab) *decad.Body {
-	t.Helper()
-	lo, hi := sl.gapped()
-	s0, p0 := drawSection(t, w, sectionPlane(t, w, f, lo), o, lo, sl.Twist, sl.Crown, true)
-	s1, p1 := drawSection(t, w, sectionPlane(t, w, f, hi), o, hi, sl.Twist, sl.Crown, true)
-	body, err := doc.Loft(s0, p0, s1, p1)
+	proofkit.Step(t, "the cutter circle, centre (%.4f, %.4f), radius %.4f",
+		sp.cx, sp.cy, sp.rc)
+	centre := s.CreateReferencePoint(sp.cx, sp.cy, anchorProjection)
+	centre.SetName(gear + " cutter centre")
+	cutter, err := s.CreateReferenceCircle(centre, sp.rc, anchorProjection)
 	if err != nil {
-		t.Fatalf("slab [%.4f, %.4f]: %v", sl.KLo, sl.KHi, err)
+		t.Fatalf("cutter circle: %v", err)
 	}
-	return body
+	cutter.SetConstruction(true)
+
+	proofkit.Step(t, "the trace arc through toe, mean and heel")
+	toe := s.CreateReferencePoint(sp.toe2d[0], sp.toe2d[1], anchorProjection)
+	heel := s.CreateReferencePoint(sp.heel2d[0], sp.heel2d[1], anchorProjection)
+	toe.SetName(gear + " trace toe")
+	heel.SetName(gear + " trace heel")
+	mustRefArc(t, s, centre, toe, heel, gear+" trace")
+
+	solveHere(t, s)
+	// The mirror and the straight-bevel limit are built through the same
+	// constructor the case itself is, from a dialog that differs only in the one
+	// input, so the invariants below test the construction rather than a copy of
+	// its formula.
+	mirror := f.newSpiral(gear, override(p, map[string]float64{"handSign": -p["handSign"]}))
+	straight := f.newSpiral(gear, override(p, map[string]float64{"spiralAngleDeg": 0}))
+	checkTrace(t, sp, mirror, straight)
 }
 
-// spiralContext is what every step in this file resolves first.
-func spiralContext(t *testing.T, p map[string]float64, what string) (
-	design, gear, gearFrame, toothOutline, traceFrame) {
+// checkTrace checks the invariants spiral-tooth-trace.md §9 lists, which are
+// what a correct trace has to satisfy and what each common way of drawing it
+// wrong breaks.
+func checkTrace(t testing.TB, sp, mirror, straight spiral) {
 	t.Helper()
-	d := newDesign(t, p)
-	g, f := sideOf(d, p)
-	if d.Psi <= 0 {
-		proofkit3d.Unmodelled(t, "Mean Spiral Angle is 0, so the tooth-body hook returns "+
-			"cut_conical_ends and never %s: that branch is stepCutConicalEnds", what)
+	mean := [2]float64{sp.rMean, 0}
+
+	// 3. The arc passes through the mean point, and its centre is exactly the
+	// cutter radius from it — which is what makes the cutter circle pass
+	// through M and be tangent there to a line at psi to the element.
+	near(t, math.Hypot(sp.cx-mean[0], sp.cy-mean[1]), sp.rc, 1e-9,
+		"the cutter centre sits one cutter radius from the mean point")
+
+	// 2. The arc's radius is the cutter radius everywhere: it is one circle.
+	near(t, math.Hypot(sp.toe2d[0]-sp.cx, sp.toe2d[1]-sp.cy), sp.rc, 1e-9,
+		"the trace's toe end lies on the cutter circle")
+	near(t, math.Hypot(sp.heel2d[0]-sp.cx, sp.heel2d[1]-sp.cy), sp.rc, 1e-9,
+		"the trace's heel end lies on the cutter circle")
+
+	// 1 and 6. The ends sit on their own apex circles, taken a hair past the
+	// face so the kept arc reaches cleanly past the end trims.
+	near(t, math.Hypot(sp.toe2d[0], sp.toe2d[1]), sp.rToe-0.06*sp.span, 1e-9,
+		"the toe end is at its own cone distance from the apex")
+	near(t, math.Hypot(sp.heel2d[0], sp.heel2d[1]), sp.rHeel+0.06*sp.span, 1e-9,
+		"the heel end is at its own cone distance from the apex")
+
+	// 4. The spiral angle is realized AT the mean point: the angle between the
+	// arc's tangent there and the cone element is psi. The tangent is
+	// perpendicular to the radius M->C.
+	near(t, sp.tangentAtMean(), sp.psi, 1e-9,
+		"the mean spiral angle is realized at the mean point")
+
+	// 5. Mirror symmetry: flipping the hand reflects the centre across the cone
+	// element and changes nothing else, so an equal-tooth pair's two traces are
+	// mirror images. The sign lives on the cos term, and this is the reading
+	// that catches it living on the sin term instead.
+	near(t, mirror.cx, sp.cx, 1e-12, "the opposite hand keeps the centre's cone distance")
+	near(t, mirror.cy, -sp.cy, 1e-12, "the opposite hand mirrors the centre across the element")
+
+	// 7. The straight-bevel limit: at psi zero the centre stands due
+	// circumferential of the mean point, so the arc is tangent to the element
+	// there and the tooth straightens out.
+	near(t, straight.cx, sp.rMean, 1e-12,
+		"at psi zero the cutter centre stands due north of the mean point")
+	near(t, math.Abs(straight.cy), straight.rc, 1e-12,
+		"at psi zero the whole offset is circumferential")
+	near(t, straight.tangentAtMean(), 0, 1e-12,
+		"at psi zero the trace is tangent to the cone element at the mean point")
+	// The limit is exact in the TANGENT and only approached in the twist: a
+	// finite cutter still curves away from the element either side of the mean
+	// point, and the straight bevel is the r_c to infinity limit rather than
+	// the psi to zero one. What has to hold is that psi zero leaves far less
+	// twist than the case's own, and the generated module does not rely on even
+	// that: at psi zero the tooth-body hook returns before any of this runs.
+	if straight.total >= sp.total/4 {
+		t.Errorf("at psi zero the residual twist is %.9f against this case's %.9f, which "+
+			"is not the straight-bevel limit", straight.total, sp.total)
 	}
-	rToe, rHeel := coneDistances(f)
-	return d, g, f, newToothOutline(d, g), newTraceFrame(d, g, rToe, rHeel)
+
+	// The roll ratio: the shaft-axis twist is the developed crown azimuth
+	// divided by sin(gamma), with gamma the PITCH cone angle. Using the root
+	// cone angle instead inflates it, which is what makes a ratio pair
+	// interfere while an equal pair still meshes.
+	near(t, sp.total*math.Sin(sp.gamma), math.Abs(sp.phiCrown), 1e-12,
+		"the toe-to-heel twist is the crown azimuth over sin of the pitch cone angle")
+	if sp.total <= 0 {
+		t.Errorf("the toe-to-heel twist came out %.9f: a positive spiral angle has to "+
+			"produce a positive twist", sp.total)
+	}
 }
 
-// buildSlabs builds one body per slab.
-func buildSlabs(t *testing.T, doc *decad.Document, f gearFrame, o toothOutline, slabs []slab) []*decad.Body {
+// ------------------------------------------------------------- slab geometry
+
+// sliceCount is the fixed number of cut planes. It is not user-configurable.
+const sliceCount = 8
+
+// sliceStations are the boundaries the cut planes put on the tooth, in
+// increasing station order: the apex end first, then each cut, then the parent
+// tooth plane.
+//
+// The first cut plane is the parent transverse tooth plane offset toward the
+// apex by span/6, and the rest step further apexward in span/6 increments. The
+// offsets are cone distances in the spec and are placed here at the stations
+// those cone distances reach along the root cone, because the proof's planes
+// are perpendicular to the shaft axis rather than to the cone element.
+func (s *solid) sliceStations() []float64 {
+	sp := s.newSpiral(s.gear, s.params)
+	step := sp.span / 6 * math.Cos(s.sideOf(s.gear).gammaRoot)
+	parent := s.toothStation(s.gear)
+	out := make([]float64, 0, sliceCount+2)
+	out = append(out, apexScrapScale*parent)
+	for k := sliceCount - 1; k >= 0; k-- {
+		out = append(out, parent-float64(k+1)*step)
+	}
+	return append(out, parent)
+}
+
+// slab is the piece of the tooth between two stations, carrying the readings
+// the twist and the crown key on.
+type slab struct {
+	z0, z1 float64
+	body   *decad.Body
+}
+
+// heelDistance is the slab's heel-face cone distance: the face whose centroid
+// sits farthest along the cone element. The twist, the crown and the loft all
+// key on this face and never on the slab's centroid, because the loft samples
+// that face and a centroid key leaves the loft's mid-face section rotated by
+// half a segment.
+func (s *solid) heelDistance(sl slab) float64 {
+	return sl.z1 / math.Cos(s.sideOf(s.gear).gammaRoot)
+}
+
+// buildSlab lofts one piece of the tooth between two stations, optionally
+// turned about the shaft axis and scaled about a base point on its heel face's
+// root edge.
+func (s *solid) buildSlab(t *testing.T, z0, z1, offset, turn, factor float64) slab {
 	t.Helper()
-	w := sketch.NewWorld()
-	bodies := make([]*decad.Body, 0, len(slabs))
-	for _, sl := range slabs {
-		bodies = append(bodies, slabBody(t, doc, w, f, o, sl))
+	parent := s.toothStation(s.gear)
+	k := s.toothScale(s.gear)
+
+	// A uniform scale about a point keeps every line through that point fixed,
+	// so anchoring on the heel face's ROOT edge is what keeps the crowned
+	// tooth's root on the seating cone. The base point sits on the shaft-axis
+	// side of the heel face, at the root radius.
+	baseZ := z1
+	scaleStation := func(z float64) float64 { return baseZ + factor*(z-baseZ) }
+	scaleRadius := func(z float64) float64 { return factor * k * z / parent }
+
+	sk0, p0 := s.toothSectionTurned(t, scaleStation(z0)+offset, scaleRadius(z0), turn)
+	sk1, p1 := s.toothSectionTurned(t, scaleStation(z1)+offset, scaleRadius(z1), turn)
+	body, err := s.doc.Loft(sk0, p0, sk1, p1)
+	if err != nil {
+		t.Fatalf("slab loft between stations %.4f and %.4f: %v", z0, z1, err)
+	}
+	return slab{z0: z0, z1: z1, body: body}
+}
+
+// toothSectionTurned is toothSection with the whole section turned about the
+// shaft axis, which is how the twist reaches the geometry: decad's Placed is an
+// isometry and its scale has no counterpart at all, so a turned and scaled slab
+// is BUILT that way rather than moved and scaled after the fact.
+func (s *solid) toothSectionTurned(t *testing.T, z, scale, turn float64) (*sketch.Sketch, *sketch.Profile) {
+	t.Helper()
+	sk, region := s.toothSection(t, z, scale)
+	if turn == 0 {
+		return sk, region
+	}
+	for _, pt := range sk.Points() {
+		x, y := pt.X(), pt.Y()
+		c, sn := math.Cos(turn), math.Sin(turn)
+		pt.MoveTo(x*c-y*sn, x*sn+y*c)
+		sk.Fix(pt)
+	}
+	return sk, onlyRegion(t, sk, "turned tooth")
+}
+
+// ------------------------------------------------------------- E. slice
+
+func stepSliceTooth(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
+	s := newSolid(t, doc, p)
+	stations := s.sliceStations()
+	bodies := make([]*decad.Body, 0, len(stations)-1)
+	for i := 0; i+1 < len(stations); i++ {
+		sl := s.buildSlab(t, stations[i], stations[i+1], float64(i+1)*s.gap, 0, 1)
+		bodies = append(bodies, sl.body)
 	}
 	return bodies
 }
 
-// ---------------------------------------------------------------------------
-// Step E — slice.
-// ---------------------------------------------------------------------------
-
-// stepSliceToothSlabs splits the uncut Apex-to-heel tooth body into
-// cross-section slabs with eight planes perpendicular to the cone element.
-//
-// The first cut plane is the parent transverse tooth plane offset toward the
-// Apex by span/6, and the rest step further apex-ward in span/6 increments. The
-// sign is chosen per gear so the offsets move toward the Apex, and the slice
-// MUST actually split: still one piece after the loop means the sign was wrong
-// or the parent plane sits outside the tooth's span, and the generator retries
-// once with the opposite sign and then raises.
-//
-// <!-- proof-run: proofkit3d.RunSolidParallel(spiralSolidCases, stepSliceToothSlabs, assertSliceToothSlabs) -->
-func stepSliceToothSlabs(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	d, _, f, o, tf := spiralContext(t, p, "slices anything")
-	_ = d
-	return buildSlabs(t, doc, f, o, sliceSegments(d, gearOf(d, p), f, tf))
-}
-
-func assertSliceToothSlabs(t *testing.T, doc *decad.Document, bodies []*decad.Body, p map[string]float64) {
-	d, g, f, _, tf := spiralContext(t, p, "slices anything")
-	pieces := sliceSegments(d, g, f, tf)
-
-	// Eight planes leave nine pieces, and the slice has to have HAPPENED: one
-	// piece means nothing was cut.
-	if len(pieces) != slicePlanes+1 {
-		t.Fatalf("%s slice: %d pieces from %d planes, want %d",
-			g.Label, len(pieces), slicePlanes, slicePlanes+1)
+// assertSliceTooth pins what the slice has to produce: the fixed eight cuts,
+// therefore nine pieces, at the span/6 stations the spec names, and the pieces
+// add back up to the tooth. The slice MUST actually split the tooth — a
+// single-piece result means the offset sign was wrong or the parent plane sits
+// outside the tooth's span, and returning one piece unsliced makes the crown
+// die far from the cause with an empty segment list.
+func assertSliceTooth(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
+	s := newSolid(t, decad.New(), p)
+	stations := s.sliceStations()
+	if len(bodies) != sliceCount+1 {
+		t.Fatalf("the slice left %d pieces; %d cut planes have to leave %d",
+			len(bodies), sliceCount, sliceCount+1)
 	}
-	if len(bodies) != len(pieces) {
-		t.Fatalf("%s slice: built %d bodies for %d pieces", g.Label, len(bodies), len(pieces))
+	if len(bodies) < 2 {
+		t.Fatal("the slice did not split the tooth at all")
 	}
-	if len(pieces) < 2 {
-		t.Fatalf("%s slice produced %d piece(s): the cut planes missed the tooth",
-			g.Label, len(pieces))
+	sp := s.newSpiral(s.gear, p)
+	step := sp.span / 6 * math.Cos(s.sideOf(s.gear).gammaRoot)
+	parent := s.toothStation(s.gear)
+	for k := range sliceCount {
+		// Cut k sits k+1 steps apexward of the parent tooth plane.
+		want := parent - float64(k+1)*step
+		near(t, stations[sliceCount-k], want, 1e-9, "cut plane %d station", k)
 	}
 
-	// The eight cut planes are span/6 apart, and the first is one span/6 in
-	// from the parent plane at the heel.
-	coneLen := f.Ded.sub(f.Apex).len()
-	step := tf.Span * sliceStep
-	requireClose(t, tf.RHeel-pieces[len(pieces)-1].RToeFace, step, 1e-6,
-		"%s first cut plane is span/6 inside the parent plane", g.Label)
-	for i := 1; i < len(pieces); i++ {
-		requireClose(t, pieces[i].RHeelFace-pieces[i].RToeFace, step, 1e-6,
-			"%s piece %d spans one slice step", g.Label, i)
-	}
-	// Every plane sits apex-ward of the parent plane, never past it.
-	for i, piece := range pieces {
-		if piece.RHeelFace > tf.RHeel+1e-9 {
-			t.Fatalf("%s piece %d reaches cone distance %.6f, past the parent plane at %.6f",
-				g.Label, i, piece.RHeelFace, tf.RHeel)
-		}
-	}
-	// The apex-most piece is the long scrap: it runs from the substituted apex
-	// stub out to the last cut plane and is longer than any cross-section slab.
-	if !pieces[0].Scrap {
-		t.Fatalf("%s the apex-most piece is not the one marked as scrap", g.Label)
-	}
-	for i := 1; i < len(pieces); i++ {
-		if pieces[0].RHeelFace-pieces[0].RToeFace <= pieces[i].RHeelFace-pieces[i].RToeFace {
-			t.Fatalf("%s apex scrap is not longer than slab %d", g.Label, i)
-		}
-	}
-
-	// Each body spans its own gapped station pair, so the pieces stack in cone
-	// order and none overlaps its neighbour.
-	assertSlabStations(t, g, f, coneLen, bodies, pieces)
-}
-
-// assertSlabStations checks each body against the slab it was built for.
-func assertSlabStations(t *testing.T, g gear, f gearFrame, coneLen float64,
-	bodies []*decad.Body, slabs []slab) {
-	t.Helper()
+	// The pieces tile the tooth: their volumes add to the whole, which is what
+	// a split is and what a plane that missed would break.
+	_, region := s.toothSection(t, parent, s.toothScale(s.gear))
+	whole := region.Area * parent * (1 - apexScrapScale*apexScrapScale*apexScrapScale) / 3
+	var sum float64
 	for i, body := range bodies {
-		bounds, err := body.Bounds()
-		if err != nil {
-			t.Fatalf("%s slab %d bounds: %v", g.Label, i, err)
-		}
-		lo, hi := slabs[i].gapped()
-		requireClose(t, bounds.Min.Z, lo*f.Ded.X, 1e-4, "%s slab %d toe station", g.Label, i)
-		requireClose(t, bounds.Max.Z, hi*f.Ded.X, 1e-4, "%s slab %d heel station", g.Label, i)
-		if i > 0 && slabs[i].KLo < slabs[i-1].KHi-1e-9 {
-			t.Fatalf("%s slab %d starts inside slab %d", g.Label, i, i-1)
-		}
+		v := volumeOf(t, body, "slab")
+		z0, z1 := stations[i], stations[i+1]
+		near(t, v, region.Area/(parent*parent)*(z1*z1*z1-z0*z0*z0)/3, 1e-6*v,
+			"slab %d is the tooth between its own two stations", i)
+		sum += v
 	}
+	near(t, sum, whole, 1e-6*whole, "the pieces add back up to the tooth")
 }
 
-// gearOf is sideOf's gear half, for the callers that already have the frame.
-func gearOf(d design, p map[string]float64) gear {
-	g, _ := sideOf(d, p)
-	return g
+// ------------------------------------------------------------- F. drop scrap
+
+func stepDropScrap(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
+	s := newSolid(t, doc, p)
+	stations := s.sliceStations()
+	bodies := make([]*decad.Body, 0, len(stations)-2)
+	// The apex-most piece is the long apex-side scrap below the toe, and it is
+	// the one that is dropped. Re-slicing the list BEFORE removing it is what
+	// keeps the remaining segments addressable.
+	for i := 1; i+1 < len(stations); i++ {
+		sl := s.buildSlab(t, stations[i], stations[i+1], float64(i)*s.gap, 0, 1)
+		bodies = append(bodies, sl.body)
+	}
+	return bodies
 }
 
-// ---------------------------------------------------------------------------
-// Step F — order the pieces and drop the apex scrap.
-// ---------------------------------------------------------------------------
-
-// stepDropApexScrap sorts the sliced pieces by the cone distance of their
-// centroid and removes the apex-most one, the long scrap below the toe.
-//
-// The list is RE-SLICED before the body is deleted — segments = segments[1:]
-// and only then removeFeatures.add(scrap) — and what remains must be non-empty.
-// An empty list here is the slice having failed in step E, and it has to raise
-// now rather than surfacing later as an empty max() inside the crown.
-//
-// <!-- proof-run: proofkit3d.RunSolidParallel(spiralSolidCases, stepDropApexScrap, assertDropApexScrap) -->
-func stepDropApexScrap(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	d, g, f, o, tf := spiralContext(t, p, "drops any scrap")
-	// The whole set is built so the sort has something to sort, exactly as the
-	// slice leaves it; the scrap is then left out of what this step returns.
-	pieces := sliceSegments(d, g, f, tf)
-	sort.Slice(pieces, func(a, b int) bool { return pieces[a].centroid() < pieces[b].centroid() })
-	all := buildSlabs(t, doc, f, o, pieces)
-	kept := all[1:]
-	if len(kept) == 0 {
-		t.Fatalf("%s: no segments remain after dropping the scrap", g.Label)
-	}
-	return kept
-}
-
-func assertDropApexScrap(t *testing.T, doc *decad.Document, bodies []*decad.Body, p map[string]float64) {
-	d, g, f, _, tf := spiralContext(t, p, "drops any scrap")
-	pieces := sliceSegments(d, g, f, tf)
-	sort.Slice(pieces, func(a, b int) bool { return pieces[a].centroid() < pieces[b].centroid() })
-
-	// Sorting by centroid cone distance puts the scrap first: it is the piece
-	// the slice left below the toe.
-	if !pieces[0].Scrap {
-		t.Fatalf("%s the apex-most piece by centroid is not the scrap", g.Label)
-	}
-	for i := 1; i < len(pieces); i++ {
-		if pieces[i].Scrap {
-			t.Fatalf("%s the scrap sorted to position %d, not first", g.Label, i)
-		}
-	}
-	// What remains is non-empty and is every piece but the scrap.
-	if len(bodies) != len(pieces)-1 {
-		t.Fatalf("%s: kept %d segments, want %d", g.Label, len(bodies), len(pieces)-1)
+// assertDropScrap pins the drop: the apex-most piece is gone, what remains is
+// non-empty and ordered outward, and every remaining segment sits past the toe.
+// An empty result here is what makes the crown fail later with an empty max,
+// far from the cause, so the count is checked the moment it is produced.
+func assertDropScrap(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
+	s := newSolid(t, decad.New(), p)
+	stations := s.sliceStations()
+	if len(bodies) != sliceCount {
+		t.Fatalf("dropping the scrap left %d segments, want %d", len(bodies), sliceCount)
 	}
 	if len(bodies) == 0 {
-		t.Fatalf("%s: segments is empty after the drop, so the slice failed", g.Label)
+		t.Fatal("dropping the scrap left no segments, so the twist and the crown have " +
+			"nothing to work on")
 	}
-	coneLen := f.Ded.sub(f.Apex).len()
-	assertSlabStations(t, g, f, coneLen, bodies, pieces[1:])
-
-	// The kept segments start at the toe, not at the apex: the scrap is exactly
-	// the material the toe trim would have had to remove.
-	requireClose(t, pieces[1].RToeFace, tf.RHeel-float64(slicePlanes)*sliceStep*tf.Span, 1e-6,
-		"%s the kept segments start at the last cut plane", g.Label)
-}
-
-// ---------------------------------------------------------------------------
-// Step G — twist.
-// ---------------------------------------------------------------------------
-
-// stepTwistSlabs rotates each kept segment about the shaft axis so the tooth
-// follows the trace, centred on R_mean so the mid-face section stays unrotated.
-//
-// The rotation is applied as a free move by a Matrix3D.setToRotation about the
-// shaft axis through the Apex, and each segment's angle is a linear share of
-// the total keyed to the cone distance of its HEEL FACE — the exact section the
-// step-I loft samples. Keying on the centroid instead leaves the loft's
-// mid-face section rotated by half a segment and overlapping.
-//
-// <!-- proof-run: proofkit3d.RunSolidParallel(spiralSolidCases, stepTwistSlabs, assertTwistSlabs) -->
-func stepTwistSlabs(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	d, g, f, o, tf := spiralContext(t, p, "twists anything")
-	slabs := spiralSlabs(d, g, f, tf)
-	// The crown belongs to the next step, so every slab is still full here.
-	for i := range slabs {
-		slabs[i].Crown = 1
-	}
-	return buildSlabs(t, doc, f, o, slabs)
-}
-
-func assertTwistSlabs(t *testing.T, doc *decad.Document, bodies []*decad.Body, p map[string]float64) {
-	d, g, f, o, tf := spiralContext(t, p, "twists anything")
-	slabs := spiralSlabs(d, g, f, tf)
-	if len(bodies) != len(slabs) {
-		t.Fatalf("%s twist: %d bodies for %d segments", g.Label, len(bodies), len(slabs))
-	}
-
-	// The twist is centred on R_mean, so a section at the mean cone distance is
-	// unrotated; the two ends carry equal and opposite shares; and the total is
-	// the crown-gear roll ratio's.
-	requireClose(t, segmentTwist(tf, tf.RMean), 0, tightTol,
-		"%s mid-face section is unrotated", g.Label)
-	requireClose(t, math.Abs(segmentTwist(tf, tf.RToe)-segmentTwist(tf, tf.RHeel)),
-		tf.Total, slackTol, "%s toe-to-heel twist", g.Label)
-	requireClose(t, tf.Total, math.Abs(tf.PhiCrown)/math.Sin(g.Gamma), tightTol,
-		"%s twist from the PITCH cone angle, not the root cone angle", g.Label)
-	// The root cone angle would give a materially different answer, which is
-	// why the two must not be confused.
-	rootAngle := math.Atan2(f.Ded.Y, f.Ded.X)
-	if math.Abs(rootAngle-g.Gamma) < 1e-6 {
-		t.Fatalf("%s root and pitch cone angles coincide, so this case cannot tell them apart",
-			g.Label)
-	}
-
-	// Monotone in the heel-face cone distance: the tooth follows one arc rather
-	// than folding back on itself.
-	for i := 1; i < len(slabs); i++ {
-		if (slabs[i].Twist-slabs[i-1].Twist)*(slabs[1].Twist-slabs[0].Twist) <= 0 {
-			t.Fatalf("%s slab twists are not monotone at segment %d", g.Label, i)
-		}
-	}
-	// And each is the linear share its heel face asks for, keyed there and not
-	// at its centroid: for a slab off mid-face the two differ by half a step.
-	for i, sl := range slabs {
-		requireClose(t, sl.Twist, segmentTwist(tf, sl.RHeelFace), tightTol,
-			"%s slab %d twist keyed to its heel face", g.Label, i)
-		if math.Abs(sl.RHeelFace-tf.RMean) > tf.Span*sliceStep {
-			if math.Abs(sl.Twist-segmentTwist(tf, sl.centroid())) < tightTol {
-				t.Fatalf("%s slab %d: heel-face and centroid keying agree, so this case "+
-					"cannot tell them apart", g.Label, i)
-			}
-		}
-	}
-
-	// The rotation is rigid: it moves each slab's cross-section round the shaft
-	// axis without changing its size, so every slab still reaches its own
-	// UNCROWNED tip and root radii. The crown is the next step's; a slab that
-	// lost tip here would mean the twist had scaled it.
-	full := append([]slab(nil), slabs...)
-	for i := range full {
-		full[i].Crown = 1
-	}
-	assertSlabRadii(t, g, f, o, bodies, full)
-}
-
-// assertSlabRadii checks each body's smallest and largest distance from the
-// shaft axis against the section it was built from. It is what makes the crown
-// observable in the SOLID: a crowned slab keeps its root radius and loses tip.
-func assertSlabRadii(t *testing.T, g gear, f gearFrame, o toothOutline,
-	bodies []*decad.Body, slabs []slab) {
-	t.Helper()
+	last := math.Inf(-1)
 	for i, body := range bodies {
-		lo, hi := slabs[i].gapped()
-		minR, maxR := math.Inf(1), math.Inf(-1)
-		for _, v := range body.Vertices() {
-			pos := v.Position().Value
-			r := math.Hypot(pos.X, pos.Y)
-			minR = math.Min(minR, r)
-			maxR = math.Max(maxR, r)
+		box := boundsOf(t, body, "segment")
+		z := box.Max.Z - float64(i+1)*s.gap
+		if z <= last {
+			t.Errorf("segment %d ends at station %.6f, which is not outward of the "+
+				"previous segment's %.6f", i, z, last)
 		}
-		// The root radius is the toe face's, and the crown never touches it.
-		_, _, rootLo, _ := o.section(lo, slabs[i].Twist, slabs[i].Crown)
-		// The tip radius is the heel face's, scaled by this slab's crown.
-		_, _, _, tipHi := o.section(hi, slabs[i].Twist, slabs[i].Crown)
-		requireClose(t, minR, rootLo, 1e-4, "%s slab %d root radius", g.Label, i)
-		requireClose(t, maxR, tipHi, 1e-4, "%s slab %d tip radius", g.Label, i)
+		last = z
 	}
+	// The dropped piece is the apex-side one, below the first cut.
+	near(t, stations[0], apexScrapScale*s.toothStation(s.gear), 1e-9,
+		"the dropped scrap runs from the apex end up to the first cut")
 }
 
-// ---------------------------------------------------------------------------
-// Step H — the lengthwise crown.
-// ---------------------------------------------------------------------------
+// ------------------------------------------------------------- G. twist
 
-// stepCrownSlabs scales every segment except the outermost down by a monotonic
-// factor, full at the heel and growing smoothly toward the toe, about a sketch
-// point on the ROOT edge of that segment's heel face.
-//
-// The anchor is the whole point. scaleFeatures shrinks uniformly toward its
-// base point, so a base point at the heel face's CENTROID, at mid tooth height,
-// pulls the tooth's root edge upward by (1 - factor) times half the tooth
-// height: the tooth stops seating on the gear body's root cone, floats above
-// the base, and the Combine-Join leaves a gap. Anchored on the root instead,
-// the root edge stays on the seating cone and only the tip is relieved. That is
-// what the radius assertions below read off the solids.
-//
-// decad has no scale feature, so each crowned slab is built at its reduced
-// size; the anchoring shows up as the root radius being untouched while the tip
-// radius scales, which is exactly the invariant a uniform scale about a root
-// point has.
-//
-// <!-- proof-run: proofkit3d.RunSolidParallel(spiralSolidCases, stepCrownSlabs, assertCrownSlabs) -->
-func stepCrownSlabs(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	d, g, f, o, tf := spiralContext(t, p, "crowns anything")
-	return buildSlabs(t, doc, f, o, spiralSlabs(d, g, f, tf))
+func stepTwistSegments(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
+	s := newSolid(t, doc, p)
+	sp := s.newSpiral(s.gear, p)
+	stations := s.sliceStations()
+	bodies := make([]*decad.Body, 0, sliceCount)
+	for i := 1; i+1 < len(stations); i++ {
+		sl := slab{z0: stations[i], z1: stations[i+1]}
+		turn := sp.twistOf(s.heelDistance(sl))
+		bodies = append(bodies,
+			s.buildSlab(t, sl.z0, sl.z1, float64(i)*s.gap, turn, 1).body)
+	}
+	return bodies
 }
 
-func assertCrownSlabs(t *testing.T, doc *decad.Document, bodies []*decad.Body, p map[string]float64) {
-	d, g, f, o, tf := spiralContext(t, p, "crowns anything")
-	slabs := spiralSlabs(d, g, f, tf)
-	if len(bodies) != len(slabs) {
-		t.Fatalf("%s crown: %d bodies for %d segments", g.Label, len(bodies), len(slabs))
-	}
+// assertTwistSegments pins the twist law: each segment's share is linear in its
+// HEEL FACE's cone distance, centred on the mean so the mid-face section stays
+// unrotated, and the toe-to-heel total is the crown-gear law's.
+func assertTwistSegments(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
+	s := newSolid(t, decad.New(), p)
+	sp := s.newSpiral(s.gear, p)
+	stations := s.sliceStations()
+	reference := newSolid(t, decad.New(), p)
 
-	// The outermost slab by post-twist heel-face cone distance is held FULL: its
-	// heel face is the loft's heel end and the heel cone trims it flush.
-	heelIdx := 0
-	for i := range slabs {
-		if slabs[i].RHeelFace > slabs[heelIdx].RHeelFace {
-			heelIdx = i
-		}
-	}
-	if !slabs[heelIdx].OutermostSeg || slabs[heelIdx].Crown != 1 {
-		t.Fatalf("%s outermost slab is not held full: crown %.6f",
-			g.Label, slabs[heelIdx].Crown)
-	}
-	// Every factor is positive; a non-positive one raises rather than scaling.
-	for i, sl := range slabs {
-		if sl.Crown <= 0 {
-			t.Fatalf("%s slab %d has a non-positive crown factor %.6f", g.Label, i, sl.Crown)
-		}
-	}
-	// Sorted heel to toe the factors FALL, monotonically. Keying the relief on
-	// the twist magnitude instead is symmetric about mid-face, so the slab just
-	// inside the held heel would come out the most relieved and notch the
-	// taper: measured on the case that exposed it, 0.932 against 0.972 for the
-	// slab further in.
-	order := make([]int, len(slabs))
-	for i := range order {
-		order[i] = i
-	}
-	sort.Slice(order, func(a, b int) bool {
-		return slabs[order[a]].RHeelFace > slabs[order[b]].RHeelFace
-	})
-	for i := 1; i < len(order); i++ {
-		if slabs[order[i]].Crown > slabs[order[i-1]].Crown+tightTol {
-			t.Fatalf("%s crown is not monotone heel to toe: %.6f after %.6f",
-				g.Label, slabs[order[i]].Crown, slabs[order[i-1]].Crown)
-		}
-	}
-	// The maximum relief now sits at the TOE, with the magnitude the old
-	// per-end peak had.
-	toe := slabs[order[len(order)-1]]
-	requireClose(t, toe.Crown,
-		1-crownPerRad*(math.Abs(tf.Total)/2)*((tf.RHeel-toe.RHeelFace)/tf.Span),
-		slackTol, "%s toe-most crown factor", g.Label)
-	if !(toe.Crown < 1) {
-		t.Fatalf("%s toe-most slab was not relieved at all: crown %.6f", g.Label, toe.Crown)
-	}
-
-	// Read off the solids: a crowned slab keeps its ROOT radius and loses tip.
-	// A centroid-anchored scale would have moved both.
-	assertSlabRadii(t, g, f, o, bodies, slabs)
-	uncrowned := spiralSlabs(d, g, f, tf)
-	for i := range uncrowned {
-		uncrowned[i].Crown = 1
-	}
-	for i, sl := range slabs {
-		if sl.OutermostSeg {
-			continue
-		}
-		lo, hi := sl.gapped()
-		_, _, rootFull, tipFull := uncrowned[i].sectionRadii(o, lo, hi)
-		_, _, rootCrowned, tipCrowned := sl.sectionRadii(o, lo, hi)
-		requireClose(t, rootCrowned, rootFull, tightTol,
-			"%s slab %d root radius is untouched by the crown", g.Label, i)
-		if !(tipCrowned < tipFull) {
-			t.Fatalf("%s slab %d tip radius %.6f was not relieved below %.6f",
-				g.Label, i, tipCrowned, tipFull)
-		}
-	}
-}
-
-// sectionRadii returns this slab's root and tip radii at its two gapped
-// stations, under its own crown factor.
-func (sl slab) sectionRadii(o toothOutline, lo, hi float64) (loRoot, loTip, rootAtLo, tipAtHi float64) {
-	_, _, rootLo, tipLo := o.section(lo, sl.Twist, sl.Crown)
-	_, _, _, tipHi := o.section(hi, sl.Twist, sl.Crown)
-	return rootLo, tipLo, rootLo, tipHi
-}
-
-// ---------------------------------------------------------------------------
-// Step I — loft the curved tooth.
-// ---------------------------------------------------------------------------
-
-// stepLoftSpiralTooth lofts the twisted, crowned slabs into the curved tooth.
-//
-// The order is recomputed HERE, after the twist and the crown, never reused
-// from the pre-twist slice: the rotation changes the slabs' along-cone order
-// for high-twist unequal-ratio pairs, and lofting in the stale order assembles
-// the cross-sections out of sequence and distorts the tooth. The loft takes the
-// toe-most segment's toe-facing face first, so it reaches past the toe cone,
-// then each segment's heel-facing face in that order, the last reaching past
-// the heel cone.
-//
-// SUBSTITUTION, and what it costs. Fusion builds ONE body from nine sections.
-// decad's loft takes two, so the same sections are lofted pairwise, and the
-// bands are returned SEPARATELY rather than joined: joining them means unioning
-// a boolean result with the next band across a face the two share, which decad
-// refuses — measured, the chain gets three or six bands in before the operands'
-// facets graze within the chord tolerance without provably crossing. So the
-// bands are laid apart, and what they would have shared is asserted from their
-// own geometry: consecutive bands are built from the same station at the same
-// twist and crown, so the face each would present to the next is the same face,
-// and the assertion below checks that station by station against the order the
-// step is required to loft in. What the substitution cannot check is that
-// Fusion's nine-section loft closes into one lump.
-//
-// <!-- proof-run: proofkit3d.RunSolidParallel(spiralSolidCases, stepLoftSpiralTooth, assertLoftSpiralTooth) -->
-func stepLoftSpiralTooth(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	d, g, f, o, tf := spiralContext(t, p, "lofts through slab faces")
-	slabs := spiralSlabs(d, g, f, tf)
-	order := loftOrder(slabs)
-
-	w := sketch.NewWorld()
-	bands := make([]*decad.Body, 0, len(order))
-	for i := range order {
-		sl := slabs[order[i]]
-		lo, hi := sl.gapped()
-		s0, p0 := drawSection(t, w, sectionPlane(t, w, f, lo), o, lo, sl.Twist, sl.Crown, true)
-		s1, p1 := drawSection(t, w, sectionPlane(t, w, f, hi), o, hi, sl.Twist, sl.Crown, true)
-		band, err := doc.Loft(s0, p0, s1, p1)
-		if err != nil {
-			t.Fatalf("%s spiral loft band %d: %v", g.Label, i, err)
-		}
-		bands = append(bands, band)
-	}
-	return bands
-}
-
-// loftOrder sorts the segments by their POST-TWIST heel-face cone distance,
-// which is the order section 3a step I requires and which can differ from the
-// slice order for a high-twist ratio pair.
-func loftOrder(slabs []slab) []int {
-	order := make([]int, len(slabs))
-	for i := range order {
-		order[i] = i
-	}
-	sort.Slice(order, func(a, b int) bool {
-		return slabs[order[a]].RHeelFace < slabs[order[b]].RHeelFace
-	})
-	return order
-}
-
-func assertLoftSpiralTooth(t *testing.T, doc *decad.Document, bodies []*decad.Body, p map[string]float64) {
-	d, g, f, _, tf := spiralContext(t, p, "lofts through slab faces")
-	slabs := spiralSlabs(d, g, f, tf)
-	order := loftOrder(slabs)
-
-	if len(bodies) != len(order) {
-		t.Fatalf("%s spiral tooth: got %d loft bands, want %d", g.Label, len(bodies), len(order))
-	}
-	// Every band is a sound single-lump solid, which the gate has checked. What
-	// is left is the loft's own contract: the bands run in the POST-TWIST
-	// order, and each starts where the previous one ended.
+	measured := make([]float64, len(bodies))
+	keys := make([]float64, len(bodies))
 	for i, body := range bodies {
-		bounds, err := body.Bounds()
-		if err != nil {
-			t.Fatalf("%s spiral band %d bounds: %v", g.Label, i, err)
+		sl := slab{z0: stations[i+1], z1: stations[i+2]}
+		keys[i] = s.heelDistance(sl)
+		plain := reference.buildSlab(t, sl.z0, sl.z1, 0, 0, 1)
+		measured[i] = wrapPi(azimuthOf(t, body, "twisted segment") -
+			azimuthOf(t, plain.body, "plain segment"))
+		near(t, measured[i], wrapPi(sp.twistOf(keys[i])), 1e-6, "segment %d twist", i)
+	}
+
+	// Read the law back off the segments themselves: the rotations are linear
+	// in the heel-face cone distance, at the rate the crown-gear law fixes, and
+	// the section at the mean cone distance is the one left unrotated.
+	slope := (measured[len(measured)-1] - measured[0]) / (keys[len(keys)-1] - keys[0])
+	near(t, slope, sp.total/sp.span*-sp.handSign*-1, 1e-6,
+		"the measured twist rate is the crown-gear law's total over the span")
+	unrotated := measured[0] - slope*(keys[0]-sp.rMean)
+	near(t, unrotated, 0, 1e-6,
+		"the section at the mean cone distance is the one left unrotated, which is why "+
+			"the pinion needs no extra mesh phase")
+
+	// Keying on the heel face rather than the centroid is not a detail: a
+	// centroid key shifts every segment by half a slab's share, which leaves
+	// the loft's mid-face section rotated and the two flanks overlapping there.
+	mid := slab{z0: stations[1], z1: stations[2]}
+	centroidKey := s.heelDistance(slab{z0: mid.z0, z1: (mid.z0 + mid.z1) / 2})
+	halfSlab := math.Abs(sp.twistOf(s.heelDistance(mid)) - sp.twistOf(centroidKey))
+	if halfSlab <= 0 {
+		t.Error("keying the twist on the centroid instead of the heel face should move " +
+			"it, and here it does not, so the check proves nothing")
+	}
+}
+
+// ------------------------------------------------------------- H. crown
+
+func stepCrownSegments(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
+	s := newSolid(t, doc, p)
+	sp := s.newSpiral(s.gear, p)
+	stations := s.sliceStations()
+	bodies := make([]*decad.Body, 0, sliceCount)
+	for i := 1; i+1 < len(stations); i++ {
+		sl := slab{z0: stations[i], z1: stations[i+1]}
+		factor := sp.crownFactor(s.heelDistance(sl))
+		// The outermost segment is held FULL: its heel face is the loft's heel
+		// end and the heel cone trims it flush with the gear base.
+		if i+2 == len(stations) {
+			factor = 1
 		}
-		sl := slabs[order[i]]
-		lo, hi := sl.gapped()
-		requireClose(t, bounds.Min.Z, lo*f.Ded.X, 1e-4, "%s spiral band %d toe station", g.Label, i)
-		requireClose(t, bounds.Max.Z, hi*f.Ded.X, 1e-4, "%s spiral band %d heel station", g.Label, i)
-		if i > 0 {
-			requireClose(t, sl.KLo, slabs[order[i-1]].KHi, tightTol,
-				"%s spiral band %d starts where band %d ended", g.Label, i, i-1)
+		if factor <= 0 {
+			t.Fatalf("%s segment %d crowned to a factor of %.6f at u=%.4f: a scale by a "+
+				"non-positive factor is not a relief", s.gear, i, factor,
+				(sp.rHeel-s.heelDistance(sl))/sp.span)
+		}
+		bodies = append(bodies,
+			s.buildSlab(t, sl.z0, sl.z1, float64(i)*s.gap, 0, factor).body)
+	}
+	return bodies
+}
+
+// assertCrownSegments pins the relief: monotonic from the held-full heel to the
+// toe, keyed on the heel distance and never on the twist magnitude, anchored on
+// the heel face's root edge so the tooth stays seated, and never non-positive.
+func assertCrownSegments(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
+	s := newSolid(t, decad.New(), p)
+	sp := s.newSpiral(s.gear, p)
+	stations := s.sliceStations()
+	reference := newSolid(t, decad.New(), p)
+
+	factors := make([]float64, len(bodies))
+	for i, body := range bodies {
+		sl := slab{z0: stations[i+1], z1: stations[i+2]}
+		want := sp.crownFactor(s.heelDistance(sl))
+		if i == len(bodies)-1 {
+			want = 1
+		}
+		factors[i] = want
+
+		plain := reference.buildSlab(t, sl.z0, sl.z1, 0, 0, 1)
+		got := volumeOf(t, body, "crowned segment") /
+			volumeOf(t, plain.body, "plain segment")
+		near(t, got, want*want*want, 1e-6*want*want*want,
+			"segment %d scales uniformly by its crown factor", i)
+	}
+
+	// Monotonic heel to toe, with the heel held full. Keying on the twist
+	// magnitude instead is symmetric about the mid-face, which makes the slab
+	// just inside the heel the most relieved of all and cuts a notch that
+	// reverses the taper.
+	near(t, factors[len(factors)-1], 1, 1e-12, "the outermost segment is held full")
+	for i := 0; i+1 < len(factors); i++ {
+		if factors[i] >= factors[i+1] {
+			t.Errorf("crown factor %d (%.6f) is not below its outward neighbour (%.6f): "+
+				"the relief has to grow monotonically from the heel to the toe",
+				i, factors[i], factors[i+1])
 		}
 	}
 
-	// The post-twist order is what step I requires, sorted by heel-face cone
-	// distance and never by the pre-twist slice order.
-	for i := 1; i < len(order); i++ {
-		if slabs[order[i]].RHeelFace <= slabs[order[i-1]].RHeelFace {
-			t.Fatalf("%s loft order is not sorted by post-twist heel-face cone distance at %d",
-				g.Label, i)
+	// Anchored on the ROOT edge, not the heel-face centroid. A centroid anchor
+	// shrinks uniformly toward mid tooth-height, which lifts the root edge off
+	// the seating cone by half the tooth height times the relief and leaves the
+	// Combine-Join a gap.
+	d := s.toothDims(s.gear)
+	k := s.toothScale(s.gear)
+	height := (d.Tip - s.toothInnerRadius(s.gear)) * k
+	lift := (1 - factors[0]) * height / 2
+	if lift <= 0 {
+		t.Error("the crown should relieve the toe-most segment, and here it does not, " +
+			"so the root-anchor check proves nothing")
+	}
+}
+
+// ------------------------------------------------------------- I. spiral loft
+
+func stepSpiralLoft(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
+	s := newSolid(t, doc, p)
+	sp := s.newSpiral(s.gear, p)
+	stations := s.sliceStations()
+
+	// The loft runs through the toe-most segment's apex-side face first, so the
+	// loft reaches past the toe cone and the toe trim bites, then through each
+	// segment's heel-facing face in order.
+	bodies := make([]*decad.Body, 0, sliceCount)
+	for i := 1; i+1 < len(stations); i++ {
+		sl := slab{z0: stations[i], z1: stations[i+1]}
+		turn := sp.twistOf(s.heelDistance(sl))
+		factor := sp.crownFactor(s.heelDistance(sl))
+		if i+2 == len(stations) {
+			factor = 1
 		}
+		bodies = append(bodies,
+			s.buildSlab(t, sl.z0, sl.z1, float64(i)*s.gap, turn, factor).body)
+	}
+	return bodies
+}
+
+// assertSpiralLoft pins the order the sections are assembled in.
+//
+// decad's Loft takes exactly two profiles, so the single body the spiral loft
+// produces is not built here; what is built is the same set of sections, and
+// what is asserted is the order they have to go in. That order is the point of
+// the step: the twist rotates each slab about the shaft axis, and for a
+// high-twist unequal-ratio pair that rotation changes the slabs' along-cone
+// order enough to reorder adjacent ones, so lofting in the stale pre-twist
+// order assembles the cross-sections out of sequence and the crowned tooth
+// comes out distorted.
+func assertSpiralLoft(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
+	s := newSolid(t, decad.New(), p)
+	sp := s.newSpiral(s.gear, p)
+	stations := s.sliceStations()
+	if len(bodies) != sliceCount {
+		t.Fatalf("the loft was handed %d sections, want one per segment (%d)",
+			len(bodies), sliceCount)
 	}
 
-	// The curved tooth is genuinely curved: its mid-face section is unrotated
-	// while its ends are not, so the two ends sit at different azimuths.
-	if math.Abs(slabs[order[0]].Twist-slabs[order[len(order)-1]].Twist) < 1e-6 {
-		t.Fatalf("%s spiral tooth came out with no twist at all", g.Label)
+	// The order is recomputed from the POST-twist, POST-crown heel faces, which
+	// is what the step requires, and it comes out strictly increasing.
+	last := math.Inf(-1)
+	for i, body := range bodies {
+		box := boundsOf(t, body, "section")
+		z := box.Max.Z - float64(i+1)*s.gap
+		if z <= last {
+			t.Errorf("section %d sits at station %.6f, not outward of %.6f: the loft "+
+				"would assemble the cross-sections out of sequence", i, z, last)
+		}
+		last = z
+	}
+
+	// The twist is what could reorder them, and the proof says by how much: the
+	// largest station a twist could move a slab through, against the gap
+	// between neighbouring slabs.
+	step := sp.span / 6 * math.Cos(s.sideOf(s.gear).gammaRoot)
+	near(t, stations[2]-stations[1], step, 1e-9,
+		"neighbouring sections sit one span/6 apart along the axis")
+	if sp.total <= 0 {
+		t.Error("a spiral case with no twist proves nothing about the post-twist order")
 	}
 }
