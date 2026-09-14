@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Regression tests for the step-call coverage gate."""
+import ast
 import contextlib
 import importlib.util
 import io
@@ -411,6 +412,62 @@ class CheckStepCallsTest(unittest.TestCase):
 
         self.assertEqual(trailing, (1, 'helperCall\n', ''))
         self.assertEqual(leading, trailing)
+
+
+class FrameworkEntryPointTest(unittest.TestCase):
+    """The command layer decides which methods are entry points, not a literal list."""
+
+    def _tree(self, candidate):
+        candidate_path = self.root / 'lib' / 'geargen' / 'gear.py'
+        candidate_path.parent.mkdir(parents=True, exist_ok=True)
+        candidate_path.write_text(candidate)
+        return ast.parse(candidate), str(candidate_path)
+
+    def setUp(self):
+        self._dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._dir.cleanup)
+        self.root = Path(self._dir.name)
+        commands = self.root / 'commands'
+        commands.mkdir()
+        # Both shapes a caller can use: an invocation, and a bare reference handed
+        # off as a callback for Fusion to invoke later.
+        (commands / 'gear_command.py').write_text(
+            'def run(g):\n'
+            '    g.generate(inputs)\n'
+            '    g.deleteComponent()\n')
+        (commands / 'entry.py').write_text(
+            'handler = geargen.Configurator.handle_input_changed\n')
+
+    def test_invoked_and_referenced_names_are_both_collected(self):
+        names = CHECKER.framework_entry_points(str(self.root / 'lib' / 'geargen' / 'gear.py'))
+
+        self.assertLessEqual({'generate', 'deleteComponent', 'handle_input_changed'}, names)
+
+    def test_a_call_reached_only_through_a_discovered_entry_point_counts(self):
+        tree, path = self._tree(
+            'class Gear:\n'
+            '    def deleteComponent(self):\n'
+            '        self.occurrence.deleteMe()\n')
+
+        self.assertIn('deleteMe', CHECKER.actual_call_names(tree, path))
+
+    def test_the_same_call_is_unreachable_without_the_command_layer(self):
+        tree, path = self._tree(
+            'class Gear:\n'
+            '    def deleteComponent(self):\n'
+            '        self.occurrence.deleteMe()\n')
+
+        self.assertNotIn('deleteMe', CHECKER.actual_call_names(tree))
+
+    def test_a_name_commands_touches_but_the_module_never_defines_seeds_nothing(self):
+        # commands/ mentions plenty of unrelated attributes; only a name the module
+        # itself defines can become a root, so they cannot widen the walk.
+        tree, path = self._tree(
+            'class Gear:\n'
+            '    def unrelated(self):\n'
+            '        self.thing.neverReached()\n')
+
+        self.assertNotIn('neverReached', CHECKER.actual_call_names(tree, path))
 
 
 class CheckApiCallsTest(unittest.TestCase):
