@@ -258,14 +258,29 @@ XY regardless of the real tilt. The sole exception in this module is the spiral 
 
 Bevel uses a **standalone generator**: `BevelGearGenerator` does **not** subclass `base.Generator`,
 carries **no** `GenerationContext`, and registers no user parameters. From `base.py` it imports only
-`get_selection` and `get_boolean`. `deleteComponent()` calls `deleteMe()` on the top occurrence, and
-the entry point calls it on any exception.
+`get_selection` and `get_boolean`. **`deleteComponent()` calls `deleteMe()` on the top occurrence** —
+write it as `self.bevelOccurrence.deleteMe()` — and the entry point calls `deleteComponent` on any
+exception.
 
-**`deleteComponent` is an entry point this module DEFINES, not a call it makes**: the command's
-try/except is what calls it on any exception. The `deleteMe()` inside it is a different matter — that
-IS a call this module makes, on the top occurrence, and it stays a requirement here.
+**Both of those names are exempted from the step-call check, and only one of them is exempt because
+it is not a requirement.**
 
-<!-- check-step-calls: ignore deleteComponent -->
+`deleteComponent` is an entry point this module DEFINES rather than a call it makes: the command's
+try/except is what invokes it.
+
+**`deleteMe` IS a call this module genuinely makes** — the sentence above is a requirement and stays
+one — and it is exempt only because the check cannot see it. That check walks the module from a fixed
+set of roots: module-level code, any function named `configure` or `generate`, and the methods of any
+class whose base the module does not define. Bevel's two classes have **no bases at all**, because it
+is a standalone generator that does not subclass `base.Generator`, so that last root yields nothing
+here and the walk starts at `configure` and `generate` alone. `deleteMe`'s only caller is
+`deleteComponent`, which no code in the module calls, so every call inside `deleteComponent` is
+out of reach by construction and the check reports `deleteMe` as a textual match that is not a
+reachable executable call — however the emit stage writes it, and it is already written as
+`self.bevelOccurrence.deleteMe()`. The two names cannot be classified apart: exempting the caller
+puts its whole body beyond the walk. **The gate cannot enforce this one, so a reader has to.**
+
+<!-- check-step-calls: ignore deleteComponent deleteMe -->
 
 **From:** `spec/bevelgear/instructions.md` L19–23 L267–293 L294–316 L455–458, `.claude/skills/generate-gear/PLAYBOOK.md` L804–828, `spec/bevelgear/fusion.md` L153–160
 
