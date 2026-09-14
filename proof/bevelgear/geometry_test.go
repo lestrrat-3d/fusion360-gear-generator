@@ -1,676 +1,460 @@
-// Package bevelgear_test proves the bevel gear pair's build, one function per
-// step of spec/bevelgear/steps.md.
+// Package bevelgear_test proves the bevel gear pair's build, step by step,
+// against the closed forms spec/bevelgear/instructions.md pins.
 //
-// This file holds the closed-form bevel geometry every step is measured
-// against, and the parameter-case tables the steps run over. Nothing here draws
-// anything; it is the arithmetic the spec's Variables section states, written
-// once so a step function and its assertion cannot drift apart by each deriving
-// it.
+// This file holds the closed form itself: the §2 lattice solved analytically in
+// the Gear Profiles sketch's own 2-D frame, the resolved input bounds, and the
+// per-gear anchors the later steps measure against. Nothing here draws or
+// builds; the step functions in sketches_test.go, solids_test.go and
+// spiral_test.go do that and check themselves against these numbers.
 //
-// UNITS. Every length here is in millimetres, which is the sketch engine's base
-// unit and decad's. The generated module works in Fusion's internal centimetres
-// and reads Module as a raw millimetre number; that conversion is the module's
-// and is outside what this proof can observe. The parameter map keys are the
-// dialog's own input ids, so a case reads as the dialog values it comes from.
+// Frame. Every 2-D quantity lives in the Gear Profiles sketch's local frame,
+// with the projected centre at the origin, the projected Anchor Line along +X
+// and the grow direction `perp` = +Y. The generated module picks perp's sign
+// from the target plane's normal ([BEVEL-F-GROW-SIDE]); that one-bit choice is
+// proved in stepGearProfilesPlane and is fixed to +Y everywhere else, so the
+// lattice numbers below are the same figure either way.
 //
-// FRAME. The §2 figure is planar, and every solid step revolves or patterns it
-// about one gear's shaft axis. So the solid steps work in that gear's own
-// (station, radius) frame: +Z is the shaft axis pointing away from the Apex,
-// the Apex sits at the origin, and a point's radius is its distance from +Z.
-// That frame is a rigid motion of the real one, which is what makes every
-// volume, radius, station and cone half-angle read here the same number the
-// gear has in Fusion. What it does not carry is the target plane's orientation,
-// which is a one-bit grow-side choice the sketch steps sweep instead.
+// Units. Lengths are millimetres, angles radians. The dialog's parameter keys
+// carry lengths in mm and angles in degrees; bgRead converts.
 package bevelgear_test
 
 import (
 	"math"
-
-	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit"
-	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit3d"
+	"testing"
 )
 
-// The dialog input ids, as the parameter-map keys. The hand-written
-// drawing_geometry_test.go declares the key* constants that hold these same
-// strings and calls stepGearProfiles with a map built from them, so the two
-// sides agree on the spelling by both taking it from the dialog's input table.
-//
-// gearSide is the one key with no dialog row behind it: it selects which of the
-// pair a per-gear step builds, which the module decides by running the section
-// twice rather than by reading an input.
+// The proof's parameter keys are the dialog's own input ids, so a case table
+// reads as the dialog does. They are spelled here rather than shared with the
+// hand-written drawing files' key constants so this file stands alone.
 const (
-	sidePinion  = 0.0
-	sideDriving = 1.0
+	idModule            = "module"
+	idShaftAngle        = "shaftAngle"
+	idDrivingTeeth      = "drivingTeeth"
+	idPinionTeeth       = "pinionTeeth"
+	idDrivingBaseHeight = "drivingBaseHeight"
+	idPinionBaseHeight  = "pinionBaseHeight"
+	idBoreEnable        = "boreEnable"
+	idDrivingBore       = "drivingBore"
+	idPinionBore        = "pinionBore"
+	idFaceWidth         = "faceWidth"
+	idToothSpacing      = "toothSpacing"
+	idSpiralAngle       = "spiralAngle"
+	idHand              = "spiralHand"
+	idCutterRadius      = "cutterRadius"
+	idToeExtension      = "toeExtension"
+	idDrivingToeRadius  = "drivingToeRadius"
+	idPinionToeRadius   = "pinionToeRadius"
+	idSide              = "gearSide"
+	// idRefused marks a configuration the spec admits that this particular §2
+	// net cannot reach — see "A refusal the case table records rather than
+	// avoids". The case stays in the table; the step reads the flag.
+	idRefused = "declaredRefusal"
 )
 
-// handRight and handLeft are the two Hand of Spiral list items, carried as
-// numbers because a case table is a map of float64. The module reads the
-// dropdown's selectedItem.name and compares it against the module constants
-// _HAND_RIGHT = 'Right' and _HAND_LEFT = 'Left'.
+// Fixed values the generated module carries as module-level constants.
 const (
-	handRight = 1.0
-	handLeft  = -1.0
+	bgPressureAngle     = 20.0 * math.Pi / 180 // VirtualSpurProxy's default, not a bevel dialog input
+	bgInvoluteSteps     = 15                   // VirtualSpurProxy's default
+	bgDedendumFactor    = 1.25
+	bgAddendumFactor    = 1.0
+	bgCrownPerRad       = 0.5 // _CROWN_PER_RAD
+	bgMeshPhaseTeeth    = 0.0 // _PINION_MESH_PHASE_TEETH
+	bgHandRight         = 1.0 // _HAND_RIGHT = 'Right'
+	bgHandLeft          = -1.0
+	bgSlicePlanes       = 8 // the fixed slice scheme of §3a step E
+	bgTraceOvershoot    = 0.06
+	bgToeExtCap         = 0.99
+	bgShaftAngleCeiling = 150.0 // the practical ceiling the cone-angle limit is capped at
+	bgShaftAngleFloor   = 30.0
+	bgMinTeethFactor    = 5.27
+	bgBoundFactor       = 0.95
+	bgMinBHFactor       = 1.05
 )
 
-// bevelDesign is one resolved configuration of the pair: every value the
-// Variables section derives, with the bounds already applied, in millimetres
-// and radians.
-type bevelDesign struct {
-	module       float64
-	shaftAngle   float64 // radians
-	growSide     float64 // +1 or -1: which side of the anchor line the figure grows
-	toothSpacing float64
-	toeExtension float64 // percent, [0, 100]
-	spiralAngle  float64 // radians
-	hand         float64 // handRight or handLeft, the DRIVING gear's hand
-	cutterRadius float64 // 0 means auto
+// bgPt is a point or vector in the Gear Profiles sketch's 2-D frame, mm.
+type bgPt struct{ X, Y float64 }
 
-	coneDistance float64 // sqrt(DPD^2 + PPD^2) — the diagonal, NOT R
-	pitchCone    float64 // R, the Pitch Cone Distance
-	rootCone     float64 // |Apex->Ded| = hypot(R, 1.25*module), shared by both gears
-
-	faceWidth    float64 // resolved, after the Maximum Face Width cap
-	maxFaceWidth float64
-	rootLength   float64 // resolved |Ded->Toe|
-
-	pinion  bevelSide
-	driving bevelSide
+func bgAdd(a, b bgPt) bgPt           { return bgPt{a.X + b.X, a.Y + b.Y} }
+func bgSub(a, b bgPt) bgPt           { return bgPt{a.X - b.X, a.Y - b.Y} }
+func bgScale(a bgPt, k float64) bgPt { return bgPt{a.X * k, a.Y * k} }
+func bgDot(a, b bgPt) float64        { return a.X*b.X + a.Y*b.Y }
+func bgCross(a, b bgPt) float64      { return a.X*b.Y - a.Y*b.X }
+func bgLen(a bgPt) float64           { return math.Hypot(a.X, a.Y) }
+func bgUnit(a bgPt) bgPt             { return bgScale(a, 1/bgLen(a)) }
+func bgRot(a bgPt, t float64) bgPt {
+	s, c := math.Sin(t), math.Cos(t)
+	return bgPt{a.X*c - a.Y*s, a.X*s + a.Y*c}
 }
 
-// bevelSide is one gear of the pair.
-type bevelSide struct {
-	label     string
-	teeth     float64
-	pitchDia  float64
-	gamma     float64 // pitch cone angle
-	rootGamma float64 // root cone angle, gamma - atan(1.25*module/R)
+// bgMix walks from a toward b by t of the way.
+func bgMix(a, b bgPt, t float64) bgPt { return bgAdd(a, bgScale(bgSub(b, a), t)) }
 
-	baseHeight float64 // resolved
-	minBase    float64
-	maxBase    float64
-	minTeeth   float64
-
-	toeRadius        float64 // resolved
-	toeRadiusDefault float64
-	toeRadiusCeiling float64
-	toeLimit         float64
-
-	virtualTeeth float64
-	boreDiameter float64 // resolved; 0 when Enable Bore is off
+// bgIn is one resolved dialog reading.
+type bgIn struct {
+	Module            float64
+	ShaftAngle        float64 // radians
+	DrivingTeeth      float64
+	PinionTeeth       float64
+	DrivingBaseHeight float64 // mm, 0 means "unspecified"
+	PinionBaseHeight  float64
+	BoreEnable        bool
+	DrivingBore       float64
+	PinionBore        float64
+	FaceWidth         float64 // mm, 0 means "unspecified"
+	ToothSpacing      float64
+	SpiralAngle       float64 // radians
+	Hand              float64 // +1 Right, -1 Left
+	CutterRadius      float64
+	ToeExtension      float64 // percent, [0, 100]
+	DrivingToeRadius  float64 // mm, 0 means "auto-calculate"
+	PinionToeRadius   float64
+	Driving           bool // gearSide: 0 pinion, 1 driving
+	DeclaredRefusal   bool
 }
 
-func (s bevelSide) pitchRadius() float64 { return s.pitchDia / 2 }
-
-// newBevelDesign resolves one parameter case the way _readInputs does, in the
-// order the spec's Variables section fixes: the cone angles first, then the
-// tooth-count floor, then each gear's base height between its own two bounds,
-// then the Face Width against its cap, then the toe radii and the root length.
-func newBevelDesign(p map[string]float64) bevelDesign {
-	module := p["module"]
-	sigma := p["shaftAngle"]
-	drivingTeeth := p["drivingTeeth"]
-	pinionTeeth := p["pinionTeeth"]
-
-	dpd := module * drivingTeeth
-	ppd := module * pinionTeeth
-	gammaP := math.Atan2(math.Sin(sigma)*ppd, dpd+ppd*math.Cos(sigma))
-	gammaG := sigma - gammaP
-	pitchCone := (ppd / 2) / math.Sin(gammaP)
-	rootCone := math.Hypot(pitchCone, 1.25*module)
-
-	grow := p["growSide"]
-	if grow == 0 {
-		grow = 1
+func bgGet(p map[string]float64, key string, fallback float64) float64 {
+	if v, ok := p[key]; ok {
+		return v
 	}
-
-	d := bevelDesign{
-		module:       module,
-		shaftAngle:   sigma,
-		growSide:     grow,
-		toothSpacing: p["toothSpacing"],
-		toeExtension: p["toeExtension"],
-		spiralAngle:  p["spiralAngle"],
-		hand:         handRight,
-		cutterRadius: p["cutterRadius"],
-		coneDistance: math.Hypot(dpd, ppd),
-		pitchCone:    pitchCone,
-		rootCone:     rootCone,
-	}
-	if p["spiralHand"] != 0 {
-		d.hand = p["spiralHand"]
-	}
-	d.pinion = newBevelSide("Pinion", module, pinionTeeth, ppd, gammaP, pitchCone, rootCone)
-	d.driving = newBevelSide("Driving", module, drivingTeeth, dpd, gammaG, pitchCone, rootCone)
-
-	// Base heights. The driving fallback is module * Driving Gear Teeth / 8; the
-	// pinion's is the RESOLVED driving height scaled by the tooth ratio, then held
-	// to the PINION's own bounds, which differ whenever the cone angles do.
-	d.driving.baseHeight = resolveBaseHeight(p["drivingBaseHeight"], module*drivingTeeth/8, d.driving)
-	pinionFallback := d.driving.baseHeight * pinionTeeth / drivingTeeth
-	d.pinion.baseHeight = resolveBaseHeight(p["pinionBaseHeight"], pinionFallback, d.pinion)
-
-	// Maximum Face Width: 0.95 times the smaller of the perpendicular distance
-	// from A to the Pinion Dedendum line and from B to the Driving Dedendum line.
-	// Both come out as R*sin(gamma)^2 = pitchRadius^2 / R, so the binding side is
-	// the SMALLER pitch radius and never the pinion's by name.
-	d.maxFaceWidth = 0.95 * math.Min(
-		d.pinion.pitchRadius()*d.pinion.pitchRadius(),
-		d.driving.pitchRadius()*d.driving.pitchRadius()) / pitchCone
-	d.faceWidth = p["faceWidth"]
-	if d.faceWidth <= 0 {
-		d.faceWidth = math.Min(d.coneDistance/6, d.maxFaceWidth)
-	}
-
-	d.pinion.resolveToe(module, pitchCone, rootCone, d.faceWidth, p["pinionToeRadius"])
-	d.driving.resolveToe(module, pitchCone, rootCone, d.faceWidth, p["drivingToeRadius"])
-
-	// Root Length. At Toe Extension 0 it is the Face Width re-measured along the
-	// root element. Toe Extension 100 stops at 0.99 of the way to the SMALLER of
-	// the two gears' Toe Limits, because the pair shares one root length and the
-	// last percent is what leaves a toe cone for the end-cut to find.
-	base := d.faceWidth * rootCone / pitchCone
-	limit := math.Min(d.pinion.toeLimit, d.driving.toeLimit)
-	d.rootLength = base + (d.toeExtension/100)*0.99*(limit-base)
-
-	d.pinion.virtualTeeth = math.Floor(2 * (d.pinion.pitchRadius() / math.Cos(d.pinion.gamma)) / module)
-	d.driving.virtualTeeth = math.Floor(2 * (d.driving.pitchRadius() / math.Cos(d.driving.gamma)) / module)
-
-	if p["boreEnable"] != 0 {
-		d.pinion.boreDiameter = boreDiameter(p["pinionBore"], ppd)
-		d.driving.boreDiameter = boreDiameter(p["drivingBore"], dpd)
-	}
-	return d
+	return fallback
 }
 
-func newBevelSide(label string, module, teeth, pitchDia, gamma, pitchCone, rootCone float64) bevelSide {
-	r := pitchDia / 2
-	return bevelSide{
-		label:     label,
-		teeth:     teeth,
-		pitchDia:  pitchDia,
-		gamma:     gamma,
-		rootGamma: gamma - math.Atan(1.25*module/pitchCone),
-		minBase:   1.05 * 1.25 * module * math.Sin(gamma),
-		maxBase:   0.95 * (r - 1.25*module*math.Cos(gamma)) * math.Tan(gamma),
-		minTeeth:  5.27 * math.Cos(gamma),
-	}
-}
-
-// resolveToe fixes this gear's toe radius and the two figures the Toe Extension
-// window is measured between. A Toe Radius of 0 means auto, and the auto value
-// is the inner toe corner's radius at Toe Extension 0, which is what makes Toe
-// Extension 0 reproduce the profile built before the input existed.
-func (s *bevelSide) resolveToe(module, pitchCone, rootCone, faceWidth, given float64) {
-	r := s.pitchRadius()
-	s.toeRadiusDefault = r - faceWidth/math.Sin(s.gamma)
-	s.toeRadiusCeiling = (r - 1.25*module*math.Cos(s.gamma)) * (1 - faceWidth/pitchCone)
-	s.toeRadius = given
-	if s.toeRadius <= 0 {
-		s.toeRadius = s.toeRadiusDefault
-	}
-	s.toeLimit = rootCone - s.toeRadius/math.Sin(s.rootGamma)
-}
-
-// resolveBaseHeight applies one gear's own two base-height bounds: a fallback
-// is raised to the minimum and capped at the maximum, and a user value outside
-// either end is a rejection the module raises rather than a value to clamp.
-// The proof's tables carry only configurations the module accepts, so the
-// clamp is what a case reaches.
-func resolveBaseHeight(given, fallback float64, s bevelSide) float64 {
-	value := given
-	if value <= 0 {
-		value = fallback
-	}
-	return math.Min(math.Max(value, s.minBase), s.maxBase)
-}
-
-func boreDiameter(given, pitchDia float64) float64 {
-	if given > 0 {
-		return given
-	}
-	return pitchDia / 4
-}
-
-func (d bevelDesign) side(which float64) bevelSide {
-	if which == sideDriving {
-		return d.driving
-	}
-	return d.pinion
-}
-
-// ---------------------------------------------------------------- the axial profile
-
-// axialPt is one §2 point in the gear's own axial half-plane: station is its
-// distance from the Apex along the shaft axis, radius its perpendicular
-// distance from that axis. The §2 sketch's two-dimensional frame carries the
-// same figure rotated and offset; this pair is what survives the revolve.
-type axialPt struct{ station, radius float64 }
-
-// hexagon is the six-vertex profile the gear body is revolved from, in draw
-// order: A'->G->H->C->M->N for the pinion, B'->I->J->D->O->P for the driving
-// gear. The first edge is the shaft axis and is what every later body
-// operation takes its axis from.
-type hexagon struct {
-	toeFoot  axialPt // A' / B'  — the front face's foot, on the shaft axis
-	heelAxis axialPt // G / I   — the heel end, on the shaft axis
-	heelEnd  axialPt // H / J    — the heel edge's far end
-	ded      axialPt // C / D    — the dedendum corner
-	toeCone  axialPt // M / O    — the toe edge's inner endpoint, on the root element
-	toeIn    axialPt // N / P    — the inner toe corner, at the Toe Radius
-}
-
-// axialProfile solves one gear's hexagon from the closed form.
+// bgRead turns a case's parameter map into a resolved reading.
 //
-// Every station and radius below follows from the §2 constraint net rather than
-// from a seed: the along-shaft lengths |Apex->A| and |Apex->B| are driven by the
-// Apex 2 closure, the module-length extensions by their perpendiculars, and the
-// heel edge by the base-height offset dimension.
-func (d bevelDesign) axialProfile(which float64) hexagon {
-	s := d.side(which)
-	r := s.pitchRadius()
-	ded := 1.25 * d.module
-	// C / D: the dedendum corner, one dedendum off the pitch point Apex2 along
-	// the back cone.
-	dedPt := axialPt{
-		station: d.pitchCone*math.Cos(s.gamma) + ded*math.Sin(s.gamma),
-		radius:  r - ded*math.Cos(s.gamma),
+// Angles arrive in degrees. The Shaft Angle reader also accepts radians,
+// because the spec's own range floor of 30° puts the two spellings in disjoint
+// ranges: no legal degree reading is below 6.5 and no legal radian reading is
+// above it. That tolerance is the proof's alone — the generated module reads
+// one unit, Fusion's internal radians ([PB-EVAL-EXPRESSION]).
+func bgRead(p map[string]float64) bgIn {
+	shaft := bgGet(p, idShaftAngle, 90)
+	if shaft > 6.5 {
+		shaft = shaft * math.Pi / 180
 	}
-	// G / I: the base-height offset drives the heel edge to one base height
-	// beyond A / B along the shaft.
-	heelStation := d.pitchCone*math.Cos(s.gamma) + s.baseHeight
-	// H / J: |Ded->Heel| follows from that same offset, measured along the
-	// dedendum line rather than along the shaft.
-	dedToHeel := s.baseHeight/math.Sin(s.gamma) - ded
-	heelEnd := axialPt{
-		station: dedPt.station + dedToHeel*math.Sin(s.gamma),
-		radius:  dedPt.radius - dedToHeel*math.Cos(s.gamma),
-	}
-	// M / O: the root length back along the root element from the dedendum corner.
-	toeCone := axialPt{
-		station: (d.rootCone - d.rootLength) * math.Cos(s.rootGamma),
-		radius:  (d.rootCone - d.rootLength) * math.Sin(s.rootGamma),
-	}
-	// N / P: slid from M along the toe line, which is parallel to the heel edge,
-	// until it rides at the Toe Radius.
-	slide := (toeCone.radius - s.toeRadius) / math.Cos(s.gamma)
-	toeIn := axialPt{
-		station: toeCone.station + slide*math.Sin(s.gamma),
-		radius:  s.toeRadius,
-	}
-	return hexagon{
-		toeFoot:  axialPt{station: toeIn.station, radius: 0},
-		heelAxis: axialPt{station: heelStation, radius: 0},
-		heelEnd:  heelEnd,
-		ded:      dedPt,
-		toeCone:  toeCone,
-		toeIn:    toeIn,
+	return bgIn{
+		Module:            bgGet(p, idModule, 1),
+		ShaftAngle:        shaft,
+		DrivingTeeth:      bgGet(p, idDrivingTeeth, 31),
+		PinionTeeth:       bgGet(p, idPinionTeeth, 31),
+		DrivingBaseHeight: bgGet(p, idDrivingBaseHeight, 0),
+		PinionBaseHeight:  bgGet(p, idPinionBaseHeight, 0),
+		BoreEnable:        bgGet(p, idBoreEnable, 1) != 0,
+		DrivingBore:       bgGet(p, idDrivingBore, 0),
+		PinionBore:        bgGet(p, idPinionBore, 0),
+		FaceWidth:         bgGet(p, idFaceWidth, 0),
+		ToothSpacing:      bgGet(p, idToothSpacing, 0),
+		SpiralAngle:       bgGet(p, idSpiralAngle, 0) * math.Pi / 180,
+		Hand:              bgGet(p, idHand, bgHandRight),
+		CutterRadius:      bgGet(p, idCutterRadius, 0),
+		ToeExtension:      bgGet(p, idToeExtension, 0),
+		DrivingToeRadius:  bgGet(p, idDrivingToeRadius, 0),
+		PinionToeRadius:   bgGet(p, idPinionToeRadius, 0),
+		Driving:           bgGet(p, idSide, 0) != 0,
+		DeclaredRefusal:   bgGet(p, idRefused, 0) != 0,
 	}
 }
 
-// vertices returns the hexagon in its draw order.
-func (h hexagon) vertices() []axialPt {
-	return []axialPt{h.toeFoot, h.heelAxis, h.heelEnd, h.ded, h.toeCone, h.toeIn}
-}
-
-// revolvedVolume is the volume the hexagon sweeps about the shaft axis, by the
-// solid-of-revolution integral taken edge by edge around the closed loop. It is
-// the figure the three separately built bands have to add up to.
+// bgMember is one gear of the pair, with every §2 anchor that belongs to it.
 //
-// unitArea is the area one unit of radius encloses in whatever sweep the caller
-// built: math.Pi for a true revolve, and the regular polygon's own figure for
-// the polygonal sweep the solid steps substitute.
-func (h hexagon) revolvedVolume(unitArea float64) float64 {
-	pts := h.vertices()
-	total := 0.0
-	for i := range pts {
-		a, b := pts[i], pts[(i+1)%len(pts)]
-		total += (b.station - a.station) * (a.radius*a.radius + a.radius*b.radius + b.radius*b.radius)
-	}
-	return math.Abs(unitArea * total / 3)
+// Pinion and Driving carry the same field names over the mirrored points, so a
+// per-gear step reads one structure whatever side it is building: the pinion's
+// Ded is C and the driving's is D, the pinion's Heel is H and the driving's J,
+// and so on down the "Create the Gear Bodies" substitution table.
+type bgMember struct {
+	Label    string  // "Pinion" / "Driving" — the {gearLabel} of every sketch name
+	Teeth    float64 //
+	PitchDia float64 // this gear's Pitch Diameter, mm
+	Gamma    float64 // this gear's pitch cone angle, radians
+
+	AxisDir bgPt // unit Apex->A (pinion) / Apex->B (driving)
+	DedDir  bgPt // unit Apex2->C (pinion) / Apex2->D (driving), the back-cone direction
+	RootDir bgPt // unit Apex->C / Apex->D, the root cone element
+
+	Shaft     bgPt // A / B
+	Ext       bgPt // E / F, the module-length extension's end
+	Ded       bgPt // C / D, the dedendum corner
+	Heel      bgPt // H / J
+	Foot      bgPt // G / I
+	Toe       bgPt // M / O
+	ToeInner  bgPt // N / P
+	FrontFoot bgPt // A' / B'
+	Center    bgPt // K / L
+	ToothCtr  bgPt // K' / L'
+
+	BaseHeight       float64 // resolved
+	MinBaseHeight    float64
+	MaxBaseHeight    float64
+	MinTeeth         float64
+	ToeRadius        float64 // resolved
+	ToeRadiusCeiling float64
+	ToeLimit         float64
+	BoreDia          float64 // resolved; 0 when Enable Bore is unchecked
+
+	VirtualPitchRadius float64
+	VirtualTeeth       int
+	Embedded           bool
+	RootConeAngle      float64 // gamma_root
 }
 
-// revolvedVolumeClipped is the part of that swept volume that lies inside a
-// cylinder of the given radius about the shaft axis — what a through bore of
-// that radius takes out of the frustum. The profile is integrated station by
-// station with its outer and inner radii each clipped to the bore.
-func (h hexagon) revolvedVolumeClipped(unitArea, bore float64) float64 {
-	pts := h.vertices()
-	const samples = 20000
-	lo, hi := math.Inf(1), math.Inf(-1)
-	for _, p := range pts {
-		lo, hi = math.Min(lo, p.station), math.Max(hi, p.station)
-	}
-	step := (hi - lo) / samples
-	total := 0.0
-	for i := 0; i < samples; i++ {
-		z := lo + (float64(i)+0.5)*step
-		outer, inner := h.radiiAt(z)
-		o := math.Min(outer, bore)
-		n := math.Min(inner, bore)
-		total += (o*o - n*n) * step
-	}
-	return unitArea * total
+// bgLattice is the whole solved §2 figure plus the values §3 and the body
+// steps read off it.
+type bgLattice struct {
+	In       bgIn
+	DPD, PPD float64
+	GammaP   float64
+	GammaG   float64
+	R        float64 // Pitch Cone Distance — never the Cone Distance below
+	ConeDist float64 // Cone Distance, the diagonal of the two pitch diameters
+
+	MaxShaftAngle float64 // degrees
+
+	Center bgPt // the projected centre, the frame's origin
+	Perp   bgPt // in-plane unit perpendicular to the projected anchor line
+	Apex   bgPt
+	Apex2  bgPt
+
+	FaceWidth    float64
+	MaxFaceWidth float64
+	RootLength   float64
+	RootLength0  float64
+	ApexToDed    float64 // |Apex->Ded| = sqrt(R^2 + (1.25 m)^2)
+
+	Pinion  bgMember
+	Driving bgMember
 }
 
-// radiiAt is the hexagon's outer and inner radius at one station: the crossings
-// its closed boundary makes with the line at that station, taken as the largest
-// and the smallest.
-func (h hexagon) radiiAt(station float64) (outer, inner float64) {
-	pts := h.vertices()
-	outer, inner = 0, math.Inf(1)
-	crossed := false
-	for i := range pts {
-		a, b := pts[i], pts[(i+1)%len(pts)]
-		if a.station == b.station {
+// bgMaxShaftAngle is the cone-angle singularity, capped at 150°, in degrees.
+// The cone-angle half is exclusive and the 150° half inclusive.
+func bgMaxShaftAngle(dpd, ppd float64) float64 {
+	smaller, larger := math.Min(dpd, ppd), math.Max(dpd, ppd)
+	limit := math.Acos(-smaller/larger) * 180 / math.Pi
+	return math.Min(limit, bgShaftAngleCeiling)
+}
+
+// bgSolve resolves one reading into the solved §2 lattice.
+//
+// Every position here is the position the constraint net closes on, computed
+// from the closed form the spec gives, so a step can seed its geometry at the
+// solved position ([PB-SEED-NEAR]) and then assert the solve against the same
+// numbers.
+func bgSolve(in bgIn) bgLattice {
+	m := in.Module
+	l := bgLattice{In: in}
+	l.DPD = m * in.DrivingTeeth
+	l.PPD = m * in.PinionTeeth
+	l.ConeDist = math.Hypot(l.DPD, l.PPD)
+	l.MaxShaftAngle = bgMaxShaftAngle(l.DPD, l.PPD)
+
+	sig := in.ShaftAngle
+	l.GammaP = math.Atan2(math.Sin(sig)*l.PPD, l.DPD+l.PPD*math.Cos(sig))
+	l.GammaG = sig - l.GammaP
+	l.R = (l.PPD / 2) / math.Sin(l.GammaP)
+	l.ApexToDed = math.Hypot(l.R, bgDedendumFactor*m)
+
+	l.Center = bgPt{0, 0}
+	l.Perp = bgPt{0, 1}
+
+	drivingDir := bgScale(l.Perp, -1)                    // Apex->B
+	pinionDir := bgRot(drivingDir, sig)                  // Apex->A: the +X-most of the two senses
+	pitchDir := bgRot(drivingDir, l.GammaG)              // Apex->Apex2
+	dedC := bgPt{math.Cos(l.GammaG), math.Sin(l.GammaG)} // Apex2->C, away from the anchor line
+	dedD := bgScale(dedC, -1)                            // Apex2->D, toward the anchor line
+
+	l.Pinion = bgMember{Label: "Pinion", Teeth: in.PinionTeeth, PitchDia: l.PPD, Gamma: l.GammaP,
+		AxisDir: pinionDir, DedDir: dedC}
+	l.Driving = bgMember{Label: "Driving", Teeth: in.DrivingTeeth, PitchDia: l.DPD, Gamma: l.GammaG,
+		AxisDir: drivingDir, DedDir: dedD}
+
+	for _, g := range []*bgMember{&l.Pinion, &l.Driving} {
+		r := g.PitchDia / 2
+		g.MinBaseHeight = bgMinBHFactor * bgDedendumFactor * m * math.Sin(g.Gamma)
+		g.MaxBaseHeight = bgBoundFactor * (r - bgDedendumFactor*m*math.Cos(g.Gamma)) * math.Tan(g.Gamma)
+		g.MinTeeth = bgMinTeethFactor * math.Cos(g.Gamma)
+		g.RootConeAngle = g.Gamma - math.Atan(bgDedendumFactor*m/l.R)
+		g.VirtualPitchRadius = r / math.Cos(g.Gamma)
+		g.VirtualTeeth = int(math.Floor(2 * g.VirtualPitchRadius / m))
+		g.Embedded = bgEmbedded(m, float64(g.VirtualTeeth))
+	}
+
+	// Base heights, driving first: the pinion's fallback is a share of the
+	// RESOLVED driving height, and then carries the pinion's own bounds.
+	l.Driving.BaseHeight = bgResolveBase(in.DrivingBaseHeight, m*in.DrivingTeeth/8, l.Driving)
+	l.Pinion.BaseHeight = bgResolveBase(in.PinionBaseHeight,
+		l.Driving.BaseHeight*(in.PinionTeeth/in.DrivingTeeth), l.Pinion)
+
+	// The lattice, in closure order.
+	hApex := l.R*math.Cos(l.GammaG) + l.Driving.BaseHeight
+	l.Apex = bgAdd(l.Center, bgScale(l.Perp, hApex))
+	l.Apex2 = bgAdd(l.Apex, bgScale(pitchDir, l.R))
+	l.Pinion.Shaft = bgAdd(l.Apex, bgScale(pinionDir, l.R*math.Cos(l.GammaP)))
+	l.Driving.Shaft = bgAdd(l.Apex, bgScale(drivingDir, l.R*math.Cos(l.GammaG)))
+	l.Pinion.Ded = bgAdd(l.Apex2, bgScale(dedC, bgDedendumFactor*m))
+	l.Driving.Ded = bgAdd(l.Apex2, bgScale(dedD, bgDedendumFactor*m))
+
+	for _, g := range []*bgMember{&l.Pinion, &l.Driving} {
+		g.RootDir = bgUnit(bgSub(g.Ded, l.Apex))
+		// E / F: the foot of the perpendicular from the dedendum corner onto the
+		// shaft axis, which is where "C->E perpendicular to A->E" puts it.
+		g.Ext = bgAdd(l.Apex, bgScale(g.AxisDir, bgDot(bgSub(g.Ded, l.Apex), g.AxisDir)))
+		// G / I: one base height beyond the shaft point, along the axis.
+		g.Foot = bgAdd(l.Apex, bgScale(g.AxisDir,
+			l.R*math.Cos(g.Gamma)+g.BaseHeight))
+		// H / J: the same offset, taken along the back-cone dedendum line.
+		g.Heel = bgAdd(l.Apex2, bgScale(g.DedDir, g.BaseHeight/math.Sin(g.Gamma)))
+		// K / L: where the back-cone line crosses the shaft axis.
+		g.Center = bgAdd(l.Apex2, bgScale(g.DedDir, g.VirtualPitchRadius))
+		g.ToothCtr = bgAdd(g.Center, bgScale(g.DedDir, in.ToothSpacing))
+	}
+
+	// Maximum Face Width, from the solved A, B, C, D, H, J.
+	dp := bgPointLine(l.Pinion.Shaft, l.Pinion.Ded, l.Pinion.Heel)
+	dg := bgPointLine(l.Driving.Shaft, l.Driving.Ded, l.Driving.Heel)
+	l.MaxFaceWidth = bgBoundFactor * math.Min(dp, dg)
+	if in.FaceWidth > 0 {
+		l.FaceWidth = in.FaceWidth
+	} else {
+		l.FaceWidth = math.Min(l.ConeDist/6, l.MaxFaceWidth)
+	}
+
+	// Toe radii and the toe window.
+	for _, g := range []*bgMember{&l.Pinion, &l.Driving} {
+		r := g.PitchDia / 2
+		g.ToeRadiusCeiling = (r - bgDedendumFactor*m*math.Cos(g.Gamma)) * (1 - l.FaceWidth/l.R)
+		auto := r - l.FaceWidth/math.Sin(g.Gamma)
+		switch {
+		case g == &l.Pinion && in.PinionToeRadius > 0:
+			g.ToeRadius = in.PinionToeRadius
+		case g == &l.Driving && in.DrivingToeRadius > 0:
+			g.ToeRadius = in.DrivingToeRadius
+		default:
+			g.ToeRadius = auto
+		}
+		g.ToeLimit = l.ApexToDed - g.ToeRadius/math.Sin(g.RootConeAngle)
+	}
+	l.RootLength0 = l.FaceWidth * l.ApexToDed / l.R
+	window := math.Min(l.Pinion.ToeLimit, l.Driving.ToeLimit) - l.RootLength0
+	l.RootLength = l.RootLength0 + (in.ToeExtension/100)*bgToeExtCap*window
+
+	for _, g := range []*bgMember{&l.Pinion, &l.Driving} {
+		g.Toe = bgAdd(l.Apex, bgScale(g.RootDir, l.ApexToDed-l.RootLength))
+		slide := (bgPointLine(g.Toe, l.Apex, bgAdd(l.Apex, g.AxisDir)) - g.ToeRadius) / math.Cos(g.Gamma)
+		g.ToeInner = bgAdd(g.Toe, bgScale(g.DedDir, slide))
+		g.FrontFoot = bgAdd(l.Apex, bgScale(g.AxisDir, bgDot(bgSub(g.ToeInner, l.Apex), g.AxisDir)))
+		if !in.BoreEnable {
+			g.BoreDia = 0
 			continue
 		}
-		lo, hi := a, b
-		if lo.station > hi.station {
-			lo, hi = hi, lo
+		user := in.PinionBore
+		if g == &l.Driving {
+			user = in.DrivingBore
 		}
-		if station < lo.station || station > hi.station {
-			continue
+		if user > 0 {
+			g.BoreDia = user
+		} else {
+			g.BoreDia = g.PitchDia / 4
 		}
-		f := (station - lo.station) / (hi.station - lo.station)
-		r := lo.radius + f*(hi.radius-lo.radius)
-		outer = math.Max(outer, r)
-		inner = math.Min(inner, r)
-		crossed = true
 	}
-	if !crossed {
-		return 0, 0
+	return l
+}
+
+// bgResolveBase applies a gear's own two base-height bounds to a value, the way
+// input validation does: a fallback below the minimum is raised, one above the
+// maximum is capped.
+func bgResolveBase(user, fallback float64, g bgMember) float64 {
+	v := fallback
+	if user > 0 {
+		v = user
 	}
-	return outer, inner
+	return math.Min(math.Max(v, g.MinBaseHeight), g.MaxBaseHeight)
 }
 
-// backConeHalfAngle is the half-angle of the cone the heel edge and the toe
-// line each sweep. Both run along the back cone, which stands perpendicular to
-// the pitch line, so each makes 90 degrees minus the pitch cone angle with the
-// shaft axis.
-func (s bevelSide) backConeHalfAngle() float64 { return math.Pi/2 - s.gamma }
-
-// virtualPitchRadius is the back-cone (Tredgold) pitch radius the §3 spur tooth
-// is drawn at.
-func (s bevelSide) virtualPitchRadius() float64 { return s.pitchRadius() / math.Cos(s.gamma) }
-
-// toothCentreStation is where K / L sits on the shaft axis: the back cone's own
-// apex, which is the centre of the virtual spur gear.
-func (d bevelDesign) toothCentreStation(which float64) float64 {
-	return d.pitchCone / math.Cos(d.side(which).gamma)
+// bgEmbedded reports the spur drawer's embedded verdict for a virtual tooth
+// count: the flank starts inside the root circle, so no flank-to-root lines are
+// drawn and the tooth loop holds 4 curves rather than 6.
+func bgEmbedded(module, teeth float64) bool {
+	pitch := module * teeth / 2
+	base := pitch * math.Cos(bgPressureAngle)
+	root := (module*teeth - 2*bgDedendumFactor*module) / 2
+	return base < root
 }
 
-// ---------------------------------------------------------------- spiral trace
-
-// spiralTrace is the flat cutter-arc construction of spiral-tooth-trace.md, in
-// the cone's tangent plane with the apex at the origin, x along the cone
-// element and y circumferential.
-type spiralTrace struct {
-	rToe, rHeel, rMean, span float64
-	cutterRadius             float64
-	centreX, centreY         float64
-	toeX, toeY               float64
-	heelX, heelY             float64
-	handSign                 float64
-	twist                    float64 // the toe-to-heel shaft-axis twist magnitude
-}
-
-// newSpiralTrace builds the trace for one gear. The hand is the driving gear's,
-// negated for the pinion so the pair meshes.
-func (d bevelDesign) newSpiralTrace(which float64) spiralTrace {
-	s := d.side(which)
-	h := d.axialProfile(which)
-	// The toe and heel cone distances are the root edges' midpoints measured
-	// along the root cone element Apex->Ded.
-	rToe := alongCone(midpoint(h.toeCone, h.toeIn), s.rootGamma)
-	rHeel := alongCone(midpoint(h.ded, h.heelEnd), s.rootGamma)
-	t := spiralTrace{rToe: rToe, rHeel: rHeel, rMean: (rToe + rHeel) / 2, span: rHeel - rToe}
-	t.cutterRadius = d.cutterRadius
-	if t.cutterRadius == 0 {
-		t.cutterRadius = t.rMean
+// bgWantLines is the line count find_profile_by_curve_counts is asked for:
+// 0 when the tooth is embedded, 2 when it is not. Never "0 or 2".
+func bgWantLines(embedded bool) int {
+	if embedded {
+		return 0
 	}
-	t.handSign = d.hand
-	if which == sidePinion {
-		t.handSign = -t.handSign
+	return 2
+}
+
+// bgPointLine is the perpendicular distance from p to the line through a and b.
+func bgPointLine(p, a, b bgPt) float64 {
+	d := bgUnit(bgSub(b, a))
+	return math.Abs(bgCross(d, bgSub(p, a)))
+}
+
+// bgStation is a point's distance from the apex along this gear's shaft axis.
+func (l bgLattice) bgStation(g bgMember, p bgPt) float64 {
+	return bgDot(bgSub(p, l.Apex), g.AxisDir)
+}
+
+// bgRadius is a point's perpendicular distance from this gear's shaft axis —
+// the radius the revolve sweeps it to.
+func (l bgLattice) bgRadius(g bgMember, p bgPt) float64 {
+	return math.Abs(bgCross(g.AxisDir, bgSub(p, l.Apex)))
+}
+
+// bgConeDistance is a point's distance from the apex along this gear's ROOT
+// cone element Apex->C / Apex->D — §3a's distAlong.
+func (l bgLattice) bgConeDistance(g bgMember, p bgPt) float64 {
+	return bgDot(bgSub(p, l.Apex), g.RootDir)
+}
+
+// bgHexagon returns this gear's profile-sketch hexagon in draw order,
+// A' -> G -> H -> C -> M -> N (B' -> I -> J -> D -> O -> P).
+func (l bgLattice) bgHexagon(g bgMember) []bgPt {
+	return []bgPt{g.FrontFoot, g.Foot, g.Heel, g.Ded, g.Toe, g.ToeInner}
+}
+
+// bgSide picks the member a case's gearSide names.
+func (l bgLattice) bgSide() bgMember {
+	if l.In.Driving {
+		return l.Driving
 	}
-	t.centreX = t.rMean - t.cutterRadius*math.Sin(d.spiralAngle)
-	t.centreY = t.handSign * t.cutterRadius * math.Cos(d.spiralAngle)
-	t.toeX, t.toeY = circleIntersectNearest(t.rToe-0.06*t.span, t.centreX, t.centreY, t.cutterRadius, t.rMean, 0)
-	t.heelX, t.heelY = circleIntersectNearest(t.rHeel+0.06*t.span, t.centreX, t.centreY, t.cutterRadius, t.rMean, 0)
-	phiCrown := math.Atan2(t.heelY, t.heelX) - math.Atan2(t.toeY, t.toeX)
-	t.twist = math.Abs(phiCrown) / math.Sin(s.gamma)
-	return t
+	return l.Pinion
 }
 
-// segmentAngle is the shaft-axis rotation a slab whose heel face sits at cone
-// distance rHeelFace takes, centred on R_mean so the mid-face section stays
-// unrotated.
-func (t spiralTrace) segmentAngle(rHeelFace float64) float64 {
-	return -t.handSign * t.twist * (t.rMean - rHeelFace) / t.span
-}
-
-// crownFactor is the lengthwise relief a slab takes, keyed on its monotonic
-// heel distance so the taper never reverses.
-func (t spiralTrace) crownFactor(rHeelFace float64) float64 {
-	u := (t.rHeel - rHeelFace) / t.span
-	return 1 - crownPerRad*(math.Abs(t.twist)/2)*u
-}
-
-// crownPerRad is the class constant the crown scales by, per radian of per-end
-// twist. 0 disables the crown; the shipped gear sets it to 0.5.
-const crownPerRad = 0.5
-
-// circleIntersectNearest is the framework helper's arithmetic: the intersection
-// of the apex circle of radius r with the cutter circle, taking the solution
-// nearest the reference point, and clamping to tangency when the two circles do
-// not reach each other.
-func circleIntersectNearest(r, cx, cy, rc, refX, refY float64) (float64, float64) {
-	dist := math.Hypot(cx, cy)
-	if dist == 0 {
-		return r, 0
+// bgRevolvedVolume is Pappus on the hexagon: the volume the profile sweeps
+// about this gear's shaft axis, from the polygon's first moment about it.
+func (l bgLattice) bgRevolvedVolume(g bgMember) float64 {
+	poly := l.bgHexagon(g)
+	moment := 0.0
+	for i := range poly {
+		j := (i + 1) % len(poly)
+		xi, ri := l.bgStation(g, poly[i]), l.bgRadius(g, poly[i])
+		xj, rj := l.bgStation(g, poly[j]), l.bgRadius(g, poly[j])
+		moment += (xi*rj - xj*ri) * (ri + rj)
 	}
-	a := (dist*dist + r*r - rc*rc) / (2 * dist)
-	h2 := r*r - a*a
-	ux, uy := cx/dist, cy/dist
-	baseX, baseY := a*ux, a*uy
-	if h2 <= 0 {
-		return baseX, baseY
-	}
-	h := math.Sqrt(h2)
-	x1, y1 := baseX-h*uy, baseY+h*ux
-	x2, y2 := baseX+h*uy, baseY-h*ux
-	if math.Hypot(x1-refX, y1-refY) <= math.Hypot(x2-refX, y2-refY) {
-		return x1, y1
-	}
-	return x2, y2
+	return 2 * math.Pi * math.Abs(moment) / 6
 }
 
-func midpoint(a, b axialPt) axialPt {
-	return axialPt{station: (a.station + b.station) / 2, radius: (a.radius + b.radius) / 2}
+// bgFrustum is the volume a straight profile edge sweeps about the axis,
+// between two stations — the band the revolve substitution builds.
+func bgFrustum(x0, r0, x1, r1 float64) float64 {
+	return math.Pi / 3 * math.Abs(x1-x0) * (r0*r0 + r0*r1 + r1*r1)
 }
 
-// alongCone is a point's cone distance: its distance from the apex measured
-// along the root cone element, which is the projection onto that element.
-func alongCone(p axialPt, rootGamma float64) float64 {
-	return p.station*math.Cos(rootGamma) + p.radius*math.Sin(rootGamma)
-}
-
-// ---------------------------------------------------------------- case tables
-
-// caseParams names one case by the dialog values it comes from. Every length is
-// in millimetres and every angle in degrees on the way in; the shaft and spiral
-// angles are carried in radians, which is what evaluateExpression hands the
-// module back for a `deg` input.
-type caseParams struct {
-	module                    float64
-	drivingTeeth, pinionTeeth float64
-	shaftAngleDeg             float64
-	drivingBase, pinionBase   float64
-	faceWidth                 float64
-	toothSpacing              float64
-	spiralAngleDeg            float64
-	hand                      float64
-	cutterRadius              float64
-	toeExtension              float64
-	drivingToeRadius          float64
-	pinionToeRadius           float64
-	boreEnable                float64
-	drivingBore, pinionBore   float64
-	gearSide                  float64
-	growSide                  float64
-	declaredRefusal           float64
-}
-
-func (c caseParams) params() map[string]float64 {
-	grow := c.growSide
-	if grow == 0 {
-		grow = 1
-	}
-	hand := c.hand
-	if hand == 0 {
-		hand = handRight
-	}
-	return map[string]float64{
-		"module":            c.module,
-		"drivingTeeth":      c.drivingTeeth,
-		"pinionTeeth":       c.pinionTeeth,
-		"shaftAngle":        inRadians(c.shaftAngleDeg),
-		"drivingBaseHeight": c.drivingBase,
-		"pinionBaseHeight":  c.pinionBase,
-		"faceWidth":         c.faceWidth,
-		"toothSpacing":      c.toothSpacing,
-		"spiralAngle":       inRadians(c.spiralAngleDeg),
-		"spiralHand":        hand,
-		"cutterRadius":      c.cutterRadius,
-		"toeExtension":      c.toeExtension,
-		"drivingToeRadius":  c.drivingToeRadius,
-		"pinionToeRadius":   c.pinionToeRadius,
-		"boreEnable":        c.boreEnable,
-		"drivingBore":       c.drivingBore,
-		"pinionBore":        c.pinionBore,
-		"gearSide":          c.gearSide,
-		"growSide":          grow,
-		"declaredRefusal":   c.declaredRefusal,
+// bgClose fails when two readings differ by more than tol.
+func bgClose(t *testing.T, what string, got, want, tol float64) {
+	t.Helper()
+	if math.Abs(got-want) > tol {
+		t.Errorf("%s: got %.9g, want %.9g (tolerance %.2e)", what, got, want, tol)
 	}
 }
 
-func inRadians(deg float64) float64 { return deg * math.Pi / 180 }
-
-// base is the shipped dialog defaults, at the Module the table in hand wants.
-func defaultCase(module float64) caseParams {
-	return caseParams{
-		module:         module,
-		drivingTeeth:   31,
-		pinionTeeth:    31,
-		shaftAngleDeg:  90,
-		spiralAngleDeg: 35,
-		hand:           handRight,
-		boreEnable:     1,
+func bgCloseTB(t testing.TB, what string, got, want, tol float64) {
+	t.Helper()
+	if math.Abs(got-want) > tol {
+		t.Errorf("%s: got %.9g, want %.9g (tolerance %.2e)", what, got, want, tol)
 	}
-}
-
-func (c caseParams) with(f func(*caseParams)) caseParams {
-	f(&c)
-	return c
-}
-
-// latticeCases is the regime the §2 constraint scheme has to hold across.
-//
-// The Shaft Angle sweep runs from the spec's documented 30 degree floor to well
-// above the perpendicular default, because the lattice's conditioning
-// approaches the engine's trust floor at BOTH ends and the spec is explicit
-// that where this particular net cannot reach a configuration the spec admits,
-// the case stays in the table as a declared refusal rather than the range being
-// narrowed. Ratio pairs run both ways round, since either gear can carry the
-// smaller tooth count and the Maximum Face Width binds on whichever does. The
-// grow side is swept because the sign of the in-plane perpendicular is chosen
-// by the target plane's normal, and a scheme that only holds on one side is a
-// scheme that mirrors on half the target planes.
-var latticeCases = []proofkit.Case{
-	{Name: "default_31_31_90deg", Params: defaultCase(1).params()},
-	{Name: "default_grow_side_reversed", Params: defaultCase(1).with(func(c *caseParams) { c.growSide = -1 }).params()},
-	{Name: "shaft_35deg", Params: defaultCase(1).with(func(c *caseParams) { c.shaftAngleDeg = 35 }).params()},
-	{Name: "shaft_60deg", Params: defaultCase(1).with(func(c *caseParams) { c.shaftAngleDeg = 60 }).params()},
-	{Name: "shaft_120deg", Params: defaultCase(1).with(func(c *caseParams) { c.shaftAngleDeg = 120 }).params()},
-	{Name: "shaft_142deg", Params: defaultCase(1).with(func(c *caseParams) { c.shaftAngleDeg = 142 }).params()},
-	{Name: "shaft_150deg", Params: defaultCase(1).with(func(c *caseParams) { c.shaftAngleDeg = 150 }).params()},
-	{Name: "ratio_31_17", Params: defaultCase(1).with(func(c *caseParams) { c.pinionTeeth = 17 }).params()},
-	{Name: "ratio_17_31", Params: defaultCase(1).with(func(c *caseParams) { c.drivingTeeth = 17 }).params()},
-	{Name: "ratio_19_13_module2", Params: defaultCase(2).with(func(c *caseParams) {
-		c.drivingTeeth, c.pinionTeeth = 19, 13
-	}).params()},
-	{Name: "low_tooth_count_4_4", Params: defaultCase(1).with(func(c *caseParams) {
-		c.drivingTeeth, c.pinionTeeth = 4, 4
-	}).params()},
-	{Name: "toe_extension_50", Params: defaultCase(1).with(func(c *caseParams) { c.toeExtension = 50 }).params()},
-	{Name: "toe_extension_100", Params: defaultCase(1).with(func(c *caseParams) { c.toeExtension = 100 }).params()},
-	{Name: "toe_extension_100_ratio_31_17", Params: defaultCase(1).with(func(c *caseParams) {
-		c.pinionTeeth, c.toeExtension = 17, 100
-	}).params()},
-	{Name: "toe_radius_user_set", Params: defaultCase(1).with(func(c *caseParams) {
-		c.drivingToeRadius, c.pinionToeRadius = 3, 2
-	}).params()},
-	{Name: "toe_radius_user_set_with_extension", Params: defaultCase(1).with(func(c *caseParams) {
-		c.drivingToeRadius, c.pinionToeRadius, c.toeExtension = 3, 2, 60
-	}).params()},
-	{Name: "tooth_spacing_positive", Params: defaultCase(1).with(func(c *caseParams) { c.toothSpacing = 0.3 }).params()},
-	{Name: "base_heights_user_set", Params: defaultCase(1).with(func(c *caseParams) {
-		c.drivingBase, c.pinionBase = 6, 2
-	}).params()},
-	{Name: "face_width_user_set", Params: defaultCase(1).with(func(c *caseParams) { c.faceWidth = 4 }).params()},
-	{Name: "shaft_30deg_declared_refusal", Params: defaultCase(1).with(func(c *caseParams) {
-		c.shaftAngleDeg, c.declaredRefusal = 30, 1
-	}).params()},
-}
-
-// solidCases run at Module 4 to 8, never at Module 1: decad's mesh bound has an
-// absolute floor, so a figure small enough brings every measurement inside it
-// and the gate reports Suspect on geometry that is in fact correct. Module is a
-// pure scale on this figure, so a case at Module 4 proves the same shape as one
-// at Module 1 and clears the floor. Both sides of the pair are built, because
-// the two differ in pitch cone angle wherever the tooth counts do and every
-// per-gear step is run twice by the module.
-var solidCases = []proofkit3d.Case{
-	{Name: "pinion_M4_31_31", Params: defaultCase(4).params()},
-	{Name: "driving_M4_31_31", Params: defaultCase(4).with(func(c *caseParams) { c.gearSide = sideDriving }).params()},
-	{Name: "pinion_M4_31_17", Params: defaultCase(4).with(func(c *caseParams) { c.pinionTeeth = 17 }).params()},
-	{Name: "driving_M4_31_17", Params: defaultCase(4).with(func(c *caseParams) {
-		c.pinionTeeth, c.gearSide = 17, sideDriving
-	}).params()},
-	{Name: "pinion_M8_17_31_shaft_60deg", Params: defaultCase(8).with(func(c *caseParams) {
-		c.drivingTeeth, c.shaftAngleDeg = 17, 60
-	}).params()},
-	{Name: "driving_M8_17_31_shaft_120deg", Params: defaultCase(8).with(func(c *caseParams) {
-		c.drivingTeeth, c.shaftAngleDeg, c.gearSide = 17, 120, sideDriving
-	}).params()},
-	{Name: "pinion_M6_toe_extension_100", Params: defaultCase(6).with(func(c *caseParams) { c.toeExtension = 100 }).params()},
-	{Name: "driving_M6_no_bore", Params: defaultCase(6).with(func(c *caseParams) {
-		c.boreEnable, c.gearSide = 0, sideDriving
-	}).params()},
-}
-
-// spiralCases add the Mean Spiral Angle and the Hand of Spiral to the solid
-// regime. Spiral Angle 0 is the straight bevel, which takes the other branch
-// entirely and is proved by the straight steps; every case here is above it,
-// at both hands, because opposite hands must be exact mirror images for an
-// equal-teeth pair and the two members of a ratio pair legitimately get
-// different twists.
-var spiralCases = []proofkit3d.Case{
-	{Name: "pinion_M4_31_31_right_35deg", Params: defaultCase(4).params()},
-	{Name: "driving_M4_31_31_right_35deg", Params: defaultCase(4).with(func(c *caseParams) { c.gearSide = sideDriving }).params()},
-	{Name: "pinion_M4_31_31_left_35deg", Params: defaultCase(4).with(func(c *caseParams) { c.hand = handLeft }).params()},
-	{Name: "driving_M4_31_31_left_35deg", Params: defaultCase(4).with(func(c *caseParams) {
-		c.hand, c.gearSide = handLeft, sideDriving
-	}).params()},
-	{Name: "pinion_M4_31_17_right_20deg", Params: defaultCase(4).with(func(c *caseParams) {
-		c.pinionTeeth, c.spiralAngleDeg = 17, 20
-	}).params()},
-	{Name: "driving_M4_31_17_right_20deg", Params: defaultCase(4).with(func(c *caseParams) {
-		c.pinionTeeth, c.spiralAngleDeg, c.gearSide = 17, 20, sideDriving
-	}).params()},
-	{Name: "pinion_M6_55deg_cutter_set", Params: defaultCase(6).with(func(c *caseParams) {
-		c.spiralAngleDeg, c.cutterRadius = 55, 40
-	}).params()},
-	{Name: "driving_M6_55deg_cutter_set", Params: defaultCase(6).with(func(c *caseParams) {
-		c.spiralAngleDeg, c.cutterRadius, c.gearSide = 55, 40, sideDriving
-	}).params()},
 }
