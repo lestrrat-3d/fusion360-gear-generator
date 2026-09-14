@@ -234,9 +234,13 @@ A correct trace must satisfy all of:
 7. **Straight-bevel limit — a tangency at `M`, not an identity.** At ψ = 0 the centre sits
    straight north of `M` (`C = (R_mean, r_c)`), so the arc is **tangent to the cone element
    at `M`** — and only there. It still curves away toward toe and heel, so its ends still
-   subtend an angle at the apex: with the automatic cutter radius `r_c = R_mean` the
-   residual toe→heel twist is about **0.0158 rad (0.90°)** on the default 31/31 pair, and
-   that figure is module-free. The element itself comes back only in the further limit
+   subtend an angle at the apex: with the automatic cutter radius `r_c = R_mean` the residual
+   crown-plane sweep `φ_crown` is a few thousandths of a radian, and the shaft-axis twist is
+   `φ_crown / sin γ` on top of it. ⚠️ **Do not quote a fixed figure for it here.** It is
+   module-free but it depends on `R_toe`, which the Toe Radius and Toe Extension inputs move,
+   so three separate derivations of "the default pair's residual" have disagreed. Compute it
+   from the current toe and heel radii when a number is needed, and say which of the two
+   quantities the number is. The element itself comes back only in the further limit
    `r_c → ∞` taken at ψ = 0; with ψ > 0 held fixed, `r_c → ∞` straightens the trace but
    leaves it at angle ψ to the element, which still twists the tooth. **No built tooth
    carries that residual**: the hook's ψ = 0 gate returns the straight-tooth path before any

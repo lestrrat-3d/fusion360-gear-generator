@@ -329,9 +329,14 @@ returns a 7-tuple `(parentComponent, targetPlane, centerPoint, module, drivingTe
 shaftAngle_deg)` and stashes the rest as instance attributes (`self._drivingBaseHeight_cm`,
 `self._pinionBaseHeight_cm`, `self._boreEnable`, `self._drivingBore_cm`, `self._pinionBore_cm`,
 `self._faceWidth_cm`, `self._toothSpacing_cm`, `self._spiralAngle_rad`, `self._hand`,
-`self._cutterRadius_cm`); `generate()` later stashes the derived `self._coneDistance_cm`,
+`self._cutterRadius_cm`, `self._toeExtension_pct`, `self._drivingToeRadius_cm`,
+`self._pinionToeRadius_cm`); `generate()` later stashes the derived `self._coneDistance_cm`,
 `self._gamma_p`, `self._gamma_g` (and `_buildGearProfiles` stashes the resolved
-`self._faceWidthResolved_cm`); (b) the per-gear geometric anchors are carried in **plain per-gear
+`self._faceWidthResolved_cm` and, once the Root Length follows from it, the resolved
+`self._drivingToeRadiusResolved_cm` and `self._pinionToeRadiusResolved_cm`);
+`self._toeExtension_pct` is the raw unitless percentage the dialog returns, not a length —
+inputs 18 to 20 are read the way "Exact input ids" states and every one of the three is stashed
+here, since §2 resolves the toe lattice from all three; (b) the per-gear geometric anchors are carried in **plain per-gear
 dicts** (`pinionCtx` / `drivingCtx`), built in `_buildGearProfiles` and passed to
 `_buildVirtualSpurProfile` / `_createGearBody`, which write five further entries back into the dict
 (every key, its type and its readers: the table "Exact per-gear context dictionary keys" below);
@@ -629,7 +634,7 @@ Create an **offset dimension between the B->Apex2 perpendicular drop line (the D
 
 Create an **offset dimension between the A->Apex2 perpendicular drop line (the PPD/2 drop per the naming convention — not the Apex->A shaft axis) and G->H** — already parallel by construction (G->H ⊥ E->G), so as with the driving side add no parallel constraint (`[PB-OFFSET-DIM]`). It is unsigned in the same way, and the G and H seeds above are what pick its side. The value should be equal to Pinion Gear Base Height _if_ specified (non-0); otherwise the **RESOLVED** Driving Gear Base Height `* (Pinion Gear Teeth Number / Driving Gear Teeth Number)`. "Resolved" means the value the driving offset above actually used — i.e. after the driving side's own fallback (`module * Driving Gear Teeth Number / 8` when the driving input was 0) **and** after the driving Maximum Base Height capped it — NOT the raw driving input. Then apply the **pinion's own** Maximum Base Height to the result: the two gears have different pitch cone angles whenever the tooth counts differ, so the driving cap does not imply the pinion's, and a scaled-down driving height can still overshoot the pinion's own heel limit.
 
-Draw a line from A' to G, the hexagon's shaft-axis edge. Constrain endpoints appropriately. It starts at the front face's foot A', not at A; the two coincide at Toe Extension 0.
+Draw a line from A' to G, the hexagon's shaft-axis edge. Constrain endpoints appropriately. It starts at the front face's foot A', not at A; the two coincide at Toe Extension 0. **This line is what CREATES A'** — nothing above it does — so draw it with its start seeded at the closed form `A' = Apex + <unit Apex->A> · <the along-shaft coordinate of N>`, the foot of the perpendicular from N onto the pinion shaft axis. The front face N->A' further below is what PINS A' to that axis; until then A' is a free endpoint sitting at its seed. Draw the line here rather than after the front face, so the hexagon's edges are created in the walk order `A' -> G -> H -> C -> M -> N` that the Profile sketch's first-edge rule depends on.
 
 Constrain Point I with center point.
 

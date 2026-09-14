@@ -191,8 +191,9 @@ in `PLAYBOOK.md` still apply).
   sketch's local +Y.** A sketch-local rule like `perp.y >= 0` is deterministic but NOT tied to a
   physical side: the sketch's local +Y maps to different world sides depending on how the
   gear-profiles plane was oriented, so the gear grows inconsistently. Pick `perp`'s sign so it points
-  **toward the target-plane normal** (one-bit direction only — the apex *position* stays sketch-local
-  `c + perp·DPD`, so this does NOT reintroduce the XY collapse). Consistent across all target planes;
+  **toward the target-plane normal** (one-bit direction only — the apex *position* stays sketch-local,
+  at `c + perp·(R·cos γ_g + <the resolved Driving Gear Base Height>)` per `[BEVEL-F-APEX-LOCAL]`
+  above, so this does NOT reintroduce the XY collapse). Consistent across all target planes;
   flip the single comparison to grow on the opposite side.
 
 ## Component activation & cleanup
