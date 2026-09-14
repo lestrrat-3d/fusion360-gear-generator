@@ -156,5 +156,75 @@
     "rule": "reportAttributeAccessIssue",
     "message": "Cannot assign to attribute \"patternComputeOption\" for class \"CircularPatternFeatureInput\"",
     "why": "Stub noise: the database gives CircularPatternFeatureInput.patternComputeOption as a read/write PatternComputeOptions property, and AdjustPatternCompute as a real member of that enum, but the stub declares the members as bare ints (AdjustPatternCompute = 2), so assigning one to the PatternComputeOptions-typed setter reads as a type mismatch. The step list requires the assignment and calls it not optional (spec/cycloidal/steps.md:695). cycloidal is the only gear that sets this property, which is why no baseline covers it."
+  },
+  {
+    "rule": "reportReturnType",
+    "message": "Type \"BRepFace | None\" is not assignable to return type \"BRepFace\"",
+    "why": "A BRepBody always has at least one face, so the best-face loop always assigns and slabToeFace never returns None; pyright cannot see that the iteration is non-empty."
+  },
+  {
+    "rule": "reportAssignmentType",
+    "message": "Type \"Base | Unknown\" is not assignable to declared type \"SketchLine\"",
+    "why": "sketch.project is absent from the compiled API database, which the spec records and keeps, so its return reads as Unknown and every assignment from it is reported. Not a defect in the assignment."
+  },
+  {
+    "rule": "reportAssignmentType",
+    "message": "Type \"Base | Unknown\" is not assignable to declared type \"SketchPoint\"",
+    "why": "Same missing project() return type; the projected entity really is a SketchPoint."
+  },
+  {
+    "rule": "reportAttributeAccessIssue",
+    "message": "Cannot assign to attribute \"bevelOccurrence\" for class \"BevelGearGenerator*\"",
+    "why": "bevelOccurrence is genuinely None between __init__ and step 3, and the class declaration names the Occurrence it later holds rather than an Optional. A declaration nicety, not a runtime path."
+  },
+  {
+    "rule": "reportAttributeAccessIssue",
+    "message": "Cannot assign to attribute \"bevelComponent\" for class \"BevelGearGenerator*\"",
+    "why": "A class attribute declared with the Fusion type it eventually holds and initialised to None in __init__. Every one is assigned during generate() before anything reads it; pyright reports the None initialiser against the declared type."
+  },
+  {
+    "rule": "reportAttributeAccessIssue",
+    "message": "Cannot assign to attribute \"designOccurrence\" for class \"BevelGearGenerator*\"",
+    "why": "A class attribute declared with the Fusion type it eventually holds and initialised to None in __init__. Every one is assigned during generate() before anything reads it; pyright reports the None initialiser against the declared type."
+  },
+  {
+    "rule": "reportAttributeAccessIssue",
+    "message": "Cannot assign to attribute \"designComponent\" for class \"BevelGearGenerator*\"",
+    "why": "A class attribute declared with the Fusion type it eventually holds and initialised to None in __init__. Every one is assigned during generate() before anything reads it; pyright reports the None initialiser against the declared type."
+  },
+  {
+    "rule": "reportAttributeAccessIssue",
+    "message": "Cannot assign to attribute \"_anchorSketch\" for class \"BevelGearGenerator*\"",
+    "why": "A class attribute declared with the Fusion type it eventually holds and initialised to None in __init__. Every one is assigned during generate() before anything reads it; pyright reports the None initialiser against the declared type."
+  },
+  {
+    "rule": "reportAttributeAccessIssue",
+    "message": "Cannot assign to attribute \"_anchorCenterPoint\" for class \"BevelGearGenerator*\"",
+    "why": "A class attribute declared with the Fusion type it eventually holds and initialised to None in __init__. Every one is assigned during generate() before anything reads it; pyright reports the None initialiser against the declared type."
+  },
+  {
+    "rule": "reportAttributeAccessIssue",
+    "message": "Cannot assign to attribute \"_anchorLine\" for class \"BevelGearGenerator*\"",
+    "why": "A class attribute declared with the Fusion type it eventually holds and initialised to None in __init__. Every one is assigned during generate() before anything reads it; pyright reports the None initialiser against the declared type."
+  },
+  {
+    "rule": "reportAttributeAccessIssue",
+    "message": "Cannot assign to attribute \"_gearProfilesPlane\" for class \"BevelGearGenerator*\"",
+    "why": "A class attribute declared with the Fusion type it eventually holds and initialised to None in __init__. Every one is assigned during generate() before anything reads it; pyright reports the None initialiser against the declared type."
+  },
+  {
+    "rule": "reportAttributeAccessIssue",
+    "message": "Cannot assign to attribute \"_gpSketch\" for class \"BevelGearGenerator*\"",
+    "why": "A class attribute declared with the Fusion type it eventually holds and initialised to None in __init__. Every one is assigned during generate() before anything reads it; pyright reports the None initialiser against the declared type."
+  },
+  {
+    "rule": "reportAttributeAccessIssue",
+    "message": "Cannot assign to attribute \"_apexSketchPoint\" for class \"BevelGearGenerator*\"",
+    "why": "A class attribute declared with the Fusion type it eventually holds and initialised to None in __init__. Every one is assigned during generate() before anything reads it; pyright reports the None initialiser against the declared type."
+  },
+  {
+    "rule": "reportOperatorIssue",
+    "message": "Operator \"*\" not supported for types \"float\" and \"float | None\"",
+    "why": "self._coneDistance_cm is set in _buildGearProfiles and read in _cutBore, and generate() always runs them in that order, so it is never None at this multiplication. Pyright cannot see ordering across methods."
   }
 ]

@@ -126,7 +126,13 @@ in `PLAYBOOK.md` still apply).
     projected center and `d` the projected anchor line's 2-D unit direction.
   - In-plane perpendicular `perp = (-d.y, d.x)`. **Pick the sign by the target-plane normal, NOT by
     the sketch's local +Y** (see `[BEVEL-F-GROW-SIDE]`).
-  - The Apex is the 2-D point `c + perp·DPD`. Build it as the free **end** of a construction line
+  - The Apex is the 2-D point `c + perp·(R·cos γ_g + <resolved Driving Gear Base Height>)`, with `R`
+    the Pitch Cone Distance and `γ_g` the driving pitch cone angle. **Not `c + perp·DPD`**, which is
+    what this anchor said before: the constraint net closes the line at `R·cos γ_g` above point I
+    plus that base height, so for the default 31/31 pair at Shaft Angle 90° the old seed sat
+    11.6 mm past where the solve puts it. `instructions.md`'s §2 owns this formula and the full
+    reason; this line repeats it only so the anchor is not read alone and left wrong.
+    Build it as the free **end** of a construction line
     from the projected center, seeded at that 2-D point but **left undimensioned** (pinned later via
     "Constrain Point I with center"). Construct it by the COINCIDENT style
     (`[BEVEL-F-COINCIDENT-STYLE]`): pass **raw `Point3D` coordinates for BOTH endpoints** to

@@ -241,7 +241,7 @@ func frustumPolygon(f gearFrame) []render.Vec2 {
 func toothRing(t *testing.T, d design, g gear, f gearFrame) (*solidlens.Mesh, error) {
 	t.Helper()
 	o := newToothOutline(d, g)
-	section := toothSection(o)
+	section := drawnToothSection(o)
 	ends, err := render.EarClip(section)
 	if err != nil {
 		return nil, err
@@ -291,7 +291,7 @@ func tooth(g gear, f gearFrame, section []render.Vec2, ends [][3]int) (*solidlen
 	return render.Prism(near, far, ends)
 }
 
-// toothSection is the tooth's heel cross-section as one closed loop, walked
+// drawnToothSection is the tooth's heel cross-section as one closed loop, walked
 // counter-clockwise: up the right flank, across the tip, down the left flank,
 // and back under the tooth along the root arc. newToothOutline puts the flank
 // at the smaller angle in Right, which is what makes that walk the
@@ -302,7 +302,7 @@ func tooth(g gear, f gearFrame, section []render.Vec2, ends [][3]int) (*solidlen
 // seats exactly on that cone; here the sink also keeps the tooth's root face
 // off the body's root face, which two coincident surfaces would otherwise
 // fight over pixel by pixel.
-func toothSection(o toothOutline) []render.Vec2 {
+func drawnToothSection(o toothOutline) []render.Vec2 {
 	right, left, rootR, tipR := o.section(1, 0, 1)
 	loop := make([]render.Vec2, 0, 2*len(right)+2*renderArcSamples+2)
 

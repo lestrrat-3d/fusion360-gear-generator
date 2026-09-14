@@ -1,673 +1,460 @@
-// Package bevelgear_test proves the bevel gear pair described by
-// spec/bevelgear/instructions.md, its Fusion sidecar spec/bevelgear/fusion.md
-// and the trace derivation spec/bevelgear/spiral-tooth-trace.md.
+// Package bevelgear_test proves the bevel gear pair's build, step by step,
+// against the closed forms spec/bevelgear/instructions.md pins.
 //
-// Units. The Fusion module works in Fusion internal units (centimetres) and
-// reads Module as a raw millimetre number. Both engines used here work in
-// millimetres, so the proof works in millimetres throughout and the cm
-// conversions the generator has to make are carried in the step list rather
-// than modelled here. Angles are radians unless a name says otherwise.
+// This file holds the closed form itself: the §2 lattice solved analytically in
+// the Gear Profiles sketch's own 2-D frame, the resolved input bounds, and the
+// per-gear anchors the later steps measure against. Nothing here draws or
+// builds; the step functions in sketches_test.go, solids_test.go and
+// spiral_test.go do that and check themselves against these numbers.
 //
-// Frames. Every gear is proved in its own frame: the origin is the shared
-// Apex, the first coordinate ("along") runs down that gear's shaft axis away
-// from the Apex, and the second ("radial") is the perpendicular distance from
-// that axis. The two gears then have the same closed form with their own
-// (gamma, pitch diameter, base height) substituted, which is why one lattice
-// function serves both. The Gear Profiles sketch holds both gears at once, so
-// the lattice proof works in the shared sketch frame instead and converts.
+// Frame. Every 2-D quantity lives in the Gear Profiles sketch's local frame,
+// with the projected centre at the origin, the projected Anchor Line along +X
+// and the grow direction `perp` = +Y. The generated module picks perp's sign
+// from the target plane's normal ([BEVEL-F-GROW-SIDE]); that one-bit choice is
+// proved in stepGearProfilesPlane and is fixed to +Y everywhere else, so the
+// lattice numbers below are the same figure either way.
+//
+// Units. Lengths are millimetres, angles radians. The dialog's parameter keys
+// carry lengths in mm and angles in degrees; bgRead converts.
 package bevelgear_test
 
 import (
-	"fmt"
 	"math"
 	"testing"
 )
 
-// ---------------------------------------------------------------------------
-// Case parameter keys. A case table is a []proofkit.Case / []proofkit3d.Case,
-// and both carry map[string]float64, so every input is a float64 here — the
-// two booleans included.
-// ---------------------------------------------------------------------------
-
+// The proof's parameter keys are the dialog's own input ids, so a case table
+// reads as the dialog does. They are spelled here rather than shared with the
+// hand-written drawing files' key constants so this file stands alone.
 const (
-	keyModule       = "module"        // raw mm, the dialog's unitless Module
-	keyDrivingTeeth = "drivingTeeth"  // Driving Gear Teeth
-	keyPinionTeeth  = "pinionTeeth"   // Pinion Gear Teeth
-	keyShaftAngle   = "shaftAngleDeg" // Shaft Angle, degrees
-	keyDrivingBase  = "drivingBaseHeight"
-	keyPinionBase   = "pinionBaseHeight"
-	keyFaceWidth    = "faceWidth"
-	keyToothSpacing = "toothSpacing"
-	keySpiralAngle  = "spiralAngleDeg" // Mean Spiral Angle psi, degrees
-	keyHand         = "hand"           // +1 Right, -1 Left (the DRIVING gear's hand)
-	keyCutterRadius = "cutterRadius"
-	keyBoreEnable   = "boreEnable" // 1 enabled, 0 disabled
-	keyDrivingBore  = "drivingBore"
-	keyPinionBore   = "pinionBore"
-
-	// The keyExpect* keys carry the values instructions.md publishes, so a
-	// worked case in the table states the number the spec states and the proof
-	// checks the resolution against it rather than against itself.
-	keyExpectMaxBaseHeight   = "expectMaxBaseHeight"
-	keyExpectTrueCrossing    = "expectTrueCrossing"
-	keyExpectDrivingFallback = "expectDrivingFallback"
-	keyExpectResolvedBase    = "expectResolvedBase"
-	keyExpectMaxShaftAngle   = "expectMaxShaftAngle"
-	keyExpectShaftExclusive  = "expectShaftExclusive"
-	keyExpectMinTeeth        = "expectMinTeeth"
-
-	// keyNetLimited marks a case this particular section 2 net cannot reach
-	// within the sketch engine's conditioning floor. It is a property of the
-	// net, never a bound on the input — see the note on latticeCases.
-	keyNetLimited = "netLimited"
+	idModule            = "module"
+	idShaftAngle        = "shaftAngle"
+	idDrivingTeeth      = "drivingTeeth"
+	idPinionTeeth       = "pinionTeeth"
+	idDrivingBaseHeight = "drivingBaseHeight"
+	idPinionBaseHeight  = "pinionBaseHeight"
+	idBoreEnable        = "boreEnable"
+	idDrivingBore       = "drivingBore"
+	idPinionBore        = "pinionBore"
+	idFaceWidth         = "faceWidth"
+	idToothSpacing      = "toothSpacing"
+	idSpiralAngle       = "spiralAngle"
+	idHand              = "spiralHand"
+	idCutterRadius      = "cutterRadius"
+	idToeExtension      = "toeExtension"
+	idDrivingToeRadius  = "drivingToeRadius"
+	idPinionToeRadius   = "pinionToeRadius"
+	idSide              = "gearSide"
+	// idRefused marks a configuration the spec admits that this particular §2
+	// net cannot reach — see "A refusal the case table records rather than
+	// avoids". The case stays in the table; the step reads the flag.
+	idRefused = "declaredRefusal"
 )
 
-// tightTol is the tolerance for a quantity two closed forms should agree on
-// exactly; slackTol is for one that has been through the constraint solver,
-// whose convergence tolerance is 1e-10 on the residual.
+// Fixed values the generated module carries as module-level constants.
 const (
-	tightTol = 1e-9
-	slackTol = 1e-7
+	bgPressureAngle     = 20.0 * math.Pi / 180 // VirtualSpurProxy's default, not a bevel dialog input
+	bgInvoluteSteps     = 15                   // VirtualSpurProxy's default
+	bgDedendumFactor    = 1.25
+	bgAddendumFactor    = 1.0
+	bgCrownPerRad       = 0.5 // _CROWN_PER_RAD
+	bgMeshPhaseTeeth    = 0.0 // _PINION_MESH_PHASE_TEETH
+	bgHandRight         = 1.0 // _HAND_RIGHT = 'Right'
+	bgHandLeft          = -1.0
+	bgSlicePlanes       = 8 // the fixed slice scheme of §3a step E
+	bgTraceOvershoot    = 0.06
+	bgToeExtCap         = 0.99
+	bgShaftAngleCeiling = 150.0 // the practical ceiling the cone-angle limit is capped at
+	bgShaftAngleFloor   = 30.0
+	bgMinTeethFactor    = 5.27
+	bgBoundFactor       = 0.95
+	bgMinBHFactor       = 1.05
 )
 
-// ---------------------------------------------------------------------------
-// Plane vectors. The lattice is a plane figure, so the proof carries its own
-// two-component vector rather than borrowing r3.Vec and leaving a zero z to be
-// read as meaningful.
-// ---------------------------------------------------------------------------
+// bgPt is a point or vector in the Gear Profiles sketch's 2-D frame, mm.
+type bgPt struct{ X, Y float64 }
 
-type vec2 struct{ X, Y float64 }
+func bgAdd(a, b bgPt) bgPt           { return bgPt{a.X + b.X, a.Y + b.Y} }
+func bgSub(a, b bgPt) bgPt           { return bgPt{a.X - b.X, a.Y - b.Y} }
+func bgScale(a bgPt, k float64) bgPt { return bgPt{a.X * k, a.Y * k} }
+func bgDot(a, b bgPt) float64        { return a.X*b.X + a.Y*b.Y }
+func bgCross(a, b bgPt) float64      { return a.X*b.Y - a.Y*b.X }
+func bgLen(a bgPt) float64           { return math.Hypot(a.X, a.Y) }
+func bgUnit(a bgPt) bgPt             { return bgScale(a, 1/bgLen(a)) }
+func bgRot(a bgPt, t float64) bgPt {
+	s, c := math.Sin(t), math.Cos(t)
+	return bgPt{a.X*c - a.Y*s, a.X*s + a.Y*c}
+}
 
-func v2(x, y float64) vec2            { return vec2{x, y} }
-func (a vec2) add(b vec2) vec2        { return vec2{a.X + b.X, a.Y + b.Y} }
-func (a vec2) sub(b vec2) vec2        { return vec2{a.X - b.X, a.Y - b.Y} }
-func (a vec2) scale(k float64) vec2   { return vec2{a.X * k, a.Y * k} }
-func (a vec2) dot(b vec2) float64     { return a.X*b.X + a.Y*b.Y }
-func (a vec2) cross(b vec2) float64   { return a.X*b.Y - a.Y*b.X }
-func (a vec2) len() float64           { return math.Hypot(a.X, a.Y) }
-func (a vec2) distanceTo(b vec2) float64 { return a.sub(b).len() }
+// bgMix walks from a toward b by t of the way.
+func bgMix(a, b bgPt, t float64) bgPt { return bgAdd(a, bgScale(bgSub(b, a), t)) }
 
-func (a vec2) unit() vec2 {
-	n := a.len()
-	if n == 0 {
-		return vec2{}
+// bgIn is one resolved dialog reading.
+type bgIn struct {
+	Module            float64
+	ShaftAngle        float64 // radians
+	DrivingTeeth      float64
+	PinionTeeth       float64
+	DrivingBaseHeight float64 // mm, 0 means "unspecified"
+	PinionBaseHeight  float64
+	BoreEnable        bool
+	DrivingBore       float64
+	PinionBore        float64
+	FaceWidth         float64 // mm, 0 means "unspecified"
+	ToothSpacing      float64
+	SpiralAngle       float64 // radians
+	Hand              float64 // +1 Right, -1 Left
+	CutterRadius      float64
+	ToeExtension      float64 // percent, [0, 100]
+	DrivingToeRadius  float64 // mm, 0 means "auto-calculate"
+	PinionToeRadius   float64
+	Driving           bool // gearSide: 0 pinion, 1 driving
+	DeclaredRefusal   bool
+}
+
+func bgGet(p map[string]float64, key string, fallback float64) float64 {
+	if v, ok := p[key]; ok {
+		return v
 	}
-	return a.scale(1 / n)
+	return fallback
 }
 
-// leftNormal is the +90 degree rotation of a. The sketch engine's Offset
-// dimension is signed with positive on the LEFT of the source line's
-// start-to-end direction, so this is the vector the proof's offset signs are
-// read against.
-func (a vec2) leftNormal() vec2 { return vec2{-a.Y, a.X} }
-
-func rotate2(a vec2, ang float64) vec2 {
-	s, c := math.Sin(ang), math.Cos(ang)
-	return vec2{a.X*c - a.Y*s, a.X*s + a.Y*c}
-}
-
-// signedDistanceFromLine is the signed perpendicular distance of p from the
-// infinite line through from -> to, positive on the left of that direction.
-// It is the quantity a signed offset dimension drives.
-func signedDistanceFromLine(from, to, p vec2) float64 {
-	d := to.sub(from).unit()
-	return p.sub(from).dot(d.leftNormal())
-}
-
-// ---------------------------------------------------------------------------
-// Input resolution — instructions.md "Variables".
+// bgRead turns a case's parameter map into a resolved reading.
 //
-// Everything here is closed form: the Fusion generator resolves all of it in
-// _readInputs before any geometry exists, except the Maximum Face Width, which
-// instructions.md pins to the SOLVED sketch geometry of A, B, C, D, H and J
-// ([PB-SOLVED-GEOMETRY]). The proof computes the face-width cap from the same
-// closed form AND checks it against the solved lattice, which is what makes
-// the two readings comparable.
-// ---------------------------------------------------------------------------
-
-// gear is one member of the pair: everything the build needs that differs
-// between pinion and driving.
-type gear struct {
-	Label         string  // "Pinion" or "Driving"
-	Teeth         float64 // this gear's tooth count
-	PitchDiameter float64 // Module * Teeth, mm
-	Gamma         float64 // pitch cone half angle, radians
-	BaseHeight    float64 // RESOLVED base height, mm
-	Bore          float64 // RESOLVED bore diameter, mm (0 when Enable Bore is off)
-}
-
-// design holds every resolved value of one case.
-type design struct {
-	Module       float64
-	Sigma        float64 // Shaft Angle, radians
-	R            float64 // Pitch Cone Distance: (PPD/2) / sin gamma_p
-	ConeDistance float64 // sqrt(DPD^2 + PPD^2) — the OTHER length, the diagonal
-	FaceWidth    float64 // resolved, already capped by MaximumFaceWidth
-	ToothSpacing float64
-	Psi          float64 // Mean Spiral Angle, radians
-	HandSign     float64 // +1 Right, -1 Left, as read for the DRIVING gear
-	CutterRadius float64 // raw input, 0 meaning auto
-	BoreEnable   bool
-
-	// Bounds is every closed-form limit this design was resolved against.
-	Bounds bounds
-
-	Pinion  gear
-	Driving gear
-}
-
-// coneAngles is the closed form instructions.md section 2 seeds the lattice
-// with: tan gamma_p = sin Sigma * PPD / (DPD + PPD cos Sigma), gamma_g =
-// Sigma - gamma_p.
-func coneAngles(sigma, drivingPitchDia, pinionPitchDia float64) (gammaP, gammaG float64) {
-	gammaP = math.Atan2(math.Sin(sigma)*pinionPitchDia,
-		drivingPitchDia+pinionPitchDia*math.Cos(sigma))
-	return gammaP, sigma - gammaP
-}
-
-// maximumShaftAngleDeg is the cone-angle singularity limit capped at 150.
-// The cone-angle half is EXCLUSIVE (acos is a hard singularity there) and the
-// 150 half is inclusive, so the caller compares with < against the first and
-// <= against the second; maximumShaftAngleExclusive reports which half won.
-func maximumShaftAngleDeg(drivingPitchDia, pinionPitchDia float64) (limit float64, exclusive bool) {
-	smaller := math.Min(drivingPitchDia, pinionPitchDia)
-	larger := math.Max(drivingPitchDia, pinionPitchDia)
-	cone := math.Acos(-smaller/larger) * 180 / math.Pi
-	if cone <= 150 {
-		return cone, true
+// Angles arrive in degrees. The Shaft Angle reader also accepts radians,
+// because the spec's own range floor of 30° puts the two spellings in disjoint
+// ranges: no legal degree reading is below 6.5 and no legal radian reading is
+// above it. That tolerance is the proof's alone — the generated module reads
+// one unit, Fusion's internal radians ([PB-EVAL-EXPRESSION]).
+func bgRead(p map[string]float64) bgIn {
+	shaft := bgGet(p, idShaftAngle, 90)
+	if shaft > 6.5 {
+		shaft = shaft * math.Pi / 180
 	}
-	return 150, false
+	return bgIn{
+		Module:            bgGet(p, idModule, 1),
+		ShaftAngle:        shaft,
+		DrivingTeeth:      bgGet(p, idDrivingTeeth, 31),
+		PinionTeeth:       bgGet(p, idPinionTeeth, 31),
+		DrivingBaseHeight: bgGet(p, idDrivingBaseHeight, 0),
+		PinionBaseHeight:  bgGet(p, idPinionBaseHeight, 0),
+		BoreEnable:        bgGet(p, idBoreEnable, 1) != 0,
+		DrivingBore:       bgGet(p, idDrivingBore, 0),
+		PinionBore:        bgGet(p, idPinionBore, 0),
+		FaceWidth:         bgGet(p, idFaceWidth, 0),
+		ToothSpacing:      bgGet(p, idToothSpacing, 0),
+		SpiralAngle:       bgGet(p, idSpiralAngle, 0) * math.Pi / 180,
+		Hand:              bgGet(p, idHand, bgHandRight),
+		CutterRadius:      bgGet(p, idCutterRadius, 0),
+		ToeExtension:      bgGet(p, idToeExtension, 0),
+		DrivingToeRadius:  bgGet(p, idDrivingToeRadius, 0),
+		PinionToeRadius:   bgGet(p, idPinionToeRadius, 0),
+		Driving:           bgGet(p, idSide, 0) != 0,
+		DeclaredRefusal:   bgGet(p, idRefused, 0) != 0,
+	}
 }
 
-// minimumBaseHeight and maximumBaseHeight are the two ends of one gear's heel
-// edge window. Both are closed form in r, gamma and Module, so both resolve
-// during input validation.
-func minimumBaseHeight(module, gamma float64) float64 {
-	return 1.05 * 1.25 * module * math.Sin(gamma)
+// bgMember is one gear of the pair, with every §2 anchor that belongs to it.
+//
+// Pinion and Driving carry the same field names over the mirrored points, so a
+// per-gear step reads one structure whatever side it is building: the pinion's
+// Ded is C and the driving's is D, the pinion's Heel is H and the driving's J,
+// and so on down the "Create the Gear Bodies" substitution table.
+type bgMember struct {
+	Label    string  // "Pinion" / "Driving" — the {gearLabel} of every sketch name
+	Teeth    float64 //
+	PitchDia float64 // this gear's Pitch Diameter, mm
+	Gamma    float64 // this gear's pitch cone angle, radians
+
+	AxisDir bgPt // unit Apex->A (pinion) / Apex->B (driving)
+	DedDir  bgPt // unit Apex2->C (pinion) / Apex2->D (driving), the back-cone direction
+	RootDir bgPt // unit Apex->C / Apex->D, the root cone element
+
+	Shaft     bgPt // A / B
+	Ext       bgPt // E / F, the module-length extension's end
+	Ded       bgPt // C / D, the dedendum corner
+	Heel      bgPt // H / J
+	Foot      bgPt // G / I
+	Toe       bgPt // M / O
+	ToeInner  bgPt // N / P
+	FrontFoot bgPt // A' / B'
+	Center    bgPt // K / L
+	ToothCtr  bgPt // K' / L'
+
+	BaseHeight       float64 // resolved
+	MinBaseHeight    float64
+	MaxBaseHeight    float64
+	MinTeeth         float64
+	ToeRadius        float64 // resolved
+	ToeRadiusCeiling float64
+	ToeLimit         float64
+	BoreDia          float64 // resolved; 0 when Enable Bore is unchecked
+
+	VirtualPitchRadius float64
+	VirtualTeeth       int
+	Embedded           bool
+	RootConeAngle      float64 // gamma_root
 }
 
-func maximumBaseHeight(module, pitchRadius, gamma float64) float64 {
-	return 0.95 * (pitchRadius - 1.25*module*math.Cos(gamma)) * math.Tan(gamma)
+// bgLattice is the whole solved §2 figure plus the values §3 and the body
+// steps read off it.
+type bgLattice struct {
+	In       bgIn
+	DPD, PPD float64
+	GammaP   float64
+	GammaG   float64
+	R        float64 // Pitch Cone Distance — never the Cone Distance below
+	ConeDist float64 // Cone Distance, the diagonal of the two pitch diameters
+
+	MaxShaftAngle float64 // degrees
+
+	Center bgPt // the projected centre, the frame's origin
+	Perp   bgPt // in-plane unit perpendicular to the projected anchor line
+	Apex   bgPt
+	Apex2  bgPt
+
+	FaceWidth    float64
+	MaxFaceWidth float64
+	RootLength   float64
+	RootLength0  float64
+	ApexToDed    float64 // |Apex->Ded| = sqrt(R^2 + (1.25 m)^2)
+
+	Pinion  bgMember
+	Driving bgMember
 }
 
-// trueHeelCrossing is the base height at which the heel point H (resp. J)
-// reaches the shaft axis and the revolved profile folds onto its own axis of
-// revolution. maximumBaseHeight sits 1.25*Module*sin(gamma) below it, which is
-// the conservatism instructions.md declares.
-func trueHeelCrossing(pitchRadius, gamma float64) float64 {
-	return pitchRadius * math.Tan(gamma)
+// bgMaxShaftAngle is the cone-angle singularity, capped at 150°, in degrees.
+// The cone-angle half is exclusive and the 150° half inclusive.
+func bgMaxShaftAngle(dpd, ppd float64) float64 {
+	smaller, larger := math.Min(dpd, ppd), math.Max(dpd, ppd)
+	limit := math.Acos(-smaller/larger) * 180 / math.Pi
+	return math.Min(limit, bgShaftAngleCeiling)
 }
 
-// minimumTeeth is the count below which the base-height window is empty:
-// 5.27 * cos(gamma), with 5.27 = 2 * (1.05*1.25/0.95 + 1.25).
-func minimumTeeth(gamma float64) float64 { return 5.27 * math.Cos(gamma) }
+// bgSolve resolves one reading into the solved §2 lattice.
+//
+// Every position here is the position the constraint net closes on, computed
+// from the closed form the spec gives, so a step can seed its geometry at the
+// solved position ([PB-SEED-NEAR]) and then assert the solve against the same
+// numbers.
+func bgSolve(in bgIn) bgLattice {
+	m := in.Module
+	l := bgLattice{In: in}
+	l.DPD = m * in.DrivingTeeth
+	l.PPD = m * in.PinionTeeth
+	l.ConeDist = math.Hypot(l.DPD, l.PPD)
+	l.MaxShaftAngle = bgMaxShaftAngle(l.DPD, l.PPD)
 
-// resolveBaseHeight applies one gear's window to one base height. raw is the
-// dialog value (0 meaning unspecified) and fallback is the value to use in its
-// place. It returns the resolved height and, when the user's own value broke a
-// bound, the side it broke — the generator rejects there rather than clamping.
-func resolveBaseHeight(raw, fallback, minimum, maximum float64) (resolved float64, rejected string) {
-	if raw > 0 {
+	sig := in.ShaftAngle
+	l.GammaP = math.Atan2(math.Sin(sig)*l.PPD, l.DPD+l.PPD*math.Cos(sig))
+	l.GammaG = sig - l.GammaP
+	l.R = (l.PPD / 2) / math.Sin(l.GammaP)
+	l.ApexToDed = math.Hypot(l.R, bgDedendumFactor*m)
+
+	l.Center = bgPt{0, 0}
+	l.Perp = bgPt{0, 1}
+
+	drivingDir := bgScale(l.Perp, -1)                    // Apex->B
+	pinionDir := bgRot(drivingDir, sig)                  // Apex->A: the +X-most of the two senses
+	pitchDir := bgRot(drivingDir, l.GammaG)              // Apex->Apex2
+	dedC := bgPt{math.Cos(l.GammaG), math.Sin(l.GammaG)} // Apex2->C, away from the anchor line
+	dedD := bgScale(dedC, -1)                            // Apex2->D, toward the anchor line
+
+	l.Pinion = bgMember{Label: "Pinion", Teeth: in.PinionTeeth, PitchDia: l.PPD, Gamma: l.GammaP,
+		AxisDir: pinionDir, DedDir: dedC}
+	l.Driving = bgMember{Label: "Driving", Teeth: in.DrivingTeeth, PitchDia: l.DPD, Gamma: l.GammaG,
+		AxisDir: drivingDir, DedDir: dedD}
+
+	for _, g := range []*bgMember{&l.Pinion, &l.Driving} {
+		r := g.PitchDia / 2
+		g.MinBaseHeight = bgMinBHFactor * bgDedendumFactor * m * math.Sin(g.Gamma)
+		g.MaxBaseHeight = bgBoundFactor * (r - bgDedendumFactor*m*math.Cos(g.Gamma)) * math.Tan(g.Gamma)
+		g.MinTeeth = bgMinTeethFactor * math.Cos(g.Gamma)
+		g.RootConeAngle = g.Gamma - math.Atan(bgDedendumFactor*m/l.R)
+		g.VirtualPitchRadius = r / math.Cos(g.Gamma)
+		g.VirtualTeeth = int(math.Floor(2 * g.VirtualPitchRadius / m))
+		g.Embedded = bgEmbedded(m, float64(g.VirtualTeeth))
+	}
+
+	// Base heights, driving first: the pinion's fallback is a share of the
+	// RESOLVED driving height, and then carries the pinion's own bounds.
+	l.Driving.BaseHeight = bgResolveBase(in.DrivingBaseHeight, m*in.DrivingTeeth/8, l.Driving)
+	l.Pinion.BaseHeight = bgResolveBase(in.PinionBaseHeight,
+		l.Driving.BaseHeight*(in.PinionTeeth/in.DrivingTeeth), l.Pinion)
+
+	// The lattice, in closure order.
+	hApex := l.R*math.Cos(l.GammaG) + l.Driving.BaseHeight
+	l.Apex = bgAdd(l.Center, bgScale(l.Perp, hApex))
+	l.Apex2 = bgAdd(l.Apex, bgScale(pitchDir, l.R))
+	l.Pinion.Shaft = bgAdd(l.Apex, bgScale(pinionDir, l.R*math.Cos(l.GammaP)))
+	l.Driving.Shaft = bgAdd(l.Apex, bgScale(drivingDir, l.R*math.Cos(l.GammaG)))
+	l.Pinion.Ded = bgAdd(l.Apex2, bgScale(dedC, bgDedendumFactor*m))
+	l.Driving.Ded = bgAdd(l.Apex2, bgScale(dedD, bgDedendumFactor*m))
+
+	for _, g := range []*bgMember{&l.Pinion, &l.Driving} {
+		g.RootDir = bgUnit(bgSub(g.Ded, l.Apex))
+		// E / F: the foot of the perpendicular from the dedendum corner onto the
+		// shaft axis, which is where "C->E perpendicular to A->E" puts it.
+		g.Ext = bgAdd(l.Apex, bgScale(g.AxisDir, bgDot(bgSub(g.Ded, l.Apex), g.AxisDir)))
+		// G / I: one base height beyond the shaft point, along the axis.
+		g.Foot = bgAdd(l.Apex, bgScale(g.AxisDir,
+			l.R*math.Cos(g.Gamma)+g.BaseHeight))
+		// H / J: the same offset, taken along the back-cone dedendum line.
+		g.Heel = bgAdd(l.Apex2, bgScale(g.DedDir, g.BaseHeight/math.Sin(g.Gamma)))
+		// K / L: where the back-cone line crosses the shaft axis.
+		g.Center = bgAdd(l.Apex2, bgScale(g.DedDir, g.VirtualPitchRadius))
+		g.ToothCtr = bgAdd(g.Center, bgScale(g.DedDir, in.ToothSpacing))
+	}
+
+	// Maximum Face Width, from the solved A, B, C, D, H, J.
+	dp := bgPointLine(l.Pinion.Shaft, l.Pinion.Ded, l.Pinion.Heel)
+	dg := bgPointLine(l.Driving.Shaft, l.Driving.Ded, l.Driving.Heel)
+	l.MaxFaceWidth = bgBoundFactor * math.Min(dp, dg)
+	if in.FaceWidth > 0 {
+		l.FaceWidth = in.FaceWidth
+	} else {
+		l.FaceWidth = math.Min(l.ConeDist/6, l.MaxFaceWidth)
+	}
+
+	// Toe radii and the toe window.
+	for _, g := range []*bgMember{&l.Pinion, &l.Driving} {
+		r := g.PitchDia / 2
+		g.ToeRadiusCeiling = (r - bgDedendumFactor*m*math.Cos(g.Gamma)) * (1 - l.FaceWidth/l.R)
+		auto := r - l.FaceWidth/math.Sin(g.Gamma)
 		switch {
-		case raw < minimum:
-			return raw, "below minimum"
-		case raw > maximum:
-			return raw, "above maximum"
+		case g == &l.Pinion && in.PinionToeRadius > 0:
+			g.ToeRadius = in.PinionToeRadius
+		case g == &l.Driving && in.DrivingToeRadius > 0:
+			g.ToeRadius = in.DrivingToeRadius
+		default:
+			g.ToeRadius = auto
 		}
-		return raw, ""
+		g.ToeLimit = l.ApexToDed - g.ToeRadius/math.Sin(g.RootConeAngle)
 	}
-	return math.Min(math.Max(fallback, minimum), maximum), ""
+	l.RootLength0 = l.FaceWidth * l.ApexToDed / l.R
+	window := math.Min(l.Pinion.ToeLimit, l.Driving.ToeLimit) - l.RootLength0
+	l.RootLength = l.RootLength0 + (in.ToeExtension/100)*bgToeExtCap*window
+
+	for _, g := range []*bgMember{&l.Pinion, &l.Driving} {
+		g.Toe = bgAdd(l.Apex, bgScale(g.RootDir, l.ApexToDed-l.RootLength))
+		slide := (bgPointLine(g.Toe, l.Apex, bgAdd(l.Apex, g.AxisDir)) - g.ToeRadius) / math.Cos(g.Gamma)
+		g.ToeInner = bgAdd(g.Toe, bgScale(g.DedDir, slide))
+		g.FrontFoot = bgAdd(l.Apex, bgScale(g.AxisDir, bgDot(bgSub(g.ToeInner, l.Apex), g.AxisDir)))
+		if !in.BoreEnable {
+			g.BoreDia = 0
+			continue
+		}
+		user := in.PinionBore
+		if g == &l.Driving {
+			user = in.DrivingBore
+		}
+		if user > 0 {
+			g.BoreDia = user
+		} else {
+			g.BoreDia = g.PitchDia / 4
+		}
+	}
+	return l
 }
 
-// maximumFaceWidth is 0.95 times the smaller of the perpendicular distance
-// from A to line C-H and from B to line D-J. Both distances reduce to
-// R * sin(gamma)^2 for the gear in question, so the binding side is the gear
-// with the smaller pitch diameter. Kept as its own function so the lattice
-// proof can compare it against the same quantity measured off solved points.
-func maximumFaceWidth(r, gammaP, gammaG float64) float64 {
-	sp := math.Sin(gammaP)
-	sg := math.Sin(gammaG)
-	return 0.95 * r * math.Min(sp*sp, sg*sg)
+// bgResolveBase applies a gear's own two base-height bounds to a value, the way
+// input validation does: a fallback below the minimum is raised, one above the
+// maximum is capped.
+func bgResolveBase(user, fallback float64, g bgMember) float64 {
+	v := fallback
+	if user > 0 {
+		v = user
+	}
+	return math.Min(math.Max(v, g.MinBaseHeight), g.MaxBaseHeight)
 }
 
-// virtualTeeth is the back-cone (Tredgold) tooth number this gear's spur tooth
-// is drawn with: floor(2 * virtualPitchRadius / Module) with virtualPitchRadius
-// = (PitchDiameter/2) / cos(gamma). It is independent of Tooth Spacing.
-func virtualTeeth(module, pitchDiameter, gamma float64) int {
-	return int(math.Floor(2 * virtualPitchRadius(pitchDiameter, gamma) / module))
+// bgEmbedded reports the spur drawer's embedded verdict for a virtual tooth
+// count: the flank starts inside the root circle, so no flank-to-root lines are
+// drawn and the tooth loop holds 4 curves rather than 6.
+func bgEmbedded(module, teeth float64) bool {
+	pitch := module * teeth / 2
+	base := pitch * math.Cos(bgPressureAngle)
+	root := (module*teeth - 2*bgDedendumFactor*module) / 2
+	return base < root
 }
 
-func virtualPitchRadius(pitchDiameter, gamma float64) float64 {
-	return (pitchDiameter / 2) / math.Cos(gamma)
-}
-
-// bounds is every closed-form limit the Variables section defines, kept beside
-// the design that was resolved against it so a proof can read the bound as well
-// as the value it produced.
-type bounds struct {
-	MaxShaftAngleDeg    float64 // the cone-angle singularity, capped at 150
-	ShaftAngleExclusive bool    // true when the cone-angle half won, so the limit itself is refused
-
-	MinTeethPinion  float64 // 5.27 * cos(gamma), per gear, on top of the blanket 3
-	MinTeethDriving float64
-
-	MinBaseHeightPinion  float64
-	MaxBaseHeightPinion  float64
-	TrueCrossingPinion   float64 // r * tan(gamma): where the heel point reaches the axis
-	MinBaseHeightDriving float64
-	MaxBaseHeightDriving float64
-	TrueCrossingDriving  float64
-
-	DrivingFallback float64 // Module * Driving Gear Teeth Number / 8
-	PinionFallback  float64 // the RESOLVED driving height * pinion teeth / driving teeth
-
-	MaxFaceWidth      float64
-	FaceWidthFallback float64 // Cone Distance / 6
-}
-
-// resolveDesign resolves one case the way _readInputs plus the section 2
-// face-width step do, in the order instructions.md fixes: cone angles, then the
-// Minimum Teeth floor, then each gear's base-height window, then the face
-// width.
-//
-// It RETURNS its rejections rather than raising, because a rejection is a
-// result the bounds step has to be able to assert. Every problem names the
-// offending input and the numeric bound it broke, which is what the generator's
-// message has to do. Resolution continues past a rejection so the caller still
-// gets the bounds that were computed.
-func resolveDesign(p map[string]float64) (design, []string) {
-	var problems []string
-	reject := func(format string, args ...any) {
-		problems = append(problems, fmt.Sprintf(format, args...))
-	}
-
-	module := p[keyModule]
-	nd := p[keyDrivingTeeth]
-	np := p[keyPinionTeeth]
-	dpd := module * nd
-	ppd := module * np
-	sigmaDeg := p[keyShaftAngle]
-
-	if module <= 0 {
-		reject("Module must be positive, got %g", module)
-	}
-	if nd < 3 {
-		reject("Driving Gear Teeth must be at least 3, got %g", nd)
-	}
-	if np < 3 {
-		reject("Pinion Gear Teeth must be at least 3, got %g", np)
-	}
-
-	limit, exclusive := maximumShaftAngleDeg(dpd, ppd)
-	if sigmaDeg < 30 {
-		reject("Shaft Angle %g deg is below the 30 deg floor", sigmaDeg)
-	}
-	if (exclusive && sigmaDeg >= limit) || (!exclusive && sigmaDeg > limit) {
-		reject("Shaft Angle %g deg is not below the Maximum Shaft Angle %.4f deg", sigmaDeg, limit)
-	}
-
-	sigma := sigmaDeg * math.Pi / 180
-	gammaP, gammaG := coneAngles(sigma, dpd, ppd)
-	r := (ppd / 2) / math.Sin(gammaP)
-
-	b := bounds{
-		MaxShaftAngleDeg:    limit,
-		ShaftAngleExclusive: exclusive,
-		MinTeethPinion:      minimumTeeth(gammaP),
-		MinTeethDriving:     minimumTeeth(gammaG),
-		MinBaseHeightPinion: minimumBaseHeight(module, gammaP),
-		MaxBaseHeightPinion: maximumBaseHeight(module, ppd/2, gammaP),
-		TrueCrossingPinion:  trueHeelCrossing(ppd/2, gammaP),
-		MinBaseHeightDriving: minimumBaseHeight(module, gammaG),
-		MaxBaseHeightDriving: maximumBaseHeight(module, dpd/2, gammaG),
-		TrueCrossingDriving:  trueHeelCrossing(dpd/2, gammaG),
-		DrivingFallback:      module * nd / 8,
-	}
-	if np < b.MinTeethPinion {
-		reject("Pinion Gear Teeth %g is below the computed floor %.3f", np, b.MinTeethPinion)
-	}
-	if nd < b.MinTeethDriving {
-		reject("Driving Gear Teeth %g is below the computed floor %.3f", nd, b.MinTeethDriving)
-	}
-
-	drivingBase, rejected := resolveBaseHeight(
-		p[keyDrivingBase], b.DrivingFallback, b.MinBaseHeightDriving, b.MaxBaseHeightDriving)
-	switch rejected {
-	case "below minimum":
-		reject("Driving Gear Base Height %g mm is below the Minimum Base Height %.4f mm",
-			p[keyDrivingBase], b.MinBaseHeightDriving)
-	case "above maximum":
-		reject("Driving Gear Base Height %g mm is above the Maximum Base Height %.4f mm",
-			p[keyDrivingBase], b.MaxBaseHeightDriving)
-	}
-	// The pinion fallback scales the RESOLVED driving height by the tooth
-	// ratio, then takes the pinion's OWN window: the two gears share no cone
-	// angle unless the counts are equal.
-	b.PinionFallback = drivingBase * np / nd
-	pinionBase, rejected := resolveBaseHeight(
-		p[keyPinionBase], b.PinionFallback, b.MinBaseHeightPinion, b.MaxBaseHeightPinion)
-	switch rejected {
-	case "below minimum":
-		reject("Pinion Gear Base Height %g mm is below the Minimum Base Height %.4f mm",
-			p[keyPinionBase], b.MinBaseHeightPinion)
-	case "above maximum":
-		reject("Pinion Gear Base Height %g mm is above the Maximum Base Height %.4f mm",
-			p[keyPinionBase], b.MaxBaseHeightPinion)
-	}
-
-	coneDistance := math.Hypot(dpd, ppd)
-	b.MaxFaceWidth = maximumFaceWidth(r, gammaP, gammaG)
-	b.FaceWidthFallback = coneDistance / 6
-	faceWidth := p[keyFaceWidth]
-	if faceWidth <= 0 {
-		faceWidth = math.Min(b.FaceWidthFallback, b.MaxFaceWidth)
-	} else if faceWidth > b.MaxFaceWidth {
-		reject("Face Width %g mm exceeds the Maximum Face Width %.4f mm", faceWidth, b.MaxFaceWidth)
-	}
-
-	psiDeg := p[keySpiralAngle]
-	if psiDeg < 0 || psiDeg >= 60 {
-		reject("Mean Spiral Angle %g deg is outside [0, 60)", psiDeg)
-	}
-	if p[keyCutterRadius] < 0 {
-		reject("Cutter Radius %g mm is negative", p[keyCutterRadius])
-	}
-	if p[keyToothSpacing] < 0 {
-		reject("Tooth Spacing %g mm is negative", p[keyToothSpacing])
-	}
-
-	hand := p[keyHand]
-	if hand == 0 {
-		hand = 1
-	}
-	boreEnable := p[keyBoreEnable] != 0
-
-	return design{
-		Module:       module,
-		Sigma:        sigma,
-		R:            r,
-		ConeDistance: coneDistance,
-		FaceWidth:    faceWidth,
-		ToothSpacing: p[keyToothSpacing],
-		Psi:          psiDeg * math.Pi / 180,
-		HandSign:     hand,
-		CutterRadius: p[keyCutterRadius],
-		BoreEnable:   boreEnable,
-		Bounds:       b,
-		Pinion: gear{
-			Label: "Pinion", Teeth: np, PitchDiameter: ppd,
-			Gamma: gammaP, BaseHeight: pinionBase,
-			Bore: resolveBore(boreEnable, p[keyPinionBore], ppd),
-		},
-		Driving: gear{
-			Label: "Driving", Teeth: nd, PitchDiameter: dpd,
-			Gamma: gammaG, BaseHeight: drivingBase,
-			Bore: resolveBore(boreEnable, p[keyDrivingBore], dpd),
-		},
-	}, problems
-}
-
-// newDesign is resolveDesign for the steps that need a case the generator would
-// accept: a rejection here is a case table defect, so it fails the case.
-func newDesign(t testing.TB, p map[string]float64) design {
-	t.Helper()
-	d, problems := resolveDesign(p)
-	for _, problem := range problems {
-		t.Errorf("input validation rejected this case: %s", problem)
-	}
-	if len(problems) > 0 {
-		t.Fatalf("%d input problem(s); this case is not one the generator would build", len(problems))
-	}
-	return d
-}
-
-// resolveBore is the "0 means auto" rule: a bore diameter of 0 becomes this
-// gear's Pitch Diameter / 4, and no bore at all when Enable Bore is off.
-func resolveBore(enabled bool, raw, pitchDiameter float64) float64 {
-	if !enabled {
+// bgWantLines is the line count find_profile_by_curve_counts is asked for:
+// 0 when the tooth is embedded, 2 when it is not. Never "0 or 2".
+func bgWantLines(embedded bool) int {
+	if embedded {
 		return 0
 	}
-	if raw > 0 {
-		return raw
+	return 2
+}
+
+// bgPointLine is the perpendicular distance from p to the line through a and b.
+func bgPointLine(p, a, b bgPt) float64 {
+	d := bgUnit(bgSub(b, a))
+	return math.Abs(bgCross(d, bgSub(p, a)))
+}
+
+// bgStation is a point's distance from the apex along this gear's shaft axis.
+func (l bgLattice) bgStation(g bgMember, p bgPt) float64 {
+	return bgDot(bgSub(p, l.Apex), g.AxisDir)
+}
+
+// bgRadius is a point's perpendicular distance from this gear's shaft axis —
+// the radius the revolve sweeps it to.
+func (l bgLattice) bgRadius(g bgMember, p bgPt) float64 {
+	return math.Abs(bgCross(g.AxisDir, bgSub(p, l.Apex)))
+}
+
+// bgConeDistance is a point's distance from the apex along this gear's ROOT
+// cone element Apex->C / Apex->D — §3a's distAlong.
+func (l bgLattice) bgConeDistance(g bgMember, p bgPt) float64 {
+	return bgDot(bgSub(p, l.Apex), g.RootDir)
+}
+
+// bgHexagon returns this gear's profile-sketch hexagon in draw order,
+// A' -> G -> H -> C -> M -> N (B' -> I -> J -> D -> O -> P).
+func (l bgLattice) bgHexagon(g bgMember) []bgPt {
+	return []bgPt{g.FrontFoot, g.Foot, g.Heel, g.Ded, g.Toe, g.ToeInner}
+}
+
+// bgSide picks the member a case's gearSide names.
+func (l bgLattice) bgSide() bgMember {
+	if l.In.Driving {
+		return l.Driving
 	}
-	return pitchDiameter / 4
+	return l.Pinion
 }
 
-// pinionMeshPhase is the pinion's extra rotation about its own shaft axis, in
-// radians: _PINION_MESH_PHASE_TEETH tooth-fractions, and that constant is 0.
-// The driving gear's own meshing rotation is half a tooth pitch and lives with
-// its step.
-const pinionMeshPhaseTeeth = 0.0
-
-func pinionMeshPhase(pinionTeeth float64) float64 {
-	return pinionMeshPhaseTeeth * 2 * math.Pi / pinionTeeth
-}
-
-// crownPerRad is _CROWN_PER_RAD, the tunable class constant section 3a step H
-// fixes at 0.5 (0 would disable the crown).
-const crownPerRad = 0.5
-
-// ---------------------------------------------------------------------------
-// The section 2 lattice, in closed form.
-//
-// gearFrame is one gear's half of the figure in that gear's own frame: Along
-// runs from the Apex down the shaft axis, Radial is the perpendicular distance
-// from that axis. Both gears take the same form, which is why the two halves
-// of section 2 read as mirror text.
-// ---------------------------------------------------------------------------
-
-type gearFrame struct {
-	Apex  vec2 // (0, 0)
-	Axis  vec2 // A (pinion) / B (driving): the pitch point on the shaft axis
-	Base  vec2 // G (pinion) / I (driving): the heel end of the shaft edge
-	Apex2 vec2 // shared with the other gear, in THIS gear's frame
-	Ded   vec2 // C (pinion) / D (driving): the dedendum corner
-	Heel  vec2 // H (pinion) / J (driving): the heel outer corner
-	Toe   vec2 // M (pinion) / O (driving): the toe corner on the root element
-	ToeIn vec2 // N (pinion) / P (driving): the toe corner on the drop line
-	Foot  vec2 // E (pinion) / F (driving): the foot of the dedendum perpendicular
-	Back  vec2 // K (pinion) / L (driving): the back-cone apex on the shaft axis
-	Tooth vec2 // K' (pinion) / L' (driving): the tooth centre after Tooth Spacing
-	// DedDir is the unit dedendum direction Apex2 -> Ded -> Heel in this frame.
-	DedDir vec2
-}
-
-// gearLattice is the closed form of one gear's half of section 2, derived from
-// the constraint net rather than from the seeds: A/B sit at R*cos(gamma) along
-// the axis, Apex2 at pitch radius above that station, the dedendum line leaves
-// Apex2 perpendicular to the pitch line, G/I sit one resolved base height
-// beyond A/B, and the toe line is the dedendum line offset by the Face Width
-// toward the Apex.
-func gearLattice(g gear, module, r, faceWidth, toothSpacing float64) gearFrame {
-	sin, cos, tan := math.Sin(g.Gamma), math.Cos(g.Gamma), math.Tan(g.Gamma)
-	pitchRadius := g.PitchDiameter / 2
-	along := r * cos
-
-	// The dedendum direction runs outward along the back cone: further from
-	// the Apex along the shaft, closer to the shaft axis.
-	ded := v2(sin, -cos)
-
-	apex := v2(0, 0)
-	axis := v2(along, 0)
-	base := v2(along+g.BaseHeight, 0)
-	apex2 := v2(along, pitchRadius)
-	dedendum := apex2.add(ded.scale(1.25 * module))
-	heel := apex2.add(ded.scale(g.BaseHeight / sin))
-	foot := v2(along+1.25*module*sin, 0)
-	back := apex2.add(ded.scale(pitchRadius / cos))
-
-	// M/O lie on the root element Apex->Ded at the fraction that puts them one
-	// Face Width from the dedendum line, measured perpendicular to it. The
-	// Apex is exactly R from that line, so the fraction is 1 - FaceWidth/R.
-	toe := dedendum.scale(1 - faceWidth/r)
-	// N/P lie on the Apex2 drop line (the radial line through Axis and Apex2)
-	// at the same perpendicular distance.
-	toeIn := v2(along, pitchRadius-faceWidth/sin)
-
-	tooth := back
-	if toothSpacing > 0 {
-		tooth = back.add(ded.scale(toothSpacing))
+// bgRevolvedVolume is Pappus on the hexagon: the volume the profile sweeps
+// about this gear's shaft axis, from the polygon's first moment about it.
+func (l bgLattice) bgRevolvedVolume(g bgMember) float64 {
+	poly := l.bgHexagon(g)
+	moment := 0.0
+	for i := range poly {
+		j := (i + 1) % len(poly)
+		xi, ri := l.bgStation(g, poly[i]), l.bgRadius(g, poly[i])
+		xj, rj := l.bgStation(g, poly[j]), l.bgRadius(g, poly[j])
+		moment += (xi*rj - xj*ri) * (ri + rj)
 	}
-	_ = tan
-	return gearFrame{
-		Apex: apex, Axis: axis, Base: base, Apex2: apex2,
-		Ded: dedendum, Heel: heel, Toe: toe, ToeIn: toeIn,
-		Foot: foot, Back: back, Tooth: tooth, DedDir: ded,
-	}
+	return 2 * math.Pi * math.Abs(moment) / 6
 }
 
-// hexagon is the frustum profile the gear body is revolved from, in the draw
-// order instructions.md fixes: A -> G -> H -> C -> M -> N -> A for the pinion
-// and B -> I -> J -> D -> O -> P -> B for the driving gear. Its FIRST edge is
-// the shaft axis every later body operation uses.
-func (f gearFrame) hexagon() []vec2 {
-	return []vec2{f.Axis, f.Base, f.Heel, f.Ded, f.Toe, f.ToeIn}
+// bgFrustum is the volume a straight profile edge sweeps about the axis,
+// between two stations — the band the revolve substitution builds.
+func bgFrustum(x0, r0, x1, r1 float64) float64 {
+	return math.Pi / 3 * math.Abs(x1-x0) * (r0*r0 + r0*r1 + r1*r1)
 }
 
-// sharedFrame maps this gear's own frame into the shared Gear Profiles sketch
-// frame, where the projected anchor centre is the origin, +X is the projected
-// anchor line direction and +Y is the grow side chosen from the target-plane
-// normal ([BEVEL-F-GROW-SIDE]).
-type sharedFrame struct {
-	Apex   vec2
-	AxisIn vec2 // unit Apex -> A (pinion) / Apex -> B (driving)
-	RadIn  vec2 // unit direction of increasing radial distance
-}
-
-// ---------------------------------------------------------------------------
-// The spiral trace, section 3a steps A and B and spiral-tooth-trace.md.
-// ---------------------------------------------------------------------------
-
-// traceFrame holds the cone-distance marks step A derives and the cutter-circle
-// geometry step B places, all in the tangent-plane 2-D frame whose origin is
-// the Apex, whose x is the cone element and whose y is circumferential.
-type traceFrame struct {
-	RToe, RHeel, RMean, Span float64
-	CutterRadius             float64 // r_c after the auto default
-	HandSign                 float64 // this gear's hand, pinion already negated
-	Centre                   vec2    // the cutter-circle centre (Cx, Cy)
-	Toe2D, Heel2D            vec2    // the kept arc's toe and heel endpoints
-	PhiCrown                 float64 // developed azimuth subtended at the Apex
-	Total                    float64 // toe-to-heel shaft-axis twist magnitude
-}
-
-// newTraceFrame realises steps A and B for one gear. rToe and rHeel are the
-// cone distances of the toe and heel edge MIDpoints; the swap guard section 3a
-// step A demands is applied here, so a caller that hands them over in the wrong
-// order still gets a positive span.
-func newTraceFrame(d design, g gear, rToe, rHeel float64) traceFrame {
-	if rHeel < rToe {
-		rToe, rHeel = rHeel, rToe
-	}
-	mean := (rToe + rHeel) / 2
-	span := rHeel - rToe
-
-	rc := d.CutterRadius
-	if rc == 0 {
-		rc = mean
-	}
-	hand := d.HandSign
-	if g.Label == "Pinion" {
-		hand = -hand
-	}
-
-	// The hand sign belongs on the cos (y) term. Putting it on the sin (x)
-	// term mirrors the centre about x = R_mean instead of about the cone
-	// element, which is a different curve and gives the pair unequal twist.
-	centre := v2(mean-rc*math.Sin(d.Psi), hand*rc*math.Cos(d.Psi))
-
-	lo := rToe - 0.06*span
-	hi := rHeel + 0.06*span
-	toe2D := circleIntersectNearest(lo, centre, rc, v2(mean, 0))
-	heel2D := circleIntersectNearest(hi, centre, rc, v2(mean, 0))
-
-	phi := math.Atan2(heel2D.Y, heel2D.X) - math.Atan2(toe2D.Y, toe2D.X)
-	return traceFrame{
-		RToe: rToe, RHeel: rHeel, RMean: mean, Span: span,
-		CutterRadius: rc, HandSign: hand, Centre: centre,
-		Toe2D: toe2D, Heel2D: heel2D,
-		PhiCrown: phi,
-		Total:    math.Abs(phi) / math.Sin(g.Gamma),
-	}
-}
-
-// circleIntersectNearest is solids.circle_intersect_nearest: the intersection
-// of the apex circle of radius r with the cutter circle, kept on the branch the
-// mean point sits on. A non-overlapping pair clamps to tangency.
-func circleIntersectNearest(r float64, centre vec2, cutter float64, ref vec2) vec2 {
-	dist := centre.len()
-	if dist == 0 {
-		return v2(r, 0)
-	}
-	// Standard circle-circle: a is the distance from the apex to the radical
-	// line along the centre direction, h the half-chord.
-	a := (dist*dist + r*r - cutter*cutter) / (2 * dist)
-	h2 := r*r - a*a
-	if h2 < 0 {
-		h2 = 0 // tangency clamp
-	}
-	h := math.Sqrt(h2)
-	dir := centre.unit()
-	perp := dir.leftNormal()
-	base := dir.scale(a)
-	c1 := base.add(perp.scale(h))
-	c2 := base.sub(perp.scale(h))
-	if c1.distanceTo(ref) <= c2.distanceTo(ref) {
-		return c1
-	}
-	return c2
-}
-
-// segmentTwist is section 3a step G's per-segment rotation: a linear share of
-// the total keyed to the cone distance of the segment's HEEL FACE, centred on
-// R_mean so the mid-face section stays unrotated.
-func segmentTwist(tf traceFrame, heelFaceDistance float64) float64 {
-	return -tf.HandSign * tf.Total * (tf.RMean - heelFaceDistance) / tf.Span
-}
-
-// crownFactor is section 3a step H: relief growing monotonically from the held
-// heel to the toe, keyed to the heel-distance fraction u, never on |ang|.
-func crownFactor(tf traceFrame, heelFaceDistance float64) float64 {
-	u := (tf.RHeel - heelFaceDistance) / tf.Span
-	return 1 - crownPerRad*(math.Abs(tf.Total)/2)*u
-}
-
-// ---------------------------------------------------------------------------
-// Small assertion helpers.
-// ---------------------------------------------------------------------------
-
-// requireClose compares two scalars with a tolerance that scales with the
-// expected magnitude, for the same reason requireCloseVec does.
-func requireClose(t testing.TB, got, want, tol float64, what string, args ...any) {
+// bgClose fails when two readings differ by more than tol.
+func bgClose(t *testing.T, what string, got, want, tol float64) {
 	t.Helper()
-	if scale := math.Abs(want); scale > 1 {
-		tol *= scale
-	}
 	if math.Abs(got-want) > tol {
-		t.Fatalf("%s: got %.12g, want %.12g (tolerance %g)",
-			fmt.Sprintf(what, args...), got, want, tol)
+		t.Errorf("%s: got %.9g, want %.9g (tolerance %.2e)", what, got, want, tol)
 	}
 }
 
-// requireCloseVec compares two plane points with a tolerance that scales with
-// the point's own magnitude: the lattice reaches a few hundred millimetres from
-// the Apex at the top of the Shaft Angle range, where an absolute 1e-7 mm is
-// below the solver's own convergence noise.
-// sprintfArgs formats an assertion label, tolerating one with no verbs.
-func sprintfArgs(format string, args ...any) string {
-	if len(args) == 0 {
-		return format
-	}
-	return fmt.Sprintf(format, args...)
-}
-
-func requireCloseVec(t testing.TB, got, want vec2, tol float64, what string, args ...any) {
+func bgCloseTB(t testing.TB, what string, got, want, tol float64) {
 	t.Helper()
-	if scale := want.len(); scale > 1 {
-		tol *= scale
-	}
-	if got.distanceTo(want) > tol {
-		t.Fatalf("%s: got (%.12g, %.12g), want (%.12g, %.12g) (tolerance %g)",
-			fmt.Sprintf(what, args...), got.X, got.Y, want.X, want.Y, tol)
+	if math.Abs(got-want) > tol {
+		t.Errorf("%s: got %.9g, want %.9g (tolerance %.2e)", what, got, want, tol)
 	}
 }
