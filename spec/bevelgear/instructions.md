@@ -168,7 +168,7 @@ numeric/bool fields. Module-level constants name the input ids (`INPUT_ID_PLANE 
 | 15 | Mean Spiral Angle | `spiralAngle` | `addValueInput` | `deg` | `createByString('35 deg')` | — |
 | 16 | Hand of Spiral | `spiralHand` | `addDropDownCommandInput` (text-list) | — | items `Right` (selected), `Left` | — |
 | 17 | Cutter Radius | `cutterRadius` | `addValueInput` | `mm` | `createByReal(to_cm(0))` | — |
-| 18 | Toe Extension | `toeExtension` | `addValueInput` | `''` | `createByReal(0)` | — |
+| 18 | Toe Extension (%) | `toeExtension` | `addValueInput` | `''` | `createByReal(0)` | — |
 | 19 | Driving Gear Toe Radius | `drivingToeRadius` | `addValueInput` | `mm` | `createByReal(to_cm(0))` | — |
 | 20 | Pinion Gear Toe Radius | `pinionToeRadius` | `addValueInput` | `mm` | `createByReal(to_cm(0))` | — |
 There are now **20** dialog inputs and **20 `INPUT_ID_*`** module constants, named exactly:
