@@ -23,7 +23,7 @@ in `PLAYBOOK.md` still apply).
   the sketch), called at the END of each sketch-building step. This applies to **the Anchor Sketch,
   the Gear Profiles (§2) sketch, both per-gear Profile sketches, and the Bore sketch**. A free DOF
   is a **generation defect, not a warning** — raise, don't warn. **Do NOT** reach full constraint by
-  dimensioning the *driven* §2 lines (Apex→A/B, the module-length extensions) — those are determined
+  dimensioning the *driven* §2 lines (Apex→A/B, the extension lines) — those are determined
   by the perpendicular/collinear/closing constraints (`[PB-NO-OVERCONSTRAIN]`). Once the Anchor Line
   direction is fixed, the §2 lattice is fully determined by its existing net; the per-gear Profile
   sketches are made fully constrained by recreating their six vertices as **fixed points** per the
@@ -85,10 +85,10 @@ in `PLAYBOOK.md` still apply).
     line — lattice or reference — from raw `Point3D` coordinates, then `addCoincident` **each**
     endpoint to its existing point (one per end). No §2 line is exempt.
 - **[BEVEL-F-LINE-ONCE] Each named §2 line is created ONCE; later references REUSE that line
-  object — never redraw it.** The module-length extensions (A→E, B→F, E→G, F→I) and the dedendum /
+  object — never redraw it.** The extension lines (A→E, B→F, E→G, F→I) and the dedendum /
   closing lines (C→H, D→J, G→H, I→J) are *named* construction lines. When a later step says "from
   point E collinear to **line A->E**" or "**lines A->E and C->E** should be perpendicular," it means
-  the very line you drew earlier — so the helper that creates a module-extension must **RETURN the
+  the very line you drew earlier — so the helper that creates an extension must **RETURN the
   line** and you keep that reference. Do **NOT** draw a *second* line between the same two points
   just to obtain a reference: that duplicate carries its own constraints over the same segment,
   **over-determines** the coupled §2 net, and the solve fails with `RuntimeError …
@@ -110,9 +110,54 @@ in `PLAYBOOK.md` still apply).
   take two point-on-line `addCoincident` calls and no collinear at all.
 
 - **[BEVEL-F-DRIVEN-DIMS] The §2 driven lengths are NOT dimensioned.** The along-shaft lengths
-  (Apex→A, Apex→B) and the module-length extensions are DRIVEN by the closing/collinear constraints —
+  (Apex→A, Apex→B) and the extension lines are DRIVEN by the closing/collinear constraints —
   do not dimension them (`[PB-NO-OVERCONSTRAIN]`). The "do NOT add a dimensional constraint" notes
-  in §2 are as load-bearing as the dimensions that ARE added.
+  in §2 are as load-bearing as the dimensions that ARE added. Undimensioned does **not** mean
+  unpinned: §2 states a closed-form seed for each of them, and the seed is what picks the figure
+  (`[BEVEL-F-MIRROR-FIGURE]`).
+
+## The §2 solver can land on a mirrored figure
+
+- **[BEVEL-F-MIRROR-FIGURE] §2 holds 15 constraint sites whose side is decided by the SEED alone,
+  and Fusion offers no constraint that pins any of them.** Treat every §2 seed as load-bearing
+  geometry, never as a convergence hint: a flipped seed solves cleanly and the wrong gear gets
+  built rather than refused. Counts on the lattice `instructions.md` §2 specifies:
+  - **13 independent binary choices** on a 43/31 pair at Shaft Angle 75° with Tooth Spacing above
+    zero, so **8192** distinct figures satisfy every constraint. For the default pair (31/31 at
+    90°, Tooth Spacing 0) it is **10 choices and 1024 figures** — at 90° the shaft-angle
+    dimension's two senses are the same line, and the two Tooth Spacing sites do not exist at 0.
+  - ⚠️ **The count is 15, not seven, and "C collapses onto D" is NOT caused by the Apex 2 drops.**
+    Both readings were written down and both were wrong; the collapse belongs to the two
+    `Apex 2 -> dedendum` perpendiculars. `instructions.md` §2 states each site's seed and each
+    flip's consequence at the step that creates the site — that is the owning text, and this
+    anchor carries only the count and the policy.
+- **NEVER add a Fusion constraint to pin a side.** Every geometric constraint Fusion offers is
+  unsigned or undirected, `addAngularDimension` takes an unsigned value plus a text point for the
+  quadrant, `addOffsetDimension` is unsigned, and `addDistanceDimension` is a magnitude whose side
+  comes from the seed. Two mechanisms fix a side at all and both are refused, recorded here so the
+  question is not re-opened:
+  - `addSymmetry` on C and D against the Pitch Line rules out the collapse but not the swap, and it
+    replaces a dedendum's perpendicular plus length — a net redesign, which the `[PB-SKETCH-FIRST]`
+    waiver in `instructions.md` forbids a regen from making.
+  - `SketchPoint.isFixed` over-constrains, because the closure already determines every core point,
+    and it turns the parametric lattice into placed geometry.
+- **[BEVEL-F-SEED-HELD] Gate the solved §2 figure against its own seeds.** After the Gear Profiles
+  sketch's `[BEVEL-F-FULL-CONSTRAINT]` gate passes, compare every named §2 point's solved
+  `.geometry` against the closed-form position §2 seeded it at, and **raise** naming the first
+  point that moved, with both positions. §2's own end-of-section step states the call site and the
+  point order.
+  - **Tolerance 0.001 mm** (1e-4 cm in internal units) — two orders below the tenth of a
+    millimetre of root length the spec already treats as negligible reach (the 0.99 Toe Extension
+    cap), and orders above any residue a solve can leave on a figure whose dimensions this module
+    sets exactly, so the solver cannot trip it. The only flip smaller than it is a Tooth Spacing
+    site below 0.0005 mm, where the clearance the input asks for is itself under the tolerance.
+  - **Compare in the sketch's own 2-D frame**, against the same seed values §2 computed, with no
+    world round-trip (`[BEVEL-F-APEX-LOCAL]`).
+  - **This gate is the only measure that catches all 8192 figures**, and it names the point that
+    moved instead of leaving Fusion to report an opaque failure later. **NEVER treat the revolve's
+    `ASM_WIRE_X_AXIS` as the tripwire**: several of the flips build a valid-looking gear on the
+    wrong side and reach no error at all, and the shipped `ASM_WIRE_X_AXIS` failure was one flip
+    out of the 15 arriving at the revolve rather than at its own site.
 
 ## Orientation (keeping the figure off world XY)
 
