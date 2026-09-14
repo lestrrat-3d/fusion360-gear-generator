@@ -22,9 +22,8 @@ import (
 // anything. Everything below is derived from the resolved dialog values alone,
 // which the spec fixes and a recompile cannot rename.
 //
-// The one link back to the generated proof is newFigure, which resolves the
-// dialog inputs. That is deliberate: the drawings must show the gear the proof
-// resolved, not a second reading of the same inputs.
+// Nothing here reads a name the generated proof declares, which is what keeps
+// the next recompile from breaking the drawings again.
 // ---------------------------------------------------------------------------
 
 // The dialog keys the drawings set. They are the input ids the spec's own
@@ -83,10 +82,22 @@ func params(overrides map[string]float64) map[string]float64 {
 	return p
 }
 
-// vec2 is the name the drawings call the plane vector by. The generated proof
-// names the same type `vec`, and which of the two a recompile picks is not a
-// geometric fact, so the drawings hold their own name for it.
-type vec2 = vec
+// vec2 is this file's own plane vector. The generated proof declares an
+// equivalent type under whatever name that round picked; borrowing it is what
+// broke these drawings twice, so they carry their own.
+type vec2 struct{ X, Y float64 }
+
+func (a vec2) add(b vec2) vec2      { return vec2{a.X + b.X, a.Y + b.Y} }
+func (a vec2) scale(k float64) vec2 { return vec2{a.X * k, a.Y * k} }
+func (a vec2) len() float64         { return math.Hypot(a.X, a.Y) }
+
+func (a vec2) unit() vec2 {
+	n := a.len()
+	if n == 0 {
+		return vec2{}
+	}
+	return a.scale(1 / n)
+}
 
 // gear is one member of the pair, as the drawings need it.
 type gear struct {
@@ -112,31 +123,102 @@ type design struct {
 	Driving gear
 }
 
-// newDesign resolves one case through the generated proof's own resolution, so
-// the drawings and the proof cannot disagree about what a case means.
+// involuteSteps is how many samples each flank is drawn with.
+const involuteSteps = 15
+
+// toeExtensionCeiling is the fraction of the way to the toe limit that a Toe
+// Extension of 100 resolves to. It stops short of 1 so the toe face keeps a
+// real cone at its end.
+const toeExtensionCeiling = 0.99
+
+// newDesign resolves one case the way the spec's Variables section does, in the
+// order it fixes: cone angles, then each gear's base height, then the face
+// width, then the toe end.
+//
+// This repeats the generated proof's resolution rather than calling it. The
+// call is what coupled these drawings to a name a recompile renames, and the
+// spec fixes both readings, so a disagreement here would be a disagreement with
+// the spec that shows up as a wrong picture.
 func newDesign(t *testing.T, p map[string]float64) design {
 	t.Helper()
-	f := newFigure(p)
-	asGear := func(s side) gear {
-		return gear{
-			Label:         s.label,
-			Teeth:         s.teeth,
-			PitchDiameter: s.pitchDia,
-			Gamma:         s.gamma,
-			BaseHeight:    s.baseHgt,
-			Bore:          s.boreDia,
-			ToeRadius:     s.toeRadius,
+	m := p[keyModule]
+	sigma := p[keyShaftAngle] * math.Pi / 180
+	zp, zg := p[keyPinionTeeth], p[keyDrivingTeeth]
+	ppd, dpd := m*zp, m*zg
+
+	gammaP := math.Atan2(math.Sin(sigma)*ppd, dpd+ppd*math.Cos(sigma))
+	gammaG := sigma - gammaP
+	r := (ppd / 2) / math.Sin(gammaP)
+	rootDist := math.Hypot(r, 1.25*m)
+
+	// Each base height is its fallback clamped into that gear's own window; a
+	// user value inside the window is taken as given.
+	resolveBase := func(raw, fallback, pitchDia, gamma float64) float64 {
+		lo := 1.05 * 1.25 * m * math.Sin(gamma)
+		hi := 0.95 * (pitchDia/2 - 1.25*m*math.Cos(gamma)) * math.Tan(gamma)
+		if raw > 0 {
+			return raw
 		}
+		return math.Min(math.Max(fallback, lo), hi)
 	}
+	drivingBase := resolveBase(p[keyDrivingBase], m*zg/8, dpd, gammaG)
+	pinionBase := resolveBase(p[keyPinionBase], drivingBase*zp/zg, ppd, gammaP)
+
+	sinP, sinG := math.Sin(gammaP), math.Sin(gammaG)
+	maxFaceWidth := 0.95 * r * math.Min(sinP*sinP, sinG*sinG)
+	faceWidth := p[keyFaceWidth]
+	if faceWidth <= 0 {
+		faceWidth = math.Min(math.Hypot(dpd, ppd)/6, maxFaceWidth)
+	}
+
+	// The toe end. Each Toe Radius defaults to that gear's own inner toe corner
+	// at Toe Extension 0, and the pair's root length runs from there toward the
+	// smaller of the two toe limits.
+	rootLen0 := faceWidth * rootDist / r
+	toeRadiusOf := func(raw, pitchDia, gamma float64) float64 {
+		if raw > 0 {
+			return raw
+		}
+		return pitchDia/2 - faceWidth/math.Sin(gamma)
+	}
+	pinionToe := toeRadiusOf(p[keyPinionToeRadius], ppd, gammaP)
+	drivingToe := toeRadiusOf(p[keyDrivingToeRadius], dpd, gammaG)
+	limitOf := func(toeRadius, gamma float64) float64 {
+		return rootDist - toeRadius/math.Sin(gamma-math.Atan2(1.25*m, r))
+	}
+	smallestLimit := math.Min(limitOf(pinionToe, gammaP), limitOf(drivingToe, gammaG))
+	rootLen := rootLen0
+	if pct := p[keyToeExtension]; pct > 0 && smallestLimit > rootLen0 {
+		rootLen += (pct / 100) * toeExtensionCeiling * (smallestLimit - rootLen0)
+	}
+
+	boreOf := func(raw, pitchDia float64) float64 {
+		if p[keyBoreEnable] == 0 {
+			return 0
+		}
+		if raw > 0 {
+			return raw
+		}
+		return pitchDia / 4
+	}
+
 	return design{
-		Module:       f.module,
-		Sigma:        f.sigma,
-		R:            f.R,
-		FaceWidth:    f.faceWidth,
-		RootLength:   f.rootLen,
-		ToothSpacing: f.toothSpacing,
-		Pinion:       asGear(f.pinion),
-		Driving:      asGear(f.driving),
+		Module:       m,
+		Sigma:        sigma,
+		R:            r,
+		FaceWidth:    faceWidth,
+		RootLength:   rootLen,
+		ToothSpacing: p[keyToothSpacing],
+		Pinion: gear{
+			Label: "Pinion", Teeth: zp, PitchDiameter: ppd, Gamma: gammaP,
+			BaseHeight: pinionBase, Bore: boreOf(p[keyPinionBore], ppd),
+			ToeRadius: pinionToe,
+		},
+		Driving: gear{
+			Label: "Driving", Teeth: zg, PitchDiameter: dpd, Gamma: gammaG,
+			BaseHeight: drivingBase, Bore: boreOf(p[keyDrivingBore], dpd),
+			ToeRadius: drivingToe,
+		},
 	}
 }
 
@@ -146,20 +228,20 @@ func newDesign(t *testing.T, p map[string]float64) design {
 // a distance from one axis, and the shared sketch frame would make every one of
 // them a projection.
 type gearFrame struct {
-	Apex  vec // (0, 0)
-	Axis  vec // A / B: the pitch point on the shaft axis
-	Base  vec // G / I: the heel end of the shaft edge
-	Apex2 vec
-	Ded   vec // C / D: the dedendum corner
-	Heel  vec // H / J: the heel outer corner
-	Toe   vec // M / O: the toe corner on the root element
-	ToeIn vec // N / P: the toe corner on the toe-radius line
-	Front vec // A' / B': the front face's foot on the shaft axis
-	Foot  vec // E / F
-	Back  vec // K / L: the back-cone point
-	Tooth vec // K' / L': the tooth centre after Tooth Spacing
+	Apex  vec2 // (0, 0)
+	Axis  vec2 // A / B: the pitch point on the shaft axis
+	Base  vec2 // G / I: the heel end of the shaft edge
+	Apex2 vec2
+	Ded   vec2 // C / D: the dedendum corner
+	Heel  vec2 // H / J: the heel outer corner
+	Toe   vec2 // M / O: the toe corner on the root element
+	ToeIn vec2 // N / P: the toe corner on the toe-radius line
+	Front vec2 // A' / B': the front face's foot on the shaft axis
+	Foot  vec2 // E / F
+	Back  vec2 // K / L: the back-cone point
+	Tooth vec2 // K' / L': the tooth centre after Tooth Spacing
 
-	DedDir vec // unit Apex2 -> Ded -> Heel
+	DedDir vec2 // unit Apex2 -> Ded -> Heel
 }
 
 // gearLattice is the closed form §2 solves for, per gear: A/B at R cos(gamma)
@@ -173,9 +255,9 @@ func gearLattice(d design, g gear) gearFrame {
 
 	// The dedendum direction runs outward along the back cone: further from the
 	// Apex along the shaft, closer to the shaft axis.
-	ded := vec{sin, -cos}
+	ded := vec2{sin, -cos}
 
-	apex2 := vec{along, pitchRadius}
+	apex2 := vec2{along, pitchRadius}
 	dedendum := apex2.add(ded.scale(1.25 * d.Module))
 	heel := apex2.add(ded.scale(g.BaseHeight / sin))
 	back := apex2.add(ded.scale(pitchRadius / cos))
@@ -189,7 +271,7 @@ func gearLattice(d design, g gear) gearFrame {
 	// shaft axis at this gear's resolved Toe Radius, and the front face drops
 	// from it square to the shaft.
 	faceOffset := d.RootLength * d.R / rootDist
-	toeIn := vec{along + (-faceOffset-(g.ToeRadius-pitchRadius)*sin)/cos, g.ToeRadius}
+	toeIn := vec2{along + (-faceOffset-(g.ToeRadius-pitchRadius)*sin)/cos, g.ToeRadius}
 
 	tooth := back
 	if d.ToothSpacing > 0 {
@@ -197,16 +279,16 @@ func gearLattice(d design, g gear) gearFrame {
 	}
 
 	return gearFrame{
-		Apex:   vec{0, 0},
-		Axis:   vec{along, 0},
-		Base:   vec{along + g.BaseHeight, 0},
+		Apex:   vec2{0, 0},
+		Axis:   vec2{along, 0},
+		Base:   vec2{along + g.BaseHeight, 0},
 		Apex2:  apex2,
 		Ded:    dedendum,
 		Heel:   heel,
 		Toe:    toe,
 		ToeIn:  toeIn,
-		Front:  vec{toeIn.X, 0},
-		Foot:   vec{along + 1.25*d.Module*sin, 0},
+		Front:  vec2{toeIn.X, 0},
+		Foot:   vec2{along + 1.25*d.Module*sin, 0},
 		Back:   back,
 		Tooth:  tooth,
 		DedDir: ded,
