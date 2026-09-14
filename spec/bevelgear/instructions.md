@@ -221,7 +221,7 @@ under a prefix. Every value (pitch diameters, cone distance, base heights, bore 
 tooth counts, face width) is **precomputed in Python in internal cm** and written into geometry
 numerically — sketch dimensions via `dimension.parameter.value = <number>` and feature inputs via
 `ValueInput.createByReal(<number>)`. There are therefore no `PARAM_*` name strings to reproduce;
-the only module-level constants are the 17 `INPUT_ID_*` strings plus `_HAND_RIGHT`/`_HAND_LEFT`.
+the only module-level constants are the 20 `INPUT_ID_*` strings plus `_HAND_RIGHT`/`_HAND_LEFT`.
 (`[PB-PRECOMPUTED-MODE]`.)
 
 **Reading the raw numbers.** Read each numeric/angle input by evaluating its expression with units
@@ -533,7 +533,7 @@ Create an **offset dimension between the B->Apex2 perpendicular drop line (the D
 
 Create an **offset dimension between the A->Apex2 perpendicular drop line (the PPD/2 drop per the naming convention — not the Apex->A shaft axis) and G->H** — already parallel by construction (G->H ⊥ E->G), so as with the driving side add no parallel constraint (`[PB-OFFSET-DIM]`). The value should be equal to Pinion Gear Base Height _if_ specified (non-0); otherwise the **RESOLVED** Driving Gear Base Height `* (Pinion Gear Teeth Number / Driving Gear Teeth Number)`. "Resolved" means the value the driving offset above actually used — i.e. after the driving side's own fallback (`module * Driving Gear Teeth Number / 8` when the driving input was 0) **and** after the driving Maximum Base Height capped it — NOT the raw driving input. Then apply the **pinion's own** Maximum Base Height to the result: the two gears have different pitch cone angles whenever the tooth counts differ, so the driving cap does not imply the pinion's, and a scaled-down driving height can still overshoot the pinion's own heel limit.
 
-Draw a line from A to G. Constrain endpoints appropriately.
+Draw a line from A' to G, the hexagon's shaft-axis edge. Constrain endpoints appropriately. It starts at the front face's foot A', not at A; the two coincide at Toe Extension 0.
 
 Constrain Point I with center point.
 
@@ -615,7 +615,7 @@ From those §2 sketch points' **world** geometry, `_createGearBody` computes (an
 
 **A. Gate & frame.** Build a world frame from the geometry already constructed for this gear:
 
-- `axisDir` = the **shaft axis** direction, from the two **world** endpoints of `shaftAxisEdge` (the in-sketch profile edge A→G / B→I), normalized.
+- `axisDir` = the **shaft axis** direction, from the two **world** endpoints of `shaftAxisEdge` (the in-sketch profile edge A'→G / B'→I), normalized.
 - `coneVec` = the **dedendum (root) cone element** Apex→D (driving) / Apex→C (pinion), realized as `normalize(heelConeWorld − apex)` where `apex` = `apexWorld`. (`heelConeWorld` is the heel end of that dedendum element; `toeConeWorld` is its toe end.)
 - `v` = `axisDir × coneVec`, normalized — the **circumferential** direction (the sideways sense the tooth is displaced from the radial element).
 - `tpNormal` = `coneVec × v`, normalized — the **tangent-plane normal** (the direction the flat trace is projected onto the cone, step D).
