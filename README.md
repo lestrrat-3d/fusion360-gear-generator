@@ -99,11 +99,10 @@ keeping OK disabled until the values work.
 # DEVELOPMENT
 
 The generators under `lib/geargen/` are build output, not hand-written source. Each one is generated
-from its natural-language spec in `spec/<gear>/`, driven by the skills in `.claude/skills/`. Geometry
-checking is uneven so far: the spur, helical, bevel and cycloidal generators have Go proofs under
-`proof/`, which build the real sketches and solids and check them before anything reaches Fusion; the
-spur and helical sketch schemes also have compiled proofs at `proof/spurgear/sketches_test.go` and
-`proof/helicalgear/sketches_test.go`; herringbone is checked only by loading it into Fusion.
+from its natural-language spec in `spec/<gear>/`, driven by the skills in `.claude/skills/`. All five
+generators have Go proofs under `proof/`, which rebuild the sketches and the solids in headless
+engines and check them before anything reaches Fusion. [`proof/README.md`](proof/README.md) covers
+what those proofs check and how to run them.
 
 So a fix goes into the spec, or into the shared `.claude/skills/generate-gear/PLAYBOOK.md` when the
 behaviour applies to every gear, and then you regenerate. Editing `lib/geargen/<gear>.py` directly
