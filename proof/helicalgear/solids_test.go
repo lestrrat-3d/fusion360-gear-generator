@@ -7,9 +7,11 @@ import (
 	"testing"
 
 	"github.com/lestrrat-3d/decad"
+	"github.com/lestrrat-3d/decad/decadtest"
 	"github.com/lestrrat-3d/fusion360-gear-generator/proof/involute"
 	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit3d"
 	"github.com/lestrrat-3d/sketch"
+	"github.com/lestrrat-3d/units"
 )
 
 // WHAT THIS PROOF SUBSTITUTES, AND WHAT THE SUBSTITUTION COSTS.
@@ -283,9 +285,10 @@ func assertLoftTooth(t *testing.T, doc *decad.Document, bodies []*decad.Body, p 
 		t.Fatalf("the tooth body has volume %.6g", measured)
 	}
 	if p["helixAngle"] == 0 {
-		if math.Abs(measured-prism) > 1e-9*prism {
-			t.Errorf("at zero twist the loft is a straight prism of %.9g mm^3, measured %.9g", prism, measured)
-		}
+		// prism is this proof's own figure for the section, so 1e-9 of it is
+		// that figure's error; decadtest adds the reading's proven bound.
+		decadtest.Measures(t, "at zero twist the loft against a straight prism on the same section",
+			volume, units.CubicMillimeters(prism), decadtest.WithinRel(units.Scalar(1e-9)))
 		return
 	}
 	if measured > prism*1.5 || measured < prism*0.4 {

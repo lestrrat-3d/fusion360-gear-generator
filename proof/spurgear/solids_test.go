@@ -24,11 +24,12 @@
 package spurgear_test
 
 import (
-	"context"
+	"fmt"
 	"math"
 	"testing"
 
 	"github.com/lestrrat-3d/decad"
+	"github.com/lestrrat-3d/decad/decadtest"
 	"github.com/lestrrat-3d/fusion360-gear-generator/proof/involute"
 	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit3d"
 	"github.com/lestrrat-3d/r3"
@@ -65,31 +66,11 @@ func mm(v float64) units.Value { return units.Millimeters(v) }
 // drawn at their solved coordinates and carry no constraints: the constraint
 // scheme is what stepGearProfileSketch proves, and repeating it here would
 // prove it twice and build nothing new.
-func newSketch(t *testing.T) *sketch.Sketch {
-	t.Helper()
-	w := sketch.NewWorld()
-	s, err := w.CreateSketch(w.XY())
-	if err != nil {
-		t.Fatalf("create sketch: %v", err)
-	}
-	return s
-}
-
-// onlyRegion is the single closed region a section sketch holds.
-func onlyRegion(t *testing.T, s *sketch.Sketch) *sketch.Profile {
-	t.Helper()
-	if _, err := s.Solve(context.Background()); err != nil {
-		t.Fatalf("solve section: %v", err)
-	}
-	regions := s.Profiles()
-	if len(regions) != 1 {
-		t.Fatalf("section holds %d regions, want exactly 1", len(regions))
-	}
-	if !regions[0].Valid {
-		t.Fatal("section region is not extrudable")
-	}
-	return regions[0]
-}
+//
+// decadtest.NewSketch is that fresh plane: an empty sketch on a private
+// world's own XY datum, so two sections never share geometry. onlyRegion is
+// decadtest.SolveRegion, which solves and hands back the one valid region a
+// section closes.
 
 // footPoint is a flank-to-root stub's far end: the flank start's direction from
 // the gear centre, taken out to radius r.
@@ -145,7 +126,7 @@ func toothSection(t *testing.T, p map[string]float64, sink, turn float64, chorde
 	left, right := involute.Flanks(d.Base, d.Tip, d.Pitch, p["toothNumber"],
 		int(p["involuteSteps"]), p["angle"]+turn)
 
-	s := newSketch(t)
+	s := decadtest.NewSketch(t)
 	centre := s.CreatePoint(0, 0)
 	leftPts := make([]*sketch.Point, len(left))
 	rightPts := make([]*sketch.Point, len(right))
@@ -162,7 +143,7 @@ func toothSection(t *testing.T, p map[string]float64, sink, turn float64, chorde
 	s.CreateLine(leftFoot, leftPts[0])
 	s.CreateLine(rightFoot, rightPts[0])
 	s.CreateArc(centre, rightFoot, leftFoot)
-	return s, onlyRegion(t, s)
+	return s, decadtest.SolveRegion(t, s)
 }
 
 // discSection draws the solid root circle on its own — the region the gear-body
@@ -170,17 +151,17 @@ func toothSection(t *testing.T, p map[string]float64, sink, turn float64, chorde
 func discSection(t *testing.T, p map[string]float64) (*sketch.Sketch, *sketch.Profile) {
 	t.Helper()
 	d := involute.Derive(p["module"], p["toothNumber"], p["pressureAngle"])
-	s := newSketch(t)
+	s := decadtest.NewSketch(t)
 	s.CreateCircle(s.CreatePoint(0, 0), d.Root)
-	return s, onlyRegion(t, s)
+	return s, decadtest.SolveRegion(t, s)
 }
 
 // boreSection draws the bore circle, centred on the anchor at the gear centre.
 func boreSection(t *testing.T, p map[string]float64) (*sketch.Sketch, *sketch.Profile) {
 	t.Helper()
-	s := newSketch(t)
+	s := decadtest.NewSketch(t)
 	s.CreateCircle(s.CreatePoint(0, 0), p["boreDiameter"]/2)
-	return s, onlyRegion(t, s)
+	return s, decadtest.SolveRegion(t, s)
 }
 
 // gearSection draws the whole gear outline — every tooth and the root-circle
@@ -199,7 +180,7 @@ func gearSection(t *testing.T, p map[string]float64, chorded bool) (*sketch.Sket
 	t.Helper()
 	d := involute.Derive(p["module"], p["toothNumber"], p["pressureAngle"])
 	teeth := int(p["toothNumber"])
-	s := newSketch(t)
+	s := decadtest.NewSketch(t)
 	centre := s.CreatePoint(0, 0)
 
 	feet := make([][2]*sketch.Point, teeth)
@@ -225,19 +206,17 @@ func gearSection(t *testing.T, p map[string]float64, chorded bool) (*sketch.Sket
 	for k := range teeth {
 		s.CreateArc(centre, feet[k][0], feet[(k+1)%teeth][1])
 	}
-	return s, onlyRegion(t, s)
+	return s, decadtest.SolveRegion(t, s)
 }
 
 // extrudeSection sweeps one section by Thickness, the distance between the
-// target plane and the Extrusion End Plane.
+// target plane and the Extrusion End Plane. That one-sided sweep along the
+// sketch normal is decadtest.NewPrism's own extent, so the call carries only
+// this proof's height.
 func extrudeSection(t *testing.T, doc *decad.Document, p map[string]float64,
 	s *sketch.Sketch, region *sketch.Profile) *decad.Body {
 	t.Helper()
-	body, err := doc.Extrude(s, region, decad.Distance{D: mm(p["thickness"]), Dir: decad.Along})
-	if err != nil {
-		t.Fatalf("extrude section: %v", err)
-	}
-	return body
+	return decadtest.NewPrism(t, doc, s, region, mm(p["thickness"]))
 }
 
 // gearPrism extrudes the one-piece gear section by Thickness. Its flanks are
@@ -249,13 +228,36 @@ func gearPrism(t *testing.T, doc *decad.Document, p map[string]float64) *decad.B
 	return extrudeSection(t, doc, p, s, region)
 }
 
-func volumeOf(t *testing.T, body *decad.Body, label string) float64 {
+// volumeReading is a body's volume reading: the value decad measured together
+// with the bound it proved around it. label is the spec's own name for the
+// body, which is what a failure has to open with — decadtest names a body by
+// its index and recipe step, and "body[0] (step 1 extrude)" does not say which
+// gear feature is wrong.
+func volumeReading(t *testing.T, body *decad.Body, label string) decad.Measurement {
 	t.Helper()
 	measured, err := body.Volume()
 	if err != nil {
 		t.Fatalf("%s volume: %v", label, err)
 	}
-	return measured.Value.Base()
+	return measured
+}
+
+// volumeOf is the measured value alone, for the assertions that do arithmetic
+// on it rather than compare it.
+func volumeOf(t *testing.T, body *decad.Body, label string) float64 {
+	t.Helper()
+	return volumeReading(t, body, label).Value.Base()
+}
+
+// requireVolume checks a body against the volume this proof's own formula
+// gives, where rel is the error of that formula. decadtest adds the reading's
+// own proven bound on top, so what is asserted is that decad's interval and
+// this proof's claim overlap — not that a measured float lands inside a
+// tolerance decad never agreed to.
+func requireVolume(t *testing.T, body *decad.Body, label string, want, rel float64) {
+	t.Helper()
+	decadtest.Measures(t, label+" volume", volumeReading(t, body, label),
+		units.CubicMillimeters(want), decadtest.WithinRel(units.Scalar(rel)))
 }
 
 // axis is the gear's main axis: the target plane's normal, which every extrude
@@ -304,10 +306,8 @@ func assertExtrudeBody(t *testing.T, _ *decad.Document, bodies []*decad.Body, p 
 		t.Fatalf("body extrude produced %d bodies, want the one Gear Body", len(bodies))
 	}
 	d := involute.Derive(p["module"], p["toothNumber"], p["pressureAngle"])
-	want := math.Pi * d.Root * d.Root * p["thickness"]
-	if got := volumeOf(t, bodies[0], "Gear Body"); math.Abs(got-want) > 1e-6*want {
-		t.Errorf("Gear Body volume %.6f mm3, want the root disc's %.6f mm3", got, want)
-	}
+	requireVolume(t, bodies[0], "Gear Body against the root disc",
+		math.Pi*d.Root*d.Root*p["thickness"], 1e-6)
 }
 
 // ---------------------------------------------------------------- pattern teeth
@@ -347,7 +347,7 @@ func assertPatternTeeth(t *testing.T, _ *decad.Document, bodies []*decad.Body, p
 		t.Fatalf("pattern step returned %d bodies, want the seed tooth", len(bodies))
 	}
 	teeth := int(p["toothNumber"])
-	seedVolume := volumeOf(t, bodies[0], "seed tooth")
+	seed := volumeReading(t, bodies[0], "seed tooth")
 	if got := centroidAngle(t, bodies[0]); angleGap(got, 0) > 1e-9 {
 		t.Errorf("the seed tooth sits at %.9f rad, want 0 — the pattern is not symmetric", got)
 	}
@@ -359,10 +359,12 @@ func assertPatternTeeth(t *testing.T, _ *decad.Document, bodies []*decad.Body, p
 		if err != nil {
 			t.Fatalf("pattern copy %d: %v", k, err)
 		}
-		if got := volumeOf(t, copied, "patterned tooth"); math.Abs(got-seedVolume) > 1e-9*seedVolume {
-			t.Errorf("patterned tooth %d has volume %.9f mm3, want the seed's %.9f mm3",
-				k, got, seedVolume)
-		}
+		// Two readings, not a reading against a formula: the placement is
+		// supposed to change nothing, so the seed's own proven bound counts
+		// towards the comparison as much as the copy's.
+		decadtest.Agree(t, fmt.Sprintf("patterned tooth %d against the seed", k),
+			volumeReading(t, copied, "patterned tooth"), seed,
+			decadtest.WithinRel(units.Scalar(1e-9)))
 		if got, want := centroidAngle(t, copied), 2*math.Pi*float64(k)/float64(teeth); angleGap(got, want) > 1e-9 {
 			t.Errorf("patterned tooth %d sits at %.9f rad, want %.9f rad", k, got, want)
 		}
@@ -454,26 +456,19 @@ func assertCombineTeeth(t *testing.T, _ *decad.Document, bodies []*decad.Body, p
 	if len(bodies) != 1 {
 		t.Fatalf("combine left %d bodies, want the one Gear Body", len(bodies))
 	}
-	joined := volumeOf(t, bodies[0], "combined Gear Body")
-
 	scratch := decad.New()
 	ds, dregion := discSection(t, p)
 	disc := volumeOf(t, extrudeSection(t, scratch, p, ds, dregion), "gear body disc")
 	cs, cregion := toothSection(t, p, 0, 0, true)
-	want := disc + volumeOf(t, extrudeSection(t, scratch, p, cs, cregion), "chorded tooth")
-	if math.Abs(joined-want) > 1e-6*want {
-		t.Errorf("combined Gear Body volume %.6f mm3, want disc + one tooth = %.6f mm3", joined, want)
-	}
+	chorded := volumeOf(t, extrudeSection(t, scratch, p, cs, cregion), "chorded tooth")
+	requireVolume(t, bodies[0], "combined Gear Body against disc plus one tooth", disc+chorded, 1e-6)
 
 	whole := decad.New()
-	gear := volumeOf(t, gearPrism(t, whole, p), "one-piece gear")
+	gear := gearPrism(t, whole, p)
 	ts, tregion := toothSection(t, p, 0, 0, true)
 	tooth := volumeOf(t, extrudeSection(t, whole, p, ts, tregion), "tooth")
-	expected := disc + p["toothNumber"]*tooth
-	if math.Abs(gear-expected) > 1e-6*expected {
-		t.Errorf("whole gear volume %.6f mm3, want disc + %.0f teeth = %.6f mm3",
-			gear, p["toothNumber"], expected)
-	}
+	requireVolume(t, gear, "one-piece gear against disc plus every tooth",
+		disc+p["toothNumber"]*tooth, 1e-6)
 }
 
 // filletRadius is the derived Fillet Radius parameter, in millimetres:
@@ -584,9 +579,7 @@ func assertBoreCut(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[
 	if p["boreDiameter"] > 0 {
 		want = disc - math.Pi*p["boreDiameter"]*p["boreDiameter"]/4*p["thickness"]
 	}
-	if got := volumeOf(t, bodies[0], "bored Gear Body"); math.Abs(got-want) > 1e-6*want {
-		t.Errorf("bored Gear Body volume %.6f mm3, want %.6f mm3", got, want)
-	}
+	requireVolume(t, bodies[0], "bored Gear Body", want, 1e-6)
 	box, err := bodies[0].Bounds()
 	if err != nil {
 		t.Fatalf("bored Gear Body bounds: %v", err)
@@ -659,7 +652,5 @@ func assertChamferTeeth(t *testing.T, _ *decad.Document, bodies []*decad.Body, p
 		r := d.Root
 		want -= math.Pi * c * (r*r - (r*r+r*(r-c)+(r-c)*(r-c))/3)
 	}
-	if got := volumeOf(t, bodies[0], "chamfered gear"); math.Abs(got-want) > 1e-6*want {
-		t.Errorf("chamfered gear volume %.6f mm3, want %.6f mm3", got, want)
-	}
+	requireVolume(t, bodies[0], "chamfered gear", want, 1e-6)
 }

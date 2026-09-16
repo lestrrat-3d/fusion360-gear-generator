@@ -31,14 +31,17 @@ package herringbonegear_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"testing"
 
 	"github.com/lestrrat-3d/decad"
+	"github.com/lestrrat-3d/decad/decadtest"
 	"github.com/lestrrat-3d/fusion360-gear-generator/proof/involute"
 	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit3d"
 	"github.com/lestrrat-3d/r3"
 	"github.com/lestrrat-3d/sketch"
+	"github.com/lestrrat-3d/units"
 )
 
 // solidCases sweeps the twists and thicknesses the tooth is lofted across.
@@ -182,13 +185,12 @@ func assertMirrorToothHalf(t *testing.T, _ *decad.Document, bodies []*decad.Body
 		}
 	}
 
-	lowerVolume := bodyVolume(t, lower, "lofted half")
-	upperVolume := bodyVolume(t, upper, "mirrored half")
-	if relativeGap(lowerVolume, upperVolume) > mirrorVolumeTolerance {
-		t.Errorf("mirrored half is %.9f mm^3 against the lofted half's %.9f mm^3, "+
-			"a %.3f%% difference; a mirror changes no volume (sections ruled %s)",
-			upperVolume, lowerVolume, 100*relativeGap(lowerVolume, upperVolume), mirrorSectionOrder)
-	}
+	// Two readings, not a reading against a formula, so both proven bounds
+	// count: a mirror changes no volume, and neither half is the authority the
+	// other is judged against.
+	decadtest.Agree(t, "the mirrored half against the lofted half, sections ruled "+mirrorSectionOrder,
+		volumeReading(t, upper, "mirrored half"), volumeReading(t, lower, "lofted half"),
+		decadtest.WithinRel(units.Scalar(mirrorVolumeTolerance)))
 }
 
 // stepCombineToothHalves combines the mirrored half into the lofted one.
@@ -246,16 +248,13 @@ func assertCombineToothHalves(t *testing.T, _ *decad.Document, bodies []*decad.B
 	lowerTop := capFace(t, lower, "lofted half", r3.NewVec(0, 0, 1))
 	upperBottom := capFace(t, upper, "mirrored half", r3.NewVec(0, 0, -1))
 
-	lowerArea := faceArea(t, lowerTop, "lofted half's top cap")
-	upperArea := faceArea(t, upperBottom, "mirrored half's bottom cap")
-	if relativeGap(lowerArea, upperArea) > 1e-9 {
-		t.Errorf("the halves meet on faces of %.6f mm^2 and %.6f mm^2; a Join of two faces that "+
-			"are not the same region leaves a step in the tooth", lowerArea, upperArea)
-	}
-	if relativeGap(lowerArea, section) > 1e-9 {
-		t.Errorf("the halves meet on a %.6f mm^2 face, but the twisted section they share is %.6f mm^2",
-			lowerArea, section)
-	}
+	lowerArea := areaReading(t, lowerTop, "lofted half's top cap")
+	decadtest.Agree(t, "the two faces the halves meet on; a Join of faces that are not the "+
+		"same region leaves a step in the tooth",
+		lowerArea, areaReading(t, upperBottom, "mirrored half's bottom cap"),
+		decadtest.WithinRel(units.Scalar(1e-9)))
+	decadtest.Measures(t, "the face the halves meet on against the twisted section they share",
+		lowerArea, units.SquareMillimeters(section), decadtest.WithinRel(units.Scalar(1e-9)))
 }
 
 // loftLowerHalf draws the two sections and lofts the bottom half of the tooth.
@@ -419,13 +418,13 @@ func requireSpan(t *testing.T, body *decad.Body, name string, low, high float64)
 }
 
 // requireCapArea checks the planar cap facing dir carries the drawn section.
+// want is the area of the section this proof itself drew, so 1e-9 of it is
+// that drawing's own error; decadtest adds the reading's proven bound to it.
 func requireCapArea(t *testing.T, body *decad.Body, name string, dir r3.Vec, want float64) {
 	t.Helper()
-	area := faceArea(t, capFace(t, body, name, dir), name+" cap")
-	if relativeGap(area, want) > 1e-9 {
-		t.Errorf("%s cap facing %v is %.6f mm^2, want the drawn tooth section's %.6f mm^2",
-			name, dir, area, want)
-	}
+	label := fmt.Sprintf("%s cap facing %v against the drawn tooth section", name, dir)
+	decadtest.Measures(t, label, areaReading(t, capFace(t, body, name, dir), name+" cap"),
+		units.SquareMillimeters(want), decadtest.WithinRel(units.Scalar(1e-9)))
 }
 
 func capFace(t *testing.T, body *decad.Body, name string, dir r3.Vec) *decad.Face {
@@ -437,28 +436,24 @@ func capFace(t *testing.T, body *decad.Body, name string, dir r3.Vec) *decad.Fac
 	return faces[0]
 }
 
-func faceArea(t *testing.T, face *decad.Face, name string) float64 {
+// areaReading is a face's area reading: the value decad measured together with
+// the bound it proved around it.
+func areaReading(t *testing.T, face *decad.Face, name string) decad.Measurement {
 	t.Helper()
 	area, err := face.Area()
 	if err != nil {
 		t.Fatalf("%s area: %v", name, err)
 	}
-	return area.Value.Base()
+	return area
 }
 
-func bodyVolume(t *testing.T, body *decad.Body, name string) float64 {
+// volumeReading is a body's volume reading, measured value and proven bound
+// together.
+func volumeReading(t *testing.T, body *decad.Body, name string) decad.Measurement {
 	t.Helper()
 	volume, err := body.Volume()
 	if err != nil {
 		t.Fatalf("%s volume: %v", name, err)
 	}
-	return volume.Value.Base()
-}
-
-func relativeGap(a, b float64) float64 {
-	scale := math.Max(math.Abs(a), math.Abs(b))
-	if scale == 0 {
-		return 0
-	}
-	return math.Abs(a-b) / scale
+	return volume
 }

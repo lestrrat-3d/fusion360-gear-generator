@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/lestrrat-3d/decad"
+	"github.com/lestrrat-3d/decad/decadtest"
 	"github.com/lestrrat-3d/fusion360-gear-generator/proof/involute"
 	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit3d"
 	"github.com/lestrrat-3d/r3"
@@ -209,13 +210,33 @@ func bgFacetFactor(n int) float64 {
 	return math.Sin(x) / x
 }
 
-func bgVolume(t *testing.T, body *decad.Body) (value, bound float64) {
+// bgVolumeReading is a body's volume reading: the value decad measured
+// together with the bound it proved around it.
+func bgVolumeReading(t *testing.T, body *decad.Body) decad.Measurement {
 	t.Helper()
 	v, err := body.Volume()
 	if err != nil {
 		t.Fatalf("volume: %v", err)
 	}
+	return v
+}
+
+// bgVolume is the reading split into its two floats, for the assertions that
+// add several readings up before comparing anything.
+func bgVolume(t *testing.T, body *decad.Body) (value, bound float64) {
+	t.Helper()
+	v := bgVolumeReading(t, body)
 	return v.Value.Base(), v.Bound.Base()
+}
+
+// bgRequireVolume checks a body against the volume this proof's own formula
+// gives, where rel is that formula's error — a facet factor, a Pappus figure
+// on the §2 hexagon. decadtest adds the reading's own proven bound to it, so
+// what is asserted is that decad's interval and this proof's claim overlap.
+func bgRequireVolume(t *testing.T, body *decad.Body, what string, want, rel float64) {
+	t.Helper()
+	decadtest.Measures(t, what, bgVolumeReading(t, body),
+		units.CubicMillimeters(want), decadtest.WithinRel(units.Scalar(rel)))
 }
 
 // bgToothPolygon returns the virtual spur tooth's closed outline, in the tooth
@@ -592,9 +613,11 @@ func assertRevolveGearBody(t *testing.T, doc *decad.Document, bodies []*decad.Bo
 		bgClose(t, names[i]+" near ring radius", rings[0].R, loR, 1e-6)
 		bgClose(t, names[i]+" far ring radius", rings[1].R, hiR, 1e-6)
 
-		value, bound := bgVolume(t, body)
-		want := bgFacetFactor(rings[0].Count) * bgFrustum(z0, r0, z1, r1)
-		bgClose(t, names[i]+" volume", value, want, math.Max(bound, 1e-9*want))
+		reading := bgVolumeReading(t, body)
+		decadtest.Measures(t, names[i]+" volume", reading,
+			units.CubicMillimeters(bgFacetFactor(rings[0].Count)*bgFrustum(z0, r0, z1, r1)),
+			decadtest.WithinRel(units.Scalar(1e-9)))
+		value := reading.Value.Base()
 		if i == 2 {
 			signed -= value
 		} else {
@@ -654,9 +677,8 @@ func assertLoftToothBody(t *testing.T, doc *decad.Document, bodies []*decad.Body
 	// the section plane, less the nose the substitution cuts off. The tooth
 	// plane is the BACK-CONE plane, tilted by gamma out of the
 	// axis-perpendicular, so that distance is sK cos gamma and not sK.
-	want := area * sK * math.Cos(g.Gamma) / 3 * (1 - bgNose*bgNose*bgNose)
-	value, bound := bgVolume(t, bodies[0])
-	bgClose(t, "the lofted tooth's volume is the profile's cone", value, want, math.Max(bound, 1e-6*want))
+	bgRequireVolume(t, bodies[0], "the lofted tooth's volume is the profile's cone",
+		area*sK*math.Cos(g.Gamma)/3*(1-bgNose*bgNose*bgNose), 1e-6)
 
 	// The taper is what makes it a bevel tooth: the root and the tip both ride
 	// straight cones through the apex, so a reading anywhere along the body
@@ -785,7 +807,7 @@ var (
 	bgSeedAzimuth float64
 	bgSeedRadius  float64
 	bgSeedHeight  float64
-	bgSeedVolume  float64
+	bgSeedVolume  decad.Measurement
 )
 
 func stepCircularPattern(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
@@ -794,7 +816,7 @@ func stepCircularPattern(t *testing.T, doc *decad.Document, p map[string]float64
 	seed, _ := b.toothBody(bgNose, 0, 0)
 
 	// Read the seed while it still exists.
-	bgSeedVolume, _ = bgVolume(t, seed)
+	bgSeedVolume = bgVolumeReading(t, seed)
 	seedSection := bgReadSection(seed)
 	bgSeedRadius, bgSeedHeight, bgSeedAzimuth = seedSection.Radius, seedSection.Height, seedSection.Azimuth
 
@@ -842,8 +864,11 @@ func assertCircularPattern(t *testing.T, doc *decad.Document, bodies []*decad.Bo
 	step := 2 * math.Pi / float64(n)
 
 	for i, k := range []int{1, n - 1} {
-		value, bound := bgVolume(t, bodies[i])
-		bgClose(t, "patterned copy keeps the seed's volume", value, bgSeedVolume, math.Max(bound, 1e-9*value))
+		// Two readings, not a reading against a formula: the pattern is
+		// supposed to change nothing about the tooth, so the seed's own proven
+		// bound counts towards the comparison as much as the copy's.
+		decadtest.Agree(t, "patterned copy keeps the seed's volume",
+			bgVolumeReading(t, bodies[i]), bgSeedVolume, decadtest.WithinRel(units.Scalar(1e-9)))
 		section := bgReadSectionAbout(bodies[i], float64(i+1)*bgSpread*b.lat.ConeDist)
 		bgClose(t, "patterned copy keeps the seed's radius", section.Radius, bgSeedRadius, 1e-6)
 		bgClose(t, "patterned copy keeps the seed's height", section.Height, bgSeedHeight, 1e-6)
@@ -1096,9 +1121,9 @@ func assertMeshRotation(t *testing.T, doc *decad.Document, bodies []*decad.Body,
 	if len(bodies) != 2 {
 		t.Fatalf("expected the tooth before and after the rotation, got %d bodies", len(bodies))
 	}
-	before, bound := bgVolume(t, bodies[0])
-	after, _ := bgVolume(t, bodies[1])
-	bgClose(t, "the rotation moves the body and changes nothing about it", after, before, math.Max(bound, 1e-9*before))
+	decadtest.Agree(t, "the rotation moves the body and changes nothing about it",
+		bgVolumeReading(t, bodies[1]), bgVolumeReading(t, bodies[0]),
+		decadtest.WithinRel(units.Scalar(1e-9)))
 
 	turn := math.Mod(bgReadSectionAbout(bodies[1], bgSpread*l.ConeDist).Azimuth-
 		bgReadSection(bodies[0]).Azimuth+4*math.Pi, 2*math.Pi)
