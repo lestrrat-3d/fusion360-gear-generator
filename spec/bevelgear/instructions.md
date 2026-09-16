@@ -126,6 +126,19 @@ Worked case: Module 1, Driving 31, Pinion 31, Shaft Angle 35°. Each `γ` is 17.
 
 **Unlike the two base-height bounds, this one cannot be resolved during input validation.** Its heel term is closed-form and is available as soon as the base heights resolve, but its toe term needs the Root Length, which needs the resolved Face Width, which needs the Maximum Face Width and therefore solved §2 sketch geometry. The bound is the minimum of the two terms, so **resolve and apply the whole bound in §2, at the step that already applies the Maximum Face Width**; do not split the check across the two passes. That step still runs before anything is revolved, so the Bore step in "Create the Gear Bodies" reads a diameter that is already bounded.
 
+**Fusion has refused an over-maximum bore once — loaded 2026-09-16, from the build this bound was
+introduced on (branch `fix-bevel-spec-defects`).** A bore diameter above the maximum was entered
+and the build stopped at the rejection instead of proceeding. The message's wording was not read
+back, so what this records is the refusal and not the text of it. What the load does not show is
+the damage the bound exists to prevent: the bound was not lifted, so no bore past `r_heel` was cut
+and the deleted back face has still never been seen in Fusion.
+
+**Could the proof have caught this?** The arithmetic, yes, and it already does: the geometry case
+computes `2 * 0.95 * min(r_heel, r_toe)` from the closed form above, and both the sketch case and
+the solid case refuse a resolved bore diameter above it. What no case reaches is the generated
+module raising on the user's value, because the proof never runs that module. That refusal is the
+part this load covered, and there is no case to add for it.
+
 Face Width: User-specified positive number. If unspecified, default to (Cone Distance / 6). In **every** case (default or user-specified) the Face Width is bounded by the Maximum Face Width (defined below):
 - If unspecified, use `min(Cone Distance / 6, Maximum Face Width)`.
 - If the user specifies a value greater than the Maximum Face Width, this is an error: reject it with a message stating the maximum, rather than proceeding (the gear-body revolve in "Create the Gear Bodies" would otherwise fail — see the Maximum Face Width rationale).
@@ -790,6 +803,22 @@ This sketch is **deliberately left with free DOF** — the arc's endpoints are p
 
 **E. Slice the straight tooth.** Split the uncut apex→heel `toothBody` into cross-section slabs by planes **parallel to the parent transverse tooth plane** (`parentToothPlane`, the virtual-spur tooth-profile plane `{label} Plane` from §3, passed into the hook), via a **fixed** slice scheme of **exactly 8 planes** — the count is not user-configurable. ⚠️ **The slice planes are NOT perpendicular to the cone element.** The parent plane carries the tooth-center line C->K′ / D->L′, which is the back-cone line and so perpendicular to the Pitch Line, so **the parent plane's normal runs along the PITCH element** — while `coneVec` is the **ROOT** element. The two differ by the dedendum angle `δ_f = atan(1.25 · Module / R)`, equivalently `atan(2.5 · sin γ_p / N_p)` = `atan(2.5 · sin γ_g / N_g)`: Module cancels, so δ_f depends only on the tooth counts and the Shaft Angle and is the **same for both members** — `3.26°` on the default 31/31 pair at Shaft Angle 90°, growing as the tooth counts fall. The parallel family is what the build requires rather than what it happens to use: `slice_body_by_offset_planes` offsets the parent plane with `setByOffset`, which produces **parallel** planes; the sign test below reads the **parent plane's own normal**, which is meaningful only for that plane's own offsets; and the tooth is lofted from the Apex to the profile drawn in the parent plane, so **the heel-most slab's heel face IS the parent plane** and a consistent family has to contain it. ⚠️ **A build that follows "perpendicular to the cone element" instead is wrong and silent**: it tilts every cut face by δ_f and nothing in the pipeline fails — parallel planes cut a cone in similar sections whatever their orientation, so the loft still reproduces the taper; the piece count, the retry gate below and the conical trims of step J are all indifferent to slab orientation; the proof builds its own slabs and never sees the module's plane; and the runtime gate only counts pieces. What moves is the geometry: on the default pair at Module 4 a face corner lands `1.125 · Module · tan δ_f` = 0.26 mm along the cone from where the parallel cut puts it, and the step-G twist keyed across one face mismatches by up to 0.0078 rad. The first cut plane is the parent plane offset toward the apex by `span/6`; the offset **sign is chosen per gear** so it moves toward the apex (the parent plane's normal points opposite ways for the two gears — pick `sign` so `sign·normal` points apex-ward, i.e. test `(apex − planeOrigin)·normal`). The other seven step further toward the apex in `span/6` increments (`sign·(k+1)·span/6` for k = 0…7, k = 0 being the first cut plane). **Where the eight land: the first sits `span/6` inside the HEEL and none of them lies past it** — the parent plane is already the heel end, so there is no heel overshoot to give — **the sixth lands at the toe, and the last two sit `span/6` and `2·span/6` PAST the toe**; the two segments beyond the toe are what step J's toe cone trims away. (The first sits a hair more than `span/6` inside the heel, and the sixth a fraction of a millimetre inside the toe, because `R_heel`/`R_toe` are read at the two edge midpoints rather than on the root element.) Split the body with the framework's `slice_body_by_offset_planes(designComponent, toothBody, parentToothPlane, offsets)` where `offsets = [sign·(k+1)·span/6 for k in 0…7]` — it splits piece-by-piece and keeps a piece whole when a plane misses it. ⚠️ **The slice MUST actually split the tooth.** After the cut loop, if the body is still in **one piece** (no plane cut it), the offset sign was wrong or `parentToothPlane` sits outside the tooth's span — **retry the whole cut once with the opposite sign**. If it is *still* one piece, **`raise` a clear self-diagnosing error** naming the gear, the final piece count, `span`, and the sign tried. Do **NOT** return an unsliced (single-piece) result: step F then drops that one piece as the apex scrap, leaving `segments` **empty**, and the crown later crashes with `ValueError: max() iterable argument is empty` far from the cause. The result is the set of cross-section segments.
 
+**A spiral build has been through Fusion once on the parallel family — loaded 2026-09-16, from the
+build that corrected this step from "perpendicular to the cone element" (branch
+`fix-bevel-spec-defects`).** A spiral gear built with no error. Each failure this step names raises,
+so a clean build is the reading that the eight offset planes cut the tooth into more than one piece
+and that step F left segments behind for the crown. ⚠️ **That is the whole of what it shows, and it
+does not distinguish the two families** — this step already records that a build on the tilted
+planes completes just as silently. No face corner and no twist angle was measured on the result, so
+the 0.26 mm corner shift that separates the parallel family from the tilted one is still unmeasured
+in Fusion.
+
+**Could the proof have caught the correction?** No, for the reason this step already states: the
+proof builds its own slabs from the offsets this spec fixes and never reads the plane the generated
+module constructs, so the module's choice of family reaches Fusion untested. That is the same shape
+of gap as the §2 seed, and the only thing that closes it is a measurement taken on a loaded spiral
+gear — a face corner's position along the cone, which no load has yet reported.
+
 **F. Order & drop scrap.** Sort the segments by `distAlong` of their centroid (`physicalProperties.centerOfMass`). The first (apex-most) is the long **apex-side scrap** below the toe — **remove it**; keep the rest as the working `segments`. (Drop the scrap by re-slicing the list, *then* delete it — `segments = segments[1:]` before `removeFeatures.add(scrap)`.) After dropping the scrap, **`segments` must be non-empty** (≥1 cross-section); if it is empty the slice failed in step E — `raise` a clear error rather than proceeding into the twist (G) and crown (H), which assume ≥1 segment.
 
 **G. Twist (the spiral).** Rotate each segment about the **shaft axis** (`axisDir` through `apex`) so the tooth follows the trace, **centred on R_mean so the mid-face section stays unrotated** — that section then meshes exactly like the straight tooth (critical; the pinion's zero mesh nudge depends on it). The total toe→heel shaft-axis twist comes from the **conjugate crown-gear generation law** (the standard Gleason/Litvin model — see `spiral-tooth-trace.md` and the NASA references): a spiral bevel is generated by an imaginary flat *crown gear*, and the work gear’s shaft rotation relates to the developed crown-plane azimuth by the **roll ratio `1/sin γ`** (the generating crown gear has `N/sin γ` teeth; γ = this gear’s **pitch cone angle**). Compute it **analytically — no projection, no curve sampling:**
@@ -973,6 +1002,15 @@ still mean something. State the substitution once in the proof file and its cost
   been through Fusion before that load. So the stitch this substitution cannot show has been seen
   once, on those two configurations, and on nothing else in the table.
 
+  **A second load repeated the stitch on the module that ships today — 2026-09-16, branch
+  `fix-bevel-spec-defects`.** That branch regenerated `lib/geargen/bevelgear.py` after the load
+  above, so the module the first load exercised is not the module in the repository now. The
+  shipped default pair built **one solid per gear**, which is the join's own reading: two bodies
+  would mean a tooth floating off the root cone, and one means the evaluator made a single boundary
+  out of the frustum and every patterned tooth. The 16/12 pair at Module 4 was not rebuilt, so on
+  the current module the stitch has been seen on the default pair alone. The proof reaches no more
+  of this than it did before — it still performs no join.
+
   **The heel tip radius was not measured on that load, so the tip is still checked only where the
   proof checks it.** The §3 sketch case dimensions the drawn tip circle at `virtualPitchRadius +
   Module`, and the apex loft reads the built tooth body out to the virtual tip radius laid on the
@@ -1129,3 +1167,24 @@ the same 22 named points against the same closed forms §2 states, including E, 
 constraints solve from a correct seed and never that the generated module's seed is correct. That
 is the same limit the toe-line seeding already records, and it is why the gate has to exist inside
 the module rather than only in the proof.
+
+**Fusion has run the `[BEVEL-F-SEED-HELD]` gate once — loaded 2026-09-16, from the build that
+introduced it (branch `fix-bevel-spec-defects`).** The shipped default pair — 31 teeth on both
+gears, Module 1, Shaft Angle 90° — built one solid per gear with no error. The gate runs inside
+that build and raises on the first point that moved, so a clean build is the reading that all 20
+points it compares at Tooth Spacing 0 solved within 0.001 mm of their closed-form seeds, and that
+the gate raised on none of them. Both halves of the risk were open until this load and neither
+showed: Fusion's solver did not leave the figure outside the tolerance, and the gate did not raise
+on a correct figure.
+
+**Nothing was measured on that load beyond the build completing.** No solved point, volume or
+radius was read off the result, and only the one configuration was built. So this records that the
+gate ran and stayed silent on the default pair, and nothing about the 1024 figures at that
+configuration it exists to refuse — none of them was built.
+
+**Could the proof have caught any of this?** No. The lattice assertion seeds at the closed form and
+solves with the sketch engine this repository pins, so what it reaches is the constraint net, which
+is the limit recorded just above. Whether Fusion's own solver leaves a seeded point inside 0.001 mm
+is a property of Fusion's solver, and so is whether the gate false-fails on a solve that is
+correct. Nothing in this repository runs that solver. Loading the gear is the only check that
+reaches either reading, and it stays the only one.
