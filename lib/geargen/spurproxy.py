@@ -14,16 +14,28 @@ class Val:
 
 
 class VirtualSpurProxy:
+    # virtualTeeth may be a REAL number. The pitch diameter is virtualTeeth *
+    # module_mm, so a gear whose pitch circle has to reach a radius no whole
+    # tooth count lands on passes the real count and gets that radius. The spur
+    # drawer reads ToothNumber only for the angular half-thickness
+    # pi / (2 * ToothNumber), which a real count leaves at the standard
+    # pi * module / 2 of tooth at the pitch circle.
+    #
+    # rootSink_mm moves the ROOT circle inward by that much and leaves pitch,
+    # base and tip where they are. A gear that joins its tooth onto a curved
+    # body needs it: a root circle at the dedendum corner exactly meets the body
+    # along one line rather than across the root. 0 is the plain spur tooth.
     def __init__(self, module_mm, virtualTeeth,
-                 pressureAngleRad=math.radians(20.0), involuteSteps=15):
+                 pressureAngleRad=math.radians(20.0), involuteSteps=15,
+                 rootSink_mm=0.0):
         # OUTPUT slot the spur drawer writes during draw().
         self._lastToothEmbedded = False
 
         # Standard spur formulas (Module here is raw mm):
-        pitch = virtualTeeth * module_mm               # pitch diameter (mm)
-        base = pitch * math.cos(pressureAngleRad)      # base diameter (mm)
-        root = pitch - 2.5 * module_mm                 # root diameter (mm)
-        tip = pitch + 2.0 * module_mm                  # tip diameter (mm)
+        pitch = virtualTeeth * module_mm                        # pitch diameter (mm)
+        base = pitch * math.cos(pressureAngleRad)               # base diameter (mm)
+        root = pitch - 2.5 * module_mm - 2.0 * rootSink_mm      # root diameter (mm)
+        tip = pitch + 2.0 * module_mm                           # tip diameter (mm)
 
         # Serve every key the spur drawer reads, in internal cm.
         self._params = {
