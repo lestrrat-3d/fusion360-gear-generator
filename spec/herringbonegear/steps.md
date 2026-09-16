@@ -19,7 +19,7 @@ leaves behind.
 | `spec/helicalgear/fusion.md` | `f981173cb314094f2fd98cdd78d5bd8287cdc8ee` |
 | `spec/helicalgear/instructions.md` | `71b7993007b17cc4948569313c23614b8fbd246c` |
 | `spec/spurgear/instructions.md` | `2a98a801da25e77958488252bc87b499475ac95d` |
-| `.claude/skills/generate-gear/PLAYBOOK.md` | `abb1123b5910f10c5c96c1ad936a38691ea3e7fb` |
+| `.claude/skills/generate-gear/PLAYBOOK.md` | `9ee2dcbaed7b5480aa69e9295e8b61acaea081f3` |
 
 ## H1 `[PROSE]` Module layout, imports and constants
 
