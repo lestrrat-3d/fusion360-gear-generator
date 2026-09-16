@@ -3,7 +3,7 @@ module github.com/lestrrat-3d/fusion360-gear-generator/proof
 go 1.26.8
 
 require (
-	github.com/lestrrat-3d/decad v0.0.0-20260916084643-e6bdf3ccae71
+	github.com/lestrrat-3d/decad v0.0.0-20260916091157-82a01e44ed9c
 	github.com/lestrrat-3d/r3 v0.0.0-20260904102550-456163073bdd
 	github.com/lestrrat-3d/sketch v0.0.0-20260913122453-e72fa4c2ba55
 	github.com/lestrrat-3d/solidlens v0.0.0-20260905044249-315b59149f90
