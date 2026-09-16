@@ -338,7 +338,7 @@ shaftAngle_deg)` and stashes the rest as instance attributes (`self._drivingBase
 inputs 18 to 20 are read the way "Exact input ids" states and every one of the three is stashed
 here, since §2 resolves the toe lattice from all three; (b) the per-gear geometric anchors are carried in **plain per-gear
 dicts** (`pinionCtx` / `drivingCtx`), built in `_buildGearProfiles` and passed to
-`_buildVirtualSpurProfile` / `_createGearBody`, which write five further entries back into the dict
+`_buildVirtualSpurProfile` / `_createGearBody`, which write eight further entries back into the dict
 (every key, its type and its readers: the table "Exact per-gear context dictionary keys" below);
 shared anchors are self-stashed
 (`self._gearProfilesPlane`, `self._apexSketchPoint`, `self._gpSketch`, `self._apex2d`, the §1
@@ -355,46 +355,53 @@ verbatim.** NEVER rename a key, split the dict, wrap it in a class, or carry one
 under a different shape. Both gears carry the same **18** keys and no others.
 
 `written` is the step that puts the key in the dict; `read by` is every step that reads it back. The
-first 13 are built with the dict in `_buildGearProfiles`; the last 5 are written back later and read
+first 10 are built with the dict in `_buildGearProfiles`; the last 8 are written back later and read
 later still. `SketchPoint` / `SketchLine` entries are the live §2 Gear Profiles sketch entities, not
 copies of their coordinates — a reader takes `.geometry` (sketch-local) or `.worldGeometry` itself.
 
 | key | value it carries | type / unit | written | read by |
 |---|---|---|---|---|
 | `label` | `'Pinion'` or `'Driving'` | `str` | `_buildGearProfiles` | every `{gearLabel}` name (§3's `{gearLabel} Plane` / `{gearLabel} Tooth` / `{gearLabel} Tooth Axis`, `{gearLabel} Profile`, `{gearLabel} Bore`, the `{gearLabel} Gear` component) and the `gearLabel` argument of `_transformToothBody` / `cut_conical_ends` |
-| `teeth` | this gear's Teeth Number | `int` | `_buildGearProfiles` | Pattern (`quantity`); `_transformToothBody`'s `teethNumber` |
-| `pitchDiameter_cm` | this gear's Pitch Diameter | `float`, internal cm | `_buildGearProfiles` | §3 step 1, the virtual tooth number |
+| `teeth` | this gear's Teeth Number | `int` | `_buildGearProfiles` | Pattern (`quantity`); the Meshing rotation angle; `_transformToothBody`'s `teethNumber` |
 | `gamma` | this gear's pitch cone angle — `γ_p` (Pinion) / `γ_g` (Driving), matching `self._gamma_p` / `self._gamma_g` | `float`, radians | `_buildGearProfiles` | §3 step 1; `_transformToothBody`'s `gamma`, i.e. §3a step G's twist law |
-| `toothCentrePoint` | the tooth-center point K′ (Pinion) / L′ (Driving) | `SketchPoint` | `_buildGearProfiles` | §3 step 3, as the spur drawer's `draw(anchorPoint, …)` anchor |
-| `toothCentreLine` | the tooth-center reference line C->K′ / D->L′ | `SketchLine` | `_buildGearProfiles` | §3 step 2 (`plane_by_angle`); §3 step 4's `setByDistanceOnPath` helper plane |
+| `pitchDiameter_cm` | this gear's Pitch Diameter | `float`, internal cm | `_buildGearProfiles` | §3 step 1, the virtual pitch radius |
+| `toothCenterPoint` | the tooth-center point K′ (Pinion) / L′ (Driving) | `SketchPoint` | `_buildGearProfiles` | §3 step 3, as the spur drawer's `draw(anchorPoint, …)` anchor |
+| `toothCenterRefLine` | the tooth-center reference line C->K′ / D->L′ | `SketchLine` | `_buildGearProfiles` | §3 step 2 (`plane_by_angle`); §3 step 4's `setByDistanceOnPath` helper plane |
 | `hexVertices` | the six profile vertices in draw order — A', G, H, C, M, N / B', I, J, D, O, P | `list[SketchPoint]`, length 6 | `_buildGearProfiles` | Create the Gear Bodies → Profile sketch |
-| `toeEdge` | the toe edge's two endpoints — M and N / O and P | `tuple[SketchPoint, SketchPoint]` | `_buildGearProfiles` | the `toeMid` midpoint handed to `_transformToothBody` and `cut_conical_ends` |
-| `heelEdge` | the heel edge's two endpoints — C and H / D and J | `tuple[SketchPoint, SketchPoint]` | `_buildGearProfiles` | the `heelMid` midpoint handed to `_transformToothBody` and `cut_conical_ends` |
-| `toeConePoint` | the toe edge's inner endpoint — M / O | `SketchPoint` | `_buildGearProfiles` | `toeConeWorld`, per the §3a caller hand-off table |
-| `heelConePoint` | the dedendum corner — C / D, **NEVER** H / J | `SketchPoint` | `_buildGearProfiles` | `heelConeWorld`, per the §3a caller hand-off table |
+| `toeEdgePoints` | the toe edge's two endpoints — M and N / O and P, in that order | `tuple[SketchPoint, SketchPoint]` | `_buildGearProfiles` | the `toeMid` midpoint handed to `_transformToothBody` and `cut_conical_ends`; its FIRST element is `toeConeWorld`, per the §3a caller hand-off table |
+| `heelEdgePoints` | the heel edge's two endpoints — C and H / D and J, in that order | `tuple[SketchPoint, SketchPoint]` | `_buildGearProfiles` | the `heelMid` midpoint handed to `_transformToothBody` and `cut_conical_ends`; its FIRST element is `heelConeWorld` — the dedendum corner C / D, **NEVER** H / J |
 | `boreDiameter_cm` | this gear's Bore Diameter, already resolved AND already bounded — `generate()` resolves the raw value before §2 and §2 applies the Maximum Bore Diameter to it, so no reader re-applies the `/ 4` auto value and no reader re-derives it | `float`, internal cm | `_buildGearProfiles` | Bore |
-| `meshAngle_rad` | this gear's meshing rotation about its own shaft axis (the "Meshing rotation" step owns the value) | `float`, radians | `_buildGearProfiles` | Meshing rotation, as the `rotate_body_about_edge` angle |
 | `toothPlane` | the `{gearLabel} Plane` construction plane | `ConstructionPlane` | §3 step 2 | `_transformToothBody`'s `parentToothPlane` — §3a step E's first cut plane |
 | `toothSketch` | the `{gearLabel} Tooth` sketch | `Sketch` | §3 step 3 | tooth-profile selection (`find_profile_by_curve_counts`) |
-| `embedded` | the spur drawer's `_lastToothEmbedded`, read back off the proxy | `bool` | §3 step 3 | tooth-profile selection, as `wantLines = 0 if embedded else 2` |
+| `toothEmbedded` | the spur drawer's `_lastToothEmbedded`, read back off the proxy | `bool` | §3 step 3 | tooth-profile selection, as `wantLines = 0 if toothEmbedded else 2` |
+| `toothAxis` | the `{gearLabel} Tooth Axis` construction axis | `ConstructionAxis` | §3 step 4 | nothing — no step reads this key back, and Cleanup hides the axis by entity kind rather than through the dict. It is the one entry with no reader, and it is listed so that a regen that stashes the axis is not read as having invented a key |
+| `gearOccurrence` | the `{gearLabel} Gear` occurrence | `Occurrence` | Create the Gear Bodies → Gear component | `moveToComponent`'s destination |
 | `profileSketch` | the `{gearLabel} Profile` sketch | `Sketch` | Create the Gear Bodies → Profile sketch | Revolve (its single profile) |
 | `shaftAxisEdge` | that sketch's first edge — A'->G / B'->I | `SketchLine` | Create the Gear Bodies → Profile sketch | Revolve axis; Pattern axis; the Bore plane's `setByDistanceOnPath`; Meshing rotation; `_transformToothBody`'s `shaftAxisEdge` |
+| `gearBody` | the revolved Gear Body | `BRepBody` | Revolve | the Bore extrude's `participantBodies`. The Combine, the Meshing rotation and `moveToComponent` all run inside the same method as the Revolve and use the local body, so the key exists for the Bore alone |
 
-**Four values are used where they are made and NEVER enter the dict**, so a regen that stashes one
+**Six values are used where they are made and NEVER enter the dict**, so a regen that stashes one
 has invented an entry:
 - the **Root Axis** (Apex->C / Apex->D) is consumed inside §2 itself, by `addCoincident(M, Pinion
   Root Axis)` / `addCoincident(O, Driving Root Axis)`; §3a rebuilds its direction as `coneVec` from
-  `apexWorld` and `heelConePoint`.
+  `apexWorld` and the heel cone point.
+- the **toe and heel cone points** are the first element of `toeEdgePoints` / `heelEdgePoints`, so a
+  separate `toeConePoint` / `heelConePoint` key would carry the same entity twice.
 - the **shaft-edge point pair** would only duplicate the first two `hexVertices`; the shaft axis
   every body operation uses is `shaftAxisEdge`, the Profile sketch edge, never a §2 point pair.
 - the **virtual tooth number** is computed in §3 step 1 and consumed in §3 step 3 by
   `VirtualSpurProxy`, inside the same step.
-- the **`{gearLabel} Tooth Axis`** is created in §3 step 4 and read by no later step; it stays as
-  construction geometry that Cleanup hides by entity kind.
+- the **root sink** is computed and consumed in the same two steps as the virtual tooth number, and
+  travels to the drawer as `VirtualSpurProxy`'s `rootSink_mm` argument.
+- the **meshing rotation angle** is computed in the Meshing rotation step itself, from `teeth`, and
+  is handed straight to `rotate_body_about_edge`.
 
 This table is pinned because nothing else can catch a drift: the dict is written and read inside one
-generated module, so a regen that renames every key and every reader together still runs, and five
-rebuilds of `lib/geargen/bevelgear.py` each carried these same values under a different shape.
+generated module, so a regen that renames every key and every reader together still runs, and six
+rebuilds of `lib/geargen/bevelgear.py` each carried these same values under a different shape. The
+rebuild that introduced the exact virtual tooth count is the most recent of them: it renamed six of
+these keys in one round — `toothCentrePoint`, `toothCentreLine`, `toeEdge`, `heelEdge`, `embedded`
+and the bore key — and changed which values reached the dict at all.
 
 ## Method contract — call graph
 
@@ -641,7 +648,7 @@ Constrain Point I with center point.
 
 Draw a construction line away from Apex, starting from point G, extending along Apex->A, and call its end point K. Then **pin K with two point-on-line coincident constraints** — `addCoincident(K, line Apex->A)` and `addCoincident(K, the Pinion Dedendum line Apex2->C extended)` — rather than `addCollinear` on the connecting lines. By the time K is added, G and C are already fixed, so an `addCollinear` here over-constrains the sketch and Fusion errors; the two point-on-line coincidents locate K exactly (intersection of the two lines) without over-constraining. Draw a construction line from point C to K for reference.
 
-**Tooth-center point K′ (Tooth Spacing offset).** The §3 spur tooth is centered not at K but at a tooth-center point **K′**, obtained by shifting K outward along the dedendum line by **Tooth Spacing**, *away from the lower corner C*. **When Tooth Spacing is 0 (the default), do NOT build anything here — set K′ ≡ K and reuse the C->K reference line** (a zero-length dimensioned line would be degenerate, and one segment gets ONE line — `[BEVEL-F-LINE-ONCE]`). When Tooth Spacing > 0: draw a construction line starting at K with its far end seeded at the closed form **`K′ = Apex 2 + <unit Apex2->C> · (<the pinion's virtual pitch radius> + Tooth Spacing)`**, which is K plus Tooth Spacing along `Apex2->C`, on the far side of K from C; pin its far end **the same way K is pinned to its line** — `addCoincident(start, K)` and `addCoincident(K′, the Pinion Dedendum line Apex2->C extended)` to keep K′ on the dedendum line — then add a **length dimension on this line = Tooth Spacing** (do **not** use `addCollinear`, for the same over-constraint reason as K). ⚠️ **That length dimension is unsigned, so the point-on-line pin plus the length admit K′ one Tooth Spacing on the C side of K just as readily — the two candidates sit `2 × Tooth Spacing` apart — and this seed is the only thing that rules the wrong one out** (`[BEVEL-F-MIRROR-FIGURE]`). A flipped K′ tightens the mesh by the clearance the input asked to add, and builds a gear that looks right, so state the seed as this formula rather than as a direction — a direction cannot be gated (`[BEVEL-F-SEED-HELD]`). The far end is K′. Build it **here, inside the Gear Profiles sketch, before that sketch's end-of-step full-constraint gate**, so the gate covers it. Finally draw the **tooth-center reference line C->K′** (from the lower corner C to K′) for §3 to use in place of C->K. Only the tooth's center moves; the virtual tooth number and drawn tooth size are unchanged (see §3).
+**Tooth-center point K′ (Tooth Spacing offset).** The §3 spur tooth is centered not at K but at a tooth-center point **K′**, obtained by shifting K outward along the dedendum line by **Tooth Spacing**, *away from the lower corner C*. **When Tooth Spacing is 0 (the default), do NOT build anything here — set K′ ≡ K and reuse the C->K reference line** (a zero-length dimensioned line would be degenerate, and one segment gets ONE line — `[BEVEL-F-LINE-ONCE]`). When Tooth Spacing > 0: draw a construction line starting at K with its far end seeded at the closed form **`K′ = Apex 2 + <unit Apex2->C> · (<the pinion's virtual pitch radius> + Tooth Spacing)`**, which is K plus Tooth Spacing along `Apex2->C`, on the far side of K from C. **"Virtual pitch radius" here is the exact back-cone radius `(Pinion Gear Pitch Diameter / 2) / cos γ_p` that §3 step 1 defines, and never a radius rebuilt from a tooth count.** That is what `|Apex 2 -> K|` measures: the dedendum line Apex2->C is perpendicular to the Pitch Line, which meets the pinion shaft axis at γ_p, so walking `r_p / cos γ_p` along it from Apex 2 lands exactly on the axis, at K. Reading the term as a rounded count times half a Module puts the seed 0.4203 mm short on the shipped default geometry — 31 teeth, Module 1, Shaft Angle 90° — which is 420 times the `[BEVEL-F-SEED-HELD]` tolerance below. Pin its far end **the same way K is pinned to its line** — `addCoincident(start, K)` and `addCoincident(K′, the Pinion Dedendum line Apex2->C extended)` to keep K′ on the dedendum line — then add a **length dimension on this line = Tooth Spacing** (do **not** use `addCollinear`, for the same over-constraint reason as K). ⚠️ **That length dimension is unsigned, so the point-on-line pin plus the length admit K′ one Tooth Spacing on the C side of K just as readily — the two candidates sit `2 × Tooth Spacing` apart — and this seed is the only thing that rules the wrong one out** (`[BEVEL-F-MIRROR-FIGURE]`). A flipped K′ tightens the mesh by the clearance the input asked to add, and builds a gear that looks right, so state the seed as this formula rather than as a direction — a direction cannot be gated (`[BEVEL-F-SEED-HELD]`). The far end is K′. Build it **here, inside the Gear Profiles sketch, before that sketch's end-of-step full-constraint gate**, so the gate covers it. Finally draw the **tooth-center reference line C->K′** (from the lower corner C to K′) for §3 to use in place of C->K. Only the tooth's center moves; the virtual tooth number and drawn tooth size are unchanged (see §3).
 
 At this point all of A, B, C, D, H, J exist **and are solved**, so resolve the **Maximum Face Width** (see the Parameters section) from their solved `.geometry` (NOT the seed coordinates — see that section) and apply it before using Face Width below: cap the auto default to it, and reject a user value that exceeds it. Skipping this — or computing it from seeds — makes the M->N / O->P line push N/P across the shaft axis for asymmetric tooth counts (either gear can be the smaller, binding side), which fails the gear-body revolve with `ASM_WIRE_X_AXIS`.
 
@@ -677,7 +684,7 @@ Let the beginning of this new line be point M, the end be point N. Draw a line f
 
 Draw a construction line away from Apex, starting from point I, extending along Apex->B, and call its end point L. **Pin L the same way as K** — `addCoincident(L, line Apex->B)` and `addCoincident(L, the Driving Dedendum line Apex2->D extended)`; do not use `addCollinear`. Draw a construction line from point D to L for reference.
 
-**Tooth-center point L′ (Tooth Spacing offset).** Build the driving-side tooth center **L′** exactly as K′ on the pinion side, substituting L for K, D for C, and the Driving Dedendum line Apex2->D for the pinion's; the reference line for §3 is **D->L′**. Same single Tooth Spacing value, same full-constraint gate, same reuse-the-existing-line rule at 0. The seed formula and the unsigned-length ⚠️ carry over unchanged: seed **`L′ = Apex 2 + <unit Apex2->D> · (<the driving gear's virtual pitch radius> + Tooth Spacing)`**, and the flipped twin, one Tooth Spacing on the D side of L, is ruled out by that seed alone.
+**Tooth-center point L′ (Tooth Spacing offset).** Build the driving-side tooth center **L′** exactly as K′ on the pinion side, substituting L for K, D for C, and the Driving Dedendum line Apex2->D for the pinion's; the reference line for §3 is **D->L′**. Same single Tooth Spacing value, same full-constraint gate, same reuse-the-existing-line rule at 0. The seed formula and the unsigned-length ⚠️ carry over unchanged: seed **`L′ = Apex 2 + <unit Apex2->D> · (<the driving gear's virtual pitch radius> + Tooth Spacing)`**, taking "virtual pitch radius" as the same exact back-cone radius `(Driving Gear Pitch Diameter / 2) / cos γ_g` §3 step 1 defines, which is `|Apex 2 -> L|`. The flipped twin, one Tooth Spacing on the D side of L, is ruled out by that seed alone.
 
 Create line O->P, the mirror of M->N on the driving side. **Seed it the same way, at the closed-form solved positions**: O on `Apex->D` at the fraction `1 - <Root Length> / |Apex->D|`, then P slid from that O seed along `D->J` by `(<O seed's perpendicular distance from the Driving Gear Shaft Axis> - <Driving Gear Toe Radius>) / cos γ_g`. The ⚠️ above applies here unchanged: the length dimension on the front face is unsigned, so a P seed on the far side of the shaft axis converges onto the mirror and the revolve aborts. Then apply the same three constraints:
 - `addCoincident(O, Driving Root Axis)` — O on the Apex->D root axis;
