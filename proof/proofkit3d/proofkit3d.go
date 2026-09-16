@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/lestrrat-3d/decad"
+	"github.com/lestrrat-3d/decad/decadtest"
 	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit"
 )
 
@@ -146,40 +147,23 @@ func Unmodelled(t *testing.T, format string, args ...any) {
 // RequireSound gates a proof on decad's complete verification verdict.
 func RequireSound(t *testing.T, doc *decad.Document, bodies []*decad.Body) {
 	t.Helper()
-	if len(bodies) == 0 {
-		t.Fatal("proofkit3d: build returned no bodies")
-	}
-	for i, body := range bodies {
-		if body == nil {
-			t.Fatalf("proofkit3d: build returned nil body at index %d", i)
-		}
-	}
-	report, err := doc.Verify(t.Context())
-	if err != nil {
-		t.Fatalf("verify failed: %v", err)
-	}
-	if report.Trustworthy() {
-		return
-	}
-	for _, diagnostic := range report.Diagnostics {
-		t.Logf("diagnostic: %+v", diagnostic)
-	}
-	t.Fatalf("verification was not sound: %s", report.Status)
+	requireBuiltBodies(t, bodies)
+	decadtest.IsSound(t, doc)
 }
 
 // RequireSolid verifies topology and bounded readings for a solid. A boolean
 // result can carry a bounded area or centroid reading too coarse for the
 // default tolerance while still proving the solid, volume and topology. Those
 // are the only diagnostics this gate accepts; a new diagnostic fails the proof.
+//
+// The reading refinement is why this gate spells the diagnostic sweep out
+// rather than calling [decadtest.HasOnlyDiagnostics]: that helper decides on
+// the code alone, and a measurement beyond tolerance is admitted here only for
+// an area or a centroid.
 func RequireSolid(t *testing.T, doc *decad.Document, bodies []*decad.Body) {
 	t.Helper()
-	if len(bodies) == 0 {
-		t.Fatal("proofkit3d: build returned no bodies")
-	}
-	report, err := doc.Verify(t.Context())
-	if err != nil {
-		t.Fatalf("verify failed: %v", err)
-	}
+	requireBuiltBodies(t, bodies)
+	report := decadtest.Verify(t, doc)
 	for _, diagnostic := range report.Diagnostics {
 		if diagnostic.Code != decad.DiagMeasurementBeyondTolerance ||
 			(diagnostic.Reading != decad.ReadingArea && diagnostic.Reading != decad.ReadingCentroid) {
@@ -189,14 +173,13 @@ func RequireSolid(t *testing.T, doc *decad.Document, bodies []*decad.Body) {
 	// The report above already carries a record per live body, and nothing here
 	// touches the document between producing it and reading it, so every body is
 	// looked up in that one report rather than verified again per body.
+	//
+	// decad.ValidityValid is the whole solidity verdict: it entails the
+	// watertightness, manifoldness and lack of self-intersection this gate used
+	// to read off their own fields, which the engine no longer publishes
+	// separately.
 	for _, body := range bodies {
-		bodyReport := bodyReportFrom(t, report, body)
-		if !bodyReport.Solid || !bodyReport.Watertight || !bodyReport.Manifold || bodyReport.SelfIntersecting {
-			t.Fatalf("body is not a sound solid: %+v", bodyReport)
-		}
-		if bodyReport.Lumps != 1 || bodyReport.Voids != 0 {
-			t.Fatalf("body topology is not one solid lump: lumps=%d voids=%d", bodyReport.Lumps, bodyReport.Voids)
-		}
+		decadtest.IsValid(t, report, body)
 	}
 }
 
@@ -206,24 +189,21 @@ func RequireSolid(t *testing.T, doc *decad.Document, bodies []*decad.Body) {
 // still read the model as it stands.
 func BodyReport(t *testing.T, doc *decad.Document, body *decad.Body) *decad.BodyReport {
 	t.Helper()
-	report, err := doc.Verify(t.Context())
-	if err != nil {
-		t.Fatalf("verify failed: %v", err)
-	}
-	return bodyReportFrom(t, report, body)
+	return decadtest.FindBodyReport(t, decadtest.Verify(t, doc), body)
 }
 
-// bodyReportFrom finds body's record in a report already produced for its
-// document. The caller owns the report's freshness: a report describes the
-// document as it stood when Verify ran, so only a caller that has not touched
-// the document since may read one.
-func bodyReportFrom(t *testing.T, report *decad.Report, body *decad.Body) *decad.BodyReport {
+// requireBuiltBodies rejects a build that handed a gate nothing to verify. A
+// nil body is the build's own bug, and naming its index here says which step
+// returned it; leaving it to the lookup below would only report a body the
+// report does not hold.
+func requireBuiltBodies(t *testing.T, bodies []*decad.Body) {
 	t.Helper()
-	for _, bodyReport := range report.Bodies {
-		if bodyReport.Body == body {
-			return bodyReport
+	if len(bodies) == 0 {
+		t.Fatal("proofkit3d: build returned no bodies")
+	}
+	for i, body := range bodies {
+		if body == nil {
+			t.Fatalf("proofkit3d: build returned nil body at index %d", i)
 		}
 	}
-	t.Fatalf("verification report omitted body %p", body)
-	return nil
 }

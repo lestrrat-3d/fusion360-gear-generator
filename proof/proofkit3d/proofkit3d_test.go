@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/lestrrat-3d/decad"
-	"github.com/lestrrat-3d/sketch"
+	"github.com/lestrrat-3d/decad/decadtest"
 	"github.com/lestrrat-3d/units"
 )
 
@@ -72,23 +72,27 @@ func TestRequireSoundRejectsNilBody(t *testing.T) {
 	}
 }
 
-func TestBodyReportFromFindsEachBodyByPointer(t *testing.T) {
-	first, second := new(decad.Body), new(decad.Body)
-	firstRecord := &decad.BodyReport{Body: first}
-	secondRecord := &decad.BodyReport{Body: second}
-	report := &decad.Report{Bodies: []*decad.BodyReport{firstRecord, secondRecord}}
+// The lookup behind [BodyReport] is decad's own Report.ForBody, reached through
+// decadtest.FindBodyReport. What is checked here is that a report of several
+// bodies resolves each one to its own record, which is what [BodyReport]
+// promises its callers.
+func TestBodyReportFindsEachBodyByPointer(t *testing.T) {
+	doc, bodies := separatedBlocks(t, 2)
+	report := decadtest.Verify(t, doc)
 
-	if got := bodyReportFrom(t, report, first); got != firstRecord {
-		t.Fatalf("first body resolved to %p, want %p", got, firstRecord)
-	}
-	if got := bodyReportFrom(t, report, second); got != secondRecord {
-		t.Fatalf("second body resolved to %p, want %p", got, secondRecord)
+	for i, body := range bodies {
+		if got := decadtest.FindBodyReport(t, report, body); got.Body != body {
+			t.Fatalf("body %d resolved to the record for %p", i, got.Body)
+		}
 	}
 }
 
 func TestBodyReportRejectsBodyOutsideTheDocument(t *testing.T) {
 	if os.Getenv("PROOFKIT3D_MISSING_BODY_HELPER") == "1" {
-		BodyReport(t, decad.New(), new(decad.Body))
+		// A real body, built in a document of its own, so the lookup is asked
+		// about a body that exists and is simply not this document's.
+		_, foreign := separatedBlocks(t, 1)
+		BodyReport(t, decad.New(), foreign[0])
 		t.Fatal("BodyReport returned for a body the document does not hold")
 	}
 
@@ -98,7 +102,7 @@ func TestBodyReportRejectsBodyOutsideTheDocument(t *testing.T) {
 	if err == nil {
 		t.Fatalf("BodyReport accepted a body the document does not hold; output:\n%s", output)
 	}
-	if !strings.Contains(string(output), "verification report omitted body") {
+	if !strings.Contains(string(output), "the report holds no record of this body") {
 		t.Fatalf("missing-body failure did not name the omission; output:\n%s", output)
 	}
 }
@@ -114,11 +118,11 @@ func TestRequireSolidChecksEveryRequestedBody(t *testing.T) {
 		if got.Body != body {
 			t.Fatalf("body %d resolved to the record for %p", i, got.Body)
 		}
-		if !got.Solid || !got.Watertight || !got.Manifold || got.SelfIntersecting {
-			t.Fatalf("body %d is not a sound solid: %+v", i, got)
+		if got.Validity.Outcome != decad.ValidityValid {
+			t.Fatalf("body %d validity is %s, want valid: %+v", i, got.Validity.Outcome, got)
 		}
-		if got.Lumps != 1 || got.Voids != 0 {
-			t.Fatalf("body %d topology: lumps=%d voids=%d", i, got.Lumps, got.Voids)
+		if got.Topology.Lumps != 1 || got.Topology.Voids != 0 {
+			t.Fatalf("body %d topology: lumps=%d voids=%d", i, got.Topology.Lumps, got.Topology.Voids)
 		}
 	}
 }
@@ -136,8 +140,8 @@ func TestBodyReportSeesABodyAddedSinceTheLastCall(t *testing.T) {
 	if got.Body != added[0] {
 		t.Fatalf("the body added after the first call resolved to the record for %p", got.Body)
 	}
-	if !got.Solid {
-		t.Fatalf("the body added after the first call is not a solid: %+v", got)
+	if got.Validity.Outcome != decad.ValidityValid {
+		t.Fatalf("the body added after the first call is %s, want valid: %+v", got.Validity.Outcome, got)
 	}
 }
 
@@ -153,33 +157,10 @@ func separatedBlocks(t *testing.T, count int) (*decad.Document, []*decad.Body) {
 // already there.
 func separatedBlocksIn(t *testing.T, doc *decad.Document, first, count int) []*decad.Body {
 	t.Helper()
-	world := sketch.NewWorld()
 	bodies := make([]*decad.Body, 0, count)
 	for i := range count {
-		s, err := world.CreateSketch(world.XY())
-		if err != nil {
-			t.Fatalf("create sketch: %v", err)
-		}
 		x := float64((first + i) * 100)
-		s.CreateRectangle(x, 0, x+20, 20)
-		result, err := s.Solve(t.Context())
-		if err != nil {
-			t.Fatalf("solve sketch: %v", err)
-		}
-		if !result.Converged {
-			t.Fatalf("solver did not converge: residual %.3e, DOF %d", result.Residual, result.DOF)
-		}
-		profiles := s.Profiles()
-		if len(profiles) != 1 {
-			t.Fatalf("rectangle produced %d profiles, want 1", len(profiles))
-		}
-		body, err := doc.Extrude(s, profiles[0], decad.Distance{
-			D: units.Millimeters(10), Dir: decad.Along,
-		})
-		if err != nil {
-			t.Fatalf("extrude rectangle: %v", err)
-		}
-		bodies = append(bodies, body)
+		bodies = append(bodies, decadtest.NewBlock(t, doc, x, 0, x+20, 20, units.Millimeters(10)))
 	}
 	return bodies
 }
