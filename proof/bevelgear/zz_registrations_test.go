@@ -9,86 +9,74 @@ import (
 	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit3d"
 )
 
-func TestConeGeometry(t *testing.T) {
-	proofkit.RunParallel(t, sketchCases, stepConeGeometry)
-}
-
 func TestAnchorSketch(t *testing.T) {
-	proofkit.RunParallel(t, sketchCases, stepAnchorSketch)
+	proofkit.RunParallel(t, bevelAnchorCases, stepAnchorSketch)
 }
 
 func TestGearProfiles(t *testing.T) {
-	proofkit.RunParallel(t, sketchCases, stepGearProfiles)
+	proofkit.RunParallel(t, bevelLatticeCases, stepGearProfiles)
 }
 
-func TestToothProfile(t *testing.T) {
-	proofkit.RunParallel(t, perGearSketchCases, stepToothProfile)
+func TestVirtualSpurTooth(t *testing.T) {
+	proofkit.RunParallel(t, bevelToothCases, stepVirtualSpurTooth)
 }
 
-func TestProfileHexagon(t *testing.T) {
-	proofkit.RunParallel(t, perGearSketchCases, stepProfileHexagon)
+func TestGearProfileHexagon(t *testing.T) {
+	proofkit.RunParallel(t, bevelHexCases, stepGearProfileHexagon)
 }
 
-func TestGearBody(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, solidCases, stepGearBody, assertGearBody)
+func TestRevolveGearBody(t *testing.T) {
+	proofkit3d.RunSolidParallel(t, bevelSolidCases, stepRevolveGearBody, assertRevolveGearBody)
 }
 
-func TestToothLoft(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, solidCases, stepToothLoft, assertToothLoft)
+func TestLoftTooth(t *testing.T) {
+	proofkit3d.RunSolidParallel(t, bevelSolidCases, stepLoftTooth, assertLoftTooth)
 }
 
-func TestConicalTrims(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, solidCases, stepConicalTrims, assertConicalTrims)
+func TestConicalEndCuts(t *testing.T) {
+	proofkit3d.RunSolidParallel(t, bevelSolidCases, stepConicalEndCuts, assertConicalEndCuts)
 }
 
-func TestConeElement(t *testing.T) {
-	proofkit.RunParallel(t, spiralSketchCases, stepConeElement)
+func TestSpiralTrace(t *testing.T) {
+	proofkit.RunParallel(t, bevelTraceCases, stepSpiralTrace)
 }
 
-func TestToothTrace(t *testing.T) {
-	proofkit.RunParallel(t, spiralSketchCases, stepToothTrace)
+func TestSliceToothSlabs(t *testing.T) {
+	proofkit3d.RunSolidParallel(t, bevelSpiralCases, stepSliceToothSlabs, assertSliceToothSlabs)
 }
 
-func TestSliceTooth(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, spiralCases, stepSliceTooth, assertSliceTooth)
-}
-
-func TestDropScrap(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, spiralCases, stepDropScrap, assertDropScrap)
+func TestDropApexScrap(t *testing.T) {
+	proofkit3d.RunSolidParallel(t, bevelSpiralCases, stepDropApexScrap, assertDropApexScrap)
 }
 
 func TestTwistSegments(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, spiralCases, stepTwistSegments, assertTwistSegments)
+	proofkit3d.RunSolidParallel(t, bevelSpiralCases, stepTwistSegments, assertTwistSegments)
 }
 
 func TestCrownSegments(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, spiralCases, stepCrownSegments, assertCrownSegments)
+	proofkit3d.RunSolidParallel(t, bevelSpiralCases, stepCrownSegments, assertCrownSegments)
 }
 
 func TestSpiralLoft(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, spiralCases, stepSpiralLoft, assertSpiralLoft)
+	proofkit3d.RunSolidParallel(t, bevelSpiralCases, stepSpiralLoft, assertSpiralLoft)
 }
 
-func TestSpiralTrim(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, spiralCases, stepSpiralTrim, assertSpiralTrim)
+func TestSpiralFlushTrim(t *testing.T) {
+	proofkit3d.RunSolidParallel(t, bevelSpiralCases, stepSpiralFlushTrim, assertSpiralFlushTrim)
 }
 
 func TestCircularPattern(t *testing.T) {
-	proofkit3d.RunSolid(t, patternCases, stepCircularPattern, assertCircularPattern)
+	proofkit3d.RunSolid(t, bevelPatternCases, stepCircularPattern, assertCircularPattern)
 }
 
 func TestCombineJoin(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, solidCases, stepCombineJoin, assertCombineJoin)
-}
-
-func TestBoreSketch(t *testing.T) {
-	proofkit.RunParallel(t, perGearSketchCases, stepBoreSketch)
+	proofkit3d.RunSolidParallel(t, bevelSolidCases, stepCombineJoin, assertCombineJoin)
 }
 
 func TestBoreCut(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, boreCases, stepBoreCut, assertBoreCut)
+	proofkit3d.RunSolidParallel(t, bevelBoreCases, stepBoreCut, assertBoreCut)
 }
 
-func TestMeshingRotation(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, solidCases, stepMeshingRotation, assertMeshingRotation)
+func TestMeshRotation(t *testing.T) {
+	proofkit3d.RunSolidParallel(t, bevelMeshCases, stepMeshRotation, assertMeshRotation)
 }
