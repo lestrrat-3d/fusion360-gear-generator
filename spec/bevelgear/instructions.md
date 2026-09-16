@@ -135,7 +135,7 @@ Toe Limit: calculated number, per gear, `|Ded->X|` where **X is the point on the
 
 **A defaulted Toe Radius can leave no room at all, and that is a real configuration rather than a defect.** On a driving gear with a large pitch cone angle the inner toe corner already sits at a LARGER radius than the outer one — the toe dish leans toward the heel rather than away from it — so X falls behind the toe corner and the Toe Limit comes out below the Toe Extension 0 root length. Measured over gear ratio against Shaft Angle it is a diagonal band that crosses 90° for every ratio from about 2.75 up, and Module does not move its boundary. **Reject a Toe Extension above 0 on such a pair**, with a message naming the gear and the Toe Radius Ceiling it needs to come below; Toe Extension 0 still resolves, so the gear itself stays buildable exactly as before. Do **not** silently substitute a smaller Toe Radius: that would change the toe end of a gear whose inputs asked for no change.
 
-Tooth Spacing: user-specified non-negative number in mm, default 0mm. A single value applied to **both** gears. It is a clearance offset that shifts each virtual spur tooth profile's **center** radially outward along the dedendum line — *away from the lower corner* (the rim corner opposite the Apex: point C for the pinion, point D for the driving gear), i.e. in the C->K direction beyond K (and D->L beyond L) — by this distance, **while the tooth itself is still drawn at the original virtual pitch radius** (virtual tooth number × Module / 2; the virtual tooth number is unchanged). At 0 (the default) the tooth center sits exactly at K / L; a positive value moves the center farther from the rim, loosening the mesh so 3D-printed teeth have more clearance. Applied in §3; see "Gear Tooth Profiles".
+Tooth Spacing: user-specified non-negative number in mm, default 0mm. A single value applied to **both** gears. It is a clearance offset that shifts each virtual spur tooth profile's **center** radially outward along the dedendum line — *away from the lower corner* (the rim corner opposite the Apex: point C for the pinion, point D for the driving gear), i.e. in the C->K direction beyond K (and D->L beyond L) — by this distance, **while the tooth itself is still drawn at the original virtual pitch radius** (the exact back-cone radius §3 step 1 defines; the virtual tooth number is unchanged). At 0 (the default) the tooth center sits exactly at K / L; a positive value moves the center farther from the rim, loosening the mesh so 3D-printed teeth have more clearance. Applied in §3; see "Gear Tooth Profiles".
 
 Mean Spiral Angle (ψ): user-specified angle in degrees, default 35°, valid range **[0, 60)**. The angle between the tooth trace and the cone element, measured at the mean cone distance (see `spiral-tooth-trace.md`). **ψ = 0 means a STRAIGHT bevel gear** — the tooth-body build takes the original straight path unchanged (apex-point loft + the two conical trims) and every spiral input below is ignored; any value **> 0 builds a curved (spiral) tooth**. The driving gear uses this hand; the meshing pinion is built with the **opposite** hand (mirror) so the pair meshes. Input is a `deg` Fusion expression; convert to degrees before the [0, 60)° range check (read-back units: see "Reading the raw numbers", `[PB-EVAL-EXPRESSION]`).
 
@@ -427,7 +427,7 @@ SpurGearInvoluteToothDesignGenerator`. It is used only inside `_buildVirtualSpur
 gear:
 
 ```python
-proxy  = VirtualSpurProxy(module_mm=module, virtualTeeth=virtualTeeth)
+proxy  = VirtualSpurProxy(module_mm=module, virtualTeeth=virtualTeeth, rootSink_mm=rootSink)
 drawer = SpurGearInvoluteToothDesignGenerator(sketch, proxy)
 drawer.draw(anchorPoint, angle=math.radians(180))   # the 180° tooth rotation IS the draw() angle
 ```
@@ -439,8 +439,14 @@ parameters via `parent.getParameter(name).value`. So bevel must supply a `parent
 (`lib/geargen/spurproxy.py` — import it; do NOT define a local copy): it precomputes, in internal
 cm, exactly the keys the spur drawer reads (its defaults match bevel: pressure angle 20° — not a
 bevel dialog input — and `InvoluteSteps` 15) and returns each wrapped in a `.value` carrier.
-Construct it as `VirtualSpurProxy(module_mm=module, virtualTeeth=virtualTeeth)` with the raw-mm
-module and the §3 virtual tooth number.
+Construct it as `VirtualSpurProxy(module_mm=module, virtualTeeth=virtualTeeth,
+rootSink_mm=rootSink)` with the raw-mm module, the §3 virtual tooth number and the §3 root sink.
+
+**`virtualTeeth` is a REAL number here, and `rootSink_mm` is what the proxy takes to place the root
+circle.** The proxy computes the pitch diameter as `virtualTeeth · module_mm`, so passing the exact
+`2 · r_v / Module` is what makes the drawn pitch circle reach the back cone; `rootSink_mm` shortens
+the root diameter by twice its value and leaves pitch, base and tip alone. It defaults to 0, which
+is what keeps spurgear's own use of the proxy unchanged. Both values are defined in §3 step 1.
 
 **The proxy carries `_lastToothEmbedded` — an OUTPUT the spur generator writes, and bevel MUST read it back.** During `draw()` the spur generator decides whether the tooth is *embedded* (tip/root/flanks meet with no connecting lines) and records it with `self.parent._lastToothEmbedded = <bool>` (it has no ctx of its own); the framework proxy pre-initialises the slot to absorb that write. **After `drawer.draw(...)` returns, read `proxy._lastToothEmbedded` and thread it to the tooth-profile selection (see Method contract)** — e.g. stash it alongside the tooth sketch/plane returned by `_buildVirtualSpurProfile`. This flag is **not optional bookkeeping** — it is the deterministic selector for the tooth loop's line count (`0 if embedded else 2`); skipping it and accepting either count grabs an unrelated loop and the apex→tooth loft dies with `LOFT_NO_TOOLBODY` (see Method contract).
 
@@ -594,7 +600,24 @@ Build the driving front face **B'->P** exactly as the pinion's A'->N, substituti
 
 Do all four steps below **once per gear** — pinion first, then driving — with this gear's parameters: pinion uses tooth-center **K′**, reference line **C->K′**, and pitch-cone half-angle **γ_p** (from §2: `tan γ_p = sin Σ · PPD / (DPD + PPD · cos Σ)`); driving uses **L′**, **D->L′**, and **γ_g = Σ − γ_p**.
 
-1. Compute this gear's virtual (back-cone / Tredgold) tooth number from the closed form, **not** by measuring Apex2->K′/L′: virtual pitch radius = `(this gear's Pitch Diameter / 2) / cos(γ)`. Virtual tooth number = `floor(2 · virtualPitchRadius / Module)`, as an int. **Units — pin the cm→mm conversion:** the stashed pitch diameters are internal **cm** while Module is the raw **mm** value, so compute `virtualPitchRadius_mm = (pitchDia_cm · 10 / 2) / cos(γ)` — the `· 10` converts cm to mm — and then `virtualTeeth = floor(2 · virtualPitchRadius_mm / Module)`. Skipping the ×10 makes the virtual tooth count ~10× off (see the Units note).
+1. Compute this gear's virtual (back-cone / Tredgold) tooth number from the closed form, **not** by measuring Apex2->K′/L′: virtual pitch radius = `(this gear's Pitch Diameter / 2) / cos(γ)`. Virtual tooth number = `2 · virtualPitchRadius / Module`, equivalently `this gear's Teeth / cos(γ)`.
+
+   **It is a real number and is NEVER rounded** — not floored, not ceiled, not cast to an int. The Tredgold construction puts the equivalent spur gear's pitch radius exactly at the back-cone distance `r / cos γ` with this gear's own module, and `z_v = z / cos γ` is a real number in every published form of it (NPTEL Machine Design II ch. 13 eq. 13.1–13.2; Osakue et al., *FME Transactions* 49(3), 2021, §2.2; the KHK gear technical reference eq. 11.6). Rounding it rebuilds every drawn circle from the rounded count, which draws the tooth smaller than the back cone places it and shortens the working addendum: on the shipped default — 31 teeth, Module 1, Shaft Angle 90°, γ = 45° — the exact virtual pitch radius is 21.9203 mm, a floored count of 43 draws 21.5 mm, and the addendum the tooth works over falls to 0.5797 mm against a nominal 1.0 module.
+
+   **The real count reaches the spur drawer only as an angular half-thickness.** The drawer reads `ToothNumber` as a float and uses it in one place, `π / (2 · toothNumber)`, the angle it rotates the flank to so the pitch crossing lands there (`spec/spurgear/instructions.md`, "the pitch crossing"). With `z_v = 2 · r_v / Module` that angle gives a tooth thickness of `π · Module / 2` at the pitch circle, which is the standard tooth thickness — the same thickness the spur gear of this module carries. An INTEGER count drawn at the exact radius gives `π · r_v / round(z_v)` instead, which misses nominal by a different amount on each member of an unequal pair, so the two teeth of one pair no longer carry the same thickness.
+
+   **Root sink.** Draw the root circle one **root sink** `0.05 · 2.25 · Module` INSIDE the dedendum corner rather than at it. At the dedendum corner exactly, the tooth's root arc touches the gear body's root cone only where the arc crosses the tooth's own centreline: the tooth is drawn on the back-cone plane, so only a point on that centreline rides the cone its own polar radius names, and the arc's two corners stand outside it — by 0.002 module on the default pair and 0.027 module on a 4/4 pair, the largest of any pair the spec admits. The sink pushes the whole arc inside, so the Combine-Join meets the gear body across the root rather than along one line.
+
+   So the four circles the proxy is asked for are:
+
+   | circle | radius |
+   |---|---|
+   | pitch | `virtualPitchRadius` |
+   | base | `virtualPitchRadius · cos(20°)` |
+   | tip | `virtualPitchRadius + Module` |
+   | root | `virtualPitchRadius − 1.25 · Module − rootSink` |
+
+   **Units — pin the cm→mm conversion:** the stashed pitch diameters are internal **cm** while Module is the raw **mm** value, so compute `virtualPitchRadius_mm = (pitchDia_cm · 10 / 2) / cos(γ)` — the `· 10` converts cm to mm — and then `virtualTeeth = 2 · virtualPitchRadius_mm / Module`. Skipping the ×10 makes the virtual tooth count ~10× off (see the Units note).
 
 2. Create a new plane that includes the tooth-center reference line, named `{gearLabel} Plane`. Use setByAngle to make this plane perpendicular to the Gear Profiles sketch plane (`plane_by_angle` from `.solids`).
 
@@ -810,14 +833,17 @@ still mean something. State the substitution once in the proof file and its cost
   the two ends land on DIFFERENT surfaces of the tooth, the toe on its tip and the heel on its root,
   which is the observable signature of a conical cut face rather than a planar one.
 - **The Combine-Join.** Perform no join. Lay the operands apart and assert the join's two
-  consequences from their own measured geometry: a join leaves ONE lump when the tooth's root is at
-  or below the body's root cone — seated, not floating — and the joined body reaches further out
+  consequences from their own measured geometry: a join leaves ONE lump when the tooth's root is
+  below the body's root cone — seated, not floating — and the joined body reaches further out
   than the frustum when the tooth's tip stands proud of it. Take both readings at the toe, the
   middle and the heel of the band the join would cover. **The cost is the stitch**: the proof cannot
-  show the evaluator making one boundary out of two. ⚠️ **The proof sinks the tooth's root a
-  twentieth of the tooth height below the gear body's root cone**, which is what makes "seated"
-  measurable as a strict inequality. **The generated module seats the tooth exactly on the cone and
-  must not sink it** — the sink belongs to the proof alone.
+  show the evaluator making one boundary out of two. **The generated module draws its root circle one
+  root sink inside the dedendum corner** (§3 step 1), so the root arc lies inside the gear body's
+  root cone across its whole width and the join overlaps along the whole root rather than along the
+  centreline alone. **The proof applies that same sink** — it is one figure, not a proof-only offset.
+  ⚠️ **Read the root arc's OUTERMOST point, not the tooth's centreline.** The centreline sits inside
+  both root corners, so a reading taken there passes a tooth whose corners float outside the cone,
+  which is exactly the defect the sink exists to remove.
 - **The bore cut.** Build the tool as a real extrude, which a symmetric extent produces as a prism,
   but perform no cut: the target is the frustum, whose bands are Lofts. Lay the tool and the bands
   apart and assert the cut from the tool's own measured geometry — its diameter, that its two ends
@@ -836,6 +862,20 @@ small enough brings every measurement inside it and the gate reports Suspect on 
 fact correct. Module is a pure scale on this figure, so a case at Module 4 through 8 proves the same
 shape as one at Module 1 and clears the floor. The sketch tables are unaffected and stay at the
 dialog's own default.
+
+### Two cases the virtual tooth count needs
+
+Both the per-gear sketch table and the solid table carry these, because the virtual tooth count is
+read by the tooth profile and by every body built on it.
+
+- **16 driving / 12 pinion at Shaft Angle 90°.** The pinion's virtual tooth count is exactly 15 and
+  the driving gear's is 26.667, so one member of the pair is a case where an exact count and a
+  rounded one agree and the other is a case where they do not. A pair like that rejects a rounded
+  count rather than merely disagreeing with one: whatever error the rounding introduces, it is not
+  the same error on both members.
+- **4 / 4 at Shaft Angle 90°.** Its virtual count is 5.657, the lowest the table carries, and its
+  root arc carries the largest corner float of any pair the spec admits, 0.027 module. That is the
+  case the root sink has to clear, so it is what fixes whether the sink is large enough.
 
 ### A refusal the case table records rather than avoids
 
