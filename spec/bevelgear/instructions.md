@@ -844,6 +844,28 @@ still mean something. State the substitution once in the proof file and its cost
   ⚠️ **Read the root arc's OUTERMOST point, not the tooth's centreline.** The centreline sits inside
   both root corners, so a reading taken there passes a tooth whose corners float outside the cone,
   which is exactly the defect the sink exists to remove.
+
+  **Fusion has made this stitch once — loaded 2026-09-16, from the build the root sink was
+  introduced on (branch `fix-bevel-exact-virtual-radius`).** Two configurations built with no error:
+  the shipped default of 31 teeth on both gears at Module 1 and Shaft Angle 90°, and a 16 driving /
+  12 pinion pair at Module 4. The default is also the configuration where the sink drops the root
+  circle below the base circle, so its tooth is drawn NON-embedded and the spur drawer adds the two
+  flank-to-root lines, 0.0405 mm each; neither that profile nor a Combine-Join at a sunk root had
+  been through Fusion before that load. So the stitch this substitution cannot show has been seen
+  once, on those two configurations, and on nothing else in the table.
+
+  **The heel tip radius was not measured on that load, so the tip is still checked only where the
+  proof checks it.** The §3 sketch case dimensions the drawn tip circle at `virtualPitchRadius +
+  Module`, and the apex loft reads the built tooth body out to the virtual tip radius laid on the
+  back cone — at Module 4 through 8 only, since no solid case runs at Module 1. No case reads a tip
+  radius off a joined body, because no case joins. That measurement is still outstanding.
+
+  **Could the proof have caught any of this?** Not the join: the proof performs none, which is the
+  cost recorded above. The non-embedded profile it already covers — the §3 tooth case draws both
+  members of the default pair at Module 1 with the sink applied, takes the embedded flag from the
+  sunk root radius, and requires the tooth loop to carry the two lines that follow from it. What
+  that case cannot reach is Fusion's own profile finder selecting the loop and the loft consuming
+  it, which is what the load showed.
 - **The bore cut.** Build the tool as a real extrude, which a symmetric extent produces as a prism,
   but perform no cut: the target is the frustum, whose bands are Lofts. Lay the tool and the bands
   apart and assert the cut from the tool's own measured geometry — its diameter, that its two ends
