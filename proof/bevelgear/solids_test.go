@@ -250,8 +250,9 @@ func bgRequireVolume(t *testing.T, body *decad.Body, what string, want, rel floa
 // proved in proof/spurgear/sketches_test.go; what it costs here is a few
 // hundredths of a square millimetre of section area, which every assertion below
 // takes from the polygon actually built rather than from a formula.
-func bgToothPolygon(module, teeth float64) []bgPt {
+func bgToothPolygon(module, teeth, sink float64) []bgPt {
 	dim := involute.Derive(module, teeth, bgPressureAngle)
+	dim.Root -= sink
 	left, right := involute.Flanks(dim.Base, dim.Tip, dim.Pitch, teeth, bgInvoluteSteps, math.Pi)
 	keep := func(in []involute.Pt) []bgPt {
 		out := make([]bgPt, 0, len(in))
@@ -282,6 +283,46 @@ func bgToothPolygon(module, teeth float64) []bgPt {
 	}
 	poly = append(poly, l...)
 	return poly
+}
+
+// bgRootArcPoints samples the root ARC the spur generator draws between the two
+// flank feet, in the tooth plane's own frame.
+//
+// bgToothPolygon substitutes a chord for that arc, and a chord lies INSIDE the
+// arc it spans, so a reading taken off the polygon alone understates how far out
+// the drawn root reaches. The root is the surface the Combine-Join meets the gear
+// body on, so it is read here from the circle the generator actually draws.
+func bgRootArcPoints(module, teeth, sink float64, samples int) []bgPt {
+	dim := involute.Derive(module, teeth, bgPressureAngle)
+	dim.Root -= sink
+	left, right := involute.Flanks(dim.Base, dim.Tip, dim.Pitch, teeth, bgInvoluteSteps, math.Pi)
+	// Each flank's foot is where it meets the root circle: the first sample
+	// outside the root circle, carried radially onto it. That is the same foot
+	// the generator draws, whether it reaches the root through a flank-to-root
+	// line or the flank already starts outside.
+	foot := func(flank []involute.Pt) float64 {
+		for _, p := range flank {
+			if math.Hypot(p.X, p.Y) >= dim.Root {
+				return math.Atan2(p.Y, p.X)
+			}
+		}
+		return math.Atan2(flank[0].Y, flank[0].X)
+	}
+	a, c := foot(left), foot(right)
+	// The tooth is drawn at 180 degrees, so its two feet straddle the -X axis and
+	// their principal angles land on opposite branches. Unwrap onto the branch
+	// that keeps the SHORT arc, which is the one the root is drawn on.
+	if c-a > math.Pi {
+		a += 2 * math.Pi
+	} else if a-c > math.Pi {
+		c += 2 * math.Pi
+	}
+	out := make([]bgPt, 0, samples+1)
+	for i := 0; i <= samples; i++ {
+		th := a + (c-a)*float64(i)/float64(samples)
+		out = append(out, bgPt{dim.Root * math.Cos(th), dim.Root * math.Sin(th)})
+	}
+	return out
 }
 
 // bgPolygonArea is the outline's own area, read from the points actually drawn.
@@ -349,13 +390,13 @@ func (b *bgSolid) expectedSlopes(poly []bgPt) (low, high float64) {
 // toothDims is the virtual spur gear's four circle radii, which are what the
 // drawn tooth's root and tip actually ride.
 //
-// ⚠ The DRAWN root and tip do NOT sit on the cones through the dedendum corner:
-// the virtual tooth number is FLOORED, so the drawn root circle sits up to half
-// a module inside the dedendum corner's own radius. That inset is real geometry
-// rather than an approximation, and it is what seats the tooth in the gear body
-// rather than leaving it proud of the root cone.
+// The pitch and tip circles sit exactly where the back cone puts them, because
+// the virtual tooth number is the real 2 r_v / Module. The ROOT circle sits one
+// root sink further in, and that inset is what seats the tooth's whole root arc
+// inside the gear body rather than leaving its two corners proud of the root
+// cone — see bgMember.Circles.
 func (b *bgSolid) toothDims() involute.Dimensions {
-	return involute.Derive(b.lat.In.Module, float64(b.g.VirtualTeeth), bgPressureAngle)
+	return b.g.Circles(b.lat.In.Module)
 }
 
 // toothBody lofts the uncut apex->heel tooth.
@@ -365,17 +406,19 @@ func (b *bgSolid) toothDims() involute.Dimensions {
 // the proof substitutes a SHRUNKEN SECTION for the apex point: the same outline
 // scaled about the apex by `nose`. The cost is that the true point-section is
 // not built; what is proved is the taper the loft has to produce, which the
-// assertions read off the body. `sink` lowers the tooth along the back cone, and
-// is used only by the Combine-Join step.
-func (b *bgSolid) toothBody(nose, sink, lateral float64) (*decad.Body, []bgPt) {
+// assertions read off the body. `lower` drops the WHOLE tooth along the back
+// cone; it is not the root sink, which shortens the root circle alone and is
+// already inside the polygon. Nothing uses `lower` today, and it is kept because
+// the Combine-Join reading is what it exists for.
+func (b *bgSolid) toothBody(nose, lower, lateral float64) (*decad.Body, []bgPt) {
 	b.t.Helper()
-	poly := bgToothPolygon(b.lat.In.Module, float64(b.g.VirtualTeeth))
-	if sink != 0 {
+	poly := bgToothPolygon(b.lat.In.Module, b.g.VirtualTeeth, b.g.RootSink)
+	if lower != 0 {
 		// The tooth's own +X runs away from the dedendum corner, so ADDING to it
 		// walks every point back toward the tooth centre — down the back cone,
 		// which is what lowers the tooth's radius.
 		for i := range poly {
-			poly[i].X += sink
+			poly[i].X += lower
 		}
 	}
 	small := make([]bgPt, len(poly))
@@ -513,6 +556,14 @@ func bgSolidCases() []proofkit3d.Case {
 			idShaftAngle: 75, idToothSpacing: 0.5, idToeExtension: 35}},
 		{"module_6_31_31_90_user_toe_radius", map[string]float64{idModule: 6, idDrivingTeeth: 31, idPinionTeeth: 31,
 			idShaftAngle: 90, idPinionToeRadius: 40, idDrivingToeRadius: 20, idToeExtension: 20}},
+		// The two ends of the virtual tooth count's range, at a module the solid
+		// tables can read. 16/12 at 90 degrees puts the pinion's virtual count at
+		// exactly 15 and the driving gear's at 26.667, so the pair carries both an
+		// integer count and a fractional one. 4/4 is the largest root-corner float
+		// of any admitted pair, which is the case the root sink has to clear.
+		{"module_4_16_12_90", map[string]float64{idModule: 4, idDrivingTeeth: 16, idPinionTeeth: 12,
+			idShaftAngle: 90}},
+		{"module_4_4_4_90", map[string]float64{idModule: 4, idDrivingTeeth: 4, idPinionTeeth: 4, idShaftAngle: 90}},
 	}
 	for _, bc := range base {
 		for _, side := range []struct {
@@ -667,10 +718,9 @@ const bgNose = 0.02
 func assertLoftToothBody(t *testing.T, doc *decad.Document, bodies []*decad.Body, p map[string]float64) {
 	b := bgNewSolid(t, doc, p)
 	l, g := b.lat, b.g
-	poly := bgToothPolygon(l.In.Module, float64(g.VirtualTeeth))
+	poly := bgToothPolygon(l.In.Module, g.VirtualTeeth, g.RootSink)
 	sK := l.bgStation(g, g.ToothCtr)
 	area := bgPolygonArea(poly)
-	dim := b.toothDims()
 
 	// A loft from a point to a profile is a cone on that profile: its volume is
 	// a third of the section's area times the apex's perpendicular distance to
@@ -688,17 +738,32 @@ func assertLoftToothBody(t *testing.T, doc *decad.Document, bodies []*decad.Body
 	wantRoot, wantTip := b.expectedSlopes(poly)
 	bgClose(t, g.Label+" tooth root rides the cone the drawn outline puts it on", rootSlope, wantRoot, 1e-9)
 	bgClose(t, g.Label+" tooth tip rides the cone the drawn outline puts it on", tipSlope, wantTip, 1e-9)
-	// And that root cone is the one the drawn root circle's centreline names.
-	bgClose(t, g.Label+" the tooth's centreline root rides the drawn root circle's cone",
-		b.coneSlopeAt(dim.Root), b.coneSlopeAt(dim.Root), 0)
 	if tipSlope <= rootSlope {
 		t.Errorf("%s: the tooth has no height (root slope %.6f, tip slope %.6f)", g.Label, rootSlope, tipSlope)
 	}
-	// The drawn root sits at or inside the dedendum corner's own cone, which is
-	// what seats the tooth in the gear body rather than leaving it proud.
-	if rootSlope > math.Tan(g.RootConeAngle)+1e-9 {
-		t.Errorf("%s: the tooth's root stands proud of the gear body's root cone (%.9f against %.9f)",
-			g.Label, rootSlope, math.Tan(g.RootConeAngle))
+
+	// The tip stands exactly one module outside the back cone, so its centreline
+	// rides the cone through a point one addendum beyond the tooth centre.
+	dim := b.toothDims()
+	bgClose(t, g.Label+" the tip's centreline rides the cone one module outside the back cone",
+		b.coneSlopeAt(dim.Tip), b.coneSlopeAt(g.VirtualPitchRadius+bgAddendumFactor*l.In.Module), 1e-12)
+
+	// And the drawn root sits inside the gear body's root cone ALL THE WAY ACROSS
+	// the root arc, which is what seats the tooth rather than leaving it proud.
+	//
+	// The reading is the arc's MAXIMUM, not its centreline. The tooth plane is the
+	// back-cone plane, so only a point on the tooth's own centreline rides the cone
+	// its polar radius names; the arc's two corners stand further out. Put the root
+	// circle at the dedendum corner exactly and the centreline touches the cone
+	// while both corners float above it — by 0.002 module on the shipped 31/31
+	// default and 0.027 on the 4/4 pair, the worst the table admits. A
+	// centreline-only reading passes that tooth. The root sink is what buys the
+	// margin asserted here.
+	arc := bgRootArcPoints(l.In.Module, g.VirtualTeeth, g.RootSink, 64)
+	_, rootArcSlope := b.expectedSlopes(arc)
+	if rootArcSlope >= math.Tan(g.RootConeAngle) {
+		t.Errorf("%s: the tooth's root arc stands proud of the gear body's root cone "+
+			"(%.9f against %.9f)", g.Label, rootArcSlope, math.Tan(g.RootConeAngle))
 	}
 }
 
@@ -884,10 +949,9 @@ func assertCircularPattern(t *testing.T, doc *decad.Document, bodies []*decad.Bo
 // stepCombineJoin performs no join. It lays the operands apart and the assertion
 // reads the join's two consequences off their own geometry.
 //
-// ⚠ The proof SINKS the tooth's root a twentieth of the tooth height below the
-// gear body's root cone, which is what makes "seated" measurable as a strict
-// inequality. THE GENERATED MODULE SEATS THE TOOTH EXACTLY ON THE CONE AND MUST
-// NOT SINK IT — the sink belongs to the proof alone.
+// The tooth is built with the root sink the SPEC applies — the generated module
+// draws the same sunk root circle — so "seated" is measurable here as a strict
+// inequality without the proof inventing an offset of its own.
 //
 // THE COST IS THE STITCH: the proof cannot show the evaluator making one
 // boundary out of two.
@@ -895,17 +959,10 @@ func stepCombineJoin(t *testing.T, doc *decad.Document, p map[string]float64) []
 	b := bgNewSolid(t, doc, p)
 	l, g := b.lat, b.g
 	spread := bgSpread * l.ConeDist
-	sink := bgSinkFraction * bgToothHeight(l.In.Module)
-	tooth, _ := b.toothBody(bgNose, sink, 0)
+	tooth, _ := b.toothBody(bgNose, 0, 0)
 	root := b.band(l.bgStation(g, g.Toe), l.bgRadius(g, g.Toe),
 		l.bgStation(g, g.Ded), l.bgRadius(g, g.Ded), spread)
 	return []*decad.Body{tooth, root}
-}
-
-const bgSinkFraction = 1.0 / 20.0
-
-func bgToothHeight(module float64) float64 {
-	return (bgAddendumFactor + bgDedendumFactor) * module
 }
 
 func assertCombineJoin(t *testing.T, doc *decad.Document, bodies []*decad.Body, p map[string]float64) {
@@ -914,9 +971,22 @@ func assertCombineJoin(t *testing.T, doc *decad.Document, bodies []*decad.Body, 
 	spread := bgSpread * l.ConeDist
 	sK := l.bgStation(g, g.ToothCtr)
 
-	rootSlope, tipSlope := bgSlopeRange(bodies[0])
+	minSlope, tipSlope := bgSlopeRange(bodies[0])
 	body := bgReadCone(t, bodies[1], spread)
 	bodySlope := math.Abs(body.Slope)
+
+	// The root reading is the root ARC's MAXIMUM, not the tooth's centreline and
+	// not the body's minimum vertex. Both of those sit inside the arc's two
+	// corners, so either one passes a tooth whose corners float outside the gear
+	// body's root cone — which is the whole thing this step is here to catch.
+	arc := bgRootArcPoints(l.In.Module, g.VirtualTeeth, g.RootSink, 64)
+	_, rootSlope := b.expectedSlopes(arc)
+
+	// The built body still has to be the drawn outline: its innermost reading is
+	// the outline's own innermost point.
+	poly := bgToothPolygon(l.In.Module, g.VirtualTeeth, g.RootSink)
+	wantMin, _ := b.expectedSlopes(poly)
+	bgClose(t, "the lofted tooth's innermost cone is the drawn outline's", minSlope, wantMin, 1e-9)
 
 	// The readings are taken at the toe, the middle and the heel of the band the
 	// join would cover.
@@ -928,11 +998,11 @@ func assertCombineJoin(t *testing.T, doc *decad.Document, bodies []*decad.Body, 
 		toothRoot := rootSlope * at.s
 		toothTip := tipSlope * at.s
 		bodyRoot := bodySlope * at.s
-		// A join leaves ONE lump when the tooth's root is at or below the body's
-		// root cone — seated, not floating.
+		// A join leaves ONE lump when the tooth's root is below the body's root
+		// cone across its whole width — seated, not floating.
 		if toothRoot >= bodyRoot {
-			t.Errorf("at the %s the tooth's root sits at %.6f, on or above the gear body's root cone at %.6f — "+
-				"the join would leave a gap", at.name, toothRoot, bodyRoot)
+			t.Errorf("at the %s the tooth's root arc reaches %.6f, on or above the gear body's root cone at %.6f — "+
+				"the join would meet along a line rather than across the root", at.name, toothRoot, bodyRoot)
 		}
 		// And the joined body reaches further out than the frustum, because the
 		// tooth's tip stands proud of it.
@@ -941,14 +1011,15 @@ func assertCombineJoin(t *testing.T, doc *decad.Document, bodies []*decad.Body, 
 				"the join would add nothing", at.name, toothTip, bodyRoot)
 		}
 	}
-	sink := bgSinkFraction * bgToothHeight(l.In.Module)
-	sunk := bgToothPolygon(l.In.Module, float64(g.VirtualTeeth))
-	for i := range sunk {
-		sunk[i].X += sink
+	// The margin the sink buys, stated as a number rather than left implicit: the
+	// root arc's outermost point sits this far inside the gear body's root cone at
+	// the heel, where the band is widest.
+	gap := (bodySlope - rootSlope) * heel
+	if gap <= 0 {
+		t.Errorf("the root sink leaves no margin at the heel: %.9f mm", gap)
 	}
-	wantRoot, _ := b.expectedSlopes(sunk)
-	bgClose(t, "the tooth's root rides its own cone, sunk by the proof's own sink",
-		rootSlope, wantRoot, 1e-9)
+	t.Logf("%s: the root sink clears the gear body's root cone by %.6f mm at the heel (%.4f module)",
+		g.Label, gap, gap/l.In.Module)
 	_ = sK
 }
 

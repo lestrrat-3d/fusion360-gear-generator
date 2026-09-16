@@ -21,6 +21,8 @@ package bevelgear_test
 import (
 	"math"
 	"testing"
+
+	"github.com/lestrrat-3d/fusion360-gear-generator/proof/involute"
 )
 
 // The proof's parameter keys are the dialog's own input ids, so a case table
@@ -191,9 +193,42 @@ type bgMember struct {
 	BoreDia          float64 // resolved; 0 when Enable Bore is unchecked
 
 	VirtualPitchRadius float64
-	VirtualTeeth       int
+	VirtualTeeth       float64 // a real number: Teeth / cos(gamma), never rounded
+	RootSink           float64 // how far inside the dedendum corner the drawn root circle sits
 	Embedded           bool
 	RootConeAngle      float64 // gamma_root
+}
+
+// Circles returns the four circles the virtual spur tooth is drawn on.
+//
+// The pitch circle is the back-cone distance itself, so the drawn tooth is the
+// size the back cone puts it at. The root circle is one ROOT SINK inside the
+// dedendum corner: at the exact radius the tooth's root arc touches the gear
+// body's root cone only where the arc crosses the tooth's own centreline, and
+// its two corners stand outside that cone, so the Combine-Join would meet along
+// a line rather than across the whole root. The sink pushes the whole arc
+// inside. Base and tip carry the standard 20 degree pressure angle and the one
+// module of addendum.
+func (g bgMember) Circles(module float64) involute.Dimensions {
+	d := involute.Derive(module, g.VirtualTeeth, bgPressureAngle)
+	d.Root -= g.RootSink
+	return d
+}
+
+// bgRootSinkFraction is the share of the tooth height the drawn root circle is
+// sunk by. Both the generated module and this proof take the same fraction, so
+// the two draw one figure: see "seats the tooth one root sink inside the
+// dedendum corner" in spec/bevelgear/instructions.md.
+const bgRootSinkFraction = 0.05
+
+// bgToothHeight is addendum plus dedendum, the height of the drawn tooth.
+func bgToothHeight(module float64) float64 {
+	return (bgAddendumFactor + bgDedendumFactor) * module
+}
+
+// bgRootSink is how far inside the dedendum corner the drawn root circle sits.
+func bgRootSink(module float64) float64 {
+	return bgRootSinkFraction * bgToothHeight(module)
 }
 
 // bgLattice is the whole solved §2 figure plus the values §3 and the body
@@ -272,8 +307,9 @@ func bgSolve(in bgIn) bgLattice {
 		g.MinTeeth = bgMinTeethFactor * math.Cos(g.Gamma)
 		g.RootConeAngle = g.Gamma - math.Atan(bgDedendumFactor*m/l.R)
 		g.VirtualPitchRadius = r / math.Cos(g.Gamma)
-		g.VirtualTeeth = int(math.Floor(2 * g.VirtualPitchRadius / m))
-		g.Embedded = bgEmbedded(m, float64(g.VirtualTeeth))
+		g.VirtualTeeth = 2 * g.VirtualPitchRadius / m
+		g.RootSink = bgRootSink(m)
+		g.Embedded = bgEmbedded(*g, m)
 	}
 
 	// Base heights, driving first: the pinion's fallback is a share of the
@@ -368,14 +404,17 @@ func bgResolveBase(user, fallback float64, g bgMember) float64 {
 	return math.Min(math.Max(v, g.MinBaseHeight), g.MaxBaseHeight)
 }
 
-// bgEmbedded reports the spur drawer's embedded verdict for a virtual tooth
-// count: the flank starts inside the root circle, so no flank-to-root lines are
-// drawn and the tooth loop holds 4 curves rather than 6.
-func bgEmbedded(module, teeth float64) bool {
-	pitch := module * teeth / 2
-	base := pitch * math.Cos(bgPressureAngle)
-	root := (module*teeth - 2*bgDedendumFactor*module) / 2
-	return base < root
+// bgEmbedded reports the spur drawer's embedded verdict for this gear's drawn
+// circles: the flank starts inside the root circle, so no flank-to-root lines
+// are drawn and the tooth loop holds 4 curves rather than 6.
+//
+// The drawer decides this from the root circle it is SERVED
+// (lib/geargen/spurgear.py, `embedded = firstRadius < rootRadius`), so the root
+// sink counts: sinking the root moves it inward and makes an embedded tooth
+// less likely, not more.
+func bgEmbedded(g bgMember, module float64) bool {
+	d := g.Circles(module)
+	return d.Base < d.Root
 }
 
 // bgWantLines is the line count find_profile_by_curve_counts is asked for:

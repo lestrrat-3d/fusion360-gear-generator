@@ -374,18 +374,21 @@ func (o toothOutline) section(k, twist, crown float64) ([]vec2, []vec2, float64,
 // pressureAngle is the 20 degrees the virtual spur tooth is drawn at.
 var pressureAngle = 20 * math.Pi / 180
 
-// toothRootSink drops the drawn tooth's root a twentieth of the tooth height
-// below the gear body's root cone, so the two read as seated rather than
-// coincident in a picture. The generated module seats the tooth exactly on the
-// cone and applies no sink; this belongs to the drawings alone.
+// toothRootSink is how far inside the dedendum corner the drawn root circle
+// sits, as a share of the tooth height. It is the ROOT SINK the spec fixes in
+// section 3 step 1 of spec/bevelgear/instructions.md, so these pictures show the
+// tooth the generator builds rather than a picture-only offset. The value is
+// spelled out here rather than read from the generated proof, for the reason
+// this file's header gives.
 const toothRootSink = 0.05
 
 // drawnVirtualTeeth is the back-cone (Tredgold) tooth count the virtual spur
-// tooth is drawn with, from the closed form the spec fixes: floor(2 *
-// virtualPitchRadius / Module) with virtualPitchRadius = (PitchDiameter/2) /
-// cos(gamma). It is independent of Tooth Spacing.
-func drawnVirtualTeeth(module, pitchDiameter, gamma float64) int {
-	return int(math.Floor(2 * (pitchDiameter / 2 / math.Cos(gamma)) / module))
+// tooth is drawn with, from the closed form the spec fixes: 2 *
+// virtualPitchRadius / Module with virtualPitchRadius = (PitchDiameter/2) /
+// cos(gamma). It is a REAL number and is never rounded, and it is independent of
+// Tooth Spacing.
+func drawnVirtualTeeth(module, pitchDiameter, gamma float64) float64 {
+	return 2 * (pitchDiameter / 2 / math.Cos(gamma)) / module
 }
 
 type outlinePt struct{ R, Th float64 }
@@ -395,25 +398,27 @@ type toothOutline struct {
 	Right, Left  []outlinePt // flank samples, root end first, tip end last
 	RootR, TipR  float64
 	Embedded     bool
-	VirtualTeeth int
+	VirtualTeeth float64
 }
 
 // newToothOutline builds the virtual spur tooth §3 draws and maps it onto the
 // gear.
 //
-// The virtual tooth number comes from the CLOSED FORM — floor(2 *
-// (PitchDiameter/2)/cos(gamma) / Module) — never from measuring Apex2->K', and
+// The virtual tooth number comes from the CLOSED FORM — 2 *
+// (PitchDiameter/2)/cos(gamma) / Module — never from measuring Apex2->K', and
 // it is independent of Tooth Spacing, which moves only where the tooth is
-// centred. The tooth is drawn already rotated by 180 degrees, through the
-// drawer's own angle argument rather than by rotating the sketch afterwards.
+// centred. It is a real number and is never rounded. The tooth is drawn already
+// rotated by 180 degrees, through the drawer's own angle argument rather than by
+// rotating the sketch afterwards.
 func newToothOutline(d design, g gear) toothOutline {
 	vt := drawnVirtualTeeth(d.Module, g.PitchDiameter, g.Gamma)
-	dims := involute.Derive(d.Module, float64(vt), pressureAngle)
+	dims := involute.Derive(d.Module, vt, pressureAngle)
+	sink := toothRootSink * (dims.Tip - dims.Root)
+	dims.Root -= sink
 	left, right := involute.Flanks(dims.Base, dims.Tip, dims.Pitch,
-		float64(vt), involuteSteps, math.Pi)
+		vt, involuteSteps, math.Pi)
 
-	rootAtHeel := g.PitchDiameter/2 - 1.25*d.Module*math.Cos(g.Gamma) -
-		toothRootSink*(dims.Tip-dims.Root)
+	rootAtHeel := g.PitchDiameter/2 - 1.25*d.Module*math.Cos(g.Gamma) - sink
 	cosGamma := math.Cos(g.Gamma)
 	mapped := func(p involute.Pt) outlinePt {
 		rv := math.Hypot(p.X, p.Y)

@@ -4,6 +4,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/lestrrat-3d/fusion360-gear-generator/proof/involute"
 	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit"
 	"github.com/lestrrat-3d/r3"
 	"github.com/lestrrat-3d/sketch"
@@ -744,6 +745,14 @@ func bgPerGearCases() []proofkit.Case {
 		{"ratio_31_17_90", map[string]float64{idModule: 1, idDrivingTeeth: 31, idPinionTeeth: 17, idShaftAngle: 90}},
 		{"ratio_17_31_90", map[string]float64{idModule: 1, idDrivingTeeth: 17, idPinionTeeth: 31, idShaftAngle: 90}},
 		{"low_teeth_4_4_90", map[string]float64{idModule: 1, idDrivingTeeth: 4, idPinionTeeth: 4, idShaftAngle: 90}},
+		// Both ends of the virtual tooth count's own range. 16/12 at 90 degrees
+		// gives the PINION a virtual count of exactly 15, so a floored count and
+		// an exact one agree there and only the driving side's 26.667 shows the
+		// difference — which is what makes the pair reject a rounded count rather
+		// than merely disagree with one. 4/4 carries the largest root-corner
+		// float of any admitted pair, 0.027 module, so it is what the root sink
+		// has to clear.
+		{"integer_zv_16_12_90", map[string]float64{idModule: 4, idDrivingTeeth: 16, idPinionTeeth: 12, idShaftAngle: 90}},
 		{"shaft_35", map[string]float64{idModule: 1, idDrivingTeeth: 31, idPinionTeeth: 31, idShaftAngle: 35}},
 		{"shaft_142", map[string]float64{idModule: 1, idDrivingTeeth: 31, idPinionTeeth: 31, idShaftAngle: 142}},
 		{"spacing_and_toe_extension", map[string]float64{idModule: 1, idDrivingTeeth: 31, idPinionTeeth: 17,
@@ -938,19 +947,22 @@ func stepToothProfile(t testing.TB, s *sketch.Sketch, p map[string]float64) {
 	// Apex2->K'. Units: the module is the raw mm number, the pitch diameter is
 	// the same length, so nothing is converted twice here — the ×10 the
 	// generated module needs is the cm->mm step that this proof does not have.
+	//
+	// It is a REAL number and is never rounded. Rounding it would rebuild every
+	// drawn circle from the rounded count, which is what drew the tooth smaller
+	// than the back cone places it (issue #155).
 	vr := (g.PitchDia / 2) / math.Cos(g.Gamma)
-	vt := math.Floor(2 * vr / in.Module)
+	vt := 2 * vr / in.Module
 	bgCloseTB(t, g.Label+" virtual pitch radius", vr, g.VirtualPitchRadius, 1e-9)
-	if int(vt) != g.VirtualTeeth {
-		t.Errorf("%s virtual tooth number: got %v, want %d", g.Label, vt, g.VirtualTeeth)
-	}
+	bgCloseTB(t, g.Label+" virtual tooth number", vt, g.VirtualTeeth, 1e-12)
 	if vt < 3 {
 		proofkit.Unmodelled(t, "%s: virtual tooth number %v leaves no spur tooth to draw", g.Label, vt)
 	}
 
+	sink := g.RootSink
 	pitchR := in.Module * vt / 2
 	baseR := pitchR * math.Cos(bgPressureAngle)
-	rootR := (in.Module*vt - 2*bgDedendumFactor*in.Module) / 2
+	rootR := (in.Module*vt-2*bgDedendumFactor*in.Module)/2 - sink
 	tipR := (in.Module*vt + 2*bgAddendumFactor*in.Module) / 2
 
 	proofkit.Step(t, "%s Tooth: the four circles, centred on the tooth centre", g.Label)
@@ -991,15 +1003,39 @@ func stepToothProfile(t testing.TB, s *sketch.Sketch, p map[string]float64) {
 		t.Errorf("%s: the tooth faces away from the dedendum corner (tooth top at x=%.4f)", g.Label, top.X())
 	}
 
-	// The Tredgold construction: the dedendum corner sits on the back cone one
-	// dedendum inside the virtual pitch radius. The DRAWN root circle sits a
-	// little further in, because the virtual tooth number is floored.
+	// The Tredgold construction, circle by circle. The tooth is drawn AT the back
+	// cone, so the drawn pitch circle has to reach exactly as far as the back-cone
+	// point K/L the §2 lattice put down — that is the reading the floored count
+	// used to miss by up to half a module. Tooth Spacing moves the centre to K'/L'
+	// and leaves the tooth its size, so the comparison is against K/L.
+	bgCloseTB(t, g.Label+" the drawn pitch circle reaches the back-cone point",
+		pitchR, bgLen(bgSub(g.Center, l.Apex2)), 1e-9)
 	bgCloseTB(t, g.Label+" dedendum corner is one dedendum inside the virtual pitch radius",
 		bgLen(bgSub(g.Center, g.Ded)), vr-bgDedendumFactor*in.Module, 1e-9)
-	if rootR > vr-bgDedendumFactor*in.Module+1e-9 {
-		t.Errorf("%s: the drawn root radius %.6f is outside the dedendum corner %.6f",
-			g.Label, rootR, vr-bgDedendumFactor*in.Module)
+
+	// The root circle is one ROOT SINK inside the dedendum corner: not at it,
+	// which leaves the root arc's corners outside the gear body's root cone, and
+	// not further, which would cut into the body for no reason. Both sides.
+	bgCloseTB(t, g.Label+" the drawn root circle sits one root sink inside the dedendum corner",
+		rootR, vr-bgDedendumFactor*in.Module-sink, 1e-9)
+	bgCloseTB(t, g.Label+" the drawn tip circle stands one module outside the back cone",
+		tipR, vr+bgAddendumFactor*in.Module, 1e-9)
+
+	// And the tooth the drawer places on those circles is the NOMINAL tooth: its
+	// thickness at the drawn pitch circle is pi * Module / 2. The angle comes
+	// from the drawer's own placement — it rotates the flank so the pitch
+	// crossing lands at pi/(2 z_v) — read here through the same involute the
+	// drawer samples, never restated as the identity it is meant to check. This
+	// is the reading that rejects an INTEGER virtual tooth count drawn at the
+	// exact radius: that variant makes the thickness pi * r_v / round(z_v), which
+	// misses nominal by a different amount on each member of an unequal pair.
+	px, py, ok := involute.Point(baseR, pitchR)
+	if !ok {
+		t.Fatalf("%s: the pitch circle falls inside the base circle", g.Label)
 	}
+	lx, ly := involute.Rotate(px, -py, math.Pi/(2*vt)-math.Atan2(-py, px))
+	bgCloseTB(t, g.Label+" tooth thickness at the drawn pitch circle",
+		2*math.Atan2(ly, lx)*pitchR, math.Pi*in.Module/2, 1e-9)
 
 	// The embedded flag decides the tooth loop's line count, and the selection
 	// is `wantLines = 0 if embedded else 2` — never "0 or 2", which grabs an

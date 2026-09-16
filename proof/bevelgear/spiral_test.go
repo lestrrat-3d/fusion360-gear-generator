@@ -562,7 +562,7 @@ func bgPolygonCentroid(poly []bgPt) (float64, float64) {
 // the eight cut planes leave, the apex scrap dropped, the per-segment twist, and
 // the crown factor each kept segment carries.
 func bgPlanSlabs(b *bgSolid, f bgFrame) (kept []bgSlabPlan, scrap bgSlabPlan) {
-	poly := bgToothPolygon(b.lat.In.Module, float64(b.g.VirtualTeeth))
+	poly := bgToothPolygon(b.lat.In.Module, b.g.VirtualTeeth, b.g.RootSink)
 	scales := bgSlabScales(bgApexHeight(b), bgSliceOffsets(f.Span))
 	spread := bgSpread * b.lat.ConeDist
 
@@ -767,7 +767,7 @@ func stepSpiralSlice(t *testing.T, doc *decad.Document, p map[string]float64) []
 		return bgStraightBranch(t, b)
 	}
 	f := bgGearFrame(b.lat, b.g, bgGet(p, bgSwapKey, 0) != 0)
-	poly := bgToothPolygon(b.lat.In.Module, float64(b.g.VirtualTeeth))
+	poly := bgToothPolygon(b.lat.In.Module, b.g.VirtualTeeth, b.g.RootSink)
 	kept, scrap := bgPlanSlabs(b, f)
 	out := make([]*decad.Body, 0, len(kept)+1)
 	for _, sl := range kept {
@@ -816,7 +816,7 @@ func assertSpiralSlice(t *testing.T, doc *decad.Document, bodies []*decad.Body, 
 	}
 	// The pieces partition the tooth: their volumes sum to the cone between the
 	// nose and the parent tooth plane.
-	poly := bgToothPolygon(b.lat.In.Module, float64(b.g.VirtualTeeth))
+	poly := bgToothPolygon(b.lat.In.Module, b.g.VirtualTeeth, b.g.RootSink)
 	whole := bgPolygonArea(poly) * h / 3 * (1 - bgNose*bgNose*bgNose)
 	sum, bound := 0.0, 0.0
 	for _, body := range bodies {
@@ -836,7 +836,7 @@ func stepSpiralScrap(t *testing.T, doc *decad.Document, p map[string]float64) []
 		return bgStraightBranch(t, b)
 	}
 	f := bgGearFrame(b.lat, b.g, bgGet(p, bgSwapKey, 0) != 0)
-	poly := bgToothPolygon(b.lat.In.Module, float64(b.g.VirtualTeeth))
+	poly := bgToothPolygon(b.lat.In.Module, b.g.VirtualTeeth, b.g.RootSink)
 	kept, _ := bgPlanSlabs(b, f)
 	if len(kept) == 0 {
 		t.Fatal("the slice failed: no cross-section segment survived the scrap drop")
@@ -865,7 +865,7 @@ func assertSpiralScrap(t *testing.T, doc *decad.Document, bodies []*decad.Body, 
 		t.Fatal("segments came back empty")
 	}
 	// The dropped piece really is the apex-most, and it is the long one.
-	poly := bgToothPolygon(b.lat.In.Module, float64(b.g.VirtualTeeth))
+	poly := bgToothPolygon(b.lat.In.Module, b.g.VirtualTeeth, b.g.RootSink)
 	scrapCentroid := f.DistAlong(bgSectionCentroid(b, poly, (scrap.Near+scrap.Far)/2, 1, 0))
 	for _, sl := range kept {
 		keptCentroid := f.DistAlong(bgSectionCentroid(b, poly, (sl.Near+sl.Far)/2, 1, 0))
@@ -893,7 +893,7 @@ func stepSpiralTwist(t *testing.T, doc *decad.Document, p map[string]float64) []
 		return bgStraightBranch(t, b)
 	}
 	f := bgGearFrame(b.lat, b.g, bgGet(p, bgSwapKey, 0) != 0)
-	poly := bgToothPolygon(b.lat.In.Module, float64(b.g.VirtualTeeth))
+	poly := bgToothPolygon(b.lat.In.Module, b.g.VirtualTeeth, b.g.RootSink)
 	kept, _ := bgPlanSlabs(b, f)
 	out := make([]*decad.Body, 0, len(kept))
 	for _, sl := range kept {
@@ -909,7 +909,7 @@ func assertSpiralTwist(t *testing.T, doc *decad.Document, bodies []*decad.Body, 
 		return
 	}
 	f := bgGearFrame(b.lat, b.g, bgGet(p, bgSwapKey, 0) != 0)
-	poly := bgToothPolygon(b.lat.In.Module, float64(b.g.VirtualTeeth))
+	poly := bgToothPolygon(b.lat.In.Module, b.g.VirtualTeeth, b.g.RootSink)
 	kept, _ := bgPlanSlabs(b, f)
 	if len(bodies) != len(kept) {
 		t.Fatalf("the twist returned %d segments, want %d", len(bodies), len(kept))
@@ -973,7 +973,7 @@ func stepSpiralCrown(t *testing.T, doc *decad.Document, p map[string]float64) []
 		return bgStraightBranch(t, b)
 	}
 	f := bgGearFrame(b.lat, b.g, bgGet(p, bgSwapKey, 0) != 0)
-	poly := bgToothPolygon(b.lat.In.Module, float64(b.g.VirtualTeeth))
+	poly := bgToothPolygon(b.lat.In.Module, b.g.VirtualTeeth, b.g.RootSink)
 	kept, _ := bgPlanSlabs(b, f)
 	out := make([]*decad.Body, 0, len(kept))
 	for _, sl := range kept {
@@ -1039,7 +1039,7 @@ func assertSpiralCrown(t *testing.T, doc *decad.Document, bodies []*decad.Body, 
 	}
 	// Read the relief off the bodies: each crowned segment reaches its own
 	// factor times the radius it would have reached full.
-	poly := bgToothPolygon(b.lat.In.Module, float64(b.g.VirtualTeeth))
+	poly := bgToothPolygon(b.lat.In.Module, b.g.VirtualTeeth, b.g.RootSink)
 	reach := 0.0
 	for _, q := range poly {
 		reach = math.Max(reach, math.Hypot(q.X*math.Cos(b.g.Gamma), q.Y))
@@ -1089,7 +1089,7 @@ func stepSpiralLoft(t *testing.T, doc *decad.Document, p map[string]float64) []*
 func bgSpiralToothBodies(t *testing.T, b *bgSolid, p map[string]float64) []*decad.Body {
 	t.Helper()
 	f := bgGearFrame(b.lat, b.g, bgGet(p, bgSwapKey, 0) != 0)
-	poly := bgToothPolygon(b.lat.In.Module, float64(b.g.VirtualTeeth))
+	poly := bgToothPolygon(b.lat.In.Module, b.g.VirtualTeeth, b.g.RootSink)
 	kept, _ := bgPlanSlabs(b, f)
 	sort.Slice(kept, func(i, j int) bool { return kept[i].PostHeel < kept[j].PostHeel })
 
