@@ -5,7 +5,6 @@
     "sketches_test.go",
     "solids_test.go",
     "spiral_test.go",
-    "tables_test.go",
     "zz_registrations_test.go"
   ],
   "gear": "bevelgear",

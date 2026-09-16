@@ -1,1286 +1,1094 @@
+// Sketch steps. Each function below is one Fusion sketch, rebuilt in the
+// sketch engine with the constraint scheme the step list prescribes, and gated
+// by proofkit on the engine's own verdict: DOF 0, nothing conflicting or
+// redundant, valid profiles, not near-singular, no discrete ambiguity.
+//
+// Three places the engine's constraint arity differs from Fusion's, so the
+// proof carries one row fewer than the module must:
+//
+//  1. §1 applies BOTH addCoincident(centre, anchorLine) and
+//     addMidPoint(centre, anchorLine). The engine's NewMidpoint already holds
+//     the point at (a+b)/2, which subsumes point-on-line, so adding
+//     NewPointOnLine as well is a third row for two freedoms and the engine
+//     reports it redundant. The proof applies the midpoint alone.
+//  2. §2's G->H and I->J each take addPerpendicular against E->G and F->I in
+//     Fusion, because addOffsetDimension there requires the second line to be
+//     parallel to the first already. The engine's NewOffset emits two rows
+//     holding BOTH endpoints of the target at the same signed perpendicular
+//     distance, so it carries the parallelism itself; adding the perpendicular
+//     makes the lattice overconstrained at DOF 0 with the two base-height
+//     offsets named as the redundant pair. The proof leaves both out.
+//  3. For the same reason the proof leaves out addParallel(M->N, C->H) and
+//     addParallel(O->P, D->J): the offset that follows each of them already
+//     carries the direction.
+//
+// Two places the engine is STRONGER than Fusion, which the spec asks for
+// ("Pin every one of the 15 sites with a constraint the sketch engine SIGNS"):
+// the shaft-angle dimension is a signed NewAngle rather than Fusion's unsigned
+// addAngularDimension plus a text point, and the two base-height offsets and
+// the two toe offsets are signed NewOffset rather than Fusion's unsigned
+// addOffsetDimension. The Tooth Spacing sites K->K' and L->L' have no signed
+// constraint of the right shape, so they are pinned with a signed axis
+// distance and the sign is asserted directly; see stepGearProfiles.
 package bevelgear_test
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"testing"
 
+	"github.com/lestrrat-3d/sketch"
+
 	"github.com/lestrrat-3d/fusion360-gear-generator/proof/involute"
 	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit"
-	"github.com/lestrrat-3d/sketch"
 )
 
-// bevelSeg creates one §2 line the way [BEVEL-F-COINCIDENT-STYLE] requires: from raw
-// coordinates for BOTH endpoints, never by sharing an existing point into the
-// creation call. Every connection is then made with exactly one coincident per
-// end. The rule covers the short reference and connector lines too — a regen
-// that shared only those came out about fourteen coincidents short and the
-// sketch gated as under-constrained — so no line in this file is built any
-// other way.
-//
-// Each line is created ONCE and reused ([BEVEL-F-LINE-ONCE]); a second line
-// over the same segment carries its own constraints over that segment and
-// over-determines the coupled net.
-func bevelSeg(s *sketch.Sketch, name string, a, b bevelVec) *sketch.Line {
-	p0 := s.CreatePoint(a.X, a.Y)
-	p1 := s.CreatePoint(b.X, b.Y)
-	p0.SetName(name + ".start")
-	p1.SetName(name + ".end")
-	l := s.CreateLine(p0, p1)
-	l.SetName(name)
-	// Every line drawn in the §2 sketch is a construction line: the solid
-	// features consume only the per-bevelSide Profile sketches, never a §2 curve.
-	l.SetConstruction(true)
-	return l
-}
+// seedTolerance is the [BEVEL-F-SEED-HELD] gate's own tolerance, 0.001 mm. The
+// proof holds its solved lattice to the same figure the module's gate holds
+// Fusion's to.
+const seedTolerance = 0.001
 
-func bevelPin(s *sketch.Sketch, name string, a, b *sketch.Point) {
-	c := sketch.NewCoincident(a, b)
-	s.AddConstraint(c)
-	s.SetConstraintName(c, name)
-}
+// proxyPressureAngle is not a bevel dialog input: the virtual spur proxy's own
+// default is 20 degrees and bevel takes it.
+const proxyPressureAngle = 20 * math.Pi / 180
 
-func bevelNamed(s *sketch.Sketch, name string, c sketch.Constraint) {
-	s.AddConstraint(c)
-	s.SetConstraintName(c, name)
-}
+// proxyInvoluteSteps is the proxy's own default sample count.
+const proxyInvoluteSteps = 15
 
-// stepAnchorSketch builds §1: the Anchor Sketch on the user's selected target
-// plane, carrying the projected centre point and the Anchor Line through it.
-//
-// The bevelBench substitutes a reference point for the projection, which is what
-// sketch's reference geometry is for: a projected point is brought in from
-// outside and is externally locked, and `CreateReferencePoint` is the engine's
-// name for exactly that. Fusion's `sketch.project` does NOT fix what it brings
-// in ([PB-PROJECT-NOT-FIXED]), so the bevelBench point is firmer than Fusion's; what
-// the bevelModuleOf does about that is recreate-and-fix in the per-bevelSide Profile
-// sketches, which stepGearProfileHexagon proves.
-func stepAnchorSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
-	proofkit.Step(t, "project the user-selected centre point into the Anchor Sketch")
-	cx, cy := p["centreX"], p["centreY"]
-	centre := s.CreateReferencePoint(cx, cy, "user centre point")
-	centre.SetName("projected centre")
-
-	// Seeded at exactly +/- 0.5 cm from the projected centre along the sketch's
-	// own X, so the seeded length is the 10 mm the dimension then locks.
-	proofkit.Step(t, "draw the Anchor Line through the projected centre")
-	line := bevelSeg(s, "Anchor Line", bevelVec{cx - 5, cy}, bevelVec{cx + 5, cy})
-	line.SetConstruction(false)
-
-	// Fusion applies BOTH addCoincident(projectedCentre, anchorLine) — the
-	// point-on-line "intersection" — AND addMidPoint(projectedCentre,
-	// anchorLine), and the spec says to use both rather than the midpoint
-	// alone. The bevelBench's NewMidpoint carries the point-on-line row itself, so
-	// adding the engine's NewPointOnLine beside it is a second statement of a
-	// row the midpoint already holds and the sketch comes back with a redundant
-	// constraint. This is the same shape of difference as the G->H
-	// perpendicular below: Fusion's two calls are two rows, the bench's one call
-	// is two rows, and the proof writes the bevelBench's arity rather than Fusion's.
-	bevelNamed(s, "centre bisects Anchor Line", sketch.NewMidpoint(centre, line))
-	// Fusion locks the seeded 10 mm with an aligned distance dimension, which is
-	// a magnitude: the line may still solve end-for-end, and the bevelBench's
-	// ambiguity probe reports exactly that pair. The engine's horizontal
-	// distance is SIGNED, so it states the same 10 mm AND which end is which.
-	// Nothing downstream depends on the line's absolute direction — §2 derives
-	// every direction relative to it — so signing it here changes no geometry;
-	// it only stops a figure the gate is right to refuse.
-	bevelNamed(s, "Anchor Line length", sketch.NewHorizontalDistance(line.Start, line.End, 10))
-	// Sketch-local, per [PB-REFLINE-DIRECTION]: the line's absolute direction is
-	// arbitrary because §2 derives every direction relative to it, but it must
-	// not be a free degree of freedom.
-	bevelNamed(s, "Anchor Line direction", sketch.NewHorizontal(line))
-}
-
-// bevelLatticePoint is one bevelNamed §2 point: the solved handle and the closed-form
-// position §2 seeded it at.
-type bevelLatticePoint struct {
-	name   string
-	point  *sketch.Point
-	seeded bevelVec
-}
-
-// stepGearProfiles builds §2, the Gear Profiles sketch: the whole two-bevelSide
-// lattice from the projected centre out to both front faces.
-//
-// Read the constraint arities here against Fusion's, because two of them
-// differ and the difference is the engine's, not a choice:
-//
-//   - The G->H and I->J base-height offsets. Fusion's addOffsetDimension is a
-//     distance dimension whose documentation requires the second entity to be a
-//     line parallel to the first, so §2 supplies that parallelism with a
-//     perpendicular (E->G perpendicular to H->G, F->I to J->I) and the offset
-//     then controls one freedom. The bevelBench's NewOffset emits TWO residual rows,
-//     holding both endpoints of the destination line at the same SIGNED
-//     perpendicular distance from the source, so it carries the parallelism
-//     itself. Adding the perpendicular here is a third row for the same two
-//     freedoms and the lattice comes back over-constrained at DOF 0 with the
-//     two base-height offsets bevelNamed as the redundant pair. The perpendicular is
-//     therefore omitted here and required in Fusion.
-//
-//   - The M->N and O->P toe lines. §2 requires addParallel(M->N, C->H) beside
-//     the offset for the same reason, and the same two-row NewOffset makes it
-//     redundant here. The spec spells the substitution out for the base-height
-//     offsets and not for these, but it follows from the identical arity, so the
-//     parallel is omitted here too.
-//
-// Both omissions are the proof declining to model Fusion's arity where the
-// engine's differs. Neither weakens the gate: the count of freedoms each group
-// pins is unchanged.
-//
-// Every perpendicular and the one parallel §2 states are written here as the
-// SIGNED angle they are. That is this proof's obligation rather than a liberty:
-// [BEVEL-F-MIRROR-FIGURE] counts fifteen §2 sites whose side no Fusion
-// constraint can bevelPin — every geometric constraint Fusion offers is unsigned or
-// undirected — and §2 therefore picks each side by seed and catches a flip with
-// the [BEVEL-F-SEED-HELD] gate. The bevelBench DOES offer a signed angle, and a
-// proof that used the unsigned perpendicular instead would leave those sites
-// unsigned here too, which is the claim the gate rests on. Each angle below is
-// the closed-form angle between the two seeded directions, so the value
-// written is a closed form, not a reading; at a right angle it is the
-// perpendicular Fusion adds, with the side stated.
-func stepGearProfiles(t testing.TB, s *sketch.Sketch, p map[string]float64) {
-	g := resolveBevel(p)
-
-	proofkit.Step(t, "project the Anchor Sketch centre point and the Anchor Line")
-	centre := s.CreateReferencePoint(0, 0, "Anchor Sketch centre point")
-	centre.SetName("projected centre")
-	anchorA := s.CreateReferencePoint(-5, 0, "Anchor Line start")
-	anchorB := s.CreateReferencePoint(5, 0, "Anchor Line end")
-	anchor, err := s.CreateReferenceLine(anchorA, anchorB, "Anchor Line")
-	if err != nil {
-		t.Fatalf("reference anchor line: %v", err)
-	}
-	anchor.SetName("projected Anchor Line")
-
-	proofkit.Step(t, "centre -> Apex, perpendicular to the projected Anchor Line")
-	centreToApex := bevelSeg(s, "centre->Apex", bevelVec{0, 0}, g.Apex)
-	bevelPin(s, "centre->Apex starts at the projected centre", centreToApex.Start, centre)
-	// The grow side. In Fusion perp's sign is a one-bit decision taken against
-	// the target-plane normal ([BEVEL-F-GROW-SIDE]); the bevelBench has no target
-	// plane, so this proof fixes the side and proves everything downstream of
-	// it, and the rule that chooses it is checked only in Fusion.
-	bevelNamed(s, "centre->Apex square to the Anchor Line, on the grow side",
-		sketch.NewAngle(anchor, centreToApex,
-			bevelSignedAngleDeg(bevelVec{1, 0}, bevelSub(g.Apex, bevelVec{0, 0}))))
-	apex := centreToApex.End
-	apex.SetName("Apex")
-
-	proofkit.Step(t, "Apex -> B, the Driving Gear Shaft Axis")
-	axB := bevelSeg(s, "Apex->B", g.Apex, g.B)
-	bevelPin(s, "Apex->B starts at the Apex", axB.Start, apex)
-	// addParallel to the centre->Apex line, never addVertical: the bevelSide profiles
-	// sketch is not world-aligned and a world-vertical lock mis-orients the
-	// figure on any tilted target plane.
-	bevelNamed(s, "Apex->B parallel to centre->Apex, pointing back at the anchor line",
-		sketch.NewAngle(centreToApex, axB,
-			bevelSignedAngleDeg(bevelSub(g.Apex, bevelVec{0, 0}), g.UB)))
-	pointB := axB.End
-	pointB.SetName("B")
-
-	proofkit.Step(t, "Apex -> A, the Pinion Gear Shaft Axis at the Shaft Angle")
-	axA := bevelSeg(s, "Apex->A", g.Apex, g.A)
-	bevelPin(s, "Apex->A starts at the Apex", axA.Start, apex)
-	// The bevelBench's NewAngle is SIGNED, measured counter-clockwise from the first
-	// line's start->end direction to the second's, so it pins the sense §2
-	// chooses by seed in Fusion, where addAngularDimension is unsigned and the
-	// text point only picks the wedge that is MEASURED. The value is positive
-	// because the pinion direction is the driving direction rotated by +Sigma,
-	// which is the candidate whose endpoint carries the greater X.
-	bevelNamed(s, "Shaft Angle", sketch.NewAngle(axB, axA, p["shaftAngle"]))
-	pointA := axA.End
-	pointA.SetName("A")
-
-	proofkit.Step(t, "the two perpendicular drops that close at Apex 2")
-	dropA := bevelSeg(s, "A->Apex2", g.A, g.Apex2)
-	bevelPin(s, "A->Apex2 starts at A", dropA.Start, pointA)
-	// The drop aims into the interior wedge BETWEEN the two shaft axes, toward
-	// the driving shaft and point B — never "toward the anchor line".
-	bevelNamed(s, "A->Apex2 square to Apex->A, into the wedge",
-		sketch.NewAngle(axA, dropA, bevelSignedAngleDeg(g.UA, bevelSub(g.Apex2, g.A))))
-	bevelNamed(s, "A->Apex2 length is the pinion pitch radius",
-		sketch.NewDistance(dropA.Start, dropA.End, g.PPD/2))
-	apex2 := dropA.End
-	apex2.SetName("Apex 2")
-
-	dropB := bevelSeg(s, "B->Apex2", g.B, g.Apex2)
-	bevelPin(s, "B->Apex2 starts at B", dropB.Start, pointB)
-	// Aimed at the pinion shaft axis and point A. A "toward the anchor line"
-	// test is degenerate here: the Driving Gear Shaft Axis is itself parallel to
-	// that grow direction, so the perpendicular's dot with it reads about zero
-	// and silently selects an arbitrary side. If this drop seeds Apex 2 on the
-	// wrong side of the driving shaft while the pinion's drop seeds it on the
-	// correct side, the coincidence that closes them flips the WHOLE figure to
-	// the mirror solution and nothing in the build refuses it.
-	bevelNamed(s, "B->Apex2 square to Apex->B, into the wedge",
-		sketch.NewAngle(axB, dropB, bevelSignedAngleDeg(g.UB, bevelSub(g.Apex2, g.B))))
-	bevelNamed(s, "B->Apex2 length is the driving pitch radius",
-		sketch.NewDistance(dropB.Start, dropB.End, g.DPD/2))
-	bevelPin(s, "the two drops close at Apex 2", dropB.End, apex2)
-
-	proofkit.Step(t, "the Pitch Line and the two dedendum lines")
-	pitch := bevelSeg(s, "Apex->Apex2 (Pitch Line)", g.Apex, g.Apex2)
-	bevelPin(s, "Pitch Line starts at the Apex", pitch.Start, apex)
-	bevelPin(s, "Pitch Line ends at Apex 2", pitch.End, apex2)
-
-	dedP := bevelSeg(s, "Apex2->C (Pinion Dedendum)", g.Apex2, g.C)
-	bevelPin(s, "Pinion Dedendum starts at Apex 2", dedP.Start, apex2)
-	// This site and its driving twin are where the "C collapses onto D" symptom
-	// lives, and in Fusion each is held by its seed alone: the perpendicular
-	// constrains the direction and the dimension the magnitude, and neither
-	// picks a side, so flipping the pinion seed solves C exactly onto D. The
-	// seed is stated by dot product against the shaft axes — u_p . unit(Apex->A)
-	// is sin(gamma_p) and is strictly positive for every admitted
-	// configuration — never as "towards or away from the anchor line".
-	bevelNamed(s, "Pinion Dedendum square to the Pitch Line, on the Apex->A side",
-		sketch.NewAngle(pitch, dedP, bevelSignedAngleDeg(bevelSub(g.Apex2, g.Apex), g.UP)))
-	bevelNamed(s, "Pinion Dedendum length", sketch.NewDistance(dedP.Start, dedP.End, g.Dedendum))
-	pointC := dedP.End
-	pointC.SetName("C")
-
-	dedG := bevelSeg(s, "Apex2->D (Driving Dedendum)", g.Apex2, g.D)
-	bevelPin(s, "Driving Dedendum starts at Apex 2", dedG.Start, apex2)
-	bevelNamed(s, "Driving Dedendum square to the Pitch Line, on the Apex->B side",
-		sketch.NewAngle(pitch, dedG, bevelSignedAngleDeg(bevelSub(g.Apex2, g.Apex), g.UG)))
-	bevelNamed(s, "Driving Dedendum length", sketch.NewDistance(dedG.Start, dedG.End, g.Dedendum))
-	pointD := dedG.End
-	pointD.SetName("D")
-
-	proofkit.Step(t, "the two Root Axes, Apex->C and Apex->D")
-	rootP := bevelSeg(s, "Apex->C (Pinion Root Axis)", g.Apex, g.C)
-	bevelPin(s, "Pinion Root Axis starts at the Apex", rootP.Start, apex)
-	bevelPin(s, "Pinion Root Axis ends at C", rootP.End, pointC)
-
-	rootG := bevelSeg(s, "Apex->D (Driving Root Axis)", g.Apex, g.D)
-	bevelPin(s, "Driving Root Axis starts at the Apex", rootG.Start, apex)
-	bevelPin(s, "Driving Root Axis ends at D", rootG.End, pointD)
-
-	proofkit.Step(t, "E and F, the feet of the dedendum perpendiculars on the shaft axes")
-	// The collinear names the line the new line's start point sits on, never a
-	// farther line up the same chain ([PB-COLLINEAR-CHAIN]). The bevelBench counts a
-	// collinear as the same two point-on-line rows Fusion does, so a proof
-	// written against it substitutes the single row that is not already implied
-	// by the coincident at the shared end — which makes both readings of the
-	// chain identical here. Only a Fusion session tells them apart, so this
-	// substitution is also the reason the proof cannot catch a collinear bevelNamed
-	// against the wrong line.
-	lineAE := bevelSeg(s, "A->E", g.A, g.E)
-	bevelPin(s, "A->E starts at A", lineAE.Start, pointA)
-	bevelNamed(s, "E lies on Apex->A", sketch.NewPointOnLine(lineAE.End, axA))
-	pointE := lineAE.End
-	pointE.SetName("E")
-
-	lineCE := bevelSeg(s, "C->E", g.C, g.E)
-	bevelPin(s, "C->E starts at C", lineCE.Start, pointC)
-	bevelPin(s, "C->E ends at E", lineCE.End, pointE)
-	bevelNamed(s, "C->E square to A->E", sketch.NewAngle(lineAE, lineCE, bevelSignedAngleDeg(g.UA, bevelSub(g.E, g.C))))
-
-	lineBF := bevelSeg(s, "B->F", g.B, g.F)
-	bevelPin(s, "B->F starts at B", lineBF.Start, pointB)
-	bevelNamed(s, "F lies on Apex->B", sketch.NewPointOnLine(lineBF.End, axB))
-	pointF := lineBF.End
-	pointF.SetName("F")
-
-	lineDF := bevelSeg(s, "D->F", g.D, g.F)
-	bevelPin(s, "D->F starts at D", lineDF.Start, pointD)
-	bevelPin(s, "D->F ends at F", lineDF.End, pointF)
-	bevelNamed(s, "D->F square to B->F", sketch.NewAngle(lineBF, lineDF, bevelSignedAngleDeg(g.UB, bevelSub(g.F, g.D))))
-
-	proofkit.Step(t, "the pinion heel: E->G, C->H, G->H and the base-height offset")
-	lineEG := bevelSeg(s, "E->G", g.E, g.G)
-	bevelPin(s, "E->G starts at E", lineEG.Start, pointE)
-	// Collinear with A->E, NEVER with the Apex->A shaft axis further up the
-	// chain, even though both describe the same infinite line.
-	bevelNamed(s, "G lies on A->E", sketch.NewPointOnLine(lineEG.End, lineAE))
-	pointG := lineEG.End
-	pointG.SetName("G")
-
-	lineCH := bevelSeg(s, "C->H", g.C, g.H)
-	bevelPin(s, "C->H starts at C", lineCH.Start, pointC)
-	bevelNamed(s, "H lies on Apex2->C", sketch.NewPointOnLine(lineCH.End, dedP))
-	pointH := lineCH.End
-	pointH.SetName("H")
-
-	lineGH := bevelSeg(s, "G->H", g.G, g.H)
-	bevelPin(s, "G->H starts at G", lineGH.Start, pointG)
-	bevelPin(s, "G->H ends at H", lineGH.End, pointH)
-	// The offset is between the A->Apex2 PERPENDICULAR DROP — the PPD/2 drop,
-	// not the Apex->A shaft axis — and G->H. Positive is to the left of the
-	// drop's start->end direction, which is the +unit(Apex->A) side, and G sits
-	// exactly one resolved pinion base height along that direction from A.
-	bevelNamed(s, "pinion base height offset",
-		sketch.NewOffset(dropA, lineGH, g.Pinion.BaseHeight))
-
-	proofkit.Step(t, "the driving heel: F->I, D->J, I->J and the base-height offset")
-	lineFI := bevelSeg(s, "F->I", g.F, g.I)
-	bevelPin(s, "F->I starts at F", lineFI.Start, pointF)
-	bevelNamed(s, "I lies on B->F", sketch.NewPointOnLine(lineFI.End, lineBF))
-	pointI := lineFI.End
-	pointI.SetName("I")
-
-	lineDJ := bevelSeg(s, "D->J", g.D, g.J)
-	bevelPin(s, "D->J starts at D", lineDJ.Start, pointD)
-	bevelNamed(s, "J lies on Apex2->D", sketch.NewPointOnLine(lineDJ.End, dedG))
-	pointJ := lineDJ.End
-	pointJ.SetName("J")
-
-	lineIJ := bevelSeg(s, "I->J", g.I, g.J)
-	bevelPin(s, "I->J starts at I", lineIJ.Start, pointI)
-	bevelPin(s, "I->J ends at J", lineIJ.End, pointJ)
-	// Left of the B->Apex2 drop's start->end direction is -unit(Apex->B), and I
-	// sits one resolved driving base height along +unit(Apex->B) from B, so the
-	// signed value is negative. Fusion's addOffsetDimension is unsigned and the
-	// I and J seeds are the only thing that picks the side there.
-	bevelNamed(s, "driving base height offset",
-		sketch.NewOffset(dropB, lineIJ, -g.Driving.BaseHeight))
-
-	proofkit.Step(t, "close the figure: I coincides with the projected centre")
-	// This is what hangs the whole lattice off the projected centre. In Fusion
-	// it is one addCoincident; the bevelBench counts its two rows and one of them is
-	// already implied, because I sits on the driving shaft axis and that axis
-	// runs through the Apex, which the perpendicular already holds at the
-	// centre's own X. The bevelBench therefore takes the row that is not implied —
-	// the position ALONG the axis — as a signed vertical distance of zero, the
-	// grow direction being +Y in this frame.
-	bevelNamed(s, "I closes on the projected centre",
-		sketch.NewVerticalDistance(centre, pointI, 0))
-
-	proofkit.Step(t, "A', the front face's foot on the pinion shaft axis")
-	// This line is what CREATES A'. It is drawn here, before the front face
-	// below pins A' to the axis, so the hexagon's edges are created in the walk
-	// order A' -> G -> H -> C -> M -> N the Profile sketch's first-edge rule
-	// depends on.
-	lineApG := bevelSeg(s, "A'->G", g.Ap, g.G)
-	bevelPin(s, "A'->G ends at G", lineApG.End, pointG)
-	pointAp := lineApG.Start
-	pointAp.SetName("A'")
-
-	proofkit.Step(t, "K and L, where the dedendum lines cross the shaft axes")
-	// By the time K is added, G and C are already fixed, so a collinear on the
-	// connecting lines over-constrains; two point-on-line coincidents locate K
-	// exactly as the intersection of the two lines without over-constraining.
-	lineGK := bevelSeg(s, "G->K", g.G, g.K)
-	bevelPin(s, "G->K starts at G", lineGK.Start, pointG)
-	bevelNamed(s, "K lies on Apex->A", sketch.NewPointOnLine(lineGK.End, axA))
-	bevelNamed(s, "K lies on Apex2->C", sketch.NewPointOnLine(lineGK.End, dedP))
-	pointK := lineGK.End
-	pointK.SetName("K")
-
-	lineIL := bevelSeg(s, "I->L", g.I, g.L)
-	bevelPin(s, "I->L starts at I", lineIL.Start, pointI)
-	bevelNamed(s, "L lies on Apex->B", sketch.NewPointOnLine(lineIL.End, axB))
-	bevelNamed(s, "L lies on Apex2->D", sketch.NewPointOnLine(lineIL.End, dedG))
-	pointL := lineIL.End
-	pointL.SetName("L")
-
-	// The tooth centre. At Tooth Spacing 0 — the default — K' is K and L' is L,
-	// nothing is built, and the existing C->K and D->L reference lines are
-	// reused: a zero-length dimensioned line would be degenerate, and one
-	// segment gets ONE line ([BEVEL-F-LINE-ONCE]).
-	pointKp, pointLp := pointK, pointL
-	if g.ToothSpacing > 0 {
-		proofkit.Step(t, "K' and L', the Tooth Spacing tooth centres")
-		pointKp = bevelToothCentre(t, s, "K", g.Kp, pointK, dedP, g.UP, g.ToothSpacing)
-		pointKp.SetName("K'")
-		pointLp = bevelToothCentre(t, s, "L", g.Lp, pointL, dedG, g.UG, g.ToothSpacing)
-		pointLp.SetName("L'")
-	}
-
-	lineCK := bevelSeg(s, "C->K' (tooth centre reference)", g.C, bevelSeedOf(g.ToothSpacing, g.K, g.Kp))
-	bevelPin(s, "C->K' starts at C", lineCK.Start, pointC)
-	bevelPin(s, "C->K' ends at the tooth centre", lineCK.End, pointKp)
-
-	lineDL := bevelSeg(s, "D->L' (tooth centre reference)", g.D, bevelSeedOf(g.ToothSpacing, g.L, g.Lp))
-	bevelPin(s, "D->L' starts at D", lineDL.Start, pointD)
-	bevelPin(s, "D->L' ends at the tooth centre", lineDL.End, pointLp)
-
-	proofkit.Step(t, "the pinion toe: M->N, M->C and the front face N->A'")
-	// Both ends are seeded at their closed-form SOLVED positions, not merely
-	// somewhere plausible. Two earlier seeding rules — sliding from the M seed
-	// by the Root Length, and sliding by the distance from the M seed to A —
-	// put the N seed PAST the shaft axis on the shipped default pair at a 50%
-	// Toe Extension, at -0.27 mm against a solved +5.17 mm, and Fusion then
-	// refuses the revolve with ASM_WIRE_X_AXIS, pointing at the revolve rather
-	// than at the seed.
-	//
-	// THE PROOF CANNOT CATCH A WRONG SEED HERE. It seeds M and N at the closed
-	// form, which is the rule, so what it proves is that the constraints solve
-	// FROM a correct seed and never that the bevelModuleOf's seed is correct. A seed
-	// defect reaches Fusion untested, which is how the one described above got
-	// there. That is the honest edge of what this stage checks.
-	lineMN := bevelSeg(s, "M->N", g.M, g.N)
-	bevelNamed(s, "M lies on the Pinion Root Axis", sketch.NewPointOnLine(lineMN.Start, rootP))
-	// Positive is to the left of C->H's start->end direction, which is
-	// +unit(Apex2->C); M sits on that side of C->H by the root length
-	// re-measured perpendicular to the pitch line.
-	bevelNamed(s, "pinion root length offset",
-		sketch.NewOffset(lineCH, lineMN, bevelOffsetSign(g.M, g.C, g.UP)*g.RootLength*g.R/g.ApexDed))
-	pointM := lineMN.Start
-	pointM.SetName("M")
-	pointN := lineMN.End
-	pointN.SetName("N")
-
-	lineMC := bevelSeg(s, "M->C", g.M, g.C)
-	bevelPin(s, "M->C starts at M", lineMC.Start, pointM)
-	bevelPin(s, "M->C ends at C", lineMC.End, pointC)
-
-	// N is NOT pinned to the A->Apex2 drop, and never to the Apex->A shaft axis:
-	// a point ON the axis of revolution makes the later conical split fail with
-	// ASM_API_FAILED for asymmetric tooth counts. A' sits on the axis and is a
-	// foot rather than a corner; N rides the Toe Radius, which is strictly
-	// positive.
-	lineNAp := bevelSeg(s, "N->A'", g.N, g.Ap)
-	bevelPin(s, "N->A' starts at N", lineNAp.Start, pointN)
-	bevelPin(s, "N->A' ends at A'", lineNAp.End, pointAp)
-	bevelNamed(s, "A' lies on Apex->A", sketch.NewPointOnLine(pointAp, axA))
-	// The front face's own length dimension is a magnitude and the toe line
-	// meets the Toe Radius on BOTH sides of the shaft axis, so an unsigned
-	// perpendicular here leaves N free to solve onto the mirror, where the
-	// revolved hexagon crosses its own axis of revolution and Fusion aborts with
-	// ASM_WIRE_X_AXIS at the revolve rather than at the site that caused it. The
-	// signed angle states which side N sits on.
-	bevelNamed(s, "the pinion front face stands square to the shaft, on N's side",
-		sketch.NewAngle(axA, lineNAp, bevelSignedAngleDeg(g.UA, bevelSub(g.Ap, g.N))))
-	bevelNamed(s, "Pinion Gear Toe Radius",
-		sketch.NewDistance(lineNAp.Start, lineNAp.End, g.Pinion.ToeRadius))
-
-	proofkit.Step(t, "the driving toe: O->P, O->D and the front face P->B'")
-	lineOP := bevelSeg(s, "O->P", g.O, g.P)
-	bevelNamed(s, "O lies on the Driving Root Axis", sketch.NewPointOnLine(lineOP.Start, rootG))
-	bevelNamed(s, "driving root length offset",
-		sketch.NewOffset(lineDJ, lineOP, bevelOffsetSign(g.O, g.D, g.UG)*g.RootLength*g.R/g.ApexDed))
-	pointO := lineOP.Start
-	pointO.SetName("O")
-	pointP := lineOP.End
-	pointP.SetName("P")
-
-	lineOD := bevelSeg(s, "O->D", g.O, g.D)
-	bevelPin(s, "O->D starts at O", lineOD.Start, pointO)
-	bevelPin(s, "O->D ends at D", lineOD.End, pointD)
-
-	linePBp := bevelSeg(s, "P->B'", g.P, g.Bp)
-	bevelPin(s, "P->B' starts at P", linePBp.Start, pointP)
-	pointBp := linePBp.End
-	pointBp.SetName("B'")
-	bevelNamed(s, "B' lies on Apex->B", sketch.NewPointOnLine(pointBp, axB))
-	bevelNamed(s, "the driving front face stands square to the shaft, on P's side",
-		sketch.NewAngle(axB, linePBp, bevelSignedAngleDeg(g.UB, bevelSub(g.Bp, g.P))))
-	bevelNamed(s, "Driving Gear Toe Radius",
-		sketch.NewDistance(linePBp.Start, linePBp.End, g.Driving.ToeRadius))
-
-	lineBpI := bevelSeg(s, "B'->I", g.Bp, g.I)
-	bevelPin(s, "B'->I starts at B'", lineBpI.Start, pointBp)
-	bevelPin(s, "B'->I ends at I", lineBpI.End, pointI)
-
-	// A configuration this spec admits that this particular net cannot reach is
-	// a property of the net, not of the spec, so the case stays in the table and
-	// is declared here rather than being dropped or having the Shaft Angle range
-	// narrowed around it.
-	if p["declaredRefusal"] == 1 {
-		proofkit.Unmodelled(t, "declared refusal: at Shaft Angle %.0f degrees this lattice's "+
-			"conditioning reads 2.83e-05 against the sketch engine's 4e-05 trust floor, so the "+
-			"engine refuses it as near-singular. That is a fact about this constraint net, not "+
-			"about the geometry: of three independently written lattices built from this spec, "+
-			"two refuse the default pair here and the third passes. The Shaft Angle floor the "+
-			"spec states is geometric and stays where it is, the gate is not loosened, and the "+
-			"remedy is to change how the lattice is built",
-			p["shaftAngle"])
-	}
-
-	proofkit.Step(t, "gate the solved figure against its own seeds")
-	assertLatticeHeldItsSeeds(t, s, g, []bevelLatticePoint{
-		{"Apex", apex, g.Apex}, {"B", pointB, g.B}, {"A", pointA, g.A},
-		{"Apex 2", apex2, g.Apex2}, {"C", pointC, g.C}, {"D", pointD, g.D},
-		{"E", pointE, g.E}, {"F", pointF, g.F}, {"G", pointG, g.G}, {"H", pointH, g.H},
-		{"I", pointI, g.I}, {"J", pointJ, g.J}, {"K", pointK, g.K},
-		{"K'", pointKp, g.Kp}, {"M", pointM, g.M}, {"N", pointN, g.N},
-		{"A'", pointAp, g.Ap}, {"L", pointL, g.L}, {"L'", pointLp, g.Lp},
-		{"O", pointO, g.O}, {"P", pointP, g.P}, {"B'", pointBp, g.Bp},
-	})
-}
-
-func bevelSeedOf(toothSpacing float64, plain, shifted bevelVec) bevelVec {
-	if toothSpacing > 0 {
-		return shifted
-	}
-	return plain
-}
-
-// bevelOffsetSign reads which side of the dedendum line the toe line's closed-form
-// seed sits on, in the sense the bevelBench's signed offset calls positive. It is a
-// reading of the closed form rather than of any built geometry, so it states
-// the sign rather than discovering it: the pinion's toe line lies to the left
-// of C->H and the driving bevelSide's to the right of D->J, for every configuration
-// this spec admits.
-func bevelOffsetSign(toeSeed, corner, dedendumDir bevelVec) float64 {
-	if bevelDot(bevelSub(toeSeed, corner), bevelLeft(dedendumDir)) >= 0 {
-		return 1
-	}
-	return -1
-}
-
-// bevelToothCentre builds one Tooth Spacing offset line, K->K' or L->L'.
-//
-// The site is one of the fifteen [BEVEL-F-MIRROR-FIGURE] lists, and it is the
-// one the spec singles out: pinned with the bevelBench's unsigned NewDistance the
-// twin figure — K' one Tooth Spacing on the C side of K, two spacings away —
-// satisfies every constraint, and the ambiguity probe reports a LOWER BOUND on
-// the solution count, so its silence is not evidence. The signed constraint is.
-// The bevelBench signs a horizontal or a vertical distance, so this takes whichever
-// axis the dedendum direction leans further along, which is never below 1/root2
-// of a unit and so never ill-conditioned.
-func bevelToothCentre(t testing.TB, s *sketch.Sketch, label string, seed bevelVec,
-	from *sketch.Point, dedendum *sketch.Line, dir bevelVec, spacing float64) *sketch.Point {
-	t.Helper()
-	line := bevelSeg(s, label+"->"+label+"'", bevelVec{from.X(), from.Y()}, seed)
-	bevelPin(s, label+"->"+label+"' starts at "+label, line.Start, from)
-	bevelNamed(s, label+"' lies on the dedendum line", sketch.NewPointOnLine(line.End, dedendum))
-	if math.Abs(dir.X) >= math.Abs(dir.Y) {
-		bevelNamed(s, "Tooth Spacing at "+label,
-			sketch.NewHorizontalDistance(line.Start, line.End, spacing*dir.X))
-	} else {
-		bevelNamed(s, "Tooth Spacing at "+label,
-			sketch.NewVerticalDistance(line.Start, line.End, spacing*dir.Y))
-	}
-	return line.End
-}
-
-// assertLatticeHeldItsSeeds is the proof's copy of the [BEVEL-F-SEED-HELD] gate
-// the generated bevelModuleOf carries: solve, then compare every bevelNamed §2 point's
-// solved position against the closed form §2 seeded it at, in §2's own creation
-// order, so the first point bevelNamed is the earliest site that moved rather than a
-// downstream symptom. The tolerance is the gate's own 0.001 mm.
-//
-// The list is 22 points only when Tooth Spacing is above zero. At Tooth Spacing
-// 0 — the default — K' is K and L' is L and neither is built, so those two are
-// dropped and 20 are compared; comparing a K' that was never created is the one
-// way this gate can raise on a correct figure.
-//
-// The step also resolves the two bounds that cannot be resolved before this
-// sketch exists, and asserts them on the SOLVED figure: the Maximum Face Width,
-// whose two candidate distances are read from A, B, C, D, H and J, and the
-// Maximum Bore Diameter, whose toe term needs the Root Length that follows from
-// the resolved Face Width.
-func assertLatticeHeldItsSeeds(t testing.TB, s *sketch.Sketch, g bevelGeom, pts []bevelLatticePoint) {
+// solved reads a point's position after the build has solved the sketch
+// itself. proofkit solves and gates again afterwards; this second solve is
+// what lets a step assert against the figure the constraints actually reached
+// rather than against the coordinates it seeded.
+func solveHere(t testing.TB, s *sketch.Sketch) {
 	t.Helper()
 	if _, err := s.Solve(context.Background()); err != nil {
-		t.Fatalf("§2 lattice did not solve: %v", err)
+		t.Fatalf("solve: %v", err)
 	}
-	for _, lp := range pts {
-		if lp.name == "K'" && g.ToothSpacing == 0 {
-			continue
-		}
-		if lp.name == "L'" && g.ToothSpacing == 0 {
-			continue
-		}
-		moved := math.Hypot(lp.point.X()-lp.seeded.X, lp.point.Y()-lp.seeded.Y)
-		if moved > bevelSeedTolerance {
-			t.Fatalf("§2 point %s moved %.6f mm off its seed: solved (%.6f, %.6f), seeded (%.6f, %.6f)",
-				lp.name, moved, lp.point.X(), lp.point.Y(), lp.seeded.X, lp.seeded.Y)
-		}
-	}
+}
 
-	// The Tooth Spacing sign, asserted directly because the bevelBench's signed
-	// distance pins one axis of it and this is the statement that whole site
-	// stands for: K' - K projected on Apex2->C is +Tooth Spacing, never
-	// -Tooth Spacing, and the two candidates sit two spacings apart.
+func at(p *sketch.Point) pt { return pt{p.X(), p.Y()} }
+
+// requireNear compares a solved point against the closed form the step seeded
+// it at. The message names both positions, exactly as the module's own
+// [BEVEL-F-SEED-HELD] gate does.
+func requireNear(t testing.TB, name string, got, want pt, tol float64) {
+	t.Helper()
+	if d := got.distance(want); d > tol {
+		t.Errorf("%s solved at (%.6f, %.6f) but was seeded at (%.6f, %.6f), %.6f mm away (tolerance %.4f mm)",
+			name, got.X, got.Y, want.X, want.Y, d, tol)
+	}
+}
+
+func requireClose(t testing.TB, what string, got, want, tol float64) {
+	t.Helper()
+	if math.Abs(got-want) > tol {
+		t.Errorf("%s is %.8f, want %.8f (tolerance %.2e)", what, got, want, tol)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// S05 Anchor sketch
+// ---------------------------------------------------------------------------
+
+// stepAnchorSketch rebuilds §1: the projected centre, the 10 mm reference line
+// through it, and the three constraints that leave it with no free degree of
+// freedom. The line's absolute direction is arbitrary — §2 derives every
+// direction relative to it — but a free rotation would be a defect, which is
+// what addHorizontal (NewHorizontal here) rules out.
+func stepAnchorSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
+	proofkit.Step(t, "project the user-selected centre point")
+	centre := s.CreateReferencePoint(0, 0, "user centre point projected into the Anchor sketch")
+	centre.SetName("projected centre")
+
+	proofkit.Step(t, "anchor line seeded at +/- 0.5 cm from the projected centre")
+	a := s.CreatePoint(-5, 0)
+	a.SetName("anchor line start")
+	b := s.CreatePoint(5, 0)
+	b.SetName("anchor line end")
+	line := s.CreateLine(a, b)
+	line.SetName("Anchor Line")
+	line.SetConstruction(true)
+
+	proofkit.Step(t, "midpoint, aligned length and the sketch-local direction lock")
+	// Fusion applies addCoincident(centre, line) as well; see the file comment
+	// for why the engine's NewMidpoint makes that row redundant here.
+	//
+	// Fusion writes the length as an aligned addDistanceDimension and the
+	// direction as addHorizontal. Those two rows leave the line's two ends
+	// interchangeable — a magnitude and an undirected direction admit a and b
+	// swapped — and Fusion takes the seeded one. proofkit waives nothing, so
+	// the proof SUBSTITUTES the signed pair that pins the same figure: a
+	// horizontal distance of +10 mm from start to end, and a vertical
+	// distance of 0, which is the same length and the same sketch-local
+	// direction with the flip ruled out rather than seeded.
+	s.AddConstraint(
+		sketch.NewMidpoint(centre, line),
+		sketch.NewHorizontalDistance(a, b, 10),
+		sketch.NewVerticalDistance(a, b, 0),
+	)
+
+	solveHere(t, s)
+	requireClose(t, "anchor line length", at(a).distance(at(b)), 10, 1e-9)
+	requireClose(t, "anchor line half length to the projected centre", at(a).distance(at(centre)), 5, 1e-9)
+	requireClose(t, "anchor line rise", at(b).Y-at(a).Y, 0, 1e-9)
+}
+
+// ---------------------------------------------------------------------------
+// S07 Gear Profiles sketch — the §2 lattice
+// ---------------------------------------------------------------------------
+
+// lattice is the handle set stepGearProfiles builds, so the assertions below
+// can name a point the way §2 names it.
+type lattice struct {
+	apex, a, b, apex2, c, d, e, f, g, h, i, j, k, kp, m, n, ap, l, lp, o, pp, bp *sketch.Point
+	centre                                                                       *sketch.Point
+	dedP, dedG, cToH, dToJ, mToN, oToP                                           *sketch.Line
+}
+
+// connect builds one §2 line in the COINCIDENT style
+// ([BEVEL-F-COINCIDENT-STYLE]): both endpoints are fresh points at raw
+// coordinates, and each end that meets an existing point takes exactly one
+// coincident. Nothing is ever shared into a creation call, because sharing and
+// coinciding together is the redundancy that kills the Fusion solve outright,
+// and sharing alone leaves the sketch under-constrained.
+func connect(s *sketch.Sketch, name string, from, to pt, pin ...*sketch.Point) (*sketch.Line, *sketch.Point, *sketch.Point) {
+	start := s.CreatePoint(from.X, from.Y)
+	end := s.CreatePoint(to.X, to.Y)
+	line := s.CreateLine(start, end)
+	line.SetName(name)
+	line.SetConstruction(true)
+	start.SetName(name + " start")
+	end.SetName(name + " end")
+	if len(pin) > 0 && pin[0] != nil {
+		s.AddConstraint(sketch.NewCoincident(start, pin[0]))
+	}
+	if len(pin) > 1 && pin[1] != nil {
+		s.AddConstraint(sketch.NewCoincident(end, pin[1]))
+	}
+	return line, start, end
+}
+
+// leftOffset is the signed perpendicular distance the engine's NewOffset
+// measures: positive on the LEFT of src's start->end direction. Fusion's
+// addOffsetDimension is unsigned and takes its side from the seed, so the sign
+// computed here is what the proof carries in place of that seed.
+func leftOffset(srcA, srcB, target pt) float64 {
+	u := srcB.sub(srcA).unit()
+	d := target.sub(srcA)
+	return u.X*d.Y - u.Y*d.X
+}
+
+func stepGearProfiles(t testing.TB, s *sketch.Sketch, p map[string]float64) {
+	if declaredRefusal(p) {
+		proofkit.Unmodelled(t, "declared refusal: the spec admits this configuration and this §2 "+
+			"lattice cannot reach it — the net's conditioning reads below the sketch engine's trust "+
+			"floor. That is a property of this net, not of the geometry, and the spec's rule is to "+
+			"record it here rather than narrow the advertised range on one net's evidence")
+		return
+	}
+	g := newGeometry(t, p)
+	var lat lattice
+
+	proofkit.Step(t, "project the Anchor sketch's centre point and its line")
+	lat.centre = s.CreateReferencePoint(0, 0, "Anchor sketch centre point projected into Gear Profiles")
+	lat.centre.SetName("projected centre")
+	anchorA := s.CreateReferencePoint(-5, 0, "Anchor Line projected into Gear Profiles")
+	anchorB := s.CreateReferencePoint(5, 0, "Anchor Line projected into Gear Profiles")
+	anchorLine, err := s.CreateReferenceLine(anchorA, anchorB, "Anchor Line projected into Gear Profiles")
+	if err != nil {
+		t.Fatalf("project the anchor line: %v", err)
+	}
+	anchorLine.SetName("projected Anchor Line")
+
+	proofkit.Step(t, "centre -> Apex, perpendicular to the anchor line, undimensioned")
+	centerToApex, ctaStart, apexPt := connect(s, "centre->Apex", g.C0, g.Apex, lat.centre, nil)
+	_ = ctaStart
+	apexPt.SetName("Apex")
+	lat.apex = apexPt
+	// Every perpendicular and parallel below is written as a SIGNED angle.
+	// Fusion's addPerpendicular and addParallel are undirected — antiparallel
+	// satisfies a parallel, and a perpendicular admits both sides — so in the
+	// module each of these sites is held by its seed alone
+	// ([BEVEL-F-MIRROR-FIGURE]). The engine signs them, and the spec's
+	// "Proving the §2 figure" section asks for exactly that: measured, leaving
+	// the driving dedendum undirected makes the probe report the second
+	// configuration with D solved onto C, which is the collapse the spec names.
+	s.AddConstraint(sketch.NewAngle(anchorLine, centerToApex, signedAngleDeg(pt{1, 0}, g.Perp)))
+
+	proofkit.Step(t, "Driving Gear Shaft Axis, parallel to centre->Apex")
+	drivingShaft, _, bPt := connect(s, "Driving Gear Shaft Axis", g.Apex, g.B, lat.apex, nil)
+	bPt.SetName("B")
+	lat.b = bPt
+	s.AddConstraint(sketch.NewAngle(centerToApex, drivingShaft, signedAngleDeg(g.Perp, g.DrivingDir)))
+
+	proofkit.Step(t, "Pinion Gear Shaft Axis at the Shaft Angle")
+	pinionShaft, _, aPt := connect(s, "Pinion Gear Shaft Axis", g.Apex, g.A, lat.apex, nil)
+	aPt.SetName("A")
+	lat.a = aPt
+	// Signed: the counter-clockwise angle from Apex->B to Apex->A. Fusion's
+	// addAngularDimension is an unsigned magnitude plus a text point that only
+	// picks the quadrant, so the side there is held by the seed alone.
+	s.AddConstraint(sketch.NewAngle(drivingShaft, pinionShaft, signedAngleDeg(g.DrivingDir, g.PinionDir)))
+
+	proofkit.Step(t, "the two perpendicular drops closing at Apex 2")
+	aDrop, aDropStart, apex2Pt := connect(s, "A->Apex2", g.A, g.Apex2, lat.a, nil)
+	apex2Pt.SetName("Apex 2")
+	lat.apex2 = apex2Pt
+	s.AddConstraint(
+		sketch.NewAngle(pinionShaft, aDrop, signedAngleDeg(g.PinionDir, g.Apex2.sub(g.A))),
+		sketch.NewDistance(aDropStart, apex2Pt, g.PPD/2),
+	)
+	bDrop, bDropStart, bDropEnd := connect(s, "B->Apex2", g.B, g.Apex2, lat.b, nil)
+	s.AddConstraint(
+		sketch.NewAngle(drivingShaft, bDrop, signedAngleDeg(g.DrivingDir, g.Apex2.sub(g.B))),
+		sketch.NewDistance(bDropStart, bDropEnd, g.DPD/2),
+		sketch.NewCoincident(bDropEnd, apex2Pt),
+	)
+
+	proofkit.Step(t, "Pitch Line and the two dedendum lines")
+	pitchLine, _, _ := connect(s, "Pitch Line", g.Apex, g.Apex2, lat.apex, lat.apex2)
+	pinionDed, pinionDedStart, cPt := connect(s, "Pinion Gear Dedendum", g.Apex2, g.C, lat.apex2, nil)
+	cPt.SetName("C")
+	lat.c = cPt
+	lat.dedP = pinionDed
+	s.AddConstraint(
+		sketch.NewAngle(pitchLine, pinionDed, signedAngleDeg(g.PitchDir, g.DedP)),
+		sketch.NewDistance(pinionDedStart, cPt, g.Dedendum),
+	)
+	drivingDed, drivingDedStart, dPt := connect(s, "Driving Gear Dedendum", g.Apex2, g.D, lat.apex2, nil)
+	dPt.SetName("D")
+	lat.d = dPt
+	lat.dedG = drivingDed
+	s.AddConstraint(
+		sketch.NewAngle(pitchLine, drivingDed, signedAngleDeg(g.PitchDir, g.DedG)),
+		sketch.NewDistance(drivingDedStart, dPt, g.Dedendum),
+	)
+
+	proofkit.Step(t, "the two Root Axes, Apex->C and Apex->D")
+	pinionRootAxis, _, _ := connect(s, "Pinion Root Axis", g.Apex, g.C, lat.apex, lat.c)
+	drivingRootAxis, _, _ := connect(s, "Driving Root Axis", g.Apex, g.D, lat.apex, lat.d)
+
+	proofkit.Step(t, "the pinion extension chain A->E, C->E, E->G, C->H, G->H")
+	aToE, _, ePt := connect(s, "A->E", g.A, g.E, lat.a, nil)
+	ePt.SetName("E")
+	lat.e = ePt
+	s.AddConstraint(sketch.NewPointOnLine(ePt, pinionShaft))
+	cToE, _, _ := connect(s, "C->E", g.C, g.E, lat.c, lat.e)
+	s.AddConstraint(sketch.NewAngle(aToE, cToE, signedAngleDeg(g.PinionDir, g.E.sub(g.C))))
+
+	_, _, gPt := connect(s, "E->G", g.E, g.G, lat.e, nil)
+	gPt.SetName("G")
+	lat.g = gPt
+	// The collinear names A->E, never the Apex->A shaft axis further up the
+	// same chain: addCollinear carries two point-on-line rows and the farther
+	// reading asserts one of them twice ([BEVEL-F-COLLINEAR-CHAIN]).
+	s.AddConstraint(sketch.NewPointOnLine(gPt, aToE))
+
+	cToH, _, hPt := connect(s, "C->H", g.C, g.H, lat.c, nil)
+	hPt.SetName("H")
+	lat.h = hPt
+	lat.cToH = cToH
+	s.AddConstraint(sketch.NewPointOnLine(hPt, pinionDed))
+	gToH, _, _ := connect(s, "G->H", g.G, g.H, lat.g, lat.h)
+
+	proofkit.Step(t, "the driving extension chain B->F, D->F, F->I, D->J, I->J")
+	bToF, _, fPt := connect(s, "B->F", g.B, g.F, lat.b, nil)
+	fPt.SetName("F")
+	lat.f = fPt
+	s.AddConstraint(sketch.NewPointOnLine(fPt, drivingShaft))
+	dToF, _, _ := connect(s, "D->F", g.D, g.F, lat.d, lat.f)
+	s.AddConstraint(sketch.NewAngle(bToF, dToF, signedAngleDeg(g.DrivingDir, g.F.sub(g.D))))
+
+	_, _, iPt := connect(s, "F->I", g.F, g.I, lat.f, nil)
+	iPt.SetName("I")
+	lat.i = iPt
+	s.AddConstraint(sketch.NewPointOnLine(iPt, bToF))
+
+	dToJ, _, jPt := connect(s, "D->J", g.D, g.J, lat.d, nil)
+	jPt.SetName("J")
+	lat.j = jPt
+	lat.dToJ = dToJ
+	s.AddConstraint(sketch.NewPointOnLine(jPt, drivingDed))
+	iToJ, _, _ := connect(s, "I->J", g.I, g.J, lat.i, lat.j)
+
+	proofkit.Step(t, "the two base-height offsets, signed")
+	s.AddConstraint(
+		sketch.NewOffset(bDrop, iToJ, leftOffset(g.B, g.Apex2, g.I)),
+		sketch.NewOffset(aDrop, gToH, leftOffset(g.A, g.Apex2, g.G)),
+	)
+
+	proofkit.Step(t, "A'->G, the hexagon's shaft-axis edge, which is what creates A'")
+	_, apPt, _ := connect(s, "A'->G", g.Ap, g.G, nil, lat.g)
+	apPt.SetName("A'")
+	lat.ap = apPt
+
+	proofkit.Step(t, "Constrain Point I with the projected centre")
+	// Fusion writes addCoincident(I, projectedCenter), two rows. Only one of
+	// them is independent here: the chain centre -> Apex -> B -> I runs along
+	// the in-plane perpendicular by construction, so I already shares the
+	// centre's coordinate across that perpendicular and the engine reports the
+	// second row redundant. The proof applies the one row that closes the
+	// chain, along the grow direction.
+	s.AddConstraint(sketch.NewVerticalDistance(lat.centre, lat.i, 0))
+
+	proofkit.Step(t, "K and the pinion tooth-centre reference line")
+	_, _, kPt := connect(s, "G->K", g.G, g.K, lat.g, nil)
+	kPt.SetName("K")
+	lat.k = kPt
+	s.AddConstraint(
+		sketch.NewPointOnLine(kPt, pinionShaft),
+		sketch.NewPointOnLine(kPt, pinionDed),
+	)
+	lat.kp = kPt
 	if g.ToothSpacing > 0 {
-		along := bevelDot(bevelSub(g.Kp, g.K), g.UP)
-		bevelRequireClose(t, "K' - K projected on Apex2->C", along, g.ToothSpacing, bevelSeedTolerance)
-		along = bevelDot(bevelSub(g.Lp, g.L), g.UG)
-		bevelRequireClose(t, "L' - L projected on Apex2->D", along, g.ToothSpacing, bevelSeedTolerance)
+		_, _, kpPt := connect(s, "K->K'", g.K, g.Kp, lat.k, nil)
+		kpPt.SetName("K'")
+		lat.kp = kpPt
+		s.AddConstraint(sketch.NewPointOnLine(kpPt, pinionDed))
+		addSignedStep(s, kPt, kpPt, g.Kp.sub(g.K))
+		connect(s, "C->K'", g.C, g.Kp, lat.c, lat.kp)
+	} else {
+		connect(s, "C->K", g.C, g.K, lat.c, lat.k)
 	}
 
-	// The Maximum Face Width, from the solved positions rather than from seeds.
-	// Either bevelSide can be the binding side, so both distances are taken: written
-	// with the pinion's diameter by name the bound is wrong whenever the driving
-	// bevelSide carries the smaller tooth count.
-	distA := bevelDistPointLine(bevelVec{pts[2].point.X(), pts[2].point.Y()},
-		bevelVec{pts[4].point.X(), pts[4].point.Y()},
-		bevelSub(bevelVec{pts[9].point.X(), pts[9].point.Y()}, bevelVec{pts[4].point.X(), pts[4].point.Y()}))
-	distB := bevelDistPointLine(bevelVec{pts[1].point.X(), pts[1].point.Y()},
-		bevelVec{pts[5].point.X(), pts[5].point.Y()},
-		bevelSub(bevelVec{pts[11].point.X(), pts[11].point.Y()}, bevelVec{pts[5].point.X(), pts[5].point.Y()}))
-	bevelRequireClose(t, "Maximum Face Width from the solved figure",
-		0.95*math.Min(distA, distB), g.MaxFaceWidth, 1e-6)
-	if g.FaceWidth > g.MaxFaceWidth+1e-9 {
-		t.Errorf("resolved Face Width %.6f exceeds the Maximum Face Width %.6f",
-			g.FaceWidth, g.MaxFaceWidth)
+	proofkit.Step(t, "L and the driving tooth-centre reference line")
+	_, _, lPt := connect(s, "I->L", g.I, g.L, lat.i, nil)
+	lPt.SetName("L")
+	lat.l = lPt
+	s.AddConstraint(
+		sketch.NewPointOnLine(lPt, drivingShaft),
+		sketch.NewPointOnLine(lPt, drivingDed),
+	)
+	lat.lp = lPt
+	if g.ToothSpacing > 0 {
+		_, _, lpPt := connect(s, "L->L'", g.L, g.Lp, lat.l, nil)
+		lpPt.SetName("L'")
+		lat.lp = lpPt
+		s.AddConstraint(sketch.NewPointOnLine(lpPt, drivingDed))
+		addSignedStep(s, lPt, lpPt, g.Lp.sub(g.L))
+		connect(s, "D->L'", g.D, g.Lp, lat.d, lat.lp)
+	} else {
+		connect(s, "D->L", g.D, g.L, lat.d, lat.l)
 	}
-	// At Shaft Angle 90 the bound has a closed form in the SMALLER pitch
-	// diameter, and never the pinion's by name.
+
+	proofkit.Step(t, "the pinion toe line M->N and the front face N->A'")
+	mToN, mPt, nPt := connect(s, "M->N", g.M, g.N, nil, nil)
+	mPt.SetName("M")
+	nPt.SetName("N")
+	lat.m, lat.n, lat.mToN = mPt, nPt, mToN
+	s.AddConstraint(
+		sketch.NewPointOnLine(mPt, pinionRootAxis),
+		// Signed. Fusion needs addParallel(M->N, C->H) first because its own
+		// offset dimension requires the two lines to be parallel already; the
+		// engine's offset carries the direction itself.
+		sketch.NewOffset(cToH, mToN, leftOffset(g.C, g.H, g.M)),
+	)
+	connect(s, "M->C", g.M, g.C, lat.m, lat.c)
+	nToAp, _, _ := connect(s, "N->A'", g.N, g.Ap, lat.n, lat.ap)
+	s.AddConstraint(
+		sketch.NewPointOnLine(lat.ap, pinionShaft),
+		// Fusion writes addPerpendicular(N->A', Apex->A), which is undirected,
+		// and an unsigned length dimension on N->A'. Between them the toe line
+		// meets the Toe Radius on BOTH sides of the shaft axis, so Fusion takes
+		// whichever side the seed starts on and a seed below the axis builds
+		// the mirror — the hexagon then crosses its own axis of revolution and
+		// the revolve aborts with ASM_WIRE_X_AXIS. Measured here: the engine's
+		// probe reports exactly those two configurations when the direction is
+		// left undirected, N sliding along the toe line to the far side. The
+		// proof SUBSTITUTES a signed angle for the perpendicular, which is the
+		// same +/- 90 degrees with the side pinned instead of seeded.
+		sketch.NewAngle(pinionShaft, nToAp, signedAngleDeg(g.PinionDir, g.Ap.sub(g.N))),
+		sketch.NewDistance(lat.n, lat.ap, g.ToeRadiusP),
+	)
+
+	proofkit.Step(t, "the driving toe line O->P and the front face P->B'")
+	oToP, oPt, pPt := connect(s, "O->P", g.O, g.P, nil, nil)
+	oPt.SetName("O")
+	pPt.SetName("P")
+	lat.o, lat.pp, lat.oToP = oPt, pPt, oToP
+	s.AddConstraint(
+		sketch.NewPointOnLine(oPt, drivingRootAxis),
+		sketch.NewOffset(dToJ, oToP, leftOffset(g.D, g.J, g.O)),
+	)
+	connect(s, "O->D", g.O, g.D, lat.o, lat.d)
+	pToBp, _, bpPt := connect(s, "P->B'", g.P, g.Bp, lat.pp, nil)
+	bpPt.SetName("B'")
+	lat.bp = bpPt
+	s.AddConstraint(
+		sketch.NewPointOnLine(bpPt, drivingShaft),
+		// Signed for the reason the pinion front face gives in full.
+		sketch.NewAngle(drivingShaft, pToBp, signedAngleDeg(g.DrivingDir, g.Bp.sub(g.P))),
+		sketch.NewDistance(lat.pp, bpPt, g.ToeRadiusG),
+	)
+	connect(s, "B'->I", g.Bp, g.I, lat.bp, lat.i)
+
+	// ---------------------------------------------------------------------
+	// End of §2. Everything below is assertion.
+	// ---------------------------------------------------------------------
+	solveHere(t, s)
+
+	proofkit.Step(t, "the lattice assertion — the proof's copy of the [BEVEL-F-SEED-HELD] gate")
+	// The module's gate compares the solved figure against the same closed
+	// forms, in creation order, and raises on the first point that moved. What
+	// neither reaches: the proof SEEDS at the closed form, so it proves the
+	// constraints solve from a correct seed and never that the generated
+	// module's seed is correct. That is why the gate has to exist inside the
+	// module as well, and it is the same limit the toe-line seeding records.
+	type named struct {
+		name string
+		got  *sketch.Point
+		want pt
+	}
+	points := []named{
+		{"Apex", lat.apex, g.Apex}, {"B", lat.b, g.B}, {"A", lat.a, g.A},
+		{"Apex 2", lat.apex2, g.Apex2}, {"C", lat.c, g.C}, {"D", lat.d, g.D},
+		{"E", lat.e, g.E}, {"F", lat.f, g.F}, {"G", lat.g, g.G}, {"H", lat.h, g.H},
+		{"I", lat.i, g.I}, {"J", lat.j, g.J}, {"K", lat.k, g.K},
+	}
+	if g.ToothSpacing > 0 {
+		points = append(points, named{"K'", lat.kp, g.Kp})
+	}
+	points = append(points,
+		named{"M", lat.m, g.M}, named{"N", lat.n, g.N}, named{"A'", lat.ap, g.Ap},
+		named{"L", lat.l, g.L})
+	if g.ToothSpacing > 0 {
+		points = append(points, named{"L'", lat.lp, g.Lp})
+	}
+	points = append(points,
+		named{"O", lat.o, g.O}, named{"P", lat.pp, g.P}, named{"B'", lat.bp, g.Bp})
+
+	want := 20
+	if g.ToothSpacing > 0 {
+		want = 22
+	}
+	if len(points) != want {
+		t.Fatalf("the lattice assertion covers %d points, want %d at Tooth Spacing %g",
+			len(points), want, g.ToothSpacing)
+	}
+	for _, n := range points {
+		requireNear(t, n.name, at(n.got), n.want, seedTolerance)
+	}
+
+	proofkit.Step(t, "the two Tooth Spacing sites carry a sign, not just a magnitude")
+	// NewDistance is unsigned, and the twin it would admit puts K' one Tooth
+	// Spacing on the C side of K — two candidates 2 x Tooth Spacing apart. The
+	// step pins the pair with a signed axis distance instead; this assertion
+	// says which of the two signs that stands in for, and a clean ambiguity
+	// probe is NOT what rules the twin out, because the engine documents its
+	// probe as reporting a LOWER BOUND on the number of solutions.
+	if g.ToothSpacing > 0 {
+		requireClose(t, "K' - K projected on Apex2->C",
+			at(lat.kp).sub(at(lat.k)).dot(g.DedP), +g.ToothSpacing, 1e-6)
+		requireClose(t, "L' - L projected on Apex2->D",
+			at(lat.lp).sub(at(lat.l)).dot(g.DedG), +g.ToothSpacing, 1e-6)
+	}
+
+	proofkit.Step(t, "Maximum Face Width from the SOLVED geometry, not from the seeds")
+	dp := distanceToLine(at(lat.a), at(lat.c), at(lat.h).sub(at(lat.c)))
+	dg := distanceToLine(at(lat.b), at(lat.d), at(lat.j).sub(at(lat.d)))
+	measured := 0.95 * math.Min(dp, dg)
+	// The closed form the two perpendicular distances must equal is
+	// R sin^2(gamma) on each side, which at Shaft Angle 90 degrees reduces to
+	// the spec's 0.95 * min(DPD, PPD)^2 / (2 * Cone Distance) — the SMALLER
+	// pitch diameter, never the pinion's by name.
+	requireClose(t, "perpendicular distance A to the pinion dedendum line",
+		dp, g.R*math.Pow(math.Sin(g.GammaP), 2), 1e-6)
+	requireClose(t, "perpendicular distance B to the driving dedendum line",
+		dg, g.R*math.Pow(math.Sin(g.GammaG), 2), 1e-6)
+	requireClose(t, "Maximum Face Width", measured, g.MaxFaceWidth, 1e-6)
+	if g.FaceWidth > measured+1e-9 {
+		t.Errorf("resolved Face Width %.6f mm exceeds the Maximum Face Width %.6f mm", g.FaceWidth, measured)
+	}
 	if math.Abs(g.Sigma-math.Pi/2) < 1e-12 {
-		smaller := math.Min(g.PPD, g.DPD)
-		bevelRequireClose(t, "Maximum Face Width at Shaft Angle 90",
-			g.MaxFaceWidth, 0.95*smaller*smaller/(2*g.ConeDistance), 1e-6)
+		smaller := math.Min(g.DPD, g.PPD)
+		requireClose(t, "Maximum Face Width at Shaft Angle 90",
+			measured, 0.95*smaller*smaller/(2*g.ConeDist), 1e-6)
 	}
 
-	// The Maximum Bore Diameter's heel term is where H (resp. J) lands, which
-	// the solved figure carries directly.
-	for _, pair := range []struct {
-		side  bevelSide
-		heelP *sketch.Point
-		axis  bevelVec
-	}{
-		{g.Pinion, pts[9].point, g.UA},
-		{g.Driving, pts[11].point, g.UB},
-	} {
-		heel := bevelDistPointLine(bevelVec{pair.heelP.X(), pair.heelP.Y()}, g.Apex, pair.axis)
-		bevelRequireClose(t, pair.side.Label+" heel radius r_heel",
-			heel, pair.side.PitchRadius-pair.side.BaseHeight/math.Tan(pair.side.Gamma), 1e-6)
-		if g.BoreEnable && pair.side.BoreDiameter > pair.side.MaxBore+1e-9 {
-			t.Errorf("%s resolved bore diameter %.6f exceeds its Maximum Bore Diameter %.6f",
-				pair.side.Label, pair.side.BoreDiameter, pair.side.MaxBore)
+	proofkit.Step(t, "the Maximum Bore Diameter, whose toe term needs the Root Length")
+	for _, which := range []gearSide{pinion, driving} {
+		sd := g.side(which)
+		if !g.BoreEnable {
+			continue
 		}
+		if sd.bore > sd.maxBore+1e-9 {
+			t.Errorf("%s resolved bore diameter %.6f mm exceeds its Maximum Bore Diameter %.6f mm",
+				which.label(), sd.bore, sd.maxBore)
+		}
+		// r_heel is where H (resp. J) lands: the base height is measured from
+		// Apex 2's plane, so H sits <base height>/tan(gamma) inside the pitch
+		// radius. Read it off the solved heel point rather than restating it.
+		heel := sd.heelEdge[1]
+		requireClose(t, which.label()+" r_heel from the solved heel point",
+			sd.radius(g, heel), sd.pitchRadius-sd.baseHeight/math.Tan(sd.gamma), 1e-6)
+	}
+
+	proofkit.Step(t, "the toe sits inside the heel on both gears")
+	// addOffsetDimension is unsigned in Fusion, so a correctly built frame
+	// still admits the toe line one root length on the FAR side of the heel,
+	// where the revolved frustum is degenerate and the conical end cut finds
+	// no cone face at the toe midpoint. The seed is the whole of the rule in
+	// Fusion; here the signed offset carries it and this reading confirms it.
+	for _, which := range []gearSide{pinion, driving} {
+		sd := g.side(which)
+		toe := sd.distAlong(g, sd.toeEdge[0])
+		heel := sd.distAlong(g, sd.heelEdge[0])
+		if toe >= heel {
+			t.Errorf("%s toe cone distance %.6f is not inside its heel %.6f — the figure is inverted",
+				which.label(), toe, heel)
+		}
+		requireClose(t, which.label()+" |Ded->Toe| along the root element", heel-toe, g.RootLen, 1e-6)
+	}
+
+	proofkit.Step(t, "N and P stay off their shaft axes, at the resolved Toe Radius")
+	requireClose(t, "N's perpendicular distance from the pinion shaft axis",
+		distanceToLine(at(lat.n), at(lat.apex), g.PinionDir), g.ToeRadiusP, 1e-6)
+	requireClose(t, "P's perpendicular distance from the driving shaft axis",
+		distanceToLine(at(lat.pp), at(lat.apex), g.DrivingDir), g.ToeRadiusG, 1e-6)
+	if g.ToeRadiusP <= 0 || g.ToeRadiusG <= 0 {
+		t.Errorf("both Toe Radii must be strictly positive so N and P never sit on the axis of "+
+			"revolution, got pinion %.6f driving %.6f", g.ToeRadiusP, g.ToeRadiusG)
+	}
+
+	proofkit.Step(t, "|Apex2 -> K| is the exact back-cone radius, never a rounded count")
+	requireClose(t, "|Apex2 -> K|", at(lat.k).distance(at(lat.apex2)), g.VirtualRadiusP, 1e-6)
+	requireClose(t, "|Apex2 -> L|", at(lat.l).distance(at(lat.apex2)), g.VirtualRadiusG, 1e-6)
+	rounded := math.Round(g.VirtualTeethP) * g.Module / 2
+	if math.Abs(rounded-g.VirtualRadiusP) > seedTolerance {
+		proofkit.Step(t, "a rounded virtual count would put the K seed %.4f mm out, %.0f times the "+
+			"[BEVEL-F-SEED-HELD] tolerance", math.Abs(rounded-g.VirtualRadiusP),
+			math.Abs(rounded-g.VirtualRadiusP)/seedTolerance)
 	}
 }
 
-// bevelToothCircles are the four radii the borrowed spur drawer is asked for, all in
-// millimetres and all derived from the EXACT virtual pitch radius.
-type bevelToothCircles struct {
-	Pitch, Base, Tip, Root float64
-	Embedded               bool
+// addSignedStep pins a Tooth Spacing offset with the signed axis distance that
+// carries the larger component of the step, so the pin never degenerates as
+// the dedendum direction swings with the Shaft Angle. Fusion has only an
+// unsigned length dimension here; this is the signed constraint the spec's
+// "Proving the §2 figure" section asks for in its place.
+func addSignedStep(s *sketch.Sketch, from, to *sketch.Point, delta pt) {
+	if math.Abs(delta.X) >= math.Abs(delta.Y) {
+		s.AddConstraint(sketch.NewHorizontalDistance(from, to, delta.X))
+		return
+	}
+	s.AddConstraint(sketch.NewVerticalDistance(from, to, delta.Y))
 }
 
-// bevelCirclesFor derives the four radii §3 step 1 tabulates for one bevelSide.
-//
-// The virtual tooth number is a REAL number and is never rounded — not floored,
-// not ceiled, not cast to an int. The Tredgold construction puts the equivalent
-// spur bevelSide's pitch radius exactly at the back-cone distance r / cos gamma with
-// this bevelSide's own bevelModuleOf, and z_v = z / cos gamma is a real number in every
-// published form of it. A rounded count rebuilds every circle from the rounded
-// value, which draws the tooth smaller than the back cone places it: on the
-// shipped default the exact virtual pitch radius is 21.9203 mm, a floored count
-// of 43 draws 21.5 mm, and the addendum the tooth works over falls to 0.5797 mm
-// against a nominal 1.0 bevelModuleOf.
-//
-// The root circle is drawn one ROOT SINK inside the dedendum corner. At the
-// corner exactly the tooth's root arc touches the gear body's root cone only
-// where the arc crosses the tooth's own centreline, and the arc's two corners
-// stand outside it — by 0.002 bevelModuleOf on the default pair and 0.027 bevelModuleOf on a
-// 4/4 pair, the largest of any pair the spec admits. The sink pushes the whole
-// arc inside so the Combine-Join meets the body across the root.
-func bevelCirclesFor(g bevelGeom, s bevelSide) bevelToothCircles {
-	c := bevelToothCircles{
-		Pitch: s.VirtualPitch,
-		Base:  s.VirtualPitch * math.Cos(bevelPressureAngle),
-		Tip:   s.VirtualPitch + g.Module,
-		Root:  s.VirtualPitch - 1.25*g.Module - g.RootSink,
-	}
-	// The flank starts inside the root circle, leaving no room for the
-	// flank-to-root lines. This is the spur family's own test — base < root — and
-	// the root sink is what can flip it: on the shipped default pair the sink
-	// drops the root 0.0405 mm BELOW the base, so the tooth is drawn
-	// non-embedded and the drawer adds the two connecting lines.
-	c.Embedded = c.Base < c.Root
-	return c
+// ---------------------------------------------------------------------------
+// S09 {gearLabel} Tooth sketch
+// ---------------------------------------------------------------------------
+
+// virtualToothRing is the tooth's closed boundary in the back-cone plane, centred on
+// the tooth-centre point and already rotated 180 degrees, which is the angle
+// bevel passes to the borrowed spur drawer's draw().
+type virtualToothRing struct {
+	left, right []involute.Pt
+	dims        involute.Dimensions
+	root        float64 // the SUNK root radius
+	embedded    bool
+	startRadius float64
 }
 
-// bevelFlankSample is one point on the involute flank, already mirrored, centred and
-// rotated the way the shared involute package places a tooth.
-//
-// The three transforms and their order are the involute package's own and are
-// load-bearing; this function only re-applies them at a radius the package's
-// Flanks sweep does not stop on, which is what the embedded branch needs: there
-// the flank must begin exactly on the root circle rather than on the base
-// circle.
-func bevelFlankSample(baseR, atR, pitchR, toothNumber, angle float64) (left, right bevelVec) {
-	x, y, ok := involute.Point(baseR, atR)
-	if !ok {
-		return bevelVec{}, bevelVec{}
+// buildVirtualToothRing samples the two flanks from wherever the tooth's root
+// actually starts out to the tip, using the shared involute math rather than
+// deriving it again. The root circle is drawn one root sink INSIDE the
+// dedendum corner, which is what makes the Combine-Join meet the gear body
+// across the whole root rather than along the tooth's centreline alone.
+func buildVirtualToothRing(g geometry, sd side) virtualToothRing {
+	d := involute.Derive(g.Module, sd.virtualTeeth, proxyPressureAngle)
+	root := d.Root - g.RootSink
+	start := math.Max(d.Base, root)
+	embedded := d.Base < root
+
+	mirrored := make([]involute.Pt, 0, proxyInvoluteSteps)
+	for i := 0; i < proxyInvoluteSteps; i++ {
+		r := start + (d.Tip-start)*float64(i)/float64(proxyInvoluteSteps-1)
+		x, y, ok := involute.Point(d.Base, r)
+		if !ok {
+			continue
+		}
+		mirrored = append(mirrored, involute.Pt{X: x, Y: -y})
 	}
-	px, py, _ := involute.Point(baseR, pitchR)
-	rotateAngle := math.Pi/(2*toothNumber) - math.Atan2(-py, px)
-	lx, ly := involute.Rotate(x, -y, rotateAngle)
-	rx, ry := lx, -ly
-	lx, ly = involute.Rotate(lx, ly, angle)
-	rx, ry = involute.Rotate(rx, ry, angle)
-	return bevelVec{lx, ly}, bevelVec{rx, ry}
+	px, py, _ := involute.Point(d.Base, d.Pitch)
+	// The same placement rule involute.Flanks uses: rotate so the pitch
+	// crossing lands at +pi/(2N), which centres the tooth on +X, then apply
+	// the 180 degree draw angle to both flanks together.
+	place := math.Pi/(2*sd.virtualTeeth) - math.Atan2(-py, px) + math.Pi
+
+	ring := virtualToothRing{dims: d, root: root, embedded: embedded, startRadius: start}
+	for _, m := range mirrored {
+		lx, ly := involute.Rotate(m.X, m.Y, place-math.Pi)
+		rx, ry := lx, -ly
+		lx, ly = involute.Rotate(lx, ly, math.Pi)
+		rx, ry = involute.Rotate(rx, ry, math.Pi)
+		ring.left = append(ring.left, involute.Pt{X: lx, Y: ly})
+		ring.right = append(ring.right, involute.Pt{X: rx, Y: ry})
+	}
+	return ring
 }
 
-// stepVirtualSpurTooth builds §3 step 3: the `{gearLabel} Tooth` sketch, the
-// virtual spur tooth the borrowed drawer draws on the back-cone tooth plane.
-//
-// What this step owns is what BEVEL supplies: the exact virtual tooth count,
-// the four circle radii that follow from it, the root sink, and the loop the
-// tooth-profile finder then selects by curve count. The tooth's own involute
-// constraint scheme belongs to the spur family and is proved in
-// proof/spurgear; this step places the flank samples from the shared involute
-// package and fixes them, so the region it detects is the real drawn tooth
-// rather than a stand-in, without restating a scheme another proof owns.
-//
-// The step gates fully constrained, which the Fusion sketch does not: the four
-// circles are labelled with along-path sketch text there, text holds a DOF, and
-// a labelled sketch never reliably reads fully constrained
-// ([PB-TEXT-HOLDS-DOF]). The bevelModuleOf therefore logs that sketch's state and
-// never raises on it. This proof draws no labels, so the geometry gates
-// normally — which is the check the exemption's earlier wording wrongly
-// excused, and under which a deformed tooth shipped.
-func stepVirtualSpurTooth(t testing.TB, s *sketch.Sketch, p map[string]float64) {
-	g := resolveBevel(p)
-	side, _ := g.side(p)
-	c := bevelCirclesFor(g, side)
+func stepToothProfile(t testing.TB, s *sketch.Sketch, p map[string]float64) {
+	g := newGeometry(t, p)
+	sd := g.side(gearOf(p))
+	ring := buildVirtualToothRing(g, sd)
 
-	proofkit.Step(t, "%s: virtual pitch radius %.4f mm, virtual tooth count %.4f",
-		side.Label, side.VirtualPitch, side.VirtualTeeth)
-	bevelRequireClose(t, side.Label+" virtual pitch radius",
-		side.VirtualPitch, (side.PitchRadius*2*10/2/10)/math.Cos(side.Gamma), 1e-12)
-	bevelRequireClose(t, side.Label+" virtual tooth count",
-		side.VirtualTeeth, side.Teeth/math.Cos(side.Gamma), 1e-12)
+	proofkit.Step(t, "%s: virtual pitch radius %.6f mm, virtual tooth number %.6f (never rounded)",
+		sd.which.label(), sd.virtualRadius, sd.virtualTeeth)
 
-	// The tooth centre K' / L' is the sketch origin of the tooth plane. Where
-	// that point sits relative to the shaft axis is part of the placement: K/L
-	// is where the back-cone dedendum line crosses the axis, so its radius is 0
-	// and its station is R / cos gamma from the apex, and K'/L' is one Tooth
-	// Spacing further along that same line, which carries it PAST the axis.
-	// Taking the station alone and seating the tooth plane's origin on the axis
-	// leaves every tooth point Tooth Spacing * cos gamma too far out, which is
-	// the whole of the clearance the input asks for.
-	centreOfTooth := g.Kp
-	plainCentre := g.K
-	if side.Label == "Driving" {
-		centreOfTooth, plainCentre = g.Lp, g.L
-	}
-	bevelRequireClose(t, side.Label+" tooth centre station",
-		g.station(side, centreOfTooth), g.R/math.Cos(side.Gamma)+g.ToothSpacing*math.Sin(side.Gamma), 1e-9)
-	bevelRequireClose(t, side.Label+" tooth centre radius",
-		g.radius(side, centreOfTooth), g.ToothSpacing*math.Cos(side.Gamma), 1e-9)
-	bevelRequireClose(t, side.Label+" tooth centre station at Tooth Spacing 0",
-		g.station(side, plainCentre), g.R/math.Cos(side.Gamma), 1e-9)
+	origin := s.CreatePoint(0, 0)
+	origin.SetName("tooth centre")
+	anchor := s.CreateReferencePoint(0, 0, "§2 tooth-centre point K'/L' projected into the Tooth sketch")
+	s.AddConstraint(sketch.NewCoincident(origin, anchor))
 
-	proofkit.Step(t, "draw the four circles the proxy serves")
-	centre := s.CreatePoint(0, 0)
-	centre.SetName(side.Label + " tooth centre")
-	s.Fix(centre)
-	for _, circle := range []struct {
+	proofkit.Step(t, "the four circles the proxy is asked for")
+	// pitch, base, tip and root, all construction: Fusion's profile finder
+	// also sees the regions these circles cut, and the proof does not
+	// reproduce that search. What it pins is the curve-count key the finder
+	// uses, which is the tooth loop's own mix.
+	for _, c := range []struct {
 		name string
 		r    float64
 	}{
-		{"pitch", c.Pitch}, {"base", c.Base}, {"tip", c.Tip}, {"root", c.Root},
+		{"pitch circle", sd.virtualRadius},
+		{"base circle", ring.dims.Base},
+		{"tip circle", ring.dims.Tip},
+		{"root circle", ring.root},
 	} {
-		if circle.r <= 0 {
-			t.Fatalf("%s %s circle radius is %.6f mm, which cannot be drawn",
-				side.Label, circle.name, circle.r)
-		}
-		drawn := s.CreateCircle(centre, circle.r)
-		drawn.SetName(side.Label + " " + circle.name + " circle")
-		drawn.SetConstruction(true)
-		bevelNamed(s, side.Label+" "+circle.name+" circle radius", sketch.NewRadius(drawn, circle.r))
+		centre := s.CreatePoint(0, 0)
+		circle := s.CreateCircle(centre, c.r)
+		circle.SetName(c.name)
+		circle.SetConstruction(true)
+		s.AddConstraint(
+			sketch.NewCoincident(centre, origin),
+			sketch.NewDiameter(circle, 2*c.r),
+		)
 	}
-	bevelRequireClose(t, side.Label+" tip circle radius", c.Tip, side.VirtualPitch+g.Module, 1e-12)
-	bevelRequireClose(t, side.Label+" root circle radius",
-		c.Root, side.VirtualPitch-1.25*g.Module-g.RootSink, 1e-12)
-	bevelRequireClose(t, side.Label+" base circle radius",
-		c.Base, side.VirtualPitch*math.Cos(bevelPressureAngle), 1e-12)
+	requireClose(t, sd.which.label()+" pitch circle radius", sd.virtualRadius, ring.dims.Pitch, 1e-9)
+	requireClose(t, sd.which.label()+" tip circle radius", ring.dims.Tip, sd.virtualRadius+g.Module, 1e-9)
+	requireClose(t, sd.which.label()+" root circle radius", ring.root,
+		sd.virtualRadius-1.25*g.Module-g.RootSink, 1e-9)
+	requireClose(t, sd.which.label()+" root sink", g.RootSink, 0.05*2.25*g.Module, 1e-12)
 
-	// The tooth is drawn ALREADY ROTATED 180 degrees, by the angle argument the
-	// drawer's draw(anchorPoint, angle) takes — never drawn flat and rotated
-	// afterwards, which would leave the radially pinned flank-to-root stubs
-	// behind.
-	const drawAngle = math.Pi
-	proofkit.Step(t, "draw the tooth, already rotated 180 degrees, embedded=%v", c.Embedded)
-
-	startR := c.Base
-	if c.Embedded {
-		// The flank begins exactly on the root circle, which is where the drawn
-		// tooth's boundary actually starts when the root sits outside the base.
-		startR = c.Root
+	proofkit.Step(t, "the two involute flanks, each point pinned by a signed axis pair")
+	leftPts := make([]*sketch.Point, len(ring.left))
+	rightPts := make([]*sketch.Point, len(ring.right))
+	for i := range ring.left {
+		leftPts[i] = pinned(s, origin, ring.left[i].X, ring.left[i].Y, fmt.Sprintf("left flank %d", i))
+		rightPts[i] = pinned(s, origin, ring.right[i].X, ring.right[i].Y, fmt.Sprintf("right flank %d", i))
 	}
-	leftPts := make([]*sketch.Point, 0, bevelInvoluteSteps)
-	rightPts := make([]*sketch.Point, 0, bevelInvoluteSteps)
-	for i := range bevelInvoluteSteps {
-		at := startR + (c.Tip-startR)*float64(i)/float64(bevelInvoluteSteps-1)
-		l, r := bevelFlankSample(c.Base, at, c.Pitch, side.VirtualTeeth, drawAngle)
-		lp := s.CreatePoint(l.X, l.Y)
-		rp := s.CreatePoint(r.X, r.Y)
-		leftPts = append(leftPts, lp)
-		rightPts = append(rightPts, rp)
+	leftFlank, err := s.CreateFitSpline(leftPts...)
+	if err != nil {
+		t.Fatalf("left flank spline: %v", err)
 	}
-
-	// The two flanks, tip-first on the left so the loop walks in one direction.
+	leftFlank.SetName("left flank")
 	rightFlank, err := s.CreateFitSpline(rightPts...)
 	if err != nil {
-		t.Fatalf("%s right flank: %v", side.Label, err)
+		t.Fatalf("right flank spline: %v", err)
 	}
-	rightFlank.SetName(side.Label + " right flank")
-	reversedLeft := make([]*sketch.Point, len(leftPts))
-	for i := range leftPts {
-		reversedLeft[i] = leftPts[len(leftPts)-1-i]
-	}
-	leftFlank, err := s.CreateFitSpline(reversedLeft...)
-	if err != nil {
-		t.Fatalf("%s left flank: %v", side.Label, err)
-	}
-	leftFlank.SetName(side.Label + " left flank")
+	rightFlank.SetName("right flank")
 
-	tipArc, tipCentre := bevelArcAbout(s, centre, rightPts[len(rightPts)-1], leftPts[len(leftPts)-1],
-		side.Label+" tooth top arc")
+	proofkit.Step(t, "tip arc, root arc and — when the tooth is not embedded — the two root stubs")
+	last := len(ring.left) - 1
+	tipArc := s.CreateArc(s.CreatePoint(0, 0), rightPts[last], leftPts[last])
+	tipArc.SetName("tip arc")
+	// Fusion draws this as a three-point arc and dimensions its radius. Here
+	// the two ends are already pinned, so the arc's own radius-consistency row
+	// holds the centre on their perpendicular bisector — which is the tooth's
+	// centreline, because the two flanks are exact mirrors — and a radius
+	// dimension on top of it would leave the centre free to reflect across the
+	// chord. Measured: with the dimension the engine's probe reports four
+	// configurations, two per arc. The proof pins the remaining freedom with
+	// one signed row instead and ASSERTS the radius below.
+	s.AddConstraint(sketch.NewHorizontalDistance(origin, tipArc.Center, 0))
 
-	var lines int
 	rootStart, rootEnd := rightPts[0], leftPts[0]
-	if !c.Embedded {
-		// The two flank-to-root connecting lines, radial, one per flank. Each is
-		// DOF-neutral in the spur scheme: it adds a free root end and the two
-		// dimensions that bevelPin it.
+	lines := 0
+	if !ring.embedded {
+		// The flank starts at the base circle, outside the sunk root circle,
+		// so the tooth carries the two connecting lines the spur drawer adds.
 		lines = 2
-		rootStart = bevelRadialFoot(s, rightPts[0], c.Root)
-		rootEnd = bevelRadialFoot(s, leftPts[0], c.Root)
-		stubR := s.CreateLine(rootStart, rightPts[0])
-		stubR.SetName(side.Label + " right flank-to-root line")
-		stubL := s.CreateLine(leftPts[0], rootEnd)
-		stubL.SetName(side.Label + " left flank-to-root line")
-		gap := c.Base - c.Root
-		proofkit.Step(t, "%s: the sunk root leaves a %.4f mm flank-to-root stub on each flank",
-			side.Label, gap)
+		lx, ly := radialTo(ring.left[0], ring.root)
+		rx, ry := radialTo(ring.right[0], ring.root)
+		lRoot := pinned(s, origin, lx, ly, "left root")
+		rRoot := pinned(s, origin, rx, ry, "right root")
+		s.CreateLine(leftPts[0], lRoot).SetName("left flank-to-root line")
+		s.CreateLine(rightPts[0], rRoot).SetName("right flank-to-root line")
+		rootStart, rootEnd = rRoot, lRoot
 	}
-	rootArc, rootCentre := bevelArcAbout(s, centre, rootStart, rootEnd, side.Label+" root arc")
+	rootArc := s.CreateArc(s.CreatePoint(0, 0), rootStart, rootEnd)
+	rootArc.SetName("root arc")
+	s.AddConstraint(sketch.NewHorizontalDistance(origin, rootArc.Center, 0))
 
-	for _, pt := range append(append([]*sketch.Point{rootStart, rootEnd}, leftPts...), rightPts...) {
-		s.Fix(pt)
+	solveHere(t, s)
+
+	proofkit.Step(t, "the tooth loop carries the curve mix the profile finder keys on")
+	// find_profile_by_curve_counts(toothSketch, nurbs=2, arcs=2, lines=wantLines)
+	// with wantLines DETERMINED BY the embedded flag, never accepted as either.
+	wantLines := 2
+	if ring.embedded {
+		wantLines = 0
 	}
-
-	proofkit.Step(t, "the tooth loop the profile finder selects")
-	assertToothLoop(t, s, side, c, lines)
-
-	// The tooth-top arc's own centre. addByCenterStartEnd shares the start and
-	// end points but COPIES the centre: the Fusion arc gets a fresh SketchPoint
-	// with nothing tying it to the point that was passed
-	// ([PB-SHARE-XOR-COINCIDENT]), which is why this one arc needs an explicit
-	// coincident where the rest of the recipe would call that redundant. Without
-	// it, step 5's anchor coincidence drags everything else onto K'/L' and
-	// leaves the stranded centre behind: measured in Fusion on a default 31/31
-	// pair, the pinion's tooth-top arc came out at 0.5743 mm and the driving
-	// bevelSide's at 17.0204 mm where both should have been the 22.5 mm tip radius,
-	// from two sketches with byte-identical constraint counts and dimension
-	// values. Both readings below are what the fix restored.
-	bevelRequireClose(t, side.Label+" tooth top arc centre gap",
-		math.Hypot(tipCentre.X()-centre.X(), tipCentre.Y()-centre.Y()), 0, 1e-9)
-	bevelRequireClose(t, side.Label+" tooth top arc radius", tipArc.R(), c.Tip, 1e-6)
-	bevelRequireClose(t, side.Label+" root arc centre gap",
-		math.Hypot(rootCentre.X()-centre.X(), rootCentre.Y()-centre.Y()), 0, 1e-9)
-	bevelRequireClose(t, side.Label+" root arc radius", rootArc.R(), c.Root, 1e-6)
-}
-
-// bevelArcAbout builds one of the tooth's two arcs with a centre point of its own,
-// pinned back onto the tooth centre.
-//
-// The separate centre is faithful rather than incidental: Fusion's
-// addByCenterStartEnd copies the centre it is handed, so the arc really does
-// carry a centre point of its own there, and the recipe's explicit coincident
-// is what ties it back. Fusion's coincident is two rows; the bench's arc
-// already carries one of them through the internal constraint that keeps its
-// start and end equidistant from its centre, which puts that centre on the
-// chord's perpendicular bisector — and the tooth centre is on that bisector.
-// So the bevelBench states the row that is NOT implied, as a signed distance of zero
-// along whichever axis the chord leans further along, which is the axis the
-// bisector crosses squarely.
-func bevelArcAbout(s *sketch.Sketch, bevelToothCentre, start, end *sketch.Point, name string) (*sketch.Arc, *sketch.Point) {
-	centre := s.CreatePoint(bevelToothCentre.X(), bevelToothCentre.Y())
-	centre.SetName(name + " centre")
-	arc := s.CreateArc(centre, start, end)
-	arc.SetName(name)
-	if math.Abs(end.Y()-start.Y()) >= math.Abs(end.X()-start.X()) {
-		bevelNamed(s, name+" centre on the tooth centre",
-			sketch.NewHorizontalDistance(bevelToothCentre, centre, 0))
-	} else {
-		bevelNamed(s, name+" centre on the tooth centre",
-			sketch.NewVerticalDistance(bevelToothCentre, centre, 0))
+	if wantLines != lines {
+		t.Fatalf("the embedded flag says %d connecting lines but the tooth was drawn with %d",
+			wantLines, lines)
 	}
-	return arc, centre
-}
-
-// bevelRadialFoot is the root end of one flank-to-root line: the flank's first
-// sample projected radially onto the root circle, which is the radial pinning
-// the spur family's own scheme uses.
-func bevelRadialFoot(s *sketch.Sketch, from *sketch.Point, rootR float64) *sketch.Point {
-	d := bevelUnit(bevelVec{from.X(), from.Y()})
-	return s.CreatePoint(d.X*rootR, d.Y*rootR)
-}
-
-// bevelModuleOf recovers the Module the four circles were derived from, which is what
-// the standard tooth thickness is stated in: the tip circle stands one bevelModuleOf
-// outside the pitch circle.
-func bevelModuleOf(c bevelToothCircles) float64 { return c.Tip - c.Pitch }
-
-// assertToothLoop checks the fact the NEXT step selects on. The tooth
-// cross-section is found with find_profile_by_curve_counts(nurbs=2, arcs=2,
-// lines=wantLines), and the line count is DETERMINED by the embedded flag,
-// never guessed and never accepted either way: an unrelated loop — an
-// inter-tooth or annular region between the drawn circles — can carry 2 NURBS
-// and 2 arcs with the OTHER line count, and selecting it makes the apex-to-
-// profile loft fail with ASM_RBI_INTERNAL / LOFT_NO_TOOLBODY, because the
-// impostor loop cannot form a loft tool body.
-func assertToothLoop(t testing.TB, s *sketch.Sketch, side bevelSide, c bevelToothCircles, wantLines int) {
-	t.Helper()
-	if _, err := s.Solve(context.Background()); err != nil {
-		t.Fatalf("%s tooth sketch did not solve: %v", side.Label, err)
-	}
-	wantEmbedded := wantLines == 0
-	if c.Embedded != wantEmbedded {
-		t.Fatalf("%s embedded flag %v does not match the %d connecting lines drawn",
-			side.Label, c.Embedded, wantLines)
-	}
-	var best *sketch.Profile
-	for _, prof := range s.Profiles() {
-		splines, arcs, lines := 0, 0, 0
-		for _, e := range prof.Entities {
-			switch e.(type) {
-			case *sketch.FitSpline:
-				splines++
-			case *sketch.Arc:
-				arcs++
-			case *sketch.Line:
-				lines++
-			}
-		}
-		if splines == 2 && arcs == 2 && lines == wantLines {
-			best = prof
-			break
-		}
-	}
-	if best == nil {
-		t.Fatalf("%s: no region carries 2 splines, 2 arcs and %d lines; the tooth-profile "+
-			"finder would have nothing to select", side.Label, wantLines)
-	}
-	if !best.Valid {
-		t.Fatalf("%s tooth loop is not an extrudable region", side.Label)
-	}
-	if best.Area <= 0 {
-		t.Fatalf("%s tooth loop has area %.6f", side.Label, best.Area)
-	}
-	// The drawn tooth reaches the tip circle and no further, and the standard
-	// tooth thickness follows from the REAL virtual count: the drawer uses it in
-	// one place, the half-thickness angle pi / (2 * z_v), and with
-	// z_v = 2 * r_v / Module that angle gives pi * Module / 2 of tooth at the
-	// pitch circle — the same thickness the spur bevelSide of this bevelModuleOf carries. An
-	// INTEGER count at the exact radius gives pi * r_v / round(z_v) instead,
-	// which misses nominal by a different amount on each member of an unequal
-	// pair.
-	half := math.Pi / (2 * side.VirtualTeeth)
-	bevelRequireClose(t, side.Label+" tooth thickness at the pitch circle",
-		2*half*c.Pitch, math.Pi*bevelModuleOf(c)/2, 1e-9)
-}
-
-// bevelHexVerticesOf is the six §2 points the per-bevelSide Profile sketch recreates, in
-// the draw order the table under "Create the Gear Bodies" fixes:
-// A' -> G -> H -> C -> M -> N on the pinion and B' -> I -> J -> D -> O -> P on
-// the driving bevelSide. The order is what makes the hexagon's FIRST edge the shaft
-// axis every body operation then uses.
-func bevelHexVerticesOf(g bevelGeom, s bevelSide) ([]bevelVec, []string) {
-	if s.Label == "Driving" {
-		return []bevelVec{g.Bp, g.I, g.J, g.D, g.O, g.P}, []string{"B'", "I", "J", "D", "O", "P"}
-	}
-	return []bevelVec{g.Ap, g.G, g.H, g.C, g.M, g.N}, []string{"A'", "G", "H", "C", "M", "N"}
-}
-
-// stepGearProfileHexagon builds the per-bevelSide `{gearLabel} Profile` sketch: a
-// FRESH sketch on the axial Gear Profiles plane holding exactly this bevelSide's one
-// hexagon loop.
-//
-// One profile sketch per bevelSide is the point. Drawing both gears' hexagons in the
-// shared §2 sketch would leave two identically shaped loops to disambiguate,
-// where one loop lets the revolve take sketch.profiles.item(0) directly
-// ([PB-SINGLE-PROFILE]).
-//
-// The vertices are built by the recreate-share-fix recipe ([PB-PROJECT-NOT-
-// FIXED]): projecting the §2 points would bring them in associatively and leave
-// the sketch under-constrained, because a projected point carries free DOF even
-// though its position is already correct — the defect is silent until the
-// property is read. So each vertex is recreated as a new point at the §2 point's
-// exact position, the six lines are drawn SHARING those points, and only then
-// are the endpoints fixed. The order is load-bearing: fixing a bare point
-// before it is consumed as a line endpoint does not leave the sketch fully
-// constrained.
-//
-// The hexagon's first edge is this gear's shaft axis for the revolve, the
-// pattern, the bore plane AND the meshing rotation, so it has to carry a
-// trustworthy world position: fixed endpoints give that edge a well-defined
-// worldGeometry ([PB-WORLDGEO-CONSTRAINED]), while a free edge resolves against
-// a default frame and silently moves the body onto world XY — observed on the
-// driving bevelSide, the pinion looking fine only because it never read the edge.
-func stepGearProfileHexagon(t testing.TB, s *sketch.Sketch, p map[string]float64) {
-	g := resolveBevel(p)
-	side, _ := g.side(p)
-	verts, names := bevelHexVerticesOf(g, side)
-
-	proofkit.Step(t, "%s Profile: recreate the six §2 vertices at their exact positions", side.Label)
-	pts := make([]*sketch.Point, len(verts))
-	for i, v := range verts {
-		pts[i] = s.CreatePoint(v.X, v.Y)
-		pts[i].SetName(side.Label + " " + names[i])
-	}
-
-	proofkit.Step(t, "draw the closed hexagon sharing those points, in draw order")
-	lines := make([]*sketch.Line, len(pts))
-	for i := range pts {
-		lines[i] = s.CreateLine(pts[i], pts[(i+1)%len(pts)])
-		lines[i].SetName(side.Label + " " + names[i] + "->" + names[(i+1)%len(names)])
-	}
-
-	proofkit.Step(t, "fix the lines' endpoints, AFTER the lines exist")
-	for _, l := range lines {
-		s.Fix(l.Start)
-		s.Fix(l.End)
-	}
-
-	if _, err := s.Solve(context.Background()); err != nil {
-		t.Fatalf("%s Profile sketch did not solve: %v", side.Label, err)
-	}
-
-	// Exactly one loop, six line edges, and no other curve type: this is what
-	// lets the revolve take the sketch's single profile rather than filtering,
-	// and a curve-type filter has spuriously rejected a valid all-line loop and
-	// made the revolve fail with "could not find profile".
 	profiles := s.Profiles()
-	if len(profiles) != 1 {
-		t.Fatalf("%s Profile sketch holds %d regions, want exactly 1", side.Label, len(profiles))
+	if len(profiles) != 1 || !profiles[0].Valid {
+		t.Fatalf("%s tooth: want exactly one valid region, got %d", sd.which.label(), len(profiles))
 	}
-	prof := profiles[0]
-	if !prof.Valid || prof.SelfIntersecting {
-		t.Fatalf("%s hexagon is not a valid region (valid=%v selfIntersecting=%v): the profile "+
-			"has crossed its own axis of revolution, which Fusion aborts with ASM_WIRE_X_AXIS",
-			side.Label, prof.Valid, prof.SelfIntersecting)
+	var splines, arcs, straights int
+	for _, e := range profiles[0].Entities {
+		switch e.(type) {
+		case *sketch.FitSpline:
+			splines++
+		case *sketch.Arc:
+			arcs++
+		case *sketch.Line:
+			straights++
+		}
 	}
-	if len(prof.Outer) != 6 {
-		t.Fatalf("%s hexagon boundary carries %d edges, want 6", side.Label, len(prof.Outer))
+	if splines != 2 || arcs != 2 || straights != wantLines {
+		t.Errorf("%s tooth loop carries %d NURBS, %d arcs and %d lines; the finder is asked for "+
+			"2, 2 and %d", sd.which.label(), splines, arcs, straights, wantLines)
 	}
-	for _, e := range prof.Entities {
-		if _, ok := e.(*sketch.Line); !ok {
-			t.Fatalf("%s hexagon boundary carries a %T; every edge must be a line", side.Label, e)
+
+	proofkit.Step(t, "the arc centres are not stranded")
+	// addByCenterStartEnd COPIES the centre in Fusion rather than sharing it,
+	// which stranded the bevel tooth-top arc 22.9 mm behind its origin and gave
+	// a 0.5743 mm arc where 22.5 mm was intended, on a sketch that raised no
+	// error. Here the centre is free and is pinned by the two shared ends plus
+	// the diameter, so this reads whether that pinning actually lands it.
+	requireNear(t, "tip arc centre", at(tipArc.Center), pt{0, 0}, 1e-6)
+	requireNear(t, "root arc centre", at(rootArc.Center), pt{0, 0}, 1e-6)
+	requireClose(t, sd.which.label()+" tip arc radius", tipArc.R(), ring.dims.Tip, 1e-6)
+	requireClose(t, sd.which.label()+" root arc radius", rootArc.R(), ring.root, 1e-6)
+
+	proofkit.Step(t, "the tooth carries the standard thickness at the pitch circle")
+	// The real count reaches the drawer only as the angular half-thickness
+	// pi/(2*z_v). With z_v = 2*r_v/Module that gives pi*Module/2 of tooth at
+	// the pitch circle — the same thickness the spur gear of this module
+	// carries. An INTEGER count at the exact radius gives pi*r_v/round(z_v),
+	// which misses nominal by a different amount on each member of a pair.
+	requireClose(t, sd.which.label()+" tooth thickness at the pitch circle",
+		2*sd.virtualRadius*math.Pi/(2*sd.virtualTeeth), math.Pi*g.Module/2, 1e-9)
+}
+
+// pinned creates a point and holds it at a SIGNED offset from the anchor on
+// both axes, which is the engine's way of writing a placed point that stays
+// inside the parameter model.
+func pinned(s *sketch.Sketch, anchor *sketch.Point, x, y float64, name string) *sketch.Point {
+	p := s.CreatePoint(x, y)
+	p.SetName(name)
+	s.AddConstraint(
+		sketch.NewHorizontalDistance(anchor, p, x),
+		sketch.NewVerticalDistance(anchor, p, y),
+	)
+	return p
+}
+
+// radialTo returns the point at radius r in the same direction as p.
+func radialTo(p involute.Pt, r float64) (float64, float64) {
+	l := math.Hypot(p.X, p.Y)
+	return p.X / l * r, p.Y / l * r
+}
+
+// ---------------------------------------------------------------------------
+// S12 {gearLabel} Profile sketch
+// ---------------------------------------------------------------------------
+
+// stepProfileSketch rebuilds the per-gear hexagon. Fusion recreates the six §2
+// vertices as new points at their world-mapped positions, draws the six lines
+// SHARING those points, then fixes the lines' endpoints AFTER the lines exist;
+// the engine has no equivalent of that ordering rule, so the proof grounds the
+// first vertex on the sketch origin and holds the other five at signed offsets
+// from it, which is the same placed figure inside the parameter model.
+func stepProfileSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
+	g := newGeometry(t, p)
+	sd := g.side(gearOf(p))
+	hex := sd.hexProfile(g)
+
+	proofkit.Step(t, "%s Profile: the six §2 vertices in the draw order the first-edge rule needs",
+		sd.which.label())
+	anchor := s.CreateReferencePoint(hex[0].X, hex[0].Y, "§2 hexagon vertex A'/B' recreated in the Profile sketch")
+	first := s.CreatePoint(hex[0].X, hex[0].Y)
+	first.SetName(vertexName(sd.which, 0))
+	s.AddConstraint(sketch.NewCoincident(first, anchor))
+
+	verts := make([]*sketch.Point, 6)
+	verts[0] = first
+	for i := 1; i < 6; i++ {
+		verts[i] = pinned(s, first, hex[i].X-hex[0].X, hex[i].Y-hex[0].Y, vertexName(sd.which, i))
+		// pinned holds a signed offset FROM the anchor, so recentre the point
+		// on its true position before the lines are drawn.
+		verts[i].MoveTo(hex[i].X, hex[i].Y)
+	}
+
+	edges := make([]*sketch.Line, 6)
+	for i := range verts {
+		edges[i] = s.CreateLine(verts[i], verts[(i+1)%6])
+		edges[i].SetName(fmt.Sprintf("%s hexagon edge %d", sd.which.label(), i))
+	}
+
+	solveHere(t, s)
+
+	proofkit.Step(t, "exactly one closed loop, so the revolve takes profiles.item(0) without filtering")
+	profiles := s.Profiles()
+	if len(profiles) != 1 || !profiles[0].Valid {
+		t.Fatalf("%s Profile: want exactly one valid hexagon loop, got %d", sd.which.label(), len(profiles))
+	}
+	area := math.Abs(shoelace(hex[:]))
+	requireClose(t, sd.which.label()+" hexagon area", math.Abs(profiles[0].Area), area, 1e-6)
+
+	proofkit.Step(t, "the FIRST edge is the shaft axis, and both its ends sit on that axis")
+	// Every body operation takes this edge: the revolve axis, the pattern
+	// axis, the bore plane's path and the meshing rotation. A free edge
+	// resolves against a default frame and silently moves the body onto world
+	// XY, which is why its endpoints have to be pinned before it is read.
+	requireClose(t, sd.which.label()+" first edge start radius", hex[0].Y, 0, 1e-9)
+	requireClose(t, sd.which.label()+" first edge end radius", hex[1].Y, 0, 1e-9)
+	for i := 2; i < 6; i++ {
+		if hex[i].Y <= 0 {
+			t.Errorf("%s hexagon vertex %s sits on or across the axis of revolution at radius %.6f; "+
+				"the revolve would abort with ASM_WIRE_X_AXIS",
+				sd.which.label(), vertexName(sd.which, i), hex[i].Y)
 		}
 	}
 
-	// The first edge IS the shaft axis: both its endpoints sit on the axis, at
-	// radius zero, and the revolve, the pattern, the bore plane and the meshing
-	// rotation all take it. The §2 Apex->A / Apex->B construction line is NOT
-	// usable for any of them — it lives in a different sketch.
-	bevelRequireClose(t, side.Label+" first edge start radius", g.radius(side, verts[0]), 0, 1e-9)
-	bevelRequireClose(t, side.Label+" first edge end radius", g.radius(side, verts[1]), 0, 1e-9)
-	// The toe corner never sits on the axis. Pinning it there puts a corner ON
-	// the axis of revolution and the later conical split fails with
-	// ASM_API_FAILED for asymmetric tooth counts, even though the symmetric case
-	// happens to survive; the Toe Radius is strictly positive and is what holds
-	// it off.
-	toe := g.radius(side, verts[5])
-	if toe <= 0 {
-		t.Fatalf("%s toe corner sits at radius %.6f, on the axis of revolution", side.Label, toe)
+	proofkit.Step(t, "the two end faces stand square to the shaft, and the toe sits inside the heel")
+	// The front face N->A' and the back face G->H are each perpendicular to
+	// the shaft axis, so each pair shares a station: that is what makes the
+	// revolve sweep them into flat annuli rather than cones.
+	requireClose(t, sd.which.label()+" front face station", hex[5].X, hex[0].X, 1e-9)
+	requireClose(t, sd.which.label()+" back face station", hex[2].X, hex[1].X, 1e-9)
+	if !(hex[4].X < hex[3].X && hex[3].X < hex[1].X) {
+		t.Errorf("%s hexagon stations are not ordered M/O < C/D < G/I: %v", sd.which.label(), hex)
 	}
-	bevelRequireClose(t, side.Label+" toe corner radius is the resolved Toe Radius",
-		toe, side.ToeRadius, 1e-9)
-
-	// The area the region reports is the area the closed form gives for the same
-	// six vertices, which is the reading the revolve's Pappus check then rests
-	// on.
-	bevelRequireClose(t, side.Label+" hexagon area", prof.Area, math.Abs(bevelShoelace(verts)), 1e-6)
 }
 
-// bevelShoelace is the signed area of a closed polygon walked in the given order.
-func bevelShoelace(pts []bevelVec) float64 {
+func vertexName(which gearSide, i int) string {
+	pinionNames := [6]string{"A'", "G", "H", "C", "M", "N"}
+	drivingNames := [6]string{"B'", "I", "J", "D", "O", "P"}
+	if which == driving {
+		return drivingNames[i]
+	}
+	return pinionNames[i]
+}
+
+func shoelace(poly []pt) float64 {
 	total := 0.0
-	for i := range pts {
-		a, b := pts[i], pts[(i+1)%len(pts)]
-		total += bevelCross(a, b)
+	for i := range poly {
+		a, b := poly[i], poly[(i+1)%len(poly)]
+		total += a.X*b.Y - b.X*a.Y
 	}
 	return total / 2
 }
 
-// bevelTraceFrame is the flat 2-D crown-plane frame the cutter arc is drawn in:
-// origin at the apex, x along the cone element so a point's x IS its cone
-// distance, y circumferential.
-type bevelTraceFrame struct {
-	RToe, RHeel, RMean, Span float64
-	Cutter                   float64 // r_c
-	Cx, Cy                   float64 // the cutter-circle centre
-	Toe2D, Heel2D            bevelVec
-	HandSign                 float64
-	Psi                      float64
+// ---------------------------------------------------------------------------
+// S26 {gearLabel} Bore sketch
+// ---------------------------------------------------------------------------
+
+func stepBoreSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
+	g := newGeometry(t, p)
+	sd := g.side(gearOf(p))
+	if !g.BoreEnable {
+		proofkit.Unmodelled(t, "Enable Bore is unchecked, so no bore sketch is authored at all")
+		return
+	}
+
+	proofkit.Step(t, "%s Bore: the circle on the plane rooted at the shaft start", sd.which.label())
+	// The plane is setByDistanceOnPath(shaft edge, 0.0), so its origin is on
+	// the axis and the circle is centred on the sketch origin. In Fusion the
+	// centre is FIXED rather than coincident to originPoint, which has thrown
+	// VCS_SKETCH_SOLVING_FAILED on such a plane ([PB-CIRCLE-CENTER]); the
+	// engine has no such failure and a coincidence to its own origin is the
+	// same pin inside the parameter model.
+	centre := s.CreatePoint(0, 0)
+	centre.SetName("bore centre")
+	s.AddConstraint(sketch.NewCoincident(centre, s.Origin()))
+	circle := s.CreateCircle(centre, sd.bore/2)
+	circle.SetName(sd.which.label() + " bore circle")
+	s.AddConstraint(sketch.NewDiameter(circle, sd.bore))
+
+	solveHere(t, s)
+
+	requireClose(t, sd.which.label()+" bore diameter", 2*circle.R(), sd.bore, 1e-9)
+	if sd.bore > sd.maxBore+1e-9 {
+		t.Errorf("%s bore diameter %.6f mm exceeds its Maximum Bore Diameter %.6f mm",
+			sd.which.label(), sd.bore, sd.maxBore)
+	}
+	if profiles := s.Profiles(); len(profiles) != 1 || !profiles[0].Valid {
+		t.Fatalf("%s Bore: want exactly one valid region, got %d", sd.which.label(), len(profiles))
+	}
 }
 
-// bevelTraceFor builds the cutter-arc geometry §3a steps A and B derive.
-func bevelTraceFor(g bevelGeom, s bevelSide, handSign float64) bevelTraceFrame {
-	var toeEdge, heelEdge [2]bevelVec
-	if s.Label == "Driving" {
-		toeEdge, heelEdge = [2]bevelVec{g.O, g.P}, [2]bevelVec{g.D, g.J}
-	} else {
-		toeEdge, heelEdge = [2]bevelVec{g.M, g.N}, [2]bevelVec{g.C, g.H}
-	}
-	// toeMid is the midpoint of the TOE edge and heelMid the midpoint of the
-	// HEEL edge — two DIFFERENT edges. Passing the two endpoints of a single
-	// edge collapses the span to about zero or negative and the spiral inverts
-	// with no error anywhere.
-	toeMid := bevelMul(bevelAdd(toeEdge[0], toeEdge[1]), 0.5)
-	heelMid := bevelMul(bevelAdd(heelEdge[0], heelEdge[1]), 0.5)
-	// coneVec runs along the ROOT cone element Apex->C / Apex->D, whose heel end
-	// is the dedendum corner C/D and NEVER H/J: H and J lie on the Apex2->C /
-	// Apex2->D dedendum line, one bevelModuleOf beyond C/D and off the root element, so
-	// using them skews coneVec.
-	coneVec := bevelUnit(bevelSub(heelEdge[0], g.Apex))
-	distAlong := func(p bevelVec) float64 { return bevelDot(bevelSub(p, g.Apex), coneVec) }
+// ---------------------------------------------------------------------------
+// S16 {gear} 2D Tooth Trace sketch
+// ---------------------------------------------------------------------------
 
-	var f bevelTraceFrame
-	f.HandSign = handSign
-	f.Psi = g.SpiralAngle
-	f.RToe, f.RHeel = distAlong(toeMid), distAlong(heelMid)
-	f.RMean = 0.5 * (f.RToe + f.RHeel)
-	f.Span = f.RHeel - f.RToe
-	f.Cutter = g.CutterRadius
-	if f.Cutter == 0 {
-		f.Cutter = f.RMean
-	}
-	// The hand sign goes on the cos / Cy term, NEVER on the sin / Cx term.
-	// Opposite hands mirror the cutter centre across the cone element (y = 0),
-	// which flips Cy; putting the sign on Cx mirrors about x = R_mean instead,
-	// which is a different curve and gives the two gears unequal twist.
-	f.Cx = f.RMean - f.Cutter*math.Sin(f.Psi)
-	f.Cy = handSign * f.Cutter * math.Cos(f.Psi)
-	// The ends are taken a hair PAST the face so the kept arc reaches cleanly
-	// past the end trims.
-	f.Toe2D = bevelCircleIntersectNearest(f.RToe-0.06*f.Span, f.Cx, f.Cy, f.Cutter, f.RMean, 0)
-	f.Heel2D = bevelCircleIntersectNearest(f.RHeel+0.06*f.Span, f.Cx, f.Cy, f.Cutter, f.RMean, 0)
-	return f
+// trace is the cutter-arc construction of spiral-tooth-trace.md, in the flat
+// tangent-plane frame: apex at the origin, x along the cone element (so a
+// point's x is its cone distance) and y circumferential.
+type trace struct {
+	rToe, rHeel, rMean, span float64
+	rc                       float64
+	handSign                 float64
+	cx, cy                   float64
+	toe2d, heel2d            pt
+	phiCrown                 float64
+	total                    float64
 }
 
-// bevelCircleIntersectNearest intersects the apex circle of radius r with the cutter
-// circle and keeps the solution nearest the reference point, which is the
-// branch the mean point sits on. A non-overlapping pair clamps to tangency.
-func bevelCircleIntersectNearest(r, cx, cy, rc, refX, refY float64) bevelVec {
+func newTrace(g geometry, sd side, psi, hand, cutter float64) trace {
+	var tr trace
+	toeMid := sd.toeEdge[0].add(sd.toeEdge[1]).scale(0.5)
+	heelMid := sd.heelEdge[0].add(sd.heelEdge[1]).scale(0.5)
+	tr.rToe = sd.distAlong(g, toeMid)
+	tr.rHeel = sd.distAlong(g, heelMid)
+	tr.rMean = 0.5 * (tr.rToe + tr.rHeel)
+	tr.span = tr.rHeel - tr.rToe
+
+	tr.rc = cutter
+	if tr.rc == 0 {
+		tr.rc = tr.rMean
+	}
+	// The driving gear uses the dialog's hand; the meshing pinion is built
+	// with the opposite one.
+	tr.handSign = hand
+	if sd.which == pinion {
+		tr.handSign = -hand
+	}
+	// The hand sign goes on the cos/Cy term, NOT the sin/Cx term: opposite
+	// hands mirror the cutter centre across the cone element, which flips Cy.
+	// Putting it on Cx mirrors about x = R_mean instead, a different curve
+	// that gives the two gears unequal twist.
+	tr.cx = tr.rMean - tr.rc*math.Sin(psi)
+	tr.cy = tr.handSign * tr.rc * math.Cos(psi)
+
+	rLo := tr.rToe - 0.06*tr.span
+	rHi := tr.rHeel + 0.06*tr.span
+	tr.toe2d = circleIntersectNearest(rLo, tr.cx, tr.cy, tr.rc, tr.rMean, 0)
+	tr.heel2d = circleIntersectNearest(rHi, tr.cx, tr.cy, tr.rc, tr.rMean, 0)
+
+	tr.phiCrown = math.Atan2(tr.heel2d.Y, tr.heel2d.X) - math.Atan2(tr.toe2d.Y, tr.toe2d.X)
+	tr.total = math.Abs(tr.phiCrown) / math.Sin(sd.gamma)
+	return tr
+}
+
+// circleIntersectNearest intersects the apex circle of radius r with the
+// cutter circle and keeps the solution nearest the reference point, which is
+// the branch the mean point sits on. A non-overlapping pair clamps to
+// tangency, exactly as the framework helper does.
+func circleIntersectNearest(r, cx, cy, rc, refX, refY float64) pt {
 	d := math.Hypot(cx, cy)
-	if d == 0 {
-		return bevelVec{r, 0}
-	}
 	a := (d*d + r*r - rc*rc) / (2 * d)
 	h2 := r*r - a*a
 	if h2 < 0 {
 		h2 = 0
 	}
 	h := math.Sqrt(h2)
-	base := bevelVec{cx * a / d, cy * a / d}
-	off := bevelVec{-cy * h / d, cx * h / d}
-	p1, p2 := bevelAdd(base, off), bevelSub(base, off)
-	if bevelLen(bevelSub(p1, bevelVec{refX, refY})) <= bevelLen(bevelSub(p2, bevelVec{refX, refY})) {
-		return p1
+	base := pt{cx / d * a, cy / d * a}
+	off := pt{-cy / d * h, cx / d * h}
+	one, two := base.add(off), base.sub(off)
+	ref := pt{refX, refY}
+	if one.distance(ref) <= two.distance(ref) {
+		return one
 	}
-	return p2
+	return two
 }
 
-// stepSpiralTrace builds §3a step C: the `{gear} 2D Tooth Trace` sketch, the
-// genuine cutter arc a face-mill of radius r_c sweeps.
-//
-// The Fusion sketch is DELIBERATELY left with free DOF — the arc's endpoints
-// are pinned by three-point construction rather than dimensioned, because
-// dimensioning them over-constrains the solve against the cone-element plane —
-// and it is exempt from the full-constraint gate. The bevelBench gate is not
-// optional, so this proof pins the two endpoints at the closed-form circle-
-// circle intersections instead and lets the arc's radius follow. What that
-// costs: the radius Fusion writes as a dimension is asserted here rather than
-// driven. The assertion is the same claim — that the trace is the genuine
-// cutter circle and not a look-alike spline.
-//
-// The proof also drops the trace sketch's placement entirely. Fusion builds it
-// on a Trace Plane made by rotating the axial plane 90 degrees about a cone-
-// element line, and passes world Point3Ds straight into the sketch calls with
-// no modelToSketchSpace conversion — which places that plane somewhere other
-// than the true tangent plane. That is harmless only because NO downstream
-// feature consumes the trace sketch or the Trace Plane: the twist is computed
-// analytically from the 2-D endpoints. This proof works in the flat frame those
-// endpoints live in, which is the frame the twist law reads, so the placement
-// is outside what it can check. If a later revision ever makes a feature
-// consume either, the shortcut stops being safe and both sketches need
-// modelToSketchSpace on every point.
-func stepSpiralTrace(t testing.TB, s *sketch.Sketch, p map[string]float64) {
-	g := resolveBevel(p)
-	side, handSign := g.side(p)
-	f := bevelTraceFor(g, side, handSign)
-
-	proofkit.Step(t, "%s: R_toe %.4f R_heel %.4f R_mean %.4f span %.4f r_c %.4f handSign %+.0f",
-		side.Label, f.RToe, f.RHeel, f.RMean, f.Span, f.Cutter, f.HandSign)
-	// The heel MUST be the outer end so coneVec points outward and span is
-	// positive. A negative span silently inverts the whole spiral frame — the
-	// cutter-arc direction, the slice direction and the per-segment twist — and
-	// the bevelSide comes out completely wrong with no error at all.
-	if f.Span <= 0 {
-		t.Fatalf("%s span is %.6f: the heel is not the outer end and the spiral frame is inverted",
-			side.Label, f.Span)
+func stepTraceSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
+	g := newGeometry(t, p)
+	sd := g.side(gearOf(p))
+	psi := p["spiralAngle"] * math.Pi / 180
+	if psi <= 0 {
+		proofkit.Unmodelled(t, "Mean Spiral Angle is 0, so the tooth-body hook returns the straight "+
+			"path before any trace geometry is built; there is no trace sketch to prove")
+		return
 	}
+	tr := newTrace(g, sd, psi, p["hand"], p["cutterRadius"])
 
-	proofkit.Step(t, "the cutter circle and the trace arc that is an arc OF it")
+	proofkit.Step(t, "%s 2D Tooth Trace: R_toe %.4f R_mean %.4f R_heel %.4f r_c %.4f handSign %+.0f",
+		sd.which.label(), tr.rToe, tr.rMean, tr.rHeel, tr.rc, tr.handSign)
+
+	// The Fusion sketch is deliberately left with free DOF — the arc's
+	// endpoints are pinned by the 3-point construction rather than dimensioned
+	// — and is exempt from the full-constraint gate. proofkit waives nothing,
+	// so the proof SUBSTITUTES a fully determined figure: the two endpoints
+	// are held at the closed-form circle-circle solutions by signed axis
+	// distances, and the arc is then built through them with its radius
+	// dimensioned. The cost is the branch selection: the engine has no signed
+	// circle-intersection constraint, so which of the two intersections the
+	// build takes is ASSERTED below rather than constrained.
 	apex := s.CreatePoint(0, 0)
 	apex.SetName("apex")
-	s.Fix(apex)
-	toe := s.CreatePoint(f.Toe2D.X, f.Toe2D.Y)
-	toe.SetName("trace toe end")
-	s.Fix(toe)
-	heel := s.CreatePoint(f.Heel2D.X, f.Heel2D.Y)
-	heel.SetName("trace heel end")
-	s.Fix(heel)
+	s.AddConstraint(sketch.NewCoincident(apex, s.Origin()))
 
-	// The arc's centre is free and is pinned by the arc's own internal
-	// equidistance — which puts it on the chord's perpendicular bisector — plus
-	// one signed row along the axis that bisector crosses squarely.
-	centre := s.CreatePoint(f.Cx, f.Cy)
-	centre.SetName("cutter circle centre")
-	arc := s.CreateArc(centre, toe, heel)
-	arc.SetName("trace arc")
-	if math.Abs(f.Heel2D.Y-f.Toe2D.Y) >= math.Abs(f.Heel2D.X-f.Toe2D.X) {
-		bevelNamed(s, "cutter centre station", sketch.NewHorizontalDistance(apex, centre, f.Cx))
-	} else {
-		bevelNamed(s, "cutter centre offset", sketch.NewVerticalDistance(apex, centre, f.Cy))
-	}
-
-	// The cutter circle SHARES the arc's centre, which is how the bevelBench says
-	// "centre coincident to the cutter circle's centre" ([PB-SHARE-XOR-
-	// COINCIDENT]); its own diameter dimension is the only thing it needs.
-	cutter := s.CreateCircle(centre, f.Cutter)
+	cc := pinned(s, apex, tr.cx, tr.cy, "cutter circle centre")
+	cutter := s.CreateCircle(cc, tr.rc)
 	cutter.SetName("cutter circle")
 	cutter.SetConstruction(true)
-	bevelNamed(s, "cutter circle diameter", sketch.NewDiameter(cutter, 2*f.Cutter))
+	s.AddConstraint(sketch.NewDiameter(cutter, 2*tr.rc))
 
-	if _, err := s.Solve(context.Background()); err != nil {
-		t.Fatalf("%s trace sketch did not solve: %v", side.Label, err)
+	mean := pinned(s, apex, tr.rMean, 0, "mean point on the cone element")
+	toe := pinned(s, apex, tr.toe2d.X, tr.toe2d.Y, "trace toe end")
+	heel := pinned(s, apex, tr.heel2d.X, tr.heel2d.Y, "trace heel end")
+
+	start, end := toe, heel
+	if cross := tr.toe2d.sub(pt{tr.cx, tr.cy}).cross(tr.heel2d.sub(pt{tr.cx, tr.cy})); cross < 0 {
+		start, end = heel, toe
+	}
+	arc := s.CreateArc(s.CreatePoint(tr.cx, tr.cy), start, end)
+	arc.SetName("trace arc")
+	arc.SetConstruction(true)
+	// Fusion dimensions the arc's radius at r_c. Here both ends are already
+	// pinned, so the arc's own radius-consistency row holds its centre on
+	// their perpendicular bisector and a radius dimension on top of that
+	// leaves the centre free to reflect across the chord — the engine's probe
+	// reports both. One signed row along the bisector pins it instead, taken
+	// on whichever axis the bisector leans toward so the pin never
+	// degenerates, and the radius is asserted below.
+	bisector := pt{-(tr.heel2d.Y - tr.toe2d.Y), tr.heel2d.X - tr.toe2d.X}
+	if math.Abs(bisector.X) >= math.Abs(bisector.Y) {
+		s.AddConstraint(sketch.NewHorizontalDistance(apex, arc.Center, tr.cx))
+	} else {
+		s.AddConstraint(sketch.NewVerticalDistance(apex, arc.Center, tr.cy))
 	}
 
-	proofkit.Step(t, "the trace invariants")
-	bevelRequireClose(t, side.Label+" cutter centre x", centre.X(), f.Cx, 1e-9)
-	bevelRequireClose(t, side.Label+" cutter centre y", centre.Y(), f.Cy, 1e-9)
-	// Invariant 2: the arc's radius is r_c everywhere, because it is one circle.
-	bevelRequireClose(t, side.Label+" trace arc radius", arc.R(), f.Cutter, 1e-6)
-	// Invariant 3: it passes through the mean point, and the centre is r_c from
-	// it, which is what makes the centre construction correct rather than merely
-	// plausible.
-	bevelRequireClose(t, side.Label+" cutter centre distance from the mean point",
-		bevelLen(bevelSub(bevelVec{f.Cx, f.Cy}, bevelVec{f.RMean, 0})), f.Cutter, 1e-9)
-	// Invariant 6: the ends sit on the apex circles they were intersected with,
-	// taken a hair past the face at each end.
-	bevelRequireClose(t, side.Label+" trace toe end cone distance",
-		bevelLen(f.Toe2D), f.RToe-0.06*f.Span, 1e-6)
-	bevelRequireClose(t, side.Label+" trace heel end cone distance",
-		bevelLen(f.Heel2D), f.RHeel+0.06*f.Span, 1e-6)
-	// Invariant 4: the angle between the arc's tangent at the mean point and the
-	// cone element IS psi. The tangent is perpendicular to the radius, so the
-	// tangent direction at the mean point is the radius turned a quarter turn.
-	radial := bevelUnit(bevelSub(bevelVec{f.RMean, 0}, bevelVec{f.Cx, f.Cy}))
-	tangent := bevelVec{-radial.Y, radial.X}
-	measured := math.Abs(math.Atan2(math.Abs(tangent.Y), math.Abs(tangent.X)))
-	bevelRequireClose(t, side.Label+" spiral angle realised at the mean point",
-		measured*180/math.Pi, math.Abs(f.Psi)*180/math.Pi, 1e-6)
-	// Invariant 5: flipping the hand reflects the whole construction across the
-	// cone element and changes nothing else. The mirrored construction is the
-	// same case with handSign negated, so this reads it directly rather than
-	// building a second sketch.
-	mirror := bevelTraceFor(g, side, -f.HandSign)
-	bevelRequireClose(t, side.Label+" mirrored cutter centre station", mirror.Cx, f.Cx, 1e-9)
-	bevelRequireClose(t, side.Label+" mirrored cutter centre offset", mirror.Cy, -f.Cy, 1e-9)
-	bevelRequireClose(t, side.Label+" mirrored toe end x", mirror.Toe2D.X, f.Toe2D.X, 1e-6)
-	bevelRequireClose(t, side.Label+" mirrored toe end y", mirror.Toe2D.Y, -f.Toe2D.Y, 1e-6)
-	// Invariant 7: at psi = 0 the centre sits straight north of the mean point,
-	// so the arc is TANGENT to the cone element there — and only there. It still
-	// curves away toward toe and heel, so its ends still subtend an angle at the
-	// apex. No built tooth carries that residual: the hook's psi = 0 gate
-	// returns the straight-tooth path before any of this runs, which is what the
-	// straight-tooth steps prove.
-	if f.Psi == 0 {
-		bevelRequireClose(t, "psi = 0 puts the cutter centre straight north of the mean point",
-			f.Cx, f.RMean, 1e-12)
-		bevelRequireClose(t, "psi = 0 puts the cutter centre one cutter radius out",
-			math.Abs(f.Cy), f.Cutter, 1e-12)
-	}
+	coneElement := s.CreateLine(apex, mean)
+	coneElement.SetName("cone element")
+	coneElement.SetConstruction(true)
+
+	solveHere(t, s)
+
+	proofkit.Step(t, "the arc is the genuine cutter circle, not a look-alike")
+	requireNear(t, "trace arc centre against the cutter circle centre", at(arc.Center), at(cc), 1e-6)
+	requireClose(t, "trace arc radius", arc.R(), tr.rc, 1e-6)
+
+	proofkit.Step(t, "invariants 1, 3, 4 and 6 of spiral-tooth-trace.md §9")
+	requireClose(t, "|C - M|, so the cutter circle passes through the mean point",
+		at(cc).distance(at(mean)), tr.rc, 1e-6)
+	requireClose(t, "toe end cone distance", at(toe).len(), tr.rToe-0.06*tr.span, 1e-6)
+	requireClose(t, "heel end cone distance", at(heel).len(), tr.rHeel+0.06*tr.span, 1e-6)
+	// The tangent at the mean point makes psi with the element. The radius
+	// M->C is perpendicular to that tangent, so the angle between M->C and the
+	// y axis is psi.
+	toCentre := at(cc).sub(at(mean)).unit()
+	requireClose(t, "spiral angle realised at the mean point",
+		math.Abs(math.Asin(toCentre.X*-1)), psi, 1e-9)
+
+	proofkit.Step(t, "the hand mirrors the construction across the cone element and nothing else")
+	mirror := newTrace(g, sd, psi, -p["hand"], p["cutterRadius"])
+	requireClose(t, "opposite hand mirrors Cy", mirror.cy, -tr.cy, 1e-9)
+	requireClose(t, "opposite hand leaves Cx alone", mirror.cx, tr.cx, 1e-12)
+	requireClose(t, "opposite hand leaves the twist magnitude alone", mirror.total, tr.total, 1e-9)
+}
+
+// signedAngleDeg is the counter-clockwise angle from one direction to another,
+// in degrees, which is what the engine's NewAngle takes. Fusion's
+// addAngularDimension is an unsigned magnitude whose quadrant comes from a text
+// point, so every place this proof passes a signed angle is a place the module
+// has to hold the side with its seed instead.
+func signedAngleDeg(from, to pt) float64 {
+	return math.Atan2(from.cross(to), from.dot(to)) * 180 / math.Pi
 }
