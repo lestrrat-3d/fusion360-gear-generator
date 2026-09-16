@@ -184,6 +184,19 @@ and a nil one fails the run. Name it in the step's `proof-run` annotation.
 `proofkit3d.Unmodelled` is the 3D counterpart of
 `proofkit.Unmodelled`, for a case `decad` cannot represent.
 
+**A solid step's fixtures and comparisons come from `decad/decadtest`.** `decadtest.NewSketch`,
+`decadtest.SolveRegion` and `decadtest.NewPrism` build the sketch, the one valid region and the
+one-sided prism, so a proof writes no boilerplate of its own for them. For every comparison
+against a `decad` reading, call `decadtest.Measures`, `decadtest.MeasuresVec`,
+`decadtest.MeasuresBox` or `decadtest.Agree` rather than subtracting floats: a reading is a proven
+interval, and those helpers add its own bound to the slack you state for your formula, which a
+hand-written tolerance silently drops. State that slack with `decadtest.WithinRel` or
+`decadtest.Within` and say in a comment what the formula's error is. Use `decadtest.Agree` when
+both sides are readings — a patterned copy against its seed, a mirrored half against the lofted
+one — so both bounds count. Where the step has a name of its own for a body, wrap the call in a
+small local helper that passes that name as the label; `decadtest` otherwise names a body by index
+and recipe step, which does not say which feature is wrong.
+
 **The proof must pass with nothing waived.** `proofkit` gates a sketch on
 `sketch.VerificationReport.Check`, which asks for more than DOF 0: no conflicting or redundant
 constraint, no stale or broken reference geometry, valid profiles, a system that is not
@@ -192,12 +205,13 @@ or 180-degree-rotated answer fails there, and the fix is a constraint that carri
 not a comment.
 
 `proofkit3d.Run` gates a solid on `decad`'s own verification verdict: the document report has to
-come back trustworthy, and the build has to return bodies rather than nothing or a nil.
+come back Sound, and the build has to return bodies rather than nothing or a nil.
 `proofkit3d.RunSolid` reads the same report but tolerates exactly one kind of diagnostic, an area
 or centroid reading a faceted boolean left outside the default tolerance, and adds the topology a
-solid has to have: every body reports as solid, watertight, manifold and free of
-self-intersection, with a single lump and no voids. `proofkit3d.RunWithGate` takes the gate as an
-argument; do not pass a weaker one to get a build through.
+solid has to have: every body's validity reads `decad.ValidityValid`, which is the whole solidity
+verdict — it entails watertightness, manifoldness and freedom from self-intersection — with a
+single lump and no voids. `proofkit3d.RunWithGate` takes the gate as an argument; do not pass a
+weaker one to get a build through.
 
 **The two artifacts must describe the same build.** Every `[GO]` step names its proof function,
 and every proof function is named by a step.

@@ -33,10 +33,12 @@
 package cycloidal_test
 
 import (
+	"fmt"
 	"math"
 	"testing"
 
 	"github.com/lestrrat-3d/decad"
+	"github.com/lestrrat-3d/decad/decadtest"
 	"github.com/lestrrat-3d/r3"
 	"github.com/lestrrat-3d/sketch"
 	"github.com/lestrrat-3d/units"
@@ -266,13 +268,22 @@ func extrudeDown(t *testing.T, doc *decad.Document, s *sketch.Sketch, region *sk
 	return body
 }
 
-func volumeOf(t *testing.T, b *decad.Body) float64 {
+// volumeReading is a body's volume reading: the value decad measured together
+// with the bound it proved around it.
+func volumeReading(t *testing.T, b *decad.Body) decad.Measurement {
 	t.Helper()
 	m, err := b.Volume()
 	if err != nil {
 		t.Fatalf("measure volume: %v", err)
 	}
-	return m.Value.Base()
+	return m
+}
+
+// volumeOf is the measured value alone, for the assertions that build a figure
+// out of it rather than compare it.
+func volumeOf(t *testing.T, b *decad.Body) float64 {
+	t.Helper()
+	return volumeReading(t, b).Value.Base()
 }
 
 func boundsOf(t *testing.T, b *decad.Body) decad.Box {
@@ -294,13 +305,17 @@ func requireSpan(t *testing.T, b *decad.Body, lo, hi, tol float64) {
 	}
 }
 
-// requireVolume fails unless the measured volume matches want within rel.
+// requireVolume fails unless the body's volume reading and this proof's own
+// figure for it agree. rel is the error of that figure — a chorded outline's
+// area, a subtraction of two measured bodies — and decadtest adds the
+// reading's own proven bound to it, so what is asserted is that decad's
+// interval and this proof's claim overlap. what is the step's own name for the
+// body; decadtest would otherwise name it by index and recipe step, which says
+// nothing about which feature is wrong.
 func requireVolume(t *testing.T, b *decad.Body, want, rel float64, what string) {
 	t.Helper()
-	got := volumeOf(t, b)
-	if !nearly(got, want, math.Abs(want)*rel) {
-		t.Errorf("%s volume %.4f mm^3, want %.4f mm^3 (within %.2f%%)", what, got, want, rel*100)
-	}
+	decadtest.Measures(t, what+" volume", volumeReading(t, b),
+		units.CubicMillimeters(want), decadtest.WithinRel(units.Scalar(rel)))
 }
 
 // turnAbout is the pattern transform: a rotation by angle about the vertical
@@ -421,7 +436,7 @@ func assertPatternLobeSectors(t *testing.T, _ *decad.Document, bodies []*decad.B
 	p map[string]float64) {
 	d := derive(p)
 	seed := bodies[0]
-	seedVolume := volumeOf(t, seed)
+	seedVolume := volumeReading(t, seed)
 	seedCentroid, err := seed.Centroid()
 	if err != nil {
 		t.Fatalf("measure the seed sector's centroid: %v", err)
@@ -437,21 +452,24 @@ func assertPatternLobeSectors(t *testing.T, _ *decad.Document, bodies []*decad.B
 		if err != nil {
 			t.Fatalf("place pattern instance %d: %v", k, err)
 		}
-		if got := volumeOf(t, placed); !nearly(got, seedVolume, seedVolume*1e-9) {
-			t.Errorf("pattern instance %d has volume %.6f, want the seed's %.6f", k, got, seedVolume)
-		}
+		// Two readings, not a reading against a formula: the placement is
+		// supposed to change nothing about the body, so the seed's own proven
+		// bound counts towards the comparison as much as the copy's.
+		decadtest.Agree(t, fmt.Sprintf("pattern instance %d against the seed", k),
+			volumeReading(t, placed), seedVolume, decadtest.WithinRel(units.Scalar(1e-9)))
+
 		got, err := placed.Centroid()
 		if err != nil {
 			t.Fatalf("measure pattern instance %d: %v", k, err)
 		}
 		sin, cos := math.Sin(pitch*float64(k)), math.Cos(pitch*float64(k))
-		wx := c.X + (seedCentroid.Value.X-c.X)*cos - (seedCentroid.Value.Y-c.Y)*sin
-		wy := c.Y + (seedCentroid.Value.X-c.X)*sin + (seedCentroid.Value.Y-c.Y)*cos
-		if !nearly(got.Value.X, wx, 1e-6) || !nearly(got.Value.Y, wy, 1e-6) ||
-			!nearly(got.Value.Z, seedCentroid.Value.Z, 1e-6) {
-			t.Errorf("pattern instance %d centroid (%.6f, %.6f, %.6f), want (%.6f, %.6f, %.6f)",
-				k, got.Value.X, got.Value.Y, got.Value.Z, wx, wy, seedCentroid.Value.Z)
-		}
+		want := r3.NewVec(
+			c.X+(seedCentroid.Value.X-c.X)*cos-(seedCentroid.Value.Y-c.Y)*sin,
+			c.Y+(seedCentroid.Value.X-c.X)*sin+(seedCentroid.Value.Y-c.Y)*cos,
+			seedCentroid.Value.Z,
+		)
+		decadtest.MeasuresVec(t, fmt.Sprintf("pattern instance %d centroid", k), got, want,
+			decadtest.Within(mm(1e-6)))
 	}
 	// L instances at 360/L degrees is exactly one turn: instance L would land
 	// back on the seed, which is what tiles the disc without a gap or an overlap.
