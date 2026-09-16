@@ -186,12 +186,21 @@ says *which* helpers it uses and *on what geometry*; the behavior below is the h
   construction plane / axis in the tree, deduped by `entityToken` ([PB-TREE-CLEANUP]).
 
 **`lib/geargen/spurproxy.py`:**
-- `VirtualSpurProxy(module_mm, virtualTeeth, pressureAngleRad=radians(20), involuteSteps=15)` — a
-  fake spur `parent` for `SpurGearInvoluteToothDesignGenerator` ([PB-PRECOMPUTED-MODE]): serves,
-  in internal cm, exactly the parameter keys the spur drawer reads (`Module`, `ToothNumber`,
-  `PressureAngle`, the Pitch/Base/Root/Tip circle diameters+radii, `InvoluteSteps`), each wrapped
-  in a `.value` carrier (`Val`). Carries the `_lastToothEmbedded` output slot the drawer writes
-  during `draw()` — the borrowing gear reads it back afterward.
+- `VirtualSpurProxy(module_mm, virtualTeeth, pressureAngleRad=radians(20), involuteSteps=15,
+  rootSink_mm=0.0)` — a fake spur `parent` for `SpurGearInvoluteToothDesignGenerator`
+  ([PB-PRECOMPUTED-MODE]): serves, in internal cm, exactly the parameter keys the spur drawer reads
+  (`Module`, `ToothNumber`, `PressureAngle`, the Pitch/Base/Root/Tip circle diameters+radii,
+  `InvoluteSteps`), each wrapped in a `.value` carrier (`Val`). Carries the `_lastToothEmbedded`
+  output slot the drawer writes during `draw()` — the borrowing gear reads it back afterward.
+  - `virtualTeeth` may be a **real number**. The pitch diameter is `virtualTeeth * module_mm`, so a
+    gear that needs a pitch circle at a radius the tooth count does not land on passes the real
+    count and gets that radius. The drawer reads `ToothNumber` only for the angular half-thickness
+    `pi / (2 * ToothNumber)`, which a real count leaves at the standard `pi * module / 2` of tooth
+    at the pitch circle.
+  - `rootSink_mm` shortens the ROOT circle by `2 * rootSink_mm` of diameter and leaves pitch, base
+    and tip where they are. It exists for a gear whose tooth is joined onto a curved body, where a
+    root circle at the dedendum corner exactly meets that body along one line. It defaults to 0,
+    which is the plain spur tooth.
 
 ## `processInputs` pattern
 

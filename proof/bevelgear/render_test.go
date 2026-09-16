@@ -297,11 +297,11 @@ func tooth(g gear, f gearFrame, section []render.Vec2, ends [][3]int) (*solidlen
 // at the smaller angle in Right, which is what makes that walk the
 // counter-clockwise one.
 //
-// The tooth is at the sink newToothOutline applies, a twentieth of the tooth
-// height below the gear body's root cone. In the generated module the tooth
-// seats exactly on that cone; here the sink also keeps the tooth's root face
-// off the body's root face, which two coincident surfaces would otherwise
-// fight over pixel by pixel.
+// The tooth is at the root sink newToothOutline applies, a twentieth of the
+// tooth height inside the dedendum corner. The generated module draws its root
+// circle there too, so this is the tooth the generator builds; the sink also
+// keeps the tooth's root face off the body's root face, which two coincident
+// surfaces would otherwise fight over pixel by pixel.
 func drawnToothSection(o toothOutline) []render.Vec2 {
 	right, left, rootR, tipR := o.section(1, 0, 1)
 	loop := make([]render.Vec2, 0, 2*len(right)+2*renderArcSamples+2)
