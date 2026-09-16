@@ -226,5 +226,15 @@
     "rule": "reportOperatorIssue",
     "message": "Operator \"*\" not supported for types \"float\" and \"float | None\"",
     "why": "self._coneDistance_cm is set in _buildGearProfiles and read in _cutBore, and generate() always runs them in that order, so it is never None at this multiplication. Pyright cannot see ordering across methods."
+  },
+  {
+    "rule": "reportOperatorIssue",
+    "message": "Operator \"-\" not supported for types \"float\" and \"Unknown | None\"",
+    "why": "heel_face_dist's best-face loop: a BRepBody always has at least one face, so best_face/best_dist are never None for a real solid segment; pyright cannot see the iteration is non-empty (same shape as the spiral toe-face finding already accepted for another gear)."
+  },
+  {
+    "rule": "reportAssignmentType",
+    "message": "Type \"Unknown | None\" is not assignable to declared type \"BRepFace\"",
+    "why": "heel_face_dist's best-face loop: a BRepBody always has at least one face, so best_face is never None for a real solid segment; pyright cannot see the iteration is non-empty (same shape as the spiral toe-face finding already accepted for another gear)."
   }
 ]
