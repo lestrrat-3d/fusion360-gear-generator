@@ -23,7 +23,9 @@ That arc, lying on the cone, is the tooth trace. So the trace is, exactly, *an a
 circle whose radius is the cutter radius* — full stop. The only questions are **where its
 centre sits** and **which portion of it** we keep.
 
-A straight bevel is the special case `r_c → ∞` (the arc becomes the straight cone element).
+A straight bevel is the limit `r_c → ∞` taken at ψ = 0 (the arc becomes the straight
+cone element); at a finite cutter radius even ψ = 0 leaves a curved trace — see §9
+invariant 7.
 
 ---
 
@@ -229,7 +231,21 @@ A correct trace must satisfy all of:
    through `M` and changes nothing else; an equal-tooth pair's two traces are mirror images.
 6. **Ends on the right circles.** `T` on the toe circle, `H` on the heel circle, both on the
    `M` side branch.
-7. **Straight-bevel limit.** ψ → 0 (or `r_c` → ∞) returns the straight cone element.
+7. **Straight-bevel limit — a tangency at `M`, not an identity.** At ψ = 0 the centre sits
+   straight north of `M` (`C = (R_mean, r_c)`), so the arc is **tangent to the cone element
+   at `M`** — and only there. It still curves away toward toe and heel, so its ends still
+   subtend an angle at the apex: with the automatic cutter radius `r_c = R_mean` the residual
+   crown-plane sweep `φ_crown` is a few thousandths of a radian, and the shaft-axis twist is
+   `φ_crown / sin γ` on top of it. ⚠️ **Do not quote a fixed figure for it here.** It is
+   module-free but it depends on `R_toe`, which the Toe Radius and Toe Extension inputs move,
+   so three separate derivations of "the default pair's residual" have disagreed. Compute it
+   from the current toe and heel radii when a number is needed, and say which of the two
+   quantities the number is. The element itself comes back only in the further limit
+   `r_c → ∞` taken at ψ = 0; with ψ > 0 held fixed, `r_c → ∞` straightens the trace but
+   leaves it at angle ψ to the element, which still twists the tooth. **No built tooth
+   carries that residual**: the hook's ψ = 0 gate returns the straight-tooth path before any
+   of this construction runs (`instructions.md` §3a), which is what the proof's ψ = 0 cases
+   assert.
 
 If the rendered trace fails any of these — especially (1) wrong centre for the apex circles,
 (4) ψ not actually realised at `M`, or (5) the two gears not mirror images — that is where to

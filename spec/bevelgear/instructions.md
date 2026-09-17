@@ -81,7 +81,7 @@ Worked case: Module 1, Driving 31, Pinion 31, Shaft Angle 30°. Each `γ` is 15�
 
 Unlike the Maximum Face Width, this bound is closed-form and needs no solved sketch geometry, because `r`, `γ` and Module are all known before §2 draws anything. Resolve it during input validation, alongside the range checks.
 
-Minimum Base Height: the **other** end of the same heel edge, and the reason a low tooth count used to fail. H is placed a module beyond C along the base-height offset, so unless the base height carries H past the dedendum's own along-shaft projection, H lands *behind* C and the edge C->H runs back inward instead of outward. That projection is `1.25 * Module * sin γ`, so
+Minimum Base Height: the **other** end of the same heel edge, and the reason a low tooth count used to fail. The base-height offset closes H at `|C->H| = <this gear's base height> / sin γ - 1.25 * Module` beyond C, so unless the base height carries H past the dedendum's own along-shaft projection, H lands *behind* C and the edge C->H runs back inward instead of outward. That projection is `1.25 * Module * sin γ`, so
 
     Minimum Base Height = 1.05 * 1.25 * Module * sin γ
 
@@ -99,9 +99,45 @@ Minimum Teeth: the two base-height bounds cross when the tooth count gets small 
 
 Enable Bore: user-specified boolean, default `true`. Applies to both gears. When unchecked, no bore is cut on either gear and the per-gear bore diameter inputs below are ignored.
 
-Driving Gear Bore Diameter: user-specified positive number, default 0mm. Only consulted when Enable Bore is checked. A value of 0 means "auto-calculate" — use `Driving Gear Pitch Diameter / 4` as the bore diameter.
+Driving Gear Bore Diameter: user-specified positive number, default 0mm. Only consulted when Enable Bore is checked. A value of 0 means "auto-calculate" — use `min(Driving Gear Pitch Diameter / 4, Maximum Bore Diameter)` as the bore diameter, that gear's own Maximum Bore Diameter below. A user-supplied value greater than that maximum is an error: reject it with a message stating the maximum, rather than proceeding. Both rules, and the step they resolve in, belong to Maximum Bore Diameter.
 
-Pinion Gear Bore Diameter: user-specified positive number, default 0mm. Only consulted when Enable Bore is checked. A value of 0 means "auto-calculate" — use `Pinion Gear Pitch Diameter / 4` as the bore diameter.
+Pinion Gear Bore Diameter: user-specified positive number, default 0mm. Only consulted when Enable Bore is checked. A value of 0 means "auto-calculate" — use `min(Pinion Gear Pitch Diameter / 4, Maximum Bore Diameter)` as the bore diameter, that gear's own Maximum Bore Diameter below. A user-supplied value greater than that maximum is an error: reject it with a message stating the maximum, rather than proceeding. Both rules, and the step they resolve in, belong to Maximum Bore Diameter.
+
+Maximum Bore Diameter: a geometric upper bound on each gear's *resolved* bore diameter, applied per gear the same way the Maximum Base Height above and the Maximum Face Width below are applied to their own inputs. The bore is a through cut on the shaft axis, so it removes every ring of material inside its own radius and reaches the two ends of the body first: past the heel term it takes the **entire flat back face** — the disc the back-face edge G->H (resp. I->J) sweeps — and past the toe term it takes the whole toe dish and bites into the root cone. Either way the revolved frustum comes out of the Bore step with no end face on that side.
+
+For one gear, with `r` its own pitch radius (`its Pitch Diameter / 2`), `γ` its own pitch cone angle, `R` the Pitch Cone Distance, and `|Apex->Ded|` and the root cone angle `γ_root` as the Root Length and Toe Limit below define them, the two ends sit at
+
+    r_heel = r - <this gear's RESOLVED Base Height> / tan γ
+    r_toe  = (|Apex->Ded| - Root Length) * sin γ_root
+
+and the bound is
+
+    Maximum Bore Diameter = 2 * 0.95 * min(r_heel, r_toe)
+
+`r_heel` is where H (resp. J) lands, by the same walk the Maximum Base Height above derives its crossing from: the base height is measured from Apex 2's plane, and walking out the dedendum line the perpendicular distance to the shaft axis falls at `cos γ` per unit while the along-shaft coordinate rises at `sin γ`, so H sits `<Base Height> / tan γ` inside the pitch radius. `r_toe` is where M (resp. O) lands, one Root Length back along the root element from the dedendum point; **at Toe Extension 0 it is exactly that gear's Toe Radius Ceiling below**, and it shrinks as the Toe Extension climbs, so a large Toe Extension tightens this bound.
+
+**The flat FRONT face is deliberately NOT protected.** Its radius is the Toe Radius, which is not on the body's outer envelope — the toe dish leans inside the root cone — so a bore wider than the Toe Radius only exits through the toe cone instead of through that face, and the frustum stays whole. A bore past `r_heel` or `r_toe` does not: it cuts a corner off the profile that is being revolved. The `0.95` factor is the one the Maximum Face Width and the Maximum Base Height carry, for the same reason — a bore at exactly `r_heel` leaves a zero-width back face and a cut tangent to the body's own heel edge, and that is degenerate before it strictly crosses.
+
+Apply it in **both** directions, per gear, mirroring the Face Width and base-height rules, and only when Enable Bore is checked:
+- When the bore was auto-calculated (the input is 0), use `min(<this gear's Pitch Diameter / 4>, Maximum Bore Diameter)`.
+- When the user specified a value greater than the Maximum Bore Diameter, reject it with a message stating the maximum, rather than proceeding.
+
+Worked case: Module 1, Driving 31, Pinion 31, Shaft Angle 35°. Each `γ` is 17.5°; the driving fallback `Module * Driving Gear Teeth Number / 8 = 3.875 mm` clears its own Maximum Base Height of 4.286 mm and stands, and the pinion scales to the same value on equal tooth counts. So `r_heel = 15.5 - 3.875 / tan 17.5° = 3.210 mm`, while `r_toe` is above 12 mm and the heel term binds. The auto bore radius is `Pitch Diameter / 8 = 3.875 mm`, outside `r_heel`, so without this bound the auto bore alone deletes the back face of both gears. The shipped default pair at Shaft Angle 90° is unaffected — it is the low-`γ` end of the Shaft Angle range that is not.
+
+**Unlike the two base-height bounds, this one cannot be resolved during input validation.** Its heel term is closed-form and is available as soon as the base heights resolve, but its toe term needs the Root Length, which needs the resolved Face Width, which needs the Maximum Face Width and therefore solved §2 sketch geometry. The bound is the minimum of the two terms, so **resolve and apply the whole bound in §2, at the step that already applies the Maximum Face Width**; do not split the check across the two passes. That step still runs before anything is revolved, so the Bore step in "Create the Gear Bodies" reads a diameter that is already bounded.
+
+**Fusion has refused an over-maximum bore once — loaded 2026-09-16, from the build this bound was
+introduced on (branch `fix-bevel-spec-defects`).** A bore diameter above the maximum was entered
+and the build stopped at the rejection instead of proceeding. The message's wording was not read
+back, so what this records is the refusal and not the text of it. What the load does not show is
+the damage the bound exists to prevent: the bound was not lifted, so no bore past `r_heel` was cut
+and the deleted back face has still never been seen in Fusion.
+
+**Could the proof have caught this?** The arithmetic, yes, and it already does: the geometry case
+computes `2 * 0.95 * min(r_heel, r_toe)` from the closed form above, and both the sketch case and
+the solid case refuse a resolved bore diameter above it. What no case reaches is the generated
+module raising on the user's value, because the proof never runs that module. That refusal is the
+part this load covered, and there is no case to add for it.
 
 Face Width: User-specified positive number. If unspecified, default to (Cone Distance / 6). In **every** case (default or user-specified) the Face Width is bounded by the Maximum Face Width (defined below):
 - If unspecified, use `min(Cone Distance / 6, Maximum Face Width)`.
@@ -236,7 +272,8 @@ regardless of the unit string (`[PB-EVAL-EXPRESSION]`).
 - **`Module` is read with unit `''`, so it comes back as a raw number that means *millimetres*** (a
   module of `1` is 1 mm). Therefore **every length derived from Module must be `to_cm`-converted
   before it touches geometry**: Pitch Diameter = `to_cm(Module * teeth)`, Cone Distance = `to_cm(...)`,
-  dedendum = `to_cm(1.25 * Module)`, the module-length construction extensions (E, F, G, H, I, J),
+  dedendum = `to_cm(1.25 * Module)`, the construction extensions to E, F, G, H, I, J (§2 gives each
+  one a closed-form seed length),
   and the default Face Width (`Cone Distance / 6`). The `VirtualSpurProxy` likewise receives Module
   in mm and applies the standard spur formulas, then `to_cm`'s the resulting circle radii/diameters
   it serves (they must be in cm, matching what the spur tooth generator expects). Mixing a raw-mm
@@ -263,6 +300,12 @@ closed form once the tooth counts and Shaft Angle are known, then, in this order
 Order matters between those two: the Minimum Teeth check is exactly the statement that the base
 height window is non-empty, so running it first means step 2 never has to describe what to do
 when the minimum exceeds the maximum.
+
+**The bore bound is not part of this pass.** Validate the two bore diameters here only as
+non-negative numbers, and resolve and apply each gear's **Maximum Bore Diameter** in §2 where the
+Maximum Face Width is applied (see that parameter). Its heel term would resolve here — it needs
+only `r`, `γ` and the base height step 2 just resolved — but its toe term needs the Root Length,
+hence the resolved Face Width, hence solved §2 geometry, and the bound is the minimum of the two.
 
 ## Architecture
 
@@ -299,20 +342,79 @@ returns a 7-tuple `(parentComponent, targetPlane, centerPoint, module, drivingTe
 shaftAngle_deg)` and stashes the rest as instance attributes (`self._drivingBaseHeight_cm`,
 `self._pinionBaseHeight_cm`, `self._boreEnable`, `self._drivingBore_cm`, `self._pinionBore_cm`,
 `self._faceWidth_cm`, `self._toothSpacing_cm`, `self._spiralAngle_rad`, `self._hand`,
-`self._cutterRadius_cm`); `generate()` later stashes the derived `self._coneDistance_cm`,
+`self._cutterRadius_cm`, `self._toeExtension_pct`, `self._drivingToeRadius_cm`,
+`self._pinionToeRadius_cm`); `generate()` later stashes the derived `self._coneDistance_cm`,
 `self._gamma_p`, `self._gamma_g` (and `_buildGearProfiles` stashes the resolved
-`self._faceWidthResolved_cm`); (b) the per-gear geometric anchors are carried in **plain per-gear
-dicts** (`pinionCtx` / `drivingCtx` — holding this gear's label, teeth, pitch diameter, γ,
-tooth-center point and reference line, hexagon vertices, shaft-edge point pair, toe/heel edges,
-toe/heel cone points, root axis, bore diameter, and mesh angle), built in `_buildGearProfiles` and
-passed to `_buildVirtualSpurProfile` / `_createGearBody`, which also write the tooth sketch/plane,
-`embedded` flag, and virtual tooth count back into the dict; shared anchors are self-stashed
+`self._faceWidthResolved_cm` and, once the Root Length follows from it, the resolved
+`self._drivingToeRadiusResolved_cm` and `self._pinionToeRadiusResolved_cm`);
+`self._toeExtension_pct` is the raw unitless percentage the dialog returns, not a length —
+inputs 18 to 20 are read the way "Exact input ids" states and every one of the three is stashed
+here, since §2 resolves the toe lattice from all three; (b) the per-gear geometric anchors are carried in **plain per-gear
+dicts** (`pinionCtx` / `drivingCtx`), built in `_buildGearProfiles` and passed to
+`_buildVirtualSpurProfile` / `_createGearBody`, which write eight further entries back into the dict
+(every key, its type and its readers: the table "Exact per-gear context dictionary keys" below);
+shared anchors are self-stashed
 (`self._gearProfilesPlane`, `self._apexSketchPoint`, `self._gpSketch`, `self._apex2d`, the §1
 `self._anchorCenterPoint`); (c) `self.bevelOccurrence` holds the top occurrence for cleanup
 (`self.designOccurrence` / `self.designComponent` / `self.bevelComponent` hold the inner tree).
 The "no ctx" rule means exactly that class-level shape: per-gear plain-dict carriers and self
 attributes ARE the intended structure — do not introduce a `GenerationContext`-style class or the
 `base.Generator` context.
+
+### Exact per-gear context dictionary keys
+
+**These key strings are part of the reproduced surface, exactly like the input ids above — use them
+verbatim.** NEVER rename a key, split the dict, wrap it in a class, or carry one of these values
+under a different shape. Both gears carry the same **18** keys and no others.
+
+`written` is the step that puts the key in the dict; `read by` is every step that reads it back. The
+first 10 are built with the dict in `_buildGearProfiles`; the last 8 are written back later and read
+later still. `SketchPoint` / `SketchLine` entries are the live §2 Gear Profiles sketch entities, not
+copies of their coordinates — a reader takes `.geometry` (sketch-local) or `.worldGeometry` itself.
+
+| key | value it carries | type / unit | written | read by |
+|---|---|---|---|---|
+| `label` | `'Pinion'` or `'Driving'` | `str` | `_buildGearProfiles` | every `{gearLabel}` name (§3's `{gearLabel} Plane` / `{gearLabel} Tooth` / `{gearLabel} Tooth Axis`, `{gearLabel} Profile`, `{gearLabel} Bore`, the `{gearLabel} Gear` component) and the `gearLabel` argument of `_transformToothBody` / `cut_conical_ends` |
+| `teeth` | this gear's Teeth Number | `int` | `_buildGearProfiles` | Pattern (`quantity`); the Meshing rotation angle; `_transformToothBody`'s `teethNumber` |
+| `gamma` | this gear's pitch cone angle — `γ_p` (Pinion) / `γ_g` (Driving), matching `self._gamma_p` / `self._gamma_g` | `float`, radians | `_buildGearProfiles` | §3 step 1; `_transformToothBody`'s `gamma`, i.e. §3a step G's twist law |
+| `pitchDiameter_cm` | this gear's Pitch Diameter | `float`, internal cm | `_buildGearProfiles` | §3 step 1, the virtual pitch radius |
+| `toothCenterPoint` | the tooth-center point K′ (Pinion) / L′ (Driving) | `SketchPoint` | `_buildGearProfiles` | §3 step 3, as the spur drawer's `draw(anchorPoint, …)` anchor |
+| `toothCenterRefLine` | the tooth-center reference line C->K′ / D->L′ | `SketchLine` | `_buildGearProfiles` | §3 step 2 (`plane_by_angle`); §3 step 4's `setByDistanceOnPath` helper plane |
+| `hexVertices` | the six profile vertices in draw order — A', G, H, C, M, N / B', I, J, D, O, P | `list[SketchPoint]`, length 6 | `_buildGearProfiles` | Create the Gear Bodies → Profile sketch |
+| `toeEdgePoints` | the toe edge's two endpoints — M and N / O and P, in that order | `tuple[SketchPoint, SketchPoint]` | `_buildGearProfiles` | the `toeMid` midpoint handed to `_transformToothBody` and `cut_conical_ends`; its FIRST element is `toeConeWorld`, per the §3a caller hand-off table |
+| `heelEdgePoints` | the heel edge's two endpoints — C and H / D and J, in that order | `tuple[SketchPoint, SketchPoint]` | `_buildGearProfiles` | the `heelMid` midpoint handed to `_transformToothBody` and `cut_conical_ends`; its FIRST element is `heelConeWorld` — the dedendum corner C / D, **NEVER** H / J |
+| `boreDiameter_cm` | this gear's Bore Diameter, already resolved AND already bounded — `generate()` resolves the raw value before §2 and §2 applies the Maximum Bore Diameter to it, so no reader re-applies the `/ 4` auto value and no reader re-derives it | `float`, internal cm | `_buildGearProfiles` | Bore |
+| `toothPlane` | the `{gearLabel} Plane` construction plane | `ConstructionPlane` | §3 step 2 | `_transformToothBody`'s `parentToothPlane` — §3a step E's first cut plane |
+| `toothSketch` | the `{gearLabel} Tooth` sketch | `Sketch` | §3 step 3 | tooth-profile selection (`find_profile_by_curve_counts`) |
+| `toothEmbedded` | the spur drawer's `_lastToothEmbedded`, read back off the proxy | `bool` | §3 step 3 | tooth-profile selection, as `wantLines = 0 if toothEmbedded else 2` |
+| `toothAxis` | the `{gearLabel} Tooth Axis` construction axis | `ConstructionAxis` | §3 step 4 | nothing — no step reads this key back, and Cleanup hides the axis by entity kind rather than through the dict. It is the one entry with no reader, and it is listed so that a regen that stashes the axis is not read as having invented a key |
+| `gearOccurrence` | the `{gearLabel} Gear` occurrence | `Occurrence` | Create the Gear Bodies → Gear component | `moveToComponent`'s destination |
+| `profileSketch` | the `{gearLabel} Profile` sketch | `Sketch` | Create the Gear Bodies → Profile sketch | Revolve (its single profile) |
+| `shaftAxisEdge` | that sketch's first edge — A'->G / B'->I | `SketchLine` | Create the Gear Bodies → Profile sketch | Revolve axis; Pattern axis; the Bore plane's `setByDistanceOnPath`; Meshing rotation; `_transformToothBody`'s `shaftAxisEdge` |
+| `gearBody` | the revolved Gear Body | `BRepBody` | Revolve | the Bore extrude's `participantBodies`. The Combine, the Meshing rotation and `moveToComponent` all run inside the same method as the Revolve and use the local body, so the key exists for the Bore alone |
+
+**Six values are used where they are made and NEVER enter the dict**, so a regen that stashes one
+has invented an entry:
+- the **Root Axis** (Apex->C / Apex->D) is consumed inside §2 itself, by `addCoincident(M, Pinion
+  Root Axis)` / `addCoincident(O, Driving Root Axis)`; §3a rebuilds its direction as `coneVec` from
+  `apexWorld` and the heel cone point.
+- the **toe and heel cone points** are the first element of `toeEdgePoints` / `heelEdgePoints`, so a
+  separate `toeConePoint` / `heelConePoint` key would carry the same entity twice.
+- the **shaft-edge point pair** would only duplicate the first two `hexVertices`; the shaft axis
+  every body operation uses is `shaftAxisEdge`, the Profile sketch edge, never a §2 point pair.
+- the **virtual tooth number** is computed in §3 step 1 and consumed in §3 step 3 by
+  `VirtualSpurProxy`, inside the same step.
+- the **root sink** is computed and consumed in the same two steps as the virtual tooth number, and
+  travels to the drawer as `VirtualSpurProxy`'s `rootSink_mm` argument.
+- the **meshing rotation angle** is computed in the Meshing rotation step itself, from `teeth`, and
+  is handed straight to `rotate_body_about_edge`.
+
+This table is pinned because nothing else can catch a drift: the dict is written and read inside one
+generated module, so a regen that renames every key and every reader together still runs, and six
+rebuilds of `lib/geargen/bevelgear.py` each carried these same values under a different shape. The
+rebuild that introduced the exact virtual tooth count is the most recent of them: it renamed six of
+these keys in one round — `toothCentrePoint`, `toothCentreLine`, `toeEdge`, `heelEdge`, `embedded`
+and the bore key — and changed which values reached the dict at all.
 
 ## Method contract — call graph
 
@@ -327,7 +429,7 @@ but keep the step boundaries (they map to the Instructions sections):
 ```
 generate(inputs)
   → _readInputs(inputs)                      # read+validate all inputs; returns 7-tuple, stashes the rest on self
-  → resolve pitch diameters & bores (Python, cm)
+  → resolve pitch diameters & raw bore diameters (Python, cm)  # bore bound applied later, in _buildGearProfiles
   → build component tree                     # Bevel Gear → Design (Pinion/Driving components made in _createGearBody)
   → _buildAnchorSketch(design, plane, center)        # §1 → anchorLine
   → _buildGearProfiles(...)                  # §2 + §3 + per-gear body creation; internally PER GEAR,
@@ -400,6 +502,11 @@ Bevel's sketch work differs from the spur family. The bevel-specific Fusion mech
   its existing point: `[BEVEL-F-COINCIDENT-STYLE]`. Each named §2 line is created **once** and
   reused, never redrawn: `[BEVEL-F-LINE-ONCE]`. The driven §2 lengths are **not** dimensioned:
   `[BEVEL-F-DRIVEN-DIMS]`.
+- **Every §2 seed is load-bearing geometry, and the solved figure is gated against it.** 15 §2
+  constraint sites admit a mirrored solution that satisfies every constraint, and no Fusion
+  constraint pins any of them — the seed is the only thing that picks the figure:
+  `[BEVEL-F-MIRROR-FIGURE]`. §2 therefore states a closed-form seed for every named point and ends
+  by comparing the solve against those seeds: `[BEVEL-F-SEED-HELD]`.
 - **The §2 figure is positioned in sketch-local 2-D coordinates** (apex = `c + perp·(R·cos γ_g +
   resolved Driving Gear Base Height)`, per §2), never via
   a world position round-trip — this is what keeps the gear off world XY: `[BEVEL-F-APEX-LOCAL]`.
@@ -496,7 +603,7 @@ Apply an angular dimension between this line and the Driving Gear Shaft Axis equ
 
 From A, create a construction line perpendicular to the Pinion Gear Shaft Axis, drawn toward the side where Apex 2 will lie. ⚠️ **Apex 2 sits in the interior wedge *between* the two shaft axes — so this drop must point toward the OTHER (Driving) shaft axis / point B, NOT "toward the anchor line".** Pick the perpendicular sense by the sign of its dot product with the A→B direction (toward the driving shaft), not against a generic "toward the anchor" reference. Apply a perpendicular constraint against the Pinion Gear Shaft Axis. Apply a dimensional constraint with length = Pinion Gear Pitch Diameter / 2 (this equals the pinion's pitch radius at the heel, which is the perpendicular distance from Apex 2 to the Pinion Gear Shaft Axis for any Shaft Angle). Beginning of this line should use coincidence constraint with A. **Naming convention used throughout this spec: this perpendicular drop line (A → its far end, which becomes Apex 2) is what "A->Apex2" / "line A->Apex2" always refers to — it is NOT the Apex->A shaft axis. The two share point A but are different lines (one is the PPD/2 perpendicular drop, the other the shaft axis). Whenever a later step says to pin something to or dimension against "A->Apex2", it means this drop line. The same holds for "B->Apex2" (the DPD/2 drop) vs the Apex->B shaft axis.**
 
-From B, create a construction line perpendicular to the Driving Gear Shaft Axis, drawn toward the side where Apex 2 will lie. ⚠️ **This drop must point toward the OTHER (Pinion) shaft axis / point A** — pick the perpendicular sense by the sign of its dot product with the B→A direction. **Do NOT choose this sense by a "toward the anchor line" reference (i.e. the −perp / center→apex grow direction): the Driving Gear Shaft Axis is itself parallel to that grow direction, so the perpendicular's dot with it is ≈ 0 — a degenerate test that silently selects an arbitrary (usually wrong) side.** This is the critical failure: if this B→Apex 2 drop seeds Apex 2 on the wrong side of the driving shaft while the Pinion's A→Apex 2 drop seeds it on the correct side, the coincidence that closes the two drops at Apex 2 (below) makes the solver **flip the entire frame to the mirror solution** — point A jumps to the opposite side, and the pinion dedendum C collapses onto the driving dedendum D, inverting the pinion (the toe ends up *outside* the heel, the revolved frustum is degenerate, and the conical end-cut finds no cone face at the toe midpoint → `face dist = inf`). Both Apex 2 drops must aim at the *same* interior-wedge point. Apply a perpendicular constraint against the Driving Gear Shaft Axis. Apply a dimensional constraint with length = Driving Gear Pitch Diameter / 2 (the driving pitch radius at the heel, perpendicular distance from Apex 2 to the Driving Gear Shaft Axis for any Shaft Angle). Beginning of this line should use coincidence constraint with B.
+From B, create a construction line perpendicular to the Driving Gear Shaft Axis, drawn toward the side where Apex 2 will lie. ⚠️ **This drop must point toward the OTHER (Pinion) shaft axis / point A** — pick the perpendicular sense by the sign of its dot product with the B→A direction. **Do NOT choose this sense by a "toward the anchor line" reference (i.e. the −perp / center→apex grow direction): the Driving Gear Shaft Axis is itself parallel to that grow direction, so the perpendicular's dot with it is ≈ 0 — a degenerate test that silently selects an arbitrary (usually wrong) side.** Both Apex 2 drops must aim at the *same* interior-wedge point: if this B→Apex 2 drop seeds Apex 2 on the wrong side of the driving shaft while the Pinion's A→Apex 2 drop seeds it on the correct side, the coincidence that closes the two drops at Apex 2 (below) makes the solver **flip the whole figure to the mirror solution** — A, C, D, G, H, K, M, N and A′ all land at negative X, and the pair comes out mirrored about the driving shaft axis. ⚠️ **An earlier revision of this paragraph said the flip is what collapses the pinion dedendum C onto the driving dedendum D. That was wrong, and it misdirected the fix.** The C-onto-D collapse is its own pair of sites — the two `Apex 2 -> dedendum` perpendiculars below — and flipping this drop does not produce it. Nothing in the build refuses the mirrored figure either; what catches it is the end-of-§2 gate (`[BEVEL-F-SEED-HELD]`), and the full site list is `[BEVEL-F-MIRROR-FIGURE]`. Apply a perpendicular constraint against the Driving Gear Shaft Axis. Apply a dimensional constraint with length = Driving Gear Pitch Diameter / 2 (the driving pitch radius at the heel, perpendicular distance from Apex 2 to the Driving Gear Shaft Axis for any Shaft Angle). Beginning of this line should use coincidence constraint with B.
 
 Constrain the end points of the two perpendicular lines from the previous two paragraphs with a coincident constraint. Let this point be called Apex 2. (At Shaft Angle = 90° the four points Apex, A, Apex 2, B form a rectangle. For other shaft angles the figure is a non-rectangular parallelogram-like quadrilateral; the lengths of Apex→A and Apex→B adjust so the perpendicular drops of length PPD/2 and DPD/2 coincide at Apex 2.)
 
@@ -508,19 +615,25 @@ Draw a construction line from Apex to Apex 2. This line shall be called the Pitc
 
 From the Apex 2, create a construction line in either side whose length is constrained Module * 1.25, and are perpendicular to the Pitch Line. Constrain them against the Pitch Line with the Perpendicular constraint. Let the line drawn towards the anchor line be Driving Gear Dedendum, whose end point shall be point D. The one drawn away from the anchor line be Pinion Gear Dedendum; whose end point shall be point C.
 
+**Seed the two ends by dot product against the shaft axes, not by "towards / away from the anchor line".** Let `u` be either unit perpendicular to the Pitch Line. The pinion dedendum direction is the `u` with `u · <unit Apex->A> > 0`, and the driving dedendum direction is its negation, which satisfies `(−u) · <unit Apex->B> > 0`. Those two dot products are exactly `sin γ_p` and `sin γ_g`, which are strictly positive for every configuration the range checks admit — unlike the anchor-line test the B→Apex 2 drop warns about, which reads ≈ 0 by construction. Seed **C = Apex 2 + 1.25 · Module · <pinion dedendum direction>** and **D = Apex 2 + 1.25 · Module · <driving dedendum direction>**.
+
+⚠️ **These two sites are where the "C collapses onto D" symptom lives, and each is held by its seed alone.** The perpendicular constrains the line's direction and the dimension constrains its magnitude; neither picks a side, so each end has two solutions and the solver takes the seeded one. Flip the pinion seed and C solves exactly onto D; flip the driving seed and D solves onto C. The collapsed figure inverts that gear — the toe ends up *outside* the heel, the revolved frustum is degenerate, and the conical end-cut finds no cone face at the toe midpoint → `face dist = inf`. Seeding them from a direction such as "away from the anchor line" is not enough: it is a description of one figure rather than a value the end-of-§2 gate can check (`[BEVEL-F-SEED-HELD]`).
+
 Draw two construction lines, from the Apex to the point D and point C, respectively. Apply coincidence constraints on beginning and end of these lines. These lines shall be the Root Axis for driving and pinion gear, respectively.
 
-From point A, create construction line collinear with the line from Apex to point A, extending for length equals to module (but do NOT add dimensional constraint). The line should receive a collinear constraint, and the end of Apex->A and the beginning of the new line should be constrained via coincidence constraint. The end of this new line shall be point E.
+From point A, create construction line collinear with the line from Apex to point A. **Seed its far end at the closed form `E = A + <unit Apex->A> · (1.25 · Module · sin γ_p)`** (but do NOT add dimensional constraint). E is the foot of the perpendicular dropped from C onto the Pinion Gear Shaft Axis, which is what `C->E ⊥ A->E` below closes it on, so `|Apex->E| = R · cos γ_p + 1.25 · Module · sin γ_p`. Earlier revisions seeded this line one Module long; that is the correct side but not the solved position, and a seed that is not the solved position cannot be gated (`[BEVEL-F-SEED-HELD]`). The line should receive a collinear constraint, and the end of Apex->A and the beginning of the new line should be constrained via coincidence constraint. The end of this new line shall be point E.
 
 Draw a construction line from point C to point E. constrain each end to respective points from pre-existing lines. The lines A->E and C->E should be constrained with perpendicular constraint.
 
-From point B, create a construction line collinear with Apex->B, extending for length equals to module (but do NOT add dimensional constraint). The line should receive a collinear constraint, and the end of Apex->B and the beginning of the new line should be constrained via coincidence constraint. The end of this new line shall be point F.
+From point B, create a construction line collinear with Apex->B. **Seed its far end at the closed form `F = B + <unit Apex->B> · (1.25 · Module · sin γ_g)`** (but do NOT add dimensional constraint) — the driving twin of E, closed by `D->F ⊥ B->F` below, so `|Apex->F| = R · cos γ_g + 1.25 · Module · sin γ_g`. The line should receive a collinear constraint, and the end of Apex->B and the beginning of the new line should be constrained via coincidence constraint. The end of this new line shall be point F.
 
 Draw a construction line from point D to point F. constrain each end to respective points from pre-existing lines. The lines B->F and D->F should be constrained with perpendicular constraint.
 
-Draw a construction line from point E collinear to **line A->E** — the collinear names A->E, **never the Apex->A shaft axis further up the chain**, even though both describe the same infinite line (`[BEVEL-F-COLLINEAR-CHAIN]`; naming the axis raises `VCS_SKETCH_OVER_CONSTRAINTS`). Give it length equal to module (but do NOT add dimensional constraint). Constrain point E and the beginning of this line. Let the end be known as point G.
+Draw a construction line from point E collinear to **line A->E** — the collinear names A->E, **never the Apex->A shaft axis further up the chain**, even though both describe the same infinite line (`[BEVEL-F-COLLINEAR-CHAIN]`; naming the axis raises `VCS_SKETCH_OVER_CONSTRAINTS`). **Seed its far end at the closed form `G = A + <unit Apex->A> · <resolved Pinion Gear Base Height>`**, i.e. `|E->G| = <resolved Pinion Gear Base Height> − 1.25 · Module · sin γ_p` (but do NOT add dimensional constraint). That length is strictly positive because the Minimum Base Height keeps every resolved base height above `1.25 * Module * sin γ` with a 1.05 margin, which is what puts this seed on the correct side with room to spare. Constrain point E and the beginning of this line. Let the end be known as point G.
 
-From point C, draw a line with length equal to module (but do NOT add dimensional constraint). Constrain point C and the beginning of this line. Let the end of the new line be point H. Line C->H should be collinear with **line Apex2->C**, the Pinion Dedendum line C is the endpoint of (`[BEVEL-F-COLLINEAR-CHAIN]`).
+From point C, draw a line seeded at the closed form **`H = Apex 2 + <unit Apex2->C> · (<resolved Pinion Gear Base Height> / sin γ_p)`**, i.e. `|C->H| = <resolved Pinion Gear Base Height> / sin γ_p − 1.25 · Module` (but do NOT add dimensional constraint), positive by the same Minimum Base Height. Constrain point C and the beginning of this line. Let the end of the new line be point H. Line C->H should be collinear with **line Apex2->C**, the Pinion Dedendum line C is the endpoint of (`[BEVEL-F-COLLINEAR-CHAIN]`).
+
+⚠️ **These two seeds are what pick the side of the pinion base-height offset dimension below, which is unsigned.** Flip them and G sits one base height on the Apex side of A instead of beyond it, H follows, and the pinion's heel end folds back inside the figure. Seeding at one Module — what earlier revisions did — lands on the correct side but not on the solved position, so the end-of-§2 gate cannot use it (`[BEVEL-F-SEED-HELD]`).
 
 Connect point G and H with a line. Constrain end points of line accordingly with coincidence constraints. **Constrain line E->G and H->G with a perpendicular constraint.**
 
@@ -529,26 +642,30 @@ Connect point G and H with a line. Constrain end points of line accordingly with
 The proof harness's offset constraint is not the same shape. It emits **two** residual rows, holding *both* endpoints of the target line at the same signed perpendicular distance from the source, so it carries the parallelism itself. Adding this perpendicular there is a third row for the same two freedoms: measured, the lattice comes back **overconstrained at DOF 0 with 2 redundant constraints, and the engine names the two base-height offsets as the redundant pair**. A proof that models Fusion's arity here will therefore fail its own gate, and the right response is to leave the perpendicular out of the proof and say so, never to weaken the gate (`[PB-NO-OVERCONSTRAIN]`).
 
 
-Draw a construction line from point F collinear to **line B->F** — the driving twin of the E->G case above, and the collinear names B->F, never the Apex->B shaft axis (`[BEVEL-F-COLLINEAR-CHAIN]`). Give it length equal to module (but do NOT add dimensional constraint). Constrain point F and the beginning of this line. Let the end be known as point I.
+Draw a construction line from point F collinear to **line B->F** — the driving twin of the E->G case above, and the collinear names B->F, never the Apex->B shaft axis (`[BEVEL-F-COLLINEAR-CHAIN]`). **Seed its far end at the closed form `I = B + <unit Apex->B> · <resolved Driving Gear Base Height>`**, i.e. `|F->I| = <resolved Driving Gear Base Height> − 1.25 · Module · sin γ_g` (but do NOT add dimensional constraint), positive by the driving gear's own Minimum Base Height. Constrain point F and the beginning of this line. Let the end be known as point I.
 
-From point D, draw a line with length equal to module (but do NOT add dimensional constraint). Constrain point D and the beginning of this line. Let the end of the new line be point J. Line D->J should be collinear with **line Apex2->D**, the Driving Dedendum line D is the endpoint of (`[BEVEL-F-COLLINEAR-CHAIN]`).
+From point D, draw a line seeded at the closed form **`J = Apex 2 + <unit Apex2->D> · (<resolved Driving Gear Base Height> / sin γ_g)`**, i.e. `|D->J| = <resolved Driving Gear Base Height> / sin γ_g − 1.25 · Module` (but do NOT add dimensional constraint). Constrain point D and the beginning of this line. Let the end of the new line be point J. Line D->J should be collinear with **line Apex2->D**, the Driving Dedendum line D is the endpoint of (`[BEVEL-F-COLLINEAR-CHAIN]`).
+
+⚠️ **The driving pair's seeds carry the whole figure, because "Constrain Point I with center point" below hangs everything off I.** Flip the driving base-height offset's side and the entire lattice drops by twice the resolved Driving Gear Base Height, gear and pinion together, with every relative length still correct — which is why nothing downstream refuses it.
 
 Connect point I and J with a line. Constrain end points of line accordingly with coincidence constraints. **Constrain line F->I and J->I with a perpendicular constraint** — the driving-side twin of the G->H case just above, required in Fusion and omitted in the proof for the same reason, which that paragraph gives in full.
 
-Create an **offset dimension between the B->Apex2 perpendicular drop line (the DPD/2 drop per the naming convention above — NOT the Apex->B shaft axis) and J->I**. J->I is **already parallel** to the drop by construction (J->I ⊥ F->I, which runs along the driving shaft), so add **no** extra parallel constraint (`[PB-OFFSET-DIM]`). Set the value equal to Driving Gear Base Height _if_ specified (non-0); otherwise `module * Driving Gear Teeth Number / 8`. Either way this is the value **after** the driving gear's Maximum Base Height has been applied (a fallback capped to it, a user value already rejected if it exceeded it), because the offset set here is what drives the heel edge D->J toward the shaft axis.
+Create an **offset dimension between the B->Apex2 perpendicular drop line (the DPD/2 drop per the naming convention above — NOT the Apex->B shaft axis) and J->I**. J->I is **already parallel** to the drop by construction (J->I ⊥ F->I, which runs along the driving shaft), so add **no** extra parallel constraint (`[PB-OFFSET-DIM]`). Set the value equal to Driving Gear Base Height _if_ specified (non-0); otherwise `module * Driving Gear Teeth Number / 8`. Either way this is the value **after** the driving gear's Maximum Base Height has been applied (a fallback capped to it, a user value already rejected if it exceeded it), because the offset set here is what drives the heel edge D->J toward the shaft axis. **`addOffsetDimension` is unsigned and does not pick which side of the drop J->I lands on** — the I and J seeds above are the only thing that does (`[BEVEL-F-MIRROR-FIGURE]`).
 
-Create an **offset dimension between the A->Apex2 perpendicular drop line (the PPD/2 drop per the naming convention — not the Apex->A shaft axis) and G->H** — already parallel by construction (G->H ⊥ E->G), so as with the driving side add no parallel constraint (`[PB-OFFSET-DIM]`). The value should be equal to Pinion Gear Base Height _if_ specified (non-0); otherwise the **RESOLVED** Driving Gear Base Height `* (Pinion Gear Teeth Number / Driving Gear Teeth Number)`. "Resolved" means the value the driving offset above actually used — i.e. after the driving side's own fallback (`module * Driving Gear Teeth Number / 8` when the driving input was 0) **and** after the driving Maximum Base Height capped it — NOT the raw driving input. Then apply the **pinion's own** Maximum Base Height to the result: the two gears have different pitch cone angles whenever the tooth counts differ, so the driving cap does not imply the pinion's, and a scaled-down driving height can still overshoot the pinion's own heel limit.
+Create an **offset dimension between the A->Apex2 perpendicular drop line (the PPD/2 drop per the naming convention — not the Apex->A shaft axis) and G->H** — already parallel by construction (G->H ⊥ E->G), so as with the driving side add no parallel constraint (`[PB-OFFSET-DIM]`). It is unsigned in the same way, and the G and H seeds above are what pick its side. The value should be equal to Pinion Gear Base Height _if_ specified (non-0); otherwise the **RESOLVED** Driving Gear Base Height `* (Pinion Gear Teeth Number / Driving Gear Teeth Number)`. "Resolved" means the value the driving offset above actually used — i.e. after the driving side's own fallback (`module * Driving Gear Teeth Number / 8` when the driving input was 0) **and** after the driving Maximum Base Height capped it — NOT the raw driving input. Then apply the **pinion's own** Maximum Base Height to the result: the two gears have different pitch cone angles whenever the tooth counts differ, so the driving cap does not imply the pinion's, and a scaled-down driving height can still overshoot the pinion's own heel limit.
 
-Draw a line from A' to G, the hexagon's shaft-axis edge. Constrain endpoints appropriately. It starts at the front face's foot A', not at A; the two coincide at Toe Extension 0.
+Draw a line from A' to G, the hexagon's shaft-axis edge. Constrain endpoints appropriately. It starts at the front face's foot A', not at A; the two coincide at Toe Extension 0. **This line is what CREATES A'** — nothing above it does — so draw it with its start seeded at the closed form `A' = Apex + <unit Apex->A> · <the along-shaft coordinate of N>`, the foot of the perpendicular from N onto the pinion shaft axis. The front face N->A' further below is what PINS A' to that axis; until then A' is a free endpoint sitting at its seed. Draw the line here rather than after the front face, so the hexagon's edges are created in the walk order `A' -> G -> H -> C -> M -> N` that the Profile sketch's first-edge rule depends on.
 
 Constrain Point I with center point.
 
 
 Draw a construction line away from Apex, starting from point G, extending along Apex->A, and call its end point K. Then **pin K with two point-on-line coincident constraints** — `addCoincident(K, line Apex->A)` and `addCoincident(K, the Pinion Dedendum line Apex2->C extended)` — rather than `addCollinear` on the connecting lines. By the time K is added, G and C are already fixed, so an `addCollinear` here over-constrains the sketch and Fusion errors; the two point-on-line coincidents locate K exactly (intersection of the two lines) without over-constraining. Draw a construction line from point C to K for reference.
 
-**Tooth-center point K′ (Tooth Spacing offset).** The §3 spur tooth is centered not at K but at a tooth-center point **K′**, obtained by shifting K outward along the dedendum line by **Tooth Spacing**, *away from the lower corner C*. **When Tooth Spacing is 0 (the default), do NOT build anything here — set K′ ≡ K and reuse the C->K reference line** (a zero-length dimensioned line would be degenerate, and one segment gets ONE line — `[BEVEL-F-LINE-ONCE]`). When Tooth Spacing > 0: draw a construction line starting at K with its far end seeded on the *far side of K from C* along the dedendum direction; pin its far end **the same way K is pinned to its line** — `addCoincident(start, K)` and `addCoincident(K′, the Pinion Dedendum line Apex2->C extended)` to keep K′ on the dedendum line — then add a **length dimension on this line = Tooth Spacing** (do **not** use `addCollinear`, for the same over-constraint reason as K). The far end is K′. Build it **here, inside the Gear Profiles sketch, before that sketch's end-of-step full-constraint gate**, so the gate covers it. Finally draw the **tooth-center reference line C->K′** (from the lower corner C to K′) for §3 to use in place of C->K. Only the tooth's center moves; the virtual tooth number and drawn tooth size are unchanged (see §3).
+**Tooth-center point K′ (Tooth Spacing offset).** The §3 spur tooth is centered not at K but at a tooth-center point **K′**, obtained by shifting K outward along the dedendum line by **Tooth Spacing**, *away from the lower corner C*. **When Tooth Spacing is 0 (the default), do NOT build anything here — set K′ ≡ K and reuse the C->K reference line** (a zero-length dimensioned line would be degenerate, and one segment gets ONE line — `[BEVEL-F-LINE-ONCE]`). When Tooth Spacing > 0: draw a construction line starting at K with its far end seeded at the closed form **`K′ = Apex 2 + <unit Apex2->C> · (<the pinion's virtual pitch radius> + Tooth Spacing)`**, which is K plus Tooth Spacing along `Apex2->C`, on the far side of K from C. **"Virtual pitch radius" here is the exact back-cone radius `(Pinion Gear Pitch Diameter / 2) / cos γ_p` that §3 step 1 defines, and never a radius rebuilt from a tooth count.** That is what `|Apex 2 -> K|` measures: the dedendum line Apex2->C is perpendicular to the Pitch Line, which meets the pinion shaft axis at γ_p, so walking `r_p / cos γ_p` along it from Apex 2 lands exactly on the axis, at K. Reading the term as a rounded count times half a Module puts the seed 0.4203 mm short on the shipped default geometry — 31 teeth, Module 1, Shaft Angle 90° — which is 420 times the `[BEVEL-F-SEED-HELD]` tolerance below. Pin its far end **the same way K is pinned to its line** — `addCoincident(start, K)` and `addCoincident(K′, the Pinion Dedendum line Apex2->C extended)` to keep K′ on the dedendum line — then add a **length dimension on this line = Tooth Spacing** (do **not** use `addCollinear`, for the same over-constraint reason as K). ⚠️ **That length dimension is unsigned, so the point-on-line pin plus the length admit K′ one Tooth Spacing on the C side of K just as readily — the two candidates sit `2 × Tooth Spacing` apart — and this seed is the only thing that rules the wrong one out** (`[BEVEL-F-MIRROR-FIGURE]`). A flipped K′ tightens the mesh by the clearance the input asked to add, and builds a gear that looks right, so state the seed as this formula rather than as a direction — a direction cannot be gated (`[BEVEL-F-SEED-HELD]`). The far end is K′. Build it **here, inside the Gear Profiles sketch, before that sketch's end-of-step full-constraint gate**, so the gate covers it. Finally draw the **tooth-center reference line C->K′** (from the lower corner C to K′) for §3 to use in place of C->K. Only the tooth's center moves; the virtual tooth number and drawn tooth size are unchanged (see §3).
 
 At this point all of A, B, C, D, H, J exist **and are solved**, so resolve the **Maximum Face Width** (see the Parameters section) from their solved `.geometry` (NOT the seed coordinates — see that section) and apply it before using Face Width below: cap the auto default to it, and reject a user value that exceeds it. Skipping this — or computing it from seeds — makes the M->N / O->P line push N/P across the shaft axis for asymmetric tooth counts (either gear can be the smaller, binding side), which fails the gear-body revolve with `ASM_WIRE_X_AXIS`.
+
+With the Face Width resolved the **Root Length** follows (see that parameter), so this is also where each gear's **Maximum Bore Diameter** resolves, and where it is applied to that gear's bore: cap an auto-calculated bore to it, and reject a user value above it with a message naming the maximum. Do this for both gears here, before either body is revolved, and skip it when Enable Bore is unchecked. This is the only step at which the whole bound can resolve — its toe term needs the Root Length — which is why the input-reading pass deliberately leaves the bore diameters unbounded (see Maximum Bore Diameter).
 
 Create line M->N. **Seed BOTH ends at their closed-form solved positions, not near them** (`[PB-SEED-NEAR]`). Seed M on `Apex->C` at the fraction `1 - <Root Length> / |Apex->C|` from the Apex. Then seed N by sliding from that M seed along the `C->H` direction by exactly
 
@@ -563,7 +680,7 @@ Two earlier seeding rules are now known to do exactly that, so do not reinstate 
 Then apply **exactly these constraints** — all three are required, and the front face below is what holds N off the shaft axis, which is what the pre-Toe-Radius scheme used the A->Apex2 pin for:
 - `addCoincident(M, Pinion Root Axis)` — M lies on the Apex->C root axis;
 - `addParallel(M->N, C->H)` — the toe line is parallel to C->H;
-- `addOffsetDimension(C->H, M->N, textPoint).parameter.value = <the Root Length re-measured perpendicular to the pitch line, i.e. Root Length * R / |Apex->C|>` — an offset dimension controls a perpendicular distance, so it carries the root length in that form. At Toe Extension 0 the value is exactly the resolved Face Width, which is what this dimension has always been. Place the `textPoint` in the gap between C->H and M->N on the Apex side (e.g. the midpoint of the M-seed and point C, `(M_seed + C)/2`) so the dimension reads cleanly (`[PB-OFFSET-DIM]`). The toe's side relative to the heel (`toe→Apex < heel→Apex`) follows from the §2 frame being built correctly — in particular from the Apex 2 drops aiming at the interior wedge (see the ⚠️ above); it is **not** controlled by this text point.
+- `addOffsetDimension(C->H, M->N, textPoint).parameter.value = <the Root Length re-measured perpendicular to the pitch line, i.e. Root Length * R / |Apex->C|>` — an offset dimension controls a perpendicular distance, so it carries the root length in that form. At Toe Extension 0 the value is exactly the resolved Face Width, which is what this dimension has always been. Place the `textPoint` in the gap between C->H and M->N on the Apex side (e.g. the midpoint of the M-seed and point C, `(M_seed + C)/2`) so the dimension reads cleanly (`[PB-OFFSET-DIM]`). ⚠️ **The toe's side relative to the heel (`toe→Apex < heel→Apex`) is held by the M seed above and by nothing else.** An earlier revision of this sentence said it follows from the §2 frame being built correctly, in particular from the Apex 2 drops; that was wrong. `addOffsetDimension` is unsigned, so a correctly built frame still admits M->N one root length on the *far* side of C->H, where the toe lands outside the heel and the revolved frustum is degenerate. The text point does not control it either. The seed is the whole of the rule (`[BEVEL-F-MIRROR-FIGURE]`), and the end-of-§2 gate is what confirms the solve took it (`[BEVEL-F-SEED-HELD]`).
 
 Let the beginning of this new line be point M, the end be point N. Draw a line from M to C.
 
@@ -580,16 +697,18 @@ Let the beginning of this new line be point M, the end be point N. Draw a line f
 
 Draw a construction line away from Apex, starting from point I, extending along Apex->B, and call its end point L. **Pin L the same way as K** — `addCoincident(L, line Apex->B)` and `addCoincident(L, the Driving Dedendum line Apex2->D extended)`; do not use `addCollinear`. Draw a construction line from point D to L for reference.
 
-**Tooth-center point L′ (Tooth Spacing offset).** Build the driving-side tooth center **L′** exactly as K′ on the pinion side, substituting L for K, D for C, and the Driving Dedendum line Apex2->D for the pinion's; the reference line for §3 is **D->L′**. Same single Tooth Spacing value, same full-constraint gate, same reuse-the-existing-line rule at 0.
+**Tooth-center point L′ (Tooth Spacing offset).** Build the driving-side tooth center **L′** exactly as K′ on the pinion side, substituting L for K, D for C, and the Driving Dedendum line Apex2->D for the pinion's; the reference line for §3 is **D->L′**. Same single Tooth Spacing value, same full-constraint gate, same reuse-the-existing-line rule at 0. The seed formula and the unsigned-length ⚠️ carry over unchanged: seed **`L′ = Apex 2 + <unit Apex2->D> · (<the driving gear's virtual pitch radius> + Tooth Spacing)`**, taking "virtual pitch radius" as the same exact back-cone radius `(Driving Gear Pitch Diameter / 2) / cos γ_g` §3 step 1 defines, which is `|Apex 2 -> L|`. The flipped twin, one Tooth Spacing on the D side of L, is ruled out by that seed alone.
 
 Create line O->P, the mirror of M->N on the driving side. **Seed it the same way, at the closed-form solved positions**: O on `Apex->D` at the fraction `1 - <Root Length> / |Apex->D|`, then P slid from that O seed along `D->J` by `(<O seed's perpendicular distance from the Driving Gear Shaft Axis> - <Driving Gear Toe Radius>) / cos γ_g`. The ⚠️ above applies here unchanged: the length dimension on the front face is unsigned, so a P seed on the far side of the shaft axis converges onto the mirror and the revolve aborts. Then apply the same three constraints:
 - `addCoincident(O, Driving Root Axis)` — O on the Apex->D root axis;
 - `addParallel(O->P, D->J)`;
-- `addOffsetDimension(D->J, O->P, textPoint).parameter.value = <the Root Length re-measured perpendicular to the pitch line>` — as for the pinion, place the `textPoint` in the gap on the Apex side of D->J (e.g. `(O_seed + D)/2`) so it reads cleanly (`[PB-OFFSET-DIM]`).
+- `addOffsetDimension(D->J, O->P, textPoint).parameter.value = <the Root Length re-measured perpendicular to the pitch line>` — as for the pinion, place the `textPoint` in the gap on the Apex side of D->J (e.g. `(O_seed + D)/2`) so it reads cleanly (`[PB-OFFSET-DIM]`). This dimension is unsigned exactly as the pinion's is, so the O seed is what keeps the driving toe inside its heel; the ⚠️ on the pinion offset applies here word for word.
 
 Let the beginning of this new line be point O, the end be point P. Draw a line from O to D.
 
 Build the driving front face **B'->P** exactly as the pinion's A'->N, substituting B for A, P for N and the **Driving Gear Toe Radius** for the pinion's: the line P->B', `addCoincident(B', line Apex->B)`, `addPerpendicular(P->B', line Apex->B)` and a length dimension on P->B'. The same ⚠️ applies — P is never pinned to the Apex->B shaft axis, only B' touches it. Draw line from B' to I.
+
+**End of §2 — gate the solved figure against its own seeds (`[BEVEL-F-SEED-HELD]`).** After the Gear Profiles sketch's full-constraint gate passes, compare every named §2 point's solved `.geometry` against the closed-form position this section seeded it at, and **raise** naming the first point that has moved, with its solved position and its seeded one. Check the points in the order §2 creates them — Apex, B, A, Apex 2, C, D, E, F, G, H, I, J, K, K′, M, N, A′, L, L′, O, P, B′ — so the message names the earliest site that flipped rather than a downstream symptom. Every one of those points has a closed-form seed stated above, so this is one comparison with no per-point exceptions. **The list is 22 points only when Tooth Spacing is above zero. At Tooth Spacing 0 — the default — K′ ≡ K and L′ ≡ L are not built at all, so drop those two and compare 20**; comparing a K′ that was never created is the one way this gate can raise on a correct figure. The tolerance, the point list's authority and the reason this is a gate rather than a constraint are all `[BEVEL-F-SEED-HELD]`.
 
 ### 3: Gear Tooth Profiles
 
@@ -651,7 +770,7 @@ From those §2 sketch points' **world** geometry, `_createGearBody` computes (an
 - `axisDir` = the **shaft axis** direction, from the two **world** endpoints of `shaftAxisEdge` (the in-sketch profile edge A'→G / B'→I), normalized.
 - `coneVec` = the **dedendum (root) cone element** Apex→D (driving) / Apex→C (pinion), realized as `normalize(heelConeWorld − apex)` where `apex` = `apexWorld`. (`heelConeWorld` is the heel end of that dedendum element; `toeConeWorld` is its toe end.)
 - `v` = `axisDir × coneVec`, normalized — the **circumferential** direction (the sideways sense the tooth is displaced from the radial element).
-- `tpNormal` = `coneVec × v`, normalized — the **tangent-plane normal** (the direction the flat trace is projected onto the cone, step D).
+- `tpNormal` = `coneVec × v`, normalized — the **tangent-plane normal**. It completes the frame and **nothing consumes it**: step D removed the projection that once used it, so it is computed and left unread.
 - `distAlong(p)` = `(p − apex) · coneVec` — the **cone distance** of a point (its distance from the apex measured along the cone element).
 
 ⚠️ **The heel MUST be the OUTER end (farther from the apex) so `coneVec` points outward and `span > 0`.** Before building `coneVec`, check the passed midpoints and **fix swapped toe/heel**: if `apex.distanceTo(heelMid) < apex.distanceTo(toeMid)`, swap `toeMid ↔ heelMid` **and** `toeConeWorld ↔ heelConeWorld`, then build `coneVec = apex → heelConeWorld`. A negative `span` (toe farther than heel) **silently inverts the entire spiral frame** — it flips the cutter-arc direction, the slice direction (the first cut misses; see step E), and the per-segment twist — and the gear comes out completely wrong with no error. (The inversion can also originate upstream in §2/§3 mislabeling the toe vs heel edges; this guard catches it at the frame.)
@@ -682,7 +801,23 @@ This sketch is **deliberately left with free DOF** — the arc's endpoints are p
 
 **D. (No 3-D projection.)** The 2-D cutter-arc sketch from step C is the only trace geometry needed — the spiral twist is computed **analytically** from it in step G, so there is **no `projectToSurface`, no root-cone-face search, and no 3-D trace sketch.** (Earlier versions projected the 2-D arc onto the root cone along `tpNormal` and measured the trace azimuth there. That projection is *fragile*: for unequal-ratio pairs the arc wraps around the cone and `projectToSurface` returns it as **multiple disjoint fragments**, so the measured azimuth collapses to a fraction of the true sweep — the pinion comes out grossly under-twisted and the pair interferes. The analytic crown-gear law in step G is exact, deterministic, and cannot wrap.)
 
-**E. Slice the straight tooth.** Split the uncut apex→heel `toothBody` into cross-section slabs by planes **perpendicular to the cone element**, spanning a touch past toe and heel, via a **fixed** slice scheme (≈8 planes — the count is not user-configurable). The first cut plane is the **parent transverse tooth plane** (`parentToothPlane`, the virtual-spur tooth-profile plane `{label} Plane` from §3, passed into the hook) offset toward the apex by `span/6`; the offset **sign is chosen per gear** so it moves toward the apex (the parent plane's normal points opposite ways for the two gears — pick `sign` so `sign·normal` points apex-ward, i.e. test `(apex − planeOrigin)·normal`). Then a sequence of ~8 planes stepped further toward the apex in `span/6` increments (`sign·(k+1)·span/6` for k = 0…7, k = 0 being the first cut plane). Split the body with the framework's `slice_body_by_offset_planes(designComponent, toothBody, parentToothPlane, offsets)` where `offsets = [sign·(k+1)·span/6 for k in 0…7]` — it splits piece-by-piece and keeps a piece whole when a plane misses it. ⚠️ **The slice MUST actually split the tooth.** After the cut loop, if the body is still in **one piece** (no plane cut it), the offset sign was wrong or `parentToothPlane` sits outside the tooth's span — **retry the whole cut once with the opposite sign**. If it is *still* one piece, **`raise` a clear self-diagnosing error** naming the gear, the final piece count, `span`, and the sign tried. Do **NOT** return an unsliced (single-piece) result: step F then drops that one piece as the apex scrap, leaving `segments` **empty**, and the crown later crashes with `ValueError: max() iterable argument is empty` far from the cause. The result is the set of cross-section segments.
+**E. Slice the straight tooth.** Split the uncut apex→heel `toothBody` into cross-section slabs by planes **parallel to the parent transverse tooth plane** (`parentToothPlane`, the virtual-spur tooth-profile plane `{label} Plane` from §3, passed into the hook), via a **fixed** slice scheme of **exactly 8 planes** — the count is not user-configurable. ⚠️ **The slice planes are NOT perpendicular to the cone element.** The parent plane carries the tooth-center line C->K′ / D->L′, which is the back-cone line and so perpendicular to the Pitch Line, so **the parent plane's normal runs along the PITCH element** — while `coneVec` is the **ROOT** element. The two differ by the dedendum angle `δ_f = atan(1.25 · Module / R)`, equivalently `atan(2.5 · sin γ_p / N_p)` = `atan(2.5 · sin γ_g / N_g)`: Module cancels, so δ_f depends only on the tooth counts and the Shaft Angle and is the **same for both members** — `3.26°` on the default 31/31 pair at Shaft Angle 90°, growing as the tooth counts fall. The parallel family is what the build requires rather than what it happens to use: `slice_body_by_offset_planes` offsets the parent plane with `setByOffset`, which produces **parallel** planes; the sign test below reads the **parent plane's own normal**, which is meaningful only for that plane's own offsets; and the tooth is lofted from the Apex to the profile drawn in the parent plane, so **the heel-most slab's heel face IS the parent plane** and a consistent family has to contain it. ⚠️ **A build that follows "perpendicular to the cone element" instead is wrong and silent**: it tilts every cut face by δ_f and nothing in the pipeline fails — parallel planes cut a cone in similar sections whatever their orientation, so the loft still reproduces the taper; the piece count, the retry gate below and the conical trims of step J are all indifferent to slab orientation; the proof builds its own slabs and never sees the module's plane; and the runtime gate only counts pieces. What moves is the geometry: on the default pair at Module 4 a face corner lands `1.125 · Module · tan δ_f` = 0.26 mm along the cone from where the parallel cut puts it, and the step-G twist keyed across one face mismatches by up to 0.0078 rad. The first cut plane is the parent plane offset toward the apex by `span/6`; the offset **sign is chosen per gear** so it moves toward the apex (the parent plane's normal points opposite ways for the two gears — pick `sign` so `sign·normal` points apex-ward, i.e. test `(apex − planeOrigin)·normal`). The other seven step further toward the apex in `span/6` increments (`sign·(k+1)·span/6` for k = 0…7, k = 0 being the first cut plane). **Where the eight land: the first sits `span/6` inside the HEEL and none of them lies past it** — the parent plane is already the heel end, so there is no heel overshoot to give — **the sixth lands at the toe, and the last two sit `span/6` and `2·span/6` PAST the toe**; the two segments beyond the toe are what step J's toe cone trims away. (The first sits a hair more than `span/6` inside the heel, and the sixth a fraction of a millimetre inside the toe, because `R_heel`/`R_toe` are read at the two edge midpoints rather than on the root element.) Split the body with the framework's `slice_body_by_offset_planes(designComponent, toothBody, parentToothPlane, offsets)` where `offsets = [sign·(k+1)·span/6 for k in 0…7]` — it splits piece-by-piece and keeps a piece whole when a plane misses it. ⚠️ **The slice MUST actually split the tooth.** After the cut loop, if the body is still in **one piece** (no plane cut it), the offset sign was wrong or `parentToothPlane` sits outside the tooth's span — **retry the whole cut once with the opposite sign**. If it is *still* one piece, **`raise` a clear self-diagnosing error** naming the gear, the final piece count, `span`, and the sign tried. Do **NOT** return an unsliced (single-piece) result: step F then drops that one piece as the apex scrap, leaving `segments` **empty**, and the crown later crashes with `ValueError: max() iterable argument is empty` far from the cause. The result is the set of cross-section segments.
+
+**A spiral build has been through Fusion once on the parallel family — loaded 2026-09-16, from the
+build that corrected this step from "perpendicular to the cone element" (branch
+`fix-bevel-spec-defects`).** A spiral gear built with no error. Each failure this step names raises,
+so a clean build is the reading that the eight offset planes cut the tooth into more than one piece
+and that step F left segments behind for the crown. ⚠️ **That is the whole of what it shows, and it
+does not distinguish the two families** — this step already records that a build on the tilted
+planes completes just as silently. No face corner and no twist angle was measured on the result, so
+the 0.26 mm corner shift that separates the parallel family from the tilted one is still unmeasured
+in Fusion.
+
+**Could the proof have caught the correction?** No, for the reason this step already states: the
+proof builds its own slabs from the offsets this spec fixes and never reads the plane the generated
+module constructs, so the module's choice of family reaches Fusion untested. That is the same shape
+of gap as the §2 seed, and the only thing that closes it is a measurement taken on a loaded spiral
+gear — a face corner's position along the cone, which no load has yet reported.
 
 **F. Order & drop scrap.** Sort the segments by `distAlong` of their centroid (`physicalProperties.centerOfMass`). The first (apex-most) is the long **apex-side scrap** below the toe — **remove it**; keep the rest as the working `segments`. (Drop the scrap by re-slicing the list, *then* delete it — `segments = segments[1:]` before `removeFeatures.add(scrap)`.) After dropping the scrap, **`segments` must be non-empty** (≥1 cross-section); if it is empty the slice failed in step E — `raise` a clear error rather than proceeding into the twist (G) and crown (H), which assume ≥1 segment.
 
@@ -693,7 +828,7 @@ phi_crown = atan2(heel2d[1], heel2d[0]) - atan2(toe2d[1], toe2d[0])   # develope
 total     = abs(phi_crown) / math.sin(gamma)                          # shaft-axis twist magnitude
 ```
 
-`phi_crown` is the angle the cutter arc’s **toe and heel endpoints subtend at the apex** in the flat 2-D crown frame (apex at the origin, x = cone distance along `coneVec`, y = circumferential along `v` — exactly the `toe2d`/`heel2d` pairs from step B). `gamma` is this gear’s **pitch cone angle**: `self._gamma_p` (Pinion) / `self._gamma_g` (Driving), already computed in §2. `handSign` sets the direction; `total` is the magnitude. ⚠️ **Use the PITCH cone angle γ from §2 — NOT `acos(coneVec·axisDir)`** (that is the *root/dedendum* cone angle, e.g. ~14° vs the pitch ~29° for a 17-tooth pinion, and yields a twist ~1.6× too large). ⚠️ The two members of a meshing pair **legitimately get different twists**: same cutter, same spiral angle ψ, but γ differs, so `1/sin γ` differs (≈2.08× for a 17-tooth pinion vs ≈1.14× for a 31-tooth gear — a ratio ~1.83). This is *why* equal-teeth pairs (31/31, equal γ) always meshed while ratio pairs failed under any method that gets `1/sin γ` wrong. **Do NOT** measure the twist off a projected 3-D cone trace (the old approach): `projectToSurface` wraps the arc around the cone for ratio pairs and the measurement collapses. The analytic law here is exact and deterministic. Each segment's rotation angle is a **linear share** keyed to the **cone distance of its HEEL FACE** (the segment's farthest-along-the-element face — the exact section the later loft samples). **Define a slab's heel face precisely: the face whose centroid has the GREATEST `distAlong(face.centroid)`, searched across ALL of the slab's faces with NO surface-type filter** (its toe/apex-side face is the LEAST-centroid one). ⚠️ Do **NOT** restrict this search to `PlaneSurfaceType` (or any surface type) — a sliced slab is bounded by a mix of the two planar cut faces and ruled side faces, and a type filter can pick the wrong face or miss the cut face, which makes the step-I loft fail with `ASM_NOT_ALL_SECTIONS_MEET / LOFT_NO_TOOLBODY`. Use this **same all-faces-by-centroid** rule (max → heel, min → toe) everywhere a slab end face is needed: the twist key here (G), the crown base (H), and the loft sections (I). The rotation:
+`phi_crown` is the angle the cutter arc’s **toe and heel endpoints subtend at the apex** in the flat 2-D crown frame (apex at the origin, x = cone distance along `coneVec`, y = circumferential along `v` — exactly the `toe2d`/`heel2d` pairs from step B). `gamma` is this gear’s **pitch cone angle**: `self._gamma_p` (Pinion) / `self._gamma_g` (Driving), already computed in §2. `handSign` sets the direction; `total` is the magnitude. ⚠️ **Use the PITCH cone angle γ from §2 — NOT `acos(coneVec·axisDir)`** (that is the *root/dedendum* cone angle, smaller than γ by the dedendum angle δ_f of step E — 24.7° against the pitch 28.7° for a 17-tooth pinion meshing a 31-tooth gear — and yields a twist ~1.15× too large). ⚠️ The two members of a meshing pair **legitimately get different twists**: same cutter, same spiral angle ψ, but γ differs, so `1/sin γ` differs (≈2.08× for a 17-tooth pinion vs ≈1.14× for a 31-tooth gear — a ratio ~1.83). This is *why* equal-teeth pairs (31/31, equal γ) always meshed while ratio pairs failed under any method that gets `1/sin γ` wrong. **Do NOT** measure the twist off a projected 3-D cone trace (the old approach): `projectToSurface` wraps the arc around the cone for ratio pairs and the measurement collapses. The analytic law here is exact and deterministic. Each segment's rotation angle is a **linear share** keyed to the **cone distance of its HEEL FACE** (the segment's farthest-along-the-element face — the exact section the later loft samples). **Define a slab's heel face precisely: the face whose centroid has the GREATEST `distAlong(face.centroid)`, searched across ALL of the slab's faces with NO surface-type filter** (its toe/apex-side face is the LEAST-centroid one). ⚠️ Do **NOT** restrict this search to `PlaneSurfaceType` (or any surface type) — a sliced slab is bounded by a mix of the two planar cut faces and ruled side faces, and a type filter can pick the wrong face or miss the cut face, which makes the step-I loft fail with `ASM_NOT_ALL_SECTIONS_MEET / LOFT_NO_TOOLBODY`. Use this **same all-faces-by-centroid** rule (max → heel, min → toe) everywhere a slab end face is needed: the twist key here (G), the crown base (H), and the loft sections (I). The rotation:
 
 ```
 ang = −handSign · total · (R_mean − R_heelFace(seg)) / span
@@ -701,7 +836,7 @@ ang = −handSign · total · (R_mean − R_heelFace(seg)) / span
 
 ⚠️ **Gotcha — key the twist on the segment's HEEL-FACE cone distance, NOT its centroid.** The loft (step I) samples each segment's heel face, so that face is what must land at the right azimuth. Centroid-keying leaves the loft's mid-face section rotated by half a segment → mid-face overlap. Apply the rotation with a free-move by a `Matrix3D.setToRotation(ang, axisDir, apex)`.
 
-**H. Lengthwise crown (relief).** Crown the tooth by scaling each segment **except the outermost (heel) one** down by a **monotonic** factor — full at the heel, growing smoothly toward the toe — **about a sketch point on the ROOT edge of its heel face** (gotcha 3 — NOT the heel-face centroid). For each segment compute its **heel-distance fraction** `u = (R_heel − R_heelFace) / span`, where `R_heelFace` = `distAlong` of that segment's heel face — **found by the step-G all-faces-by-centroid rule but RECOMPUTED here, AFTER the step-G twist has moved the slabs** (do not reuse pre-twist values) — and `R_heel`/`span` are from step A; `u` runs `0` at the held-full heel to `1` at the toe. **"Outermost (heel) segment" = the one with the GREATEST post-twist heel-face `distAlong`** — sort the segments by their recomputed heel-face `distAlong` and skip the last. Then:
+**H. Lengthwise crown (relief).** Crown the tooth by scaling each segment **except the outermost (heel) one** down by a **monotonic** factor — full at the heel, growing smoothly toward the toe — **about a sketch point on the ROOT edge of its heel face** (gotcha 3 — NOT the heel-face centroid). For each segment compute its **heel-distance fraction** `u = (R_heel − R_heelFace) / span`, where `R_heelFace` = `distAlong` of that segment's heel face — **found by the step-G all-faces-by-centroid rule but RECOMPUTED here, AFTER the step-G twist has moved the slabs** (do not reuse pre-twist values) — and `R_heel`/`span` are from step A. **`u` runs 0 at the held-full heel to 1 at the toe, and PAST 1 on the two segments that lie beyond the toe** (step E): those two segments' heel faces sit `6·span/6` and `7·span/6` in from the parent plane, so the toe-most one reads about `7/6` (≈1.18) before the twist and a little more (≈1.21) after this recompute, at the default Spiral Angle 35° on the default 31/31 pair. **Do not treat `8/6` = 1.33 as a ceiling.** That figure is the last plane's offset, and that plane is a toe face rather than any segment's heel face, so nothing ever evaluates `u` there — but the step-G twist moves the heel faces, so the recomputed `u` climbs with the Spiral Angle and is **measured at 1.351 at Spiral Angle 55°**, which the `[0, 60)` range admits. Nothing reads an upper bound on `u`; the crown factor below stays positive for every value it takes, and what the slab count actually rests on is the structural fact that the last cut plane is never a heel face. (The heel segment reads a few hundredths rather than exactly 0, because `R_heel` is read at the heel edge's midpoint rather than on the parent plane; that segment is skipped anyway.) **"Outermost (heel) segment" = the one with the GREATEST post-twist heel-face `distAlong`** — sort the segments by their recomputed heel-face `distAlong` and skip the last. Then:
 
 ```
 factor = 1 − _CROWN_PER_RAD · (|total| / 2) · u
@@ -775,7 +910,7 @@ is lenient, and only via the typed `NonIntersectError`.
 
 **Combine.** Join all patterned tooth pieces with the Gear Body in a single Combine-Join (the Gear Body as the target, the patterned tooth bodies as the tools).
 
-**Bore.** If Enable Bore is checked, cut a cylindrical through bore through the Gear Body along the shaft axis. The bore diameter is this gear's Bore Diameter if specified (non-zero); otherwise `this gear's Pitch Diameter / 4`. Build the bore plane normal to the shaft at its start (`setByDistanceOnPath(<shaft-axis edge>, 0.0)`; pass the in-sketch edge, not the §2 construction line). In a sketch named `{gearLabel} Bore`, sketch the bore circle centered at the sketch origin (the plane is rooted at the shaft start, so the origin is on the axis): **fix the bore circle's center and add a diameter dimension** set to the bore diameter (`[PB-CIRCLE-CENTER]`). Extrude-cut it as a symmetric through-cut restricted to `[this Gear Body]` (`[PB-THROUGH-CUT]`; use `2 × Cone Distance` as the per-side half-length — generously past any face width). Skip this step entirely if Enable Bore is unchecked.
+**Bore.** If Enable Bore is checked, cut a cylindrical through bore through the Gear Body along the shaft axis. The bore diameter is this gear's **resolved** Bore Diameter — the user's value if specified (non-zero), otherwise `this gear's Pitch Diameter / 4`, in either case already bounded by that gear's **Maximum Bore Diameter** in §2 (an auto value capped to it, a user value above it already rejected). Take that resolved number; do not re-derive it here, or the cap is lost and the bore deletes the body's back face. Build the bore plane normal to the shaft at its start (`setByDistanceOnPath(<shaft-axis edge>, 0.0)`; pass the in-sketch edge, not the §2 construction line). In a sketch named `{gearLabel} Bore`, sketch the bore circle centered at the sketch origin (the plane is rooted at the shaft start, so the origin is on the axis): **fix the bore circle's center and add a diameter dimension** set to the bore diameter (`[PB-CIRCLE-CENTER]`). Extrude-cut it as a symmetric through-cut restricted to `[this Gear Body]` (`[PB-THROUGH-CUT]`; use `2 × Cone Distance` as the per-side half-length — generously past any face width). Skip this step entirely if Enable Bore is unchecked.
 
 **Meshing rotation (driving gear only) — do this here, in the Design component, before the body is moved out.** Rotate the driving body by `180° / Driving Gear Teeth Number` (half a tooth pitch) about its shaft axis — `rotate_body_about_edge(designComponent, gearBody, shaftAxisEdge, angle)` (framework, from `.solids`), which takes the rotation axis/origin from the B->I profile edge's **world** endpoints (`[PB-MOVE-ROTATE]`) — so a driving valley sits where the pinion tooth crosses the axial plane, giving the interlocked meshing look. Rationale: both gears are patterned from a starting tooth in the axial plane, so without the offset a driving tooth and a pinion tooth would both sit at the axial-plane crossing and visually collide. This runs in Design before `moveToComponent` because a construction axis can't be added in the moved-out gear component (`[PB-CONSTRUCTION-NEEDS-ACTIVE]`), so the rotation must use the edge's world geometry while still in Design. (The pinion additionally gets `_pinionMeshPhase(pinionTeeth)` — 0 unless a spiral pair needs it; see Method contract.)
 
@@ -822,16 +957,29 @@ still mean something. State the substitution once in the proof file and its cost
   parallel, on the back-cone family, and the root band at the dedendum angle to them. **The cost is
   the union**: the proof does not show the three bands closing into one watertight solid, only that
   each is separately watertight and that together they have the right volume, stations and angles.
-- **The apex loft.** Substitute a shrunken section for the degenerate apex point, and
-  axis-perpendicular sections for the back-cone tooth plane.
+- **The apex loft.** Substitute a shrunken section for the degenerate apex point, and nothing else.
+  The tooth plane is **not** substituted: the proof builds the real back-cone plane, tilted out of
+  the axis-perpendicular by γ, and takes the apex's perpendicular distance to the section as
+  `sK · cos γ` rather than `sK`. **The cost is the point section**: the loft's degenerate end is
+  not built, and what the volume and the two cone slopes prove is the taper it has to produce.
 - **The conical end cut.** Perform neither cut. Both operands are Lofts — the tooth and each cone
   alike. Build the tooth and the two cones and lay them apart; read each cone's apex and half-angle
   off the cone and each of the tooth's two surfaces off the tooth; solve the stations where they
   cross from those readings and check them against the flush band. **The cost is the split**: the
   proof does not show the evaluator dividing the tooth, selecting the keeper, or leaving a
-  watertight body. What it does show is that each cut lands where the flush band requires and that
-  the two ends land on DIFFERENT surfaces of the tooth, the toe on its tip and the heel on its root,
-  which is the observable signature of a conical cut face rather than a planar one.
+  watertight body. What it does show is three readings, and the step asserts exactly these three:
+  each cut lands where the flush band requires — the toe cone meets the gear body's own root cone at
+  M, the heel cone meets it at C; each cone's half-angle equals this gear's back-cone half-angle
+  `90° − γ`, read off the built band and compared at the same slope tolerance the revolve's bands
+  use; and each cone crosses the tooth's tip inboard of where it crosses the tooth's root, so the
+  trimmed end is shorter at the tip than at the root. **Do not assert that a cut meets the tooth's
+  tip and root at different stations, and carry no message for that case.** Both cutting cones have
+  their apex on the shaft axis, so a cone of wall slope `k` and apex station `a` crosses a tooth
+  surface of slope `m` at `a · k / (m + k)`, which is positive for every `m > 0` and different for
+  the tooth's two surfaces whenever the tooth has height. Every cut therefore crosses **both**
+  surfaces in every configuration, and an assertion that the two crossings differ passes on any
+  figure this spec can build. What those three readings still do not reach is in "What the conical
+  end cut cannot tell apart" below.
 - **The Combine-Join.** Perform no join. Lay the operands apart and assert the join's two
   consequences from their own measured geometry: a join leaves ONE lump when the tooth's root is
   below the body's root cone — seated, not floating — and the joined body reaches further out
@@ -853,6 +1001,15 @@ still mean something. State the substitution once in the proof file and its cost
   flank-to-root lines, 0.0405 mm each; neither that profile nor a Combine-Join at a sunk root had
   been through Fusion before that load. So the stitch this substitution cannot show has been seen
   once, on those two configurations, and on nothing else in the table.
+
+  **A second load repeated the stitch on the module that ships today — 2026-09-16, branch
+  `fix-bevel-spec-defects`.** That branch regenerated `lib/geargen/bevelgear.py` after the load
+  above, so the module the first load exercised is not the module in the repository now. The
+  shipped default pair built **one solid per gear**, which is the join's own reading: two bodies
+  would mean a tooth floating off the root cone, and one means the evaluator made a single boundary
+  out of the frustum and every patterned tooth. The 16/12 pair at Module 4 was not rebuilt, so on
+  the current module the stitch has been seen on the default pair alone. The proof reaches no more
+  of this than it did before — it still performs no join.
 
   **The heel tip radius was not measured on that load, so the tip is still checked only where the
   proof checks it.** The §3 sketch case dimensions the drawn tip circle at `virtualPitchRadius +
@@ -876,6 +1033,55 @@ still mean something. State the substitution once in the proof file and its cost
 - **The spiral tooth chain.** The slab slicing, the apex-scrap drop, the twist, the crown and the
   spiral loft are each `[GO]` on the same terms: real slabs, laid apart where a boolean would
   otherwise be needed, asserted against the closed form the spiral trace fixes.
+
+### What the conical end cut cannot tell apart
+
+**A cone and a tilted plane read identically in everything the cut step measures.** In the axial
+section a cone of half-angle `90° − γ` and a plane tilted by `γ` through the same generator are the
+same line, so every station the step solves for comes out the same for either surface. The tooth's
+own heel-end plane crosses the tooth's tip and root at different stations too. That is why the
+tip-versus-root reading is dropped above: it is a property of any cut with a finite tilt, not a
+signature of a conical one.
+
+What makes the face conical is that it is a **surface of revolution about the shaft axis** — its
+crossing with the tooth's tip surface sits at one station at every azimuth, while a tilted plane's
+crossing moves with azimuth. The proof measures that nowhere. It has it by construction, because it
+builds each cutting tool as a faceted band swept about that axis, and a swept band cannot be
+anything else. Record that beside the cut assertions in the proof file, as the honest edge of what
+this step checks.
+
+**The flush-band check cannot see the half-angle.** Any band through M crosses the gear body's root
+ray at M whatever slope the band has, so a toe band built at the wrong angle still lands on the toe
+end of the flush band and still crosses the tip inboard of the root. The half-angle assertion added
+above is what pins the angle at this step; the revolve step's frustum assertions pin it on the same
+two bands. Nothing about where a cut *lands* pins it.
+
+**The heel cut is the lenient one because its cone is tangent to the tooth plane.** The dedendum
+corner C/D and the tooth centre K′/L′ both sit on this gear's back-cone dedendum line, so the tooth
+plane contains a generator of the heel cone and the two touch along the tooth's own centreline
+instead of crossing it. That cone's apex on the shaft axis is K/L, where the same dedendum line
+meets the axis. At Tooth Spacing 0 the tooth centre is that apex, so the heel cone passes exactly
+through the tooth's heel-end centreline and takes only the two corners, by `py² / (2 · r · cos γ)`
+for a corner lying `py` off the centreline at polar radius `r` in the tooth plane. A cut that
+removes that little is a cut that can miss the keeper altogether on a ratio pair, which is the typed
+`solids.NonIntersectError` the helper catches — and the reason only the toe cut must split.
+
+### Where the tooth centre sits when Tooth Spacing is positive
+
+**The tooth is centred at K′/L′, which is off the shaft axis, and anything that centres it on the
+axis instead builds a different gear.** K/L is where the back-cone dedendum line crosses this gear's
+shaft axis, so its radius is 0 and its station is `R / cos γ` from the apex, for the Pitch Cone
+Distance `R` and this gear's own `γ`. K′/L′ is `Tooth Spacing` further along that same line, which
+carries it *past* the axis, to
+
+    station = R / cos γ + Tooth Spacing · sin γ
+    radius  = Tooth Spacing · cos γ, on the opposite side of the axis from the dedendum corner C/D
+
+Both halves are part of the placement. Taking the station alone and seating the tooth plane's origin
+on the axis leaves every tooth point `Tooth Spacing · cos γ` too far out from the axis — 0.431 mm on
+the pinion and 0.356 mm on the driving gear at Module 4, Driving 43, Pinion 31, Shaft Angle 75° and
+Tooth Spacing 0.5 mm. That offset is the whole of the clearance the input asks for, so a tooth
+centred on the axis carries none of it.
 
 ### The solid tables run at Module 4 to 8
 
@@ -932,3 +1138,53 @@ and record in the proof file beside them that this step is serial because of the
 
 No other bevel step carries a reading from its build into its assertion. A step that acquires one
 moves to the serial runner in the same change.
+
+## Proving the §2 figure (bevel-specific)
+
+This section is about the proof rather than about Fusion, and it says how the proof must pin the
+sites `[BEVEL-F-MIRROR-FIGURE]` lists. It sits at the end of the file so that adding it moves no
+line a compiled step list already cites.
+
+**Pin every one of the 15 sites with a constraint the sketch engine SIGNS.** The engine's
+`NewAngle` and `NewOffset` carry a sign; `NewDistance` does not. The two Tooth Spacing sites
+(K→K′ and L→L′) are the ones this bites: pinned with `NewDistance` they stay unsigned in the
+proof, so the proof no longer signs every site Fusion leaves unsigned, and that is the claim the
+`[BEVEL-F-MIRROR-FIGURE]` gate rests on. Use a signed constraint at both. Where no signed
+constraint fits the shape, assert the sign directly instead — that K′ − K, projected on
+`Apex2->C`, is `+Tooth Spacing` and not `−Tooth Spacing` — and say at the assertion which of the
+two it is standing in for.
+
+⚠️ **NEVER read a clean ambiguity probe as proof that no twin figure exists.** The engine
+documents its probe as reporting a **lower bound** on the number of solutions. A
+`tooth_spacing_positive` case pinned with the unsigned `NewDistance` passes today, and the twin it
+misses puts K′ one Tooth Spacing on the C side of K — two candidates `2 × Tooth Spacing` apart,
+0.8 mm at that case's 0.4 mm spacing, far above any tolerance. The probe's silence is not
+evidence; the signed constraint is.
+
+**The lattice assertion is the proof's copy of the `[BEVEL-F-SEED-HELD]` gate**, and it must cover
+the same 22 named points against the same closed forms §2 states, including E, F, G, H, I and J.
+**Record beside it what it cannot reach:** the proof seeds at the closed form, so it proves the
+constraints solve from a correct seed and never that the generated module's seed is correct. That
+is the same limit the toe-line seeding already records, and it is why the gate has to exist inside
+the module rather than only in the proof.
+
+**Fusion has run the `[BEVEL-F-SEED-HELD]` gate once — loaded 2026-09-16, from the build that
+introduced it (branch `fix-bevel-spec-defects`).** The shipped default pair — 31 teeth on both
+gears, Module 1, Shaft Angle 90° — built one solid per gear with no error. The gate runs inside
+that build and raises on the first point that moved, so a clean build is the reading that all 20
+points it compares at Tooth Spacing 0 solved within 0.001 mm of their closed-form seeds, and that
+the gate raised on none of them. Both halves of the risk were open until this load and neither
+showed: Fusion's solver did not leave the figure outside the tolerance, and the gate did not raise
+on a correct figure.
+
+**Nothing was measured on that load beyond the build completing.** No solved point, volume or
+radius was read off the result, and only the one configuration was built. So this records that the
+gate ran and stayed silent on the default pair, and nothing about the 1024 figures at that
+configuration it exists to refuse — none of them was built.
+
+**Could the proof have caught any of this?** No. The lattice assertion seeds at the closed form and
+solves with the sketch engine this repository pins, so what it reaches is the constraint net, which
+is the limit recorded just above. Whether Fusion's own solver leaves a seeded point inside 0.001 mm
+is a property of Fusion's solver, and so is whether the gate false-fails on a solve that is
+correct. Nothing in this repository runs that solver. Loading the gear is the only check that
+reaches either reading, and it stays the only one.
