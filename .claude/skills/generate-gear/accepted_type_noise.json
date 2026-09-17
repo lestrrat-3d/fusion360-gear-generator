@@ -236,5 +236,73 @@
     "rule": "reportAssignmentType",
     "message": "Type \"Unknown | None\" is not assignable to declared type \"BRepFace\"",
     "why": "heel_face_dist's best-face loop: a BRepBody always has at least one face, so best_face is never None for a real solid segment; pyright cannot see the iteration is non-empty (same shape as the spiral toe-face finding already accepted for another gear)."
+  },
+  {
+    "rule": "reportAssignmentType",
+    "message": "Type \"CommandInput\" is not assignable to declared type \"ValueCommandInput\"",
+    "why": "inputs.itemById(inputId) returns the base CommandInput, which erases the ValueCommandInput subtype the input id is known to hold; same stub-narrowing family as the already-accepted DropDownCommandInput.selectedItem entry."
+  },
+  {
+    "rule": "reportOptionalMemberAccess",
+    "message": "\"sketches\" is not a known attribute of \"None\"",
+    "why": "self.designComponent.sketches: designComponent is genuinely None only between __init__ and generate()'s early assignment (S3), and every step reading it here runs after that assignment; same class-attribute-declared-Optional family as the already-accepted bevelComponent/designOccurrence assignment entries."
+  },
+  {
+    "rule": "reportOptionalMemberAccess",
+    "message": "\"constructionPlanes\" is not a known attribute of \"None\"",
+    "why": "self.designComponent.constructionPlanes: same designComponent None-initializer pessimism as the sketches entry above; every step reading it runs after generate()'s S3 assignment."
+  },
+  {
+    "rule": "reportArgumentType",
+    "param": "planarEntity",
+    "want": "Base",
+    "func": "add",
+    "why": "sketches.add(self._gearProfilesPlane) / constructionAxes.setByTwoPlanes(self._gearProfilesPlane, ...): _gearProfilesPlane is a class attribute declared with the ConstructionPlane type it eventually holds and initialised to None in __init__, assigned during S5 before any step reads it; same family as the already-accepted bevelComponent/designOccurrence None-initialiser entries."
+  },
+  {
+    "rule": "reportOptionalMemberAccess",
+    "message": "\"constructionAxes\" is not a known attribute of \"None\"",
+    "why": "self.designComponent.constructionAxes: same designComponent None-initialiser pessimism as the sketches/constructionPlanes entries above."
+  },
+  {
+    "rule": "reportArgumentType",
+    "param": "planarEntityOne",
+    "want": "Base",
+    "func": "setByTwoPlanes",
+    "why": "setByTwoPlanes(self._gearProfilesPlane, helperPlane): _gearProfilesPlane is the None-initialised class attribute from the D entry above, passed as the first planarEntity argument instead of the add() call this time."
+  },
+  {
+    "rule": "reportOptionalMemberAccess",
+    "message": "\"occurrences\" is not a known attribute of \"None\"",
+    "why": "self.bevelComponent.occurrences: bevelComponent is another None-initialised class attribute (already accepted on the assignment side); every step reading it here runs after generate() assigns it in S2."
+  },
+  {
+    "rule": "reportOptionalMemberAccess",
+    "message": "\"features\" is not a known attribute of \"None\"",
+    "why": "self.designComponent.features: same designComponent None-initialiser pessimism as the sketches/constructionPlanes/constructionAxes entries above."
+  },
+  {
+    "rule": "reportArgumentType",
+    "param": "designComponent",
+    "want": "Component",
+    "func": "_transformToothBody",
+    "why": "self.designComponent passed into _transformToothBody's designComponent: Component parameter: same designComponent None-initialiser pessimism as above, crossing a function boundary into a strictly-typed signature."
+  },
+  {
+    "rule": "reportArgumentType",
+    "param": "key",
+    "want": "(tuple[BRepBody, BRepFace | None, float | None]) -> SupportsRichComparison",
+    "func": "sort",
+    "why": "segData.sort(key=lambda t: t[2]): t[2] comes from heelFaceOf(seg), Optional only for a body with no faces; every segment sorted here is a lofted solid. Same reasoning as the already-accepted sorted(segments, key=heelFaceDistAlong) entry, keyed differently because this call is sort, not sorted."
+  },
+  {
+    "rule": "reportCallIssue",
+    "message": "No overloads for \"sort\" match the provided arguments",
+    "why": "segData.sort(key=lambda t: t[2]): same Optional-key cause as the reportArgumentType entry just above; the overload mismatch is the other diagnostic the same line draws."
+  },
+  {
+    "rule": "reportOptionalMemberAccess",
+    "message": "\"activate\" is not a known attribute of \"None\"",
+    "why": "self.designOccurrence.activate(): designOccurrence is another None-initialised class attribute (already accepted on the assignment side); the crown step's step-21 activate/finally block runs after generate() assigns it in S3."
   }
 ]
