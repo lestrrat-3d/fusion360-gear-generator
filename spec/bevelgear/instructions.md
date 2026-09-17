@@ -13,7 +13,7 @@ constraint-bearing sketch this gear authors is reproduced in the standalone sket
 never under `spec/bevelgear/sketch/`, a path the pipeline has never used and which earlier revisions
 of this paragraph named as the condition for lifting the waiver. `TestGearProfiles` runs the §2
 lattice, and `TestAnchorSketch`, `TestToothProfile`, `TestProfileSketch` and `TestBoreSketch` run
-the other four, each registered from `steps.md` and each through `proofkit`'s gate, which asks for
+the other four, each registered from the compiled step list and each through `proofkit`'s gate, which asks for
 DOF 0 with nothing redundant, nothing conflicting and the conditioning above the engine's floor. So
 a regen may state that the §2 scheme is bench-proven, and the earlier instruction to keep the scheme
 exactly as written now rests on that proof rather than on a waiver: **change the §2 constraint
