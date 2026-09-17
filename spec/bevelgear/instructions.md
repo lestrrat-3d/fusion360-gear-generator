@@ -933,45 +933,66 @@ of the file so that adding it moves no line a compiled step list already cites.
 that true, and each one is a real build measured against a closed form — not a weakened gate, and
 not a comment standing in for a check.
 
-### No boolean is performed anywhere in this gear's proof
+### Which booleans this gear's proof performs, and how it builds their operands
 
-**At the decad revision this repo pins, a boolean accepts only prism, cup and faceted payloads and
-refuses an operand built by Loft.** Every solid in this gear is conical, and a cone is a Loft there,
-because Extrude refuses a nonzero taper. So the union that joins the frustum, the intersection and
-cut that trim the tooth, the bore's through-cut and the Combine-Join are all unavailable.
+**Build every boolean operand with Loft, and never with Revolve.** Measured at the pinned decad
+revision over this gear's own bodies across the whole solid case table: every boolean whose operands
+were both Lofts returned a body the document verified Sound, with a published volume bound between
+2e-16 and 1e-8 of the value. Every boolean with an operand built by Revolve verified Suspect
+instead — all 160 of them — and on 100 of those the reading beyond tolerance was the volume itself.
+`proofkit3d`'s gate admits neither verdict, so a Revolve operand puts its step out of reach whatever
+the geometry is. Every solid in this gear is conical, and a cone is a Loft here because Extrude
+refuses a nonzero taper, so building the operands as Lofts is what the gear was going to do anyway.
 
-**The substitution is the same at every site: build the operands, lay them apart along the shaft
-axis, and assert from their own measured geometry what the operation would have produced.** Laying
-them apart leaves every volume, radius and cone angle unchanged, which is what makes the readings
-still mean something. State the substitution once in the proof file and its cost at each site.
+**The gear body is a real `decad.Revolve`, and it is the one body no boolean consumes.** A revolved
+frustum's volume agrees with Pappus on its own profile to 3.4e-16 relative and carries a published
+bound near 2e-16, so it clears the gate on its own readings. That is a statement about what a
+revolved body measures, not about what a boolean will take: the rule above still refuses one as an
+operand.
+
+**Two of this gear's booleans are performed and two are not.** The bore's through-cut and the toe
+half of the conical end cut run on the gear's own bodies, and each step asserts the result. The heel
+half of the conical end cut and the Combine-Join are not performed, each for the reason its own
+bullet states, and each keeps a substitution.
+
+**Where a substitution is still needed it is the same one at every site: build the operands, lay
+them apart along the shaft axis, and assert from their own measured geometry what the operation
+would have produced.** Laying them apart leaves every volume, radius and cone angle unchanged, which
+is what makes the readings still mean something. State the substitution once in the proof file and
+its cost at each site.
 
 ### Each step's substitution and what it costs
 
-- **The gear-body revolve.** Substitute a polygonal sweep, because decad publishes a revolved body's
-  volume with a proven bound equal to the volume itself, so a revolved body is Suspect at any
-  tolerance and cannot pass the harness gate. Build the three bands the frustum's profile edges
-  sweep — the root cone out to the dedendum corner, the heel cone out to the heel end, and the
-  toe-dish plug that hollows the front face — lay them apart and never join them. Assert the frustum
-  as their SIGNED SUM against Pappus on the §2 hexagon, band by band against its own stations and
-  ring radii, and cone half-angle by cone half-angle: the heel band and the toe plug come out
-  parallel, on the back-cone family, and the root band at the dedendum angle to them. **The cost is
-  the union**: the proof does not show the three bands closing into one watertight solid, only that
-  each is separately watertight and that together they have the right volume, stations and angles.
+- **The gear-body revolve.** Substitute nothing. Revolve the §2 hexagon a full turn about the
+  station axis with decad's own `Revolve`, which returns the whole frustum as one body. Assert its
+  volume against Pappus on that same hexagon, with no polygon correction and no decomposition into
+  bands: the two agree to 3.4e-16 relative at worst over the solid case table, inside the bound
+  decad publishes for the reading. That bound is `Approximate` rather than `Exact`, so write the
+  comparison with `decadtest.Measures` and a relative tolerance — `decadtest.Exactly` fails on every
+  case. Then assert the body's **five faces**, matched by surface kind and by their own readings
+  rather than by the order the face selector hands them back: the flat heel face at the back, a disc
+  of the heel radius; the flat toe face at the front, a disc of the Toe Radius; and three cone faces,
+  whose areas are those of the cone frusta the profile edges C->H, M->C and N->M sweep. **Read each
+  cone's half-angle off its own face** — a `decad.Cone` publishes it — instead of deriving a tangent
+  from two cap radii and a height. The heel cone and the toe-dish cone read `90° − γ` and the root
+  cone reads this gear's root cone angle. **This step now costs nothing**: the frustum is one
+  watertight body with the right volume, the right two flat faces and the right three cone faces,
+  and there is no union left for the proof to owe.
 - **The apex loft.** Substitute a shrunken section for the degenerate apex point, and nothing else.
   The tooth plane is **not** substituted: the proof builds the real back-cone plane, tilted out of
   the axis-perpendicular by γ, and takes the apex's perpendicular distance to the section as
   `sK · cos γ` rather than `sK`. **The cost is the point section**: the loft's degenerate end is
   not built, and what the volume and the two cone slopes prove is the taper it has to produce.
-- **The conical end cut.** Perform neither cut. Both operands are Lofts — the tooth and each cone
-  alike. Build the tooth and the two cones and lay them apart; read each cone's apex and half-angle
-  off the cone and each of the tooth's two surfaces off the tooth; solve the stations where they
-  cross from those readings and check them against the flush band. **The cost is the split**: the
-  proof does not show the evaluator dividing the tooth, selecting the keeper, or leaving a
-  watertight body. What it does show is three readings, and the step asserts exactly these three:
+- **The conical end cut.** Perform the toe cut; substitute for the heel cut. Where each cut lands is
+  read the same way for both: build the tooth, read each cone's apex and half-angle and each of the
+  tooth's two surfaces off the bodies themselves, solve the stations where they cross from those
+  readings, and check them against the flush band. Take **both half-angles off the revolved gear
+  body's own cone faces** — those faces are the cutting tools Fusion's `ConeSurfaceType` search
+  finds at this step, and a `decad.Cone` publishes the angle directly. The step asserts these three:
   each cut lands where the flush band requires — the toe cone meets the gear body's own root cone at
   M, the heel cone meets it at C; each cone's half-angle equals this gear's back-cone half-angle
-  `90° − γ`, read off the built band and compared at the same slope tolerance the revolve's bands
-  use; and each cone crosses the tooth's tip inboard of where it crosses the tooth's root, so the
+  `90° − γ`, compared at the same slope tolerance the revolve step's cone faces use; and each cone
+  crosses the tooth's tip inboard of where it crosses the tooth's root, so the
   trimmed end is shorter at the tip than at the root. **Do not assert that a cut meets the tooth's
   tip and root at different stations, and carry no message for that case.** Both cutting cones have
   their apex on the shaft axis, so a cone of wall slope `k` and apex station `a` crosses a tooth
@@ -980,7 +1001,45 @@ still mean something. State the substitution once in the proof file and its cost
   surfaces in every configuration, and an assertion that the two crossings differ passes on any
   figure this spec can build. What those three readings still do not reach is in "What the conical
   end cut cannot tell apart" below.
-- **The Combine-Join.** Perform no join. Lay the operands apart and assert the join's two
+
+  **Perform the toe cut on the tooth.** Build the toe cutting cone as the SOLID inside the cone —
+  the whole body on the discard side, with its apex on the shaft axis at the station the toe edge's
+  own lattice point M/O puts it — rather than as a band spanning that one profile edge, which is
+  enough to read an angle off and is not a tool a cut can use. It is an n-gon loft, because the cut
+  consumes it. Bring the tooth into the cone's frame with the rotation of γ about the apex that
+  carries the tooth's axis-perpendicular build plane onto the back-cone plane; that fixes the plane
+  and not the tooth's seating on the gear body, which is the placement the Combine-Join below still
+  waits on. Then `Cut` the tooth with the cone for the offcut and `Intersect` them for the keeper,
+  in separate documents, since either operation retires its operands. `Cut` returns a body on all 20
+  solid cases and `Intersect` on 18. On the two at Shaft Angle 142° the `Intersect` comes back as a
+  `*decad.BooleanError` carrying `BooleanEmpty` — the toe cone takes nothing off that tooth there,
+  and the `Cut` hands back the whole of it. **Tolerate that one typed refusal and fail on any other
+  error**: an empty toe trim is the same condition the generated module raises as
+  `solids.NonIntersectError`. Assert that the keeper and the offcut add back to the whole tooth,
+  which they do to 4e-16 relative at worst, and that each piece decad returns is one lump and solid.
+  **The toe split costs nothing now** — the evaluator divides the tooth, and both halves of the
+  division are measured.
+
+  **Perform no heel cut, because its cone is tangent to the tooth plane.** The dedendum corner C/D
+  and the tooth centre K′/L′ both sit on this gear's back-cone dedendum line, so the tooth plane
+  contains a generator of the heel cone and the two touch along the tooth's own centreline instead
+  of crossing it. decad refuses exactly that: `BooleanUnsupportedContact`, on 15 of the 20 cases for
+  the `Cut` and 17 for the `Intersect`, saying the operands' facets come within the chord tolerance
+  without provably interpenetrating deeper than it. Rebuilding the same cone as a Revolve replaces
+  the refusal with a Suspect verdict, which the gate does not admit either, so no operand pairing at
+  this revision puts the heel cut in reach. Lay the heel cone apart from the tooth and keep the
+  three readings above. **The cost is the heel split**: for that end the proof does not show the
+  evaluator dividing the tooth, selecting the keeper, or leaving a watertight body.
+- **The Combine-Join.** Perform no join, because the two operands are not in one frame. The proof
+  builds the tooth on a section perpendicular to the build axis at the Pitch Cone Distance from the
+  apex, scaled about the apex — the Tredgold mapping — while the gear body is written about the
+  shaft axis, and the tooth's own seating on that body is derived nowhere in this proof. The two
+  therefore do not meet when they are put in one document, and neither sign of the rotation that
+  relates the two planes seats them: at one sign the union returns two lumps, and at the other decad
+  refuses the contact on half the case table. **The engine is not what blocks this join.** Given
+  operands that do overlap it performs the union, returns one lump and publishes a volume bound of
+  8e-15 of the value, Sound. What is missing is the tooth's real back-cone placement, and deriving
+  it is its own change. Until then, lay the operands apart and assert the join's two
   consequences from their own measured geometry: a join leaves ONE lump when the tooth's root is
   below the body's root cone — seated, not floating — and the joined body reaches further out
   than the frustum when the tooth's tip stands proud of it. Take both readings at the toe, the
@@ -1024,12 +1083,19 @@ still mean something. State the substitution once in the proof file and its cost
   that case cannot reach is Fusion's own profile finder selecting the loop and the loft consuming
   it, which is what the load showed.
 - **The bore cut.** Build the tool as a real extrude, which a symmetric extent produces as a prism,
-  but perform no cut: the target is the frustum, whose bands are Lofts. Lay the tool and the bands
-  apart and assert the cut from the tool's own measured geometry — its diameter, that its two ends
-  sit exactly `2 * Cone Distance` either side of the shaft edge's start, and that both clear the
-  frustum, which is what makes it a THROUGH cut. Compute the material it would remove from the
-  frustum's own profile clipped to the bore radius. **The cost is the pierced body**: one lump with
-  a hole and no enclosed void is not shown.
+  and perform the cut. Assert the tool first, from its own measured geometry — its diameter, that
+  its two ends sit exactly `2 * Cone Distance` either side of the shaft edge's start, and that both
+  clear the frustum, which is what makes it a THROUGH cut — and compute the material the bore takes
+  out of the frustum's own profile clipped to the bore radius. Then cut with it. **The target is the
+  heel cone band, lofted for this step**: it is the section of the gear body the bore passes through,
+  and it is a Loft, which is the form a boolean takes. The revolved gear body cannot be the target,
+  for the reason the operand rule above gives. The cut verifies Sound on every case in the table.
+  Assert the pierced body's volume against the band's own n-gon closed form less the prism the bore
+  removes over that height, which it matches to 3.2e-16 relative at worst; assert that the result is
+  one lump, which is what a through hole leaves; and assert that it is solid, which an enclosed void
+  would not be. **What this still does not reach is the rest of the body**: the bore is pierced
+  through the band that stands for the heel section, not through the whole frustum, because the
+  frustum is a Revolve. Record that beside the assertion.
 - **The spiral tooth chain.** The slab slicing, the apex-scrap drop, the twist, the crown and the
   spiral loft are each `[GO]` on the same terms: real slabs, laid apart where a boolean would
   otherwise be needed, asserted against the closed form the spiral trace fixes.
@@ -1045,16 +1111,18 @@ signature of a conical one.
 
 What makes the face conical is that it is a **surface of revolution about the shaft axis** — its
 crossing with the tooth's tip surface sits at one station at every azimuth, while a tilted plane's
-crossing moves with azimuth. The proof measures that nowhere. It has it by construction, because it
-builds each cutting tool as a faceted band swept about that axis, and a swept band cannot be
-anything else. Record that beside the cut assertions in the proof file, as the honest edge of what
-this step checks.
+crossing moves with azimuth. The half-angle the step now reads comes off a `decad.Cone` face of the
+revolved gear body, which is a surface of revolution by its own construction and publishes its angle
+rather than having one derived. The tool the toe cut consumes is still a faceted body swept about
+that axis, and a swept body cannot be anything else either, but nothing measures its azimuthal
+crossing with the tooth. Record that beside the cut assertions in the proof file, as the honest edge
+of what this step checks.
 
 **The flush-band check cannot see the half-angle.** Any band through M crosses the gear body's root
 ray at M whatever slope the band has, so a toe band built at the wrong angle still lands on the toe
 end of the flush band and still crosses the tip inboard of the root. The half-angle assertion added
-above is what pins the angle at this step; the revolve step's frustum assertions pin it on the same
-two bands. Nothing about where a cut *lands* pins it.
+above is what pins the angle at this step, and it reads the gear body's own cone faces, which the
+revolve step pins against the same closed form. Nothing about where a cut *lands* pins it.
 
 **The heel cut is the lenient one because its cone is tangent to the tooth plane.** The dedendum
 corner C/D and the tooth centre K′/L′ both sit on this gear's back-cone dedendum line, so the tooth
