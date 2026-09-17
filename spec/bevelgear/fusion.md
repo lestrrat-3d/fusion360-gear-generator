@@ -78,12 +78,19 @@ in `PLAYBOOK.md` still apply).
   Profiles"); (b) sharing **and also** coinciding is redundant and the §2 solve **fails outright**
   with `RuntimeError … VCS_SKETCH_SOLVING_FAILED - failed to create offset`.
   - ⚠️ **This covers the short "reference"/connector lines too — the ones whose BOTH endpoints
-    already exist: `C→K`, `D→L` (and `C→K′`/`D→L′`), `M→C`, `N→A`, `O→D`, `P→B`, `B→I`, `A→G`.** Do
+    already exist: `C→K`, `D→L` (and `C→K′`/`D→L′`), `M→C`, `O→D`, `N→A′`, `B′→I`.** Do
     **NOT** draw these by sharing both existing `SketchPoint`s: sharing even these already-pinned
     points tips the Gear Profiles sketch to **under-constrained** and the gate fails (observed: a
     regen that shared only these reference lines came out ~14 coincidents short). Build **every** §2
     line — lattice or reference — from raw `Point3D` coordinates, then `addCoincident` **each**
     endpoint to its existing point (one per end). No §2 line is exempt.
+  - ⚠️ **The toe-end names are A′ and B′, and `N→A` / `P→B` no longer exist.** The Toe Radius
+    rework replaced them: `A′→G` is the line that CREATES A′ and `P→B′` is the line that creates
+    B′, so each of those two has one endpoint that does not exist yet and takes **one**
+    `addCoincident` rather than two. `N→A′` and `B′→I` connect points that both already exist and
+    take one per end, which is why they sit in the list above. A regen that draws `N→A` or `P→B` is
+    building the pre-Toe-Radius figure, where N was pinned to the `A→Apex2` drop; `instructions.md`
+    §2 owns that change and states why N is never pinned to a shaft axis.
 - **[BEVEL-F-LINE-ONCE] Each named §2 line is created ONCE; later references REUSE that line
   object — never redraw it.** The extension lines (A→E, B→F, E→G, F→I) and the dedendum /
   closing lines (C→H, D→J, G→H, I→J) are *named* construction lines. When a later step says "from
@@ -137,8 +144,10 @@ in `PLAYBOOK.md` still apply).
   comes from the seed. Two mechanisms fix a side at all and both are refused, recorded here so the
   question is not re-opened:
   - `addSymmetry` on C and D against the Pitch Line rules out the collapse but not the swap, and it
-    replaces a dedendum's perpendicular plus length — a net redesign, which the `[PB-SKETCH-FIRST]`
-    waiver in `instructions.md` forbids a regen from making.
+    replaces a dedendum's perpendicular plus length — a net redesign. `instructions.md`'s
+    sketch-first paragraph is what governs one now that the `[PB-SKETCH-FIRST]` waiver is retired:
+    the §2 scheme is bench-proven by `TestGearProfiles` in `proof/bevelgear/sketches_test.go`, so a
+    regen changes it only together with that proof, and never on its own.
   - `SketchPoint.isFixed` over-constrains, because the closure already determines every core point,
     and it turns the parametric lattice into placed geometry.
 - **[BEVEL-F-SEED-HELD] Gate the solved §2 figure against its own seeds.** After the Gear Profiles

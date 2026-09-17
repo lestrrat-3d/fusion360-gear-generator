@@ -49,6 +49,22 @@ the cone element.
 > is essentially identical and using the root cone is a defensible convenience for guiding
 > the lengthwise tooth curve — but it is a departure from the canonical pitch-cone/crown-gear
 > reference, and ψ then ends up measured on the root cone rather than the pitch cone.
+>
+> **The departure does not carry through to §8, and the two halves are deliberately taken on
+> two different cones.** This frame develops the **root** cone, so `R_toe`, `R_heel` and the
+> subtended angle `φ_crown` are all root-cone quantities; the twist in §8 divides `φ_crown`
+> by `sin γ` on the **pitch** cone, because the crown gear the generation law rolls against
+> is tangent to the pitch cone. Written consistently here the divisor would be `sin γ_root`
+> for `γ_root = γ − δ_f`, and the two are far enough apart to matter: at the default 31/31
+> pair at Shaft Angle 90° the dedendum angle `δ_f` is 3.26°, so the root divisor would twist
+> the tooth about 6% further. The pitch angle is what is kept, and `instructions.md` §3a
+> step G records the measurement behind that: the build that divided by the root angle
+> inflated the twist about 1.15× on a 17-tooth pinion meshing a 31-tooth gear, which is the
+> defect that kept ratio pairs from meshing. **Whether the frame should instead move to the
+> pitch cone is not settled.** Nothing in this repository measures it — the proof asserts §8
+> against the same formula the module computes, so it confirms the arithmetic and not the
+> choice of cone — and moving the frame would change `R_toe`, `R_heel` and the element ψ is
+> measured against, so it is its own derivation.
 
 Set up coordinates **in this plane**, with the **apex as the origin**:
 
@@ -198,7 +214,10 @@ reintroducing it). Instead the tooth's rotation about the gear **shaft axis** is
 - `phi_crown = atan2(heel_y, heel_x) − atan2(toe_y, toe_x)` — the angle the arc's toe and
   heel endpoints subtend **at the apex** in the flat frame (the developed crown-gear plane);
 - `total = |phi_crown| / sin γ` — the toe→heel twist magnitude about the shaft axis, with γ
-  this gear's **pitch** cone angle; the hand sign sets the direction.
+  this gear's **pitch** cone angle; the hand sign sets the direction. `phi_crown` comes out of
+  the **root**-cone frame §1 sets up while this divisor is the **pitch** cone's roll ratio —
+  §1's caveat states that split, what it would cost to close it the other way, and that which
+  cone the frame belongs on is unmeasured.
 
 The straight tooth is then sliced into cross-section slabs and each slab is rotated about the
 shaft axis by its linear share of `total`, centred on `R_mean` so the mid-face section stays
