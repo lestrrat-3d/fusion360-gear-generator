@@ -1006,19 +1006,19 @@ its cost at each site.
   the whole body on the discard side, with its apex on the shaft axis at the station the toe edge's
   own lattice point M/O puts it — rather than as a band spanning that one profile edge, which is
   enough to read an angle off and is not a tool a cut can use. It is an n-gon loft, because the cut
-  consumes it. Bring the tooth into the cone's frame with the rotation of γ about the apex that
-  carries the tooth's axis-perpendicular build plane onto the back-cone plane; that fixes the plane
-  and not the tooth's seating on the gear body, which is the placement the Combine-Join below still
-  waits on. Then `Cut` the tooth with the cone for the offcut and `Intersect` them for the keeper,
-  in separate documents, since either operation retires its operands. `Cut` returns a body on all 20
-  solid cases and `Intersect` on 18. On the two at Shaft Angle 142° the `Intersect` comes back as a
-  `*decad.BooleanError` carrying `BooleanEmpty` — the toe cone takes nothing off that tooth there,
-  and the `Cut` hands back the whole of it. **Tolerate that one typed refusal and fail on any other
-  error**: an empty toe trim is the same condition the generated module raises as
-  `solids.NonIntersectError`. Assert that the keeper and the offcut add back to the whole tooth,
-  which they do to 4e-16 relative at worst, and that each piece decad returns is one lump and solid.
-  **The toe split costs nothing now** — the evaluator divides the tooth, and both halves of the
-  division are measured.
+  consumes it. Put the tooth and the cone in one frame, so that the cone meets the tooth where the
+  toe end of the flush band puts it; seating the tooth on the gear body is a different placement,
+  and it is the one the Combine-Join below still waits on. Then `Cut` the tooth with the cone for
+  one piece and `Intersect` them for the other, in separate documents, since either operation
+  retires its operands. **Tolerate one typed refusal from the `Intersect` and fail on any other
+  error**: a `*decad.BooleanError` carrying `BooleanEmpty` says the cone took nothing off that
+  tooth, which is the condition the generated module raises as `solids.NonIntersectError`. A probe
+  over one pair of operands drew it on the two Shaft Angle 142° cases and on no other, so keep the
+  branch whatever cone this step ends up building. Assert that the two pieces add back to the whole
+  tooth, and that each piece decad returns is one lump and solid. **The toe split costs nothing
+  now** — the evaluator divides the tooth, and both halves of the division are measured, except on
+  a case the refusal above claims, where the step records that it built no split rather than
+  passing silently.
 
   **Perform no heel cut, because its cone is tangent to the tooth plane.** The dedendum corner C/D
   and the tooth centre K′/L′ both sit on this gear's back-cone dedendum line, so the tooth plane
