@@ -1338,12 +1338,21 @@ sent an investigation chasing was a reflected centre — the ambiguity a three-p
 dimension really does admit, and which this construction has no room for, because the centre is
 pinned.
 
-**Why the proof cannot reproduce that coincident, which is what the comment is for.** The sketch
-engine emits a coincident as two residual rows. The arc's centre has one remaining freedom left by
-its own equidistance row, so two rows against it come back redundant and the engine's gate refuses
-the sketch. The proof therefore pins each arc's centre with **one signed component** beside that
-equidistance row, and **asserts** each radius rather than dimensioning it. **State the cost at the
-site:** the pair of constraints the drawer actually makes is not the pair the proof solves.
+**Reproduce the drawer's own constraint if the sketch solves with it, and do not assume it will
+not.** Whether `addCoincident(arc.centerSketchPoint, localOrigin)` can be written faithfully depends
+on how the rest of the tooth is modelled, not on the arc alone, and this spec has twice carried a
+rule about it that the next measurement contradicted. Two compile rounds have measured opposite
+results on their own constructions: one reached DOF 0 with a single signed component in the
+coincident's place, and one reached DOF 0 with the faithful coincident and DOF 1 with the signed
+component, because its tip rib carries no perpendicular and the coincident's second row is what pins
+the two tip points. **So measure it rather than prescribe it:** write the coincident, and substitute
+only if the engine's gate actually refuses it.
+
+**Either way, record which one was written and what it cost, at the site.** Where the coincident
+stands, the cost is nil and the proof says so. Where a signed component replaces it, the cost is
+that the pair of constraints the drawer makes is not the pair the proof solves, and the radius is
+asserted rather than dimensioned. A reader of the proof needs to know which of the two is in front
+of them.
 
 **The §3a trace arc is the other case and it is genuinely a three-point arc with a radius
 dimension** (§3a step C: three through-points, centre coincident to the cutter circle's centre,
