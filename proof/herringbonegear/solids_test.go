@@ -1,37 +1,49 @@
-// This file holds herringbone's three solid steps: the lofted bottom-half
-// tooth, the mirrored top half, and the combine that leaves one tooth body
-// spanning the full thickness.
-//
-// Two substitutions run through all three, and both are named where they are
-// made rather than only here.
-//
-// The section is chorded. decad lofts a pair of sections segment by segment
-// and pairs two LineSegs, two ArcSegs or two CircleSegs only, so the fitted
-// splines Fusion lofts are refused by name; and a loft carrying arc pairs comes
-// back with a volume whose error bound is wider than the verification
-// tolerance, which the solid gate rejects. Each section is therefore drawn as
-// one closed chain of chords: through the involute sample points along each
-// flank, and through arcChordCount steps along the root and tooth-top arcs.
-// Every sample and both flank-to-root stubs sit exactly where the real section
-// has them; what is lost is the curvature between them, so the section is a
-// hair smaller than the drawn one, and the readings taken from it are compared
-// against that same chorded section rather than against the arc-bounded ideal.
-// What the loft is being asked to prove is unaffected: where the two sections
-// sit, that the body between them is a sound solid, and that the second half is
-// the first one reflected.
-//
-// The mirror is a second loft, not a reflection. decad's Placed and PlacedCopy
-// carry a body under a RIGID motion; a reflection is not one, so the mirror
-// feature has no direct counterpart here. The reflection of a ruled loft across
-// its own top plane is the same two sections ruled again, one thickness-half
-// higher, so that is what the proof builds — and the SECTION ORDER matters, for
-// a reason worth knowing: see mirrorSectionOrder.
 package herringbonegear_test
 
+// This file proves herringbone's three solid-body facts: the plane its
+// helicalPlaneOffset override puts the twisted section on, the half tooth the
+// inherited loftTooth builds up to that plane, and the mirror-and-combine that
+// turns that half into the chevron.
+//
+// WHAT IS SUBSTITUTED, AND WHAT THE SUBSTITUTION COSTS. Three of decad's own
+// boundaries are met here, and each one is met with the closest geometry the
+// engine does accept rather than by dropping the step.
+//
+//  1. THE SECTIONS ARE CHORDED. decad's loft pairs recorded segments and
+//     refuses a free-form pair, so the two involute flanks — fitted splines in
+//     Fusion and in this gear's sketch proof — cannot be lofted. Each section
+//     here is the same tooth outline walked as a closed polyline through the
+//     same involute samples, with the tooth-top arc and the root arc chorded
+//     too. What that costs: the flank surface is faceted rather than swept, so
+//     every volume below is the chorded tooth's, a little under the real one,
+//     and no statement here is about the flank's curvature. What it keeps is
+//     everything the three steps are about — where the sections sit, that the
+//     twist between them is the helix angle, and how the two halves join.
+//
+//  2. THE SECTION POINTS ARE FIXED, NOT CONSTRAINED. Every vertex is placed at
+//     its computed coordinate and pinned with sketch.Fix, so the section solves
+//     to exactly one valid region with no scheme of its own. The constraint
+//     scheme is not skipped: it is the sketch proof's subject, on the real
+//     spline construction, in stepMidBodyTwistedProfile.
+//
+//  3. THE MIRROR IS A SECOND LOFT, AND THE COMBINE OVERLAPS. decad has no
+//     mirror feature, so the mirrored half is built as the loft that IS the
+//     reflection of the first: from the far face's untwisted section TO the
+//     mid-body twisted section, the same direction of travel as the first half,
+//     which is what makes the two bodies reflections rather than two differently
+//     ruled solids (the evaluator's walls are built outward from the FROM
+//     section, so the argument order changes the volume — measured 15.764 mm^3
+//     against 16.671 mm^3 for the two orders of one 14.5-degree case). And
+//     decad's union refuses two solids that meet exactly on a shared face —
+//     "two operand facets overlap in one plane — the exact predicates cannot
+//     classify a tangent contact" — so the combine step slides the mirrored
+//     half's near section one hundredth of the thickness past the mid plane and
+//     unions overlapping solids instead of tangent ones. What that costs: the
+//     joined body is that sliver thicker at its waist than the gear is, which
+//     is why the chevron's volume is asserted against twice a half with a
+//     measured 0.7 percent of room rather than exactly.
+
 import (
-	"context"
-	"errors"
-	"fmt"
 	"math"
 	"testing"
 
@@ -44,416 +56,426 @@ import (
 	"github.com/lestrrat-3d/units"
 )
 
-// solidCases sweeps the twists and thicknesses the tooth is lofted across.
+// solidCases sweeps the chevron across the regime herringbone's inputs reach.
 //
-// The helix angle is signed, and a left-hand gear is the same build mirrored,
-// so every twist is swept on both signs. The thickness is what herringbone
-// halves, so it is swept from a thin body — where the mid plane sits at 0.5 mm
-// and the two halves are short — to a thick one.
-//
-// Embedded profiles are absent on purpose. The inherited loftTooth passes a
-// fixed nurbs=2, arcs=2, lines=2 to the profile finder and has no embedded
-// branch, so an embedded gear has no lofted tooth to prove; the sketch step
-// carries both embedded routes and pins the four-curve loop that finder cannot
-// match.
+// The helix angle carries its whole signed range, because the sign is the hand
+// of the helix and the two hands are not the same solid — the evaluator's own
+// wall triangulation is chirality-dependent, measured below. Thickness appears
+// at both ends of a wide range because the thickness is what the override
+// halves: a proof that only ever halved 10 mm would not see an offset that
+// happened to be a constant. Size covers coarse and fine teeth, the rib count
+// covers the low end, and both routes into the embedded shape are present
+// because herringbone inherits no support for either and the proof has to say
+// so rather than never meeting one.
 var solidCases = []proofkit3d.Case{
-	{Name: "default_right_hand_14.5deg", Params: map[string]float64{
-		"module": 1, "toothNumber": 17, "pressureAngle": deg(20),
-		"helixAngle": deg(14.5), "involuteSteps": 15, "thickness": 10,
-	}},
-	{Name: "left_hand_negative_14.5deg", Params: map[string]float64{
-		"module": 1, "toothNumber": 17, "pressureAngle": deg(20),
-		"helixAngle": deg(-14.5), "involuteSteps": 15, "thickness": 10,
-	}},
-	{Name: "steep_right_hand_35deg", Params: map[string]float64{
-		"module": 2, "toothNumber": 24, "pressureAngle": deg(20),
-		"helixAngle": deg(35), "involuteSteps": 15, "thickness": 20,
-	}},
-	{Name: "steep_left_hand_35deg", Params: map[string]float64{
-		"module": 2, "toothNumber": 24, "pressureAngle": deg(20),
-		"helixAngle": deg(-35), "involuteSteps": 15, "thickness": 20,
-	}},
-	{Name: "thin_body", Params: map[string]float64{
-		"module": 1, "toothNumber": 17, "pressureAngle": deg(20),
-		"helixAngle": deg(14.5), "involuteSteps": 15, "thickness": 1,
-	}},
-	{Name: "thick_body_coarse_module", Params: map[string]float64{
-		"module": 4, "toothNumber": 12, "pressureAngle": deg(20),
-		"helixAngle": deg(-20), "involuteSteps": 15, "thickness": 60,
-	}},
+	{Name: "default_M1_N17_helix14.5", Params: params(1, 17, 20, 14.5, 15, 10)},
+	{Name: "helix_minus14.5_left_hand", Params: params(1, 17, 20, -14.5, 15, 10)},
+	{Name: "helix0_no_twist", Params: params(1, 17, 20, 0, 15, 10)},
+	{Name: "helix_plus35", Params: params(1, 17, 20, 35, 15, 10)},
+	{Name: "helix_minus35_left_hand", Params: params(1, 17, 20, -35, 15, 10)},
+	{Name: "helix_plus90_quarter_turn", Params: params(1, 17, 20, 90, 15, 10)},
+	{Name: "helix_minus90_quarter_turn", Params: params(1, 17, 20, -90, 15, 10)},
+
+	{Name: "coarse_M3_N15_helix14.5", Params: params(3, 15, 20, 14.5, 15, 10)},
+	{Name: "fine_M0.5_N24_helix14.5", Params: params(0.5, 24, 20, 14.5, 15, 10)},
+	{Name: "large_M2_N20_helix14.5", Params: params(2, 20, 20, 14.5, 15, 10)},
+	{Name: "M1_N12_helix14.5", Params: params(1, 12, 20, 14.5, 15, 10)},
+
+	{Name: "ribs_low_count_5_helix14.5", Params: params(1, 17, 20, 14.5, 5, 10)},
+	{Name: "ribs_low_count_3_helix_minus25", Params: params(1, 17, 20, -25, 3, 10)},
+
+	{Name: "thin_T2_helix14.5", Params: params(1, 17, 20, 14.5, 15, 2)},
+	{Name: "thick_T40_helix14.5", Params: params(1, 17, 20, 14.5, 15, 40)},
+
+	{Name: "embedded_by_tooth_count_N60_PA20", Params: params(1, 60, 20, 14.5, 15, 10)},
+	{Name: "embedded_by_pressure_angle_N30_PA30", Params: params(1, 30, 30, 14.5, 15, 10)},
 }
 
-// mirrorSectionOrder records why the mirrored half is lofted from its FAR
-// section inward rather than from the mid plane outward.
-//
-// A twist makes every ruled wall panel non-planar, and decad builds those walls
-// outward from the section given FIRST, so which section leads decides how each
-// panel is split into triangles. Ruling the same two sections the other way
-// round therefore returns a slightly different polyhedron: measured on the
-// pinned decad, 15.818 mm^3 against 16.227 mm^3 at 14.5 degrees (2.5% apart)
-// and 123.677 against 129.350 at 35 degrees (4.4%), each with a proven error
-// bound near 1e-16, so these are two exact readings of two solids rather than
-// one uncertain reading of one.
-//
-// A mirror has no such freedom — it returns the reflection and nothing else —
-// so the proof has to pick the ruling that IS the reflection. Ruling the
-// mirrored half from the untwisted far section into the twisted mid section,
-// the same order the lofted half is ruled in, makes the two triangulate as
-// mirror images and their volumes agree to the last digit. Ruling it from the
-// mid section outward instead leaves a half that is the right shape to a few
-// percent and the wrong solid exactly, which is why this is pinned here rather
-// than absorbed into a loose tolerance.
-const mirrorSectionOrder = "far section first, mid section second"
+// joinOverlapFraction is how far past the mid plane the mirrored half reaches in
+// stepCombineToothHalves, as a fraction of the thickness. See substitution 3 in
+// this file's header: decad's union refuses a tangent contact, so the two halves
+// have to overlap for the join to be classifiable at all. One hundredth is the
+// smallest overlap measured to hold across this table, and small enough that the
+// joined body's centroid still sits on the mid plane to within a micron.
+const joinOverlapFraction = 0.01
 
-// mirrorVolumeTolerance is the band the two halves' volumes are compared in.
-// A mirror changes no volume, and with the section order above the two halves
-// come back bit-identical, so the band only absorbs float64 noise.
-const mirrorVolumeTolerance = 1e-9
+// combineHalfVolume carries one reading from stepCombineToothHalves's build to
+// its assertion. The combine consumes both halves, so by the time the assertion
+// runs there is no half left to read, and the chevron's volume has to be
+// compared against something. That hand-off is why this step is registered with
+// the serial proofkit3d.RunSolid and not its parallel counterpart: two cases
+// running at once would overwrite each other's reading, and the proof would
+// report a wrong verdict rather than fail.
+var combineHalfVolume decad.Measurement
 
-// stepLoftToothHalf lofts the bottom half of the tooth.
+// stepMidBodyPlane proves where herringbone's helicalPlaneOffset override puts
+// the twisted profile's plane.
 //
-// The bottom section is the untwisted Gear Profile tooth on the target plane
-// and the top section is the twisted one on the mid-body plane, added in that
-// order, which is the loft the inherited loftTooth performs once
-// helicalPlaneOffset has put its plane at half the thickness.
+// helicalPlaneOffset returns Thickness/2 where helical returns the whole
+// Thickness, and everything else about this build is inherited, so the offset is
+// visible in exactly one place: the face the lofted half ends on. The build is
+// the lower half tooth; the assertion reads only its axial span.
+func stepMidBodyPlane(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
+	requireNonEmbedded(t, p)
+	thickness := p["thickness"]
+	world := sketch.NewWorld()
+	return []*decad.Body{loftHalf(t, doc, world, p, 0, 0, thickness/2, p["helixAngle"], "Tooth Body")}
+}
+
+// assertMidBodyPlane checks the one length this step is about.
+func assertMidBodyPlane(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
+	thickness := p["thickness"]
+	box := boundsOf(t, "Tooth Body", bodies[0])
+	// The base plane and the mid-body plane, read off the body that spans them.
+	// Both numbers are exact — the sections are fixed at their plane's offset —
+	// and 1e-9 mm is rounding room, not tolerance for a wrong plane. The top
+	// face landing at Thickness/2 rather than at Thickness is the whole of
+	// herringbone's helicalPlaneOffset override: helical's hook returns the
+	// whole Thickness and would put this face on the far end of the gear.
+	measuresAxialSpan(t, "Tooth Body", box, 0, thickness/2, decadtest.Within(units.Millimeters(1e-9)))
+}
+
+// stepLoftToothHalf proves the half tooth the inherited loftTooth builds: the
+// bottom Gear Profile section lofted to the twisted section on the mid-body
+// plane.
 func stepLoftToothHalf(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	lower, _ := loftLowerHalf(t, doc, p)
-	return []*decad.Body{lower}
+	requireNonEmbedded(t, p)
+	thickness := p["thickness"]
+	world := sketch.NewWorld()
+	return []*decad.Body{loftHalf(t, doc, world, p, 0, 0, thickness/2, p["helixAngle"], "Tooth Body")}
 }
 
-// assertLoftToothHalf checks the half spans the bottom half of the body and
-// keeps the drawn tooth section at both ends.
+// assertLoftToothHalf checks the shape the loft left behind.
 func assertLoftToothHalf(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
 	thickness := p["thickness"]
-	section := toothSectionArea(t, p)
+	angle := p["helixAngle"]
+	low, high := sectionEnvelope(p, 0, angle, 0, thickness/2)
 
-	requireSpan(t, bodies[0], "lofted half", 0, thickness/2)
-	requireCapArea(t, bodies[0], "lofted half", r3.NewVec(0, 0, -1), section)
-	requireCapArea(t, bodies[0], "lofted half", r3.NewVec(0, 0, 1), section)
+	// The box is exact and it is the twist's own footprint: a straight prism of
+	// the bottom section would be narrower, so a loft that lost the twisted
+	// section, or took it at the wrong angle, fails here. Every corner of a
+	// ruled loft is a convex combination of the two sections' vertices, so the
+	// envelope of those vertices IS the body's bounding box; the readings match
+	// it to the last digit and carry a zero bound, and 1e-9 mm is rounding room.
+	measuresBounds(t, "Tooth Body", bodies[0], low, high, decadtest.Within(units.Millimeters(1e-9)))
+
+	// The oracle is the prismatoid volume of the ruled solid between the two
+	// sections, h/6 * (A0 + 4*Am + A1). It is exact for the solid this loft
+	// denotes, because the cross-section at loft parameter u is the polygon
+	// whose vertices interpolate the two sections, and a polygon's area is
+	// quadratic in its vertices — so Simpson's rule is not an approximation
+	// here.
+	//
+	// What it is not is the number decad reports. The evaluator triangulates
+	// each ruled wall on a fixed diagonal, and that choice moves the volume off
+	// the ruled solid's own by a measured 0 percent at no twist, 2.8 at 14.5
+	// degrees, 4.8 at 25, 6.7 at 35 and 16.6 at a quarter turn — and it moves it
+	// the other way for the opposite hand, because the reflection swaps which
+	// diagonal each quad takes. The slack is a bound on that wall
+	// triangulation, sized for the quarter-turn cases at the end of the table,
+	// and not on the formula.
+	measuresVolume(t, "Tooth Body", bodies[0],
+		units.CubicMillimeters(prismatoidVolume(
+			sectionVertices(p, 0), sectionVertices(p, angle), thickness/2)),
+		decadtest.WithinRel(units.Scalar(0.2)))
 }
 
-// stepMirrorToothHalf mirrors the lofted half across the mid-body plane.
-//
-// The mirror's target plane is ctx.helixPlane — the plane the twisted section
-// was drawn on, at half the thickness — and not a fresh plane, so the mirrored
-// half starts exactly where the lofted half ends. Both bodies are returned:
-// the mirror leaves the original in place and adds the reflected copy, which is
-// what the combine then joins.
+// stepMirrorToothHalf proves the mirror across ctx.helixPlane: the lofted half
+// reflected in the mid-body plane, which is the half that completes the chevron.
 func stepMirrorToothHalf(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	lower, twisted := loftLowerHalf(t, doc, p)
-	upper := mirrorAcrossMidPlane(t, doc, twisted, p)
-	return []*decad.Body{lower, upper}
+	requireNonEmbedded(t, p)
+	thickness := p["thickness"]
+	angle := p["helixAngle"]
+	world := sketch.NewWorld()
+	lower := loftHalf(t, doc, world, p, 0, 0, thickness/2, angle, "Tooth Body")
+	// Substitution 3 in this file's header: the reflection is built as a loft
+	// travelling in the same direction as the first half — from an untwisted
+	// section on the far face to the same twisted section on the mid plane.
+	mirrored := loftHalf(t, doc, world, p, thickness, 0, thickness/2, angle, "Tooth Body (Mirrored)")
+	return []*decad.Body{lower, mirrored}
 }
 
-// assertMirrorToothHalf checks the mirrored half is the reflection of the
-// lofted one: the same footprint, the same section at both ends, the same
-// volume, and the top half of the body rather than the bottom.
+// assertMirrorToothHalf checks that the second half is the first one reflected.
 func assertMirrorToothHalf(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
 	thickness := p["thickness"]
-	section := toothSectionArea(t, p)
-	lower, upper := bodies[0], bodies[1]
+	angle := p["helixAngle"]
+	lower, mirrored := bodies[0], bodies[1]
 
-	requireSpan(t, lower, "lofted half", 0, thickness/2)
-	requireSpan(t, upper, "mirrored half", thickness/2, thickness)
-	requireCapArea(t, upper, "mirrored half", r3.NewVec(0, 0, -1), section)
-	requireCapArea(t, upper, "mirrored half", r3.NewVec(0, 0, 1), section)
+	// A reflection moves no volume. Both sides are readings, so both bounds
+	// count; the slack on top of them is 1e-12 relative, which is the rounding
+	// of the two builds' own arithmetic — measured, the two readings agree to
+	// the last digit on every case in this table.
+	lowerVolume := volumeOf(t, "Tooth Body", lower)
+	mirroredVolume := volumeOf(t, "Tooth Body (Mirrored)", mirrored)
+	decadtest.Agree(t, "the mirrored half against the half it was mirrored from",
+		lowerVolume, mirroredVolume, decadtest.WithinRel(units.Scalar(1e-12)))
 
-	// A reflection across a plane normal to the axis leaves the footprint
-	// alone, so the two halves must occupy the same x-y box. This is the
-	// sharp half of the mirror check; the volume comparison below is the
-	// blunt half, and the tolerance says why.
-	lowerBox, err := lower.Bounds()
-	if err != nil {
-		t.Fatalf("lofted half bounds: %v", err)
-	}
-	upperBox, err := upper.Bounds()
-	if err != nil {
-		t.Fatalf("mirrored half bounds: %v", err)
-	}
-	tol := 1e-6 * math.Max(1, thickness)
-	for _, axis := range []struct {
-		name           string
-		lowMin, lowMax float64
-		upMin, upMax   float64
-	}{
-		{"x", lowerBox.Min.X, lowerBox.Max.X, upperBox.Min.X, upperBox.Max.X},
-		{"y", lowerBox.Min.Y, lowerBox.Max.Y, upperBox.Min.Y, upperBox.Max.Y},
-	} {
-		if math.Abs(axis.lowMin-axis.upMin) > tol || math.Abs(axis.lowMax-axis.upMax) > tol {
-			t.Errorf("mirrored half's %s extent [%.6f, %.6f] differs from the lofted half's [%.6f, %.6f]",
-				axis.name, axis.upMin, axis.upMax, axis.lowMin, axis.lowMax)
-		}
-	}
-
-	// Two readings, not a reading against a formula, so both proven bounds
-	// count: a mirror changes no volume, and neither half is the authority the
-	// other is judged against.
-	decadtest.Agree(t, "the mirrored half against the lofted half, sections ruled "+mirrorSectionOrder,
-		volumeReading(t, upper, "mirrored half"), volumeReading(t, lower, "lofted half"),
-		decadtest.WithinRel(units.Scalar(mirrorVolumeTolerance)))
+	// Same footprint, reflected span: the mirrored half stands on the mid plane
+	// and reaches the far face. Exact, as in stepLoftToothHalf.
+	low, high := sectionEnvelope(p, 0, angle, thickness/2, thickness)
+	measuresBounds(t, "Tooth Body (Mirrored)", mirrored, low, high,
+		decadtest.Within(units.Millimeters(1e-9)))
 }
 
-// stepCombineToothHalves combines the mirrored half into the lofted one.
-//
-// In Fusion the combine's target is looked up by name — the body named
-// 'Tooth Body' — and the mirrored half, named 'Tooth Body (Mirrored)', is the
-// tool; the operation is left at the API default, Join. What has to come out of
-// it is one body spanning the full thickness, which is what the inherited
-// patternTeeth then circular-patterns.
-//
-// The boolean itself is beyond this evaluator, and the refusal is specific: two
-// bodies that meet exactly on a shared face come within the chord tolerance
-// without provably interpenetrating deeper than it, so decad refuses to decide
-// whether their surfaces touch or cross rather than answer it wrong. Every
-// stacking of these two halves hits it — measured on the exact face contact and
-// on an overlapped pair, and on a pair of straight prisms stacked the same way,
-// so it is the contact and not the twist. The step therefore attempts the union,
-// keeps its result when one comes back, and otherwise proves what a Join of
-// these two bodies would have to rest on: that the faces they meet on are the
-// same region, in the same plane, with the same area and the same centroid.
+// stepCombineToothHalves proves the combine: the mirrored half joined into
+// 'Tooth Body' so that one body spans the full thickness before the inherited
+// patternTeeth sees it.
 func stepCombineToothHalves(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	lower, twisted := loftLowerHalf(t, doc, p)
-	upper := mirrorAcrossMidPlane(t, doc, twisted, p)
+	requireNonEmbedded(t, p)
+	thickness := p["thickness"]
+	angle := p["helixAngle"]
+	if angle == 0 {
+		// Not a gap in the scheme, a boundary of the engine, and it is here
+		// rather than only in the step list so the next reader of this proof
+		// finds it. With no twist the two halves are straight prisms on the same
+		// outline, so every side wall of one is coplanar with the other's, and
+		// the overlap that substitution 3 relies on does not help: decad still
+		// refuses with "two operand facets overlap in one plane — the exact
+		// predicates cannot classify a tangent contact". A gear at zero helix
+		// angle is a spur gear whose chevron has no apex, so what is lost is a
+		// degenerate case rather than a working one — but it is lost, and only a
+		// Fusion session or a boolean that classifies coplanar contact can say
+		// what the combine does there.
+		proofkit3d.Unmodelled(t, "at zero helix angle the two halves' walls are coplanar and "+
+			"decad's union cannot classify the contact")
+		return nil
+	}
+	world := sketch.NewWorld()
+	lower := loftHalf(t, doc, world, p, 0, 0, thickness/2, angle, "Tooth Body")
+	mirrored := loftHalf(t, doc, world, p, thickness, 0,
+		thickness/2-thickness*joinOverlapFraction, angle, "Tooth Body (Mirrored)")
 
-	joined, err := decad.Union(lower, upper)
-	if err == nil {
-		t.Logf("union of the two halves built: proving the joined body directly")
-		return []*decad.Body{joined}
+	// Read the half before the union consumes it; see combineHalfVolume.
+	combineHalfVolume = volumeOf(t, "Tooth Body", lower)
+
+	// The combine is a Join, and its target is the lofted half while the
+	// mirrored half is the tool — the order [HERR-F-MIRROR-COMBINE] pins, where
+	// the target is looked up by the name 'Tooth Body'.
+	chevron, err := decad.Union(lower, mirrored)
+	if err != nil {
+		t.Fatalf("combine 'Tooth Body (Mirrored)' into 'Tooth Body': %v", err)
 	}
-	if !errors.Is(err, decad.ErrUnsupported) {
-		t.Fatalf("union of the two halves failed for a reason this proof does not expect: %v", err)
-	}
-	t.Logf("union refused, proving the mating faces instead: %v", err)
-	return []*decad.Body{lower, upper}
+	return []*decad.Body{chevron}
 }
 
-// assertCombineToothHalves checks what the Join has to leave behind.
+// assertCombineToothHalves checks that the join produced the chevron.
+//
+// That the result is ONE body, watertight, with a single lump and no voids, is
+// the gate's own verdict (proofkit3d.RunSolid), and it is the point of the
+// combine: the inherited patternTeeth circular-patterns one tooth body.
 func assertCombineToothHalves(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
 	thickness := p["thickness"]
-	section := toothSectionArea(t, p)
+	angle := p["helixAngle"]
+	chevron := bodies[0]
 
-	if len(bodies) == 1 {
-		requireSpan(t, bodies[0], "combined tooth body", 0, thickness)
-		requireCapArea(t, bodies[0], "combined tooth body", r3.NewVec(0, 0, -1), section)
-		requireCapArea(t, bodies[0], "combined tooth body", r3.NewVec(0, 0, 1), section)
-		return
-	}
+	// The joined body spans the whole thickness and keeps both halves'
+	// footprint, which is the same envelope either half has. Exact, as above.
+	low, high := sectionEnvelope(p, 0, angle, 0, thickness)
+	measuresBounds(t, "Tooth Body", chevron, low, high, decadtest.Within(units.Millimeters(1e-9)))
 
-	lower, upper := bodies[0], bodies[1]
-	// Together the two halves span the full thickness: the tooth the pattern
-	// receives is as tall as the gear body the inherited buildBody extrudes.
-	requireSpan(t, lower, "lofted half", 0, thickness/2)
-	requireSpan(t, upper, "mirrored half", thickness/2, thickness)
+	// Two halves in, one chevron out, and nothing lost or counted twice. The
+	// expected value is twice the half read in the build, so the comparison is
+	// reading against reading in all but name; the slack has to cover the
+	// mirrored half's overhang past the mid plane (substitution 3) and the wall
+	// triangulation at the join. Measured over this table the difference runs
+	// from 0.02 percent at 14.5 degrees to 0.61 at a quarter turn, so 2 percent
+	// leaves room without admitting a lost half, which would be 50.
+	measuresVolume(t, "Tooth Body", chevron, combineHalfVolume.Value.Scale(2),
+		decadtest.WithinRel(units.Scalar(0.02)))
 
-	lowerTop := capFace(t, lower, "lofted half", r3.NewVec(0, 0, 1))
-	upperBottom := capFace(t, upper, "mirrored half", r3.NewVec(0, 0, -1))
-
-	lowerArea := areaReading(t, lowerTop, "lofted half's top cap")
-	decadtest.Agree(t, "the two faces the halves meet on; a Join of faces that are not the "+
-		"same region leaves a step in the tooth",
-		lowerArea, areaReading(t, upperBottom, "mirrored half's bottom cap"),
-		decadtest.WithinRel(units.Scalar(1e-9)))
-	decadtest.Measures(t, "the face the halves meet on against the twisted section they share",
-		lowerArea, units.SquareMillimeters(section), decadtest.WithinRel(units.Scalar(1e-9)))
+	// The chevron is symmetric about the mid plane, so its centroid sits on it.
+	// This is the one reading that says the two halves are a chevron rather than
+	// a wedge: a mirror that did not reflect, or a combine that kept only one
+	// half, moves this off the mid plane by a quarter of the thickness. The
+	// slack is the overhang's own asymmetry, measured at most 3.1e-4 mm across
+	// this table.
+	centroid := centroidOf(t, "Tooth Body", chevron)
+	decadtest.Measures(t, "Tooth Body centroid height",
+		decad.Measurement{
+			Value:     units.Millimeters(centroid.Value.Z),
+			Exactness: centroid.Exactness,
+			Bound:     centroid.Bound,
+		},
+		units.Millimeters(thickness/2), decadtest.Within(units.Millimeters(1e-3)))
 }
 
-// loftLowerHalf draws the two sections and lofts the bottom half of the tooth.
+// requireNonEmbedded skips a case whose tooth profile is embedded.
 //
-// It returns the body and the twisted mid-plane section, which the mirror needs
-// again: the mirrored half is the same section pair in the opposite order, so
-// reusing this sketch is what makes the two halves meet on one shared region
-// rather than on two independently drawn ones.
-func loftLowerHalf(t *testing.T, doc *decad.Document, p map[string]float64) (*decad.Body, toothSection) {
-	world := sketch.NewWorld()
-	bottom := drawToothSection(t, world, 0, 0, p)
-	twisted := drawToothSection(t, world, p["thickness"]/2, p["helixAngle"], p)
-
-	// Bottom section first, then the top, which is the order loftTooth adds
-	// them in.
-	body, err := doc.Loft(bottom.sketch, bottom.profile, twisted.sketch, twisted.profile)
-	if err != nil {
-		t.Fatalf("loft the bottom half of the tooth: %v", err)
+// The inherited loftTooth finds both of its sections with a fixed
+// nurbs=2, arcs=2, lines=2 and never reads ctx.toothProfileIsEmbedded, so an
+// embedded tooth — the flanks crossing the root circle themselves, leaving no
+// flank-to-root stubs — is a shape it cannot find at all ([HELI-F-LOFT]'s
+// documented limitation, inherited unchanged). The sketch proof measures that
+// shape; there is no solid for this proof to build from it, and the chorded
+// outline here would self-intersect if it tried, since its root stubs would run
+// inward from the flank start.
+func requireNonEmbedded(t *testing.T, p map[string]float64) {
+	t.Helper()
+	if dimensionsOf(p).Embedded() {
+		proofkit3d.Unmodelled(t, "the tooth profile is embedded, which the inherited loftTooth's "+
+			"fixed lines=2 profile search cannot find")
 	}
-	return body, twisted
 }
 
-// mirrorAcrossMidPlane builds the reflection of the lofted half.
-//
-// The reflection of a ruled loft across its own top plane is the same pair of
-// sections ruled again half a thickness higher, so the mirrored half is lofted
-// between an untwisted section on the far face and the twisted mid-plane
-// section — the very sketch the lofted half ends on, which is what makes the
-// two halves meet on one shared region rather than on two drawn separately.
-func mirrorAcrossMidPlane(t *testing.T, doc *decad.Document, twisted toothSection, p map[string]float64) *decad.Body {
-	top := drawToothSection(t, twisted.sketch.World(), p["thickness"], 0, p)
-	// Sections in mirrorSectionOrder: the untwisted far one first, the twisted
-	// mid one second, which is the order the lofted half was ruled in.
-	body, err := doc.Loft(top.sketch, top.profile, twisted.sketch, twisted.profile)
+// sectionVertices is the chorded tooth outline at one draw angle, in the order
+// the loft pairs it: the left root stub, the left flank from the base circle
+// out to the tip, the right flank back in, and the right root stub. Both
+// sections of a loft are built by this one function, so they pair segment for
+// segment and kind for kind, which is what decad's loft requires.
+func sectionVertices(p map[string]float64, angle float64) []involute.Pt {
+	dims := dimensionsOf(p)
+	left, right := involute.Flanks(dims.Base, dims.Tip, dims.Pitch,
+		p["toothNumber"], int(p["involuteSteps"]), angle)
+	onRootCircle := func(point involute.Pt) involute.Pt {
+		radius := math.Hypot(point.X, point.Y)
+		return involute.Pt{X: dims.Root * point.X / radius, Y: dims.Root * point.Y / radius}
+	}
+	out := make([]involute.Pt, 0, 2*len(left)+2)
+	out = append(out, onRootCircle(left[0]))
+	out = append(out, left...)
+	for i := len(right) - 1; i >= 0; i-- {
+		out = append(out, right[i])
+	}
+	return append(out, onRootCircle(right[0]))
+}
+
+// sectionSketch draws one chorded section on a plane offset by z and returns it
+// with its single valid region.
+func sectionSketch(t *testing.T, world *sketch.World, p map[string]float64, z, angle float64) (*sketch.Sketch, *sketch.Profile) {
+	t.Helper()
+	plane := world.XY()
+	if z != 0 {
+		offset, err := world.CreateOffsetPlane(world.XY(), z)
+		if err != nil {
+			t.Fatalf("construction plane offset %g mm from the base plane: %v", z, err)
+		}
+		plane = offset
+	}
+	s, err := world.CreateSketch(plane)
 	if err != nil {
-		t.Fatalf("mirror the lofted half across the mid-body plane: %v", err)
+		t.Fatalf("sketch on the plane %g mm from the base plane: %v", z, err)
+	}
+	vertices := sectionVertices(p, angle)
+	points := make([]*sketch.Point, len(vertices))
+	for i, vertex := range vertices {
+		points[i] = s.CreatePoint(vertex.X, vertex.Y)
+	}
+	for i := range points {
+		s.CreateLine(points[i], points[(i+1)%len(points)])
+	}
+	// Substitution 2 in this file's header: the outline is pinned rather than
+	// constrained, because the constraint scheme is the sketch proof's subject.
+	for _, point := range points {
+		s.Fix(point)
+	}
+	return s, decadtest.SolveRegion(t, s)
+}
+
+// loftHalf lofts one half tooth, from an untwisted section on the face at
+// fromZ to the twisted section on the plane at toZ, and names the body.
+//
+// Both halves travel in this direction, which is what makes them reflections of
+// each other rather than two differently ruled solids; see substitution 3.
+func loftHalf(t *testing.T, doc *decad.Document, world *sketch.World, p map[string]float64,
+	fromZ, fromAngle, toZ, toAngle float64, name string) *decad.Body {
+	t.Helper()
+	fromSketch, fromProfile := sectionSketch(t, world, p, fromZ, fromAngle)
+	toSketch, toProfile := sectionSketch(t, world, p, toZ, toAngle)
+	body, err := doc.Loft(fromSketch, fromProfile, toSketch, toProfile)
+	if err != nil {
+		t.Fatalf("loft %q from the section at %g mm to the section at %g mm: %v", name, fromZ, toZ, err)
 	}
 	return body
 }
 
-// toothSection is one loft section: the sketch, the region the loft consumes,
-// and that region's area.
-type toothSection struct {
-	sketch  *sketch.Sketch
-	profile *sketch.Profile
-	area    float64
-}
-
-// drawToothSection draws the tooth cross-section on a plane offset by z,
-// rotated by angle.
+// sectionEnvelope is the axis-aligned box of a body lofted between the sections
+// at two draw angles, spanning lowZ to highZ.
 //
-// The geometry is placed rather than constrained: every point is fixed at the
-// position the tooth generator computes for it. The constraint scheme that
-// reaches those positions in Fusion is what the sketch step proves, and
-// repeating it here would prove it twice while telling the loft nothing.
-//
-// The flanks are chorded — see this file's header for why, and for what the
-// substitution costs.
-func drawToothSection(t *testing.T, world *sketch.World, z, angle float64, p map[string]float64) toothSection {
-	plane := world.XY()
-	if z != 0 {
-		var err error
-		plane, err = world.CreateOffsetPlane(world.XY(), z)
-		if err != nil {
-			t.Fatalf("section plane at z=%.4f: %v", z, err)
+// Every point of a ruled loft is a convex combination of the two sections'
+// vertices, so the box of those vertices is the box of the solid.
+func sectionEnvelope(p map[string]float64, firstAngle, secondAngle, lowZ, highZ float64) (low, high r3.Vec) {
+	minX, minY := math.Inf(1), math.Inf(1)
+	maxX, maxY := math.Inf(-1), math.Inf(-1)
+	for _, angle := range []float64{firstAngle, secondAngle} {
+		for _, vertex := range sectionVertices(p, angle) {
+			minX, maxX = math.Min(minX, vertex.X), math.Max(maxX, vertex.X)
+			minY, maxY = math.Min(minY, vertex.Y), math.Max(maxY, vertex.Y)
 		}
 	}
-	s, err := world.CreateSketch(plane)
-	if err != nil {
-		t.Fatalf("section sketch at z=%.4f: %v", z, err)
-	}
+	return r3.NewVec(minX, minY, lowZ), r3.NewVec(maxX, maxY, highZ)
+}
 
-	d := involute.Derive(p["module"], p["toothNumber"], p["pressureAngle"])
-	if d.Embedded() {
-		proofkit3d.Unmodelled(t, "the inherited loftTooth has no embedded branch, so this gear has no lofted tooth")
-	}
-	left, right := involute.Flanks(d.Base, d.Tip, d.Pitch, p["toothNumber"], int(p["involuteSteps"]), angle)
-
-	onRoot := func(sample involute.Pt) involute.Pt {
-		radius := math.Hypot(sample.X, sample.Y)
-		return involute.Pt{X: sample.X * d.Root / radius, Y: sample.Y * d.Root / radius}
-	}
-	leftRoot, rightRoot := onRoot(left[0]), onRoot(right[0])
-
-	// The loop, walked counter-clockwise: the root arc under the tooth, the
-	// left flank-to-root stub, the left flank, the tooth-top arc, and the
-	// right flank back down to the right stub.
-	loop := []involute.Pt{rightRoot}
-	loop = append(loop, arcChords(rightRoot, leftRoot, d.Root)...)
-	loop = append(loop, leftRoot)
-	loop = append(loop, left...)
-	top := arcChords(right[len(right)-1], left[len(left)-1], d.Tip)
-	for i := len(top) - 1; i >= 0; i-- {
-		loop = append(loop, top[i])
-	}
-	for i := len(right) - 1; i >= 0; i-- {
-		loop = append(loop, right[i])
-	}
-
-	vertices := make([]*sketch.Point, len(loop))
-	for i, vertex := range loop {
-		vertices[i] = s.CreatePoint(vertex.X, vertex.Y)
-		s.Fix(vertices[i])
-	}
+// polygonArea is the shoelace area of one section outline.
+func polygonArea(vertices []involute.Pt) float64 {
+	sum := 0.0
 	for i := range vertices {
-		s.CreateLine(vertices[i], vertices[(i+1)%len(vertices)])
+		next := vertices[(i+1)%len(vertices)]
+		sum += vertices[i].X*next.Y - next.X*vertices[i].Y
 	}
-
-	if _, err := s.Solve(context.Background()); err != nil {
-		t.Fatalf("solve the section at z=%.4f: %v", z, err)
-	}
-	profiles := s.Profiles()
-	if len(profiles) != 1 {
-		t.Fatalf("the section at z=%.4f closes %d region(s), want the one tooth loop", z, len(profiles))
-	}
-	if !profiles[0].Valid {
-		t.Fatalf("the section at z=%.4f is not an extrudable region", z)
-	}
-	return toothSection{sketch: s, profile: profiles[0], area: profiles[0].Area}
+	return math.Abs(sum) / 2
 }
 
-// arcChordCount is how many chords stand in for each of the section's two
-// arcs. Eight keeps the chorded root and tooth-top arcs within a thousandth of
-// a millimetre of the true arc on every case in the table, which is well below
-// anything the assertions here read.
-const arcChordCount = 8
-
-// arcChords returns the interior vertices of the chord chain standing in for
-// the arc that runs counter-clockwise from one point to the other at radius.
-func arcChords(from, to involute.Pt, radius float64) []involute.Pt {
-	start := math.Atan2(from.Y, from.X)
-	end := math.Atan2(to.Y, to.X)
-	for end < start {
-		end += 2 * math.Pi
+// prismatoidVolume is the volume of the ruled solid between two sections a
+// height apart: h/6 * (A0 + 4*Am + A1), with Am the area of the section halfway
+// between them. See assertLoftToothHalf for why the rule is exact here.
+func prismatoidVolume(from, to []involute.Pt, height float64) float64 {
+	middle := make([]involute.Pt, len(from))
+	for i := range from {
+		middle[i] = involute.Pt{X: (from[i].X + to[i].X) / 2, Y: (from[i].Y + to[i].Y) / 2}
 	}
-	chords := make([]involute.Pt, 0, arcChordCount-1)
-	for i := 1; i < arcChordCount; i++ {
-		at := start + (end-start)*float64(i)/float64(arcChordCount)
-		chords = append(chords, involute.Pt{X: radius * math.Cos(at), Y: radius * math.Sin(at)})
-	}
-	return chords
+	return height / 6 * (polygonArea(from) + 4*polygonArea(middle) + polygonArea(to))
 }
 
-// toothSectionArea is the area of the drawn tooth section, read off a section
-// drawn the same way the loft's own sections are.
-func toothSectionArea(t *testing.T, p map[string]float64) float64 {
-	return drawToothSection(t, sketch.NewWorld(), 0, 0, p).area
-}
+// The four readers below exist so a failure names the body the step list names
+// — 'Tooth Body', 'Tooth Body (Mirrored)' — instead of decadtest's body index
+// and recipe step, which do not say which feature is wrong.
 
-// requireSpan checks a body occupies exactly the axial run it should.
-func requireSpan(t *testing.T, body *decad.Body, name string, low, high float64) {
-	t.Helper()
-	box, err := body.Bounds()
-	if err != nil {
-		t.Fatalf("%s bounds: %v", name, err)
-	}
-	tol := 1e-6 * math.Max(1, high)
-	if math.Abs(box.Min.Z-low) > tol || math.Abs(box.Max.Z-high) > tol {
-		t.Errorf("%s spans z [%.6f, %.6f], want [%.6f, %.6f]", name, box.Min.Z, box.Max.Z, low, high)
-	}
-}
-
-// requireCapArea checks the planar cap facing dir carries the drawn section.
-// want is the area of the section this proof itself drew, so 1e-9 of it is
-// that drawing's own error; decadtest adds the reading's proven bound to it.
-func requireCapArea(t *testing.T, body *decad.Body, name string, dir r3.Vec, want float64) {
-	t.Helper()
-	label := fmt.Sprintf("%s cap facing %v against the drawn tooth section", name, dir)
-	decadtest.Measures(t, label, areaReading(t, capFace(t, body, name, dir), name+" cap"),
-		units.SquareMillimeters(want), decadtest.WithinRel(units.Scalar(1e-9)))
-}
-
-func capFace(t *testing.T, body *decad.Body, name string, dir r3.Vec) *decad.Face {
-	t.Helper()
-	faces, err := decad.Faces(decad.Planar(), decad.Facing(dir)).Exactly(1).SelectFaces(body)
-	if err != nil {
-		t.Fatalf("%s: select the planar cap facing %v: %v", name, dir, err)
-	}
-	return faces[0]
-}
-
-// areaReading is a face's area reading: the value decad measured together with
-// the bound it proved around it.
-func areaReading(t *testing.T, face *decad.Face, name string) decad.Measurement {
-	t.Helper()
-	area, err := face.Area()
-	if err != nil {
-		t.Fatalf("%s area: %v", name, err)
-	}
-	return area
-}
-
-// volumeReading is a body's volume reading, measured value and proven bound
-// together.
-func volumeReading(t *testing.T, body *decad.Body, name string) decad.Measurement {
+func volumeOf(t *testing.T, name string, body *decad.Body) decad.Measurement {
 	t.Helper()
 	volume, err := body.Volume()
 	if err != nil {
-		t.Fatalf("%s volume: %v", name, err)
+		t.Fatalf("%s volume: reading it failed: %v", name, err)
 	}
 	return volume
+}
+
+func centroidOf(t *testing.T, name string, body *decad.Body) decad.VecMeasurement {
+	t.Helper()
+	centroid, err := body.Centroid()
+	if err != nil {
+		t.Fatalf("%s centroid: reading it failed: %v", name, err)
+	}
+	return centroid
+}
+
+func boundsOf(t *testing.T, name string, body *decad.Body) decad.Box {
+	t.Helper()
+	box, err := body.Bounds()
+	if err != nil {
+		t.Fatalf("%s bounds: reading it failed: %v", name, err)
+	}
+	return box
+}
+
+func measuresVolume(t *testing.T, name string, body *decad.Body, want units.Value, opts ...decadtest.Option) {
+	t.Helper()
+	decadtest.Measures(t, name+" volume", volumeOf(t, name, body), want, opts...)
+}
+
+func measuresBounds(t *testing.T, name string, body *decad.Body, low, high r3.Vec, opts ...decadtest.Option) {
+	t.Helper()
+	decadtest.MeasuresBox(t, name+" bounds", boundsOf(t, name, body), low, high, opts...)
+}
+
+// measuresAxialSpan reads the two faces a body stands between off its own box.
+// The box's proven bound covers each coordinate in it, so projecting it onto
+// the axis keeps the reading a reading rather than turning it into a bare float.
+func measuresAxialSpan(t *testing.T, name string, box decad.Box, low, high float64, opts ...decadtest.Option) {
+	t.Helper()
+	decadtest.Measures(t, name+" base face",
+		decad.Measurement{Value: units.Millimeters(box.Min.Z), Exactness: box.Exactness, Bound: box.Bound},
+		units.Millimeters(low), opts...)
+	decadtest.Measures(t, name+" mid-body face",
+		decad.Measurement{Value: units.Millimeters(box.Max.Z), Exactness: box.Exactness, Bound: box.Bound},
+		units.Millimeters(high), opts...)
 }
