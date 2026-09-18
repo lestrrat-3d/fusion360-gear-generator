@@ -19,9 +19,9 @@ No image here comes from Fusion, and nothing in this directory builds a Fusion b
 gear into Fusion is still the only check that sees the real thing.
 
 The pictures draw the **ideal** ribbon: an exact cosine edge on an exact helicoid, which is what
-the proof reasons about. The part Fusion builds lofts nine rectangles per tooth, and
+the proof reasons about. The part Fusion builds lofts twelve rectangles per tooth, and
 `TestLoftSectionCountHoldsTheHelicoid` bounds the difference between the two at 0.7 µm against a
-0.28 mm backlash. That bound is arithmetic about the loft rather than a measurement of one.
+0.45 mm backlash. That bound is arithmetic about the loft rather than a measurement of one.
 
 The bores are drawn on a grid: a cell of a post's block is dropped when it falls in the channel the
 turning ribbon sweeps, which is the same local mapping the meshing proof uses. A boundary running
@@ -32,8 +32,8 @@ across the grid's rows can still step, and those steps are in the drawing rather
 ![A twisted toothed rack, its wavy edge spiralling twice along its length](images/part.png)
 
 One gear. It is a flat plate 10 mm wide and 2.5 mm thick with a cosine tooth form cut into one
-long edge, 48 teeth at a 1.75 mm pitch, twisted about its own centre line at 40 mm per turn — a
-little over two full turns across its 84 mm.
+long edge, 40 teeth at a 1.75 mm pitch, twisted about its own centre line at 30 mm per turn — a
+little over two full turns across its 70 mm.
 
 The toothed edge is the one that spirals, and the twist is what the crossing angle is made of:
 `Sigma = 2*Beta` ties the two axes' angle to this edge's own helix angle, so a slower twist would
@@ -46,14 +46,15 @@ The teeth are 1.2 mm from crest to root, a little over a tenth of the plate's wi
 ![Two ribbons crossing near a right angle, with the frame's two rings at their centre](images/plan.png)
 
 Both gears, seen from almost overhead, which is the only view that shows the angle their axes
-cross at. That angle is 76.3°, and it is not free: the crossed-helical rule makes it twice the
-toothed edge's own helix angle, which the plate's width and the twist lead fix between them.
+cross at. That angle is 80°. The crossed-helical rule would make it twice the toothed edge's helix
+angle, which is 92.6° here, and the search picks 80° instead: the arrangement also has to carry a
+frame whose bores can be printed.
 
 ![The same pair from the side](images/pair.png)
 
-The same assembly from the side. The two axes are 9.40 mm apart along the frame's own axis, and the
-two gears are the same part rather than mirror images — what differs is the angle each is held at,
-30° for one and 0° for the other.
+The same assembly from the side. The two axes are 9.64 mm apart along the frame's own axis, and the
+two gears are the same part, held at the same 15° angle. Equal angles are what let all four bores
+stand near upright.
 
 ## The frame
 
@@ -97,10 +98,10 @@ four tooth pairs land in the engaged zone at once and cannot all interdigitate, 
 | Quantity | Value |
 |---|---|
 | Ratio | 1:1, the free window advancing exactly one pitch per pitch |
-| Backlash | 0.245–0.298 mm |
-| Departure from the 1:1 line | 0.047 mm, 2.7% of the pitch |
-| Clearance away from the teeth | 0.136 mm at the closest approach |
-| Engaged zone | ±5.3 mm, about 4 tooth pairs |
+| Backlash | 0.411–0.481 mm |
+| Departure from the 1:1 line | 0.064 mm, 3.7% of the pitch |
+| Clearance away from the teeth | 0.168 mm at the closest approach |
+| Bore angle | 15° off upright, which is the best the mounting angles allow |
 | Play in the frame | a bore jams a gear 3.21° out of step |
 | Stroke | 4.40 mm, or 2.5 teeth |
 

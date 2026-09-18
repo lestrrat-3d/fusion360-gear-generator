@@ -211,6 +211,63 @@ func TestBoresAdmitOnlyTheScrewMotion(t *testing.T) {
 		slack*180/math.Pi, p.Clearance)
 }
 
+// How far a bore stands from upright, which is what decides whether it prints.
+//
+// A bore is a hole through a post, and the post stands along the cage axis. A
+// model like this is printed with that axis vertical, so the bore is a
+// horizontal hole and its ceiling has to be bridged. A bore whose opening is
+// TALL and narrow bridges a short span; one whose opening is wide and flat
+// leaves a ceiling as wide as the ribbon, and that sags.
+//
+// The opening's angle is the ribbon's cross-section angle where it crosses the
+// cage, which is CageRadius/Lambda plus or minus that gear's mounting angle,
+// and there are FOUR of them: each gear crosses twice, at plus and minus the
+// cage radius, and those two are turned in opposite directions.
+//
+// Upright at all four needs the two mounting angles equal AND the cage radius a
+// whole number of half turns of the ribbon, and even then the four sit at plus
+// and minus the mounting angle. So the best any radius can do is the mounting
+// angle itself, and the smallest equal mounting angle that drives at this twist
+// is 15 degrees. CageRadius = Lambda*pi is what puts the four there.
+func TestBoresStandNearlyUpright(t *testing.T) {
+	ga, gb := defaultPair()
+	p := ga.P
+
+	worst := 0.0
+	for _, g := range []Gear{ga, gb} {
+		for _, station := range boreStations(p) {
+			theta := g.angle(station)
+			off := math.Mod(math.Abs(theta), math.Pi)
+			off = math.Min(off, math.Pi-off)
+			worst = math.Max(worst, off)
+		}
+	}
+	if got := worst * 180 / math.Pi; got > 20 {
+		t.Errorf("a bore stands %.1f degrees off upright, which leaves a ceiling too wide to "+
+			"bridge on a filament printer", got)
+	}
+	// What the best cage radius could do, searched rather than argued: the four
+	// bores sit at plus and minus CageRadius/Lambda off each mounting angle, so
+	// moving the radius trades one pair against the other.
+	best := math.Pi
+	for x := 0.0; x < math.Pi; x += math.Pi / 3600 {
+		d := 0.0
+		for _, phi := range []float64{p.MountAngleA, p.MountAngleB} {
+			for _, sign := range []float64{1, -1} {
+				off := math.Mod(math.Abs(sign*x+phi), math.Pi)
+				d = math.Max(d, math.Min(off, math.Pi-off))
+			}
+		}
+		best = math.Min(best, d)
+	}
+	if worst > best+0.5*math.Pi/180 {
+		t.Errorf("the bores stand %.1f degrees off upright where %.1f is available: the cage "+
+			"radius is not where it should be", worst*180/math.Pi, best*180/math.Pi)
+	}
+	t.Logf("bores stand %.1f degrees off upright, against %.1f the mounting angles allow",
+		worst*180/math.Pi, best*180/math.Pi)
+}
+
 // The boss travels with its gear, so its length is the stroke: the mechanism
 // runs only while the boss still fills the bores.
 func TestStrokeIsTheBossLength(t *testing.T) {

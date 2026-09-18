@@ -69,6 +69,22 @@ only thing that changes in the body's own frame is the tooth phase. Every step b
 it is why the whole ribbon is one tooth cell repeated by a screw step, and why the proof can pose
 meshing as a search over two numbers.
 
+### Why the bores stand where they do
+
+A bore is a hole through a post, and the posts stand along the cage axis, which is the axis a print
+stands on. A bore is therefore a horizontal hole whose ceiling has to be bridged, and a bore whose
+opening is **tall and narrow** bridges a short span where a wide flat one leaves a ceiling as wide
+as the ribbon.
+
+The opening's angle is the ribbon's cross-section angle where it crosses the cage, and there are
+four of them: each gear crosses twice, at `+CageRadius` and `-CageRadius`, and those two are turned
+in opposite directions. Upright at all four needs **the two mounting angles equal** and
+**`CageRadius` a whole number of half turns of the ribbon**, and even then the four sit at plus and
+minus the mounting angle. So the best any cage radius can do is the mounting angle itself.
+
+At the defaults that is **15°**, which `TestBoresStandNearlyUpright` both measures and compares
+against the best the mounting angles allow.
+
 ### The boss, and why the cage needs no tooth-shaped cut
 
 The ribbon carries a **smooth boss** at each of the two places it passes through the cage: a
@@ -130,35 +146,36 @@ the proof must check").
 | Ribbon Thickness `T` | 2.5 mm |
 | Tooth Pitch `P` | 1.75 mm |
 | Tooth Height `H` | 1.2 mm |
-| Tooth Count `N` | 48 |
-| Twist Lead | 40 mm per turn |
-| Engagement | 0.60 mm (half the Tooth Height) |
-| Mounting Angle, gear A | 30° |
-| Mounting Angle, gear B | 0° |
+| Tooth Count `N` | 40 |
+| Twist Lead | 30 mm per turn |
+| Crossing Angle `Sigma` | 80° |
+| Engagement | 0.36 mm |
+| Mounting Angle, both gears | 15° |
+| Cage Radius | 15 mm |
 | Clearance | 0.3 mm |
 
-Derived: `Beta` = 38.15°, `Sigma` = 76.3°, `A` = 9.40 mm, ribbon length = 84 mm, twist per tooth =
-`P/Lambda` = 15.8°.
+Derived: `Beta` = 46.3°, `A` = 9.64 mm, ribbon length = 70 mm, twist per tooth = `P/Lambda` = 21.0°.
 
-**The twist is fast and the crossing is wide, and the two go together.** `Sigma = 2*Beta` ties the
-crossing angle to the twist, so a slow twist gives two ribbons lying almost side by side. Segerman's
-model turns about once every four centimetres and its ribbons cross near a right angle; these
-defaults are read off that, and they are what make the part look like a twisted rack rather than a
-gently bent one.
+**These defaults are set by the frame, not only by the mesh.** A bore has to stand near upright or
+it cannot be printed (see "Why the bores stand where they do"), and that fixes the cage radius at
+`Lambda*pi` — half the twist lead. A compact cage therefore needs a fast twist, and a slow twist
+needs a large cage. 30 mm per turn against a 15 mm cage radius is the compromise: at 20 mm the
+ribbon is twisted past the point of looking like a rack, and at 40 mm the only arrangements with
+equal mounting angles turned out to jam under finer sampling.
 
-At those values `proof/screwgear` measures a free window in B's tooth phase that is **0.245–0.298 mm
+At those values `proof/screwgear` measures a free window in B's tooth phase that is **0.411–0.481 mm
 wide** and that **advances by exactly one tooth pitch for each pitch A advances**, departing from
-the 1:1 line by 0.047 mm, which is 2.7% of the pitch. That window width is the backlash, and the
+the 1:1 line by 0.064 mm, which is 3.7% of the pitch. That window width is the backlash, and the
 winding is what makes this a 1:1 gear rather than two parts that merely touch. Away from the teeth
-the two ribbons clear each other by 0.136 mm at their closest.
+the two ribbons clear each other by 0.168 mm at their closest.
 
-**The two Mounting Angles are not equal, and the search is why.** At this twist no symmetric
-mounting drives; 30° on gear A against 0° on gear B does. The two gears are still the same part —
-what differs is the angle the frame holds each at.
+**Both Mounting Angles are 15°, and the frame is why.** Unequal angles drive too, and some drive
+better, but the four bores can only stand near upright when the two angles are equal, and 15° is
+the smallest equal angle that drives at this twist. The two gears are the same part and the frame
+holds them alike.
 
-**Assembly phase.** With gear A at tooth phase 0, gear B is built at **0.315 mm**, which is not half
-a pitch. Half a pitch is the answer only when both gears are mounted alike. The number is the middle
-of the free window, and `TestAssemblyPhaseSitsInTheFreeWindow` holds it there.
+**Assembly phase.** With gear A at tooth phase 0, gear B is built at **−0.90 mm**. The number is the
+middle of the free window, and `TestAssemblyPhaseSitsInTheFreeWindow` holds it there.
 
 ## Architecture
 
@@ -213,16 +230,17 @@ User inputs in dialog order. All linear inputs are mm; the mounting angles are d
 | Ribbon Thickness | `ribbonThickness` | mm | 2.5 |
 | Tooth Pitch | `toothPitch` | mm | 1.75 |
 | Tooth Height | `toothHeight` | mm | 1.2 |
-| Tooth Count | `toothCount` | — | 48 |
-| Twist Lead | `twistLead` | mm | 40 |
-| Engagement | `engagement` | mm | 0.60 |
-| Mounting Angle A | `mountAngleA` | deg | 30 |
-| Mounting Angle B | `mountAngleB` | deg | 0 |
+| Tooth Count | `toothCount` | — | 40 |
+| Twist Lead | `twistLead` | mm | 30 |
+| Crossing Angle | `crossAngle` | deg | 80 |
+| Engagement | `engagement` | mm | 0.36 |
+| Mounting Angle A | `mountAngleA` | deg | 15 |
+| Mounting Angle B | `mountAngleB` | deg | 15 |
 | Boss Half Length | `bossHalf` | mm | 4 |
 | Boss Taper | `bossTaper` | mm | 0.9 |
 | Boss Height | `bossGrow` | mm | 0.6 |
-| Cage Radius | `cageRadius` | mm | 10 |
-| Cage Rise | `cageRise` | mm | 13 |
+| Cage Radius | `cageRadius` | mm | 15 |
+| Cage Rise | `cageRise` | mm | 12.5 |
 | Ring Bar | `ringBar` | mm | 1.2 |
 | Post Bar | `postBar` | mm | 2 |
 | Block Depth | `blockDepth` | mm | 1.8 |
@@ -255,9 +273,9 @@ returns internal units — cm for length and **radians** for angle (`[PB-EVAL-EX
 - `blockDepth` trades grip against stroke. A deeper bore holds the gear closer to its screw motion
   and shortens the travel, because the stroke is `2*(bossHalf - bossTaper - blockDepth/2)`.
 
-**No range is enforced on either Mounting Angle, and none is asserted here.** 30° on gear A against
-0° on gear B is the measured working pair at the default proportions; what happens elsewhere is the
-proof's to map, and this spec does not clamp what has not been measured.
+**No range is enforced on either Mounting Angle, and none is asserted here.** 15° on both is the
+smallest equal pair that drives at this twist, and equal is what the bores need; what happens
+elsewhere is the proof's to map, and this spec does not clamp what has not been measured.
 
 ## Sketch Discipline
 
@@ -307,8 +325,8 @@ for both parts, and it is why the two gears are the same part rather than mirror
 
 One cell is one tooth pitch of the finished ribbon. Build it once per gear.
 
-Create **9 construction planes** perpendicular to the gear's axis at stations `s_k = k*P/8`,
-`k = 0…8`, with `setByDistanceOnPath` against the axis line (`[PB-CONSTRUCTION-PLANES]`; pass the
+Create **`LoftSections` construction planes** perpendicular to the gear's axis, evenly spaced over
+one pitch, with `setByDistanceOnPath` against the axis line (`[PB-CONSTRUCTION-PLANES]`; pass the
 sketch line directly, never wrapped in `Path.create`).
 
 On plane `k` draw the section sketch `{gearLabel} Section {k}`: a rectangle spanning `u` from `-W/2`
@@ -326,12 +344,13 @@ constrained.
 **Loft the nine sections in order** (`[PB-LOFT]`). The result is one pitch of the twisted toothed
 ribbon.
 
-**Nine sections, not fewer, and the count is not user-configurable.** The loft's surface between two
+**The section count is derived, not pinned, and it is not user-configurable.** It is the smallest
+count that keeps the twist between neighbouring sections under 2°, which is 12 at the defaults. The loft's surface between two
 sections is ruled, so it cuts the corner of the true helicoid by about `(W/2)*(1 - cos(dtheta/2))`
-where `dtheta` is the twist between neighbouring sections. At the defaults that is 1.97° per step
-and 0.7 µm of departure, which is three orders below the 0.28 mm backlash. Halving the count
-quadruples that error and it is still small, but nine sections also keeps each rectangle's
-correspondence unambiguous for the loft, which is the failure this count is really buying off.
+where `dtheta` is the twist between neighbouring sections. At the defaults that is 1.91° per step
+and 0.7 µm of departure, which is nearly three orders below the 0.45 mm backlash. A faster twist
+needs more sections for the same departure, which is why the count is derived from the twist per
+tooth rather than fixed.
 
 ### 3: Repeat the cell by doubling
 
@@ -343,8 +362,8 @@ Step(k) = translate(k*P along the axis) ∘ rotate(k*P/Lambda about the axis)
 
 Build it by doubling rather than by `N` separate placements: copy the current body, move the copy by
 `Step(m)` where `m` is the number of teeth built so far, join, and repeat; finish with one partial
-round for the remainder. That is `ceil(log2(N))` copy-move-join rounds — 6 at the default 48 teeth,
-against 47 — and every placement is exact, because the body genuinely is invariant under `Step`.
+round for the remainder. That is `ceil(log2(N))` copy-move-join rounds — 6 at the default 40 teeth,
+against 39 — and every placement is exact, because the body genuinely is invariant under `Step`.
 
 Copy with `copyPasteBodies`, move with `moveFeatures` / `defineAsFreeMove(matrix)`
 (`[PB-MOVE-ROTATE]`, `[SCREW-F-SCREW-STEP]`), and join with a `combineFeatures` join. Adjacent cells

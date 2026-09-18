@@ -101,9 +101,16 @@ func ringMesh(p Params, height float64) (*solidlens.Mesh, error) {
 }
 
 // postMesh draws the slender part of one post: a round bar standing at the cage
-// radius, from the bottom ring to the top.
-func postMesh(p Params, azimuth float64) (*solidlens.Mesh, error) {
+// radius, in the two lengths left either side of the bore.
+//
+// The bore goes right through the post, so the bar is in two pieces and what
+// joins them is the block's own material round the opening. Drawing the bar
+// whole would put a rod across the hole the ribbon runs through.
+func postMesh(p Params, azimuth, from, to float64) (*solidlens.Mesh, error) {
 	const sides = 16
+	if to-from < 0.01 {
+		return nil, fmt.Errorf("a post length from %g to %g is not worth drawing", from, to)
+	}
 	centre := r3.NewVec(p.CageRadius*math.Cos(azimuth), p.CageRadius*math.Sin(azimuth), 0)
 	ring := func(z float64) []solidlens.Vec {
 		out := make([]solidlens.Vec, 0, sides)
@@ -121,7 +128,7 @@ func postMesh(p Params, azimuth float64) (*solidlens.Mesh, error) {
 	for i := 1; i < sides-1; i++ {
 		ends = append(ends, [3]int{0, i, i + 1})
 	}
-	return render.Prism(ring(-p.CageRise), ring(p.CageRise), ends)
+	return render.Prism(ring(from), ring(to), ends)
 }
 
 // blockMesh draws the block a post widens into around its bore, with the bore
@@ -206,6 +213,20 @@ func blockMesh(g Gear, station float64) (*solidlens.Mesh, error) {
 	return solidlens.NewMesh(vertices, triangles)
 }
 
+// boreSpan is the stretch of a post that the bore takes out of it, measured
+// along the cage axis on the post's own centre line.
+func boreSpan(g Gear, azimuth float64) (lo, hi float64) {
+	p := g.P
+	lo, hi = math.Inf(1), math.Inf(-1)
+	for z := -p.CageRise; z <= p.CageRise; z += 0.01 {
+		pt := r3.NewVec(p.CageRadius*math.Cos(azimuth), p.CageRadius*math.Sin(azimuth), z)
+		if inBore(g, pt) {
+			lo, hi = math.Min(lo, z), math.Max(hi, z)
+		}
+	}
+	return lo, hi
+}
+
 // cageMesh draws the whole frame: two rings, four posts, and the bored block on
 // each post.
 func cageMesh(ga, gb Gear) (*solidlens.Mesh, error) {
@@ -220,15 +241,20 @@ func cageMesh(ga, gb Gear) (*solidlens.Mesh, error) {
 	}
 	for _, g := range []Gear{ga, gb} {
 		for _, station := range boreStations(p) {
-			post, err := postMesh(p, postAzimuth(g, station))
-			if err != nil {
-				return nil, fmt.Errorf("post: %w", err)
+			a := postAzimuth(g, station)
+			lo, hi := boreSpan(g, a)
+			for _, run := range [][2]float64{{-p.CageRise, lo}, {hi, p.CageRise}} {
+				post, err := postMesh(p, a, run[0], run[1])
+				if err != nil {
+					return nil, fmt.Errorf("post: %w", err)
+				}
+				pieces = append(pieces, post)
 			}
 			block, err := blockMesh(g, station)
 			if err != nil {
 				return nil, fmt.Errorf("block: %w", err)
 			}
-			pieces = append(pieces, post, block)
+			pieces = append(pieces, block)
 		}
 	}
 	return render.Merge(pieces...)
