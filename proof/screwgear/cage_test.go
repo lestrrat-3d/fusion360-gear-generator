@@ -102,8 +102,6 @@ func postPiece(g Gear, station float64) piece {
 	p := g.P
 	const step = 0.1
 	a := postAzimuth(g, station)
-	floor := p.PostWidth / 2 / p.CageRadius
-
 	n := int(math.Round(2*p.CageRise/step)) + 1
 	half := make([]float64, n)
 	for j := range n {
@@ -121,12 +119,26 @@ func postPiece(g Gear, station float64) piece {
 				}
 			}
 		}
-		half[j] = floor
+		half[j] = p.PostWidth / 2
 		if widest > 0 {
-			half[j] = math.Max(floor, (widest+p.BlockWall)/p.CageRadius)
+			half[j] = math.Max(p.PostWidth/2, widest+p.BlockWall)
 		}
 	}
-	return piece{azimuth: a, zLo: -p.CageRise, zHi: p.CageRise, step: step, half: half, g: &g}
+
+	// Hold the widening to 45 degrees. A post that widens faster than it rises
+	// leaves its new material hanging off nothing, and a filament printer will
+	// not bridge that. Taking each height's width as the largest any other
+	// height demands, less the distance between them, is exactly a 45 degree
+	// ramp either side of every bulge.
+	ramped := make([]float64, n)
+	for j := range n {
+		want := 0.0
+		for k := range n {
+			want = math.Max(want, half[k]-math.Abs(float64(j-k))*step)
+		}
+		ramped[j] = want / p.CageRadius
+	}
+	return piece{azimuth: a, zLo: -p.CageRise, zHi: p.CageRise, step: step, half: ramped, g: &g}
 }
 
 // platePieces are the two end plates: the whole way round, on the same wall.
@@ -241,6 +253,72 @@ func TestPostsRunUnbrokenIntoThePlates(t *testing.T) {
 		}
 	}
 	t.Logf("each post runs the full %.1f mm, widening only round its bore", 2*p.CageRise)
+}
+
+// Nothing on the frame may hang off nothing. A filament printer will not bridge
+// a surface shallower than 45 degrees, and the one place the frame could offer
+// one is where a post widens round its bore.
+//
+// The check is on the profile itself: half a millimetre more width per
+// millimetre of height is a 45 degree ramp, and anything steeper is an overhang.
+func TestPostsNeverOverhang(t *testing.T) {
+	ga, gb := defaultPair()
+	p := ga.P
+
+	for _, g := range []Gear{ga, gb} {
+		for _, station := range boreStations(p) {
+			q := postPiece(g, station)
+			for j := 1; j < len(q.half); j++ {
+				rise := q.step
+				run := math.Abs(q.half[j]-q.half[j-1]) * p.CageRadius
+				if run > rise+1e-9 {
+					t.Fatalf("the post at %.0f degrees widens %.3f mm over %.3f mm of height, "+
+						"which is steeper than 45 degrees", q.azimuth*180/math.Pi, run, rise)
+				}
+			}
+		}
+	}
+	t.Logf("no post widens faster than 45 degrees")
+}
+
+// A bore needs material round it, or the frame is a shell where it is most
+// worked.
+func TestBoresKeepTheirWall(t *testing.T) {
+	ga, gb := defaultPair()
+	p := ga.P
+
+	if p.BlockWall < 3 {
+		t.Fatalf("the wall round a bore is %.2f mm, under the 3 mm a printed frame needs",
+			p.BlockWall)
+	}
+	// And the post really is that much wider than its bore at every height.
+	for _, g := range []Gear{ga, gb} {
+		for _, station := range boreStations(p) {
+			q := postPiece(g, station)
+			for j, h := range q.half {
+				z := q.zLo + float64(j)*q.step
+				widest := 0.0
+				for r := p.CageInner(); r <= p.CageOuter(); r += 0.1 {
+					for dt := 0.0; dt <= p.Width; dt += 0.05 {
+						for _, sign := range []float64{1, -1} {
+							ang := q.azimuth + sign*dt/p.CageRadius
+							if inBore(g, r3.NewVec(r*math.Cos(ang), r*math.Sin(ang), z)) {
+								widest = math.Max(widest, dt)
+							}
+						}
+					}
+				}
+				if widest == 0 {
+					continue
+				}
+				if wall := h*p.CageRadius - widest; wall < p.BlockWall-1e-9 {
+					t.Fatalf("at height %.2f the post leaves %.2f mm round its bore, under %.2f",
+						z, wall, p.BlockWall)
+				}
+			}
+		}
+	}
+	t.Logf("every bore keeps at least %.1f mm of wall", p.BlockWall)
 }
 
 // The widening has to earn its material: a post that is as wide at its ends as

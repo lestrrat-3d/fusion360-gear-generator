@@ -67,11 +67,11 @@ func defaultParams() Params {
 		BossGrow:  0.6,
 
 		CageRadius: 15,
-		CageRise:   16,
+		CageRise:   20,
 		ShellThick: 3,
 		PlateThick: 2,
 		PostWidth:  3,
-		BlockWall:  2.0,
+		BlockWall:  3.0,
 		Clearance:  0.3,
 	}
 }
