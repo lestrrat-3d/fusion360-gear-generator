@@ -1,359 +1,307 @@
-// Package cycloidal_test proves the cycloidal drive's build, step by step.
+// Package cycloidal_test proves the cycloidal drive's build, one function per
+// step of spec/cycloidal/steps.md.
 //
-// Units. The generator works in Fusion-internal centimetres; this proof works in
-// millimetres throughout, because both engines are millimetre-native (the sketch
-// engine defaults to units.Metric() and decad's bare coordinates are millimetres
-// by convention). The profile math is scale-free — disk_point is a homogeneous
-// function of R, E, Rr and c — so the choice changes no shape, only the number a
-// dimension carries. Every case table below is therefore written in the dialog's
-// own display units, which is also how the spec states its defaults.
+// Units. The generator works in Fusion-internal centimetres and converts the
+// dialog's millimetres with misc.to_cm. This proof works in millimetres from
+// end to end, because millimetre is the base unit of both engines: sketch
+// solves in plane-local millimetres and decad reads every position as a
+// millimetre coordinate. Nothing proven here depends on the choice — every
+// relation the spec states is a ratio of lengths or a count — so the proof
+// states the dialog's own numbers and never converts.
 //
-// This file holds the geometry the steps share: the rotor point function, the
-// adaptive sampler, the swept-envelope contour, the undercut guard, and the
-// resolve-and-check the dialog runs. Nothing here touches either engine.
+// What this file holds is the gear's arithmetic: the point function of
+// epitrochoid-trace.md, the adaptive sampling that draws it, the swept
+// envelope the pinless casing contours to, the undercut guard, and the
+// parameter cases every step is proven against. The steps themselves are in
+// sketches_test.go and solids_test.go.
 package cycloidal_test
 
 import (
 	"math"
 	"testing"
+
+	"github.com/lestrrat-3d/decad"
+	"github.com/lestrrat-3d/decad/decadtest"
+	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit"
+	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit3d"
+	"github.com/lestrrat-3d/r3"
+	"github.com/lestrrat-3d/sketch"
+	"github.com/lestrrat-3d/units"
 )
 
-// Case-table parameter keys. Each names the dialog input it carries, in the
-// dialog's display units (mm, or a bare count), plus the two the proof needs
-// that the dialog does not have: the disc index a per-disc step is building.
+// The dialog input ids, used as the case tables' parameter keys so a case reads
+// as the dialog the user fills in. `disc` is not a dialog input: it is the disc
+// index d of spec/cycloidal/instructions.md §0, which selects the per-disc
+// centre sign and clocking a case is proven at.
 const (
-	pPinCount              = "pinCount"
-	pPinCircleDiameter     = "pinCircleDiameter"
-	pPinDiameter           = "pinDiameter"
-	pEccentricity          = "eccentricity"
-	pDiskClearance         = "diskClearance"
-	pDiscThickness         = "discThickness"
-	pDiscGap               = "discGap"
-	pCenterBearingDiameter = "centerBearingDiameter"
-	pInputShaftDiameter    = "inputShaftDiameter"
-	pBearingClearance      = "bearingClearance"
-	pOutputPinCircleDiam   = "outputPinCircleDiameter"
-	pOutputPinCount        = "outputPinCount"
-	pOutputPinDiameter     = "outputPinDiameter"
-	pWall                  = "wall"
-	pBaseThickness         = "baseThickness"
-	pOutputPlateThickness  = "outputPlateThickness"
-	pChamferSize           = "chamferSize"
-	pDiscCount             = "discCount"
-	pDiscIndex             = "discIndex"
+	keyPinCount            = "pinCount"
+	keyPinCircleDiameter   = "pinCircleDiameter"
+	keyPinDiameter         = "pinDiameter"
+	keyEccentricity        = "eccentricity"
+	keyDiskClearance       = "diskClearance"
+	keyDiscThickness       = "discThickness"
+	keyDiscGap             = "discGap"
+	keyCenterBearingDia    = "centerBearingDiameter"
+	keyInputShaftDiameter  = "inputShaftDiameter"
+	keyBearingClearance    = "bearingClearance"
+	keyOutputPinCircleDia  = "outputPinCircleDiameter"
+	keyOutputPinCount      = "outputPinCount"
+	keyOutputPinDiameter   = "outputPinDiameter"
+	keyWall                = "wall"
+	keyBaseThickness       = "baseThickness"
+	keyOutputPlateThicknes = "outputPlateThickness"
+	keyChamferSize         = "chamferSize"
+	keyDiscCount           = "discCount"
+	keyDisc                = "disc"
 )
 
-// Fixed sampling constants the spec pins by number.
+// The sampling constants epitrochoid-trace.md pins. They are named here because
+// every one of them is a number the spec fixes rather than a number this proof
+// is free to choose: a different fine resolution, turn threshold, sweep count
+// or bin count draws a different curve.
 const (
-	fineSteps      = 2000 // epitrochoid-trace.md "Sampling" step 1, and the curvature scan
-	turnThreshold  = 5.0  // degrees, epitrochoid-trace.md "Sampling" step 2
-	sweepSteps     = 240  // N_theta = N_t, epitrochoid-trace.md "Pinless ring casing"
-	contourBins    = 80   // nbins
-	undercutRounds = 40   // bisection iterations for E*
+	fineSteps    = 2000                // "Sampling" step 1, and the curvature scan
+	turnLimit    = 5.0 * math.Pi / 180 // "Sampling" step 2, exactly 5.0 degrees
+	sweepSteps   = 240                 // "Pinless ring casing", N-theta = N-t = 240
+	contourBins  = 80                  // "Pinless ring casing", nbins = 80
+	bisectRounds = 40                  // the undercut bound's 40 bisection rounds
 )
 
-// pt is a plane-local point in millimetres.
-type pt struct{ X, Y float64 }
+// point is a plane-local millimetre coordinate pair, the same carve-out decad
+// makes for positions.
+type point struct{ X, Y float64 }
 
-// dims is the resolved dimension set: what _resolveDimensions stashes, for one
-// disc of the stack. Every field is millimetres unless it is a count.
+// dims is one case's resolved dimension set: what _resolveDimensions stashes
+// before any geometry is drawn.
 type dims struct {
-	N  int // Pin Count
-	L  int // Lobes = N - 1
-	M  int // Output Pin Count
-	D  int // Disc Count
-	D0 int // this disc's index d
-
-	R     float64 // pin circle radius
-	E     float64 // eccentricity, unsigned
-	C     float64 // disk clearance
-	Rr    float64 // resolved ring-pin radius
-	RrEff float64 // Rr + c
-	Rv    float64 // root/valley radius = R - Rr_eff - E
-	Rop   float64 // output pin circle radius
-
-	DPin  float64 // resolved output pin diameter
-	DHole float64 // output hole diameter = DPin + 2E
-
-	T      float64 // disc thickness
-	G      float64 // disc gap
-	Wall   float64
-	Base   float64 // base thickness
-	PlateT float64 // output plate thickness
-	Cham   float64 // chamfer size
-
-	CBD float64 // centre bearing diameter (= cam outer diameter)
-	ISD float64 // input shaft diameter, 0 = no bore
-	Clr float64 // bearing clearance, diametral
-
-	S   float64 // this disc's eccentric sign: +1 for d=0, -1 for d=1
-	Phi float64 // this disc's clocking, d*pi
+	N, L, M         int
+	R, E, C         float64
+	Rr, RrEff, Rv   float64
+	Rop             float64
+	DPin, DHole     float64
+	T, G            float64
+	CBD, ISD, Clr   float64
+	Wall, BaseT     float64
+	PlateT, Chamfer float64
+	D               int
+	Disc            int
+	Sign            float64 // s_d: +1 for disc 0, -1 for disc 1
+	Phi             float64 // phi_d = d*pi
 }
 
-// derive resolves a case's raw dialog values the way _resolveDimensions does.
+// derive resolves a case's dialog values exactly as the spec's resolve order
+// does: the auto-versus-override branches first, then everything computed from
+// them.
 func derive(p map[string]float64) dims {
-	d := dims{
-		N:      int(math.Round(p[pPinCount])),
-		M:      int(math.Round(p[pOutputPinCount])),
-		D:      int(math.Round(p[pDiscCount])),
-		D0:     int(math.Round(p[pDiscIndex])),
-		R:      p[pPinCircleDiameter] / 2,
-		E:      p[pEccentricity],
-		C:      p[pDiskClearance],
-		Rop:    p[pOutputPinCircleDiam] / 2,
-		T:      p[pDiscThickness],
-		G:      p[pDiscGap],
-		Wall:   p[pWall],
-		Base:   p[pBaseThickness],
-		PlateT: p[pOutputPlateThickness],
-		Cham:   p[pChamferSize],
-		CBD:    p[pCenterBearingDiameter],
-		ISD:    p[pInputShaftDiameter],
-		Clr:    p[pBearingClearance],
-	}
+	var d dims
+	d.N = int(math.Round(p[keyPinCount]))
 	d.L = d.N - 1
-	if d.D == 0 {
-		d.D = 1
-	}
-	// Pin / hole sizes: 0 means auto-derive to the mean of the theoretical
-	// bounds, any non-zero value is the user's explicit override.
-	if pd := p[pPinDiameter]; pd > 0 {
+	d.M = int(math.Round(p[keyOutputPinCount]))
+	d.R = p[keyPinCircleDiameter] / 2
+	d.E = p[keyEccentricity]
+	d.C = p[keyDiskClearance]
+	if pd := p[keyPinDiameter]; pd > 0 {
 		d.Rr = pd / 2
 	} else {
 		d.Rr = 0.5 * (d.E + d.R*math.Sin(math.Pi/float64(d.N)))
 	}
 	d.RrEff = d.Rr + d.C
 	d.Rv = d.R - d.RrEff - d.E
-	if od := p[pOutputPinDiameter]; od > 0 {
-		d.DPin = od
+	d.Rop = p[keyOutputPinCircleDia] / 2
+	if op := p[keyOutputPinDiameter]; op > 0 {
+		d.DPin = op
 	} else {
 		d.DPin = d.Rop*math.Sin(math.Pi/float64(d.M)) - d.E
 	}
 	d.DHole = d.DPin + 2*d.E
-	d.S = 1
-	if d.D0 == 1 {
-		d.S = -1
+	d.T = p[keyDiscThickness]
+	d.G = p[keyDiscGap]
+	d.CBD = p[keyCenterBearingDia]
+	d.ISD = p[keyInputShaftDiameter]
+	d.Clr = p[keyBearingClearance]
+	d.Wall = p[keyWall]
+	d.BaseT = p[keyBaseThickness]
+	d.PlateT = p[keyOutputPlateThicknes]
+	d.Chamfer = p[keyChamferSize]
+	d.D = int(math.Round(p[keyDiscCount]))
+	if d.D < 1 {
+		d.D = 1
 	}
-	d.Phi = float64(d.D0) * math.Pi
+	d.Disc = int(math.Round(p[keyDisc]))
+	d.Sign = 1
+	if d.Disc == 1 {
+		d.Sign = -1
+	}
+	d.Phi = math.Pi * float64(d.Disc)
 	return d
 }
 
-// centre is this disc's centre Od_d = O + s_d*E*Xhat.
-func (d dims) centre() pt { return pt{X: d.S * d.E, Y: 0} }
+// centre is Od_d = O + s_d*E*Xhat, the eccentric disc centre every disc-owned
+// feature is built on.
+func (d dims) centre() point { return point{d.Sign * d.E, 0} }
 
-// stackTop is the top of the disc stack: (D-1)*(T+G) + T.
-func (d dims) stackTop() float64 { return float64(d.D-1)*(d.T+d.G) + d.T }
+// housingOuterRadius is the pinless outer wall: the contour peak at
+// R - PinRadius + 2E cleared by Wall.
+func (d dims) housingOuterRadius() float64 { return d.R - d.Rr + 2*d.E + d.Wall }
 
-// zBase is this disc's own plane height, z_d = d*(T+G).
-func (d dims) zBase() float64 { return float64(d.D0) * (d.T + d.G) }
+// housingInnerRadius is the base annulus's inner floor lip, Wall inside the
+// contour valley at R - PinRadius.
+func (d dims) housingInnerRadius() float64 { return d.R - d.Rr - d.Wall }
 
-// outerWall is the casing's outer radius: the contour peak plus Wall.
-func (d dims) outerWall() float64 { return d.R - d.Rr + 2*d.E + d.Wall }
-
-// innerFloor is the housing base annulus's inner radius: Wall inside the
-// contour valley R - Rr.
-func (d dims) innerFloor() float64 { return d.R - d.Rr - d.Wall }
-
-// plateRadius is OutputPlateDiameter/2 = Rop + DPin/2 + Wall.
+// plateRadius is half OutputPlateDiameter = 2*Rop + D_pin + 2*Wall.
 func (d dims) plateRadius() float64 { return d.Rop + d.DPin/2 + d.Wall }
 
-// diskPoint is the rotor profile point function, reproduced exactly from
-// epitrochoid-trace.md "The point function", for a rotor centred at (cx, cy)
-// with clocking phi.
-func (d dims) diskPoint(t, cx, cy, phi float64) pt {
+// boreRadius is the disc's centre bore, the cam outer enlarged by the running
+// clearance.
+func (d dims) boreRadius() float64 { return (d.CBD + d.Clr) / 2 }
+
+// stackTop is (D-1)*(T+g) + T, the top of the disc stack above the target plane.
+func (d dims) stackTop() float64 { return float64(d.D-1)*(d.T+d.G) + d.T }
+
+// discBase is z_d = d*(T+g), where disc d's own plane sits.
+func (d dims) discBase() float64 { return float64(d.Disc) * (d.T + d.G) }
+
+// camSectionHeight is T + g for every section but the last, which is T.
+func (d dims) camSectionHeight() float64 {
+	if d.Disc < d.D-1 {
+		return d.T + d.G
+	}
+	return d.T
+}
+
+// diskPoint is epitrochoid-trace.md's point function, reproduced exactly: the
+// equidistant of a shortened epitrochoid, offset along the curve normal by
+// Rr_eff = Rr + c, for a rotor centred at (cx, cy) and clocked by phi.
+func diskPoint(d dims, t, cx, cy, phi float64) point {
 	n := float64(d.N)
 	num := math.Sin((1 - n) * t)
 	den := d.R/(d.E*n) - math.Cos((1-n)*t)
-	psi := math.Atan2(num, den)
+	psi := math.Atan2(num, den) // uses R, E, N only — not Rr
 	x0 := d.R*math.Cos(t) - d.RrEff*math.Cos(t+psi) - d.E*math.Cos(n*t)
 	y0 := -d.R*math.Sin(t) + d.RrEff*math.Sin(t+psi) + d.E*math.Sin(n*t)
-	return pt{
+	return point{
 		X: cx + x0*math.Cos(phi) - y0*math.Sin(phi),
 		Y: cy + x0*math.Sin(phi) + y0*math.Cos(phi),
 	}
 }
 
-// lobePoint is diskPoint on this disc's own centre and clocking.
-func (d dims) lobePoint(t float64) pt {
-	c := d.centre()
-	return d.diskPoint(t, c.X, c.Y, d.Phi)
-}
-
-// lobeSamples returns the adaptively sampled fit points of one lobe,
-// t in [0, 2*pi/L], per epitrochoid-trace.md "Sampling": a 2000-step fine
-// trace, greedily kept whenever the accumulated turn angle reaches 5.0 degrees,
-// first and last always kept. Uniform sampling overshoots into rabbit-ear loops
-// near the undercut limit, which is why this is not a uniform trace.
-func (d dims) lobeSamples() []pt {
-	params := d.lobeParams()
-	out := make([]pt, len(params))
-	for i, t := range params {
-		out[i] = d.lobePoint(t)
-	}
-	return out
-}
-
-// lobeParams is the sampler proper: the curve parameters the adaptive rule
-// keeps, first and last included, so a caller that repeats the lobe around the
-// disc can re-evaluate at the same parameters shifted by whole lobe pitches.
-func (d dims) lobeParams() []float64 {
+// lobeSamples is one lobe, t in [0, 2*pi/L], sampled by bounded turn angle.
+//
+// The fine trace is exactly fineSteps uniform steps; a point is kept whenever
+// the accumulated direction change since the last kept point reaches turnLimit,
+// and the first and last are always kept, so the two ends land exactly on t = 0
+// and t = 2*pi/L — the two valleys the root circle pins.
+func lobeSamples(d dims, cx, cy, phi float64) []point {
 	span := 2 * math.Pi / float64(d.L)
-	fine := make([]pt, fineSteps+1)
+	fine := make([]point, fineSteps+1)
 	for i := range fine {
-		fine[i] = d.lobePoint(span * float64(i) / float64(fineSteps))
+		fine[i] = diskPoint(d, span*float64(i)/float64(fineSteps), cx, cy, phi)
 	}
-	kept := []float64{0}
+	kept := []point{fine[0]}
 	acc := 0.0
 	for i := 1; i < fineSteps; i++ {
-		ax, ay := fine[i].X-fine[i-1].X, fine[i].Y-fine[i-1].Y
-		bx, by := fine[i+1].X-fine[i].X, fine[i+1].Y-fine[i].Y
-		acc += math.Abs(math.Atan2(ax*by-ay*bx, ax*bx+ay*by)) * 180 / math.Pi
-		if acc >= turnThreshold {
-			kept = append(kept, span*float64(i)/float64(fineSteps))
+		a := math.Atan2(fine[i].Y-fine[i-1].Y, fine[i].X-fine[i-1].X)
+		b := math.Atan2(fine[i+1].Y-fine[i].Y, fine[i+1].X-fine[i].X)
+		acc += math.Abs(math.Atan2(math.Sin(b-a), math.Cos(b-a)))
+		if acc >= turnLimit {
+			kept = append(kept, fine[i])
 			acc = 0
 		}
 	}
-	return append(kept, span)
+	return append(kept, fine[fineSteps])
 }
 
-// lobeOutline returns the whole rotor outline: the L lobes of one disc as one
-// closed chain of sampled points, each lobe the previous one advanced by a lobe
-// pitch. The chain's last point is the one before the start point returns, so
-// the caller closes the loop itself.
-//
-// The base curve is L-fold symmetric, P(t + 2*pi/L) = Rot(-2*pi/L)*P(t), so
-// repeating the lobe is exactly what the L-times circular pattern of the lobe
-// sector about the disc axis produces in Fusion.
-func (d dims) lobeOutline() []pt {
-	params := d.lobeParams()
-	span := 2 * math.Pi / float64(d.L)
-	out := make([]pt, 0, len(params)*d.L)
-	for lobe := range d.L {
-		for i, t := range params {
-			if i == len(params)-1 {
-				continue // the next lobe's first point is this one's last
-			}
-			out = append(out, d.lobePoint(t+span*float64(lobe)))
+// fullLobeSamples is the whole rotor boundary: the one lobe of lobeSamples
+// repeated L times, each copy turned by -2*pi/L about the disc centre, which is
+// the boundary the L patterned sectors tile. The shared valley point between
+// two lobes is emitted once, so the result is a simple closed polygon.
+func fullLobeSamples(d dims, cx, cy, phi float64) []point {
+	one := lobeSamples(d, 0, 0, 0)
+	out := make([]point, 0, (len(one)-1)*d.L)
+	for k := range d.L {
+		a := phi - 2*math.Pi*float64(k)/float64(d.L)
+		for _, q := range one[:len(one)-1] {
+			out = append(out, point{
+				X: cx + q.X*math.Cos(a) - q.Y*math.Sin(a),
+				Y: cy + q.X*math.Sin(a) + q.Y*math.Cos(a),
+			})
 		}
 	}
 	return out
 }
 
-// tipRadius is the lobe tip's radius about the disc centre: R - Rr_eff + E.
-// The lobe's furthest reach. The casing's outer wall is sized from it, one
-// eccentricity further out, so the proof measures it rather than assuming it.
-func (d dims) tipRadius() float64 { return d.R - d.RrEff + d.E }
-
-// tracedTipRadius is the same reach measured on the fine trace the sampler runs
-// over, which is the profile itself rather than the polyline through the kept
-// points.
-func (d dims) tracedTipRadius() float64 {
-	span := 2 * math.Pi / float64(d.L)
-	c := d.centre()
-	best := 0.0
-	for i := 0; i <= fineSteps; i++ {
-		best = math.Max(best, radiusOf(d.lobePoint(span*float64(i)/float64(fineSteps)), c))
-	}
-	return best
-}
-
-// outputHoleCentres are the M output-hole centres of disc d: the seed hole on
-// the +X ray from the disc centre, then one per M-th of a turn about the disc
-// axis, which is what the M-times circular pattern produces.
-func (d dims) outputHoleCentres() []pt {
-	c := d.centre()
-	out := make([]pt, 0, d.M)
-	for k := range d.M {
-		a := 2 * math.Pi * float64(k) / float64(d.M)
-		out = append(out, pt{X: c.X + d.Rop*math.Cos(a), Y: c.Y + d.Rop*math.Sin(a)})
-	}
-	return out
-}
-
-// outputPinCentres are the M output-pin centres, on the drive axis O rather than
-// the disc centre: the seed pin on the +X ray from O, then one per M-th of a
-// turn, which is what the M-times pattern about the drive axis produces.
-func (d dims) outputPinCentres() []pt {
-	out := make([]pt, 0, d.M)
-	for k := range d.M {
-		a := 2 * math.Pi * float64(k) / float64(d.M)
-		out = append(out, pt{X: d.Rop * math.Cos(a), Y: d.Rop * math.Sin(a)})
-	}
-	return out
-}
-
-// contour returns one pin-pitch of the ring casing's inner wall,
-// contour(phi) = env(phi) + c, emitted at bin EDGES so the first point lands
-// exactly on -pi/N and the last exactly on +pi/N.
+// contourPitch is the casing's inner wall over one pin pitch: the disc's swept
+// envelope env(phi) offset outward by the clearance c, emitted at bin EDGES.
 //
-// Bin centres would inset both ends by half a bin, leaving an angular gap
-// between every pair of patterned sectors, so the N sectors would not touch and
-// would not Join into one casing.
-func (d dims) contour() []pt {
-	n := float64(d.N)
-	half := math.Pi / n
+// The edges matter and the spec says why: a point set emitted at bin centres
+// insets the two ends by half a bin, so adjacent patterned sectors do not touch
+// and the Join leaves N loose bodies. Emitting at edges puts the first point
+// exactly on -pi/N and the last exactly on +pi/N, which stepPatternJoinCasing
+// measures.
+func contourPitch(d dims) []point {
+	half := math.Pi / float64(d.N)
 	binMax := make([]float64, contourBins)
 	hit := make([]bool, contourBins)
 	for i := range sweepSteps {
-		theta := 2 * math.Pi * float64(i) / float64(sweepSteps)
-		cx, cy := d.E*math.Cos(theta), d.E*math.Sin(theta)
-		phi := -theta / float64(d.L)
+		th := 2 * math.Pi * float64(i) / float64(sweepSteps)
+		cx, cy := d.E*math.Cos(th), d.E*math.Sin(th)
+		clock := -th / float64(d.L)
 		for j := range sweepSteps {
-			t := 2 * math.Pi * float64(j) / float64(sweepSteps)
-			p := d.diskPoint(t, cx, cy, phi)
-			a := math.Atan2(p.Y, p.X)
+			q := diskPoint(d, 2*math.Pi*float64(j)/float64(sweepSteps), cx, cy, clock)
+			a := math.Atan2(q.Y, q.X)
 			if a < -half || a > half {
 				continue
 			}
 			b := int((a + half) / (2 * half) * float64(contourBins))
 			b = min(max(b, 0), contourBins-1)
-			r := math.Hypot(p.X, p.Y)
-			if r > binMax[b] {
-				binMax[b] = r
+			if r := math.Hypot(q.X, q.Y); !hit[b] || r > binMax[b] {
+				binMax[b], hit[b] = r, true
 			}
-			hit[b] = true
 		}
 	}
-	out := make([]pt, 0, contourBins+1)
-	for i := 0; i <= contourBins; i++ {
-		phi := -half + 2*half*float64(i)/float64(contourBins)
-		peak := 0.0
-		if i-1 >= 0 && hit[i-1] {
-			peak = max(peak, binMax[i-1])
+	out := make([]point, contourBins+1)
+	for i := range contourBins + 1 {
+		ang := -half + 2*half*float64(i)/float64(contourBins)
+		peak := 0.0 // both neighbours unhit leaves the edge at radius c
+		if i > 0 && hit[i-1] {
+			peak = math.Max(peak, binMax[i-1])
 		}
 		if i < contourBins && hit[i] {
-			peak = max(peak, binMax[i])
+			peak = math.Max(peak, binMax[i])
 		}
 		r := d.C + peak
-		out = append(out, pt{X: r * math.Cos(phi), Y: r * math.Sin(phi)})
+		out[i] = point{r * math.Cos(ang), r * math.Sin(ang)}
 	}
 	return out
 }
 
-// contourRing returns the casing's whole inner wall: the pin-pitch contour
-// repeated N times about O. Adjacent copies share their end point, so the ring
-// is one closed chain — which is exactly what the N-times pattern plus Join
-// produces when the contour's ends sit at exactly +/-pi/N.
-func (d dims) contourRing() []pt {
-	one := d.contour()
-	out := make([]pt, 0, len(one)*d.N)
+// fullContour is the casing's whole inner wall: contourPitch turned through the
+// N pin pitches, the shared end point emitted once, so the N sectors' contours
+// form one simple closed polygon.
+func fullContour(d dims) []point {
+	pitch := contourPitch(d)
+	out := make([]point, 0, (len(pitch)-1)*d.N)
 	for k := range d.N {
 		a := 2 * math.Pi * float64(k) / float64(d.N)
-		sa, ca := math.Sin(a), math.Cos(a)
-		for i, p := range one {
-			if i == len(one)-1 {
-				continue // shared with the next sector's first point
-			}
-			out = append(out, pt{X: p.X*ca - p.Y*sa, Y: p.X*sa + p.Y*ca})
+		for _, q := range pitch[:len(pitch)-1] {
+			out = append(out, point{
+				X: q.X*math.Cos(a) - q.Y*math.Sin(a),
+				Y: q.X*math.Sin(a) + q.Y*math.Cos(a),
+			})
 		}
 	}
 	return out
 }
 
-// rhoMinO is the smallest radius of curvature of the base trochoid at the
-// points whose centre of curvature lies toward O — the convex flanks an inward
-// offset can overrun. epitrochoid-trace.md "No-undercut guard".
-func (d dims) rhoMinO() float64 {
+// rhoMinTowardO is the base trochoid's smallest radius of curvature at the
+// points whose centre of curvature lies toward O — epitrochoid-trace.md's
+// "No-undercut guard", scanned at exactly fineSteps points over [0, 2*pi).
+//
+// The drawn profile is the inward equidistant of that trochoid offset by
+// Rr_eff, and an inward offset overruns itself once Rr_eff reaches this radius,
+// so Rr_eff < rhoMinTowardO is the binding eccentricity limit — tighter than
+// E < R/N.
+func rhoMinTowardO(d dims) float64 {
 	n := float64(d.N)
 	best := math.Inf(1)
 	for i := range fineSteps {
@@ -368,9 +316,8 @@ func (d dims) rhoMinO() float64 {
 		if math.Abs(k) < 1e-12 {
 			continue
 		}
-		s2 := xp*xp + yp*yp
-		rho := math.Pow(s2, 1.5) / k
-		s := math.Sqrt(s2)
+		s := math.Hypot(xp, yp)
+		rho := math.Pow(s, 3) / k
 		cx := bx + rho*(-yp/s)
 		cy := by + rho*(xp/s)
 		if cx*cx+cy*cy < bx*bx+by*by {
@@ -380,42 +327,23 @@ func (d dims) rhoMinO() float64 {
 	return best
 }
 
-// undercutCeiling is the binding eccentricity limit itself: the largest E for
-// which the inward equidistant still clears the base trochoid's curvature,
-// searched over the whole range the loose cusp limit R/N allows. The spec calls
-// this the binding constraint and R/N the loose one, so this must come out
-// below R/N.
-func undercutCeiling(p map[string]float64) float64 {
-	q := make(map[string]float64, len(p))
-	for k, v := range p {
-		q[k] = v
-	}
-	d := derive(q)
-	q[pEccentricity] = d.R / float64(d.N)
-	return undercutLimit(q)
-}
-
-// undercutLimit is E*, the largest eccentricity in (0, E] for which the inward
-// equidistant still clears the base trochoid's curvature, by exactly 40
-// bisection rounds. It returns 0 when no positive E' satisfies the guard.
-func undercutLimit(p map[string]float64) float64 {
-	trial := func(e float64) bool {
-		q := make(map[string]float64, len(p))
-		for k, v := range p {
-			q[k] = v
-		}
-		q[pEccentricity] = e
-		t := derive(q)
-		return t.RrEff < t.rhoMinO()
-	}
-	hi := p[pEccentricity]
-	lo := 1e-9
-	if !trial(lo) {
-		return 0
-	}
-	for range undercutRounds {
+// undercutLimit is E*, the largest eccentricity the guard still admits with
+// every other input held, found by exactly bisectRounds bisections over
+// (0, hi]. Both Rr_eff and rhoMinTowardO move with E' when Pin Diameter is 0,
+// so each round re-resolves the whole dimension set.
+//
+// The spec brackets the search at the offending eccentricity itself, because it
+// only runs the bisection once the guard has already failed and needs a number
+// below that value to put in the message. A proof that ran the same bracket on
+// a valid dialog would get the dialog's own eccentricity back and learn
+// nothing, so the bracket is a parameter here and every caller states one wide
+// enough to hold the real bound.
+func undercutLimit(p map[string]float64, hi float64) float64 {
+	lo := 0.0
+	for range bisectRounds {
 		mid := (lo + hi) / 2
-		if trial(mid) {
+		t := atEccentricity(p, mid)
+		if t.RrEff < rhoMinTowardO(t) {
 			lo = mid
 		} else {
 			hi = mid
@@ -424,67 +352,423 @@ func undercutLimit(p map[string]float64) float64 {
 	return lo
 }
 
-// problems is evaluate_problems: the whole authoritative validity list, run on
-// the resolved values, in the order the spec's table gives. An empty result
-// means the case is inside the regime the design must hold across.
-func (d dims) problems() []string {
-	var out []string
-	n, m := float64(d.N), float64(d.M)
-	if d.D == 2 && (d.N%2 != 0 || d.M%2 != 0) {
-		out = append(out, "two discs require an even Pin Count and an even Output Pin Count")
+// atEccentricity resolves a case's dimensions at a different eccentricity,
+// every other dialog value held, which is what the undercut guard's bound is
+// searched over.
+func atEccentricity(p map[string]float64, e float64) dims {
+	q := make(map[string]float64, len(p))
+	for k, v := range p {
+		q[k] = v
 	}
-	if !(d.E < d.Rr && d.Rr < d.R*math.Sin(math.Pi/n)) {
-		out = append(out, "pin geometry out of range: E < Rr < R*sin(pi/N) fails")
-	}
-	if d.DPin <= 0 {
-		out = append(out, "output pins vanish: resolved diameter <= 0")
-	}
-	if !(d.DHole < 2*d.Rop*math.Sin(math.Pi/m)) {
-		out = append(out, "output holes overlap")
-	}
-	if !(d.E < d.R/n) {
-		out = append(out, "eccentricity too large: E >= R/N")
-	}
-	if !(d.Rop < d.Rv) {
-		out = append(out, "output pin circle too large: Rop >= Rv")
-	}
-	if !(d.RrEff < d.rhoMinO()) {
-		out = append(out, "eccentricity too large: the rotor profile undercuts")
-	}
-	if !(d.ISD < d.CBD) {
-		out = append(out, "input shaft diameter must be less than centre bearing diameter")
-	}
-	if !(d.E+d.ISD/2 < d.CBD/2) {
-		out = append(out, "input bore does not fit inside the cam")
-	}
-	if !((d.CBD+d.Clr)/2 < d.Rop-d.DHole/2) {
-		out = append(out, "disk centre bore overlaps the output holes")
-	}
-	return out
+	q[keyEccentricity] = e
+	return derive(q)
 }
 
-// requireInRegime fails the case when its parameters fall outside the validity
-// table. The dialog rejects such a case before any geometry is built, so a
-// proof case that violates it would be proving a build the generator refuses.
-func requireInRegime(t testing.TB, d dims) {
-	t.Helper()
-	if problems := d.problems(); len(problems) > 0 {
-		t.Fatalf("case is outside the validity table, which the dialog rejects: %v", problems)
-	}
-}
-
-// polygonArea is the signed area of a closed polygon, positive counter-clockwise.
-func polygonArea(points []pt) float64 {
+// polygonArea is the shoelace area of a closed polygon, positive for either
+// winding.
+func polygonArea(pts []point) float64 {
 	sum := 0.0
-	for i := range points {
-		j := (i + 1) % len(points)
-		sum += points[i].X*points[j].Y - points[j].X*points[i].Y
+	for i, p := range pts {
+		q := pts[(i+1)%len(pts)]
+		sum += p.X*q.Y - q.X*p.Y
 	}
-	return sum / 2
+	return math.Abs(sum) / 2
 }
 
-// radiusOf is the distance from c to p.
-func radiusOf(p, c pt) float64 { return math.Hypot(p.X-c.X, p.Y-c.Y) }
+// polygonBounds is the axis-aligned extent of a point set, which is the
+// bounding box of the prism extruded through it.
+func polygonBounds(pts []point) (lo, hi point) {
+	lo = point{math.Inf(1), math.Inf(1)}
+	hi = point{math.Inf(-1), math.Inf(-1)}
+	for _, p := range pts {
+		lo.X, lo.Y = math.Min(lo.X, p.X), math.Min(lo.Y, p.Y)
+		hi.X, hi.Y = math.Max(hi.X, p.X), math.Max(hi.Y, p.Y)
+	}
+	return lo, hi
+}
 
-// nearly reports whether a and b agree to within tol.
-func nearly(a, b, tol float64) bool { return math.Abs(a-b) <= tol }
+// -- shared fixtures ---------------------------------------------------------
+
+// groundedSketch draws the anchor chain every cycloidal sketch opens with: the
+// user's Anchor arrives as reference geometry, since Fusion projects it in
+// rather than authoring it, and a fresh local origin is constrained coincident
+// to it. Everything else in the sketch is drawn relative to that origin.
+func groundedSketch(t testing.TB, s *sketch.Sketch) *sketch.Point {
+	t.Helper()
+	anchor := s.CreateReferencePoint(0, 0, "anchorPoint")
+	anchor.SetName("projected Anchor")
+	origin := s.CreatePoint(0, 0)
+	origin.SetName("local origin O")
+	s.AddConstraint(sketch.NewCoincident(origin, anchor))
+	return origin
+}
+
+// eccentricCentre builds Od_d off the local origin: a horizontal construction
+// line and a driving distance dimension carrying the Eccentricity.
+//
+// The dimension is a SIGNED horizontal distance where Fusion's
+// addDistanceDimension is an unsigned magnitude whose side comes from the seed.
+// That substitution is required, not cosmetic: an unsigned distance plus a
+// horizontal leaves Od at +E or -E, two configurations the probe finds and
+// RequireSound refuses. [PB-DIM-VALUE-SEMANTICS] is the rule that licenses it —
+// the engine's target is signed, and the sign crosses over to Fusion as the
+// seeded side, never as a negative parameter value.
+func eccentricCentre(t testing.TB, s *sketch.Sketch, origin *sketch.Point, d dims) (*sketch.Point, *sketch.Line) {
+	t.Helper()
+	c := d.centre()
+	centre := s.CreatePoint(c.X, c.Y)
+	centre.SetName("disc centre Od")
+	ecc := s.CreateLine(origin, centre)
+	ecc.SetConstruction(true)
+	s.AddConstraint(
+		sketch.NewHorizontal(ecc),
+		sketch.NewHorizontalDistance(origin, centre, d.Sign*d.E),
+	)
+	return centre, ecc
+}
+
+// circleOn draws a circle whose centre is a fresh point coincident to at, with
+// a driving diameter dimension — the addByCenterRadius + addCoincident +
+// addDiameterDimension shape every reference circle in this gear uses. Fusion
+// creates a free centre point and constrains it ([PB-CIRCLE-CENTER]), so the
+// proof does the same rather than sharing the point ([PB-SHARE-XOR-COINCIDENT]).
+func circleOn(t testing.TB, s *sketch.Sketch, at *sketch.Point, r float64, name string, construction bool) *sketch.Circle {
+	t.Helper()
+	c := s.CreatePoint(at.X(), at.Y())
+	circle := s.CreateCircle(c, r)
+	circle.SetName(name)
+	circle.SetConstruction(construction)
+	s.AddConstraint(sketch.NewCoincident(c, at), sketch.NewDiameter(circle, 2*r))
+	return circle
+}
+
+// polyline draws a chain of lines through pts and returns their shared points.
+// A closed chain joins the last point back to the first.
+func polyline(s *sketch.Sketch, pts []point, closed bool) []*sketch.Point {
+	sp := make([]*sketch.Point, len(pts))
+	for i, q := range pts {
+		sp[i] = s.CreatePoint(q.X, q.Y)
+	}
+	last := len(sp) - 1
+	for i := range last {
+		s.CreateLine(sp[i], sp[i+1])
+	}
+	if closed {
+		s.CreateLine(sp[last], sp[0])
+	}
+	return sp
+}
+
+// -- solid fixtures ----------------------------------------------------------
+
+// prismFromPolygon extrudes a closed polygon from z0 by height. The polygon's
+// points are grounded, which is what decadtest.SolveRegion needs to hand back
+// exactly one valid region; nothing about the constraint scheme is being proven
+// here — sketches_test.go owns that — so the shape is stated rather than solved.
+func prismFromPolygon(t *testing.T, doc *decad.Document, pts []point, z0, height float64, label string) *decad.Body {
+	t.Helper()
+	s := decadtest.NewSketch(t)
+	for _, p := range polyline(s, pts, true) {
+		s.Fix(p)
+	}
+	profile := decadtest.SolveRegion(t, s)
+	body := decadtest.NewPrism(t, doc, s, profile, units.Millimeters(height))
+	return liftTo(t, body, z0, label)
+}
+
+// hole is one circular opening in an extruded profile.
+type hole struct {
+	CX, CY, R float64
+}
+
+// prismWithHoles extrudes a closed polygon carrying circular holes, in one
+// feature. It is how a step whose Fusion feature is a repeated cut is proven:
+// decad refuses a second boolean against the mesh the first one left, so the
+// openings are stated as holes in the profile and the resulting solid — which
+// is the same solid — is read exactly rather than to a facet chord.
+func prismWithHoles(t *testing.T, doc *decad.Document, pts []point, holes []hole, z0, height float64, label string) *decad.Body {
+	t.Helper()
+	s := decadtest.NewSketch(t)
+	for _, q := range polyline(s, pts, true) {
+		s.Fix(q)
+	}
+	for _, h := range holes {
+		c := s.CreatePoint(h.CX, h.CY)
+		s.Fix(c)
+		circle := s.CreateCircle(c, h.R)
+		s.AddConstraint(sketch.NewDiameter(circle, 2*h.R))
+	}
+	if _, err := s.Solve(t.Context()); err != nil {
+		t.Fatalf("%s: solve the holed profile: %v", label, err)
+	}
+	var found *sketch.Profile
+	for _, prof := range s.Profiles() {
+		if len(prof.Holes) != len(holes) || !prof.Valid {
+			continue
+		}
+		if found != nil {
+			t.Fatalf("%s: more than one region carries %d hole(s)", label, len(holes))
+		}
+		found = prof
+	}
+	if found == nil {
+		t.Fatalf("%s: no valid region carries %d hole(s); the openings may cross the boundary",
+			label, len(holes))
+	}
+	body, err := doc.Extrude(s, found, decad.Distance{D: units.Millimeters(height), Dir: decad.Along})
+	if err != nil {
+		t.Fatalf("%s: extrude the holed profile: %v", label, err)
+	}
+	return liftTo(t, body, z0, label)
+}
+
+// cylinder extrudes a disc of radius r about (cx, cy) from z0 by height.
+func cylinder(t *testing.T, doc *decad.Document, cx, cy, r, z0, height float64, label string) *decad.Body {
+	t.Helper()
+	s := decadtest.NewSketch(t)
+	c := s.CreatePoint(cx, cy)
+	s.Fix(c)
+	circle := s.CreateCircle(c, r)
+	s.AddConstraint(sketch.NewDiameter(circle, 2*r))
+	profile := decadtest.SolveRegion(t, s)
+	body := decadtest.NewPrism(t, doc, s, profile, units.Millimeters(height))
+	return liftTo(t, body, z0, label)
+}
+
+// annulus extrudes the ring between two circles. The outer circle sits on
+// (ox, oy) and the inner on (ix, iy), so an eccentric cam section is the same
+// call as a concentric housing base. The ring is selected by its single hole,
+// which is the engine's reading of the spec's profileLoops.count == 2 rule.
+func annulus(t *testing.T, doc *decad.Document, ox, oy, ro, ix, iy, ri, z0, height float64, label string) *decad.Body {
+	t.Helper()
+	s := decadtest.NewSketch(t)
+	oc := s.CreatePoint(ox, oy)
+	s.Fix(oc)
+	outer := s.CreateCircle(oc, ro)
+	ic := s.CreatePoint(ix, iy)
+	s.Fix(ic)
+	inner := s.CreateCircle(ic, ri)
+	s.AddConstraint(sketch.NewDiameter(outer, 2*ro), sketch.NewDiameter(inner, 2*ri))
+	profile := holedProfile(t, s)
+	body, err := doc.Extrude(s, profile, decad.Distance{D: units.Millimeters(height), Dir: decad.Along})
+	if err != nil {
+		t.Fatalf("%s: extrude the annulus: %v", label, err)
+	}
+	return liftTo(t, body, z0, label)
+}
+
+// holedProfile solves the sketch and returns its one region with a hole. Two
+// nested closed curves detect as two regions — the inner disc and the ring —
+// and it is the ring that every annular extrude in this gear wants.
+func holedProfile(t *testing.T, s *sketch.Sketch) *sketch.Profile {
+	t.Helper()
+	if _, err := s.Solve(t.Context()); err != nil {
+		t.Fatalf("solve the annular sketch: %v", err)
+	}
+	var found *sketch.Profile
+	for _, p := range s.Profiles() {
+		if len(p.Holes) != 1 || !p.Valid {
+			continue
+		}
+		if found != nil {
+			t.Fatalf("the sketch holds more than one valid holed region")
+		}
+		found = p
+	}
+	if found == nil {
+		t.Fatalf("the sketch holds no valid holed region")
+	}
+	return found
+}
+
+// liftTo moves a body so its extrude base sits at z0, and names it, so a
+// decadtest failure opens with the step's own name for the body rather than an
+// index and a recipe step.
+func liftTo(t *testing.T, body *decad.Body, z0 float64, label string) *decad.Body {
+	t.Helper()
+	if z0 == 0 {
+		return body
+	}
+	tr, err := r3.Translation(r3.NewVec(0, 0, z0))
+	if err != nil {
+		t.Fatalf("%s: translation to z=%g: %v", label, z0, err)
+	}
+	moved, err := body.Placed(tr)
+	if err != nil {
+		t.Fatalf("%s: place at z=%g: %v", label, z0, err)
+	}
+	return moved
+}
+
+// measuresVolume reads a body's volume and compares it against the step's own
+// formula under the step's own label, since decadtest otherwise names a body by
+// index and recipe step, which does not say which feature is wrong.
+func measuresVolume(t *testing.T, label string, body *decad.Body, want float64, opts ...decadtest.Option) {
+	t.Helper()
+	v, err := body.Volume()
+	if err != nil {
+		t.Fatalf("%s: read the volume: %v", label, err)
+	}
+	decadtest.Measures(t, label+" volume", v, units.CubicMillimeters(want), opts...)
+}
+
+// measuresBox reads a body's bounding box under the step's own label.
+func measuresBox(t *testing.T, label string, body *decad.Body, lo, hi r3.Vec, opts ...decadtest.Option) {
+	t.Helper()
+	box, err := body.Bounds()
+	if err != nil {
+		t.Fatalf("%s: read the bounds: %v", label, err)
+	}
+	decadtest.MeasuresBox(t, label+" bounds", box, lo, hi, opts...)
+}
+
+// measuresPolygonBox reads a prism's bounding box against the polygon it was
+// extruded from and the two z faces it spans.
+func measuresPolygonBox(t *testing.T, label string, body *decad.Body, pts []point, z0, z1 float64) {
+	t.Helper()
+	lo, hi := polygonBounds(pts)
+	measuresBox(t, label, body, r3.NewVec(lo.X, lo.Y, z0), r3.NewVec(hi.X, hi.Y, z1),
+		decadtest.Within(units.Millimeters(boxSlack)))
+}
+
+// volumeOf is the reading itself, for the comparisons decadtest.Agree makes
+// between two readings.
+func volumeOf(t *testing.T, label string, body *decad.Body) decad.Measurement {
+	t.Helper()
+	v, err := body.Volume()
+	if err != nil {
+		t.Fatalf("%s: read the volume: %v", label, err)
+	}
+	return v
+}
+
+// requireOneLump fails when a body arrived as several disconnected pieces,
+// which is how a join that did not close reads.
+func requireOneLump(t *testing.T, label string, body *decad.Body) {
+	t.Helper()
+	if n := len(body.Lumps()); n != 1 {
+		t.Fatalf("%s: the body has %d disconnected lump(s), want 1", label, n)
+	}
+}
+
+// -- tolerances --------------------------------------------------------------
+
+// exact is the slack for a reading whose expected value is a closed-form
+// polygon or prism volume the evaluator computes the same way: float64
+// rounding only.
+func exact() decadtest.Option { return decadtest.WithinRel(units.Scalar(1e-9)) }
+
+// faceted is the slack for a reading taken after a boolean against a
+// cylindrical tool. decad tessellates the cylinder before the boolean, so the
+// hole it actually removes is an inscribed prism slightly smaller than
+// pi*r^2*h; measured at 4.3e-4 of the removed volume for a 7 mm hole through an
+// 8 mm disc, so 2e-3 leaves an order of magnitude over the chord error and
+// still refuses a wrong hole count or a wrong radius.
+func faceted() decadtest.Option { return decadtest.WithinRel(units.Scalar(2e-3)) }
+
+// -- case tables -------------------------------------------------------------
+
+// baseCase is the dialog's own defaults, in the display units the dialog shows.
+func baseCase() map[string]float64 {
+	return map[string]float64{
+		keyPinCount:            16,
+		keyPinCircleDiameter:   90,
+		keyPinDiameter:         0,
+		keyEccentricity:        1.5,
+		keyDiskClearance:       0.3,
+		keyDiscThickness:       8,
+		keyDiscGap:             0.5,
+		keyCenterBearingDia:    30,
+		keyInputShaftDiameter:  8,
+		keyBearingClearance:    0.2,
+		keyOutputPinCircleDia:  50,
+		keyOutputPinCount:      6,
+		keyOutputPinDiameter:   0,
+		keyWall:                3,
+		keyBaseThickness:       5,
+		keyOutputPlateThicknes: 5,
+		keyChamferSize:         0.5,
+		keyDiscCount:           1,
+		keyDisc:                0,
+	}
+}
+
+// with returns the defaults overridden by changes, so a case reads as its own
+// delta from the dialog.
+func with(changes map[string]float64) map[string]float64 {
+	p := baseCase()
+	for k, v := range changes {
+		p[k] = v
+	}
+	return p
+}
+
+// sketchCases is the table every sketch step is proven against. It reaches both
+// sides of every branch the spec offers a sketch: the two discs (and so both
+// signs of the eccentric offset), auto and override on each of the two pin
+// sizes, the two count floors, an input-shaft bore and none, a zero clearance,
+// and the top of the eccentricity range where the profile is closest to
+// undercutting.
+var sketchCases = []proofkit.Case{
+	{Name: "defaults", Params: baseCase()},
+	{Name: "second_disc_negative_eccentric", Params: with(map[string]float64{
+		keyDiscCount: 2, keyDisc: 1,
+	})},
+	{Name: "pin_diameter_override", Params: with(map[string]float64{
+		keyPinDiameter: 12,
+	})},
+	{Name: "output_pin_diameter_override", Params: with(map[string]float64{
+		keyOutputPinDiameter: 8,
+	})},
+	{Name: "min_pin_count", Params: with(map[string]float64{
+		keyPinCount: 4, keyOutputPinCount: 3, keyOutputPinCircleDia: 24,
+		keyCenterBearingDia: 10, keyInputShaftDiameter: 6,
+	})},
+	{Name: "high_pin_count", Params: with(map[string]float64{
+		keyPinCount: 24, keyOutputPinCount: 12,
+	})},
+	{Name: "high_eccentricity", Params: with(map[string]float64{
+		keyEccentricity: 2.4,
+	})},
+	{Name: "no_input_bore_no_chamfer", Params: with(map[string]float64{
+		keyInputShaftDiameter: 0, keyChamferSize: 0,
+	})},
+	{Name: "zero_clearances", Params: with(map[string]float64{
+		keyDiskClearance: 0, keyBearingClearance: 0, keyDiscGap: 0,
+	})},
+}
+
+// solidCases is the table every solid step is proven against. It is the sketch
+// table's branch coverage carried into three dimensions, trimmed of the cases
+// that differ from another only in a quantity no solid step reads.
+var solidCases = []proofkit3d.Case{
+	{Name: "defaults", Params: baseCase()},
+	{Name: "second_disc_negative_eccentric", Params: with(map[string]float64{
+		keyDiscCount: 2, keyDisc: 1,
+	})},
+	{Name: "both_diameters_overridden", Params: with(map[string]float64{
+		keyPinDiameter: 12, keyOutputPinDiameter: 8,
+	})},
+	{Name: "min_pin_count", Params: with(map[string]float64{
+		keyPinCount: 4, keyOutputPinCount: 3, keyOutputPinCircleDia: 24,
+		keyCenterBearingDia: 10, keyInputShaftDiameter: 6,
+	})},
+	{Name: "high_eccentricity", Params: with(map[string]float64{
+		keyEccentricity: 2.4,
+	})},
+	{Name: "no_input_bore_no_chamfer", Params: with(map[string]float64{
+		keyInputShaftDiameter: 0, keyChamferSize: 0,
+	})},
+}
+
+// twoDiscCases is the table for the steps that exist only when the dialog asks
+// for two discs: the cam's section join. Both sides of the Disc Gap range are
+// here, since the gap is what the lower section's extra height fills.
+var twoDiscCases = []proofkit3d.Case{
+	{Name: "two_discs_with_gap", Params: with(map[string]float64{
+		keyDiscCount: 2, keyDisc: 0,
+	})},
+	{Name: "two_discs_no_gap", Params: with(map[string]float64{
+		keyDiscCount: 2, keyDisc: 0, keyDiscGap: 0,
+	})},
+}

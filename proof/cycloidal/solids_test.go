@@ -1,35 +1,40 @@
-// Solid steps. Each function is one Fusion feature — an extrude, a pattern, a
-// combine, a chamfer — rebuilt in decad and gated by proofkit3d on decad's own
-// verdict plus the topology a solid has to have.
+// This file holds the cycloidal drive's solid steps, one function per Fusion
+// timeline feature: the lobe sector extrude and the disc it patterns into, the
+// output-hole cut and its pattern, the disc bore, the cam sections and their
+// join, the housing base and the pinless casing, the output plate, its pin and
+// socket and the pin pattern, and the rim chamfers.
 //
-// Four substitutions run through this file. Each is forced by a boundary the
-// solid engine refuses, and each is named again at the step it applies to.
+// Three substitutions run through the file, each made because decad refuses
+// the operation Fusion performs rather than because it would be convenient.
 //
-//  1. Free-form sections cannot be boolean operands, and a section whose
-//     curvature changes sign is refused outright. The rotor lobe inflects and
-//     the casing contour is swept, so both are drawn here as polylines through
-//     the same sampled points the Fusion sketch feeds to its fitted spline.
-//     What that costs: the proof measures a chorded profile, so every area and
-//     volume it checks carries the chord's shortfall against the spline, and it
-//     is checked with a tolerance that says so. What it keeps: the sample set,
-//     the closure, the tiling and every extent are the real ones.
+// Chorded free-form boundaries. Fusion draws the lobe and the casing contour
+// as fitted splines. decad refuses to extrude a free-form span whose curvature
+// sign it cannot certify — measured here as "a free-form span's curvature-sign
+// certificate is still mixed at the fixed subdivision depth cap" — and both
+// curves turn from concave to convex within one span, so every solid step
+// extrudes the chord polyline through the same sampled points. What it costs
+// is the sagitta of each span: under the spec's 5-degree turn limit the chord
+// area sits within about a part in a thousand of the spline's, so an area or a
+// volume proven here is proven to that, and the smoothness of the drawn wall
+// is not proven at all.
 //
-//  2. A boolean refuses operands that merely touch — a face-on-face, coplanar
-//     or tangent contact is rejected rather than merged. Fusion's Joins here all
-//     join bodies that exactly touch: the L lobe sectors along their spokes, the
-//     N casing sectors along theirs, the two cam sections at their shared plane,
-//     the casing onto the base. Where the proof needs the join's result it
-//     overlaps the operands deliberately and subtracts the overlap it introduced;
-//     where it needs the tiling, it draws the tiled outline as one closed loop
-//     and extrudes once, then checks the volume identity the pattern promises.
+// Patterned sectors are not joined by boolean. Fusion circular-patterns one
+// sector and Joins the copies, which share a whole face. decad refuses a
+// boolean whose operands meet face to face — "whether their true surfaces
+// touch or cross is decided by where the chords fall" — so the patterned
+// result is built from the whole boundary in one extrude and the tiling is
+// proven the way the Join's outcome is judged: one lump, and a volume that is
+// exactly the sector count times the sector. A tiling that left a gap between
+// sectors is exactly what that pair of readings refuses, which is the reported
+// "several unnamed bodies" bug.
 //
-//  3. decad's Verify judges every pair of live bodies in a document, and a pair
-//     it can resolve neither way makes the report Suspect, which fails the gate.
-//     So a step that needs a comparison body measures it in its own scratch
-//     document and returns only the bodies its own Fusion feature leaves behind.
-//
-//  4. decad's Cut retires both operands, so Fusion's isKeepToolBodies is
-//     modelled by cutting with a duplicate of the tool.
+// Abutting joins overlap by a sliver. Where Fusion Joins two bodies that meet
+// on a plane — the cam's two sections, the casing onto the housing base — the
+// proof overlaps them by overlapSliver and says so at the call. What that
+// costs is the volume of the sliver, which each step subtracts explicitly; the
+// claim being proven is connectivity, which the sliver does not create out of
+// nothing, since two bodies that do not meet in plan stay two lumps however
+// far they overlap in z.
 package cycloidal_test
 
 import (
@@ -39,1217 +44,801 @@ import (
 
 	"github.com/lestrrat-3d/decad"
 	"github.com/lestrrat-3d/decad/decadtest"
+	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit3d"
 	"github.com/lestrrat-3d/r3"
 	"github.com/lestrrat-3d/sketch"
 	"github.com/lestrrat-3d/units"
-
-	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit3d"
 )
 
-// ---- solid case tables ------------------------------------------------
+// overlapSliver is the axial overlap that stands in for an exact face-to-face
+// abutment decad will not evaluate. It is small enough that its own volume is
+// a rounding error against the bodies it joins, and large enough to sit far
+// outside any facet chord.
+const overlapSliver = 0.01
 
-// discSolidCases exercises the rotor disc: both discs of a two-disc stack (so
-// the signed eccentricity and the 180-degree clocking are both built), both
-// resolutions of Pin Diameter, both ends of the eccentricity range, and the
-// smallest pin count the spec allows alongside the default.
-var discSolidCases = []proofkit3d.Case{
-	{Name: "defaults", Params: baseCase(nil)},
-	{Name: "disc2of2", Params: baseCase(map[string]float64{pDiscCount: 2, pDiscIndex: 1})},
-	{Name: "eccentricityNearUndercutLimit", Params: baseCase(map[string]float64{pEccentricity: 2.45})},
-	{Name: "pinDiameterOverride", Params: baseCase(map[string]float64{pPinDiameter: 9})},
-	{Name: "minimumCounts", Params: baseCase(map[string]float64{
-		pPinCount: 4, pOutputPinCount: 3, pOutputPinCircleDiam: 34,
-		pCenterBearingDiameter: 14, pInputShaftDiameter: 5,
-	})},
-}
+// toolOverhang is how far a cutting cylinder runs past both faces of the body
+// it pierces. Fusion's cut is flush with the disc, which puts the tool's cap in
+// the plane of the disc's, and a coplanar pair is the same question decad
+// refuses; running the tool past both faces asks one it answers.
+const toolOverhang = 1.0
 
-// camSolidCases covers the cam's two branches in both directions: the bore and
-// no-bore cross-section, and the one-section and two-section stack.
-var camSolidCases = []proofkit3d.Case{
-	{Name: "defaults", Params: baseCase(nil)},
-	{Name: "noInputBore", Params: baseCase(map[string]float64{pInputShaftDiameter: 0})},
-	{Name: "twoDiscStack", Params: baseCase(map[string]float64{
-		pPinCount: 6, pOutputPinCount: 4, pDiscCount: 2, pOutputPinCircleDiam: 42,
-		pCenterBearingDiameter: 18,
-	})},
-	{Name: "twoDiscStackNoBore", Params: baseCase(map[string]float64{
-		pPinCount: 6, pOutputPinCount: 4, pDiscCount: 2, pOutputPinCircleDiam: 42,
-		pCenterBearingDiameter: 18, pInputShaftDiameter: 0,
-	})},
-}
+// wallRelief is how far the housing base's outer wall is grown past the
+// casing's so the two cross instead of coinciding. Fusion's Join has them
+// flush, which puts one cylinder in both operands, and decad refuses a
+// tangent contact it cannot classify.
+const wallRelief = 0.01
 
-// casingSolidCases keeps the pin count modest where the whole ring is built,
-// because the contour ring charges one arrangement segment per chord and the
-// engine's section budget is fixed.
-var casingSolidCases = []proofkit3d.Case{
-	{Name: "defaults", Params: baseCase(nil)},
-	{Name: "minimumPinCount", Params: baseCase(map[string]float64{
-		pPinCount: 4, pOutputPinCount: 3, pOutputPinCircleDiam: 34,
-		pCenterBearingDiameter: 14, pInputShaftDiameter: 5,
-	})},
-	{Name: "twoDiscStack", Params: baseCase(map[string]float64{
-		pPinCount: 6, pOutputPinCount: 4, pDiscCount: 2, pOutputPinCircleDiam: 42,
-		pCenterBearingDiameter: 18,
-	})},
-}
+// boxSlack is the millimetre slack for a bounding box read off a body whose
+// boundary the evaluator states exactly — a chorded prism. Only float64
+// rounding separates the reading from the polygon it was built from.
+const boxSlack = 1e-6
 
-// housingJoinCases is casingSolidCases without the two-disc entry. The join of a
-// faceted casing ring onto a faceted base is by far the most expensive boolean
-// in this proof — minutes at the default pin count — and what the two-disc case
-// would add here is only the casing's extent, which S25 and S26 both build and
-// measure at two discs. The pin count, which is what actually changes the ring's
-// facet count and the contact the join has to resolve, is still swept.
-var housingJoinCases = []proofkit3d.Case{
-	{Name: "defaults", Params: baseCase(nil)},
-	{Name: "minimumPinCount", Params: baseCase(map[string]float64{
-		pPinCount: 4, pOutputPinCount: 3, pOutputPinCircleDiam: 34,
-		pCenterBearingDiameter: 14, pInputShaftDiameter: 5,
-	})},
-}
-
-// outputSolidCases covers the output member, including the chamfer branch in
-// both directions: a size that cuts, and the zero that means no chamfer at all.
-var outputSolidCases = []proofkit3d.Case{
-	{Name: "defaults", Params: baseCase(nil)},
-	{Name: "outputPinDiameterOverride", Params: baseCase(map[string]float64{pOutputPinDiameter: 8})},
-	{Name: "noChamfer", Params: baseCase(map[string]float64{pChamferSize: 0})},
-	{Name: "minimumOutputPinCount", Params: baseCase(map[string]float64{
-		pPinCount: 4, pOutputPinCount: 3, pOutputPinCircleDiam: 34,
-		pCenterBearingDiameter: 14, pInputShaftDiameter: 5,
-	})},
-	{Name: "twoDiscStack", Params: baseCase(map[string]float64{
-		pPinCount: 6, pOutputPinCount: 4, pDiscCount: 2, pOutputPinCircleDiam: 42,
-		pCenterBearingDiameter: 18,
-	})},
-}
-
-// ---- building blocks --------------------------------------------------
-
-func mm(v float64) units.Value { return units.Millimeters(v) }
-
-// buildSketch returns an empty sketch on a plane parallel to XY at height z.
-func buildSketch(t *testing.T, z float64) *sketch.Sketch {
-	t.Helper()
-	w := sketch.NewWorld()
-	plane := w.XY()
-	if z != 0 {
-		var err error
-		plane, err = w.CreateOffsetPlane(w.XY(), z)
-		if err != nil {
-			t.Fatalf("offset plane at z=%.4f: %v", z, err)
-		}
-	}
-	s, err := w.CreateSketch(plane)
-	if err != nil {
-		t.Fatalf("create sketch: %v", err)
-	}
-	return s
-}
-
-// chordLoop draws a closed polyline through points, every vertex fixed. This is
-// the chorded stand-in for a fitted spline: decad's boolean and its analytic
-// prism path both take sections of lines, circles and arcs only.
-func chordLoop(s *sketch.Sketch, points []pt) {
-	handles := make([]*sketch.Point, len(points))
-	for i, q := range points {
-		handles[i] = s.CreatePoint(q.X, q.Y)
-		s.Fix(handles[i])
-	}
-	for i := range handles {
-		s.CreateLine(handles[i], handles[(i+1)%len(handles)])
-	}
-}
-
-// chordChain draws an open polyline and returns its segments.
-func chordChain(s *sketch.Sketch, points []pt) []*sketch.Line {
-	handles := make([]*sketch.Point, len(points))
-	for i, q := range points {
-		handles[i] = s.CreatePoint(q.X, q.Y)
-		s.Fix(handles[i])
-	}
-	lines := make([]*sketch.Line, 0, len(handles)-1)
-	for i := 0; i < len(handles)-1; i++ {
-		lines = append(lines, s.CreateLine(handles[i], handles[i+1]))
-	}
-	return lines
-}
-
-// fixedCircle draws a circle whose centre and radius are both pinned.
-func fixedCircle(s *sketch.Sketch, c pt, r float64) *sketch.Circle {
-	centre := s.CreatePoint(c.X, c.Y)
-	s.Fix(centre)
-	circle := s.CreateCircle(centre, r)
-	s.AddConstraint(sketch.NewRadius(circle, r))
-	return circle
-}
-
-// solveRegions solves the sketch and returns the regions it closes.
-func solveRegions(t *testing.T, s *sketch.Sketch) []*sketch.Profile {
-	t.Helper()
-	if _, err := s.Solve(t.Context()); err != nil {
-		t.Fatalf("solve build sketch: %v", err)
-	}
-	regions := s.Profiles()
-	if len(regions) == 0 {
-		t.Fatal("build sketch closes no region")
-	}
-	return regions
-}
-
-// onlyRegion returns the single region a sketch closes.
-func onlyRegion(t *testing.T, s *sketch.Sketch) *sketch.Profile {
-	t.Helper()
-	regions := solveRegions(t, s)
-	if len(regions) != 1 {
-		t.Fatalf("build sketch closes %d regions, want 1", len(regions))
-	}
-	return regions[0]
-}
-
-// holedRegion returns the one region with the given number of hole loops.
-func holedRegion(t *testing.T, s *sketch.Sketch, holes int) *sketch.Profile {
-	t.Helper()
-	var found *sketch.Profile
-	for _, region := range solveRegions(t, s) {
-		if len(region.Holes) == holes {
-			if found != nil {
-				t.Fatalf("more than one region has %d hole loop(s)", holes)
-			}
-			found = region
-		}
-	}
-	if found == nil {
-		t.Fatalf("no region has %d hole loop(s)", holes)
-	}
-	return found
-}
-
-// smallestRegionOn returns the smallest-area region whose boundary uses the
-// given entity. The casing's solid outer circle makes its contour the shared
-// edge of two closed regions — the thin wedge and the whole complement inside
-// the circle — and the wedge is the smaller by a wide margin.
-func smallestRegionOn(t *testing.T, s *sketch.Sketch, want sketch.Entity) *sketch.Profile {
-	t.Helper()
-	var found *sketch.Profile
-	for _, region := range solveRegions(t, s) {
-		for _, e := range region.Entities {
-			if e != want {
-				continue
-			}
-			if found == nil || region.Area < found.Area {
-				found = region
-			}
-			break
-		}
-	}
-	if found == nil {
-		t.Fatal("no region uses the named entity")
-	}
-	return found
-}
-
-func extrudeUp(t *testing.T, doc *decad.Document, s *sketch.Sketch, region *sketch.Profile,
-	depth float64) *decad.Body {
-	t.Helper()
-	body, err := doc.Extrude(s, region, decad.Distance{D: mm(depth), Dir: decad.Along})
-	if err != nil {
-		t.Fatalf("extrude %.4f mm along the sketch normal: %v", depth, err)
-	}
-	return body
-}
-
-func extrudeDown(t *testing.T, doc *decad.Document, s *sketch.Sketch, region *sketch.Profile,
-	depth float64) *decad.Body {
-	t.Helper()
-	body, err := doc.Extrude(s, region, decad.Distance{D: mm(depth), Dir: decad.Against})
-	if err != nil {
-		t.Fatalf("extrude %.4f mm against the sketch normal: %v", depth, err)
-	}
-	return body
-}
-
-// volumeReading is a body's volume reading: the value decad measured together
-// with the bound it proved around it.
-func volumeReading(t *testing.T, b *decad.Body) decad.Measurement {
-	t.Helper()
-	m, err := b.Volume()
-	if err != nil {
-		t.Fatalf("measure volume: %v", err)
-	}
-	return m
-}
-
-// volumeOf is the measured value alone, for the assertions that build a figure
-// out of it rather than compare it.
-func volumeOf(t *testing.T, b *decad.Body) float64 {
-	t.Helper()
-	return volumeReading(t, b).Value.Base()
-}
-
-func boundsOf(t *testing.T, b *decad.Body) decad.Box {
-	t.Helper()
-	box, err := b.Bounds()
-	if err != nil {
-		t.Fatalf("measure bounds: %v", err)
-	}
-	return box
-}
-
-// requireSpan fails unless the body's z extent is exactly the span the step's
-// extrude is supposed to produce.
-func requireSpan(t *testing.T, b *decad.Body, lo, hi, tol float64) {
-	t.Helper()
-	box := boundsOf(t, b)
-	if !nearly(box.Min.Z, lo, tol) || !nearly(box.Max.Z, hi, tol) {
-		t.Errorf("body spans z [%.6f, %.6f], want [%.6f, %.6f]", box.Min.Z, box.Max.Z, lo, hi)
-	}
-}
-
-// requireVolume fails unless the body's volume reading and this proof's own
-// figure for it agree. rel is the error of that figure — a chorded outline's
-// area, a subtraction of two measured bodies — and decadtest adds the
-// reading's own proven bound to it, so what is asserted is that decad's
-// interval and this proof's claim overlap. what is the step's own name for the
-// body; decadtest would otherwise name it by index and recipe step, which says
-// nothing about which feature is wrong.
-func requireVolume(t *testing.T, b *decad.Body, want, rel float64, what string) {
-	t.Helper()
-	decadtest.Measures(t, what+" volume", volumeReading(t, b),
-		units.CubicMillimeters(want), decadtest.WithinRel(units.Scalar(rel)))
-}
-
-// turnAbout is the pattern transform: a rotation by angle about the vertical
-// axis through (cx, cy). The basis is written with literal zeros in the z row
-// rather than evaluated from Rodrigues, because a z row a few ulps off drops the
-// engine's analytic prism path.
-func turnAbout(t *testing.T, cx, cy, angle float64) r3.Transform {
-	t.Helper()
-	sin, cos := math.Sin(angle), math.Cos(angle)
-	basis := r3.Basis{
-		EX: r3.NewVec(cos, sin, 0),
-		EY: r3.NewVec(-sin, cos, 0),
-		EZ: r3.NewVec(0, 0, 1),
-	}
-	tx := cx - (cx*cos - cy*sin)
-	ty := cy - (cx*sin + cy*cos)
-	turn, err := r3.FromBasis(basis, r3.NewVec(tx, ty, 0))
-	if err != nil {
-		t.Fatalf("build the pattern turn of %.6f rad: %v", angle, err)
-	}
-	return turn
-}
-
-func liftBy(t *testing.T, dz float64) r3.Transform {
-	t.Helper()
-	lift, err := r3.Translation(r3.NewVec(0, 0, dz))
-	if err != nil {
-		t.Fatalf("build a %.4f mm lift: %v", dz, err)
-	}
-	return lift
-}
-
-// sectorPoints is the lobe pie-sector outline: the disc centre, then the lobe's
-// sampled points. Closing the loop returns along spoke 2 to the centre, which
-// chordLoop does by joining the last point back to the first.
-func sectorPoints(d dims) []pt {
-	out := make([]pt, 0, 1+len(d.lobeSamples()))
-	out = append(out, d.centre())
-	return append(out, d.lobeSamples()...)
-}
-
-// casingSection draws the Ring Casing section: the solid outer circle, the
-// chorded contour over one pin pitch, and the two radial spokes from the
-// contour's ends out to that circle. It returns the region the extrude takes —
-// the smallest-area one the contour bounds, which is the thin wedge and not the
-// large complement the same contour also bounds.
-func casingSection(t *testing.T, s *sketch.Sketch, d dims) *sketch.Profile {
-	t.Helper()
-	half := math.Pi / float64(d.N)
-	fixedCircle(s, pt{}, d.outerWall())
-	contour := d.contour()
-	lines := chordChain(s, contour)
-	for i, end := range []pt{contour[0], contour[len(contour)-1]} {
-		angle := -half
-		if i == 1 {
-			angle = half
-		}
-		inner := s.CreatePoint(end.X, end.Y)
-		outer := s.CreatePoint(d.outerWall()*math.Cos(angle), d.outerWall()*math.Sin(angle))
-		s.Fix(inner)
-		s.Fix(outer)
-		s.CreateLine(inner, outer)
-	}
-	return smallestRegionOn(t, s, lines[0])
-}
-
-// ---- S08: extrude the lobe sector -------------------------------------
+// -- the rotor disc ----------------------------------------------------------
 
 // stepExtrudeLobeSector extrudes the Rotor Lobe sketch's one closed profile —
 // the pie sector bounded by spoke 1, the lobe and spoke 2 — by Disc Thickness,
-// as a new body, in the sketch normal's positive direction from plane(d).
+// from disc d's own plane.
 func stepExtrudeLobeSector(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	d := derive(p)
-	requireInRegime(t, d)
-	s := buildSketch(t, d.zBase())
-	chordLoop(s, sectorPoints(d))
-	return []*decad.Body{extrudeUp(t, doc, s, onlyRegion(t, s), d.T)}
+	return []*decad.Body{
+		prismFromPolygon(t, doc, lobeSector(d), d.discBase(), d.T, "Cycloidal Disk sector"),
+	}
 }
 
-func assertExtrudeLobeSector(t *testing.T, _ *decad.Document, bodies []*decad.Body,
-	p map[string]float64) {
+func assertExtrudeLobeSector(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
 	d := derive(p)
-	body := bodies[0]
-	// Disc d spans [z_d, z_d + T], every extrude in the positive direction from
-	// its own plane.
-	requireSpan(t, body, d.zBase(), d.zBase()+d.T, 1e-6)
-	requireVolume(t, body, math.Abs(polygonArea(sectorPoints(d)))*d.T, 1e-6, "lobe sector")
-	// The sector's apex is the disc centre and its far edge is the lobe, which
-	// reaches the tip radius. Both spoke faces meet at that apex, which is why
-	// the disc axis cannot be found by looking for a planar face near it.
-	box := boundsOf(t, body)
+	sector := lobeSector(d)
+	label := "Cycloidal Disk sector"
+	requireOneLump(t, label, bodies[0])
+	// The prism's volume is the polygon's area times the extent, which the
+	// evaluator computes the same way, so only float64 rounding separates them.
+	measuresVolume(t, label, bodies[0], polygonArea(sector)*d.T, exact())
+	measuresPolygonBox(t, label, bodies[0], sector, d.discBase(), d.discBase()+d.T)
+}
+
+// lobeSector is the pie sector's boundary: the disc centre, then the lobe.
+func lobeSector(d dims) []point {
 	c := d.centre()
-	reach := math.Max(
-		math.Max(math.Abs(box.Max.X-c.X), math.Abs(box.Min.X-c.X)),
-		math.Max(math.Abs(box.Max.Y-c.Y), math.Abs(box.Min.Y-c.Y)))
-	if reach > d.tipRadius()+1e-6 {
-		t.Errorf("sector reaches %.6f mm from the disc centre, past the lobe tip %.6f",
-			reach, d.tipRadius())
+	return append([]point{c}, lobeSamples(d, c.X, c.Y, d.Phi)...)
+}
+
+// stepJoinDiscSectors Joins disc d's own L patterned sectors into one
+// `Cycloidal Disk {d+1}` body.
+//
+// The Join's outcome is one geometric claim: that L sectors turned by 360/L
+// about Od tile the rotor with no gap and no overlap. The proof builds the
+// tiled boundary in one extrude, for the reason this file's header gives, and
+// holds the claim as the pair of readings the assertion makes.
+//
+// The circular pattern that produced those sectors is the step before this
+// one, and it is [PROSE]. decad has no pattern feature, and placing the L
+// copies by hand leaves L bodies that meet face to face: the boolean that
+// would join them is refused, and leaving them live makes decad's report
+// unable to say whether a touching pair crosses. The tiling they have to
+// satisfy is what this step reads instead.
+func stepJoinDiscSectors(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
+	d := derive(p)
+	return []*decad.Body{
+		prismFromPolygon(t, doc, discBoundary(d), d.discBase(), d.T, "Cycloidal Disk"),
 	}
 }
 
-// ---- S10: circular-pattern the lobe sector x L ------------------------
-
-// stepPatternLobeSectors is the pattern feature: the lobe-sector extrude
-// repeated L times about the disc axis at Od over 360 degrees. decad expresses
-// a pattern as placed copies, and its verification judges every pair of live
-// bodies, so the seed sector is what this document holds; the assertion places
-// each copy in a document of its own and checks where it lands.
-func stepPatternLobeSectors(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
+func assertJoinDiscSectors(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
 	d := derive(p)
-	requireInRegime(t, d)
-	s := buildSketch(t, d.zBase())
-	chordLoop(s, sectorPoints(d))
-	return []*decad.Body{extrudeUp(t, doc, s, onlyRegion(t, s), d.T)}
-}
-
-func assertPatternLobeSectors(t *testing.T, _ *decad.Document, bodies []*decad.Body,
-	p map[string]float64) {
-	d := derive(p)
-	seed := bodies[0]
-	seedVolume := volumeReading(t, seed)
-	seedCentroid, err := seed.Centroid()
-	if err != nil {
-		t.Fatalf("measure the seed sector's centroid: %v", err)
-	}
-	c := d.centre()
-	pitch := 2 * math.Pi / float64(d.L)
-	for k := 1; k < d.L; k++ {
-		scratch := decad.New()
-		s := buildSketch(t, d.zBase())
-		chordLoop(s, sectorPoints(d))
-		copyBody := extrudeUp(t, scratch, s, onlyRegion(t, s), d.T)
-		placed, err := copyBody.Placed(turnAbout(t, c.X, c.Y, pitch*float64(k)))
-		if err != nil {
-			t.Fatalf("place pattern instance %d: %v", k, err)
-		}
-		// Two readings, not a reading against a formula: the placement is
-		// supposed to change nothing about the body, so the seed's own proven
-		// bound counts towards the comparison as much as the copy's.
-		decadtest.Agree(t, fmt.Sprintf("pattern instance %d against the seed", k),
-			volumeReading(t, placed), seedVolume, decadtest.WithinRel(units.Scalar(1e-9)))
-
-		got, err := placed.Centroid()
-		if err != nil {
-			t.Fatalf("measure pattern instance %d: %v", k, err)
-		}
-		sin, cos := math.Sin(pitch*float64(k)), math.Cos(pitch*float64(k))
-		want := r3.NewVec(
-			c.X+(seedCentroid.Value.X-c.X)*cos-(seedCentroid.Value.Y-c.Y)*sin,
-			c.Y+(seedCentroid.Value.X-c.X)*sin+(seedCentroid.Value.Y-c.Y)*cos,
-			seedCentroid.Value.Z,
-		)
-		decadtest.MeasuresVec(t, fmt.Sprintf("pattern instance %d centroid", k), got, want,
-			decadtest.Within(mm(1e-6)))
-	}
-	// L instances at 360/L degrees is exactly one turn: instance L would land
-	// back on the seed, which is what tiles the disc without a gap or an overlap.
-	if !nearly(pitch*float64(d.L), 2*math.Pi, 1e-12) {
-		t.Errorf("L = %d instances of %.9f rad do not close the turn", d.L, pitch)
-	}
-}
-
-// ---- S11: join the L sectors into one disc ----------------------------
-
-// stepJoinDiskSectors is the combine that turns disc d's own L sectors into one
-// body. The engine refuses a boolean whose operands merely touch, and adjacent
-// sectors touch exactly along a spoke face, so the joined result is built here
-// as the tiled outline extruded once — which is the same solid, and lets the
-// assertion check both halves of what the Join has to deliver: one connected
-// lump, and the L sectors' material neither lost nor counted twice.
-func stepJoinDiskSectors(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	d := derive(p)
-	requireInRegime(t, d)
-	s := buildSketch(t, d.zBase())
-	chordLoop(s, d.lobeOutline())
-	return []*decad.Body{extrudeUp(t, doc, s, onlyRegion(t, s), d.T)}
-}
-
-func assertJoinDiskSectors(t *testing.T, doc *decad.Document, bodies []*decad.Body,
-	p map[string]float64) {
-	d := derive(p)
+	label := "Cycloidal Disk"
 	disc := bodies[0]
-	if got := len(disc.Lumps()); got != 1 {
-		t.Errorf("joined disc has %d lumps, want 1 connected body", got)
-	}
-	requireSpan(t, disc, d.zBase(), d.zBase()+d.T, 1e-6)
+	// One lump is the Join's whole outcome: L sectors that did not meet would
+	// arrive as L bodies.
+	requireOneLump(t, label, disc)
 
+	full := discBoundary(d)
+	measuresVolume(t, label, disc, polygonArea(full)*d.T, exact())
+	measuresPolygonBox(t, label, disc, full, d.discBase(), d.discBase()+d.T)
+
+	// The tiling claim, read against a real sector rather than against the
+	// same formula twice: the seed sector is built in a scratch document of
+	// its own, because a second live body in this document would be judged
+	// against the disc as an interfering pair.
 	scratch := decad.New()
-	s := buildSketch(t, d.zBase())
-	chordLoop(s, sectorPoints(d))
-	sector := extrudeUp(t, scratch, s, onlyRegion(t, s), d.T)
-	want := volumeOf(t, sector) * float64(d.L)
-	requireVolume(t, disc, want, 1e-9, "joined disc")
-
-	// The spokes are gone: the joined disc's side is the lobe outline and
-	// nothing else, so it has one lateral face per outline chord plus the two
-	// caps. L separate sectors would each still carry their two spoke faces.
-	if got, want := len(disc.Faces()), len(d.lobeOutline())+2; got != want {
-		t.Errorf("joined disc has %d faces, want %d (one per outline chord, plus two caps)",
-			got, want)
-	}
+	seed := prismFromPolygon(t, scratch, lobeSector(d), d.discBase(), d.T, "Cycloidal Disk sector")
+	decadtest.Measures(t, "one lobe sector against a disc share",
+		volumeOf(t, "Cycloidal Disk sector", seed),
+		units.CubicMillimeters(polygonArea(full)*d.T/float64(d.L)), exact())
 }
 
-// ---- S13: cut one output hole through the disc ------------------------
+// discBoundary is the whole rotor outline: L lobes tiled about the disc centre.
+func discBoundary(d dims) []point {
+	c := d.centre()
+	return fullLobeSamples(d, c.X, c.Y, d.Phi)
+}
 
-// stepCutOutputHole cuts the Output Hole sketch's solid hole through disc d,
-// restricted to that disc's body, by Disc Thickness.
+// stepCutOutputHole cuts the Output Hole sketch's one solid circle through the
+// disc by Disc Thickness, restricted to that disc.
 func stepCutOutputHole(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	d := derive(p)
-	requireInRegime(t, d)
-	disc := buildDisc(t, doc, d)
-	// The tool is grown past both faces of the disc. Fusion's cut is exactly
-	// Disc Thickness from the sketch plane and lands flush on both; decad
-	// refuses a tool whose cap rests on the target's face, so the proof pierces.
-	tool := buildCylinder(t, doc, d.zBase()-1, d.T+2,
-		pt{X: d.centre().X + d.Rop, Y: 0}, d.DHole/2)
-	cut, err := decad.CutContext(t.Context(), disc, tool)
-	if err != nil {
-		t.Fatalf("cut the output hole: %v", err)
-	}
-	return []*decad.Body{cut}
+	disc := prismFromPolygon(t, doc, discBoundary(d), d.discBase(), d.T, "Cycloidal Disk")
+	return []*decad.Body{cutHoles(t, doc, disc, d, 1)}
 }
 
-func assertCutOutputHole(t *testing.T, _ *decad.Document, bodies []*decad.Body,
-	p map[string]float64) {
-	d := derive(p)
-	cut := bodies[0]
-	scratch := decad.New()
-	plain := buildDisc(t, scratch, d)
-	want := volumeOf(t, plain) - math.Pi*(d.DHole/2)*(d.DHole/2)*d.T
-	requireVolume(t, cut, want, 1e-3, "disc with one output hole")
-	if got := len(cut.Lumps()); got != 1 {
-		t.Errorf("cut disc has %d lumps, want 1", got)
-	}
-	requireHolesInsideRim(t, d)
-	requireSpan(t, cut, d.zBase(), d.zBase()+d.T, 1e-6)
+func assertCutOutputHole(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
+	assertHoleCount(t, bodies[0], derive(p), 1)
 }
 
-// ---- S14: pattern the output-hole cut x M -----------------------------
-
-// stepPatternOutputHoles is the M-times circular pattern of that cut about the
-// disc axis. A chain of M booleans on one lineage is not something the engine
-// supports, so the patterned result is built as the disc profile carrying all M
-// hole loops and extruded once; the assertion checks the count, the placement
-// and the volume the pattern is supposed to leave.
+// stepPatternOutputHoles is the circular pattern of the cut feature ×M about
+// the Disk Axis, which leaves M holes orbiting Od.
+//
+// The M openings are stated as holes in the extruded profile rather than cut
+// one after another: decad refuses a boolean whose tool is finer than the mesh
+// the previous boolean left, which a second cut into this disc always is. The
+// solid is the same solid, and stating it this way reads its volume exactly
+// instead of to a facet chord. What it costs is that only the first cut is
+// proven as a boolean, by stepCutOutputHole.
 func stepPatternOutputHoles(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	d := derive(p)
-	requireInRegime(t, d)
-	s := buildSketch(t, d.zBase())
-	chordLoop(s, d.lobeOutline())
-	for _, c := range d.outputHoleCentres() {
-		fixedCircle(s, c, d.DHole/2)
+	return []*decad.Body{
+		prismWithHoles(t, doc, discBoundary(d), outputHoles(d), d.discBase(), d.T, "Cycloidal Disk"),
 	}
-	return []*decad.Body{extrudeUp(t, doc, s, holedRegion(t, s, d.M), d.T)}
 }
 
-func assertPatternOutputHoles(t *testing.T, _ *decad.Document, bodies []*decad.Body,
-	p map[string]float64) {
+func assertPatternOutputHoles(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
 	d := derive(p)
-	holed := bodies[0]
-	scratch := decad.New()
-	plain := buildDisc(t, scratch, d)
-	want := volumeOf(t, plain) - float64(d.M)*math.Pi*(d.DHole/2)*(d.DHole/2)*d.T
-	requireVolume(t, holed, want, 1e-3, "disc with M output holes")
-	if got := len(holed.Lumps()); got != 1 {
-		t.Errorf("patterned disc has %d lumps, want 1", got)
+	label := "Cycloidal Disk"
+	requireOneLump(t, label, bodies[0])
+	removed := float64(d.M) * math.Pi * d.DHole * d.DHole / 4 * d.T
+	measuresVolume(t, label, bodies[0], polygonArea(discBoundary(d))*d.T-removed, exact())
+	// M holes on the Rop circle only stay M holes while they do not run into
+	// one another; the spec rejects the dialog on exactly this comparison.
+	chord := 2 * d.Rop * math.Sin(math.Pi/float64(d.M))
+	if chord <= d.DHole {
+		t.Fatalf("the %d output holes overlap: a %.6f mm hole on a %.6f mm chord between neighbours",
+			d.M, d.DHole, chord)
 	}
-	requireHolesInsideRim(t, d)
-	// Every hole orbits the disc centre Od at the output-pin-circle radius, one
-	// per M-th of a turn.
-	for i, c := range d.outputHoleCentres() {
-		if got := radiusOf(c, d.centre()); !nearly(got, d.Rop, 1e-9) {
-			t.Errorf("output hole %d sits %.6f from Od, want Rop %.6f", i, got, d.Rop)
-		}
+	// And only while they stay inside the rotor. The disc's own smallest
+	// radius is the valley circle Rv, so a hole whose outer edge passes it
+	// breaks out through the lobe profile. The spec's validity table does not
+	// check this, and the volume above is what catches it.
+	if reach := d.Rop + d.DHole/2; reach >= d.Rv {
+		t.Fatalf("the output holes reach %.6f mm from Od, at or past the valley circle at "+
+			"%.6f mm, so they breach the rotor's rim", reach, d.Rv)
 	}
 }
 
-// ---- S16: cut the disc centre bore ------------------------------------
+// outputHoles is the M openings the disc carries, on the output-pin circle
+// about the disc centre.
+func outputHoles(d dims) []hole {
+	c := d.centre()
+	out := make([]hole, 0, d.M)
+	for k := range d.M {
+		a := 2 * math.Pi * float64(k) / float64(d.M)
+		out = append(out, hole{c.X + d.Rop*math.Cos(a), c.Y + d.Rop*math.Sin(a), d.DHole / 2})
+	}
+	return out
+}
 
-// stepCutDiscBore cuts the Disc Bore sketch's solid circle through disc d: the
-// cam diameter widened by the running clearance, on the disc centre Od.
+// cutHoles pierces the disc with the first n of its M output holes, each tool
+// run past both faces for the reason toolOverhang gives.
+func cutHoles(t *testing.T, doc *decad.Document, disc *decad.Body, d dims, n int) *decad.Body {
+	t.Helper()
+	c := d.centre()
+	body := disc
+	for k := range n {
+		a := 2 * math.Pi * float64(k) / float64(d.M)
+		tool := cylinder(t, doc,
+			c.X+d.Rop*math.Cos(a), c.Y+d.Rop*math.Sin(a), d.DHole/2,
+			d.discBase()-toolOverhang, d.T+2*toolOverhang, "output hole tool")
+		cut, err := decad.Cut(body, tool)
+		if err != nil {
+			t.Fatalf("cut output hole %d of %d: %v", k+1, n, err)
+		}
+		body = cut
+	}
+	return body
+}
+
+func assertHoleCount(t *testing.T, disc *decad.Body, d dims, n int) {
+	t.Helper()
+	label := "Cycloidal Disk"
+	requireOneLump(t, label, disc)
+	removed := float64(n) * math.Pi * d.DHole * d.DHole / 4 * d.T
+	// decad tessellates the cylindrical tool before the boolean, so the hole
+	// it removes is an inscribed prism slightly under pi*r^2*h; faceted()
+	// states that chord error.
+	measuresVolume(t, label, disc, polygonArea(discBoundary(d))*d.T-removed, faceted())
+}
+
+// stepCutDiscBore cuts the Disc Bore sketch's solid circle — the cam outer
+// enlarged by Bearing Clearance — through the disc.
+//
+// The bore is cut through the plain disc rather than through the holed one:
+// the bore and the output holes never meet, which stepDiscBoreSketch refuses
+// the case for when they would, so the volume this step removes does not
+// depend on whether the holes are already there.
 func stepCutDiscBore(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	d := derive(p)
-	requireInRegime(t, d)
-	disc := buildDisc(t, doc, d)
-	tool := buildCylinder(t, doc, d.zBase()-1, d.T+2, d.centre(), (d.CBD+d.Clr)/2)
-	cut, err := decad.CutContext(t.Context(), disc, tool)
+	c := d.centre()
+	disc := prismFromPolygon(t, doc, discBoundary(d), d.discBase(), d.T, "Cycloidal Disk")
+	tool := cylinder(t, doc, c.X, c.Y, d.boreRadius(),
+		d.discBase()-toolOverhang, d.T+2*toolOverhang, "disc bore tool")
+	bored, err := decad.Cut(disc, tool)
 	if err != nil {
 		t.Fatalf("cut the disc centre bore: %v", err)
 	}
-	return []*decad.Body{cut}
+	return []*decad.Body{bored}
 }
 
-func assertCutDiscBore(t *testing.T, _ *decad.Document, bodies []*decad.Body,
-	p map[string]float64) {
+func assertCutDiscBore(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
 	d := derive(p)
-	bored := bodies[0]
-	radius := (d.CBD + d.Clr) / 2
-	scratch := decad.New()
-	plain := buildDisc(t, scratch, d)
-	requireVolume(t, bored, volumeOf(t, plain)-math.Pi*radius*radius*d.T, 1e-3, "bored disc")
-	if got := len(bored.Lumps()); got != 1 {
-		t.Errorf("bored disc has %d lumps, want 1", got)
-	}
-	// The bore is concentric with the cam and wider by the clearance, so the
-	// running gap is the same all the way round: a bore on O instead of Od
-	// would foul the cam on one side.
-	if got := radius - d.CBD/2; !nearly(got, d.Clr/2, 1e-12) {
-		t.Errorf("radial running gap %.6f, want half the Bearing Clearance %.6f", got, d.Clr/2)
+	label := "Cycloidal Disk"
+	requireOneLump(t, label, bodies[0])
+	removed := math.Pi * d.boreRadius() * d.boreRadius() * d.T
+	measuresVolume(t, label, bodies[0], polygonArea(discBoundary(d))*d.T-removed, faceted())
+	// The running gap is the whole point of the enlarged bore: the disc's bore
+	// stands off the cam outer by half the Bearing Clearance all the way round.
+	if got := d.boreRadius() - d.CBD/2; math.Abs(got-d.Clr/2) > 1e-12 {
+		t.Fatalf("the bore stands off the cam by %.9f mm, want half the Bearing Clearance %.9f mm",
+			got, d.Clr/2)
 	}
 }
 
-// requireHolesInsideRim fails when an output hole reaches past the root circle.
-//
-// SPEC GAP, recorded here because this is where it bites: the validity table
-// checks only Rop < Rv, which keeps the hole CENTRES inside the valley circle
-// and says nothing about the holes themselves. A hole is D_hole/2 wide, so the
-// real condition is Rop + D_hole/2 < Rv, and a parameter set that satisfies the
-// stated check but not this one cuts the rim open — the patterned cut then
-// leaves a disc with slots through its valleys instead of holes, which no gate
-// in the dialog refuses. It was found by building it: the first minimum-count
-// case here had Rop + D_hole/2 = 32.3 mm against Rv = 26.5 mm, and the cut
-// removed material the disc did not have.
-func requireHolesInsideRim(t *testing.T, d dims) {
-	t.Helper()
-	if reach := d.Rop + d.DHole/2; reach >= d.Rv {
-		t.Errorf("output holes reach %.4f mm from Od, past the root circle at %.4f mm; the "+
-			"validity table checks only Rop < Rv and lets this through", reach, d.Rv)
-	}
-}
+// -- the eccentric cam -------------------------------------------------------
 
-// ---- disc helpers -----------------------------------------------------
-
-// buildDisc extrudes the whole rotor disc of disc d: the tiled lobe outline,
-// which is what the sector extrude, the L-times pattern and the Join leave.
-func buildDisc(t *testing.T, doc *decad.Document, d dims) *decad.Body {
-	t.Helper()
-	s := buildSketch(t, d.zBase())
-	chordLoop(s, d.lobeOutline())
-	return extrudeUp(t, doc, s, onlyRegion(t, s), d.T)
-}
-
-// buildCylinder extrudes a plain cylinder, the tool a cut is made with.
-func buildCylinder(t *testing.T, doc *decad.Document, z, height float64, c pt,
-	radius float64) *decad.Body {
-	t.Helper()
-	s := buildSketch(t, z)
-	fixedCircle(s, c, radius)
-	return extrudeUp(t, doc, s, onlyRegion(t, s), height)
-}
-
-// ---- S18: extrude one eccentric cam section ---------------------------
-
-// stepExtrudeCamSection extrudes the Eccentric Cam {d+1} cross-section from
-// plane(d) toward the disk: T + g for every section but the last, so adjacent
-// sections abut, and T for the last. With an input shaft the cross-section is
-// the two-loop annulus — outer loop the cam outer on Od, hole loop the input
-// bore on O — and without one it is the plain cam disc.
+// stepExtrudeCamSection extrudes the `Eccentric Cam {d+1}` cross-section: the
+// cam outer on Od with the input-shaft bore on O as its one hole, or the plain
+// cam disc when Input Shaft Diameter is 0. Section d runs T + g when another
+// section follows it and T when it is the last.
 func stepExtrudeCamSection(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	d := derive(p)
-	requireInRegime(t, d)
-	return []*decad.Body{buildCamSection(t, doc, d, camSectionDepth(d))}
+	return []*decad.Body{camSection(t, doc, p, int(math.Round(p[keyDisc])), 0)}
 }
 
-func assertExtrudeCamSection(t *testing.T, _ *decad.Document, bodies []*decad.Body,
-	p map[string]float64) {
+func assertExtrudeCamSection(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
 	d := derive(p)
-	body := bodies[0]
-	depth := camSectionDepth(d)
-	requireSpan(t, body, d.zBase(), d.zBase()+depth, 1e-6)
-	area := math.Pi * (d.CBD / 2) * (d.CBD / 2)
-	if d.ISD > 0 {
-		area -= math.Pi * (d.ISD / 2) * (d.ISD / 2)
-	}
-	requireVolume(t, body, area*depth, 2e-3, "cam section")
-	// The section that is not the last fills the inter-disc gap as well as its
-	// own disc, so the next section starts exactly where it ends.
-	if d.D0 < d.D-1 && !nearly(depth, d.T+d.G, 1e-12) {
-		t.Errorf("cam section %d is %.4f deep, want T + g = %.4f", d.D0+1, depth, d.T+d.G)
-	}
-	if d.D0 == d.D-1 && !nearly(depth, d.T, 1e-12) {
-		t.Errorf("last cam section is %.4f deep, want T = %.4f", depth, d.T)
-	}
+	c := d.centre()
+	label := "Eccentric Cam section"
+	requireOneLump(t, label, bodies[0])
+	measuresVolume(t, label, bodies[0], camSectionArea(d)*d.camSectionHeight(), exact())
+	measuresBox(t, label, bodies[0],
+		r3.NewVec(c.X-d.CBD/2, c.Y-d.CBD/2, d.discBase()),
+		r3.NewVec(c.X+d.CBD/2, c.Y+d.CBD/2, d.discBase()+d.camSectionHeight()),
+		decadtest.Within(units.Millimeters(1e-3)))
 }
 
-// ---- S19: join the cam sections into one Eccentric Cam ----------------
-
-// stepJoinCamSections is the combine that makes the D sections one cam.
+// stepJoinCamSections Joins the two eccentric sections into one `Eccentric Cam`.
 //
-// SPEC DEFECT, recorded here because this is the step that would raise it: for
-// D = 1 the spec still says to Join, target section 0 with "the rest" as tools,
-// and the rest is empty. CombineFeatures.createInput takes an ObjectCollection
-// of one or more tool bodies, so a single-disc build has no Join to make and
-// must skip the combine and rename the one section instead. This proof takes
-// the skip branch for D = 1 and the real join for D = 2.
+// The claim is that the sections join into one continuous solid even though
+// their centres are 2E apart: they overlap wherever both discs of radius
+// CenterBearingDiameter/2 cover the same ground.
 //
-// For D = 2 the two sections abut on the plane between the discs, and the engine
-// refuses a boolean whose operands meet face to face, so the lower section is
-// grown by a small overlap and the overlap's volume is taken back out of the
-// expected total.
+// Two substitutions. The axial abutment is replaced by an overlapSliver, for
+// the reason this file's header gives. And the two sections are joined without
+// their input bore: both sections put the same bore on the drive axis, so
+// through the overlap their bore walls are one cylinder, and decad refuses a
+// boolean whose operands it cannot classify a tangent contact in. Cutting the
+// bore afterwards is refused too, since the joined body is faceted and holds a
+// mesh coarser than a fresh cut's tolerance. So the two-loop cam section is
+// proven by stepExtrudeCamSection, this step proves that the two sections meet
+// in one lump, and the fact that ties them — the bore staying inside both
+// sections, so it runs unbroken through the join — is checked arithmetically
+// in the assertion.
 func stepJoinCamSections(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	d := derive(p)
-	requireInRegime(t, d)
-	if d.D == 1 {
-		return []*decad.Body{buildCamSection(t, doc, d, camSectionDepth(d))}
+	if d.D < 2 {
+		proofkit3d.Unmodelled(t, "one disc leaves one cam section and nothing to join")
 	}
-	lower := d
-	lower.D0, lower.S, lower.Phi = 0, 1, 0
-	upper := d
-	upper.D0, upper.S, upper.Phi = 1, -1, math.Pi
-	// Second substitution, on top of the overlap: the sections are joined here
-	// without their bores. Both carry the same bore on the same axis, so inside
-	// the overlap the two bore walls coincide exactly, and the engine refuses
-	// that tangent contact by name. Cutting the bore through afterwards is
-	// refused too — a union leaves a faceted body whose mesh bound is coarser
-	// than the tolerance a following cut derives, and the engine will not chain
-	// past it. NOT REACHED, therefore: the bore running through the joined cam.
-	// What is reached is the bore in a single section, which S18 extrudes and
-	// measures, plus the check below that its footprint sits inside both
-	// sections, which is what makes the bore continuous once joined.
-	first := buildCamSection(t, doc, boreless(lower), camSectionDepth(lower)+camJoinOverlap)
-	second := buildCamSection(t, doc, boreless(upper), camSectionDepth(upper))
-	joined, err := decad.UnionContext(t.Context(), first, second)
+	lower, upper := dimsFor(p, 0), dimsFor(p, 1)
+	lowC, upC := lower.centre(), upper.centre()
+	lowBody := cylinder(t, doc, lowC.X, lowC.Y, d.CBD/2, lower.discBase(),
+		lower.camSectionHeight(), "Eccentric Cam section 1")
+	upBody := cylinder(t, doc, upC.X, upC.Y, d.CBD/2, upper.discBase()-overlapSliver,
+		upper.camSectionHeight()+overlapSliver, "Eccentric Cam section 2")
+	joined, err := decad.Union(lowBody, upBody)
 	if err != nil {
-		t.Fatalf("join the cam sections: %v", err)
+		t.Fatalf("join the two cam sections: %v", err)
 	}
 	return []*decad.Body{joined}
 }
 
-func assertJoinCamSections(t *testing.T, _ *decad.Document, bodies []*decad.Body,
-	p map[string]float64) {
+func assertJoinCamSections(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
 	d := derive(p)
-	cam := bodies[0]
-	if got := len(cam.Lumps()); got != 1 {
-		t.Errorf("cam has %d lumps, want one continuous solid", got)
-	}
-	if d.D == 1 {
-		// Nothing was joined: the single section is the cam, spanning its disc.
-		requireSpan(t, cam, 0, d.T, 1e-6)
+	label := "Eccentric Cam"
+	// One lump is the claim. Two sections whose outer circles did not overlap
+	// in plan would stay two lumps however far they overlapped in z.
+	requireOneLump(t, label, bodies[0])
+
+	lower, upper := dimsFor(p, 0), dimsFor(p, 1)
+	top := upper.discBase() + upper.camSectionHeight()
+	disc := math.Pi * d.CBD * d.CBD / 4
+	// The sliver is swept by both extrudes and filled once by the solid, so it
+	// is counted out at the lens the two outer circles share.
+	total := disc*lower.camSectionHeight() + disc*(upper.camSectionHeight()+overlapSliver) -
+		lensArea(d.CBD/2, 2*d.E)*overlapSliver
+	measuresVolume(t, label, bodies[0], total, faceted())
+	measuresBox(t, label, bodies[0],
+		r3.NewVec(-d.E-d.CBD/2, -d.CBD/2, 0),
+		r3.NewVec(d.E+d.CBD/2, d.CBD/2, top),
+		decadtest.Within(units.Millimeters(1e-2)))
+	if d.ISD <= 0 {
 		return
 	}
-	requireSpan(t, cam, 0, d.stackTop(), 1e-6)
-	disc := math.Pi * (d.CBD / 2) * (d.CBD / 2)
-	want := disc*(d.T+d.G+camJoinOverlap) + disc*d.T - overlapArea(d)*camJoinOverlap
-	requireVolume(t, cam, want, 3e-3, "joined cam")
-	// The two sections' centres are only 2E apart against a radius of
-	// CenterBearingDiameter/2, so they overlap over most of their area, which is
-	// what makes the join one solid rather than two touching lumps.
-	if overlapArea(d) <= 0.5*disc {
-		t.Errorf("the two cam sections share %.2f mm^2 of a %.2f mm^2 section, too little to join",
-			overlapArea(d), disc)
+	// The bore is inside both sections all the way up, which is what
+	// E + InputShaftDiameter/2 < CenterBearingDiameter/2 buys and what makes
+	// the joined cam's bore one unbroken hole.
+	if d.E+d.ISD/2 >= d.CBD/2 {
+		t.Fatalf("the input bore reaches %.6f mm from a section centre, past the cam outer at "+
+			"%.6f mm, so the join would break it open", d.E+d.ISD/2, d.CBD/2)
 	}
-	// The input bore is on the drive axis and both sections are on their own
-	// eccentric centres, so the bore only runs through the joined cam if its
-	// footprint sits inside each section: that is E + ISD/2 < CBD/2, the check
-	// the dialog runs.
-	if d.ISD > 0 && d.E+d.ISD/2 >= d.CBD/2 {
-		t.Errorf("the input bore reaches %.4f mm from a section centre, past the cam radius %.4f",
-			d.E+d.ISD/2, d.CBD/2)
+	if d.ISD >= d.CBD {
+		t.Fatalf("the input bore's %.6f mm diameter is not under the cam's %.6f mm", d.ISD, d.CBD)
 	}
 }
 
-// camJoinOverlap is the sink the proof introduces so the abutting cam sections
-// present a real overlap to the boolean rather than a face-on-face contact.
-const camJoinOverlap = 0.1
-
-// camSectionDepth is section d's extent: T + g for every section but the last.
-func camSectionDepth(d dims) float64 {
-	if d.D0 < d.D-1 {
-		return d.T + d.G
-	}
-	return d.T
-}
-
-// buildCamSection extrudes one cam cross-section from plane(d).
-func buildCamSection(t *testing.T, doc *decad.Document, d dims, depth float64) *decad.Body {
-	t.Helper()
-	s := buildSketch(t, d.zBase())
-	fixedCircle(s, d.centre(), d.CBD/2)
+// camSectionArea is the cross-section the cam extrudes: the cam disc, less the
+// input bore when the dialog asks for one.
+func camSectionArea(d dims) float64 {
+	area := math.Pi * d.CBD * d.CBD / 4
 	if d.ISD > 0 {
-		fixedCircle(s, pt{}, d.ISD/2)
-		return extrudeUp(t, doc, s, holedRegion(t, s, 1), depth)
+		area -= math.Pi * d.ISD * d.ISD / 4
 	}
-	return extrudeUp(t, doc, s, onlyRegion(t, s), depth)
+	return area
 }
 
-// boreless is d with the input bore removed, the cross-section the cam join is
-// built from before the bore is cut through the joined solid.
-func boreless(d dims) dims {
-	d.ISD = 0
-	return d
+// camSection builds cam section `disc`, dropped by sink so the section above
+// overlaps the one below instead of abutting it.
+func camSection(t *testing.T, doc *decad.Document, p map[string]float64, disc int, sink float64) *decad.Body {
+	t.Helper()
+	d := dimsFor(p, disc)
+	c := d.centre()
+	if d.ISD <= 0 {
+		return cylinder(t, doc, c.X, c.Y, d.CBD/2, d.discBase()-sink,
+			d.camSectionHeight()+sink, "Eccentric Cam section")
+	}
+	return annulus(t, doc, c.X, c.Y, d.CBD/2, 0, 0, d.ISD/2, d.discBase()-sink,
+		d.camSectionHeight()+sink, "Eccentric Cam section")
 }
 
-// overlapArea is the cross-section the two cam sections share: the lens of two
-// circles of the cam radius whose centres are 2E apart.
-func overlapArea(d dims) float64 {
-	r, gap := d.CBD/2, 2*d.E
-	return 2*r*r*math.Acos(gap/(2*r)) - gap/2*math.Sqrt(4*r*r-gap*gap)
+// dimsFor resolves a case at a chosen disc index, for the steps that run over
+// the whole stack and need every disc's frame rather than the case's own.
+func dimsFor(p map[string]float64, disc int) dims {
+	q := make(map[string]float64, len(p))
+	for k, v := range p {
+		q[k] = v
+	}
+	q[keyDisc] = float64(disc)
+	return derive(q)
 }
 
-// ---- S22: extrude the housing base annulus ----------------------------
+// lensArea is the area two circles of radius r whose centres are dist apart
+// share, and 0 when they do not reach each other.
+func lensArea(r, dist float64) float64 {
+	if dist >= 2*r {
+		return 0
+	}
+	return 2*r*r*math.Acos(dist/(2*r)) - dist/2*math.Sqrt(4*r*r-dist*dist)
+}
 
-// stepExtrudeHousingBase extrudes the Housing Ring annulus by Base Thickness in
-// the negative direction, away from the disc, from the housing plane 1 mm below
-// the disc.
+// -- the housing -------------------------------------------------------------
+
+// stepExtrudeHousingBase extrudes the `Housing Ring` annulus by Base Thickness
+// away from the disc, from the construction plane 1 mm below it.
 func stepExtrudeHousingBase(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	d := derive(p)
-	requireInRegime(t, d)
-	return []*decad.Body{buildHousingBase(t, doc, d, d.Base, 0)}
+	return []*decad.Body{housingBase(t, doc, d, 0)}
 }
 
-func assertExtrudeHousingBase(t *testing.T, _ *decad.Document, bodies []*decad.Body,
-	p map[string]float64) {
+func assertExtrudeHousingBase(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
 	d := derive(p)
-	base := bodies[0]
-	requireSpan(t, base, -1-d.Base, -1, 1e-6)
-	area := math.Pi * (d.outerWall()*d.outerWall() - d.innerFloor()*d.innerFloor())
-	requireVolume(t, base, area*d.Base, 2e-3, "housing base")
-	if got := len(base.Lumps()); got != 1 {
-		t.Errorf("housing base has %d lumps, want 1", got)
-	}
+	label := "Housing Ring"
+	ro, ri := d.housingOuterRadius(), d.housingInnerRadius()
+	requireOneLump(t, label, bodies[0])
+	measuresVolume(t, label, bodies[0], math.Pi*(ro*ro-ri*ri)*d.BaseT, exact())
+	// The base sits below the target plane, its top face exactly 1 mm under
+	// it, which is what the casing's downward side has to reach to Join.
+	measuresBox(t, label, bodies[0],
+		r3.NewVec(-ro, -ro, -1-d.BaseT), r3.NewVec(ro, ro, -1),
+		decadtest.Within(units.Millimeters(1e-3)))
 }
 
-// buildHousingBase extrudes the base annulus downward from the housing plane.
-// grow widens its outer circle, which the join step needs and the extrude step
-// leaves at zero.
-func buildHousingBase(t *testing.T, doc *decad.Document, d dims, depth, grow float64) *decad.Body {
+func housingBase(t *testing.T, doc *decad.Document, d dims, relief float64) *decad.Body {
 	t.Helper()
-	s := buildSketch(t, -1)
-	fixedCircle(s, pt{}, d.outerWall()+grow)
-	fixedCircle(s, pt{}, d.innerFloor())
-	return extrudeDown(t, doc, s, holedRegion(t, s, 1), depth)
+	return annulus(t, doc, 0, 0, d.housingOuterRadius()+relief, 0, 0, d.housingInnerRadius(),
+		-1-d.BaseT, d.BaseT, "Housing Ring")
 }
 
-// ---- S25: extrude the ring casing sector ------------------------------
-
-// stepExtrudeCasingSector extrudes the casing section two-sided: up to the stack
-// top in the positive direction, and 1 mm in the negative one so its bottom face
-// lands on the housing base's top face and the two can be joined into one part.
+// stepExtrudeCasingSector extrudes the `Ring Casing` wedge two-sided: up to the
+// stack top and 1 mm down to the housing base's top face.
 func stepExtrudeCasingSector(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	d := derive(p)
-	requireInRegime(t, d)
-	s := buildSketch(t, 0)
-	region := casingSection(t, s, d)
-	body, err := doc.Extrude(s, region, decad.TwoSided{
-		One: decad.DistanceSide{D: mm(d.stackTop())},
-		Two: decad.DistanceSide{D: mm(1)},
-	})
-	if err != nil {
-		t.Fatalf("extrude the casing sector two-sided: %v", err)
-	}
-	return []*decad.Body{body}
+	return []*decad.Body{casingSector(t, doc, derive(p), 0)}
 }
 
-func assertExtrudeCasingSector(t *testing.T, _ *decad.Document, bodies []*decad.Body,
-	p map[string]float64) {
+func assertExtrudeCasingSector(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
 	d := derive(p)
-	sector := bodies[0]
-	// The negative side matches the housing plane's own -1 mm offset, so the
-	// casing bottom is coincident with the base top rather than floating above
-	// it, and the positive side reaches the top of the whole disc stack.
-	requireSpan(t, sector, -1, d.stackTop(), 1e-6)
-	want := (math.Pi*d.outerWall()*d.outerWall() - math.Abs(polygonArea(d.contourRing()))) /
-		float64(d.N)
-	requireVolume(t, sector, want*(d.stackTop()+1), 5e-3, "casing sector")
+	label := "Ring Casing sector"
+	requireOneLump(t, label, bodies[0])
+	measuresVolume(t, label, bodies[0], casingSectorArea(d)*(d.stackTop()+1), faceted())
+	lo, hi := polygonBounds(casingSectorReach(d))
+	measuresBox(t, label, bodies[0],
+		r3.NewVec(lo.X, lo.Y, -1), r3.NewVec(hi.X, hi.Y, d.stackTop()),
+		decadtest.Within(units.Millimeters(1e-3)))
 }
 
-// ---- S26: pattern the casing sector x N -------------------------------
-
-// stepPatternCasingSectors is the N-times pattern of that sector about the drive
-// axis. It is built here as the whole ring in one extrude, for the reason the
-// lobe pattern is: the sectors meet face to face, which the boolean refuses.
-func stepPatternCasingSectors(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	d := derive(p)
-	requireInRegime(t, d)
-	return []*decad.Body{buildCasingRing(t, doc, d, d.stackTop(), 1)}
-}
-
-func assertPatternCasingSectors(t *testing.T, _ *decad.Document, bodies []*decad.Body,
-	p map[string]float64) {
-	d := derive(p)
-	ring := bodies[0]
-	requireSpan(t, ring, -1, d.stackTop(), 1e-6)
-
-	scratch := decad.New()
-	s := buildSketch(t, 0)
-	region := casingSection(t, s, d)
-	sector, err := scratch.Extrude(s, region, decad.TwoSided{
-		One: decad.DistanceSide{D: mm(d.stackTop())},
-		Two: decad.DistanceSide{D: mm(1)},
-	})
-	if err != nil {
-		t.Fatalf("extrude the comparison sector: %v", err)
-	}
-	requireVolume(t, ring, volumeOf(t, sector)*float64(d.N), 1e-2, "patterned casing ring")
-}
-
-// ---- S27: join the N casing sectors into one casing -------------------
-
-// stepJoinCasingSectors is the combine that makes the N sectors one casing body.
-// The sectors share their spoke faces exactly — which is what the contour's ends
-// at +/-pi/N buy — so what the join has to deliver is one connected lump whose
-// inner wall runs unbroken all the way round, with no seam face left at any
-// pitch boundary.
+// stepJoinCasingSectors Joins the N patterned casing sectors into one casing
+// body. The pattern that produced them is the step before this one, and it is
+// [PROSE] for the reason stepJoinDiscSectors gives.
+//
+// This is where the bin-edge rule earns its place. The sector's two spokes sit
+// at exactly -pi/N and +pi/N, so a turn of 2*pi/N carries one onto the other
+// and the N sectors tile the ring. Contour points emitted at bin centres would
+// inset each end by half a bin, leaving an angular gap at every seam, and the
+// readings below — one lump, and a volume that is exactly N sectors — are what
+// refuses that.
 func stepJoinCasingSectors(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	d := derive(p)
-	requireInRegime(t, d)
-	return []*decad.Body{buildCasingRing(t, doc, d, d.stackTop(), 1)}
+	return []*decad.Body{casingRing(t, doc, derive(p), 0)}
 }
 
-func assertJoinCasingSectors(t *testing.T, _ *decad.Document, bodies []*decad.Body,
-	p map[string]float64) {
+func assertJoinCasingSectors(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
 	d := derive(p)
-	casing := bodies[0]
-	if got := len(casing.Lumps()); got != 1 {
-		t.Errorf("casing has %d lumps; N sectors that do not touch never join into one", got)
-	}
-	// One face per inner chord, one outer cylinder, two caps. A spoke face left
-	// over at a pitch boundary would show up here as extra faces.
-	if got, want := len(casing.Faces()), len(d.contourRing())+3; got != want {
-		t.Errorf("joined casing has %d faces, want %d (one per contour chord, the outer wall, "+
-			"and two caps)", got, want)
-	}
+	label := "Ring Casing"
+	requireOneLump(t, label, bodies[0])
+	height := d.stackTop() + 1
+	measuresVolume(t, label, bodies[0], casingRingArea(d)*height, exact())
+
+	// The same claim against a real sector, built in a scratch document so the
+	// ring is not judged against an interfering neighbour. N sectors have to
+	// come to the ring exactly, which is what a seam gap would break.
+	scratch := decad.New()
+	seed := casingSector(t, scratch, d, 0)
+	decadtest.Measures(t, "one casing sector against a ring share",
+		volumeOf(t, "Ring Casing sector", seed),
+		units.CubicMillimeters(casingRingArea(d)*height/float64(d.N)), faceted())
+
+	ro := d.housingOuterRadius()
+	measuresBox(t, label, bodies[0],
+		r3.NewVec(-ro, -ro, -1), r3.NewVec(ro, ro, d.stackTop()),
+		decadtest.Within(units.Millimeters(1e-3)))
 }
 
-// buildCasingRing extrudes the whole casing: the outer circle with the N-fold
-// contour ring as its hole loop.
-func buildCasingRing(t *testing.T, doc *decad.Document, d dims, up, down float64) *decad.Body {
+// stepCombineHousing Joins the casing into the base, leaving one `Housing`.
+func stepCombineHousing(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
+	d := derive(p)
+	// The base's outer wall is grown by wallRelief so it crosses the casing's
+	// rather than coinciding with it, for the reason wallRelief gives.
+	base := housingBase(t, doc, d, wallRelief)
+	casing := casingRing(t, doc, d, overlapSliver)
+	joined, err := decad.Union(base, casing)
+	if err != nil {
+		t.Fatalf("join the casing into the housing base: %v", err)
+	}
+	return []*decad.Body{joined}
+}
+
+func assertCombineHousing(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
+	d := derive(p)
+	label := "Housing"
+	// One printable part is the claim the Combine makes, and the reason the
+	// casing's downward side is exactly the housing plane's 1 mm offset.
+	requireOneLump(t, label, bodies[0])
+
+	ro, ri := d.housingOuterRadius(), d.housingInnerRadius()
+	ring := casingRingArea(d)
+	// The casing's footprint lies wholly inside the base annulus, so the
+	// sliver the two share is the ring's own area; check that rather than
+	// assume it, since it is what makes the subtraction below correct.
+	for i, q := range fullContour(d) {
+		if r := math.Hypot(q.X, q.Y); r <= ri {
+			t.Fatalf("contour point %d falls at %.6f mm, inside the base's inner lip at %.6f mm",
+				i, r, ri)
+		}
+	}
+	rb := ro + wallRelief
+	base := math.Pi * (rb*rb - ri*ri) * d.BaseT
+	casing := ring * (d.stackTop() + 1 + overlapSliver)
+	measuresVolume(t, label, bodies[0], base+casing-ring*overlapSliver, faceted())
+	measuresBox(t, label, bodies[0],
+		r3.NewVec(-rb, -rb, -1-d.BaseT), r3.NewVec(rb, rb, d.stackTop()),
+		decadtest.Within(units.Millimeters(1e-2)))
+}
+
+// casingRingArea is the joined casing's cross-section: the outer disc less the
+// region the contour encloses.
+func casingRingArea(d dims) float64 {
+	ro := d.housingOuterRadius()
+	return math.Pi*ro*ro - polygonArea(fullContour(d))
+}
+
+// casingSectorArea is the wedge's area: one pin pitch of the outer disc, less
+// the pie the contour encloses over that pitch.
+func casingSectorArea(d dims) float64 {
+	ro := d.housingOuterRadius()
+	return math.Pi*ro*ro/float64(d.N) - polygonArea(append([]point{{0, 0}}, contourPitch(d)...))
+}
+
+// casingSectorReach is the point set the wedge's bounding box is read from: the
+// contour, the two outer corners, and the outer arc's own farthest point.
+func casingSectorReach(d dims) []point {
+	ro := d.housingOuterRadius()
+	half := math.Pi / float64(d.N)
+	out := append([]point{}, contourPitch(d)...)
+	return append(out,
+		point{ro * math.Cos(-half), ro * math.Sin(-half)},
+		point{ro * math.Cos(half), ro * math.Sin(half)},
+		point{ro, 0})
+}
+
+// casingSector builds one wedge — the contour, a spoke out to the outer circle
+// at each end, and the outer arc between them — two-sided, dropped by sink so
+// it can overlap the housing base instead of abutting it.
+func casingSector(t *testing.T, doc *decad.Document, d dims, sink float64) *decad.Body {
 	t.Helper()
-	s := buildSketch(t, 0)
-	fixedCircle(s, pt{}, d.outerWall())
-	chordLoop(s, d.contourRing())
-	body, err := doc.Extrude(s, holedRegion(t, s, 1), decad.TwoSided{
-		One: decad.DistanceSide{D: mm(up)},
-		Two: decad.DistanceSide{D: mm(down)},
+	ro := d.housingOuterRadius()
+	half := math.Pi / float64(d.N)
+	s := decadtest.NewSketch(t)
+	centre := s.CreatePoint(0, 0)
+	pts := polyline(s, contourPitch(d), false)
+	first := s.CreatePoint(ro*math.Cos(-half), ro*math.Sin(-half))
+	last := s.CreatePoint(ro*math.Cos(half), ro*math.Sin(half))
+	s.CreateLine(pts[0], first)
+	s.CreateLine(pts[len(pts)-1], last)
+	// The outer boundary is the real arc, not a chord of it, so that N sector
+	// areas add up to the ring's without a rounding of their own.
+	s.CreateArc(centre, first, last)
+	s.Fix(centre)
+	s.Fix(first)
+	s.Fix(last)
+	for _, q := range pts {
+		s.Fix(q)
+	}
+	profile := decadtest.SolveRegion(t, s)
+	body, err := doc.Extrude(s, profile, decad.TwoSided{
+		One: decad.DistanceSide{D: units.Millimeters(d.stackTop())},
+		Two: decad.DistanceSide{D: units.Millimeters(1 + sink)},
 	})
 	if err != nil {
-		t.Fatalf("extrude the casing ring: %v", err)
+		t.Fatalf("extrude the ring casing sector: %v", err)
 	}
 	return body
 }
 
-// ---- S28: combine the casing and the base into one Housing ------------
-
-// stepJoinHousing is the final combine: the casing joined into the base so the
-// housing is one printable part. Their faces meet at z = -1, which the boolean
-// refuses, so the base is grown upward by a small overlap and that overlap's
-// volume is taken back out of the expected total.
-func stepJoinHousing(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	d := derive(p)
-	requireInRegime(t, d)
-	base := buildHousingBase(t, doc, d, d.Base, housingJoinGrow)
-	lifted, err := base.Placed(liftBy(t, housingJoinOverlap))
-	if err != nil {
-		t.Fatalf("sink the base into the casing: %v", err)
+// casingRing builds the joined casing in one extrude, two-sided, reaching sink
+// further down so it can overlap the housing base.
+func casingRing(t *testing.T, doc *decad.Document, d dims, sink float64) *decad.Body {
+	t.Helper()
+	ro := d.housingOuterRadius()
+	s := decadtest.NewSketch(t)
+	oc := s.CreatePoint(0, 0)
+	s.Fix(oc)
+	outer := s.CreateCircle(oc, ro)
+	s.AddConstraint(sketch.NewDiameter(outer, 2*ro))
+	for _, q := range polyline(s, fullContour(d), true) {
+		s.Fix(q)
 	}
-	casing := buildCasingRing(t, doc, d, d.stackTop(), 1)
-	housing, err := decad.UnionContext(t.Context(), lifted, casing)
+	profile := holedProfile(t, s)
+	body, err := doc.Extrude(s, profile, decad.TwoSided{
+		One: decad.DistanceSide{D: units.Millimeters(d.stackTop())},
+		Two: decad.DistanceSide{D: units.Millimeters(1 + sink)},
+	})
 	if err != nil {
-		t.Fatalf("join the casing into the housing base: %v", err)
+		t.Fatalf("extrude the joined ring casing: %v", err)
 	}
-	return []*decad.Body{housing}
+	return body
 }
 
-func assertJoinHousing(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
-	d := derive(p)
-	housing := bodies[0]
-	if got := len(housing.Lumps()); got != 1 {
-		t.Errorf("housing has %d lumps; the casing and the base did not meet", got)
-	}
-	// The whole housing spans from the base floor to the stack top.
-	requireSpan(t, housing, -1-d.Base+housingJoinOverlap, d.stackTop(), 1e-6)
+// -- the output member -------------------------------------------------------
 
-	scratch := decad.New()
-	base := buildHousingBase(t, scratch, d, d.Base, housingJoinGrow)
-	baseVolume := volumeOf(t, base)
-	other := decad.New()
-	casing := buildCasingRing(t, other, d, d.stackTop(), 1)
-	casingVolume := volumeOf(t, casing)
-	// The casing ring's footprint lies wholly inside the base annulus, so the
-	// overlap the proof introduced is that footprint times the sink.
-	shared := casingVolume / (d.stackTop() + 1) * housingJoinOverlap
-	requireVolume(t, housing, baseVolume+casingVolume-shared, 1e-2, "housing")
-}
-
-// housingJoinOverlap sinks the base into the casing so their meeting faces
-// present a real overlap, and housingJoinGrow widens the base's outer circle so
-// the two outer walls are not the same cylinder. Fusion's base and casing share
-// that outer diameter exactly, which is what makes them Join flush; the engine
-// reads two coincident cylinders as a tangent contact it cannot classify and
-// refuses the union, so the proof separates them by a twentieth of a millimetre
-// and carries the difference in the volume it expects.
-const (
-	housingJoinOverlap = 0.1
-	housingJoinGrow    = 0.05
-)
-
-// ---- S31: extrude the output plate ------------------------------------
-
-// stepExtrudeOutputPlate extrudes the plate by Output Plate Thickness, away from
-// the disk, from the plate plane 1 mm above the stack top. Fusion extrudes every
-// profile in the sketch — the plate with the pin's bite taken out of it, plus the
-// pin disc itself — so the footprint under each pin is solid plate. decad takes
-// one region per extrude, so the proof extrudes the whole plate disc, which is
-// what those two regions add up to; the sketch step measures that identity.
+// stepExtrudeOutputPlate extrudes every profile of the `Output Plate` sketch —
+// the plate with its pin bite and the pin disc, so the pin's footprint is
+// solid — by Output Plate Thickness, away from the disc. The two profiles
+// together are the plate's whole outer circle, which is what this builds.
 func stepExtrudeOutputPlate(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	d := derive(p)
-	requireInRegime(t, d)
-	s := buildSketch(t, d.stackTop()+1)
-	fixedCircle(s, pt{}, d.plateRadius())
-	return []*decad.Body{extrudeUp(t, doc, s, onlyRegion(t, s), d.PlateT)}
+	return []*decad.Body{outputPlate(t, doc, d)}
 }
 
-func assertExtrudeOutputPlate(t *testing.T, _ *decad.Document, bodies []*decad.Body,
-	p map[string]float64) {
+func assertExtrudeOutputPlate(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
 	d := derive(p)
-	plate := bodies[0]
-	// The plate plane sits 1 mm above the top disc, on the opposite side of the
-	// stack from the housing, and the plate grows away from the disc from there.
-	requireSpan(t, plate, d.stackTop()+1, d.stackTop()+1+d.PlateT, 1e-6)
-	requireVolume(t, plate, math.Pi*d.plateRadius()*d.plateRadius()*d.PlateT, 2e-3, "output plate")
+	label := "Output Plate"
+	rp := d.plateRadius()
+	requireOneLump(t, label, bodies[0])
+	measuresVolume(t, label, bodies[0], math.Pi*rp*rp*d.PlateT, exact())
+	// The plate sits 1 mm above the top disc and grows away from it, which is
+	// the mirror of the housing's plane and direction.
+	measuresBox(t, label, bodies[0],
+		r3.NewVec(-rp, -rp, d.stackTop()+1), r3.NewVec(rp, rp, d.stackTop()+1+d.PlateT),
+		decadtest.Within(units.Millimeters(1e-3)))
 }
 
-// ---- S32: extrude the output pin, two-sided ---------------------------
+func outputPlate(t *testing.T, doc *decad.Document, d dims) *decad.Body {
+	t.Helper()
+	return cylinder(t, doc, 0, 0, d.plateRadius(), d.stackTop()+1, d.PlateT, "Output Plate")
+}
 
-// stepExtrudeOutputPin extrudes the pin disc both ways from the plate plane:
-// Output Plate Thickness away from the disk, into the plate, and stackTop + 1 mm
-// toward it, which reaches disc 0's bottom face so the pin runs through every
-// disc's output holes.
+// stepExtrudeOutputPin extrudes the pin disc two-sided: Output Plate Thickness
+// into the plate, and the stack top plus 1 mm toward the disc, so the pin
+// reaches disc 0's bottom face and threads every disc's output holes.
 func stepExtrudeOutputPin(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	d := derive(p)
-	requireInRegime(t, d)
-	return []*decad.Body{buildOutputPin(t, doc, d, 0)}
+	return []*decad.Body{outputPin(t, doc, d, 0, 0)}
 }
 
-func assertExtrudeOutputPin(t *testing.T, _ *decad.Document, bodies []*decad.Body,
-	p map[string]float64) {
+func assertExtrudeOutputPin(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
 	d := derive(p)
-	pin := bodies[0]
-	// The far end lands exactly on z = 0, disc 0's bottom. Short of that and the
-	// pin does not reach through the lowest disc's holes.
-	requireSpan(t, pin, 0, d.stackTop()+1+d.PlateT, 1e-6)
-	length := d.stackTop() + 1 + d.PlateT
-	requireVolume(t, pin, math.Pi*(d.DPin/2)*(d.DPin/2)*length, 2e-3, "output pin")
-	// The pin is the hole less the orbit clearance, which is what lets it sit in
-	// a hole that orbits by E about it.
-	if got := d.DHole - d.DPin; !nearly(got, 2*d.E, 1e-9) {
-		t.Errorf("the hole is %.6f wider than the pin, want 2E = %.6f", got, 2*d.E)
+	label := "Output Pin"
+	r := d.DPin / 2
+	requireOneLump(t, label, bodies[0])
+	measuresVolume(t, label, bodies[0], math.Pi*r*r*(d.PlateT+d.stackTop()+1), exact())
+	// The lower end lands on z = 0, disc 0's bottom face. A pin that stopped
+	// short would miss the lower disc of a two-disc stack.
+	measuresBox(t, label, bodies[0],
+		r3.NewVec(d.Rop-r, -r, 0), r3.NewVec(d.Rop+r, r, d.stackTop()+1+d.PlateT),
+		decadtest.Within(units.Millimeters(1e-3)))
+	// The pin passes through a hole oversized by exactly 2E, which is the
+	// orbit clearance that lets the eccentric disc carry it.
+	if got := d.DHole - d.DPin; math.Abs(got-2*d.E) > 1e-12 {
+		t.Fatalf("the output hole is %.9f mm wider than its pin, want 2E = %.9f mm", got, 2*d.E)
 	}
 }
 
-// ---- S33: cut the plate socket, keeping the pin -----------------------
-
-// stepCutOutputSocket is the combine-cut that opens a matching socket in the
-// plate with the pin as the tool, keeping the tool body. decad's Cut retires
-// both operands, so the tool here is a duplicate of the pin, which is what
-// isKeepToolBodies means; and the pin's top cap is coplanar with the plate's,
-// which the boolean refuses, so the duplicate is grown past it.
-func stepCutOutputSocket(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
+// stepCutPinSocket is the Combine-Cut that sinks the pin's own footprint out of
+// the plate, leaving the pin seated in a matching hole.
+//
+// Fusion keeps the tool body, so the plate and the pin end up touching in one
+// document. decad judges every pair of live bodies, and a touching pair leaves
+// its report unable to say whether the two cross, so the proof cuts with a tool
+// the boolean consumes and holds the pin's own proof in the step above. The
+// tool runs overlapSliver past the plate's top face, for the reason this file's
+// header gives about coplanar caps.
+func stepCutPinSocket(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	d := derive(p)
-	requireInRegime(t, d)
-	s := buildSketch(t, d.stackTop()+1)
-	fixedCircle(s, pt{}, d.plateRadius())
-	plate := extrudeUp(t, doc, s, onlyRegion(t, s), d.PlateT)
-	tool := buildOutputPin(t, doc, d, socketToolOversize)
-	socketed, err := decad.CutContext(t.Context(), plate, tool)
+	plate := outputPlate(t, doc, d)
+	// The tool spans the plate alone, run past both of its faces. Fusion cuts
+	// with the pin body itself, which also reaches down to disc 0 and removes
+	// nothing on the way; a tool that long leaves its cap inside decad's chord
+	// tolerance of the plate's and the boolean is refused.
+	tool := cylinder(t, doc, d.Rop, 0, d.DPin/2,
+		d.stackTop()+1-toolOverhang, d.PlateT+2*toolOverhang, "Output Pin socket tool")
+	socketed, err := decad.Cut(plate, tool)
 	if err != nil {
-		t.Fatalf("cut the output socket: %v", err)
+		t.Fatalf("cut the output pin's socket: %v", err)
 	}
 	return []*decad.Body{socketed}
 }
 
-func assertCutOutputSocket(t *testing.T, _ *decad.Document, bodies []*decad.Body,
-	p map[string]float64) {
+func assertCutPinSocket(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
 	d := derive(p)
-	socketed := bodies[0]
-	plateVolume := math.Pi * d.plateRadius() * d.plateRadius() * d.PlateT
-	socket := math.Pi * (d.DPin / 2) * (d.DPin / 2) * d.PlateT
-	requireVolume(t, socketed, plateVolume-socket, 3e-3, "plate with one socket")
-	if got := len(socketed.Lumps()); got != 1 {
-		t.Errorf("socketed plate has %d lumps, want 1", got)
-	}
-	// The socket is the pin's own footprint, so the pin seats in it: any other
-	// diameter would leave the pin loose or refuse to enter.
-	scratch := decad.New()
-	pin := buildOutputPin(t, scratch, d, 0)
-	box := boundsOf(t, pin)
-	if got := box.Max.X - box.Min.X; !nearly(got, d.DPin, 1e-3) {
-		t.Errorf("pin is %.4f mm across, want the socket's %.4f mm", got, d.DPin)
-	}
+	label := "Output Plate"
+	rp, r := d.plateRadius(), d.DPin/2
+	requireOneLump(t, label, bodies[0])
+	measuresVolume(t, label, bodies[0], math.Pi*(rp*rp-r*r)*d.PlateT, faceted())
+	measuresBox(t, label, bodies[0],
+		r3.NewVec(-rp, -rp, d.stackTop()+1), r3.NewVec(rp, rp, d.stackTop()+1+d.PlateT),
+		decadtest.Within(units.Millimeters(1e-2)))
 }
 
-// socketToolOversize grows the cutting tool past the plate's top face. Fusion's
-// pin ends flush with it, and a tool whose cap rests on the target's face is a
-// contact the boolean refuses rather than cuts.
-const socketToolOversize = 0.5
-
-// buildOutputPin extrudes the output pin two-sided from the plate plane,
-// optionally grown by extra on the far side for use as a cutting tool.
-func buildOutputPin(t *testing.T, doc *decad.Document, d dims, extra float64) *decad.Body {
-	t.Helper()
-	s := buildSketch(t, d.stackTop()+1)
-	fixedCircle(s, pt{X: d.Rop, Y: 0}, d.DPin/2)
-	body, err := doc.Extrude(s, onlyRegion(t, s), decad.TwoSided{
-		One: decad.DistanceSide{D: mm(d.PlateT + extra)},
-		Two: decad.DistanceSide{D: mm(d.stackTop() + 1)},
-	})
-	if err != nil {
-		t.Fatalf("extrude the output pin two-sided: %v", err)
-	}
-	return body
-}
-
-// ---- S34: chamfer the output pin's ends -------------------------------
-
-// stepChamferOutputPinEnds chamfers the pin's two end rims, an equal-distance
-// chamfer of Chamfer Size, or leaves the pin alone when the size is zero.
-func stepChamferOutputPinEnds(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	d := derive(p)
-	requireInRegime(t, d)
-	pin := buildOutputPin(t, doc, d, 0)
-	if d.Cham <= 0 {
-		// Chamfer Size 0 means no chamfer at all: the helper returns before it
-		// selects an edge, and the build carries on with the plain pin.
-		return []*decad.Body{pin}
-	}
-	chamfered, err := pin.Chamfer(decad.Edges(decad.Circular()).Exactly(2), mm(d.Cham))
-	if err != nil {
-		t.Fatalf("chamfer the pin's two end rims: %v", err)
-	}
-	return []*decad.Body{chamfered}
-}
-
-func assertChamferOutputPinEnds(t *testing.T, _ *decad.Document, bodies []*decad.Body,
-	p map[string]float64) {
-	d := derive(p)
-	body := bodies[0]
-	radius := d.DPin / 2
-	length := d.stackTop() + 1 + d.PlateT
-	plain := math.Pi * radius * radius * length
-	if d.Cham <= 0 {
-		requireVolume(t, body, plain, 2e-3, "unchamfered pin")
-		return
-	}
-	// A 45-degree equal-distance chamfer of size c takes a ring of
-	// pi*c^2*(r - c/3) off each end.
-	ring := math.Pi * d.Cham * d.Cham * (radius - d.Cham/3)
-	requireVolume(t, body, plain-2*ring, 5e-3, "chamfered pin")
-	requireSpan(t, body, 0, length, 1e-6)
-}
-
-// ---- S35: pattern the pin, socket and chamfer x M ---------------------
-
-// stepPatternOutputPins is the M-times pattern about the drive axis of the pin
-// extrude, the socket cut and the pin-end chamfer together. The pattern's
-// placement is what this step owns, and the proof takes it on the sockets: the
-// plate carrying all M of them, extruded once, because a chain of M booleans on
-// one body is not something the engine supports.
+// stepPatternOutputPins is the circular pattern ×M about the Drive Axis of the
+// pin extrude, its socket Combine and the pin-end chamfer, which leaves M pins
+// orbiting O and named `Output Pin 1` through `Output Pin M`.
 func stepPatternOutputPins(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	d := derive(p)
-	requireInRegime(t, d)
-	s := buildSketch(t, d.stackTop()+1)
-	fixedCircle(s, pt{}, d.plateRadius())
-	for _, c := range d.outputPinCentres() {
-		fixedCircle(s, c, d.DPin/2)
+	pins := make([]*decad.Body, 0, d.M)
+	for k := range d.M {
+		pins = append(pins, outputPin(t, doc, d, 2*math.Pi*float64(k)/float64(d.M), 0))
 	}
-	return []*decad.Body{extrudeUp(t, doc, s, holedRegion(t, s, d.M), d.PlateT)}
+	return pins
 }
 
-func assertPatternOutputPins(t *testing.T, _ *decad.Document, bodies []*decad.Body,
-	p map[string]float64) {
+func assertPatternOutputPins(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
 	d := derive(p)
-	plate := bodies[0]
-	full := math.Pi * d.plateRadius() * d.plateRadius() * d.PlateT
-	socket := math.Pi * (d.DPin / 2) * (d.DPin / 2) * d.PlateT
-	requireVolume(t, plate, full-float64(d.M)*socket, 3e-3, "plate with M sockets")
-	if got := len(plate.Lumps()); got != 1 {
-		t.Errorf("plate has %d lumps, want 1", got)
+	r := d.DPin / 2
+	if len(bodies) != d.M {
+		t.Fatalf("the pattern left %d pin(s), want Output Pin Count = %d", len(bodies), d.M)
 	}
-	// The pins are on the drive axis O while the disc's holes are on Od, so each
-	// pin sits in its hole offset by the eccentricity, and the plate still
-	// covers the outermost pin by Wall.
-	for i, c := range d.outputPinCentres() {
-		if got := radiusOf(c, pt{}); !nearly(got, d.Rop, 1e-9) {
-			t.Errorf("output pin %d sits %.6f from O, want Rop %.6f", i, got, d.Rop)
-		}
-		if got := d.plateRadius() - (radiusOf(c, pt{}) + d.DPin/2); !nearly(got, d.Wall, 1e-9) {
-			t.Errorf("plate covers pin %d by %.6f, want Wall %.6f", i, got, d.Wall)
-		}
+	want := math.Pi * r * r * (d.PlateT + d.stackTop() + 1)
+	for k, body := range bodies {
+		label := fmt.Sprintf("Output Pin %d", k+1)
+		requireOneLump(t, label, body)
+		measuresVolume(t, label, body, want, exact())
+		a := 2 * math.Pi * float64(k) / float64(d.M)
+		cx, cy := d.Rop*math.Cos(a), d.Rop*math.Sin(a)
+		measuresBox(t, label, body,
+			r3.NewVec(cx-r, cy-r, 0), r3.NewVec(cx+r, cy+r, d.stackTop()+1+d.PlateT),
+			decadtest.Within(units.Millimeters(1e-3)))
+	}
+	// Neighbouring pins keep a real gap; that gap is what the output holes'
+	// non-overlap bound guarantees.
+	chord := 2 * d.Rop * math.Sin(math.Pi/float64(d.M))
+	if chord <= d.DPin {
+		t.Fatalf("neighbouring output pins overlap: a %.6f mm pin on a %.6f mm chord",
+			d.DPin, chord)
 	}
 }
 
-// ---- S36: chamfer the outer rims --------------------------------------
+// outputPin builds one pin at angle a on the output-pin circle, reaching sink
+// past the plate's top face.
+func outputPin(t *testing.T, doc *decad.Document, d dims, a, sink float64) *decad.Body {
+	t.Helper()
+	return cylinder(t, doc, d.Rop*math.Cos(a), d.Rop*math.Sin(a), d.DPin/2,
+		0, d.stackTop()+1+d.PlateT+sink, "Output Pin")
+}
 
-// stepChamferOuterRims chamfers the outer rim of a disc-like body on both flat
-// faces. The output plate is the one this proof builds: a uniform-thickness disc
-// with exactly two cap faces, both of them axially extreme, which is the shape
-// the helper's extreme-cap filter is a no-op for.
+// -- chamfers ----------------------------------------------------------------
+
+// stepChamferRims chamfers the outer rim of every disc-like body on both flat
+// faces, at 45 degrees and equal distance, and does nothing when Chamfer Size
+// is 0.
 //
-// NOT REACHED, and recorded here rather than only in the step list: the rotor
-// disc's rim, whose outer loop is the lobe contour, and the combined Housing's,
-// whose interior ledge at the base-casing junction is the case the extreme-cap
-// filter exists for. The engine chamfers a straight prism only, so a Housing
-// that is a boolean result cannot be chamfered here at all, and the lobe rim's
-// self-intersection at the tight valleys — the failure the spec's resilient
-// chamfer catches — is a Fusion behaviour with no counterpart in this engine.
-func stepChamferOuterRims(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
+// What the proof chamfers is the Output Plate. The rotor disc's rim is its lobe
+// profile and the Housing's is the scalloped casing contour, and decad refuses
+// a cap-loop chamfer whose corner offset it cannot enclose, which a lobe valley
+// and a contour seam both are; neither rim is reachable here. The spec's own
+// resilient-chamfer rule exists for the same geometry, since Fusion raises on a
+// lobe valley too once the chamfer grows past it, and only a Fusion session
+// decides where that is.
+func stepChamferRims(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	d := derive(p)
-	requireInRegime(t, d)
-	s := buildSketch(t, d.stackTop()+1)
-	fixedCircle(s, pt{}, d.plateRadius())
-	plate := extrudeUp(t, doc, s, onlyRegion(t, s), d.PlateT)
-	if d.Cham <= 0 {
+	plate := outputPlate(t, doc, d)
+	if d.Chamfer <= 0 {
 		return []*decad.Body{plate}
 	}
-	chamfered, err := plate.Chamfer(decad.Edges(decad.Circular()).Exactly(2), mm(d.Cham))
+	chamfered, err := plate.Chamfer(decad.Edges(decad.Circular()), units.Millimeters(d.Chamfer))
 	if err != nil {
-		t.Fatalf("chamfer the plate's two rim loops: %v", err)
+		t.Fatalf("chamfer the Output Plate's cap rims at %.4f mm: %v", d.Chamfer, err)
 	}
 	return []*decad.Body{chamfered}
 }
 
-func assertChamferOuterRims(t *testing.T, _ *decad.Document, bodies []*decad.Body,
-	p map[string]float64) {
+func assertChamferRims(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
 	d := derive(p)
-	body := bodies[0]
-	radius := d.plateRadius()
-	plain := math.Pi * radius * radius * d.PlateT
-	if d.Cham <= 0 {
-		requireVolume(t, body, plain, 2e-3, "unchamfered plate")
+	label := "Output Plate"
+	rp, s := d.plateRadius(), d.Chamfer
+	requireOneLump(t, label, bodies[0])
+	plain := math.Pi * rp * rp * d.PlateT
+	if s <= 0 {
+		// Chamfer Size 0 means the step does nothing, and the body has to come
+		// through untouched rather than merely close to it.
+		measuresVolume(t, label, bodies[0], plain, exact())
 		return
 	}
-	ring := math.Pi * d.Cham * d.Cham * (radius - d.Cham/3)
-	requireVolume(t, body, plain-2*ring, 5e-3, "chamfered plate")
-	// Only the rim moves: the chamfer takes nothing off the plate's height.
-	requireSpan(t, body, d.stackTop()+1, d.stackTop()+1+d.PlateT, 1e-6)
+	// Each rim loses the solid of revolution of a right triangle with legs s,
+	// whose centroid sits at rp - s/3: by Pappus, (s^2/2) * 2*pi*(rp - s/3).
+	// The evaluator chords the chamfer's conical band, so the slack states that
+	// chord error rather than the formula's, which is exact.
+	ring := (s * s / 2) * 2 * math.Pi * (rp - s/3)
+	measuresVolume(t, label, bodies[0], plain-2*ring, decadtest.WithinRel(units.Scalar(1e-5)))
+	measuresBox(t, label, bodies[0],
+		r3.NewVec(-rp, -rp, d.stackTop()+1), r3.NewVec(rp, rp, d.stackTop()+1+d.PlateT),
+		decadtest.Within(units.Millimeters(1e-2)))
+}
+
+// stepChamferPinEnds chamfers the two ends of the `Output Pin` body, the same
+// cap-rim helper the disc-like bodies use, before the pattern carries the
+// chamfer onto every copy.
+func stepChamferPinEnds(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
+	d := derive(p)
+	pin := outputPin(t, doc, d, 0, 0)
+	if d.Chamfer <= 0 {
+		return []*decad.Body{pin}
+	}
+	chamfered, err := pin.Chamfer(decad.Edges(decad.Circular()), units.Millimeters(d.Chamfer))
+	if err != nil {
+		t.Fatalf("chamfer the Output Pin's ends at %.4f mm: %v", d.Chamfer, err)
+	}
+	return []*decad.Body{chamfered}
+}
+
+func assertChamferPinEnds(t *testing.T, _ *decad.Document, bodies []*decad.Body, p map[string]float64) {
+	d := derive(p)
+	label := "Output Pin"
+	r, s := d.DPin/2, d.Chamfer
+	requireOneLump(t, label, bodies[0])
+	plain := math.Pi * r * r * (d.PlateT + d.stackTop() + 1)
+	if s <= 0 {
+		measuresVolume(t, label, bodies[0], plain, exact())
+		return
+	}
+	// A chamfer only fits while it stays inside the pin's own radius, which is
+	// the pin-end case of the spec's resilient-chamfer rule.
+	if s >= r {
+		t.Fatalf("Chamfer Size %.4f mm is at or past the output pin's %.4f mm radius", s, r)
+	}
+	// The same Pappus ring as the plate's rim, at the pin's radius.
+	ring := (s * s / 2) * 2 * math.Pi * (r - s/3)
+	measuresVolume(t, label, bodies[0], plain-2*ring, decadtest.WithinRel(units.Scalar(1e-5)))
 }

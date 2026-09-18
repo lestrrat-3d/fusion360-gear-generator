@@ -184,6 +184,21 @@ and a nil one fails the run. Name it in the step's `proof-run` annotation.
 `proofkit3d.Unmodelled` is the 3D counterpart of
 `proofkit.Unmodelled`, for a case `decad` cannot represent.
 
+**A sketch step's comparisons come from `sketch/sketchtest`.** For every comparison against a
+sketch reading, call `sketchtest.Measures`, `sketchtest.MeasuresPoint`,
+`sketchtest.MeasuresWorldPoint` or `sketchtest.MeasuresProfileArea` rather than subtracting
+floats, and state the slack with `sketchtest.WithinRel` or `sketchtest.Within`: a comparison
+carrying neither fails, rather than passing on a tolerance nobody chose. Say in a comment what the
+formula's error is. Name the reading in the leading `what` argument — that name is all a failure
+has to say which measurement went wrong. To check that a constraint holds, call
+`sketchtest.Satisfies` on the committed constraint instead of recomputing the geometry it
+constrains. Where a step verifies and then reads the one profile, take it with
+`sketchtest.SingleProfile` and assert it with `sketchtest.IsValidProfile`,
+`sketchtest.IsCurrentProfile` or `sketchtest.HasExactCuts` rather than reading the report's
+fields. A step needing a solve or a verification of its own, beyond the one the harness gate runs,
+calls `sketchtest.Solve` and `sketchtest.Verify`, which take the test's context, so a solve that
+hangs dies with the test instead of outliving it.
+
 **A solid step's fixtures and comparisons come from `decad/decadtest`.** `decadtest.NewSketch`,
 `decadtest.SolveRegion` and `decadtest.NewPrism` build the sketch, the one valid region and the
 one-sided prism, so a proof writes no boilerplate of its own for them. For every comparison

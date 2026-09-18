@@ -9,12 +9,8 @@ import (
 	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit3d"
 )
 
-func TestToolsSketch(t *testing.T) {
-	proofkit.Run(t, toolsCases, stepToolsSketch)
-}
-
-func TestGearProfileSketch(t *testing.T) {
-	proofkit.RunWithExpectedFailures(t, profileCases, stepGearProfileSketch, profileFailureCases)
+func TestGearProfile(t *testing.T) {
+	proofkit.RunWithExpectedFailures(t, profileCases, stepGearProfile, profileFailures)
 }
 
 func TestExtrudeTooth(t *testing.T) {
@@ -26,25 +22,17 @@ func TestExtrudeBody(t *testing.T) {
 }
 
 func TestPatternTeeth(t *testing.T) {
-	proofkit3d.RunSolid(t, solidCases, stepPatternTeeth, assertPatternTeeth)
+	proofkit3d.RunSolid(t, patternCases, stepPatternTeeth, assertPatternTeeth)
 }
 
-func TestCombineTeeth(t *testing.T) {
-	proofkit3d.RunSolid(t, solidCases, stepCombineTeeth, assertCombineTeeth)
-}
-
-func TestFilletRoots(t *testing.T) {
-	proofkit3d.RunSolid(t, solidCases, stepFilletRoots, assertFilletRoots)
-}
-
-func TestBoreProfileSketch(t *testing.T) {
-	proofkit.Run(t, boreProfileCases, stepBoreProfileSketch)
+func TestBoreProfile(t *testing.T) {
+	proofkit.Run(t, boreCases, stepBoreProfile)
 }
 
 func TestBoreCut(t *testing.T) {
-	proofkit3d.RunSolid(t, solidCases, stepBoreCut, assertBoreCut)
+	proofkit3d.RunSolid(t, boreSolidCases, stepBoreCut, assertBoreCut)
 }
 
 func TestChamferTeeth(t *testing.T) {
-	proofkit3d.RunSolid(t, solidCases, stepChamferTeeth, assertChamferTeeth)
+	proofkit3d.RunSolid(t, chamferCases, stepChamferTeeth, assertChamferTeeth)
 }

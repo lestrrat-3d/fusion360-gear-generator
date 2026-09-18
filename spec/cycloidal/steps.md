@@ -1,7 +1,4 @@
-# Cycloidal drive — compiled step list
-
-The proof for this step list is `proof/cycloidal/geometry_test.go`, `proof/cycloidal/sketches_test.go`,
-`proof/cycloidal/solids_test.go` and the generated `proof/cycloidal/zz_registrations_test.go`.
+The proof for this step list is `proof/cycloidal/geometry_test.go`, `proof/cycloidal/sketches_test.go`, `proof/cycloidal/solids_test.go` and the generated `proof/cycloidal/zz_registrations_test.go`.
 
 ## Provenance
 
@@ -12,1400 +9,1256 @@ The proof for this step list is `proof/cycloidal/geometry_test.go`, `proof/cyclo
 | `spec/cycloidal/epitrochoid-trace.md` | `2dd150ac312ca9c673812661e4fa229df433dade` |
 | `.claude/skills/generate-gear/PLAYBOOK.md` | `9ee2dcbaed7b5480aa69e9295e8b61acaea081f3` |
 
-## S01 `[PROSE]` Add the dialog inputs
+## S01 `[PROSE]` Dialog inputs and per-field message slots
 
-`CycloidalDriveCommandInputsConfigurator.configure(cls, command)` adds every input below to
-`command.commandInputs`, in exactly this order. There is no `handle_input_changed` — nothing in this
-dialog is conditionally visible.
+`CycloidalDriveCommandInputsConfigurator.configure(cls, command)` adds every input to
+`command.commandInputs` in exactly the order below, and adds a hidden message slot immediately
+after each value and dropdown input. Selections get no slot.
 
-Two selections come first (`[PB-AUTOFOCUS-FIRST]`: Fusion focuses the first `SelectionCommandInput`
-and ignores a later focus flag, so Target Plane owns the initial focus by being added first), then
-every value and dropdown input, then Parent Component last.
+The ids, labels and registered parameter names are reproduced here in full because nothing
+downstream can look them up:
 
-The whole table, verbatim. Column 3 is the `unitType` string passed to `addValueInput`; column 4 is
-the default in **display** units, which is registered as
-`adsk.core.ValueInput.createByReal(to_cm(<default>))` for a length and
-`adsk.core.ValueInput.createByReal(<default>)` for a count, since a `createByReal` default is read in
-Fusion's internal units whatever the unit string says (`[PB-DIALOG-DEFAULT-UNITS]`).
-
-| # | label | input id | unit | default | kind | registered parameter |
+| # | Dialog label | input id | add call | unit string | default | registered user parameter |
 |---|---|---|---|---|---|---|
-| 1 | `Target Plane` | `plane` | — | — | selection | — |
-| 2 | `Anchor Point` | `anchorPoint` | — | — | selection | — |
-| 3 | `Disc Count` | `discCount` | — | `'1'` | dropdown | — |
-| 4 | `Pin Count` | `pinCount` | `''` | `16` | value | `PinCount` |
-| 5 | `Pin Circle Diameter` | `pinCircleDiameter` | `'mm'` | `90` | value | `PinCircleDiameter` |
-| 6 | `Pin Diameter` | `pinDiameter` | `'mm'` | `0` | value | `PinDiameter` |
-| 7 | `Eccentricity` | `eccentricity` | `'mm'` | `1.5` | value | `Eccentricity` |
-| 8 | `Disk Clearance` | `diskClearance` | `'mm'` | `0.3` | value | `DiskClearance` |
-| 9 | `Disc Thickness` | `discThickness` | `'mm'` | `8` | value | `DiscThickness` |
-| 10 | `Disc Gap` | `discGap` | `'mm'` | `0.5` | value | `DiscGap` |
-| 11 | `Center Bearing Diameter` | `centerBearingDiameter` | `'mm'` | `30` | value | `CenterBearingDiameter` |
-| 12 | `Input Shaft Diameter` | `inputShaftDiameter` | `'mm'` | `8` | value | `InputShaftDiameter` |
-| 13 | `Bearing Clearance` | `bearingClearance` | `'mm'` | `0.2` | value | `BearingClearance` |
-| 14 | `Output Pin Circle Diameter` | `outputPinCircleDiameter` | `'mm'` | `50` | value | `OutputPinCircleDiameter` |
-| 15 | `Output Pin Count` | `outputPinCount` | `''` | `6` | value | `OutputPinCount` |
-| 16 | `Output Pin Diameter` | `outputPinDiameter` | `'mm'` | `0` | value | `OutputPinDiameter` |
-| 17 | `Housing Wall` | `wall` | `'mm'` | `3` | value | `Wall` |
-| 18 | `Base Thickness` | `baseThickness` | `'mm'` | `5` | value | `BaseThickness` |
-| 19 | `Output Plate Thickness` | `outputPlateThickness` | `'mm'` | `5` | value | `OutputPlateThickness` |
-| 20 | `Chamfer Size` | `chamferSize` | `'mm'` | `0.5` | value | `ChamferSize` |
-| 21 | `Parent Component` | `parentComponent` | — | root component | selection | — |
+| 1 | Target Plane | `plane` | `addSelectionInput` | — | — | — |
+| 2 | Anchor Point | `anchorPoint` | `addSelectionInput` | — | — | — |
+| 3 | Disc Count | `discCount` | `addDropDownCommandInput` | — | `'1'` | — |
+| 4 | Pin Count | `pinCount` | `addValueInput` | `''` | 16 | `PinCount` |
+| 5 | Pin Circle Diameter | `pinCircleDiameter` | `addValueInput` | `'mm'` | 90 mm | `PinCircleDiameter` |
+| 6 | Pin Diameter | `pinDiameter` | `addValueInput` | `'mm'` | 0 mm | `PinDiameter` |
+| 7 | Eccentricity | `eccentricity` | `addValueInput` | `'mm'` | 1.5 mm | `Eccentricity` |
+| 8 | Disk Clearance | `diskClearance` | `addValueInput` | `'mm'` | 0.3 mm | `DiskClearance` |
+| 9 | Disc Thickness | `discThickness` | `addValueInput` | `'mm'` | 8 mm | `DiscThickness` |
+| 10 | Disc Gap | `discGap` | `addValueInput` | `'mm'` | 0.5 mm | `DiscGap` |
+| 11 | Center Bearing Diameter | `centerBearingDiameter` | `addValueInput` | `'mm'` | 30 mm | `CenterBearingDiameter` |
+| 12 | Input Shaft Diameter | `inputShaftDiameter` | `addValueInput` | `'mm'` | 8 mm | `InputShaftDiameter` |
+| 13 | Bearing Clearance | `bearingClearance` | `addValueInput` | `'mm'` | 0.2 mm | `BearingClearance` |
+| 14 | Output Pin Circle Diameter | `outputPinCircleDiameter` | `addValueInput` | `'mm'` | 50 mm | `OutputPinCircleDiameter` |
+| 15 | Output Pin Count | `outputPinCount` | `addValueInput` | `''` | 6 | `OutputPinCount` |
+| 16 | Output Pin Diameter | `outputPinDiameter` | `addValueInput` | `'mm'` | 0 mm | `OutputPinDiameter` |
+| 17 | Housing Wall | `wall` | `addValueInput` | `'mm'` | 3 mm | `Wall` |
+| 18 | Base Thickness | `baseThickness` | `addValueInput` | `'mm'` | 5 mm | `BaseThickness` |
+| 19 | Output Plate Thickness | `outputPlateThickness` | `addValueInput` | `'mm'` | 5 mm | `OutputPlateThickness` |
+| 20 | Chamfer Size | `chamferSize` | `addValueInput` | `'mm'` | 0.5 mm | `ChamferSize` |
+| 21 | Parent Component | `parentComponent` | `addSelectionInput` | — | root component | — |
 
-Selections are `inputs.addSelectionInput(<id>, <label>, <label>)`, then their filters as the named
-enum constants, never quoted literals (`[PB-SELECTION-FILTER-ENUM]`), then their limits. The spec
-states no tooltip text for any input, so the label is passed as the command prompt too (SPEC GAP:
-the tooltip strings are not written down anywhere). Filters and limits per input
-(`[PB-SELECTION-DECL]`):
+Each row's add call takes its own shape: a selection is
+`inputs.addSelectionInput(<id>, <label>, <tooltip>)`, the dropdown is
+`inputs.addDropDownCommandInput(<id>, <label>, <style>)`, and every numeric is
+`inputs.addValueInput(<id>, <label>, <unit>, <ValueInput>)`.
 
-- `plane`: `input.addSelectionFilter(adsk.core.SelectionCommandInput.ConstructionPlanes)` and
-  `input.addSelectionFilter(adsk.core.SelectionCommandInput.PlanarFaces)`;
-  `input.setSelectionLimits(1, 1)`.
-- `anchorPoint`: `adsk.core.SelectionCommandInput.ConstructionPoints` and
-  `adsk.core.SelectionCommandInput.SketchPoints`; `input.setSelectionLimits(1, 1)`.
-- `parentComponent`: `adsk.core.SelectionCommandInput.Occurrences` and
-  `adsk.core.SelectionCommandInput.RootComponents`; `input.setSelectionLimits(0, 1)` — empty is
-  allowed — with the root pre-selected by `input.addSelection(get_design().rootComponent)`.
+Every numeric default above is written in display units and passed to `addValueInput` as
+`adsk.core.ValueInput.createByReal(to_cm(<display value>))`, because a `createByReal` default is
+read in Fusion internal units no matter what the unit string says (`[PB-DIALOG-DEFAULT-UNITS]`).
+The two counts carry the unitless unit string `''` and are passed as
+`adsk.core.ValueInput.createByReal(16)` and `adsk.core.ValueInput.createByReal(6)` with no
+conversion.
 
-Disc Count is a dropdown, not a value input:
-`inputs.addDropDownCommandInput('discCount', 'Disc Count', adsk.core.DropDownStyles.TextListDropDownStyle)`,
-then `dropdown.listItems.add('1', True)` and `dropdown.listItems.add('2', False)`. `'1'` is a single
-disc; `'2'` is two discs 180 degrees opposed, which requires an even `Pin Count` and an even
-`Output Pin Count` (S03).
+Selection filters and limits, per input (`[PB-SELECTION-DECL]`, `[PB-SELECTION-FILTER-ENUM]`):
 
-Immediately **after each value and dropdown input** — rows 3 to 20, never after a selection — add its
-hidden per-field message slot with the exact signature
-`inputs.addTextBoxCommandInput(<id> + '__status', '', '', 2, True)` (id, empty label, empty initial
-formatted text, 2 rows, read-only), then set `slot.isVisible = False`. Their ids are the input's id
-plus the suffix `'__status'`, for example `pinCircleDiameter__status`. They are not registered
-parameters and no `get_*` helper ever reads them; the shared handler writes into them
+- `plane` — `addSelectionFilter(adsk.core.SelectionCommandInput.ConstructionPlanes)` and
+  `addSelectionFilter(adsk.core.SelectionCommandInput.PlanarFaces)`; `setSelectionLimits(1, 1)`.
+- `anchorPoint` — `addSelectionFilter(adsk.core.SelectionCommandInput.ConstructionPoints)` and
+  `addSelectionFilter(adsk.core.SelectionCommandInput.SketchPoints)`; `setSelectionLimits(1, 1)`.
+- `parentComponent` — `addSelectionFilter(adsk.core.SelectionCommandInput.Occurrences)` and
+  `addSelectionFilter(adsk.core.SelectionCommandInput.RootComponents)`;
+  `setSelectionLimits(0, 1)`; pre-select the root with
+  `addSelection(get_design().rootComponent)`.
+
+`plane` is added first so Fusion's auto-focus lands on it (`[PB-AUTOFOCUS-FIRST]`).
+
+Disc Count is a dropdown: `addDropDownCommandInput(INPUT_ID_DISC_COUNT, 'Disc Count',
+adsk.core.DropDownStyles.TextListDropDownStyle)`, then two items through the returned input's
+`listItems` collection — `add('1', True)` and `add('2', False)` — so `'1'` is the default.
+
+**Per-field message slot.** Immediately after each of inputs 3 through 20, add
+`inputs.addTextBoxCommandInput(<that input's id> + '__status', '', '', 2, True)` — the id, an
+empty label, empty initial formatted text, 2 rows, read-only — and set the returned input's
+`isVisible = False`. The suffix is exactly `'__status'`, so the slot for input 5 is
+`pinCircleDiameter__status`. These slots are never read by any `get_*` helper and are not
+registered as parameters; the shared `GearCommand.command_validate_input` handler writes into them
 (`[PB-VALIDATE-INPUTS]`).
 
-`configure` is the method the framework calls on this class rather than a call this module makes,
-and `handle_input_changed` is named only to say the class does not define one.
+There is no `handle_input_changed`: this dialog has no conditional visibility.
 
-<!-- check-step-calls: ignore configure handle_input_changed -->
+<!-- check-step-calls: ignore configure command_validate_input -->
 
-**From:** `spec/cycloidal/instructions.md` L12-19 L60-124 L154-216, `.claude/skills/generate-gear/PLAYBOOK.md` L53-60 L128-143 L317-348 L524-535
+**From:** `spec/cycloidal/instructions.md` L15–19, L58–123, L154–216
 
-## S02 `[PROSE]` Read the inputs and register the parameters
+## S02 `[PROSE]` Live input validation — one routine, two callers
 
-`CycloidalDriveGenerator(base.Generator)` overrides `prefixBase` to return `'CycloidalDrive'`, so
-every parameter registers under `CycloidalDrive<N>_`. It declares no generation-context class; the
-handles live on `self`, and the per-disc ones are **lists** indexed by the disc index `d`:
-`self.diskBodies`, `self.diskAxes`, `self.lobeSplines`, `self.outputHoles`, `self.lobeDiskCentres`,
-`self.discPlanes`. The rest are scalars: `self.driveAxis`, `self.housingRing`, `self.ringCasing`,
-`self.cam`, `self.outputPlate`, and `self.lobePinCircle` (disc 0's pin circle, stashed and never
-read — legacy of the pinned-ring design).
+`CycloidalDriveGenerator` declares the two members the shared handler consults
+(`[PB-VALIDATE-INPUTS]`):
 
-**Declare every one of those fields before anything reads it, in the `cast(None)` form.** The
-playbook's rule for a field passed between steps is that it is "`cast(None)` initialised", so the
-declaration names the field's concrete type rather than leaving it `None`. That rule lives in the
-playbook's four-class-pattern section, which carries no `[PB-…]` anchor of its own and so cannot
-travel in the extract this list's citations build — it is reproduced here in full for that reason.
-This gear carries the fields on `self` instead of in a context object, and its constructor is the
-inherited 1-arg `(design)` one, so the declarations go at the **top of `processInputs`**, before the
-selections are read: assigning a plain Python attribute does not create the occurrence, so nothing
-here disturbs the selection-first ordering below.
+- the class attribute `DEFAULT_STATUS_INPUT_ID = INPUT_ID_PIN_CIRCLE_DIAMETER + '__status'`, the
+  fallback slot;
+- `@staticmethod validate_inputs(inputs) -> list[str]`, a pure check that reads raw values off
+  `inputs.itemById(<id>).value` (internal cm for lengths, the rounded int for the two counts) and
+  `inputs.itemById(INPUT_ID_DISC_COUNT).selectedItem.name` for the dropdown, resolves the derived
+  dimensions, and returns the problem list. It writes nothing to the document and registers no
+  parameter. A value that cannot be read yet is left to raise; the shared handler catches it and
+  treats the inputs as provisionally valid.
 
-⚠️ Never write `adsk.core.Base.cast(None)`. The database and the type stubs both declare
-`Base.cast`, and Fusion's runtime does not have it: it raises
-`AttributeError: type object 'Base' has no attribute 'cast'`, observed while building a bevel pair.
-Every concrete subclass does have `cast`, so each field is seeded with the cast of the class it
-actually holds. Resolve each class's module with the API database rather than from memory
-(`[PB-API-LOOKUP]`); all of the classes below are `adsk.fusion`, not `adsk.core`
-(`[PB-ADSK-MODULES]`).
+Both `validate_inputs` and `_resolveDimensions` build the same value set and call the single
+module-level helper `evaluate_problems(vals) -> list[str]`. The formulas are written once, there.
 
-The scalar fields, declared first, verbatim:
+Resolution, in this order, on internal-cm values (`R = pinCircleDiameter / 2`,
+`Rop = outputPinCircleDiameter / 2`, `E`, `c = diskClearance`, `N` and `M` the rounded counts,
+`CBD = centerBearingDiameter`, `clr = bearingClearance`, `ISD = inputShaftDiameter`):
 
-| field | declaration |
-|---|---|
-| `self.plane` | `adsk.fusion.ConstructionPlane.cast(None)` |
-| `self.anchorPoint` | `adsk.fusion.SketchPoint.cast(None)` |
-| `self.driveAxis` | `adsk.fusion.ConstructionAxis.cast(None)` |
-| `self.housingRing` | `adsk.fusion.BRepBody.cast(None)` |
-| `self.ringCasing` | `adsk.fusion.BRepBody.cast(None)` |
-| `self.cam` | `adsk.fusion.BRepBody.cast(None)` |
-| `self.outputPlate` | `adsk.fusion.BRepBody.cast(None)` |
-| `self.lobePinCircle` | `adsk.fusion.SketchCircle.cast(None)` |
-| `self.chamferSize` | `0.0` |
-| `self.chamfersSkipped` | `0` |
-| `self.Rr` | `0.0` |
-| `self.D_hole` | `0.0` |
+- `Rr = pinDiameter / 2` when `pinDiameter > 0`, else `0.5 * (E + R * math.sin(math.pi / N))`;
+- `Rr_eff = Rr + c`;
+- `Rv = R - Rr_eff - E`;
+- `D_pin = outputPinDiameter` when `outputPinDiameter > 0`, else `Rop * math.sin(math.pi / M) - E`;
+- `D_hole = D_pin + 2 * E`.
 
-`self.anchorPoint` also holds an `adsk.fusion.ConstructionPoint` when the user picks one — the
-selection filter allows either — and the declaration names the sketch-point type so the field has a
-concrete type at all; its only use is `sketch.project(self.anchorPoint)`, whose parameter is a
-`core.Base`, so either class satisfies it. `self.chamferSize` is the resolved Chamfer Size in
-internal cm, which the chamfer helper and the skipped-chamfer message both read. `self.Rr` and
-`self.D_hole` are what `_resolveDimensions` stashes for the two snapshot parameters to register.
-`self.parentComponent` is **not** declared here: the inherited `__init__` already sets it, along
-with `self.design`, `self.occurrence`, `self.prefix` and `self.cleaner`.
+`evaluate_problems` returns every failing message, in this order, formatted in mm through `to_mm`
+and rounded to about two decimals, with counts as integers:
 
-The six per-disc fields are **lists indexed by `d`**, assigned as `self.diskBodies[d] = body`, so
-each is sized to `D` as soon as the disc count is read in step 2 below, with its element type named
-the same way:
-
-| field | declaration |
-|---|---|
-| `self.diskBodies` | `[adsk.fusion.BRepBody.cast(None) for _ in range(D)]` |
-| `self.diskAxes` | `[adsk.fusion.ConstructionAxis.cast(None) for _ in range(D)]` |
-| `self.lobeSplines` | `[adsk.fusion.SketchFittedSpline.cast(None) for _ in range(D)]` |
-| `self.outputHoles` | `[adsk.fusion.SketchCircle.cast(None) for _ in range(D)]` |
-| `self.lobeDiskCentres` | `[adsk.fusion.SketchPoint.cast(None) for _ in range(D)]` |
-| `self.discPlanes` | `[adsk.fusion.ConstructionPlane.cast(None) for _ in range(D)]` |
-
-`processInputs(inputs)` runs in this fixed order, because creating the occurrence shifts Fusion's
-active component and drops selections (`[PB-SELECTION-STASH]`):
-
-1. Pull **all three selections first**, before anything registers a parameter:
-   `get_selection(inputs, 'parentComponent')` — empty falls back to
-   `get_design().rootComponent`, and an `adsk.fusion.Occurrence` selection resolves through its
-   `.component`; then `get_selection(inputs, 'plane')` into `self.plane` and
-   `get_selection(inputs, 'anchorPoint')` into `self.anchorPoint`.
-2. Read Disc Count from the dropdown, never with a `get_*` helper (`[PB-INPUT-READ]`):
-   `int(inputs.itemById('discCount').selectedItem.name)` into `D`.
-3. Read every value input with `get_value(inputs, <id>, <unit>)` and register it with
-   `self.addParameter(<name>, <value>, <unit>, <comment>)`. `get_value` already returns a
-   `ValueInput` ready to hand straight to `addParameter` (`[PB-GET-VALUE-CONTRACT]`). The two counts
-   use the unitless string: `get_value(inputs, 'pinCount', '')` and
-   `get_value(inputs, 'outputPinCount', '')`, registered with unit `''`; the Python formulas
-   read the counts from the dialog value rounded to int, because a Fusion user parameter is a float.
-4. Call `self._resolveDimensions()`, which computes the derived scalars and raises
-   `Exception('\n'.join(problems))` when `evaluate_problems` returns any (S03).
-5. Register the derived parameters, after the resolve, because two of them are snapshots of what it
-   stashed.
-
-The derived scalars, in internal cm, are `Lobes = N - 1`; `PinCircleRadius`;
-`OutputPinCircleRadius`; `PinRadius` = `Pin Diameter / 2` when Pin Diameter is greater than zero and
-otherwise `0.5 * (E + R * sin(pi / N))`; `Rr_eff = PinRadius + DiskClearance`;
-`Rv = PinCircleRadius - Rr_eff - Eccentricity`; `D_pin` = `Output Pin Diameter` when that is greater
-than zero and otherwise `OutputPinCircleRadius * sin(pi / M) - E`; `OutputHoleDiameter = D_pin + 2E`;
-`HousingInnerDiameter = 2 * (R - PinRadius - Wall)`;
-`HousingOuterDiameter = 2 * (R - PinRadius + 2 * E + Wall)`;
-`OutputPlateDiameter = OutputPinCircleDiameter + D_pin + 2 * Wall`.
-
-Registration mode is fixed per parameter and is not a free choice:
-
-- `PinRadius` and `OutputHoleDiameter` are **numeric snapshots** of the resolved Python values:
-  `self.addParameter(PARAM_PIN_RADIUS, adsk.core.ValueInput.createByReal(Rr), 'mm', ...)` and the
-  same with `createByReal(D_hole)`. Both resolve through an auto-versus-override branch in Python
-  whose auto arm uses `sin(pi / N)`, which a live Fusion expression cannot reproduce
-  (`[PB-NUMERIC-SNAPSHOT]`).
-- `Lobes`, `PinCircleRadius`, `OutputPinCircleRadius`, `HousingInnerDiameter`,
-  `HousingOuterDiameter` and `OutputPlateDiameter` stay live expressions registered with
-  `adsk.core.ValueInput.createByString(...)`; they compose cleanly from the registered inputs,
-  including the snapshot `PinRadius`.
-
-`self.chamfersSkipped` starts at `0` in that first block, before any build step, since S34 and S36
-both count into it, and `self.chamferSize` is set from the resolved Chamfer Size in step 3.
-
-Every parameter name written into any expression string — a dimension's expression, a construction
-plane's offset, an extrude's extent — must be the **prefixed** name from
-`self.parameterName(PARAM_...)`. A bare `'DiscThickness'` in a `createByString` raises
-`RuntimeError: invalid expression`, because the registered name is `CycloidalDrive<N>_DiscThickness`.
-
-`processInputs` and `_resolveDimensions` are methods this class defines for the framework and for
-itself; they are named here, not required as API calls.
-
-<!-- check-step-calls: ignore processInputs -->
-<!-- check-compile: ignore processInputs -->
-
-**From:** `spec/cycloidal/instructions.md` L20-38 L125-152 L183-216 L331-348 L382-385 L636-639, `spec/cycloidal/epitrochoid-trace.md` L40-54, `.claude/skills/generate-gear/PLAYBOOK.md` L42-73 L75-126 L196-228 L432-436 L624-625
-
-## S03 `[PROSE]` Validate the geometry live and at execute time
-
-All the validity math lives in one module-level helper, `evaluate_problems`, taking the resolved
-scalars in cm and ints and returning a list of problem strings. Two callers share it and neither
-duplicates a formula (`[PB-VALIDATE-INPUTS]`):
-
-- `@staticmethod validate_inputs(inputs) -> list[str]` on `CycloidalDriveGenerator`, a pure check
-  that writes nothing to the document. It reads the raw values straight off the inputs —
-  `inputs.itemById(<id>).value` for a length, the same rounded to int for a count,
-  `inputs.itemById('discCount').selectedItem.name` for the dropdown — resolves `Rr`, `Rr_eff`, `Rv`,
-  `D_pin` and `D_hole` by the same auto-versus-override rules as S02, and returns the problems. It
-  runs on every keystroke, and its cost — a 2000-point curvature scan, plus a 40-iteration bisection
-  that re-runs that scan each time when the undercut guard fails — is accepted as it stands: do not
-  cache it and do not downsample. When a value cannot be read yet, let the read raise; the shared
-  handler catches it and treats the inputs as provisionally valid.
-- `_resolveDimensions`, at execute time, builds the same values from the registered parameters and
-  raises `Exception('\n'.join(problems))` when the list is not empty.
-
-The class also declares
-`DEFAULT_STATUS_INPUT_ID = INPUT_ID_PIN_CIRCLE_DIAMETER + '__status'`, the fallback slot the shared
-handler writes into when the last-edited input has none of its own.
-
-The checks, in this order, with the message each failure returns. Return **every** failing message,
-not just the first. Symbols are the resolved internal-cm values: `R = PinCircleDiameter / 2`,
-`Rop = OutputPinCircleDiameter / 2`, `E`, `c`, `N`, `M`, `CBD = CenterBearingDiameter`,
-`clr = BearingClearance`, `ISD = InputShaftDiameter`, `Rr`, `Rr_eff = Rr + c`, `Rv = R - Rr_eff - E`,
-`D_pin`, `D_hole = D_pin + 2E`. Every number in a message is formatted in **mm** through
-`to_mm` and rounded to about two decimals; counts print as integers.
-
-| # | must hold | message when it fails |
+| # | Must hold | Message when it fails |
 |---|---|---|
-| 1 | 2 discs implies `N` even **and** `M` even | `Two discs require an even Pin Count and an even Output Pin Count (currently N=…, M=…).` |
-| 2 | `E < Rr < R*sin(pi/N)` | auto (`Pin Diameter == 0`): `Pin geometry out of range — increase Pin Circle Diameter above {2E/sin(pi/N)} mm or reduce Eccentricity below {R*sin(pi/N)} mm.` override: `Pin Diameter must be between {2E} mm and {2*R*sin(pi/N)} mm (currently {2*Rr}).` |
+| 1 | two discs ⇒ `N` even and `M` even | `Two discs require an even Pin Count and an even Output Pin Count (currently N=…, M=…).` |
+| 2 | `E < Rr < R * sin(pi / N)` | auto: `Pin geometry out of range — increase Pin Circle Diameter above {2E/sin(pi/N)} mm or reduce Eccentricity below {R*sin(pi/N)} mm.` override: `Pin Diameter must be between {2E} mm and {2*R*sin(pi/N)} mm (currently {2*Rr}).` |
 | 3 | `D_pin > 0` | auto: `Output pins vanish (resolved diameter ≤ 0) — increase Output Pin Circle Diameter above {2E/sin(pi/M)} mm, increase Output Pin Count, or reduce Eccentricity.` override: `Output Pin Diameter must be greater than 0.` |
-| 4 | `D_hole < 2*Rop*sin(pi/M)` | `Output holes overlap — increase Output Pin Circle Diameter above {(D_pin+2E)/sin(pi/M)} mm, increase Output Pin Count, or reduce Output Pin Diameter / Eccentricity.` |
-| 5 | `E < R/N` | `Eccentricity too large — reduce it below {R/N} mm (or increase Pin Circle Diameter / reduce Pin Count).` |
+| 4 | `D_hole < 2 * Rop * sin(pi / M)` | `Output holes overlap — increase Output Pin Circle Diameter above {(D_pin+2E)/sin(pi/M)} mm, increase Output Pin Count, or reduce Output Pin Diameter / Eccentricity.` |
+| 5 | `E < R / N` | `Eccentricity too large — reduce it below {R/N} mm (or increase Pin Circle Diameter / reduce Pin Count).` |
 | 6 | `Rop < Rv` | `Output Pin Circle too large — set Output Pin Circle Diameter below {2*Rv} mm (currently {2*Rop}).` |
 | 7 | `Rr_eff < rho_min_O` | `Eccentricity too large — the rotor profile undercuts/self-intersects. Reduce Eccentricity below {E*} mm.` |
 | 8 | `ISD < CBD` | `Input Shaft Diameter must be less than Center Bearing Diameter ({CBD} mm).` |
-| 9 | `E + ISD/2 < CBD/2` | `Input bore doesn't fit inside the cam — set Input Shaft Diameter below {CBD − 2E} mm, or reduce Eccentricity / increase Center Bearing Diameter.` |
-| 10 | `(CBD + clr)/2 < Rop - D_hole/2` | `Disk center bore overlaps the output holes — increase Output Pin Circle Diameter above {CBD + clr + D_hole} mm, or reduce Center Bearing Diameter / Bearing Clearance / output pin size.` |
+| 9 | `E + ISD / 2 < CBD / 2` | `Input bore doesn't fit inside the cam — set Input Shaft Diameter below {CBD − 2E} mm, or reduce Eccentricity / increase Center Bearing Diameter.` |
+| 10 | `(CBD + clr) / 2 < Rop - D_hole / 2` | `Disk center bore overlaps the output holes — increase Output Pin Circle Diameter above {CBD + clr + D_hole} mm, or reduce Center Bearing Diameter / Bearing Clearance / output pin size.` |
 
-Check 7's `rho_min_O` is the smallest radius of curvature of the base trochoid at the points whose
-centre of curvature lies toward `O`, sampled at exactly **2000** points of `t` over `[0, 2*pi)`:
+Check 7 is the binding eccentricity limit and it is numeric. `rho_min_O` is the smallest radius of
+curvature of the base trochoid at the points whose centre of curvature lies toward `O`, scanned at
+exactly 2000 uniform values of `t` over `[0, 2*pi)`:
 
 ```
-bx  =  R*cos t - E*cos(N t) ;            by  = -R*sin t + E*sin(N t)
-xp  = -R*sin t + E*N*sin(N t) ;          yp  = -R*cos t + E*N*cos(N t)
-xpp = -R*cos t + E*N^2*cos(N t) ;        ypp =  R*sin t - E*N^2*sin(N t)
-k   = xp*ypp - yp*xpp                                  # skip the sample if |k| ~ 0
-rho = (xp^2 + yp^2)^1.5 / k
-s   = sqrt(xp^2 + yp^2) ;  nx, ny = -yp/s, xp/s
+bx  =  R*cos t − E*cos(N t)        by  = −R*sin t + E*sin(N t)
+xp  = −R*sin t + E*N*sin(N t)      yp  = −R*cos t + E*N*cos(N t)
+xpp = −R*cos t + E*N²*cos(N t)     ypp =  R*sin t − E*N²*sin(N t)
+k   = xp*ypp − yp*xpp                        # skip the sample when |k| < 1e-12
+rho = (xp² + yp²)**1.5 / k
+s   = sqrt(xp² + yp²);  nx, ny = −yp/s, xp/s
 Cx, Cy = bx + rho*nx, by + rho*ny
-rho_min_O = min |rho| over the samples where Cx^2 + Cy^2 < bx^2 + by^2
+rho_min_O = min |rho| over the samples with Cx² + Cy² < bx² + by²
 ```
 
-`E*` in check 7's message has no closed form. Hold every other input fixed and find the largest `E'`
-in `(0, E]` for which `Rr_eff(E') < rho_min_O(E')` still holds, by exactly **40** bisection rounds;
-report `to_mm(E*)`. Both sides depend on `E'` when Pin Diameter is 0. If no positive `E'`
-satisfies it, fall back to the plain "reduce Eccentricity" wording with no number.
+`E*` in message 7 is found by exactly 40 bisection rounds on `E'` in `(0, E]`, every other input
+held, re-resolving `Rr` and `rho_min_O` at each round because both move with `E'` when
+`pinDiameter` is 0; report `to_mm(E*)`. When no positive `E'` satisfies the guard, drop the number
+and give the plain "reduce Eccentricity" wording. The cost of this — a 2000-point scan per
+keystroke, and 40 more inside the bisection when check 7 fails — is accepted; do not cache or
+downsample.
 
-This is the binding eccentricity limit, far tighter than check 5: for the dialog defaults it is about
-**2.50 mm** against `R/N = 2.81 mm`. The proof measures that number on the same scan
-(`stepRotorLobeSketch`), and every proof case is held under it.
+`proof/cycloidal/sketches_test.go` reproduces checks 7, 9 and 10 and the `rho_min_O` scan, and
+pins the bound the spec states for the dialog defaults: `E*` is 2.50 mm against the loose
+`R / N` of 2.8125 mm. The eight arithmetic checks that only compare two resolved numbers have no
+geometry for either harness to build, which is why this step is `[PROSE]`;
+`proof/cycloidal/sketches_test.go` says so beside the guard it does build.
 
-The bullet ranges in the spec's Variables section — "integer >= 4", "integer >= 3", "mm > 0",
-"mm >= 0" — are authoring documentation, not checks: `evaluate_problems` does not enforce them, and
-this table is the complete list of what it does.
+`validate_inputs` and `evaluate_problems` are this module's own Python, and the word "vanish" in
+message 3 is prose inside a string literal, so none of the three is a name to look for in the
+Fusion API database.
 
-`validate_inputs` and `evaluate_problems` are what this module declares for the shared command
-handler to call; `_resolveDimensions` calls `evaluate_problems` itself. `rho_min_O` is the scan
-above, written as a function of `E'` in the bisection, and `vanish` is a word inside a message
-string, neither of them a call.
+<!-- check-step-calls: ignore validate_inputs vanish -->
+<!-- check-compile: ignore validate_inputs evaluate_problems vanish -->
 
-<!-- check-step-calls: ignore validate_inputs evaluate_problems rho_min_O vanish -->
-<!-- check-compile: ignore validate_inputs evaluate_problems rho_min_O vanish -->
+**From:** `spec/cycloidal/instructions.md` L142–152, L218–273; `spec/cycloidal/epitrochoid-trace.md` L40–84
 
-**From:** `spec/cycloidal/instructions.md` L63-67 L142-152 L218-273, `spec/cycloidal/epitrochoid-trace.md` L56-84, `.claude/skills/generate-gear/PLAYBOOK.md` L317-344
+## S03 `[PROSE]` Read the inputs, register the parameters, resolve the dimensions
 
-## S04 `[PROSE]` Create the component and name it
+`processInputs(self, inputs)` runs in a fixed order, because creating the occurrence shifts
+Fusion's active component and drops selections (`[PB-SELECTION-STASH]`):
 
-`generate(inputs)` calls `processInputs(inputs)` first, then takes the component with
-`self.getComponent()` and sets `component.name = self.generateName()`. `generateName` returns
-`'Cycloidal Drive (N={}):{}'.format(N, L)` with `N = PinCount` rounded to int and `L = N - 1`, the
-reduction ratio — for the defaults, `'Cycloidal Drive (N=16):15'`.
+1. Pull all three selections first, with `get_selection(inputs, <id>)`, and stash them on `self`:
+   `self.parentComponent` from `parentComponent` (an `Occurrence` resolves to its `.component`; an
+   empty selection falls back to `get_design().rootComponent`), `self.plane` from `plane`, and
+   `self.anchorPoint` from `anchorPoint`.
+2. Read Disc Count from the dropdown, never with a `get_*` helper (`[PB-INPUT-READ]`):
+   `int(inputs.itemById(INPUT_ID_DISC_COUNT).selectedItem.name)` gives `D`.
+3. Set `self.chamfersSkipped = 0` before any build step runs.
+4. Read every value input with `get_value(inputs, <id>, <unit>)` — unit `'mm'` for the lengths and
+   `''` for `pinCount` and `outputPinCount` — and register each with
+   `self.addParameter(<name>, <ValueInput>, <unit>, <comment>)` under the names in S01's table.
+   Read `N` and `M` for the Python formulas as the dialog value rounded to `int`, since a Fusion
+   user parameter is a float.
+5. Call `self._resolveDimensions()`. It builds the same value set S02 describes, and raises
+   `Exception('\n'.join(problems))` when `evaluate_problems(vals)` is non-empty. On success it
+   stashes the resolved `self.Rr` and `self.D_hole`.
+6. Register the derived parameters, after the resolve, because two of them read what it stashed:
+   - `PinRadius` and `OutputHoleDiameter` are numeric snapshots in internal cm —
+     `self.addParameter(PARAM_PIN_RADIUS, adsk.core.ValueInput.createByReal(self.Rr), 'mm', …)` and
+     the same shape with `createByReal(self.D_hole)`. They resolve through an auto-versus-override
+     branch in Python that a live Fusion expression cannot reproduce, so they are snapshots and not
+     `createByString` (`[PB-NUMERIC-SNAPSHOT]`).
+   - `Lobes`, `PinCircleRadius`, `OutputPinCircleRadius`, `HousingInnerDiameter`,
+     `HousingOuterDiameter` and `OutputPlateDiameter` stay live, each registered with
+     `adsk.core.ValueInput.createByString(<expression>)`, and each expression naming its operands
+     through `self.parameterName(PARAM_…)`. Their values are `Lobes = N − 1`,
+     `PinCircleRadius = PinCircleDiameter / 2`,
+     `OutputPinCircleRadius = OutputPinCircleDiameter / 2`,
+     `HousingInnerDiameter = 2 * (PinCircleRadius − PinRadius − Wall)`,
+     `HousingOuterDiameter = 2 * (PinCircleRadius − PinRadius + 2 * Eccentricity + Wall)`,
+     `OutputPlateDiameter = OutputPinCircleDiameter + (OutputHoleDiameter − 2 * Eccentricity) + 2 * Wall`.
 
-Never call `occurrence.activate()` anywhere in this build (`[PB-NEVER-ACTIVATE]`): activating a
-sub-occurrence makes Fusion resolve the user's externally selected plane in the local frame and the
-whole drive lands flat on world XY whatever plane was picked. Every sketch and feature is built by
-calling the non-activated component's own collections.
+Per-disc handles are lists indexed by `d`: `self.diskBodies`, `self.diskAxes`, `self.lobeSplines`,
+`self.outputHoles`, `self.lobeDiskCentres`, `self.discPlanes`. The rest are scalars:
+`self.driveAxis`, `self.housingRing`, `self.ringCasing`, `self.cam`, `self.outputPlate`, and
+`self.lobePinCircle`, which is stashed and never read.
 
-`generate` and `generateName` are this class's own members, named here rather than required as API
-calls; `activate` is named only to forbid it.
+`self.prefixBase()` returns `'CycloidalDrive'`, so every registered name is
+`CycloidalDrive<N>_<name>` and every expression must substitute through
+`self.parameterName(PARAM_…)`. A bare name raises `RuntimeError: 3 : Expression is invalid`.
 
-<!-- check-step-calls: ignore generate generateName activate -->
-<!-- check-compile: ignore generateName -->
+`evaluate_problems` is the module-level helper S02 describes, not a Fusion API call.
 
-**From:** `spec/cycloidal/instructions.md` L1-10 L39-58 L349-363 L380 L382-385, `spec/cycloidal/fusion.md` L1-6, `spec/cycloidal/epitrochoid-trace.md` L1-16, `.claude/skills/generate-gear/PLAYBOOK.md` L244-254 L788-795
+<!-- check-step-calls: ignore prefixBase -->
+<!-- check-compile: ignore evaluate_problems -->
 
-## S05 `[PROSE]` Normalize the Target Plane
+**From:** `spec/cycloidal/instructions.md` L20–37, L126–152, L184–216, L331–347
 
-If `self.plane` is not already an `adsk.fusion.ConstructionPlane`, build a coplanar one and use that
-instead: `planeInput = component.constructionPlanes.createInput()`, then
-`planeInput.setByOffset(self.plane, adsk.core.ValueInput.createByReal(0))`, then
-`component.constructionPlanes.add(planeInput)`. This is a single-component generator, so normalizing
-is safe here (`[PB-CONSTRUCTION-PLANES]`).
+## S04 `[PROSE]` Build the component, name it, normalise the Target Plane
 
-**From:** `spec/cycloidal/instructions.md` L421-424 L356, `.claude/skills/generate-gear/PLAYBOOK.md` L244-251 L742-746
+`generate(self, inputs)` calls `processInputs(inputs)`, then
+`component = self.getComponent()` and `component.name = self.generateName()`.
+`generateName()` returns `'Cycloidal Drive (N={}):{}'.format(N, L)` with `N` the rounded Pin Count
+and `L = N − 1` — for the defaults, `Cycloidal Drive (N=16):15`.
 
-## S06 `[PROSE]` Construction plane for disc `d`
+If `self.plane` is not an `adsk.fusion.ConstructionPlane`, replace it with a coplanar one
+(`[PB-CONSTRUCTION-PLANES]`):
+`planeInput = component.constructionPlanes.createInput()`,
+`planeInput.setByOffset(self.plane, adsk.core.ValueInput.createByString('0 mm'))`,
+`self.plane = component.constructionPlanes.add(planeInput)`.
 
-The build loops `for d in range(D)` over the disc count. Disc `d` spans `[z_d, z_d + T]` with
-`z_d = d * (T + g)`, `T = DiscThickness`, `g = DiscGap`. For `d == 0` the plane is `self.plane`
-itself and no construction plane is created. For every later disc, create one:
+Then the build steps run in the order this list gives them: the per-disc loop `for d in range(D)`
+over `buildLobeSketch(d)`, `buildDisk(d)`, `buildOutputHoleSketch(d)`, `buildOutputHoles(d)` and
+`buildDiskBore(d)`; then `buildCam()`, `buildRingPins()`, `buildOutputPins()`, `buildChamfers()`
+and `buildSubComponents()`. Use `futil.log` for step progress and let the entry point's own
+try/except and `deleteComponent` handle rollback; add no silent failure path of your own
+(`[PB-LOGGING]`).
+
+At the very end of `generate`, after `buildSubComponents()`, if `self.chamfersSkipped > 0` show a
+non-fatal message and continue. The message text names a count of skipped chamfers, so the literal
+below contains a parenthesis that is not a call.
+
+<!-- check-step-calls: ignore chamfer -->
+
+`adsk.core.Application.get().userInterface.messageBox('Cycloidal drive generated, but {n} chamfer(s) could not be created at Chamfer Size {sz} mm and were skipped. Reduce Chamfer Size (or set it to 0) for this geometry.'.format(n=self.chamfersSkipped, sz=to_mm(self.chamferSize)))`.
+
+The ten `build…` names above are this generator's own methods, and the word "chamfer" in the
+message literal is prose, so none of them is a Fusion API call to look up.
+
+<!-- check-step-calls: ignore generate -->
+<!-- check-compile: ignore buildLobeSketch buildDisk buildOutputHoleSketch buildOutputHoles buildDiskBore buildCam buildRingPins buildOutputPins buildChamfers buildSubComponents chamfer -->
+
+**From:** `spec/cycloidal/instructions.md` L349–385, L421–424, L631–645
+
+## S05 `[PROSE]` Construction plane `Disc Plane {d+1}` for each disc above the first
+
+For `d = 0` the disc is built on `self.plane` and no plane is created. For every `d > 0`:
+`planeInput = component.constructionPlanes.createInput()`,
+`planeInput.setByOffset(self.plane, adsk.core.ValueInput.createByString('{} * ({} + {})'.format(d, self.parameterName(PARAM_DISC_THICKNESS), self.parameterName(PARAM_DISC_GAP))))`,
+`plane = component.constructionPlanes.add(planeInput)`, `plane.name = 'Disc Plane {}'.format(d + 1)`,
+`self.discPlanes[d] = plane`.
+
+The offset is `z_d = d * (T + g)` with `T = DiscThickness` and `g = DiscGap`, so disc `d` spans
+`[z_d, z_d + T]` and every disc extrude runs `PositiveExtentDirection` from its own plane. Both
+parameter names in that string are prefixed; a bare `'DiscThickness'` raises
+`RuntimeError: invalid expression` (`[CYCLOIDAL-F-TWO-DISC]`).
+
+`DiscCount` is a dropdown, not a parameter, so it never appears in an expression — only as the
+literal integer `d` or `D`. The stack top expression used later is `stackTopExpr = nT` for `D = 1`
+and `'2 * {} + {}'.format(nT, nG)` for `D = 2`, with `nT = self.parameterName(PARAM_DISC_THICKNESS)`
+and `nG = self.parameterName(PARAM_DISC_GAP)`.
+
+A construction plane's offset is a number Fusion resolves; `proof/cycloidal/solids_test.go` places
+every disc-`d` body at `z_d` directly and reads the z faces back, which is the same fact, so this
+step carries no proof function of its own.
+
+**From:** `spec/cycloidal/instructions.md` L333–347, L389–419; `spec/cycloidal/fusion.md` L462–498
+
+## S06 `[GO]` Sketch `Rotor Lobe {d+1}` — the fully constrained lobe on the eccentric disc centre
+
+`buildLobeSketch(d)` creates the sketch on `plane(d)` — `self.plane` for `d = 0`, else
+`self.discPlanes[d]` — names it `'Rotor Lobe {}'.format(d + 1)` and leaves it visible.
+
+**Anchor chain** (`[CYCLOIDAL-F-ANCHOR-CHAIN]`). `projected = sketch.project(self.anchorPoint).item(0)`;
+`localOrigin = sketch.sketchPoints.add(adsk.core.Point3D.create(0, 0, 0))`;
+`sketch.geometricConstraints.addCoincident(localOrigin, projected)`. The local origin is a fresh
+point, not `sketch.originPoint`, and everything below is drawn relative to it.
+
+**Eccentric disc centre** (`[CYCLOIDAL-F-DISK-CENTER]`). With `s_d = +1` for `d = 0` and `−1` for
+`d = 1`:
+`diskCentre = sketch.sketchPoints.add(adsk.core.Point3D.create(s_d * E, 0, 0))`;
+`eccLine = sketch.sketchCurves.sketchLines.addByTwoPoints(localOrigin, diskCentre)`;
+`eccLine.isConstruction = True`; `sketch.geometricConstraints.addHorizontal(eccLine)`; then the
+driving distance dimension
+`sketch.sketchDimensions.addDistanceDimension(localOrigin, diskCentre, adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation, adsk.core.Point3D.create(s_d * E / 2, -Rv / 10, 0))`
+and `dim.parameter.expression = self.parameterName(PARAM_ECCENTRICITY)`. The dimension's value is
+a magnitude; disc 1's sign lives in the seeded point at `(−E, 0)` and in the line's direction, never
+in a negative value (`[PB-DIM-VALUE-SEMANTICS]`). Stash `diskCentre` on `self.lobeDiskCentres[d]`.
+
+**The three reference circles**, in this order, each created with
+`sketch.sketchCurves.sketchCircles.addByCenterRadius`, each `isConstruction = True`, each centre
+constrained with one `sketch.geometricConstraints.addCoincident` and no `isFixed`
+(`[PB-SHARE-XOR-COINCIDENT]`, `[PB-CIRCLE-CENTER]`), each given a driving
+`sketch.sketchDimensions.addDiameterDimension(circle, textPoint)` whose text point is off the centre
+(`[PB-RADIAL-DIM]`) and whose `.parameter.expression` is set as follows, and each labelled along
+its own path (`[PB-SKETCH-TEXT]`):
+
+1. **Pin circle**, radius `R`, centre `adsk.core.Point3D.create(0, 0, 0)`, coincident to
+   `localOrigin` — on the drive axis, not the disc centre. Expression
+   `self.parameterName(PARAM_PIN_CIRCLE_DIAMETER)`. Label `'Pin Circle'`. For `d = 0` only, stash
+   it on `self.lobePinCircle`; nothing reads that stash.
+2. **Output-pin circle**, radius `Rop`, centre `adsk.core.Point3D.create(s_d * E, 0, 0)`,
+   coincident to `diskCentre`. Expression `self.parameterName(PARAM_OUTPUT_PIN_CIRCLE_DIAMETER)`.
+   Label `'Output Pin Circle'`.
+3. **Root circle**, radius `Rv`, centre `adsk.core.Point3D.create(s_d * E, 0, 0)`, coincident to
+   `diskCentre`. Expression
+   `'2 * ({} - {} - {} - {})'.format(self.parameterName(PARAM_PIN_CIRCLE_RADIUS), self.parameterName(PARAM_PIN_RADIUS), self.parameterName(PARAM_DISK_CLEARANCE), self.parameterName(PARAM_ECCENTRICITY))`.
+   Label `'Root Circle'`.
+
+Each label is the three-call shape `textInput = sketch.sketchTexts.createInput2(<name>, self.Rr)`,
+`textInput.setAsAlongPath(<that circle>, True, adsk.core.HorizontalAlignments.CenterHorizontalAlignment, 0)`,
+`sketch.sketchTexts.add(textInput)`. The height is the resolved pin radius `self.Rr`, in cm.
+
+**The lobe** (`[CYCLOIDAL-F-DISK-LOBE]`). One open fitted spline through the adaptively sampled
+points of `disk_point(t, cx = s_d * E, cy = 0, phi = d * pi)`. The point function, in internal cm,
+with `Rr_eff = Rr + c`:
 
 ```
-planeInput = component.constructionPlanes.createInput()
-planeInput.setByOffset(self.plane, adsk.core.ValueInput.createByString(
-    '{} * ({} + {})'.format(d, self.parameterName(PARAM_DISC_THICKNESS),
-                            self.parameterName(PARAM_DISC_GAP))))
-plane = component.constructionPlanes.add(planeInput)
-plane.name = 'Disc Plane {}'.format(d + 1)
+num = sin((1 − N) * t)
+den = R / (E * N) − cos((1 − N) * t)
+psi = atan2(num, den)                      # uses R, E and N only, never Rr
+x0  =  R*cos(t) − Rr_eff*cos(t + psi) − E*cos(N * t)
+y0  = −R*sin(t) + Rr_eff*sin(t + psi) + E*sin(N * t)
+x   = cx + x0*cos(phi) − y0*sin(phi)
+y   = cy + x0*sin(phi) + y0*cos(phi)
 ```
 
-Stash it on `self.discPlanes[d]`. The offset string uses the **prefixed** names; `DiscCount` is a
-dropdown, not a parameter, so it never appears in an expression — only as the literal integer `d`.
+Sample it over `t` in `[0, 2*pi/L]`, `L = N − 1`, by bounded turn angle and never uniformly: trace
+exactly 2000 uniform steps (2001 points); keep the first; accumulate the direction change between
+consecutive fine points and keep a point and reset whenever the accumulator reaches exactly 5.0
+degrees; always keep the last. A uniform sample overshoots into rabbit-ear loops near the undercut
+limit. Add each kept point as `adsk.core.Point3D.create(x, y, 0)` — already cm, never re-wrapped in
+`to_cm` — into `coll = adsk.core.ObjectCollection.create()`, then
+`spline = sketch.sketchCurves.sketchFittedSplines.add(coll)` (`[PB-SKETCHCURVES]`). Never set
+`isClosed` and add no closing arc. Stash it on `self.lobeSplines[d]`.
 
-Every disc's sketches are anchored to `O` on its own plane, and every disc extrude runs in
-`adsk.fusion.ExtentDirections.PositiveExtentDirection` from it.
+**Lock the spline.** `for i in range(1, spline.fitPoints.count - 1): spline.fitPoints.item(i).isFixed = True`
+— the interior points only; fixing the whole spline makes the angle dimension redundant. Then put
+each end on the root circle: `sketch.geometricConstraints.addCoincident(spline.fitPoints.item(0), rootCircle)`
+and `sketch.geometricConstraints.addCoincident(spline.fitPoints.item(spline.fitPoints.count - 1), rootCircle)`.
+Those are point-on-curve constraints and pin each valley's radius to `Rv`; the angles come from the
+spokes.
 
-**From:** `spec/cycloidal/instructions.md` L333-347 L387-397 L417-419, `spec/cycloidal/fusion.md` L462-479
-
-## S07 `[GO]` Draw the Rotor Lobe sketch for disc `d`
-
-`buildLobeSketch(d)` creates a sketch named `'Rotor Lobe {}'.format(d + 1)` on `plane(d)` and leaves
-it visible, with no bodies built. Proof function: `stepRotorLobeSketch`.
-
-<!-- proof-run: proofkit.RunParallel(discSketchCases, stepRotorLobeSketch) -->
-
-**Anchor chain** (`[CYCLOIDAL-F-ANCHOR-CHAIN]`). Project the user's Anchor with
-`sketch.project(self.anchorPoint)` and take `.item(0)`; add a fresh local origin with
-`sketch.sketchPoints.add(adsk.core.Point3D.create(0, 0, 0))` — not `sketch.originPoint` — and tie the
-two with `sketch.geometricConstraints.addCoincident(localOrigin, projected)`. All the geometry below
-is drawn relative to that local origin, so anchoring it drags the drawing onto the user's Anchor.
-
-**The eccentric disc centre** (`[CYCLOIDAL-F-DISK-CENTER]`). `Od_d = O + s_d * E * Xhat` with
-`s_0 = +1` and `s_1 = -1`:
-
-1. `diskCentre = sketch.sketchPoints.add(adsk.core.Point3D.create(s_d * E, 0, 0))` — the signed
-   coordinate, seeded on the side the disc belongs on.
-2. `eccLine = sketch.sketchCurves.sketchLines.addByTwoPoints(localOrigin, diskCentre)`
-   (`[PB-SKETCHCURVES]`: the curve collections hang off `sketch.sketchCurves`, never off the sketch),
-   `eccLine.isConstruction = True`, and
-   `sketch.geometricConstraints.addHorizontal(eccLine)`.
-3. A driving distance dimension between the two points,
-   `sketch.sketchDimensions.addDistanceDimension(localOrigin, diskCentre, adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation, textPoint)`,
-   with its `.parameter.expression` set to `self.parameterName(PARAM_ECCENTRICITY)`. Never pass
-   `isDriven=True` (`[PB-DRIVING-DIM]`). The dimension is a **magnitude** and its side comes from
-   where `diskCentre` was seeded, so disc 1 is the point at `(-E, 0)` and still the expression
-   `Eccentricity`, never a negative value (`[PB-DIM-VALUE-SEMANTICS]`).
-
-**Three reference circles**, in this order (`[CYCLOIDAL-F-DISK-LOBE]`). Each is created with
-`sketch.sketchCurves.sketchCircles.addByCenterRadius(<Point3D>, <radius>)` at a fresh centre point,
-then `circle.isConstruction = True`, then
-`sketch.geometricConstraints.addCoincident(circle.centerSketchPoint, <the centre it belongs to>)` —
-share xor coincident, never both (`[PB-SHARE-XOR-COINCIDENT]`) — then a driving
-`sketch.sketchDimensions.addDiameterDimension(circle, textPoint)` whose `.parameter.expression` is
-set as below. The text point must sit on or near the circle, never at its centre
-(`[PB-RADIAL-DIM]`).
-
-| circle | centre | seed | radius | `.parameter.expression` | label |
-|---|---|---|---|---|---|
-| pin circle, **disc 0 only** | `localOrigin` (`O`, the fixed ring) | `Point3D.create(0, 0, 0)` | `R` | `PinCircleDiameter` | `'Pin Circle'` |
-| output-pin circle | `diskCentre` (`Od`) | `Point3D.create(s_d * E, 0, 0)` | `Rop` | `OutputPinCircleDiameter` | `'Output Pin Circle'` |
-| root circle | `diskCentre` (`Od`) | `Point3D.create(s_d * E, 0, 0)` | `Rv` | `2 * (PinCircleRadius - PinRadius - DiskClearance - Eccentricity)` | `'Root Circle'` |
-
-Every logical name in those expressions is substituted through `self.parameterName(PARAM_...)`,
-including inside the multi-term one: a bare `'2 * (PinCircleRadius - ...)'` raises
-`RuntimeError: 3 : Expression is invalid` because no unprefixed parameter of that name exists. The
-output-pin circle is centred on `Od`, concentric with the root circle and **not** with the pin
-circle, and it is the innermost of the three (`Rop < Rv`). Stash the pin circle on
-`self.lobePinCircle` for `d == 0`; nothing reads it.
-
-Each circle carries an along-path text label, the three-call shape exactly (`[PB-SKETCH-TEXT]`):
-`textInput = sketch.sketchTexts.createInput2(<label>, Rr)`, then
-`textInput.setAsAlongPath(circle, True, adsk.core.HorizontalAlignments.CenterHorizontalAlignment, 0)`,
-then `sketch.sketchTexts.add(textInput)`. The height is the resolved `Rr`. Because those labels carry
-their own position, this sketch never reports `sketch.isFullyConstrained` as true even though its
-geometry is completely determined — log that result, never raise on it
-(`[PB-TEXT-HOLDS-DOF]`).
-
-**The lobe.** One open fitted spline through the adaptively sampled points of
-`disk_point(t, cx = s_d * E, cy = 0, phi = d * pi)` over `t` in `[0, 2*pi/L]`. The point function,
-reproduced exactly, in internal cm — the values come back in cm already and are added as they are,
-never re-wrapped in `to_cm`:
-
-```
-Rr_eff = Rr + c
-num = sin((1 - N) * t)
-den = (R / (E * N)) - cos((1 - N) * t)
-psi = atan2(num, den)                       # uses R, E, N only — not Rr
-x0 =  R*cos(t) - Rr_eff*cos(t + psi) - E*cos(N * t)
-y0 = -R*sin(t) + Rr_eff*sin(t + psi) + E*sin(N * t)
-x = cx + (x0*cos(phi) - y0*sin(phi))
-y = cy + (x0*sin(phi) + y0*cos(phi))
-```
-
-Sampling is adaptive and must not be uniform: a uniformly sampled fitted spline overshoots into
-rabbit-ear loops where the lobe turns sharply, by about 25 degrees per step near the undercut limit.
-Evaluate `disk_point` at exactly **2000** uniform steps (2001 points) over `[0, 2*pi/L]`; keep the
-first; accumulate the turn angle between consecutive fine points and keep a point and reset the
-accumulator each time the total reaches exactly **5.0 degrees**; always keep the last. That gives
-about 30 to 55 points at any valid eccentricity. Add each kept point as
-`adsk.core.Point3D.create(x, y, 0)` to an `adsk.core.ObjectCollection.create()` and build the curve
-with `sketch.sketchCurves.sketchFittedSplines.add(coll)`. Leave it **open**: never set `isClosed`,
-and add no closing arc — the disc is closed later by the pattern.
-
-**Lock the spline.** Fix every **interior** fit point,
-`for i in range(1, spline.fitPoints.count - 1): spline.fitPoints.item(i).isFixed = True`, which locks
-the lobe's shape, and coincide each **end onto the root circle** —
-`sketch.geometricConstraints.addCoincident(spline.fitPoints.item(0), rootCircle)` and
-`sketch.geometricConstraints.addCoincident(spline.fitPoints.item(spline.fitPoints.count - 1), rootCircle)`
-— which pins each valley's radius to `Rv`. Do **not** fix the whole spline: that makes the angle
-dimension below redundant and the solver fails (`[PB-NO-OVERCONSTRAIN]`).
-
-**Two spokes and the lobe pitch.** Spoke 1 runs from the disc centre to the lobe's first point:
-`line1 = sketch.sketchCurves.sketchLines.addByTwoPoints(diskCentre, adsk.core.Point3D.create(s_d * E + Rv, 0, 0))`,
-sharing `diskCentre` and taking a raw seed at the far end, then
+**Spoke 1.** `line1 = sketch.sketchCurves.sketchLines.addByTwoPoints(diskCentre, adsk.core.Point3D.create(s_d * E + Rv * cos(d * pi), Rv * sin(d * pi), 0))`
+— the start shares `diskCentre`, so no coincident is added to it. Then
 `sketch.geometricConstraints.addCoincident(line1.endSketchPoint, spline.fitPoints.item(0))` and
-`sketch.geometricConstraints.addHorizontal(line1)`. Spoke 2 runs to the last point:
-`line2 = sketch.sketchCurves.sketchLines.addByTwoPoints(diskCentre, adsk.core.Point3D.create(s_d * E + Rv * cos(2*pi/L), -Rv * sin(2*pi/L), 0))`
-then `sketch.geometricConstraints.addCoincident(line2.endSketchPoint, spline.fitPoints.item(spline.fitPoints.count - 1))`,
-and no horizontal. Both spoke seeds stay **unrotated** for disc 1 — only the signed `E` is
-substituted — and the coincident constraints drag the spokes onto the rotated valleys, because disc
-1's first valley at `Od_1 + (-Rv, 0)` still lies on spoke 1's horizontal.
+`sketch.geometricConstraints.addHorizontal(line1)`.
 
-Then one driving angular dimension between the spokes:
-`angDim = sketch.sketchDimensions.addAngularDimension(line1, line2, textPoint)` with
-`angDim.parameter.expression` set to `'360 deg / {}'.format(self.parameterName(PARAM_LOBES))`. The
-text point must lie in the **minor** wedge, below the spokes at the bisector `-pi/L` — for example
-`adsk.core.Point3D.create(s_d * E + 0.4 * Rv * cos(pi/L), -0.4 * Rv * sin(pi/L), 0)` — or Fusion
-dimensions the reflex angle instead (`[PB-ANGULAR-DIM]`).
+**Spoke 2.** `line2 = sketch.sketchCurves.sketchLines.addByTwoPoints(diskCentre, adsk.core.Point3D.create(s_d * E + Rv * cos(d * pi - 2 * pi / L), Rv * sin(d * pi - 2 * pi / L), 0))`
+and `sketch.geometricConstraints.addCoincident(line2.endSketchPoint, spline.fitPoints.item(spline.fitPoints.count - 1))`.
+No horizontal on this one.
 
-Stash `self.lobeDiskCentres[d] = diskCentre` and `self.lobeSplines[d] = spline`. Leave the sketch
-visible; consume it in S08 before hiding anything (`[PB-HIDE-AFTER-USE]`).
+**Lobe pitch.** `angDim = sketch.sketchDimensions.addAngularDimension(line1, line2, adsk.core.Point3D.create(s_d * E + 0.4 * Rv * cos(d * pi - pi / L), 0.4 * Rv * sin(d * pi - pi / L), 0))`,
+the text point in the minor wedge so Fusion measures the minor angle and not the reflex one
+(`[PB-ANGULAR-DIM]`), then
+`angDim.parameter.expression = '360 deg / {}'.format(self.parameterName(PARAM_LOBES))`. The
+dimension is driving; never pass `isDriven` (`[PB-DRIVING-DIM]`).
 
-There is **no** `spec/cycloidal/sketch/` bench for this gear, so `[PB-SKETCH-FIRST]` is waived rather
-than satisfied; this proof step is what stands in its place, and it holds the scheme to DOF 0 with no
-redundant or conflicting constraint and no discrete ambiguity.
+After this the sketch is fully constrained. Build no bodies here; the output hole is a separate
+sketch so the two profiles never share one.
 
-`disk_point` is this module's own point function, and `buildLobeSketch` is the method the call graph
-gives this step; both are named here rather than required as API calls.
+**What the proof holds.** `stepRotorLobeSketch` builds this scheme in the sketch engine and gates it
+on the engine's whole verdict — DOF 0, no redundancy, one valid region, and no second discrete
+configuration. Two constraints are stated differently there and the proof file says why at each:
+the eccentric offset is a signed horizontal distance rather than an unsigned magnitude plus a seed,
+and spoke 1's direction is a zero angle to the eccentric line rather than a horizontal. Both
+unsigned forms reach DOF 0 and still admit the mirrored answer, which the gate refuses. The proof
+also runs the `rho_min_O` scan of S02 and the 40-round bisection for every case, so the profile it
+draws is known to be clean, and it pins the spec's worked bound — `E*` of 2.50 mm at the defaults.
 
-<!-- check-step-calls: ignore disk_point -->
-<!-- check-compile: ignore disk_point buildLobeSketch -->
+`buildLobeSketch` is this generator's own method and `disk_point` is the module's own Python
+transcription of the point function, so neither is a Fusion API call.
 
-**From:** `spec/cycloidal/instructions.md` L275-330 L389-416 L426-456, `spec/cycloidal/fusion.md` L8-98 L462-488, `spec/cycloidal/epitrochoid-trace.md` L86-132, `.claude/skills/generate-gear/PLAYBOOK.md` L282-283 L350-359 L438-443 L470-475 L506-522 L581-601 L602-603 L615-623 L626-638 L649-659, and the call graph at `spec/cycloidal/instructions.md` L357-358
+<!-- check-compile: ignore buildLobeSketch disk_point -->
 
-## S08 `[GO]` Extrude the lobe sector for disc `d`
+The spec records `[PB-SKETCH-FIRST]` as waived for this gear, on the grounds that no bench proof of
+the lobe exists. `proof/cycloidal/sketches_test.go` is that proof, so the waiver's stated reason no
+longer holds and the paragraph that records it is stale.
 
-`buildDisk(d)` starts by recording `base = component.bRepBodies.count` **before** this extrude, which
-S11 needs, and then extrudes the Rotor Lobe sketch's one closed profile: the lobe pie-sector bounded
-by spoke 1, the lobe spline and spoke 2 (`[CYCLOIDAL-F-DISK-BODY]`). Proof function:
-`stepExtrudeLobeSector`.
+`<!-- proof-run: proofkit.RunParallel(sketchCases, stepRotorLobeSketch) -->`
 
-<!-- proof-run: proofkit3d.RunSolidParallel(discSolidCases, stepExtrudeLobeSector, assertExtrudeLobeSector) -->
+**From:** `spec/cycloidal/instructions.md` L275–329, L389–419, L426–456; `spec/cycloidal/fusion.md` L8–98; `spec/cycloidal/epitrochoid-trace.md` L86–132
 
-**Select the profile by identity, never by index.** The three along-path text labels add their own
-letter outline profiles, so `sketch.profiles.item(0)` is not the sector (`[PB-PROFILE-MATCH]`,
-and `[PB-SINGLE-PROFILE]` does not apply because this sketch holds more than one closed region).
-Iterate `sketch.profiles` and, for each, scan
-`profile.profileLoops` and each loop's `profileCurves` for a `curve.sketchEntity` that **is** the
-saved `self.lobeSplines[d]` object, by identity.
+## S07 `[GO]` Extrude the lobe sector by Disc Thickness — `Cycloidal Disk {d+1}`
 
-Then:
+Record `base = component.bRepBodies.count` **before** this extrude; S10 needs it.
 
-```
-ext = component.features.extrudeFeatures.createInput(
-    sectorProfile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
-ext.setOneSideExtent(
-    adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByString(
-        self.parameterName(PARAM_DISC_THICKNESS))),
-    adsk.fusion.ExtentDirections.PositiveExtentDirection)
-extrude = component.features.extrudeFeatures.add(ext)
-```
+Select the sector profile by identity, never by index: iterate `sketch.profiles`, and for each scan
+`profileLoops` and their `profileCurves` for `sketchEntity` equal to `self.lobeSplines[d]`. The
+along-path text labels add their own letter outlines, so an index would take one of those
+(`[CYCLOIDAL-F-DISK-BODY]`). Do not reach for `find_profile_by_curve_counts` here or anywhere else
+in this gear: it counts NURBS, arcs and lines per loop and treats a full circle as neither.
 
-Name the resulting body `'Cycloidal Disk {}'.format(d + 1)`. The extent is the prefixed
-`DiscThickness` parameter by name; the disc therefore spans `[z_d, z_d + T]` from its own plane.
+`ext = component.features.extrudeFeatures.createInput(sectorProfile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)`;
+`ext.setOneSideExtent(adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByString(self.parameterName(PARAM_DISC_THICKNESS))), adsk.fusion.ExtentDirections.PositiveExtentDirection)`;
+`extrude = component.features.extrudeFeatures.add(ext)`; name the body
+`'Cycloidal Disk {}'.format(d + 1)`.
 
-The proof asserts that span exactly, and that the body's volume is the sector profile's area times
-the thickness. The sector's apex is the disc centre `Od_d`, which is where both spoke side-faces
-meet — the reason S09 may not pick its cap face by proximity to that point.
+`setDistanceExtent` belongs to `HoleFeatureInput` and is not the call here.
 
-`buildDisk` is the method the call graph gives this step, named rather than required.
+**What the proof holds.** `stepExtrudeLobeSector` extrudes the same sector from `z_d` by `T` and
+reads its volume against the sector's own area and its bounding box against the sector's extent.
+The boundary is the chord polyline through the sampled points rather than a fitted spline: decad
+refuses to extrude a free-form span whose curvature sign it cannot certify, and this lobe turns
+from concave to convex inside one span. The proof file states that substitution and its cost.
 
-<!-- check-step-calls: ignore buildDisk -->
-<!-- check-compile: ignore buildDisk -->
+<!-- check-step-calls: ignore find_profile_by_curve_counts setDistanceExtent -->
 
-**From:** `spec/cycloidal/instructions.md` L359-360 L458-465 L476-481, `spec/cycloidal/fusion.md` L137-162, `.claude/skills/generate-gear/PLAYBOOK.md` L491-497 L639-648
+`<!-- proof-run: proofkit3d.RunSolidParallel(solidCases, stepExtrudeLobeSector, assertExtrudeLobeSector) -->`
 
-## S09 `[PROSE]` Construction axis through the disc centre
+**From:** `spec/cycloidal/instructions.md` L458–464; `spec/cycloidal/fusion.md` L137–165
 
-`buildDiskAxis(capFace, d)`, called from `buildDisk(d)` **after** the extrude, because a face-less
-axis is not supported here: `setByLine` with an `InfiniteLine3D` raises
-`RuntimeError: 3 : Environment is not supported` in the parametric environment and `activate()` does
-not fix it (`[CYCLOIDAL-F-DISK-AXIS]`, `[PB-CONSTRUCTION-AXES]`,
-`[PB-CONSTRUCTION-NEEDS-ACTIVE]`).
+## S08 `[PROSE]` Construction axis `Disk Axis {d+1}` at the disc centre
 
-Take the cap **by normal**, unconditionally `extrude.startFaces.item(0)` — the cap in the sketch
-plane. Do **not** search for the planar face nearest to `Od_d`, or the one whose plane contains it,
-and do not score faces with `getParameterAtPoint`: the pie-sector's two spoke faces are also planar
-and also contain `Od_d`, since it is the sector's apex, so such a search can pick a spoke, whose
-normal lies **in** the sketch plane, and the pattern then spins the lobes about a sideways axis.
-Either cap gives the same vertical direction; the axis's location comes from the point argument.
+`buildDiskAxis(capFace, d)` runs after S07, because a face-less axis is unsupported in the
+parametric environment (`[CYCLOIDAL-F-DISK-AXIS]`).
 
-```
-axInput = component.constructionAxes.createInput()
-axInput.setByPerpendicularAtPoint(capFace, self.lobeDiskCentres[d])
-axis = component.constructionAxes.add(axInput)
-axis.name = 'Disk Axis {}'.format(d + 1)
-```
+`capFace = extrude.startFaces.item(0)` — the cap in the sketch plane, picked by its normal being
+parallel to the sketch normal. Take it that way unconditionally and never by nearest planar face to
+`Od_d` or by which planar face contains it: the pie sector's two spoke faces are also planar and
+also contain the apex `Od_d`, and picking one gives an in-plane axis that turns the circular pattern
+into garbage.
 
-Stash it on `self.diskAxes[d]`. The cap need not contain `Od_d`; the face supplies only the
-direction. `setByPerpendicularAtPoint` works on a non-active component.
+`axInput = component.constructionAxes.createInput()`;
+`axInput.setByPerpendicularAtPoint(capFace, self.lobeDiskCentres[d])`;
+`axis = component.constructionAxes.add(axInput)`; `axis.name = 'Disk Axis {}'.format(d + 1)`;
+`self.diskAxes[d] = axis`. Do not call `setByLine`, which raises
+`RuntimeError: 3 : Environment is not supported`, and do not call `activate` — face-anchored axis
+methods work on a component that is not the active one.
 
-`setByLine` and `activate` are named here only to forbid them, and `buildDiskAxis` is this class's
-own method.
+decad has no construction axis, and the axis's only observable effect is the direction the next two
+steps pattern about, which S10 and S13 read as the tiling they produce. That is why this step
+carries no proof function; `proof/cycloidal/solids_test.go` says so beside the tiling it does build.
 
-<!-- check-step-calls: ignore setByLine activate buildDiskAxis getParameterAtPoint -->
+`buildDiskAxis` is this generator's own method.
+
+<!-- check-step-calls: ignore setByLine activate -->
 <!-- check-compile: ignore buildDiskAxis -->
 
-**From:** `spec/cycloidal/instructions.md` L465-472, `spec/cycloidal/fusion.md` L100-135 L163-165, `.claude/skills/generate-gear/PLAYBOOK.md` L754-766
+**From:** `spec/cycloidal/instructions.md` L465–472; `spec/cycloidal/fusion.md` L100–135
 
-## S10 `[GO]` Circular-pattern the lobe sector `L` times
+## S09 `[PROSE]` Circular-pattern the lobe-sector extrude ×L about the Disk Axis
 
-Pattern the **extrude feature** of S08 — not its body — `L = N - 1` times about `self.diskAxes[d]`
-over a full turn (`[CYCLOIDAL-F-DISK-BODY]`, `[PB-CIRCULAR-PATTERN]`, `[PB-PATTERN-BODIES]`).
-Proof function: `stepPatternLobeSectors`.
+`coll = adsk.core.ObjectCollection.create()`; `coll.add(extrude)` — the `ExtrudeFeature` from S07,
+never its body (`[PB-PATTERN-BODIES]`);
+`pat = component.features.circularPatternFeatures.createInput(coll, self.diskAxes[d])`;
+`pat.patternComputeOption = adsk.fusion.PatternComputeOptions.AdjustPatternCompute`;
+`pat.quantity = adsk.core.ValueInput.createByReal(L)` with `L = N − 1`;
+`pat.totalAngle = adsk.core.ValueInput.createByString('360 deg')`; `pat.isSymmetric = False`;
+`component.features.circularPatternFeatures.add(pat)` (`[PB-CIRCULAR-PATTERN]`).
 
-<!-- proof-run: proofkit3d.RunSolidParallel(discSolidCases, stepPatternLobeSectors, assertPatternLobeSectors) -->
+`AdjustPatternCompute` is mandatory on every circular pattern in this gear
+(`[CYCLOIDAL-F-OUTPUT-HOLES]`).
 
-```
-coll = adsk.core.ObjectCollection.create()
-coll.add(extrude)
-pat = component.features.circularPatternFeatures.createInput(coll, self.diskAxes[d])
-pat.patternComputeOption = adsk.fusion.PatternComputeOptions.AdjustPatternCompute
-pat.quantity = adsk.core.ValueInput.createByReal(L)
-pat.totalAngle = adsk.core.ValueInput.createByString('360 deg')
-pat.isSymmetric = False
-component.features.circularPatternFeatures.add(pat)
-```
+decad has no pattern feature, and placing the L copies by hand leaves L bodies that meet face to
+face: decad refuses the boolean that would join them, and a touching pair leaves its report unable
+to say whether the two cross. The tiling those L sectors have to satisfy is read in S10 instead,
+which is why this step is `[PROSE]`; `proof/cycloidal/solids_test.go` records it at
+`stepJoinDiscSectors`.
 
-All three of quantity, total angle and symmetry are set explicitly rather than left to Fusion's
-defaults. `AdjustPatternCompute` is mandatory on every circular pattern in this build
-(`[CYCLOIDAL-F-OUTPUT-HOLES]`); the default paste compute copies edges instead of recomputing each
-instance and a lone patterned cut fails with
-`RuntimeError: 3 … NO_TARGET_BODY … PATTERN_FEATURES_NO_PASTE_INT_EDGES`.
+**From:** `spec/cycloidal/instructions.md` L473–475; `spec/cycloidal/fusion.md` L166–173, L230–236
 
-The `L` sectors tile disc `d`. The proof places each instance and checks it lands where a rotation by
-`k * 360/L` about `Od_d` puts it, with the seed's own volume, and that `L` steps of that pitch close
-the turn exactly — which is what leaves no gap and no overlap between neighbours.
+## S10 `[GO]` Join disc `d`'s own L sectors into one `Cycloidal Disk {d+1}` body
 
-**From:** `spec/cycloidal/instructions.md` L473-475, `spec/cycloidal/fusion.md` L166-173 L230-236, `.claude/skills/generate-gear/PLAYBOOK.md` L660-670
+Join only this disc's sectors. With two discs, disc 0's body already exists when disc 1 builds, so
+`component.bRepBodies.item(0)` is the wrong target. Using the `base` recorded in S07, disc `d`'s
+sectors are `component.bRepBodies.item(base)` through `component.bRepBodies.item(base + L - 1)`.
 
-## S11 `[GO]` Join disc `d`'s own `L` sectors into one body
+`target = component.bRepBodies.item(base)`; `tools = adsk.core.ObjectCollection.create()` holding
+`component.bRepBodies.item(i)` for `i` in `base + 1 … base + L - 1`;
+`ci = component.features.combineFeatures.createInput(target, tools)`;
+`ci.operation = adsk.fusion.FeatureOperations.JoinFeatureOperation`;
+`component.features.combineFeatures.add(ci)`. Name the resulting body
+`'Cycloidal Disk {}'.format(d + 1)` and stash `self.diskBodies[d]`. The tools argument is an
+`ObjectCollection`, never the pattern's own `bodies` collection (`[PB-PATTERN-BODIES]`,
+`[CYCLOIDAL-F-DISK-BODY]`).
 
-Join **only this disc's** sectors. With two discs, disc 0's body already exists when disc 1 builds,
-so `component.bRepBodies.item(0)` is the wrong target. Disc `d`'s sectors are
-`component.bRepBodies.item(base)` through `item(base + L - 1)`, where `base` was recorded before S08's
-extrude (`[CYCLOIDAL-F-TWO-DISC]`). Proof function: `stepJoinDiskSectors`.
+**What the proof holds.** `stepJoinDiscSectors` builds the tiled rotor boundary — the one lobe
+turned through all L positions about `Od_d` — in a single extrude, reads it as one lump, and reads
+its volume against both the tiled polygon's area and, through a seed sector built in a scratch
+document, exactly one L-th of it. A pattern that left a gap between sectors is what that pair of
+readings refuses, and a gap is how the Join fails.
 
-<!-- proof-run: proofkit3d.RunSolidParallel(discSolidCases, stepJoinDiskSectors, assertJoinDiskSectors) -->
+`<!-- proof-run: proofkit3d.RunSolidParallel(solidCases, stepJoinDiscSectors, assertJoinDiscSectors) -->`
 
-```
-target = component.bRepBodies.item(base)
-tools = adsk.core.ObjectCollection.create()      # item(base + 1) … item(base + L - 1)
-ci = component.features.combineFeatures.createInput(target, tools)
-ci.operation = adsk.fusion.FeatureOperations.JoinFeatureOperation
-component.features.combineFeatures.add(ci)
-```
+**From:** `spec/cycloidal/instructions.md` L476–481; `spec/cycloidal/fusion.md` L174–182, L490–493
 
-Name the result `'Cycloidal Disk {}'.format(d + 1)` and stash it on `self.diskBodies[d]`; S13, S14 and
-S16 all cut into it.
+## S11 `[GO]` Sketch `Output Hole {d+1}` — the one solid hole on the disc centre
 
-The proof builds the joined disc and checks the two things the Join has to deliver: one connected
-lump spanning `[z_d, z_d + T]`, and a volume of exactly `L` times one sector's, so no material is
-lost at a seam or counted twice at an overlap. It also counts faces — one per outline chord plus the
-two caps — which is how it sees that the `L` pairs of spoke faces have disappeared into the interior
-rather than survived as `L` separate bodies.
+`buildOutputHoleSketch(d)` creates a **new** sketch on `plane(d)`, named
+`'Output Hole {}'.format(d + 1)` and leaves it visible, so the lobe and hole profiles never share a sketch (`[CYCLOIDAL-F-OUTPUT-HOLE]`).
 
-**From:** `spec/cycloidal/instructions.md` L476-481, `spec/cycloidal/fusion.md` L174-182 L490-493
+Anchor it exactly as S06 does (`[CYCLOIDAL-F-ANCHOR-CHAIN]`): project the Anchor with
+`sketch.project`, add a fresh `localOrigin` with `sketch.sketchPoints.add` and constrain it with
+`sketch.geometricConstraints.addCoincident`. Rebuild `Od_d` exactly as S06 does
+(`[CYCLOIDAL-F-DISK-CENTER]`): a `diskCentre` point at `adsk.core.Point3D.create(s_d * E, 0, 0)`, a
+construction `eccLine` through `sketch.sketchCurves.sketchLines.addByTwoPoints`, a
+`sketch.geometricConstraints.addHorizontal` on it, and a driving
+`sketch.sketchDimensions.addDistanceDimension` whose `.parameter.expression` is
+`self.parameterName(PARAM_ECCENTRICITY)`.
 
-## S12 `[GO]` Draw the Output Hole sketch for disc `d`
+**Output-hole circle**, construction, on `Od_d`:
+`addByCenterRadius(adsk.core.Point3D.create(s_d * E, 0, 0), Rop)`, `isConstruction = True`, centre
+coincident to `diskCentre`, driving diameter dimension with
+`.parameter.expression = self.parameterName(PARAM_OUTPUT_PIN_CIRCLE_DIAMETER)`, and the along-path
+label `'Output Hole Circle'` at height `self.Rr`.
 
-`buildOutputHoleSketch(d)` creates a **new** sketch named `'Output Hole {}'.format(d + 1)` on
-`plane(d)`, so the lobe and hole profiles never share a sketch and never interfere
-(`[CYCLOIDAL-F-OUTPUT-HOLE]`). Proof function: `stepOutputHoleSketch`.
+**One solid hole**, on the `+X` ray from `Od_d` for both discs, since `M` is even whenever two
+discs are asked for and disc 1's half-turn maps the hole set onto itself:
+`hole = sketch.sketchCurves.sketchCircles.addByCenterRadius(adsk.core.Point3D.create(s_d * E + Rop, 0, 0), D_hole / 2)`
+with no `isConstruction`. Pin its size with a driving
+`sketch.sketchDimensions.addDiameterDimension` whose
+`.parameter.expression = self.parameterName(PARAM_OUTPUT_HOLE_DIAMETER)`. Pin its position with
+`sketch.geometricConstraints.addCoincident(hole.centerSketchPoint, outputHoleCircle)` and a
+horizontal construction line from `diskCentre` to `hole.centerSketchPoint`
+(`addByTwoPoints`, `isConstruction = True`, `sketch.geometricConstraints.addHorizontal`).
 
-<!-- proof-run: proofkit.RunParallel(discSketchCases, stepOutputHoleSketch) -->
+Stash the solid circle on `self.outputHoles[d]`; the cut step selects its profile by identity.
+Build no bodies here.
 
-Anchor a local origin to `O` and rebuild `Od_d` exactly as S07 does — project, coincident, signed
-seed point, construction line, `addHorizontal`, and the driving distance dimension whose expression
-is `Eccentricity` (`[CYCLOIDAL-F-ANCHOR-CHAIN]`, `[CYCLOIDAL-F-DISK-CENTER]`). Then, on `Od_d`:
+**What the proof holds.** `stepOutputHoleSketch` builds the same sketch and gates it on the
+engine's whole verdict, then measures the hole's centre against `Od_d + (Rop, 0)`, its seating
+radius against the construction circle's own radius, and its radius against `D_hole / 2`. The
+seating is stated as a signed horizontal distance rather than the point-on-circle-plus-horizontal
+pair: that pair reaches DOF 0 and still admits the hole at `−Rop`, which the gate refuses. The
+proof file records the substitution and measures the coincidence the spec's constraint asserts.
 
-1. The **output-hole circle**, construction, radius `Rop`:
-   `sketch.sketchCurves.sketchCircles.addByCenterRadius(adsk.core.Point3D.create(s_d * E, 0, 0), Rop)`,
-   `isConstruction = True`, `sketch.geometricConstraints.addCoincident(circle.centerSketchPoint, diskCentre)`,
-   a driving `sketch.sketchDimensions.addDiameterDimension(circle, textPoint)` whose
-   `.parameter.expression` is `self.parameterName(PARAM_OUTPUT_PIN_CIRCLE_DIAMETER)`, and an
-   along-path label `'Output Hole Circle'` at height `Rr` (`[PB-SKETCH-TEXT]`).
-2. **One solid hole**, radius `D_hole / 2` with `D_hole = D_pin + 2E`, seeded on the `+X` ray from
-   the disc centre at `adsk.core.Point3D.create(s_d * E + Rop, 0, 0)` — **solid**, so no
-   `isConstruction`. Pin its diameter with a driving
-   `sketch.sketchDimensions.addDiameterDimension(hole, textPoint)` whose `.parameter.expression` is
-   `self.parameterName(PARAM_OUTPUT_HOLE_DIAMETER)`. Pin its position two ways: on the circle with
-   `sketch.geometricConstraints.addCoincident(hole.centerSketchPoint, outputHoleCircle)`, and on the
-   ray with a construction line
-   `sketch.sketchCurves.sketchLines.addByTwoPoints(diskCentre, hole.centerSketchPoint)` plus
-   `sketch.geometricConstraints.addHorizontal(spokeLine)`.
+`buildOutputHoleSketch` is this generator's own method.
 
-The hole spoke is horizontal in the sketch's own `+X` sense and is **not** rotated with the disc's
-clocking: only the signed `E` is substituted for disc 1, and the `M`-fold pattern of S14 maps a
-half-turned hole set onto itself whenever `M` is even, which two discs require anyway. (SPEC GAP: the
-spec says only "just centre on `Od_d`" for disc 1's holes and never states whether the seed follows
-the clocking; both readings give the same hole set under the even-`M` gate, and this list takes the
-unrotated one.)
-
-Stash the solid hole circle on `self.outputHoles[d]`; S13 selects its profile by identity. Leave the
-sketch visible and build no bodies.
-
-<!-- check-step-calls: ignore buildOutputHoleSketch -->
 <!-- check-compile: ignore buildOutputHoleSketch -->
 
-**From:** `spec/cycloidal/instructions.md` L361 L483-492, `spec/cycloidal/fusion.md` L184-204, `spec/cycloidal/epitrochoid-trace.md` L25-38 L49-54
+`<!-- proof-run: proofkit.RunParallel(sketchCases, stepOutputHoleSketch) -->`
 
-## S13 `[GO]` Cut one output hole through disc `d`
+**From:** `spec/cycloidal/instructions.md` L483–492; `spec/cycloidal/fusion.md` L184–204
 
-`buildOutputHoles(d)` cuts the `Output Hole {d+1}` sketch's solid hole through
-`self.diskBodies[d]` (`[CYCLOIDAL-F-OUTPUT-HOLES]`). Proof function: `stepCutOutputHole`.
+## S12 `[GO]` Extrude-cut one output hole through the disc
 
-<!-- proof-run: proofkit3d.RunSolidParallel(discSolidCases, stepCutOutputHole, assertCutOutputHole) -->
+Select the hole profile by identity: the profile whose loop contains `self.outputHoles[d]`. The
+construction circle and the text label add other profiles, so an index would take one of those
+(`[CYCLOIDAL-F-OUTPUT-HOLES]`).
 
-Select the hole profile by identity — the profile whose loop contains `self.outputHoles[d]` — not
-`sketch.profiles.item(0)`, since the construction circle and the text label contribute other
-profiles (`[PB-PROFILE-MATCH]`). Then:
+`ci = component.features.extrudeFeatures.createInput(holeProfile, adsk.fusion.FeatureOperations.CutFeatureOperation)`;
+`ci.setOneSideExtent(adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByString(self.parameterName(PARAM_DISC_THICKNESS))), adsk.fusion.ExtentDirections.PositiveExtentDirection)`;
+`ci.participantBodies = [self.diskBodies[d]]`;
+`cut = component.features.extrudeFeatures.add(ci)`.
 
-```
-ci = component.features.extrudeFeatures.createInput(
-    holeProfile, adsk.fusion.FeatureOperations.CutFeatureOperation)
-ci.setOneSideExtent(
-    adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByString(
-        self.parameterName(PARAM_DISC_THICKNESS))),
-    adsk.fusion.ExtentDirections.PositiveExtentDirection)
-ci.participantBodies = [self.diskBodies[d]]
-cut = component.features.extrudeFeatures.add(ci)
-```
+The sketch sits on `plane(d)` and the disc spans `[z_d, z_d + T]`, so a cut of `DiscThickness` in
+the positive direction passes through it. `participantBodies` restricts the cut to this disc.
 
-The sketch sits on `plane(d)` and the disc spans `[z_d, z_d + T]`, so a cut of `DiscThickness` in the
-positive direction passes right through it. `participantBodies` restricts the cut to this disc.
-`setDistanceExtent` belongs to `HoleFeatureInput` and must not be used on an extrude.
+**What the proof holds.** `stepCutOutputHole` cuts one hole of diameter `D_hole` through the rotor
+and reads the volume it removed against `pi * (D_hole/2)^2 * T`. The tool is run past both faces
+rather than made flush: a tool cap in the plane of the body's is a coplanar pair decad refuses to
+classify. The removed solid is the same either way, which is what the reading holds.
 
-The proof measures the disc before and after and checks the hole removed exactly its own cylinder,
-leaving one lump. It also checks that the hole lies wholly inside the root circle — see the spec gap
-recorded at `requireHolesInsideRim` in `proof/cycloidal/solids_test.go`, since the validity table
-checks only `Rop < Rv` and lets a hole that opens the disc's rim through.
+`<!-- proof-run: proofkit3d.RunSolidParallel(solidCases, stepCutOutputHole, assertCutOutputHole) -->`
 
-<!-- check-step-calls: ignore setDistanceExtent buildOutputHoles -->
-<!-- check-compile: ignore buildOutputHoles -->
+**From:** `spec/cycloidal/instructions.md` L494–500; `spec/cycloidal/fusion.md` L206–229
 
-**From:** `spec/cycloidal/instructions.md` L362 L494-499, `spec/cycloidal/fusion.md` L206-222
+## S13 `[GO]` Circular-pattern the output-hole cut ×M about the Disk Axis
 
-## S14 `[GO]` Circular-pattern the output-hole cut `M` times
+`coll = adsk.core.ObjectCollection.create()`; `coll.add(cut)` — the `ExtrudeFeature` from S12, not
+a body;
+`pat = component.features.circularPatternFeatures.createInput(coll, self.diskAxes[d])`;
+`pat.patternComputeOption = adsk.fusion.PatternComputeOptions.AdjustPatternCompute`;
+`pat.quantity = adsk.core.ValueInput.createByReal(M)` with `M = Output Pin Count`;
+`pat.totalAngle = adsk.core.ValueInput.createByString('360 deg')`; `pat.isSymmetric = False`;
+`component.features.circularPatternFeatures.add(pat)`. Quantity, total angle and symmetry are all
+pinned explicitly (`[PB-CIRCULAR-PATTERN]`, `[PB-PATTERN-BODIES]`).
 
-Pattern the cut **feature** `M = Output Pin Count` times about `self.diskAxes[d]` over a full turn,
-with the same input shape as S10 and `pat.quantity = adsk.core.ValueInput.createByReal(M)`. Proof
-function: `stepPatternOutputHoles`.
+`AdjustPatternCompute` is not optional here (`[CYCLOIDAL-F-OUTPUT-HOLES]`). This is a lone patterned cut with no body-creating
+feature to anchor it, and under the default paste compute Fusion copies the cut's edges instead of
+recomputing each instance against the body; the pattern then fails with
+`RuntimeError: 3 … NO_TARGET_BODY … PATTERN_FEATURES_NO_PASTE_INT_EDGES`.
 
-<!-- proof-run: proofkit3d.RunSolidParallel(discSolidCases, stepPatternOutputHoles, assertPatternOutputHoles) -->
+The Disk Axis stands at `Od_d`, so the M holes orbit the disc centre.
 
-`pat.patternComputeOption = adsk.fusion.PatternComputeOptions.AdjustPatternCompute` is not optional
-here: this is a lone patterned **cut**, with no body-creating feature to anchor it, and under the
-default compute Fusion fails with
-`RuntimeError: 3 … NO_TARGET_BODY … PATTERN_FEATURES_NO_PASTE_INT_EDGES` (`[CYCLOIDAL-F-OUTPUT-HOLES]`).
+**What the proof holds.** `stepPatternOutputHoles` reads the rotor carrying all M holes: one lump,
+and a volume exactly `M` hole cylinders under the plain disc. It also refuses two dialogs the
+spec's own table does not: holes that run into each other on the output-pin circle, and holes whose
+outer edge passes the valley circle `Rv` and so breaks out through the lobe profile. The M openings
+are stated as holes in the extruded profile rather than cut one after another, because decad
+refuses a boolean whose tool is finer than the mesh the previous boolean left; the proof file says
+so, and S12 is where the cut itself is proven as a boolean.
 
-The `M` holes orbit `Od_d`, because the disk axis is at `Od_d`. The proof builds the disc carrying all
-`M` holes and checks the volume identity and that every hole centre sits at radius `Rop` from `Od_d`,
-one per `M`-th of a turn.
+`<!-- proof-run: proofkit3d.RunSolidParallel(solidCases, stepPatternOutputHoles, assertPatternOutputHoles) -->`
 
-**From:** `spec/cycloidal/instructions.md` L494-502, `spec/cycloidal/fusion.md` L223-236
+**From:** `spec/cycloidal/instructions.md` L494–502; `spec/cycloidal/fusion.md` L223–236
 
-## S15 `[GO]` Draw the Disc Bore sketch for disc `d`
+## S14 `[GO]` Sketch `Disc Bore {d+1}` — the enlarged centre bore
 
-`buildDiskBore(d)` creates a sketch named `'Disc Bore {}'.format(d + 1)` on `plane(d)`, anchored to
-`O`, with `Od_d` rebuilt as in S07 (`[CYCLOIDAL-F-CAM]`, `[CYCLOIDAL-F-ANCHOR-CHAIN]`,
-`[CYCLOIDAL-F-DISK-CENTER]`). Proof function: `stepDiscBoreSketch`.
+`buildDiskBore(d)` creates a sketch on `plane(d)` named `'Disc Bore {}'.format(d + 1)`, anchored to
+`O` and with `Od_d` rebuilt, both exactly as S11 does.
 
-<!-- proof-run: proofkit.RunParallel(discSketchCases, stepDiscBoreSketch) -->
+One **solid** circle on the disc centre:
+`addByCenterRadius(adsk.core.Point3D.create(s_d * E, 0, 0), (CBD + clr) / 2)`, centre coincident to
+`diskCentre`, driving diameter dimension with
+`.parameter.expression = '{} + {}'.format(self.parameterName(PARAM_CENTER_BEARING_DIAMETER), self.parameterName(PARAM_BEARING_CLEARANCE))`.
 
-One **solid** circle on `Od_d` of radius `(CenterBearingDiameter + BearingClearance) / 2`:
-`sketch.sketchCurves.sketchCircles.addByCenterRadius(adsk.core.Point3D.create(s_d * E, 0, 0), (CBD + clr) / 2)`,
-its centre coincident to `diskCentre`, and a driving diameter dimension whose
-`.parameter.expression` is
-`'{} + {}'.format(self.parameterName(PARAM_CENTER_BEARING_DIAMETER), self.parameterName(PARAM_BEARING_CLEARANCE))`.
+The bore is the cam outer enlarged by the whole Bearing Clearance, so the running gap is half of it
+all the way round and the cam turns freely in it (`[CYCLOIDAL-F-CAM]`).
 
-The bore is concentric with the cam and wider than it by the clearance, so the running gap is the same
-all the way round — a bore on `O` instead of `Od_d` would foul the cam on one side. The proof checks
-both: the diameter is `CenterBearingDiameter + BearingClearance`, and the bore's centre is the disc
-centre.
+**What the proof holds.** `stepDiscBoreSketch` builds the sketch, gates it on the engine's verdict,
+reads the bore radius back and reads its one solid region's area against `pi * ((CBD + clr)/2)^2`.
+It also refuses a case whose bore would reach the output holes, which is check 10 of S02.
 
-<!-- check-step-calls: ignore buildDiskBore -->
+`buildDiskBore` is this generator's own method.
+
 <!-- check-compile: ignore buildDiskBore -->
 
-**From:** `spec/cycloidal/instructions.md` L363 L557-567, `spec/cycloidal/fusion.md` L320-339, `spec/cycloidal/epitrochoid-trace.md` L17-23
+`<!-- proof-run: proofkit.RunParallel(sketchCases, stepDiscBoreSketch) -->`
 
-## S16 `[GO]` Cut the centre bore through disc `d`
+**From:** `spec/cycloidal/instructions.md` L557–567; `spec/cycloidal/fusion.md` L320–339
 
-Cut the Disc Bore sketch through `self.diskBodies[d]`. Proof function: `stepCutDiscBore`.
+## S15 `[GO]` Extrude-cut the disc centre bore
 
-<!-- proof-run: proofkit3d.RunSolidParallel(discSolidCases, stepCutDiscBore, assertCutDiscBore) -->
+Cut every profile of the `Disc Bore {d+1}` sketch (`[CYCLOIDAL-F-CAM]`) — there is only the one disc — through this
+disc:
+`coll = adsk.core.ObjectCollection.create()` holding each `sketch.profiles.item(i)`;
+`ci = component.features.extrudeFeatures.createInput(coll, adsk.fusion.FeatureOperations.CutFeatureOperation)`;
+`ci.setOneSideExtent(adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByString(self.parameterName(PARAM_DISC_THICKNESS))), adsk.fusion.ExtentDirections.PositiveExtentDirection)`;
+`ci.participantBodies = [self.diskBodies[d]]`;
+`component.features.extrudeFeatures.add(ci)`.
 
-Collect **every** profile in that sketch — there is only the one disc — into an
-`adsk.core.ObjectCollection.create()` and pass the collection as the profile:
+**What the proof holds.** `stepCutDiscBore` cuts the same bore through the rotor and reads the
+removed volume against `pi * ((CBD + clr)/2)^2 * T`, then checks that the bore stands off the cam
+outer by exactly half the Bearing Clearance. The bore is cut through the plain rotor rather than
+the holed one: the bore and the holes never meet, which S14 refuses the case for when they would.
 
-```
-ci = component.features.extrudeFeatures.createInput(
-    coll, adsk.fusion.FeatureOperations.CutFeatureOperation)
-ci.setOneSideExtent(
-    adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByString(
-        self.parameterName(PARAM_DISC_THICKNESS))),
-    adsk.fusion.ExtentDirections.PositiveExtentDirection)
-ci.participantBodies = [self.diskBodies[d]]
-component.features.extrudeFeatures.add(ci)
-```
+`<!-- proof-run: proofkit3d.RunSolidParallel(solidCases, stepCutDiscBore, assertCutDiscBore) -->`
 
-Each disc ends the per-disc loop with a clean round centre bore, `Bearing Clearance` wider than the
-cam. The proof checks the volume removed is that bore's own cylinder and that the radial running gap
-is half the Bearing Clearance.
+**From:** `spec/cycloidal/instructions.md` L563–567; `spec/cycloidal/fusion.md` L329–339
 
-**From:** `spec/cycloidal/instructions.md` L557-567, `spec/cycloidal/fusion.md` L329-339
+## S16 `[GO]` Sketch `Eccentric Cam {d+1}` — the cam section
 
-## S17 `[GO]` Draw the Eccentric Cam section sketch for section `d`
+`buildCam()` runs once, after the per-disc loop and before `buildRingPins()`, and loops over `d`
+itself. For each `d` it creates a sketch on `plane(d)` named `'Eccentric Cam {}'.format(d + 1)`,
+anchored to `O` (`[CYCLOIDAL-F-ANCHOR-CHAIN]`) and with `Od_d` rebuilt
+(`[CYCLOIDAL-F-DISK-CENTER]`), both exactly as S11 does (`[CYCLOIDAL-F-CAM]`).
 
-`buildCam()` runs once, after the per-disc loop and before `buildRingPins`, and builds `D` sections.
-Section `d` starts with a sketch named `'Eccentric Cam {}'.format(d + 1)` on `plane(d)`, anchored to
-`O`, with `Od_d` rebuilt as in S07 (`[CYCLOIDAL-F-CAM]`). Proof function: `stepEccentricCamSketch`.
+**Cam outer**, solid, on the disc centre:
+`addByCenterRadius(adsk.core.Point3D.create(s_d * E, 0, 0), CBD / 2)`, centre coincident to
+`diskCentre`, driving diameter dimension with
+`.parameter.expression = self.parameterName(PARAM_CENTER_BEARING_DIAMETER)`.
 
-<!-- proof-run: proofkit.RunParallel(discSketchCases, stepEccentricCamSketch) -->
+**Input-shaft bore**, only when `Input Shaft Diameter > 0`, solid, on the drive axis:
+`addByCenterRadius(adsk.core.Point3D.create(0, 0, 0), ISD / 2)`, centre coincident to
+`localOrigin`, driving diameter dimension with
+`.parameter.expression = self.parameterName(PARAM_INPUT_SHAFT_DIAMETER)`.
 
-- **Cam outer circle**, on the disc centre:
-  `sketch.sketchCurves.sketchCircles.addByCenterRadius(adsk.core.Point3D.create(s_d * E, 0, 0), CBD / 2)`,
-  **solid**, centre coincident to `diskCentre`, driving diameter dimension whose
-  `.parameter.expression` is `self.parameterName(PARAM_CENTER_BEARING_DIAMETER)`.
-- **Input-bore circle, only when `Input Shaft Diameter > 0`**, on the drive axis:
-  `sketch.sketchCurves.sketchCircles.addByCenterRadius(adsk.core.Point3D.create(0, 0, 0), ISD / 2)`,
-  **solid**, centre coincident to the local origin, driving diameter dimension whose
-  `.parameter.expression` is `self.parameterName(PARAM_INPUT_SHAFT_DIAMETER)`. It lies inside the cam
-  outer but offset `E` from it, so it splits the cam disc into a small bore disc and the cam annulus.
+The bore sits inside the cam outer, offset by `E` from it, so it splits the cam disc into a small
+bore disc and the cam annulus.
 
-The `E` offset between the two centres is the eccentricity: the cam outer rides on the disc centre and
-the bore runs on the drive axis. The proof builds both branches — bore and no bore — and checks the
-cam outer's diameter, that its centre sits `E` from `O`, and that the cross-section closes as two
-regions with the bore and one without, with exactly one of them a two-loop annulus.
+**What the proof holds.** `stepEccentricCamSketch` builds both branches. With a bore it reads two
+regions and takes the one carrying a hole, whose area it measures against
+`pi * (CBD^2 − ISD^2) / 4`; with `Input Shaft Diameter` at 0 it reads the single disc region
+against `pi * CBD^2 / 4`. That two-region reading is the engine's form of the rule S17 selects by.
 
-<!-- check-step-calls: ignore buildCam -->
-<!-- check-compile: ignore buildCam -->
+`buildCam` and `buildRingPins` are this generator's own methods.
 
-**From:** `spec/cycloidal/instructions.md` L569-573, `spec/cycloidal/fusion.md` L340-348, `spec/cycloidal/epitrochoid-trace.md` L17-21
+<!-- check-compile: ignore buildCam buildRingPins -->
 
-## S18 `[GO]` Extrude cam section `d`
+`<!-- proof-run: proofkit.RunParallel(sketchCases, stepEccentricCamSketch) -->`
 
-Extrude the cam cross-section as a new body named `'Eccentric Cam {}'.format(d + 1)`, in the positive
-direction from `plane(d)` toward the disk (`[CYCLOIDAL-F-CAM]`). Proof function:
-`stepExtrudeCamSection`.
+**From:** `spec/cycloidal/instructions.md` L569–575; `spec/cycloidal/fusion.md` L340–361
 
-<!-- proof-run: proofkit3d.RunSolidParallel(camSolidCases, stepExtrudeCamSection, assertExtrudeCamSection) -->
+## S17 `[GO]` Extrude cam section `d` as a New Body
 
-**Select the cross-section by loop count.** With an input shaft it is the **two-loop** annulus —
-outer loop the cam outer, inner loop the bore — found by `profile.profileLoops.count == 2`. Without
-one it is the single-loop cam disc, and `sketch.profiles.item(0)` is the only profile
-(`[PB-SINGLE-PROFILE]`). Do **not** use `find_profile_by_curve_counts` for either: it counts
-`NurbsCurve3D`, `Arc3D` and `Line3D` per loop and treats everything else as other, a full circle is a
-`Circle3DCurveType` rather than an arc, and an annulus's two circles sit in separate loops, so it
-raises `Could not find profile` (`[PB-PROFILE-MATCH]`).
+Select the cross-section by loop count, never by curve counts: when `Input Shaft Diameter > 0` take
+the profile whose `profileLoops.count` is 2 — the outer loop is the cam outer and the inner loop is
+the bore — and when it is 0 take the sketch's only profile. A full circle is a
+`Circle3DCurveType` curve and an annulus keeps its two circles in separate loops, so the
+curve-count helper raises `Could not find profile` here (`[CYCLOIDAL-F-CAM]`,
+`[CYCLOIDAL-F-DISK-BODY]`).
 
-The extent, with `nT = self.parameterName(PARAM_DISC_THICKNESS)` and
-`nG = self.parameterName(PARAM_DISC_GAP)`, is
-`adsk.core.ValueInput.createByString('{} + {}'.format(nT, nG))` for every section but the last, so it
-fills the inter-disc gap and abuts the next one, and `adsk.core.ValueInput.createByString(nT)` for the
-last. Both names are prefixed. The extrude is the same
-`setOneSideExtent` and `PositiveExtentDirection` shape as S08.
+`ext = component.features.extrudeFeatures.createInput(camProfile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)`;
+`ext.setOneSideExtent(adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByString(<extent>)), adsk.fusion.ExtentDirections.PositiveExtentDirection)`;
+`extrude = component.features.extrudeFeatures.add(ext)`; name the body
+`'Eccentric Cam {}'.format(d + 1)`.
 
-The proof checks the section spans `[z_d, z_d + T + g]` when it is not the last and `[z_d, z_d + T]`
-when it is, and that its volume is the annulus area — or the plain disc area with no bore — times
-that depth.
+The extent is `'{} + {}'.format(nT, nG)` for every section but the last, which fills the inter-disc
+gap so adjacent sections abut, and `nT` for the last — both prefixed, with
+`nT = self.parameterName(PARAM_DISC_THICKNESS)` and `nG = self.parameterName(PARAM_DISC_GAP)`.
 
-<!-- check-step-calls: ignore find_profile_by_curve_counts -->
+**What the proof holds.** `stepExtrudeCamSection` extrudes the section — the eccentric annulus, or
+the plain disc when the bore is off — from `z_d` by that extent, and reads its volume and its
+bounding box, the box centred on `Od_d` rather than on `O`, which is where the eccentricity shows.
 
-**From:** `spec/cycloidal/instructions.md` L569-579, `spec/cycloidal/fusion.md` L149-155 L349-361 L500-506
+`<!-- proof-run: proofkit3d.RunSolidParallel(solidCases, stepExtrudeCamSection, assertExtrudeCamSection) -->`
 
-## S19 `[GO]` Join the cam sections into the Eccentric Cam
+**From:** `spec/cycloidal/instructions.md` L569–579; `spec/cycloidal/fusion.md` L349–361, L500–506
 
-With two discs, join the `D` section bodies into one: target the first section's body, tools the
-rest, `JoinFeatureOperation`, exactly the `combineFeatures` shape of S11. Name the result
-`'Eccentric Cam'` and stash it on `self.cam`. Proof function: `stepJoinCamSections`.
+## S18 `[GO]` Join the cam sections into one `Eccentric Cam`
 
-<!-- proof-run: proofkit3d.RunSolidParallel(camSolidCases, stepJoinCamSections, assertJoinCamSections) -->
+For `D = 1` there is one section and nothing to join; name it `'Eccentric Cam'` and stash
+`self.cam`. For `D = 2` (`[CYCLOIDAL-F-CAM]`, `[CYCLOIDAL-F-TWO-DISC]`):
+`target` is section 0's body; `tools = adsk.core.ObjectCollection.create()` holding the rest;
+`ci = component.features.combineFeatures.createInput(target, tools)`;
+`ci.operation = adsk.fusion.FeatureOperations.JoinFeatureOperation`;
+`component.features.combineFeatures.add(ci)`. Name the result `'Eccentric Cam'` and stash
+`self.cam`.
 
-The `+E` and `-E` sections have centres only `2E` apart against a radius of
-`CenterBearingDiameter / 2`, so they overlap across most of their area and the join is one continuous
-solid with the input bore running through it.
+The two sections sit at `+E` and `−E`, so their centres are `2E` apart while each has radius
+`CenterBearingDiameter / 2`; they overlap through the whole central region and the join is one
+continuous solid, with the input bore running the full height on `O`.
 
-**SPEC DEFECT.** For `D == 1` the spec still says to Join, target section 0 with "the rest" as tools,
-and the rest is empty. `combineFeatures.createInput(targetBody, toolBodies)` takes an
-`ObjectCollection` of **one or more** tool bodies, so a single-disc build has no Join to make: skip
-the combine entirely and rename the single section body to `'Eccentric Cam'` instead. The proof takes
-that branch for `D == 1` and the real join for `D == 2`.
+**What the proof holds.** `stepJoinCamSections` unions the two sections and reads one lump, the
+joined volume against the two sections less the lens they share, and the bounding box spanning
+`−E − CBD/2` to `+E + CBD/2`. Three things are stated differently and the proof file says so at the
+call: the axial abutment is an overlap of a hundredth of a millimetre, because decad refuses a
+boolean whose operands meet face to face; the input bore is left out of the joined pair, because
+both sections put the same cylinder on the drive axis and decad refuses a tangent contact it cannot
+classify; and the bore's fit inside both sections, which is what makes it one unbroken hole, is
+checked arithmetically instead. Its case table is the two-disc one, since a single-disc build has
+nothing to join.
 
-The proof checks the joined cam is one lump spanning `[0, stackTop]`, with the volume of the two
-sections less the lens they share, and that the input bore's footprint sits inside both sections —
-which is the condition, checked at S03 as `E + ISD/2 < CBD/2`, that makes the bore continuous through
-the joined cam.
+`<!-- proof-run: proofkit3d.RunSolidParallel(twoDiscCases, stepJoinCamSections, assertJoinCamSections) -->`
 
-**From:** `spec/cycloidal/instructions.md` L364-366 L569-579, `spec/cycloidal/fusion.md` L356-361 L500-506, `spec/cycloidal/epitrochoid-trace.md` L134-147
+**From:** `spec/cycloidal/instructions.md` L574–579; `spec/cycloidal/fusion.md` L356–361, L500–506
 
-## S20 `[PROSE]` Construction plane for the housing base
+## S19 `[PROSE]` Construction plane `Ring Housing Plane`, 1 mm below the disc
 
-`buildRingPins()` starts here. Create the housing plane `1 mm` below the disc, on the side away from
-it (`[CYCLOIDAL-F-RING-PINS]`, `[PB-CONSTRUCTION-PLANES]`):
+`buildRingPins()` starts here, after the discs and the cam (`[CYCLOIDAL-F-RING-PINS]`,
+`[PB-CONSTRUCTION-PLANES]`).
 
-```
-planeInput = component.constructionPlanes.createInput()
-planeInput.setByOffset(self.plane, adsk.core.ValueInput.createByString('-1 mm'))
-housingPlane = component.constructionPlanes.add(planeInput)
-housingPlane.name = 'Ring Housing Plane'
-```
+`planeInput = component.constructionPlanes.createInput()`;
+`planeInput.setByOffset(self.plane, adsk.core.ValueInput.createByString('-1 mm'))`;
+`housingPlane = component.constructionPlanes.add(planeInput)`;
+`housingPlane.name = 'Ring Housing Plane'`.
 
-The `'-1 mm'` here and the `'1 mm'` negative side of S25's two-sided extrude are the same number and
-must stay so, or the casing's bottom face will not land on the base's top face and S28 will leave two
-lumps instead of one.
+The offset is the literal `'-1 mm'`, away from the disc, and it is load-bearing: S24's downward
+side is the matching `'1 mm'`, which is what puts the casing's bottom face on the base's top face so
+S27 leaves one connected solid.
 
-<!-- check-step-calls: ignore buildRingPins -->
+`buildRingPins` is this generator's own method.
+
 <!-- check-compile: ignore buildRingPins -->
 
-**From:** `spec/cycloidal/instructions.md` L367-371 L504-511, `spec/cycloidal/fusion.md` L238-248
+The plane's only observable effect is where the base sits, which
+`proof/cycloidal/solids_test.go` reads directly as the base's z faces at `−1 − BaseThickness` and
+`−1`, so this step carries no proof function of its own.
 
-## S21 `[GO]` Draw the Housing Ring sketch
+**From:** `spec/cycloidal/instructions.md` L504–512; `spec/cycloidal/fusion.md` L238–249
 
-A sketch named `'Housing Ring'` on the housing plane, anchored to `O`
-(`[CYCLOIDAL-F-ANCHOR-CHAIN]`), holding a plain annulus (`[CYCLOIDAL-F-RING-PINS]`). Proof function:
-`stepHousingRingSketch`.
+## S20 `[GO]` Sketch `Housing Ring` — the base annulus on the drive axis
 
-<!-- proof-run: proofkit.RunParallel(casingSketchCases, stepHousingRingSketch) -->
+On `housingPlane`, named `'Housing Ring'`, anchored to `O` exactly as S06 does — project the
+Anchor with `sketch.project`, add a fresh `localOrigin` with `sketch.sketchPoints.add`, constrain
+it with `sketch.geometricConstraints.addCoincident`.
 
-- Outer circle:
-  `sketch.sketchCurves.sketchCircles.addByCenterRadius(adsk.core.Point3D.create(0, 0, 0), R - Rr + 2 * E + Wall)`,
-  driving diameter dimension with `.parameter.expression` set to
-  `self.parameterName(PARAM_HOUSING_OUTER_DIAMETER)`.
-- Inner circle:
-  `sketch.sketchCurves.sketchCircles.addByCenterRadius(adsk.core.Point3D.create(0, 0, 0), R - Rr - Wall)`,
-  driving diameter dimension with `.parameter.expression` set to
-  `self.parameterName(PARAM_HOUSING_INNER_DIAMETER)`.
+Two solid circles, both centred on the drive axis:
 
-Constrain each circle's centre **coincident to the local origin only**, with
-`sketch.geometricConstraints.addCoincident(circle.centerSketchPoint, localOrigin)`. Do not also set
-the centre's `isFixed`: coincident to the anchored origin already pins it, and adding the fix is
-redundant and risks an over-constrained solve (`[PB-SHARE-XOR-COINCIDENT]`,
-`[PB-NO-OVERCONSTRAIN]`). `[PB-CIRCLE-CENTER]` prefers `isFixed` for a circle drawn at the origin of
-an unanchored sketch; this gear anchors instead, and the coincident to the anchored local origin is
-what this spec pins the centre with.
+- outer at `R − Rr + 2 * E + Wall`:
+  `addByCenterRadius(adsk.core.Point3D.create(0, 0, 0), R - Rr + 2 * E + Wall)`, centre coincident
+  to `localOrigin`, driving diameter dimension with
+  `.parameter.expression = self.parameterName(PARAM_HOUSING_OUTER_DIAMETER)`;
+- inner at `R − Rr − Wall`:
+  `addByCenterRadius(adsk.core.Point3D.create(0, 0, 0), R - Rr - Wall)`, centre coincident to
+  `localOrigin`, driving diameter dimension with
+  `.parameter.expression = self.parameterName(PARAM_HOUSING_INNER_DIAMETER)`.
 
-This is a **pinless** wall. The outer radius clears the disc's furthest reach — the rolling contour's
-peak at `R - PinRadius + 2 * E` — by exactly `Wall`, which is what makes `Wall` the minimum wall
-thickness, a little more at the contour valleys. The inner floor lip sits `Wall` inside the contour
-valley at `R - PinRadius`. The proof measures both clearances against the contour it computes rather
-than against the formula.
+Constrain each centre coincident to the anchored local origin and to nothing else. Do not also set
+the centre `isFixed`: the coincident already pins it and the pair over-constrains
+(`[PB-SHARE-XOR-COINCIDENT]`).
 
-**From:** `spec/cycloidal/instructions.md` L504-516 L130-138, `spec/cycloidal/fusion.md` L249-255, `.claude/skills/generate-gear/PLAYBOOK.md` L448-454
+The outer wall is the rolling contour's peak at `R − PinRadius + 2 * E` cleared by `Wall`, so
+`Wall` is the minimum wall thickness, reached at the peaks and exceeded at the valleys. The inner
+lip sits `Wall` inside the contour valley at `R − PinRadius`. There are no pins and no projected
+circle here — this is the base alone.
 
-## S22 `[GO]` Extrude the housing base annulus
+**What the proof holds.** `stepHousingRingSketch` builds the annulus, gates it on the engine's
+verdict, reads both radii back, reads the region carrying a hole and measures its area against
+`pi * (ro^2 − ri^2)`, and measures the wall at the contour peak against `Wall` itself.
 
-Extrude the **annulus** profile — the one with `profile.profileLoops.count == 2`, never
-`find_profile_by_curve_counts`, for the reason S18 gives — by `Base Thickness` in the **negative**
-direction, away from the disc, as a new body named `'Housing Ring'`. Proof function:
-`stepExtrudeHousingBase`.
+`<!-- proof-run: proofkit.RunParallel(sketchCases, stepHousingRingSketch) -->`
 
-<!-- proof-run: proofkit3d.RunSolidParallel(casingSolidCases, stepExtrudeHousingBase, assertExtrudeHousingBase) -->
+**From:** `spec/cycloidal/instructions.md` L513–516; `spec/cycloidal/fusion.md` L249–259
 
-```
-ext = component.features.extrudeFeatures.createInput(
-    annulusProfile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
-ext.setOneSideExtent(
-    adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByString(
-        self.parameterName(PARAM_BASE_THICKNESS))),
-    adsk.fusion.ExtentDirections.NegativeExtentDirection)
-housingExtrude = component.features.extrudeFeatures.add(ext)
-```
+## S21 `[GO]` Extrude the housing base annulus by Base Thickness, away from the disc
 
-Away from the disc is the **negative** direction here, because the offset plane keeps `self.plane`'s
-normal. Stash the body on `self.housingRing`. The base spans `[-1 - BaseThickness, -1]`, which the
-proof checks along with the annulus volume and the single lump.
+Select the annulus by `profileLoops.count == 2`, not by curve counts — the two circles sit in
+separate loops and a full circle is not an arc (`[CYCLOIDAL-F-DISK-BODY]`).
 
-**From:** `spec/cycloidal/instructions.md` L512-516, `spec/cycloidal/fusion.md` L255-259
+`ext = component.features.extrudeFeatures.createInput(annulusProfile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)`;
+`ext.setOneSideExtent(adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByString(self.parameterName(PARAM_BASE_THICKNESS))), adsk.fusion.ExtentDirections.NegativeExtentDirection)`;
+`housingExtrude = component.features.extrudeFeatures.add(ext)`; name the body `'Housing Ring'` and
+stash `self.housingRing`.
 
-## S23 `[PROSE]` Construction axis on the drive axis
+The offset plane shares `self.plane`'s normal, so away from the disc is the negative direction.
 
-Take the housing extrude's cap **by normal**, `housingExtrude.startFaces.item(0)`, and build the
-drive axis through the local origin (`[CYCLOIDAL-F-RING-PINS]`, `[CYCLOIDAL-F-DISK-AXIS]`):
+**What the proof holds.** `stepExtrudeHousingBase` extrudes the annulus and reads its volume
+against `pi * (ro^2 − ri^2) * BaseThickness` and its box spanning `−1 − BaseThickness` to `−1`,
+which is the top face S24's downward side has to reach.
 
-```
-axInput = component.constructionAxes.createInput()
-axInput.setByPerpendicularAtPoint(capFace, originPoint)
-axis = component.constructionAxes.add(axInput)
-axis.name = 'Drive Axis'
-```
+`<!-- proof-run: proofkit3d.RunSolidParallel(solidCases, stepExtrudeHousingBase, assertExtrudeHousingBase) -->`
 
-Stash it on `self.driveAxis`. Both the casing pattern in S26 and the output-pin pattern in S35 turn
-about it, so it is created once here and reused.
+**From:** `spec/cycloidal/instructions.md` L513–516; `spec/cycloidal/fusion.md` L255–259
 
-**From:** `spec/cycloidal/instructions.md` L517-519, `spec/cycloidal/fusion.md` L260-261
+## S22 `[PROSE]` Construction axis `Drive Axis` at the drive axis `O`
 
-## S24 `[GO]` Draw the Ring Casing section sketch
+`capFace = housingExtrude.startFaces.item(0)` — the cap picked by normal, exactly as S08 picks the
+disc's (`[CYCLOIDAL-F-DISK-AXIS]`, `[CYCLOIDAL-F-RING-PINS]`, `[PB-CONSTRUCTION-AXES]`);
+`axInput = component.constructionAxes.createInput()`;
+`axInput.setByPerpendicularAtPoint(capFace, originPoint)` with `originPoint` the Housing Ring
+sketch's own anchored local origin;
+`axis = component.constructionAxes.add(axInput)`; `axis.name = 'Drive Axis'`;
+`self.driveAxis = axis`.
 
-A sketch named `'Ring Casing'` on `self.plane`, anchored to `O`, holding one pin-pitch of the casing
-(`[CYCLOIDAL-F-RING-PINS]`). Proof function: `stepRingCasingSketch`.
+Both later patterns about `O` — the casing sectors in S25 and the output pins in S34 — reuse this
+axis.
 
-<!-- proof-run: proofkit.RunParallel(casingSketchCases, stepRingCasingSketch) -->
+decad has no construction axis, and what this one decides is the direction those two patterns turn
+about, which S26 and S34 read as the tiling and the pin placement they produce. That is why this
+step carries no proof function; `proof/cycloidal/solids_test.go` says so beside them.
 
-**Compute the contour in Python first.** The inner wall follows the disc's swept envelope offset
-outward by the clearance, `contour(phi) = env(phi) + c` — a smooth conjugate curve, not a
-constant-radius circle. Sweep the disc over a full cam cycle and bin what it reaches:
+**From:** `spec/cycloidal/instructions.md` L517–519; `spec/cycloidal/fusion.md` L260–261
 
-```
-for theta in 240 uniform steps over [0, 2*pi):
-    cx, cy = E*cos(theta), E*sin(theta)
-    phi = -theta / L
-    for t in 240 uniform steps over [0, 2*pi):
-        x, y = disk_point(t, cx, cy, phi)
-        a = atan2(y, x)
-        if -pi/N <= a <= pi/N:
-            bin a into nbins = 80 bins over [-pi/N, +pi/N]
-            binMax[bin] = max(binMax[bin], hypot(x, y)); hit[bin] = True
-```
+## S23 `[GO]` Sketch `Ring Casing` — one pin-pitch section of the pinless contour
 
-Then emit `nbins + 1` points at the bin **edges**, `phi_i = -pi/N + (2*pi/N) * i / nbins` for
-`i = 0 … nbins`, each at radius `c + max(binMax[i-1], binMax[i])` using only its **hit** neighbours,
-and `c` alone when both neighbours are unhit. The point is `(r_i * cos(phi_i), r_i * sin(phi_i))`,
-ordered by angle, already in cm.
+On `self.plane`, named `'Ring Casing'`, anchored to `O` exactly as S20 does.
 
-**Do not use bin centres.** Edges are what put the first point exactly on `-pi/N` and the last
-exactly on `+pi/N`. Centres inset both ends by half a bin, which leaves an angular gap of
-`2*pi/(N*nbins)` between every pair of patterned sectors, so the `N` sectors never touch, the Join
-cannot merge them, and the build ends with `N` unnamed bodies instead of one casing. The proof
-asserts the two end angles to twelve decimal places for exactly this reason.
+**Compute one pin pitch of the contour first, in Python.** The inner wall follows the disc's swept
+envelope offset outward by the clearance: `contour(phi) = env(phi) + c`, a formula rather than a
+call.
 
-The sketch then holds:
+<!-- check-step-calls: ignore contour env -->
+<!-- check-compile: ignore contour disk_point -->
+ Sweep the world disc
+`disk_point(t, E*cos(theta), E*sin(theta), -theta/L)` over `theta` and `t`, each at exactly 240
+uniform steps over `[0, 2*pi)`. For each sampled point take `a = atan2(y, x)`, keep only the points
+with `a` in `[-pi/N, +pi/N]`, bin them by angle into exactly 80 bins and keep the maximum
+`hypot(x, y)` per bin, tracking which bins were hit.
 
-- an **outer circle** of radius `R - Rr + 2 * E + Wall`,
-  `sketch.sketchCurves.sketchCircles.addByCenterRadius(adsk.core.Point3D.create(0, 0, 0), R - Rr + 2 * E + Wall)`,
-  centre coincident to the local origin, driving diameter dimension with `.parameter.expression`
-  `self.parameterName(PARAM_HOUSING_OUTER_DIAMETER)` — left **solid**, never construction, because it
-  forms the sector's outer arc and a construction circle would leave the wedge open;
-- an open **fitted spline** through the contour points, built the same way as the lobe:
-  `adsk.core.Point3D.create(x, y, 0)` into an `adsk.core.ObjectCollection.create()`, then
-  `sketch.sketchCurves.sketchFittedSplines.add(coll)`, `isClosed` never set. Keep the handle; S25
-  selects on it;
-- **two radial spokes**, `sketch.sketchCurves.sketchLines.addByTwoPoints(<spline end>, <point on the
-  outer circle at the same angle>)` from each spline end at `phi = ±pi/N` out to the outer circle.
+Then emit the contour at bin **edges**, not bin centres: for `i` in `0 … 80`,
+`phi_i = -pi/N + (2*pi/N) * i / 80` and `r_i = c + max(binMax[i-1], binMax[i])`, using the single
+existing neighbour at each end and taking the maximum as 0 when both neighbours are unhit, which
+leaves that edge at radius `c`. The point is `(r_i * cos(phi_i), r_i * sin(phi_i))`, ordered by
+angle, already in cm.
+
+Bin centres are the reported bug: they inset the first and last points by half a bin, which leaves
+an angular gap between every pair of patterned sectors, so the N sectors never touch and the Join
+leaves N unnamed bodies instead of one casing. Edges put the first point exactly on `-pi/N` and the
+last exactly on `+pi/N`, where the contour is a mid-gap peak and tangential by symmetry, so the
+sectors tile seamlessly.
+
+**The sketch** then holds:
+
+- an **outer circle**, `addByCenterRadius(adsk.core.Point3D.create(0, 0, 0), R - Rr + 2 * E + Wall)`,
+  left **solid** — do not set `isConstruction`, because it forms the sector's outer arc and a
+  construction circle would leave the wedge open — centre coincident to the anchored
+  `localOrigin`, driving diameter dimension with
+  `.parameter.expression = self.parameterName(PARAM_HOUSING_OUTER_DIAMETER)`;
+- an open **fitted spline** through the contour points: each as
+  `adsk.core.Point3D.create(x, y, 0)` into `adsk.core.ObjectCollection.create()`, then
+  `sketch.sketchCurves.sketchFittedSplines.add(coll)`, with no `isClosed`. Keep the handle as
+  `contour`;
+- **two radial spokes**, each `sketch.sketchCurves.sketchLines.addByTwoPoints` from a spline end
+  out to a point on the outer circle at that same angle — from the first contour point at `-pi/N`
+  to `(ro*cos(-pi/N), ro*sin(-pi/N))`, and from the last at `+pi/N` to
+  `(ro*cos(pi/N), ro*sin(pi/N))`.
 
 This sketch is a deliberate `[PB-FULL-CONSTRAINT]` exemption. The contour's fit points are numeric
-snapshots and are **not** fixed, and the spokes' outer ends are only seeded on the outer circle with
-no coincident constraint to it. What is constrained is the outer circle's centre and diameter, and
-each spoke's inner end sharing the spline's end fit point. The sketch is consumed immediately by S25
-and never re-solved, so the free geometry is accepted as it stands.
+snapshots and are not set `isFixed`; the two spokes' outer endpoints are only seeded on the outer
+circle with no coincident to it. What is constrained is the outer circle's centre and its diameter.
+The sketch is consumed immediately by S24 and never re-solved, so the free geometry is accepted.
 
-The proof cannot accept free geometry — its gate has no way to pass an under-constrained sketch — so
-it pins what Fusion leaves loose and says so at `stepRingCasingSketch`. What it still proves is
-everything the exemption does not touch: the ends land exactly on `±pi/N`, the contour's valley is at
-`R - Rr` and its ends are the mid-gap peaks at `R - Rr + 2E` where the curve is tangential by
-symmetry, and the contour bounds exactly two closed regions of which the wedge is much the smaller.
+**What the proof holds.** `stepRingCasingSketch` builds the same section, measures the first and
+last contour points' angles against exactly `-pi/N` and `+pi/N`, checks that no contour point
+reaches the outer wall, and reads the two regions the solid outer circle and the open contour
+bound. It measures the smaller one against the wedge's own area and refuses a run where the
+complement is not the larger, which is the ambiguity S24 selects through. Two things are stated
+differently and the proof file says so: the contour is the chord polyline through those points
+rather than a fitted spline, because decad will not extrude a free-form span whose curvature sign
+it cannot certify; and the snapshot points are grounded, because proofkit's gate is DOF 0 with
+nothing waived — the spec's own exemption is exactly that they are snapshots.
 
-`contour` and `env` name the swept-envelope curve as functions of the polar angle, in the formula
-above; neither is a call the module makes.
+`<!-- proof-run: proofkit.RunParallel(sketchCases, stepRingCasingSketch) -->`
 
-<!-- check-step-calls: ignore contour -->
-<!-- check-compile: ignore contour -->
+**From:** `spec/cycloidal/instructions.md` L316–322, L520–534; `spec/cycloidal/fusion.md` L262–283; `spec/cycloidal/epitrochoid-trace.md` L149–188
 
-**From:** `spec/cycloidal/instructions.md` L316-322 L520-534, `spec/cycloidal/fusion.md` L262-283, `spec/cycloidal/epitrochoid-trace.md` L149-188, `.claude/skills/generate-gear/PLAYBOOK.md` L438-443 L506-513
+## S24 `[GO]` Extrude the casing sector two-sided
 
-## S25 `[GO]` Extrude the ring casing sector, two-sided
+Select the wedge by **minimum area** among the profiles whose loop contains `contour`, and by
+nothing weaker. The solid outer circle makes the open contour a shared edge of two closed profiles:
+the thin annular wedge, and the whole complement inside the circle. Both contain the contour, so a
+first-match containing-curve search can return the complement, and extruding that gives a near-full
+disc which patterns and joins into a solid cylinder with every scallop erased. Compare candidates
+by `profile.areaProperties(adsk.fusion.CalculationAccuracy.LowCalculationAccuracy).area` and take
+the smallest (`[CYCLOIDAL-F-RING-PINS]`).
 
-Extrude the thin annular pie wedge bounded by the outer arc, the contour spline and the two spokes,
-as a new body (`[CYCLOIDAL-F-RING-PINS]`). Proof function: `stepExtrudeCasingSector`.
+`ext = component.features.extrudeFeatures.createInput(sectorProfile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)`;
+`ext.setTwoSidesExtent(adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByString(stackTopExpr)), adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByString('1 mm')))`;
+`sectorFeature = component.features.extrudeFeatures.add(ext)`.
 
-<!-- proof-run: proofkit3d.RunSolidParallel(casingSolidCases, stepExtrudeCasingSector, assertExtrudeCasingSector) -->
+Side one runs up to the stack top and side two runs the literal `'1 mm'` down to the housing base's
+top face. That `'1 mm'` has to match S19's `'-1 mm'` exactly, or the casing floats above the base
+and S27's Join leaves two lumps. `stackTopExpr` is the prefixed string of S05:
+`self.parameterName(PARAM_DISC_THICKNESS)` for one disc, and
+`'2 * {} + {}'.format(nT, nG)` for two.
 
-**Select it by MINIMUM AREA among the profiles whose loop contains the contour spline** — not by
-"contains the spline" alone, and not `sketch.profiles.item(0)`. The outer circle is solid, so the open
-contour spline is a shared edge of **two** closed profiles: the thin wedge, and the large complement,
-which is everything else inside the outer circle. Both contain the spline, so a first-match search can
-return the complement, and extruding that gives a near-full disc which patterns `N` times into a solid
-cylinder with the scallops erased. Compare with
-`profile.areaProperties(adsk.fusion.CalculationAccuracy.LowCalculationAccuracy).area` and take the
-smallest.
+Record `base = component.bRepBodies.count` before this extrude; S26 needs it.
 
-```
-ext = component.features.extrudeFeatures.createInput(
-    sectorProfile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
-ext.setTwoSidesExtent(
-    adsk.fusion.DistanceExtentDefinition.create(
-        adsk.core.ValueInput.createByString(stackTopExpr)),
-    adsk.fusion.DistanceExtentDefinition.create(
-        adsk.core.ValueInput.createByString('1 mm')))
-sectorFeature = component.features.extrudeFeatures.add(ext)
-```
+**What the proof holds.** `stepExtrudeCasingSector` extrudes the same wedge — contour, a spoke at
+each end, and the outer arc between them — two-sided from the target plane, and reads its volume
+against one pin pitch of the outer disc less the pie the contour encloses, and its box spanning
+`−1` to the stack top.
 
-`stackTopExpr` is built for the current disc count from **prefixed** names, with
-`nT = self.parameterName(PARAM_DISC_THICKNESS)` and `nG = self.parameterName(PARAM_DISC_GAP)`: it is
-`nT` when `D == 1` and `'2 * {} + {}'.format(nT, nG)` when `D == 2`. `DiscCount` is a dropdown, not a
-parameter, so it never appears in an expression.
+`<!-- proof-run: proofkit3d.RunSolidParallel(solidCases, stepExtrudeCasingSector, assertExtrudeCasingSector) -->`
 
-The negative `'1 mm'` side matches the housing plane's `'-1 mm'` offset exactly, so the casing's
-bottom face is coincident with the base's top face and S28 yields one connected solid rather than two
-lumps. The proof checks that span, `[-1, stackTop]`, and the wedge's volume against the ring area
-divided by `N`.
+**From:** `spec/cycloidal/instructions.md` L535–547; `spec/cycloidal/fusion.md` L284–303
 
-**From:** `spec/cycloidal/instructions.md` L535-543 L340-347, `spec/cycloidal/fusion.md` L284-303 L495-498
+## S25 `[PROSE]` Circular-pattern the casing sector ×N about the Drive Axis
 
-## S26 `[GO]` Circular-pattern the casing sector `N` times
+`coll = adsk.core.ObjectCollection.create()`; `coll.add(sectorFeature)`;
+`pat = component.features.circularPatternFeatures.createInput(coll, self.driveAxis)`;
+`pat.patternComputeOption = adsk.fusion.PatternComputeOptions.AdjustPatternCompute`;
+`pat.quantity = adsk.core.ValueInput.createByReal(N)` with `N = Pin Count`;
+`pat.totalAngle = adsk.core.ValueInput.createByString('360 deg')`; `pat.isSymmetric = False`;
+`component.features.circularPatternFeatures.add(pat)` (`[PB-CIRCULAR-PATTERN]`,
+`[CYCLOIDAL-F-RING-PINS]`).
 
-Pattern the sector **feature** `N = Pin Count` times about `self.driveAxis` over a full turn, with the
-same input shape as S10 and `pat.quantity = adsk.core.ValueInput.createByReal(N)` — and
-`pat.patternComputeOption = adsk.fusion.PatternComputeOptions.AdjustPatternCompute`, as on every
-pattern here. Proof function: `stepPatternCasingSectors`.
+The pattern steps by exactly `2*pi/N`, which carries one sector's spoke onto its neighbour's only
+because S23 put the contour ends exactly on `±pi/N`.
 
-<!-- proof-run: proofkit3d.RunSolidParallel(casingSolidCases, stepPatternCasingSectors, assertPatternCasingSectors) -->
+decad has no pattern feature and refuses the boolean that would join face-to-face copies, for the
+reason S09 gives, so the tiling those N sectors have to satisfy is read in S26 instead;
+`proof/cycloidal/solids_test.go` records it at `stepJoinCasingSectors`.
 
-The pattern steps by exactly `2*pi/N`, which is the angle the contour's ends at `±pi/N` were chosen
-for: adjacent sectors then share a spoke face rather than leaving a gap between them. The proof
-checks the ring's volume is exactly `N` times the sector's, which is what a tiling with neither gap
-nor overlap means, and that the ring spans the same `[-1, stackTop]` as the sector.
+**From:** `spec/cycloidal/instructions.md` L541–547; `spec/cycloidal/fusion.md` L303–310
 
-**From:** `spec/cycloidal/instructions.md` L543-547, `spec/cycloidal/fusion.md` L303-310, `spec/cycloidal/epitrochoid-trace.md` L164-186
+## S26 `[GO]` Join the N casing sectors into one casing body
 
-## S27 `[GO]` Join the `N` casing sectors into one casing
+Collect the sectors from the `base` recorded in S24 — `component.bRepBodies.item(base)` through
+`component.bRepBodies.item(base + N - 1)` — then
+`target = component.bRepBodies.item(base)`; `tools = adsk.core.ObjectCollection.create()` holding
+the rest; `ci = component.features.combineFeatures.createInput(target, tools)`;
+`ci.operation = adsk.fusion.FeatureOperations.JoinFeatureOperation`;
+`component.features.combineFeatures.add(ci)` (`[PB-PATTERN-BODIES]`, `[CYCLOIDAL-F-RING-PINS]`).
+The section ends fall on valley midpoints, tangential by symmetry, so the joined inner wall is
+smooth.
 
-Collect the `N` sector bodies by a pre-extrude `base = component.bRepBodies.count` baseline, exactly
-as S11 does for the disc, and Join them with `combineFeatures` and `JoinFeatureOperation` into one
-casing body. Proof function: `stepJoinCasingSectors`.
+**What the proof holds.** `stepJoinCasingSectors` builds the whole casing ring — the outer circle
+with the contour turned through all N pitches as its one hole — in a single extrude, reads it as
+one lump with no voids, and reads its volume both against the ring's own area and, against a seed
+sector built in a scratch document, as exactly `N` of them. A contour emitted at bin centres leaves
+a seam gap, and a seam gap is exactly what that pair of readings refuses.
 
-<!-- proof-run: proofkit3d.RunSolidParallel(casingSolidCases, stepJoinCasingSectors, assertJoinCasingSectors) -->
+`<!-- proof-run: proofkit3d.RunSolidParallel(solidCases, stepJoinCasingSectors, assertJoinCasingSectors) -->`
 
-The section ends fall on the contour's mid-gap peaks, where it is tangential by symmetry, so the
-joined inner wall is smooth: the disc's valleys roll on the contour near each pin with clearance `c`,
-and the lobe tips clear it between pins.
+**From:** `spec/cycloidal/instructions.md` L541–547; `spec/cycloidal/fusion.md` L303–310
 
-The proof checks the joined casing is one lump — `N` sectors that do not touch never become one — and
-counts its faces: one per contour chord all the way round, the outer wall, and two caps. A seam left
-at any pitch boundary shows up there as extra faces.
+## S27 `[GO]` Combine the casing into the housing base — one `Housing` body
 
-**From:** `spec/cycloidal/instructions.md` L543-547, `spec/cycloidal/fusion.md` L307-310, `spec/cycloidal/epitrochoid-trace.md` L176-186
+With the casing body as the tool and the base as the target (`[CYCLOIDAL-F-RING-PINS]`):
+`tools = adsk.core.ObjectCollection.create()` holding the casing body;
+`ci = component.features.combineFeatures.createInput(self.housingRing, tools)`;
+`ci.operation = adsk.fusion.FeatureOperations.JoinFeatureOperation`;
+`component.features.combineFeatures.add(ci)`. Then `self.housingRing.name = 'Housing'`; keep
+`self.housingRing` as the combined body and set `self.ringCasing = None`, since the casing is
+consumed by the Join and S35 skips a `None` casing so the housing is chamfered once.
 
-## S28 `[GO]` Combine the casing into the Housing
+The casing's bottom face is coincident with the base's top face, so the result is one connected
+solid spanning `[−1 mm − BaseThickness, stackTop]`: a floor to mount, the scalloped reaction wall
+around the disc stack, one printed part.
 
-Join the casing body into the base with `combineFeatures`: target `self.housingRing`, tools an
-`adsk.core.ObjectCollection.create()` holding the casing body, `JoinFeatureOperation`. Then rename
-`self.housingRing.name = 'Housing'`, keep `self.housingRing` as the combined body, and set
-`self.ringCasing = None`, since the casing was consumed by the Join
-(`[CYCLOIDAL-F-RING-PINS]`). Proof function: `stepJoinHousing`.
+**What the proof holds.** `stepCombineHousing` unions the base and the ring and reads one lump, the
+joined volume, and a box spanning `−1 − BaseThickness` to the stack top. It also checks the fact
+the volume arithmetic rests on — that the casing's footprint lies wholly inside the base annulus,
+so no contour point falls inside the base's inner lip. Two substitutions are stated at the call:
+the two bodies overlap axially by a hundredth of a millimetre rather than abutting, and the base's
+outer wall is grown by the same amount so the two outer cylinders cross instead of coinciding.
+decad refuses both an abutting pair and a tangent one.
 
-<!-- proof-run: proofkit3d.RunSolidParallel(housingJoinCases, stepJoinHousing, assertJoinHousing) -->
+`<!-- proof-run: proofkit3d.RunSolidParallel(solidCases, stepCombineHousing, assertCombineHousing) -->`
 
-Do not leave the base and the casing as two bodies: the housing is one printable part. Because the
-casing's bottom face is coincident with the base's top face, the result is one connected solid
-spanning `[-1 - BaseThickness, stackTop]` — the base floor below, the scalloped reaction wall around
-the disc stack. There are no separate pins and no sockets. S36 then chamfers `self.housingRing` once
-and skips the `None` casing.
+**From:** `spec/cycloidal/instructions.md` L548–555; `spec/cycloidal/fusion.md` L311–318
 
-The proof checks the join gives one lump spanning the whole housing, with the two bodies' volumes
-less the overlap it had to introduce to get the engine to perform the union at all. This is the one
-step whose case table is trimmed: it sweeps the pin count, which sets the ring's facet count and the
-contact the join has to resolve, but leaves out the two-disc entry, whose only delta here is the
-casing's extent — which S25 and S26 both build and measure at two discs. The reason is cost: this
-union is minutes of work at the default pin count, and it is the proof's slowest step by a wide
-margin.
+## S28 `[PROSE]` Construction plane `Output Plate Plane`, 1 mm above the disc stack
 
-**From:** `spec/cycloidal/instructions.md` L548-555 L618-629, `spec/cycloidal/fusion.md` L311-318
+`buildOutputPins()` starts here, after the cam and the housing (`[CYCLOIDAL-F-OUTPUT-PINS]`,
+`[PB-CONSTRUCTION-PLANES]`).
 
-## S29 `[PROSE]` Construction plane for the output plate
+`planeInput = component.constructionPlanes.createInput()`;
+`planeInput.setByOffset(self.plane, adsk.core.ValueInput.createByString(stackTopExpr + ' + 1 mm'))`;
+`platePlane = component.constructionPlanes.add(planeInput)`;
+`platePlane.name = 'Output Plate Plane'`.
 
-`buildOutputPins()` starts here. Create the plate plane `1 mm` above the **top** disc, on the side
-opposite the housing (`[CYCLOIDAL-F-OUTPUT-PINS]`, `[PB-CONSTRUCTION-PLANES]`):
+`buildOutputPins` is this generator's own method.
 
-```
-planeInput = component.constructionPlanes.createInput()
-planeInput.setByOffset(self.plane, adsk.core.ValueInput.createByString(stackTopExpr + ' + 1 mm'))
-platePlane = component.constructionPlanes.add(planeInput)
-platePlane.name = 'Output Plate Plane'
-```
-
-`stackTopExpr` is the prefixed stack-top string of S25 — `nT` for one disc, `'2 * {} + {}'.format(nT,
-nG)` for two — never a bare `'DiscThickness'`, which raises `RuntimeError: invalid expression`.
-
-This plane is **above** the disk, so on its sketch the positive direction points **away** from the
-disk and the negative one toward it: the mirror of the housing plane, which is below, where away is
-negative.
-
-<!-- check-step-calls: ignore buildOutputPins -->
 <!-- check-compile: ignore buildOutputPins -->
 
-**From:** `spec/cycloidal/instructions.md` L340-347 L372-373 L581-589, `spec/cycloidal/fusion.md` L363-376 L495-498
+`stackTopExpr` is S05's prefixed string, so this is the top disc's top face plus 1 mm, and it is the
+mirror of the housing plane: the positive offset is toward the disc side, so on this plane
+`PositiveExtentDirection` points **away** from the disc and `Negative` points toward it.
 
-## S30 `[GO]` Draw the Output Plate sketch
+The plane's only observable effect is where the plate and the pin sit, which
+`proof/cycloidal/solids_test.go` reads directly as their z faces, so this step carries no proof
+function of its own.
 
-One sketch named `'Output Plate'` on the plate plane, anchored to `O`. Everything in it is on the
-drive axis, not the disc centre: the plate and its pins are the fixed output member, and it is the
-disc's holes that orbit around them (`[CYCLOIDAL-F-OUTPUT-PINS]`). Proof function:
-`stepOutputPlateSketch`.
+**From:** `spec/cycloidal/instructions.md` L581–589; `spec/cycloidal/fusion.md` L363–376
 
-<!-- proof-run: proofkit.RunParallel(outputSketchCases, stepOutputPlateSketch) -->
+## S29 `[GO]` Sketch `Output Plate` — plate outer, pin circle and one output pin
 
-- **Plate outer circle**,
-  `sketch.sketchCurves.sketchCircles.addByCenterRadius(adsk.core.Point3D.create(0, 0, 0), OutputPlateDiameter / 2)`,
-  **solid**, centre coincident to the local origin, driving diameter dimension with
-  `.parameter.expression` set to `self.parameterName(PARAM_OUTPUT_PLATE_DIAMETER)`.
-- **Output-pin circle**,
-  `sketch.sketchCurves.sketchCircles.addByCenterRadius(adsk.core.Point3D.create(0, 0, 0), Rop)`,
-  **construction**, centre coincident to the local origin, driving diameter dimension with
-  `.parameter.expression` set to `self.parameterName(PARAM_OUTPUT_PIN_CIRCLE_DIAMETER)`.
-- **One output pin**,
-  `sketch.sketchCurves.sketchCircles.addByCenterRadius(adsk.core.Point3D.create(Rop, 0, 0), D_pin / 2)`,
-  **solid**, with a driving diameter dimension whose `.parameter.expression` is
-  `'{} - 2 * {}'.format(self.parameterName(PARAM_OUTPUT_HOLE_DIAMETER), self.parameterName(PARAM_ECCENTRICITY))`
-  — the hole less its orbit clearance. Pin its centre with
+On `platePlane`, named `'Output Plate'`, anchored to `O` exactly as S20 does
+(`[CYCLOIDAL-F-OUTPUT-PINS]`, `[CYCLOIDAL-F-ANCHOR-CHAIN]`). Every dimension below is driving;
+never pass `isDriven` (`[PB-DRIVING-DIM]`), and every diameter dimension's text point sits off the
+circle's centre (`[PB-RADIAL-DIM]`).
+
+- **Plate outer**, solid, on `O`:
+  `addByCenterRadius(adsk.core.Point3D.create(0, 0, 0), OutputPlateDiameter / 2)`, centre coincident
+  to `localOrigin`, driving diameter dimension with
+  `.parameter.expression = self.parameterName(PARAM_OUTPUT_PLATE_DIAMETER)`.
+- **Output-pin circle**, construction, on `O`:
+  `addByCenterRadius(adsk.core.Point3D.create(0, 0, 0), Rop)`, `isConstruction = True`, centre
+  coincident to `localOrigin`, driving diameter dimension with
+  `.parameter.expression = self.parameterName(PARAM_OUTPUT_PIN_CIRCLE_DIAMETER)`. Keep the handle.
+- **One output pin**, solid, at `(Rop, 0)`:
+  `addByCenterRadius(adsk.core.Point3D.create(Rop, 0, 0), D_pin / 2)`, driving diameter dimension
+  with
+  `.parameter.expression = '{} - 2 * {}'.format(self.parameterName(PARAM_OUTPUT_HOLE_DIAMETER), self.parameterName(PARAM_ECCENTRICITY))`,
+  which is `D_pin`. Pin its centre with
   `sketch.geometricConstraints.addCoincident(pin.centerSketchPoint, outPinCircle)` and a horizontal
-  construction line from the local origin to that centre plus
-  `sketch.geometricConstraints.addHorizontal(spokeLine)`.
+  construction line from `localOrigin` to `pin.centerSketchPoint`
+  (`addByTwoPoints`, `isConstruction = True`, `sketch.geometricConstraints.addHorizontal`).
 
-The pin sits inside the plate disc and splits it into two regions: the pin disc, and the plate with a
-bite taken out of it. The proof checks the plate overhangs the outermost pin by exactly `Wall`, that
-the pin centre sits at `Rop` from `O`, and that those two regions' areas add back up to the whole
-plate disc — which is what S31 relies on when it extrudes both together.
+The pin sits inside the plate disc and splits it, which is what S30 and S31 select on. The plate
+covers the outermost pin by `Wall`, since `OutputPlateDiameter = 2 * Rop + D_pin + 2 * Wall`.
 
-**From:** `spec/cycloidal/instructions.md` L590-594 L138-141, `spec/cycloidal/fusion.md` L377-386
+**What the proof holds.** `stepOutputPlateSketch` builds the sketch, gates it on the engine's
+verdict, measures the pin centre, its seating radius against the construction circle's own radius,
+its radius against `D_pin / 2` and the plate's cover past the outermost pin against `Wall`. It then
+reads the two regions the pin splits the plate into — the pin disc with no hole and the plate with
+one — and measures both areas. The seating is a signed horizontal distance for the reason S11
+gives, and the proof file records it.
 
-## S31 `[GO]` Extrude the output plate
+`<!-- proof-run: proofkit.RunParallel(sketchCases, stepOutputPlateSketch) -->`
 
-Extrude the **full** plate disc — **every** profile in the sketch, the plate-with-bite and the pin
-disc together, so the footprint under the pin is solid plate — away from the disk by
-`Output Plate Thickness`, as a new body named `'Output Plate'`. Proof function:
-`stepExtrudeOutputPlate`.
+**From:** `spec/cycloidal/instructions.md` L590–594; `spec/cycloidal/fusion.md` L377–386
 
-<!-- proof-run: proofkit3d.RunSolidParallel(outputSolidCases, stepExtrudeOutputPlate, assertExtrudeOutputPlate) -->
+## S30 `[GO]` Extrude the output plate away from the disc — `Output Plate`
 
-```
-coll = adsk.core.ObjectCollection.create()        # every profile in the Output Plate sketch
-ext = component.features.extrudeFeatures.createInput(
-    coll, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
-ext.setOneSideExtent(
-    adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByString(
-        self.parameterName(PARAM_OUTPUT_PLATE_THICKNESS))),
-    adsk.fusion.ExtentDirections.PositiveExtentDirection)
-plateExtrude = component.features.extrudeFeatures.add(ext)
-```
+Take **every** profile of the sketch, so the pin's footprint is solid
+(`[CYCLOIDAL-F-OUTPUT-PINS]`):
+`coll = adsk.core.ObjectCollection.create()` holding each `sketch.profiles.item(i)`;
+`ext = component.features.extrudeFeatures.createInput(coll, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)`;
+`ext.setOneSideExtent(adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByString(self.parameterName(PARAM_OUTPUT_PLATE_THICKNESS))), adsk.fusion.ExtentDirections.PositiveExtentDirection)`;
+`component.features.extrudeFeatures.add(ext)`; name the body `'Output Plate'` and stash
+`self.outputPlate`.
 
-Positive is away from the disk here, because the plate plane is above it. Stash the body on
-`self.outputPlate`. The plate spans `[stackTop + 1 mm, stackTop + 1 mm + OutputPlateThickness]`,
-which the proof checks along with its volume.
+The plate is above the disc, so the positive direction is away from it.
 
-**From:** `spec/cycloidal/instructions.md` L595-598, `spec/cycloidal/fusion.md` L387-392
+Record `pinBase = component.bRepBodies.count` **before** S31's extrude; S34 needs it.
 
-## S32 `[GO]` Extrude the output pin, two-sided
+**What the proof holds.** `stepExtrudeOutputPlate` extrudes the plate disc — which is what the
+plate-with-bite and the pin disc come to together — and reads its volume against
+`pi * (OutputPlateDiameter/2)^2 * OutputPlateThickness` and its box spanning the stack top plus
+1 mm to that plus the plate thickness.
 
-Select the **pin disc** — the profile with `profile.profileLoops.count == 1` whose loop curve is the
-pin circle, not an any-loop-contains match, which returns the surrounding plate ring — and extrude it
-both ways as a new body named `'Output Pin'` (`[CYCLOIDAL-F-OUTPUT-PINS]`). Proof function:
-`stepExtrudeOutputPin`.
+`<!-- proof-run: proofkit3d.RunSolidParallel(solidCases, stepExtrudeOutputPlate, assertExtrudeOutputPlate) -->`
 
-<!-- proof-run: proofkit3d.RunSolidParallel(outputSolidCases, stepExtrudeOutputPin, assertExtrudeOutputPin) -->
+**From:** `spec/cycloidal/instructions.md` L595–598; `spec/cycloidal/fusion.md` L387–392
 
-```
-pinExt = component.features.extrudeFeatures.createInput(
-    pinProfile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
-pinExt.setTwoSidesExtent(
-    adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByString(
-        self.parameterName(PARAM_OUTPUT_PLATE_THICKNESS))),
-    adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByString(
-        stackTopExpr + ' + 1 mm')))
-pinFeature = component.features.extrudeFeatures.add(pinExt)
-```
+## S31 `[GO]` Extrude the output pin two-sided — `Output Pin`
 
-Side one, positive, is away from the disk and into the plate, `Output Plate Thickness` of it. Side
-two is toward the disk, `stackTopExpr + ' + 1 mm'`, which reaches disc 0's bottom at `z = 0` so the
-pin runs through **every** disc's output holes. Keep the `ExtrudeFeature` and its body,
-`pinFeature.bodies.item(0)`; S33, S34 and S35 all need them.
+Select the pin disc by `profileLoops.count == 1` and by that loop's curve being the pin circle
+itself (`[PB-PROFILE-MATCH]`, `[CYCLOIDAL-F-OUTPUT-PINS]`). An any-loop-contains search returns the
+surrounding plate ring instead.
 
-The proof checks the far end lands exactly on `z = 0` — short of that and the pin misses the lowest
-disc's holes — and that the pin is the hole less `2E`, the clearance that lets a hole orbiting by `E`
-about it stay clear.
+`pinExt = component.features.extrudeFeatures.createInput(pinProfile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)`;
+`pinExt.setTwoSidesExtent(adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByString(self.parameterName(PARAM_OUTPUT_PLATE_THICKNESS))), adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByString(stackTopExpr + ' + 1 mm')))`;
+`pinFeature = component.features.extrudeFeatures.add(pinExt)`; name the body `'Output Pin'` and keep
+`pinBody = pinFeature.bodies.item(0)`.
 
-**From:** `spec/cycloidal/instructions.md` L599-603, `spec/cycloidal/fusion.md` L393-402
+Side one is away from the disc, into the plate, and is the plate thickness. Side two is toward the
+disc and is `stackTopExpr + ' + 1 mm'`, which lands the pin's lower end on disc 0's bottom face at
+`z = 0`, so one pin threads every disc's output holes.
 
-## S33 `[GO]` Cut the plate socket, keeping the pin
+**What the proof holds.** `stepExtrudeOutputPin` extrudes the same two-sided cylinder and reads its
+volume against `pi * (D_pin/2)^2 * (OutputPlateThickness + stackTop + 1)` and its box, whose lower
+face is `z = 0` — a pin that stopped short would miss the lower disc of a two-disc stack. It also
+checks the relation the orbit rests on: the output hole is wider than its pin by exactly `2E`.
 
-A combine-cut whose tool survives: target `self.outputPlate`, tool an
-`adsk.core.ObjectCollection.create()` holding the pin body, `CutFeatureOperation`, and
-`ci.isKeepToolBodies = True` — which leaves a matching hole in the plate with the pin seated in it
-(`[CYCLOIDAL-F-OUTPUT-PINS]`). Proof function: `stepCutOutputSocket`.
+`<!-- proof-run: proofkit3d.RunSolidParallel(solidCases, stepExtrudeOutputPin, assertExtrudeOutputPin) -->`
 
-<!-- proof-run: proofkit3d.RunSolidParallel(outputSolidCases, stepCutOutputSocket, assertCutOutputSocket) -->
+**From:** `spec/cycloidal/instructions.md` L599–603; `spec/cycloidal/fusion.md` L393–402
 
-```
-tools = adsk.core.ObjectCollection.create()
-tools.add(pinBody)
-ci = component.features.combineFeatures.createInput(self.outputPlate, tools)
-ci.operation = adsk.fusion.FeatureOperations.CutFeatureOperation
-ci.isKeepToolBodies = True
-combineFeature = component.features.combineFeatures.add(ci)
-```
+## S32 `[GO]` Combine-Cut the pin's socket in the plate, keeping the pin
 
-Keep the `CombineFeature`; S35 patterns it alongside the pin. The proof checks the socket removed
-exactly the pin's own footprint through the plate's thickness, leaving one lump, and that the pin is
-that same diameter, so it seats rather than rattling or refusing to enter.
+Keeping the tool is what leaves the pin in place (`[CYCLOIDAL-F-OUTPUT-PINS]`):
+`tools = adsk.core.ObjectCollection.create()`; `tools.add(pinBody)`;
+`ci = component.features.combineFeatures.createInput(self.outputPlate, tools)`;
+`ci.operation = adsk.fusion.FeatureOperations.CutFeatureOperation`;
+`ci.isKeepToolBodies = True`;
+`combineFeature = component.features.combineFeatures.add(ci)`. Keep the `CombineFeature`; S34
+patterns it.
 
-**From:** `spec/cycloidal/instructions.md` L604-605, `spec/cycloidal/fusion.md` L403-405
+`isKeepToolBodies` is what leaves the pin seated in the matching hole instead of consuming it.
 
-## S34 `[GO]` Chamfer the output pin's ends
+**What the proof holds.** `stepCutPinSocket` cuts the socket and reads the plate's volume against
+`pi * (plateRadius^2 − (D_pin/2)^2) * OutputPlateThickness`, which is the plate less exactly one
+pin footprint. Two substitutions are stated at the call: the tool is a cylinder spanning the plate
+alone, run past both of its faces, rather than the pin body itself, whose cap sits inside decad's
+chord tolerance of the plate's and whose extra length below the plate removes nothing; and the pin
+is not left live beside the plate, because decad judges every pair of live bodies and cannot
+classify a touching one. The pin's own geometry is proven by S31.
 
-If `Chamfer Size > 0`, chamfer the pin body's two ends with `self._chamferCapRims(pinBody)`, the same
-helper the rim chamfers use (`[CYCLOIDAL-F-CHAMFERS]`). Keep the returned `ChamferFeature`, which may
-be `None`. Proof function: `stepChamferOutputPinEnds`.
+`<!-- proof-run: proofkit3d.RunSolidParallel(solidCases, stepCutPinSocket, assertCutPinSocket) -->`
 
-<!-- proof-run: proofkit3d.RunSolidParallel(outputSolidCases, stepChamferOutputPinEnds, assertChamferOutputPinEnds) -->
+**From:** `spec/cycloidal/instructions.md` L604–605; `spec/cycloidal/fusion.md` L403–405
 
-The helper's contract, in full, since S36 uses it too:
+## S33 `[GO]` Chamfer the output pin's two ends
 
-- Return `None` immediately when `self.chamferSize <= 0`.
-- `axis = self.plane.geometry.normal` and `ref = self.plane.geometry.origin`.
-- First pass, collecting cap faces with their heights: for each `face` in `body.faces`, skip it unless
-  `face.geometry.surfaceType == adsk.core.SurfaceTypes.PlaneSurfaceType`; take `n = face.geometry.normal`
-  and skip unless `abs(n.dotProduct(axis)) > 0.999`, which keeps the flat faces perpendicular to the
-  axis and drops the side walls; record the axial height `h`, the dot of `face.geometry.origin - ref`
-  with `axis`. `SurfaceTypes` is in `adsk.core`, not `adsk.fusion` (`[PB-ADSK-MODULES]`).
-- Return `None` when nothing was collected. Otherwise take `hmin` and `hmax` over what was.
-- Second pass: chamfer **only the two axially extreme caps**, those with `h` within about `1e-4` cm of
-  `hmin` or `hmax`, and within each, only the loops with `loop.isOuter` — the rim — adding every edge
-  of those loops into an `adsk.core.ObjectCollection.create()`. The extreme filter is what keeps the
-  combined `Housing`'s internal ledge at the base-casing junction out: that ledge is a cap-normal face
-  too, its outer loop is the scalloped contour, and chamfering it throws
-  `RuntimeError ... ASM_BL_CAP_COMPLEX`. For a uniform disc, plate or pin the filter changes nothing,
-  since both caps are extreme.
-- Return `None` when no edge was collected. Otherwise the modern chamfer input shape
-  (`[PB-FILLET-CHAMFER]`: a chamfer's edge set goes on the input's `chamferEdgeSets` collection, unlike
-  a fillet's, which goes on the input itself):
+`chamferFeature = self._chamferCapRims(pinBody)`, before the pattern, so S34 carries the chamfer
+onto every copy. It returns `None` when `Chamfer Size` is 0, and may return `None` when the chamfer
+will not compute; keep whatever it returns.
 
-```
-chamfers = self.getComponent().features.chamferFeatures
-ci = chamfers.createInput2()
-ci.chamferEdgeSets.addEqualDistanceChamferEdgeSet(
-    edges, adsk.core.ValueInput.createByString(self.parameterName(PARAM_CHAMFER_SIZE)), False)
-return chamfers.add(ci)
-```
+`_chamferCapRims(self, body)` is the one helper both this step and S35 use
+(`[CYCLOIDAL-F-CHAMFERS]`):
 
-⚠️ Wrap the `chamfers.add(ci)` call in `try`/`except`: when the requested size is too large for the
-geometry Fusion raises `RuntimeError` from it, and that must not abort the build. On failure,
-`futil.log` the reason, increment `self.chamfersSkipped` and return `None` — never re-raise.
+- return `None` when `self.chamferSize <= 0`;
+- `axis = self.plane.geometry.normal` and `ref = self.plane.geometry.origin`;
+- first pass, collect the cap faces with their axial heights: for each `face` in `body.faces`, skip
+  unless `face.geometry.surfaceType == adsk.core.SurfaceTypes.PlaneSurfaceType`; take
+  `n = face.geometry.normal` and skip unless `abs(n.dotProduct(axis)) > 0.999`; record the axial
+  height `h`, the dot of `face.geometry.origin - ref` with `axis`;
+- return `None` when nothing was collected; otherwise take `hmin` and `hmax` over what was;
+- second pass, chamfer **only** the two axially extreme caps, `h` within about `1e-4` cm of `hmin`
+  or of `hmax`, and within those only each loop with `loop.isOuter`, adding every edge of it into
+  `edges = adsk.core.ObjectCollection.create()`;
+- return `None` when `edges.count == 0`;
+- `chamferFeatures = self.getComponent().features.chamferFeatures` — hold the collection under its
+  own name, so the call below is made against a `ChamferFeatures`, which is the class that declares
+  `createInput2`; `ci = chamferFeatures.createInput2()`;
+  `ci.chamferEdgeSets.addEqualDistanceChamferEdgeSet(edges, adsk.core.ValueInput.createByString(self.parameterName(PARAM_CHAMFER_SIZE)), False)`;
+  `return chamferFeatures.add(ci)` (`[PB-FILLET-CHAMFER]`).
 
-Only the **outer** loop is chamfered, so bores, output holes and sockets stay sharp.
+Wrap the `chamferFeatures.add(ci)` call in `try/except` with `futil.log(<reason>)` on failure: on failure log the reason with `futil.log`,
+increment `self.chamfersSkipped` and return `None`, never re-raise. A chamfer too large for the
+geometry raises `RuntimeError` from Fusion, and the part is already built.
 
-The proof builds the pin, chamfers both end rims, and checks the volume dropped by exactly the two
-rings a 45-degree equal-distance chamfer of that size takes, `pi * c^2 * (r - c/3)` each, with the
-pin's length unchanged. It runs the `Chamfer Size == 0` case too, where the helper returns before it
-selects an edge and the pin is left exactly as extruded.
+The extreme-height filter is what keeps the combined `Housing` buildable in S35 — it has an
+internal ledge at the base-to-casing junction whose outer loop is the scalloped contour, and
+chamfering that throws `ASM_BL_CAP_COMPLEX`. A uniform pin, plate or disc has exactly two cap
+faces, both extreme, so the filter changes nothing for them.
 
-<!-- check-step-calls: ignore _chamferCapRims -->
+**What the proof holds.** `stepChamferPinEnds` chamfers the pin's two circular rims and reads the
+volume against the pin less two chamfer rings, each the solid of revolution of a right triangle
+with legs `Chamfer Size` — by Pappus, `(s^2/2) * 2*pi*(r − s/3)` at the pin's radius `r`. With
+`Chamfer Size` at 0 it reads the pin through unchanged, which is the branch this step returns
+`None` on. It also refuses a chamfer at or past the pin's own radius, which is the pin-end case of
+the resilient-chamfer rule.
 
-**From:** `spec/cycloidal/instructions.md` L606-607 L631-645, `spec/cycloidal/fusion.md` L417-460, `.claude/skills/generate-gear/PLAYBOOK.md` L536-542
+`<!-- proof-run: proofkit3d.RunSolidParallel(solidCases, stepChamferPinEnds, assertChamferPinEnds) -->`
 
-## S35 `[GO]` Pattern the pin, socket and chamfer `M` times
+**From:** `spec/cycloidal/instructions.md` L606–607, L618–645; `spec/cycloidal/fusion.md` L417–460
 
-One pattern carries all three features round the drive axis (`[CYCLOIDAL-F-OUTPUT-PINS]`). Proof
-function: `stepPatternOutputPins`.
+## S34 `[GO]` Circular-pattern the pin, its socket and its chamfer ×M about the Drive Axis
 
-<!-- proof-run: proofkit3d.RunSolidParallel(outputSolidCases, stepPatternOutputPins, assertPatternOutputPins) -->
+`coll = adsk.core.ObjectCollection.create()`; `coll.add(pinFeature)`; `coll.add(combineFeature)`;
+and `coll.add(chamferFeature)` only when S33 returned one;
+`pat = component.features.circularPatternFeatures.createInput(coll, self.driveAxis)`;
+`pat.patternComputeOption = adsk.fusion.PatternComputeOptions.AdjustPatternCompute`;
+`pat.quantity = adsk.core.ValueInput.createByReal(M)`;
+`pat.totalAngle = adsk.core.ValueInput.createByString('360 deg')`; `pat.isSymmetric = False`;
+`component.features.circularPatternFeatures.add(pat)` (`[PB-CIRCULAR-PATTERN]`,
+`[PB-PATTERN-BODIES]`, `[CYCLOIDAL-F-OUTPUT-PINS]`).
 
-```
-coll = adsk.core.ObjectCollection.create()
-coll.add(pinFeature)          # the ExtrudeFeature from S32
-coll.add(combineFeature)      # the socket CombineFeature from S33
-                              # and the ChamferFeature from S34, when it is not None
-pat = component.features.circularPatternFeatures.createInput(coll, self.driveAxis)
-pat.patternComputeOption = adsk.fusion.PatternComputeOptions.AdjustPatternCompute
-pat.quantity = adsk.core.ValueInput.createByReal(M)
-pat.totalAngle = adsk.core.ValueInput.createByString('360 deg')
-pat.isSymmetric = False
-component.features.circularPatternFeatures.add(pat)
-```
+Then name all `M` pin bodies so S36 can group them. The socket Cut adds no body, so the pins are
+the contiguous block `component.bRepBodies.item(pinBase)` through
+`component.bRepBodies.item(pinBase + M - 1)`, with `pinBase` recorded in S30. Rename each:
+`body.name = 'Output Pin {}'.format(k + 1)` for `k` in `0 … M - 1`, which overwrites the seed pin's
+`'Output Pin'` with `'Output Pin 1'`.
 
-The axis is `self.driveAxis` from S23, at `O` — the pins are on the drive axis while the disc's holes
-are on `Od`, both starting from their own `+X` point, so each pin sits in its hole offset by `E`.
+The pins sit on `O` and the holes on `Od`, both starting at the `+X` point, so each pin sits in its
+hole offset by `E`.
 
-**Then name all `M` pin bodies**, which is what S37 groups them by. Capture
-`pinBase = component.bRepBodies.count` **before** S32's pin extrude; the `M` pin bodies are then the
-contiguous block `component.bRepBodies.item(pinBase)` through `item(pinBase + M - 1)`, because the
-socket cut adds no body and only the pin's new-body extrude and its `M - 1` pattern instances do.
-Rename each: `body.name = 'Output Pin {}'.format(k + 1)` for `k` in `0 … M - 1`, which overwrites the
-seed pin's `'Output Pin'`.
+**What the proof holds.** `stepPatternOutputPins` builds the M pins on the output-pin circle about
+`O` and reads each one's volume and box under its own `Output Pin k` name, so a failure says which
+pin is wrong. It then checks that neighbouring pins keep a real gap — the chord between them
+exceeds `D_pin` — which is what the output holes' non-overlap bound buys. The M pins are built as
+M separate bodies rather than patterned from one, since decad has no pattern feature; they are
+disjoint, so the document's own pairwise verdict covers them.
 
-The proof builds the plate carrying all `M` sockets and checks the volume identity, the single lump,
-that every pin centre sits at `Rop` from `O`, and that the plate still covers each of them by `Wall`.
+`<!-- proof-run: proofkit3d.RunSolidParallel(solidCases, stepPatternOutputPins, assertPatternOutputPins) -->`
 
-**From:** `spec/cycloidal/instructions.md` L608-616, `spec/cycloidal/fusion.md` L406-415
+**From:** `spec/cycloidal/instructions.md` L608–616; `spec/cycloidal/fusion.md` L406–415
 
-## S36 `[GO]` Chamfer the outer rims
+## S35 `[GO]` Chamfer the outer rim of every disc, the Housing and the Output Plate
 
-`buildChamfers()` runs once over the finished bodies. If `Chamfer Size == 0`, do nothing at all.
-Otherwise call `self._chamferCapRims(body)` — the helper whose contract S34 sets out — on each of:
-**every** disc in `self.diskBodies`, whose rim is the lobe profile; `self.housingRing`, which is the
-combined `Housing`, base and casing in one body; and `self.outputPlate`. Proof function:
-`stepChamferOuterRims`.
+`buildChamfers` is this generator's own method.
 
-<!-- proof-run: proofkit3d.RunSolidParallel(outputSolidCases, stepChamferOuterRims, assertChamferOuterRims) -->
-
-**Guard each against `None`.** `self.ringCasing` is `None` after S28's Join consumed it, so it is
-skipped, and chamfering only `self.housingRing` covers the whole housing exactly once. Inner edges —
-bores, output holes, the casing's inner contour — are left sharp; outer rim only. The output pins were
-already chamfered inside their own pattern in S34, and the casing's pins are integral bumps that need
-no chamfer of their own.
-
-At the **very end** of `generate()`, after S37, if `self.chamfersSkipped > 0`, show a **non-fatal**
-message and carry on, because the part is already built:
-
-```
-adsk.core.Application.get().userInterface.messageBox(
-    'Cycloidal drive generated, but {n} chamfer(s) could not be created at Chamfer Size {sz} mm '
-    'and were skipped. Reduce Chamfer Size (or set it to 0) for this geometry.'.format(
-        n=self.chamfersSkipped, sz=to_mm(self.chamferSize)))
-```
-
-The proof chamfers the output plate's two rim loops and checks the volume dropped by exactly the two
-rings, with the plate's own span unchanged, and runs the `Chamfer Size == 0` case where nothing is
-chamfered at all. What it does not reach is recorded at `stepChamferOuterRims` in
-`proof/cycloidal/solids_test.go`: the rotor disc's lobe rim, whose self-intersection at the tight
-valleys is the Fusion failure the resilient wrapper exists for, and the combined `Housing`'s rim,
-which the solid engine will not chamfer because a boolean result is not a straight prism.
-
-<!-- check-step-calls: ignore buildChamfers -->
 <!-- check-compile: ignore buildChamfers -->
 
-**From:** `spec/cycloidal/instructions.md` L618-645, `spec/cycloidal/fusion.md` L451-460
+`buildChamfers()` does nothing when `Chamfer Size` is 0 (`[CYCLOIDAL-F-CHAMFERS]`,
+`[PB-FILLET-CHAMFER]`). Otherwise it calls
+`self._chamferCapRims(body)` — the helper S33 describes in full — once for each of: every body in
+`self.diskBodies`, then `self.housingRing`, then `self.outputPlate`. Guard each against `None`
+before calling: `self.ringCasing` is `None` after S27 consumed it into the housing, so the housing
+is chamfered exactly once through `self.housingRing`.
 
-## S37 `[PROSE]` Group the bodies into sub-components and hide the construction geometry
+Only the outer loop of each extreme cap is chamfered, so bores, output holes, sockets and the
+casing's inner contour stay sharp. The rotor disc's outer loop is its lobe profile, which a chamfer
+follows; keep `Chamfer Size` well under the lobe size or it self-intersects at the tight valleys.
+The output pins were already chamfered in S33 and the casing's bumps are integral, so neither needs
+anything here.
 
-`buildSubComponents()` is the **last** step, after every body is built and chamfered, because
-`moveToComponent` invalidates the moved body's reference and every earlier step needs its bodies in
-the Cycloidal Drive component (`[CYCLOIDAL-F-SUBCOMPONENTS]`, `[PB-OCCURRENCE-TREE]`).
+**What the proof holds.** `stepChamferRims` chamfers the Output Plate's two circular rims and reads
+the volume against the plate less two Pappus rings, and reads the plate through unchanged when
+`Chamfer Size` is 0. The rotor disc's rim and the Housing's are not reachable: decad refuses a
+cap-loop chamfer whose corner offset it cannot enclose, which a lobe valley and a contour seam both
+are. `proof/cycloidal/solids_test.go` records that beside the chamfer it does build, and it is the
+same geometry the spec's resilient-chamfer rule exists for — only a Fusion session decides where a
+lobe valley stops accepting one.
 
-**Snapshot first, move second.** Iterate `component.bRepBodies` **once** and bucket every body by
-name into four Python lists — moving mutates that collection, so a loop that moved as it went would
-skip bodies:
+`<!-- proof-run: proofkit3d.RunSolidParallel(solidCases, stepChamferRims, assertChamferRims) -->`
 
-- name starts with `'Cycloidal Disk'` → `Rotor Discs`
-- name equals `'Housing'` → `Housing`
-- name equals `'Eccentric Cam'` → `Eccentric Cam`
-- name equals `'Output Plate'`, or starts with `'Output Pin'` → `Output`
+**From:** `spec/cycloidal/instructions.md` L618–645; `spec/cycloidal/fusion.md` L417–460
 
-Keying by name, not by a stashed handle or a body index, is deliberate: chamfers and combines may have
-refreshed the stashed proxies, and each move shifts every later index. S35 guarantees every pin is
-named `'Output Pin k'`, and S19 and S28 leave the final bodies named `'Eccentric Cam'` and
-`'Housing'`, so every body falls into exactly one bucket.
+## S36 `[PROSE]` Organize the bodies into four sub-components and hide the construction geometry
 
-Then, for each non-empty group in the fixed order `Rotor Discs`, `Housing`, `Eccentric Cam`, `Output`:
+`buildSubComponents` is this generator's own method.
 
-```
-occ = component.occurrences.addNewComponent(adsk.core.Matrix3D.create())
-occ.component.name = <group name>
-for body in group:
-    body.moveToComponent(occ)
-```
-
-The transform must be the **identity** `Matrix3D.create()`, so each body keeps its world position; a
-non-identity transform would shift it. `moveToComponent` returns the relocated body or `None` on
-failure — ignore the return and never reuse the pre-move reference. No new parameters, sketches or
-dimensions are created here, and the construction planes and axes stay in the root Cycloidal Drive
-component.
-
-**Finally, hide the construction geometry** with the shared helper, which recursively walks the
-component and its new sub-occurrences and turns off every sketch, construction plane and construction
-axis: `solids.hide_construction_geometry(component)`. Do not re-implement it — a private equivalent is
-a helper-shadow rejection (`[PB-TREE-CLEANUP]`). One call supersedes any per-axis
-`isLightBulbOn = False`; note that a construction plane or axis is hidden by `isLightBulbOn`, never by
-`isVisible`, which is what hides a sketch (`[PB-HIDE-AFTER-USE]`). Only the solid bodies stay visible.
-
-<!-- check-step-calls: ignore buildSubComponents -->
 <!-- check-compile: ignore buildSubComponents -->
 
-**From:** `spec/cycloidal/instructions.md` L374-379 L647-667, `spec/cycloidal/fusion.md` L508-544, `.claude/skills/generate-gear/PLAYBOOK.md` L626-638 L784-787 L802-804
+`buildSubComponents()` runs last, after every body exists and every chamfer is done, because
+`moveToComponent` invalidates the moved body's reference and the earlier steps still need the
+bodies in the Cycloidal Drive component (`[CYCLOIDAL-F-SUBCOMPONENTS]`).
+
+Snapshot first, move second. Walk `component.bRepBodies` **once** and bucket each body by name into
+four Python lists, because moving mutates that collection and a loop over it would skip bodies:
+
+- name starts with `'Cycloidal Disk'` → **`Rotor Discs`**;
+- name equals `'Housing'` → **`Housing`**;
+- name equals `'Eccentric Cam'` → **`Eccentric Cam`**;
+- name equals `'Output Plate'` or starts with `'Output Pin'` → **`Output`**.
+
+Then, for each non-empty group in that order:
+`occ = component.occurrences.addNewComponent(adsk.core.Matrix3D.create())` — an identity transform,
+so each body keeps its world position — `occ.component.name = <group name>`, and
+`body.moveToComponent(occ)` for each body in the list. Ignore the return; the body has already
+moved, and the pre-move reference must not be reused.
+
+Finally call `solids.hide_construction_geometry(component)`, the shared helper, which walks the
+component and its new sub-occurrences and turns off the light bulb on every sketch, construction
+plane and construction axis, leaving only the solid bodies visible (`[PB-TREE-CLEANUP]`,
+`[PB-HIDE-AFTER-USE]`). Do not re-implement it.
+
+Sub-components, occurrences and visibility are browser-tree state with no geometry of their own,
+and `moveToComponent` preserves each body's world position, which is the one thing that could
+change and the thing neither harness has an occurrence tree to represent. That is why this step is
+`[PROSE]`; `proof/cycloidal/solids_test.go` reads each finished body's world box in the step that
+builds it, which is the position the move has to preserve.
+
+**From:** `spec/cycloidal/instructions.md` L647–667; `spec/cycloidal/fusion.md` L508–544
