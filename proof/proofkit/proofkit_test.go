@@ -117,8 +117,8 @@ func TestRunWithExpectedFailuresRejectsWrongExpectations(t *testing.T) {
 	}
 
 	for _, tc := range []struct{ name, want string }{
-		{"wrong-dof", "DOF=1, got status="},
-		{"wrong-reason", "expected exactly one reason matching"},
+		{"wrong-dof", "verify: DOF is 2, want 1"},
+		{"wrong-reason", "verify: report contains disallowed reasons"},
 		{"empty-failures", "proofkit: no expected-failure cases"},
 		{"failed-positive", "proofkit: case \"positive\" created no authored geometry"},
 	} {
