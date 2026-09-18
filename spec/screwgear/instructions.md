@@ -246,7 +246,7 @@ User inputs in dialog order. All linear inputs are mm; the mounting angles are d
 | Boss Taper | `bossTaper` | mm | 0.9 |
 | Boss Height | `bossGrow` | mm | 0.6 |
 | Cage Radius | `cageRadius` | mm | 15 |
-| Cage Rise | `cageRise` | mm | 20 |
+| Cage Rise | `cageRise` | mm | 18 |
 | Shell Thickness | `shellThick` | mm | 3 |
 | Plate Thickness | `plateThick` | mm | 2 |
 | Post Width | `postWidth` | mm | 3 |
@@ -390,20 +390,24 @@ same rectangular section about `n̂`, so every outside face lands on that one cy
   `postWidth` wide along most of its length and **widens only where its bore needs it**, running
   back out into the plain width before it reaches either plate.
 
-  The width at each height is `bore width there + blockWall`, **measured rather than derived**,
-  because the bore is a twisted channel through a wall it is not aligned with. `postPiece` in the
-  proof is that measurement. A post of one width would either be too narrow at its bore or carry
-  material it does not need everywhere else, and a separate block sitting on a narrow post leaves a
-  step at the join that reads as a gap.
+  **The widening is a plain box**: one width, held over the bore's whole height, with straight
+  vertical sides. It does not follow the bore's own outline height by height. A twisted bore's
+  outline zig-zags, and a wall cut to it would be a row of notches — weaker, uglier and harder to
+  print than the straight wall that costs a little more material. What the box has to be is
+  **measured rather than derived**, because the bore is a twisted channel through a wall it is not
+  aligned with, and `postPiece` in the proof is that measurement.
 
   **`blockWall` is 3 mm and that is a floor, not a preference.** Less than that leaves the frame a
   shell exactly where it is most worked, at the one place it holds a gear.
 
-  **The widening is then held to 45°.** A post that widens faster than it rises leaves its new
-  material hanging off nothing, and a filament printer will not bridge that. Take each height's
-  width as the largest any other height demands, less the distance between them: that is a 45° ramp
-  either side of every bulge, and it is what sets `cageRise`, because the ramps have to run out
-  before the plates.
+  **The box is ramped at 45°, on its underside only.** A print is built upward, so what will not
+  bridge is material appearing above nothing: widening as the post rises is that case and is ramped,
+  while narrowing again is not, because what is left rests on what is under it. So a bulge has a
+  ramp beneath it and a square shelf on top.
+
+  A ramp may run into a plate. A plate goes the whole way round, so a post still widening where it
+  meets one merges into material that is already there, and requiring the ramp to finish first only
+  makes the cage taller for nothing.
 
 **Bore each post with a twisted clearance ribbon** (`[SCREW-F-TWISTED-SLOT]`): loft five rectangles
 of `(W + 2*bossGrow + 2*clearance)` by `(T + 2*bossGrow + 2*clearance)` on planes along that gear's
@@ -454,8 +458,9 @@ and it is cheap enough to run the search a few million times. The package import
 - `TestPostsRunUnbrokenIntoThePlates` walks each post's whole height and fails on any break in it,
   and requires the widening to have run out before the plate. `TestPostsAreNarrowAwayFromTheirBores`
   requires the widening to earn its material, at no more than half the bore's width at the plate.
-- `TestPostsNeverOverhang` is the printing rule: it walks the width profile and fails on any step
-  steeper than 45°. `TestBoresKeepTheirWall` walks every height of every post and fails if the
+- `TestPostsNeverOverhang` is the printing rule: it walks the width profile and fails on any
+  WIDENING step steeper than 45°, and passes a narrowing of any steepness, which is the asymmetry a
+  print built upward has. `TestBoresKeepTheirWall` walks every height of every post and fails if the
   material round a bore drops under 3 mm.
 - `TestTheMiddleStaysOpen` keeps the frame out of the space the gears mesh in.
 - `TestStrokeIsTheBossLength` and `TestTeethNeverReachABore` hold the boss: the travel is 2.5 teeth,

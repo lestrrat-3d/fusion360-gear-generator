@@ -65,9 +65,14 @@ each end, and four posts between them. A post runs 3.00 mm wide for most of its 
 to 14.20 mm only where its bore needs it, running back out into the plain width before it reaches
 either plate, so there is no step at the join and no gap.
 
-**Two printing rules shape that widening.** It never rises steeper than 45°, because a filament
+The widening is a plain box with straight vertical sides, held over the bore's whole height. It does
+not follow the bore's own outline, which zig-zags, because a wall cut to that would be a row of
+notches.
+
+**Two printing rules shape it.** It never widens faster than 45° as it rises, because a filament
 printer will not bridge a shallower surface, and it never leaves under 3 mm of material round a
-bore. The ramps are what make the cage 40 mm tall: they have to run out before the plates. Each post sits where one ribbon crosses the cylinder
+bore. Only widening is ramped: a print is built upward, so a bulge gets a ramp beneath it and a
+square shelf on top. Each post sits where one ribbon crosses the cylinder
 and carries a **bore** that ribbon passes through. Two posts are bored low and two high, so the two
 gears pass at different heights and their teeth meet in the middle.
 
@@ -117,7 +122,7 @@ four tooth pairs land in the engaged zone at once and cannot all interdigitate, 
 | Bore angle | 15° off upright, which is the best the mounting angles allow |
 | Play in the frame | a bore jams a gear 3.21° out of step |
 | Stroke | 5.03 mm, or 2.9 teeth |
-| Post width | 3.00 mm, widening to 14.20 mm at a bore, on 45° ramps |
+| Post width | 3.00 mm, widening to 14.20 mm at a bore, ramped at 45° underneath |
 | Wall round a bore | 3 mm everywhere |
 
 `TestPairDrivesOneToOne` is where the first four come from. It tracks the interval of gear B's

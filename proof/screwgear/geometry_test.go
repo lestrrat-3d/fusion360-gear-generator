@@ -67,7 +67,7 @@ func defaultParams() Params {
 		BossGrow:  0.6,
 
 		CageRadius: 15,
-		CageRise:   20,
+		CageRise:   18,
 		ShellThick: 3,
 		PlateThick: 2,
 		PostWidth:  3,

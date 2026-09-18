@@ -91,13 +91,18 @@ func (q piece) holds(p Params, pt r3.Vec) bool {
 	return math.Min(d, 2*math.Pi-d) <= q.halfAngleAt(pt.Z)
 }
 
-// postPiece is one post: a column running the full height, whose width FOLLOWS
-// its bore. It is widest where the bore is widest and narrows to PostWidth
-// everywhere else, so it meets the plates at both ends with no step and carries
-// no material it does not need.
+// postPiece is one post: a column running the full height, which widens where
+// its bore needs it and narrows to PostWidth everywhere else, so it meets the
+// plates at both ends with no step.
 //
-// The width at each height is measured rather than derived, because the bore is
-// a twisted channel through a wall it is not aligned with.
+// The widening is a PLAIN BOX: one width, held over the bore's whole height,
+// with a 45 degree ramp at each end down to the plain post. It does not follow
+// the bore's own outline height by height. A twisted bore's outline zig-zags,
+// and a wall cut to it would be a row of notches — weaker, uglier, and harder
+// to print than the straight wall that costs a little more material.
+//
+// What the box has to be is measured rather than derived, because the bore is a
+// twisted channel through a wall it is not aligned with.
 func postPiece(g Gear, station float64) piece {
 	p := g.P
 	const step = 0.1
@@ -119,22 +124,44 @@ func postPiece(g Gear, station float64) piece {
 				}
 			}
 		}
-		half[j] = p.PostWidth / 2
+		half[j] = 0
 		if widest > 0 {
-			half[j] = math.Max(p.PostWidth/2, widest+p.BlockWall)
+			half[j] = widest + p.BlockWall
 		}
 	}
 
-	// Hold the widening to 45 degrees. A post that widens faster than it rises
-	// leaves its new material hanging off nothing, and a filament printer will
-	// not bridge that. Taking each height's width as the largest any other
-	// height demands, less the distance between them, is exactly a 45 degree
-	// ramp either side of every bulge.
+	// Square the bulge off: one width over one stretch of height, both taken
+	// from what the bore needs at its worst.
+	wide, lo, hi := 0.0, math.Inf(1), math.Inf(-1)
+	for j, h := range half {
+		if h == 0 {
+			continue
+		}
+		z := -p.CageRise + float64(j)*step
+		wide = math.Max(wide, h)
+		lo, hi = math.Min(lo, z), math.Max(hi, z)
+	}
+	for j := range half {
+		z := -p.CageRise + float64(j)*step
+		half[j] = p.PostWidth / 2
+		if z >= lo-p.BlockWall && z <= hi+p.BlockWall {
+			half[j] = math.Max(half[j], wide)
+		}
+	}
+
+	// Hold the widening to 45 degrees, on the underside only.
+	//
+	// A print is built upward, so material that appears above nothing is what
+	// will not bridge. Widening as the post rises is that case and is ramped;
+	// narrowing again is not, because what is left rests on what is under it,
+	// so a bulge may end in a flat shelf. Taking each height's width as the
+	// largest any height ABOVE demands, less the distance up to it, is exactly
+	// a 45 degree ramp under every bulge and a square top on it.
 	ramped := make([]float64, n)
 	for j := range n {
-		want := 0.0
-		for k := range n {
-			want = math.Max(want, half[k]-math.Abs(float64(j-k))*step)
+		want := half[j]
+		for k := j; k < n; k++ {
+			want = math.Max(want, half[k]-float64(k-j)*step)
 		}
 		ramped[j] = want / p.CageRadius
 	}
@@ -218,12 +245,13 @@ func TestBoresSitOnOppositeSidesOfTheMiddle(t *testing.T) {
 	}
 }
 
-// A post runs from plate to plate with no break in it, and the width it carries
-// round its bore has to run out into the plain post before the plate, or the
-// frame reads as a slab floating between two rings.
+// A post runs from plate to plate with no break in it.
 //
-// This walks each post's whole height and fails on any gap, and reports where
-// the widening starts and stops.
+// It does NOT have to be back to its plain width by the time it reaches a
+// plate. A plate runs the whole way round, so a post still widening where it
+// meets one merges into material that is already there: no step, no gap, and
+// nothing unsupported. Requiring the ramp to finish first only made the cage
+// taller for nothing.
 func TestPostsRunUnbrokenIntoThePlates(t *testing.T) {
 	ga, gb := defaultPair()
 	p := ga.P
@@ -246,10 +274,7 @@ func TestPostsRunUnbrokenIntoThePlates(t *testing.T) {
 					wideHi = z
 				}
 			}
-			if wideLo <= -p.CageRise+p.PlateThick || wideHi >= p.CageRise-p.PlateThick {
-				t.Errorf("the post at %.0f degrees is still widening at the plate, from %.2f to %.2f",
-					q.azimuth*180/math.Pi, wideLo, wideHi)
-			}
+			_, _ = wideLo, wideHi
 		}
 	}
 	t.Logf("each post runs the full %.1f mm, widening only round its bore", 2*p.CageRise)
@@ -257,10 +282,11 @@ func TestPostsRunUnbrokenIntoThePlates(t *testing.T) {
 
 // Nothing on the frame may hang off nothing. A filament printer will not bridge
 // a surface shallower than 45 degrees, and the one place the frame could offer
-// one is where a post widens round its bore.
+// one is where a post widens as it rises.
 //
-// The check is on the profile itself: half a millimetre more width per
-// millimetre of height is a 45 degree ramp, and anything steeper is an overhang.
+// Only widening counts. A print is built upward, so what will not bridge is
+// material appearing above nothing; where a bulge ends and the post narrows
+// again, what is left rests on what is under it, and that shelf prints.
 func TestPostsNeverOverhang(t *testing.T) {
 	ga, gb := defaultPair()
 	p := ga.P
@@ -270,7 +296,7 @@ func TestPostsNeverOverhang(t *testing.T) {
 			q := postPiece(g, station)
 			for j := 1; j < len(q.half); j++ {
 				rise := q.step
-				run := math.Abs(q.half[j]-q.half[j-1]) * p.CageRadius
+				run := (q.half[j] - q.half[j-1]) * p.CageRadius
 				if run > rise+1e-9 {
 					t.Fatalf("the post at %.0f degrees widens %.3f mm over %.3f mm of height, "+
 						"which is steeper than 45 degrees", q.azimuth*180/math.Pi, run, rise)
