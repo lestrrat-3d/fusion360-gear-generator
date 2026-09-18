@@ -6,9 +6,12 @@
 // DOF 0 here is a specification defect, found in seconds rather than in a Fusion
 // session.
 //
-// The split is deliberate. proofkit runs and judges; it holds no gear geometry.
-// A cycloidal proof has no involute in it, so shared tooth math belongs in its
-// own package that the gears which need it import.
+// The split is deliberate. proofkit runs the cases and gates them; it holds no
+// gear geometry. A cycloidal proof has no involute in it, so shared tooth math
+// belongs in its own package that the gears which need it import. Nor does it
+// hold any verification logic of its own: solving, verification and the
+// assertions on a declared failure all go through sketchtest, so the verdict
+// stays the engine's.
 //
 // A gear's proof is a table of parameter cases and a build function:
 //
@@ -20,8 +23,6 @@
 package proofkit
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"maps"
 	"sort"
@@ -30,6 +31,7 @@ import (
 	"testing"
 
 	"github.com/lestrrat-3d/sketch"
+	"github.com/lestrrat-3d/sketch/sketchtest"
 )
 
 // Case is one parameter set to prove the scheme against. Name becomes the
@@ -104,33 +106,23 @@ func RunWithExpectedFailures(t *testing.T, cases []Case, build Build, failures [
 			if len(s.Points()) == 0 && len(s.Entities()) == 0 {
 				t.Fatalf("proofkit: case %q created no authored geometry", f.Case.Name)
 			}
-			res, rep, err := solveVerify(s)
-			if err != nil {
-				t.Fatalf("expected controlled failure to solve: %v", err)
-			}
+			res, rep := solveVerify(t, s)
 			if !res.Converged {
 				t.Fatalf("expected controlled failure to converge: residual %.3e, DOF %d", res.Residual, res.DOF)
 			}
-			if !rep.Analysed() || !rep.Solvable {
-				t.Fatalf("expected analysed, solvable report: %s", detail(s, rep))
+			if !rep.Solvable {
+				t.Fatalf("expected a solvable report: %s", detail(s, rep))
 			}
-			if rep.Status != f.Expected.Status || rep.DOF != f.Expected.DOF {
-				t.Fatalf("expected status=%s DOF=%d, got status=%s DOF=%d\n%s",
-					f.Expected.Status, f.Expected.DOF, rep.Status, rep.DOF, detail(s, rep))
-			}
-			if len(rep.Conflicts) != 0 || len(rep.Redundant) != 0 || !rep.ProfilesValid ||
-				!rep.ParametersValid || rep.Stale || len(rep.BrokenReferences) != 0 || rep.ForeignHandles ||
-				len(rep.NonFinitePoints)+len(rep.NonFiniteEntities)+len(rep.NonFiniteDimensions)+len(rep.NonFiniteConstraints) != 0 {
-				t.Fatalf("expected only the declared failure, got:\n%s", detail(s, rep))
-			}
-			reasons := rep.Check()
-			if reasons == nil {
-				t.Fatalf("expected verification failure %v", f.Expected.Reason)
-			}
-			unwrapped := reasons.Unwrap()
-			if len(unwrapped) != 1 || f.Expected.Reason == nil || !errors.Is(unwrapped[0], f.Expected.Reason) {
-				t.Fatalf("expected exactly one reason matching %v, got %v\n%s", f.Expected.Reason, unwrapped, detail(s, rep))
-			}
+			sketchtest.HasStatus(t, rep, f.Expected.Status)
+			sketchtest.HasDOF(t, rep, f.Expected.DOF)
+			// The declared reason has to be the only thing wrong with the sketch.
+			// HasOnlyReasons refuses every other condition of the engine's verdict,
+			// including one the engine adds to it later; the field-by-field sweep
+			// this replaced would have kept passing, silently, on such a condition.
+			// FindReasons then confirms the declared reason is genuinely there,
+			// which HasOnlyReasons alone does not ask.
+			sketchtest.HasOnlyReasons(t, rep, f.Expected.Reason)
+			sketchtest.FindReasons(t, rep, f.Expected.Reason)
 		})
 	}
 }
@@ -243,12 +235,17 @@ func Unmodelled(t testing.TB, format string, args ...any) {
 // A failure reports what the solver found rather than classifying the cause.
 // Whether the geometry is wrong or the order of operations is wrong is a
 // judgement for whoever reads it.
+//
+// The verdict is read off the report here rather than delegated to
+// [sketchtest.IsTrustworthy], which decides the same thing. A gear proof that
+// fails has to say which constraints fight, which points are still free and
+// whether the scheme is ambiguous, and [detail] below is where that comes from;
+// the engine's reasons name the failed condition but not the geometry behind
+// it. Every reason the engine gives is still reported, each with Error rather
+// than Fatal, so that detail is logged after them rather than cut off.
 func RequireSound(t testing.TB, s *sketch.Sketch) {
 	t.Helper()
-	res, rep, err := solveVerify(s)
-	if err != nil {
-		t.Fatalf("solve failed: %v", err)
-	}
+	res, rep := solveVerify(t, s)
 	if !res.Converged {
 		t.Fatalf("solver did not converge: residual %.3e, DOF %d, %d redundant",
 			res.Residual, res.DOF, res.Redundant)
@@ -264,13 +261,17 @@ func RequireSound(t testing.TB, s *sketch.Sketch) {
 	t.Log(detail(s, rep))
 }
 
-func solveVerify(s *sketch.Sketch) (*sketch.Result, *sketch.VerificationReport, error) {
-	ctx := context.Background()
-	res, err := s.Solve(ctx)
-	if err != nil {
-		return res, nil, err
-	}
-	return res, s.Verify(ctx, sketch.WithProbe()), nil
+// solveVerify solves s and verifies it with the probe, failing t if the solver
+// itself errors. Both halves go through sketchtest, so the test's own context
+// bounds them and a solver error is reported the same way everywhere.
+//
+// The probe is not optional. Without it the report cannot say whether more than
+// one discrete configuration satisfies the constraints, and every caller here
+// gates on that.
+func solveVerify(t testing.TB, s *sketch.Sketch) (*sketch.Result, *sketch.VerificationReport) {
+	t.Helper()
+	res := sketchtest.Solve(t, s)
+	return res, sketchtest.Verify(t, s, sketch.WithProbe())
 }
 
 // detail adds the specifics behind a failed condition. Check names what failed;
