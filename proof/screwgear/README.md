@@ -58,10 +58,10 @@ stand near upright.
 
 ## The frame
 
-![The cage: two flat plates, four square posts, each post bored, with a gear through it](images/cage.png)
+![The cage: one turned wall left as two plates and four bored posts, with a gear through it](images/cage.png)
 
 The frame with one gear left in it. It is a short tube with most of its wall gone: a flat plate at
-each end, and four posts standing between them. Each post sits where one ribbon crosses the cylinder
+each end, and four posts between them, each widening into a block around its bore. Each post sits where one ribbon crosses the cylinder
 and carries a **bore** that ribbon passes through. Two posts are bored low and two high, so the two
 gears pass at different heights and their teeth meet in the middle.
 
@@ -70,11 +70,12 @@ and twisted at the ribbon's own lead, so a gear that turns without advancing jam
 `TestBoresAdmitOnlyTheScrewMotion` measures that: 3.21° out of step and the gear locks. A frame of
 round holes would report no jam at any angle, which is the case that rules out.
 
-**Everything outside is square to the cage, even though the bore inside is not.** The plates have
-flat, level faces, the posts are square bars and a block is a brick with radial, tangential and
-level faces. A part whose outside is square prints better than one whose every face is skewed, and
-the skew the mechanism needs is all inside the bore. Nothing stands proud of a plate's outer face,
-which is the surface a print stands on.
+**Every outside face lies on one cylinder.** The plates, the posts and the blocks are all pieces of
+the same wall, differing only in how far round and how far up each runs, so nothing stands proud of
+anything else and the outside reads as one turned surface rather than bars stuck onto plates.
+`TestNothingStandsProudOfTheShell` holds it: the whole frame lies between radius 13.50 and 16.50.
+The plates' top and bottom faces are flat and level, and they are what a print stands on. Only the
+bore inside is skewed, which is the skew the mechanism actually needs.
 
 **What passes through a bore is never a tooth.** The ribbon swells into a smooth boss at each of the
 two places it crosses the cage, and the bore is cut to the boss. That is why the frame is plain

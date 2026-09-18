@@ -40,12 +40,11 @@ type Params struct {
 	BossTaper float64 // how far the boss takes to run out into the teeth
 	BossGrow  float64 // how far the boss stands proud of the plain ribbon
 
-	CageRadius float64 // where the cage stands, and so where each bore sits
+	CageRadius float64 // where each bore's centre sits, measured from the cage axis
 	CageRise   float64 // half the cage's height, to the outer face of a plate
-	PlateThick float64 // how thick the end plates are
-	PlateWall  float64 // how far a plate reaches in from the cage radius
-	PostBar    float64 // thickness of a post away from its block
-	BlockDepth float64 // how far a block runs radially
+	ShellThick float64 // how thick the frame's wall is, everywhere
+	PlateThick float64 // how tall an end plate's band is
+	PostWidth  float64 // how wide a post is round the cage
 	BlockWall  float64 // material left round a bore
 	Clearance  float64 // added all round a bore
 }
@@ -69,10 +68,9 @@ func defaultParams() Params {
 
 		CageRadius: 15,
 		CageRise:   16,
+		ShellThick: 3,
 		PlateThick: 2,
-		PlateWall:  3,
-		PostBar:    2.4,
-		BlockDepth: 3,
+		PostWidth:  3,
 		BlockWall:  2.5,
 		Clearance:  0.3,
 	}
@@ -86,6 +84,17 @@ func (p Params) BoreHalfWidth() float64 { return p.Width/2 + p.BossGrow + p.Clea
 func (p Params) BoreHalfThickness() float64 {
 	return p.Thickness/2 + p.BossGrow + p.Clearance
 }
+
+// CageOuter and CageInner are the frame's one outer surface and the depth
+// everything reaches in to.
+//
+// Every outside face of the frame lies on ONE cylinder. The plates, the posts
+// and the blocks are all pieces of the same wall, differing only in how far
+// round and how far up they run, so nothing stands proud of anything else and
+// the whole outside is a single turned surface. A block reaching outward, or a
+// square post on a round plate, leaves corners sticking out of that surface.
+func (p Params) CageOuter() float64 { return p.CageRadius + p.ShellThick/2 }
+func (p Params) CageInner() float64 { return p.CageOuter() - p.ShellThick }
 
 // boreStations are where a gear's two bores sit on its own axis: the two places
 // it crosses the cage.

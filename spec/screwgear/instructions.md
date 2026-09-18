@@ -26,10 +26,11 @@ The three parts are:
   that ribbon passes through. The two posts of one gear are bored low and the two of the other high,
   so the gears meet in the middle, where nothing of the frame blocks the view of them.
 
-  **Everything outside is square to the cage, even though the bore inside is not.** The plates have
-  flat, level faces, and a block is a brick whose faces are radial, tangential and level. A part
-  whose outside is square to the build plate prints better than one whose every face is skewed, and
-  the skew the mechanism needs is all inside the bore.
+  **Every outside face lies on one cylinder.** The plates, the posts and the blocks are all pieces
+  of the same wall, differing only in how far round and how far up each runs, so nothing stands
+  proud of anything else and the whole outside is a single turned surface. The plates' top and
+  bottom faces are flat and level, and they are what a print stands on. Only the bore inside is
+  skewed, which is the skew the mechanism actually needs.
 
   The bore is what makes each gear's motion a screw motion rather than a free slide. It is cut to
   the ribbon's own cross-section and twisted at the ribbon's own lead, so a gear that turns without
@@ -246,10 +247,9 @@ User inputs in dialog order. All linear inputs are mm; the mounting angles are d
 | Boss Height | `bossGrow` | mm | 0.6 |
 | Cage Radius | `cageRadius` | mm | 15 |
 | Cage Rise | `cageRise` | mm | 16 |
+| Shell Thickness | `shellThick` | mm | 3 |
 | Plate Thickness | `plateThick` | mm | 2 |
-| Plate Wall | `plateWall` | mm | 3 |
-| Post Bar | `postBar` | mm | 2.4 |
-| Block Depth | `blockDepth` | mm | 3 |
+| Post Width | `postWidth` | mm | 3 |
 | Block Wall | `blockWall` | mm | 2.5 |
 | Clearance | `clearance` | mm | 0.3 |
 | Target Plane | `plane` | selection | — |
@@ -380,35 +380,30 @@ zero for `k >= 1`, so no guard is needed here, but do not "optimize" a `k = 0` c
 
 ### 4: The cage
 
-Build the two plates, then the four posts, then the block on each post, then bore them.
+The frame is **one cylindrical wall** of `shellThick`, from `cageOuter = cageRadius + shellThick/2`
+inward, with material left only where it is needed. Build each piece as a partial revolve of the
+same rectangular section about `n̂`, so every outside face lands on that one cylinder.
 
-**The plates** are flat annuli: revolve a rectangle of `plateThick` by `plateWall` about `n̂` at the
-cage radius, at `±cageRise`. Their outer faces are the two surfaces a print stands on, so they are
-level and nothing may stand proud of them (`TestBlocksStayInsideThePlates`).
-
-**The posts** stand at the four azimuths where the ribbons cross the tube: each gear's axis
-direction and its opposite. A post is a **square** bar of `postBar`, one face radial and one
-tangential, running from the bottom plate to the top so every post meets both
-(`TestPostsReachBothPlates`).
-
-**Each post carries a block** around its bore: a brick squared to the cage, `blockDepth` deep
-radially, and sized in the other two directions by **measuring what the bore occupies there and
-adding `blockWall`**. That measurement is not a closed form worth deriving: the bore is a twisted
-channel through a brick that is not aligned with it, so what it takes up in the brick's own
-directions has to be sampled. `blockAt` in the proof is that measurement.
+- **The plates** run the whole way round, `plateThick` tall, at each end. Their outer faces are
+  level and they are what a print stands on.
+- **The posts** run the full height at the four azimuths where the ribbons cross, `postWidth` wide.
+- **The blocks** are wider, shorter pieces of the same wall around each bore. Size them by
+  **measuring what the bore occupies in azimuth and height** and adding `blockWall`; that is not a
+  closed form worth deriving, because the bore is a twisted channel through a wall it is not aligned
+  with. `blockAt` in the proof is that measurement.
 
 **Bore each post with a twisted clearance ribbon** (`[SCREW-F-TWISTED-SLOT]`): loft five rectangles
 of `(W + 2*bossGrow + 2*clearance)` by `(T + 2*bossGrow + 2*clearance)` on planes along that gear's
 axis, each rotated by `s/Lambda + Phi` exactly as the tooth cell's sections are, spanning the whole
-post rather than only the block. **The whole post, not just the block**: a post is solid bar above
+post rather than only the block. **The whole post, not just the block**: a post is solid wall above
 and below its block, and the ribbon has to get past that too.
 
-**The bore has to twist; a straight hole binds.** Over a block of depth `tau` the ribbon turns by
+**The bore has to twist; a straight hole binds.** Over a wall of thickness `tau` the ribbon turns by
 `tau/Lambda`, so its corner sweeps `(W/2)*(tau/Lambda)` across the opening. At the defaults that is
 3.32 mm against 0.3 mm of clearance.
 
 **The bore is cut to the boss, never to a tooth.** That is the whole reason the ribbon carries a
-boss: the frame is plain bar and plain bricks, and nothing in it is shaped like a tooth.
+boss: the frame is a plain turned wall, and nothing in it is shaped like a tooth.
 
 ### 5: Relocate the bodies
 
@@ -441,6 +436,8 @@ and it is cheap enough to run the search a few million times. The package import
   the ribbon and the ribbon is invariant under its own screw motion.
 - `TestPostsReachBothPlates` and `TestBoresSitOnOppositeSidesOfTheMiddle` hold the frame's shape:
   one body, and one gear's bores low against the other's high.
+- `TestNothingStandsProudOfTheShell` holds the whole outside to one cylinder, which is the defect
+  that a square post on a round plate, or a block reaching outward, would leave.
 - `TestBlocksStayInsideThePlates` keeps a block off the two faces a print stands on, and
   `TestTheMiddleStaysOpen` keeps the frame out of the space the gears mesh in.
 - `TestStrokeIsTheBossLength` and `TestTeethNeverReachABore` hold the boss: the travel is 2.5 teeth,
