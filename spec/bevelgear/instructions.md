@@ -7,14 +7,24 @@ by anchor (`[BEVEL-F…]`). Cross-gear Fusion conventions are cited as `[PB-…]
 and the spiral-tooth geometry derivation is in `spiral-tooth-trace.md`. Read them together; the
 cited rules are as binding as this body.
 
-**Sketch-first status (`[PB-SKETCH-FIRST]`) — a waiver, not a proof.** Bevel has **no**
-`spec/bevelgear/sketch/` bench proof: the constrained Gear Profiles (§2) sketch predates the
-sketch-first gate, and its constraint scheme has only been exercised inside Fusion, where the
-runtime `[BEVEL-F-FULL-CONSTRAINT]` gate passes on the working builds. The `[PB-SKETCH-FIRST]`
-gate is therefore **waived** for bevel as it stands: a regen keeps the §2 constraint scheme exactly
-as specified here (it may not invent a new scheme, and may not claim bench-proven status).
-Reproducing §2 in the standalone sketch engine is future work; when that proof lands under
-`spec/bevelgear/sketch/`, it replaces this waiver.
+**Sketch-first status (`[PB-SKETCH-FIRST]`) — the waiver is retired; bevel is bench-proven.** Every
+constraint-bearing sketch this gear authors is reproduced in the standalone sketch engine at
+`proof/bevelgear/sketches_test.go`, which is where `[PB-SKETCH-FIRST]` puts a gear's sketch proof —
+never under `spec/bevelgear/sketch/`, a path the pipeline has never used and which earlier revisions
+of this paragraph named as the condition for lifting the waiver. `TestGearProfiles` runs the §2
+lattice, and `TestAnchorSketch`, `TestToothProfile`, `TestProfileSketch` and `TestBoreSketch` run
+the other four, each registered from the compiled step list and each through `proofkit`'s gate, which asks for
+DOF 0 with nothing redundant, nothing conflicting and the conditioning above the engine's floor. So
+a regen may state that the §2 scheme is bench-proven, and the earlier instruction to keep the scheme
+exactly as written now rests on that proof rather than on a waiver: **change the §2 constraint
+scheme only together with the proof that holds it**, and a change that fails `TestGearProfiles` is a
+defect in the change.
+
+What the bench proof does not reach is unchanged and is recorded where it bites: it seeds at the
+closed form, so it proves the constraints solve from a correct seed and never that the generated
+module's seed is correct (see the toe-line seeding in §2 and "Proving the §2 figure" below), and a
+configuration this lattice refuses on conditioning stays in the case table as a declared refusal
+rather than narrowing the range this spec states.
 
 ## Component Setup
 
@@ -50,6 +60,33 @@ so that `acos` is a hard singularity and the range check must reject a Shaft Ang
 The reason is measured. Three independently written lattices, each built from this spec, each holding DOF 0 with nothing redundant, and each asserting its solved cone angles against the closed form to nine decimals, do not agree about which end of the range is reachable. Two of the three refuse the default pair at 30° (`2.83e-5` and `2.94e-5`), first clear at 35°, and pass 142° (`9.85e-5`) and 150° (`4.07e-5`). The third does the opposite: it passes 30° and refuses 142° (`3.96e-5`) and 150° (`2.49e-5`). The two that agree do so to within 4% at every angle, so the odd one out is the single net rather than the measurement. They differ in construction — the outlier holds 52 coincident constraints over 36 lines against 46 over 33 — and that difference, not the geometry, is what moves the conditioning. Ruled out as causes: the base-height bounds below (identical readings with them applied and removed), the sketch engine version, and the choice of which equation to keep for each constraint the net leaves one row dependent.
 
 So a build that fails on conditioning has found a fact about its own constraint net. The remedy is to change how the lattice is built, never to loosen the gate and never to narrow the advertised Shaft Angle range on one net's evidence. The proof's case table is where the measurements for that net belong.
+
+**Fusion has built a pair at a shaft angle other than 90° once — loaded 2026-09-17, from the build
+at `2ad1e32` (PR #159).** It is the first load at any Shaft Angle other than 90° recorded anywhere
+in this spec: every other verdict below — the bore refusal, the parallel-family spiral, the
+Combine-Join stitch, the `[BEVEL-F-SEED-HELD]` gate — was taken at 90°, so until this load the whole
+of the Shaft Angle range above and below the default had been exercised by the proof alone. The same
+load covered five more configurations and every one built clean: the shipped default 31/31 pair at
+Module 1 and Shaft Angle 90° in **both** straight and spiral form, a 16 driving / 12 pinion pair at
+Module 4, a non-zero bore, and a non-zero Toe Extension with a toe radius.
+
+**Nothing was measured on that load beyond the builds completing.** No solved point, cone angle,
+volume or radius was read off any of the six, and the shaft angle the sixth was built at was not
+recorded either. So what this records is that six configurations reached a finished pair of bodies
+with no error raised, and it is silent about whether any of them is the right shape. In particular
+it does **not** say that the lattice's conditioning holds away from 90° — the note above is about
+the sketch engine's floor and Fusion's solver is a different solver — and it does not reach either
+end of the admitted range, because which angle was used is unknown.
+
+**Could the proof have caught any of this?** One configuration, yes, and the case is added: the
+proof ran a positive Toe Extension and a user Toe Radius only in separate cases, never together,
+which is what this load set. "The case the two toe inputs need together" below states it. The rest,
+no — the proof already runs the lattice, the tooth and the solids across a Shaft Angle table that
+reaches well past 90°, and already carries the 16/12 pair at Module 4 and a bore; what it does not
+run is Fusion's own solver, its profile finder, its revolve and its booleans, which is the whole of
+what a load adds. One gap this load leaves rather than closes: the shaft angle was not written down,
+so the first non-90° load cannot be repeated from this record. **Record the configuration, not only
+the verdict, on the next one.**
 
 Driving Gear Teeth: user-specified number of teeth on the driving gear. Default is 31. (The dialog label is `Driving Gear Teeth`, per the input table; formulas below refer to this value as Driving Gear Teeth Number.)
 
@@ -138,6 +175,16 @@ computes `2 * 0.95 * min(r_heel, r_toe)` from the closed form above, and both th
 the solid case refuse a resolved bore diameter above it. What no case reaches is the generated
 module raising on the user's value, because the proof never runs that module. That refusal is the
 part this load covered, and there is no case to add for it.
+
+**A bore that this bound admits has since been cut in Fusion — loaded 2026-09-17, from the build at
+`2ad1e32` (PR #159; the full list of that load's six configurations is under Maximum Shaft Angle
+above).** A non-zero bore diameter was entered and the pair built with no error, which is the other
+half of the pair of outcomes this bound governs: the 2026-09-16 load showed a value above the
+maximum being refused, and this one shows a value below it being cut. **The diameter was not read
+back and nothing was measured on the result**, so the bore's size, the two faces it passes through
+and whether it left the back face intact are all still unseen in Fusion — and the deleted back face
+the bound exists to prevent still has never been built, because the bound was not lifted for either
+load.
 
 Face Width: User-specified positive number. If unspecified, default to (Cone Distance / 6). In **every** case (default or user-specified) the Face Width is bounded by the Maximum Face Width (defined below):
 - If unspecified, use `min(Cone Distance / 6, Maximum Face Width)`.
@@ -259,6 +306,29 @@ numerically — sketch dimensions via `dimension.parameter.value = <number>` and
 `ValueInput.createByReal(<number>)`. There are therefore no `PARAM_*` name strings to reproduce;
 the only module-level constants are the 20 `INPUT_ID_*` strings plus `_HAND_RIGHT`/`_HAND_LEFT`.
 (`[PB-PRECOMPUTED-MODE]`.)
+
+**Two further constants are declared on `BevelGearGenerator` rather than at module level, and this
+is their declaration site.** Earlier revisions named both as tunable constants with defaults and
+gave neither a home, which left the sentence above reading as if they did not exist:
+
+| constant | declared on | default | what it does |
+|---|---|---|---|
+| `_CROWN_PER_RAD` | `BevelGearGenerator` | `0.5` | scales the spiral lengthwise crown — §3a step H |
+| `_PINION_MESH_PHASE_TEETH` | `BevelGearGenerator` | `0.0` | the pinion's extra mesh rotation in tooth-fractions — `_pinionMeshPhase` under Method contract |
+
+They are class attributes because both are read through `self` from inside the tooth-body build, and
+neither is a reproduced API string the way the input ids are.
+
+⚠️ **`_CROWN_PER_RAD` reaches built geometry and its value is not derived from anything.** It
+multiplies the relief every crowned slab takes, so changing it changes the tooth. Traced: `0.5` was
+hand-entered on 2026-06-07, in commit `c3829c0` on the hand-coded `SpiralBevelGearGenerator` that
+preceded this spec, replacing a `0.0` that had the crown switched off; the comment it was written
+beside says to dial the value up until a high-ratio pair runs clean. No measurement, published
+source or Fusion load stands behind it, and none has been taken since. **Treat it as an unverified
+tuning value**: keep it at `0.5` so a regen reproduces today's gear, and do not write a derivation
+for it that the repository does not have. `_PINION_MESH_PHASE_TEETH` carries no such risk at its
+default: `0.0` makes `_pinionMeshPhase` return 0, so no extra rotation is applied, and §3a step G
+leaves the mid-face section unrotated precisely so that none is needed.
 
 **Reading the raw numbers.** Read each numeric/angle input by evaluating its expression with units
 `''`/`'mm'`/`'deg'` as appropriate; the values come back in Fusion internal units (cm / radians)
@@ -585,7 +655,7 @@ Create a line through the projected center point. **Seed its two endpoints at ex
 
 Using setByAngle, create a plane that includes the Anchor Line, set at 90° (by default it would lie flush to the anchor line's plane, but we want it perpendicular). **Build it off the original `targetPlane`** as the reference — don't re-derive/offset it (`[PB-USE-SELECTED-PLANE]`) — this is the other place the target-plane orientation reaches the bodies; substituting a different plane here also collapses the gear onto XY. Name the plane `Gear Profiles Plane`. Create a sketch on this plane, named `Gear Profiles`.
 
-**Every line drawn in this §2 sketch is a construction line (`isConstruction = True`)** — the lattice lines, the toe lines M->N / O->P, and the short reference/connector lines (M->C, N->A, O->D, P->B, A->G, B->I, C->K/K′, D->L/L′) alike. The solid features later consume only the per-gear Profile sketches (see Create the Gear Bodies), never a §2 curve directly.
+**Every line drawn in this §2 sketch is a construction line (`isConstruction = True`)** — the lattice lines, the toe lines M->N / O->P, the front faces N->A' / P->B', and the short reference/connector lines (M->C, O->D, A'->G, B'->I, C->K/K′, D->L/L′) alike. The solid features later consume only the per-gear Profile sketches (see Create the Gear Bodies), never a §2 curve directly.
 
 **Every length dimension in this §2 sketch is `AlignedDimensionOrientation`.** `addDistanceDimension(pointOne, pointTwo, orientation, textPoint)` takes an `adsk.fusion.DimensionOrientations` value, and this figure has no axis-aligned line in it: the shaft axes sit at the Shaft Angle to each other, the whole lattice tilts with the target plane, and the sketch is not world-aligned. `HorizontalDimensionOrientation` or `VerticalDimensionOrientation` would each dimension the line's *projection* onto a sketch axis instead of its length, so the constrained value would be the intended one only in the accidental case where the line happens to lie along that axis. Wherever a step below says "a dimensional constraint with length = X" — the PPD/2 and DPD/2 drops to Apex 2, the two `Module * 1.25` dedendum lines, the Tooth Spacing dimension on the K′ / L′ lines, the Toe Radius dimension on the two front faces N->A′ and P->B′ — it means an aligned distance dimension of that value. The offset dimensions are a different call, `addOffsetDimension`, which takes no orientation.
 
@@ -671,11 +741,35 @@ Create line M->N. **Seed BOTH ends at their closed-form solved positions, not ne
 
     (<M seed's perpendicular distance from the Pinion Gear Shaft Axis> - <Pinion Gear Toe Radius>) / cos γ_p
 
+**The slide runs in the `C->H` sense — from C toward H, the same outward sense as `Apex2->C`
+continued — and along it the perpendicular distance from the Pinion Gear Shaft Axis FALLS at
+`cos γ_p` per unit** (the along-shaft coordinate rises at `sin γ_p`, the same walk the Maximum Base
+Height derives its crossing from). That is why the quantity above is divided by `cos γ_p`: the slide
+gives back exactly `<M seed's perpendicular distance> - <Toe Radius>` of perpendicular distance, so
+N lands at the Toe Radius. **Read as a rise it is the wrong sign**, and it is the natural
+misreading: `C->H` runs outward from the figure, so "slide outward" reads as "move away from the
+axis", while the dedendum line leans back toward the axis as it goes. Taking the sign that way puts
+the N seed at `<M seed's perpendicular distance> + <Toe Radius>` rather than at the Toe Radius; the
+compile round that first wrote this rule reported 20 of its 21 lattice cases failing to converge
+until it corrected the sign. The pinion's `C->H` unit direction is
+`sin γ_p · <unit Apex->A> - cos γ_p · <the A->Apex2 drop direction>`, and the negative second term
+is the whole of the rule.
+
 ⚠️ **A seed that merely lands somewhere plausible is not enough here, and a wrong one builds the wrong gear rather than failing to converge.** N's position is fixed by the toe line together with a LENGTH dimension on the front face, and a length is unsigned: the toe line meets the Toe Radius on BOTH sides of the shaft axis, so the solver takes whichever side the seed starts on. Seeded below the axis it converges happily onto the mirror, N comes out on the far side, and the revolved hexagon crosses its own axis of revolution — Fusion then aborts the revolve with `ASM_WIRE_X_AXIS` (`[PB-REVOLVE]`) at S16, pointing at the revolve rather than at the seed that caused it.
 
 Two earlier seeding rules are now known to do exactly that, so do not reinstate either: sliding from the M seed by the **Root Length**, and sliding by the **distance from the M seed to A**. Both were written for the scheme that pinned N to the `A->Apex2` drop, where A was N's real target. Measured on the shipped default pair, module 1 with 31/31 teeth at Shaft Angle 90° and a Toe Extension of 50%: the Root Length slide puts the N seed at a perpendicular distance of **-0.27 mm** from the shaft axis — past it — against a solved N at **+5.17 mm**, and Fusion refuses the revolve. The slide above puts it at 5.17 mm exactly. Do NOT seed M/N just `Face Width` away from C/H either — that starts N near H, far from its constraint target.
 
 **The proof cannot catch a wrong seed here, and must say so beside its own seeding.** It seeds M and N at the closed form, which is the rule above, so it proves that the constraints solve from a correct seed and never that the module's seed is correct. A seed defect therefore reaches Fusion untested, which is how the one described above got there. Record that limit in the proof file next to the toe-line seeding, as the honest edge of what this stage checks.
+
+**The toe lattice has been through Fusion at a non-zero Toe Extension once — loaded 2026-09-17,
+from the build at `2ad1e32` (PR #159; see Maximum Shaft Angle above for that load's other five
+configurations).** A non-zero Toe Extension with a toe radius built with no error, which is the
+first time this seeding has run anywhere but at Toe Extension 0, where M and N sit at today's
+profile by construction. The revolve is what an N seed on the far side of the shaft axis aborts, and
+it did not abort, so this load says the seed landed on the correct side for the one configuration it
+built. **It says nothing more**: neither the Toe Extension nor the Toe Radius was recorded, no
+solved position of M, N or A′ was read back, and the front face's radius was not measured, so the
+toe end's shape is still checked only where the proof checks it.
 
 Then apply **exactly these constraints** — all three are required, and the front face below is what holds N off the shaft axis, which is what the pre-Toe-Radius scheme used the A->Apex2 pin for:
 - `addCoincident(M, Pinion Root Axis)` — M lies on the Apex->C root axis;
@@ -699,7 +793,7 @@ Draw a construction line away from Apex, starting from point I, extending along 
 
 **Tooth-center point L′ (Tooth Spacing offset).** Build the driving-side tooth center **L′** exactly as K′ on the pinion side, substituting L for K, D for C, and the Driving Dedendum line Apex2->D for the pinion's; the reference line for §3 is **D->L′**. Same single Tooth Spacing value, same full-constraint gate, same reuse-the-existing-line rule at 0. The seed formula and the unsigned-length ⚠️ carry over unchanged: seed **`L′ = Apex 2 + <unit Apex2->D> · (<the driving gear's virtual pitch radius> + Tooth Spacing)`**, taking "virtual pitch radius" as the same exact back-cone radius `(Driving Gear Pitch Diameter / 2) / cos γ_g` §3 step 1 defines, which is `|Apex 2 -> L|`. The flipped twin, one Tooth Spacing on the D side of L, is ruled out by that seed alone.
 
-Create line O->P, the mirror of M->N on the driving side. **Seed it the same way, at the closed-form solved positions**: O on `Apex->D` at the fraction `1 - <Root Length> / |Apex->D|`, then P slid from that O seed along `D->J` by `(<O seed's perpendicular distance from the Driving Gear Shaft Axis> - <Driving Gear Toe Radius>) / cos γ_g`. The ⚠️ above applies here unchanged: the length dimension on the front face is unsigned, so a P seed on the far side of the shaft axis converges onto the mirror and the revolve aborts. Then apply the same three constraints:
+Create line O->P, the mirror of M->N on the driving side. **Seed it the same way, at the closed-form solved positions**: O on `Apex->D` at the fraction `1 - <Root Length> / |Apex->D|`, then P slid from that O seed along `D->J` by `(<O seed's perpendicular distance from the Driving Gear Shaft Axis> - <Driving Gear Toe Radius>) / cos γ_g`. **The falling-distance rule carries over word for word**: along `D->J` the perpendicular distance from the Driving Gear Shaft Axis falls at `cos γ_g` per unit, so the slide lands P at the Driving Gear Toe Radius, and reading it as a rise is the same wrong sign. The ⚠️ above applies here unchanged: the length dimension on the front face is unsigned, so a P seed on the far side of the shaft axis converges onto the mirror and the revolve aborts. Then apply the same three constraints:
 - `addCoincident(O, Driving Root Axis)` — O on the Apex->D root axis;
 - `addParallel(O->P, D->J)`;
 - `addOffsetDimension(D->J, O->P, textPoint).parameter.value = <the Root Length re-measured perpendicular to the pitch line>` — as for the pinion, place the `textPoint` in the gap on the Apex side of D->J (e.g. `(O_seed + D)/2`) so it reads cleanly (`[PB-OFFSET-DIM]`). This dimension is unsigned exactly as the pinion's is, so the O seed is what keeps the driving toe inside its heel; the ⚠️ on the pinion offset applies here word for word.
@@ -813,11 +907,27 @@ planes completes just as silently. No face corner and no twist angle was measure
 the 0.26 mm corner shift that separates the parallel family from the tilted one is still unmeasured
 in Fusion.
 
+**That load was taken at `7d253d8`, and the branch regenerated afterwards — the later build was
+loaded too, on 2026-09-17, at `c6ccb3a`.** `fix-bevel-spec-defects` (PR #154) rebuilt
+`lib/geargen/bevelgear.py` after the 2026-09-16 load, so the module that load exercised is not the
+module the branch merged. The default spiral bevel built on `c6ccb3a` with no error, which carries
+the reading above — eight offset planes cut the tooth into more than one piece and step F left
+segments for the crown — onto the regenerated module. **That is the whole of what the second load
+covered.** The 2026-09-16 load's other configurations were not rebuilt on `c6ccb3a`, nothing was
+measured on the result, and it does not distinguish the two slice families either, for the reason
+this step already gives.
+
+**A third spiral build has since run on a later module — loaded 2026-09-17, at `2ad1e32` (PR
+#159).** The shipped default 31/31 pair at Module 1 and Shaft Angle 90° built in spiral form as
+well as straight; Maximum Shaft Angle above carries that load's full list. Again nothing was
+measured, so the three loads together say that the spiral path has completed on three successive
+modules and nothing about the geometry any of them produced.
+
 **Could the proof have caught the correction?** No, for the reason this step already states: the
 proof builds its own slabs from the offsets this spec fixes and never reads the plane the generated
 module constructs, so the module's choice of family reaches Fusion untested. That is the same shape
 of gap as the §2 seed, and the only thing that closes it is a measurement taken on a loaded spiral
-gear — a face corner's position along the cone, which no load has yet reported.
+gear — a face corner's position along the cone, which none of the three loads reported.
 
 **F. Order & drop scrap.** Sort the segments by `distAlong` of their centroid (`physicalProperties.centerOfMass`). The first (apex-most) is the long **apex-side scrap** below the toe — **remove it**; keep the rest as the working `segments`. (Drop the scrap by re-slicing the list, *then* delete it — `segments = segments[1:]` before `removeFeatures.add(scrap)`.) After dropping the scrap, **`segments` must be non-empty** (≥1 cross-section); if it is empty the slice failed in step E — `raise` a clear error rather than proceeding into the twist (G) and crown (H), which assume ≥1 segment.
 
@@ -828,7 +938,11 @@ phi_crown = atan2(heel2d[1], heel2d[0]) - atan2(toe2d[1], toe2d[0])   # develope
 total     = abs(phi_crown) / math.sin(gamma)                          # shaft-axis twist magnitude
 ```
 
-`phi_crown` is the angle the cutter arc’s **toe and heel endpoints subtend at the apex** in the flat 2-D crown frame (apex at the origin, x = cone distance along `coneVec`, y = circumferential along `v` — exactly the `toe2d`/`heel2d` pairs from step B). `gamma` is this gear’s **pitch cone angle**: `self._gamma_p` (Pinion) / `self._gamma_g` (Driving), already computed in §2. `handSign` sets the direction; `total` is the magnitude. ⚠️ **Use the PITCH cone angle γ from §2 — NOT `acos(coneVec·axisDir)`** (that is the *root/dedendum* cone angle, smaller than γ by the dedendum angle δ_f of step E — 24.7° against the pitch 28.7° for a 17-tooth pinion meshing a 31-tooth gear — and yields a twist ~1.15× too large). ⚠️ The two members of a meshing pair **legitimately get different twists**: same cutter, same spiral angle ψ, but γ differs, so `1/sin γ` differs (≈2.08× for a 17-tooth pinion vs ≈1.14× for a 31-tooth gear — a ratio ~1.83). This is *why* equal-teeth pairs (31/31, equal γ) always meshed while ratio pairs failed under any method that gets `1/sin γ` wrong. **Do NOT** measure the twist off a projected 3-D cone trace (the old approach): `projectToSurface` wraps the arc around the cone for ratio pairs and the measurement collapses. The analytic law here is exact and deterministic. Each segment's rotation angle is a **linear share** keyed to the **cone distance of its HEEL FACE** (the segment's farthest-along-the-element face — the exact section the later loft samples). **Define a slab's heel face precisely: the face whose centroid has the GREATEST `distAlong(face.centroid)`, searched across ALL of the slab's faces with NO surface-type filter** (its toe/apex-side face is the LEAST-centroid one). ⚠️ Do **NOT** restrict this search to `PlaneSurfaceType` (or any surface type) — a sliced slab is bounded by a mix of the two planar cut faces and ruled side faces, and a type filter can pick the wrong face or miss the cut face, which makes the step-I loft fail with `ASM_NOT_ALL_SECTIONS_MEET / LOFT_NO_TOOLBODY`. Use this **same all-faces-by-centroid** rule (max → heel, min → toe) everywhere a slab end face is needed: the twist key here (G), the crown base (H), and the loft sections (I). The rotation:
+`phi_crown` is the angle the cutter arc’s **toe and heel endpoints subtend at the apex** in the flat 2-D crown frame (apex at the origin, x = cone distance along `coneVec`, y = circumferential along `v` — exactly the `toe2d`/`heel2d` pairs from step B). `gamma` is this gear’s **pitch cone angle**: `self._gamma_p` (Pinion) / `self._gamma_g` (Driving), already computed in §2.
+
+⚠️ **The two halves of this law are taken on two different cones, and that is deliberate rather than an oversight.** `phi_crown` is measured in the frame step A builds, whose x-axis is `coneVec`, the **ROOT** cone element Apex→C / Apex→D — `spiral-tooth-trace.md` §1 states the same choice and calls it a departure from the canonical reference. The divisor `sin γ` is the **PITCH** cone's roll ratio, because the crown gear the law generates against is tangent to the pitch cone. Written consistently on the root cone the divisor would be `sin γ_root` for `γ_root = γ − δ_f`, which is a real difference and not a rounding: at the default 31/31 pair at Shaft Angle 90° the dedendum angle `δ_f` is 3.26°, so `sin γ / sin γ_root` is 1.062 and the root divisor would twist the tooth about 6% further. **Keep the pitch angle.** `acos(coneVec · axisDir)` is exactly that root angle, and the build that used it inflated the twist by about 1.15× on a 17-tooth pinion meshing a 31-tooth gear, which is the defect that kept ratio pairs from meshing at all.
+
+**What is not settled is whether the frame should move to the pitch cone to match.** Nothing in this repository measures that. The proof asserts this step against the same formula the module computes, so it confirms the arithmetic and says nothing about which cone the frame belongs on; no Fusion load has reported a trace azimuth or a face corner either. Moving the frame would change `R_toe` and `R_heel` — they are read along `coneVec` — and would change which element ψ is measured against, so it is its own derivation and its own change. **Record this beside the twist assertion in the proof file, as the honest edge of what this step checks.** `handSign` sets the direction; `total` is the magnitude. ⚠️ **Use the PITCH cone angle γ from §2 — NOT `acos(coneVec·axisDir)`** (that is the *root/dedendum* cone angle, smaller than γ by the dedendum angle δ_f of step E — 24.7° against the pitch 28.7° for a 17-tooth pinion meshing a 31-tooth gear — and yields a twist ~1.15× too large). ⚠️ The two members of a meshing pair **legitimately get different twists**: same cutter, same spiral angle ψ, but γ differs, so `1/sin γ` differs (≈2.08× for a 17-tooth pinion vs ≈1.14× for a 31-tooth gear — a ratio ~1.83). This is *why* equal-teeth pairs (31/31, equal γ) always meshed while ratio pairs failed under any method that gets `1/sin γ` wrong. **Do NOT** measure the twist off a projected 3-D cone trace (the old approach): `projectToSurface` wraps the arc around the cone for ratio pairs and the measurement collapses. The analytic law here is exact and deterministic. Each segment's rotation angle is a **linear share** keyed to the **cone distance of its HEEL FACE** (the segment's farthest-along-the-element face — the exact section the later loft samples). **Define a slab's heel face precisely: the face whose centroid has the GREATEST `distAlong(face.centroid)`, searched across ALL of the slab's faces with NO surface-type filter** (its toe/apex-side face is the LEAST-centroid one). ⚠️ Do **NOT** restrict this search to `PlaneSurfaceType` (or any surface type) — a sliced slab is bounded by a mix of the two planar cut faces and ruled side faces, and a type filter can pick the wrong face or miss the cut face, which makes the step-I loft fail with `ASM_NOT_ALL_SECTIONS_MEET / LOFT_NO_TOOLBODY`. Use this **same all-faces-by-centroid** rule (max → heel, min → toe) everywhere a slab end face is needed: the twist key here (G), the crown base (H), and the loft sections (I). The rotation:
 
 ```
 ang = −handSign · total · (R_mean − R_heelFace(seg)) / span
@@ -1066,9 +1180,16 @@ its cost at each site.
   above, so the module the first load exercised is not the module in the repository now. The
   shipped default pair built **one solid per gear**, which is the join's own reading: two bodies
   would mean a tooth floating off the root cone, and one means the evaluator made a single boundary
-  out of the frustum and every patterned tooth. The 16/12 pair at Module 4 was not rebuilt, so on
-  the current module the stitch has been seen on the default pair alone. The proof reaches no more
-  of this than it did before — it still performs no join.
+  out of the frustum and every patterned tooth. The 16/12 pair at Module 4 was not rebuilt on that
+  branch. The proof reaches no more of this than it did before — it still performs no join.
+
+  **A third load brought the 16/12 pair back — 2026-09-17, at `2ad1e32` (PR #159).** Both
+  configurations the root sink was introduced on built again on that module: the shipped default
+  pair and the 16 driving / 12 pinion pair at Module 4, alongside the four further configurations
+  Maximum Shaft Angle lists. So the stitch has now been seen on both, on the module the spec
+  describes today. **The reading is still only that the build completed.** Nothing counted the
+  bodies this time, nothing measured a tip radius, and the join is still the one boolean the proof
+  performs none of — so what a second body would have meant is what a silent build leaves unsaid.
 
   **The heel tip radius was not measured on that load, so the tip is still checked only where the
   proof checks it.** The §3 sketch case dimensions the drawn tip circle at `virtualPitchRadius +
@@ -1173,6 +1294,25 @@ read by the tooth profile and by every body built on it.
   root arc carries the largest corner float of any pair the spec admits, 0.027 module. That is the
   case the root sink has to clear, so it is what fixes whether the sink is large enough.
 
+### The case the two toe inputs need together
+
+**The per-gear sketch table must carry one case with a positive Toe Extension AND a user Toe Radius
+set at the same time** — `toe_extension_50_toe_radius_user`: Toe Extension 50 with both gears' Toe
+Radius at 3 mm, on the table's own default 31/31 pair at Module 1 and Shaft Angle 90°. The table
+already runs each input alone, and alone neither reaches what they do together. At Toe Extension 0 a
+user Toe Radius only moves where N and P sit on a toe line whose length is the resolved Face Width;
+with a defaulted Toe Radius a positive Toe Extension walks the toe end along a Toe Limit computed
+from the auto radius, which is the one radius that reproduces Toe Extension 0's profile exactly. It
+is the combination that exercises the coupling: the Toe Limit is `|Ded->X|` measured to the point on
+the root element at **this gear's Toe Radius**, so a user radius moves the window the Toe Extension
+divides, and the Toe Radius Ceiling check is reachable at all only while the Toe Extension is above
+zero.
+
+That gap is what a Fusion load pointed at rather than the proof. The build at `2ad1e32` loaded on
+2026-09-17 (see Maximum Shaft Angle) set both inputs together and built, and no case stood behind
+it. **This is a case the proof could have carried and did not** — unlike the seed and the slice
+family, which no case can reach — so it is added here rather than recorded as a limit.
+
 ### A refusal the case table records rather than avoids
 
 Where this gear's §2 lattice cannot reach a configuration the spec admits — the Shaft Angle floor of
@@ -1180,6 +1320,44 @@ Where this gear's §2 lattice cannot reach a configuration the spec admits — t
 **the case stays in the table and is marked as a declared refusal**, through a case-table flag the
 step reads, not by narrowing the range the spec states. A configuration the spec admits and this
 particular net cannot reach is a property of the net, and the table is where that is recorded.
+
+## Proving the tooth-profile sketch (bevel-specific)
+
+This section is about the proof rather than about Fusion, and it exists because one wrong sentence
+about the tooth-top arc was carried in a proof comment and cost a full round of investigation. It
+sits near the end of the file so that adding it moves no line a compiled step list already cites.
+
+**The tooth-top arc is a CENTRE-POINT arc with a pinned centre and no dimension.** §3 hands the
+sketch to the shared spur drawer, which creates it with
+`sketchArcs.addByCenterStartEnd(localOrigin, rightFlankEndPoint, leftFlankEndPoint)` and then pins
+the copied centre with `addCoincident(arc.centerSketchPoint, localOrigin)`, carrying no radius and
+no diameter dimension (`[SPUR-F-TOOTHTOP-ARC]` in `spec/spurgear/fusion.md`, which owns the
+construction). Bevel's §3 authors no arc of its own. **Never write that Fusion draws this arc as a
+three-point arc and dimensions its radius**: that sentence sat in the proof file once, and what it
+sent an investigation chasing was a reflected centre — the ambiguity a three-point arc with a radius
+dimension really does admit, and which this construction has no room for, because the centre is
+pinned.
+
+**Reproduce the drawer's own constraint if the sketch solves with it, and do not assume it will
+not.** Whether `addCoincident(arc.centerSketchPoint, localOrigin)` can be written faithfully depends
+on how the rest of the tooth is modelled, not on the arc alone, and this spec has twice carried a
+rule about it that the next measurement contradicted. Two compile rounds have measured opposite
+results on their own constructions: one reached DOF 0 with a single signed component in the
+coincident's place, and one reached DOF 0 with the faithful coincident and DOF 1 with the signed
+component, because its tip rib carries no perpendicular and the coincident's second row is what pins
+the two tip points. **So measure it rather than prescribe it:** write the coincident, and substitute
+only if the engine's gate actually refuses it.
+
+**Either way, record which one was written and what it cost, at the site.** Where the coincident
+stands, the cost is nil and the proof says so. Where a signed component replaces it, the cost is
+that the pair of constraints the drawer makes is not the pair the proof solves, and the radius is
+asserted rather than dimensioned. A reader of the proof needs to know which of the two is in front
+of them.
+
+**The §3a trace arc is the other case and it is genuinely a three-point arc with a radius
+dimension** (§3a step C: three through-points, centre coincident to the cutter circle's centre,
+radius dimension `r_c`). Its proof comment therefore says something different from the tooth-top
+arc's, and the two must not be written from one template.
 
 ## Proof Case Scheduling (bevel-specific)
 
