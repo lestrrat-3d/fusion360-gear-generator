@@ -30,6 +30,7 @@ type Params struct {
 	ToothHeight float64 // H, crest to root
 	ToothPitch  float64 // P, along the axis
 	TwistLead   float64 // length of one full turn
+	CrossAngle  float64 // Sigma, the angle between the two axes
 	MountAngleA float64 // Phi for gear A, its cross-section angle where the axes cross
 	MountAngleB float64 // Phi for gear B, which the meshing search does not make equal
 	Engagement  float64 // how deep the crests overlap
@@ -54,18 +55,19 @@ func defaultParams() Params {
 		Thickness:   2.5,
 		ToothHeight: 1.2,
 		ToothPitch:  1.75,
-		TwistLead:   40,
-		MountAngleA: 30 * math.Pi / 180,
-		MountAngleB: 0,
-		Engagement:  0.60,
-		ToothCount:  48,
+		TwistLead:   30,
+		CrossAngle:  80 * math.Pi / 180,
+		MountAngleA: 15 * math.Pi / 180,
+		MountAngleB: 15 * math.Pi / 180,
+		Engagement:  0.36,
+		ToothCount:  40,
 
 		BossHalf:  4,
 		BossTaper: 0.9,
 		BossGrow:  0.6,
 
-		CageRadius: 10,
-		CageRise:   13,
+		CageRadius: 15,
+		CageRise:   12.5,
 		RingBar:    1.2,
 		PostBar:    2,
 		BlockDepth: 1.8,
@@ -93,12 +95,35 @@ func (p Params) Lambda() float64 { return p.TwistLead / (2 * math.Pi) }
 // Beta is the helix angle of the toothed edge, which sits at radius Width/2.
 func (p Params) Beta() float64 { return math.Atan(math.Pi * p.Width / p.TwistLead) }
 
-// Sigma is the angle between the two axes: the crossed-helical rule, twice the
-// helix angle because both gears have the same helix angle and the same hand.
-func (p Params) Sigma() float64 { return 2 * p.Beta() }
+// Sigma is the angle between the two axes.
+//
+// It is an input, not a derivation. The crossed-helical rule makes 2*Beta the
+// angle at which the two crest helices run parallel, and that is where the
+// search starts, but the arrangement also has to carry a printable frame: the
+// bores' angle is set by the mounting angles and the cage radius together, and
+// at 2*Beta nothing drives with the mounting angles close enough to put the
+// bores near upright. TestCrossedHelicalRuleMakesTheCrestHelicesParallel still
+// holds the rule; this is the angle the pair is actually built at.
+func (p Params) Sigma() float64 { return p.CrossAngle }
 
 // AxisOffset is the distance between the two axes.
 func (p Params) AxisOffset() float64 { return p.Width - p.Engagement }
+
+// LoftSections is how many cross-sections a tooth cell is lofted from.
+//
+// It is derived rather than pinned, because the twist per tooth is what decides
+// it: the loft's ruled surface cuts the corner of the helicoid by
+// (Width/2)*(1 - cos(step/2)), and the step is the twist per tooth divided by
+// one less than the count. A faster twist needs more sections for the same
+// departure, and this gear's twist is fast.
+func (p Params) LoftSections() int {
+	const maxStep = 2 * math.Pi / 180
+	steps := int(math.Ceil((p.ToothPitch / p.Lambda()) / maxStep))
+	if steps < 8 {
+		steps = 8
+	}
+	return steps + 1
+}
 
 // Length is the finished ribbon's length.
 func (p Params) Length() float64 { return float64(p.ToothCount) * p.ToothPitch }
@@ -140,7 +165,7 @@ func (g Gear) boss(s float64) float64 {
 	p := g.P
 	best := 0.0
 	for _, centre := range boreStations(p) {
-		off := math.Abs(s-centre) - (p.BossHalf - p.BossTaper)
+		off := math.Abs(s-g.Phase-centre) - (p.BossHalf - p.BossTaper)
 		switch {
 		case off <= 0:
 			best = math.Max(best, p.BossGrow)
@@ -253,7 +278,7 @@ func pair(p Params, sigma, phaseA, phaseB float64) (Gear, Gear) {
 // is not half a pitch: the two gears are mounted at different cross-section
 // angles, so the phase that puts a crest against a root is its own number.
 // TestAssemblyPhaseSitsInTheFreeWindow holds it to the middle of the play.
-const assemblyPhase = 0.315
+const assemblyPhase = -0.90
 
 // defaultPair is the arrangement the spec's default table describes.
 func defaultPair() (Gear, Gear) {
@@ -305,6 +330,8 @@ func tangencyStation(g Gear) float64 { return -g.Mount * g.lambda() }
 func TestCrossedHelicalRuleMakesTheCrestHelicesParallel(t *testing.T) {
 	p := defaultParams()
 	p.MountAngleA, p.MountAngleB = 0, 0
+	// The rule is about 2*Beta, which is not the angle this pair is built at.
+	p.CrossAngle = 2 * p.Beta()
 
 	ga, gb := pair(p, p.Sigma(), 0, 0)
 	sa, sb := tangencyStation(ga), tangencyStation(gb)
@@ -314,7 +341,7 @@ func TestCrossedHelicalRuleMakesTheCrestHelicesParallel(t *testing.T) {
 
 	// And the rule bites: a crossing angle five degrees either side does not.
 	for _, off := range []float64{-5, 5} {
-		sigma := p.Sigma() + off*math.Pi/180
+		sigma := 2*p.Beta() + off*math.Pi/180
 		ga, gb := pair(p, sigma, 0, 0)
 		cross := ga.crestTangent(tangencyStation(ga)).Cross(gb.crestTangent(tangencyStation(gb))).Len()
 		if cross < 1e-3 {
@@ -325,6 +352,7 @@ func TestCrossedHelicalRuleMakesTheCrestHelicesParallel(t *testing.T) {
 
 	// The mounting angle moves that station and nothing else about the rule.
 	mounted := defaultParams()
+	mounted.CrossAngle = 2 * mounted.Beta()
 	mounted.MountAngleA = 15 * math.Pi / 180
 	mounted.MountAngleB = 15 * math.Pi / 180
 	ma, mb := pair(mounted, mounted.Sigma(), 0, 0)
@@ -393,18 +421,18 @@ func TestRibbonIsInvariantUnderItsScrewStep(t *testing.T) {
 // bought with: the loft's ruled surface cuts the corner of the true helicoid,
 // and the spec's claim is that the shortfall is three orders below the backlash.
 func TestLoftSectionCountHoldsTheHelicoid(t *testing.T) {
-	const sections = 9
 	p := defaultParams()
+	sections := p.LoftSections()
 
-	dtheta := (p.ToothPitch / p.Lambda()) / (sections - 1)
+	dtheta := (p.ToothPitch / p.Lambda()) / float64(sections-1)
 	departure := p.Width / 2 * (1 - math.Cos(dtheta/2))
 
-	if got := dtheta * 180 / math.Pi; got > 3 {
-		t.Errorf("nine sections put %.3f deg between neighbours, which is more than the loft's "+
-			"vertex pairing is worth trusting", got)
+	if got := dtheta * 180 / math.Pi; got > 2.01 {
+		t.Errorf("%d sections put %.3f deg between neighbours, which is more than the count is "+
+			"derived to allow", sections, got)
 	}
-	t.Logf("nine sections put %.3f deg between neighbours and fall %.6f mm short of the helicoid",
-		dtheta*180/math.Pi, departure)
+	t.Logf("%d sections per tooth put %.3f deg between neighbours and fall %.6f mm short of the "+
+		"helicoid", sections, dtheta*180/math.Pi, departure)
 	if departure > 1e-3 {
 		t.Errorf("the ruled surface falls %.6f mm short of the helicoid, want under 0.001", departure)
 	}
