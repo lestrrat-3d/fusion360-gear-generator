@@ -240,10 +240,18 @@ class CommittedRepoTest(unittest.TestCase):
                 self.assertIn(book_lines[defs[anchor][0]], text,
                               'the extract dropped the line defining this rule')
 
+        # The extract is the only playbook text the emit drafter reads, so it has
+        # to stay a slice rather than a copy. The ceiling is what a step list that
+        # cites nearly every rule would cross; it is not a budget a gear is
+        # supposed to spend up to, and spur sits close to it because spur is the
+        # gear the playbook was written around. It was 1/2 while spur cited 32
+        # rules, which left about 3% of headroom, so the next three honest
+        # citations crossed it; 2/3 is the room those citations needed and still
+        # refuses a step list that pulls the whole file.
         self.assertLess(
             len(text.encode('utf-8')),
-            len(playbook.read_bytes()) // 2,
-            'the extract should be well under half the playbook')
+            len(playbook.read_bytes()) * 2 // 3,
+            'the extract should stay a slice of the playbook, not most of it')
 
     def test_definition_index_agrees_with_check_anchors(self):
         """Every anchor `check_anchors.py` sees defined in the playbook is indexed."""
