@@ -46,33 +46,38 @@ Results:
 
 - **The symmetric arrangement jams.** At `Phi = 0`, where both toothed edges point straight at each
   other where the axes cross, no arrangement drove at any crossing angle, at any engagement past
-  about a quarter of the tooth height. Two to three tooth pairs sit in the engaged zone at once and
+  about a quarter of the tooth height. About four tooth pairs sit in the engaged zone at once and
   their ridges cross at an angle, so they cannot all interdigitate. This is the single most
   surprising result, and it is why `Phi` is an input at all.
 - **Roughly 3% of arrangements drive 1:1** (60 of 2352 at a 1.75 mm pitch, 71 at 3.5 mm, 62 at 5 mm).
   The survivors cluster at mounting angles of 15°–45°.
 - **The transmission error tracks the pitch** at about 2% of it: 0.015 mm at a 1.75 mm pitch,
-  0.044 mm at 3.5 mm, 0.104 mm at 5 mm. A finer tooth runs smoother, at the cost of more tooth cells
-  to build.
+  0.044 mm at 3.5 mm, 0.104 mm at 5 mm. A finer tooth runs smoother, and it costs almost nothing to
+  build, because the ribbon is assembled by doubling and doubling is logarithmic in the tooth count.
 - **`Sigma = 2*Beta` is among the winners at every pitch tested**, which is the crossed-helical rule
   arrived at independently. The spec states the rule rather than quoting the search, but the rule
   does not explain where this pair touches: the crest helices run parallel only at the station whose
   cross-section angle is zero, and `proof/screwgear` measures contact several millimetres away from
   it. The contact is a point, as a crossed-helical pair's is.
 
-The chosen default — `W` 10, `T` 2.5, `P` 3.5, `H` 1.2, lead 90, `Sigma` 38.5°, `Phi` 15° on both
-gears, same hand, engagement 0.72 — was then re-run at a 0.01 mm sampling step over 14 phases of A.
-The free window is 0.22–0.25 mm wide throughout and its centre advances 0.25 mm for each 0.25 mm of
-A, which is 1:1 to within the sampling step.
+The chosen default — `W` 10, `T` 2.5, `P` 1.75, `H` 1.2, lead 40, `Sigma` 76.3°, `Phi` 30° on gear A
+against 0° on gear B, same hand, engagement 0.60 — was then re-run at a 0.01 mm sampling step. The
+free window is 0.25–0.32 mm wide throughout and its centre advances one pitch for each pitch of A.
+
+**The twist lead came from the video, not from the search.** An earlier draft turned once every 90 mm, which drives well but makes a part that barely looks
+twisted and a pair whose axes cross at 38°. Segerman's model turns about once every four
+centimetres and crosses near a right angle. `Sigma = 2*Beta` ties those two together, so reading the
+lead off the video sets the crossing angle as well, and the search was re-run at the faster twist to
+find the mounting angles that go with it.
 
 **`proof/screwgear` re-derives all of this** and is the authority. It reports the same winding, a
-0.21–0.26 mm window, a 0.058 mm departure from the 1:1 line, and 0.081 mm of clearance between the
+0.245–0.298 mm window, a 0.047 mm departure from the 1:1 line, and 0.136 mm of clearance between the
 two ribbons away from the teeth. This file records only how the arrangement was found.
 
 ## What this does not establish
 
 The model is an exact sinusoid on an exact helicoid. The built part is a loft through nine
-rectangles per tooth, which departs from the helicoid by about 0.6 µm at the crest — three orders
+rectangles per tooth, which departs from the helicoid by about 0.7 µm at the crest — three orders
 below the backlash, but measured against the model rather than against Fusion's own surface.
 
 The search says these teeth drive. It says nothing about whether they are the right teeth. Conjugate

@@ -7,117 +7,94 @@ import (
 	"github.com/lestrrat-3d/r3"
 )
 
-// The frame is one tube with a slot through its wall for each gear, and the
-// slot is what makes it a frame rather than a pair of bearings: a round hole
+// The frame is two collars, one threaded on each gear, fused where they meet.
+// It is the frame Segerman's model uses, and the shape is not decoration: the
+// two rings are what the mechanism has instead of bearings.
+//
+// A collar is a disc standing across its gear's axis with an opening cut to the
+// ribbon's own cross-section. The opening is what does the work. A round hole
 // would let its ribbon turn freely as it slid, leaving the mechanism three
-// degrees of freedom instead of one.
-//
-// Two things can go wrong with that, and neither shows up in the meshing proof.
-// The four places the ribbons pierce the wall can run into each other and cut
-// the tube in half, and a slot can reach the rim and open into a notch. Both
-// are decided by the tube's diameter against the crossing angle, so both are
-// checked here on the wall itself rather than argued from a formula.
+// degrees of freedom instead of one; an opening shaped like the ribbon forces
+// the ribbon to turn as it advances, the way a twisted-bar screwdriver does.
+// The opening is a twisted channel rather than a straight one, because the
+// ribbon turns while it is inside the collar — over the default 1.5 mm of depth
+// it turns 13.5 degrees, which is far more than a straight hole would pass.
 
-// wallGrid marks which cells of the tube's wall survive the slots. It is the
-// same test the picture uses: a cell is gone when its own midpoint falls inside
-// a gear's clearance rectangle.
-func wallGrid(p Params, ga, gb Gear, nAz, nZ int) [][]bool {
-	mid := (p.CageInner() + p.CageOuter()) / 2
-	half := p.CageHalfHeight()
-	keep := make([][]bool, nAz)
-	for i := range nAz {
-		keep[i] = make([]bool, nZ)
-		for j := range nZ {
-			a := 2 * math.Pi * (float64(i) + 0.5) / float64(nAz)
-			z := -half + 2*half*(float64(j)+0.5)/float64(nZ)
-			pt := r3.NewVec(mid*math.Cos(a), mid*math.Sin(a), z)
-			open := false
-			for _, g := range []Gear{ga, gb} {
-				u, v, _ := g.local(pt)
-				if math.Abs(u) <= p.Width/2+p.Clearance && math.Abs(v) <= p.Thickness/2+p.Clearance {
-					open = true
-					break
+// inCollarOpening answers whether a point lies in the channel cut through a
+// gear's collar, which is that gear's own ribbon plus the clearance.
+func inCollarOpening(g Gear, pt r3.Vec) bool {
+	u, v, _ := g.local(pt)
+	return math.Abs(u) <= g.P.Width/2+g.P.Clearance && math.Abs(v) <= g.P.Thickness/2+g.P.Clearance
+}
+
+// inCollar answers whether a point is inside a collar's material: within its
+// rim, within its depth, and not in the opening.
+func inCollar(g Gear, pt r3.Vec) bool {
+	d := pt.Sub(collarCentre(g))
+	along := d.Dot(g.Ez)
+	if math.Abs(along) > g.P.CollarDepth/2 {
+		return false
+	}
+	if d.Sub(g.Ez.Scale(along)).Len() > g.P.CollarOuter {
+		return false
+	}
+	return !inCollarOpening(g, pt)
+}
+
+// The two collars have to meet, or the frame is two loose rings and holds
+// nothing. This is the measurement behind that: how far their rims overlap.
+func TestCollarsMeetEachOther(t *testing.T) {
+	ga, gb := defaultPair()
+	gap := collarCentre(ga).Sub(collarCentre(gb)).Len()
+	overlap := 2*ga.P.CollarOuter - gap
+
+	if overlap <= 0 {
+		t.Fatalf("the collar centres stand %.2f mm apart and each rim reaches %.2f mm, so the two "+
+			"rings never touch and the frame is not one body", gap, ga.P.CollarOuter)
+	}
+	if overlap < ga.P.CollarDepth {
+		t.Errorf("the rims overlap by only %.2f mm, which is less than a collar is thick", overlap)
+	}
+	t.Logf("collar centres %.2f mm apart, rims overlapping %.2f mm", gap, overlap)
+}
+
+// A collar must not foul the gear it does not hold.
+func TestCollarsClearTheOtherGear(t *testing.T) {
+	ga, gb := defaultPair()
+	half := ga.P.Length() / 2
+
+	for _, pairing := range []struct {
+		collar, ribbon Gear
+		label          string
+	}{{ga, gb, "A's collar against gear B"}, {gb, ga, "B's collar against gear A"}} {
+		g := pairing.ribbon
+		w, th := g.P.Width/2, g.P.Thickness/2
+		for s := -half; s <= half; s += 0.02 {
+			e := g.edge(s)
+			for i := range 5 {
+				v := -th + 2*th*float64(i)/4
+				for _, u := range []float64{e, -w, (e - w) / 2} {
+					if inCollar(pairing.collar, g.world(u, v, s)) {
+						t.Fatalf("%s: the ribbon meets it at station %.2f, (u,v)=(%.2f,%.2f)",
+							pairing.label, s, u, v)
+					}
 				}
 			}
-			keep[i][j] = !open
 		}
 	}
-	return keep
 }
 
-// components counts the connected regions of cells whose flag equals want,
-// walking the grid four ways and wrapping around in azimuth.
-func components(grid [][]bool, want bool) int {
-	nAz, nZ := len(grid), len(grid[0])
-	seen := make([][]bool, nAz)
-	for i := range seen {
-		seen[i] = make([]bool, nZ)
-	}
-	count := 0
-	for i := range nAz {
-		for j := range nZ {
-			if seen[i][j] || grid[i][j] != want {
-				continue
-			}
-			count++
-			stack := [][2]int{{i, j}}
-			for len(stack) > 0 {
-				c := stack[len(stack)-1]
-				stack = stack[:len(stack)-1]
-				ci, cj := (c[0]+nAz)%nAz, c[1]
-				if cj < 0 || cj >= nZ || seen[ci][cj] || grid[ci][cj] != want {
-					continue
-				}
-				seen[ci][cj] = true
-				stack = append(stack, [2]int{ci + 1, cj}, [2]int{ci - 1, cj},
-					[2]int{ci, cj + 1}, [2]int{ci, cj - 1})
-			}
-		}
-	}
-	return count
-}
-
-func TestCageSlotsLeaveOneTubeAndFourHoles(t *testing.T) {
-	p := defaultParams()
-	ga, gb := defaultPair()
-	grid := wallGrid(p, ga, gb, 360, 240)
-
-	if got := components(grid, true); got != 1 {
-		t.Errorf("the slots cut the wall into %d pieces; the frame has to be one body", got)
-	}
-	if got := components(grid, false); got != 4 {
-		t.Errorf("the wall carries %d openings, want 4: each gear pierces it twice", got)
-	}
-}
-
-// The point of a slot is that its own gear goes through it. This walks both
-// ribbons end to end and asserts that no part of either is ever inside the
-// tube's wall.
+// The collar's own gear goes through it, at every position that gear takes.
 //
-// One static pass settles it for every position the gear takes. A slot is cut
-// to the ribbon's blank — the full-width rectangle, before the teeth are taken
-// out of one edge — and that blank is invariant under the gear's own screw
-// motion, so a ribbon that clears the wall at one phase clears it at all of
-// them. The teeth cannot change that either: they are cut INTO the edge, so the
-// material only ever retreats from the slot's face.
-func TestRibbonsPassThroughTheirSlots(t *testing.T) {
-	p := defaultParams()
+// One static pass settles every position. The opening is cut to the ribbon's
+// blank — the full-width rectangle, before the teeth are taken out of one edge
+// — and that blank is invariant under the gear's own screw motion, so a ribbon
+// that clears the collar at one phase clears it at all of them. The teeth
+// cannot change that either: they are cut INTO the edge, so the material only
+// retreats from the opening's face.
+func TestEachGearPassesThroughItsCollar(t *testing.T) {
 	ga, gb := defaultPair()
-	half := p.Length() / 2
-
-	inWall := func(pt r3.Vec) bool {
-		r := math.Hypot(pt.X, pt.Y)
-		if r < p.CageInner() || r > p.CageOuter() || math.Abs(pt.Z) > p.CageHalfHeight() {
-			return false
-		}
-		for _, g := range []Gear{ga, gb} {
-			u, v, _ := g.local(pt)
-			if math.Abs(u) <= p.Width/2+p.Clearance && math.Abs(v) <= p.Thickness/2+p.Clearance {
-				return false // inside a slot, which is cut away
-			}
-		}
-		return true
-	}
+	half := ga.P.Length() / 2
 
 	for _, g := range []Gear{ga, gb} {
 		w, th := g.P.Width/2, g.P.Thickness/2
@@ -126,9 +103,9 @@ func TestRibbonsPassThroughTheirSlots(t *testing.T) {
 			for i := range 5 {
 				v := -th + 2*th*float64(i)/4
 				for _, u := range []float64{e, -w, (e - w) / 2} {
-					if pt := g.world(u, v, s); inWall(pt) {
-						t.Fatalf("a ribbon meets the cage wall at station %.2f, (u,v)=(%.2f,%.2f), "+
-							"radius %.2f", s, u, v, math.Hypot(pt.X, pt.Y))
+					if inCollar(g, g.world(u, v, s)) {
+						t.Fatalf("a gear meets its own collar at station %.2f, (u,v)=(%.2f,%.2f)",
+							s, u, v)
 					}
 				}
 			}
@@ -136,71 +113,58 @@ func TestRibbonsPassThroughTheirSlots(t *testing.T) {
 	}
 }
 
-// A slot that reaches the tube's rim is a notch rather than a hole, and the
-// ribbon would fall out of it sideways.
-func TestCageSlotsStayOffTheRim(t *testing.T) {
-	p := defaultParams()
-	ga, gb := defaultPair()
-	grid := wallGrid(p, ga, gb, 360, 240)
-
-	nZ := len(grid[0])
-	for i := range grid {
-		if !grid[i][0] || !grid[i][nZ-1] {
-			t.Fatalf("a slot reaches the tube's rim at azimuth %.1f degrees",
-				360*float64(i)/float64(len(grid)))
-		}
-	}
-}
-
-// How small the tube can go, measured on the wall rather than argued.
+// This is the collar's whole reason for being: it admits the screw motion and
+// nothing else. The test turns a gear out of step with its own advance and
+// finds the angle at which it jams in its collar.
 //
-// There are two separate floors and they are far apart. A narrow tube is cut
-// into pieces by its own slots and stops being a frame at all. A wider one
-// stays in one piece, but each gear's two piercings still reach around and join
-// into a single opening, which leaves the wall standing on two arms rather than
-// four. The spec carries both numbers and the default clears both.
-//
-// The spec first tried to settle this with an arc — the two gears pierce the
-// wall Sigma apart, so the wall survives while (CageDiameter/2)*Sigma exceeds a
-// slot's width — and that rule is wrong twice over. A slot's width around the
-// tube is not the ribbon's thickness, because the ribbon crosses the wall at
-// whatever station puts it at the tube's radius and the cross-section angle
-// there decides how much of the opening lies across the tube. And the rule is
-// about the wrong pair of openings: what merges first is one gear's own two
-// piercings, not one gear's against the other's.
-func TestCageDiameterFloorsAreMeasured(t *testing.T) {
-	p := defaultParams()
+// The slack that is left is the clearance divided by the collar's reach, and it
+// is small: a gear cannot turn far without advancing to match. A frame of round
+// holes would report no jam at any angle, which is the case this rules out.
+func TestCollarAdmitsOnlyTheScrewMotion(t *testing.T) {
+	ga, _ := defaultPair()
 
-	wall := func(diameter float64) (pieces, holes int) {
-		q := p
-		q.CageDiameter = diameter
-		ga, gb := pair(q, q.Sigma(), 0, q.ToothPitch/2)
-		grid := wallGrid(q, ga, gb, 360, 240)
-		return components(grid, true), components(grid, false)
+	// A gear turned by extra about its own axis, with its advance unchanged.
+	turned := func(extra float64) Gear {
+		g := ga
+		g.Mount += extra
+		return g
+	}
+	fits := func(extra float64) bool {
+		g := turned(extra)
+		w, th := g.P.Width/2, g.P.Thickness/2
+		for s := g.P.CollarAt - g.P.CollarDepth; s <= g.P.CollarAt+g.P.CollarDepth; s += 0.01 {
+			for i := range 5 {
+				v := -th + 2*th*float64(i)/4
+				for _, u := range []float64{w, -w} {
+					// The collar is the one built for the gear in its own place.
+					if inCollar(ga, g.world(u, v, s)) {
+						return false
+					}
+				}
+			}
+		}
+		return true
 	}
 
-	var onePiece, fourHoles float64
-	for d := 4.0; d <= p.CageDiameter; d += 0.25 {
-		pieces, holes := wall(d)
-		if onePiece == 0 && pieces == 1 {
-			onePiece = d
+	if !fits(0) {
+		t.Fatal("the gear does not pass its own collar even in step, so nothing below means anything")
+	}
+
+	var slack float64
+	for extra := 0.0; extra < 0.6; extra += 0.002 {
+		if !fits(extra) {
+			slack = extra
+			break
 		}
-		if fourHoles == 0 && pieces == 1 && holes == 4 {
-			fourHoles = d
-		}
 	}
-	if onePiece == 0 || fourHoles == 0 {
-		t.Fatalf("no tube up to the default holds together: one piece from %.2f, four holes from %.2f",
-			onePiece, fourHoles)
+	if slack == 0 {
+		t.Fatal("the gear turns freely inside its collar: the opening is not holding it to the " +
+			"screw motion, which is the one thing the frame is for")
 	}
-	if pieces, _ := wall(onePiece - 0.5); pieces == 1 {
-		t.Errorf("the wall is still one piece at %.2f mm, below the %.2f mm called the floor",
-			onePiece-0.5, onePiece)
+	if got := slack * 180 / math.Pi; got > 12 {
+		t.Errorf("the collar lets the gear turn %.1f degrees out of step, which is more play than "+
+			"a mechanism of one degree of freedom can be said to have", got)
 	}
-	if p.CageDiameter < fourHoles+4 {
-		t.Errorf("the default tube is %.2f mm across and its openings merge below %.2f mm, "+
-			"which is less than 4 mm of margin", p.CageDiameter, fourHoles)
-	}
-	t.Logf("one body from %.2f mm across, four distinct openings from %.2f mm; default %.2f mm",
-		onePiece, fourHoles, p.CageDiameter)
+	t.Logf("the collar jams the gear %.2f degrees out of step, on %.2f mm of clearance",
+		slack*180/math.Pi, ga.P.Clearance)
 }

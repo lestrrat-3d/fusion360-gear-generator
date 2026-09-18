@@ -10,14 +10,14 @@ import (
 // measuredBacklash is the free play the default arrangement leaves, in mm. It
 // is what a printed pair is judged by, and geometry_test.go measures the loft's
 // section count against it.
-const measuredBacklash = 0.25
+const measuredBacklash = 0.28
 
 // The sampling the contact search runs at. The station step has to resolve the
-// tooth, whose flank rises 1.2 mm over 1.75 mm of station; 0.05 mm puts 35
-// samples on a flank, which is far finer than the 0.25 mm of backlash the
-// answer is quoted to.
+// tooth, whose flank rises 1.2 mm over less than a millimetre of station; 0.02 mm
+// puts more than forty samples on a flank, far finer than the backlash the answer
+// is quoted to.
 const (
-	stationStep  = 0.05
+	stationStep  = 0.02
 	edgeSamples  = 4
 	faceSamples  = 6
 	phaseSamples = 12
@@ -192,6 +192,28 @@ func TestPairDrivesOneToOne(t *testing.T) {
 		winding, tightest, widest, departure)
 }
 
+// The phase gear B is built at has to sit in the play, not against a flank.
+// A pair built at a phase outside the free window is a pair that has to be
+// forced together, and the interference proof would be measuring a state the
+// mechanism never reaches.
+func TestAssemblyPhaseSitsInTheFreeWindow(t *testing.T) {
+	ga, gb := defaultPair()
+	lo, hi, ok := freeWindow(ga, gb, 0, assemblyPhase)
+	if !ok {
+		t.Fatal("no phase of B clears A at gear A's zero, so there is nothing to assemble at")
+	}
+	if assemblyPhase < lo || assemblyPhase > hi {
+		t.Fatalf("the assembly phase %.3f is outside the free window [%.3f, %.3f]",
+			assemblyPhase, lo, hi)
+	}
+	middle := (lo + hi) / 2
+	if off := math.Abs(assemblyPhase - middle); off > (hi-lo)/4 {
+		t.Errorf("the assembly phase %.3f sits %.3f mm off the middle %.3f of a %.3f mm window",
+			assemblyPhase, off, middle, hi-lo)
+	}
+	t.Logf("assembly phase %.3f in a free window [%.3f, %.3f]", assemblyPhase, lo, hi)
+}
+
 // The arrangement that looks right jams, and this records it. Pointing both
 // toothed edges straight at each other where the axes cross puts two or three
 // tooth pairs in the engaged zone at once, and their ridges cross at an angle,
@@ -199,7 +221,7 @@ func TestPairDrivesOneToOne(t *testing.T) {
 // and a future simplification that drops it would be caught here.
 func TestSymmetricMountJams(t *testing.T) {
 	p := defaultParams()
-	p.MountAngle = 0
+	p.MountAngleA, p.MountAngleB = 0, 0
 	ga, gb := pair(p, p.Sigma(), 0, p.ToothPitch/2)
 
 	jammed := false
@@ -273,15 +295,16 @@ func TestFullRibbonsClearOutsideTheEngagement(t *testing.T) {
 }
 
 // The engaged zone is what the mounting angle is working around, and its size
-// is what decides how many tooth pairs have to interdigitate at once. The spec
-// reasons about two to three pairs; this measures it.
+// is what decides how many tooth pairs have to interdigitate at once. This
+// measures it rather than reasoning about it.
 func TestEngagedZoneSpansSeveralTeeth(t *testing.T) {
 	p := defaultParams()
 	window := axialWindow(p)
 	pairs := 2 * window / 1.5 / p.ToothPitch // undo the slack the window carries
 
-	if pairs < 2 || pairs > 4 {
-		t.Errorf("the engaged zone holds %.1f tooth pairs, the spec reasons about two to three", pairs)
+	if pairs < 2 || pairs > 6 {
+		t.Errorf("the engaged zone holds %.1f tooth pairs; the mounting angle is what lets several "+
+			"interdigitate at once, and past six that is not worth trusting", pairs)
 	}
 	t.Logf("reaching window +/-%.2f mm, about %.1f tooth pairs engaged", window, pairs)
 }
