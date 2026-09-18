@@ -3,6 +3,7 @@
 
 import sys
 import adsk.core
+import adsk.fusion
 from ..lib import fusion360utils as futil
 from ..lib import geargen
 from .. import config
@@ -12,7 +13,7 @@ ui = adsk.core.Application.get().userInterface
 # Bump this string on every deploy of THIS file. It proves whether the
 # commands/ layer reloaded: if the dialog's Build line shows an old tag, the
 # add-in Stop/Run did not re-import commands/_gear_command.py.
-BUILD_TAG = 'r5-2026-09-12'
+BUILD_TAG = 'r6-2026-09-18'
 
 # Plain (undecorated) generator methods used as canaries to detect whether the
 # *loaded* generator module matches the file on disk. co_firstlineno comes from
@@ -72,6 +73,29 @@ def _build_label(generator_class):
 # hidden read-only TextBox whose id is the input's id + this suffix; the handler
 # below shows the one nearest the field the user just edited.
 STATUS_SUFFIX = '__status'
+
+
+def _can_create_components(design):
+    return design is not None and design.designIntent in (
+        adsk.fusion.DesignIntentTypes.HybridDesignIntentType,
+        adsk.fusion.DesignIntentTypes.AssemblyDesignIntentType,
+    )
+
+
+def _component_design_or_message():
+    try:
+        design = geargen.get_design()
+    except Exception:
+        design = None
+
+    if _can_create_components(design):
+        return design
+
+    ui.messageBox(
+        'Gear Generator needs an active Hybrid or Assembly design.\n\n'
+        'Open one or convert the current design, then try again.',
+        'Unsupported design type')
+    return None
 
 
 def _format_problems(problems):
@@ -150,6 +174,9 @@ class GearCommand:
     def command_created(self, args: adsk.core.CommandCreatedEventArgs):
         futil.log(f'{self.name} Command Created Event')
 
+        if _component_design_or_message() is None:
+            return
+
         # Per-dialog live-validation state (see command_validate_input).
         self._last_changed_input_id = None
         self._shown_status_id = None
@@ -174,7 +201,9 @@ class GearCommand:
         futil.log(f'{self.name} Command Execute Event')
         g = None
         try:
-            design = geargen.get_design()
+            design = _component_design_or_message()
+            if design is None:
+                return
             # [PB-SETTLE-DISPLAY]: remember the user's own sketches, so the settle below only
             # touches the ones this generator is about to author.
             preexisting = geargen.sketch_tokens(design)
