@@ -19,9 +19,9 @@ No image here comes from Fusion, and nothing in this directory builds a Fusion b
 gear into Fusion is still the only check that sees the real thing.
 
 The pictures draw the **ideal** ribbon: an exact cosine edge on an exact helicoid, which is what
-the proof reasons about. The part Fusion builds lofts twelve rectangles per tooth, and
+the proof reasons about. The part Fusion builds lofts eleven rectangles per tooth, and
 `TestLoftSectionCountHoldsTheHelicoid` bounds the difference between the two at 0.7 µm against a
-0.45 mm backlash. That bound is arithmetic about the loft rather than a measurement of one.
+0.50 mm backlash. That bound is arithmetic about the loft rather than a measurement of one.
 
 The bores are drawn on a grid: a cell of a post's block is dropped when it falls in the channel the
 turning ribbon sweeps, which is the same local mapping the meshing proof uses. A boundary running
@@ -32,8 +32,8 @@ across the grid's rows can still step, and those steps are in the drawing rather
 ![A twisted toothed rack, its wavy edge spiralling twice along its length](images/part.png)
 
 One gear. It is a flat plate 10 mm wide and 2.5 mm thick with a cosine tooth form cut into one
-long edge, 40 teeth at a 1.75 mm pitch, twisted about its own centre line at 30 mm per turn — a
-little over two full turns across its 70 mm.
+long edge, 80 teeth at a 1.75 mm pitch, twisted about its own centre line at 33 mm per turn — a
+little over four full turns across its 140 mm.
 
 The toothed edge is the one that spirals, and the twist is what the crossing angle is made of:
 `Sigma = 2*Beta` ties the two axes' angle to this edge's own helix angle, so a slower twist would
@@ -47,7 +47,7 @@ The teeth are 1.2 mm from crest to root, a little over a tenth of the plate's wi
 
 Both gears, seen from almost overhead, which is the only view that shows the angle their axes
 cross at. That angle is 80°. The crossed-helical rule would make it twice the toothed edge's helix
-angle, which is 92.6° here, and the search picks 80° instead: the arrangement also has to carry a
+angle, which is 87.2° here, and the search picks 80° instead: the arrangement also has to carry a
 frame whose bores can be printed.
 
 ![The same pair from the side](images/pair.png)
@@ -68,9 +68,9 @@ so there is no step at the join and no gap.
 **The bulge leans with the bore.** The channel crosses a post diagonally — far to one side low down,
 as far to the other side higher up, narrow in between — so each side of a post is shaped separately
 and neither carries what the other needs. One upright block squared off round the whole channel,
-which is what this frame carried before, holds 19.40 mm of width over the bore's entire height and
-takes 1804 mm² out of the cage wall. Shaped to the channel it is 17.24 mm at its widest and
-1181 mm², a third less material, and about 40% more open wall between the posts.
+which is what this frame carried before, holds 18.60 mm of width over the bore's entire height and
+takes 1750 mm² out of the cage wall. Shaped to the channel it is 15.34 mm at its widest and
+1142 mm², a third less material, and about 40% more open wall between the posts.
 
 It still does not trace the bore's own outline, which wiggles, because a wall cut to that is a row
 of notches. Each side is grown out of the channel by a disc instead, which rounds every corner off,
@@ -93,14 +93,14 @@ round holes would report no jam at any angle, which is the case that rules out.
 **Every outside face lies on one cylinder.** The plates, the posts and the blocks are all pieces of
 the same wall, differing only in how far round and how far up each runs, so nothing stands proud of
 anything else and the outside reads as one turned surface rather than bars stuck onto plates.
-`TestNothingStandsProudOfTheShell` holds it: the whole frame lies between radius 13.50 and 16.50.
+`TestNothingStandsProudOfTheShell` holds it: the whole frame lies between radius 15.00 and 18.00.
 The plates' top and bottom faces are flat and level, and they are what a print stands on. Only the
 bore inside is skewed, which is the skew the mechanism actually needs.
 
 **What passes through a bore is never a tooth.** The ribbon swells into a smooth boss at each of the
 two places it crosses the cage, and the bore is cut to the boss. That is why the frame is plain
 round bar and plain rectangular openings, with nothing anywhere shaped like a tooth, and why nothing
-bears on a crest. The boss travels with its gear, so its length is the stroke: 4.40 mm, or 2.5
+bears on a crest. The boss travels with its gear, so its length is the stroke: 5.06 mm, or 2.9
 teeth.
 
 ## The mesh
@@ -125,14 +125,14 @@ four tooth pairs land in the engaged zone at once and cannot all interdigitate, 
 | Quantity | Value |
 |---|---|
 | Ratio | 1:1, the free window advancing exactly one pitch per pitch |
-| Backlash | 0.411–0.481 mm |
-| Departure from the 1:1 line | 0.064 mm, 3.7% of the pitch |
-| Clearance away from the teeth | 0.168 mm at the closest approach |
+| Backlash | 0.438–0.569 mm |
+| Departure from the 1:1 line | 0.067 mm, 3.8% of the pitch |
+| Clearance away from the teeth | 0.254 mm at the closest approach |
 | Bore angle | 15° off upright, which is the best the mounting angles allow |
 | Play in the frame | a bore jams a gear 3.21° out of step |
-| Stroke | 5.03 mm, or 2.9 teeth |
-| Post width | 3.00 mm, swelling to at most 17.24 mm at a bore, slanted at 45° at both ends |
-| Frame in the wall | 1181 mm² for the four posts, against 1804 mm² squared off |
+| Stroke | 5.06 mm, or 2.9 teeth |
+| Post width | 3.00 mm, swelling to at most 15.34 mm at a bore, slanted at 45° at both ends |
+| Frame in the wall | 1142 mm² for the four posts, against 1750 mm² squared off |
 | Wall round a bore | 3 mm in every direction, not only sideways |
 
 `TestPairDrivesOneToOne` is where the first four come from. It tracks the interval of gear B's

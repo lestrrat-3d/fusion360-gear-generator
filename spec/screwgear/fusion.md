@@ -46,7 +46,7 @@ one tooth at a time while never growing past one cell.
 
 ## `[SCREW-F-CELL-LOFT]` — lofting the rotated rectangles
 
-The tooth cell lofts twelve rectangles, each rotated a little further about the axis than the last and
+The tooth cell lofts eleven rectangles, each rotated a little further about the axis than the last and
 each a slightly different width. Add them with `loftSections.add(profile)` **in station order**
 (`[PB-LOFT]`); the order of the calls is the loft order.
 
@@ -56,7 +56,7 @@ is no need for a positional pick.
 
 The rectangles turn by 1.91° between neighbours at the default proportions. Fusion pairs the
 sections' vertices by proximity, and that pairing is what stays correct as long as the step stays
-well under a quarter turn. A spec change that cuts the section count to three would put 10.5° between
+well under a quarter turn. A spec change that cuts the section count to three would put 9.5° between
 neighbours, which still pairs, but the failure when it does not is a lofted body with a twisted
 crease rather than an error, so the count stays where the spec pins it.
 

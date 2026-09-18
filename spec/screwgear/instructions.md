@@ -100,7 +100,7 @@ a bore** and nothing in the frame has to be cut to the shape of a tooth. Nothing
 either.
 
 The boss travels with its gear, so **its length is the stroke**: the mechanism runs while the boss
-still fills the bores, which is 4.40 mm, or 2.5 teeth, at the defaults. `TestStrokeIsTheBossLength`
+still fills the bores, which is 5.06 mm, or 2.9 teeth, at the defaults. `TestStrokeIsTheBossLength`
 and `TestTeethNeverReachABore` hold both halves of that.
 
 ### The pair
@@ -152,28 +152,30 @@ the proof must check").
 | Ribbon Thickness `T` | 2.5 mm |
 | Tooth Pitch `P` | 1.75 mm |
 | Tooth Height `H` | 1.2 mm |
-| Tooth Count `N` | 40 |
-| Twist Lead | 30 mm per turn |
+| Tooth Count `N` | 80 |
+| Twist Lead | 33 mm per turn |
 | Crossing Angle `Sigma` | 80° |
 | Engagement | 0.36 mm |
 | Mounting Angle, both gears | 15° |
-| Cage Radius | 15 mm |
+| Cage Radius | 16.5 mm |
 | Clearance | 0.3 mm |
 
-Derived: `Beta` = 46.3°, `A` = 9.64 mm, ribbon length = 70 mm, twist per tooth = `P/Lambda` = 21.0°.
+Derived: `Beta` = 43.6°, `A` = 9.64 mm, ribbon length = 140 mm, twist per tooth = `P/Lambda` =
+19.1°.
 
 **These defaults are set by the frame, not only by the mesh.** A bore has to stand near upright or
 it cannot be printed (see "Why the bores stand where they do"), and that fixes the cage radius at
 `Lambda*pi` — half the twist lead. A compact cage therefore needs a fast twist, and a slow twist
-needs a large cage. 30 mm per turn against a 15 mm cage radius is the compromise: at 20 mm the
+needs a large cage. 33 mm per turn against a 16.5 mm cage radius is the compromise: at 20 mm the
 ribbon is twisted past the point of looking like a rack, and at 40 mm the only arrangements with
-equal mounting angles turned out to jam under finer sampling.
+equal mounting angles turned out to jam under finer sampling. The lead and the cage radius move
+together and cannot be set apart: every millimetre of easier twist is half a millimetre more cage.
 
-At those values `proof/screwgear` measures a free window in B's tooth phase that is **0.411–0.481 mm
+At those values `proof/screwgear` measures a free window in B's tooth phase that is **0.438–0.569 mm
 wide** and that **advances by exactly one tooth pitch for each pitch A advances**, departing from
-the 1:1 line by 0.064 mm, which is 3.7% of the pitch. That window width is the backlash, and the
+the 1:1 line by 0.067 mm, which is 3.8% of the pitch. That window width is the backlash, and the
 winding is what makes this a 1:1 gear rather than two parts that merely touch. Away from the teeth
-the two ribbons clear each other by 0.168 mm at their closest.
+the two ribbons clear each other by 0.254 mm at their closest.
 
 **Both Mounting Angles are 15°, and the frame is why.** Unequal angles drive too, and some drive
 better, but the four bores can only stand near upright when the two angles are equal, and 15° is
@@ -236,8 +238,8 @@ User inputs in dialog order. All linear inputs are mm; the mounting angles are d
 | Ribbon Thickness | `ribbonThickness` | mm | 2.5 |
 | Tooth Pitch | `toothPitch` | mm | 1.75 |
 | Tooth Height | `toothHeight` | mm | 1.2 |
-| Tooth Count | `toothCount` | — | 40 |
-| Twist Lead | `twistLead` | mm | 30 |
+| Tooth Count | `toothCount` | — | 80 |
+| Twist Lead | `twistLead` | mm | 33 |
 | Crossing Angle | `crossAngle` | deg | 80 |
 | Engagement | `engagement` | mm | 0.36 |
 | Mounting Angle A | `mountAngleA` | deg | 15 |
@@ -245,7 +247,7 @@ User inputs in dialog order. All linear inputs are mm; the mounting angles are d
 | Boss Half Length | `bossHalf` | mm | 5 |
 | Boss Taper | `bossTaper` | mm | 0.9 |
 | Boss Height | `bossGrow` | mm | 0.6 |
-| Cage Radius | `cageRadius` | mm | 15 |
+| Cage Radius | `cageRadius` | mm | 16.5 |
 | Cage Rise | `cageRise` | mm | 18 |
 | Shell Thickness | `shellThick` | mm | 3 |
 | Plate Thickness | `plateThick` | mm | 2 |
@@ -270,7 +272,7 @@ returns internal units — cm for length and **radians** for angle (`[PB-EVAL-EX
 - `twistLead` must be `> 0`. There is no upper bound: a very long lead approaches two straight racks
   pushing each other, which is the degenerate case Segerman names, and nothing here forbids it.
 - `cageRadius` is where each gear's bores sit on its own axis, so it must clear the engaged zone,
-  which the proof measures at ±5.27 mm. It must also leave the boss room: the boss is centred on the
+  which the proof measures at ±4.05 mm. It must also leave the boss room: the boss is centred on the
   bore, so `cageRadius - bossHalf` must stay outside the engaged zone too.
 - `cageRise` must put both rings clear of both ribbons. The ribbons reach further from the middle at
   the cage radius than their own width suggests, because a ribbon crosses that radius at more than
@@ -347,14 +349,14 @@ for gear B (the assembly phase). Anchor the rectangle to the projected axis poin
 rotation with an angular dimension against the projected reference line, so the sketch closes fully
 constrained.
 
-**Loft the twelve sections in order** (`[PB-LOFT]`). The result is one pitch of the twisted toothed
+**Loft the eleven sections in order** (`[PB-LOFT]`). The result is one pitch of the twisted toothed
 ribbon.
 
 **The section count is derived, not pinned, and it is not user-configurable.** It is the smallest
-count that keeps the twist between neighbouring sections under 2°, which is 12 at the defaults. The loft's surface between two
+count that keeps the twist between neighbouring sections under 2°, which is 11 at the defaults. The loft's surface between two
 sections is ruled, so it cuts the corner of the true helicoid by about `(W/2)*(1 - cos(dtheta/2))`
 where `dtheta` is the twist between neighbouring sections. At the defaults that is 1.91° per step
-and 0.7 µm of departure, which is nearly three orders below the 0.45 mm backlash. A faster twist
+and 0.7 µm of departure, which is nearly three orders below the 0.50 mm backlash. A faster twist
 needs more sections for the same departure, which is why the count is derived from the twist per
 tooth rather than fixed.
 
@@ -368,8 +370,8 @@ Step(k) = translate(k*P along the axis) ∘ rotate(k*P/Lambda about the axis)
 
 Build it by doubling rather than by `N` separate placements: copy the current body, move the copy by
 `Step(m)` where `m` is the number of teeth built so far, join, and repeat; finish with one partial
-round for the remainder. That is `ceil(log2(N))` copy-move-join rounds — 6 at the default 40 teeth,
-against 39 — and every placement is exact, because the body genuinely is invariant under `Step`.
+round for the remainder. That is `ceil(log2(N))` copy-move-join rounds — 7 at the default 80 teeth,
+against 79 — and every placement is exact, because the body genuinely is invariant under `Step`.
 
 Copy with `copyPasteBodies`, move with `moveFeatures` / `defineAsFreeMove(matrix)`
 (`[PB-MOVE-ROTATE]`, `[SCREW-F-SCREW-STEP]`), and join with a `combineFeatures` join. Adjacent cells
@@ -410,8 +412,8 @@ same rectangular section about `n̂`, so every outside face lands on that one cy
 
   What the bore takes out of a post is **measured rather than derived**, because it is a twisted
   channel through a wall it is not aligned with, and `boreReach` in the proof is that measurement.
-  Shaping to the channel rather than squaring off round it takes the four posts from 1804 mm² of
-  the cage wall to 1181 mm², and their widest point from 19.40 mm to 17.24 mm.
+  Shaping to the channel rather than squaring off round it takes the four posts from 1750 mm² of
+  the cage wall to 1142 mm², and their widest point from 18.60 mm to 15.34 mm.
 
   **`blockWall` is 3 mm and that is a floor, not a preference.** Less than that leaves the frame a
   shell exactly where it is most worked, at the one place it holds a gear.
@@ -484,11 +486,11 @@ and it is cheap enough to run the search a few million times. The package import
   point of it falls outside the frame's material. Measuring sideways instead would pass a wall that
   is really 2.1 mm thick where the bore's edge runs at 45°, which is most of its height.
 - `TestTheMiddleStaysOpen` keeps the frame out of the space the gears mesh in.
-- `TestStrokeIsTheBossLength` and `TestTeethNeverReachABore` hold the boss: the travel is 2.5 teeth,
+- `TestStrokeIsTheBossLength` and `TestTeethNeverReachABore` hold the boss: the travel is 2.9 teeth,
   and no tooth is ever inside a bore over that travel.
 - `TestCrossedHelicalRuleMakesTheCrestHelicesParallel` pins `Sigma = 2*Beta` and the station it
   holds at.
-- `TestLoftSectionCountHoldsTheHelicoid` is the arithmetic the twelve sections are bought with.
+- `TestLoftSectionCountHoldsTheHelicoid` is the arithmetic the eleven sections are bought with.
 
 `TestRenderPair`, `TestRenderPart`, `TestRenderMesh` draw the pictures from the same section
 function the mesh proof samples. They are skipped unless `-render.out` names a directory.
