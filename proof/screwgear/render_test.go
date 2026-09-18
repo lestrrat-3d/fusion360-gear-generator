@@ -85,97 +85,74 @@ func ribbonMesh(g Gear, from, to float64) (*solidlens.Mesh, error) {
 	return solidlens.NewMesh(vertices, triangles)
 }
 
-// ringMesh draws one cage ring: a round bar bent into a circle at the cage
-// radius, at the height given.
-func ringMesh(p Params, height float64) (*solidlens.Mesh, error) {
-	const sides = 20
-	profile := make([]render.Vec2, 0, sides)
-	for i := range sides {
-		a := 2 * math.Pi * float64(i) / sides
-		profile = append(profile, render.Vec2{
-			X: height + p.RingBar/2*math.Sin(a),
-			Y: p.CageRadius + p.RingBar/2*math.Cos(a),
-		})
+// plateMesh draws one end plate: a flat annulus, level top and bottom, which is
+// what a print stands on.
+func plateMesh(p Params, top bool) (*solidlens.Mesh, error) {
+	outer := p.CageRadius + p.PostBar/2
+	inner := outer - p.PlateWall
+	lo, hi := p.CageRise-p.PlateThick, p.CageRise
+	if !top {
+		lo, hi = -p.CageRise, -p.CageRise+p.PlateThick
 	}
-	return render.Revolve(profile, 120)
+	return render.Revolve([]render.Vec2{
+		{X: lo, Y: inner}, {X: hi, Y: inner}, {X: hi, Y: outer}, {X: lo, Y: outer},
+	}, 160)
 }
 
-// postMesh draws the slender part of one post: a round bar standing at the cage
-// radius, in the two lengths left either side of the bore.
-//
-// The bore goes right through the post, so the bar is in two pieces and what
-// joins them is the block's own material round the opening. Drawing the bar
-// whole would put a rod across the hole the ribbon runs through.
-func postMesh(p Params, azimuth, from, to float64) (*solidlens.Mesh, error) {
-	const sides = 16
+// barMesh draws a square bar between two points along the cage axis, squared to
+// the cage: one face radial, one tangential.
+func barMesh(p Params, azimuth, from, to, half float64) (*solidlens.Mesh, error) {
 	if to-from < 0.01 {
-		return nil, fmt.Errorf("a post length from %g to %g is not worth drawing", from, to)
+		return nil, fmt.Errorf("a bar from %g to %g is not worth drawing", from, to)
 	}
+	radial := r3.NewVec(math.Cos(azimuth), math.Sin(azimuth), 0)
+	tangen := r3.NewVec(-math.Sin(azimuth), math.Cos(azimuth), 0)
 	centre := r3.NewVec(p.CageRadius*math.Cos(azimuth), p.CageRadius*math.Sin(azimuth), 0)
 	ring := func(z float64) []solidlens.Vec {
-		out := make([]solidlens.Vec, 0, sides)
-		for i := range sides {
-			a := 2 * math.Pi * float64(i) / sides
-			out = append(out, solidlens.Vec{
-				X: centre.X + p.PostBar/2*math.Cos(a),
-				Y: centre.Y + p.PostBar/2*math.Sin(a),
-				Z: z,
-			})
+		out := make([]solidlens.Vec, 0, 4)
+		for _, c := range [][2]float64{{-1, -1}, {1, -1}, {1, 1}, {-1, 1}} {
+			v := centre.Add(radial.Scale(c[0] * half)).Add(tangen.Scale(c[1] * half))
+			out = append(out, solidlens.Vec{X: v.X, Y: v.Y, Z: z})
 		}
 		return out
 	}
-	ends := make([][3]int, 0, sides-2)
-	for i := 1; i < sides-1; i++ {
-		ends = append(ends, [3]int{0, i, i + 1})
-	}
-	return render.Prism(ring(from), ring(to), ends)
+	return render.Prism(ring(from), ring(to), [][3]int{{0, 1, 2}, {0, 2, 3}})
 }
 
-// blockMesh draws the block a post widens into around its bore, with the bore
-// through it.
+// blockMesh draws one brick with its bore through it.
 //
-// It is meshed on a grid rather than cut by a boolean: a cell is dropped when
-// it falls in the channel the turning ribbon sweeps, which is the same local
-// mapping the meshing proof uses, and the corners that are left standing on the
-// channel's edge are then walked onto that edge.
-func blockMesh(g Gear, station float64) (*solidlens.Mesh, error) {
-	const nU, nV = 150, 70
-	p := g.P
-	halfU := p.BoreHalfWidth() + p.BlockWall
-	halfV := p.BoreHalfThickness() + p.BlockWall
-	half := p.BlockDepth / 2
-
+// The brick's outside is square to the cage and the bore inside is not, so the
+// two radial faces are gridded and a cell is dropped where the bore passes. The
+// rims those dropped cells leave are the bore's own wall.
+func blockMesh(g Gear, station string, bl blockView) (*solidlens.Mesh, error) {
+	const nT, nZ = 160, 200
 	point := func(face, i, j int) r3.Vec {
-		u := -halfU + 2*halfU*float64(i)/nU
-		v := -halfV + 2*halfV*float64(j)/nV
-		return g.world(u, v, station+float64(2*face-1)*half)
+		dr := float64(2*face-1) * bl.hr
+		dt := -bl.ht + 2*bl.ht*float64(i)/nT
+		dz := -bl.hz + 2*bl.hz*float64(j)/nZ
+		return bl.centre.Add(bl.radial.Scale(dr)).Add(bl.tangen.Scale(dt)).
+			Add(r3.NewVec(0, 0, dz))
 	}
-	open := func(pt r3.Vec) bool {
-		u, v, _ := g.local(pt)
-		return math.Abs(u) <= p.BoreHalfWidth() && math.Abs(v) <= p.BoreHalfThickness()
-	}
-
-	index := func(face, i, j int) int { return face*(nU+1)*(nV+1) + i*(nV+1) + j }
-	vertices := make([]solidlens.Vec, 2*(nU+1)*(nV+1))
+	index := func(face, i, j int) int { return face*(nT+1)*(nZ+1) + i*(nZ+1) + j }
+	vertices := make([]solidlens.Vec, 2*(nT+1)*(nZ+1))
 	for face := range 2 {
-		for i := 0; i <= nU; i++ {
-			for j := 0; j <= nV; j++ {
+		for i := 0; i <= nT; i++ {
+			for j := 0; j <= nZ; j++ {
 				pt := point(face, i, j)
 				vertices[index(face, i, j)] = solidlens.Vec{X: pt.X, Y: pt.Y, Z: pt.Z}
 			}
 		}
 	}
-
-	keep := make([][]bool, nU)
-	for i := range nU {
-		keep[i] = make([]bool, nV)
-		for j := range nV {
+	keep := make([][]bool, nT)
+	for i := range nT {
+		keep[i] = make([]bool, nZ)
+		for j := range nZ {
 			mid := point(0, i, j).Add(point(1, i+1, j+1)).Scale(0.5)
-			keep[i][j] = !open(mid)
+			keep[i][j] = !inBore(g, mid)
 		}
 	}
 	kept := func(i, j int) bool {
-		if i < 0 || i >= nU || j < 0 || j >= nV {
+		if i < 0 || i >= nT || j < 0 || j >= nZ {
 			return false
 		}
 		return keep[i][j]
@@ -186,8 +163,8 @@ func blockMesh(g Gear, station float64) (*solidlens.Mesh, error) {
 	quad := func(a, b, c, d int) {
 		triangles = append(triangles, [3]int{a, b, c}, [3]int{a, c, d})
 	}
-	for i := range nU {
-		for j := range nV {
+	for i := range nT {
+		for j := range nZ {
 			if !keep[i][j] {
 				continue
 			}
@@ -208,49 +185,46 @@ func blockMesh(g Gear, station float64) (*solidlens.Mesh, error) {
 		}
 	}
 	if len(triangles) == 0 {
-		return nil, fmt.Errorf("the bore removed the whole block")
+		return nil, fmt.Errorf("the bore removed the whole block at %s", station)
 	}
 	return solidlens.NewMesh(vertices, triangles)
 }
 
-// boreSpan is the stretch of a post that the bore takes out of it, measured
-// along the cage axis on the post's own centre line.
-func boreSpan(g Gear, azimuth float64) (lo, hi float64) {
-	p := g.P
-	lo, hi = math.Inf(1), math.Inf(-1)
-	for z := -p.CageRise; z <= p.CageRise; z += 0.01 {
-		pt := r3.NewVec(p.CageRadius*math.Cos(azimuth), p.CageRadius*math.Sin(azimuth), z)
-		if inBore(g, pt) {
-			lo, hi = math.Min(lo, z), math.Max(hi, z)
-		}
-	}
-	return lo, hi
+// blockView is what the render needs of a block; cage_test.go owns its sizing.
+type blockView struct {
+	centre         r3.Vec
+	radial, tangen r3.Vec
+	hr, ht, hz     float64
 }
 
-// cageMesh draws the whole frame: two rings, four posts, and the bored block on
-// each post.
+// cageMesh draws the whole frame: two plates, four posts, and the bored brick
+// on each post.
 func cageMesh(ga, gb Gear) (*solidlens.Mesh, error) {
 	p := ga.P
 	var pieces []solidlens.TriangleSource
-	for _, h := range []float64{-p.CageRise, p.CageRise} {
-		ring, err := ringMesh(p, h)
+	for _, top := range []bool{false, true} {
+		plate, err := plateMesh(p, top)
 		if err != nil {
-			return nil, fmt.Errorf("ring at %g: %w", h, err)
+			return nil, fmt.Errorf("plate: %w", err)
 		}
-		pieces = append(pieces, ring)
+		pieces = append(pieces, plate)
 	}
 	for _, g := range []Gear{ga, gb} {
 		for _, station := range boreStations(p) {
 			a := postAzimuth(g, station)
-			lo, hi := boreSpan(g, a)
-			for _, run := range [][2]float64{{-p.CageRise, lo}, {hi, p.CageRise}} {
-				post, err := postMesh(p, a, run[0], run[1])
+			b := blockAt(g, station)
+			view := blockView{b.centre, b.radial, b.tangen, b.hr, b.ht, b.hz}
+			for _, run := range [][2]float64{
+				{-p.CageRise, b.centre.Z - b.hz},
+				{b.centre.Z + b.hz, p.CageRise},
+			} {
+				bar, err := barMesh(p, a, run[0], run[1], p.PostBar/2)
 				if err != nil {
 					return nil, fmt.Errorf("post: %w", err)
 				}
-				pieces = append(pieces, post)
+				pieces = append(pieces, bar)
 			}
-			block, err := blockMesh(g, station)
+			block, err := blockMesh(g, fmt.Sprintf("%.0f", station), view)
 			if err != nil {
 				return nil, fmt.Errorf("block: %w", err)
 			}

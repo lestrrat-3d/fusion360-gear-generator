@@ -21,10 +21,15 @@ The three parts are:
 
 - **Gear A** and **Gear B**, each an ordinary rack — a flat plate with teeth cut into one long edge —
   twisted about its own centre line into a helix. The two are the same part.
-- **The Cage**, a cylinder with most of its wall gone: a ring at the top, a ring at the bottom, and
-  four posts standing between them. Each post sits where one ribbon crosses the cylinder and carries
-  a **bore** that ribbon passes through. The two posts of one gear are bored low and the two of the
-  other high, so the gears meet in the middle of the cylinder.
+- **The Cage**, a short tube with most of its wall gone: a flat plate at each end, and four posts
+  standing between them. Each post sits where one ribbon crosses the tube and carries a **bore**
+  that ribbon passes through. The two posts of one gear are bored low and the two of the other high,
+  so the gears meet in the middle, where nothing of the frame blocks the view of them.
+
+  **Everything outside is square to the cage, even though the bore inside is not.** The plates have
+  flat, level faces, and a block is a brick whose faces are radial, tangential and level. A part
+  whose outside is square to the build plate prints better than one whose every face is skewed, and
+  the skew the mechanism needs is all inside the bore.
 
   The bore is what makes each gear's motion a screw motion rather than a free slide. It is cut to
   the ribbon's own cross-section and twisted at the ribbon's own lead, so a gear that turns without
@@ -236,15 +241,16 @@ User inputs in dialog order. All linear inputs are mm; the mounting angles are d
 | Engagement | `engagement` | mm | 0.36 |
 | Mounting Angle A | `mountAngleA` | deg | 15 |
 | Mounting Angle B | `mountAngleB` | deg | 15 |
-| Boss Half Length | `bossHalf` | mm | 4 |
+| Boss Half Length | `bossHalf` | mm | 5 |
 | Boss Taper | `bossTaper` | mm | 0.9 |
 | Boss Height | `bossGrow` | mm | 0.6 |
 | Cage Radius | `cageRadius` | mm | 15 |
-| Cage Rise | `cageRise` | mm | 12.5 |
-| Ring Bar | `ringBar` | mm | 1.2 |
-| Post Bar | `postBar` | mm | 2 |
-| Block Depth | `blockDepth` | mm | 1.8 |
-| Block Wall | `blockWall` | mm | 1.5 |
+| Cage Rise | `cageRise` | mm | 16 |
+| Plate Thickness | `plateThick` | mm | 2 |
+| Plate Wall | `plateWall` | mm | 3 |
+| Post Bar | `postBar` | mm | 2.4 |
+| Block Depth | `blockDepth` | mm | 3 |
+| Block Wall | `blockWall` | mm | 2.5 |
 | Clearance | `clearance` | mm | 0.3 |
 | Target Plane | `plane` | selection | — |
 | Centre Point | `point` | selection | — |
@@ -374,19 +380,22 @@ zero for `k >= 1`, so no guard is needed here, but do not "optimize" a `k = 0` c
 
 ### 4: The cage
 
-Build the two rings, then the four posts, then bore each post.
+Build the two plates, then the four posts, then the block on each post, then bore them.
 
-**The rings** are circles of `cageRadius` swept with a round bar of `ringBar`, on planes through `C`
-normal to `n̂` at `±cageRise`. Sweep is not available here (`[SCREW-F-TWISTED-SLOT]` says why), so
-revolve a `ringBar` circle about `n̂` at that radius.
+**The plates** are flat annuli: revolve a rectangle of `plateThick` by `plateWall` about `n̂` at the
+cage radius, at `±cageRise`. Their outer faces are the two surfaces a print stands on, so they are
+level and nothing may stand proud of them (`TestBlocksStayInsideThePlates`).
 
-**The posts** stand at the four azimuths where the ribbons cross the cylinder: each gear's axis
-direction and its opposite. A post is a round bar of `postBar` running the full height from the
-bottom ring to the top, so every post meets both rings and the frame is one body
-(`TestPostsReachBothRings`).
+**The posts** stand at the four azimuths where the ribbons cross the tube: each gear's axis
+direction and its opposite. A post is a **square** bar of `postBar`, one face radial and one
+tangential, running from the bottom plate to the top so every post meets both
+(`TestPostsReachBothPlates`).
 
-**Each post carries a block** around its bore: a slab of `blockDepth` standing across that gear's
-axis at station `±cageRadius`, reaching `blockWall` past the bore on every side.
+**Each post carries a block** around its bore: a brick squared to the cage, `blockDepth` deep
+radially, and sized in the other two directions by **measuring what the bore occupies there and
+adding `blockWall`**. That measurement is not a closed form worth deriving: the bore is a twisted
+channel through a brick that is not aligned with it, so what it takes up in the brick's own
+directions has to be sampled. `blockAt` in the proof is that measurement.
 
 **Bore each post with a twisted clearance ribbon** (`[SCREW-F-TWISTED-SLOT]`): loft five rectangles
 of `(W + 2*bossGrow + 2*clearance)` by `(T + 2*bossGrow + 2*clearance)` on planes along that gear's
@@ -396,11 +405,10 @@ and below its block, and the ribbon has to get past that too.
 
 **The bore has to twist; a straight hole binds.** Over a block of depth `tau` the ribbon turns by
 `tau/Lambda`, so its corner sweeps `(W/2)*(tau/Lambda)` across the opening. At the defaults that is
-1.41 mm against 0.3 mm of clearance.
+3.32 mm against 0.3 mm of clearance.
 
 **The bore is cut to the boss, never to a tooth.** That is the whole reason the ribbon carries a
-boss: the frame is plain round bar and plain rectangular openings, and nothing in it is shaped like
-a tooth.
+boss: the frame is plain bar and plain bricks, and nothing in it is shaped like a tooth.
 
 ### 5: Relocate the bodies
 
@@ -431,8 +439,10 @@ and it is cheap enough to run the search a few million times. The package import
 - `TestRibbonsClearTheCage` walks the whole of both ribbons against the whole frame, which is what
   sizes `cageRise`. One static pass settles every position the gears take, because a bore is cut to
   the ribbon and the ribbon is invariant under its own screw motion.
-- `TestPostsReachBothRings` and `TestBoresSitOnOppositeSidesOfTheMiddle` hold the frame's shape: one
-  body, and one gear's bores low against the other's high.
+- `TestPostsReachBothPlates` and `TestBoresSitOnOppositeSidesOfTheMiddle` hold the frame's shape:
+  one body, and one gear's bores low against the other's high.
+- `TestBlocksStayInsideThePlates` keeps a block off the two faces a print stands on, and
+  `TestTheMiddleStaysOpen` keeps the frame out of the space the gears mesh in.
 - `TestStrokeIsTheBossLength` and `TestTeethNeverReachABore` hold the boss: the travel is 2.5 teeth,
   and no tooth is ever inside a bore over that travel.
 - `TestCrossedHelicalRuleMakesTheCrestHelicesParallel` pins `Sigma = 2*Beta` and the station it

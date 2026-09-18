@@ -43,7 +43,7 @@ The teeth are 1.2 mm from crest to root, a little over a tenth of the plate's wi
 
 ## The pair
 
-![Two ribbons crossing near a right angle, with the frame's two rings at their centre](images/plan.png)
+![Two ribbons crossing, with the frame's cage between them](images/plan.png)
 
 Both gears, seen from almost overhead, which is the only view that shows the angle their axes
 cross at. That angle is 80°. The crossed-helical rule would make it twice the toothed edge's helix
@@ -58,10 +58,10 @@ stand near upright.
 
 ## The frame
 
-![The cage: two rings, four posts, each post bored, with a gear threaded through](images/cage.png)
+![The cage: two flat plates, four square posts, each post bored, with a gear through it](images/cage.png)
 
-The frame with one gear left in it. It is a cylinder with most of its wall gone: a ring top and
-bottom, and four posts standing between them. Each post sits where one ribbon crosses the cylinder
+The frame with one gear left in it. It is a short tube with most of its wall gone: a flat plate at
+each end, and four posts standing between them. Each post sits where one ribbon crosses the cylinder
 and carries a **bore** that ribbon passes through. Two posts are bored low and two high, so the two
 gears pass at different heights and their teeth meet in the middle.
 
@@ -69,6 +69,12 @@ gears pass at different heights and their teeth meet in the middle.
 and twisted at the ribbon's own lead, so a gear that turns without advancing jams in it.
 `TestBoresAdmitOnlyTheScrewMotion` measures that: 3.21° out of step and the gear locks. A frame of
 round holes would report no jam at any angle, which is the case that rules out.
+
+**Everything outside is square to the cage, even though the bore inside is not.** The plates have
+flat, level faces, the posts are square bars and a block is a brick with radial, tangential and
+level faces. A part whose outside is square prints better than one whose every face is skewed, and
+the skew the mechanism needs is all inside the bore. Nothing stands proud of a plate's outer face,
+which is the surface a print stands on.
 
 **What passes through a bore is never a tooth.** The ribbon swells into a smooth boss at each of the
 two places it crosses the cage, and the bore is cut to the boss. That is why the frame is plain
@@ -103,7 +109,7 @@ four tooth pairs land in the engaged zone at once and cannot all interdigitate, 
 | Clearance away from the teeth | 0.168 mm at the closest approach |
 | Bore angle | 15° off upright, which is the best the mounting angles allow |
 | Play in the frame | a bore jams a gear 3.21° out of step |
-| Stroke | 4.40 mm, or 2.5 teeth |
+| Stroke | 5.03 mm, or 2.9 teeth |
 
 `TestPairDrivesOneToOne` is where the first four come from. It tracks the interval of gear B's
 tooth phase that clears gear A through a full pitch of A, and requires three things of it: that

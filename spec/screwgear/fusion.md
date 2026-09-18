@@ -70,7 +70,8 @@ trivially resolvable in the current multi-component context. The screw gear buil
 `Design` sub-component, so it is always in that context.
 
 One loft per gear cuts both of that gear's bores, because the two posts stand on the same axis and
-the one clearance ribbon runs through both. The bore is a twisted channel, because the ribbon turns
+the one clearance ribbon runs through both. Everything the loft cuts INTO is square to the cage —
+flat plates, square posts, square blocks — and only what it cuts out is skewed. The bore is a twisted channel, because the ribbon turns
 while it is inside the post, and it runs the post's whole height rather than only the block's depth:
 a post is solid bar above and below its block.
 

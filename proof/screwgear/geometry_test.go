@@ -41,10 +41,11 @@ type Params struct {
 	BossGrow  float64 // how far the boss stands proud of the plain ribbon
 
 	CageRadius float64 // where the cage stands, and so where each bore sits
-	CageRise   float64 // half the cage's height, to the middle of a ring
-	RingBar    float64 // thickness of a ring's bar
+	CageRise   float64 // half the cage's height, to the outer face of a plate
+	PlateThick float64 // how thick the end plates are
+	PlateWall  float64 // how far a plate reaches in from the cage radius
 	PostBar    float64 // thickness of a post away from its block
-	BlockDepth float64 // how far a post's block runs along its gear's axis
+	BlockDepth float64 // how far a block runs radially
 	BlockWall  float64 // material left round a bore
 	Clearance  float64 // added all round a bore
 }
@@ -62,16 +63,17 @@ func defaultParams() Params {
 		Engagement:  0.36,
 		ToothCount:  40,
 
-		BossHalf:  4,
+		BossHalf:  5,
 		BossTaper: 0.9,
 		BossGrow:  0.6,
 
 		CageRadius: 15,
-		CageRise:   12.5,
-		RingBar:    1.2,
-		PostBar:    2,
-		BlockDepth: 1.8,
-		BlockWall:  1.5,
+		CageRise:   16,
+		PlateThick: 2,
+		PlateWall:  3,
+		PostBar:    2.4,
+		BlockDepth: 3,
+		BlockWall:  2.5,
 		Clearance:  0.3,
 	}
 }
