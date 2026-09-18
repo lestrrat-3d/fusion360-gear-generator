@@ -85,153 +85,150 @@ func ribbonMesh(g Gear, from, to float64) (*solidlens.Mesh, error) {
 	return solidlens.NewMesh(vertices, triangles)
 }
 
-// cageMesh draws the frame: one tube, coaxial with the two gears' common
-// perpendicular, with a slot cut through its wall for each gear.
+// collarMesh draws one collar: a disc standing across its gear's axis with the
+// ribbon's own channel cut through it.
 //
-// The slots are what make this a frame rather than a pair of bearings. A round
-// hole would let its ribbon turn freely as it slid, and the mechanism would
-// have three degrees of freedom instead of one; a slot the shape of the
-// ribbon's own cross-section forces the ribbon to turn as it advances, exactly
-// as a twisted-bar screwdriver does. Each slot is a twisted channel of the same
-// lead as its gear, because the ribbon turns as it crosses the wall.
-//
-// No boolean builds it. A wall cell is dropped when its own midpoint falls
-// inside a gear's clearance rectangle, which is the same local mapping the
-// meshing proof uses, so the slot is the ribbon's cross-section by construction
-// rather than by a second description of it.
-func cageMesh(p Params, ga, gb Gear, inner, outer, halfHeight, clearance float64) (*solidlens.Mesh, error) {
-	const nAz, nZ = 240, 400
+// It is meshed on a polar grid rather than cut by a boolean. A cell is dropped
+// when it falls in the channel at either face or between them, which is the
+// swept opening a real cut would leave, and the same local mapping the meshing
+// proof uses. The cells' shared corners are then walked onto the true edge of
+// the channel, because a cell either stands or goes whole and an opening that
+// runs diagonally across the grid would otherwise come out as a staircase.
+func collarMesh(g Gear) (*solidlens.Mesh, error) {
+	const nAz, nR = 240, 90
+	const rMin = 0.35
 
-	// inSlot answers whether a point of the wall has been cut away.
-	inSlot := func(pt r3.Vec) bool {
-		for _, g := range []Gear{ga, gb} {
-			u, v, _ := g.local(pt)
-			if math.Abs(u) <= p.Width/2+clearance && math.Abs(v) <= p.Thickness/2+clearance {
+	centre := collarCentre(g)
+	half := g.P.CollarDepth / 2
+	point := func(face, i, j int) r3.Vec {
+		a := 2 * math.Pi * float64(i%nAz) / nAz
+		r := rMin + (g.P.CollarOuter-rMin)*float64(j)/nR
+		along := float64(2*face-1) * half
+		return centre.Add(g.Ez.Scale(along)).
+			Add(g.Ex.Scale(r * math.Cos(a))).Add(g.Ey.Scale(r * math.Sin(a)))
+	}
+	// open is the channel test, taken across the collar's depth so the opening
+	// is what the turning ribbon sweeps rather than its section at one face.
+	open := func(pt r3.Vec) bool {
+		for k := range 5 {
+			along := -half + 2*half*float64(k)/4
+			probe := pt.Add(g.Ez.Scale(along - pt.Sub(centre).Dot(g.Ez)))
+			if inCollarOpening(g, probe) {
 				return true
 			}
 		}
 		return false
 	}
 
-	az := func(i int) float64 { return 2 * math.Pi * float64(i%nAz) / nAz }
-	zAt := func(j int) float64 { return -halfHeight + 2*halfHeight*float64(j)/nZ }
-	point := func(radius float64, i, j int) r3.Vec {
-		a := az(i)
-		return r3.NewVec(radius*math.Cos(a), radius*math.Sin(a), zAt(j))
-	}
-
-	// One vertex grid, shared by every cell, so neighbouring cells meet at the
-	// same index and the renderer sees one surface rather than a field of
-	// separate quads.
-	index := func(ring, i, j int) int { return ring*nAz*(nZ+1) + (i%nAz)*(nZ+1) + j }
-	vertices := make([]solidlens.Vec, 2*nAz*(nZ+1))
-	for ring, radius := range []float64{inner, outer} {
+	index := func(face, i, j int) int { return face*nAz*(nR+1) + (i%nAz)*(nR+1) + j }
+	vertices := make([]solidlens.Vec, 2*nAz*(nR+1))
+	for face := range 2 {
 		for i := range nAz {
-			for j := 0; j <= nZ; j++ {
-				pt := point(radius, i, j)
-				vertices[index(ring, i, j)] = solidlens.Vec{X: pt.X, Y: pt.Y, Z: pt.Z}
+			for j := 0; j <= nR; j++ {
+				pt := point(face, i, j)
+				vertices[index(face, i, j)] = solidlens.Vec{X: pt.X, Y: pt.Y, Z: pt.Z}
 			}
 		}
 	}
 
 	keep := make([][]bool, nAz)
-	mid := (inner + outer) / 2
 	for i := range nAz {
-		keep[i] = make([]bool, nZ)
-		for j := range nZ {
-			a, b := az(i), az(i+1)
-			centre := r3.NewVec(mid*math.Cos((a+b)/2), mid*math.Sin((a+b)/2), (zAt(j)+zAt(j+1))/2)
-			keep[i][j] = !inSlot(centre)
+		keep[i] = make([]bool, nR)
+		for j := range nR {
+			mid := point(0, i, j).Add(point(1, i+1, j+1)).Scale(0.5)
+			keep[i][j] = !open(mid)
 		}
 	}
 	kept := func(i, j int) bool {
-		if j < 0 || j >= nZ {
+		if j < 0 || j >= nR {
 			return false
 		}
 		return keep[(i+nAz)%nAz][j]
 	}
 
-	// Snap the boundary onto the real slot edge. A cell is kept or dropped
-	// whole, so a slot edge that runs diagonally across the grid comes out as a
-	// staircase. Every corner that is left standing inside a slot is therefore
-	// walked around the tube, by bisection, to where it really crosses the
-	// slot's edge. The cells stay the same; only the vertices they share move,
-	// so the wall stays closed and its edge becomes the cut line.
-	for ring, radius := range []float64{inner, outer} {
+	// Snap each corner that stands on the channel's edge onto the edge itself.
+	for face := range 2 {
 		for i := range nAz {
-			for j := 0; j <= nZ; j++ {
-				// Only a corner where the wall meets a slot moves; everywhere
-				// else the grid is already on the tube.
+			for j := 0; j <= nR; j++ {
 				standing := kept(i, j) || kept(i, j-1) || kept(i-1, j) || kept(i-1, j-1)
 				gone := !kept(i, j) || !kept(i, j-1) || !kept(i-1, j) || !kept(i-1, j-1)
 				if !standing || !gone {
 					continue
 				}
-				here := point(radius, i, j)
-				inside := inSlot(here)
+				here := point(face, i, j)
+				inside := open(here)
 				dir := 0
 				for _, d := range []int{1, -1} {
-					if inSlot(point(radius, i+d, j)) != inside {
+					if open(point(face, i+d, j)) != inside {
 						dir = d
 						break
 					}
 				}
 				if dir == 0 {
-					continue // the edge does not cross this row within a cell
+					continue
 				}
-				far := point(radius, i+dir, j)
+				far := point(face, i+dir, j)
 				if !inside {
 					here, far = far, here
 				}
 				lo, hi := 0.0, 1.0
 				for range 24 {
 					m := (lo + hi) / 2
-					if inSlot(here.Add(far.Sub(here).Scale(m))) {
+					if open(here.Add(far.Sub(here).Scale(m))) {
 						lo = m
 					} else {
 						hi = m
 					}
 				}
 				pt := here.Add(far.Sub(here).Scale((lo + hi) / 2))
-				vertices[index(ring, i, j)] = solidlens.Vec{X: pt.X, Y: pt.Y, Z: pt.Z}
+				vertices[index(face, i, j)] = solidlens.Vec{X: pt.X, Y: pt.Y, Z: pt.Z}
 			}
 		}
 	}
 
-	const in, out = 0, 1
+	const back, front = 0, 1
 	var triangles [][3]int
 	quad := func(a, b, c, d int) {
 		triangles = append(triangles, [3]int{a, b, c}, [3]int{a, c, d})
 	}
 	for i := range nAz {
-		for j := range nZ {
+		for j := range nR {
 			if !keep[i][j] {
 				continue
 			}
-			// The outer face, wound so its normal points away from the axis,
-			// and the inner face wound the other way.
-			quad(index(out, i, j), index(out, i+1, j), index(out, i+1, j+1), index(out, i, j+1))
-			quad(index(in, i, j), index(in, i, j+1), index(in, i+1, j+1), index(in, i+1, j))
-			// A wall face wherever the neighbour is gone: the rim of a slot, or
-			// the tube's own two ends.
-			if !kept(i+1, j) {
-				quad(index(in, i+1, j), index(in, i+1, j+1), index(out, i+1, j+1), index(out, i+1, j))
-			}
-			if !kept(i-1, j) {
-				quad(index(in, i, j), index(out, i, j), index(out, i, j+1), index(in, i, j+1))
-			}
-			if !kept(i, j+1) {
-				quad(index(in, i, j+1), index(out, i, j+1), index(out, i+1, j+1), index(in, i+1, j+1))
+			quad(index(front, i, j), index(front, i+1, j), index(front, i+1, j+1), index(front, i, j+1))
+			quad(index(back, i, j), index(back, i, j+1), index(back, i+1, j+1), index(back, i+1, j))
+			if !kept(i, j+1) { // the rim, or the far side of the channel
+				quad(index(back, i, j+1), index(front, i, j+1), index(front, i+1, j+1), index(back, i+1, j+1))
 			}
 			if !kept(i, j-1) {
-				quad(index(in, i, j), index(in, i+1, j), index(out, i+1, j), index(out, i, j))
+				quad(index(back, i, j), index(back, i+1, j), index(front, i+1, j), index(front, i, j))
+			}
+			if !kept(i+1, j) {
+				quad(index(back, i+1, j), index(back, i+1, j+1), index(front, i+1, j+1), index(front, i+1, j))
+			}
+			if !kept(i-1, j) {
+				quad(index(back, i, j), index(front, i, j), index(front, i, j+1), index(back, i, j+1))
 			}
 		}
 	}
 	if len(triangles) == 0 {
-		return nil, fmt.Errorf("the slots removed the whole cage wall")
+		return nil, fmt.Errorf("the channel removed the whole collar")
 	}
 	return solidlens.NewMesh(vertices, triangles)
+}
+
+// cageMesh draws the frame: one collar per gear, meeting at their rims.
+func cageMesh(ga, gb Gear) (*solidlens.Mesh, error) {
+	a, err := collarMesh(ga)
+	if err != nil {
+		return nil, fmt.Errorf("gear A collar: %w", err)
+	}
+	b, err := collarMesh(gb)
+	if err != nil {
+		return nil, fmt.Errorf("gear B collar: %w", err)
+	}
+	return render.Merge(a, b)
 }
 
 // The whole mechanism, both ribbons full length in the cage rings.
@@ -251,7 +248,7 @@ func TestRenderPair(t *testing.T) {
 	if err != nil {
 		t.Fatalf("mesh gear B: %v", err)
 	}
-	cage, err := cageMesh(p, ga, gb, p.CageInner(), p.CageOuter(), p.CageHalfHeight(), p.Clearance)
+	cage, err := cageMesh(ga, gb)
 	if err != nil {
 		t.Fatalf("mesh the cage: %v", err)
 	}

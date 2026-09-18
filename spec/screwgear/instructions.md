@@ -21,11 +21,14 @@ The three parts are:
 
 - **Gear A** and **Gear B**, each an ordinary rack — a flat plate with teeth cut into one long edge —
   twisted about its own centre line into a helix. The two are the same part.
-- **The Cage**, a short tube whose wall carries one twisted slot per gear. A twisted plate driven
-  through a fixed slot must rotate as it advances, exactly as a twisted-bar screwdriver does, so the
-  slot is what makes each gear's motion a screw motion rather than a free slide.
+- **The Cage**, two collars fused at their rims, one threaded on each gear. A collar is a disc
+  standing across its gear's axis with an opening cut to that ribbon's own cross-section. A twisted
+  plate driven through a fixed opening of its own shape must rotate as it advances, exactly as a
+  twisted-bar screwdriver does, so the opening is what makes each gear's motion a screw motion
+  rather than a free slide. A round hole would not: it would leave the mechanism three degrees of
+  freedom instead of one.
 
-The gears' toothed edges meet inside the cage. Pushing one gear along its axis drives the other, at
+The gears' toothed edges meet between the collars. Pushing one gear along its axis drives the other, at
 a **1:1 ratio** — one tooth pitch of advance each. The mechanism has one degree of freedom.
 
 ## Geometry
@@ -51,8 +54,11 @@ where
 
 ```
 Lambda = TwistLead / (2*pi)      screw parameter, mm of advance per radian
-Phi    = Mounting Angle          the cross-section's angle at the crossing station
+Phi    = that gear's Mounting Angle, its cross-section angle at the crossing station
 ```
+
+**Each gear has its own `Phi`.** They are not equal at the defaults, and the meshing search is what
+says so.
 
 **The screw motion is a shift of `Z` and nothing else.** Advancing the gear by `dz` translates it by
 `dz` and rotates it by `dz/Lambda`; the twisted blank is invariant under exactly that motion, so the
@@ -88,14 +94,14 @@ cross everywhere else. The proof measures contact between 1.3 mm short of the cl
 contact like a crossed-helical pair rather than the line contact the rule describes. The angle is a
 starting point that the meshing search confirms, and the search is what settles it.
 
-### Why the mounting angle is not zero
+### Why the mounting angles are not zero
 
 The obvious arrangement points both toothed edges straight at each other at the crossing station
-(`Phi = 0`). **That arrangement jams.** A meshing sweep over crossing angle, mounting angle, hand
-and engagement found that at `Phi = 0` no phase of gear B clears gear A at every phase of gear A,
-at any engagement past roughly a quarter of the tooth height, because the engaged zone spans two to
-three tooth pairs whose ridges cross at an angle and cannot all interdigitate at once. Turning both
-ribbons by `Phi` about their own axes moves the crossing to a station where they do clear.
+(`Phi = 0` on both). **That arrangement jams.** A meshing sweep over crossing angle, mounting angle,
+hand and engagement found that at `Phi = 0` no phase of gear B clears gear A at every phase of gear
+A, at any engagement past roughly a quarter of the tooth height, because the engaged zone spans
+about four tooth pairs whose ridges cross at an angle and cannot all interdigitate at once. Turning
+the ribbons about their own axes moves the crossing to a station where they do clear.
 
 The same sweep is what the defaults below come from; `mesh-search.md` records its model, its
 criterion and what it covered. **The proof owns these numbers** and must re-derive them (see "What
@@ -107,26 +113,37 @@ the proof must check").
 |---|---|
 | Ribbon Width `W` | 10 mm |
 | Ribbon Thickness `T` | 2.5 mm |
-| Tooth Pitch `P` | 3.5 mm |
+| Tooth Pitch `P` | 1.75 mm |
 | Tooth Height `H` | 1.2 mm |
-| Tooth Count `N` | 24 |
-| Twist Lead | 90 mm per turn |
-| Engagement | 0.72 mm (60% of Tooth Height) |
-| Mounting Angle `Phi` | 15° |
+| Tooth Count `N` | 48 |
+| Twist Lead | 40 mm per turn |
+| Engagement | 0.60 mm (half the Tooth Height) |
+| Mounting Angle, gear A | 30° |
+| Mounting Angle, gear B | 0° |
 | Clearance | 0.3 mm |
 
-Derived: `Beta` = 19.24°, `Sigma` = 38.48°, `A` = 9.28 mm, ribbon length = 84 mm, twist per tooth =
-`P/Lambda` = 14.0°.
+Derived: `Beta` = 38.15°, `Sigma` = 76.3°, `A` = 9.40 mm, ribbon length = 84 mm, twist per tooth =
+`P/Lambda` = 15.8°.
 
-At those values `proof/screwgear` measures a free window in B's tooth phase that is **0.21–0.26 mm
+**The twist is fast and the crossing is wide, and the two go together.** `Sigma = 2*Beta` ties the
+crossing angle to the twist, so a slow twist gives two ribbons lying almost side by side. Segerman's
+model turns about once every four centimetres and its ribbons cross near a right angle; these
+defaults are read off that, and they are what make the part look like a twisted rack rather than a
+gently bent one.
+
+At those values `proof/screwgear` measures a free window in B's tooth phase that is **0.245–0.298 mm
 wide** and that **advances by exactly one tooth pitch for each pitch A advances**, departing from
-the 1:1 line by 0.058 mm, which is 1.7% of the pitch. That window width is the backlash, and the
+the 1:1 line by 0.047 mm, which is 2.7% of the pitch. That window width is the backlash, and the
 winding is what makes this a 1:1 gear rather than two parts that merely touch. Away from the teeth
-the two ribbons clear each other by 0.081 mm at their closest.
+the two ribbons clear each other by 0.136 mm at their closest.
 
-**Assembly phase.** With both gears at `Phi = 15°` and gear A at tooth phase 0, gear B meshes at a
-tooth phase near `P/2` — crest against root. Build B half a pitch out of step with A. The exact
-value is the centre of the free window and belongs to the proof.
+**The two Mounting Angles are not equal, and the search is why.** At this twist no symmetric
+mounting drives; 30° on gear A against 0° on gear B does. The two gears are still the same part —
+what differs is the angle the frame holds each at.
+
+**Assembly phase.** With gear A at tooth phase 0, gear B is built at **0.315 mm**, which is not half
+a pitch. Half a pitch is the answer only when both gears are mounted alike. The number is the middle
+of the free window, and `TestAssemblyPhaseSitsInTheFreeWindow` holds it there.
 
 ## Architecture
 
@@ -173,20 +190,22 @@ perpendicular `n̂`; the point is the mechanism's centre `C`.
 
 ## Variables
 
-User inputs in dialog order. All linear inputs are mm; Mounting Angle is degrees.
+User inputs in dialog order. All linear inputs are mm; the mounting angles are degrees.
 
 | Dialog label | input id | unit | default |
 |---|---|---|---|
 | Ribbon Width | `ribbonWidth` | mm | 10 |
 | Ribbon Thickness | `ribbonThickness` | mm | 2.5 |
-| Tooth Pitch | `toothPitch` | mm | 3.5 |
+| Tooth Pitch | `toothPitch` | mm | 1.75 |
 | Tooth Height | `toothHeight` | mm | 1.2 |
-| Tooth Count | `toothCount` | — | 24 |
-| Twist Lead | `twistLead` | mm | 90 |
-| Engagement | `engagement` | mm | 0.72 |
-| Mounting Angle | `mountAngle` | deg | 15 |
-| Cage Diameter | `cageDiameter` | mm | 24 |
-| Cage Wall | `cageWall` | mm | 1.5 |
+| Tooth Count | `toothCount` | — | 48 |
+| Twist Lead | `twistLead` | mm | 40 |
+| Engagement | `engagement` | mm | 0.60 |
+| Mounting Angle A | `mountAngleA` | deg | 30 |
+| Mounting Angle B | `mountAngleB` | deg | 0 |
+| Collar Radius | `collarRadius` | mm | 8 |
+| Collar Depth | `collarDepth` | mm | 1.5 |
+| Collar Station | `collarStation` | mm | 8.4 |
 | Clearance | `clearance` | mm | 0.3 |
 | Target Plane | `plane` | selection | — |
 | Centre Point | `point` | selection | — |
@@ -205,23 +224,17 @@ returns internal units — cm for length and **radians** for angle (`[PB-EVAL-EX
 - `toothPitch` must be `> 0`; `toothCount` must be `>= 4`.
 - `twistLead` must be `> 0`. There is no upper bound: a very long lead approaches two straight racks
   pushing each other, which is the degenerate case Segerman names, and nothing here forbids it.
-- `cageDiameter` has **two floors, and both are measured rather than derived.**
-  `TestCageDiameterFloorsAreMeasured` walks the wall itself and reports them. Below **7 mm** at the
-  default proportions the slots cut the tube into pieces and it stops being a frame at all. Below
-  **19.25 mm** the tube is still one piece, but each gear's two piercings reach around and join into
-  a single opening, leaving the wall standing on two arms rather than four. Require at least 4 mm
-  over the second floor; the 24 mm default clears it by 4.75 mm.
+- `collarRadius` and `collarStation` must put the two collars **into each other**, or the frame is
+  two loose rings. Their centres stand `sqrt(A^2 + (2*collarStation*sin(Sigma/2))^2)` apart, which is
+  14.00 mm at the defaults against two 8 mm rims, so they overlap by 2 mm.
+  `TestCollarsMeetEachOther` requires that overlap to be at least one collar's depth.
+- `collarStation` must also clear the engaged zone, which the proof measures at ±5.27 mm, and must
+  keep each collar off the other gear. `TestCollarsClearTheOtherGear` walks the whole of the other
+  ribbon against it.
 
-  An earlier draft settled this with an arc — the two gears pierce the wall `Sigma` apart, so the
-  wall survives while `(cageDiameter/2)*Sigma` exceeds a slot's width — and that rule is wrong twice
-  over. A slot's width around the tube is not the ribbon's thickness, because the ribbon crosses the
-  wall at whatever station puts it at the tube's radius and the cross-section angle there decides
-  how much of the opening lies across the tube. And it watches the wrong pair of openings: what
-  merges first is one gear's own two piercings, not one gear's against the other's.
-
-**No range is enforced on Mounting Angle, and none is asserted here.** `Phi = 15°` is the measured
-working value at the default proportions; what happens elsewhere is the proof's to map, and this
-spec does not clamp what has not been measured.
+**No range is enforced on either Mounting Angle, and none is asserted here.** 30° on gear A against
+0° on gear B is the measured working pair at the default proportions; what happens elsewhere is the
+proof's to map, and this spec does not clamp what has not been measured.
 
 ## Sketch Discipline
 
@@ -292,8 +305,8 @@ ribbon.
 
 **Nine sections, not fewer, and the count is not user-configurable.** The loft's surface between two
 sections is ruled, so it cuts the corner of the true helicoid by about `(W/2)*(1 - cos(dtheta/2))`
-where `dtheta` is the twist between neighbouring sections. At the defaults that is 1.75° per step
-and 0.6 µm of departure, which is three orders below the 0.23 mm backlash. Halving the count
+where `dtheta` is the twist between neighbouring sections. At the defaults that is 1.97° per step
+and 0.7 µm of departure, which is three orders below the 0.28 mm backlash. Halving the count
 quadruples that error and it is still small, but nine sections also keeps each rectangle's
 correspondence unambiguous for the loft, which is the failure this count is really buying off.
 
@@ -307,8 +320,8 @@ Step(k) = translate(k*P along the axis) ∘ rotate(k*P/Lambda about the axis)
 
 Build it by doubling rather than by `N` separate placements: copy the current body, move the copy by
 `Step(m)` where `m` is the number of teeth built so far, join, and repeat; finish with one partial
-round for the remainder. That is `ceil(log2(N))` copy-move-join rounds — 5 at the default 24 teeth,
-against 23 — and every placement is exact, because the body genuinely is invariant under `Step`.
+round for the remainder. That is `ceil(log2(N))` copy-move-join rounds — 6 at the default 48 teeth,
+against 47 — and every placement is exact, because the body genuinely is invariant under `Step`.
 
 Copy with `copyPasteBodies`, move with `moveFeatures` / `defineAsFreeMove(matrix)`
 (`[PB-MOVE-ROTATE]`, `[SCREW-F-SCREW-STEP]`), and join with a `combineFeatures` join. Adjacent cells
@@ -319,30 +332,25 @@ zero for `k >= 1`, so no guard is needed here, but do not "optimize" a `k = 0` c
 
 ### 4: The cage
 
-Build the tube first: a circle of `cageDiameter` on a plane through `C` normal to `n̂`, extruded
-symmetrically to a half-height of
+Build one collar per gear, then join them.
 
-```
-A/2 + (W/2)*|cos(cageInner/Lambda + Phi)| + 2*cageWall
-```
+A collar is a **disc** of radius `collarRadius` and thickness `collarDepth`, standing across its
+gear's axis at station `collarStation`, with the ribbon's own channel cut through it. Extrude the
+disc from a circle sketched on a construction plane perpendicular to that gear's axis
+(`setByDistanceOnPath`, `[PB-CONSTRUCTION-PLANES]`), then cut the channel with a **twisted clearance
+ribbon** (`[SCREW-F-TWISTED-SLOT]`): loft five rectangles of `(W + 2*clearance)` by
+`(T + 2*clearance)` on planes along that gear's axis, spanning the collar's depth plus a margin at
+each end, each rotated by `s/Lambda + Phi` exactly as the tooth cell's sections are, and cut the
+lofted body from the disc.
 
-then a concentric circle inset by `cageWall` cut through it. What the tube has to cover is the four
-openings rather than the ribbons at their widest: a ribbon crosses the wall about `cageInner` along
-its own axis from the closest approach, and its cross-section angle **there** is what decides how
-much of its width falls along `n̂`. Two walls of margin keep an opening off the rim, which
-`TestCageSlotsStayOffTheRim` checks.
+**The channel has to twist; a straight hole binds.** Over a collar of depth `tau` the ribbon turns
+by `tau/Lambda`, so its corner sweeps `(W/2)*(tau/Lambda)` across the opening. At the defaults that
+is 1.18 mm against 0.3 mm of clearance, so a straight hole would not pass the ribbon at all.
 
-Cut one slot per gear with a **twisted clearance ribbon** (`[SCREW-F-TWISTED-SLOT]`): loft five
-rectangles of `(W + 2*clearance)` by `(T + 2*clearance)` on planes along that gear's axis, spanning
-the tube's full width plus a margin at each end, each rotated by `s/Lambda + Phi` exactly as the
-tooth cell's sections are, and cut the lofted body from the tube. The slot is then a twisted channel
-of the same lead as the ribbon.
+**Join the two collars with a `combineFeatures` join.** Their rims overlap by 2 mm at the defaults,
+which is what makes the frame one body rather than two rings; `TestCollarsMeetEachOther` holds it.
 
-**The slot has to twist; a straight slot binds.** Over a wall of thickness `tau` the ribbon turns by
-`tau/Lambda`, so its corner sweeps `(W/2)*(tau/Lambda)` across the slot — past the clearance at
-`tau = 0.86 mm` on the defaults, which is thinner than any wall worth printing.
-
-**Do not build this cutter with a swept feature.** `SweepFeatureInput` has a `twistAngle` that would
+**Do not build the cutter with a swept feature.** `SweepFeatureInput` has a `twistAngle` that would
 produce the exact helicoid from one section in one feature, and it is the obvious tool here, but a
 sweep needs an `adsk.fusion.Path`, and `Path.create` on a sketch curve raises
 `InternalValidationError` whenever the owning sketch is not trivially resolvable in the current
@@ -351,7 +359,7 @@ loft costs four extra sketches and needs no path.
 
 ### 5: Relocate the bodies
 
-Move the two gear bodies and the cage body into their sub-components with `body.moveToComponent`,
+Move the two gear bodies and the joined cage body into their sub-components with `body.moveToComponent`,
 which preserves world position and needs no activation.
 
 ## What the proof checks
@@ -372,12 +380,14 @@ and it is cheap enough to run the search a few million times. The package import
 - `TestFullRibbonsClearOutsideTheEngagement` walks both parts end to end, so the contact search's
   window is not taken on trust.
 - `TestRibbonIsInvariantUnderItsScrewStep` is what licenses building the ribbon as one cell repeated.
-- `TestCageSlotsLeaveOneTubeAndFourHoles`, `TestCageSlotsStayOffTheRim` and
-  `TestCageDiameterFloorsAreMeasured` walk the tube's own wall. The frame is only a frame while it
-  is one body, and the four openings are what can take that away.
-- `TestRibbonsPassThroughTheirSlots` walks both ribbons end to end and asserts that neither ever
-  meets the wall. One static pass settles every position the gears take, because a slot is cut to
-  the blank and the blank is invariant under the gear's own screw motion.
+- `TestCollarAdmitsOnlyTheScrewMotion` is the frame's own proof. It turns a gear out of step with
+  its advance and finds where it jams in its collar, which is **3.55°** at the defaults. A frame of
+  round holes would report no jam at any angle, and that is the case this rules out.
+- `TestCollarsMeetEachOther`, `TestCollarsClearTheOtherGear` and `TestEachGearPassesThroughItsCollar`
+  hold the rest of the frame: the two rings are fused into one body, neither fouls the gear it does
+  not hold, and each gear passes its own collar. One static pass settles every position the gears
+  take, because a channel is cut to the blank and the blank is invariant under the gear's own screw
+  motion.
 - `TestCrossedHelicalRuleMakesTheCrestHelicesParallel` pins `Sigma = 2*Beta` and the station it
   holds at.
 - `TestLoftSectionCountHoldsTheHelicoid` is the arithmetic the nine sections are bought with.
@@ -392,8 +402,8 @@ follow from the equation of meshing `n·v_rel = 0` against the relative screw, a
 derives them; the proof measures what this tooth does, not what the best tooth would do.
 
 It proves the ideal ribbon, an exact cosine on an exact helicoid, and not the lofted body Fusion
-builds. `TestLoftSectionCountHoldsTheHelicoid` bounds the gap between the two at 0.6 µm against a
-0.25 mm backlash, but that is arithmetic about the loft rather than a measurement of one.
+builds. `TestLoftSectionCountHoldsTheHelicoid` bounds the gap between the two at 0.7 µm against a
+0.28 mm backlash, but that is arithmetic about the loft rather than a measurement of one.
 
-It also cannot see print tolerance or friction. A window of 0.25 mm is comfortable for fused
+It also cannot see print tolerance or friction. A window of 0.28 mm is comfortable for fused
 filament and tight for resin, and only a printed part settles it.

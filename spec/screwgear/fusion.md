@@ -54,20 +54,23 @@ Select each section's profile by curve count (`utilities.find_profile_by_curve_c
 lines=4)`) — each section sketch holds exactly one rectangle, so the count is unambiguous and there
 is no need for a positional pick.
 
-The rectangles turn by 1.75° between neighbours at the default proportions. Fusion pairs the
+The rectangles turn by 1.97° between neighbours at the default proportions. Fusion pairs the
 sections' vertices by proximity, and that pairing is what stays correct as long as the step stays
 well under a quarter turn. A spec change that cuts the section count to three would put 4.7° between
 neighbours, which still pairs, but the failure when it does not is a lofted body with a twisted
 crease rather than an error, so the count stays where the spec pins it.
 
-## `[SCREW-F-TWISTED-SLOT]` — the cage slot
+## `[SCREW-F-TWISTED-SLOT]` — the collar's opening
 
-Cut the slot with a lofted clearance ribbon, not a swept one. `SweepFeatureInput.twistAngle` (with
+Cut the opening with a lofted clearance ribbon, not a swept one. `SweepFeatureInput.twistAngle` (with
 `solidTwistAxis`) is the natural tool and would build the exact helicoid from one section, but the
 sweep needs an `adsk.fusion.Path` and `Path.create` on a sketch curve raises `RuntimeError …
 InternalValidationError : Utils::getObjectPath(sketchCurve, …)` when the owning sketch is not
 trivially resolvable in the current multi-component context. The screw gear builds everything in a
 `Design` sub-component, so it is always in that context.
+
+The same loft cuts both collars' openings, one per gear, and the opening is a twisted channel
+because the ribbon turns while it is inside the collar.
 
 `twistAngle` is also ignored outright when a guide rail or guide surface is set, per the API
 reference — worth knowing before anyone reaches for a rail to shape the teeth instead.
