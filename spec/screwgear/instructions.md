@@ -148,7 +148,8 @@ two).
 NOT re-implement it.
 
 **Entry wiring:** `commands/screwgear/entry.py` constructs `GearCommand(gear_type='ScrewGear',
-name='Screw Gear Generator', …)`, binding the two classes above by name (`[PB-COMMAND-ENTRY]`).
+name='Screw Gear Generator', …)`, binding the two classes above by name (PLAYBOOK.md
+"Command-entry wiring").
 
 **Parameter mode: all-Python-precomputed** (`[PB-PRECOMPUTED-MODE]`). Every value is computed in
 Python in internal cm and written numerically; the generator registers **no** named user parameters.
