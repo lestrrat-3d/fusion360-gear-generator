@@ -427,11 +427,25 @@ same rectangular section about `n̂`, so every outside face lands on that one cy
   meets one merges into material that is already there, and requiring the ramp to finish first only
   makes the cage taller for nothing.
 
-**Bore each post with a twisted clearance ribbon** (`[SCREW-F-TWISTED-SLOT]`): loft five rectangles
-of `(W + 2*bossGrow + 2*clearance)` by `(T + 2*bossGrow + 2*clearance)` on planes along that gear's
-axis, each rotated by `s/Lambda + Phi` exactly as the tooth cell's sections are, spanning the whole
-post rather than only the block. **The whole post, not just the block**: a post is solid wall above
-and below its block, and the ribbon has to get past that too.
+**Bore each post with a twisted clearance ribbon** (`[SCREW-F-TWISTED-SLOT]`): loft rectangles of
+`(W + 2*bossGrow + 2*clearance)` by `(T + 2*bossGrow + 2*clearance)` on planes along that gear's
+axis, each rotated by `s/Lambda + Phi` exactly as the tooth cell's sections are.
+
+**One loft per bore, spanning only where that post has material**, which is the stretch of the
+gear's axis over which the ribbon is inside the post, plus a millimetre at each end. At the defaults
+that is 4.1 mm of axis and 44° of turn. The two bores of one gear stand 2\*`cageRadius` apart, so one
+loft covering both would span 37 mm and 404° and need eight times the sections for the same
+accuracy.
+
+**The section count is derived from the turn**, at no more than 5° between neighbours, which is 10
+at the defaults. The tooth cell is held to 2° because its error is measured against the backlash;
+a bore's is measured against the clearance, which is twenty times larger.
+
+**A loft is flat between its sections, so the bore's wall is faceted and every facet stands inside
+the true channel.** What that costs is clearance, straight out of the gap the boss passes through,
+and enough of it binds the gear. At the derived count the facets take 0.005 mm of the 0.3 mm;
+at the five sections this spec fixed before they took 0.062 mm. `TestBoreLoftKeepsItsClearance`
+holds it at 95% of the clearance.
 
 **The bore has to twist; a straight hole binds.** Over a wall of thickness `tau` the ribbon turns by
 `tau/Lambda`, so its corner sweeps `(W/2)*(tau/Lambda)` across the opening. At the defaults that is
@@ -485,6 +499,9 @@ and it is cheap enough to run the search a few million times. The package import
 - `TestBoresKeepTheirWall` walks a 3 mm disc round the bore's edge at every height and fails if any
   point of it falls outside the frame's material. Measuring sideways instead would pass a wall that
   is really 2.1 mm thick where the bore's edge runs at 45°, which is most of its height.
+- `TestBoreLoftKeepsItsClearance` is the one case that looks at what Fusion will really cut rather
+  than at the ideal channel: it builds the bore's loft as the build would and requires 95% of the
+  clearance to survive the facets.
 - `TestTheMiddleStaysOpen` keeps the frame out of the space the gears mesh in.
 - `TestStrokeIsTheBossLength` and `TestTeethNeverReachABore` hold the boss: the travel is 2.9 teeth,
   and no tooth is ever inside a bore over that travel.

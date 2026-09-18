@@ -27,6 +27,12 @@ The bores are drawn on a grid: a cell of a post's block is dropped when it falls
 turning ribbon sweeps, which is the same local mapping the meshing proof uses. A boundary running
 across the grid's rows can still step, and those steps are in the drawing rather than the geometry.
 
+The channel's own wall is smooth here and faceted in the part. Fusion cuts it with a loft through
+ten rotated rectangles, so the wall is flat between them and every facet stands a little inside the
+true channel. `TestBoreLoftKeepsItsClearance` measures what that costs the gear: 0.005 mm of the
+0.30 mm clearance. It is the one case in this package that looks at what the build will really cut
+rather than at the ideal shape.
+
 ## The part
 
 ![A twisted toothed rack, its wavy edge spiralling twice along its length](images/part.png)
@@ -134,6 +140,7 @@ four tooth pairs land in the engaged zone at once and cannot all interdigitate, 
 | Post width | 3.00 mm, swelling to at most 15.34 mm at a bore, slanted at 45° at both ends |
 | Frame in the wall | 1142 mm² for the four posts, against 1750 mm² squared off |
 | Wall round a bore | 3 mm in every direction, not only sideways |
+| Bore wall in the part | faceted by its loft, leaving 0.295 mm of the 0.30 mm clearance |
 
 `TestPairDrivesOneToOne` is where the first four come from. It tracks the interval of gear B's
 tooth phase that clears gear A through a full pitch of A, and requires three things of it: that
