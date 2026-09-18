@@ -23,10 +23,9 @@ the proof reasons about. The part Fusion builds lofts nine rectangles per tooth,
 `TestLoftSectionCountHoldsTheHelicoid` bounds the difference between the two at 0.7 µm against a
 0.28 mm backlash. That bound is arithmetic about the loft rather than a measurement of one.
 
-The collars' openings are drawn on a grid: a cell of the disc is dropped when it falls in the
-channel the turning ribbon sweeps, which is the same local mapping the meshing proof uses. Each
-opening's edges are then walked onto the true cut line, though a boundary running across the grid's
-rows can still step. Those steps are in the drawing and not in the geometry.
+The bores are drawn on a grid: a cell of a post's block is dropped when it falls in the channel the
+turning ribbon sweeps, which is the same local mapping the meshing proof uses. A boundary running
+across the grid's rows can still step, and those steps are in the drawing rather than the geometry.
 
 ## The part
 
@@ -58,24 +57,23 @@ two gears are the same part rather than mirror images — what differs is the an
 
 ## The frame
 
-![The two collars of the frame, each threaded on one ribbon and fused to the other](images/cage.png)
+![The cage: two rings, four posts, each post bored, with a gear threaded through](images/cage.png)
 
-The frame on its own: two collars, one threaded on each gear, fused where their rims overlap. Each
-collar is a disc standing across its gear's axis with an opening cut to that ribbon's own
-cross-section.
+The frame with one gear left in it. It is a cylinder with most of its wall gone: a ring top and
+bottom, and four posts standing between them. Each post sits where one ribbon crosses the cylinder
+and carries a **bore** that ribbon passes through. Two posts are bored low and two high, so the two
+gears pass at different heights and their teeth meet in the middle.
 
-**The opening is what makes this a frame rather than a pair of bearings.** A round hole would let
-its ribbon turn freely as it slid, and the mechanism would have three degrees of freedom instead of
-one; an opening shaped like the ribbon forces the ribbon to turn as it advances, the way a
-twisted-bar screwdriver does. `TestCollarAdmitsOnlyTheScrewMotion` is the measurement behind that
-claim: it turns a gear out of step with its own advance and finds that it jams 3.55° later.
+**The bore is what holds a gear to its screw motion.** It is cut to the ribbon's own cross-section
+and twisted at the ribbon's own lead, so a gear that turns without advancing jams in it.
+`TestBoresAdmitOnlyTheScrewMotion` measures that: 3.21° out of step and the gear locks. A frame of
+round holes would report no jam at any angle, which is the case that rules out.
 
-The opening is a **twisted** channel, not a straight hole. The ribbon turns while it is inside the
-collar — 13.5° over the default 1.5 mm of depth — and a straight hole would not pass it at all.
-
-The two rims overlap by 2 mm, which is what makes the frame one body. Their centres stand 14 mm
-apart, set by where each collar sits along its own gear: far enough out to clear the ±5.3 mm the
-gears engage over, close enough in that the rings still meet.
+**What passes through a bore is never a tooth.** The ribbon swells into a smooth boss at each of the
+two places it crosses the cage, and the bore is cut to the boss. That is why the frame is plain
+round bar and plain rectangular openings, with nothing anywhere shaped like a tooth, and why nothing
+bears on a crest. The boss travels with its gear, so its length is the stroke: 4.40 mm, or 2.5
+teeth.
 
 ## The mesh
 
@@ -103,8 +101,8 @@ four tooth pairs land in the engaged zone at once and cannot all interdigitate, 
 | Departure from the 1:1 line | 0.047 mm, 2.7% of the pitch |
 | Clearance away from the teeth | 0.136 mm at the closest approach |
 | Engaged zone | ±5.3 mm, about 4 tooth pairs |
-| Play in the frame | the collar jams a gear 3.55° out of step |
-| Frame rim overlap | 2 mm, on centres 14 mm apart |
+| Play in the frame | a bore jams a gear 3.21° out of step |
+| Stroke | 4.40 mm, or 2.5 teeth |
 
 `TestPairDrivesOneToOne` is where the first four come from. It tracks the interval of gear B's
 tooth phase that clears gear A through a full pitch of A, and requires three things of it: that

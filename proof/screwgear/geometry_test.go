@@ -35,10 +35,17 @@ type Params struct {
 	Engagement  float64 // how deep the crests overlap
 	ToothCount  int
 
-	CollarOuter float64 // radius of a collar's rim
-	CollarDepth float64 // how far a collar runs along its own gear's axis
-	CollarAt    float64 // the station each collar sits at on its gear's axis
-	Clearance   float64 // added all round a collar's opening
+	BossHalf  float64 // half the smooth boss's length along the ribbon
+	BossTaper float64 // how far the boss takes to run out into the teeth
+	BossGrow  float64 // how far the boss stands proud of the plain ribbon
+
+	CageRadius float64 // where the cage stands, and so where each bore sits
+	CageRise   float64 // half the cage's height, to the middle of a ring
+	RingBar    float64 // thickness of a ring's bar
+	PostBar    float64 // thickness of a post away from its block
+	BlockDepth float64 // how far a post's block runs along its gear's axis
+	BlockWall  float64 // material left round a bore
+	Clearance  float64 // added all round a bore
 }
 
 func defaultParams() Params {
@@ -53,15 +60,32 @@ func defaultParams() Params {
 		Engagement:  0.60,
 		ToothCount:  48,
 
-		CollarOuter: 8,
-		CollarDepth: 1.5,
-		CollarAt:    8.4,
-		Clearance:   0.3,
+		BossHalf:  4,
+		BossTaper: 0.9,
+		BossGrow:  0.6,
+
+		CageRadius: 10,
+		CageRise:   13,
+		RingBar:    1.2,
+		PostBar:    2,
+		BlockDepth: 1.8,
+		BlockWall:  1.5,
+		Clearance:  0.3,
 	}
 }
 
-// collarCentre is where a gear's collar sits, on that gear's own axis.
-func collarCentre(g Gear) r3.Vec { return g.Origin.Add(g.Ez.Scale(g.P.CollarAt)) }
+// BoreHalfWidth and BoreHalfThickness are the bore's opening, which is the
+// ribbon's boss plus a clearance. The teeth never enter a bore: the boss is
+// what passes through, which is why nothing in the cage is cut to the shape of
+// a tooth.
+func (p Params) BoreHalfWidth() float64 { return p.Width/2 + p.BossGrow + p.Clearance }
+func (p Params) BoreHalfThickness() float64 {
+	return p.Thickness/2 + p.BossGrow + p.Clearance
+}
+
+// boreStations are where a gear's two bores sit on its own axis: the two places
+// it crosses the cage.
+func boreStations(p Params) [2]float64 { return [2]float64{-p.CageRadius, p.CageRadius} }
 
 // Lambda is the screw parameter: millimetres of advance per radian of turn.
 func (p Params) Lambda() float64 { return p.TwistLead / (2 * math.Pi) }
@@ -103,6 +127,46 @@ func (g Gear) edge(s float64) float64 {
 	return g.P.Width/2 - h/2 + h/2*math.Cos(2*math.Pi*(s-g.Phase)/g.P.ToothPitch)
 }
 
+// boss is how far the ribbon stands proud of its plain section at station s.
+//
+// The ribbon carries a smooth swelling at each of the two places it passes
+// through the cage, and that swelling is the only part of it the frame ever
+// touches. It is what lets a bore be a plain hole: the teeth never pass through
+// anything, and nothing bears on a crest.
+//
+// The boss is flat-topped over its middle and runs out into the teeth over
+// BossTaper at each end. It travels with the gear, so its length is the stroke.
+func (g Gear) boss(s float64) float64 {
+	p := g.P
+	best := 0.0
+	for _, centre := range boreStations(p) {
+		off := math.Abs(s-centre) - (p.BossHalf - p.BossTaper)
+		switch {
+		case off <= 0:
+			best = math.Max(best, p.BossGrow)
+		case off < p.BossTaper:
+			best = math.Max(best, p.BossGrow*0.5*(1+math.Cos(math.Pi*off/p.BossTaper)))
+		}
+	}
+	return best
+}
+
+// profile is the ribbon's cross-section at station s: how far it reaches on the
+// toothed side, on the back side, and either side of its own mid plane.
+//
+// The boss both swells the section and fades the teeth out of it, so the two
+// meet with no step.
+func (g Gear) profile(s float64) (uHi, uLo, vHalf float64) {
+	p := g.P
+	b := g.boss(s)
+	tooth := 1.0
+	if p.BossGrow > 0 {
+		tooth = 1 - b/p.BossGrow
+	}
+	cut := p.ToothHeight / 2 * (1 - math.Cos(2*math.Pi*(s-g.Phase)/p.ToothPitch))
+	return p.Width/2 + b - tooth*cut, -p.Width/2 - b, p.Thickness/2 + b
+}
+
 // local maps a world point to (u, v, s) with the twist undone.
 func (g Gear) local(pt r3.Vec) (u, v, s float64) {
 	d := pt.Sub(g.Origin)
@@ -128,11 +192,12 @@ func (g Gear) world(u, v, s float64) r3.Vec {
 // window that can reach the other gear, which is far shorter than the ribbon.
 func (g Gear) margin(pt r3.Vec) float64 {
 	u, v, s := g.local(pt)
-	m := g.edge(s) - u
-	if b := u + g.P.Width/2; b < m {
+	uHi, uLo, vHalf := g.profile(s)
+	m := uHi - u
+	if b := u - uLo; b < m {
 		m = b
 	}
-	if b := g.P.Thickness/2 - math.Abs(v); b < m {
+	if b := vHalf - math.Abs(v); b < m {
 		m = b
 	}
 	return m
@@ -141,13 +206,12 @@ func (g Gear) margin(pt r3.Vec) float64 {
 // section is the cross-section at station s, as its four corners in world
 // space, wound counter-clockwise about +Ez.
 func (g Gear) section(s float64) [4]r3.Vec {
-	w, t := g.P.Width/2, g.P.Thickness/2
-	e := g.edge(s)
+	uHi, uLo, t := g.profile(s)
 	return [4]r3.Vec{
-		g.world(-w, -t, s),
-		g.world(e, -t, s),
-		g.world(e, t, s),
-		g.world(-w, t, s),
+		g.world(uLo, -t, s),
+		g.world(uHi, -t, s),
+		g.world(uHi, t, s),
+		g.world(uLo, t, s),
 	}
 }
 
