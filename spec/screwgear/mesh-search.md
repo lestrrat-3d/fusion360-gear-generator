@@ -60,9 +60,14 @@ Results:
   cross-section angle is zero, and `proof/screwgear` measures contact several millimetres away from
   it. The contact is a point, as a crossed-helical pair's is.
 
-The chosen default — `W` 10, `T` 2.5, `P` 1.75, `H` 1.2, lead 40, `Sigma` 76.3°, `Phi` 30° on gear A
-against 0° on gear B, same hand, engagement 0.60 — was then re-run at a 0.01 mm sampling step. The
-free window is 0.25–0.32 mm wide throughout and its centre advances one pitch for each pitch of A.
+The arrangement the spec now carries — `W` 10, `T` 2.5, `P` 1.75, `H` 1.2, `Sigma` 80°, `Phi` 15°
+on both gears, same hand, engagement 0.36 — was re-run at a 0.01 mm sampling step, which matters:
+several arrangements that drove at 0.015 mm jam at 0.01 mm, so every number below is from the finer
+step.
+
+**The twist lead was eased from 30 mm to 33 mm after the search**, and the pair still drives 1:1 at
+the finer step. The lead is not free to move on its own, because the bores only stand near upright
+when the cage radius is half of it, so the cage grew from 15 mm to 16.5 mm with it.
 
 **The twist lead came from the video, not from the search.** An earlier draft turned once every 90 mm, which drives well but makes a part that barely looks
 twisted and a pair whose axes cross at 38°. Segerman's model turns about once every four
@@ -70,13 +75,13 @@ centimetres and crosses near a right angle. `Sigma = 2*Beta` ties those two toge
 lead off the video sets the crossing angle as well, and the search was re-run at the faster twist to
 find the mounting angles that go with it.
 
-**`proof/screwgear` re-derives all of this** and is the authority. It reports the same winding, a
-0.245–0.298 mm window, a 0.047 mm departure from the 1:1 line, and 0.136 mm of clearance between the
-two ribbons away from the teeth. This file records only how the arrangement was found.
+**`proof/screwgear` re-derives all of this** and is the authority. At the defaults it reports the
+same winding, a 0.438–0.569 mm window, a 0.067 mm departure from the 1:1 line, and 0.254 mm of
+clearance between the two ribbons away from the teeth. This file records only how the arrangement was found.
 
 ## What this does not establish
 
-The model is an exact sinusoid on an exact helicoid. The built part is a loft through twelve
+The model is an exact sinusoid on an exact helicoid. The built part is a loft through eleven
 rectangles per tooth, which departs from the helicoid by about 0.7 µm at the crest — three orders
 below the backlash, but measured against the model rather than against Fusion's own surface.
 

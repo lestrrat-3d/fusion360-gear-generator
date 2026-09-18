@@ -10,7 +10,7 @@ import (
 // measuredBacklash is the free play the default arrangement leaves, in mm. It
 // is what a printed pair is judged by, and geometry_test.go measures the loft's
 // section count against it.
-const measuredBacklash = 0.45
+const measuredBacklash = 0.50
 
 // The sampling the contact search runs at. The station step has to resolve the
 // tooth, whose flank rises 1.2 mm over less than a millimetre of station; 0.02 mm
