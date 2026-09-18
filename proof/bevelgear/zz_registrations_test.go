@@ -10,73 +10,69 @@ import (
 )
 
 func TestAnchorSketch(t *testing.T) {
-	proofkit.RunParallel(t, anchorCases, stepAnchorSketch)
+	proofkit.RunParallel(t, bevAnchorCases, stepAnchorSketch)
 }
 
 func TestGearProfiles(t *testing.T) {
-	proofkit.RunParallel(t, latticeCases, stepGearProfiles)
+	proofkit.RunParallel(t, bevLatticeCases, stepGearProfiles)
 }
 
 func TestToothProfile(t *testing.T) {
-	proofkit.RunParallel(t, toothCases, stepToothProfile)
+	proofkit.RunParallel(t, bevToothCases, stepToothProfile)
 }
 
 func TestProfileSketch(t *testing.T) {
-	proofkit.RunParallel(t, profileCases, stepProfileSketch)
+	proofkit.RunParallel(t, bevProfileCases, stepProfileSketch)
 }
 
 func TestRevolveGearBody(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, solidCases, stepRevolveGearBody, assertRevolveGearBody)
+	proofkit3d.RunSolidParallel(t, bevSolidCases, stepRevolveGearBody, assertRevolveGearBody)
 }
 
 func TestLoftTooth(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, solidCases, stepLoftTooth, assertLoftTooth)
+	proofkit3d.RunSolidParallel(t, bevSolidCases, stepLoftTooth, assertLoftTooth)
 }
 
-func TestTraceSketch(t *testing.T) {
-	proofkit.RunParallel(t, traceCases, stepTraceSketch)
+func TestSpiralTrace(t *testing.T) {
+	proofkit.RunParallel(t, bevSpiralSketchCases, stepSpiralTrace)
 }
 
-func TestSliceToothSlabs(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, spiralCases, stepSliceToothSlabs, assertSliceToothSlabs)
-}
-
-func TestDropApexScrap(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, spiralCases, stepDropApexScrap, assertDropApexScrap)
+func TestSliceTooth(t *testing.T) {
+	proofkit3d.RunSolidParallel(t, bevSpiralSolidCases, stepSliceTooth, assertSliceTooth)
 }
 
 func TestTwistSegments(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, spiralCases, stepTwistSegments, assertTwistSegments)
+	proofkit3d.RunSolidParallel(t, bevSpiralSolidCases, stepTwistSegments, assertTwistSegments)
 }
 
 func TestCrownSegments(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, spiralCases, stepCrownSegments, assertCrownSegments)
+	proofkit3d.RunSolidParallel(t, bevSpiralSolidCases, stepCrownSegments, assertCrownSegments)
 }
 
-func TestLoftSpiralTooth(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, spiralCases, stepLoftSpiralTooth, assertLoftSpiralTooth)
+func TestSpiralLoft(t *testing.T) {
+	proofkit3d.RunSolidParallel(t, bevSpiralSolidCases, stepSpiralLoft, assertSpiralLoft)
 }
 
-func TestConicalEndCuts(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, solidCases, stepConicalEndCuts, assertConicalEndCuts)
+func TestConicalEndCut(t *testing.T) {
+	proofkit3d.RunSolidParallel(t, bevSolidCases, stepConicalEndCut, assertConicalEndCut)
 }
 
 func TestCircularPattern(t *testing.T) {
-	proofkit3d.RunSolid(t, solidCases, stepCircularPattern, assertCircularPattern)
+	proofkit3d.RunSolid(t, bevSolidCases, stepCircularPattern, assertCircularPattern)
 }
 
 func TestCombineJoin(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, solidCases, stepCombineJoin, assertCombineJoin)
+	proofkit3d.RunSolidParallel(t, bevSolidCases, stepCombineJoin, assertCombineJoin)
 }
 
 func TestBoreSketch(t *testing.T) {
-	proofkit.RunParallel(t, boreCases, stepBoreSketch)
+	proofkit.RunParallel(t, bevBoreCases, stepBoreSketch)
 }
 
 func TestBoreCut(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, solidCases, stepBoreCut, assertBoreCut)
+	proofkit3d.RunSolidParallel(t, bevBoreSolidCases, stepBoreCut, assertBoreCut)
 }
 
 func TestMeshRotation(t *testing.T) {
-	proofkit3d.RunSolidParallel(t, solidCases, stepMeshRotation, assertMeshRotation)
+	proofkit3d.RunSolidParallel(t, bevSolidCases, stepMeshRotation, assertMeshRotation)
 }

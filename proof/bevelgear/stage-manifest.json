@@ -4,6 +4,7 @@
     "geometry_test.go",
     "sketches_test.go",
     "solids_test.go",
+    "spiral_test.go",
     "zz_registrations_test.go"
   ],
   "gear": "bevelgear",
