@@ -149,19 +149,21 @@ func postPiece(g Gear, station float64) piece {
 		}
 	}
 
-	// Hold the widening to 45 degrees, on the underside only.
+	// Slant both ends of the bulge at 45 degrees.
 	//
-	// A print is built upward, so material that appears above nothing is what
-	// will not bridge. Widening as the post rises is that case and is ramped;
-	// narrowing again is not, because what is left rests on what is under it,
-	// so a bulge may end in a flat shelf. Taking each height's width as the
-	// largest any height ABOVE demands, less the distance up to it, is exactly
-	// a 45 degree ramp under every bulge and a square top on it.
+	// Only the underside has to be slanted. A print is built upward, so what
+	// will not bridge is material appearing above nothing: widening as the post
+	// rises is that case, while narrowing again rests on what is under it and
+	// would print as a square shelf. The top is slanted to match the bottom
+	// because the part reads better for it, and it costs only height.
+	//
+	// Taking each height's width as the largest any other height demands, less
+	// the distance between them, is exactly a 45 degree slant either side.
 	ramped := make([]float64, n)
 	for j := range n {
 		want := half[j]
-		for k := j; k < n; k++ {
-			want = math.Max(want, half[k]-float64(k-j)*step)
+		for k := range n {
+			want = math.Max(want, half[k]-math.Abs(float64(k-j))*step)
 		}
 		ramped[j] = want / p.CageRadius
 	}
