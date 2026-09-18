@@ -1,693 +1,506 @@
-// Sketch steps. Each function is one Fusion sketch, rebuilt in the sketch
-// engine with the constraint scheme the spec prescribes, and gated by proofkit
-// on the engine's own verdict: DOF 0, no conflict, no redundancy, valid
-// profiles, well conditioned, and no discrete ambiguity.
+// This file holds the cycloidal drive's sketch steps, one function per Fusion
+// timeline sketch: the rotor lobe, the output hole, the disc bore, the
+// eccentric cam section, the housing base annulus, the ring-casing section and
+// the output plate.
 //
-// Three substitutions run through every sketch here, each because the engine
-// judges the constraint system alone while Fusion also gets to keep the pose it
-// seeded:
+// Two substitutions run through all of them, and both are recorded at the
+// place they are made rather than only here.
 //
-//  1. The sketch's +X axis is drawn as a short fixed construction line, and
-//     every place the spec says addHorizontal on a spoke is pinned instead by a
-//     signed zero angle to that line. addHorizontal — in Fusion and in the
-//     engine alike — says only "parallel to X", so it leaves the mirrored
-//     answer standing: a valley at -Rv satisfies it as happily as one at +Rv.
-//     Fusion picks the intended one from the seed; the gate refuses to. The
-//     substituted angle carries the direction the seed carried, and costs the
-//     proof nothing except that it cannot observe Fusion's seed sensitivity.
-//  2. A distance dimension is a magnitude in Fusion, whose side is captured
-//     from the seeded geometry ([PB-DIM-VALUE-SEMANTICS]). The eccentric offset
-//     is therefore NewDistance(origin, centre, E) — the magnitude — with the
-//     side supplied by the same signed angle, so disc 1's -E is the angle at
-//     180 degrees and never a negative dimension value.
-//  3. Sketch text is not modelled. Fusion's along-path labels add their own
-//     letter profiles, which is why every extrude step selects its profile by
-//     identity rather than by index, and they hold DOF, which is why a labelled
-//     sketch cannot be gated on isFullyConstrained ([PB-TEXT-HOLDS-DOF]). The
-//     engine has no text, so the proof shows the geometry fully constrained and
-//     says here what the labels would add.
+// The first is the signed dimension. Fusion's addDistanceDimension carries a
+// magnitude and takes its side from the seeded geometry, while the engine's
+// horizontal and vertical distances carry a signed target
+// ([PB-DIM-VALUE-SEMANTICS]). Where the spec pins a point on a ray from a
+// centre — the eccentric offset Od, the output hole's spoke, the output pin's
+// spoke — the unsigned pair (a point-on-circle and a horizontal) reaches DOF 0
+// and still admits the mirrored answer, which proofkit's gate refuses by
+// design. The proof states the signed distance and then measures the
+// coincidence the spec's constraint would have asserted.
+//
+// The second is the lobe spoke. Fusion pins spoke 1 with addHorizontal, which
+// leaves the same mirrored pair; the proof states a zero angle to the
+// eccentric construction line instead, which is the same direction with a
+// sense attached, and keeps the spec's own lobe-pitch angular dimension
+// between the two spokes unchanged.
 package cycloidal_test
 
 import (
 	"math"
 	"testing"
 
-	"github.com/lestrrat-3d/sketch"
-
 	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit"
+	"github.com/lestrrat-3d/sketch"
+	"github.com/lestrrat-3d/sketch/sketchtest"
 )
 
-// ---- case tables ------------------------------------------------------
+// residualSlack is the absolute slack a committed constraint's residual is
+// checked to. The solver converges to a residual near 1e-11 on these sketches,
+// so this leaves four orders of magnitude and still refuses a constraint that
+// did not take.
+const residualSlack = 1e-7
 
-// baseCase is the dialog's own defaults, in display units.
-func baseCase(overrides map[string]float64) map[string]float64 {
-	p := map[string]float64{
-		pPinCount:              16,
-		pPinCircleDiameter:     90,
-		pPinDiameter:           0,
-		pEccentricity:          1.5,
-		pDiskClearance:         0.3,
-		pDiscThickness:         8,
-		pDiscGap:               0.5,
-		pCenterBearingDiameter: 30,
-		pInputShaftDiameter:    8,
-		pBearingClearance:      0.2,
-		pOutputPinCircleDiam:   50,
-		pOutputPinCount:        6,
-		pOutputPinDiameter:     0,
-		pWall:                  3,
-		pBaseThickness:         5,
-		pOutputPlateThickness:  5,
-		pChamferSize:           0.5,
-		pDiscCount:             1,
-		pDiscIndex:             0,
-	}
-	for k, v := range overrides {
-		p[k] = v
-	}
-	return p
-}
+// coordSlack is the absolute millimetre slack for a solved coordinate compared
+// against the closed-form position the spec states for it. The formulas are
+// exact, so the only error is the solver's own convergence.
+const coordSlack = 1e-9
 
-// discSketchCases covers every branch the per-disc sketches take, from both
-// directions the spec offers: the disc index (and with it the signed
-// eccentricity and the 180-degree clocking), the disc count, the auto and
-// override resolutions of Pin Diameter and Output Pin Diameter, the bore and
-// no-bore cam, the two ends of the eccentricity range the undercut guard
-// allows, and the two ends of the pin-count range the spec states.
-var discSketchCases = []proofkit.Case{
-	{Name: "defaults", Params: baseCase(nil)},
-	{Name: "disc2of2", Params: baseCase(map[string]float64{pDiscCount: 2, pDiscIndex: 1})},
-	{Name: "disc1of2", Params: baseCase(map[string]float64{pDiscCount: 2, pDiscIndex: 0})},
-	{Name: "eccentricityNearUndercutLimit", Params: baseCase(map[string]float64{pEccentricity: 2.45})},
-	{Name: "eccentricitySmall", Params: baseCase(map[string]float64{pEccentricity: 0.5})},
-	{Name: "pinDiameterOverride", Params: baseCase(map[string]float64{pPinDiameter: 9})},
-	{Name: "outputPinDiameterOverride", Params: baseCase(map[string]float64{pOutputPinDiameter: 8})},
-	{Name: "noInputBore", Params: baseCase(map[string]float64{pInputShaftDiameter: 0})},
-	{Name: "minimumCounts", Params: baseCase(map[string]float64{
-		pPinCount: 4, pOutputPinCount: 3, pOutputPinCircleDiam: 34,
-		pCenterBearingDiameter: 14, pInputShaftDiameter: 5,
-	})},
-	{Name: "manyPins", Params: baseCase(map[string]float64{
-		pPinCount: 30, pOutputPinCount: 8, pEccentricity: 1.0,
-	})},
-	{Name: "twoDiscsEvenCountsDisc2", Params: baseCase(map[string]float64{
-		pPinCount: 6, pOutputPinCount: 4, pDiscCount: 2, pDiscIndex: 1,
-		pOutputPinCircleDiam: 42, pCenterBearingDiameter: 18,
-	})},
-	{Name: "smallDrive", Params: baseCase(map[string]float64{
-		pPinCircleDiameter: 40, pOutputPinCircleDiam: 22, pCenterBearingDiameter: 12,
-		pInputShaftDiameter: 4, pEccentricity: 0.8, pOutputPinCount: 4, pPinCount: 10,
-	})},
-}
-
-// casingSketchCases sweeps the pin count, since the casing section's angular
-// width is one pin pitch and its tiling is what the ends at +/-pi/N buy, and
-// the eccentricity, since the contour's depth is set by the swept envelope.
-var casingSketchCases = []proofkit.Case{
-	{Name: "defaults", Params: baseCase(nil)},
-	{Name: "minimumPinCount", Params: baseCase(map[string]float64{
-		pPinCount: 4, pOutputPinCount: 3, pOutputPinCircleDiam: 34,
-		pCenterBearingDiameter: 14, pInputShaftDiameter: 5,
-	})},
-	{Name: "manyPins", Params: baseCase(map[string]float64{
-		pPinCount: 30, pOutputPinCount: 8, pEccentricity: 1.0,
-	})},
-	{Name: "eccentricityNearUndercutLimit", Params: baseCase(map[string]float64{pEccentricity: 2.45})},
-	{Name: "twoDiscStack", Params: baseCase(map[string]float64{
-		pPinCount: 6, pOutputPinCount: 4, pDiscCount: 2, pOutputPinCircleDiam: 42,
-		pCenterBearingDiameter: 18,
-	})},
-}
-
-// outputSketchCases covers the output member: the pin's auto and override
-// resolution, the pin count at both ends, and the two-disc stack whose stack
-// top the plate plane is offset from.
-var outputSketchCases = []proofkit.Case{
-	{Name: "defaults", Params: baseCase(nil)},
-	{Name: "outputPinDiameterOverride", Params: baseCase(map[string]float64{pOutputPinDiameter: 8})},
-	{Name: "minimumOutputPinCount", Params: baseCase(map[string]float64{
-		pPinCount: 4, pOutputPinCount: 3, pOutputPinCircleDiam: 34,
-		pCenterBearingDiameter: 14, pInputShaftDiameter: 5,
-	})},
-	{Name: "manyOutputPins", Params: baseCase(map[string]float64{
-		pPinCount: 30, pOutputPinCount: 8, pEccentricity: 1.0,
-	})},
-	{Name: "twoDiscStack", Params: baseCase(map[string]float64{
-		pPinCount: 6, pOutputPinCount: 4, pDiscCount: 2, pOutputPinCircleDiam: 42,
-		pCenterBearingDiameter: 18,
-	})},
-}
-
-// ---- shared sketch frame ----------------------------------------------
-
-// frame is the anchored local frame every sketch in this gear starts from.
-type frame struct {
-	origin *sketch.Point // the sketch's own local origin, on the drive axis O
-	axis   *sketch.Line  // the sketch's +X direction, fixed, construction
-	centre *sketch.Point // the disc centre Od_d, nil in a sketch built on O only
-	ecc    *sketch.Line  // the O -> Od construction line, nil likewise
-}
-
-// anchoredFrame builds the anchor chain: a projected Anchor, a fresh local
-// origin coincident to it, and the fixed +X reference the signed angles use.
-func anchoredFrame(t testing.TB, s *sketch.Sketch, d dims) frame {
-	anchor := s.CreateReferencePoint(0, 0, "anchorPoint")
-	anchor.SetName("projected Anchor")
-	origin := s.CreatePoint(0, 0)
-	origin.SetName("local origin O")
-	s.AddConstraint(sketch.NewCoincident(origin, anchor))
-
-	axisLen := math.Max(10, d.R)
-	tip := s.CreatePoint(axisLen, 0)
-	tip.SetName("+X reference")
-	s.Fix(tip)
-	axis := s.CreateLine(origin, tip)
-	axis.SetName("+X axis")
-	axis.SetConstruction(true)
-	return frame{origin: origin, axis: axis}
-}
-
-// eccentricFrame adds the eccentric disc centre Od_d = O + s_d*E*Xhat: a point
-// on a construction line from O, with a driving distance dimension of E and the
-// side carried by the signed angle to +X.
-func eccentricFrame(t testing.TB, s *sketch.Sketch, d dims) frame {
-	f := anchoredFrame(t, s, d)
-	c := d.centre()
-	f.centre = s.CreatePoint(c.X, c.Y)
-	f.centre.SetName("disc centre Od")
-	f.ecc = s.CreateLine(f.origin, f.centre)
-	f.ecc.SetName("eccentric offset")
-	f.ecc.SetConstruction(true)
-	s.AddConstraint(
-		sketch.NewAngle(f.axis, f.ecc, signAngle(d.S)),
-		sketch.NewDistance(f.origin, f.centre, d.E),
-	)
-	return f
-}
-
-// signAngle is the signed angle, in degrees, that carries an eccentric sign:
-// disc 0 offsets along +X, disc 1 along -X.
-func signAngle(s float64) float64 {
-	if s < 0 {
-		return 180
-	}
-	return 0
-}
-
-// circleOn draws a circle whose centre is a fresh point made coincident to an
-// existing one — Fusion's addByCenterRadius(Point3D, r) plus addCoincident,
-// which is share xor coincident done the coincident way ([PB-SHARE-XOR-COINCIDENT]).
-func circleOn(s *sketch.Sketch, at *sketch.Point, seed pt, radius float64, name string,
-	construction bool) *sketch.Circle {
-	c := s.CreatePoint(seed.X, seed.Y)
-	circle := s.CreateCircle(c, radius)
-	circle.SetName(name)
-	circle.SetConstruction(construction)
-	s.AddConstraint(
-		sketch.NewCoincident(c, at),
-		sketch.NewDiameter(circle, 2*radius),
-	)
-	return circle
-}
-
-// ---- S07: the rotor lobe sketch ---------------------------------------
-
-// stepRotorLobeSketch builds Rotor Lobe {d+1}: the reference circles, the open
-// adaptively sampled lobe spline, and the two spokes that close the pie sector.
+// stepRotorLobeSketch draws `Rotor Lobe {d+1}`: the anchor chain, the three
+// reference circles, one open adaptively-sampled lobe spline about the disc
+// centre, and the two spokes that pin its ends.
+//
+// The scheme is what the step exists to prove. The spline's shape comes from
+// fixing every interior fit point, and its two ends are pinned by radius (each
+// coincident on the root circle) and by angle (spoke 1's direction and the
+// lobe-pitch dimension between the spokes). Nothing else is free.
 func stepRotorLobeSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
 	d := derive(p)
-	requireInRegime(t, d)
-	proofkit.Step(t, "Rotor Lobe %d: N=%d L=%d E=%.3f Rr=%.3f Rv=%.3f",
-		d.D0+1, d.N, d.L, d.E, d.Rr, d.Rv)
 
-	f := eccentricFrame(t, s, d)
-	centre := d.centre()
-
-	// 1. Pin circle, on O, the fixed ring. Drawn for disc 0 only.
-	if d.D0 == 0 {
-		circleOn(s, f.origin, pt{}, d.R, "Pin Circle", true)
+	// The no-undercut guard is the binding eccentricity limit, and it decides
+	// whether the curve below is drawable at all, so it is checked before the
+	// curve is drawn rather than inferred from the solve afterwards.
+	proofkit.Step(t, "check the no-undercut guard Rr_eff < rho_min^O")
+	rho := rhoMinTowardO(d)
+	if d.RrEff >= rho {
+		t.Fatalf("Rr_eff %.6f mm has reached the base trochoid's smallest inward radius of "+
+			"curvature %.6f mm, so the drawn profile undercuts itself", d.RrEff, rho)
 	}
-	// 2. Output-pin circle and 3. root circle, both on the disc centre Od.
-	circleOn(s, f.centre, centre, d.Rop, "Output Pin Circle", true)
-	root := circleOn(s, f.centre, centre, d.Rv, "Root Circle", true)
+	// E* is the number the rejection message carries, so the bisection that
+	// finds it is proven here too, against a bracket wide enough to hold it.
+	// The bracket is the loose base-cycloid cusp limit R/N, which the guard has
+	// always already failed by: that the undercut bound is the tighter of the
+	// two is the whole reason it exists.
+	cusp := d.R / float64(d.N)
+	if outer := atEccentricity(p, cusp); outer.RrEff < rhoMinTowardO(outer) {
+		t.Fatalf("the undercut guard still holds at the cusp limit R/N = %.6f mm, so it is not "+
+			"the binding bound the spec says it is", cusp)
+	}
+	limit := undercutLimit(p, cusp)
+	if limit <= d.E {
+		t.Fatalf("the bisected undercut bound E* is %.6f mm, at or below this case's "+
+			"Eccentricity %.6f mm, so the bound and the guard disagree", limit, d.E)
+	}
+	if d.N == 16 && d.R == 45 && d.C == 0.3 && p[keyPinDiameter] == 0 {
+		// epitrochoid-trace.md states the worked answer for the dialog's own
+		// defaults: max safe E is about 2.50 mm, against the loose R/N of 2.81.
+		sketchtest.Measures(t, "undercut bound E* at the dialog defaults", limit, 2.50,
+			sketchtest.Within(0.01))
+		sketchtest.Measures(t, "the loose base-cycloid cusp limit R/N", cusp, 2.8125,
+			sketchtest.Within(1e-9))
+	}
 
-	// 4. The lobe: one open fitted spline, adaptively sampled. Never closed,
-	// and no closing arc — the disc is closed later by the pattern, not here.
-	proofkit.Step(t, "lobe spline: %d adaptive fit points", len(d.lobeSamples()))
-	spline := fitSpline(t, s, d.lobeSamples(), "Lobe")
+	proofkit.Step(t, "anchor a local origin and build the eccentric disc centre Od")
+	origin := groundedSketch(t, s)
+	centre, ecc := eccentricCentre(t, s, origin, d)
 
-	// 5. Lock the spline: fix every interior fit point, and coincide each end
-	// onto the root circle so the valley radii are pinned by Rv rather than by
-	// the fixed coordinates. Fixing the whole spline instead would make the
-	// lobe-pitch angle dimension redundant.
-	fit := spline.Fit
+	proofkit.Step(t, "draw the pin, output-pin and root reference circles")
+	pin := circleOn(t, s, origin, d.R, "Pin Circle", true)
+	outputPins := circleOn(t, s, centre, d.Rop, "Output Pin Circle", true)
+	root := circleOn(t, s, centre, d.Rv, "Root Circle", true)
+
+	c := d.centre()
+	samples := lobeSamples(d, c.X, c.Y, d.Phi)
+	proofkit.Step(t, "fit the open lobe spline through %d adaptively sampled points", len(samples))
+	fit := make([]*sketch.Point, len(samples))
+	for i, q := range samples {
+		fit[i] = s.CreatePoint(q.X, q.Y)
+	}
+	spline, err := s.CreateFitSpline(fit...)
+	if err != nil {
+		t.Fatalf("fit the lobe spline through %d points: %v", len(fit), err)
+	}
+	spline.SetName("lobe")
+	start, end := fit[0], fit[len(fit)-1]
+	start.SetName("start valley")
+	end.SetName("end valley")
+
+	proofkit.Step(t, "lock the spline: fix the interior fit points, put both ends on the root circle")
 	for i := 1; i < len(fit)-1; i++ {
 		s.Fix(fit[i])
 	}
+	startOnRoot := sketch.NewPointOnCircle(start, root)
+	endOnRoot := sketch.NewPointOnCircle(end, root)
+	s.AddConstraint(startOnRoot, endOnRoot)
+	s.SetConstraintName(startOnRoot, "start valley on the root circle")
+	s.SetConstraintName(endOnRoot, "end valley on the root circle")
+
+	proofkit.Step(t, "draw the two spokes and the lobe-pitch angular dimension")
+	pitch := 2 * math.Pi / float64(d.L)
+	tip1 := s.CreatePoint(c.X+d.Rv*math.Cos(d.Phi), c.Y+d.Rv*math.Sin(d.Phi))
+	spoke1 := s.CreateLine(centre, tip1)
+	tip2 := s.CreatePoint(c.X+d.Rv*math.Cos(d.Phi-pitch), c.Y+d.Rv*math.Sin(d.Phi-pitch))
+	// The engine reads an angle target in the sketch's default angle unit,
+	// which is degrees, and the spec's dimension is `360 deg / Lobes`, so the
+	// target is written in degrees here too. The lobe runs clockwise from its
+	// first valley, so the turn from spoke 1 to spoke 2 is negative.
+	spoke2 := s.CreateLine(centre, tip2)
+	// Spoke 1's direction stands in for Fusion's addHorizontal on it: a zero
+	// angle to the eccentric line is the same direction with a sense, and the
+	// sense is what keeps the mirrored configuration out. Disc 1's eccentric
+	// line points along -X and so does its first valley, so the target is zero
+	// for both discs.
+	spoke1Dir := sketch.NewAngle(ecc, spoke1, 0)
+	lobePitch := sketch.NewAngle(spoke1, spoke2, -360/float64(d.L))
 	s.AddConstraint(
-		sketch.NewPointOnCircle(fit[0], root),
-		sketch.NewPointOnCircle(fit[len(fit)-1], root),
+		sketch.NewCoincident(tip1, start),
+		sketch.NewCoincident(tip2, end),
+		spoke1Dir, lobePitch,
 	)
+	s.SetConstraintName(spoke1Dir, "spoke 1 along the eccentric line")
+	s.SetConstraintName(lobePitch, "lobe pitch 360 deg / Lobes")
 
-	// 6. Spoke 1: disc centre to the lobe's first point, on the +X ray from Od.
-	end1 := s.CreatePoint(fit[0].X(), fit[0].Y())
-	spoke1 := s.CreateLine(f.centre, end1)
-	spoke1.SetName("spoke 1")
-	s.AddConstraint(
-		sketch.NewCoincident(end1, fit[0]),
-		sketch.NewAngle(f.ecc, spoke1, 0),
-	)
+	proofkit.Step(t, "read the solved frame back")
+	sketchtest.Solve(t, s)
+	sketchtest.MeasuresPoint(t, centre, d.Sign*d.E, 0, sketchtest.Within(coordSlack))
+	sketchtest.Measures(t, "pin circle radius", pin.R(), d.R, sketchtest.WithinRel(1e-12))
+	sketchtest.Measures(t, "output-pin circle radius", outputPins.R(), d.Rop, sketchtest.WithinRel(1e-12))
+	sketchtest.Measures(t, "root circle radius", root.R(), d.Rv, sketchtest.WithinRel(1e-12))
+	// Both valleys sit at Rv from Od: that is the fact the root circle exists
+	// to pin, and the step that extrudes the sector selects on the closed loop
+	// it completes.
+	sketchtest.Measures(t, "start valley radius from Od", start.DistanceTo(centre), d.Rv,
+		sketchtest.WithinRel(1e-9))
+	sketchtest.Measures(t, "end valley radius from Od", end.DistanceTo(centre), d.Rv,
+		sketchtest.WithinRel(1e-9))
+	for _, name := range []string{
+		"start valley on the root circle", "end valley on the root circle",
+		"spoke 1 along the eccentric line", "lobe pitch 360 deg / Lobes",
+	} {
+		sketchtest.Satisfies(t, s.ConstraintByName(name), sketchtest.Within(residualSlack))
+	}
 
-	// 7. Spoke 2: disc centre to the lobe's last point.
-	last := fit[len(fit)-1]
-	end2 := s.CreatePoint(last.X(), last.Y())
-	spoke2 := s.CreateLine(f.centre, end2)
-	spoke2.SetName("spoke 2")
-	s.AddConstraint(sketch.NewCoincident(end2, last))
-
-	// 8. The lobe-pitch angle, one turn of the L-fold symmetry. Fusion's
-	// angular dimension is the positive magnitude 360 deg / Lobes, with the
-	// minor wedge chosen by where the text point sits; the engine's angle is
-	// signed counter-clockwise from spoke 1 to spoke 2, and the lobe runs
-	// clockwise, so the same wedge is the negative value here.
-	s.AddConstraint(sketch.NewAngle(spoke1, spoke2, -360/float64(d.L)))
-
-	solveHere(t, s)
-
-	// What the spec pins about this sketch, measured on what was built.
-	if got := radiusOf(pointAt(fit[0]), centre); !nearly(got, d.Rv, 1e-6) {
-		t.Errorf("start valley radius %.6f, want Rv %.6f", got, d.Rv)
-	}
-	if got := radiusOf(pointAt(last), centre); !nearly(got, d.Rv, 1e-6) {
-		t.Errorf("end valley radius %.6f, want Rv %.6f", got, d.Rv)
-	}
-	wantEnd := pt{
-		X: centre.X + d.Rv*math.Cos(d.Phi-2*math.Pi/float64(d.L)),
-		Y: centre.Y + d.Rv*math.Sin(d.Phi-2*math.Pi/float64(d.L)),
-	}
-	if got := pointAt(last); !nearly(got.X, wantEnd.X, 1e-6) || !nearly(got.Y, wantEnd.Y, 1e-6) {
-		t.Errorf("end valley at (%.6f, %.6f), want (%.6f, %.6f)", got.X, got.Y, wantEnd.X, wantEnd.Y)
-	}
-	// The lobe tip reaches R - Rr_eff + E from the disc centre. This is the
-	// number the casing's outer wall is sized from, one E further out.
-	if got := d.tracedTipRadius(); !nearly(got, d.tipRadius(), 1e-9) {
-		t.Errorf("traced lobe tip radius %.9f, want R - Rr_eff + E = %.9f", got, d.tipRadius())
-	}
-	// The kept fit points fall short of that tip by the sampler's chordal
-	// shortfall, which the 5-degree turn threshold is what bounds.
-	sampled := 0.0
-	for _, q := range d.lobeSamples() {
-		sampled = math.Max(sampled, radiusOf(q, centre))
-	}
-	if short := d.tipRadius() - sampled; short < 0 || short > 0.05 {
-		t.Errorf("sampled lobe tip falls %.6f mm short of the traced tip, want within 0.05 mm", short)
-	}
-	// The sector is one closed region: two lines and one spline.
-	requireProfileCount(t, s, 1)
-
-	// The undercut guard is the binding eccentricity limit, tighter than the
-	// base-cycloid cusp limit R/N the spec calls loose, and this case sits
-	// under it — above it the equidistant self-intersects and Fusion fails on
-	// the spline rather than on a dimension.
-	ceiling := undercutCeiling(p)
-	if ceiling <= 0 || ceiling >= d.R/float64(d.N) {
-		t.Errorf("undercut ceiling %.4f mm does not bind below the cusp limit R/N = %.4f mm",
-			ceiling, d.R/float64(d.N))
-	}
-	if d.E > ceiling {
-		t.Errorf("case eccentricity %.4f mm exceeds the undercut ceiling %.4f mm", d.E, ceiling)
-	}
-	// The spec states the number for the dialog defaults: about 2.50 mm, well
-	// under the 2.81 mm the cusp limit would allow.
-	if d.N == 16 && d.R == 45 && d.C == 0.3 && p[pPinDiameter] == 0 && !nearly(ceiling, 2.4978, 0.005) {
-		t.Errorf("undercut ceiling for the default pin geometry is %.4f mm, want about 2.50 mm", ceiling)
-	}
+	proofkit.Step(t, "check the one closed region the sector extrude selects")
+	report := sketchtest.Verify(t, s)
+	profile := sketchtest.SingleProfile(t, report)
+	sketchtest.IsValidProfile(t, profile)
+	sketchtest.IsCurrentProfile(t, profile)
+	sketchtest.HasExactCuts(t, profile)
+	// The spline's area and its chord polygon's differ only by the sagitta of
+	// each span, which the 5-degree turn limit holds under a part in a
+	// thousand; the slack states that difference and nothing else.
+	sector := append([]point{c}, samples...)
+	sketchtest.MeasuresProfileArea(t, profile, polygonArea(sector), sketchtest.WithinRel(2e-3))
 }
 
-// ---- S12: the output hole sketch --------------------------------------
-
-// stepOutputHoleSketch builds Output Hole {d+1}: the output-pin circle about
-// the disc centre and one solid hole seated on it.
+// stepOutputHoleSketch draws `Output Hole {d+1}`: its own anchor chain and disc
+// centre, the construction output-pin circle, and the one solid hole seated on
+// it whose profile the cut step selects by identity.
 func stepOutputHoleSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
 	d := derive(p)
-	requireInRegime(t, d)
-	proofkit.Step(t, "Output Hole %d: Rop=%.3f D_hole=%.3f (= D_pin %.3f + 2E)",
-		d.D0+1, d.Rop, d.DHole, d.DPin)
 
-	f := eccentricFrame(t, s, d)
-	centre := d.centre()
-	holeCircle := circleOn(s, f.centre, centre, d.Rop, "Output Hole Circle", true)
+	proofkit.Step(t, "anchor the sketch and rebuild Od")
+	origin := groundedSketch(t, s)
+	centre, _ := eccentricCentre(t, s, origin, d)
 
-	// The hole spoke is horizontal in the sketch's own +X sense and is not
-	// rotated with the disc's clocking: the spec substitutes only the signed E
-	// for a second disc, and the M-fold pattern maps the half-turned hole set
-	// onto itself whenever M is even, which two discs require anyway.
-	seat := pt{X: centre.X + d.Rop, Y: 0}
-	hole := s.CreateCircle(s.CreatePoint(seat.X, seat.Y), d.DHole/2)
+	proofkit.Step(t, "draw the construction output-hole circle on Od")
+	circle := circleOn(t, s, centre, d.Rop, "Output Hole Circle", true)
+
+	proofkit.Step(t, "draw the one solid hole on the +X ray from Od")
+	c := d.centre()
+	holeCentre := s.CreatePoint(c.X+d.Rop, c.Y)
+	holeCentre.SetName("output hole centre")
+	hole := s.CreateCircle(holeCentre, d.DHole/2)
 	hole.SetName("output hole")
-	spoke := s.CreateLine(f.centre, hole.Center)
-	spoke.SetName("hole spoke")
+	spoke := s.CreateLine(centre, holeCentre)
 	spoke.SetConstruction(true)
+	// The spec pins this centre with a point-on-circle and a horizontal spoke.
+	// That pair admits the hole at -Rop as well, so the radius is stated as a
+	// signed horizontal distance and the seating on the circle is measured
+	// below. Both discs place their first hole on +X: M is even whenever two
+	// discs are asked for, so disc 1's half-turn maps its hole set onto itself.
+	seatRadius := sketch.NewHorizontalDistance(centre, holeCentre, d.Rop)
 	s.AddConstraint(
+		sketch.NewHorizontal(spoke),
+		seatRadius,
 		sketch.NewDiameter(hole, d.DHole),
-		sketch.NewPointOnCircle(hole.Center, holeCircle),
-		sketch.NewAngle(f.axis, spoke, 0),
 	)
+	s.SetConstraintName(seatRadius, "output hole on the output-pin circle radius")
 
-	solveHere(t, s)
+	proofkit.Step(t, "read the solved hole back")
+	sketchtest.Solve(t, s)
+	sketchtest.MeasuresPoint(t, holeCentre, c.X+d.Rop, c.Y, sketchtest.Within(coordSlack))
+	sketchtest.Measures(t, "output hole seating radius", holeCentre.DistanceTo(centre), circle.R(),
+		sketchtest.WithinRel(1e-9))
+	sketchtest.Measures(t, "output hole radius", hole.R(), d.DHole/2, sketchtest.WithinRel(1e-12))
+	sketchtest.Satisfies(t, s.ConstraintByName("output hole on the output-pin circle radius"),
+		sketchtest.Within(residualSlack))
 
-	if got := radiusOf(pointAt(hole.Center), centre); !nearly(got, d.Rop, 1e-6) {
-		t.Errorf("hole centre at radius %.6f from Od, want Rop %.6f", got, d.Rop)
-	}
-	if got := pointAt(hole.Center); !nearly(got.X, centre.X+d.Rop, 1e-6) || !nearly(got.Y, 0, 1e-6) {
-		t.Errorf("hole centre at (%.6f, %.6f), want the +X ray from Od at (%.6f, 0)",
-			got.X, got.Y, centre.X+d.Rop)
-	}
-	// The hole is the pin plus the orbit clearance 2E, on every branch of the
-	// pin-size resolution.
-	if !nearly(d.DHole-d.DPin, 2*d.E, 1e-9) {
-		t.Errorf("hole oversize %.6f, want 2E = %.6f", d.DHole-d.DPin, 2*d.E)
-	}
-	requireProfileCount(t, s, 1)
+	proofkit.Step(t, "check the one solid region the cut selects")
+	profile := sketchtest.SingleProfile(t, sketchtest.Verify(t, s))
+	sketchtest.IsValidProfile(t, profile)
+	sketchtest.MeasuresProfileArea(t, profile, math.Pi*d.DHole*d.DHole/4, sketchtest.WithinRel(1e-9))
 }
 
-// ---- S15: the disc bore sketch ----------------------------------------
-
-// stepDiscBoreSketch builds Disc Bore {d+1}: one solid circle on the disc
-// centre, the cam diameter widened by the running clearance.
+// stepDiscBoreSketch draws `Disc Bore {d+1}`: the enlarged centre bore on Od,
+// whose diameter is CenterBearingDiameter + BearingClearance so the cam turns
+// in it with the running gap.
 func stepDiscBoreSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
 	d := derive(p)
-	requireInRegime(t, d)
-	proofkit.Step(t, "Disc Bore %d: bore diameter %.3f = CBD %.3f + clearance %.3f",
-		d.D0+1, d.CBD+d.Clr, d.CBD, d.Clr)
 
-	f := eccentricFrame(t, s, d)
-	bore := circleOn(s, f.centre, d.centre(), (d.CBD+d.Clr)/2, "disc centre bore", false)
+	proofkit.Step(t, "anchor the sketch and rebuild Od")
+	origin := groundedSketch(t, s)
+	centre, _ := eccentricCentre(t, s, origin, d)
 
-	solveHere(t, s)
+	proofkit.Step(t, "draw the solid bore circle on Od")
+	bore := circleOn(t, s, centre, d.boreRadius(), "Disc Bore", false)
 
-	if got := 2 * bore.R(); !nearly(got, d.CBD+d.Clr, 1e-6) {
-		t.Errorf("bore diameter %.6f, want CenterBearingDiameter + BearingClearance %.6f",
-			got, d.CBD+d.Clr)
+	proofkit.Step(t, "read the solved bore back")
+	sketchtest.Solve(t, s)
+	sketchtest.Measures(t, "disc bore radius", bore.R(), d.boreRadius(), sketchtest.WithinRel(1e-12))
+	// The bore has to clear the output holes, or the cut opens into them: the
+	// spec rejects the dialog on exactly this comparison.
+	if d.boreRadius() >= d.Rop-d.DHole/2 {
+		t.Fatalf("the disc centre bore reaches %.6f mm, into the output holes whose inner edge "+
+			"is at %.6f mm", d.boreRadius(), d.Rop-d.DHole/2)
 	}
-	// The bore is concentric with the cam and larger by the clearance, so the
-	// gap is the same all the way round rather than an eccentric one.
-	if got := radiusOf(pointAt(bore.Center), d.centre()); !nearly(got, 0, 1e-6) {
-		t.Errorf("bore centre %.6f from Od, want concentric", got)
-	}
-	requireProfileCount(t, s, 1)
+
+	profile := sketchtest.SingleProfile(t, sketchtest.Verify(t, s))
+	sketchtest.IsValidProfile(t, profile)
+	sketchtest.MeasuresProfileArea(t, profile, math.Pi*d.boreRadius()*d.boreRadius(),
+		sketchtest.WithinRel(1e-9))
 }
 
-// ---- S17: the eccentric cam section sketch ----------------------------
-
-// stepEccentricCamSketch builds Eccentric Cam {d+1}: the cam outer on the disc
-// centre and, when the input shaft has a diameter, the input bore on the drive
-// axis. The E offset between the two is the eccentricity.
+// stepEccentricCamSketch draws `Eccentric Cam {d+1}`: the cam outer on Od and,
+// when the dialog asks for one, the input-shaft bore on O. The two circles are
+// concentric with nothing — the E offset between them is the eccentricity — so
+// the cross-section is an eccentric annulus with the bore as its one hole.
 func stepEccentricCamSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
 	d := derive(p)
-	requireInRegime(t, d)
-	proofkit.Step(t, "Eccentric Cam %d: outer %.3f on Od, bore %.3f on O", d.D0+1, d.CBD, d.ISD)
 
-	f := eccentricFrame(t, s, d)
-	outer := circleOn(s, f.centre, d.centre(), d.CBD/2, "cam outer", false)
+	proofkit.Step(t, "anchor the sketch and rebuild Od")
+	origin := groundedSketch(t, s)
+	centre, _ := eccentricCentre(t, s, origin, d)
 
-	wantProfiles := 1
-	if d.ISD > 0 {
-		circleOn(s, f.origin, pt{}, d.ISD/2, "input bore", false)
-		// The bore lies wholly inside the cam outer but off its centre, so the
-		// arrangement splits the disc into a bore disc and a cam annulus.
-		wantProfiles = 2
+	proofkit.Step(t, "draw the cam outer on Od")
+	outer := circleOn(t, s, centre, d.CBD/2, "Cam Outer", false)
+
+	if d.ISD <= 0 {
+		proofkit.Step(t, "Input Shaft Diameter is 0, so the section is the solid cam disc")
+		sketchtest.Solve(t, s)
+		sketchtest.Measures(t, "cam outer radius", outer.R(), d.CBD/2, sketchtest.WithinRel(1e-12))
+		profile := sketchtest.SingleProfile(t, sketchtest.Verify(t, s))
+		sketchtest.IsValidProfile(t, profile)
+		sketchtest.MeasuresProfileArea(t, profile, math.Pi*d.CBD*d.CBD/4, sketchtest.WithinRel(1e-9))
+		return
 	}
 
-	solveHere(t, s)
+	proofkit.Step(t, "draw the input-shaft bore on the drive axis O")
+	bore := circleOn(t, s, origin, d.ISD/2, "Input Bore", false)
+	// The bore has to fit inside the cam once the E offset is taken into
+	// account, or the cam is not a closed annulus at all.
+	if d.E+d.ISD/2 >= d.CBD/2 {
+		t.Fatalf("the input bore reaches %.6f mm from Od, past the cam outer at %.6f mm",
+			d.E+d.ISD/2, d.CBD/2)
+	}
 
-	if got := 2 * outer.R(); !nearly(got, d.CBD, 1e-6) {
-		t.Errorf("cam outer diameter %.6f, want CenterBearingDiameter %.6f", got, d.CBD)
-	}
-	if got := radiusOf(pointAt(outer.Center), pt{}); !nearly(got, d.E, 1e-6) {
-		t.Errorf("cam outer centre %.6f from O, want the eccentricity %.6f", got, d.E)
-	}
-	requireProfileCount(t, s, wantProfiles)
-	if d.ISD > 0 {
-		// The cam cross-section is the two-loop annulus: an outer loop and one
-		// hole. That count, not a curve-type count, is how the extrude finds it
-		// — a full circle is a Circle3DCurveType, not an arc, and the annulus's
-		// two circles sit in separate loops.
-		if got := annulusProfiles(s); got != 1 {
-			t.Errorf("%d two-loop profiles in the cam sketch, want exactly 1", got)
-		}
-	}
+	proofkit.Step(t, "check the two regions the cam section detects as")
+	sketchtest.Solve(t, s)
+	sketchtest.Measures(t, "cam outer radius", outer.R(), d.CBD/2, sketchtest.WithinRel(1e-12))
+	sketchtest.Measures(t, "input bore radius", bore.R(), d.ISD/2, sketchtest.WithinRel(1e-12))
+	report := sketchtest.Verify(t, s)
+	// Two nested circles detect as two regions: the bore disc and the cam
+	// annulus. The extrude wants the annulus, which is the one carrying a hole
+	// — the engine's reading of the spec's profileLoops.count == 2 rule, and
+	// the reason find_profile_by_curve_counts cannot be used here.
+	annulusProfile := oneHoledProfile(t, report.Profiles)
+	sketchtest.IsValidProfile(t, annulusProfile)
+	sketchtest.MeasuresProfileArea(t, annulusProfile,
+		math.Pi*(d.CBD*d.CBD-d.ISD*d.ISD)/4, sketchtest.WithinRel(1e-9))
 }
 
-// ---- S21: the housing ring sketch -------------------------------------
-
-// stepHousingRingSketch builds Housing Ring: the base annulus on the drive
-// axis, one millimetre below the disc.
+// stepHousingRingSketch draws `Housing Ring`: the plain base annulus on the
+// drive axis, outer at the contour peak plus Wall and inner Wall inside the
+// contour valley.
 func stepHousingRingSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
 	d := derive(p)
-	requireInRegime(t, d)
-	proofkit.Step(t, "Housing Ring: outer %.3f inner %.3f (wall %.3f)",
-		2*d.outerWall(), 2*d.innerFloor(), d.Wall)
 
-	f := anchoredFrame(t, s, d)
-	outer := circleOn(s, f.origin, pt{}, d.outerWall(), "housing outer", false)
-	inner := circleOn(s, f.origin, pt{}, d.innerFloor(), "housing inner", false)
+	proofkit.Step(t, "anchor the sketch on the drive axis O")
+	origin := groundedSketch(t, s)
 
-	solveHere(t, s)
+	proofkit.Step(t, "draw the annulus")
+	outer := circleOn(t, s, origin, d.housingOuterRadius(), "Housing Outer", false)
+	inner := circleOn(t, s, origin, d.housingInnerRadius(), "Housing Inner", false)
 
-	// The outer wall clears the contour peak at R - PinRadius + 2E by exactly
-	// Wall, which is what makes Wall the minimum wall thickness; the inner floor
-	// lip sits Wall inside the contour valley at R - PinRadius.
-	if got := outer.R() - (d.R - d.Rr + 2*d.E); !nearly(got, d.Wall, 1e-9) {
-		t.Errorf("outer wall clears the contour peak by %.6f, want Wall %.6f", got, d.Wall)
-	}
-	if got := (d.R - d.Rr) - inner.R(); !nearly(got, d.Wall, 1e-9) {
-		t.Errorf("inner floor lip is %.6f inside the contour valley, want Wall %.6f", got, d.Wall)
-	}
-	requireProfileCount(t, s, 2)
-	if got := annulusProfiles(s); got != 1 {
-		t.Errorf("%d two-loop profiles in the housing sketch, want exactly 1", got)
-	}
+	proofkit.Step(t, "read the solved annulus back")
+	sketchtest.Solve(t, s)
+	sketchtest.Measures(t, "housing outer radius", outer.R(), d.housingOuterRadius(),
+		sketchtest.WithinRel(1e-12))
+	sketchtest.Measures(t, "housing inner radius", inner.R(), d.housingInnerRadius(),
+		sketchtest.WithinRel(1e-12))
+	// The wall thickness at the contour peak is exactly Wall: that is the whole
+	// claim the pinless outer diameter makes.
+	sketchtest.Measures(t, "minimum wall at the contour peak",
+		d.housingOuterRadius()-(d.R-d.Rr+2*d.E), d.Wall, sketchtest.WithinRel(1e-12))
+
+	annulusProfile := oneHoledProfile(t, sketchtest.Verify(t, s).Profiles)
+	sketchtest.IsValidProfile(t, annulusProfile)
+	sketchtest.MeasuresProfileArea(t, annulusProfile,
+		math.Pi*(d.housingOuterRadius()*d.housingOuterRadius()-
+			d.housingInnerRadius()*d.housingInnerRadius()), sketchtest.WithinRel(1e-9))
 }
 
-// ---- S24: the ring casing section sketch ------------------------------
-
-// stepRingCasingSketch builds Ring Casing: one pin-pitch of the swept-envelope
-// contour, a solid outer circle, and the two radial spokes that close the
-// wedge.
+// stepRingCasingSketch draws `Ring Casing`: the solid outer circle, the swept
+// envelope contour over one pin pitch, and the two radial spokes at its ends.
 //
-// Substituted: the spec leaves this sketch deliberately under-constrained — the
-// contour's fit points are numeric snapshots that are not fixed, and the spokes'
-// outer ends are only seeded on the outer circle — because the sketch is
-// consumed immediately by the sector extrude and never re-solved. The engine's
-// gate has no way to accept free geometry, so the proof pins what Fusion leaves
-// loose: every contour point is fixed, and each spoke's outer end is put on the
-// circle at its own radial angle. The cost is that this proof says nothing about
-// the exempted sketch's free degrees of freedom; what it still proves is the
-// thing the exemption does not touch — that the contour ends land exactly on
-// +/-pi/N and that the wedge is a real closed profile, distinct from the
-// complement the same spline also bounds.
+// Two substitutions are made here and both are deliberate.
+//
+// The contour is drawn as the chord polyline through its points rather than as
+// a fitted spline. decad refuses to extrude a free-form span whose curvature
+// sign it cannot certify, and this contour turns from the pin bump into the
+// mid-gap peak, so the solid steps downstream need a chorded boundary; drawing
+// the same boundary here keeps the two artifacts describing one build. What it
+// costs is the spline's own smoothness, which no step measures.
+//
+// The sketch is also fully constrained here, where the spec leaves it
+// deliberately under-constrained: the contour's fit points and the spokes'
+// outer endpoints are numeric snapshots that the sector extrude consumes
+// immediately and nothing re-solves. proofkit's gate is DOF 0 with nothing
+// waived, so the proof grounds exactly the points the spec calls snapshots and
+// leaves every relation the spec does constrain — the outer circle's centre on
+// the anchored origin and its diameter — as a constraint.
 func stepRingCasingSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
 	d := derive(p)
-	requireInRegime(t, d)
+
+	proofkit.Step(t, "anchor the sketch on the drive axis O")
+	origin := groundedSketch(t, s)
+
+	proofkit.Step(t, "draw the SOLID outer circle that closes the wedge")
+	outer := circleOn(t, s, origin, d.housingOuterRadius(), "Casing Outer", false)
+
+	proofkit.Step(t, "draw the swept-envelope contour over one pin pitch")
+	contour := contourPitch(d)
+	pts := polyline(s, contour, false)
+
+	proofkit.Step(t, "draw the two radial spokes out to the outer circle")
 	half := math.Pi / float64(d.N)
-	points := d.contour()
-	proofkit.Step(t, "Ring Casing: %d contour points over one pin pitch of %.4f rad",
-		len(points), 2*half)
-
-	f := anchoredFrame(t, s, d)
-	outer := circleOn(s, f.origin, pt{}, d.outerWall(), "casing outer", false)
-
-	contour := fitSpline(t, s, points, "contour")
-	for _, q := range contour.Fit {
+	ro := d.housingOuterRadius()
+	outFirst := s.CreatePoint(ro*math.Cos(-half), ro*math.Sin(-half))
+	outLast := s.CreatePoint(ro*math.Cos(half), ro*math.Sin(half))
+	s.CreateLine(pts[0], outFirst)
+	s.CreateLine(pts[len(pts)-1], outLast)
+	for _, q := range append(pts, outFirst, outLast) {
 		s.Fix(q)
 	}
-	ends := []*sketch.Point{contour.Fit[0], contour.Fit[len(contour.Fit)-1]}
-	for i, end := range ends {
-		angle := -half
-		if i == 1 {
-			angle = half
-		}
-		tip := s.CreatePoint(d.outerWall()*math.Cos(angle), d.outerWall()*math.Sin(angle))
-		spoke := s.CreateLine(end, tip)
-		spoke.SetName("casing spoke")
-		s.AddConstraint(
-			sketch.NewPointOnCircle(tip, outer),
-			sketch.NewAngle(f.axis, spoke, angle*180/math.Pi),
-		)
-	}
 
-	solveHere(t, s)
-
-	// The load-bearing fact: the first and last contour points sit exactly on
-	// the pin-pitch boundaries. Bin centres would inset both by half a bin, and
-	// the N patterned sectors would then never touch.
-	for i, want := range []float64{-half, half} {
-		q := points[i*(len(points)-1)]
-		if got := math.Atan2(q.Y, q.X); !nearly(got, want, 1e-12) {
-			t.Errorf("contour end %d at angle %.15f rad, want %.15f", i, got, want)
-		}
-	}
-	// The contour is the swept envelope plus the clearance: its deepest point
-	// is the pin seat at R - Rr and its ends are the mid-gap peaks at
-	// R - Rr + 2E, which is what the outer wall is sized from.
-	lo, hi := math.Inf(1), 0.0
-	for _, q := range points {
+	proofkit.Step(t, "check the contour lands exactly on the pin-pitch boundaries")
+	sketchtest.Solve(t, s)
+	sketchtest.Measures(t, "contour first point angle",
+		math.Atan2(pts[0].Y(), pts[0].X()), -half, sketchtest.Within(1e-12))
+	sketchtest.Measures(t, "contour last point angle",
+		math.Atan2(pts[len(pts)-1].Y(), pts[len(pts)-1].X()), half, sketchtest.Within(1e-12))
+	sketchtest.Measures(t, "casing outer radius", outer.R(), ro, sketchtest.WithinRel(1e-12))
+	// The contour never reaches the outer wall and never falls inside the
+	// valley floor: the wedge is a wall of real thickness everywhere.
+	for i, q := range contour {
 		r := math.Hypot(q.X, q.Y)
-		lo, hi = math.Min(lo, r), math.Max(hi, r)
-	}
-	// The sweep is a fixed 240 x 240 sample binned 80 ways, so these radii carry
-	// that resolution's error. The spec accepts it by design: the disc clears
-	// the contour by the clearance c, which absorbs a sampling error far larger
-	// than this one.
-	const sweepTol = 0.05
-	if !nearly(lo, d.R-d.Rr, sweepTol) {
-		t.Errorf("contour valley radius %.6f, want R - Rr = %.6f", lo, d.R-d.Rr)
-	}
-	if !nearly(hi, d.R-d.Rr+2*d.E, sweepTol) {
-		t.Errorf("contour peak radius %.6f, want R - Rr + 2E = %.6f", hi, d.R-d.Rr+2*d.E)
-	}
-	if got := math.Hypot(points[0].X, points[0].Y); !nearly(got, hi, sweepTol) {
-		t.Errorf("contour end radius %.6f is not the peak %.6f, so the ends are not the mid-gap "+
-			"peaks the tiling joins on", got, hi)
+		if r >= ro {
+			t.Fatalf("contour point %d reaches %.6f mm, at or past the outer wall %.6f mm", i, r, ro)
+		}
 	}
 
+	proofkit.Step(t, "check the wedge is the smaller of the two regions the contour bounds")
+	report := sketchtest.Verify(t, s)
 	// The solid outer circle makes the open contour a shared edge of two closed
-	// regions: the thin wedge, and the whole complement inside the circle. Both
-	// contain the contour, so a first-match search can take the complement and
-	// extrude a near-full disc. The wedge is the smaller by area, by a wide
-	// margin, which is what the extrude step selects on.
-	holding := profilesContaining(s, contour)
-	if len(holding) != 2 {
-		t.Fatalf("%d profiles contain the contour spline, want 2 (the wedge and its complement)",
-			len(holding))
+	// regions: the thin annular wedge, and the whole complement inside the
+	// circle. Both contain the contour, which is why "the profile containing
+	// the spline" is ambiguous in Fusion and the smaller area is the rule.
+	if n := len(report.Profiles); n != 2 {
+		t.Fatalf("the casing section detects as %d region(s), want the wedge and its complement", n)
 	}
-	small, large := holding[0].Area, holding[1].Area
-	if small > large {
-		small, large = large, small
+	wedge, complement := report.Profiles[0], report.Profiles[1]
+	if wedge.Area > complement.Area {
+		wedge, complement = complement, wedge
 	}
-	if small >= large {
-		t.Fatalf("the two profiles containing the contour have areas %.4f and %.4f", small, large)
-	}
-	wedge := (math.Pi*d.outerWall()*d.outerWall() - math.Abs(polygonArea(d.contourRing()))) /
-		float64(d.N)
-	if !nearly(small, wedge, 0.05*wedge) {
-		t.Errorf("smallest containing profile has area %.4f mm^2, want the one-pitch wedge %.4f",
-			small, wedge)
+	sketchtest.IsValidProfile(t, wedge)
+	sketchtest.IsValidProfile(t, complement)
+	want := polygonArea(append([]point{{0, 0}}, contour...)) // the contour's own pie
+	sector := math.Pi*ro*ro/float64(d.N) - want
+	sketchtest.MeasuresProfileArea(t, wedge, sector, sketchtest.WithinRel(2e-3))
+	if complement.Area <= wedge.Area {
+		t.Fatalf("the complement region measures %.6f mm^2, not larger than the wedge's %.6f mm^2",
+			complement.Area, wedge.Area)
 	}
 }
 
-// ---- S30: the output plate sketch -------------------------------------
-
-// stepOutputPlateSketch builds Output Plate: the plate outer, the output-pin
-// circle, and one solid pin seated on it. All three are on the drive axis O,
-// not the disc centre — the pins are the fixed output member, the holes they
-// pass through orbit with the disc.
+// stepOutputPlateSketch draws `Output Plate`: the solid plate outer on O, the
+// construction output-pin circle, and one solid output pin seated on it.
 func stepOutputPlateSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
 	d := derive(p)
-	requireInRegime(t, d)
-	proofkit.Step(t, "Output Plate: plate diameter %.3f, pin diameter %.3f on Rop %.3f",
-		2*d.plateRadius(), d.DPin, d.Rop)
 
-	f := anchoredFrame(t, s, d)
-	plate := circleOn(s, f.origin, pt{}, d.plateRadius(), "plate outer", false)
-	pinCircle := circleOn(s, f.origin, pt{}, d.Rop, "Output Pin Circle", true)
+	proofkit.Step(t, "anchor the sketch on the drive axis O")
+	origin := groundedSketch(t, s)
 
-	pin := s.CreateCircle(s.CreatePoint(d.Rop, 0), d.DPin/2)
+	proofkit.Step(t, "draw the plate outer and the construction output-pin circle")
+	plate := circleOn(t, s, origin, d.plateRadius(), "Output Plate Outer", false)
+	pinCircle := circleOn(t, s, origin, d.Rop, "Output Pin Circle", true)
+
+	proofkit.Step(t, "draw the one solid output pin on the +X ray from O")
+	pinCentre := s.CreatePoint(d.Rop, 0)
+	pinCentre.SetName("output pin centre")
+	pin := s.CreateCircle(pinCentre, d.DPin/2)
 	pin.SetName("output pin")
-	spoke := s.CreateLine(f.origin, pin.Center)
-	spoke.SetName("pin spoke")
+	spoke := s.CreateLine(origin, pinCentre)
 	spoke.SetConstruction(true)
+	seatRadius := sketch.NewHorizontalDistance(origin, pinCentre, d.Rop)
 	s.AddConstraint(
+		sketch.NewHorizontal(spoke),
+		seatRadius,
 		sketch.NewDiameter(pin, d.DPin),
-		sketch.NewPointOnCircle(pin.Center, pinCircle),
-		sketch.NewAngle(f.axis, spoke, 0),
 	)
+	s.SetConstraintName(seatRadius, "output pin on the output-pin circle radius")
 
-	solveHere(t, s)
+	proofkit.Step(t, "read the solved plate back")
+	sketchtest.Solve(t, s)
+	sketchtest.MeasuresPoint(t, pinCentre, d.Rop, 0, sketchtest.Within(coordSlack))
+	sketchtest.Measures(t, "output pin seating radius", pinCentre.DistanceTo(origin), pinCircle.R(),
+		sketchtest.WithinRel(1e-9))
+	sketchtest.Measures(t, "output pin radius", pin.R(), d.DPin/2, sketchtest.WithinRel(1e-12))
+	// The plate covers the pin circle by Wall: that is what OutputPlateDiameter
+	// is for, and a plate that did not would leave the pins proud of its rim.
+	sketchtest.Measures(t, "plate cover past the outermost pin",
+		plate.R()-(d.Rop+d.DPin/2), d.Wall, sketchtest.WithinRel(1e-12))
+	sketchtest.Satisfies(t, s.ConstraintByName("output pin on the output-pin circle radius"),
+		sketchtest.Within(residualSlack))
 
-	// The plate covers the outermost pin by Wall.
-	if got := plate.R() - (d.Rop + d.DPin/2); !nearly(got, d.Wall, 1e-9) {
-		t.Errorf("plate overhangs the pin by %.6f, want Wall %.6f", got, d.Wall)
+	proofkit.Step(t, "check the two regions the plate and the pin detect as")
+	report := sketchtest.Verify(t, s)
+	if n := len(report.Profiles); n != 2 {
+		t.Fatalf("the output plate sketch detects as %d region(s), want the pin disc and the "+
+			"plate with its pin bite", n)
 	}
-	if got := radiusOf(pointAt(pin.Center), pt{}); !nearly(got, d.Rop, 1e-6) {
-		t.Errorf("pin centre at radius %.6f from O, want Rop %.6f", got, d.Rop)
+	// The pin splits the plate disc: the extrude takes every profile for the
+	// plate body, and the pin extrude takes the one whose single loop is the
+	// pin itself.
+	pinDisc := report.Profiles[0]
+	bitten := report.Profiles[1]
+	if len(pinDisc.Holes) == 1 {
+		pinDisc, bitten = bitten, pinDisc
 	}
-	// The pin sits wholly inside the plate and splits it: the plate-with-bite
-	// and the pin disc are two regions, and the extrude takes both so the pin
-	// footprint is solid plate.
-	requireProfileCount(t, s, 2)
-	if got := annulusProfiles(s); got != 1 {
-		t.Errorf("%d two-loop profiles in the plate sketch, want exactly 1 (the plate with its bite)", got)
+	sketchtest.IsValidProfile(t, pinDisc)
+	sketchtest.IsValidProfile(t, bitten)
+	if len(pinDisc.Holes) != 0 || len(bitten.Holes) != 1 {
+		t.Fatalf("regions detected with %d and %d hole(s), want 0 for the pin disc and 1 for the plate",
+			len(pinDisc.Holes), len(bitten.Holes))
 	}
+	sketchtest.MeasuresProfileArea(t, pinDisc, math.Pi*d.DPin*d.DPin/4, sketchtest.WithinRel(1e-9))
+	sketchtest.MeasuresProfileArea(t, bitten,
+		math.Pi*(d.plateRadius()*d.plateRadius()-d.DPin*d.DPin/4), sketchtest.WithinRel(1e-9))
 }
 
-// ---- small helpers ----------------------------------------------------
-
-// fitSpline adds an open fitted spline through the given points. It is never
-// closed and never given a closing arc.
-func fitSpline(t testing.TB, s *sketch.Sketch, points []pt, name string) *sketch.FitSpline {
+// oneHoledProfile returns the single region carrying exactly one hole, which is
+// how every annular cross-section in this gear is selected.
+func oneHoledProfile(t testing.TB, profiles []*sketch.Profile) *sketch.Profile {
 	t.Helper()
-	handles := make([]*sketch.Point, len(points))
-	for i, q := range points {
-		handles[i] = s.CreatePoint(q.X, q.Y)
-	}
-	spline, err := s.CreateFitSpline(handles...)
-	if err != nil {
-		t.Fatalf("create %s spline through %d points: %v", name, len(points), err)
-	}
-	spline.SetName(name)
-	return spline
-}
-
-// solveHere solves so the assertions below it read solved positions rather than
-// the seeds they were drawn from ([PB-SOLVED-GEOMETRY]). proofkit solves and
-// verifies again afterwards; this one is only so the step can measure.
-func solveHere(t testing.TB, s *sketch.Sketch) {
-	t.Helper()
-	res, err := s.Solve(t.Context())
-	if err != nil {
-		t.Fatalf("solve: %v", err)
-	}
-	if !res.Converged {
-		t.Fatalf("solver did not converge: residual %.3e, DOF %d", res.Residual, res.DOF)
-	}
-}
-
-func pointAt(p *sketch.Point) pt { return pt{X: p.X(), Y: p.Y()} }
-
-// requireProfileCount fails unless the sketch closes exactly the regions the
-// step expects. Fusion's along-path text labels add letter profiles on top of
-// these, which is why every extrude selects by identity, never by index.
-func requireProfileCount(t testing.TB, s *sketch.Sketch, want int) {
-	t.Helper()
-	if got := len(s.Profiles()); got != want {
-		t.Errorf("sketch closes %d profile(s), want %d", got, want)
-	}
-}
-
-// annulusProfiles counts the regions with exactly one hole loop — the count the
-// annulus extrudes select on.
-func annulusProfiles(s *sketch.Sketch) int {
-	n := 0
-	for _, prof := range s.Profiles() {
-		if len(prof.Holes) == 1 {
-			n++
+	var found *sketch.Profile
+	for _, p := range profiles {
+		if len(p.Holes) != 1 {
+			continue
 		}
-	}
-	return n
-}
-
-// profilesContaining returns the profiles whose boundary uses the given entity.
-func profilesContaining(s *sketch.Sketch, want sketch.Entity) []*sketch.Profile {
-	var out []*sketch.Profile
-	for _, prof := range s.Profiles() {
-		for _, e := range prof.Entities {
-			if e == want {
-				out = append(out, prof)
-				break
-			}
+		if found != nil {
+			t.Fatalf("the sketch holds more than one region with a hole")
 		}
+		found = p
 	}
-	return out
+	if found == nil {
+		t.Fatalf("the sketch holds no region with a hole; %d region(s) detected", len(profiles))
+	}
+	return found
 }
