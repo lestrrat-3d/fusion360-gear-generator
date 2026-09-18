@@ -69,11 +69,15 @@ InternalValidationError : Utils::getObjectPath(sketchCurve, …)` when the ownin
 trivially resolvable in the current multi-component context. The screw gear builds everything in a
 `Design` sub-component, so it is always in that context.
 
-One loft per gear cuts both of that gear's bores, because the two posts stand on the same axis and
-the one clearance ribbon runs through both. Everything the loft cuts INTO is square to the cage —
-flat plates, square posts, square blocks — and only what it cuts out is skewed. The bore is a twisted channel, because the ribbon turns
-while it is inside the post, and it runs the post's whole height rather than only the block's depth:
-a post is solid bar above and below its block.
+One loft per bore, not one per gear. The two posts of a gear do stand on the same axis, so a single
+clearance ribbon through both is the obvious build, but it would have to span the 33 mm between them
+and turn 404° on the way, and a loft's accuracy is set by the angle between neighbouring sections.
+Lofting only where each post has material is 4.1 mm and 44°, and needs a tenth of the sections for a
+better channel. `TestBoreLoftKeepsItsClearance` in the proof measures what is left.
+
+Everything the loft cuts INTO is square to the cage — flat plates, square posts, square blocks — and
+only what it cuts out is skewed. The bore is a twisted channel, because the ribbon turns while it is
+inside the post.
 
 `twistAngle` is also ignored outright when a guide rail or guide surface is set, per the API
 reference — worth knowing before anyone reaches for a rail to shape the teeth instead.

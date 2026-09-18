@@ -493,6 +493,124 @@ func TestPostSidesHaveOneBulge(t *testing.T) {
 	t.Logf("every post side carries one bulge")
 }
 
+// The bore is not the twisted channel the model describes. Fusion has no twist
+// for a solid, so the build CUTS it with a loft through a handful of rotated
+// rectangles, and a loft is flat between its sections: the wall is faceted, and
+// every facet stands a little inside the true channel. What that costs is
+// clearance, because the facet takes its bite out of the gap the boss passes
+// through, and enough of it would bind the gear.
+//
+// This measures the bite. It walks the stations where the ribbon meets that
+// post's material, builds the lofted opening there as the build would, and asks
+// how much room is left round the boss.
+//
+// SPANNING ONLY THE MATERIAL IS WHAT MAKES THIS CHEAP. The ribbon crosses a post
+// over about 4 mm of its own length and turns some 44 degrees doing it. Lofting
+// the whole post's height instead would be 36 mm and 392 degrees, and the same
+// section count over that span leaves the channel pinched shut.
+func TestBoreLoftKeepsItsClearance(t *testing.T) {
+	ga, gb := defaultPair()
+	p := ga.P
+
+	worst := math.Inf(1)
+	for _, g := range []Gear{ga, gb} {
+		for _, station := range boreStations(p) {
+			lo, hi := boreSpan(g, station)
+			turn := (hi - lo) / p.Lambda()
+			n := boreSections(turn)
+			left := boreLoftClearance(g, lo, hi, n)
+			if left < 0.95*p.Clearance {
+				t.Errorf("the bore at station %+.1f lofts through %d sections %.1f degrees apart and "+
+					"leaves the boss %.4f mm, under the %.4f mm that is 95%% of the clearance",
+					station, n, turn/float64(n-1)*180/math.Pi, left, 0.95*p.Clearance)
+			}
+			worst = math.Min(worst, left)
+		}
+	}
+
+	// What the spec used to fix at five sections, for the record.
+	g := ga
+	lo, hi := boreSpan(g, boreStations(p)[0])
+	t.Logf("the lofted bore leaves the boss %.4f mm of the %.2f mm clearance; five sections would "+
+		"leave %.4f mm", worst, p.Clearance, boreLoftClearance(g, lo, hi, 5))
+}
+
+// boreSections is the count the build lofts a bore through: enough that no two
+// neighbours are more than five degrees of twist apart. The ribbon's own cell
+// is held to two degrees, because there the departure is measured against the
+// backlash; here it is measured against a clearance twenty times larger, and
+// five degrees already spends under a fiftieth of it.
+func boreSections(turn float64) int {
+	n := int(math.Ceil(turn/(5*math.Pi/180))) + 1
+	if n < 3 {
+		n = 3
+	}
+	return n
+}
+
+// boreSpan is the stretch of a gear's own axis over which its bore has post
+// material to cut, with a millimetre of margin at each end. Outside it the
+// ribbon is in open air and there is nothing to remove.
+func boreSpan(g Gear, station float64) (lo, hi float64) {
+	p := g.P
+	q := postPiece(g, station)
+	lo, hi = math.Inf(1), math.Inf(-1)
+	hw, ht := p.BoreHalfWidth(), p.BoreHalfThickness()
+	for s := station - 4*p.Width; s <= station+4*p.Width; s += 0.01 {
+		for cu := -hw; cu <= hw; cu += 0.25 {
+			for cv := -ht; cv <= ht; cv += 0.25 {
+				if q.holds(p, g.world(cu, cv, s)) {
+					lo, hi = math.Min(lo, s), math.Max(hi, s)
+				}
+			}
+		}
+	}
+	return lo - 1, hi + 1
+}
+
+// boreLoftClearance is the least room the lofted opening leaves round the boss,
+// over the whole span. The loft's corners run straight from one section to the
+// next, so at a station between two sections the opening is the four corners
+// interpolated, and the boss has to sit inside that quadrilateral.
+func boreLoftClearance(g Gear, lo, hi float64, n int) float64 {
+	p := g.P
+	hw, ht := p.BoreHalfWidth(), p.BoreHalfThickness()
+	bw, bt := p.Width/2+p.BossGrow, p.Thickness/2+p.BossGrow
+	corner := func(s float64, i int) r3.Vec {
+		u, v := hw, ht
+		if i == 1 || i == 2 {
+			u = -hw
+		}
+		if i >= 2 {
+			v = -ht
+		}
+		return g.world(u, v, s)
+	}
+
+	worst := math.Inf(1)
+	for k := range n - 1 {
+		sa := lo + (hi-lo)*float64(k)/float64(n-1)
+		sb := lo + (hi-lo)*float64(k+1)/float64(n-1)
+		for f := 0.0; f <= 1.0; f += 0.02 {
+			var quad [4][2]float64
+			for i := range 4 {
+				a, b := corner(sa, i), corner(sb, i)
+				u, v, _ := g.local(a.Add(b.Sub(a).Scale(f)))
+				quad[i] = [2]float64{u, v}
+			}
+			for _, bc := range [][2]float64{{bw, bt}, {-bw, bt}, {-bw, -bt}, {bw, -bt}} {
+				for i := range 4 {
+					a, b := quad[i], quad[(i+1)%4]
+					ex, ey := b[0]-a[0], b[1]-a[1]
+					d := ((bc[0]-a[0])*ey - (bc[1]-a[1])*ex) / math.Hypot(ex, ey)
+					worst = math.Min(worst, -d)
+				}
+			}
+		}
+	}
+	return worst
+}
+
 // The widening has to earn its material: a post that is as wide at its ends as
 // it is at its bore is carrying weight for nothing.
 //
