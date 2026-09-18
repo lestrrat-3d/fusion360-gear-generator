@@ -185,7 +185,7 @@ User inputs in dialog order. All linear inputs are mm; Mounting Angle is degrees
 | Twist Lead | `twistLead` | mm | 90 |
 | Engagement | `engagement` | mm | 0.72 |
 | Mounting Angle | `mountAngle` | deg | 15 |
-| Cage Diameter | `cageDiameter` | mm | 20 |
+| Cage Diameter | `cageDiameter` | mm | 24 |
 | Cage Wall | `cageWall` | mm | 1.5 |
 | Clearance | `clearance` | mm | 0.3 |
 | Target Plane | `plane` | selection | — |
@@ -205,10 +205,19 @@ returns internal units — cm for length and **radians** for angle (`[PB-EVAL-EX
 - `toothPitch` must be `> 0`; `toothCount` must be `>= 4`.
 - `twistLead` must be `> 0`. There is no upper bound: a very long lead approaches two straight racks
   pushing each other, which is the degenerate case Segerman names, and nothing here forbids it.
-- `(cageDiameter/2) * Sigma` must exceed `ribbonThickness + 2*clearance`. Each gear pierces the tube
-  wall twice, and the two gears' piercings sit `Sigma` apart around the tube; when that arc is
-  narrower than a slot the two slots merge and the tube falls apart. At the defaults the arc is
-  6.7 mm against a 3.1 mm slot.
+- `cageDiameter` has **two floors, and both are measured rather than derived.**
+  `TestCageDiameterFloorsAreMeasured` walks the wall itself and reports them. Below **7 mm** at the
+  default proportions the slots cut the tube into pieces and it stops being a frame at all. Below
+  **19.25 mm** the tube is still one piece, but each gear's two piercings reach around and join into
+  a single opening, leaving the wall standing on two arms rather than four. Require at least 4 mm
+  over the second floor; the 24 mm default clears it by 4.75 mm.
+
+  An earlier draft settled this with an arc — the two gears pierce the wall `Sigma` apart, so the
+  wall survives while `(cageDiameter/2)*Sigma` exceeds a slot's width — and that rule is wrong twice
+  over. A slot's width around the tube is not the ribbon's thickness, because the ribbon crosses the
+  wall at whatever station puts it at the tube's radius and the cross-section angle there decides
+  how much of the opening lies across the tube. And it watches the wrong pair of openings: what
+  merges first is one gear's own two piercings, not one gear's against the other's.
 
 **No range is enforced on Mounting Angle, and none is asserted here.** `Phi = 15°` is the measured
 working value at the default proportions; what happens elsewhere is the proof's to map, and this
@@ -311,10 +320,17 @@ zero for `k >= 1`, so no guard is needed here, but do not "optimize" a `k = 0` c
 ### 4: The cage
 
 Build the tube first: a circle of `cageDiameter` on a plane through `C` normal to `n̂`, extruded
-symmetrically to a height of `A + W*cos(Phi) + 4*cageWall`, then a concentric circle inset by
-`cageWall` cut through it. That height is the two axes' separation plus the ribbon's own reach along
-`n̂` — the ribbon's width direction sits at `Phi` off `n̂` at the crossing, so it covers
-`W*cos(Phi)` of the tube — plus two walls of margin at each end.
+symmetrically to a half-height of
+
+```
+A/2 + (W/2)*|cos(cageInner/Lambda + Phi)| + 2*cageWall
+```
+
+then a concentric circle inset by `cageWall` cut through it. What the tube has to cover is the four
+openings rather than the ribbons at their widest: a ribbon crosses the wall about `cageInner` along
+its own axis from the closest approach, and its cross-section angle **there** is what decides how
+much of its width falls along `n̂`. Two walls of margin keep an opening off the rim, which
+`TestCageSlotsStayOffTheRim` checks.
 
 Cut one slot per gear with a **twisted clearance ribbon** (`[SCREW-F-TWISTED-SLOT]`): loft five
 rectangles of `(W + 2*clearance)` by `(T + 2*clearance)` on planes along that gear's axis, spanning
@@ -356,6 +372,12 @@ and it is cheap enough to run the search a few million times. The package import
 - `TestFullRibbonsClearOutsideTheEngagement` walks both parts end to end, so the contact search's
   window is not taken on trust.
 - `TestRibbonIsInvariantUnderItsScrewStep` is what licenses building the ribbon as one cell repeated.
+- `TestCageSlotsLeaveOneTubeAndFourHoles`, `TestCageSlotsStayOffTheRim` and
+  `TestCageDiameterFloorsAreMeasured` walk the tube's own wall. The frame is only a frame while it
+  is one body, and the four openings are what can take that away.
+- `TestRibbonsPassThroughTheirSlots` walks both ribbons end to end and asserts that neither ever
+  meets the wall. One static pass settles every position the gears take, because a slot is cut to
+  the blank and the blank is invariant under the gear's own screw motion.
 - `TestCrossedHelicalRuleMakesTheCrestHelicesParallel` pins `Sigma = 2*Beta` and the station it
   holds at.
 - `TestLoftSectionCountHoldsTheHelicoid` is the arithmetic the nine sections are bought with.

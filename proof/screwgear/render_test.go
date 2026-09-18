@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/lestrrat-3d/fusion360-gear-generator/proof/render"
+	"github.com/lestrrat-3d/r3"
 	"github.com/lestrrat-3d/solidlens"
 )
 
@@ -39,6 +40,7 @@ const renderStations = 16
 var (
 	gearAColor = solidlens.RGB(0.29, 0.66, 0.72)
 	gearBColor = solidlens.RGB(0.86, 0.56, 0.24)
+	cageColor  = solidlens.RGB(0.80, 0.80, 0.83)
 )
 
 // ribbonMesh meshes one gear over the station range given: every cross-section
@@ -83,29 +85,153 @@ func ribbonMesh(g Gear, from, to float64) (*solidlens.Mesh, error) {
 	return solidlens.NewMesh(vertices, triangles)
 }
 
-// cageMesh draws the frame as the two rings the video's cage reduces to: the
-// wall cannot run unbroken past the mesh, because the two gears' slots overlap
-// along the tube. The rings sit clear of both ribbons and show where the tube
-// they belong to stands. The slots themselves are not drawn; nothing in this
-// package builds them, and a tube drawn without them would be a picture of a
-// cage the gears could not pass through.
-func cageMesh(p Params, radius, thickness, height float64) (*solidlens.Mesh, error) {
-	half := p.AxisOffset()/2 + p.Width/2*math.Cos(p.MountAngle) + height
-	var pieces []solidlens.TriangleSource
-	for _, z := range []float64{-half, half} {
-		profile := []render.Vec2{
-			{X: z - height/2, Y: radius},
-			{X: z + height/2, Y: radius},
-			{X: z + height/2, Y: radius + thickness},
-			{X: z - height/2, Y: radius + thickness},
+// cageMesh draws the frame: one tube, coaxial with the two gears' common
+// perpendicular, with a slot cut through its wall for each gear.
+//
+// The slots are what make this a frame rather than a pair of bearings. A round
+// hole would let its ribbon turn freely as it slid, and the mechanism would
+// have three degrees of freedom instead of one; a slot the shape of the
+// ribbon's own cross-section forces the ribbon to turn as it advances, exactly
+// as a twisted-bar screwdriver does. Each slot is a twisted channel of the same
+// lead as its gear, because the ribbon turns as it crosses the wall.
+//
+// No boolean builds it. A wall cell is dropped when its own midpoint falls
+// inside a gear's clearance rectangle, which is the same local mapping the
+// meshing proof uses, so the slot is the ribbon's cross-section by construction
+// rather than by a second description of it.
+func cageMesh(p Params, ga, gb Gear, inner, outer, halfHeight, clearance float64) (*solidlens.Mesh, error) {
+	const nAz, nZ = 240, 400
+
+	// inSlot answers whether a point of the wall has been cut away.
+	inSlot := func(pt r3.Vec) bool {
+		for _, g := range []Gear{ga, gb} {
+			u, v, _ := g.local(pt)
+			if math.Abs(u) <= p.Width/2+clearance && math.Abs(v) <= p.Thickness/2+clearance {
+				return true
+			}
 		}
-		ring, err := render.Revolve(profile, 72)
-		if err != nil {
-			return nil, fmt.Errorf("cage ring at %g: %w", z, err)
-		}
-		pieces = append(pieces, ring)
+		return false
 	}
-	return render.Merge(pieces...)
+
+	az := func(i int) float64 { return 2 * math.Pi * float64(i%nAz) / nAz }
+	zAt := func(j int) float64 { return -halfHeight + 2*halfHeight*float64(j)/nZ }
+	point := func(radius float64, i, j int) r3.Vec {
+		a := az(i)
+		return r3.NewVec(radius*math.Cos(a), radius*math.Sin(a), zAt(j))
+	}
+
+	// One vertex grid, shared by every cell, so neighbouring cells meet at the
+	// same index and the renderer sees one surface rather than a field of
+	// separate quads.
+	index := func(ring, i, j int) int { return ring*nAz*(nZ+1) + (i%nAz)*(nZ+1) + j }
+	vertices := make([]solidlens.Vec, 2*nAz*(nZ+1))
+	for ring, radius := range []float64{inner, outer} {
+		for i := range nAz {
+			for j := 0; j <= nZ; j++ {
+				pt := point(radius, i, j)
+				vertices[index(ring, i, j)] = solidlens.Vec{X: pt.X, Y: pt.Y, Z: pt.Z}
+			}
+		}
+	}
+
+	keep := make([][]bool, nAz)
+	mid := (inner + outer) / 2
+	for i := range nAz {
+		keep[i] = make([]bool, nZ)
+		for j := range nZ {
+			a, b := az(i), az(i+1)
+			centre := r3.NewVec(mid*math.Cos((a+b)/2), mid*math.Sin((a+b)/2), (zAt(j)+zAt(j+1))/2)
+			keep[i][j] = !inSlot(centre)
+		}
+	}
+	kept := func(i, j int) bool {
+		if j < 0 || j >= nZ {
+			return false
+		}
+		return keep[(i+nAz)%nAz][j]
+	}
+
+	// Snap the boundary onto the real slot edge. A cell is kept or dropped
+	// whole, so a slot edge that runs diagonally across the grid comes out as a
+	// staircase. Every corner that is left standing inside a slot is therefore
+	// walked around the tube, by bisection, to where it really crosses the
+	// slot's edge. The cells stay the same; only the vertices they share move,
+	// so the wall stays closed and its edge becomes the cut line.
+	for ring, radius := range []float64{inner, outer} {
+		for i := range nAz {
+			for j := 0; j <= nZ; j++ {
+				// Only a corner where the wall meets a slot moves; everywhere
+				// else the grid is already on the tube.
+				standing := kept(i, j) || kept(i, j-1) || kept(i-1, j) || kept(i-1, j-1)
+				gone := !kept(i, j) || !kept(i, j-1) || !kept(i-1, j) || !kept(i-1, j-1)
+				if !standing || !gone {
+					continue
+				}
+				here := point(radius, i, j)
+				inside := inSlot(here)
+				dir := 0
+				for _, d := range []int{1, -1} {
+					if inSlot(point(radius, i+d, j)) != inside {
+						dir = d
+						break
+					}
+				}
+				if dir == 0 {
+					continue // the edge does not cross this row within a cell
+				}
+				far := point(radius, i+dir, j)
+				if !inside {
+					here, far = far, here
+				}
+				lo, hi := 0.0, 1.0
+				for range 24 {
+					m := (lo + hi) / 2
+					if inSlot(here.Add(far.Sub(here).Scale(m))) {
+						lo = m
+					} else {
+						hi = m
+					}
+				}
+				pt := here.Add(far.Sub(here).Scale((lo + hi) / 2))
+				vertices[index(ring, i, j)] = solidlens.Vec{X: pt.X, Y: pt.Y, Z: pt.Z}
+			}
+		}
+	}
+
+	const in, out = 0, 1
+	var triangles [][3]int
+	quad := func(a, b, c, d int) {
+		triangles = append(triangles, [3]int{a, b, c}, [3]int{a, c, d})
+	}
+	for i := range nAz {
+		for j := range nZ {
+			if !keep[i][j] {
+				continue
+			}
+			// The outer face, wound so its normal points away from the axis,
+			// and the inner face wound the other way.
+			quad(index(out, i, j), index(out, i+1, j), index(out, i+1, j+1), index(out, i, j+1))
+			quad(index(in, i, j), index(in, i, j+1), index(in, i+1, j+1), index(in, i+1, j))
+			// A wall face wherever the neighbour is gone: the rim of a slot, or
+			// the tube's own two ends.
+			if !kept(i+1, j) {
+				quad(index(in, i+1, j), index(in, i+1, j+1), index(out, i+1, j+1), index(out, i+1, j))
+			}
+			if !kept(i-1, j) {
+				quad(index(in, i, j), index(out, i, j), index(out, i, j+1), index(in, i, j+1))
+			}
+			if !kept(i, j+1) {
+				quad(index(in, i, j+1), index(out, i, j+1), index(out, i+1, j+1), index(in, i+1, j+1))
+			}
+			if !kept(i, j-1) {
+				quad(index(in, i, j), index(in, i+1, j), index(out, i+1, j), index(out, i, j))
+			}
+		}
+	}
+	if len(triangles) == 0 {
+		return nil, fmt.Errorf("the slots removed the whole cage wall")
+	}
+	return solidlens.NewMesh(vertices, triangles)
 }
 
 // The whole mechanism, both ribbons full length in the cage rings.
@@ -125,7 +251,7 @@ func TestRenderPair(t *testing.T) {
 	if err != nil {
 		t.Fatalf("mesh gear B: %v", err)
 	}
-	cage, err := cageMesh(p, p.Width*0.62, 0.9, 1.6)
+	cage, err := cageMesh(p, ga, gb, p.CageInner(), p.CageOuter(), p.CageHalfHeight(), p.Clearance)
 	if err != nil {
 		t.Fatalf("mesh the cage: %v", err)
 	}
@@ -133,7 +259,7 @@ func TestRenderPair(t *testing.T) {
 	parts := []render.Part{
 		{Mesh: meshA, Color: gearAColor},
 		{Mesh: meshB, Color: gearBColor},
-		{Mesh: cage, Color: solidlens.RGB(0.80, 0.80, 0.83)},
+		{Mesh: cage, Color: cageColor},
 	}
 	write(t, "pair.png", parts, 26, -58, 30, meshA, meshB, cage)
 
@@ -141,6 +267,14 @@ func TestRenderPair(t *testing.T) {
 	// the angle the two axes cross at. From the side the pair reads as two
 	// ribbons lying near each other whatever that angle is.
 	write(t, "plan.png", parts, 78, -90, 30, meshA, meshB, cage)
+
+	// The frame on its own, looked at straight down gear A's axis, which is the
+	// one view that shows an opening at its true shape. Neither gear is drawn:
+	// a ribbon on this line of sight fills the frame, being exactly what the
+	// opening is cut to pass.
+	slotAzimuth := p.Sigma() / 2 * 180 / math.Pi
+	write(t, "cage.png", []render.Part{{Mesh: cage, Color: cageColor}},
+		-12, slotAzimuth, 30, cage)
 }
 
 // One gear alone, so the twisted rack reads: a flat toothed rack whose toothed
