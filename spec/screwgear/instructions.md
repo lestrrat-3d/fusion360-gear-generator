@@ -400,10 +400,10 @@ same rectangular section about `n̂`, so every outside face lands on that one cy
   **`blockWall` is 3 mm and that is a floor, not a preference.** Less than that leaves the frame a
   shell exactly where it is most worked, at the one place it holds a gear.
 
-  **The box is ramped at 45°, on its underside only.** A print is built upward, so what will not
-  bridge is material appearing above nothing: widening as the post rises is that case and is ramped,
-  while narrowing again is not, because what is left rests on what is under it. So a bulge has a
-  ramp beneath it and a square shelf on top.
+  **Both ends of the box are slanted at 45°.** Only the underside has to be: a print is built
+  upward, so what will not bridge is material appearing above nothing, and narrowing again would
+  print as a square shelf. The top is slanted to match the bottom because the part reads better for
+  it, and it costs only height.
 
   A ramp may run into a plate. A plate goes the whole way round, so a post still widening where it
   meets one merges into material that is already there, and requiring the ramp to finish first only
@@ -460,7 +460,7 @@ and it is cheap enough to run the search a few million times. The package import
   requires the widening to earn its material, at no more than half the bore's width at the plate.
 - `TestPostsNeverOverhang` is the printing rule: it walks the width profile and fails on any
   WIDENING step steeper than 45°, and passes a narrowing of any steepness, which is the asymmetry a
-  print built upward has. `TestBoresKeepTheirWall` walks every height of every post and fails if the
+  print built upward has. The bulges are slanted at both ends anyway, so it has slack on top. `TestBoresKeepTheirWall` walks every height of every post and fails if the
   material round a bore drops under 3 mm.
 - `TestTheMiddleStaysOpen` keeps the frame out of the space the gears mesh in.
 - `TestStrokeIsTheBossLength` and `TestTeethNeverReachABore` hold the boss: the travel is 2.5 teeth,

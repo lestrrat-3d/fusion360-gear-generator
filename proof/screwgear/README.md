@@ -71,8 +71,8 @@ notches.
 
 **Two printing rules shape it.** It never widens faster than 45° as it rises, because a filament
 printer will not bridge a shallower surface, and it never leaves under 3 mm of material round a
-bore. Only widening is ramped: a print is built upward, so a bulge gets a ramp beneath it and a
-square shelf on top. Each post sits where one ribbon crosses the cylinder
+bore. Only the underside has to be slanted, since a print is built upward and narrowing again rests
+on what is under it; both ends are slanted anyway, because the part reads better for it. Each post sits where one ribbon crosses the cylinder
 and carries a **bore** that ribbon passes through. Two posts are bored low and two high, so the two
 gears pass at different heights and their teeth meet in the middle.
 
@@ -122,7 +122,7 @@ four tooth pairs land in the engaged zone at once and cannot all interdigitate, 
 | Bore angle | 15° off upright, which is the best the mounting angles allow |
 | Play in the frame | a bore jams a gear 3.21° out of step |
 | Stroke | 5.03 mm, or 2.9 teeth |
-| Post width | 3.00 mm, widening to 14.20 mm at a bore, ramped at 45° underneath |
+| Post width | 3.00 mm, widening to 14.20 mm at a bore, slanted at 45° at both ends |
 | Wall round a bore | 3 mm everywhere |
 
 `TestPairDrivesOneToOne` is where the first four come from. It tracks the interval of gear B's
