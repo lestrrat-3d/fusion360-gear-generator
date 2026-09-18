@@ -71,7 +71,7 @@ func defaultParams() Params {
 		ShellThick: 3,
 		PlateThick: 2,
 		PostWidth:  3,
-		BlockWall:  2.5,
+		BlockWall:  2.0,
 		Clearance:  0.3,
 	}
 }

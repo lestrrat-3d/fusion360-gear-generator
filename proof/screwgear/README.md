@@ -61,7 +61,9 @@ stand near upright.
 ![The cage: one turned wall left as two plates and four bored posts, with a gear through it](images/cage.png)
 
 The frame with one gear left in it. It is a short tube with most of its wall gone: a flat plate at
-each end, and four posts between them, each widening into a block around its bore. Each post sits where one ribbon crosses the cylinder
+each end, and four posts between them. A post runs 3.00 mm wide for most of its height and widens
+to 12.20 mm only where its bore needs it, running back out into the plain width before it reaches
+either plate, so there is no step at the join and no gap. Each post sits where one ribbon crosses the cylinder
 and carries a **bore** that ribbon passes through. Two posts are bored low and two high, so the two
 gears pass at different heights and their teeth meet in the middle.
 
@@ -111,6 +113,7 @@ four tooth pairs land in the engaged zone at once and cannot all interdigitate, 
 | Bore angle | 15° off upright, which is the best the mounting angles allow |
 | Play in the frame | a bore jams a gear 3.21° out of step |
 | Stroke | 5.03 mm, or 2.9 teeth |
+| Post width | 3.00 mm, widening to 12.20 mm at a bore |
 
 `TestPairDrivesOneToOne` is where the first four come from. It tracks the interval of gear B's
 tooth phase that clears gear A through a full pitch of A, and requires three things of it: that

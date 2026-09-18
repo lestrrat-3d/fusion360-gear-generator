@@ -250,7 +250,7 @@ User inputs in dialog order. All linear inputs are mm; the mounting angles are d
 | Shell Thickness | `shellThick` | mm | 3 |
 | Plate Thickness | `plateThick` | mm | 2 |
 | Post Width | `postWidth` | mm | 3 |
-| Block Wall | `blockWall` | mm | 2.5 |
+| Block Wall | `blockWall` | mm | 2 |
 | Clearance | `clearance` | mm | 0.3 |
 | Target Plane | `plane` | selection | — |
 | Centre Point | `point` | selection | — |
@@ -386,11 +386,15 @@ same rectangular section about `n̂`, so every outside face lands on that one cy
 
 - **The plates** run the whole way round, `plateThick` tall, at each end. Their outer faces are
   level and they are what a print stands on.
-- **The posts** run the full height at the four azimuths where the ribbons cross, `postWidth` wide.
-- **The blocks** are wider, shorter pieces of the same wall around each bore. Size them by
-  **measuring what the bore occupies in azimuth and height** and adding `blockWall`; that is not a
-  closed form worth deriving, because the bore is a twisted channel through a wall it is not aligned
-  with. `blockAt` in the proof is that measurement.
+- **The posts** run the full height at the four azimuths where the ribbons cross. A post is
+  `postWidth` wide along most of its length and **widens only where its bore needs it**, running
+  back out into the plain width before it reaches either plate.
+
+  The width at each height is `bore width there + blockWall`, **measured rather than derived**,
+  because the bore is a twisted channel through a wall it is not aligned with. `postPiece` in the
+  proof is that measurement. A post of one width would either be too narrow at its bore or carry
+  material it does not need everywhere else, and a separate block sitting on a narrow post leaves a
+  step at the join that reads as a gap.
 
 **Bore each post with a twisted clearance ribbon** (`[SCREW-F-TWISTED-SLOT]`): loft five rectangles
 of `(W + 2*bossGrow + 2*clearance)` by `(T + 2*bossGrow + 2*clearance)` on planes along that gear's
@@ -438,8 +442,10 @@ and it is cheap enough to run the search a few million times. The package import
   one body, and one gear's bores low against the other's high.
 - `TestNothingStandsProudOfTheShell` holds the whole outside to one cylinder, which is the defect
   that a square post on a round plate, or a block reaching outward, would leave.
-- `TestBlocksStayInsideThePlates` keeps a block off the two faces a print stands on, and
-  `TestTheMiddleStaysOpen` keeps the frame out of the space the gears mesh in.
+- `TestPostsRunUnbrokenIntoThePlates` walks each post's whole height and fails on any break in it,
+  and requires the widening to have run out before the plate. `TestPostsAreNarrowAwayFromTheirBores`
+  requires the widening to earn its material, at no more than half the bore's width at the plate.
+- `TestTheMiddleStaysOpen` keeps the frame out of the space the gears mesh in.
 - `TestStrokeIsTheBossLength` and `TestTeethNeverReachABore` hold the boss: the travel is 2.5 teeth,
   and no tooth is ever inside a bore over that travel.
 - `TestCrossedHelicalRuleMakesTheCrestHelicesParallel` pins `Sigma = 2*Beta` and the station it

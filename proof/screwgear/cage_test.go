@@ -46,15 +46,40 @@ func inBore(g Gear, pt r3.Vec) bool {
 	return math.Abs(u) <= p.BoreHalfWidth() && math.Abs(v) <= p.BoreHalfThickness()
 }
 
-// patch is one piece of the frame's wall: a stretch of azimuth, a stretch of
-// height, and the one wall thickness everything shares.
-type patch struct {
-	azimuth   float64 // its middle, round the cage
-	halfAngle float64
-	zLo, zHi  float64
+// piece is one part of the frame's wall: a stretch of height, and at each
+// height a half-width round the cage. Everything is a piece of the same wall,
+// so the only things that differ between a plate and a post are how tall they
+// are and how wide they run.
+type piece struct {
+	azimuth  float64
+	zLo, zHi float64
+	step     float64
+	half     []float64 // half-angle at zLo, zLo+step, ...
+	g        *Gear     // the gear bored through it, nil for a plate
 }
 
-func (q patch) holds(p Params, pt r3.Vec) bool {
+func (q piece) halfAngleAt(z float64) float64 {
+	if z < q.zLo || z > q.zHi {
+		return 0
+	}
+	i := (z - q.zLo) / q.step
+	lo := int(math.Floor(i))
+	if lo >= len(q.half)-1 {
+		return q.half[len(q.half)-1]
+	}
+	f := i - float64(lo)
+	return q.half[lo]*(1-f) + q.half[lo+1]*f
+}
+
+func (q piece) maxHalfAngle() float64 {
+	worst := 0.0
+	for _, h := range q.half {
+		worst = math.Max(worst, h)
+	}
+	return worst
+}
+
+func (q piece) holds(p Params, pt r3.Vec) bool {
 	r := math.Hypot(pt.X, pt.Y)
 	if r > p.CageOuter() || r < p.CageInner() {
 		return false
@@ -63,93 +88,83 @@ func (q patch) holds(p Params, pt r3.Vec) bool {
 		return false
 	}
 	d := math.Mod(math.Abs(math.Atan2(pt.Y, pt.X)-q.azimuth), 2*math.Pi)
-	return math.Min(d, 2*math.Pi-d) <= q.halfAngle
+	return math.Min(d, 2*math.Pi-d) <= q.halfAngleAt(pt.Z)
 }
 
-// blockAt sizes the patch round a bore by MEASURING what the bore occupies in
-// azimuth and height over the wall's own depth, and adding the wall. That is
-// not a closed form worth deriving: the bore is a twisted channel through a
-// wall it is not aligned with, so what it takes up has to be sampled.
-func blockAt(g Gear, station float64) patch {
+// postPiece is one post: a column running the full height, whose width FOLLOWS
+// its bore. It is widest where the bore is widest and narrows to PostWidth
+// everywhere else, so it meets the plates at both ends with no step and carries
+// no material it does not need.
+//
+// The width at each height is measured rather than derived, because the bore is
+// a twisted channel through a wall it is not aligned with.
+func postPiece(g Gear, station float64) piece {
 	p := g.P
+	const step = 0.1
 	a := postAzimuth(g, station)
-	centre := g.Origin.Add(g.Ez.Scale(station))
+	floor := p.PostWidth / 2 / p.CageRadius
 
-	var ht, hz float64
-	for r := p.CageInner(); r <= p.CageOuter(); r += 0.05 {
-		for dt := -p.Width; dt <= p.Width; dt += 0.05 {
-			for dz := -p.Width; dz <= p.Width; dz += 0.05 {
+	n := int(math.Round(2*p.CageRise/step)) + 1
+	half := make([]float64, n)
+	for j := range n {
+		z := -p.CageRise + float64(j)*step
+		widest := 0.0
+		for r := p.CageInner(); r <= p.CageOuter(); r += 0.1 {
+			for dt := 0.0; dt <= p.Width; dt += 0.05 {
 				ang := a + dt/p.CageRadius
-				pt := r3.NewVec(r*math.Cos(ang), r*math.Sin(ang), centre.Z+dz)
-				if !inBore(g, pt) {
-					continue
+				if inBore(g, r3.NewVec(r*math.Cos(ang), r*math.Sin(ang), z)) {
+					widest = math.Max(widest, dt)
 				}
-				ht = math.Max(ht, math.Abs(dt))
-				hz = math.Max(hz, math.Abs(dz))
+				ang = a - dt/p.CageRadius
+				if inBore(g, r3.NewVec(r*math.Cos(ang), r*math.Sin(ang), z)) {
+					widest = math.Max(widest, dt)
+				}
 			}
 		}
+		half[j] = floor
+		if widest > 0 {
+			half[j] = math.Max(floor, (widest+p.BlockWall)/p.CageRadius)
+		}
 	}
-	return patch{
-		azimuth:   a,
-		halfAngle: (ht + p.BlockWall) / p.CageRadius,
-		zLo:       centre.Z - hz - p.BlockWall,
-		zHi:       centre.Z + hz + p.BlockWall,
-	}
+	return piece{azimuth: a, zLo: -p.CageRise, zHi: p.CageRise, step: step, half: half, g: &g}
 }
 
-// platePatches are the two end plates: the whole way round, level top and
-// bottom, on the same wall as everything else.
-func platePatches(p Params) [2]patch {
-	return [2]patch{
-		{azimuth: 0, halfAngle: math.Pi, zLo: -p.CageRise, zHi: -p.CageRise + p.PlateThick},
-		{azimuth: 0, halfAngle: math.Pi, zLo: p.CageRise - p.PlateThick, zHi: p.CageRise},
-	}
-}
-
-// postPatch is one post: a strip of the same wall, running the full height.
-func postPatch(p Params, azimuth float64) patch {
-	return patch{
-		azimuth:   azimuth,
-		halfAngle: p.PostWidth / 2 / p.CageRadius,
-		zLo:       -p.CageRise,
-		zHi:       p.CageRise,
+// platePieces are the two end plates: the whole way round, on the same wall.
+func platePieces(p Params) [2]piece {
+	full := []float64{math.Pi, math.Pi}
+	return [2]piece{
+		{azimuth: 0, zLo: -p.CageRise, zHi: -p.CageRise + p.PlateThick,
+			step: p.PlateThick, half: full},
+		{azimuth: 0, zLo: p.CageRise - p.PlateThick, zHi: p.CageRise,
+			step: p.PlateThick, half: full},
 	}
 }
 
-// bored is a piece of the wall and the gear whose bore goes through it.
-type bored struct {
-	q patch
-	g *Gear
-}
-
-// cagePieces is the whole frame: two plates, four posts, four blocks.
-func cagePieces(ga, gb Gear) []bored {
+// cagePieces is the whole frame: two plates and four posts.
+func cagePieces(ga, gb Gear) []piece {
 	p := ga.P
-	out := make([]bored, 0, 10)
-	for _, q := range platePatches(p) {
-		out = append(out, bored{q, nil})
-	}
+	out := make([]piece, 0, 6)
+	out = append(out, platePieces(p)[0], platePieces(p)[1])
 	for i := range 2 {
 		g := []Gear{ga, gb}[i]
 		for _, station := range boreStations(p) {
-			out = append(out, bored{postPatch(p, postAzimuth(g, station)), &g})
-			out = append(out, bored{blockAt(g, station), &g})
+			out = append(out, postPiece(g, station))
 		}
 	}
 	return out
 }
 
 // inCage answers whether a point is inside any material of the frame.
-func inCage(ga, gb Gear, pieces []bored, pt r3.Vec) bool {
+func inCage(ga, gb Gear, pieces []piece, pt r3.Vec) bool {
 	p := ga.P
-	for _, piece := range pieces {
-		if !piece.q.holds(p, pt) {
+	for _, q := range pieces {
+		if !q.holds(p, pt) {
 			continue
 		}
-		if piece.g != nil && inBore(*piece.g, pt) {
+		if q.g != nil && inBore(*q.g, pt) {
 			continue
 		}
-		if piece.g == nil && (inBore(ga, pt) || inBore(gb, pt)) {
+		if q.g == nil && (inBore(ga, pt) || inBore(gb, pt)) {
 			continue
 		}
 		return true
@@ -191,25 +206,57 @@ func TestBoresSitOnOppositeSidesOfTheMiddle(t *testing.T) {
 	}
 }
 
-// A block must not push through an end plate. The plates' outer faces are what
-// a print stands on, and a block that reaches past one leaves a lump there.
-func TestBlocksStayInsideThePlates(t *testing.T) {
+// A post runs from plate to plate with no break in it, and the width it carries
+// round its bore has to run out into the plain post before the plate, or the
+// frame reads as a slab floating between two rings.
+//
+// This walks each post's whole height and fails on any gap, and reports where
+// the widening starts and stops.
+func TestPostsRunUnbrokenIntoThePlates(t *testing.T) {
 	ga, gb := defaultPair()
 	p := ga.P
-	inner := p.CageRise - p.PlateThick
+	floor := p.PostWidth / 2 / p.CageRadius
 
-	reach := 0.0
 	for _, g := range []Gear{ga, gb} {
 		for _, station := range boreStations(p) {
-			q := blockAt(g, station)
-			reach = math.Max(reach, math.Max(math.Abs(q.zLo), math.Abs(q.zHi)))
-			if q.zHi > inner || q.zLo < -inner {
-				t.Errorf("a block runs from %.2f to %.2f where the plates leave only %.2f either "+
-					"side", q.zLo, q.zHi, inner)
+			q := postPiece(g, station)
+			var wideLo, wideHi float64
+			for z := -p.CageRise; z <= p.CageRise; z += 0.05 {
+				h := q.halfAngleAt(z)
+				if h < floor-1e-9 {
+					t.Fatalf("the post at %.0f degrees is only %.3f wide at height %.2f, which is "+
+						"a gap in it", q.azimuth*180/math.Pi, h*p.CageRadius*2, z)
+				}
+				if h > floor+1e-9 {
+					if wideLo == 0 {
+						wideLo = z
+					}
+					wideHi = z
+				}
+			}
+			if wideLo <= -p.CageRise+p.PlateThick || wideHi >= p.CageRise-p.PlateThick {
+				t.Errorf("the post at %.0f degrees is still widening at the plate, from %.2f to %.2f",
+					q.azimuth*180/math.Pi, wideLo, wideHi)
 			}
 		}
 	}
-	t.Logf("plates leave +/-%.2f mm; the blocks reach +/-%.2f mm", inner, reach)
+	t.Logf("each post runs the full %.1f mm, widening only round its bore", 2*p.CageRise)
+}
+
+// The widening has to earn its material: a post that is as wide at its ends as
+// it is at its bore is carrying weight for nothing.
+func TestPostsAreNarrowAwayFromTheirBores(t *testing.T) {
+	ga, _ := defaultPair()
+	p := ga.P
+	q := postPiece(ga, boreStations(p)[1])
+
+	atEnd := q.halfAngleAt(p.CageRise-p.PlateThick) * p.CageRadius * 2
+	widest := q.maxHalfAngle() * p.CageRadius * 2
+	if atEnd > widest/2 {
+		t.Errorf("a post is %.2f mm wide at the plate against %.2f at its bore, which is not much "+
+			"of a saving", atEnd, widest)
+	}
+	t.Logf("a post runs %.2f mm wide, widening to %.2f mm round its bore", atEnd, widest)
 }
 
 // Nothing may stand outside the frame's one cylinder. That surface is what
@@ -220,14 +267,16 @@ func TestNothingStandsProudOfTheShell(t *testing.T) {
 	p := ga.P
 	pieces := cagePieces(ga, gb)
 
-	for _, piece := range pieces {
-		for da := -piece.q.halfAngle; da <= piece.q.halfAngle; da += 0.01 {
-			a := piece.q.azimuth + da
-			for _, r := range []float64{p.CageOuter() + 0.001, p.CageInner() - 0.001} {
-				pt := r3.NewVec(r*math.Cos(a), r*math.Sin(a), (piece.q.zLo+piece.q.zHi)/2)
-				if inCage(ga, gb, pieces, pt) {
-					t.Fatalf("frame material sits at radius %.3f, outside the wall %.3f to %.3f",
-						r, p.CageInner(), p.CageOuter())
+	for _, q := range pieces {
+		for da := -q.maxHalfAngle(); da <= q.maxHalfAngle(); da += 0.01 {
+			a := q.azimuth + da
+			for z := q.zLo; z <= q.zHi; z += 0.5 {
+				for _, r := range []float64{p.CageOuter() + 0.001, p.CageInner() - 0.001} {
+					pt := r3.NewVec(r*math.Cos(a), r*math.Sin(a), z)
+					if inCage(ga, gb, pieces, pt) {
+						t.Fatalf("frame material sits at radius %.3f, outside the wall %.3f to %.3f",
+							r, p.CageInner(), p.CageOuter())
+					}
 				}
 			}
 		}
@@ -243,20 +292,22 @@ func TestPostsReachBothPlates(t *testing.T) {
 	for _, g := range []Gear{ga, gb} {
 		for _, station := range boreStations(p) {
 			a := postAzimuth(g, station)
-			post := postPatch(p, a)
+			post := postPiece(g, station)
 			for _, z := range []float64{-p.CageRise + p.PlateThick/2, p.CageRise - p.PlateThick/2} {
 				pt := r3.NewVec(p.CageRadius*math.Cos(a), p.CageRadius*math.Sin(a), z)
 				if !post.holds(p, pt) {
 					t.Errorf("the post at %.1f degrees does not reach the plate at height %.1f",
 						a*180/math.Pi, z)
 				}
-				for _, plate := range platePatches(p) {
+				met := false
+				for _, plate := range platePieces(p) {
 					if plate.holds(p, pt) {
-						goto met
+						met = true
 					}
 				}
-				t.Errorf("no plate stands at height %.1f where the post reaches it", z)
-			met:
+				if !met {
+					t.Errorf("no plate stands at height %.1f where the post reaches it", z)
+				}
 			}
 		}
 	}
