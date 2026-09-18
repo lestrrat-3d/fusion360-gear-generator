@@ -60,7 +60,7 @@ well under a quarter turn. A spec change that cuts the section count to three wo
 neighbours, which still pairs, but the failure when it does not is a lofted body with a twisted
 crease rather than an error, so the count stays where the spec pins it.
 
-## `[SCREW-F-TWISTED-SLOT]` — the collar's opening
+## `[SCREW-F-TWISTED-SLOT]` — a post's bore
 
 Cut the opening with a lofted clearance ribbon, not a swept one. `SweepFeatureInput.twistAngle` (with
 `solidTwistAxis`) is the natural tool and would build the exact helicoid from one section, but the
@@ -69,8 +69,10 @@ InternalValidationError : Utils::getObjectPath(sketchCurve, …)` when the ownin
 trivially resolvable in the current multi-component context. The screw gear builds everything in a
 `Design` sub-component, so it is always in that context.
 
-The same loft cuts both collars' openings, one per gear, and the opening is a twisted channel
-because the ribbon turns while it is inside the collar.
+One loft per gear cuts both of that gear's bores, because the two posts stand on the same axis and
+the one clearance ribbon runs through both. The bore is a twisted channel, because the ribbon turns
+while it is inside the post, and it runs the post's whole height rather than only the block's depth:
+a post is solid bar above and below its block.
 
 `twistAngle` is also ignored outright when a guide rail or guide surface is set, per the API
 reference — worth knowing before anyone reaches for a rail to shape the teeth instead.

@@ -85,105 +85,93 @@ func ribbonMesh(g Gear, from, to float64) (*solidlens.Mesh, error) {
 	return solidlens.NewMesh(vertices, triangles)
 }
 
-// collarMesh draws one collar: a disc standing across its gear's axis with the
-// ribbon's own channel cut through it.
-//
-// It is meshed on a polar grid rather than cut by a boolean. A cell is dropped
-// when it falls in the channel at either face or between them, which is the
-// swept opening a real cut would leave, and the same local mapping the meshing
-// proof uses. The cells' shared corners are then walked onto the true edge of
-// the channel, because a cell either stands or goes whole and an opening that
-// runs diagonally across the grid would otherwise come out as a staircase.
-func collarMesh(g Gear) (*solidlens.Mesh, error) {
-	const nAz, nR = 240, 90
-	const rMin = 0.35
-
-	centre := collarCentre(g)
-	half := g.P.CollarDepth / 2
-	point := func(face, i, j int) r3.Vec {
-		a := 2 * math.Pi * float64(i%nAz) / nAz
-		r := rMin + (g.P.CollarOuter-rMin)*float64(j)/nR
-		along := float64(2*face-1) * half
-		return centre.Add(g.Ez.Scale(along)).
-			Add(g.Ex.Scale(r * math.Cos(a))).Add(g.Ey.Scale(r * math.Sin(a)))
+// ringMesh draws one cage ring: a round bar bent into a circle at the cage
+// radius, at the height given.
+func ringMesh(p Params, height float64) (*solidlens.Mesh, error) {
+	const sides = 20
+	profile := make([]render.Vec2, 0, sides)
+	for i := range sides {
+		a := 2 * math.Pi * float64(i) / sides
+		profile = append(profile, render.Vec2{
+			X: height + p.RingBar/2*math.Sin(a),
+			Y: p.CageRadius + p.RingBar/2*math.Cos(a),
+		})
 	}
-	// open is the channel test, taken across the collar's depth so the opening
-	// is what the turning ribbon sweeps rather than its section at one face.
-	open := func(pt r3.Vec) bool {
-		for k := range 5 {
-			along := -half + 2*half*float64(k)/4
-			probe := pt.Add(g.Ez.Scale(along - pt.Sub(centre).Dot(g.Ez)))
-			if inCollarOpening(g, probe) {
-				return true
-			}
+	return render.Revolve(profile, 120)
+}
+
+// postMesh draws the slender part of one post: a round bar standing at the cage
+// radius, from the bottom ring to the top.
+func postMesh(p Params, azimuth float64) (*solidlens.Mesh, error) {
+	const sides = 16
+	centre := r3.NewVec(p.CageRadius*math.Cos(azimuth), p.CageRadius*math.Sin(azimuth), 0)
+	ring := func(z float64) []solidlens.Vec {
+		out := make([]solidlens.Vec, 0, sides)
+		for i := range sides {
+			a := 2 * math.Pi * float64(i) / sides
+			out = append(out, solidlens.Vec{
+				X: centre.X + p.PostBar/2*math.Cos(a),
+				Y: centre.Y + p.PostBar/2*math.Sin(a),
+				Z: z,
+			})
 		}
-		return false
+		return out
+	}
+	ends := make([][3]int, 0, sides-2)
+	for i := 1; i < sides-1; i++ {
+		ends = append(ends, [3]int{0, i, i + 1})
+	}
+	return render.Prism(ring(-p.CageRise), ring(p.CageRise), ends)
+}
+
+// blockMesh draws the block a post widens into around its bore, with the bore
+// through it.
+//
+// It is meshed on a grid rather than cut by a boolean: a cell is dropped when
+// it falls in the channel the turning ribbon sweeps, which is the same local
+// mapping the meshing proof uses, and the corners that are left standing on the
+// channel's edge are then walked onto that edge.
+func blockMesh(g Gear, station float64) (*solidlens.Mesh, error) {
+	const nU, nV = 150, 70
+	p := g.P
+	halfU := p.BoreHalfWidth() + p.BlockWall
+	halfV := p.BoreHalfThickness() + p.BlockWall
+	half := p.BlockDepth / 2
+
+	point := func(face, i, j int) r3.Vec {
+		u := -halfU + 2*halfU*float64(i)/nU
+		v := -halfV + 2*halfV*float64(j)/nV
+		return g.world(u, v, station+float64(2*face-1)*half)
+	}
+	open := func(pt r3.Vec) bool {
+		u, v, _ := g.local(pt)
+		return math.Abs(u) <= p.BoreHalfWidth() && math.Abs(v) <= p.BoreHalfThickness()
 	}
 
-	index := func(face, i, j int) int { return face*nAz*(nR+1) + (i%nAz)*(nR+1) + j }
-	vertices := make([]solidlens.Vec, 2*nAz*(nR+1))
+	index := func(face, i, j int) int { return face*(nU+1)*(nV+1) + i*(nV+1) + j }
+	vertices := make([]solidlens.Vec, 2*(nU+1)*(nV+1))
 	for face := range 2 {
-		for i := range nAz {
-			for j := 0; j <= nR; j++ {
+		for i := 0; i <= nU; i++ {
+			for j := 0; j <= nV; j++ {
 				pt := point(face, i, j)
 				vertices[index(face, i, j)] = solidlens.Vec{X: pt.X, Y: pt.Y, Z: pt.Z}
 			}
 		}
 	}
 
-	keep := make([][]bool, nAz)
-	for i := range nAz {
-		keep[i] = make([]bool, nR)
-		for j := range nR {
+	keep := make([][]bool, nU)
+	for i := range nU {
+		keep[i] = make([]bool, nV)
+		for j := range nV {
 			mid := point(0, i, j).Add(point(1, i+1, j+1)).Scale(0.5)
 			keep[i][j] = !open(mid)
 		}
 	}
 	kept := func(i, j int) bool {
-		if j < 0 || j >= nR {
+		if i < 0 || i >= nU || j < 0 || j >= nV {
 			return false
 		}
-		return keep[(i+nAz)%nAz][j]
-	}
-
-	// Snap each corner that stands on the channel's edge onto the edge itself.
-	for face := range 2 {
-		for i := range nAz {
-			for j := 0; j <= nR; j++ {
-				standing := kept(i, j) || kept(i, j-1) || kept(i-1, j) || kept(i-1, j-1)
-				gone := !kept(i, j) || !kept(i, j-1) || !kept(i-1, j) || !kept(i-1, j-1)
-				if !standing || !gone {
-					continue
-				}
-				here := point(face, i, j)
-				inside := open(here)
-				dir := 0
-				for _, d := range []int{1, -1} {
-					if open(point(face, i+d, j)) != inside {
-						dir = d
-						break
-					}
-				}
-				if dir == 0 {
-					continue
-				}
-				far := point(face, i+dir, j)
-				if !inside {
-					here, far = far, here
-				}
-				lo, hi := 0.0, 1.0
-				for range 24 {
-					m := (lo + hi) / 2
-					if open(here.Add(far.Sub(here).Scale(m))) {
-						lo = m
-					} else {
-						hi = m
-					}
-				}
-				pt := here.Add(far.Sub(here).Scale((lo + hi) / 2))
-				vertices[index(face, i, j)] = solidlens.Vec{X: pt.X, Y: pt.Y, Z: pt.Z}
-			}
-		}
+		return keep[i][j]
 	}
 
 	const back, front = 0, 1
@@ -191,44 +179,59 @@ func collarMesh(g Gear) (*solidlens.Mesh, error) {
 	quad := func(a, b, c, d int) {
 		triangles = append(triangles, [3]int{a, b, c}, [3]int{a, c, d})
 	}
-	for i := range nAz {
-		for j := range nR {
+	for i := range nU {
+		for j := range nV {
 			if !keep[i][j] {
 				continue
 			}
 			quad(index(front, i, j), index(front, i+1, j), index(front, i+1, j+1), index(front, i, j+1))
 			quad(index(back, i, j), index(back, i, j+1), index(back, i+1, j+1), index(back, i+1, j))
-			if !kept(i, j+1) { // the rim, or the far side of the channel
-				quad(index(back, i, j+1), index(front, i, j+1), index(front, i+1, j+1), index(back, i+1, j+1))
-			}
-			if !kept(i, j-1) {
-				quad(index(back, i, j), index(back, i+1, j), index(front, i+1, j), index(front, i, j))
-			}
 			if !kept(i+1, j) {
 				quad(index(back, i+1, j), index(back, i+1, j+1), index(front, i+1, j+1), index(front, i+1, j))
 			}
 			if !kept(i-1, j) {
 				quad(index(back, i, j), index(front, i, j), index(front, i, j+1), index(back, i, j+1))
 			}
+			if !kept(i, j+1) {
+				quad(index(back, i, j+1), index(front, i, j+1), index(front, i+1, j+1), index(back, i+1, j+1))
+			}
+			if !kept(i, j-1) {
+				quad(index(back, i, j), index(back, i+1, j), index(front, i+1, j), index(front, i, j))
+			}
 		}
 	}
 	if len(triangles) == 0 {
-		return nil, fmt.Errorf("the channel removed the whole collar")
+		return nil, fmt.Errorf("the bore removed the whole block")
 	}
 	return solidlens.NewMesh(vertices, triangles)
 }
 
-// cageMesh draws the frame: one collar per gear, meeting at their rims.
+// cageMesh draws the whole frame: two rings, four posts, and the bored block on
+// each post.
 func cageMesh(ga, gb Gear) (*solidlens.Mesh, error) {
-	a, err := collarMesh(ga)
-	if err != nil {
-		return nil, fmt.Errorf("gear A collar: %w", err)
+	p := ga.P
+	var pieces []solidlens.TriangleSource
+	for _, h := range []float64{-p.CageRise, p.CageRise} {
+		ring, err := ringMesh(p, h)
+		if err != nil {
+			return nil, fmt.Errorf("ring at %g: %w", h, err)
+		}
+		pieces = append(pieces, ring)
 	}
-	b, err := collarMesh(gb)
-	if err != nil {
-		return nil, fmt.Errorf("gear B collar: %w", err)
+	for _, g := range []Gear{ga, gb} {
+		for _, station := range boreStations(p) {
+			post, err := postMesh(p, postAzimuth(g, station))
+			if err != nil {
+				return nil, fmt.Errorf("post: %w", err)
+			}
+			block, err := blockMesh(g, station)
+			if err != nil {
+				return nil, fmt.Errorf("block: %w", err)
+			}
+			pieces = append(pieces, post, block)
+		}
 	}
-	return render.Merge(a, b)
+	return render.Merge(pieces...)
 }
 
 // The whole mechanism, both ribbons full length in the cage rings.
@@ -265,13 +268,12 @@ func TestRenderPair(t *testing.T) {
 	// ribbons lying near each other whatever that angle is.
 	write(t, "plan.png", parts, 78, -90, 30, meshA, meshB, cage)
 
-	// The frame on its own, looked at straight down gear A's axis, which is the
-	// one view that shows an opening at its true shape. Neither gear is drawn:
-	// a ribbon on this line of sight fills the frame, being exactly what the
-	// opening is cut to pass.
-	slotAzimuth := p.Sigma() / 2 * 180 / math.Pi
-	write(t, "cage.png", []render.Part{{Mesh: cage, Color: cageColor}},
-		-12, slotAzimuth, 30, cage)
+	// The frame with one gear left in it, from a little above, which is the view
+	// that shows a post's block and the boss sitting in its bore.
+	write(t, "cage.png", []render.Part{
+		{Mesh: meshA, Color: gearAColor},
+		{Mesh: cage, Color: cageColor},
+	}, 20, -120, 30, cage)
 }
 
 // One gear alone, so the twisted rack reads: a flat toothed rack whose toothed

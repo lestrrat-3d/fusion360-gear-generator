@@ -21,14 +21,17 @@ The three parts are:
 
 - **Gear A** and **Gear B**, each an ordinary rack — a flat plate with teeth cut into one long edge —
   twisted about its own centre line into a helix. The two are the same part.
-- **The Cage**, two collars fused at their rims, one threaded on each gear. A collar is a disc
-  standing across its gear's axis with an opening cut to that ribbon's own cross-section. A twisted
-  plate driven through a fixed opening of its own shape must rotate as it advances, exactly as a
-  twisted-bar screwdriver does, so the opening is what makes each gear's motion a screw motion
-  rather than a free slide. A round hole would not: it would leave the mechanism three degrees of
+- **The Cage**, a cylinder with most of its wall gone: a ring at the top, a ring at the bottom, and
+  four posts standing between them. Each post sits where one ribbon crosses the cylinder and carries
+  a **bore** that ribbon passes through. The two posts of one gear are bored low and the two of the
+  other high, so the gears meet in the middle of the cylinder.
+
+  The bore is what makes each gear's motion a screw motion rather than a free slide. It is cut to
+  the ribbon's own cross-section and twisted at the ribbon's own lead, so a gear that turns without
+  advancing jams in it. A round hole would not: it would leave the mechanism three degrees of
   freedom instead of one.
 
-The gears' toothed edges meet between the collars. Pushing one gear along its axis drives the other, at
+The gears' toothed edges meet in the middle of the cage, between the two bored heights. Pushing one gear along its axis drives the other, at
 a **1:1 ratio** — one tooth pitch of advance each. The mechanism has one degree of freedom.
 
 ## Geometry
@@ -65,6 +68,18 @@ says so.
 only thing that changes in the body's own frame is the tooth phase. Every step below relies on this:
 it is why the whole ribbon is one tooth cell repeated by a screw step, and why the proof can pose
 meshing as a search over two numbers.
+
+### The boss, and why the cage needs no tooth-shaped cut
+
+The ribbon carries a **smooth boss** at each of the two places it passes through the cage: a
+swelling that stands `BossGrow` proud of the plain section and fades the teeth out of it, running
+back into them over `BossTaper` at each end. The bore is cut to the boss, so **no tooth ever enters
+a bore** and nothing in the frame has to be cut to the shape of a tooth. Nothing bears on a crest
+either.
+
+The boss travels with its gear, so **its length is the stroke**: the mechanism runs while the boss
+still fills the bores, which is 4.40 mm, or 2.5 teeth, at the defaults. `TestStrokeIsTheBossLength`
+and `TestTeethNeverReachABore` hold both halves of that.
 
 ### The pair
 
@@ -203,9 +218,15 @@ User inputs in dialog order. All linear inputs are mm; the mounting angles are d
 | Engagement | `engagement` | mm | 0.60 |
 | Mounting Angle A | `mountAngleA` | deg | 30 |
 | Mounting Angle B | `mountAngleB` | deg | 0 |
-| Collar Radius | `collarRadius` | mm | 8 |
-| Collar Depth | `collarDepth` | mm | 1.5 |
-| Collar Station | `collarStation` | mm | 8.4 |
+| Boss Half Length | `bossHalf` | mm | 4 |
+| Boss Taper | `bossTaper` | mm | 0.9 |
+| Boss Height | `bossGrow` | mm | 0.6 |
+| Cage Radius | `cageRadius` | mm | 10 |
+| Cage Rise | `cageRise` | mm | 13 |
+| Ring Bar | `ringBar` | mm | 1.2 |
+| Post Bar | `postBar` | mm | 2 |
+| Block Depth | `blockDepth` | mm | 1.8 |
+| Block Wall | `blockWall` | mm | 1.5 |
 | Clearance | `clearance` | mm | 0.3 |
 | Target Plane | `plane` | selection | — |
 | Centre Point | `point` | selection | — |
@@ -224,13 +245,15 @@ returns internal units — cm for length and **radians** for angle (`[PB-EVAL-EX
 - `toothPitch` must be `> 0`; `toothCount` must be `>= 4`.
 - `twistLead` must be `> 0`. There is no upper bound: a very long lead approaches two straight racks
   pushing each other, which is the degenerate case Segerman names, and nothing here forbids it.
-- `collarRadius` and `collarStation` must put the two collars **into each other**, or the frame is
-  two loose rings. Their centres stand `sqrt(A^2 + (2*collarStation*sin(Sigma/2))^2)` apart, which is
-  14.00 mm at the defaults against two 8 mm rims, so they overlap by 2 mm.
-  `TestCollarsMeetEachOther` requires that overlap to be at least one collar's depth.
-- `collarStation` must also clear the engaged zone, which the proof measures at ±5.27 mm, and must
-  keep each collar off the other gear. `TestCollarsClearTheOtherGear` walks the whole of the other
-  ribbon against it.
+- `cageRadius` is where each gear's bores sit on its own axis, so it must clear the engaged zone,
+  which the proof measures at ±5.27 mm. It must also leave the boss room: the boss is centred on the
+  bore, so `cageRadius - bossHalf` must stay outside the engaged zone too.
+- `cageRise` must put both rings clear of both ribbons. The ribbons reach further from the middle at
+  the cage radius than their own width suggests, because a ribbon crosses that radius at more than
+  one station. `TestRibbonsClearTheCage` walks the whole of both ribbons against the whole frame
+  rather than arguing it.
+- `blockDepth` trades grip against stroke. A deeper bore holds the gear closer to its screw motion
+  and shortens the travel, because the stroke is `2*(bossHalf - bossTaper - blockDepth/2)`.
 
 **No range is enforced on either Mounting Angle, and none is asserted here.** 30° on gear A against
 0° on gear B is the measured working pair at the default proportions; what happens elsewhere is the
@@ -332,30 +355,33 @@ zero for `k >= 1`, so no guard is needed here, but do not "optimize" a `k = 0` c
 
 ### 4: The cage
 
-Build one collar per gear, then join them.
+Build the two rings, then the four posts, then bore each post.
 
-A collar is a **disc** of radius `collarRadius` and thickness `collarDepth`, standing across its
-gear's axis at station `collarStation`, with the ribbon's own channel cut through it. Extrude the
-disc from a circle sketched on a construction plane perpendicular to that gear's axis
-(`setByDistanceOnPath`, `[PB-CONSTRUCTION-PLANES]`), then cut the channel with a **twisted clearance
-ribbon** (`[SCREW-F-TWISTED-SLOT]`): loft five rectangles of `(W + 2*clearance)` by
-`(T + 2*clearance)` on planes along that gear's axis, spanning the collar's depth plus a margin at
-each end, each rotated by `s/Lambda + Phi` exactly as the tooth cell's sections are, and cut the
-lofted body from the disc.
+**The rings** are circles of `cageRadius` swept with a round bar of `ringBar`, on planes through `C`
+normal to `n̂` at `±cageRise`. Sweep is not available here (`[SCREW-F-TWISTED-SLOT]` says why), so
+revolve a `ringBar` circle about `n̂` at that radius.
 
-**The channel has to twist; a straight hole binds.** Over a collar of depth `tau` the ribbon turns
-by `tau/Lambda`, so its corner sweeps `(W/2)*(tau/Lambda)` across the opening. At the defaults that
-is 1.18 mm against 0.3 mm of clearance, so a straight hole would not pass the ribbon at all.
+**The posts** stand at the four azimuths where the ribbons cross the cylinder: each gear's axis
+direction and its opposite. A post is a round bar of `postBar` running the full height from the
+bottom ring to the top, so every post meets both rings and the frame is one body
+(`TestPostsReachBothRings`).
 
-**Join the two collars with a `combineFeatures` join.** Their rims overlap by 2 mm at the defaults,
-which is what makes the frame one body rather than two rings; `TestCollarsMeetEachOther` holds it.
+**Each post carries a block** around its bore: a slab of `blockDepth` standing across that gear's
+axis at station `±cageRadius`, reaching `blockWall` past the bore on every side.
 
-**Do not build the cutter with a swept feature.** `SweepFeatureInput` has a `twistAngle` that would
-produce the exact helicoid from one section in one feature, and it is the obvious tool here, but a
-sweep needs an `adsk.fusion.Path`, and `Path.create` on a sketch curve raises
-`InternalValidationError` whenever the owning sketch is not trivially resolvable in the current
-multi-component context (`[PB-CONSTRUCTION-PLANES]`). This build is multi-component throughout. The
-loft costs four extra sketches and needs no path.
+**Bore each post with a twisted clearance ribbon** (`[SCREW-F-TWISTED-SLOT]`): loft five rectangles
+of `(W + 2*bossGrow + 2*clearance)` by `(T + 2*bossGrow + 2*clearance)` on planes along that gear's
+axis, each rotated by `s/Lambda + Phi` exactly as the tooth cell's sections are, spanning the whole
+post rather than only the block. **The whole post, not just the block**: a post is solid bar above
+and below its block, and the ribbon has to get past that too.
+
+**The bore has to twist; a straight hole binds.** Over a block of depth `tau` the ribbon turns by
+`tau/Lambda`, so its corner sweeps `(W/2)*(tau/Lambda)` across the opening. At the defaults that is
+1.41 mm against 0.3 mm of clearance.
+
+**The bore is cut to the boss, never to a tooth.** That is the whole reason the ribbon carries a
+boss: the frame is plain round bar and plain rectangular openings, and nothing in it is shaped like
+a tooth.
 
 ### 5: Relocate the bodies
 
@@ -380,14 +406,16 @@ and it is cheap enough to run the search a few million times. The package import
 - `TestFullRibbonsClearOutsideTheEngagement` walks both parts end to end, so the contact search's
   window is not taken on trust.
 - `TestRibbonIsInvariantUnderItsScrewStep` is what licenses building the ribbon as one cell repeated.
-- `TestCollarAdmitsOnlyTheScrewMotion` is the frame's own proof. It turns a gear out of step with
-  its advance and finds where it jams in its collar, which is **3.55°** at the defaults. A frame of
-  round holes would report no jam at any angle, and that is the case this rules out.
-- `TestCollarsMeetEachOther`, `TestCollarsClearTheOtherGear` and `TestEachGearPassesThroughItsCollar`
-  hold the rest of the frame: the two rings are fused into one body, neither fouls the gear it does
-  not hold, and each gear passes its own collar. One static pass settles every position the gears
-  take, because a channel is cut to the blank and the blank is invariant under the gear's own screw
-  motion.
+- `TestBoresAdmitOnlyTheScrewMotion` is the frame's own proof. It turns a gear out of step with its
+  advance and finds where it jams in its bores, which is **3.21°** at the defaults. A frame of round
+  holes would report no jam at any angle, and that is the case this rules out.
+- `TestRibbonsClearTheCage` walks the whole of both ribbons against the whole frame, which is what
+  sizes `cageRise`. One static pass settles every position the gears take, because a bore is cut to
+  the ribbon and the ribbon is invariant under its own screw motion.
+- `TestPostsReachBothRings` and `TestBoresSitOnOppositeSidesOfTheMiddle` hold the frame's shape: one
+  body, and one gear's bores low against the other's high.
+- `TestStrokeIsTheBossLength` and `TestTeethNeverReachABore` hold the boss: the travel is 2.5 teeth,
+  and no tooth is ever inside a bore over that travel.
 - `TestCrossedHelicalRuleMakesTheCrestHelicesParallel` pins `Sigma = 2*Beta` and the station it
   holds at.
 - `TestLoftSectionCountHoldsTheHelicoid` is the arithmetic the nine sections are bought with.
