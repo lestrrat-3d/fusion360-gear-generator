@@ -92,8 +92,10 @@ func ribbonMesh(g Gear, from, to float64) (*solidlens.Mesh, error) {
 // Every piece is drawn the same way, because every piece IS the same wall. That
 // is what makes the outside read as one turned surface rather than an assembly
 // of bars stuck onto plates.
-func shellMesh(p Params, q patchView, g *Gear) (*solidlens.Mesh, error) {
-	nA := int(math.Max(8, math.Round(q.halfAngle*2*p.CageOuter()/0.15)))
+func shellMesh(p Params, q piece) (*solidlens.Mesh, error) {
+	g := q.g
+	wide := q.maxHalfAngle()
+	nA := int(math.Max(8, math.Round(wide*2*p.CageOuter()/0.15)))
 	nZ := int(math.Max(8, math.Round((q.zHi-q.zLo)/0.15)))
 	if nA > 900 {
 		nA = 900
@@ -107,11 +109,20 @@ func shellMesh(p Params, q patchView, g *Gear) (*solidlens.Mesh, error) {
 		if face == 1 {
 			r = p.CageOuter()
 		}
-		a := q.azimuth - q.halfAngle + 2*q.halfAngle*float64(i)/float64(nA)
+		a := q.azimuth - wide + 2*wide*float64(i)/float64(nA)
 		z := q.zLo + (q.zHi-q.zLo)*float64(j)/float64(nZ)
 		return r3.NewVec(r*math.Cos(a), r*math.Sin(a), z)
 	}
-	open := func(pt r3.Vec) bool { return g != nil && inBore(*g, pt) }
+	// A cell is gone where the bore passes, and where the post has narrowed
+	// away from its bore. The second is what makes a post taper into the plates
+	// rather than sit under a slab.
+	open := func(pt r3.Vec) bool {
+		if g != nil && inBore(*g, pt) {
+			return true
+		}
+		d := math.Mod(math.Abs(math.Atan2(pt.Y, pt.X)-q.azimuth), 2*math.Pi)
+		return math.Min(d, 2*math.Pi-d) > q.halfAngleAt(pt.Z)
+	}
 
 	index := func(face, i, j int) int { return face*(nA+1)*(nZ+1) + i*(nZ+1) + j }
 	vertices := make([]solidlens.Vec, 2*(nA+1)*(nZ+1))
@@ -137,12 +148,71 @@ func shellMesh(p Params, q patchView, g *Gear) (*solidlens.Mesh, error) {
 		}
 		if i < 0 || i >= nA {
 			// A piece that goes the whole way round meets itself.
-			if q.halfAngle < math.Pi-1e-9 {
+			if wide < math.Pi-1e-9 {
 				return false
 			}
 			i = (i + nA) % nA
 		}
 		return keep[i][j]
+	}
+
+	// Snap each corner standing on an edge onto the edge itself. A cell is kept
+	// or dropped whole, so a bore's edge and a post's taper both come out as a
+	// staircase otherwise.
+	for face := range 2 {
+		for i := 0; i <= nA; i++ {
+			for j := 0; j <= nZ; j++ {
+				standing := kept(i, j) || kept(i, j-1) || kept(i-1, j) || kept(i-1, j-1)
+				gone := !kept(i, j) || !kept(i, j-1) || !kept(i-1, j) || !kept(i-1, j-1)
+				if !standing || !gone {
+					continue
+				}
+				here := point(face, i, j)
+				inside := open(here)
+				// Walk round the cage first, then up it: a bore's edge runs
+				// mostly one way and a post's taper mostly the other, and
+				// neither is fixed by moving a corner along the wrong one.
+				var far r3.Vec
+				found := false
+				for _, d := range []int{1, -1} {
+					if i+d < 0 || i+d > nA {
+						continue
+					}
+					if cand := point(face, i+d, j); open(cand) != inside {
+						far, found = cand, true
+						break
+					}
+				}
+				if !found {
+					for _, d := range []int{1, -1} {
+						if j+d < 0 || j+d > nZ {
+							continue
+						}
+						if cand := point(face, i, j+d); open(cand) != inside {
+							far, found = cand, true
+							break
+						}
+					}
+				}
+				if !found {
+					continue
+				}
+				if !inside {
+					here, far = far, here
+				}
+				lo, hi := 0.0, 1.0
+				for range 24 {
+					m := (lo + hi) / 2
+					if open(here.Add(far.Sub(here).Scale(m))) {
+						lo = m
+					} else {
+						hi = m
+					}
+				}
+				pt := here.Add(far.Sub(here).Scale((lo + hi) / 2))
+				vertices[index(face, i, j)] = solidlens.Vec{X: pt.X, Y: pt.Y, Z: pt.Z}
+			}
+		}
 	}
 
 	const in, out = 0, 1
@@ -177,23 +247,14 @@ func shellMesh(p Params, q patchView, g *Gear) (*solidlens.Mesh, error) {
 	return solidlens.NewMesh(vertices, triangles)
 }
 
-// patchView is what the render needs of a wall piece; cage_test.go owns the
-// sizing.
-type patchView struct {
-	azimuth, halfAngle float64
-	zLo, zHi           float64
-}
-
 // cageMesh draws the whole frame from its pieces.
 func cageMesh(ga, gb Gear) (*solidlens.Mesh, error) {
 	p := ga.P
 	var pieces []solidlens.TriangleSource
-	for _, piece := range cagePieces(ga, gb) {
-		view := patchView{piece.q.azimuth, piece.q.halfAngle, piece.q.zLo, piece.q.zHi}
-		mesh, err := shellMesh(p, view, piece.g)
+	for _, q := range cagePieces(ga, gb) {
+		mesh, err := shellMesh(p, q)
 		if err != nil {
-			return nil, fmt.Errorf("wall piece at %.0f degrees: %w",
-				piece.q.azimuth*180/math.Pi, err)
+			return nil, fmt.Errorf("wall piece at %.0f degrees: %w", q.azimuth*180/math.Pi, err)
 		}
 		pieces = append(pieces, mesh)
 	}
