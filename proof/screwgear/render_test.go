@@ -120,8 +120,7 @@ func shellMesh(p Params, q piece) (*solidlens.Mesh, error) {
 		if g != nil && inBore(*g, pt) {
 			return true
 		}
-		d := math.Mod(math.Abs(math.Atan2(pt.Y, pt.X)-q.azimuth), 2*math.Pi)
-		return math.Min(d, 2*math.Pi-d) > q.halfAngleAt(pt.Z)
+		return !q.holds(p, pt)
 	}
 
 	index := func(face, i, j int) int { return face*(nA+1)*(nZ+1) + i*(nZ+1) + j }
