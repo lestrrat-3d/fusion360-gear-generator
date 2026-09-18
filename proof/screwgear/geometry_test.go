@@ -33,6 +33,10 @@ type Params struct {
 	MountAngle  float64 // Phi, the cross-section angle where the axes cross
 	Engagement  float64 // how deep the crests overlap
 	ToothCount  int
+
+	CageDiameter float64 // across the frame tube
+	CageWall     float64 // its wall thickness
+	Clearance    float64 // added all round a slot
 }
 
 func defaultParams() Params {
@@ -45,7 +49,25 @@ func defaultParams() Params {
 		MountAngle:  15 * math.Pi / 180,
 		Engagement:  0.72,
 		ToothCount:  24,
+
+		CageDiameter: 24,
+		CageWall:     1.5,
+		Clearance:    0.3,
 	}
+}
+
+// CageOuter and CageInner are the frame tube's two radii.
+func (p Params) CageOuter() float64 { return p.CageDiameter / 2 }
+func (p Params) CageInner() float64 { return p.CageOuter() - p.CageWall }
+
+// CageHalfHeight is half the tube's length along its own axis. What the tube
+// has to cover is the four openings, not the ribbons at their widest: a ribbon
+// crosses the wall about CageInner along its own axis from the closest
+// approach, and the cross-section angle there is what decides how much of its
+// width falls along the tube. Two walls of margin keep the opening off the rim.
+func (p Params) CageHalfHeight() float64 {
+	atWall := p.CageInner()/p.Lambda() + p.MountAngle
+	return p.AxisOffset()/2 + p.Width/2*math.Abs(math.Cos(atWall)) + 2*p.CageWall
 }
 
 // Lambda is the screw parameter: millimetres of advance per radian of turn.

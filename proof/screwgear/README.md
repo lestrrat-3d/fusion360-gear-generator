@@ -23,10 +23,11 @@ the proof reasons about. The part Fusion builds lofts nine rectangles per tooth,
 `TestLoftSectionCountHoldsTheHelicoid` bounds the difference between the two at 0.6 µm against a
 0.25 mm backlash. That bound is arithmetic about the loft rather than a measurement of one.
 
-The cage is drawn as two rings rather than as the tube the spec cuts slots in. The tube's wall
-cannot run unbroken past the mesh — the two gears' slots overlap along it, which is why
-Segerman's own cage is rings and posts — and nothing in this package builds the slots, so a tube
-drawn without them would be a picture of a cage the gears could not pass through.
+The cage's slots are drawn on a grid: a cell of the tube's wall is dropped when its own midpoint
+falls inside a gear's clearance rectangle, which is the same local mapping the meshing proof uses.
+Each opening's long edges are then walked onto the true cut line, but its two short ends still
+step at the grid, because a boundary running across the rows cannot be fixed by moving a vertex
+around the tube. Those steps are in the drawing and not in the geometry.
 
 ## The part
 
@@ -42,7 +43,7 @@ they read as a ripple rather than as gear teeth at this scale.
 
 ## The pair
 
-![Two ribbons crossing, with two rings of the cage around them](images/plan.png)
+![Two ribbons crossing, passing through the cage tube between them](images/plan.png)
 
 Both gears, seen from almost overhead, which is the only view that shows the angle their axes
 cross at. That angle is 38.5°, and it is not free: the crossed-helical rule makes it twice the
@@ -52,6 +53,30 @@ toothed edge's own helix angle, which the plate's width and the twist lead fix b
 
 The same assembly from the side. The two axes are 9.28 mm apart, measured along the cage's axis,
 and the two gears are the same part rather than mirror images.
+
+## The frame
+
+![The cage tube with two twisted slots cut through the near wall](images/cage.png)
+
+The frame on its own, looked at straight down gear A's axis. Neither gear is drawn, because a
+ribbon on this line of sight fills the frame — it is exactly what the opening is cut to pass.
+
+**The slots are what make this a frame rather than a pair of bearings.** A round hole would let
+its ribbon turn freely as it slid, and the mechanism would have three degrees of freedom instead
+of one; a slot shaped like the ribbon's own cross-section forces the ribbon to turn as it
+advances, the way a twisted-bar screwdriver does. Each slot is a twisted channel of the same lead
+as its gear, because the ribbon turns as it crosses the wall — which is why the two openings here
+lean, and why a straight slot would bind.
+
+A ribbon crossing the tube in front of the wall hides part of it, which reads in the assembly
+pictures like a ribbon passing through solid material. `TestRibbonsPassThroughTheirSlots` is what
+settles that: it walks both parts end to end and asserts neither ever meets the wall.
+
+Two openings are in view and two more are cut in the far wall, one per gear per side. They come
+close to each other at the middle of the tube, where the gears mesh, and the wall between them is
+what the cage cases are there to protect. Below 19.25 mm across, each gear's two piercings
+reach around and join into one opening, and the wall is left standing on two arms; below 7 mm the
+slots cut the tube into pieces and it stops being a frame at all.
 
 ## The mesh
 
@@ -79,6 +104,8 @@ jams. `TestSymmetricMountJams` holds that.
 | Departure from the 1:1 line | 0.058 mm, 1.7% of the pitch |
 | Clearance away from the teeth | 0.081 mm at the closest approach |
 | Engaged zone | ±6 mm, about 3.4 tooth pairs |
+| Smallest cage tube that stays one body | 7 mm across |
+| Smallest tube with four distinct openings | 19.25 mm across, against a 24 mm default |
 
 `TestPairDrivesOneToOne` is where the first four come from. It tracks the interval of gear B's
 tooth phase that clears gear A through a full pitch of A, and requires three things of it: that
@@ -87,9 +114,6 @@ pitch. The third is what separates a gear from two parts that merely touch, and 
 tried earlier passed the first two and failed it.
 
 ## What has no picture
-
-**The cage slots.** The spec cuts them with a lofted clearance ribbon of the same lead as the
-gear, and nothing here builds one.
 
 **The tooth cell and its screw step.** The spec builds a ribbon as one tooth cell repeated by a
 screw step, and `TestRibbonIsInvariantUnderItsScrewStep` is what licenses that, but the pictures
