@@ -61,18 +61,27 @@ stand near upright.
 ![The cage: one turned wall left as two plates and four bored posts, with a gear through it](images/cage.png)
 
 The frame with one gear left in it. It is a short tube with most of its wall gone: a flat plate at
-each end, and four posts between them. A post runs 3.00 mm wide for most of its height and widens
-to 14.20 mm only where its bore needs it, running back out into the plain width before it reaches
-either plate, so there is no step at the join and no gap.
+each end, and four posts between them. A post runs 3.00 mm wide for most of its height and swells
+only where its bore needs it, running back out into the plain width before it reaches either plate,
+so there is no step at the join and no gap.
 
-The widening is a plain box with straight vertical sides, held over the bore's whole height. It does
-not follow the bore's own outline, which zig-zags, because a wall cut to that would be a row of
-notches.
+**The bulge leans with the bore.** The channel crosses a post diagonally — far to one side low down,
+as far to the other side higher up, narrow in between — so each side of a post is shaped separately
+and neither carries what the other needs. One upright block squared off round the whole channel,
+which is what this frame carried before, holds 19.40 mm of width over the bore's entire height and
+takes 1804 mm² out of the cage wall. Shaped to the channel it is 17.24 mm at its widest and
+1181 mm², a third less material, and about 40% more open wall between the posts.
+
+It still does not trace the bore's own outline, which wiggles, because a wall cut to that is a row
+of notches. Each side is grown out of the channel by a disc instead, which rounds every corner off,
+and then held to a single bulge: out once and back once, never out again.
 
 **Two printing rules shape it.** It never widens faster than 45° as it rises, because a filament
 printer will not bridge a shallower surface, and it never leaves under 3 mm of material round a
-bore. Only the underside has to be slanted, since a print is built upward and narrowing again rests
-on what is under it; both ends are slanted anyway, because the part reads better for it. Each post sits where one ribbon crosses the cylinder
+bore, measured in every direction rather than only sideways. A sideways measurement would pass a
+wall that is really 2.1 mm thick wherever the bore's edge runs at 45°, which is most of its height.
+Only the underside has to be slanted, since a print is built upward and narrowing again rests on
+what is under it; both ends are slanted anyway, because the part reads better for it. Each post sits where one ribbon crosses the cylinder
 and carries a **bore** that ribbon passes through. Two posts are bored low and two high, so the two
 gears pass at different heights and their teeth meet in the middle.
 
@@ -122,8 +131,9 @@ four tooth pairs land in the engaged zone at once and cannot all interdigitate, 
 | Bore angle | 15° off upright, which is the best the mounting angles allow |
 | Play in the frame | a bore jams a gear 3.21° out of step |
 | Stroke | 5.03 mm, or 2.9 teeth |
-| Post width | 3.00 mm, widening to 14.20 mm at a bore, slanted at 45° at both ends |
-| Wall round a bore | 3 mm everywhere |
+| Post width | 3.00 mm, swelling to at most 17.24 mm at a bore, slanted at 45° at both ends |
+| Frame in the wall | 1181 mm² for the four posts, against 1804 mm² squared off |
+| Wall round a bore | 3 mm in every direction, not only sideways |
 
 `TestPairDrivesOneToOne` is where the first four come from. It tracks the interval of gear B's
 tooth phase that clears gear A through a full pitch of A, and requires three things of it: that

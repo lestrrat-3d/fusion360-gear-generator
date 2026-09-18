@@ -46,35 +46,91 @@ func inBore(g Gear, pt r3.Vec) bool {
 	return math.Abs(u) <= p.BoreHalfWidth() && math.Abs(v) <= p.BoreHalfThickness()
 }
 
-// piece is one part of the frame's wall: a stretch of height, and at each
-// height a half-width round the cage. Everything is a piece of the same wall,
-// so the only things that differ between a plate and a post are how tall they
-// are and how wide they run.
-type piece struct {
-	azimuth  float64
-	zLo, zHi float64
-	step     float64
-	half     []float64 // half-angle at zLo, zLo+step, ...
-	g        *Gear     // the gear bored through it, nil for a plate
+// boreReach is how far the bore cuts each way from a post's centre line at one
+// height, and whether it is there at all. The post is built from it and the
+// wall is checked against it, so both read the same measurement.
+func boreReach(g Gear, azimuth, z float64) (left, right float64, ok bool) {
+	p := g.P
+	for r := p.CageInner(); r <= p.CageOuter(); r += 0.1 {
+		for dt := 0.0; dt <= p.Width; dt += 0.05 {
+			for _, sign := range []float64{1, -1} {
+				ang := azimuth + sign*dt/p.CageRadius
+				if !inBore(g, r3.NewVec(r*math.Cos(ang), r*math.Sin(ang), z)) {
+					continue
+				}
+				ok = true
+				if sign > 0 {
+					right = math.Max(right, dt)
+				} else {
+					left = math.Max(left, dt)
+				}
+			}
+		}
+	}
+	return left, right, ok
 }
 
-func (q piece) halfAngleAt(z float64) float64 {
+// ptAt is the point an arc offset from a post's centre line, at the middle of
+// the wall's thickness.
+func ptAt(p Params, azimuth, t, z float64) r3.Vec {
+	ang := azimuth + t/p.CageRadius
+	return r3.NewVec(p.CageRadius*math.Cos(ang), p.CageRadius*math.Sin(ang), z)
+}
+
+// inBoreAt asks the same question about a point given as an arc offset from a
+// post's centre line and a height, at any depth through the wall.
+func inBoreAt(g Gear, azimuth, t, z float64) bool {
+	p := g.P
+	ang := azimuth + t/p.CageRadius
+	for r := p.CageInner(); r <= p.CageOuter(); r += 0.1 {
+		if inBore(g, r3.NewVec(r*math.Cos(ang), r*math.Sin(ang), z)) {
+			return true
+		}
+	}
+	return false
+}
+
+// piece is one part of the frame's wall: a stretch of height, and at each
+// height a reach to each side round the cage. Everything is a piece of the same
+// wall, so the only things that differ between a plate and a post are how tall
+// they are and how far round they run.
+//
+// The two sides are kept apart because a post's bore is not centred on it. The
+// channel crosses the wall diagonally, so it wants material to one side low
+// down and to the other side higher up, and a shape that reaches equally both
+// ways carries the worse of the two at every height for nothing.
+type piece struct {
+	azimuth     float64
+	zLo, zHi    float64
+	step        float64
+	left, right []float64 // angle reached each way at zLo, zLo+step, ...
+	g           *Gear     // the gear bored through it, nil for a plate
+}
+
+func (q piece) sideAt(side []float64, z float64) float64 {
 	if z < q.zLo || z > q.zHi {
 		return 0
 	}
 	i := (z - q.zLo) / q.step
 	lo := int(math.Floor(i))
-	if lo >= len(q.half)-1 {
-		return q.half[len(q.half)-1]
+	if lo >= len(side)-1 {
+		return side[len(side)-1]
 	}
 	f := i - float64(lo)
-	return q.half[lo]*(1-f) + q.half[lo+1]*f
+	return side[lo]*(1-f) + side[lo+1]*f
+}
+
+// widthAt is what the piece spans at one height, both sides together.
+func (q piece) widthAt(z float64) float64 {
+	return q.sideAt(q.left, z) + q.sideAt(q.right, z)
 }
 
 func (q piece) maxHalfAngle() float64 {
 	worst := 0.0
-	for _, h := range q.half {
-		worst = math.Max(worst, h)
+	for _, side := range [][]float64{q.left, q.right} {
+		for _, h := range side {
+			worst = math.Max(worst, h)
+		}
 	}
 	return worst
 }
@@ -87,69 +143,98 @@ func (q piece) holds(p Params, pt r3.Vec) bool {
 	if pt.Z < q.zLo || pt.Z > q.zHi {
 		return false
 	}
-	d := math.Mod(math.Abs(math.Atan2(pt.Y, pt.X)-q.azimuth), 2*math.Pi)
-	return math.Min(d, 2*math.Pi-d) <= q.halfAngleAt(pt.Z)
+	d := math.Mod(math.Atan2(pt.Y, pt.X)-q.azimuth+3*math.Pi, 2*math.Pi) - math.Pi
+	if d >= 0 {
+		return d <= q.sideAt(q.right, pt.Z)
+	}
+	return -d <= q.sideAt(q.left, pt.Z)
 }
 
 // postPiece is one post: a column running the full height, which widens where
 // its bore needs it and narrows to PostWidth everywhere else, so it meets the
 // plates at both ends with no step.
 //
-// The widening is a PLAIN BOX: one width, held over the bore's whole height,
-// with a 45 degree ramp at each end down to the plain post. It does not follow
-// the bore's own outline height by height. A twisted bore's outline zig-zags,
-// and a wall cut to it would be a row of notches — weaker, uglier, and harder
-// to print than the straight wall that costs a little more material.
+// The block round the bore is SCULPTED TO THE CHANNEL rather than squared off
+// round it. The channel crosses the post diagonally — far to one side low down,
+// as far to the other side higher up, narrow in between — so one upright box
+// big enough for all of it is half again as wide as any single height asks for,
+// and that extra is what made the frame look heavy.
 //
-// What the box has to be is measured rather than derived, because the bore is a
-// twisted channel through a wall it is not aligned with.
+// What the block must not become is a wall cut to the bore's own outline. That
+// outline wiggles, and a shape following it is a row of notches. Three things
+// keep this one smooth: each side is grown from the bore by a DISC, which
+// rounds every corner off; each side then rises to ONE widest stretch and comes
+// back, so there is a single bulge and no second one; and each side is finally
+// limited to 45 degrees, which is the steepest a printer will build. Every face
+// is either upright or a 45 degree ramp.
+//
+// What the block has to clear is measured rather than derived, because the bore
+// is a twisted channel through a wall it is not aligned with.
 func postPiece(g Gear, station float64) piece {
 	p := g.P
 	const step = 0.1
 	a := postAzimuth(g, station)
 	n := int(math.Round(2*p.CageRise/step)) + 1
-	half := make([]float64, n)
+
+	// How far the bore reaches each way from the post's centre line, height by
+	// height, and whether it is there at all.
+	left, right := make([]float64, n), make([]float64, n)
+	bored := make([]bool, n)
 	for j := range n {
-		z := -p.CageRise + float64(j)*step
-		widest := 0.0
-		for r := p.CageInner(); r <= p.CageOuter(); r += 0.1 {
-			for dt := 0.0; dt <= p.Width; dt += 0.05 {
-				ang := a + dt/p.CageRadius
-				if inBore(g, r3.NewVec(r*math.Cos(ang), r*math.Sin(ang), z)) {
-					widest = math.Max(widest, dt)
+		left[j], right[j], bored[j] = boreReach(g, a, -p.CageRise+float64(j)*step)
+	}
+
+	// Grow each side out of the bore by a disc of the wall thickness. Adding the
+	// wall sideways alone would leave less than it where the bore's edge runs
+	// diagonally, since what a wall has to be thick in is the direction across
+	// itself, not the direction the measurement happened to be taken in. A disc
+	// leaves the full wall whichever way it is measured, and it cannot produce a
+	// corner sharper than the disc.
+	// The disc is grown by a hair more than the wall. The profile is held at
+	// heights one step apart and read as a straight line between them, and a
+	// straight line between two points of a circle runs inside it, so the wall
+	// would come out a shade thin between two sampled heights. The margin below
+	// is the sag of a step of that length off a circle of this radius; the
+	// deepest sag TestBoresKeepTheirWall finds without it is 0.5 um, and with it
+	// the 3 mm holds outright.
+	wall := p.BlockWall + step*step/(2*p.BlockWall)
+	grow := func(side []float64) []float64 {
+		out := make([]float64, n)
+		for j := range n {
+			out[j] = p.PostWidth / 2
+			for k := range n {
+				if !bored[k] {
+					continue
 				}
-				ang = a - dt/p.CageRadius
-				if inBore(g, r3.NewVec(r*math.Cos(ang), r*math.Sin(ang), z)) {
-					widest = math.Max(widest, dt)
+				dz := math.Abs(float64(k-j)) * step
+				if dz > wall {
+					continue
 				}
+				out[j] = math.Max(out[j], side[k]+math.Sqrt(wall*wall-dz*dz))
 			}
 		}
-		half[j] = 0
-		if widest > 0 {
-			half[j] = widest + p.BlockWall
-		}
+		return out
 	}
 
-	// Square the bulge off: one width over one stretch of height, both taken
-	// from what the bore needs at its worst.
-	wide, lo, hi := 0.0, math.Inf(1), math.Inf(-1)
-	for j, h := range half {
-		if h == 0 {
-			continue
+	// One bulge per side: out to the widest stretch, and back. Filling in
+	// anything that dips between two wider heights is what rules out a second
+	// bulge, which is the shape that reads as a notch.
+	single := func(side []float64) []float64 {
+		out := make([]float64, n)
+		run := 0.0
+		for j := range n { // rising to the widest stretch, filling any dip on the way
+			run = math.Max(run, side[j])
+			out[j] = run
 		}
-		z := -p.CageRise + float64(j)*step
-		wide = math.Max(wide, h)
-		lo, hi = math.Min(lo, z), math.Max(hi, z)
-	}
-	for j := range half {
-		z := -p.CageRise + float64(j)*step
-		half[j] = p.PostWidth / 2
-		if z >= lo-p.BlockWall && z <= hi+p.BlockWall {
-			half[j] = math.Max(half[j], wide)
+		run = 0
+		for j := n - 1; j >= 0; j-- { // and falling away from it
+			run = math.Max(run, side[j])
+			out[j] = math.Min(out[j], run)
 		}
+		return out
 	}
 
-	// Slant both ends of the bulge at 45 degrees.
+	// Slant what is left at 45 degrees.
 	//
 	// Only the underside has to be slanted. A print is built upward, so what
 	// will not bridge is material appearing above nothing: widening as the post
@@ -157,17 +242,23 @@ func postPiece(g Gear, station float64) piece {
 	// would print as a square shelf. The top is slanted to match the bottom
 	// because the part reads better for it, and it costs only height.
 	//
-	// Taking each height's width as the largest any other height demands, less
+	// Taking each height's reach as the largest any other height demands, less
 	// the distance between them, is exactly a 45 degree slant either side.
-	ramped := make([]float64, n)
-	for j := range n {
-		want := half[j]
-		for k := range n {
-			want = math.Max(want, half[k]-math.Abs(float64(k-j))*step)
+	ramp := func(side []float64) []float64 {
+		out := make([]float64, n)
+		for j := range n {
+			want := side[j]
+			for k := range n {
+				want = math.Max(want, side[k]-math.Abs(float64(k-j))*step)
+			}
+			out[j] = want / p.CageRadius
 		}
-		ramped[j] = want / p.CageRadius
+		return out
 	}
-	return piece{azimuth: a, zLo: -p.CageRise, zHi: p.CageRise, step: step, half: ramped, g: &g}
+
+	shape := func(side []float64) []float64 { return ramp(single(grow(side))) }
+	return piece{azimuth: a, zLo: -p.CageRise, zHi: p.CageRise, step: step,
+		left: shape(left), right: shape(right), g: &g}
 }
 
 // platePieces are the two end plates: the whole way round, on the same wall.
@@ -175,9 +266,9 @@ func platePieces(p Params) [2]piece {
 	full := []float64{math.Pi, math.Pi}
 	return [2]piece{
 		{azimuth: 0, zLo: -p.CageRise, zHi: -p.CageRise + p.PlateThick,
-			step: p.PlateThick, half: full},
+			step: p.PlateThick, left: full, right: full},
 		{azimuth: 0, zLo: p.CageRise - p.PlateThick, zHi: p.CageRise,
-			step: p.PlateThick, half: full},
+			step: p.PlateThick, left: full, right: full},
 	}
 }
 
@@ -264,12 +355,12 @@ func TestPostsRunUnbrokenIntoThePlates(t *testing.T) {
 			q := postPiece(g, station)
 			var wideLo, wideHi float64
 			for z := -p.CageRise; z <= p.CageRise; z += 0.05 {
-				h := q.halfAngleAt(z)
+				h := math.Min(q.sideAt(q.left, z), q.sideAt(q.right, z))
 				if h < floor-1e-9 {
-					t.Fatalf("the post at %.0f degrees is only %.3f wide at height %.2f, which is "+
-						"a gap in it", q.azimuth*180/math.Pi, h*p.CageRadius*2, z)
+					t.Fatalf("the post at %.0f degrees reaches only %.3f mm to one side at height "+
+						"%.2f, which is a gap in it", q.azimuth*180/math.Pi, h*p.CageRadius, z)
 				}
-				if h > floor+1e-9 {
+				if q.widthAt(z) > 2*floor+1e-9 {
 					if wideLo == 0 {
 						wideLo = z
 					}
@@ -296,12 +387,14 @@ func TestPostsNeverOverhang(t *testing.T) {
 	for _, g := range []Gear{ga, gb} {
 		for _, station := range boreStations(p) {
 			q := postPiece(g, station)
-			for j := 1; j < len(q.half); j++ {
-				rise := q.step
-				run := (q.half[j] - q.half[j-1]) * p.CageRadius
-				if run > rise+1e-9 {
-					t.Fatalf("the post at %.0f degrees widens %.3f mm over %.3f mm of height, "+
-						"which is steeper than 45 degrees", q.azimuth*180/math.Pi, run, rise)
+			for _, side := range [][]float64{q.left, q.right} {
+				for j := 1; j < len(side); j++ {
+					rise := q.step
+					run := (side[j] - side[j-1]) * p.CageRadius
+					if run > rise+1e-9 {
+						t.Fatalf("the post at %.0f degrees widens %.3f mm over %.3f mm of height, "+
+							"which is steeper than 45 degrees", q.azimuth*180/math.Pi, run, rise)
+					}
 				}
 			}
 		}
@@ -310,7 +403,12 @@ func TestPostsNeverOverhang(t *testing.T) {
 }
 
 // A bore needs material round it, or the frame is a shell where it is most
-// worked.
+// worked. The wall has to be there IN EVERY DIRECTION, not only sideways: what
+// a wall is thick in is the direction across itself, and the bore's edge runs
+// diagonally over most of its height, so a sideways measurement there reports
+// more than the material really is. This walks a disc of the wall thickness
+// round the bore's edge and requires every point of it to be material, which is
+// the same disc the post is grown by.
 func TestBoresKeepTheirWall(t *testing.T) {
 	ga, gb := defaultPair()
 	p := ga.P
@@ -319,50 +417,113 @@ func TestBoresKeepTheirWall(t *testing.T) {
 		t.Fatalf("the wall round a bore is %.2f mm, under the 3 mm a printed frame needs",
 			p.BlockWall)
 	}
-	// And the post really is that much wider than its bore at every height.
+
+	plates := platePieces(p)
+	worst := math.Inf(1)
 	for _, g := range []Gear{ga, gb} {
 		for _, station := range boreStations(p) {
 			q := postPiece(g, station)
-			for j, h := range q.half {
+			material := func(t float64, z float64) bool {
+				pt := ptAt(p, q.azimuth, t, z)
+				return q.holds(p, pt) || plates[0].holds(p, pt) || plates[1].holds(p, pt)
+			}
+			for j := range int(math.Round((q.zHi-q.zLo)/q.step)) + 1 {
 				z := q.zLo + float64(j)*q.step
-				widest := 0.0
-				for r := p.CageInner(); r <= p.CageOuter(); r += 0.1 {
-					for dt := 0.0; dt <= p.Width; dt += 0.05 {
-						for _, sign := range []float64{1, -1} {
-							ang := q.azimuth + sign*dt/p.CageRadius
-							if inBore(g, r3.NewVec(r*math.Cos(ang), r*math.Sin(ang), z)) {
-								widest = math.Max(widest, dt)
-							}
+				l, r, ok := boreReach(g, q.azimuth, z)
+				if !ok {
+					continue
+				}
+				// A hair inside the wall, because the post is grown by exactly
+				// this disc: its edge and the disc agree to the last bit over
+				// the stretch where the bore's own edge is steepest, and a
+				// strict comparison there is a coin toss on rounding.
+				probe := p.BlockWall - 1e-9
+				for _, edge := range []float64{-l, r} {
+					for a := 0.0; a < 2*math.Pi; a += math.Pi / 60 {
+						dt, dz := probe*math.Cos(a), probe*math.Sin(a)
+						if inBoreAt(g, q.azimuth, edge+dt, z+dz) {
+							continue // still the bore itself
+						}
+						if !material(edge+dt, z+dz) {
+							t.Fatalf("at height %.2f the bore's edge has under %.2f mm of material "+
+								"%.0f degrees round it", z, p.BlockWall, a*180/math.Pi)
 						}
 					}
 				}
-				if widest == 0 {
-					continue
-				}
-				if wall := h*p.CageRadius - widest; wall < p.BlockWall-1e-9 {
-					t.Fatalf("at height %.2f the post leaves %.2f mm round its bore, under %.2f",
-						z, wall, p.BlockWall)
+				// How much wall there really is, taken as the nearest material
+				// edge to the bore's edge at this height.
+				for _, pair := range [][2]float64{{-l, -q.sideAt(q.left, z) * p.CageRadius},
+					{r, q.sideAt(q.right, z) * p.CageRadius}} {
+					worst = math.Min(worst, math.Abs(pair[1]-pair[0]))
 				}
 			}
 		}
 	}
-	t.Logf("every bore keeps at least %.1f mm of wall", p.BlockWall)
+	t.Logf("every bore keeps at least %.1f mm of wall, %.2f mm of it sideways", p.BlockWall, worst)
+}
+
+// Each side of a post widens once and narrows once. That is what keeps the
+// block a block: a side that went out, came back and went out again would read
+// as a notch cut into the post, which is the shape a wall following the bore's
+// own wiggling outline produces and the reason this one is grown from the bore
+// rather than traced round it.
+func TestPostSidesHaveOneBulge(t *testing.T) {
+	ga, gb := defaultPair()
+	p := ga.P
+
+	for _, g := range []Gear{ga, gb} {
+		for _, station := range boreStations(p) {
+			q := postPiece(g, station)
+			for what, side := range map[string][]float64{"left": q.left, "right": q.right} {
+				turns := 0
+				for j := 2; j < len(side); j++ {
+					was, now := side[j-1]-side[j-2], side[j]-side[j-1]
+					if was > 1e-12 && now < -1e-12 {
+						turns++
+					}
+				}
+				if turns > 1 {
+					t.Errorf("the %s side of the post at %.0f degrees widens and narrows %d times "+
+						"over its height, which is a notch rather than a block",
+						what, q.azimuth*180/math.Pi, turns+1)
+				}
+			}
+		}
+	}
+	t.Logf("every post side carries one bulge")
 }
 
 // The widening has to earn its material: a post that is as wide at its ends as
 // it is at its bore is carrying weight for nothing.
+//
+// This also reports what the four posts take out of the cage wall altogether,
+// which is the measure of the shaping. A block squared off round the whole
+// channel, which is what this frame carried before, comes to 1804 mm2 against
+// the 1181 mm2 here, and is 19.40 mm at its widest against 17.23 mm.
 func TestPostsAreNarrowAwayFromTheirBores(t *testing.T) {
-	ga, _ := defaultPair()
+	ga, gb := defaultPair()
 	p := ga.P
-	q := postPiece(ga, boreStations(p)[1])
 
-	atEnd := q.halfAngleAt(p.CageRise-p.PlateThick) * p.CageRadius * 2
-	widest := q.maxHalfAngle() * p.CageRadius * 2
-	if atEnd > widest/2 {
-		t.Errorf("a post is %.2f mm wide at the plate against %.2f at its bore, which is not much "+
-			"of a saving", atEnd, widest)
+	atEnd, widest, area := 0.0, 0.0, 0.0
+	for _, g := range []Gear{ga, gb} {
+		for _, station := range boreStations(p) {
+			q := postPiece(g, station)
+			end := q.widthAt(p.CageRise-p.PlateThick) * p.CageRadius
+			mine := 0.0
+			for z := q.zLo; z <= q.zHi; z += q.step {
+				w := q.widthAt(z) * p.CageRadius
+				mine = math.Max(mine, w)
+				area += w * q.step
+			}
+			if end > mine/2 {
+				t.Errorf("the post at %.0f degrees is %.2f mm wide at the plate against %.2f at its "+
+					"bore, which is not much of a saving", q.azimuth*180/math.Pi, end, mine)
+			}
+			atEnd, widest = math.Max(atEnd, end), math.Max(widest, mine)
+		}
 	}
-	t.Logf("a post runs %.2f mm wide, widening to %.2f mm round its bore", atEnd, widest)
+	t.Logf("a post runs %.2f mm wide, widening to at most %.2f mm round its bore; the four take "+
+		"%.0f mm2 out of the wall", atEnd, widest, area)
 }
 
 // Nothing may stand outside the frame's one cylinder. That surface is what

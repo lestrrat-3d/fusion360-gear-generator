@@ -76,7 +76,7 @@ two ribbons away from the teeth. This file records only how the arrangement was 
 
 ## What this does not establish
 
-The model is an exact sinusoid on an exact helicoid. The built part is a loft through nine
+The model is an exact sinusoid on an exact helicoid. The built part is a loft through twelve
 rectangles per tooth, which departs from the helicoid by about 0.7 µm at the crest — three orders
 below the backlash, but measured against the model rather than against Fusion's own surface.
 

@@ -347,7 +347,7 @@ for gear B (the assembly phase). Anchor the rectangle to the projected axis poin
 rotation with an angular dimension against the projected reference line, so the sketch closes fully
 constrained.
 
-**Loft the nine sections in order** (`[PB-LOFT]`). The result is one pitch of the twisted toothed
+**Loft the twelve sections in order** (`[PB-LOFT]`). The result is one pitch of the twisted toothed
 ribbon.
 
 **The section count is derived, not pinned, and it is not user-configurable.** It is the smallest
@@ -390,17 +390,33 @@ same rectangular section about `n̂`, so every outside face lands on that one cy
   `postWidth` wide along most of its length and **widens only where its bore needs it**, running
   back out into the plain width before it reaches either plate.
 
-  **The widening is a plain box**: one width, held over the bore's whole height, with straight
-  vertical sides. It does not follow the bore's own outline height by height. A twisted bore's
-  outline zig-zags, and a wall cut to it would be a row of notches — weaker, uglier and harder to
-  print than the straight wall that costs a little more material. What the box has to be is
-  **measured rather than derived**, because the bore is a twisted channel through a wall it is not
-  aligned with, and `postPiece` in the proof is that measurement.
+  **The widening leans with the bore rather than boxing it in.** The channel crosses a post
+  diagonally: far to one side low down, as far to the other side higher up, narrow in between. One
+  upright box around all of that is half again as wide as any single height asks for, and that
+  surplus is most of what a frame built this way weighs. So the two sides of a post are shaped
+  **separately**, each following its own side of the channel.
+
+  What the block must not become is a wall traced round the bore's own outline. That outline
+  wiggles, and a wall cut to it is a row of notches — weaker, uglier and harder to print. Three
+  rules keep this one smooth, and the proof holds each:
+
+  - Each side is **grown out of the bore by a disc** of `blockWall`, which rounds off every corner
+    and leaves the full wall in **every** direction. Adding the wall sideways alone is not the same
+    thing: a wall is thick in the direction across itself, and the bore's edge runs diagonally over
+    most of its height, so a sideways measurement there reports more material than is really there.
+  - Each side then rises to **one** widest stretch and comes back. A side that went out, came back
+    and went out again is the notch this rules out.
+  - Each side is finally limited to **45°**, so every face is either upright or a 45° ramp.
+
+  What the bore takes out of a post is **measured rather than derived**, because it is a twisted
+  channel through a wall it is not aligned with, and `boreReach` in the proof is that measurement.
+  Shaping to the channel rather than squaring off round it takes the four posts from 1804 mm² of
+  the cage wall to 1181 mm², and their widest point from 19.40 mm to 17.24 mm.
 
   **`blockWall` is 3 mm and that is a floor, not a preference.** Less than that leaves the frame a
   shell exactly where it is most worked, at the one place it holds a gear.
 
-  **Both ends of the box are slanted at 45°.** Only the underside has to be: a print is built
+  **Both ends of a bulge are slanted at 45°.** Only the underside has to be: a print is built
   upward, so what will not bridge is material appearing above nothing, and narrowing again would
   print as a square shelf. The top is slanted to match the bottom because the part reads better for
   it, and it costs only height.
@@ -457,17 +473,22 @@ and it is cheap enough to run the search a few million times. The package import
   that a square post on a round plate, or a block reaching outward, would leave.
 - `TestPostsRunUnbrokenIntoThePlates` walks each post's whole height and fails on any break in it,
   and requires the widening to have run out before the plate. `TestPostsAreNarrowAwayFromTheirBores`
-  requires the widening to earn its material, at no more than half the bore's width at the plate.
+  requires the widening to earn its material, at no more than half the bore's width at the plate,
+  and reports what the four posts take out of the cage wall.
 - `TestPostsNeverOverhang` is the printing rule: it walks the width profile and fails on any
   WIDENING step steeper than 45°, and passes a narrowing of any steepness, which is the asymmetry a
-  print built upward has. The bulges are slanted at both ends anyway, so it has slack on top. `TestBoresKeepTheirWall` walks every height of every post and fails if the
-  material round a bore drops under 3 mm.
+  print built upward has. The bulges are slanted at both ends anyway, so it has slack on top.
+  `TestPostSidesHaveOneBulge` fails a side that widens twice, which is the notch a traced wall
+  makes.
+- `TestBoresKeepTheirWall` walks a 3 mm disc round the bore's edge at every height and fails if any
+  point of it falls outside the frame's material. Measuring sideways instead would pass a wall that
+  is really 2.1 mm thick where the bore's edge runs at 45°, which is most of its height.
 - `TestTheMiddleStaysOpen` keeps the frame out of the space the gears mesh in.
 - `TestStrokeIsTheBossLength` and `TestTeethNeverReachABore` hold the boss: the travel is 2.5 teeth,
   and no tooth is ever inside a bore over that travel.
 - `TestCrossedHelicalRuleMakesTheCrestHelicesParallel` pins `Sigma = 2*Beta` and the station it
   holds at.
-- `TestLoftSectionCountHoldsTheHelicoid` is the arithmetic the nine sections are bought with.
+- `TestLoftSectionCountHoldsTheHelicoid` is the arithmetic the twelve sections are bought with.
 
 `TestRenderPair`, `TestRenderPart`, `TestRenderMesh` draw the pictures from the same section
 function the mesh proof samples. They are skipped unless `-render.out` names a directory.
