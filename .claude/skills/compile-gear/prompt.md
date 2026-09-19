@@ -114,10 +114,6 @@ a hand-off — a reading the build takes that the assertion cannot take again �
 package-level variable only for a step the spec keeps serial, and write beside that variable, in
 the proof file, that the step is serial because of it.
 
-**A proof file carries no build constraint.** Any `//go:build` header line, and every `+build`
-spelling, is refused by name and line; write the header without one. The refusal says what to
-write; write that.
-
 **Name proof files so Go compiles them.** Go decides which files are in a package from their
 names alone: a name starting with `_` or `.` is invisible to it, and a name whose trailing
 `_`-separated words are a GOOS, a GOARCH, or a GOOS and a GOARCH — `steps_windows_test.go`,

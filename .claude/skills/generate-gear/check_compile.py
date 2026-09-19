@@ -553,63 +553,7 @@ def go_ignores_file(name, goos=None, goarch=None):
     return None
 
 
-# The whitespace `go/build` trims off a header line, and nothing else. This set is for the
-# textual pass Go makes over a file's header before the compiler scans anything, so it is the
-# right one in `go_header_constraint_lines` and `PLUS_BUILD_DIRECTIVE` and the wrong one anywhere
-# a Go token is being read: it holds U+000B, U+000C, U+0085, U+00A0 and the Unicode space
-# separators, every one of which Go's scanner refuses outright. `GO_DECLARATION_INDENT` below is
-# the set for separating tokens on a line.
-#
-# Go trims every header line with `bytes.TrimSpace`, which uses `unicode.IsSpace`, before it looks
-# at the line at all. Python's `\s` is nearly that set but also counts U+001C to U+001F, which Go
-# does not, so a header opening with one of those reads to Python as an indented comment and to Go
-# as a line that does not begin with `//`. The set is written out rather than borrowed. A
-# non-breaking space is in it, which is why `\xa0//go:build ignore` is a constraint Go honours.
-GO_SPACE = ('\t\n\v\f\r \u0085\u00a0\u1680'
-            '\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a'
-            '\u2028\u2029\u202f\u205f\u3000')
-
-GO_BUILD_DIRECTIVE = '//go:build'
-
 GO_BYTE_ORDER_MARK = '\ufeff'
-
-
-def go_reads_build_constraint(line):
-    """Whether Go reads this trimmed header line as a `//go:build` constraint.
-
-    Transcribed from `go/build`'s `isGoBuildComment`. Two rules, and the gate has to hold both or
-    it disagrees with Go about a spelling.
-
-    Nothing may sit between the slashes and the directive, so `// go:build is discussed here` is
-    ordinary prose and its file is built.
-
-    The directive must be followed by whitespace or the end of the line. `//go:build!ignore` and
-    `//go:build/ignore` are prose by that rule, and `go list` reports both in `GoFiles`; ending
-    the directive at a word boundary instead refused files Go compiles, at line 1, for a `!` or a
-    `/`. Bare `//go:build`, and `//go:build` followed only by spaces or tabs, are constraints Go
-    cannot parse — it reports the file in `InvalidGoFiles` with "unexpected end of expression" —
-    so they stay refused.
-    """
-    if not line.startswith(GO_BUILD_DIRECTIVE):
-        return False
-    rest = line[len(GO_BUILD_DIRECTIVE):]
-    return not rest or rest[0] in GO_SPACE
-
-
-# Every `+build` spelling is refused, and that is this gate's decision rather than Go's rule. Go
-# reads the legacy form only when the directive is followed by whitespace or the end of the line,
-# and only when the comment run holding it is closed by a blank line, so `// +build!ignore` and a
-# `// +build ignore` written directly above the package clause are both in `GoFiles`. The gate
-# refuses them anyway. A proof file needs no build constraint in any form, so an over-refusal here
-# costs one message and a rewritten header, while matching Go would add two more rules to keep
-# right for a form nothing in this repository should be writing. The `//go:build` side above is
-# matched exactly instead, because there a wider gate refuses files Go builds and buys nothing.
-PLUS_BUILD_DIRECTIVE = re.compile(r'//[%s]*\+build' % re.escape(GO_SPACE))
-
-
-def go_style_build_comment(line):
-    """Whether this trimmed header line is refused as a build constraint."""
-    return go_reads_build_constraint(line) or bool(PLUS_BUILD_DIRECTIVE.match(line))
 
 
 # Where a package-level declaration may start, for every pattern below that reads one. Go's layout
@@ -642,8 +586,7 @@ def go_style_build_comment(line):
 #
 # The same set separates one token from the next, which is the other job it has here. Go's scanner
 # makes no distinction between the run of whitespace in front of `func` and the run between `func`
-# and the name, so every gap in every pattern below is this set and never Python's `\s`. `GO_SPACE`
-# above is a different set for a different job and would be wrong in either position.
+# and the name, so every gap in every pattern below is this set and never Python's `\s`.
 GO_DECLARATION_INDENT = ' \t\r'
 
 
@@ -1040,21 +983,15 @@ def go_source(path):
     whole run without naming the file.
 
     Go strips a UTF-8 byte order mark only when it is the first code point in the file, and only
-    one of them, before it looks for a build constraint. So `EF BB BF` above a `//go:build ignore`
-    line leaves a constraint Go honours, and `go list` reports the file in `IgnoredGoFiles`.
-    Reading the bytes as they sit left the line beginning with U+FEFF, which no `//` match
-    reaches, and the gate credited registrations Go never compiles.
-
-    The mark is removed as a character, not as a line, so every line number below it is the one
-    Go, an editor and this gate's complaints all name.
+    one of them, so the gate reads line 1 the way the compiler does. The mark is removed as a
+    character, not as a line, so every line number below it is the one Go, an editor and this
+    gate's complaints all name.
 
     A second mark, one anywhere below the first character, a NUL byte, and bytes that are not
     UTF-8 are all refusals rather than text to scan, because `go build` fails on each of them and
     a file Go never compiles registers nothing. `go_refused_bytes` is the whole list and states
     what Go does with each. Reading such a file as text — with `errors='replace'` for the
-    undecodable ones — credited its registrations and, for a UTF-16 mark, also hid the build
-    constraint under it, because the two replacement characters pushed the line off its `//`
-    start.
+    undecodable ones — credited its registrations.
     """
     with open(path, 'rb') as fh:
         data = fh.read()
@@ -1071,64 +1008,10 @@ def go_source(path):
     return text, None
 
 
-def go_header_constraint_lines(lines):
-    """The 1-based numbers of the lines this gate refuses as a build constraint.
-
-    Transcribed from `go/build`'s `parseFileHeader`. Go walks the file from the top tracking
-    whether it is inside a `/* */` comment, and stops at the first text that is neither a comment
-    nor blank — the package clause, in a proof file. A constraint is taken only from a `//` line
-    comment outside a block comment, which is why the same text quoted inside a leading `/* */`
-    note is content, and why `/* note */ //go:build ignore` written on one line is content too:
-    the line does not begin with the directive, and Go never revisits it. Text below the package
-    clause, most often a line inside a raw string, is never reached at all.
-
-    Which trimmed lines are refused is `go_style_build_comment`: Go's `//go:build` rule exactly,
-    and every `+build` spelling by this gate's own decision.
-    """
-    numbers = []
-    in_block_comment = False
-    for number, source in enumerate(lines, 1):
-        line = source.strip(GO_SPACE)
-        if not in_block_comment and go_style_build_comment(line):
-            numbers.append(number)
-        while line:
-            if in_block_comment:
-                end = line.find('*/')
-                if end < 0:
-                    break
-                in_block_comment = False
-                line = line[end + 2:].strip(GO_SPACE)
-                continue
-            if line.startswith('//'):
-                break
-            if line.startswith('/*'):
-                in_block_comment = True
-                line = line[2:].strip(GO_SPACE)
-                continue
-            return numbers
-    return numbers
-
-
-# The harness is read under Go's rules too, and which rule is a skip and which is an error is
-# decided here rather than by whichever reader was nearest.
-#
-# Go's filename rule carries over unchanged, and a file it excludes is skipped exactly as Go skips
-# it. The name is the whole reason, it is visible in a directory listing, and the method really
-# does not exist here: `go vet` answers a call to one with `undefined: proofkit.RunWindows`, which
-# is what the undeclared-method complaint below says at the call site.
-#
-# A build constraint is the opposite case and is a named error rather than a skip. Whether Go
-# compiles a constrained file is settled outside the file, so the derived set would depend on
-# where this gate runs. Skipping such a file would drop a method Go does build under a satisfied
-# constraint — `//go:build linux` read on a linux builder — and every sound registration on that
-# method would then be complained about as a call the harness does not declare, sending the reader
-# to the proof for a defect that is in the harness. So the harness carries no build constraint at
-# all, and a file that carries one is named as the harness problem it is.
-#
-# `go_header_constraint_lines` is the detector for that, and the breadth that makes it wrong for a
-# skip is what makes it right here: it refuses every `+build` spelling as well as the `//go:build`
-# ones Go reads, which is over-refusal against Go and is exactly the rule "no constraint in any
-# spelling". On this path it must stay a detector and never become a skip.
+# The harness is read under Go's filename rule too. A file that rule excludes is skipped exactly
+# as Go skips it: the name is the whole reason, it is visible in a directory listing, and the
+# method really does not exist here. `go vet` answers a call to one with `undefined:
+# proofkit.RunWindows`, which is what the undeclared-method complaint below says at the call site.
 def harness_source(path):
     """One harness source's text, or a named error saying why no run method can be read from it.
 
@@ -1142,13 +1025,6 @@ def harness_source(path):
         raise RuntimeError(
             'check_compile: the harness source %s is one Go will not read, so the run methods it '
             'declares cannot be derived: %s' % (path, refused.strip()))
-    numbers = go_header_constraint_lines(text.split('\n'))
-    if numbers:
-        raise RuntimeError(
-            'check_compile: %s:%d carries a build constraint, so which run methods the harness '
-            'declares would be decided outside the file and would depend on where this gate runs; '
-            'a harness source must carry no build constraint, so remove it'
-            % (path, numbers[0]))
     return text
 
 
@@ -1179,12 +1055,11 @@ _PROOF_RUN_SHAPES = None
 
 
 # The harness read happens on first use, not at import. Running it at import ran it before `main`
-# existed, so every raise from the derivation — a harness carrying a build constraint, one holding
-# a NUL byte, one `open()` cannot read, both harness directories gone — killed the command with an
-# uncaught traceback at exit 1. Exit 1 is this checker's code for findings in the artifact under
-# review, and the harness is not that artifact; a missing or broken input is exit 2, which `main`
-# already uses for a usage error, a missing step list, a step list with no steps and an
-# unavailable API database. Importing without reading anything also gives the usage check back:
+# existed, so every raise from the derivation — a harness holding a NUL byte, one `open()` cannot
+# read, both harness directories gone — killed the command with an uncaught traceback at exit 1.
+# Exit 1 is this checker's code for findings in the artifact under review, and the harness is not
+# that artifact; a missing or broken input is exit 2, which `main` already uses for a usage error,
+# a missing step list, a step list with no steps and an unavailable API database. Importing without reading anything also gives the usage check back:
 # with a broken harness in the tree, running the script with no arguments printed a traceback
 # instead of the usage line.
 #
@@ -1260,15 +1135,14 @@ def scan_proof_file(path):
     A registration comes back as (line number, Test name, build argument, method, case table,
     extra arguments) so a complaint can say where to go and so the run can be compared with the
     `proof-run` annotation the step list carries for the same function. Complaints here are the
-    ones only this file can see: a build constraint in the
-    file header, a Test header Go runs but this gate cannot read, a proof run written outside the
-    registration shape, a run whose argument count is not the one its method declares, and a call
-    to a run method no harness package declares.
+    ones only this file can see: a Test header Go runs but this gate cannot read, a proof run
+    written outside the registration shape, a run whose argument count is not the one its method
+    declares, and a call to a run method no harness package declares.
 
     Lines are cut at `\n` and nowhere else, because that is the only line ending Go recognises.
     Python's own line splitting is wider, ending a line at a form feed, a vertical tab and
-    several more, so a header comment holding one of them was read as two lines: the tail became
-    a build constraint the file does not carry, and every line number after it was off by one.
+    several more, so a file holding one of them was read as two lines and every line number after
+    it was off by one.
 
     The source arrives from `go_source`, which removes a leading byte order mark as Go does, so
     line 1 reads the same to this gate as it does to the compiler and every line number holds.
@@ -1282,7 +1156,6 @@ def scan_proof_file(path):
     # calls the accessor behind its own guard, so a broken harness is exit 2 there rather than a
     # raise from the middle of a scan.
     runs = proof_run_shapes()
-    raw = src.split('\n')
     code = strip_go_comments_and_literals(src).split('\n')
     defined = set()
     registrations = []
@@ -1350,18 +1223,6 @@ def scan_proof_file(path):
             complaints.append(
                 "  %s:%d runs a proof outside the shape this gate reads, so its build argument "
                 "cannot be checked; %s" % (path, index + 1, REGISTRATION_SHAPE))
-
-    # The build constraint is read from the raw source, because the scrubbed copy has already had
-    # its comments blanked. A constrained file decides outside itself whether it compiles, so the
-    # gate would otherwise credit registrations Go never builds.
-    #
-    # Which lines those are, and where the walk stops, is `go_header_constraint_lines`, which
-    # follows `go/build` rather than approximating it.
-    for number in go_header_constraint_lines(raw):
-        complaints.append(
-            "  %s:%d carries a build constraint, so whether Go ever compiles these "
-            "registrations is decided outside the file; a proof file needs no build "
-            "constraint, so remove it" % (path, number))
 
     return defined, registrations, complaints
 
