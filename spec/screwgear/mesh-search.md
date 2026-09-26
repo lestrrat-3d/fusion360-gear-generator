@@ -75,6 +75,12 @@ centimetres and crosses near a right angle. `Sigma = 2*Beta` ties those two toge
 lead off the video sets the crossing angle as well, and the search was re-run at the faster twist to
 find the mounting angles that go with it.
 
+A later reading of the 0:09 overhead frame, with the ribbon's own width as the unit, puts the
+lead at 2.8–3.5 widths and the crossing angle at 85–100°; `instructions.md` "What the video
+shows" records how that was measured. The 33 mm lead sits inside that range at a 10 mm width.
+The 80° crossing angle sits below it, and stays: with `CrossAngle` at 90° `TestPairDrivesOneToOne`
+reports a 0.187 mm departure from the 1:1 line against its 0.10 mm bound.
+
 **`proof/screwgear` re-derives all of this** and is the authority. At the defaults it reports the
 same winding, a 0.438–0.569 mm window, a 0.067 mm departure from the 1:1 line, and 0.254 mm of
 clearance between the two ribbons away from the teeth. This file records only how the arrangement was found.

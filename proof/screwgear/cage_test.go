@@ -616,8 +616,8 @@ func boreLoftClearance(g Gear, lo, hi float64, n int) float64 {
 //
 // This also reports what the four posts take out of the cage wall altogether,
 // which is the measure of the shaping. A block squared off round the whole
-// channel, which is what this frame carried before, comes to 1804 mm2 against
-// the 1181 mm2 here, and is 19.40 mm at its widest against 17.23 mm.
+// channel, which is what this frame carried before, comes to 1750 mm2 against
+// the 1142 mm2 here, and is 18.60 mm at its widest against 15.34 mm.
 func TestPostsAreNarrowAwayFromTheirBores(t *testing.T) {
 	ga, gb := defaultPair()
 	p := ga.P

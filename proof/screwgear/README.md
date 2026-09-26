@@ -45,7 +45,10 @@ The toothed edge is the one that spirals, and the twist is what the crossing ang
 `Sigma = 2*Beta` ties the two axes' angle to this edge's own helix angle, so a slower twist would
 give a straighter part AND a pair whose axes lie almost side by side.
 
-The teeth are 1.2 mm from crest to root, a little over a tenth of the plate's width.
+The teeth are 1.2 mm from crest to root, a little over a tenth of the plate's width. The teeth
+on the model in the video read deeper, about a sixth of the width and about one pitch, so they
+look like a saw where these look like a wave; the spec's "What the video shows" table records
+that reading and why the depth stays.
 
 ## The pair
 
@@ -66,7 +69,13 @@ stand near upright.
 
 ![The cage: one turned wall left as two plates and four bored posts, with a gear through it](images/cage.png)
 
-The frame with one gear left in it. It is a short tube with most of its wall gone: a flat plate at
+The frame with one gear left in it. It is not the frame in the video, which is an open skeleton of
+round rods: one round ring at one end, a smaller loop at the other, four thin rods between them
+and a short collar round each ribbon where it crosses. That skeleton has no flat face to print on
+and no wall, and the ring is only about two and a half ribbon widths across. This one is built for
+a filament printer instead, and the spec's "What the video shows" table lists every difference.
+
+It is a short tube with most of its wall gone: a flat plate at
 each end, and four posts between them. A post runs 3.00 mm wide for most of its height and swells
 only where its bore needs it, running back out into the plain width before it reaches either plate,
 so there is no step at the join and no gap.
@@ -107,7 +116,9 @@ bore inside is skewed, which is the skew the mechanism actually needs.
 two places it crosses the cage, and the bore is cut to the boss. That is why the frame is plain
 round bar and plain rectangular openings, with nothing anywhere shaped like a tooth, and why nothing
 bears on a crest. The boss travels with its gear, so its length is the stroke: 5.06 mm, or 2.9
-teeth.
+teeth. The video's ribbons carry no boss: their teeth run through the collars, and at 5:53 the
+frame sits near one end of a ribbon where at 6:00 it sits near the middle, so that gear travels
+most of its length.
 
 ## The mesh
 

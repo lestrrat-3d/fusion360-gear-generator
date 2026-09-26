@@ -37,8 +37,68 @@ The three parts are:
   advancing jams in it. A round hole would not: it would leave the mechanism three degrees of
   freedom instead of one.
 
+  This frame is not the one in the video, which is an open skeleton of round rods; "What the
+  video shows" below lists every difference.
+
 The gears' toothed edges meet in the middle of the cage, between the two bored heights. Pushing one gear along its axis drives the other, at
 a **1:1 ratio** — one tooth pitch of advance each. The mechanism has one degree of freedom.
+
+## What the video shows, and where this spec departs from it
+
+The table compares this spec with frames of the video, so that a departure is not taken for an
+oversight. Timestamps are minutes:seconds. Pixel ratios were read off the 0:09 overhead shot,
+where the mechanism lies flat and the camera looks down its cage axis, using the ring's outer
+diameter (108 px) and the widest face-on stretch of a ribbon arm (46–55 px) as the units; the
+twist was read from where that arm's silhouette pinches, every 62–66 px along it. Every ratio
+carries about ±20%, because a 1280×720 frame puts a ribbon width on some fifty pixels.
+
+| Aspect | Video | This spec |
+|---|---|---|
+| The part | A flat ribbon with teeth on one long edge, twisted about its centre line, cut square at both ends with the teeth running to the end (0:09, 6:10) | Same |
+| Hand | Both ribbons twist the same way. Read from which edge-on stretches show their teeth from above at 0:09, the hand is right-handed, at moderate confidence | Same hand on both, right-handed (`Hand = +1` in the proof) |
+| Teeth per turn | 20–26, counting the teeth on one face-on stretch, which is half a turn (0:09, 6:12, 6:14) | 18.9 |
+| Twist lead | 2.8–3.5 ribbon widths (0:09) | 3.3 widths |
+| Tooth depth | 0.15–0.2 widths, about one pitch (0:09, 6:14) | 0.12 widths, 0.69 pitch |
+| Ribbon thickness | 0.2–0.3 widths (6:14) | 0.25 widths |
+| Ribbon length | About 12 widths (6:10, both ends in frame against the ring) | 14 widths, 80 teeth |
+| Crossing angle | 85–100° between the arms in the overhead shots (0:09 reads 89°, 6:10 reads 102°) | 80° |
+| Cage size | Ring outer diameter 2.2–2.8 widths, about 0.8 of a twist lead; the frame is about as tall as the ring is wide (5:25) | Outer diameter 3.6 widths, 1.09 leads; as tall as it is wide |
+| The frame | An open skeleton of round rods, described below the table (0:09, 5:23, 5:28, 5:31, 5:37, 6:10, 6:42) | One turned wall, left as two plates and four bored posts |
+| The boss | None. The teeth run through the collars (0:09, 6:12, 6:14) | A smooth boss at each crossing, and the bore is cut to it |
+| Travel | Most of the ribbon: at 5:53 the frame sits near one end of a ribbon, at 6:00 near its middle | 5.06 mm, 2.9 teeth |
+| Tooth form | "Based on a sine wave" (6:29). At print resolution the crests read flat and the flanks straight (6:21 and 0:09 alike) | A pure cosine |
+
+The video's frame is one round ring of round wire at one end, a smaller loop with straight sides
+at the other, four thin rods between them, and a short smooth collar round each ribbon where it
+crosses. It has no wall, no plate and no post. Which rod joins which collar the frames do not
+settle; the ring, the loop, the rods and the collars are what every one of them shows.
+
+Four of the departures are deliberate, and each has its reason elsewhere in this spec:
+
+- **The frame** is built for a filament printer, standing on a flat plate, with every bore near
+  upright and every widening under 45° ("Why the bores stand where they do", "The cage"). The
+  video's skeleton has no flat face and no wall; it is a different design for a different process.
+- **The cage radius** is half the twist lead here so that both bores of a gear stand at the same
+  angle, which is what that frame needs to print. The video's ring is 0.8 of a lead across, so
+  one ribbon turns about three quarters of a turn between its two collars and the two stand at
+  different angles.
+- **The boss, and with it the travel.** A bore through a 3 mm wall has to be cut to what passes
+  through it, and the boss is what keeps that a plain rectangle ("The boss, and why the cage
+  needs no tooth-shaped cut"). The video's collars are thin, so its teeth pass through them and
+  the gear travels almost its whole length. Dropping the boss here would change no bore
+  dimension, since the crests already define the ribbon's rectangle, but the bore's toothed side
+  would then bear on crests and `TestTeethNeverReachABore` would invert.
+- **The crossing angle** and **the lead** come from the meshing search, not from the video.
+  With `CrossAngle` set to 90° and nothing else moved, `TestPairDrivesOneToOne` reports a
+  0.187 mm departure from the 1:1 line against its 0.10 mm bound; with the lead at 40 mm and the
+  cage at 20 mm it reports 0.130 mm. 80° at 33 mm reports 0.067 mm.
+
+The tooth depth is left where it is. A deeper tooth drives in the proof (`ToothHeight` 1.75 with
+`Engagement` 0.5 reports a 0.51–0.60 mm window and a 0.038 mm departure, which is better than the
+defaults), but the video's depth reads 0.15–0.2 widths with ±20% on it, which does not settle a
+value. `TestProportionsFollowTheVideo` holds the ratios this spec does follow — teeth per turn,
+thickness and length against the width, and one hand for both gears — inside the video's ranges
+widened by the ±20% the readings carry; the 18.9 teeth per turn sit just under the 20–26 read.
 
 ## Geometry
 
@@ -102,6 +162,9 @@ either.
 The boss travels with its gear, so **its length is the stroke**: the mechanism runs while the boss
 still fills the bores, which is 5.06 mm, or 2.9 teeth, at the defaults. `TestStrokeIsTheBossLength`
 and `TestTeethNeverReachABore` hold both halves of that.
+
+The video's ribbons carry no boss and travel most of their length; "What the video shows" above
+records what dropping the boss here would and would not change.
 
 ### The pair
 
@@ -508,6 +571,10 @@ and it is cheap enough to run the search a few million times. The package import
 - `TestCrossedHelicalRuleMakesTheCrestHelicesParallel` pins `Sigma = 2*Beta` and the station it
   holds at.
 - `TestLoftSectionCountHoldsTheHelicoid` is the arithmetic the eleven sections are bought with.
+- `TestProportionsFollowTheVideo` holds the defaults inside the ranges read off the video, each
+  widened by the ±20% the reading carries, for the ratios this spec follows: teeth per turn,
+  thickness and length against the width, and one hand for both gears. It logs the ratios the
+  spec departs from, so a run shows both.
 
 `TestRenderPair`, `TestRenderPart`, `TestRenderMesh` draw the pictures from the same section
 function the mesh proof samples. They are skipped unless `-render.out` names a directory.
@@ -520,7 +587,11 @@ derives them; the proof measures what this tooth does, not what the best tooth w
 
 It proves the ideal ribbon, an exact cosine on an exact helicoid, and not the lofted body Fusion
 builds. `TestLoftSectionCountHoldsTheHelicoid` bounds the gap between the two at 0.7 µm against a
-0.28 mm backlash, but that is arithmetic about the loft rather than a measurement of one.
+0.50 mm backlash, but that is arithmetic about the loft rather than a measurement of one.
 
-It also cannot see print tolerance or friction. A window of 0.28 mm is comfortable for fused
+It also cannot see print tolerance or friction. A window of 0.44–0.57 mm is comfortable for fused
 filament and tight for resin, and only a printed part settles it.
+
+It cannot see the video's model either. The ratios in "What the video shows" were read off
+1280×720 frames by hand, and `TestProportionsFollowTheVideo` holds the defaults inside those
+readings widened by the ±20% they carry; a finer reading needs the model, not the video.

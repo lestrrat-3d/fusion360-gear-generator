@@ -10,8 +10,8 @@
 // classify. Nothing here goes through decad or sketch for that reason.
 //
 // The part this proves is the ideal ribbon: an exact cosine edge on an exact
-// helicoid. The part Fusion builds lofts nine rectangles per tooth, and
-// TestLoftSectionCountHoldsTheHelicoid bounds the difference.
+// helicoid. The part Fusion builds lofts eleven rectangles per tooth at the
+// defaults, and TestLoftSectionCountHoldsTheHelicoid bounds the difference.
 package screwgear_test
 
 import (
@@ -428,9 +428,10 @@ func TestRibbonIsInvariantUnderItsScrewStep(t *testing.T) {
 	}
 }
 
-// The spec pins nine sections per tooth. This is the arithmetic that count is
-// bought with: the loft's ruled surface cuts the corner of the true helicoid,
-// and the spec's claim is that the shortfall is three orders below the backlash.
+// The spec derives the section count from the twist per tooth, eleven at the
+// defaults. This is the arithmetic that count is bought with: the loft's ruled
+// surface cuts the corner of the true helicoid, and the spec's claim is that the
+// shortfall is three orders below the backlash.
 func TestLoftSectionCountHoldsTheHelicoid(t *testing.T) {
 	p := defaultParams()
 	sections := p.LoftSections()
@@ -451,4 +452,46 @@ func TestLoftSectionCountHoldsTheHelicoid(t *testing.T) {
 		t.Errorf("the shortfall %.6f mm is not small against the %.3f mm backlash",
 			departure, measuredBacklash)
 	}
+}
+
+// The spec follows Segerman's model on some proportions and departs from it on
+// others, and its "What the video shows" table says which is which. This holds
+// the defaults inside the video's ranges for the ratios the spec follows, and
+// logs the ones it departs from, so that a later change to the defaults that
+// stops the part looking like the video's is caught here rather than noticed
+// in a picture.
+//
+// The readings are hand readings of 1280x720 frames and carry about +/-20%: the
+// teeth on one face-on stretch of an arm (half a turn) at 0:09, 6:12 and 6:14
+// give 20-26 per turn; the edge-on stretches at 6:14 give a thickness of 0.2-0.3
+// widths; both ends of a ribbon against the ring at 6:10 give a length of about
+// 12 widths. Each bound below is the reading's edge moved out by that 20%, so
+// the 18.9 teeth per turn of the defaults, just under the reading, pass. Nothing
+// here is finer than that, and a finer reading needs the model, not the video.
+func TestProportionsFollowTheVideo(t *testing.T) {
+	p := defaultParams()
+	ga, gb := defaultPair()
+
+	if got := p.TwistLead / p.ToothPitch; got < 16 || got > 31 {
+		t.Errorf("the ribbon carries %.1f teeth per turn; the video's carries 20-26", got)
+	}
+	if got := p.Thickness / p.Width; got < 0.16 || got > 0.36 {
+		t.Errorf("the ribbon is %.2f widths thick; the video's reads 0.2-0.3", got)
+	}
+	if got := p.Length() / p.Width; got < 9.6 || got > 14.4 {
+		t.Errorf("the ribbon is %.1f widths long; the video's reads about 12", got)
+	}
+	if ga.Hand != gb.Hand {
+		t.Errorf("the two gears are of opposite hand; the video's twist the same way")
+	}
+	if ga.Hand != 1 {
+		t.Errorf("the gears are left-handed; the video's read as right-handed")
+	}
+
+	// What the spec departs from, for the record of a run.
+	t.Logf("tooth depth %.2f widths and %.2f pitches, against the video's 0.15-0.2 widths and about one pitch",
+		p.ToothHeight/p.Width, p.ToothHeight/p.ToothPitch)
+	t.Logf("cage outer diameter %.1f widths and %.2f leads, against the video's 2.2-2.8 widths and about 0.8",
+		2*p.CageOuter()/p.Width, 2*p.CageOuter()/p.TwistLead)
+	t.Logf("crossing angle %.0f degrees, against the video's 85-100", p.Sigma()*180/math.Pi)
 }

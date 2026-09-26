@@ -22,8 +22,8 @@ import (
 // moves the proved geometry moves the pictures with it.
 //
 // The pair is drawn in the arrangement TestPairDrivesOneToOne passes at: gear B
-// half a pitch out of step with gear A, both mounted at the same angle, at the
-// crossing angle the crossed-helical rule gives.
+// at the assembly phase, both gears mounted at the same angle, at the crossing
+// angle the spec's default table gives.
 // ---------------------------------------------------------------------------
 
 var renderOut = flag.String("render.out", "",
@@ -34,7 +34,8 @@ var renderSettings = solidlens.Settings{Width: 1100, Height: 820}
 // renderStations is how many cross-sections are meshed per tooth. The tooth is
 // a cosine, so this is what decides whether a crest reads as a crest; sixteen
 // puts a section every 22 degrees of the wave. It is a drawing resolution and
-// has nothing to do with the nine sections the spec lofts a tooth from.
+// has nothing to do with the sections the spec lofts a tooth from, which are
+// eleven at the defaults.
 const renderStations = 16
 
 var (
