@@ -332,7 +332,7 @@ func WritePNG(ctx context.Context, path string, scene solidlens.Scene, settings 
 // analytically, and is only a floor for one whose mesh decad already holds,
 // such as a boolean result.
 func MeshOfBody(ctx context.Context, body *decad.Body, toleranceMM float64) (*solidlens.Mesh, error) {
-	mesh, err := body.TessellateContext(ctx, units.Millimeters(toleranceMM))
+	mesh, err := body.Tessellate(ctx, units.Millimeters(toleranceMM))
 	if err != nil {
 		return nil, fmt.Errorf("tessellate: %w", err)
 	}

@@ -375,7 +375,7 @@ func stepPatternTeeth(t *testing.T, doc *decad.Document, p map[string]float64) [
 	}
 	current := seed
 	for k := 1; k <= count; k++ {
-		current, err = current.Placed(step)
+		current, err = current.Placed(t.Context(), step)
 		if err != nil {
 			t.Fatalf("pattern placement %d: %v", k, err)
 		}
@@ -507,7 +507,7 @@ func stepBoreCut(t *testing.T, doc *decad.Document, p map[string]float64) []*dec
 	if err != nil {
 		t.Fatalf("bore tool: %v", err)
 	}
-	bored, err := decad.Cut(gearBody, tool)
+	bored, err := decad.Cut(t.Context(), gearBody, tool)
 	if err != nil {
 		t.Fatalf("bore cut: %v", err)
 	}
@@ -581,7 +581,7 @@ func stepChamferTeeth(t *testing.T, doc *decad.Document, p map[string]float64) [
 			len(kept))
 	}
 
-	chamfered, err := bored.Chamfer(chamferEdges(p), units.Millimeters(chamfer))
+	chamfered, err := bored.Chamfer(t.Context(), chamferEdges(p), units.Millimeters(chamfer))
 	if err != nil {
 		t.Fatalf("chamfer: %v", err)
 	}

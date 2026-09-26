@@ -251,7 +251,7 @@ func stepCombineToothHalves(t *testing.T, doc *decad.Document, p map[string]floa
 	// The combine is a Join, and its target is the lofted half while the
 	// mirrored half is the tool — the order [HERR-F-MIRROR-COMBINE] pins, where
 	// the target is looked up by the name 'Tooth Body'.
-	chevron, err := decad.Union(lower, mirrored)
+	chevron, err := decad.Union(t.Context(), lower, mirrored)
 	if err != nil {
 		t.Fatalf("combine 'Tooth Body (Mirrored)' into 'Tooth Body': %v", err)
 	}
@@ -381,7 +381,7 @@ func loftHalf(t *testing.T, doc *decad.Document, world *sketch.World, p map[stri
 	t.Helper()
 	fromSketch, fromProfile := sectionSketch(t, world, p, fromZ, fromAngle)
 	toSketch, toProfile := sectionSketch(t, world, p, toZ, toAngle)
-	body, err := doc.Loft(fromSketch, fromProfile, toSketch, toProfile)
+	body, err := doc.Loft(t.Context(), fromSketch, fromProfile, toSketch, toProfile)
 	if err != nil {
 		t.Fatalf("loft %q from the section at %g mm to the section at %g mm: %v", name, fromZ, toZ, err)
 	}
