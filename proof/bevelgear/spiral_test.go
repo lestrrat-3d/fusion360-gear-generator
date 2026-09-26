@@ -285,7 +285,7 @@ func (f *bevFigure) buildSlab(t *testing.T, doc *decad.Document, w *sketch.World
 	}
 	nearSketch, nearRegion := section(s.nearScale)
 	farSketch, farRegion := section(s.farScale)
-	body, err := doc.Loft(nearSketch, nearRegion, farSketch, farRegion)
+	body, err := doc.Loft(t.Context(), nearSketch, nearRegion, farSketch, farRegion)
 	if err != nil {
 		t.Fatalf("%s: loft slab %d: %v", g.label, s.index, err)
 	}

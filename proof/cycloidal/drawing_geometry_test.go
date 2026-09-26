@@ -443,7 +443,7 @@ func drawLiftTo(t *testing.T, body *decad.Body, z0 float64, label string) *decad
 	if err != nil {
 		t.Fatalf("%s: translation to z=%g: %v", label, z0, err)
 	}
-	moved, err := body.Placed(tr)
+	moved, err := body.Placed(t.Context(), tr)
 	if err != nil {
 		t.Fatalf("%s: place at z=%g: %v", label, z0, err)
 	}

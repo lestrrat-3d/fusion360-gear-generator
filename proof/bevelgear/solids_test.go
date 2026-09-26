@@ -369,7 +369,7 @@ func bevBuildTooth(t *testing.T, doc *decad.Document, w *sketch.World, f *bevFig
 	farPlane, _ := f.toothPlane(t, w, g, 1)
 	farSketch, farRegion := bevRingSketch(t, w, farPlane, ring)
 
-	body, err := doc.Loft(nearSketch, nearRegion, farSketch, farRegion)
+	body, err := doc.Loft(t.Context(), nearSketch, nearRegion, farSketch, farRegion)
 	if err != nil {
 		t.Fatalf("%s: loft the apex section to the tooth profile: %v", g.label, err)
 	}
@@ -629,7 +629,7 @@ func bevLayApart(t *testing.T, bodies []*decad.Body, gap float64) []*decad.Body 
 		if err != nil {
 			t.Fatalf("displacement for body %d: %v", i, err)
 		}
-		moved, err := body.Placed(motion)
+		moved, err := body.Placed(t.Context(), motion)
 		if err != nil {
 			t.Fatalf("lay body %d apart: %v", i, err)
 		}
@@ -743,7 +743,7 @@ func (f *bevFigure) buildEndCone(t *testing.T, doc *decad.Document, w *sketch.Wo
 	farPlane := bevStationPlane(t, w, far)
 	nearSketch, nearRegion := bevRingSketch(t, w, nearPlane, bevNgon(slope*math.Abs(apexStation-near)))
 	farSketch, farRegion := bevRingSketch(t, w, farPlane, bevNgon(slope*math.Abs(apexStation-far)))
-	body, err := doc.Loft(nearSketch, nearRegion, farSketch, farRegion)
+	body, err := doc.Loft(t.Context(), nearSketch, nearRegion, farSketch, farRegion)
 	if err != nil {
 		t.Fatalf("%s: build the end-cut cone with its apex at station %.6g: %v",
 			g.label, apexStation, err)
@@ -860,13 +860,13 @@ func bevAssertToeSplit(t *testing.T, f *bevFigure, g *bevSide) {
 	cutWorld := sketch.NewWorld()
 	cutTooth, _ := bevBuildTooth(t, cutDoc, cutWorld, f, g)
 	cutCone := f.buildEndCone(t, cutDoc, cutWorld, g, f.toeConeApex(g))
-	kept, cutErr := decad.Cut(cutTooth, cutCone)
+	kept, cutErr := decad.Cut(t.Context(), cutTooth, cutCone)
 
 	intersectDoc := decad.New()
 	intersectWorld := sketch.NewWorld()
 	intersectTooth, _ := bevBuildTooth(t, intersectDoc, intersectWorld, f, g)
 	intersectCone := f.buildEndCone(t, intersectDoc, intersectWorld, g, f.toeConeApex(g))
-	scrap, intersectErr := decad.Intersect(intersectTooth, intersectCone)
+	scrap, intersectErr := decad.Intersect(t.Context(), intersectTooth, intersectCone)
 
 	var typed *decad.BooleanError
 	if intersectErr != nil && errors.As(intersectErr, &typed) && typed.Code == decad.BooleanEmpty {
@@ -979,7 +979,7 @@ func stepCircularPattern(t *testing.T, doc *decad.Document, p map[string]float64
 		if err != nil {
 			t.Fatalf("%s: pattern motion %d: %v", g.label, k, err)
 		}
-		copyBody, err := seed.PlacedCopy(motion)
+		copyBody, err := seed.PlacedCopy(t.Context(), motion)
 		if err != nil {
 			t.Fatalf("%s: pattern copy %d: %v", g.label, k, err)
 		}
@@ -987,7 +987,7 @@ func stepCircularPattern(t *testing.T, doc *decad.Document, p map[string]float64
 	}
 	// The increment retires the seed, exactly as Fusion's pattern returns the
 	// original among its bodies and leaves nothing else to measure it by.
-	placed, err := seed.Placed(r3.Identity())
+	placed, err := seed.Placed(t.Context(), r3.Identity())
 	if err != nil {
 		t.Fatalf("%s: retire the seed into the pattern: %v", g.label, err)
 	}
@@ -1092,7 +1092,7 @@ func stepCombineJoin(t *testing.T, doc *decad.Document, p map[string]float64) []
 	if err != nil {
 		t.Fatalf("%s: build the displacement that lays the tooth apart: %v", g.label, err)
 	}
-	apart, err := toothBody.Placed(motion)
+	apart, err := toothBody.Placed(t.Context(), motion)
 	if err != nil {
 		t.Fatalf("%s: lay the tooth apart from the frustum: %v", g.label, err)
 	}
@@ -1189,7 +1189,7 @@ func stepBoreCut(t *testing.T, doc *decad.Document, p map[string]float64) []*dec
 	// The tool's own geometry, read before the cut consumes it.
 	bevAssertBoreTool(t, f, g, tool)
 
-	pierced, err := decad.Cut(band, tool)
+	pierced, err := decad.Cut(t.Context(), band, tool)
 	if err != nil {
 		t.Fatalf("%s: cut the bore through the heel band: %v", g.label, err)
 	}
@@ -1214,7 +1214,7 @@ func (f *bevFigure) buildHeelBand(t *testing.T, doc *decad.Document, w *sketch.W
 		bevNgon(slope*math.Abs(apexStation-near)))
 	farSketch, farRegion := bevRingSketch(t, w, bevStationPlane(t, w, far),
 		bevNgon(slope*math.Abs(apexStation-far)))
-	return doc.Loft(nearSketch, nearRegion, farSketch, farRegion)
+	return doc.Loft(t.Context(), nearSketch, nearRegion, farSketch, farRegion)
 }
 
 // buildBorePrism extrudes the bore circle symmetrically about the bore plane,
@@ -1323,7 +1323,7 @@ func stepMeshRotation(t *testing.T, doc *decad.Document, p map[string]float64) [
 	if err != nil {
 		t.Fatalf("%s: mesh rotation: %v", g.label, err)
 	}
-	rotated, err := tooth.Placed(motion)
+	rotated, err := tooth.Placed(t.Context(), motion)
 	if err != nil {
 		t.Fatalf("%s: apply the mesh rotation: %v", g.label, err)
 	}

@@ -226,7 +226,7 @@ func cutHoles(t *testing.T, doc *decad.Document, disc *decad.Body, d dims, n int
 		tool := cylinder(t, doc,
 			c.X+d.Rop*math.Cos(a), c.Y+d.Rop*math.Sin(a), d.DHole/2,
 			d.discBase()-toolOverhang, d.T+2*toolOverhang, "output hole tool")
-		cut, err := decad.Cut(body, tool)
+		cut, err := decad.Cut(t.Context(), body, tool)
 		if err != nil {
 			t.Fatalf("cut output hole %d of %d: %v", k+1, n, err)
 		}
@@ -259,7 +259,7 @@ func stepCutDiscBore(t *testing.T, doc *decad.Document, p map[string]float64) []
 	disc := prismFromPolygon(t, doc, discBoundary(d), d.discBase(), d.T, "Cycloidal Disk")
 	tool := cylinder(t, doc, c.X, c.Y, d.boreRadius(),
 		d.discBase()-toolOverhang, d.T+2*toolOverhang, "disc bore tool")
-	bored, err := decad.Cut(disc, tool)
+	bored, err := decad.Cut(t.Context(), disc, tool)
 	if err != nil {
 		t.Fatalf("cut the disc centre bore: %v", err)
 	}
@@ -330,7 +330,7 @@ func stepJoinCamSections(t *testing.T, doc *decad.Document, p map[string]float64
 		lower.camSectionHeight(), "Eccentric Cam section 1")
 	upBody := cylinder(t, doc, upC.X, upC.Y, d.CBD/2, upper.discBase()-overlapSliver,
 		upper.camSectionHeight()+overlapSliver, "Eccentric Cam section 2")
-	joined, err := decad.Union(lowBody, upBody)
+	joined, err := decad.Union(t.Context(), lowBody, upBody)
 	if err != nil {
 		t.Fatalf("join the two cam sections: %v", err)
 	}
@@ -503,7 +503,7 @@ func stepCombineHousing(t *testing.T, doc *decad.Document, p map[string]float64)
 	// rather than coinciding with it, for the reason wallRelief gives.
 	base := housingBase(t, doc, d, wallRelief)
 	casing := casingRing(t, doc, d, overlapSliver)
-	joined, err := decad.Union(base, casing)
+	joined, err := decad.Union(t.Context(), base, casing)
 	if err != nil {
 		t.Fatalf("join the casing into the housing base: %v", err)
 	}
@@ -694,7 +694,7 @@ func stepCutPinSocket(t *testing.T, doc *decad.Document, p map[string]float64) [
 	// tolerance of the plate's and the boolean is refused.
 	tool := cylinder(t, doc, d.Rop, 0, d.DPin/2,
 		d.stackTop()+1-toolOverhang, d.PlateT+2*toolOverhang, "Output Pin socket tool")
-	socketed, err := decad.Cut(plate, tool)
+	socketed, err := decad.Cut(t.Context(), plate, tool)
 	if err != nil {
 		t.Fatalf("cut the output pin's socket: %v", err)
 	}
@@ -777,7 +777,7 @@ func stepChamferRims(t *testing.T, doc *decad.Document, p map[string]float64) []
 	if d.Chamfer <= 0 {
 		return []*decad.Body{plate}
 	}
-	chamfered, err := plate.Chamfer(decad.Edges(decad.Circular()), units.Millimeters(d.Chamfer))
+	chamfered, err := plate.Chamfer(t.Context(), decad.Edges(decad.Circular()), units.Millimeters(d.Chamfer))
 	if err != nil {
 		t.Fatalf("chamfer the Output Plate's cap rims at %.4f mm: %v", d.Chamfer, err)
 	}
@@ -816,7 +816,7 @@ func stepChamferPinEnds(t *testing.T, doc *decad.Document, p map[string]float64)
 	if d.Chamfer <= 0 {
 		return []*decad.Body{pin}
 	}
-	chamfered, err := pin.Chamfer(decad.Edges(decad.Circular()), units.Millimeters(d.Chamfer))
+	chamfered, err := pin.Chamfer(t.Context(), decad.Edges(decad.Circular()), units.Millimeters(d.Chamfer))
 	if err != nil {
 		t.Fatalf("chamfer the Output Pin's ends at %.4f mm: %v", d.Chamfer, err)
 	}

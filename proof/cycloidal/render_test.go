@@ -166,7 +166,7 @@ func renderLiftedOutput(t *testing.T, doc *decad.Document, d drawDims) []*decad.
 		t.Fatalf("lift translation: %v", err)
 	}
 	for i, body := range out {
-		moved, err := body.Placed(lift)
+		moved, err := body.Placed(t.Context(), lift)
 		if err != nil {
 			t.Fatalf("lift output body %d clear of the stack: %v", i, err)
 		}

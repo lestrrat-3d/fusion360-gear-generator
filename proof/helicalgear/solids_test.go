@@ -220,7 +220,7 @@ func twistedPair(t *testing.T, p map[string]float64) (section, section) {
 // refusal is a defect here and fails.
 func loftBetween(t *testing.T, doc *decad.Document, from, to section, p map[string]float64, order string) *decad.Body {
 	t.Helper()
-	body, err := doc.Loft(from.sketch, from.region, to.sketch, to.region)
+	body, err := doc.Loft(t.Context(), from.sketch, from.region, to.sketch, to.region)
 	if err == nil {
 		return body
 	}
