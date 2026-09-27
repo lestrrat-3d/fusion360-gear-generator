@@ -22,15 +22,13 @@ all produced by the inherited `SpurGearGenerator` pipeline unchanged.
 
 ## Variables
 
-**All spur inputs and derived parameters, inherited verbatim** (same input ids, same
-`SpurGear<N>_`-style names, same formulas — see `spec/spurgear/instructions.md` Variables). Helical
-adds **one** input and **one** derived parameter:
+**All spur inputs and derived parameters are inherited verbatim** (see
+`spec/spurgear/instructions.md` Variables). Helical adds one input and one user parameter.
+`spec/helicalgear/exact_values.json` owns their exact dialog and parameter values.
 
-Helix Angle: user-specified angle. Default **14.5°**. The angle by which the top gear profile is
-twisted relative to the bottom; the tooth is formed by lofting between them. Stored in the user
-parameter **`HelixAngle`**, registered in **radians** (from a **degree** dialog input). It also drives
-the root-fillet transverse correction via `filletHelixFactorExpression()` = `cos(HelixAngle)` (spur's
-`* 1` fillet-factor hook — see spur Variables "Fillet Radius").
+Helix Angle is the angle by which the top gear profile is twisted relative to the bottom; the tooth
+is formed by lofting between them. It also drives the root-fillet transverse correction via
+`filletHelixFactorExpression()` = `cos(HelixAngle)` (spur's `* 1` fillet-factor hook).
 
 **Signed, and the sign is the hand of the helix.** The value is passed straight through as the
 tooth generator's `draw()` `angle` argument, so spur's rule for that argument governs it verbatim:
@@ -48,26 +46,13 @@ limits rather than of the gear, and it need not be symmetric about zero — a le
 right-hand twist of the same size are not guaranteed to behave alike there. So it lives in
 `proof/helicalgear/`, where it is measured per sign, and is deliberately not quoted here.
 
-### Exact input ids and parameter-name strings
+### Exact input and parameter values
 
-Inherits every spur input id and user-parameter name unchanged, and adds exactly one of each:
-
-| Dialog label | input id       | user-parameter name |
-|--------------|----------------|---------------------|
-| Helix Angle  | `helixAngle`   | `HelixAngle`        |
-
-- **Dialog input** — `addValueInput('helixAngle', 'Helix Angle', 'deg', adsk.core.ValueInput.createByReal(math.radians(14.5)))`:
-  a **degree** value input defaulting to 14.5°. Added by `HelicalGearCommandConfigurator.configure`
-  **after** `super().configure(cmd)` (spur `[SPUR-SUBCLASS-INPUT]`). Because spur's `configure` already
-  added Parent Component **last**, the Helix Angle input necessarily appears **last in the dialog,
-  after Parent Component.** ⚠️ This is the actual/current behavior — reproduce it exactly; do not
-  attempt to insert Helix Angle earlier in the list.
-- **User parameter** — registered by the overridden `addExtraPrimaryParameters` hook (spur
-  `[SPUR-EXTRA-PARAMS]`): `helixAngle = get_value(inputs, 'helixAngle', 'rad')` then
-  `self.addParameter('HelixAngle', helixAngle, 'rad', 'Helix angle for the helical gear')`. Registered
-  in **`'rad'`** (the dialog is degrees; the parameter is radians).
-
-Module-level constants: `PARAM_HELIX_ANGLE = 'HelixAngle'`, `INPUT_ID_HELIX_ANGLE = 'helixAngle'`.
+The checked JSON owns the input ID, label, display unit, default conversion, exported constants,
+parameter name, registration unit, and comment. The configurator appends the input after
+`super().configure(cmd)` (spur `[SPUR-SUBCLASS-INPUT]`). Spur already added Parent Component last,
+so Helix Angle appears after it. The `addExtraPrimaryParameters` hook registers the parameter
+after spur's primary parameters (`[SPUR-EXTRA-PARAMS]`).
 
 ## Architecture
 

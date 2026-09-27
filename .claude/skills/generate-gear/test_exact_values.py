@@ -127,6 +127,37 @@ class SpurGearGenerator:
         self.assertIn('PARAM_FILLET_RADIUS, adsk.core.ValueInput.createByString(expression)', result)
         self.assertEqual(exact_values.render_module(result, handoff), result)
 
+    def test_helical_extension_uses_the_same_schema_and_renderer(self):
+        data, constants = exact_values.load(ROOT, 'helicalgear')
+        self.assertEqual(constants['INPUT_ID_HELIX_ANGLE'], 'helixAngle')
+        self.assertEqual(constants['PARAM_HELIX_ANGLE'], 'HelixAngle')
+        self.assertEqual(data['inputs'], [{
+            'id': 'INPUT_ID_HELIX_ANGLE', 'kind': 'value', 'label': 'Helix Angle',
+            'unit': 'deg', 'default': {'radians': 14.5}}])
+        self.assertEqual(data['parameters'], [{
+            'name': 'PARAM_HELIX_ANGLE', 'unit': 'rad',
+            'comment': 'Helix angle for the helical gear', 'input': 'INPUT_ID_HELIX_ANGLE'}])
+        with open(os.path.join(ROOT, 'spec', 'helicalgear', 'steps.md'), encoding='utf-8') as handle:
+            handoff = exact_values.check_steps(handle.read(), data, constants)
+        with open(os.path.join(ROOT, 'lib', 'geargen', 'helicalgear.py'), encoding='utf-8') as handle:
+            source = handle.read()
+        self.assertEqual(exact_values.render_module(source, handoff), source)
+
+        skeleton = '''class HelicalGearCommandConfigurator(SpurGearCommandInputsConfigurator):
+    @classmethod
+    def configure(cls, cmd):
+        pass
+class HelicalGearGenerator(SpurGearGenerator):
+    def addExtraPrimaryParameters(self, inputs):
+        pass
+'''
+        rendered = exact_values.render_module(skeleton, handoff)
+        self.assertIn('super().configure(cmd)', rendered)
+        self.assertIn('math.radians(14.5)', rendered)
+        self.assertIn("get_value(inputs, INPUT_ID_HELIX_ANGLE, 'rad')", rendered)
+        self.assertIn("'Helix angle for the helical gear'", rendered)
+        self.assertEqual(exact_values.render_module(rendered, handoff), rendered)
+
 
 if __name__ == '__main__':
     unittest.main()

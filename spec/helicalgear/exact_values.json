@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "inputs": [
+    {"id": "INPUT_ID_HELIX_ANGLE", "kind": "value", "label": "Helix Angle", "unit": "deg", "default": {"radians": 14.5}}
+  ],
+  "parameters": [
+    {"name": "PARAM_HELIX_ANGLE", "unit": "rad", "comment": "Helix angle for the helical gear", "input": "INPUT_ID_HELIX_ANGLE"}
+  ]
+}

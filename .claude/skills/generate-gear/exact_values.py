@@ -223,8 +223,11 @@ def _default(item):
     return repr(number)
 
 
-def _configure(data):
-    lines = ['        inputs: adsk.core.CommandInputs = cmd.commandInputs']
+def _configure(data, call_super=False):
+    lines = []
+    if call_super:
+        lines.append('        super().configure(cmd)')
+    lines.append('        inputs: adsk.core.CommandInputs = cmd.commandInputs')
     for index, item in enumerate(data['inputs']):
         symbol = item['id']
         kind = item['kind']
@@ -249,7 +252,7 @@ def _configure(data):
     return '\n'.join(lines)
 
 
-def _primary(data):
+def _primary(data, include_hooks=True):
     inputs = {item['id']: item for item in data['inputs']}
     lines = []
     for item in data['parameters']:
@@ -266,8 +269,9 @@ def _primary(data):
                      '            %s, %s,\n'
                      '            %r, %r)' %
                      (item['name'], value, item['unit'], item['comment']))
-    lines.extend(['        self.addExtraPrimaryParameters(inputs)',
-                  '        self.registerDerivedParameters()'])
+    if include_hooks:
+        lines.extend(['        self.addExtraPrimaryParameters(inputs)',
+                      '        self.registerDerivedParameters()'])
     return '\n'.join(lines)
 
 
@@ -306,17 +310,24 @@ def _derived(data):
     return '\n'.join(lines)
 
 
-def _method(tree, cls, name):
-    for node in tree.body:
-        if isinstance(node, ast.ClassDef) and node.name == cls:
-            for method in node.body:
-                if isinstance(method, ast.FunctionDef) and method.name == name:
-                    return method
-    raise ExactValueError('candidate lacks %s.%s' % (cls, name))
+def _method(cls, name):
+    return next((node for node in cls.body
+                 if isinstance(node, ast.FunctionDef) and node.name == name), None)
+
+
+def _setup_classes(tree):
+    configs = [node for node in tree.body if isinstance(node, ast.ClassDef)
+               and node.name.endswith('Configurator') and _method(node, 'configure')]
+    generators = [node for node in tree.body if isinstance(node, ast.ClassDef)
+                  and node.name.endswith('Generator')
+                  and (_method(node, 'processInputs') or _method(node, 'addExtraPrimaryParameters'))]
+    if len(configs) != 1 or len(generators) != 1:
+        raise ExactValueError('candidate needs one configurator and one setup generator')
+    return configs[0], generators[0]
 
 
 def render_module(source, handoff):
-    """Replace only spur's exact setup; keep geometry and selection handling."""
+    """Replace exact setup in a gear module; keep geometry and selection handling."""
     data = {'inputs': handoff['inputs'], 'parameters': handoff['parameters']}
     constants = handoff['constants']
     tree = ast.parse(source)
@@ -345,30 +356,46 @@ def render_module(source, handoff):
             raise ExactValueError('candidate has no class before which to insert constants')
         insertion = first_class.decorator_list[0].lineno if first_class.decorator_list else first_class.lineno
         replacements = [(insertion, insertion - 1, const_source + '\n')]
-    config = _method(tree, 'SpurGearCommandInputsConfigurator', 'configure')
-    replacements.append((config.body[0].lineno, config.body[-1].end_lineno, _configure(data) + '\n'))
-    process = _method(tree, 'SpurGearGenerator', 'processInputs')
-    calls = [node for node in process.body if isinstance(node, ast.Expr) and
-             isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Attribute)]
-    first = next((node for node in calls if node.value.func.attr in (
-        'addParameter', 'addExtraPrimaryParameters', 'registerDerivedParameters')), None)
-    last = next((node for node in reversed(calls)
-                 if node.value.func.attr == 'registerDerivedParameters'), None)
-    if first is None or last is None or first.lineno > last.lineno:
-        raise ExactValueError('candidate processInputs has no parameter setup boundary')
-    between = [node for node in process.body if first.lineno <= node.lineno <= last.lineno]
-    for node in between:
-        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call) and isinstance(
-                node.value.func, ast.Attribute) and node.value.func.attr in (
-                    'addParameter', 'addExtraPrimaryParameters', 'registerDerivedParameters'):
-            continue
-        if (isinstance(node, ast.Assign) and len(node.targets) == 1 and
-                isinstance(node.targets[0], ast.Name) and node.targets[0].id == 'sketchOnly'):
-            continue
-        raise ExactValueError('candidate interleaves non-parameter code with exact setup')
-    replacements.append((first.lineno, last.end_lineno, _primary(data) + '\n'))
-    derived = _method(tree, 'SpurGearGenerator', 'registerDerivedParameters')
-    replacements.append((derived.body[0].lineno, derived.body[-1].end_lineno, _derived(data) + '\n'))
+    configurator, generator = _setup_classes(tree)
+    config = _method(configurator, 'configure')
+    call_super = bool(configurator.bases)
+    replacements.append((config.body[0].lineno, config.body[-1].end_lineno,
+                         _configure(data, call_super) + '\n'))
+    process = _method(generator, 'processInputs')
+    if process is not None:
+        calls = [node for node in process.body if isinstance(node, ast.Expr) and
+                 isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Attribute)]
+        first = next((node for node in calls if node.value.func.attr in (
+            'addParameter', 'addExtraPrimaryParameters', 'registerDerivedParameters')), None)
+        last = next((node for node in reversed(calls)
+                     if node.value.func.attr == 'registerDerivedParameters'), None)
+        if first is None or last is None or first.lineno > last.lineno:
+            raise ExactValueError('candidate processInputs has no parameter setup boundary')
+        between = [node for node in process.body if first.lineno <= node.lineno <= last.lineno]
+        for node in between:
+            if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call) and isinstance(
+                    node.value.func, ast.Attribute) and node.value.func.attr in (
+                        'addParameter', 'addExtraPrimaryParameters', 'registerDerivedParameters'):
+                continue
+            if (isinstance(node, ast.Assign) and len(node.targets) == 1 and
+                    isinstance(node.targets[0], ast.Name) and node.targets[0].id == 'sketchOnly'):
+                continue
+            raise ExactValueError('candidate interleaves non-parameter code with exact setup')
+        replacements.append((first.lineno, last.end_lineno, _primary(data) + '\n'))
+    else:
+        extra = _method(generator, 'addExtraPrimaryParameters')
+        if extra is None:
+            raise ExactValueError('candidate has no parameter setup method')
+        if not all(isinstance(node, (ast.Assign, ast.Expr, ast.Pass)) for node in extra.body):
+            raise ExactValueError('candidate has non-parameter code in extra primary setup')
+        replacements.append((extra.body[0].lineno, extra.body[-1].end_lineno,
+                             _primary(data, include_hooks=False) + '\n'))
+    derived = _method(generator, 'registerDerivedParameters')
+    if derived is not None:
+        replacements.append((derived.body[0].lineno, derived.body[-1].end_lineno,
+                             _derived(data) + '\n'))
+    elif any('input' not in item for item in data['parameters']):
+        raise ExactValueError('candidate has derived parameters but no registration method')
     for start, end, replacement in sorted(replacements, reverse=True):
         lines[start - 1:end] = [replacement]
     result = ''.join(lines)
@@ -398,8 +425,8 @@ def main():
         handoff = check_steps(steps, data, constants)
         if args.action == 'check-steps':
             return 0
-        if args.gear != 'spurgear' or not args.candidate:
-            raise ExactValueError('render/check-module require spur and a candidate path')
+        if not args.candidate:
+            raise ExactValueError('render/check-module require a candidate path')
         with open(args.candidate, encoding='utf-8') as handle:
             candidate = handle.read()
         rendered = render_module(candidate, handoff)

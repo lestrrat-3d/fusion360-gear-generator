@@ -35,9 +35,8 @@ class HelicalGearCommandConfigurator(SpurGearCommandInputsConfigurator):
     @classmethod
     def configure(cls, cmd: adsk.core.Command):
         super().configure(cmd)
-        cmd.commandInputs.addValueInput(
-            INPUT_ID_HELIX_ANGLE, 'Helix Angle', 'deg',
-            adsk.core.ValueInput.createByReal(math.radians(14.5)))
+        inputs: adsk.core.CommandInputs = cmd.commandInputs
+        inputs.addValueInput(INPUT_ID_HELIX_ANGLE, 'Helix Angle', 'deg', adsk.core.ValueInput.createByReal(math.radians(14.5)))
 
 
 class HelicalGearGenerationContext(SpurGearGenerationContext):
@@ -86,8 +85,9 @@ class HelicalGearGenerator(SpurGearGenerator):
     # --- step 5: register the HelixAngle user parameter --------------------------------------
 
     def addExtraPrimaryParameters(self, inputs):
-        helixAngle = get_value(inputs, INPUT_ID_HELIX_ANGLE, 'rad')
-        self.addParameter(PARAM_HELIX_ANGLE, helixAngle, 'rad', 'Helix angle for the helical gear')
+        self.addParameter(
+            PARAM_HELIX_ANGLE, get_value(inputs, INPUT_ID_HELIX_ANGLE, 'rad'),
+            'rad', 'Helix angle for the helical gear')
 
     # --- step 6: the root-fillet transverse correction ---------------------------------------
 

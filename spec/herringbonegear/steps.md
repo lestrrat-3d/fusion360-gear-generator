@@ -20,7 +20,7 @@ that reaches the transcriber as nothing at all.
 | `spec/herringbonegear/instructions.md` | `0ca177828c06bbf8472200559b5dd47b8cb359a9` |
 | `spec/herringbonegear/fusion.md` | `62755ad2d376481cf449893ab2a445772357d218` |
 | `spec/helicalgear/fusion.md` | `f981173cb314094f2fd98cdd78d5bd8287cdc8ee` |
-| `spec/helicalgear/instructions.md` | `71b7993007b17cc4948569313c23614b8fbd246c` |
+| `spec/helicalgear/instructions.md` | `d1310b3545621fd351ce11aff800668666c73010` |
 | `spec/spurgear/instructions.md` | `8c761c4542788b3ad455fa7ae02dbf978e65b8ca` |
 | `.claude/skills/generate-gear/PLAYBOOK.md` | `9ee2dcbaed7b5480aa69e9295e8b61acaea081f3` |
 
@@ -93,7 +93,7 @@ defaults to 14.5 degrees and is registered in radians; every registration is the
 pipeline's work (`[SPUR-EXTRA-PARAMS]`, `[PB-DIALOG-DEFAULT-UNITS]`, `[PB-INPUT-READ]`,
 `[PB-SELECTION-DECL]`).
 
-**From:** `spec/herringbonegear/instructions.md` L16–25, L32–33; `spec/helicalgear/instructions.md` L51–70, L215; `spec/spurgear/instructions.md` L90-94, L128
+**From:** `spec/herringbonegear/instructions.md` L16–25, L32–33; `spec/helicalgear/instructions.md` L49-55, L200; `spec/spurgear/instructions.md` L90-94, L128
 
 ## HB3 `[PROSE]` `HerringboneGearGenerationContext` — helical's context, one field repurposed
 
@@ -156,7 +156,7 @@ These three methods exist for the framework to call, so nothing in this module c
 
 <!-- check-step-calls: ignore newContext prefixBase generateName -->
 
-**From:** `spec/herringbonegear/instructions.md` L36, L55–58; `spec/helicalgear/instructions.md` L111–114; `spec/spurgear/instructions.md` L96-112, L330-334
+**From:** `spec/herringbonegear/instructions.md` L36, L55–58; `spec/helicalgear/instructions.md` L96-99; `spec/spurgear/instructions.md` L96-112, L330-334
 
 ## HB5 `[GO]` `helicalPlaneOffset` — put the twisted profile's plane at half the thickness
 
@@ -245,7 +245,7 @@ on herringbone's behalf.
 <!-- check-step-calls: ignore buildSketches createSketchObject setByOffset -->
 <!-- proof-run: proofkit.Run(profileCases, stepMidBodyTwistedProfile) -->
 
-**From:** `spec/herringbonegear/instructions.md` L8–14, L43–48, L72–75, L77–91; `spec/herringbonegear/fusion.md` L10–12, L34–36; `spec/helicalgear/fusion.md` L9–42; `spec/helicalgear/instructions.md` L126–128, L165–174, L181–190
+**From:** `spec/herringbonegear/instructions.md` L8–14, L43–48, L72–75, L77–91; `spec/herringbonegear/fusion.md` L10–12, L34–36; `spec/helicalgear/fusion.md` L9–42; `spec/helicalgear/instructions.md` L111-113, L150-159, L166-175
 
 ## HB7 `[GO]` `buildTooth`, first action — loft the bottom half tooth
 
@@ -288,7 +288,7 @@ which is the twist's own footprint, and its volume against the ruled solid's pri
 <!-- check-step-calls: ignore buildTooth -->
 <!-- proof-run: proofkit3d.RunSolid(solidCases, stepLoftToothHalf, assertLoftToothHalf) -->
 
-**From:** `spec/herringbonegear/instructions.md` L69–70, L77–85, L100–104; `spec/herringbonegear/fusion.md` L9–14; `spec/helicalgear/instructions.md` L129–130, L136–156, L176–179; `spec/helicalgear/fusion.md` L46–65
+**From:** `spec/herringbonegear/instructions.md` L69–70, L77–85, L100–104; `spec/herringbonegear/fusion.md` L9–14; `spec/helicalgear/instructions.md` L114-115, L121-141, L161-164; `spec/helicalgear/fusion.md` L46–65
 
 ## HB8 `[GO]` `buildTooth`, second action — mirror the lofted half across `ctx.helixPlane`
 
@@ -407,4 +407,4 @@ What they do, so the omission is a decision rather than a gap:
 
 <!-- check-step-calls: ignore addExtraPrimaryParameters filletHelixFactorExpression processInputs prepareTools buildMainGearBody buildBody patternTeeth createFillets buildBore chamferTeeth cleanup -->
 
-**From:** `spec/herringbonegear/instructions.md` L50–53, L72–85; `spec/herringbonegear/fusion.md` L1–7, L43–47; `spec/helicalgear/instructions.md` L106–110, L132–134, L158–163; `spec/helicalgear/fusion.md` L67–80; `spec/spurgear/instructions.md` L269-296, L518-523
+**From:** `spec/herringbonegear/instructions.md` L50–53, L72–85; `spec/herringbonegear/fusion.md` L1–7, L43–47; `spec/helicalgear/instructions.md` L91-95, L117-119, L143-148; `spec/helicalgear/fusion.md` L67–80; `spec/spurgear/instructions.md` L269-296, L518-523

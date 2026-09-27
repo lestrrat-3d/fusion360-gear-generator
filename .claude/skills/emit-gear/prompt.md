@@ -48,9 +48,11 @@ to fill with a plausible invention.
 If the step list contains `## Exact values`, the deterministic renderer supplies exported
 constants and the dialog and parameter setup after your draft. Do not transcribe that section.
 Leave the module-level exact constants absent. Define `configure` with `pass`, and define
-`registerDerivedParameters` with `pass`. In `processInputs`, keep the selection handling from
-step 0b and end it with `self.registerDerivedParameters()`; the renderer inserts the input
-parameters and the subclass hook before that call. Keep other methods and geometry complete.
+the setup method with `pass` when the gear adds its own primary parameters through an override.
+For a generator with `processInputs`, keep its selection handling and final
+`self.registerDerivedParameters()` call; define `registerDerivedParameters` with `pass` when it
+exists. The renderer inserts the checked setup and calls a base configurator for subclasses.
+Keep other methods and geometry complete.
 
 **Where a step names the entity a call is made against, use that entity and no other.** A step that
 says a line is collinear with `A->E` means `A->E`, not the axis further up the same chain, even
