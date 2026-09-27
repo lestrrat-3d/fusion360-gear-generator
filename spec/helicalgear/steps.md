@@ -9,10 +9,86 @@ and the generated registration file `proof/helicalgear/zz_registrations_test.go`
 |---|---|
 | `spec/helicalgear/instructions.md` | `d1310b3545621fd351ce11aff800668666c73010` |
 | `spec/helicalgear/fusion.md` | `f981173cb314094f2fd98cdd78d5bd8287cdc8ee` |
+| `spec/helicalgear/contract.json` | `b76c17b25ecc90caad199e10f4bb35308899ee79` |
 | `spec/helicalgear/exact_values.json` | `e19b2492f1f74ac3289797dd6d58eddcfa94d102` |
 | `spec/spurgear/fusion.md` | `5cd1f9f96e043efba42ae42a00ca6c13403e1339` |
 | `spec/spurgear/instructions.md` | `8c761c4542788b3ad455fa7ae02dbf978e65b8ca` |
 | `.claude/skills/generate-gear/PLAYBOOK.md` | `9ee2dcbaed7b5480aa69e9295e8b61acaea081f3` |
+
+## Compilation contract
+
+```json
+{
+  "contract": {
+    "_comment": "Machine-readable mirror of the spec's contract sections, checked by .claude/skills/generate-gear/check_contract.py. The spec prose (instructions.md/fusion.md) is authoritative — a mismatch between this file and the spec is a spec bug; fix both together. Helical is subclass-only: it pins its own three classes and the override surface named in instructions.md 'Method contract', and inherits everything else from spur, which its own manifest pins. module_constants pins the two identifiers herringbone imports AND their exact string values. source_guards pins the two recipes the spec chose over an alternative that also builds a solid — reverting either renames nothing, so nothing else here would see it.",
+    "classes": {
+      "HelicalGearCommandConfigurator": {
+        "bases": [
+          "SpurGearCommandInputsConfigurator"
+        ],
+        "methods": [
+          "configure"
+        ]
+      },
+      "HelicalGearGenerationContext": {
+        "bases": [
+          "SpurGearGenerationContext"
+        ],
+        "ctx_fields": [
+          "helixPlane",
+          "twistedGearProfileSketch"
+        ],
+        "methods": [
+          "__init__"
+        ]
+      },
+      "HelicalGearGenerator": {
+        "bases": [
+          "SpurGearGenerator"
+        ],
+        "methods": [
+          "newContext",
+          "prefixBase",
+          "generateName",
+          "addExtraPrimaryParameters",
+          "filletHelixFactorExpression",
+          "helicalPlaneOffset",
+          "buildSketches",
+          "buildTooth",
+          "loftTooth"
+        ]
+      }
+    },
+    "module": "lib/geargen/helicalgear.py",
+    "module_constants": {
+      "INPUT_ID_HELIX_ANGLE": "helixAngle",
+      "PARAM_HELIX_ANGLE": "HelixAngle"
+    },
+    "source_guards": [
+      {
+        "file": "lib/geargen/helicalgear.py",
+        "in_function": "buildSketches",
+        "required": [
+          "SpurGearInvoluteToothDesignGenerator\\(",
+          "angle\\s*=",
+          "PARAM_HELIX_ANGLE"
+        ],
+        "why": "[SPUR-F-ROTATE-CONFIRM] and [SPUR-F-SPINE]: the twist is delivered as the tooth generator's own draw() angle, which rotates the tooth in its point math and confirms the rotation with the spine's angular dimension. Drawing the tooth flat and rotating the sketch geometry afterward also produces a twisted profile, but leaves the spine dimension measuring the unrotated angle, so the sketch no longer proves its own twist."
+      },
+      {
+        "file": "lib/geargen/helicalgear.py",
+        "in_function": "loftTooth",
+        "required": [
+          "loftSections\\.add\\(bottomToothProfile\\)[\\s\\S]*loftSections\\.add\\(topToothProfile\\)",
+          "find_profile_by_curve_counts\\("
+        ],
+        "why": "[HELI-F-LOFT]: the bottom section is added to loftSections before the top. Adding them in the other order also lofts a valid solid, and the handedness does NOT flip — the proof builds both orders and reads the same twist, same sign, off each centroid. What changes is the ruled walls, which are built outward from the FROM section, and with them about 12% of the volume at a 14.5 degree helix. The swap is therefore silent in the one reading a caller is most likely to check, which is why the order is pinned here rather than left to the implementation."
+      }
+    ]
+  },
+  "schema": 1
+}
+```
 
 ## Exact values
 

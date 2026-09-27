@@ -25,9 +25,10 @@ below that heading, or one naming bare file names, leaves the gate with nothing 
 Include `proof/{{gear}}/zz_registrations_test.go`, the generated registration file, among the
 paths.
 
-**Write the `## Provenance` heading and leave its section empty.** The provenance table is
-generated from the spec files after you finish, by
-`.claude/skills/generate-gear/gen_provenance.py`, and written into that section. Never run
+**Write the `## Provenance` heading and leave its section empty.** The provenance table and,
+when `spec/{{gear}}/contract.json` exists, the complete v1 `## Compilation contract` section
+are generated from the source files after you finish by
+`.claude/skills/generate-gear/gen_provenance.py`. Never run
 `git hash-object` and never type a hash: a hand-copied hash is a defect the gate can only report
 as drift. Put the heading below the sentence naming the proof files and above the first step
 heading, since a gate reads the text above it for those paths and the generator writes below it.
@@ -48,7 +49,8 @@ A gate refuses a step list that cites no playbook anchor at all.
 **Carry into the step every value the emit stage cannot look up.** If the gear has
 `spec/{{gear}}/exact_values.json`, cite it and explain where the values apply, but do not copy
 its dialog or parameter fields into hand-written tables. The compiler inserts a checked
-`## Exact values` section after the draft. For all other values, `/emit-gear` reads your step
+`## Exact values` section after the draft. The full contract section carries class, constant,
+and source-guard requirements. For all other values, `/emit-gear` reads your step
 list, the proof and a playbook extract, and nothing else. It cannot open the prose spec.
 So a step that says "verbatim from the input table", "as the spec gives", or "per the table above"
 with no table following resolves to nothing, and the transcriber fills the gap with a plausible

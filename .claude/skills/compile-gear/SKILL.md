@@ -75,9 +75,10 @@ proof is where the next reader is looking for the missing check.
    in step 3, run `python3 .claude/skills/generate-gear/gen_provenance.py <gear> --write
    .tmp/<gear>.steps.md` from the repo root. It computes the input set owned by
    `.claude/skills/generate-gear/check_compile.py` — existing `spec/<gear>/instructions.md`, optional
-   `spec/<gear>/fusion.md`, `.claude/skills/generate-gear/PLAYBOOK.md`, and existing auxiliary Markdown
-   documents referenced by those two spec files — and writes the table under the heading the draft
-   left empty. The table travels with the file when it is copied, so nothing else needs stamping,
+   `spec/<gear>/fusion.md`, optional `contract.json` and `exact_values.json`,
+   `.claude/skills/generate-gear/PLAYBOOK.md`, and referenced Markdown documents. It also writes
+   the complete v1 contract section after provenance when a contract exists. Both sections travel
+   with the file when it is copied, so nothing else needs stamping,
    and step 5 checks the result. A hash mismatch there means a source changed after the stamp: run
    the same command against the copy the check reads, then check again. The playbook belongs in the
    set because steps cite its rules by anchor, so a playbook fix leaves every step list stale until
@@ -117,7 +118,8 @@ proof is where the next reader is looking for the missing check.
    If `spec/<gear>/exact_values.json` exists, run
    `python3 .claude/skills/generate-gear/exact_values.py <gear> sync-steps` after placement.
    This inserts the validated source into the compiled step handoff. `check_compile.py` rejects
-   a missing or stale handoff, and provenance includes the JSON source.
+   a missing or stale handoff, and provenance includes the JSON source. The exact-value constants
+   must agree with the full contract because both sections are checked against the same manifest.
 
    Then run
    `python3 .claude/skills/generate-gear/run_compile_gates.py <gear> --handoff-base <commit>
