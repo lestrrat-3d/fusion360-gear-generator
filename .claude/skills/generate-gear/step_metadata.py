@@ -7,7 +7,7 @@ import posixpath
 import re
 
 from contract_handoff import mask_contract
-from call_parser import call_shapes
+from call_parser import call_shapes, ordered_call_shapes
 
 
 PATH_REF = r'[\w./-]+\.(?:md|go|py|json|sh)'
@@ -181,6 +181,48 @@ def _inline_spans(text):
     return re.findall(r'`([^`\n]+)`', ''.join(visible))
 
 
+def _expand_call_intents(body, payload):
+    """Turn renderer-only semantic intents into the checked version-2 call schema."""
+    if not isinstance(payload, dict) or 'call_intents' not in payload:
+        return payload, False
+    if (set(payload) != {'schema', 'citations', 'call_intents'}
+            or type(payload['schema']) is not int or payload['schema'] != 2):
+        raise MetadataError('call_intents needs only schema=2 and citations beside it')
+    intents = payload['call_intents']
+    if not isinstance(intents, list):
+        raise MetadataError('step metadata call_intents must be an array')
+
+    _, start, end, _ = _metadata_comment(body)
+    keys = []
+    seen = set()
+    for span in _inline_spans(body[:start] + body[end:]):
+        for name, receiver in ordered_call_shapes(span):
+            key = (span, name, receiver)
+            if key not in seen:
+                keys.append(key)
+                seen.add(key)
+    if len(intents) != len(keys):
+        raise MetadataError('call_intents count %d does not match %d distinct inline calls'
+                            % (len(intents), len(keys)))
+
+    calls = []
+    for index, (intent, (span, name, receiver)) in enumerate(zip(intents, keys), 1):
+        label = 'call intent %d' % index
+        if not isinstance(intent, dict):
+            raise MetadataError('%s must be a JSON object' % label)
+        role = intent.get('role')
+        if role == 'required':
+            fields = ('owner', 'role', 'condition') if 'condition' in intent else ('owner', 'role')
+        else:
+            fields = ('owner', 'role', 'reason')
+        _require_exact_keys(intent, fields, label)
+        calls.append(dict(span=span, name=name, receiver=receiver, owner=intent['owner'],
+                          role=role, condition=intent.get('condition'), reason=intent.get('reason')))
+    expanded = dict(schema=2, citations=payload['citations'], calls=calls)
+    _validate_payload(expanded, 2)
+    return expanded, True
+
+
 def _validate_calls(calls):
     if not isinstance(calls, list):
         raise MetadataError('step metadata calls must be an array')
@@ -257,7 +299,7 @@ def file_calls(text: str) -> list[dict]:
     return calls
 
 
-def parse_step(body: str, version: int) -> dict:
+def parse_step(body: str, version: int, payload: dict | None = None) -> dict:
     """Parse and structurally validate one step's metadata payload."""
     payload_text, _, metadata_end, _ = _metadata_comment(body)
     from_markers = list(FROM_MARKER.finditer(body))
@@ -266,17 +308,22 @@ def parse_step(body: str, version: int) -> dict:
     from_blocks = list(FROM_BLOCK.finditer(body))
     if from_blocks and from_blocks[0].start() < metadata_end:
         raise MetadataError('step-meta payload must appear before **From:**')
+    if payload is None:
+        payload = _decode_payload(payload_text)
+    _validate_payload(payload, version)
+    if version == 2:
+        declared_calls(body, payload)
+    return payload
+
+
+def _decode_payload(payload_text):
     try:
-        payload = json.loads(
+        return json.loads(
             payload_text, object_pairs_hook=_json_object, parse_constant=_reject_constant)
     except MetadataError:
         raise
     except (json.JSONDecodeError, TypeError) as exc:
         raise MetadataError('has invalid step-meta JSON: %s' % exc) from exc
-    _validate_payload(payload, version)
-    if version == 2:
-        declared_calls(body, payload)
-    return payload
 
 
 def _source_line_count(path):
@@ -369,7 +416,16 @@ def render_steps(text: str, root: str) -> str:
         end = heads[index + 1].start() if index + 1 < len(heads) else len(text)
         body = match.group(3) + '\n' + text[match.end():end]
         try:
-            payload = parse_step(body, version)
+            draft = None
+            if version == 2:
+                payload_text, start, stop, newline = _metadata_comment(body)
+                draft = _decode_payload(payload_text)
+                expanded, changed = _expand_call_intents(body, draft)
+                if changed:
+                    encoded = json.dumps(expanded, sort_keys=True, ensure_ascii=False, indent=2)
+                    body = body[:start] + STEP_META_OPEN + newline + encoded + newline + '-->' + body[stop:]
+                draft = expanded
+            payload = parse_step(body, version, draft)
             citation_problems = validate_citations(payload, root)
         except MetadataError as exc:
             problems.append('%s: %s' % (match.group(1), exc))

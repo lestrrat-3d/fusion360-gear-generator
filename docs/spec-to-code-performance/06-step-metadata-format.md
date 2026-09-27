@@ -78,6 +78,34 @@ Version 2 retains version 1 citation rules and adds the required `calls` array:
 }
 ```
 
+### Compact compiler draft
+
+Write `call_intents` in a draft that will pass through `render_step_metadata.py`:
+
+```json
+{
+  "schema": 2,
+  "citations": [
+    {"path": "spec/fixturegear/instructions.md", "first": 2, "last": 4}
+  ],
+  "call_intents": [
+    {"owner": "adsk.fusion.WidgetTools", "role": "required"}
+  ]
+}
+```
+
+Declare one intent per distinct call in inline code spans. Use first appearance order across the
+step title and body. Within one span, use left-to-right call order, including nested calls. Repeated
+identical `(span, name, receiver)` calls share one intent. The renderer derives those three fields
+and writes the checked `calls` array. It rejects a count mismatch and validates the expanded calls.
+
+Each intent requires `owner` and `role`. A required intent may also carry `condition`; its `reason`
+is always derived as null. A non-required intent requires `reason`, cannot carry `condition`, and
+gets a null condition. Use an explicit null owner for local calls. The owner and role rules below
+still apply. The draft form is accepted only by the renderer; checked step lists always use `calls`.
+
+### Checked call declarations
+
 Every call entry has exactly those seven keys. `span` is the exact content of an inline code span in
 that step's title or body, excluding metadata comments and fenced blocks. `name` and `receiver` must
 match a pair returned by `call_parser.call_shapes(span)`. `receiver` is null for a bare function call.

@@ -13,13 +13,22 @@ CALL_PATTERN = re.compile(
     r'(?P<bare>[a-z][A-Za-z0-9_]{5,}))\s*\(')
 
 
+def ordered_call_shapes(span):
+    """Return distinct ``(name, receiver)`` pairs in source order."""
+    pairs = []
+    seen = set()
+    for match in CALL_PATTERN.finditer(span):
+        pair = (match.group('method') or match.group('bare'), match.group('receiver'))
+        if pair not in seen:
+            pairs.append(pair)
+            seen.add(pair)
+    return pairs
+
+
 def call_shapes(span):
     """Return ``(name, receiver)`` pairs from one code span.
 
     The complete receiver is retained for dotted calls. Callers that need the object
     immediately owning the method can take the final component themselves.
     """
-    return {
-        (match.group('method') or match.group('bare'), match.group('receiver'))
-        for match in CALL_PATTERN.finditer(span)
-    }
+    return set(ordered_call_shapes(span))
