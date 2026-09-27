@@ -214,6 +214,8 @@ jobs:
             require_contract: ''
           - gear: cycloidal
             require_contract: ''
+          - gear: screwgear
+            require_contract: ''
     steps:
       - name: Check out the gear repository
         uses: actions/checkout@v4
