@@ -11,8 +11,8 @@ The proof for this gear is `proof/bevelgear/geometry_test.go`, `proof/bevelgear/
 | `spec/bevelgear/instructions.md` | `a478dac1f0da80e89237896d4e07984c3630c86d` |
 | `spec/bevelgear/fusion.md` | `5b3350a781c8c6da63d3768c224db5e939c365fd` |
 | `spec/bevelgear/spiral-tooth-trace.md` | `c7ae12c0486248c2a02705081b41e9061fb244b2` |
-| `spec/spurgear/fusion.md` | `5dccd871606c3709ecfa07c05f58c126369f2927` |
-| `spec/spurgear/instructions.md` | `2a98a801da25e77958488252bc87b499475ac95d` |
+| `spec/spurgear/fusion.md` | `5cd1f9f96e043efba42ae42a00ca6c13403e1339` |
+| `spec/spurgear/instructions.md` | `9276c6a0900981f657158bc1f2d764bd357e5224` |
 | `.claude/skills/generate-gear/PLAYBOOK.md` | `9ee2dcbaed7b5480aa69e9295e8b61acaea081f3` |
 
 ## S01 `[PROSE]` Module layout, imports and module constants

@@ -21,7 +21,7 @@ that reaches the transcriber as nothing at all.
 | `spec/herringbonegear/fusion.md` | `62755ad2d376481cf449893ab2a445772357d218` |
 | `spec/helicalgear/fusion.md` | `f981173cb314094f2fd98cdd78d5bd8287cdc8ee` |
 | `spec/helicalgear/instructions.md` | `71b7993007b17cc4948569313c23614b8fbd246c` |
-| `spec/spurgear/instructions.md` | `2a98a801da25e77958488252bc87b499475ac95d` |
+| `spec/spurgear/instructions.md` | `9276c6a0900981f657158bc1f2d764bd357e5224` |
 | `.claude/skills/generate-gear/PLAYBOOK.md` | `9ee2dcbaed7b5480aa69e9295e8b61acaea081f3` |
 
 ## HB1 `[PROSE]` Module layout, imports and exported surface
@@ -407,4 +407,4 @@ What they do, so the omission is a decision rather than a gap:
 
 <!-- check-step-calls: ignore addExtraPrimaryParameters filletHelixFactorExpression processInputs prepareTools buildMainGearBody buildBody patternTeeth createFillets buildBore chamferTeeth cleanup -->
 
-**From:** `spec/herringbonegear/instructions.md` L50–53, L72–85; `spec/herringbonegear/fusion.md` L1–7, L43–47; `spec/helicalgear/instructions.md` L106–110, L132–134, L158–163; `spec/helicalgear/fusion.md` L67–80; `spec/spurgear/instructions.md` L344–371, L581–586
+**From:** `spec/herringbonegear/instructions.md` L50–53, L72–85; `spec/herringbonegear/fusion.md` L1–7, L43–47; `spec/helicalgear/instructions.md` L106–110, L132–134, L158–163; `spec/helicalgear/fusion.md` L67–80; `spec/spurgear/instructions.md` L344–371, L593–598
