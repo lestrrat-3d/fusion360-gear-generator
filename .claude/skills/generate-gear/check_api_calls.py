@@ -634,6 +634,52 @@ def node_scopes(tree):
     return found
 
 
+def builtin_set_bindings(tree, scopes):
+    """Find local names assigned exactly once from a Python set constructor or literal.
+
+    `add` is also a Fusion method. Only a proven local set may bypass API ownership checks;
+    an unknown receiver or a name later rebound to a Fusion collection must still be checked.
+    """
+    writes = {}
+    nonlocal_names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            key = (scopes[node], node.id)
+            writes.setdefault(key, []).append(node)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            local_scope = (scopes[node][0], node.name)
+            arguments = [*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs]
+            if node.args.vararg is not None:
+                arguments.append(node.args.vararg)
+            if node.args.kwarg is not None:
+                arguments.append(node.args.kwarg)
+            for argument in arguments:
+                writes.setdefault((local_scope, argument.arg), []).append(argument)
+        elif isinstance(node, (ast.Global, ast.Nonlocal)):
+            nonlocal_names.update((scopes[node], name) for name in node.names)
+
+    shadowed_constructor = any(name == 'set' for _, name in writes)
+    candidates = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target, value = node.targets[0], node.value
+        elif isinstance(node, ast.AnnAssign):
+            target, value = node.target, node.value
+        else:
+            continue
+        if not isinstance(target, ast.Name):
+            continue
+        literal = isinstance(value, ast.Set)
+        constructor = (not shadowed_constructor and isinstance(value, ast.Call)
+                       and isinstance(value.func, ast.Name) and value.func.id == 'set'
+                       and not value.args and not value.keywords)
+        if literal or constructor:
+            candidates.add((scopes[target], target.id))
+    return {key for key in candidates
+            if key[0][1] is not None and key not in nonlocal_names
+            and len(writes.get(key, ())) == 1}
+
+
 def receiver_root(func):
     """The first identifier in the receiver, such as `futil` in `futil.log(...)`."""
     value = func.value
@@ -975,6 +1021,7 @@ def _check():
      verified_bindings, verified_fields) = infer_api_receiver_types(
         tree, known_class_methods, bases, method_returns, api_member_info)
     receiver_scopes = node_scopes(tree)
+    python_sets = builtin_set_bindings(tree, receiver_scopes)
 
     called = {}
     for node in ast.walk(tree):
@@ -986,6 +1033,9 @@ def _check():
         if name in PYTHON_METHODS:
             return True
         receiver = func.value
+        if (name == 'add' and isinstance(receiver, ast.Name)
+                and (receiver_scopes[receiver], receiver.id) in python_sets):
+            return True
         if (isinstance(receiver, ast.Call)
               and isinstance(receiver.func, ast.Name)
               and receiver.func.id == 'super'):

@@ -1,14 +1,13 @@
-# Helical Gear — compiled step list
+The proof files are `proof/helicalgear/sketches_test.go`, `proof/helicalgear/solids_test.go`, and `proof/helicalgear/zz_registrations_test.go`.
 
-The proof for these steps is `proof/helicalgear/sketches_test.go`, `proof/helicalgear/solids_test.go`
-and the generated registration file `proof/helicalgear/zz_registrations_test.go`.
+<!-- step-metadata: 2 -->
 
 ## Provenance
 
 | file | `git hash-object` |
 |---|---|
-| `spec/helicalgear/instructions.md` | `d1310b3545621fd351ce11aff800668666c73010` |
-| `spec/helicalgear/fusion.md` | `f981173cb314094f2fd98cdd78d5bd8287cdc8ee` |
+| `spec/helicalgear/instructions.md` | `631233a7c9831b72e39b60504226f4ba99b3ae32` |
+| `spec/helicalgear/fusion.md` | `6cbe03029a0b89b001479234c0af422deb589dbf` |
 | `spec/helicalgear/contract.json` | `b76c17b25ecc90caad199e10f4bb35308899ee79` |
 | `spec/helicalgear/exact_values.json` | `e19b2492f1f74ac3289797dd6d58eddcfa94d102` |
 | `spec/spurgear/fusion.md` | `5cd1f9f96e043efba42ae42a00ca6c13403e1339` |
@@ -121,399 +120,718 @@ and the generated registration file `proof/helicalgear/zz_registrations_test.go`
 }
 ```
 
-## H1 `[PROSE]` Module layout, imports and the two module constants
-
-Helical is a **thin specialization of the spur gear**. It subclasses the spur family and reuses the
-entire spur build pipeline verbatim — the tools sketch, the gear profile, the body extrude, the
-pattern, the fillets, the bore, the cleanup and the whole tooth generator. It changes exactly three
-things: it adds one **Helix Angle** input (H2), it draws a second **Twisted Gear Profile** sketch
-(H8 and H9), and it **lofts** the bottom profile to that twisted top profile instead of extruding
-(H10).
-
-Write `lib/geargen/helicalgear.py` with explicit imports and no `import *`:
-
-```python
-import math
-import adsk.core, adsk.fusion
-from .base import get_value
-from .spurgear import (PARAM_MODULE, PARAM_TOOTH_NUMBER, PARAM_THICKNESS,
-                       SpurGearCommandInputsConfigurator, SpurGearGenerationContext,
-                       SpurGearGenerator, SpurGearInvoluteToothDesignGenerator)
-from .utilities import find_profile_by_curve_counts
-```
-
-`GenerationContext` is **not** imported. The overrides annotate `ctx: SpurGearGenerationContext` and
-narrow with an assertion, so nothing in this module names the base type.
-
-The `## Exact values` handoff supplies both exported module constants. Herringbone imports them
-by name, and the renderer writes their checked string values.
-
-The module defines three classes, each extending its spur counterpart, and these names are the
-reproduced surface: herringbone subclasses all three, and `commands/helicalgear/entry.py` binds two
-of them by name.
-
-1. `HelicalGearCommandConfigurator(SpurGearCommandInputsConfigurator)` — H2.
-2. `HelicalGearGenerationContext(SpurGearGenerationContext)` — H3.
-3. `HelicalGearGenerator(SpurGearGenerator)` — H4 through H10.
-
-**From:** `spec/helicalgear/instructions.md` L1-8, L51, L57-77; `spec/spurgear/instructions.md` L151-168; `.claude/skills/generate-gear/PLAYBOOK.md` L17-40, L42-74, L265-289.
-
-## H2 `[PROSE]` The Helix Angle dialog input — `HelicalGearCommandConfigurator`
-
-`HelicalGearCommandConfigurator` subclasses `SpurGearCommandInputsConfigurator` and overrides the
-`@classmethod` `configure(cls, cmd)`. It calls `super().configure(cmd)` first, so every spur input is
-added exactly as spur adds it, then appends its own input from the checked handoff. The renderer
-writes its ID, label, display unit, and default conversion. The default is passed in Fusion's
-internal angle unit, radians, although the input displays degrees (`[PB-DIALOG-DEFAULT-UNITS]`).
-
-⚠️ **The Helix Angle input necessarily appears LAST in the dialog, after Parent Component.** Spur's
-`configure` already added Parent Component last, and this is the configurator extension seam
-(`[SPUR-SUBCLASS-INPUT]`): a subclass appends after `super()`, so its input lands below. This is the
-actual, current behavior — reproduce it exactly, and do not attempt to insert Helix Angle earlier in
-the list.
-
-**Signed, and the sign is the hand of the helix.** The dialog accepts a negative value: negative is
-a **left-hand** helix. **No range is enforced**, and none is added here — no clamp, no warning, no
-documented maximum. What Fusion does at a large helix angle is unverified, and until a Fusion
-session settles it the dialog takes whatever the user types.
-
-**From:** `spec/helicalgear/instructions.md` L25-32, L34-38, L40-47, L49-55, L63-65, L195-201; `spec/spurgear/instructions.md` L128-138, L140-142, L170-177; `.claude/skills/generate-gear/PLAYBOOK.md` L128-136.
-
-## H3 `[PROSE]` The generation context — spur's fields, plus two
-
-`HelicalGearGenerationContext(SpurGearGenerationContext)` declares `__init__(self)`, which calls
-`super().__init__()` and then initialises exactly two new fields, each to a cast-`None`:
-
-- `ctx.helixPlane` = `adsk.fusion.ConstructionPlane.cast(None)` — the offset `ConstructionPlane` the
-  twisted top profile is drawn on, and the plane herringbone later reflects across.
-- `ctx.twistedGearProfileSketch` = `adsk.fusion.Sketch.cast(None)` — the second, `Twisted Gear
-  Profile` sketch: the top loft section.
-
-Every spur context field is inherited unchanged; do not restate spur's list here, and do not rename
-either of these two — herringbone reads both by name.
-
-Seed each field with the cast of the class the field actually holds. `adsk.core.Base.cast` is
-declared by the API database and the stubs but is **not** defined by the Fusion runtime, which
-raises `AttributeError` on it; every concrete subclass does have `cast`.
-
-**From:** `spec/helicalgear/instructions.md` L65-68, L79-88; `spec/spurgear/instructions.md` L252-267; `.claude/skills/generate-gear/PLAYBOOK.md` L42-74.
-
-## H4 `[PROSE]` The generator's identity — `newContext`, `prefixBase`, `generateName`
-
-`HelicalGearGenerator(SpurGearGenerator)` keeps spur's entire call graph and every override
-boundary: `generate → processInputs → prepareTools → buildMainGearBody(buildSketches → buildTooth →
-buildBody → patternTeeth → createFillets) → buildBore → chamferTeeth → cleanup`. **Do not move work
-across those boundaries.** Three of its overrides only name the gear:
-
-<!-- check-step-calls: ignore newContext prefixBase generateName -->
-These three are methods the module DEFINES for the inherited pipeline to call; the module never
-calls any of them itself, so they are named here and not required as calls.
-
-- `newContext` returns a `HelicalGearGenerationContext()`, annotated `-> HelicalGearGenerationContext`.
-- `prefixBase` returns the string `'HelicalGear'`, annotated `-> str`.
-- `generateName` returns, annotated `-> str`:
-  `'Helical Gear (M={}, Tooth={}, Thickness={}, Angle={})'.format(module.expression, toothNumber.expression, thickness.expression, helixAngle.expression)`
-  where the four values are the `.expression` strings — not `.value` — of the parameters
-  `self.getParameter(PARAM_MODULE)`, `self.getParameter(PARAM_TOOTH_NUMBER)`,
-  `self.getParameter(PARAM_THICKNESS)` and `self.getParameter(PARAM_HELIX_ANGLE)`, so units show
-  through. This is spur's rule extended with `HelixAngle`.
-
-Spur annotates five methods' returns precisely so a subclass may narrow on them; carry the
-annotations above for the same reason.
-
-**From:** `spec/helicalgear/instructions.md` L69-70, L89-99, L117-119; `spec/spurgear/instructions.md` L96-112, L269-276, L330-334.
-
-## H5 `[PROSE]` Register the `HelixAngle` user parameter — `addExtraPrimaryParameters`
-
-<!-- check-step-calls: ignore addExtraPrimaryParameters -->
-`addExtraPrimaryParameters(self, inputs)` is the hook spur's `processInputs` calls between
-registering the input-sourced parameters and the derived ones (`[SPUR-EXTRA-PARAMS]`). It is a no-op
-on the spur base and the module only defines it, never calls it, so it is exempt above.
-
-The renderer writes the `get_value` and `addParameter` calls from the `## Exact values` handoff.
-
-The dialog input is **degrees** and the user parameter is **radians**: that is deliberate, not a
-mismatch. `get_value` returns a `ValueInput` ready to pass straight to `addParameter`, and raises on
-an invalid expression, so there is no `ok`-flag handling and no wrapping to do
-(`[PB-GET-VALUE-CONTRACT]`); read a value input with `get_value` and nothing else
-(`[PB-INPUT-READ]`). The fourth `addParameter` argument is the Comment column Fusion shows beside
-the parameter.
-
-Registering here, before the derived parameters, is what lets H6's expression reference
-`HelixAngle`.
-
-**From:** `spec/helicalgear/instructions.md` L51-55, L100-101; `spec/spurgear/instructions.md` L121-123, L322-329; `.claude/skills/generate-gear/PLAYBOOK.md` L103-118, L120-126, L205-227.
-
-## H6 `[PROSE]` The root fillet's transverse correction — `filletHelixFactorExpression`
-
-<!-- check-step-calls: ignore filletHelixFactorExpression -->
-`filletHelixFactorExpression(self)` returns an expression **string**, annotated `-> str`:
-
-`f'cos({self.parameterName(PARAM_HELIX_ANGLE)})'`
-
-The spur base returns `'1'`. The module defines this method for the inherited pipeline and never
-calls it, so it is exempt above; `parameterName` is a call the override itself makes.
-
-Nothing reads the returned string except `registerDerivedParameters`, which splices it in as the
-last factor of the live `FilletRadius` expression, `(ToothSpaceArcAtRoot / 2) * FilletClearance *
-<factor>`. The inherited root-fillet step then reads only the resulting `FilletRadius` parameter's
-numeric value. Multiplying by `cos(HelixAngle)` is what makes the fillet radius read correctly on
-the transverse plane of a tilted tooth.
-
-The proof does not reach this step. The factor changes one parameter expression and no geometry: the
-root fillet itself is spur's inherited feature, proved in `proof/spurgear`, and what helical changes
-about it is a number Fusion's expression engine evaluates rather than a shape a solid engine can
-build.
-
-**From:** `spec/helicalgear/instructions.md` L29-31, L102-104; `spec/spurgear/instructions.md` L86-88, L316-321.
-
-## H7 `[PROSE]` The twisted-profile plane offset — `helicalPlaneOffset`
-
-`helicalPlaneOffset(self)` returns the offset of the twisted profile's plane from the base plane, as
-a `ValueInput`. Helical returns the **full thickness**:
-
-`self.getParameterAsValueInput(PARAM_THICKNESS)`
-
-Keep this its own method and **do not inline the offset into `buildSketches`**: it is a distinct
-overridable hook, and herringbone re-points it to half the thickness so its mirror plane lands
-mid-body. H8 calls it.
-
-Note this is a **numeric snapshot**, not a live parameter reference: `getParameterAsValueInput`
-returns `ValueInput.createByReal(param.value)`, the `Thickness` value at generation time. Editing the
-parameter afterwards does not move the plane; regenerate (`[PB-NUMERIC-SNAPSHOT]`,
-`[SPUR-F-SNAPSHOT]`).
-
-That the offset is the whole thickness is asserted on the built solid in H10, where the lofted tooth
-is measured from the target plane to the twisted profile's plane.
-
-**From:** `spec/helicalgear/instructions.md` L105-110; `spec/spurgear/fusion.md` L237-242; `.claude/skills/generate-gear/PLAYBOOK.md` L229-237.
-
-## H8 `[PROSE]` The helix construction plane — `buildSketches`, after `super()`
-
-`buildSketches(self, ctx)` annotates its parameter `ctx: SpurGearGenerationContext`, which is what
-the inherited signature declares, and narrows it at the top of the body:
-
-```python
-def buildSketches(self, ctx: SpurGearGenerationContext):
-    assert isinstance(ctx, HelicalGearGenerationContext)
-```
-
-⚠️ Do **not** annotate the parameter as `GenerationContext`, which is wider than the inherited
-signature, and do **not** narrow it to `HelicalGearGenerationContext`, which is an error of its own.
-The annotation matches the base and the assertion does the narrowing; `newContext` returns the
-helical context, so the assertion always holds at runtime. Every read and write of `ctx.helixPlane`
-or `ctx.twistedGearProfileSketch` happens after it.
-
-The override's first action is `super().buildSketches(ctx)`, which draws the bottom `Gear Profile`
-sketch and runs the spur tooth generator at angle 0. Then it creates the offset plane, on the gear's
-own component (`[HELI-F-TWIST-PLANE]`, `[PB-CONSTRUCTION-PLANES]`):
-
-`constructionPlaneInput = self.getComponent().constructionPlanes.createInput()`
-
-`constructionPlaneInput.setByOffset(self.plane, self.helicalPlaneOffset())`
-
-`plane = self.getComponent().constructionPlanes.add(constructionPlaneInput)`
-
-Store it as `ctx.helixPlane`. The offset argument is a `ValueInput`, never a bare number.
-
-⚠️ **The helix construction plane is left VISIBLE after generation.** It is never light-bulbed off:
-spur's cleanup hides only the entities spur itself created — the Extrusion End Plane, the normalized
-plane and the `Gear Center` axis — and helical adds no cleanup of its own. That is faithful,
-deliberate behavior; a regeneration must **not** add cleanup for it. The same holds in SketchOnly
-mode, where the plane is still created and still left lit.
-
-No proof function realises this step on its own: it creates a construction plane and no measurable
-geometry. What the plane is for is measured in H10, where the lofted tooth's height is read against
-the offset this plane was created at.
-
-**From:** `spec/helicalgear/instructions.md` L111-113, L121-141, L143-159, L202-207; `spec/helicalgear/fusion.md` L9-27, L29-42; `spec/spurgear/instructions.md` L309-312; `.claude/skills/generate-gear/PLAYBOOK.md` L659-671, L775-786.
-
-## H9 `[GO]` The Twisted Gear Profile sketch
-
-<!-- proof-run: proofkit.Run(twistedProfileCases, stepTwistedGearProfileSketch) -->
-
-<!-- check-compile: ignore draw -->
-Still inside `buildSketches`, and still after the assertion in H8, create the second sketch on the
-plane H8 built and draw the tooth into it at the helix angle:
-
-`loftSketch = self.createSketchObject('Twisted Gear Profile', plane=plane)`
-
-`toothGenerator = SpurGearInvoluteToothDesignGenerator(loftSketch, self)`
-
-`toothGenerator.draw(ctx.anchorPoint, angle=self.getParameter(PARAM_HELIX_ANGLE).value)`
-
-Then store the sketch as `ctx.twistedGearProfileSketch`. The sketch's name is exactly
-`'Twisted Gear Profile'`. `draw` is the spur tooth generator's own entry point, which no Fusion API
-database carries, hence the exemption above; it is still a call this module must make.
-
-The twist is delivered as the **`draw()` `angle` argument**, read as a raw `.value` in radians off
-the `HelixAngle` parameter. The generator draws the whole tooth already rotated by that angle in its
-own point math, and then, as the very last action after the entire constraint network exists, sets
-the confirming angular dimension to the same angle (`[SPUR-F-ROTATE-CONFIRM]`, `[SPUR-F-SPINE]`).
-**Do not draw the tooth flat and rotate it afterward**, and do not rely on the dimension alone to
-swing it into place: that lets the solver pick the branch about 180 degrees away, and the loft in
-H10 then passes through the gear centre. Helical does nothing else special here — it passes the
-angle, and the generator builds the fully constrained rotated tooth, including its own projection of
-`ctx.anchorPoint` and the coincidence that anchors the sketch.
-
-`SpurGearInvoluteToothDesignGenerator(sketch, parent)` with `draw(anchorPoint, angle=0)` is borrowed
-surface that must exist unchanged on spur. The generator is constructed with the default `angle=0`,
-so its stored `self.toothAngle` is 0 and the live rotation comes from the `draw()` argument.
-
-⚠️ **The Twisted Gear Profile sketch stays hidden its whole life.** `createSketchObject` returns a
-hidden sketch and nothing ever shows it — not `buildSketches`, and not spur's cleanup, which touches
-only its own three sketches. The loft's profile-finding works on the hidden sketch, and that is a
-declared delta from `[PB-HIDE-AFTER-USE]`: there is no "shown, then hidden after use" phase, because
-it is never shown at all. In SketchOnly mode the twisted profile is therefore not inspectable. A
-regeneration must reproduce this rather than clean it up.
-
-### What the proof establishes
-
-`stepTwistedGearProfileSketch` rebuilds this sketch in the sketch engine and gates it on the engine's
-own verdict (`[PB-SKETCH-FIRST]`, `[PB-FULL-CONSTRAINT]`): DOF 0, no conflicting or redundant
-constraint, valid profiles, a system that is not near-singular, and no discrete ambiguity. It sweeps
-the whole signed range the dialog accepts — the 14.5 degree default both ways, zero, a quarter turn
-each way where the rib and chain dimensions swap axes, several sizes, the rib count down to two
-samples, both routes into the embedded shape, and the anchor on and off the sketch origin.
-
-Three things are asserted on the solved sketch. The tooth top lands on the tip circle at exactly the
-helix angle, measured from the anchor the whole sketch was dragged onto — with the table's own
-zero-angle case as the bottom section's baseline, that is the statement that the angle between the
-two loft sections **is** the Helix Angle, not a lead angle derived from it, and that `Thickness`,
-which does not appear in this sketch at all, cannot enter it. The confirming angular dimension is
-asked whether it is satisfied rather than recomputed. And the sketch closes exactly two regions: the
-tooth loop of 2 NURBS, 2 arcs and 2 lines that H10's fixed key matches, and the disc inside the root
-circle, of the root circle's own area.
-
-The embedded cases are where the loft's limitation is proved rather than asserted: there the tooth
-loop has no stubs, so no loop in the sketch matches the fixed `lines=2` key, and an embedded helical
-gear fails in the profile search before it can reach a loft.
-
-The proof records three things it cannot reach, each beside the thing it cannot reach: the four
-circle labels are sketch text, which the engine has no notion of and which in Fusion leaves
-`isFullyConstrained` unreliable on any labelled sketch (`[PB-TEXT-HOLDS-DOF]`); the projection chain
-of `[SPUR-F-ANCHOR-CHAIN]`, since the engine refuses another sketch's point as a foreign handle, so
-the sketch carries its own local endpoint of the chain; and the tooth loop's trimmed boundary
-parameters, which the engine withdraws from every partial edge in a scene holding a free-form entity,
-so the loop is held to its curve counts rather than to its cuts.
-
-**From:** `spec/helicalgear/instructions.md` L10-15, L111-113, L150-159, L166-175, L177-193, L202-207; `spec/helicalgear/fusion.md` L9-27, L29-42; `spec/spurgear/instructions.md` L179-250, L336-377, L484-495; `spec/spurgear/fusion.md` L19-33, L49-62, L71-108, L110-135, L137-177, L179-219; `.claude/skills/generate-gear/PLAYBOOK.md` L359-431, L441-493, L517-532, L614-634, L659-671.
-
-## H10 `[GO]` Loft the tooth — `buildTooth` and `loftTooth`
-
-<!-- proof-run: proofkit3d.RunSolid(loftCases, stepLoftTooth, assertLoftTooth) -->
-
-<!-- check-step-calls: ignore buildTooth -->
-`buildTooth(self, ctx)` replaces spur's tooth extrude. Its whole body is `self.loftTooth(ctx)`. It
-does **not** extrude and it applies **no** chamfer — the inherited `chamferTeeth` runs later, on the
-completed gear, after the pattern, the root fillets and the optional bore. `buildTooth` is called by
-the inherited `buildMainGearBody` rather than by this module, so it is exempt above; `loftTooth` is
-a call this module makes.
-
-`loftTooth(self, ctx)` takes the same `ctx: SpurGearGenerationContext` annotation and the same
-`isinstance` assertion as its narrowing, exactly as H8 writes it, then lofts bottom to top
-(`[HELI-F-LOFT]`, `[PB-LOFT]`):
-
-```python
-lofts = self.getComponent().features.loftFeatures
-bottomToothProfile = find_profile_by_curve_counts(ctx.gearProfileSketch, nurbs=2, arcs=2, lines=2)
-topToothProfile    = find_profile_by_curve_counts(ctx.twistedGearProfileSketch, nurbs=2, arcs=2, lines=2)
-loftInput = lofts.createInput(adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
-loftInput.loftSections.add(bottomToothProfile)
-loftInput.loftSections.add(topToothProfile)
-loftResult = lofts.add(loftInput)
-ctx.toothBody = loftResult.bodies.item(0)
-ctx.toothBody.name = 'Tooth Body'
-```
-
-Written out as the calls this step must make:
-`find_profile_by_curve_counts(ctx.gearProfileSketch, nurbs=2, arcs=2, lines=2)`,
-`find_profile_by_curve_counts(ctx.twistedGearProfileSketch, nurbs=2, arcs=2, lines=2)`,
+## 1 `[PROSE]` Normalize the selected target plane
+
+Helical is a thin specialization of spur. Keep the three class bases and nine generator overrides in the
+generated compilation contract. Import explicitly from .spurgear: PARAM_MODULE, PARAM_TOOTH_NUMBER,
+PARAM_THICKNESS, SpurGearCommandInputsConfigurator, SpurGearGenerationContext, SpurGearGenerator,
+and SpurGearInvoluteToothDesignGenerator. Import get_value from .base and find_profile_by_curve_counts
+from .utilities, plus math, adsk.core, and adsk.fusion. Do not import GenerationContext.
+The three context-taking overrides annotate ctx as SpurGearGenerationContext, then assert that it is a
+HelicalGearGenerationContext before any helical-only field access.
+
+The configurator calls superclass configure first, then appends Helix Angle after Parent Component.
+Use the generated Exact values section from spec/helicalgear/exact_values.json for its dialog and parameter fields.
+Create its converted default with `adsk.core.ValueInput.createByReal(helixDefault)`, then call
+`cmd.commandInputs.addValueInput(INPUT_ID_HELIX_ANGLE, 'Helix Angle', 'deg', defaultValue)`.
+Read the added value with get_value and register it in addExtraPrimaryParameters, after the inherited primary parameters.
+Follow [PB-DIALOG-DEFAULT-UNITS], [PB-INPUT-READ], [PB-GET-VALUE-CONTRACT], and [SPUR-SUBCLASS-INPUT].
+No angle clamp, warning, or maximum is permitted. Negative radians mean a left-handed twist.
+
+The context initializer calls its superclass initializer and initializes helixPlane and twistedGearProfileSketch
+using `adsk.fusion.ConstructionPlane.cast(None)` and `adsk.fusion.Sketch.cast(None)`.
+The newContext override returns HelicalGearGenerationContext; prefixBase returns 'HelicalGear'.
+The generated name is 'Helical Gear (M={}, Tooth={}, Thickness={}, Angle={})', filled with the four parameters'
+expression strings in Module, Tooth Number, Thickness, Helix Angle order.
+filletHelixFactorExpression returns the cosine expression around the prefixed HelixAngle parameter name.
+helicalPlaneOffset remains a separate override and returns the inherited getParameterAsValueInput result for Thickness.
+The value is a numeric snapshot, not a live feature expression [PB-NUMERIC-SNAPSHOT].
+
+Keep the inherited generation order and method boundaries:
+processInputs; prepareTools; buildMainGearBody containing buildSketches, buildTooth, buildBody, patternTeeth,
+createFillets; buildBore; chamferTeeth; cleanup. buildTooth delegates only to loftTooth.
+Do not reimplement the inherited methods or the tooth drawer.
+
+The inherited generator conditionally normalizes a selected planar face to a coplanar construction plane.
+Do not activate another occurrence [PB-NEVER-ACTIVATE].
+This conditional construction-plane timeline entry has no standalone sketch or solid harness return.
+The loft proof constructs and consumes real offset planes, but does not verify Fusion occurrence-context resolution.
+
+<!-- step-meta
+{
+  "schema": 2,
+  "citations": [
+    {
+      "path": "spec/helicalgear/instructions.md",
+      "first": 23,
+      "last": 141
+    },
+    {
+      "path": "spec/spurgear/instructions.md",
+      "first": 419,
+      "last": 422
+    }
+  ],
+  "calls": [
+    {
+      "span": "adsk.core.ValueInput.createByReal(helixDefault)",
+      "name": "createByReal",
+      "receiver": "adsk.core.ValueInput",
+      "owner": "adsk.core.ValueInput",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "cmd.commandInputs.addValueInput(INPUT_ID_HELIX_ANGLE, 'Helix Angle', 'deg', defaultValue)",
+      "name": "addValueInput",
+      "receiver": "cmd.commandInputs",
+      "owner": "adsk.core.CommandInputs",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "adsk.fusion.ConstructionPlane.cast(None)",
+      "name": "cast",
+      "receiver": "adsk.fusion.ConstructionPlane",
+      "owner": "adsk.fusion.ConstructionPlane",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "adsk.fusion.Sketch.cast(None)",
+      "name": "cast",
+      "receiver": "adsk.fusion.Sketch",
+      "owner": "adsk.fusion.Sketch",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    }
+  ]
+}
+-->
+
+**From:** `spec/helicalgear/instructions.md` L23–141; `spec/spurgear/instructions.md` L419–422.
+
+## 2 `[PROSE]` Tools sketch
+
+The inherited prepareTools creates the 'Tools' sketch and projects the user's selected anchor.
+Store the first projected SketchPoint as ctx.anchorPoint; every later sketch reprojects this canonical handle
+[SPUR-F-ANCHOR-CHAIN]. Keep Tools visible until inherited cleanup.
+This sketch contains projected geometry only. proofkit requires authored geometry, so a standalone run would
+fail its empty-geometry gate. The profile proofs consume a reference anchor and check their local origins
+against it; they do not prove Fusion's associative projection chain.
+
+<!-- step-meta
+{
+  "schema": 2,
+  "citations": [
+    {
+      "path": "spec/spurgear/instructions.md",
+      "first": 423,
+      "last": 433
+    },
+    {
+      "path": "spec/spurgear/fusion.md",
+      "first": 17,
+      "last": 25
+    }
+  ],
+  "calls": []
+}
+-->
+
+**From:** `spec/spurgear/instructions.md` L423–433; `spec/spurgear/fusion.md` L17–25.
+
+## 3 `[PROSE]` Extrusion End Plane
+
+The inherited prepareTools also creates 'Extrusion End Plane' at full Thickness above the normalized target plane.
+Retain ctx.extrusionEndPlane as the body's to-entity target. Leave it visible while features consume it;
+inherited cleanup hides it with isLightBulbOn=False in both modes [SPUR-F-CLEANUP], [PB-HIDE-AFTER-USE].
+An isolated plane cannot return a sketch or solid to either harness; the solid proofs assert full axial extent.
+
+<!-- step-meta
+{
+  "schema": 2,
+  "citations": [
+    {
+      "path": "spec/spurgear/instructions.md",
+      "first": 423,
+      "last": 433
+    },
+    {
+      "path": "spec/spurgear/fusion.md",
+      "first": 225,
+      "last": 242
+    }
+  ],
+  "calls": []
+}
+-->
+
+**From:** `spec/spurgear/instructions.md` L423–433; `spec/spurgear/fusion.md` L225–242.
+
+## 4 `[GO]` Bottom Gear Profile sketch
+
+The helical buildSketches first calls `super().buildSketches(ctx)`, preserving the complete inherited bottom sketch.
+It draws the spur tooth at angle zero with a projected Tools anchor.
+Keep the bottom sketch named 'Gear Profile'. The sketch closes the root disc and one tooth profile.
+For non-embedded geometry the tooth has two fitted splines, two arcs, and two root stubs.
+The root disc is selected by two arc boundary fragments, not by the construction tip circle.
+Use the same construction and constraints described for the twisted sketch below [PB-SKETCH-FIRST].
+The proof function is `stepBottomProfile`; it proves three module/tooth-count/sample-count cases.
+
+<!-- proof-run: proofkit.Run(bottomCases, stepBottomProfile) -->
+
+<!-- step-meta
+{
+  "schema": 2,
+  "citations": [
+    {
+      "path": "spec/helicalgear/instructions.md",
+      "first": 107,
+      "last": 117
+    },
+    {
+      "path": "spec/spurgear/instructions.md",
+      "first": 434,
+      "last": 496
+    }
+  ],
+  "calls": [
+    {
+      "span": "super().buildSketches(ctx)",
+      "name": "buildSketches",
+      "receiver": null,
+      "owner": null,
+      "role": "required",
+      "condition": null,
+      "reason": null
+    }
+  ]
+}
+-->
+
+**From:** `spec/helicalgear/instructions.md` L107–117; `spec/spurgear/instructions.md` L434–496.
+
+## 5 `[PROSE]` Helix construction plane
+
+After the bottom sketch, get the gear component's constructionPlanes collection as planes.
+Use `planes.createInput()`, `planeInput.setByOffset(self.plane, offset)`,
+and `planes.add(planeInput)`, storing the result in ctx.helixPlane.
+Obtain offset from `self.helicalPlaneOffset()`, preserving that overridable hook.
+Its full-Thickness numeric snapshot is consumed by the top profile and loft [HELI-F-TWIST-PLANE],
+[PB-CONSTRUCTION-PLANES], [PB-NUMERIC-SNAPSHOT].
+Leave this plane visible after generation, including SketchOnly mode; do not add cleanup.
+A standalone plane has no solid or authored sketch for a harness gate; the loft builds a real offset plane.
+
+<!-- step-meta
+{
+  "schema": 2,
+  "citations": [
+    {
+      "path": "spec/helicalgear/fusion.md",
+      "first": 7,
+      "last": 42
+    }
+  ],
+  "calls": [
+    {
+      "span": "planes.createInput()",
+      "name": "createInput",
+      "receiver": "planes",
+      "owner": "adsk.fusion.ConstructionPlanes",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "planeInput.setByOffset(self.plane, offset)",
+      "name": "setByOffset",
+      "receiver": "planeInput",
+      "owner": "adsk.fusion.ConstructionPlaneInput",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "planes.add(planeInput)",
+      "name": "add",
+      "receiver": "planes",
+      "owner": "adsk.fusion.ConstructionPlanes",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "self.helicalPlaneOffset()",
+      "name": "helicalPlaneOffset",
+      "receiver": "self",
+      "owner": null,
+      "role": "required",
+      "condition": null,
+      "reason": null
+    }
+  ]
+}
+-->
+
+**From:** `spec/helicalgear/fusion.md` L7–42.
+
+## 6 `[GO]` Twisted Gear Profile sketch
+
+Create the sketch through `self.createSketchObject('Twisted Gear Profile', plane=plane)`.
+Keep it hidden for its entire life, including SketchOnly mode [HELI-F-TWIST-PLANE].
+Construct `SpurGearInvoluteToothDesignGenerator(loftSketch, self)`, then call
+`toothGenerator.draw(ctx.anchorPoint, angle=helixAngle)`, where helixAngle is the raw
+HelixAngle parameter value in radians. Store loftSketch as ctx.twistedGearProfileSketch.
+Do not draw flat and rotate the sketch afterward. Do not add a runtime full-constraint gate.
+
+The inherited drawer shares one movable local origin among the four circles. Root is solid;
+tip, base, and pitch are construction. Their radii are respectively (Module*ToothNumber-2.5*Module)/2,
+(Module*ToothNumber+2*Module)/2, Module*ToothNumber*cos(PressureAngle)/2, and Module*ToothNumber/2.
+Use driving diameter dimensions and the existing along-path labels.
+The label is '{} (r={:.2f}, size={:.2f})', with circle name, internal-cm radius, and
+size=TipCircleRadius-RootCircleRadius; size is also the label height.
+
+Sample 15 endpoint-inclusive radial involute points from base to tip, mirror y before pitch alignment,
+align the mirrored analytic pitch crossing to pi/(2*ToothNumber), then rotate both flanks by helixAngle.
+The cap shares both flank endpoints; its copied center is coincident to the local origin and has no diameter dimension.
+Create the tooth-top point at the rotated tip and constrain it onto the tip circle.
+The spine shares origin and tooth-top point.
+Pin a separate positive-X reference endpoint using horizontal TipCircleRadius and vertical zero dimensions.
+The angular dimension's arguments are reference then spine, with text on the intended-angle bisector.
+
+Every fit-point index gets a construction rib sharing its two flank fit points.
+Dimension the rib across the spine, seed its midpoint at the left point's projection onto the spine,
+then apply point-on-spine, midpoint, and perpendicular in that order.
+Omit perpendicular only for the last rib. Dimension each midpoint from the previous midpoint, beginning at
+the local origin. Use vertical rib/horizontal chain dimensions when abs(cos(angle)) >= abs(sin(angle));
+swap them otherwise. Fusion linear values are magnitudes whose signs come from seeded sides.
+
+For non-embedded flanks, draw two root stubs sharing the spline start points and pin their root ends with
+horizontal and vertical dimensions from the local origin. The strict embedded comparison is baseRadius < rootRadius.
+Keep the root circle solid so profile detection splits it at the real crossings.
+Finally project the Tools anchor, constrain the local origin to the first projected point, then confirm the signed
+spine angle for nonzero angles. Follow [PB-SKETCH-FIRST], [PB-SHARE-XOR-COINCIDENT], [PB-NO-OVERCONSTRAIN],
+[PB-DRIVING-DIM], [PB-DIM-VALUE-SEMANTICS], [SPUR-F-SPINE], [SPUR-F-RIBS],
+[SPUR-F-TOOTHTOP-ARC], [SPUR-F-FLANK-ROOT], [SPUR-F-ROTATE-CONFIRM], and [SPUR-F-LOCAL-ORIGIN].
+
+The proof function is `stepTwistedProfile`. Its 11 cases cover signed zero/quarter/half turns,
+coarse and fine sizes, low sample count, and both embedded routes.
+The embedded sketches prove the inherited drawer only: helical's fixed six-curve loft selection remains unsupported there.
+
+<!-- proof-run: proofkit.Run(sketchCases, stepTwistedProfile) -->
+
+<!-- step-meta
+{
+  "schema": 2,
+  "citations": [
+    {
+      "path": "spec/helicalgear/instructions.md",
+      "first": 150,
+      "last": 175
+    },
+    {
+      "path": "spec/helicalgear/fusion.md",
+      "first": 7,
+      "last": 42
+    },
+    {
+      "path": "spec/spurgear/fusion.md",
+      "first": 17,
+      "last": 223
+    },
+    {
+      "path": "spec/spurgear/instructions.md",
+      "first": 434,
+      "last": 496
+    }
+  ],
+  "calls": [
+    {
+      "span": "self.createSketchObject('Twisted Gear Profile', plane=plane)",
+      "name": "createSketchObject",
+      "receiver": "self",
+      "owner": null,
+      "role": "inherited",
+      "condition": null,
+      "reason": "base.Generator creates and hides the named sketch."
+    },
+    {
+      "span": "toothGenerator.draw(ctx.anchorPoint, angle=helixAngle)",
+      "name": "draw",
+      "receiver": "toothGenerator",
+      "owner": null,
+      "role": "required",
+      "condition": null,
+      "reason": null
+    }
+  ]
+}
+-->
+
+**From:** `spec/helicalgear/instructions.md` L150–175; `spec/helicalgear/fusion.md` L7–42; `spec/spurgear/fusion.md` L17–223; `spec/spurgear/instructions.md` L434–496.
+
+## 7 `[GO]` Loft tooth
+
+Full builds call loftTooth through buildTooth. Find bottomToothProfile with
+`find_profile_by_curve_counts(ctx.gearProfileSketch, nurbs=2, arcs=2, lines=2)` and topToothProfile with
+`find_profile_by_curve_counts(ctx.twistedGearProfileSketch, nurbs=2, arcs=2, lines=2)`.
+Both fixed six-curve searches are required; do not branch on ctx.toothProfileIsEmbedded.
+Use lofts from the gear component features, then
 `lofts.createInput(adsk.fusion.FeatureOperations.NewBodyFeatureOperation)`,
 `loftInput.loftSections.add(bottomToothProfile)`,
-`loftInput.loftSections.add(topToothProfile)`,
-`lofts.add(loftInput)`,
-`loftResult.bodies.item(0)`.
+`loftInput.loftSections.add(topToothProfile)`, and `lofts.add(loftInput)`.
+Take `loftResult.bodies.item(0)`, store it as ctx.toothBody, and name it 'Tooth Body'.
+Bottom precedes top [HELI-F-LOFT], [PB-LOFT], [PB-PROFILE-MATCH].
 
-The resulting body is `ctx.toothBody` and its name is exactly `'Tooth Body'`.
+The proof function is `stepLoftTooth`. The engine refuses fitted-spline section pairs, so the proof
+chords both flanks and circular boundaries while preserving all 15 sampled flank points.
+It asserts the exact volume of the resulting triangular walls, including the signed diagonal contribution.
+It does not establish Fusion spline-surface volume or BRep edge counts.
+The measured solid cases are 0 and +/-14.5 degrees at 10 mm thickness and +14.5 degrees at 2 mm.
+These are proof cases, not dialog limits or a guarantee for all angles between them.
 
-**Add the bottom section first, then the top.** Both sections are found with the framework helper;
-do not re-implement the loop search, which rejects loops whose curve counts do not match and raises
-when nothing matches (`[PB-PROFILE-MATCH]`).
+<!-- proof-run: proofkit3d.RunSolid(solidCases, stepLoftTooth, assertLoftTooth) -->
 
-⚠️ **Non-embedded only.** Both searches pass a fixed `nurbs=2, arcs=2, lines=2` — the non-embedded
-six-curve tooth. This implementation does **not** read `ctx.toothProfileIsEmbedded` and has **no**
-embedded branch, so an embedded low-tooth-count helical gear, whose flanks start inside the root
-circle and whose loop therefore has `lines=0`, fails to find its profile. That is faithful to the
-current code: a documented limitation, not a bug to fix here.
+<!-- step-meta
+{
+  "schema": 2,
+  "citations": [
+    {
+      "path": "spec/helicalgear/fusion.md",
+      "first": 44,
+      "last": 66
+    },
+    {
+      "path": "spec/helicalgear/instructions.md",
+      "first": 33,
+      "last": 47
+    }
+  ],
+  "calls": [
+    {
+      "span": "find_profile_by_curve_counts(ctx.gearProfileSketch, nurbs=2, arcs=2, lines=2)",
+      "name": "find_profile_by_curve_counts",
+      "receiver": null,
+      "owner": null,
+      "role": "inherited",
+      "condition": null,
+      "reason": "The shared utilities helper selects the exact curve-count profile."
+    },
+    {
+      "span": "find_profile_by_curve_counts(ctx.twistedGearProfileSketch, nurbs=2, arcs=2, lines=2)",
+      "name": "find_profile_by_curve_counts",
+      "receiver": null,
+      "owner": null,
+      "role": "inherited",
+      "condition": null,
+      "reason": "The shared utilities helper selects the exact curve-count profile."
+    },
+    {
+      "span": "lofts.createInput(adsk.fusion.FeatureOperations.NewBodyFeatureOperation)",
+      "name": "createInput",
+      "receiver": "lofts",
+      "owner": "adsk.fusion.LoftFeatures",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "loftInput.loftSections.add(bottomToothProfile)",
+      "name": "add",
+      "receiver": "loftInput.loftSections",
+      "owner": "adsk.fusion.LoftSections",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "loftInput.loftSections.add(topToothProfile)",
+      "name": "add",
+      "receiver": "loftInput.loftSections",
+      "owner": "adsk.fusion.LoftSections",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "lofts.add(loftInput)",
+      "name": "add",
+      "receiver": "lofts",
+      "owner": "adsk.fusion.LoftFeatures",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "loftResult.bodies.item(0)",
+      "name": "item",
+      "receiver": "loftResult.bodies",
+      "owner": "adsk.fusion.BRepBodies",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    }
+  ]
+}
+-->
 
-### What the proof establishes
+**From:** `spec/helicalgear/fusion.md` L44–66; `spec/helicalgear/instructions.md` L33–47.
 
-`stepLoftTooth` builds the two sections on two planes of one world — the bottom tooth at angle 0 on
-the target plane, the twisted tooth at the helix angle on a plane offset by the full `Thickness` —
-and lofts them bottom first, exactly as this step does. `assertLoftTooth` then reads the solid.
+## 8 `[GO]` Extrude root body
 
-The tooth starts on the target plane and is exactly `Thickness` tall, which is the reading that
-holds `helicalPlaneOffset` (H7) at the full thickness rather than a fraction of it. Its twist is
-read off its own centroid, which for a solid ruled between a tooth and the same tooth rotated sits
-at exactly half the helix angle: that one reading says the twist is the Helix Angle rather than a
-lead angle, that Thickness does not enter it — two cases differ only in Thickness — and that the
-sign of the input is the hand of the built helix, since a left-hand helix that came out right-handed
-would read at the opposite angle.
+The inherited buildBody selects the root disc by two arcs and extrudes it as a New Body to ctx.extrusionEndPlane,
+using PositiveExtentDirection and a non-chained to-entity extent. Name the feature 'Extrude body' and body 'Gear Body'.
+Store ctx.gearBody and the far planar face in ctx.extrusionExtent.
+Select the latter by parallel but not coplanar geometry against the Gear Profile reference plane.
+Raise if the far cap or the cylindrical axis source is absent [PB-PROFILE-MATCH], [PB-NUMERIC-SNAPSHOT].
+The proof function is `stepExtrudeBody`; it measures the exact root cylinder's volume and bounds.
+It models the final disc with one circle; the sketch proof separately checks the tooth-root profile split.
 
-The pinned section order is proved by building the other one. The reversed loft is a valid solid of
-the same handedness twisted by the same angle, so the swap is **silent** in the reading a caller is
-most likely to check, which is why the order has to be pinned here rather than left to the
-implementation. What it changes is the ruled walls: each is a quadrilateral that a twist makes
-non-planar and that is built across one of its two diagonals, and reversing the sections picks the
-other. The two solids straddle the true ruled volume and their mean is it exactly, which is asserted
-against a closed form of the same two outlines; the gap between them is asserted to be larger than
-either reading's own bound, and its measured size is printed per case — 6.8 percent of the ruled
-volume at the 14.5 degree default, rising to 40.2 percent at a quarter turn. At zero twist there is
-no diagonal to choose and the two orders are required to agree outright.
+<!-- proof-run: proofkit3d.RunSolid(solidCases, stepExtrudeBody, assertExtrudeBody) -->
 
-Two substitutions are recorded in the proof file, and both are forced. The flanks are chorded because
-the engine refuses a free-form segment pairing, which two fitted splines are. The tooth-top and root
-arcs are chorded too, because the bound the engine proves on an arc-walled loft's volume reading
-lands outside its own relative tolerance at gear-tooth scale — measured, 0.0321 mm³ against a 0.0300
-mm³ tolerance on a 1 module, 12 tooth, 10 mm tooth at 14.5 degrees — and the solid gate this proof is
-held to admits such a reading for an area or a centroid but not for a volume. A section of lines
-carries no such wall. What the chording costs is each chord's sagitta, so the lofted tooth is
-slightly smaller than the real one; no assertion compares it against a closed-form involute tooth,
-so it never enters one.
+<!-- step-meta
+{
+  "schema": 2,
+  "citations": [
+    {
+      "path": "spec/spurgear/instructions.md",
+      "first": 507,
+      "last": 517
+    }
+  ],
+  "calls": []
+}
+-->
 
-The proof also records where the ruled walls stop being buildable, measured **per sign**, because
-this gear's spec deliberately quotes no range and the bound belongs to the proof's own modelling
-rather than to the gear. Measured at three sizes on 2026-09-18, a positive twist builds to +95
-degrees and is refused from +100, while a negative twist builds to -179 degrees, the widest tried.
-The table carries a case past the positive bound, which skips with the engine's own refusal, so
-every run says where that bound still is.
+**From:** `spec/spurgear/instructions.md` L507–517.
 
-**From:** `spec/helicalgear/instructions.md` L40-47, L89-94, L114-116, L161-164, L166-175, L202-204; `spec/helicalgear/fusion.md` L46-65; `spec/spurgear/instructions.md` L217-225, L312-315, L501-505; `.claude/skills/generate-gear/PLAYBOOK.md` L145-158, L672-681, L724-728.
+## 9 `[PROSE]` Gear Center construction axis
 
-## H11 `[PROSE]` Everything else is spur's, unchanged
+The inherited buildBody creates ctx.centerAxis from a cylindrical face of ctx.gearBody.
+Name it 'Gear Center' and set isLightBulbOn=False [PB-CONSTRUCTION-AXES].
+A construction axis has no standalone solid or authored sketch output.
+The circular placement proof consumes the analytic cylinder axis but does not model Fusion face classification.
 
-Helical overrides the methods in H4 through H10 and **nothing else**. Do not re-implement
-`processInputs`, `prepareTools`, `buildMainGearBody`, `buildBody`, `patternTeeth`, `createFillets`,
-`buildBore`, `chamferTeeth`, `cleanup`, or any part of `SpurGearInvoluteToothDesignGenerator`. Spur's
-generation order runs untouched around helical's two deltas: the body extrude, the pattern and
-combine, the root fillets, the optional bore, the completed-gear chamfer and the cleanup are spur's
-code, and the component setup — the gear occurrence, the Tools sketch and anchor chain, the Gear
-Profile sketch — is spur's too.
+<!-- step-meta
+{
+  "schema": 2,
+  "citations": [
+    {
+      "path": "spec/spurgear/instructions.md",
+      "first": 507,
+      "last": 517
+    }
+  ],
+  "calls": []
+}
+-->
 
-Helical adds **no cleanup of its own**, and the two visibility facts that follow from that are
-deliberate: the helix construction plane is left visible (H8), and the Twisted Gear Profile sketch
-stays hidden its whole life (H9). Reproduce both.
+**From:** `spec/spurgear/instructions.md` L507–517.
 
-Helical also adds **no runtime full-constraint gate**. Spur registers none and helical adds none; the
-twisted sketch's full constraint is a design-time property, proved by H9's bench rather than asserted
-in the generated module. Nothing in this module calls `settle_sketch_display` either — the shared
-command wrapper does that once, for every gear.
+## 10 `[GO]` Circular tooth pattern
 
-The completed-gear chamfer is shared and inherited without an override. It no longer uses a tooth-cap
-edge count: it scans every planar face of the completed gear body parallel to the Gear Profile plane
-and adds every unique boundary edge once, root-radius arcs included, excluding a bore's two circular
-cap edges by the positive bore radius. That selection remains pending Fusion verification
-(`[HELI-F-CHAMFER-COUNT]`).
+The inherited patternTeeth patterns ctx.toothBody around ctx.centerAxis with quantity ToothNumber,
+totalAngle '360 deg', and isSymmetric=False [PB-CIRCULAR-PATTERN].
+The resulting collection includes the original tooth exactly once [PB-PATTERN-BODIES].
+The proof function is `stepPatternTeeth`. It verifies 17 exact rotated copies, including the seed,
+in separate documents because shared-document verification cannot decide the faceted pairs' separation.
+It compares volume readings with both bounds and asserts each rotated copy's coordinate bounds.
+It proves each copy's placement and solidity, but not mutual separation of the full pattern.
 
-**From:** `spec/helicalgear/instructions.md` L17-21, L23-27, L89-94, L117-119, L143-149, L171-175, L195-207; `spec/helicalgear/fusion.md` L67-80; `spec/spurgear/instructions.md` L298-306, L558-573; `spec/spurgear/fusion.md` L223-233; `.claude/skills/generate-gear/PLAYBOOK.md` L534-555.
+<!-- proof-run: proofkit3d.RunSolid(solidCases, stepPatternTeeth, assertPatternTeeth) -->
+
+<!-- step-meta
+{
+  "schema": 2,
+  "citations": [
+    {
+      "path": "spec/spurgear/instructions.md",
+      "first": 518,
+      "last": 523
+    }
+  ],
+  "calls": []
+}
+-->
+
+**From:** `spec/spurgear/instructions.md` L518–523.
+
+## 11 `[GO]` Combine patterned teeth
+
+The inherited patternTeeth copies every pattern body, including the original exactly once, into a fresh
+ObjectCollection and performs one Combine Join with ctx.gearBody as target [PB-PATTERN-BODIES].
+Do not pass BRepBodies where ObjectCollection is required.
+The proof function is `stepCombineTeeth`; it performs real sequential unions and requires one surviving connected body.
+
+The exact cylinder-to-chorded-tooth boundary is refused at near-chord contact.
+The proof substitutes a circumscribed 68-sided root prism with inradius 7.25 mm, oriented at 0.01 radians.
+Its outward radial deviation is bounded by 7.25*(sec(pi/68)-1), approximately 0.00775 mm.
+The orientation avoids a collapsed intermediate cap triangle; it does not change the radial bound.
+The root prism extends 0.01 mm beyond each tooth cap, adding exactly 0.02 mm to its axial extent,
+because coplanar overlapping caps are refused by the engine.
+The proof therefore loses the exact cylindrical root and flush root/tooth caps; tooth thickness and placement remain exact.
+Keep the specified Fusion cylinder and feature extents unchanged.
+
+<!-- proof-run: proofkit3d.RunSolid(solidCases, stepCombineTeeth, assertCombineTeeth) -->
+
+<!-- step-meta
+{
+  "schema": 2,
+  "citations": [
+    {
+      "path": "spec/spurgear/instructions.md",
+      "first": 518,
+      "last": 523
+    }
+  ],
+  "calls": []
+}
+-->
+
+**From:** `spec/spurgear/instructions.md` L518–523.
+
+## 12 `[PROSE]` Root fillets
+
+The inherited createFillets uses FilletRadius=(RootCircleRadius*ToothSpaceAngleAtRoot/2)*0.9*cos(HelixAngle),
+where ToothSpaceAngleAtRoot=pi/ToothNumber-2*(tan(PressureAngle)-PressureAngle).
+Skip if the radius is nonpositive.
+Select every cylindrical root face within 0.0001 cm of RootCircleRadius, then only straight edges whose
+normalized direction satisfies abs(abs(dot(direction,axisNormal))-1)<0.01.
+Use geometry endpoints for the direction; do not sample an evaluator at arbitrary parameter zero.
+Silently return when no edges match. Set isTangentChain=False on the required inherited constant-radius edge set
+[PB-FILLET-CHAMFER]. Preserve the input-owned addConstantRadiusEdgeSet recipe in the source.
+
+The engine's fillet implementation accepts straight-prism lateral edges, but refuses completed non-prism loft/union receivers.
+A straight-prism demonstration would remove the requested helical geometry and its root joins.
+No equivalent completed-gear fillet substitute is established, so this operation remains unproved.
+The local API database disagrees with the inherited input-owned method; this advisory does not authorize changing it.
+
+<!-- step-meta
+{
+  "schema": 2,
+  "citations": [
+    {
+      "path": "spec/spurgear/instructions.md",
+      "first": 524,
+      "last": 534
+    },
+    {
+      "path": "spec/helicalgear/instructions.md",
+      "first": 26,
+      "last": 31
+    }
+  ],
+  "calls": []
+}
+-->
+
+**From:** `spec/spurgear/instructions.md` L524–534; `spec/helicalgear/instructions.md` L26–31.
+
+## 13 `[GO]` Bore Profile sketch
+
+The inherited buildBore returns before creating this step when SketchOnly is true or BoreDiameter<=0.
+Otherwise create 'Bore Profile' on the target plane and use the inherited tooth drawer's drawBore method.
+It projects ctx.anchorPoint, uses the first SketchPoint as the circle center, draws one solid bore circle with
+a driving diameter, and constrains the drawer's otherwise unused local origin to the same projected anchor.
+Do not constrain that origin to the immutable sketch origin [PB-DRIVING-DIM], [SPUR-F-LOCAL-ORIGIN],
+[SPUR-F-ANCHOR-CHAIN]. The proof function is `stepBoreProfile`.
+
+<!-- proof-run: proofkit.Run(boreSketchCases, stepBoreProfile) -->
+
+<!-- step-meta
+{
+  "schema": 2,
+  "citations": [
+    {
+      "path": "spec/spurgear/instructions.md",
+      "first": 535,
+      "last": 557
+    }
+  ],
+  "calls": []
+}
+-->
+
+**From:** `spec/spurgear/instructions.md` L535–557.
+
+## 14 `[GO]` Cut the bore
+
+The inherited buildBore extrude-cuts the bore profile to ctx.extrusionExtent with a non-chained to-entity
+extent and PositiveExtentDirection. Restrict participants to ctx.gearBody [PB-NUMERIC-SNAPSHOT].
+The proof function is `stepBoreCut`. It consumes the actual substituted combined gear and checks the exact
+removed cylinder volume against bounded before/after readings. A zero-radius case proves the disabled path.
+The proof cutting tool extends beyond the proof-only root overhang; it does not prove Fusion's to-entity feature.
+Keep this proof step serial because its build hands the consumed body's bounded volume to the assertion.
+
+<!-- proof-run: proofkit3d.RunSolid(boreCases, stepBoreCut, assertBoreCut) -->
+
+<!-- step-meta
+{
+  "schema": 2,
+  "citations": [
+    {
+      "path": "spec/spurgear/instructions.md",
+      "first": 535,
+      "last": 557
+    }
+  ],
+  "calls": []
+}
+-->
+
+**From:** `spec/spurgear/instructions.md` L535–557.
+
+## 15 `[PROSE]` Completed-gear chamfer and final visibility
+
+The inherited chamferTeeth runs after root fillets and the optional bore.
+Return for SketchOnly or zero ChamferTooth. Walk every planar completed-gear face parallel to the Gear Profile plane,
+including both ends; gather all boundary edges once by tempId.
+Keep root-radius arcs. Exclude only circular edges matching a positive BoreDiameter/2 within 0.001 cm.
+Raise if no end-cap face or no chamfer edge remains.
+Use the inherited createInput2 chamfer and equal-distance edge set with the final boolean False.
+Follow [HELI-F-CHAMFER-COUNT] and [PB-FILLET-CHAMFER]; do not reintroduce a tooth-cap edge-count predicate.
+Completed helical union bodies are non-prism receivers refused by the engine chamfer operation.
+No substitute preserving that final geometry and edge selection is established.
+The spec also leaves final Fusion end-cap selection verification pending.
+
+Cleanup is the last inherited action, in both modes [SPUR-F-CLEANUP], [PB-HIDE-AFTER-USE].
+Always hide normalized and Extrusion End planes and Gear Center axis, individually guarding absent entities.
+Only the full-build path hides Tools, Gear Profile, and Bore Profile sketches.
+SketchOnly shows the bottom Gear Profile, skips every solid operation, and still creates the hidden twisted sketch.
+The helix plane remains visible; the twisted sketch remains hidden. Add no helical cleanup override.
+
+<!-- step-meta
+{
+  "schema": 2,
+  "citations": [
+    {
+      "path": "spec/spurgear/instructions.md",
+      "first": 558,
+      "last": 573
+    },
+    {
+      "path": "spec/helicalgear/fusion.md",
+      "first": 26,
+      "last": 42
+    },
+    {
+      "path": "spec/helicalgear/fusion.md",
+      "first": 67,
+      "last": 80
+    },
+    {
+      "path": "spec/spurgear/fusion.md",
+      "first": 225,
+      "last": 242
+    }
+  ],
+  "calls": []
+}
+-->
+
+**From:** `spec/spurgear/instructions.md` L558–573; `spec/helicalgear/fusion.md` L26–42; `spec/helicalgear/fusion.md` L67–80; `spec/spurgear/fusion.md` L225–242.

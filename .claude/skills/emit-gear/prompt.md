@@ -17,6 +17,7 @@ reading `PLAYBOOK.md`, which you must not open — an anchor the extract lacks a
 still needs is a defect to report, not a reason to go find the full playbook); and the framework
 you build on and must not reimplement, which is
 `lib/geargen/base.py`, `misc.py`, `utilities.py`, `spurproxy.py` and `lib/fusion360utils/`.
+Read `docs/spec-to-code-performance/06-step-metadata-format.md` for version-2 call roles.
 
 **Do not read** `lib/geargen/{{gear}}.py`, `spec/{{gear}}/instructions.md`, `spec/{{gear}}/fusion.md`,
 or any previous draft. The step list is deliberately the only description of the gear you get. If
@@ -28,7 +29,11 @@ Apply each guard inside its named function. Do not read `contract.json`; the com
 is already in the checked steps. If a constant also appears in `## Exact values`, both sections
 must give the same string. Report a disagreement as a compile defect.
 
-**The step list's call spans are pre-verified.** Every Fusion call written in a code span in
+**Use version-2 `required` declarations as the execution checklist.** Preserve each
+stated condition. Other roles add no positive call requirement; existing source guards still
+enforce forbidden behavior. Legacy step lists retain their existing call checks.
+
+**The step list's required call spans are pre-verified.** Every required Fusion call written in a code span in
 `spec/{{gear}}/steps.md` was checked against the API database when the step list was compiled, and
 the spans carry the argument shapes the signatures ask for. Write those calls as the steps give
 them; do not re-query them. Ask the `fusion:query-api` skill only about a call you introduce that
