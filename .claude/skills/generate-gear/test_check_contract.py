@@ -170,17 +170,20 @@ class ShippedManifestTests(unittest.TestCase):
         # literal from one emit. The module is build output and its local names change
         # between regenerations; the recipe the guard protects does not.
         text = self.generated.read_text()
-        match = re.search(r'^.*\.parameter\.value\s*=\s*abs\(.*$', text, re.M)
+        function = MODULE.function_source(text, '_drawFlankToRoot')
+        self.assertIsNotNone(function)
+        match = re.search(r'^.*\.parameter\.value\s*=\s*abs\(.*$', function, re.M)
         self.assertIsNotNone(
             match, 'no signed axis-dimension assignment found to mutate')
         with tempfile.TemporaryDirectory() as directory:
             candidate = Path(directory) / 'spurgear.generated.py'
             original = match.group(0)
             indent = original[:len(original) - len(original.lstrip())]
-            candidate.write_text(text.replace(
+            changed_function = function.replace(
                 original,
                 indent + 'sketch.geometricConstraints.addCoincident('
-                'rootEnd, self.rootCircle)'))
+                'rootEnd, self.rootCircle)', 1)
+            candidate.write_text(text.replace(function, changed_function, 1))
 
             problems = MODULE.guard_problems(
                 self.guards, str(candidate), 'lib/geargen/spurgear.py', str(REPO))
