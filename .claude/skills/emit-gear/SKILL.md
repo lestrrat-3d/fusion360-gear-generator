@@ -25,6 +25,16 @@ Use one `drafting` round per draft attempt, including retries. A validation even
 complete runner invocation and its report import; record advisory triage only after reviewing
 the advisory findings.
 
+## Optional selected proof trial
+
+The default drafting prompt reads the complete `proof/<gear>/` directory. For a controlled
+selected-input trial, run `python3 .claude/skills/generate-gear/build_proof_bundle.py build <gear>`
+and `python3 .claude/skills/generate-gear/build_proof_bundle.py verify <gear>` before drafting.
+Render the trial prompt with `render_prompt.py emit-gear <gear> --selected-proof`. Verify the
+bundle again before placement. A failed build or verification ends the trial. The complete
+canonical proof and all emit gates still run for validation; a selected view does not qualify
+an unvalidated draft for placement.
+
 ## Procedure
 
 1. **Setup.** Work in a worktree, never the root checkout. Ensure `.tmp/` exists. Run

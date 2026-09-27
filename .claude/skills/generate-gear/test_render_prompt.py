@@ -239,6 +239,15 @@ class CommittedTemplatesTest(unittest.TestCase):
                 self.assertNotIn('{{', out)
                 self.assertNotIn('}}', out)
 
+    def test_emit_selected_proof_mode_uses_bundle(self):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = RENDERER.main(['render_prompt.py', 'emit-gear', 'spurgear',
+                                  '--selected-proof'])
+        self.assertEqual(code, 0, err.getvalue())
+        self.assertIn('`.tmp/spurgear.proof-bundle.md`', out.getvalue())
+        self.assertNotIn('`proof/spurgear/`, the checked geometry', out.getvalue())
+
     def test_templates_declare_only_gear(self):
         for skill in RENDERER.KNOWN_SKILLS:
             with self.subTest(skill=skill):
