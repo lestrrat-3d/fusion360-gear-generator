@@ -10,8 +10,197 @@ The proof for these steps is `proof/spurgear/geometry_test.go`, `proof/spurgear/
 | `spec/spurgear/instructions.md` | `8c761c4542788b3ad455fa7ae02dbf978e65b8ca` |
 | `spec/spurgear/fusion.md` | `5cd1f9f96e043efba42ae42a00ca6c13403e1339` |
 | `spec/helicalgear/fusion.md` | `f981173cb314094f2fd98cdd78d5bd8287cdc8ee` |
+| `spec/spurgear/contract.json` | `b72ff283f74775e62f9933eb1e905b49628676ff` |
 | `spec/spurgear/exact_values.json` | `fee6665556d2d9bb3673ee44b79fca03e7caf5a2` |
 | `.claude/skills/generate-gear/PLAYBOOK.md` | `9ee2dcbaed7b5480aa69e9295e8b61acaea081f3` |
+
+## Compilation contract
+
+```json
+{
+  "contract": {
+    "_comment": "Machine-readable contract checked by check_contract.py. This file owns exported Python constant names and values; exact_values.json refers to those names for dialog and parameter setup. The prose explains behavior and points to these checked sources. Methods are the pinned public and hook surface. source_guards pin constraint recipes whose names alone cannot reveal a regression.",
+    "classes": {
+      "SpurGearCommandInputsConfigurator": {
+        "bases": [],
+        "methods": [
+          "configure"
+        ]
+      },
+      "SpurGearGenerationContext": {
+        "bases": [
+          "GenerationContext"
+        ],
+        "ctx_fields": [
+          "plane",
+          "anchorPoint",
+          "extrusionEndPlane",
+          "gearProfileSketch",
+          "toothBody",
+          "gearBody",
+          "centerAxis",
+          "extrusionExtent",
+          "toothProfileIsEmbedded"
+        ],
+        "methods": [
+          "__init__"
+        ]
+      },
+      "SpurGearGenerator": {
+        "bases": [
+          "Generator"
+        ],
+        "methods": [
+          "__init__",
+          "prefixBase",
+          "newContext",
+          "addExtraPrimaryParameters",
+          "filletHelixFactorExpression",
+          "generateName",
+          "processInputs",
+          "registerDerivedParameters",
+          "generate",
+          "prepareTools",
+          "buildMainGearBody",
+          "buildSketches",
+          "buildTooth",
+          "chamferTeeth",
+          "buildBody",
+          "patternTeeth",
+          "createFillets",
+          "buildBore",
+          "cleanup"
+        ]
+      },
+      "SpurGearInvoluteToothDesignGenerator": {
+        "bases": [],
+        "methods": [
+          "__init__",
+          "getParameter",
+          "getParameterValue",
+          "calculateInvolutePoint",
+          "draw",
+          "drawCircles",
+          "drawTooth",
+          "drawBore"
+        ]
+      }
+    },
+    "module": "lib/geargen/spurgear.py",
+    "module_constants": {
+      "INPUT_ID_ANCHOR_POINT": "anchorPoint",
+      "INPUT_ID_BORE_DIAMETER": "boreDiameter",
+      "INPUT_ID_CHAMFER_TOOTH": "chamferTooth",
+      "INPUT_ID_MODULE": "module",
+      "INPUT_ID_PARENT": "parentComponent",
+      "INPUT_ID_PLANE": "plane",
+      "INPUT_ID_PRESSURE_ANGLE": "pressureAngle",
+      "INPUT_ID_SKETCH_ONLY": "sketchOnly",
+      "INPUT_ID_THICKNESS": "thickness",
+      "INPUT_ID_TOOTH_NUMBER": "toothNumber",
+      "PARAM_BASE_DIAMETER": "BaseCircleDiameter",
+      "PARAM_BASE_RADIUS": "BaseCircleRadius",
+      "PARAM_BORE_DIAMETER": "BoreDiameter",
+      "PARAM_CHAMFER_TOOTH": "ChamferTooth",
+      "PARAM_FILLET_CLEARANCE": "FilletClearance",
+      "PARAM_FILLET_RADIUS": "FilletRadius",
+      "PARAM_INVOLUTE_STEPS": "InvoluteSteps",
+      "PARAM_MODULE": "Module",
+      "PARAM_PITCH_DIAMETER": "PitchCircleDiameter",
+      "PARAM_PITCH_RADIUS": "PitchCircleRadius",
+      "PARAM_PRESSURE_ANGLE": "PressureAngle",
+      "PARAM_ROOT_DIAMETER": "RootCircleDiameter",
+      "PARAM_ROOT_RADIUS": "RootCircleRadius",
+      "PARAM_SKETCH_ONLY": "SketchOnly",
+      "PARAM_THICKNESS": "Thickness",
+      "PARAM_TIP_DIAMETER": "TipCircleDiameter",
+      "PARAM_TIP_RADIUS": "TipCircleRadius",
+      "PARAM_TOOTH_NUMBER": "ToothNumber",
+      "PARAM_TOOTH_SPACE_ANGLE": "ToothSpaceAngleAtRoot",
+      "PARAM_TOOTH_SPACE_ARC": "ToothSpaceArcAtRoot"
+    },
+    "source_guards": [
+      {
+        "file": "lib/geargen/spurgear.py",
+        "in_function": "prepareTools",
+        "required": [
+          "\\.project\\([^)]*\\)\\.item\\(0\\)"
+        ],
+        "why": "[SPUR-F-ANCHOR-CHAIN]: Sketch.project returns an ObjectCollection; ctx.anchorPoint must hold its SketchPoint item."
+      },
+      {
+        "file": "lib/geargen/spurgear.py",
+        "in_function": "draw",
+        "required": [
+          "\\.project\\([^)]*\\)\\.item\\(0\\)"
+        ],
+        "why": "[SPUR-F-ANCHOR-CHAIN]: addCoincident requires a SketchEntity, not the ObjectCollection from Sketch.project."
+      },
+      {
+        "file": "lib/geargen/spurgear.py",
+        "in_function": "drawBore",
+        "required": [
+          "\\.project\\([^)]*\\)\\.item\\(0\\)"
+        ],
+        "why": "[SPUR-F-ANCHOR-CHAIN]: the bore centre must use the SketchPoint item from Sketch.project's ObjectCollection."
+      },
+      {
+        "banned": [
+          "addCoincident\\("
+        ],
+        "file": "lib/geargen/spurgear.py",
+        "in_function": "_drawFlankToRoot",
+        "required": [
+          "addDistanceDimension\\(",
+          "DimensionOrientations\\.HorizontalDimensionOrientation",
+          "DimensionOrientations\\.VerticalDimensionOrientation",
+          "\\.parameter\\.value\\s*="
+        ],
+        "why": "[SPUR-F-FLANK-ROOT]: the root endpoint is pinned by exactly two signed dimensions from the local origin. Constraining it onto the root circle, or the local origin onto the stub line, also reaches DOF 0 but leaves the far root-circle intersection equally valid, and the stub runs across the gear."
+      },
+      {
+        "banned": [
+          "originPoint"
+        ],
+        "file": "lib/geargen/spurgear.py",
+        "in_function": "buildBore",
+        "required": [
+          "drawBore\\(",
+          "addCoincident\\(",
+          "\\.anchorPoint"
+        ],
+        "why": "[SPUR-F-LOCAL-ORIGIN] and [PB-CIRCLE-CENTER]: the Bore Profile sketch's stray local origin is grounded on the anchor projected into that sketch, never on the sketch's own originPoint, which pins it to the plane instead of to the gear."
+      },
+      {
+        "banned": [
+          "NewPointOnCircle\\(re,",
+          "NewPointOnLine\\(origin,"
+        ],
+        "file": "proof/spurgear/sketches_test.go",
+        "required": [
+          "sketch\\.NewHorizontalDistance\\(origin, re, rx\\)",
+          "sketch\\.NewVerticalDistance\\(origin, re, ry\\)"
+        ],
+        "why": "The sketch bench is where [SPUR-F-FLANK-ROOT] was proven; it has to keep proving the recipe the generator is required to use."
+      },
+      {
+        "banned": [
+          "root-end-on-circle",
+          "origin-on-line"
+        ],
+        "file": "proof/spurgear/sketches_test.go",
+        "required": [
+          "flank-to-root lines: root endpoint pinned by signed",
+          "NewHorizontalDistance\\(origin, rootEnd, dx\\)",
+          "NewVerticalDistance\\(origin, rootEnd, dy\\)"
+        ],
+        "why": "The bench README is the constraint-by-constraint map a reader trusts; a stale row there sends the next generation back to the rejected recipe."
+      }
+    ]
+  },
+  "schema": 1
+}
+```
 
 ## Exact values
 

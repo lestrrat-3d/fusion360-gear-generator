@@ -22,6 +22,12 @@ you build on and must not reimplement, which is
 or any previous draft. The step list is deliberately the only description of the gear you get. If
 a step is unclear, record it as a defect in your report and make your best attempt.
 
+The checked step list includes `## Compilation contract` when the gear has a manifest. Read its
+v1 JSON as requirements for the module, its classes, methods, constants, and source guards.
+Apply each guard inside its named function. Do not read `contract.json`; the complete manifest
+is already in the checked steps. If a constant also appears in `## Exact values`, both sections
+must give the same string. Report a disagreement as a compile defect.
+
 **The step list's call spans are pre-verified.** Every Fusion call written in a code span in
 `spec/{{gear}}/steps.md` was checked against the API database when the step list was compiled, and
 the spans carry the argument shapes the signatures ask for. Write those calls as the steps give
