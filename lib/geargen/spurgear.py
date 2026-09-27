@@ -449,7 +449,7 @@ class SpurGearGenerator(Generator):
 
 
 class SpurGearInvoluteToothDesignGenerator:
-    def __init__(self, sketch: adsk.fusion.Sketch, parent: SpurGearGenerator, angle: float = 0):
+    def __init__(self, sketch: adsk.fusion.Sketch, parent, angle: float = 0):
         self.sketch = sketch
         self.parent = parent
         self.anchorPoint = sketch.sketchPoints.add(adsk.core.Point3D.create(0, 0, 0))

@@ -15,6 +15,10 @@ placed steps and proof passed all four compile gates with the sketch engine at
 eight emit gates. The deployed add-in generated a spur gear in Fusion with the
 default inputs except for a 4 mm bore. The Fusion-tested Python file has SHA-256
 `99567f2d01d4d4572b321a37e1fb0dc00bcffce6c3c5175dff0eeb7a579d3406`.
+After that run, the emitted file dropped one overly narrow parameter type annotation
+to admit bevel's existing `VirtualSpurProxy` call. The final file has SHA-256
+`94d840adbd93db7c034d2e7d29c88182ed4acad369ac1bfe2597225f1dbce202`;
+the drawing statements are unchanged.
 
 The bore example checks an annular profile's boundary counts, area, solid
 verdict, and volume. Its negative check rejects an incorrect bore radius. The
