@@ -588,6 +588,24 @@ the check.
   then `worldPoint.transformBy(m)` — passing a bound method where `Point3D.transformBy` expects a
   `Matrix3D` raises `TypeError: … argument 2 of type 'Matrix3D'`. (To map a world point into a
   sketch — e.g. an apex computed from a plane normal — call the method directly.)
+- **[PB-SKETCH-ZERO-Z] Set `z = 0` on every point `modelToSketchSpace` returns before a sketch uses
+  it.** A world point the generator computes "on the sketch's plane" lands at a small non-zero
+  sketch-space `z` whenever Fusion placed the plane a hair away from where the generator's own
+  arithmetic put it, and above a tolerance Fusion then treats the point as off the plane: every
+  curve and point built on it reads under-constrained, and `isFullyConstrained` is `False` with
+  every dimension present and driving.
+  - **Measured in Fusion on 2026-09-27** (screw gear, a section plane made with
+    `setByDistanceOnPath` on a 144 mm axis line): the collar section's points all sat at
+    `z = 4.4e-6` cm and every entity except the two fixed points read free. The identical sketch
+    rebuilt on the same plane read fully constrained with all points at `z = 0`, `3.15e-7` and
+    `1e-6` cm, and not at `4.4e-6` cm. The tooth sections before it sat at `3.2e-7` and
+    `7.1e-8` cm and passed, so the failure depends on where the plane falls and cannot be
+    predicted.
+  - **What to do.** `local = sketch.modelToSketchSpace(worldPoint)`, then `local.z = 0`, then use
+    `local` for `sketchPoints.add`, `addByTwoPoints`, `addByThreePoints`, a circle's centre or a
+    text point. Nothing is lost: the point was meant to lie on the plane, and `z` is the only
+    coordinate the rounding touches. A fixed point off the plane still reads constrained, so a
+    check on fixed points alone does not find this.
 - **[PB-SOLVED-GEOMETRY] Read SOLVED `.geometry` for any computed-from-geometry bound — not the seed coordinates.** When
   a value is derived from the positions of constrained sketch points (a clearance, a max-offset
   bound, a measured distance), read each point's `.geometry` *after* the constraints that locate it
