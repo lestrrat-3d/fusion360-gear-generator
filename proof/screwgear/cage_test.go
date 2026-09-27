@@ -15,32 +15,34 @@ import (
 // frame. The ring is at gear B's end and the loop at gear A's, so one gear's
 // collars sit low and the other's high, and the gears meet in the middle.
 //
-// The collar is what holds a gear to its screw motion. Its BORE is the ribbon's
-// own cross-section, turned to the angle the ribbon has there and twisted
-// through the collar at the ribbon's own lead, so a gear that turns without
-// advancing jams in it. A round hole would not, and the mechanism would have
-// three degrees of freedom instead of one. The collar's outside is that bore
-// grown by the wall in every direction of its own section, which rounds every
-// corner off.
+// The collar is what holds a gear to its screw motion. Its BORE is the
+// ribbon's crest rectangle plus the clearance, turned to the angle the ribbon
+// has there and twisted through the collar at the ribbon's own lead, so a gear
+// that turns without advancing jams in it. A round hole would not, and the
+// mechanism would have three degrees of freedom instead of one. The collar's
+// outside is that bore grown by the wall in every direction of its own
+// section, which rounds every corner off.
 //
-// What passes through a collar is never a tooth. The ribbon carries a smooth
-// boss at each of the two places it crosses the frame, the bore is cut to that
-// boss, and the teeth stay outside it.
+// What passes through a collar is the plain ribbon, teeth and all. The crest
+// of a cosine rack is the ribbon's outer edge, so the crest rectangle holds
+// every point of the ribbon and the bore needs no tooth-shaped cut; the crests
+// are what bear on its toothed side, as in the video, where the teeth run
+// straight through the collars.
 //
 // A rod cannot stand where its ribbon crosses the frame, because the ribbon
 // runs on through that point. It stands beside its collar instead, on the
 // ring's own circle, turned round the ring by the least angle at which it
-// clears both ribbons over the whole stroke, and the collar's wall is what
-// joins the two. All four are turned the same way round, so they land in the
-// gaps between the ribbons rather than against each other, and the loop that
-// joins their feet is a rectangle with a corner at each rod.
+// clears both ribbons at every phase of the travel, and the collar's wall is
+// what joins the two. All four are turned the same way round, so they land in
+// the gaps between the ribbons rather than against each other, and the loop
+// that joins their feet is a rectangle with a corner at each rod.
 
 // crossing is one place a ribbon passes through the frame: its collar, and the
 // rod that serves it.
 type crossing struct {
 	gear    int     // 0 for gear A, 1 for gear B
 	g       Gear    // that gear, at the assembly phase
-	station float64 // where the boss sits on the ribbon's own axis at that phase
+	station float64 // where the collar sits on the ribbon's own axis
 	azimuth float64 // of that point round the frame's axis
 	rod     float64 // azimuth of the rod, on the ring's circle
 }
@@ -52,26 +54,24 @@ type frame struct {
 	cross [4]crossing
 }
 
-// collarStations are where a gear's collars sit on its own axis: where its
-// bosses are at the assembly phase. Gear B is assembled a fraction of a pitch
-// along its axis from gear A, and its bosses go with it, so its collars are
-// that far from the ring's circle along its axis.
-func collarStations(g Gear) [2]float64 {
-	s := boreStations(g.P)
-	return [2]float64{s[0] + g.Phase, s[1] + g.Phase}
-}
-
 func azimuthOf(g Gear, station float64) float64 {
 	c := g.Origin.Add(g.Ez.Scale(station))
 	return math.Atan2(c.Y, c.X)
 }
 
 // newFrame places the frame round the pair, deriving where each rod stands.
+//
+// Every collar sits where its ribbon's axis crosses the circle of radius
+// CageRadius about the frame's axis, which is station +/-CageRadius of that
+// axis for both gears alike. The assembly phase moves gear B's ribbon along
+// its axis and not its collars: the ribbon is the same twisted rack from end
+// to end, so any stretch of it fits a collar, and the frame has no way to
+// know the phase, since the ribbon can go in at any phase a pitch apart.
 func newFrame(ga, gb Gear) frame {
 	f := frame{p: ga.P, gears: [2]Gear{ga, gb}}
 	i := 0
 	for gi, g := range f.gears {
-		for _, station := range collarStations(g) {
+		for _, station := range boreStations(g.P) {
 			f.cross[i] = crossing{gear: gi, g: g, station: station, azimuth: azimuthOf(g, station)}
 			i++
 		}
@@ -82,10 +82,28 @@ func newFrame(ga, gb Gear) frame {
 	return f
 }
 
+// travelLimits is how far the pair can advance from the assembly position,
+// backward and forward, before an end of either ribbon leaves one of that
+// ribbon's collars. Advancing a gear moves its ends with it, so a gear whose
+// far end is D past a collar's far face can advance D that way. Gear B is
+// assembled a fraction of a pitch along its axis, so its two limits differ by
+// that much, and the pair's limit each way is the tighter gear's.
+func (f frame) travelLimits() (float64, float64) {
+	back, fwd := math.Inf(1), math.Inf(1)
+	for _, g := range f.gears {
+		lo, hi := g.span()
+		for _, station := range boreStations(g.P) {
+			back = math.Min(back, hi-(station+f.p.CollarHalf))
+			fwd = math.Min(fwd, (station-f.p.CollarHalf)-lo)
+		}
+	}
+	return back, fwd
+}
+
 // rodShift is the least angle round the ring, in the frame's positive sense,
-// at which a rod on the ring's circle clears BOTH ribbons over the whole stroke
-// by the clearance. Searching from zero is what puts the rod as close beside
-// its collar as it can stand.
+// at which a rod on the ring's circle clears BOTH ribbons at every phase of the
+// travel by the clearance. Searching from zero is what puts the rod as close
+// beside its collar as it can stand.
 //
 // The search never finishes at a full turn: a rod that clears nowhere on the
 // circle means the ring is too small for the ribbon, and that is reported by
@@ -101,7 +119,7 @@ func (f frame) rodShift(c crossing) float64 {
 }
 
 // rodClears answers whether a rod at the given azimuth stays the clearance away
-// from everything either ribbon reaches over the stroke. The rod runs the whole
+// from everything either ribbon reaches at any phase. The rod runs the whole
 // height of the frame, so only the horizontal distance counts.
 func (f frame) rodClears(azimuth float64) bool {
 	p := f.p
@@ -217,10 +235,11 @@ func (f frame) inFrame(pt r3.Vec) bool {
 	return false
 }
 
-// eachRibbonPoint walks a ribbon's whole surface at one tooth phase.
+// eachRibbonPoint walks a ribbon's whole surface at one tooth phase, from one
+// end of the ribbon to the other.
 func eachRibbonPoint(g Gear, step float64, fn func(pt r3.Vec, u, s float64)) {
-	half := g.P.Length() / 2
-	for s := -half; s <= half; s += step {
+	from, to := g.span()
+	for s := from; s <= to; s += step {
 		uHi, uLo, t := g.profile(s)
 		for i := range 5 {
 			v := -t + 2*t*float64(i)/4
@@ -231,11 +250,11 @@ func eachRibbonPoint(g Gear, step float64, fn func(pt r3.Vec, u, s float64)) {
 	}
 }
 
-// eachEnvelopePoint walks the boundary of everything a ribbon reaches over the
-// whole stroke, between two stations.
+// eachEnvelopePoint walks the boundary of everything a ribbon reaches at any
+// tooth phase, between two stations.
 func eachEnvelopePoint(g Gear, from, to, step float64, fn func(pt r3.Vec)) {
+	uHi, uLo, t := g.envelope()
 	for s := from; s <= to; s += step {
-		uHi, uLo, t := g.envelope(s)
 		for i := range 5 {
 			k := float64(i) / 4
 			v := -t + 2*t*k
@@ -246,6 +265,13 @@ func eachEnvelopePoint(g Gear, from, to, step float64, fn func(pt r3.Vec)) {
 			fn(g.world(u, -t, s))
 		}
 	}
+}
+
+// travelSpan is every station a ribbon covers at some phase of the travel:
+// its span at the assembly phase, stretched half the travel each way.
+func travelSpan(g Gear) (float64, float64) {
+	lo, hi := g.span()
+	return lo - g.P.Travel()/2, hi + g.P.Travel()/2
 }
 
 func defaultFrame() frame {
@@ -308,10 +334,20 @@ func TestRodsStandBesideTheirCollars(t *testing.T) {
 			t.Errorf("the rod for the collar at %.0f degrees runs nowhere inside that collar's wall, "+
 				"so nothing joins the two", c.azimuth*180/math.Pi)
 		}
+		// And the whole rod runs within the collar's length, not just its
+		// axis: the collar's ends are square to the ribbon, so the rod's
+		// station along the ribbon has to sit its own radius inside either end.
+		_, along := boreGap(c.g, f.rodPoint(c, 0))
+		if off := math.Abs(along - c.station); off+p.RodRadius() > p.CollarHalf+1e-9 {
+			t.Errorf("the rod for the collar at %.0f degrees stands %.2f mm along the ribbon from the "+
+				"collar's middle, so part of its %.1f mm diameter misses the collar's %.1f mm length",
+				c.azimuth*180/math.Pi, off, p.RodDiameter, 2*p.CollarHalf)
+		}
 		chord := 2 * p.RingRadius * math.Sin(shift/2)
 		t.Logf("rod %d stands %.1f degrees round the ring from its collar, %.1f mm from the crossing, "+
-			"its axis %.2f mm outside the bore where the wall takes it in",
-			i, shift*180/math.Pi, chord, nearest)
+			"its axis %.2f mm outside the bore where the wall takes it in and %.2f mm along the ribbon "+
+			"from the collar's middle",
+			i, shift*180/math.Pi, chord, nearest, along-c.station)
 	}
 
 	for i := range f.cross {
@@ -386,18 +422,18 @@ func TestFrameIsOnePiece(t *testing.T) {
 		sides[0], sides[1], sides[2], sides[3])
 }
 
-// Everything either ribbon reaches over the whole stroke has to miss every part
-// of the frame but its own bore, by the clearance. This walks the envelope of
-// both ribbons — the crest on the toothed side and the boss at its fullest for
-// each station — against the ring, the loop, the rods and the collars.
-func TestRibbonsClearTheFrameOverTheStroke(t *testing.T) {
+// Everything either ribbon reaches at any phase of the travel has to miss every
+// part of the frame but its own bore, by the clearance. This walks the crest
+// rectangle of both ribbons, over every station the travel carries them
+// through, against the ring, the loop, the rods and the collars.
+func TestRibbonsClearTheFrameOverTheTravel(t *testing.T) {
 	f := defaultFrame()
 	p := f.p
-	half := p.Length() / 2
 
 	ring, loop, rod := math.Inf(1), math.Inf(1), math.Inf(1)
 	for _, g := range f.gears {
-		eachEnvelopePoint(g, -half, half, 0.02, func(pt r3.Vec) {
+		lo, hi := travelSpan(g)
+		eachEnvelopePoint(g, lo, hi, 0.02, func(pt r3.Vec) {
 			ring = math.Min(ring, f.ringGap(pt))
 			loop = math.Min(loop, f.loopGap(pt))
 			rod = math.Min(rod, f.rodGap(pt))
@@ -411,57 +447,70 @@ func TestRibbonsClearTheFrameOverTheStroke(t *testing.T) {
 	}
 	for name, gap := range map[string]float64{"ring": ring, "loop": loop, "rods": rod} {
 		if gap < p.Clearance {
-			t.Errorf("a ribbon comes within %.3f mm of the %s over the stroke, under the %.2f mm clearance",
+			t.Errorf("a ribbon comes within %.3f mm of the %s over the travel, under the %.2f mm clearance",
 				gap, name, p.Clearance)
 		}
 	}
-	t.Logf("over a %.2f mm stroke the ribbons keep %.2f mm from the ring, %.2f mm from the loop and "+
-		"%.2f mm from the rods", p.Stroke(), ring, loop, rod)
+	behind, ahead := f.travelLimits()
+	t.Logf("over the %.1f mm travel the ribbons keep %.2f mm from the ring, %.2f mm from the loop and "+
+		"%.2f mm from the rods", behind+ahead, ring, loop, rod)
 }
 
-// Inside a collar the ribbon both clears the bore and fills it, over the whole
-// stroke: what is in the bore is always the boss's flat top, the clearance
-// away from the wall all round. A stroke longer than the boss allows would put
-// the boss's taper in the bore at the ends of the travel, and the ribbon would
-// then be loose in the frame there rather than held.
-func TestCollarBoresHoldTheBossOverTheStroke(t *testing.T) {
+// Inside a collar every point of the ribbon, teeth included, stays inside the
+// bore by the clearance, at every phase of the travel; and the bore is no
+// looser than that. The back edge and both faces run the clearance from the
+// wall at every station, and on the toothed side the crests come to the
+// clearance whenever the travel brings one into the collar, which is what
+// "the crests bear on the bore's toothed side" means. Between crests the
+// toothed side falls away by the tooth height, and nothing bears there.
+func TestRibbonsStayInsideTheirBoresOverTheTravel(t *testing.T) {
 	f := defaultFrame()
 	p := f.p
 
-	least, most := math.Inf(1), 0.0
+	// The least gap on each side of the bore, over every collar, phase and
+	// station: the crest side, the back edge and the faces.
+	behind, ahead := f.travelLimits()
+	crest, back, face := math.Inf(1), math.Inf(1), math.Inf(1)
 	for _, c := range f.cross {
-		for d := -p.Stroke() / 2; d <= p.Stroke()/2+1e-9; d += p.Stroke() / 20 {
+		for d := -behind; d <= ahead+1e-9; d += 0.05 {
 			g := c.g
 			g.Phase = c.g.Phase + d
 			for s := c.station - p.CollarHalf; s <= c.station+p.CollarHalf+1e-9; s += 0.02 {
 				uHi, uLo, vHalf := g.profile(s)
-				gap := math.Min(p.BoreHalfWidth()-uHi, math.Min(p.BoreHalfWidth()+uLo,
-					p.BoreHalfThickness()-vHalf))
-				least, most = math.Min(least, gap), math.Max(most, gap)
+				crest = math.Min(crest, p.BoreHalfWidth()-uHi)
+				back = math.Min(back, p.BoreHalfWidth()+uLo)
+				face = math.Min(face, p.BoreHalfThickness()-vHalf)
 			}
 		}
 	}
-	if least < p.Clearance-1e-6 {
-		t.Errorf("the ribbon comes within %.4f mm of a bore's wall over the stroke, under the %.2f mm clearance",
-			least, p.Clearance)
+	for name, gap := range map[string]float64{"crests": crest, "back edge": back, "faces": face} {
+		if gap < p.Clearance-1e-6 {
+			t.Errorf("the ribbon's %s come within %.4f mm of a bore's wall over the travel, under the "+
+				"%.2f mm clearance", name, gap, p.Clearance)
+		}
 	}
-	if most > p.Clearance+1e-6 {
-		t.Errorf("the ribbon falls %.4f mm short of a bore's wall somewhere in the stroke: the boss "+
-			"does not fill the bore over the whole travel", most)
+	// And no looser: the bore is cut to the ribbon, not merely round it.
+	for name, gap := range map[string]float64{"crests": crest, "back edge": back, "faces": face} {
+		if gap > p.Clearance+5e-3 {
+			t.Errorf("the ribbon's %s never come nearer a bore's wall than %.4f mm: the bore is cut "+
+				"looser than the %.2f mm clearance", name, gap, p.Clearance)
+		}
 	}
-	t.Logf("over the %.2f mm stroke every bore holds the boss at %.3f-%.3f mm all round",
-		p.Stroke(), least, most)
+	t.Logf("over the %.1f mm travel the bores hold the ribbon at %.3f mm on the crests, %.3f mm on "+
+		"the back edge and %.3f mm on the faces; the bore is %.1f by %.1f mm",
+		behind+ahead, crest, back, face, 2*p.BoreHalfWidth(), 2*p.BoreHalfThickness())
 }
 
 // The bore is not the twisted channel the model describes. Fusion has no twist
 // for a solid, so the build CUTS it with a loft through a handful of rotated
 // rectangles, and a loft is flat between its sections: the wall is faceted, and
 // every facet stands a little inside the true channel. What that costs is
-// clearance, because the facet takes its bite out of the gap the boss passes
+// clearance, because the facet takes its bite out of the gap the ribbon passes
 // through, and enough of it would bind the gear.
 //
 // This measures the bite. It builds the lofted opening over the collar's span
-// as the build would, and asks how much room is left round the boss.
+// as the build would, and asks how much room is left round the ribbon's crest
+// rectangle.
 func TestBoreLoftKeepsItsClearance(t *testing.T) {
 	f := defaultFrame()
 	p := f.p
@@ -474,7 +523,7 @@ func TestBoreLoftKeepsItsClearance(t *testing.T) {
 		left := boreLoftClearance(c.g, lo, hi, n)
 		if left < 0.95*p.Clearance {
 			t.Errorf("the bore at station %+.1f lofts through %d sections %.1f degrees apart and "+
-				"leaves the boss %.4f mm, under the %.4f mm that is 95%% of the clearance",
+				"leaves the ribbon %.4f mm, under the %.4f mm that is 95%% of the clearance",
 				c.station, n, turn/float64(n-1)*180/math.Pi, left, 0.95*p.Clearance)
 		}
 		worst = math.Min(worst, left)
@@ -483,7 +532,7 @@ func TestBoreLoftKeepsItsClearance(t *testing.T) {
 	// What the spec once fixed at five sections, for the record.
 	c := f.cross[0]
 	lo, hi := boreSpan(p, c.station)
-	t.Logf("the lofted bore turns %.0f degrees through %d sections and leaves the boss %.4f mm of "+
+	t.Logf("the lofted bore turns %.0f degrees through %d sections and leaves the ribbon %.4f mm of "+
 		"the %.2f mm clearance; five sections would leave %.4f mm",
 		(hi-lo)/p.Lambda()*180/math.Pi, boreSections((hi-lo)/p.Lambda()), worst, p.Clearance,
 		boreLoftClearance(c.g, lo, hi, 5))
@@ -509,14 +558,15 @@ func boreSpan(p Params, station float64) (float64, float64) {
 	return station - p.CollarHalf - 1, station + p.CollarHalf + 1
 }
 
-// boreLoftClearance is the least room the lofted opening leaves round the boss,
-// over the whole span. The loft's corners run straight from one section to the
-// next, so at a station between two sections the opening is the four corners
-// interpolated, and the boss has to sit inside that quadrilateral.
+// boreLoftClearance is the least room the lofted opening leaves round the
+// ribbon's crest rectangle, over the whole span. The loft's corners run
+// straight from one section to the next, so at a station between two sections
+// the opening is the four corners interpolated, and the crest rectangle has to
+// sit inside that quadrilateral.
 func boreLoftClearance(g Gear, lo, hi float64, n int) float64 {
 	p := g.P
 	hw, ht := p.BoreHalfWidth(), p.BoreHalfThickness()
-	bw, bt := p.Width/2+p.BossGrow, p.Thickness/2+p.BossGrow
+	bw, bt := p.Width/2, p.Thickness/2
 	corner := func(s float64, i int) r3.Vec {
 		u, v := hw, ht
 		if i == 1 || i == 2 {
@@ -571,10 +621,10 @@ func TestTheMiddleStaysOpen(t *testing.T) {
 }
 
 // This is the frame's own proof: it admits the screw motion and nothing else.
-// TestRibbonsClearTheFrameOverTheStroke is the first half, that the gear moves
-// freely through its stroke. This is the second: the test turns a gear out of
-// step with its own advance and finds the angle at which its boss jams in the
-// collars.
+// TestRibbonsClearTheFrameOverTheTravel is the first half, that the gear moves
+// freely through its travel. This is the second: the test turns a gear out of
+// step with its own advance and finds the angle at which its crests and back
+// corners jam in the collars.
 //
 // A frame of round holes would report no jam at any angle, and that is the case
 // this rules out.
@@ -617,60 +667,96 @@ func TestBoresAdmitOnlyTheScrewMotion(t *testing.T) {
 		slack*180/math.Pi, p.Clearance)
 }
 
-// The boss travels with its gear, so its length is the stroke: the mechanism
-// runs only while the boss's flat top still fills the collars, and a collar's
-// length comes straight out of the travel.
-func TestStrokeIsTheBossLength(t *testing.T) {
-	p := defaultParams()
-
-	stroke := p.Stroke()
-	if stroke <= 0 {
-		t.Fatalf("the boss is %.2f mm long and the collar %.2f mm, so there is no travel",
-			2*p.BossHalf, 2*p.CollarHalf)
-	}
-	if teeth := stroke / p.ToothPitch; teeth < 2 {
-		t.Errorf("the stroke is %.2f mm, only %.1f teeth, too short to show a gear working",
-			stroke, teeth)
-	}
-	t.Logf("collar %.2f mm along the ribbon, stroke %.2f mm, which is %.1f teeth",
-		2*p.CollarHalf, stroke, stroke/p.ToothPitch)
-}
-
-// A tooth must never reach a bore, or the frame would need an opening shaped
-// like a tooth and the boss would be pointless. Both gears are walked, because
-// gear B's collars sit where ITS bosses are at the assembly phase.
-func TestTeethNeverReachABore(t *testing.T) {
+// Nothing on the ribbon limits the travel: it is the same twisted rack from
+// end to end, so any stretch of it fits a collar. What limits it is the
+// ribbon's length. A gear has to keep both its collars full, and it has to
+// keep the engaged zone covered or the teeth stop meshing; whichever of the
+// two an end reaches first is the limit. This walks each gear out of the
+// assembly position both ways to find both, holds Travel to the collars, and
+// records what the pair comes to once gear B's assembly phase is counted.
+func TestTravelIsTheRibbonBetweenItsCollars(t *testing.T) {
 	f := defaultFrame()
 	p := f.p
+	window := axialWindow(p)
 
-	for _, c := range f.cross {
-		for d := -p.Stroke() / 2; d <= p.Stroke()/2+1e-9; d += 0.05 {
-			for s := c.station - p.CollarHalf; s <= c.station+p.CollarHalf+1e-9; s += 0.02 {
-				g := c.g
-				g.Phase = c.g.Phase + d
-				if b := g.boss(s); b < p.BossGrow-1e-9 {
-					t.Fatalf("at travel %+.2f mm the ribbon inside the collar at %.1f stands only "+
-						"%.3f mm proud, so a tooth is in the bore", d, c.station, b)
-				}
+	// covered answers whether the ribbon, advanced by d, still spans [lo, hi]
+	// of its own axis.
+	covered := func(g Gear, d, lo, hi float64) bool {
+		g.Phase += d
+		from, to := g.span()
+		return from <= lo+1e-9 && to >= hi-1e-9
+	}
+	// firstUncovered is how far the gear can advance, in one direction, before
+	// [lo, hi] is no longer inside it.
+	firstUncovered := func(g Gear, sign, lo, hi float64) float64 {
+		for d := 0.0; d <= p.Length(); d += 0.01 {
+			if !covered(g, sign*d, lo, hi) {
+				return d
 			}
 		}
+		return math.Inf(1)
 	}
+
+	// Each gear's own limits, each way, from the collars and from the mesh.
+	var collars, mesh [2]float64 // [0] backward, [1] forward, the tighter gear's
+	for i := range collars {
+		collars[i], mesh[i] = math.Inf(1), math.Inf(1)
+	}
+	for _, g := range f.gears {
+		for i, sign := range []float64{-1, 1} {
+			for _, station := range boreStations(p) {
+				collars[i] = math.Min(collars[i],
+					firstUncovered(g, sign, station-p.CollarHalf, station+p.CollarHalf))
+			}
+			mesh[i] = math.Min(mesh[i], firstUncovered(g, sign, -window, window))
+		}
+	}
+
+	for i, way := range []string{"backward", "forward"} {
+		if mesh[i] <= collars[i] {
+			t.Errorf("%s, an end leaves the engaged zone at %.2f mm of advance, before it leaves a "+
+				"collar at %.2f mm: the collars are not what limits the travel", way, mesh[i], collars[i])
+		}
+	}
+	// A ribbon alone runs Travel through its own collars. Gear B sits a
+	// fraction of a pitch along its axis, so it reaches one collar that much
+	// sooner than gear A does, and the pair loses exactly that.
+	pairTravel := collars[0] + collars[1]
+	if got, want := pairTravel, p.Travel()-math.Abs(assemblyPhase); math.Abs(got-want) > 0.02 {
+		t.Errorf("walking the ends finds a travel of %.2f mm; Travel less the assembly phase is %.2f",
+			got, want)
+	}
+	if behind, ahead := f.travelLimits(); math.Abs(behind-collars[0]) > 0.011 || math.Abs(ahead-collars[1]) > 0.011 {
+		t.Errorf("walking the ends finds limits of %.2f mm back and %.2f mm forward; travelLimits "+
+			"derives %.2f and %.2f", collars[0], collars[1], behind, ahead)
+	}
+	if teeth := pairTravel / p.ToothPitch; teeth < 2 {
+		t.Errorf("the travel is %.2f mm, only %.1f teeth, too short to show a gear working",
+			pairTravel, teeth)
+	}
+	t.Logf("the pair travels %.1f mm, %.1f teeth, %.0f%% of the ribbon: %.1f mm back and %.1f mm "+
+		"forward of the assembly position, where an end reaches its collar's far face; a ribbon alone "+
+		"runs %.1f mm through its collars, and gear B, assembled %.2f mm along its axis, reaches one "+
+		"that much sooner; an end would leave the engaged zone at %.1f mm",
+		pairTravel, pairTravel/p.ToothPitch, 100*pairTravel/p.Length(), collars[0], collars[1],
+		p.Travel(), math.Abs(assemblyPhase), math.Min(mesh[0], mesh[1]))
 }
 
-// The frame puts each boss a set distance from the middle, and a smaller frame
-// puts it nearer the mesh. Outside the engaged zone the two ribbons have to
-// clear each other with their bosses on, at every phase of the stroke; the
-// mesh proof walks the bare ribbons, and the boss is the frame's business.
-func TestBossesClearTheOtherRibbon(t *testing.T) {
+// Outside the engaged zone the two ribbons have to clear each other at every
+// phase of the travel. The mesh proof walks the bare ribbons at the assembly
+// phases; this walks everything each ribbon reaches at any phase, over every
+// station the travel carries it through, against the other, and holds the
+// collars outside the engaged zone as well.
+func TestRibbonsClearEachOtherOutsideTheEngagement(t *testing.T) {
 	f := defaultFrame()
 	p := f.p
-	half := p.Length() / 2
 	window := axialWindow(p)
 
 	worst, worstAt := math.Inf(-1), 0.0
 	for i, g := range f.gears {
 		other := f.gears[1-i]
-		for _, side := range [][2]float64{{-half, -window}, {window, half}} {
+		lo, hi := travelSpan(g)
+		for _, side := range [][2]float64{{lo, -window}, {window, hi}} {
 			eachEnvelopePoint(g, side[0], side[1], 0.02, func(pt r3.Vec) {
 				if m := other.envelopeMargin(pt); m > worst {
 					_, _, s := g.local(pt)
@@ -681,12 +767,12 @@ func TestBossesClearTheOtherRibbon(t *testing.T) {
 	}
 	if worst > -p.Clearance {
 		t.Errorf("outside the engaged zone the ribbons come within %.3f mm of each other at station "+
-			"%.2f, under the %.2f mm clearance, once the boss is on", -worst, worstAt, p.Clearance)
+			"%.2f, under the %.2f mm clearance", -worst, worstAt, p.Clearance)
 	}
-	if got := p.CageRadius - p.BossHalf; got < window {
-		t.Errorf("a boss starts %.2f mm from the middle, inside the %.2f mm the teeth engage over", got, window)
+	if got := p.CageRadius - p.CollarHalf; got < window {
+		t.Errorf("a collar starts %.2f mm from the middle, inside the %.2f mm the teeth engage over", got, window)
 	}
-	t.Logf("with the bosses on, the ribbons keep %.2f mm from each other outside the engaged zone, "+
-		"closest at station %.2f; a boss starts %.2f mm from the middle", -worst, worstAt,
-		p.CageRadius-p.BossHalf)
+	t.Logf("outside the engaged zone the ribbons keep %.2f mm from each other at every phase of the "+
+		"travel, closest at station %.2f; a collar starts %.2f mm from the middle", -worst, worstAt,
+		p.CageRadius-p.CollarHalf)
 }

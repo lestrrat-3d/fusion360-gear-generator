@@ -78,10 +78,10 @@ bore's spans a millimetre more each end, so the cut runs clean through the colla
 through whatever of a rod stands inside the wall.
 
 One loft per bore, not one per gear. The two collars of a gear do stand on the same axis, so a single
-clearance ribbon through both is the obvious build, but it would have to span the 26 mm between
-their far ends and turn 284° on the way, and a loft's accuracy is set by the angle between
+clearance ribbon through both is the obvious build, but it would have to span the 24 mm between
+their far ends and turn 262° on the way, and a loft's accuracy is set by the angle between
 neighbouring sections. Lofting only a collar's own length with its margin is 6 mm and 65°, and needs
-a quarter of the sections for a better channel. `TestBoreLoftKeepsItsClearance` in the proof
+under a third of the sections for a better channel. `TestBoreLoftKeepsItsClearance` in the proof
 measures what is left.
 
 `twistAngle` is also ignored outright when a guide rail or guide surface is set, per the API

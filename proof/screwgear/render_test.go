@@ -269,14 +269,14 @@ func TestRenderPair(t *testing.T) {
 		t.Skip("no -render.out directory; the example images are not being regenerated")
 	}
 	ga, gb := defaultPair()
-	p := ga.P
-	half := p.Length() / 2
 
-	meshA, err := ribbonMesh(ga, -half, half)
+	fromA, toA := ga.span()
+	meshA, err := ribbonMesh(ga, fromA, toA)
 	if err != nil {
 		t.Fatalf("mesh gear A: %v", err)
 	}
-	meshB, err := ribbonMesh(gb, -half, half)
+	fromB, toB := gb.span()
+	meshB, err := ribbonMesh(gb, fromB, toB)
 	if err != nil {
 		t.Fatalf("mesh gear B: %v", err)
 	}
@@ -298,8 +298,8 @@ func TestRenderPair(t *testing.T) {
 	write(t, "plan.png", parts, 78, -90, 30, meshA, meshB, cage)
 
 	// The frame with one gear left in it, from a little above, which is the view
-	// that shows a collar with the boss in it, the rod beside it, and the loop's
-	// straight sides against the ring's round one.
+	// that shows a collar with the ribbon's teeth running through it, the rod
+	// beside it, and the loop's straight sides against the ring's round one.
 	write(t, "cage.png", []render.Part{
 		{Mesh: meshA, Color: gearAColor},
 		{Mesh: cage, Color: cageColor},
@@ -313,9 +313,9 @@ func TestRenderPart(t *testing.T) {
 		t.Skip("no -render.out directory; the example images are not being regenerated")
 	}
 	ga, _ := defaultPair()
-	half := ga.P.Length() / 2
 
-	mesh, err := ribbonMesh(ga, -half, half)
+	from, to := ga.span()
+	mesh, err := ribbonMesh(ga, from, to)
 	if err != nil {
 		t.Fatalf("mesh the gear: %v", err)
 	}

@@ -36,10 +36,6 @@ type Params struct {
 	Engagement  float64 // how deep the crests overlap
 	ToothCount  int
 
-	BossHalf  float64 // half the smooth boss's length along the ribbon
-	BossTaper float64 // how far the boss takes to run out into the teeth
-	BossGrow  float64 // how far the boss stands proud of the plain ribbon
-
 	CageRadius  float64 // where each ribbon crosses the frame, on its own axis from the middle
 	RingRadius  float64 // the ring's radius to the centre of its wire, and where the rods stand
 	CageRise    float64 // half the frame's height, to the centre of the ring's wire and of the loop's bars
@@ -63,12 +59,8 @@ func defaultParams() Params {
 		Engagement:  0.36,
 		ToothCount:  80,
 
-		BossHalf:  5,
-		BossTaper: 0.9,
-		BossGrow:  0.6,
-
-		CageRadius:  11,
-		RingRadius:  12.5,
+		CageRadius:  10,
+		RingRadius:  11.25,
 		CageRise:    13.5,
 		RingWire:    2.5,
 		RodDiameter: 2,
@@ -78,14 +70,13 @@ func defaultParams() Params {
 	}
 }
 
-// BoreHalfWidth and BoreHalfThickness are the bore's opening, which is the
-// ribbon's boss plus a clearance. The teeth never enter a bore: the boss is
-// what passes through, which is why nothing in the cage is cut to the shape of
-// a tooth.
-func (p Params) BoreHalfWidth() float64 { return p.Width/2 + p.BossGrow + p.Clearance }
-func (p Params) BoreHalfThickness() float64 {
-	return p.Thickness/2 + p.BossGrow + p.Clearance
-}
+// BoreHalfWidth and BoreHalfThickness are the bore's opening: the rectangle
+// the ribbon's crests and faces lie on, plus a clearance all round. The crest
+// of a cosine rack is the ribbon's outer edge, u = Width/2, so that rectangle
+// holds the whole ribbon, teeth included, and nothing in the cage has to be cut
+// to the shape of a tooth. The crests are what bear on the bore's toothed side.
+func (p Params) BoreHalfWidth() float64     { return p.Width/2 + p.Clearance }
+func (p Params) BoreHalfThickness() float64 { return p.Thickness/2 + p.Clearance }
 
 // RingOuter is the ring's outer radius, and FrameHeight is the frame's whole
 // height from the bottom of the loop's bars to the top of the ring's wire. They
@@ -98,13 +89,17 @@ func (p Params) FrameHeight() float64 { return 2*p.CageRise + p.RingWire }
 func (p Params) WireRadius() float64 { return p.RingWire / 2 }
 func (p Params) RodRadius() float64  { return p.RodDiameter / 2 }
 
-// Stroke is how far the mechanism travels: the boss is the only part of a
-// ribbon that may be inside a collar, so the travel is what is left of the
-// boss's flat top once the collar's own length is taken out of it.
-func (p Params) Stroke() float64 { return 2 * (p.BossHalf - p.BossTaper - p.CollarHalf) }
+// Travel is how far the mechanism runs, end to end. Nothing on the ribbon
+// limits it: the whole ribbon is the same twisted rack, so any stretch of it
+// fits a collar. What limits it is the ribbon's own length: a gear has to keep
+// both its collars full, and its end reaches the far face of a collar once it
+// has advanced Length/2 - CageRadius - CollarHalf from the middle. The engaged
+// zone is nearer the middle than the collars, so the teeth are still meshing
+// there. TestTravelIsTheRibbonBetweenItsCollars walks both limits.
+func (p Params) Travel() float64 { return p.Length() - 2*(p.CageRadius+p.CollarHalf) }
 
-// boreStations are where a gear's two bosses sit on its own axis when its tooth
-// phase is zero: the two places it crosses the frame.
+// boreStations are where a gear's two collars sit on its own axis, measured
+// from the ribbon's own middle: the two places it crosses the frame.
 func boreStations(p Params) [2]float64 { return [2]float64{-p.CageRadius, p.CageRadius} }
 
 // Lambda is the screw parameter: millimetres of advance per radian of turn.
@@ -170,79 +165,39 @@ func (g Gear) edge(s float64) float64 {
 	return g.P.Width/2 - h/2 + h/2*math.Cos(2*math.Pi*(s-g.Phase)/g.P.ToothPitch)
 }
 
-// boss is how far the ribbon stands proud of its plain section at station s.
-//
-// The ribbon carries a smooth swelling at each of the two places it passes
-// through the cage, and that swelling is the only part of it the frame ever
-// touches. It is what lets a bore be a plain hole: the teeth never pass through
-// anything, and nothing bears on a crest.
-//
-// The boss is flat-topped over its middle and runs out into the teeth over
-// BossTaper at each end. It travels with the gear, so its length is the stroke.
-func (g Gear) boss(s float64) float64 {
+// envelope is everything the ribbon's cross-section can reach at any tooth
+// phase: the crest rectangle. It is the same at every station, because some
+// phase of the travel puts a crest at every station, and it is what the frame
+// has to clear, since a gear is somewhere in its travel whenever it is in the
+// frame at all.
+func (g Gear) envelope() (uHi, uLo, vHalf float64) {
 	p := g.P
-	best := 0.0
-	for _, centre := range boreStations(p) {
-		off := math.Abs(s-g.Phase-centre) - (p.BossHalf - p.BossTaper)
-		switch {
-		case off <= 0:
-			best = math.Max(best, p.BossGrow)
-		case off < p.BossTaper:
-			best = math.Max(best, p.BossGrow*0.5*(1+math.Cos(math.Pi*off/p.BossTaper)))
-		}
-	}
-	return best
-}
-
-// bossOver is the most the boss stands proud at station s at ANY tooth phase
-// within halfStroke of this gear's own: the boss's flat top and its tapers,
-// stretched by the travel. It is what the frame has to clear, since a gear is
-// somewhere in its stroke whenever it is in the frame at all.
-func (g Gear) bossOver(s, halfStroke float64) float64 {
-	p := g.P
-	best := 0.0
-	for _, centre := range boreStations(p) {
-		off := math.Max(0, math.Abs(s-g.Phase-centre)-halfStroke) - (p.BossHalf - p.BossTaper)
-		switch {
-		case off <= 0:
-			best = math.Max(best, p.BossGrow)
-		case off < p.BossTaper:
-			best = math.Max(best, p.BossGrow*0.5*(1+math.Cos(math.Pi*off/p.BossTaper)))
-		}
-	}
-	return best
-}
-
-// envelope is everything the ribbon's cross-section at station s can reach over
-// the whole stroke: the crest on the toothed side, because some phase puts a
-// crest at every station, and the boss at its fullest for that station.
-func (g Gear) envelope(s float64) (uHi, uLo, vHalf float64) {
-	p := g.P
-	b := g.bossOver(s, p.Stroke()/2)
-	return p.Width/2 + b, -p.Width/2 - b, p.Thickness/2 + b
+	return p.Width / 2, -p.Width / 2, p.Thickness / 2
 }
 
 // profile is the ribbon's cross-section at station s: how far it reaches on the
-// toothed side, on the back side, and either side of its own mid plane.
-//
-// The boss both swells the section and fades the teeth out of it, so the two
-// meet with no step.
+// toothed side, on the back side, and either side of its own mid plane. The
+// ribbon is the same twisted rack along its whole length, so only the toothed
+// side varies, and it does so with the tooth phase alone.
 func (g Gear) profile(s float64) (uHi, uLo, vHalf float64) {
 	p := g.P
-	b := g.boss(s)
-	tooth := 1.0
-	if p.BossGrow > 0 {
-		tooth = 1 - b/p.BossGrow
-	}
-	cut := p.ToothHeight / 2 * (1 - math.Cos(2*math.Pi*(s-g.Phase)/p.ToothPitch))
-	return p.Width/2 + b - tooth*cut, -p.Width/2 - b, p.Thickness/2 + b
+	return g.edge(s), -p.Width / 2, p.Thickness / 2
 }
 
-// envelopeMargin is margin taken against everything the ribbon reaches over
-// the whole stroke rather than against one phase of it.
+// span is the stretch of the axis the ribbon occupies at its current tooth
+// phase. Advancing a gear translates it along its axis by the same amount it
+// shifts the phase, so the ends move with the phase while the twisted blank
+// between them does not.
+func (g Gear) span() (float64, float64) {
+	half := g.P.Length() / 2
+	return g.Phase - half, g.Phase + half
+}
+
+// envelopeMargin is margin taken against everything the ribbon reaches at any
+// tooth phase rather than against one phase of it.
 func (g Gear) envelopeMargin(pt r3.Vec) float64 {
-	u, v, s := g.local(pt)
-	uHi, uLo, vHalf := g.envelope(s)
+	u, v, _ := g.local(pt)
+	uHi, uLo, vHalf := g.envelope()
 	m := uHi - u
 	if b := u - uLo; b < m {
 		m = b
@@ -464,6 +419,32 @@ func TestRibbonIsInvariantUnderItsScrewStep(t *testing.T) {
 	}
 	if worst > 1e-9 {
 		t.Errorf("a point carried by one screw step misses its own image by %.3e mm, want 0", worst)
+	}
+
+	// The blank is invariant, and so is the body cut from it: the cross-section
+	// one pitch on is the same rectangle, teeth included, so the four corners of
+	// a section carried by the step land on the corners of the next cell's
+	// section. This is the claim the build rests on when it copies one cell and
+	// screw-moves the copy: every placement is exact because the body is the
+	// same at every cell, not just the twist.
+	worst = 0
+	for i := range 240 {
+		s := float64(i) * p.ToothPitch / 24
+		uHi, uLo, vHalf := g.profile(s)
+		nHi, nLo, nHalf := g.profile(s + p.ToothPitch)
+		if d := math.Max(math.Abs(uHi-nHi), math.Max(math.Abs(uLo-nLo), math.Abs(vHalf-nHalf))); d > 1e-12 {
+			t.Fatalf("the cross-section at s=%.3f is (%.6f, %.6f, %.6f) and one pitch on it is "+
+				"(%.6f, %.6f, %.6f): the body is not one cell repeated", s, uHi, uLo, vHalf, nHi, nLo, nHalf)
+		}
+		here, next := g.section(s), g.section(s+p.ToothPitch)
+		for k := range 4 {
+			if d := step.Apply(here[k]).Sub(next[k]).Len(); d > worst {
+				worst = d
+			}
+		}
+	}
+	if worst > 1e-9 {
+		t.Errorf("a section corner carried by one screw step misses the next cell's corner by %.3e mm, want 0", worst)
 	}
 
 	// The same statement seen from the motion: advancing the gear by one pitch
