@@ -474,7 +474,10 @@ class SpurGearInvoluteToothDesignGenerator:
         sketch.geometricConstraints.addCoincident(self.anchorPoint, projectedAnchor)
         futil.log(f'{sketch.name} isFullyConstrained: {sketch.isFullyConstrained}')
         if angle != 0:
-            self.spineAngularDimension.parameter.value = angle
+            dimension = self.spineAngularDimension
+            if dimension is None:
+                raise RuntimeError('Spine angular dimension was not created')
+            dimension.parameter.value = angle
 
     def drawCircles(self):
         sketch = self.sketch
@@ -526,8 +529,8 @@ class SpurGearInvoluteToothDesignGenerator:
             lx, ly = x * rc - y * rs, x * rs + y * rc
             left.append((lx * c - ly * s, lx * s + ly * c))
             right.append((lx * c + ly * s, lx * s - ly * c))
-            leftPoints.add(adsk.core.Point3D.create(*left[-1], 0))
-            rightPoints.add(adsk.core.Point3D.create(*right[-1], 0))
+            leftPoints.add(adsk.core.Point3D.create(left[-1][0], left[-1][1], 0))
+            rightPoints.add(adsk.core.Point3D.create(right[-1][0], right[-1][1], 0))
         if len(left) < 2:
             raise RuntimeError(f'Involute sampling produced {len(left)} points; expected at least two')
         leftSpline = sketch.sketchCurves.sketchFittedSplines.add(leftPoints)
