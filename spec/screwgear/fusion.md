@@ -228,9 +228,15 @@ sketch and the shaft axis its revolve, pattern and section planes stand on:
 
 1. Compute the point in world space from `C`, `ê`, `n̂` and the §1 frame, **on the sketch's own
    plane** — the axis point of a section at `origin_g + s*dir_g`, a rod's foot on the ring's
-   circle, a bar's end on the Loop Plane — so `sketch.modelToSketchSpace(worldPoint)` lands it at
-   zero height in the sketch.
-2. `pt = sketch.sketchPoints.add(sketch.modelToSketchSpace(worldPoint))`.
+   circle, a bar's end on the Loop Plane.
+2. `local = sketch.modelToSketchSpace(worldPoint)`, then `local.z = 0`, then
+   `pt = sketch.sketchPoints.add(local)` (`[PB-SKETCH-ZERO-Z]`). Being on the plane in world
+   arithmetic does not put the point at zero height in the sketch: the first Fusion load
+   (2026-09-27) put every point of `Gear A Collar -R Section 0` at `z = 4.4e-6` cm, because
+   Fusion's `setByDistanceOnPath` plane sat that far from the station the build computed, and
+   the sketch read not fully constrained with every dimension present. The same zeroing applies
+   to every other point this build maps into a sketch: a raw seed passed to `addByTwoPoints`,
+   an arc's through point, a circle's centre, a dimension's text point.
 3. Draw every curve that uses it **sharing** `pt`: `addByTwoPoints(pt, ...)`,
    `addByThreePoints(pt, ...)` (`[PB-SHARE-XOR-COINCIDENT]`: shared, so no coincident to it).
 4. After the last such curve exists, and before any constraint or dimension is added, set

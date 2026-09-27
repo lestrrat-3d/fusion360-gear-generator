@@ -482,8 +482,8 @@ so none is exempt. Four rules hold in every sketch of this build:
   gear's Anchor sketch does, which reads fully constrained in Fusion. Every later sketch takes
   its references — the centre point, the axis point of a section, a rod's foot, a bar's ends
   and middle — as **reference points**: each is a world point of the frame of §1, computed on
-  the sketch's own plane, mapped in with `sketch.modelToSketchSpace` and added with
-  `sketch.sketchPoints.add`. The sketch's curves are drawn **sharing** those points
+  the sketch's own plane, mapped in with `sketch.modelToSketchSpace`, given `z = 0`
+  (`[PB-SKETCH-ZERO-Z]`) and added with `sketch.sketchPoints.add`. The sketch's curves are drawn **sharing** those points
   (`[PB-SHARE-XOR-COINCIDENT]`), and after the last curve that uses a reference point is drawn,
   and before any constraint or dimension is added, the point is set `isFixed = True`. A
   **reference line** is a construction line between two reference points, so it has no freedom
@@ -503,7 +503,11 @@ so none is exempt. Four rules hold in every sketch of this build:
   step, from the point where the two lines meet; the text point sits inside that wedge.
 - **Every seed is the solved position** (`[PB-SEED-NEAR]`), computed in Python in the frame of §1
   and mapped in with `modelToSketchSpace`, so the solver has nothing to move and a dimension's
-  side is the seed's (`[PB-DIM-VALUE-SEMANTICS]`).
+  side is the seed's (`[PB-DIM-VALUE-SEMANTICS]`). **Every point mapped in has its `z` set to 0
+  before it is used** — a reference point, a raw seed, an arc's through point, a circle's centre
+  and a dimension's text point alike (`[PB-SKETCH-ZERO-Z]`). Fusion's section planes do not sit
+  exactly where this build's arithmetic puts them, and the first Fusion load failed on a collar
+  section whose points all landed `4.4e-6` cm off its plane.
 - **No `addPerpendicular` on a line that only one of its ends anchors.** A line drawn from a
   fixed point, given a length and made perpendicular to a reference has two solutions, one each
   side of the reference, and the proof's sketch gate refuses a sketch that admits a mirror
@@ -1014,6 +1018,12 @@ sections is smooth between them, not ruled (§2, "What the loft is"), so those a
 body Fusion does not build: the built surface passes through the same sections, and how far it
 departs from the helicoid between them, on either side, is measured by nothing here. Only a
 Fusion load sees it.
+
+It cannot see where Fusion puts a plane. The sketch engine draws each section on an exact plane
+at `z = 0`, so a point Fusion leaves a few nanometres off its plane — which made the first Fusion
+load fail at `Gear A Collar -R Section 0` (`[PB-SKETCH-ZERO-Z]`) — does not exist in the proof.
+What the proof can hold is the rule's side of it: the compiled step list must set `z = 0` on
+every mapped point, and a step that maps one without it is a compile defect.
 
 It also cannot see print tolerance or friction. A window of 0.44–0.57 mm is comfortable for fused
 filament and tight for resin, and only a printed part settles it.
