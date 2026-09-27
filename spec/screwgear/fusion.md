@@ -60,7 +60,7 @@ well under a quarter turn. A spec change that cuts the section count to three wo
 neighbours, which still pairs, but the failure when it does not is a lofted body with a twisted
 crease rather than an error, so the count stays where the spec pins it.
 
-## `[SCREW-F-TWISTED-SLOT]` — a post's bore
+## `[SCREW-F-TWISTED-SLOT]` — a collar and its bore
 
 Cut the opening with a lofted clearance ribbon, not a swept one. `SweepFeatureInput.twistAngle` (with
 `solidTwistAxis`) is the natural tool and would build the exact helicoid from one section, but the
@@ -69,18 +69,42 @@ InternalValidationError : Utils::getObjectPath(sketchCurve, …)` when the ownin
 trivially resolvable in the current multi-component context. The screw gear builds everything in a
 `Design` sub-component, so it is always in that context.
 
-One loft per bore, not one per gear. The two posts of a gear do stand on the same axis, so a single
-clearance ribbon through both is the obvious build, but it would have to span the 33 mm between them
-and turn 404° on the way, and a loft's accuracy is set by the angle between neighbouring sections.
-Lofting only where each post has material is 4.1 mm and 44°, and needs a tenth of the sections for a
-better channel. `TestBoreLoftKeepsItsClearance` in the proof measures what is left.
+The collar is built the same way, first. On each of the bore's construction planes draw the bore's
+rectangle grown by the wall — a rounded rectangle, four lines and four arcs of `collarWall` radius,
+which `find_profile_by_curve_counts(sketch, lines=4, arcs=4)` picks out — and loft those into the
+collar's solid; then loft the plain rectangles on the same planes and cut. Both lofts twist,
+because the ribbon turns while it is inside the collar. A collar's loft spans `±collarHalf`; the
+bore's spans a millimetre more each end, so the cut runs clean through the collar's flat ends and
+through whatever of a rod stands inside the wall.
 
-Everything the loft cuts INTO is square to the cage — flat plates, square posts, square blocks — and
-only what it cuts out is skewed. The bore is a twisted channel, because the ribbon turns while it is
-inside the post.
+One loft per bore, not one per gear. The two collars of a gear do stand on the same axis, so a single
+clearance ribbon through both is the obvious build, but it would have to span the 26 mm between
+their far ends and turn 284° on the way, and a loft's accuracy is set by the angle between
+neighbouring sections. Lofting only a collar's own length with its margin is 6 mm and 65°, and needs
+a quarter of the sections for a better channel. `TestBoreLoftKeepsItsClearance` in the proof
+measures what is left.
 
 `twistAngle` is also ignored outright when a guide rail or guide surface is set, per the API
 reference — worth knowing before anyone reaches for a rail to shape the teeth instead.
+
+## `[SCREW-F-ROUND-FRAME]` — the ring, the rods and the loop
+
+Every other part of the frame is a round section, and none of them twists:
+
+- The ring is a `revolveFeatures` full revolution of a circle sketched on a plane through `n̂`,
+  centred `ringRadius` from the axis at height `cageRise`, about a construction axis along `n̂`.
+- A rod is an `extrudeFeatures` extrusion of a circle sketched on a plane square to `n̂` at
+  `-cageRise`, through `2*cageRise`. Sketch all four on one plane; each is its own profile.
+- A bar of the loop is the same extrusion between two rod feet, sketched on a plane square to the
+  bar's own direction — or, simpler, a `sweepFeatures` sweep of a circle along a sketch line from
+  foot to foot with no twist. A ball at each foot is a revolved semicircle about a line through the
+  foot along `n̂`.
+
+Join every piece into one body with a `combineFeatures` join as it is made, collars included, and
+cut the bores last: the bore's loft then passes through the collar and through the part of its rod
+that stands inside the wall in one operation. The rods' azimuths are the angles the proof's
+`TestRodsStandBesideTheirCollars` derives, and the build recomputes them by the same search rather
+than reading them from a table, because they move with every ribbon dimension.
 
 ## `[SCREW-F-NO-SOLID-TWIST]` — why the ribbon is not built straight and then twisted
 

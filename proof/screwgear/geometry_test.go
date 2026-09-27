@@ -40,13 +40,14 @@ type Params struct {
 	BossTaper float64 // how far the boss takes to run out into the teeth
 	BossGrow  float64 // how far the boss stands proud of the plain ribbon
 
-	CageRadius float64 // where each bore's centre sits, measured from the cage axis
-	CageRise   float64 // half the cage's height, to the outer face of a plate
-	ShellThick float64 // how thick the frame's wall is, everywhere
-	PlateThick float64 // how tall an end plate's band is
-	PostWidth  float64 // how wide a post is round the cage
-	BlockWall  float64 // material left round a bore
-	Clearance  float64 // added all round a bore
+	CageRadius  float64 // where each ribbon crosses the frame, on its own axis from the middle
+	RingRadius  float64 // the ring's radius to the centre of its wire, and where the rods stand
+	CageRise    float64 // half the frame's height, to the centre of the ring's wire and of the loop's bars
+	RingWire    float64 // diameter of the ring's wire and of the loop's bars
+	RodDiameter float64 // diameter of the four rods
+	CollarHalf  float64 // half a collar's length along its ribbon
+	CollarWall  float64 // material a collar leaves round its bore
+	Clearance   float64 // added all round a bore
 }
 
 func defaultParams() Params {
@@ -66,13 +67,14 @@ func defaultParams() Params {
 		BossTaper: 0.9,
 		BossGrow:  0.6,
 
-		CageRadius: 16.5,
-		CageRise:   18,
-		ShellThick: 3,
-		PlateThick: 2,
-		PostWidth:  3,
-		BlockWall:  3.0,
-		Clearance:  0.3,
+		CageRadius:  11,
+		RingRadius:  12.5,
+		CageRise:    13.5,
+		RingWire:    2.5,
+		RodDiameter: 2,
+		CollarHalf:  2,
+		CollarWall:  2,
+		Clearance:   0.3,
 	}
 }
 
@@ -85,19 +87,24 @@ func (p Params) BoreHalfThickness() float64 {
 	return p.Thickness/2 + p.BossGrow + p.Clearance
 }
 
-// CageOuter and CageInner are the frame's one outer surface and the depth
-// everything reaches in to.
-//
-// Every outside face of the frame lies on ONE cylinder. The plates, the posts
-// and the blocks are all pieces of the same wall, differing only in how far
-// round and how far up they run, so nothing stands proud of anything else and
-// the whole outside is a single turned surface. A block reaching outward, or a
-// square post on a round plate, leaves corners sticking out of that surface.
-func (p Params) CageOuter() float64 { return p.CageRadius + p.ShellThick/2 }
-func (p Params) CageInner() float64 { return p.CageOuter() - p.ShellThick }
+// RingOuter is the ring's outer radius, and FrameHeight is the frame's whole
+// height from the bottom of the loop's bars to the top of the ring's wire. They
+// are what the video's frame is measured by: the ring's outer diameter is the
+// unit its other proportions were read in.
+func (p Params) RingOuter() float64   { return p.RingRadius + p.RingWire/2 }
+func (p Params) FrameHeight() float64 { return 2*p.CageRise + p.RingWire }
 
-// boreStations are where a gear's two bores sit on its own axis: the two places
-// it crosses the cage.
+// WireRadius and RodRadius are the round sections the frame is built from.
+func (p Params) WireRadius() float64 { return p.RingWire / 2 }
+func (p Params) RodRadius() float64  { return p.RodDiameter / 2 }
+
+// Stroke is how far the mechanism travels: the boss is the only part of a
+// ribbon that may be inside a collar, so the travel is what is left of the
+// boss's flat top once the collar's own length is taken out of it.
+func (p Params) Stroke() float64 { return 2 * (p.BossHalf - p.BossTaper - p.CollarHalf) }
+
+// boreStations are where a gear's two bosses sit on its own axis when its tooth
+// phase is zero: the two places it crosses the frame.
 func boreStations(p Params) [2]float64 { return [2]float64{-p.CageRadius, p.CageRadius} }
 
 // Lambda is the screw parameter: millimetres of advance per radian of turn.
@@ -110,11 +117,11 @@ func (p Params) Beta() float64 { return math.Atan(math.Pi * p.Width / p.TwistLea
 //
 // It is an input, not a derivation. The crossed-helical rule makes 2*Beta the
 // angle at which the two crest helices run parallel, and that is where the
-// search starts, but the arrangement also has to carry a printable frame: the
-// bores' angle is set by the mounting angles and the cage radius together, and
-// at 2*Beta nothing drives with the mounting angles close enough to put the
-// bores near upright. TestCrossedHelicalRuleMakesTheCrestHelicesParallel still
-// holds the rule; this is the angle the pair is actually built at.
+// search starts, but at 2*Beta (87 degrees) the pair departs from the 1:1 line
+// by more than TestPairDrivesOneToOne allows: 0.187 mm at 90 degrees against
+// its 0.10 mm bound, where 80 degrees departs by 0.067 mm.
+// TestCrossedHelicalRuleMakesTheCrestHelicesParallel still holds the rule;
+// this is the angle the pair is actually built at.
 func (p Params) Sigma() float64 { return p.CrossAngle }
 
 // AxisOffset is the distance between the two axes.
@@ -187,6 +194,34 @@ func (g Gear) boss(s float64) float64 {
 	return best
 }
 
+// bossOver is the most the boss stands proud at station s at ANY tooth phase
+// within halfStroke of this gear's own: the boss's flat top and its tapers,
+// stretched by the travel. It is what the frame has to clear, since a gear is
+// somewhere in its stroke whenever it is in the frame at all.
+func (g Gear) bossOver(s, halfStroke float64) float64 {
+	p := g.P
+	best := 0.0
+	for _, centre := range boreStations(p) {
+		off := math.Max(0, math.Abs(s-g.Phase-centre)-halfStroke) - (p.BossHalf - p.BossTaper)
+		switch {
+		case off <= 0:
+			best = math.Max(best, p.BossGrow)
+		case off < p.BossTaper:
+			best = math.Max(best, p.BossGrow*0.5*(1+math.Cos(math.Pi*off/p.BossTaper)))
+		}
+	}
+	return best
+}
+
+// envelope is everything the ribbon's cross-section at station s can reach over
+// the whole stroke: the crest on the toothed side, because some phase puts a
+// crest at every station, and the boss at its fullest for that station.
+func (g Gear) envelope(s float64) (uHi, uLo, vHalf float64) {
+	p := g.P
+	b := g.bossOver(s, p.Stroke()/2)
+	return p.Width/2 + b, -p.Width/2 - b, p.Thickness/2 + b
+}
+
 // profile is the ribbon's cross-section at station s: how far it reaches on the
 // toothed side, on the back side, and either side of its own mid plane.
 //
@@ -201,6 +236,21 @@ func (g Gear) profile(s float64) (uHi, uLo, vHalf float64) {
 	}
 	cut := p.ToothHeight / 2 * (1 - math.Cos(2*math.Pi*(s-g.Phase)/p.ToothPitch))
 	return p.Width/2 + b - tooth*cut, -p.Width/2 - b, p.Thickness/2 + b
+}
+
+// envelopeMargin is margin taken against everything the ribbon reaches over
+// the whole stroke rather than against one phase of it.
+func (g Gear) envelopeMargin(pt r3.Vec) float64 {
+	u, v, s := g.local(pt)
+	uHi, uLo, vHalf := g.envelope(s)
+	m := uHi - u
+	if b := u - uLo; b < m {
+		m = b
+	}
+	if b := vHalf - math.Abs(v); b < m {
+		m = b
+	}
+	return m
 }
 
 // local maps a world point to (u, v, s) with the twist undone.
@@ -465,9 +515,12 @@ func TestLoftSectionCountHoldsTheHelicoid(t *testing.T) {
 // teeth on one face-on stretch of an arm (half a turn) at 0:09, 6:12 and 6:14
 // give 20-26 per turn; the edge-on stretches at 6:14 give a thickness of 0.2-0.3
 // widths; both ends of a ribbon against the ring at 6:10 give a length of about
-// 12 widths. Each bound below is the reading's edge moved out by that 20%, so
-// the 18.9 teeth per turn of the defaults, just under the reading, pass. Nothing
-// here is finer than that, and a finer reading needs the model, not the video.
+// 12 widths; the ring's outer diameter against the face-on width of an arm at
+// 0:09 and 6:10 gives 2.2-2.8 widths, and the frame's height against the ring's
+// width at 5:26 and 5:34 gives about one. Each bound below is the reading's
+// edge moved out by that 20%, so the 18.9 teeth per turn of the defaults, just
+// under the reading, pass. Nothing here is finer than that, and a finer reading
+// needs the model, not the video.
 func TestProportionsFollowTheVideo(t *testing.T) {
 	p := defaultParams()
 	ga, gb := defaultPair()
@@ -481,17 +534,23 @@ func TestProportionsFollowTheVideo(t *testing.T) {
 	if got := p.Length() / p.Width; got < 9.6 || got > 14.4 {
 		t.Errorf("the ribbon is %.1f widths long; the video's reads about 12", got)
 	}
+	if got := 2 * p.RingOuter() / p.Width; got < 1.76 || got > 3.36 {
+		t.Errorf("the ring is %.2f widths across; the video's reads 2.2-2.8", got)
+	}
+	if got := p.FrameHeight() / (2 * p.RingOuter()); got < 0.64 || got > 1.44 {
+		t.Errorf("the frame is %.2f ring widths tall; the video's reads about one", got)
+	}
 	if ga.Hand != gb.Hand {
 		t.Errorf("the two gears are of opposite hand; the video's twist the same way")
 	}
 	if ga.Hand != 1 {
 		t.Errorf("the gears are left-handed; the video's read as right-handed")
 	}
+	t.Logf("ring %.2f widths and %.2f leads across, frame %.2f ring widths tall",
+		2*p.RingOuter()/p.Width, 2*p.RingOuter()/p.TwistLead, p.FrameHeight()/(2*p.RingOuter()))
 
 	// What the spec departs from, for the record of a run.
 	t.Logf("tooth depth %.2f widths and %.2f pitches, against the video's 0.15-0.2 widths and about one pitch",
 		p.ToothHeight/p.Width, p.ToothHeight/p.ToothPitch)
-	t.Logf("cage outer diameter %.1f widths and %.2f leads, against the video's 2.2-2.8 widths and about 0.8",
-		2*p.CageOuter()/p.Width, 2*p.CageOuter()/p.TwistLead)
 	t.Logf("crossing angle %.0f degrees, against the video's 85-100", p.Sigma()*180/math.Pi)
 }

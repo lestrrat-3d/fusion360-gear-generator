@@ -86,177 +86,179 @@ func ribbonMesh(g Gear, from, to float64) (*solidlens.Mesh, error) {
 	return solidlens.NewMesh(vertices, triangles)
 }
 
-// shellMesh draws one piece of the frame's wall: a stretch of azimuth over a
-// stretch of height, between the one inner and outer radius everything shares,
-// with the bore of a gear cut out of it when one passes through.
+// roundSegments is how many facets a round part of the frame is drawn with.
+const roundSegments = 48
+
+// ringMesh draws the ring: a round wire bent into a circle, which is a torus
+// about the frame's axis at the ring's height.
+func ringMesh(p Params) (*solidlens.Mesh, error) {
+	const around = 24
+	profile := make([]render.Vec2, 0, around)
+	for i := range around {
+		a := 2 * math.Pi * float64(i) / around
+		profile = append(profile, render.Vec2{
+			X: p.CageRise + p.WireRadius()*math.Cos(a),
+			Y: p.RingRadius + p.WireRadius()*math.Sin(a),
+		})
+	}
+	return render.Revolve(profile, 3*roundSegments)
+}
+
+// barMesh draws a straight round bar from a to b as a cylinder, made on the
+// frame's axis and moved into place.
+func barMesh(a, b r3.Vec, radius float64) (*solidlens.Mesh, error) {
+	length := b.Sub(a).Len()
+	cylinder, err := render.Revolve([]render.Vec2{{X: 0, Y: 0}, {X: 0, Y: radius},
+		{X: length, Y: radius}, {X: length, Y: 0}}, roundSegments)
+	if err != nil {
+		return nil, err
+	}
+	ez, ok := b.Sub(a).Normalize()
+	if !ok {
+		return nil, fmt.Errorf("a bar from %v to %v has no length", a, b)
+	}
+	// Any perpendicular will do for the other two axes; the bar is round.
+	seed := r3.NewVec(0, 0, 1)
+	if math.Abs(ez.Dot(seed)) > 0.9 {
+		seed = r3.NewVec(1, 0, 0)
+	}
+	ex, _ := ez.Cross(seed).Normalize()
+	ey := ez.Cross(ex)
+	place, err := r3.FromBasis(r3.Basis{EX: ex, EY: ey, EZ: ez}, a)
+	if err != nil {
+		return nil, err
+	}
+	return render.Placed(cylinder, place)
+}
+
+// ballMesh draws a sphere, which is how a bar's end is rounded where it meets
+// another.
+func ballMesh(at r3.Vec, radius float64) (*solidlens.Mesh, error) {
+	const around = 16
+	profile := make([]render.Vec2, 0, around+1)
+	for i := 0; i <= around; i++ {
+		a := -math.Pi/2 + math.Pi*float64(i)/around
+		profile = append(profile, render.Vec2{X: radius * math.Sin(a), Y: radius * math.Cos(a)})
+	}
+	sphere, err := render.Revolve(profile, roundSegments)
+	if err != nil {
+		return nil, err
+	}
+	move, err := r3.Translation(at)
+	if err != nil {
+		return nil, err
+	}
+	return render.Placed(sphere, move)
+}
+
+// roundedRect is the outline of a rectangle grown by a disc: straight sides
+// joined by quarter circles. Only the arcs carry points, so two outlines of
+// different sizes drawn with the same count pair up point for point.
+func roundedRect(hw, ht, r float64, perCorner int) []render.Vec2 {
+	out := make([]render.Vec2, 0, 4*(perCorner+1))
+	for _, corner := range [][2]float64{{1, 1}, {-1, 1}, {-1, -1}, {1, -1}} {
+		cx, cy := corner[0]*hw, corner[1]*ht
+		start := math.Atan2(corner[1], corner[0]) - math.Pi/4
+		for i := 0; i <= perCorner; i++ {
+			a := start + math.Pi/2*float64(i)/float64(perCorner)
+			out = append(out, render.Vec2{X: cx + r*math.Cos(a), Y: cy + r*math.Sin(a)})
+		}
+	}
+	return out
+}
+
+// collarMesh draws one collar: the bore grown by the wall, swept along the
+// ribbon and turning with it, with the bore itself open through both ends.
 //
-// Every piece is drawn the same way, because every piece IS the same wall. That
-// is what makes the outside read as one turned surface rather than an assembly
-// of bars stuck onto plates.
-func shellMesh(p Params, q piece) (*solidlens.Mesh, error) {
-	g := q.g
-	wide := q.maxHalfAngle()
-	nA := int(math.Max(8, math.Round(wide*2*p.CageOuter()/0.15)))
-	nZ := int(math.Max(8, math.Round((q.zHi-q.zLo)/0.15)))
-	if nA > 900 {
-		nA = 900
-	}
-	if nZ > 600 {
-		nZ = 600
-	}
+// The bore's own outline is drawn with a hair of corner radius rather than
+// none, so that its corners are distinct vertices the outer arcs can pair with.
+func collarMesh(f frame, c crossing) (*solidlens.Mesh, error) {
+	p := f.p
+	const perCorner = 6
+	const stations = 32
+	hw, ht := p.BoreHalfWidth(), p.BoreHalfThickness()
+	outer := roundedRect(hw, ht, p.CollarWall, perCorner)
+	inner := roundedRect(hw, ht, 0.02, perCorner)
+	n := len(outer)
 
-	point := func(face, i, j int) r3.Vec {
-		r := p.CageInner()
-		if face == 1 {
-			r = p.CageOuter()
+	var vertices []solidlens.Vec
+	index := func(k, i int, in bool) int {
+		base := k * 2 * n
+		if in {
+			base += n
 		}
-		a := q.azimuth - wide + 2*wide*float64(i)/float64(nA)
-		z := q.zLo + (q.zHi-q.zLo)*float64(j)/float64(nZ)
-		return r3.NewVec(r*math.Cos(a), r*math.Sin(a), z)
+		return base + i%n
 	}
-	// A cell is gone where the bore passes, and where the post has narrowed
-	// away from its bore. The second is what makes a post taper into the plates
-	// rather than sit under a slab.
-	open := func(pt r3.Vec) bool {
-		if g != nil && inBore(*g, pt) {
-			return true
+	for k := 0; k <= stations; k++ {
+		s := c.station - p.CollarHalf + 2*p.CollarHalf*float64(k)/stations
+		for _, q := range outer {
+			vertices = append(vertices, c.g.world(q.X, q.Y, s))
 		}
-		return !q.holds(p, pt)
-	}
-
-	index := func(face, i, j int) int { return face*(nA+1)*(nZ+1) + i*(nZ+1) + j }
-	vertices := make([]solidlens.Vec, 2*(nA+1)*(nZ+1))
-	for face := range 2 {
-		for i := 0; i <= nA; i++ {
-			for j := 0; j <= nZ; j++ {
-				pt := point(face, i, j)
-				vertices[index(face, i, j)] = solidlens.Vec{X: pt.X, Y: pt.Y, Z: pt.Z}
-			}
-		}
-	}
-	keep := make([][]bool, nA)
-	for i := range nA {
-		keep[i] = make([]bool, nZ)
-		for j := range nZ {
-			mid := point(0, i, j).Add(point(1, i+1, j+1)).Scale(0.5)
-			keep[i][j] = !open(mid)
-		}
-	}
-	kept := func(i, j int) bool {
-		if j < 0 || j >= nZ {
-			return false
-		}
-		if i < 0 || i >= nA {
-			// A piece that goes the whole way round meets itself.
-			if wide < math.Pi-1e-9 {
-				return false
-			}
-			i = (i + nA) % nA
-		}
-		return keep[i][j]
-	}
-
-	// Snap each corner standing on an edge onto the edge itself. A cell is kept
-	// or dropped whole, so a bore's edge and a post's taper both come out as a
-	// staircase otherwise.
-	for face := range 2 {
-		for i := 0; i <= nA; i++ {
-			for j := 0; j <= nZ; j++ {
-				standing := kept(i, j) || kept(i, j-1) || kept(i-1, j) || kept(i-1, j-1)
-				gone := !kept(i, j) || !kept(i, j-1) || !kept(i-1, j) || !kept(i-1, j-1)
-				if !standing || !gone {
-					continue
-				}
-				here := point(face, i, j)
-				inside := open(here)
-				// Walk round the cage first, then up it: a bore's edge runs
-				// mostly one way and a post's taper mostly the other, and
-				// neither is fixed by moving a corner along the wrong one.
-				var far r3.Vec
-				found := false
-				for _, d := range []int{1, -1} {
-					if i+d < 0 || i+d > nA {
-						continue
-					}
-					if cand := point(face, i+d, j); open(cand) != inside {
-						far, found = cand, true
-						break
-					}
-				}
-				if !found {
-					for _, d := range []int{1, -1} {
-						if j+d < 0 || j+d > nZ {
-							continue
-						}
-						if cand := point(face, i, j+d); open(cand) != inside {
-							far, found = cand, true
-							break
-						}
-					}
-				}
-				if !found {
-					continue
-				}
-				if !inside {
-					here, far = far, here
-				}
-				lo, hi := 0.0, 1.0
-				for range 24 {
-					m := (lo + hi) / 2
-					if open(here.Add(far.Sub(here).Scale(m))) {
-						lo = m
-					} else {
-						hi = m
-					}
-				}
-				pt := here.Add(far.Sub(here).Scale((lo + hi) / 2))
-				vertices[index(face, i, j)] = solidlens.Vec{X: pt.X, Y: pt.Y, Z: pt.Z}
-			}
+		for _, q := range inner {
+			vertices = append(vertices, c.g.world(q.X, q.Y, s))
 		}
 	}
 
-	const in, out = 0, 1
 	var triangles [][3]int
-	quad := func(a, b, c, d int) {
-		triangles = append(triangles, [3]int{a, b, c}, [3]int{a, c, d})
+	// quad adds a face, wound so its normal points along out.
+	quad := func(a, b, cc, d int, out r3.Vec) {
+		normal := vertices[b].Sub(vertices[a]).Cross(vertices[cc].Sub(vertices[a]))
+		if normal.Dot(out) < 0 {
+			a, b, cc, d = d, cc, b, a
+		}
+		triangles = append(triangles, [3]int{a, b, cc}, [3]int{a, cc, d})
 	}
-	for i := range nA {
-		for j := range nZ {
-			if !keep[i][j] {
-				continue
-			}
-			quad(index(out, i, j), index(out, i+1, j), index(out, i+1, j+1), index(out, i, j+1))
-			quad(index(in, i, j), index(in, i, j+1), index(in, i+1, j+1), index(in, i+1, j))
-			if !kept(i+1, j) {
-				quad(index(in, i+1, j), index(in, i+1, j+1), index(out, i+1, j+1), index(out, i+1, j))
-			}
-			if !kept(i-1, j) {
-				quad(index(in, i, j), index(out, i, j), index(out, i, j+1), index(in, i, j+1))
-			}
-			if !kept(i, j+1) {
-				quad(index(in, i, j+1), index(out, i, j+1), index(out, i+1, j+1), index(in, i+1, j+1))
-			}
-			if !kept(i, j-1) {
-				quad(index(in, i, j), index(in, i+1, j), index(out, i+1, j), index(out, i, j))
-			}
+	for k := range stations {
+		for i := range n {
+			mid := vertices[index(k, i, false)].Add(vertices[index(k+1, i+1, false)]).Scale(0.5)
+			axis := c.g.world(0, 0, c.station)
+			out := mid.Sub(axis)
+			out = out.Sub(c.g.Ez.Scale(out.Dot(c.g.Ez)))
+			quad(index(k, i, false), index(k, i+1, false), index(k+1, i+1, false), index(k+1, i, false), out)
+			quad(index(k, i, true), index(k, i+1, true), index(k+1, i+1, true), index(k+1, i, true), out.Scale(-1))
 		}
 	}
-	if len(triangles) == 0 {
-		return nil, fmt.Errorf("a bore removed a whole piece of the wall")
+	for i := range n {
+		quad(index(0, i, false), index(0, i+1, false), index(0, i+1, true), index(0, i, true), c.g.Ez.Scale(-1))
+		quad(index(stations, i, false), index(stations, i+1, false), index(stations, i+1, true),
+			index(stations, i, true), c.g.Ez)
 	}
 	return solidlens.NewMesh(vertices, triangles)
 }
 
-// cageMesh draws the whole frame from its pieces.
-func cageMesh(ga, gb Gear) (*solidlens.Mesh, error) {
-	p := ga.P
+// cageMesh draws the whole frame: the ring, the loop, the four rods with a
+// ball at each foot where the loop's bars meet, and the four collars.
+func cageMesh(f frame) (*solidlens.Mesh, error) {
+	p := f.p
 	var pieces []solidlens.TriangleSource
-	for _, q := range cagePieces(ga, gb) {
-		mesh, err := shellMesh(p, q)
+
+	ring, err := ringMesh(p)
+	if err != nil {
+		return nil, fmt.Errorf("the ring: %w", err)
+	}
+	pieces = append(pieces, ring)
+	for _, bar := range f.loopBars() {
+		m, err := barMesh(bar[0], bar[1], p.WireRadius())
 		if err != nil {
-			return nil, fmt.Errorf("wall piece at %.0f degrees: %w", q.azimuth*180/math.Pi, err)
+			return nil, fmt.Errorf("a bar of the loop: %w", err)
 		}
-		pieces = append(pieces, mesh)
+		pieces = append(pieces, m)
+	}
+	for i, c := range f.cross {
+		foot, top := f.rodPoint(c, -p.CageRise), f.rodPoint(c, p.CageRise)
+		rod, err := barMesh(foot, top, p.RodRadius())
+		if err != nil {
+			return nil, fmt.Errorf("rod %d: %w", i, err)
+		}
+		ball, err := ballMesh(foot, p.WireRadius())
+		if err != nil {
+			return nil, fmt.Errorf("the foot of rod %d: %w", i, err)
+		}
+		collar, err := collarMesh(f, c)
+		if err != nil {
+			return nil, fmt.Errorf("collar %d: %w", i, err)
+		}
+		pieces = append(pieces, rod, ball, collar)
 	}
 	return render.Merge(pieces...)
 }
@@ -278,9 +280,9 @@ func TestRenderPair(t *testing.T) {
 	if err != nil {
 		t.Fatalf("mesh gear B: %v", err)
 	}
-	cage, err := cageMesh(ga, gb)
+	cage, err := cageMesh(newFrame(ga, gb))
 	if err != nil {
-		t.Fatalf("mesh the cage: %v", err)
+		t.Fatalf("mesh the frame: %v", err)
 	}
 
 	parts := []render.Part{
@@ -296,7 +298,8 @@ func TestRenderPair(t *testing.T) {
 	write(t, "plan.png", parts, 78, -90, 30, meshA, meshB, cage)
 
 	// The frame with one gear left in it, from a little above, which is the view
-	// that shows a post's block and the boss sitting in its bore.
+	// that shows a collar with the boss in it, the rod beside it, and the loop's
+	// straight sides against the ring's round one.
 	write(t, "cage.png", []render.Part{
 		{Mesh: meshA, Color: gearAColor},
 		{Mesh: cage, Color: cageColor},

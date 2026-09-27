@@ -21,27 +21,26 @@ The three parts are:
 
 - **Gear A** and **Gear B**, each an ordinary rack — a flat plate with teeth cut into one long edge —
   twisted about its own centre line into a helix. The two are the same part.
-- **The Cage**, a short tube with most of its wall gone: a flat plate at each end, and four posts
-  standing between them. Each post sits where one ribbon crosses the tube and carries a **bore**
-  that ribbon passes through. The two posts of one gear are bored low and the two of the other high,
-  so the gears meet in the middle, where nothing of the frame blocks the view of them.
+- **The Cage**, the frame in the video: an open skeleton of round rods. A round wire **ring**
+  stands at one end and a smaller **loop** with straight sides at the other, four thin **rods**
+  run between them, and a short smooth **collar** sits round each ribbon where it crosses the
+  frame. It has no wall, no plate and no post. The two collars of one gear sit low and the two
+  of the other high, so the gears meet in the middle, where nothing of the frame blocks the view
+  of them.
 
-  **Every outside face lies on one cylinder.** The plates, the posts and the blocks are all pieces
-  of the same wall, differing only in how far round and how far up each runs, so nothing stands
-  proud of anything else and the whole outside is a single turned surface. The plates' top and
-  bottom faces are flat and level, and they are what a print stands on. Only the bore inside is
-  skewed, which is the skew the mechanism actually needs.
+  Each collar carries a **bore** its ribbon passes through, and the bore is what makes each
+  gear's motion a screw motion rather than a free slide. It is cut to the ribbon's own
+  cross-section and twisted at the ribbon's own lead, so a gear that turns without advancing
+  jams in it. A round hole would not: it would leave the mechanism three degrees of freedom
+  instead of one.
 
-  The bore is what makes each gear's motion a screw motion rather than a free slide. It is cut to
-  the ribbon's own cross-section and twisted at the ribbon's own lead, so a gear that turns without
-  advancing jams in it. A round hole would not: it would leave the mechanism three degrees of
-  freedom instead of one.
+  A rod cannot stand where its ribbon crosses the frame, because the ribbon runs on through that
+  point. Each rod stands beside its collar instead, on the ring's circle, turned round the ring
+  by the least angle at which it clears both ribbons, and the collar's wall is what joins the two.
 
-  This frame is not the one in the video, which is an open skeleton of round rods; "What the
-  video shows" below lists every difference.
-
-The gears' toothed edges meet in the middle of the cage, between the two bored heights. Pushing one gear along its axis drives the other, at
-a **1:1 ratio** — one tooth pitch of advance each. The mechanism has one degree of freedom.
+The gears' toothed edges meet in the middle of the cage, between the two collar heights. Pushing
+one gear along its axis drives the other, at a **1:1 ratio** — one tooth pitch of advance each.
+The mechanism has one degree of freedom.
 
 ## What the video shows, and where this spec departs from it
 
@@ -62,42 +61,62 @@ carries about ±20%, because a 1280×720 frame puts a ribbon width on some fifty
 | Ribbon thickness | 0.2–0.3 widths (6:14) | 0.25 widths |
 | Ribbon length | About 12 widths (6:10, both ends in frame against the ring) | 14 widths, 80 teeth |
 | Crossing angle | 85–100° between the arms in the overhead shots (0:09 reads 89°, 6:10 reads 102°) | 80° |
-| Cage size | Ring outer diameter 2.2–2.8 widths, about 0.8 of a twist lead; the frame is about as tall as the ring is wide (5:25) | Outer diameter 3.6 widths, 1.09 leads; as tall as it is wide |
-| The frame | An open skeleton of round rods, described below the table (0:09, 5:23, 5:28, 5:31, 5:37, 6:10, 6:42) | One turned wall, left as two plates and four bored posts |
+| Cage size | Ring outer diameter 2.2–2.8 widths, about 0.8 of a twist lead (0:09, 6:10); the frame is about as tall as the ring is wide (5:26, 5:34) | Outer diameter 2.75 widths, 0.83 leads; 1.07 ring widths tall |
+| The frame | An open skeleton of round rods, described below the table (0:09, 5:23, 5:26, 5:28, 5:31, 5:34, 5:36, 5:37, 6:10, 6:16, 6:42) | Same: a ring, a loop with straight sides, four rods and four collars |
 | The boss | None. The teeth run through the collars (0:09, 6:12, 6:14) | A smooth boss at each crossing, and the bore is cut to it |
-| Travel | Most of the ribbon: at 5:53 the frame sits near one end of a ribbon, at 6:00 near its middle | 5.06 mm, 2.9 teeth |
+| Travel | Most of the ribbon: at 5:53 the frame sits near one end of a ribbon, at 6:00 near its middle | 4.2 mm, 2.4 teeth |
 | Tooth form | "Based on a sine wave" (6:29). At print resolution the crests read flat and the flanks straight (6:21 and 0:09 alike) | A pure cosine |
 
 The video's frame is one round ring of round wire at one end, a smaller loop with straight sides
 at the other, four thin rods between them, and a short smooth collar round each ribbon where it
-crosses. It has no wall, no plate and no post. Which rod joins which collar the frames do not
-settle; the ring, the loop, the rods and the collars are what every one of them shows.
+crosses. It has no wall, no plate and no post. The frames settle this much of its layout:
 
-Four of the departures are deliberate, and each has its reason elsewhere in this spec:
+- The ring is at one end and the loop at the other, never both alike. At 5:34 the ring is on
+  top and the loop underneath; at 5:36, two seconds on, the model has been turned over and the
+  loop with its straight sides is on top.
+- Each rod is one straight line from the ring to the loop, parallel to the frame's axis, and
+  passes one collar on the way: at 5:26 and 5:34 the left rod is one line above its collar and
+  below it, and the collar sits at about the middle of the frame's height.
+- The rods stand in the gaps between the ribbons, not on the ribbons' own lines. In the 0:09
+  overhead shot each rod's end at the ring is 20–30° round from the arm nearest it.
+- The loop is a rectangle with rounded corners, and it reads smaller than the ring because its
+  corners are on the ring's circle and its sides are chords: in the 0:09 shot it is about 0.7 of
+  the ring's width across.
+- The rods and the ring's wire are of similar thickness, 0.2–0.3 of a ribbon width, with the rods
+  the thinner (0:09, 5:34, 6:10).
 
-- **The frame** is built for a filament printer, standing on a flat plate, with every bore near
-  upright and every widening under 45° ("Why the bores stand where they do", "The cage"). The
-  video's skeleton has no flat face and no wall; it is a different design for a different process.
-- **The cage radius** is half the twist lead here so that both bores of a gear stand at the same
-  angle, which is what that frame needs to print. The video's ring is 0.8 of a lead across, so
-  one ribbon turns about three quarters of a turn between its two collars and the two stand at
-  different angles.
-- **The boss, and with it the travel.** A bore through a 3 mm wall has to be cut to what passes
-  through it, and the boss is what keeps that a plain rectangle ("The boss, and why the cage
-  needs no tooth-shaped cut"). The video's collars are thin, so its teeth pass through them and
-  the gear travels almost its whole length. Dropping the boss here would change no bore
-  dimension, since the crests already define the ribbon's rectangle, but the bore's toothed side
-  would then bear on crests and `TestTeethNeverReachABore` would invert.
+Where exactly a rod meets its collar, how long the collar is along the ribbon and how thick its
+wall is, the frames do not settle: the collar is white on white against the ribbon inside it,
+and at 1280×720 it is some thirty pixels long. The collar length here is what the boss allows
+(see "The boss"), and the rod's place is derived from the clearance it needs ("The cage").
+
+Two of the departures are deliberate, and each has its reason elsewhere in this spec:
+
+- **The boss, and with it the travel.** The bore is cut to what passes through it, and the boss
+  is what keeps that a plain rectangle ("The boss, and why the cage needs no tooth-shaped cut").
+  The video's collars are thin, so its teeth pass through them and the gear travels almost its
+  whole length; here the collar's own length comes out of the boss's flat top, and the travel is
+  4.2 mm. Dropping the boss here would change no bore dimension, since the crests already define
+  the ribbon's rectangle, but the bore's toothed side would then bear on crests and
+  `TestTeethNeverReachABore` would invert.
 - **The crossing angle** and **the lead** come from the meshing search, not from the video.
   With `CrossAngle` set to 90° and nothing else moved, `TestPairDrivesOneToOne` reports a
-  0.187 mm departure from the 1:1 line against its 0.10 mm bound; with the lead at 40 mm and the
-  cage at 20 mm it reports 0.130 mm. 80° at 33 mm reports 0.067 mm.
+  0.187 mm departure from the 1:1 line against its 0.10 mm bound; with the lead at 40 mm it
+  reports 0.130 mm. 80° at 33 mm reports 0.067 mm.
+
+The ring sits at the top of the video's range rather than in the middle of it, and the boss is
+why. A rod has to clear the ribbon beside it by the clearance over the whole stroke, and a
+ribbon carrying a boss reaches 5.9 mm from its own axis at its widest, so a rod stands 7 mm
+from that axis. On a ring the size of the video's, the point 7 mm beside the crossing falls
+inboard of the collar and nothing joins the two; on a 12.5 mm ring it falls at the collar's own
+station. `TestRodsStandBesideTheirCollars` holds that join.
 
 The tooth depth is left where it is. A deeper tooth drives in the proof (`ToothHeight` 1.75 with
 `Engagement` 0.5 reports a 0.51–0.60 mm window and a 0.038 mm departure, which is better than the
 defaults), but the video's depth reads 0.15–0.2 widths with ±20% on it, which does not settle a
 value. `TestProportionsFollowTheVideo` holds the ratios this spec does follow — teeth per turn,
-thickness and length against the width, and one hand for both gears — inside the video's ranges
+thickness and length against the width, the ring against the width, the frame's height against
+the ring, and one hand for both gears — inside the video's ranges
 widened by the ±20% the readings carry; the 18.9 teeth per turn sit just under the 20–26 read.
 
 ## Geometry
@@ -135,22 +154,6 @@ only thing that changes in the body's own frame is the tooth phase. Every step b
 it is why the whole ribbon is one tooth cell repeated by a screw step, and why the proof can pose
 meshing as a search over two numbers.
 
-### Why the bores stand where they do
-
-A bore is a hole through a post, and the posts stand along the cage axis, which is the axis a print
-stands on. A bore is therefore a horizontal hole whose ceiling has to be bridged, and a bore whose
-opening is **tall and narrow** bridges a short span where a wide flat one leaves a ceiling as wide
-as the ribbon.
-
-The opening's angle is the ribbon's cross-section angle where it crosses the cage, and there are
-four of them: each gear crosses twice, at `+CageRadius` and `-CageRadius`, and those two are turned
-in opposite directions. Upright at all four needs **the two mounting angles equal** and
-**`CageRadius` a whole number of half turns of the ribbon**, and even then the four sit at plus and
-minus the mounting angle. So the best any cage radius can do is the mounting angle itself.
-
-At the defaults that is **15°**, which `TestBoresStandNearlyUpright` both measures and compares
-against the best the mounting angles allow.
-
 ### The boss, and why the cage needs no tooth-shaped cut
 
 The ribbon carries a **smooth boss** at each of the two places it passes through the cage: a
@@ -159,9 +162,18 @@ back into them over `BossTaper` at each end. The bore is cut to the boss, so **n
 a bore** and nothing in the frame has to be cut to the shape of a tooth. Nothing bears on a crest
 either.
 
-The boss travels with its gear, so **its length is the stroke**: the mechanism runs while the boss
-still fills the bores, which is 5.06 mm, or 2.9 teeth, at the defaults. `TestStrokeIsTheBossLength`
-and `TestTeethNeverReachABore` hold both halves of that.
+The boss travels with its gear, so **its length is the stroke**: the mechanism runs while the
+boss's flat top still fills the collars, which is `2*(BossHalf - BossTaper - CollarHalf)`, 4.2 mm
+or 2.4 teeth, at the defaults. `TestStrokeIsTheBossLength` and `TestTeethNeverReachABore` hold
+both halves of that, and `TestCollarBoresHoldTheBossOverTheStroke` holds that every collar sees
+the flat top, the clearance away all round, at every phase of the travel.
+
+The collar's length is set by that trade. A collar of the video's proportions, half a ribbon
+width or more, would leave under two teeth of travel on this boss; a 4 mm collar leaves 2.4. A
+longer boss buys a longer collar, at the price of the boss starting nearer the mesh: it starts
+`CageRadius - BossHalf` from the middle, 6 mm at the defaults against the 4.05 mm the teeth
+engage over, and `TestBossesClearTheOtherRibbon` measures 0.91 mm between the ribbons with their
+bosses on, outside that zone.
 
 The video's ribbons carry no boss and travel most of their length; "What the video shows" above
 records what dropping the boss here would and would not change.
@@ -220,30 +232,32 @@ the proof must check").
 | Crossing Angle `Sigma` | 80° |
 | Engagement | 0.36 mm |
 | Mounting Angle, both gears | 15° |
-| Cage Radius | 16.5 mm |
+| Cage Radius | 11 mm |
+| Ring Radius | 12.5 mm |
 | Clearance | 0.3 mm |
 
 Derived: `Beta` = 43.6°, `A` = 9.64 mm, ribbon length = 140 mm, twist per tooth = `P/Lambda` =
-19.1°.
+19.1°, ribbon turn between a gear's two collars = `2*CageRadius/Lambda` = 240°.
 
-**These defaults are set by the frame, not only by the mesh.** A bore has to stand near upright or
-it cannot be printed (see "Why the bores stand where they do"), and that fixes the cage radius at
-`Lambda*pi` — half the twist lead. A compact cage therefore needs a fast twist, and a slow twist
-needs a large cage. 33 mm per turn against a 16.5 mm cage radius is the compromise: at 20 mm the
-ribbon is twisted past the point of looking like a rack, and at 40 mm the only arrangements with
-equal mounting angles turned out to jam under finer sampling. The lead and the cage radius move
-together and cannot be set apart: every millimetre of easier twist is half a millimetre more cage.
+**The frame no longer sets the lead.** An earlier frame had to print a bore through a wall, which
+tied the cage radius to half the twist lead and the two mounting angles to each other. The video's
+frame has no wall, so the cage radius is read from the video instead and the lead stands on its
+own: at 20 mm per turn the ribbon is twisted past the point of looking like a rack, and at 40 mm
+the arrangements with equal mounting angles turned out to jam under finer sampling
+(`mesh-search.md`). 33 mm is where it stayed.
 
 At those values `proof/screwgear` measures a free window in B's tooth phase that is **0.438–0.569 mm
 wide** and that **advances by exactly one tooth pitch for each pitch A advances**, departing from
 the 1:1 line by 0.067 mm, which is 3.8% of the pitch. That window width is the backlash, and the
 winding is what makes this a 1:1 gear rather than two parts that merely touch. Away from the teeth
-the two ribbons clear each other by 0.254 mm at their closest.
+the two ribbons clear each other by 0.254 mm at their closest, and by 0.91 mm outside the engaged
+zone with their bosses on.
 
-**Both Mounting Angles are 15°, and the frame is why.** Unequal angles drive too, and some drive
-better, but the four bores can only stand near upright when the two angles are equal, and 15° is
-the smallest equal angle that drives at this twist. The two gears are the same part and the frame
-holds them alike.
+**Both Mounting Angles are 15°.** Unequal angles drive too, and some drive better; 15° on both is
+the smallest equal angle that drives at this twist, and the two gears are the same part held
+alike. The earlier frame needed the two equal for its bores to stand upright, and this one does
+not; the angles stay where the search left them rather than being searched again for a frame
+that no longer cares.
 
 **Assembly phase.** With gear A at tooth phase 0, gear B is built at **−0.90 mm**. The number is the
 middle of the free window, and `TestAssemblyPhaseSitsInTheFreeWindow` holds it there.
@@ -310,12 +324,13 @@ User inputs in dialog order. All linear inputs are mm; the mounting angles are d
 | Boss Half Length | `bossHalf` | mm | 5 |
 | Boss Taper | `bossTaper` | mm | 0.9 |
 | Boss Height | `bossGrow` | mm | 0.6 |
-| Cage Radius | `cageRadius` | mm | 16.5 |
-| Cage Rise | `cageRise` | mm | 18 |
-| Shell Thickness | `shellThick` | mm | 3 |
-| Plate Thickness | `plateThick` | mm | 2 |
-| Post Width | `postWidth` | mm | 3 |
-| Block Wall | `blockWall` | mm | 3 |
+| Cage Radius | `cageRadius` | mm | 11 |
+| Ring Radius | `ringRadius` | mm | 12.5 |
+| Cage Rise | `cageRise` | mm | 13.5 |
+| Ring Wire | `ringWire` | mm | 2.5 |
+| Rod Diameter | `rodDiameter` | mm | 2 |
+| Collar Half Length | `collarHalf` | mm | 2 |
+| Collar Wall | `collarWall` | mm | 2 |
 | Clearance | `clearance` | mm | 0.3 |
 | Target Plane | `plane` | selection | — |
 | Centre Point | `point` | selection | — |
@@ -334,19 +349,25 @@ returns internal units — cm for length and **radians** for angle (`[PB-EVAL-EX
 - `toothPitch` must be `> 0`; `toothCount` must be `>= 4`.
 - `twistLead` must be `> 0`. There is no upper bound: a very long lead approaches two straight racks
   pushing each other, which is the degenerate case Segerman names, and nothing here forbids it.
-- `cageRadius` is where each gear's bores sit on its own axis, so it must clear the engaged zone,
+- `cageRadius` is where each gear's collars sit on its own axis, so it must clear the engaged zone,
   which the proof measures at ±4.05 mm. It must also leave the boss room: the boss is centred on the
-  bore, so `cageRadius - bossHalf` must stay outside the engaged zone too.
-- `cageRise` must put both rings clear of both ribbons. The ribbons reach further from the middle at
-  the cage radius than their own width suggests, because a ribbon crosses that radius at more than
-  one station. `TestRibbonsClearTheCage` walks the whole of both ribbons against the whole frame
-  rather than arguing it.
-- `blockDepth` trades grip against stroke. A deeper bore holds the gear closer to its screw motion
-  and shortens the travel, because the stroke is `2*(bossHalf - bossTaper - blockDepth/2)`.
+  collar, so `cageRadius - bossHalf` must stay outside the engaged zone too, and
+  `TestBossesClearTheOtherRibbon` measures what the two ribbons keep between them with the bosses
+  on.
+- `ringRadius` must leave every rod a place to stand. A rod on the ring's circle has to clear both
+  ribbons over the stroke and still run through its own collar's wall; too small a ring puts that
+  place inboard of the collar, and `TestRodsStandBesideTheirCollars` fails on either count.
+- `cageRise` must put the ring and the loop clear of both ribbons. The ribbons reach further from
+  the middle at the ring's radius than their own width suggests, because a ribbon crosses that
+  radius at more than one station. `TestRibbonsClearTheFrameOverTheStroke` walks everything both
+  ribbons reach over the stroke against the whole frame rather than arguing it.
+- `collarHalf` trades grip against stroke. A longer collar holds the gear closer to its screw
+  motion and shortens the travel, because the stroke is `2*(bossHalf - bossTaper - collarHalf)`.
+- `collarWall` must be at least `rodDiameter`, or a rod running through it is not held.
 
 **No range is enforced on either Mounting Angle, and none is asserted here.** 15° on both is the
-smallest equal pair that drives at this twist, and equal is what the bores need; what happens
-elsewhere is the proof's to map, and this spec does not clamp what has not been measured.
+smallest equal pair that drives at this twist; what happens elsewhere is the proof's to map, and
+this spec does not clamp what has not been measured.
 
 ## Sketch Discipline
 
@@ -366,7 +387,7 @@ generate(inputs)
       → buildAxis(index)                     # construction line on the gear's axis
       → buildToothCell(index)                # 9 section sketches → one loft
       → repeatCellByDoubling(index)          # copy + screw-move + join, log2 rounds
-  → buildCage()                              # tube, then one twisted slot cut per gear
+  → buildCage()                              # ring, loop, rods, collars; one twisted bore cut per collar
   → relocateBodies()                         # moveToComponent into Gear A / Gear B / Cage
   → solids.hide_construction_geometry(design)
 ```
@@ -445,77 +466,65 @@ zero for `k >= 1`, so no guard is needed here, but do not "optimize" a `k = 0` c
 
 ### 4: The cage
 
-The frame is **one cylindrical wall** of `shellThick`, from `cageOuter = cageRadius + shellThick/2`
-inward, with material left only where it is needed. Build each piece as a partial revolve of the
-same rectangular section about `n̂`, so every outside face lands on that one cylinder.
+The frame is the open skeleton in the video, built from round sections and joined into one body
+(`[SCREW-F-ROUND-FRAME]`). Heights are along `n̂` from the centre `C`; gear B's axis is on the
+`+n̂` side and gear A's on the `-n̂` side.
 
-- **The plates** run the whole way round, `plateThick` tall, at each end. Their outer faces are
-  level and they are what a print stands on.
-- **The posts** run the full height at the four azimuths where the ribbons cross. A post is
-  `postWidth` wide along most of its length and **widens only where its bore needs it**, running
-  back out into the plain width before it reaches either plate.
+- **The ring** is a torus about `n̂` at height `+cageRise`, of radius `ringRadius` to the centre of
+  its wire and wire diameter `ringWire`. Revolve a circle of `ringWire` about `n̂`.
+- **The rods** are four cylinders of `rodDiameter`, parallel to `n̂`, each running from
+  `-cageRise` to `+cageRise` on the ring's circle. Each serves one collar and stands beside it:
+  take the point where that ribbon's axis meets the circle of radius `cageRadius`, and turn round
+  `n̂` from there by the least angle at which a rod on the ring's circle clears both ribbons by
+  `clearance` over the whole stroke. All four are turned the **same way round** — counter-clockwise
+  seen from the ring's end — so they land in the gaps between the ribbons rather than against each
+  other. At the defaults the angles are 34.7° for a gear's collar at `+cageRadius` and 33.7° for
+  the one at `-cageRadius`, which differ because the ribbon has a different cross-section angle at
+  each crossing; `TestRodsStandBesideTheirCollars` derives and logs them, and the build takes them
+  from the same search rather than from a table.
+- **The loop** is four straight bars of `ringWire` at height `-cageRise`, each from one rod's foot
+  to the next round the ring, with a ball of `ringWire` at each foot to round the corner. Its
+  corners are the rods, so it is a rectangle inscribed in the ring's circle and reads smaller than
+  the ring: 19.3 by 16.1 mm at the defaults, inside a 25 mm circle.
+- **The collars** are one per crossing. A collar is the bore's rectangle grown by `collarWall` in
+  every direction of its own section — a rounded rectangle — swept along the ribbon over
+  `±collarHalf` from the crossing and turning with it, so its ends are flat and square to the
+  ribbon's axis. Gear A's collars are centred on stations `±cageRadius` of its axis; gear B's on
+  `±cageRadius` plus the assembly phase, which is where its bosses are once it is assembled, so
+  they sit 0.9 mm along B's axis from the `cageRadius` circle. Build a collar as a loft of rounded
+  rectangles on the same planes its bore is lofted on (`[SCREW-F-TWISTED-SLOT]`).
 
-  **The widening leans with the bore rather than boxing it in.** The channel crosses a post
-  diagonally: far to one side low down, as far to the other side higher up, narrow in between. One
-  upright box around all of that is half again as wide as any single height asks for, and that
-  surplus is most of what a frame built this way weighs. So the two sides of a post are shaped
-  **separately**, each following its own side of the channel.
+Each rod runs through the wall of its own collar, and that is the whole of what joins the two;
+nothing else is added. The rod's axis passes 1.0 mm outside the bore's rectangle at the
+defaults, inside the 2 mm wall, and `collarWall` may not go under `rodDiameter` for that reason.
+`TestFrameIsOnePiece` walks ring → rods → loop and rod → collar and fails on any piece the ring
+does not reach.
 
-  What the block must not become is a wall traced round the bore's own outline. That outline
-  wiggles, and a wall cut to it is a row of notches — weaker, uglier and harder to print. Three
-  rules keep this one smooth, and the proof holds each:
-
-  - Each side is **grown out of the bore by a disc** of `blockWall`, which rounds off every corner
-    and leaves the full wall in **every** direction. Adding the wall sideways alone is not the same
-    thing: a wall is thick in the direction across itself, and the bore's edge runs diagonally over
-    most of its height, so a sideways measurement there reports more material than is really there.
-  - Each side then rises to **one** widest stretch and comes back. A side that went out, came back
-    and went out again is the notch this rules out.
-  - Each side is finally limited to **45°**, so every face is either upright or a 45° ramp.
-
-  What the bore takes out of a post is **measured rather than derived**, because it is a twisted
-  channel through a wall it is not aligned with, and `boreReach` in the proof is that measurement.
-  Shaping to the channel rather than squaring off round it takes the four posts from 1750 mm² of
-  the cage wall to 1142 mm², and their widest point from 18.60 mm to 15.34 mm.
-
-  **`blockWall` is 3 mm and that is a floor, not a preference.** Less than that leaves the frame a
-  shell exactly where it is most worked, at the one place it holds a gear.
-
-  **Both ends of a bulge are slanted at 45°.** Only the underside has to be: a print is built
-  upward, so what will not bridge is material appearing above nothing, and narrowing again would
-  print as a square shelf. The top is slanted to match the bottom because the part reads better for
-  it, and it costs only height.
-
-  A ramp may run into a plate. A plate goes the whole way round, so a post still widening where it
-  meets one merges into material that is already there, and requiring the ramp to finish first only
-  makes the cage taller for nothing.
-
-**Bore each post with a twisted clearance ribbon** (`[SCREW-F-TWISTED-SLOT]`): loft rectangles of
+**Bore each collar with a twisted clearance ribbon** (`[SCREW-F-TWISTED-SLOT]`): loft rectangles of
 `(W + 2*bossGrow + 2*clearance)` by `(T + 2*bossGrow + 2*clearance)` on planes along that gear's
 axis, each rotated by `s/Lambda + Phi` exactly as the tooth cell's sections are.
 
-**One loft per bore, spanning only where that post has material**, which is the stretch of the
-gear's axis over which the ribbon is inside the post, plus a millimetre at each end. At the defaults
-that is 4.1 mm of axis and 44° of turn. The two bores of one gear stand 2\*`cageRadius` apart, so one
-loft covering both would span 37 mm and 404° and need eight times the sections for the same
-accuracy.
+**One loft per bore, spanning the collar's length plus a millimetre at each end**, so the cut runs
+clean through. At the defaults that is 6 mm of axis and 65° of turn. The two bores of one gear
+stand 2\*`cageRadius` apart, so one loft covering both would span 26 mm and 284° and need four
+times the sections for the same accuracy.
 
-**The section count is derived from the turn**, at no more than 5° between neighbours, which is 10
+**The section count is derived from the turn**, at no more than 5° between neighbours, which is 15
 at the defaults. The tooth cell is held to 2° because its error is measured against the backlash;
 a bore's is measured against the clearance, which is twenty times larger.
 
 **A loft is flat between its sections, so the bore's wall is faceted and every facet stands inside
 the true channel.** What that costs is clearance, straight out of the gap the boss passes through,
 and enough of it binds the gear. At the derived count the facets take 0.005 mm of the 0.3 mm;
-at the five sections this spec fixed before they took 0.062 mm. `TestBoreLoftKeepsItsClearance`
+at the five sections this spec fixed before they take 0.060 mm. `TestBoreLoftKeepsItsClearance`
 holds it at 95% of the clearance.
 
-**The bore has to twist; a straight hole binds.** Over a wall of thickness `tau` the ribbon turns by
-`tau/Lambda`, so its corner sweeps `(W/2)*(tau/Lambda)` across the opening. At the defaults that is
-3.32 mm against 0.3 mm of clearance.
+**The bore has to twist; a straight hole binds.** Over a collar of length `2*collarHalf` the ribbon
+turns by `2*collarHalf/Lambda`, so its corner sweeps `(W/2)*(2*collarHalf/Lambda)` across the
+opening. At the defaults that is 3.8 mm against 0.3 mm of clearance.
 
 **The bore is cut to the boss, never to a tooth.** That is the whole reason the ribbon carries a
-boss: the frame is a plain turned wall, and nothing in it is shaped like a tooth.
+boss: nothing in the frame is shaped like a tooth.
 
 ### 5: Relocate the bodies
 
@@ -541,40 +550,39 @@ and it is cheap enough to run the search a few million times. The package import
   window is not taken on trust.
 - `TestRibbonIsInvariantUnderItsScrewStep` is what licenses building the ribbon as one cell repeated.
 - `TestBoresAdmitOnlyTheScrewMotion` is the frame's own proof. It turns a gear out of step with its
-  advance and finds where it jams in its bores, which is **3.21°** at the defaults. A frame of round
-  holes would report no jam at any angle, and that is the case this rules out.
-- `TestRibbonsClearTheCage` walks the whole of both ribbons against the whole frame, which is what
-  sizes `cageRise`. One static pass settles every position the gears take, because a bore is cut to
-  the ribbon and the ribbon is invariant under its own screw motion.
-- `TestPostsReachBothPlates` and `TestBoresSitOnOppositeSidesOfTheMiddle` hold the frame's shape:
-  one body, and one gear's bores low against the other's high.
-- `TestNothingStandsProudOfTheShell` holds the whole outside to one cylinder, which is the defect
-  that a square post on a round plate, or a block reaching outward, would leave.
-- `TestPostsRunUnbrokenIntoThePlates` walks each post's whole height and fails on any break in it,
-  and requires the widening to have run out before the plate. `TestPostsAreNarrowAwayFromTheirBores`
-  requires the widening to earn its material, at no more than half the bore's width at the plate,
-  and reports what the four posts take out of the cage wall.
-- `TestPostsNeverOverhang` is the printing rule: it walks the width profile and fails on any
-  WIDENING step steeper than 45°, and passes a narrowing of any steepness, which is the asymmetry a
-  print built upward has. The bulges are slanted at both ends anyway, so it has slack on top.
-  `TestPostSidesHaveOneBulge` fails a side that widens twice, which is the notch a traced wall
-  makes.
-- `TestBoresKeepTheirWall` walks a 3 mm disc round the bore's edge at every height and fails if any
-  point of it falls outside the frame's material. Measuring sideways instead would pass a wall that
-  is really 2.1 mm thick where the bore's edge runs at 45°, which is most of its height.
+  advance and finds where it jams in its collars, which is **3.21°** at the defaults. A frame of
+  round holes would report no jam at any angle, and that is the case this rules out.
+- `TestRibbonsClearTheFrameOverTheStroke` is the other half of that: the gear moves freely through
+  its stroke. It walks everything both ribbons reach over the travel — the crest on the toothed
+  side, the boss at its fullest for each station — against the ring, the loop, the rods and the
+  collars, and logs the least distance to each: 1.59 mm to the ring, 2.53 mm to the loop and
+  0.32 mm to the rods at the defaults. It is what sizes `cageRise`.
+- `TestCollarBoresHoldTheBossOverTheStroke` holds that every collar sees the boss's flat top at
+  every phase of the travel, the clearance away all round: a stroke longer than the boss allows
+  would leave the ribbon loose in its collar at the ends of the travel.
+- `TestRodsStandBesideTheirCollars` derives where each rod stands, logs the angles, and fails when
+  no point of the ring's circle clears the ribbons or when the rod that does runs nowhere inside
+  its collar's wall. `TestFrameIsOnePiece` then walks ring → rods → loop and rod → collar and
+  fails on any piece the ring does not reach; it also logs the loop's sides.
+- `TestBoresSitOnOppositeSidesOfTheMiddle` holds one gear's collars low against the other's high.
+- `TestBossesClearTheOtherRibbon` is the frame's reach into the mesh: it walks each ribbon with
+  its bosses on, over the stroke, against the other ribbon outside the engaged zone, and holds the
+  boss's start outside that zone. The mesh proof walks bare ribbons, and the boss is where the
+  frame sits.
 - `TestBoreLoftKeepsItsClearance` is the one case that looks at what Fusion will really cut rather
   than at the ideal channel: it builds the bore's loft as the build would and requires 95% of the
   clearance to survive the facets.
 - `TestTheMiddleStaysOpen` keeps the frame out of the space the gears mesh in.
-- `TestStrokeIsTheBossLength` and `TestTeethNeverReachABore` hold the boss: the travel is 2.9 teeth,
-  and no tooth is ever inside a bore over that travel.
+- `TestStrokeIsTheBossLength` and `TestTeethNeverReachABore` hold the boss: the travel is 2.4 teeth,
+  and no tooth is ever inside a collar over that travel, on either gear.
 - `TestCrossedHelicalRuleMakesTheCrestHelicesParallel` pins `Sigma = 2*Beta` and the station it
   holds at.
 - `TestLoftSectionCountHoldsTheHelicoid` is the arithmetic the eleven sections are bought with.
 - `TestProportionsFollowTheVideo` holds the defaults inside the ranges read off the video, each
   widened by the ±20% the reading carries, for the ratios this spec follows: teeth per turn,
-  thickness and length against the width, and one hand for both gears. It logs the ratios the
-  spec departs from, so a run shows both.
+  thickness and length against the width, the ring's diameter against the width, the frame's
+  height against the ring, and one hand for both gears. It logs the ratios the spec departs
+  from, so a run shows both.
 
 `TestRenderPair`, `TestRenderPart`, `TestRenderMesh` draw the pictures from the same section
 function the mesh proof samples. They are skipped unless `-render.out` names a directory.

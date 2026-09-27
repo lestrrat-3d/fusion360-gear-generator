@@ -66,8 +66,10 @@ several arrangements that drove at 0.015 mm jam at 0.01 mm, so every number belo
 step.
 
 **The twist lead was eased from 30 mm to 33 mm after the search**, and the pair still drives 1:1 at
-the finer step. The lead is not free to move on its own, because the bores only stand near upright
-when the cage radius is half of it, so the cage grew from 15 mm to 16.5 mm with it.
+the finer step. At the time the frame tied the cage radius to half the lead, so that its bores
+would stand near upright, and the cage grew from 15 mm to 16.5 mm with it. The frame in
+`instructions.md` has since been replaced by the video's, which has no bore through a wall, and
+the cage radius is now read from the video rather than from the lead.
 
 **The twist lead came from the video, not from the search.** An earlier draft turned once every 90 mm, which drives well but makes a part that barely looks
 twisted and a pair whose axes cross at 38°. Segerman's model turns about once every four

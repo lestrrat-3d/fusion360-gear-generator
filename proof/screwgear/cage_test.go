@@ -2,309 +2,222 @@ package screwgear_test
 
 import (
 	"math"
+	"sort"
 	"testing"
 
 	"github.com/lestrrat-3d/r3"
 )
 
-// The frame is a short tube with most of its wall gone: a flat plate at each
-// end, and four posts standing between them. Each post sits where one ribbon
-// crosses the tube and carries a BORE that ribbon passes through. The two posts
-// of one gear are bored low, the two of the other high, and the gears meet in
-// the middle, where nothing of the frame stands in the way of seeing them.
+// The frame is the one in Segerman's video: an open skeleton of round rods,
+// with no wall, no plate and no post. A round wire RING stands at one end, a
+// smaller LOOP with straight sides at the other, four thin RODS run between
+// them, and a short smooth COLLAR sits round each ribbon where it crosses the
+// frame. The ring is at gear B's end and the loop at gear A's, so one gear's
+// collars sit low and the other's high, and the gears meet in the middle.
 //
-// The bore is what holds a gear to its screw motion. It is the ribbon's own
-// cross-section, turned to the angle the ribbon has there and twisted through
-// the post at the ribbon's own lead, so a gear that turns without advancing
-// jams in it. A round hole would not, and the mechanism would have three
-// degrees of freedom instead of one.
+// The collar is what holds a gear to its screw motion. Its BORE is the ribbon's
+// own cross-section, turned to the angle the ribbon has there and twisted
+// through the collar at the ribbon's own lead, so a gear that turns without
+// advancing jams in it. A round hole would not, and the mechanism would have
+// three degrees of freedom instead of one. The collar's outside is that bore
+// grown by the wall in every direction of its own section, which rounds every
+// corner off.
 //
-// What passes through a bore is never a tooth. The ribbon carries a smooth boss
-// at each of the two places it crosses the cage, the bore is cut to that boss,
-// and the teeth stay outside it.
+// What passes through a collar is never a tooth. The ribbon carries a smooth
+// boss at each of the two places it crosses the frame, the bore is cut to that
+// boss, and the teeth stay outside it.
 //
-// Every outside face of the frame lies on ONE cylinder. The plates, the posts
-// and the blocks are all pieces of the same wall, differing only in how far
-// round and how far up each runs, so nothing stands proud of anything else and
-// the whole outside is a single turned surface. The plates' top and bottom
-// faces are flat and level, and they are what a print stands on. Only the bore
-// inside is skewed, which is the skew the mechanism actually needs.
+// A rod cannot stand where its ribbon crosses the frame, because the ribbon
+// runs on through that point. It stands beside its collar instead, on the
+// ring's own circle, turned round the ring by the least angle at which it
+// clears both ribbons over the whole stroke, and the collar's wall is what
+// joins the two. All four are turned the same way round, so they land in the
+// gaps between the ribbons rather than against each other, and the loop that
+// joins their feet is a rectangle with a corner at each rod.
 
-// postAzimuth is where a gear's post stands, for the bore at the given station.
-func postAzimuth(g Gear, station float64) float64 {
+// crossing is one place a ribbon passes through the frame: its collar, and the
+// rod that serves it.
+type crossing struct {
+	gear    int     // 0 for gear A, 1 for gear B
+	g       Gear    // that gear, at the assembly phase
+	station float64 // where the boss sits on the ribbon's own axis at that phase
+	azimuth float64 // of that point round the frame's axis
+	rod     float64 // azimuth of the rod, on the ring's circle
+}
+
+// frame is the whole skeleton, with the rods placed.
+type frame struct {
+	p     Params
+	gears [2]Gear
+	cross [4]crossing
+}
+
+// collarStations are where a gear's collars sit on its own axis: where its
+// bosses are at the assembly phase. Gear B is assembled a fraction of a pitch
+// along its axis from gear A, and its bosses go with it, so its collars are
+// that far from the ring's circle along its axis.
+func collarStations(g Gear) [2]float64 {
+	s := boreStations(g.P)
+	return [2]float64{s[0] + g.Phase, s[1] + g.Phase}
+}
+
+func azimuthOf(g Gear, station float64) float64 {
 	c := g.Origin.Add(g.Ez.Scale(station))
 	return math.Atan2(c.Y, c.X)
 }
 
-// inBore answers whether a point is inside the channel cut for this gear. The
-// channel follows the ribbon, so it is twisted rather than straight, and it
-// runs the whole height of the post: a post is solid bar above and below its
-// block, and the ribbon has to get past that too.
-func inBore(g Gear, pt r3.Vec) bool {
-	p := g.P
-	u, v, _ := g.local(pt)
-	return math.Abs(u) <= p.BoreHalfWidth() && math.Abs(v) <= p.BoreHalfThickness()
-}
-
-// boreReach is how far the bore cuts each way from a post's centre line at one
-// height, and whether it is there at all. The post is built from it and the
-// wall is checked against it, so both read the same measurement.
-func boreReach(g Gear, azimuth, z float64) (left, right float64, ok bool) {
-	p := g.P
-	for r := p.CageInner(); r <= p.CageOuter(); r += 0.1 {
-		for dt := 0.0; dt <= p.Width; dt += 0.05 {
-			for _, sign := range []float64{1, -1} {
-				ang := azimuth + sign*dt/p.CageRadius
-				if !inBore(g, r3.NewVec(r*math.Cos(ang), r*math.Sin(ang), z)) {
-					continue
-				}
-				ok = true
-				if sign > 0 {
-					right = math.Max(right, dt)
-				} else {
-					left = math.Max(left, dt)
-				}
-			}
+// newFrame places the frame round the pair, deriving where each rod stands.
+func newFrame(ga, gb Gear) frame {
+	f := frame{p: ga.P, gears: [2]Gear{ga, gb}}
+	i := 0
+	for gi, g := range f.gears {
+		for _, station := range collarStations(g) {
+			f.cross[i] = crossing{gear: gi, g: g, station: station, azimuth: azimuthOf(g, station)}
+			i++
 		}
 	}
-	return left, right, ok
+	for i := range f.cross {
+		f.cross[i].rod = f.cross[i].azimuth + f.rodShift(f.cross[i])
+	}
+	return f
 }
 
-// ptAt is the point an arc offset from a post's centre line, at the middle of
-// the wall's thickness.
-func ptAt(p Params, azimuth, t, z float64) r3.Vec {
-	ang := azimuth + t/p.CageRadius
-	return r3.NewVec(p.CageRadius*math.Cos(ang), p.CageRadius*math.Sin(ang), z)
+// rodShift is the least angle round the ring, in the frame's positive sense,
+// at which a rod on the ring's circle clears BOTH ribbons over the whole stroke
+// by the clearance. Searching from zero is what puts the rod as close beside
+// its collar as it can stand.
+//
+// The search never finishes at a full turn: a rod that clears nowhere on the
+// circle means the ring is too small for the ribbon, and that is reported by
+// the tests rather than hidden in a placement.
+func (f frame) rodShift(c crossing) float64 {
+	const step = 0.25 * math.Pi / 180
+	for shift := 0.0; shift <= 2*math.Pi; shift += step {
+		if f.rodClears(c.azimuth + shift) {
+			return shift
+		}
+	}
+	return math.NaN()
 }
 
-// inBoreAt asks the same question about a point given as an arc offset from a
-// post's centre line and a height, at any depth through the wall.
-func inBoreAt(g Gear, azimuth, t, z float64) bool {
+// rodClears answers whether a rod at the given azimuth stays the clearance away
+// from everything either ribbon reaches over the stroke. The rod runs the whole
+// height of the frame, so only the horizontal distance counts.
+func (f frame) rodClears(azimuth float64) bool {
+	p := f.p
+	rx, ry := p.RingRadius*math.Cos(azimuth), p.RingRadius*math.Sin(azimuth)
+	need := p.RodRadius() + p.Clearance
+	reach := p.RingRadius + p.Width // further out along a ribbon nothing can touch the ring's circle
+	for _, g := range f.gears {
+		clear := true
+		eachEnvelopePoint(g, -reach, reach, 0.05, func(pt r3.Vec) {
+			if clear && math.Hypot(pt.X-rx, pt.Y-ry) < need {
+				clear = false
+			}
+		})
+		if !clear {
+			return false
+		}
+	}
+	return true
+}
+
+// rodPoint is a point on a rod's axis at height z.
+func (f frame) rodPoint(c crossing, z float64) r3.Vec {
+	return r3.NewVec(f.p.RingRadius*math.Cos(c.rod), f.p.RingRadius*math.Sin(c.rod), z)
+}
+
+// loopBars are the loop's straight sides: one bar from each rod's foot to the
+// next rod's foot round the ring.
+func (f frame) loopBars() [4][2]r3.Vec {
+	order := []int{0, 1, 2, 3}
+	sort.Slice(order, func(a, b int) bool {
+		return wrap(f.cross[order[a]].rod) < wrap(f.cross[order[b]].rod)
+	})
+	var bars [4][2]r3.Vec
+	for i := range 4 {
+		a, b := f.cross[order[i]], f.cross[order[(i+1)%4]]
+		bars[i] = [2]r3.Vec{f.rodPoint(a, -f.p.CageRise), f.rodPoint(b, -f.p.CageRise)}
+	}
+	return bars
+}
+
+func wrap(a float64) float64 { return math.Mod(a+4*math.Pi, 2*math.Pi) }
+
+// segmentDistance is the distance from a point to a straight bar's axis.
+func segmentDistance(pt, a, b r3.Vec) float64 {
+	ab := b.Sub(a)
+	t := pt.Sub(a).Dot(ab) / ab.Dot(ab)
+	t = math.Max(0, math.Min(1, t))
+	return pt.Sub(a.Add(ab.Scale(t))).Len()
+}
+
+// ringGap, loopGap and rodGap are how far a point is from the surface of each
+// round part, negative inside it.
+func (f frame) ringGap(pt r3.Vec) float64 {
+	p := f.p
+	return math.Hypot(math.Hypot(pt.X, pt.Y)-p.RingRadius, pt.Z-p.CageRise) - p.WireRadius()
+}
+
+func (f frame) loopGap(pt r3.Vec) float64 {
+	worst := math.Inf(1)
+	for _, bar := range f.loopBars() {
+		worst = math.Min(worst, segmentDistance(pt, bar[0], bar[1])-f.p.WireRadius())
+	}
+	return worst
+}
+
+func (f frame) rodGap(pt r3.Vec) float64 {
+	worst := math.Inf(1)
+	for _, c := range f.cross {
+		d := segmentDistance(pt, f.rodPoint(c, -f.p.CageRise), f.rodPoint(c, f.p.CageRise))
+		worst = math.Min(worst, d-f.p.RodRadius())
+	}
+	return worst
+}
+
+// inBore answers whether a point is inside the channel cut for this gear. The
+// channel follows the ribbon, so it is twisted rather than straight.
+func inBore(g Gear, pt r3.Vec) bool {
+	d, _ := boreGap(g, pt)
+	return d == 0
+}
+
+// boreGap is how far outside the bore's rectangle a point lies, measured in the
+// ribbon's own section at that station with the twist undone, and zero inside.
+// The collar is the bore grown by this distance, so its outline is a rounded
+// rectangle that turns with the ribbon.
+func boreGap(g Gear, pt r3.Vec) (float64, float64) {
 	p := g.P
-	ang := azimuth + t/p.CageRadius
-	for r := p.CageInner(); r <= p.CageOuter(); r += 0.1 {
-		if inBore(g, r3.NewVec(r*math.Cos(ang), r*math.Sin(ang), z)) {
+	u, v, s := g.local(pt)
+	du := math.Max(0, math.Abs(u)-p.BoreHalfWidth())
+	dv := math.Max(0, math.Abs(v)-p.BoreHalfThickness())
+	return math.Hypot(du, dv), s
+}
+
+// inCollar answers whether a point is in the material of one collar.
+func (f frame) inCollar(c crossing, pt r3.Vec) bool {
+	d, s := boreGap(c.g, pt)
+	if math.Abs(s-c.station) > f.p.CollarHalf {
+		return false
+	}
+	return d > 0 && d <= f.p.CollarWall
+}
+
+// inFrame answers whether a point is inside any material of the frame.
+func (f frame) inFrame(pt r3.Vec) bool {
+	if f.ringGap(pt) <= 0 || f.loopGap(pt) <= 0 || f.rodGap(pt) <= 0 {
+		return true
+	}
+	for _, c := range f.cross {
+		if f.inCollar(c, pt) {
 			return true
 		}
 	}
 	return false
 }
 
-// piece is one part of the frame's wall: a stretch of height, and at each
-// height a reach to each side round the cage. Everything is a piece of the same
-// wall, so the only things that differ between a plate and a post are how tall
-// they are and how far round they run.
-//
-// The two sides are kept apart because a post's bore is not centred on it. The
-// channel crosses the wall diagonally, so it wants material to one side low
-// down and to the other side higher up, and a shape that reaches equally both
-// ways carries the worse of the two at every height for nothing.
-type piece struct {
-	azimuth     float64
-	zLo, zHi    float64
-	step        float64
-	left, right []float64 // angle reached each way at zLo, zLo+step, ...
-	g           *Gear     // the gear bored through it, nil for a plate
-}
-
-func (q piece) sideAt(side []float64, z float64) float64 {
-	if z < q.zLo || z > q.zHi {
-		return 0
-	}
-	i := (z - q.zLo) / q.step
-	lo := int(math.Floor(i))
-	if lo >= len(side)-1 {
-		return side[len(side)-1]
-	}
-	f := i - float64(lo)
-	return side[lo]*(1-f) + side[lo+1]*f
-}
-
-// widthAt is what the piece spans at one height, both sides together.
-func (q piece) widthAt(z float64) float64 {
-	return q.sideAt(q.left, z) + q.sideAt(q.right, z)
-}
-
-func (q piece) maxHalfAngle() float64 {
-	worst := 0.0
-	for _, side := range [][]float64{q.left, q.right} {
-		for _, h := range side {
-			worst = math.Max(worst, h)
-		}
-	}
-	return worst
-}
-
-func (q piece) holds(p Params, pt r3.Vec) bool {
-	r := math.Hypot(pt.X, pt.Y)
-	if r > p.CageOuter() || r < p.CageInner() {
-		return false
-	}
-	if pt.Z < q.zLo || pt.Z > q.zHi {
-		return false
-	}
-	d := math.Mod(math.Atan2(pt.Y, pt.X)-q.azimuth+3*math.Pi, 2*math.Pi) - math.Pi
-	if d >= 0 {
-		return d <= q.sideAt(q.right, pt.Z)
-	}
-	return -d <= q.sideAt(q.left, pt.Z)
-}
-
-// postPiece is one post: a column running the full height, which widens where
-// its bore needs it and narrows to PostWidth everywhere else, so it meets the
-// plates at both ends with no step.
-//
-// The block round the bore is SCULPTED TO THE CHANNEL rather than squared off
-// round it. The channel crosses the post diagonally — far to one side low down,
-// as far to the other side higher up, narrow in between — so one upright box
-// big enough for all of it is half again as wide as any single height asks for,
-// and that extra is what made the frame look heavy.
-//
-// What the block must not become is a wall cut to the bore's own outline. That
-// outline wiggles, and a shape following it is a row of notches. Three things
-// keep this one smooth: each side is grown from the bore by a DISC, which
-// rounds every corner off; each side then rises to ONE widest stretch and comes
-// back, so there is a single bulge and no second one; and each side is finally
-// limited to 45 degrees, which is the steepest a printer will build. Every face
-// is either upright or a 45 degree ramp.
-//
-// What the block has to clear is measured rather than derived, because the bore
-// is a twisted channel through a wall it is not aligned with.
-func postPiece(g Gear, station float64) piece {
-	p := g.P
-	const step = 0.1
-	a := postAzimuth(g, station)
-	n := int(math.Round(2*p.CageRise/step)) + 1
-
-	// How far the bore reaches each way from the post's centre line, height by
-	// height, and whether it is there at all.
-	left, right := make([]float64, n), make([]float64, n)
-	bored := make([]bool, n)
-	for j := range n {
-		left[j], right[j], bored[j] = boreReach(g, a, -p.CageRise+float64(j)*step)
-	}
-
-	// Grow each side out of the bore by a disc of the wall thickness. Adding the
-	// wall sideways alone would leave less than it where the bore's edge runs
-	// diagonally, since what a wall has to be thick in is the direction across
-	// itself, not the direction the measurement happened to be taken in. A disc
-	// leaves the full wall whichever way it is measured, and it cannot produce a
-	// corner sharper than the disc.
-	// The disc is grown by a hair more than the wall. The profile is held at
-	// heights one step apart and read as a straight line between them, and a
-	// straight line between two points of a circle runs inside it, so the wall
-	// would come out a shade thin between two sampled heights. The margin below
-	// is the sag of a step of that length off a circle of this radius; the
-	// deepest sag TestBoresKeepTheirWall finds without it is 0.5 um, and with it
-	// the 3 mm holds outright.
-	wall := p.BlockWall + step*step/(2*p.BlockWall)
-	grow := func(side []float64) []float64 {
-		out := make([]float64, n)
-		for j := range n {
-			out[j] = p.PostWidth / 2
-			for k := range n {
-				if !bored[k] {
-					continue
-				}
-				dz := math.Abs(float64(k-j)) * step
-				if dz > wall {
-					continue
-				}
-				out[j] = math.Max(out[j], side[k]+math.Sqrt(wall*wall-dz*dz))
-			}
-		}
-		return out
-	}
-
-	// One bulge per side: out to the widest stretch, and back. Filling in
-	// anything that dips between two wider heights is what rules out a second
-	// bulge, which is the shape that reads as a notch.
-	single := func(side []float64) []float64 {
-		out := make([]float64, n)
-		run := 0.0
-		for j := range n { // rising to the widest stretch, filling any dip on the way
-			run = math.Max(run, side[j])
-			out[j] = run
-		}
-		run = 0
-		for j := n - 1; j >= 0; j-- { // and falling away from it
-			run = math.Max(run, side[j])
-			out[j] = math.Min(out[j], run)
-		}
-		return out
-	}
-
-	// Slant what is left at 45 degrees.
-	//
-	// Only the underside has to be slanted. A print is built upward, so what
-	// will not bridge is material appearing above nothing: widening as the post
-	// rises is that case, while narrowing again rests on what is under it and
-	// would print as a square shelf. The top is slanted to match the bottom
-	// because the part reads better for it, and it costs only height.
-	//
-	// Taking each height's reach as the largest any other height demands, less
-	// the distance between them, is exactly a 45 degree slant either side.
-	ramp := func(side []float64) []float64 {
-		out := make([]float64, n)
-		for j := range n {
-			want := side[j]
-			for k := range n {
-				want = math.Max(want, side[k]-math.Abs(float64(k-j))*step)
-			}
-			out[j] = want / p.CageRadius
-		}
-		return out
-	}
-
-	shape := func(side []float64) []float64 { return ramp(single(grow(side))) }
-	return piece{azimuth: a, zLo: -p.CageRise, zHi: p.CageRise, step: step,
-		left: shape(left), right: shape(right), g: &g}
-}
-
-// platePieces are the two end plates: the whole way round, on the same wall.
-func platePieces(p Params) [2]piece {
-	full := []float64{math.Pi, math.Pi}
-	return [2]piece{
-		{azimuth: 0, zLo: -p.CageRise, zHi: -p.CageRise + p.PlateThick,
-			step: p.PlateThick, left: full, right: full},
-		{azimuth: 0, zLo: p.CageRise - p.PlateThick, zHi: p.CageRise,
-			step: p.PlateThick, left: full, right: full},
-	}
-}
-
-// cagePieces is the whole frame: two plates and four posts.
-func cagePieces(ga, gb Gear) []piece {
-	p := ga.P
-	out := make([]piece, 0, 6)
-	out = append(out, platePieces(p)[0], platePieces(p)[1])
-	for i := range 2 {
-		g := []Gear{ga, gb}[i]
-		for _, station := range boreStations(p) {
-			out = append(out, postPiece(g, station))
-		}
-	}
-	return out
-}
-
-// inCage answers whether a point is inside any material of the frame.
-func inCage(ga, gb Gear, pieces []piece, pt r3.Vec) bool {
-	p := ga.P
-	for _, q := range pieces {
-		if !q.holds(p, pt) {
-			continue
-		}
-		if q.g != nil && inBore(*q.g, pt) {
-			continue
-		}
-		if q.g == nil && (inBore(ga, pt) || inBore(gb, pt)) {
-			continue
-		}
-		return true
-	}
-	return false
-}
-
-// eachRibbonPoint walks a ribbon's whole surface.
+// eachRibbonPoint walks a ribbon's whole surface at one tooth phase.
 func eachRibbonPoint(g Gear, step float64, fn func(pt r3.Vec, u, s float64)) {
 	half := g.P.Length() / 2
 	for s := -half; s <= half; s += step {
@@ -318,179 +231,226 @@ func eachRibbonPoint(g Gear, step float64, fn func(pt r3.Vec, u, s float64)) {
 	}
 }
 
-// One gear's posts are bored low and the other's high, so the two ribbons pass
-// the cage at different heights and their teeth meet in the middle.
+// eachEnvelopePoint walks the boundary of everything a ribbon reaches over the
+// whole stroke, between two stations.
+func eachEnvelopePoint(g Gear, from, to, step float64, fn func(pt r3.Vec)) {
+	for s := from; s <= to; s += step {
+		uHi, uLo, t := g.envelope(s)
+		for i := range 5 {
+			k := float64(i) / 4
+			v := -t + 2*t*k
+			fn(g.world(uHi, v, s))
+			fn(g.world(uLo, v, s))
+			u := uLo + (uHi-uLo)*k
+			fn(g.world(u, t, s))
+			fn(g.world(u, -t, s))
+		}
+	}
+}
+
+func defaultFrame() frame {
+	ga, gb := defaultPair()
+	return newFrame(ga, gb)
+}
+
+// One gear's collars sit low and the other's high, so the two ribbons pass the
+// frame at different heights and their teeth meet in the middle.
 func TestBoresSitOnOppositeSidesOfTheMiddle(t *testing.T) {
-	ga, gb := defaultPair()
-	p := ga.P
-
-	for _, station := range boreStations(p) {
-		a := ga.Origin.Add(ga.Ez.Scale(station))
-		b := gb.Origin.Add(gb.Ez.Scale(station))
-		if a.Z >= 0 {
-			t.Errorf("gear A's bore at station %.1f sits at height %.2f, not below the middle",
-				station, a.Z)
+	f := defaultFrame()
+	for _, c := range f.cross {
+		at := c.g.Origin.Add(c.g.Ez.Scale(c.station))
+		if c.gear == 0 && at.Z >= 0 {
+			t.Errorf("gear A's collar at station %.1f sits at height %.2f, not below the middle",
+				c.station, at.Z)
 		}
-		if b.Z <= 0 {
-			t.Errorf("gear B's bore at station %.1f sits at height %.2f, not above the middle",
-				station, b.Z)
+		if c.gear == 1 && at.Z <= 0 {
+			t.Errorf("gear B's collar at station %.1f sits at height %.2f, not above the middle",
+				c.station, at.Z)
 		}
 	}
 }
 
-// A post runs from plate to plate with no break in it.
+// Each rod stands beside its own collar, on the ring's circle, and is joined
+// to it: some stretch of the rod runs inside the collar's wall. The four are
+// turned the same way round from their crossings, and none touches another.
 //
-// It does NOT have to be back to its plain width by the time it reaches a
-// plate. A plate runs the whole way round, so a post still widening where it
-// meets one merges into material that is already there: no step, no gap, and
-// nothing unsupported. Requiring the ramp to finish first only made the cage
-// taller for nothing.
-func TestPostsRunUnbrokenIntoThePlates(t *testing.T) {
-	ga, gb := defaultPair()
-	p := ga.P
-	floor := p.PostWidth / 2 / p.CageRadius
+// The angle is derived rather than chosen, and this records what it came to.
+// A frame whose ring is too small for its ribbon has no place to put a rod at
+// all, and that fails here before any picture is drawn.
+func TestRodsStandBesideTheirCollars(t *testing.T) {
+	f := defaultFrame()
+	p := f.p
 
-	for _, g := range []Gear{ga, gb} {
-		for _, station := range boreStations(p) {
-			q := postPiece(g, station)
-			var wideLo, wideHi float64
-			for z := -p.CageRise; z <= p.CageRise; z += 0.05 {
-				h := math.Min(q.sideAt(q.left, z), q.sideAt(q.right, z))
-				if h < floor-1e-9 {
-					t.Fatalf("the post at %.0f degrees reaches only %.3f mm to one side at height "+
-						"%.2f, which is a gap in it", q.azimuth*180/math.Pi, h*p.CageRadius, z)
-				}
-				if q.widthAt(z) > 2*floor+1e-9 {
-					if wideLo == 0 {
-						wideLo = z
-					}
-					wideHi = z
-				}
+	for i, c := range f.cross {
+		shift := c.rod - c.azimuth
+		if math.IsNaN(shift) {
+			t.Fatalf("no rod on the ring's circle clears the ribbons for the collar at %.0f degrees: "+
+				"the ring is too small for the ribbon", c.azimuth*180/math.Pi)
+		}
+		if shift <= 0 || shift >= math.Pi/2 {
+			t.Errorf("the rod for the collar at %.0f degrees stands %.1f degrees round from it, "+
+				"outside the quarter turn a rod beside its collar can take",
+				c.azimuth*180/math.Pi, shift*180/math.Pi)
+		}
+		// How far the rod's axis runs from the bore, where the collar's wall
+		// takes it in: under the wall's thickness, or nothing joins the two.
+		joined, nearest := false, math.Inf(1)
+		for z := -p.CageRise; z <= p.CageRise; z += 0.05 {
+			pt := f.rodPoint(c, z)
+			if !f.inCollar(c, pt) {
+				continue
 			}
-			_, _ = wideLo, wideHi
+			joined = true
+			gap, _ := boreGap(c.g, pt)
+			nearest = math.Min(nearest, gap)
+		}
+		if !joined {
+			t.Errorf("the rod for the collar at %.0f degrees runs nowhere inside that collar's wall, "+
+				"so nothing joins the two", c.azimuth*180/math.Pi)
+		}
+		chord := 2 * p.RingRadius * math.Sin(shift/2)
+		t.Logf("rod %d stands %.1f degrees round the ring from its collar, %.1f mm from the crossing, "+
+			"its axis %.2f mm outside the bore where the wall takes it in",
+			i, shift*180/math.Pi, chord, nearest)
+	}
+
+	for i := range f.cross {
+		for j := i + 1; j < 4; j++ {
+			d := f.rodPoint(f.cross[i], 0).Sub(f.rodPoint(f.cross[j], 0)).Len()
+			if d < p.RodDiameter+p.Clearance {
+				t.Errorf("rods %d and %d stand %.2f mm apart, which is touching", i, j, d)
+			}
 		}
 	}
-	t.Logf("each post runs the full %.1f mm, widening only round its bore", 2*p.CageRise)
 }
 
-// Nothing on the frame may hang off nothing. A filament printer will not bridge
-// a surface shallower than 45 degrees, and the one place the frame could offer
-// one is where a post widens as it rises.
-//
-// Only widening counts. A print is built upward, so what will not bridge is
-// material appearing above nothing; where a bulge ends and the post narrows
-// again, what is left rests on what is under it, and that shelf prints.
-func TestPostsNeverOverhang(t *testing.T) {
-	ga, gb := defaultPair()
-	p := ga.P
+// The frame is one body. Every rod runs from the ring to the loop, and each
+// collar is held by its rod, so the ring reaches everything.
+func TestFrameIsOnePiece(t *testing.T) {
+	f := defaultFrame()
+	p := f.p
 
-	for _, g := range []Gear{ga, gb} {
-		for _, station := range boreStations(p) {
-			q := postPiece(g, station)
-			for _, side := range [][]float64{q.left, q.right} {
-				for j := 1; j < len(side); j++ {
-					rise := q.step
-					run := (side[j] - side[j-1]) * p.CageRadius
-					if run > rise+1e-9 {
-						t.Fatalf("the post at %.0f degrees widens %.3f mm over %.3f mm of height, "+
-							"which is steeper than 45 degrees", q.azimuth*180/math.Pi, run, rise)
-					}
-				}
+	// The pieces, and which ones meet.
+	const ring, loop = 0, 1
+	rod := func(i int) int { return 2 + i }
+	collar := func(i int) int { return 6 + i }
+	joined := make([][]int, 10)
+	join := func(a, b int) { joined[a] = append(joined[a], b); joined[b] = append(joined[b], a) }
+
+	for i, c := range f.cross {
+		if f.ringGap(f.rodPoint(c, p.CageRise)) <= 0 {
+			join(ring, rod(i))
+		} else {
+			t.Errorf("rod %d does not reach the ring", i)
+		}
+		if f.loopGap(f.rodPoint(c, -p.CageRise)) <= 0 {
+			join(loop, rod(i))
+		} else {
+			t.Errorf("rod %d does not reach the loop", i)
+		}
+		for z := -p.CageRise; z <= p.CageRise; z += 0.05 {
+			if f.inCollar(c, f.rodPoint(c, z)) {
+				join(rod(i), collar(i))
+				break
 			}
 		}
 	}
-	t.Logf("no post widens faster than 45 degrees")
+
+	seen := make([]bool, 10)
+	stack := []int{ring}
+	seen[ring] = true
+	for len(stack) > 0 {
+		here := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		for _, next := range joined[here] {
+			if !seen[next] {
+				seen[next] = true
+				stack = append(stack, next)
+			}
+		}
+	}
+	names := []string{"the ring", "the loop", "rod 0", "rod 1", "rod 2", "rod 3",
+		"collar 0", "collar 1", "collar 2", "collar 3"}
+	for i, ok := range seen {
+		if !ok {
+			t.Errorf("%s is not joined to the ring", names[i])
+		}
+	}
+
+	bars := f.loopBars()
+	sides := make([]float64, 0, 4)
+	for _, bar := range bars {
+		sides = append(sides, bar[1].Sub(bar[0]).Len())
+	}
+	t.Logf("the loop's sides run %.1f, %.1f, %.1f and %.1f mm between the rods' feet",
+		sides[0], sides[1], sides[2], sides[3])
 }
 
-// A bore needs material round it, or the frame is a shell where it is most
-// worked. The wall has to be there IN EVERY DIRECTION, not only sideways: what
-// a wall is thick in is the direction across itself, and the bore's edge runs
-// diagonally over most of its height, so a sideways measurement there reports
-// more than the material really is. This walks a disc of the wall thickness
-// round the bore's edge and requires every point of it to be material, which is
-// the same disc the post is grown by.
-func TestBoresKeepTheirWall(t *testing.T) {
-	ga, gb := defaultPair()
-	p := ga.P
+// Everything either ribbon reaches over the whole stroke has to miss every part
+// of the frame but its own bore, by the clearance. This walks the envelope of
+// both ribbons — the crest on the toothed side and the boss at its fullest for
+// each station — against the ring, the loop, the rods and the collars.
+func TestRibbonsClearTheFrameOverTheStroke(t *testing.T) {
+	f := defaultFrame()
+	p := f.p
+	half := p.Length() / 2
 
-	if p.BlockWall < 3 {
-		t.Fatalf("the wall round a bore is %.2f mm, under the 3 mm a printed frame needs",
-			p.BlockWall)
+	ring, loop, rod := math.Inf(1), math.Inf(1), math.Inf(1)
+	for _, g := range f.gears {
+		eachEnvelopePoint(g, -half, half, 0.02, func(pt r3.Vec) {
+			ring = math.Min(ring, f.ringGap(pt))
+			loop = math.Min(loop, f.loopGap(pt))
+			rod = math.Min(rod, f.rodGap(pt))
+			for _, c := range f.cross {
+				if f.inCollar(c, pt) {
+					t.Fatalf("a ribbon reaches into the collar at %.0f degrees at (%.2f, %.2f, %.2f)",
+						c.azimuth*180/math.Pi, pt.X, pt.Y, pt.Z)
+				}
+			}
+		})
 	}
-
-	plates := platePieces(p)
-	worst := math.Inf(1)
-	for _, g := range []Gear{ga, gb} {
-		for _, station := range boreStations(p) {
-			q := postPiece(g, station)
-			material := func(t float64, z float64) bool {
-				pt := ptAt(p, q.azimuth, t, z)
-				return q.holds(p, pt) || plates[0].holds(p, pt) || plates[1].holds(p, pt)
-			}
-			for j := range int(math.Round((q.zHi-q.zLo)/q.step)) + 1 {
-				z := q.zLo + float64(j)*q.step
-				l, r, ok := boreReach(g, q.azimuth, z)
-				if !ok {
-					continue
-				}
-				// A hair inside the wall, because the post is grown by exactly
-				// this disc: its edge and the disc agree to the last bit over
-				// the stretch where the bore's own edge is steepest, and a
-				// strict comparison there is a coin toss on rounding.
-				probe := p.BlockWall - 1e-9
-				for _, edge := range []float64{-l, r} {
-					for a := 0.0; a < 2*math.Pi; a += math.Pi / 60 {
-						dt, dz := probe*math.Cos(a), probe*math.Sin(a)
-						if inBoreAt(g, q.azimuth, edge+dt, z+dz) {
-							continue // still the bore itself
-						}
-						if !material(edge+dt, z+dz) {
-							t.Fatalf("at height %.2f the bore's edge has under %.2f mm of material "+
-								"%.0f degrees round it", z, p.BlockWall, a*180/math.Pi)
-						}
-					}
-				}
-				// How much wall there really is, taken as the nearest material
-				// edge to the bore's edge at this height.
-				for _, pair := range [][2]float64{{-l, -q.sideAt(q.left, z) * p.CageRadius},
-					{r, q.sideAt(q.right, z) * p.CageRadius}} {
-					worst = math.Min(worst, math.Abs(pair[1]-pair[0]))
-				}
-			}
+	for name, gap := range map[string]float64{"ring": ring, "loop": loop, "rods": rod} {
+		if gap < p.Clearance {
+			t.Errorf("a ribbon comes within %.3f mm of the %s over the stroke, under the %.2f mm clearance",
+				gap, name, p.Clearance)
 		}
 	}
-	t.Logf("every bore keeps at least %.1f mm of wall, %.2f mm of it sideways", p.BlockWall, worst)
+	t.Logf("over a %.2f mm stroke the ribbons keep %.2f mm from the ring, %.2f mm from the loop and "+
+		"%.2f mm from the rods", p.Stroke(), ring, loop, rod)
 }
 
-// Each side of a post widens once and narrows once. That is what keeps the
-// block a block: a side that went out, came back and went out again would read
-// as a notch cut into the post, which is the shape a wall following the bore's
-// own wiggling outline produces and the reason this one is grown from the bore
-// rather than traced round it.
-func TestPostSidesHaveOneBulge(t *testing.T) {
-	ga, gb := defaultPair()
-	p := ga.P
+// Inside a collar the ribbon both clears the bore and fills it, over the whole
+// stroke: what is in the bore is always the boss's flat top, the clearance
+// away from the wall all round. A stroke longer than the boss allows would put
+// the boss's taper in the bore at the ends of the travel, and the ribbon would
+// then be loose in the frame there rather than held.
+func TestCollarBoresHoldTheBossOverTheStroke(t *testing.T) {
+	f := defaultFrame()
+	p := f.p
 
-	for _, g := range []Gear{ga, gb} {
-		for _, station := range boreStations(p) {
-			q := postPiece(g, station)
-			for what, side := range map[string][]float64{"left": q.left, "right": q.right} {
-				turns := 0
-				for j := 2; j < len(side); j++ {
-					was, now := side[j-1]-side[j-2], side[j]-side[j-1]
-					if was > 1e-12 && now < -1e-12 {
-						turns++
-					}
-				}
-				if turns > 1 {
-					t.Errorf("the %s side of the post at %.0f degrees widens and narrows %d times "+
-						"over its height, which is a notch rather than a block",
-						what, q.azimuth*180/math.Pi, turns+1)
-				}
+	least, most := math.Inf(1), 0.0
+	for _, c := range f.cross {
+		for d := -p.Stroke() / 2; d <= p.Stroke()/2+1e-9; d += p.Stroke() / 20 {
+			g := c.g
+			g.Phase = c.g.Phase + d
+			for s := c.station - p.CollarHalf; s <= c.station+p.CollarHalf+1e-9; s += 0.02 {
+				uHi, uLo, vHalf := g.profile(s)
+				gap := math.Min(p.BoreHalfWidth()-uHi, math.Min(p.BoreHalfWidth()+uLo,
+					p.BoreHalfThickness()-vHalf))
+				least, most = math.Min(least, gap), math.Max(most, gap)
 			}
 		}
 	}
-	t.Logf("every post side carries one bulge")
+	if least < p.Clearance-1e-6 {
+		t.Errorf("the ribbon comes within %.4f mm of a bore's wall over the stroke, under the %.2f mm clearance",
+			least, p.Clearance)
+	}
+	if most > p.Clearance+1e-6 {
+		t.Errorf("the ribbon falls %.4f mm short of a bore's wall somewhere in the stroke: the boss "+
+			"does not fill the bore over the whole travel", most)
+	}
+	t.Logf("over the %.2f mm stroke every bore holds the boss at %.3f-%.3f mm all round",
+		p.Stroke(), least, most)
 }
 
 // The bore is not the twisted channel the model describes. Fusion has no twist
@@ -500,39 +460,33 @@ func TestPostSidesHaveOneBulge(t *testing.T) {
 // clearance, because the facet takes its bite out of the gap the boss passes
 // through, and enough of it would bind the gear.
 //
-// This measures the bite. It walks the stations where the ribbon meets that
-// post's material, builds the lofted opening there as the build would, and asks
-// how much room is left round the boss.
-//
-// SPANNING ONLY THE MATERIAL IS WHAT MAKES THIS CHEAP. The ribbon crosses a post
-// over about 4 mm of its own length and turns some 44 degrees doing it. Lofting
-// the whole post's height instead would be 36 mm and 392 degrees, and the same
-// section count over that span leaves the channel pinched shut.
+// This measures the bite. It builds the lofted opening over the collar's span
+// as the build would, and asks how much room is left round the boss.
 func TestBoreLoftKeepsItsClearance(t *testing.T) {
-	ga, gb := defaultPair()
-	p := ga.P
+	f := defaultFrame()
+	p := f.p
 
 	worst := math.Inf(1)
-	for _, g := range []Gear{ga, gb} {
-		for _, station := range boreStations(p) {
-			lo, hi := boreSpan(g, station)
-			turn := (hi - lo) / p.Lambda()
-			n := boreSections(turn)
-			left := boreLoftClearance(g, lo, hi, n)
-			if left < 0.95*p.Clearance {
-				t.Errorf("the bore at station %+.1f lofts through %d sections %.1f degrees apart and "+
-					"leaves the boss %.4f mm, under the %.4f mm that is 95%% of the clearance",
-					station, n, turn/float64(n-1)*180/math.Pi, left, 0.95*p.Clearance)
-			}
-			worst = math.Min(worst, left)
+	for _, c := range f.cross {
+		lo, hi := boreSpan(p, c.station)
+		turn := (hi - lo) / p.Lambda()
+		n := boreSections(turn)
+		left := boreLoftClearance(c.g, lo, hi, n)
+		if left < 0.95*p.Clearance {
+			t.Errorf("the bore at station %+.1f lofts through %d sections %.1f degrees apart and "+
+				"leaves the boss %.4f mm, under the %.4f mm that is 95%% of the clearance",
+				c.station, n, turn/float64(n-1)*180/math.Pi, left, 0.95*p.Clearance)
 		}
+		worst = math.Min(worst, left)
 	}
 
-	// What the spec used to fix at five sections, for the record.
-	g := ga
-	lo, hi := boreSpan(g, boreStations(p)[0])
-	t.Logf("the lofted bore leaves the boss %.4f mm of the %.2f mm clearance; five sections would "+
-		"leave %.4f mm", worst, p.Clearance, boreLoftClearance(g, lo, hi, 5))
+	// What the spec once fixed at five sections, for the record.
+	c := f.cross[0]
+	lo, hi := boreSpan(p, c.station)
+	t.Logf("the lofted bore turns %.0f degrees through %d sections and leaves the boss %.4f mm of "+
+		"the %.2f mm clearance; five sections would leave %.4f mm",
+		(hi-lo)/p.Lambda()*180/math.Pi, boreSections((hi-lo)/p.Lambda()), worst, p.Clearance,
+		boreLoftClearance(c.g, lo, hi, 5))
 }
 
 // boreSections is the count the build lofts a bore through: enough that no two
@@ -548,24 +502,11 @@ func boreSections(turn float64) int {
 	return n
 }
 
-// boreSpan is the stretch of a gear's own axis over which its bore has post
-// material to cut, with a millimetre of margin at each end. Outside it the
-// ribbon is in open air and there is nothing to remove.
-func boreSpan(g Gear, station float64) (lo, hi float64) {
-	p := g.P
-	q := postPiece(g, station)
-	lo, hi = math.Inf(1), math.Inf(-1)
-	hw, ht := p.BoreHalfWidth(), p.BoreHalfThickness()
-	for s := station - 4*p.Width; s <= station+4*p.Width; s += 0.01 {
-		for cu := -hw; cu <= hw; cu += 0.25 {
-			for cv := -ht; cv <= ht; cv += 0.25 {
-				if q.holds(p, g.world(cu, cv, s)) {
-					lo, hi = math.Min(lo, s), math.Max(hi, s)
-				}
-			}
-		}
-	}
-	return lo - 1, hi + 1
+// boreSpan is the stretch of a gear's own axis a bore's loft covers: the
+// collar's length, with a millimetre of margin at each end so the cut runs
+// clean through.
+func boreSpan(p Params, station float64) (float64, float64) {
+	return station - p.CollarHalf - 1, station + p.CollarHalf + 1
 }
 
 // boreLoftClearance is the least room the lofted opening leaves round the boss,
@@ -611,126 +552,16 @@ func boreLoftClearance(g Gear, lo, hi float64, n int) float64 {
 	return worst
 }
 
-// The widening has to earn its material: a post that is as wide at its ends as
-// it is at its bore is carrying weight for nothing.
-//
-// This also reports what the four posts take out of the cage wall altogether,
-// which is the measure of the shaping. A block squared off round the whole
-// channel, which is what this frame carried before, comes to 1750 mm2 against
-// the 1142 mm2 here, and is 18.60 mm at its widest against 15.34 mm.
-func TestPostsAreNarrowAwayFromTheirBores(t *testing.T) {
-	ga, gb := defaultPair()
-	p := ga.P
-
-	atEnd, widest, area := 0.0, 0.0, 0.0
-	for _, g := range []Gear{ga, gb} {
-		for _, station := range boreStations(p) {
-			q := postPiece(g, station)
-			end := q.widthAt(p.CageRise-p.PlateThick) * p.CageRadius
-			mine := 0.0
-			for z := q.zLo; z <= q.zHi; z += q.step {
-				w := q.widthAt(z) * p.CageRadius
-				mine = math.Max(mine, w)
-				area += w * q.step
-			}
-			if end > mine/2 {
-				t.Errorf("the post at %.0f degrees is %.2f mm wide at the plate against %.2f at its "+
-					"bore, which is not much of a saving", q.azimuth*180/math.Pi, end, mine)
-			}
-			atEnd, widest = math.Max(atEnd, end), math.Max(widest, mine)
-		}
-	}
-	t.Logf("a post runs %.2f mm wide, widening to at most %.2f mm round its bore; the four take "+
-		"%.0f mm2 out of the wall", atEnd, widest, area)
-}
-
-// Nothing may stand outside the frame's one cylinder. That surface is what
-// makes the outside read as turned rather than assembled, and a corner poking
-// through it is the defect this rules out.
-func TestNothingStandsProudOfTheShell(t *testing.T) {
-	ga, gb := defaultPair()
-	p := ga.P
-	pieces := cagePieces(ga, gb)
-
-	for _, q := range pieces {
-		for da := -q.maxHalfAngle(); da <= q.maxHalfAngle(); da += 0.01 {
-			a := q.azimuth + da
-			for z := q.zLo; z <= q.zHi; z += 0.5 {
-				for _, r := range []float64{p.CageOuter() + 0.001, p.CageInner() - 0.001} {
-					pt := r3.NewVec(r*math.Cos(a), r*math.Sin(a), z)
-					if inCage(ga, gb, pieces, pt) {
-						t.Fatalf("frame material sits at radius %.3f, outside the wall %.3f to %.3f",
-							r, p.CageInner(), p.CageOuter())
-					}
-				}
-			}
-		}
-	}
-	t.Logf("the whole frame lies between radius %.2f and %.2f", p.CageInner(), p.CageOuter())
-}
-
-// Each post has to reach both plates, or the frame is not one body.
-func TestPostsReachBothPlates(t *testing.T) {
-	ga, gb := defaultPair()
-	p := ga.P
-
-	for _, g := range []Gear{ga, gb} {
-		for _, station := range boreStations(p) {
-			a := postAzimuth(g, station)
-			post := postPiece(g, station)
-			for _, z := range []float64{-p.CageRise + p.PlateThick/2, p.CageRise - p.PlateThick/2} {
-				pt := r3.NewVec(p.CageRadius*math.Cos(a), p.CageRadius*math.Sin(a), z)
-				if !post.holds(p, pt) {
-					t.Errorf("the post at %.1f degrees does not reach the plate at height %.1f",
-						a*180/math.Pi, z)
-				}
-				met := false
-				for _, plate := range platePieces(p) {
-					if plate.holds(p, pt) {
-						met = true
-					}
-				}
-				if !met {
-					t.Errorf("no plate stands at height %.1f where the post reaches it", z)
-				}
-			}
-		}
-	}
-}
-
-// Every part of both ribbons has to miss every part of the frame. The bores are
-// the only places they come near, and even there they must not touch.
-func TestRibbonsClearTheCage(t *testing.T) {
-	ga, gb := defaultPair()
-	pieces := cagePieces(ga, gb)
-
-	for _, g := range []Gear{ga, gb} {
-		var hit bool
-		var at r3.Vec
-		var atS float64
-		eachRibbonPoint(g, 0.02, func(pt r3.Vec, _, s float64) {
-			if !hit && inCage(ga, gb, pieces, pt) {
-				hit, at, atS = true, pt, s
-			}
-		})
-		if hit {
-			t.Fatalf("a ribbon meets the frame at station %.2f, (%.2f, %.2f, %.2f)",
-				atS, at.X, at.Y, at.Z)
-		}
-	}
-}
-
-// The middle of the cage has to stay open, or the mesh cannot be seen and the
+// The middle of the frame has to stay open, or the mesh cannot be seen and the
 // teeth have nothing to meet in.
 func TestTheMiddleStaysOpen(t *testing.T) {
-	ga, gb := defaultPair()
-	pieces := cagePieces(ga, gb)
-	window := axialWindow(ga.P)
+	f := defaultFrame()
+	window := axialWindow(f.p)
 
 	for x := -window; x <= window; x += 0.2 {
 		for y := -window; y <= window; y += 0.2 {
 			for z := -window; z <= window; z += 0.2 {
-				if inCage(ga, gb, pieces, r3.NewVec(x, y, z)) {
+				if f.inFrame(r3.NewVec(x, y, z)) {
 					t.Fatalf("the frame reaches into the meshing space at (%.1f, %.1f, %.1f)", x, y, z)
 				}
 			}
@@ -740,22 +571,24 @@ func TestTheMiddleStaysOpen(t *testing.T) {
 }
 
 // This is the frame's own proof: it admits the screw motion and nothing else.
-// The test turns a gear out of step with its own advance and finds the angle at
-// which its boss jams in the bores.
+// TestRibbonsClearTheFrameOverTheStroke is the first half, that the gear moves
+// freely through its stroke. This is the second: the test turns a gear out of
+// step with its own advance and finds the angle at which its boss jams in the
+// collars.
 //
 // A frame of round holes would report no jam at any angle, and that is the case
 // this rules out.
 func TestBoresAdmitOnlyTheScrewMotion(t *testing.T) {
-	ga, gb := defaultPair()
-	p := ga.P
-	pieces := cagePieces(ga, gb)
+	f := defaultFrame()
+	p := f.p
+	ga := f.gears[0]
 
 	fits := func(extra float64) bool {
 		g := ga
 		g.Mount += extra
 		clear := true
 		eachRibbonPoint(g, 0.05, func(pt r3.Vec, _, _ float64) {
-			if clear && inCage(ga, gb, pieces, pt) {
+			if clear && f.inFrame(pt) {
 				clear = false
 			}
 		})
@@ -773,105 +606,87 @@ func TestBoresAdmitOnlyTheScrewMotion(t *testing.T) {
 		}
 	}
 	if slack == 0 {
-		t.Fatal("the gear turns freely in the cage: the bores are not holding it to the screw " +
+		t.Fatal("the gear turns freely in the frame: the bores are not holding it to the screw " +
 			"motion, which is the one thing the frame is for")
 	}
 	if got := slack * 180 / math.Pi; got > 12 {
-		t.Errorf("the cage lets the gear turn %.1f degrees out of step, which is more play than a "+
+		t.Errorf("the frame lets the gear turn %.1f degrees out of step, which is more play than a "+
 			"mechanism of one degree of freedom can be said to have", got)
 	}
-	t.Logf("the cage jams the gear %.2f degrees out of step, on %.2f mm of clearance",
+	t.Logf("the frame jams the gear %.2f degrees out of step, on %.2f mm of clearance",
 		slack*180/math.Pi, p.Clearance)
 }
 
-// How far a bore stands from upright, which is what decides whether it prints.
-//
-// A bore is a hole through a post, and the posts stand along the cage axis,
-// which is the axis a print stands on. A bore is therefore a horizontal hole
-// whose ceiling has to be bridged, and a bore whose opening is TALL and narrow
-// bridges a short span where a wide flat one leaves a ceiling as wide as the
-// ribbon.
-//
-// There are four of them: each gear crosses twice, at plus and minus the cage
-// radius, and those two are turned in opposite directions. Upright at all four
-// needs the two mounting angles equal AND the cage radius a whole number of
-// half turns of the ribbon, and even then the four sit at plus and minus the
-// mounting angle. So the best any radius can do is the mounting angle itself.
-func TestBoresStandNearlyUpright(t *testing.T) {
-	ga, gb := defaultPair()
-	p := ga.P
-
-	worst := 0.0
-	for _, g := range []Gear{ga, gb} {
-		for _, station := range boreStations(p) {
-			theta := g.angle(station)
-			off := math.Mod(math.Abs(theta), math.Pi)
-			worst = math.Max(worst, math.Min(off, math.Pi-off))
-		}
-	}
-	if got := worst * 180 / math.Pi; got > 20 {
-		t.Errorf("a bore stands %.1f degrees off upright, which leaves a ceiling too wide to "+
-			"bridge on a filament printer", got)
-	}
-	best := math.Pi
-	for x := 0.0; x < math.Pi; x += math.Pi / 3600 {
-		d := 0.0
-		for _, phi := range []float64{p.MountAngleA, p.MountAngleB} {
-			for _, sign := range []float64{1, -1} {
-				off := math.Mod(math.Abs(sign*x+phi), math.Pi)
-				d = math.Max(d, math.Min(off, math.Pi-off))
-			}
-		}
-		best = math.Min(best, d)
-	}
-	if worst > best+0.5*math.Pi/180 {
-		t.Errorf("the bores stand %.1f degrees off upright where %.1f is available: the cage "+
-			"radius is not where it should be", worst*180/math.Pi, best*180/math.Pi)
-	}
-	t.Logf("bores stand %.1f degrees off upright, against %.1f the mounting angles allow",
-		worst*180/math.Pi, best*180/math.Pi)
-}
-
 // The boss travels with its gear, so its length is the stroke: the mechanism
-// runs only while the boss still fills the bores. The bore's length along the
-// ribbon is the block's radial depth taken on the slant, because a gear's axis
-// is not quite radial where it crosses.
+// runs only while the boss's flat top still fills the collars, and a collar's
+// length comes straight out of the travel.
 func TestStrokeIsTheBossLength(t *testing.T) {
-	ga, _ := defaultPair()
-	p := ga.P
+	p := defaultParams()
 
-	bore := p.ShellThick / math.Cos(math.Asin(p.AxisOffset()/2/p.CageRadius))
-	stroke := 2 * (p.BossHalf - p.BossTaper - bore/2)
+	stroke := p.Stroke()
 	if stroke <= 0 {
-		t.Fatalf("the boss is %.2f mm long and the bore %.2f mm deep, so there is no travel",
-			2*p.BossHalf, bore)
+		t.Fatalf("the boss is %.2f mm long and the collar %.2f mm, so there is no travel",
+			2*p.BossHalf, 2*p.CollarHalf)
 	}
 	if teeth := stroke / p.ToothPitch; teeth < 2 {
 		t.Errorf("the stroke is %.2f mm, only %.1f teeth, too short to show a gear working",
 			stroke, teeth)
 	}
-	t.Logf("bore %.2f mm along the ribbon, stroke %.2f mm, which is %.1f teeth",
-		bore, stroke, stroke/p.ToothPitch)
+	t.Logf("collar %.2f mm along the ribbon, stroke %.2f mm, which is %.1f teeth",
+		2*p.CollarHalf, stroke, stroke/p.ToothPitch)
 }
 
 // A tooth must never reach a bore, or the frame would need an opening shaped
-// like a tooth and the boss would be pointless.
+// like a tooth and the boss would be pointless. Both gears are walked, because
+// gear B's collars sit where ITS bosses are at the assembly phase.
 func TestTeethNeverReachABore(t *testing.T) {
-	ga, _ := defaultPair()
-	p := ga.P
+	f := defaultFrame()
+	p := f.p
 
-	bore := p.ShellThick / math.Cos(math.Asin(p.AxisOffset()/2/p.CageRadius))
-	stroke := p.BossHalf - p.BossTaper - bore/2
-	for _, station := range boreStations(p) {
-		for d := -stroke; d <= stroke; d += 0.05 {
-			for s := station - bore/2; s <= station+bore/2; s += 0.02 {
-				g := ga
-				g.Phase = d
+	for _, c := range f.cross {
+		for d := -p.Stroke() / 2; d <= p.Stroke()/2+1e-9; d += 0.05 {
+			for s := c.station - p.CollarHalf; s <= c.station+p.CollarHalf+1e-9; s += 0.02 {
+				g := c.g
+				g.Phase = c.g.Phase + d
 				if b := g.boss(s); b < p.BossGrow-1e-9 {
-					t.Fatalf("at travel %.2f mm the ribbon inside the bore at %.1f stands only "+
-						"%.3f mm proud, so a tooth is in the bore", d, station, b)
+					t.Fatalf("at travel %+.2f mm the ribbon inside the collar at %.1f stands only "+
+						"%.3f mm proud, so a tooth is in the bore", d, c.station, b)
 				}
 			}
 		}
 	}
+}
+
+// The frame puts each boss a set distance from the middle, and a smaller frame
+// puts it nearer the mesh. Outside the engaged zone the two ribbons have to
+// clear each other with their bosses on, at every phase of the stroke; the
+// mesh proof walks the bare ribbons, and the boss is the frame's business.
+func TestBossesClearTheOtherRibbon(t *testing.T) {
+	f := defaultFrame()
+	p := f.p
+	half := p.Length() / 2
+	window := axialWindow(p)
+
+	worst, worstAt := math.Inf(-1), 0.0
+	for i, g := range f.gears {
+		other := f.gears[1-i]
+		for _, side := range [][2]float64{{-half, -window}, {window, half}} {
+			eachEnvelopePoint(g, side[0], side[1], 0.02, func(pt r3.Vec) {
+				if m := other.envelopeMargin(pt); m > worst {
+					_, _, s := g.local(pt)
+					worst, worstAt = m, s
+				}
+			})
+		}
+	}
+	if worst > -p.Clearance {
+		t.Errorf("outside the engaged zone the ribbons come within %.3f mm of each other at station "+
+			"%.2f, under the %.2f mm clearance, once the boss is on", -worst, worstAt, p.Clearance)
+	}
+	if got := p.CageRadius - p.BossHalf; got < window {
+		t.Errorf("a boss starts %.2f mm from the middle, inside the %.2f mm the teeth engage over", got, window)
+	}
+	t.Logf("with the bosses on, the ribbons keep %.2f mm from each other outside the engaged zone, "+
+		"closest at station %.2f; a boss starts %.2f mm from the middle", -worst, worstAt,
+		p.CageRadius-p.BossHalf)
 }
