@@ -247,6 +247,8 @@ class SpurGearGenerator(Generator):
 
     def prepareTools(self, ctx):
         component = self.getComponent()
+        if self.plane is None:
+            raise ValueError('Spur Gear: Target Plane is missing')
         if self.plane.objectType != adsk.fusion.ConstructionPlane.classType():
             planeInput = component.constructionPlanes.createInput()
             planeInput.setByOffset(self.plane, adsk.core.ValueInput.createByReal(0))
@@ -390,8 +392,11 @@ class SpurGearGenerator(Generator):
         self.boreSketch = boreSketch
         toothGen = SpurGearInvoluteToothDesignGenerator(boreSketch, self)
         toothGen.drawBore(ctx.anchorPoint, boreDiameter)
+        projectedAnchor = toothGen.projectedAnchor
+        if projectedAnchor is None:
+            raise RuntimeError('Spur Gear: Bore Profile anchor projection failed')
         boreSketch.geometricConstraints.addCoincident(
-            toothGen.anchorPoint, toothGen.projectedAnchor)
+            toothGen.anchorPoint, projectedAnchor)
         if not boreSketch.isFullyConstrained:
             raise RuntimeError('Spur Gear: Bore Profile is not fully constrained')
         if boreSketch.profiles.count != 1:
@@ -522,6 +527,8 @@ class SpurGearInvoluteToothDesignGenerator:
         return circles
 
     def drawTooth(self, angle=0, circles=None):
+        if circles is None:
+            circles = self.drawCircles()
         sketch = self.sketch
         constraints = sketch.geometricConstraints
         dimensions = sketch.sketchDimensions
