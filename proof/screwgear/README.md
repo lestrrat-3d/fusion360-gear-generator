@@ -20,8 +20,10 @@ gear into Fusion is still the only check that sees the real thing.
 
 The pictures draw the **ideal** ribbon: an exact cosine edge on an exact helicoid, which is what
 the proof reasons about. The part Fusion builds lofts eleven rectangles per tooth, and
-`TestLoftSectionCountHoldsTheHelicoid` bounds the difference between the two at 0.7 µm against a
-0.50 mm backlash. That bound is arithmetic about the loft rather than a measurement of one.
+`TestLoftSectionCountHoldsTheHelicoid` bounds the difference between the two: 0.7 µm at the
+crest, where the loft cuts the corner of the helicoid, and 0.029 mm on the toothed edge, which
+the loft draws as a chord of the cosine between sections, against a 0.50 mm backlash. Both
+bounds are arithmetic about the loft rather than a measurement of one.
 
 The frame's parts are drawn one by one and laid over each other rather than joined: the ring as a
 torus, the rods and the loop's bars as plain cylinders with a ball at each corner, and each collar
@@ -88,9 +90,10 @@ different heights and their teeth meet in the middle.
 
 **A rod stands beside its collar, not on it.** The ribbon runs on through the point where it
 crosses the frame, so a rod there would cut it. Each rod stands on the ring's circle, turned round
-the ring by the least angle at which it clears both ribbons at every phase of the travel — 34.7°
-for a gear's collar at `+CageRadius` and 34.5° for the one at `-CageRadius` — and runs through its
-collar's 2 mm wall, which is what joins the two. All four are turned the same way round, so they
+the ring counter-clockwise, seen from the ring's end, by the least angle at which it clears both
+ribbons at every phase of the travel — 34.6° for a gear's collar at `-CageRadius` and 34.4° for
+the one at `+CageRadius` — and runs through its collar's 2 mm wall, which is what joins the two.
+All four are turned the same way round, so they
 land in the gaps between the ribbons, and the loop that joins their feet is a rectangle with a
 corner at each rod: 17.3 by 14.5 mm inside a 22.5 mm circle, which is why the loop reads smaller
 than the ring.
@@ -99,7 +102,8 @@ to loop and rod to collar.
 
 **Nothing of the frame touches a ribbon but the bore.** `TestRibbonsClearTheFrameOverTheTravel`
 walks everything both ribbons reach at any phase of the travel against the ring, the loop, the
-rods and the collars: 2.66 mm to the ring, 3.73 mm to the loop, 0.31 mm to the rods.
+rods and the collars: 2.66 mm to the ring, 3.73 mm to the loop, 0.30 mm to the rods, which is
+the clearance itself, because each rod stands at the least angle that clears.
 
 **The teeth run through the collars.** The crest of a cosine rack is the ribbon's outer edge, so
 the crest rectangle holds every point of the ribbon and the bore needs nothing shaped like a
@@ -147,9 +151,9 @@ four tooth pairs land in the engaged zone at once and cannot all interdigitate, 
 | Play in the frame | a collar jams a gear 3.55° out of step |
 | Travel | 115.1 mm, 65.8 teeth, 82% of the ribbon: 57.1 mm back and 58.0 mm forward of the assembly position |
 | Ring | 25 mm across, 2.5 ribbon widths and 0.76 leads; the frame 1.18 ring widths tall |
-| Rods | 34.7° and 34.5° round the ring from their collars, 6.7 mm from the crossings |
+| Rods | 34.6° (at −CageRadius) and 34.4° (at +CageRadius) round the ring from their collars, 6.7 mm from the crossings |
 | Loop | 17.3 by 14.5 mm between the rods' feet |
-| Frame to ribbon | 2.66 mm at the ring, 3.73 mm at the loop, 0.31 mm at the rods, over the travel |
+| Frame to ribbon | 2.66 mm at the ring, 3.73 mm at the loop, 0.30 mm at the rods, over the travel |
 | Ribbon to ribbon outside the engaged zone | 1.04 mm at every phase of the travel, at station −4.40 mm |
 | Bore wall in the part | faceted by its loft, leaving 0.296 mm of the 0.30 mm clearance |
 

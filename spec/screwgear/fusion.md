@@ -46,9 +46,12 @@ one tooth at a time while never growing past one cell.
 
 ## `[SCREW-F-CELL-LOFT]` — lofting the rotated rectangles
 
-The tooth cell lofts eleven rectangles, each rotated a little further about the axis than the last and
-each a slightly different width. Add them with `loftSections.add(profile)` **in station order**
-(`[PB-LOFT]`); the order of the calls is the loft order.
+The tooth cell lofts rectangles, eleven at the defaults, each rotated a little further about the
+axis than the last and each a slightly different width. Add them with `loftSections.add(profile)`
+**in station order** (`[PB-LOFT]`); the order of the calls is the loft order. The loft is
+`loftFeatures.createInput(NewBodyFeatureOperation)` → the sections → `loftFeatures.add(input)`,
+and the cell is the one body in the feature's `bodies`, which the build checks for
+(`[PB-EMPTY-RESULT]`).
 
 Select each section's profile by curve count (`utilities.find_profile_by_curve_counts(sketch,
 lines=4)`) — each section sketch holds exactly one rectangle, so the count is unambiguous and there
@@ -69,13 +72,26 @@ InternalValidationError : Utils::getObjectPath(sketchCurve, …)` when the ownin
 trivially resolvable in the current multi-component context. The screw gear builds everything in a
 `Design` sub-component, so it is always in that context.
 
-The collar is built the same way, first. On each of the bore's construction planes draw the bore's
-rectangle grown by the wall — a rounded rectangle, four lines and four arcs of `collarWall` radius,
-which `find_profile_by_curve_counts(sketch, lines=4, arcs=4)` picks out — and loft those into the
-collar's solid; then loft the plain rectangles on the same planes and cut. Both lofts twist,
-because the ribbon turns while it is inside the collar. A collar's loft spans `±collarHalf`; the
-bore's spans a millimetre more each end, so the cut runs clean through the collar's flat ends and
-through whatever of a rod stands inside the wall.
+The collar is built the same way, first, on construction planes of its own. On each of them draw
+the bore's rectangle grown by the wall — a rounded rectangle, four lines and four arcs of
+`collarWall` radius, which `find_profile_by_curve_counts(sketch, lines=4, arcs=4)` picks out — and
+loft those into the collar's solid; then loft the plain rectangles on the bore's own planes into a
+second body and cut the frame with it. Both lofts twist, because the ribbon turns while it is
+inside the collar. A collar's loft spans `±collarHalf` and the bore's spans a millimetre more each
+end, so the cut runs clean through the collar's flat ends and through whatever of a rod stands
+inside the wall; the two plane sets are separate because one evenly spaced set cannot land on both
+the collar's ends and the bore's. Each set is `setByDistanceOnPath` on the gear's axis line
+(`[PB-CONSTRUCTION-PLANES]`), evenly spaced over its own span, at the count the spec derives for
+it (10 and 15 at the defaults).
+
+The collar section's rounded rectangle is drawn over the bore's rectangle as construction: the
+bore's four sides `L1..L4` by the spec's rectangle scheme, all construction, then four solid sides
+`O1..O4`, `Oi` parallel to `Li` with an offset dimension of `collarWall` and each of its ends
+coincident on the infinite line of the neighbouring construction side (`addCoincident(point,
+line)`), and four three-point arcs, each from the end of `Oi` to the start of `O(i+1)` through the
+construction corner pushed out by `collarWall` along the corner's diagonal, with one `addTangent`
+to `Oi`. The arc's centre then falls on the construction corner and its radius is `collarWall`;
+neither is dimensioned, and a second tangent would over-constrain (`[PB-NO-OVERCONSTRAIN]`).
 
 One loft per bore, not one per gear. The two collars of a gear do stand on the same axis, so a single
 clearance ribbon through both is the obvious build, but it would have to span the 24 mm between
@@ -89,22 +105,70 @@ reference — worth knowing before anyone reaches for a rail to shape the teeth 
 
 ## `[SCREW-F-ROUND-FRAME]` — the ring, the rods and the loop
 
-Every other part of the frame is a round section, and none of them twists:
+Every other part of the frame is a round section, and none of them twists. No construction axis
+is made anywhere in this build, since one needs an active component
+(`[PB-CONSTRUCTION-NEEDS-ACTIVE]`); every revolve axis is a sketch line.
 
-- The ring is a `revolveFeatures` full revolution of a circle sketched on a plane through `n̂`,
-  centred `ringRadius` from the axis at height `cageRise`, about a construction axis along `n̂`.
-- A rod is an `extrudeFeatures` extrusion of a circle sketched on a plane square to `n̂` at
-  `-cageRise`, through `2*cageRise`. Sketch all four on one plane; each is its own profile.
-- A bar of the loop is the same extrusion between two rod feet, sketched on a plane square to the
-  bar's own direction — or, simpler, a `sweepFeatures` sweep of a circle along a sketch line from
-  foot to foot with no twist. A ball at each foot is a revolved semicircle about a line through the
-  foot along `n̂`.
+- The ring is a `revolveFeatures` full revolution (`[PB-REVOLVE]`: `createInput(profile, axis,
+  NewBodyFeatureOperation)` → `setAngleExtent(False, ValueInput.createByString('360 deg'))` →
+  `add`) of a circle sketched on the **Ring Plane**, the plane through the Anchor Line square to the
+  selected plane (`setByAngle(anchorLine, '90 deg', targetPlane)`). In that sketch a construction
+  line from the projected centre point along `n̂`, perpendicular to the projected Anchor Line with a
+  length dimension of `cageRise`, is the revolve axis; a construction spoke from its end,
+  perpendicular to it with a length dimension of `ringRadius`, carries the circle at its end, with
+  a diameter dimension of `ringWire`. The circle never reaches the axis, since `ringRadius >
+  ringWire/2` follows from the rod checks.
+- A rod is an `extrudeFeatures` extrusion of a circle sketched on the selected plane itself,
+  `setSymmetricExtent(ValueInput.createByReal(cageRise), False)` — `False` makes the value each
+  side's length (`[PB-THROUGH-CUT]` for the argument's meaning), so the rod runs from `-cageRise` to
+  `+cageRise`. Sketch all four on one sketch; each circle is its own profile, and the four are
+  extruded in one feature as new bodies, whose count the build checks.
+- A bar of the loop is the same extrusion between two rod feet: a line from foot to foot on a
+  **Loop** sketch on the plane offset `-cageRise` from the selected plane, each foot the projected
+  centre of a rod's circle; a plane square to that line at its middle (`setByDistanceOnPath(bar,
+  0.5)`); a circle of `ringWire` on that plane centred on the line's intersection with it
+  (`intersectWithSketchPlane`), extruded `setSymmetricExtent` by half the line's `length`. It is not
+  a sweep: a sweep needs a `Path`, and `Path.create` on a sketch curve raises in this
+  multi-component build (`[SCREW-F-TWISTED-SLOT]`). A ball at each foot is a half-disc revolved
+  about a line through the foot along `n̂`: on a plane through the bar and `n̂`
+  (`setByAngle(bar, '90 deg', loopPlane)`), a line of `ringWire` through the foot at its midpoint,
+  perpendicular to the projected bar, and a three-point arc from its one end to the other on the
+  side away from the bar, its centre coincident on the line; the profile is the half-disc, and the
+  line is the revolve axis, which a profile may lie against.
 
 Join every piece into one body with a `combineFeatures` join as it is made, collars included, and
 cut the bores last: the bore's loft then passes through the collar and through the part of its rod
-that stands inside the wall in one operation. The rods' azimuths are the angles the proof's
+that stands inside the wall in one operation. A join or cut is `combineFeatures.createInput(target,
+tools)` with the tools in an `ObjectCollection`, `operation` set to `JoinFeatureOperation` or
+`CutFeatureOperation`, `isKeepToolBodies = False`, then `add`; each leaves one body, and the build
+raises with the piece's name when it does not (`[PB-EMPTY-RESULT]`). The pieces are always made as
+new bodies and combined explicitly, because a join operation on the extrude or loft itself would
+join into whatever it touches, the ribbons included. The rods' azimuths are the angles the proof's
 `TestRodsStandBesideTheirCollars` derives, and the build recomputes them by the same search rather
 than reading them from a table, because they move with every ribbon dimension.
+
+## `[SCREW-F-REFERENCES]` — how fixed geometry enters a sketch
+
+A point or line of the anchor sketch enters any other sketch as
+`sketch.project(entity).item(0)`, as `[PB-PROJECT-NOT-FIXED]` writes it. The compiled API
+reference declares only `project2(entities, isLinked)`, so the repo's gates report `project` as
+unverified; this gear keeps `project` anyway, because every add-in that has loaded in Fusion
+(spur, bevel, cycloidal) calls it and none calls `project2`. A projected line is set
+`isConstruction = True` wherever it must not bound a profile.
+
+A gear's axis line enters a section sketch, whose plane is normal to it, as
+`sketch.intersectWithSketchPlane([axisLine])[0]`, a sketch point at the axis; the build raises when
+the list is empty (`[PB-EMPTY-RESULT]`). The same call gives a bar's middle on its section plane.
+
+## `[SCREW-F-NORMAL-SIGN]` — reading `n̂` from a plane the build made
+
+`setByOffset(targetPlane, ValueInput.createByReal(d))` offsets along the selected entity's own
+normal, which for a planar face may point either way. The build never assumes that sign. After the
+`Gear A Axis Plane` is made at `-A/2`, it reads `plane.geometry` — a `Plane` with an `origin` and a
+`normal` — and sets `n̂ = normal` if `(C - origin) · normal > 0`, else `-normal`, so that `C` lies
+`+A/2` along `n̂` from gear A's plane by construction; it then checks that `|(C - origin) · normal|`
+is `A/2` for both axis planes and raises otherwise. Every later offset from the selected plane —
+the Loop Plane at `-cageRise` — is signed the same way, so it lands on `-n̂` with gear A's plane.
 
 ## `[SCREW-F-NO-SOLID-TWIST]` — why the ribbon is not built straight and then twisted
 

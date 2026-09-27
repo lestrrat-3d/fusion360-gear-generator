@@ -90,8 +90,9 @@ clearance between the two ribbons away from the teeth. This file records only ho
 ## What this does not establish
 
 The model is an exact sinusoid on an exact helicoid. The built part is a loft through eleven
-rectangles per tooth, which departs from the helicoid by about 0.7 µm at the crest — three orders
-below the backlash, but measured against the model rather than against Fusion's own surface.
+rectangles per tooth, which departs from the helicoid by about 0.7 µm at the crest and draws the
+toothed edge as a chord of the cosine between sections, 0.029 mm short of it at the deepest point
+— 6% of the backlash, and measured against the model rather than against Fusion's own surface.
 
 The search says these teeth drive. It says nothing about whether they are the right teeth. Conjugate
 flanks for two screw motions follow from the equation of meshing against the relative screw, which

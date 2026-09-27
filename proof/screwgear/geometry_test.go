@@ -16,6 +16,7 @@ package screwgear_test
 
 import (
 	"math"
+	"math/bits"
 	"testing"
 
 	"github.com/lestrrat-3d/r3"
@@ -122,20 +123,37 @@ func (p Params) Sigma() float64 { return p.CrossAngle }
 // AxisOffset is the distance between the two axes.
 func (p Params) AxisOffset() float64 { return p.Width - p.Engagement }
 
-// LoftSections is how many cross-sections a tooth cell is lofted from.
+// LoftSections is how many cross-sections a tooth cell is lofted from: one
+// more than the number of steps between them, and the steps are the larger of
+// two counts.
 //
-// It is derived rather than pinned, because the twist per tooth is what decides
-// it: the loft's ruled surface cuts the corner of the helicoid by
-// (Width/2)*(1 - cos(step/2)), and the step is the twist per tooth divided by
-// one less than the count. A faster twist needs more sections for the same
-// departure, and this gear's twist is fast.
+// The twist decides one: the loft's ruled surface cuts the corner of the
+// helicoid by (Width/2)*(1 - cos(step/2)), and the step is the twist per tooth
+// divided by the number of steps, so the count keeps that twist under two
+// degrees. A faster twist needs more sections for the same departure, and
+// this gear's twist is fast.
+//
+// The tooth decides the other: between two sections the loft's toothed edge is
+// a straight chord of the cosine, which falls (ToothHeight/2)*(1 - cos(pi/steps))
+// short of it at worst, and that depends on the step count alone. Eight steps
+// hold the chord under four percent of the tooth height whatever the twist, and
+// that is the floor; without it a slow twist would loft a tooth from two or
+// three sections and lose the tooth.
 func (p Params) LoftSections() int {
 	const maxStep = 2 * math.Pi / 180
 	steps := int(math.Ceil((p.ToothPitch / p.Lambda()) / maxStep))
-	if steps < 8 {
-		steps = 8
+	if steps < minCellSteps {
+		steps = minCellSteps
 	}
 	return steps + 1
+}
+
+const minCellSteps = 8
+
+// EdgeChord is how far the lofted toothed edge falls short of the cosine at
+// worst, between two neighbouring sections.
+func (p Params) EdgeChord() float64 {
+	return p.ToothHeight / 2 * (1 - math.Cos(math.Pi/float64(p.LoftSections()-1)))
 }
 
 // Length is the finished ribbon's length.
@@ -459,10 +477,15 @@ func TestRibbonIsInvariantUnderItsScrewStep(t *testing.T) {
 	}
 }
 
-// The spec derives the section count from the twist per tooth, eleven at the
-// defaults. This is the arithmetic that count is bought with: the loft's ruled
-// surface cuts the corner of the true helicoid, and the spec's claim is that the
-// shortfall is three orders below the backlash.
+// The spec derives the section count from the twist per tooth with a floor of
+// eight steps, eleven sections at the defaults. This is the arithmetic that
+// count is bought with. The loft's ruled surface cuts the corner of the true
+// helicoid, and the spec's claim is that the shortfall is three orders below
+// the backlash; the loft's toothed edge is a chord of the cosine between
+// sections, and the spec's claim is that the chord stays under four percent of
+// the tooth height at any twist and under a tenth of the backlash at the
+// defaults. The floor is what holds the chord where the twist is slow, so the
+// leads swept here reach well past the one the count stops growing at.
 func TestLoftSectionCountHoldsTheHelicoid(t *testing.T) {
 	p := defaultParams()
 	sections := p.LoftSections()
@@ -475,13 +498,99 @@ func TestLoftSectionCountHoldsTheHelicoid(t *testing.T) {
 			"derived to allow", sections, got)
 	}
 	t.Logf("%d sections per tooth put %.3f deg between neighbours and fall %.6f mm short of the "+
-		"helicoid", sections, dtheta*180/math.Pi, departure)
+		"helicoid; the toothed edge's chord falls %.4f mm short of the cosine",
+		sections, dtheta*180/math.Pi, departure, p.EdgeChord())
 	if departure > 1e-3 {
 		t.Errorf("the ruled surface falls %.6f mm short of the helicoid, want under 0.001", departure)
 	}
 	if departure > measuredBacklash/100 {
 		t.Errorf("the shortfall %.6f mm is not small against the %.3f mm backlash",
 			departure, measuredBacklash)
+	}
+	if chord := p.EdgeChord(); chord > measuredBacklash/10 {
+		t.Errorf("the edge chord falls %.4f mm short of the cosine, which is not small against the "+
+			"%.3f mm backlash", chord, measuredBacklash)
+	}
+
+	for _, lead := range []float64{20, 33, 66, 200, 400} {
+		q := defaultParams()
+		q.TwistLead = lead
+		n := q.LoftSections()
+		if n < minCellSteps+1 {
+			t.Errorf("at a %.0f mm lead the cell lofts through %d sections, under the floor of %d",
+				lead, n, minCellSteps+1)
+		}
+		if step := (q.ToothPitch / q.Lambda()) / float64(n-1) * 180 / math.Pi; step > 2.01 {
+			t.Errorf("at a %.0f mm lead %d sections put %.3f deg between neighbours", lead, n, step)
+		}
+		if chord := q.EdgeChord(); chord > 0.04*q.ToothHeight {
+			t.Errorf("at a %.0f mm lead the edge chord falls %.4f mm short of the cosine, over four "+
+				"percent of the %.2f mm tooth", lead, chord, q.ToothHeight)
+		}
+		t.Logf("at a %.0f mm lead the cell lofts through %d sections and the edge chord is %.4f mm",
+			lead, n, q.EdgeChord())
+	}
+}
+
+// doublingRounds is the schedule the build repeats the cell by, and returns
+// the copy-move-join rounds it takes and the tooth ranges every piece lands
+// on. The body doubles while it can; whenever the tooth count has a set bit
+// below its top one, an unmoved copy of the body at that size is put aside,
+// and after the last doubling the asides are moved into place, largest first,
+// each by the screw step of the teeth built so far. Every move is by a whole
+// number of teeth already built, so every join meets at a shared cross-section
+// and nothing overlaps.
+func doublingRounds(n int) (rounds int, pieces [][2]int) {
+	m := 1
+	pieces = [][2]int{{0, 1}}
+	var asides []int
+	for bit := 0; 1<<(bit+1) <= n; bit++ {
+		if n&(1<<bit) != 0 {
+			asides = append(asides, m)
+		}
+		pieces = append(pieces, [2]int{m, 2 * m})
+		m *= 2
+		rounds++
+	}
+	for i := len(asides) - 1; i >= 0; i-- {
+		pieces = append(pieces, [2]int{m, m + asides[i]})
+		m += asides[i]
+		rounds++
+	}
+	if m != n {
+		panic("the doubling schedule does not reach the tooth count")
+	}
+	return rounds, pieces
+}
+
+// The build repeats the cell by doubling, and the spec quotes the round count
+// that costs. This runs the schedule over every tooth count the dialog can
+// reasonably take and holds three things: the pieces tile the ribbon exactly,
+// no two overlap, and the count is floor(log2 N) + popcount(N) - 1, which is
+// seven at the default eighty teeth.
+func TestDoublingScheduleCoversTheRibbon(t *testing.T) {
+	for n := 4; n <= 512; n++ {
+		rounds, pieces := doublingRounds(n)
+		covered := make([]int, n)
+		for _, piece := range pieces {
+			for tooth := piece[0]; tooth < piece[1]; tooth++ {
+				covered[tooth]++
+			}
+		}
+		for tooth, times := range covered {
+			if times != 1 {
+				t.Fatalf("with %d teeth the schedule lands %d pieces on tooth %d", n, times, tooth)
+			}
+		}
+		want := bits.Len(uint(n)) - 1 + bits.OnesCount(uint(n)) - 1
+		if rounds != want {
+			t.Errorf("with %d teeth the schedule takes %d rounds, want %d", n, rounds, want)
+		}
+	}
+	rounds, _ := doublingRounds(defaultParams().ToothCount)
+	t.Logf("the default %d teeth take %d copy-move-join rounds", defaultParams().ToothCount, rounds)
+	if rounds != 7 {
+		t.Errorf("the spec quotes seven rounds at the defaults, the schedule takes %d", rounds)
 	}
 }
 
