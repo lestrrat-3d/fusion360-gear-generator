@@ -7,12 +7,272 @@ The proof for these steps is `proof/spurgear/geometry_test.go`, `proof/spurgear/
 
 | file | `git hash-object` |
 |---|---|
-| `spec/spurgear/instructions.md` | `9276c6a0900981f657158bc1f2d764bd357e5224` |
+| `spec/spurgear/instructions.md` | `8c761c4542788b3ad455fa7ae02dbf978e65b8ca` |
 | `spec/spurgear/fusion.md` | `5cd1f9f96e043efba42ae42a00ca6c13403e1339` |
 | `spec/helicalgear/fusion.md` | `f981173cb314094f2fd98cdd78d5bd8287cdc8ee` |
+| `spec/spurgear/exact_values.json` | `fee6665556d2d9bb3673ee44b79fca03e7caf5a2` |
 | `.claude/skills/generate-gear/PLAYBOOK.md` | `9ee2dcbaed7b5480aa69e9295e8b61acaea081f3` |
 
+## Exact values
+
+```json
+{
+  "schema": 1,
+  "constants": {
+    "INPUT_ID_PARENT": "parentComponent",
+    "INPUT_ID_PLANE": "plane",
+    "INPUT_ID_ANCHOR_POINT": "anchorPoint",
+    "INPUT_ID_MODULE": "module",
+    "INPUT_ID_TOOTH_NUMBER": "toothNumber",
+    "INPUT_ID_PRESSURE_ANGLE": "pressureAngle",
+    "INPUT_ID_BORE_DIAMETER": "boreDiameter",
+    "INPUT_ID_THICKNESS": "thickness",
+    "INPUT_ID_CHAMFER_TOOTH": "chamferTooth",
+    "INPUT_ID_SKETCH_ONLY": "sketchOnly",
+    "PARAM_MODULE": "Module",
+    "PARAM_TOOTH_NUMBER": "ToothNumber",
+    "PARAM_PRESSURE_ANGLE": "PressureAngle",
+    "PARAM_BORE_DIAMETER": "BoreDiameter",
+    "PARAM_THICKNESS": "Thickness",
+    "PARAM_CHAMFER_TOOTH": "ChamferTooth",
+    "PARAM_SKETCH_ONLY": "SketchOnly",
+    "PARAM_PITCH_DIAMETER": "PitchCircleDiameter",
+    "PARAM_PITCH_RADIUS": "PitchCircleRadius",
+    "PARAM_BASE_DIAMETER": "BaseCircleDiameter",
+    "PARAM_BASE_RADIUS": "BaseCircleRadius",
+    "PARAM_ROOT_DIAMETER": "RootCircleDiameter",
+    "PARAM_ROOT_RADIUS": "RootCircleRadius",
+    "PARAM_TIP_DIAMETER": "TipCircleDiameter",
+    "PARAM_TIP_RADIUS": "TipCircleRadius",
+    "PARAM_INVOLUTE_STEPS": "InvoluteSteps",
+    "PARAM_TOOTH_SPACE_ANGLE": "ToothSpaceAngleAtRoot",
+    "PARAM_TOOTH_SPACE_ARC": "ToothSpaceArcAtRoot",
+    "PARAM_FILLET_CLEARANCE": "FilletClearance",
+    "PARAM_FILLET_RADIUS": "FilletRadius"
+  },
+  "inputs": [
+    {
+      "id": "INPUT_ID_PLANE",
+      "kind": "selection",
+      "label": "Target Plane",
+      "prompt": "Select the plane to build the gear on",
+      "filters": [
+        "ConstructionPlanes",
+        "PlanarFaces"
+      ],
+      "preselect": false
+    },
+    {
+      "id": "INPUT_ID_ANCHOR_POINT",
+      "kind": "selection",
+      "label": "Anchor Point",
+      "prompt": "Select the point the gear is centered on",
+      "filters": [
+        "ConstructionPoints",
+        "SketchPoints"
+      ],
+      "preselect": false
+    },
+    {
+      "id": "INPUT_ID_MODULE",
+      "kind": "value",
+      "label": "Module",
+      "unit": "",
+      "default": {
+        "real": 1
+      }
+    },
+    {
+      "id": "INPUT_ID_TOOTH_NUMBER",
+      "kind": "value",
+      "label": "Tooth Number",
+      "unit": "",
+      "default": {
+        "real": 17
+      }
+    },
+    {
+      "id": "INPUT_ID_PRESSURE_ANGLE",
+      "kind": "value",
+      "label": "Pressure Angle",
+      "unit": "deg",
+      "default": {
+        "radians": 20
+      }
+    },
+    {
+      "id": "INPUT_ID_BORE_DIAMETER",
+      "kind": "string",
+      "label": "Bore Diameter",
+      "default": "0 mm"
+    },
+    {
+      "id": "INPUT_ID_THICKNESS",
+      "kind": "value",
+      "label": "Thickness",
+      "unit": "mm",
+      "default": {
+        "millimeters": 10
+      }
+    },
+    {
+      "id": "INPUT_ID_CHAMFER_TOOTH",
+      "kind": "value",
+      "label": "Apply chamfer to teeth",
+      "unit": "mm",
+      "default": {
+        "real": 0
+      }
+    },
+    {
+      "id": "INPUT_ID_SKETCH_ONLY",
+      "kind": "boolean",
+      "label": "Generate sketches, but do not build body",
+      "check_box": true,
+      "default": false
+    },
+    {
+      "id": "INPUT_ID_PARENT",
+      "kind": "selection",
+      "label": "Parent Component",
+      "prompt": "Select the component to build the gear in",
+      "filters": [
+        "Occurrences",
+        "RootComponents"
+      ],
+      "preselect": true
+    }
+  ],
+  "parameters": [
+    {
+      "name": "PARAM_MODULE",
+      "unit": "",
+      "comment": "Module of the gear",
+      "input": "INPUT_ID_MODULE"
+    },
+    {
+      "name": "PARAM_TOOTH_NUMBER",
+      "unit": "",
+      "comment": "Number of teeth",
+      "input": "INPUT_ID_TOOTH_NUMBER"
+    },
+    {
+      "name": "PARAM_PRESSURE_ANGLE",
+      "unit": "rad",
+      "comment": "Pressure angle",
+      "input": "INPUT_ID_PRESSURE_ANGLE"
+    },
+    {
+      "name": "PARAM_BORE_DIAMETER",
+      "unit": "mm",
+      "comment": "Bore diameter",
+      "input": "INPUT_ID_BORE_DIAMETER"
+    },
+    {
+      "name": "PARAM_THICKNESS",
+      "unit": "mm",
+      "comment": "Thickness of the gear",
+      "input": "INPUT_ID_THICKNESS"
+    },
+    {
+      "name": "PARAM_CHAMFER_TOOTH",
+      "unit": "mm",
+      "comment": "Chamfer distance applied to the teeth",
+      "input": "INPUT_ID_CHAMFER_TOOTH"
+    },
+    {
+      "name": "PARAM_SKETCH_ONLY",
+      "unit": "",
+      "comment": "Generate sketches only",
+      "input": "INPUT_ID_SKETCH_ONLY"
+    },
+    {
+      "name": "PARAM_PITCH_DIAMETER",
+      "unit": "mm",
+      "comment": "Pitch circle diameter",
+      "expression": "{PARAM_MODULE} * {PARAM_TOOTH_NUMBER}"
+    },
+    {
+      "name": "PARAM_PITCH_RADIUS",
+      "unit": "mm",
+      "comment": "Pitch circle radius",
+      "expression": "{PARAM_PITCH_DIAMETER} / 2"
+    },
+    {
+      "name": "PARAM_BASE_DIAMETER",
+      "unit": "mm",
+      "comment": "Base circle diameter",
+      "expression": "{PARAM_PITCH_DIAMETER} * cos({PARAM_PRESSURE_ANGLE})"
+    },
+    {
+      "name": "PARAM_BASE_RADIUS",
+      "unit": "mm",
+      "comment": "Base circle radius",
+      "expression": "{PARAM_BASE_DIAMETER} / 2"
+    },
+    {
+      "name": "PARAM_ROOT_DIAMETER",
+      "unit": "mm",
+      "comment": "Root circle diameter",
+      "expression": "{PARAM_PITCH_DIAMETER} - 2.5 * {PARAM_MODULE}"
+    },
+    {
+      "name": "PARAM_ROOT_RADIUS",
+      "unit": "mm",
+      "comment": "Root circle radius",
+      "expression": "{PARAM_ROOT_DIAMETER} / 2"
+    },
+    {
+      "name": "PARAM_TIP_DIAMETER",
+      "unit": "mm",
+      "comment": "Tip circle diameter",
+      "expression": "{PARAM_PITCH_DIAMETER} + 2 * {PARAM_MODULE}"
+    },
+    {
+      "name": "PARAM_TIP_RADIUS",
+      "unit": "mm",
+      "comment": "Tip circle radius",
+      "expression": "{PARAM_TIP_DIAMETER} / 2"
+    },
+    {
+      "name": "PARAM_INVOLUTE_STEPS",
+      "unit": "",
+      "comment": "Number of points sampled along each involute flank",
+      "expression": "15"
+    },
+    {
+      "name": "PARAM_TOOTH_SPACE_ANGLE",
+      "unit": "",
+      "comment": "Angular width of the tooth space at the root circle",
+      "computed": "tooth_space_angle"
+    },
+    {
+      "name": "PARAM_TOOTH_SPACE_ARC",
+      "unit": "mm",
+      "comment": "Arc length of the tooth space at the root circle",
+      "expression": "{PARAM_ROOT_RADIUS} * {PARAM_TOOTH_SPACE_ANGLE}"
+    },
+    {
+      "name": "PARAM_FILLET_CLEARANCE",
+      "unit": "",
+      "comment": "Clearance factor applied to the root fillet radius",
+      "expression": "0.9"
+    },
+    {
+      "name": "PARAM_FILLET_RADIUS",
+      "unit": "mm",
+      "comment": "Radius of the root fillets",
+      "expression": "({PARAM_TOOTH_SPACE_ARC} / 2) * {PARAM_FILLET_CLEARANCE} * {fillet_helix_factor}"
+    }
+  ]
+}
+```
+
 ## 0a `[PROSE]` Command dialog inputs
+
+The `## Exact values` handoff above supplies the checked IDs, labels, prompts, units, defaults,
+parameter comments, and expressions. The setup renderer applies that handoff to emitted Python
+before the full emit gates run. The following prose explains selection order and behavior.
 
 `SpurGearCommandInputsConfigurator` is a plain class with no base, carrying one
 `@classmethod def configure(cls, cmd)` that adds the dialog inputs to `cmd.commandInputs`. The
@@ -21,75 +281,23 @@ configurators subclass it and append their own inputs after `super().configure(c
 Parent Component being added last leaves a subclass's extra input below it
 ([SPUR-SUBCLASS-INPUT], and the four-class pattern the class belongs to).
 
-**The add order is fixed and is the order below.** Do not regroup by input type. Target Plane and
-Anchor Point are the first two inputs and Parent Component is the last one; the `processInputs`
-*read* order in step 0b is a different thing and has no bearing on this. Target Plane being first
-also decides which selection the dialog opens on, because Fusion auto-focuses the first
-`SelectionCommandInput` and ignores a later focus flag ([PB-AUTOFOCUS-FIRST]).
-
-| # | dialog label | input id | how it is added |
-|---|---|---|---|
-| 1 | Target Plane | `plane` | `addSelectionInput` |
-| 2 | Anchor Point | `anchorPoint` | `addSelectionInput` |
-| 3 | Module | `module` | `addValueInput` |
-| 4 | Tooth Number | `toothNumber` | `addValueInput` |
-| 5 | Pressure Angle | `pressureAngle` | `addValueInput` |
-| 6 | Bore Diameter | `boreDiameter` | `addStringValueInput` |
-| 7 | Thickness | `thickness` | `addValueInput` |
-| 8 | Apply chamfer to teeth | `chamferTooth` | `addValueInput` |
-| 9 | Generate sketches, but do not build body | `sketchOnly` | `addBoolValueInput` |
-| 10 | Parent Component | `parentComponent` | `addSelectionInput` |
-
-**The three selection inputs take a third argument, the command prompt Fusion shows beside the
-cursor while the user picks.** It is not the label. Write these three verbatim:
-
-| input id | `name` argument | `commandPrompt` argument |
-|---|---|---|
-| `plane` | `Target Plane` | `Select the plane to build the gear on` |
-| `anchorPoint` | `Anchor Point` | `Select the point the gear is centered on` |
-| `parentComponent` | `Parent Component` | `Select the component to build the gear in` |
-
-So each is `cmd.commandInputs.addSelectionInput(id, name, commandPrompt)`, then its filters, then
-`setSelectionLimits(1, 1)` — exactly one selection each; the filter set and the limits are contract
-surface the spec declares per input, not something to improvise ([PB-SELECTION-DECL]). The filters
-are named constants, never quoted literals ([PB-SELECTION-FILTER-ENUM]), and each is added with its
-own call:
-
-- `plane`: `planeInput.addSelectionFilter(adsk.core.SelectionCommandInput.ConstructionPlanes)` and
-  `planeInput.addSelectionFilter(adsk.core.SelectionCommandInput.PlanarFaces)`.
-- `anchorPoint`: `adsk.core.SelectionCommandInput.ConstructionPoints` and
-  `adsk.core.SelectionCommandInput.SketchPoints`.
-- `parentComponent`: `adsk.core.SelectionCommandInput.Occurrences` and
-  `adsk.core.SelectionCommandInput.RootComponents`, and it pre-selects the root component with
-  `parentInput.addSelection(get_design().rootComponent)`.
-
-**A `createByReal` default is in Fusion's INTERNAL units — centimetres for a length, radians for
-an angle — whatever the input's display unit string says ([PB-DIALOG-DEFAULT-UNITS]).** No gate
-catches a wrong one, since it is valid code and a valid dialog. The five value inputs are therefore:
-
-| input id | label | unit string | initial value |
-|---|---|---|---|
-| `module` | `Module` | `''` | `adsk.core.ValueInput.createByReal(1)` |
-| `toothNumber` | `Tooth Number` | `''` | `adsk.core.ValueInput.createByReal(17)` |
-| `pressureAngle` | `Pressure Angle` | `'deg'` | `adsk.core.ValueInput.createByReal(math.radians(20))` |
-| `thickness` | `Thickness` | `'mm'` | `adsk.core.ValueInput.createByReal(to_cm(10))` |
-| `chamferTooth` | `Apply chamfer to teeth` | `'mm'` | `adsk.core.ValueInput.createByReal(0)` |
-
-Each of those five is added as
-`cmd.commandInputs.addValueInput(id, label, unitString, initialValue)`. Bore Diameter is a string
-input instead, so it accepts expressions —
-`cmd.commandInputs.addStringValueInput(INPUT_ID_BORE_DIAMETER, 'Bore Diameter', '0 mm')` — and the
-last input is a checkbox,
-`cmd.commandInputs.addBoolValueInput(INPUT_ID_SKETCH_ONLY, label, True)`, whose label is the string
-`Generate sketches, but do not build body` and whose third argument `True` asks for a check box
-rather than a button.
+The `## Exact values` handoff fixes dialog order, IDs, labels, prompts, filters, defaults,
+and input kinds. The renderer writes those calls. Target Plane remains the first selection,
+which makes Fusion focus it on opening ([PB-AUTOFOCUS-FIRST]). Parent Component remains last
+so subclass inputs follow it. `processInputs` reads selections first for a separate reason.
+Numeric defaults use Fusion internal units regardless of their display units
+([PB-DIALOG-DEFAULT-UNITS]); the source records the required conversion. Bore Diameter is a
+string input so it accepts expressions, and Sketch Only is a checkbox. Every selection has
+one-selection limits ([PB-SELECTION-DECL]); its filters use enum constants
+([PB-SELECTION-FILTER-ENUM]).
 
 `configure` is a definition the command framework calls, not a call this module makes, and so are
 `prefixBase` and the four class constructors named above.
 
 <!-- check-step-calls: ignore configure -->
 
-**From:** `spec/spurgear/instructions.md` L13-33 L39-62 L90-106 L167-180 L182-203 L205-219 L226-243 L245-252,
+**From:** `spec/spurgear/instructions.md` L13-33 L39-62 L90-94 L128 L128-138 L140-144 L151-168 L170-177,
+`spec/spurgear/exact_values.json` L3-14,
 `.claude/skills/generate-gear/PLAYBOOK.md` L42-74 L128-136 L138-143 L557-568
 
 ## 0b `[PROSE]` Read the inputs, register the parameters, name the component
@@ -126,63 +334,20 @@ this order:
    the derived ones.
 5. `self.registerDerivedParameters()`.
 
-**`addParameter(name, ValueInput, units, comment)` takes a fourth string that Fusion shows in the
-parameter table's Comment column.** It is what the user reads, so it is not free text. These are
-the twenty parameters, their units and their comments, verbatim:
-
-| constant | parameter name | units | `comment` |
-|---|---|---|---|
-| `PARAM_MODULE` | `Module` | `''` | `Module of the gear` |
-| `PARAM_TOOTH_NUMBER` | `ToothNumber` | `''` | `Number of teeth` |
-| `PARAM_PRESSURE_ANGLE` | `PressureAngle` | `'rad'` | `Pressure angle` |
-| `PARAM_BORE_DIAMETER` | `BoreDiameter` | `'mm'` | `Bore diameter` |
-| `PARAM_THICKNESS` | `Thickness` | `'mm'` | `Thickness of the gear` |
-| `PARAM_CHAMFER_TOOTH` | `ChamferTooth` | `'mm'` | `Chamfer distance applied to the teeth` |
-| `PARAM_SKETCH_ONLY` | `SketchOnly` | `''` | `Generate sketches only` |
-| `PARAM_PITCH_DIAMETER` | `PitchCircleDiameter` | `'mm'` | `Pitch circle diameter` |
-| `PARAM_PITCH_RADIUS` | `PitchCircleRadius` | `'mm'` | `Pitch circle radius` |
-| `PARAM_BASE_DIAMETER` | `BaseCircleDiameter` | `'mm'` | `Base circle diameter` |
-| `PARAM_BASE_RADIUS` | `BaseCircleRadius` | `'mm'` | `Base circle radius` |
-| `PARAM_ROOT_DIAMETER` | `RootCircleDiameter` | `'mm'` | `Root circle diameter` |
-| `PARAM_ROOT_RADIUS` | `RootCircleRadius` | `'mm'` | `Root circle radius` |
-| `PARAM_TIP_DIAMETER` | `TipCircleDiameter` | `'mm'` | `Tip circle diameter` |
-| `PARAM_TIP_RADIUS` | `TipCircleRadius` | `'mm'` | `Tip circle radius` |
-| `PARAM_INVOLUTE_STEPS` | `InvoluteSteps` | `''` | `Number of points sampled along each involute flank` |
-| `PARAM_TOOTH_SPACE_ANGLE` | `ToothSpaceAngleAtRoot` | `''` | `Angular width of the tooth space at the root circle` |
-| `PARAM_TOOTH_SPACE_ARC` | `ToothSpaceArcAtRoot` | `'mm'` | `Arc length of the tooth space at the root circle` |
-| `PARAM_FILLET_CLEARANCE` | `FilletClearance` | `''` | `Clearance factor applied to the root fillet radius` |
-| `PARAM_FILLET_RADIUS` | `FilletRadius` | `'mm'` | `Radius of the root fillets` |
-
-Every id and every parameter name above is exported as a module-level constant of exactly the
-name in the left column — `INPUT_ID_PARENT`, `INPUT_ID_PLANE`, `INPUT_ID_ANCHOR_POINT`,
-`INPUT_ID_MODULE`, `INPUT_ID_TOOTH_NUMBER`, `INPUT_ID_PRESSURE_ANGLE`, `INPUT_ID_BORE_DIAMETER`,
-`INPUT_ID_THICKNESS`, `INPUT_ID_CHAMFER_TOOTH`, `INPUT_ID_SKETCH_ONLY` and the twenty `PARAM_…`
-names — because `helicalgear.py` and `herringbonegear.py` import `PARAM_MODULE`,
-`PARAM_TOOTH_NUMBER` and `PARAM_THICKNESS` from `.spurgear` by name ([SPUR-EXPORTED-CONSTANTS]).
+The `## Exact values` handoff carries every exported input and parameter constant, each
+parameter's unit and comment, and registration order. The renderer writes their declarations
+and `addParameter` calls. Fusion shows the comments in its parameter table. Helical and
+herringbone import `PARAM_MODULE`, `PARAM_TOOTH_NUMBER`, and `PARAM_THICKNESS` from spur, so
+the exported names remain part of its contract ([SPUR-EXPORTED-CONSTANTS]).
 
 **`Module` is registered unitless (`''`), not `'mm'`.** That is what makes `generateName` render
 `M=1` with no unit suffix and what lets the `mm`-registered derived expressions read the unitless
 factor.
 
-The derived parameters are registered as live expression strings with
-`adsk.core.ValueInput.createByString(...)`, using `self.parameterName(...)` to build each
-reference:
-
-- `PitchCircleDiameter` = `Module * ToothNumber`
-- `PitchCircleRadius` = `PitchCircleDiameter / 2`
-- `BaseCircleDiameter` = `PitchCircleDiameter * cos(PressureAngle)`
-- `BaseCircleRadius` = `BaseCircleDiameter / 2`
-- `RootCircleDiameter` = `PitchCircleDiameter - 2.5 * Module`
-- `RootCircleRadius` = `RootCircleDiameter / 2`
-- `TipCircleDiameter` = `PitchCircleDiameter + 2 * Module`
-- `TipCircleRadius` = `TipCircleDiameter / 2`
-- `InvoluteSteps` = `15`, unitless
-- `FilletClearance` = `0.9`, unitless
-- `ToothSpaceArcAtRoot` = `RootCircleRadius * ToothSpaceAngleAtRoot`
-- `FilletRadius` = `(ToothSpaceArcAtRoot / 2) * FilletClearance * <factor>`, where `<factor>` is
-  the string `self.filletHelixFactorExpression()` returns — `'1'` on the spur base, spliced in
-  here and nowhere else. `createFillets` never reads that hook; it reads the resulting
-  `FilletRadius` parameter's numeric `.value`.
+Derived parameters use the checked expressions in the handoff. References are expanded through
+`self.parameterName(...)`; the final fillet expression includes the value returned by
+`self.filletHelixFactorExpression()`. `createFillets` reads the resulting parameter's numeric
+`.value`.
 
 **`ToothSpaceAngleAtRoot` is pre-computed in Python and registered with
 `adsk.core.ValueInput.createByReal(...)`, unitless (`''`), not `'rad'`.** Its value is
@@ -227,8 +392,9 @@ the inherited framework calls.
 
 <!-- check-step-calls: ignore generate getOccurrence prefixBase -->
 
-**From:** `spec/spurgear/instructions.md` L13-33 L37-88 L108-124 L133-165 L221-243 L327-342 L344-410
-L454-479 L481-490,
+**From:** `spec/spurgear/instructions.md` L13-33 L37-88 L96-112 L121-128 L146-168 L252-267 L269-335
+L379-404 L406-415,
+`spec/spurgear/exact_values.json` L15-36,
 `spec/spurgear/fusion.md` L214-219 L235-242,
 `.claude/skills/generate-gear/PLAYBOOK.md` L75-102 L103-118 L120-126 L205-227 L229-237 L253-263
 
@@ -247,7 +413,7 @@ The offset argument is a `ValueInput`, not a bare number:
 Remember whether a plane was created here; step 14's cleanup turns its light bulb off only if it
 exists.
 
-**From:** `spec/spurgear/instructions.md` L39 L332 L494-496,
+**From:** `spec/spurgear/instructions.md` L39 L257 L419-421,
 `.claude/skills/generate-gear/PLAYBOOK.md` L253-263 L775-786
 
 ## 2 `[PROSE]` Tools sketch and Extrusion End Plane
@@ -277,7 +443,7 @@ projection chain buys is proven where it bites instead: the Gear Profile and Bor
 of steps 3 and 12a are each drawn against a projected anchor away from the sketch origin, and each
 is held to full constraint after the drag.
 
-**From:** `spec/spurgear/instructions.md` L41 L332-338 L498-507, `spec/spurgear/fusion.md` L19-26,
+**From:** `spec/spurgear/instructions.md` L41 L257-263 L423-432, `spec/spurgear/fusion.md` L19-26,
 `.claude/skills/generate-gear/PLAYBOOK.md` L659-671 L775-786
 
 ## 3 `[GO]` Gear Profile sketch — circles, involute tooth, anchoring
@@ -516,7 +682,7 @@ the tooth-top arc's solved radius is the tip radius with its centre on the ancho
 `profileFailures` carries the negative control the spec requires: the same sketch with the arc's
 centre left free reports DOF 2 and underconstrained, and must keep failing.
 
-**From:** `spec/spurgear/instructions.md` L254-325 L411-452 L509-518 L520-557 L559-570,
+**From:** `spec/spurgear/instructions.md` L179-250 L336-377 L434-443 L445-482 L484-495,
 `spec/spurgear/fusion.md` L19-45 L49-62 L71-108 L110-135 L137-177 L179-219,
 `.claude/skills/generate-gear/PLAYBOOK.md` L239-251 L359-431 L441-478 L501-516 L517-532 L606-634 L635-636
 L652-656 L682-692
@@ -530,7 +696,7 @@ combine and the fillets. `buildBore` and `chamferTeeth` still run from `generate
 themselves, and `cleanup` still runs unconditionally with the per-mode split [SPUR-F-CLEANUP]
 owns and step 14 describes.
 
-**From:** `spec/spurgear/instructions.md` L60 L344-380 L572-574, `spec/spurgear/fusion.md` L223-233
+**From:** `spec/spurgear/instructions.md` L60 L269-305 L497-499, `spec/spurgear/fusion.md` L223-233
 
 ## 7 `[GO]` Extrude the tooth
 
@@ -566,7 +732,7 @@ rather than derived by splitting the root circle, because the engine will not re
 fragment whose trim it could not certify. That the split produces that boundary is what step 3
 asserts instead.
 
-**From:** `spec/spurgear/instructions.md` L297-300 L334-339 L344-371 L576-580,
+**From:** `spec/spurgear/instructions.md` L222-225 L259-264 L269-296 L501-505,
 `.claude/skills/generate-gear/PLAYBOOK.md` L151-158 L672-681
 
 ## 9 `[GO]` Extrude the gear body
@@ -613,7 +779,7 @@ its bounding box is the root radius either way and the target plane to Thickness
 carries exactly one cylindrical face and two planar ones, which is what leaves both of the searches
 above something to find.
 
-**From:** `spec/spurgear/instructions.md` L297-300 L334-338 L582-591,
+**From:** `spec/spurgear/instructions.md` L222-225 L259-263 L507-516,
 `.claude/skills/generate-gear/PLAYBOOK.md` L151-158 L672-681 L740-761 L787-790
 
 ## 10 `[GO]` Pattern the teeth and join them
@@ -661,7 +827,7 @@ the solid engine refuses to classify that contact, and sinking the tooth inside 
 trades the second refusal for the first. The proof file records this next to the step, along with
 the two substitutes that were measured and rejected for the fillet of step 11.
 
-**From:** `spec/spurgear/instructions.md` L335-336 L344-371 L593-597,
+**From:** `spec/spurgear/instructions.md` L260-261 L269-296 L518-522,
 `.claude/skills/generate-gear/PLAYBOOK.md` L693-703
 
 ## 11 `[PROSE]` Root fillets
@@ -721,7 +887,7 @@ at a high tooth count with a large pressure angle, which is what the above-zero 
 
 <!-- check-step-calls: ignore getTangent -->
 
-**From:** `spec/spurgear/instructions.md` L86-88 L126-131 L392-396 L599-608,
+**From:** `spec/spurgear/instructions.md` L86-88 L114-119 L317-321 L524-533,
 `.claude/skills/generate-gear/PLAYBOOK.md` L151-158 L569-575 L672-681 L740-761
 
 ## 12a `[GO]` Bore Profile sketch
@@ -768,7 +934,7 @@ grounded on the projected anchor from one grounded on the sketch's own origin po
 substitution that fails. It then takes the sketch's single profile and asserts its area is
 `pi * (D/2)^2` and its centre is the anchor.
 
-**From:** `spec/spurgear/instructions.md` L320-322 L430-435 L610-631, `spec/spurgear/fusion.md` L28-33,
+**From:** `spec/spurgear/instructions.md` L245-247 L355-360 L535-556, `spec/spurgear/fusion.md` L28-33,
 `.claude/skills/generate-gear/PLAYBOOK.md` L441-457 L509-516
 
 ## 12b `[GO]` Cut the bore
@@ -801,7 +967,7 @@ symmetrically past both caps instead of stopping on the far face, because a tool
 exactly on it would share that cap plane with its target and the engine refuses to classify that.
 The material removed is the same either way, which is the point of ending on the far face.
 
-**From:** `spec/spurgear/instructions.md` L338 L610-631, `.claude/skills/generate-gear/PLAYBOOK.md` L729-732
+**From:** `spec/spurgear/instructions.md` L263 L535-556, `.claude/skills/generate-gear/PLAYBOOK.md` L729-732
 
 ## 13 `[GO]` Chamfer the completed gear
 
@@ -841,7 +1007,7 @@ free-form neighbour, and the engine's corner rewrite does not support a free-for
 so what is proven is the rest of the rule — equal distance, end-cap edges, bore excluded — with the
 exclusion tested by circumference, the same separation the spec makes by radius.
 
-**From:** `spec/spurgear/instructions.md` L58 L344-371 L633-648,
+**From:** `spec/spurgear/instructions.md` L58 L269-296 L558-573,
 `.claude/skills/generate-gear/PLAYBOOK.md` L569-575 L672-681
 
 ## 14 `[PROSE]` End-of-build cleanup
@@ -867,5 +1033,5 @@ Hide construction geometry and sketches with the right property, never crossed
 Guard each entity individually and hide it only if it was actually created: the `Gear Center` axis
 and the Bore Profile sketch do not exist in sketch-only mode.
 
-**From:** `spec/spurgear/instructions.md` L313-315 L344-380 L572-574, `spec/spurgear/fusion.md` L223-233,
+**From:** `spec/spurgear/instructions.md` L238-240 L269-305 L497-499, `spec/spurgear/fusion.md` L223-233,
 `.claude/skills/generate-gear/PLAYBOOK.md` L659-671

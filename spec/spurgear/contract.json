@@ -1,5 +1,5 @@
 {
-  "_comment": "Machine-readable mirror of the spec's contract sections, checked by .claude/skills/generate-gear/check_contract.py. The spec prose (instructions.md/fusion.md) is authoritative — a mismatch between this file and the spec is a spec bug; fix both together. Methods listed are the pinned public/hook surface (underscore-private decomposition stays free). module_constants pins the Python identifiers dependents import (helicalgear/herringbonegear) AND their exact string values. source_guards pins the two constraint recipes the spec chose over an alternative that also solves — reverting either renames nothing, so nothing else here would see it.",
+  "_comment": "Machine-readable contract checked by check_contract.py. This file owns exported Python constant names and values; exact_values.json refers to those names for dialog and parameter setup. The prose explains behavior and points to these checked sources. Methods are the pinned public and hook surface. source_guards pin constraint recipes whose names alone cannot reveal a regression.",
   "module": "lib/geargen/spurgear.py",
   "module_constants": {
     "INPUT_ID_PARENT": "parentComponent",

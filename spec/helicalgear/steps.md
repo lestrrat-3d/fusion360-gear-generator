@@ -7,11 +7,43 @@ and the generated registration file `proof/helicalgear/zz_registrations_test.go`
 
 | file | `git hash-object` |
 |---|---|
-| `spec/helicalgear/instructions.md` | `71b7993007b17cc4948569313c23614b8fbd246c` |
+| `spec/helicalgear/instructions.md` | `d1310b3545621fd351ce11aff800668666c73010` |
 | `spec/helicalgear/fusion.md` | `f981173cb314094f2fd98cdd78d5bd8287cdc8ee` |
+| `spec/helicalgear/exact_values.json` | `e19b2492f1f74ac3289797dd6d58eddcfa94d102` |
 | `spec/spurgear/fusion.md` | `5cd1f9f96e043efba42ae42a00ca6c13403e1339` |
-| `spec/spurgear/instructions.md` | `9276c6a0900981f657158bc1f2d764bd357e5224` |
+| `spec/spurgear/instructions.md` | `8c761c4542788b3ad455fa7ae02dbf978e65b8ca` |
 | `.claude/skills/generate-gear/PLAYBOOK.md` | `9ee2dcbaed7b5480aa69e9295e8b61acaea081f3` |
+
+## Exact values
+
+```json
+{
+  "schema": 1,
+  "constants": {
+    "PARAM_HELIX_ANGLE": "HelixAngle",
+    "INPUT_ID_HELIX_ANGLE": "helixAngle"
+  },
+  "inputs": [
+    {
+      "id": "INPUT_ID_HELIX_ANGLE",
+      "kind": "value",
+      "label": "Helix Angle",
+      "unit": "deg",
+      "default": {
+        "radians": 14.5
+      }
+    }
+  ],
+  "parameters": [
+    {
+      "name": "PARAM_HELIX_ANGLE",
+      "unit": "rad",
+      "comment": "Helix angle for the helical gear",
+      "input": "INPUT_ID_HELIX_ANGLE"
+    }
+  ]
+}
+```
 
 ## H1 `[PROSE]` Module layout, imports and the two module constants
 
@@ -37,12 +69,8 @@ from .utilities import find_profile_by_curve_counts
 `GenerationContext` is **not** imported. The overrides annotate `ctx: SpurGearGenerationContext` and
 narrow with an assertion, so nothing in this module names the base type.
 
-Two module-level constants, with exactly these values — herringbone imports both by name:
-
-| constant | value |
-|---|---|
-| `PARAM_HELIX_ANGLE` | `'HelixAngle'` |
-| `INPUT_ID_HELIX_ANGLE` | `'helixAngle'` |
+The `## Exact values` handoff supplies both exported module constants. Herringbone imports them
+by name, and the renderer writes their checked string values.
 
 The module defines three classes, each extending its spur counterpart, and these names are the
 reproduced surface: herringbone subclasses all three, and `commands/helicalgear/entry.py` binds two
@@ -52,25 +80,15 @@ of them by name.
 2. `HelicalGearGenerationContext(SpurGearGenerationContext)` — H3.
 3. `HelicalGearGenerator(SpurGearGenerator)` — H4 through H10.
 
-**From:** `spec/helicalgear/instructions.md` L1-8, L70, L72-92; `spec/spurgear/instructions.md` L226-243; `.claude/skills/generate-gear/PLAYBOOK.md` L17-40, L42-74, L265-289.
+**From:** `spec/helicalgear/instructions.md` L1-8, L51, L57-77; `spec/spurgear/instructions.md` L151-168; `.claude/skills/generate-gear/PLAYBOOK.md` L17-40, L42-74, L265-289.
 
 ## H2 `[PROSE]` The Helix Angle dialog input — `HelicalGearCommandConfigurator`
 
 `HelicalGearCommandConfigurator` subclasses `SpurGearCommandInputsConfigurator` and overrides the
 `@classmethod` `configure(cls, cmd)`. It calls `super().configure(cmd)` first, so every spur input is
-added exactly as spur adds it, then appends its own one input:
-
-`cmd.commandInputs.addValueInput('helixAngle', 'Helix Angle', 'deg', adsk.core.ValueInput.createByReal(math.radians(14.5)))`
-
-This is the whole table of what helical adds to the dialog. Reproduce every string in it:
-
-| dialog label | input id | display unit | default | user parameter | parameter units |
-|---|---|---|---|---|---|
-| Helix Angle | `helixAngle` | `'deg'` | `ValueInput.createByReal(math.radians(14.5))` — 14.5 degrees | `HelixAngle` | `'rad'` |
-
-The default is passed as a **real in Fusion's internal units**, which for an angle is radians, even
-though the input displays degrees (`[PB-DIALOG-DEFAULT-UNITS]`) — hence `math.radians(14.5)` rather
-than `14.5`. The value input is registered in H5.
+added exactly as spur adds it, then appends its own input from the checked handoff. The renderer
+writes its ID, label, display unit, and default conversion. The default is passed in Fusion's
+internal angle unit, radians, although the input displays degrees (`[PB-DIALOG-DEFAULT-UNITS]`).
 
 ⚠️ **The Helix Angle input necessarily appears LAST in the dialog, after Parent Component.** Spur's
 `configure` already added Parent Component last, and this is the configurator extension seam
@@ -83,7 +101,7 @@ a **left-hand** helix. **No range is enforced**, and none is added here — no c
 documented maximum. What Fusion does at a large helix angle is unverified, and until a Fusion
 session settles it the dialog takes whatever the user types.
 
-**From:** `spec/helicalgear/instructions.md` L26-34, L36-40, L42-49, L51-64, L78-80, L210-216; `spec/spurgear/instructions.md` L182-203, L205-212, L245-252; `.claude/skills/generate-gear/PLAYBOOK.md` L128-136.
+**From:** `spec/helicalgear/instructions.md` L25-32, L34-38, L40-47, L49-55, L63-65, L195-201; `spec/spurgear/instructions.md` L128-138, L140-142, L170-177; `.claude/skills/generate-gear/PLAYBOOK.md` L128-136.
 
 ## H3 `[PROSE]` The generation context — spur's fields, plus two
 
@@ -102,7 +120,7 @@ Seed each field with the cast of the class the field actually holds. `adsk.core.
 declared by the API database and the stubs but is **not** defined by the Fusion runtime, which
 raises `AttributeError` on it; every concrete subclass does have `cast`.
 
-**From:** `spec/helicalgear/instructions.md` L80-83, L94-103; `spec/spurgear/instructions.md` L327-342; `.claude/skills/generate-gear/PLAYBOOK.md` L42-74.
+**From:** `spec/helicalgear/instructions.md` L65-68, L79-88; `spec/spurgear/instructions.md` L252-267; `.claude/skills/generate-gear/PLAYBOOK.md` L42-74.
 
 ## H4 `[PROSE]` The generator's identity — `newContext`, `prefixBase`, `generateName`
 
@@ -127,7 +145,7 @@ calls any of them itself, so they are named here and not required as calls.
 Spur annotates five methods' returns precisely so a subclass may narrow on them; carry the
 annotations above for the same reason.
 
-**From:** `spec/helicalgear/instructions.md` L84-85, L104-114, L132-134; `spec/spurgear/instructions.md` L108-124, L344-351, L405-409.
+**From:** `spec/helicalgear/instructions.md` L69-70, L89-99, L117-119; `spec/spurgear/instructions.md` L96-112, L269-276, L330-334.
 
 ## H5 `[PROSE]` Register the `HelixAngle` user parameter — `addExtraPrimaryParameters`
 
@@ -136,23 +154,19 @@ annotations above for the same reason.
 registering the input-sourced parameters and the derived ones (`[SPUR-EXTRA-PARAMS]`). It is a no-op
 on the spur base and the module only defines it, never calls it, so it is exempt above.
 
-The override reads the dialog input and registers the parameter, with exactly these strings:
-
-`helixAngle = get_value(inputs, 'helixAngle', 'rad')`
-
-`self.addParameter('HelixAngle', helixAngle, 'rad', 'Helix angle for the helical gear')`
+The renderer writes the `get_value` and `addParameter` calls from the `## Exact values` handoff.
 
 The dialog input is **degrees** and the user parameter is **radians**: that is deliberate, not a
 mismatch. `get_value` returns a `ValueInput` ready to pass straight to `addParameter`, and raises on
 an invalid expression, so there is no `ok`-flag handling and no wrapping to do
 (`[PB-GET-VALUE-CONTRACT]`); read a value input with `get_value` and nothing else
-(`[PB-INPUT-READ]`). The fourth argument is the Comment column Fusion shows beside the parameter —
-it is what the user reads, so write it exactly as given.
+(`[PB-INPUT-READ]`). The fourth `addParameter` argument is the Comment column Fusion shows beside
+the parameter.
 
 Registering here, before the derived parameters, is what lets H6's expression reference
 `HelixAngle`.
 
-**From:** `spec/helicalgear/instructions.md` L65-68, L115-116; `spec/spurgear/instructions.md` L133-137, L397-404; `.claude/skills/generate-gear/PLAYBOOK.md` L103-118, L120-126, L205-227.
+**From:** `spec/helicalgear/instructions.md` L51-55, L100-101; `spec/spurgear/instructions.md` L121-123, L322-329; `.claude/skills/generate-gear/PLAYBOOK.md` L103-118, L120-126, L205-227.
 
 ## H6 `[PROSE]` The root fillet's transverse correction — `filletHelixFactorExpression`
 
@@ -175,7 +189,7 @@ root fillet itself is spur's inherited feature, proved in `proof/spurgear`, and 
 about it is a number Fusion's expression engine evaluates rather than a shape a solid engine can
 build.
 
-**From:** `spec/helicalgear/instructions.md` L31-33, L117-119; `spec/spurgear/instructions.md` L86-88, L391-396.
+**From:** `spec/helicalgear/instructions.md` L29-31, L102-104; `spec/spurgear/instructions.md` L86-88, L316-321.
 
 ## H7 `[PROSE]` The twisted-profile plane offset — `helicalPlaneOffset`
 
@@ -196,7 +210,7 @@ parameter afterwards does not move the plane; regenerate (`[PB-NUMERIC-SNAPSHOT]
 That the offset is the whole thickness is asserted on the built solid in H10, where the lofted tooth
 is measured from the target plane to the twisted profile's plane.
 
-**From:** `spec/helicalgear/instructions.md` L120-125; `spec/spurgear/fusion.md` L237-242; `.claude/skills/generate-gear/PLAYBOOK.md` L229-237.
+**From:** `spec/helicalgear/instructions.md` L105-110; `spec/spurgear/fusion.md` L237-242; `.claude/skills/generate-gear/PLAYBOOK.md` L229-237.
 
 ## H8 `[PROSE]` The helix construction plane — `buildSketches`, after `super()`
 
@@ -236,7 +250,7 @@ No proof function realises this step on its own: it creates a construction plane
 geometry. What the plane is for is measured in H10, where the lofted tooth's height is read against
 the offset this plane was created at.
 
-**From:** `spec/helicalgear/instructions.md` L126-128, L136-156, L158-174, L217-222; `spec/helicalgear/fusion.md` L9-27, L29-42; `spec/spurgear/instructions.md` L384-387; `.claude/skills/generate-gear/PLAYBOOK.md` L659-671, L775-786.
+**From:** `spec/helicalgear/instructions.md` L111-113, L121-141, L143-159, L202-207; `spec/helicalgear/fusion.md` L9-27, L29-42; `spec/spurgear/instructions.md` L309-312; `.claude/skills/generate-gear/PLAYBOOK.md` L659-671, L775-786.
 
 ## H9 `[GO]` The Twisted Gear Profile sketch
 
@@ -307,7 +321,7 @@ the sketch carries its own local endpoint of the chain; and the tooth loop's tri
 parameters, which the engine withdraws from every partial edge in a scene holding a free-form entity,
 so the loop is held to its curve counts rather than to its cuts.
 
-**From:** `spec/helicalgear/instructions.md` L10-15, L126-128, L165-174, L181-190, L192-208, L217-222; `spec/helicalgear/fusion.md` L9-27, L29-42; `spec/spurgear/instructions.md` L254-325, L411-452, L559-570; `spec/spurgear/fusion.md` L19-33, L49-62, L71-108, L110-135, L137-177, L179-219; `.claude/skills/generate-gear/PLAYBOOK.md` L359-431, L441-493, L517-532, L614-634, L659-671.
+**From:** `spec/helicalgear/instructions.md` L10-15, L111-113, L150-159, L166-175, L177-193, L202-207; `spec/helicalgear/fusion.md` L9-27, L29-42; `spec/spurgear/instructions.md` L179-250, L336-377, L484-495; `spec/spurgear/fusion.md` L19-33, L49-62, L71-108, L110-135, L137-177, L179-219; `.claude/skills/generate-gear/PLAYBOOK.md` L359-431, L441-493, L517-532, L614-634, L659-671.
 
 ## H10 `[GO]` Loft the tooth — `buildTooth` and `loftTooth`
 
@@ -399,7 +413,7 @@ degrees and is refused from +100, while a negative twist builds to -179 degrees,
 The table carries a case past the positive bound, which skips with the engine's own refusal, so
 every run says where that bound still is.
 
-**From:** `spec/helicalgear/instructions.md` L42-49, L104-109, L129-131, L176-179, L181-190, L217-219; `spec/helicalgear/fusion.md` L46-65; `spec/spurgear/instructions.md` L292-300, L387-390, L576-580; `.claude/skills/generate-gear/PLAYBOOK.md` L145-158, L672-681, L724-728.
+**From:** `spec/helicalgear/instructions.md` L40-47, L89-94, L114-116, L161-164, L166-175, L202-204; `spec/helicalgear/fusion.md` L46-65; `spec/spurgear/instructions.md` L217-225, L312-315, L501-505; `.claude/skills/generate-gear/PLAYBOOK.md` L145-158, L672-681, L724-728.
 
 ## H11 `[PROSE]` Everything else is spur's, unchanged
 
@@ -426,4 +440,4 @@ and adds every unique boundary edge once, root-radius arcs included, excluding a
 cap edges by the positive bore radius. That selection remains pending Fusion verification
 (`[HELI-F-CHAMFER-COUNT]`).
 
-**From:** `spec/helicalgear/instructions.md` L17-21, L23-25, L104-109, L132-134, L158-164, L186-190, L210-222; `spec/helicalgear/fusion.md` L67-80; `spec/spurgear/instructions.md` L373-381, L633-648; `spec/spurgear/fusion.md` L223-233; `.claude/skills/generate-gear/PLAYBOOK.md` L534-555.
+**From:** `spec/helicalgear/instructions.md` L17-21, L23-27, L89-94, L117-119, L143-149, L171-175, L195-207; `spec/helicalgear/fusion.md` L67-80; `spec/spurgear/instructions.md` L298-306, L558-573; `spec/spurgear/fusion.md` L223-233; `.claude/skills/generate-gear/PLAYBOOK.md` L534-555.

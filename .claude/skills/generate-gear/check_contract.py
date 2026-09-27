@@ -57,6 +57,8 @@ import os
 import re
 import sys
 
+import exact_values
+
 HELPER_MODULES = ("utilities", "solids", "spurproxy")
 
 
@@ -223,6 +225,21 @@ def main(manifest_path, gen_path, root="."):
     # --- source guards: recipes the spec chose over a rejected alternative ---
     guards = manifest.get("source_guards", [])
     problems.extend(guard_problems(guards, gen_path, manifest.get("module"), root))
+
+    # The optional exact-value handoff owns dialog and parameter setup for migrated gears.
+    gear = os.path.basename(os.path.dirname(manifest_path))
+    try:
+        loaded_values = exact_values.load(root, gear)
+        if loaded_values is not None:
+            with open(os.path.join(root, 'spec', gear, 'steps.md'), encoding='utf-8') as handle:
+                steps = handle.read()
+            handoff = exact_values.check_steps(steps, *loaded_values)
+            with open(gen_path, encoding='utf-8') as handle:
+                source = handle.read()
+            if exact_values.render_module(source, handoff) != source:
+                problems.append('  exact-value setup differs from the checked step handoff')
+    except (exact_values.ExactValueError, OSError, ValueError) as exc:
+        problems.append('  exact-value handoff: %s' % exc)
 
     if problems:
         print("contract check: %d BLOCKING violation(s) vs %s:"

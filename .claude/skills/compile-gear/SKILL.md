@@ -5,7 +5,8 @@ description: Compile a gear's natural-language spec `spec/<gear>/instructions.md
 
 # Compile a gear spec into a step list and a proof
 
-The prose spec is the source of truth. This stage turns it into two artifacts a machine can check,
+The prose spec and any `spec/<gear>/exact_values.json` are the source of truth. This stage turns
+them into two artifacts a machine can check,
 so that a mistake in the spec surfaces in seconds instead of after a Fusion session.
 
 The step list and the proof are produced **together**, and neither is authoritative over the
@@ -112,6 +113,11 @@ proof is where the next reader is looking for the missing check.
    because `check_compile.py` reads `spec/<gear>/steps.md`, never the draft in `.tmp/`. The
    command refuses both placements if it would refuse either; exit 2 means nothing moved. There
    is no `--run`; the gate runner below runs the proof.
+
+   If `spec/<gear>/exact_values.json` exists, run
+   `python3 .claude/skills/generate-gear/exact_values.py <gear> sync-steps` after placement.
+   This inserts the validated source into the compiled step handoff. `check_compile.py` rejects
+   a missing or stale handoff, and provenance includes the JSON source.
 
    Then run
    `python3 .claude/skills/generate-gear/run_compile_gates.py <gear> --handoff-base <commit>

@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "inputs": [
+    {"id": "INPUT_ID_PLANE", "kind": "selection", "label": "Target Plane", "prompt": "Select the plane to build the gear on", "filters": ["ConstructionPlanes", "PlanarFaces"], "preselect": false},
+    {"id": "INPUT_ID_ANCHOR_POINT", "kind": "selection", "label": "Anchor Point", "prompt": "Select the point the gear is centered on", "filters": ["ConstructionPoints", "SketchPoints"], "preselect": false},
+    {"id": "INPUT_ID_MODULE", "kind": "value", "label": "Module", "unit": "", "default": {"real": 1}},
+    {"id": "INPUT_ID_TOOTH_NUMBER", "kind": "value", "label": "Tooth Number", "unit": "", "default": {"real": 17}},
+    {"id": "INPUT_ID_PRESSURE_ANGLE", "kind": "value", "label": "Pressure Angle", "unit": "deg", "default": {"radians": 20}},
+    {"id": "INPUT_ID_BORE_DIAMETER", "kind": "string", "label": "Bore Diameter", "default": "0 mm"},
+    {"id": "INPUT_ID_THICKNESS", "kind": "value", "label": "Thickness", "unit": "mm", "default": {"millimeters": 10}},
+    {"id": "INPUT_ID_CHAMFER_TOOTH", "kind": "value", "label": "Apply chamfer to teeth", "unit": "mm", "default": {"real": 0}},
+    {"id": "INPUT_ID_SKETCH_ONLY", "kind": "boolean", "label": "Generate sketches, but do not build body", "check_box": true, "default": false},
+    {"id": "INPUT_ID_PARENT", "kind": "selection", "label": "Parent Component", "prompt": "Select the component to build the gear in", "filters": ["Occurrences", "RootComponents"], "preselect": true}
+  ],
+  "parameters": [
+    {"name": "PARAM_MODULE", "unit": "", "comment": "Module of the gear", "input": "INPUT_ID_MODULE"},
+    {"name": "PARAM_TOOTH_NUMBER", "unit": "", "comment": "Number of teeth", "input": "INPUT_ID_TOOTH_NUMBER"},
+    {"name": "PARAM_PRESSURE_ANGLE", "unit": "rad", "comment": "Pressure angle", "input": "INPUT_ID_PRESSURE_ANGLE"},
+    {"name": "PARAM_BORE_DIAMETER", "unit": "mm", "comment": "Bore diameter", "input": "INPUT_ID_BORE_DIAMETER"},
+    {"name": "PARAM_THICKNESS", "unit": "mm", "comment": "Thickness of the gear", "input": "INPUT_ID_THICKNESS"},
+    {"name": "PARAM_CHAMFER_TOOTH", "unit": "mm", "comment": "Chamfer distance applied to the teeth", "input": "INPUT_ID_CHAMFER_TOOTH"},
+    {"name": "PARAM_SKETCH_ONLY", "unit": "", "comment": "Generate sketches only", "input": "INPUT_ID_SKETCH_ONLY"},
+    {"name": "PARAM_PITCH_DIAMETER", "unit": "mm", "comment": "Pitch circle diameter", "expression": "{PARAM_MODULE} * {PARAM_TOOTH_NUMBER}"},
+    {"name": "PARAM_PITCH_RADIUS", "unit": "mm", "comment": "Pitch circle radius", "expression": "{PARAM_PITCH_DIAMETER} / 2"},
+    {"name": "PARAM_BASE_DIAMETER", "unit": "mm", "comment": "Base circle diameter", "expression": "{PARAM_PITCH_DIAMETER} * cos({PARAM_PRESSURE_ANGLE})"},
+    {"name": "PARAM_BASE_RADIUS", "unit": "mm", "comment": "Base circle radius", "expression": "{PARAM_BASE_DIAMETER} / 2"},
+    {"name": "PARAM_ROOT_DIAMETER", "unit": "mm", "comment": "Root circle diameter", "expression": "{PARAM_PITCH_DIAMETER} - 2.5 * {PARAM_MODULE}"},
+    {"name": "PARAM_ROOT_RADIUS", "unit": "mm", "comment": "Root circle radius", "expression": "{PARAM_ROOT_DIAMETER} / 2"},
+    {"name": "PARAM_TIP_DIAMETER", "unit": "mm", "comment": "Tip circle diameter", "expression": "{PARAM_PITCH_DIAMETER} + 2 * {PARAM_MODULE}"},
+    {"name": "PARAM_TIP_RADIUS", "unit": "mm", "comment": "Tip circle radius", "expression": "{PARAM_TIP_DIAMETER} / 2"},
+    {"name": "PARAM_INVOLUTE_STEPS", "unit": "", "comment": "Number of points sampled along each involute flank", "expression": "15"},
+    {"name": "PARAM_TOOTH_SPACE_ANGLE", "unit": "", "comment": "Angular width of the tooth space at the root circle", "computed": "tooth_space_angle"},
+    {"name": "PARAM_TOOTH_SPACE_ARC", "unit": "mm", "comment": "Arc length of the tooth space at the root circle", "expression": "{PARAM_ROOT_RADIUS} * {PARAM_TOOTH_SPACE_ANGLE}"},
+    {"name": "PARAM_FILLET_CLEARANCE", "unit": "", "comment": "Clearance factor applied to the root fillet radius", "expression": "0.9"},
+    {"name": "PARAM_FILLET_RADIUS", "unit": "mm", "comment": "Radius of the root fillets", "expression": "({PARAM_TOOTH_SPACE_ARC} / 2) * {PARAM_FILLET_CLEARANCE} * {fillet_helix_factor}"}
+  ]
+}

@@ -63,6 +63,13 @@ an unvalidated draft for placement.
    interprets prose and only this one transcribes.
 
 3. **Gate (authoritative owner).** After every draft submission, run the complete battery with
+   `python3 .claude/skills/generate-gear/exact_values.py <gear> render
+   .tmp/<gear>.generated.py` first when `spec/<gear>/exact_values.json` exists. The tool checks
+   the step handoff against its stamped source and replaces only exact dialog and parameter
+   setup. It leaves the drafter's geometry and selection handling in place. A failed handoff is
+   a compile fault; do not gate or place that draft until the step source is current.
+
+   Then run the complete battery with
    `python3 .claude/skills/generate-gear/run_gates.py <gear> > .tmp/<gear>.gates.txt` from the repo
    root. Run this command without `--no-advisory`, `--only`, or `--fail-fast`; it runs all seven
    checks below plus the advisory novel-type report and prints one verdict. Read the entire stored
