@@ -65,6 +65,7 @@ import exact_values  # noqa: E402
 from contract_handoff import (  # noqa: E402
     ContractHandoffError, mask_contract, validate_contract)
 from call_parser import call_shapes  # noqa: E402
+import step_metadata  # noqa: E402
 from provenance import (  # noqa: E402  (sibling module; sys.path is fixed up just above)
     DOCUMENT_REF, STAMPED_ROW, ProvenanceError, blob_hash, provenance_inputs, read,
     referenced_documents)
@@ -252,6 +253,8 @@ def contract_names(_gear):
 
 
 def named_calls(src):
+    if step_metadata.file_version(src) == 2:
+        return {name for name, _ in named_call_shapes(src)}
     src = mask_contract(src)
     body = re.sub(r'```.*?```', '', src, flags=re.S)
     names = set()
@@ -264,6 +267,9 @@ def named_calls(src):
 
 def named_call_shapes(src):
     """Return the calls named in inline step-list code spans with receivers intact."""
+    if step_metadata.file_version(src) == 2:
+        return {(call['name'], call['receiver']) for call in step_metadata.file_calls(src)
+                if call['role'] == 'required'}
     src = mask_contract(src)
     body = re.sub(r'```.*?```', '', src, flags=re.S)
     shapes = set()
@@ -1445,7 +1451,7 @@ def main(argv):
     try:
         with fusion_api.query_session():
             return check(argv)
-    except (ProvenanceError, ContractHandoffError) as exc:
+    except (ProvenanceError, ContractHandoffError, OSError) as exc:
         print('check_compile: %s' % exc, file=sys.stderr)
         return 2
     except fusion_api.Unavailable as exc:
@@ -1464,6 +1470,11 @@ def check(argv):
         print('check_compile: no step list at %s' % steps_path, file=sys.stderr)
         return 2
     src = read(steps_path)
+    try:
+        metadata_version = step_metadata.file_version(src)
+    except step_metadata.MetadataError as exc:
+        print('compile check: BLOCKING (1)\n  %s: %s' % (steps_path, exc))
+        return 1
     try:
         loaded_values = exact_values.load('.', gear)
         if loaded_values is not None:
@@ -1508,8 +1519,26 @@ def check(argv):
 
     # 1. citations resolve
     cited = {}
+    declarations = []
     for sid, _, body in steps:
-        valid, citation_problems = validate_citations(body, gear)
+        if metadata_version is None:
+            valid, citation_problems = validate_citations(body, gear)
+        else:
+            try:
+                payload = step_metadata.parse_step(body, metadata_version)
+                citation_problems = step_metadata.validate_citations(payload, '.')
+                if metadata_version == 2:
+                    declarations.extend((sid, call) for call in payload['calls'])
+                canonical = step_metadata.render_from(payload)
+                actual = from_block(body)
+                if actual is None or ('**From:**' + actual).strip() != canonical:
+                    citation_problems.append(
+                        'has a **From:** line that differs from metadata; render step metadata')
+                valid = [(entry['path'], entry['first'], entry['last'])
+                         for entry in payload['citations'] if not citation_problems]
+            except step_metadata.MetadataError as exc:
+                problems.append('  %s %s' % (sid, exc))
+                continue
         for problem in citation_problems:
             problems.append("  %s %s" % (sid, problem))
         for path, first, last in valid:
@@ -1569,24 +1598,71 @@ def check(argv):
             % (details[fn].path, details[fn].line, fn))
 
     # 3. API calls are real
-    local = PYTHON_METHODS | defined_names(FRAMEWORK) | contract_names(gear)
+    framework = defined_names(FRAMEWORK)
+    local = PYTHON_METHODS | framework | contract_names(gear)
+    if metadata_version == 2:
+        api_required = []
+        for sid, call in declarations:
+            name, owner, role = call['name'], call['owner'], call['role']
+            if role == 'inherited' and name not in framework:
+                problems.append('  %s inherited call %s has no shared-framework definition' % (sid, name))
+            if role != 'required':
+                continue
+            if owner is None:
+                if name not in local:
+                    problems.append('  %s required call %s has no known local definition; '
+                                    'API calls need a qualified owner' % (sid, name))
+            else:
+                api_required.append((sid, call))
+        for sid, call in api_required:
+            name, owner, receiver = call['name'], call['owner'], call['receiver']
+            if any(member == name and cls == owner
+                   for member, cls, _ in fusion_api.REFUTED_CALLS):
+                problems.append('  %s requires %s.%s, which Fusion runtime rejects'
+                                % (sid, owner, name))
+                continue
+            try:
+                documented = fusion_api.member_info(owner, name) is not None
+            except fusion_api.Unavailable as exc:
+                print('check_compile: %s' % exc, file=sys.stderr)
+                return 2
+            if documented:
+                continue
+            if fusion_api.unverified_class(name, receiver) == owner:
+                continue
+            problems.append('  %s requires %s.%s, which the Fusion API database does not declare'
+                            % (sid, owner, name))
     watched = {name for name, _, _, _ in fusion_api.UNVERIFIED_CALLS}
-    shapes = named_call_shapes(src)
+    shapes = named_call_shapes(src) if metadata_version != 2 else set()
     wrong_watchlist_receivers = {}
     for called, receiver in shapes:
         if called in watched and not is_watched_call(called, receiver):
             wrong_watchlist_receivers.setdefault(called, set()).add(receiver)
-    candidates = sorted(
-        name for name in named_calls(src)
-        if name not in local
-        and (name not in watched or any(
-            called == name and not is_watched_call(called, receiver)
-            for called, receiver in shapes)))
+    if metadata_version == 2:
+        candidates = []
+        watched_required = {}
+        for sid, call in declarations:
+            if (call['role'] == 'required'
+                    and call['name'] in watched
+                    and is_watched_call(call['name'], call['receiver'])):
+                watched_required.setdefault(call['name'], []).append(sid)
+        watched_locations = {
+            name: '%s:%s' % (steps_path, ','.join(sorted(set(step_ids))))
+            for name, step_ids in watched_required.items()
+        }
+    else:
+        candidates = sorted(
+            name for name in named_calls(src)
+            if name not in local
+            and (name not in watched or any(
+                called == name and not is_watched_call(called, receiver)
+                for called, receiver in shapes)))
+        watched_locations = watched_calls(src, steps_path)
     try:
         # Every candidate is either an ordinary call or a watchlist method on the wrong
         # receiver. The latter must reach the database instead of being exempted by name.
         hits = fusion_api.lookup_many(candidates)
-        findings = fusion_api.unverified_findings(watched_calls(src, steps_path))
+        findings = fusion_api.unverified_findings(watched_locations)
     except fusion_api.Unavailable as exc:
         print('check_compile: %s' % exc, file=sys.stderr)
         return 2

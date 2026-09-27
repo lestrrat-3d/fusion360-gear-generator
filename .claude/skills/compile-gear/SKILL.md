@@ -71,8 +71,10 @@ proof is where the next reader is looking for the missing check.
    classifies, the spec lines a `fault:` line names in step 6, and a harness or playbook section
    only when a specific diagnosis calls for it.
 
-2. **Stamp provenance.** The provenance table is generated, never typed. After each drafting round
-   in step 3, run `python3 .claude/skills/generate-gear/gen_provenance.py <gear> --write
+2. **Render metadata, then stamp provenance.** After each drafting round, run
+   `python3 .claude/skills/generate-gear/render_step_metadata.py <gear> --write
+   .tmp/<gear>.steps.md`. It validates version-2 call declarations and renders citations.
+   Then run `python3 .claude/skills/generate-gear/gen_provenance.py <gear> --write
    .tmp/<gear>.steps.md` from the repo root. It computes the input set owned by
    `.claude/skills/generate-gear/check_compile.py` — existing `spec/<gear>/instructions.md`, optional
    `spec/<gear>/fusion.md`, optional `contract.json` and `exact_values.json`,
@@ -153,9 +155,10 @@ proof is where the next reader is looking for the missing check.
    recompiled step list that disagrees with it breaks the build even though the other checks are
    green. On a failure, run `python3 .claude/skills/generate-gear/check_step_calls.py
    spec/<gear>/steps.md lib/geargen/<gear>.py --names`, which prints exactly the missing call
-   names, one per line; classify each name and pass only the names back to the drafter: a name the
-   step list mentions without requiring takes the exemption directive, and a call the module
-   genuinely fails to make is work for `/emit-gear`, not for this stage. Never hand the drafter
+   names, one per line; classify each name and pass only the names back to the drafter: an
+   incidental call-shaped example takes an `example` declaration with a source-based reason,
+   and a call the module genuinely fails to make is work for `/emit-gear`, not for this stage.
+   Version-2 files reject the old exemption directives. Never hand the drafter
    anything the module does or does not contain, and never let it read the module — the pipeline
    has to be able to compile a gear that has no implementation yet. Classify by reading the
    drafted step list around each printed name in `.tmp/<gear>.steps.md`; that is the only text

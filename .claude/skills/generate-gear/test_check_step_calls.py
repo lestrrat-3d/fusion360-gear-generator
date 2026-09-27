@@ -30,8 +30,59 @@ COMPILE_MODULE_SPEC = importlib.util.spec_from_file_location('check_compile', CO
 COMPILE_CHECKER = importlib.util.module_from_spec(COMPILE_MODULE_SPEC)
 COMPILE_MODULE_SPEC.loader.exec_module(COMPILE_CHECKER)
 
+from test_step_metadata import call_declaration, version_two  # noqa: E402
+
 
 class CheckStepCallsTest(unittest.TestCase):
+    def test_legacy_and_v2_require_the_same_unchanged_call(self):
+        legacy = '## S1 `[PROSE]` Fixture step\n\nCall `tools.addWidget(item)`.\n'
+        versioned = version_two()
+        self.assertEqual(CHECKER.named_call_shapes(legacy),
+                         CHECKER.named_call_shapes(versioned))
+        candidate = 'class FixtureGear:\n    def generate(self):\n        pass\n'
+        self.assertEqual(self.run_checker(legacy, candidate)[0], 1)
+        self.assertEqual(self.run_checker(versioned, candidate)[0], 1)
+
+    def test_v2_required_call_is_reachable(self):
+        steps = version_two()
+        present = 'class FixtureGear:\n    def generate(self):\n        tools.addWidget(item)\n'
+        absent = 'class FixtureGear:\n    def generate(self):\n        pass  # tools.addWidget(item)\n'
+        self.assertEqual(self.run_checker(steps, present)[0], 0)
+        result, output = self.run_checker(steps, absent)
+        self.assertEqual(result, 1)
+        self.assertIn('not a reachable executable call', output)
+
+    def test_v2_required_receiver_stays_required(self):
+        call = call_declaration(span='items.append(item)', name='append', receiver='items', owner=None)
+        steps = version_two([call], '`items.append(item)`')
+        self.assertEqual(self.run_checker(
+            steps, 'class FixtureGear:\n    def generate(self):\n        items.append(item)\n')[0], 0)
+        self.assertEqual(self.run_checker(
+            steps, 'class FixtureGear:\n    def generate(self):\n        append(item)\n')[0], 1)
+
+    def test_v2_non_required_roles_do_not_require_execution(self):
+        for role in ('example', 'forbidden', 'inherited', 'prose'):
+            call = call_declaration(role=role, reason='Fixture role.')
+            if role == 'inherited':
+                call['owner'] = None
+            if role == 'prose':
+                call.update(span="dimensionless (units '')", name='dimensionless',
+                            receiver=None, owner=None)
+            with self.subTest(role=role):
+                result, output = self.run_checker(version_two([call], '`%s`' % call['span']), 'pass\n')
+                self.assertEqual(result, 0, output)
+
+    def test_v2_bad_metadata_fails_in_each_output_mode(self):
+        steps = version_two().replace('Call `tools.addWidget(item)`.', 'No call.')
+        for flags in ((), ('--json',), ('--names',)):
+            with self.subTest(flags=flags):
+                result, output, errors = self.run_checker_argv(steps, 'pass\n', flags=flags)
+                self.assertEqual(result, 1)
+                if '--json' in flags:
+                    self.assertIn('call declaration', json.loads(output)['metadata_error'])
+                else:
+                    self.assertIn('call declaration', output + errors)
+
     def run_checker_argv(self, steps, candidate, flags=(), flags_first=False):
         """Run the checker with optional output-mode flags, capturing stdout and stderr."""
         with tempfile.TemporaryDirectory() as directory:

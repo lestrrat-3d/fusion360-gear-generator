@@ -4,6 +4,7 @@ to `.tmp/{{gear}}-proof/`.
 
 **Read, in full, only these:** `spec/{{gear}}/instructions.md`, `spec/{{gear}}/fusion.md` if it
 exists, every document those reference by name, `.claude/skills/generate-gear/PLAYBOOK.md`,
+`docs/spec-to-code-performance/06-step-metadata-format.md` for the call and citation format,
 `proof/proofkit/` for the sketch harness API, `proof/proofkit3d/` for the solid harness API, and
 `proof/examples/OPERATIONS.md` for tested construction recipes and engine limits,
 the linked example source for an operation the gear uses, and
@@ -27,6 +28,9 @@ below that heading, or one naming bare file names, leaves the gate with nothing 
 Include `proof/{{gear}}/zz_registrations_test.go`, the generated registration file, among the
 paths.
 
+**Write `<!-- step-metadata: 2 -->` before `## Provenance`.** Write it exactly once,
+after the proof-file sentence and before the first step.
+
 **Write the `## Provenance` heading and leave its section empty.** The provenance table and,
 when `spec/{{gear}}/contract.json` exists, the complete v1 `## Compilation contract` section
 are generated from the source files after you finish by
@@ -36,8 +40,10 @@ as drift. Put the heading below the sentence naming the proof files and above th
 heading, since a gate reads the text above it for those paths and the generator writes below it.
 
 **Each step carries** a heading of the form `## <id> `[GO]` <title>` or with `[PROSE]`, the
-instructions themselves, a `**From:**` line naming the spec files and line ranges you compiled it
-from, and every Fusion API call it requires written inside a code span. A `[GO]` step also names
+instructions themselves, one version-2 `step-meta` JSON comment containing citations and calls,
+and every required Fusion API call written inside a code span. Follow the format document exactly.
+Write the JSON comment before the citation line and omit `**From:**`; the orchestrator renders it.
+A `[GO]` step also names
 the proof function that realises it and carries the `proof-run` annotation described below.
 
 **Cite by anchor every playbook rule a step relies on.** Write the anchor in the step, as
@@ -68,13 +74,11 @@ geometry are not interchangeable as constraint arguments — measured, a step th
 again" was transcribed against the shaft axis rather than the line the spec named, and Fusion
 refused the sketch with `VCS_SKETCH_OVER_CONSTRAINTS`.
 
-**A call span in a step is a call the module must make.** A later gate reads every call written
-in a code span and requires the generated module to make it. A name a step mentions without
-requiring it therefore has to be marked: a method the module defines for the framework to call, a
-call named only to forbid it, and one of several alternatives the spec lets the implementation
-choose between are all mentions, not requirements. Mark each with the exemption directive on its
-own line in the step that mentions it, `<!-- check-step-calls: ignore nameOne nameTwo -->`, and
-say in the step's prose why the mention is not a requirement.
+**Declare every call-shaped inline span in `step-meta`.** Use `required` for a call the
+module must make; use `inherited`, `example`, `forbidden`, or `prose` only as the format allows.
+Give each non-required call a reason. Give required Fusion API calls a qualified owner.
+Keep an existing required call required even when the current module omits it; report any
+proposed role change for source review. Do not write global ignore directives.
 
 **Before naming any `adsk.*` call**, ask the `fusion:query-api` skill about it. One question
 carries most of the work: `show <Class>.<member>` confirms in a few lines that the class you are

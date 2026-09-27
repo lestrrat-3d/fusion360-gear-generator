@@ -30,6 +30,23 @@ def api_member(returns=None, kind='method', lookup=None):
 
 
 class CheckApiReceiverOwnershipTest(unittest.TestCase):
+    def test_builtin_set_add_is_not_a_fusion_call(self):
+        for constructor in ('set()', '{1}'):
+            with self.subTest(constructor=constructor):
+                result, output = self.run_checker(
+                    'def build():\n    seen = %s\n    seen.add(2)\n' % constructor)
+                self.assertEqual(result, 0, output)
+
+    def test_unknown_or_rebound_add_still_needs_receiver_ownership(self):
+        for source in (
+                'def build(seen):\n    seen.add(2)\n',
+                'def build(value):\n    seen = set()\n    seen = value\n    seen.add(2)\n',
+                'def build(set):\n    seen = set()\n    seen.add(2)\n'):
+            with self.subTest(source=source):
+                result, output = self.run_checker(source, api_names={'add'})
+                self.assertEqual(result, 1, output)
+                self.assertIn("calls 'add('", output)
+
     def run_checker(self, candidate, api_names=(), members=None, framework_files=None,
                     member_failure=None):
         framework_files = framework_files or {'base.py': ''}

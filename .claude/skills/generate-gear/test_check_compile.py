@@ -35,6 +35,99 @@ PROVENANCE_MODULE_SPEC.loader.exec_module(PROVENANCE)
 COMPILE_MODULE_SPEC = importlib.util.spec_from_file_location('check_compile', COMPILE_CHECKER_PATH)
 COMPILE_CHECKER = importlib.util.module_from_spec(COMPILE_MODULE_SPEC)
 COMPILE_MODULE_SPEC.loader.exec_module(COMPILE_CHECKER)
+from test_step_metadata import call_declaration, version_two  # noqa: E402
+
+
+class VersionTwoCompileTest(unittest.TestCase):
+    def run_checker(self, source=None, framework=''):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            instructions = root / 'spec/fixturegear/instructions.md'
+            instructions.parent.mkdir(parents=True)
+            instructions.write_text('Fixture source.\nWidget instruction.\n')
+            playbook = root / '.claude/skills/generate-gear/PLAYBOOK.md'
+            playbook.parent.mkdir(parents=True)
+            playbook.write_text('Fixture rule.\n')
+            base = root / 'lib/geargen/base.py'
+            base.parent.mkdir(parents=True)
+            base.write_text(framework)
+            (root / 'proof/fixturegear').mkdir(parents=True)
+            rows = '\n'.join('| `%s` | `%s` |' %
+                             (path.relative_to(root), COMPILE_CHECKER.blob_hash(str(path)))
+                             for path in (instructions, playbook))
+            source = version_two() if source is None else source
+            source = source.replace('<!-- step-metadata: 2 -->',
+                                    '<!-- step-metadata: 2 -->\n\n## Provenance\n\n' + rows)
+            (root / 'spec/fixturegear/steps.md').write_text(source)
+            output = io.StringIO()
+            previous = os.getcwd()
+
+            def member(owner, name):
+                if (owner, name) == ('adsk.fusion.WidgetTools', 'addWidget'):
+                    return {'name': name, 'declared_on': owner}
+                return None
+
+            try:
+                os.chdir(root)
+                with mock.patch.object(COMPILE_CHECKER, 'proof_run_shapes',
+                                       return_value=mock.Mock(arguments={})), \
+                        mock.patch.object(COMPILE_CHECKER, 'proof_registrations',
+                                          return_value=(set(), set(), {}, [])), \
+                        mock.patch.object(COMPILE_CHECKER.fusion_api, 'member_info',
+                                          side_effect=member) as query, \
+                        mock.patch.object(COMPILE_CHECKER.fusion_api, 'lookup_many', return_value={}), \
+                        contextlib.redirect_stdout(output):
+                    result = COMPILE_CHECKER.check(['check_compile.py', 'fixturegear'])
+                    calls = query.call_args_list
+            finally:
+                os.chdir(previous)
+            return result, output.getvalue(), calls
+
+    def test_required_owner_is_checked(self):
+        result, output, calls = self.run_checker()
+        self.assertEqual(result, 0, output)
+        self.assertEqual(calls, [mock.call('adsk.fusion.WidgetTools', 'addWidget')])
+        wrong = version_two([call_declaration(owner='adsk.fusion.OtherTools')])
+        result, output, calls = self.run_checker(wrong)
+        self.assertEqual(result, 1, output)
+        self.assertIn('adsk.fusion.OtherTools.addWidget', output)
+        self.assertEqual(calls, [mock.call('adsk.fusion.OtherTools', 'addWidget')])
+
+    def test_nonrequired_call_never_queries_api(self):
+        for role in ('example', 'forbidden'):
+            with self.subTest(role=role):
+                source = version_two([call_declaration(role=role, reason='Fixture role.')])
+                result, output, calls = self.run_checker(source)
+                self.assertEqual(result, 0, output)
+                self.assertEqual(calls, [])
+
+    def test_nonrequired_watchlist_call_is_not_reported_as_required(self):
+        call = call_declaration(span='sketch.project(item)', name='project',
+                                receiver='sketch', owner='adsk.fusion.Sketch',
+                                role='example', reason='Illustrates an optional API call.')
+        source = version_two([call], '`sketch.project(item)`')
+        with mock.patch.object(COMPILE_CHECKER.fusion_api, 'unverified_findings',
+                               return_value=[]) as findings:
+            result, output, _ = self.run_checker(source)
+        self.assertEqual(result, 0, output)
+        findings.assert_called_once_with({})
+
+    def test_inherited_requires_framework_definition(self):
+        call = call_declaration(span='self.fixtureHelper(item)', name='fixtureHelper',
+                                receiver='self', owner=None, role='inherited',
+                                reason='Framework behavior.')
+        source = version_two([call], '`self.fixtureHelper(item)`')
+        result, output, _ = self.run_checker(source)
+        self.assertEqual(result, 1, output)
+        self.assertIn('no shared-framework definition', output)
+        result, output, _ = self.run_checker(source, 'def fixtureHelper():\n    pass\n')
+        self.assertEqual(result, 0, output)
+
+    def test_missing_declaration_blocks_compile(self):
+        source = version_two().replace('Call `tools.addWidget(item)`.', 'No call.')
+        result, output, _ = self.run_checker(source)
+        self.assertEqual(result, 1, output)
+        self.assertIn('call declaration', output)
 
 
 BOM = b'\xef\xbb\xbf'
