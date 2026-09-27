@@ -7,8 +7,8 @@ The proof for these steps is `proof/spurgear/geometry_test.go`, `proof/spurgear/
 
 | file | `git hash-object` |
 |---|---|
-| `spec/spurgear/instructions.md` | `2a98a801da25e77958488252bc87b499475ac95d` |
-| `spec/spurgear/fusion.md` | `5dccd871606c3709ecfa07c05f58c126369f2927` |
+| `spec/spurgear/instructions.md` | `9276c6a0900981f657158bc1f2d764bd357e5224` |
+| `spec/spurgear/fusion.md` | `5cd1f9f96e043efba42ae42a00ca6c13403e1339` |
 | `spec/helicalgear/fusion.md` | `f981173cb314094f2fd98cdd78d5bd8287cdc8ee` |
 | `.claude/skills/generate-gear/PLAYBOOK.md` | `9ee2dcbaed7b5480aa69e9295e8b61acaea081f3` |
 
@@ -229,7 +229,7 @@ the inherited framework calls.
 
 **From:** `spec/spurgear/instructions.md` L13-33 L37-88 L108-124 L133-165 L221-243 L327-342 L344-410
 L454-479 L481-490,
-`spec/spurgear/fusion.md` L212-217 L233-240,
+`spec/spurgear/fusion.md` L214-219 L235-242,
 `.claude/skills/generate-gear/PLAYBOOK.md` L75-102 L103-118 L120-126 L205-227 L229-237 L253-263
 
 ## 1 `[PROSE]` Normalize the Target Plane
@@ -254,8 +254,8 @@ exists.
 
 `prepareTools(ctx)` creates a sketch named `Tools` on the target plane with
 `self.createSketchObject('Tools', self.plane)`, makes it visible, and projects the user's anchor
-point into it: `toolsSketch.project(self.anchorPoint)`, keeping the resulting `SketchPoint` as
-`ctx.anchorPoint`. That projection is the canonical handle — every later sketch projects *this* in
+point into it: `toolsSketch.project(self.anchorPoint).item(0)`, keeping the resulting `SketchPoint`
+as `ctx.anchorPoint`. That projection is the canonical handle — every later sketch projects *this* in
 again ([SPUR-F-ANCHOR-CHAIN]), so the whole gear follows the user's original anchor entity if it
 moves. The sketch draws no
 geometry of its own. Keep it on `self.toolsSketch` and leave it visible: step 12 re-projects from
@@ -277,7 +277,7 @@ projection chain buys is proven where it bites instead: the Gear Profile and Bor
 of steps 3 and 12a are each drawn against a projected anchor away from the sketch origin, and each
 is held to full constraint after the drag.
 
-**From:** `spec/spurgear/instructions.md` L41 L332-338 L498-502, `spec/spurgear/fusion.md` L19-24,
+**From:** `spec/spurgear/instructions.md` L41 L332-338 L498-507, `spec/spurgear/fusion.md` L19-26,
 `.claude/skills/generate-gear/PLAYBOOK.md` L659-671 L775-786
 
 ## 3 `[GO]` Gear Profile sketch — circles, involute tooth, anchoring
@@ -475,7 +475,7 @@ flag across. The bevel gear reads the same slot off its proxy after `draw` retur
 has to stay.
 
 **The anchoring, inside `draw`.** After `drawTooth` returns, project the Tools-sketch anchor into
-this sketch — `sketch.project(anchorPoint)` — and add
+this sketch — `sketch.project(anchorPoint).item(0)` — and add
 `sketch.geometricConstraints.addCoincident(self.anchorPoint, projectedAnchor)` between the freshly
 projected point and the generator's local origin, not `sketch.originPoint` — a projection is
 brought in associatively and still carries free degrees of freedom, so coincidenting it to the one
@@ -516,8 +516,8 @@ the tooth-top arc's solved radius is the tip radius with its centre on the ancho
 `profileFailures` carries the negative control the spec requires: the same sketch with the arc's
 centre left free reports DOF 2 and underconstrained, and must keep failing.
 
-**From:** `spec/spurgear/instructions.md` L254-325 L411-452 L504-513 L515-552 L554-558,
-`spec/spurgear/fusion.md` L19-43 L47-60 L69-106 L108-133 L135-175 L177-217,
+**From:** `spec/spurgear/instructions.md` L254-325 L411-452 L509-518 L520-557 L559-570,
+`spec/spurgear/fusion.md` L19-45 L49-62 L71-108 L110-135 L137-177 L179-219,
 `.claude/skills/generate-gear/PLAYBOOK.md` L239-251 L359-431 L441-478 L501-516 L517-532 L606-634 L635-636
 L652-656 L682-692
 
@@ -530,7 +530,7 @@ combine and the fillets. `buildBore` and `chamferTeeth` still run from `generate
 themselves, and `cleanup` still runs unconditionally with the per-mode split [SPUR-F-CLEANUP]
 owns and step 14 describes.
 
-**From:** `spec/spurgear/instructions.md` L60 L344-380 L560-562, `spec/spurgear/fusion.md` L221-231
+**From:** `spec/spurgear/instructions.md` L60 L344-380 L572-574, `spec/spurgear/fusion.md` L223-233
 
 ## 7 `[GO]` Extrude the tooth
 
@@ -566,7 +566,7 @@ rather than derived by splitting the root circle, because the engine will not re
 fragment whose trim it could not certify. That the split produces that boundary is what step 3
 asserts instead.
 
-**From:** `spec/spurgear/instructions.md` L297-300 L334-339 L344-371 L564-568,
+**From:** `spec/spurgear/instructions.md` L297-300 L334-339 L344-371 L576-580,
 `.claude/skills/generate-gear/PLAYBOOK.md` L151-158 L672-681
 
 ## 9 `[GO]` Extrude the gear body
@@ -613,7 +613,7 @@ its bounding box is the root radius either way and the target plane to Thickness
 carries exactly one cylindrical face and two planar ones, which is what leaves both of the searches
 above something to find.
 
-**From:** `spec/spurgear/instructions.md` L297-300 L334-338 L570-579,
+**From:** `spec/spurgear/instructions.md` L297-300 L334-338 L582-591,
 `.claude/skills/generate-gear/PLAYBOOK.md` L151-158 L672-681 L740-761 L787-790
 
 ## 10 `[GO]` Pattern the teeth and join them
@@ -661,7 +661,7 @@ the solid engine refuses to classify that contact, and sinking the tooth inside 
 trades the second refusal for the first. The proof file records this next to the step, along with
 the two substitutes that were measured and rejected for the fillet of step 11.
 
-**From:** `spec/spurgear/instructions.md` L335-336 L344-371 L581-585,
+**From:** `spec/spurgear/instructions.md` L335-336 L344-371 L593-597,
 `.claude/skills/generate-gear/PLAYBOOK.md` L693-703
 
 ## 11 `[PROSE]` Root fillets
@@ -721,7 +721,7 @@ at a high tooth count with a large pressure angle, which is what the above-zero 
 
 <!-- check-step-calls: ignore getTangent -->
 
-**From:** `spec/spurgear/instructions.md` L86-88 L126-131 L392-396 L587-596,
+**From:** `spec/spurgear/instructions.md` L86-88 L126-131 L392-396 L599-608,
 `.claude/skills/generate-gear/PLAYBOOK.md` L151-158 L569-575 L672-681 L740-761
 
 ## 12a `[GO]` Bore Profile sketch
@@ -744,8 +744,8 @@ bore circle by instantiating the tooth generator on that sketch —
 `toothGen.drawBore(ctx.anchorPoint, boreDiameter)` with the diameter in internal centimetres.
 
 `drawBore(anchorPoint, diameter)` projects the anchor into this sketch with
-`sketch.project(anchorPoint)`, draws a construction-less circle of that diameter centred on the
-projection with `sketch.sketchCurves.sketchCircles.addByCenterRadius(projectedAnchor, diameter / 2)`
+`sketch.project(anchorPoint).item(0)`, draws a construction-less circle of that diameter centred on
+the projection with `sketch.sketchCurves.sketchCircles.addByCenterRadius(projectedAnchor, diameter / 2)`
 and a driving `sketch.sketchDimensions.addDiameterDimension(circle, textPoint)`, and returns the
 circle.
 
@@ -768,7 +768,7 @@ grounded on the projected anchor from one grounded on the sketch's own origin po
 substitution that fails. It then takes the sketch's single profile and asserts its area is
 `pi * (D/2)^2` and its centre is the anchor.
 
-**From:** `spec/spurgear/instructions.md` L320-322 L430-435 L598-602, `spec/spurgear/fusion.md` L26-31,
+**From:** `spec/spurgear/instructions.md` L320-322 L430-435 L610-631, `spec/spurgear/fusion.md` L28-33,
 `.claude/skills/generate-gear/PLAYBOOK.md` L441-457 L509-516
 
 ## 12b `[GO]` Cut the bore
@@ -801,7 +801,7 @@ symmetrically past both caps instead of stopping on the far face, because a tool
 exactly on it would share that cap plane with its target and the engine refuses to classify that.
 The material removed is the same either way, which is the point of ending on the far face.
 
-**From:** `spec/spurgear/instructions.md` L338 L598-602, `.claude/skills/generate-gear/PLAYBOOK.md` L729-732
+**From:** `spec/spurgear/instructions.md` L338 L610-631, `.claude/skills/generate-gear/PLAYBOOK.md` L729-732
 
 ## 13 `[GO]` Chamfer the completed gear
 
@@ -841,7 +841,7 @@ free-form neighbour, and the engine's corner rewrite does not support a free-for
 so what is proven is the rest of the rule — equal distance, end-cap edges, bore excluded — with the
 exclusion tested by circumference, the same separation the spec makes by radius.
 
-**From:** `spec/spurgear/instructions.md` L58 L344-371 L604-619,
+**From:** `spec/spurgear/instructions.md` L58 L344-371 L633-648,
 `.claude/skills/generate-gear/PLAYBOOK.md` L569-575 L672-681
 
 ## 14 `[PROSE]` End-of-build cleanup
@@ -867,5 +867,5 @@ Hide construction geometry and sketches with the right property, never crossed
 Guard each entity individually and hide it only if it was actually created: the `Gear Center` axis
 and the Bore Profile sketch do not exist in sketch-only mode.
 
-**From:** `spec/spurgear/instructions.md` L313-315 L344-380 L560-562, `spec/spurgear/fusion.md` L221-231,
+**From:** `spec/spurgear/instructions.md` L313-315 L344-380 L572-574, `spec/spurgear/fusion.md` L223-233,
 `.claude/skills/generate-gear/PLAYBOOK.md` L659-671

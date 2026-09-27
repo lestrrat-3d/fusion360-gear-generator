@@ -9,8 +9,8 @@ and the generated registration file `proof/helicalgear/zz_registrations_test.go`
 |---|---|
 | `spec/helicalgear/instructions.md` | `71b7993007b17cc4948569313c23614b8fbd246c` |
 | `spec/helicalgear/fusion.md` | `f981173cb314094f2fd98cdd78d5bd8287cdc8ee` |
-| `spec/spurgear/fusion.md` | `5dccd871606c3709ecfa07c05f58c126369f2927` |
-| `spec/spurgear/instructions.md` | `2a98a801da25e77958488252bc87b499475ac95d` |
+| `spec/spurgear/fusion.md` | `5cd1f9f96e043efba42ae42a00ca6c13403e1339` |
+| `spec/spurgear/instructions.md` | `9276c6a0900981f657158bc1f2d764bd357e5224` |
 | `.claude/skills/generate-gear/PLAYBOOK.md` | `9ee2dcbaed7b5480aa69e9295e8b61acaea081f3` |
 
 ## H1 `[PROSE]` Module layout, imports and the two module constants
@@ -196,7 +196,7 @@ parameter afterwards does not move the plane; regenerate (`[PB-NUMERIC-SNAPSHOT]
 That the offset is the whole thickness is asserted on the built solid in H10, where the lofted tooth
 is measured from the target plane to the twisted profile's plane.
 
-**From:** `spec/helicalgear/instructions.md` L120-125; `spec/spurgear/fusion.md` L235-240; `.claude/skills/generate-gear/PLAYBOOK.md` L229-237.
+**From:** `spec/helicalgear/instructions.md` L120-125; `spec/spurgear/fusion.md` L237-242; `.claude/skills/generate-gear/PLAYBOOK.md` L229-237.
 
 ## H8 `[PROSE]` The helix construction plane — `buildSketches`, after `super()`
 
@@ -307,7 +307,7 @@ the sketch carries its own local endpoint of the chain; and the tooth loop's tri
 parameters, which the engine withdraws from every partial edge in a scene holding a free-form entity,
 so the loop is held to its curve counts rather than to its cuts.
 
-**From:** `spec/helicalgear/instructions.md` L10-15, L126-128, L165-174, L181-190, L192-208, L217-222; `spec/helicalgear/fusion.md` L9-27, L29-42; `spec/spurgear/instructions.md` L254-325, L411-452, L554-558; `spec/spurgear/fusion.md` L19-31, L47-60, L69-106, L108-133, L135-175, L177-217; `.claude/skills/generate-gear/PLAYBOOK.md` L359-431, L441-493, L517-532, L614-634, L659-671.
+**From:** `spec/helicalgear/instructions.md` L10-15, L126-128, L165-174, L181-190, L192-208, L217-222; `spec/helicalgear/fusion.md` L9-27, L29-42; `spec/spurgear/instructions.md` L254-325, L411-452, L559-570; `spec/spurgear/fusion.md` L19-33, L49-62, L71-108, L110-135, L137-177, L179-219; `.claude/skills/generate-gear/PLAYBOOK.md` L359-431, L441-493, L517-532, L614-634, L659-671.
 
 ## H10 `[GO]` Loft the tooth — `buildTooth` and `loftTooth`
 
@@ -399,7 +399,7 @@ degrees and is refused from +100, while a negative twist builds to -179 degrees,
 The table carries a case past the positive bound, which skips with the engine's own refusal, so
 every run says where that bound still is.
 
-**From:** `spec/helicalgear/instructions.md` L42-49, L104-109, L129-131, L176-179, L181-190, L217-219; `spec/helicalgear/fusion.md` L46-65; `spec/spurgear/instructions.md` L292-300, L387-390, L564-568; `.claude/skills/generate-gear/PLAYBOOK.md` L145-158, L672-681, L724-728.
+**From:** `spec/helicalgear/instructions.md` L42-49, L104-109, L129-131, L176-179, L181-190, L217-219; `spec/helicalgear/fusion.md` L46-65; `spec/spurgear/instructions.md` L292-300, L387-390, L576-580; `.claude/skills/generate-gear/PLAYBOOK.md` L145-158, L672-681, L724-728.
 
 ## H11 `[PROSE]` Everything else is spur's, unchanged
 
@@ -426,4 +426,4 @@ and adds every unique boundary edge once, root-radius arcs included, excluding a
 cap edges by the positive bore radius. That selection remains pending Fusion verification
 (`[HELI-F-CHAMFER-COUNT]`).
 
-**From:** `spec/helicalgear/instructions.md` L17-21, L23-25, L104-109, L132-134, L158-164, L186-190, L210-222; `spec/helicalgear/fusion.md` L67-80; `spec/spurgear/instructions.md` L373-381, L604-619; `spec/spurgear/fusion.md` L221-231; `.claude/skills/generate-gear/PLAYBOOK.md` L534-555.
+**From:** `spec/helicalgear/instructions.md` L17-21, L23-25, L104-109, L132-134, L158-164, L186-190, L210-222; `spec/helicalgear/fusion.md` L67-80; `spec/spurgear/instructions.md` L373-381, L633-648; `spec/spurgear/fusion.md` L223-233; `.claude/skills/generate-gear/PLAYBOOK.md` L534-555.

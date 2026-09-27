@@ -34,7 +34,14 @@ GEAR_RE = re.compile(r'^[a-z][a-z0-9_-]*$')
 
 FAILURE_FLAG = '--failure-file'
 
-USAGE = 'usage: render_prompt.py <skill> [<gear>] [--failure-file <path>]'
+USAGE = 'usage: render_prompt.py <skill> [<gear>] [--failure-file <path>] [--selected-proof]'
+
+SELECTED_PROOF_INPUT = (
+    '`.tmp/{{gear}}.proof-bundle.md`, the verified construction view of the checked\n'
+    'Go proof, which steps tagged `[GO]` tell you to transliterate literally rather than re-derive;')
+COMPLETE_PROOF_INPUT = (
+    '`proof/{{gear}}/`, the checked geometry, which steps tagged `[GO]` tell you to\n'
+    'transliterate literally rather than re-derive;')
 
 BEGIN_MARKER = '--- BEGIN GATE REPORT (verbatim tool output) ---'
 END_MARKER = '--- END GATE REPORT ---'
@@ -159,6 +166,8 @@ def main(argv, skills_root=None):
         sys.stderr.write('render_prompt: {}\n'.format(exc))
         return 2
 
+    selected_proof = '--selected-proof' in args
+    args = [arg for arg in args if arg != '--selected-proof']
     if not 1 <= len(args) <= 2:
         sys.stderr.write(USAGE + '\n')
         return 2
@@ -175,12 +184,18 @@ def main(argv, skills_root=None):
                 'loops append the previous round\'s gate report. Every other loop '
                 're-runs the identical prompt and fixes the spec instead.'.format(
                     FAILURE_FLAG, skill, ', '.join(FAILURE_FEEDBACK_SKILLS)))
+        if selected_proof and skill != 'emit-gear':
+            raise RenderError('--selected-proof is only valid for emit-gear')
         report_text = read_failure_report(failure_file) if failure_file else None
         path = template_path(skill, skills_root)
         try:
             template_text = path.read_text(encoding='utf-8')
         except OSError as exc:
             raise RenderError('cannot read template {}: {}'.format(path, exc))
+        if selected_proof:
+            if template_text.count(COMPLETE_PROOF_INPUT) != 1:
+                raise RenderError('emit-gear proof input text changed; selected mode needs an update')
+            template_text = template_text.replace(COMPLETE_PROOF_INPUT, SELECTED_PROOF_INPUT)
         output = render(template_text, {'gear': gear})
         if report_text is not None:
             output += failure_block(report_text)

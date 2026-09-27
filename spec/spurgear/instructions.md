@@ -497,7 +497,12 @@ If the user-selected plane is not already a `ConstructionPlane` (for example the
 
 ### 2: Tools Sketch
 
-Create a sketch named `Tools` on the target plane. Project the Anchor Point into it and keep the result as `ctx.anchorPoint` — this is the canonical handle every later sketch will re-project from (see Sketch Discipline). The sketch draws no geometry of its own; it exists to own this one reference. Leave it visible while the later sketches are still projecting from it; toggle `isVisible = False` once the gear is fully built.
+Create a sketch named `Tools` on the target plane. `sketch.project(anchorPoint)` returns an
+`ObjectCollection`, even for one point. Take `.item(0)` from that collection and keep the resulting
+`SketchPoint` as `ctx.anchorPoint` — this is the canonical handle every later sketch will re-project
+from (see Sketch Discipline). The sketch draws no geometry of its own; it exists to own this one
+reference. Leave it visible while the later sketches are still projecting from it; toggle
+`isVisible = False` once the gear is fully built.
 
 Create an offset construction plane `Extrusion End Plane` at distance `Thickness` from the target plane. Its only purpose is to serve as the `to-entity` target for the tooth and body extrudes, so both extrudes end on the same well-defined face. It must be left visible while those extrudes run, then hidden at the very end of the build with `isLightBulbOn = False` (see Sketch Discipline — `isVisible = False` does **not** hide a construction plane). Keep a handle to it (`ctx.extrusionEndPlane`) so the final cleanup can switch its light bulb off.
 
@@ -553,7 +558,14 @@ Still inside the Gear Profile sketch, draw a single involute tooth centered on t
 
 ### 5: Anchor the Sketch
 
-This is the step that slides the whole drawing onto the user's anchor. Project the Tools-sketch anchor into the Gear Profile sketch (this re-projection is what chains the two sketches together), then add a coincidence constraint between that freshly-projected point and the Gear Profile's local origin — the sketch point the tooth generator added at (0, 0, 0) in step 4 (the field `self.anchorPoint`), *not* `sketch.originPoint`. Because every piece of geometry above is constrained relative to the local origin, constraining it here drags the entire tooth profile onto the anchor as a unit.
+This is the step that slides the whole drawing onto the user's anchor. Project the Tools-sketch
+anchor into the Gear Profile sketch (this re-projection is what chains the two sketches together),
+then take `.item(0)` from the returned `ObjectCollection`. Pass that `SketchPoint`, not the
+collection, to `addCoincident(self.anchorPoint, projectedAnchor)` with the Gear Profile's local
+origin — the sketch point the tooth generator added at (0, 0, 0) in step 4 (the field
+`self.anchorPoint`), *not* `sketch.originPoint`. Because every piece of geometry above is constrained
+relative to the local origin, constraining it here drags the entire tooth profile onto the anchor
+as a unit.
 
 **This anchoring happens inside the tooth generator's `draw()` method itself** — `draw()` does `drawCircles()`, then `drawTooth()`, then this projection-and-coincidence, then (for `angle != 0` only) sets the confirming angular dimension's value as its very last action, after the anchoring (`[SPUR-F-ROTATE-CONFIRM]`) — *not* a separate step the generator performs after `draw()` returns. This matters because helical/herringbone build their twisted loft profile by calling `SpurGearInvoluteToothDesignGenerator(loftSketch, self).draw(ctx.anchorPoint, angle=…)` directly and rely on that single call to anchor the sketch. If the anchoring were moved up into `buildSketches`, the twisted sketch would be left unconstrained and the loft would float off the anchor.
 
@@ -599,7 +611,24 @@ If the edge collection ends up **empty** (no axial root edge matched), silently 
 
 `buildBore` runs unconditionally from `generate()` (after `buildMainGearBody`), so it MUST itself early-return in two cases: when **SketchOnly** is set, and when **Bore Diameter ≤ 0**. The SketchOnly guard is essential — in sketch-only mode `buildMainGearBody` short-circuits before `buildBody`, so `ctx.gearBody` and `ctx.extrusionExtent` are never set; proceeding into the cut would dereference `None`. (Do not rely on the bore diameter being 0 in sketch-only mode — the user may have set both.)
 
-Otherwise (full build, Bore Diameter > 0), create a separate `Bore Profile` sketch on the target plane and draw the bore circle **by instantiating the tooth generator on that sketch** — `SpurGearInvoluteToothDesignGenerator(boreSketch, self)` — and calling its `drawBore(ctx.anchorPoint, boreDiameter)`, which projects the anchor in and draws the construction-less circle of that diameter with a driving diameter dimension. Note the accepted side effect: the tooth generator's **constructor** always adds its local-origin `(0, 0, 0)` `SketchPoint` (see `[SPUR-F-LOCAL-ORIGIN]`), so the Bore Profile sketch carries one stray unused sketch point at (0,0,0) — faithful behavior, don't suppress it. **Ground that point on the projected anchor**, exactly as step 5 does for the Gear Profile sketch: `drawBore` already projects `ctx.anchorPoint` into this sketch to place the circle's centre, so add `addCoincident(toothGen.anchorPoint, projectedAnchor)` using that same projection. The local origin then rides on the anchor like every other sketch's does, the Bore Profile sketch is fully constrained, and the bore follows the anchor if the user moves it. Do **not** ground it on `boreSketch.originPoint` instead — that pins the point to the plane rather than the gear, and `[PB-CIRCLE-CENTER]` records a solver failure from constraining to `originPoint`. Without any grounding the point is free in two directions and the sketch never reaches `isFullyConstrained`. Then extrude-cut the bore profile from the target plane to `ctx.extrusionExtent` (the far end-cap face), affecting only `ctx.gearBody`. The `ToEntityExtentDefinition` to the far face guarantees the bore goes all the way through regardless of Thickness.
+Otherwise (full build, Bore Diameter > 0), create a separate `Bore Profile` sketch on the target plane and
+draw the bore circle **by instantiating the tooth generator on that sketch** —
+`SpurGearInvoluteToothDesignGenerator(boreSketch, self)` — and calling its `drawBore(ctx.anchorPoint,
+boreDiameter)`, which projects the anchor in and draws the construction-less circle of that diameter with a
+driving diameter dimension. `drawBore` takes `.item(0)` from the projection's `ObjectCollection` before using
+the point as the circle centre. Note the accepted side effect: the tooth generator's **constructor** always
+adds its local-origin `(0, 0, 0)` `SketchPoint` (see `[SPUR-F-LOCAL-ORIGIN]`), so the Bore Profile sketch
+carries one stray unused sketch point at (0,0,0) — faithful behavior, don't suppress it. **Ground that point
+on the projected anchor**, exactly as step 5 does for the Gear Profile sketch: `drawBore` already projects
+`ctx.anchorPoint` into this sketch to place the circle's centre, so add `addCoincident(toothGen.anchorPoint,
+projectedAnchor)` using that same projection. The local origin then rides on the anchor like every other
+sketch's does, the Bore Profile sketch is fully constrained, and the bore follows the anchor if the user moves
+it. Do **not** ground it on `boreSketch.originPoint` instead — that pins the point to the plane rather than
+the gear, and `[PB-CIRCLE-CENTER]` records a solver failure from constraining to `originPoint`. Without any
+grounding the point is free in two directions and the sketch never reaches `isFullyConstrained`. Then
+extrude-cut the bore profile from the target plane to `ctx.extrusionExtent` (the far end-cap face), affecting
+only `ctx.gearBody`. The `ToEntityExtentDefinition` to the far face guarantees the bore goes all the way
+through regardless of Thickness.
 
 ### 13: Chamfer Completed Gear (optional)
 

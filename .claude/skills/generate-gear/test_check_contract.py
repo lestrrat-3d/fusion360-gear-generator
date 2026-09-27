@@ -188,6 +188,19 @@ class ShippedManifestTests(unittest.TestCase):
         self.assertTrue(any('rejected pattern' in p for p in problems), problems)
         self.assertTrue(any('SPUR-F-FLANK-ROOT' in p for p in problems), problems)
 
+    def test_projection_collection_fails_anchor_guards(self):
+        source = self.generated.read_text()
+        mutated, count = re.subn(r'(\.project\([^)]*\))\.item\(0\)', r'\1', source)
+        self.assertEqual(count, 3)
+        with tempfile.TemporaryDirectory() as directory:
+            candidate = Path(directory) / 'spurgear.generated.py'
+            candidate.write_text(mutated)
+            problems = MODULE.guard_problems(
+                self.guards, str(candidate), 'lib/geargen/spurgear.py', str(REPO))
+
+        anchor_problems = [problem for problem in problems if 'SPUR-F-ANCHOR-CHAIN' in problem]
+        self.assertEqual(len(anchor_problems), 3, problems)
+
     def test_bore_anchor_grounded_on_sketch_origin_fails_the_shipped_guard(self):
         # Located by the guard's own required patterns, for the reason above: the
         # grounding coincident is what matters, not what the emit called its second
