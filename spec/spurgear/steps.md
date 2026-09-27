@@ -7,8 +7,8 @@ The proof for these steps is `proof/spurgear/geometry_test.go`, `proof/spurgear/
 
 | file | `git hash-object` |
 |---|---|
-| `spec/spurgear/instructions.md` | `2a98a801da25e77958488252bc87b499475ac95d` |
-| `spec/spurgear/fusion.md` | `5dccd871606c3709ecfa07c05f58c126369f2927` |
+| `spec/spurgear/instructions.md` | `9276c6a0900981f657158bc1f2d764bd357e5224` |
+| `spec/spurgear/fusion.md` | `5cd1f9f96e043efba42ae42a00ca6c13403e1339` |
 | `spec/helicalgear/fusion.md` | `f981173cb314094f2fd98cdd78d5bd8287cdc8ee` |
 | `.claude/skills/generate-gear/PLAYBOOK.md` | `9ee2dcbaed7b5480aa69e9295e8b61acaea081f3` |
 
@@ -254,8 +254,8 @@ exists.
 
 `prepareTools(ctx)` creates a sketch named `Tools` on the target plane with
 `self.createSketchObject('Tools', self.plane)`, makes it visible, and projects the user's anchor
-point into it: `toolsSketch.project(self.anchorPoint)`, keeping the resulting `SketchPoint` as
-`ctx.anchorPoint`. That projection is the canonical handle — every later sketch projects *this* in
+point into it: `toolsSketch.project(self.anchorPoint).item(0)`, keeping the resulting `SketchPoint`
+as `ctx.anchorPoint`. That projection is the canonical handle — every later sketch projects *this* in
 again ([SPUR-F-ANCHOR-CHAIN]), so the whole gear follows the user's original anchor entity if it
 moves. The sketch draws no
 geometry of its own. Keep it on `self.toolsSketch` and leave it visible: step 12 re-projects from
@@ -475,7 +475,7 @@ flag across. The bevel gear reads the same slot off its proxy after `draw` retur
 has to stay.
 
 **The anchoring, inside `draw`.** After `drawTooth` returns, project the Tools-sketch anchor into
-this sketch — `sketch.project(anchorPoint)` — and add
+this sketch — `sketch.project(anchorPoint).item(0)` — and add
 `sketch.geometricConstraints.addCoincident(self.anchorPoint, projectedAnchor)` between the freshly
 projected point and the generator's local origin, not `sketch.originPoint` — a projection is
 brought in associatively and still carries free degrees of freedom, so coincidenting it to the one
@@ -744,8 +744,8 @@ bore circle by instantiating the tooth generator on that sketch —
 `toothGen.drawBore(ctx.anchorPoint, boreDiameter)` with the diameter in internal centimetres.
 
 `drawBore(anchorPoint, diameter)` projects the anchor into this sketch with
-`sketch.project(anchorPoint)`, draws a construction-less circle of that diameter centred on the
-projection with `sketch.sketchCurves.sketchCircles.addByCenterRadius(projectedAnchor, diameter / 2)`
+`sketch.project(anchorPoint).item(0)`, draws a construction-less circle of that diameter centred on
+the projection with `sketch.sketchCurves.sketchCircles.addByCenterRadius(projectedAnchor, diameter / 2)`
 and a driving `sketch.sketchDimensions.addDiameterDimension(circle, textPoint)`, and returns the
 circle.
 

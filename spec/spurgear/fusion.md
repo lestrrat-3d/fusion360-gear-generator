@@ -19,8 +19,10 @@ mode. The whole construction falls apart without them, and they're not obvious f
 - **[SPUR-F-ANCHOR-CHAIN] The gear tracks the user's anchor through a chain of sketch
   projections.** A sketch can't reference a `SketchPoint` or curve owned by another sketch, so when
   the Gear Profile or Bore Profile sketches need the user's anchor they call `sketch.project(...)`
-  to pull it in locally. The **Tools-sketch projection is the canonical handle**; every later
-  sketch projects *that* in again, forming a chain of projections all tied back to the user's
+  to pull it in locally. That call returns an `ObjectCollection`; take `.item(0)` to get the
+  projected `SketchPoint` before passing it to a sketch constraint or storing it as an anchor.
+  The **Tools-sketch projection is the canonical handle**; every later sketch projects *that* in
+  again, forming a chain of projections all tied back to the user's
   original anchor entity — so the whole gear moves if the anchor moves later.
 
 - **[SPUR-F-LOCAL-ORIGIN] Each sketch that must follow the anchor keeps its own movable local

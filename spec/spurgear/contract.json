@@ -94,6 +94,24 @@
   "source_guards": [
     {
       "file": "lib/geargen/spurgear.py",
+      "in_function": "prepareTools",
+      "why": "[SPUR-F-ANCHOR-CHAIN]: Sketch.project returns an ObjectCollection; ctx.anchorPoint must hold its SketchPoint item.",
+      "required": ["\\.project\\([^)]*\\)\\.item\\(0\\)"]
+    },
+    {
+      "file": "lib/geargen/spurgear.py",
+      "in_function": "draw",
+      "why": "[SPUR-F-ANCHOR-CHAIN]: addCoincident requires a SketchEntity, not the ObjectCollection from Sketch.project.",
+      "required": ["\\.project\\([^)]*\\)\\.item\\(0\\)"]
+    },
+    {
+      "file": "lib/geargen/spurgear.py",
+      "in_function": "drawBore",
+      "why": "[SPUR-F-ANCHOR-CHAIN]: the bore centre must use the SketchPoint item from Sketch.project's ObjectCollection.",
+      "required": ["\\.project\\([^)]*\\)\\.item\\(0\\)"]
+    },
+    {
+      "file": "lib/geargen/spurgear.py",
       "in_function": "_drawFlankToRoot",
       "why": "[SPUR-F-FLANK-ROOT]: the root endpoint is pinned by exactly two signed dimensions from the local origin. Constraining it onto the root circle, or the local origin onto the stub line, also reaches DOF 0 but leaves the far root-circle intersection equally valid, and the stub runs across the gear.",
       "required": [
