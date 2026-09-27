@@ -40,8 +40,9 @@ as drift. Put the heading below the sentence naming the proof files and above th
 heading, since a gate reads the text above it for those paths and the generator writes below it.
 
 **Each step carries** a heading of the form `## <id> `[GO]` <title>` or with `[PROSE]`, the
-instructions themselves, one version-2 `step-meta` JSON comment containing citations and calls,
-and every required Fusion API call written inside a code span. Follow the format document exactly.
+instructions themselves, one version-2 `step-meta` JSON comment containing citations and
+`call_intents`, and every required Fusion API call written inside a code span. Follow the format
+document exactly.
 Write the JSON comment before the citation line and omit `**From:**`; the orchestrator renders it.
 A `[GO]` step also names
 the proof function that realises it and carries the `proof-run` annotation described below.
@@ -74,8 +75,10 @@ geometry are not interchangeable as constraint arguments — measured, a step th
 again" was transcribed against the shaft axis rather than the line the spec named, and Fusion
 refused the sketch with `VCS_SKETCH_OVER_CONSTRAINTS`.
 
-**Declare every call-shaped inline span in `step-meta`.** Use `required` for a call the
-module must make; use `inherited`, `example`, `forbidden`, or `prose` only as the format allows.
+**Declare every call-shaped inline span in `step-meta` as `call_intents`.** Follow the compact
+compiler draft format in `06-step-metadata-format.md`; the renderer derives span, name, and
+receiver. Use `required` for a call the module must make; use `inherited`, `example`, `forbidden`,
+or `prose` only as the format allows.
 Give each non-required call a reason. Give required Fusion API calls a qualified owner.
 Keep an existing required call required even when the current module omits it; report any
 proposed role change for source review. Do not write global ignore directives.

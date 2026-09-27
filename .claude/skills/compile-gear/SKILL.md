@@ -73,7 +73,8 @@ proof is where the next reader is looking for the missing check.
 
 2. **Render metadata, then stamp provenance.** After each drafting round, run
    `python3 .claude/skills/generate-gear/render_step_metadata.py <gear> --write
-   .tmp/<gear>.steps.md`. It validates version-2 call declarations and renders citations.
+   .tmp/<gear>.steps.md`. It expands draft call intents into checked version-2 declarations and
+   renders citations.
    Then run `python3 .claude/skills/generate-gear/gen_provenance.py <gear> --write
    .tmp/<gear>.steps.md` from the repo root. It computes the input set owned by
    `.claude/skills/generate-gear/check_compile.py` — existing `spec/<gear>/instructions.md`, optional

@@ -47,6 +47,78 @@ def document(steps, marker='<!-- step-metadata: 1 -->'):
 
 
 class RenderStepMetadataTest(unittest.TestCase):
+    def test_call_intents_render_to_checked_version_two(self):
+        value = {
+            'schema': 2,
+            'citations': [{'path': 'spec/fixturegear/instructions.md', 'first': 2, 'last': 2}],
+            'call_intents': [
+                {'owner': 'adsk.fusion.WidgetTools', 'role': 'required',
+                 'condition': 'When enabled.'},
+                {'owner': None, 'role': 'example', 'reason': 'Illustrates copying.'},
+            ],
+        }
+        original = ('<!-- step-metadata: 2 -->\n'
+                    '## S1 `[PROSE]` Fixture step\n\n'
+                    '%s\n\nCall `tools.addWidget(items.copy())` twice.\n'
+                    % metadata(raw=json.dumps(value)))
+        target = self.repo(original)
+        code, _, err = self.run_renderer(target)
+        self.assertEqual(code, 0, err)
+        rendered = target.read_text()
+        self.assertNotIn('call_intents', rendered)
+        self.assertEqual(RENDERER.step_metadata.file_calls(rendered), [
+            call_declaration(span='tools.addWidget(items.copy())', condition='When enabled.'),
+            call_declaration(span='tools.addWidget(items.copy())', name='copy', receiver='items',
+                             owner=None, role='example', reason='Illustrates copying.'),
+        ])
+        code, _, err = self.run_renderer(target)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(target.read_text(), rendered)
+
+    def test_call_intents_mismatch_is_atomic(self):
+        value = {'schema': 2, 'citations': [
+            {'path': 'spec/fixturegear/instructions.md', 'first': 2, 'last': 2}],
+            'call_intents': [{'owner': None, 'role': 'required'}]}
+        source = ('<!-- step-metadata: 2 -->\n'
+                  '## S1 `[PROSE]` Fixture step\n\n'
+                  '%s\n\nCall `tools.addWidget(items.copy())`.\n'
+                  % metadata(raw=json.dumps(value)))
+        self.assert_content_failure_unchanged(source, 'call_intents count 1 does not match 2')
+
+    def test_call_intents_invalid_owner_is_atomic(self):
+        value = {'schema': 2, 'citations': [
+            {'path': 'spec/fixturegear/instructions.md', 'first': 2, 'last': 2}],
+            'call_intents': [{'owner': 'WidgetTools', 'role': 'required'}]}
+        source = ('<!-- step-metadata: 2 -->\n'
+                  '## S1 `[PROSE]` Fixture step\n\n'
+                  '%s\n\nCall `tools.addWidget(item)`.\n'
+                  % metadata(raw=json.dumps(value)))
+        self.assert_content_failure_unchanged(source, 'owner must be a qualified adsk')
+
+    def test_checker_rejects_unrendered_call_intents(self):
+        value = {'schema': 2, 'citations': [
+            {'path': 'spec/fixturegear/instructions.md', 'first': 2, 'last': 2}],
+            'call_intents': [{'owner': 'adsk.fusion.WidgetTools', 'role': 'required'}]}
+        source = ('<!-- step-metadata: 2 -->\n'
+                  '## S1 `[PROSE]` Fixture step\n\n'
+                  '%s\n\nCall `tools.addWidget(item)`.\n'
+                  % metadata(raw=json.dumps(value)))
+        with self.assertRaisesRegex(RENDERER.step_metadata.MetadataError, 'calls'):
+            RENDERER.step_metadata.file_calls(source)
+
+    def test_empty_call_intents_render_to_empty_calls(self):
+        value = {'schema': 2, 'citations': [
+            {'path': 'spec/fixturegear/instructions.md', 'first': 2, 'last': 2}],
+            'call_intents': []}
+        source = ('<!-- step-metadata: 2 -->\n'
+                  '## S1 `[PROSE]` Fixture step\n\n'
+                  '%s\n\nNo calls here.\n'
+                  % metadata(raw=json.dumps(value)))
+        target = self.repo(source)
+        code, _, err = self.run_renderer(target)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(RENDERER.step_metadata.file_calls(target.read_text()), [])
+
     def test_version_two_preserves_calls_and_is_idempotent(self):
         call = call_declaration(condition='When enabled.')
         original = version_two([call]).replace('**From:** `spec/fixturegear/instructions.md` L2.', '')
