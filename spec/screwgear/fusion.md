@@ -16,11 +16,20 @@ Build it from two matrices rather than by setting a rotation matrix's translatio
 ```python
 rot = adsk.core.Matrix3D.create()
 rot.setToRotation(k * pitch / lam, axisVector, axisPoint)   # axisVector unit, axisPoint on the axis
+shift = axisVector.copy()
+shift.scaleBy(k * pitch)
 mov = adsk.core.Matrix3D.create()
-mov.translation = axisVector.copy()
-mov.translation.scaleBy(k * pitch)
+mov.translation = shift
 rot.transformBy(mov)
 ```
+
+Build the translation vector first and assign it whole. `Matrix3D.translation` is a read/write
+`Vector3D` property, and the API reference does not say whether its getter hands back the
+matrix's own vector or a copy; `mov.translation.scaleBy(...)` scales whatever the getter returned
+and, if that is a copy, leaves the matrix at zero translation with nothing raised. Scaling a
+vector of the build's own and then assigning it is correct either way, and it is how every
+vector in this repository's shipped modules is scaled (`alongVec.scaleBy(along)` in
+`bevelgear.py`).
 
 ⚠️ **Do NOT build the rotation and then assign `matrix.translation`.** `setToRotation(angle, axis,
 origin)` already writes a translation component — the part that carries the rotation off the world
@@ -62,6 +71,17 @@ sections' vertices by proximity, and that pairing is what stays correct as long 
 well under a quarter turn. A spec change that cuts the section count to three would put 9.5° between
 neighbours, which still pairs, but the failure when it does not is a lofted body with a twisted
 crease rather than an error, so the count stays where the spec pins it.
+
+**The loft is smooth between its sections, not ruled.** `LoftFeatureInput` has no ruled option:
+its properties are the operation, the sections, `isSolid`, `isClosed`, `isTangentEdgesMerged`,
+the two end-edge alignments and the centre line or rails, and a `LoftSection` carries only an
+end condition (free, tangent, smooth, direction, point-sharp, point-tangent), which applies at
+the loft's two ends. A loft through more than two sections passes through every section and is
+fitted smoothly between them. Only a loft through exactly two sections is ruled, which is the
+case the helical and bevel gears build and have loaded (`spec/helicalgear/contract.json`
+records their ruled walls). The spec's chord arithmetic (§2, "What the loft is") is about the
+ruled loft; the cell and the bores are single lofts through all their sections, so it bounds a
+body other than the one built, and the spec says so.
 
 ## `[SCREW-F-TWISTED-SLOT]` — a collar and its bore
 
@@ -112,29 +132,49 @@ is made anywhere in this build, since one needs an active component
 - The ring is a `revolveFeatures` full revolution (`[PB-REVOLVE]`: `createInput(profile, axis,
   NewBodyFeatureOperation)` → `setAngleExtent(False, ValueInput.createByString('360 deg'))` →
   `add`) of a circle sketched on the **Ring Plane**, the plane through the Anchor Line square to the
-  selected plane (`setByAngle(anchorLine, '90 deg', targetPlane)`). In that sketch a construction
-  line from the projected centre point along `n̂`, perpendicular to the projected Anchor Line with a
-  length dimension of `cageRise`, is the revolve axis; a construction spoke from its end,
-  perpendicular to it with a length dimension of `ringRadius`, carries the circle at its end, with
-  a diameter dimension of `ringWire`. The circle never reaches the axis, since `ringRadius >
-  ringWire/2` follows from the rod checks.
+  selected plane (`setByAngle(anchorLine, '90 deg', targetPlane)`), in a sketch named **Ring**.
+  The sketch projects the anchor sketch's centre point `Cp` and its Anchor Line (construction).
+  The revolve axis `An` is a construction line from `Cp`, seeded `cageRise` along `n̂`, held by an
+  aligned distance dimension of `cageRise` from `Cp` to its end and an angular dimension of 90°
+  from the projected Anchor Line's start-to-end ray to `An`'s ray from `Cp`. The spoke `Sp` is a
+  construction line from `An`'s end, seeded `ringRadius` along `ê`, held by an aligned distance
+  dimension of `ringRadius` between its ends and an angular dimension of 90° between the two rays
+  from `An`'s end: `An`'s own direction carried on past its end, and `Sp` toward its end. Neither
+  line is `addPerpendicular` (Sketch Discipline: a line held at one end by a perpendicular can
+  point either way). The wire is a circle seeded at `Sp`'s end, its centre `addCoincident` on
+  `Sp`'s end point (`[PB-CIRCLE-CENTER]`: the centre is created free) and a diameter dimension of
+  `ringWire`. The circle never reaches the axis, since `ringRadius > ringWire/2` follows from the
+  rod checks.
 - A rod is an `extrudeFeatures` extrusion of a circle sketched on the selected plane itself,
   `setSymmetricExtent(ValueInput.createByReal(cageRise), False)` — `False` makes the value each
   side's length (`[PB-THROUGH-CUT]` for the argument's meaning), so the rod runs from `-cageRise` to
-  `+cageRise`. Sketch all four on one sketch; each circle is its own profile, and the four are
-  extruded in one feature as new bodies, whose count the build checks.
+  `+cageRise`. Sketch all four on one sketch named **Rods**, which projects `Cp` and the Anchor
+  Line and draws the perpendicular reference `Rp` of Sketch Discipline; each rod's spoke is a
+  construction line from `Cp` to its foot, held by an aligned distance dimension of `ringRadius`
+  and an angular dimension against the projected Anchor Line or against `Rp` by the 45°–135°
+  rule, and its circle's centre is `addCoincident` on the spoke's end with a diameter dimension
+  of `rodDiameter`. Each circle is its own profile, and the four are extruded in one feature as
+  new bodies, whose count the build checks.
 - A bar of the loop is the same extrusion between two rod feet: a line from foot to foot on a
-  **Loop** sketch on the plane offset `-cageRise` from the selected plane, each foot the projected
-  centre of a rod's circle; a plane square to that line at its middle (`setByDistanceOnPath(bar,
-  0.5)`); a circle of `ringWire` on that plane centred on the line's intersection with it
-  (`intersectWithSketchPlane`), extruded `setSymmetricExtent` by half the line's `length`. It is not
-  a sweep: a sweep needs a `Path`, and `Path.create` on a sketch curve raises in this
-  multi-component build (`[SCREW-F-TWISTED-SLOT]`). A ball at each foot is a half-disc revolved
-  about a line through the foot along `n̂`: on a plane through the bar and `n̂`
-  (`setByAngle(bar, '90 deg', loopPlane)`), a line of `ringWire` through the foot at its midpoint,
-  perpendicular to the projected bar, and a three-point arc from its one end to the other on the
-  side away from the bar, its centre coincident on the line; the profile is the half-disc, and the
-  line is the revolve axis, which a profile may lie against.
+  **Loop** sketch on the **Loop Plane**, offset `-cageRise` from the selected plane, each foot the
+  projected centre of a rod's circle, so the sketch holds nothing free; the feet are taken in
+  azimuth order counter-clockwise about `+n̂`, and bar `i` runs from foot `i` to foot `i + 1`.
+  Then a plane square to that line at its middle (`setByDistanceOnPath(bar, 0.5)`), named
+  **Loop Bar `i` Plane**; on it a sketch **Loop Bar `i`** with a circle of `ringWire` centred on
+  the line's intersection with it (`intersectWithSketchPlane`, its centre `addCoincident` on that
+  point), extruded `setSymmetricExtent` by half the line's `length`. It is not a sweep: a sweep
+  needs a `Path`, and `Path.create` on a sketch curve raises in this multi-component build
+  (`[SCREW-F-TWISTED-SLOT]`). The ball at foot `i` is a half-disc revolved about a line through
+  the foot along `n̂`, on the plane through bar `i` — the bar that starts at that foot — and `n̂`
+  (`setByAngle(bar_i, '90 deg', loopPlane)`), named **Loop Ball `i` Plane**, in a sketch **Loop
+  Ball `i`**: the sketch projects bar `i` (construction); the line `Bl`, seeded `ringWire` long
+  through the foot along `n̂`, is held by `addMidPoint(foot, Bl)`, an aligned distance dimension
+  of `ringWire` between its ends and an angular dimension of 90° from the projected bar's ray
+  from the foot toward foot `i + 1` to `Bl`'s ray from the foot toward its `+n̂` end — not
+  `addPerpendicular`, which would let the line flip end for end and carry the arc to the other
+  side; then a three-point arc from `Bl`'s start to its end through the point `ringWire/2` from
+  the foot on the side away from the bar, its centre `addCoincident` on `Bl`. The profile is the
+  half-disc, one line and one arc, and `Bl` is the revolve axis, which a profile may lie against.
 
 Join every piece into one body with a `combineFeatures` join as it is made, collars included, and
 cut the bores last: the bore's loft then passes through the collar and through the part of its rod

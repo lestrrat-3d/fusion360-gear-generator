@@ -19,22 +19,26 @@ No image here comes from Fusion, and nothing in this directory builds a Fusion b
 gear into Fusion is still the only check that sees the real thing.
 
 The pictures draw the **ideal** ribbon: an exact cosine edge on an exact helicoid, which is what
-the proof reasons about. The part Fusion builds lofts eleven rectangles per tooth, and
-`TestLoftSectionCountHoldsTheHelicoid` bounds the difference between the two: 0.7 µm at the
-crest, where the loft cuts the corner of the helicoid, and 0.029 mm on the toothed edge, which
-the loft draws as a chord of the cosine between sections, against a 0.50 mm backlash. Both
-bounds are arithmetic about the loft rather than a measurement of one.
+the proof reasons about. The part Fusion builds is one loft through eleven rectangles per tooth,
+and `TestLoftSectionCountHoldsTheHelicoid` bounds how far a *ruled* loft through those sections
+would fall from the ideal: 0.7 µm at the crest, where a ruled surface cuts the corner of the
+helicoid, and 0.029 mm on the toothed edge, which it draws as a chord of the cosine between
+sections, against a 0.50 mm backlash. Fusion's loft through more than two sections is smooth
+between them rather than ruled, so those bounds are arithmetic about a body other than the one
+built; the built surface passes through the same sections, and nothing here measures how far it
+departs between them.
 
 The frame's parts are drawn one by one and laid over each other rather than joined: the ring as a
 torus, the rods and the loop's bars as plain cylinders with a ball at each corner, and each collar
 as the bore's outline grown by the wall and swept through thirty-two stations along its ribbon.
 Where a rod runs into a collar's wall the picture shows both surfaces, and the part has one.
 
-The channel's own wall is smooth here and faceted in the part. Fusion cuts it with a loft through
-fifteen rotated rectangles, so the wall is flat between them and every facet stands a little
-inside the true channel. `TestBoreLoftKeepsItsClearance` measures what that costs the gear:
-0.004 mm of the 0.30 mm clearance. It is the one case in this package that looks at what the build
-will really cut rather than at the ideal shape.
+The channel's own wall is the ideal here. Fusion cuts it with one loft through fifteen rotated
+rectangles; `TestBoreLoftKeepsItsClearance` measures what a ruled loft through them would cost the
+gear, with the wall flat between sections and every facet a little inside the true channel:
+0.004 mm of the 0.30 mm clearance. It is the one case in the hand-written proof that reasons
+about the sections the build lofts rather than about the ideal shape, and it still does not see
+the smooth wall Fusion fits between them.
 
 ## The part
 
@@ -94,9 +98,11 @@ the ring counter-clockwise, seen from the ring's end, by the least angle at whic
 ribbons at every phase of the travel — 34.6° for a gear's collar at `-CageRadius` and 34.4° for
 the one at `+CageRadius` — and runs through its collar's 2 mm wall, which is what joins the two.
 All four are turned the same way round, so they
-land in the gaps between the ribbons, and the loop that joins their feet is a rectangle with a
-corner at each rod: 17.3 by 14.5 mm inside a 22.5 mm circle, which is why the loop reads smaller
-than the ring.
+land in the gaps between the ribbons, and the loop that joins their feet has a corner at each
+rod: 17.26 and 17.21 mm by 14.46 mm inside a 22.5 mm circle, which is why the loop reads smaller
+than the ring. It is an isosceles trapezoid rather than a rectangle, because the rods for the
+collars at −CageRadius and at +CageRadius turn by angles 0.19° apart, and the two long sides
+share that difference.
 `TestRodsStandBesideTheirCollars` derives the angles and `TestFrameIsOnePiece` walks ring to rods
 to loop and rod to collar.
 
@@ -146,22 +152,24 @@ four tooth pairs land in the engaged zone at once and cannot all interdigitate, 
 | Ratio | 1:1, the free window advancing exactly one pitch per pitch |
 | Backlash | 0.438–0.569 mm |
 | Departure from the 1:1 line | 0.067 mm, 3.8% of the pitch |
-| Clearance away from the teeth | 0.254 mm at the closest approach |
+| Slack between the ribbons at the assembly phases | 0.254 mm at the closest approach, in the mesh: half the free window |
 | Bore | 10.6 by 3.1 mm, the crest rectangle plus 0.3 mm all round; the ribbon at 0.300 mm on every side over the travel |
 | Play in the frame | a collar jams a gear 3.55° out of step |
 | Travel | 115.1 mm, 65.8 teeth, 82% of the ribbon: 57.1 mm back and 58.0 mm forward of the assembly position |
 | Ring | 25 mm across, 2.5 ribbon widths and 0.76 leads; the frame 1.18 ring widths tall |
-| Rods | 34.6° (at −CageRadius) and 34.4° (at +CageRadius) round the ring from their collars, 6.7 mm from the crossings |
-| Loop | 17.3 by 14.5 mm between the rods' feet |
+| Rods | 34.61° (at −CageRadius) and 34.42° (at +CageRadius) round the ring from their collars, 6.7 mm from the crossings, crossing the ribbon at stations 9.26 and 9.28 mm |
+| Loop | 17.26 and 17.21 mm by 14.46 mm between the rods' feet, an isosceles trapezoid |
 | Frame to ribbon | 2.66 mm at the ring, 3.73 mm at the loop, 0.30 mm at the rods, over the travel |
-| Ribbon to ribbon outside the engaged zone | 1.04 mm at every phase of the travel, at station −4.40 mm |
-| Bore wall in the part | faceted by its loft, leaving 0.296 mm of the 0.30 mm clearance |
+| Ribbon to ribbon outside the engaged zone | 1.04 mm at every phase of the travel, at station −4.40 mm, crest rectangle against crest rectangle |
+| Bore wall | a ruled loft through the build's sections would leave 0.296 mm of the 0.30 mm clearance; the smooth wall Fusion fits is not measured |
 
-`TestPairDrivesOneToOne` is where the first four come from. It tracks the interval of gear B's
-tooth phase that clears gear A through a full pitch of A, and requires three things of it: that
-it is never empty, that it is narrower than a pitch, and that its centre advances by exactly one
-pitch. The third is what separates a gear from two parts that merely touch, and an arrangement
-tried earlier passed the first two and failed it.
+`TestPairDrivesOneToOne` in [pair_test.go](pair_test.go) is where the first three come from, and
+`TestFullRibbonsClearOutsideTheEngagement` beside it gives the fourth. It tracks the interval of
+gear B's tooth phase that clears gear A through a full pitch of A, and requires three things of
+it: that it is never empty, that it is narrower than a pitch, and that its centre advances by
+exactly one pitch. The third is what separates a gear from two parts that merely touch, and an
+arrangement tried earlier passed the first two and failed it. The sampling every number in the
+table was taken with is fixed at the top of that file and quoted in the spec's "Defaults".
 
 ## What has no picture
 
@@ -172,7 +180,10 @@ The pictures draw the whole ribbon from its sections and never form a cell.
 
 **Anything a generator does.** There is no `lib/geargen/screwgear.py` yet, and no compiled step
 list, so there is no build sequence to show step by step the way
-[`proof/bevelgear/README.md`](../bevelgear/README.md) does.
+[`proof/bevelgear/README.md`](../bevelgear/README.md) does. The four files named here —
+[geometry_test.go](geometry_test.go), [pair_test.go](pair_test.go), [cage_test.go](cage_test.go)
+and [render_test.go](render_test.go) — are the hand-written mechanism proof; `/compile-gear`
+writes the step proof beside them and leaves them alone.
 
 ## Regenerating
 

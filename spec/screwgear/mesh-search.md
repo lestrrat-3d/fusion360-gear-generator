@@ -83,16 +83,20 @@ shows" records how that was measured. The 33 mm lead sits inside that range at a
 The 80° crossing angle sits below it, and stays: with `CrossAngle` at 90° `TestPairDrivesOneToOne`
 reports a 0.187 mm departure from the 1:1 line against its 0.10 mm bound.
 
-**`proof/screwgear` re-derives all of this** and is the authority. At the defaults it reports the
-same winding, a 0.438–0.569 mm window, a 0.067 mm departure from the 1:1 line, and 0.254 mm of
-clearance between the two ribbons away from the teeth. This file records only how the arrangement was found.
+**`proof/screwgear/pair_test.go` re-derives all of this** and is the authority. At the defaults,
+and at the sampling `instructions.md` "Defaults" states beside the numbers, it reports the same
+winding, a 0.438–0.569 mm window, a 0.067 mm departure from the 1:1 line, and 0.254 mm of slack
+between the two ribbons at the assembly phases, which is half the window. This file records only
+how the arrangement was found.
 
 ## What this does not establish
 
-The model is an exact sinusoid on an exact helicoid. The built part is a loft through eleven
-rectangles per tooth, which departs from the helicoid by about 0.7 µm at the crest and draws the
-toothed edge as a chord of the cosine between sections, 0.029 mm short of it at the deepest point
-— 6% of the backlash, and measured against the model rather than against Fusion's own surface.
+The model is an exact sinusoid on an exact helicoid. The built part is one loft through eleven
+rectangles per tooth. A ruled loft through those sections would depart from the helicoid by about
+0.7 µm at the crest and draw the toothed edge as a chord of the cosine between sections, 0.029 mm
+short of it at the deepest point — 6% of the backlash; Fusion's loft through more than two
+sections is smooth between them, and how far that surface departs is measured by nothing here
+(`instructions.md` §2, "What the loft is").
 
 The search says these teeth drive. It says nothing about whether they are the right teeth. Conjugate
 flanks for two screw motions follow from the equation of meshing against the relative screw, which

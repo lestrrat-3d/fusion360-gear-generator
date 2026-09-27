@@ -127,18 +127,25 @@ func (p Params) AxisOffset() float64 { return p.Width - p.Engagement }
 // more than the number of steps between them, and the steps are the larger of
 // two counts.
 //
-// The twist decides one: the loft's ruled surface cuts the corner of the
-// helicoid by (Width/2)*(1 - cos(step/2)), and the step is the twist per tooth
-// divided by the number of steps, so the count keeps that twist under two
-// degrees. A faster twist needs more sections for the same departure, and
-// this gear's twist is fast.
+// The twist decides one: a surface ruled straight between two sections cuts
+// the corner of the helicoid by (Width/2)*(1 - cos(step/2)), and the step is
+// the twist per tooth divided by the number of steps, so the count keeps that
+// twist under two degrees. A faster twist needs more sections for the same
+// departure, and this gear's twist is fast.
 //
-// The tooth decides the other: between two sections the loft's toothed edge is
-// a straight chord of the cosine, which falls (ToothHeight/2)*(1 - cos(pi/steps))
-// short of it at worst, and that depends on the step count alone. Eight steps
-// hold the chord under four percent of the tooth height whatever the twist, and
-// that is the floor; without it a slow twist would loft a tooth from two or
-// three sections and lose the tooth.
+// The tooth decides the other: between two sections a straight chord of the
+// cosine falls (ToothHeight/2)*(1 - cos(pi/steps)) short of it at worst, and
+// that depends on the step count alone. Eight steps hold the chord under four
+// percent of the tooth height whatever the twist, and that is the floor;
+// without it a slow twist would loft a tooth from two or three sections and
+// lose the tooth.
+//
+// Both are bounds on a RULED loft through the sections. The cell is one Fusion
+// loft through all of them, which is smooth between sections rather than ruled
+// (spec/screwgear/fusion.md [SCREW-F-CELL-LOFT]), so the count fixes how closely
+// the exact sections are spaced and the ruled figures are the one bound this
+// package has; the built surface's own departure between sections is not
+// measured here. TestLoftSectionCountHoldsTheHelicoid says the same.
 func (p Params) LoftSections() int {
 	const maxStep = 2 * math.Pi / 180
 	steps := int(math.Ceil((p.ToothPitch / p.Lambda()) / maxStep))
@@ -479,13 +486,22 @@ func TestRibbonIsInvariantUnderItsScrewStep(t *testing.T) {
 
 // The spec derives the section count from the twist per tooth with a floor of
 // eight steps, eleven sections at the defaults. This is the arithmetic that
-// count is bought with. The loft's ruled surface cuts the corner of the true
-// helicoid, and the spec's claim is that the shortfall is three orders below
-// the backlash; the loft's toothed edge is a chord of the cosine between
-// sections, and the spec's claim is that the chord stays under four percent of
-// the tooth height at any twist and under a tenth of the backlash at the
-// defaults. The floor is what holds the chord where the twist is slow, so the
-// leads swept here reach well past the one the count stops growing at.
+// count is bought with, and it is arithmetic about a RULED loft through those
+// sections: a ruled surface cuts the corner of the true helicoid, and the
+// spec's claim is that the shortfall is three orders below the backlash; a
+// ruled loft's toothed edge is a chord of the cosine between sections, and the
+// spec's claim is that the chord stays under four percent of the tooth height
+// at any twist and under a tenth of the backlash at the defaults. The floor is
+// what holds the chord where the twist is slow, so the leads swept here reach
+// well past the one the count stops growing at.
+//
+// Fusion builds the cell as one loft through all the sections, which is smooth
+// between them rather than ruled, and LoftFeatureInput has no ruled option. So
+// these are bounds on a body Fusion does not build: the built cell passes
+// through the same sections, and how far its surface departs from the helicoid
+// between them, on either side, is measured by nothing in this package. This is
+// the honest edge of what the section count proves, and a Fusion load is what
+// sees the built surface.
 func TestLoftSectionCountHoldsTheHelicoid(t *testing.T) {
 	p := defaultParams()
 	sections := p.LoftSections()
@@ -497,9 +513,9 @@ func TestLoftSectionCountHoldsTheHelicoid(t *testing.T) {
 		t.Errorf("%d sections put %.3f deg between neighbours, which is more than the count is "+
 			"derived to allow", sections, got)
 	}
-	t.Logf("%d sections per tooth put %.3f deg between neighbours and fall %.6f mm short of the "+
-		"helicoid; the toothed edge's chord falls %.4f mm short of the cosine",
-		sections, dtheta*180/math.Pi, departure, p.EdgeChord())
+	t.Logf("%d sections per tooth put %.3f deg between neighbours; a ruled loft through them would "+
+		"fall %.6f mm short of the helicoid at the crest and its toothed edge's chord %.4f mm short of "+
+		"the cosine", sections, dtheta*180/math.Pi, departure, p.EdgeChord())
 	if departure > 1e-3 {
 		t.Errorf("the ruled surface falls %.6f mm short of the helicoid, want under 0.001", departure)
 	}

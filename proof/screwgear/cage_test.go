@@ -35,7 +35,11 @@ import (
 // clears both ribbons at every phase of the travel, and the collar's wall is
 // what joins the two. All four are turned the same way round, so they land in
 // the gaps between the ribbons rather than against each other, and the loop
-// that joins their feet is a rectangle with a corner at each rod.
+// that joins their feet has a corner at each rod: an isosceles trapezoid on
+// the ring's circle, a rectangle to within the difference between the two
+// turns, since the collars at -CageRadius and at +CageRadius see the ribbon at
+// different cross-section angles and their rods turn by slightly different
+// amounts. TestFrameIsOnePiece logs its sides.
 
 // crossing is one place a ribbon passes through the frame: its collar, and the
 // rod that serves it.
@@ -361,10 +365,10 @@ func TestRodsStandBesideTheirCollars(t *testing.T) {
 				c.azimuth*180/math.Pi, off, p.RodDiameter, 2*p.CollarHalf)
 		}
 		chord := 2 * p.RingRadius * math.Sin(shift/2)
-		t.Logf("rod %d stands %.1f degrees round the ring from its collar, %.1f mm from the crossing, "+
+		t.Logf("rod %d stands %.2f degrees round the ring from its collar, %.1f mm from the crossing, "+
 			"its axis %.2f mm outside the bore where the wall takes it in and %.2f mm along the ribbon "+
-			"from the collar's middle",
-			i, shift*180/math.Pi, chord, nearest, along-c.station)
+			"from the collar's middle, at station %+.2f",
+			i, shift*180/math.Pi, chord, nearest, along-c.station, along)
 	}
 
 	for i := range f.cross {
@@ -538,16 +542,25 @@ func TestRibbonsStayInsideTheirBoresOverTheTravel(t *testing.T) {
 
 // The bore is not the twisted channel the model describes. Fusion has no twist
 // for a solid, so the build CUTS it with a loft through a handful of rotated
-// rectangles, and a loft is flat between its sections: the wall is faceted, and
-// every facet stands a little inside the true channel. What that costs is
+// rectangles. A RULED loft is flat between its sections: the wall is faceted,
+// and every facet stands a little inside the true channel. What that costs is
 // clearance, because the facet takes its bite out of the gap the ribbon passes
 // through, and enough of it would bind the gear.
 //
-// This measures the bite. It builds the lofted opening over the collar's span
-// as the build would, and asks how much room is left round the ribbon's crest
-// rectangle. The bite does not shrink with the clearance, so the section count
-// has to grow as the clearance does; this runs the rule at a clearance far
-// below the default as well as above it, and at the default itself.
+// This measures that bite. It builds the ruled opening through the sections the
+// build lofts over the collar's span and asks how much room is left round the
+// ribbon's crest rectangle. The bite does not shrink with the clearance, so the
+// section count has to grow as the clearance does; this runs the rule at a
+// clearance far below the default as well as above it, and at the default
+// itself.
+//
+// What it does not measure is the body Fusion builds. Fusion's loft through
+// more than two sections is smooth between them, not ruled, and LoftFeatureInput
+// has no ruled option (spec/screwgear/fusion.md [SCREW-F-CELL-LOFT]). The built
+// bore passes through the same rectangles, and how far its smooth wall departs
+// from the true channel between them, on either side, is measured by nothing in
+// this package; the ruled figure here is the one bound the section-count rule
+// is derived from. Only a Fusion load sees the built wall.
 func TestBoreLoftKeepsItsClearance(t *testing.T) {
 	for _, clearance := range []float64{0.05, 0.1, 0.3, 0.6} {
 		p := defaultParams()
@@ -576,8 +589,8 @@ func TestBoreLoftKeepsItsClearance(t *testing.T) {
 		n := boreSections(p, turn)
 		if clearance == defaultParams().Clearance {
 			// What the spec once fixed at five sections, for the record.
-			t.Logf("the lofted bore turns %.0f degrees through %d sections %.2f degrees apart and leaves "+
-				"the ribbon %.4f mm of the %.2f mm clearance; five sections would leave %.4f mm",
+			t.Logf("a ruled loft of the bore turns %.0f degrees through %d sections %.2f degrees apart and "+
+				"leaves the ribbon %.4f mm of the %.2f mm clearance; five sections would leave %.4f mm",
 				turn*180/math.Pi, n, turn/float64(n-1)*180/math.Pi, worst, p.Clearance,
 				boreLoftClearance(ga, lo, hi, 5))
 		} else {
@@ -615,11 +628,12 @@ func boreSpan(p Params, station float64) (float64, float64) {
 	return station - p.CollarHalf - 1, station + p.CollarHalf + 1
 }
 
-// boreLoftClearance is the least room the lofted opening leaves round the
-// ribbon's crest rectangle, over the whole span. The loft's corners run
+// boreLoftClearance is the least room a RULED loft of the opening leaves round
+// the ribbon's crest rectangle, over the whole span. A ruled loft's corners run
 // straight from one section to the next, so at a station between two sections
 // the opening is the four corners interpolated, and the crest rectangle has to
-// sit inside that quadrilateral.
+// sit inside that quadrilateral. Fusion's multi-section loft is smooth rather
+// than ruled; see TestBoreLoftKeepsItsClearance for what that leaves unmeasured.
 func boreLoftClearance(g Gear, lo, hi float64, n int) float64 {
 	p := g.P
 	hw, ht := p.BoreHalfWidth(), p.BoreHalfThickness()

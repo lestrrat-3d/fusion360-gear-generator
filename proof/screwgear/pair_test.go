@@ -12,10 +12,15 @@ import (
 // section count against it.
 const measuredBacklash = 0.50
 
-// The sampling the contact search runs at. The station step has to resolve the
-// tooth, whose flank rises 1.2 mm over less than a millimetre of station; 0.02 mm
-// puts more than forty samples on a flank, far finer than the backlash the answer
-// is quoted to.
+// The sampling the contact search runs at, which the spec quotes beside every
+// number taken from it (spec/screwgear/instructions.md "Defaults"). The station
+// step has to resolve the tooth, whose flank rises 1.2 mm over less than a
+// millimetre of station; 0.01 mm puts more than eighty samples on a flank, far
+// finer than the backlash the answer is quoted to. edgeSamples and faceSamples
+// are steps, so an edge carries edgeSamples+1 points across the thickness and a
+// face faceSamples+1 across the width; phaseSamples is the number of phases of A
+// per pitch, and phaseStep the number of steps of B's phase per pitch when the
+// free window is scanned, so a window's ends are quoted to that step.
 const (
 	stationStep  = 0.01
 	edgeSamples  = 4
@@ -250,7 +255,14 @@ func TestSymmetricMountJams(t *testing.T) {
 // reach each other, and everything the proof says rests on that window being
 // the whole story. This walks BOTH ribbons end to end at their assembly phases
 // and confirms nothing touches outside it — which is also what makes the
-// pictures honest, since they draw the full 84 mm of each part.
+// pictures honest, since they draw the full 140 mm of each part.
+//
+// The closest approach it logs is the spec's "0.254 mm": the least slack of any
+// sample of one ribbon's toothed or back edge against the other ribbon, at the
+// assembly phases with nothing moved. The slack is Gear.margin, taken in the
+// other ribbon's own section along u or v, so it is a slack rather than a
+// Euclidean distance. At the defaults it lands in the mesh, since gear B sits
+// in the middle of its free window and has about half of it each way.
 func TestFullRibbonsClearOutsideTheEngagement(t *testing.T) {
 	ga, gb := defaultPair()
 	p := ga.P

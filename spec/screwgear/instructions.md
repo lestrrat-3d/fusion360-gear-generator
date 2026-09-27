@@ -102,9 +102,11 @@ The ring sits in the middle of the video's range, and the rods tie the cage radi
 rod has to clear the ribbon beside it by the clearance at every phase of the travel, and a
 ribbon reaches 5.15 mm from its own axis at its corners, so a rod on the ring's circle stands
 6.7 mm from the crossing. It also has to run through its collar's wall, and the collar is 4 mm
-long along the ribbon. On an 11.25 mm ring the rod's station along the ribbon comes to 9.2 mm,
-which is inside a collar centred at 10 mm and outside one centred at 10.5 mm or more, so the
-cage radius is 10 mm. An earlier version of this spec carried a smooth boss on each ribbon at
+long along the ribbon. On an 11.25 mm ring the rod's axis crosses the ribbon 9.26 mm from the
+middle for the collar at `-cageRadius` and 9.28 mm for the one at `+cageRadius`, the stations
+`TestRodsStandBesideTheirCollars` logs, so its 2 mm diameter starts 8.26 mm out: inside a collar
+centred at 10 mm, which runs from 8 to 12 mm, and outside one centred at 10.5 mm, which starts
+at 8.5 mm. So the cage radius is 10 mm. An earlier version of this spec carried a smooth boss on each ribbon at
 the collars, 0.6 mm proud, so that no tooth ever entered a bore; the boss is gone, because the
 video's ribbons carry none and the crest rectangle already holds the whole ribbon ("Why the
 cage needs no tooth-shaped cut"). While it was there the rods stood 7.3–7.5 mm from the
@@ -269,9 +271,42 @@ turned out to jam under finer sampling (`mesh-search.md`). 33 mm is where it sta
 At those values `proof/screwgear` measures a free window in B's tooth phase that is **0.438–0.569 mm
 wide** and that **advances by exactly one tooth pitch for each pitch A advances**, departing from
 the 1:1 line by 0.067 mm, which is 3.8% of the pitch. That window width is the backlash, and the
-winding is what makes this a 1:1 gear rather than two parts that merely touch. Away from the teeth
-the two ribbons clear each other by 0.254 mm at their closest, and by 1.04 mm outside the engaged
-zone at every phase of the travel.
+winding is what makes this a 1:1 gear rather than two parts that merely touch.
+
+**The sampling those numbers were taken with.** They are `TestPairDrivesOneToOne`'s, at the
+sampling `pair_test.go` fixes, and a model at another sampling moves their last digit or two:
+
+- Each ribbon's boundary is sampled at stations within `±axialWindow` of the crossing,
+  `1.5 * sqrt(W^2 - A^2) / sin(Sigma)`, ±4.05 mm at the defaults, every 0.01 mm of station; at each
+  station, five points across the thickness on the toothed edge and five on the back edge, and
+  seven across the width on each face.
+- A sample is inside the other ribbon when its coordinates in that ribbon's section at its own
+  station, twist undone, satisfy the four inequalities of "The part". The pair is clear at a
+  phase pair when no sample of either ribbon is inside the other.
+- The free window at a phase of A is scanned in B's phase in steps of `P/200`, 0.00875 mm,
+  outward from the previous window's middle, so its ends are quoted to that step. A advances
+  through one pitch in 12 equal steps; the width is the narrowest and widest of those 12 windows,
+  and the departure is the largest gap, over the 12, between a window's middle and the straight
+  1:1 line from the first middle to the last.
+
+Two other clearances are quoted in this spec, and each is a different measurement:
+
+- **0.254 mm** is how far the two ribbons stand from each other at the assembly phases, gear A at
+  tooth phase 0 and gear B at −0.90 mm, with nothing moved. `TestFullRibbonsClearOutsideTheEngagement`
+  walks the toothed edge and the back edge of each whole ribbon, every 0.01 mm of station at five
+  points across the thickness, and takes the least slack of any sample against the other ribbon:
+  the slack is measured in that ribbon's own section at the sample's station, along `u` to its
+  toothed or back edge and along `v` to its faces, whichever is least, so it is a slack rather than
+  a Euclidean distance, and only its sign is exact. The least is 0.254 mm at station 0.30 mm, in
+  the mesh: gear B sits in the middle of a window 0.499 mm wide, so it has about half of that each
+  way before a flank touches.
+- **1.04 mm** is the least the two ribbons keep from each other outside the engaged zone at any
+  phase of the travel. `TestRibbonsClearEachOtherOutsideTheEngagement` walks each ribbon's crest
+  rectangle, `W` by `T`, which is everything the ribbon reaches at any phase, over every station
+  the travel carries it through but outside `±axialWindow` of the crossing, every 0.02 mm of
+  station at five points along each side of the rectangle, and takes the least slack of any sample
+  against the other ribbon's crest rectangle, measured as above. It is 1.04 mm at station
+  −4.40 mm of the sampled ribbon, just outside the zone.
 
 **Both Mounting Angles are 15°.** Unequal angles drive too, and some drive better; 15° on both is
 the smallest equal angle that drives at this twist, and the two gears are the same part held
@@ -282,10 +317,11 @@ that no longer cares.
 **Assembly phase.** With gear A at tooth phase 0, gear B is built at **−0.90 mm**: its teeth and
 its ends are gear A's advanced by that much along its own axis under its own screw motion ("The
 part"), so its ribbon runs from station −70.9 mm to +69.1 mm where gear A's runs ±70 mm. The number
-is the middle of the free window the proof measures at gear A's phase 0, −1.154 to −0.655 mm, and
-`TestAssemblyPhaseSitsInTheFreeWindow` holds it there. The build cannot measure that window, so the
-phase is the `assemblyPhase` input, defaulting to the proof's number as the mounting angles and the
-engagement do; an arrangement the proof has not measured needs its own.
+is the middle of the free window the proof measures at gear A's phase 0, −1.154 to −0.655 mm at
+the sampling above, and `TestAssemblyPhaseSitsInTheFreeWindow` holds it there. The build cannot
+measure that window, so the phase is the `assemblyPhase` input, defaulting to the proof's number
+as the mounting angles and the engagement do; an arrangement the proof has not measured needs its
+own.
 
 ## Architecture
 
@@ -405,9 +441,10 @@ returns internal units — cm for length and **radians** for angle (`[PB-EVAL-EX
   phase of the travel, when the rod that does runs nowhere inside its own collar's wall, when part
   of its diameter misses the collar's length, or when two rods stand nearer than
   `rodDiameter + clearance`; the message names the collar. `TestRodsStandBesideTheirCollars` fails
-  on the same counts. At the defaults the rod's station comes to 9.3 mm along the ribbon against a
-  collar centred at 10 mm and 4 mm long, and a cage radius of 10.5 mm on the same ring already
-  misses.
+  on the same counts. At the defaults the rod's axis crosses the ribbon 9.26 mm from the middle
+  for the collar at `-cageRadius` and 9.28 mm for the one at `+cageRadius`, the stations the
+  proof logs, against a collar centred at 10 mm and 4 mm long, and a cage radius of 10.5 mm on
+  the same ring already misses.
 - `cageRise` must put the ring and the loop clear of both ribbons. No point of a ribbon is further
   from the middle plane than its axis is plus the half-diagonal of its crest rectangle,
   `A/2 + hypot(W/2, T/2)`, 9.97 mm at the defaults, and the ring's wire and the loop's bars start
@@ -444,10 +481,24 @@ so none is exempt. Three rules hold in every sketch of this build:
   twist at any station, a rod's azimuth — run through 0° and 180° over the inputs' ranges. Each
   sketch below names its two references; the build computes the angle it is about to seed, takes
   the reference that keeps it inside that range, and puts the dimension's text point inside the
-  wedge it measures.
+  wedge it measures. The value written is the angle between two **rays**, each named in the
+  step, from the point where the two lines meet; the text point sits inside that wedge.
 - **Every seed is the solved position** (`[PB-SEED-NEAR]`), computed in Python in the frame of §1
   and mapped in with `modelToSketchSpace`, so the solver has nothing to move and a dimension's
   side is the seed's (`[PB-DIM-VALUE-SEMANTICS]`).
+- **No `addPerpendicular` on a line that only one of its ends anchors.** A line drawn from a
+  fixed point, given a length and made perpendicular to a reference has two solutions, one each
+  side of the reference, and the proof's sketch gate refuses a sketch that admits a mirror
+  image. Every such line in this build is held instead by an **angular dimension of 90°**
+  between the reference's ray and the line's own ray from the shared point, with the text point
+  in that wedge, plus its length. `addPerpendicular` is used only in the rectangle scheme of §2,
+  where the line it turns already has both ends tied to other lines. The **perpendicular
+  reference line** that the rule above needs is built this way in every sketch that uses one:
+  a construction line `Rp` from the projected centre point, seeded 10 mm along `n̂ × ê` (the
+  Anchor Line's direction turned +90° about the plane's normal), held by an aligned distance
+  dimension of 10 mm from the centre point to its far end and an angular dimension of 90° from
+  the projected Anchor Line's start-to-end ray to `Rp`'s ray from the centre point. Nothing
+  reads its length.
 
 The section sketches — the tooth cell's, and the collars' and bores' in §4 — share one rectangle
 scheme, stated in §2, that leaves no freedom, so there is no under-constrained case to exempt,
@@ -466,18 +517,32 @@ generate(inputs)
       → repeatCellByDoubling(index)          # copy + screw-move + join; floor(log2 N) + popcount(N) - 1 rounds
   → buildCage()                              # ring, rods, loop, collars, then one twisted bore cut per collar
   → relocateBodies()                         # moveToComponent into Gear A / Gear B / Cage
-  → solids.hide_construction_geometry(design)
+  → solids.hide_construction_geometry(self.designOcc.component)
 ```
 
 ## Instructions
 
 ### 1: Anchor and frame
 
-Create the anchor sketch on the user-selected plane and project the selected point into it. Draw a
-reference line through the projected point and fully constrain it exactly as the bevel spec's Anchor
-Line is constrained: midpoint plus a length dimension plus `addHorizontal`, so the line has zero
-degrees of freedom and its absolute direction is arbitrary. That line's direction is `ê`; the
-plane's normal is `n̂`.
+Create the anchor sketch, named `Anchor`, on the user-selected plane and project the selected
+point into it; keep that projected point, since every later sketch projects it and never the raw
+selection. Draw the **Anchor Line** through it: a line seeded 0.5 cm either side of the projected
+point along the sketch's own x axis, so it is 10 mm long with its end to the right of its start.
+Constrain it with three things and nothing else:
+
+- `addMidPoint(projectedPoint, line)` — the centre bisects the line. No `addCoincident` beside it:
+  the midpoint already puts the point on the line, and the second row is redundant.
+- `addHorizontal(line)` — sketch-local, so it survives a tilted plane (`[PB-REFLINE-DIRECTION]`).
+- A **horizontal** distance dimension from the line's start to its end
+  (`addDistanceDimension(start, end, HorizontalDimensionOrientation, textPoint)`), value 10 mm.
+  Not an aligned one: midpoint, horizontal and an aligned length are satisfied by the line in
+  either of its two end-for-end orientations, and the proof's sketch gate refuses that as
+  ambiguous; a horizontal distance from start to end runs one way, so only the seeded orientation
+  satisfies it.
+
+Midpoint, horizontal and the horizontal distance take the line's four degrees of freedom, so it
+has none, and its absolute direction is arbitrary. That line's direction, start to end, is `ê`;
+the plane's normal is `n̂`.
 
 Compute both axes from `ê` and `n̂`:
 
@@ -505,12 +570,17 @@ two: a negative offset lands on gear A's side, a positive one on gear B's.
 **The axis sketches.** `Gear A Axis` on the Gear A Axis Plane and `Gear B Axis` on gear B's, each
 holding one line on its gear's axis, from station `-(L/2 + P)` to `+(L/2 + P)` with `L = N*P` the
 ribbon's length: a pitch past either end of the ribbon, so that gear B's cell, which starts
-`assemblyPhase` before station `-L/2` (§2), still lies on it. Constrain it as the Anchor
-Line is: its midpoint on the projected centre point, a length dimension of `L + 2P`, and an angular
-dimension of `Sigma/2` against the projected Anchor Line, or of `90° - Sigma/2` against a
-construction line from the projected centre point perpendicular to that Anchor Line, by the
-45°–135° rule of Sketch Discipline — at the default 80° it is the latter, 50°. The line's start is
-its negative end. Every section plane of that gear is `setByDistanceOnPath` on this line
+`assemblyPhase` before station `-L/2` (§2), still lies on it. The sketch projects the anchor
+sketch's centre point and its Anchor Line (construction), and draws the perpendicular reference
+`Rp` of Sketch Discipline. The axis line is seeded from station `-(L/2 + P)` to `+(L/2 + P)`,
+so its start is its negative end, and is held by `addMidPoint(centrePoint, axisLine)`, an aligned
+distance dimension of `L + 2P` between its ends, and one angular dimension by the 45°–135° rule:
+`Sigma/2` between the projected Anchor Line's ray along `+ê` and the axis line's ray along
+`dir_g` when `Sigma/2` is 45° or more, and otherwise `90° - Sigma/2` between `Rp`'s ray from the
+centre point and the axis line's ray that makes that angle with it — the ray along `+dirA` for
+gear A and along `-dirB` for gear B. At the default 80° it is the latter, 50°. The angular
+dimension is what rules out the line's end-for-end flip, which midpoint and length alone leave
+open. Every section plane of that gear is `setByDistanceOnPath` on this line
 (`[PB-CONSTRUCTION-PLANES]`; pass the line directly, never wrapped in `Path.create`), at the
 fraction `(s + L/2 + P) / (L + 2P)` for station `s`.
 
@@ -526,18 +596,31 @@ axis and repeated the same way is gear B. Build it once per gear.
 through `n + 1` sections, `n` steps apart, where `n` is the larger of two counts:
 
 - the smallest that keeps the twist between neighbouring sections under 2°,
-  `ceil((P/Lambda) / 2°)`, 10 at the defaults. The loft's surface between two sections is ruled,
-  so at the crest it cuts the corner of the true helicoid by `(W/2)*(1 - cos(dtheta/2))`, `dtheta`
+  `ceil((P/Lambda) / 2°)`, 10 at the defaults. A surface ruled straight between two sections
+  cuts the corner of the true helicoid at the crest by `(W/2)*(1 - cos(dtheta/2))`, `dtheta`
   the twist per step: 0.7 µm at the defaults' 1.91°, three orders below the 0.50 mm backlash;
-- eight. Between two sections the loft's toothed edge is a straight chord of the cosine, which
-  falls `(H/2)*(1 - cos(pi/n))` short of it at the deepest point whatever the twist: 0.029 mm at
-  the defaults' ten steps, 6% of the backlash, and 0.046 mm, 3.8% of the tooth height, at eight.
-  That floor is what keeps a slow twist from lofting the tooth through two or three sections and
-  losing it: at a 400 mm lead the twist alone asks for two sections, and the cell is built through
-  nine.
+- eight. A straight chord of the cosine between two sections falls `(H/2)*(1 - cos(pi/n))` short
+  of it at the deepest point whatever the twist: 0.029 mm at the defaults' ten steps, 6% of the
+  backlash, and 0.046 mm, 3.8% of the tooth height, at eight. That floor is what keeps a slow
+  twist from lofting the tooth through two or three sections and losing it: at a 400 mm lead the
+  twist alone asks for two sections, and the cell is built through nine.
 
 That is 11 sections at the defaults. `TestLoftSectionCountHoldsTheHelicoid` holds both bounds over
 leads from 20 mm to 400 mm.
+
+**What the loft is, and what the count guarantees for it.** Both bounds are arithmetic about a
+*ruled* loft, whose surface runs straight between neighbouring sections. Fusion builds a ruled
+loft only through exactly two sections; a loft through more passes through every section and is
+fitted smoothly between them, and `LoftFeatureInput` has no option to make it ruled — its
+sections carry only end conditions (`[SCREW-F-CELL-LOFT]`). The cell is **one loft through all
+`n + 1` sections**, so it is the smooth kind. What the count guarantees for it is that the built
+cell carries the exact rotated rectangle at each of the `n + 1` stations, `dtheta` apart, and that
+between stations its surface interpolates those rectangles; the chord figures above are the
+departure of the ruled loft through the same sections, and they are the only figures the proof
+has. Nothing in this repository bounds how far the smooth surface departs from the helicoid
+between sections, on either side ("What the proof cannot reach"); a Fusion load is what checks
+it. A chain of `n` two-section lofts would be ruled and would carry the bounds literally, at the
+cost of `n` lofts and `n` joins per cell, and this spec keeps the one loft.
 
 Create the `n + 1` **section construction planes** on the gear's axis line, evenly spaced from
 `s0` to `s0 + P` (§1: `setByDistanceOnPath`, fraction `(s + L/2 + P) / (L + 2P)`), named
@@ -646,18 +729,25 @@ The frame is the open skeleton in the video, built from round sections and joine
   defaults the angle is 34.6° for a gear's collar at `-cageRadius` and 34.4° for the one at
   `+cageRadius`, which differ because the ribbon has a different cross-section angle at each
   crossing; `TestRodsStandBesideTheirCollars` derives and logs them, and the build takes them
-  from the same search rather than from a table. The rods are four circles on one sketch on the
-  selected plane, each on a construction spoke of `ringRadius` from the projected centre at its
-  azimuth from the projected Anchor Line, the azimuth dimensioned against that line or against a
-  construction line perpendicular to it (Sketch Discipline), extruded symmetrically `cageRise`
-  either side of the plane.
+  from the same search rather than from a table. The rods are four circles on one sketch, named
+  `Rods`, on the selected plane, each on a construction spoke of `ringRadius` from the projected
+  centre at its azimuth from the projected Anchor Line, the azimuth dimensioned against that line
+  or against the perpendicular reference `Rp` (Sketch Discipline), extruded symmetrically
+  `cageRise` either side of the plane.
 - **The loop** is four straight bars of `ringWire` at height `-cageRise`, each from one rod's
   foot to the next round the ring in azimuth order, with a ball of `ringWire` at each foot to
-  round the corner. Its corners are the rods, so it is a rectangle inscribed in the ring's circle
-  and reads smaller than the ring: 17.3 by 14.5 mm at the defaults, inside a 22.5 mm circle. A
-  bar is a circle of `ringWire` on a plane square to the bar at its middle, extruded symmetrically
-  to the two feet; a ball is a half-disc of `ringWire` revolved about the line through its foot
-  along `n̂` (`[SCREW-F-ROUND-FRAME]`).
+  round the corner. Its corners are the rods, so it is inscribed in the ring's circle and reads
+  smaller than the ring: 17.26 and 17.21 mm by 14.46 mm at the defaults, inside a 22.5 mm circle.
+  It is not quite a rectangle. The two short bars each join a gear A rod to the gear B rod of the
+  same sign of station, and those two rods are turned from their crossings by the same angle, so
+  each short bar spans exactly the 80° crossing angle round the ring; the two long bars span
+  100° plus and minus the 0.19° by which the two turns differ (34.61° for a collar at
+  `-cageRadius`, 34.42° at `+cageRadius`). Equal short sides on one circle make the long sides
+  parallel, so the loop is an isosceles trapezoid, a rectangle to within 0.05 mm on a side;
+  `TestFrameIsOnePiece` logs the four sides. A bar is a circle of `ringWire` on a plane square to
+  the bar at its middle, extruded symmetrically to the two feet; a ball is a half-disc of
+  `ringWire` revolved about the line through its foot along `n̂`, on the plane through the bar
+  that starts at that foot (`[SCREW-F-ROUND-FRAME]`).
 - **The collars** are one per crossing. A collar is the bore's rectangle grown by `collarWall` in
   every direction of its own section — a rounded rectangle — running along the ribbon over
   `±collarHalf` from the crossing and turning with it, so its ends are flat and square to the
@@ -669,7 +759,10 @@ The frame is the open skeleton in the video, built from round sections and joine
   from the crossing, at no more than 5° of twist between neighbours — `ceil(turn / 5°) + 1`
   sections, 10 at the defaults — and never on the bore's planes, which run a millimetre past
   each end of the collar and cannot land on both the collar's ends and the bore's
-  (`[SCREW-F-TWISTED-SLOT]`). A collar section is the bore's rectangle below, drawn as
+  (`[SCREW-F-TWISTED-SLOT]`). The planes are named `{gearLabel} Collar {-R|+R} Section {k} Plane`
+  and the sketches `{gearLabel} Collar {-R|+R} Section {k}`, `-R` for the collar at `-cageRadius`
+  and `+R` at `+cageRadius`, `k` from 0 at the negative end; the bore's below are named the same
+  with `Bore` for `Collar`. A collar section is the bore's rectangle below, drawn as
   construction by the rectangle scheme of §2, with four solid sides parallel to it `collarWall`
   outside and a quarter-circle arc of radius `collarWall` at each corner, tangent to one side and
   centred on the construction corner, so the profile is four lines and four arcs
@@ -703,13 +796,17 @@ of 0.05 mm the facet bound is 3.2° and governs, and the count is 22. The tooth 
 because its error is measured against the backlash; a bore's is measured against the clearance,
 which is twenty times larger at the defaults and is what the second bound follows.
 
-**A loft is flat between its sections, so the bore's wall is faceted and every facet stands inside
-the true channel.** What that costs is clearance, straight out of the gap the ribbon passes
-through, and enough of it binds the gear; the bite does not shrink with the clearance, which is
-why the count grows as the clearance falls. At the derived count the facets take 0.004 mm of the
-0.3 mm; at the five sections this spec fixed before they take 0.054 mm.
-`TestBoreLoftKeepsItsClearance` holds it at 95% of the clearance, at clearances from 0.05 mm to
-0.6 mm.
+**What the facets cost.** The count is derived for a ruled loft, whose wall is flat between
+sections and whose every facet stands inside the true channel. What that costs is clearance,
+straight out of the gap the ribbon passes through, and enough of it binds the gear; the bite does
+not shrink with the clearance, which is why the count grows as the clearance falls. At the derived
+count the ruled facets take 0.004 mm of the 0.3 mm; at the five sections this spec fixed before
+they take 0.054 mm. `TestBoreLoftKeepsItsClearance` builds that ruled channel through the build's
+sections and holds it at 95% of the clearance, at clearances from 0.05 mm to 0.6 mm. The bore
+Fusion cuts is one loft through all its sections, which is smooth between them (§2, "What the
+loft is"): it passes through the same rectangles and departs from the true channel between them
+by an amount nothing here measures, on either side. The count rule is how closely the exact
+sections are spaced, and the ruled figure is the one bound the proof has.
 
 **The bore has to twist; a straight hole binds.** Over a collar of length `2*collarHalf` the ribbon
 turns by `2*collarHalf/Lambda`, so its corner sweeps `(W/2)*(2*collarHalf/Lambda)` across the
@@ -727,16 +824,37 @@ through the collar and through whatever of its rod stands inside the wall in one
 
 ### 5: Relocate the bodies
 
-Move the two gear bodies and the joined cage body into their sub-components with `body.moveToComponent`,
-which preserves world position and needs no activation.
+Name the cage body `Cage`, then move the two gear bodies and the cage body into their
+sub-components with `body.moveToComponent`, which preserves world position and needs no
+activation. Then `solids.hide_construction_geometry(self.designOcc.component)`: the `Design`
+sub-component is where every sketch and construction plane of this build was made, and the helper
+walks it and anything under it.
 
 ## What the proof checks
 
-`proof/screwgear` holds it. The whole risk in this gear is meshing, and no other proof in this
-repository simulates motion, so this one models the ribbon implicitly — a point is inside when its
-cross-section coordinates satisfy four inequalities — rather than as a solid. That is exact where a
-boolean between two lofted solids would be a tangency `decad`'s exact predicates refuse to classify,
-and it is cheap enough to run the search a few million times. The package imports neither engine.
+`proof/screwgear` holds two proofs side by side, and they have different jobs.
+
+The **hand-written mechanism proof** is the `Test` functions listed below, in `geometry_test.go`
+(the model, the part and the section count), `pair_test.go` (the mesh), `cage_test.go` (the frame)
+and `render_test.go` (the pictures). It is written by hand, is not compiled from this spec, and
+is not the compile stage's job to reproduce: it proves the mechanism — that these two parts
+drive each other 1:1 and move freely in this frame — and the compile stage reads its numbers
+rather than re-deriving them. The whole risk in this gear is meshing, and no other proof in this
+repository simulates motion, so these files model the ribbon implicitly — a point is inside when
+its cross-section coordinates satisfy four inequalities — rather than as a solid. That is exact
+where a boolean between two lofted solids would be a tangency `decad`'s exact predicates refuse to
+classify, and it is cheap enough to run the search a few million times. These four files import
+neither engine.
+
+The **compiled step proof** is what `/compile-gear` writes beside them from the step list, in
+the shape the compile contract fixes: one function per build step, no `Test` functions of its
+own, registrations generated into `zz_registrations_test.go`, and the `sketch` and `decad`
+engines for what it builds. It covers the build steps of "Instructions" — that every sketch
+scheme closes fully constrained and unambiguous, and that every solid step yields the body the
+next step consumes — and nothing in the list below. A recompile regenerates it and leaves the
+four hand-written files alone.
+
+The mechanism proof's cases:
 
 - `TestPairDrivesOneToOne` is the one everything rests on. It tracks the free window in B's tooth
   phase through a full pitch of A and asserts three things: the window is never empty (no jam), it
@@ -799,8 +917,9 @@ and it is cheap enough to run the search a few million times. The package import
   height against the ring, and one hand for both gears. It logs the ratios the spec departs
   from, so a run shows both.
 
-`TestRenderPair`, `TestRenderPart`, `TestRenderMesh` draw the pictures from the same section
-function the mesh proof samples. They are skipped unless `-render.out` names a directory.
+`TestRenderPair`, `TestRenderPart`, `TestRenderMesh` in `render_test.go` draw the pictures from
+the same section function the mesh proof samples. They are skipped unless `-render.out` names a
+directory.
 
 ### What the proof cannot reach
 
@@ -809,9 +928,14 @@ follow from the equation of meshing `n·v_rel = 0` against the relative screw, a
 derives them; the proof measures what this tooth does, not what the best tooth would do.
 
 It proves the ideal ribbon, an exact cosine on an exact helicoid, and not the lofted body Fusion
-builds. `TestLoftSectionCountHoldsTheHelicoid` bounds the gap between the two — 0.7 µm at the
-crest and 0.029 mm on the toothed edge, where the loft draws a chord of the cosine — against a
-0.50 mm backlash, but that is arithmetic about the loft rather than a measurement of one.
+builds. `TestLoftSectionCountHoldsTheHelicoid` bounds the gap between the helicoid and a *ruled*
+loft through the build's sections — 0.7 µm at the crest and 0.029 mm on the toothed edge, where
+a ruled loft draws a chord of the cosine — against a 0.50 mm backlash, and
+`TestBoreLoftKeepsItsClearance` does the same for the bore. Fusion's loft through more than two
+sections is smooth between them, not ruled (§2, "What the loft is"), so those are bounds on a
+body Fusion does not build: the built surface passes through the same sections, and how far it
+departs from the helicoid between them, on either side, is measured by nothing here. Only a
+Fusion load sees it.
 
 It also cannot see print tolerance or friction. A window of 0.44–0.57 mm is comfortable for fused
 filament and tight for resin, and only a printed part settles it.
