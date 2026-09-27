@@ -10,29 +10,13 @@ import (
 )
 
 func TestGearProfile(t *testing.T) {
-	proofkit.RunWithExpectedFailures(t, profileCases, stepGearProfile, profileFailures)
-}
-
-func TestExtrudeTooth(t *testing.T) {
-	proofkit3d.RunSolid(t, solidCases, stepExtrudeTooth, assertExtrudeTooth)
+	proofkit.Run(t, profileCases, stepGearProfile)
 }
 
 func TestExtrudeBody(t *testing.T) {
-	proofkit3d.RunSolid(t, solidCases, stepExtrudeBody, assertExtrudeBody)
+	proofkit3d.RunSolid(t, bodyCases, stepExtrudeBody, assertExtrudeBody)
 }
 
-func TestPatternTeeth(t *testing.T) {
-	proofkit3d.RunSolid(t, patternCases, stepPatternTeeth, assertPatternTeeth)
-}
-
-func TestBoreProfile(t *testing.T) {
-	proofkit.Run(t, boreCases, stepBoreProfile)
-}
-
-func TestBoreCut(t *testing.T) {
-	proofkit3d.RunSolid(t, boreSolidCases, stepBoreCut, assertBoreCut)
-}
-
-func TestChamferTeeth(t *testing.T) {
-	proofkit3d.RunSolid(t, chamferCases, stepChamferTeeth, assertChamferTeeth)
+func TestBore(t *testing.T) {
+	proofkit3d.RunSolid(t, boreCases, stepBore, assertBore)
 }

@@ -5,6 +5,8 @@ to `.tmp/{{gear}}-proof/`.
 **Read, in full, only these:** `spec/{{gear}}/instructions.md`, `spec/{{gear}}/fusion.md` if it
 exists, every document those reference by name, `.claude/skills/generate-gear/PLAYBOOK.md`,
 `proof/proofkit/` for the sketch harness API, `proof/proofkit3d/` for the solid harness API, and
+`proof/examples/OPERATIONS.md` for tested construction recipes and engine limits,
+the linked example source for an operation the gear uses, and
 `proof/involute/` for the involute tooth math the spur family shares, so you import it rather
 than deriving it again.
 
