@@ -123,13 +123,14 @@ proof is where the next reader is looking for the missing check.
    `python3 .claude/skills/generate-gear/run_compile_gates.py <gear> --handoff-base <commit>
    --json-out .tmp/<gear>.compile-gates.json > .tmp/<gear>.compile-gates.txt`. Repeat both options
    on every retry and final invocation. The JSON file is authoritative for emission.
-   It runs `bash proof/run.sh`, then `check_compile.py <gear>`, then
-   `extract_playbook.py <gear> --min-anchors 1`, then — only when `lib/geargen/<gear>.py`
-   exists — `check_step_calls.py`, in that order, and prints one verdict
-   plus a first-pass fault classification. The proof wrapper enters the `proof/` module and
-   configures the local engine replacements; the proof must pass with nothing waived. Exit 1 means
-   a gate failed on content; exit 2 is a setup error, and a setup error never goes back to the
-   drafter.
+   It runs `check_compile.py <gear>`, `extract_playbook.py <gear> --min-anchors 1`, and
+   `check_step_calls.py` when `lib/geargen/<gear>.py` exists. It then runs `bash proof/run.sh`
+   if compile and playbook passed. A blocking compile or playbook result skips proof and records
+   the reason in `proof_omission_reason`; that report is incomplete and cannot authorize handoff.
+   A step-call mismatch still runs proof unless `--fail-fast` is selected. The proof wrapper
+   enters the `proof/` module and configures the local engine replacements. A successful handoff
+   requires a complete proof with nothing waived. Exit 1 means a gate failed on content; exit 2
+   is a setup error, and a setup error never goes back to the drafter.
 
 5. **Check.** The runner already ran every check. `check_compile.py` gates spec citations,
    step-to-proof agreement, the reality of every named API call, and the provenance hashes. It

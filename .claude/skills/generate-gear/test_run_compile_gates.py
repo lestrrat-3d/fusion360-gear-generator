@@ -209,6 +209,72 @@ class HappyPathTests(BaseRunnerTest):
             self.assertEqual(fh.read().strip(), '')
 
 
+class InitialOrderTests(BaseRunnerTest):
+    def test_compile_failure_reports_proof_omission(self):
+        root = make_repo(self.tmp, module='x = 1\n')
+        proof_marker = os.path.join(self.tmp, 'proof-ran.txt')
+        playbook_marker = os.path.join(self.tmp, 'playbook-ran.json')
+        make_stubs(self.scripts, overrides={
+            'compile': dict(exit_code=1, stdout='compile failed'),
+            'playbook': dict(argv_marker=playbook_marker),
+        })
+        make_proof_runner(root, marker=proof_marker)
+
+        exit_code, _text, parsed = run(root, self.scripts, GEAR)
+
+        self.assertEqual(exit_code, 1)
+        self.assertTrue(os.path.exists(playbook_marker))
+        self.assertFalse(os.path.exists(proof_marker))
+        self.assertEqual(self.by_key(parsed)['proof']['status'], 'skip')
+        self.assertEqual(parsed['proof_omission_reasons'], ['compile_content_failure'])
+        self.assertEqual(parsed['effective_proof_scope'], 'omitted')
+        self.assertFalse(parsed['proof_is_complete'])
+        self.assertFalse(parsed['timing']['first_pass_eligible'])
+
+    def test_playbook_setup_error_omits_proof(self):
+        root = make_repo(self.tmp)
+        proof_marker = os.path.join(self.tmp, 'proof-ran.txt')
+        make_stubs(self.scripts, overrides={
+            'playbook': dict(exit_code=2, stderr='cannot read playbook'),
+        })
+        make_proof_runner(root, marker=proof_marker)
+
+        exit_code, _text, parsed = run(root, self.scripts, GEAR)
+
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(parsed['verdict'], 'error')
+        self.assertEqual(parsed['proof_omission_reasons'], ['playbook_setup_failure'])
+        self.assertFalse(os.path.exists(proof_marker))
+
+    def test_step_call_handoff_still_runs_full_proof(self):
+        root = make_repo(self.tmp, module='x = 1\n')
+        proof_marker = os.path.join(self.tmp, 'proof-ran.txt')
+        make_stubs(self.scripts, overrides={
+            'step_calls': dict(exit_code=1, stdout='step-call check: BLOCKING (1)'),
+        })
+        make_proof_runner(root, marker=proof_marker)
+
+        exit_code, _text, parsed = run(root, self.scripts, GEAR)
+
+        self.assertEqual(exit_code, 1)
+        self.assertTrue(os.path.exists(proof_marker))
+        self.assertEqual(self.by_key(parsed)['proof']['status'], 'pass')
+        self.assertTrue(parsed['proof_is_complete'])
+
+    def test_valid_draft_runs_complete_proof_last(self):
+        root = make_repo(self.tmp)
+        make_stubs(self.scripts)
+        make_proof_runner(root)
+
+        exit_code, _text, parsed = run(root, self.scripts, GEAR)
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual([stage['key'] for stage in parsed['stages']],
+                         ['compile', 'playbook', 'step_calls', 'proof'])
+        self.assertEqual(self.by_key(parsed)['proof']['command'], ['bash', 'proof/run.sh'])
+        self.assertTrue(parsed['proof_is_complete'])
+
+
 class ModuleAbsentTests(BaseRunnerTest):
     def test_step_calls_skips_with_the_stated_reason(self):
         root = make_repo(self.tmp)  # no lib/geargen/<gear>.py
@@ -411,21 +477,25 @@ class SelectionTests(BaseRunnerTest):
 
     def test_fail_fast_stops_scheduling(self):
         root = make_repo(self.tmp, module='x = 1\n')
-        compile_marker = os.path.join(self.tmp, 'never-compile.marker')
+        playbook_marker = os.path.join(self.tmp, 'never-playbook.marker')
         step_marker = os.path.join(self.tmp, 'never-steps.marker')
+        proof_marker = os.path.join(self.tmp, 'never-proof.marker')
         make_stubs(self.scripts, overrides={
-            'compile': dict(argv_marker=compile_marker),
+            'compile': dict(exit_code=1, stdout='compile failed'),
+            'playbook': dict(argv_marker=playbook_marker),
             'step_calls': dict(argv_marker=step_marker),
         })
-        make_proof_runner(root, exit_code=1, stdout='FAIL')
+        make_proof_runner(root, marker=proof_marker)
         exit_code, text, parsed = run(root, self.scripts, GEAR, '--fail-fast')
         self.assertEqual(exit_code, 1)
         by_key = self.by_key(parsed)
-        for key in ('compile', 'step_calls'):
+        for key in ('playbook', 'step_calls'):
             self.assertEqual(by_key[key]['status'], 'skip')
             self.assertIn('--fail-fast', by_key[key]['skip_reason'])
-        self.assertFalse(os.path.exists(compile_marker))
+        self.assertEqual(by_key['proof']['status'], 'skip')
+        self.assertFalse(os.path.exists(playbook_marker))
         self.assertFalse(os.path.exists(step_marker))
+        self.assertFalse(os.path.exists(proof_marker))
 
 
 class OutputTests(BaseRunnerTest):
