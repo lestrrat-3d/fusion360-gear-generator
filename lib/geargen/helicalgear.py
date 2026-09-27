@@ -104,6 +104,8 @@ class HelicalGearGenerator(SpurGearGenerator):
     def buildSketches(self, ctx: SpurGearGenerationContext):
         assert isinstance(ctx, HelicalGearGenerationContext)
         super().buildSketches(ctx)
+        if self.plane is None:
+            raise ValueError('Helical Gear: Target Plane is missing')
 
         constructionPlaneInput = self.getComponent().constructionPlanes.createInput()
         constructionPlaneInput.setByOffset(self.plane, self.helicalPlaneOffset())
