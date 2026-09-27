@@ -354,7 +354,11 @@ form in the parameter table.
 ## Component Setup
 
 One command invocation creates a **`Screw Gearing`** component under the user-selected Parent
-Component, holding four sub-components (`[PB-OCCURRENCE-TREE]`):
+Component, holding four sub-components (`[PB-OCCURRENCE-TREE]`). The top occurrence is the
+inherited `self.getOccurrence()`, which creates it under `self.parentComponent` and is what the
+inherited `deleteComponent()` deletes on failure; the build names its component and never calls
+`addNewComponent` for it itself. The four children are each
+`occurrences.addNewComponent(adsk.core.Matrix3D.create())` under that component:
 
 - **`Design`** — every sketch, construction plane and feature runs here.
 - **`Gear A`**, **`Gear B`**, **`Cage`** — empty until the end, when the finished bodies are
@@ -437,14 +441,16 @@ returns internal units — cm for length and **radians** for angle (`[PB-EVAL-EX
   lie on the axis line, so `cageRadius + collarHalf + 1 mm < toothCount*toothPitch/2`, the
   millimetre being the bore's margin (§4). It is also tied to `ringRadius` by the rods, below.
 - `ringRadius` must leave every rod a place to stand. The rod search of §4 runs here, once per
-  collar, and fails this field when no azimuth on the ring's circle clears both ribbons at every
-  phase of the travel, when the rod that does runs nowhere inside its own collar's wall, when part
-  of its diameter misses the collar's length, or when two rods stand nearer than
-  `rodDiameter + clearance`; the message names the collar. `TestRodsStandBesideTheirCollars` fails
-  on the same counts. At the defaults the rod's axis crosses the ribbon 9.26 mm from the middle
-  for the collar at `-cageRadius` and 9.28 mm for the one at `+cageRadius`, the stations the
-  proof logs, against a collar centred at 10 mm and 4 mm long, and a cage radius of 10.5 mm on
-  the same ring already misses.
+  collar in the order gear A `-R`, gear A `+R`, gear B `-R`, gear B `+R`, and fails this field
+  when no azimuth on the ring's circle clears both ribbons, when the rod that does runs nowhere
+  inside its own collar's wall (`0 < depth <= collarWall`, §4), when part of its diameter misses
+  the collar's length (`|sp - sc| + rodDiameter/2 <= collarHalf`, §4), or, after all four, when
+  two rods stand nearer than `rodDiameter + clearance`; the message names the collar, or the
+  two rods. `TestRodsStandBesideTheirCollars` fails on the same counts, and
+  `TestCoincidentRodsAreRefused` holds an input that reaches the last one. At the defaults the
+  rod's axis crosses the ribbon 9.26 mm from the middle for the collar at `-cageRadius` and
+  9.28 mm for the one at `+cageRadius`, the stations the proof logs, against a collar centred at
+  10 mm and 4 mm long, and a cage radius of 10.5 mm on the same ring already misses.
 - `cageRise` must put the ring and the loop clear of both ribbons. No point of a ribbon is further
   from the middle plane than its axis is plus the half-diagonal of its crest rectangle,
   `A/2 + hypot(W/2, T/2)`, 9.97 mm at the defaults, and the ring's wire and the loop's bars start
@@ -468,19 +474,31 @@ this spec does not clamp what has not been measured.
 
 Every sketch must report `isFullyConstrained` before it is consumed, and the build raises naming the
 sketch when one does not (`[PB-SKETCH-FIRST]`, `[PB-FULL-CONSTRAINT]`). No sketch here carries text,
-so none is exempt. Three rules hold in every sketch of this build:
+so none is exempt. Four rules hold in every sketch of this build:
 
-- **References come in from geometry that is already fixed.** A point or line of the anchor
-  sketch enters another sketch as `sketch.project(entity).item(0)`, and a gear's axis line
-  enters a section sketch, whose plane is normal to it, as the point
-  `sketch.intersectWithSketchPlane([axisLine])[0]` (`[SCREW-F-REFERENCES]`). Projected and
-  intersected geometry is never dimensioned or fixed; what is drawn is anchored to it.
+- **Only the Anchor sketch projects anything, and every other sketch's references are fixed
+  points of its own** (`[SCREW-F-REFERENCES]`, `[PB-PROJECT-NOT-FIXED]`). The Anchor sketch
+  projects the selected point and binds the Anchor Line to the projection exactly as the bevel
+  gear's Anchor sketch does, which reads fully constrained in Fusion. Every later sketch takes
+  its references — the centre point, the axis point of a section, a rod's foot, a bar's ends
+  and middle — as **reference points**: each is a world point of the frame of §1, computed on
+  the sketch's own plane, mapped in with `sketch.modelToSketchSpace` and added with
+  `sketch.sketchPoints.add`. The sketch's curves are drawn **sharing** those points
+  (`[PB-SHARE-XOR-COINCIDENT]`), and after the last curve that uses a reference point is drawn,
+  and before any constraint or dimension is added, the point is set `isFixed = True`. A
+  **reference line** is a construction line between two reference points, so it has no freedom
+  and carries no dimension. Nothing is projected into these sketches and
+  `intersectWithSketchPlane` is not called: the point where a gear's axis line pierces a section
+  plane is `origin_g + s*dir_g` for the plane's station `s`, and that is what the reference
+  point is placed at. A circle centred on a reference point is instead created at that point's
+  position with its `centerSketchPoint` set `isFixed = True` (`[PB-CIRCLE-CENTER]`), and no
+  reference point is added for it.
 - **Every angular dimension is taken against whichever of two perpendicular reference lines puts
   it between 45° and 135°** (`[PB-ANGULAR-DIM]`). Fusion cannot dimension the angle between two
-  lines that are nearly parallel, and the angles here — half the crossing angle, a section's
-  twist at any station, a rod's azimuth — run through 0° and 180° over the inputs' ranges. Each
-  sketch below names its two references; the build computes the angle it is about to seed, takes
-  the reference that keeps it inside that range, and puts the dimension's text point inside the
+  lines that are nearly parallel, and the one angle this build dimensions — a section's twist at
+  its station, in the rectangle scheme of §2 — runs through 0° and 180° along the ribbon. The
+  scheme names its two references; the build computes the angle it is about to seed, takes the
+  reference that keeps it inside that range, and puts the dimension's text point inside the
   wedge it measures. The value written is the angle between two **rays**, each named in the
   step, from the point where the two lines meet; the text point sits inside that wedge.
 - **Every seed is the solved position** (`[PB-SEED-NEAR]`), computed in Python in the frame of §1
@@ -489,20 +507,13 @@ so none is exempt. Three rules hold in every sketch of this build:
 - **No `addPerpendicular` on a line that only one of its ends anchors.** A line drawn from a
   fixed point, given a length and made perpendicular to a reference has two solutions, one each
   side of the reference, and the proof's sketch gate refuses a sketch that admits a mirror
-  image. Every such line in this build is held instead by an **angular dimension of 90°**
-  between the reference's ray and the line's own ray from the shared point, with the text point
-  in that wedge, plus its length. `addPerpendicular` is used only in the rectangle scheme of §2,
-  where the line it turns already has both ends tied to other lines. The **perpendicular
-  reference line** that the rule above needs is built this way in every sketch that uses one:
-  a construction line `Rp` from the projected centre point, seeded 10 mm along `n̂ × ê` (the
-  Anchor Line's direction turned +90° about the plane's normal), held by an aligned distance
-  dimension of 10 mm from the centre point to its far end and an angular dimension of 90° from
-  the projected Anchor Line's start-to-end ray to `Rp`'s ray from the centre point. Nothing
-  reads its length.
+  image. `addPerpendicular` is used only in the rectangle scheme of §2, where the line it turns
+  already has both ends tied to other lines.
 
 The section sketches — the tooth cell's, and the collars' and bores' in §4 — share one rectangle
 scheme, stated in §2, that leaves no freedom, so there is no under-constrained case to exempt,
-unlike the bevel tooth profile. The rest are a line and a circle each.
+unlike the bevel tooth profile. Every other sketch is built from reference points alone: lines
+between them and circles centred on them, with nothing left to solve.
 
 ## Method contract — call graph
 
@@ -525,13 +536,17 @@ generate(inputs)
 ### 1: Anchor and frame
 
 Create the anchor sketch, named `Anchor`, on the user-selected plane and project the selected
-point into it; keep that projected point, since every later sketch projects it and never the raw
-selection. Draw the **Anchor Line** through it: a line seeded 0.5 cm either side of the projected
-point along the sketch's own x axis, so it is 10 mm long with its end to the right of its start.
-Constrain it with three things and nothing else:
+point into it, `sketch.project(point).item(0)`; this is the one projection in the build
+(`[SCREW-F-REFERENCES]`). Draw the **Anchor Line** through it: a line from two raw `Point3D`
+seeds 0.5 cm either side of the projected point along the sketch's own x axis, so it is 10 mm
+long with its end to the right of its start, and constrain it with four things and nothing else,
+which is the bevel gear's Anchor sketch and reads fully constrained in Fusion:
 
-- `addMidPoint(projectedPoint, line)` — the centre bisects the line. No `addCoincident` beside it:
-  the midpoint already puts the point on the line, and the second row is redundant.
+- `addCoincident(projectedPoint, line)` — the centre lies on the line — **and**
+  `addMidPoint(projectedPoint, line)` — the centre bisects it. Both, not the midpoint alone,
+  as the bevel spec requires of its own Anchor sketch. The proof's sketch engine emits the
+  coincident row as part of its midpoint constraint, so the compiled proof writes the midpoint
+  alone, as `proof/bevelgear` does.
 - `addHorizontal(line)` — sketch-local, so it survives a tilted plane (`[PB-REFLINE-DIRECTION]`).
 - A **horizontal** distance dimension from the line's start to its end
   (`addDistanceDimension(start, end, HorizontalDimensionOrientation, textPoint)`), value 10 mm.
@@ -541,8 +556,14 @@ Constrain it with three things and nothing else:
   satisfies it.
 
 Midpoint, horizontal and the horizontal distance take the line's four degrees of freedom, so it
-has none, and its absolute direction is arbitrary. That line's direction, start to end, is `ê`;
-the plane's normal is `n̂`.
+has none, and its absolute direction is arbitrary. The build raises unless the sketch reports
+`isFullyConstrained`, and only then reads the frame from world geometry
+(`[PB-WORLDGEO-CONSTRAINED]`, `[PB-WORLD-FRAME]`): `C` is the projected point's
+`worldGeometry`, and `ê` is the unit vector from the line's `startSketchPoint.worldGeometry` to
+its `endSketchPoint.worldGeometry`. The plane's normal is `n̂`, read in the next paragraph but
+one. No later sketch projects the point or the line: every other sketch takes `C` and `ê` as
+numbers, and the Anchor Line itself is passed once more, as the line the Ring Plane of §4 is
+built through.
 
 Compute both axes from `ê` and `n̂`:
 
@@ -570,19 +591,17 @@ two: a negative offset lands on gear A's side, a positive one on gear B's.
 **The axis sketches.** `Gear A Axis` on the Gear A Axis Plane and `Gear B Axis` on gear B's, each
 holding one line on its gear's axis, from station `-(L/2 + P)` to `+(L/2 + P)` with `L = N*P` the
 ribbon's length: a pitch past either end of the ribbon, so that gear B's cell, which starts
-`assemblyPhase` before station `-L/2` (§2), still lies on it. The sketch projects the anchor
-sketch's centre point and its Anchor Line (construction), and draws the perpendicular reference
-`Rp` of Sketch Discipline. The axis line is seeded from station `-(L/2 + P)` to `+(L/2 + P)`,
-so its start is its negative end, and is held by `addMidPoint(centrePoint, axisLine)`, an aligned
-distance dimension of `L + 2P` between its ends, and one angular dimension by the 45°–135° rule:
-`Sigma/2` between the projected Anchor Line's ray along `+ê` and the axis line's ray along
-`dir_g` when `Sigma/2` is 45° or more, and otherwise `90° - Sigma/2` between `Rp`'s ray from the
-centre point and the axis line's ray that makes that angle with it — the ray along `+dirA` for
-gear A and along `-dirB` for gear B. At the default 80° it is the latter, 50°. The angular
-dimension is what rules out the line's end-for-end flip, which midpoint and length alone leave
-open. Every section plane of that gear is `setByDistanceOnPath` on this line
-(`[PB-CONSTRUCTION-PLANES]`; pass the line directly, never wrapped in `Path.create`), at the
-fraction `(s + L/2 + P) / (L + 2P)` for station `s`.
+`assemblyPhase` before station `-L/2` (§2), still lies on it. The sketch holds two reference
+points (Sketch Discipline), at `origin_g - (L/2 + P)*dir_g` and `origin_g + (L/2 + P)*dir_g`,
+both on the plane, and the axis line is one solid line drawn from the first to the second,
+sharing both, so its start is its negative end; then both points are set `isFixed = True`. The
+line has no dimension and no constraint, and nothing else is in the sketch. This is how the
+bevel gear draws the shaft axis its section planes stand on: a line whose two ends are fixed has
+a `worldGeometry` the build can trust (`[PB-WORLDGEO-CONSTRAINED]`), and a line held by
+dimensions from a projected point does not. Every section plane of that gear is
+`setByDistanceOnPath` on this line (`[PB-CONSTRUCTION-PLANES]`; pass the line directly, never
+wrapped in `Path.create`), at the fraction `(s + L/2 + P) / (L + 2P)` for station `s`, and the
+point where the line pierces that plane is `origin_g + s*dir_g`.
 
 ### 2: The tooth cell
 
@@ -641,11 +660,16 @@ about the axis point `O`, which lies on the rectangle's long centre line but at 
 nor a corner. Four lines, two dimensions, one coincidence and one angle cannot fix `O` inside such
 a rectangle; a construction spine through `O` can, and this is the scheme:
 
-- **References.** `O` is the axis line's intersection with the sketch plane. `Cp` is the projected
-  centre point, which lands `A/2` from `O` along the gear's unrotated `û` (§1), so the construction
-  line `Ru` from `O` to `Cp` is the sketch's zero of rotation. The Anchor Line is not projected: its
-  projection runs through `Cp` across the rectangle at `u = A/2`, which at the defaults is inside
-  the toothed edge's sweep and would split the profile on every crest.
+- **References.** Two reference points (Sketch Discipline): `O`, the point where the axis line
+  pierces the sketch plane, at `origin_g + s*dir_g`, and `Cp`, at `origin_g + s*dir_g +
+  (A/2)*û_g`, which is `A/2` from `O` along the gear's unrotated `û` and lies on the plane
+  because `û_g` does. The construction line `Ru` from `O` to `Cp`, sharing both, is the sketch's
+  zero of rotation; it has no freedom once its ends are fixed. Both points are set
+  `isFixed = True` after `Ru` and the spine `K` are drawn and before any dimension is added.
+  Nothing is projected into a section sketch: the Anchor Line's projection would run through
+  `Cp` across the rectangle at `u = A/2`, which at the defaults is inside the toothed edge's
+  sweep and would split the profile on every crest, and `[PB-PROJECT-NOT-FIXED]` rules a
+  projected point out as an anchor in any case.
 - **The spine.** A construction line `K` from `O` to `E`, seeded at `(uF, 0)` turned by `theta`,
   with a distance dimension `O`–`E` of `uF`.
 - **The angle.** An angular dimension between `Ru` and `K` when `|sin theta| >= sqrt(1/2)`, where
@@ -699,8 +723,9 @@ sliver and no overlap; `TestDoublingScheduleCoversTheRibbon` runs the schedule a
 Copy with `copyPasteBodies.add(body)` and take the copy from the feature's `bodies`
 (`[SCREW-F-COPY-BODY]`); move with `moveFeatures.createInput2(bodies)` → `defineAsFreeMove(matrix)`
 → `add(input)` (`[PB-MOVE-ROTATE]`, `[SCREW-F-SCREW-STEP]`); join with a `combineFeatures` join and
-check that it leaves exactly one body (`[PB-EMPTY-RESULT]`). After the last join name the body
-`Gear A` or `Gear B`.
+check that it leaves exactly one body: the combine feature's own `bodies.count` is 1, and that
+body is the ribbon from then on (`[PB-EMPTY-RESULT]`, `[SCREW-F-ROUND-FRAME]`). After the last
+join name the body `Gear A` or `Gear B`.
 
 **A zero-angle matrix is a no-op that Fusion rejects** (`[PB-MOVE-ROTATE]`). A screw step is never
 zero for `k >= 1`, so no guard is needed here, but do not "optimize" a `k = 0` case into the loop.
@@ -720,29 +745,49 @@ The frame is the open skeleton in the video, built from round sections and joine
   `cageRadius`, at station `+cageRadius` or `-cageRadius` of that axis, the sign being that of
   the axis direction `dirA` or `dirB` of §1. From the crossing's azimuth about `n̂`, turn
   **counter-clockwise about `+n̂`** — the sense seen from the ring's end, gear B's side — by the
-  least angle at which a rod on the ring's circle clears everything both ribbons reach at any
-  phase of the travel, the crest rectangle over every station within `ringRadius + W` of the
-  crossing, by `clearance`. The build finds that angle as the proof does: it walks the azimuth up
-  from the crossing in quarter-degree steps to the first that clears, then bisects between that
-  and the last that did not, to a thousandth of a degree. All four are turned the **same way
-  round**, so they land in the gaps between the ribbons rather than against each other. At the
-  defaults the angle is 34.6° for a gear's collar at `-cageRadius` and 34.4° for the one at
-  `+cageRadius`, which differ because the ribbon has a different cross-section angle at each
-  crossing; `TestRodsStandBesideTheirCollars` derives and logs them, and the build takes them
-  from the same search rather than from a table. The rods are four circles on one sketch, named
-  `Rods`, on the selected plane, each on a construction spoke of `ringRadius` from the projected
-  centre at its azimuth from the projected Anchor Line, the azimuth dimensioned against that line
-  or against the perpendicular reference `Rp` (Sketch Discipline), extruded symmetrically
-  `cageRise` either side of the plane.
+  least angle at which a rod on the ring's circle clears both ribbons by `clearance`, as
+  defined next. All four are turned the **same way round**, so they land in the gaps between the
+  ribbons rather than against each other. At the defaults the turn is 34.61° for a gear's
+  collar at `-cageRadius` and 34.43° for the one at `+cageRadius`, which differ because the
+  ribbon has a different cross-section angle at each crossing; `TestRodsStandBesideTheirCollars`
+  derives and logs them, and the build takes them from the same search rather than from a
+  table. The rods are four circles on one sketch, named `Rods`, on the selected plane, each
+  centred on its foot `C + ringRadius*(cos(psi)*ê + sin(psi)*k̂)` with `k̂ = n̂ × ê` and `psi`
+  the rod's azimuth, its centre `isFixed` and its diameter dimensioned (Sketch Discipline), and
+  all four extruded in one feature symmetrically `cageRise` either side of the plane.
+
+  **What "clears" means.** The rod is parallel to `n̂` and runs past both ribbons, so only
+  distance in the selected plane counts, and what a ribbon reaches at a station, at some phase
+  of the travel, is its crest rectangle turned to that station's angle. Seen along `n̂` that
+  rectangle is a segment across the axis of half-width
+  `h(s) = (W/2)*|sin(theta_g(s))| + (T/2)*|cos(theta_g(s))|`, its extreme a corner. With a
+  rod's foot `F` on the ring's circle, `sp = (F - origin_g)·dir_g` its station on gear `g` and
+  `wp = (F - origin_g)·v̂_g` its offset across that axis, the distance from the rod's axis to the
+  ribbon at station `s` is `hypot(sp - s, max(0, |wp| - h(s)))`. A rod **clears** when that
+  distance is at least `rodDiameter/2 + clearance` for both gears at every station `s` that is
+  a whole multiple of 0.01 mm with `|s - sp| <= rodDiameter/2 + clearance`. A station further
+  along the axis than that from `sp` is further than that from the rod on the first term
+  alone, so no other station can fail. **The search** walks the azimuth up from the crossing in
+  quarter-degree steps to the first that clears — refusing `ringRadius` if a full turn finds
+  none — then bisects between that and the last that did not, moving the upper end down when
+  the middle clears and the lower end up when it does not, until the two are within 0.001°;
+  the turn is the upper end, or 0 when the crossing itself clears. `rodClears` and `rodShift`
+  in `cage_test.go` are this search, step for step.
 - **The loop** is four straight bars of `ringWire` at height `-cageRise`, each from one rod's
   foot to the next round the ring in azimuth order, with a ball of `ringWire` at each foot to
-  round the corner. Its corners are the rods, so it is inscribed in the ring's circle and reads
-  smaller than the ring: 17.26 and 17.21 mm by 14.46 mm at the defaults, inside a 22.5 mm circle.
-  It is not quite a rectangle. The two short bars each join a gear A rod to the gear B rod of the
-  same sign of station, and those two rods are turned from their crossings by the same angle, so
-  each short bar spans exactly the 80° crossing angle round the ring; the two long bars span
-  100° plus and minus the 0.19° by which the two turns differ (34.61° for a collar at
-  `-cageRadius`, 34.42° at `+cageRadius`). Equal short sides on one circle make the long sides
+  round the corner. **Foot 0** is the rod whose azimuth, taken into `[0°, 360°)`
+  counter-clockwise about `+n̂` from `ê`, is the smallest; feet 1, 2 and 3 follow in increasing
+  azimuth, and bar `i` runs from foot `i` to foot `(i + 1) mod 4`, so bar 3 closes the loop.
+  Bars and balls are numbered from 0 by their foot. At the defaults the azimuths are 74.43°
+  for gear A's `+R` rod, 174.61° for gear B's `-R`, 254.61° for gear A's `-R` and 354.43° for
+  gear B's `+R`, so foot 0 is gear A's `+R` rod. Its corners are the rods, so it is inscribed
+  in the ring's circle and reads smaller than the ring: 17.26 and 17.21 mm by 14.46 mm at the
+  defaults, inside a 22.5 mm circle. It is not quite a rectangle. The two short bars each join
+  a gear A rod to the gear B rod of the same sign of station, and those two rods are turned
+  from their crossings by the same angle, so each short bar spans exactly the 80° crossing
+  angle round the ring; the two long bars span 100° plus and minus the 0.19° by which the two
+  turns differ (34.612° for a collar at `-cageRadius` and 34.426° at `+cageRadius`, which the
+  proof logs as 34.61° and 34.43°). Equal short sides on one circle make the long sides
   parallel, so the loop is an isosceles trapezoid, a rectangle to within 0.05 mm on a side;
   `TestFrameIsOnePiece` logs the four sides. A bar is a circle of `ringWire` on a plane square to
   the bar at its middle, extruded symmetrically to the two feet; a ball is a half-disc of
@@ -769,11 +814,38 @@ The frame is the open skeleton in the video, built from round sections and joine
   (`find_profile_by_curve_counts(sketch, lines=4, arcs=4)`).
 
 Each rod runs through the wall of its own collar, and that is the whole of what joins the two;
-nothing else is added. The rod's axis passes 0.9–1.0 mm outside the bore's rectangle at the
-defaults, inside the 2 mm wall, and 0.7 mm along the ribbon from the collar's middle, so the
-whole rod runs within the collar's 4 mm length; `collarWall` may not go under `rodDiameter` for
-the first reason. `TestFrameIsOnePiece` walks ring → rods → loop and rod → collar and fails on
-any piece the ring does not reach.
+nothing else is added. The build checks that join with two numbers per rod, both from the
+search's `sp` and `wp` on the rod's own gear, and refuses `ringRadius`, naming the collar, when
+either fails:
+
+- **The rod runs inside the collar's wall.** The rod is parallel to the section's `u` direction
+  and crosses the ribbon at the one station `sp`, so its axis runs a line across that one
+  section, `wp` from the axis, and the nearest it comes to the bore's rectangle is
+  `depth = |wp| - hb`, with `hb = (W/2 + clearance)*|sin(theta_g(sp))| + (T/2 +
+  clearance)*|cos(theta_g(sp))|` the rectangle's shadow there, as `h(s)` is the crest
+  rectangle's. The rod runs inside the wall when `0 < depth <= collarWall`. The search leaves
+  the axis `rodDiameter/2 + clearance` outside the crest rectangle's shadow and the bore's
+  shadow is at most `clearance*sqrt(2)` wider, so the lower bound fails only for a rod thinner
+  than `0.42*clearance`, and the build checks it all the same; the upper bound is what
+  `collarWall` must reach, and it is why `collarWall` may not go under `rodDiameter`.
+- **The whole rod runs within the collar's length.** The collar's ends are square to the ribbon
+  at `sc ± collarHalf`, so the rod's station has to sit its own radius inside them:
+  `|sp - sc| + rodDiameter/2 <= collarHalf`.
+
+At the defaults the rod's axis stands 1.00 mm outside the bore for a collar at `-cageRadius`
+and 0.92 mm for one at `+cageRadius`, inside the 2 mm wall, and 0.74 mm and 0.72 mm along the
+ribbon from the collar's middle, inside the 4 mm length; `TestRodsStandBesideTheirCollars`
+checks the same two numbers and walks the rod through the 3-D model beside them.
+`TestFrameIsOnePiece` walks ring → rods → loop and rod → collar and fails on any piece the ring
+does not reach.
+
+After all four rods are placed the build refuses `ringRadius`, naming the two rods, when any
+two feet stand nearer than `rodDiameter + clearance`. That check is reachable, not ornamental:
+at a crossing angle of 8°, an engagement of 0.01 mm and a 1 mm rod, with everything else at
+its default, every check before it passes and two rods land on one spot, because at a small
+crossing angle the rod for one gear's collar has to turn past the other gear's ribbon as well
+and comes to rest where the other gear's rod already stands. `TestCoincidentRodsAreRefused`
+holds that input.
 
 **Bore each collar with a twisted clearance ribbon** (`[SCREW-F-TWISTED-SLOT]`): loft rectangles of
 `(W + 2*clearance)` by `(T + 2*clearance)`, 10.6 by 3.1 mm at the defaults, on planes along that
@@ -820,7 +892,9 @@ crests ("Why the cage needs no tooth-shaped cut"); nothing in the frame is shape
 as new bodies and joined into it with a `combineFeatures` join as they are made, and the four
 bores are lofted as new bodies and cut from it last with a `combineFeatures` cut, so each cut runs
 through the collar and through whatever of its rod stands inside the wall in one operation
-(`[SCREW-F-ROUND-FRAME]`). The one body that remains is the cage.
+(`[SCREW-F-ROUND-FRAME]`). Every join and cut has to leave exactly one body, counted as the
+combine feature's `bodies.count`, and that body is the cage from then on; the build raises with
+the piece's name otherwise. The one body that remains after the last cut is the cage.
 
 ### 5: Relocate the bodies
 
@@ -885,9 +959,13 @@ The mechanism proof's cases:
   than that: the crests, the back edge and the faces each come to the clearance, 0.300 mm at the
   defaults, so the bore is cut to the ribbon rather than merely round it.
 - `TestRodsStandBesideTheirCollars` derives where each rod stands by the search the build runs,
-  logs the angles, and fails when no point of the ring's circle clears the ribbons, when the rod
-  that does runs nowhere inside its collar's wall, when part of its diameter misses the collar's
-  length, or when two rods touch.
+  step for step (`rodClears`, `rodShift`), logs the angles, and fails when no point of the
+  ring's circle clears the ribbons, when the rod that does runs nowhere inside its collar's wall
+  by the closed form the build checks (`rodWallDepth`, held against a walk of the rod through
+  the 3-D model), when part of its diameter misses the collar's length, or when two rods touch.
+  `TestCoincidentRodsAreRefused` holds an input — crossing angle 8°, engagement 0.01 mm, a 1 mm
+  rod — at which every earlier check passes and two rods land on one spot, so the last refusal
+  is one the build can reach.
   `TestFrameIsOnePiece` then walks ring → rods → loop and rod → collar and fails on any piece
   the ring does not reach; it also logs the loop's sides.
 - `TestBoresSitOnOppositeSidesOfTheMiddle` holds one gear's collars low against the other's high.

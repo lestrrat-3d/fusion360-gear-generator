@@ -139,26 +139,64 @@ func (f frame) rodShift(c crossing) float64 {
 	return math.NaN()
 }
 
+// rodStep is how finely the rod search samples a ribbon's stations, in mm.
+// The spec's rod search (instructions.md, "The cage") fixes the same step.
+const rodStep = 0.01
+
+// shadowHalfWidth is how far a rectangle of the given half-sides, turned by
+// theta about the ribbon's axis, reaches across the frame's plane either side
+// of that axis. The rod is parallel to the frame's axis, which is the section's
+// u direction, so a rod sees only this shadow. The extreme is a corner.
+func shadowHalfWidth(halfU, halfV, theta float64) float64 {
+	return halfU*math.Abs(math.Sin(theta)) + halfV*math.Abs(math.Cos(theta))
+}
+
+// rodFoot is where a rod at the given azimuth stands on gear g, in the
+// ribbon's own terms: its station along the axis and its offset across it,
+// both measured in the frame's plane.
+func (f frame) rodFoot(g Gear, azimuth float64) (float64, float64) {
+	foot := r3.NewVec(f.p.RingRadius*math.Cos(azimuth), f.p.RingRadius*math.Sin(azimuth), 0)
+	d := foot.Sub(g.Origin)
+	return d.Dot(g.Ez), d.Dot(g.Ey)
+}
+
 // rodClears answers whether a rod at the given azimuth stays the clearance away
 // from everything either ribbon reaches at any phase. The rod runs the whole
-// height of the frame, so only the horizontal distance counts.
+// height of the frame, so only the distance in the frame's plane counts, and
+// what a ribbon reaches at a station is the shadow of its crest rectangle
+// there. A station further from the rod's own station than the clearance it
+// needs is further than that from the rod along the axis alone, so only the
+// stations within that reach are walked. The build runs this same test from
+// the same inputs.
 func (f frame) rodClears(azimuth float64) bool {
 	p := f.p
-	rx, ry := p.RingRadius*math.Cos(azimuth), p.RingRadius*math.Sin(azimuth)
 	need := p.RodRadius() + p.Clearance
-	reach := p.RingRadius + p.Width // further out along a ribbon nothing can touch the ring's circle
 	for _, g := range f.gears {
-		clear := true
-		eachEnvelopePoint(g, -reach, reach, 0.05, func(pt r3.Vec) {
-			if clear && math.Hypot(pt.X-rx, pt.Y-ry) < need {
-				clear = false
+		sp, wp := f.rodFoot(g, azimuth)
+		lo, hi := sp-need, sp+need
+		for k := math.Ceil(lo / rodStep); k*rodStep <= hi; k++ {
+			s := k * rodStep
+			h := shadowHalfWidth(p.Width/2, p.Thickness/2, g.angle(s))
+			if math.Hypot(sp-s, math.Max(0, math.Abs(wp)-h)) < need {
+				return false
 			}
-		})
-		if !clear {
-			return false
 		}
 	}
 	return true
+}
+
+// rodWallDepth is how far a rod's axis stands outside its collar's bore, and
+// the station it crosses the ribbon at. The rod is parallel to the section's u
+// direction and crosses the ribbon at one station, so its axis runs a line
+// across that one section, and the nearest the line comes to the bore's
+// rectangle is the rod's offset less the rectangle's shadow there. The rod
+// runs inside the collar's wall when that depth is positive and at most the
+// wall's thickness, and the build checks the same number.
+func (f frame) rodWallDepth(c crossing) (float64, float64) {
+	p := f.p
+	sp, wp := f.rodFoot(c.g, c.rod)
+	hb := shadowHalfWidth(p.BoreHalfWidth(), p.BoreHalfThickness(), c.g.angle(sp))
+	return math.Abs(wp) - hb, sp
 }
 
 // rodPoint is a point on a rod's axis at height z.
@@ -340,7 +378,16 @@ func TestRodsStandBesideTheirCollars(t *testing.T) {
 				c.azimuth*180/math.Pi, shift*180/math.Pi)
 		}
 		// How far the rod's axis runs from the bore, where the collar's wall
-		// takes it in: under the wall's thickness, or nothing joins the two.
+		// takes it in: over zero and under the wall's thickness, or nothing
+		// joins the two. This is the closed form the build checks.
+		depth, along := f.rodWallDepth(c)
+		if depth <= 0 || depth > p.CollarWall {
+			t.Errorf("the rod for the collar at %.0f degrees runs nowhere inside that collar's wall: "+
+				"its axis stands %.2f mm outside the bore against a %.1f mm wall, so nothing joins the two",
+				c.azimuth*180/math.Pi, depth, p.CollarWall)
+		}
+		// The same thing walked along the rod through the 3-D model, so the
+		// closed form is held to the geometry rather than taken on trust.
 		joined, nearest := false, math.Inf(1)
 		for z := -p.CageRise; z <= p.CageRise; z += 0.05 {
 			pt := f.rodPoint(c, z)
@@ -352,13 +399,15 @@ func TestRodsStandBesideTheirCollars(t *testing.T) {
 			nearest = math.Min(nearest, gap)
 		}
 		if !joined {
-			t.Errorf("the rod for the collar at %.0f degrees runs nowhere inside that collar's wall, "+
-				"so nothing joins the two", c.azimuth*180/math.Pi)
+			t.Errorf("walking the rod for the collar at %.0f degrees finds no point of it inside the "+
+				"collar's wall", c.azimuth*180/math.Pi)
+		} else if math.Abs(nearest-depth) > 0.01 {
+			t.Errorf("walking the rod for the collar at %.0f degrees finds its axis %.3f mm outside the "+
+				"bore; the closed form the build checks says %.3f", c.azimuth*180/math.Pi, nearest, depth)
 		}
 		// And the whole rod runs within the collar's length, not just its
 		// axis: the collar's ends are square to the ribbon, so the rod's
 		// station along the ribbon has to sit its own radius inside either end.
-		_, along := boreGap(c.g, f.rodPoint(c, 0))
 		if off := math.Abs(along - c.station); off+p.RodRadius() > p.CollarHalf+1e-9 {
 			t.Errorf("the rod for the collar at %.0f degrees stands %.2f mm along the ribbon from the "+
 				"collar's middle, so part of its %.1f mm diameter misses the collar's %.1f mm length",
@@ -368,17 +417,71 @@ func TestRodsStandBesideTheirCollars(t *testing.T) {
 		t.Logf("rod %d stands %.2f degrees round the ring from its collar, %.1f mm from the crossing, "+
 			"its axis %.2f mm outside the bore where the wall takes it in and %.2f mm along the ribbon "+
 			"from the collar's middle, at station %+.2f",
-			i, shift*180/math.Pi, chord, nearest, along-c.station, along)
+			i, shift*180/math.Pi, chord, depth, along-c.station, along)
 	}
 
+	if d := f.nearestRods(); d < p.RodDiameter+p.Clearance {
+		t.Errorf("two rods stand %.2f mm apart, which is touching", d)
+	}
+}
+
+// nearestRods is the least distance between any two rods' axes.
+func (f frame) nearestRods() float64 {
+	nearest := math.Inf(1)
 	for i := range f.cross {
 		for j := i + 1; j < 4; j++ {
 			d := f.rodPoint(f.cross[i], 0).Sub(f.rodPoint(f.cross[j], 0)).Len()
-			if d < p.RodDiameter+p.Clearance {
-				t.Errorf("rods %d and %d stand %.2f mm apart, which is touching", i, j, d)
-			}
+			nearest = math.Min(nearest, d)
 		}
 	}
+	return nearest
+}
+
+// The build refuses a frame whose rods stand nearer than a rod's diameter
+// plus the clearance, and this holds that the refusal is reachable: an input
+// exists that passes every check before it and lands two rods on one spot.
+// At a small crossing angle the two ribbons run nearly side by side, so the
+// rod for one gear's collar has to turn past the other gear's ribbon as well,
+// and it comes to rest where the other gear's rod already stands. A small
+// engagement is what lets the cage radius check pass at that angle, and a
+// thin rod is what lets the wall check pass the extra turn.
+func TestCoincidentRodsAreRefused(t *testing.T) {
+	p := defaultParams()
+	p.CrossAngle = 8 * math.Pi / 180
+	p.Engagement = 0.01
+	p.RodDiameter = 1
+	ga, gb := pair(p, p.Sigma(), 0, assemblyPhase)
+	f := newFrame(ga, gb)
+
+	// The checks the build runs before the rod distance, in its order.
+	if zone := axialWindow(p); p.CageRadius-p.CollarHalf <= zone {
+		t.Fatalf("a collar starts %.2f mm from the middle, inside the %.2f mm engaged zone, so the build "+
+			"refuses this input before the rod search", p.CageRadius-p.CollarHalf, zone)
+	}
+	for i, c := range f.cross {
+		shift := c.rod - c.azimuth
+		if math.IsNaN(shift) {
+			t.Fatalf("no rod clears for collar %d, so the build refuses this input before the rod distance", i)
+		}
+		depth, along := f.rodWallDepth(c)
+		if depth <= 0 || depth > p.CollarWall {
+			t.Fatalf("rod %d stands %.2f mm outside its bore against a %.1f mm wall, so the wall check "+
+				"refuses this input before the rod distance", i, depth, p.CollarWall)
+		}
+		if off := math.Abs(along - c.station); off+p.RodRadius() > p.CollarHalf+1e-9 {
+			t.Fatalf("rod %d stands %.2f mm from its collar's middle, so the length check refuses this "+
+				"input before the rod distance", i, off)
+		}
+		t.Logf("rod %d turns %.2f degrees, its axis %.2f mm outside the bore and %.2f mm from the "+
+			"collar's middle", i, shift*180/math.Pi, depth, math.Abs(along-c.station))
+	}
+	d := f.nearestRods()
+	if d >= p.RodDiameter+p.Clearance {
+		t.Fatalf("the rods stand %.2f mm apart, so the refusal is not reached at this input", d)
+	}
+	t.Logf("at a crossing angle of %.0f degrees, an engagement of %.2f mm and a %.0f mm rod, two rods "+
+		"stand %.3f mm apart and only the rod distance refuses the frame", p.Sigma()*180/math.Pi,
+		p.Engagement, p.RodDiameter, d)
 }
 
 // The frame is one body. Every rod runs from the ring to the loop, and each
@@ -467,8 +570,9 @@ func TestRibbonsClearTheFrameOverTheTravel(t *testing.T) {
 		})
 	}
 	// A rod stands at the least angle that clears, so the walk finds it at
-	// the clearance itself; the walk samples stations more finely than the
-	// rod search does, and the micron is that difference.
+	// the clearance itself; the walk samples the rectangle's sides at points
+	// where the rod search takes its exact shadow, and the micron is that
+	// difference plus the search's own thousandth of a degree.
 	for name, gap := range map[string]float64{"ring": ring, "loop": loop, "rods": rod} {
 		if gap < p.Clearance-1e-3 {
 			t.Errorf("a ribbon comes within %.3f mm of the %s over the travel, under the %.2f mm clearance",

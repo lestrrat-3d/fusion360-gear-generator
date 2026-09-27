@@ -129,76 +129,131 @@ Every other part of the frame is a round section, and none of them twists. No co
 is made anywhere in this build, since one needs an active component
 (`[PB-CONSTRUCTION-NEEDS-ACTIVE]`); every revolve axis is a sketch line.
 
+Every sketch here is built from the reference points of `[SCREW-F-REFERENCES]` and nothing
+free: lines between reference points and circles centred on them. Sketch-local frames are
+never used for a position; every point is a world point of the spec's §1 frame, computed on the
+sketch's plane and mapped in with `modelToSketchSpace`.
+
 - The ring is a `revolveFeatures` full revolution (`[PB-REVOLVE]`: `createInput(profile, axis,
   NewBodyFeatureOperation)` → `setAngleExtent(False, ValueInput.createByString('360 deg'))` →
   `add`) of a circle sketched on the **Ring Plane**, the plane through the Anchor Line square to the
-  selected plane (`setByAngle(anchorLine, '90 deg', targetPlane)`), in a sketch named **Ring**.
-  The sketch projects the anchor sketch's centre point `Cp` and its Anchor Line (construction).
-  The revolve axis `An` is a construction line from `Cp`, seeded `cageRise` along `n̂`, held by an
-  aligned distance dimension of `cageRise` from `Cp` to its end and an angular dimension of 90°
-  from the projected Anchor Line's start-to-end ray to `An`'s ray from `Cp`. The spoke `Sp` is a
-  construction line from `An`'s end, seeded `ringRadius` along `ê`, held by an aligned distance
-  dimension of `ringRadius` between its ends and an angular dimension of 90° between the two rays
-  from `An`'s end: `An`'s own direction carried on past its end, and `Sp` toward its end. Neither
-  line is `addPerpendicular` (Sketch Discipline: a line held at one end by a perpendicular can
-  point either way). The wire is a circle seeded at `Sp`'s end, its centre `addCoincident` on
-  `Sp`'s end point (`[PB-CIRCLE-CENTER]`: the centre is created free) and a diameter dimension of
-  `ringWire`. The circle never reaches the axis, since `ringRadius > ringWire/2` follows from the
-  rod checks.
+  selected plane (`setByAngle(anchorLine, '90 deg', targetPlane)`), which therefore holds `C`, `ê`
+  and `n̂`, in a sketch named **Ring**. The revolve axis `An` is a construction line between two
+  reference points, `C` and `C + cageRise*n̂`, sharing both, and both are set `isFixed` once the
+  line is drawn; the revolve uses the whole line the segment lies on. The wire is a circle
+  `addByCenterRadius` at `C + cageRise*n̂ + ringRadius*ê` with radius `ringWire/2`, its
+  `centerSketchPoint.isFixed = True` (`[PB-CIRCLE-CENTER]`: the centre is created free, and
+  `isFixed` is the pin Fusion accepts) and a diameter dimension of `ringWire` with its text
+  point on the circle (`[PB-RADIAL-DIM]`). The circle never reaches the axis, since
+  `ringRadius > ringWire/2` follows from the rod checks. **Its profile** is the one closed loop
+  in the sketch: raise unless `sketch.profiles.count == 1`, then `sketch.profiles.item(0)`
+  (`[PB-SINGLE-PROFILE]`). `find_profile_by_curve_counts` cannot pick a circle: it counts lines,
+  arcs and NURBS curves and treats a `Circle3DCurveType` curve as a type that disqualifies the
+  loop, so it is used only for the loops of lines and arcs below.
 - A rod is an `extrudeFeatures` extrusion of a circle sketched on the selected plane itself,
   `setSymmetricExtent(ValueInput.createByReal(cageRise), False)` — `False` makes the value each
   side's length (`[PB-THROUGH-CUT]` for the argument's meaning), so the rod runs from `-cageRise` to
-  `+cageRise`. Sketch all four on one sketch named **Rods**, which projects `Cp` and the Anchor
-  Line and draws the perpendicular reference `Rp` of Sketch Discipline; each rod's spoke is a
-  construction line from `Cp` to its foot, held by an aligned distance dimension of `ringRadius`
-  and an angular dimension against the projected Anchor Line or against `Rp` by the 45°–135°
-  rule, and its circle's centre is `addCoincident` on the spoke's end with a diameter dimension
-  of `rodDiameter`. Each circle is its own profile, and the four are extruded in one feature as
-  new bodies, whose count the build checks.
-- A bar of the loop is the same extrusion between two rod feet: a line from foot to foot on a
-  **Loop** sketch on the **Loop Plane**, offset `-cageRise` from the selected plane, each foot the
-  projected centre of a rod's circle, so the sketch holds nothing free; the feet are taken in
-  azimuth order counter-clockwise about `+n̂`, and bar `i` runs from foot `i` to foot `i + 1`.
-  Then a plane square to that line at its middle (`setByDistanceOnPath(bar, 0.5)`), named
-  **Loop Bar `i` Plane**; on it a sketch **Loop Bar `i`** with a circle of `ringWire` centred on
-  the line's intersection with it (`intersectWithSketchPlane`, its centre `addCoincident` on that
-  point), extruded `setSymmetricExtent` by half the line's `length`. It is not a sweep: a sweep
-  needs a `Path`, and `Path.create` on a sketch curve raises in this multi-component build
-  (`[SCREW-F-TWISTED-SLOT]`). The ball at foot `i` is a half-disc revolved about a line through
-  the foot along `n̂`, on the plane through bar `i` — the bar that starts at that foot — and `n̂`
-  (`setByAngle(bar_i, '90 deg', loopPlane)`), named **Loop Ball `i` Plane**, in a sketch **Loop
-  Ball `i`**: the sketch projects bar `i` (construction); the line `Bl`, seeded `ringWire` long
-  through the foot along `n̂`, is held by `addMidPoint(foot, Bl)`, an aligned distance dimension
-  of `ringWire` between its ends and an angular dimension of 90° from the projected bar's ray
-  from the foot toward foot `i + 1` to `Bl`'s ray from the foot toward its `+n̂` end — not
-  `addPerpendicular`, which would let the line flip end for end and carry the arc to the other
-  side; then a three-point arc from `Bl`'s start to its end through the point `ringWire/2` from
-  the foot on the side away from the bar, its centre `addCoincident` on `Bl`. The profile is the
-  half-disc, one line and one arc, and `Bl` is the revolve axis, which a profile may lie against.
+  `+cageRise`. Sketch all four on one sketch named **Rods**, in the collar order of the spec's
+  rod search: each is `addByCenterRadius` at its foot
+  `C + ringRadius*(cos(psi)*ê + sin(psi)*k̂)`, `k̂ = n̂ × ê`, radius `rodDiameter/2`, its
+  `centerSketchPoint.isFixed = True` and a diameter dimension of `rodDiameter`. Nothing else is
+  in the sketch. Each circle is its own profile and the four never overlap, since the rods stand
+  at least `rodDiameter + clearance` apart: raise unless `sketch.profiles.count == 4`, put all
+  four `sketch.profiles.item(i)` into one `ObjectCollection`, and extrude them in one feature as
+  new bodies, raising unless the feature's `bodies.count` is 4. The order of the four profiles
+  does not matter, since every rod gets the same extent.
+- A bar of the loop is the same extrusion between two rod feet: a solid line from foot to foot
+  on a **Loop** sketch on the **Loop Plane**, offset `-cageRise` from the selected plane. The four
+  feet are reference points at `C - cageRise*n̂ + ringRadius*(cos(psi)*ê + sin(psi)*k̂)`, in
+  the spec's foot order (foot 0 the smallest azimuth in `[0°, 360°)` from `ê` about `+n̂`, the
+  rest increasing); bar `i` is `addByTwoPoints(foot_i, foot_((i+1) mod 4))` sharing both, and
+  after the four bars are drawn all four feet are set `isFixed`. The sketch holds nothing free
+  and no dimension. Then a plane square to bar `i` at its middle (`setByDistanceOnPath(bar_i,
+  0.5)`), named **Loop Bar `i` Plane**; on it a sketch **Loop Bar `i`** with a circle
+  `addByCenterRadius` at the bar's middle `(foot_i + foot_((i+1) mod 4))/2`, which is where the
+  bar pierces that plane, radius `ringWire/2`, its `centerSketchPoint.isFixed = True` and a
+  diameter dimension of `ringWire`; its profile is the sketch's one loop, `profiles.count == 1`
+  then `item(0)`, as the ring's. It is extruded `setSymmetricExtent` by half the bar's `length`.
+  It is not a sweep: a sweep needs a `Path`, and `Path.create` on a sketch curve raises in this
+  multi-component build (`[SCREW-F-TWISTED-SLOT]`). The ball at foot `i` is a half-disc revolved
+  about a line through the foot along `n̂`, on the plane through bar `i` — the bar that starts at
+  that foot — and `n̂` (`setByAngle(bar_i, '90 deg', loopPlane)`), named **Loop Ball `i`
+  Plane**, in a sketch **Loop Ball `i`**: the solid line `Bl` runs between two reference points,
+  `foot_i - (ringWire/2)*n̂` (start) and `foot_i + (ringWire/2)*n̂` (end), sharing both; then a
+  three-point arc `addByThreePoints(Bl.startSketchPoint, through, Bl.endSketchPoint)` with
+  `through` the point `ringWire/2` from the foot on the side away from the bar,
+  `foot_i - (ringWire/2)*unit(foot_((i+1) mod 4) - foot_i)`, which lies on the plane; then both
+  reference points are set `isFixed`, and `addCoincident(arc.centerSketchPoint, Bl)` puts the
+  arc's centre on the chord, where the half-disc's centre is. With its two ends fixed the arc has
+  one freedom, its bulge, and the coincident takes it; the side of the bulge is the seed's. The
+  profile is the half-disc, one line and one arc, `find_profile_by_curve_counts(sketch, lines=1,
+  arcs=1)`, and `Bl` is the revolve axis, which a profile may lie against.
 
 Join every piece into one body with a `combineFeatures` join as it is made, collars included, and
 cut the bores last: the bore's loft then passes through the collar and through the part of its rod
 that stands inside the wall in one operation. A join or cut is `combineFeatures.createInput(target,
 tools)` with the tools in an `ObjectCollection`, `operation` set to `JoinFeatureOperation` or
-`CutFeatureOperation`, `isKeepToolBodies = False`, then `add`; each leaves one body, and the build
-raises with the piece's name when it does not (`[PB-EMPTY-RESULT]`). The pieces are always made as
-new bodies and combined explicitly, because a join operation on the extrude or loft itself would
-join into whatever it touches, the ribbons included. The rods' azimuths are the angles the proof's
+`CutFeatureOperation`, `isKeepToolBodies = False`, then `add`. **Each leaves one body**, which
+means the combine feature's `bodies.count` — `Feature.bodies`, the bodies the feature created or
+modified — is exactly 1; the build raises with the piece's name and the count when it is not
+(`[PB-EMPTY-RESULT]`, `[PB-SELF-DIAGNOSING]`), and `bodies.item(0)` is the target from then on.
+The same count gates the ribbon joins of §3. The pieces are always made as new bodies and
+combined explicitly, because a join operation on the extrude or loft itself would join into
+whatever it touches, the ribbons included. The rods' azimuths are the angles the proof's
 `TestRodsStandBesideTheirCollars` derives, and the build recomputes them by the same search rather
 than reading them from a table, because they move with every ribbon dimension.
 
 ## `[SCREW-F-REFERENCES]` — how fixed geometry enters a sketch
 
-A point or line of the anchor sketch enters any other sketch as
-`sketch.project(entity).item(0)`, as `[PB-PROJECT-NOT-FIXED]` writes it. The compiled API
-reference declares only `project2(entities, isLinked)`, so the repo's gates report `project` as
-unverified; this gear keeps `project` anyway, because every add-in that has loaded in Fusion
-(spur, bevel, cycloidal) calls it and none calls `project2`. A projected line is set
-`isConstruction = True` wherever it must not bound a profile.
+`[PB-PROJECT-NOT-FIXED]` is the rule: `sketch.project(...)` brings geometry in with free degrees
+of freedom, so a sketch whose curves hang off shared projected points reports under-constrained,
+and every sketch of this build is gated on `isFullyConstrained`. This gear therefore projects
+**once**, in the Anchor sketch, and nowhere else, and never calls `intersectWithSketchPlane`.
 
-A gear's axis line enters a section sketch, whose plane is normal to it, as
-`sketch.intersectWithSketchPlane([axisLine])[0]`, a sketch point at the axis; the build raises when
-the list is empty (`[PB-EMPTY-RESULT]`). The same call gives a bar's middle on its section plane.
+**The Anchor sketch** projects the user's selected point, `sketch.project(point).item(0)`, and
+binds the Anchor Line to it by `addCoincident` and `addMidPoint` together, plus `addHorizontal`
+and a horizontal distance between the line's ends. That is the bevel gear's Anchor sketch, which
+Fusion reports fully constrained (`PLAYBOOK.md` `[PB-SETTLE-DISPLAY]` records the measurement),
+and it is the one place a projection is anchored by constraints rather than replaced. The
+compiled API reference declares only `project2(entities, isLinked)`, so the repo's gates report
+`project` as unverified; this gear keeps `project` anyway, because every add-in that has loaded
+in Fusion (spur, bevel, cycloidal) calls it and none calls `project2`. After the sketch's gate
+passes, `C` is the projected point's `worldGeometry` and `ê` runs from the line's
+`startSketchPoint.worldGeometry` to its `endSketchPoint.worldGeometry`
+(`[PB-WORLDGEO-CONSTRAINED]`); `n̂` is read from the Gear A Axis Plane (`[SCREW-F-NORMAL-SIGN]`).
+
+**Every other sketch** takes its references as **reference points**, by the recreate-share-fix
+recipe of `[PB-PROJECT-NOT-FIXED]` (b), which is how the bevel gear builds each per-gear profile
+sketch and the shaft axis its revolve, pattern and section planes stand on:
+
+1. Compute the point in world space from `C`, `ê`, `n̂` and the §1 frame, **on the sketch's own
+   plane** — the axis point of a section at `origin_g + s*dir_g`, a rod's foot on the ring's
+   circle, a bar's end on the Loop Plane — so `sketch.modelToSketchSpace(worldPoint)` lands it at
+   zero height in the sketch.
+2. `pt = sketch.sketchPoints.add(sketch.modelToSketchSpace(worldPoint))`.
+3. Draw every curve that uses it **sharing** `pt`: `addByTwoPoints(pt, ...)`,
+   `addByThreePoints(pt, ...)` (`[PB-SHARE-XOR-COINCIDENT]`: shared, so no coincident to it).
+4. After the last such curve exists, and before any constraint or dimension is added, set
+   `pt.isFixed = True`. The order is the playbook's: a bare point fixed before a curve consumes it
+   does not leave the sketch fully constrained.
+
+A line between two reference points is fully constrained by the two fixed ends and takes no
+dimension. A circle centred on a reference position is not built on a reference point: it is
+`addByCenterRadius` at that position and its own `centerSketchPoint` is set `isFixed = True`
+(`[PB-CIRCLE-CENTER]`, measured in Fusion on a `setByDistanceOnPath` plane, which is where the
+Loop Bar circles sit), with a diameter dimension; a coincident from a circle's centre to a fixed
+point is not used, since the playbook records a solve failure for the coincident form.
+
+The world points are the numbers the source geometry was dimensioned to, so they are the solved
+positions (`[PB-SOLVED-GEOMETRY]`): the Anchor sketch is the only sketch whose geometry a later
+sketch depends on, and its `worldGeometry` is read once, after its gate, into `C` and `ê`. No
+sketch reads another sketch's points after that.
+
+**What the proof does with this.** The sketch engine's `Fix` is the analogue of `isFixed`
+(`[PB-SKETCH-FIRST]`, constraint mapping), so the compiled proof fixes each reference point and
+proves the rest of the scheme against it; for the Anchor sketch it writes the midpoint alone,
+because the engine's midpoint already carries the coincident row, as `proof/bevelgear` records.
+Whether Fusion's `isFullyConstrained` agrees is what the first load will say, and it goes here.
 
 ## `[SCREW-F-NORMAL-SIGN]` — reading `n̂` from a plane the build made
 

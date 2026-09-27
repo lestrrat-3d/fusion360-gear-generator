@@ -157,7 +157,7 @@ four tooth pairs land in the engaged zone at once and cannot all interdigitate, 
 | Play in the frame | a collar jams a gear 3.55° out of step |
 | Travel | 115.1 mm, 65.8 teeth, 82% of the ribbon: 57.1 mm back and 58.0 mm forward of the assembly position |
 | Ring | 25 mm across, 2.5 ribbon widths and 0.76 leads; the frame 1.18 ring widths tall |
-| Rods | 34.61° (at −CageRadius) and 34.42° (at +CageRadius) round the ring from their collars, 6.7 mm from the crossings, crossing the ribbon at stations 9.26 and 9.28 mm |
+| Rods | 34.61° (at −CageRadius) and 34.43° (at +CageRadius) round the ring from their collars, 6.7 mm from the crossings, crossing the ribbon at stations 9.26 and 9.28 mm, their axes 1.00 and 0.92 mm outside the bore inside the 2 mm wall |
 | Loop | 17.26 and 17.21 mm by 14.46 mm between the rods' feet, an isosceles trapezoid |
 | Frame to ribbon | 2.66 mm at the ring, 3.73 mm at the loop, 0.30 mm at the rods, over the travel |
 | Ribbon to ribbon outside the engaged zone | 1.04 mm at every phase of the travel, at station −4.40 mm, crest rectangle against crest rectangle |
