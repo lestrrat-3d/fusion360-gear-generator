@@ -19,8 +19,8 @@ that reaches the transcriber as nothing at all.
 |---|---|
 | `spec/herringbonegear/instructions.md` | `0ca177828c06bbf8472200559b5dd47b8cb359a9` |
 | `spec/herringbonegear/fusion.md` | `62755ad2d376481cf449893ab2a445772357d218` |
-| `spec/helicalgear/fusion.md` | `f981173cb314094f2fd98cdd78d5bd8287cdc8ee` |
-| `spec/helicalgear/instructions.md` | `d1310b3545621fd351ce11aff800668666c73010` |
+| `spec/helicalgear/fusion.md` | `6cbe03029a0b89b001479234c0af422deb589dbf` |
+| `spec/helicalgear/instructions.md` | `631233a7c9831b72e39b60504226f4ba99b3ae32` |
 | `spec/spurgear/instructions.md` | `8c761c4542788b3ad455fa7ae02dbf978e65b8ca` |
 | `.claude/skills/generate-gear/PLAYBOOK.md` | `9ee2dcbaed7b5480aa69e9295e8b61acaea081f3` |
 
