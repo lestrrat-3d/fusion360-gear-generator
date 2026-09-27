@@ -38,3 +38,19 @@ No paired same-source baseline and candidate drafting runs were timed with a pin
 Accepted-output time and repair-round savings therefore remain unmeasured. The trial supports a
 faster call-extraction check and clearer call requirements; it does not establish an end-to-end
 generation speedup.
+
+## Helical expansion
+
+The helical compiler produced 15 steps and eight proof functions from the prose spec. The proof
+passes three bottom-profile sketches, 11 twisted-profile sketches, two bore sketches, four each
+of tooth loft, root extrusion, tooth placement, and gear union, plus three bore cases. The full
+repository CI suite passed after the compiled artifacts were committed. The emitted helical
+Python passed all eight emit gates, and the user generated a default helical gear in Fusion with
+the deployed file SHA-256 `ed2e8530644505decd34f995f41b6ed08979b3eacd67bc95fa3a966a8b9d4a51`.
+
+The solid proof substitutes chords for spline sections and verifies pattern copies in separate
+documents. Its gear union uses a rotated 68-sided root prism with at most about 0.00775 mm radial
+overreach and 0.01 mm axial overhang at each end. Those checks do not establish spline-surface
+topology, mutual separation of all patterned teeth, the exact cylindrical root or flush caps.
+The inherited completed-gear fillet and chamfer remain outside the solid proof. The live Fusion
+test confirms default generation, while those proof limits still apply.
