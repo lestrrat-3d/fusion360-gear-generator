@@ -51,6 +51,9 @@ def provenance_inputs(gear):
     inputs = {
         path for path in (instructions, fusion, playbook) if os.path.isfile(path)
     }
+    exact_values = os.path.join('spec', gear, 'exact_values.json')
+    if os.path.isfile(exact_values):
+        inputs.add(exact_values)
     for path in specs:
         inputs.update(referenced_documents(path))
     return inputs

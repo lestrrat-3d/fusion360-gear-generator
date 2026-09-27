@@ -1,10 +1,10 @@
 # Spur Gear Creation Instructions
 
-This file is the **design & geometry intent** — what the spur gear is and how it is built. Its
-**Fusion-API realization** (the constraint recipes, the anchor-tracking sketch design, the cleanup
-recipe — the gear-specific *how*) lives in the sidecar **`fusion.md`** next to this file and is
-cited here by anchor (`[SPUR-F…]`). Cross-gear Fusion conventions are cited as `[PB-…]` (in the
-shared `PLAYBOOK.md`). Read all three together; the cited rules are as binding as this body.
+This file states the gear design and geometry. The sidecar `fusion.md` defines the Fusion API
+recipes, and the shared `PLAYBOOK.md` defines cross-gear rules. Follow their cited anchors.
+`spec/spurgear/exact_values.json` owns dialog IDs, labels, prompts, filters, defaults, and
+parameter names, units, comments, and expressions. The tables below explain those checked
+values; the exact-value source determines their generated Python representation.
 
 ## Component Setup
 
@@ -89,21 +89,9 @@ Fillet Radius: calculated number. `(Tooth Space Arc At Root / 2) * Fillet Cleara
 
 ### Exact input ids and parameter-name strings
 
-These literal strings are part of the reproduced surface (they appear in the dialog and the
-post-generation user-parameter table, and saved designs reference them). Use them verbatim:
-
-| Dialog input | input id | registered user-parameter |
-|---|---|---|
-| Parent Component (selection) | `parentComponent` | — |
-| Target Plane (selection) | `plane` | — |
-| Anchor Point (selection) | `anchorPoint` | — |
-| Module | `module` | `Module` |
-| Tooth Number | `toothNumber` | `ToothNumber` |
-| Pressure Angle | `pressureAngle` | `PressureAngle` |
-| Bore Diameter | `boreDiameter` | `BoreDiameter` |
-| Thickness | `thickness` | `Thickness` |
-| Apply chamfer to teeth | `chamferTooth` | `ChamferTooth` |
-| Generate sketches, but do not build body | `sketchOnly` | `SketchOnly` |
+The IDs and parameter names are part of saved designs. Read them from
+`spec/spurgear/exact_values.json` and `spec/spurgear/contract.json`; the checked handoff carries
+them into generated code. Do not maintain a second literal table here.
 
 **Five overridable methods must carry their return annotation, because a subclass narrows on
 them.** `helicalgear` and `herringbonegear` override these and annotate their own returns. Python
@@ -130,67 +118,14 @@ matches `utilities.find_circle_by_radius`'s own default, so the two ways of find
 codebase agree. Step 13 already pins `0.01` for the axis-direction dot product; this is the other
 tolerance that step needs and it was previously left to the implementer.
 
-**Every registered parameter's `comment` is reproduced surface — write it exactly.**
-`addParameter(name, ValueInput, units, comment)` takes a fourth string that Fusion shows in the
-parameter table's Comment column, beside all twenty `<prefix>_…` parameters. It is what the user
-reads there, so it is not free text for the implementation to choose. These are the strings, with
-each parameter's unit string alongside so the two are read together:
+**Every registered parameter's `comment` is reproduced surface.** `addParameter` shows that
+string in Fusion's parameter table. The source JSON owns all twenty parameter units and
+comments, and the renderer writes them into the module.
 
-| constant | units | `comment` |
-|---|---|---|
-| `PARAM_MODULE` | '' | `Module of the gear` |
-| `PARAM_TOOTH_NUMBER` | '' | `Number of teeth` |
-| `PARAM_PRESSURE_ANGLE` | 'rad' | `Pressure angle` |
-| `PARAM_BORE_DIAMETER` | 'mm' | `Bore diameter` |
-| `PARAM_THICKNESS` | 'mm' | `Thickness of the gear` |
-| `PARAM_CHAMFER_TOOTH` | 'mm' | `Chamfer distance applied to the teeth` |
-| `PARAM_SKETCH_ONLY` | '' | `Generate sketches only` |
-| `PARAM_PITCH_DIAMETER` | 'mm' | `Pitch circle diameter` |
-| `PARAM_PITCH_RADIUS` | 'mm' | `Pitch circle radius` |
-| `PARAM_BASE_DIAMETER` | 'mm' | `Base circle diameter` |
-| `PARAM_BASE_RADIUS` | 'mm' | `Base circle radius` |
-| `PARAM_ROOT_DIAMETER` | 'mm' | `Root circle diameter` |
-| `PARAM_ROOT_RADIUS` | 'mm' | `Root circle radius` |
-| `PARAM_TIP_DIAMETER` | 'mm' | `Tip circle diameter` |
-| `PARAM_TIP_RADIUS` | 'mm' | `Tip circle radius` |
-| `PARAM_INVOLUTE_STEPS` | '' | `Number of points sampled along each involute flank` |
-| `PARAM_TOOTH_SPACE_ANGLE` | '' | `Angular width of the tooth space at the root circle` |
-| `PARAM_TOOTH_SPACE_ARC` | 'mm' | `Arc length of the tooth space at the root circle` |
-| `PARAM_FILLET_CLEARANCE` | '' | `Clearance factor applied to the root fillet radius` |
-| `PARAM_FILLET_RADIUS` | 'mm' | `Radius of the root fillets` |
+**The three selection prompts are reproduced surface.** The third `addSelectionInput` argument
+is shown while the user picks and differs from the label. The source JSON owns every prompt.
 
-Earlier revisions pinned the parameter names and units but not these comments, and a regeneration
-that could not find them filled the column with the parameter's own name, so `Module of the gear`
-came back as `Module`. Like the command prompts below, a value the user sees has to live here
-rather than only in the generated module.
-
-**The three selection inputs' command prompts are reproduced surface — write them exactly.**
-`addSelectionInput(id, name, commandPrompt)` takes a third string that Fusion shows beside the
-cursor while the user picks, and it is not the label. These are the strings:
-
-| input id | `name` | `commandPrompt` |
-|---|---|---|
-| `plane` | `Target Plane` | `Select the plane to build the gear on` |
-| `anchorPoint` | `Anchor Point` | `Select the point the gear is centered on` |
-| `parentComponent` | `Parent Component` | `Select the component to build the gear in` |
-
-Earlier revisions of this spec pinned the ids and labels but not these three prompts, and a
-regeneration that could not find them filled all three with the label text instead, so the dialog
-came back reading `Target Plane` where it had read `Select the plane to build the gear on`. A value
-the user sees has to live here, not only in the generated module.
-
-**Dialog display order (the order `configure()` adds inputs) is fixed and must be exactly:**
-
-1. Target Plane (`plane`)
-2. Anchor Point (`anchorPoint`)
-3. Module (`module`)
-4. Tooth Number (`toothNumber`)
-5. Pressure Angle (`pressureAngle`)
-6. Bore Diameter (`boreDiameter`)
-7. Thickness (`thickness`)
-8. Apply chamfer to teeth (`chamferTooth`)
-9. Generate sketches, but do not build body (`sketchOnly`)
-10. Parent Component (`parentComponent`) — **last**
+**Dialog display order is fixed by the source JSON array.**
 
 This is the order the inputs are listed in the Variables section above, and `configure()` must
 call its `add*Input(...)` methods in exactly this sequence. **Do not reorder by input *type*** (e.g.
@@ -202,21 +137,11 @@ selection inputs first to dodge the occurrence-context shift (see Generation Ord
 read-order has no bearing on where the inputs appear in the dialog. A generator that puts the
 selections last in `configure()` because they are "read first" has the rule backwards.
 
-Bore Diameter is added as a **string** value input (`addStringValueInput`, default `'0 mm'`) so it
-accepts expressions; the rest are numeric `addValueInput`s. **`addValueInput` defaults are given in
-Fusion's internal units (cm for lengths, radians for angles), regardless of the input's display
-unit string.** Pin the two non-trivial ones: Pressure Angle is
-`addValueInput(…, 'deg', ValueInput.createByReal(math.radians(20)))` — display unit `'deg'`,
-default in radians — and Thickness is `addValueInput(…, 'mm', ValueInput.createByReal(to_cm(10)))`
-— display unit `'mm'`, default in cm. (Module and Tooth Number are unitless
-`createByReal(1)` / `createByReal(17)`; chamfer is `createByReal(0)`.)
+Bore Diameter remains a string input so it accepts expressions. Numeric defaults are recorded
+in the JSON with explicit conversion into Fusion's internal units: centimetres for lengths and
+radians for angles, regardless of the display unit.
 
-The three selection inputs each carry exactly these filters, and each is limited to exactly one
-selection with `setSelectionLimits(1, 1)`:
-
-- Target Plane: `ConstructionPlanes` + `PlanarFaces`.
-- Anchor Point: `ConstructionPoints` + `SketchPoints`.
-- Parent Component: `Occurrences` + `RootComponents`; pre-selects `get_design().rootComponent`.
+The JSON supplies each selection's filters, one-selection limit, and root-component preselection.
 
 `SketchOnly` is persisted as a
 real-valued user parameter (1 = true, 0 = false), since the framework only reads numeric

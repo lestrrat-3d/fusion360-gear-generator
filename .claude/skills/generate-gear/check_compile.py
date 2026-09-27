@@ -61,6 +61,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.abspath(os.path.join(HERE, os.pardir, os.pardir, os.pardir))
 sys.path.insert(0, HERE)
 import fusion_api  # noqa: E402  (sibling module; sys.path is fixed up just above)
+import exact_values  # noqa: E402
 from call_parser import call_shapes  # noqa: E402
 from provenance import (  # noqa: E402  (sibling module; sys.path is fixed up just above)
     DOCUMENT_REF, STAMPED_ROW, ProvenanceError, blob_hash, provenance_inputs, read,
@@ -1458,6 +1459,13 @@ def check(argv):
         print('check_compile: no step list at %s' % steps_path, file=sys.stderr)
         return 2
     src = read(steps_path)
+    try:
+        loaded_values = exact_values.load('.', gear)
+        if loaded_values is not None:
+            exact_values.check_steps(src, *loaded_values)
+    except (exact_values.ExactValueError, OSError, ValueError) as exc:
+        print('compile check: BLOCKING (1)\n  exact values: %s' % exc)
+        return 1
     steps = steps_of(src)
     if not steps:
         print('check_compile: %s declares no steps' % steps_path, file=sys.stderr)
