@@ -455,15 +455,15 @@ the check.
     1 DOF = 0). Do NOT `addCoincident(circle.centerSketchPoint, sketch.originPoint)` — observed to
     throw `VCS_SKETCH_SOLVING_FAILED` (at least on a `setByDistanceOnPath` plane). `isFixed` on the
     center is the reliable pin.
-  - **[PB-PROJECT-NOT-FIXED] `sketch.project(...)` does NOT fix the projected geometry.** A projected point/curve is brought
-    in *associatively* (it tracks its source) but still carries **free DOF** — it is a reference, not
-    a fixed point. A sketch whose geometry hangs off shared projected points therefore reports
-    **under-constrained**, even though every projected point already has a correct position (so
-    `worldGeometry` looks fine and the feature builds — the defect is silent until you check
-    `isFullyConstrained`). To turn another sketch's points into *fully-constrained* local geometry,
-    either (a) `addCoincident` the projection to an already-fixed point (works when you have one
-    natural anchor, e.g. spur's tooth anchor), or (b) **recreate each as a brand-new point and fix it
-    AFTER the geometry that uses it is built** — `verts = [sketch.sketchPoints.add(
+  - **[PB-PROJECT-NOT-FIXED] Check each projected entity's constrained state.** `sketch.project(...)`
+    brings geometry in associatively; its displayed position alone does not prove that the new
+    sketch is fully constrained. A projection from a constrained source can anchor a movable local
+    point, as the spur Tools and Bore sketches verify with `sketch.isFullyConstrained`. A projection
+    from geometry with free DOF can leave the destination under-constrained even when its
+    `worldGeometry` looks correct. Check `isFullyConstrained` before treating a projection as an
+    anchor. For a free projection, either (a) `addCoincident` it to an already-fixed point, or
+    (b) **recreate each as a brand-new point and fix it AFTER the geometry that uses it is built** —
+    `verts = [sketch.sketchPoints.add(
     sketch.modelToSketchSpace(src.worldGeometry)) for src in pts]`, draw the curves *sharing* those
     `verts`, then `for e in lines: e.startSketchPoint.isFixed = True; e.endSketchPoint.isFixed =
     True`. **Order matters:** setting `isFixed = True` on a bare point *before* it is consumed as a
