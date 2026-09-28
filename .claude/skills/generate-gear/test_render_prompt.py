@@ -271,9 +271,17 @@ class CommittedTemplatesTest(unittest.TestCase):
     def test_emit_default_uses_checked_views(self):
         code, output, error = self.render('emit-gear', 'spurgear')
         self.assertEqual(code, 0, error)
+        self.assertIn('`.tmp/spurgear.steps-view.md`', output)
         self.assertIn('`.tmp/spurgear.proof-bundle.md`', output)
         self.assertIn('`.tmp/spurgear.dependency-view.md`', output)
+        self.assertIn('**Do not read** `lib/geargen/spurgear.py`, `spec/spurgear/steps.md`', output)
         self.assertNotIn('`proof/spurgear/`, the checked geometry', output)
+
+    def test_compile_default_uses_checked_harness_view(self):
+        code, output, error = self.render('compile-gear', 'spurgear')
+        self.assertEqual(code, 0, error)
+        self.assertIn('`.tmp/harness-api-view.md`', output)
+        self.assertIn('Do not read `proof/proofkit/` or `proof/proofkit3d/`', output)
 
     def test_templates_declare_only_gear(self):
         for skill in RENDERER.KNOWN_SKILLS:

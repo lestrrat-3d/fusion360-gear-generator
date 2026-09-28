@@ -5,15 +5,20 @@ to `.tmp/{{gear}}-proof/`.
 **Read, in full, only these:** `spec/{{gear}}/instructions.md`, `spec/{{gear}}/fusion.md` if it
 exists, every document those reference by name, `.claude/skills/generate-gear/PLAYBOOK.md`,
 `docs/spec-to-code-performance/06-step-metadata-format.md` for the call and citation format,
-`proof/proofkit/` for the sketch harness API, `proof/proofkit3d/` for the solid harness API, and
+`.tmp/harness-api-view.md` for the checked sketch and solid harness APIs, and
 `proof/examples/OPERATIONS.md` for tested construction recipes and engine limits,
 the linked example source for an operation the gear uses, and
 `proof/involute/` for the involute tooth math the spur family shares, so you import it rather
 than deriving it again.
 
+Use targeted `go doc` lookups for sketch or decad methods whose signatures the listed
+examples and view do not give. Report a signature you cannot confirm.
+
 **Do not read** `lib/geargen/{{gear}}.py`, any other gear's implementation, or a previous
-`steps.md` or proof for this gear. If the spec is unclear, record it as a spec gap in your report
-and make your best attempt. Never resolve it by looking at existing output.
+`steps.md` or proof for this gear. Do not read `proof/proofkit/` or `proof/proofkit3d/`;
+report any missing harness API detail in the checked view. If the spec is unclear,
+record it as a spec gap in your report and make your best attempt. Never resolve it by looking at
+existing output.
 
 **A step is one entry in the Fusion timeline.** Drawing a whole sketch is one step, however much
 geometry goes into it. So is each extrude, chamfer, pattern, combine, fillet. Write the step list
