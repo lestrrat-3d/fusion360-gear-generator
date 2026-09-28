@@ -1,4 +1,5 @@
 import math
+from typing import cast
 import adsk.core
 import adsk.fusion
 from ...lib import fusion360utils as futil
@@ -322,7 +323,8 @@ class SpurGearGenerator(Generator):
                     ctx.centerAxis.name = 'Gear Center'
                     ctx.centerAxis.isLightBulbOn = False
             elif face.geometry.surfaceType == adsk.core.SurfaceTypes.PlaneSurfaceType:
-                if sketchPlane.isParallelToPlane(face.geometry) and not sketchPlane.isCoPlanarTo(face.geometry):
+                facePlane = cast(adsk.core.Plane, face.geometry)
+                if sketchPlane.isParallelToPlane(facePlane) and not sketchPlane.isCoPlanarTo(facePlane):
                     ctx.extrusionExtent = face
         if ctx.centerAxis is None:
             raise RuntimeError('Extrude body: no cylindrical face for Gear Center')
@@ -360,7 +362,7 @@ class SpurGearGenerator(Generator):
         for face in ctx.gearBody.faces:
             if face.geometry.surfaceType != adsk.core.SurfaceTypes.CylinderSurfaceType:
                 continue
-            cylinder: adsk.core.Cylinder = face.geometry
+            cylinder = cast(adsk.core.Cylinder, face.geometry)
             if abs(cylinder.radius - rootRadius) > 0.0001:
                 continue
             for edge in face.edges:
@@ -420,7 +422,8 @@ class SpurGearGenerator(Generator):
         for face in ctx.gearBody.faces:
             if face.geometry.surfaceType != adsk.core.SurfaceTypes.PlaneSurfaceType:
                 continue
-            if not sketchPlane.isParallelToPlane(face.geometry):
+            facePlane = cast(adsk.core.Plane, face.geometry)
+            if not sketchPlane.isParallelToPlane(facePlane):
                 continue
             endCaps += 1
             for edge in face.edges:
@@ -428,7 +431,7 @@ class SpurGearGenerator(Generator):
                     continue
                 seen.add(edge.tempId)
                 if boreDiameter > 0 and edge.geometry.curveType == adsk.core.Curve3DTypes.Circle3DCurveType:
-                    circle: adsk.core.Circle3D = edge.geometry
+                    circle = cast(adsk.core.Circle3D, edge.geometry)
                     if abs(circle.radius - boreDiameter / 2) <= 0.001:
                         continue
                 edges.add(edge)
@@ -514,7 +517,8 @@ class SpurGearInvoluteToothDesignGenerator:
             dimension.parameter.value = 2 * radius
             text = '{} (r={:.2f}, size={:.2f})'.format(name, radius, size)
             textInput: adsk.fusion.SketchTextInput = sketch.sketchTexts.createInput2(text, size)
-            textInput.setAsAlongPath(circle, True, adsk.core.HorizontalAlignments.CenterHorizontalAlignment, 0)
+            alignment = cast(adsk.core.HorizontalAlignments, adsk.core.HorizontalAlignments.CenterHorizontalAlignment)
+            textInput.setAsAlongPath(circle, True, alignment, 0)
             sketch.sketchTexts.add(textInput)
             if parameter == PARAM_TIP_RADIUS:
                 self._tipCircle = circle

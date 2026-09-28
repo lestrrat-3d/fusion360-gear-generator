@@ -19,7 +19,7 @@ now names the required conversion, and its contract checks the conversion in
 The Astra spur module passed all seven blocking emit gates after that contract change.
 In Fusion, a default spur gear and a default helical gear each generated one valid body
 using the deployed spur file with SHA-256
-`b853637e5ab6da78af00a1f6ea59e16cf46a92f89ccc5e4d4df46c57e12e3554`.
+`c21ffa3a50cd14d3653e01a6f6e0f9e87d007ed5e6c4665765fc86b6ec1f9525`.
 Those Fusion runs called the generators with the real Fusion API and default values
 in new unsaved documents. They did not exercise the command dialog.
 
