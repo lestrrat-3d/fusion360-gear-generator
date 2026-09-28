@@ -800,8 +800,12 @@ authoritative description of the behavior the helpers encode.
   `adsk.fusion.Path.create(curve, …)` first: `Path.create` on a sketch curve raises
   `RuntimeError … InternalValidationError : Utils::getObjectPath(sketchCurve, …, nullptr,
   contextPath)` whenever the curve's owner sketch isn't trivially resolvable in the current
-  (multi-component) context. Avoid `Path.create` on sketch curves entirely; the plane/axis builders
-  resolve the curve themselves.
+  (multi-component) context. The plane/axis builders resolve the curve themselves. Where a
+  `Path` object is genuinely needed — a sweep, a pipe, a loft section made of lines — make it
+  with `component.features.createPath(...)`, never `Path.create` ([PB-PATH-FROM-SKETCH]).
+  Measured 2026-09-28: `setByDistanceOnPath(line, ValueInput.createByReal(0))` on a fixed
+  sketch line in a non-activated sub-component put the plane's origin on the line's start to
+  four decimals of a millimetre.
 - **[PB-CONSTRUCTION-AXES] Construction axes beyond circular-face:** `constructionAxes.createInput()` then
   `setByLine(infiniteLine)` (axis along a sketch/3D line), `setByCircularFace(face)` (off a
   cylinder/cone), or `setByTwoPlanes(planeA, planeB)` (their intersection — a usable workaround when
@@ -825,6 +829,96 @@ authoritative description of the behavior the helpers encode.
     2026-09-02 on the bevel pinion, whose mesh phase is 0 by default. Any caller that *computes* an
     angle can legitimately arrive at zero, so return early rather than making each call site guard
     it; `solids.rotate_body_about_edge` absorbs it for exactly this reason.
+
+## Paths, sweeps and sketch cost (measured 2026-09-28)
+
+Every rule here was measured in one Fusion session on 2026-09-28, in a scratch document holding a
+`Design` sub-component under a tilted user plane, with no component activated — the screw gear's
+own situation, and the ordinary multi-component one ([PB-OCCURRENCE-TREE]). The scripts and
+their outputs are recorded in `spec/screwgear/fusion.md` `[SCREW-F-DIAGNOSTIC]`.
+
+- **[PB-PATH-FROM-SKETCH] Make a `Path` from sketch curves with `component.features.createPath`;
+  `adsk.fusion.Path.create` raises on any sketch curve in a sub-component.** `Path.create` raised
+  `RuntimeError: 2 : InternalValidationError : Utils::getObjectPath(...)` for a fixed sketch line
+  passed native, as a proxy (`line.createForAssemblyContext(occurrence)`), inside an
+  `ObjectCollection`, and with `connectedChainedCurves`. `component.features.createPath(line,
+  False)` on the component that owns the sketch returned a path of one curve, open;
+  `createPath(objectCollection, False)` the same; `createPath(line, True)` on one of four
+  end-connected lines chained them into a closed path of four. The result is accepted by
+  `sweepFeatures.createInput`, `pipeFeatures.createInput` and `loftSections.add`. Overlapping
+  collinear lines in one sketch do not disturb it: with chaining off the path holds exactly the
+  line passed.
+- **[PB-SWEEP-TWIST] A profile sweep along a straight sketch-line path takes `twistAngle` as a
+  linear right-handed rotation about the path, positive from the profile's end of the path
+  toward the far end.** `sweepFeatures.createInput(profile, path, operation)` →
+  `input.twistAngle = ValueInput.createByReal(radians)` → `add`, with the profile on a plane at
+  the line's start and nothing else set (no `orientation`, no `solidTwistAxis`, no rail).
+  Measured on a rounded rectangle turned by 43.64° over a 4 mm path: the far-end vertices lay
+  0.0047 mm from the profile rotated by `+twist` about the path (right-handed about the path's
+  start-to-end direction, the profile sitting at the start), 4.90 mm from it under `-twist`; the
+  near end matched to 0.0000 mm; the volume was exact; probes 0.05 mm either side of every wall
+  at a quarter, a half and three quarters of the way along all fell on the right side, so the
+  turn is linear along the path. Two things this does not settle: the profile's centroid sat on
+  the path, so rotation about the path and about the centroid were not told apart; and the
+  path's own direction and the direction away from the profile coincided, so which one the sign
+  follows was not told apart. A build that depends on either must check its result
+  ([PB-SELF-DIAGNOSING]: read `body.vertices` at the far end against the expected outline).
+  - **`participantBodies` on a sweep cut is honoured.** A `CutFeatureOperation` sweep with
+    `input.participantBodies = [target]` took the channel out of `target` and left a second
+    body, wholly inside the channel and not in the list, at its volume to six decimals. Set it
+    before `add`, as for an extrude cut ([PB-THROUGH-CUT]).
+- **[PB-LOFT-TWO-SECTIONS-STRAIGHT] A two-section loft does not turn between its ends, with or
+  without a centre line; use [PB-SWEEP-TWIST] for a twisted body.** A loft between two rectangles
+  65° apart in rotation about a common axis, 6 mm apart along it, put the mid-station corner and
+  face probes that a rigidly turning rectangle would contain outside the body, both with no
+  centre line and with `centerLineOrRails.addCenterLine(axisLine)`; the centre line changed
+  nothing at mid-station. A two-section loft is ruled between its ends, and a ruled surface
+  cannot follow a rotation; a loft through more sections is fitted smoothly and follows them
+  ([PB-3D-SKETCH-SECTIONS]).
+- **[PB-3D-SKETCH-SECTIONS] One sketch may hold many planar sections at their true off-plane
+  positions, as fixed points and lines, and a loft may be fed one `createPath` per section.**
+  `sketchPoints.add(sketch.modelToSketchSpace(world))` with the mapped `z` **kept** (the point is
+  meant off the plane, so [PB-SKETCH-ZERO-Z] does not apply), `sketchLines.addByTwoPoints`
+  sharing the points, every point `isFixed = True` after the last line, no other constraint:
+  Fusion read such a sketch `isFullyConstrained` at 11, 41 and 81 rectangles (|z| 3 to 5 mm) and
+  found one profile per rectangle, each planar in its own plane. Feeding
+  `loftSections.add(component.features.createPath(fourLinesCollection, False))` per section, in
+  order, built a solid of six faces; `Path.create(collection)` raised ([PB-PATH-FROM-SKETCH]).
+  Its volume ran 0.06% to 0.23% under a ruled loft's through the same sections, and probes
+  0.04 mm either side of the ideal surface at every midpoint between sections, 520 in all, fell
+  on the right side. Cost at the defaults of the gear measured: 0.09 s, 0.37 s and 1.12 s for the
+  sketch at 11, 41 and 81 sections with [PB-SKETCH-DEFER], and 0.07 s, 0.23 s and 0.59 s for the
+  loft. Use it where a lofted body would otherwise cost one sketch and one construction plane per
+  section.
+- **[PB-SKETCH-DEFER] Set `sketch.isComputeDeferred = True` from just after the sketch is created
+  until just after its last entity, constraint or `isFixed`, and set it `False` before reading
+  `isFullyConstrained` or `profiles`.** Measured: a constraint-and-dimension sketch of about 45
+  solver-visible calls fell from 0.45 s to 0.23 s, and a 44-point, 44-line fixed-point sketch
+  from 0.88 s to 0.09 s; both read fully constrained with their profiles found once computing
+  was back on. Not measured: a sketch that calls `sketch.project`, and a sketch of a handful of
+  entities, where there is little to save. The reference warns that deferring while *editing* a
+  sketch that features already consume can leave those features wrong; every sketch here is
+  drawn once, before anything consumes it, so that case does not arise — do not defer an edit of
+  a consumed sketch.
+- **[PB-TEMP-BREP-STITCH] Do not build a body from temporary-BRep ruled sheets and a stitch.**
+  `TemporaryBRepManager.createWireFromCurves` on `Line3D` polylines, `createRuledSurface` between
+  two wires and `createFaceFromPlanarWires` built six sheets (four ruled faces of 40 facets, two
+  caps); `baseFeatures.add()` → `startEdit()` (true) → `bRepBodies.add(sheet, baseFeature)` ×6 →
+  `finishEdit()` placed them in a non-activated sub-component and left the active component
+  unchanged; then `stitchFeatures.add(createInput(sheets, ValueInput.createByReal(1e-4),
+  NewBodyFeatureOperation))` raised `RuntimeError: 3 : … TOOLBODY_CREATION_FAIL_ERROR`, and the
+  next `TemporaryBRepManager.get()` in the same session raised the same error. What holds:
+  base-feature editing in a sub-component without activation. What is out: closing such sheets
+  into a solid through a stitch.
+- **[PB-PIPE-CORNER] A pipe along a path with sharp corners mitres the corner and reaches past a
+  ball of its own radius; where corners must be round, revolve the bars and balls separately.**
+  `pipeFeatures.createInput(closedPath, NewBodyFeatureOperation)` with
+  `sectionType = CircularPipeSectionType`, `sectionSize = diameter`, `isHollow = False` on a
+  closed path of four lines built a solid of four faces with the exact volume of four straight
+  cylinders, and a probe 1.1 radii out from a corner along its outward bisector was inside it. A
+  rectangle revolved about its own side and a half-disc revolved about its chord, both on the
+  one plane the corners lie in, gave the cylinder and the sphere at their exact volumes
+  ([PB-REVOLVE]).
 
 ## Multi-component orchestration (a gear that builds several sibling components, e.g. a pair)
 
