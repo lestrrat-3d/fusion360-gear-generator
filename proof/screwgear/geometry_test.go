@@ -10,8 +10,12 @@
 // classify. Nothing here goes through decad or sketch for that reason.
 //
 // The part this proves is the ideal ribbon: an exact cosine edge on an exact
-// helicoid. The part Fusion builds lofts eleven rectangles per tooth at the
-// defaults, and TestLoftSectionCountHoldsTheHelicoid bounds the difference.
+// helicoid. The part Fusion builds lofts a four-tooth cell through 41 rotated
+// rectangles at the defaults and repeats it by a screw step;
+// TestLoftSectionCountHoldsTheHelicoid bounds what a ruled loft through those
+// sections would lose, and a Fusion measurement on 2026-09-28
+// (spec/screwgear/fusion.md [SCREW-F-CELL-LOFT]) put the built smooth surface
+// within 0.04 mm of the helicoid between sections.
 package screwgear_test
 
 import (
@@ -144,8 +148,9 @@ func (p Params) AxisOffset() float64 { return p.Width - p.Engagement }
 // loft through all of them, which is smooth between sections rather than ruled
 // (spec/screwgear/fusion.md [SCREW-F-CELL-LOFT]), so the count fixes how closely
 // the exact sections are spaced and the ruled figures are the one bound this
-// package has; the built surface's own departure between sections is not
-// measured here. TestLoftSectionCountHoldsTheHelicoid says the same.
+// package has. The built surface's own departure between sections is not
+// measured here; Fusion measured it on 2026-09-28 at 0.04 mm or less at the
+// defaults. TestLoftSectionCountHoldsTheHelicoid says the same.
 func (p Params) LoftSections() int {
 	const maxStep = 2 * math.Pi / 180
 	steps := int(math.Ceil((p.ToothPitch / p.Lambda()) / maxStep))
@@ -156,6 +161,16 @@ func (p Params) LoftSections() int {
 }
 
 const minCellSteps = 8
+
+// cellTeeth is how many teeth the build's lofted cell holds, the spec's
+// CELL_TEETH: the ribbon is that cell repeated by the screw step (spec §3). Four
+// is what a Fusion measurement of one-, four- and eight-tooth cells settled on
+// 2026-09-28, and one is the fallback the spec states counts for beside it.
+const cellTeeth = 4
+
+// CellSections is how many sections a cell of c teeth is lofted through: the
+// per-tooth steps of LoftSections, c times over, plus the closing section.
+func (p Params) CellSections(c int) int { return c*(p.LoftSections()-1) + 1 }
 
 // EdgeChord is how far the lofted toothed edge falls short of the cosine at
 // worst, between two neighbouring sections.
@@ -485,7 +500,7 @@ func TestRibbonIsInvariantUnderItsScrewStep(t *testing.T) {
 }
 
 // The spec derives the section count from the twist per tooth with a floor of
-// eight steps, eleven sections at the defaults. This is the arithmetic that
+// eight steps, eleven sections a tooth at the defaults. This is the arithmetic that
 // count is bought with, and it is arithmetic about a RULED loft through those
 // sections: a ruled surface cuts the corner of the true helicoid, and the
 // spec's claim is that the shortfall is three orders below the backlash; a
@@ -500,11 +515,23 @@ func TestRibbonIsInvariantUnderItsScrewStep(t *testing.T) {
 // these are bounds on a body Fusion does not build: the built cell passes
 // through the same sections, and how far its surface departs from the helicoid
 // between them, on either side, is measured by nothing in this package. This is
-// the honest edge of what the section count proves, and a Fusion load is what
-// sees the built surface.
+// the honest edge of what the section count proves. Fusion is what sees the
+// built surface, and on 2026-09-28 it put every probe 0.04 mm either side of
+// the helicoid, at every midpoint between sections, on the right side
+// (spec/screwgear/fusion.md [SCREW-F-DIAGNOSTIC]).
 func TestLoftSectionCountHoldsTheHelicoid(t *testing.T) {
 	p := defaultParams()
 	sections := p.LoftSections()
+
+	if got := p.CellSections(cellTeeth); got != 41 {
+		t.Errorf("a %d-tooth cell lofts through %d sections at the defaults, the spec quotes 41",
+			cellTeeth, got)
+	}
+	if got := p.CellSections(1); got != 11 {
+		t.Errorf("a one-tooth cell lofts through %d sections at the defaults, the spec quotes 11", got)
+	}
+	t.Logf("the build's %d-tooth cell lofts through %d sections; a one-tooth cell would loft through %d",
+		cellTeeth, p.CellSections(cellTeeth), p.CellSections(1))
 
 	dtheta := (p.ToothPitch / p.Lambda()) / float64(sections-1)
 	departure := p.Width / 2 * (1 - math.Cos(dtheta/2))
@@ -548,65 +575,98 @@ func TestLoftSectionCountHoldsTheHelicoid(t *testing.T) {
 	}
 }
 
-// doublingRounds is the schedule the build repeats the cell by, and returns
-// the copy-move-join rounds it takes and the tooth ranges every piece lands
-// on. The body doubles while it can; whenever the tooth count has a set bit
-// below its top one, an unmoved copy of the body at that size is put aside,
-// and after the last doubling the asides are moved into place, largest first,
-// each by the screw step of the teeth built so far. Every move is by a whole
-// number of teeth already built, so every join meets at a shared cross-section
-// and nothing overlaps.
-func doublingRounds(n int) (rounds int, pieces [][2]int) {
+// doublingRounds is the schedule the build repeats a cell of c teeth by, for
+// n teeth in all, and returns the copy-move-join rounds it takes and the tooth
+// ranges every piece lands on. The cell holds min(c, n) teeth and the ribbon
+// is q = n/c whole cells and a remainder of n mod c teeth. The body doubles in
+// cells while it can; whenever q has a set bit below its top one, an unmoved
+// copy of the body at that size is put aside, and after the last doubling the
+// asides are moved into place, largest first, each by the screw step of the
+// teeth built so far. Every move is by a whole number of teeth already built,
+// so every join meets at a shared cross-section and nothing overlaps. A
+// remainder is a second, shorter cell lofted where it belongs and joined last;
+// it is a piece but not a round (spec §3).
+func doublingRounds(n, c int) (int, [][2]int) {
+	if c > n {
+		c = n
+	}
+	q, r := n/c, n%c
 	m := 1
-	pieces = [][2]int{{0, 1}}
+	rounds := 0
+	pieces := [][2]int{{0, c}}
 	var asides []int
-	for bit := 0; 1<<(bit+1) <= n; bit++ {
-		if n&(1<<bit) != 0 {
+	for bit := 0; 1<<(bit+1) <= q; bit++ {
+		if q&(1<<bit) != 0 {
 			asides = append(asides, m)
 		}
-		pieces = append(pieces, [2]int{m, 2 * m})
+		pieces = append(pieces, [2]int{m * c, 2 * m * c})
 		m *= 2
 		rounds++
 	}
 	for i := len(asides) - 1; i >= 0; i-- {
-		pieces = append(pieces, [2]int{m, m + asides[i]})
+		pieces = append(pieces, [2]int{m * c, (m + asides[i]) * c})
 		m += asides[i]
 		rounds++
 	}
-	if m != n {
-		panic("the doubling schedule does not reach the tooth count")
+	if m != q {
+		panic("the doubling schedule does not reach the cell count")
+	}
+	if r > 0 {
+		pieces = append(pieces, [2]int{q * c, n})
 	}
 	return rounds, pieces
 }
 
 // The build repeats the cell by doubling, and the spec quotes the round count
 // that costs. This runs the schedule over every tooth count the dialog can
-// reasonably take and holds three things: the pieces tile the ribbon exactly,
-// no two overlap, and the count is floor(log2 N) + popcount(N) - 1, which is
-// seven at the default eighty teeth.
+// reasonably take, with cells of one, three and four teeth so that a remainder
+// is exercised at the defaults' own count and away from it, and holds three
+// things: the pieces tile the ribbon exactly, no two overlap, and the count is
+// floor(log2 q) + popcount(q) - 1 rounds for q whole cells plus one remainder
+// piece when the count is not a multiple of the cell: five rounds at the
+// default eighty teeth in four-tooth cells, seven in one-tooth cells.
 func TestDoublingScheduleCoversTheRibbon(t *testing.T) {
-	for n := 4; n <= 512; n++ {
-		rounds, pieces := doublingRounds(n)
-		covered := make([]int, n)
-		for _, piece := range pieces {
-			for tooth := piece[0]; tooth < piece[1]; tooth++ {
-				covered[tooth]++
+	for _, c := range []int{1, 3, 4} {
+		for n := 4; n <= 512; n++ {
+			rounds, pieces := doublingRounds(n, c)
+			covered := make([]int, n)
+			for _, piece := range pieces {
+				for tooth := piece[0]; tooth < piece[1]; tooth++ {
+					covered[tooth]++
+				}
 			}
-		}
-		for tooth, times := range covered {
-			if times != 1 {
-				t.Fatalf("with %d teeth the schedule lands %d pieces on tooth %d", n, times, tooth)
+			for tooth, times := range covered {
+				if times != 1 {
+					t.Fatalf("with %d teeth in %d-tooth cells the schedule lands %d pieces on tooth %d",
+						n, c, times, tooth)
+				}
 			}
-		}
-		want := bits.Len(uint(n)) - 1 + bits.OnesCount(uint(n)) - 1
-		if rounds != want {
-			t.Errorf("with %d teeth the schedule takes %d rounds, want %d", n, rounds, want)
+			q := n / c
+			want := bits.Len(uint(q)) - 1 + bits.OnesCount(uint(q)) - 1
+			if rounds != want {
+				t.Errorf("with %d teeth in %d-tooth cells the schedule takes %d rounds, want %d",
+					n, c, rounds, want)
+			}
+			wantPieces := rounds + 1
+			if n%c != 0 {
+				wantPieces++
+			}
+			if len(pieces) != wantPieces {
+				t.Errorf("with %d teeth in %d-tooth cells the schedule has %d pieces, want %d",
+					n, c, len(pieces), wantPieces)
+			}
 		}
 	}
-	rounds, _ := doublingRounds(defaultParams().ToothCount)
-	t.Logf("the default %d teeth take %d copy-move-join rounds", defaultParams().ToothCount, rounds)
-	if rounds != 7 {
-		t.Errorf("the spec quotes seven rounds at the defaults, the schedule takes %d", rounds)
+	n := defaultParams().ToothCount
+	rounds, _ := doublingRounds(n, cellTeeth)
+	single, _ := doublingRounds(n, 1)
+	t.Logf("the default %d teeth take %d copy-move-join rounds in %d-tooth cells and %d in one-tooth cells",
+		n, rounds, cellTeeth, single)
+	if rounds != 5 {
+		t.Errorf("the spec quotes five rounds at the defaults, the schedule takes %d", rounds)
+	}
+	if single != 7 {
+		t.Errorf("the spec quotes seven rounds at a one-tooth cell, the schedule takes %d", single)
 	}
 }
 

@@ -91,12 +91,13 @@ how the arrangement was found.
 
 ## What this does not establish
 
-The model is an exact sinusoid on an exact helicoid. The built part is one loft through eleven
-rectangles per tooth. A ruled loft through those sections would depart from the helicoid by about
-0.7 µm at the crest and draw the toothed edge as a chord of the cosine between sections, 0.029 mm
-short of it at the deepest point — 6% of the backlash; Fusion's loft through more than two
-sections is smooth between them, and how far that surface departs is measured by nothing here
-(`instructions.md` §2, "What the loft is").
+The model is an exact sinusoid on an exact helicoid. The built part is one loft through ten
+rectangles per tooth, 41 for the four-tooth cell the build repeats. A ruled loft through those
+sections would depart from the helicoid by about 0.7 µm at the crest and draw the toothed edge as
+a chord of the cosine between sections, 0.029 mm short of it at the deepest point — 6% of the
+backlash; Fusion's loft through more than two sections is smooth between them, and how far that
+surface departs is measured by nothing in this repository. A Fusion measurement on 2026-09-28
+put it within 0.04 mm at the defaults (`instructions.md` §2, "What the loft is").
 
 The search says these teeth drive. It says nothing about whether they are the right teeth. Conjugate
 flanks for two screw motions follow from the equation of meshing against the relative screw, which

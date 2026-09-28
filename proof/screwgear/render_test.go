@@ -35,7 +35,7 @@ var renderSettings = solidlens.Settings{Width: 1100, Height: 820}
 // a cosine, so this is what decides whether a crest reads as a crest; sixteen
 // puts a section every 22 degrees of the wave. It is a drawing resolution and
 // has nothing to do with the sections the spec lofts a tooth from, which are
-// eleven at the defaults.
+// ten steps to the tooth at the defaults, 41 sections in a four-tooth cell.
 const renderStations = 16
 
 var (

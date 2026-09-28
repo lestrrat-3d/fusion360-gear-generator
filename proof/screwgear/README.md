@@ -19,26 +19,30 @@ No image here comes from Fusion, and nothing in this directory builds a Fusion b
 gear into Fusion is still the only check that sees the real thing.
 
 The pictures draw the **ideal** ribbon: an exact cosine edge on an exact helicoid, which is what
-the proof reasons about. The part Fusion builds is one loft through eleven rectangles per tooth,
-and `TestLoftSectionCountHoldsTheHelicoid` bounds how far a *ruled* loft through those sections
+the proof reasons about. The part Fusion builds is a four-tooth cell lofted through 41 rotated
+rectangles, ten to the tooth, repeated by a screw step, and
+`TestLoftSectionCountHoldsTheHelicoid` bounds how far a *ruled* loft through those sections
 would fall from the ideal: 0.7 µm at the crest, where a ruled surface cuts the corner of the
 helicoid, and 0.029 mm on the toothed edge, which it draws as a chord of the cosine between
 sections, against a 0.50 mm backlash. Fusion's loft through more than two sections is smooth
 between them rather than ruled, so those bounds are arithmetic about a body other than the one
 built; the built surface passes through the same sections, and nothing here measures how far it
-departs between them.
+departs between them. Fusion measured it on 2026-09-28: within 0.04 mm at every midpoint
+between sections at the defaults (`spec/screwgear/fusion.md` `[SCREW-F-CELL-LOFT]`).
 
 The frame's parts are drawn one by one and laid over each other rather than joined: the ring as a
 torus, the rods and the loop's bars as plain cylinders with a ball at each corner, and each collar
 as the bore's outline grown by the wall and swept through thirty-two stations along its ribbon.
 Where a rod runs into a collar's wall the picture shows both surfaces, and the part has one.
 
-The channel's own wall is the ideal here. Fusion cuts it with one loft through fifteen rotated
-rectangles; `TestBoreLoftKeepsItsClearance` measures what a ruled loft through them would cost the
-gear, with the wall flat between sections and every facet a little inside the true channel:
-0.004 mm of the 0.30 mm clearance. It is the one case in the hand-written proof that reasons
-about the sections the build lofts rather than about the ideal shape, and it still does not see
-the smooth wall Fusion fits between them.
+The channel's wall drawn here is the ideal, and so is the one Fusion cuts: each collar and each
+bore is one sweep of its section along the axis with a twist, a rectangle turning rigidly, with
+no sections and no facets. The proof's solid engine has no twisted sweep, so the compiled step
+proof stands in a ruled loft through fifteen rotated rectangles for each; `TestBoreSubstituteKeepsItsClearance`
+measures what that stand-in costs against the true channel, with the wall flat between sections
+and every facet a little inside it: 0.004 mm of the 0.30 mm clearance. It is the one case in the
+hand-written proof that reasons about a stand-in rather than about the ideal shape, and it is
+what says a measurement made on the stand-in holds for the swept channel to within that much.
 
 ## The part
 
@@ -161,7 +165,7 @@ four tooth pairs land in the engaged zone at once and cannot all interdigitate, 
 | Loop | 17.26 and 17.21 mm by 14.46 mm between the rods' feet, an isosceles trapezoid |
 | Frame to ribbon | 2.66 mm at the ring, 3.73 mm at the loop, 0.30 mm at the rods, over the travel |
 | Ribbon to ribbon outside the engaged zone | 1.04 mm at every phase of the travel, at station −4.40 mm, crest rectangle against crest rectangle |
-| Bore wall | a ruled loft through the build's sections would leave 0.296 mm of the 0.30 mm clearance; the smooth wall Fusion fits is not measured |
+| Bore wall | the swept channel is the exact helicoid; the proof's ruled stand-in through fifteen sections leaves 0.296 mm of the 0.30 mm clearance, so a measurement on it holds for the sweep to within 0.004 mm |
 
 `TestPairDrivesOneToOne` in [pair_test.go](pair_test.go) is where the first three come from, and
 `TestFullRibbonsClearOutsideTheEngagement` beside it gives the fourth. It tracks the interval of
@@ -173,10 +177,12 @@ table was taken with is fixed at the top of that file and quoted in the spec's "
 
 ## What has no picture
 
-**The tooth cell and its screw step.** The spec builds a ribbon as one tooth cell repeated by a
-screw step, and `TestRibbonIsInvariantUnderItsScrewStep` is what licenses that: it carries the
-corners of every cross-section through one step and requires them to land on the next cell's.
-The pictures draw the whole ribbon from its sections and never form a cell.
+**The tooth cell and its screw step.** The spec builds a ribbon as one four-tooth cell repeated
+by a screw step, five copy-move-join rounds at the defaults, and
+`TestRibbonIsInvariantUnderItsScrewStep` is what licenses that: it carries the corners of every
+cross-section through one step and requires them to land on the next tooth's.
+`TestDoublingScheduleCoversTheRibbon` holds the schedule. The pictures draw the whole ribbon from
+its sections and never form a cell.
 
 **Anything a generator does.** There is no `lib/geargen/screwgear.py` yet, and no compiled step
 list, so there is no build sequence to show step by step the way

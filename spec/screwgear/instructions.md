@@ -335,8 +335,9 @@ to them by name; exported via `lib/geargen/__init__.py`):
   error cleanup. Overrides `prefixBase()` to return `'ScrewGear'`.
 
 **Generation Context: none.** Carry handles on `self`: `self.designOcc`, `self.gearOccs` (list of
-two), `self.cageOcc`, `self.gearBodies` (list of two), `self.cageBody`, `self.axisLines` (list of
-two).
+two), `self.cageOcc`, `self.gearBodies` (list of two), `self.cageBody`, `self.pathLines` (list of
+two dicts, one per gear, keyed `'collar-'`, `'bore-'`, `'collar+'` and `'bore+'`, each the sketch
+line of §1 that one sweep of §4 runs along).
 
 **Dependencies: none.** Imports only the framework (`base`, `misc`, `utilities`, `solids`,
 `fusion360utils`). Use `solids.hide_construction_geometry(component)` for the final cleanup — do
@@ -401,6 +402,10 @@ degrees.
 | Parent Component | `parent` | selection | — |
 
 Module-level constants for every input id: `INPUT_ID_RIBBON_WIDTH = 'ribbonWidth'` and so on.
+One more module-level constant is not a dialog input: `CELL_TEETH = 4`, the number of teeth the
+lofted cell of §2 holds, written `cellTeeth` in this spec. Every count that depends on it is
+derived from it in `processInputs`, and this spec states those counts for `cellTeeth = 4` and,
+as the fallback the first cell measurement was made at, for `cellTeeth = 1`.
 Value inputs are `addValueInput(id, label, unit, ValueInput.createByReal(default))` with the
 default in internal units (`[PB-DIALOG-DEFAULT-UNITS]`): `mm/10` for a length, radians for an
 angle, the bare count for `toothCount`.
@@ -427,19 +432,20 @@ returns internal units — cm for length and **radians** for angle (`[PB-EVAL-EX
 - `twistLead` has no upper bound: a very long lead approaches two straight racks pushing each
   other, which is the degenerate case Segerman names, and nothing here forbids it. The section
   floor in §2 is what keeps the tooth at a long lead.
-- `crossAngle` must lie strictly between 0° and 180°. At either end the axes are parallel, the
-  engaged zone below has no length, and the axis sketches cannot be dimensioned. Only 80° has been
+- `crossAngle` must lie strictly between 0° and 180°. At either end the axes are parallel and the
+  engaged zone below has no length. Only 80° has been
   proved to drive; the search covered 38.5°–100° (`mesh-search.md`), and nothing here clamps to it.
 - `assemblyPhase` must lie strictly within `±toothPitch`. A phase a pitch further on is the same
-  phase with the ribbon's ends moved a pitch, and the axis line of §1 allows for one. Only the
+  phase with the ribbon's ends moved a pitch. Only the
   default has been measured to sit in the free window.
 - `cageRadius` is where each gear's collars sit on its own axis, so a collar must clear the
   engaged zone: `cageRadius - collarHalf` must exceed the zone's half-length,
   `1.5 * sqrt(W^2 - A^2) / sin(Sigma)`, which is the reach the proof's `axialWindow` samples and
   is 4.05 mm at the defaults. `TestRibbonsClearEachOtherOutsideTheEngagement` holds the same
-  inequality along with what the two ribbons keep between them there. The bore's loft also has to
-  lie on the axis line, so `cageRadius + collarHalf + 1 mm < toothCount*toothPitch/2`, the
-  millimetre being the bore's margin (§4). It is also tied to `ringRadius` by the rods, below.
+  inequality along with what the two ribbons keep between them there. Both bores, each a
+  millimetre past its collar's ends (§4), also have to lie within the ribbon's length, so
+  `cageRadius + collarHalf + 1 mm < toothCount*toothPitch/2`, the
+  millimetre being the bore's margin. It is also tied to `ringRadius` by the rods, below.
 - `ringRadius` must leave every rod a place to stand. The rod search of §4 runs here, once per
   collar in the order gear A `-R`, gear A `+R`, gear B `-R`, gear B `+R`, and fails this field
   when no azimuth on the ring's circle clears both ribbons, when the rod that does runs nowhere
@@ -474,50 +480,72 @@ this spec does not clamp what has not been measured.
 
 Every sketch must report `isFullyConstrained` before it is consumed, and the build raises naming the
 sketch when one does not (`[PB-SKETCH-FIRST]`, `[PB-FULL-CONSTRAINT]`). No sketch here carries text,
-so none is exempt. Four rules hold in every sketch of this build:
+so none is exempt. Six rules hold in every sketch of this build:
 
 - **Only the Anchor sketch projects anything, and every other sketch's references are fixed
   points of its own** (`[SCREW-F-REFERENCES]`, `[PB-PROJECT-NOT-FIXED]`). The Anchor sketch
   projects the selected point and binds the Anchor Line to the projection exactly as the bevel
   gear's Anchor sketch does, which reads fully constrained in Fusion. Every later sketch takes
-  its references — the centre point, the axis point of a section, a rod's foot, a bar's ends
-  and middle — as **reference points**: each is a world point of the frame of §1, computed on
-  the sketch's own plane, mapped in with `sketch.modelToSketchSpace`, given `z = 0`
-  (`[PB-SKETCH-ZERO-Z]`) and added with `sketch.sketchPoints.add`. The sketch's curves are drawn **sharing** those points
+  its references — the centre point, the ends of a sweep path, the axis point of a section, the
+  corners of a cell section, a rod's foot, a bar's corners, a ball's chord ends — as
+  **reference points**: each is a world point of the frame of §1, mapped in with
+  `sketch.modelToSketchSpace`, given `z = 0` when it is meant to lie on the sketch's plane
+  (`[PB-SKETCH-ZERO-Z]`; the one exception is the next rule) and added with
+  `sketch.sketchPoints.add`. The sketch's curves are drawn **sharing** those points
   (`[PB-SHARE-XOR-COINCIDENT]`), and after the last curve that uses a reference point is drawn,
   and before any constraint or dimension is added, the point is set `isFixed = True`. A
   **reference line** is a construction line between two reference points, so it has no freedom
   and carries no dimension. Nothing is projected into these sketches and
-  `intersectWithSketchPlane` is not called: the point where a gear's axis line pierces a section
-  plane is `origin_g + s*dir_g` for the plane's station `s`, and that is what the reference
-  point is placed at. A circle centred on a reference point is instead created at that point's
-  position with its `centerSketchPoint` set `isFixed = True` (`[PB-CIRCLE-CENTER]`), and no
-  reference point is added for it.
+  `intersectWithSketchPlane` is not called: the point where a sweep path pierces its section
+  plane is the path's own start, `origin_g + s*dir_g` for the span's first station `s`, and
+  that is what the reference point is placed at. A circle centred on a reference point is
+  instead created at that point's position with its `centerSketchPoint` set `isFixed = True`
+  (`[PB-CIRCLE-CENTER]`), and no reference point is added for it.
+- **The Cell Sections sketch is the one sketch whose points lie off its plane, and it keeps
+  their `z`** (`[SCREW-F-CELL-LOFT]`, `[PB-3D-SKETCH-SECTIONS]`). Its points are the corners of
+  every section of the tooth cell (§2), which stand at every height above and below the Gear
+  Axis Plane the sketch is drawn on. `[PB-SKETCH-ZERO-Z]` zeroes the `z` of a point that is
+  meant to lie on the plane and that rounding has pushed off it; a point meant to lie off the
+  plane keeps the `z` that `modelToSketchSpace` gives it. Fusion accepted such a sketch on
+  2026-09-28, read it fully constrained at 11, 41 and 81 sections, and found one profile per
+  section.
 - **Every angular dimension is taken against whichever of two perpendicular reference lines puts
   it between 45° and 135°** (`[PB-ANGULAR-DIM]`). Fusion cannot dimension the angle between two
   lines that are nearly parallel, and the one angle this build dimensions — a section's twist at
-  its station, in the rectangle scheme of §2 — runs through 0° and 180° along the ribbon. The
+  its station, in the rectangle scheme of §4 — runs through 0° and 180° along the ribbon. The
   scheme names its two references; the build computes the angle it is about to seed, takes the
   reference that keeps it inside that range, and puts the dimension's text point inside the
   wedge it measures. The value written is the angle between two **rays**, each named in the
   step, from the point where the two lines meet; the text point sits inside that wedge.
 - **Every seed is the solved position** (`[PB-SEED-NEAR]`), computed in Python in the frame of §1
   and mapped in with `modelToSketchSpace`, so the solver has nothing to move and a dimension's
-  side is the seed's (`[PB-DIM-VALUE-SEMANTICS]`). **Every point mapped in has its `z` set to 0
-  before it is used** — a reference point, a raw seed, an arc's through point, a circle's centre
-  and a dimension's text point alike (`[PB-SKETCH-ZERO-Z]`). Fusion's section planes do not sit
-  exactly where this build's arithmetic puts them, and the first Fusion load failed on a collar
-  section whose points all landed `4.4e-6` cm off its plane.
+  side is the seed's (`[PB-DIM-VALUE-SEMANTICS]`). **Every point mapped in that is meant to lie
+  on the plane has its `z` set to 0 before it is used** — a reference point, a raw seed, an
+  arc's through point, a circle's centre and a dimension's text point alike
+  (`[PB-SKETCH-ZERO-Z]`). Fusion's section planes do not sit exactly where this build's
+  arithmetic puts them, and the first Fusion load failed on a collar section whose points all
+  landed `4.4e-6` cm off its plane.
 - **No `addPerpendicular` on a line that only one of its ends anchors.** A line drawn from a
   fixed point, given a length and made perpendicular to a reference has two solutions, one each
   side of the reference, and the proof's sketch gate refuses a sketch that admits a mirror
-  image. `addPerpendicular` is used only in the rectangle scheme of §2, where the line it turns
+  image. `addPerpendicular` is used only in the rectangle scheme of §4, where the line it turns
   already has both ends tied to other lines.
+- **Sketch computing is deferred while the two heavy kinds of sketch are drawn, and nowhere
+  else** (`[PB-SKETCH-DEFER]`, `[SCREW-F-DEFER]`): the Cell Sections sketch of §2, and the eight
+  section sketches of §4, the collars' and the bores'. In those, set
+  `sketch.isComputeDeferred = True` right after the sketch is created and named and before its
+  first point, and set it back to `False` after the last curve, constraint, dimension or
+  `isFixed`, before `isFullyConstrained` or `profiles` is read. Measured in Fusion on
+  2026-09-28: a collar section fell from 0.45 s to 0.23 s and a one-tooth Cell Sections
+  sketch from 0.88 s to 0.09 s, each still reading fully constrained with its profiles found.
+  The Anchor sketch does not defer, because deferral has not been measured under a projection;
+  the Paths, Ring, Rods, bar and ball sketches do not, because they are a few fixed points with
+  lines, arcs or circles and were not measured.
 
-The section sketches — the tooth cell's, and the collars' and bores' in §4 — share one rectangle
-scheme, stated in §2, that leaves no freedom, so there is no under-constrained case to exempt,
-unlike the bevel tooth profile. Every other sketch is built from reference points alone: lines
-between them and circles centred on them, with nothing left to solve.
+The eight section sketches of §4 — the collars' and bores' — share one rectangle scheme, stated
+there, that leaves no freedom, so there is no under-constrained case to exempt, unlike the bevel
+tooth profile. Every other sketch is built from reference points alone: lines and arcs between
+them and circles centred on them, with nothing left to solve.
 
 ## Method contract — call graph
 
@@ -526,14 +554,44 @@ generate(inputs)
   → processInputs(inputs)                    # read, check, precompute; the rod search runs here
   → buildComponentTree()                     # Screw Gearing + Design + 3 children
   → buildAnchor()                            # anchor sketch, centre point, reference direction, axis planes, n̂
-  → buildGear(index)   x2                    # per gear: cell → repeat → one body
-      → buildAxis(index)                     # axis sketch: the line on the gear's axis
-      → buildToothCell(index)                # one section sketch per section plane (11 at the defaults) → one loft
-      → repeatCellByDoubling(index)          # copy + screw-move + join; floor(log2 N) + popcount(N) - 1 rounds
-  → buildCage()                              # ring, rods, loop, collars, then one twisted bore cut per collar
+  → buildGear(index)   x2                    # per gear: paths → cell → repeat → one body
+      → buildSweepPaths(index)               # Paths sketch: the four sweep-path lines on the gear's axis
+      → buildToothCell(index)                # one Cell Sections sketch (41 sections at the defaults) → one loft
+      → repeatCellByDoubling(index)          # copy + screw-move + join, in cells; a remainder cell when N is not a multiple of cellTeeth
+  → buildCage()                              # ring, rods, loop, collars, then one twisted sweep cut per collar
   → relocateBodies()                         # moveToComponent into Gear A / Gear B / Cage
   → solids.hide_construction_geometry(self.designOcc.component)
 ```
+
+### What the build makes
+
+Counted at the defaults, in timeline entries, so a Fusion load can be checked against it. The
+first two Fusion loads (`[SCREW-F-FIRST-LOAD]`) built the same geometry as 136 sketches, 134
+construction planes and 79 features, one sketch and one plane per loft section, and took about
+five minutes; this construction replaces every per-section sketch and plane with one sweep or
+one sketch, and the counts are what the diagnostics of 2026-09-28 measured piece by piece.
+
+| Part | Sketches | Planes | Features, `cellTeeth = 4` | Features, `cellTeeth = 1` |
+|---|---|---|---|---|
+| Anchor (§1) | 1 | 0 | 0 | 0 |
+| Gear axis planes (§1) | 0 | 2 | 0 | 0 |
+| Per gear: Paths sketch (§1) | 1 | 0 | 0 | 0 |
+| Per gear: Cell Sections sketch and loft (§2) | 1 | 0 | 1 | 1 |
+| Per gear: doubling (§3), 3 features a round | 0 | 0 | 15 (5 rounds) | 21 (7 rounds) |
+| Both gears, subtotal | 4 | 0 | 32 | 44 |
+| Ring (§4): Ring Plane, Ring sketch, revolve | 1 | 1 | 1 | 1 |
+| Rods (§4): Rods sketch, extrude, join | 1 | 0 | 2 | 2 |
+| Loop (§4): Loop Plane, 4 bar and 4 ball sketches, 8 revolves, 1 join | 8 | 1 | 9 | 9 |
+| Collars (§4): 4 planes, 4 sketches, 4 sweeps, 1 join | 4 | 4 | 5 | 5 |
+| Bores (§4): 4 planes, 4 sketches, 4 sweep cuts | 4 | 4 | 4 | 4 |
+| **Total** | **23** | **12** | **53** | **65** |
+
+That is 88 timeline entries at `cellTeeth = 4` and 100 at `cellTeeth = 1`, plus the five
+component creations, against about 349 before. A remainder cell (§3) adds one sketch, one loft
+and one join per gear that needs one; the defaults need none. The heaviest sketches are now the
+eight section sketches of §4 at 0.23 s each and the two Cell Sections sketches at 0.37 s each
+with computing deferred; each collar sweep took 0.04 s, each cell loft 0.23 s, and the doubling's
+copies, moves and joins were not timed on their own.
 
 ## Instructions
 
@@ -592,31 +650,38 @@ along it — and the build checks that `C` is `A/2` from each of the two planes
 (`[SCREW-F-NORMAL-SIGN]`). Every later offset from the selected plane uses the same sign as these
 two: a negative offset lands on gear A's side, a positive one on gear B's.
 
-**The axis sketches.** `Gear A Axis` on the Gear A Axis Plane and `Gear B Axis` on gear B's, each
-holding one line on its gear's axis, from station `-(L/2 + P)` to `+(L/2 + P)` with `L = N*P` the
-ribbon's length: a pitch past either end of the ribbon, so that gear B's cell, which starts
-`assemblyPhase` before station `-L/2` (§2), still lies on it. The sketch holds two reference
-points (Sketch Discipline), at `origin_g - (L/2 + P)*dir_g` and `origin_g + (L/2 + P)*dir_g`,
-both on the plane, and the axis line is one solid line drawn from the first to the second,
-sharing both, so its start is its negative end; then both points are set `isFixed = True`. The
-line has no dimension and no constraint, and nothing else is in the sketch. This is how the
-bevel gear draws the shaft axis its section planes stand on: a line whose two ends are fixed has
-a `worldGeometry` the build can trust (`[PB-WORLDGEO-CONSTRAINED]`), and a line held by
-dimensions from a projected point does not. Every section plane of that gear is
-`setByDistanceOnPath` on this line (`[PB-CONSTRUCTION-PLANES]`; pass the line directly, never
-wrapped in `Path.create`), at the fraction `(s + L/2 + P) / (L + 2P)` for station `s`, and the
-point where the line pierces that plane is `origin_g + s*dir_g`.
+**The Paths sketches.** `Gear A Paths` on the Gear A Axis Plane and `Gear B Paths` on gear B's,
+each holding the four lines that gear's collars and bores are swept along (§4), all on the
+gear's axis, which lies in that plane. A collar at crossing station `sc` (`-cageRadius` or
+`+cageRadius`) spans `sc - collarHalf` to `sc + collarHalf`, and its bore spans a millimetre
+more at each end, `sc - collarHalf - 1 mm` to `sc + collarHalf + 1 mm`. The sketch holds eight
+reference points (Sketch Discipline), at `origin_g + s*dir_g` for those eight stations, all on
+the plane, and four solid lines — `collar-`, `bore-`, `collar+`, `bore+` — each drawn from its
+negative station to its positive one, sharing both points, so its start is its negative end and
+it runs along `+dir_g`; then all eight points are set `isFixed = True`. The lines carry no
+dimension and no constraint, and nothing else is in the sketch. A collar's line and its bore's
+overlap, and all four lie on one line; Fusion read such a sketch fully constrained on
+2026-09-28, and a path made from one of its lines with chaining off held that one line
+(`[PB-PATH-FROM-SKETCH]`). A line whose two ends are fixed has a `worldGeometry` the build can
+trust (`[PB-WORLDGEO-CONSTRAINED]`), and a line held by dimensions from a projected point does
+not. The section plane of each collar and bore is `setByDistanceOnPath` on its own line at
+fraction `0` (`[PB-CONSTRUCTION-PLANES]`; pass the line directly), so it stands at the span's
+negative end, square to the axis; the point where the line pierces it is the span's first
+station, `origin_g + s*dir_g`, and Fusion put that plane's origin on the station to four decimals
+of a millimetre. The sweep's path is `features.createPath(line, False)` on the same line
+(`[SCREW-F-TWISTED-SLOT]`).
 
 ### 2: The tooth cell
 
-One cell is one tooth pitch of the finished ribbon, at the ribbon's negative end: stations `s`
-from `s0 = Z0 - L/2` to `s0 + P`, where `Z0` is the gear's tooth phase — `0` for gear A and the
-`assemblyPhase` input for gear B ("Defaults"). Gear B's whole ribbon is gear A's advanced by `Z0`
-under its own screw motion, ends and teeth alike, so the same cell built `Z0` further along its
-axis and repeated the same way is gear B. Build it once per gear.
+One cell is `c` tooth pitches of the finished ribbon, at the ribbon's negative end: stations `s`
+from `s0 = Z0 - L/2` to `s0 + c*P`, where `Z0` is the gear's tooth phase — `0` for gear A and the
+`assemblyPhase` input for gear B ("Defaults") — and `c = min(cellTeeth, N)` is the number of
+teeth the cell holds, 4 at the defaults (`cellTeeth`, "Variables"). Gear B's whole ribbon is
+gear A's advanced by `Z0` under its own screw motion, ends and teeth alike, so the same cell
+built `Z0` further along its axis and repeated the same way is gear B. Build it once per gear.
 
 **The section count is derived, not pinned, and it is not user-configurable.** The cell is lofted
-through `n + 1` sections, `n` steps apart, where `n` is the larger of two counts:
+through `c*n + 1` sections, `n` steps to the tooth, where `n` is the larger of two counts:
 
 - the smallest that keeps the twist between neighbouring sections under 2°,
   `ceil((P/Lambda) / 2°)`, 10 at the defaults. A surface ruled straight between two sections
@@ -628,101 +693,102 @@ through `n + 1` sections, `n` steps apart, where `n` is the larger of two counts
   twist from lofting the tooth through two or three sections and losing it: at a 400 mm lead the
   twist alone asks for two sections, and the cell is built through nine.
 
-That is 11 sections at the defaults. `TestLoftSectionCountHoldsTheHelicoid` holds both bounds over
-leads from 20 mm to 400 mm.
+That is 10 steps to the tooth at the defaults: 41 sections in a four-tooth cell, 11 in a
+one-tooth cell. `TestLoftSectionCountHoldsTheHelicoid` holds both bounds over leads from 20 mm
+to 400 mm.
 
 **What the loft is, and what the count guarantees for it.** Both bounds are arithmetic about a
 *ruled* loft, whose surface runs straight between neighbouring sections. Fusion builds a ruled
 loft only through exactly two sections; a loft through more passes through every section and is
 fitted smoothly between them, and `LoftFeatureInput` has no option to make it ruled — its
 sections carry only end conditions (`[SCREW-F-CELL-LOFT]`). The cell is **one loft through all
-`n + 1` sections**, so it is the smooth kind. What the count guarantees for it is that the built
-cell carries the exact rotated rectangle at each of the `n + 1` stations, `dtheta` apart, and that
+`c*n + 1` sections**, so it is the smooth kind. What the count guarantees for it is that the
+built cell carries the exact rotated rectangle at each of its sections, `dtheta` apart, and that
 between stations its surface interpolates those rectangles; the chord figures above are the
 departure of the ruled loft through the same sections, and they are the only figures the proof
-has. Nothing in this repository bounds how far the smooth surface departs from the helicoid
-between sections, on either side ("What the proof cannot reach"); a Fusion load is what checks
-it. A chain of `n` two-section lofts would be ruled and would carry the bounds literally, at the
-cost of `n` lofts and `n` joins per cell, and this spec keeps the one loft.
+has. What the smooth surface does between sections was measured in Fusion on 2026-09-28
+(`[SCREW-F-CELL-LOFT]`): at one, four and eight teeth, probes 0.04 mm inside and 0.04 mm
+outside the toothed edge and a face, at the midpoint between every pair of sections, all fell
+on the right side of the built surface — 40 of 40, 160 of 160 and 320 of 320 — and the built
+volume was 0.06% to 0.23% under the ruled loft's. So at the defaults the built surface stays
+within 0.04 mm of the helicoid between sections, under a tenth of the 0.44 mm backlash. The
+proof cannot measure that ("What the proof cannot reach"), and a Fusion load is what checks it
+at other inputs. A chain of `c*n` two-section lofts would be ruled and would carry the bounds
+literally, at the cost of that many lofts and joins per cell, and this spec keeps the one loft.
 
-Create the `n + 1` **section construction planes** on the gear's axis line, evenly spaced from
-`s0` to `s0 + P` (§1: `setByDistanceOnPath`, fraction `(s + L/2 + P) / (L + 2P)`), named
-`{gearLabel} Section {k} Plane`.
-
-On plane `k` draw the section sketch `{gearLabel} Section {k}`: the cross-section at station
-`s_k`, a rectangle spanning `u` from `-W/2` to `Utooth(s_k)` and `v` from `-T/2` to `+T/2`,
-rotated about the axis by
+**The Cell Sections sketch.** All the cell's sections go in **one sketch**, named
+`{gearLabel} Cell Sections`, on the gear's Axis Plane (`[SCREW-F-CELL-LOFT]`,
+`[PB-3D-SKETCH-SECTIONS]`), drawn with sketch computing deferred (Sketch Discipline). No
+section plane is made. Section `k`, for `k` from `0` to `c*n`, is the cross-section at station
+`s_k = s0 + k*P/n`: a rectangle spanning `u` from `-W/2` to `Utooth(s_k)` and `v` from `-T/2` to
+`+T/2`, rotated about the axis by
 
 ```
 theta_k     = s_k/Lambda + Phi
 Utooth(s_k) = W/2 - H/2 + (H/2)*cos(2*pi*(s_k - Z0)/P)
 ```
 
-**The rectangle scheme.** Every section sketch in this build — here, and the collars' and bores'
-in §4 — is a rectangle of half-thickness `hv` spanning `u` from `uB` to `uF`, turned by `theta`
-about the axis point `O`, which lies on the rectangle's long centre line but at neither its centre
-nor a corner. Four lines, two dimensions, one coincidence and one angle cannot fix `O` inside such
-a rectangle; a construction spine through `O` can, and this is the scheme:
+Its four corners are the world points of §1 at `(uB, -hv)`, `(uF, -hv)`, `(uF, hv)` and
+`(uB, hv)`, with `uB = -W/2`, `uF = Utooth(s_k)` and `hv = T/2`, each mapped in with
+`modelToSketchSpace` and added with `sketchPoints.add` **with its `z` kept**: the corners lie
+off the sketch's plane on purpose (Sketch Discipline). Four solid lines share them in order —
+`L1` from the first corner to the second, `L2` on to the third, `L3` on to the fourth, `L4` back
+to the first (`[PB-SHARE-XOR-COINCIDENT]`) — and the build keeps the four lines of each section
+together, because they are what the loft is fed. After the last line of the last section is
+drawn, every point in the sketch is set `isFixed = True`. Nothing else is in the sketch: no
+construction line, no constraint, no dimension. Then set `isComputeDeferred` back to `False`,
+raise unless the sketch reports `isFullyConstrained`, and raise unless `sketch.profiles.count`
+is `c*n + 1`: Fusion finds one profile per section, each planar in its own station's plane, and
+read the sketch fully constrained at 11, 41 and 81 sections on 2026-09-28. The profiles are
+not what the loft is fed, because nothing says which profile is which station.
 
-- **References.** Two reference points (Sketch Discipline): `O`, the point where the axis line
-  pierces the sketch plane, at `origin_g + s*dir_g`, and `Cp`, at `origin_g + s*dir_g +
-  (A/2)*û_g`, which is `A/2` from `O` along the gear's unrotated `û` and lies on the plane
-  because `û_g` does. The construction line `Ru` from `O` to `Cp`, sharing both, is the sketch's
-  zero of rotation; it has no freedom once its ends are fixed. Both points are set
-  `isFixed = True` after `Ru` and the spine `K` are drawn and before any dimension is added.
-  Nothing is projected into a section sketch: the Anchor Line's projection would run through
-  `Cp` across the rectangle at `u = A/2`, which at the defaults is inside the toothed edge's
-  sweep and would split the profile on every crest, and `[PB-PROJECT-NOT-FIXED]` rules a
-  projected point out as an anchor in any case.
-- **The spine.** A construction line `K` from `O` to `E`, seeded at `(uF, 0)` turned by `theta`,
-  with a distance dimension `O`–`E` of `uF`.
-- **The angle.** An angular dimension between `Ru` and `K` when `|sin theta| >= sqrt(1/2)`, where
-  the angle is `theta` folded into 45°–135°, and otherwise between `Ru` and the toothed side `L2`,
-  which stands at `theta + 90°` (Sketch Discipline).
-- **The rectangle.** Four solid lines sharing their corners: `L1` from `(uB, -hv)` to `(uF, -hv)`,
-  `L2` on to `(uF, hv)`, `L3` on to `(uB, hv)`, `L4` back to the start, every seed the solved point
-  (`[PB-SHARE-XOR-COINCIDENT]`: shared, no coincident on a corner). Then `L1` parallel to `K` with
-  an offset dimension of `hv`, and `L3` likewise on the other side; `E` coincident on `L2`, and `L2`
-  perpendicular to `K`; `L4` parallel to `L2` with an offset dimension of `uF - uB`
-  (`[PB-OFFSET-DIM]`, `[PB-NO-OVERCONSTRAIN]`).
-
-Ten degrees of freedom — `E` and the four corners — against ten rows: five dimensions (the
-length, the angle, three offsets) and five constraints (three parallels, a perpendicular, a
-coincidence), so the sketch closes fully constrained. For the tooth cell `uB = -W/2`,
-`uF = Utooth(s_k)` and `hv = T/2`. The profile is the one loop of four lines,
-`find_profile_by_curve_counts(sketch, lines=4)` (`[PB-PROFILE-MATCH]`); the construction lines
-bound nothing.
-
-**Loft the sections in station order** (`[PB-LOFT]`, `[SCREW-F-CELL-LOFT]`). The result is one
-pitch of the twisted toothed ribbon.
+**Loft the sections in station order** (`[PB-LOFT]`, `[SCREW-F-CELL-LOFT]`). Create the loft
+with `loftFeatures.createInput(NewBodyFeatureOperation)`; for each section in order of `k`, put
+its four lines in an `ObjectCollection`, make its path with `features.createPath(collection,
+False)` (`[PB-PATH-FROM-SKETCH]`; never `Path.create`, which raises in this component), and
+`loftSections.add(path)`; then `loftFeatures.add(input)`. The result is `c` pitches of the
+twisted toothed ribbon in one body with six faces; raise unless the feature leaves exactly one
+body and that body `isSolid` (`[PB-EMPTY-RESULT]`). Measured at the defaults on 2026-09-28: the
+four-tooth loft took 0.23 s and held 0.164158 cm³ against the ruled loft's 0.164470.
 
 ### 3: Repeat the cell by doubling
 
-The finished ribbon is the cell repeated `N` times under the **screw step**
+The finished ribbon is the cell, `c` teeth, repeated under the **screw step**
 
 ```
 Step(k) = translate(k*P along the axis) ∘ rotate(k*P/Lambda about the axis)
 ```
 
-Build it by doubling rather than by `N` separate placements. A **round** is copy, move, join: copy
-the current body, move the copy by `Step(m)` where `m` is the number of teeth the body holds, join
-the two, and the body holds `2m`. Doubling alone reaches only a power of two, and copying the whole
-body for the remainder would overlap it, so the remainder is made of unmoved copies put aside on
+Write `N = q*c + r`, with `q = floor(N/c)` whole cells and a remainder of `r = N mod c` teeth:
+`q = 20` and `r = 0` at the defaults, `q = 80` at a one-tooth cell. Build the `q` cells by
+doubling rather than by `q` separate placements. A **round** is copy, move, join: copy the
+current body, move the copy by `Step(m*c)` where `m` is the number of cells the body holds, join
+the two, and the body holds `2m` cells. Doubling alone reaches only a power of two, and copying
+the whole body for the rest would overlap it, so the rest is made of unmoved copies put aside on
 the way up:
 
-- Write `N` in binary. Start with the cell, `m = 1`.
-- For each bit of `N` below its top bit, lowest first: if that bit is set, take a copy of the
-  body and keep it unmoved — an **aside** of `m` teeth; then double.
+- Write `q` in binary. Start with the cell, `m = 1`.
+- For each bit of `q` below its top bit, lowest first: if that bit is set, take a copy of the
+  body and keep it unmoved — an **aside** of `m` cells; then double.
 - After the last doubling `m` is the top bit's power of two. Move each aside into place, largest
-  first, by `Step(m)`, join it, and add its teeth to `m`. The last join brings `m` to `N`.
+  first, by `Step(m*c)`, join it, and add its cells to `m`. The last join brings `m` to `q`.
 
-That is `floor(log2 N) + popcount(N) - 1` rounds and as many joins — 7 at the default 80 teeth,
-six doublings to 64 and one aside of 16, taken when the body held 16 and moved by `Step(64)`,
-against 79 placements — and every placement is exact, because the body genuinely is invariant
-under `Step` (`TestRibbonIsInvariantUnderItsScrewStep`). Every move is by a whole number of teeth
-already built, so each join meets its neighbour at one shared planar cross-section and leaves no
-sliver and no overlap; `TestDoublingScheduleCoversTheRibbon` runs the schedule at every count from
-4 to 512.
+That is `floor(log2 q) + popcount(q) - 1` rounds and as many joins: 5 at the defaults — `q = 20`,
+four doublings to 16 cells and one aside of 4 cells, taken when the body held 4 cells and moved
+by `Step(64)` — and 7 at a one-tooth cell — `q = 80`, six doublings to 64 and one aside of 16,
+moved by `Step(64)` — against 79 placements. When `q = 1` there is no round. Every placement is
+exact, because the body genuinely is invariant under `Step`
+(`TestRibbonIsInvariantUnderItsScrewStep`). Every move is by a whole number of teeth already
+built, so each join meets its neighbour at one shared planar cross-section and leaves no sliver
+and no overlap; `TestDoublingScheduleCoversTheRibbon` runs the schedule at every count from 4 to
+512 with cells of one, three and four teeth.
+
+**The remainder.** When `r > 0`, the last `r` teeth are a second, shorter cell, built where they
+belong rather than moved there: a sketch `{gearLabel} Cell Remainder` and a loft by the recipe of
+§2 with `c` replaced by `r`, so `r*n + 1` sections at stations from `s0 + q*c*P` to `s0 + N*P`,
+joined into the body after the last round. Its first section is the body's last, so the join
+meets at a shared cross-section like every other. The defaults have none; 81 teeth in
+four-tooth cells would have one of one tooth.
 
 Copy with `copyPasteBodies.add(body)` and take the copy from the feature's `bodies`
 (`[SCREW-F-COPY-BODY]`); move with `moveFeatures.createInput2(bodies)` → `defineAsFreeMove(matrix)`
@@ -793,29 +859,78 @@ The frame is the open skeleton in the video, built from round sections and joine
   turns differ (34.612° for a collar at `-cageRadius` and 34.426° at `+cageRadius`, which the
   proof logs as 34.61° and 34.43°). Equal short sides on one circle make the long sides
   parallel, so the loop is an isosceles trapezoid, a rectangle to within 0.05 mm on a side;
-  `TestFrameIsOnePiece` logs the four sides. A bar is a circle of `ringWire` on a plane square to
-  the bar at its middle, extruded symmetrically to the two feet; a ball is a half-disc of
-  `ringWire` revolved about the line through its foot along `n̂`, on the plane through the bar
-  that starts at that foot (`[SCREW-F-ROUND-FRAME]`).
+  `TestFrameIsOnePiece` logs the four sides. A bar is a rectangle `ringWire/2` wide and the
+  bar's length long, drawn on the Loop Plane itself from four reference points and revolved a
+  full turn about the bar's own line, foot to foot; a ball is a half-disc of `ringWire` on the
+  Loop Plane, revolved a full turn about its chord through the foot
+  (`[SCREW-F-ROUND-FRAME]`). No plane is made per bar or per ball: the Loop Plane holds every
+  foot, and both revolves were measured exact on it on 2026-09-28.
 - **The collars** are one per crossing. A collar is the bore's rectangle grown by `collarWall` in
   every direction of its own section — a rounded rectangle — running along the ribbon over
   `±collarHalf` from the crossing and turning with it, so its ends are flat and square to the
   ribbon's axis. Every collar is centred on its crossing, station `±cageRadius` of that gear's
   axis for both gears alike. The assembly phase moves gear B's ribbon along its axis and not its
   collars: any stretch of the ribbon fits a collar, and the ribbon can go in at any phase a pitch
-  apart, so the frame has no way to know the phase. Build a collar as a loft of rounded
-  rectangles on planes of its own along the gear's axis line, evenly spaced over `±collarHalf`
-  from the crossing, at no more than 5° of twist between neighbours — `ceil(turn / 5°) + 1`
-  sections, 10 at the defaults — and never on the bore's planes, which run a millimetre past
-  each end of the collar and cannot land on both the collar's ends and the bore's
-  (`[SCREW-F-TWISTED-SLOT]`). The planes are named `{gearLabel} Collar {-R|+R} Section {k} Plane`
-  and the sketches `{gearLabel} Collar {-R|+R} Section {k}`, `-R` for the collar at `-cageRadius`
-  and `+R` at `+cageRadius`, `k` from 0 at the negative end; the bore's below are named the same
-  with `Bore` for `Collar`. A collar section is the bore's rectangle below, drawn as
-  construction by the rectangle scheme of §2, with four solid sides parallel to it `collarWall`
-  outside and a quarter-circle arc of radius `collarWall` at each corner, tangent to one side and
-  centred on the construction corner, so the profile is four lines and four arcs
-  (`find_profile_by_curve_counts(sketch, lines=4, arcs=4)`).
+  apart, so the frame has no way to know the phase. Build a collar as **one sweep** of its
+  section along its own `collar-` or `collar+` line of §1, twisted by `2*collarHalf/Lambda`,
+  43.6° at the defaults, so the section turns with the ribbon (`[SCREW-F-TWISTED-SLOT]`,
+  `[PB-SWEEP-TWIST]`). Its one plane is `{gearLabel} Collar {-R|+R} Plane`, `setByDistanceOnPath`
+  on that line at fraction `0`, so it stands at `sc - collarHalf`, `-R` for the collar at
+  `-cageRadius` and `+R` at `+cageRadius`; the bores' below are named the same with `Bore` for
+  `Collar`. On it the sketch `{gearLabel} Collar {-R|+R}` is the collar's section at that
+  station: the bore's rectangle below, drawn as construction by the rectangle scheme, with four
+  solid sides parallel to it `collarWall` outside and a quarter-circle arc of radius
+  `collarWall` at each corner, tangent to one side and centred on the construction corner, so
+  the profile is four lines and four arcs (`find_profile_by_curve_counts(sketch, lines=4,
+  arcs=4)`). The sweep is `sweepFeatures.createInput(profile, path, NewBodyFeatureOperation)`
+  with `path = features.createPath(line, False)`, `twistAngle` set to
+  `ValueInput.createByReal(+2*collarHalf/Lambda)` and nothing else set, then
+  `sweepFeatures.add`; it leaves one solid body of ten faces whose far end is the same section
+  turned by the twist, which the build checks (`[SCREW-F-SWEEP-CHECK]`). The sign is positive:
+  the path runs along `+dir_g` and the section's angle `s/Lambda + Phi` grows with `s`, and a
+  positive `twistAngle` turns the profile that way, measured on 2026-09-28 with the far end
+  landing 0.0047 mm from the spec's section and 4.9 mm from it under the opposite sign. The
+  collar is the exact helicoid §4 describes, a rounded rectangle turning rigidly, not a fit
+  through samples of it.
+
+  **The rectangle scheme.** Each of the eight section sketches of this section — the four
+  collars' and the four bores' — is a rectangle of half-thickness `hv` spanning `u` from `uB` to
+  `uF`, turned by `theta = s/Lambda + Phi_g` about the axis point `O`, which lies on the
+  rectangle's long centre line but at neither its centre nor a corner. Four lines, two
+  dimensions, one coincidence and one angle cannot fix `O` inside such a rectangle; a
+  construction spine through `O` can, and this is the scheme:
+
+  - **References.** Two reference points (Sketch Discipline): `O`, the point where the sweep
+    path pierces the sketch plane, at `origin_g + s*dir_g` for the plane's station `s`, and
+    `Cp`, at `origin_g + s*dir_g + (A/2)*û_g`, which is `A/2` from `O` along the gear's
+    unrotated `û` and lies on the plane because `û_g` does. The construction line `Ru` from `O`
+    to `Cp`, sharing both, is the sketch's zero of rotation; it has no freedom once its ends are
+    fixed. Both points are set `isFixed = True` after `Ru` and the spine `K` are drawn and before
+    any dimension is added. Nothing is projected into a section sketch: the Anchor Line's
+    projection would run through `Cp` across the rectangle at `u = A/2`, which at the defaults
+    is inside the rectangle and would split the profile, and `[PB-PROJECT-NOT-FIXED]` rules a
+    projected point out as an anchor in any case.
+  - **The spine.** A construction line `K` from `O` to `E`, seeded at `(uF, 0)` turned by
+    `theta`, with a distance dimension `O`–`E` of `uF`.
+  - **The angle.** An angular dimension between `Ru` and `K` when `|sin theta| >= sqrt(1/2)`,
+    where the angle is `theta` folded into 45°–135°, and otherwise between `Ru` and the toothed
+    side `L2`, which stands at `theta + 90°` (Sketch Discipline).
+  - **The rectangle.** Four lines sharing their corners: `L1` from `(uB, -hv)` to `(uF, -hv)`,
+    `L2` on to `(uF, hv)`, `L3` on to `(uB, hv)`, `L4` back to the start, every seed the solved
+    point (`[PB-SHARE-XOR-COINCIDENT]`: shared, no coincident on a corner). Then `L1` parallel to
+    `K` with an offset dimension of `hv`, and `L3` likewise on the other side; `E` coincident on
+    `L2`, and `L2` perpendicular to `K`; `L4` parallel to `L2` with an offset dimension of
+    `uF - uB` (`[PB-OFFSET-DIM]`, `[PB-NO-OVERCONSTRAIN]`).
+
+  Ten degrees of freedom — `E` and the four corners — against ten rows: five dimensions (the
+  length, the angle, three offsets) and five constraints (three parallels, a perpendicular, a
+  coincidence), so the sketch closes fully constrained. In every one of the eight sketches
+  `uB = -(W/2 + clearance)`, `uF = W/2 + clearance` and `hv = T/2 + clearance`, the bore's
+  rectangle; in a bore sketch its four lines are solid and are the profile, the one loop of four
+  lines, `find_profile_by_curve_counts(sketch, lines=4)` (`[PB-PROFILE-MATCH]`); in a collar
+  sketch they are construction and the profile is the rounded rectangle drawn round them
+  (`[SCREW-F-TWISTED-SLOT]`). The construction lines bound nothing. The scheme is drawn with
+  sketch computing deferred (Sketch Discipline).
 
 Each rod runs through the wall of its own collar, and that is the whole of what joins the two;
 nothing else is added. The build checks that join with two numbers per rod, both from the
@@ -851,38 +966,40 @@ crossing angle the rod for one gear's collar has to turn past the other gear's r
 and comes to rest where the other gear's rod already stands. `TestCoincidentRodsAreRefused`
 holds that input.
 
-**Bore each collar with a twisted clearance ribbon** (`[SCREW-F-TWISTED-SLOT]`): loft rectangles of
-`(W + 2*clearance)` by `(T + 2*clearance)`, 10.6 by 3.1 mm at the defaults, on planes along that
-gear's axis line, each drawn by the rectangle scheme of §2 with `uB = -(W/2 + clearance)`,
-`uF = W/2 + clearance` and `hv = T/2 + clearance`, rotated by `s/Lambda + Phi` exactly as the
-tooth cell's sections are. The bore is a body of its own, cut from the frame last (below); it is
-never lofted as a cut, since the ribbons pass through it and would be cut too.
+**Bore each collar with a twisted sweep cut** (`[SCREW-F-TWISTED-SLOT]`, `[PB-SWEEP-TWIST]`):
+the crest rectangle plus the clearance, `(W + 2*clearance)` by `(T + 2*clearance)`, 10.6 by
+3.1 mm at the defaults, drawn by the rectangle scheme above on the bore's own plane,
+`{gearLabel} Bore {-R|+R} Plane`, `setByDistanceOnPath` at fraction `0` of the bore's `bore-` or
+`bore+` line of §1, in the sketch `{gearLabel} Bore {-R|+R}`, at that plane's station
+`sc - collarHalf - 1 mm`; then swept along that line with `twistAngle` set to
+`+2*(collarHalf + 1 mm)/Lambda`, 65.4° at the defaults, as
+`sweepFeatures.createInput(profile, path, CutFeatureOperation)` with `participantBodies` set to
+a list holding the cage body alone, and nothing else set. The ribbons pass through the channel
+and are not on that list, so the cut leaves them whole: measured on 2026-09-28, a body wholly
+inside the channel and off the list kept its volume to the last digit while the cage lost the
+channel's. The bore is the exact helicoid the model describes — the rectangle turning rigidly at
+`1/Lambda` about the axis, the channel `TestRibbonsStayInsideTheirBoresOverTheTravel` and
+`TestBoresAdmitOnlyTheScrewMotion` measure against — with no facets and no fit between samples.
 
-**One loft per bore, spanning the collar's length plus a millimetre at each end**, so the cut runs
-clean through. At the defaults that is 6 mm of axis and 65° of turn. The two bores of one gear
-stand 2\*`cageRadius` apart, so one loft covering both would span 24 mm and 262° and need more
-than three times the sections for the same accuracy.
+**One sweep per bore, spanning the collar's length plus a millimetre at each end**, so the cut
+runs clean through the collar's flat ends and through whatever of its rod stands inside the
+wall. At the defaults that is 6 mm of axis and 65° of turn. The two bores of one gear stand
+2\*`cageRadius` apart and are two sweeps on two lines, as §1 draws them.
 
-**The section count is derived from the turn and the clearance.** No two neighbouring sections
-are more than 5° of twist apart, nor more than the angle at which the facets between them take
-4% of the clearance: `2*acos(1 - 0.04*clearance/R)` with `R = hypot(W/2 + clearance,
-T/2 + clearance)` the bore's corner radius. The count is `ceil(turn / step) + 1` for the smaller
-step. At the defaults the facet bound is 7.6°, so 5° governs and the count is 15; at a clearance
-of 0.05 mm the facet bound is 3.2° and governs, and the count is 22. The tooth cell is held to 2°
-because its error is measured against the backlash; a bore's is measured against the clearance,
-which is twenty times larger at the defaults and is what the second bound follows.
-
-**What the facets cost.** The count is derived for a ruled loft, whose wall is flat between
-sections and whose every facet stands inside the true channel. What that costs is clearance,
-straight out of the gap the ribbon passes through, and enough of it binds the gear; the bite does
-not shrink with the clearance, which is why the count grows as the clearance falls. At the derived
-count the ruled facets take 0.004 mm of the 0.3 mm; at the five sections this spec fixed before
-they take 0.054 mm. `TestBoreLoftKeepsItsClearance` builds that ruled channel through the build's
-sections and holds it at 95% of the clearance, at clearances from 0.05 mm to 0.6 mm. The bore
-Fusion cuts is one loft through all its sections, which is smooth between them (§2, "What the
-loft is"): it passes through the same rectangles and departs from the true channel between them
-by an amount nothing here measures, on either side. The count rule is how closely the exact
-sections are spaced, and the ruled figure is the one bound the proof has.
+**What the proof's stand-in costs.** The proof's solid engine has no twisted sweep, so the
+compiled step proof stands in a ruled loft through rotated rectangles for each collar and bore
+("What the proof checks"), and the count it lofts through is derived from the turn and the
+clearance: no two neighbouring sections more than 5° of twist apart, nor more than the angle at
+which the facets between them take 4% of the clearance, `2*acos(1 - 0.04*clearance/R)` with
+`R = hypot(W/2 + clearance, T/2 + clearance)` the bore's corner radius, and the count is
+`ceil(turn / step) + 1` for the smaller step: 15 at the defaults, where the facet bound is 7.6°
+and 5° governs, and 22 at a clearance of 0.05 mm, where the facet bound is 3.2° and governs.
+A ruled loft's wall is flat between sections and every facet stands inside the true channel, so
+what the stand-in costs is clearance: 0.004 mm of the 0.3 mm at the derived count, 0.054 mm at
+the five sections an earlier version of this spec fixed. `TestBoreSubstituteKeepsItsClearance`
+builds that ruled channel and holds it at 95% of the clearance, at clearances from 0.05 mm to
+0.6 mm, which is what says a measurement made on the stand-in holds for the swept channel to
+within that much. The build derives no section count: its channel has none.
 
 **The bore has to twist; a straight hole binds.** Over a collar of length `2*collarHalf` the ribbon
 turns by `2*collarHalf/Lambda`, so its corner sweeps `(W/2)*(2*collarHalf/Lambda)` across the
@@ -892,13 +1009,33 @@ opening. At the defaults that is 3.8 mm against 0.3 mm of clearance.
 edge, so that rectangle holds the whole ribbon, teeth included, and its toothed side bears on the
 crests ("Why the cage needs no tooth-shaped cut"); nothing in the frame is shaped like a tooth.
 
-**Order.** The ring is the first body; the rods, the bars, the balls and the collars are each made
-as new bodies and joined into it with a `combineFeatures` join as they are made, and the four
-bores are lofted as new bodies and cut from it last with a `combineFeatures` cut, so each cut runs
-through the collar and through whatever of its rod stands inside the wall in one operation
-(`[SCREW-F-ROUND-FRAME]`). Every join and cut has to leave exactly one body, counted as the
-combine feature's `bodies.count`, and that body is the cage from then on; the build raises with
-the piece's name otherwise. The one body that remains after the last cut is the cage.
+**The sweep's sense is checked, not assumed** (`[SCREW-F-SWEEP-CHECK]`, `[PB-SELF-DIAGNOSING]`).
+After each collar sweep the build reads the body's `vertices` and requires that each of the
+section's eight outline points at the far station `sc + collarHalf` — the ends of the four
+sides, at `(uB, -hv - w)`, `(uF, -hv - w)`, `(uF + w, -hv)`, `(uF + w, hv)`, `(uF, hv + w)`,
+`(uB, hv + w)`, `(uB - w, hv)` and `(uB - w, -hv)` with `w = collarWall`, turned by the far
+station's own angle — lies within 0.05 mm of some vertex, and the same for the eight at the
+near station; it raises naming the collar and the worst distance otherwise. Measured on
+2026-09-28: 0.0047 mm at the far end and 0.0000 mm at the near end with the right sign, 4.9 mm
+at the far end with the wrong one. After each bore cut the build requires the sweep feature to
+leave exactly one body and probes the cage with `pointContainment` at the two points
+`origin_g + s*dir_g ± (W/2 + clearance/2)*û(s)`, `û(s)` the section's turned `u` direction, at
+`s = sc + collarHalf/2`, the far half of the collar: both must be `PointOutsidePointContainment`,
+the channel being open there, and the build raises naming the bore otherwise. Those probes also
+tell the two senses apart whenever
+`(W/2 + clearance/2) * |sin(2*(1.5*collarHalf + 1 mm)/Lambda)| > T/2 + clearance`, which is
+5.14 mm against 1.55 mm at the defaults: under the wrong sense the channel at that station is
+turned 87° from the probes, which then sit in the collar's wall.
+
+**Order.** The ring is the first body. The rods are joined into it in one combine, as they are
+extruded in one feature; the loop's four bars and four balls are made as new bodies and joined
+in one combine of eight tools; the four collars are made as new bodies and joined in one combine
+of four tools; then the four bores are swept as cuts, each with the cage as its only
+participant, so each cut runs through the collar and through whatever of its rod stands inside
+the wall in one operation (`[SCREW-F-ROUND-FRAME]`). Every join and cut has to leave exactly
+one body, counted as the combine or sweep feature's `bodies.count`, and that body is the cage
+from then on; the build raises with the piece's name otherwise. The one body that remains after
+the last cut is the cage.
 
 ### 5: Relocate the bodies
 
@@ -930,7 +1067,26 @@ own, registrations generated into `zz_registrations_test.go`, and the `sketch` a
 engines for what it builds. It covers the build steps of "Instructions" — that every sketch
 scheme closes fully constrained and unambiguous, and that every solid step yields the body the
 next step consumes — and nothing in the list below. A recompile regenerates it and leaves the
-four hand-written files alone.
+four hand-written files alone. Four steps of this build are ones the engines cannot build as
+Fusion does, and each takes a stand-in, to be named in the proof beside what it stands in for:
+
+- The Cell Sections sketch (§2) holds points off its plane, and the sketch engine is planar. The
+  stand-in is one planar sketch per section, on that station's own plane, of the four corners
+  as fixed points and four lines, which pins each section's numbers; Fusion's verdict on the one
+  3D sketch — fully constrained, one profile per section — was measured on 2026-09-28 and is
+  the sketch step's `[PROSE]` part.
+- The cell loft (§2) is smooth in Fusion. `decad` lofts ruled between sections, so the stand-in
+  is the ruled loft through the same `c*n + 1` sections, whose departure from the helicoid is
+  what `TestLoftSectionCountHoldsTheHelicoid` bounds and whose volume Fusion's smooth loft came
+  within 0.23% of.
+- A collar or bore sweep (§4) has no `decad` counterpart. The stand-in is a ruled loft through
+  the sections "What the proof's stand-in costs" derives, 15 at the defaults, built as the
+  sweep's own section turned by `s/Lambda + Phi` at each; `TestBoreSubstituteKeepsItsClearance`
+  bounds what that costs against the exact channel, 0.004 mm of the 0.3 mm clearance at the
+  defaults. The twist's sense and its linearity are Fusion's (`[PB-SWEEP-TWIST]`), measured on
+  2026-09-28 and checked at build time (`[SCREW-F-SWEEP-CHECK]`).
+- A bore's cut with a participant list (§4) is a `decad` cut of the stand-in from the cage
+  alone; that the ribbons are left whole is Fusion's, measured on 2026-09-28.
 
 The mechanism proof's cases:
 
@@ -977,10 +1133,11 @@ The mechanism proof's cases:
   phase, over every station the travel carries it through, against the other ribbon outside the
   engaged zone, and holds the collars outside that zone. The mesh proof walks the bare ribbons at
   the assembly phases; this is the same clearance at every phase of the travel.
-- `TestBoreLoftKeepsItsClearance` is the one case that looks at what Fusion will really cut rather
-  than at the ideal channel: it builds the bore's loft as the build would, at the section count
-  the build derives, and requires 95% of the clearance to survive the facets, at clearances from
-  0.05 mm to 0.6 mm.
+- `TestBoreSubstituteKeepsItsClearance` bounds the compiled proof's stand-in for the bore
+  sweep: it builds the ruled loft through the sections "What the proof's stand-in costs"
+  derives and requires 95% of the clearance to survive the facets, at clearances from 0.05 mm to
+  0.6 mm, so that a measurement made on the stand-in holds for the exact channel Fusion sweeps
+  to within 0.004 mm at the defaults.
 - `TestTheMiddleStaysOpen` keeps the frame out of the space the gears mesh in.
 - `TestTravelIsTheRibbonBetweenItsCollars` walks each gear out of the assembly position both ways
   until an end leaves a collar, and until an end leaves the engaged zone, and holds the travel to
@@ -989,10 +1146,12 @@ The mechanism proof's cases:
   holds at.
 - `TestLoftSectionCountHoldsTheHelicoid` is the arithmetic the section count is bought with: the
   twist chord at the crest and the cosine chord on the toothed edge, over leads from 20 mm to
-  400 mm, so the floor of eight steps is held where the twist is slow.
+  400 mm, so the floor of eight steps is held where the twist is slow; it logs the cell's
+  section count at `cellTeeth` of 4 and 1, 41 and 11 at the defaults.
 - `TestDoublingScheduleCoversTheRibbon` runs the doubling schedule of §3 at every tooth count from
-  4 to 512 and holds that the pieces tile the ribbon with no overlap, in
-  `floor(log2 N) + popcount(N) - 1` rounds, 7 at the defaults.
+  4 to 512 with cells of one, three and four teeth, and holds that the pieces tile the ribbon
+  with no overlap, in `floor(log2 q) + popcount(q) - 1` rounds plus one remainder join when
+  `N mod c` is not zero: 5 rounds at the defaults, 7 at a one-tooth cell.
 - `TestProportionsFollowTheVideo` holds the defaults inside the ranges read off the video, each
   widened by the ±20% the reading carries, for the ratios this spec follows: teeth per turn,
   thickness and length against the width, the ring's diameter against the width, the frame's
@@ -1012,18 +1171,28 @@ derives them; the proof measures what this tooth does, not what the best tooth w
 It proves the ideal ribbon, an exact cosine on an exact helicoid, and not the lofted body Fusion
 builds. `TestLoftSectionCountHoldsTheHelicoid` bounds the gap between the helicoid and a *ruled*
 loft through the build's sections — 0.7 µm at the crest and 0.029 mm on the toothed edge, where
-a ruled loft draws a chord of the cosine — against a 0.50 mm backlash, and
-`TestBoreLoftKeepsItsClearance` does the same for the bore. Fusion's loft through more than two
-sections is smooth between them, not ruled (§2, "What the loft is"), so those are bounds on a
-body Fusion does not build: the built surface passes through the same sections, and how far it
-departs from the helicoid between them, on either side, is measured by nothing here. Only a
-Fusion load sees it.
+a ruled loft draws a chord of the cosine — against a 0.50 mm backlash. Fusion's loft through
+more than two sections is smooth between them, not ruled (§2, "What the loft is"), so that is a
+bound on a body Fusion does not build: the built surface passes through the same sections, and
+how far it departs from the helicoid between them is measured by nothing here. A Fusion
+measurement on 2026-09-28 put it within 0.04 mm at the defaults (`[SCREW-F-CELL-LOFT]`), and
+only a Fusion load sees it at other inputs. The collar and bore are exact helicoids in Fusion
+and have no such gap; `TestBoreSubstituteKeepsItsClearance` bounds the proof's own stand-in
+for them, not the built part.
+
+It cannot see the sweep. The solid engine has no twisted sweep, so which way Fusion turns a
+profile for a positive `twistAngle`, and that it turns it linearly along the path, are Fusion's
+facts, measured on 2026-09-28 (`[PB-SWEEP-TWIST]`) and re-checked on every build by the
+end-face and probe checks of §4 (`[SCREW-F-SWEEP-CHECK]`). Nor can it see a sketch whose
+points lie off its plane: the sketch engine is planar, so the Cell Sections sketch's own
+constraint verdict is Fusion's, measured on 2026-09-28 at 11, 41 and 81 sections.
 
 It cannot see where Fusion puts a plane. The sketch engine draws each section on an exact plane
 at `z = 0`, so a point Fusion leaves a few nanometres off its plane — which made the first Fusion
 load fail at `Gear A Collar -R Section 0` (`[PB-SKETCH-ZERO-Z]`) — does not exist in the proof.
 What the proof can hold is the rule's side of it: the compiled step list must set `z = 0` on
-every mapped point, and a step that maps one without it is a compile defect.
+every mapped point that is meant to lie on its plane, and a step that maps one without it is a
+compile defect.
 
 It also cannot see print tolerance or friction. A window of 0.44–0.57 mm is comfortable for fused
 filament and tight for resin, and only a printed part settles it.
