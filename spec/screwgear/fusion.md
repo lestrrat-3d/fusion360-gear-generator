@@ -27,11 +27,14 @@ gives a date is a measurement, and one that gives none is read from the referenc
 - **2026-09-28, third load.** The first load of the new construction (sweeps, one 3D-sketch cell
   loft in 4-tooth cells, the loop on its own plane) completed at the defaults in seconds, against
   about five minutes for the second, and no runtime check of `[SCREW-F-SWEEP-CHECK]` raised.
-  Counted in the finished document: 23 sketches and 12 construction planes, as "What the build
-  makes" predicts; 62 features (59 in `Design`, one each in `Gear A`, `Gear B` and `Cage`)
-  against the 53 predicted; 96 timeline items; three bodies. The nine extra features are not yet
-  accounted for, and the prediction is what is wrong, not the build. A side-by-side look against
-  the second load's geometry was not reported.
+  Counted in the finished document: 23 sketches, 12 construction planes, 96 timeline items and
+  three bodies, exactly as "What the build makes" predicts once the three `moveToComponent`
+  relocations are in its table (they were missing when this load ran). `Component.features.count`
+  summed over the five components read 62 (59 in `Design`, one each in `Gear A`, `Gear B` and
+  `Cage`). The timeline settles the real count: 96 items = 23 sketches + 12 planes + 5 component
+  creations + 56 features, which is the table's 53 plus the three relocations. The feature
+  collections report six more than that, all in `Design`, for a reason not measured. A
+  side-by-side look against the second load's geometry was not reported.
 
 ## `[SCREW-F-DIAGNOSTIC]` — what the diagnostics of 2026-09-28 measured
 

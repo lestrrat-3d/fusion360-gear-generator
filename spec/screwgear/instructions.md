@@ -584,10 +584,15 @@ one sketch, and the counts are what the diagnostics of 2026-09-28 measured piece
 | Loop (§4): Loop Plane, 4 bar and 4 ball sketches, 8 revolves, 1 join | 8 | 1 | 9 | 9 |
 | Collars (§4): 4 planes, 4 sketches, 4 sweeps, 1 join | 4 | 4 | 5 | 5 |
 | Bores (§4): 4 planes, 4 sketches, 4 sweep cuts | 4 | 4 | 4 | 4 |
-| **Total** | **23** | **12** | **53** | **65** |
+| Relocate (§5): 3 `moveToComponent` | 0 | 0 | 3 | 3 |
+| **Total** | **23** | **12** | **56** | **68** |
 
-That is 88 timeline entries at `cellTeeth = 4` and 100 at `cellTeeth = 1`, plus the five
-component creations, against about 349 before. A remainder cell (§3) adds one sketch, one loft
+That is 91 timeline entries at `cellTeeth = 4` and 103 at `cellTeeth = 1`, plus the five
+component creations: 96 and 108 in all, against about 349 before. The third Fusion load
+(`[SCREW-F-FIRST-LOAD]`) counted exactly 96 timeline items. Check a load against the timeline
+count, not against `Component.features.count`: summed over the five components that read 62,
+six more than the 56 features the timeline holds, all six in `Design`, for a reason not yet
+measured. A remainder cell (§3) adds one sketch, one loft
 and one join per gear that needs one; the defaults need none. The heaviest sketches are now the
 eight section sketches of §4 at 0.23 s each and the two Cell Sections sketches at 0.37 s each
 with computing deferred; each collar sweep took 0.04 s, each cell loft 0.23 s, and the doubling's
