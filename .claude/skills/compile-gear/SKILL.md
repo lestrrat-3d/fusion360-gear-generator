@@ -20,6 +20,19 @@ until the proof is green and both describe the same build.
   single file: a gear splits its sketch proof, its solid proof and the geometry they share across
   as many Go files as the split needs.
 
+## Checked harness view
+
+Build and verify the shared harness API view before drafting:
+
+```
+python3 .claude/skills/generate-gear/build_harness_view.py build
+python3 .claude/skills/generate-gear/build_harness_view.py verify
+```
+
+The view lives in `.tmp/` and is reused for every gear until its canonical Go source changes.
+Verify it before final placement. Rebuild it after a harness change and before a fresh retry.
+The proof gates continue to run the canonical Go packages.
+
 ## Optional pipeline timing
 
 For an opt-in timing run, use `.claude/skills/generate-gear/pipeline_timing.py` and follow the
@@ -65,11 +78,12 @@ proof is where the next reader is looking for the missing check.
    Run `python3 .claude/skills/generate-gear/preflight.py <gear> --stage compile --default-model
    <the session's default model>` and fix every
    `[FAIL]` before drafting; it verifies the engines, the go toolchain and the API database so a
-   broken environment fails here instead of mid-run. Read this file end to end. Do **not** read
-   `PLAYBOOK.md`, the spec, or the harness APIs up front: the drafting subagent reads them in
-   full, and the orchestrator reads on demand — the drafted step list around each name step 5
-   classifies, the spec lines a `fault:` line names in step 6, and a harness or playbook section
-   only when a specific diagnosis calls for it.
+   broken environment fails here instead of mid-run. Build and verify the **Checked harness view**.
+   Read this file end to end. Do **not** read `PLAYBOOK.md`, the spec, or the harness APIs up front:
+   the drafting subagent reads the spec and checked harness view, and the orchestrator reads on
+   demand — the drafted step list around each name step 5 classifies, the spec lines a `fault:`
+   line names in step 6, and a harness or playbook section only when a specific diagnosis calls
+   for it.
 
 2. **Render metadata, then stamp provenance.** After each drafting round, run
    `python3 .claude/skills/generate-gear/render_step_metadata.py <gear> --write
@@ -205,7 +219,8 @@ only after the ordinary complete emit battery passes.
    spawned on. A fresh retry round re-renders the
    prompt with `python3 .claude/skills/generate-gear/render_prompt.py compile-gear <gear>
    --failure-file .tmp/<gear>.compile-gates.txt`, which appends the checked retry view;
-   hand the printed output to the drafter unchanged. The first round's prompt is always the
+   hand the printed output to the drafter unchanged. Rebuild and verify the checked harness view
+   first if a harness package changed. The first round's prompt is always the
    rendered standard prompt with no failure file.
 
    For every returned retry draft, repeat step 4's scaffold and placement commands before its
@@ -220,7 +235,7 @@ only after the ordinary complete emit battery passes.
 7. **Place.** Before successful placement or reporting, require a pass from the ordinary complete
    gate runner for the current artifacts. Reuse the latest report when it is an ordinary full pass
    and no inputs or artifacts changed since that run; rerun the ordinary runner after any focused
-   iteration, failed run, or change. On success, run
+   iteration, failed run, or change. Verify the **Checked harness view**. On success, run
    `python3 .claude/skills/generate-gear/stage.py <gear> compile`
    from the repo root. It repeats step 4's placement of the step list and the proof, so it
    should report every file unchanged; it exists as a step so a run whose gates were green

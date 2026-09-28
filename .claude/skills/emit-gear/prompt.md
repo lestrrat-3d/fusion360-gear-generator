@@ -9,8 +9,9 @@ It does not validate Fusion behavior and never replaces the orchestrator's compl
 Do not execute the generated module; the `adsk` modules exist only inside Fusion, so runtime
 behavior cannot be checked during drafting.
 
-**Read, in this order:** `spec/{{gear}}/steps.md`, which is your instruction set and which you work
-through in order; `.tmp/{{gear}}.proof-bundle.md`, the verified construction view of the checked
+**Read, in this order:** `.tmp/{{gear}}.steps-view.md`, the checked view of
+`spec/{{gear}}/steps.md` and your instruction set, which you work through in order;
+`.tmp/{{gear}}.proof-bundle.md`, the verified construction view of the checked
 Go proof, which steps tagged `[GO]` tell you to transliterate literally rather than re-derive;
 `.tmp/{{gear}}.playbook-extract.md`, the generated
 extract of the playbook rules the steps cite by anchor plus the shared core sections (it replaces
@@ -22,22 +23,23 @@ Read `.tmp/{{gear}}.dependency-view.md` for signatures, decorators, and constant
 named by the checked steps. It is generated from the current source and verified before drafting.
 Read `docs/spec-to-code-performance/06-step-metadata-format.md` for version-2 call roles.
 
-**Do not read** `lib/geargen/{{gear}}.py`, `spec/{{gear}}/instructions.md`, `spec/{{gear}}/fusion.md`,
-or any previous draft. The step list is deliberately the only description of the gear you get. If
+**Do not read** `lib/geargen/{{gear}}.py`, `spec/{{gear}}/steps.md`,
+`spec/{{gear}}/instructions.md`, `spec/{{gear}}/fusion.md`, or any previous draft.
+The checked step view is deliberately the only description of the gear you get. If
 a step is unclear, record it as a defect in your report and make your best attempt.
 
 The checked step list includes `## Compilation contract` when the gear has a manifest. Read its
 v1 JSON as requirements for the module, its classes, methods, constants, and source guards.
 Apply each guard inside its named function. Do not read `contract.json`; the complete manifest
-is already in the checked steps. If a constant also appears in `## Exact values`, both sections
-must give the same string. Report a disagreement as a compile defect.
+is already in the checked view. The canonical gates check its constants against the omitted
+`## Exact values` section.
 
 **Use version-2 `required` declarations as the execution checklist.** Preserve each
 stated condition. Other roles add no positive call requirement; existing source guards still
 enforce forbidden behavior. Legacy step lists retain their existing call checks.
 
 **The step list's required call spans are pre-verified.** Every required Fusion call written in a code span in
-`spec/{{gear}}/steps.md` was checked against the API database when the step list was compiled, and
+the canonical `spec/{{gear}}/steps.md` was checked against the API database when the step list was compiled, and
 the spans carry the argument shapes the signatures ask for. Write those calls as the steps give
 them; do not re-query them. Ask the `fusion:query-api` skill only about a call you introduce that
 the step list does not carry, a span whose arguments the step leaves unstated, or a call a gate
@@ -59,8 +61,8 @@ The failure here is not carelessness but tidying, and it has already shipped a b
 If a value you need is genuinely absent from the step list, that is a defect to report, never a gap
 to fill with a plausible invention.
 
-If the step list contains `## Exact values`, the deterministic renderer supplies exported
-constants and the dialog and parameter setup after your draft. Do not transcribe that section.
+If the checked view contains `## Deterministic setup`, the deterministic renderer supplies
+exported constants and the dialog and parameter setup after your draft.
 Leave the module-level exact constants absent. Define `configure` with `pass`, and define
 the setup method with `pass` when the gear adds its own primary parameters through an override.
 For a generator with `processInputs`, keep its selection handling and final

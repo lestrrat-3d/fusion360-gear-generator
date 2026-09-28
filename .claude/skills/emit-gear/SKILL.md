@@ -28,18 +28,21 @@ the advisory findings.
 
 ## Checked input views
 
-Build and verify both views before drafting:
+Build and verify all views before drafting:
 
 ```
 python3 .claude/skills/generate-gear/build_proof_bundle.py build <gear>
 python3 .claude/skills/generate-gear/build_proof_bundle.py verify <gear>
 python3 .claude/skills/generate-gear/build_dependency_view.py build <gear>
 python3 .claude/skills/generate-gear/build_dependency_view.py verify <gear>
+python3 .claude/skills/generate-gear/build_steps_view.py build <gear>
+python3 .claude/skills/generate-gear/build_steps_view.py verify <gear>
 ```
 
-The default prompt reads the selected proof construction and dependency API views. Verify both
+The default prompt reads the checked step, proof construction, and dependency API views. Verify all
 again before placement. A failed build or verification stops emission until its source is fixed.
-The canonical proof remains the source for the view, and all emit gates still run for validation.
+The canonical steps, proof, and dependency code remain the sources for their views. All emit gates
+still run for validation.
 
 ## Procedure
 
@@ -49,7 +52,7 @@ The canonical proof remains the source for the view, and all emit gates still ru
    before drafting; it verifies the engines, the go toolchain and the API database, and runs
    `check_compile.py <gear>` as its `steps-current` row, so a broken environment or a stale
    step list fails here instead of mid-run. If `steps-current` fails, run `/compile-gear <gear>`
-   first. Build and verify both views under **Checked input views** before step 2.
+   first. Build and verify all views under **Checked input views** before step 2.
 
 2. **Draft.** First run `python3 .claude/skills/generate-gear/extract_playbook.py <gear>` from the
    repo root. It writes `.tmp/<gear>.playbook-extract.md`, the playbook rules the step list cites
@@ -111,7 +114,7 @@ The canonical proof remains the source for the view, and all emit gates still ru
 
 5. **Place.** Place only the artifact that passed the most recent complete Gate battery. If the
    artifact or any relevant input changed after validation, return to step 3 and run the complete
-   battery again; never substitute an older passing report. Verify both views under **Checked input
+   battery again; never substitute an older passing report. Verify all views under **Checked input
    views** again. On success, run
    `python3 .claude/skills/generate-gear/stage.py <gear> module` from the repo root. It puts
    `.tmp/<gear>.generated.py` at `lib/geargen/<gear>.py` and reports what moved. This writes a
