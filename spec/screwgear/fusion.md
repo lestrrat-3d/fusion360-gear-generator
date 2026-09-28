@@ -24,10 +24,12 @@ gives a date is a measurement, and one that gives none is read from the referenc
   loop's bars and balls stand on one plane. The spec's "What the build makes" states the counts
   the new construction is expected to reach, 23 sketches, 12 planes and 53 features at the
   defaults.
-
-The next load is the first of the new construction. What it should be checked against: the
-counts above; the runtime checks of `[SCREW-F-SWEEP-CHECK]` raising nothing; and, by eye, the
-collars turning with the ribbons and the teeth running through them.
+- **2026-09-28, third load.** The first load of the new construction (sweeps, one 3D-sketch cell
+  loft in 4-tooth cells, the loop on its own plane) completed at the defaults in seconds, against
+  about five minutes for the second, and no runtime check of `[SCREW-F-SWEEP-CHECK]` raised. The
+  sketch count it reached and a side-by-side look against the second load's geometry were not
+  reported; the next load should read both, from the "settled the display of N new sketches"
+  log line and by eye: the collars turning with the ribbons and the teeth running through them.
 
 ## `[SCREW-F-DIAGNOSTIC]` — what the diagnostics of 2026-09-28 measured
 
