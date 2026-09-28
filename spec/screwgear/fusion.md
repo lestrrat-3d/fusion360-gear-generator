@@ -40,8 +40,11 @@ gives a date is a measurement, and one that gives none is read from the referenc
   far too small, the ribbon too narrow and the part short. Every default in `instructions.md`
   was scaled 1.5×, the teeth deepened to one pitch and the ribbon lengthened to 68 teeth because
   of it; `instructions.md` "What the print showed" records the verdict and the new table. Every
-  measurement in this file dated 2026-09-28 was made at the old defaults, and no load has yet
-  been made at the new ones.
+  measurement in this file dated 2026-09-28 was made at the old defaults.
+- **2026-09-29, the first load at the 1.5× defaults.** The add-in compiled from the resized spec
+  (15 mm ribbon, 2.625 mm teeth one pitch tall, 68 teeth) built at the defaults in Fusion and the
+  user reported that it "runs well". No counts were read at this size. A print of the resized
+  ribbon was under way; its verdict belongs here when it comes.
 
 ## `[SCREW-F-DIAGNOSTIC]` — what the diagnostics of 2026-09-28 measured
 
