@@ -26,10 +26,12 @@ gives a date is a measurement, and one that gives none is read from the referenc
   defaults.
 - **2026-09-28, third load.** The first load of the new construction (sweeps, one 3D-sketch cell
   loft in 4-tooth cells, the loop on its own plane) completed at the defaults in seconds, against
-  about five minutes for the second, and no runtime check of `[SCREW-F-SWEEP-CHECK]` raised. The
-  sketch count it reached and a side-by-side look against the second load's geometry were not
-  reported; the next load should read both, from the "settled the display of N new sketches"
-  log line and by eye: the collars turning with the ribbons and the teeth running through them.
+  about five minutes for the second, and no runtime check of `[SCREW-F-SWEEP-CHECK]` raised.
+  Counted in the finished document: 23 sketches and 12 construction planes, as "What the build
+  makes" predicts; 62 features (59 in `Design`, one each in `Gear A`, `Gear B` and `Cage`)
+  against the 53 predicted; 96 timeline items; three bodies. The nine extra features are not yet
+  accounted for, and the prediction is what is wrong, not the build. A side-by-side look against
+  the second load's geometry was not reported.
 
 ## `[SCREW-F-DIAGNOSTIC]` — what the diagnostics of 2026-09-28 measured
 
