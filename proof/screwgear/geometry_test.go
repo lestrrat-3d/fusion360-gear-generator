@@ -53,25 +53,25 @@ type Params struct {
 
 func defaultParams() Params {
 	return Params{
-		Width:       10,
-		Thickness:   2.5,
-		ToothHeight: 1.2,
-		ToothPitch:  1.75,
-		TwistLead:   33,
+		Width:       15,
+		Thickness:   3.75,
+		ToothHeight: 2.625,
+		ToothPitch:  2.625,
+		TwistLead:   49.5,
 		CrossAngle:  80 * math.Pi / 180,
 		MountAngleA: 15 * math.Pi / 180,
 		MountAngleB: 15 * math.Pi / 180,
-		Engagement:  0.36,
-		ToothCount:  80,
+		Engagement:  0.75,
+		ToothCount:  68,
 
-		CageRadius:  10,
-		RingRadius:  11.25,
-		CageRise:    13.5,
-		RingWire:    2.5,
-		RodDiameter: 2,
-		CollarHalf:  2,
-		CollarWall:  2,
-		Clearance:   0.3,
+		CageRadius:  15,
+		RingRadius:  16.875,
+		CageRise:    20.25,
+		RingWire:    3.75,
+		RodDiameter: 3,
+		CollarHalf:  3,
+		CollarWall:  3,
+		Clearance:   0.45,
 	}
 }
 
@@ -118,10 +118,10 @@ func (p Params) Beta() float64 { return math.Atan(math.Pi * p.Width / p.TwistLea
 // It is an input, not a derivation. The crossed-helical rule makes 2*Beta the
 // angle at which the two crest helices run parallel, and that is where the
 // search starts, but at 2*Beta (87 degrees) the pair departs from the 1:1 line
-// by more than TestPairDrivesOneToOne allows: 0.187 mm at 90 degrees against
-// its 0.10 mm bound, where 80 degrees departs by 0.067 mm.
-// TestCrossedHelicalRuleMakesTheCrestHelicesParallel still holds the rule;
-// this is the angle the pair is actually built at.
+// by more than TestPairDrivesOneToOne allows: 0.195 mm at 90 degrees, 7.4% of
+// the pitch, against its bound of 6% of the pitch, where 80 degrees departs by
+// 0.063 mm, 2.4%. TestCrossedHelicalRuleMakesTheCrestHelicesParallel still
+// holds the rule; this is the angle the pair is actually built at.
 func (p Params) Sigma() float64 { return p.CrossAngle }
 
 // AxisOffset is the distance between the two axes.
@@ -334,7 +334,7 @@ func pair(p Params, sigma, phaseA, phaseB float64) (Gear, Gear) {
 // is not half a pitch: the two gears are mounted at different cross-section
 // angles, so the phase that puts a crest against a root is its own number.
 // TestAssemblyPhaseSitsInTheFreeWindow holds it to the middle of the play.
-const assemblyPhase = -0.90
+const assemblyPhase = -1.31
 
 // defaultPair is the arrangement the spec's default table describes.
 func defaultPair() (Gear, Gear) {
@@ -543,9 +543,8 @@ func TestLoftSectionCountHoldsTheHelicoid(t *testing.T) {
 	t.Logf("%d sections per tooth put %.3f deg between neighbours; a ruled loft through them would "+
 		"fall %.6f mm short of the helicoid at the crest and its toothed edge's chord %.4f mm short of "+
 		"the cosine", sections, dtheta*180/math.Pi, departure, p.EdgeChord())
-	if departure > 1e-3 {
-		t.Errorf("the ruled surface falls %.6f mm short of the helicoid, want under 0.001", departure)
-	}
+	// The shortfall grows with the width and the backlash with the pitch, so
+	// the bound is against the backlash rather than a fixed number of microns.
 	if departure > measuredBacklash/100 {
 		t.Errorf("the shortfall %.6f mm is not small against the %.3f mm backlash",
 			departure, measuredBacklash)
@@ -555,7 +554,7 @@ func TestLoftSectionCountHoldsTheHelicoid(t *testing.T) {
 			"%.3f mm backlash", chord, measuredBacklash)
 	}
 
-	for _, lead := range []float64{20, 33, 66, 200, 400} {
+	for _, lead := range []float64{20, 49.5, 99, 200, 400} {
 		q := defaultParams()
 		q.TwistLead = lead
 		n := q.LoftSections()
@@ -624,7 +623,7 @@ func doublingRounds(n, c int) (int, [][2]int) {
 // things: the pieces tile the ribbon exactly, no two overlap, and the count is
 // floor(log2 q) + popcount(q) - 1 rounds for q whole cells plus one remainder
 // piece when the count is not a multiple of the cell: five rounds at the
-// default eighty teeth in four-tooth cells, seven in one-tooth cells.
+// default sixty-eight teeth in four-tooth cells, seven in one-tooth cells.
 func TestDoublingScheduleCoversTheRibbon(t *testing.T) {
 	for _, c := range []int{1, 3, 4} {
 		for n := 4; n <= 512; n++ {
@@ -680,13 +679,17 @@ func TestDoublingScheduleCoversTheRibbon(t *testing.T) {
 // The readings are hand readings of 1280x720 frames and carry about +/-20%: the
 // teeth on one face-on stretch of an arm (half a turn) at 0:09, 6:12 and 6:14
 // give 20-26 per turn; the edge-on stretches at 6:14 give a thickness of 0.2-0.3
-// widths; both ends of a ribbon against the ring at 6:10 give a length of about
+// widths; the tooth depth at 0:09 and 6:14 reads 0.15-0.2 widths and about one
+// pitch; both ends of a ribbon against the ring at 6:10 give a length of about
 // 12 widths; the ring's outer diameter against the face-on width of an arm at
 // 0:09 and 6:10 gives 2.2-2.8 widths, and the frame's height against the ring's
 // width at 5:26 and 5:34 gives about one. Each bound below is the reading's
 // edge moved out by that 20%, so the 18.9 teeth per turn of the defaults, just
 // under the reading, pass. Nothing here is finer than that, and a finer reading
-// needs the model, not the video.
+// needs the model, not the video. The tooth depth joined the ratios the spec
+// follows on 2026-09-28, when a print at the earlier 0.12-width depth showed
+// teeth far too small (spec/screwgear/instructions.md, "What the print
+// showed").
 func TestProportionsFollowTheVideo(t *testing.T) {
 	p := defaultParams()
 	ga, gb := defaultPair()
@@ -696,6 +699,12 @@ func TestProportionsFollowTheVideo(t *testing.T) {
 	}
 	if got := p.Thickness / p.Width; got < 0.16 || got > 0.36 {
 		t.Errorf("the ribbon is %.2f widths thick; the video's reads 0.2-0.3", got)
+	}
+	if got := p.ToothHeight / p.Width; got < 0.12 || got > 0.24 {
+		t.Errorf("the teeth are %.3f widths deep; the video's read 0.15-0.2", got)
+	}
+	if got := p.ToothHeight / p.ToothPitch; got < 0.8 || got > 1.2 {
+		t.Errorf("the teeth are %.2f pitches deep; the video's read about one", got)
 	}
 	if got := p.Length() / p.Width; got < 9.6 || got > 14.4 {
 		t.Errorf("the ribbon is %.1f widths long; the video's reads about 12", got)
@@ -715,8 +724,8 @@ func TestProportionsFollowTheVideo(t *testing.T) {
 	t.Logf("ring %.2f widths and %.2f leads across, frame %.2f ring widths tall",
 		2*p.RingOuter()/p.Width, 2*p.RingOuter()/p.TwistLead, p.FrameHeight()/(2*p.RingOuter()))
 
-	// What the spec departs from, for the record of a run.
-	t.Logf("tooth depth %.2f widths and %.2f pitches, against the video's 0.15-0.2 widths and about one pitch",
+	t.Logf("tooth depth %.3f widths and %.2f pitches, against the video's 0.15-0.2 widths and about one pitch",
 		p.ToothHeight/p.Width, p.ToothHeight/p.ToothPitch)
+	// What the spec departs from, for the record of a run.
 	t.Logf("crossing angle %.0f degrees, against the video's 85-100", p.Sigma()*180/math.Pi)
 }

@@ -35,14 +35,22 @@ gives a date is a measurement, and one that gives none is read from the referenc
   creations + 56 features, which is the table's 53 plus the three relocations. The feature
   collections report six more than that, all in `Design`, for a reason not measured. By eye the
   user found its geometry the same as the second load's.
+- **2026-09-28, the print.** The user printed the third load's geometry at the defaults of that
+  day (ribbon 10 by 2.5 mm, pitch 1.75 mm, teeth 1.2 mm, 80 teeth, 140 mm) and found the teeth
+  far too small, the ribbon too narrow and the part short. Every default in `instructions.md`
+  was scaled 1.5×, the teeth deepened to one pitch and the ribbon lengthened to 68 teeth because
+  of it; `instructions.md` "What the print showed" records the verdict and the new table. Every
+  measurement in this file dated 2026-09-28 was made at the old defaults, and no load has yet
+  been made at the new ones.
 
 ## `[SCREW-F-DIAGNOSTIC]` — what the diagnostics of 2026-09-28 measured
 
 Two scripts ran in the user's Fusion on 2026-09-28, each in a scratch document holding the
 add-in's own component tree (root → `Screw Gearing` → `Design`, `Gear A`) under a plane tilted
-30° off XY, never activating a component, at the spec's defaults. Their outputs are the numbers
-quoted through this file. The cross-gear facts they settled are playbook anchors; the numbers
-specific to this gear are:
+30° off XY, never activating a component, at the spec's defaults of that day, the 10 mm ribbon
+(the defaults were scaled 1.5× after the print, `[SCREW-F-FIRST-LOAD]`). Their outputs are the
+numbers quoted through this file. The cross-gear facts they settled are playbook anchors; the
+numbers specific to this gear are:
 
 - **The frame.** The Anchor recipe read fully constrained, and `C` sat 0.482000 cm from the
   Gear A Axis Plane, which is `A/2`.
@@ -193,9 +201,9 @@ derives it.
 **Why the cell is four teeth and not the whole ribbon.** The sketch and the loft both grow with
 the section count — 0.37 s and 0.23 s at 41 sections, 1.12 s and 0.59 s at 81 — while a
 doubling round is three features whatever the body holds. Four teeth cuts the rounds from seven
-to five at 80 teeth; the whole ribbon in one loft would be 801 sections and no rounds, and was
-not measured. `cellTeeth` is the module constant that decides it, and 1 is the measured
-fallback.
+to five at 68 teeth, as it did at the 80 the measurement was made with; the whole ribbon in one
+loft would be 681 sections and no rounds, and was not measured. `cellTeeth` is the module
+constant that decides it, and 1 is the measured fallback.
 
 ## `[SCREW-F-TWISTED-SLOT]` — a collar and its bore as twisted sweeps
 
@@ -239,7 +247,8 @@ for a solid sweep (`[SCREW-F-NO-SOLID-TWIST]`), and no guide rail or surface, wh
 and `CutFeatureOperation` for a bore, and a bore also sets `input.participantBodies = [cageBody]`
 before `add`, so the cut touches the cage and nothing else; the ribbons run through the channel
 and are left whole, measured (`[PB-SWEEP-TWIST]`). The twist is `+2*collarHalf/Lambda` for a
-collar, 43.64° at the defaults, and `+2*(collarHalf + 1 mm)/Lambda` for a bore, 65.45°: the
+collar, 43.64° at the defaults, and `+2*(collarHalf + 1 mm)/Lambda` for a bore, 58.18° (65.45°
+at the 10 mm ribbon the measurement below was made with, whose collar was 4 mm long): the
 span divided by `Lambda`, positive. **Positive is the spec's sense**, measured: with the profile
 at the line's start and the line running along `+dir_g`, a positive `twistAngle` turns the
 section the way `s/Lambda + Phi_g` grows, and the far end of the collar landed 0.0047 mm from
@@ -249,16 +258,16 @@ strips, two ends — and sixteen vertices, and the build checks its ends
 (`[SCREW-F-SWEEP-CHECK]`).
 
 **One sweep per bore, not one per gear.** The two collars of a gear stand on one axis, so a
-single channel through both would be one sweep of 24 mm and 262°; each bore is its own line and
+single channel through both would be one sweep of 36 mm and 262°; each bore is its own line and
 its own sweep instead, spanning its collar plus a millimetre each end, because the cut has to
 reach only the collar and the part of its rod inside the wall, and the space between the two
-collars is open frame. At the defaults that is 6 mm and 65° per bore.
+collars is open frame. At the defaults that is 8 mm and 58° per bore.
 
 **What the proof does with this.** `decad` has no twisted sweep. The compiled step proof stands
 in a ruled loft through rotated rectangles for each sweep, at the count the spec's "What the
-proof's stand-in costs" derives (15 at the defaults), and the hand-written
+proof's stand-in costs" derives (13 at the defaults), and the hand-written
 `TestBoreSubstituteKeepsItsClearance` bounds what that stand-in costs against the exact channel:
-0.004 mm of the 0.3 mm clearance. The sense and the linearity of the twist are Fusion's, and the
+0.007 mm of the 0.45 mm clearance. The sense and the linearity of the twist are Fusion's, and the
 runtime checks below are what keep them pinned on every build.
 
 ## `[SCREW-F-SWEEP-CHECK]` — checking each sweep at build time
@@ -281,8 +290,8 @@ the tolerance sits an order of magnitude above the pass and two below the failur
 back-side middles of the channel in the far half of the collar, clear of the ribbon by
 `clearance/2` and of the wall by the same. Raise naming the bore otherwise. A channel that is
 open there was cut; and when `(W/2 + clearance/2)*|sin(2*(1.5*collarHalf + 1 mm)/Lambda)|`
-exceeds `T/2 + clearance` — 5.14 mm against 1.55 mm at the defaults — a channel turned the
-wrong way would stand 87° off the probes at that station and both would sit in the wall, so the
+exceeds `T/2 + clearance` — 7.61 mm against 2.33 mm at the defaults — a channel turned the
+wrong way would stand 80° off the probes at that station and both would sit in the wall, so the
 probes tell the senses apart there too. The build does not gate on that inequality; the
 collar's own end check is what pins the sense.
 

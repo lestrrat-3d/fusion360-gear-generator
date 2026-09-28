@@ -667,7 +667,7 @@ func TestRibbonsStayInsideTheirBoresOverTheTravel(t *testing.T) {
 // 2026-09-28 measured and the build re-checks at each collar's ends
 // (spec/screwgear/fusion.md [SCREW-F-SWEEP-CHECK]).
 func TestBoreSubstituteKeepsItsClearance(t *testing.T) {
-	for _, clearance := range []float64{0.05, 0.1, 0.3, 0.6} {
+	for _, clearance := range []float64{0.05, 0.1, 0.45, 0.9} {
 		p := defaultParams()
 		p.Clearance = clearance
 		ga, gb := pair(p, p.Sigma(), 0, assemblyPhase)
@@ -714,7 +714,7 @@ func TestBoreSubstituteKeepsItsClearance(t *testing.T) {
 // T/2 + c) from the axis, falls R*(1 - cos(step/2)) inside the true channel, so
 // the second bound is step <= 2*acos(1 - 0.04*c/R). At the defaults that is
 // 7.6 degrees and the five-degree bound governs; at a clearance of 0.05 mm it
-// is 3.2 degrees and governs instead. The ribbon's own cell is held to two
+// is 2.5 degrees and governs instead. The ribbon's own cell is held to two
 // degrees, because there the departure is measured against the backlash.
 func boreSections(p Params, turn float64) int {
 	return int(math.Ceil(turn/boreStep(p))) + 1

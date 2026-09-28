@@ -10,13 +10,28 @@ import (
 // measuredBacklash is the free play the default arrangement leaves, in mm. It
 // is what a printed pair is judged by, and geometry_test.go measures the loft's
 // section count against it.
-const measuredBacklash = 0.50
+const measuredBacklash = 0.82
+
+// The bounds the mesh is held to are fractions of the pitch, not lengths. The
+// model is an exact cosine on an exact helicoid, so a pair scaled by k has its
+// free window and its departure from the 1:1 line scaled by k too, and the
+// search of spec/screwgear/mesh-search.md found the departure tracking the
+// pitch at every pitch it tried. A bound in millimetres would pass or fail a
+// scaled gear on its size alone. maxDeparture is the largest gap between the
+// window's middle and the 1:1 line, as a fraction of the pitch: 0.10 mm at the
+// earlier 1.75 mm pitch, 0.1575 mm at the 2.625 mm default. backlashTolerance
+// is how far the window may run from measuredBacklash before the spec's
+// quoted number is stale, also as a fraction of the pitch.
+const (
+	maxDeparture      = 0.06
+	backlashTolerance = 0.07
+)
 
 // The sampling the contact search runs at, which the spec quotes beside every
 // number taken from it (spec/screwgear/instructions.md "Defaults"). The station
-// step has to resolve the tooth, whose flank rises 1.2 mm over less than a
-// millimetre of station; 0.01 mm puts more than eighty samples on a flank, far
-// finer than the backlash the answer is quoted to. edgeSamples and faceSamples
+// step has to resolve the tooth, whose flank rises 2.6 mm over about a
+// millimetre of station; 0.01 mm puts more than a hundred samples on a flank,
+// far finer than the backlash the answer is quoted to. edgeSamples and faceSamples
 // are steps, so an edge carries edgeSamples+1 points across the thickness and a
 // face faceSamples+1 across the width; phaseSamples is the number of phases of A
 // per pitch, and phaseStep the number of steps of B's phase per pitch when the
@@ -185,16 +200,17 @@ func TestPairDrivesOneToOne(t *testing.T) {
 		want := start + (seed-start)*float64(i+1)/phaseSamples
 		departure = math.Max(departure, math.Abs(c-want))
 	}
-	if departure > 0.10 {
-		t.Errorf("B's phase departs from the 1:1 line by %.4f mm, want under 0.10", departure)
+	if departure > maxDeparture*pitch {
+		t.Errorf("B's phase departs from the 1:1 line by %.4f mm, %.1f%% of the pitch, want under %.0f%%",
+			departure, 100*departure/pitch, 100*maxDeparture)
 	}
 
-	if widest > measuredBacklash+0.12 || tightest < measuredBacklash-0.12 {
+	if tol := backlashTolerance * pitch; widest > measuredBacklash+tol || tightest < measuredBacklash-tol {
 		t.Errorf("the free window runs %.4f to %.4f mm wide, the spec quotes %.2f",
 			tightest, widest, measuredBacklash)
 	}
-	t.Logf("winding %.4f pitches, window %.3f-%.3f mm wide, departure from 1:1 %.4f mm",
-		winding, tightest, widest, departure)
+	t.Logf("winding %.4f pitches, window %.3f-%.3f mm wide, departure from 1:1 %.4f mm, %.1f%% of the pitch",
+		winding, tightest, widest, departure, 100*departure/pitch)
 }
 
 // The phase gear B is built at has to sit in the play, not against a flank.
@@ -255,9 +271,9 @@ func TestSymmetricMountJams(t *testing.T) {
 // reach each other, and everything the proof says rests on that window being
 // the whole story. This walks BOTH ribbons end to end at their assembly phases
 // and confirms nothing touches outside it — which is also what makes the
-// pictures honest, since they draw the full 140 mm of each part.
+// pictures honest, since they draw the full 178.5 mm of each part.
 //
-// The closest approach it logs is the spec's "0.254 mm": the least slack of any
+// The closest approach it logs is the spec's slack at the assembly phases: the least slack of any
 // sample of one ribbon's toothed or back edge against the other ribbon, at the
 // assembly phases with nothing moved. The slack is Gear.margin, taken in the
 // other ribbon's own section along u or v, so it is a slack rather than a

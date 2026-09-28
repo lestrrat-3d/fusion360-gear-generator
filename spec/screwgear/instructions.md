@@ -58,14 +58,14 @@ carries about ±20%, because a 1280×720 frame puts a ribbon width on some fifty
 | Hand | Both ribbons twist the same way. Read from which edge-on stretches show their teeth from above at 0:09, the hand is right-handed, at moderate confidence | Same hand on both, right-handed (`Hand = +1` in the proof) |
 | Teeth per turn | 20–26, counting the teeth on one face-on stretch, which is half a turn (0:09, 6:12, 6:14) | 18.9 |
 | Twist lead | 2.8–3.5 ribbon widths (0:09) | 3.3 widths |
-| Tooth depth | 0.15–0.2 widths, about one pitch (0:09, 6:14) | 0.12 widths, 0.69 pitch |
+| Tooth depth | 0.15–0.2 widths, about one pitch (0:09, 6:14) | 0.175 widths, one pitch |
 | Ribbon thickness | 0.2–0.3 widths (6:14) | 0.25 widths |
-| Ribbon length | About 12 widths (6:10, both ends in frame against the ring) | 14 widths, 80 teeth |
+| Ribbon length | About 12 widths (6:10, both ends in frame against the ring) | 11.9 widths, 68 teeth |
 | Crossing angle | 85–100° between the arms in the overhead shots (0:09 reads 89°, 6:10 reads 102°) | 80° |
 | Cage size | Ring outer diameter 2.2–2.8 widths, about 0.8 of a twist lead (0:09, 6:10); the frame is about as tall as the ring is wide (5:26, 5:34) | Outer diameter 2.5 widths, 0.76 leads; 1.18 ring widths tall |
 | The frame | An open skeleton of round rods, described below the table (0:09, 5:23, 5:26, 5:28, 5:31, 5:34, 5:36, 5:37, 6:10, 6:16, 6:42) | Same: a ring, a loop with straight sides, four rods and four collars |
 | What passes through a collar | The plain ribbon: the teeth run through the collars (0:09, 6:12, 6:14) | Same. The bore is the crest rectangle plus the clearance, and the crests bear on its toothed side |
-| Travel | Most of the ribbon: at 5:53 the frame sits near one end of a ribbon, at 6:00 near its middle | 115 mm, 82% of the ribbon, 66 teeth |
+| Travel | Most of the ribbon: at 5:53 the frame sits near one end of a ribbon, at 6:00 near its middle | 141 mm, 79% of the ribbon, 54 teeth |
 | Tooth form | "Based on a sine wave" (6:29). At print resolution the crests read flat and the flanks straight (6:21 and 0:09 alike) | A pure cosine |
 
 The video's frame is one round ring of round wire at one end, a smaller loop with straight sides
@@ -88,38 +88,65 @@ crosses. It has no wall, no plate and no post. The frames settle this much of it
 
 Where exactly a rod meets its collar, how long the collar is along the ribbon and how thick its
 wall is, the frames do not settle: the collar is white on white against the ribbon inside it,
-and at 1280×720 it is some thirty pixels long. The collar length here is a choice, 4 mm, and
+and at 1280×720 it is some thirty pixels long. The collar length here is a choice, 6 mm, and
 "Travel" records what it costs; the rod's place is derived from the clearance it needs ("The
 cage").
 
 One departure is deliberate, and it has its reason elsewhere in this spec: **the crossing
 angle** and **the lead** come from the meshing search, not from the video. With `CrossAngle`
-set to 90° and nothing else moved, `TestPairDrivesOneToOne` reports a 0.187 mm departure from
-the 1:1 line against its 0.10 mm bound; with the lead at 40 mm it reports 0.130 mm. 80° at
-33 mm reports 0.067 mm.
+set to 90° and nothing else moved, `TestPairDrivesOneToOne` reports a 0.195 mm departure from
+the 1:1 line, 7.4% of the pitch, against its bound of 6% of the pitch; with the lead at 60 mm
+it reports 0.116 mm, 4.4%, with the free window narrowed to 0.66–0.76 mm. 80° at 49.5 mm
+reports 0.063 mm, 2.4%, with a 0.76–0.89 mm window.
 
 The ring sits in the middle of the video's range, and the rods tie the cage radius to it. A
 rod has to clear the ribbon beside it by the clearance at every phase of the travel, and a
-ribbon reaches 5.15 mm from its own axis at its corners, so a rod on the ring's circle stands
-6.7 mm from the crossing. It also has to run through its collar's wall, and the collar is 4 mm
-long along the ribbon. On an 11.25 mm ring the rod's axis crosses the ribbon 9.26 mm from the
-middle for the collar at `-cageRadius` and 9.28 mm for the one at `+cageRadius`, the stations
-`TestRodsStandBesideTheirCollars` logs, so its 2 mm diameter starts 8.26 mm out: inside a collar
-centred at 10 mm, which runs from 8 to 12 mm, and outside one centred at 10.5 mm, which starts
-at 8.5 mm. So the cage radius is 10 mm. An earlier version of this spec carried a smooth boss on each ribbon at
-the collars, 0.6 mm proud, so that no tooth ever entered a bore; the boss is gone, because the
-video's ribbons carry none and the crest rectangle already holds the whole ribbon ("Why the
-cage needs no tooth-shaped cut"). While it was there the rods stood 7.3–7.5 mm from the
-crossings and the ring had to be 12.5 mm, the top of the video's range.
-`TestRodsStandBesideTheirCollars` holds the join.
+ribbon reaches 7.73 mm from its own axis at its corners, so a rod on the ring's circle stands
+10.0 mm from the crossing. It also has to run through its collar's wall, and the collar is 6 mm
+long along the ribbon. On a 16.875 mm ring the rod's axis crosses the ribbon 13.89 mm from the
+middle for the collar at `-cageRadius` and 13.92 mm for the one at `+cageRadius`, the stations
+`TestRodsStandBesideTheirCollars` logs, so its 3 mm diameter starts 12.39 mm out: inside a
+collar centred at 15 mm, which runs from 12 to 18 mm, and outside one centred at 15.5 mm, which
+starts at 12.5 mm. So the cage radius is 15 mm. An earlier version of this spec, at the 10 mm
+width, carried a smooth boss on each ribbon at the collars, 0.6 mm proud, so that no tooth ever
+entered a bore; the boss is gone, because the video's ribbons carry none and the crest rectangle
+already holds the whole ribbon ("Why the cage needs no tooth-shaped cut"). While it was there
+the rods stood 7.3–7.5 mm from the crossings and the ring had to be 12.5 mm at that width, the
+top of the video's range. `TestRodsStandBesideTheirCollars` holds the join.
 
-The tooth depth is left where it is. A deeper tooth drives in the proof (`ToothHeight` 1.75 with
-`Engagement` 0.5 reports a 0.51–0.60 mm window and a 0.038 mm departure, which is better than the
-defaults), but the video's depth reads 0.15–0.2 widths with ±20% on it, which does not settle a
-value. `TestProportionsFollowTheVideo` holds the ratios this spec does follow — teeth per turn,
-thickness and length against the width, the ring against the width, the frame's height against
-the ring, and one hand for both gears — inside the video's ranges
-widened by the ±20% the readings carry; the 18.9 teeth per turn sit just under the 20–26 read.
+`TestProportionsFollowTheVideo` holds the ratios this spec follows — teeth per turn, thickness,
+tooth depth and length against the width, the tooth depth against the pitch, the ring against
+the width, the frame's height against the ring, and one hand for both gears — inside the
+video's ranges widened by the ±20% the readings carry; the 18.9 teeth per turn sit just under
+the 20–26 read.
+
+## What the print showed
+
+The only physical test so far is a print of the third Fusion load's geometry
+(`[SCREW-F-FIRST-LOAD]`), which the user made at the defaults of that day: ribbon width 10 mm,
+thickness 2.5 mm, tooth pitch 1.75 mm, tooth height 1.2 mm, 80 teeth, 140 mm long, with the
+frame in proportion (ring radius 11.25 mm, cage radius 10 mm, 0.3 mm clearance). On 2026-09-28
+the user reported that the printed model's teeth were far too small, that the ribbon should be
+wider with bigger teeth, and that the ribbon could be about 30% longer.
+
+The defaults changed because of that report, and this is what changed:
+
+- Every length grew by 1.5: the ribbon to 15 by 3.75 mm, the pitch to 2.625 mm, the lead to
+  49.5 mm, the frame (ring, cage radius, cage rise, ring wire, rods, collars) and the clearance
+  (0.45 mm) with it. Every ratio the video table holds is unchanged by a uniform scale.
+- The teeth deepened from 0.69 of the pitch to one pitch, 2.625 mm, which is the video's own
+  depth (0.175 widths against its 0.15–0.2). The tooth depth thereby moved from the ratios this
+  spec departed from to the ones it follows.
+- The ribbon lengthened from 140 mm to 178.5 mm, 68 teeth at the new pitch: 27.5% longer, the
+  nearest multiple of `cellTeeth` to the 30% asked for, so the ribbon is still whole four-tooth
+  cells with no remainder (§3) and still five doubling rounds. 72 teeth would be 189 mm, 35%.
+- The mesh arrangement was searched again at the new size and tooth (`mesh-search.md`, "The
+  search at the 1.5× size"): the crossing angle and both mounting angles stayed at 80° and 15°,
+  the engagement became 0.75 mm, and the assembly phase −1.31 mm.
+
+The window that print was made with was 0.44–0.57 mm; the new one is 0.76–0.89 mm. Whether the
+new part runs in print is not yet known: nothing but a print settles it ("What the proof cannot
+reach"), and the next print's verdict belongs here.
 
 ## Geometry
 
@@ -162,8 +189,8 @@ The ribbon is the same twisted rack along its whole length, and the crest of a c
 ribbon's outer edge: `Utooth` peaks at `u = W/2` and falls to `W/2 - H` at the root, while the
 back edge stays at `-W/2` and the faces at `±T/2` whatever the phase. So the **crest rectangle**,
 `W` by `T`, holds every point of the ribbon at every station and every phase, and the bore is
-that rectangle plus the clearance all round, `(W + 2*Clearance)` by `(T + 2*Clearance)`, 10.6 by
-3.1 mm at the defaults, twisted at the ribbon's lead. Nothing in the frame is shaped like a
+that rectangle plus the clearance all round, `(W + 2*Clearance)` by `(T + 2*Clearance)`, 15.9 by
+4.65 mm at the defaults, twisted at the ribbon's lead. Nothing in the frame is shaped like a
 tooth, and the teeth run through the collars as the video's do.
 
 What bears in a bore is the crests. The back edge and both faces run the clearance from the wall
@@ -181,16 +208,16 @@ of step with its advance and finds its crests and back corners jamming in the co
 
 Nothing on the ribbon limits the travel, since any stretch of it fits a collar; the ribbon's
 length does. A gear has to keep both its collars full, and its end reaches a collar's far face
-after `N*P/2 - CageRadius - CollarHalf` of advance, 58 mm at the defaults, so **a ribbon runs
-`N*P - 2*(CageRadius + CollarHalf)`, 116 mm, through its collars**. Gear B is assembled 0.90 mm
+after `N*P/2 - CageRadius - CollarHalf` of advance, 71.25 mm at the defaults, so **a ribbon runs
+`N*P - 2*(CageRadius + CollarHalf)`, 142.5 mm, through its collars**. Gear B is assembled 1.31 mm
 along its axis (the assembly phase), so it reaches one collar that much sooner than gear A does,
-and the pair travels **115.1 mm: 57.1 mm back and 58.0 mm forward** of the assembly position,
-65.8 teeth, 82% of the ribbon. The engaged zone is nearer the middle than the collars, so the
-teeth are still meshing at both ends of that: an end would leave the ±4.05 mm zone at 65 mm.
+and the pair travels **141.2 mm: 69.9 mm back and 71.3 mm forward** of the assembly position,
+53.8 teeth, 79% of the ribbon. The engaged zone is nearer the middle than the collars, so the
+teeth are still meshing at both ends of that: an end would leave the ±7.13 mm zone at 80.8 mm.
 `TestTravelIsTheRibbonBetweenItsCollars` walks both limits.
 
 The collar's length comes straight out of the travel, two millimetres per millimetre of collar,
-and the frames do not settle it; 4 mm is kept.
+and the frames do not settle it; 6 mm is kept.
 
 ### The pair
 
@@ -220,12 +247,13 @@ at. **Both gears have the same hand.**
 **The rule is a starting point, not a proof that this pair meshes and not the angle it is built
 at.** The two crest helices run parallel at exactly one station on each ribbon — the one whose
 cross-section angle is zero, which the mounting angle puts `Phi*Lambda` back from the axes'
-closest approach — and they cross everywhere else. The proof measures contact between 1.3 mm short
-of the closest approach and 1.7 mm past it, which is nowhere near that station, so what this pair
+closest approach — and they cross everywhere else. The proof measures contact between 1.7 mm short
+of the closest approach and 0.5 mm past it, which is nowhere near that station, so what this pair
 actually carries is a point contact like a crossed-helical pair rather than the line contact the
 rule describes. The meshing search moved the angle off the rule: at 90°, `TestPairDrivesOneToOne`
-reports a 0.187 mm departure from the 1:1 line against its 0.10 mm bound, and at 80° it reports
-0.067 mm ("What the video shows"). The search is what settles it, and 80° is what it settled on.
+reports a 0.195 mm departure from the 1:1 line, 7.4% of the pitch, against its bound of 6% of
+the pitch, and at 80° it reports 0.063 mm, 2.4% ("What the video shows"). The search is what
+settles it, and 80° is what it settled on, at both sizes the pair has been searched at.
 
 ### Why the mounting angles are not zero
 
@@ -244,81 +272,95 @@ the proof must check").
 
 | Quantity | Default |
 |---|---|
-| Ribbon Width `W` | 10 mm |
-| Ribbon Thickness `T` | 2.5 mm |
-| Tooth Pitch `P` | 1.75 mm |
-| Tooth Height `H` | 1.2 mm |
-| Tooth Count `N` | 80 |
-| Twist Lead | 33 mm per turn |
+| Ribbon Width `W` | 15 mm |
+| Ribbon Thickness `T` | 3.75 mm |
+| Tooth Pitch `P` | 2.625 mm |
+| Tooth Height `H` | 2.625 mm |
+| Tooth Count `N` | 68 |
+| Twist Lead | 49.5 mm per turn |
 | Crossing Angle `Sigma` | 80° |
-| Engagement | 0.36 mm |
+| Engagement | 0.75 mm |
 | Mounting Angle, both gears | 15° |
-| Assembly Phase | −0.90 mm |
-| Cage Radius | 10 mm |
-| Ring Radius | 11.25 mm |
-| Clearance | 0.3 mm |
+| Assembly Phase | −1.31 mm |
+| Cage Radius | 15 mm |
+| Ring Radius | 16.875 mm |
+| Clearance | 0.45 mm |
 
-Derived: `Beta` = 43.6°, `A` = 9.64 mm, ribbon length = 140 mm, twist per tooth = `P/Lambda` =
-19.1°, ribbon turn between a gear's two collars = `2*CageRadius/Lambda` = 218°.
+Derived: `Beta` = 43.6°, `A` = 14.25 mm, ribbon length = 178.5 mm, twist per tooth = `P/Lambda` =
+19.1°, ribbon turn between a gear's two collars = `2*CageRadius/Lambda` = 218°. These are the
+defaults since the print of 2026-09-28 ("What the print showed"); the earlier table, at a 10 mm
+width, is recorded there.
 
 **The frame no longer sets the lead.** An earlier frame had to print a bore through a wall, which
 tied the cage radius to half the twist lead and the two mounting angles to each other. The video's
 frame has no wall, so the ring is read from the video, the cage radius is what lets a rod on that
-ring reach its collar, and the lead stands on its own: at 20 mm per turn the ribbon is twisted
-past the point of looking like a rack, and at 40 mm the arrangements with equal mounting angles
-turned out to jam under finer sampling (`mesh-search.md`). 33 mm is where it stayed.
+ring reach its collar, and the lead stands on its own: 3.3 ribbon widths, read from the video
+(`mesh-search.md`). At two widths per turn the ribbon is twisted past the point of looking like a
+rack; at four widths (60 mm) the pair still drives, with the window narrowed to 0.66–0.76 mm and
+the departure raised to 0.116 mm, and at 4.4 widths (66 mm) the window is 0.55–0.67 mm.
 
-At those values `proof/screwgear` measures a free window in B's tooth phase that is **0.438–0.569 mm
+At those values `proof/screwgear` measures a free window in B's tooth phase that is **0.761–0.892 mm
 wide** and that **advances by exactly one tooth pitch for each pitch A advances**, departing from
-the 1:1 line by 0.067 mm, which is 3.8% of the pitch. That window width is the backlash, and the
+the 1:1 line by 0.063 mm, which is 2.4% of the pitch. That window width is the backlash, and the
 winding is what makes this a 1:1 gear rather than two parts that merely touch.
 
 **The sampling those numbers were taken with.** They are `TestPairDrivesOneToOne`'s, at the
 sampling `pair_test.go` fixes, and a model at another sampling moves their last digit or two:
 
 - Each ribbon's boundary is sampled at stations within `±axialWindow` of the crossing,
-  `1.5 * sqrt(W^2 - A^2) / sin(Sigma)`, ±4.05 mm at the defaults, every 0.01 mm of station; at each
+  `1.5 * sqrt(W^2 - A^2) / sin(Sigma)`, ±7.13 mm at the defaults, every 0.01 mm of station; at each
   station, five points across the thickness on the toothed edge and five on the back edge, and
   seven across the width on each face.
 - A sample is inside the other ribbon when its coordinates in that ribbon's section at its own
   station, twist undone, satisfy the four inequalities of "The part". The pair is clear at a
   phase pair when no sample of either ribbon is inside the other.
-- The free window at a phase of A is scanned in B's phase in steps of `P/200`, 0.00875 mm,
+- The free window at a phase of A is scanned in B's phase in steps of `P/200`, 0.0131 mm,
   outward from the previous window's middle, so its ends are quoted to that step. A advances
   through one pitch in 12 equal steps; the width is the narrowest and widest of those 12 windows,
   and the departure is the largest gap, over the 12, between a window's middle and the straight
   1:1 line from the first middle to the last.
 
+**The proof's bounds on the mesh are fractions of the pitch, not lengths.** The model is an exact
+cosine on an exact helicoid, so a pair scaled by `k` has its window and its departure scaled by
+`k` too, and the search found the departure tracking the pitch at every pitch it tried
+(`mesh-search.md`); a bound in millimetres would pass or fail a scaled gear on its size alone.
+`TestPairDrivesOneToOne` holds the departure under 6% of the pitch (0.1575 mm here; the bound
+was written as 0.10 mm when the pitch was 1.75 mm) and the window within 7% of the pitch of the
+number this spec quotes. The clearances below are lengths, because the frame's clearance is a
+length the dialog sets.
+
 Two other clearances are quoted in this spec, and each is a different measurement:
 
-- **0.254 mm** is how far the two ribbons stand from each other at the assembly phases, gear A at
-  tooth phase 0 and gear B at −0.90 mm, with nothing moved. `TestFullRibbonsClearOutsideTheEngagement`
+- **0.484 mm** is how far the two ribbons stand from each other at the assembly phases, gear A at
+  tooth phase 0 and gear B at −1.31 mm, with nothing moved. `TestFullRibbonsClearOutsideTheEngagement`
   walks the toothed edge and the back edge of each whole ribbon, every 0.01 mm of station at five
   points across the thickness, and takes the least slack of any sample against the other ribbon:
   the slack is measured in that ribbon's own section at the sample's station, along `u` to its
   toothed or back edge and along `v` to its faces, whichever is least, so it is a slack rather than
-  a Euclidean distance, and only its sign is exact. The least is 0.254 mm at station 0.30 mm, in
-  the mesh: gear B sits in the middle of a window 0.499 mm wide, so it has about half of that each
-  way before a flank touches.
-- **1.04 mm** is the least the two ribbons keep from each other outside the engaged zone at any
+  a Euclidean distance, and only its sign is exact. The least is 0.484 mm at station −3.58 mm, in
+  the mesh: gear B sits in the middle of a window 0.762 mm wide, so it has 0.38 mm each way along
+  its own axis before a flank touches, and the slack across the flank is a little more than that.
+- **1.96 mm** is the least the two ribbons keep from each other outside the engaged zone at any
   phase of the travel. `TestRibbonsClearEachOtherOutsideTheEngagement` walks each ribbon's crest
   rectangle, `W` by `T`, which is everything the ribbon reaches at any phase, over every station
   the travel carries it through but outside `±axialWindow` of the crossing, every 0.02 mm of
   station at five points along each side of the rectangle, and takes the least slack of any sample
-  against the other ribbon's crest rectangle, measured as above. It is 1.04 mm at station
-  −4.40 mm of the sampled ribbon, just outside the zone.
+  against the other ribbon's crest rectangle, measured as above. It is 1.96 mm at station
+  −7.14 mm of the sampled ribbon, just outside the zone.
 
-**Both Mounting Angles are 15°.** Unequal angles drive too, and some drive better; 15° on both is
-the smallest equal angle that drives at this twist, and the two gears are the same part held
-alike. The earlier frame needed the two equal for its bores to stand upright, and this one does
-not; the angles stay where the search left them rather than being searched again for a frame
-that no longer cares.
+**Both Mounting Angles are 15°.** The search at the 1.5× size covered equal angles from 10° to
+25° and found 15° the only equal pair that drives: at 10° the pair jams, and at 20° and 25° B is
+never boxed in (`mesh-search.md`). Unequal angles drive too, and one drives better — 0° on gear A
+and 30° on gear B gives a 0.91–1.13 mm window and a 0.020 mm departure — but the two gears are
+the same part held alike, and equal angles keep the two rods of a gear turned by the same angle
+and the loop an isosceles trapezoid (§4), so 15° on both is kept. The arrangement is an input on
+both gears, and an unequal pair is a change of two dialog values.
 
-**Assembly phase.** With gear A at tooth phase 0, gear B is built at **−0.90 mm**: its teeth and
+**Assembly phase.** With gear A at tooth phase 0, gear B is built at **−1.31 mm**: its teeth and
 its ends are gear A's advanced by that much along its own axis under its own screw motion ("The
-part"), so its ribbon runs from station −70.9 mm to +69.1 mm where gear A's runs ±70 mm. The number
-is the middle of the free window the proof measures at gear A's phase 0, −1.154 to −0.655 mm at
-the sampling above, and `TestAssemblyPhaseSitsInTheFreeWindow` holds it there. The build cannot
+part"), so its ribbon runs from station −90.56 mm to +87.94 mm where gear A's runs ±89.25 mm. The
+number is the middle of the free window the proof measures at gear A's phase 0, −1.691 to −0.929 mm
+at the sampling above, and `TestAssemblyPhaseSitsInTheFreeWindow` holds it there. The build cannot
 measure that window, so the phase is the `assemblyPhase` input, defaulting to the proof's number
 as the mounting angles and the engagement do; an arrangement the proof has not measured needs its
 own.
@@ -391,25 +433,25 @@ least important, as listed.
 | none (top level) | Target Plane | `plane` | selection | — |
 | none (top level) | Centre Point | `point` | selection | — |
 | none (top level) | Parent Component | `parent` | selection | — |
-| `ribbonGroup`, Ribbon | Ribbon Width | `ribbonWidth` | mm | 10 |
-| `ribbonGroup`, Ribbon | Tooth Count | `toothCount` | — | 80 |
-| `ribbonGroup`, Ribbon | Twist Lead | `twistLead` | mm | 33 |
-| `ribbonGroup`, Ribbon | Ribbon Thickness | `ribbonThickness` | mm | 2.5 |
-| `ribbonGroup`, Ribbon | Tooth Pitch | `toothPitch` | mm | 1.75 |
-| `ribbonGroup`, Ribbon | Tooth Height | `toothHeight` | mm | 1.2 |
-| `frameGroup`, Frame | Ring Radius | `ringRadius` | mm | 11.25 |
-| `frameGroup`, Frame | Cage Radius | `cageRadius` | mm | 10 |
-| `frameGroup`, Frame | Cage Rise | `cageRise` | mm | 13.5 |
-| `frameGroup`, Frame | Clearance | `clearance` | mm | 0.3 |
-| `frameGroup`, Frame | Collar Half Length | `collarHalf` | mm | 2 |
-| `frameGroup`, Frame | Collar Wall | `collarWall` | mm | 2 |
-| `frameGroup`, Frame | Rod Diameter | `rodDiameter` | mm | 2 |
-| `frameGroup`, Frame | Ring Wire | `ringWire` | mm | 2.5 |
+| `ribbonGroup`, Ribbon | Ribbon Width | `ribbonWidth` | mm | 15 |
+| `ribbonGroup`, Ribbon | Tooth Count | `toothCount` | — | 68 |
+| `ribbonGroup`, Ribbon | Twist Lead | `twistLead` | mm | 49.5 |
+| `ribbonGroup`, Ribbon | Ribbon Thickness | `ribbonThickness` | mm | 3.75 |
+| `ribbonGroup`, Ribbon | Tooth Pitch | `toothPitch` | mm | 2.625 |
+| `ribbonGroup`, Ribbon | Tooth Height | `toothHeight` | mm | 2.625 |
+| `frameGroup`, Frame | Ring Radius | `ringRadius` | mm | 16.875 |
+| `frameGroup`, Frame | Cage Radius | `cageRadius` | mm | 15 |
+| `frameGroup`, Frame | Cage Rise | `cageRise` | mm | 20.25 |
+| `frameGroup`, Frame | Clearance | `clearance` | mm | 0.45 |
+| `frameGroup`, Frame | Collar Half Length | `collarHalf` | mm | 3 |
+| `frameGroup`, Frame | Collar Wall | `collarWall` | mm | 3 |
+| `frameGroup`, Frame | Rod Diameter | `rodDiameter` | mm | 3 |
+| `frameGroup`, Frame | Ring Wire | `ringWire` | mm | 3.75 |
 | `meshGroup`, Mesh (from the mesh search) | Crossing Angle | `crossAngle` | deg | 80 |
-| `meshGroup`, Mesh (from the mesh search) | Engagement | `engagement` | mm | 0.36 |
+| `meshGroup`, Mesh (from the mesh search) | Engagement | `engagement` | mm | 0.75 |
 | `meshGroup`, Mesh (from the mesh search) | Mounting Angle A | `mountAngleA` | deg | 15 |
 | `meshGroup`, Mesh (from the mesh search) | Mounting Angle B | `mountAngleB` | deg | 15 |
-| `meshGroup`, Mesh (from the mesh search) | Assembly Phase | `assemblyPhase` | mm | −0.90 |
+| `meshGroup`, Mesh (from the mesh search) | Assembly Phase | `assemblyPhase` | mm | −1.31 |
 
 Every input is read back by id with `inputs.itemById(id)` on the command's top-level
 `commandInputs`, grouped or not; input ids are unique across the whole command, which is what
@@ -456,7 +498,7 @@ returns internal units — cm for length and **radians** for angle (`[PB-EVAL-EX
 - `cageRadius` is where each gear's collars sit on its own axis, so a collar must clear the
   engaged zone: `cageRadius - collarHalf` must exceed the zone's half-length,
   `1.5 * sqrt(W^2 - A^2) / sin(Sigma)`, which is the reach the proof's `axialWindow` samples and
-  is 4.05 mm at the defaults. `TestRibbonsClearEachOtherOutsideTheEngagement` holds the same
+  is 7.13 mm at the defaults. `TestRibbonsClearEachOtherOutsideTheEngagement` holds the same
   inequality along with what the two ribbons keep between them there. Both bores, each a
   millimetre past its collar's ends (§4), also have to lie within the ribbon's length, so
   `cageRadius + collarHalf + 1 mm < toothCount*toothPitch/2`, the
@@ -469,18 +511,18 @@ returns internal units — cm for length and **radians** for angle (`[PB-EVAL-EX
   two rods stand nearer than `rodDiameter + clearance`; the message names the collar, or the
   two rods. `TestRodsStandBesideTheirCollars` fails on the same counts, and
   `TestCoincidentRodsAreRefused` holds an input that reaches the last one. At the defaults the
-  rod's axis crosses the ribbon 9.26 mm from the middle for the collar at `-cageRadius` and
-  9.28 mm for the one at `+cageRadius`, the stations the proof logs, against a collar centred at
-  10 mm and 4 mm long, and a cage radius of 10.5 mm on the same ring already misses.
+  rod's axis crosses the ribbon 13.89 mm from the middle for the collar at `-cageRadius` and
+  13.92 mm for the one at `+cageRadius`, the stations the proof logs, against a collar centred at
+  15 mm and 6 mm long, and a cage radius of 15.5 mm on the same ring already misses.
 - `cageRise` must put the ring and the loop clear of both ribbons. No point of a ribbon is further
   from the middle plane than its axis is plus the half-diagonal of its crest rectangle,
-  `A/2 + hypot(W/2, T/2)`, 9.97 mm at the defaults, and the ring's wire and the loop's bars start
+  `A/2 + hypot(W/2, T/2)`, 14.86 mm at the defaults, and the ring's wire and the loop's bars start
   `ringWire/2` inside `±cageRise`, so the build requires
-  `cageRise - ringWire/2 - (A/2 + hypot(W/2, T/2)) >= clearance`, which leaves 2.28 mm at the
+  `cageRise - ringWire/2 - (A/2 + hypot(W/2, T/2)) >= clearance`, which leaves 3.52 mm at the
   defaults. That is a sufficient bound, not the gap: the ribbons cross the ring's radius at an
   angle and reach it at more than one station, so the real gap is larger, and
   `TestRibbonsClearTheFrameOverTheTravel` walks everything both ribbons reach over the travel
-  against the whole frame — 2.66 mm at the ring, 3.73 mm at the loop — and holds the bound beside
+  against the whole frame — 4.10 mm at the ring, 5.69 mm at the loop — and holds the bound beside
   it.
 - `collarHalf` trades grip against travel. A longer collar holds the gear closer to its screw
   motion and shortens the travel by twice its own growth, because a ribbon runs
@@ -706,10 +748,12 @@ through `c*n + 1` sections, `n` steps to the tooth, where `n` is the larger of t
 - the smallest that keeps the twist between neighbouring sections under 2°,
   `ceil((P/Lambda) / 2°)`, 10 at the defaults. A surface ruled straight between two sections
   cuts the corner of the true helicoid at the crest by `(W/2)*(1 - cos(dtheta/2))`, `dtheta`
-  the twist per step: 0.7 µm at the defaults' 1.91°, three orders below the 0.50 mm backlash;
+  the twist per step: 1.0 µm at the defaults' 1.91°, under a hundredth of the 0.82 mm backlash,
+  which is the bound the proof holds it to (the shortfall grows with the width and the backlash
+  with the pitch, so it is not held to a fixed number of microns);
 - eight. A straight chord of the cosine between two sections falls `(H/2)*(1 - cos(pi/n))` short
-  of it at the deepest point whatever the twist: 0.029 mm at the defaults' ten steps, 6% of the
-  backlash, and 0.046 mm, 3.8% of the tooth height, at eight. That floor is what keeps a slow
+  of it at the deepest point whatever the twist: 0.064 mm at the defaults' ten steps, 7.8% of the
+  backlash, and 0.100 mm, 3.8% of the tooth height, at eight. That floor is what keeps a slow
   twist from lofting the tooth through two or three sections and losing it: at a 400 mm lead the
   twist alone asks for two sections, and the cell is built through nine.
 
@@ -726,14 +770,15 @@ sections carry only end conditions (`[SCREW-F-CELL-LOFT]`). The cell is **one lo
 built cell carries the exact rotated rectangle at each of its sections, `dtheta` apart, and that
 between stations its surface interpolates those rectangles; the chord figures above are the
 departure of the ruled loft through the same sections, and they are the only figures the proof
-has. What the smooth surface does between sections was measured in Fusion on 2026-09-28
-(`[SCREW-F-CELL-LOFT]`): at one, four and eight teeth, probes 0.04 mm inside and 0.04 mm
-outside the toothed edge and a face, at the midpoint between every pair of sections, all fell
-on the right side of the built surface — 40 of 40, 160 of 160 and 320 of 320 — and the built
-volume was 0.06% to 0.23% under the ruled loft's. So at the defaults the built surface stays
-within 0.04 mm of the helicoid between sections, under a tenth of the 0.44 mm backlash. The
-proof cannot measure that ("What the proof cannot reach"), and a Fusion load is what checks it
-at other inputs. A chain of `c*n` two-section lofts would be ruled and would carry the bounds
+has. What the smooth surface does between sections was measured in Fusion on 2026-09-28, at
+the defaults of that day, the 10 mm ribbon (`[SCREW-F-CELL-LOFT]`): at one, four and eight
+teeth, probes 0.04 mm inside and 0.04 mm outside the toothed edge and a face, at the midpoint
+between every pair of sections, all fell on the right side of the built surface — 40 of 40,
+160 of 160 and 320 of 320 — and the built volume was 0.06% to 0.23% under the ruled loft's. So
+at that size the built surface stayed within 0.04 mm of the helicoid between sections, under a
+tenth of the 0.44 mm backlash of that day; the 1.5× ribbon has the same section spacing and has
+not been measured. The proof cannot measure that ("What the proof cannot reach"), and a Fusion
+load is what checks it at other inputs. A chain of `c*n` two-section lofts would be ruled and would carry the bounds
 literally, at the cost of that many lofts and joins per cell, and this spec keeps the one loft.
 
 **The Cell Sections sketch.** All the cell's sections go in **one sketch**, named
@@ -768,8 +813,8 @@ its four lines in an `ObjectCollection`, make its path with `features.createPath
 False)` (`[PB-PATH-FROM-SKETCH]`; never `Path.create`, which raises in this component), and
 `loftSections.add(path)`; then `loftFeatures.add(input)`. The result is `c` pitches of the
 twisted toothed ribbon in one body with six faces; raise unless the feature leaves exactly one
-body and that body `isSolid` (`[PB-EMPTY-RESULT]`). Measured at the defaults on 2026-09-28: the
-four-tooth loft took 0.23 s and held 0.164158 cm³ against the ruled loft's 0.164470.
+body and that body `isSolid` (`[PB-EMPTY-RESULT]`). Measured on 2026-09-28 at the 10 mm ribbon:
+the four-tooth loft took 0.23 s and held 0.164158 cm³ against the ruled loft's 0.164470.
 
 ### 3: Repeat the cell by doubling
 
@@ -780,7 +825,7 @@ Step(k) = translate(k*P along the axis) ∘ rotate(k*P/Lambda about the axis)
 ```
 
 Write `N = q*c + r`, with `q = floor(N/c)` whole cells and a remainder of `r = N mod c` teeth:
-`q = 20` and `r = 0` at the defaults, `q = 80` at a one-tooth cell. Build the `q` cells by
+`q = 17` and `r = 0` at the defaults, `q = 68` at a one-tooth cell. Build the `q` cells by
 doubling rather than by `q` separate placements. A **round** is copy, move, join: copy the
 current body, move the copy by `Step(m*c)` where `m` is the number of cells the body holds, join
 the two, and the body holds `2m` cells. Doubling alone reaches only a power of two, and copying
@@ -793,10 +838,11 @@ the way up:
 - After the last doubling `m` is the top bit's power of two. Move each aside into place, largest
   first, by `Step(m*c)`, join it, and add its cells to `m`. The last join brings `m` to `q`.
 
-That is `floor(log2 q) + popcount(q) - 1` rounds and as many joins: 5 at the defaults — `q = 20`,
-four doublings to 16 cells and one aside of 4 cells, taken when the body held 4 cells and moved
-by `Step(64)` — and 7 at a one-tooth cell — `q = 80`, six doublings to 64 and one aside of 16,
-moved by `Step(64)` — against 79 placements. When `q = 1` there is no round. Every placement is
+That is `floor(log2 q) + popcount(q) - 1` rounds and as many joins: 5 at the defaults — `q = 17`,
+one aside of the single cell, taken before the first doubling, then four doublings to 16 cells,
+and the aside moved by `Step(64)` — and 7 at a one-tooth cell — `q = 68`, one aside of 4 cells,
+taken when the body held 4, six doublings to 64, and the aside moved by `Step(64)` — against 67
+placements. When `q = 1` there is no round. Every placement is
 exact, because the body genuinely is invariant under `Step`
 (`TestRibbonIsInvariantUnderItsScrewStep`). Every move is by a whole number of teeth already
 built, so each join meets its neighbour at one shared planar cross-section and leaves no sliver
@@ -807,7 +853,7 @@ and no overlap; `TestDoublingScheduleCoversTheRibbon` runs the schedule at every
 belong rather than moved there: a sketch `{gearLabel} Cell Remainder` and a loft by the recipe of
 §2 with `c` replaced by `r`, so `r*n + 1` sections at stations from `s0 + q*c*P` to `s0 + N*P`,
 joined into the body after the last round. Its first section is the body's last, so the join
-meets at a shared cross-section like every other. The defaults have none; 81 teeth in
+meets at a shared cross-section like every other. The defaults have none; 69 teeth in
 four-tooth cells would have one of one tooth.
 
 Copy with `copyPasteBodies.add(body)` and take the copy from the feature's `bodies`
@@ -871,14 +917,14 @@ The frame is the open skeleton in the video, built from round sections and joine
   Bars and balls are numbered from 0 by their foot. At the defaults the azimuths are 74.43°
   for gear A's `+R` rod, 174.61° for gear B's `-R`, 254.61° for gear A's `-R` and 354.43° for
   gear B's `+R`, so foot 0 is gear A's `+R` rod. Its corners are the rods, so it is inscribed
-  in the ring's circle and reads smaller than the ring: 17.26 and 17.21 mm by 14.46 mm at the
-  defaults, inside a 22.5 mm circle. It is not quite a rectangle. The two short bars each join
+  in the ring's circle and reads smaller than the ring: 25.89 and 25.82 mm by 21.69 mm at the
+  defaults, inside a 33.75 mm circle. It is not quite a rectangle. The two short bars each join
   a gear A rod to the gear B rod of the same sign of station, and those two rods are turned
   from their crossings by the same angle, so each short bar spans exactly the 80° crossing
   angle round the ring; the two long bars span 100° plus and minus the 0.19° by which the two
   turns differ (34.612° for a collar at `-cageRadius` and 34.426° at `+cageRadius`, which the
   proof logs as 34.61° and 34.43°). Equal short sides on one circle make the long sides
-  parallel, so the loop is an isosceles trapezoid, a rectangle to within 0.05 mm on a side;
+  parallel, so the loop is an isosceles trapezoid, a rectangle to within 0.07 mm on a side;
   `TestFrameIsOnePiece` logs the four sides. A bar is a rectangle `ringWire/2` wide and the
   bar's length long, drawn on the Loop Plane itself from four reference points and revolved a
   full turn about the bar's own line, foot to foot; a ball is a half-disc of `ringWire` on the
@@ -971,9 +1017,9 @@ either fails:
   at `sc ± collarHalf`, so the rod's station has to sit its own radius inside them:
   `|sp - sc| + rodDiameter/2 <= collarHalf`.
 
-At the defaults the rod's axis stands 1.00 mm outside the bore for a collar at `-cageRadius`
-and 0.92 mm for one at `+cageRadius`, inside the 2 mm wall, and 0.74 mm and 0.72 mm along the
-ribbon from the collar's middle, inside the 4 mm length; `TestRodsStandBesideTheirCollars`
+At the defaults the rod's axis stands 1.49 mm outside the bore for a collar at `-cageRadius`
+and 1.38 mm for one at `+cageRadius`, inside the 3 mm wall, and 1.11 mm and 1.08 mm along the
+ribbon from the collar's middle, inside the 6 mm length; `TestRodsStandBesideTheirCollars`
 checks the same two numbers and walks the rod through the 3-D model beside them.
 `TestFrameIsOnePiece` walks ring → rods → loop and rod → collar and fails on any piece the ring
 does not reach.
@@ -987,12 +1033,12 @@ and comes to rest where the other gear's rod already stands. `TestCoincidentRods
 holds that input.
 
 **Bore each collar with a twisted sweep cut** (`[SCREW-F-TWISTED-SLOT]`, `[PB-SWEEP-TWIST]`):
-the crest rectangle plus the clearance, `(W + 2*clearance)` by `(T + 2*clearance)`, 10.6 by
-3.1 mm at the defaults, drawn by the rectangle scheme above on the bore's own plane,
+the crest rectangle plus the clearance, `(W + 2*clearance)` by `(T + 2*clearance)`, 15.9 by
+4.65 mm at the defaults, drawn by the rectangle scheme above on the bore's own plane,
 `{gearLabel} Bore {-R|+R} Plane`, `setByDistanceOnPath` at fraction `0` of the bore's `bore-` or
 `bore+` line of §1, in the sketch `{gearLabel} Bore {-R|+R}`, at that plane's station
 `sc - collarHalf - 1 mm`; then swept along that line with `twistAngle` set to
-`+2*(collarHalf + 1 mm)/Lambda`, 65.4° at the defaults, as
+`+2*(collarHalf + 1 mm)/Lambda`, 58.2° at the defaults, as
 `sweepFeatures.createInput(profile, path, CutFeatureOperation)` with `participantBodies` set to
 a list holding the cage body alone, and nothing else set. The ribbons pass through the channel
 and are not on that list, so the cut leaves them whole: measured on 2026-09-28, a body wholly
@@ -1003,7 +1049,7 @@ channel's. The bore is the exact helicoid the model describes — the rectangle 
 
 **One sweep per bore, spanning the collar's length plus a millimetre at each end**, so the cut
 runs clean through the collar's flat ends and through whatever of its rod stands inside the
-wall. At the defaults that is 6 mm of axis and 65° of turn. The two bores of one gear stand
+wall. At the defaults that is 8 mm of axis and 58° of turn. The two bores of one gear stand
 2\*`cageRadius` apart and are two sweeps on two lines, as §1 draws them.
 
 **What the proof's stand-in costs.** The proof's solid engine has no twisted sweep, so the
@@ -1012,18 +1058,18 @@ compiled step proof stands in a ruled loft through rotated rectangles for each c
 clearance: no two neighbouring sections more than 5° of twist apart, nor more than the angle at
 which the facets between them take 4% of the clearance, `2*acos(1 - 0.04*clearance/R)` with
 `R = hypot(W/2 + clearance, T/2 + clearance)` the bore's corner radius, and the count is
-`ceil(turn / step) + 1` for the smaller step: 15 at the defaults, where the facet bound is 7.6°
-and 5° governs, and 22 at a clearance of 0.05 mm, where the facet bound is 3.2° and governs.
+`ceil(turn / step) + 1` for the smaller step: 13 at the defaults, where the facet bound is 7.6°
+and 5° governs, and 24 at a clearance of 0.05 mm, where the facet bound is 2.5° and governs.
 A ruled loft's wall is flat between sections and every facet stands inside the true channel, so
-what the stand-in costs is clearance: 0.004 mm of the 0.3 mm at the derived count, 0.054 mm at
+what the stand-in costs is clearance: 0.007 mm of the 0.45 mm at the derived count, 0.064 mm at
 the five sections an earlier version of this spec fixed. `TestBoreSubstituteKeepsItsClearance`
 builds that ruled channel and holds it at 95% of the clearance, at clearances from 0.05 mm to
-0.6 mm, which is what says a measurement made on the stand-in holds for the swept channel to
+0.9 mm, which is what says a measurement made on the stand-in holds for the swept channel to
 within that much. The build derives no section count: its channel has none.
 
 **The bore has to twist; a straight hole binds.** Over a collar of length `2*collarHalf` the ribbon
 turns by `2*collarHalf/Lambda`, so its corner sweeps `(W/2)*(2*collarHalf/Lambda)` across the
-opening. At the defaults that is 3.8 mm against 0.3 mm of clearance.
+opening. At the defaults that is 5.7 mm against 0.45 mm of clearance.
 
 **The bore is cut to the crest rectangle, never to a tooth.** The crests are the ribbon's outer
 edge, so that rectangle holds the whole ribbon, teeth included, and its toothed side bears on the
@@ -1044,8 +1090,8 @@ leave exactly one body and probes the cage with `pointContainment` at the two po
 the channel being open there, and the build raises naming the bore otherwise. Those probes also
 tell the two senses apart whenever
 `(W/2 + clearance/2) * |sin(2*(1.5*collarHalf + 1 mm)/Lambda)| > T/2 + clearance`, which is
-5.14 mm against 1.55 mm at the defaults: under the wrong sense the channel at that station is
-turned 87° from the probes, which then sit in the collar's wall.
+7.61 mm against 2.33 mm at the defaults: under the wrong sense the channel at that station is
+turned 80° from the probes, which then sit in the collar's wall.
 
 **Order.** The ring is the first body. The rods are joined into it in one combine, as they are
 extruded in one feature; the loop's four bars and four balls are made as new bodies and joined
@@ -1100,9 +1146,9 @@ Fusion does, and each takes a stand-in, to be named in the proof beside what it 
   what `TestLoftSectionCountHoldsTheHelicoid` bounds and whose volume Fusion's smooth loft came
   within 0.23% of.
 - A collar or bore sweep (§4) has no `decad` counterpart. The stand-in is a ruled loft through
-  the sections "What the proof's stand-in costs" derives, 15 at the defaults, built as the
+  the sections "What the proof's stand-in costs" derives, 13 at the defaults, built as the
   sweep's own section turned by `s/Lambda + Phi` at each; `TestBoreSubstituteKeepsItsClearance`
-  bounds what that costs against the exact channel, 0.004 mm of the 0.3 mm clearance at the
+  bounds what that costs against the exact channel, 0.007 mm of the 0.45 mm clearance at the
   defaults. The twist's sense and its linearity are Fusion's (`[PB-SWEEP-TWIST]`), measured on
   2026-09-28 and checked at build time (`[SCREW-F-SWEEP-CHECK]`).
 - A bore's cut with a participant list (§4) is a `decad` cut of the stand-in from the cage
@@ -1114,7 +1160,8 @@ The mechanism proof's cases:
   phase through a full pitch of A and asserts three things: the window is never empty (no jam), it
   is narrower than a pitch (the teeth box B in, so something is driven), and its centre advances by
   exactly one pitch (the 1:1 ratio). The third is what separates a gear from two parts that merely
-  touch, and an earlier arrangement passed the first two and failed it.
+  touch, and an earlier arrangement passed the first two and failed it. Its bounds on the
+  departure and on the window are fractions of the pitch ("Defaults").
 - `TestSymmetricMountJams` holds the reason the Mounting Angle exists, by failing if the `Phi = 0`
   arrangement ever stops jamming.
 - `TestFullRibbonsClearOutsideTheEngagement` walks both parts end to end, so the contact search's
@@ -1130,13 +1177,13 @@ The mechanism proof's cases:
 - `TestRibbonsClearTheFrameOverTheTravel` is the other half of that: the gear moves freely through
   its travel. It walks everything both ribbons reach at any phase — the crest rectangle, over
   every station the travel carries it through — against the ring, the loop, the rods and the
-  collars, and logs the least distance to each: 2.66 mm to the ring, 3.73 mm to the loop and
-  0.30 mm to the rods at the defaults, the last being the clearance itself, since each rod stands
+  collars, and logs the least distance to each: 4.10 mm to the ring, 5.69 mm to the loop and
+  0.45 mm to the rods at the defaults, the last being the clearance itself, since each rod stands
   at the least angle that clears. It is what sizes `cageRise`, and it holds the build's own bound
   on `cageRise` ("Variables") beside the walk.
 - `TestRibbonsStayInsideTheirBoresOverTheTravel` holds every point of the ribbon, teeth included,
   inside every bore by the clearance at every phase of the travel, and holds the bore no looser
-  than that: the crests, the back edge and the faces each come to the clearance, 0.300 mm at the
+  than that: the crests, the back edge and the faces each come to the clearance, 0.450 mm at the
   defaults, so the bore is cut to the ribbon rather than merely round it.
 - `TestRodsStandBesideTheirCollars` derives where each rod stands by the search the build runs,
   step for step (`rodClears`, `rodShift`), logs the angles, and fails when no point of the
@@ -1156,12 +1203,12 @@ The mechanism proof's cases:
 - `TestBoreSubstituteKeepsItsClearance` bounds the compiled proof's stand-in for the bore
   sweep: it builds the ruled loft through the sections "What the proof's stand-in costs"
   derives and requires 95% of the clearance to survive the facets, at clearances from 0.05 mm to
-  0.6 mm, so that a measurement made on the stand-in holds for the exact channel Fusion sweeps
-  to within 0.004 mm at the defaults.
+  0.9 mm, so that a measurement made on the stand-in holds for the exact channel Fusion sweeps
+  to within 0.007 mm at the defaults.
 - `TestTheMiddleStaysOpen` keeps the frame out of the space the gears mesh in.
 - `TestTravelIsTheRibbonBetweenItsCollars` walks each gear out of the assembly position both ways
   until an end leaves a collar, and until an end leaves the engaged zone, and holds the travel to
-  the collars: 115.1 mm for the pair, 65.8 teeth, with the mesh limit further out at 65 mm.
+  the collars: 141.2 mm for the pair, 53.8 teeth, with the mesh limit further out at 80.8 mm.
 - `TestCrossedHelicalRuleMakesTheCrestHelicesParallel` pins `Sigma = 2*Beta` and the station it
   holds at.
 - `TestLoftSectionCountHoldsTheHelicoid` is the arithmetic the section count is bought with: the
@@ -1174,9 +1221,9 @@ The mechanism proof's cases:
   `N mod c` is not zero: 5 rounds at the defaults, 7 at a one-tooth cell.
 - `TestProportionsFollowTheVideo` holds the defaults inside the ranges read off the video, each
   widened by the ±20% the reading carries, for the ratios this spec follows: teeth per turn,
-  thickness and length against the width, the ring's diameter against the width, the frame's
-  height against the ring, and one hand for both gears. It logs the ratios the spec departs
-  from, so a run shows both.
+  thickness, tooth depth and length against the width, tooth depth against the pitch, the
+  ring's diameter against the width, the frame's height against the ring, and one hand for both
+  gears. It logs the one ratio the spec departs from, the crossing angle, so a run shows both.
 
 `TestRenderPair`, `TestRenderPart`, `TestRenderMesh` in `render_test.go` draw the pictures from
 the same section function the mesh proof samples. They are skipped unless `-render.out` names a
@@ -1190,13 +1237,13 @@ derives them; the proof measures what this tooth does, not what the best tooth w
 
 It proves the ideal ribbon, an exact cosine on an exact helicoid, and not the lofted body Fusion
 builds. `TestLoftSectionCountHoldsTheHelicoid` bounds the gap between the helicoid and a *ruled*
-loft through the build's sections — 0.7 µm at the crest and 0.029 mm on the toothed edge, where
-a ruled loft draws a chord of the cosine — against a 0.50 mm backlash. Fusion's loft through
+loft through the build's sections — 1.0 µm at the crest and 0.064 mm on the toothed edge, where
+a ruled loft draws a chord of the cosine — against a 0.82 mm backlash. Fusion's loft through
 more than two sections is smooth between them, not ruled (§2, "What the loft is"), so that is a
 bound on a body Fusion does not build: the built surface passes through the same sections, and
 how far it departs from the helicoid between them is measured by nothing here. A Fusion
-measurement on 2026-09-28 put it within 0.04 mm at the defaults (`[SCREW-F-CELL-LOFT]`), and
-only a Fusion load sees it at other inputs. The collar and bore are exact helicoids in Fusion
+measurement on 2026-09-28 put it within 0.04 mm at the 10 mm ribbon (`[SCREW-F-CELL-LOFT]`), and
+only a Fusion load sees it at other inputs, the 1.5× defaults included. The collar and bore are exact helicoids in Fusion
 and have no such gap; `TestBoreSubstituteKeepsItsClearance` bounds the proof's own stand-in
 for them, not the built part.
 
@@ -1214,8 +1261,13 @@ What the proof can hold is the rule's side of it: the compiled step list must se
 every mapped point that is meant to lie on its plane, and a step that maps one without it is a
 compile defect.
 
-It also cannot see print tolerance or friction. A window of 0.44–0.57 mm is comfortable for fused
-filament and tight for resin, and only a printed part settles it.
+It also cannot see print tolerance or friction. A window of 0.76–0.89 mm is comfortable for fused
+filament and tight for resin, and only a printed part settles it. The one print so far, at the
+10 mm ribbon, settled something the proof could not have caught: the teeth were far too small
+("What the print showed"). The proof has no case for what a tooth looks like at
+print resolution, and cannot have one; what it now holds is the ratio the print moved, the
+tooth depth against the width and the pitch, inside the video's range
+(`TestProportionsFollowTheVideo`), so a later default cannot drift back without a run saying so.
 
 It cannot see the video's model either. The ratios in "What the video shows" were read off
 1280×720 frames by hand, and `TestProportionsFollowTheVideo` holds the defaults inside those
