@@ -20,8 +20,8 @@ class ProofBundleTests(unittest.TestCase):
         (self.root / 'proof/spurgear').mkdir(parents=True)
         (self.root / 'spec/spurgear').mkdir(parents=True)
         (self.root / 'spec/spurgear/steps.md').write_text(
-            '## 3 `[GO]` Draw\n\nProof function `stepDraw` in '
-            '`proof/spurgear/draw_test.go`.\n', encoding='utf-8')
+            '## 3 `[GO]` Draw\n\nThe proof function is `stepDraw`.\n'
+            '<!-- proof-run: proofkit.Run(drawCases, stepDraw) -->\n', encoding='utf-8')
         (self.root / 'proof/spurgear/draw_test.go').write_text(
             'package spurgear_test\n\n'
             '// helper comment stays with the source.\n'
@@ -70,8 +70,19 @@ class ProofBundleTests(unittest.TestCase):
     def test_missing_step_reference_fails(self):
         (self.root / 'spec/spurgear/steps.md').write_text(
             '## 3 `[GO]` Draw\n\nNo proof reference.\n', encoding='utf-8')
-        with self.assertRaisesRegex(bundle_tool.BundleError, 'exactly one Proof function'):
+        with self.assertRaisesRegex(bundle_tool.BundleError, 'exactly one valid proof-run'):
             bundle_tool.build(self.root, 'spurgear')
+
+    def test_prose_step_bounds_annotation_search(self):
+        text = ('## 3 `[GO]` Draw\n\n'
+                '<!-- proof-run: proofkit.Run(drawCases, stepDraw) -->\n'
+                '## 4 `[PROSE]` Configure\n\nThe proof function is `stepOther`.\n'
+                '## 5 `[GO]` Finish\n\n'
+                '<!-- proof-run: proofkit.Run(finishCases, stepFinish) -->\n')
+        self.assertEqual(bundle_tool.checked_steps(text), [
+            {'step': '3', 'function': 'stepDraw'},
+            {'step': '5', 'function': 'stepFinish'},
+        ])
 
     def test_unresolved_cross_file_symbol_fails(self):
         source = self.root / 'proof/spurgear/other_test.go'
