@@ -33,8 +33,8 @@ gives a date is a measurement, and one that gives none is read from the referenc
   summed over the five components read 62 (59 in `Design`, one each in `Gear A`, `Gear B` and
   `Cage`). The timeline settles the real count: 96 items = 23 sketches + 12 planes + 5 component
   creations + 56 features, which is the table's 53 plus the three relocations. The feature
-  collections report six more than that, all in `Design`, for a reason not measured. A
-  side-by-side look against the second load's geometry was not reported.
+  collections report six more than that, all in `Design`, for a reason not measured. By eye the
+  user found its geometry the same as the second load's.
 
 ## `[SCREW-F-DIAGNOSTIC]` — what the diagnostics of 2026-09-28 measured
 
