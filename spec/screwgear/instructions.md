@@ -329,7 +329,7 @@ The module `lib/geargen/screwgear.py` defines exactly these public classes (the 
 to them by name; exported via `lib/geargen/__init__.py`):
 
 - **`ScrewGearCommandInputsConfigurator`** — classmethod `configure(cls, command)` adds the dialog
-  inputs in the order of the table below. No conditional visibility.
+  inputs in the order and groups of "Variables" below. No conditional visibility.
 - **`ScrewGearGenerator(base.Generator)`** — 1-arg constructor `(design)` (inherited); implements
   `generate(self, inputs)` and the call graph below; relies on inherited `deleteComponent()` for
   error cleanup. Overrides `prefixBase()` to return `'ScrewGear'`.
@@ -373,33 +373,48 @@ perpendicular `n̂`; the point is the mechanism's centre `C`.
 
 ## Variables
 
-User inputs in dialog order. All linear inputs are mm; the crossing and mounting angles are
-degrees.
+User inputs in dialog order: first by importance, then in named groups. All linear inputs are
+mm; the crossing and mounting angles are degrees.
 
-| Dialog label | input id | unit | default |
-|---|---|---|---|
-| Ribbon Width | `ribbonWidth` | mm | 10 |
-| Ribbon Thickness | `ribbonThickness` | mm | 2.5 |
-| Tooth Pitch | `toothPitch` | mm | 1.75 |
-| Tooth Height | `toothHeight` | mm | 1.2 |
-| Tooth Count | `toothCount` | — | 80 |
-| Twist Lead | `twistLead` | mm | 33 |
-| Crossing Angle | `crossAngle` | deg | 80 |
-| Engagement | `engagement` | mm | 0.36 |
-| Mounting Angle A | `mountAngleA` | deg | 15 |
-| Mounting Angle B | `mountAngleB` | deg | 15 |
-| Assembly Phase | `assemblyPhase` | mm | −0.90 |
-| Cage Radius | `cageRadius` | mm | 10 |
-| Ring Radius | `ringRadius` | mm | 11.25 |
-| Cage Rise | `cageRise` | mm | 13.5 |
-| Ring Wire | `ringWire` | mm | 2.5 |
-| Rod Diameter | `rodDiameter` | mm | 2 |
-| Collar Half Length | `collarHalf` | mm | 2 |
-| Collar Wall | `collarWall` | mm | 2 |
-| Clearance | `clearance` | mm | 0.3 |
-| Target Plane | `plane` | selection | — |
-| Centre Point | `point` | selection | — |
-| Parent Component | `parent` | selection | — |
+The dialog opens with where the mechanism goes, because nothing can be built without it and
+Fusion focuses the first selection input (`[PB-AUTOFOCUS-FIRST]`). Then three groups, each a
+`GroupCommandInput` made with `command.commandInputs.addGroupCommandInput(groupId, groupLabel)`,
+whose inputs are added to that group's `children` collection instead of the top-level
+`commandInputs`. The groups run from what a user changes most to what they should rarely touch:
+the ribbon's size, then the frame, then the mesh arrangement, whose values come from the meshing
+search (`mesh-search.md`) and jam when changed carelessly, so that group starts collapsed
+(`isExpanded = False`); the other two start expanded. Within a group the rows run from most to
+least important, as listed.
+
+| Group (group id, label) | Dialog label | input id | unit | default |
+|---|---|---|---|---|
+| none (top level) | Target Plane | `plane` | selection | — |
+| none (top level) | Centre Point | `point` | selection | — |
+| none (top level) | Parent Component | `parent` | selection | — |
+| `ribbonGroup`, Ribbon | Ribbon Width | `ribbonWidth` | mm | 10 |
+| `ribbonGroup`, Ribbon | Tooth Count | `toothCount` | — | 80 |
+| `ribbonGroup`, Ribbon | Twist Lead | `twistLead` | mm | 33 |
+| `ribbonGroup`, Ribbon | Ribbon Thickness | `ribbonThickness` | mm | 2.5 |
+| `ribbonGroup`, Ribbon | Tooth Pitch | `toothPitch` | mm | 1.75 |
+| `ribbonGroup`, Ribbon | Tooth Height | `toothHeight` | mm | 1.2 |
+| `frameGroup`, Frame | Ring Radius | `ringRadius` | mm | 11.25 |
+| `frameGroup`, Frame | Cage Radius | `cageRadius` | mm | 10 |
+| `frameGroup`, Frame | Cage Rise | `cageRise` | mm | 13.5 |
+| `frameGroup`, Frame | Clearance | `clearance` | mm | 0.3 |
+| `frameGroup`, Frame | Collar Half Length | `collarHalf` | mm | 2 |
+| `frameGroup`, Frame | Collar Wall | `collarWall` | mm | 2 |
+| `frameGroup`, Frame | Rod Diameter | `rodDiameter` | mm | 2 |
+| `frameGroup`, Frame | Ring Wire | `ringWire` | mm | 2.5 |
+| `meshGroup`, Mesh (from the mesh search) | Crossing Angle | `crossAngle` | deg | 80 |
+| `meshGroup`, Mesh (from the mesh search) | Engagement | `engagement` | mm | 0.36 |
+| `meshGroup`, Mesh (from the mesh search) | Mounting Angle A | `mountAngleA` | deg | 15 |
+| `meshGroup`, Mesh (from the mesh search) | Mounting Angle B | `mountAngleB` | deg | 15 |
+| `meshGroup`, Mesh (from the mesh search) | Assembly Phase | `assemblyPhase` | mm | −0.90 |
+
+Every input is read back by id with `inputs.itemById(id)` on the command's top-level
+`commandInputs`, grouped or not; input ids are unique across the whole command, which is what
+lets that lookup reach into a group. `processInputs` raises naming the id if any lookup returns
+`None`, so a lookup that does not reach into a group fails at once and by name.
 
 Module-level constants for every input id: `INPUT_ID_RIBBON_WIDTH = 'ribbonWidth'` and so on.
 One more module-level constant is not a dialog input: `CELL_TEETH = 4`, the number of teeth the
