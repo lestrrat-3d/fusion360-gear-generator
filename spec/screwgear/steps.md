@@ -7,11 +7,11 @@ The proof of this step list is `proof/screwgear/compiled_frame_test.go`, `proof/
 | file | `git hash-object` |
 |---|---|
 | `spec/screwgear/instructions.md` | `8cb5bc1bc9fa9a94cec7ca767e654078215dfd47` |
-| `spec/screwgear/fusion.md` | `16118dec06dda937a5f1f4cdfddffee6c0182094` |
+| `spec/screwgear/fusion.md` | `64e164fe70e0c456a40b769d6b108d4b0a574de7` |
 | `CLAUDE.md` | `916e8624ca88af226c264c21f295c14a9fb9e901` |
 | `proof/screwgear/README.md` | `78c49a33be8a4a227a97a41bddb76aac0c79ebf6` |
 | `spec/screwgear/mesh-search.md` | `6bce4ed34ac716cbe6bdee0cb37202c25b66f476` |
-| `.claude/skills/generate-gear/PLAYBOOK.md` | `9c55b15a3e9a5af76d52635d6b8b6049699454e6` |
+| `.claude/skills/generate-gear/PLAYBOOK.md` | `b7e7811c13fe64aef683d7d6f5d78317b5bb643c` |
 
 ## S01 `[PROSE]` Module, classes and call graph
 
