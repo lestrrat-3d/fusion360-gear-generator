@@ -94,6 +94,15 @@
   "source_guards": [
     {
       "file": "lib/geargen/spurgear.py",
+      "in_function": "processInputs",
+      "why": "Parent selection accepts Occurrences and RootComponents; Generator.getOccurrence needs a Component with occurrences.",
+      "required": [
+        "isinstance\\(parent,\\s*adsk\\.fusion\\.Occurrence\\)",
+        "self\\.parentComponent\\s*=\\s*parent\\.component"
+      ]
+    },
+    {
+      "file": "lib/geargen/spurgear.py",
       "in_function": "prepareTools",
       "why": "[SPUR-F-ANCHOR-CHAIN]: Sketch.project returns an ObjectCollection; ctx.anchorPoint must hold its SketchPoint item.",
       "required": ["\\.project\\([^)]*\\)\\.item\\(0\\)"]

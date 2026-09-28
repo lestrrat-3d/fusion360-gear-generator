@@ -21,8 +21,8 @@ that reaches the transcriber as nothing at all.
 | `spec/herringbonegear/fusion.md` | `62755ad2d376481cf449893ab2a445772357d218` |
 | `spec/helicalgear/fusion.md` | `6cbe03029a0b89b001479234c0af422deb589dbf` |
 | `spec/helicalgear/instructions.md` | `631233a7c9831b72e39b60504226f4ba99b3ae32` |
-| `spec/spurgear/instructions.md` | `8c761c4542788b3ad455fa7ae02dbf978e65b8ca` |
-| `.claude/skills/generate-gear/PLAYBOOK.md` | `9ee2dcbaed7b5480aa69e9295e8b61acaea081f3` |
+| `spec/spurgear/instructions.md` | `58efc84a524426519d090b19f3deb5854a543e0c` |
+| `.claude/skills/generate-gear/PLAYBOOK.md` | `5f0c62fc48418aad6517a1b3380bcf8044e0ac80` |
 
 ## HB1 `[PROSE]` Module layout, imports and exported surface
 

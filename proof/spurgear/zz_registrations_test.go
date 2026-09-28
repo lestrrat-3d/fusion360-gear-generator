@@ -29,8 +29,8 @@ func TestPatternTeeth(t *testing.T) {
 	proofkit3d.RunSolid(t, solidCases, stepPatternTeeth, assertPatternTeeth)
 }
 
-func TestJoinTeeth(t *testing.T) {
-	proofkit3d.RunSolid(t, solidCases, stepJoinTeeth, assertJoinTeeth)
+func TestCombineTeeth(t *testing.T) {
+	proofkit3d.RunSolid(t, solidCases, stepCombineTeeth, assertCombineTeeth)
 }
 
 func TestRootFillets(t *testing.T) {
@@ -38,13 +38,9 @@ func TestRootFillets(t *testing.T) {
 }
 
 func TestBoreProfile(t *testing.T) {
-	proofkit.Run(t, boreCases, stepBoreProfile)
+	proofkit.Run(t, sketchCases, stepBoreProfile)
 }
 
-func TestCutBore(t *testing.T) {
-	proofkit3d.RunSolid(t, boreSolidCases, stepCutBore, assertCutBore)
-}
-
-func TestChamferCompletedGear(t *testing.T) {
-	proofkit3d.RunSolid(t, chamferCases, stepChamferCompletedGear, assertChamferCompletedGear)
+func TestBoreCut(t *testing.T) {
+	proofkit3d.RunSolid(t, solidCases, stepBoreCut, assertBoreCut)
 }

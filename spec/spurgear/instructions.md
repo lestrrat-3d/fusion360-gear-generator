@@ -425,9 +425,9 @@ If the user-selected plane is not already a `ConstructionPlane` (for example the
 Create a sketch named `Tools` on the target plane. `sketch.project(anchorPoint)` returns an
 `ObjectCollection`, even for one point. Take `.item(0)` from that collection and keep the resulting
 `SketchPoint` as `ctx.anchorPoint` — this is the canonical handle every later sketch will re-project
-from (see Sketch Discipline). The sketch draws no geometry of its own; it exists to own this one
-reference. Leave it visible while the later sketches are still projecting from it; toggle
-`isVisible = False` once the gear is fully built.
+from (see Sketch Discipline). The `Tools` sketch draws no geometry of its own; it exists to own this
+one reference. Leave the `Tools` sketch visible while later sketches project from it. Set
+`Tools.isVisible = False` only after the gear is fully built.
 
 Create an offset construction plane `Extrusion End Plane` at distance `Thickness` from the target plane. Its only purpose is to serve as the `to-entity` target for the tooth and body extrudes, so both extrudes end on the same well-defined face. It must be left visible while those extrudes run, then hidden at the very end of the build with `isLightBulbOn = False` (see Sketch Discipline — `isVisible = False` does **not** hide a construction plane). Keep a handle to it (`ctx.extrusionEndPlane`) so the final cleanup can switch its light bulb off.
 
@@ -519,7 +519,7 @@ Finally store `ctx.gearBody` (the `Gear Body` body).
 
 Circular-pattern `ctx.toothBody` around the `Gear Center` axis, quantity = Tooth Number. Pin the two other pattern inputs: `patternInput.totalAngle = ValueInput.createByString('360 deg')` (a full turn, set as a string expression) and `patternInput.isSymmetric = False`. Combine the patterned tooth bodies into `Gear Body` via a single Combine-Join.
 
-Feed the pattern's `bodies` collection to the combine as-is — it already includes the original tooth body, per `[PB-PATTERN-BODIES]`.
+Copy `pattern.bodies` into an `adsk.core.ObjectCollection` for Combine. It already includes the seed tooth, so do not add `ctx.toothBody` separately, per `[PB-PATTERN-BODIES]`.
 
 ### 11: Fillets
 
