@@ -26,15 +26,20 @@ Use one `drafting` round per draft attempt, including retries. A validation even
 complete runner invocation and its report import; record advisory triage only after reviewing
 the advisory findings.
 
-## Optional selected proof trial
+## Checked input views
 
-The default drafting prompt reads the complete `proof/<gear>/` directory. For a controlled
-selected-input trial, run `python3 .claude/skills/generate-gear/build_proof_bundle.py build <gear>`
-and `python3 .claude/skills/generate-gear/build_proof_bundle.py verify <gear>` before drafting.
-Render the trial prompt with `render_prompt.py emit-gear <gear> --selected-proof`. Verify the
-bundle again before placement. A failed build or verification ends the trial. The complete
-canonical proof and all emit gates still run for validation; a selected view does not qualify
-an unvalidated draft for placement.
+Build and verify both views before drafting:
+
+```
+python3 .claude/skills/generate-gear/build_proof_bundle.py build <gear>
+python3 .claude/skills/generate-gear/build_proof_bundle.py verify <gear>
+python3 .claude/skills/generate-gear/build_dependency_view.py build <gear>
+python3 .claude/skills/generate-gear/build_dependency_view.py verify <gear>
+```
+
+The default prompt reads the selected proof construction and dependency API views. Verify both
+again before placement. A failed build or verification stops emission until its source is fixed.
+The canonical proof remains the source for the view, and all emit gates still run for validation.
 
 ## Procedure
 
@@ -44,7 +49,7 @@ an unvalidated draft for placement.
    before drafting; it verifies the engines, the go toolchain and the API database, and runs
    `check_compile.py <gear>` as its `steps-current` row, so a broken environment or a stale
    step list fails here instead of mid-run. If `steps-current` fails, run `/compile-gear <gear>`
-   first.
+   first. Build and verify both views under **Checked input views** before step 2.
 
 2. **Draft.** First run `python3 .claude/skills/generate-gear/extract_playbook.py <gear>` from the
    repo root. It writes `.tmp/<gear>.playbook-extract.md`, the playbook rules the step list cites
@@ -106,7 +111,8 @@ an unvalidated draft for placement.
 
 5. **Place.** Place only the artifact that passed the most recent complete Gate battery. If the
    artifact or any relevant input changed after validation, return to step 3 and run the complete
-   battery again; never substitute an older passing report. On success, run
+   battery again; never substitute an older passing report. Verify both views under **Checked input
+   views** again. On success, run
    `python3 .claude/skills/generate-gear/stage.py <gear> module` from the repo root. It puts
    `.tmp/<gear>.generated.py` at `lib/geargen/<gear>.py` and reports what moved. This writes a
    file only; it does not commit, push, or touch Fusion's add-in directory.

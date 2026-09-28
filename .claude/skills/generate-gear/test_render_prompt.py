@@ -248,6 +248,13 @@ class CommittedTemplatesTest(unittest.TestCase):
         self.assertIn('`.tmp/spurgear.proof-bundle.md`', out.getvalue())
         self.assertNotIn('`proof/spurgear/`, the checked geometry', out.getvalue())
 
+    def test_emit_default_uses_checked_views(self):
+        code, output, error = self.render('emit-gear', 'spurgear')
+        self.assertEqual(code, 0, error)
+        self.assertIn('`.tmp/spurgear.proof-bundle.md`', output)
+        self.assertIn('`.tmp/spurgear.dependency-view.md`', output)
+        self.assertNotIn('`proof/spurgear/`, the checked geometry', output)
+
     def test_templates_declare_only_gear(self):
         for skill in RENDERER.KNOWN_SKILLS:
             with self.subTest(skill=skill):

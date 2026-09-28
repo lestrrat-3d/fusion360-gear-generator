@@ -14,8 +14,9 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-STEP = re.compile(r'^##\s+(\S+)\s+`\[GO\]`', re.MULTILINE)
-PROOF = re.compile(r'^Proof function `([A-Za-z_][A-Za-z_0-9]*)` in `(proof/[^`]+\.go)`\.', re.MULTILINE)
+sys.path.insert(0, str(HERE))
+import check_compile  # noqa: E402
+
 GEAR = re.compile(r'[a-z][a-z0-9_]*\Z')
 VERSION = 1
 
@@ -28,20 +29,20 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
-def checked_steps(text, gear):
-    sections = list(STEP.finditer(text))
-    if not sections:
+def checked_steps(text):
+    sections = check_compile.steps_of(text)
+    if not any(tag == 'GO' for _, tag, _ in sections):
         raise BundleError('no [GO] steps found')
     result = []
-    for index, match in enumerate(sections):
-        end = sections[index + 1].start() if index + 1 < len(sections) else len(text)
-        refs = PROOF.findall(text[match.end():end])
-        if len(refs) != 1:
-            raise BundleError('step {} needs exactly one Proof function reference'.format(match.group(1)))
-        function, path = refs[0]
-        if not path.startswith('proof/{}/'.format(gear)):
-            raise BundleError('step {} references proof outside {}'.format(match.group(1), gear))
-        result.append({'step': match.group(1), 'function': function, 'file': path})
+    for step_id, tag, body in sections:
+        annotations, malformed = check_compile.step_annotations(body)
+        if malformed or (tag == 'GO' and len(annotations) != 1):
+            raise BundleError('step {} needs exactly one valid proof-run annotation when [GO]'
+                              .format(step_id))
+        if tag == 'PROSE' and annotations:
+            raise BundleError('step {} is [PROSE] but has a proof-run annotation'.format(step_id))
+        if tag == 'GO':
+            result.append({'step': step_id, 'function': annotations[0].build})
     if len({row['step'] for row in result}) != len(result):
         raise BundleError('duplicate [GO] step ID')
     return result
@@ -60,7 +61,7 @@ def parse_sources(root, paths):
     return json.loads(result.stdout)
 
 
-def select_declarations(sources, steps):
+def select_declarations(sources, steps, gear):
     declarations = [decl for source in sources for decl in source['declarations']]
     by_name = {}
     by_file = {}
@@ -72,13 +73,18 @@ def select_declarations(sources, steps):
             by_name[name] = index
 
     roots = set()
+    coverage = []
     for row in steps:
         index = by_name.get(row['function'])
-        if index is None or declarations[index]['file'] != row['file']:
-            raise BundleError('missing proof function {} in {}'.format(row['function'], row['file']))
+        if index is None:
+            raise BundleError('missing proof function {} in proof/{}'.format(row['function'], gear))
+        path = declarations[index]['file']
+        if not path.startswith('proof/{}/'.format(gear)):
+            raise BundleError('proof function {} is outside proof/{}'.format(row['function'], gear))
         roots.add(index)
-        registrations = [i for i in by_file.get('proof/{}/zz_registrations_test.go'.format(
-            row['file'].split('/')[1]), []) if row['function'] in declarations[i]['refs']]
+        coverage.append(dict(row, file=path))
+        registrations = [i for i in by_file.get('proof/{}/zz_registrations_test.go'.format(gear), [])
+                         if row['function'] in declarations[i]['refs']]
         if len(registrations) != 1:
             raise BundleError('proof function {} needs one checked registration'.format(row['function']))
         # The registration proves the step is gated, but its case tables and
@@ -118,7 +124,7 @@ def select_declarations(sources, steps):
         closure.append({'file': decl['file'], 'start': decl['start'], 'end': decl['end'],
                         'names': decl['names'], 'depends_on': dependencies,
                         'step_root': index in roots})
-    return declarations, selected, closure
+    return declarations, selected, closure, coverage
 
 
 def ranges(size, selected):
@@ -141,13 +147,13 @@ def build(root, gear):
         raise BundleError('invalid gear name')
     step_path = 'spec/{}/steps.md'.format(gear)
     step_bytes = (root / step_path).read_bytes()
-    steps = checked_steps(step_bytes.decode('utf-8'), gear)
+    steps = checked_steps(step_bytes.decode('utf-8'))
     proof_paths = sorted(path.relative_to(root).as_posix()
                          for path in (root / 'proof' / gear).glob('*.go'))
     if not proof_paths:
         raise BundleError('no Go proof files for {}'.format(gear))
     sources = parse_sources(root, proof_paths)
-    declarations, selected, closure = select_declarations(sources, steps)
+    declarations, selected, closure, coverage = select_declarations(sources, steps, gear)
     files = []
     fragments = ['# Checked construction proof view\n\n',
                  'Canonical source: spec/{}/steps.md and proof/{}/.\n'.format(gear, gear),
@@ -172,7 +178,7 @@ def build(root, gear):
     bundle = ''.join(fragments).encode('utf-8')
     manifest = {'version': VERSION, 'gear': gear,
                 'steps': {'path': step_path, 'sha256': digest(step_bytes)},
-                'coverage': steps, 'declarations': closure, 'files': files,
+                'coverage': coverage, 'declarations': closure, 'files': files,
                 'bundle_sha256': digest(bundle)}
     return bundle, (json.dumps(manifest, indent=2, sort_keys=True) + '\n').encode('utf-8')
 

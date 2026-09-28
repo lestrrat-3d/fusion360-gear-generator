@@ -10,13 +10,16 @@ Do not execute the generated module; the `adsk` modules exist only inside Fusion
 behavior cannot be checked during drafting.
 
 **Read, in this order:** `spec/{{gear}}/steps.md`, which is your instruction set and which you work
-through in order; `proof/{{gear}}/`, the checked geometry, which steps tagged `[GO]` tell you to
-transliterate literally rather than re-derive; `.tmp/{{gear}}.playbook-extract.md`, the generated
+through in order; `.tmp/{{gear}}.proof-bundle.md`, the verified construction view of the checked
+Go proof, which steps tagged `[GO]` tell you to transliterate literally rather than re-derive;
+`.tmp/{{gear}}.playbook-extract.md`, the generated
 extract of the playbook rules the steps cite by anchor plus the shared core sections (it replaces
 reading `PLAYBOOK.md`, which you must not open — an anchor the extract lacks and the step list
 still needs is a defect to report, not a reason to go find the full playbook); and the framework
 you build on and must not reimplement, which is
 `lib/geargen/base.py`, `misc.py`, `utilities.py`, `spurproxy.py` and `lib/fusion360utils/`.
+Read `.tmp/{{gear}}.dependency-view.md` for signatures, decorators, and constants of gear modules
+named by the checked steps. It is generated from the current source and verified before drafting.
 Read `docs/spec-to-code-performance/06-step-metadata-format.md` for version-2 call roles.
 
 **Do not read** `lib/geargen/{{gear}}.py`, `spec/{{gear}}/instructions.md`, `spec/{{gear}}/fusion.md`,
