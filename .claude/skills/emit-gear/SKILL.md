@@ -80,8 +80,8 @@ The canonical proof remains the source for the view, and all emit gates still ru
    root. Run this command without `--no-advisory`, `--only`, or `--fail-fast`; it runs all seven
    checks below plus the advisory novel-type report and prints one verdict. Read the entire stored
    report, including every gate row, advisory finding, and classification. This is the only
-   validation pass for that submitted draft, and the stored copy is what a retry round hands back
-   to the drafter. Exit 0 = every gate that ran passed; exit 1 = a gate failed; exit 2 = a setup
+   validation pass for that submitted draft. Keep the stored copy for diagnosis and retry view
+   construction. Exit 0 = every gate that ran passed; exit 1 = a gate failed; exit 2 = a setup
    error (missing input, missing stubs, unreachable API database) that no new draft can fix.
 
 4. **Diagnose and loop.** The runner prints a first-pass fault classification; confirm the rows it
@@ -89,11 +89,11 @@ The canonical proof remains the source for the view, and all emit gates still ru
    about three rounds in total. A compile fault, or an exit 2, stops the run.
 
    An emit fault does not change any input file, so the drafter that produced it still holds the
-   step list, the proof and the framework in context. Send it the stored gate report
-   `.tmp/<gear>.gates.txt` verbatim with `SendMessage` and let it revise
-   `.tmp/<gear>.generated.py`; never paste failure text edited by hand, and do not tell the
-   drafter to re-read inputs it has already read. Submit the revised artifact to the complete Gate
-   battery again before any placement.
+   step list, the proof and the framework in context. Run
+   `python3 .claude/skills/generate-gear/retry_report.py emit-gear <gear> .tmp/<gear>.gates.txt`
+   and send its output unchanged with `SendMessage`. Let the drafter revise
+   `.tmp/<gear>.generated.py`; do not tell it to re-read inputs it has already read. Submit the
+   revised artifact to the complete Gate battery again before any placement.
 
    Spawn a fresh drafting subagent (a full step 2) only when one of these holds: this is the
    first round; an input file (`steps.md`, the proof, the playbook, or a framework module)
@@ -105,7 +105,7 @@ The canonical proof remains the source for the view, and all emit gates still ru
    because a resumed agent keeps the one it was spawned on. A fresh retry round re-renders the
    prompt with
    `python3 .claude/skills/generate-gear/render_prompt.py emit-gear <gear> --failure-file
-   .tmp/<gear>.gates.txt`, which appends the stored gate report verbatim; hand the printed
+   .tmp/<gear>.gates.txt`, which appends the checked retry view; hand the printed
    output to the drafter unchanged. The first round's prompt is always the rendered standard
    prompt with no failure file.
 
@@ -192,7 +192,7 @@ placeholder. Render it — never retype or paraphrase it — with:
     python3 .claude/skills/generate-gear/render_prompt.py emit-gear <gear>
 
 Hand the printed output to the drafting subagent unchanged. On a retry round, `--failure-file`
-appends the previous round's gate report verbatim; the framing text is fixed in the renderer, so
+appends a checked view of the full gate report; the framing text is fixed in the renderer, so
 the retry prompt is as standard as the first. The renderer refuses to print anything for an
 unknown skill name, a missing template, or a template carrying a placeholder it was not given, so
 a garbled render can never reach the subagent.
