@@ -191,10 +191,11 @@ only after the ordinary complete emit battery passes.
    step and proof text the failure quotes, and any playbook anchor the step cites.
 
    A draft fault does not change any input file, so the drafter that produced it still holds
-   every input in context. Send it the stored gate report `.tmp/<gear>.compile-gates.txt`
-   verbatim with `SendMessage` and let it revise `.tmp/<gear>.steps.md` and
-   `.tmp/<gear>-proof/`; never paste failure text edited by hand, and do not tell the drafter to
-   re-read inputs it has already read.
+   every input in context. Run
+   `python3 .claude/skills/generate-gear/retry_report.py compile-gear <gear>
+   .tmp/<gear>.compile-gates.txt` and send its output unchanged with `SendMessage`. Keep the full
+   report for diagnosis. Let the drafter revise `.tmp/<gear>.steps.md` and `.tmp/<gear>-proof/`;
+   do not tell it to re-read inputs it has already read.
 
    Spawn a fresh drafting subagent (a full step 3) only when one of these holds: this is the
    first round; an input file (the spec, `fusion.md`, the playbook, or a harness package)
@@ -203,7 +204,7 @@ only after the ordinary complete emit battery passes.
    role, and a continued round changes no model, because a resumed agent keeps the one it was
    spawned on. A fresh retry round re-renders the
    prompt with `python3 .claude/skills/generate-gear/render_prompt.py compile-gear <gear>
-   --failure-file .tmp/<gear>.compile-gates.txt`, which appends the stored gate report verbatim;
+   --failure-file .tmp/<gear>.compile-gates.txt`, which appends the checked retry view;
    hand the printed output to the drafter unchanged. The first round's prompt is always the
    rendered standard prompt with no failure file.
 
@@ -277,7 +278,7 @@ placeholder. Render it — never retype or paraphrase it — with:
     python3 .claude/skills/generate-gear/render_prompt.py compile-gear <gear>
 
 Hand the printed output to the drafting subagent unchanged. On a retry round, `--failure-file`
-appends the previous round's gate report verbatim; the framing text is fixed in the renderer, so
+appends a checked view of the full gate report; the framing text is fixed in the renderer, so
 the retry prompt is as standard as the first. The renderer refuses to print anything for an
 unknown skill name, a missing template, or a template carrying a placeholder it was not given, so
 a garbled render can never reach the subagent.

@@ -3,6 +3,7 @@
 import contextlib
 import importlib.util
 import io
+import json
 import re
 import tempfile
 import unittest
@@ -220,6 +221,25 @@ class FailureFileTest(RenderCase):
         self.assertEqual(code, 0, err)
         self.assertIn(RENDERER.BEGIN_MARKER, out)
 
+    def test_structured_runner_report_is_compact_in_prompt(self):
+        payload = {
+            'schema': 1, 'gear': 'spurgear', 'verdict': 'fail', 'exit_code': 1,
+            'stages': [
+                {'key': 'compile', 'status': 'fail', 'headline': 'compile failed',
+                 'stdout': 'step 3 is missing\n', 'fault': 'DRAFT FAULT'},
+                {'key': 'proof', 'status': 'pass', 'headline': 'proof passed',
+                 'stdout': 'large successful transcript\n'},
+            ],
+        }
+        report = ('run_compile_gates: spurgear\nverdict: FAIL\nCOMPILE_GATES_JSON: '
+                  + json.dumps(payload) + '\n')
+        code, out, err = self.render_with_report(skill='compile-gear', report=report)
+        self.assertEqual(code, 0, err)
+        self.assertIn('step 3 is missing', out)
+        self.assertIn('PASS proof: proof passed', out)
+        self.assertNotIn('large successful transcript', out)
+        self.assertNotIn('COMPILE_GATES_JSON:', out)
+
 
 class CommittedTemplatesTest(unittest.TestCase):
     """Check the templates and SKILL.md files that ship in the repo."""
@@ -293,9 +313,15 @@ class CommittedTemplatesTest(unittest.TestCase):
         self.assertIn('artifact or any relevant input changed after validation', skill)
 
     def test_emit_first_and_retry_prompts_keep_same_owner_for_spur_and_bevel(self):
-        report = 'run_gates: sample\nverdict: FAIL\n'
         for gear in ('spurgear', 'bevelgear'):
             with self.subTest(gear=gear):
+                payload = {
+                    'schema': 1, 'gear': gear, 'verdict': 'fail', 'exit_code': 1,
+                    'gates': [{'key': 'parse', 'status': 'fail', 'headline': 'parse failed',
+                               'stdout': 'SyntaxError\n'}],
+                }
+                report = ('run_gates: {}\nverdict: FAIL\nGATES_JSON: {}\n'
+                          .format(gear, json.dumps(payload)))
                 code, first, err = self.render('emit-gear', gear)
                 self.assertEqual(code, 0, err)
                 self.assertIn('.tmp/{}.generated.py'.format(gear), first)
@@ -312,7 +338,8 @@ class CommittedTemplatesTest(unittest.TestCase):
                     retry = out.getvalue()
                     self.assertIn('.tmp/{}.generated.py'.format(gear), retry)
                     self.assertIn(RENDERER.BEGIN_MARKER, retry)
-                    self.assertIn(report, retry)
+                    self.assertIn('SyntaxError', retry)
+                    self.assertNotIn('GATES_JSON:', retry)
 
     def test_skill_md_references_renderer_not_a_copy(self):
         for skill in RENDERER.KNOWN_SKILLS:
