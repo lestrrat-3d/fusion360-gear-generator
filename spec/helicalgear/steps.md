@@ -12,7 +12,7 @@ The proof files are `proof/helicalgear/sketches_test.go`, `proof/helicalgear/sol
 | `spec/helicalgear/exact_values.json` | `e19b2492f1f74ac3289797dd6d58eddcfa94d102` |
 | `spec/spurgear/fusion.md` | `5cd1f9f96e043efba42ae42a00ca6c13403e1339` |
 | `spec/spurgear/instructions.md` | `58efc84a524426519d090b19f3deb5854a543e0c` |
-| `.claude/skills/generate-gear/PLAYBOOK.md` | `5f0c62fc48418aad6517a1b3380bcf8044e0ac80` |
+| `.claude/skills/generate-gear/PLAYBOOK.md` | `b7e7811c13fe64aef683d7d6f5d78317b5bb643c` |
 
 ## Compilation contract
 

@@ -22,7 +22,7 @@ that reaches the transcriber as nothing at all.
 | `spec/helicalgear/fusion.md` | `6cbe03029a0b89b001479234c0af422deb589dbf` |
 | `spec/helicalgear/instructions.md` | `631233a7c9831b72e39b60504226f4ba99b3ae32` |
 | `spec/spurgear/instructions.md` | `58efc84a524426519d090b19f3deb5854a543e0c` |
-| `.claude/skills/generate-gear/PLAYBOOK.md` | `5f0c62fc48418aad6517a1b3380bcf8044e0ac80` |
+| `.claude/skills/generate-gear/PLAYBOOK.md` | `b7e7811c13fe64aef683d7d6f5d78317b5bb643c` |
 
 ## HB1 `[PROSE]` Module layout, imports and exported surface
 

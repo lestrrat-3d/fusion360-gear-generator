@@ -11,7 +11,7 @@ The proof files are `proof/spurgear/sketches_test.go`, `proof/spurgear/solids_te
 | `spec/helicalgear/fusion.md` | `6cbe03029a0b89b001479234c0af422deb589dbf` |
 | `spec/spurgear/contract.json` | `4bfdaaa2b1b38b14478a59dd5c2289ad35b8d44f` |
 | `spec/spurgear/exact_values.json` | `fee6665556d2d9bb3673ee44b79fca03e7caf5a2` |
-| `.claude/skills/generate-gear/PLAYBOOK.md` | `5f0c62fc48418aad6517a1b3380bcf8044e0ac80` |
+| `.claude/skills/generate-gear/PLAYBOOK.md` | `b7e7811c13fe64aef683d7d6f5d78317b5bb643c` |
 
 ## Compilation contract
 
