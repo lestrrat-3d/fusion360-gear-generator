@@ -414,6 +414,10 @@ func TestRenderSleeve(t *testing.T) {
 	// the axis because its up direction is the axis.
 	write(t, "sleeve-top.png", both, 89, -90, 30, frame)
 	write(t, "sleeve-bottom.png", both, -89, -90, 30, frame)
+	// The window facing +Y, square on and a little from above, alone and
+	// with the ribbons meshing behind it.
+	write(t, "sleeve-window.png", []render.Part{sleevePart}, 12, 90, 30, frame)
+	write(t, "sleeve-side.png", both, 6, 90, 30, frame)
 }
 
 // sleeveMesh draws the sleeve's surface on a grid of step h.
