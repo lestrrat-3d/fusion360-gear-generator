@@ -148,7 +148,7 @@ func TestRenderMesh(t *testing.T) {
 }
 
 // sleeveMeshStep is the grid the sleeve is meshed on for its pictures, in mm.
-const sleeveMeshStep = 0.2
+const sleeveMeshStep = 0.1
 
 // TestRenderSleeve draws the printable sleeve that sleeve_test.go proves, with
 // the same ribbons in it. The sleeve has four twisted holes and two windows

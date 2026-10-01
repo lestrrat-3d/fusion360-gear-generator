@@ -35,11 +35,12 @@ between sections, at the 10 mm ribbon the defaults were then (`spec/screwgear/fu
 
 The sleeve is a tube with four holes and two windows cut through it, and the pictures have no
 boolean to cut them with. `sleeveMesh` in [render_test.go](render_test.go) meshes the surface of
-the set `sleeve.inFrame` describes, by marching tetrahedra on a 0.2 mm grid, and places every
+the set `sleeve.inFrame` describes, by marching tetrahedra on a 0.1 mm grid, and places every
 vertex on that surface by bisection, so the holes drawn are the channels the proof walks. The
 grid leaves its own marks: the sharp rims come out bevelled across up to one grid cell, and the
 holes' twisted walls show short dark dashes where the grid cuts them into small triangles at odd
-angles.
+angles. On a 0.2 mm grid those bevels showed as a jagged rim at the pictures' size, with or
+without edge lines, which is why the grid is 0.1 mm.
 
 The channel's wall drawn here is the ideal, and so is the one Fusion cuts: each bore is one sweep
 of its section along the axis with a twist, a rectangle turning rigidly, with no sections and no
@@ -359,7 +360,7 @@ the images are then built against the engine revisions `proof/go.mod` pins, out 
 cache, rather than against whatever checkout sits beside the repository. `-count=1` is needed
 because a cached PASS writes no files.
 
-`TestRenderSleeve` takes about 30 seconds, most of it sampling the sleeve on its 0.2 mm grid;
+`TestRenderSleeve` takes about 100 seconds, most of it sampling the sleeve on its 0.1 mm grid;
 `-run '^TestRenderSleeve$'` regenerates every picture with the sleeve in it, `plan.png` and
 `pair.png` included.
 
