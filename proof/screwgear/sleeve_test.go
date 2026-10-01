@@ -562,7 +562,9 @@ var defaultVoxels = sync.OnceValue(func() *voxels { return voxelize(defaultSleev
 // inside the wall and no window reaches past the channels, so both end bands
 // are whole rings, and every bit of the wall between the openings reaches one
 // of them.
-func TestSleeveIsOnePiece(t *testing.T) { checkSleeveIsOnePiece(t, defaultVoxels()) }
+func TestSleeveIsOnePiece(t *testing.T) {
+	checkSleeveIsOnePiece(t, defaultVoxels())
+}
 
 // checkSleeveIsOnePiece is TestSleeveIsOnePiece for any sleeve's grid.
 func checkSleeveIsOnePiece(t testing.TB, v *voxels) {
@@ -767,7 +769,9 @@ func inABore(v *voxels, c [3]int) bool {
 // CollarWall. What the printer makes of a bore's roof is not something a
 // proof reaches, so the flattest roof in each bore and the span the printer
 // bridges there are logged for the record.
-func TestSleevePrintsStandingOnEitherEnd(t *testing.T) { checkSleevePrints(t, defaultVoxels()) }
+func TestSleevePrintsStandingOnEitherEnd(t *testing.T) {
+	checkSleevePrints(t, defaultVoxels())
+}
 
 // checkSleevePrints is TestSleevePrintsStandingOnEitherEnd for any sleeve's
 // grid.
@@ -1948,7 +1952,9 @@ func checkWindowWalls(t testing.TB, f sleeve) {
 // CollarWalls it is a slender member rather than wall, and the heights over
 // which the same two openings keep it that narrow, without a break, may run to
 // no more than postSlenderness times its narrowest width there.
-func TestSleeveWindowPostsStandFirm(t *testing.T) { checkWindowPosts(t, defaultSleeve()) }
+func TestSleeveWindowPostsStandFirm(t *testing.T) {
+	checkWindowPosts(t, defaultSleeve())
+}
 
 // checkWindowPosts is TestSleeveWindowPostsStandFirm for any sleeve.
 func checkWindowPosts(t testing.TB, f sleeve) {
@@ -2103,7 +2109,9 @@ func checkWindowPosts(t testing.TB, f sleeve) {
 // inside the window and clears the ribbons, walked at 0.1 mm. Each window has
 // to show some of the mesh; the fractions are logged, with the lines that are
 // level, as a person beside the frame at the mesh's height would look.
-func TestSleeveWindowsShowTheMeshFromTheSide(t *testing.T) { checkSideView(t, defaultSleeve()) }
+func TestSleeveWindowsShowTheMeshFromTheSide(t *testing.T) {
+	checkSideView(t, defaultSleeve())
+}
 
 // checkSideView is TestSleeveWindowsShowTheMeshFromTheSide for any sleeve. It
 // returns the share of the mesh zone seen through either window.
