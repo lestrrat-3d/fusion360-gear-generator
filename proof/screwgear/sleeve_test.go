@@ -12,62 +12,36 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// The printable sleeve: the frame proposed to replace the video's.
+// The frame: the printable sleeve.
 //
-// The video's frame (cage_test.go) was printed several times and reported on
-// 2026-09-30 as not practically printable: its thin rods, wire ring and the
-// loop hanging on them wobble while printing. The bores cannot change, since
-// they are what holds each gear to its screw motion, and the mesh has to stay
-// visible from the top and the bottom. Everything else about the frame may
-// change.
+// The frame used to be the one in Segerman's video, a skeleton of a wire ring,
+// a loop, four thin rods and a twisted collar round each ribbon. It was printed
+// several times and reported on 2026-09-30 as not practically printable: the
+// rods, the ring and the loop hanging on them wobble while printing. The sleeve
+// replaced it under two rules: the bores may not change, since they are what
+// holds each gear to its screw motion, and the mesh has to stay visible from
+// the top and the bottom.
 //
 // The sleeve is one thick-walled tube about the frame's axis, inner radius
 // CageRadius - CollarHalf and outer radius CageRadius + CollarHalf, standing
 // CageRise either side of the middle plane, with the four twisted bores cut
-// straight through its wall and two slanted windows cut between them. Its wall
-// is the collar: the bore runs through every bit of material the ribbon
-// passes, so the wall's thickness along the bore's centre line is the
-// collar's length, and the far face of the bore stays where the video frame's
-// collar had it. The mesh is seen along the axis through the hollow from
-// either end, and from the side through the windows. The frame prints
-// standing on either end with no support: every outside face is a vertical
-// cylinder or a level end face, every face of a window is upright or at 45
-// degrees, and the only faces that need more are the ceilings of the four
-// bores.
+// straight through its wall and two slanted windows cut between them. On each
+// bore's centre line the wall runs from station CageRadius - CollarHalf to
+// CageRadius + CollarHalf of its gear's axis, so the far face of each bore is
+// CageRadius + CollarHalf from the middle, which is what sets the travel. The
+// mesh is seen along the axis through the hollow from either end, and from the
+// side through the windows. The frame prints standing on either end with no
+// support: every outside face is a vertical cylinder or a level end face, every
+// face of a window is upright or at 45 degrees, and the only faces that need
+// more are the ceilings of the four bores.
 //
-// spec/screwgear/instructions.md builds the sleeve; the add-in still builds
-// the video's frame until it is regenerated. Nothing here changes
-// defaultParams, which cage_test.go reads for the video frame it proves;
-// sleeveParams is the spec's default table.
-//
-// Three checks the sleeve needs read nothing of the frame but the bores and
-// where they sit, and TestSleeveBoresAreTheSameChannels holds those to the
-// video frame's: TestRibbonsStayInsideTheirBoresOverTheTravel,
-// TestTravelIsTheRibbonBetweenItsCollars and
-// TestRibbonsClearEachOtherOutsideTheEngagement hold for the sleeve as they
-// stand, and are not repeated here.
+// spec/screwgear/instructions.md §4 builds the sleeve, and defaultParams is
+// that spec's default table.
 // ---------------------------------------------------------------------------
 
-// sleeveCageRise is the sleeve's CageRise: half its height, to its flat end
-// faces. The video frame's 20.25 mm is measured to the centre of the ring's
-// wire and would cost 3 mm of print height for 1.5 mm more end wall and
-// nothing else; 18.75 mm, 1.25 widths, leaves the 3.74 mm end wall
-// TestSleeveIsOnePiece measures, against the 18.01 mm the channels need for a
-// CollarWall of end wall and the 18.41 mm the build's closed form asks for.
-const sleeveCageRise = 18.75
-
-// sleeveParams is the spec's default table with the sleeve's own CageRise.
-// Nothing else differs, and TestSleeveBoresAreTheSameChannels holds that.
-// RingRadius, RingWire and RodDiameter are the video frame's inputs and the
-// sleeve reads none of them.
-func sleeveParams() Params {
-	p := defaultParams()
-	p.CageRise = sleeveCageRise
-	return p
-}
-
-// SleeveInner and SleeveOuter are the sleeve's radii: the collar's two ends,
-// measured on the ribbon's axis from the middle, turned into a tube.
+// SleeveInner and SleeveOuter are the sleeve's radii: CollarHalf either side
+// of the bore's station, measured on the ribbon's axis from the middle, turned
+// into a tube.
 func (p Params) SleeveInner() float64 { return p.CageRadius - p.CollarHalf }
 func (p Params) SleeveOuter() float64 { return p.CageRadius + p.CollarHalf }
 
@@ -193,7 +167,7 @@ func windowFacings(p Params) [2]r3.Vec {
 // defaultSleeve is the sleeve at the defaults, built once: finding the
 // windows' ends walks the far bores, and most tests read the same sleeve.
 var defaultSleeve = sync.OnceValue(func() sleeve {
-	p := sleeveParams()
+	p := defaultParams()
 	ga, gb := pair(p, p.Sigma(), 0, assemblyPhase)
 	return newSleeve(ga, gb)
 })
@@ -205,8 +179,7 @@ func (f sleeve) inShell(pt r3.Vec) bool {
 }
 
 // inChannel answers whether a point is inside one of the four bores' cuts:
-// the bore's rectangle, turned with the ribbon, over the cut's span. The
-// channel is the same boreGap the video frame's collars are cut with.
+// the bore's rectangle, turned with the ribbon, over the cut's span.
 func (f sleeve) inChannel(pt r3.Vec) bool {
 	for _, g := range f.gears {
 		if inSleeveChannel(g, f.sIn, f.sOut, pt) {
@@ -242,6 +215,83 @@ func (f sleeve) shellDistance(pt r3.Vec) float64 {
 	dr := math.Max(0, math.Max(f.ri-r, r-f.ro))
 	dz := math.Max(0, math.Abs(pt.Z)-f.zb)
 	return math.Hypot(dr, dz)
+}
+
+// shadowHalfWidth is how far a rectangle of the given half-sides, turned by
+// theta about the ribbon's axis, reaches across the frame's plane either side
+// of that axis. The extreme is a corner.
+func shadowHalfWidth(halfU, halfV, theta float64) float64 {
+	return halfU*math.Abs(math.Sin(theta)) + halfV*math.Abs(math.Cos(theta))
+}
+
+// boreGap is how far outside the bore's rectangle a point lies, measured in the
+// ribbon's own section at that station with the twist undone, and zero inside,
+// with the station. The channel is the set where it is zero, a rectangle that
+// turns with the ribbon.
+func boreGap(g Gear, pt r3.Vec) (float64, float64) {
+	p := g.P
+	u, v, s := g.local(pt)
+	du := math.Max(0, math.Abs(u)-p.BoreHalfWidth())
+	dv := math.Max(0, math.Abs(v)-p.BoreHalfThickness())
+	return math.Hypot(du, dv), s
+}
+
+// eachRibbonPoint walks a ribbon's whole surface at one tooth phase, from one
+// end of the ribbon to the other.
+func eachRibbonPoint(g Gear, step float64, fn func(pt r3.Vec, u, s float64)) {
+	from, to := g.span()
+	for s := from; s <= to; s += step {
+		uHi, uLo, t := g.profile(s)
+		for i := range 5 {
+			v := -t + 2*t*float64(i)/4
+			for _, u := range []float64{uHi, uLo, (uHi + uLo) / 2} {
+				fn(g.world(u, v, s), u, s)
+			}
+		}
+	}
+}
+
+// eachEnvelopePoint walks the boundary of everything a ribbon reaches at any
+// tooth phase, between two stations.
+func eachEnvelopePoint(g Gear, from, to, step float64, fn func(pt r3.Vec)) {
+	uHi, uLo, t := g.envelope()
+	for s := from; s <= to; s += step {
+		for i := range 5 {
+			k := float64(i) / 4
+			v := -t + 2*t*k
+			fn(g.world(uHi, v, s))
+			fn(g.world(uLo, v, s))
+			u := uLo + (uHi-uLo)*k
+			fn(g.world(u, t, s))
+			fn(g.world(u, -t, s))
+		}
+	}
+}
+
+// travelSpan is every station a ribbon covers at some phase of the travel:
+// its span at the assembly phase, stretched half the travel each way.
+func travelSpan(g Gear) (float64, float64) {
+	lo, hi := g.span()
+	return lo - g.P.Travel()/2, hi + g.P.Travel()/2
+}
+
+// travelLimits is how far the pair can advance from the assembly position,
+// backward and forward, before an end of either ribbon leaves the wall's span
+// of one of that ribbon's bores, CollarHalf either side of the bore's station
+// on its centre line. Advancing a gear moves its ends with it, so a gear whose
+// far end is D past a bore's far face can advance D that way. Gear B is
+// assembled a fraction of a pitch along its axis, so its two limits differ by
+// that much, and the pair's limit each way is the tighter gear's.
+func (f sleeve) travelLimits() (float64, float64) {
+	back, fwd := math.Inf(1), math.Inf(1)
+	for _, g := range f.gears {
+		lo, hi := g.span()
+		for _, station := range boreStations(g.P) {
+			back = math.Min(back, hi-(station+f.p.CollarHalf))
+			fwd = math.Min(fwd, (station-f.p.CollarHalf)-lo)
+		}
+	}
+	return back, fwd
 }
 
 // sectionReach is how far a bore's rectangle, turned to theta, reaches
@@ -302,19 +352,12 @@ func eachGrownEnvelopePoint(g Gear, grow, from, to, step float64, fn func(pt r3.
 }
 
 // The bores are what the frame may not change: their section, their twist and
-// where they sit. This pins the numbers a frame change must not move, and
-// holds the sleeve's inputs to the spec's defaults in everything but CageRise,
-// which is what lets the video frame's bore, travel and ribbon-to-ribbon
-// tests stand for the sleeve unchanged.
+// where they sit. They are the channels the video frame's collars were cut
+// with, and this pins the numbers a frame change must not move.
 func TestSleeveBoresAreTheSameChannels(t *testing.T) {
 	f := defaultSleeve()
 	p := f.p
 
-	same := p
-	same.CageRise = defaultParams().CageRise
-	if same != defaultParams() {
-		t.Fatalf("the sleeve's inputs differ from the spec's defaults in more than CageRise: %+v", p)
-	}
 	if got := p.BoreHalfWidth(); math.Abs(got-7.95) > 1e-12 {
 		t.Errorf("the bore is %.4f mm across, want 15.9", 2*got)
 	}
@@ -335,10 +378,11 @@ func TestSleeveBoresAreTheSameChannels(t *testing.T) {
 			}
 		}
 	}
-	// The collar's span is where the wall is complete round the channel, and
-	// where the video frame's bore tests walk it. The cut has to cover it.
+	// The wall's span on the bore's centre line is where the wall is complete
+	// round the channel, and where the bore and travel tests walk it. The cut
+	// has to cover it.
 	if f.sIn > p.CageRadius-p.CollarHalf || f.sOut < p.CageRadius+p.CollarHalf {
-		t.Errorf("the cut runs over [%.3f, %.3f] and misses part of the collar's span [%.1f, %.1f]",
+		t.Errorf("the cut runs over [%.3f, %.3f] and misses part of the wall's span [%.1f, %.1f]",
 			f.sIn, f.sOut, p.CageRadius-p.CollarHalf, p.CageRadius+p.CollarHalf)
 	}
 	// One gear's bores sit below the middle and the other's above.
@@ -411,9 +455,14 @@ func TestSleeveBoreProbesTellTheTwistSense(t *testing.T) {
 	}
 }
 
-// The frame's own proof, for the sleeve: it admits the screw motion and
-// nothing else. A gear turned out of step with its own advance jams in the
-// bores' walls, as it does in the video frame's collars.
+// This is the frame's own proof: it admits the screw motion and nothing else.
+// TestRibbonsClearTheSleeveOverTheTravel is the first half, that the gear
+// moves freely through its travel. This is the second: the test turns a gear
+// out of step with its own advance and finds the angle at which its crests and
+// back corners jam in the bores' walls.
+//
+// A frame of round holes would report no jam at any angle, and that is the case
+// this rules out.
 func TestSleeveAdmitsOnlyTheScrewMotion(t *testing.T) {
 	f := defaultSleeve()
 	ga := f.gears[0]
@@ -492,6 +541,165 @@ func TestRibbonsClearTheSleeveOverTheTravel(t *testing.T) {
 	}
 	t.Logf("over the travel no point of %d on the ribbons grown by the clearance touches the sleeve; "+
 		"outside the cuts they keep %.3f mm from the tube, nearest at station %+.2f", samples, outside, outsideAt)
+}
+
+// Inside a bore every point of the ribbon, teeth included, stays inside it by
+// the clearance, at every phase of the travel; and the bore is no looser than
+// that. The back edge and both faces run the clearance from the wall at every
+// station, and on the toothed side the crests come to the clearance whenever
+// the travel brings one into the wall, which is what "the crests bear on the
+// bore's toothed side" means. Between crests the toothed side falls away by
+// the tooth height, and nothing bears there. Each bore is walked over the
+// wall's span on its centre line, CollarHalf either side of its station.
+func TestRibbonsStayInsideTheirBoresOverTheTravel(t *testing.T) {
+	f := defaultSleeve()
+	p := f.p
+
+	// The least gap on each side of the bore, over every bore, phase and
+	// station: the crest side, the back edge and the faces.
+	behind, ahead := f.travelLimits()
+	crest, back, face := math.Inf(1), math.Inf(1), math.Inf(1)
+	for _, b := range f.bores() {
+		station := b.sign * p.CageRadius
+		for d := -behind; d <= ahead+1e-9; d += 0.05 {
+			g := b.g
+			g.Phase = b.g.Phase + d
+			for s := station - p.CollarHalf; s <= station+p.CollarHalf+1e-9; s += 0.02 {
+				uHi, uLo, vHalf := g.profile(s)
+				crest = math.Min(crest, p.BoreHalfWidth()-uHi)
+				back = math.Min(back, p.BoreHalfWidth()+uLo)
+				face = math.Min(face, p.BoreHalfThickness()-vHalf)
+			}
+		}
+	}
+	for name, gap := range map[string]float64{"crests": crest, "back edge": back, "faces": face} {
+		if gap < p.Clearance-1e-6 {
+			t.Errorf("the ribbon's %s come within %.4f mm of a bore's wall over the travel, under the "+
+				"%.2f mm clearance", name, gap, p.Clearance)
+		}
+	}
+	// And no looser: the bore is cut to the ribbon, not merely round it.
+	for name, gap := range map[string]float64{"crests": crest, "back edge": back, "faces": face} {
+		if gap > p.Clearance+5e-3 {
+			t.Errorf("the ribbon's %s never come nearer a bore's wall than %.4f mm: the bore is cut "+
+				"looser than the %.2f mm clearance", name, gap, p.Clearance)
+		}
+	}
+	t.Logf("over the %.1f mm travel the bores hold the ribbon at %.3f mm on the crests, %.3f mm on "+
+		"the back edge and %.3f mm on the faces; the bore is %.1f by %.1f mm",
+		behind+ahead, crest, back, face, 2*p.BoreHalfWidth(), 2*p.BoreHalfThickness())
+}
+
+// Nothing on the ribbon limits the travel: it is the same twisted rack from
+// end to end, so any stretch of it fits a bore. What limits it is the
+// ribbon's length. A gear has to keep both its bores full over the wall's
+// span, and it has to keep the engaged zone covered or the teeth stop
+// meshing; whichever of the two an end reaches first is the limit. This walks
+// each gear out of the assembly position both ways to find both, holds Travel
+// to the bores, and records what the pair comes to once gear B's assembly
+// phase is counted.
+func TestTravelIsTheRibbonBetweenItsBores(t *testing.T) {
+	f := defaultSleeve()
+	p := f.p
+	window := axialWindow(p)
+
+	// covered answers whether the ribbon, advanced by d, still spans [lo, hi]
+	// of its own axis.
+	covered := func(g Gear, d, lo, hi float64) bool {
+		g.Phase += d
+		from, to := g.span()
+		return from <= lo+1e-9 && to >= hi-1e-9
+	}
+	// firstUncovered is how far the gear can advance, in one direction, before
+	// [lo, hi] is no longer inside it.
+	firstUncovered := func(g Gear, sign, lo, hi float64) float64 {
+		for d := 0.0; d <= p.Length(); d += 0.01 {
+			if !covered(g, sign*d, lo, hi) {
+				return d
+			}
+		}
+		return math.Inf(1)
+	}
+
+	// Each gear's own limits, each way, from the bores and from the mesh.
+	var bores, mesh [2]float64 // [0] backward, [1] forward, the tighter gear's
+	for i := range bores {
+		bores[i], mesh[i] = math.Inf(1), math.Inf(1)
+	}
+	for _, g := range f.gears {
+		for i, sign := range []float64{-1, 1} {
+			for _, station := range boreStations(p) {
+				bores[i] = math.Min(bores[i],
+					firstUncovered(g, sign, station-p.CollarHalf, station+p.CollarHalf))
+			}
+			mesh[i] = math.Min(mesh[i], firstUncovered(g, sign, -window, window))
+		}
+	}
+
+	for i, way := range []string{"backward", "forward"} {
+		if mesh[i] <= bores[i] {
+			t.Errorf("%s, an end leaves the engaged zone at %.2f mm of advance, before it leaves a "+
+				"bore at %.2f mm: the bores are not what limits the travel", way, mesh[i], bores[i])
+		}
+	}
+	// A ribbon alone runs Travel through its own bores. Gear B sits a
+	// fraction of a pitch along its axis, so it reaches one bore's end that
+	// much sooner than gear A does, and the pair loses exactly that.
+	pairTravel := bores[0] + bores[1]
+	if got, want := pairTravel, p.Travel()-math.Abs(assemblyPhase); math.Abs(got-want) > 0.02 {
+		t.Errorf("walking the ends finds a travel of %.2f mm; Travel less the assembly phase is %.2f",
+			got, want)
+	}
+	if behind, ahead := f.travelLimits(); math.Abs(behind-bores[0]) > 0.011 || math.Abs(ahead-bores[1]) > 0.011 {
+		t.Errorf("walking the ends finds limits of %.2f mm back and %.2f mm forward; travelLimits "+
+			"derives %.2f and %.2f", bores[0], bores[1], behind, ahead)
+	}
+	if teeth := pairTravel / p.ToothPitch; teeth < 2 {
+		t.Errorf("the travel is %.2f mm, only %.1f teeth, too short to show a gear working",
+			pairTravel, teeth)
+	}
+	t.Logf("the pair travels %.1f mm, %.1f teeth, %.0f%% of the ribbon: %.1f mm back and %.1f mm "+
+		"forward of the assembly position, where an end reaches its bore's far face; a ribbon alone "+
+		"runs %.1f mm through its bores, and gear B, assembled %.2f mm along its axis, reaches one "+
+		"that much sooner; an end would leave the engaged zone at %.1f mm",
+		pairTravel, pairTravel/p.ToothPitch, 100*pairTravel/p.Length(), bores[0], bores[1],
+		p.Travel(), math.Abs(assemblyPhase), math.Min(mesh[0], mesh[1]))
+}
+
+// Outside the engaged zone the two ribbons have to clear each other at every
+// phase of the travel. The mesh proof walks the bare ribbons at the assembly
+// phases; this walks everything each ribbon reaches at any phase, over every
+// station the travel carries it through, against the other, and holds the
+// sleeve's inner face outside the engaged zone as well.
+func TestRibbonsClearEachOtherOutsideTheEngagement(t *testing.T) {
+	f := defaultSleeve()
+	p := f.p
+	window := axialWindow(p)
+
+	worst, worstAt := math.Inf(-1), 0.0
+	for i, g := range f.gears {
+		other := f.gears[1-i]
+		lo, hi := travelSpan(g)
+		for _, side := range [][2]float64{{lo, -window}, {window, hi}} {
+			eachEnvelopePoint(g, side[0], side[1], 0.02, func(pt r3.Vec) {
+				if m := other.envelopeMargin(pt); m > worst {
+					_, _, s := g.local(pt)
+					worst, worstAt = m, s
+				}
+			})
+		}
+	}
+	if worst > -p.Clearance {
+		t.Errorf("outside the engaged zone the ribbons come within %.3f mm of each other at station "+
+			"%.2f, under the %.2f mm clearance", -worst, worstAt, p.Clearance)
+	}
+	if got := p.SleeveInner(); got < window {
+		t.Errorf("the sleeve's inner face stands %.2f mm from the middle, inside the %.2f mm the teeth "+
+			"engage over", got, window)
+	}
+	t.Logf("outside the engaged zone the ribbons keep %.2f mm from each other at every phase of the "+
+		"travel, closest at station %.2f; the sleeve's inner face stands %.2f mm from the middle",
+		-worst, worstAt, p.SleeveInner())
 }
 
 // sleeveVoxel is the voxel size every whole-body check of the sleeve walks.
@@ -644,10 +852,8 @@ func checkSleeveIsOnePiece(t testing.TB, v *voxels) {
 // of that footprint along the axis has to miss the frame at every height.
 // The frame's material never comes inside the inner radius, so this walks the
 // footprint's outline: the open region is a disc, and a disc holds the inside
-// of any outline it holds.
-//
-// The video frame's cube about the crossing stays open as well, which is what
-// TestTheMiddleStaysOpen holds for that frame.
+// of any outline it holds. The cube about the crossing that the engaged zone
+// spans stays open as well, or the teeth would have nothing to meet in.
 func TestSleeveKeepsTheMeshVisibleAlongTheAxis(t *testing.T) {
 	f := defaultSleeve()
 	p := f.p
@@ -1033,15 +1239,31 @@ func convexHull(pts [][2]float64) [][2]float64 {
 	return h
 }
 
-// The compiled step proof will stand a ruled loft in for each bore's twisted
-// sweep, as it does for the video frame's collars, and the sleeve's cut is
-// longer: it runs over [sIn, sOut] rather than the collar's length and a
-// millimetre, so the loft turns further. This measures what the stand-in
-// costs over that span, at the section count the stand-in derives, at the
-// same clearances TestBoreSubstituteKeepsItsClearance runs.
+// The bore Fusion cuts is the twisted channel the model describes: a sweep of
+// the clearance rectangle along the axis with a twist, which turns it rigidly
+// at 1/Lambda and has no facets (spec/screwgear/fusion.md
+// [SCREW-F-TWISTED-SLOT]). The proof's solid engine has no twisted sweep, so
+// the compiled step proof stands in a RULED loft through a handful of rotated
+// rectangles for each bore, over the cut's span [sIn, sOut]. A ruled loft is
+// flat between its sections: the wall is faceted, and every facet stands a
+// little inside the true channel. What that costs is clearance, because the
+// facet takes its bite out of the gap the ribbon passes through.
+//
+// This measures that bite, so that a measurement made on the stand-in is known
+// to hold for the swept channel to within it. It builds the ruled opening
+// through the sections the stand-in lofts and asks how much room is left round
+// the ribbon's crest rectangle. The bite does not shrink with the clearance, so
+// the section count has to grow as the clearance does; this runs the rule at a
+// clearance far below the default as well as above it, and at the default
+// itself.
+//
+// What it does not measure is the body Fusion builds: the sweep's twist has
+// the sense and the linearity Fusion gives it, which the diagnostic of
+// 2026-09-28 measured and the build re-checks with its probes
+// (spec/screwgear/fusion.md [SCREW-F-SWEEP-CHECK]).
 func TestSleeveBoreSubstituteKeepsItsClearance(t *testing.T) {
 	for _, clearance := range []float64{0.05, 0.1, 0.45, 0.9} {
-		p := sleeveParams()
+		p := defaultParams()
 		p.Clearance = clearance
 		ga, gb := pair(p, p.Sigma(), 0, assemblyPhase)
 		sIn, sOut := p.SleeveCut()
@@ -1066,6 +1288,73 @@ func TestSleeveBoreSubstituteKeepsItsClearance(t *testing.T) {
 	}
 }
 
+// boreSections is the count the compiled proof's stand-in lofts a bore
+// through; the build itself derives no count, since its sweep has no sections.
+// No two neighbours are more than five degrees of twist apart, and no more
+// than the angle at which the facets between them take four percent of the
+// clearance. The facet at the bore's corner, which is R = hypot(W/2 + c,
+// T/2 + c) from the axis, falls R*(1 - cos(step/2)) inside the true channel, so
+// the second bound is step <= 2*acos(1 - 0.04*c/R). At the defaults that is
+// 7.6 degrees and the five-degree bound governs; at a clearance of 0.05 mm it
+// is 2.5 degrees and governs instead. The ribbon's own cell is held to two
+// degrees, because there the departure is measured against the backlash.
+func boreSections(p Params, turn float64) int {
+	return int(math.Ceil(turn/boreStep(p))) + 1
+}
+
+// boreStep is the largest twist the stand-in allows between neighbouring bore
+// sections: the smaller of five degrees and the facet bound above.
+func boreStep(p Params) float64 {
+	corner := math.Hypot(p.BoreHalfWidth(), p.BoreHalfThickness())
+	facet := 2 * math.Acos(1-0.04*p.Clearance/corner)
+	return math.Min(5*math.Pi/180, facet)
+}
+
+// boreLoftClearance is the least room a RULED loft of the opening leaves round
+// the ribbon's crest rectangle, over the whole span. A ruled loft's corners run
+// straight from one section to the next, so at a station between two sections
+// the opening is the four corners interpolated, and the crest rectangle has to
+// sit inside that quadrilateral. The swept channel Fusion cuts has no such
+// facets; see TestSleeveBoreSubstituteKeepsItsClearance for what this bounds.
+func boreLoftClearance(g Gear, lo, hi float64, n int) float64 {
+	p := g.P
+	hw, ht := p.BoreHalfWidth(), p.BoreHalfThickness()
+	bw, bt := p.Width/2, p.Thickness/2
+	corner := func(s float64, i int) r3.Vec {
+		u, v := hw, ht
+		if i == 1 || i == 2 {
+			u = -hw
+		}
+		if i >= 2 {
+			v = -ht
+		}
+		return g.world(u, v, s)
+	}
+
+	worst := math.Inf(1)
+	for k := range n - 1 {
+		sa := lo + (hi-lo)*float64(k)/float64(n-1)
+		sb := lo + (hi-lo)*float64(k+1)/float64(n-1)
+		for f := 0.0; f <= 1.0; f += 0.02 {
+			var quad [4][2]float64
+			for i := range 4 {
+				a, b := corner(sa, i), corner(sb, i)
+				u, v, _ := g.local(a.Add(b.Sub(a).Scale(f)))
+				quad[i] = [2]float64{u, v}
+			}
+			for _, bc := range [][2]float64{{bw, bt}, {-bw, bt}, {-bw, -bt}, {bw, -bt}} {
+				for i := range 4 {
+					a, b := quad[i], quad[(i+1)%4]
+					ex, ey := b[0]-a[0], b[1]-a[1]
+					d := ((bc[0]-a[0])*ey - (bc[1]-a[1])*ex) / math.Hypot(ex, ey)
+					worst = math.Min(worst, -d)
+				}
+			}
+		}
+	}
+	return worst
+}
+
 // The build refuses an input the sleeve cannot be made from, with three
 // closed forms and one sampled check: a bore's corner that reaches past the
 // inner radius would start the channel in the wall; a mesh zone that reaches
@@ -1075,10 +1364,10 @@ func TestSleeveBoreSubstituteKeepsItsClearance(t *testing.T) {
 // between them. This holds that the defaults pass all four, and that each
 // refusal is reached by an input that passes every check before it.
 func TestSleeveInputsAreChecked(t *testing.T) {
-	if why := sleeveRefusal(sleeveParams()); why != "" {
+	if why := sleeveRefusal(defaultParams()); why != "" {
 		t.Fatalf("the build refuses the defaults: %s", why)
 	}
-	p := sleeveParams()
+	p := defaultParams()
 	t.Logf("at the defaults the bore's corner stands %.3f mm from its axis against a %.1f mm inner radius; "+
 		"the mesh reaches %.2f mm and its clearance %.2f more; the end wall needs a rise of %.2f mm and has %.2f",
 		p.BoreCorner(), p.SleeveInner(), meshFootprintRadius(p), p.Clearance,
@@ -1103,7 +1392,7 @@ func TestSleeveInputsAreChecked(t *testing.T) {
 		}, refuseChannelsClose},
 	}
 	for _, c := range cases {
-		p := sleeveParams()
+		p := defaultParams()
 		c.edit(&p)
 		if got := sleeveRefusal(p); got != c.want {
 			t.Errorf("%s: the build says %q, want %q", c.name, got, c.want)
@@ -1115,7 +1404,7 @@ func TestSleeveInputsAreChecked(t *testing.T) {
 	// The channel check is stricter than the corner alone: just inside the
 	// inner radius the corner passes c < Ri, yet the cut would start before
 	// the middle and the two cuts of one gear would overlap.
-	m := sleeveParams()
+	m := defaultParams()
 	m.CageRadius = m.CollarHalf + m.BoreCorner() + 0.02
 	if sIn, _ := m.SleeveCut(); m.BoreCorner() >= m.SleeveInner() || sIn > 0 {
 		t.Errorf("at a %.3f mm cage radius the corner stands %.3f mm against a %.3f mm inner radius and the cut "+
@@ -1125,17 +1414,17 @@ func TestSleeveInputsAreChecked(t *testing.T) {
 	}
 
 	// The mesh check is the one an older, simpler rule would miss: at a 1.5 mm
-	// engagement the collar still starts outside the engaged zone, which is
-	// all the video frame asks, while the footprint reaches the wall.
-	q := sleeveParams()
+	// engagement the wall's inner face still stands outside the engaged zone,
+	// which is all that rule asks, while the footprint reaches the wall.
+	q := defaultParams()
 	q.Engagement = 1.5
 	if zone := axialWindow(q); q.SleeveInner() <= zone {
-		t.Errorf("at a 1.5 mm engagement the engaged zone reaches %.2f mm, so the video frame's rule "+
-			"refuses it too and the sleeve's own check is not what is reached", zone)
+		t.Errorf("at a 1.5 mm engagement the engaged zone reaches %.2f mm, so a rule on the engaged zone "+
+			"alone refuses it too and the sleeve's own check is not what is reached", zone)
 	}
 	// And the rise check is not over-cautious there: at 18 mm the channels
 	// really do leave less than CollarWall at the ends.
-	r := sleeveParams()
+	r := defaultParams()
 	r.CageRise = 18
 	ga, gb := pair(r, r.Sigma(), 0, assemblyPhase)
 	topReach, _ := newSleeve(ga, gb).channelTop()
@@ -1154,23 +1443,6 @@ func TestSleeveInputsAreChecked(t *testing.T) {
 	}
 	t.Logf("at the defaults the channels are at least %.3f mm apart by the build's check, least across the "+
 		"gap between %s; nearestChannels measures %.3f mm", sep, at, near)
-}
-
-// The video's frame no longer binds the design, since the user dropped its
-// look as a requirement, but the sleeve still lands inside the widened ranges
-// TestProportionsFollowTheVideo holds the ring and the frame to, reading the
-// ring's outer diameter as the sleeve's and the frame's height as its own.
-func TestSleeveProportionsStayNearTheVideo(t *testing.T) {
-	p := sleeveParams()
-	across := 2 * p.SleeveOuter() / p.Width
-	tall := 2 * p.CageRise / (2 * p.SleeveOuter())
-	if across < 1.76 || across > 3.36 {
-		t.Errorf("the sleeve is %.2f widths across; the video's ring reads 2.2-2.8", across)
-	}
-	if tall < 0.64 || tall > 1.44 {
-		t.Errorf("the sleeve is %.2f of its own diameter tall; the video's frame reads about one", tall)
-	}
-	t.Logf("the sleeve is %.2f ribbon widths across and %.2f of its diameter tall", across, tall)
 }
 
 // ---------------------------------------------------------------------------
@@ -2263,7 +2535,7 @@ type sleeveSize struct {
 func windowSizes() []sleeveSize {
 	var out []sleeveSize
 	add := func(name string, edit func(*Params)) {
-		p := sleeveParams()
+		p := defaultParams()
 		edit(&p)
 		p.CageRise = math.Max(p.CageRise, leastRise(p))
 		out = append(out, sleeveSize{name, p})
@@ -2377,7 +2649,7 @@ func TestSleeveWindowsFollowTheSize(t *testing.T) {
 	})
 	t.Logf("%d sizes, %d accepted, %d windows cut", len(sizes), accepted, cut)
 
-	p := sleeveParams()
+	p := defaultParams()
 	p.CollarWall = 7
 	p.CageRise = leastRise(p)
 	ga, gb := pair(p, p.Sigma(), 0, assemblyPhase)

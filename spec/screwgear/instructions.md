@@ -110,11 +110,11 @@ ribbon ("Why the cage needs no tooth-shaped cut").
 `TestProportionsFollowTheVideo` holds the ratios this spec follows for the ribbon — teeth per
 turn, thickness, tooth depth and length against the width, the tooth depth against the pitch,
 and one hand for both gears — inside the video's ranges widened by the ±20% the readings carry;
-the 18.9 teeth per turn sit just under the 20–26 read. It also holds the video frame's ring and
-height, from `defaultParams` in the proof, which still carries that frame's inputs.
-`TestSleeveProportionsStayNearTheVideo` holds the sleeve inside the same widened ranges, reading
-the ring's outer diameter as the sleeve's and the frame's height as its own: 2.40 ribbon widths
-across and 1.04 of its diameter tall.
+the 18.9 teeth per turn sit just under the 20–26 read. It also holds the sleeve inside the
+widened ranges read for the video frame's ring and height, reading the ring's outer diameter as
+the sleeve's and the frame's height as its own: 2.40 ribbon widths across and 1.04 of its
+diameter tall. Those two ratios no longer bind the design, since the user dropped the video
+frame's look as a requirement; the test holds them to catch a sleeve far off them.
 
 ## What the print showed
 
@@ -226,10 +226,10 @@ advance, 71.25 mm at the defaults, so **a ribbon runs `N*P - 2*(CageRadius + Col
 so it reaches one bore's end that much sooner than gear A does, and the pair travels **141.2 mm:
 69.9 mm back and 71.3 mm forward** of the assembly position, 53.8 teeth, 79% of the ribbon. The
 engaged zone is nearer the middle than the bores, so the teeth are still meshing at both ends of
-that: an end would leave the ±7.13 mm zone at 80.8 mm. `TestTravelIsTheRibbonBetweenItsCollars`
-walks both limits; it reads only the bores and where they sit, which
-`TestSleeveBoresAreTheSameChannels` holds to the video frame's collars, so it holds for the
-sleeve as it stands.
+that: an end would leave the ±7.13 mm zone at 80.8 mm. `TestTravelIsTheRibbonBetweenItsBores`
+walks both limits through the sleeve's bores, each over the wall's span on its centre line.
+That span is the one the video frame's collars covered, and `TestSleeveBoresAreTheSameChannels`
+holds the bores to the collars' channels, so the travel is the one that frame had.
 
 The wall's thickness comes straight out of the travel, two millimetres of travel per millimetre
 of wall, and the video does not settle it; 6 mm is kept.
@@ -307,9 +307,9 @@ Derived: `Beta` = 43.6°, `A` = 14.25 mm, ribbon length = 178.5 mm, twist per to
 19.1°, ribbon turn between a gear's two bores = `2*CageRadius/Lambda` = 218°. The sleeve runs
 from radius 12 to 18 mm and stands 37.5 mm tall. These are the ribbon's defaults since the print
 of 2026-09-28 and the frame's since the print of 2026-09-30 ("What the print showed"); the
-earlier table, at a 10 mm width, is recorded there. The proof's `defaultParams` still carries
-the video frame's inputs, which `cage_test.go` proves; `sleeveParams` in `sleeve_test.go` is
-this table.
+earlier table, at a 10 mm width, is recorded there. The proof's `defaultParams`, in
+`geometry_test.go`, is this table; `sleeveParams` returns the same table under the name the
+compiled step proof calls.
 
 **The frame does not set the lead.** An earlier printable frame tied the cage radius to half the
 twist lead, so that its bores stood near upright, and tied the two mounting angles to each other.
@@ -1290,9 +1290,8 @@ walks it and anything under it.
 
 The **hand-written mechanism proof** is the `Test` functions listed below, in `geometry_test.go`
 (the model, the part and the section count), `pair_test.go` (the mesh), `sleeve_test.go` (the
-sleeve this spec builds, its bores and its windows), `cage_test.go` (the video frame the sleeve
-replaced, and the bore tests that hold for both) and `render_test.go` (the pictures). It is
-written by hand, is not compiled from this spec, and is not the compile stage's job to
+sleeve this spec builds, its bores, the travel and its windows) and `render_test.go` (the
+pictures). It is written by hand, is not compiled from this spec, and is not the compile stage's job to
 reproduce: it proves the mechanism — that these two parts drive each other 1:1 and move freely
 in this frame — and the compile stage reads its numbers rather than re-deriving them. The whole
 risk in this gear is meshing, and no other proof in this repository simulates motion, so these
@@ -1300,9 +1299,8 @@ files model the ribbon and the frame implicitly — a point is inside the ribbon
 cross-section coordinates satisfy four inequalities, and inside the sleeve when it is in the tube
 and in no bore's channel and no window — rather than as solids. That is exact where a boolean
 between two lofted solids would be a tangency `decad`'s exact predicates refuse to classify, and
-it is cheap enough to run the search a few million times. These five files import neither
-engine. `defaultParams` in `geometry_test.go` still carries the video frame's inputs, which
-`cage_test.go` reads; `sleeveParams` in `sleeve_test.go` is this spec's default table.
+it is cheap enough to run the search a few million times. These four files import neither
+engine. `defaultParams` in `geometry_test.go` is this spec's default table.
 
 The **compiled step proof** is what `/compile-gear` writes beside them from the step list, in
 the shape the compile contract fixes: one function per build step, no `Test` functions of its
@@ -1310,7 +1308,7 @@ own, registrations generated into `zz_registrations_test.go`, and the `sketch` a
 engines for what it builds. It covers the build steps of "Instructions" — that every sketch
 scheme closes fully constrained and unambiguous, and that every solid step yields the body the
 next step consumes — and nothing in the list below. A recompile regenerates it and leaves the
-five hand-written files alone. Four steps of this build are ones the engines cannot build as
+four hand-written files alone. Four steps of this build are ones the engines cannot build as
 Fusion does, and each takes a stand-in, to be named in the proof beside what it stands in for:
 
 - The Cell Sections sketch (§2) holds points off its plane, and the sketch engine is planar. The
@@ -1353,17 +1351,18 @@ The mechanism proof's cases:
   teeth included, through one screw step and requires them to land on the next cell's own, so
   the body genuinely is invariant under `Step`, not only the twist.
 - `TestSleeveBoresAreTheSameChannels` pins what the frame may not change: the bore's rectangle,
-  15.9 by 4.65 mm, its stations `±cageRadius`, its twist and its angles at the crossings, and
-  that the sleeve's inputs are the video frame's in everything but `cageRise`. That is what lets
-  three tests in `cage_test.go` stand for the sleeve as they are:
-  `TestRibbonsStayInsideTheirBoresOverTheTravel` holds every point of the ribbon, teeth included,
-  inside every bore by the clearance at every phase of the travel, and holds the bore no looser
-  than that, the crests, the back edge and the faces each coming to 0.450 mm;
-  `TestTravelIsTheRibbonBetweenItsCollars` walks each gear out of the assembly position both
-  ways, 141.2 mm for the pair, 53.8 teeth, with the mesh limit further out at 80.8 mm; and
-  `TestRibbonsClearEachOtherOutsideTheEngagement` walks everything each ribbon reaches at any
-  phase against the other ribbon outside the engaged zone, 1.96 mm at the least.
-  `TestBoresSitOnOppositeSidesOfTheMiddle` holds one gear's bores low against the other's high.
+  15.9 by 4.65 mm, its stations `±cageRadius`, its twist and its angles at the crossings, that
+  the cut covers the wall's span on the bore's centre line, and that one gear's bores sit low
+  and the other's high.
+- `TestRibbonsStayInsideTheirBoresOverTheTravel` holds every point of the ribbon, teeth
+  included, inside every bore by the clearance at every phase of the travel, over the wall's
+  span on the bore's centre line, and holds the bore no looser than that, the crests, the back
+  edge and the faces each coming to 0.450 mm.
+- `TestTravelIsTheRibbonBetweenItsBores` walks each gear out of the assembly position both ways,
+  141.2 mm for the pair, 53.8 teeth, with the mesh limit further out at 80.8 mm.
+- `TestRibbonsClearEachOtherOutsideTheEngagement` walks everything each ribbon reaches at any
+  phase against the other ribbon outside the engaged zone, 1.96 mm at the least, and holds the
+  sleeve's inner face outside the engaged zone.
 - `TestSleeveAdmitsOnlyTheScrewMotion` is the frame's own proof. It turns a gear out of step with
   its advance and finds it jamming in the bores at **3.55°** at the defaults. A frame of round
   holes would report no jam at any angle, and that is the case this rules out.
@@ -1408,8 +1407,6 @@ The mechanism proof's cases:
   grid; every one passes, the mesh zone seen through the windows running from 59% to 99%. It
   then leaves both windows out at a 7 mm `collarWall`, the rule for a gap with no room. It takes
   about 15 s on 24 cores.
-- `TestSleeveProportionsStayNearTheVideo` holds the sleeve's diameter and height inside the
-  video's widened ranges.
 - `TestCrossedHelicalRuleMakesTheCrestHelicesParallel` pins `Sigma = 2*Beta` and the station it
   holds at.
 - `TestLoftSectionCountHoldsTheHelicoid` is the arithmetic the section count is bought with: the
@@ -1423,18 +1420,12 @@ The mechanism proof's cases:
 - `TestProportionsFollowTheVideo` holds the defaults inside the ranges read off the video, each
   widened by the ±20% the reading carries, for the ratios this spec follows: teeth per turn,
   thickness, tooth depth and length against the width, tooth depth against the pitch, and one
-  hand for both gears, and the video frame's ring and height. It logs the one ratio the spec
-  departs from, the crossing angle, so a run shows both.
+  hand for both gears, and the sleeve's diameter and height against the video frame's ring and
+  height. It logs the one ratio the spec departs from, the crossing angle, so a run shows both.
 
-The rest of `cage_test.go` — `TestRodsStandBesideTheirCollars`, `TestCoincidentRodsAreRefused`,
-`TestFrameIsOnePiece`, `TestRibbonsClearTheFrameOverTheTravel`, `TestTheMiddleStaysOpen`,
-`TestBoresAdmitOnlyTheScrewMotion` and `TestBoreSubstituteKeepsItsClearance` — proves the video
-frame the sleeve replaced. The build makes none of it; the tests stand as the record of that
-frame.
-
-`TestRenderPair`, `TestRenderPart`, `TestRenderMesh` and `TestRenderSleeve` in `render_test.go`
-draw the pictures from the same section function the mesh proof samples. They are skipped unless
-`-render.out` names a directory.
+`TestRenderPart`, `TestRenderMesh` and `TestRenderSleeve` in `render_test.go` draw the pictures
+from the same section function the mesh proof samples. They are skipped unless `-render.out`
+names a directory.
 
 ### What the proof cannot reach
 

@@ -41,16 +41,22 @@ type Params struct {
 	Engagement  float64 // how deep the crests overlap
 	ToothCount  int
 
-	CageRadius  float64 // where each ribbon crosses the frame, on its own axis from the middle
-	RingRadius  float64 // the ring's radius to the centre of its wire, and where the rods stand
-	CageRise    float64 // half the frame's height, to the centre of the ring's wire and of the loop's bars
-	RingWire    float64 // diameter of the ring's wire and of the loop's bars
-	RodDiameter float64 // diameter of the four rods
-	CollarHalf  float64 // half a collar's length along its ribbon
-	CollarWall  float64 // material a collar leaves round its bore
-	Clearance   float64 // added all round a bore
+	CageRadius float64 // where each ribbon crosses the frame, on its own axis from the middle
+	CageRise   float64 // half the sleeve's height, to its flat end faces
+	CollarHalf float64 // half the sleeve's wall, which each bore runs through
+	CollarWall float64 // the least material the sleeve leaves round a bore or window
+	Clearance  float64 // added all round a bore
 }
 
+// defaultParams is the spec's default table: the ribbons, and the sleeve that
+// holds them.
+//
+// CageRise is half the sleeve's height, to its flat end faces. The video
+// frame's 20.25 mm, measured to the centre of its ring's wire, would cost 3 mm
+// of print height for 1.5 mm more end wall and nothing else; 18.75 mm, 1.25
+// widths, leaves the 3.74 mm end wall TestSleeveIsOnePiece measures, against
+// the 18.01 mm the channels need for a CollarWall of end wall and the 18.41 mm
+// the build's closed form asks for.
 func defaultParams() Params {
 	return Params{
 		Width:       15,
@@ -64,46 +70,38 @@ func defaultParams() Params {
 		Engagement:  0.75,
 		ToothCount:  68,
 
-		CageRadius:  15,
-		RingRadius:  16.875,
-		CageRise:    20.25,
-		RingWire:    3.75,
-		RodDiameter: 3,
-		CollarHalf:  3,
-		CollarWall:  3,
-		Clearance:   0.45,
+		CageRadius: 15,
+		CageRise:   18.75,
+		CollarHalf: 3,
+		CollarWall: 3,
+		Clearance:  0.45,
 	}
 }
+
+// sleeveParams is defaultParams under the name the compiled step proof calls.
+func sleeveParams() Params { return defaultParams() }
 
 // BoreHalfWidth and BoreHalfThickness are the bore's opening: the rectangle
 // the ribbon's crests and faces lie on, plus a clearance all round. The crest
 // of a cosine rack is the ribbon's outer edge, u = Width/2, so that rectangle
-// holds the whole ribbon, teeth included, and nothing in the cage has to be cut
-// to the shape of a tooth. The crests are what bear on the bore's toothed side.
+// holds the whole ribbon, teeth included, and nothing in the sleeve has to be
+// cut to the shape of a tooth. The crests are what bear on the bore's toothed
+// side.
 func (p Params) BoreHalfWidth() float64     { return p.Width/2 + p.Clearance }
 func (p Params) BoreHalfThickness() float64 { return p.Thickness/2 + p.Clearance }
 
-// RingOuter is the ring's outer radius, and FrameHeight is the frame's whole
-// height from the bottom of the loop's bars to the top of the ring's wire. They
-// are what the video's frame is measured by: the ring's outer diameter is the
-// unit its other proportions were read in.
-func (p Params) RingOuter() float64   { return p.RingRadius + p.RingWire/2 }
-func (p Params) FrameHeight() float64 { return 2*p.CageRise + p.RingWire }
-
-// WireRadius and RodRadius are the round sections the frame is built from.
-func (p Params) WireRadius() float64 { return p.RingWire / 2 }
-func (p Params) RodRadius() float64  { return p.RodDiameter / 2 }
-
 // Travel is how far the mechanism runs, end to end. Nothing on the ribbon
 // limits it: the whole ribbon is the same twisted rack, so any stretch of it
-// fits a collar. What limits it is the ribbon's own length: a gear has to keep
-// both its collars full, and its end reaches the far face of a collar once it
-// has advanced Length/2 - CageRadius - CollarHalf from the middle. The engaged
-// zone is nearer the middle than the collars, so the teeth are still meshing
-// there. TestTravelIsTheRibbonBetweenItsCollars walks both limits.
+// fits a bore. What limits it is the ribbon's own length: a gear has to keep
+// both its bores full, and on the bore's centre line the sleeve's wall runs
+// CollarHalf either side of CageRadius, so the gear's end reaches a bore's far
+// face once it has advanced Length/2 - CageRadius - CollarHalf from the
+// middle. The engaged zone is nearer the middle than the bores, so the teeth
+// are still meshing there. TestTravelIsTheRibbonBetweenItsBores walks both
+// limits.
 func (p Params) Travel() float64 { return p.Length() - 2*(p.CageRadius+p.CollarHalf) }
 
-// boreStations are where a gear's two collars sit on its own axis, measured
+// boreStations are where a gear's two bores sit on its own axis, measured
 // from the ribbon's own middle: the two places it crosses the frame.
 func boreStations(p Params) [2]float64 { return [2]float64{-p.CageRadius, p.CageRadius} }
 
@@ -676,6 +674,11 @@ func TestDoublingScheduleCoversTheRibbon(t *testing.T) {
 // stops the part looking like the video's is caught here rather than noticed
 // in a picture.
 //
+// The video's frame no longer binds the design, since the user dropped its
+// look as a requirement when the sleeve replaced it, but the sleeve still lands
+// inside the widened ranges read for that frame: its outer diameter is read as
+// the ring's, and its own height as the frame's.
+//
 // The readings are hand readings of 1280x720 frames and carry about +/-20%: the
 // teeth on one face-on stretch of an arm (half a turn) at 0:09, 6:12 and 6:14
 // give 20-26 per turn; the edge-on stretches at 6:14 give a thickness of 0.2-0.3
@@ -709,11 +712,13 @@ func TestProportionsFollowTheVideo(t *testing.T) {
 	if got := p.Length() / p.Width; got < 9.6 || got > 14.4 {
 		t.Errorf("the ribbon is %.1f widths long; the video's reads about 12", got)
 	}
-	if got := 2 * p.RingOuter() / p.Width; got < 1.76 || got > 3.36 {
-		t.Errorf("the ring is %.2f widths across; the video's reads 2.2-2.8", got)
+	across := 2 * p.SleeveOuter() / p.Width
+	tall := 2 * p.CageRise / (2 * p.SleeveOuter())
+	if across < 1.76 || across > 3.36 {
+		t.Errorf("the sleeve is %.2f widths across; the video's ring reads 2.2-2.8", across)
 	}
-	if got := p.FrameHeight() / (2 * p.RingOuter()); got < 0.64 || got > 1.44 {
-		t.Errorf("the frame is %.2f ring widths tall; the video's reads about one", got)
+	if tall < 0.64 || tall > 1.44 {
+		t.Errorf("the sleeve is %.2f of its own diameter tall; the video's frame reads about one", tall)
 	}
 	if ga.Hand != gb.Hand {
 		t.Errorf("the two gears are of opposite hand; the video's twist the same way")
@@ -721,8 +726,7 @@ func TestProportionsFollowTheVideo(t *testing.T) {
 	if ga.Hand != 1 {
 		t.Errorf("the gears are left-handed; the video's read as right-handed")
 	}
-	t.Logf("ring %.2f widths and %.2f leads across, frame %.2f ring widths tall",
-		2*p.RingOuter()/p.Width, 2*p.RingOuter()/p.TwistLead, p.FrameHeight()/(2*p.RingOuter()))
+	t.Logf("the sleeve is %.2f ribbon widths across and %.2f of its diameter tall", across, tall)
 
 	t.Logf("tooth depth %.3f widths and %.2f pitches, against the video's 0.15-0.2 widths and about one pitch",
 		p.ToothHeight/p.Width, p.ToothHeight/p.ToothPitch)
