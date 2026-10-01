@@ -10,101 +10,61 @@ import (
 )
 
 func TestAnchorSketch(t *testing.T) {
-	proofkit.Run(t, csAnchorCases, stepAnchorSketch)
+	proofkit.Run(t, cpAnchorCases, stepAnchorSketch)
 }
 
 func TestPathsSketch(t *testing.T) {
-	proofkit.Run(t, csPathsCases, stepPathsSketch)
+	proofkit.Run(t, cpPathsCases, stepPathsSketch)
 }
 
 func TestCellSectionsSketch(t *testing.T) {
-	proofkit.Run(t, csSectionCases, stepCellSectionsSketch)
+	proofkit.Run(t, cpCellSectionCases, stepCellSectionsSketch)
 }
 
 func TestCellLoft(t *testing.T) {
-	proofkit3d.RunSolid(t, csCellLoftCases, stepCellLoft, checkCellLoft)
+	proofkit3d.RunSolid(t, cpCellLoftCases, stepCellLoft, assertCellLoft)
 }
 
-func TestCopyRibbon(t *testing.T) {
-	proofkit3d.RunSolid(t, csCopyCases, stepCopyRibbon, checkCopyRibbon)
+func TestCopyBody(t *testing.T) {
+	proofkit3d.RunSolid(t, cpCopyCases, stepCopyBody, assertCopyBody)
 }
 
-func TestMoveRibbon(t *testing.T) {
-	proofkit3d.RunSolid(t, csMoveCasesTable, stepMoveRibbon, checkMoveRibbon)
+func TestScrewMove(t *testing.T) {
+	proofkit3d.RunSolid(t, cpMoveCases, stepScrewMove, assertScrewMove)
 }
 
-func TestJoinRibbon(t *testing.T) {
-	proofkit3d.RunSolid(t, csJoinCasesTable, stepJoinRibbon, checkJoinRibbon)
+func TestJoinBodies(t *testing.T) {
+	proofkit3d.RunSolid(t, cpJoinCases, stepJoinBodies, assertJoinBodies)
 }
 
-func TestRemainderSketch(t *testing.T) {
-	proofkit.Run(t, csRemainderCases, stepRemainderSketch)
+func TestCellRemainderSketch(t *testing.T) {
+	proofkit.Run(t, cpRemainderCases, stepCellRemainderSketch)
 }
 
-func TestRemainderLoft(t *testing.T) {
-	proofkit3d.RunSolid(t, csRemainderLoftCases, stepRemainderLoft, checkRemainderLoft)
+func TestCellRemainderLoft(t *testing.T) {
+	proofkit3d.RunSolid(t, cpRemainderLoftCases, stepCellRemainderLoft, assertCellRemainderLoft)
 }
 
-func TestRemainderJoin(t *testing.T) {
-	proofkit3d.RunSolid(t, csRemainderJoinCases, stepRemainderJoin, checkRemainderJoin)
+func TestSleeveSketch(t *testing.T) {
+	proofkit.Run(t, cpSleeveSketchCases, stepSleeveSketch)
 }
 
-func TestRingSketch(t *testing.T) {
-	proofkit.Run(t, csRingCases, stepRingSketch)
+func TestSleeveExtrude(t *testing.T) {
+	proofkit3d.RunSolid(t, cpSleeveExtrudeCases, stepSleeveExtrude, assertSleeveExtrude)
 }
 
-func TestRingRevolve(t *testing.T) {
-	proofkit3d.RunSolid(t, csRingRevolveCases, stepRingRevolve, checkRingRevolve)
+func TestBoreSectionSketch(t *testing.T) {
+	proofkit.Run(t, cpBoreSectionCases, stepBoreSectionSketch)
 }
 
-func TestRodsSketch(t *testing.T) {
-	proofkit.Run(t, csRodsCases, stepRodsSketch)
+func TestBoreSweepCut(t *testing.T) {
+	proofkit3d.RunSolid(t, cpBoreCutCases, stepBoreSweepCut, assertBoreSweepCut)
 }
 
-func TestRodsExtrude(t *testing.T) {
-	proofkit3d.RunSolid(t, csRodsExtrudeCases, stepRodsExtrude, checkRodsExtrude)
+func TestWindowSketch(t *testing.T) {
+	proofkit.Run(t, cpWindowCases, stepWindowSketch)
 }
 
-func TestRodsJoin(t *testing.T) {
-	proofkit3d.RunSolid(t, csRodsJoinCases, stepRodsJoin, checkRodsJoin)
-}
-
-func TestLoopBarSketch(t *testing.T) {
-	proofkit.Run(t, csLoopCases, stepLoopBarSketch)
-}
-
-func TestLoopBarRevolve(t *testing.T) {
-	proofkit3d.RunSolid(t, csLoopPieceCases, stepLoopBarRevolve, checkLoopBarRevolve)
-}
-
-func TestLoopBallSketch(t *testing.T) {
-	proofkit.Run(t, csLoopCases, stepLoopBallSketch)
-}
-
-func TestLoopBallRevolve(t *testing.T) {
-	proofkit3d.RunSolid(t, csLoopPieceCases, stepLoopBallRevolve, checkLoopBallRevolve)
-}
-
-func TestLoopJoin(t *testing.T) {
-	proofkit3d.RunSolid(t, csLoopJoinCases, stepLoopJoin, checkLoopJoin)
-}
-
-func TestCollarSketch(t *testing.T) {
-	proofkit.Run(t, csCollarCases, stepCollarSketch)
-}
-
-func TestCollarSweep(t *testing.T) {
-	proofkit3d.RunSolid(t, csCollarBodyCases, stepCollarSweep, checkCollarSweep)
-}
-
-func TestCollarsJoin(t *testing.T) {
-	proofkit3d.RunSolid(t, csCollarBodyCases, stepCollarsJoin, checkCollarsJoin)
-}
-
-func TestBoreSketch(t *testing.T) {
-	proofkit.Run(t, csCollarCases, stepBoreSketch)
-}
-
-func TestBoreCut(t *testing.T) {
-	proofkit3d.RunSolid(t, csCollarBodyCases, stepBoreCut, checkBoreCut)
+func TestWindowCut(t *testing.T) {
+	proofkit3d.RunSolid(t, cpWindowCutCases, stepWindowCut, assertWindowCut)
 }
