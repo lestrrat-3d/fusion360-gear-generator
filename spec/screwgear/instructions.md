@@ -535,10 +535,14 @@ bound; `sleeveRefusal` in `sleeve_test.go` is the same four in the same order, a
 `Ri = cageRadius - collarHalf` is the sleeve's inner radius and `c = hypot(W/2 + clearance,
 T/2 + clearance)` the bore's corner radius, 8.283 mm at the defaults.
 
-- **The channel starts in the hollow**, naming `cageRadius`: `c < Ri`. Each bore's cut starts a
-  millimetre before the channel's corner first reaches the inner face, at station
-  `sqrt(Ri^2 - c^2) - 1 mm` (§4), which needs the corner inside the inner radius. A 4 mm
-  clearance fails it.
+- **The channel starts in the hollow**, naming `cageRadius`: `hypot(c, 1 mm) < Ri`. Each bore's
+  cut starts a millimetre before the channel's corner first reaches the inner face, at station
+  `sIn = sqrt(Ri^2 - c^2) - 1 mm` (§4), and the check is `sIn > 0`. That needs the corner inside
+  the inner radius by more than the millimetre allows: with `c < Ri` alone, a corner within about
+  0.04 mm of a 12 mm inner radius would put `sIn` at or before the middle, so a gear's `bore-` and
+  `bore+` lines would overlap or run backwards and the build would fail inside Fusion. A 4 mm
+  clearance fails it, and so does a cage radius 0.02 mm past `collarHalf + c`, where `sIn` is
+  −0.42 mm.
 - **The mesh stays visible along the axis**, naming `cageRadius`:
   `hypot(axialWindow, hypot(W/2, T/2)) + clearance <= Ri`, with
   `axialWindow = 1.5 * sqrt(W^2 - A^2) / sin(Sigma)`, 7.13 mm at the defaults, the reach the
