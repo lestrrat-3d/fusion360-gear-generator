@@ -104,7 +104,7 @@ func meshFootprintRadius(p Params) float64 {
 // first three are closed forms the build can evaluate from its inputs alone;
 // the fourth is channelSeparation, which samples the bores' channels.
 const (
-	refuseChannelInWall = "the bore's corner reaches past the sleeve's inner radius, so the channel would start in the wall"
+	refuseChannelInWall = "the bore's corner, with the cut's margin, reaches past the sleeve's inner radius, so the cut would start in the wall"
 	refuseMeshHidden    = "the mesh zone and its clearance reach past the sleeve's inner radius, so the mesh would not be visible along the axis"
 	refuseEndWall       = "the channels come nearer the sleeve's end faces than CollarWall"
 	refuseChannelsClose = "two neighbouring bores' channels come nearer each other than CollarWall"
@@ -114,7 +114,10 @@ const (
 // when they pass every one.
 func sleeveRefusal(p Params) string {
 	ri := p.SleeveInner()
-	if p.BoreCorner() >= ri {
+	// Each cut starts sleeveCutMargin before the channel's corner reaches the
+	// inner face, at sqrt(ri^2 - c^2) - sleeveCutMargin along its axis. That
+	// station has to be past the middle, or the two cuts of one gear overlap.
+	if math.Hypot(p.BoreCorner(), sleeveCutMargin) >= ri {
 		return refuseChannelInWall
 	}
 	if meshFootprintRadius(p)+p.Clearance > ri {
@@ -1087,6 +1090,11 @@ func TestSleeveInputsAreChecked(t *testing.T) {
 		want string
 	}{
 		{"a 4 mm clearance", func(p *Params) { p.Clearance = 4 }, refuseChannelInWall},
+		// The corner inside the inner radius, but by less than the cut's margin
+		// allows: the cut would start on the far side of the middle.
+		{"a cage radius 0.02 mm past the bore's corner", func(p *Params) {
+			p.CageRadius = p.CollarHalf + p.BoreCorner() + 0.02
+		}, refuseChannelInWall},
 		{"a 1.5 mm engagement", func(p *Params) { p.Engagement = 1.5 }, refuseMeshHidden},
 		{"an 18 mm rise", func(p *Params) { p.CageRise = 18 }, refuseEndWall},
 		{"a 4 mm CollarWall at a 70 degree crossing", func(p *Params) {
@@ -1102,6 +1110,18 @@ func TestSleeveInputsAreChecked(t *testing.T) {
 			continue
 		}
 		t.Logf("%s is refused: %s", c.name, c.want)
+	}
+
+	// The channel check is stricter than the corner alone: just inside the
+	// inner radius the corner passes c < Ri, yet the cut would start before
+	// the middle and the two cuts of one gear would overlap.
+	m := sleeveParams()
+	m.CageRadius = m.CollarHalf + m.BoreCorner() + 0.02
+	if sIn, _ := m.SleeveCut(); m.BoreCorner() >= m.SleeveInner() || sIn > 0 {
+		t.Errorf("at a %.3f mm cage radius the corner stands %.3f mm against a %.3f mm inner radius and the cut "+
+			"starts at %.3f mm, so the case does not reach the margin", m.CageRadius, m.BoreCorner(), m.SleeveInner(), sIn)
+	} else {
+		t.Logf("at a %.3f mm cage radius the corner passes c < Ri and the cut would start at %.3f mm", m.CageRadius, sIn)
 	}
 
 	// The mesh check is the one an older, simpler rule would miss: at a 1.5 mm
