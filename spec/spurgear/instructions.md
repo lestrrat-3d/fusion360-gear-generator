@@ -238,7 +238,7 @@ on a simplified stand-in.
 - **Hide each entity with the right property, after it's consumed** — `isVisible=False` for
   sketches, `isLightBulbOn=False` for construction planes/axes (`[PB-HIDE-AFTER-USE]`); the
   spur cleanup recipe (which entities, the per-mode split) is `[SPUR-F-CLEANUP]`.
-- **Dimensions are driving by default** — never pass `isDriven=True` (`[PB-DRIVING-DIM]`). All
+- **Dimensions are driving by default** — never pass `isDriving=False` (`[PB-DRIVING-DIM]`). All
   diameter dimensions here (the four gear circles and the bore circle) must be driving. The
   tooth-top arc carries no diameter dimension at all; it shares the local origin as its centre
   instead (`[SPUR-F-TOOTHTOP-ARC]`).
