@@ -541,7 +541,7 @@ class ScrewGearGenerator(Generator):
             (e0, 3, 1),
         )
         worstSeparation = float('inf')
-        worstPair = None
+        worstPair = ('', '')
         for d, i, j in gaps:
             sep = self._channel_separation(outlines, d, i, j, C0, n0)
             if sep < worstSeparation:
@@ -926,7 +926,7 @@ class ScrewGearGenerator(Generator):
         topComponent.name = 'Screw Gearing'
 
         self.pathLines = [{}, {}]
-        self.gearBodies = [None, None]
+        self.gearBodies = [adsk.fusion.BRepBody.cast(None), adsk.fusion.BRepBody.cast(None)]
 
         self.designOcc = topComponent.occurrences.addNewComponent(adsk.core.Matrix3D.create())
         self.designOcc.component.name = 'Design'
