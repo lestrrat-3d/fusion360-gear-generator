@@ -1,9 +1,14 @@
-\
-# Screw/screw gearing: two racks, each twisted into a helix about its own centre line, each
-# moving by a screw motion in a cage that holds them. Generated from spec/screwgear/steps.md.
+"""Screw gearing: two identical twisted toothed ribbons crossing at an angle, held by a sleeve.
+
+Generated from spec/screwgear/steps.md. All values are precomputed in Python
+([PB-PRECOMPUTED-MODE]); the generator registers no user parameter. Every computation is
+written in millimetres and radians and divided by 10 when it is handed to the Fusion API.
+"""
 
 import math
+
 import adsk.core, adsk.fusion
+
 from ...lib import fusion360utils as futil
 from .misc import get_design
 from .base import Generator, get_selection
@@ -20,1298 +25,1384 @@ INPUT_ID_TWIST_LEAD = 'twistLead'
 INPUT_ID_RIBBON_THICKNESS = 'ribbonThickness'
 INPUT_ID_TOOTH_PITCH = 'toothPitch'
 INPUT_ID_TOOTH_HEIGHT = 'toothHeight'
-INPUT_ID_RING_RADIUS = 'ringRadius'
 INPUT_ID_CAGE_RADIUS = 'cageRadius'
 INPUT_ID_CAGE_RISE = 'cageRise'
 INPUT_ID_CLEARANCE = 'clearance'
 INPUT_ID_COLLAR_HALF = 'collarHalf'
 INPUT_ID_COLLAR_WALL = 'collarWall'
-INPUT_ID_ROD_DIAMETER = 'rodDiameter'
-INPUT_ID_RING_WIRE = 'ringWire'
 INPUT_ID_CROSS_ANGLE = 'crossAngle'
 INPUT_ID_ENGAGEMENT = 'engagement'
 INPUT_ID_MOUNT_ANGLE_A = 'mountAngleA'
 INPUT_ID_MOUNT_ANGLE_B = 'mountAngleB'
 INPUT_ID_ASSEMBLY_PHASE = 'assemblyPhase'
-
 GROUP_ID_RIBBON = 'ribbonGroup'
 GROUP_ID_FRAME = 'frameGroup'
 GROUP_ID_MESH = 'meshGroup'
-
 CELL_TEETH = 4
 
 
-# ---- plain (x, y, z) tuple vector math -------------------------------------------------------
-# Fusion's own Point3D/Vector3D objects have no elementwise arithmetic beyond scaleBy/add/cross,
-# so the frame math (S03, S06) is done on plain tuples and converted at the Fusion API boundary.
+# ---------------------------------------------------------------------------------------------
+# Small vector and polygon helpers (tuples, millimetres unless stated otherwise)
+# ---------------------------------------------------------------------------------------------
 
-def _vadd(a, b):
+def _add(a, b):
     return (a[0] + b[0], a[1] + b[1], a[2] + b[2])
 
 
-def _vsub(a, b):
+def _sub(a, b):
     return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
 
 
-def _vscale(a, s):
-    return (a[0] * s, a[1] * s, a[2] * s)
+def _scale(a, k):
+    return (a[0] * k, a[1] * k, a[2] * k)
 
 
-def _vdot(a, b):
+def _dot(a, b):
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 
 
-def _vcross(a, b):
-    return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+def _cross(a, b):
+    return (a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0])
 
 
-def _vlen(a):
-    return math.sqrt(_vdot(a, a))
-
-
-def _vnorm(a):
-    length = _vlen(a)
+def _unit(a):
+    length = math.sqrt(_dot(a, a))
     return (a[0] / length, a[1] / length, a[2] / length)
 
 
-def _rotate(v, angle, axis):
-    # Rodrigues' rotation formula, axis assumed unit.
-    c = math.cos(angle)
-    s = math.sin(angle)
-    dot = _vdot(axis, v)
-    cross = _vcross(axis, v)
-    return _vadd(_vadd(_vscale(v, c), _vscale(cross, s)), _vscale(axis, dot * (1 - c)))
+def _rotateAbout(e, n, angle):
+    """rotate(e, angle, about n) = cos(angle)*e + sin(angle)*(n x e)."""
+    return _add(_scale(e, math.cos(angle)), _scale(_cross(n, e), math.sin(angle)))
 
 
-def _point3d(v) -> adsk.core.Point3D:
-    return adsk.core.Point3D.create(v[0], v[1], v[2])
+def _gearFrames(e, n, A, Sigma, PhiA, PhiB, Phase):
+    """The frame of section 1 with C at the origin: gear A (index 0) and gear B (index 1)."""
+    dirA = _rotateAbout(e, n, Sigma / 2)
+    uA = n
+    frameA = {
+        'label': 'Gear A',
+        'origin': _scale(n, -A / 2),
+        'dir': dirA,
+        'u': uA,
+        'v': _cross(dirA, uA),
+        'phi': PhiA,
+        'z0': 0.0,
+    }
+    dirB = _rotateAbout(e, n, -Sigma / 2)
+    uB = _scale(n, -1.0)
+    frameB = {
+        'label': 'Gear B',
+        'origin': _scale(n, A / 2),
+        'dir': dirB,
+        'u': uB,
+        'v': _cross(dirB, uB),
+        'phi': PhiB,
+        'z0': Phase,
+    }
+    return [frameA, frameB]
 
 
-def _vector3d(v) -> adsk.core.Vector3D:
-    return adsk.core.Vector3D.create(v[0], v[1], v[2])
+def _framePoint(frame, lam, s, u, v):
+    """point(g, s, u, v) = origin_g + s*dir_g + (u cos th - v sin th) u_g + (u sin th + v cos th) v_g."""
+    theta = s / lam + frame['phi']
+    c, sn = math.cos(theta), math.sin(theta)
+    x = u * c - v * sn
+    y = u * sn + v * c
+    o, d, uu, vv = frame['origin'], frame['dir'], frame['u'], frame['v']
+    return (o[0] + s * d[0] + x * uu[0] + y * vv[0],
+            o[1] + s * d[1] + x * uu[1] + y * vv[1],
+            o[2] + s * d[2] + x * uu[2] + y * vv[2])
 
 
-def _from_point3d(p) -> tuple:
-    return (p.x, p.y, p.z)
+def _clip(poly, a, b, c):
+    """Keep the part of a convex polygon where a*x + b*y <= c, walking its edges in order."""
+    out = []
+    count = len(poly)
+    for i in range(count):
+        p = poly[i]
+        q = poly[(i + 1) % count]
+        fp = a * p[0] + b * p[1] - c
+        fq = a * q[0] + b * q[1] - c
+        if fp <= 0:
+            out.append(p)
+        if (fp < 0 and fq > 0) or (fp > 0 and fq < 0):
+            k = fp / (fp - fq)
+            out.append((p[0] + k * (q[0] - p[0]), p[1] + k * (q[1] - p[1])))
+    return out
 
 
-def _azimuth(point, centre, eHat, kHat):
-    # Azimuth about +n̂ from ê, dropping the n̂ component (S03 "The rod search").
-    rel = _vsub(point, centre)
-    x = _vdot(rel, eHat)
-    y = _vdot(rel, kHat)
-    return math.atan2(y, x)
+def _polygonArea(poly):
+    area = 0.0
+    count = len(poly)
+    for i in range(count):
+        j = (i + 1) % count
+        area += poly[i][0] * poly[j][1] - poly[j][0] * poly[i][1]
+    return area / 2
 
 
-def _gear_frames(centre, eHat, nHat, sigma, axisOffset):
-    # Spec §1: dirA/dirB = ê rotated by +-Sigma/2 about n̂; originA/originB = C -+ (A/2)n̂;
-    # uA = +n̂, uB = -n̂; v = dir x u.
-    dirA = _rotate(eHat, sigma / 2, nHat)
-    dirB = _rotate(eHat, -sigma / 2, nHat)
-    originA = _vsub(centre, _vscale(nHat, axisOffset / 2))
-    originB = _vadd(centre, _vscale(nHat, axisOffset / 2))
-    uA = nHat
-    uB = _vscale(nHat, -1.0)
-    vA = _vcross(dirA, uA)
-    vB = _vcross(dirB, uB)
-    return [
-        {'origin': originA, 'dir': dirA, 'u': uA, 'v': vA},
-        {'origin': originB, 'dir': dirB, 'u': uB, 'v': vB},
-    ]
+def _convexHull(points):
+    """Andrew's monotone chain; counter-clockwise, no repeated closing point."""
+    pts = sorted(set(points))
+    if len(pts) <= 2:
+        return pts
 
+    def turn(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    lower = []
+    for p in pts:
+        while len(lower) >= 2 and turn(lower[-2], lower[-1], p) <= 0:
+            lower.pop()
+        lower.append(p)
+    upper = []
+    for p in reversed(pts):
+        while len(upper) >= 2 and turn(upper[-2], upper[-1], p) <= 0:
+            upper.pop()
+        upper.append(p)
+    return lower[:-1] + upper[:-1]
+
+
+def _hullSeparation(first, second):
+    """The largest separation along the unit normal of any edge of either hull; negative when
+    the hulls overlap."""
+    if not first or not second:
+        return math.inf
+    best = -math.inf
+    found = False
+    for hull in (first, second):
+        count = len(hull)
+        if count < 2:
+            continue
+        for i in range(count):
+            p = hull[i]
+            q = hull[(i + 1) % count]
+            ex, ey = q[0] - p[0], q[1] - p[1]
+            length = math.hypot(ex, ey)
+            if length == 0:
+                continue
+            mx, my = -ey / length, ex / length
+            ps = [mx * c[0] + my * c[1] for c in first]
+            qs = [mx * c[0] + my * c[1] for c in second]
+            separation = max(min(qs) - max(ps), min(ps) - max(qs))
+            best = max(best, separation)
+            found = True
+    if not found:
+        return math.hypot(first[0][0] - second[0][0], first[0][1] - second[0][1])
+    return best
+
+
+def _insideConvex(poly, x, y):
+    """On the inner side of every edge of a counter-clockwise polygon; fewer than three
+    corners never contains."""
+    count = len(poly)
+    if count < 3:
+        return False
+    for i in range(count):
+        p = poly[i]
+        q = poly[(i + 1) % count]
+        if (q[0] - p[0]) * (y - p[1]) - (q[1] - p[1]) * (x - p[0]) < 0:
+            return False
+    return True
+
+
+def _segmentDistance2(x, y, p, q):
+    dx, dy = q[0] - p[0], q[1] - p[1]
+    length2 = dx * dx + dy * dy
+    if length2 == 0:
+        return (x - p[0]) ** 2 + (y - p[1]) ** 2
+    k = ((x - p[0]) * dx + (y - p[1]) * dy) / length2
+    k = max(0.0, min(1.0, k))
+    cx, cy = p[0] + k * dx, p[1] + k * dy
+    return (x - cx) ** 2 + (y - cy) ** 2
+
+
+def _pieceDistance2(poly, x, y):
+    if _insideConvex(poly, x, y):
+        return 0.0
+    count = len(poly)
+    best = math.inf
+    for i in range(count):
+        best = min(best, _segmentDistance2(x, y, poly[i], poly[(i + 1) % count]))
+    return best
+
+
+def _pieceCircle(poly):
+    count = len(poly)
+    cx = sum(p[0] for p in poly) / count
+    cy = sum(p[1] for p in poly) / count
+    radius = max(math.hypot(p[0] - cx, p[1] - cy) for p in poly)
+    return (poly, cx, cy, radius)
+
+
+# ---------------------------------------------------------------------------------------------
+# Dialog
+# ---------------------------------------------------------------------------------------------
 
 class ScrewGearCommandInputsConfigurator:
     @classmethod
     def configure(cls, command: adsk.core.Command):
-        inputs = command.commandInputs
-
-        # Selections first: Fusion focuses the first SelectionCommandInput ([PB-AUTOFOCUS-FIRST]).
-        planeInput = inputs.addSelectionInput(
+        # [PB-AUTOFOCUS-FIRST] the plane selection comes first; [PB-SELECTION-DECL],
+        # [PB-SELECTION-FILTER-ENUM].
+        planeInput = command.commandInputs.addSelectionInput(
             INPUT_ID_PLANE, 'Target Plane', "Plane the cage's axis is normal to")
         planeInput.addSelectionFilter(adsk.core.SelectionCommandInput.ConstructionPlanes)
         planeInput.addSelectionFilter(adsk.core.SelectionCommandInput.PlanarFaces)
         planeInput.setSelectionLimits(1, 1)
 
-        pointInput = inputs.addSelectionInput(
+        pointInput = command.commandInputs.addSelectionInput(
             INPUT_ID_POINT, 'Centre Point', 'Centre of the mechanism')
         pointInput.addSelectionFilter(adsk.core.SelectionCommandInput.ConstructionPoints)
         pointInput.addSelectionFilter(adsk.core.SelectionCommandInput.SketchPoints)
         pointInput.setSelectionLimits(1, 1)
 
-        parentInput = inputs.addSelectionInput(
+        parentInput = command.commandInputs.addSelectionInput(
             INPUT_ID_PARENT, 'Parent Component', 'Component the mechanism is created under')
         parentInput.addSelectionFilter(adsk.core.SelectionCommandInput.Occurrences)
         parentInput.addSelectionFilter(adsk.core.SelectionCommandInput.RootComponents)
         parentInput.setSelectionLimits(1, 1)
         parentInput.addSelection(get_design().rootComponent)
 
-        ribbonGroup = inputs.addGroupCommandInput(GROUP_ID_RIBBON, 'Ribbon')
-        ribbonGroup.isExpanded = True
-        rg = ribbonGroup.children
-        rg.addValueInput(INPUT_ID_RIBBON_WIDTH, 'Ribbon Width', 'mm',
-                          adsk.core.ValueInput.createByReal(1.5))
-        rg.addValueInput(INPUT_ID_TOOTH_COUNT, 'Tooth Count', '',
-                          adsk.core.ValueInput.createByReal(68))
-        rg.addValueInput(INPUT_ID_TWIST_LEAD, 'Twist Lead', 'mm',
-                          adsk.core.ValueInput.createByReal(4.95))
-        rg.addValueInput(INPUT_ID_RIBBON_THICKNESS, 'Ribbon Thickness', 'mm',
-                          adsk.core.ValueInput.createByReal(0.375))
-        rg.addValueInput(INPUT_ID_TOOTH_PITCH, 'Tooth Pitch', 'mm',
-                          adsk.core.ValueInput.createByReal(0.2625))
-        rg.addValueInput(INPUT_ID_TOOTH_HEIGHT, 'Tooth Height', 'mm',
-                          adsk.core.ValueInput.createByReal(0.2625))
+        # [PB-DIALOG-DEFAULT-UNITS]: defaults in internal units (cm, radians, bare count).
+        groups = (
+            (GROUP_ID_RIBBON, 'Ribbon', True, (
+                (INPUT_ID_RIBBON_WIDTH, 'Ribbon Width', 'mm', 1.5),
+                (INPUT_ID_TOOTH_COUNT, 'Tooth Count', '', 68),
+                (INPUT_ID_TWIST_LEAD, 'Twist Lead', 'mm', 4.95),
+                (INPUT_ID_RIBBON_THICKNESS, 'Ribbon Thickness', 'mm', 0.375),
+                (INPUT_ID_TOOTH_PITCH, 'Tooth Pitch', 'mm', 0.2625),
+                (INPUT_ID_TOOTH_HEIGHT, 'Tooth Height', 'mm', 0.2625),
+            )),
+            (GROUP_ID_FRAME, 'Frame', True, (
+                (INPUT_ID_CAGE_RADIUS, 'Cage Radius', 'mm', 1.5),
+                (INPUT_ID_CAGE_RISE, 'Cage Rise', 'mm', 1.875),
+                (INPUT_ID_CLEARANCE, 'Clearance', 'mm', 0.045),
+                (INPUT_ID_COLLAR_HALF, 'Collar Half Length', 'mm', 0.3),
+                (INPUT_ID_COLLAR_WALL, 'Collar Wall', 'mm', 0.3),
+            )),
+            (GROUP_ID_MESH, 'Mesh (from the mesh search)', False, (
+                (INPUT_ID_CROSS_ANGLE, 'Crossing Angle', 'deg', math.radians(80)),
+                (INPUT_ID_ENGAGEMENT, 'Engagement', 'mm', 0.075),
+                (INPUT_ID_MOUNT_ANGLE_A, 'Mounting Angle A', 'deg', math.radians(15)),
+                (INPUT_ID_MOUNT_ANGLE_B, 'Mounting Angle B', 'deg', math.radians(15)),
+                (INPUT_ID_ASSEMBLY_PHASE, 'Assembly Phase', 'mm', -0.131),
+            )),
+        )
+        for groupId, groupLabel, expanded, rows in groups:
+            group = command.commandInputs.addGroupCommandInput(groupId, groupLabel)
+            group.isExpanded = expanded
+            for id, label, unit, default in rows:
+                group.children.addValueInput(id, label, unit, adsk.core.ValueInput.createByReal(default))
 
-        frameGroup = inputs.addGroupCommandInput(GROUP_ID_FRAME, 'Frame')
-        frameGroup.isExpanded = True
-        fg = frameGroup.children
-        fg.addValueInput(INPUT_ID_RING_RADIUS, 'Ring Radius', 'mm',
-                          adsk.core.ValueInput.createByReal(1.6875))
-        fg.addValueInput(INPUT_ID_CAGE_RADIUS, 'Cage Radius', 'mm',
-                          adsk.core.ValueInput.createByReal(1.5))
-        fg.addValueInput(INPUT_ID_CAGE_RISE, 'Cage Rise', 'mm',
-                          adsk.core.ValueInput.createByReal(2.025))
-        fg.addValueInput(INPUT_ID_CLEARANCE, 'Clearance', 'mm',
-                          adsk.core.ValueInput.createByReal(0.045))
-        fg.addValueInput(INPUT_ID_COLLAR_HALF, 'Collar Half Length', 'mm',
-                          adsk.core.ValueInput.createByReal(0.3))
-        fg.addValueInput(INPUT_ID_COLLAR_WALL, 'Collar Wall', 'mm',
-                          adsk.core.ValueInput.createByReal(0.3))
-        fg.addValueInput(INPUT_ID_ROD_DIAMETER, 'Rod Diameter', 'mm',
-                          adsk.core.ValueInput.createByReal(0.3))
-        fg.addValueInput(INPUT_ID_RING_WIRE, 'Ring Wire', 'mm',
-                          adsk.core.ValueInput.createByReal(0.375))
 
-        meshGroup = inputs.addGroupCommandInput(GROUP_ID_MESH, 'Mesh (from the mesh search)')
-        meshGroup.isExpanded = False
-        mg = meshGroup.children
-        mg.addValueInput(INPUT_ID_CROSS_ANGLE, 'Crossing Angle', 'deg',
-                          adsk.core.ValueInput.createByReal(math.radians(80)))
-        mg.addValueInput(INPUT_ID_ENGAGEMENT, 'Engagement', 'mm',
-                          adsk.core.ValueInput.createByReal(0.075))
-        mg.addValueInput(INPUT_ID_MOUNT_ANGLE_A, 'Mounting Angle A', 'deg',
-                          adsk.core.ValueInput.createByReal(math.radians(15)))
-        mg.addValueInput(INPUT_ID_MOUNT_ANGLE_B, 'Mounting Angle B', 'deg',
-                          adsk.core.ValueInput.createByReal(math.radians(15)))
-        mg.addValueInput(INPUT_ID_ASSEMBLY_PHASE, 'Assembly Phase', 'mm',
-                          adsk.core.ValueInput.createByReal(-0.131))
-
+# ---------------------------------------------------------------------------------------------
+# Generator
+# ---------------------------------------------------------------------------------------------
 
 class ScrewGearGenerator(Generator):
     def prefixBase(self) -> str:
         return 'ScrewGear'
 
+    # -- orchestration ----------------------------------------------------------------------
+
     def generate(self, inputs: adsk.core.CommandInputs):
         self.processInputs(inputs)
         self.buildComponentTree()
         self.buildAnchor()
-        for index in (0, 1):
-            self.buildGear(index)
+        self.buildGear(0)
+        self.buildGear(1)
         self.buildCage()
         self.relocateBodies()
+        # [PB-TREE-CLEANUP]
+        solids.hide_construction_geometry(self.designOcc.component)
 
-    # ---- selection helper --------------------------------------------------------------------
+    # -- step 2: inputs and range checks -----------------------------------------------------
 
-    def _selectOne(self, inputs, inputId, label):
-        entities = get_selection(inputs, inputId)
+    def _findInput(self, inputs: adsk.core.CommandInputs, id):
+        found = inputs.itemById(id)
+        if found is None:
+            raise Exception(f'Input "{id}" was not found in the dialog')
+        return found
+
+    def _selectionOf(self, inputs: adsk.core.CommandInputs, selectionId):
+        self._findInput(inputs, selectionId)
+        entities = get_selection(inputs, selectionId)
         if len(entities) != 1:
-            raise Exception(f'{label}: expected exactly one selection, got {len(entities)}')
+            raise Exception(f'{selectionId}: expected exactly one selected entity, got {len(entities)}')
         return entities[0]
 
-    # ---- S03: read, check and precompute the inputs ------------------------------------------
+    def _readValue(self, inputs: adsk.core.CommandInputs, id, units):
+        found = self._findInput(inputs, id)
+        input = adsk.core.ValueCommandInput.cast(found)
+        if input is None:
+            raise Exception(f'Input "{id}" is not a value input')
+        design: adsk.fusion.Design = self.design
+        # [PB-EVAL-EXPRESSION]: internal units, cm for a length and radians for an angle.
+        value = design.unitsManager.evaluateExpression(input.expression, units)
+        if units == 'mm':
+            return value * 10
+        return value
 
     def processInputs(self, inputs: adsk.core.CommandInputs):
-        parentEntity = self._selectOne(inputs, INPUT_ID_PARENT, 'Parent Component')
-        if isinstance(parentEntity, adsk.fusion.Occurrence):
-            self.parentComponent = parentEntity.component
+        # [PB-SELECTION-STASH]: every selection is read before any occurrence exists.
+        parent = self._selectionOf(inputs, INPUT_ID_PARENT)
+        parentOccurrence = adsk.fusion.Occurrence.cast(parent)
+        parentComponent = adsk.fusion.Component.cast(parent)
+        if parentOccurrence:
+            self.parentComponent = parentOccurrence.component
+        elif parentComponent:
+            self.parentComponent = parentComponent
         else:
-            self.parentComponent = parentEntity
-        self.plane = self._selectOne(inputs, INPUT_ID_PLANE, 'Target Plane')
-        self.point = self._selectOne(inputs, INPUT_ID_POINT, 'Centre Point')
+            raise Exception(f'{INPUT_ID_PARENT}: the selection is neither an occurrence nor a component')
+        self.targetPlane = self._selectionOf(inputs, INPUT_ID_PLANE)
+        self.centrePoint = self._selectionOf(inputs, INPUT_ID_POINT)
 
-        design: adsk.fusion.Design = get_design()
-        unitsManager: adsk.core.UnitsManager = design.unitsManager
+        W = self._readValue(inputs, INPUT_ID_RIBBON_WIDTH, 'mm')
+        Nraw = self._readValue(inputs, INPUT_ID_TOOTH_COUNT, '')
+        TwistLead = self._readValue(inputs, INPUT_ID_TWIST_LEAD, 'mm')
+        T = self._readValue(inputs, INPUT_ID_RIBBON_THICKNESS, 'mm')
+        P = self._readValue(inputs, INPUT_ID_TOOTH_PITCH, 'mm')
+        H = self._readValue(inputs, INPUT_ID_TOOTH_HEIGHT, 'mm')
+        cageRadius = self._readValue(inputs, INPUT_ID_CAGE_RADIUS, 'mm')
+        cageRise = self._readValue(inputs, INPUT_ID_CAGE_RISE, 'mm')
+        clearance = self._readValue(inputs, INPUT_ID_CLEARANCE, 'mm')
+        collarHalf = self._readValue(inputs, INPUT_ID_COLLAR_HALF, 'mm')
+        collarWall = self._readValue(inputs, INPUT_ID_COLLAR_WALL, 'mm')
+        Sigma = self._readValue(inputs, INPUT_ID_CROSS_ANGLE, 'deg')
+        Eng = self._readValue(inputs, INPUT_ID_ENGAGEMENT, 'mm')
+        PhiA = self._readValue(inputs, INPUT_ID_MOUNT_ANGLE_A, 'deg')
+        PhiB = self._readValue(inputs, INPUT_ID_MOUNT_ANGLE_B, 'deg')
+        Phase = self._readValue(inputs, INPUT_ID_ASSEMBLY_PHASE, 'mm')
 
-        def readValue(cmdInputs: adsk.core.CommandInputs, um: adsk.core.UnitsManager, inputId, units):
-            valueInput = cmdInputs.itemById(inputId)
-            if valueInput is None:
-                raise Exception(f'Missing dialog input "{inputId}"')
-            return um.evaluateExpression(valueInput.expression, units)
-
-        W = readValue(inputs, unitsManager, INPUT_ID_RIBBON_WIDTH, 'cm')
-        toothCountRaw = readValue(inputs, unitsManager, INPUT_ID_TOOTH_COUNT, '')
-        twistLead = readValue(inputs, unitsManager, INPUT_ID_TWIST_LEAD, 'cm')
-        T = readValue(inputs, unitsManager, INPUT_ID_RIBBON_THICKNESS, 'cm')
-        P = readValue(inputs, unitsManager, INPUT_ID_TOOTH_PITCH, 'cm')
-        H = readValue(inputs, unitsManager, INPUT_ID_TOOTH_HEIGHT, 'cm')
-        ringRadius = readValue(inputs, unitsManager, INPUT_ID_RING_RADIUS, 'cm')
-        cageRadius = readValue(inputs, unitsManager, INPUT_ID_CAGE_RADIUS, 'cm')
-        cageRise = readValue(inputs, unitsManager, INPUT_ID_CAGE_RISE, 'cm')
-        clearance = readValue(inputs, unitsManager, INPUT_ID_CLEARANCE, 'cm')
-        collarHalf = readValue(inputs, unitsManager, INPUT_ID_COLLAR_HALF, 'cm')
-        collarWall = readValue(inputs, unitsManager, INPUT_ID_COLLAR_WALL, 'cm')
-        rodDiameter = readValue(inputs, unitsManager, INPUT_ID_ROD_DIAMETER, 'cm')
-        ringWire = readValue(inputs, unitsManager, INPUT_ID_RING_WIRE, 'cm')
-        crossAngle = readValue(inputs, unitsManager, INPUT_ID_CROSS_ANGLE, 'rad')
-        engagement = readValue(inputs, unitsManager, INPUT_ID_ENGAGEMENT, 'cm')
-        mountAngleA = readValue(inputs, unitsManager, INPUT_ID_MOUNT_ANGLE_A, 'rad')
-        mountAngleB = readValue(inputs, unitsManager, INPUT_ID_MOUNT_ANGLE_B, 'rad')
-        assemblyPhase = readValue(inputs, unitsManager, INPUT_ID_ASSEMBLY_PHASE, 'cm')
-
-        # Range check 1.
-        for value, name in (
-                (W, 'ribbonWidth'), (T, 'ribbonThickness'), (P, 'toothPitch'),
-                (twistLead, 'twistLead'), (ringWire, 'ringWire'),
-                (rodDiameter, 'rodDiameter'), (collarHalf, 'collarHalf'),
-                (collarWall, 'collarWall'), (clearance, 'clearance')):
-            if not (value > 0):
-                raise Exception(f'{name} must be > 0, got {value}')
-        if toothCountRaw != round(toothCountRaw) or toothCountRaw < 4:
-            raise Exception(f'toothCount must be a whole number >= 4, got {toothCountRaw}')
-        N = int(round(toothCountRaw))
-
-        # 2.
-        if not (0 < H < W / 2):
-            raise Exception(f'toothHeight must be > 0 and < ribbonWidth/2 ({W / 2}), got {H}')
-
-        # 3.
-        if not (0 < engagement <= H):
-            raise Exception(f'engagement must be > 0 and <= toothHeight ({H}), got {engagement}')
-
-        # 4.
-        if not (0 < crossAngle < math.pi):
+        # Range checks, in order ([PB-SELF-DIAGNOSING]).
+        for name, value in ((INPUT_ID_RIBBON_WIDTH, W), (INPUT_ID_RIBBON_THICKNESS, T),
+                            (INPUT_ID_TOOTH_PITCH, P), (INPUT_ID_TWIST_LEAD, TwistLead),
+                            (INPUT_ID_COLLAR_HALF, collarHalf), (INPUT_ID_COLLAR_WALL, collarWall),
+                            (INPUT_ID_CLEARANCE, clearance)):
+            if not value > 0:
+                raise Exception(f'{name} must be > 0 mm (got {value:.4f} mm)')
+        if abs(Nraw - round(Nraw)) > 1e-9 or Nraw < 4:
+            raise Exception(f'{INPUT_ID_TOOTH_COUNT} must be a whole number >= 4 (got {Nraw})')
+        N = int(round(Nraw))
+        if not (H > 0 and H < W / 2):
             raise Exception(
-                f'crossAngle must lie strictly between 0 and 180 deg, got '
-                f'{math.degrees(crossAngle)}')
-
-        # 5.
-        if not (-P < assemblyPhase < P):
+                f'{INPUT_ID_TOOTH_HEIGHT} must be > 0 and < ribbonWidth/2 = {W / 2:.4f} mm '
+                f'(got {H:.4f} mm)')
+        if not (Eng > 0 and Eng <= H):
             raise Exception(
-                f'assemblyPhase must lie strictly within +/- toothPitch ({P}), got '
-                f'{assemblyPhase}')
-
-        Sigma = crossAngle
-        A = W - engagement
-        Lambda = twistLead / (2 * math.pi)
-
-        # 6.
-        engagedHalfLength = 1.5 * math.sqrt(W * W - A * A) / math.sin(Sigma)
-        if not (cageRadius - collarHalf > engagedHalfLength):
+                f'{INPUT_ID_ENGAGEMENT} must be > 0 and <= toothHeight = {H:.4f} mm (got {Eng:.4f} mm)')
+        if not (Sigma > 0 and Sigma < math.pi):
             raise Exception(
-                f'cageRadius - collarHalf ({cageRadius - collarHalf}) must exceed the engaged '
-                f'zone half-length ({engagedHalfLength})')
-        if not (cageRadius + collarHalf + 0.1 < N * P / 2):
+                f'{INPUT_ID_CROSS_ANGLE} must lie strictly between 0 and 180 deg '
+                f'(got {math.degrees(Sigma):.4f} deg)')
+        if not abs(Phase) < P:
             raise Exception(
-                f'cageRadius + collarHalf + 1 mm ({cageRadius + collarHalf + 0.1}) must be '
-                f'under toothCount*toothPitch/2 ({N * P / 2})')
+                f'{INPUT_ID_ASSEMBLY_PHASE} must lie strictly within +-toothPitch = +-{P:.4f} mm '
+                f'(got {Phase:.4f} mm)')
+        if not (cageRadius + collarHalf + 1 < N * P / 2):
+            raise Exception(
+                f'{INPUT_ID_CAGE_RADIUS}: cageRadius + collarHalf + 1 mm = '
+                f'{cageRadius + collarHalf + 1:.4f} mm must be < toothCount*toothPitch/2 = '
+                f'{N * P / 2:.4f} mm')
 
+        Lam = TwistLead / (2 * math.pi)
+        A = W - Eng
         L = N * P
-        Z0 = [0.0, assemblyPhase]
-        s0 = [Z0[0] - L / 2, Z0[1] - L / 2]
-        Phi = [mountAngleA, mountAngleB]
+        Ri = cageRadius - collarHalf
+        Ro = cageRadius + collarHalf
+        hw = W / 2 + clearance
+        ht = T / 2 + clearance
+        c = math.hypot(hw, ht)
+        axialWindow = 1.5 * math.sqrt(W * W - A * A) / math.sin(Sigma)
 
-        # 7: the rod search, in the frame's own local coordinates ([PB-... ] free of the world
-        # frame S05/S06 build; azimuths and stations do not depend on where the frame stands).
-        localC = (0.0, 0.0, 0.0)
-        localE = (1.0, 0.0, 0.0)
-        localN = (0.0, 0.0, 1.0)
-        localK = (0.0, 1.0, 0.0)
-        localFrames = _gear_frames(localC, localE, localN, Sigma, A)
-
-        def theta(g, s):
-            return s / Lambda + Phi[g]
-
-        def hShadow(g, s):
-            t = theta(g, s)
-            return (W / 2) * abs(math.sin(t)) + (T / 2) * abs(math.cos(t))
-
-        rodStep = 0.001  # cm, 0.01 mm
-
-        def rodClears(psi):
-            need = rodDiameter / 2 + clearance
-            for g in (0, 1):
-                gp = localFrames[g]
-                foot = _vadd(localC, _vadd(
-                    _vscale(localE, ringRadius * math.cos(psi)),
-                    _vscale(localK, ringRadius * math.sin(psi))))
-                rel = _vsub(foot, gp['origin'])
-                sp = _vdot(rel, gp['dir'])
-                wp = _vdot(rel, gp['v'])
-                lo, hi = sp - need, sp + need
-                k = math.ceil(lo / rodStep)
-                while k * rodStep <= hi:
-                    s = k * rodStep
-                    h = hShadow(g, s)
-                    if math.hypot(sp - s, max(0.0, abs(wp) - h)) < need:
-                        return False
-                    k += 1
-            return True
-
-        def rodShift(psiC):
-            step = 0.25 * math.pi / 180
-            fine = 0.001 * math.pi / 180
-            shift = 0.0
-            while shift <= 2 * math.pi:
-                if rodClears(psiC + shift):
-                    if shift == 0:
-                        return 0.0
-                    lo, hi = shift - step, shift
-                    while hi - lo > fine:
-                        mid = (lo + hi) / 2
-                        if rodClears(psiC + mid):
-                            hi = mid
-                        else:
-                            lo = mid
-                    return hi
-                shift += step
-            return None
-
-        collarLabels = [
-            'gear A -R collar', 'gear A +R collar', 'gear B -R collar', 'gear B +R collar']
-        collarGear = [0, 0, 1, 1]
-        collarSc = [-cageRadius, cageRadius, -cageRadius, cageRadius]
-        rodAzimuths = [0.0, 0.0, 0.0, 0.0]
-        rodFeet = [(0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0)]
-        for i in range(4):
-            g = collarGear[i]
-            sc = collarSc[i]
-            gp = localFrames[g]
-            crossing = _vadd(gp['origin'], _vscale(gp['dir'], sc))
-            psiC = _azimuth(crossing, localC, localE, localK)
-            shift = rodShift(psiC)
-            if shift is None:
-                raise Exception(f'ringRadius: no azimuth clears the {collarLabels[i]}')
-            psi = psiC + shift
-            rodAzimuths[i] = psi
-
-            foot = _vadd(localC, _vadd(
-                _vscale(localE, ringRadius * math.cos(psi)),
-                _vscale(localK, ringRadius * math.sin(psi))))
-            rel = _vsub(foot, gp['origin'])
-            sp = _vdot(rel, gp['dir'])
-            wp = _vdot(rel, gp['v'])
-            t = theta(g, sp)
-            hb = ((W / 2 + clearance) * abs(math.sin(t))
-                  + (T / 2 + clearance) * abs(math.cos(t)))
-            depth = abs(wp) - hb
-            if not (0 < depth <= collarWall):
-                raise Exception(
-                    f'ringRadius: the rod for the {collarLabels[i]} stands {depth} cm outside '
-                    f'its bore, expected (0, collarWall={collarWall}]')
-            if not (abs(sp - sc) + rodDiameter / 2 <= collarHalf):
-                raise Exception(
-                    f'ringRadius: the rod for the {collarLabels[i]} misses the collar length '
-                    f'(|sp-sc|={abs(sp - sc)}, rodDiameter/2={rodDiameter / 2}, '
-                    f'collarHalf={collarHalf})')
-            rodFeet[i] = foot
-
-        for i in range(4):
-            for j in range(i + 1, 4):
-                d = _vlen(_vsub(rodFeet[i], rodFeet[j]))
-                if d < rodDiameter + clearance:
-                    raise Exception(
-                        f'ringRadius: two rods ({collarLabels[i]}, {collarLabels[j]}) stand '
-                        f'{d} cm apart, under rodDiameter + clearance ({rodDiameter + clearance})')
-
-        # 8.
-        hyp = math.hypot(W / 2, T / 2)
-        spareLeft = cageRise - ringWire / 2 - (A / 2 + hyp)
-        if not (spareLeft >= clearance):
+        if not c < Ri:
             raise Exception(
-                f'cageRise leaves {spareLeft} cm between the frame and the ribbons, under '
-                f'clearance ({clearance})')
+                f'{INPUT_ID_CAGE_RADIUS}: the channel must start in the hollow: the bore corner '
+                f'radius c = {c:.4f} mm must be < Ri = cageRadius - collarHalf = {Ri:.4f} mm')
+        visible = math.hypot(axialWindow, math.hypot(W / 2, T / 2)) + clearance
+        if not visible <= Ri:
+            raise Exception(
+                f'{INPUT_ID_CAGE_RADIUS}: the mesh must stay visible along the axis: '
+                f'hypot(axialWindow, hypot(W/2, T/2)) + clearance = {visible:.4f} mm must be <= '
+                f'Ri = {Ri:.4f} mm')
+        riseNeeded = A / 2 + c + collarWall
+        if not cageRise >= riseNeeded:
+            raise Exception(
+                f'{INPUT_ID_CAGE_RISE}: the end faces must keep collarWall: cageRise = '
+                f'{cageRise:.4f} mm must be >= A/2 + c + collarWall = {riseNeeded:.4f} mm')
 
-        # 9.
-        if not (collarWall >= rodDiameter):
-            raise Exception(f'collarWall ({collarWall}) must be at least rodDiameter ({rodDiameter})')
+        self.W, self.T, self.P, self.H, self.N = W, T, P, H, N
+        self.TwistLead, self.Sigma, self.Eng = TwistLead, Sigma, Eng
+        self.PhiA, self.PhiB, self.Phase = PhiA, PhiB, Phase
+        self.cageRadius, self.cageRise, self.clearance = cageRadius, cageRise, clearance
+        self.collarHalf, self.collarWall = collarHalf, collarWall
+        self.Lam, self.A, self.L = Lam, A, L
+        self.Ri, self.Ro, self.hw, self.ht, self.c = Ri, Ro, hw, ht, c
+        self.axialWindow = axialWindow
 
-        n = int(max(math.ceil((P / Lambda) / math.radians(2)), 8))
-        c = min(CELL_TEETH, N)
-        q, r = divmod(N, c)
+        self.sIn = math.sqrt(Ri * Ri - c * c) - 1
+        self.sOut = Ro + 1
 
-        self.W = W
-        self.T = T
-        self.H = H
-        self.P = P
-        self.N = N
-        self.twistLead = twistLead
-        self.ringRadius = ringRadius
-        self.cageRadius = cageRadius
-        self.cageRise = cageRise
-        self.clearance = clearance
-        self.collarHalf = collarHalf
-        self.collarWall = collarWall
-        self.rodDiameter = rodDiameter
-        self.ringWire = ringWire
-        self.engagement = engagement
-        self.Lambda = Lambda
-        self.Sigma = Sigma
-        self.A = A
-        self.L = L
-        self.n = n
-        self.c = c
-        self.q = q
-        self.r = r
-        self.rodAzimuths = rodAzimuths
-        footOrder = sorted(range(4), key=lambda i: rodAzimuths[i] % (2 * math.pi))
-        self.footPsis = [rodAzimuths[i] % (2 * math.pi) for i in footOrder]
-        self.gearParams = [
-            {'Z0': Z0[0], 's0': s0[0], 'Phi': Phi[0]},
-            {'Z0': Z0[1], 's0': s0[1], 'Phi': Phi[1]},
-        ]
-        self.pathLines = [{}, {}]
-        self.gearBodies = [adsk.fusion.BRepBody.cast(None), adsk.fusion.BRepBody.cast(None)]
-        futil.log('processInputs: rod search done, derived values computed')
+        # The abstract frame of step 3: C at the origin, e on X, k on Y, n on Z.
+        self.absE = (1.0, 0.0, 0.0)
+        self.absK = (0.0, 1.0, 0.0)
+        self.absN = (0.0, 0.0, 1.0)
+        self.absFrames = _gearFrames(self.absE, self.absN, A, Sigma, PhiA, PhiB, Phase)
+        self._stationTables = {}
+        self._wallCornerCache = {}
 
-    # ---- per-gear world geometry -------------------------------------------------------------
+        # Range check 11 (step 3).
+        self._checkWallBetweenBores()
 
-    def _theta(self, index, s):
-        return s / self.Lambda + self.gearParams[index]['Phi']
+        self.cell = min(CELL_TEETH, N)
+        self.n = max(math.ceil((P / Lam) / math.radians(2)), 8)
+        self.q = N // self.cell
+        self.r = N % self.cell
 
-    def _uTooth(self, index, s):
-        Z0 = self.gearParams[index]['Z0']
-        return self.W / 2 - self.H / 2 + (self.H / 2) * math.cos(2 * math.pi * (s - Z0) / self.P)
+        # Step 4: the window search.
+        self.windowsFaceK = Sigma <= math.pi / 2
+        self.windows = self._searchWindows()
 
-    def _point(self, index, s, u, v):
-        gp = self.gearParams[index]
-        theta = self._theta(index, s)
-        base = _vadd(gp['origin'], _vscale(gp['dir'], s))
-        uComp = u * math.cos(theta) - v * math.sin(theta)
-        vComp = u * math.sin(theta) + v * math.cos(theta)
-        return _vadd(base, _vadd(_vscale(gp['u'], uComp), _vscale(gp['v'], vComp)))
+        # Per-gear handles the build fills in (steps 9 to 17).
+        self.pathLines: list = [{}, {}]
+        self.cellBodies: list = [None, None]
+        self.gearBodies: list = [None, None]
 
-    # ---- S04: component tree ------------------------------------------------------------------
+    # -- bores in the abstract frame ----------------------------------------------------------
+
+    def _bores(self):
+        bores = []
+        for index, sign in ((0, -1), (0, 1), (1, -1), (1, 1)):
+            frame = self.absFrames[index]
+            if sign > 0:
+                start, end = self.sIn, self.sOut
+            else:
+                start, end = -self.sOut, -self.sIn
+            boreName = '+R' if sign > 0 else '-R'
+            bores.append({
+                'gear': index,
+                'sign': sign,
+                'name': f'{frame["label"]} {boreName}',
+                'frame': frame,
+                'spanStart': start,
+                'spanEnd': end,
+                'crossing': _add(frame['origin'], _scale(frame['dir'], sign * self.cageRadius)),
+            })
+        return bores
+
+    def _boreByName(self, bores, label, boreName):
+        for bore in bores:
+            if bore['name'] == f'{label} {boreName}':
+                return bore
+        raise Exception(f'No bore named {label} {boreName}')
+
+    # -- step 3: the wall between the bores ---------------------------------------------------
+
+    def _channelOutline(self, bore):
+        """Kept outline points of a bore, sampled every 0.1 mm from sIn outward."""
+        frame = bore['frame']
+        sigma = bore['sign']
+        hw, ht, Ri, Ro = self.hw, self.ht, self.Ri, self.Ro
+        kept = []
+        k = 0
+        while True:
+            s = sigma * (self.sIn + 0.1 * k)
+            if abs(s) > self.sOut:
+                break
+            k += 1
+            for i in range(17):
+                v = -ht + 2 * ht * i / 16
+                u = -hw + 2 * hw * i / 16
+                for (pu, pv) in ((hw, v), (-hw, v), (u, ht), (u, -ht)):
+                    point = _framePoint(frame, self.Lam, s, pu, pv)
+                    radius = math.hypot(point[0], point[1])
+                    if Ri - 0.5 <= radius <= Ro + 0.5:
+                        kept.append(point)
+        return kept
+
+    def _checkWallBetweenBores(self):
+        bores = self._bores()
+        outlines = {bore['name']: self._channelOutline(bore) for bore in bores}
+        E, K, N = self.absE, self.absK, self.absN
+        gaps = (
+            ('+k', K, ('Gear A', '+R'), ('Gear B', '-R')),
+            ('-e', _scale(E, -1.0), ('Gear A', '-R'), ('Gear B', '-R')),
+            ('-k', _scale(K, -1.0), ('Gear A', '-R'), ('Gear B', '+R')),
+            ('+e', E, ('Gear A', '+R'), ('Gear B', '+R')),
+        )
+        least = None
+        for gapName, d, first, second in gaps:
+            across = _cross(N, d)
+            hulls = []
+            names = []
+            for label, boreName in (first, second):
+                bore = self._boreByName(bores, label, boreName)
+                names.append(bore['name'])
+                projected = [(_dot(p, across), _dot(p, N)) for p in outlines[bore['name']]]
+                hulls.append(_convexHull(projected))
+            separation = _hullSeparation(hulls[0], hulls[1])
+            if least is None or separation < least[0]:
+                least = (separation, gapName, names)
+        if least is not None and not least[0] >= self.collarWall:
+            separation, gapName, names = least
+            raise Exception(
+                f'{INPUT_ID_COLLAR_WALL}: the wall between the bores {names[0]} and {names[1]} '
+                f'(the gap facing {gapName}) is {separation:.4f} mm, less than collarWall = '
+                f'{self.collarWall:.4f} mm')
+
+    # -- step 4: the window search ------------------------------------------------------------
+
+    def _wallInner(self, t):
+        return math.sqrt(max(0.0, self.Ri * self.Ri - t * t))
+
+    def _wallOuter(self, t):
+        return math.sqrt(max(0.0, self.Ro * self.Ro - t * t))
+
+    def _sectionInWall(self, frame, s):
+        """The two pieces of a bore's section in the wall at station s, in (x along u_g,
+        y along v_g)."""
+        Ri, Ro = self.Ri, self.Ro
+        if abs(s) >= Ro:
+            return [], []
+        hw, ht = self.hw, self.ht
+        theta = s / self.Lam + frame['phi']
+        c, sn = math.cos(theta), math.sin(theta)
+        poly = [(u * c - v * sn, u * sn + v * c)
+                for (u, v) in ((-hw, -ht), (hw, -ht), (hw, ht), (-hw, ht))]
+        o = _dot(frame['origin'], self.absN)
+        un = _dot(frame['u'], self.absN)
+        poly = _clip(poly, un, 0.0, self.cageRise - o)
+        poly = _clip(poly, -un, 0.0, self.cageRise + o)
+        near = math.sqrt(max(0.0, Ri * Ri - s * s))
+        far = math.sqrt(Ro * Ro - s * s)
+        upper = _clip(_clip(poly, 0.0, -1.0, -near), 0.0, 1.0, far)
+        lower = _clip(_clip(poly, 0.0, 1.0, -near), 0.0, -1.0, far)
+        return upper, lower
+
+    def _wallCorners(self, bore):
+        """Every corner of every piece over the bore's cut span, every 0.001 mm (world mm)."""
+        if bore['name'] in self._wallCornerCache:
+            return self._wallCornerCache[bore['name']]
+        frame = bore['frame']
+        o, d, u, v = frame['origin'], frame['dir'], frame['u'], frame['v']
+        start, end = bore['spanStart'], bore['spanEnd']
+        count = int(math.floor((end - start) / 0.001 + 1e-9))
+        points = []
+        for k in range(count + 1):
+            s = start + k * 0.001
+            for piece in self._sectionInWall(frame, s):
+                for (x, y) in piece:
+                    points.append((o[0] + x * u[0] + y * v[0] + s * d[0],
+                                   o[1] + x * u[1] + y * v[1] + s * d[1],
+                                   o[2] + x * u[2] + y * v[2] + s * d[2]))
+        self._wallCornerCache[bore['name']] = points
+        return points
+
+    def _channelTop(self, bores):
+        """zLimit over all four bores."""
+        zLimit = -math.inf
+        hw, ht = self.hw, self.ht
+        for bore in bores:
+            frame = bore['frame']
+            sigma = bore['sign']
+            k = 0
+            while True:
+                s = sigma * (self.sIn + 0.01 * k)
+                if abs(s) > self.sOut:
+                    break
+                k += 1
+                if abs(s) > self.Ro:
+                    continue
+                theta = s / self.Lam + frame['phi']
+                st, ct = abs(math.sin(theta)), abs(math.cos(theta))
+                if math.hypot(s, hw * st + ht * ct) >= self.Ri:
+                    zLimit = max(zLimit, self.A / 2 + hw * ct + ht * st)
+        return zLimit
+
+    @staticmethod
+    def _presence(pieces):
+        return tuple(len(piece) > 0 for piece in pieces)
+
+    def _stationTable(self, bore):
+        """The bore's station table, built once per bore before its first walk."""
+        if bore['name'] in self._stationTables:
+            return self._stationTables[bore['name']]
+        frame = bore['frame']
+        start, end = bore['spanStart'], bore['spanEnd']
+        count = int(math.floor((end - start) / 0.002 + 1e-9))
+        base = []
+        for k in range(count + 1):
+            s = start + k * 0.002
+            base.append((s, self._sectionInWall(frame, s)))
+        stations = []
+        for i, (s, pieces) in enumerate(base):
+            stations.append((s, pieces))
+            if i + 1 < len(base):
+                nextS, nextPieces = base[i + 1]
+                if self._presence(pieces) != self._presence(nextPieces):
+                    j = 1
+                    while True:
+                        sj = s + j * 0.0001
+                        if sj >= nextS - 1e-12:
+                            break
+                        stations.append((sj, self._sectionInWall(frame, sj)))
+                        j += 1
+        table = [(s, [_pieceCircle(piece) for piece in pieces if len(piece) > 0])
+                 for (s, pieces) in stations]
+        self._stationTables[bore['name']] = table
+        return table
+
+    def _wallGap(self, point, bore, reach):
+        """The distance from a point to one bore's channel, capped at reach."""
+        frame = bore['frame']
+        rel = _sub(point, frame['origin'])
+        x = _dot(rel, frame['u'])
+        y = _dot(rel, frame['v'])
+        sq = _dot(rel, frame['dir'])
+        clamped = min(max(sq, bore['spanStart']), bore['spanEnd'])
+        if math.hypot(math.hypot(x, y), sq - clamped) - self.c >= reach:
+            return reach
+        table = self._stationTable(bore)
+        best = reach * reach
+        lo, hi = 0, len(table)
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if table[mid][0] < sq:
+                lo = mid + 1
+            else:
+                hi = mid
+        first = lo
+        j = first
+        while j < len(table):
+            s, circles = table[j]
+            ds2 = (sq - s) ** 2
+            if ds2 >= best:
+                break
+            best = self._stationBest(circles, x, y, ds2, best)
+            j += 1
+        j = first - 1
+        while j >= 0:
+            s, circles = table[j]
+            ds2 = (sq - s) ** 2
+            if ds2 >= best:
+                break
+            best = self._stationBest(circles, x, y, ds2, best)
+            j -= 1
+        return math.sqrt(best)
+
+    @staticmethod
+    def _stationBest(circles, x, y, ds2, best):
+        for (piece, cx, cy, radius) in circles:
+            o = math.hypot(x - cx, y - cy) - radius
+            if o > 0 and ds2 + o * o >= best:
+                continue
+            best = min(best, ds2 + _pieceDistance2(piece, x, y))
+        return best
+
+    def _windowClear(self, window, te, delta, farBores, need, zLimit):
+        t = delta * te
+        lean = window['lean']
+        zLow = max(window['lo'] - lean * t, window['bottom'] + lean * t)
+        zHigh = min(window['hi'] - lean * t, window['top'] + lean * t)
+        if zLow > zHigh:
+            return False
+        a0 = self._wallInner(t)
+        a1 = self._wallOuter(t)
+        depths = []
+        k = 0
+        while a0 + k * 0.1 < a1:
+            depths.append(a0 + k * 0.1)
+            k += 1
+        depths.append(a1)
+        samples = []
+        for z in (zLow, zHigh):
+            for a in depths:
+                samples.append((z, a))
+        heights = []
+        m = math.ceil((zHigh - zLow) / 0.1)
+        for k in range(1, m):
+            heights.append(zLow + (zHigh - zLow) * k / m)
+        # zLimit is -inf when no station of any bore reaches the wall.
+        if zLimit > -math.inf:
+            j = 0
+            while True:
+                z = -zLimit + j * 0.1
+                if z > zLimit:
+                    break
+                if zLow < z < zHigh:
+                    heights.append(z)
+                j += 1
+        for a in (a0, a1):
+            for z in heights:
+                samples.append((z, a))
+        across, N, d = window['across'], self.absN, window['d']
+        for (z, a) in samples:
+            point = _add(_add(_scale(across, t), _scale(N, z)), _scale(d, a))
+            for bore in farBores:
+                if self._wallGap(point, bore, need) < need:
+                    return False
+        return True
+
+    def _windowEnd(self, window, delta, farBores, need, zLimit):
+        low = 0.0
+        high = min(self.Ri, self.Ro / math.sqrt(2)) * (1 - 1e-9)
+        for _ in range(24):
+            middle = (low + high) / 2
+            if self._windowClear(window, middle, delta, farBores, need, zLimit):
+                low = middle
+            else:
+                high = middle
+        return low
+
+    def _clipCorners(self, window):
+        Ro = self.Ro
+        lean = window['lean']
+        poly = [(-2 * Ro, -2 * Ro), (2 * Ro, -2 * Ro), (2 * Ro, 2 * Ro), (-2 * Ro, 2 * Ro)]
+        for (a, b, c) in ((lean, 1.0, window['hi']),
+                          (-lean, -1.0, -window['lo']),
+                          (-lean, 1.0, window['top']),
+                          (lean, -1.0, -window['bottom']),
+                          (1.0, 0.0, window['right']),
+                          (-1.0, 0.0, -window['left'])):
+            poly = _clip(poly, a, b, c)
+        corners = []
+        for p in poly:
+            if corners and math.hypot(p[0] - corners[-1][0], p[1] - corners[-1][1]) < 0.001:
+                continue
+            corners.append(p)
+        if len(corners) > 1 and math.hypot(corners[0][0] - corners[-1][0],
+                                           corners[0][1] - corners[-1][1]) < 0.001:
+            corners = corners[:-1]
+        return corners
+
+    def _searchWindows(self):
+        bores = self._bores()
+        E, K, N = self.absE, self.absK, self.absN
+        if self.windowsFaceK:
+            facings = (('+k', K), ('-k', _scale(K, -1.0)))
+        else:
+            facings = (('+e', E), ('-e', _scale(E, -1.0)))
+        zLimit = self._channelTop(bores)
+        need = self.collarWall + 0.1 / math.sqrt(2) + 0.005
+        windows = []
+        for d, dVec in facings:
+            across = _cross(N, dVec)
+            flanking = [bore for bore in bores if _dot(bore['crossing'], dVec) > 0]
+            farBores = [bore for bore in bores if not _dot(bore['crossing'], dVec) > 0]
+            if len(flanking) != 2:
+                reason = f'{len(flanking)} bore(s) flank it, expected 2'
+                futil.log(f'No window facing {d}: {reason}')
+                continue
+            flanking.sort(key=lambda bore: _dot(bore['crossing'], N))
+            low, high = flanking[0], flanking[1]
+            lean = 1.0 if _dot(high['crossing'], across) > _dot(low['crossing'], across) else -1.0
+
+            lowCorners = self._wallCorners(low)
+            highCorners = self._wallCorners(high)
+            if not lowCorners or not highCorners:
+                reason = 'a flanking bore has no piece in the wall'
+                futil.log(f'No window facing {d}: {reason}')
+                continue
+            lowReach = max(_dot(p, N) + lean * _dot(p, across) for p in lowCorners)
+            highReach = min(_dot(p, N) + lean * _dot(p, across) for p in highCorners)
+            lo = lowReach + math.sqrt(2) * self.collarWall
+            hi = highReach - math.sqrt(2) * self.collarWall
+            if hi <= lo:
+                reason = f'hi {hi:.3f} mm <= lo {lo:.3f} mm'
+                futil.log(f'No window facing {d}: {reason}')
+                continue
+            top = min(2 * zLimit - hi, hi + math.sqrt(2) * self.Ri)
+            bottom = max(-2 * zLimit - lo, lo - math.sqrt(2) * self.Ri)
+            window = {
+                'name': d,
+                'd': dVec,
+                'across': across,
+                'lean': lean,
+                'lo': lo,
+                'hi': hi,
+                'top': top,
+                'bottom': bottom,
+            }
+            right = self._windowEnd(window, 1, farBores, need, zLimit)
+            left = -self._windowEnd(window, -1, farBores, need, zLimit)
+            window['right'] = right
+            window['left'] = left
+            if right <= left:
+                reason = f'right {right:.3f} mm <= left {left:.3f} mm'
+                futil.log(f'No window facing {d}: {reason}')
+                continue
+            corners = self._clipCorners(window)
+            area = _polygonArea(corners) if len(corners) >= 3 else 0.0
+            if len(corners) < 3 or abs(area) < 1e-9:
+                reason = f'the hexagon has {len(corners)} distinct corner(s) and area {abs(area):.4f} mm^2'
+                futil.log(f'No window facing {d}: {reason}')
+                continue
+            window['corners'] = corners
+            futil.log(
+                f'Window {d}: lo {lo:.3f}, hi {hi:.3f}, bottom {bottom:.3f}, top {top:.3f}, '
+                f'left {left:.3f}, right {right:.3f}, lean {lean:+.0f}, area {abs(area):.1f} mm^2')
+            windows.append(window)
+        return windows
+
+    # -- world helpers ------------------------------------------------------------------------
+
+    def _world(self, vec):
+        """A world point (cm) at the millimetre offset vec from C."""
+        return adsk.core.Point3D.create(self.Cx + vec[0] / 10, self.Cy + vec[1] / 10, self.Cz + vec[2] / 10)
+
+    def _sketchLocal(self, sketch: adsk.fusion.Sketch, vec):
+        """[PB-SKETCH-ZERO-Z]: map a world point into the sketch and put it on the plane."""
+        local = sketch.modelToSketchSpace(self._world(vec))
+        local.z = 0
+        return local
+
+    def _worldDirection(self, name):
+        if name == '+k':
+            return self.kHat
+        if name == '-k':
+            return _scale(self.kHat, -1.0)
+        if name == '+e':
+            return self.eHat
+        return _scale(self.eHat, -1.0)
+
+    # -- step 5: the component tree -----------------------------------------------------------
 
     def buildComponentTree(self):
         occurrence = self.getOccurrence()
-        occurrence.component.name = 'Screw Gearing'
-        topComponent = occurrence.component
+        top: adsk.fusion.Component = occurrence.component
+        top.name = 'Screw Gearing'
+        occurrences = top.occurrences
+        children = []
+        for name in ('Design', 'Gear A', 'Gear B', 'Cage'):
+            child = occurrences.addNewComponent(adsk.core.Matrix3D.create())
+            child.component.name = name
+            children.append(child)
+        self.designOcc: adsk.fusion.Occurrence = children[0]
+        self.gearOccs = [children[1], children[2]]
+        self.cageOcc: adsk.fusion.Occurrence = children[3]
 
-        designOcc = topComponent.occurrences.addNewComponent(adsk.core.Matrix3D.create())
-        designOcc.component.name = 'Design'
-        self.designOcc = designOcc
-
-        gearAOcc = topComponent.occurrences.addNewComponent(adsk.core.Matrix3D.create())
-        gearAOcc.component.name = 'Gear A'
-        gearBOcc = topComponent.occurrences.addNewComponent(adsk.core.Matrix3D.create())
-        gearBOcc.component.name = 'Gear B'
-        self.gearOccs = [gearAOcc, gearBOcc]
-
-        cageOcc = topComponent.occurrences.addNewComponent(adsk.core.Matrix3D.create())
-        cageOcc.component.name = 'Cage'
-        self.cageOcc = cageOcc
-        futil.log('buildComponentTree: Design, Gear A, Gear B, Cage created')
-
-    # ---- S05, S06: Anchor sketch, axis planes, n̂, gear frames --------------------------------
+    # -- steps 6 to 8: the Anchor sketch and the axis planes -----------------------------------
 
     def buildAnchor(self):
-        component = self.designOcc.component
-        sketch = component.sketches.add(self.plane)
+        comp: adsk.fusion.Component = self.designOcc.component
+        sketches = comp.sketches
+        sketch: adsk.fusion.Sketch = sketches.add(self.targetPlane)
         sketch.name = 'Anchor'
-
-        projected = sketch.project(self.point).item(0)
-        p = projected.geometry
-        start = adsk.core.Point3D.create(p.x - 0.5, p.y, 0)
-        end = adsk.core.Point3D.create(p.x + 0.5, p.y, 0)
-        line = sketch.sketchCurves.sketchLines.addByTwoPoints(start, end)
-
-        sketch.geometricConstraints.addCoincident(projected, line)
-        sketch.geometricConstraints.addMidPoint(projected, line)
-        sketch.geometricConstraints.addHorizontal(line)
-        textPoint = adsk.core.Point3D.create(p.x, p.y + 0.3, 0)
-        dim = sketch.sketchDimensions.addDistanceDimension(
+        point = self.centrePoint
+        projectedPoint = sketch.project(point).item(0)
+        projectedPoint = adsk.fusion.SketchPoint.cast(projectedPoint)
+        if projectedPoint is None:
+            raise Exception('Anchor: the selected point did not project to a sketch point')
+        projected = projectedPoint.geometry
+        p1 = adsk.core.Point3D.create(projected.x - 0.5, projected.y, 0)
+        p2 = adsk.core.Point3D.create(projected.x + 0.5, projected.y, 0)
+        line = sketch.sketchCurves.sketchLines.addByTwoPoints(p1, p2)
+        geometricConstraints = sketch.geometricConstraints
+        geometricConstraints.addCoincident(projectedPoint, line)
+        geometricConstraints.addMidPoint(projectedPoint, line)
+        geometricConstraints.addHorizontal(line)
+        sketchDimensions = sketch.sketchDimensions
+        textPoint = adsk.core.Point3D.create(projected.x, projected.y - 0.3, 0)
+        dimension = sketchDimensions.addDistanceDimension(
             line.startSketchPoint, line.endSketchPoint,
             adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation, textPoint)
-        dim.parameter.value = 1.0
-
+        dimension.parameter.value = 1.0
         if not sketch.isFullyConstrained:
-            raise Exception('Anchor sketch is not fully constrained')
+            raise Exception('Anchor: the sketch is not fully constrained')
 
-        C = _from_point3d(projected.worldGeometry)
-        eHat = _vnorm(_vsub(
-            _from_point3d(line.endSketchPoint.worldGeometry),
-            _from_point3d(line.startSketchPoint.worldGeometry)))
+        # [PB-WORLDGEO-CONSTRAINED], [PB-WORLD-FRAME]
+        C = projectedPoint.worldGeometry
+        self.Cpoint = C
+        self.Cx, self.Cy, self.Cz = C.x, C.y, C.z
+        start = line.startSketchPoint.worldGeometry
+        end = line.endSketchPoint.worldGeometry
+        self.eHat = _unit((end.x - start.x, end.y - start.y, end.z - start.z))
         self.anchorLine = line
-        self.C = C
-        self.eHat = eHat
 
-        constructionPlanes = component.constructionPlanes
-        planeAInput = constructionPlanes.createInput()
-        planeAInput.setByOffset(self.plane, adsk.core.ValueInput.createByReal(-self.A / 2))
-        planeA = constructionPlanes.add(planeAInput)
+        # Step 7: the Gear A Axis Plane, and n.
+        A = self.A
+        constructionPlanes = comp.constructionPlanes
+        planeInput = constructionPlanes.createInput()
+        planeInput.setByOffset(self.targetPlane, adsk.core.ValueInput.createByReal(-A / 2 / 10))
+        planeA = constructionPlanes.add(planeInput)
         planeA.name = 'Gear A Axis Plane'
-
-        planeBInput = constructionPlanes.createInput()
-        planeBInput.setByOffset(self.plane, adsk.core.ValueInput.createByReal(self.A / 2))
-        planeB = constructionPlanes.add(planeBInput)
-        planeB.name = 'Gear B Axis Plane'
-
-        geomA = planeA.geometry
-        originA = _from_point3d(geomA.origin)
-        normalA = _from_point3d(geomA.normal)
-        if _vdot(_vsub(C, originA), normalA) > 0:
-            nHat = normalA
+        geometryA = planeA.geometry
+        normal = (geometryA.normal.x, geometryA.normal.y, geometryA.normal.z)
+        towardsC = (C.x - geometryA.origin.x, C.y - geometryA.origin.y, C.z - geometryA.origin.z)
+        if _dot(towardsC, normal) > 0:
+            self.nHat = _unit(normal)
         else:
-            nHat = _vscale(normalA, -1.0)
+            self.nHat = _unit(_scale(normal, -1.0))
+        self.kHat = _cross(self.nHat, self.eHat)
+        self.worldFrames = _gearFrames(self.eHat, self.nHat, A, self.Sigma, self.PhiA, self.PhiB, self.Phase)
 
-        for plane, label in ((planeA, 'Gear A Axis Plane'), (planeB, 'Gear B Axis Plane')):
-            g = plane.geometry
-            o = _from_point3d(g.origin)
-            nrm = _from_point3d(g.normal)
-            dist = abs(_vdot(_vsub(C, o), nrm))
-            if abs(dist - self.A / 2) > 1e-6:
+        # Step 8: the Gear B Axis Plane.
+        planeInput = constructionPlanes.createInput()
+        planeInput.setByOffset(self.targetPlane, adsk.core.ValueInput.createByReal(A / 2 / 10))
+        planeB = constructionPlanes.add(planeInput)
+        planeB.name = 'Gear B Axis Plane'
+        for plane in (planeA, planeB):
+            geometry = plane.geometry
+            gap = abs((C.x - geometry.origin.x) * geometry.normal.x
+                      + (C.y - geometry.origin.y) * geometry.normal.y
+                      + (C.z - geometry.origin.z) * geometry.normal.z)
+            if abs(gap - A / 2 / 10) > 1e-6:
                 raise Exception(
-                    f'{label}: expected distance {self.A / 2} cm from the centre, measured {dist}')
+                    f'{plane.name}: the centre stands {gap:.7f} cm from the plane, '
+                    f'expected A/2 = {A / 2 / 10:.7f} cm')
+        self.axisPlanes = [planeA, planeB]
 
-        self.nHat = nHat
-        self.kHat = _vcross(nHat, eHat)
-        self.gearAxisPlanes = [planeA, planeB]
-
-        frames = _gear_frames(C, eHat, nHat, self.Sigma, self.A)
-        self.gearParams[0].update(frames[0])
-        self.gearParams[1].update(frames[1])
-        futil.log('buildAnchor: Anchor sketch and axis planes built, n̂ resolved')
-
-    # ---- per-gear build: S07-S15 ---------------------------------------------------------------
+    # -- steps 9 to 17: one gear ---------------------------------------------------------------
 
     def buildGear(self, index):
         self.buildSweepPaths(index)
         self.buildToothCell(index)
         self.repeatCellByDoubling(index)
 
-    def _gearLabel(self, index):
-        return 'Gear A' if index == 0 else 'Gear B'
-
     def buildSweepPaths(self, index):
-        component = self.designOcc.component
-        axisPlane = self.gearAxisPlanes[index]
-        label = self._gearLabel(index)
-        sketch: adsk.fusion.Sketch = component.sketches.add(axisPlane)
+        frame = self.worldFrames[index]
+        label = frame['label']
+        comp: adsk.fusion.Component = self.designOcc.component
+        sketches = comp.sketches
+        sketch: adsk.fusion.Sketch = sketches.add(self.axisPlanes[index])
         sketch.name = f'{label} Paths'
-
-        stations = {
-            'collar-': (-self.cageRadius - self.collarHalf, -self.cageRadius + self.collarHalf),
-            'bore-': (-self.cageRadius - self.collarHalf - 0.1,
-                      -self.cageRadius + self.collarHalf + 0.1),
-            'collar+': (self.cageRadius - self.collarHalf, self.cageRadius + self.collarHalf),
-            'bore+': (self.cageRadius - self.collarHalf - 0.1,
-                      self.cageRadius + self.collarHalf + 0.1),
-        }
-
-        gp = self.gearParams[index]
-
-        def stationPoint(sk: adsk.fusion.Sketch, s):
-            world = _vadd(gp['origin'], _vscale(gp['dir'], s))
-            local = sk.modelToSketchSpace(_point3d(world))
+        sIn, sOut = self.sIn, self.sOut
+        pt = {}
+        for s in (-sOut, -sIn, sIn, sOut):
+            point = self._world(_add(frame['origin'], _scale(frame['dir'], s)))
+            local = sketch.modelToSketchSpace(point)
             local.z = 0
-            return sk.sketchPoints.add(local)
-
-        lines = {}
-        fixedPoints = []
-        for key in ('collar-', 'bore-', 'collar+', 'bore+'):
-            sFrom, sTo = stations[key]
-            fromPoint = stationPoint(sketch, sFrom)
-            toPoint = stationPoint(sketch, sTo)
-            fixedPoints.append(fromPoint)
-            fixedPoints.append(toPoint)
-            lines[key] = sketch.sketchCurves.sketchLines.addByTwoPoints(fromPoint, toPoint)
-
-        for pt in fixedPoints:
-            pt.isFixed = True
-
+            pt[s] = sketch.sketchPoints.add(local)
+        sketchLines = sketch.sketchCurves.sketchLines
+        boreMinus = sketchLines.addByTwoPoints(pt[-sOut], pt[-sIn])
+        borePlus = sketchLines.addByTwoPoints(pt[sIn], pt[sOut])
+        for s in pt:
+            pt[s].isFixed = True
         if not sketch.isFullyConstrained:
-            raise Exception(f'{sketch.name} sketch is not fully constrained')
+            raise Exception(f'{label} Paths: the sketch is not fully constrained')
+        self.pathLines[index] = {'bore-': boreMinus, 'bore+': borePlus}
 
-        self.pathLines[index] = lines
-        futil.log(f'buildSweepPaths: {sketch.name} built')
-
-    def _buildCellSections(self, sketch, index, s0, teeth):
-        # S08 / S13: teeth*n + 1 sections, each the rectangle uB..Utooth(s), -T/2..T/2, turned by
-        # theta(g, s). Corners are kept off-plane ([PB-3D-SKETCH-SECTIONS], [SCREW-F-CELL-LOFT]),
-        # the one exception to [PB-SKETCH-ZERO-Z].
-        n = self.n
-        P = self.P
-        W = self.W
-        T = self.T
+    def _buildSectionSketch(self, index, name, fromTooth, teeth):
+        """Steps 10 and 16: teeth*n + 1 sections from tooth fromTooth, corners off-plane."""
+        frame = self.worldFrames[index]
+        comp: adsk.fusion.Component = self.designOcc.component
+        sketches = comp.sketches
+        sketch: adsk.fusion.Sketch = sketches.add(self.axisPlanes[index])
+        sketch.name = name
+        sketch.isComputeDeferred = True
+        W, H, T, P, n, Lam = self.W, self.H, self.T, self.P, self.n, self.Lam
+        Z0 = frame['z0']
+        s0 = Z0 - self.L / 2 + fromTooth * P
+        sketchLines = sketch.sketchCurves.sketchLines
+        points = []
         sections = []
         for k in range(teeth * n + 1):
             s = s0 + k * P / n
-            uF = self._uTooth(index, s)
             uB = -W / 2
+            uF = W / 2 - H / 2 + (H / 2) * math.cos(2 * math.pi * (s - Z0) / P)
+            hv = T / 2
             corners = []
-            for (u, v) in ((uB, -T / 2), (uF, -T / 2), (uF, T / 2), (uB, T / 2)):
-                world = self._point(index, s, u, v)
-                local = sketch.modelToSketchSpace(_point3d(world))
-                corners.append(sketch.sketchPoints.add(local))
+            for (u, v) in ((uB, -hv), (uF, -hv), (uF, hv), (uB, hv)):
+                world = self._world(_framePoint(frame, Lam, s, u, v))
+                # [PB-3D-SKETCH-SECTIONS]: the corner keeps its z.
+                corners.append(sketch.sketchPoints.add(sketch.modelToSketchSpace(world)))
             lines = []
-            for a, b in ((0, 1), (1, 2), (2, 3), (3, 0)):
-                lines.append(sketch.sketchCurves.sketchLines.addByTwoPoints(corners[a], corners[b]))
-            sections.append((corners, lines))
-        for corners, _lines in sections:
-            for pt in corners:
-                pt.isFixed = True
+            for i in range(4):
+                corner = corners[i]
+                nextCorner = corners[(i + 1) % 4]
+                lines.append(sketchLines.addByTwoPoints(corner, nextCorner))
+            sections.append(lines)
+            points.extend(corners)
+        for point in points:
+            point.isFixed = True
+        sketch.isComputeDeferred = False
+        if not sketch.isFullyConstrained:
+            raise Exception(f'{name}: the sketch is not fully constrained')
+        expected = teeth * n + 1
+        if sketch.profiles.count != expected:
+            raise Exception(
+                f'{name}: the sketch has {sketch.profiles.count} profiles, expected {expected}')
         return sections
 
-    def _loftCell(self, component, sections, label):
-        loftFeatures = component.features.loftFeatures
+    def _loftSections(self, index, sections, what):
+        """Steps 11 and 17: one loft through every section, a new solid body."""
+        label = self.worldFrames[index]['label']
+        loftFeatures = self.designOcc.component.features.loftFeatures
         loftInput = loftFeatures.createInput(adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
-        for _corners, lines in sections:
+        for lines in sections:
             collection = adsk.core.ObjectCollection.create()
             for line in lines:
                 collection.add(line)
-            path = component.features.createPath(collection, False)
+            path = self.designOcc.component.features.createPath(collection, False)
             loftInput.loftSections.add(path)
-        loft = loftFeatures.add(loftInput)
-        if loft.bodies.count != 1 or not loft.bodies.item(0).isSolid:
-            raise Exception(f'{label} loft: expected 1 solid body, got {loft.bodies.count}')
-        return loft.bodies.item(0)
-
-    def buildToothCell(self, index):
-        component = self.designOcc.component
-        axisPlane = self.gearAxisPlanes[index]
-        gp = self.gearParams[index]
-        label = self._gearLabel(index)
-
-        sketch = component.sketches.add(axisPlane)
-        sketch.name = f'{label} Cell Sections'
-        sketch.isComputeDeferred = True
-        sections = self._buildCellSections(sketch, index, gp['s0'], self.c)
-        sketch.isComputeDeferred = False
-        if not sketch.isFullyConstrained:
-            raise Exception(f'{sketch.name} sketch is not fully constrained')
-        expected = self.c * self.n + 1
-        if sketch.profiles.count != expected:
-            raise Exception(
-                f'{sketch.name}: expected {expected} profiles, found {sketch.profiles.count}')
-
-        body = self._loftCell(component, sections, f'{label} cell')
-        self.gearBodies[index] = body
-        futil.log(f'buildToothCell: {label} cell built ({expected} sections)')
-
-    def _copyBody(self, component, body, label):
-        copyFeature = component.features.copyPasteBodies.add(body)
-        if copyFeature.bodies.count != 1:
-            raise Exception(f'{label}: copy produced {copyFeature.bodies.count} bodies, expected 1')
-        return copyFeature.bodies.item(0)
-
-    def _screwMove(self, component, body, index, teeth, label):
-        gp = self.gearParams[index]
-        P = self.P
-        Lambda = self.Lambda
-        k = teeth
-        dirVec = _vector3d(gp['dir'])
-        axisPoint = _point3d(gp['origin'])
-
-        rot = adsk.core.Matrix3D.create()
-        rot.setToRotation(k * P / Lambda, dirVec, axisPoint)
-
-        shift: adsk.core.Vector3D = dirVec.copy()
-        shift.scaleBy(k * P)
-        mov = adsk.core.Matrix3D.create()
-        mov.translation = shift
-
-        rot.transformBy(mov)
-
-        bodies = adsk.core.ObjectCollection.create()
-        bodies.add(body)
-        moveInput = component.features.moveFeatures.createInput2(bodies)
-        moveInput.defineAsFreeMove(rot)
-        component.features.moveFeatures.add(moveInput)
+        feature = loftFeatures.add(loftInput)
+        count = feature.bodies.count
+        if count != 1:
+            raise Exception(f'{label}: the {what} loft made {count} bodies, expected 1')
+        body = feature.bodies.item(0)
+        if not body.isSolid:
+            raise Exception(f'{label}: the {what} loft made a body that is not solid')
         return body
 
-    def _joinRibbon(self, component, body, movedCopy, label):
-        tools = adsk.core.ObjectCollection.create()
-        tools.add(movedCopy)
-        combineFeatures = component.features.combineFeatures
-        combineInput = combineFeatures.createInput(body, tools)
-        combineInput.operation = adsk.fusion.FeatureOperations.JoinFeatureOperation
-        combineInput.isKeepToolBodies = False
-        combine = combineFeatures.add(combineInput)
-        if combine.bodies.count != 1:
-            raise Exception(f'{label}: join produced {combine.bodies.count} bodies, expected 1')
-        return combine.bodies.item(0)
+    def buildToothCell(self, index):
+        label = self.worldFrames[index]['label']
+        sections = self._buildSectionSketch(index, f'{label} Cell Sections', 0, self.cell)
+        self.cellBodies[index] = self._loftSections(index, sections, 'cell')
 
-    def _buildRemainder(self, component, index, gp):
-        axisPlane = self.gearAxisPlanes[index]
-        label = self._gearLabel(index)
-        s0 = gp['s0'] + self.q * self.c * self.P
-        sketch = component.sketches.add(axisPlane)
-        sketch.name = f'{label} Cell Remainder'
-        sketch.isComputeDeferred = True
-        sections = self._buildCellSections(sketch, index, s0, self.r)
-        sketch.isComputeDeferred = False
-        if not sketch.isFullyConstrained:
-            raise Exception(f'{sketch.name} sketch is not fully constrained')
-        expected = self.r * self.n + 1
-        if sketch.profiles.count != expected:
-            raise Exception(
-                f'{sketch.name}: expected {expected} profiles, found {sketch.profiles.count}')
-        return self._loftCell(component, sections, f'{label} remainder')
+    def _copyBody(self, index, body):
+        """Step 13."""
+        label = self.worldFrames[index]['label']
+        feature = self.designOcc.component.features.copyPasteBodies.add(body)
+        count = feature.bodies.count
+        if count != 1:
+            raise Exception(f'{label}: the copy made {count} bodies, expected 1')
+        return feature.bodies.item(0)
+
+    def _moveByScrewStep(self, index, copy, k):
+        """Step 14: move a copy by Step(k), k teeth."""
+        frame = self.worldFrames[index]
+        P, Lam = self.P, self.Lam
+        direction = frame['dir']
+        axisVector = adsk.core.Vector3D.create(direction[0], direction[1], direction[2])
+        axisPoint = self._world(frame['origin'])
+        rot = adsk.core.Matrix3D.create()
+        rot.setToRotation(k * P / Lam, axisVector, axisPoint)
+        shift = axisVector.copy()
+        shift.scaleBy(k * P / 10)
+        mov = adsk.core.Matrix3D.create()
+        mov.translation = shift
+        rot.transformBy(mov)
+        moveFeatures = self.designOcc.component.features.moveFeatures
+        bodies = adsk.core.ObjectCollection.create()
+        bodies.add(copy)
+        moveInput = moveFeatures.createInput2(bodies)
+        moveInput.defineAsFreeMove(rot)
+        moveFeatures.add(moveInput)
+
+    def _joinBodies(self, index, body, piece, description):
+        """Step 15."""
+        label = self.worldFrames[index]['label']
+        combineFeatures = self.designOcc.component.features.combineFeatures
+        tools = adsk.core.ObjectCollection.create()
+        tools.add(piece)
+        joinInput = combineFeatures.createInput(body, tools)
+        joinInput.operation = adsk.fusion.FeatureOperations.JoinFeatureOperation
+        joinInput.isKeepToolBodies = False
+        feature = combineFeatures.add(joinInput)
+        count = feature.bodies.count
+        if count != 1:
+            raise Exception(f'{label}: the join of {description} made {count} bodies, expected 1')
+        return feature.bodies.item(0)
 
     def repeatCellByDoubling(self, index):
-        component = self.designOcc.component
-        gp = self.gearParams[index]
-        label = self._gearLabel(index)
-        body = self.gearBodies[index]
-        c = self.c
-        q = self.q
-        r = self.r
-
+        """Step 12: q cells by doubling, then the remainder."""
+        label = self.worldFrames[index]['label']
+        cell, q, r = self.cell, self.q, self.r
+        body = self.cellBodies[index]
         m = 1
         asides = []
-        bit = 0
-        while (1 << (bit + 1)) <= q:
+        top = 0
+        while (q >> (top + 1)) > 0:
+            top += 1
+        for bit in range(top):
             if q & (1 << bit):
-                asideBody = self._copyBody(component, body, f'{label} round {bit} aside')
-                asides.append((m, asideBody))
-            movedCopy = self._copyBody(component, body, f'{label} round {bit} copy')
-            movedCopy = self._screwMove(component, movedCopy, index, m * c, f'{label} round {bit}')
-            body = self._joinRibbon(component, body, movedCopy, f'{label} round {bit}')
-            m *= 2
-            bit += 1
-
-        for capturedM, asideBody in reversed(asides):
-            moved = self._screwMove(component, asideBody, index, m * c, f'{label} aside m={capturedM}')
-            body = self._joinRibbon(component, body, moved, f'{label} aside m={capturedM}')
-            m += capturedM
+                aside = self._copyBody(index, body)
+                asides.append((aside, m))
+            copy = self._copyBody(index, body)
+            self._moveByScrewStep(index, copy, m * cell)
+            body = self._joinBodies(index, body, copy, f'{m} + {m} cells')
+            m = 2 * m
+        for aside, cells in reversed(asides):
+            self._moveByScrewStep(index, aside, m * cell)
+            body = self._joinBodies(index, body, aside, f'{m} + {cells} cells')
+            m += cells
+        if m != q:
+            raise Exception(f'{label}: the doubling schedule built {m} cells, expected {q}')
 
         if r > 0:
-            remainderBody = self._buildRemainder(component, index, gp)
-            body = self._joinRibbon(component, body, remainderBody, f'{label} remainder')
+            # Steps 16 and 17: the remainder, built where it belongs, then joined (step 15).
+            sections = self._buildSectionSketch(index, f'{label} Cell Remainder', q * cell, r)
+            piece = self._loftSections(index, sections, 'remainder')
+            body = self._joinBodies(index, body, piece, f'{q} cells + {r} remainder teeth')
 
         body.name = label
         self.gearBodies[index] = body
-        futil.log(f'repeatCellByDoubling: {label} ribbon complete')
 
-    # ---- S16-S34: the cage --------------------------------------------------------------------
+    # -- steps 18 to 25: the cage -------------------------------------------------------------
 
     def buildCage(self):
-        component = self.designOcc.component
-        constructionPlanes = component.constructionPlanes
+        comp: adsk.fusion.Component = self.designOcc.component
+        sketches = comp.sketches
 
-        ringPlaneInput = constructionPlanes.createInput()
-        ringPlaneInput.setByAngle(
-            self.anchorLine, adsk.core.ValueInput.createByString('90 deg'), self.plane)
-        ringPlane = constructionPlanes.add(ringPlaneInput)
-        ringPlane.name = 'Ring Plane'
-
-        self._buildRing(component, ringPlane)
-        self._buildRods(component)
-        self._buildLoop(component)
-        self._buildCollarsAndBores(component)
-        futil.log('buildCage: ring, rods, loop, collars and bores complete')
-
-    def _buildRing(self, component, ringPlane):
-        C = self.C
-        nHat = self.nHat
-        eHat = self.eHat
-        cageRise = self.cageRise
-        ringRadius = self.ringRadius
-        ringWire = self.ringWire
-
-        sketch = component.sketches.add(ringPlane)
-        sketch.name = 'Ring'
-
-        apex1 = C
-        apex2 = _vadd(C, _vscale(nHat, cageRise))
-        local1 = sketch.modelToSketchSpace(_point3d(apex1))
-        local1.z = 0
-        local2 = sketch.modelToSketchSpace(_point3d(apex2))
-        local2.z = 0
-        pt1 = sketch.sketchPoints.add(local1)
-        pt2 = sketch.sketchPoints.add(local2)
-        axisLine = sketch.sketchCurves.sketchLines.addByTwoPoints(pt1, pt2)
-        axisLine.isConstruction = True
-        pt1.isFixed = True
-        pt2.isFixed = True
-
-        centreWorld = _vadd(_vadd(C, _vscale(nHat, cageRise)), _vscale(eHat, ringRadius))
-        centreLocal = sketch.modelToSketchSpace(_point3d(centreWorld))
-        centreLocal.z = 0
-        circle = sketch.sketchCurves.sketchCircles.addByCenterRadius(centreLocal, ringWire / 2)
-        circle.centerSketchPoint.isFixed = True
-
-        textWorld = _vadd(centreWorld, _vscale(eHat, ringWire / 2))
-        textLocal = sketch.modelToSketchSpace(_point3d(textWorld))
-        textLocal.z = 0
-        dim = sketch.sketchDimensions.addDiameterDimension(circle, textLocal)
-        dim.parameter.value = ringWire
-
-        if not sketch.isFullyConstrained:
-            raise Exception(f'{sketch.name} sketch is not fully constrained')
-        if sketch.profiles.count != 1:
-            raise Exception(f'{sketch.name}: expected 1 profile, found {sketch.profiles.count}')
-        profile = sketch.profiles.item(0)
-
-        revolveFeatures = component.features.revolveFeatures
-        revolveInput = revolveFeatures.createInput(
-            profile, axisLine, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
-        revolveInput.setAngleExtent(False, adsk.core.ValueInput.createByString('360 deg'))
-        ring = revolveFeatures.add(revolveInput)
-        if ring.bodies.count != 1:
-            raise Exception(f'Ring revolve: expected 1 body, got {ring.bodies.count}')
-        self.cageBody = ring.bodies.item(0)
-
-    def _buildRods(self, component):
-        C = self.C
-        eHat = self.eHat
-        kHat = self.kHat
-        rodDiameter = self.rodDiameter
-        ringRadius = self.ringRadius
-
-        sketch = component.sketches.add(self.plane)
-        sketch.name = 'Rods'
-
-        for psi in self.rodAzimuths:
-            footWorld = _vadd(C, _vadd(
-                _vscale(eHat, ringRadius * math.cos(psi)),
-                _vscale(kHat, ringRadius * math.sin(psi))))
-            footLocal = sketch.modelToSketchSpace(_point3d(footWorld))
-            footLocal.z = 0
-            circle = sketch.sketchCurves.sketchCircles.addByCenterRadius(footLocal, rodDiameter / 2)
+        # Step 18: the Sleeve sketch.
+        sketch: adsk.fusion.Sketch = sketches.add(self.targetPlane)
+        sketch.name = 'Sleeve'
+        centre = sketch.modelToSketchSpace(self.Cpoint)
+        centre.z = 0
+        sketchCircles = sketch.sketchCurves.sketchCircles
+        sketchDimensions = sketch.sketchDimensions
+        for radius in (self.Ri / 10, self.Ro / 10):
+            circle = sketchCircles.addByCenterRadius(centre, radius)
             circle.centerSketchPoint.isFixed = True
-            textWorld = _vadd(footWorld, _vscale(eHat, rodDiameter / 2))
-            textLocal = sketch.modelToSketchSpace(_point3d(textWorld))
-            textLocal.z = 0
-            dim = sketch.sketchDimensions.addDiameterDimension(circle, textLocal)
-            dim.parameter.value = rodDiameter
-
+            textPoint = adsk.core.Point3D.create(centre.x + radius, centre.y, 0)
+            dimension = sketchDimensions.addDiameterDimension(circle, textPoint)
+            dimension.parameter.value = 2 * radius
         if not sketch.isFullyConstrained:
-            raise Exception(f'{sketch.name} sketch is not fully constrained')
-        if sketch.profiles.count != 4:
-            raise Exception(f'{sketch.name}: expected 4 profiles, found {sketch.profiles.count}')
-
-        self._extrudeAndJoinRods(component, sketch)
-
-    def _extrudeAndJoinRods(self, component, sketch):
-        profiles = adsk.core.ObjectCollection.create()
+            raise Exception('Sleeve: the sketch is not fully constrained')
+        rings = []
+        loopCounts = []
         for i in range(sketch.profiles.count):
-            profiles.add(sketch.profiles.item(i))
+            profile = sketch.profiles.item(i)
+            loops = profile.profileLoops.count
+            loopCounts.append(loops)
+            if loops == 2:
+                rings.append(profile)
+        if len(rings) != 1:
+            raise Exception(
+                f'Sleeve: expected exactly one profile with two loops, found {len(rings)} '
+                f'(loop counts per profile: {loopCounts})')
+        ring = rings[0]
 
-        extrudeFeatures = component.features.extrudeFeatures
-        extrudeInput = extrudeFeatures.createInput(
-            profiles, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
-        extrudeInput.setSymmetricExtent(adsk.core.ValueInput.createByReal(self.cageRise), False)
-        rods = extrudeFeatures.add(extrudeInput)
-        if rods.bodies.count != 4:
-            raise Exception(f'Rods extrude: expected 4 bodies, got {rods.bodies.count}')
+        # Step 19: the tube.
+        extrudeFeatures = comp.features.extrudeFeatures
+        extrudeInput = extrudeFeatures.createInput(ring, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+        extrudeInput.setSymmetricExtent(adsk.core.ValueInput.createByReal(self.cageRise / 10), False)
+        feature = extrudeFeatures.add(extrudeInput)
+        if feature.bodies.count != 1:
+            raise Exception(f'Sleeve: the tube extrude made {feature.bodies.count} bodies, expected 1')
+        self.cageBody: adsk.fusion.BRepBody = feature.bodies.item(0)
 
-        tools = adsk.core.ObjectCollection.create()
-        for i in range(rods.bodies.count):
-            tools.add(rods.bodies.item(i))
-        combineFeatures = component.features.combineFeatures
-        combineInput = combineFeatures.createInput(self.cageBody, tools)
-        combineInput.operation = adsk.fusion.FeatureOperations.JoinFeatureOperation
-        combineInput.isKeepToolBodies = False
-        combine = combineFeatures.add(combineInput)
-        if combine.bodies.count != 1:
-            raise Exception(f'rods join: expected 1 body, got {combine.bodies.count}')
-        self.cageBody = combine.bodies.item(0)
+        # Steps 20 to 22: the four bores.
+        constructionPlanes = comp.constructionPlanes
+        for index, sign in ((0, -1), (0, 1), (1, -1), (1, 1)):
+            frame = self.worldFrames[index]
+            label = frame['label']
+            boreName = '-R' if sign < 0 else '+R'
+            line = self.pathLines[index]['bore-' if sign < 0 else 'bore+']
+            s0 = -self.sOut if sign < 0 else self.sIn
 
-    def _buildLoop(self, component):
-        constructionPlanes = component.constructionPlanes
-        loopPlaneInput = constructionPlanes.createInput()
-        loopPlaneInput.setByOffset(self.plane, adsk.core.ValueInput.createByReal(-self.cageRise))
-        loopPlane = constructionPlanes.add(loopPlaneInput)
-        loopPlane.name = 'Loop Plane'
+            # Step 20: the bore's plane.
+            planeInput = constructionPlanes.createInput()
+            planeInput.setByDistanceOnPath(line, adsk.core.ValueInput.createByReal(0))
+            plane = constructionPlanes.add(planeInput)
+            plane.name = f'{label} Bore {boreName} Plane'
 
-        loopCentre = _vsub(self.C, _vscale(self.nHat, self.cageRise))
-        feet = []
-        for psi in self.footPsis:
-            foot = _vadd(loopCentre, _vadd(
-                _vscale(self.eHat, self.ringRadius * math.cos(psi)),
-                _vscale(self.kHat, self.ringRadius * math.sin(psi))))
-            feet.append(foot)
+            profile = self._buildBoreSketch(index, boreName, plane, s0)
+            self._cutBore(index, sign, boreName, line, profile)
 
-        barBodies = []
-        for i in range(4):
-            j = (i + 1) % 4
-            barBodies.append(
-                self._buildLoopBar(component, loopPlane, i, feet[i], feet[j], loopCentre))
-
-        ballBodies = []
-        for i in range(4):
-            ballBodies.append(self._buildLoopBall(component, loopPlane, i, feet[i]))
-
-        self._joinLoop(component, barBodies, ballBodies)
-
-    def _buildLoopBar(self, component, loopPlane, i, footI, footJ, loopCentre):
-        d = _vnorm(_vsub(footJ, footI))
-        mid = _vscale(_vadd(footI, footJ), 0.5)
-        toCentreVec = _vsub(mid, loopCentre)
-        perp = _vsub(toCentreVec, _vscale(d, _vdot(toCentreVec, d)))
-        mHat = _vnorm(perp)
-        w = self.ringWire / 2
-
-        sketch = component.sketches.add(loopPlane)
-        sketch.name = f'Loop Bar {i}'
-
-        cornersWorld = [footI, footJ, _vadd(footJ, _vscale(mHat, w)), _vadd(footI, _vscale(mHat, w))]
-        points = []
-        for world in cornersWorld:
-            local = sketch.modelToSketchSpace(_point3d(world))
-            local.z = 0
-            points.append(sketch.sketchPoints.add(local))
-
-        lines = []
-        for a, b in ((0, 1), (1, 2), (2, 3), (3, 0)):
-            lines.append(sketch.sketchCurves.sketchLines.addByTwoPoints(points[a], points[b]))
-
-        for pt in points:
-            pt.isFixed = True
-
-        if not sketch.isFullyConstrained:
-            raise Exception(f'{sketch.name} sketch is not fully constrained')
-        if sketch.profiles.count != 1:
-            raise Exception(f'{sketch.name}: expected 1 profile, found {sketch.profiles.count}')
-        profile = sketch.profiles.item(0)
-
-        revolveFeatures = component.features.revolveFeatures
-        revolveInput = revolveFeatures.createInput(
-            profile, lines[0], adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
-        revolveInput.setAngleExtent(False, adsk.core.ValueInput.createByString('360 deg'))
-        revolve = revolveFeatures.add(revolveInput)
-        if revolve.bodies.count != 1:
-            raise Exception(f'{sketch.name} revolve: expected 1 body, got {revolve.bodies.count}')
-        return revolve.bodies.item(0)
-
-    def _buildLoopBall(self, component, loopPlane, i, foot):
-        w = self.ringWire / 2
-        eHat = self.eHat
-        kHat = self.kHat
-
-        sketch = component.sketches.add(loopPlane)
-        sketch.name = f'Loop Ball {i}'
-
-        startWorld = _vsub(foot, _vscale(eHat, w))
-        endWorld = _vadd(foot, _vscale(eHat, w))
-        throughWorld = _vadd(foot, _vscale(kHat, w))
-
-        startLocal = sketch.modelToSketchSpace(_point3d(startWorld))
-        startLocal.z = 0
-        endLocal = sketch.modelToSketchSpace(_point3d(endWorld))
-        endLocal.z = 0
-        throughLocal = sketch.modelToSketchSpace(_point3d(throughWorld))
-        throughLocal.z = 0
-
-        startPoint = sketch.sketchPoints.add(startLocal)
-        endPoint = sketch.sketchPoints.add(endLocal)
-        bl = sketch.sketchCurves.sketchLines.addByTwoPoints(startPoint, endPoint)
-
-        arc = sketch.sketchCurves.sketchArcs.addByThreePoints(
-            bl.startSketchPoint, throughLocal, bl.endSketchPoint)
-
-        bl.startSketchPoint.isFixed = True
-        bl.endSketchPoint.isFixed = True
-        sketch.geometricConstraints.addCoincident(arc.centerSketchPoint, bl)
-
-        if not sketch.isFullyConstrained:
-            raise Exception(f'{sketch.name} sketch is not fully constrained')
-        profile = find_profile_by_curve_counts(sketch, lines=1, arcs=1)
-
-        revolveFeatures = component.features.revolveFeatures
-        revolveInput = revolveFeatures.createInput(
-            profile, bl, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
-        revolveInput.setAngleExtent(False, adsk.core.ValueInput.createByString('360 deg'))
-        revolve = revolveFeatures.add(revolveInput)
-        if revolve.bodies.count != 1:
-            raise Exception(f'{sketch.name} revolve: expected 1 body, got {revolve.bodies.count}')
-        return revolve.bodies.item(0)
-
-    def _joinLoop(self, component, barBodies, ballBodies):
-        tools = adsk.core.ObjectCollection.create()
-        for body in barBodies:
-            tools.add(body)
-        for body in ballBodies:
-            tools.add(body)
-        combineFeatures = component.features.combineFeatures
-        combineInput = combineFeatures.createInput(self.cageBody, tools)
-        combineInput.operation = adsk.fusion.FeatureOperations.JoinFeatureOperation
-        combineInput.isKeepToolBodies = False
-        combine = combineFeatures.add(combineInput)
-        if combine.bodies.count != 1:
-            raise Exception(f'loop join: expected 1 body, got {combine.bodies.count}')
-        self.cageBody = combine.bodies.item(0)
-
-    # ---- S28-S34: collars and bores ------------------------------------------------------------
-
-    def _buildDistanceOnPathPlane(self, component, line, name):
-        constructionPlanes = component.constructionPlanes
+        # Steps 23 to 25: the windows.
+        if not self.windows:
+            return
         planeInput = constructionPlanes.createInput()
-        planeInput.setByDistanceOnPath(line, adsk.core.ValueInput.createByReal(0))
-        plane = constructionPlanes.add(planeInput)
-        plane.name = name
-        return plane
+        if self.windowsFaceK:
+            planeInput.setByAngle(self.anchorLine, adsk.core.ValueInput.createByString('90 deg'), self.targetPlane)
+        else:
+            planeInput.setByDistanceOnPath(self.anchorLine, adsk.core.ValueInput.createByReal(0.5))
+        windowPlane = constructionPlanes.add(planeInput)
+        windowPlane.name = 'Window Plane'
+        for window in self.windows:
+            self._cutWindow(window, windowPlane)
 
-    def _buildRectangleScheme(self, component, plane, g, sc, outline, label):
-        collarHalf = self.collarHalf
-        st = (sc - collarHalf) if outline else (sc - collarHalf - 0.1)
-
-        gp = self.gearParams[g]
-        theta = self._theta(g, st)
-        uB = -(self.W / 2 + self.clearance)
-        uF = self.W / 2 + self.clearance
-        hv = self.T / 2 + self.clearance
-        w = self.collarWall
-
-        sketch: adsk.fusion.Sketch = component.sketches.add(plane)
-        sketch.name = label
+    def _buildBoreSketch(self, index, boreName, plane, s0):
+        """Step 21: the rectangle scheme."""
+        frame = self.worldFrames[index]
+        label = frame['label']
+        name = f'{label} Bore {boreName}'
+        comp: adsk.fusion.Component = self.designOcc.component
+        sketches = comp.sketches
+        sketch: adsk.fusion.Sketch = sketches.add(plane)
+        sketch.name = name
         sketch.isComputeDeferred = True
 
-        def worldAt(u, v):
-            return self._point(g, st, u, v)
+        Lam = self.Lam
+        theta = s0 / Lam + frame['phi']
+        uB, uF, hv = -self.hw, self.hw, self.ht
+        u, v = frame['u'], frame['v']
+        axisPoint = _add(frame['origin'], _scale(frame['dir'], s0))
 
-        def toLocal(sk: adsk.fusion.Sketch, world):
-            local = sk.modelToSketchSpace(_point3d(world))
-            local.z = 0
-            return local
+        def S(su, sv):
+            return _framePoint(frame, Lam, s0, su, sv)
 
-        def at(sk: adsk.fusion.Sketch, u, v):
-            return sk.sketchPoints.add(toLocal(sk, worldAt(u, v)))
+        def local(vec):
+            return self._sketchLocal(sketch, vec)
 
-        def midWorld(uv1, uv2):
-            return _vscale(_vadd(worldAt(*uv1), worldAt(*uv2)), 0.5)
+        sketchPoints = sketch.sketchPoints
+        sketchLines = sketch.sketchCurves.sketchLines
+        geometricConstraints = sketch.geometricConstraints
+        sketchDimensions = sketch.sketchDimensions
 
-        def textPointFor(sk: adsk.fusion.Sketch, pairA, pairB):
-            m1 = midWorld(*pairA)
-            m2 = midWorld(*pairB)
-            return toLocal(sk, _vscale(_vadd(m1, m2), 0.5))
+        # References.
+        O = sketchPoints.add(local(axisPoint))
+        Cp = sketchPoints.add(local(_add(axisPoint, _scale(u, self.A / 2))))
+        Ru = sketchLines.addByTwoPoints(O, Cp)
+        Ru.isConstruction = True
 
-        # References: O is unrotated (raw axis point); Cp is O offset along the UNROTATED u_g,
-        # never through point()/theta ([SCREW-F-REFERENCES]).
-        O = worldAt(0, 0)
-        Cp = _vadd(O, _vscale(gp['u'], self.A / 2))
-        oPoint = sketch.sketchPoints.add(toLocal(sketch, O))
-        cpPoint = sketch.sketchPoints.add(toLocal(sketch, Cp))
-        ru = sketch.sketchCurves.sketchLines.addByTwoPoints(oPoint, cpPoint)
-        ru.isConstruction = True
+        # The spine.
+        seedE = local(S(uF, 0))
+        K = sketchLines.addByTwoPoints(O, seedE)
+        K.isConstruction = True
+        E = K.endSketchPoint
+        O.isFixed = True
+        Cp.isFixed = True
 
-        # Spine.
-        ePoint = at(sketch, uF, 0)
-        k = sketch.sketchCurves.sketchLines.addByTwoPoints(oPoint, ePoint)
-        k.isConstruction = True
+        # The rectangle ([PB-SHARE-XOR-COINCIDENT]).
+        L1 = sketchLines.addByTwoPoints(local(S(uB, -hv)), local(S(uF, -hv)))
+        L2 = sketchLines.addByTwoPoints(L1.endSketchPoint, local(S(uF, hv)))
+        L3 = sketchLines.addByTwoPoints(L2.endSketchPoint, local(S(uB, hv)))
+        L4 = sketchLines.addByTwoPoints(L3.endSketchPoint, L1.startSketchPoint)
 
-        oPoint.isFixed = True
-        cpPoint.isFixed = True
+        # The length.
+        textPoint = local(S(uF / 2, hv / 4))
+        lengthDimension = sketchDimensions.addDistanceDimension(
+            O, E, adsk.fusion.DimensionOrientations.AlignedDimensionOrientation, textPoint)
+        lengthDimension.parameter.value = uF / 10
 
-        # Rectangle.
-        c0, c1, c2, c3 = (at(sketch, uB, -hv), at(sketch, uF, -hv),
-                          at(sketch, uF, hv), at(sketch, uB, hv))
-        l1 = sketch.sketchCurves.sketchLines.addByTwoPoints(c0, c1)
-        l2 = sketch.sketchCurves.sketchLines.addByTwoPoints(c1, c2)
-        l3 = sketch.sketchCurves.sketchLines.addByTwoPoints(c2, c3)
-        l4 = sketch.sketchCurves.sketchLines.addByTwoPoints(c3, c0)
-        if outline:
-            for line in (l1, l2, l3, l4):
-                line.isConstruction = True
-
-        kPair = ((0.0, 0.0), (uF, 0.0))
-        l1Pair = ((uB, -hv), (uF, -hv))
-        l3Pair = ((uF, hv), (uB, hv))
-        l2Pair = ((uF, -hv), (uF, hv))
-        l4Pair = ((uB, hv), (uB, -hv))
-
-        # Rows.
-        dimK = sketch.sketchDimensions.addDistanceDimension(
-            oPoint, ePoint, adsk.fusion.DimensionOrientations.AlignedDimensionOrientation,
-            toLocal(sketch, midWorld(*kPair)))
-        dimK.parameter.value = uF
-
-        sketch.geometricConstraints.addParallel(l1, k)
-        dim1 = sketch.sketchDimensions.addOffsetDimension(k, l1, textPointFor(sketch, kPair, l1Pair))
-        dim1.parameter.value = hv
-
-        sketch.geometricConstraints.addParallel(l3, k)
-        dim3 = sketch.sketchDimensions.addOffsetDimension(k, l3, textPointFor(sketch, kPair, l3Pair))
-        dim3.parameter.value = hv
-
-        sketch.geometricConstraints.addCoincident(ePoint, l2)
-        sketch.geometricConstraints.addPerpendicular(l2, k)
-
-        sketch.geometricConstraints.addParallel(l4, l2)
-        dim4 = sketch.sketchDimensions.addOffsetDimension(l2, l4, textPointFor(sketch, l2Pair, l4Pair))
-        dim4.parameter.value = uF - uB
-
-        # Angle ([PB-ANGULAR-DIM]).
-        uHat, vHat = gp['u'], gp['v']
-        if abs(math.sin(theta)) >= math.sqrt(0.5):
-            value = math.acos(math.cos(theta))
-            dirOE = _vadd(_vscale(uHat, math.cos(theta)), _vscale(vHat, math.sin(theta)))
-            bisector = _vnorm(_vadd(uHat, dirOE))
-            textWorld = _vadd(O, _vscale(bisector, uF / 2))
-            angleDim = sketch.sketchDimensions.addAngularDimension(ru, k, toLocal(sketch, textWorld))
-            angleDim.parameter.value = value
+        # The angle ([PB-ANGULAR-DIM]); theta normalised into (-180, 180].
+        th = math.atan2(math.sin(theta), math.cos(theta))
+        if th <= -math.pi:
+            th += 2 * math.pi
+        if abs(math.sin(th)) >= math.sqrt(1 / 2):
+            bisector = _add(_scale(u, math.cos(th / 2)), _scale(v, math.sin(th / 2)))
+            textPoint = local(_add(axisPoint, _scale(bisector, uF / 2)))
+            angleDimension = sketchDimensions.addAngularDimension(Ru, K, textPoint)
+            angleDimension.parameter.value = math.acos(math.cos(th))
         else:
-            value = math.acos(-math.sin(theta))
-            X = _vadd(O, _vscale(uHat, uF / math.cos(theta)))
-            dirL2 = _vadd(_vscale(uHat, -math.sin(theta)), _vscale(vHat, math.cos(theta)))
-            bisector = _vnorm(_vadd(uHat, dirL2))
-            textWorld = _vadd(X, _vscale(bisector, uF / 2))
-            angleDim = sketch.sketchDimensions.addAngularDimension(ru, l2, toLocal(sketch, textWorld))
-            angleDim.parameter.value = value
+            X = _add(axisPoint, _scale(u, uF / math.cos(th)))
+            alongL2 = _add(_scale(u, -math.sin(th)), _scale(v, math.cos(th)))
+            bisector = _unit(_add(u, alongL2))
+            textPoint = local(_add(X, _scale(bisector, uF / 2)))
+            angleDimension = sketchDimensions.addAngularDimension(Ru, L2, textPoint)
+            angleDimension.parameter.value = math.acos(-math.sin(th))
 
-        if outline:
-            o1 = sketch.sketchCurves.sketchLines.addByTwoPoints(
-                at(sketch, uB, -hv - w), at(sketch, uF, -hv - w))
-            o2 = sketch.sketchCurves.sketchLines.addByTwoPoints(
-                at(sketch, uF + w, -hv), at(sketch, uF + w, hv))
-            o3 = sketch.sketchCurves.sketchLines.addByTwoPoints(
-                at(sketch, uF, hv + w), at(sketch, uB, hv + w))
-            o4 = sketch.sketchCurves.sketchLines.addByTwoPoints(
-                at(sketch, uB - w, hv), at(sketch, uB - w, -hv))
-            outlineLines = [o1, o2, o3, o4]
-            rect = [l1, l2, l3, l4]
-
-            diag = w / math.sqrt(2)
-            cornerPush = [
-                (uF + diag, -hv - diag), (uF + diag, hv + diag),
-                (uB - diag, hv + diag), (uB - diag, -hv - diag),
-            ]
-            arcs = []
-            for j in range(4):
-                centreSeed = toLocal(sketch, worldAt(*cornerPush[j]))
-                nextLine = outlineLines[(j + 1) % 4]
-                arc = sketch.sketchCurves.sketchArcs.addByThreePoints(
-                    outlineLines[j].endSketchPoint, centreSeed, nextLine.startSketchPoint)
-                arcs.append(arc)
-
-            liPairs = {0: l1Pair, 1: l2Pair, 2: l3Pair, 3: l4Pair}
-            oiPairs = {
-                0: ((uB, -hv - w), (uF, -hv - w)),
-                1: ((uF + w, -hv), (uF + w, hv)),
-                2: ((uF, hv + w), (uB, hv + w)),
-                3: ((uB - w, hv), (uB - w, -hv)),
-            }
-            for j in range(4):
-                sketch.geometricConstraints.addParallel(outlineLines[j], rect[j])
-                dimOff = sketch.sketchDimensions.addOffsetDimension(
-                    rect[j], outlineLines[j], textPointFor(sketch, liPairs[j], oiPairs[j]))
-                dimOff.parameter.value = w
-                prevRect = rect[(j + 3) % 4]
-                nextRect = rect[(j + 1) % 4]
-                sketch.geometricConstraints.addCoincident(outlineLines[j].startSketchPoint, prevRect)
-                sketch.geometricConstraints.addCoincident(outlineLines[j].endSketchPoint, nextRect)
-                sketch.geometricConstraints.addTangent(outlineLines[j], arcs[j])
+        # The rest of the rectangle ([PB-OFFSET-DIM], [PB-NO-OVERCONSTRAIN],
+        # [PB-DIM-VALUE-SEMANTICS]: the side is the seed's, the value its magnitude).
+        geometricConstraints.addParallel(L1, K)
+        textPoint = local(S(uF / 2, -hv / 2))
+        offset = sketchDimensions.addOffsetDimension(K, L1, textPoint)
+        offset.parameter.value = hv / 10
+        geometricConstraints.addParallel(L3, K)
+        textPoint = local(S(uF / 2, hv / 2))
+        offset = sketchDimensions.addOffsetDimension(K, L3, textPoint)
+        offset.parameter.value = hv / 10
+        geometricConstraints.addCoincident(E, L2)
+        geometricConstraints.addPerpendicular(L2, K)
+        geometricConstraints.addParallel(L4, L2)
+        textPoint = local(S((uB + uF) / 2, -hv / 2))
+        offset = sketchDimensions.addOffsetDimension(L2, L4, textPoint)
+        offset.parameter.value = (uF - uB) / 10
 
         sketch.isComputeDeferred = False
         if not sketch.isFullyConstrained:
-            raise Exception(f'{sketch.name} sketch is not fully constrained')
+            raise Exception(f'{name}: the sketch is not fully constrained')
+        return find_profile_by_curve_counts(sketch, lines=4)
 
-        if outline:
-            profile = find_profile_by_curve_counts(sketch, lines=4, arcs=4)
-        else:
-            profile = find_profile_by_curve_counts(sketch, lines=4)
-        return profile
-
-    def _checkCollarSense(self, body, label, sc, g):
-        collarHalf = self.collarHalf
-        W, T, clearance, w = self.W, self.T, self.clearance, self.collarWall
-        uB = -(W / 2 + clearance)
-        uF = W / 2 + clearance
-        hv = T / 2 + clearance
-        outline = [(uB, -hv - w), (uF, -hv - w), (uF + w, -hv), (uF + w, hv),
-                   (uF, hv + w), (uB, hv + w), (uB - w, hv), (uB - w, -hv)]
-        vertexWorlds = [
-            _from_point3d(body.vertices.item(i).geometry) for i in range(body.vertices.count)]
-
-        for stationLabel, station in (('near', sc - collarHalf), ('far', sc + collarHalf)):
-            for (u, v) in outline:
-                target = self._point(g, station, u, v)
-                best = min(_vlen(_vsub(target, vw)) for vw in vertexWorlds)
-                if best > 0.005:
-                    raise Exception(
-                        f'{label}: at the {stationLabel} end, point (u={u}, v={v}) has no '
-                        f'vertex within 0.005 cm (worst {best} cm) ([SCREW-F-SWEEP-CHECK])')
-
-    def _sweepCollar(self, component, profile, line, label, sc, g):
-        path = component.features.createPath(line, False)
-        sweepFeatures = component.features.sweepFeatures
-        sweepInput = sweepFeatures.createInput(
-            profile, path, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
-        sweepInput.twistAngle = adsk.core.ValueInput.createByReal(2 * self.collarHalf / self.Lambda)
-        sweep = sweepFeatures.add(sweepInput)
-        if sweep.bodies.count != 1:
-            raise Exception(f'{label} sweep: expected 1 body, got {sweep.bodies.count}')
-        body = sweep.bodies.item(0)
-        self._checkCollarSense(body, label, sc, g)
-        return body
-
-    def _joinCollars(self, component, collarBodies):
-        tools = adsk.core.ObjectCollection.create()
-        for body in collarBodies:
-            tools.add(body)
-        combineFeatures = component.features.combineFeatures
-        combineInput = combineFeatures.createInput(self.cageBody, tools)
-        combineInput.operation = adsk.fusion.FeatureOperations.JoinFeatureOperation
-        combineInput.isKeepToolBodies = False
-        combine = combineFeatures.add(combineInput)
-        if combine.bodies.count != 1:
-            raise Exception(f'collars join: expected 1 body, got {combine.bodies.count}')
-        self.cageBody = combine.bodies.item(0)
-
-    def _checkBoreOpen(self, label, sc, g):
-        s = sc + self.collarHalf / 2
-        theta = self._theta(g, s)
-        gp = self.gearParams[g]
-        uHatS = _vadd(_vscale(gp['u'], math.cos(theta)), _vscale(gp['v'], math.sin(theta)))
-        base = _vadd(gp['origin'], _vscale(gp['dir'], s))
-        for sign, probeLabel in ((1.0, '+'), (-1.0, '-')):
-            probe = _vadd(base, _vscale(uHatS, sign * (self.W / 2 + self.clearance / 2)))
-            containment = self.cageBody.pointContainment(_point3d(probe))
-            if containment != adsk.fusion.PointContainment.PointOutsidePointContainment:
-                raise Exception(
-                    f'{label}: the channel is not open at probe {probeLabel} (station {s})')
-
-    def _cutBore(self, component, profile, line, label, sc, g):
-        path = component.features.createPath(line, False)
-        sweepFeatures = component.features.sweepFeatures
-        sweepInput = sweepFeatures.createInput(
-            profile, path, adsk.fusion.FeatureOperations.CutFeatureOperation)
-        sweepInput.twistAngle = adsk.core.ValueInput.createByReal(
-            2 * (self.collarHalf + 0.1) / self.Lambda)
+    def _cutBore(self, index, sign, boreName, line, profile):
+        """Step 22: the twisted sweep cut, and its check."""
+        frame = self.worldFrames[index]
+        label = frame['label']
+        name = f'{label} Bore {boreName}'
+        path = self.designOcc.component.features.createPath(line, False)
+        sweepFeatures = self.designOcc.component.features.sweepFeatures
+        sweepInput = sweepFeatures.createInput(profile, path, adsk.fusion.FeatureOperations.CutFeatureOperation)
+        twist = (self.sOut - self.sIn) / self.Lam
+        sweepInput.twistAngle = adsk.core.ValueInput.createByReal(twist)
         sweepInput.participantBodies = [self.cageBody]
-        sweep = sweepFeatures.add(sweepInput)
-        if sweep.bodies.count != 1:
-            raise Exception(f'{label} cut: expected 1 body, got {sweep.bodies.count}')
-        self.cageBody = sweep.bodies.item(0)
-        self._checkBoreOpen(label, sc, g)
+        feature = sweepFeatures.add(sweepInput)
+        if feature.bodies.count != 1:
+            raise Exception(f'{name}: the sweep cut left {feature.bodies.count} bodies, expected 1')
+        self.cageBody = feature.bodies.item(0)
 
-    def _buildCollarsAndBores(self, component):
-        collarLabels = [
-            'Gear A Collar -R', 'Gear A Collar +R', 'Gear B Collar -R', 'Gear B Collar +R']
-        collarKeys = ['collar-', 'collar+', 'collar-', 'collar+']
-        boreKeys = ['bore-', 'bore+', 'bore-', 'bore+']
-        gearIndex = [0, 0, 1, 1]
-        scValues = [-self.cageRadius, self.cageRadius, -self.cageRadius, self.cageRadius]
+        # [SCREW-F-SWEEP-CHECK]
+        sc = sign * self.cageRadius
+        thc = sc / self.Lam + frame['phi']
+        uhat = _add(_scale(frame['u'], math.cos(thc)), _scale(frame['v'], math.sin(thc)))
+        crossing = _add(frame['origin'], _scale(frame['dir'], sc))
+        reach = self.W / 2 + self.clearance / 2
+        readings = []
+        failed = False
+        for side in (1, -1):
+            probe = self._world(_add(crossing, _scale(uhat, side * reach)))
+            containment = self.cageBody.pointContainment(probe)
+            readings.append(((probe.x, probe.y, probe.z), containment))
+            if containment != adsk.fusion.PointContainment.PointOutsidePointContainment:
+                failed = True
+        if failed:
+            raise Exception(
+                f'{name}: the channel does not clear both probes; readings (cm, containment): '
+                f'{readings[0][0]} -> {readings[0][1]}, {readings[1][0]} -> {readings[1][1]}')
 
-        collarBodies = []
-        for i in range(4):
-            g = gearIndex[i]
-            sc = scValues[i]
-            line = self.pathLines[g][collarKeys[i]]
-            label = collarLabels[i]
-            plane = self._buildDistanceOnPathPlane(component, line, f'{label} Plane')
-            profile = self._buildRectangleScheme(component, plane, g, sc, True, label)
-            collarBodies.append(self._sweepCollar(component, profile, line, label, sc, g))
+    def _cutWindow(self, window, windowPlane):
+        """Steps 24 and 25."""
+        comp: adsk.fusion.Component = self.designOcc.component
+        name = window['name']
+        d = self._worldDirection(name)
+        across = _cross(self.nHat, d)
 
-        self._joinCollars(component, collarBodies)
+        # Step 24: the Window sketch.
+        sketches = comp.sketches
+        sketch: adsk.fusion.Sketch = sketches.add(windowPlane)
+        sketch.name = f'Window {name}'
+        points = []
+        for (t, z) in window['corners']:
+            local = sketch.modelToSketchSpace(self._world(_add(_scale(across, t), _scale(self.nHat, z))))
+            local.z = 0
+            points.append(sketch.sketchPoints.add(local))
+        sketchLines = sketch.sketchCurves.sketchLines
+        count = len(points)
+        for i in range(count):
+            sketchLines.addByTwoPoints(points[i], points[(i + 1) % count])
+        for point in points:
+            point.isFixed = True
+        if not sketch.isFullyConstrained:
+            raise Exception(f'Window {name}: the sketch is not fully constrained')
+        if sketch.profiles.count != 1:
+            raise Exception(f'Window {name}: the sketch has {sketch.profiles.count} profiles, expected 1')
+        profile = sketch.profiles.item(0)
 
-        for i in range(4):
-            g = gearIndex[i]
-            sc = scValues[i]
-            line = self.pathLines[g][boreKeys[i]]
-            label = collarLabels[i].replace('Collar', 'Bore')
-            plane = self._buildDistanceOnPathPlane(component, line, f'{label} Plane')
-            profile = self._buildRectangleScheme(component, plane, g, sc, False, label)
-            self._cutBore(component, profile, line, label, sc, g)
+        # Step 25: the probe.
+        corners = window['corners']
+        tc = sum(corner[0] for corner in corners) / len(corners)
+        zc = sum(corner[1] for corner in corners) / len(corners)
+        depth = (self._wallInner(tc) + self._wallOuter(tc)) / 2
+        probe = self._world(_add(_add(_scale(across, tc), _scale(self.nHat, zc)), _scale(d, depth)))
+        before = self.cageBody.pointContainment(probe)
+        if before != adsk.fusion.PointContainment.PointInsidePointContainment:
+            raise Exception(
+                f'Window {name}: the probe at ({probe.x:.4f}, {probe.y:.4f}, {probe.z:.4f}) cm '
+                f'reads {before} before the cut, expected inside the wall')
 
-    # ---- S35: relocate bodies and hide construction geometry -----------------------------------
+        # The cut.
+        extrudeFeatures = comp.features.extrudeFeatures
+        extrudeInput = extrudeFeatures.createInput(profile, adsk.fusion.FeatureOperations.CutFeatureOperation)
+        C = self.Cpoint
+        ahead = adsk.core.Point3D.create(C.x + d[0], C.y + d[1], C.z + d[2])
+        if sketch.modelToSketchSpace(ahead).z > 0:
+            direction = adsk.fusion.ExtentDirections.PositiveExtentDirection
+        else:
+            direction = adsk.fusion.ExtentDirections.NegativeExtentDirection
+        extrudeInput.setOneSideExtent(
+            adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByReal((self.Ro + 1) / 10)),
+            direction)
+        extrudeInput.participantBodies = [self.cageBody]
+        feature = extrudeFeatures.add(extrudeInput)
+        if feature.bodies.count != 1:
+            raise Exception(f'Window {name}: the cut left {feature.bodies.count} bodies, expected 1')
+        self.cageBody = feature.bodies.item(0)
+        after = self.cageBody.pointContainment(probe)
+        if after != adsk.fusion.PointContainment.PointOutsidePointContainment:
+            raise Exception(
+                f'Window {name}: the probe at ({probe.x:.4f}, {probe.y:.4f}, {probe.z:.4f}) cm '
+                f'reads {after} after the cut, expected outside (was the cut extruded the wrong way?)')
+
+    # -- steps 26 to 28: relocate the bodies --------------------------------------------------
 
     def relocateBodies(self):
         self.cageBody.name = 'Cage'
+        # Step 26: self.gearBodies[0].moveToComponent(self.gearOccs[0]), through a typed handle.
         gearBodyA: adsk.fusion.BRepBody = self.gearBodies[0]
+        self.gearBodies[0] = gearBodyA.moveToComponent(self.gearOccs[0])
+        # Step 27: self.gearBodies[1].moveToComponent(self.gearOccs[1]), likewise.
         gearBodyB: adsk.fusion.BRepBody = self.gearBodies[1]
-        gearBodyA.moveToComponent(self.gearOccs[0])
-        gearBodyB.moveToComponent(self.gearOccs[1])
-        self.cageBody.moveToComponent(self.cageOcc)
-        solids.hide_construction_geometry(self.designOcc.component)
-        futil.log('relocateBodies: bodies relocated, construction geometry hidden')
+        self.gearBodies[1] = gearBodyB.moveToComponent(self.gearOccs[1])
+        self.cageBody = self.cageBody.moveToComponent(self.cageOcc)
