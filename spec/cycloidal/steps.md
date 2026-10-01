@@ -4,10 +4,10 @@ The proof for this step list is `proof/cycloidal/geometry_test.go`, `proof/cyclo
 
 | file | `git hash-object` |
 |---|---|
-| `spec/cycloidal/instructions.md` | `aeadefabc96be386cc9610f01d38a3a1d096f444` |
+| `spec/cycloidal/instructions.md` | `616ffa7a2ec1d178c5dc786232d1f7e82d323591` |
 | `spec/cycloidal/fusion.md` | `afa5a99986f2e0d9f82fb5e21591553cdc54aac4` |
 | `spec/cycloidal/epitrochoid-trace.md` | `2dd150ac312ca9c673812661e4fa229df433dade` |
-| `.claude/skills/generate-gear/PLAYBOOK.md` | `b7e7811c13fe64aef683d7d6f5d78317b5bb643c` |
+| `.claude/skills/generate-gear/PLAYBOOK.md` | `cdd32545b0f8c651752827c6697601f1e32b4d39` |
 
 ## S01 `[PROSE]` Dialog inputs and per-field message slots
 

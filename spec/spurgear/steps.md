@@ -6,12 +6,12 @@ The proof files are `proof/spurgear/sketches_test.go`, `proof/spurgear/solids_te
 
 | file | `git hash-object` |
 |---|---|
-| `spec/spurgear/instructions.md` | `58efc84a524426519d090b19f3deb5854a543e0c` |
+| `spec/spurgear/instructions.md` | `859159e9415f0f4a11fce7f723f4cbcc1d3d7d9a` |
 | `spec/spurgear/fusion.md` | `5cd1f9f96e043efba42ae42a00ca6c13403e1339` |
 | `spec/helicalgear/fusion.md` | `6cbe03029a0b89b001479234c0af422deb589dbf` |
 | `spec/spurgear/contract.json` | `4bfdaaa2b1b38b14478a59dd5c2289ad35b8d44f` |
 | `spec/spurgear/exact_values.json` | `fee6665556d2d9bb3673ee44b79fca03e7caf5a2` |
-| `.claude/skills/generate-gear/PLAYBOOK.md` | `b7e7811c13fe64aef683d7d6f5d78317b5bb643c` |
+| `.claude/skills/generate-gear/PLAYBOOK.md` | `cdd32545b0f8c651752827c6697601f1e32b4d39` |
 
 ## Compilation contract
 

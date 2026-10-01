@@ -650,8 +650,8 @@ the check.
   stays behind by the drag distance and silently deforms the curve. Found in Fusion 2026-09-02:
   the bevel tooth-top arc's centre stranded 22.9 mm behind its origin, giving a 0.5743 mm arc where
   22.5 mm was intended, on a sketch that raised no error.
-- **[PB-DRIVING-DIM] Driving vs driven dimensions:** `add*Dimension(...)` is *driving* by default; never pass the
-  trailing `isDriven=True`/`True` (it inverts to a measured dimension and lets geometry float).
+- **[PB-DRIVING-DIM] Driving vs driven dimensions:** `add*Dimension(...)` is *driving* by default; the trailing
+  argument is `isDriving` (default `True`). Never pass `isDriving=False`/`False`: it makes a driven dimension.
 - **[PB-OFFSET-DIM] Line-to-line / parallel-offset dimension:** to dimension the gap between two (parallel) lines —
   used for base heights, face widths, and similar offsets — use
   `sketch.sketchDimensions.addOffsetDimension(lineA, lineB, textPoint)` and set the value via the
