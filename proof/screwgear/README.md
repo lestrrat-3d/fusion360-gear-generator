@@ -1,11 +1,13 @@
 # The screw gearing, in pictures
 
 These are the parts [`spec/screwgear/instructions.md`](../../spec/screwgear/instructions.md)
-describes, drawn at the defaults that spec's table gives. Every section in every picture comes
-from `Gear.section` in [geometry_test.go](geometry_test.go), the same function the meshing proof
-samples, so a change that moves the proved geometry moves these pictures with it. The three
-`TestRender` cases in [render_test.go](render_test.go) write them, and they run only when
-`-render.out` names a directory, so an ordinary proof run writes no images.
+describes, drawn at the defaults that spec's table gives, and the printable sleeve proposed to
+replace its frame. Every ribbon section in every picture comes from `Gear.section` in
+[geometry_test.go](geometry_test.go), the same function the meshing proof samples, and the
+sleeve's surface comes from `sleeve.inFrame` in [sleeve_test.go](sleeve_test.go), the same test
+the sleeve's proof walks, so a change that moves the proved geometry moves these pictures with
+it. The four `TestRender` cases in [render_test.go](render_test.go) write them, and they run only
+when `-render.out` names a directory, so an ordinary proof run writes no images.
 
 The mechanism is a screw/screw gearing: two racks, each twisted into a helix about its own centre
 line, each moving by a screw motion — turning as it advances — in a cage that holds them. Pushing
@@ -36,14 +38,24 @@ torus, the rods and the loop's bars as plain cylinders with a ball at each corne
 as the bore's outline grown by the wall and swept through thirty-two stations along its ribbon.
 Where a rod runs into a collar's wall the picture shows both surfaces, and the part has one.
 
+The sleeve is drawn another way, because it is a tube with four holes and two windows cut through
+it and the pictures have no boolean to cut them with. `sleeveMesh` in
+[render_test.go](render_test.go) meshes the surface of the set `sleeve.inFrame` describes, by
+marching tetrahedra on a 0.2 mm grid, and places every vertex on that surface by bisection, so the
+holes drawn are the channels the proof walks. The grid leaves its own marks: the sharp rims come
+out bevelled across up to one grid cell, and the holes' twisted walls show short dark dashes where
+the grid cuts them into small triangles at odd angles.
+
 The channel's wall drawn here is the ideal, and so is the one Fusion cuts: each collar and each
 bore is one sweep of its section along the axis with a twist, a rectangle turning rigidly, with
 no sections and no facets. The proof's solid engine has no twisted sweep, so the compiled step
 proof stands in a ruled loft through thirteen rotated rectangles for each; `TestBoreSubstituteKeepsItsClearance`
 measures what that stand-in costs against the true channel, with the wall flat between sections
-and every facet a little inside it: 0.007 mm of the 0.45 mm clearance. It is the one case in the
-hand-written proof that reasons about a stand-in rather than about the ideal shape, and it is
-what says a measurement made on the stand-in holds for the swept channel to within that much.
+and every facet a little inside it: 0.007 mm of the 0.45 mm clearance.
+`TestSleeveBoreSubstituteKeepsItsClearance` measures the same over the printable sleeve's longer
+cut. They are the two cases in the hand-written proof that reason about a stand-in rather than
+about the ideal shape, and they are what says a measurement made on the stand-in holds for the
+swept channel to within that much.
 
 ## The part
 
@@ -178,6 +190,174 @@ table was taken with is fixed at the top of that file and quoted in the spec's "
 so are its bounds, which are fractions of the pitch: the departure under 6% of it and the window
 within 7% of it of the backlash quoted above.
 
+## The printable sleeve
+
+![The sleeve alone: a thick tube standing on one flat end, with two twisted rectangular holes through its wall, one high on the left and one low on the right, and the edge of a slanted window at the right](images/sleeve-frame.png)
+
+On 2026-09-30 the user reported that the video's frame, described under "The frame" above and
+printed several times, is not practical to print: the thin rods, the wire ring and the loop
+hanging on them wobble while the printer lays them down. The frame is there to show the two
+ribbons meshing, not to copy the video's frame. The four bores cannot change, because they hold
+each gear to its screw motion, and the mesh has to stay visible from the top and the bottom.
+[sleeve_test.go](sleeve_test.go) proves a replacement that keeps to those rules: a **sleeve**.
+
+The sleeve is one thick-walled tube about the frame's axis with the four bores and two slanted
+windows cut through its wall, and nothing else: no ring, no loop, no rods and no collars. Its
+inner radius is `CageRadius − CollarHalf`, 12 mm, and its outer radius `CageRadius + CollarHalf`,
+18 mm, so the 6 mm wall is a collar's length and the far face of each bore is where the collar's
+was. That is why the travel does not change. It stands 18.75 mm either side of the middle plane,
+37.5 mm tall: the sleeve's own `CageRise` is 18.75 mm, 1.25 ribbon widths, where the video frame's
+20.25 mm would add 3 mm of height for 1.5 mm more end wall and nothing else.
+
+Each bore is the collar's channel: the ribbon's crest rectangle plus 0.45 mm all round, 15.9 by
+4.65 mm, turned with the ribbon at its own lead. Only the span the cut covers changes. The tube's
+inside is a cylinder, not a plane square to the ribbon, so the channel's corners reach into the
+wall before its centre line does. The cut runs from 1 mm before a corner first touches the inner
+cylinder, station 7.68 mm of the gear's axis, to 1 mm outside the tube, station 19 mm, and turns
+82.3° over those 11.3 mm.
+
+![One gear through the sleeve: the ribbon enters through a hole on the left and leaves through one on the right, with gear B's upper hole facing the camera](images/sleeve-cage.png)
+
+One gear passes through the sleeve by its two holes, which sit on opposite sides of the tube at
+the gear's own height, 7.125 mm below the middle for gear A and as far above it for gear B. The
+two gears' holes are the same either way up: a half turn about the line that bisects the two axes
+carries gear A's holes onto gear B's.
+
+![Both ribbons through the sleeve, from the side](images/sleeve-pair.png)
+
+![Both ribbons through the sleeve, from almost overhead, crossing inside the hollow](images/sleeve-plan.png)
+
+**The mesh is seen down the hollow.** The sleeve holds the two ribbons where the video frame
+does, so they cross and mesh in the middle of the tube, and the tube is open at both ends.
+
+![Looking straight down the hollow from the top end: gear B's ribbon crosses it on edge, and beside it gear A's teeth sit in gear B's](images/sleeve-top.png)
+
+![The same view from the bottom end, where gear A's ribbon is the nearer one](images/sleeve-bottom.png)
+
+`TestSleeveKeepsTheMeshVisibleAlongTheAxis` projects everything either ribbon reaches within the
+engaged zone onto the plane square to the axis. That footprint reaches 10.43 mm from the axis,
+11.21 mm once grown by the clearance, inside a hollow of radius 12 mm, and the test follows the
+line along the axis through every point of it from one end of the sleeve to the other without
+meeting material. The build refuses an input whose footprint and clearance would reach the inner
+radius; `TestSleeveInputsAreChecked` reaches that refusal with a 1.5 mm engagement.
+
+**The mesh is also seen from the side, through two slanted windows.**
+
+![The sleeve seen square on to one window: a long six-sided slot leaning at 45 degrees through the wall, with the matching window on the far side showing through it, and the mouths of two bores at either edge](images/sleeve-window.png)
+
+![The same view with both ribbons in place: through the window, gear B's teeth run down the upper edge and gear A's along the lower, meeting in the middle](images/sleeve-side.png)
+
+The four bores sit round the tube at 40°, 140°, 220° and 320°. Across the +X and −X sides the
+neighbouring bores are 80° apart and their channels come within 6.81 and 4.83 mm of each other,
+which leaves no room for a window with a 3 mm `CollarWall` on both sides of it. Across +Y and −Y
+they are 100° apart, one bore low and the other high, and the wall between them is a band that
+runs at about 45° from above the low bore down to below the high one. Each window is cut along
+that band, one facing +Y and one facing −Y; the −Y window is the +Y window turned half a turn
+about X, as the bores are.
+
+A window is a six-sided hole drawn on the plane through the frame's axis square to the direction
+it faces and pushed straight out through the wall on that side. Its two long sides are 45° lines
+6.95 mm apart, 9.83 mm measured up the axis. Its two ends are upright, 23.07 mm apart across the
+window. Two 45° lines trim its long corners. Every edge is upright or at 45°, so standing on
+either end the printer lays the window's roof on the layer below it and bridges nothing; that is
+why the window is slanted rather than a level slot, whose roof would be a bridge.
+
+Every dimension comes from the sleeve's own geometry. `newWindow` in
+[sleeve_test.go](sleeve_test.go) finds how far each of the two flanking bores' channels reaches
+across the band, where it lies in the wall, and sets the long sides a `CollarWall` beyond. It
+stands each end where the end's corners come a `CollarWall`, plus 0.076 mm for what the sampling
+can miss, from the other two bores. The trims keep the window within the 15.01 mm of the middle
+the channels already reach, so both end bands keep the 3.74 mm end wall. They also keep each long
+side from meeting the inner face more than 45° round from the window's facing direction. Where a
+45° roof meets the curved inner face, the line they meet on descends more gently than the roof,
+and past 45° round it is flatter than the 0.25 mm grid's 45° rule accepts.
+
+`TestSleeveWindowsKeepTheirWalls` holds the walls round the windows. Each flanking bore's channel
+lies exactly 3.000 mm beyond one of the window's long sides, measured on the window's plane. That
+settles the bore without sampling: a point is never nearer the window in space than its
+projection is on the plane. The other two
+bores are measured in space from every face of the window's cut, sampled every 0.1 mm, and keep
+3.076 mm. The windows reach 14.98 mm from the middle against the channels' 15.01 mm; every edge
+rises at 45° or more; the window's faces meet the tube at edges of 49.6° or more; and the lines
+where its roofs meet the tube descend at 35.3° or more, one cell diagonally on the grid. Each
+window is 208.1 mm² on its plane and takes 1412 mm³ of wall.
+
+`TestSleeveWindowPostsStandFirm` cuts level sections every 0.1 mm and walks each round the inner
+face, the middle of the wall and the outer face at 0.1° steps. The narrowest post beside a window
+is 3.44 mm, between gear B's +R bore and the +Y window. Where a post is narrower than two
+`CollarWall`s, 6 mm, the tallest unbroken stretch is 3.2 mm tall on 3.77 mm: 0.85 times its width,
+against a limit of 2. The video frame's 3 mm rods ran over 13 times their width between the ring
+and the loop.
+
+`TestSleeveWindowsShowTheMeshFromTheSide` takes the 4176 points of the mesh zone that the axial
+test projects into the footprint, sampled every 0.25 mm of station, and asks of each whether a
+straight line from it leaves the tube through a window without touching either ribbon's crest
+rectangle. 3756 of them can be seen, 89.9%: 52.9% through the +Y window and 53.0% through the −Y
+window. Along a level line, as someone beside the frame at the mesh's height would look, 59.2% can
+be. The plain tube has no opening in its side but the bores, and the ribbons fill those.
+
+**It prints standing on either end, with no support.** Every outside face is a vertical cylinder
+or a flat end ring of 565.5 mm², and every face of a window is upright or at 45°.
+`TestSleevePrintsStandingOnEitherEnd` samples the sleeve on a 0.25 mm grid and finds every cell
+with no material within one cell under it, which is a 45° rule at that size. Printed either way
+up, there are 1325 such cells, 83 mm², and every one is in the roof of a bore, the same count as
+before the windows were cut. Nowhere else does the printer lay material on air. The same test
+holds the end wall above and below the channels, 3.74 mm, and the two nearest channels, gear A's
+and gear B's −R bores 4.83 mm apart, over the 3 mm `CollarWall`, and logs the edge each hole's
+mouth leaves: 46.4° on the inner face and 62.6° on the outer. `TestSleeveIsOnePiece` flood-fills
+the same grid and reaches every cell: one piece of 16,503 mm³, about 20 g of PLA, against 19,325
+mm³ before the windows.
+
+**The bores still hold each gear to its screw motion.** `TestSleeveAdmitsOnlyTheScrewMotion`
+finds the jam at 3.55° out of step, as the collars do. `TestRibbonsClearTheSleeveOverTheTravel`
+walks both ribbons' crest rectangles, grown by the clearance, over the whole travel and finds no
+point of them in the sleeve; outside the bores' cuts the ribbons keep 1.00 mm from the tube. The
+sleeve's inputs are the spec's defaults in everything but `CageRise`, which
+`TestSleeveBoresAreTheSameChannels` holds, so the tests that read nothing of the frame but the
+bores and where they sit hold for the sleeve as they stand: the ribbon at 0.450 mm from every
+side of its bore, the 141.2 mm travel, and the 1.96 mm between the ribbons outside the engaged
+zone.
+
+| Quantity | Value |
+|---|---|
+| Sleeve | radius 12 to 18 mm, a 6 mm wall, 37.5 mm tall |
+| Bore | 15.9 by 4.65 mm, cut over stations 7.683 to 19 mm of its gear's axis and turning 82.31° over them |
+| Play in the frame | the bores jam a gear 3.55° out of step |
+| Travel | 141.2 mm for the pair, unchanged |
+| Frame to ribbon | no point of either ribbon, grown by the clearance, in the sleeve over the travel; 1.00 mm from the tube outside the bores' cuts |
+| Mesh footprint | 10.43 mm from the axis, 11.21 mm with the clearance, inside the 12 mm inner radius |
+| Windows | two, facing +Y and −Y; long sides at 45°, 6.95 mm apart (9.83 mm up the axis); upright ends 23.07 mm apart; 208.1 mm² and 1412 mm³ each |
+| Window to channel | 3.000 mm to the flanking bores, measured on the window's plane; 3.076 mm to the others, sampled in space |
+| Beside the windows | the narrowest post 3.44 mm; stretches under 6 mm wide at most 0.85 times as tall as they are wide |
+| Side view | 89.9% of the mesh zone seen through a window past both ribbons, 59.2% along a level line |
+| Base | a 565.5 mm² flat ring at either end |
+| Material laid on air | 1325 cells of 0.25 mm, 83 mm², all in the bores' roofs, printed either way up |
+| End wall | 3.74 mm above and below the channels and the windows |
+| Between channels | 4.83 mm at the nearest, gear A's and gear B's −R bores |
+| Hole mouths | 46.4° edges on the inner face, 62.6° on the outer |
+| Volume | 16,503 mm³, about 20 g of PLA |
+| Build's twist check | probes at stations ±15 mm, 16.86 and 16.31 mm from the axis, inside the channel under the right twist sense; under the wrong one they sit 6.56 and 7.41 mm across a channel 2.325 mm half thick, in the wall |
+| Bore wall stand-in | a ruled loft through 18 sections leaves 0.443 mm of the 0.45 mm clearance |
+
+**What the proof cannot reach.** Each −R bore passes through level: its 15.9 mm-wide roof is flat
+at station −14.43 mm, inside the wall, and the printer has to bridge it across the wall. The +R
+bores' roofs are flat at station 10.31 mm, near the inner mouth, where 1.8 mm at each end of the
+roof is in the wall and the rest in the hollow. Whether a 15.9 mm bridge sags into the 0.45 mm
+clearance, and how the +R roofs come out, only a print settles; the proof logs the roofs and
+enforces nothing about them. The sleeve has not been built in Fusion either: the add-in does not
+make it, and none of the steps a build would take for it, the tube's sketch and extrude and four
+twisted sweep cuts of 82° that start in air, has run. Neither have the windows: each would be one
+sketch of the hexagon on the plane through the axis and one cut extruded from it through the wall
+on one side. Where a window's roof meets the inner face, the line it meets on descends at 35.3° at
+the flattest; the grid takes that as one cell diagonally, and whether a slicer lays a short
+unsupported edge there only a print settles.
+
+**The spec and the add-in still build the video frame.** Until
+[`spec/screwgear/instructions.md`](../../spec/screwgear/instructions.md) adopts the sleeve, "The
+frame" above describes the frame a build makes, and this section describes a proposal the proof
+has checked. The verdict of the first print of the sleeve belongs in the spec's "What the print
+showed", beside the 2026-09-30 report on the video frame.
+
 ## What has no picture
 
 **The tooth cell and its screw step.** The spec builds a ribbon as one four-tooth cell repeated
@@ -189,10 +369,10 @@ its sections and never form a cell.
 
 **Anything a generator does.** There is no `lib/geargen/screwgear.py` yet, and no compiled step
 list, so there is no build sequence to show step by step the way
-[`proof/bevelgear/README.md`](../bevelgear/README.md) does. The four files named here —
-[geometry_test.go](geometry_test.go), [pair_test.go](pair_test.go), [cage_test.go](cage_test.go)
-and [render_test.go](render_test.go) — are the hand-written mechanism proof; `/compile-gear`
-writes the step proof beside them and leaves them alone.
+[`proof/bevelgear/README.md`](../bevelgear/README.md) does. The five files named here —
+[geometry_test.go](geometry_test.go), [pair_test.go](pair_test.go), [cage_test.go](cage_test.go),
+[sleeve_test.go](sleeve_test.go) and [render_test.go](render_test.go) — are the hand-written
+mechanism proof; `/compile-gear` writes the step proof beside them and leaves them alone.
 
 ## Regenerating
 
@@ -208,5 +388,8 @@ GOWORK=off go test ./screwgear -run '^TestRender' -render.out=./images -count=1
 the images are then built against the engine revisions `proof/go.mod` pins, out of the module
 cache, rather than against whatever checkout sits beside the repository. `-count=1` is needed
 because a cached PASS writes no files.
+
+`TestRenderSleeve` takes about 30 seconds, most of it sampling the sleeve on its 0.2 mm grid;
+`-run '^TestRenderSleeve$'` regenerates the sleeve's pictures alone.
 
 Nothing checks these images. They are regenerated by hand when the geometry changes.
