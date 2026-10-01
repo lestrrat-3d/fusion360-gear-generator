@@ -34,13 +34,18 @@ between sections, at the 10 mm ribbon the defaults were then (`spec/screwgear/fu
 `[SCREW-F-CELL-LOFT]`); the 1.5× ribbon drawn here has not been loaded yet.
 
 The sleeve is a tube with four holes and two windows cut through it, and the pictures have no
-boolean to cut them with. `sleeveMesh` in [render_test.go](render_test.go) meshes the surface of
-the set `sleeve.inFrame` describes, by marching tetrahedra on a 0.1 mm grid, and places every
-vertex on that surface by bisection, so the holes drawn are the channels the proof walks. The
-grid leaves its own marks: the sharp rims come out bevelled across up to one grid cell, and the
-holes' twisted walls show short dark dashes where the grid cuts them into small triangles at odd
-angles. On a 0.2 mm grid those bevels showed as a jagged rim at the pictures' size, with or
-without edge lines, which is why the grid is 0.1 mm.
+boolean to cut them with. `sleeveSharpMesh` in [sleeve_mesh_test.go](sleeve_mesh_test.go) meshes
+the surface of the set `sleeve.inFrame` describes by dual contouring on a 0.1 mm grid. It finds
+where the surface crosses each grid edge by bisecting against `inFrame`, takes the normal there
+from the face the point lies on (a cylinder, an end plane, a bore's twisted wall or a window's
+side), and gives each grid cube one vertex where those faces' planes meet. Where two or three
+faces meet in a cube the vertex lands on their edge or corner, so the rims, the bore mouths and
+the window edges come out as single lines. `checkSleeveMesh` fails the render unless every vertex
+has a point inside the sleeve and a point outside it within 0.001 mm and every edge of the mesh is
+shared by exactly two triangles, one running it each way; `TestSleeveMeshDrawsTheFrame` runs the
+same check on a 0.5 mm grid with the proofs. One vertex a cube cannot follow a wedge thinner than
+a cube, so where a bore's wall leaves a cylinder at a shallow angle, as at the pointed tip of a
+bore's mouth, the edge still shows a few short ticks about one grid cube long.
 
 The channel's wall drawn here is the ideal, and so is the one Fusion cuts: each bore is one sweep
 of its section along the axis with a twist, a rectangle turning rigidly, with no sections and no
@@ -360,7 +365,7 @@ the images are then built against the engine revisions `proof/go.mod` pins, out 
 cache, rather than against whatever checkout sits beside the repository. `-count=1` is needed
 because a cached PASS writes no files.
 
-`TestRenderSleeve` takes about 100 seconds, most of it sampling the sleeve on its 0.1 mm grid;
+`TestRenderSleeve` takes 40 to 50 seconds, most of it meshing the sleeve on its 0.1 mm grid;
 `-run '^TestRenderSleeve$'` regenerates every picture with the sleeve in it, `plan.png` and
 `pair.png` included.
 

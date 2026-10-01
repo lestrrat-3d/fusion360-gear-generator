@@ -5,11 +5,9 @@ import (
 	"fmt"
 	"math"
 	"path/filepath"
-	"sync"
 	"testing"
 
 	"github.com/lestrrat-3d/fusion360-gear-generator/proof/render"
-	"github.com/lestrrat-3d/r3"
 	"github.com/lestrrat-3d/solidlens"
 )
 
@@ -148,14 +146,18 @@ func TestRenderMesh(t *testing.T) {
 }
 
 // sleeveMeshStep is the grid the sleeve is meshed on for its pictures, in mm.
+// The edges come out sharp at 0.2 mm too, but where a bore's wall leaves a
+// cylinder at a shallow angle the wedge there is thinner than a cube, and
+// the mesh leaves short ticks about a cube long, which are half as long at
+// 0.1 mm.
 const sleeveMeshStep = 0.1
 
 // TestRenderSleeve draws the printable sleeve that sleeve_test.go proves, with
 // the same ribbons in it. The sleeve has four twisted holes and two windows
 // cut through a tube, and these pictures have no boolean to cut them with, so
-// the sleeve is meshed from its own inside test instead: sleeveMesh draws the
-// surface of the set sleeve.inFrame describes, which is the frame the proof
-// walks and nothing else.
+// the sleeve is meshed from its own inside test instead: sleeveSharpMesh
+// draws the surface of the set sleeve.inFrame describes, which is the frame
+// the proof walks and nothing else, and checkSleeveMesh checks that it does.
 func TestRenderSleeve(t *testing.T) {
 	if *renderOut == "" {
 		t.Skip("no -render.out directory; the example images are not being regenerated")
@@ -163,7 +165,9 @@ func TestRenderSleeve(t *testing.T) {
 	f := defaultSleeve()
 	ga, gb := f.gears[0], f.gears[1]
 
-	frame, err := sleeveMesh(f, sleeveMeshStep)
+	m := sleeveSharpMesh(f, sleeveMeshStep)
+	checkSleeveMesh(t, f, m)
+	frame, err := solidlens.NewMesh(m.vertices, m.triangles)
 	if err != nil {
 		t.Fatalf("mesh the sleeve: %v", err)
 	}
@@ -200,172 +204,6 @@ func TestRenderSleeve(t *testing.T) {
 	// with the ribbons meshing behind it.
 	write(t, "sleeve-window.png", []render.Part{sleevePart}, 12, 90, 30, frame)
 	write(t, "sleeve-side.png", both, 6, 90, 30, frame)
-}
-
-// sleeveMesh draws the sleeve's surface on a grid of step h.
-func sleeveMesh(f sleeve, h float64) (*solidlens.Mesh, error) {
-	pad := r3.NewVec(h, h, h)
-	lo := r3.NewVec(-f.ro, -f.ro, -f.zb).Sub(pad)
-	hi := r3.NewVec(f.ro, f.ro, f.zb).Add(pad)
-	return implicitMesh(f.inFrame, lo, hi, h)
-}
-
-// cubeCorner is the offset of each corner of a grid cube, and cubeTets cuts
-// the cube into six tetrahedra round its diagonal from corner 0 to corner 6.
-// Every cube is cut the same way, so neighbouring cubes cut a shared face
-// along the same diagonal, and every edge a tetrahedron uses runs from a grid
-// node to one of the seven nodes above it in X, Y and Z.
-var (
-	cubeCorner = [8][3]int{{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0}, {0, 0, 1}, {1, 0, 1}, {1, 1, 1}, {0, 1, 1}}
-	cubeTets   = [6][4]int{{0, 5, 1, 6}, {0, 1, 2, 6}, {0, 2, 3, 6}, {0, 3, 7, 6}, {0, 7, 4, 6}, {0, 4, 5, 6}}
-)
-
-// implicitMesh draws the surface of the set inside describes, within the box
-// from lo to hi, by marching tetrahedra: the box is cut into cubes of side h,
-// each cube into six tetrahedra, and each tetrahedron whose corners are not
-// all on one side of the surface gets one or two triangles across it. Each
-// triangle corner sits where the surface crosses a tetrahedron's edge, found
-// by bisecting that edge against inside, so every vertex lies on the true
-// surface to well under a micron.
-//
-// Every crossing within a quarter of an edge of the same grid node is made
-// one vertex, placed where the first of them crosses. Without that, a surface
-// passing close to a node leaves slivers whose normals point anywhere, which
-// shade and outline as noise; with it, those slivers collapse and are
-// dropped, and the merged vertex still lies on the surface.
-func implicitMesh(inside func(r3.Vec) bool, lo, hi r3.Vec, h float64) (*solidlens.Mesh, error) {
-	nx := int(math.Ceil((hi.X-lo.X)/h)) + 1
-	ny := int(math.Ceil((hi.Y-lo.Y)/h)) + 1
-	nz := int(math.Ceil((hi.Z-lo.Z)/h)) + 1
-	node := func(i, j, k int) int { return (k*ny+j)*nx + i }
-	pos := func(i, j, k int) r3.Vec {
-		return r3.NewVec(lo.X+float64(i)*h, lo.Y+float64(j)*h, lo.Z+float64(k)*h)
-	}
-
-	in := make([]bool, nx*ny*nz)
-	var wg sync.WaitGroup
-	for k := range nz {
-		wg.Go(func() {
-			for j := range ny {
-				for i := range nx {
-					in[node(i, j, k)] = inside(pos(i, j, k))
-				}
-			}
-		})
-	}
-	wg.Wait()
-
-	const snap = 0.25
-	var vertices []solidlens.Vec
-	index := map[int64]int{}
-	vertexAt := func(key int64, p r3.Vec) int {
-		if at, ok := index[key]; ok {
-			return at
-		}
-		index[key] = len(vertices)
-		vertices = append(vertices, solidlens.Vec{X: p.X, Y: p.Y, Z: p.Z})
-		return len(vertices) - 1
-	}
-	// crossing is the vertex where the surface crosses the edge between two
-	// nodes, one inside and one out, keyed by the edge's lower node and its
-	// direction, or by the node itself when the crossing is moved onto it.
-	crossing := func(a, b [3]int) int {
-		low, high := a, b
-		if b[0] < a[0] || b[1] < a[1] || b[2] < a[2] {
-			low, high = b, a
-		}
-		pIn, pOut := pos(a[0], a[1], a[2]), pos(b[0], b[1], b[2])
-		if !in[node(a[0], a[1], a[2])] {
-			pIn, pOut = pOut, pIn
-		}
-		for range 16 {
-			mid := pIn.Add(pOut).Scale(0.5)
-			if inside(mid) {
-				pIn = mid
-			} else {
-				pOut = mid
-			}
-		}
-		at := pIn.Add(pOut).Scale(0.5)
-		pLow, pHigh := pos(low[0], low[1], low[2]), pos(high[0], high[1], high[2])
-		frac := at.Sub(pLow).Len() / pHigh.Sub(pLow).Len()
-		lowNode := int64(node(low[0], low[1], low[2]))
-		switch {
-		case frac < snap:
-			return vertexAt(lowNode*8, at)
-		case frac > 1-snap:
-			return vertexAt(int64(node(high[0], high[1], high[2]))*8, at)
-		}
-		code := int64((high[0] - low[0]) + 2*(high[1]-low[1]) + 4*(high[2]-low[2]))
-		return vertexAt(lowNode*8+code, at)
-	}
-
-	var triangles [][3]int
-	// face adds a triangle, wound so its normal points from the inside
-	// corners of its tetrahedron toward the outside ones.
-	face := func(a, b, c int, out r3.Vec) {
-		if a == b || b == c || c == a {
-			return
-		}
-		va, vb, vc := vertices[a], vertices[b], vertices[c]
-		n := vb.Sub(va).Cross(vc.Sub(va))
-		if n.X*out.X+n.Y*out.Y+n.Z*out.Z < 0 {
-			b, c = c, b
-		}
-		triangles = append(triangles, [3]int{a, b, c})
-	}
-	for k := range nz - 1 {
-		for j := range ny - 1 {
-			for i := range nx - 1 {
-				var corner [8][3]int
-				var flag [8]bool
-				all, none := true, true
-				for c, o := range cubeCorner {
-					corner[c] = [3]int{i + o[0], j + o[1], k + o[2]}
-					flag[c] = in[node(corner[c][0], corner[c][1], corner[c][2])]
-					all = all && flag[c]
-					none = none && !flag[c]
-				}
-				if all || none {
-					continue
-				}
-				for _, tet := range cubeTets {
-					var ins, outs [][3]int
-					for _, c := range tet {
-						if flag[c] {
-							ins = append(ins, corner[c])
-						} else {
-							outs = append(outs, corner[c])
-						}
-					}
-					if len(ins) == 0 || len(outs) == 0 {
-						continue
-					}
-					out := centroid(pos, outs).Sub(centroid(pos, ins))
-					switch len(ins) {
-					case 1:
-						face(crossing(ins[0], outs[0]), crossing(ins[0], outs[1]), crossing(ins[0], outs[2]), out)
-					case 3:
-						face(crossing(ins[0], outs[0]), crossing(ins[1], outs[0]), crossing(ins[2], outs[0]), out)
-					default:
-						ac, ad := crossing(ins[0], outs[0]), crossing(ins[0], outs[1])
-						bc, bd := crossing(ins[1], outs[0]), crossing(ins[1], outs[1])
-						face(ac, ad, bd, out)
-						face(ac, bd, bc, out)
-					}
-				}
-			}
-		}
-	}
-	return solidlens.NewMesh(vertices, triangles)
-}
-
-func centroid(pos func(i, j, k int) r3.Vec, nodes [][3]int) r3.Vec {
-	var sum r3.Vec
-	for _, n := range nodes {
-		sum = sum.Add(pos(n[0], n[1], n[2]))
-	}
-	return sum.Scale(1 / float64(len(nodes)))
 }
 
 func write(t *testing.T, name string, parts []render.Part, elevation, azimuth, fov float64,
