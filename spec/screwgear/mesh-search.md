@@ -69,8 +69,9 @@ search at the 1.5× size" below.
 **The twist lead was eased from 30 mm to 33 mm after the search**, and the pair still drives 1:1 at
 the finer step. At the time the frame tied the cage radius to half the lead, so that its bores
 would stand near upright, and the cage grew from 15 mm to 16.5 mm with it. The frame in
-`instructions.md` has since been replaced by the video's, which has no bore through a wall, and
-the cage radius is now read from the video rather than from the lead.
+`instructions.md` has since been replaced by the video's, and that by a sleeve that takes its
+bores at whatever angle the ribbon passes its wall ("What the print showed"), so the cage radius
+no longer follows the lead.
 
 **The twist lead came from the video, not from the search.** An earlier draft turned once every 90 mm, which drives well but makes a part that barely looks
 twisted and a pair whose axes cross at 38°. Segerman's model turns about once every four
@@ -126,7 +127,7 @@ engagement, and hardly moves the departure. **The spec keeps 80° and 15° on bo
 takes 0.75 mm of engagement**, 0.29 of the tooth height, the same fraction the earlier proof
 run at `ToothHeight` 1.75 and `Engagement` 0.5 drove well at. The 0°/30° arrangement drives
 with a wider window and a third of the departure; equal angles are kept because the two gears
-are the same part held alike and the frame's two rods per gear then turn by the same angle
+are the same part held alike and the sleeve and its windows are then the same either way up
 (`instructions.md`, "Both Mounting Angles are 15°"). At the chosen values the lead was also
 moved: 45 mm gives 0.72–0.76 mm and 0.037 mm, 60 mm gives 0.66–0.76 mm and 0.116 mm, 66 mm
 gives 0.55–0.67 mm and 0.074 mm, so 49.5 mm, the video's 3.3 widths, stays.

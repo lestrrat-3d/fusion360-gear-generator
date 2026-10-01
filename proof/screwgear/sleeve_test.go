@@ -3,6 +3,7 @@ package screwgear_test
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -34,9 +35,10 @@ import (
 // degrees, and the only faces that need more are the ceilings of the four
 // bores.
 //
-// The spec and the add-in still build the video's frame. This file proves the
-// sleeve so that the spec can adopt it; nothing here changes defaultParams,
-// and every test in cage_test.go still describes the frame that is built.
+// spec/screwgear/instructions.md builds the sleeve; the add-in still builds
+// the video's frame until it is regenerated. Nothing here changes
+// defaultParams, which cage_test.go reads for the video frame it proves;
+// sleeveParams is the spec's default table.
 //
 // Three checks the sleeve needs read nothing of the frame but the bores and
 // where they sit, and TestSleeveBoresAreTheSameChannels holds those to the
@@ -98,12 +100,14 @@ func meshFootprintRadius(p Params) float64 {
 	return math.Hypot(axialWindow(p), math.Hypot(p.Width/2, p.Thickness/2))
 }
 
-// The build's range checks for the sleeve, in the order it runs them. Each is
-// a closed form the build can evaluate from its inputs alone.
+// The build's range checks for the sleeve, in the order it runs them. The
+// first three are closed forms the build can evaluate from its inputs alone;
+// the fourth is channelSeparation, which samples the bores' channels.
 const (
 	refuseChannelInWall = "the bore's corner reaches past the sleeve's inner radius, so the channel would start in the wall"
 	refuseMeshHidden    = "the mesh zone and its clearance reach past the sleeve's inner radius, so the mesh would not be visible along the axis"
 	refuseEndWall       = "the channels come nearer the sleeve's end faces than CollarWall"
+	refuseChannelsClose = "two neighbouring bores' channels come nearer each other than CollarWall"
 )
 
 // sleeveRefusal is the first of the build's checks the inputs fail, or ""
@@ -121,6 +125,10 @@ func sleeveRefusal(p Params) string {
 	if p.CageRise < p.AxisOffset()/2+p.BoreCorner()+p.CollarWall {
 		return refuseEndWall
 	}
+	ga, gb := pair(p, p.Sigma(), 0, assemblyPhase)
+	if sep, _ := channelSeparation(plainSleeve(ga, gb)); sep < p.CollarWall {
+		return refuseChannelsClose
+	}
 	return ""
 }
 
@@ -131,7 +139,8 @@ type sleeve struct {
 	p          Params
 	gears      [2]Gear
 	ri, ro, zb float64
-	sIn, sOut  float64 // each bore's cut, as a distance from the middle on its own axis
+	sIn, sOut  float64             // each bore's cut, as a distance from the middle on its own axis
+	sections   [4][]channelStation // each bore's channel in the tube, as wallGap walks it
 	windows    []sleeveWindow
 }
 
@@ -139,9 +148,23 @@ type sleeve struct {
 // tube's radii and height and from the bores' channels, so they follow
 // whatever inputs the sleeve is built from.
 func newSleeve(ga, gb Gear) sleeve {
+	f := plainSleeve(ga, gb)
+	for _, b := range f.bores() {
+		f.sections[b.index] = f.channelSections(b)
+	}
+	for _, facing := range windowFacings(f.p) {
+		if w := f.newWindow(facing); w.room() == "" {
+			f.windows = append(f.windows, w)
+		}
+	}
+	return f
+}
+
+// plainSleeve is the tube and its four bores, with no window.
+func plainSleeve(ga, gb Gear) sleeve {
 	p := ga.P
 	sIn, sOut := p.SleeveCut()
-	f := sleeve{
+	return sleeve{
 		p:     p,
 		gears: [2]Gear{ga, gb},
 		ri:    p.SleeveInner(),
@@ -150,11 +173,18 @@ func newSleeve(ga, gb Gear) sleeve {
 		sIn:   sIn,
 		sOut:  sOut,
 	}
-	f.windows = []sleeveWindow{
-		f.newWindow(r3.NewVec(0, 1, 0)),
-		f.newWindow(r3.NewVec(0, -1, 0)),
+}
+
+// windowFacings are the two level directions the windows are cut toward:
+// across the two wider gaps between neighbouring bores. Neighbouring bores
+// are Sigma apart across +X and -X, and 180 - Sigma apart across +Y and -Y,
+// so the windows face +Y and -Y up to a right-angled crossing and +X and -X
+// past it.
+func windowFacings(p Params) [2]r3.Vec {
+	if p.Sigma() <= math.Pi/2 {
+		return [2]r3.Vec{r3.NewVec(0, 1, 0), r3.NewVec(0, -1, 0)}
 	}
-	return f
+	return [2]r3.Vec{r3.NewVec(1, 0, 0), r3.NewVec(-1, 0, 0)}
 }
 
 // defaultSleeve is the sleeve at the defaults, built once: finding the
@@ -532,8 +562,10 @@ var defaultVoxels = sync.OnceValue(func() *voxels { return voxelize(defaultSleev
 // inside the wall and no window reaches past the channels, so both end bands
 // are whole rings, and every bit of the wall between the openings reaches one
 // of them.
-func TestSleeveIsOnePiece(t *testing.T) {
-	v := defaultVoxels()
+func TestSleeveIsOnePiece(t *testing.T) { checkSleeveIsOnePiece(t, defaultVoxels()) }
+
+// checkSleeveIsOnePiece is TestSleeveIsOnePiece for any sleeve's grid.
+func checkSleeveIsOnePiece(t testing.TB, v *voxels) {
 	f := v.f
 	p := f.p
 
@@ -735,8 +767,11 @@ func inABore(v *voxels, c [3]int) bool {
 // CollarWall. What the printer makes of a bore's roof is not something a
 // proof reaches, so the flattest roof in each bore and the span the printer
 // bridges there are logged for the record.
-func TestSleevePrintsStandingOnEitherEnd(t *testing.T) {
-	v := defaultVoxels()
+func TestSleevePrintsStandingOnEitherEnd(t *testing.T) { checkSleevePrints(t, defaultVoxels()) }
+
+// checkSleevePrints is TestSleevePrintsStandingOnEitherEnd for any sleeve's
+// grid.
+func checkSleevePrints(t testing.TB, v *voxels) {
 	f := v.f
 	p := f.p
 
@@ -854,50 +889,141 @@ const minMouthWedge = 30.0
 // nearestChannels is the least distance between the outlines of two
 // different bores' channels, where they run through the wall, and which two.
 func nearestChannels(f sleeve) (float64, string) {
-	p := f.p
-	hw, ht := p.BoreHalfWidth(), p.BoreHalfThickness()
-	type channel struct {
-		name string
-		pts  []r3.Vec
-	}
-	var chans []channel
-	for gi, g := range f.gears {
-		for _, sign := range []float64{-1, 1} {
-			side := " +R"
-			if sign < 0 {
-				side = " -R"
-			}
-			ch := channel{name: [2]string{"gear A", "gear B"}[gi] + side}
-			for s := sign * f.sIn; math.Abs(s) <= f.sOut; s += sign * 0.1 {
-				for i := range 17 {
-					k := float64(i) / 16
-					for _, q := range [4][2]float64{
-						{hw, -ht + 2*ht*k}, {-hw, -ht + 2*ht*k}, {-hw + 2*hw*k, ht}, {-hw + 2*hw*k, -ht},
-					} {
-						pt := g.world(q[0], q[1], s)
-						if r := math.Hypot(pt.X, pt.Y); r < f.ri-0.5 || r > f.ro+0.5 {
-							continue
-						}
-						ch.pts = append(ch.pts, pt)
-					}
-				}
-			}
-			chans = append(chans, ch)
-		}
+	bores := f.bores()
+	var pts [4][]r3.Vec
+	for _, b := range bores {
+		pts[b.index] = f.channelOutline(b)
 	}
 	best, name := math.Inf(1), ""
-	for i := range chans {
-		for j := i + 1; j < len(chans); j++ {
-			for _, a := range chans[i].pts {
-				for _, b := range chans[j].pts {
+	for i := range bores {
+		for j := i + 1; j < len(bores); j++ {
+			for _, a := range pts[i] {
+				for _, b := range pts[j] {
 					if d := a.Sub(b).Len(); d < best {
-						best, name = d, chans[i].name+" and "+chans[j].name
+						best, name = d, bores[i].name+" and "+bores[j].name
 					}
 				}
 			}
 		}
 	}
 	return best, name
+}
+
+// channelOutline samples a bore's channel where it runs through the wall:
+// the rectangle's four sides at seventeen points each, at stations 0.1 mm
+// apart from the cut's inner end outward, kept where they stand within half a
+// millimetre of the tube's radii.
+func (f sleeve) channelOutline(b bore) []r3.Vec {
+	p := f.p
+	hw, ht := p.BoreHalfWidth(), p.BoreHalfThickness()
+	var out []r3.Vec
+	for s := b.sign * f.sIn; math.Abs(s) <= f.sOut; s += b.sign * 0.1 {
+		for i := range 17 {
+			k := float64(i) / 16
+			for _, q := range [4][2]float64{
+				{hw, -ht + 2*ht*k}, {-hw, -ht + 2*ht*k}, {-hw + 2*hw*k, ht}, {-hw + 2*hw*k, -ht},
+			} {
+				pt := b.g.world(q[0], q[1], s)
+				if r := math.Hypot(pt.X, pt.Y); r < f.ri-0.5 || r > f.ro+0.5 {
+					continue
+				}
+				out = append(out, pt)
+			}
+		}
+	}
+	return out
+}
+
+// channelSeparation is the build's check on the wall between neighbouring
+// bores, and the gap it is least across. Round the tube the bores alternate
+// between the gears, so the four gaps between neighbours face +Y (gear A's
+// +R bore and gear B's -R), -X (the two -R bores), -Y (gear A's -R and gear
+// B's +R) and +X (the two +R bores). For each gap both bores' outlines, as
+// channelOutline samples them, are projected onto the plane through the
+// frame's axis square to the direction the gap faces, and the convex hull of
+// each projection is taken. The separation is the most, over the directions
+// square to the two hulls' edges, by which one hull's projection onto that
+// direction clears the other's. A projection brings no two points nearer
+// together, so the separation never exceeds the least distance between the
+// two outlines that nearestChannels measures.
+func channelSeparation(f sleeve) (float64, string) {
+	b := f.bores()
+	gaps := []struct {
+		facing r3.Vec
+		x, y   bore
+	}{
+		{r3.NewVec(0, 1, 0), b[1], b[2]},
+		{r3.NewVec(-1, 0, 0), b[2], b[0]},
+		{r3.NewVec(0, -1, 0), b[0], b[3]},
+		{r3.NewVec(1, 0, 0), b[3], b[1]},
+	}
+	least, which := math.Inf(1), ""
+	for _, gap := range gaps {
+		across := r3.NewVec(0, 0, 1).Cross(gap.facing)
+		hull := func(bb bore) [][2]float64 {
+			var pts [][2]float64
+			for _, pt := range f.channelOutline(bb) {
+				pts = append(pts, [2]float64{pt.Dot(across), pt.Z})
+			}
+			return convexHull(pts)
+		}
+		hx, hy := hull(gap.x), hull(gap.y)
+		sep := math.Inf(-1)
+		for _, h := range [][][2]float64{hx, hy} {
+			for i := range h {
+				a, c := h[i], h[(i+1)%len(h)]
+				n := [2]float64{c[1] - a[1], a[0] - c[0]}
+				l := math.Hypot(n[0], n[1])
+				if l == 0 {
+					continue
+				}
+				n[0], n[1] = n[0]/l, n[1]/l
+				loX, hiX, loY, hiY := math.Inf(1), math.Inf(-1), math.Inf(1), math.Inf(-1)
+				for _, q := range hx {
+					d := q[0]*n[0] + q[1]*n[1]
+					loX, hiX = math.Min(loX, d), math.Max(hiX, d)
+				}
+				for _, q := range hy {
+					d := q[0]*n[0] + q[1]*n[1]
+					loY, hiY = math.Min(loY, d), math.Max(hiY, d)
+				}
+				sep = math.Max(sep, math.Max(loY-hiX, loX-hiY))
+			}
+		}
+		if sep < least {
+			least, which = sep, gap.x.name+" and "+gap.y.name
+		}
+	}
+	return least, which
+}
+
+// convexHull is the convex hull of a set of points, counter-clockwise, by
+// Andrew's monotone chain.
+func convexHull(pts [][2]float64) [][2]float64 {
+	sort.Slice(pts, func(i, j int) bool {
+		if pts[i][0] != pts[j][0] {
+			return pts[i][0] < pts[j][0]
+		}
+		return pts[i][1] < pts[j][1]
+	})
+	cross := func(o, a, b [2]float64) float64 {
+		return (a[0]-o[0])*(b[1]-o[1]) - (a[1]-o[1])*(b[0]-o[0])
+	}
+	var h [][2]float64
+	for pass := 0; pass < 2; pass++ {
+		start := len(h)
+		for _, q := range pts {
+			for len(h) >= start+2 && cross(h[len(h)-2], h[len(h)-1], q) <= 0 {
+				h = h[:len(h)-1]
+			}
+			h = append(h, q)
+		}
+		h = h[:len(h)-1]
+		for i, j := 0, len(pts)-1; i < j; i, j = i+1, j-1 {
+			pts[i], pts[j] = pts[j], pts[i]
+		}
+	}
+	return h
 }
 
 // The compiled step proof will stand a ruled loft in for each bore's twisted
@@ -934,10 +1060,12 @@ func TestSleeveBoreSubstituteKeepsItsClearance(t *testing.T) {
 }
 
 // The build refuses an input the sleeve cannot be made from, with three
-// closed forms: a bore's corner that reaches past the inner radius would
-// start the channel in the wall; a mesh zone that reaches past it would be
-// hidden; channels that come within CollarWall of the end faces would leave
-// them too thin. This holds that the defaults pass all three, and that each
+// closed forms and one sampled check: a bore's corner that reaches past the
+// inner radius would start the channel in the wall; a mesh zone that reaches
+// past it would be hidden; channels that come within CollarWall of the end
+// faces would leave them too thin; and two neighbouring bores whose channels
+// channelSeparation cannot hold CollarWall apart would leave too thin a wall
+// between them. This holds that the defaults pass all four, and that each
 // refusal is reached by an input that passes every check before it.
 func TestSleeveInputsAreChecked(t *testing.T) {
 	if why := sleeveRefusal(sleeveParams()); why != "" {
@@ -957,6 +1085,10 @@ func TestSleeveInputsAreChecked(t *testing.T) {
 		{"a 4 mm clearance", func(p *Params) { p.Clearance = 4 }, refuseChannelInWall},
 		{"a 1.5 mm engagement", func(p *Params) { p.Engagement = 1.5 }, refuseMeshHidden},
 		{"an 18 mm rise", func(p *Params) { p.CageRise = 18 }, refuseEndWall},
+		{"a 4 mm CollarWall at a 70 degree crossing", func(p *Params) {
+			p.CollarWall, p.CrossAngle = 4, 70*math.Pi/180
+			p.CageRise = leastRise(*p)
+		}, refuseChannelsClose},
 	}
 	for _, c := range cases {
 		p := sleeveParams()
@@ -989,6 +1121,15 @@ func TestSleeveInputsAreChecked(t *testing.T) {
 	} else {
 		t.Logf("at an 18 mm rise the channels leave %.3f mm of end wall", wall)
 	}
+	// The separation is a bound under the distance nearestChannels measures,
+	// and at the defaults it clears CollarWall with room to spare.
+	sep, at := channelSeparation(defaultSleeve())
+	near, _ := nearestChannels(defaultSleeve())
+	if sep > near {
+		t.Errorf("the separation between %s is %.3f mm, past the %.3f mm nearestChannels measures", at, sep, near)
+	}
+	t.Logf("at the defaults the channels are at least %.3f mm apart by the build's check, least across the "+
+		"gap between %s; nearestChannels measures %.3f mm", sep, at, near)
 }
 
 // The video's frame no longer binds the design, since the user dropped its
@@ -1022,7 +1163,9 @@ func TestSleeveProportionsStayNearTheVideo(t *testing.T) {
 // Across +Y and -Y they are 180 - Sigma apart, one bore low and the other
 // high, and the wall between them is a band that runs at about 45 degrees from
 // above the low bore down to below the high one. Each window is cut along that
-// band, one facing +Y and one facing -Y.
+// band, one facing +Y and one facing -Y. Past a right-angled crossing the
+// wider gaps are the ones across +X and -X, and the windows face those
+// instead (windowFacings).
 //
 // A window is a prism: a hexagon drawn on the plane through the frame's axis
 // square to the direction it faces, pushed straight out through the wall on
@@ -1045,14 +1188,18 @@ func TestSleeveProportionsStayNearTheVideo(t *testing.T) {
 // off where the side would meet the inner face past psi = 45 degrees, at
 // |t| = SleeveInner/sqrt(2). On the outer face the same happens where the
 // layer below lies away from the middle, and a window that stays within
-// SleeveOuter/sqrt(2) of the middle never reaches it.
+// SleeveOuter/sqrt(2) of the middle never reaches it, so neither end stands
+// further out than that.
 //
 // Every dimension comes from the sleeve's own geometry: the sides sit
 // CollarWall beyond the reach of the two bores flanking the window, the trims
 // keep the window inside the height the channels already reach and its roofs
 // within 45 degrees of the middle on the inner face, and each end stands where
-// its corners come CollarWall, and the sampling slack, from the other two
-// bores.
+// its corner lines through the wall, and its upright edges on the inner and
+// the outer face, come CollarWall, and the sampling slack, from the other two
+// bores. TestSleeveWindowsFollowTheSize holds that the rule keeps every
+// minimum at sizes well away from the defaults; a window the bores leave no
+// room for is not cut (room).
 // ---------------------------------------------------------------------------
 
 // windowStep is the spacing, in mm, at which the window checks sample the
@@ -1075,9 +1222,10 @@ const postSlenderness = 2.0
 // bore is one of the four channels: a gear and which side of the middle its
 // cut is on.
 type bore struct {
-	g    Gear
-	sign float64 // +1 for the +R bore, -1 for the -R bore
-	name string
+	g     Gear
+	sign  float64 // +1 for the +R bore, -1 for the -R bore
+	name  string
+	index int // its place in bores()
 }
 
 func (f sleeve) bores() [4]bore {
@@ -1085,7 +1233,7 @@ func (f sleeve) bores() [4]bore {
 	for gi, g := range f.gears {
 		for si, sign := range []float64{-1, 1} {
 			name := [2]string{"gear A", "gear B"}[gi] + [2]string{" -R", " +R"}[si]
-			out[gi*2+si] = bore{g: g, sign: sign, name: name}
+			out[gi*2+si] = bore{g: g, sign: sign, name: name, index: gi*2 + si}
 		}
 	}
 	return out
@@ -1194,15 +1342,22 @@ func (f sleeve) sectionInWall(g Gear, s float64) [2]flat {
 // within BoreCorner of the gear's axis, which rules most points out before
 // any station is walked.
 //
-// The stations are walked at 2 microns. A section's points move at most
+// The stations are those of channelSections: every 2 microns along the bore's
+// cut, from its first station. A section's points move at most
 // hypot(1, BoreCorner/Lambda), 1.45, per unit of station, and the tube's faces
 // clip them at up to about 4 away from the few stations where a face is
 // tangent to the section's plane, so between two stations the distance dips at
 // most 4 microns under the nearer. The exception is where a piece of the
 // section enters or leaves the tube, which is where the least distance often
 // is: the channel's corner first reaching into the wall. Wherever a piece
-// appears or vanishes between two stations, that stretch is walked again at a
-// tenth of a micron.
+// appears or vanishes between two stations, the stretch between them is
+// sampled again at a tenth of a micron.
+//
+// The walk starts at the station nearest q's own and goes outward both ways.
+// A station further along the axis than the least distance found so far
+// cannot come nearer, and neither can any beyond it, so each way stops there;
+// a piece whose bounding circle is further off than that is passed over. The
+// least distance is the same one a walk of every station would find.
 func (f sleeve) wallGap(b bore, q r3.Vec, reach float64) float64 {
 	g := b.g
 	lo, hi := b.span(f)
@@ -1213,34 +1368,82 @@ func (f sleeve) wallGap(b bore, q r3.Vec, reach float64) float64 {
 		return reach
 	}
 	best := reach * reach
-	// try walks one station and reports which pieces it has.
-	try := func(s float64) [2]bool {
-		var has [2]bool
-		ds := (sq - s) * (sq - s)
-		for i, piece := range f.sectionInWall(g, s) {
+	st := f.sections[b.index]
+	// visit takes one station into account and says whether the walk goes on
+	// past it: whether a station that far along the axis could still come
+	// nearer than best.
+	visit := func(c *channelStation) bool {
+		ds := (sq - c.s) * (sq - c.s)
+		if ds >= best {
+			return false
+		}
+		for i := range c.pieces {
+			if c.pieces[i].n == 0 {
+				continue
+			}
+			if o := math.Hypot(x-c.cx[i], y-c.cy[i]) - c.r[i]; o > 0 && ds+o*o >= best {
+				continue
+			}
+			best = math.Min(best, ds+c.pieces[i].gap2(x, y))
+		}
+		return true
+	}
+	at := sort.Search(len(st), func(i int) bool { return st[i].s >= sq })
+	for i := at; i < len(st) && visit(&st[i]); i++ {
+	}
+	for i := at - 1; i >= 0 && visit(&st[i]); i-- {
+	}
+	return math.Sqrt(best)
+}
+
+// channelStation is one station of a bore's channel in the tube: its pieces,
+// and a circle round each that holds all of it.
+type channelStation struct {
+	s         float64
+	pieces    [2]flat
+	cx, cy, r [2]float64
+}
+
+// channelSections is a bore's channel in the tube at every station wallGap
+// walks, in order: every 2 microns from the cut's first station to its last,
+// and every tenth of a micron between two of those where a piece appears or
+// vanishes.
+func (f sleeve) channelSections(b bore) []channelStation {
+	const step, fine = 0.002, 0.0001
+	lo, hi := b.span(f)
+	make1 := func(s float64) channelStation {
+		c := channelStation{s: s, pieces: f.sectionInWall(b.g, s)}
+		for i, piece := range c.pieces {
 			if piece.n == 0 {
 				continue
 			}
-			has[i] = true
-			if ds < best {
-				best = math.Min(best, ds+piece.gap2(x, y))
+			for k := range piece.n {
+				c.cx[i] += piece.v[k][0] / float64(piece.n)
+				c.cy[i] += piece.v[k][1] / float64(piece.n)
+			}
+			for k := range piece.n {
+				c.r[i] = math.Max(c.r[i], math.Hypot(piece.v[k][0]-c.cx[i], piece.v[k][1]-c.cy[i]))
 			}
 		}
-		return has
+		return c
 	}
-	const step, fine = 0.002, 0.0001
-	from, to := math.Max(lo, sq-reach), math.Min(hi, sq+reach)
-	var prev [2]bool
-	for s := from; s <= to; s += step {
-		has := try(s)
-		if s > from && has != prev {
-			for r := s - step + fine; r < s; r += fine {
-				try(r)
+	has := func(c channelStation) [2]bool { return [2]bool{c.pieces[0].n > 0, c.pieces[1].n > 0} }
+	var out []channelStation
+	for k := 0; ; k++ {
+		s := lo + float64(k)*step
+		if s > hi {
+			break
+		}
+		c := make1(s)
+		if k > 0 && has(c) != has(out[len(out)-1]) {
+			prev := out[len(out)-1].s
+			for j := 1; prev+float64(j)*fine < s; j++ {
+				out = append(out, make1(prev+float64(j)*fine))
 			}
 		}
-		prev = has
+		out = append(out, c)
 	}
-	return math.Sqrt(best)
+	return out
 }
 
 // wallCorners calls fn with every corner of every section of a bore's channel
@@ -1383,10 +1586,18 @@ func clipCorners(q [][2]float64, a, b, c float64) [][2]float64 {
 }
 
 // windowEnd is how far out on the side dir the window's upright end can
-// stand: the farthest t at which both of the end's corners, walked along
-// their lines through the wall at windowStep, keep CollarWall and the slack
-// from each bore that does not flank the window. An end the band and the trims
-// have already closed off is taken as too far.
+// stand: the farthest t, no further out than SleeveInner or SleeveOuter/sqrt(2),
+// at which every point below keeps CollarWall and the slack from each bore
+// that does not flank the window. The points are both of the end's corners,
+// walked along their lines through the wall at windowStep, and the end's
+// upright edges on the inner and the outer face at the heights the full
+// check (eachWindowFacePoint) samples them at: its walk along the edge, and
+// its walk of the openings, which steps up from -zLimit and lands on an end
+// that stands on its grid. The corners alone held at the defaults, but at a
+// 0.2 mm clearance they let an end's edge on the inner face come 2.60 mm from
+// a far bore against a 3 mm CollarWall. An end
+// the band and the trims have already closed off is taken as too far. The
+// search bisects 24 times between 0 and the limit.
 func (f sleeve) windowEnd(w sleeveWindow, far []bore, dir float64) float64 {
 	need := f.p.CollarWall + windowSlack
 	clear := func(te float64) bool {
@@ -1397,21 +1608,44 @@ func (f sleeve) windowEnd(w sleeveWindow, far []bore, dir float64) float64 {
 			return false
 		}
 		a0, a1 := f.chord(t)
+		near := func(z, a float64) bool {
+			for _, b := range far {
+				if f.wallGap(b, w.at(t, z, a), need) < need {
+					return true
+				}
+			}
+			return false
+		}
 		for _, z := range [2]float64{zLow, zHigh} {
 			for a := a0; ; a = math.Min(a+windowStep, a1) {
-				for _, b := range far {
-					if f.wallGap(b, w.at(t, z, a), need) < need {
-						return false
-					}
+				if near(z, a) {
+					return false
 				}
 				if a >= a1 {
 					break
 				}
 			}
 		}
+		// The end's upright edges on the inner and the outer face, between
+		// the two corners, at the heights eachWindowFacePoint walks the end
+		// at: its walk along the edge, and its walk of the openings, which
+		// steps up from -zLimit.
+		n := int(math.Ceil((zHigh - zLow) / windowStep))
+		for _, a := range [2]float64{a0, a1} {
+			for k := 1; k < n; k++ {
+				if near(zLow+(zHigh-zLow)*float64(k)/float64(n), a) {
+					return false
+				}
+			}
+			for z := -w.zLimit; z <= w.zLimit; z += windowStep {
+				if z > zLow && z < zHigh && near(z, a) {
+					return false
+				}
+			}
+		}
 		return true
 	}
-	lo, hi := 0.0, f.ri*(1-1e-9)
+	lo, hi := 0.0, math.Min(f.ri, f.ro/math.Sqrt2)*(1-1e-9)
 	for range 24 {
 		m := (lo + hi) / 2
 		if clear(m) {
@@ -1472,6 +1706,17 @@ func (w sleeveWindow) area() float64 {
 	return a / 2
 }
 
+// room is why the window is not cut, or "" when it is.
+func (w sleeveWindow) room() string {
+	if w.hi <= w.lo {
+		return "the flanking bores leave no band between them"
+	}
+	if w.right <= w.left || len(w.corners) < 3 || w.area() <= 0 {
+		return "the far bores leave the band no length"
+	}
+	return ""
+}
+
 // The windows are cut where the wall has room for them, and nowhere they cost
 // the frame a minimum it had.
 //
@@ -1493,13 +1738,19 @@ func (w sleeveWindow) area() float64 {
 // mouths are held to.
 func TestSleeveWindowsKeepTheirWalls(t *testing.T) {
 	f := defaultSleeve()
+	if len(f.windows) != 2 {
+		t.Fatalf("the sleeve has %d windows, want 2", len(f.windows))
+	}
+	checkWindowWalls(t, f)
+}
+
+// checkWindowWalls is TestSleeveWindowsKeepTheirWalls for every window any
+// sleeve has.
+func checkWindowWalls(t testing.TB, f sleeve) {
 	p := f.p
 	cw := p.CollarWall
 	top, _ := f.channelTop()
 
-	if len(f.windows) != 2 {
-		t.Fatalf("the sleeve has %d windows, want 2", len(f.windows))
-	}
 	for wi, w := range f.windows {
 		if len(w.corners) < 3 || w.area() <= 0 {
 			t.Fatalf("window %d is empty: the bores leave no band for it", wi)
@@ -1697,8 +1948,10 @@ func TestSleeveWindowsKeepTheirWalls(t *testing.T) {
 // CollarWalls it is a slender member rather than wall, and the heights over
 // which the same two openings keep it that narrow, without a break, may run to
 // no more than postSlenderness times its narrowest width there.
-func TestSleeveWindowPostsStandFirm(t *testing.T) {
-	f := defaultSleeve()
+func TestSleeveWindowPostsStandFirm(t *testing.T) { checkWindowPosts(t, defaultSleeve()) }
+
+// checkWindowPosts is TestSleeveWindowPostsStandFirm for any sleeve.
+func checkWindowPosts(t testing.TB, f sleeve) {
 	p := f.p
 	bores := f.bores()
 	names := make([]string, 0, len(bores)+len(f.windows))
@@ -1850,8 +2103,11 @@ func TestSleeveWindowPostsStandFirm(t *testing.T) {
 // inside the window and clears the ribbons, walked at 0.1 mm. Each window has
 // to show some of the mesh; the fractions are logged, with the lines that are
 // level, as a person beside the frame at the mesh's height would look.
-func TestSleeveWindowsShowTheMeshFromTheSide(t *testing.T) {
-	f := defaultSleeve()
+func TestSleeveWindowsShowTheMeshFromTheSide(t *testing.T) { checkSideView(t, defaultSleeve()) }
+
+// checkSideView is TestSleeveWindowsShowTheMeshFromTheSide for any sleeve. It
+// returns the share of the mesh zone seen through either window.
+func checkSideView(t testing.TB, f sleeve) float64 {
 	window := axialWindow(f.p)
 	var points []r3.Vec
 	for _, g := range f.gears {
@@ -1954,4 +2210,160 @@ func TestSleeveWindowsShowTheMeshFromTheSide(t *testing.T) {
 	}
 	t.Logf("through either window: %d of %d points of the mesh zone (%.1f%%), %d (%.1f%%) along a level line",
 		both, len(points), pct(both), level, pct(level))
+	return pct(both)
+}
+
+// leastRise is the least CageRise the build accepts for these inputs, to the
+// quarter millimetre above the closed form sleeveRefusal holds it to.
+func leastRise(p Params) float64 {
+	return math.Ceil((p.AxisOffset()/2+p.BoreCorner()+p.CollarWall)*4) / 4
+}
+
+// sleeveSize is one input TestSleeveWindowsFollowTheSize builds the sleeve at.
+type sleeveSize struct {
+	name string
+	p    Params
+}
+
+// windowSizes is the spread of inputs TestSleeveWindowsFollowTheSize builds
+// the sleeve at: the whole ribbon and frame scaled, with CollarWall and the
+// clearance held, since they are print lengths rather than sizes; single
+// inputs moved off their defaults; and a 4 mm CollarWall beside the inputs
+// that bring the bores nearest each other. Where an input asks for a taller
+// sleeve than the default's, CageRise is raised to the least the build
+// accepts.
+func windowSizes() []sleeveSize {
+	var out []sleeveSize
+	add := func(name string, edit func(*Params)) {
+		p := sleeveParams()
+		edit(&p)
+		p.CageRise = math.Max(p.CageRise, leastRise(p))
+		out = append(out, sleeveSize{name, p})
+	}
+	for _, k := range []float64{2.0 / 3, 0.75, 0.8, 1.25, 1.5, 1.75} {
+		add(fmt.Sprintf("everything scaled by %.3g", k), func(p *Params) {
+			for _, v := range []*float64{&p.Width, &p.Thickness, &p.ToothHeight, &p.ToothPitch, &p.TwistLead,
+				&p.Engagement, &p.CageRadius, &p.CollarHalf, &p.CageRise} {
+				*v *= k
+			}
+		})
+	}
+	for _, v := range []float64{10, 12} {
+		add(fmt.Sprintf("ribbon width %g", v), func(p *Params) { p.Width = v })
+	}
+	for _, v := range []float64{2.5, 5} {
+		add(fmt.Sprintf("ribbon thickness %g", v), func(p *Params) { p.Thickness = v })
+	}
+	for _, v := range []float64{40, 60} {
+		add(fmt.Sprintf("twist lead %g", v), func(p *Params) { p.TwistLead = v })
+	}
+	for _, v := range []float64{14, 17, 20, 25} {
+		add(fmt.Sprintf("cage radius %g", v), func(p *Params) { p.CageRadius = v })
+	}
+	for _, v := range []float64{18.5, 25} {
+		add(fmt.Sprintf("cage rise %g", v), func(p *Params) { p.CageRise = v })
+	}
+	for _, v := range []float64{0.2, 0.9} {
+		add(fmt.Sprintf("clearance %g", v), func(p *Params) { p.Clearance = v })
+	}
+	for _, v := range []float64{2, 4} {
+		add(fmt.Sprintf("collar half length %g", v), func(p *Params) { p.CollarHalf = v })
+	}
+	for _, v := range []float64{2, 4, 5} {
+		add(fmt.Sprintf("collar wall %g", v), func(p *Params) { p.CollarWall = v })
+	}
+	for _, v := range []float64{70, 90, 100, 120} {
+		add(fmt.Sprintf("crossing angle %g", v), func(p *Params) { p.CrossAngle = v * math.Pi / 180 })
+	}
+	add("mounting angles 0 and 30", func(p *Params) { p.MountAngleA, p.MountAngleB = 0, 30*math.Pi/180 })
+	add("collar wall 4, clearance 0.9", func(p *Params) { p.CollarWall, p.Clearance = 4, 0.9 })
+	add("collar wall 4, cage radius 14", func(p *Params) { p.CollarWall, p.CageRadius = 4, 14 })
+	add("collar wall 4, crossing angle 70", func(p *Params) { p.CollarWall, p.CrossAngle = 4, 70*math.Pi/180 })
+	return out
+}
+
+// The windows are sized from the sleeve they are cut in, so at every size the
+// dialog accepts they have to keep every minimum the default windows keep, or
+// be left out. This builds the sleeve at each input of windowSizes. An input
+// the build refuses is logged with the reason; every refusal in the spread
+// has to be the one for the wall between two bores, since the spread raises
+// CageRise and keeps to the ranges the other three checks set. For every
+// window of an accepted input it runs every check the default windows pass:
+// the walls round every bore and the end bands
+// (TestSleeveWindowsKeepTheirWalls), the posts (TestSleeveWindowPostsStandFirm),
+// one piece and no material laid on air outside a bore on the same 0.25 mm
+// grid, with the end wall, the wall between bores and the bores' mouths
+// (TestSleeveIsOnePiece, TestSleevePrintsStandingOnEitherEnd); and it logs how
+// much of the mesh zone the windows show
+// (TestSleeveWindowsShowTheMeshFromTheSide).
+//
+// No accepted input in the spread leaves a window out. The rule that does is
+// exercised last, at a 7 mm CollarWall, which leaves no band between the
+// flanking bores; the build refuses that input for its bores anyway.
+func TestSleeveWindowsFollowTheSize(t *testing.T) {
+	sizes := windowSizes()
+	var mu sync.Mutex
+	accepted, cut := 0, 0
+	t.Run("sizes", func(t *testing.T) {
+		for _, size := range sizes {
+			t.Run(size.name, func(t *testing.T) {
+				t.Parallel()
+				p := size.p
+				ga, gb := pair(p, p.Sigma(), 0, assemblyPhase)
+				if why := sleeveRefusal(p); why != "" {
+					if why != refuseChannelsClose {
+						t.Errorf("the build refuses this input because %s, which the spread should not reach", why)
+					}
+					plain := plainSleeve(ga, gb)
+					sep, at := channelSeparation(plain)
+					near, _ := nearestChannels(plain)
+					t.Logf("the build refuses it: %s (%.3f mm by its check across the gap between %s; "+
+						"nearestChannels measures %.3f mm)", why, sep, at, near)
+					return
+				}
+				f := newSleeve(ga, gb)
+				for _, facing := range windowFacings(p) {
+					if why := f.newWindow(facing).room(); why != "" {
+						t.Errorf("no window facing (%+.0f, %+.0f): %s", facing.X, facing.Y, why)
+					}
+				}
+				for _, w := range f.windows {
+					t.Logf("the window facing (%+.0f, %+.0f) is %.2f mm across its band, its ends %.2f mm apart, "+
+						"%.1f mm^2 on its plane", w.facing.X, w.facing.Y, (w.hi-w.lo)/math.Sqrt2, w.right-w.left,
+						w.area())
+				}
+				mu.Lock()
+				accepted++
+				cut += len(f.windows)
+				mu.Unlock()
+				checkWindowWalls(t, f)
+				checkWindowPosts(t, f)
+				v := voxelize(f, sleeveVoxel)
+				checkSleeveIsOnePiece(t, v)
+				checkSleevePrints(t, v)
+				sep, _ := channelSeparation(f)
+				t.Logf("sleeve %.2f to %.2f mm, %.2f mm tall; the build's check holds the bores %.3f mm apart; "+
+					"the windows show %.1f%% of the mesh zone", f.ri, f.ro, 2*f.zb, sep, checkSideView(t, f))
+			})
+		}
+	})
+	t.Logf("%d sizes, %d accepted, %d windows cut", len(sizes), accepted, cut)
+
+	p := sleeveParams()
+	p.CollarWall = 7
+	p.CageRise = leastRise(p)
+	ga, gb := pair(p, p.Sigma(), 0, assemblyPhase)
+	f := newSleeve(ga, gb)
+	for _, facing := range windowFacings(p) {
+		w := f.newWindow(facing)
+		if w.room() == "" {
+			t.Errorf("at a 7 mm CollarWall the window facing (%+.0f, %+.0f) still has room: band %.3f to %.3f",
+				facing.X, facing.Y, w.lo, w.hi)
+			continue
+		}
+		t.Logf("at a 7 mm CollarWall the window facing (%+.0f, %+.0f) is left out: %s", facing.X, facing.Y, w.room())
+	}
+	if len(f.windows) != 0 {
+		t.Errorf("at a 7 mm CollarWall the sleeve still has %d windows", len(f.windows))
+	}
 }
