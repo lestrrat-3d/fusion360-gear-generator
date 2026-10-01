@@ -9,7 +9,7 @@ The proof for this step list is `proof/screwgear/compiled_model_test.go`, `proof
 | `spec/screwgear/instructions.md` | `376dd0621ca149606a8b519134cd81dcc5822c7a` |
 | `spec/screwgear/fusion.md` | `b3511aaf4ac2c1eb0207c26828c6ef38766f83b8` |
 | `CLAUDE.md` | `916e8624ca88af226c264c21f295c14a9fb9e901` |
-| `proof/screwgear/README.md` | `3a24a8884a64c1bbd06031a5257dcba5511d6f20` |
+| `proof/screwgear/README.md` | `3023abc5ef2458b98f170e6650efcb68d09a77b2` |
 | `spec/cycloidal/fusion.md` | `afa5a99986f2e0d9f82fb5e21591553cdc54aac4` |
 | `spec/screwgear/mesh-search.md` | `32d393485d2edbfd173dfaa98a7cb76e4fa8471f` |
 | `.claude/skills/generate-gear/PLAYBOOK.md` | `cdd32545b0f8c651752827c6697601f1e32b4d39` |
