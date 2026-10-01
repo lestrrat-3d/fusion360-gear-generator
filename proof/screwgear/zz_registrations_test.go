@@ -10,61 +10,65 @@ import (
 )
 
 func TestAnchorSketch(t *testing.T) {
-	proofkit.Run(t, cpAnchorCases, stepAnchorSketch)
+	proofkit.Run(t, anchorCases, stepAnchorSketch)
 }
 
 func TestPathsSketch(t *testing.T) {
-	proofkit.Run(t, cpPathsCases, stepPathsSketch)
+	proofkit.Run(t, pathsCases, stepPathsSketch)
 }
 
 func TestCellSectionsSketch(t *testing.T) {
-	proofkit.Run(t, cpCellSectionCases, stepCellSectionsSketch)
+	proofkit.Run(t, cellSectionsCases, stepCellSectionsSketch)
 }
 
 func TestCellLoft(t *testing.T) {
-	proofkit3d.RunSolid(t, cpCellLoftCases, stepCellLoft, assertCellLoft)
+	proofkit3d.RunSolid(t, cellLoftCases, stepCellLoft, assertCellLoft)
 }
 
 func TestCopyBody(t *testing.T) {
-	proofkit3d.RunSolid(t, cpCopyCases, stepCopyBody, assertCopyBody)
+	proofkit3d.RunSolid(t, copyCases, stepCopyBody, assertCopyBody)
 }
 
 func TestScrewMove(t *testing.T) {
-	proofkit3d.RunSolid(t, cpMoveCases, stepScrewMove, assertScrewMove)
+	proofkit3d.RunSolid(t, moveCases, stepScrewMove, assertScrewMove)
 }
 
 func TestJoinBodies(t *testing.T) {
-	proofkit3d.RunSolid(t, cpJoinCases, stepJoinBodies, assertJoinBodies)
+	proofkit3d.RunSolid(t, joinCases, stepJoinBodies, assertJoinBodies)
 }
 
 func TestCellRemainderSketch(t *testing.T) {
-	proofkit.Run(t, cpRemainderCases, stepCellRemainderSketch)
+	proofkit.Run(t, remainderSketchCases, stepCellRemainderSketch)
 }
 
 func TestCellRemainderLoft(t *testing.T) {
-	proofkit3d.RunSolid(t, cpRemainderLoftCases, stepCellRemainderLoft, assertCellRemainderLoft)
+	proofkit3d.RunSolid(t, remainderLoftCases, stepCellRemainderLoft, assertCellRemainderLoft)
+}
+
+func TestJoinRemainder(t *testing.T) {
+	proofkit3d.RunSolid(t, joinRemainderCases, stepJoinRemainder, assertJoinRemainder)
 }
 
 func TestSleeveSketch(t *testing.T) {
-	proofkit.Run(t, cpSleeveSketchCases, stepSleeveSketch)
+	proofkit.Run(t, sleeveSketchCases, stepSleeveSketch)
 }
 
 func TestSleeveExtrude(t *testing.T) {
-	proofkit3d.RunSolid(t, cpSleeveExtrudeCases, stepSleeveExtrude, assertSleeveExtrude)
+	proofkit3d.RunSolid(t, sleeveExtrudeCases, stepSleeveExtrude, assertSleeveExtrude)
 }
 
 func TestBoreSectionSketch(t *testing.T) {
-	proofkit.Run(t, cpBoreSectionCases, stepBoreSectionSketch)
+	proofkit.Run(t, boreSectionCases, stepBoreSectionSketch)
 }
 
 func TestBoreSweepCut(t *testing.T) {
-	proofkit3d.RunSolid(t, cpBoreCutCases, stepBoreSweepCut, assertBoreSweepCut)
+	proofkit3d.RunSolid(t, boreCutCases, stepBoreSweepCut, assertBoreSweepCut)
 }
 
 func TestWindowSketch(t *testing.T) {
-	proofkit.Run(t, cpWindowCases, stepWindowSketch)
+	proofkit.Run(t, windowSketchCases, stepWindowSketch)
 }
 
 func TestWindowCut(t *testing.T) {
-	proofkit3d.RunSolid(t, cpWindowCutCases, stepWindowCut, assertWindowCut)
+	proofkit3d.RunSolid(t, windowCutCases, stepWindowCut, assertWindowCut)
 }
