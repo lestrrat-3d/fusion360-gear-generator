@@ -6,7 +6,7 @@ the spec cites by name.
 
 Every anchor below is stated from the API reference and from what Fusion did when asked. The
 loads and diagnostics that asked are recorded under `[SCREW-F-FIRST-LOAD]` and
-`[SCREW-F-DIAGNOSTIC]`, per the "When Fusion gives a verdict" rule in `CLAUDE.md`; a sentence that
+`[SCREW-F-DIAGNOSTIC]`, and the print of the sleeve under `[SCREW-F-PRINT-MESH]`, per the "When Fusion gives a verdict" rule in `CLAUDE.md`; a sentence that
 gives a date is a measurement, and one that gives none is read from the reference.
 
 ## `[SCREW-F-FIRST-LOAD]` — what the Fusion loads said
@@ -49,7 +49,53 @@ gives a date is a measurement, and one that gives none is read from the referenc
   the rods and the collars this file used to describe for §4 — several times
   and found it not practical to print: the thin rods, the wire ring and the loop wobble while the
   printer lays them down. `instructions.md` "What the print showed" records the report; the
-  frame is now the sleeve of §4 (`[SCREW-F-SLEEVE]`), which no Fusion load has built yet.
+  frame is now the sleeve of §4 (`[SCREW-F-SLEEVE]`). The first sleeve printed was built by the
+  add-in at c8a63b5 (`[SCREW-F-PRINT-MESH]`); no counts or timings were read from that load.
+
+## `[SCREW-F-PRINT-MESH]` — the printed pair did not mesh, 2026-10-02
+
+**What was printed.** The sleeve from the add-in at commit c8a63b5, at that day's defaults: a
+0.45 mm clearance, a 0.75 mm engagement, 15° on both mounting angles and an assembly phase of
+−1.31 mm. The two ribbons came from the earlier build at f328813, whose ribbon is the same part:
+15 by 3.75 mm, 2.625 mm teeth one pitch deep, 68 teeth, 49.5 mm lead.
+
+**What happened.** Both ribbons screwed through their bores, and the teeth did not mesh.
+
+**Why.** The geometry agrees between the proof and both add-ins; the cause is play. A bore is
+the ribbon's crest rectangle plus the clearance all round, so at 0.45 mm each ribbon could move
+0.45 mm toward or away from the other ribbon, 0.45 mm sideways, and roll 3.44° about its own
+axis. Moving toward the other ribbon adds to the engagement, and a roll adds to the mounting
+angle. The mesh at those defaults drove only within about 0.6 mm of engagement and, at equal
+mounting angles, from 11° to 16°, so 15° was 1° from the angle past which the teeth no longer
+box each other in. Over the poses the bores allowed, a scratch study found 128 of 324 pose
+pairs jamming or letting the teeth pass without boxing each other. The proof had measured the
+mesh at one pose, each ribbon on its nominal axis, where the pair drives. The teeth meet 2–3 mm
+from where the centre lines cross, which is where the mounting angle puts them.
+
+**The fix.** The defaults became a 0.20 mm clearance, a 0.90 mm engagement, 14° on both
+mounting angles and an assembly phase of −1.30 mm (`instructions.md`, "What the print
+showed"). The ribbon is unchanged, so the printed ribbons fit; only the sleeve is reprinted. At
+those values each ribbon moves 0.20 mm toward, away or sideways and rolls 1.53°, and the
+nominal free window is 0.433–0.473 mm. `proof/screwgear/bore_play_test.go` runs the mesh over the
+play:
+
+- `TestPairDrivesUnderBorePlay` takes each ribbon at its limits toward and away at every whole
+  degree of roll and at its two roll limits, 8 poses each, and runs all 64 pose pairs: 63 drive,
+  with windows from 0.052 to 0.932 mm, and one jams, both ribbons pushed the whole clearance
+  toward each other.
+- `TestPairDrivesUnderSidewaysPlay` takes each ribbon at its sideways limits against the other
+  at rest, at its limits along the axis between them and at its own sideways limits: 16 of 16
+  drive, with windows from 0.066 to 1.142 mm.
+- `TestPrintedFitFailsUnderBorePlay` runs the same check at the printed values and holds that it
+  fails them: 8 of its 16 pose pairs fail in a way the check refuses.
+
+An offline run sampled sideways and diagonal moves combined with each roll as well, 26 poses a
+ribbon and 676 pose pairs: 6 jammed, each with both ribbons pushed toward each other by 0.204 mm
+or more in all, and none failed another way. The user accepted those jams as the cost of the
+fix. Whether the reprinted sleeve meshes is the next print's to say.
+
+**Could the proof have caught it?** Yes. The bores and the mesh were both in the proof, and no
+case joined them. `bore_play_test.go` does, and at the printed values it fails.
 
 ## `[SCREW-F-DIAGNOSTIC]` — what the diagnostics of 2026-09-28 measured
 
@@ -248,14 +294,15 @@ path, not `solidTwistAxis`, which is for a solid sweep (`[SCREW-F-NO-SOLID-TWIST
 rail or surface, which would make `twistAngle` ignored per the reference. The participant list
 makes the cut touch the cage and nothing else; the ribbons run through the channel and are left
 whole, measured (`[PB-SWEEP-TWIST]`). The twist is the span divided by `Lambda`, positive:
-`+(sOut - sIn)/Lambda`, 82.31° at the defaults. **Positive is the spec's sense**, measured on a
+`+(sOut - sIn)/Lambda`, 80.24° at the defaults. **Positive is the spec's sense**, measured on a
 collar: with the profile at the line's start and the line running along `+dir_g`, a positive
 `twistAngle` turned the section the way `s/Lambda + Phi_g` grows, and the far end of the collar
 landed 0.0047 mm from the spec's own section there, against 4.9 mm under the opposite sign; the
 turn is linear along the path (`[SCREW-F-DIAGNOSTIC]`). The measured sweeps turned 43.64° (a
 collar) and 65.45° (a bore at the 10 mm ribbon) and started on a collar's face; a sleeve's bore
-turns 82° and its profile starts in air, in the hollow or outside the tube, and neither has been
-built. The build checks each cut (`[SCREW-F-SWEEP-CHECK]`).
+turns 80° and its profile starts in air, in the hollow or outside the tube. The add-in at c8a63b5
+built such bores at that day's 82.31°, and both printed ribbons screwed through them
+(`[SCREW-F-PRINT-MESH]`); nothing else was measured on them. The build checks each cut (`[SCREW-F-SWEEP-CHECK]`).
 
 **One sweep per bore, not one per gear.** The two bores of a gear stand on one axis, 30 mm apart
 at the defaults with the hollow between them, so a single channel through both would cut the
@@ -267,7 +314,7 @@ last meets it.
 in a ruled loft through rotated rectangles for each sweep, at the count the spec's "What the
 proof's stand-in costs" derives (18 at the defaults), and the hand-written
 `TestSleeveBoreSubstituteKeepsItsClearance` bounds what that stand-in costs against the exact
-channel: 0.007 mm of the 0.45 mm clearance. The sense and the linearity of the twist are
+channel: 0.007 mm of the 0.20 mm clearance. The sense and the linearity of the twist are
 Fusion's, and the runtime check below is what keeps them pinned on every build.
 
 ## `[SCREW-F-SWEEP-CHECK]` — checking each sweep at build time

@@ -83,8 +83,9 @@ A later reading of the 0:09 overhead frame, with the ribbon's own width as the u
 lead at 2.8–3.5 widths and the crossing angle at 85–100°; `instructions.md` "What the video
 shows" records how that was measured. The 33 mm lead sat inside that range at a 10 mm width, and
 the 49.5 mm lead sits at the same 3.3 widths at 15 mm. The 80° crossing angle sits below it, and
-stays: with `CrossAngle` at 90° `TestPairDrivesOneToOne` reports a 0.195 mm departure from the
-1:1 line, 7.4% of the pitch, against its bound of 6%.
+stays: with `CrossAngle` at 90° `TestPairDrivesOneToOne` reported a 0.195 mm departure from the
+1:1 line, 7.4% of the pitch, against its bound of 6%, at the arrangement of the 1.5× search
+below, and reports 0.166 mm, 6.3%, at the arrangement of the search under bore play.
 
 ## The search at the 1.5× size
 
@@ -128,14 +129,61 @@ takes 0.75 mm of engagement**, 0.29 of the tooth height, the same fraction the e
 run at `ToothHeight` 1.75 and `Engagement` 0.5 drove well at. The 0°/30° arrangement drives
 with a wider window and a third of the departure; equal angles are kept because the two gears
 are the same part held alike and the sleeve and its windows are then the same either way up
-(`instructions.md`, "Both Mounting Angles are 15°"). At the chosen values the lead was also
+(`instructions.md`, "Both Mounting Angles are 14°"). At the chosen values the lead was also
 moved: 45 mm gives 0.72–0.76 mm and 0.037 mm, 60 mm gives 0.66–0.76 mm and 0.116 mm, 66 mm
 gives 0.55–0.67 mm and 0.074 mm, so 49.5 mm, the video's 3.3 widths, stays.
 
-**`proof/screwgear/pair_test.go` re-derives all of this** and is the authority. At the defaults,
-and at the sampling `instructions.md` "Defaults" states beside the numbers, it reports the same
-winding, a 0.761–0.892 mm window, a 0.063 mm departure from the 1:1 line, and 0.484 mm of slack
-between the two ribbons at the assembly phases. Its bounds are fractions of the pitch, because
+That arrangement was printed on 2026-10-02 and did not mesh, which the next section answers.
+
+## The search under bore play, 2026-10-02
+
+The sleeve printed at the arrangement above, with its 0.45 mm clearance, held the ribbons
+screwing through their bores, and the teeth did not mesh (`fusion.md` `[SCREW-F-PRINT-MESH]`).
+A bore is the crest rectangle plus the clearance all round, so a ribbon can move inside its two
+bores. A move toward or away from the other ribbon adds to or takes from the engagement, and a
+roll about its own axis adds to its mounting angle. At 0.45 mm each ribbon moved 0.45 mm and
+rolled 3.44°, against a mesh that drove only from 11° to 16° of equal mounting angle.
+
+The criterion is the one above, judged at six phases of A per pitch, and applied to every pair
+of reachable poses of the two ribbons, not to the nominal pose alone: at every whole degree of
+roll short of the ribbon's limit, its furthest move toward the other ribbon and away from it,
+and its two roll limits. The ribbon was held unchanged, since the printed ribbons had to fit,
+and only the clearance, the engagement and the mounting angles moved. A pose pair that jams
+with both ribbons pushed toward each other is a cost the user can accept; one that lets the
+teeth pass without boxing each other is not. The scratch study counted the roll-0 poses twice,
+so its counts are of 100 or 324 pairs where the proof's are of 64.
+
+| Clearance | Engagement | Mounting angles | Nominal window | Pose pairs failing |
+|---|---|---|---|---|
+| 0.45 mm | 0.75 mm | 15° / 15° | 0.761–0.892 mm | 128 of 324, jams and unboxed |
+| 0.20 mm | 0.75 mm | 15° / 15° | 0.761–0.892 mm | 6 of 100, all unboxed |
+| **0.20 mm** | **0.90 mm** | **14° / 14°** | **0.433–0.486 mm** | **4 of 100, all jams, both pushed together** |
+| 0.20 mm | 1.00 mm | 14° / 14° | 0.328–0.368 mm | 12 of 100, all jams |
+| 0.20 mm | 1.00 mm | 13° / 13° | 0.158–0.197 mm | 26 of 100; the 12 the run listed are jams |
+| 0.15 mm | 0.90 mm | 14° / 14° | 0.433–0.486 mm | none of 100 |
+| 0.25 mm | 0.90 mm | 14° / 14° | 0.433–0.486 mm | 8 of 100, all jams |
+| 0.20 mm | 0.90 mm | −1° / 29° | 0.577–0.669 mm | none of 100 |
+| 0.20 mm | 1.00 mm | 0° / 28° | 0.446–0.525 mm | 4 of 100, all jams |
+
+The nominal windows in this table are at six phases of A per pitch; at the proof's twelve the
+chosen arrangement's is 0.433–0.473 mm. The user chose 0.20 mm, 0.90 mm and 14° on both gears,
+and accepted its one failing pose pair, both ribbons pushed the whole clearance toward each
+other with no roll, which jams. At the 0.90 mm engagement equal angles drive from 12° to 16° and the
+proof's departure bound accepts 12° to 15°, so 14° sits 2° from each end of the band that
+drives.
+
+A later run counted sideways play as well. A ribbon also moves 0.20 mm sideways in its bores,
+square to its axis and to the common perpendicular, and on a helicoid that move acts on the
+mesh as a roll of both ribbons. Taking each ribbon in eight directions of move across its axis
+at every whole degree of roll, 26 poses a ribbon and 676 pose pairs, 6 jammed, each with both
+ribbons pushed toward each other by 0.204 mm or more in all, and none failed another way. The
+user accepted those six.
+
+**`proof/screwgear/pair_test.go` and `bore_play_test.go` re-derive all of this** and are the
+authority. At the defaults, and at the sampling `instructions.md` "Defaults" states beside the
+numbers, `pair_test.go` reports the same winding, a 0.433–0.473 mm window, a 0.042 mm departure
+from the 1:1 line, and 0.361 mm of slack between the two ribbons at the assembly phases;
+`bore_play_test.go` runs the mesh over the play. Its bounds are fractions of the pitch, because
 the transmission error tracks the pitch (above) and a uniform scale of the model scales the
 window with it. This file records only how the arrangement was found.
 
@@ -144,8 +192,8 @@ window with it. This file records only how the arrangement was found.
 The model is an exact sinusoid on an exact helicoid. The built part is one loft through ten
 rectangles per tooth, 41 for the four-tooth cell the build repeats. A ruled loft through those
 sections would depart from the helicoid by about 1.0 µm at the crest and draw the toothed edge as
-a chord of the cosine between sections, 0.064 mm short of it at the deepest point — 7.8% of the
-backlash; Fusion's loft through more than two sections is smooth between them, and how far that
+a chord of the cosine between sections, 0.064 mm short of it at the deepest point — 14% of the
+0.46 mm backlash; Fusion's loft through more than two sections is smooth between them, and how far that
 surface departs is measured by nothing in this repository. A Fusion measurement on 2026-09-28
 put it within 0.04 mm at the 10 mm ribbon (`instructions.md` §2, "What the loft is").
 

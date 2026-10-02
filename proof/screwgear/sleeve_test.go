@@ -353,16 +353,21 @@ func eachGrownEnvelopePoint(g Gear, grow, from, to, step float64, fn func(pt r3.
 
 // The bores are what the frame may not change: their section, their twist and
 // where they sit. They are the channels the video frame's collars were cut
-// with, and this pins the numbers a frame change must not move.
+// with, and this pins the numbers a frame change must not move. The section
+// and the angles moved once, on 2026-10-02, when the clearance went from 0.45
+// to 0.20 mm and the mounting angles from 15 to 14 degrees because the printed
+// pair did not mesh over the play the wider bores allowed
+// (spec/screwgear/fusion.md [SCREW-F-PRINT-MESH]); the stations and the twist
+// did not move.
 func TestSleeveBoresAreTheSameChannels(t *testing.T) {
 	f := defaultSleeve()
 	p := f.p
 
-	if got := p.BoreHalfWidth(); math.Abs(got-7.95) > 1e-12 {
-		t.Errorf("the bore is %.4f mm across, want 15.9", 2*got)
+	if got := p.BoreHalfWidth(); math.Abs(got-7.70) > 1e-12 {
+		t.Errorf("the bore is %.4f mm across, want 15.4", 2*got)
 	}
-	if got := p.BoreHalfThickness(); math.Abs(got-2.325) > 1e-12 {
-		t.Errorf("the bore is %.4f mm through, want 4.65", 2*got)
+	if got := p.BoreHalfThickness(); math.Abs(got-2.075) > 1e-12 {
+		t.Errorf("the bore is %.4f mm through, want 4.15", 2*got)
 	}
 	if st := boreStations(p); st[0] != -15 || st[1] != 15 {
 		t.Errorf("the bores sit at stations %v, want -15 and +15", st)
@@ -371,7 +376,7 @@ func TestSleeveBoresAreTheSameChannels(t *testing.T) {
 		t.Errorf("the bore twists at %.6f mm per radian, want %.6f", got, want)
 	}
 	for gi, g := range f.gears {
-		for _, c := range []struct{ station, deg float64 }{{15, 124.1}, {-15, -94.1}} {
+		for _, c := range []struct{ station, deg float64 }{{15, 123.1}, {-15, -95.1}} {
 			if got := g.angle(c.station) * 180 / math.Pi; math.Abs(got-c.deg) > 0.05 {
 				t.Errorf("gear %d's bore at station %+.0f stands at %.2f degrees, want %.1f",
 					gi, c.station, got, c.deg)
@@ -1262,7 +1267,7 @@ func convexHull(pts [][2]float64) [][2]float64 {
 // 2026-09-28 measured and the build re-checks with its probes
 // (spec/screwgear/fusion.md [SCREW-F-SWEEP-CHECK]).
 func TestSleeveBoreSubstituteKeepsItsClearance(t *testing.T) {
-	for _, clearance := range []float64{0.05, 0.1, 0.45, 0.9} {
+	for _, clearance := range []float64{0.05, 0.1, 0.2, 0.45, 0.9} {
 		p := defaultParams()
 		p.Clearance = clearance
 		ga, gb := pair(p, p.Sigma(), 0, assemblyPhase)
@@ -1295,7 +1300,7 @@ func TestSleeveBoreSubstituteKeepsItsClearance(t *testing.T) {
 // clearance. The facet at the bore's corner, which is R = hypot(W/2 + c,
 // T/2 + c) from the axis, falls R*(1 - cos(step/2)) inside the true channel, so
 // the second bound is step <= 2*acos(1 - 0.04*c/R). At the defaults that is
-// 7.6 degrees and the five-degree bound governs; at a clearance of 0.05 mm it
+// 5.1 degrees and the five-degree bound governs; at a clearance of 0.05 mm it
 // is 2.5 degrees and governs instead. The ribbon's own cell is held to two
 // degrees, because there the departure is measured against the backlash.
 func boreSections(p Params, turn float64) int {
@@ -1385,7 +1390,7 @@ func TestSleeveInputsAreChecked(t *testing.T) {
 			p.CageRadius = p.CollarHalf + p.BoreCorner() + 0.02
 		}, refuseChannelInWall},
 		{"a 1.5 mm engagement", func(p *Params) { p.Engagement = 1.5 }, refuseMeshHidden},
-		{"an 18 mm rise", func(p *Params) { p.CageRise = 18 }, refuseEndWall},
+		{"a 17.5 mm rise", func(p *Params) { p.CageRise = 17.5 }, refuseEndWall},
 		{"a 4 mm CollarWall at a 70 degree crossing", func(p *Params) {
 			p.CollarWall, p.CrossAngle = 4, 70*math.Pi/180
 			p.CageRise = leastRise(*p)
@@ -1422,17 +1427,19 @@ func TestSleeveInputsAreChecked(t *testing.T) {
 		t.Errorf("at a 1.5 mm engagement the engaged zone reaches %.2f mm, so a rule on the engaged zone "+
 			"alone refuses it too and the sleeve's own check is not what is reached", zone)
 	}
-	// And the rise check is not over-cautious there: at 18 mm the channels
-	// really do leave less than CollarWall at the ends.
+	// And the rise check is not over-cautious there: at 17.5 mm the channels
+	// really do leave less than CollarWall at the ends. The closed form is a
+	// bound, not the gap, so it also refuses the rises from about 17.55 mm up
+	// to its own 18.02 mm, which the channels would allow.
 	r := defaultParams()
-	r.CageRise = 18
+	r.CageRise = 17.5
 	ga, gb := pair(r, r.Sigma(), 0, assemblyPhase)
 	topReach, _ := newSleeve(ga, gb).channelTop()
 	if wall := r.CageRise - topReach; wall >= r.CollarWall {
-		t.Errorf("at an 18 mm rise the channels leave %.3f mm of end wall, which is enough; the refusal "+
+		t.Errorf("at a 17.5 mm rise the channels leave %.3f mm of end wall, which is enough; the refusal "+
 			"is stricter than the geometry", wall)
 	} else {
-		t.Logf("at an 18 mm rise the channels leave %.3f mm of end wall", wall)
+		t.Logf("at a 17.5 mm rise the channels leave %.3f mm of end wall", wall)
 	}
 	// The separation is a bound under the distance nearestChannels measures,
 	// and at the defaults it clears CollarWall with room to spare.
@@ -1454,7 +1461,7 @@ func TestSleeveInputsAreChecked(t *testing.T) {
 // The four bores sit round the tube at azimuths Sigma/2 and 180 - Sigma/2 on
 // the +Y side and at their images under the half turn about X on the -Y side:
 // 40, 140, 220 and 320 degrees at the defaults. Across +X and -X neighbouring
-// bores are Sigma apart, and their channels come within 6.81 and 4.83 mm of
+// bores are Sigma apart, and their channels come within 7.35 and 5.24 mm of
 // each other, which is less than a CollarWall either side of any window.
 // Across +Y and -Y they are 180 - Sigma apart, one bore low and the other
 // high, and the wall between them is a band that runs at about 45 degrees from
@@ -1640,7 +1647,7 @@ func (f sleeve) sectionInWall(g Gear, s float64) [2]flat {
 //
 // The stations are those of channelSections: every 2 microns along the bore's
 // cut, from its first station. A section's points move at most
-// hypot(1, BoreCorner/Lambda), 1.45, per unit of station, and the tube's faces
+// hypot(1, BoreCorner/Lambda), 1.42, per unit of station, and the tube's faces
 // clip them at up to about 4 away from the few stations where a face is
 // tangent to the section's plane, so between two stations the distance dips at
 // most 4 microns under the nearer. The exception is where a piece of the
@@ -1889,9 +1896,10 @@ func clipCorners(q [][2]float64, a, b, c float64) [][2]float64 {
 // upright edges on the inner and the outer face at the heights the full
 // check (eachWindowFacePoint) samples them at: its walk along the edge, and
 // its walk of the openings, which steps up from -zLimit and lands on an end
-// that stands on its grid. The corners alone held at the defaults, but at a
-// 0.2 mm clearance they let an end's edge on the inner face come 2.60 mm from
-// a far bore against a 3 mm CollarWall. An end
+// that stands on its grid. The corners alone held at the 0.45 mm clearance
+// the defaults had until 2026-10-02, but at a 0.2 mm clearance, with the
+// mounting angles and engagement of that time, they let an end's edge on the
+// inner face come 2.60 mm from a far bore against a 3 mm CollarWall. An end
 // the band and the trims have already closed off is taken as too far. The
 // search bisects 24 times between 0 and the limit.
 func (f sleeve) windowEnd(w sleeveWindow, far []bore, dir float64) float64 {
@@ -2028,7 +2036,7 @@ func (w sleeveWindow) room() string {
 // clear CollarWall by windowSlack, which is what the sampling can miss.
 //
 // The window stays inside the height the channels reach, so the end bands keep
-// the 3.74 mm end wall the channels leave; every edge of the hexagon is upright
+// the 4.21 mm end wall the channels leave; every edge of the hexagon is upright
 // or at 45 degrees or steeper; and where a window's face meets the tube's inner
 // or outer face the material comes to an edge no sharper than the bores'
 // mouths are held to.
@@ -2557,16 +2565,16 @@ func windowSizes() []sleeveSize {
 	for _, v := range []float64{40, 60} {
 		add(fmt.Sprintf("twist lead %g", v), func(p *Params) { p.TwistLead = v })
 	}
-	for _, v := range []float64{14, 17, 20, 25} {
+	for _, v := range []float64{14.5, 17, 20, 25} {
 		add(fmt.Sprintf("cage radius %g", v), func(p *Params) { p.CageRadius = v })
 	}
 	for _, v := range []float64{18.5, 25} {
 		add(fmt.Sprintf("cage rise %g", v), func(p *Params) { p.CageRise = v })
 	}
-	for _, v := range []float64{0.2, 0.9} {
+	for _, v := range []float64{0.45, 0.9} {
 		add(fmt.Sprintf("clearance %g", v), func(p *Params) { p.Clearance = v })
 	}
-	for _, v := range []float64{2, 4} {
+	for _, v := range []float64{2, 3.5} {
 		add(fmt.Sprintf("collar half length %g", v), func(p *Params) { p.CollarHalf = v })
 	}
 	for _, v := range []float64{2, 4, 5} {
@@ -2577,7 +2585,7 @@ func windowSizes() []sleeveSize {
 	}
 	add("mounting angles 0 and 30", func(p *Params) { p.MountAngleA, p.MountAngleB = 0, 30*math.Pi/180 })
 	add("collar wall 4, clearance 0.9", func(p *Params) { p.CollarWall, p.Clearance = 4, 0.9 })
-	add("collar wall 4, cage radius 14", func(p *Params) { p.CollarWall, p.CageRadius = 4, 14 })
+	add("collar wall 4, cage radius 14.5", func(p *Params) { p.CollarWall, p.CageRadius = 4, 14.5 })
 	add("collar wall 4, crossing angle 70", func(p *Params) { p.CollarWall, p.CrossAngle = 4, 70*math.Pi/180 })
 	return out
 }

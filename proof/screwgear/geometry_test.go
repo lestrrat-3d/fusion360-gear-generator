@@ -54,9 +54,14 @@ type Params struct {
 // CageRise is half the sleeve's height, to its flat end faces. The video
 // frame's 20.25 mm, measured to the centre of its ring's wire, would cost 3 mm
 // of print height for 1.5 mm more end wall and nothing else; 18.75 mm, 1.25
-// widths, leaves the 3.74 mm end wall TestSleeveIsOnePiece measures, against
-// the 18.01 mm the channels need for a CollarWall of end wall and the 18.41 mm
+// widths, leaves the 4.21 mm end wall TestSleeveIsOnePiece measures, against
+// the 17.54 mm the channels need for a CollarWall of end wall and the 18.02 mm
 // the build's closed form asks for.
+//
+// Clearance, Engagement and the two mounting angles changed on 2026-10-02,
+// from 0.45 mm, 0.75 mm and 15 degrees: the printed pair did not mesh over the
+// play the 0.45 mm bores allowed (bore_play_test.go,
+// spec/screwgear/fusion.md [SCREW-F-PRINT-MESH]). The ribbon did not change.
 func defaultParams() Params {
 	return Params{
 		Width:       15,
@@ -65,16 +70,16 @@ func defaultParams() Params {
 		ToothPitch:  2.625,
 		TwistLead:   49.5,
 		CrossAngle:  80 * math.Pi / 180,
-		MountAngleA: 15 * math.Pi / 180,
-		MountAngleB: 15 * math.Pi / 180,
-		Engagement:  0.75,
+		MountAngleA: 14 * math.Pi / 180,
+		MountAngleB: 14 * math.Pi / 180,
+		Engagement:  0.90,
 		ToothCount:  68,
 
 		CageRadius: 15,
 		CageRise:   18.75,
 		CollarHalf: 3,
 		CollarWall: 3,
-		Clearance:  0.45,
+		Clearance:  0.20,
 	}
 }
 
@@ -115,11 +120,13 @@ func (p Params) Beta() float64 { return math.Atan(math.Pi * p.Width / p.TwistLea
 //
 // It is an input, not a derivation. The crossed-helical rule makes 2*Beta the
 // angle at which the two crest helices run parallel, and that is where the
-// search starts, but at 2*Beta (87 degrees) the pair departs from the 1:1 line
-// by more than TestPairDrivesOneToOne allows: 0.195 mm at 90 degrees, 7.4% of
-// the pitch, against its bound of 6% of the pitch, where 80 degrees departs by
-// 0.063 mm, 2.4%. TestCrossedHelicalRuleMakesTheCrestHelicesParallel still
-// holds the rule; this is the angle the pair is actually built at.
+// search starts. At the defaults, 2*Beta (87.2 degrees) departs from the 1:1
+// line by 0.120 mm, 4.6% of the pitch, and 90 degrees by 0.166 mm, 6.3%, past
+// TestPairDrivesOneToOne's bound of 6% of the pitch; 80 degrees departs by
+// 0.042 mm, 1.6%. The search chose 80 degrees at the arrangement before
+// 2026-10-02, where 90 degrees departed by 7.4% and 80 degrees by 2.4%.
+// TestCrossedHelicalRuleMakesTheCrestHelicesParallel still holds the rule;
+// this is the angle the pair is actually built at.
 func (p Params) Sigma() float64 { return p.CrossAngle }
 
 // AxisOffset is the distance between the two axes.
@@ -332,7 +339,7 @@ func pair(p Params, sigma, phaseA, phaseB float64) (Gear, Gear) {
 // is not half a pitch: the two gears are mounted at different cross-section
 // angles, so the phase that puts a crest against a root is its own number.
 // TestAssemblyPhaseSitsInTheFreeWindow holds it to the middle of the play.
-const assemblyPhase = -1.31
+const assemblyPhase = -1.30
 
 // defaultPair is the arrangement the spec's default table describes.
 func defaultPair() (Gear, Gear) {
@@ -504,7 +511,10 @@ func TestRibbonIsInvariantUnderItsScrewStep(t *testing.T) {
 // spec's claim is that the shortfall is three orders below the backlash; a
 // ruled loft's toothed edge is a chord of the cosine between sections, and the
 // spec's claim is that the chord stays under four percent of the tooth height
-// at any twist and under a tenth of the backlash at the defaults. The floor is
+// at any twist and under a fifth of the backlash at the defaults. It was under
+// a tenth until the looser fit of 2026-10-02 narrowed the backlash from 0.82 to
+// 0.46 mm without changing the printed ribbon, and so without changing the
+// sections (spec/screwgear/fusion.md [SCREW-F-PRINT-MESH]). The floor is
 // what holds the chord where the twist is slow, so the leads swept here reach
 // well past the one the count stops growing at.
 //
@@ -547,7 +557,7 @@ func TestLoftSectionCountHoldsTheHelicoid(t *testing.T) {
 		t.Errorf("the shortfall %.6f mm is not small against the %.3f mm backlash",
 			departure, measuredBacklash)
 	}
-	if chord := p.EdgeChord(); chord > measuredBacklash/10 {
+	if chord := p.EdgeChord(); chord > measuredBacklash/5 {
 		t.Errorf("the edge chord falls %.4f mm short of the cosine, which is not small against the "+
 			"%.3f mm backlash", chord, measuredBacklash)
 	}

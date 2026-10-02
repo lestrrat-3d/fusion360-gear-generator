@@ -10,7 +10,7 @@ import (
 // measuredBacklash is the free play the default arrangement leaves, in mm. It
 // is what a printed pair is judged by, and geometry_test.go measures the loft's
 // section count against it.
-const measuredBacklash = 0.82
+const measuredBacklash = 0.46
 
 // The bounds the mesh is held to are fractions of the pitch, not lengths. The
 // model is an exact cosine on an exact helicoid, so a pair scaled by k has its
@@ -109,12 +109,44 @@ func deepest(ga, gb Gear, za, zb float64) hit {
 // phases. It is negative when they are clear, so zero is contact.
 func penetration(ga, gb Gear, za, zb float64) float64 { return deepest(ga, gb, za, zb).depth }
 
+// clearAt answers penetration(ga, gb, za, zb) <= 0 over the same samples, and
+// stops at the first sample inside the other gear. The free-window scans ask
+// only this, and most of the phases they try off the window are blocked within
+// a few stations.
+func clearAt(ga, gb Gear, za, zb float64) bool {
+	a, b := withPhase(ga, za), withPhase(gb, zb)
+	window := axialWindow(a.P)
+	return !reachesInto(a, b, window) && !reachesInto(b, a, window)
+}
+
+// reachesInto answers whether any of eachBoundarySample's samples of from lies
+// inside into, in the same order eachBoundarySample walks them.
+func reachesInto(from, into Gear, window float64) bool {
+	w, t := from.P.Width/2, from.P.Thickness/2
+	for s := -window; s <= window; s += stationStep {
+		e := from.edge(s)
+		for i := 0; i <= edgeSamples; i++ {
+			v := -t + 2*t*float64(i)/float64(edgeSamples)
+			if into.margin(from.world(e, v, s)) > 0 || into.margin(from.world(-w, v, s)) > 0 {
+				return true
+			}
+		}
+		for i := 0; i <= faceSamples; i++ {
+			u := -w + (e+w)*float64(i)/float64(faceSamples)
+			if into.margin(from.world(u, t, s)) > 0 || into.margin(from.world(u, -t, s)) > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // freeWindow returns the interval of gear B's tooth phase that clears gear A,
 // taken as the one containing seed or the nearest one to it.
 func freeWindow(ga, gb Gear, za, seed float64) (lo, hi float64, ok bool) {
 	p := ga.P.ToothPitch
 	step := p / phaseStep
-	clear := func(zb float64) bool { return penetration(ga, gb, za, zb) <= 0 }
+	clear := func(zb float64) bool { return clearAt(ga, gb, za, zb) }
 
 	if !clear(seed) {
 		found := false
@@ -251,7 +283,7 @@ func TestSymmetricMountJams(t *testing.T) {
 		free := 0
 		for j := range phaseStep {
 			zb := -p.ToothPitch/2 + p.ToothPitch*float64(j)/phaseStep
-			if penetration(ga, gb, za, zb) <= 0 {
+			if clearAt(ga, gb, za, zb) {
 				free++
 			}
 		}
