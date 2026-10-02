@@ -107,9 +107,10 @@ func (f sleeve) faceLevels(pt r3.Vec) [sleeveFaceCount]float64 {
 	out[0], out[1], out[2], out[3] = f.ri-r, r-f.ro, pt.Z-f.zb, -pt.Z-f.zb
 	for gi, g := range f.gears {
 		u, v, s := g.local(pt)
+		hw, vLo, vHi := boreOpening(g, math.Copysign(1, s))
 		k := sleeveTubeFaces + 4*gi
-		out[k] = math.Abs(u) - g.P.BoreHalfWidth()
-		out[k+1] = math.Abs(v) - g.P.BoreHalfThickness()
+		out[k] = math.Abs(u) - hw
+		out[k+1] = math.Max(vLo-v, v-vHi)
 		out[k+2] = f.sIn - math.Abs(s)
 		out[k+3] = math.Abs(s) - f.sOut
 	}

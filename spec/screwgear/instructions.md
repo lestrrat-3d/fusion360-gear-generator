@@ -32,7 +32,10 @@ The three parts are:
 
   Each bore is what makes its gear's motion a screw motion rather than a free slide. It is cut to
   the ribbon's crest rectangle, a clearance larger all round, and twisted at the ribbon's own
-  lead, so a gear that turns without advancing jams in it. A round hole would not: it would leave
+  lead, so a gear that turns without advancing jams in it. One bore of each gear lies level in
+  the wall, and the printer bridges its roof; that bore has a **roof allowance** more room on
+  its roof face, so the sleeve is printed standing on one particular end (§4, "The roof
+  allowance"). A round hole would not: it would leave
   the mechanism three degrees of freedom instead of one. The teeth run straight through the
   bores, as they do through the video's collars.
 
@@ -118,8 +121,37 @@ frame's look as a requirement; the test holds them to catch a sleeve far off the
 
 ## What the print showed
 
-Three prints have been reported. The first sized the ribbon, the second replaced the frame,
-and the third, of the sleeve with the resized ribbons, changed the fit of the bores and the mesh.
+Four prints have been reported. The first sized the ribbon, the second replaced the frame,
+the third, of the sleeve with the resized ribbons, changed the fit of the bores and the mesh, and
+the fourth, of the sleeve at that fit, added the roof allowance.
+
+**The second sleeve, 2026-10-02.** The user printed the sleeve at the fit "The mesh" below
+describes, a 0.20 mm clearance, a 0.90 mm engagement and 14° on both gears, with the ribbons
+printed for the first sleeve (`[SCREW-F-PRINT-2]`). Its two `-R` bores were too tight to pass the
+ribbons and its two `+R` bores were not. Each `-R` bore passes through level inside the wall, at
+station −14.30 mm, so the printer bridges its 15.4 mm roof, and the likeliest cause is that the
+roof sagged into the 0.20 mm of room. The user chiselled the `-R` bores open and the ribbons went
+through; then the teeth meshed only sometimes, even with the ribbons pressed toward each other.
+
+A search for a mesh that survives a print (`mesh-search.md`, "The search for a mesh that
+survives a print") found that the pair drives only while the sum of the two mounting angles
+stays in a band a few degrees wide, that every degree a ribbon rolls in its bores is a degree of
+mounting angle, and that a deeper engagement narrows the band rather than widening it. A
+0.50 mm bore lets each ribbon roll 3.85°, more than the band holds, and no arrangement of this
+ribbon tried meshed over that play without jamming almost everywhere. So the defaults changed
+this way, and nothing else did:
+
+- Each gear's level bore, its `-R` bore at the defaults, has a **0.30 mm roof allowance** on the
+  long face that is its roof when the sleeve stands on its `−n̂` end: 0.50 mm of room under the
+  bridged roof, 0.20 mm everywhere else (§4, "The roof allowance"). The 0.30 mm is the least the
+  user asked for. The allowance adds no move and no roll; it lets the ribbon tilt, which carries
+  one crossing 0.273 mm instead of 0.200 mm, and the mesh holds over that tilt.
+- The sleeve has to be printed standing on its `−n̂` end, the end below the selected plane.
+- The clearance, the mesh and the ribbon are unchanged, so the printed ribbons stay usable and
+  only the sleeve is reprinted.
+- The proof now takes a printed tooth's tip to be 0.35 mm short of the model's crest wherever
+  it judges the mesh under play ("What the proof checks"). At the bores as drawn the mesh boxes
+  the teeth with the tips up to 0.40 mm short and not at 0.45 mm.
 
 **The mesh, 2026-10-02.** The user printed the sleeve built by the add-in at commit c8a63b5 and
 two ribbons from the earlier build at f328813, whose ribbon is the same part. Both ribbons
@@ -145,14 +177,14 @@ The user chose a tighter bore and a deeper mesh, and the defaults changed:
 - The ribbon did not change, so the printed ribbons fit the new sleeve and only the sleeve is
   reprinted.
 
-At those values `TestPairDrivesUnderBorePlay` runs the mesh over 64 pose pairs of the play, and
-63 drive with windows from 0.052 to 0.932 mm; the one that jams has both ribbons pushed the
-whole clearance toward each other. An offline run that sampled sideways and diagonal moves as
+At those values `TestPairDrivesUnderBorePlay`, as it stood then, ran the mesh over 64 pose pairs
+of the play with the model's own tips, and 63 drove with windows from 0.052 to 0.932 mm; the one
+that jammed had both ribbons pushed the whole clearance toward each other. An offline run that sampled sideways and diagonal moves as
 well found 6 of 676 pose pairs jamming, each with both ribbons pushed toward each other by
 0.204 mm or more in all, and none failing another way; the user accepted those jams as the
 cost. The proof could have caught the print's failure and now does: run at the printed values,
-`TestPrintedFitFailsUnderBorePlay` finds 8 of 16 pose pairs failing ("What the proof checks").
-Whether the reprinted sleeve meshes only a print settles.
+`TestPrintedFitFailsUnderBorePlay` finds pose pairs failing ("What the proof checks").
+The reprinted sleeve is "The second sleeve" above.
 
 **The frame, 2026-09-30.** The user printed the video's frame several times — the ring, the
 loop, the four rods and the collars that §4 used to build — and reported on 2026-09-30 that it
@@ -235,11 +267,12 @@ ribbon's outer edge: `Utooth` peaks at `u = W/2` and falls to `W/2 - H` at the r
 back edge stays at `-W/2` and the faces at `±T/2` whatever the phase. So the **crest rectangle**,
 `W` by `T`, holds every point of the ribbon at every station and every phase, and the bore is
 that rectangle plus the clearance all round, `(W + 2*Clearance)` by `(T + 2*Clearance)`, 15.4 by
-4.15 mm at the defaults, twisted at the ribbon's lead. Nothing in the frame is shaped like a
+4.15 mm at the defaults, twisted at the ribbon's lead; each gear's level bore has the roof
+allowance more on its roof face, 4.45 mm through (§4). Nothing in the frame is shaped like a
 tooth, and the teeth run through the bores as they run through the video's collars.
 
 What bears in a bore is the crests. The back edge and both faces run the clearance from the wall
-at every station; on the toothed side a crest comes to the clearance every pitch and the root
+at every station, the level bore's roof face the clearance and the roof allowance; on the toothed side a crest comes to the clearance every pitch and the root
 between falls `H` short of it, so the bore's toothed side bears on a crest line and never on a
 flank. `TestRibbonsStayInsideTheirBoresOverTheTravel` holds every point of the ribbon inside
 every bore by the clearance through the whole travel, and holds the crests, the back edge and
@@ -339,13 +372,15 @@ the proof must check").
 | Collar Half Length | 3 mm |
 | Collar Wall | 3 mm |
 | Clearance | 0.20 mm |
+| Roof Allowance | 0.30 mm |
 
 Derived: `Beta` = 43.6°, `A` = 14.10 mm, ribbon length = 178.5 mm, twist per tooth = `P/Lambda` =
 19.1°, ribbon turn between a gear's two bores = `2*CageRadius/Lambda` = 218°. The sleeve runs
 from radius 12 to 18 mm and stands 37.5 mm tall. These are the ribbon's defaults since the print
 of 2026-09-28, the frame's since the print of 2026-09-30, and the clearance, engagement,
 mounting angles and assembly phase since the print of 2026-10-02 ("What the print showed"); the
-earlier tables are recorded there. The proof's `defaultParams`, in
+earlier tables are recorded there; the roof allowance came in with the second sleeve's print of
+2026-10-02. The proof's `defaultParams`, in
 `geometry_test.go`, is this table; `sleeveParams` returns the same table under the name the
 compiled step proof calls.
 
@@ -414,13 +449,15 @@ at 11° and below the pair jams, and at 17° and above B is never boxed in. 16°
 bores, 1.53° either way at the 0.20 mm clearance, and every degree of roll is a degree of
 mounting angle to the mesh; a sideways move in the bores acts as a roll as well
 (`bore_play_test.go`). 14° stands 2° from both ends of the band that drives, and 1° inside the
-15° the proof's departure bound still accepts. The earlier 15°, at
+15° the proof's departure bound still accepts. With the tips 0.35 mm short, as a print makes
+them, the band is 11.5° to 15.5° (`mesh-search.md`), and the 1.53° of roll keeps the pair inside
+it; `TestPairDrivesUnderBorePlay` judges the play with those tips. The earlier 15°, at
 a 0.75 mm engagement and a 0.45 mm clearance, was 1° from the edge, and the print of 2026-10-02
 did not mesh ("What the print showed"). Unequal angles drive too — 0° on gear A and 30° on gear
 B gives a 0.735–0.919 mm window and a 0.031 mm departure at the 0.90 mm engagement — but the two
 gears are the same part held alike, and at equal angles a half turn about `ê` carries each
-gear's bores onto the other's, so the sleeve and its two windows are the same either way up
-(§4); 14° on both is kept. The arrangement is an input on both gears, and an unequal pair is a
+gear's bores onto the other's, so the sleeve and its two windows are the same either way up but
+for the roof allowance (§4); 14° on both is kept. The arrangement is an input on both gears, and an unequal pair is a
 change of two dialog values.
 
 **Assembly phase.** With gear A at tooth phase 0, gear B is built at **−1.30 mm**: its teeth and
@@ -497,7 +534,8 @@ The frame's inputs keep the names the video frame gave them, and mean this for t
 thickness, so the sleeve runs from radius `cageRadius - collarHalf` to `cageRadius + collarHalf`;
 `collarWall` is the least material the build leaves round every bore and every window, at the
 end faces, between two bores and beside a window; `clearance` is added all round the bore's
-rectangle. The video frame's `ringRadius`, `ringWire` and `rodDiameter` are gone with its ring,
+rectangle; `roofAllowance` is added on one face of one bore of each gear, the roof the printer
+bridges (§4, "The roof allowance"). The video frame's `ringRadius`, `ringWire` and `rodDiameter` are gone with its ring,
 loop and rods.
 
 The dialog opens with where the mechanism goes, because nothing can be built without it and
@@ -524,6 +562,7 @@ least important, as listed.
 | `frameGroup`, Frame | Cage Radius | `cageRadius` | mm | 15 |
 | `frameGroup`, Frame | Cage Rise | `cageRise` | mm | 18.75 |
 | `frameGroup`, Frame | Clearance | `clearance` | mm | 0.20 |
+| `frameGroup`, Frame | Roof Allowance | `roofAllowance` | mm | 0.30 |
 | `frameGroup`, Frame | Collar Half Length | `collarHalf` | mm | 3 |
 | `frameGroup`, Frame | Collar Wall | `collarWall` | mm | 3 |
 | `meshGroup`, Mesh (from the mesh search) | Crossing Angle | `crossAngle` | deg | 80 |
@@ -560,7 +599,8 @@ returns internal units — cm for length and **radians** for angle (`[PB-EVAL-EX
 **Range checks, all raised as a clear error naming the offending field and the bound:**
 
 - `ribbonWidth`, `ribbonThickness`, `toothPitch`, `twistLead`, `collarHalf`, `collarWall` and
-  `clearance` must be `> 0`; `toothCount` must be a whole number `>= 4`.
+  `clearance` must be `> 0`; `roofAllowance` must be `>= 0`, zero cutting every bore to the
+  clearance alone; `toothCount` must be a whole number `>= 4`.
 - `toothHeight` must be `> 0` and `< ribbonWidth/2`.
 - `engagement` must be `> 0` and `<= toothHeight`. Past the tooth height the two blanks foul each
   other rather than meshing.
@@ -581,7 +621,9 @@ The sleeve's own four checks come next, in this order, each naming the field giv
 bound; `sleeveRefusal` in `sleeve_test.go` is the same four in the same order, and
 `TestSleeveInputsAreChecked` reaches each with an input that passes every check before it.
 `Ri = cageRadius - collarHalf` is the sleeve's inner radius and `c = hypot(W/2 + clearance,
-T/2 + clearance)` the bore's corner radius, 7.975 mm at the defaults.
+T/2 + clearance + roofAllowance)` the corner radius of the level bore's roof side, the furthest
+any bore's corner stands from its axis, 8.058 mm at the defaults; every check takes it for all
+four bores.
 
 - **The channel starts in the hollow**, naming `cageRadius`: `hypot(c, 1 mm) < Ri`. Each bore's
   cut starts a millimetre before the channel's corner first reaches the inner face, at station
@@ -600,19 +642,20 @@ T/2 + clearance)` the bore's corner radius, 7.975 mm at the defaults.
   itself, 10.92 mm. The bound is at least `axialWindow`, so it also keeps the engaged zone
   inside the hollow. A 1.5 mm engagement fails it.
 - **The end faces keep `collarWall`**, naming `cageRise`:
-  `cageRise >= A/2 + c + collarWall`, 18.02 mm at the defaults. No point of a channel is further
+  `cageRise >= A/2 + c + collarWall`, 18.11 mm at the defaults. No point of a channel is further
   from the middle plane than its axis, `A/2`, plus `c`. That is a sufficient bound, not the gap:
   the channels reach 14.54 mm from the middle inside the wall, which leaves 4.21 mm of end wall
   at the 18.75 mm default, and a 17.5 mm rise, which this check refuses, leaves 2.96 mm. The
-  check also refuses rises from about 17.55 mm up to 18.02 mm, which the channels would allow.
+  check also refuses rises from about 17.55 mm up to 18.11 mm, which the channels would allow.
 - **The wall between two neighbouring bores keeps `collarWall`**, naming `collarWall`: the
   separation §4 computes under "The wall between the bores" must be at least `collarWall`; the
-  message names the two bores and the separation. It is 5.206 mm at the defaults, across the gap
-  between the two `-R` bores. It depends on nearly every input at once, so it is computed rather
-  than bounded by a closed form: `TestSleeveWindowsFollowTheSize` finds it refusing a 4 mm
-  `collarWall` at a 70° crossing (3.715 mm) or with a 0.9 mm clearance (3.383 mm), and accepting
-  a sleeve scaled to 2/3 with the 3 mm wall kept (3.127 mm), a 5 mm `collarWall` (5.206 mm), and
-  a 4 mm `collarWall` at the defaults (5.206 mm) or at a 14.5 mm cage radius (4.659 mm).
+  message names the two bores and the separation. It is 5.078 mm at the defaults, across the gap
+  between the two `-R` bores. It depends on nearly every input at
+  once, so it is computed rather than bounded by a closed form: `TestSleeveWindowsFollowTheSize`
+  finds it refusing a 4 mm `collarWall` at a 70° crossing (3.585 mm) or with a 0.9 mm clearance
+  (3.294 mm), and accepting a sleeve scaled to 2/3 with the 3 mm wall kept (3.064 mm), a 5 mm
+  `collarWall` (5.078 mm), and a 4 mm `collarWall` at the defaults (5.078 mm) or at a 14.5 mm
+  cage radius (4.584 mm).
 
 `collarHalf` trades grip against travel. A thicker wall holds the gear closer to its screw motion
 and shortens the travel by twice its own growth, because a ribbon runs
@@ -701,14 +744,14 @@ them, with nothing left to solve.
 
 ```
 generate(inputs)
-  → processInputs(inputs)                    # read, check, precompute; the bore-wall check and the window search run here
+  → processInputs(inputs)                    # read, check, precompute; each gear's level bore, the bore-wall check and the window search run here
   → buildComponentTree()                     # Screw Gearing + Design + 3 children
   → buildAnchor()                            # anchor sketch, centre point, reference direction, axis planes, n̂
   → buildGear(index)   x2                    # per gear: paths → cell → repeat → one body
       → buildSweepPaths(index)               # Paths sketch: the two bore-path lines on the gear's axis
       → buildToothCell(index)                # one Cell Sections sketch (41 sections at the defaults) → one loft
       → repeatCellByDoubling(index)          # copy + screw-move + join, in cells; a remainder cell when N is not a multiple of cellTeeth
-  → buildCage()                              # the sleeve, one twisted sweep cut per bore, one extrude cut per window
+  → buildCage()                              # the sleeve, one twisted sweep cut per bore, one extrude cut per window; logs the end to print on
   → relocateBodies()                         # moveToComponent into Gear A / Gear B / Cage
   → solids.hide_construction_geometry(self.designOcc.component)
 ```
@@ -816,7 +859,7 @@ along it — and the build checks that `C` is `A/2` from each of the two planes
 each holding the two lines that gear's bores are swept along (§4), both on the gear's axis,
 which lies in that plane. The `+R` bore's cut spans stations `sIn` to `sOut` of the gear's axis
 and the `-R` bore's `-sOut` to `-sIn`, with `sIn = sqrt(Ri^2 - c^2) - 1 mm` and
-`sOut = cageRadius + collarHalf + 1 mm` (§4): 7.967 and 19 mm at the defaults. The sketch holds
+`sOut = cageRadius + collarHalf + 1 mm` (§4): 7.892 and 19 mm at the defaults. The sketch holds
 four reference points (Sketch Discipline), at `origin_g + s*dir_g` for `s` = `-sOut`, `-sIn`,
 `sIn` and `sOut`, all on the plane, and two solid lines — `bore-` from `-sOut` to `-sIn` and
 `bore+` from `sIn` to `sOut` — each drawn from its negative station to its positive one, sharing
@@ -981,15 +1024,18 @@ Ri   = cageRadius - collarHalf                inner radius, 12 mm
 Ro   = cageRadius + collarHalf                outer radius, 18 mm
 hw   = W/2 + clearance                        the bore's half-width, 7.70 mm
 ht   = T/2 + clearance                        the bore's half-thickness, 2.075 mm
-c    = hypot(hw, ht)                          the bore's corner radius, 7.975 mm
-sIn  = sqrt(Ri^2 - c^2) - 1 mm                where a +R bore's cut starts on its axis, 7.967 mm
+a    = roofAllowance                          the roof allowance, 0.30 mm
+c    = hypot(hw, ht + a)                      the furthest any bore's corner stands from its axis, 8.058 mm
+sIn  = sqrt(Ri^2 - c^2) - 1 mm                where a +R bore's cut starts on its axis, 7.892 mm
 sOut = Ro + 1 mm                              where it ends, 19 mm
 ```
 
-The sleeve prints standing on either flat end with no support. Every outside face is a vertical
-cylinder or a level end face and every face of a window is upright or at 45°, so the only
-material the printer lays on air is the roofs of the four bores: 1318 cells of the proof's
-0.25 mm grid, 82 mm², printed either way up (`TestSleevePrintsStandingOnEitherEnd`).
+The sleeve prints standing on its **`−n̂` end**, the end below the selected plane, with no
+support. Every outside face is a vertical cylinder or a level end face and every face of a
+window is upright or at 45°, so the only material the printer lays on air is the roofs of the
+four bores: 1341 cells of the proof's 0.25 mm grid, 84 mm², standing on that end
+(`TestSleevePrintsStandingOnEitherEnd`). Standing on the other end it prints too, 1318 cells,
+but the roof allowance is then on the floors and the bridged roofs keep only the clearance.
 
 **The tube** (`[SCREW-F-SLEEVE]`). One sketch, `Sleeve`, on the selected plane
 (`[PB-USE-SELECTED-PLANE]`): two circles `addByCenterRadius` at `C`, mapped in with
@@ -1010,15 +1056,50 @@ the circle of radius `cageRadius`, at station `+cageRadius` of the axis, and its
 `-cageRadius`. Each is the crest rectangle plus the clearance, `2*hw` by `2*ht`, 15.4 by 4.15 mm,
 turned at every station `s` to the ribbon's own angle `s/Lambda + Phi_g`. That is the channel the
 video frame's collars were cut with, and `TestSleeveBoresAreTheSameChannels` pins it: the
-rectangle, the stations, the twist, and the angles at the crossings, 123.1° and −95.1°. Only the
-span the cut covers is the sleeve's own. The tube's inside is a cylinder, not a plane square to
-the ribbon, so the channel's corners reach into the wall before its centre line does: a corner
-first touches the inner face at station `sqrt(Ri^2 - c^2)`, 8.967 mm. The cut runs from a
-millimetre before that, `sIn`, where the whole section is in the hollow, to a millimetre past the
-outer face, `sOut`, where the whole section is outside: `[sIn, sOut]` for a `+R` bore and
-`[-sOut, -sIn]` for a `-R` bore, 11.033 mm of axis and 80.24° of turn. The assembly phase moves
+rectangle, the stations, the twist, the angles at the crossings, 123.1° and −95.1°, and which
+bore carries the roof allowance on which face. Only the span the cut covers is the sleeve's own.
+The tube's inside is a cylinder, not a plane square to the ribbon, so the channel's corners reach
+into the wall before its centre line does: a corner first touches the inner face by station
+`sqrt(Ri^2 - c^2)`, 8.892 mm. The cut runs from a millimetre before that, `sIn`, where the whole
+section is in the hollow, to a millimetre past the outer face, `sOut`, where the whole section is
+outside: `[sIn, sOut]` for a `+R` bore and `[-sOut, -sIn]` for a `-R` bore, 11.108 mm of axis and
+80.78° of turn. The assembly phase moves
 gear B's ribbon along its axis and not its bores: any stretch of the ribbon fits a bore, and the
 ribbon can go in at any phase a pitch apart, so the frame has no way to know the phase.
+
+**The roof allowance** (`levelBore`, `roofSide`, `boreOpening`). With the sleeve standing on its
+`−n̂` end, one bore of each gear passes through level inside the wall, and the printer bridges its
+roof across the hole; at the defaults that is each gear's `-R` bore, whose long faces lie flat at
+station −14.30 mm. The second sleeve printed those two bores too tight and the two `+R` bores
+not (`[SCREW-F-PRINT-2]`). So each gear's **level bore** has its roof face moved out by
+`roofAllowance`, and every other face of every bore stays at the clearance:
+
+- The level bore is, of the gear's two bores, the one whose long faces come nearest level over
+  the wall's span on its centre line. A long face runs along the section's `u`, which stands
+  `theta` from `û_g`, and `û_g` is along `±n̂`, so a long face is level where `cos(theta)` is zero.
+  For the bore at `σ*cageRadius`, `σ` being `-1` or `+1`, take `theta` at the two stations
+  `σ*(cageRadius - collarHalf)` and `σ*(cageRadius + collarHalf)`; when some `pi/2 + k*pi` lies
+  between them its tilt is 0, and otherwise it is the smaller `|cos theta|` of the two. The bore
+  with the smaller tilt is the level bore, the `-R` bore when they tie. At the defaults the `-R`
+  bores' tilt is 0 and the `+R` bores' is `|cos 101.3°|`, 0.195.
+- The roof face is the long face that is up when the sleeve stands on its `−n̂` end: the `+v`
+  face when `v̂(sc)·n̂ = -sin(theta(sc))*(û_g·n̂)` is positive at the bore's crossing station
+  `sc = σ*cageRadius`, and the `-v` face otherwise. `v̂_g·n̂` is zero, so that is the whole
+  product. At the defaults it is gear A's `+v` face and gear B's `-v` face. The sign holds over
+  the whole cut: `v̂·n̂` changes sign only where a long face stands upright, 90° of twist, 12.4 mm
+  of axis, from where it lies level.
+- The level bore's rectangle spans `v` from `vLo = -ht` to `vHi = ht + a` when its roof is the
+  `+v` face, and from `vLo = -ht - a` to `vHi = ht` otherwise: 4.45 mm through at the defaults.
+  Every other bore spans `-ht` to `ht`, and every bore spans `u` from `-hw` to `hw`.
+
+The allowance adds no move of the ribbon along or across the axes and no roll: the other bore and
+the level bore's floor hold the ribbon to the clearance there. It lets the ribbon tilt, its level
+bore's end rising into the room while the other bore holds, which carries the crossing 0.273 mm
+instead of 0.200 mm toward the other ribbon for gear A and away from it for gear B
+(`TestRoofAllowanceAddsOnlyATilt`). After the sleeve is built the build logs, with `futil.log`
+(`[PB-LOGGING]`), `Print the cage standing on its end below the selected plane: the roof
+allowance is on the bridged roofs that way up.`, since nothing on the part shows which end that
+is.
 
 **Cut each bore with a twisted sweep** (`[SCREW-F-TWISTED-SLOT]`, `[PB-SWEEP-TWIST]`): the bore's
 rectangle, drawn by the rectangle scheme below on the bore's own plane,
@@ -1042,9 +1123,10 @@ and `TestSleeveAdmitsOnlyTheScrewMotion` measure against — with no facets and 
 samples. The two bores of one gear stand `2*cageRadius` apart and are two sweeps on two lines, as
 §1 draws them.
 
-**The rectangle scheme.** Each of the four bore section sketches is a rectangle of half-thickness
-`hv` spanning `u` from `uB` to `uF`, turned by `theta = s/Lambda + Phi_g` about the axis point
-`O`, which lies on the rectangle's long centre line; for a bore, at its centre. Four lines, two
+**The rectangle scheme.** Each of the four bore section sketches is a rectangle spanning `v` from
+`vLo` to `vHi` and `u` from `uB` to `uF`, turned by `theta = s/Lambda + Phi_g` about the axis point
+`O`, which lies on the line `v = 0`; for a bore other than a level one, at its centre, and for a
+level bore `a/2` off it across the thickness. Four lines, two
 dimensions, one coincidence and one angle cannot fix `O` inside such a rectangle; a construction
 spine through `O` can, and this is the scheme:
 
@@ -1063,17 +1145,18 @@ spine through `O` can, and this is the scheme:
 - **The angle.** An angular dimension between `Ru` and `K` when `|sin theta| >= sqrt(1/2)`,
   where the angle is `theta` folded into 45°–135°, and otherwise between `Ru` and the toothed
   side `L2`, which stands at `theta + 90°` (Sketch Discipline).
-- **The rectangle.** Four lines sharing their corners: `L1` from `(uB, -hv)` to `(uF, -hv)`,
-  `L2` on to `(uF, hv)`, `L3` on to `(uB, hv)`, `L4` back to the start, every seed the solved
+- **The rectangle.** Four lines sharing their corners: `L1` from `(uB, vLo)` to `(uF, vLo)`,
+  `L2` on to `(uF, vHi)`, `L3` on to `(uB, vHi)`, `L4` back to the start, every seed the solved
   point (`[PB-SHARE-XOR-COINCIDENT]`: shared, no coincident on a corner). Then `L1` parallel to
-  `K` with an offset dimension of `hv`, and `L3` likewise on the other side; `E` coincident on
+  `K` with an offset dimension of `-vLo`, and `L3` on the other side with one of `vHi`; `E` coincident on
   `L2`, and `L2` perpendicular to `K`; `L4` parallel to `L2` with an offset dimension of
   `uF - uB` (`[PB-OFFSET-DIM]`, `[PB-NO-OVERCONSTRAIN]`).
 
 Ten degrees of freedom — `E` and the four corners — against ten rows: five dimensions (the
 length, the angle, three offsets) and five constraints (three parallels, a perpendicular, a
 coincidence), so the sketch closes fully constrained. In every one of the four sketches
-`uB = -hw`, `uF = hw` and `hv = ht`, the bore's rectangle, and its four lines are solid and are
+`uB = -hw`, `uF = hw`, and `vLo` and `vHi` are the bore's own from "The roof allowance", and its
+four lines are solid and are
 the profile, the one loop of four lines, `find_profile_by_curve_counts(sketch, lines=4)`
 (`[PB-PROFILE-MATCH]`). The construction lines bound nothing. The scheme is drawn with sketch
 computing deferred (Sketch Discipline); the video frame's collar sections, drawn by the same
@@ -1084,8 +1167,8 @@ compiled step proof stands in a ruled loft through rotated rectangles for each b
 proof checks"), and the count it lofts through is derived from the turn and the clearance: no two
 neighbouring sections more than 5° of twist apart, nor more than the angle at which the facets
 between them take 4% of the clearance, `2*acos(1 - 0.04*clearance/c)`, and the count is
-`ceil(turn / step) + 1` for the smaller step. At the defaults the turn is 80.24°, the facet bound
-5.1° and 5° governs: 18 sections. At a clearance of 0.05 mm the turn is 79.08°, the facet bound
+`ceil(turn / step) + 1` for the smaller step. At the defaults the turn is 80.78°, the facet bound
+5.1° and 5° governs: 18 sections. At a clearance of 0.05 mm the turn is 79.58°, the facet bound
 2.6° governs, and the count is 32. A ruled loft's wall is flat between sections and every facet
 stands inside the true channel, so what the stand-in costs is clearance: 0.007 mm of the 0.20 mm
 at the derived count. `TestSleeveBoreSubstituteKeepsItsClearance` builds that ruled channel over
@@ -1111,8 +1194,9 @@ bore otherwise. The probes stand 16.80 mm (`-R`) and 16.30 mm (`+R`) from the fr
 inside the wall, and clear of the ribbon and of the channel's wall by `clearance/2`. They tell
 the two senses apart on their own. The profile sits at the cut's first station `s0`, `sIn` or
 `-sOut`, and under the wrong sense the channel at the crossing is turned `2*(sc - s0)/Lambda`
-from the right one — 102° for a `+R` bore, 58° for a `-R` bore — which puts the probes 7.43 and
-6.46 mm across a channel 2.075 mm half thick, in the wall
+from the right one — 103° for a `+R` bore, 58° for a `-R` bore — which puts the probes 7.39 and
+6.46 mm across a channel 2.075 mm half thick, or 2.375 mm on the level bore's roof side, in the
+wall
 (`TestSleeveBoreProbesTellTheTwistSense`). With no collar body there is no end-vertex check; the
 probes are the whole of the sense check.
 
@@ -1127,7 +1211,8 @@ B's `+R`) and `+ê` (the two `+R` bores).
 1. Sample each bore's outline (`channelOutline`): at stations every 0.1 mm from `σ*sIn` outward
    while `|s| <= sOut`, `σ` being `+1` for a `+R` bore and `-1` for a `-R` bore, take seventeen
    points on each side of the bore's rectangle — `(hw, v)` and `(-hw, v)` for
-   `v = -ht + 2*ht*i/16`, `(u, ht)` and `(u, -ht)` for `u = -hw + 2*hw*i/16`, `i = 0 … 16` —
+   `v = vLo + (vHi - vLo)*i/16`, `(u, vHi)` and `(u, vLo)` for `u = -hw + 2*hw*i/16`,
+   `i = 0 … 16` —
    turned to the station's angle and placed as the world point of §1. Keep a point when its
    distance from the frame's axis, `hypot((P - C)·ê, (P - C)·k̂)`, lies within `Ri - 0.5 mm` to
    `Ro + 0.5 mm`.
@@ -1143,8 +1228,8 @@ B's `+R`) and `+ê` (the two `+R` bores).
 Projecting onto a plane and then onto a line brings no two points nearer, and the hull holds
 every projected point, so the separation never exceeds the least distance between the two
 outlines, which `nearestChannels` in the proof measures and `TestSleevePrintsStandingOnEitherEnd`
-holds to `collarWall`. At the defaults it is 5.206 mm, across the `-ê` gap, where
-`nearestChannels` measures 5.240 mm.
+holds to `collarWall`. At the defaults it is 5.078 mm, across the `-ê` gap, where
+`nearestChannels` measures 5.187 mm; without the roof allowance it was 5.206 and 5.240 mm.
 
 **The windows.** Down the hollow is one way to see the mesh; two windows through the wall show it
 from the side. The windows go across the two wider gaps between neighbouring bores
@@ -1154,9 +1239,10 @@ from the side. The windows go across the two wider gaps between neighbouring bor
 them is a band running at about 45° from above the low bore down to below the high one; each
 window is cut along that band. Each window's shape is found in `processInputs`, before any
 feature, by the search below, which is `newWindow` in the proof step for step; each window is
-found the same way from its own facing direction. At equal mounting angles the `-k̂` window
-comes out as the `+k̂` one turned half a turn about `ê`, as the bores do; that is a property of
-the result, not a shortcut the build takes.
+found the same way from its own facing direction. At equal mounting angles and no roof
+allowance the `-k̂` window comes out as the `+k̂` one turned half a turn about `ê`, as the bores
+do; the allowance on gear A's `-R` bore, which flanks the `-k̂` window, makes that window's band
+narrower, so the two differ. Neither is a shortcut the build takes.
 
 *The window's plane.* For a window facing the level unit direction `d`, let `across = n̂ × d`,
 which is `-ê` for `d = +k̂`. A point `P` has plane coordinates `t = (P - C)·across` and
@@ -1167,8 +1253,8 @@ the frame's axis. At `t` the wall runs from `a0(t) = sqrt(max(0, Ri^2 - t^2))` t
 
 *A bore's section in the wall* (`sectionInWall`). For a bore of gear `g` at station `s` with
 `|s| < Ro`, in the section plane's coordinates `x` along `û_g` and `y` along `v̂_g`: take the
-rectangle's corners `(-hw, -ht)`, `(hw, -ht)`, `(hw, ht)` and `(-hw, ht)`, in that order, which
-runs counter-clockwise, each turned by `theta = s/Lambda + Phi_g` to
+rectangle's corners `(-hw, vLo)`, `(hw, vLo)`, `(hw, vHi)` and `(-hw, vHi)`, in that order, with
+the bore's own `vLo` and `vHi` ("The roof allowance"), which runs counter-clockwise, each turned by `theta = s/Lambda + Phi_g` to
 `(u*cos theta - v*sin theta, u*sin theta + v*cos theta)`. Clip it to the heights inside the end
 faces: keep the `x` for which `(origin_g + x*û_g - C)·n̂` lies within `±cageRise`. A point at
 `(x, y)` stands `hypot(s, y)` from the frame's axis, so clip what is left twice more, once to
@@ -1191,10 +1277,12 @@ each long side stands `collarWall` beyond its bore's channel measured on the pla
 of the channel that far from the hexagon on the plane is at least that far from the prism. A
 linear measure of a piece is extreme at a corner, so the corners are all the walk needs.
 
-*The trims.* `zLimit` is the highest any channel reaches in the wall (`channelTop`): over all four
-bores, at stations from `σ*sIn` outward every 0.01 mm while `|s| <= sOut`, wherever the section
-reaches the wall — `|s| <= Ro` and `hypot(s, hw*|sin theta| + ht*|cos theta|) >= Ri` — it is the
-largest `A/2 + hw*|cos theta| + ht*|sin theta|`, 14.54 mm at the defaults. Then
+*The trims.* `zLimit` is the furthest any channel reaches from the middle plane in the wall, up or
+down (`channelTop`): over all four bores, at stations from `σ*sIn` outward every 0.01 mm while
+`|s| <= sOut`, wherever the section reaches the wall — `|s| <= Ro` and `hypot(s, y) >= Ri` for the
+largest `y = |u*sin theta + v*cos theta|` over the bore's four corners `(u, v)` — it is the largest
+`|(origin_g - C)·n̂ + (u*cos theta - v*sin theta)*(û_g·n̂)|` over those corners, 14.54 mm at the
+defaults. Then
 
 ```
 top    = min(2*zLimit - hi, hi + sqrt(2)*Ri)
@@ -1266,11 +1354,13 @@ not, so it finds the least a walk of every station would.
 `lean*t + z <= hi`, `-lean*t - z <= -lo`, `-lean*t + z <= top`, `lean*t - z <= -bottom`,
 `t <= right` and `-t <= -left` (`clipCorners`), so every edge is upright or at 45°. Drop a corner
 that lies within 0.001 mm of the one before it, since a sketch line cannot have zero length. At
-the defaults the `+k̂` window has `lo = -3.780`, `hi = 6.730`, `bottom = -20.751`, `top = 22.355`,
+the defaults the `+k̂` window has `lo = -3.780`, `hi = 6.730`, `bottom = -20.751`, `top = 22.352`,
 `left = -11.523` and `right = 11.703`, and its six corners in `(t, z)` are `(11.70, -4.97)`,
 `(-7.81, 14.54)`, `(-11.52, 10.83)`, `(-11.52, 7.74)`, `(8.49, -12.27)` and `(11.70, -9.05)`: long
 sides 7.43 mm apart across the band, ends 23.23 mm apart, 220.0 mm² on the plane, reaching
-14.54 mm from the middle against the channels' 14.54 mm.
+14.54 mm from the middle against the channels' 14.54 mm. The `-k̂` window has `lo = -6.436`,
+`hi = 3.780`, `bottom = -22.645`, `top = 20.751`, `left = -11.670` and `right = 11.523`: long
+sides 7.22 mm apart, ends 23.19 mm apart, 215.1 mm².
 
 *When a gap has no room* (`room`). A window is not cut when `hi <= lo`, the flanking bores leaving
 no band between them, or when `right <= left` or the hexagon has fewer than three distinct
@@ -1288,7 +1378,7 @@ rises at 45° or more; the faces meet the tube at edges of 49.4° or more; and t
 roofs meet the tube descend at 35.3° or more. `TestSleeveWindowPostsStandFirm` holds every post
 beside a window to at least `collarWall` wide, 3.18 mm at the narrowest at the defaults, and any
 stretch of post under two `collarWall`s wide to at most twice as tall as it is wide, 0.85 times
-at the defaults. Through either window 90.6% of the mesh zone can be seen past both ribbons
+at the defaults. Through either window 90.3% of the mesh zone can be seen past both ribbons
 (`TestSleeveWindowsShowTheMeshFromTheSide`).
 `TestSleeveWindowsFollowTheSize` runs all of those checks, with the one-piece and printing checks,
 at 33 inputs across the dialog's ranges, and every window it cuts passes.
@@ -1329,7 +1419,7 @@ only participant, in the order gear A `-R`, gear A `+R`, gear B `-R`, gear B `+R
 windows, the one facing `d` before the one facing `-d`. Every cut has to leave exactly one body,
 counted as the feature's `bodies.count`, and that body is the cage from then on; the build raises
 with the piece's name otherwise. `TestSleeveIsOnePiece` holds that what remains is one piece:
-16,593 mm³ at the defaults, about 21 g of PLA.
+16,561 mm³ at the defaults, about 21 g of PLA.
 
 ### 5: Relocate the bodies
 
@@ -1397,28 +1487,60 @@ The mechanism proof's cases:
   exactly one pitch (the 1:1 ratio). The third is what separates a gear from two parts that merely
   touch, and an earlier arrangement passed the first two and failed it. Its bounds on the
   departure and on the window are fractions of the pitch ("Defaults").
-- `TestPairDrivesUnderBorePlay` runs the same judgement, at six phases of A per pitch, over the
-  play the bores allow. Each ribbon is moved inside its two bores, at the defaults' bores, to
-  its limits toward and away from the other ribbon at every whole degree of roll, and to its two
-  roll limits: 8 poses a ribbon, 64 pose pairs. It holds that the nominal pose drives, that every
-  pose pair that fails is a jam with both ribbons pushed toward each other by at least one
-  clearance in all, that none lets the teeth pass without boxing each other or slips off 1:1,
-  and that at most one jams. At the defaults 63 of 64 drive, with windows from 0.052 to
-  0.932 mm and departures up to 0.131 mm, and the one that jams has both ribbons pushed the
-  whole 0.20 mm toward each other. It does not combine a sideways move with a roll or a move
-  along the axis between them, nor tilt a ribbon; an offline run of 676 pose pairs that did the
-  first found 6 jams of the accepted kind and no other failure, and took 3 min 22 s on 24 cores
-  against this case's 20 s.
+- **What "meshes" means under play.** A printed tooth's tip comes out rounded and short, so
+  wherever the proof judges the mesh under play it cuts both ribbons' crests flat 0.35 mm down
+  (`printTipLoss`): a 0.4 mm nozzle lays a bead about 0.45 mm wide, the cosine's crest is
+  narrower than that bead for its last 0.19 mm, and an outer wall comes out a tenth or two of a
+  millimetre off on top. The pair meshes when, at every pose pair the bores allow, the free
+  window of `TestPairDrivesOneToOne` is never a pitch wide and advances one pitch per pitch, at
+  six phases of A per pitch. A pose pair that jams is accepted only when the two axes stand at
+  least one clearance nearer than nominal and neither ribbon is pulled away from the other: the
+  two bodies cannot both be in that pose at that phase, so the teeth push the ribbons out of it,
+  and only pressing the ribbons together reaches it. A pose pair that lets the teeth pass is
+  never accepted.
+- `TestPairDrivesUnderBorePlay` judges the defaults that way. Each ribbon is moved inside its
+  two bores to its limits toward and away from the other ribbon at every whole degree of roll,
+  to its two roll limits, and to the two tilts that put its crossing furthest toward and away
+  from the other ribbon (`tiltReach`): 10 poses a ribbon, 100 pose pairs. It holds that the
+  nominal pose drives, that no pose pair fails in a way the check refuses, and that at most four
+  jam. At the defaults 96 of 100 drive, with windows from 0.026 to 1.654 mm and departures up to
+  0.315 mm, and the four that jam all have gear A tilted into its roof allowance, its crossing
+  0.273 mm toward gear B, against gear B pushed toward it, at 0.199 mm or 0.200 mm, rolled 1°
+  and pushed 0.069 mm, or at its roll limit. It takes about 33 s on 24 cores. It does not
+  combine a sideways move with a roll or a move along the axis between them, nor tilt a ribbon
+  about the axis through the crossing that the roof allowance does not open; an offline run of
+  676 pose pairs before the roof allowance, with the model's own tips, that combined the first
+  found 6 jams of the accepted kind and no other failure.
 - `TestPairDrivesUnderSidewaysPlay` takes each ribbon to its sideways limits, 0.20 mm either
   way, against the other at rest, at its limits along the axis between them and at its own
-  sideways limits: 16 pose pairs, all of which drive at the defaults, with windows from 0.066
-  to 1.142 mm.
+  sideways limits, with the tips 0.35 mm short: 16 pose pairs, all of which drive at the
+  defaults, with windows from 0.092 to 1.339 mm.
+- `TestRoofAllowanceAddsOnlyATilt` holds that the roof allowance adds no move and no roll:
+  against the same sleeve with no allowance, each ribbon moves 0.200 mm toward, away and either
+  way sideways and rolls 1.53°, to a micron and to 1e-4 rad, and both gears' level bores are
+  their `-R` bores. What it adds is a tilt about the axis square to the ribbon and to the common
+  perpendicular, −0.96° to +0.56° for gear A and −0.56° to +0.96° for gear B against ±0.56°
+  without, which carries gear A's crossing 0.273 mm toward gear B and gear B's 0.273 mm away
+  from gear A, against 0.200 mm. The test holds that gain under half the allowance. The other
+  bore caps the tilt, so a roof with far more room, such as one chiselled open, carries the
+  crossing no further.
 - `TestPrintedFitFailsUnderBorePlay` runs the same check at the values printed before
-  2026-10-02 — a 0.45 mm clearance, a 0.75 mm engagement, 15° on both gears — over each
-  ribbon's limits along the axis between them and its roll limits, 16 pose pairs, and holds that
-  at least one fails in a way the check refuses. The nominal pose drives there, which is all the
-  proof used to ask; 8 of the 16 fail, 6 with the teeth passing unboxed and 2 jamming with one
-  ribbon pushed alone. It is the case the print of 2026-10-02 asked for (`[SCREW-F-PRINT-MESH]`).
+  2026-10-02 — a 0.45 mm clearance and no roof allowance, a 0.75 mm engagement, 15° on both
+  gears, the model's own tips — over each ribbon's limits along the axis between them and its
+  roll limits, 16 pose pairs, and holds that at least one fails in a way the check refuses. The
+  nominal pose drives there, which is all the proof used to ask; 6 of the 16 let the teeth pass
+  unboxed. Two more jam with one ribbon pushed the whole clearance and the other at its roll
+  limit, which the check refused until the roof allowance came in and accepts now. It is the
+  case the print of 2026-10-02 asked for (`[SCREW-F-PRINT-MESH]`).
+- `TestSecondPrintMeshIsMarginal` takes the fit the second sleeve was printed at, the defaults'
+  0.20 mm clearance with no roof allowance, and the one pose pair whose mesh gives way first as
+  the tips shorten: both ribbons pulled the whole clearance apart. With the tips 0.40 mm short
+  the pair drives there, and with them 0.45 mm short it lets the teeth pass; over all 64 of its
+  reach pose pairs it fails none at 0.40 mm, one at 0.45 mm and four at 0.50 mm. So the drawn
+  fit holds 0.05 mm of tip loss past the 0.35 mm the proof takes, and that margin is what the
+  case holds. The print it answers meshed only sometimes, after its `-R` bores were chiselled
+  open (`[SCREW-F-PRINT-2]`); a bore opened by hand is not the bore drawn, and the proof cannot
+  model the chisel.
 - `TestSymmetricMountJams` holds the reason the Mounting Angle exists, by failing if the `Phi = 0`
   arrangement ever stops jamming.
 - `TestFullRibbonsClearOutsideTheEngagement` walks both parts end to end, so the contact search's
@@ -1430,11 +1552,13 @@ The mechanism proof's cases:
 - `TestSleeveBoresAreTheSameChannels` pins what the frame may not change: the bore's rectangle,
   15.4 by 4.15 mm, its stations `±cageRadius`, its twist and its angles at the crossings, that
   the cut covers the wall's span on the bore's centre line, and that one gear's bores sit low
-  and the other's high.
+  and the other's high. It also pins the roof allowance: each gear's level bore is its `-R`
+  bore, spanning `v` from −2.075 to 2.375 mm for gear A and from −2.375 to 2.075 mm for gear B,
+  and each `+R` bore spans ±2.075 mm.
 - `TestRibbonsStayInsideTheirBoresOverTheTravel` holds every point of the ribbon, teeth
   included, inside every bore by the clearance at every phase of the travel, over the wall's
   span on the bore's centre line, and holds the bore no looser than that, the crests, the back
-  edge and the faces each coming to 0.200 mm.
+  edge and the faces each coming to 0.200 mm, and the level bores' roofs to 0.500 mm.
 - `TestTravelIsTheRibbonBetweenItsBores` walks each gear out of the assembly position both ways,
   141.2 mm for the pair, 53.8 teeth, with the mesh limit further out at 80.2 mm.
 - `TestRibbonsClearEachOtherOutsideTheEngagement` walks everything each ribbon reaches at any
@@ -1446,7 +1570,7 @@ The mechanism proof's cases:
 - `TestRibbonsClearTheSleeveOverTheTravel` is the other half of that: the gear moves freely
   through its travel. It walks everything both ribbons reach at any phase, grown by the
   clearance, over every station the travel carries them through, and finds no point of it in the
-  sleeve; outside the bores' cuts the ribbons keep 0.92 mm from the tube.
+  sleeve; outside the bores' cuts the ribbons keep 0.98 mm from the tube.
 - `TestSleeveBoreProbesTellTheTwistSense` holds the build's check of each bore's sweep: both
   probes at the crossing are in the channel under the right twist sense and in the wall under the
   wrong one.
@@ -1457,17 +1581,19 @@ The mechanism proof's cases:
 - `TestSleeveIsOnePiece` flood-fills the sleeve on a 0.25 mm grid and reaches every cell, and
   holds the end wall the channels leave, 4.21 mm, to `collarWall`.
 - `TestSleevePrintsStandingOnEitherEnd` holds both ends flat, finds material laid on air only in
-  the bores' roofs, printed either way up, and holds the end wall, the wall between the nearest
-  two bores (5.24 mm, `nearestChannels`) and the edge each bore's mouth leaves on the inner and
-  outer face (48.4° and 63.7°, against a 30° floor). It logs each bore's flattest roof and the
-  span the printer bridges there, and enforces nothing about them.
+  the bores' roofs, printed either way up — 1341 cells standing on the `−n̂` end and 1318 on the
+  other — and holds the end wall, the wall between the nearest two bores (5.19 mm,
+  `nearestChannels`) and the edge each bore's mouth leaves on the inner and outer face (47.8°
+  and 63.4°, against a 30° floor). It logs each bore's flattest roof, the span the printer
+  bridges there and whether the bore carries the roof allowance, and enforces nothing about the
+  roofs.
 - `TestSleeveBoreSubstituteKeepsItsClearance` bounds the compiled proof's stand-in for the bore
   sweep over the sleeve's cut, at clearances from 0.05 mm to 0.9 mm, the 0.20 mm default and the
   printed 0.45 mm among them.
 - `TestSleeveInputsAreChecked` holds the sleeve's four range checks ("Variables"): the defaults
   pass all four, and each is reached by an input that passes every check before it — a 4 mm
   clearance, a 1.5 mm engagement, a 17.5 mm rise, and a 4 mm `collarWall` at a 70° crossing. It
-  holds the separation of §4 under `nearestChannels` at the defaults, 5.206 against 5.240 mm.
+  holds the separation of §4 under `nearestChannels` at the defaults, 5.078 against 5.187 mm.
 - `TestSleeveWindowsKeepTheirWalls`, `TestSleeveWindowPostsStandFirm` and
   `TestSleeveWindowsShowTheMeshFromTheSide` hold the default windows (§4, "What the search
   keeps").
@@ -1553,13 +1679,18 @@ two searches of §4; a CPython port of them outside Fusion took 2.2 s at the def
 It also cannot see print tolerance, friction or how the printer copes with an overhang. The bore
 play cases (`bore_play_test.go`) take each bore as drawn: a print that comes out tighter or
 looser than drawn has a different play, and a ribbon that bends between its bores moves in a way
-no rigid pose reaches; they also leave out tilts of a ribbon in its bores. A window of
-0.43–0.47 mm is narrower than the 0.76–0.89 mm the first sleeve was printed with, and only a
-printed part settles whether it runs freely. Each `-R` bore passes through level: its 15.4
-mm-wide roof is flat at station −14.30 mm, inside the wall, and the printer bridges it across
-the wall; the `+R` bores' roofs are flat at station 10.45 mm, near the inner mouth. Whether a
-15.4 mm bridge sags into the 0.20 mm clearance only a print settles, and the proof logs the roofs and enforces nothing about
-them. Where a window's roof meets the inner face, the line it meets on descends at 35.3° at the
+no rigid pose reaches. They tilt a ribbon only about the axis the roof allowance opens. Their
+tip loss, 0.35 mm, is a reasoned allowance for a 0.4 mm nozzle, not a measurement; the drawn fit
+holds 0.40 mm and not 0.45 mm (`TestSecondPrintMeshIsMarginal`). A window of 0.43–0.47 mm is
+narrower than the 0.76–0.89 mm the first sleeve was printed with, and only a printed part settles
+whether it runs freely. Each `-R` bore passes through level: its 15.4 mm-wide roof is flat at
+station −14.30 mm, inside the wall, and the printer bridges it across the wall; the `+R` bores'
+roofs are flat at station 10.45 mm, near the inner mouth. The second sleeve's `-R` bores printed
+too tight at a 0.20 mm clearance, and the 0.30 mm roof allowance is the answer
+(`[SCREW-F-PRINT-2]`). How far a bridged roof sags the proof has no model of: it takes the bore
+as drawn, so with the allowance it assumes the roof does not sag at all, which is the case that
+gives the ribbon the most room to tilt, and whether 0.50 mm under the roof is enough only a
+print settles. The proof logs the roofs and enforces nothing about them. Where a window's roof meets the inner face, the line it meets on descends at 35.3° at the
 flattest: the proof's 0.25 mm grid takes that as one cell diagonally, which its 45° rule
 accepts, and whether a slicer lays a short unsupported edge there only a print settles. The
 first print, at the 10 mm ribbon, settled something the proof could not have caught: the teeth
@@ -1572,7 +1703,11 @@ geometry could have caught; the sleeve's printing checks are what the proof now 
 The third, of the sleeve, found the teeth not meshing over the play the 0.45 mm bores allowed,
 which the proof could have caught, since it held both the bores and the mesh; it measured the
 mesh at the nominal pose alone. `TestPairDrivesUnderBorePlay` now runs the mesh over that play,
-and `TestPrintedFitFailsUnderBorePlay` holds that it fails the printed values.
+and `TestPrintedFitFailsUnderBorePlay` holds that it fails the printed values. The fourth, of
+the sleeve at the 0.20 mm fit, found the bridged `-R` bores too tight, which the proof could not
+have caught, and, with them chiselled open, the teeth meshing only sometimes, which it could
+have caught in part: it modelled no tip loss. It now blunts the tips wherever it judges the mesh
+under play, and `TestSecondPrintMeshIsMarginal` holds where the drawn fit gives way.
 
 It cannot see the video's model either. The ratios in "What the video shows" were read off
 1280×720 frames by hand, and `TestProportionsFollowTheVideo` holds the defaults inside those

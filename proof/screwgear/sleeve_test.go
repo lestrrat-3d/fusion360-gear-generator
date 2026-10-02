@@ -45,9 +45,13 @@ import (
 func (p Params) SleeveInner() float64 { return p.CageRadius - p.CollarHalf }
 func (p Params) SleeveOuter() float64 { return p.CageRadius + p.CollarHalf }
 
-// BoreCorner is how far the bore's corner stands from the ribbon's axis: the
-// radius the channel sweeps out as it twists.
-func (p Params) BoreCorner() float64 { return math.Hypot(p.BoreHalfWidth(), p.BoreHalfThickness()) }
+// BoreCorner is how far the furthest corner of any bore stands from the
+// ribbon's axis: the radius the channel sweeps out as it twists. The level
+// bore's two corners on its roof side stand RoofAllowance further across the
+// thickness than the rest, so they are the furthest.
+func (p Params) BoreCorner() float64 {
+	return math.Hypot(p.BoreHalfWidth(), p.BoreHalfThickness()+p.RoofAllowance)
+}
 
 // sleeveCutMargin is how far each bore's cut runs past the material, at both
 // ends, so the cut starts and finishes in air.
@@ -217,23 +221,81 @@ func (f sleeve) shellDistance(pt r3.Vec) float64 {
 	return math.Hypot(dr, dz)
 }
 
-// shadowHalfWidth is how far a rectangle of the given half-sides, turned by
-// theta about the ribbon's axis, reaches across the frame's plane either side
-// of that axis. The extreme is a corner.
-func shadowHalfWidth(halfU, halfV, theta float64) float64 {
-	return halfU*math.Abs(math.Sin(theta)) + halfV*math.Abs(math.Cos(theta))
-}
-
-// boreGap is how far outside the bore's rectangle a point lies, measured in the
+// boreGap is how far outside the bore's opening a point lies, measured in the
 // ribbon's own section at that station with the twist undone, and zero inside,
 // with the station. The channel is the set where it is zero, a rectangle that
-// turns with the ribbon.
+// turns with the ribbon. Which of the gear's two bores the point is measured
+// against is the sign of its station.
 func boreGap(g Gear, pt r3.Vec) (float64, float64) {
-	p := g.P
 	u, v, s := g.local(pt)
-	du := math.Max(0, math.Abs(u)-p.BoreHalfWidth())
-	dv := math.Max(0, math.Abs(v)-p.BoreHalfThickness())
+	hw, vLo, vHi := boreOpening(g, math.Copysign(1, s))
+	du := math.Max(0, math.Abs(u)-hw)
+	dv := math.Max(0, math.Max(vLo-v, v-vHi))
 	return math.Hypot(du, dv), s
+}
+
+// boreOpening is one bore's opening in its gear's own section, before the
+// twist: u from -hw to hw and v from vLo to vHi. sign is -1 for the -R bore and
+// +1 for the +R bore. Every bore is the crest rectangle plus Clearance all
+// round, and the level bore (levelBore) also takes RoofAllowance on the long
+// face that is its roof when the sleeve stands on its -n end (roofSide).
+func boreOpening(g Gear, sign float64) (float64, float64, float64) {
+	p := g.P
+	hw, ht := p.BoreHalfWidth(), p.BoreHalfThickness()
+	vLo, vHi := -ht, ht
+	if sign != levelBore(g) {
+		return hw, vLo, vHi
+	}
+	if roofSide(g, sign) > 0 {
+		return hw, vLo, vHi + p.RoofAllowance
+	}
+	return hw, vLo - p.RoofAllowance, vHi
+}
+
+// openingCorners is boreOpening's four corners, counter-clockwise about +v x
+// +u's normal: (-hw, vLo), (hw, vLo), (hw, vHi), (-hw, vHi).
+func openingCorners(g Gear, sign float64) [4][2]float64 {
+	hw, vLo, vHi := boreOpening(g, sign)
+	return [4][2]float64{{-hw, vLo}, {hw, vLo}, {hw, vHi}, {-hw, vHi}}
+}
+
+// levelBore is which of a gear's two bores takes the roof allowance: the one
+// whose long faces come nearest level over the wall's span on its centre line,
+// CollarHalf either side of its station, -1 for the -R bore and +1 for the +R
+// bore, the -R bore when the two tie. A long face runs along the section's u,
+// which stands theta from the gear's Ex, and Ex is along the frame's axis, so
+// the face is level where cos(theta) is zero. At the defaults the -R bore's
+// faces pass through level at station -14.30, inside the wall, and the +R
+// bore's come no nearer than 11.3 degrees, at the wall's inner end.
+func levelBore(g Gear) float64 {
+	p := g.P
+	tilt := func(sign float64) float64 {
+		lo := g.angle(sign * (p.CageRadius - p.CollarHalf))
+		hi := g.angle(sign * (p.CageRadius + p.CollarHalf))
+		if lo > hi {
+			lo, hi = hi, lo
+		}
+		if level := math.Pi/2 + math.Ceil((lo-math.Pi/2)/math.Pi)*math.Pi; level <= hi {
+			return 0
+		}
+		return math.Min(math.Abs(math.Cos(lo)), math.Abs(math.Cos(hi)))
+	}
+	if tilt(1) < tilt(-1) {
+		return 1
+	}
+	return -1
+}
+
+// roofSide is which long face of a gear's bore is its roof when the sleeve
+// stands on its -n end: +1 when the +v face is the upper one at the bore's
+// station, -1 when the -v face is. v's component along the frame's axis is
+// -sin(theta) Ex.Z + cos(theta) Ey.Z.
+func roofSide(g Gear, sign float64) float64 {
+	th := g.angle(sign * g.P.CageRadius)
+	if -math.Sin(th)*g.Ex.Z+math.Cos(th)*g.Ey.Z > 0 {
+		return 1
+	}
+	return -1
 }
 
 // eachRibbonPoint walks a ribbon's whole surface at one tooth phase, from one
@@ -294,13 +356,20 @@ func (f sleeve) travelLimits() (float64, float64) {
 	return back, fwd
 }
 
-// sectionReach is how far a bore's rectangle, turned to theta, reaches
-// straight up (along the section's u direction at theta = 0, which is the
-// frame's axis) and sideways across the frame's plane. The extremes are
-// corners.
-func sectionReach(hw, ht, theta float64) (float64, float64) {
-	up := hw*math.Abs(math.Cos(theta)) + ht*math.Abs(math.Sin(theta))
-	return up, shadowHalfWidth(hw, ht, theta)
+// sectionReach is how far a bore's opening at station s, turned to its angle
+// there, reaches from the gear's axis along Ex, which is the frame's axis, and
+// along Ey, sideways across the frame's plane, each either way. The extremes
+// are corners.
+func sectionReach(g Gear, s float64) (float64, float64, float64, float64) {
+	c, sn := math.Cos(g.angle(s)), math.Sin(g.angle(s))
+	alongLo, sideLo := math.Inf(1), math.Inf(1)
+	alongHi, sideHi := math.Inf(-1), math.Inf(-1)
+	for _, q := range openingCorners(g, math.Copysign(1, s)) {
+		x, y := q[0]*c-q[1]*sn, q[0]*sn+q[1]*c
+		alongLo, alongHi = math.Min(alongLo, x), math.Max(alongHi, x)
+		sideLo, sideHi = math.Min(sideLo, y), math.Max(sideHi, y)
+	}
+	return alongLo, alongHi, sideLo, sideHi
 }
 
 // inWall answers whether any of the bore's section at station s lies in the
@@ -308,13 +377,13 @@ func sectionReach(hw, ht, theta float64) (float64, float64) {
 // since the axis runs radially in projection and the section is square to it,
 // and at most hypot(s, sideways reach) from it.
 func (f sleeve) inWall(g Gear, s float64) bool {
-	_, side := sectionReach(f.p.BoreHalfWidth(), f.p.BoreHalfThickness(), g.angle(s))
-	return math.Abs(s) <= f.ro && math.Hypot(s, side) >= f.ri
+	_, _, lo, hi := sectionReach(g, s)
+	return math.Abs(s) <= f.ro && math.Hypot(s, math.Max(-lo, hi)) >= f.ri
 }
 
-// channelTop is the highest any channel reaches inside the wall, measured
-// from the middle plane, and the station it reaches it at. The two gears are
-// the same either way up, so this is also the lowest.
+// channelTop is the furthest any channel reaches from the middle plane inside
+// the wall, up or down, and the station it reaches it at. The roof allowance
+// makes the sleeve differ either way up, so both ways are taken.
 func (f sleeve) channelTop() (float64, float64) {
 	top, at := 0.0, 0.0
 	for _, g := range f.gears {
@@ -323,9 +392,11 @@ func (f sleeve) channelTop() (float64, float64) {
 				if !f.inWall(g, s) {
 					continue
 				}
-				up, _ := sectionReach(f.p.BoreHalfWidth(), f.p.BoreHalfThickness(), g.angle(s))
-				if z := math.Abs(g.Origin.Z) + up; z > top {
-					top, at = z, s
+				lo, hi, _, _ := sectionReach(g, s)
+				for _, x := range []float64{lo, hi} {
+					if z := math.Abs(g.Origin.Z + x*g.Ex.Z); z > top {
+						top, at = z, s
+					}
 				}
 			}
 		}
@@ -358,7 +429,10 @@ func eachGrownEnvelopePoint(g Gear, grow, from, to, step float64, fn func(pt r3.
 // to 0.20 mm and the mounting angles from 15 to 14 degrees because the printed
 // pair did not mesh over the play the wider bores allowed
 // (spec/screwgear/fusion.md [SCREW-F-PRINT-MESH]); the stations and the twist
-// did not move.
+// did not move. The section moved again the same day, when the second
+// sleeve's bridged -R roofs printed too tight and each gear's level bore took
+// a roof allowance on its roof face (spec/screwgear/fusion.md
+// [SCREW-F-PRINT-2]).
 func TestSleeveBoresAreTheSameChannels(t *testing.T) {
 	f := defaultSleeve()
 	p := f.p
@@ -368,6 +442,21 @@ func TestSleeveBoresAreTheSameChannels(t *testing.T) {
 	}
 	if got := p.BoreHalfThickness(); math.Abs(got-2.075) > 1e-12 {
 		t.Errorf("the bore is %.4f mm through, want 4.15", 2*got)
+	}
+	// The level bore of each gear is the -R bore, and its roof allowance is on
+	// the face that is up when the sleeve stands on its -n end: +v for gear A,
+	// whose Ex points up, and -v for gear B.
+	for gi, g := range f.gears {
+		if got := levelBore(g); got != -1 {
+			t.Errorf("gear %d's level bore is its %+.0fR bore, want -R", gi, got)
+		}
+		want := [2][2]float64{{-2.075, 2.375}, {-2.375, 2.075}}[gi]
+		if _, lo, hi := boreOpening(g, -1); math.Abs(lo-want[0]) > 1e-12 || math.Abs(hi-want[1]) > 1e-12 {
+			t.Errorf("gear %d's -R bore spans v from %.3f to %.3f, want %.3f to %.3f", gi, lo, hi, want[0], want[1])
+		}
+		if _, lo, hi := boreOpening(g, 1); lo != -2.075 || hi != 2.075 {
+			t.Errorf("gear %d's +R bore spans v from %.3f to %.3f, want +/-2.075", gi, lo, hi)
+		}
 	}
 	if st := boreStations(p); st[0] != -15 || st[1] != 15 {
 		t.Errorf("the bores sit at stations %v, want -15 and +15", st)
@@ -550,49 +639,75 @@ func TestRibbonsClearTheSleeveOverTheTravel(t *testing.T) {
 
 // Inside a bore every point of the ribbon, teeth included, stays inside it by
 // the clearance, at every phase of the travel; and the bore is no looser than
-// that. The back edge and both faces run the clearance from the wall at every
-// station, and on the toothed side the crests come to the clearance whenever
-// the travel brings one into the wall, which is what "the crests bear on the
-// bore's toothed side" means. Between crests the toothed side falls away by
-// the tooth height, and nothing bears there. Each bore is walked over the
-// wall's span on its centre line, CollarHalf either side of its station.
+// that, but for its roof allowance. The back edge and both faces run the
+// clearance from the wall at every station, and on the toothed side the
+// crests come to the clearance whenever the travel brings one into the wall,
+// which is what "the crests bear on the bore's toothed side" means. Between
+// crests the toothed side falls away by the tooth height, and nothing bears
+// there. The level bore's roof face runs the clearance and the roof allowance
+// from the ribbon instead, and the floor face opposite it the clearance alone.
+// Each bore is walked over the wall's span on its centre line, CollarHalf
+// either side of its station.
 func TestRibbonsStayInsideTheirBoresOverTheTravel(t *testing.T) {
 	f := defaultSleeve()
 	p := f.p
 
 	// The least gap on each side of the bore, over every bore, phase and
-	// station: the crest side, the back edge and the faces.
+	// station: the crest side, the back edge and the faces, the level bore's
+	// roof face apart.
 	behind, ahead := f.travelLimits()
-	crest, back, face := math.Inf(1), math.Inf(1), math.Inf(1)
+	crest, back, face, roof := math.Inf(1), math.Inf(1), math.Inf(1), math.Inf(1)
 	for _, b := range f.bores() {
+		hw, vLo, vHi := boreOpening(b.g, b.sign)
+		roofV := 0.0
+		if b.sign == levelBore(b.g) {
+			roofV = roofSide(b.g, b.sign)
+		}
 		station := b.sign * p.CageRadius
 		for d := -behind; d <= ahead+1e-9; d += 0.05 {
 			g := b.g
 			g.Phase = b.g.Phase + d
 			for s := station - p.CollarHalf; s <= station+p.CollarHalf+1e-9; s += 0.02 {
 				uHi, uLo, vHalf := g.profile(s)
-				crest = math.Min(crest, p.BoreHalfWidth()-uHi)
-				back = math.Min(back, p.BoreHalfWidth()+uLo)
-				face = math.Min(face, p.BoreHalfThickness()-vHalf)
+				crest = math.Min(crest, hw-uHi)
+				back = math.Min(back, hw+uLo)
+				for _, side := range []float64{-1, 1} {
+					gap := vHi - vHalf
+					if side < 0 {
+						gap = -vLo - vHalf
+					}
+					if side == roofV {
+						roof = math.Min(roof, gap)
+					} else {
+						face = math.Min(face, gap)
+					}
+				}
 			}
 		}
 	}
-	for name, gap := range map[string]float64{"crests": crest, "back edge": back, "faces": face} {
+	gaps := map[string]float64{"crests": crest, "back edge": back, "faces": face}
+	for name, gap := range gaps {
 		if gap < p.Clearance-1e-6 {
 			t.Errorf("the ribbon's %s come within %.4f mm of a bore's wall over the travel, under the "+
 				"%.2f mm clearance", name, gap, p.Clearance)
 		}
 	}
 	// And no looser: the bore is cut to the ribbon, not merely round it.
-	for name, gap := range map[string]float64{"crests": crest, "back edge": back, "faces": face} {
+	for name, gap := range gaps {
 		if gap > p.Clearance+5e-3 {
 			t.Errorf("the ribbon's %s never come nearer a bore's wall than %.4f mm: the bore is cut "+
 				"looser than the %.2f mm clearance", name, gap, p.Clearance)
 		}
 	}
+	if want := p.Clearance + p.RoofAllowance; math.Abs(roof-want) > 5e-3 {
+		t.Errorf("the level bores' roofs stand %.4f mm off the ribbon's face, want the clearance and the "+
+			"roof allowance, %.2f mm", roof, want)
+	}
 	t.Logf("over the %.1f mm travel the bores hold the ribbon at %.3f mm on the crests, %.3f mm on "+
-		"the back edge and %.3f mm on the faces; the bore is %.1f by %.1f mm",
-		behind+ahead, crest, back, face, 2*p.BoreHalfWidth(), 2*p.BoreHalfThickness())
+		"the back edge and %.3f mm on the faces, and the level bores' roofs stand %.3f mm off it; the "+
+		"bore is %.1f by %.2f mm, %.2f mm through at the level bore",
+		behind+ahead, crest, back, face, roof, 2*p.BoreHalfWidth(), 2*p.BoreHalfThickness(),
+		2*p.BoreHalfThickness()+p.RoofAllowance)
 }
 
 // Nothing on the ribbon limits the travel: it is the same twisted rack from
@@ -982,7 +1097,10 @@ func inABore(v *voxels, c [3]int) bool {
 // which no frame can move; and nothing in the wall is thinner than
 // CollarWall. What the printer makes of a bore's roof is not something a
 // proof reaches, so the flattest roof in each bore and the span the printer
-// bridges there are logged for the record.
+// bridges there are logged for the record. Only standing on its bottom end,
+// the -n end, puts the roof allowance on the faces the printer bridges
+// (levelBore); stood on its top end the sleeve still prints, with the
+// allowance on the floors and the bridged roofs at the bare clearance.
 func TestSleevePrintsStandingOnEitherEnd(t *testing.T) {
 	checkSleevePrints(t, defaultVoxels())
 }
@@ -1047,9 +1165,9 @@ func checkSleevePrints(t testing.TB, v *voxels) {
 	// channel, the one whose normal into the channel points down is a roof,
 	// and it overhangs upright by the arcsine of that normal's vertical
 	// component: zero is an upright wall and ninety a flat ceiling.
-	hw, ht := p.BoreHalfWidth(), p.BoreHalfThickness()
 	for gi, g := range f.gears {
 		for _, sign := range []float64{-1, 1} {
+			hw, vLo, vHi := boreOpening(g, sign)
 			worst, at, span := 0.0, 0.0, 0.0
 			for s := sign * f.sIn; math.Abs(s) <= f.sOut; s += sign * 0.01 {
 				if !f.inWall(g, s) {
@@ -1060,18 +1178,20 @@ func checkSleevePrints(t testing.TB, v *voxels) {
 				// theta, so a wall across u has a vertical normal component of
 				// cos(theta) and a wall across v one of sin(theta).
 				for _, w := range []struct{ nz, span float64 }{
-					{math.Abs(math.Cos(th)), 2 * ht}, {math.Abs(math.Sin(th)), 2 * hw},
+					{math.Abs(math.Cos(th)), vHi - vLo}, {math.Abs(math.Sin(th)), 2 * hw},
 				} {
 					if over := math.Asin(math.Min(1, w.nz)) * 180 / math.Pi; over > worst {
 						worst, at, span = over, s, w.span
 					}
 				}
 			}
-			if gi == 0 {
-				t.Logf("the bore at station %+.0f has its flattest roof at station %+.2f, %.1f degrees "+
-					"from upright, and bridges %.1f mm there over the wall; not enforced",
-					sign*p.CageRadius, at, worst, span)
+			roof := "no roof allowance"
+			if sign == levelBore(g) {
+				roof = fmt.Sprintf("the %.2f mm roof allowance on its %+.0fv face", p.RoofAllowance, roofSide(g, sign))
 			}
+			t.Logf("gear %c's bore at station %+.0f has its flattest roof at station %+.2f, %.1f degrees "+
+				"from upright, and bridges %.1f mm there over the wall; it carries %s",
+				'A'+gi, sign*p.CageRadius, at, worst, span, roof)
 		}
 	}
 
@@ -1132,14 +1252,14 @@ func nearestChannels(f sleeve) (float64, string) {
 // apart from the cut's inner end outward, kept where they stand within half a
 // millimetre of the tube's radii.
 func (f sleeve) channelOutline(b bore) []r3.Vec {
-	p := f.p
-	hw, ht := p.BoreHalfWidth(), p.BoreHalfThickness()
+	hw, vLo, vHi := boreOpening(b.g, b.sign)
 	var out []r3.Vec
 	for s := b.sign * f.sIn; math.Abs(s) <= f.sOut; s += b.sign * 0.1 {
 		for i := range 17 {
 			k := float64(i) / 16
+			v := vLo + (vHi-vLo)*k
 			for _, q := range [4][2]float64{
-				{hw, -ht + 2*ht*k}, {-hw, -ht + 2*ht*k}, {-hw + 2*hw*k, ht}, {-hw + 2*hw*k, -ht},
+				{hw, v}, {-hw, v}, {-hw + 2*hw*k, vHi}, {-hw + 2*hw*k, vLo},
 			} {
 				pt := b.g.world(q[0], q[1], s)
 				if r := math.Hypot(pt.X, pt.Y); r < f.ri-0.5 || r > f.ro+0.5 {
@@ -1310,8 +1430,7 @@ func boreSections(p Params, turn float64) int {
 // boreStep is the largest twist the stand-in allows between neighbouring bore
 // sections: the smaller of five degrees and the facet bound above.
 func boreStep(p Params) float64 {
-	corner := math.Hypot(p.BoreHalfWidth(), p.BoreHalfThickness())
-	facet := 2 * math.Acos(1-0.04*p.Clearance/corner)
+	facet := 2 * math.Acos(1-0.04*p.Clearance/p.BoreCorner())
 	return math.Min(5*math.Pi/180, facet)
 }
 
@@ -1323,15 +1442,15 @@ func boreStep(p Params) float64 {
 // facets; see TestSleeveBoreSubstituteKeepsItsClearance for what this bounds.
 func boreLoftClearance(g Gear, lo, hi float64, n int) float64 {
 	p := g.P
-	hw, ht := p.BoreHalfWidth(), p.BoreHalfThickness()
+	hw, vLo, vHi := boreOpening(g, math.Copysign(1, lo+hi))
 	bw, bt := p.Width/2, p.Thickness/2
 	corner := func(s float64, i int) r3.Vec {
-		u, v := hw, ht
+		u, v := hw, vHi
 		if i == 1 || i == 2 {
 			u = -hw
 		}
 		if i >= 2 {
-			v = -ht
+			v = vLo
 		}
 		return g.world(u, v, s)
 	}
@@ -1430,7 +1549,7 @@ func TestSleeveInputsAreChecked(t *testing.T) {
 	// And the rise check is not over-cautious there: at 17.5 mm the channels
 	// really do leave less than CollarWall at the ends. The closed form is a
 	// bound, not the gap, so it also refuses the rises from about 17.55 mm up
-	// to its own 18.02 mm, which the channels would allow.
+	// to its own 18.11 mm, which the channels would allow.
 	r := defaultParams()
 	r.CageRise = 17.5
 	ga, gb := pair(r, r.Sigma(), 0, assemblyPhase)
@@ -1617,11 +1736,9 @@ func (f sleeve) sectionInWall(g Gear, s float64) [2]flat {
 	if math.Abs(s) >= f.ro {
 		return out
 	}
-	p := g.P
-	hw, ht := p.BoreHalfWidth(), p.BoreHalfThickness()
 	c, sn := math.Cos(g.angle(s)), math.Sin(g.angle(s))
 	rect := flat{n: 4}
-	for i, uv := range [4][2]float64{{-hw, -ht}, {hw, -ht}, {hw, ht}, {-hw, ht}} {
+	for i, uv := range openingCorners(g, math.Copysign(1, s)) {
 		rect.v[i] = [2]float64{uv[0]*c - uv[1]*sn, uv[0]*sn + uv[1]*c}
 	}
 	xa, xb := (-f.zb-g.Origin.Z)/g.Ex.Z, (f.zb-g.Origin.Z)/g.Ex.Z

@@ -32,6 +32,15 @@ import (
 // Could the proof have caught it? Yes: the bores and the mesh were both in
 // this package, and nothing joined them. This file joins them.
 //
+// The second sleeve, printed the same day at the defaults below, showed two
+// more things (spec/screwgear/fusion.md [SCREW-F-PRINT-2]). Its two -R bores,
+// whose roofs the printer bridges, came out too tight to pass the ribbons,
+// which is why the level bore of each gear now carries a roof allowance and so
+// lets its ribbon tilt (tiltReach). And with the bores chiselled open, the
+// teeth meshed only sometimes. A printed tooth's tip comes out rounded and
+// short, which the model's exact cosine does not, so every case here that
+// judges the defaults blunts both ribbons' tips by printTipLoss.
+//
 // What the moves do to the mesh. Moving a ribbon by tx along its own Ex, which
 // points at the other ribbon, adds tx to the engagement. Rolling it by an angle
 // about its own axis adds that angle to its mounting angle. Moving it by ty
@@ -42,18 +51,38 @@ import (
 // The tests move the Gear itself (movedInBores), so none of that is assumed.
 // ---------------------------------------------------------------------------
 
+// printTipLoss is how far this file takes a printed tooth's tip to fall short
+// of the model's crest: the crest cut flat that far down. A 0.4 mm nozzle lays
+// a bead about 0.45 mm wide, and the cosine's crest is narrower than that bead
+// for its last 0.19 mm; a slicer drops or rounds what one bead cannot draw, and
+// an outer wall comes out a tenth or two of a millimetre off on top of that.
+// 0.35 mm takes both. TestSecondPrintMeshIsMarginal records where the mesh
+// stops boxing as the loss grows.
+const printTipLoss = 0.35
+
 // borePose is how far one ribbon sits from its nominal place inside its bores:
 // tx along its own Ex (toward the other ribbon when positive), ty along its
-// own Ey, and roll about its own axis.
-type borePose struct{ tx, ty, roll float64 }
+// own Ey, roll about its own axis, and tilt about its own Ey through the
+// crossing, which turns +Ez toward +Ex and so moves the ribbon's -R end along
+// -Ex and its +R end along +Ex.
+type borePose struct{ tx, ty, roll, tilt float64 }
 
 func (q borePose) String() string {
-	return fmt.Sprintf("(toward %+.3f, side %+.3f, roll %+.2f deg)", q.tx, q.ty, q.roll*180/math.Pi)
+	if q.tilt == 0 {
+		return fmt.Sprintf("(toward %+.3f, side %+.3f, roll %+.2f deg)", q.tx, q.ty, q.roll*180/math.Pi)
+	}
+	return fmt.Sprintf("(toward %+.3f, side %+.3f, roll %+.2f deg, tilt %+.3f deg)",
+		q.tx, q.ty, q.roll*180/math.Pi, q.tilt*180/math.Pi)
 }
 
 // movedInBores is the ribbon carried by the pose: an exact rigid motion, the
-// roll about the axis through Origin.
+// tilt and the roll about axes through Origin, which is the ribbon's station 0
+// where the axes cross.
 func movedInBores(g Gear, q borePose) Gear {
+	if q.tilt != 0 {
+		c, sn := math.Cos(q.tilt), math.Sin(q.tilt)
+		g.Ez, g.Ex = g.Ez.Scale(c).Add(g.Ex.Scale(sn)), g.Ex.Scale(c).Sub(g.Ez.Scale(sn))
+	}
 	g.Origin = g.Origin.Add(g.Ex.Scale(q.tx)).Add(g.Ey.Scale(q.ty))
 	g.Mount += q.roll
 	return g
@@ -66,11 +95,17 @@ const playStationStep = 0.25
 // its two bores wherever it is inside the tube's wall. The bores are f's,
 // which stay where the nominal ribbon put them. The crest rectangle is what is
 // tested, since some phase of the travel puts a crest at every station.
+//
+// Each bore's cut is walked from its lower station to its higher, -sOut to
+// -sIn and sIn to sOut. Until 2026-10-02 the -R cut was walked from -sIn
+// toward -sOut, a loop that never ran, so the play this file measured was the
+// +R bores' alone; the -R bores turned out to allow the same moves and rolls
+// to a micron, and the counts recorded before then stand.
 func fitsInBores(f sleeve, g Gear, q borePose) bool {
 	m := movedInBores(g, q)
 	fits := true
-	for _, sign := range []float64{-1, 1} {
-		eachEnvelopePoint(m, sign*f.sIn, sign*f.sOut, playStationStep, func(pt r3.Vec) {
+	for _, span := range [2][2]float64{{-f.sOut, -f.sIn}, {f.sIn, f.sOut}} {
+		eachEnvelopePoint(m, span[0], span[1], playStationStep, func(pt r3.Vec) {
 			if !fits || !f.inShell(pt) {
 				return
 			}
@@ -88,7 +123,7 @@ func fitsInBores(f sleeve, g Gear, q borePose) bool {
 // shiftLimit is how far the ribbon, rolled by roll, can move along the
 // direction (cos a) Ex + (sin a) Ey before a bore stops it, to a micron.
 func shiftLimit(f sleeve, g Gear, a, roll float64) float64 {
-	at := func(d float64) borePose { return borePose{d * math.Cos(a), d * math.Sin(a), roll} }
+	at := func(d float64) borePose { return borePose{tx: d * math.Cos(a), ty: d * math.Sin(a), roll: roll} }
 	if !fitsInBores(f, g, at(0)) {
 		return 0
 	}
@@ -110,7 +145,7 @@ func rollLimit(f sleeve, g Gear, sign float64) float64 {
 	lo, hi := 0.0, 0.3
 	for hi-lo > 1e-4 {
 		mid := (lo + hi) / 2
-		if fitsInBores(f, g, borePose{0, 0, sign * mid}) {
+		if fitsInBores(f, g, borePose{roll: sign * mid}) {
 			lo = mid
 		} else {
 			hi = mid
@@ -137,10 +172,10 @@ func reachPoses(f sleeve, g Gear) []borePose {
 			}
 			roll := sign * float64(k) * playRollStep
 			out = append(out,
-				borePose{shiftLimit(f, g, 0, roll), 0, roll},
-				borePose{-shiftLimit(f, g, math.Pi, roll), 0, roll})
+				borePose{tx: shiftLimit(f, g, 0, roll), roll: roll},
+				borePose{tx: -shiftLimit(f, g, math.Pi, roll), roll: roll})
 		}
-		out = append(out, borePose{0, 0, limit})
+		out = append(out, borePose{roll: limit})
 	}
 	return out
 }
@@ -148,9 +183,67 @@ func reachPoses(f sleeve, g Gear) []borePose {
 // sidewaysPoses are the ribbon at its sideways limits, with no other move.
 func sidewaysPoses(f sleeve, g Gear) []borePose {
 	return []borePose{
-		{0, shiftLimit(f, g, math.Pi/2, 0), 0},
-		{0, -shiftLimit(f, g, -math.Pi/2, 0), 0},
+		{ty: shiftLimit(f, g, math.Pi/2, 0)},
+		{ty: -shiftLimit(f, g, -math.Pi/2, 0)},
 	}
+}
+
+// playTiltStep is the tilt step tiltReach samples at.
+const playTiltStep = 0.02 * math.Pi / 180
+
+// tiltReach is what a tilt in the bores does at the crossing. At every tilt
+// the bores admit, sampled every playTiltStep with the ribbon moved along Ex
+// as far as the bores let it each way, it returns the pose that puts the
+// crossing furthest toward the other ribbon and the one that puts it furthest
+// away, and the largest tilt either way, as a tiltPlay. A tilt about Ey moves the crossing
+// only by the move along Ex that goes with it, so those two poses are the
+// tilt's whole effect on the engagement. The moves along Ex are found by
+// scanning every 0.02 mm and bisecting each end to a micron.
+func tiltReach(f sleeve, g Gear) tiltPlay {
+	r := tiltPlay{toward: borePose{tx: math.Inf(-1)}, away: borePose{tx: math.Inf(1)}}
+	fits := func(tilt, tx float64) bool { return fitsInBores(f, g, borePose{tx: tx, tilt: tilt}) }
+	edge := func(tilt, in, out float64) float64 {
+		for math.Abs(out-in) > 1e-3 {
+			mid := (in + out) / 2
+			if fits(tilt, mid) {
+				in = mid
+			} else {
+				out = mid
+			}
+		}
+		return in
+	}
+	for _, sign := range []float64{-1, 1} {
+		for k := 0; ; k++ {
+			tilt := sign * float64(k) * playTiltStep
+			seed, found := 0.0, false
+			for tx := -1.0; tx <= 1 && !found; tx += 0.02 {
+				seed, found = tx, fits(tilt, tx)
+			}
+			if !found {
+				break
+			}
+			if hi := edge(tilt, seed, seed+1); hi > r.toward.tx {
+				r.toward = borePose{tx: hi, tilt: tilt}
+			}
+			if lo := edge(tilt, seed, seed-1); lo < r.away.tx {
+				r.away = borePose{tx: lo, tilt: tilt}
+			}
+			if sign < 0 {
+				r.lo = tilt
+			} else {
+				r.hi = tilt
+			}
+		}
+	}
+	return r
+}
+
+// tiltPlay is tiltReach's answer: the poses that put the crossing furthest
+// toward and away from the other ribbon, and the tilt limits, lo <= 0 <= hi.
+type tiltPlay struct {
+	toward, away borePose
+	lo, hi       float64
 }
 
 // playMeshSamples is the number of phases of A per pitch the mesh is judged at
@@ -276,19 +369,30 @@ func everyPair(as, bs []borePose) [][2]borePose {
 // playVerdict sorts a run's pose pairs into those that drive, the jams this
 // file accepts, and the failures it does not.
 //
-// The accepted failure is a jam with both ribbons pushed toward each other and
-// the axes brought together by at least one clearance: past that the crests
-// overlap too deeply to pass, which is the cost of an engagement deep enough
-// that the opposite corner, both ribbons pulled apart, still boxes the teeth
-// in. Every other failure is a defect: a pair that lets the teeth pass without
-// boxing each other is a pair that slips, and a jam that does not need both
-// ribbons pushed together is a jam the user will meet in ordinary handling.
+// The accepted failure is a jam with the axes brought together by at least one
+// clearance in all and neither ribbon pulled away from the other: past that
+// the crests overlap too deeply to pass, which is the cost of an engagement
+// deep enough that the opposite corner, both ribbons pulled apart, still boxes
+// the teeth in. A jam is a pose the two bodies cannot both be in at that
+// phase, so the teeth push the ribbons out of it; the user meets one only by
+// pressing the ribbons together. Every other failure is a defect: a pair that
+// lets the teeth pass without boxing each other is a pair that slips, and a
+// jam with a ribbon pulled away, or with the axes closed by less than a
+// clearance, is a jam the user will meet in ordinary handling. Until the roof
+// allowance came in, both ribbons had to be pushed toward each other; a
+// ribbon tilted into its roof allowance closes the axes by more than a
+// clearance on its own, against the other at its roll limit and so at no move
+// along Ex, and that jam is the same kind.
 type playVerdict struct {
 	drives, accepted  int
 	refused           []playMesh
 	narrowest, widest float64
 	departure         float64
 }
+
+// playLimitSlack is how far under the clearance a move found by shiftLimit may
+// fall: it bisects each limit to a micron from below.
+const playLimitSlack = 1e-3
 
 func judgePlay(p Params, runs []playMesh) playVerdict {
 	v := playVerdict{narrowest: math.Inf(1)}
@@ -299,7 +403,7 @@ func judgePlay(p Params, runs []playMesh) playVerdict {
 			v.narrowest = math.Min(v.narrowest, m.narrowest)
 			v.widest = math.Max(v.widest, m.widest)
 			v.departure = math.Max(v.departure, m.departure)
-		case m.kind == playJams && m.towardA > 0 && m.towardTotal >= p.Clearance:
+		case m.kind == playJams && m.towardA >= 0 && m.towardTotal >= p.Clearance-playLimitSlack:
 			v.accepted++
 		default:
 			v.refused = append(v.refused, m)
@@ -311,7 +415,7 @@ func judgePlay(p Params, runs []playMesh) playVerdict {
 func logPlay(t *testing.T, label string, runs []playMesh, v playVerdict) {
 	t.Helper()
 	t.Logf("%s: %d of %d pose pairs drive, window %.3f-%.3f mm, worst departure %.3f mm; "+
-		"%d jam with both ribbons pushed together; %d fail otherwise",
+		"%d jam with the ribbons pushed together; %d fail otherwise",
 		label, v.drives, len(runs), v.narrowest, v.widest, v.departure, v.accepted, len(v.refused))
 	sorted := append([]playMesh(nil), runs...)
 	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].kind > sorted[j].kind })
@@ -324,46 +428,55 @@ func logPlay(t *testing.T, label string, runs []playMesh, v playVerdict) {
 }
 
 // maxPlayJams is how many of TestPairDrivesUnderBorePlay's pose pairs may jam.
-// The one that does at the defaults is both ribbons pushed the whole clearance
-// toward each other with no roll, which the scratch study, listing the roll-0
-// poses twice, counted as 4 of 100.
-const maxPlayJams = 1
+// At the defaults four do, every one with gear A tilted into its roof
+// allowance so that its crossing stands 0.273 mm toward gear B, against gear B
+// pushed the whole 0.20 mm toward it at no roll, at 0.199 mm, rolled 1 degree
+// and pushed 0.069 mm, or at its roll limit of 1.53 degrees. With the tips
+// short by printTipLoss, both ribbons pushed the whole clearance together no
+// longer jams, as it did with the model's own tips.
+const maxPlayJams = 4
 
 // The pair has to drive over the play its bores allow, not only at the nominal
-// pose. This samples each ribbon's reach in engagement and roll, every whole
-// degree of roll with the furthest move toward and away at each, and runs the
-// mesh at every pair of those poses.
+// pose, with tips as a print makes them. This samples each ribbon's reach in
+// engagement and roll, every whole degree of roll with the furthest move
+// toward and away at each, and the two roll limits, adds the two tilts that
+// put the crossing furthest toward and away (tiltReach), and runs the mesh at
+// every pair of those poses with both ribbons blunted by printTipLoss.
 //
-// What the sampling gives up. It moves each ribbon along Ex and rolls it, and
-// leaves the sideways move to TestPairDrivesUnderSidewaysPlay, which takes it
-// alone; diagonal moves, and sideways moves combined with a roll, are not run
-// here. An offline run on 2026-10-02 sampled those too, each ribbon at every
-// whole degree of roll and eight directions of move across its axis, 26 poses
-// a ribbon and 676 pose pairs: 6 of 676 jammed, every one with both ribbons
-// pushed toward each other by 0.204 mm or more in all, and none failed any
-// other way. It took 3 min 22 s on 24 CPUs, too long for the suite; this
-// case takes about 20 s there, about four CPU-minutes. Tilts of a ribbon about
-// the two axes square to its own are not sampled at all.
+// What the sampling gives up. It moves each ribbon along Ex, rolls it and
+// tilts it about Ey, and leaves the sideways move to
+// TestPairDrivesUnderSidewaysPlay, which takes it alone; diagonal moves,
+// sideways moves combined with a roll, and tilts about Ex are not run here.
+// The roof allowance lets a ribbon tilt about Ey and nothing else
+// (TestRoofAllowanceAddsOnlyATilt). An offline run on 2026-10-02, before the
+// roof allowance and with the model's own tips, sampled the diagonal moves
+// too, 26 poses a ribbon and 676 pose pairs: 6 of 676 jammed, every one with
+// both ribbons pushed toward each other by 0.204 mm or more in all, and none
+// failed any other way. It took 3 min 22 s on 24 CPUs, too long for the
+// suite.
 func TestPairDrivesUnderBorePlay(t *testing.T) {
 	t.Parallel()
 	p := defaultParams()
 	ga, gb := defaultPair()
 	f := plainSleeve(ga, gb)
 
+	ta, tb := tiltReach(f, ga), tiltReach(f, gb)
+	posesA := append(reachPoses(f, ga), ta.toward, ta.away)
+	posesB := append(reachPoses(f, gb), tb.toward, tb.away)
+	ga.Blunt, gb.Blunt = printTipLoss, printTipLoss
 	if m := meshUnderPlay(ga, gb); m.kind != playDrives {
-		t.Fatalf("at the nominal pose the pair %s", m)
+		t.Fatalf("at the nominal pose, with tips %.2f mm short, the pair %s", printTipLoss, m)
 	}
-
-	posesA, posesB := reachPoses(f, ga), reachPoses(f, gb)
 	runs := meshOverPoses(ga, gb, everyPair(posesA, posesB))
 	v := judgePlay(p, runs)
-	logPlay(t, fmt.Sprintf("%d poses of A by %d of B", len(posesA), len(posesB)), runs, v)
+	logPlay(t, fmt.Sprintf("tips %.2f mm short, %d poses of A by %d of B", printTipLoss, len(posesA), len(posesB)),
+		runs, v)
 
 	for _, m := range v.refused {
 		t.Errorf("with A at %s and B at %s the pair %s", m.ribbonA, m.ribbonB, m)
 	}
 	if v.accepted > maxPlayJams {
-		t.Errorf("%d pose pairs jam with both ribbons pushed together, want at most %d",
+		t.Errorf("%d pose pairs jam with the ribbons pushed together, want at most %d",
 			v.accepted, maxPlayJams)
 	}
 	for i, g := range []Gear{ga, gb} {
@@ -376,7 +489,8 @@ func TestPairDrivesUnderBorePlay(t *testing.T) {
 // A sideways move acts on the mesh as a roll of both ribbons, mostly of the
 // other one (the comment at the top of this file says why), so it is checked
 // on its own: each ribbon at either sideways limit, against the other at its
-// nominal pose, at either limit along Ex, and at either sideways limit.
+// nominal pose, at either limit along Ex, and at either sideways limit, with
+// both ribbons' tips blunted by printTipLoss.
 func TestPairDrivesUnderSidewaysPlay(t *testing.T) {
 	t.Parallel()
 	p := defaultParams()
@@ -386,13 +500,14 @@ func TestPairDrivesUnderSidewaysPlay(t *testing.T) {
 	others := func(g Gear) []borePose {
 		return []borePose{
 			{},
-			{shiftLimit(f, g, 0, 0), 0, 0},
-			{-shiftLimit(f, g, math.Pi, 0), 0, 0},
+			{tx: shiftLimit(f, g, 0, 0)},
+			{tx: -shiftLimit(f, g, math.Pi, 0)},
 		}
 	}
 	sideA, sideB := sidewaysPoses(f, ga), sidewaysPoses(f, gb)
 	pairs := everyPair(sideA, append(others(gb), sideB...))
 	pairs = append(pairs, everyPair(others(ga), sideB)...)
+	ga.Blunt, gb.Blunt = printTipLoss, printTipLoss
 	runs := meshOverPoses(ga, gb, pairs)
 	v := judgePlay(p, runs)
 	logPlay(t, "sideways", runs, v)
@@ -404,12 +519,70 @@ func TestPairDrivesUnderSidewaysPlay(t *testing.T) {
 	}
 }
 
+// The roof allowance widens one face of one bore of each gear, and the other
+// bore and the level bore's floor still hold the ribbon at the clearance. So
+// no move of the whole ribbon along Ex or Ey and no roll gains anything: each
+// is stopped by a face the allowance does not touch. What it does let a ribbon
+// do is tilt about its Ey, its level bore's end rising into the allowance
+// while its other bore holds, which moves the crossing along Ex. This holds
+// the first, to a micron and to 1e-4 rad, against the same sleeve with no
+// allowance, and measures the second: at the defaults gear A's crossing goes
+// 0.273 mm toward gear B and gear B's 0.273 mm away from gear A, against
+// 0.200 mm without the allowance, at a tilt of 0.60 degrees. The tilt is
+// capped by the other bore rather than by the allowance, so a roof left with
+// far more room, such as one chiselled open, lets the crossing go no further.
+func TestRoofAllowanceAddsOnlyATilt(t *testing.T) {
+	t.Parallel()
+	p := defaultParams()
+	ga, gb := defaultPair()
+	f := plainSleeve(ga, gb)
+	q := p
+	q.RoofAllowance = 0
+	qa, qb := pair(q, q.Sigma(), 0, assemblyPhase)
+	fq := plainSleeve(qa, qb)
+
+	for i, gs := range [][2]Gear{{ga, qa}, {gb, qb}} {
+		g, h := gs[0], gs[1]
+		if got := levelBore(g); got != -1 {
+			t.Errorf("gear %c's roof allowance is on its %+.0fR bore, want the -R bore", 'A'+i, got)
+		}
+		for _, a := range []float64{0, math.Pi, math.Pi / 2, -math.Pi / 2} {
+			if got, want := shiftLimit(f, g, a, 0), shiftLimit(fq, h, a, 0); math.Abs(got-want) > 1e-3 {
+				t.Errorf("gear %c moves %.4f mm along %.0f degrees with the allowance and %.4f without",
+					'A'+i, got, a*180/math.Pi, want)
+			}
+		}
+		for _, sign := range []float64{-1, 1} {
+			if got, want := rollLimit(f, g, sign), rollLimit(fq, h, sign); math.Abs(got-want) > 1e-4 {
+				t.Errorf("gear %c rolls %.4f deg with the allowance and %.4f without",
+					'A'+i, got*180/math.Pi, want*180/math.Pi)
+			}
+		}
+		with, without := tiltReach(f, g), tiltReach(fq, h)
+		if without.toward.tx > p.Clearance+1e-3 || -without.away.tx > p.Clearance+1e-3 {
+			t.Errorf("without the allowance gear %c's crossing reaches %+.3f and %+.3f mm, past the clearance",
+				'A'+i, without.toward.tx, without.away.tx)
+		}
+		gain := math.Max(with.toward.tx-without.toward.tx, without.away.tx-with.away.tx)
+		if gain > p.RoofAllowance/2 {
+			t.Errorf("gear %c's tilt moves its crossing %.3f mm further, more than half the %.2f mm allowance",
+				'A'+i, gain, p.RoofAllowance)
+		}
+		t.Logf("gear %c: moves and rolls as without the allowance; tilts %.2f to %+.2f deg against %.2f to %+.2f "+
+			"without, and its crossing reaches %+.3f to %+.3f mm (%s and %s) against %+.3f to %+.3f",
+			'A'+i, with.lo*180/math.Pi, with.hi*180/math.Pi, without.lo*180/math.Pi, without.hi*180/math.Pi,
+			with.away.tx, with.toward.tx, with.away, with.toward, without.away.tx, without.toward.tx)
+	}
+}
+
 // printedFit is the defaults the ribbons and the first sleeve were printed at,
-// before 2026-10-02: the same ribbon, a 0.45 mm clearance, a 0.75 mm
-// engagement and 15 degrees on both mounting angles, gear B built at -1.31 mm.
+// before 2026-10-02: the same ribbon, a 0.45 mm clearance and no roof
+// allowance, a 0.75 mm engagement and 15 degrees on both mounting angles, gear
+// B built at -1.31 mm.
 func printedFit() (Params, Gear, Gear) {
 	p := defaultParams()
 	p.Clearance = 0.45
+	p.RoofAllowance = 0
 	p.Engagement = 0.75
 	p.MountAngleA = 15 * math.Pi / 180
 	p.MountAngleB = 15 * math.Pi / 180
@@ -422,10 +595,13 @@ func printedFit() (Params, Gear, Gear) {
 // drives, which is all the proof used to ask, and the play breaks it. To keep
 // the run short this takes each ribbon at its two limits along Ex and its two
 // roll limits, sixteen pose pairs, and asks for at least one failure the check
-// does not accept. On 2026-10-02 eight of the sixteen were such failures: six
-// let the teeth pass without boxing each other and two jammed with only one
-// ribbon pushed toward the other. The scratch study's full reach at these
-// values failed 128 of 324.
+// does not accept. Six of the sixteen let the teeth pass without boxing each
+// other. Two more jam with one ribbon pushed the whole 0.45 mm toward the
+// other and the other at its roll limit; the check refused those until the
+// roof allowance came in and accepts them now, since they close the axes by a
+// clearance with neither ribbon pulled away (playVerdict). The scratch study's
+// full reach at these values failed 128 of 324. The tips here are the model's
+// own: the first print failed without any tip loss.
 func TestPrintedFitFailsUnderBorePlay(t *testing.T) {
 	t.Parallel()
 	p, ga, gb := printedFit()
@@ -437,17 +613,66 @@ func TestPrintedFitFailsUnderBorePlay(t *testing.T) {
 	}
 	limits := func(g Gear) []borePose {
 		return []borePose{
-			{shiftLimit(f, g, 0, 0), 0, 0},
-			{-shiftLimit(f, g, math.Pi, 0), 0, 0},
-			{0, 0, rollLimit(f, g, -1)},
-			{0, 0, rollLimit(f, g, 1)},
+			{tx: shiftLimit(f, g, 0, 0)},
+			{tx: -shiftLimit(f, g, math.Pi, 0)},
+			{roll: rollLimit(f, g, -1)},
+			{roll: rollLimit(f, g, 1)},
 		}
 	}
 	runs := meshOverPoses(ga, gb, everyPair(limits(ga), limits(gb)))
 	v := judgePlay(p, runs)
 	logPlay(t, "printed values", runs, v)
 	if len(v.refused) == 0 {
-		t.Error("at the printed values every pose pair drives or jams with both ribbons pushed " +
+		t.Error("at the printed values every pose pair drives or jams with the ribbons pushed " +
 			"together; the check accepts the arrangement the print showed not meshing")
+	}
+}
+
+// The second sleeve was printed at the defaults' mesh, a 0.20 mm clearance
+// with no roof allowance, and the ribbons printed before 2026-10-02, the same
+// part the defaults describe. Its two -R bores came out too tight and were
+// chiselled open, and then the teeth meshed only sometimes, even with the
+// ribbons pressed together (spec/screwgear/fusion.md [SCREW-F-PRINT-2]).
+//
+// Over its bores as drawn the model passes TestPairDrivesUnderBorePlay's
+// judgement with the tips as much as 0.40 mm short: every one of its 64 pose
+// pairs drives, the free window up to 1.247 mm wide. At 0.45 mm both ribbons
+// pulled the whole clearance apart let the teeth pass, and at 0.50 mm four of
+// the 64 do. So the mesh holds a tip loss of 0.40 mm and not 0.45 mm, and
+// printTipLoss sits 0.05 mm inside that edge. This holds the edge, at the one
+// pose pair that fails first, so a change that moves it is caught.
+//
+// Could the proof have caught the print? Partly. The chiselled -R bores were
+// no longer the bores drawn, and a ribbon in a bore cut by hand moves in ways
+// no pose of the drawn bore reaches; the proof cannot model the chisel. What
+// it can say is that the drawn fit has 0.05 mm of tip loss in hand past the
+// 0.35 mm it takes, which is thin, and that a roof which sags into the bore
+// tightens the fit rather than loosening it. Whether the teeth slip in the
+// reprinted sleeve only a print settles.
+func TestSecondPrintMeshIsMarginal(t *testing.T) {
+	t.Parallel()
+	p := defaultParams()
+	p.RoofAllowance = 0
+	ga, gb := pair(p, p.Sigma(), 0, assemblyPhase)
+	f := plainSleeve(ga, gb)
+	apartA := borePose{tx: -shiftLimit(f, ga, math.Pi, 0)}
+	apartB := borePose{tx: -shiftLimit(f, gb, math.Pi, 0)}
+	for _, c := range []struct {
+		loss  float64
+		boxes bool
+	}{{0.40, true}, {0.45, false}} {
+		a, b := movedInBores(ga, apartA), movedInBores(gb, apartB)
+		a.Blunt, b.Blunt = c.loss, c.loss
+		m := meshUnderPlay(a, b)
+		t.Logf("tips %.2f mm short, both ribbons pulled %.3f and %.3f mm apart: the pair %s",
+			c.loss, -apartA.tx, -apartB.tx, m)
+		if c.boxes && m.kind != playDrives {
+			t.Errorf("with tips %.2f mm short and both ribbons pulled apart the pair %s; the second "+
+				"print's fit drove there", c.loss, m)
+		}
+		if !c.boxes && m.kind != playLoose {
+			t.Errorf("with tips %.2f mm short and both ribbons pulled apart the pair %s; the second "+
+				"print's fit let the teeth pass there", c.loss, m)
+		}
 	}
 }

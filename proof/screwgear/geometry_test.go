@@ -46,6 +46,10 @@ type Params struct {
 	CollarHalf float64 // half the sleeve's wall, which each bore runs through
 	CollarWall float64 // the least material the sleeve leaves round a bore or window
 	Clearance  float64 // added all round a bore
+	// RoofAllowance is added to the clearance on one face of one bore of each
+	// gear: the upper long face of the bore whose channel lies level in the
+	// wall, which the printer bridges (sleeve_test.go, levelBore).
+	RoofAllowance float64
 }
 
 // defaultParams is the spec's default table: the ribbons, and the sleeve that
@@ -55,13 +59,19 @@ type Params struct {
 // frame's 20.25 mm, measured to the centre of its ring's wire, would cost 3 mm
 // of print height for 1.5 mm more end wall and nothing else; 18.75 mm, 1.25
 // widths, leaves the 4.21 mm end wall TestSleeveIsOnePiece measures, against
-// the 17.54 mm the channels need for a CollarWall of end wall and the 18.02 mm
+// the 17.54 mm the channels need for a CollarWall of end wall and the 18.11 mm
 // the build's closed form asks for.
 //
 // Clearance, Engagement and the two mounting angles changed on 2026-10-02,
 // from 0.45 mm, 0.75 mm and 15 degrees: the printed pair did not mesh over the
 // play the 0.45 mm bores allowed (bore_play_test.go,
 // spec/screwgear/fusion.md [SCREW-F-PRINT-MESH]). The ribbon did not change.
+//
+// RoofAllowance came in on 2026-10-02 with the second sleeve's print: the two
+// -R bores, whose roofs the printer bridges 15.4 mm across, came out too tight
+// to pass the ribbons, and the +R bores, at the same 0.20 mm, did not
+// (spec/screwgear/fusion.md [SCREW-F-PRINT-2]). The 0.30 mm is the least the
+// user asked for, and it puts 0.50 mm of room under the bridged roof.
 func defaultParams() Params {
 	return Params{
 		Width:       15,
@@ -80,6 +90,8 @@ func defaultParams() Params {
 		CollarHalf: 3,
 		CollarWall: 3,
 		Clearance:  0.20,
+
+		RoofAllowance: 0.30,
 	}
 }
 
@@ -196,6 +208,7 @@ type Gear struct {
 	Hand       float64 // +1 or -1, multiplying Lambda
 	Mount      float64 // this gear's own cross-section angle where the axes cross
 	Phase      float64 // the tooth phase, and the only thing the motion moves
+	Blunt      float64 // how far a printed tip falls short of the crest; zero is the model's tooth
 }
 
 func (g Gear) lambda() float64 { return g.Hand * g.P.Lambda() }
@@ -204,10 +217,14 @@ func (g Gear) lambda() float64 { return g.Hand * g.P.Lambda() }
 func (g Gear) angle(s float64) float64 { return s/g.lambda() + g.Mount }
 
 // edge is the toothed edge's u coordinate at station s: a pure cosine, crest at
-// Width/2 and root at Width/2 - ToothHeight.
+// Width/2 and root at Width/2 - ToothHeight. A blunted gear is the same cosine
+// cut flat Blunt under the crest, which is how bore_play_test.go stands in for
+// a printed tip that came out rounded or short; every other gear has Blunt 0
+// and is the exact cosine.
 func (g Gear) edge(s float64) float64 {
 	h := g.P.ToothHeight
-	return g.P.Width/2 - h/2 + h/2*math.Cos(2*math.Pi*(s-g.Phase)/g.P.ToothPitch)
+	e := g.P.Width/2 - h/2 + h/2*math.Cos(2*math.Pi*(s-g.Phase)/g.P.ToothPitch)
+	return math.Min(e, g.P.Width/2-g.Blunt)
 }
 
 // envelope is everything the ribbon's cross-section can reach at any tooth

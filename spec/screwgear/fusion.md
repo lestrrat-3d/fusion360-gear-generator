@@ -6,7 +6,8 @@ the spec cites by name.
 
 Every anchor below is stated from the API reference and from what Fusion did when asked. The
 loads and diagnostics that asked are recorded under `[SCREW-F-FIRST-LOAD]` and
-`[SCREW-F-DIAGNOSTIC]`, and the print of the sleeve under `[SCREW-F-PRINT-MESH]`, per the "When Fusion gives a verdict" rule in `CLAUDE.md`; a sentence that
+`[SCREW-F-DIAGNOSTIC]`, and the two prints of the sleeve under `[SCREW-F-PRINT-MESH]` and
+`[SCREW-F-PRINT-2]`, per the "When Fusion gives a verdict" rule in `CLAUDE.md`; a sentence that
 gives a date is a measurement, and one that gives none is read from the reference.
 
 ## `[SCREW-F-FIRST-LOAD]` — what the Fusion loads said
@@ -92,10 +93,94 @@ play:
 An offline run sampled sideways and diagonal moves combined with each roll as well, 26 poses a
 ribbon and 676 pose pairs: 6 jammed, each with both ribbons pushed toward each other by 0.204 mm
 or more in all, and none failed another way. The user accepted those jams as the cost of the
-fix. Whether the reprinted sleeve meshes is the next print's to say.
+fix. The reprinted sleeve is `[SCREW-F-PRINT-2]`.
 
 **Could the proof have caught it?** Yes. The bores and the mesh were both in the proof, and no
 case joined them. `bore_play_test.go` does, and at the printed values it fails.
+
+## `[SCREW-F-PRINT-2]` — the second sleeve: tight `-R` bores, a mesh that slips, 2026-10-02
+
+**What was printed.** The sleeve at the defaults `[SCREW-F-PRINT-MESH]` moved to: a 0.20 mm
+clearance all round every bore, a 0.90 mm engagement, 14° on both mounting angles and an
+assembly phase of −1.30 mm. The ribbons were the ones printed for the first sleeve, the same part
+the defaults still describe.
+
+**What happened.**
+
+- The two `-R` bores were too tight to pass the ribbons. The two `+R` bores, cut to the same
+  0.20 mm, passed them.
+- The user chiselled the two `-R` bores open, and the ribbons then went through.
+- The teeth meshed only sometimes. They mostly slipped past each other, even with the ribbons
+  pressed toward each other by hand.
+
+**Why the `-R` bores were tight.** Each `-R` bore passes through level inside the wall: its
+long faces lie flat at station −14.30 mm, so with the sleeve standing on an end the printer
+bridges its 15.4 mm roof across the hole. The `+R` bores' long faces come no nearer level than
+11.3° inside the wall, and are level only at their inner mouth, station 10.45 mm. The likeliest
+cause is that the bridged roofs sagged into the 0.20 mm of room. Nothing measured the sag; the
+user's report of which bores bound is the evidence.
+
+**Why the teeth slip.** Two things, found by a study whose scratch harness and logs are kept
+in the worktree's `.tmp/meshfix/` (`band1.log` to `band5.log`, `map1.log`, `union1.log` to
+`union3.log`, `tilt.log`, `blunt1.log`, `allow1.log`, `allow2.log`, `tube2.log`); they are
+working notes and are not tracked.
+
+- **The mesh drives only in a narrow band of mounting angle, and a ribbon rolls in its bores.**
+  What decides whether the pair drives is the sum of the two mounting angles, not either alone.
+  At the 0.90 mm engagement, with the tips 0.35 mm short as a print makes them, equal angles drive
+  from 11.5° to 15.5°, sampled every 0.5°. A 0.20 mm bore lets each ribbon roll 1.53°, and
+  every degree of roll is a degree of mounting angle, so the bores keep the pair between 12.5°
+  and 15.5°: a degree inside the edge where it jams, and at the edge where the teeth stop boxing
+  each other. At a 0.50 mm clearance each ribbon rolls 3.85°, and the rolls alone span wider
+  than the band.
+- **Deeper teeth make the band narrower.** At 1.4 mm of engagement the band is about 1° wide
+  and past about 1.6 mm it is gone: the pair goes straight from jamming to letting the teeth
+  pass. At 0.90 mm of engagement, thinner ribbons (2.5 and 3.0 mm), other crossing angles (60°
+  and 100°), leads from 35 to 70 mm, taller teeth (3.0 and 3.5 mm), a 3.0 mm pitch and a 20 mm
+  ribbon each left between two and six of the 1° samples driving, against four at the
+  defaults. So the fix is not a deeper mesh but a fit that keeps the roll the bores allow
+  inside the band.
+- **A printed tip is short.** The model's crest is an exact cosine. Over the 0.20 mm bores as
+  drawn, `proof/screwgear` finds the mesh boxing the teeth at every pose pair with the tips as
+  much as 0.40 mm short, and letting them pass, with both ribbons pulled the whole clearance
+  apart, at 0.45 mm (`TestSecondPrintMeshIsMarginal`). That is 0.05 mm of margin past the
+  0.35 mm the proof now takes for a printed tip. The chiselled `-R` bores were no longer the
+  bores drawn, and a ribbon in a bore opened by hand can move in ways no pose of the drawn bore
+  reaches.
+
+**The fix.** The mesh, the clearance and the ribbon stay as they are, so the printed ribbons
+stay usable and only the sleeve is reprinted. Each gear's level bore, its `-R` bore at the
+defaults, gets a **roof allowance** of 0.30 mm on the long face that is its roof when the sleeve
+stands on its `-n̂` end, the end below the selected plane: 0.50 mm of room under the bridged roof
+and 0.20 mm everywhere else (`instructions.md` §4, "The roof allowance"). The 0.30 mm is the
+least the user asked for. The sleeve has to be printed standing on that end; the build logs
+which end it is. In `proof/screwgear`:
+
+- `TestRoofAllowanceAddsOnlyATilt` holds that the allowance adds no move along or across the
+  axes and no roll, 0.200 mm and 1.53° with it as without it, and measures the one thing it adds:
+  a tilt of the ribbon about the axis square to it and to the common perpendicular, up to 0.96°
+  one way against 0.56° without the allowance. At a tilt of 0.60° with the best move along the
+  axes that goes with it, gear A's crossing stands 0.273 mm toward gear B and gear B's 0.273 mm
+  away from gear A, against 0.200 mm without the allowance.
+- `TestPairDrivesUnderBorePlay` runs the mesh with both ribbons' tips 0.35 mm short over each
+  ribbon's limits toward and away at every whole degree of roll, its roll limits and those two
+  tilts, 100 pose pairs: 96 drive and 4 jam, every jam with gear A tilted 0.273 mm toward gear B
+  and gear B pushed toward it or at its roll limit, and none lets the teeth pass.
+  `TestPairDrivesUnderSidewaysPlay` finds 16 of 16 sideways pose pairs driving at the same tips.
+- The tilt is the allowance's cost. With the roof at 0.28 mm of allowance or more and no sag at
+  all, gear A's tilt toward gear B jams against gear B at its roll limit; that jam is accepted,
+  since it closes the axes by more than the clearance with neither ribbon pulled away. The
+  tilt stops at 0.273 mm however much room the roof has, because the other bore holds it.
+
+**Could the proof have caught it?** For the tight `-R` bores, no: the proof drew the bores as
+the spec cuts them, logged that their roofs are bridged, and has no model of what a printer
+makes of a bridge (`instructions.md` "What the proof cannot reach"). For the slipping teeth,
+partly: the proof modelled no tip loss, and a print's tips are short. It now blunts both
+ribbons' tips by 0.35 mm wherever it judges the mesh under play, and
+`TestSecondPrintMeshIsMarginal`, in `bore_play_test.go`, records that the fit printed in the
+second sleeve boxes the teeth at 0.40 mm of tip loss and lets them pass at 0.45 mm, with the
+answer to this question beside it. What it cannot reach is a bore opened by a chisel. Whether the
+third sleeve meshes is the next print's to say.
 
 ## `[SCREW-F-DIAGNOSTIC]` — what the diagnostics of 2026-09-28 measured
 
@@ -294,7 +379,7 @@ path, not `solidTwistAxis`, which is for a solid sweep (`[SCREW-F-NO-SOLID-TWIST
 rail or surface, which would make `twistAngle` ignored per the reference. The participant list
 makes the cut touch the cage and nothing else; the ribbons run through the channel and are left
 whole, measured (`[PB-SWEEP-TWIST]`). The twist is the span divided by `Lambda`, positive:
-`+(sOut - sIn)/Lambda`, 80.24° at the defaults. **Positive is the spec's sense**, measured on a
+`+(sOut - sIn)/Lambda`, 80.78° at the defaults. **Positive is the spec's sense**, measured on a
 collar: with the profile at the line's start and the line running along `+dir_g`, a positive
 `twistAngle` turned the section the way `s/Lambda + Phi_g` grows, and the far end of the collar
 landed 0.0047 mm from the spec's own section there, against 4.9 mm under the opposite sign; the

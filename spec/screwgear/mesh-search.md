@@ -128,8 +128,8 @@ engagement, and hardly moves the departure. **The spec keeps 80° and 15° on bo
 takes 0.75 mm of engagement**, 0.29 of the tooth height, the same fraction the earlier proof
 run at `ToothHeight` 1.75 and `Engagement` 0.5 drove well at. The 0°/30° arrangement drives
 with a wider window and a third of the departure; equal angles are kept because the two gears
-are the same part held alike and the sleeve and its windows are then the same either way up
-(`instructions.md`, "Both Mounting Angles are 14°"). At the chosen values the lead was also
+are the same part held alike and the sleeve and its windows are then the same either way up,
+but for the roof allowance that came later (`instructions.md`, "Both Mounting Angles are 14°"). At the chosen values the lead was also
 moved: 45 mm gives 0.72–0.76 mm and 0.037 mm, 60 mm gives 0.66–0.76 mm and 0.116 mm, 66 mm
 gives 0.55–0.67 mm and 0.074 mm, so 49.5 mm, the video's 3.3 widths, stays.
 
@@ -186,6 +186,68 @@ from the 1:1 line, and 0.361 mm of slack between the two ribbons at the assembly
 `bore_play_test.go` runs the mesh over the play. Its bounds are fractions of the pitch, because
 the transmission error tracks the pitch (above) and a uniform scale of the model scales the
 window with it. This file records only how the arrangement was found.
+
+## The search for a mesh that survives a print, 2026-10-02
+
+The second sleeve, at the arrangement above, printed with its two `-R` bores too tight, and once
+they were chiselled open the teeth meshed only sometimes (`fusion.md` `[SCREW-F-PRINT-2]`). The
+user asked for bores at least 0.3 mm looser, a 0.50 mm clearance, and for teeth that reach
+deeper into each other. This search asked whether any arrangement of the same ribbon meshes
+over the play a 0.50 mm bore allows, with the tips 0.35 mm short as a print makes them. The
+scratch harness and its logs are working notes in the worktree's `.tmp/meshfix/`, not tracked;
+every run used the model and the criterion above, at the proof's sampling, six phases of A per
+pitch.
+
+**The band of mounting angle.** Mapping both mounting angles over −6° to 36° in 3° steps, with
+the tips 0.35 mm short, showed that what decides whether the pair drives is their sum: the
+cells that drive lie on a strip of nearly constant sum, about 6° to 9° wide in the sum at a
+0.90 mm engagement. Scanning equal angles every 0.5°:
+
+| Engagement | Equal angles that drive, tips 0.35 mm short | The model's own tips |
+|---|---|---|
+| 0.40 mm | 12.5°–14.5° | 9°–15° |
+| 0.60 mm | 6°–6.5° and 10°–15° | 10°–15.5° |
+| 0.90 mm | 11.5°–15.5° | 11.5°–16° |
+| 1.10 mm | 13°–16° | 13°–16° |
+| 1.40 mm | 15°–16° | 15°–16° |
+| 1.60 mm and deeper | none | none |
+
+A deeper engagement moves the edge where the pair jams faster than the edge where the teeth stop
+boxing each other, so the band narrows, and past 1.6 mm the pair goes straight from jamming to
+letting the teeth pass. A ribbon rolls in its bores, and every degree of roll is a degree of
+mounting angle: 1.53° either way in a 0.20 mm bore and 3.85° in a 0.50 mm one. Both ribbons roll
+the same way under load, so the pair needs a band at least twice the roll wide.
+
+**What else was tried.** At 0.90 mm of engagement and with the tips 0.35 mm short, scanning
+equal angles every 1°, between two and six of the samples drove at every other setting tried:
+ribbon thicknesses of 2.5 and 3.0 mm, crossing angles of 60° and 100°, leads of 35, 42, 60 and
+70 mm, tooth heights of 3.0 and 3.5 mm, a 3.0 mm pitch, and a 20 mm ribbon. Four drove at the
+defaults. None widened the band past the roll a 0.50 mm bore allows.
+
+**Over the whole play.** Judging every reachable pose pair at once, by the spread of gear B's
+phases that any pose pair leaves free, at a 0.50 mm clearance:
+
+| Engagement / angles | Pose pairs that jam | Spread of B's free phases | Result |
+|---|---|---|---|
+| 0.90 mm / 15° or 12° | 52 or 123 of 324 | two pitches | the teeth pass |
+| 1.40 mm / 15° | up to 128 | two pitches | the teeth pass |
+| 1.50 mm / 12° | about 265 | two pitches | the teeth pass |
+| 1.50 mm / 11° | 280 to 289 | 0.74 mm, 1.12 mm with tips 0.35 mm short | boxed, but jammed almost everywhere |
+| 1.80 mm / 12° | 303 to 312 | 0.59 mm | boxed, locks solid if the bore prints at 0.40 mm |
+
+The one arrangement that boxed the teeth at 0.50 mm overlaps its parts at the nominal pose, jams
+at nearly every pose, slips again if the bores print looser than about 0.6 mm, and fails the
+sleeve's check that keeps the mesh visible along the axis. The same judgement at the 0.20 mm
+clearance and the arrangement above gave a spread of 1.17 mm, and 1.42 mm with the tips 0.35 mm
+short.
+
+**What the user chose.** Keep the 0.20 mm clearance, the 0.90 mm engagement, 14° on both gears
+and the ribbon, and add a 0.30 mm roof allowance to the bridged roof of each gear's level bore
+(`instructions.md` §4). The allowance adds no move and no roll, only a tilt that carries one
+crossing 0.073 mm further, and `proof/screwgear/bore_play_test.go` runs the mesh over that tilt
+with the tips 0.35 mm short: no pose pair lets the teeth pass, and the four that jam all close
+the axes by more than a clearance (`fusion.md` `[SCREW-F-PRINT-2]`). Over the bores as drawn the
+mesh boxes the teeth at up to 0.40 mm of tip loss and not at 0.45 mm.
 
 ## What this does not establish
 
