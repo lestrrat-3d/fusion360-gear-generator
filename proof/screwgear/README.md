@@ -49,13 +49,17 @@ bore's mouth, the edge still shows a few short ticks about one grid cube long.
 
 The channel's wall drawn here is the ideal, and so is the one Fusion cuts: each bore is one sweep
 of its section along the axis with a twist, a rectangle turning rigidly, with no sections and no
-facets. The proof's solid engine has no twisted sweep, so the compiled step proof stands in a
-ruled loft through eighteen rotated rectangles for each bore.
-`TestSleeveBoreSubstituteKeepsItsClearance` measures what that stand-in costs against the true
-channel, with the wall flat between sections and every facet a little inside it: 0.007 mm of the
-0.20 mm clearance. It is the one case in the hand-written proof that reasons about a stand-in
-rather than about the ideal shape, and it is what says a measurement made on the stand-in holds
-for the swept channel to within that much.
+facets. The proof's solid engine has no twisted sweep, so the compiled step proof builds each
+bore's channel as a chain of two-section lofts through eighteen rotated rectangles.
+`TestSleeveBoreSubstituteKeepsItsClearance` measures what a ruled wall through those sections
+costs against the true channel, with the wall flat between sections and every facet a little
+inside it: 0.007 mm of the 0.20 mm clearance. decad does not build that ruled wall. It walls each
+cell between two sections with two flat triangles, which depart from the ruled wall by up to a
+quarter of the cell's twist: 0.32 mm on the bore's long faces and 0.09 mm on its short ones, more
+than the clearance on the long faces. The same test logs those figures and holds nothing to them,
+so no clearance is read off the stand-in; the compiled proof reads the cage's volume and the
+build's probes off it. It is the one case in the hand-written proof that reasons about a
+stand-in rather than about the ideal shape.
 
 ## The part
 
@@ -176,10 +180,11 @@ and the tube is open at both ends.
 ![The same view from the bottom end, where gear A's ribbon is the nearer one](images/sleeve-bottom.png)
 
 `TestSleeveKeepsTheMeshVisibleAlongTheAxis` projects everything either ribbon reaches within the
-engaged zone onto the plane square to the axis. That footprint reaches 10.92 mm from the axis,
-11.26 mm once grown by the clearance, inside a hollow of radius 12 mm, and the test follows the
-line along the axis through every point of it from one end of the sleeve to the other without
-meeting material. The build refuses an input whose footprint and clearance would reach the inner
+engaged zone onto the plane square to the axis. That footprint reaches 10.92 mm from the axis.
+Grown by the clearance as a box, the crest rectangle widened on every side and the zone
+lengthened at both ends, it reaches 11.26 mm, inside a hollow of radius 12 mm. The test follows
+the line along the axis through every point of the grown footprint from one end of the sleeve to
+the other without meeting material. The build refuses an input whose footprint and clearance would reach the inner
 radius; `TestSleeveInputsAreChecked` reaches that refusal with a 1.5 mm engagement.
 
 **The mesh is also seen from the side, through two slanted windows.**
@@ -263,7 +268,7 @@ and reaches every cell: one piece of 16,561 mm³, about 21 g of PLA.
 | Play in the frame | the bores jam a gear 1.60° out of step |
 | Play in the bores | each ribbon moves 0.20 mm toward, away or sideways and rolls 1.53°; the roof allowance adds a tilt that carries a crossing 0.273 mm |
 | Frame to ribbon | no point of either ribbon, grown by the clearance, in the sleeve over the travel; 0.98 mm from the tube outside the bores' cuts |
-| Mesh footprint | 10.92 mm from the axis, 11.26 mm with the clearance, inside the 12 mm inner radius |
+| Mesh footprint | 10.92 mm from the axis, 11.26 mm grown by the clearance as a box, inside the 12 mm inner radius |
 | Windows | two, facing +Y and −Y; long sides at 45°, 7.43 and 7.22 mm apart (10.51 and 10.22 mm up the axis); upright ends 23.23 and 23.19 mm apart; 220.0 and 215.1 mm², about 1490 and 1460 mm³ |
 | Window to channel | 3.000 mm to the flanking bores, measured on the window's plane; 3.076 mm to the others, sampled in space |
 | Beside the windows | the narrowest post 3.18 mm; stretches under 6 mm wide at most 0.85 times as tall as they are wide |
@@ -275,7 +280,7 @@ and reaches every cell: one piece of 16,561 mm³, about 21 g of PLA.
 | Hole mouths | 47.8° edges on the inner face, 63.4° on the outer |
 | Volume | 16,561 mm³, about 21 g of PLA |
 | Build's twist check | probes at stations ±15 mm, 16.80 and 16.30 mm from the axis, inside the channel under the right twist sense; under the wrong one they sit 6.46 and 7.39 mm across a channel 2.075 mm half thick, in the wall |
-| Bore wall stand-in | a ruled loft through 18 sections leaves 0.194 mm of the 0.20 mm clearance |
+| Bore wall stand-in | a ruled wall through 18 sections leaves 0.194 mm of the 0.20 mm clearance; decad's two triangles a cell depart from it by up to 0.32 mm |
 
 **The windows follow the sleeve's size.** `TestSleeveWindowsFollowTheSize` builds the sleeve at 33
 inputs away from the defaults — the whole ribbon and frame scaled from 2/3 to 1.75 with the 3 mm
@@ -292,7 +297,8 @@ which no closed form on the inputs predicts. `channelSeparation` is the build's 
 outlines onto the plane across their gap and takes how far apart the two convex hulls stand, which
 can only be less than the distance between the outlines; the build refuses the input when that is
 under `CollarWall`. It is 5.08 mm at the defaults, and of the 33 inputs it refuses exactly those
-two. The test takes about 15 s on 24 cores. Finding each end walks the far bores' channels at 2
+two. Those counts are the full sample's; by default the test builds five of the 33 inputs
+("Running the proof" below). Finding each end walks the far bores' channels at 2
 µm stations; `wallGap` now builds each bore's stations once and walks out from the nearest,
 stopping where no further station could come nearer, which gives the same distances and cuts
 building both windows from 1.2 s to 0.07 s.
@@ -344,7 +350,7 @@ four tooth pairs land in the engaged zone at once and cannot all interdigitate, 
 | Backlash | 0.433–0.473 mm |
 | Departure from the 1:1 line | 0.042 mm, 1.6% of the pitch |
 | Slack between the ribbons at the assembly phases | 0.361 mm at the closest approach, in the mesh, with gear B in the middle of a 0.433 mm window |
-| Mesh over the bores' play, tips 0.35 mm short | 96 of 100 pose pairs drive, windows 0.026–1.654 mm; the four that jam have gear A tilted 0.273 mm toward gear B against gear B pushed toward it or at its roll limit |
+| Mesh over the bores' play, tips 0.35 mm short | 96 of 100 pose pairs drive in the full sample, windows 0.026–1.654 mm; the four that jam have gear A tilted 0.273 mm toward gear B against gear B pushed toward it or at its roll limit |
 | Bore | 15.4 by 4.15 mm, the crest rectangle plus 0.20 mm all round and 0.30 mm more on each −R roof; the ribbon at 0.200 mm on every other side over the travel |
 | Travel | 141.2 mm, 53.8 teeth, 79% of the ribbon: 70.0 mm back and 71.3 mm forward of the assembly position |
 | Ribbon to ribbon outside the engaged zone | 1.95 mm at every phase of the travel, at station −7.80 mm, crest rectangle against crest rectangle |
@@ -389,6 +395,9 @@ ribbon inside its bores, and run the mesh at every pair of poses:
 | `TestPrintedFitFailsUnderBorePlay`: the first print's values, limits only, the model's own tips | 16 | 6 let the teeth pass, so the check fails the print |
 | `TestSecondPrintMeshIsMarginal`: the second print's fit, both ribbons pulled apart | 1 | drives with the tips 0.40 mm short, lets the teeth pass at 0.45 mm |
 
+The pose-pair counts are the full sample's. By default the first, second and fourth cases run a
+smaller sample, described in "Running the proof" below.
+
 A jam is accepted when it closes the two axes by at least a clearance with neither ribbon pulled
 away from the other: the parts cannot both be in that pose, so the teeth push the ribbons out of
 it, and only pressing them together reaches it. A pose pair that lets the teeth pass is never
@@ -413,6 +422,44 @@ list `spec/screwgear/steps.md`, but nothing here draws that build sequence step 
 [bore_play_test.go](bore_play_test.go), [sleeve_test.go](sleeve_test.go) and
 [render_test.go](render_test.go) — are the hand-written mechanism proof; `/compile-gear` writes the step proof, the `compiled_*_test.go` files, beside
 them and leaves them alone.
+
+## Running the proof
+
+`proof/run.sh` runs this package with the rest of the suite, which is what CI runs. On its own:
+
+```sh
+proof/run.sh --package ./screwgear -- -count=1
+```
+
+Four cases run a smaller sample by default, and CI runs that sample. Setting the environment
+variable `SCREWGEAR_FULL` to `1` runs the full one:
+
+```sh
+SCREWGEAR_FULL=1 proof/run.sh --package ./screwgear -- -count=1
+```
+
+It is an environment variable rather than a test flag such as `-render.out` because `go test`
+hands every argument after a flag it does not know to the test binary, and `run.sh` puts the
+package list last, so the package list would go with it. A value other than empty, `0` or `1`
+fails those four cases. Each case logs which sample it ran, and each comment in
+[bore_play_test.go](bore_play_test.go) and [sleeve_test.go](sleeve_test.go) says what its default
+leaves out:
+
+| Case | Full sample | Default sample | What the default leaves out |
+|---|---|---|---|
+| `TestPairDrivesUnderBorePlay` | 10 poses a ribbon, every pair: 100 | 6 poses a ribbon (toward and away at no roll, the roll limits, the two tilts), each against the same pose of the other ribbon: 6 | the whole degrees of roll short of the limits, and every pair of two different poses, among them three of the four jams |
+| `TestPairDrivesUnderSidewaysPlay` | 16 | both ribbons at the same sideways limit, and each at either sideways limit against the other pushed toward it: 6 | the other ribbon at rest or pulled away, and the two at opposite sideways limits |
+| `TestPrintedFitFailsUnderBorePlay` | 4 limits a ribbon, every pair: 16 | each limit against the same limit of the other ribbon: 4, two of which let the teeth pass | every pair of two different limits, among them four more that let the teeth pass |
+| `TestSleeveWindowsFollowTheSize` | 33 inputs | 5: everything scaled by 2/3, a 120° crossing, a 5 mm `CollarWall`, and the two inputs the build refuses | 28 inputs the build accepts |
+
+The default sample keeps the nominal pose, every kind of move in the bores (toward and away,
+sideways, roll and tilt), the full sample's narrowest and widest windows in the first two cases,
+and a failure of the first print on both a move and a roll. `TestSecondPrintMeshIsMarginal` is
+one pose pair at two tip losses, the least that shows an edge, so it has no smaller sample.
+
+At the defaults on 24 cores the package takes about 36 s with the default sample and about 76 s
+with the full one. Run the full sample before trusting a change to the bores, the mesh or the
+window rule.
 
 ## Regenerating
 

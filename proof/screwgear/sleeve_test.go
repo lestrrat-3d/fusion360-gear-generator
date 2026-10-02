@@ -3,6 +3,7 @@ package screwgear_test
 import (
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -1016,7 +1017,7 @@ func TestSleeveKeepsTheMeshVisibleAlongTheAxis(t *testing.T) {
 		}
 	}
 	t.Logf("the mesh's footprint reaches %.2f mm from the axis (the closed form bounds it by %.2f), %.2f "+
-		"grown by the clearance, inside a hollow of radius %.1f mm, and is open along the axis from end "+
+		"grown by the clearance as a box, inside a hollow of radius %.1f mm, and is open along the axis from end "+
 		"to end; nothing of the sleeve is within %.2f mm of the middle",
 		radius, meshFootprintRadius(p), grown, f.ri, window)
 }
@@ -1386,6 +1387,17 @@ func convexHull(pts [][2]float64) [][2]float64 {
 // the sense and the linearity Fusion gives it, which the diagnostic of
 // 2026-09-28 measured and the build re-checks with its probes
 // (spec/screwgear/fusion.md [SCREW-F-SWEEP-CHECK]).
+//
+// Nor is the ruled channel what decad builds. decad lofts the stand-in two
+// sections at a time and walls each cell with two flat triangles, not with the
+// ruled patch through its four corners, and the triangles depart from that
+// patch by up to a quarter of the cell's twist vector (boreTriangleDeparture).
+// This logs that departure beside the ruled figure and holds nothing to it: at
+// the defaults it is about 0.32 mm on the long faces, more than the clearance,
+// so the 95% this case holds is a bound on a ruled loft only. The compiled
+// step proof reads the cage's volume off decad's stand-in, to 1%, and the
+// build's probes, which stand clearance/2 from a short face where the
+// triangles move by up to about 0.09 mm; it reads no clearance off it.
 func TestSleeveBoreSubstituteKeepsItsClearance(t *testing.T) {
 	for _, clearance := range []float64{0.05, 0.1, 0.2, 0.45, 0.9} {
 		p := defaultParams()
@@ -1396,6 +1408,7 @@ func TestSleeveBoreSubstituteKeepsItsClearance(t *testing.T) {
 		n := boreSections(p, turn)
 
 		worst := math.Inf(1)
+		long, short := 0.0, 0.0
 		for _, g := range [2]Gear{ga, gb} {
 			for _, span := range [2][2]float64{{-sOut, -sIn}, {sIn, sOut}} {
 				left := boreLoftClearance(g, span[0], span[1], n)
@@ -1405,12 +1418,47 @@ func TestSleeveBoreSubstituteKeepsItsClearance(t *testing.T) {
 						clearance, span[0], span[1], n, left)
 				}
 				worst = math.Min(worst, left)
+				l, s := boreTriangleDeparture(g, span[0], span[1], n)
+				long, short = math.Max(long, l), math.Max(short, s)
 			}
 		}
 		t.Logf("at a clearance of %.2f mm the sleeve's cut turns %.2f degrees through %d sections %.2f "+
-			"degrees apart and the stand-in leaves the ribbon %.4f mm", clearance, turn*180/math.Pi, n,
-			turn/float64(n-1)*180/math.Pi, worst)
+			"degrees apart and the stand-in leaves the ribbon %.4f mm; decad's two triangles a cell depart "+
+			"from that ruled wall by up to %.3f mm on the long faces and %.3f mm on the short ones",
+			clearance, turn*180/math.Pi, n, turn/float64(n-1)*180/math.Pi, worst, long, short)
 	}
+}
+
+// boreTriangleDeparture is how far the walls decad builds for the stand-in
+// over [lo, hi], through n sections, can depart from the ruled walls
+// boreLoftClearance measures, on the opening's long faces and on its short
+// ones. decad walls each cell, the stretch of one face between two
+// neighbouring sections, with two flat triangles split along a diagonal. With
+// a and b one face's corners on the lower section and c and d the same
+// corners on the higher, the ruled patch passes through the mean of the four
+// corners at the cell's middle and the diagonal through the mean of two of
+// them, and those two points are |T|/4 apart, T = a - b - c + d the cell's
+// twist vector.
+func boreTriangleDeparture(g Gear, lo, hi float64, n int) (float64, float64) {
+	hw, vLo, vHi := boreOpening(g, math.Copysign(1, lo+hi))
+	corners := [4][2]float64{{-hw, vLo}, {hw, vLo}, {hw, vHi}, {-hw, vHi}}
+	long, short := 0.0, 0.0
+	for k := range n - 1 {
+		sa := lo + (hi-lo)*float64(k)/float64(n-1)
+		sb := lo + (hi-lo)*float64(k+1)/float64(n-1)
+		for i := range 4 {
+			j := (i + 1) % 4
+			a, b := g.world(corners[i][0], corners[i][1], sa), g.world(corners[j][0], corners[j][1], sa)
+			c, d := g.world(corners[i][0], corners[i][1], sb), g.world(corners[j][0], corners[j][1], sb)
+			dep := a.Sub(b).Sub(c).Add(d).Len() / 4
+			if i%2 == 0 {
+				long = math.Max(long, dep)
+			} else {
+				short = math.Max(short, dep)
+			}
+		}
+	}
+	return long, short
 }
 
 // boreSections is the count the compiled proof's stand-in lofts a bore
@@ -2707,6 +2755,39 @@ func windowSizes() []sleeveSize {
 	return out
 }
 
+// quickWindowSizes are the inputs of windowSizes TestSleeveWindowsFollowTheSize
+// builds unless SCREWGEAR_FULL=1. Each stands for one thing the spread holds:
+//   - everything scaled by 2/3, the smallest sleeve, for the scaled inputs;
+//   - a 120 degree crossing, past a right angle, where the windows face ±X
+//     rather than ±Y;
+//   - a 5 mm CollarWall, the thickest the spread tries on its own, so the
+//     wall each window keeps from every bore is the thickest of the spread;
+//   - the two inputs the build refuses for the wall between two bores, which
+//     are the only refusals in the spread and so the only inputs that reach
+//     channelSeparation's refusal.
+var quickWindowSizes = []string{
+	"everything scaled by 0.667",
+	"crossing angle 120",
+	"collar wall 5",
+	"collar wall 4, clearance 0.9",
+	"collar wall 4, crossing angle 70",
+}
+
+// quickSizes picks quickWindowSizes out of sizes, and fails the test when one
+// is missing, so that renaming an input cannot quietly shrink the sample.
+func quickSizes(t *testing.T, sizes []sleeveSize) []sleeveSize {
+	t.Helper()
+	var out []sleeveSize
+	for _, name := range quickWindowSizes {
+		i := slices.IndexFunc(sizes, func(s sleeveSize) bool { return s.name == name })
+		if i < 0 {
+			t.Fatalf("quickWindowSizes names %q, which windowSizes no longer holds", name)
+		}
+		out = append(out, sizes[i])
+	}
+	return out
+}
+
 // The windows are sized from the sleeve they are cut in, so at every size the
 // dialog accepts they have to keep every minimum the default windows keep, or
 // be left out. This builds the sleeve at each input of windowSizes. An input
@@ -2725,8 +2806,17 @@ func windowSizes() []sleeveSize {
 // No accepted input in the spread leaves a window out. The rule that does is
 // exercised last, at a 7 mm CollarWall, which leaves no band between the
 // flanking bores; the build refuses that input for its bores anyway.
+//
+// The full sample (SCREWGEAR_FULL=1) builds every input of windowSizes, 33.
+// The default sample builds the five that quickWindowSizes names and leaves
+// out the other 28, every one of them an input the build accepts.
 func TestSleeveWindowsFollowTheSize(t *testing.T) {
+	t.Parallel()
 	sizes := windowSizes()
+	if !fullSample(t, fmt.Sprintf("%d of the %d inputs of windowSizes", len(sizes)-len(quickWindowSizes),
+		len(sizes))) {
+		sizes = quickSizes(t, sizes)
+	}
 	var mu sync.Mutex
 	accepted, cut := 0, 0
 	t.Run("sizes", func(t *testing.T) {

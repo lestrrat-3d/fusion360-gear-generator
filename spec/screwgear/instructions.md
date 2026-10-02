@@ -100,15 +100,15 @@ it reports 0.109 mm, 4.2%, with the free window narrowed to 0.30–0.38 mm. 80°
 reports 0.042 mm, 1.6%, with a 0.43–0.47 mm window. **The frame** is a sleeve rather than the
 video's skeleton, because the skeleton printed too wobbly ("What the print showed").
 
-The cage radius is 15 mm, the value at which the video frame's rods, on a 16.875 mm ring, could
-reach their collars; the sleeve keeps it. It is where each bore sits on its gear's own axis,
-and the sleeve's wall runs `collarHalf` either side of it, from radius 12 to 18 mm. Inside
-that, the mesh zone's footprint along the frame's axis reaches 10.92 mm from it, 11.26 mm with
-the clearance (`TestSleeveKeepsTheMeshVisibleAlongTheAxis`), so the hollow shows the whole mesh
-from either end. An earlier version of this spec, at the 10 mm width, carried a smooth boss on
-each ribbon at the collars, 0.6 mm proud, so that no tooth ever entered a bore; the boss is
-gone, because the video's ribbons carry none and the crest rectangle already holds the whole
-ribbon ("Why the cage needs no tooth-shaped cut").
+The cage radius is 15 mm, the value at which the video frame's rods, on a 16.875 mm ring, could reach
+their collars; the sleeve keeps it. It is where each bore sits on its gear's own axis, and the sleeve's
+wall runs `collarHalf` either side of it, from radius 12 to 18 mm. Inside that, the mesh zone's
+footprint along the frame's axis reaches 10.92 mm from it. Grown by the clearance as a box, the crest
+rectangle widened on every side and the zone lengthened at both ends, it reaches 11.26 mm
+(`TestSleeveKeepsTheMeshVisibleAlongTheAxis`), so the hollow shows the whole mesh from either end. An
+earlier version of this spec, at the 10 mm width, carried a smooth boss on each ribbon at the collars,
+0.6 mm proud, so that no tooth ever entered a bore; the boss is gone, because the video's ribbons carry
+none and the crest rectangle already holds the whole ribbon ("Why the cage needs no tooth-shaped cut").
 
 `TestProportionsFollowTheVideo` holds the ratios this spec follows for the ribbon — teeth per
 turn, thickness, tooth depth and length against the width, the tooth depth against the pitch,
@@ -1162,19 +1162,19 @@ the profile, the one loop of four lines, `find_profile_by_curve_counts(sketch, l
 computing deferred (Sketch Discipline); the video frame's collar sections, drawn by the same
 scheme, read fully constrained in Fusion on 2026-09-28.
 
-**What the proof's stand-in costs.** The proof's solid engine has no twisted sweep, so the
-compiled step proof stands in a ruled loft through rotated rectangles for each bore ("What the
+**What the proof's stand-in costs.** The proof's solid engine has no twisted sweep, so the compiled step
+proof builds each bore's channel as a chain of two-section lofts through rotated rectangles ("What the
 proof checks"), and the count it lofts through is derived from the turn and the clearance: no two
-neighbouring sections more than 5° of twist apart, nor more than the angle at which the facets
-between them take 4% of the clearance, `2*acos(1 - 0.04*clearance/c)`, and the count is
-`ceil(turn / step) + 1` for the smaller step. At the defaults the turn is 80.78°, the facet bound
-5.1° and 5° governs: 18 sections. At a clearance of 0.05 mm the turn is 79.58°, the facet bound
-2.6° governs, and the count is 32. A ruled loft's wall is flat between sections and every facet
-stands inside the true channel, so what the stand-in costs is clearance: 0.007 mm of the 0.20 mm
-at the derived count. `TestSleeveBoreSubstituteKeepsItsClearance` builds that ruled channel over
-the sleeve's cut and holds it at 95% of the clearance, at clearances from 0.05 mm to 0.9 mm, which
-is what says a measurement made on the stand-in holds for the swept channel to within that much.
-The build derives no section count: its channel has none.
+neighbouring sections more than 5° of twist apart, nor more than the angle at which the facets between them
+take 4% of the clearance, `2*acos(1 - 0.04*clearance/c)`, and the count is `ceil(turn / step) + 1` for the
+smaller step. At the defaults the turn is 80.78°, the facet bound 5.1° and 5° governs: 18 sections. At a
+clearance of 0.05 mm the turn is 79.58°, the facet bound 2.6° governs, and the count is 32. Those facets
+are a ruled wall's: flat between sections, inside the true channel, and 0.007 mm of the 0.20 mm clearance
+at the derived count, which `TestSleeveBoreSubstituteKeepsItsClearance` holds at 95% of the clearance from
+0.05 mm to 0.9 mm. `decad` does not build that wall: it walls each cell with two flat triangles, which
+depart from it by up to a quarter of the cell's twist, 0.32 mm on the long faces at the defaults, more than
+the clearance (the same test logs it). So the compiled proof reads the cage's volume and the build's probes
+off the stand-in, and no clearance. The build derives no section count: its channel has none.
 
 **The bore has to twist; a straight hole binds.** Over the wall's `2*collarHalf` the ribbon turns
 by `2*collarHalf/Lambda`, so its corner sweeps `(W/2)*(2*collarHalf/Lambda)` across the opening.
@@ -1461,16 +1461,16 @@ Fusion does, and each takes a stand-in, to be named in the proof beside what it 
   as fixed points and four lines, which pins each section's numbers; Fusion's verdict on the one
   3D sketch — fully constrained, one profile per section — was measured on 2026-09-28 and is
   the sketch step's `[PROSE]` part.
-- The cell loft (§2) is smooth in Fusion. `decad` lofts ruled between sections, so the stand-in
-  is the ruled loft through the same `c*n + 1` sections, whose departure from the helicoid is
-  what `TestLoftSectionCountHoldsTheHelicoid` bounds and whose volume Fusion's smooth loft came
-  within 0.23% of.
-- A bore's sweep (§4) has no `decad` counterpart. The stand-in is a ruled loft through the
-  sections "What the proof's stand-in costs" derives, 18 at the defaults, built as the sweep's
-  own section turned by `s/Lambda + Phi` at each; `TestSleeveBoreSubstituteKeepsItsClearance`
-  bounds what that costs against the exact channel, 0.007 mm of the 0.20 mm clearance at the
-  defaults. The twist's sense and its linearity are Fusion's (`[PB-SWEEP-TWIST]`), measured on
-  2026-09-28 and checked at build time (`[SCREW-F-SWEEP-CHECK]`).
+- The cell loft (§2) is smooth in Fusion. `decad` lofts two sections at a time, so the stand-in is a chain
+  of such lofts through the same `c*n + 1` sections, each wall cell two flat triangles, up to 0.125 mm off
+  the ruled loft `TestLoftSectionCountHoldsTheHelicoid` bounds; the cell's volume comes out 2.2% under the
+  helicoid's (`TestCellLoft`). Fusion's smooth loft came within 0.23% of the ruled loft's volume.
+- A bore's sweep (§4) has no `decad` counterpart. The stand-in is a chain of two-section lofts through the sections
+  "What the proof's stand-in costs" derives, 18 at the defaults, built as the sweep's own section turned by
+  `s/Lambda + Phi` at each. `TestSleeveBoreSubstituteKeepsItsClearance` holds a ruled wall through those sections
+  to 0.007 mm of the 0.20 mm clearance at the defaults, and logs how far `decad`'s two triangles a cell depart from
+  it, up to 0.32 mm; the compiled proof reads no clearance off the stand-in. The twist's sense and its linearity
+  are Fusion's (`[PB-SWEEP-TWIST]`), measured on 2026-09-28 and checked at build time (`[SCREW-F-SWEEP-CHECK]`).
 - A cut with a participant list (§4), a bore's or a window's, is a `decad` cut from the cage
   alone; that the ribbons are left whole is Fusion's, measured on 2026-09-28 for a sweep cut.
 
@@ -1498,6 +1498,16 @@ The mechanism proof's cases:
   two bodies cannot both be in that pose at that phase, so the teeth push the ribbons out of it,
   and only pressing the ribbons together reaches it. A pose pair that lets the teeth pass is
   never accepted.
+- **The default sample and the full one.** `TestPairDrivesUnderBorePlay`,
+  `TestPairDrivesUnderSidewaysPlay`, `TestPrintedFitFailsUnderBorePlay` and
+  `TestSleeveWindowsFollowTheSize` run a smaller sample unless the environment variable
+  `SCREWGEAR_FULL` is `1`, and CI runs the smaller one. The full sample runs with
+  `SCREWGEAR_FULL=1 proof/run.sh --package ./screwgear -- -count=1`; any value but empty, `0` or
+  `1` fails those cases. It is an environment variable rather than a test flag because `go test`
+  hands every argument after a flag it does not know to the test binary, and `run.sh` puts the
+  package list last. The counts in the entries below are the full sample's, and each entry says
+  what the default leaves out. Every case logs which sample it ran. At the defaults the package
+  takes about 36 s on 24 cores with the default sample and about 76 s with the full one.
 - `TestPairDrivesUnderBorePlay` judges the defaults that way. Each ribbon is moved inside its
   two bores to its limits toward and away from the other ribbon at every whole degree of roll,
   to its two roll limits, and to the two tilts that put its crossing furthest toward and away
@@ -1506,15 +1516,24 @@ The mechanism proof's cases:
   jam. At the defaults 96 of 100 drive, with windows from 0.026 to 1.654 mm and departures up to
   0.315 mm, and the four that jam all have gear A tilted into its roof allowance, its crossing
   0.273 mm toward gear B, against gear B pushed toward it, at 0.199 mm or 0.200 mm, rolled 1°
-  and pushed 0.069 mm, or at its roll limit. It takes about 33 s on 24 cores. It does not
-  combine a sideways move with a roll or a move along the axis between them, nor tilt a ribbon
-  about the axis through the crossing that the roof allowance does not open; an offline run of
-  676 pose pairs before the roof allowance, with the model's own tips, that combined the first
-  found 6 jams of the accepted kind and no other failure.
+  and pushed 0.069 mm, or at its roll limit. It does not combine a sideways move with a roll or
+  a move along the axis between them, nor tilt a ribbon about the axis through the crossing that
+  the roof allowance does not open; an offline run of 676 pose pairs before the roof allowance,
+  with the model's own tips, that combined the first found 6 jams of the accepted kind and no
+  other failure. The default sample takes six poses a ribbon, the limits toward and away at no
+  roll, the two roll limits and the two tilts, and runs each against the same pose of the other
+  ribbon: 6 pose pairs, in which the two moves add up rather than cancel. It leaves out the whole
+  degrees of roll short of the limits and every pair of two different poses, among them three of
+  the four jams. It keeps the nominal pose, every kind of move, and the full sample's narrowest
+  window, both ribbons pushed together, and its widest window and worst departure, both pulled
+  apart with gear B tilted; 5 of the 6 drive and one jams.
 - `TestPairDrivesUnderSidewaysPlay` takes each ribbon to its sideways limits, 0.20 mm either
   way, against the other at rest, at its limits along the axis between them and at its own
   sideways limits, with the tips 0.35 mm short: 16 pose pairs, all of which drive at the
-  defaults, with windows from 0.092 to 1.339 mm.
+  defaults, with windows from 0.092 to 1.339 mm. The default sample takes both ribbons at the
+  same sideways limit, and each at either sideways limit against the other pushed toward it: 6
+  pose pairs, which keep both of those windows. It leaves out the other ribbon at rest or pulled
+  away, and the two at opposite sideways limits.
 - `TestRoofAllowanceAddsOnlyATilt` holds that the roof allowance adds no move and no roll:
   against the same sleeve with no allowance, each ribbon moves 0.200 mm toward, away and either
   way sideways and rolls 1.53°, to a micron and to 1e-4 rad, and both gears' level bores are
@@ -1531,7 +1550,11 @@ The mechanism proof's cases:
   nominal pose drives there, which is all the proof used to ask; 6 of the 16 let the teeth pass
   unboxed. Two more jam with one ribbon pushed the whole clearance and the other at its roll
   limit, which the check refused until the roof allowance came in and accepts now. It is the
-  case the print of 2026-10-02 asked for (`[SCREW-F-PRINT-MESH]`).
+  case the print of 2026-10-02 asked for (`[SCREW-F-PRINT-MESH]`). The default sample runs each
+  limit against the same limit of the other ribbon, 4 pose pairs. Two of them let the teeth pass,
+  both ribbons pulled 0.45 mm apart and both rolled +3.46°, so the default still fails the print,
+  once on a move along the axis between them and once on a roll. It leaves out every pair of two
+  different limits, among them the other four that let the teeth pass.
 - `TestSecondPrintMeshIsMarginal` takes the fit the second sleeve was printed at, the defaults'
   0.20 mm clearance with no roof allowance, and the one pose pair whose mesh gives way first as
   the tips shorten: both ribbons pulled the whole clearance apart. With the tips 0.40 mm short
@@ -1540,7 +1563,8 @@ The mechanism proof's cases:
   fit holds 0.05 mm of tip loss past the 0.35 mm the proof takes, and that margin is what the
   case holds. The print it answers meshed only sometimes, after its `-R` bores were chiselled
   open (`[SCREW-F-PRINT-2]`); a bore opened by hand is not the bore drawn, and the proof cannot
-  model the chisel.
+  model the chisel. One pose pair at two tip losses is the least that shows an edge, so the case
+  has no smaller sample; it runs the two losses side by side.
 - `TestSymmetricMountJams` holds the reason the Mounting Angle exists, by failing if the `Phi = 0`
   arrangement ever stops jamming.
 - `TestFullRibbonsClearOutsideTheEngagement` walks both parts end to end, so the contact search's
@@ -1587,9 +1611,12 @@ The mechanism proof's cases:
   and 63.4°, against a 30° floor). It logs each bore's flattest roof, the span the printer
   bridges there and whether the bore carries the roof allowance, and enforces nothing about the
   roofs.
-- `TestSleeveBoreSubstituteKeepsItsClearance` bounds the compiled proof's stand-in for the bore
-  sweep over the sleeve's cut, at clearances from 0.05 mm to 0.9 mm, the 0.20 mm default and the
-  printed 0.45 mm among them.
+- `TestSleeveBoreSubstituteKeepsItsClearance` holds a ruled wall through the sections of the
+  compiled proof's stand-in for the bore sweep to 95% of the clearance over the sleeve's cut, at
+  clearances from 0.05 mm to 0.9 mm, the 0.20 mm default and the printed 0.45 mm among them. It
+  logs how far the two flat triangles `decad` walls each cell with depart from that ruled wall,
+  0.32 mm on the long faces and 0.09 mm on the short ones at the defaults, and holds nothing to
+  it ("What the proof's stand-in costs").
 - `TestSleeveInputsAreChecked` holds the sleeve's four range checks ("Variables"): the defaults
   pass all four, and each is reached by an input that passes every check before it — a 4 mm
   clearance, a 1.5 mm engagement, a 17.5 mm rise, and a 4 mm `collarWall` at a 70° crossing. It
@@ -1612,14 +1639,20 @@ The mechanism proof's cases:
   62% to 98%. The cage radius of 14 mm and the collar half length of 4 mm it used before
   2026-10-02 put the inner radius at 11 mm, inside the 11.18 mm the mesh check asks for at the
   deeper engagement, so the spread moved them to 14.5 and 3.5 mm. It
-  then leaves both windows out at a 7 mm `collarWall`, the rule for a gap with no room. It takes
-  about 15 s on 24 cores.
+  then leaves both windows out at a 7 mm `collarWall`, the rule for a gap with no room. The
+  default sample builds five of the 33 inputs: everything scaled by 2/3, the smallest sleeve; a
+  120° crossing, past a right angle, where the windows face ±X; a 5 mm `collarWall`, the thickest
+  the spread tries on its own; and the two inputs the build refuses. It leaves out the other 28,
+  every one an input the build accepts, and still leaves both windows out at a 7 mm
+  `collarWall`.
 - `TestCrossedHelicalRuleMakesTheCrestHelicesParallel` pins `Sigma = 2*Beta` and the station it
   holds at.
 - `TestLoftSectionCountHoldsTheHelicoid` is the arithmetic the section count is bought with: the
   twist chord at the crest and the cosine chord on the toothed edge, over leads from 20 mm to
   400 mm, so the floor of eight steps is held where the twist is slow; it logs the cell's
-  section count at `cellTeeth` of 4 and 1, 41 and 11 at the defaults.
+  section count at `cellTeeth` of 4 and 1, 41 and 11 at the defaults. It also logs how far the
+  two flat triangles `decad` walls each cell of the compiled proof's stand-in with depart from
+  that ruled loft, 0.125 mm on the 15 mm faces at the defaults, and holds nothing to it.
 - `TestDoublingScheduleCoversTheRibbon` runs the doubling schedule of §3 at every tooth count from
   4 to 512 with cells of one, three and four teeth, and holds that the pieces tile the ribbon
   with no overlap, in `floor(log2 q) + popcount(q) - 1` rounds plus one remainder join when
@@ -1649,8 +1682,9 @@ bound on a body Fusion does not build: the built surface passes through the same
 how far it departs from the helicoid between them is measured by nothing here. A Fusion
 measurement on 2026-09-28 put it within 0.04 mm at the 10 mm ribbon (`[SCREW-F-CELL-LOFT]`), and
 only a Fusion load sees it at other inputs, the 1.5× defaults included. The bores are exact
-helicoids in Fusion and have no such gap; `TestSleeveBoreSubstituteKeepsItsClearance` bounds the
-proof's own stand-in for them, not the built part.
+helicoids in Fusion and have no such gap; `TestSleeveBoreSubstituteKeepsItsClearance` bounds a
+ruled wall through the sections of the proof's own stand-in for them, not the built part, and
+not the flat triangles `decad` builds that stand-in's walls from.
 
 It cannot see the sweep. The solid engine has no twisted sweep, so which way Fusion turns a
 profile for a positive `twistAngle`, and that it turns it linearly along the path, are Fusion's

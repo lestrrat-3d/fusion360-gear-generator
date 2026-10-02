@@ -395,12 +395,12 @@ tube only where each bore does and turn 262° for nothing; each bore is its own 
 sweep instead, spanning the wall plus a millimetre each end beyond where the channel first and
 last meets it.
 
-**What the proof does with this.** `decad` has no twisted sweep. The compiled step proof stands
-in a ruled loft through rotated rectangles for each sweep, at the count the spec's "What the
-proof's stand-in costs" derives (18 at the defaults), and the hand-written
-`TestSleeveBoreSubstituteKeepsItsClearance` bounds what that stand-in costs against the exact
-channel: 0.007 mm of the 0.20 mm clearance. The sense and the linearity of the twist are
-Fusion's, and the runtime check below is what keeps them pinned on every build.
+**What the proof does with this.** `decad` has no twisted sweep. The compiled step proof builds each sweep's
+channel as a chain of two-section lofts through rotated rectangles, at the count the spec's "What the proof's
+stand-in costs" derives (18 at the defaults). The hand-written `TestSleeveBoreSubstituteKeepsItsClearance`
+holds a ruled wall through those sections to 0.007 mm of the 0.20 mm clearance; `decad` walls each cell with
+two flat triangles, up to 0.32 mm off that ruled wall, so no clearance is read off the stand-in. The sense and
+the linearity of the twist are Fusion's, and the runtime check below is what keeps them pinned on every build.
 
 ## `[SCREW-F-SWEEP-CHECK]` — checking each sweep at build time
 
@@ -415,7 +415,7 @@ channel's wall by the same, 16.80 mm and 16.30 mm from the frame's axis at the d
 the wall. Raise naming the bore and the containment read otherwise. A channel that is open there
 was cut, and the probes also tell the two senses apart: under the wrong sense the channel at the
 crossing stands turned `2*(sc - s0)/Lambda` from the right one, `s0` being the station the profile
-sits at — 102° for a `+R` bore and 58° for a `-R` bore — and both probes then sit 7.43 and
+sits at — 103° for a `+R` bore and 58° for a `-R` bore — and both probes then sit 7.39 and
 6.46 mm across a channel 2.075 mm half thick, in the wall. `TestSleeveBoreProbesTellTheTwistSense`
 holds both halves. The video frame's collars also had their end vertices checked against the
 turned outline, 0.0047 mm with the right sign and 4.8979 mm with the wrong one; a sleeve has no

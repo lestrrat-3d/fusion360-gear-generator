@@ -544,6 +544,15 @@ func TestRibbonIsInvariantUnderItsScrewStep(t *testing.T) {
 // built surface, and on 2026-09-28 it put every probe 0.04 mm either side of
 // the helicoid, at every midpoint between sections, on the right side
 // (spec/screwgear/fusion.md [SCREW-F-DIAGNOSTIC]).
+//
+// Nor are they bounds on the stand-in the compiled step proof builds in decad
+// (TestCellLoft). decad lofts two sections at a time and walls each cell with
+// two flat triangles, which depart from the ruled patch through the cell's
+// corners by up to a quarter of its twist vector, (w/2)*sin(dtheta/2) on a
+// face w wide: about 0.12 mm on the 15 mm faces at the defaults, against the
+// ruled loft's 1.0 µm. This logs that figure and holds nothing to it;
+// TestCellLoft holds the stand-in's volume, 2.2% under the helicoid's at the
+// defaults, to a slack computed from the same triangles.
 func TestLoftSectionCountHoldsTheHelicoid(t *testing.T) {
 	p := defaultParams()
 	sections := p.LoftSections()
@@ -568,6 +577,9 @@ func TestLoftSectionCountHoldsTheHelicoid(t *testing.T) {
 	t.Logf("%d sections per tooth put %.3f deg between neighbours; a ruled loft through them would "+
 		"fall %.6f mm short of the helicoid at the crest and its toothed edge's chord %.4f mm short of "+
 		"the cosine", sections, dtheta*180/math.Pi, departure, p.EdgeChord())
+	t.Logf("decad's stand-in walls each cell with two flat triangles, which depart from that ruled loft by "+
+		"up to %.3f mm on the %.0f mm faces and %.3f mm on the %.2f mm edge faces",
+		p.Width/2*math.Sin(dtheta/2), p.Width, p.Thickness/2*math.Sin(dtheta/2), p.Thickness)
 	// The shortfall grows with the width and the backlash with the pitch, so
 	// the bound is against the backlash rather than a fixed number of microns.
 	if departure > measuredBacklash/100 {

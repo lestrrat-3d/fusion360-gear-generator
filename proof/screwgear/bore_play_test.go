@@ -3,6 +3,7 @@ package screwgear_test
 import (
 	"fmt"
 	"math"
+	"os"
 	"runtime"
 	"sort"
 	"sync"
@@ -10,6 +11,37 @@ import (
 
 	"github.com/lestrrat-3d/r3"
 )
+
+// fullSampleEnv names the environment variable that selects the full sample in
+// the cases that judge the mesh over many poses and in
+// TestSleeveWindowsFollowTheSize. Unset or 0, each of those runs the smaller
+// sample its own comment names, which is what CI runs; 1 runs the full one:
+//
+//	SCREWGEAR_FULL=1 proof/run.sh --package ./screwgear -- -count=1
+//
+// It is an environment variable rather than a test flag because go test hands
+// every argument after a flag it does not know to the test binary, and run.sh
+// puts the package list last, so a flag would take the package list with it.
+const fullSampleEnv = "SCREWGEAR_FULL"
+
+// fullSample reports whether SCREWGEAR_FULL asks for the full sample, and logs
+// which sample the case runs, naming what the default leaves out. Any value
+// but empty, 0 or 1 fails the test, so a mistyped value cannot quietly run the
+// default.
+func fullSample(t *testing.T, dropped string) bool {
+	t.Helper()
+	switch v := os.Getenv(fullSampleEnv); v {
+	case "", "0":
+		t.Logf("default sample: leaves out %s; %s=1 runs them", dropped, fullSampleEnv)
+		return false
+	case "1":
+		t.Logf("full sample (%s=1)", fullSampleEnv)
+		return true
+	default:
+		t.Fatalf("%s=%q: want 1 for the full sample, or 0 or unset for the default", fullSampleEnv, v)
+		return false
+	}
+}
 
 // ---------------------------------------------------------------------------
 // The mesh under the play the bores allow.
@@ -178,6 +210,18 @@ func reachPoses(f sleeve, g Gear) []borePose {
 		out = append(out, borePose{roll: limit})
 	}
 	return out
+}
+
+// limitPoses are the ribbon at its two limits along Ex and its two roll
+// limits, each with no other move: the furthest it moves toward the other
+// ribbon, the furthest away, and the furthest it rolls either way.
+func limitPoses(f sleeve, g Gear) []borePose {
+	return []borePose{
+		{tx: shiftLimit(f, g, 0, 0)},
+		{tx: -shiftLimit(f, g, math.Pi, 0)},
+		{roll: rollLimit(f, g, -1)},
+		{roll: rollLimit(f, g, 1)},
+	}
 }
 
 // sidewaysPoses are the ribbon at its sideways limits, with no other move.
@@ -366,6 +410,19 @@ func everyPair(as, bs []borePose) [][2]borePose {
 	return out
 }
 
+// samePose pairs each pose of A with the pose of B at the same index: both
+// ribbons pushed toward each other, both pulled apart, both rolled the same
+// way, both tilted to carry their crossings toward each other or apart. In
+// those pairs the two moves add up, in the engagement or in the mounting
+// angles' sum, rather than cancelling.
+func samePose(as, bs []borePose) [][2]borePose {
+	out := make([][2]borePose, 0, len(as))
+	for i := range min(len(as), len(bs)) {
+		out = append(out, [2]borePose{as[i], bs[i]})
+	}
+	return out
+}
+
 // playVerdict sorts a run's pose pairs into those that drive, the jams this
 // file accepts, and the failures it does not.
 //
@@ -428,20 +485,32 @@ func logPlay(t *testing.T, label string, runs []playMesh, v playVerdict) {
 }
 
 // maxPlayJams is how many of TestPairDrivesUnderBorePlay's pose pairs may jam.
-// At the defaults four do, every one with gear A tilted into its roof
-// allowance so that its crossing stands 0.273 mm toward gear B, against gear B
-// pushed the whole 0.20 mm toward it at no roll, at 0.199 mm, rolled 1 degree
-// and pushed 0.069 mm, or at its roll limit of 1.53 degrees. With the tips
-// short by printTipLoss, both ribbons pushed the whole clearance together no
-// longer jams, as it did with the model's own tips.
+// In the full sample at the defaults four do, every one with gear A tilted
+// into its roof allowance so that its crossing stands 0.273 mm toward gear B,
+// against gear B pushed the whole 0.20 mm toward it at no roll, at 0.199 mm,
+// rolled 1 degree and pushed 0.069 mm, or at its roll limit of 1.53 degrees.
+// The default sample meets one of them, against gear B at 0.199 mm. With the
+// tips short by printTipLoss, both ribbons pushed the whole clearance together
+// no longer jams, as it did with the model's own tips.
 const maxPlayJams = 4
 
 // The pair has to drive over the play its bores allow, not only at the nominal
-// pose, with tips as a print makes them. This samples each ribbon's reach in
-// engagement and roll, every whole degree of roll with the furthest move
-// toward and away at each, and the two roll limits, adds the two tilts that
-// put the crossing furthest toward and away (tiltReach), and runs the mesh at
-// every pair of those poses with both ribbons blunted by printTipLoss.
+// pose, with tips as a print makes them. The full sample (SCREWGEAR_FULL=1)
+// takes each ribbon's reach in engagement and roll, every whole degree of roll
+// with the furthest move toward and away at each, and the two roll limits,
+// adds the two tilts that put the crossing furthest toward and away
+// (tiltReach), and runs the mesh at every pair of those poses with both
+// ribbons blunted by printTipLoss: 10 poses a ribbon, 100 pose pairs.
+//
+// The default sample takes six poses a ribbon, the furthest move toward and
+// away at no roll, the two roll limits and the two tilts, and runs each pose
+// of A against the same pose of B (samePose): 6 pose pairs. It leaves out the
+// whole degrees of roll short of the limits, and every pair of two different
+// poses, among them three of the four jams maxPlayJams counts. It keeps the
+// nominal pose, every kind of move this case makes, and the two pairs at the
+// edges of the full sample's windows: both ribbons pushed together, the
+// narrowest window, 0.026 mm, and both pulled apart with gear B tilted, the
+// widest, 1.654 mm, with the worst departure, 0.315 mm.
 //
 // What the sampling gives up. It moves each ribbon along Ex, rolls it and
 // tilts it about Ey, and leaves the sideways move to
@@ -460,17 +529,29 @@ func TestPairDrivesUnderBorePlay(t *testing.T) {
 	ga, gb := defaultPair()
 	f := plainSleeve(ga, gb)
 
+	full := fullSample(t, "the whole degrees of roll short of the limits and every pair of two different poses")
 	ta, tb := tiltReach(f, ga), tiltReach(f, gb)
-	posesA := append(reachPoses(f, ga), ta.toward, ta.away)
-	posesB := append(reachPoses(f, gb), tb.toward, tb.away)
+	var pairs [][2]borePose
+	label := fmt.Sprintf("tips %.2f mm short", printTipLoss)
+	if full {
+		posesA := append(reachPoses(f, ga), ta.toward, ta.away)
+		posesB := append(reachPoses(f, gb), tb.toward, tb.away)
+		pairs = everyPair(posesA, posesB)
+		label += fmt.Sprintf(", %d poses of A by %d of B", len(posesA), len(posesB))
+	} else {
+		pairs = samePose(append(limitPoses(f, ga), ta.toward, ta.away), append(limitPoses(f, gb), tb.toward, tb.away))
+		label += ", each pose the same on both ribbons"
+	}
 	ga.Blunt, gb.Blunt = printTipLoss, printTipLoss
-	if m := meshUnderPlay(ga, gb); m.kind != playDrives {
+	// The nominal pose runs in the same batch, so that its mesh shares the
+	// CPUs with the others rather than running alone before them.
+	runs := meshOverPoses(ga, gb, append([][2]borePose{{}}, pairs...))
+	if m := runs[0]; m.kind != playDrives {
 		t.Fatalf("at the nominal pose, with tips %.2f mm short, the pair %s", printTipLoss, m)
 	}
-	runs := meshOverPoses(ga, gb, everyPair(posesA, posesB))
+	runs = runs[1:]
 	v := judgePlay(p, runs)
-	logPlay(t, fmt.Sprintf("tips %.2f mm short, %d poses of A by %d of B", printTipLoss, len(posesA), len(posesB)),
-		runs, v)
+	logPlay(t, label, runs, v)
 
 	for _, m := range v.refused {
 		t.Errorf("with A at %s and B at %s the pair %s", m.ribbonA, m.ribbonB, m)
@@ -488,25 +569,43 @@ func TestPairDrivesUnderBorePlay(t *testing.T) {
 
 // A sideways move acts on the mesh as a roll of both ribbons, mostly of the
 // other one (the comment at the top of this file says why), so it is checked
-// on its own: each ribbon at either sideways limit, against the other at its
-// nominal pose, at either limit along Ex, and at either sideways limit, with
-// both ribbons' tips blunted by printTipLoss.
+// on its own, with both ribbons' tips blunted by printTipLoss. The full sample
+// (SCREWGEAR_FULL=1) takes each ribbon at either sideways limit, against the
+// other at its nominal pose, at either limit along Ex, and at either sideways
+// limit: 16 pose pairs.
+//
+// The default sample takes both ribbons at the same sideways limit, and each
+// ribbon at either sideways limit against the other pushed the whole way
+// toward it: 6 pose pairs. It leaves out the other at its nominal pose, the
+// other pulled away, and the two ribbons at opposite sideways limits. It keeps
+// both ways sideways for each ribbon, and the full sample's narrowest window,
+// 0.092 mm with the other pushed toward, and its widest, 1.339 mm with the
+// worst departure, 0.249 mm, both ribbons at the same limit.
 func TestPairDrivesUnderSidewaysPlay(t *testing.T) {
 	t.Parallel()
 	p := defaultParams()
 	ga, gb := defaultPair()
 	f := plainSleeve(ga, gb)
 
-	others := func(g Gear) []borePose {
-		return []borePose{
-			{},
-			{tx: shiftLimit(f, g, 0, 0)},
-			{tx: -shiftLimit(f, g, math.Pi, 0)},
-		}
-	}
+	full := fullSample(t, "the other ribbon at its nominal pose or pulled away, and the two at opposite sideways limits")
 	sideA, sideB := sidewaysPoses(f, ga), sidewaysPoses(f, gb)
-	pairs := everyPair(sideA, append(others(gb), sideB...))
-	pairs = append(pairs, everyPair(others(ga), sideB)...)
+	var pairs [][2]borePose
+	if full {
+		others := func(g Gear) []borePose {
+			return []borePose{
+				{},
+				{tx: shiftLimit(f, g, 0, 0)},
+				{tx: -shiftLimit(f, g, math.Pi, 0)},
+			}
+		}
+		pairs = everyPair(sideA, append(others(gb), sideB...))
+		pairs = append(pairs, everyPair(others(ga), sideB)...)
+	} else {
+		towardA, towardB := borePose{tx: shiftLimit(f, ga, 0, 0)}, borePose{tx: shiftLimit(f, gb, 0, 0)}
+		pairs = samePose(sideA, sideB)
+		pairs = append(pairs, everyPair(sideA, []borePose{towardB})...)
+		pairs = append(pairs, everyPair([]borePose{towardA}, sideB)...)
+	}
 	ga.Blunt, gb.Blunt = printTipLoss, printTipLoss
 	runs := meshOverPoses(ga, gb, pairs)
 	v := judgePlay(p, runs)
@@ -592,34 +691,43 @@ func printedFit() (Params, Gear, Gear) {
 
 // The check above has to fail the arrangement that failed in print, or it is
 // not the check that print asked for. At the printed values the nominal pose
-// drives, which is all the proof used to ask, and the play breaks it. To keep
-// the run short this takes each ribbon at its two limits along Ex and its two
-// roll limits, sixteen pose pairs, and asks for at least one failure the check
-// does not accept. Six of the sixteen let the teeth pass without boxing each
-// other. Two more jam with one ribbon pushed the whole 0.45 mm toward the
-// other and the other at its roll limit; the check refused those until the
-// roof allowance came in and accepts them now, since they close the axes by a
-// clearance with neither ribbon pulled away (playVerdict). The scratch study's
-// full reach at these values failed 128 of 324. The tips here are the model's
-// own: the first print failed without any tip loss.
+// drives, which is all the proof used to ask, and the play breaks it. This
+// takes each ribbon at its two limits along Ex and its two roll limits
+// (limitPoses) and asks for at least one failure the check does not accept.
+// The tips here are the model's own: the first print failed without any tip
+// loss. The scratch study's full reach at these values failed 128 of 324.
+//
+// The full sample (SCREWGEAR_FULL=1) runs every pair of those poses, sixteen.
+// Six of the sixteen let the teeth pass without boxing each other. Two more
+// jam with one ribbon pushed the whole 0.45 mm toward the other and the other
+// at its roll limit; the check refused those until the roof allowance came in
+// and accepts them now, since they close the axes by a clearance with neither
+// ribbon pulled away (playVerdict). A third, both ribbons pushed together,
+// jams and has always been accepted.
+//
+// The default sample runs each pose of A against the same pose of B
+// (samePose): 4 pose pairs. Two of them let the teeth pass, both ribbons
+// pulled 0.45 mm apart and both rolled +3.46 degrees, so the default still
+// fails the print, once on a move along Ex and once on a roll. It leaves out
+// every pair of two different poses, among them the other four that let the
+// teeth pass.
 func TestPrintedFitFailsUnderBorePlay(t *testing.T) {
 	t.Parallel()
 	p, ga, gb := printedFit()
 	f := plainSleeve(ga, gb)
 
-	if m := meshUnderPlay(ga, gb); m.kind != playDrives {
+	posesA, posesB := limitPoses(f, ga), limitPoses(f, gb)
+	pairs := samePose(posesA, posesB)
+	if fullSample(t, "every pair of two different poses") {
+		pairs = everyPair(posesA, posesB)
+	}
+	// The nominal pose runs in the same batch, as in TestPairDrivesUnderBorePlay.
+	runs := meshOverPoses(ga, gb, append([][2]borePose{{}}, pairs...))
+	if m := runs[0]; m.kind != playDrives {
 		t.Fatalf("at the printed values the nominal pose %s; the print's failure was the play, "+
 			"not the nominal mesh", m)
 	}
-	limits := func(g Gear) []borePose {
-		return []borePose{
-			{tx: shiftLimit(f, g, 0, 0)},
-			{tx: -shiftLimit(f, g, math.Pi, 0)},
-			{roll: rollLimit(f, g, -1)},
-			{roll: rollLimit(f, g, 1)},
-		}
-	}
-	runs := meshOverPoses(ga, gb, everyPair(limits(ga), limits(gb)))
+	runs = runs[1:]
 	v := judgePlay(p, runs)
 	logPlay(t, "printed values", runs, v)
 	if len(v.refused) == 0 {
@@ -649,6 +757,12 @@ func TestPrintedFitFailsUnderBorePlay(t *testing.T) {
 // 0.35 mm it takes, which is thin, and that a roof which sags into the bore
 // tightens the fit rather than loosening it. Whether the teeth slip in the
 // reprinted sleeve only a print settles.
+//
+// The case is one pose pair at two tip losses, the least that shows an edge,
+// so it has no smaller sample and runs the same whatever SCREWGEAR_FULL says.
+// Each loss is a subtest of its own, run in parallel: each mesh judgement
+// takes 5 to 6 s of one CPU, and run one after the other they were the
+// longest single-threaded stretch in the package.
 func TestSecondPrintMeshIsMarginal(t *testing.T) {
 	t.Parallel()
 	p := defaultParams()
@@ -661,18 +775,21 @@ func TestSecondPrintMeshIsMarginal(t *testing.T) {
 		loss  float64
 		boxes bool
 	}{{0.40, true}, {0.45, false}} {
-		a, b := movedInBores(ga, apartA), movedInBores(gb, apartB)
-		a.Blunt, b.Blunt = c.loss, c.loss
-		m := meshUnderPlay(a, b)
-		t.Logf("tips %.2f mm short, both ribbons pulled %.3f and %.3f mm apart: the pair %s",
-			c.loss, -apartA.tx, -apartB.tx, m)
-		if c.boxes && m.kind != playDrives {
-			t.Errorf("with tips %.2f mm short and both ribbons pulled apart the pair %s; the second "+
-				"print's fit drove there", c.loss, m)
-		}
-		if !c.boxes && m.kind != playLoose {
-			t.Errorf("with tips %.2f mm short and both ribbons pulled apart the pair %s; the second "+
-				"print's fit let the teeth pass there", c.loss, m)
-		}
+		t.Run(fmt.Sprintf("tips %.2f mm short", c.loss), func(t *testing.T) {
+			t.Parallel()
+			a, b := movedInBores(ga, apartA), movedInBores(gb, apartB)
+			a.Blunt, b.Blunt = c.loss, c.loss
+			m := meshUnderPlay(a, b)
+			t.Logf("tips %.2f mm short, both ribbons pulled %.3f and %.3f mm apart: the pair %s",
+				c.loss, -apartA.tx, -apartB.tx, m)
+			if c.boxes && m.kind != playDrives {
+				t.Errorf("with tips %.2f mm short and both ribbons pulled apart the pair %s; the second "+
+					"print's fit drove there", c.loss, m)
+			}
+			if !c.boxes && m.kind != playLoose {
+				t.Errorf("with tips %.2f mm short and both ribbons pulled apart the pair %s; the second "+
+					"print's fit let the teeth pass there", c.loss, m)
+			}
+		})
 	}
 }

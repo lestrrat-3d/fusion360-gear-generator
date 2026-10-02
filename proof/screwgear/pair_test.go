@@ -183,6 +183,7 @@ func freeWindow(ga, gb Gear, za, seed float64) (lo, hi float64, ok bool) {
 // and follow nothing. The winding is what separates those cases, and an earlier
 // arrangement that passed the first two failed it.
 func TestPairDrivesOneToOne(t *testing.T) {
+	t.Parallel()
 	ga, gb := defaultPair()
 	p := ga.P
 	pitch := p.ToothPitch

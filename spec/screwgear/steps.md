@@ -8,10 +8,10 @@ generated `proof/screwgear/zz_registrations_test.go`.
 
 | file | `git hash-object` |
 |---|---|
-| `spec/screwgear/instructions.md` | `513c2752c4754810ecd5001b3222491a1a63a7c2` |
-| `spec/screwgear/fusion.md` | `1289df297be930e55fd1a3e89fd81ae877913b09` |
+| `spec/screwgear/instructions.md` | `2086fb6863cae62a88990017c3ded021c576e110` |
+| `spec/screwgear/fusion.md` | `b303ec403139aeb27b7d5b0631040bf62d0c21c9` |
 | `CLAUDE.md` | `916e8624ca88af226c264c21f295c14a9fb9e901` |
-| `proof/screwgear/README.md` | `56fbdccbb5142f64db086004f3af267a77d604bd` |
+| `proof/screwgear/README.md` | `74d0a88753d50d35e118b61947bdf24349b00a1a` |
 | `spec/cycloidal/fusion.md` | `afa5a99986f2e0d9f82fb5e21591553cdc54aac4` |
 | `spec/screwgear/mesh-search.md` | `394a2e0b52f4f4c40528646bf825f3db577f27ca` |
 | `.claude/skills/generate-gear/PLAYBOOK.md` | `cdd32545b0f8c651752827c6697601f1e32b4d39` |
