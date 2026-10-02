@@ -326,12 +326,12 @@ The check carries its measured quantities in the error it raises (`[PB-SELF-DIAG
 `origin_g + sc*dir_g ± (W/2 + clearance/2)*û(sc)` at the crossing itself, `sc = ±cageRadius`,
 where `û(s)` is `cos(theta)*û_g + sin(theta)*v̂_g` with `theta = s/Lambda + Phi_g`: the
 toothed-side and back-side middles of the channel, clear of the ribbon by `clearance/2` and of the
-channel's wall by the same, 16.86 mm and 16.31 mm from the frame's axis at the defaults, inside
+channel's wall by the same, 16.80 mm and 16.30 mm from the frame's axis at the defaults, inside
 the wall. Raise naming the bore and the containment read otherwise. A channel that is open there
 was cut, and the probes also tell the two senses apart: under the wrong sense the channel at the
 crossing stands turned `2*(sc - s0)/Lambda` from the right one, `s0` being the station the profile
-sits at — 106° for a `+R` bore and 58° for a `-R` bore — and both probes then sit 7.41 and
-6.56 mm across a channel 2.325 mm half thick, in the wall. `TestSleeveBoreProbesTellTheTwistSense`
+sits at — 102° for a `+R` bore and 58° for a `-R` bore — and both probes then sit 7.43 and
+6.46 mm across a channel 2.075 mm half thick, in the wall. `TestSleeveBoreProbesTellTheTwistSense`
 holds both halves. The video frame's collars also had their end vertices checked against the
 turned outline, 0.0047 mm with the right sign and 4.8979 mm with the wrong one; a sleeve has no
 swept body of its own to read vertices from, so the probes are the whole check.

@@ -7,7 +7,7 @@ The step proof for this list is `proof/screwgear/compiled_model_test.go`, `proof
 | file | `git hash-object` |
 |---|---|
 | `spec/screwgear/instructions.md` | `fd5b8f6adb1a9671976f03fdd3c3da925f5fe4af` |
-| `spec/screwgear/fusion.md` | `a310d6db21f4e5c3bee41017bd20507ef6cd1a1d` |
+| `spec/screwgear/fusion.md` | `8ed7c21bdb8adcb30bd2661ee46b35e1e2366a8f` |
 | `CLAUDE.md` | `916e8624ca88af226c264c21f295c14a9fb9e901` |
 | `proof/screwgear/README.md` | `87a9c5b7bdf6f3cc3ffbf55f9989e2ee48617576` |
 | `spec/cycloidal/fusion.md` | `afa5a99986f2e0d9f82fb5e21591553cdc54aac4` |
