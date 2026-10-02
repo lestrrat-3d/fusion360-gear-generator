@@ -13,12 +13,12 @@ func TestAnchorSketch(t *testing.T) {
 	proofkit.Run(t, anchorCases, stepAnchorSketch)
 }
 
-func TestPathsSketch(t *testing.T) {
-	proofkit.Run(t, pathsCases, stepPathsSketch)
+func TestGearPathsSketch(t *testing.T) {
+	proofkit.Run(t, pathsCases, stepGearPathsSketch)
 }
 
 func TestCellSectionsSketch(t *testing.T) {
-	proofkit.Run(t, cellSectionsCases, stepCellSectionsSketch)
+	proofkit.Run(t, cellSketchCases, stepCellSectionsSketch)
 }
 
 func TestCellLoft(t *testing.T) {
@@ -33,32 +33,20 @@ func TestScrewMove(t *testing.T) {
 	proofkit3d.RunSolid(t, moveCases, stepScrewMove, assertScrewMove)
 }
 
-func TestJoinBodies(t *testing.T) {
-	proofkit3d.RunSolid(t, joinCases, stepJoinBodies, assertJoinBodies)
-}
-
-func TestCellRemainderSketch(t *testing.T) {
-	proofkit.Run(t, remainderSketchCases, stepCellRemainderSketch)
-}
-
-func TestCellRemainderLoft(t *testing.T) {
-	proofkit3d.RunSolid(t, remainderLoftCases, stepCellRemainderLoft, assertCellRemainderLoft)
-}
-
-func TestJoinRemainder(t *testing.T) {
-	proofkit3d.RunSolid(t, joinRemainderCases, stepJoinRemainder, assertJoinRemainder)
+func TestJoinCopy(t *testing.T) {
+	proofkit3d.RunSolid(t, joinCases, stepJoinCopy, assertJoinCopy)
 }
 
 func TestSleeveSketch(t *testing.T) {
 	proofkit.Run(t, sleeveSketchCases, stepSleeveSketch)
 }
 
-func TestSleeveExtrude(t *testing.T) {
-	proofkit3d.RunSolid(t, sleeveExtrudeCases, stepSleeveExtrude, assertSleeveExtrude)
+func TestSleeveTube(t *testing.T) {
+	proofkit3d.RunSolid(t, sleeveTubeCases, stepSleeveTube, assertSleeveTube)
 }
 
 func TestBoreSectionSketch(t *testing.T) {
-	proofkit.Run(t, boreSectionCases, stepBoreSectionSketch)
+	proofkit.Run(t, boreSketchCases, stepBoreSectionSketch)
 }
 
 func TestBoreSweepCut(t *testing.T) {
@@ -69,6 +57,6 @@ func TestWindowSketch(t *testing.T) {
 	proofkit.Run(t, windowSketchCases, stepWindowSketch)
 }
 
-func TestWindowCut(t *testing.T) {
-	proofkit3d.RunSolid(t, windowCutCases, stepWindowCut, assertWindowCut)
+func TestWindowExtrudeCut(t *testing.T) {
+	proofkit3d.RunSolid(t, windowCutCases, stepWindowExtrudeCut, assertWindowExtrudeCut)
 }

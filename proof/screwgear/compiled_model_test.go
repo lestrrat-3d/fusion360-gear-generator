@@ -1,365 +1,161 @@
 package screwgear_test
 
-// The compiled step proof's shared model: the inputs a case carries, the
-// frame of spec/screwgear/instructions.md §1, the sections every sketch and
-// loft is drawn from, the doubling schedule of §3, and the builders the solid
-// steps share. Everything here is written from spec/screwgear/steps.md, and
-// every name carries the cg prefix so it cannot collide with the hand-written
-// mechanism proof that shares this package (geometry_test.go, pair_test.go,
-// sleeve_test.go, cage_test.go, render_test.go).
+// The compiled step proof for spec/screwgear/steps.md: one function per build
+// step, in compiled_sketches_test.go and compiled_solids_test.go, and the case
+// tables and shared geometry in this file. It sits beside the hand-written
+// mechanism proof (geometry_test.go, pair_test.go, bore_play_test.go,
+// sleeve_test.go) and borrows that proof's model of the part rather than
+// deriving it again: Params, Gear, pair, Gear.section and Gear.angle for the
+// ribbon, and plainSleeve, newSleeve, newWindow, sectionInWall and
+// boreSections for the sleeve. The two searches the build runs in
+// processInputs, the wall between the bores and the window search, are the
+// hand-written proof's channelSeparation and newWindow; this proof takes their
+// results as numbers.
 //
-// The hand-written proof is used in three places only, each named where it is
-// called: sleeveRefusal decides which inputs the build accepts (spec
-// "Variables", the sleeve's four checks), newSleeve runs the two searches of
-// spec §4 the build runs before any feature (the wall between the bores and
-// the window search), whose results the compiled proof takes as numbers, and
-// windowSizes is the regime the spec names for the sleeve.
+// Steps of the step list this proof does not build, and why, next to the
+// nearest thing it does build:
+//
+//   - The dialog, the reading and range checks of the inputs, the two searches
+//     of processInputs, the component tree and the relocation of the bodies are
+//     not geometry; neither engine has anything to build for them.
+//     sleeveRefusal, channelSeparation and newWindow in sleeve_test.go are the
+//     searches, and TestSleeveInputsAreChecked holds the checks.
+//   - The two Gear Axis Planes, each Bore Plane and the Window Plane are
+//     construction planes. The sketch engine places a sketch on a plane but
+//     reads nothing back from how Fusion made one, which is what those steps
+//     are about (the sign of n̂, where setByDistanceOnPath puts the origin). The
+//     Paths, bore section and window sketch steps below draw on the plane each
+//     of them stands for, in that plane's own coordinates.
 
 import (
-	"fmt"
+	"context"
 	"math"
 	"math/bits"
 	"testing"
 
 	"github.com/lestrrat-3d/decad"
+	"github.com/lestrrat-3d/decad/decadtest"
+	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit"
+	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit3d"
 	"github.com/lestrrat-3d/r3"
 	"github.com/lestrrat-3d/sketch"
 	"github.com/lestrrat-3d/sketch/sketchtest"
 	"github.com/lestrrat-3d/units"
 )
 
-// cgCellTeeth is the module constant CELL_TEETH: the teeth the lofted cell
-// holds. A case may override it through the "cellTeeth" key to reach the
-// one-tooth fallback the spec states counts for.
-const cgCellTeeth = 4
-
-// cgIn is one case's dialog inputs, in millimetres and radians, plus the
-// cell size.
-type cgIn struct {
-	W, T, H, P, Lead       float64
-	Sigma, PhiA, PhiB, Eng float64
-	N                      int
-	CageRadius, CageRise   float64
-	CollarHalf, CollarWall float64
-	Clearance, Phase       float64
-	CellTeeth              int
-}
-
-// cgDefaults is the spec's default table ("Variables").
-func cgDefaults() cgIn {
-	return cgIn{
-		W: 15, T: 3.75, H: 2.625, P: 2.625, Lead: 49.5,
-		Sigma: 80 * math.Pi / 180, PhiA: 15 * math.Pi / 180, PhiB: 15 * math.Pi / 180, Eng: 0.75,
-		N:          68,
-		CageRadius: 15, CageRise: 18.75, CollarHalf: 3, CollarWall: 3,
-		Clearance: 0.45, Phase: -1.31,
-		CellTeeth: cgCellTeeth,
+// caseParams is the spec's default table with a case's overrides applied. The
+// keys are the dialog's input ids, lengths in millimetres and the three angles
+// in degrees, as the dialog shows them.
+func caseParams(m map[string]float64) Params {
+	p := sleeveParams()
+	set := map[string]*float64{
+		"ribbonWidth":     &p.Width,
+		"ribbonThickness": &p.Thickness,
+		"toothPitch":      &p.ToothPitch,
+		"toothHeight":     &p.ToothHeight,
+		"twistLead":       &p.TwistLead,
+		"engagement":      &p.Engagement,
+		"cageRadius":      &p.CageRadius,
+		"cageRise":        &p.CageRise,
+		"clearance":       &p.Clearance,
+		"collarHalf":      &p.CollarHalf,
+		"collarWall":      &p.CollarWall,
 	}
-}
-
-var cgKeys = []string{"width", "thickness", "toothHeight", "toothPitch", "twistLead", "crossAngleDeg",
-	"mountAngleADeg", "mountAngleBDeg", "engagement", "toothCount", "cageRadius", "cageRise", "collarHalf",
-	"collarWall", "clearance", "assemblyPhase", "cellTeeth"}
-
-// cgMap writes the inputs as a case's parameter map, with extra keys added.
-func cgMap(in cgIn, extra map[string]float64) map[string]float64 {
-	m := map[string]float64{
-		"width": in.W, "thickness": in.T, "toothHeight": in.H, "toothPitch": in.P, "twistLead": in.Lead,
-		"crossAngleDeg": in.Sigma * 180 / math.Pi, "mountAngleADeg": in.PhiA * 180 / math.Pi,
-		"mountAngleBDeg": in.PhiB * 180 / math.Pi, "engagement": in.Eng, "toothCount": float64(in.N),
-		"cageRadius": in.CageRadius, "cageRise": in.CageRise, "collarHalf": in.CollarHalf,
-		"collarWall": in.CollarWall, "clearance": in.Clearance, "assemblyPhase": in.Phase,
-		"cellTeeth": float64(in.CellTeeth),
-	}
-	for k, v := range extra {
-		m[k] = v
-	}
-	return m
-}
-
-// cgRead reads a case's parameter map back. A missing key is a table defect.
-func cgRead(t testing.TB, m map[string]float64) cgIn {
-	t.Helper()
-	for _, k := range cgKeys {
-		if _, ok := m[k]; !ok {
-			t.Fatalf("case is missing the %q input", k)
+	for k, dst := range set {
+		if v, ok := m[k]; ok {
+			*dst = v
 		}
 	}
-	return cgIn{
-		W: m["width"], T: m["thickness"], H: m["toothHeight"], P: m["toothPitch"], Lead: m["twistLead"],
-		Sigma: m["crossAngleDeg"] * math.Pi / 180, PhiA: m["mountAngleADeg"] * math.Pi / 180,
-		PhiB: m["mountAngleBDeg"] * math.Pi / 180, Eng: m["engagement"], N: int(math.Round(m["toothCount"])),
-		CageRadius: m["cageRadius"], CageRise: m["cageRise"], CollarHalf: m["collarHalf"],
-		CollarWall: m["collarWall"], Clearance: m["clearance"], Phase: m["assemblyPhase"],
-		CellTeeth: int(math.Round(m["cellTeeth"])),
+	for k, dst := range map[string]*float64{
+		"crossAngle":  &p.CrossAngle,
+		"mountAngleA": &p.MountAngleA,
+		"mountAngleB": &p.MountAngleB,
+	} {
+		if v, ok := m[k]; ok {
+			*dst = v * math.Pi / 180
+		}
 	}
-}
-
-// cgFromParams carries the hand-written proof's Params into a case, with the
-// assembly phase the spec defaults it to.
-func cgFromParams(p Params) cgIn {
-	return cgIn{
-		W: p.Width, T: p.Thickness, H: p.ToothHeight, P: p.ToothPitch, Lead: p.TwistLead,
-		Sigma: p.CrossAngle, PhiA: p.MountAngleA, PhiB: p.MountAngleB, Eng: p.Engagement,
-		N:          p.ToothCount,
-		CageRadius: p.CageRadius, CageRise: p.CageRise, CollarHalf: p.CollarHalf, CollarWall: p.CollarWall,
-		Clearance: p.Clearance, Phase: assemblyPhase, CellTeeth: cgCellTeeth,
+	if v, ok := m["toothCount"]; ok {
+		p.ToothCount = int(v)
 	}
-}
-
-// cgParams is the hand-written proof's Params for these inputs, which is what
-// its sleeve searches read. The video frame's ring, wire and rod inputs are
-// not the sleeve's and keep their defaults.
-func (in cgIn) cgParams() Params {
-	p := sleeveParams()
-	p.Width, p.Thickness, p.ToothHeight, p.ToothPitch, p.TwistLead = in.W, in.T, in.H, in.P, in.Lead
-	p.CrossAngle, p.MountAngleA, p.MountAngleB, p.Engagement = in.Sigma, in.PhiA, in.PhiB, in.Eng
-	p.ToothCount = in.N
-	p.CageRadius, p.CageRise, p.CollarHalf, p.CollarWall, p.Clearance =
-		in.CageRadius, in.CageRise, in.CollarHalf, in.CollarWall, in.Clearance
 	return p
 }
 
-// The derived lengths of "Geometry" and §4.
-func (in cgIn) Lambda() float64 { return in.Lead / (2 * math.Pi) }
-func (in cgIn) A() float64      { return in.W - in.Eng }
-func (in cgIn) L() float64      { return float64(in.N) * in.P }
-func (in cgIn) Ri() float64     { return in.CageRadius - in.CollarHalf }
-func (in cgIn) Ro() float64     { return in.CageRadius + in.CollarHalf }
-func (in cgIn) Hw() float64     { return in.W/2 + in.Clearance }
-func (in cgIn) Ht() float64     { return in.T/2 + in.Clearance }
-func (in cgIn) Corner() float64 { return math.Hypot(in.Hw(), in.Ht()) }
-
-// SIn and SOut are the bore cut's span on its gear's axis (§4): a millimetre
-// before the channel's corner first touches the inner face, and a millimetre
-// past the outer face.
-func (in cgIn) SIn() float64 {
-	ri, c := in.Ri(), in.Corner()
-	return math.Sqrt(ri*ri-c*c) - 1
-}
-func (in cgIn) SOut() float64 { return in.Ro() + 1 }
-
-// StepsPerTooth is n of §2: the larger of the twist count, which keeps
-// neighbouring sections under 2 degrees apart, and the floor of eight.
-func (in cgIn) StepsPerTooth() int {
-	n := int(math.Ceil((in.P / in.Lambda()) / (2 * math.Pi / 180)))
-	return max(n, 8)
-}
-
-// Cell is c of §2: the teeth one cell holds.
-func (in cgIn) Cell() int { return min(in.CellTeeth, in.N) }
-
-// BoreSections is the stand-in's section count for one bore ("What the
-// proof's stand-in costs"): no two neighbouring sections more than 5 degrees
-// of twist apart, nor further than the facet bound 2*acos(1 - 0.04*clearance/c).
-func (in cgIn) BoreSections() int {
-	turn := (in.SOut() - in.SIn()) / in.Lambda()
-	step := math.Min(5*math.Pi/180, 2*math.Acos(1-0.04*in.Clearance/in.Corner()))
-	return int(math.Ceil(turn/step)) + 1
-}
-
-// ---------------------------------------------------------------------------
-// The frame of §1. The proof's selected plane is world XY, C is the origin,
-// e is world X and n is world Z: Fusion reads n off the Gear A Axis Plane and
-// signs it so that C lies +A/2 along it ([SCREW-F-NORMAL-SIGN]), which the
-// proof has by construction.
-
-var (
-	cgC = r3.NewVec(0, 0, 0)
-	cgE = r3.NewVec(1, 0, 0)
-	cgN = r3.NewVec(0, 0, 1)
-	cgK = cgN.Cross(cgE) // k = n x e
-)
-
-// cgGear is one gear placed by §1.
-type cgGear struct {
-	in      cgIn
-	index   int    // 0 for gear A, 1 for gear B
-	label   string // "Gear A" or "Gear B"
-	origin  r3.Vec // origin_g
-	dir     r3.Vec // dir_g, the axis
-	u, v    r3.Vec // the unrotated section frame: u points at the other gear, v = dir x u
-	phi, z0 float64
-}
-
-// cgGears places both gears: dirA = rotate(e, +Sigma/2 about n), originA =
-// C - (A/2) n, uA = +n; dirB = rotate(e, -Sigma/2 about n), originB =
-// C + (A/2) n, uB = -n; v = dir x u. Gear A's tooth phase is 0 and gear B's is
-// the assembly phase.
-func cgGears(in cgIn) [2]cgGear {
-	h := in.Sigma / 2
-	rot := func(a float64) r3.Vec { return cgE.Scale(math.Cos(a)).Add(cgK.Scale(math.Sin(a))) }
-	ga := cgGear{in: in, index: 0, label: "Gear A", origin: cgC.Sub(cgN.Scale(in.A() / 2)), dir: rot(h),
-		u: cgN, phi: in.PhiA, z0: 0}
-	gb := cgGear{in: in, index: 1, label: "Gear B", origin: cgC.Add(cgN.Scale(in.A() / 2)), dir: rot(-h),
-		u: cgN.Scale(-1), phi: in.PhiB, z0: in.Phase}
-	ga.v = ga.dir.Cross(ga.u)
-	gb.v = gb.dir.Cross(gb.u)
-	return [2]cgGear{ga, gb}
-}
-
-func (g cgGear) theta(s float64) float64 { return s/g.in.Lambda() + g.phi }
-
-// uTooth is the toothed edge at station s: crest at W/2, root at W/2 - H.
-func (g cgGear) uTooth(s float64) float64 {
-	in := g.in
-	return in.W/2 - in.H/2 + in.H/2*math.Cos(2*math.Pi*(s-g.z0)/in.P)
-}
-
-// turn rotates section coordinates (u, v) by the section angle at s, giving
-// the point's coordinates along the unrotated u and v directions: the plane
-// coordinates of a sketch whose x axis is u and y axis is v.
-func (g cgGear) turn(u, v, s float64) (float64, float64) {
-	c, sn := math.Cos(g.theta(s)), math.Sin(g.theta(s))
-	return u*c - v*sn, u*sn + v*c
-}
-
-func (g cgGear) axisPoint(s float64) r3.Vec { return g.origin.Add(g.dir.Scale(s)) }
-
-// world is the point of §1: origin + s dir + (u cos - v sin) u + (u sin + v cos) v.
-func (g cgGear) world(u, v, s float64) r3.Vec {
-	x, y := g.turn(u, v, s)
-	return g.axisPoint(s).Add(g.u.Scale(x)).Add(g.v.Scale(y))
-}
-
-// s0 is the ribbon's negative end, Z0 - L/2 (§2).
-func (g cgGear) s0() float64 { return g.z0 - g.in.L()/2 }
-
-// cellCorners are a ribbon section's corners at station s, (uB, -hv),
-// (uF, -hv), (uF, hv), (uB, hv) with uB = -W/2, uF = Utooth(s), hv = T/2, in
-// the section plane's coordinates.
-func (g cgGear) cellCorners(s float64) [4][2]float64 {
-	uB, uF, hv := -g.in.W/2, g.uTooth(s), g.in.T/2
-	var out [4][2]float64
-	for i, q := range [4][2]float64{{uB, -hv}, {uF, -hv}, {uF, hv}, {uB, hv}} {
-		out[i][0], out[i][1] = g.turn(q[0], q[1], s)
+// casePhase is the assembly phase a case builds gear B at: the input
+// assemblyPhase, or the default when the case does not set it.
+func casePhase(m map[string]float64) float64 {
+	if v, ok := m["assemblyPhase"]; ok {
+		return v
 	}
-	return out
+	return assemblyPhase
 }
 
-// boreCorners are a bore's rectangle at station s: uB = -hw, uF = hw, hv = ht.
-func (g cgGear) boreCorners(s float64) [4][2]float64 {
-	hw, ht := g.in.Hw(), g.in.Ht()
-	var out [4][2]float64
-	for i, q := range [4][2]float64{{-hw, -ht}, {hw, -ht}, {hw, ht}, {-hw, ht}} {
-		out[i][0], out[i][1] = g.turn(q[0], q[1], s)
+// caseGears is the pair a case describes, placed as the spec's §1 frame
+// places it: C at the origin, ê, k̂ and n̂ on X, Y and Z, gear A's axis A/2
+// below the middle plane and gear B's above it.
+func caseGears(m map[string]float64) (Params, [2]Gear) {
+	p := caseParams(m)
+	ga, gb := pair(p, p.Sigma(), 0, casePhase(m))
+	return p, [2]Gear{ga, gb}
+}
+
+// caseGear is the one gear a case names with "gear", 0 for gear A and 1 for B.
+func caseGear(m map[string]float64) (Params, Gear) {
+	p, gs := caseGears(m)
+	return p, gs[int(m["gear"])]
+}
+
+// axisGear is a gear laid on the world X axis, û on Y and v̂ on Z, with the
+// mounting angle and tooth phase of g. The ribbon's own steps (the cell, its
+// copies and its joins) are rigid in the gear's frame, so their proof builds
+// them there, where the axis is a coordinate axis and a bounding box along it
+// reads the stations directly.
+func axisGear(g Gear) Gear {
+	return Gear{
+		P:      g.P,
+		Origin: r3.NewVec(0, 0, 0),
+		Ex:     r3.NewVec(0, 1, 0),
+		Ey:     r3.NewVec(0, 0, 1),
+		Ez:     r3.NewVec(1, 0, 0),
+		Hand:   g.Hand,
+		Mount:  g.Mount,
+		Phase:  g.Phase,
 	}
-	return out
 }
 
-// sectionFrame is the plane square to the axis at station s, its x axis the
-// gear's unrotated u and its y axis v, so its normal runs along +dir.
-func (g cgGear) sectionFrame(t testing.TB, s float64) r3.Frame {
+// cellSteps is the spec's n, the steps to the tooth the cell is lofted
+// through: the larger of the count that keeps the twist between neighbouring
+// sections under 2 degrees and the floor of eight.
+func cellSteps(p Params) int {
+	twist := int(math.Ceil((p.ToothPitch / p.Lambda()) / (2 * math.Pi / 180)))
+	return max(twist, 8)
+}
+
+// cellCount is the spec's c, q and r: the teeth a cell holds,
+// min(CELL_TEETH, N), the whole cells and the remainder.
+func cellCount(p Params) (c, q, r int) {
+	c = min(cellTeeth, p.ToothCount)
+	return c, p.ToothCount / c, p.ToothCount % c
+}
+
+// ribbonStation is the station of the ribbon's j-th section counted from its
+// negative end, s0 + j*P/n with s0 = Z0 - L/2. Every section the proof builds
+// takes its station from here by its global index, so two pieces that meet
+// at one section compute it once and meet exactly.
+func ribbonStation(g Gear, j int) float64 {
+	n := cellSteps(g.P)
+	return g.Phase - g.P.Length()/2 + float64(j)*g.P.ToothPitch/float64(n)
+}
+
+// planeSketch is a fresh sketch on a plane through origin spanned by u and v,
+// whose normal is u x v.
+func planeSketch(t testing.TB, w *sketch.World, origin, u, v r3.Vec) (*sketch.Sketch, r3.Frame) {
 	t.Helper()
-	f, err := r3.NewFrame(g.axisPoint(s), g.u, g.v)
+	fr, err := r3.NewFrame(origin, u, v)
 	if err != nil {
-		t.Fatalf("%s section frame at %.4f: %v", g.label, s, err)
+		t.Fatalf("section frame: %v", err)
 	}
-	return f
-}
-
-// screwStep is Step(k) of §3: k teeth along the axis and k*P/Lambda about it,
-// right-handed about +dir, which carries the section at s onto the one at
-// s + k*P because theta grows with s.
-func (g cgGear) screwStep(t testing.TB, k int) r3.Transform {
-	t.Helper()
-	in := g.in
-	rot, err := r3.RotationAround(g.origin, g.dir, units.Radians(float64(k)*in.P/in.Lambda()))
-	if err != nil {
-		t.Fatalf("screw rotation: %v", err)
-	}
-	shift, err := r3.Translation(g.dir.Scale(float64(k) * in.P))
-	if err != nil {
-		t.Fatalf("screw translation: %v", err)
-	}
-	step, err := rot.Then(shift)
-	if err != nil {
-		t.Fatalf("screw step: %v", err)
-	}
-	return step
-}
-
-// ---------------------------------------------------------------------------
-// The doubling schedule of §3.
-
-// cgOp is one placement of the schedule. An "aside" is a copy kept unmoved,
-// holding cells cells. A "double" copies the body of cells cells, moves the
-// copy by Step(cells*c) and joins it. A "place" moves the aside of cells
-// cells by Step(by*c), by being the cells the body holds, and joins it.
-type cgOp struct {
-	kind      string
-	cells, by int
-}
-
-// cgSchedule is the schedule for q cells: q in binary; for each bit below
-// the top one, lowest first, an aside of the body when the bit is set and
-// then a doubling; then each aside, largest first, moved to the body's end
-// and joined.
-func cgSchedule(q int) []cgOp {
-	var ops []cgOp
-	var asides []int
-	m := 1
-	top := bits.Len(uint(q)) - 1
-	for b := 0; b < top; b++ {
-		if q&(1<<b) != 0 {
-			ops = append(ops, cgOp{kind: "aside", cells: m})
-			asides = append(asides, m)
-		}
-		ops = append(ops, cgOp{kind: "double", cells: m, by: m})
-		m *= 2
-	}
-	for i := len(asides) - 1; i >= 0; i-- {
-		ops = append(ops, cgOp{kind: "place", cells: asides[i], by: m})
-		m += asides[i]
-	}
-	return ops
-}
-
-// cgRounds is the count §3 states: floor(log2 q) + popcount(q) - 1.
-func cgRounds(q int) int {
-	if q < 1 {
-		return 0
-	}
-	return bits.Len(uint(q)) - 1 + bits.OnesCount(uint(q)) - 1
-}
-
-// ---------------------------------------------------------------------------
-// Sketch helpers.
-
-// cgFixedLoop draws a closed loop of solid lines through points created at
-// the given plane coordinates, sharing every corner, and fixes the points
-// after the last line exists: the reference-point recipe of
-// [SCREW-F-REFERENCES], where the engine's Fix is Fusion's isFixed. It returns
-// the lines in drawing order.
-func cgFixedLoop(s *sketch.Sketch, corners [][2]float64) []*sketch.Line {
-	pts := make([]*sketch.Point, len(corners))
-	for i, q := range corners {
-		pts[i] = s.CreatePoint(q[0], q[1])
-	}
-	lines := make([]*sketch.Line, len(pts))
-	for i := range pts {
-		lines[i] = s.CreateLine(pts[i], pts[(i+1)%len(pts)])
-	}
-	for _, p := range pts {
-		s.Fix(p)
-	}
-	return lines
-}
-
-// cgSection is one planar section on its own plane in a world: the sketch,
-// its one profile, and its four lines in drawing order (L1..L4).
-type cgSection struct {
-	s     *sketch.Sketch
-	prof  *sketch.Profile
-	lines []*sketch.Line
-	world [4]r3.Vec // the corners in world space, for the volume oracle
-}
-
-// cgNewSection draws corners on the plane at frame f, solves it and takes
-// its single valid profile.
-func cgNewSection(t testing.TB, w *sketch.World, f r3.Frame, corners [4][2]float64) cgSection {
-	t.Helper()
-	pl, err := w.CreatePlaneFromFrame(f)
+	pl, err := w.CreatePlaneFromFrame(fr)
 	if err != nil {
 		t.Fatalf("section plane: %v", err)
 	}
@@ -367,247 +163,583 @@ func cgNewSection(t testing.TB, w *sketch.World, f r3.Frame, corners [4][2]float
 	if err != nil {
 		t.Fatalf("section sketch: %v", err)
 	}
-	sec := cgSection{s: s, lines: cgFixedLoop(s, corners[:])}
-	sketchtest.Solve(t, s)
-	sec.prof = cgOneProfile(t, s)
-	for i, q := range corners {
-		sec.world[i] = f.ToWorldUV(q[0], q[1])
-	}
-	return sec
+	return s, fr
 }
 
-// cgOneProfile is the sketch's single profile, which must be valid.
-func cgOneProfile(t testing.TB, s *sketch.Sketch) *sketch.Profile {
+// polygonSketch draws a closed polygon of fixed points and lines on a sketch:
+// the corners are world points, mapped into the plane, and each line shares
+// its two corners. The points are fixed after the last line exists, which is
+// the order the spec's reference points are fixed in.
+func polygonSketch(t testing.TB, s *sketch.Sketch, fr r3.Frame, corners []r3.Vec) *sketch.Profile {
 	t.Helper()
-	ps := s.Profiles()
-	if len(ps) != 1 {
-		t.Fatalf("a section sketch has %d profiles, want 1", len(ps))
+	pts := make([]*sketch.Point, len(corners))
+	for i, c := range corners {
+		l := fr.ToLocal(c)
+		pts[i] = s.CreatePoint(l.X, l.Y)
 	}
-	sketchtest.IsValidProfile(t, ps[0])
-	return ps[0]
+	for i := range pts {
+		s.CreateLine(pts[i], pts[(i+1)%len(pts)])
+	}
+	for _, pt := range pts {
+		s.Fix(pt)
+	}
+	return decadtest.SolveRegion(t, s)
 }
 
-// cgLineIndex is where line i of the drawing order sits in the profile's
-// outer loop, so two sections' loops can be paired line for line.
-func cgLineIndex(t testing.TB, sec cgSection, i int) int {
-	t.Helper()
-	for j, e := range sec.prof.Outer {
-		if e.Entity == sketch.Entity(sec.lines[i]) {
-			return j
-		}
-	}
-	t.Fatalf("line %d of a section is not on its profile's outer loop", i+1)
-	return -1
-}
-
-// ---------------------------------------------------------------------------
-// The ruled-loft stand-in.
+// sectionSolid lofts a solid through a run of planar sections, each square to
+// g's axis at its own station, the way the sketch engine and decad can:
+// decad's Loft takes two sections, so each neighbouring pair is lofted as a
+// sheet of its walls, the two end sections are patched, and the sheets are
+// stitched into one closed body.
 //
-// Fusion lofts one smooth surface through every section of a cell
-// ([SCREW-F-CELL-LOFT]); decad lofts only between two sections, ruled. The
-// stand-in is a ruled loft between each pair of neighbouring sections, built
-// as an open wall sheet (no caps), the walls stitched into one open tube and
-// closed by a planar patch on its first and last section. A union of the
-// two-section solids would be the obvious build, but decad refuses it: two
-// slabs meeting on their shared section are "two operand facets overlap in one
-// plane", a contact its exact predicates cannot classify (measured at the
-// pinned revision). Stitching the walls is that union exactly, since the
-// shared section is interior to it, and Stitch audits the walls for crossing,
-// so an overlap would be refused rather than built.
-
-// cgLoftWalls lofts each neighbouring pair of sections as a wall sheet,
-// pairing line i of one with line i of the next, and stitches them into one
-// open sheet.
-func cgLoftWalls(t testing.TB, doc *decad.Document, secs []cgSection) *decad.Body {
+// What decad builds between two sections is not the smooth surface Fusion's
+// loft through many sections builds, and it is not quite the ruled surface the
+// spec's chord arithmetic is about either: decad's loft splits each wall
+// between two sections into two flat triangles. A wall that twists between
+// its two sections is a warped quadrilateral, and one diagonal folds it
+// outward and the other inward, by a quarter of the warp at the middle and by
+// a twelfth of the warp times the wall's area in volume. sectionVolume bounds
+// the volume by exactly that, and the spec's figures for the ruled loft are
+// not what this solid is held to.
+func sectionSolid(t testing.TB, doc *decad.Document, g Gear, stations []float64, corners func(s float64) [4]r3.Vec) *decad.Body {
 	t.Helper()
-	ctx := t.Context()
-	walls := make([]*decad.Body, 0, len(secs)-1)
-	for k := 0; k+1 < len(secs); k++ {
-		a, b := secs[k], secs[k+1]
-		// Segment 0 of a's outer loop pairs with the segment of b's that is the
-		// same line of the drawing order, so line i of a meets line i of b.
-		off := cgLineIndex(t, b, cgLineAt(t, a, 0))
-		w, err := doc.Loft(ctx, a.s, a.prof, b.s, b.prof, decad.WithSurfaceResult(), decad.WithLoftAlignment(off))
+	ctx := context.Background()
+	w := sketch.NewWorld()
+	sks := make([]*sketch.Sketch, len(stations))
+	prs := make([]*sketch.Profile, len(stations))
+	for k, s := range stations {
+		c := corners(s)
+		sks[k], prs[k] = func() (*sketch.Sketch, *sketch.Profile) {
+			sk, fr := planeSketch(t, w, g.Origin.Add(g.Ez.Scale(s)), g.Ex, g.Ey)
+			return sk, polygonSketch(t, sk, fr, c[:])
+		}()
+	}
+	var sheets []*decad.Body
+	for k := 0; k+1 < len(stations); k++ {
+		b, err := doc.Loft(ctx, sks[k], prs[k], sks[k+1], prs[k+1], decad.WithSurfaceResult())
 		if err != nil {
-			t.Fatalf("ruled loft between sections %d and %d: %v", k, k+1, err)
+			t.Fatalf("loft between stations %.4f and %.4f: %v", stations[k], stations[k+1], err)
 		}
-		walls = append(walls, w)
+		sheets = append(sheets, b)
 	}
-	sheet, err := decad.Stitch(ctx, walls...)
+	for _, k := range []int{0, len(stations) - 1} {
+		b, err := doc.Patch(ctx, sks[k], prs[k])
+		if err != nil {
+			t.Fatalf("cap at station %.4f: %v", stations[k], err)
+		}
+		sheets = append(sheets, b)
+	}
+	body, err := decad.Stitch(ctx, sheets...)
 	if err != nil {
-		t.Fatalf("stitching %d wall sheets: %v", len(walls), err)
+		t.Fatalf("stitch %d sections into one body: %v", len(stations), err)
 	}
-	return sheet
+	if body.Kind() != decad.BodySolid {
+		t.Fatalf("the stitched sections are a %v, want a solid", body.Kind())
+	}
+	return body
 }
 
-// cgLineAt is the drawing-order index of the line at outer-loop position j.
-func cgLineAt(t testing.TB, sec cgSection, j int) int {
-	t.Helper()
-	for i, l := range sec.lines {
-		if sec.prof.Outer[j].Entity == sketch.Entity(l) {
-			return i
+// sectionVolume is the volume of the ruled loft through a run of sections,
+// and how far a loft that splits each wall into two flat triangles can stand
+// from it. Each wall quadrilateral contributes, by the divergence theorem, the
+// average of its two triangulations; that average is the ruled (bilinear)
+// patch's own contribution, and either triangulation stands half their
+// difference from it. The caps are flat. Both are exact arithmetic on the
+// section corners, so the only error is float rounding.
+func sectionVolume(sections [][4]r3.Vec) (volume, slack float64) {
+	tri := func(a, b, c r3.Vec) float64 { return a.Dot(b.Cross(c)) / 6 }
+	first, last := sections[0], sections[len(sections)-1]
+	// The corners run counter-clockwise about the axis, so the far cap faces
+	// along it and the near cap against it.
+	volume += tri(last[0], last[1], last[2]) + tri(last[0], last[2], last[3])
+	volume -= tri(first[0], first[1], first[2]) + tri(first[0], first[2], first[3])
+	for k := 0; k+1 < len(sections); k++ {
+		a, b := sections[k], sections[k+1]
+		for i := range 4 {
+			j := (i + 1) % 4
+			one := tri(a[i], a[j], b[j]) + tri(a[i], b[j], b[i])
+			other := tri(a[i], a[j], b[i]) + tri(a[j], b[j], b[i])
+			volume += (one + other) / 2
+			slack += math.Abs(one-other) / 2
 		}
 	}
-	t.Fatalf("outer edge %d of a section is none of its four lines", j)
-	return -1
+	return volume, slack
 }
 
-// cgCap is the planar patch on a section, one end of a closed tube.
-func cgCap(t testing.TB, doc *decad.Document, sec cgSection) *decad.Body {
+// cornerBox is the bounding box of every section corner: the box of the
+// faceted solid through those sections, whose vertices they are.
+func cornerBox(sections [][4]r3.Vec) (lo, hi r3.Vec) {
+	lo = r3.NewVec(math.Inf(1), math.Inf(1), math.Inf(1))
+	hi = r3.NewVec(math.Inf(-1), math.Inf(-1), math.Inf(-1))
+	for _, sec := range sections {
+		for _, c := range sec {
+			lo = r3.NewVec(math.Min(lo.X, c.X), math.Min(lo.Y, c.Y), math.Min(lo.Z, c.Z))
+			hi = r3.NewVec(math.Max(hi.X, c.X), math.Max(hi.Y, c.Y), math.Max(hi.Z, c.Z))
+		}
+	}
+	return lo, hi
+}
+
+// ribbonPiece is the stretch of the ribbon from its section `from` to its
+// section `to`, by global index: the stations, the four corners of each, and
+// the solid lofted through them in doc.
+type ribbonPiece struct {
+	stations []float64
+	sections [][4]r3.Vec
+	body     *decad.Body
+}
+
+func buildRibbonPiece(t testing.TB, doc *decad.Document, g Gear, from, to int) ribbonPiece {
 	t.Helper()
-	b, err := doc.Patch(t.Context(), sec.s, sec.prof)
+	var piece ribbonPiece
+	for j := from; j <= to; j++ {
+		s := ribbonStation(g, j)
+		piece.stations = append(piece.stations, s)
+		piece.sections = append(piece.sections, g.section(s))
+	}
+	piece.body = sectionSolid(t, doc, g, piece.stations, g.section)
+	return piece
+}
+
+// cellRange is the global section range of cell k, counted in whole cells of
+// c teeth from the ribbon's negative end, n sections to the tooth.
+func cellRange(p Params, k int) (int, int) {
+	c, _, _ := cellCount(p)
+	n := cellSteps(p)
+	return k * c * n, (k + 1) * c * n
+}
+
+// remainderRange is the global section range of the remainder cell.
+func remainderRange(p Params) (int, int) {
+	_, q, r := cellCount(p)
+	c, _, _ := cellCount(p)
+	n := cellSteps(p)
+	return q * c * n, (q*c + r) * n
+}
+
+// checkRibbonPiece holds a lofted stretch of ribbon to its sections: one
+// solid whose box is the box of its corners, so every station and every
+// corner is where the spec puts it, whose volume is the ruled loft's up to
+// the triangle fold, and whose faces are two caps and two triangles per wall
+// per step, so it was lofted through exactly the sections asked for.
+func checkRibbonPiece(t *testing.T, name string, piece ribbonPiece) {
+	t.Helper()
+	box, err := piece.body.Bounds()
 	if err != nil {
-		t.Fatalf("cap patch: %v", err)
+		t.Fatalf("%s bounds: %v", name, err)
 	}
-	return b
-}
-
-// cgClose stitches an open wall sheet and its two end caps into a solid. A
-// refusal comes back as the error, for the caller to record; a stitch that
-// leaves free edges fails the test, since every cap here is drawn from the
-// very section the walls end on.
-func cgClose(t testing.TB, doc *decad.Document, walls *decad.Body, first, last cgSection, what string) (*decad.Body, error) {
-	t.Helper()
-	b, err := decad.Stitch(t.Context(), walls, cgCap(t, doc, first), cgCap(t, doc, last))
+	lo, hi := cornerBox(piece.sections)
+	// The vertices are the corners themselves; the slack is float rounding.
+	decadtest.MeasuresBox(t, name+" bounds", box, lo, hi, decadtest.Within(units.Millimeters(1e-9)))
+	vol, err := piece.body.Volume()
 	if err != nil {
-		return nil, err
+		t.Fatalf("%s volume: %v", name, err)
 	}
-	if b.Kind() != decad.BodySolid {
-		t.Fatalf("closing %s left a sheet, not a solid", what)
+	want, slack := sectionVolume(piece.sections)
+	// The ruled loft's volume, and the most a loft whose walls are split into
+	// flat triangles can stand from it (sectionVolume).
+	decadtest.Measures(t, name+" volume", vol, units.CubicMillimeters(want),
+		decadtest.Within(units.CubicMillimeters(slack+1e-9*want)))
+	if got, want := len(piece.body.Faces()), 2+8*(len(piece.sections)-1); got != want {
+		t.Errorf("%s has %d faces, want %d: two caps and two triangles per wall for each of its %d steps",
+			name, got, want, len(piece.sections)-1)
 	}
-	return b, nil
 }
 
-// The ribbon's sections are numbered from its negative end: section K stands
-// at s0 + K*P/n. Every piece of a ribbon reads its sections by that one
-// number, so two pieces that meet share their meeting section to the bit and
-// Stitch welds them; a station summed piece by piece would not.
-
-// cgStation is the station of ribbon section K.
-func (g cgGear) cgStation(k int) float64 {
-	return g.s0() + float64(k)*g.in.P/float64(g.in.StepsPerTooth())
-}
-
-// cgRibbonSections are ribbon sections k0 to k1 of gear g, each on its own
-// plane.
-func cgRibbonSections(t testing.TB, w *sketch.World, g cgGear, k0, k1 int) []cgSection {
+// screwStep is the spec's Step(k): a translation of k*P along the gear's
+// axis composed with a rotation of k*P/Lambda about it.
+func screwStep(t testing.TB, g Gear, teeth int) r3.Transform {
 	t.Helper()
-	secs := make([]cgSection, 0, k1-k0+1)
-	for k := k0; k <= k1; k++ {
-		s := g.cgStation(k)
-		secs = append(secs, cgNewSection(t, w, g.sectionFrame(t, s), g.cellCorners(s)))
+	k := float64(teeth)
+	rot, err := r3.RotationAround(g.Origin, g.Ez, units.Radians(k*g.P.ToothPitch/g.lambda()))
+	if err != nil {
+		t.Fatalf("screw step rotation: %v", err)
 	}
-	return secs
+	move, err := r3.Translation(g.Ez.Scale(k * g.P.ToothPitch))
+	if err != nil {
+		t.Fatalf("screw step translation: %v", err)
+	}
+	step, err := rot.Then(move)
+	if err != nil {
+		t.Fatalf("screw step: %v", err)
+	}
+	return step
 }
 
-// cgRibbonPiece is the open wall sheet through ribbon sections k0 to k1.
-func cgRibbonPiece(t testing.TB, doc *decad.Document, g cgGear, k0, k1 int) *decad.Body {
+// scheduleOp is one feature group of the doubling schedule of spec §3: an
+// aside copy, a doubling round, or the placing of an aside.
+type scheduleOp struct {
+	kind  string // "aside", "double" or "place"
+	cells int    // the cells the body holds before the op
+	piece int    // the cells the copy holds
+	shift int    // the screw step the copy is moved by, in cells; 0 for an aside
+}
+
+// cellSchedule is the doubling schedule for q whole cells, in build order:
+// for each bit of q below its top bit, lowest first, an aside copy of the
+// body when the bit is set and then a doubling; then each aside, largest
+// first, moved by the cells built so far and joined.
+func cellSchedule(q int) []scheduleOp {
+	var ops []scheduleOp
+	var asides []int
+	m := 1
+	top := bits.Len(uint(q)) - 1
+	for bit := 0; bit < top; bit++ {
+		if q&(1<<bit) != 0 {
+			ops = append(ops, scheduleOp{kind: "aside", cells: m, piece: m})
+			asides = append(asides, m)
+		}
+		ops = append(ops, scheduleOp{kind: "double", cells: m, piece: m, shift: m})
+		m *= 2
+	}
+	for i := len(asides) - 1; i >= 0; i-- {
+		ops = append(ops, scheduleOp{kind: "place", cells: m, piece: asides[i], shift: m})
+		m += asides[i]
+	}
+	return ops
+}
+
+// The case tables. Each is a package-level table a registration names. The
+// default case of each is the spec's default table; the others reach the
+// branches the step takes and the ends of the ranges the spec states.
+
+var anchorCases = []proofkit.Case{
+	{Name: "centre at the sketch origin", Params: map[string]float64{}},
+	{Name: "centre off the origin", Params: map[string]float64{"centreX": 37.2, "centreY": -12.5}},
+	{Name: "centre at negative coordinates", Params: map[string]float64{"centreX": -120, "centreY": -80}},
+}
+
+var pathsCases = []proofkit.Case{
+	{Name: "defaults gear A", Params: map[string]float64{"gear": 0, "quoted": 1}},
+	{Name: "defaults gear B", Params: map[string]float64{"gear": 1}},
+	{Name: "gear A off the origin", Params: map[string]float64{"gear": 0, "centreX": -40, "centreY": 25}},
+	{Name: "gear B at a 70 degree crossing", Params: map[string]float64{"gear": 1, "crossAngle": 70}},
+	{Name: "gear A at a 120 degree crossing", Params: map[string]float64{"gear": 0, "crossAngle": 120}},
+	{Name: "gear B at a 25 mm cage radius", Params: map[string]float64{"gear": 1, "cageRadius": 25, "cageRise": 25}},
+	{Name: "gear A at the least inner radius the mesh check accepts", Params: map[string]float64{"gear": 0, "cageRadius": 14.2}},
+}
+
+// cellCases name the run of sections a Cell Sections sketch or its loft holds
+// with "teeth" (the cell's c, or the remainder's r) and "firstTooth" (the
+// tooth the run starts at, q*c for the remainder).
+var cellSketchCases = []proofkit.Case{
+	{Name: "defaults gear A", Params: map[string]float64{"gear": 0, "teeth": 4, "quoted": 1}},
+	{Name: "defaults gear B", Params: map[string]float64{"gear": 1, "teeth": 4}},
+	{Name: "lead 400 mm takes the floor of eight", Params: map[string]float64{"gear": 0, "teeth": 4, "twistLead": 400}},
+	{Name: "lead 20 mm takes the twist count", Params: map[string]float64{"gear": 1, "teeth": 4, "twistLead": 20}},
+	{Name: "negative mounting angle", Params: map[string]float64{"gear": 0, "teeth": 4, "mountAngleA": -30}},
+	{Name: "assembly phase near minus a pitch", Params: map[string]float64{"gear": 1, "teeth": 4, "assemblyPhase": -2.6}},
+	{Name: "assembly phase near plus a pitch", Params: map[string]float64{"gear": 1, "teeth": 4, "assemblyPhase": 2.6}},
+	{Name: "deep tooth just under half the width", Params: map[string]float64{"gear": 0, "teeth": 4, "toothHeight": 7.4}},
+	{Name: "remainder of one tooth at 69 teeth", Params: map[string]float64{"gear": 0, "teeth": 1, "firstTooth": 68, "toothCount": 69}},
+	{Name: "remainder of three teeth at 71 teeth", Params: map[string]float64{"gear": 1, "teeth": 3, "firstTooth": 68, "toothCount": 71}},
+}
+
+var cellLoftCases = []proofkit3d.Case{
+	{Name: "defaults gear A", Params: map[string]float64{"gear": 0, "teeth": 4}},
+	{Name: "defaults gear B", Params: map[string]float64{"gear": 1, "teeth": 4}},
+	{Name: "lead 400 mm takes the floor of eight", Params: map[string]float64{"gear": 0, "teeth": 4, "twistLead": 400}},
+	{Name: "negative mounting angle", Params: map[string]float64{"gear": 0, "teeth": 4, "mountAngleA": -30}},
+	{Name: "remainder of one tooth at 69 teeth", Params: map[string]float64{"gear": 0, "teeth": 1, "firstTooth": 68, "toothCount": 69}},
+}
+
+// The copy and move cases name the cells the screw step moves by with
+// "shift": every shift the default schedule makes, 1, 2, 4, 8 and 16 cells.
+var copyCases = []proofkit3d.Case{
+	{Name: "defaults gear A", Params: map[string]float64{"gear": 0}},
+	{Name: "defaults gear B", Params: map[string]float64{"gear": 1}},
+}
+
+var moveCases = []proofkit3d.Case{
+	{Name: "gear A by one cell", Params: map[string]float64{"gear": 0, "shift": 1}},
+	{Name: "gear A by two cells", Params: map[string]float64{"gear": 0, "shift": 2}},
+	{Name: "gear A by four cells", Params: map[string]float64{"gear": 0, "shift": 4}},
+	{Name: "gear A by eight cells", Params: map[string]float64{"gear": 0, "shift": 8}},
+	{Name: "gear A by sixteen cells", Params: map[string]float64{"gear": 0, "shift": 16}},
+	{Name: "gear B by sixteen cells", Params: map[string]float64{"gear": 1, "shift": 16}},
+	{Name: "negative mounting angle by one cell", Params: map[string]float64{"gear": 0, "shift": 1, "mountAngleA": -30}},
+	{Name: "lead 400 mm by one cell", Params: map[string]float64{"gear": 0, "shift": 1, "twistLead": 400}},
+}
+
+var joinCases = []proofkit3d.Case{
+	{Name: "defaults gear A, 17 cells", Params: map[string]float64{"gear": 0}},
+	{Name: "defaults gear B, 17 cells", Params: map[string]float64{"gear": 1}},
+	{Name: "one cell and no round", Params: map[string]float64{"gear": 0, "toothCount": 4}},
+	{Name: "one cell and a remainder", Params: map[string]float64{"gear": 0, "toothCount": 5}},
+	{Name: "two cells, one doubling", Params: map[string]float64{"gear": 0, "toothCount": 8}},
+	{Name: "three cells, an aside", Params: map[string]float64{"gear": 1, "toothCount": 12}},
+	{Name: "69 teeth, a remainder after five rounds", Params: map[string]float64{"gear": 0, "toothCount": 69}},
+}
+
+var sleeveSketchCases = []proofkit.Case{
+	{Name: "defaults", Params: map[string]float64{}},
+	{Name: "centre off the origin", Params: map[string]float64{"centreX": 12.5, "centreY": -40}},
+	{Name: "cage radius 25 mm", Params: map[string]float64{"cageRadius": 25, "cageRise": 25}},
+	{Name: "collar half 2 mm", Params: map[string]float64{"collarHalf": 2}},
+}
+
+var sleeveTubeCases = []proofkit3d.Case{
+	{Name: "defaults", Params: map[string]float64{}},
+	{Name: "cage radius 25 mm", Params: map[string]float64{"cageRadius": 25, "cageRise": 25}},
+	{Name: "collar half 3.5 mm", Params: map[string]float64{"collarHalf": 3.5}},
+}
+
+// The bore section cases name the bore with "bore": 0 and 1 for gear A's -R
+// and +R, 2 and 3 for gear B's. "offsetX" and "offsetY" put the axis point O
+// away from the plane's own origin, as Fusion's plane origin need not be on
+// it. The mounting angles of -60, 122 and 138 degrees turn the section to
+// within 45 degrees of 0 or 180 at the bore's first station, which is where
+// the angle is taken against the toothed side instead of the spine.
+var boreSketchCases = []proofkit.Case{
+	{Name: "defaults gear A -R", Params: map[string]float64{"bore": 0}},
+	{Name: "defaults gear A +R", Params: map[string]float64{"bore": 1, "offsetX": 3, "offsetY": -2}},
+	{Name: "defaults gear B -R", Params: map[string]float64{"bore": 2}},
+	{Name: "defaults gear B +R", Params: map[string]float64{"bore": 3}},
+	{Name: "toothed-side angle near 0 on a +R bore", Params: map[string]float64{"bore": 1, "mountAngleA": -60}},
+	{Name: "toothed-side angle near 180 on a +R bore", Params: map[string]float64{"bore": 3, "mountAngleB": 122}},
+	{Name: "toothed-side angle near 0 on a -R bore", Params: map[string]float64{"bore": 0, "mountAngleA": 138}},
+	{Name: "clearance 0.05 mm", Params: map[string]float64{"bore": 1, "clearance": 0.05}},
+	{Name: "clearance 0.9 mm", Params: map[string]float64{"bore": 2, "clearance": 0.9, "cageRise": 19}},
+}
+
+var boreCutCases = []proofkit3d.Case{
+	{Name: "defaults", Params: map[string]float64{}},
+	{Name: "clearance 0.05 mm", Params: map[string]float64{"clearance": 0.05}},
+	{Name: "crossing 100 degrees", Params: map[string]float64{"crossAngle": 100}},
+	{Name: "mounting angles 0 and 30 degrees", Params: map[string]float64{"mountAngleA": 0, "mountAngleB": 30}},
+}
+
+// The window cases name the window with "window": 0 for the one facing d and
+// 1 for the one facing -d.
+var windowSketchCases = []proofkit.Case{
+	{Name: "defaults +k", Params: map[string]float64{"window": 0, "quoted": 1}},
+	{Name: "defaults -k", Params: map[string]float64{"window": 1}},
+	{Name: "crossing 100 degrees +e", Params: map[string]float64{"window": 0, "crossAngle": 100}},
+	{Name: "crossing 100 degrees -e", Params: map[string]float64{"window": 1, "crossAngle": 100}},
+	{Name: "mounting angles 0 and 30 degrees -k", Params: map[string]float64{"window": 1, "mountAngleA": 0, "mountAngleB": 30}},
+}
+
+var windowCutCases = []proofkit3d.Case{
+	{Name: "defaults", Params: map[string]float64{}},
+	{Name: "crossing 100 degrees", Params: map[string]float64{"crossAngle": 100}},
+}
+
+// caseSleeve is the sleeve a case describes, with its windows found by the
+// hand-written proof's newWindow, which is the build's window search step for
+// step. It is the same search the build runs in processInputs.
+func caseSleeve(m map[string]float64) sleeve {
+	_, gs := caseGears(m)
+	return newSleeve(gs[0], gs[1])
+}
+
+// windowCorners is a window's hexagon as the build draws it: newWindow's
+// corners with any corner within 0.001 mm of the one before it dropped, since
+// a sketch line cannot have zero length.
+func windowCorners(w sleeveWindow) [][2]float64 {
+	var out [][2]float64
+	for _, c := range w.corners {
+		if n := len(out); n > 0 && math.Hypot(c[0]-out[n-1][0], c[1]-out[n-1][1]) < 0.001 {
+			continue
+		}
+		out = append(out, c)
+	}
+	if n := len(out); n > 1 && math.Hypot(out[0][0]-out[n-1][0], out[0][1]-out[n-1][1]) < 0.001 {
+		out = out[:n-1]
+	}
+	return out
+}
+
+// polygonArea is a polygon's signed area by the shoelace formula.
+func polygonArea(q [][2]float64) float64 {
+	a := 0.0
+	for i := range q {
+		p, r := q[i], q[(i+1)%len(q)]
+		a += p[0]*r[1] - r[0]*p[1]
+	}
+	return a / 2
+}
+
+// boreRemoval is the volume a bore's channel takes out of the uncut tube: the
+// area of the channel's section in the wall, sectionInWall's two pieces,
+// integrated along the cut's span by the trapezoid rule at 1 µm. The section
+// is square to the gear's axis, so that integral is the volume.
+func boreRemoval(f sleeve, b bore) float64 {
+	lo, hi := b.span(f)
+	const ds = 0.001
+	area := func(s float64) float64 {
+		a := 0.0
+		for _, piece := range f.sectionInWall(b.g, s) {
+			if piece.n >= 3 {
+				a += polygonArea(piece.v[:piece.n])
+			}
+		}
+		return a
+	}
+	n := int(math.Ceil((hi - lo) / ds))
+	h := (hi - lo) / float64(n)
+	sum := (area(lo) + area(hi)) / 2
+	for i := 1; i < n; i++ {
+		sum += area(lo + float64(i)*h)
+	}
+	return sum * h
+}
+
+// windowRemoval is the volume a window's prism takes out of the uncut tube:
+// at each t of the hexagon, its height times the wall's chord a1(t) - a0(t),
+// integrated by the trapezoid rule at 1 µm.
+func windowRemoval(f sleeve, corners [][2]float64) float64 {
+	left, right := math.Inf(1), math.Inf(-1)
+	for _, c := range corners {
+		left, right = math.Min(left, c[0]), math.Max(right, c[0])
+	}
+	height := func(t float64) float64 {
+		lo, hi := math.Inf(1), math.Inf(-1)
+		for i := range corners {
+			p, r := corners[i], corners[(i+1)%len(corners)]
+			if (p[0]-t)*(r[0]-t) > 0 || p[0] == r[0] {
+				if p[0] == t {
+					lo, hi = math.Min(lo, p[1]), math.Max(hi, p[1])
+				}
+				continue
+			}
+			z := p[1] + (r[1]-p[1])*(t-p[0])/(r[0]-p[0])
+			lo, hi = math.Min(lo, z), math.Max(hi, z)
+		}
+		if hi < lo {
+			return 0
+		}
+		a0, a1 := f.chord(t)
+		return (hi - lo) * (a1 - a0)
+	}
+	const dt = 0.001
+	n := int(math.Ceil((right - left) / dt))
+	h := (right - left) / float64(n)
+	sum := (height(left) + height(right)) / 2
+	for i := 1; i < n; i++ {
+		sum += height(left + float64(i)*h)
+	}
+	return sum * h
+}
+
+// boreTool is the proof's stand-in for one bore's twisted sweep: the bore's
+// rectangle, turned to the ribbon's angle, at the sections boreSections
+// derives over the cut's span, lofted and stitched by sectionSolid. It returns
+// the tool and the most its triangle-split walls can take from or add to the
+// ruled channel's volume, as sectionVolume reckons it.
+func boreTool(t testing.TB, doc *decad.Document, f sleeve, b bore) (*decad.Body, float64) {
 	t.Helper()
-	return cgLoftWalls(t, doc, cgRibbonSections(t, sketch.NewWorld(), g, k0, k1))
+	p := f.p
+	lo, hi := b.span(f)
+	n := boreSections(p, (hi-lo)/p.Lambda())
+	hw, ht := p.BoreHalfWidth(), p.BoreHalfThickness()
+	rect := func(s float64) [4]r3.Vec {
+		var c [4]r3.Vec
+		for i, uv := range [4][2]float64{{-hw, -ht}, {hw, -ht}, {hw, ht}, {-hw, ht}} {
+			c[i] = b.g.world(uv[0], uv[1], s)
+		}
+		return c
+	}
+	stations := make([]float64, n)
+	sections := make([][4]r3.Vec, n)
+	for k := range n {
+		stations[k] = lo + (hi-lo)*float64(k)/float64(n-1)
+		sections[k] = rect(stations[k])
+	}
+	_, slack := sectionVolume(sections)
+	return sectionSolid(t, doc, b.g, stations, rect), slack
 }
 
-// cgCloseRibbon closes an open ribbon sheet that runs from section k0 to k1
-// with a cap on each.
-func cgCloseRibbon(t testing.TB, doc *decad.Document, g cgGear, walls *decad.Body, k0, k1 int) (*decad.Body, error) {
+// boreFacetSlack is how much the ruled channel through boreSections' sections
+// can fall short of the exact swept channel in the volume it removes: each
+// facet stands at most c*(1 - cos(step/2)) inside the channel, over a wall no
+// larger than the rectangle's perimeter times the cut's span.
+func boreFacetSlack(f sleeve, b bore) float64 {
+	p := f.p
+	lo, hi := b.span(f)
+	turn := (hi - lo) / p.Lambda()
+	n := boreSections(p, turn)
+	step := turn / float64(n-1)
+	depth := p.BoreCorner() * (1 - math.Cos(step/2))
+	return depth * 4 * (p.BoreHalfWidth() + p.BoreHalfThickness()) * (hi - lo)
+}
+
+// tubeBody extrudes the sleeve's ring from a Sleeve sketch on the plane
+// through C square to n̂, both ways by cageRise.
+func tubeBody(t testing.TB, doc *decad.Document, p Params) *decad.Body {
 	t.Helper()
 	w := sketch.NewWorld()
-	first := cgRibbonSections(t, w, g, k0, k0)[0]
-	last := cgRibbonSections(t, w, g, k1, k1)[0]
-	return cgClose(t, doc, walls, first, last, fmt.Sprintf("%s sections %d to %d", g.label, k0, k1))
+	s, _ := planeSketch(t, w, r3.NewVec(0, 0, 0), r3.NewVec(1, 0, 0), r3.NewVec(0, 1, 0))
+	ri, ro := p.SleeveInner(), p.SleeveOuter()
+	inner := s.CreateCircle(s.CreatePoint(0, 0), ri)
+	outer := s.CreateCircle(s.CreatePoint(0, 0), ro)
+	s.Fix(inner.Center)
+	s.Fix(outer.Center)
+	s.AddConstraint(sketch.NewDiameter(inner, 2*ri), sketch.NewDiameter(outer, 2*ro))
+	ring := ringProfile(t, s)
+	body, err := doc.Extrude(s, ring, decad.Symmetric{D: units.Millimeters(p.CageRise)})
+	if err != nil {
+		t.Fatalf("extrude the sleeve's ring: %v", err)
+	}
+	return body
 }
 
-// cgClosedRange is the closed body through ribbon sections k0 to k1.
-func cgClosedRange(t testing.TB, doc *decad.Document, g cgGear, k0, k1 int) (*decad.Body, error) {
+// ringProfile solves a Sleeve sketch and returns the one profile with a hole,
+// the ring, failing unless there is exactly one.
+func ringProfile(t testing.TB, s *sketch.Sketch) *sketch.Profile {
 	t.Helper()
-	return cgCloseRibbon(t, doc, g, cgRibbonPiece(t, doc, g, k0, k1), k0, k1)
+	sketchtest.Solve(t, s)
+	var ring []*sketch.Profile
+	for _, pr := range s.Profiles() {
+		if len(pr.Holes) == 1 {
+			ring = append(ring, pr)
+		}
+	}
+	if len(ring) != 1 {
+		t.Fatalf("the Sleeve sketch has %d profiles with one hole, want exactly 1", len(ring))
+	}
+	return ring[0]
 }
 
-// cgRibbonWalls runs the doubling schedule of §3 for q cells and returns the
-// open sheet of the q cells and the schedule it ran.
-//
-// What is substituted. The build copies the body, moves the copy by the screw
-// step and joins it. The proof's join is a stitch of wall sheets, and a sheet
-// carried there by Body.Placed carries the transform's rounding on its edges,
-// so its far end no longer meets a cap drawn from the exact section and the
-// ribbon cannot be closed. So each copy is lofted where the move puts it, from
-// the ribbon's own sections. stepScrewMove holds that a copy Placed by the
-// screw step is those cells built in place; that is what licenses it here.
-func cgRibbonWalls(t testing.TB, doc *decad.Document, g cgGear, q int) (*decad.Body, []cgOp) {
+// windowPrism extrudes a window's hexagon square to its facing direction, one
+// way, toward that direction, to Ro + 1 mm from the frame's axis.
+func windowPrism(t testing.TB, doc *decad.Document, f sleeve, w sleeveWindow) *decad.Body {
 	t.Helper()
-	per := g.in.Cell() * g.in.StepsPerTooth() // sections a cell spans
-	body := cgRibbonPiece(t, doc, g, 0, per)
-	ops := cgSchedule(q)
-	for _, op := range ops {
-		if op.kind == "aside" {
-			continue // an unmoved copy of the first op.cells cells, placed below
-		}
-		from := op.by * per
-		piece := cgRibbonPiece(t, doc, g, from, from+op.cells*per)
-		var err error
-		if body, err = decad.Stitch(t.Context(), body, piece); err != nil {
-			t.Fatalf("joining %d cells after %d: %v", op.cells, op.by, err)
-		}
+	ws := sketch.NewWorld()
+	n := r3.NewVec(0, 0, 1)
+	// The prism starts halfway to the inner face at the window's outermost
+	// end (stepWindowExtrudeCut says why); its far face stays Ro + 1 mm out.
+	start := math.Inf(1)
+	for _, c := range windowCorners(w) {
+		a0, _ := f.chord(c[0])
+		start = math.Min(start, a0/2)
 	}
-	return body, ops
+	s, fr := planeSketch(t, ws, w.facing.Scale(start), w.across, n)
+	if d := fr.N().Sub(w.facing).Len(); d > 1e-12 {
+		t.Fatalf("the window plane's normal misses its facing direction by %.3e", d)
+	}
+	corners := windowCorners(w)
+	world := make([]r3.Vec, len(corners))
+	for i, c := range corners {
+		world[i] = w.across.Scale(c[0]).Add(n.Scale(c[1])).Add(w.facing.Scale(start))
+	}
+	pr := polygonSketch(t, s, fr, world)
+	body, err := doc.Extrude(s, pr, decad.Distance{D: units.Millimeters(f.ro + 1 - start), Dir: decad.Along})
+	if err != nil {
+		t.Fatalf("extrude window facing %v: %v", w.facing, err)
+	}
+	return body
 }
 
-// ---------------------------------------------------------------------------
-// The volume oracle for a ruled loft.
-//
-// decad's ruled wall between two sections is two flat triangles per quad,
-// split along one diagonal. The two splits of a skew quad differ by the
-// tetrahedron its four corners span, and the ruled (bilinear) wall encloses
-// the average of the two. So the solid's volume lies within half the sum of
-// those tetrahedra of the volume the averaged split encloses, whichever
-// diagonal each quad takes. That half-sum is the oracle's error, and it is
-// the slack every ruled-loft volume is compared with.
-
-// cgRuledVolume is that average volume and its half-sum, for a tube through
-// the sections' world corners, closed by the first and last section.
-func cgRuledVolume(secs [][4]r3.Vec) (float64, float64) {
-	tri := func(a, b, c r3.Vec) float64 { return a.Dot(b.Cross(c)) / 6 }
-	v1, v2, slack := 0.0, 0.0, 0.0
-	first, last := secs[0], secs[len(secs)-1]
-	// The first cap faces back along the axis, the last forward; the corners
-	// run counter-clockwise about +dir.
-	capFlux := tri(first[0], first[2], first[1]) + tri(first[0], first[3], first[2]) +
-		tri(last[0], last[1], last[2]) + tri(last[0], last[2], last[3])
-	v1, v2 = capFlux, capFlux
-	for k := 0; k+1 < len(secs); k++ {
-		for i := range 4 {
-			a, b := secs[k][i], secs[k][(i+1)%4]
-			c, d := secs[k+1][(i+1)%4], secs[k+1][i]
-			s1 := tri(a, b, c) + tri(a, c, d)
-			s2 := tri(a, b, d) + tri(b, c, d)
-			v1 += s1
-			v2 += s2
-			slack += math.Abs(s1-s2) / 2
-		}
+func faceName(d r3.Vec) string {
+	switch {
+	case d.Y > 0.5:
+		return "+k"
+	case d.Y < -0.5:
+		return "-k"
+	case d.X > 0.5:
+		return "+e"
+	default:
+		return "-e"
 	}
-	return math.Abs(v1+v2) / 2, slack
 }
 
-// cgWorldCorners collects sections' world corners.
-func cgWorldCorners(secs []cgSection) [][4]r3.Vec {
-	out := make([][4]r3.Vec, len(secs))
-	for i, s := range secs {
-		out[i] = s.world
-	}
-	return out
-}
-
-// cgRibbonCorners are the world corners of ribbon sections k0 to k1, as the
-// volume oracle reads them.
-func cgRibbonCorners(g cgGear, k0, k1 int) [][4]r3.Vec {
-	out := make([][4]r3.Vec, 0, k1-k0+1)
-	for k := k0; k <= k1; k++ {
-		s := g.cgStation(k)
-		f, _ := r3.NewFrame(g.axisPoint(s), g.u, g.v)
-		var q [4]r3.Vec
-		for i, c := range g.cellCorners(s) {
-			q[i] = f.ToWorldUV(c[0], c[1])
-		}
-		out = append(out, q)
-	}
-	return out
-}
