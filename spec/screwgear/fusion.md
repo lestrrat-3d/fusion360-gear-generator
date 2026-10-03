@@ -6,7 +6,9 @@ the spec cites by name.
 
 Every anchor below is stated from the API reference and from what Fusion did when asked. The
 loads and diagnostics that asked are recorded under `[SCREW-F-FIRST-LOAD]` and
-`[SCREW-F-DIAGNOSTIC]`, per the "When Fusion gives a verdict" rule in `CLAUDE.md`; a sentence that
+`[SCREW-F-DIAGNOSTIC]`, and the three prints of the sleeve under `[SCREW-F-PRINT-MESH]`,
+`[SCREW-F-PRINT-2]` and `[SCREW-F-PRINT-3]`, per the "When Fusion gives a verdict" rule in
+`CLAUDE.md`; a sentence that
 gives a date is a measurement, and one that gives none is read from the reference.
 
 ## `[SCREW-F-FIRST-LOAD]` — what the Fusion loads said
@@ -44,7 +46,196 @@ gives a date is a measurement, and one that gives none is read from the referenc
 - **2026-09-29, the first load at the 1.5× defaults.** The add-in compiled from the resized spec
   (15 mm ribbon, 2.625 mm teeth one pitch tall, 68 teeth) built at the defaults in Fusion and the
   user reported that it "runs well". No counts were read at this size. A print of the resized
-  ribbon was under way; its verdict belongs here when it comes.
+  ribbon was under way.
+- **2026-09-30, the frame printed.** The user printed the video's frame — the ring, the loop,
+  the rods and the collars this file used to describe for §4 — several times
+  and found it not practical to print: the thin rods, the wire ring and the loop wobble while the
+  printer lays them down. `instructions.md` "What the print showed" records the report; the
+  frame is now the sleeve of §4 (`[SCREW-F-SLEEVE]`). The first sleeve printed was built by the
+  add-in at c8a63b5 (`[SCREW-F-PRINT-MESH]`); no counts or timings were read from that load.
+
+## `[SCREW-F-PRINT-MESH]` — the printed pair did not mesh, 2026-10-02
+
+**What was printed.** The sleeve from the add-in at commit c8a63b5, at that day's defaults: a
+0.45 mm clearance, a 0.75 mm engagement, 15° on both mounting angles and an assembly phase of
+−1.31 mm. The two ribbons came from the earlier build at f328813, whose ribbon is the same part:
+15 by 3.75 mm, 2.625 mm teeth one pitch deep, 68 teeth, 49.5 mm lead.
+
+**What happened.** Both ribbons screwed through their bores, and the teeth did not mesh.
+
+**Why.** The geometry agrees between the proof and both add-ins; the cause is play. A bore is
+the ribbon's crest rectangle plus the clearance all round, so at 0.45 mm each ribbon could move
+0.45 mm toward or away from the other ribbon, 0.45 mm sideways, and roll 3.44° about its own
+axis. Moving toward the other ribbon adds to the engagement, and a roll adds to the mounting
+angle. The mesh at those defaults drove only within about 0.6 mm of engagement and, at equal
+mounting angles, from 11° to 16°, so 15° was 1° from the angle past which the teeth no longer
+box each other in. Over the poses the bores allowed, a scratch study found 128 of 324 pose
+pairs jamming or letting the teeth pass without boxing each other. The proof had measured the
+mesh at one pose, each ribbon on its nominal axis, where the pair drives. The teeth meet 2–3 mm
+from where the centre lines cross, which is where the mounting angle puts them.
+
+**The fix.** The defaults became a 0.20 mm clearance, a 0.90 mm engagement, 14° on both
+mounting angles and an assembly phase of −1.30 mm (`instructions.md`, "What the print
+showed"). The ribbon is unchanged, so the printed ribbons fit; only the sleeve is reprinted. At
+those values each ribbon moves 0.20 mm toward, away or sideways and rolls 1.53°, and the
+nominal free window is 0.433–0.473 mm. `proof/screwgear/bore_play_test.go` runs the mesh over the
+play:
+
+- `TestPairDrivesUnderBorePlay` takes each ribbon at its limits toward and away at every whole
+  degree of roll and at its two roll limits, 8 poses each, and runs all 64 pose pairs: 63 drive,
+  with windows from 0.052 to 0.932 mm, and one jams, both ribbons pushed the whole clearance
+  toward each other.
+- `TestPairDrivesUnderSidewaysPlay` takes each ribbon at its sideways limits against the other
+  at rest, at its limits along the axis between them and at its own sideways limits: 16 of 16
+  drive, with windows from 0.066 to 1.142 mm.
+- `TestPrintedFitFailsUnderBorePlay` runs the same check at the printed values and holds that it
+  fails them: 8 of its 16 pose pairs fail in a way the check refuses.
+
+An offline run sampled sideways and diagonal moves combined with each roll as well, 26 poses a
+ribbon and 676 pose pairs: 6 jammed, each with both ribbons pushed toward each other by 0.204 mm
+or more in all, and none failed another way. The user accepted those jams as the cost of the
+fix. The reprinted sleeve is `[SCREW-F-PRINT-2]`.
+
+**Could the proof have caught it?** Yes. The bores and the mesh were both in the proof, and no
+case joined them. `bore_play_test.go` does, and at the printed values it fails.
+
+## `[SCREW-F-PRINT-2]` — the second sleeve: tight `-R` bores, a mesh that slips, 2026-10-02
+
+**What was printed.** The sleeve at the defaults `[SCREW-F-PRINT-MESH]` moved to: a 0.20 mm
+clearance all round every bore, a 0.90 mm engagement, 14° on both mounting angles and an
+assembly phase of −1.30 mm. The ribbons were the ones printed for the first sleeve, the same part
+the defaults still describe.
+
+**What happened.**
+
+- The two `-R` bores were too tight to pass the ribbons. The two `+R` bores, cut to the same
+  0.20 mm, passed them.
+- The user chiselled the two `-R` bores open, and the ribbons then went through.
+- The teeth meshed only sometimes. They mostly slipped past each other, even with the ribbons
+  pressed toward each other by hand.
+
+**Why the `-R` bores were tight.** Each `-R` bore passes through level inside the wall: its
+long faces lie flat at station −14.30 mm, so with the sleeve standing on an end the printer
+bridges its 15.4 mm roof across the hole. The `+R` bores' long faces come no nearer level than
+11.3° inside the wall, and are level only at their inner mouth, station 10.45 mm. The likeliest
+cause is that the bridged roofs sagged into the 0.20 mm of room. Nothing measured the sag; the
+user's report of which bores bound is the evidence.
+
+**Why the teeth slip.** Two things, found by a study whose scratch harness and logs are kept
+in the worktree's `.tmp/meshfix/` (`band1.log` to `band5.log`, `map1.log`, `union1.log` to
+`union3.log`, `tilt.log`, `blunt1.log`, `allow1.log`, `allow2.log`, `tube2.log`); they are
+working notes and are not tracked.
+
+- **The mesh drives only in a narrow band of mounting angle, and a ribbon rolls in its bores.**
+  What decides whether the pair drives is the sum of the two mounting angles, not either alone.
+  At the 0.90 mm engagement, with the tips 0.35 mm short as a print makes them, equal angles drive
+  from 11.5° to 15.5°, sampled every 0.5°. A 0.20 mm bore lets each ribbon roll 1.53°, and
+  every degree of roll is a degree of mounting angle, so the bores keep the pair between 12.5°
+  and 15.5°: a degree inside the edge where it jams, and at the edge where the teeth stop boxing
+  each other. At a 0.50 mm clearance each ribbon rolls 3.85°, and the rolls alone span wider
+  than the band.
+- **Deeper teeth make the band narrower.** At 1.4 mm of engagement the band is about 1° wide
+  and past about 1.6 mm it is gone: the pair goes straight from jamming to letting the teeth
+  pass. At 0.90 mm of engagement, thinner ribbons (2.5 and 3.0 mm), other crossing angles (60°
+  and 100°), leads from 35 to 70 mm, taller teeth (3.0 and 3.5 mm), a 3.0 mm pitch and a 20 mm
+  ribbon each left between two and six of the 1° samples driving, against four at the
+  defaults. So the fix is not a deeper mesh but a fit that keeps the roll the bores allow
+  inside the band.
+- **A printed tip is short.** The model's crest is an exact cosine. Over the 0.20 mm bores as
+  drawn, `proof/screwgear` finds the mesh boxing the teeth at every pose pair with the tips as
+  much as 0.40 mm short, and letting them pass, with both ribbons pulled the whole clearance
+  apart, at 0.45 mm (`TestSecondPrintMeshIsMarginal`). That is 0.05 mm of margin past the
+  0.35 mm the proof now takes for a printed tip. The chiselled `-R` bores were no longer the
+  bores drawn, and a ribbon in a bore opened by hand can move in ways no pose of the drawn bore
+  reaches.
+
+**The fix.** The mesh, the clearance and the ribbon stay as they are, so the printed ribbons
+stay usable and only the sleeve is reprinted. Each gear's level bore, its `-R` bore at the
+defaults, gets a **roof allowance** of 0.30 mm on the long face that is its roof when the sleeve
+stands on its `-n̂` end, the end below the selected plane: 0.50 mm of room under the bridged roof
+and 0.20 mm everywhere else (`instructions.md` §4, "The roof allowance"). The 0.30 mm is the
+least the user asked for. The sleeve has to be printed standing on that end; the build logs
+which end it is. In `proof/screwgear`, at that fit, the straight tooth at 14°, before
+`[SCREW-F-PRINT-3]` moved the tooth and the mounting angles:
+
+- `TestRoofAllowanceAddsOnlyATilt` holds that the allowance adds no move along or across the
+  axes and no roll, 0.200 mm and 1.53° with it as without it, and measures the one thing it adds:
+  a tilt of the ribbon about the axis square to it and to the common perpendicular, up to 0.96°
+  one way against 0.56° without the allowance. At a tilt of 0.60° with the best move along the
+  axes that goes with it, gear A's crossing stands 0.273 mm toward gear B and gear B's 0.273 mm
+  away from gear A, against 0.200 mm without the allowance.
+- `TestPairDrivesUnderBorePlay` runs the mesh with both ribbons' tips 0.35 mm short over each
+  ribbon's limits toward and away at every whole degree of roll, its roll limits and those two
+  tilts, 100 pose pairs: 96 drive and 4 jam, every jam with gear A tilted 0.273 mm toward gear B
+  and gear B pushed toward it or at its roll limit, and none lets the teeth pass.
+  `TestPairDrivesUnderSidewaysPlay` finds 16 of 16 sideways pose pairs driving at the same tips.
+- The tilt is the allowance's cost. With the roof at 0.28 mm of allowance or more and no sag at
+  all, gear A's tilt toward gear B jams against gear B at its roll limit; that jam is accepted,
+  since it closes the axes by more than the clearance with neither ribbon pulled away. The
+  tilt stops at 0.273 mm however much room the roof has, because the other bore holds it.
+
+**Could the proof have caught it?** For the tight `-R` bores, no: the proof drew the bores as
+the spec cuts them, logged that their roofs are bridged, and has no model of what a printer
+makes of a bridge (`instructions.md` "What the proof cannot reach"). For the slipping teeth,
+partly: the proof modelled no tip loss, and a print's tips are short. It now blunts both
+ribbons' tips by 0.35 mm wherever it judges the mesh under play, and
+`TestSecondPrintMeshIsMarginal`, in `bore_play_test.go`, records that the fit printed in the
+second sleeve boxes the teeth at 0.40 mm of tip loss and lets them pass at 0.45 mm, with the
+answer to this question beside it. What it cannot reach is a bore opened by a chisel. The third
+sleeve is `[SCREW-F-PRINT-3]`.
+
+## `[SCREW-F-PRINT-3]` — the third sleeve: the bores fit, the teeth touch at a point, 2026-10-03
+
+**What was printed.** The sleeve at the defaults `[SCREW-F-PRINT-2]` moved to: a 0.20 mm
+clearance, a 0.30 mm roof allowance on each gear's `-R` bore, a 0.90 mm engagement, 14° on both
+mounting angles and an assembly phase of −1.30 mm, with ribbons of the straight-ridge tooth. That
+table is `thirdPrintParams` in `proof/screwgear/geometry_test.go`.
+
+**What happened.** The ribbons passed through the bores: the roof allowance fixed the fit. The
+teeth still slipped. The user saw that "they meet at a single _point_ rather than mating at the
+tooth surface".
+
+**Why.** Each ribbon's tooth ridges ran straight across its thickness, square to its own axis,
+and the two axes cross at 80°. Where the teeth touched, the two ridges stood 74–80° apart, so a
+corner of one tooth dug into the other's flank: less than 0.13 mm of each 3.75 mm ridge came
+within 0.10 mm of the other ribbon, and the two flank normals stood 107–118° apart instead of
+facing each other. The study that found it is
+`mesh-search.md` "The search for line contact"; its scratch harness and logs are kept in the
+worktree's `.tmp/linecontact/`, working notes that are not tracked.
+
+**The fix.** The ridges lean so that the two ribbons' ridges lie along each other where they
+touch: the toothed edge becomes
+`Utooth(v, s) = W/2 - H/2 + (H/2)*cos(2*pi*(s + tan(Slant)*v - Z)/P) - Bow*v^2` with a 25.8°
+slant and a 0.048 mm⁻¹ bow, two new dialog inputs. Both mounting angles went to 0°, the
+engagement to 1.05 mm and the assembly phase to −1.31 mm; the clearance, the roof allowance and
+the ribbon blank are unchanged (`instructions.md`, "What the print showed"). The ribbons and the
+sleeve are both reprinted. §2 of `instructions.md` draws each section's toothed side as a fitted
+spline through eleven points of the edge (`[SCREW-F-CELL-LOFT]`) and checks the slant's sign on
+the lofted cell. At those values in `proof/screwgear`:
+
+- `TestTeethTouchAlongALine` finds the touching ridge within 0.05 mm of the other flank over
+  2.67 mm at the least, 97% of it, at all 24 driving poses of a pitch, the ridges within 0.3° of
+  parallel and the normals within 1.0° of facing.
+- `TestPairDrivesOneToOne` finds a 1.063–1.103 mm window winding 1:1 with a 0.018 mm departure.
+- `TestPairDrivesUnderBorePlay` drives 100 of 100 pose pairs with the tips 0.35 mm short, the
+  touching ridge within 0.10 mm of the other flank over 1.39 mm at the least, and
+  `TestPairDrivesUnderSidewaysPlay` 16 of 16.
+
+**What it costs at the bores.** At 0° every bore passes through level inside the wall, at
+stations ±12.37 mm, so the printer bridges all four roofs, and only the `-R` bores carry the roof
+allowance; the `+R` bores' roofs are bridged with the 0.20 mm that closed up on the second
+sleeve. A roof allowance on both bores of each gear lets gear A move 0.344 mm toward gear B and
+gear B 0.344 mm away from gear A, instead of 0.200 mm, and over that play, in a scratch run of the full sample, 4 of
+100 pose pairs let the teeth pass and the least contact fell to 1.02 mm. Whether the `+R` bores
+pass the ribbons is the next print's to say.
+
+**Could the proof have caught it?** Yes, by the contact's length. Every quantity the analysis
+used was in the model when the straight tooth was printed; the proof asked only whether the two
+ribbons clear each other, and a point contact clears. `TestTeethTouchAlongALine` in
+`proof/screwgear/contact_test.go` now measures how much of the touching ridge lies near the
+other flank, and `TestStraightRidgesTouchAtAPoint` beside it holds that the check fails the
+printed tooth: no stretch of ridge within 0.05 mm, at most 0.13 mm within 0.10 mm, the ridges 76°
+and 79° apart.
 
 ## `[SCREW-F-DIAGNOSTIC]` — what the diagnostics of 2026-09-28 measured
 
@@ -156,25 +347,35 @@ one tooth at a time while never growing past one cell.
 ## `[SCREW-F-CELL-LOFT]` — one sketch of every section, one loft
 
 The tooth cell is `cellTeeth` teeth of ribbon, 4 at the defaults, lofted through `c*n + 1`
-rotated rectangles — 41 at the defaults, each rotated 1.91° further about the axis than the last
-and each a slightly different width. All of them are drawn in **one sketch**, on the gear's Axis
-Plane, and the loft is fed a path per section.
+rotated sections — 41 at the defaults, each rotated 1.91° further about the axis than the last.
+Each section is a rectangle whose toothed side is a fitted spline through eleven points of the
+leaned edge, since the third sleeve's print (`[SCREW-F-PRINT-3]`); until then it was four lines.
+All of them are drawn in **one sketch**, on the gear's Axis Plane, and the loft is fed a path
+per section.
 
-**The sketch.** Every corner is `sketch.sketchPoints.add(sketch.modelToSketchSpace(world))` with
+**The sketch.** Every point is `sketch.sketchPoints.add(sketch.modelToSketchSpace(world))` with
 the mapped point's `z` **kept**, which is the one place this build departs from
-`[PB-SKETCH-ZERO-Z]`: those corners are meant to lie off the plane, at every height above and
-below it, and the rule zeroes only a point that is meant to lie on it. The four lines of a
-section are `sketchLines.addByTwoPoints(corner, nextCorner)` sharing the points
-(`[PB-SHARE-XOR-COINCIDENT]`), and every point is set `isFixed = True` after the last line of
-the last section exists (`[PB-PROJECT-NOT-FIXED]` (b): fix after use). Draw it with
+`[PB-SKETCH-ZERO-Z]`: those points are meant to lie off the plane, at every height above and
+below it, and the rule zeroes only a point that is meant to lie on it. The three straight sides
+of a section are `sketchLines.addByTwoPoints(point, nextPoint)` sharing the points
+(`[PB-SHARE-XOR-COINCIDENT]`), and the toothed side is
+`sketch.sketchCurves.sketchFittedSplines.add(fitPoints)`, `fitPoints` an
+`adsk.core.ObjectCollection` of the side's eleven sketch points in order across the thickness,
+the two toothed corners at its ends (`instructions.md` §2 states the order, the checks and the
+signatures). Every point is set `isFixed = True` after the last curve of the last section exists
+(`[PB-PROJECT-NOT-FIXED]` (b): fix after use), each spline's `fitPoints` items included, since
+the reference does not say whether the spline keeps the points it was given. No tangent handle is
+activated. Draw it with
 `isComputeDeferred = True` from just after `sketches.add` until just after the last `isFixed`,
 then set it `False` (`[SCREW-F-DEFER]`). Fusion reads such a sketch fully constrained and finds
 one profile per section, each planar in its own station's plane — measured at 11, 41 and 81
-sections (`[SCREW-F-DIAGNOSTIC]`, `[PB-3D-SKETCH-SECTIONS]`). The build raises unless
-`isFullyConstrained` and unless `profiles.count == c*n + 1`; the profiles are not used, because
-nothing says which profile is which station, and the sections are made from the lines.
+sections of four lines (`[SCREW-F-DIAGNOSTIC]`, `[PB-3D-SKETCH-SECTIONS]`); a sketch of spline
+sections has not been loaded. The build raises unless `isFullyConstrained` and unless
+`profiles.count == c*n + 1`; the profiles are not used, because nothing says which profile is
+which station, and the sections are made from the curves.
 
-**The sections.** For section `k`, put its four lines in an `adsk.core.ObjectCollection` and
+**The sections.** For section `k`, put its four curves, line, spline, line, line, in an
+`adsk.core.ObjectCollection` and
 call `component.features.createPath(collection, False)` on the `Design` component, which owns
 the sketch (`[PB-PATH-FROM-SKETCH]`). `adsk.fusion.Path.create(collection, noChainedCurves)`
 raises `InternalValidationError` here, measured; do not fall back to it. Add the paths with
@@ -208,194 +409,156 @@ to five at 68 teeth, as it did at the 80 the measurement was made with; the whol
 loft would be 681 sections and no rounds, and was not measured. `cellTeeth` is the module
 constant that decides it, and 1 is the measured fallback.
 
-## `[SCREW-F-TWISTED-SLOT]` — a collar and its bore as twisted sweeps
+## `[SCREW-F-TWISTED-SLOT]` — a bore as a twisted sweep cut
 
-A collar is **one sweep** of its rounded-rectangle section along a straight line on the gear's
-axis, twisted by the ribbon's own turn over that length; its bore is one sweep of the clearance
-rectangle along a slightly longer line, as a cut. Both are the exact helicoid: a section turning
-rigidly about the axis at `1/Lambda`. Nothing is lofted here any more, and no section count is
-derived for the build.
+A bore is **one sweep** of the clearance rectangle along a straight line on the gear's axis,
+twisted by the ribbon's own turn over that length, as a cut from the cage. It is the exact
+helicoid: a section turning rigidly about the axis at `1/Lambda`. Nothing is lofted here, and no
+section count is derived for the build. The video frame's collars were built the same way as new
+bodies, a rounded rectangle swept along a shorter line, and that is where the measurements below
+were made.
 
 **The path.** The sweep needs an `adsk.fusion.Path`, and `Path.create` on a sketch curve raises
 `RuntimeError … InternalValidationError : Utils::getObjectPath(sketchCurve, …)` in the `Design`
 sub-component, in every form tried (`[SCREW-F-DIAGNOSTIC]`). `component.features.createPath(line,
 False)` on the same line returns the path (`[PB-PATH-FROM-SKETCH]`), and that is the maker. The
-line is the collar's or bore's own line in the gear's Paths sketch (`[SCREW-F-REFERENCES]`),
-drawn from its negative station to its positive one, so its start is where the profile sits and
-it runs along `+dir_g`.
+line is the bore's own line in the gear's Paths sketch (`[SCREW-F-REFERENCES]`), drawn from its
+negative station to its positive one, so its start is where the profile sits and it runs along
+`+dir_g`.
 
-**The plane and the profile.** One construction plane per collar and per bore,
+**The plane and the profile.** One construction plane per bore,
 `setByDistanceOnPath(line, ValueInput.createByReal(0))` on that line (`[PB-CONSTRUCTION-PLANES]`,
 the line passed directly), square to the axis at the span's negative end; Fusion put its origin
 on the station to four decimals of a millimetre. On it, the section sketch by the spec's
 rectangle scheme (§4), which draws the bore's rectangle at that station's own angle
-`s/Lambda + Phi_g`. For a bore the four lines are solid and the profile is the rectangle,
-`find_profile_by_curve_counts(sketch, lines=4)`. For a collar the four sides `L1..L4` are
-construction, and round them go four solid sides `O1..O4`, `Oi` parallel to `Li` with an offset
-dimension of `collarWall` and each of its ends coincident on the infinite line of the
-neighbouring construction side (`addCoincident(point, line)`), and four three-point arcs, each
-from the end of `Oi` to the start of `O(i+1)` through the construction corner pushed out by
-`collarWall` along the corner's diagonal, with one `addTangent` to `Oi`. The arc's centre then
-falls on the construction corner and its radius is `collarWall`; neither is dimensioned, and a
-second tangent would over-constrain (`[PB-NO-OVERCONSTRAIN]`). The profile is
-`find_profile_by_curve_counts(sketch, lines=4, arcs=4)`. Both sketches are drawn with computing
-deferred (`[SCREW-F-DEFER]`), and both read fully constrained on 2026-09-28.
+`s/Lambda + Phi_g`; its four lines are solid and the profile is the rectangle,
+`find_profile_by_curve_counts(sketch, lines=4)`. The sketch is drawn with computing deferred
+(`[SCREW-F-DEFER]`); the collar sections drawn by the same scheme read fully constrained on
+2026-09-28.
 
-**The sweep.** `sweepFeatures.createInput(profile, path, operation)`, then
+**The sweep.** `sweepFeatures.createInput(profile, path, CutFeatureOperation)`, then
 `input.twistAngle = adsk.core.ValueInput.createByReal(twist)` with `twist` in radians, then
-`sweepFeatures.add(input)`. Set nothing else: not `orientation`, which defaults to
-`PerpendicularOrientationType` and is moot along a straight path, not `solidTwistAxis`, which is
-for a solid sweep (`[SCREW-F-NO-SOLID-TWIST]`), and no guide rail or surface, which would make
-`twistAngle` ignored per the reference. The operation is `NewBodyFeatureOperation` for a collar
-and `CutFeatureOperation` for a bore, and a bore also sets `input.participantBodies = [cageBody]`
-before `add`, so the cut touches the cage and nothing else; the ribbons run through the channel
-and are left whole, measured (`[PB-SWEEP-TWIST]`). The twist is `+2*collarHalf/Lambda` for a
-collar, 43.64° at the defaults, and `+2*(collarHalf + 1 mm)/Lambda` for a bore, 58.18° (65.45°
-at the 10 mm ribbon the measurement below was made with, whose collar was 4 mm long): the
-span divided by `Lambda`, positive. **Positive is the spec's sense**, measured: with the profile
-at the line's start and the line running along `+dir_g`, a positive `twistAngle` turns the
-section the way `s/Lambda + Phi_g` grows, and the far end of the collar landed 0.0047 mm from
-the spec's own section there, against 4.9 mm under the opposite sign; the turn is linear along
-the path (`[SCREW-F-DIAGNOSTIC]`). The collar body has ten faces — four sides, four corner
-strips, two ends — and sixteen vertices, and the build checks its ends
-(`[SCREW-F-SWEEP-CHECK]`).
+`input.participantBodies = [cageBody]`, then `sweepFeatures.add(input)`. Set nothing else: not
+`orientation`, which defaults to `PerpendicularOrientationType` and is moot along a straight
+path, not `solidTwistAxis`, which is for a solid sweep (`[SCREW-F-NO-SOLID-TWIST]`), and no guide
+rail or surface, which would make `twistAngle` ignored per the reference. The participant list
+makes the cut touch the cage and nothing else; the ribbons run through the channel and are left
+whole, measured (`[PB-SWEEP-TWIST]`). The twist is the span divided by `Lambda`, positive:
+`+(sOut - sIn)/Lambda`, 80.78° at the defaults. **Positive is the spec's sense**, measured on a
+collar: with the profile at the line's start and the line running along `+dir_g`, a positive
+`twistAngle` turned the section the way `s/Lambda + Phi_g` grows, and the far end of the collar
+landed 0.0047 mm from the spec's own section there, against 4.9 mm under the opposite sign; the
+turn is linear along the path (`[SCREW-F-DIAGNOSTIC]`). The measured sweeps turned 43.64° (a
+collar) and 65.45° (a bore at the 10 mm ribbon) and started on a collar's face; a sleeve's bore
+turns 80° and its profile starts in air, in the hollow or outside the tube. The add-in at c8a63b5
+built such bores at that day's 82.31°, and both printed ribbons screwed through them
+(`[SCREW-F-PRINT-MESH]`); nothing else was measured on them. The build checks each cut (`[SCREW-F-SWEEP-CHECK]`).
 
-**One sweep per bore, not one per gear.** The two collars of a gear stand on one axis, so a
-single channel through both would be one sweep of 36 mm and 262°; each bore is its own line and
-its own sweep instead, spanning its collar plus a millimetre each end, because the cut has to
-reach only the collar and the part of its rod inside the wall, and the space between the two
-collars is open frame. At the defaults that is 8 mm and 58° per bore.
+**One sweep per bore, not one per gear.** The two bores of a gear stand on one axis, 30 mm apart
+at the defaults with the hollow between them, so a single channel through both would cut the
+tube only where each bore does and turn 262° for nothing; each bore is its own line and its own
+sweep instead, spanning the wall plus a millimetre each end beyond where the channel first and
+last meets it.
 
-**What the proof does with this.** `decad` has no twisted sweep. The compiled step proof stands
-in a ruled loft through rotated rectangles for each sweep, at the count the spec's "What the
-proof's stand-in costs" derives (13 at the defaults), and the hand-written
-`TestBoreSubstituteKeepsItsClearance` bounds what that stand-in costs against the exact channel:
-0.007 mm of the 0.45 mm clearance. The sense and the linearity of the twist are Fusion's, and the
-runtime checks below are what keep them pinned on every build.
+**What the proof does with this.** `decad` has no twisted sweep. The compiled step proof builds each sweep's
+channel as a chain of two-section lofts through rotated rectangles, at the count the spec's "What the proof's
+stand-in costs" derives (18 at the defaults). The hand-written `TestSleeveBoreSubstituteKeepsItsClearance`
+holds a ruled wall through those sections to 0.007 mm of the 0.20 mm clearance; `decad` walls each cell with
+two flat triangles, up to 0.32 mm off that ruled wall, so no clearance is read off the stand-in. The sense and
+the linearity of the twist are Fusion's, and the runtime check below is what keeps them pinned on every build.
 
 ## `[SCREW-F-SWEEP-CHECK]` — checking each sweep at build time
 
-Both checks carry their measured quantities in the error they raise (`[PB-SELF-DIAGNOSING]`).
-
-**A collar's ends.** After the sweep, read `body.vertices` (each `vertex.geometry` a world
-`Point3D`, the `Design` occurrence being at identity) and compute the sixteen outline points the
-spec names in §4 — the eight side ends of the rounded rectangle at the near station
-`sc - collarHalf` and at the far station `sc + collarHalf`, each set turned by its own station's
-angle. For each computed point take the least distance to any vertex; raise, naming the collar,
-the end and the worst distance, when any exceeds 0.05 mm. Measured: 0.0047 mm at the far end and
-0.0000 mm at the near end with the right sign, 4.8979 mm at the far end with the wrong one, so
-the tolerance sits an order of magnitude above the pass and two below the failure.
+The check carries its measured quantities in the error it raises (`[PB-SELF-DIAGNOSING]`).
 
 **A bore's channel.** After the cut, the sweep feature's `bodies.count` must be 1, and
 `cageBody.pointContainment(point)` must return `PointOutsidePointContainment` at the two probes
-`origin_g + s*dir_g ± (W/2 + clearance/2)*û(s)` for `s = sc + collarHalf/2`, where `û(s)` is
-`cos(theta)*û_g + sin(theta)*v̂_g` with `theta = s/Lambda + Phi_g`: the toothed-side and
-back-side middles of the channel in the far half of the collar, clear of the ribbon by
-`clearance/2` and of the wall by the same. Raise naming the bore otherwise. A channel that is
-open there was cut; and when `(W/2 + clearance/2)*|sin(2*(1.5*collarHalf + 1 mm)/Lambda)|`
-exceeds `T/2 + clearance` — 7.61 mm against 2.33 mm at the defaults — a channel turned the
-wrong way would stand 80° off the probes at that station and both would sit in the wall, so the
-probes tell the senses apart there too. The build does not gate on that inequality; the
-collar's own end check is what pins the sense.
+`origin_g + sc*dir_g ± (W/2 + clearance/2)*û(sc)` at the crossing itself, `sc = ±cageRadius`,
+where `û(s)` is `cos(theta)*û_g + sin(theta)*v̂_g` with `theta = s/Lambda + Phi_g`: the
+toothed-side and back-side middles of the channel, clear of the ribbon by `clearance/2` and of the
+channel's wall by the same, 16.80 mm and 16.30 mm from the frame's axis at the defaults, inside
+the wall. Raise naming the bore and the containment read otherwise. A channel that is open there
+was cut, and the probes also tell the two senses apart: under the wrong sense the channel at the
+crossing stands turned `2*(sc - s0)/Lambda` from the right one, `s0` being the station the profile
+sits at — 103° for a `+R` bore and 58° for a `-R` bore — and both probes then sit 7.39 and
+6.46 mm across a channel 2.075 mm half thick, in the wall. `TestSleeveBoreProbesTellTheTwistSense`
+holds both halves. The video frame's collars also had their end vertices checked against the
+turned outline, 0.0047 mm with the right sign and 4.8979 mm with the wrong one; a sleeve has no
+swept body of its own to read vertices from, so the probes are the whole check.
 
 ## `[SCREW-F-DEFER]` — where sketch computing is deferred
 
-`sketch.isComputeDeferred = True` is set on exactly ten sketches per build: the two Cell
-Sections sketches (`[SCREW-F-CELL-LOFT]`), the four collar sections and the four bore sections
-(`[SCREW-F-TWISTED-SLOT]`). It goes on right after `sketches.add(plane)` and `sketch.name`, before
-the first `sketchPoints.add`, and comes off after the last `isFixed`, constraint or dimension
-and before `isFullyConstrained` or `profiles` is read (`[PB-SKETCH-DEFER]`). Measured on
-2026-09-28: the rectangle-scheme collar section fell from 0.45 s to 0.23 s, the one-tooth Cell
-Sections sketch from 0.88 s to 0.09 s, and every deferred sketch read fully constrained with its
-profiles found once computing was back on. No other sketch defers: the Anchor sketch projects
-(`[SCREW-F-REFERENCES]`), and deferral under a projection has not been measured; the Paths,
-Ring, Rods, bar and ball sketches are a few fixed points with lines, arcs or circles, and were
-not measured. Extending it to them is a measurement, not a rule change.
+`sketch.isComputeDeferred = True` is set on exactly six sketches per build: the two Cell Sections
+sketches (`[SCREW-F-CELL-LOFT]`) and the four bore sections (`[SCREW-F-TWISTED-SLOT]`). It goes on
+right after `sketches.add(plane)` and `sketch.name`, before the first `sketchPoints.add`, and
+comes off after the last `isFixed`, constraint or dimension and before `isFullyConstrained` or
+`profiles` is read (`[PB-SKETCH-DEFER]`). Measured on 2026-09-28: the rectangle-scheme collar
+section fell from 0.45 s to 0.23 s, the one-tooth Cell Sections sketch from 0.88 s to 0.09 s, and
+every deferred sketch read fully constrained with its profiles found once computing was back on.
+No other sketch defers: the Anchor sketch projects (`[SCREW-F-REFERENCES]`), and deferral under a
+projection has not been measured; the Paths, Sleeve and Window sketches are a few fixed points
+with lines or circles, and were not measured. Extending it to them is a measurement, not a rule
+change.
 
-## `[SCREW-F-ROUND-FRAME]` — the ring, the rods and the loop
+## `[SCREW-F-SLEEVE]` — the tube and the window cuts
 
-Every other part of the frame is a round section, and none of them twists. No construction axis
-is made anywhere in this build, since one needs an active component
-(`[PB-CONSTRUCTION-NEEDS-ACTIVE]`); every revolve axis is a sketch line.
+None of this has been built in Fusion; the calls are the API reference's, and the checks the
+spec's §4 names are what a first load reads. No construction axis is made anywhere in this build,
+since one needs an active component (`[PB-CONSTRUCTION-NEEDS-ACTIVE]`). Every sketch here is built
+from the reference points of `[SCREW-F-REFERENCES]` and nothing free: world points of the spec's
+§1 frame, mapped in with `modelToSketchSpace` and given `z = 0`.
 
-Every sketch here is built from the reference points of `[SCREW-F-REFERENCES]` and nothing
-free: lines between reference points and circles centred on them. Sketch-local frames are
-never used for a position; every point is a world point of the spec's §1 frame, computed on the
-sketch's plane and mapped in with `modelToSketchSpace`.
+- **The tube** is an `extrudeFeatures` extrusion of the ring between two circles sketched on the
+  selected plane, in a sketch named **Sleeve**: each circle `addByCenterRadius` at `C`, radius
+  `Ri` or `Ro`, its `centerSketchPoint.isFixed = True` (`[PB-CIRCLE-CENTER]`: the centre is
+  created free, and `isFixed` is the pin Fusion accepts) and a diameter dimension with its text
+  point on the circle (`[PB-RADIAL-DIM]`). The two centre points are separate points at the same
+  place, both fixed, with no coincident between them. The sketch has two profiles, the disc
+  inside `Ri` and the ring; the ring is the one whose `profileLoops.count` is 2. Iterate
+  `sketch.profiles`, take the one profile with two loops, and raise with the counts when there is
+  not exactly one (`[PB-EMPTY-RESULT]`). `find_profile_by_curve_counts` cannot pick it: it counts
+  lines, arcs and NURBS curves and treats a `Circle3DCurveType` curve as a type that disqualifies
+  the loop. The extrude is `extrudeFeatures.createInput(ring, NewBodyFeatureOperation)` →
+  `setSymmetricExtent(ValueInput.createByReal(cageRise), False)` → `add`; `False` makes the
+  value each side's length (`[PB-THROUGH-CUT]` for the argument's meaning), so the tube runs
+  from `-cageRise` to `+cageRise`. The video frame's rods were extruded the same way from circles
+  on the selected plane, and the third load built them.
+- **The Window Plane** holds `C` and `n̂` and stands square to the direction the windows face.
+  For windows facing `±k̂` it is `constructionPlanes.createInput()` →
+  `setByAngle(anchorLine, ValueInput.createByString('90 deg'), targetPlane)` → `add`: the plane
+  through the Anchor Line square to the selected plane. The video frame's Ring Plane was made by
+  this call and the third load built it. For windows facing `±ê`, past a 90° crossing, it is
+  `setByDistanceOnPath(anchorLine, ValueInput.createByReal(0.5))`: square to the Anchor Line at
+  its midpoint, which is `C`. That call is the one the bore planes use, at fraction 0; it has not
+  been run at 0.5.
+- **A window** is a sketch **Window {d}** on the Window Plane: one reference point per hexagon
+  corner, a solid line from each corner to the next sharing the points
+  (`[PB-SHARE-XOR-COINCIDENT]`), every point set `isFixed` after the last line, nothing else.
+  The one loop is the one profile (`[PB-SINGLE-PROFILE]`). The cut is
+  `extrudeFeatures.createInput(profile, CutFeatureOperation)` →
+  `setOneSideExtent(DistanceExtentDefinition.create(ValueInput.createByReal(Ro + 0.1)),
+  direction)` → `participantBodies = [cageBody]` → `add`, lengths in cm. `direction` is
+  `ExtentDirections.PositiveExtentDirection` when `sketch.modelToSketchSpace(C + d)` has a
+  positive `z`, else `NegativeExtentDirection`; the reference does not say in so many words which
+  way a profile's positive extent runs, so the build checks the result by the probe the spec
+  names, a point in the middle of the wall where the window goes, inside before the cut and
+  outside after it (`[PB-SELF-DIAGNOSING]`). The cycloidal gear's extrusions call
+  `setOneSideExtent` the same way (`spec/cycloidal/fusion.md`).
+- **Order and bodies.** The tube is the first body; each bore cut and each window cut has the
+  cage alone as its participant, and each has to leave exactly one body, the feature's
+  `bodies.count`, which the build raises on with the piece's name (`[PB-EMPTY-RESULT]`).
 
-- The ring is a `revolveFeatures` full revolution (`[PB-REVOLVE]`: `createInput(profile, axis,
-  NewBodyFeatureOperation)` → `setAngleExtent(False, ValueInput.createByString('360 deg'))` →
-  `add`) of a circle sketched on the **Ring Plane**, the plane through the Anchor Line square to the
-  selected plane (`setByAngle(anchorLine, '90 deg', targetPlane)`), which therefore holds `C`, `ê`
-  and `n̂`, in a sketch named **Ring**. The revolve axis `An` is a construction line between two
-  reference points, `C` and `C + cageRise*n̂`, sharing both, and both are set `isFixed` once the
-  line is drawn; the revolve uses the whole line the segment lies on. The wire is a circle
-  `addByCenterRadius` at `C + cageRise*n̂ + ringRadius*ê` with radius `ringWire/2`, its
-  `centerSketchPoint.isFixed = True` (`[PB-CIRCLE-CENTER]`: the centre is created free, and
-  `isFixed` is the pin Fusion accepts) and a diameter dimension of `ringWire` with its text
-  point on the circle (`[PB-RADIAL-DIM]`). The circle never reaches the axis, since
-  `ringRadius > ringWire/2` follows from the rod checks. **Its profile** is the one closed loop
-  in the sketch: raise unless `sketch.profiles.count == 1`, then `sketch.profiles.item(0)`
-  (`[PB-SINGLE-PROFILE]`). `find_profile_by_curve_counts` cannot pick a circle: it counts lines,
-  arcs and NURBS curves and treats a `Circle3DCurveType` curve as a type that disqualifies the
-  loop, so it is used only for the loops of lines and arcs below.
-- A rod is an `extrudeFeatures` extrusion of a circle sketched on the selected plane itself,
-  `setSymmetricExtent(ValueInput.createByReal(cageRise), False)` — `False` makes the value each
-  side's length (`[PB-THROUGH-CUT]` for the argument's meaning), so the rod runs from `-cageRise` to
-  `+cageRise`. Sketch all four on one sketch named **Rods**, in the collar order of the spec's
-  rod search: each is `addByCenterRadius` at its foot
-  `C + ringRadius*(cos(psi)*ê + sin(psi)*k̂)`, `k̂ = n̂ × ê`, radius `rodDiameter/2`, its
-  `centerSketchPoint.isFixed = True` and a diameter dimension of `rodDiameter`. Nothing else is
-  in the sketch. Each circle is its own profile and the four never overlap, since the rods stand
-  at least `rodDiameter + clearance` apart: raise unless `sketch.profiles.count == 4`, put all
-  four `sketch.profiles.item(i)` into one `ObjectCollection`, and extrude them in one feature as
-  new bodies, raising unless the feature's `bodies.count` is 4. The order of the four profiles
-  does not matter, since every rod gets the same extent.
-- The loop's bars and balls are all revolved on the **Loop Plane**, offset `-cageRise` from the
-  selected plane, which holds every foot; no plane is made per bar or per ball, and there is no
-  Loop sketch of bare lines. The four feet are `C - cageRise*n̂ + ringRadius*(cos(psi)*ê +
-  sin(psi)*k̂)`, in the spec's foot order (foot 0 the smallest azimuth in `[0°, 360°)` from `ê`
-  about `+n̂`, the rest increasing); bar `i` runs from `foot_i` to `foot_((i+1) mod 4)`.
-  - **Bar `i`** is a sketch **Loop Bar `i`** on the Loop Plane holding one rectangle from four
-    reference points: `foot_i`, `foot_j`, `foot_j + (ringWire/2)*m̂` and `foot_i +
-    (ringWire/2)*m̂`, with `j = (i+1) mod 4` and `m̂` the unit vector in the Loop Plane square
-    to the bar and pointing away from the loop's centre `C - cageRise*n̂` (the component of
-    `(foot_i + foot_j)/2 - (C - cageRise*n̂)` square to `foot_j - foot_i`, normalised). Four
-    solid lines share the points in that order, `B0` from `foot_i` to `foot_j` first, and all
-    four points are set `isFixed` after the last line. The sketch holds nothing free and no
-    dimension. The profile is the one loop, `profiles.count == 1` then `item(0)`; the revolve
-    is `createInput(profile, B0, NewBodyFeatureOperation)` → `setAngleExtent(False, '360 deg')`
-    → `add`, about the bar's own side `B0`, which the profile lies against, as a revolve profile
-    may. Measured: solid, 0.08472 cm³ against the cylinder's 0.08472.
-  - **Ball `i`** is a sketch **Loop Ball `i`** on the Loop Plane: the solid line `Bl` runs
-    between two reference points, `foot_i - (ringWire/2)*ê` (start) and `foot_i +
-    (ringWire/2)*ê` (end), sharing both; then a three-point arc
-    `addByThreePoints(Bl.startSketchPoint, through, Bl.endSketchPoint)` with `through` the point
-    `foot_i + (ringWire/2)*k̂`, which lies on the plane; then both reference points are set
-    `isFixed`, and `addCoincident(arc.centerSketchPoint, Bl)` puts the arc's centre on the
-    chord, where the half-disc's centre is. With its two ends fixed the arc has one freedom, its
-    bulge, and the coincident takes it; the side of the bulge is the seed's. The profile is the
-    half-disc, `find_profile_by_curve_counts(sketch, lines=1, arcs=1)`, and `Bl` is the revolve
-    axis. Measured: solid, 0.00818 cm³ against the sphere's 0.00818. The chord's direction in
-    the plane does not matter to a sphere; `ê` and `k̂` are what was measured.
-  - A pipe along the four bars in one feature was measured and rejected: its mitred corners
-    reach past the balls (`[PB-PIPE-CORNER]`).
+## `[SCREW-F-JOIN]` — joining a body
 
-**Joins, in groups.** The ring is the first body. Each later group is made as new bodies and
-joined by one `combineFeatures` join whose `tools` collection holds the whole group: the four
-rods, as now; the eight loop pieces, four bars and four balls; the four collars. A join is
-`combineFeatures.createInput(target, tools)` with the tools in an `ObjectCollection`, `operation`
-set to `JoinFeatureOperation`, `isKeepToolBodies = False`, then `add`. **Each leaves one body**,
-which means the combine feature's `bodies.count` — `Feature.bodies`, the bodies the feature
-created or modified — is exactly 1; the build raises with the group's name and the count when it
-is not (`[PB-EMPTY-RESULT]`, `[PB-SELF-DIAGNOSING]`), and `bodies.item(0)` is the target from then
-on. The same count gates the ribbon joins of §3. The pieces are always made as new bodies and
-combined explicitly, because a join operation on the extrude, revolve or sweep itself would join
-into whatever it touches, the ribbons included. The bores are then cut last, each by its own
-sweep with the cage as its only participant (`[SCREW-F-TWISTED-SLOT]`); there is no bore body and
-no combine cut. The rods' azimuths are the angles the proof's `TestRodsStandBesideTheirCollars`
-derives, and the build recomputes them by the same search rather than reading them from a table,
-because they move with every ribbon dimension.
+A join is `combineFeatures.createInput(target, tools)` with the tools in an `ObjectCollection`,
+`operation` set to `JoinFeatureOperation`, `isKeepToolBodies = False`, then `add`. **It leaves
+one body**, which means the combine feature's `bodies.count` — `Feature.bodies`, the bodies the
+feature created or modified — is exactly 1; the build raises with the piece's name and the count
+when it is not (`[PB-EMPTY-RESULT]`, `[PB-SELF-DIAGNOSING]`), and `bodies.item(0)` is the target
+from then on. The ribbon joins of §3 use it. A piece is always made as a new body and combined
+explicitly, because a join operation on the loft or the move itself would join into whatever it
+touches. The video frame joined its rods, loop and collars into its ring this way, and the
+second and third loads built them.
 
 ## `[SCREW-F-REFERENCES]` — how fixed geometry enters a sketch
 
@@ -422,9 +585,8 @@ recipe of `[PB-PROJECT-NOT-FIXED]` (b), which is how the bevel gear builds each 
 sketch and the shaft axis its revolve, pattern and section planes stand on:
 
 1. Compute the point in world space from `C`, `ê`, `n̂` and the §1 frame — the ends of a sweep
-   path on the gear's axis, the axis point of a section at `origin_g + s*dir_g`, a rod's foot on
-   the ring's circle, a bar's corner on the Loop Plane, a cell section's corner wherever the
-   section puts it.
+   path on the gear's axis, the axis point of a section at `origin_g + s*dir_g`, a window's
+   corner on the Window Plane, a cell section's corner wherever the section puts it.
 2. `local = sketch.modelToSketchSpace(worldPoint)`, then `local.z = 0` **when the point is meant
    to lie on the plane**, then `pt = sketch.sketchPoints.add(local)` (`[PB-SKETCH-ZERO-Z]`).
    Being on the plane in world arithmetic does not put the point at zero height in the sketch:
@@ -442,12 +604,13 @@ sketch and the shaft axis its revolve, pattern and section planes stand on:
    does not leave the sketch fully constrained.
 
 A line between two reference points is fully constrained by the two fixed ends and takes no
-dimension; the Paths sketch is four such lines, overlapping on one axis, and read fully
-constrained that way (`[SCREW-F-DIAGNOSTIC]`). A circle centred on a reference position is not
-built on a reference point: it is `addByCenterRadius` at that position and its own
-`centerSketchPoint` is set `isFixed = True` (`[PB-CIRCLE-CENTER]`, measured in Fusion on a
-`setByDistanceOnPath` plane), with a diameter dimension; a coincident from a circle's centre to
-a fixed point is not used, since the playbook records a solve failure for the coincident form.
+dimension; the Paths sketch is two such lines on one axis, and a Paths sketch of three and of four
+such lines, overlapping, read fully constrained that way (`[SCREW-F-DIAGNOSTIC]`). A circle
+centred on a reference position is not built on a reference point: it is `addByCenterRadius` at
+that position and its own `centerSketchPoint` is set `isFixed = True` (`[PB-CIRCLE-CENTER]`,
+measured in Fusion on a `setByDistanceOnPath` plane), with a diameter dimension; a coincident from
+a circle's centre to a fixed point is not used, since the playbook records a solve failure for the
+coincident form.
 
 The world points are the numbers the source geometry was dimensioned to, so they are the solved
 positions (`[PB-SOLVED-GEOMETRY]`): the Anchor sketch is the only sketch whose geometry a later
@@ -467,9 +630,9 @@ normal, which for a planar face may point either way. The build never assumes th
 `Gear A Axis Plane` is made at `-A/2`, it reads `plane.geometry` — a `Plane` with an `origin` and a
 `normal` — and sets `n̂ = normal` if `(C - origin) · normal > 0`, else `-normal`, so that `C` lies
 `+A/2` along `n̂` from gear A's plane by construction; it then checks that `|(C - origin) · normal|`
-is `A/2` for both axis planes and raises otherwise. Every later offset from the selected plane —
-the Loop Plane at `-cageRise` — is signed the same way, so it lands on `-n̂` with gear A's plane;
-the diagnostic read the Loop Plane at −1.350 cm along `n̂` from `C`.
+is `A/2` for both axis planes and raises otherwise. No later plane is offset from the selected
+plane. The video frame's Loop Plane was, signed the same way, and the diagnostic read it at
+−1.350 cm along `n̂` from `C`, on gear A's side as intended.
 
 ## `[SCREW-F-NO-SOLID-TWIST]` — why the ribbon is not built straight and then twisted
 
@@ -478,7 +641,7 @@ spline in one sketch and one extrude, and then twist the solid. Fusion's paramet
 no twist feature for a solid body. `SweepFeatureInput` does document a solid twist axis, but a solid
 sweep sweeps the body's *volume* along the path, which smears each tooth into a continuous ridge and
 destroys the very feature being built. A profile sweep with `twistAngle` builds the exact twisted
-blank in one feature, and is what the collars and bores now are (`[SCREW-F-TWISTED-SLOT]`), but
+blank in one feature, and is what the bores are (`[SCREW-F-TWISTED-SLOT]`), but
 the tooth gaps are not invariant under the continuous screw motion, only under its discrete
 step, so no sweep can cut them.
 

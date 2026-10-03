@@ -5,3 +5,4 @@ from .helicalgear import *
 from .herringbonegear import *
 from .bevelgear import *
 from .cycloidal import *
+from .screwgear import *
