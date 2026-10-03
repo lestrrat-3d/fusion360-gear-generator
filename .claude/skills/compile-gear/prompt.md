@@ -88,6 +88,27 @@ Give each non-required call a reason. Give required Fusion API calls a qualified
 Keep an existing required call required even when the current module omits it; report any
 proposed role change for source review. Do not write global ignore directives.
 
+**Name the module's own methods in prose, never as calls.** A span such as `buildWidget()` or
+`self.buildWidget(i)` is call-shaped, so the gate requires a declaration for it, and a local method
+has no Fusion owner to declare. Write "the method `buildWidget`, given `i`" instead. The call graph
+keeps its order; only the parentheses go. Measured: every compile of one gear failed its first
+round on this alone, with 16 blockers each time.
+
+**Declare the framework's hook names by where they are defined.** A hook the shared framework
+(`lib/geargen/base.py` and the other shared modules) defines, such as `generate` or `prefixBase`,
+is `inherited`. A hook the gear defines and the framework only calls, such as the configurator's
+`configure`, which `commands/_gear_command.py` calls, is `example` with that reason. Neither is
+`required`: the gate checks a required call against the module, and these are names, not calls the
+module makes.
+
+**Write a call span with the receiver the module will call it on.** A span such as
+`selection(0).entity`, with no receiver, matches nothing in the module, because the module writes
+`selectionInput.selection(0).entity`. Give the receiver in the span and declare its owner, here
+`adsk.core.SelectionCommandInput`.
+
+**Write a long file in pieces.** A step list or proof file of more than about a thousand lines
+does not fit in one response. Create it with its first part, then add the rest in edits or appends.
+
 **Before naming any `adsk.*` call**, ask the `fusion:query-api` skill about it. One question
 carries most of the work: `show <Class>.<member>` confirms in a few lines that the class you are
 calling on really has the member — it resolves members declared on any base and names the class

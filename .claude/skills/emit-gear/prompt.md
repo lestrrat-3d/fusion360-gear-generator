@@ -81,6 +81,36 @@ the type ought to be has already passed a real bug through: three assignments to
 a property that class does not declare, which Fusion refuses at runtime. Every required gate passed
 on that build, and only the advisory novel-type row caught it.
 
+**Write every Fusion call on a receiver whose type the checker can follow.** The API-call gate
+refuses a call whose receiver's type it cannot work out, and it follows types only through what
+the code states. Measured: the first draft of one gear failed this gate on 40 to 50 calls, on
+every emit of that gear, and each needed two or three retry rounds that changed nothing but types.
+Write it right the first time:
+
+- Annotate parameters that carry Fusion objects, such as a configurator's `command:
+  adsk.core.Command` and a generator's `inputs: adsk.core.CommandInputs`, and give return
+  annotations to helpers that return Fusion objects.
+- Cast a lookup to the type you use, such as `adsk.core.ValueCommandInput.cast(inputs.itemById(i))`.
+- A nested function does not see the enclosing function's annotations. Pass the objects it uses as
+  typed parameters, or make it a method.
+- The checker does not see through a list subscript. Bind the element to a typed local first, as
+  `body: adsk.fusion.BRepBody = adsk.fusion.BRepBody.cast(self.bodies[0])`, then call on `body`.
+- Declare instance fields with a typed placeholder, as `self.body = adsk.fusion.BRepBody.cast(None)`
+  or `[adsk.fusion.BRepBody.cast(None)] * 2`, never `None` or `[None, None]`.
+- Give the result of a call that returns a fresh object a typed local, as `v: adsk.core.Vector3D =
+  u.copy()`.
+- A helper that can find nothing raises a clear error instead of returning `None` into arithmetic
+  or a call.
+- Standard-library calls the checker does not know, such as `math.fmod`, `bisect.bisect_left` and
+  `int.bit_length`, become plain arithmetic.
+
+None of this changes which calls the module makes. Never satisfy the gate by deleting a call the
+step list names, by replacing it with another, or by hiding an assignment behind `setattr`.
+
+**Write a long module in pieces.** A module of more than about a thousand lines does not fit in
+one response, and a draft that tries to write it in one tool call dies with nothing written. Create
+the file with its first part, then add the rest in edits or appends of a few hundred lines each.
+
 **Do every step.** A step you cannot finish is a defect to report, never a comment left in the
 file and never a silent omission.
 
