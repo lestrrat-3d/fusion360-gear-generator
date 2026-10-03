@@ -17,8 +17,8 @@ func TestPathsSketch(t *testing.T) {
 	proofkit.Run(t, pathsCases, stepPathsSketch)
 }
 
-func TestCellSectionSketch(t *testing.T) {
-	proofkit.Run(t, cellSectionCases, stepCellSectionSketch)
+func TestCellSectionsSketch(t *testing.T) {
+	proofkit.Run(t, cellSectionCases, stepCellSectionsSketch)
 }
 
 func TestCellLoft(t *testing.T) {
@@ -37,34 +37,38 @@ func TestJoinBodies(t *testing.T) {
 	proofkit3d.RunSolid(t, joinCases, stepJoinBodies, assertJoinBodies)
 }
 
-func TestRemainderSectionSketch(t *testing.T) {
-	proofkit.Run(t, remainderSectionCases, stepRemainderSectionSketch)
+func TestRemainderSectionsSketch(t *testing.T) {
+	proofkit.Run(t, remainderSectionCases, stepRemainderSectionsSketch)
 }
 
 func TestRemainderLoft(t *testing.T) {
-	proofkit3d.RunSolid(t, remainderLoftCases, stepRemainderLoft, assertRemainderLoft)
+	proofkit3d.RunSolid(t, remainderCases, stepRemainderLoft, assertRemainderLoft)
+}
+
+func TestRemainderJoin(t *testing.T) {
+	proofkit3d.RunSolid(t, remainderCases, stepRemainderJoin, assertRemainderJoin)
 }
 
 func TestSleeveSketch(t *testing.T) {
 	proofkit.Run(t, sleeveSketchCases, stepSleeveSketch)
 }
 
-func TestSleeveTube(t *testing.T) {
-	proofkit3d.RunSolid(t, sleeveTubeCases, stepSleeveTube, assertSleeveTube)
+func TestExtrudeTube(t *testing.T) {
+	proofkit3d.RunSolid(t, tubeCases, stepExtrudeTube, assertExtrudeTube)
 }
 
 func TestBoreSectionSketch(t *testing.T) {
-	proofkit.Run(t, boreSketchCases, stepBoreSectionSketch)
+	proofkit.Run(t, boreSectionCases, stepBoreSectionSketch)
 }
 
-func TestBoreCut(t *testing.T) {
-	proofkit3d.RunSolid(t, boreCutCases, stepBoreCut, assertBoreCut)
+func TestCutBore(t *testing.T) {
+	proofkit3d.RunSolid(t, boreCutCases, stepCutBore, assertCutBore)
 }
 
 func TestWindowSketch(t *testing.T) {
 	proofkit.Run(t, windowSketchCases, stepWindowSketch)
 }
 
-func TestWindowCut(t *testing.T) {
-	proofkit3d.RunSolid(t, windowCutCases, stepWindowCut, assertWindowCut)
+func TestCutWindow(t *testing.T) {
+	proofkit3d.RunSolid(t, windowCutCases, stepCutWindow, assertCutWindow)
 }

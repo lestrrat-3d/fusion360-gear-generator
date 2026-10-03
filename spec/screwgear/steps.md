@@ -1,6 +1,4 @@
-The proof for these steps is `proof/screwgear/compiled_model_test.go`,
-`proof/screwgear/compiled_sketches_test.go`, `proof/screwgear/compiled_solids_test.go` and the
-generated `proof/screwgear/zz_registrations_test.go`.
+The proof of this step list is `proof/screwgear/compiled_model_test.go`, `proof/screwgear/compiled_sketches_test.go`, `proof/screwgear/compiled_solids_test.go` and `proof/screwgear/zz_registrations_test.go`.
 
 <!-- step-metadata: 2 -->
 
@@ -8,54 +6,255 @@ generated `proof/screwgear/zz_registrations_test.go`.
 
 | file | `git hash-object` |
 |---|---|
-| `spec/screwgear/instructions.md` | `2086fb6863cae62a88990017c3ded021c576e110` |
-| `spec/screwgear/fusion.md` | `b303ec403139aeb27b7d5b0631040bf62d0c21c9` |
+| `spec/screwgear/instructions.md` | `ff3456913206f80ea67780071b832f9b49d37a08` |
+| `spec/screwgear/fusion.md` | `69e17cdba140c0049c70fdf0f7a7eba6a409cc58` |
 | `CLAUDE.md` | `916e8624ca88af226c264c21f295c14a9fb9e901` |
-| `proof/screwgear/README.md` | `74d0a88753d50d35e118b61947bdf24349b00a1a` |
+| `proof/screwgear/README.md` | `6c88c234b84a8e330228b91f4fc68d2d2d1e4613` |
 | `spec/cycloidal/fusion.md` | `afa5a99986f2e0d9f82fb5e21591553cdc54aac4` |
-| `spec/screwgear/mesh-search.md` | `394a2e0b52f4f4c40528646bf825f3db577f27ca` |
+| `spec/screwgear/mesh-search.md` | `245bc5c833387a83598ee6c8a7971e8efd5825be` |
 | `.claude/skills/generate-gear/PLAYBOOK.md` | `cdd32545b0f8c651752827c6697601f1e32b4d39` |
 
-## S01 `[PROSE]` Module, classes, constants and the dialog
+## S01 `[PROSE]` Module, classes, constants and entry wiring
+
+Write `lib/geargen/screwgear.py`. It subclasses `base.Generator` directly and shares no involute
+math with any other gear. Imports, explicitly and nothing more (no `import *`):
+
+```python
+import math
+import adsk.core, adsk.fusion
+from ...lib import fusion360utils as futil
+from .misc import get_design
+from .base import Generator
+from .utilities import find_profile_by_curve_counts
+from . import solids
+```
+
+**Public classes, exactly these two** (the command wiring binds to them by name, and
+`lib/geargen/__init__.py` exports them):
+
+- `ScrewGearCommandInputsConfigurator`, with the classmethod `configure` of S02, taking `(cls, command)`.
+- `ScrewGearGenerator(Generator)`, with the one-argument constructor `(design)` it inherits,
+  `generate` (S04), taking `(self, inputs)`, and `prefixBase`, taking `(self)` and returning `'ScrewGear'`, overriding the
+  inherited `self.prefixBase()`. It relies on the inherited `self.deleteComponent()` for cleanup on
+  failure and the inherited `self.getOccurrence()` for its top occurrence. No generation context
+  class: every handle is carried on `self` (S04).
+
+**Entry wiring.** `commands/screwgear/entry.py` constructs
+`GearCommand(gear_type='ScrewGear', name='Screw Gear Generator', description='Generates a screw/screw gear pair and its cage', icon_folder=..., configurator=geargen.ScrewGearCommandInputsConfigurator, generator_class=geargen.ScrewGearGenerator)`
+and re-exports `start = command.start` and `stop = command.stop`, as every other gear's entry does.
+
+**Module constants.** One per dialog input id, named for it:
+
+| Constant | Value |
+|---|---|
+| `INPUT_ID_PLANE` | `'plane'` |
+| `INPUT_ID_POINT` | `'point'` |
+| `INPUT_ID_PARENT` | `'parent'` |
+| `INPUT_ID_RIBBON_WIDTH` | `'ribbonWidth'` |
+| `INPUT_ID_TOOTH_COUNT` | `'toothCount'` |
+| `INPUT_ID_TWIST_LEAD` | `'twistLead'` |
+| `INPUT_ID_RIBBON_THICKNESS` | `'ribbonThickness'` |
+| `INPUT_ID_TOOTH_PITCH` | `'toothPitch'` |
+| `INPUT_ID_TOOTH_HEIGHT` | `'toothHeight'` |
+| `INPUT_ID_TOOTH_SLANT` | `'toothSlant'` |
+| `INPUT_ID_TOOTH_BOW` | `'toothBow'` |
+| `INPUT_ID_CAGE_RADIUS` | `'cageRadius'` |
+| `INPUT_ID_CAGE_RISE` | `'cageRise'` |
+| `INPUT_ID_CLEARANCE` | `'clearance'` |
+| `INPUT_ID_ROOF_ALLOWANCE` | `'roofAllowance'` |
+| `INPUT_ID_COLLAR_HALF` | `'collarHalf'` |
+| `INPUT_ID_COLLAR_WALL` | `'collarWall'` |
+| `INPUT_ID_CROSS_ANGLE` | `'crossAngle'` |
+| `INPUT_ID_ENGAGEMENT` | `'engagement'` |
+| `INPUT_ID_MOUNT_ANGLE_A` | `'mountAngleA'` |
+| `INPUT_ID_MOUNT_ANGLE_B` | `'mountAngleB'` |
+| `INPUT_ID_ASSEMBLY_PHASE` | `'assemblyPhase'` |
+
+Two more module constants are not dialog inputs: `TOOTH_SPLINE_POINTS = 11`, the number of points
+each section's toothed side is fitted through (S10), and `CELL_TEETH = 4`, the number of teeth the
+lofted cell holds, written `cellTeeth` below. Every count that depends on `CELL_TEETH` is derived
+from it in `processInputs` (S03); nothing hard-codes 4.
+
+**Parameter mode: all-Python-precomputed** `[PB-PRECOMPUTED-MODE]`. Every value is computed in
+Python and written numerically: sketch dimensions through `dimension.parameter.value`, feature
+inputs through `ValueInput.createByReal`. The generator registers no user parameter and never
+calls `addParameter`. Lengths are held in centimetres, Fusion's internal unit, and angles in
+radians; the two searches of S03 alone work on millimetre figures (S03 says how).
 
 <!-- step-meta
 {
   "calls": [
     {
       "condition": null,
-      "name": "configure",
+      "name": "prefixBase",
       "owner": null,
-      "reason": "GearCommand in commands/_gear_command.py calls the configurator classmethod configure; no shared framework module defines it",
-      "receiver": null,
-      "role": "example",
-      "span": "configure(cls, command)"
-    },
-    {
-      "condition": null,
-      "name": "generate",
-      "owner": null,
-      "reason": "lib/geargen/base.py declares the abstract generate that the generator implements",
-      "receiver": null,
+      "reason": "base.Generator.prefixBase is the hook this gear overrides",
+      "receiver": "self",
       "role": "inherited",
-      "span": "generate(self, inputs)"
+      "span": "self.prefixBase()"
     },
     {
       "condition": null,
       "name": "deleteComponent",
       "owner": null,
-      "reason": "base.Generator provides deleteComponent for error cleanup",
-      "receiver": null,
+      "reason": "base.Generator.deleteComponent removes the top occurrence on failure",
+      "receiver": "self",
       "role": "inherited",
-      "span": "deleteComponent()"
+      "span": "self.deleteComponent()"
     },
     {
       "condition": null,
-      "name": "prefixBase",
+      "name": "getOccurrence",
       "owner": null,
-      "reason": "lib/geargen/base.py defines prefixBase, which the generator overrides",
+      "reason": "base.Generator.getOccurrence creates the top occurrence",
+      "receiver": "self",
+      "role": "inherited",
+      "span": "self.getOccurrence()"
+    }
+  ],
+  "citations": [
+    {
+      "first": 8,
+      "last": 9,
+      "path": "spec/screwgear/instructions.md"
+    },
+    {
+      "first": 566,
+      "last": 597,
+      "path": "spec/screwgear/instructions.md"
+    },
+    {
+      "first": 673,
+      "last": 686,
+      "path": "spec/screwgear/instructions.md"
+    },
+    {
+      "first": 17,
+      "last": 41,
+      "path": ".claude/skills/generate-gear/PLAYBOOK.md"
+    },
+    {
+      "first": 291,
+      "last": 324,
+      "path": ".claude/skills/generate-gear/PLAYBOOK.md"
+    },
+    {
+      "first": 962,
+      "last": 979,
+      "path": ".claude/skills/generate-gear/PLAYBOOK.md"
+    }
+  ],
+  "schema": 2
+}
+-->
+
+**From:** `spec/screwgear/instructions.md` L8–9; `spec/screwgear/instructions.md` L566–597; `spec/screwgear/instructions.md` L673–686; `.claude/skills/generate-gear/PLAYBOOK.md` L17–41; `.claude/skills/generate-gear/PLAYBOOK.md` L291–324; `.claude/skills/generate-gear/PLAYBOOK.md` L962–979.
+
+## S02 `[PROSE]` The dialog: `configure`
+
+The classmethod `configure` of `ScrewGearCommandInputsConfigurator`, taking `(cls, command)`, adds the inputs below to
+`command.commandInputs`, in exactly this order. No input has conditional visibility.
+
+The three selections come first and at the top level, because nothing can be built without them
+and Fusion focuses the first selection input it is given `[PB-AUTOFOCUS-FIRST]`. Each is
+`addSelectionInput(id, label, tooltip)` with its filters added as the named enum constants
+`[PB-SELECTION-FILTER-ENUM]` through `addSelectionFilter(filter)`, then
+`setSelectionLimits(1, 1)` `[PB-SELECTION-DECL]`:
+
+| Order | id | Label | Tooltip | Filters |
+|---|---|---|---|---|
+| 1 | `plane` | `Target Plane` | `Plane the cage's axis is normal to` | `adsk.core.SelectionCommandInput.ConstructionPlanes`, `adsk.core.SelectionCommandInput.PlanarFaces` |
+| 2 | `point` | `Centre Point` | `Centre of the mechanism` | `adsk.core.SelectionCommandInput.ConstructionPoints`, `adsk.core.SelectionCommandInput.SketchPoints` |
+| 3 | `parent` | `Parent Component` | `Component the mechanism is created under` | `adsk.core.SelectionCommandInput.Occurrences`, `adsk.core.SelectionCommandInput.RootComponents` |
+
+The Parent Component input pre-selects the design's root component:
+`parentInput.addSelection(get_design().rootComponent)`.
+
+Then three groups, each `command.commandInputs.addGroupCommandInput(groupId, groupLabel)`, whose
+inputs are added to the group's `children` collection, not to the top-level `commandInputs`. The
+`ribbonGroup` and `frameGroup` groups start expanded; the `meshGroup` group starts collapsed,
+`group.isExpanded = False`, because its values come from the meshing search and jam when changed
+carelessly. The groups are added in the order Ribbon, Frame, Mesh, each right before its own
+inputs.
+
+Every value input is `group.children.addValueInput(id, label, unit, adsk.core.ValueInput.createByReal(default))`
+with the default in Fusion's internal units `[PB-DIALOG-DEFAULT-UNITS]`: a length in mm is written
+as the mm figure divided by 10 (cm), an angle in degrees as its radians
+(`math.radians` of the degrees), and the two unitless inputs as the bare number. The unit strings are
+`'mm'`, `'deg'` and `''`.
+
+| Order | Group id | Group label | id | Label | Unit | Default (display) | `createByReal` argument |
+|---|---|---|---|---|---|---|---|
+| 4 | `ribbonGroup` | `Ribbon` | `ribbonWidth` | `Ribbon Width` | `'mm'` | 15 mm | `1.5` |
+| 5 | `ribbonGroup` | `Ribbon` | `toothCount` | `Tooth Count` | `''` | 68 | `68` |
+| 6 | `ribbonGroup` | `Ribbon` | `twistLead` | `Twist Lead` | `'mm'` | 49.5 mm | `4.95` |
+| 7 | `ribbonGroup` | `Ribbon` | `ribbonThickness` | `Ribbon Thickness` | `'mm'` | 3.75 mm | `0.375` |
+| 8 | `ribbonGroup` | `Ribbon` | `toothPitch` | `Tooth Pitch` | `'mm'` | 2.625 mm | `0.2625` |
+| 9 | `ribbonGroup` | `Ribbon` | `toothHeight` | `Tooth Height` | `'mm'` | 2.625 mm | `0.2625` |
+| 10 | `ribbonGroup` | `Ribbon` | `toothSlant` | `Tooth Slant` | `'deg'` | 25.8° | radians of 25.8 |
+| 11 | `ribbonGroup` | `Ribbon` | `toothBow` | `Tooth Bow` | `''` | 0.048 (mm⁻¹) | `0.048` |
+| 12 | `frameGroup` | `Frame` | `cageRadius` | `Cage Radius` | `'mm'` | 15 mm | `1.5` |
+| 13 | `frameGroup` | `Frame` | `cageRise` | `Cage Rise` | `'mm'` | 18.75 mm | `1.875` |
+| 14 | `frameGroup` | `Frame` | `clearance` | `Clearance` | `'mm'` | 0.20 mm | `0.02` |
+| 15 | `frameGroup` | `Frame` | `roofAllowance` | `Roof Allowance` | `'mm'` | 0.30 mm | `0.03` |
+| 16 | `frameGroup` | `Frame` | `collarHalf` | `Collar Half Length` | `'mm'` | 3 mm | `0.3` |
+| 17 | `frameGroup` | `Frame` | `collarWall` | `Collar Wall` | `'mm'` | 3 mm | `0.3` |
+| 18 | `meshGroup` | `Mesh (from the mesh search)` | `crossAngle` | `Crossing Angle` | `'deg'` | 80° | radians of 80 |
+| 19 | `meshGroup` | `Mesh (from the mesh search)` | `engagement` | `Engagement` | `'mm'` | 1.05 mm | `0.105` |
+| 20 | `meshGroup` | `Mesh (from the mesh search)` | `mountAngleA` | `Mounting Angle A` | `'deg'` | 0° | `0` |
+| 21 | `meshGroup` | `Mesh (from the mesh search)` | `mountAngleB` | `Mounting Angle B` | `'deg'` | 0° | `0` |
+| 22 | `meshGroup` | `Mesh (from the mesh search)` | `assemblyPhase` | `Assembly Phase` | `'mm'` | −1.31 mm | `-0.131` |
+
+The tooth bow is a bare number in mm⁻¹; the build, which works in cm, lowers the toothed edge by
+`10*toothBow*v^2` cm for `v` in cm (S10).
+
+<!-- step-meta
+{
+  "calls": [
+    {
+      "condition": null,
+      "name": "addSelectionInput",
+      "owner": "adsk.core.CommandInputs",
+      "reason": null,
+      "receiver": null,
+      "role": "required",
+      "span": "addSelectionInput(id, label, tooltip)"
+    },
+    {
+      "condition": null,
+      "name": "addSelectionFilter",
+      "owner": "adsk.core.SelectionCommandInput",
+      "reason": null,
+      "receiver": null,
+      "role": "required",
+      "span": "addSelectionFilter(filter)"
+    },
+    {
+      "condition": null,
+      "name": "setSelectionLimits",
+      "owner": "adsk.core.SelectionCommandInput",
+      "reason": null,
+      "receiver": null,
+      "role": "required",
+      "span": "setSelectionLimits(1, 1)"
+    },
+    {
+      "condition": null,
+      "name": "addSelection",
+      "owner": "adsk.core.SelectionCommandInput",
+      "reason": null,
+      "receiver": "parentInput",
+      "role": "required",
+      "span": "parentInput.addSelection(get_design().rootComponent)"
+    },
+    {
+      "condition": null,
+      "name": "get_design",
+      "owner": null,
+      "reason": "lib/geargen/misc.py defines get_design for every gear",
       "receiver": null,
       "role": "inherited",
-      "span": "prefixBase()"
+      "span": "parentInput.addSelection(get_design().rootComponent)"
     },
     {
       "condition": null,
@@ -73,7 +272,7 @@ generated `proof/screwgear/zz_registrations_test.go`.
       "reason": null,
       "receiver": "group.children",
       "role": "required",
-      "span": "group.children.addValueInput(inputId, label, unit, adsk.core.ValueInput.createByReal(value))"
+      "span": "group.children.addValueInput(id, label, unit, adsk.core.ValueInput.createByReal(default))"
     },
     {
       "condition": null,
@@ -82,63 +281,13 @@ generated `proof/screwgear/zz_registrations_test.go`.
       "reason": null,
       "receiver": "adsk.core.ValueInput",
       "role": "required",
-      "span": "group.children.addValueInput(inputId, label, unit, adsk.core.ValueInput.createByReal(value))"
-    },
-    {
-      "condition": null,
-      "name": "addSelectionInput",
-      "owner": "adsk.core.CommandInputs",
-      "reason": null,
-      "receiver": "command.commandInputs",
-      "role": "required",
-      "span": "command.commandInputs.addSelectionInput(inputId, label, tooltip)"
-    },
-    {
-      "condition": null,
-      "name": "setSelectionLimits",
-      "owner": "adsk.core.SelectionCommandInput",
-      "reason": null,
-      "receiver": "selection",
-      "role": "required",
-      "span": "selection.setSelectionLimits(1, 1)"
-    },
-    {
-      "condition": null,
-      "name": "addSelectionFilter",
-      "owner": "adsk.core.SelectionCommandInput",
-      "reason": null,
-      "receiver": "selection",
-      "role": "required",
-      "span": "selection.addSelectionFilter(...)"
-    },
-    {
-      "condition": null,
-      "name": "addSelection",
-      "owner": "adsk.core.SelectionCommandInput",
-      "reason": null,
-      "receiver": "selection",
-      "role": "required",
-      "span": "selection.addSelection(get_design().rootComponent)"
-    },
-    {
-      "condition": null,
-      "name": "get_design",
-      "owner": null,
-      "reason": "lib/geargen/misc.py provides get_design",
-      "receiver": null,
-      "role": "inherited",
-      "span": "selection.addSelection(get_design().rootComponent)"
+      "span": "group.children.addValueInput(id, label, unit, adsk.core.ValueInput.createByReal(default))"
     }
   ],
   "citations": [
     {
-      "first": 475,
-      "last": 505,
-      "path": "spec/screwgear/instructions.md"
-    },
-    {
-      "first": 526,
-      "last": 597,
+      "first": 617,
+      "last": 698,
       "path": "spec/screwgear/instructions.md"
     },
     {
@@ -150,95 +299,262 @@ generated `proof/screwgear/zz_registrations_test.go`.
       "first": 355,
       "last": 357,
       "path": ".claude/skills/generate-gear/PLAYBOOK.md"
+    },
+    {
+      "first": 557,
+      "last": 568,
+      "path": ".claude/skills/generate-gear/PLAYBOOK.md"
     }
   ],
   "schema": 2
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L475–505; `spec/screwgear/instructions.md` L526–597; `.claude/skills/generate-gear/PLAYBOOK.md` L128–143; `.claude/skills/generate-gear/PLAYBOOK.md` L355–357.
+**From:** `spec/screwgear/instructions.md` L617–698; `.claude/skills/generate-gear/PLAYBOOK.md` L128–143; `.claude/skills/generate-gear/PLAYBOOK.md` L355–357; `.claude/skills/generate-gear/PLAYBOOK.md` L557–568.
 
-The module `lib/geargen/screwgear.py` defines exactly two public classes, exported through
-`lib/geargen/__init__.py`, and subclasses no gear class: it shares no involute math.
+## S03 `[PROSE]` `processInputs`: read, check, precompute
 
-- `ScrewGearCommandInputsConfigurator`, with a classmethod `configure(cls, command)` that adds the
-  dialog inputs below, in the order below. No input has conditional visibility.
-- `ScrewGearGenerator(base.Generator)`, constructed with the one argument `design` (inherited),
-  implementing `generate(self, inputs)` and the call graph of S04, relying on the inherited
-  `deleteComponent()` for error cleanup, and overriding `prefixBase()` to return `'ScrewGear'`.
+`processInputs(inputs)` runs first in `generate` and creates nothing in the design.
 
-Imports: `math`, `adsk.core`, `adsk.fusion`, `futil` (`from ...lib import fusion360utils as futil`),
-`get_design` from `.misc`, `Generator` and `get_selection` from `.base`,
-`find_profile_by_curve_counts` from `.utilities`, and `solids` from `.` — nothing else, and no
-`import *` ([PB-PRECOMPUTED-MODE]: no user parameters are registered, so `get_value` and
-`addParameter` are not used). The command entry `commands/screwgear/entry.py` constructs
-`GearCommand(gear_type='ScrewGear', name='Screw Gear Generator', …)` binding these two classes by
-name (PLAYBOOK "Command-entry wiring").
+**Read the selections before anything else** `[PB-SELECTION-STASH]`: for each of `plane`, `point`
+and `parent`, `inputs.itemById(id)`, raising naming the id if the lookup returns `None`, and take
+its `selectionInput.selection(0).entity`, `selectionInput` being the input the lookup returned. The parent is an `Occurrence` (use its `component`) or a `Component`;
+store it as `self.parentComponent`. Store the plane as `self.targetPlane` and the point as
+`self.centrePoint`.
 
-Module-level constants, one per input id, and one more:
+**Read every value input** by id with `inputs.itemById(id)` on the command's top-level
+`commandInputs`, grouped or not (ids are unique across the command, which is what lets the lookup
+reach into a group); raise naming the id if any lookup returns `None`. Read each raw value with
+`design.unitsManager.evaluateExpression(input.expression, units)` `[PB-EVAL-EXPRESSION]`, where
+`design` is `get_design()`, with `units` `'mm'` for a length, `'deg'` for an angle and `''` for
+`toothCount` and `toothBow`. It returns internal units: cm for a length and radians for an angle;
+compare an angle in degrees with `math.degrees`. Call the values `W` (ribbonWidth), `N`
+(toothCount), `TwistLead`, `T` (ribbonThickness), `P` (toothPitch), `H` (toothHeight), `Slant`
+(toothSlant, radians), `Bow` (toothBow, mm⁻¹), `cageRadius`, `cageRise`, `clearance`,
+`roofAllowance`, `collarHalf`, `collarWall`, `Sigma` (crossAngle, radians), `Engagement`, `PhiA`,
+`PhiB` (the mounting angles, radians) and `assemblyPhase`.
+
+**Range checks**, in this order, each raising a clear error that names the input id and states the
+bound (lengths in the message in mm):
+
+1. `ribbonWidth`, `ribbonThickness`, `toothPitch`, `twistLead`, `collarHalf`, `collarWall` and
+   `clearance` must each be `> 0`.
+2. `roofAllowance` must be `>= 0` (zero cuts every bore to the clearance alone).
+3. `toothCount` must be a whole number `>= 4`; then `N = int(round(value))`.
+4. `toothHeight` must be `> 0` and `< ribbonWidth/2`.
+5. `toothSlant` must lie strictly between −90° and 90°.
+6. `toothBow` must be `>= 0`, and `H + Bow_cm*(T/2)^2 < W/2` with `Bow_cm = 10*Bow`; the message
+   names `toothBow`.
+7. `engagement` must be `> 0` and `<= toothHeight`.
+8. `crossAngle` must lie strictly between 0° and 180°.
+9. `assemblyPhase` must lie strictly within `±toothPitch`.
+10. `cageRadius + collarHalf + 0.1 cm < N*P/2` (a millimetre of cut margin); the message names
+    `cageRadius`.
+
+No range is enforced on either mounting angle, and none on `twistLead` above zero.
+
+**Derived values**, in the build's cm and radians:
 
 ```
-INPUT_ID_PLANE = 'plane'                 INPUT_ID_POINT = 'point'
-INPUT_ID_PARENT = 'parent'               INPUT_ID_RIBBON_WIDTH = 'ribbonWidth'
-INPUT_ID_TOOTH_COUNT = 'toothCount'      INPUT_ID_TWIST_LEAD = 'twistLead'
-INPUT_ID_RIBBON_THICKNESS = 'ribbonThickness'
-INPUT_ID_TOOTH_PITCH = 'toothPitch'      INPUT_ID_TOOTH_HEIGHT = 'toothHeight'
-INPUT_ID_CAGE_RADIUS = 'cageRadius'      INPUT_ID_CAGE_RISE = 'cageRise'
-INPUT_ID_CLEARANCE = 'clearance'         INPUT_ID_ROOF_ALLOWANCE = 'roofAllowance'
-INPUT_ID_COLLAR_HALF = 'collarHalf'      INPUT_ID_COLLAR_WALL = 'collarWall'
-INPUT_ID_CROSS_ANGLE = 'crossAngle'      INPUT_ID_ENGAGEMENT = 'engagement'
-INPUT_ID_MOUNT_ANGLE_A = 'mountAngleA'   INPUT_ID_MOUNT_ANGLE_B = 'mountAngleB'
-INPUT_ID_ASSEMBLY_PHASE = 'assemblyPhase'
-CELL_TEETH = 4
+Lambda   = TwistLead / (2*pi)              mm (cm) of advance per radian
+tanSlant = tan(Slant)
+Bow_cm   = 10 * Bow                        the edge drops Bow_cm * v^2 cm at v cm
+A        = W - Engagement                  distance between the two axes
+Ri       = cageRadius - collarHalf         sleeve inner radius        (12 mm at the defaults)
+Ro       = cageRadius + collarHalf         sleeve outer radius        (18 mm)
+hw       = W/2 + clearance                 the bore's half-width      (7.70 mm)
+ht       = T/2 + clearance                 the bore's half-thickness  (2.075 mm)
+a        = roofAllowance
+c        = hypot(hw, ht + a)               furthest bore corner from its axis (8.058 mm)
+sIn      = sqrt(Ri^2 - c^2) - 0.1 cm       where a +R bore's cut starts (7.892 mm)
+sOut     = Ro + 0.1 cm                     where it ends               (19 mm)
+axialWindow = 1.5 * sqrt(W^2 - A^2) / sin(Sigma)   (8.40 mm)
+cell     = min(CELL_TEETH, N)              teeth in the lofted cell
+n        = max(ceil((P/Lambda) / radians(2)), 8)   steps per tooth (10 at the defaults)
+q        = N // cell                       whole cells (17 at the defaults)
+r        = N % cell                        remainder teeth (0 at the defaults)
+Z0       = [0, assemblyPhase]              tooth phase of gear A and gear B
+Phi      = [PhiA, PhiB]
 ```
 
-**The dialog, in this exact order** ([PB-AUTOFOCUS-FIRST]: the plane selection is added first so
-the dialog opens on it). The three selections are top-level inputs of `command.commandInputs`.
-Then three groups, each made with `command.commandInputs.addGroupCommandInput(groupId, groupLabel)`;
-a group's inputs are added to that group's `group.children`, not to the top level.
-`ribbonGroup` and `frameGroup` keep `isExpanded = True`; `meshGroup` is set `isExpanded = False`
-(its values come from the meshing search and jam when changed carelessly).
+`ceil` of a quotient that is a whole number up to rounding must not step past it: compute the
+twist step count as the ceiling of `x - 1e-12`.
 
-| # | Group id, group label | Dialog label | Input id | Unit string | Default (display) | `createByReal` value (internal) |
-|---|---|---|---|---|---|---|
-| 1 | top level | Target Plane | `plane` | selection | — | — |
-| 2 | top level | Centre Point | `point` | selection | — | — |
-| 3 | top level | Parent Component | `parent` | selection | — | — |
-| 4 | `ribbonGroup`, `Ribbon` | Ribbon Width | `ribbonWidth` | `mm` | 15 mm | 1.5 |
-| 5 | `ribbonGroup`, `Ribbon` | Tooth Count | `toothCount` | `''` | 68 | 68 |
-| 6 | `ribbonGroup`, `Ribbon` | Twist Lead | `twistLead` | `mm` | 49.5 mm | 4.95 |
-| 7 | `ribbonGroup`, `Ribbon` | Ribbon Thickness | `ribbonThickness` | `mm` | 3.75 mm | 0.375 |
-| 8 | `ribbonGroup`, `Ribbon` | Tooth Pitch | `toothPitch` | `mm` | 2.625 mm | 0.2625 |
-| 9 | `ribbonGroup`, `Ribbon` | Tooth Height | `toothHeight` | `mm` | 2.625 mm | 0.2625 |
-| 10 | `frameGroup`, `Frame` | Cage Radius | `cageRadius` | `mm` | 15 mm | 1.5 |
-| 11 | `frameGroup`, `Frame` | Cage Rise | `cageRise` | `mm` | 18.75 mm | 1.875 |
-| 12 | `frameGroup`, `Frame` | Clearance | `clearance` | `mm` | 0.20 mm | 0.02 |
-| 13 | `frameGroup`, `Frame` | Roof Allowance | `roofAllowance` | `mm` | 0.30 mm | 0.03 |
-| 14 | `frameGroup`, `Frame` | Collar Half Length | `collarHalf` | `mm` | 3 mm | 0.3 |
-| 15 | `frameGroup`, `Frame` | Collar Wall | `collarWall` | `mm` | 3 mm | 0.3 |
-| 16 | `meshGroup`, `Mesh (from the mesh search)` | Crossing Angle | `crossAngle` | `deg` | 80° | radians(80) |
-| 17 | `meshGroup`, `Mesh (from the mesh search)` | Engagement | `engagement` | `mm` | 0.90 mm | 0.09 |
-| 18 | `meshGroup`, `Mesh (from the mesh search)` | Mounting Angle A | `mountAngleA` | `deg` | 14° | radians(14) |
-| 19 | `meshGroup`, `Mesh (from the mesh search)` | Mounting Angle B | `mountAngleB` | `deg` | 14° | radians(14) |
-| 20 | `meshGroup`, `Mesh (from the mesh search)` | Assembly Phase | `assemblyPhase` | `mm` | −1.30 mm | −0.13 |
+**The sleeve's four checks**, next and in this order, each naming the input given and the bound,
+with the measured value in the message:
 
-Each value input is `group.children.addValueInput(inputId, label, unit, adsk.core.ValueInput.createByReal(value))`
-with the value of the last column ([PB-DIALOG-DEFAULT-UNITS]: cm for a length, radians for an
-angle, the bare count for `toothCount`).
+1. *The channel starts in the hollow*, naming `cageRadius`: `hypot(c, 0.1 cm) < Ri`, which is
+   `sIn > 0`.
+2. *The mesh stays visible along the axis*, naming `cageRadius`:
+   `hypot(axialWindow, hypot(W/2, T/2)) + clearance <= Ri` (11.61 mm against 12 mm at the defaults).
+3. *The end faces keep collarWall*, naming `cageRise`: `cageRise >= A/2 + c + collarWall`
+   (18.03 mm at the defaults).
+4. *The wall between neighbouring bores keeps collarWall*, naming `collarWall`: the separation of
+   "The wall between the bores" below must be `>= collarWall`; the message names the two bores
+   and the separation. It is 5.067 mm at the defaults, across the `-ê` gap between the two `-R`
+   bores.
 
-Each selection input is `command.commandInputs.addSelectionInput(inputId, label, tooltip)`, then
-its filters as named constants ([PB-SELECTION-FILTER-ENUM]), then
-`selection.setSelectionLimits(1, 1)` ([PB-SELECTION-DECL]):
+**The frame of the two searches.** The searches run before any feature, so they cannot read `C`,
+`ê` or `n̂` from the design; they work in an abstract frame with `C` at the origin, `ê`, `k̂` and
+`n̂` the X, Y and Z axes, and every length in **millimetres** (multiply each cm value by 10 on
+entry; the step sizes below are millimetres). Every point they hand on is expressed in that frame
+as `(t, z)` plane coordinates or as `along ê, along k̂, along n̂` components, which S05 onwards maps
+onto the real `C`, `ê`, `k̂` and `n̂`; every length they hand on is divided by 10 back to cm. In it:
 
-| Input id | Filters (`selection.addSelectionFilter(...)` each) | Tooltip, verbatim |
-|---|---|---|
-| `plane` | `adsk.core.SelectionCommandInput.ConstructionPlanes`, `adsk.core.SelectionCommandInput.PlanarFaces` | `Plane the cage's axis is normal to` |
-| `point` | `adsk.core.SelectionCommandInput.ConstructionPoints`, `adsk.core.SelectionCommandInput.SketchPoints` | `Centre of the mechanism` |
-| `parent` | `adsk.core.SelectionCommandInput.Occurrences`, `adsk.core.SelectionCommandInput.RootComponents` | `Component the mechanism is created under` |
+```
+dirA = ( cos(Sigma/2),  sin(Sigma/2), 0)     originA = (0, 0, -A/2)    uA = (0, 0,  1)
+dirB = ( cos(Sigma/2), -sin(Sigma/2), 0)     originB = (0, 0, +A/2)    uB = (0, 0, -1)
+v_g  = dir_g x u_g
+Theta_g(s) = s/Lambda + Phi_g
+turn(u, v, th) = (u*cos(th) - v*sin(th), u*sin(th) + v*cos(th))      -> (x along u_g, y along v_g)
+Point_g(s, u, v) = origin_g + s*dir_g + x*u_g + y*v_g,  (x, y) = turn(u, v, Theta_g(s))
+```
 
-The `parent` input pre-selects the root component with `selection.addSelection(get_design().rootComponent)`.
+**The four bores**, in this fixed order, which is also the order of S21's cuts: gear A `-R`,
+gear A `+R`, gear B `-R`, gear B `+R`. A bore has its gear `g`, its sign `sigma` (−1 for `-R`, +1
+for `+R`), its cut span (`[-sOut, -sIn]` for `-R`, `[sIn, sOut]` for `+R`), its crossing station
+`sc = sigma*cageRadius`, and its rectangle `u` from `-hw` to `hw`, `v` from `vLo` to `vHi`.
 
-## S02 `[PROSE]` processInputs: read, check and derive
+**The level bore and the roof allowance.** For each gear, compute each bore's tilt: take
+`theta` at the two stations `sigma*(cageRadius - collarHalf)` and `sigma*(cageRadius + collarHalf)`;
+when some `pi/2 + k*pi` (any integer `k`) lies between the two, inclusive, the tilt is 0, and
+otherwise it is the smaller `|cos(theta)|` of the two. The bore with the smaller tilt is the gear's
+**level bore**; on a tie, the `-R` bore. At the defaults both tilts are 0 and each gear's level
+bore is its `-R` bore. The level bore's **roof** is its `+v` face when
+`-sin(Theta_g(sc)) * (u_g . n)` is positive at its crossing station (`u_g . n` is +1 for gear A and
+−1 for gear B), and its `-v` face otherwise: gear A's `+v` face and gear B's `-v` face at the
+defaults. Then:
+
+```
+level bore, roof +v :  vLo = -ht       vHi = ht + a
+level bore, roof -v :  vLo = -ht - a   vHi = ht
+any other bore      :  vLo = -ht       vHi = ht
+```
+
+Store the four bores, each with these values, on `self` for S20 to S22.
+
+**A bore's section in the wall** (used by both searches). For bore `b` at station `s` with
+`|s| < Ro`, in the section plane's `(x, y)`: turn the corners `(-hw, vLo)`, `(hw, vLo)`,
+`(hw, vHi)`, `(-hw, vHi)`, in that order, by `Theta_g(s)`; that polygon runs counter-clockwise.
+Clip it to the heights inside the end faces, keeping the `x` for which `zg + x*un` lies within
+`±cageRise`, with `zg = (origin_g).z` (−A/2 or +A/2) and `un = u_g . n` (±1). Then clip what is left
+twice more, separately: to `near <= y <= far` and to `-far <= y <= -near`, with
+`near = sqrt(max(0, Ri^2 - s^2))` and `far = sqrt(Ro^2 - s^2)`. Those two are the section's two
+**pieces** (either may be empty). At `|s| >= Ro` there is no piece. Every clip keeps the part of
+a convex polygon on one side of a line by walking its edges in order (Sutherland–Hodgman): keep a
+corner on the kept side (the boundary included), and add the point where an edge crosses the line.
+
+```
+clip(poly, a, b, c):          # keep a*x + b*y <= c
+    out = []
+    for each edge p -> q (q the next corner, the last edge back to the first):
+        fp = a*p.x + b*p.y - c ; fq = a*q.x + b*q.y - c
+        if fp <= 0: out.append(p)
+        if (fp < 0 and fq > 0) or (fp > 0 and fq < 0):
+            out.append(p + (q - p) * fp/(fp - fq))
+    return out
+heights:  clip(poly, un, 0, cageRise - zg) then clip(that, -un, 0, cageRise + zg)
+piece 1:  clip(clip(poly, 0, -1, -near), 0, 1, far)
+piece 2:  clip(clip(poly, 0, 1, -near), 0, -1, far)
+```
+
+**The wall between the bores** (the fourth sleeve check):
+
+1. *Outline.* For each bore, at stations `s = sigma*(sIn + 0.1*k)` for `k = 0, 1, …` while
+   `|s| <= sOut`, take seventeen points on each side of its rectangle — `(hw, v)` and `(-hw, v)`
+   for `v = vLo + (vHi - vLo)*i/16`, and `(u, vHi)` and `(u, vLo)` for `u = -hw + 2*hw*i/16`,
+   `i = 0 … 16` — turned to the station's angle and placed as `Point_g(s, u, v)`. Keep a point when
+   `hypot(P.x, P.y)` lies within `Ri - 0.5` to `Ro + 0.5`.
+2. *Gaps.* Four gaps, each between two bores and named by the direction `d` it faces: `+k`
+   (`d = (0, 1, 0)`; gear A `+R` and gear B `-R`), `-e` (`d = (-1, 0, 0)`; gear A `-R` and gear B
+   `-R`), `-k` (`d = (0, -1, 0)`; gear A `-R` and gear B `+R`) and `+e` (`d = (1, 0, 0)`; gear A `+R`
+   and gear B `+R`). With `across = n x d` (`n = (0, 0, 1)`), project each of the gap's two bores'
+   kept points to `(P . across, P.z)` and take each bore's convex hull by Andrew's monotone chain.
+3. *Separation.* For every edge of either hull, with `m` the unit vector square to it, the
+   separation along `m` is the larger of `min(m . q) - max(m . p)` and `min(m . p) - max(m . q)`,
+   `p` over the first hull's corners and `q` over the second's. The gap's separation is the largest
+   over all edges of both hulls (negative when the hulls overlap).
+4. The least of the four gaps' separations must be `>= collarWall` (check 4 above).
+
+**The window search.** It refuses nothing: a gap with no room gets no window, and the build logs
+which and why. The two windows face `+k` then `-k` when `Sigma <= 90°`, and `+e` then `-e` past it
+(`d` as in the gaps above). For each facing `d`, with `across = n x d`, a point `P` has plane
+coordinates `t = P . across`, `z = P.z` and depth `a = P . d`; at `t` the wall runs from
+`a0(t) = sqrt(max(0, Ri^2 - t^2))` to `a1(t) = sqrt(max(0, Ro^2 - t^2))`.
+
+1. *Flanking and far bores.* A bore's crossing is `Point_g(sc, 0, 0)`, that is
+   `origin_g + sc*dir_g`. The two bores whose crossing has `crossing . d > 0` flank the window; the
+   other two are its far bores. The low flanking bore is the one whose crossing has the smaller
+   `z`; `lean = +1` when the high one's crossing has the larger `t`, else `-1`.
+2. *The long sides* (`wallCorners`). Walk each flanking bore's cut span at stations
+   `spanLo + 0.001*k`, `k = 0, 1, …` while `<= spanHi`; at each, take every corner of both pieces as
+   the point `origin_g + x*u_g + y*v_g + s*dir_g` and its `m = z + lean*t`. `lowReach` is the largest
+   `m` over the low bore, `highReach` the least over the high bore. Then
+   `lo = lowReach + sqrt(2)*collarWall` and `hi = highReach - sqrt(2)*collarWall`. No window when
+   `hi <= lo`, the reason being that the flanking bores leave no band.
+3. *zLimit* (`channelTop`), computed once for both windows: over all four bores, at stations
+   `s = sigma*(sIn + 0.01*k)` while `|s| <= sOut`, at the stations with `|s| <= Ro` where
+   `hypot(s, ymax) >= Ri` (`ymax` the largest `|u*sin(th) + v*cos(th)|` over the bore's four corners
+   `(u, v)`, `th = Theta_g(s)`), the largest `|zg + (u*cos(th) - v*sin(th))*un|` over those corners
+   (13.81 mm at the defaults).
+4. *The trims.* `top = min(2*zLimit - hi, hi + sqrt(2)*Ri)` and
+   `bottom = max(-2*zLimit - lo, lo - sqrt(2)*Ri)`.
+5. *The ends* (`windowEnd`). For `delta = +1` and `delta = -1`: bisect `te` 24 times between
+   `lower = 0` and `upper = min(Ri, Ro/sqrt(2))*(1 - 1e-9)`: take `mid = (lower + upper)/2`, set
+   `lower = mid` when `clear(delta*mid)` holds and `upper = mid` otherwise; the end is the final
+   `lower`. `right = end(+1)`, `left = -end(-1)`. No window when `right <= left`, the reason being
+   that the far bores leave the band no length. `clear(t)`:
+   - `zLow = max(lo - lean*t, bottom + lean*t)`, `zHigh = min(hi - lean*t, top + lean*t)`; not
+     clear when `zLow > zHigh`.
+   - `need = collarWall + 0.1/sqrt(2) + 0.005` (3.076 mm at the defaults).
+   - The points, each `t*across + z*n + a*d`: for each of `z = zLow` and `z = zHigh`, at
+     `a = a0(t), a0(t) + 0.1, …` while below `a1(t)`, and then `a1(t)` itself; and, at both
+     `a = a0(t)` and `a = a1(t)`, at `z = zLow + (zHigh - zLow)*k/nz` for `k = 1 … nz - 1`,
+     `nz = ceil((zHigh - zLow)/0.1)`, and at `z = -zLimit + 0.1*j` for every `j >= 0` with
+     `z <= zLimit` and `zLow < z < zHigh`.
+   - Not clear as soon as any point's `wallGap` to either far bore, with `reach = need`, is under
+     `need`; clear otherwise.
+6. *The hexagon.* Clip the square `(-2*Ro, -2*Ro)`, `(2*Ro, -2*Ro)`, `(2*Ro, 2*Ro)`,
+   `(-2*Ro, 2*Ro)`, in `(t, z)`, in this order to `lean*t + z <= hi`, `-lean*t - z <= -lo`,
+   `-lean*t + z <= top`, `lean*t - z <= -bottom`, `t <= right` and `-t <= -left`. Drop a corner that
+   lies within 0.001 mm of the one kept before it, and the last while it lies within 0.001 mm of the
+   first. No window when fewer than three corners remain or their signed area is not positive.
+
+At the defaults the `+k` window has `lo = -5.180`, `hi = 5.180`, `bottom = -22.151`,
+`top = 22.151`, `left = -11.570`, `right = 11.570` and corners `(11.57, -6.39)`,
+`(-8.49, 13.67)`, `(-11.57, 10.58)`, `(-11.57, 6.39)`, `(8.49, -13.67)`, `(11.57, -10.58)`, area
+220.7 mm²; the `-k` window has `lo = -4.886`, `hi = 5.180`, `bottom = -21.857`, `top = 22.151`,
+`left = -11.536`, `right = 11.570` and corners `(11.57, -6.39)`, `(-8.49, 13.67)`,
+`(-11.54, 10.61)`, `(-11.54, 6.65)`, `(8.49, -13.37)`, `(11.57, -10.29)`, area 213.8 mm².
+
+**wallGap(P, bore, reach)**, the distance from a point to a bore's channel in the wall:
+
+```
+x  = (P - origin_g) . u_g ;  y = (P - origin_g) . v_g ;  sq = (P - origin_g) . dir_g
+if hypot(hypot(x, y), sq - min(max(sq, spanLo), spanHi)) - c >= reach: return reach
+table = the bore's station table (built once per bore, before its first walk):
+    stations spanLo + 0.002*k, k = 0, 1, … while <= spanHi, each with its non-empty pieces;
+    wherever the set of non-empty pieces differs between two neighbouring stations, add
+    stations every 0.0001 strictly between them; all in order of s.
+    For each piece keep its circle: centre the average of its corners, radius the largest
+    distance from that centre to a corner.
+best = reach^2
+walk up from the first station with s >= sq, then down from the one before it;
+stop each way at the first station with (sq - s)^2 >= best.
+at each station, for each non-empty piece:
+    o = hypot(x - cx, y - cy) - radius
+    if o > 0 and (sq - s)^2 + o^2 >= best: skip the piece
+    d2 = 0 when (x, y) is inside the piece (on the inner side of every edge of the
+         counter-clockwise polygon; a piece of fewer than three corners is never inside),
+         else the least squared distance from (x, y) to the piece's edges
+    best = min(best, (sq - s)^2 + d2)
+return sqrt(best)
+```
+
+Store each window found on `self.windows` (zero to two, in facing order): its facing name (`+k`,
+`-k`, `+e` or `-e`), its `d` and `across` as frame components, and its corners as `(t, z)` in cm.
+For a facing with no room, log `No window facing {d}: {reason}` with `futil.log(...)`
+`[PB-LOGGING]`, `{d}` the facing name, and keep no window for it.
 
 <!-- step-meta
 {
@@ -254,39 +570,21 @@ The `parent` input pre-selects the root component with `selection.addSelection(g
     },
     {
       "condition": null,
-      "name": "get_selection",
-      "owner": null,
-      "reason": "lib/geargen/base.py provides get_selection",
-      "receiver": null,
-      "role": "inherited",
-      "span": "get_selection(inputs, INPUT_ID_PARENT)"
-    },
-    {
-      "condition": null,
-      "name": "get_selection",
-      "owner": null,
-      "reason": "lib/geargen/base.py provides get_selection",
-      "receiver": null,
-      "role": "inherited",
-      "span": "get_selection(inputs, INPUT_ID_PLANE)"
-    },
-    {
-      "condition": null,
-      "name": "get_selection",
-      "owner": null,
-      "reason": "lib/geargen/base.py provides get_selection",
-      "receiver": null,
-      "role": "inherited",
-      "span": "get_selection(inputs, INPUT_ID_POINT)"
-    },
-    {
-      "condition": null,
       "name": "itemById",
       "owner": "adsk.core.CommandInputs",
       "reason": null,
       "receiver": "inputs",
       "role": "required",
-      "span": "inputs.itemById(inputId)"
+      "span": "inputs.itemById(id)"
+    },
+    {
+      "condition": null,
+      "name": "selection",
+      "owner": "adsk.core.SelectionCommandInput",
+      "reason": null,
+      "receiver": "selectionInput",
+      "role": "required",
+      "span": "selectionInput.selection(0).entity"
     },
     {
       "condition": null,
@@ -295,147 +593,56 @@ The `parent` input pre-selects the root component with `selection.addSelection(g
       "reason": null,
       "receiver": "design.unitsManager",
       "role": "required",
-      "span": "design.unitsManager.evaluateExpression(valueInput.expression, unit)"
-    }
-  ],
-  "citations": [
-    {
-      "first": 526,
-      "last": 670,
-      "path": "spec/screwgear/instructions.md"
+      "span": "design.unitsManager.evaluateExpression(input.expression, units)"
     },
     {
-      "first": 1023,
-      "last": 1031,
-      "path": "spec/screwgear/instructions.md"
+      "condition": null,
+      "name": "get_design",
+      "owner": null,
+      "reason": "lib/geargen/misc.py defines get_design for every gear",
+      "receiver": null,
+      "role": "inherited",
+      "span": "get_design()"
     },
-    {
-      "first": 1070,
-      "last": 1093,
-      "path": "spec/screwgear/instructions.md"
-    }
-  ],
-  "schema": 2
-}
--->
-
-**From:** `spec/screwgear/instructions.md` L526–670; `spec/screwgear/instructions.md` L1023–1031; `spec/screwgear/instructions.md` L1070–1093.
-
-`processInputs(inputs)` runs first in `generate` and before anything creates the occurrence
-([PB-SELECTION-STASH]).
-
-**Selections first.** Read the three selections with `get_selection(inputs, INPUT_ID_PARENT)`,
-`get_selection(inputs, INPUT_ID_PLANE)` and `get_selection(inputs, INPUT_ID_POINT)`; raise naming
-the id when a selection does not hold exactly one entity. The parent is an `Occurrence` (take its
-`component`) or a `Component`; store it as `self.parentComponent`. Store the plane as
-`self.plane` and the point as `self.anchorPoint`.
-
-**Values.** Every input is looked up by id on the command's top-level inputs with
-`inputs.itemById(inputId)` — grouped inputs included, since ids are unique across the command —
-and `processInputs` raises naming the id if a lookup returns `None`. Each value is read with
-`design.unitsManager.evaluateExpression(valueInput.expression, unit)` ([PB-EVAL-EXPRESSION]),
-`unit` being `'mm'` for a length, `'deg'` for an angle and `''` for `toothCount`; the result is
-internal units, cm and **radians**. Convert to millimetres (×10) and keep angles in radians: the
-two searches of S03 and every check below work in millimetres, and every length handed to Fusion
-afterwards is divided by 10 ([PB-PRECOMPUTED-MODE]). For the messages, degrees are
-`math.degrees` of the radians.
-
-**Range checks, in this order, each raising a clear error naming the field and the bound:**
-
-1. `ribbonWidth`, `ribbonThickness`, `toothPitch`, `twistLead`, `collarHalf`, `collarWall` and
-   `clearance` must each be `> 0`.
-2. `roofAllowance` must be `>= 0` (zero cuts every bore to the clearance alone).
-3. `toothCount` must be a whole number `>= 4`: refuse a value whose distance from its nearest
-   integer exceeds 1e-9, then use that integer as `N`.
-4. `toothHeight` must be `> 0` and `< ribbonWidth/2`.
-5. `engagement` must be `> 0` and `<= toothHeight`.
-6. `crossAngle` must lie strictly between 0° and 180°.
-7. `assemblyPhase` must lie strictly within `±toothPitch`.
-8. Both bores, each cut a millimetre past the wall, lie within the ribbon:
-   `cageRadius + collarHalf + 1 < toothCount*toothPitch/2` (mm); the message names `cageRadius`.
-
-`twistLead` has no upper bound and neither mounting angle has any range; do not add one.
-
-**Derived values** (millimetres and radians; `W` ribbonWidth, `T` ribbonThickness, `P`
-toothPitch, `H` toothHeight, `N` toothCount, `Sigma` crossAngle):
-
-```
-Lambda = twistLead / (2*pi)                       7.8782 mm per radian at the defaults
-A      = W - engagement                           14.10, the distance between the axes
-n      = max(ceil((P/Lambda) / radians(2)), 8)    steps to the tooth, 10 at the defaults
-c      = min(CELL_TEETH, N)                       teeth in the cell, 4
-q      = N // c,  r = N % c                       17 whole cells and no remainder
-L      = N*P                                      178.5, the ribbon's length
-Ri     = cageRadius - collarHalf                  12
-Ro     = cageRadius + collarHalf                  18
-hw     = W/2 + clearance                          7.70, the bore's half-width
-ht     = T/2 + clearance                          2.075, the bore's half-thickness
-a      = roofAllowance                            0.30
-cc     = hypot(hw, ht + a)                        8.058, the furthest any bore corner stands from its axis
-sIn    = sqrt(Ri^2 - cc^2) - 1                    7.892, where a +R bore's cut starts
-sOut   = Ro + 1                                   19, where it ends
-axialWindow = 1.5*sqrt(W^2 - A^2)/sin(Sigma)      7.79
-```
-
-(`cc` is the spec's `c` of §4; it is renamed here only so that it is not mistaken for the cell's
-`c`.) `n` is 10 at the defaults, so the cell has `c*n + 1 = 41` sections.
-
-**The sleeve's four checks, in this order** (each naming the field and the bound; they are
-`sleeveRefusal` of the hand-written proof):
-
-1. The channel starts in the hollow, naming `cageRadius`: `sIn > 0`, i.e. `hypot(cc, 1) < Ri`.
-2. The mesh stays visible along the axis, naming `cageRadius`:
-   `hypot(axialWindow, hypot(W/2, T/2)) + clearance <= Ri` (11.18 against 12 at the defaults).
-3. The end faces keep `collarWall`, naming `cageRise`: `cageRise >= A/2 + cc + collarWall`
-   (18.11 at the defaults).
-4. The wall between neighbouring bores keeps `collarWall`, naming `collarWall`: the separation of
-   S03 must be at least `collarWall`; the message names the two bores and the separation
-   (5.078 mm across the `-ê` gap at the defaults).
-
-**Each gear's level bore and roof face** (§4 "The roof allowance"). The gears are indexed `g = A`
-(`Phi_A` = mountAngleA, `u_dot_n = +1`) and `g = B` (`Phi_B` = mountAngleB, `u_dot_n = -1`), and
-`Theta_g(s) = s/Lambda + Phi_g`. For each gear and each bore sign `sigma` in `{-1, +1}` (`-R`,
-`+R`):
-
-- `tilt(sigma)`: take `t1 = Theta_g(sigma*(cageRadius - collarHalf))` and
-  `t2 = Theta_g(sigma*(cageRadius + collarHalf))`; the tilt is 0 when some `pi/2 + k*pi` (any
-  integer `k`) lies between them (inclusive), otherwise the smaller of `|cos t1|` and `|cos t2|`.
-- The level bore is the sign with the smaller tilt; on a tie, the `-R` bore. At the defaults both
-  gears' level bores are `-R` (tilt 0 against 0.195).
-- Its roof is the `+v` face when `-sin(Theta_g(sigma*cageRadius)) * u_dot_n > 0`, else the `-v`
-  face. At the defaults gear A's roof is `+v` and gear B's is `-v`.
-- Every bore spans `u` from `-hw` to `hw`. A non-level bore spans `v` from `vLo = -ht` to
-  `vHi = ht`. The level bore spans `vLo = -ht`, `vHi = ht + a` when its roof is `+v`, and
-  `vLo = -ht - a`, `vHi = ht` otherwise (4.45 mm through at the defaults).
-
-The bores are, in the order every later step uses them: gear A `-R`, gear A `+R`, gear B `-R`,
-gear B `+R`. A `-R` bore's cut spans stations `[-sOut, -sIn]` of its gear's axis, its profile at
-`-sOut`; a `+R` bore's spans `[sIn, sOut]`, its profile at `sIn`.
-
-## S03 `[PROSE]` processInputs: the wall between the bores and the window search
-
-<!-- step-meta
-{
-  "calls": [
     {
       "condition": null,
       "name": "log",
       "owner": null,
-      "reason": "fusion360utils provides futil.log",
+      "reason": "lib/fusion360utils defines log as futil.log",
       "receiver": "futil",
       "role": "inherited",
-      "span": "futil.log(f'No window facing {d}: {reason}')"
+      "span": "futil.log(...)"
     }
   ],
   "citations": [
     {
-      "first": 1203,
-      "last": 1232,
+      "first": 591,
+      "last": 597,
       "path": "spec/screwgear/instructions.md"
     },
     {
-      "first": 1234,
-      "last": 1372,
+      "first": 668,
+      "last": 782,
+      "path": "spec/screwgear/instructions.md"
+    },
+    {
+      "first": 1208,
+      "last": 1233,
+      "path": "spec/screwgear/instructions.md"
+    },
+    {
+      "first": 1265,
+      "last": 1294,
+      "path": "spec/screwgear/instructions.md"
+    },
+    {
+      "first": 1403,
+      "last": 1434,
+      "path": "spec/screwgear/instructions.md"
+    },
+    {
+      "first": 1435,
+      "last": 1587,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -443,191 +650,76 @@ gear B `+R`. A `-R` bore's cut spans stations `[-sOut, -sIn]` of its gear's axis
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1203–1232; `spec/screwgear/instructions.md` L1234–1372.
+**From:** `spec/screwgear/instructions.md` L591–597; `spec/screwgear/instructions.md` L668–782; `spec/screwgear/instructions.md` L1208–1233; `spec/screwgear/instructions.md` L1265–1294; `spec/screwgear/instructions.md` L1403–1434; `spec/screwgear/instructions.md` L1435–1587.
 
-Both searches run in `processInputs`, after the four checks' first three and before any feature,
-in millimetres, at the step sizes stated below. The Anchor sketch does not exist yet, so they run
-in an abstract frame, and every result they hand on is frame-free (a separation, or a window's
-corners in its own plane coordinates `(t, z)`): put `C` at the origin, `ê = (1, 0, 0)`,
-`k̂ = (0, 1, 0)`, `n̂ = (0, 0, 1)`, and build both gears' axes as S06 does from these. In that frame:
+## S04 `[PROSE]` `generate` and the component tree
 
-```
-dir_A = (cos(Sigma/2),  sin(Sigma/2), 0)    origin_A = (0, 0, -A/2)    u_A = n̂    v_A = dir_A × u_A
-dir_B = (cos(Sigma/2), -sin(Sigma/2), 0)    origin_B = (0, 0,  A/2)    u_B = -n̂   v_B = dir_B × u_B
-World_g(s, x, y) = origin_g + s*dir_g + x*u_g + y*v_g
-turn(u, v, th)   = (u*cos th - v*sin th,  u*sin th + v*cos th)
-```
+`generate`, taking `(self, inputs)`, calls, in order: `processInputs(inputs)` (S03), the method `buildComponentTree`
+(this step, no argument), the method `buildAnchor` (S05 to S07, no argument), the method
+`buildGear` with index 0 and then with index 1 (S08 to S16; each runs the methods
+`buildSweepPaths`, `buildToothCell` and `repeatCellByDoubling`, each with that index), the method
+`buildCage` (S17 to S26, no argument), the method `relocateBodies` (no argument) and the cleanup
+(S27). The gear labels are
+`'Gear A'` for index 0 and `'Gear B'` for index 1. Every failure raises; the command layer catches
+it and calls the inherited `self.deleteComponent()` `[PB-LOGGING]`.
 
-A bore's **crossing** is `origin_g + sigma*cageRadius*dir_g`. Its rectangle's corners, in this
-order (counter-clockwise), are `(-hw, vLo)`, `(hw, vLo)`, `(hw, vHi)`, `(-hw, vHi)` with the
-bore's own `vLo`, `vHi` (S02).
+Handles carried on `self` (no generation context): `self.designOcc`, `self.gearOccs` (list of
+two), `self.cageOcc`, `self.gearBodies` (list of two), `self.cageBody`, `self.pathLines` (list of
+two dicts keyed `'bore-'` and `'bore+'`, each the Paths sketch line of S08 that bore's sweep runs
+along), and `self.windows` (S03).
 
-**The wall between the bores** (`channelSeparation`). Round the tube the bores alternate between
-the gears, so the four gaps between neighbours face `+k̂` (gear A `+R` and gear B `-R`), `-ê`
-(gear A `-R` and gear B `-R`), `-k̂` (gear A `-R` and gear B `+R`) and `+ê` (gear A `+R` and gear
-B `+R`).
+**The component tree** `[PB-OCCURRENCE-TREE]`. The top occurrence is the inherited
+`self.getOccurrence()`, which creates it under `self.parentComponent` and is what
+`self.deleteComponent()` deletes on failure; name its component `Screw Gearing`
+(`component.name = 'Screw Gearing'`). Never call `addNewComponent` for it. Under that component
+create four children, each `topComponent.occurrences.addNewComponent(adsk.core.Matrix3D.create())`,
+in this order, naming each `occurrence.component.name`: `Design`, `Gear A`, `Gear B`, `Cage`.
+Keep the occurrences as `self.designOcc`, `self.gearOccs = [gearA, gearB]` and `self.cageOcc`.
+Every sketch, construction plane and feature below is made in `self.designOcc.component`, called
+`design` from here on; the three other children stay empty until S27 `[PB-NO-CROSS-SIBLING]`.
 
-1. Sample each bore's outline: at stations `s = sigma*sIn + sigma*0.1*j` for `j = 0, 1, …` while
-   `|s| <= sOut`, take 17 points on each side of the rectangle — `(hw, v)` and `(-hw, v)` for
-   `v = vLo + (vHi - vLo)*i/16`, and `(u, vHi)` and `(u, vLo)` for `u = -hw + 2*hw*i/16`,
-   `i = 0 … 16` — each turned by `Theta_g(s)` and placed at `World_g(s, x, y)`. Keep a point when
-   `hypot(P·ê, P·k̂)` lies within `Ri - 0.5` to `Ro + 0.5`.
-2. For each gap facing `d`, with `across = n̂ × d`, project the kept points of its two bores to
-   `(P·across, P·n̂)` and take each bore's convex hull by Andrew's monotone chain.
-3. For every edge of either hull, with `m` the unit vector square to that edge, the separation
-   along `m` is the larger of `min(m·q) - max(m·p)` and `min(m·p) - max(m·q)`, `p` over the first
-   hull's corners and `q` over the second's. The gap's separation is the largest over all those
-   edges (negative when the hulls overlap).
-4. The sleeve's fourth check compares the least of the four gaps' separations with `collarWall`.
-
-**The windows** (`newWindow`, the hand-written proof's search, step for step). The windows face
-`d = +k̂` and `d = -k̂` when `crossAngle <= 90°`, and `d = +ê` and `d = -ê` past it; the `+` one
-first. Each window is found the same way from its own `d`, with `across = n̂ × d`; a point `P` has
-plane coordinates `t = P·across`, `z = P·n̂` and depth `a = P·d`. At `t` the wall runs from
-`a0(t) = sqrt(max(0, Ri^2 - t^2))` to `a1(t) = sqrt(max(0, Ro^2 - t^2))`.
-
-*A bore's section in the wall* (`sectionInWall`) at station `s` with `|s| < Ro` (none otherwise):
-turn the bore's four corners by `Theta_g(s)` to `(x, y)` (x along `u_g`, y along `v_g`). Clip that
-polygon to the heights inside the end faces: keep the `x` for which
-`(origin_g + x*u_g)·n̂` lies within `±cageRise`. Then clip what is left twice more, once to
-`near <= y <= far` and once to `-far <= y <= -near`, with `near = sqrt(max(0, Ri^2 - s^2))` and
-`far = sqrt(Ro^2 - s^2)`: those are the section's two **pieces** (either may be empty). Every
-clip keeps the part of a convex polygon on one side of a line, walking its edges in order,
-keeping each corner on the kept side and adding the point where an edge crosses the line.
-
-*The long sides.* The two bores whose crossings have `crossing·d > 0` **flank** the window; the
-other two are its **far** bores. The low flanking bore is the one whose crossing has the smaller
-`·n̂`; `lean = +1` when the high one's crossing has the larger `t`, else `-1`. Walk each flanking
-bore's cut span at stations every 0.001 from its lower end (`sigma*sIn` … for `+R`, `-sOut` … for
-`-R`, i.e. from the span's smaller station up to its larger), and take every corner of every piece
-as the point `origin_g + x*u_g + y*v_g + s*dir_g`, with `m = z + lean*t` (`wallCorners`).
-`lowReach` is the low bore's largest `m`, `highReach` the high bore's least.
-`lo = lowReach + sqrt(2)*collarWall`, `hi = highReach - sqrt(2)*collarWall`.
-
-*The trims.* `zLimit` (`channelTop`): over all four bores, at stations `s = sigma*sIn +
-sigma*0.01*j` while `|s| <= sOut`, wherever `|s| <= Ro` and `hypot(s, ymax) >= Ri` with `ymax` the
-largest `|u*sin th + v*cos th|` over the bore's four corners `(u, v)` (`th = Theta_g(s)`), take the
-largest `|(origin_g)·n̂ + (u*cos th - v*sin th)*(u_g·n̂)|` over those corners; `zLimit` is the
-largest over everything (14.54 at the defaults). Then
-
-```
-top    = min(2*zLimit - hi, hi + sqrt(2)*Ri)
-bottom = max(-2*zLimit - lo, lo - sqrt(2)*Ri)
-```
-
-*The ends* (`windowEnd`). For `delta = +1` (right) and `delta = -1` (left): bisect `te` 24 times
-between 0 and `min(Ri, Ro/sqrt(2))*(1 - 1e-9)`, taking the middle and making it the new lower end
-when `clear(te)` holds and the new upper end when it does not; the end is the final lower end.
-`right = end(+1)`, `left = -end(-1)`. `clear(te)`, at `t = delta*te`:
-
-1. `zLow = max(lo - lean*t, bottom + lean*t)`, `zHigh = min(hi - lean*t, top + lean*t)`; not
-   clear when `zLow > zHigh`.
-2. `need = collarWall + 0.1/sqrt(2) + 0.005` (3.076 at the defaults).
-3. The points, each `t*across + z*n̂ + a*d`: the two corner lines through the wall, at
-   `z = zLow` and `z = zHigh`, each at `a = a0(t), a0(t) + 0.1, …` and last `a1(t)` (a step that
-   would pass `a1` lands on it); and, on the inner face `a = a0(t)` and on the outer face
-   `a = a1(t)`, the upright edge at `z = zLow + (zHigh - zLow)*k/nz` for `k = 1 … nz - 1` with
-   `nz = ceil((zHigh - zLow)/0.1)`, and at `z = -zLimit + 0.1*j` for every `j >= 0` with
-   `z <= zLimit` and `zLow < z < zHigh`.
-4. Not clear as soon as any point's distance to either far bore's channel, by `wallGap` below
-   with `reach = need`, is under `need`; clear otherwise.
-
-*The distance to a channel* (`wallGap`) for a point `Q` and one bore of gear `g` with cut span
-`[s1, s2]`: `x = (Q - origin_g)·u_g`, `y = (Q - origin_g)·v_g`, `sq = (Q - origin_g)·dir_g`.
-When `hypot(hypot(x, y), sq - min(max(sq, s1), s2)) - cc >= reach`, the distance is `reach`.
-Otherwise walk the bore's **station table**, built once per bore: stations `s1 + 0.002*k` for
-`k = 0, 1, …` while `<= s2`, each with its two pieces; wherever the set of non-empty pieces
-differs between two neighbouring stations, add stations every 0.0001 strictly between them; all
-in order of `s`. For each piece keep its circle: centre the average of its corners, radius the
-largest distance from that to a corner. Start with `best = reach^2`; walk up from the first
-station at or above `sq`, then down from the one before it, stopping each way at the first station
-with `(sq - s)^2 >= best`. At each station, for each non-empty piece: pass over it when
-`o = hypot(x - cx, y - cy) - radius` is positive and `(sq - s)^2 + o^2 >= best`; otherwise set
-`best = min(best, (sq - s)^2 + d2)`, `d2` being 0 when `(x, y)` is inside the piece (on the inner
-side of every edge of the counter-clockwise polygon; a piece of fewer than three corners never
-is) and otherwise the least squared distance from `(x, y)` to its edges. The distance is
-`sqrt(best)`.
-
-*The hexagon* (`clipCorners`). Start from the square `-2*Ro <= t, z <= 2*Ro`, corners in the
-order `(-2Ro, -2Ro)`, `(2Ro, -2Ro)`, `(2Ro, 2Ro)`, `(-2Ro, 2Ro)`, and clip it, in this order, to
-`lean*t + z <= hi`, `-lean*t - z <= -lo`, `-lean*t + z <= top`, `lean*t - z <= -bottom`,
-`t <= right` and `-t <= -left`; drop a corner within 0.001 of the one before it (and the last
-when it is within 0.001 of the first). At the defaults:
-
-| Window | lo | hi | bottom | top | left | right | Corners `(t, z)` | Area mm² |
-|---|---|---|---|---|---|---|---|---|
-| `+k` | −3.780 | 6.730 | −20.751 | 22.352 | −11.523 | 11.703 | (11.70, −4.97), (−7.81, 14.54), (−11.52, 10.83), (−11.52, 7.74), (8.49, −12.27), (11.70, −9.05) | 220.0 |
-| `-k` | −6.436 | 3.780 | −22.645 | 20.751 | −11.670 | 11.523 | six, by the same clip | 215.1 |
-
-*When a gap has no room* (`room`). A window is not cut when `hi <= lo`, or when `right <= left`,
-or when the hexagon has fewer than three corners or no area. The build then logs
-`futil.log(f'No window facing {d}: {reason}')` ([PB-LOGGING]), `{d}` being `+k`, `-k`, `+e` or
-`-e` and `{reason}` naming which of those held, and builds the sleeve without that window. This
-refuses nothing.
-
-Store `self.windows` as a list of zero to two entries, each the facing direction's name and unit
-vector in the abstract frame, its `across`, and its corner list `(t, z)` in mm. The frame-free
-results carry over to the real frame of S06 unchanged: a corner `(t, z)` is the world point
-`C + t*across + z*n̂` with `across` and `d` rebuilt from the real `ê`, `k̂`, `n̂`.
-
-## S04 `[PROSE]` generate and the component tree
+**Never call `occurrence.activate()`** `[PB-NEVER-ACTIVATE]`, on any occurrence. Sketches go
+directly on the user-selected plane `[PB-USE-SELECTED-PLANE]`: no coplanar construction plane is
+made from it, and nothing is normalised.
 
 <!-- step-meta
 {
   "calls": [
-    {
-      "condition": null,
-      "name": "generate",
-      "owner": null,
-      "reason": "lib/geargen/base.py declares the abstract generate that the generator implements",
-      "receiver": null,
-      "role": "inherited",
-      "span": "generate(self, inputs)"
-    },
     {
       "condition": null,
       "name": "processInputs",
       "owner": null,
       "reason": null,
-      "receiver": "self",
+      "receiver": null,
       "role": "required",
-      "span": "self.processInputs(inputs)"
+      "span": "processInputs(inputs)"
     },
     {
       "condition": null,
-      "name": "hide_construction_geometry",
+      "name": "deleteComponent",
       "owner": null,
-      "reason": "lib/geargen/solids.py provides hide_construction_geometry",
-      "receiver": "solids",
+      "reason": "base.Generator.deleteComponent removes the top occurrence on failure",
+      "receiver": "self",
       "role": "inherited",
-      "span": "solids.hide_construction_geometry(self.designOcc.component)"
+      "span": "self.deleteComponent()"
     },
     {
       "condition": null,
       "name": "getOccurrence",
       "owner": null,
-      "reason": "base.Generator provides getOccurrence, which creates the top occurrence",
+      "reason": "base.Generator.getOccurrence creates the top occurrence",
       "receiver": "self",
       "role": "inherited",
       "span": "self.getOccurrence()"
     },
     {
       "condition": null,
-      "name": "deleteComponent",
-      "owner": null,
-      "reason": "base.Generator provides deleteComponent for error cleanup",
-      "receiver": null,
-      "role": "inherited",
-      "span": "deleteComponent()"
-    },
-    {
-      "condition": null,
       "name": "addNewComponent",
       "owner": "adsk.fusion.Occurrences",
       "reason": null,
-      "receiver": "component.occurrences",
+      "receiver": "topComponent.occurrences",
       "role": "required",
-      "span": "component.occurrences.addNewComponent(adsk.core.Matrix3D.create())"
+      "span": "topComponent.occurrences.addNewComponent(adsk.core.Matrix3D.create())"
     },
     {
       "condition": null,
@@ -636,53 +728,89 @@ results carry over to the real frame of S06 unchanged: a corner `(t, z)` is the 
       "reason": null,
       "receiver": "adsk.core.Matrix3D",
       "role": "required",
-      "span": "component.occurrences.addNewComponent(adsk.core.Matrix3D.create())"
+      "span": "topComponent.occurrences.addNewComponent(adsk.core.Matrix3D.create())"
+    },
+    {
+      "condition": null,
+      "name": "activate",
+      "owner": "adsk.fusion.Occurrence",
+      "reason": "PB-NEVER-ACTIVATE: activating mis-resolves the selected plane",
+      "receiver": "occurrence",
+      "role": "forbidden",
+      "span": "occurrence.activate()"
     }
   ],
   "citations": [
     {
-      "first": 475,
-      "last": 524,
+      "first": 577,
+      "last": 582,
       "path": "spec/screwgear/instructions.md"
     },
     {
-      "first": 743,
-      "last": 757,
+      "first": 598,
+      "last": 616,
       "path": "spec/screwgear/instructions.md"
+    },
+    {
+      "first": 855,
+      "last": 869,
+      "path": "spec/screwgear/instructions.md"
+    },
+    {
+      "first": 929,
+      "last": 960,
+      "path": ".claude/skills/generate-gear/PLAYBOOK.md"
     }
   ],
   "schema": 2
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L475–524; `spec/screwgear/instructions.md` L743–757.
+**From:** `spec/screwgear/instructions.md` L577–582; `spec/screwgear/instructions.md` L598–616; `spec/screwgear/instructions.md` L855–869; `.claude/skills/generate-gear/PLAYBOOK.md` L929–960.
 
-`generate(self, inputs)` runs, in this order: `self.processInputs(inputs)`,
-the method `buildComponentTree`, the method `buildAnchor`, the method `buildGear` for gear index 0
-and then for gear index 1, the method `buildCage`, the method `relocateBodies`, then
-`solids.hide_construction_geometry(self.designOcc.component)`. The method `buildGear`, given a
-gear index, runs the methods `buildSweepPaths`, `buildToothCell` and `repeatCellByDoubling` for
-that index, in that order.
+## S05 `[GO]` The Anchor sketch, and the frame read from it
 
-**No generation context** — handles live on `self`: `self.designOcc`, `self.gearOccs` (two),
-`self.cageOcc`, `self.gearBodies` (two), `self.cageBody`, `self.pathLines` (two dicts, one per gear,
-keyed `'bore-'` and `'bore+'`, each the sketch line of S07 its bore's sweep runs along) and
-`self.windows` (S03).
+The method `buildAnchor` begins here. Create the sketch with `design.sketches.add(self.targetPlane)` on the
+user-selected plane itself `[PB-USE-SELECTED-PLANE]` and name it `Anchor`. Do not defer its
+computing (it projects, and deferral under a projection has not been measured `[SCREW-F-DEFER]`).
 
-**The tree** ([PB-OCCURRENCE-TREE]). The top occurrence is the inherited `self.getOccurrence()`,
-created under `self.parentComponent`; name its component `Screw Gearing` (it is what the inherited
-`deleteComponent()` deletes on failure; never `addNewComponent` it yourself). Under it, four
-children, each `component.occurrences.addNewComponent(adsk.core.Matrix3D.create())` with its
-component named, in this order: `Design` (`self.designOcc`; every sketch, plane and feature of
-this build is made in its component), `Gear A`, `Gear B` (`self.gearOccs`) and `Cage`
-(`self.cageOcc`). The last three stay empty until S23.
+1. Project the selected point: `projected = anchorSketch.project(self.centrePoint).item(0)`. This
+   is the one projection in the build `[SCREW-F-REFERENCES]`. The API reference declares only
+   `project2`; this gear keeps `project`, which every add-in that has loaded in Fusion calls.
+2. Draw the **Anchor Line** from two raw `Point3D` seeds 0.5 cm either side of the projected point
+   along the sketch's own x axis, the start to the left: with `p = projected.geometry`,
+   `start = adsk.core.Point3D.create(p.x - 0.5, p.y, 0)` and
+   `end = adsk.core.Point3D.create(p.x + 0.5, p.y, 0)`, then
+   `anchorLine = anchorSketch.sketchCurves.sketchLines.addByTwoPoints(start, end)`. Every seed is
+   the solved position `[PB-SEED-NEAR]`.
+3. Constrain it with these four and nothing else, which is the bevel gear's Anchor sketch and reads
+   fully constrained in Fusion:
+   - `anchorSketch.geometricConstraints.addCoincident(projected, anchorLine)` and
+     `anchorSketch.geometricConstraints.addMidPoint(projected, anchorLine)`: both, not the midpoint
+     alone.
+   - `anchorSketch.geometricConstraints.addHorizontal(anchorLine)`, sketch-local, so it survives a
+     tilted plane `[PB-REFLINE-DIRECTION]`.
+   - A **horizontal** distance dimension from the line's start to its end:
+     `anchorSketch.sketchDimensions.addDistanceDimension(anchorLine.startSketchPoint, anchorLine.endSketchPoint, adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation, textPoint)`
+     with `textPoint = adsk.core.Point3D.create(p.x, p.y + 0.3, 0)`, and its `parameter.value`
+     set to `1.0` (cm, 10 mm). Not an aligned dimension: an aligned length with the midpoint and
+     the horizontal is satisfied by the line either way round, and the horizontal distance from
+     start to end holds the seeded orientation only `[PB-DIM-VALUE-SEMANTICS]`.
+4. Raise naming `Anchor` unless `anchorSketch.isFullyConstrained` `[PB-FULL-CONSTRAINT]`.
+5. Only then read the frame from world geometry `[PB-WORLDGEO-CONSTRAINED]`, `[PB-WORLD-FRAME]`:
+   `C = projected.worldGeometry`, and `ê` the unit vector from
+   `anchorLine.startSketchPoint.worldGeometry` to `anchorLine.endSketchPoint.worldGeometry`.
+   Keep `anchorLine` as `self.anchorLine`: S23 builds the Window Plane on it. No later sketch
+   projects the point or the line.
 
-**Never** activate an occurrence ([PB-NEVER-ACTIVATE]); every collection is called on the
-non-activated `Design` component. Sketches go directly on the user-selected plane
-([PB-USE-SELECTED-PLANE]); the selected plane is never normalised into a coplanar construction
-plane. No construction axis or point is made anywhere ([PB-CONSTRUCTION-NEEDS-ACTIVE]).
+The proof draws the projected point as a reference point, which the engine never moves, and
+writes the midpoint alone, because the engine's midpoint carries the coincident row itself. It
+holds that the line solves where it was seeded and runs along `+x` from start to end, with the
+centre at the origin, off it, and far off it.
 
-## S05 `[GO]` Anchor sketch
+Proof: `stepAnchorSketch`.
+
+<!-- proof-run: proofkit.Run(anchorCases, stepAnchorSketch) -->
 
 <!-- step-meta
 {
@@ -692,72 +820,81 @@ plane. No construction axis or point is made anywhere ([PB-CONSTRUCTION-NEEDS-AC
       "name": "add",
       "owner": "adsk.fusion.Sketches",
       "reason": null,
-      "receiver": "component.sketches",
+      "receiver": "design.sketches",
       "role": "required",
-      "span": "sketch = component.sketches.add(self.plane)"
+      "span": "design.sketches.add(self.targetPlane)"
     },
     {
       "condition": null,
       "name": "project",
       "owner": "adsk.fusion.Sketch",
       "reason": null,
-      "receiver": "sketch",
+      "receiver": "anchorSketch",
       "role": "required",
-      "span": "projected = sketch.project(self.anchorPoint).item(0)"
+      "span": "projected = anchorSketch.project(self.centrePoint).item(0)"
+    },
+    {
+      "condition": null,
+      "name": "create",
+      "owner": "adsk.core.Point3D",
+      "reason": null,
+      "receiver": "adsk.core.Point3D",
+      "role": "required",
+      "span": "start = adsk.core.Point3D.create(p.x - 0.5, p.y, 0)"
+    },
+    {
+      "condition": null,
+      "name": "create",
+      "owner": "adsk.core.Point3D",
+      "reason": null,
+      "receiver": "adsk.core.Point3D",
+      "role": "required",
+      "span": "end = adsk.core.Point3D.create(p.x + 0.5, p.y, 0)"
     },
     {
       "condition": null,
       "name": "addByTwoPoints",
       "owner": "adsk.fusion.SketchLines",
       "reason": null,
-      "receiver": "sketch.sketchCurves.sketchLines",
+      "receiver": "anchorSketch.sketchCurves.sketchLines",
       "role": "required",
-      "span": "line = sketch.sketchCurves.sketchLines.addByTwoPoints(adsk.core.Point3D.create(px - 0.5, py, 0), adsk.core.Point3D.create(px + 0.5, py, 0))"
-    },
-    {
-      "condition": null,
-      "name": "create",
-      "owner": "adsk.core.Point3D",
-      "reason": null,
-      "receiver": "adsk.core.Point3D",
-      "role": "required",
-      "span": "line = sketch.sketchCurves.sketchLines.addByTwoPoints(adsk.core.Point3D.create(px - 0.5, py, 0), adsk.core.Point3D.create(px + 0.5, py, 0))"
+      "span": "anchorLine = anchorSketch.sketchCurves.sketchLines.addByTwoPoints(start, end)"
     },
     {
       "condition": null,
       "name": "addCoincident",
       "owner": "adsk.fusion.GeometricConstraints",
       "reason": null,
-      "receiver": "sketch.geometricConstraints",
+      "receiver": "anchorSketch.geometricConstraints",
       "role": "required",
-      "span": "sketch.geometricConstraints.addCoincident(projected, line)"
+      "span": "anchorSketch.geometricConstraints.addCoincident(projected, anchorLine)"
     },
     {
       "condition": null,
       "name": "addMidPoint",
       "owner": "adsk.fusion.GeometricConstraints",
       "reason": null,
-      "receiver": "sketch.geometricConstraints",
+      "receiver": "anchorSketch.geometricConstraints",
       "role": "required",
-      "span": "sketch.geometricConstraints.addMidPoint(projected, line)"
+      "span": "anchorSketch.geometricConstraints.addMidPoint(projected, anchorLine)"
     },
     {
       "condition": null,
       "name": "addHorizontal",
       "owner": "adsk.fusion.GeometricConstraints",
       "reason": null,
-      "receiver": "sketch.geometricConstraints",
+      "receiver": "anchorSketch.geometricConstraints",
       "role": "required",
-      "span": "sketch.geometricConstraints.addHorizontal(line)"
+      "span": "anchorSketch.geometricConstraints.addHorizontal(anchorLine)"
     },
     {
       "condition": null,
       "name": "addDistanceDimension",
       "owner": "adsk.fusion.SketchDimensions",
       "reason": null,
-      "receiver": "sketch.sketchDimensions",
+      "receiver": "anchorSketch.sketchDimensions",
       "role": "required",
-      "span": "sketch.sketchDimensions.addDistanceDimension(line.startSketchPoint, line.endSketchPoint, adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation, textPoint)"
+      "span": "anchorSketch.sketchDimensions.addDistanceDimension(anchorLine.startSketchPoint, anchorLine.endSketchPoint, adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation, textPoint)"
     },
     {
       "condition": null,
@@ -766,66 +903,63 @@ plane. No construction axis or point is made anywhere ([PB-CONSTRUCTION-NEEDS-AC
       "reason": null,
       "receiver": "adsk.core.Point3D",
       "role": "required",
-      "span": "textPoint = adsk.core.Point3D.create(px, py + 0.3, 0)"
+      "span": "textPoint = adsk.core.Point3D.create(p.x, p.y + 0.3, 0)"
     }
   ],
   "citations": [
     {
-      "first": 802,
-      "last": 832,
+      "first": 914,
+      "last": 945,
       "path": "spec/screwgear/instructions.md"
     },
     {
-      "first": 498,
-      "last": 516,
+      "first": 563,
+      "last": 581,
       "path": "spec/screwgear/fusion.md"
+    },
+    {
+      "first": 441,
+      "last": 450,
+      "path": ".claude/skills/generate-gear/PLAYBOOK.md"
     }
   ],
   "schema": 2
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L802–832; `spec/screwgear/fusion.md` L498–516.
+**From:** `spec/screwgear/instructions.md` L914–945; `spec/screwgear/fusion.md` L563–581; `.claude/skills/generate-gear/PLAYBOOK.md` L441–450.
 
-Proof: `stepAnchorSketch`.
+## S06 `[PROSE]` The Gear A Axis Plane, and the sign of n̂
 
-<!-- proof-run: proofkit.Run(anchorCases, stepAnchorSketch) -->
+`planeInput = design.constructionPlanes.createInput()`, then
+`planeInput.setByOffset(self.targetPlane, adsk.core.ValueInput.createByReal(-A/2))` on the selected
+plane itself `[PB-USE-SELECTED-PLANE]`, `[PB-CONSTRUCTION-PLANES]`, then
+`design.constructionPlanes.add(planeInput)`, named `Gear A Axis Plane`.
 
-`sketch = component.sketches.add(self.plane)` on the `Design` component, `sketch.name = 'Anchor'`.
-This is the one projection in the build ([SCREW-F-REFERENCES]): `projected = sketch.project(self.anchorPoint).item(0)`.
-The sketch does not defer computing.
+Fusion offsets along the selected entity's own normal, whose sign the build does not assume
+`[SCREW-F-NORMAL-SIGN]`. Read the plane's `geometry`, a `Plane` with `origin` and `normal`: let
+`d = (C - origin) . normal`; set `n̂ = normal` when `d > 0` and `n̂ = -normal` otherwise, so that `C`
+lies `+A/2` along `n̂` from gear A's plane. Raise naming the plane unless `|d|` is `A/2` within
+1e-6 cm.
 
-Let `(px, py)` be the projected point's sketch-local position (`projected.geometry`). Draw the
-Anchor Line from two raw seeds, 0.5 cm either side along the sketch's own x axis, `z = 0`:
-`line = sketch.sketchCurves.sketchLines.addByTwoPoints(adsk.core.Point3D.create(px - 0.5, py, 0), adsk.core.Point3D.create(px + 0.5, py, 0))`,
-so its end is to the right of its start and it is 10 mm long. Constrain it with exactly these four
-things and nothing else:
+Then complete the frame of §1 from `ê` and `n̂`, in world space and cm:
 
-1. `sketch.geometricConstraints.addCoincident(projected, line)` — the centre lies on the line.
-2. `sketch.geometricConstraints.addMidPoint(projected, line)` — and bisects it. Both, not the
-   midpoint alone, as the bevel gear's Anchor sketch does; that sketch reads fully constrained in
-   Fusion.
-3. `sketch.geometricConstraints.addHorizontal(line)` — sketch-local ([PB-REFLINE-DIRECTION]).
-4. A horizontal distance from the line's start to its end, value 1.0 cm:
-   `sketch.sketchDimensions.addDistanceDimension(line.startSketchPoint, line.endSketchPoint, adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation, textPoint)`
-   with `textPoint = adsk.core.Point3D.create(px, py + 0.3, 0)`. Not an aligned dimension: a
-   midpoint, a horizontal and an aligned length admit the line end-for-end reversed, and the
-   proof's gate refuses that ambiguity; a horizontal start-to-end distance is satisfied only by
-   the seeded orientation ([PB-DIM-VALUE-SEMANTICS]: the seed fixes the side, the value is the
-   magnitude).
+```
+k̂       = n̂ × ê
+dirA     = cos(Sigma/2)*ê + sin(Sigma/2)*k̂        (ê turned +Sigma/2 about n̂)
+dirB     = cos(Sigma/2)*ê - sin(Sigma/2)*k̂        (ê turned -Sigma/2 about n̂)
+originA  = C - (A/2)*n̂                            originB = C + (A/2)*n̂
+ûA       = +n̂                                     ûB      = -n̂
+v̂_g      = dir_g × û_g
+Theta_g(s) = s/Lambda + Phi_g
+World_g(s, u, v) = origin_g + s*dir_g + (u*cos(theta) - v*sin(theta))*û_g
+                                      + (u*sin(theta) + v*cos(theta))*v̂_g,   theta = Theta_g(s)
+```
 
-Raise naming `Anchor` unless `sketch.isFullyConstrained` ([PB-FULL-CONSTRAINT]). Only then read
-the frame from world geometry ([PB-WORLDGEO-CONSTRAINED], [PB-WORLD-FRAME]): `C` is
-`projected.worldGeometry`, and `ê` is the unit vector from `line.startSketchPoint.worldGeometry` to
-`line.endSketchPoint.worldGeometry`. Keep `line` as `self.anchorLine`: it is passed once more, to
-the Window Plane of S20. No later sketch projects anything.
-
-Proof: the projected point is a reference point (`CreateReferencePoint`), the line is seeded as
-above, and the engine's midpoint carries the point-on-line row, so the proof writes the midpoint
-alone (as `proof/bevelgear` does) with the signed horizontal distance +10 mm; DOF 0, unambiguous,
-at the centre on the origin and away from it.
-
-## S06 `[PROSE]` Gear A Axis Plane and Gear B Axis Plane, and the frame
+`û` points at the other gear: that is what makes `Phi` mean the same for both parts. Every seed
+and every reference point below is a `World_g` point. A search result of S03 given as frame
+components `(eX, kY, nZ)` is the world vector `eX*ê + kY*k̂ + nZ*n̂` (scaled to cm), and a plane
+point `(t, z)` of a window is `C + t*across + z*n̂`, with `across = n̂ × d` in world terms.
 
 <!-- step-meta
 {
@@ -835,9 +969,9 @@ at the centre on the origin and away from it.
       "name": "createInput",
       "owner": "adsk.fusion.ConstructionPlanes",
       "reason": null,
-      "receiver": "component.constructionPlanes",
+      "receiver": "design.constructionPlanes",
       "role": "required",
-      "span": "planeInput = component.constructionPlanes.createInput()"
+      "span": "planeInput = design.constructionPlanes.createInput()"
     },
     {
       "condition": null,
@@ -846,7 +980,7 @@ at the centre on the origin and away from it.
       "reason": null,
       "receiver": "planeInput",
       "role": "required",
-      "span": "planeInput.setByOffset(self.plane, adsk.core.ValueInput.createByReal(-A/2/10))"
+      "span": "planeInput.setByOffset(self.targetPlane, adsk.core.ValueInput.createByReal(-A/2))"
     },
     {
       "condition": null,
@@ -855,27 +989,27 @@ at the centre on the origin and away from it.
       "reason": null,
       "receiver": "adsk.core.ValueInput",
       "role": "required",
-      "span": "planeInput.setByOffset(self.plane, adsk.core.ValueInput.createByReal(-A/2/10))"
+      "span": "planeInput.setByOffset(self.targetPlane, adsk.core.ValueInput.createByReal(-A/2))"
     },
     {
       "condition": null,
       "name": "add",
       "owner": "adsk.fusion.ConstructionPlanes",
       "reason": null,
-      "receiver": "component.constructionPlanes",
+      "receiver": "design.constructionPlanes",
       "role": "required",
-      "span": "plane = component.constructionPlanes.add(planeInput)"
+      "span": "design.constructionPlanes.add(planeInput)"
     }
   ],
   "citations": [
     {
-      "first": 834,
-      "last": 856,
+      "first": 946,
+      "last": 969,
       "path": "spec/screwgear/instructions.md"
     },
     {
-      "first": 561,
-      "last": 570,
+      "first": 626,
+      "last": 635,
       "path": "spec/screwgear/fusion.md"
     }
   ],
@@ -883,99 +1017,66 @@ at the centre on the origin and away from it.
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L834–856; `spec/screwgear/fusion.md` L561–570.
+**From:** `spec/screwgear/instructions.md` L946–969; `spec/screwgear/fusion.md` L626–635.
 
-Two construction planes on the `Design` component, offset from the selected plane itself
-([PB-USE-SELECTED-PLANE], [PB-CONSTRUCTION-PLANES]), in this order:
+## S07 `[PROSE]` The Gear B Axis Plane
 
-- `Gear A Axis Plane`: `planeInput = component.constructionPlanes.createInput()`,
-  `planeInput.setByOffset(self.plane, adsk.core.ValueInput.createByReal(-A/2/10))`,
-  `plane = component.constructionPlanes.add(planeInput)`, `plane.name = 'Gear A Axis Plane'`.
-- `Gear B Axis Plane`: the same with offset `+A/2/10` cm and the name `Gear B Axis Plane`.
-
-**The sign of `n̂`** ([SCREW-F-NORMAL-SIGN]). Fusion offsets along the selected entity's own
-normal, which may point either way. After the Gear A plane is made, read `gA = plane.geometry`
-(an `adsk.core.Plane` with `origin` and `normal`); `nrm` is its unit normal. Set `n̂ = nrm` when
-`(C - gA.origin)·nrm > 0`, else `n̂ = -nrm`. Then check, for both planes, that
-`|(C - origin)·nrm|` is `A/2` (cm) to within 1e-6 cm, and raise naming the plane and the reading
-otherwise. No later plane is offset from the selected plane.
-
-**The frame** (all world vectors, cm): `k̂ = n̂ × ê`;
-
-```
-dir_A = rotate(ê, +Sigma/2 about n̂) = cos(Sigma/2)*ê + sin(Sigma/2)*k̂     origin_A = C - (A/2)*n̂
-dir_B = rotate(ê, -Sigma/2 about n̂) = cos(Sigma/2)*ê - sin(Sigma/2)*k̂     origin_B = C + (A/2)*n̂
-u_A = +n̂,  v_A = dir_A × u_A          u_B = -n̂,  v_B = dir_B × u_B
-Theta_g(s) = s/Lambda + Phi_g
-World_g(s, u, v) = origin_g + s*dir_g + (u*cos Theta_g(s) - v*sin Theta_g(s))*u_g
-                                       + (u*sin Theta_g(s) + v*cos Theta_g(s))*v_g
-```
-
-`û` points at the other gear, which is what makes the two gears the same part. Every seed and
-every reference point below is a `world_g` point or a point of the window planes, computed in
-Python and mapped into its sketch ([PB-SEED-NEAR], [PB-SOLVED-GEOMETRY]). Gear A's tooth phase
-`Z0_A = 0`; gear B's `Z0_B = assemblyPhase`.
-
-## S07 `[GO]` Gear Paths sketch (per gear)
+As S06, offset `+A/2`: `planeInput = design.constructionPlanes.createInput()`,
+`planeInput.setByOffset(self.targetPlane, adsk.core.ValueInput.createByReal(A/2))`,
+`design.constructionPlanes.add(planeInput)`, named `Gear B Axis Plane`. Raise naming the plane
+unless `C` is `A/2` from it within 1e-6 cm (`|(C - origin) . normal|` of its own `geometry`). Its
+normal is not read for anything else; `n̂` comes from the Gear A Axis Plane. No later plane is
+offset from the selected plane. Keep both planes, `self.axisPlanes = [gearA, gearB]`.
 
 <!-- step-meta
 {
   "calls": [
     {
       "condition": null,
+      "name": "createInput",
+      "owner": "adsk.fusion.ConstructionPlanes",
+      "reason": null,
+      "receiver": "design.constructionPlanes",
+      "role": "required",
+      "span": "planeInput = design.constructionPlanes.createInput()"
+    },
+    {
+      "condition": null,
+      "name": "setByOffset",
+      "owner": "adsk.fusion.ConstructionPlaneInput",
+      "reason": null,
+      "receiver": "planeInput",
+      "role": "required",
+      "span": "planeInput.setByOffset(self.targetPlane, adsk.core.ValueInput.createByReal(A/2))"
+    },
+    {
+      "condition": null,
+      "name": "createByReal",
+      "owner": "adsk.core.ValueInput",
+      "reason": null,
+      "receiver": "adsk.core.ValueInput",
+      "role": "required",
+      "span": "planeInput.setByOffset(self.targetPlane, adsk.core.ValueInput.createByReal(A/2))"
+    },
+    {
+      "condition": null,
       "name": "add",
-      "owner": "adsk.fusion.Sketches",
+      "owner": "adsk.fusion.ConstructionPlanes",
       "reason": null,
-      "receiver": "component.sketches",
+      "receiver": "design.constructionPlanes",
       "role": "required",
-      "span": "sketch = component.sketches.add(axisPlane_g)"
-    },
-    {
-      "condition": null,
-      "name": "modelToSketchSpace",
-      "owner": "adsk.fusion.Sketch",
-      "reason": null,
-      "receiver": "sketch",
-      "role": "required",
-      "span": "local = sketch.modelToSketchSpace(worldPoint)"
-    },
-    {
-      "condition": null,
-      "name": "add",
-      "owner": "adsk.fusion.SketchPoints",
-      "reason": null,
-      "receiver": "sketch.sketchPoints",
-      "role": "required",
-      "span": "pt = sketch.sketchPoints.add(local)"
-    },
-    {
-      "condition": null,
-      "name": "addByTwoPoints",
-      "owner": "adsk.fusion.SketchLines",
-      "reason": null,
-      "receiver": "sketch.sketchCurves.sketchLines",
-      "role": "required",
-      "span": "boreMinus = sketch.sketchCurves.sketchLines.addByTwoPoints(pts[0], pts[1])"
-    },
-    {
-      "condition": null,
-      "name": "addByTwoPoints",
-      "owner": "adsk.fusion.SketchLines",
-      "reason": null,
-      "receiver": "sketch.sketchCurves.sketchLines",
-      "role": "required",
-      "span": "borePlus = sketch.sketchCurves.sketchLines.addByTwoPoints(pts[2], pts[3])"
+      "span": "design.constructionPlanes.add(planeInput)"
     }
   ],
   "citations": [
     {
-      "first": 858,
-      "last": 877,
+      "first": 962,
+      "last": 969,
       "path": "spec/screwgear/instructions.md"
     },
     {
-      "first": 518,
-      "last": 548,
+      "first": 626,
+      "last": 635,
       "path": "spec/screwgear/fusion.md"
     }
   ],
@@ -983,30 +1084,176 @@ Python and mapped into its sketch ([PB-SEED-NEAR], [PB-SOLVED-GEOMETRY]). Gear A
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L858–877; `spec/screwgear/fusion.md` L518–548.
+**From:** `spec/screwgear/instructions.md` L962–969; `spec/screwgear/fusion.md` L626–635.
+
+## S08 `[GO]` A gear's Paths sketch
+
+The method `buildGear`, given `index`, runs S08 to S16 for gear `g = index`, gear A then gear B;
+`{gearLabel}` is `Gear A` or `Gear B`. The method `buildSweepPaths`, given `index`, is this step.
+
+Create `paths = design.sketches.add(self.axisPlanes[g])`, named `{gearLabel} Paths`. It holds
+the two lines the gear's bores are swept along in S21, both on the gear's axis, which lies in this
+plane. It is not deferred `[SCREW-F-DEFER]`.
+
+1. Four reference points `[SCREW-F-REFERENCES]`, `[PB-PROJECT-NOT-FIXED]`, at
+   `origin_g + s*dir_g` for `s` = `-sOut`, `-sIn`, `sIn`, `sOut` (−19, −7.892, 7.892 and 19 mm at
+   the defaults): for each, `local = paths.modelToSketchSpace(world)`, then `local.z = 0`
+   `[PB-SKETCH-ZERO-Z]`, then `paths.sketchPoints.add(local)`.
+2. Two solid lines sharing those points `[PB-SHARE-XOR-COINCIDENT]`, each from its negative
+   station to its positive one, so its start is its negative end and it runs along `+dir_g`:
+   `boreMinus = paths.sketchCurves.sketchLines.addByTwoPoints(p0, p1)` and
+   `borePlus = paths.sketchCurves.sketchLines.addByTwoPoints(p2, p3)`.
+3. After the second line, set all four points `isFixed = True`.
+
+The lines carry no dimension and no constraint, and nothing else is in the sketch. Raise naming the
+sketch unless `paths.isFullyConstrained`. Keep `self.pathLines[g] = {'bore-': boreMinus, 'bore+': borePlus}`.
+
+The proof draws the four points and the two lines on the Axis Plane, holds each line's length at
+`sOut - sIn` and its direction along `+dir_g`, and the gap between them at `2*sIn`, for both gears,
+at the 110° crossing, a thick wall and no roof allowance.
 
 Proof: `stepPathsSketch`.
 
 <!-- proof-run: proofkit.Run(pathsCases, stepPathsSketch) -->
 
-The method `buildSweepPaths`, given the gear index. For gear `g` (label `Gear A` or `Gear B`):
-`sketch = component.sketches.add(axisPlane_g)` on that gear's Axis Plane of S06,
-`sketch.name = f'{gearLabel} Paths'`. No deferral.
+<!-- step-meta
+{
+  "calls": [
+    {
+      "condition": null,
+      "name": "add",
+      "owner": "adsk.fusion.Sketches",
+      "reason": null,
+      "receiver": "design.sketches",
+      "role": "required",
+      "span": "paths = design.sketches.add(self.axisPlanes[g])"
+    },
+    {
+      "condition": null,
+      "name": "modelToSketchSpace",
+      "owner": "adsk.fusion.Sketch",
+      "reason": null,
+      "receiver": "paths",
+      "role": "required",
+      "span": "local = paths.modelToSketchSpace(world)"
+    },
+    {
+      "condition": null,
+      "name": "add",
+      "owner": "adsk.fusion.SketchPoints",
+      "reason": null,
+      "receiver": "paths.sketchPoints",
+      "role": "required",
+      "span": "paths.sketchPoints.add(local)"
+    },
+    {
+      "condition": null,
+      "name": "addByTwoPoints",
+      "owner": "adsk.fusion.SketchLines",
+      "reason": null,
+      "receiver": "paths.sketchCurves.sketchLines",
+      "role": "required",
+      "span": "boreMinus = paths.sketchCurves.sketchLines.addByTwoPoints(p0, p1)"
+    },
+    {
+      "condition": null,
+      "name": "addByTwoPoints",
+      "owner": "adsk.fusion.SketchLines",
+      "reason": null,
+      "receiver": "paths.sketchCurves.sketchLines",
+      "role": "required",
+      "span": "borePlus = paths.sketchCurves.sketchLines.addByTwoPoints(p2, p3)"
+    }
+  ],
+  "citations": [
+    {
+      "first": 970,
+      "last": 989,
+      "path": "spec/screwgear/instructions.md"
+    },
+    {
+      "first": 563,
+      "last": 624,
+      "path": "spec/screwgear/fusion.md"
+    },
+    {
+      "first": 458,
+      "last": 472,
+      "path": ".claude/skills/generate-gear/PLAYBOOK.md"
+    },
+    {
+      "first": 591,
+      "last": 608,
+      "path": ".claude/skills/generate-gear/PLAYBOOK.md"
+    }
+  ],
+  "schema": 2
+}
+-->
 
-Four reference points ([SCREW-F-REFERENCES], [PB-PROJECT-NOT-FIXED] (b)), at the world points
-`origin_g + s*dir_g` for `s = -sOut, -sIn, sIn, sOut` (cm), each mapped
-`local = sketch.modelToSketchSpace(worldPoint)`, then `local.z = 0` ([PB-SKETCH-ZERO-Z]), then
-`pt = sketch.sketchPoints.add(local)`. Two solid lines sharing them
-([PB-SHARE-XOR-COINCIDENT]): `boreMinus = sketch.sketchCurves.sketchLines.addByTwoPoints(pts[0], pts[1])`
-from `-sOut` to `-sIn`, and `borePlus = sketch.sketchCurves.sketchLines.addByTwoPoints(pts[2], pts[3])`
-from `sIn` to `sOut`: each drawn from its negative station to its positive one, so its start is
-its negative end and it runs along `+dir_g`. Then set `isFixed = True` on all four points (after
-the lines, never before). No constraint, no dimension, nothing else.
+**From:** `spec/screwgear/instructions.md` L970–989; `spec/screwgear/fusion.md` L563–624; `.claude/skills/generate-gear/PLAYBOOK.md` L458–472; `.claude/skills/generate-gear/PLAYBOOK.md` L591–608.
 
-Raise naming the sketch unless `sketch.isFullyConstrained`. Store
-`self.pathLines[index] = {'bore-': boreMinus, 'bore+': borePlus}`.
+## S09 `[GO]` A gear's Cell Sections sketch
 
-## S08 `[GO]` Cell Sections sketch (per gear)
+The method `buildToothCell`, given `index`, is S09 and S10. The cell is `cell` tooth pitches of the finished ribbon at
+its negative end: stations from `s0 = Z0[g] - N*P/2` to `s0 + cell*P`, `Z0` being 0 for gear A and
+`assemblyPhase` for gear B, so gear B's whole ribbon is gear A's advanced `assemblyPhase` along its
+own axis under its own screw motion. It is lofted through `cell*n + 1` sections, 41 at the
+defaults (`n` of S03: the larger of the 2° twist count and 8).
+
+Create `cellSketch = design.sketches.add(self.axisPlanes[g])`, named `{gearLabel} Cell Sections`
+`[SCREW-F-CELL-LOFT]`, `[PB-3D-SKETCH-SECTIONS]`. Set `cellSketch.isComputeDeferred = True` right
+after naming it and before its first point `[PB-SKETCH-DEFER]`, `[SCREW-F-DEFER]`. No section plane
+is made.
+
+Section `k`, for `k = 0 … cell*n`, is the cross-section at station `s_k = s0 + k*P/n`, turned by
+`Theta_g(s_k)`. With `M = TOOTH_SPLINE_POINTS`, `hv = T/2` and `uB = -W/2`:
+
+```
+v_j             = -T/2 + j*T/(M - 1),     j = 0 … M - 1
+Utooth(v, s)    = W/2 - H/2 + (H/2)*cos(2*pi*(s + tanSlant*v - Z0[g])/P) - Bow_cm*v^2
+B0  = World_g(s_k, uB, -hv)            the back corner on the v = -T/2 face
+F_j = World_g(s_k, Utooth(v_j, s_k), v_j)   the toothed points; F_0 and F_(M-1) are the toothed corners
+B1  = World_g(s_k, uB, +hv)            the back corner on the v = +T/2 face
+```
+
+Each of the section's `M + 2` points is `cellSketch.sketchPoints.add(cellSketch.modelToSketchSpace(world))`
+**with its `z` kept**: these points lie off the sketch's plane on purpose, at every height above and
+below it, so `[PB-SKETCH-ZERO-Z]` is not applied here and only here. Four curves share them, in
+this order `[PB-SHARE-XOR-COINCIDENT]`, `[PB-SKETCHCURVES]`:
+
+- `L1 = cellSketch.sketchCurves.sketchLines.addByTwoPoints(B0, F_0)`, the face at `v = -T/2`.
+- `S = cellSketch.sketchCurves.sketchFittedSplines.add(fitPoints)`, the toothed side, where
+  `fitPoints = adsk.core.ObjectCollection.create()` holds the sketch points `F_0` to `F_(M-1)`, each
+  put in with `fitPoints.add(F_j)` in order of `j`. Raise naming the section unless `S` is not
+  `None` and `S.fitPoints.count` is `M`. Activate no tangent or curvature handle.
+- `L3 = cellSketch.sketchCurves.sketchLines.addByTwoPoints(F_(M-1), B1)`, the face at `v = +T/2`.
+- `L4 = cellSketch.sketchCurves.sketchLines.addByTwoPoints(B1, B0)`, the back side.
+
+Keep each section's four curves together, in the order `L1`, `S`, `L3`, `L4`; they are what S10's
+loft is fed. After the last curve of the last section, set every point in the sketch
+`isFixed = True` `[PB-PROJECT-NOT-FIXED]`: every point the build added, and every item of every
+spline's `fitPoints`, by `S.fitPoints.item(i)` for `i` below `S.fitPoints.count` (the reference does
+not say whether the spline keeps the points it is given, so both are fixed). Nothing else goes in
+the sketch: no construction line, constraint or dimension. Then set
+`cellSketch.isComputeDeferred = False`, raise naming the sketch unless `cellSketch.isFullyConstrained`
+`[PB-FULL-CONSTRAINT]`, and raise unless `cellSketch.profiles.count` is `cell*n + 1`. The profiles
+are not what the loft is fed: nothing says which profile is which station.
+
+Before S10, raise unless every section holds exactly the four curves above, a line, a fitted
+spline, a line and a line, so the loft meets like curves with like.
+
+The proof draws one section per case on that section's own plane, in the plane's coordinates
+turned to the station's angle: the `M + 2` points fixed after the last curve, the three lines, and
+the toothed side as the engine's fit spline through `F_0 … F_(M-1)`, a natural cubic through every
+point. It holds the profile valid with the area of "The part"'s section, and the section a pitch
+on equal to this one carried by the screw step, which is what lets S11 to S13 repeat the cell.
+That Fusion reads the one sketch of all the sections fully constrained is Fusion's: it did for 41
+rectangle sections on 2026-09-28, and the sketch of spline sections has not been loaded.
+
+Proof: `stepCellSectionsSketch`.
+
+<!-- proof-run: proofkit.Run(cellSectionCases, stepCellSectionsSketch) -->
 
 <!-- step-meta
 {
@@ -1016,106 +1263,172 @@ Raise naming the sketch unless `sketch.isFullyConstrained`. Store
       "name": "add",
       "owner": "adsk.fusion.Sketches",
       "reason": null,
-      "receiver": "component.sketches",
+      "receiver": "design.sketches",
       "role": "required",
-      "span": "sketch = component.sketches.add(axisPlane_g)"
+      "span": "cellSketch = design.sketches.add(self.axisPlanes[g])"
     },
     {
       "condition": null,
       "name": "add",
       "owner": "adsk.fusion.SketchPoints",
       "reason": null,
-      "receiver": "sketch.sketchPoints",
+      "receiver": "cellSketch.sketchPoints",
       "role": "required",
-      "span": "sketch.sketchPoints.add(sketch.modelToSketchSpace(worldPoint))"
+      "span": "cellSketch.sketchPoints.add(cellSketch.modelToSketchSpace(world))"
     },
     {
       "condition": null,
       "name": "modelToSketchSpace",
       "owner": "adsk.fusion.Sketch",
       "reason": null,
-      "receiver": "sketch",
+      "receiver": "cellSketch",
       "role": "required",
-      "span": "sketch.sketchPoints.add(sketch.modelToSketchSpace(worldPoint))"
+      "span": "cellSketch.sketchPoints.add(cellSketch.modelToSketchSpace(world))"
     },
     {
       "condition": null,
       "name": "addByTwoPoints",
       "owner": "adsk.fusion.SketchLines",
       "reason": null,
-      "receiver": "sketch.sketchCurves.sketchLines",
+      "receiver": "cellSketch.sketchCurves.sketchLines",
       "role": "required",
-      "span": "sketch.sketchCurves.sketchLines.addByTwoPoints(corner, nextCorner)"
+      "span": "L1 = cellSketch.sketchCurves.sketchLines.addByTwoPoints(B0, F_0)"
+    },
+    {
+      "condition": null,
+      "name": "add",
+      "owner": "adsk.fusion.SketchFittedSplines",
+      "reason": null,
+      "receiver": "cellSketch.sketchCurves.sketchFittedSplines",
+      "role": "required",
+      "span": "S = cellSketch.sketchCurves.sketchFittedSplines.add(fitPoints)"
+    },
+    {
+      "condition": null,
+      "name": "create",
+      "owner": "adsk.core.ObjectCollection",
+      "reason": null,
+      "receiver": "adsk.core.ObjectCollection",
+      "role": "required",
+      "span": "fitPoints = adsk.core.ObjectCollection.create()"
+    },
+    {
+      "condition": null,
+      "name": "add",
+      "owner": "adsk.core.ObjectCollection",
+      "reason": null,
+      "receiver": "fitPoints",
+      "role": "required",
+      "span": "fitPoints.add(F_j)"
+    },
+    {
+      "condition": null,
+      "name": "addByTwoPoints",
+      "owner": "adsk.fusion.SketchLines",
+      "reason": null,
+      "receiver": "cellSketch.sketchCurves.sketchLines",
+      "role": "required",
+      "span": "L3 = cellSketch.sketchCurves.sketchLines.addByTwoPoints(F_(M-1), B1)"
+    },
+    {
+      "condition": null,
+      "name": "addByTwoPoints",
+      "owner": "adsk.fusion.SketchLines",
+      "reason": null,
+      "receiver": "cellSketch.sketchCurves.sketchLines",
+      "role": "required",
+      "span": "L4 = cellSketch.sketchCurves.sketchLines.addByTwoPoints(B1, B0)"
+    },
+    {
+      "condition": null,
+      "name": "item",
+      "owner": "adsk.fusion.SketchPointList",
+      "reason": null,
+      "receiver": "S.fitPoints",
+      "role": "required",
+      "span": "S.fitPoints.item(i)"
     }
   ],
   "citations": [
     {
-      "first": 879,
-      "last": 907,
+      "first": 991,
+      "last": 1021,
       "path": "spec/screwgear/instructions.md"
     },
     {
-      "first": 929,
-      "last": 953,
+      "first": 1044,
+      "last": 1118,
       "path": "spec/screwgear/instructions.md"
     },
     {
-      "first": 292,
-      "last": 312,
+      "first": 347,
+      "last": 386,
       "path": "spec/screwgear/fusion.md"
     },
     {
-      "first": 424,
-      "last": 436,
-      "path": "spec/screwgear/fusion.md"
-    },
-    {
-      "first": 1459,
-      "last": 1463,
-      "path": "spec/screwgear/instructions.md"
+      "first": 878,
+      "last": 902,
+      "path": ".claude/skills/generate-gear/PLAYBOOK.md"
     }
   ],
   "schema": 2
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L879–907; `spec/screwgear/instructions.md` L929–953; `spec/screwgear/fusion.md` L292–312; `spec/screwgear/fusion.md` L424–436; `spec/screwgear/instructions.md` L1459–1463.
+**From:** `spec/screwgear/instructions.md` L991–1021; `spec/screwgear/instructions.md` L1044–1118; `spec/screwgear/fusion.md` L347–386; `.claude/skills/generate-gear/PLAYBOOK.md` L878–902.
 
-Proof: `stepCellSectionSketch`.
+## S10 `[GO]` A gear's cell loft, and the slant's sign check
 
-<!-- proof-run: proofkit.Run(cellSectionCases, stepCellSectionSketch) -->
+Loft the sections in station order `[PB-LOFT]`, `[SCREW-F-CELL-LOFT]`:
 
-The method `buildToothCell`, given the gear index: its sketch ([SCREW-F-CELL-LOFT], [PB-3D-SKETCH-SECTIONS]).
-`sketch = component.sketches.add(axisPlane_g)` on the gear's Axis Plane, `sketch.name =
-f'{gearLabel} Cell Sections'`, then `sketch.isComputeDeferred = True` before the first point
-([SCREW-F-DEFER], [PB-SKETCH-DEFER]). No section plane is made.
+1. `loftInput = design.features.loftFeatures.createInput(adsk.fusion.FeatureOperations.NewBodyFeatureOperation)`.
+2. For each section in order of `k`: `collection = adsk.core.ObjectCollection.create()`, its four
+   curves put in with `collection.add(curve)` in the order `L1`, `S`, `L3`, `L4`, then
+   `path = design.features.createPath(collection, False)` `[PB-PATH-FROM-SKETCH]` and
+   `loftInput.loftSections.add(path)`. Never `adsk.fusion.Path.create(collection, False)`, which
+   raises in this component.
+3. `loftFeature = design.features.loftFeatures.add(loftInput)`.
 
-The cell is `c` teeth at the ribbon's negative end: `s0 = Z0_g - L/2` (mm). Section `k`, for
-`k = 0 … c*n` (41 sections at the defaults), stands at `s_k = s0 + k*P/n` and is the rectangle
-`u` from `uB = -W/2` to `uF = Utooth(s_k)`, `v` from `-T/2` to `+T/2`, where
+Raise naming the gear unless `loftFeature.bodies.count` is 1 and `loftFeature.bodies.item(0)` is
+`isSolid` `[PB-EMPTY-RESULT]`. That body is the cell, `cellBody`. Fusion's loft through more than two
+sections is smooth between them; it passes through every section.
+
+**The slant's sign check** `[PB-SELF-DIAGNOSING]`, after the loft and before S11. With
+`sc = Z0[g] + P*ceil((s0 + P/2 - Z0[g])/P)`, the first crest station at least half a pitch into
+the cell, for each face sign `sf` of −1 and +1:
 
 ```
-Utooth(s) = W/2 - H/2 + (H/2)*cos(2*pi*(s - Z0_g)/P)
+v_p = sf*(T/2 - 0.025 cm)
+u_p = W/2 - Bow_cm*v_p^2 - 0.025 cm          a quarter millimetre inside the face and under the crest
+on-ridge probe : World_g(sc - tanSlant*v_p, u_p, v_p)
+off-ridge probe: World_g(sc + tanSlant*v_p, u_p, v_p)
+for each probe at its station s:
+    m      = Utooth(v_p, s) - u_p                       under the input slant
+    mWrong = the same with tanSlant negated
+    used   = |m| >= 0.01 cm and |mWrong| >= 0.01 cm and the two differ in sign
 ```
 
-Its four corners, in this order, are `World_g(s_k, uB, -T/2)`, `World_g(s_k, uF, -T/2)`,
-`World_g(s_k, uF, T/2)`, `World_g(s_k, uB, T/2)` (divided by 10 for cm), each added with
-`sketch.sketchPoints.add(sketch.modelToSketchSpace(worldPoint))` **with its z kept**: these points
-lie off the sketch's plane on purpose, and [PB-SKETCH-ZERO-Z] does not apply to them. Four solid
-lines share them: `L1` corner 1→2, `L2` 2→3, `L3` 3→4, `L4` 4→1, each
-`sketch.sketchCurves.sketchLines.addByTwoPoints(corner, nextCorner)`. Keep each section's four
-lines together, in order of `k`. After the last line of the last section exists, set every
-point's `isFixed = True`. Nothing else: no construction line, constraint or dimension.
+Read `cellBody.pointContainment(probe)` for each used probe: it must be
+`adsk.fusion.PointContainment.PointInsidePointContainment` when `m > 0` and
+`adsk.fusion.PointContainment.PointOutsidePointContainment` when `m < 0`; otherwise raise naming
+the gear, the probe and what it read. When no probe is used, as at a zero slant, log with
+`futil.log(...)` `[PB-LOGGING]` that `{gearLabel}: the tooth slant's sign was not checked`. At the
+defaults all four are used: on the ridge each stands 0.25 mm inside the tooth under the right sign
+and 2.13 mm outside under the wrong one, and off the ridge the reverse; gear A's stand 1.84 and
+3.41 mm from the cell's start, inside its 10.5 mm.
 
-Then `sketch.isComputeDeferred = False`; raise naming the sketch unless `sketch.isFullyConstrained`,
-and raise with the count unless `sketch.profiles.count` is `c*n + 1`. The profiles are not used.
+The proof lofts the same `cell*n + 1` sections two at a time: decad lofts only between two
+sections, ruled, so each pair is lofted as a sheet, the end sections are capped, and the sheets
+are stitched into one solid. It holds the cell's volume within 4% under the exact helicoid's
+(2.1% at the defaults), every vertex within the crest rectangle's reach of the axis and between the
+cell's end stations, and the four probes as above, reading containment off the stand-in's mesh: all
+four used at the defaults with those margins, none at the straight ridge, and every used probe on
+the right side at a negative slant, a 400 mm lead (eight steps a tooth), a 20 mm lead and 30°
+mounts.
 
-Proof stand-in: the sketch engine is planar, so each section is its own planar sketch on its
-station's plane, four fixed corners and four lines, one valid profile of area
-`(Utooth(s_k) + W/2)*T`. Fusion's verdict on the one 3D sketch (fully constrained, one profile
-per section, at 11, 41 and 81 sections on 2026-09-28) is the part the proof cannot reach.
+Proof: `stepCellLoft`.
 
-## S09 `[GO]` Cell loft (per gear)
+<!-- proof-run: proofkit3d.RunSolid(cellLoftCases, stepCellLoft, assertCellLoft) -->
 
 <!-- step-meta
 {
@@ -1125,9 +1438,9 @@ per section, at 11, 41 and 81 sections on 2026-09-28) is the part the proof cann
       "name": "createInput",
       "owner": "adsk.fusion.LoftFeatures",
       "reason": null,
-      "receiver": "component.features.loftFeatures",
+      "receiver": "design.features.loftFeatures",
       "role": "required",
-      "span": "loftInput = component.features.loftFeatures.createInput(adsk.fusion.FeatureOperations.NewBodyFeatureOperation)"
+      "span": "loftInput = design.features.loftFeatures.createInput(adsk.fusion.FeatureOperations.NewBodyFeatureOperation)"
     },
     {
       "condition": null,
@@ -1136,25 +1449,25 @@ per section, at 11, 41 and 81 sections on 2026-09-28) is the part the proof cann
       "reason": null,
       "receiver": "adsk.core.ObjectCollection",
       "role": "required",
-      "span": "coll = adsk.core.ObjectCollection.create()"
+      "span": "collection = adsk.core.ObjectCollection.create()"
     },
     {
       "condition": null,
       "name": "add",
       "owner": "adsk.core.ObjectCollection",
       "reason": null,
-      "receiver": "coll",
+      "receiver": "collection",
       "role": "required",
-      "span": "coll.add(line)"
+      "span": "collection.add(curve)"
     },
     {
       "condition": null,
       "name": "createPath",
       "owner": "adsk.fusion.Features",
       "reason": null,
-      "receiver": "component.features",
+      "receiver": "design.features",
       "role": "required",
-      "span": "path = component.features.createPath(coll, False)"
+      "span": "path = design.features.createPath(collection, False)"
     },
     {
       "condition": null,
@@ -1167,131 +1480,112 @@ per section, at 11, 41 and 81 sections on 2026-09-28) is the part the proof cann
     },
     {
       "condition": null,
+      "name": "create",
+      "owner": "adsk.fusion.Path",
+      "reason": "PB-PATH-FROM-SKETCH: Path.create raises in a sub-component",
+      "receiver": "adsk.fusion.Path",
+      "role": "forbidden",
+      "span": "adsk.fusion.Path.create(collection, False)"
+    },
+    {
+      "condition": null,
       "name": "add",
       "owner": "adsk.fusion.LoftFeatures",
       "reason": null,
-      "receiver": "component.features.loftFeatures",
+      "receiver": "design.features.loftFeatures",
       "role": "required",
-      "span": "loft = component.features.loftFeatures.add(loftInput)"
+      "span": "loftFeature = design.features.loftFeatures.add(loftInput)"
     },
     {
       "condition": null,
       "name": "item",
       "owner": "adsk.fusion.BRepBodies",
       "reason": null,
-      "receiver": "loft.bodies",
+      "receiver": "loftFeature.bodies",
       "role": "required",
-      "span": "loft.bodies.item(0).isSolid"
+      "span": "loftFeature.bodies.item(0)"
+    },
+    {
+      "condition": null,
+      "name": "pointContainment",
+      "owner": "adsk.fusion.BRepBody",
+      "reason": null,
+      "receiver": "cellBody",
+      "role": "required",
+      "span": "cellBody.pointContainment(probe)"
+    },
+    {
+      "condition": null,
+      "name": "log",
+      "owner": null,
+      "reason": "lib/fusion360utils defines log as futil.log",
+      "receiver": "futil",
+      "role": "inherited",
+      "span": "futil.log(...)"
     }
   ],
   "citations": [
     {
-      "first": 955,
-      "last": 962,
+      "first": 1113,
+      "last": 1156,
       "path": "spec/screwgear/instructions.md"
     },
     {
-      "first": 313,
-      "last": 332,
+      "first": 376,
+      "last": 403,
       "path": "spec/screwgear/fusion.md"
     },
     {
-      "first": 1464,
-      "last": 1467,
-      "path": "spec/screwgear/instructions.md"
+      "first": 742,
+      "last": 746,
+      "path": ".claude/skills/generate-gear/PLAYBOOK.md"
+    },
+    {
+      "first": 840,
+      "last": 850,
+      "path": ".claude/skills/generate-gear/PLAYBOOK.md"
     }
   ],
   "schema": 2
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L955–962; `spec/screwgear/fusion.md` L313–332; `spec/screwgear/instructions.md` L1464–1467.
+**From:** `spec/screwgear/instructions.md` L1113–1156; `spec/screwgear/fusion.md` L376–403; `.claude/skills/generate-gear/PLAYBOOK.md` L742–746; `.claude/skills/generate-gear/PLAYBOOK.md` L840–850.
 
-Proof: `stepCellLoft`.
+## S11 `[GO]` A doubling round: copy the body
 
-<!-- proof-run: proofkit3d.RunSolid(cellLoftCases, stepCellLoft, assertCellLoft) -->
+The method `repeatCellByDoubling`, given `index`, is S11 to S16. The finished ribbon is the cell repeated under the
+**screw step** `Step(k)`: a turn of `k*P/Lambda` about the gear's axis composed with an advance of
+`k*P` along it, `k` a number of teeth. With `q` whole cells and `r` remainder teeth (S03), the
+`q` cells are built by doubling. A **round** is copy (this step), move (S12), join (S13): copy the
+current body, move the copy by `Step(m*cell)` where `m` is the number of cells the body holds, join
+the two, and the body holds `2m` cells. The schedule:
 
-([PB-LOFT], [SCREW-F-CELL-LOFT], [PB-PATH-FROM-SKETCH]) On the `Design` component:
-`loftInput = component.features.loftFeatures.createInput(adsk.fusion.FeatureOperations.NewBodyFeatureOperation)`.
-For each section in order of `k` (station order — the order of the calls is the loft order):
-`coll = adsk.core.ObjectCollection.create()`, `coll.add(line)` for its `L1`, `L2`, `L3`, `L4`,
-then `path = component.features.createPath(coll, False)` and `loftInput.loftSections.add(path)`.
-Never `adsk.fusion.Path.create`, which raises in this component. Set nothing else on the input;
-then `loft = component.features.loftFeatures.add(loftInput)`.
+```
+body = cellBody; m = 1; asides = []
+for each bit of q below its top bit, lowest first:
+    if that bit is set: asides.append((copy of body, m))      # an aside: a copy kept unmoved
+    copy the body; move the copy by Step(m*cell); join it to the body; m = 2*m
+for (aside, cells) in asides, largest cells first:
+    move the aside by Step(m*cell); join it to the body; m = m + cells
+# now m == q.  When q == 1 there is no round.
+```
 
-Raise with the piece's name and the count unless `loft.bodies.count` is 1 and
-`loft.bodies.item(0).isSolid` ([PB-EMPTY-RESULT], [PB-SELF-DIAGNOSING]). That body is the cell.
+That is the floor of log2 q, plus the number of set bits in q, less one, rounds: 5 at the defaults (`q = 17`: one aside of the
+single cell taken before the first doubling, four doublings to 16 cells, and the aside moved by
+`Step(64)`). An aside is a copy too, made by this step, and is moved by S12 and joined by S13.
 
-Proof stand-in: decad lofts between two sections only, so the cell is one two-section sheet loft
-per neighbouring pair, two end patches and a stitch into one solid, held to the helicoid's volume
-`T*(W - H/2)*c*P` within the slack of its flat-triangle walls, and to its station span.
+Each copy is `copyFeature = design.features.copyPasteBodies.add(body)`, and the copy is
+`copyFeature.bodies.item(0)`: the feature is a `CopyPasteBody`, whose own `sourceBody` is the
+original, so never read the copy from `sourceBody` `[SCREW-F-COPY-BODY]`.
 
-## S10 `[PROSE]` The doubling schedule (per gear)
+The proof copies the cell with decad's Duplicate and holds the copy vertex for vertex and volume
+for volume against its source, in a document of its own: a body beside its exact copy is a pair
+decad's verification cannot classify, so the harness gates the copy's geometry, the cell, alone.
 
-<!-- step-meta
-{
-  "calls": [
-    {
-      "condition": null,
-      "name": "translate",
-      "owner": null,
-      "reason": "formula notation for the screw step, not a call",
-      "receiver": null,
-      "role": "prose",
-      "span": "Step(k) = translate(k*P along dir_g) ∘ rotate(k*P/Lambda about the gear's axis)"
-    },
-    {
-      "condition": null,
-      "name": "rotate",
-      "owner": null,
-      "reason": "formula notation for the screw step, not a call",
-      "receiver": null,
-      "role": "prose",
-      "span": "Step(k) = translate(k*P along dir_g) ∘ rotate(k*P/Lambda about the gear's axis)"
-    }
-  ],
-  "citations": [
-    {
-      "first": 964,
-      "last": 995,
-      "path": "spec/screwgear/instructions.md"
-    },
-    {
-      "first": 1009,
-      "last": 1012,
-      "path": "spec/screwgear/instructions.md"
-    }
-  ],
-  "schema": 2
-}
--->
+Proof: `stepCopyBody`.
 
-**From:** `spec/screwgear/instructions.md` L964–995; `spec/screwgear/instructions.md` L1009–1012.
-
-The method `repeatCellByDoubling`, given the gear index, repeats the cell under the **screw step**
-`Step(k) = translate(k*P along dir_g) ∘ rotate(k*P/Lambda about the gear's axis)`, `k` a number
-of teeth. It is control flow; the three features of each round are S11, S12 and S13.
-
-`N = q*c + r`. Build the `q` cells by doubling:
-
-- Start with the cell as the body, `m = 1` (cells it holds).
-- For each bit of `q` below its top bit, lowest first: if that bit is set, take a copy of the
-  body (S11) and keep it unmoved — an **aside** of `m` cells; then do a **round**: copy the body
-  (S11), move the copy by `Step(m*c)` (S12), join it to the body (S13); `m` doubles.
-- After the last doubling, move each aside, **largest first**, by `Step(m*c)` (S12) and join it
-  (S13); add its cells to `m`. The last join brings `m` to `q`.
-
-That is `floor(log2 q)` rounds of doubling plus one join per set bit of `q` below its top bit, 5 at the defaults: `q = 17`, one aside of the
-single cell taken before the first doubling, doublings moving the copy by `Step(4)`, `Step(8)`,
-`Step(16)`, `Step(32)` to 16 cells, then the aside moved by `Step(64)`. When `q = 1` there is no
-round. A screw step is never zero for `k >= 1`; do not add a `k = 0` case
-([PB-MOVE-ROTATE]: a zero-angle matrix is rejected).
-
-When `r > 0` the remainder cell (S14, S15) is built after the last round and joined (S13). After
-the last join name the body `Gear A` or `Gear B` (`body.name`) and store it in
-`self.gearBodies[index]`.
-
-## S11 `[GO]` Copy the body
+<!-- proof-run: proofkit3d.RunSolid(copyCases, stepCopyBody, assertCopyBody) -->
 
 <!-- step-meta
 {
@@ -1301,9 +1595,9 @@ the last join name the body `Gear A` or `Gear B` (`body.name`) and store it in
       "name": "add",
       "owner": "adsk.fusion.CopyPasteBodies",
       "reason": null,
-      "receiver": "component.features.copyPasteBodies",
+      "receiver": "design.features.copyPasteBodies",
       "role": "required",
-      "span": "copyFeature = component.features.copyPasteBodies.add(body)"
+      "span": "copyFeature = design.features.copyPasteBodies.add(body)"
     },
     {
       "condition": null,
@@ -1317,13 +1611,18 @@ the last join name the body `Gear A` or `Gear B` (`body.name`) and store it in
   ],
   "citations": [
     {
-      "first": 1004,
-      "last": 1009,
+      "first": 1158,
+      "last": 1189,
       "path": "spec/screwgear/instructions.md"
     },
     {
-      "first": 283,
-      "last": 290,
+      "first": 1198,
+      "last": 1199,
+      "path": "spec/screwgear/instructions.md"
+    },
+    {
+      "first": 338,
+      "last": 345,
       "path": "spec/screwgear/fusion.md"
     }
   ],
@@ -1331,35 +1630,46 @@ the last join name the body `Gear A` or `Gear B` (`body.name`) and store it in
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1004–1009; `spec/screwgear/fusion.md` L283–290.
+**From:** `spec/screwgear/instructions.md` L1158–1189; `spec/screwgear/instructions.md` L1198–1199; `spec/screwgear/fusion.md` L338–345.
 
-Proof: `stepCopyBody`.
+## S12 `[GO]` A doubling round: screw-move the copy
 
-<!-- proof-run: proofkit3d.RunSolid(copyCases, stepCopyBody, assertCopyBody) -->
+Build `Step(k)` for gear `g` from two matrices `[SCREW-F-SCREW-STEP]`, never by assigning a
+rotation matrix's translation:
 
-([SCREW-F-COPY-BODY]) `copyFeature = component.features.copyPasteBodies.add(body)`. It returns a
-`CopyPasteBody` feature, not a body: the copy is `copyFeature.bodies.item(0)`. Never read the
-feature's `sourceBody`, which is the original. Raise with the count unless
-`copyFeature.bodies.count` is 1 ([PB-EMPTY-RESULT]).
+```python
+axisVector = adsk.core.Vector3D.create(dir_g.x, dir_g.y, dir_g.z)        # unit
+axisPoint  = adsk.core.Point3D.create(origin_g.x, origin_g.y, origin_g.z) # on the axis
+rot = adsk.core.Matrix3D.create()
+rot.setToRotation(k * P / Lambda, axisVector, axisPoint)
+shift = axisVector.copy()
+shift.scaleBy(k * P)
+mov = adsk.core.Matrix3D.create()
+mov.translation = shift
+rot.transformBy(mov)
+```
 
-Proof stand-in: a copy coincides with its source, which decad's pairwise verification cannot
-classify, so the copy is made with `Duplicate` in a document of its own and held to its source's
-volume and centroid there; the gated document holds the cell.
+The calls are `rot.setToRotation(angle, axisVector, axisPoint)`, `axisVector.copy()`,
+`shift.scaleBy(k * P)` and `rot.transformBy(mov)`. Build the shift vector and assign it whole: the
+getter of `translation` may hand back a copy. Move with
+`bodies = adsk.core.ObjectCollection.create()`, `bodies.add(copyBody)`,
+`moveInput = design.features.moveFeatures.createInput2(bodies)`,
+`moveInput.defineAsFreeMove(rot)`, `design.features.moveFeatures.add(moveInput)`
+`[PB-MOVE-ROTATE]`. A screw step is never zero for `k >= 1`, so no zero guard is needed; do not
+fold a `k = 0` case into the loop, because Fusion refuses an identity move.
 
-## S12 `[GO]` Move the copy by a screw step
+The proof moves a copy of the cell by `Step(m*cell)` for one, two and sixteen cells, the last the
+aside's move at the defaults, on both gears, and holds every vertex of the moved copy within
+1e-6 mm of the analytic sections of the cell it lands on: the ribbon is invariant under its screw
+step, so every placement is exact.
+
+Proof: `stepScrewMove`.
+
+<!-- proof-run: proofkit3d.RunSolid(moveCases, stepScrewMove, assertScrewMove) -->
 
 <!-- step-meta
 {
   "calls": [
-    {
-      "condition": null,
-      "name": "create",
-      "owner": "adsk.core.Matrix3D",
-      "reason": null,
-      "receiver": "adsk.core.Matrix3D",
-      "role": "required",
-      "span": "rot = adsk.core.Matrix3D.create()"
-    },
     {
       "condition": null,
       "name": "setToRotation",
@@ -1367,7 +1677,7 @@ volume and centroid there; the gated document holds the cell.
       "reason": null,
       "receiver": "rot",
       "role": "required",
-      "span": "rot.setToRotation(k*P/Lambda, axisVector, axisPoint)"
+      "span": "rot.setToRotation(angle, axisVector, axisPoint)"
     },
     {
       "condition": null,
@@ -1376,7 +1686,7 @@ volume and centroid there; the gated document holds the cell.
       "reason": null,
       "receiver": "axisVector",
       "role": "required",
-      "span": "shift = axisVector.copy()"
+      "span": "axisVector.copy()"
     },
     {
       "condition": null,
@@ -1385,25 +1695,7 @@ volume and centroid there; the gated document holds the cell.
       "reason": null,
       "receiver": "shift",
       "role": "required",
-      "span": "shift.scaleBy(k*P)"
-    },
-    {
-      "condition": null,
-      "name": "create",
-      "owner": "adsk.core.Matrix3D",
-      "reason": null,
-      "receiver": "adsk.core.Matrix3D",
-      "role": "required",
-      "span": "mov = adsk.core.Matrix3D.create()"
-    },
-    {
-      "condition": null,
-      "name": "scaleBy",
-      "owner": "adsk.core.Vector3D",
-      "reason": null,
-      "receiver": "mov.translation",
-      "role": "required",
-      "span": "mov.translation.scaleBy(...)"
+      "span": "shift.scaleBy(k * P)"
     },
     {
       "condition": null,
@@ -1430,16 +1722,16 @@ volume and centroid there; the gated document holds the cell.
       "reason": null,
       "receiver": "bodies",
       "role": "required",
-      "span": "bodies.add(copy)"
+      "span": "bodies.add(copyBody)"
     },
     {
       "condition": null,
       "name": "createInput2",
       "owner": "adsk.fusion.MoveFeatures",
       "reason": null,
-      "receiver": "component.features.moveFeatures",
+      "receiver": "design.features.moveFeatures",
       "role": "required",
-      "span": "moveInput = component.features.moveFeatures.createInput2(bodies)"
+      "span": "moveInput = design.features.moveFeatures.createInput2(bodies)"
     },
     {
       "condition": null,
@@ -1455,56 +1747,55 @@ volume and centroid there; the gated document holds the cell.
       "name": "add",
       "owner": "adsk.fusion.MoveFeatures",
       "reason": null,
-      "receiver": "component.features.moveFeatures",
+      "receiver": "design.features.moveFeatures",
       "role": "required",
-      "span": "component.features.moveFeatures.add(moveInput)"
+      "span": "design.features.moveFeatures.add(moveInput)"
     }
   ],
   "citations": [
     {
-      "first": 1004,
-      "last": 1006,
+      "first": 1158,
+      "last": 1205,
       "path": "spec/screwgear/instructions.md"
     },
     {
-      "first": 246,
-      "last": 281,
+      "first": 301,
+      "last": 336,
       "path": "spec/screwgear/fusion.md"
+    },
+    {
+      "first": 822,
+      "last": 831,
+      "path": ".claude/skills/generate-gear/PLAYBOOK.md"
     }
   ],
   "schema": 2
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1004–1006; `spec/screwgear/fusion.md` L246–281.
+**From:** `spec/screwgear/instructions.md` L1158–1205; `spec/screwgear/fusion.md` L301–336; `.claude/skills/generate-gear/PLAYBOOK.md` L822–831.
 
-Proof: `stepScrewMove`.
+## S13 `[GO]` A doubling round: join the copy to the body
 
-<!-- proof-run: proofkit3d.RunSolid(moveCases, stepScrewMove, assertScrewMove) -->
+`tools = adsk.core.ObjectCollection.create()`, `tools.add(movedCopy)`,
+`combineInput = design.features.combineFeatures.createInput(body, tools)`, then set
+`combineInput.operation = adsk.fusion.FeatureOperations.JoinFeatureOperation` and
+`combineInput.isKeepToolBodies = False`, then
+`combineFeature = design.features.combineFeatures.add(combineInput)` `[SCREW-F-JOIN]`. Raise naming
+the gear, the round and the count unless `combineFeature.bodies.count` is 1 `[PB-EMPTY-RESULT]`,
+`[PB-SELF-DIAGNOSING]`; `combineFeature.bodies.item(0)` is the body from then on. Each move is by a
+whole number of teeth already built, so each join meets its neighbour at one shared planar
+cross-section and leaves no sliver and no overlap.
 
-([SCREW-F-SCREW-STEP], [PB-MOVE-ROTATE]) For a move by `k` teeth, all lengths in cm, the axis
-`axisVector = dir_g` (an `adsk.core.Vector3D`, unit) through `axisPoint = origin_g` (an
-`adsk.core.Point3D`):
+The proof cannot run the join: the two pieces are stitched solids, which no decad boolean takes,
+and they meet face to face on the shared section, which decad's union refuses even for plain
+prisms. It builds the body and its moved copy, holds the copy's first section on the body's last
+and the two on either side of it, and builds what the join leaves, the ribbon over both spans,
+whose volume it holds to the two pieces' sum to 1e-6 mm³.
 
-1. `rot = adsk.core.Matrix3D.create()`, `rot.setToRotation(k*P/Lambda, axisVector, axisPoint)`.
-2. `shift = axisVector.copy()`, `shift.scaleBy(k*P)` — build the translation vector first.
-3. `mov = adsk.core.Matrix3D.create()`, `mov.translation = shift` — assigned whole, never
-   `mov.translation.scaleBy(...)`.
-4. `rot.transformBy(mov)`.
+Proof: `stepJoinBodies`.
 
-Never assign `rot.translation` on the rotation matrix: `setToRotation` already wrote the
-translation that carries the rotation onto `axisPoint`, and overwriting it turns the rotation
-about the gear's axis into one about a parallel line through the world origin.
-
-Then `bodies = adsk.core.ObjectCollection.create()`, `bodies.add(copy)`,
-`moveInput = component.features.moveFeatures.createInput2(bodies)`,
-`moveInput.defineAsFreeMove(rot)`, `component.features.moveFeatures.add(moveInput)`.
-
-Proof stand-in: the copy is made and moved with `Duplicate` and `Placed` in a document of its own,
-by every `k` the defaults' schedule uses; every vertex of the moved copy lands on a vertex of the
-cell built in place `k` teeth along, which the gated document holds.
-
-## S13 `[GO]` Join
+<!-- proof-run: proofkit3d.RunSolid(joinCases, stepJoinBodies, assertJoinBodies) -->
 
 <!-- step-meta
 {
@@ -1525,45 +1816,45 @@ cell built in place `k` teeth along, which the gated document holds.
       "reason": null,
       "receiver": "tools",
       "role": "required",
-      "span": "tools.add(tool)"
+      "span": "tools.add(movedCopy)"
     },
     {
       "condition": null,
       "name": "createInput",
       "owner": "adsk.fusion.CombineFeatures",
       "reason": null,
-      "receiver": "component.features.combineFeatures",
+      "receiver": "design.features.combineFeatures",
       "role": "required",
-      "span": "joinInput = component.features.combineFeatures.createInput(body, tools)"
+      "span": "combineInput = design.features.combineFeatures.createInput(body, tools)"
     },
     {
       "condition": null,
       "name": "add",
       "owner": "adsk.fusion.CombineFeatures",
       "reason": null,
-      "receiver": "component.features.combineFeatures",
+      "receiver": "design.features.combineFeatures",
       "role": "required",
-      "span": "join = component.features.combineFeatures.add(joinInput)"
+      "span": "combineFeature = design.features.combineFeatures.add(combineInput)"
     },
     {
       "condition": null,
       "name": "item",
       "owner": "adsk.fusion.BRepBodies",
       "reason": null,
-      "receiver": "join.bodies",
+      "receiver": "combineFeature.bodies",
       "role": "required",
-      "span": "join.bodies.item(0)"
+      "span": "combineFeature.bodies.item(0)"
     }
   ],
   "citations": [
     {
-      "first": 1006,
-      "last": 1009,
+      "first": 1166,
+      "last": 1203,
       "path": "spec/screwgear/instructions.md"
     },
     {
-      "first": 486,
-      "last": 496,
+      "first": 551,
+      "last": 561,
       "path": "spec/screwgear/fusion.md"
     }
   ],
@@ -1571,78 +1862,30 @@ cell built in place `k` teeth along, which the gated document holds.
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1006–1009; `spec/screwgear/fusion.md` L486–496.
+**From:** `spec/screwgear/instructions.md` L1166–1203; `spec/screwgear/fusion.md` L551–561.
 
-Proof: `stepJoinBodies`.
+## S14 `[GO]` The remainder's sections sketch, when `r > 0`
 
-<!-- proof-run: proofkit3d.RunSolid(joinCases, stepJoinBodies, assertJoinBodies) -->
+When `r > 0`, the last `r` teeth are a second, shorter cell built where they belong rather than
+moved there, after the last round. Its sketch is `{gearLabel} Cell Remainder`, on
+`self.axisPlanes[g]`, drawn exactly as S09 with `cell` replaced by `r`: `r*n + 1` sections at
+stations `s0 + q*cell*P + k*P/n` for `k = 0 … r*n`, deferred, every point fixed after the last
+curve, and checked fully constrained with `r*n + 1` profiles. The defaults have no remainder; 69
+teeth in four-tooth cells would have one of one tooth.
 
-([SCREW-F-JOIN]) The body is the target and the moved copy (or the aside, or the remainder cell)
-the one tool: `tools = adsk.core.ObjectCollection.create()`, `tools.add(tool)`,
-`joinInput = component.features.combineFeatures.createInput(body, tools)`,
-`joinInput.operation = adsk.fusion.FeatureOperations.JoinFeatureOperation`,
-`joinInput.isKeepToolBodies = False`, `join = component.features.combineFeatures.add(joinInput)`.
-Raise with the piece's name and the count unless `join.bodies.count` is exactly 1
-([PB-EMPTY-RESULT], [PB-SELF-DIAGNOSING]); `join.bodies.item(0)` is the body from then on. Every
-move is by whole teeth already built, so each join meets its neighbour at one shared planar
-cross-section, with no sliver and no overlap.
+The proof draws sections of the remainder at one, two and three teeth over, as S09's proof does.
 
-Proof stand-in: decad's Union refuses two bodies that meet face to face, and its stitch audit
-refuses a whole 68-tooth ribbon, so the join is proved at its seam: the cell before the seam and
-the piece after it, each lofted from sketches of its own, weld into one solid with no face left at
-the seam — at every seam of the defaults' schedule and at the remainder's seam.
+Proof: `stepRemainderSectionsSketch`.
 
-## S14 `[GO]` Remainder Sections sketch (per gear, only when r > 0)
+<!-- proof-run: proofkit.Run(remainderSectionCases, stepRemainderSectionsSketch) -->
 
 <!-- step-meta
 {
-  "calls": [
-    {
-      "condition": null,
-      "name": "add",
-      "owner": "adsk.fusion.Sketches",
-      "reason": null,
-      "receiver": "component.sketches",
-      "role": "required",
-      "span": "sketch = component.sketches.add(axisPlane_g)"
-    },
-    {
-      "condition": null,
-      "name": "add",
-      "owner": "adsk.fusion.SketchPoints",
-      "reason": null,
-      "receiver": "sketch.sketchPoints",
-      "role": "required",
-      "span": "sketch.sketchPoints.add(sketch.modelToSketchSpace(worldPoint))"
-    },
-    {
-      "condition": null,
-      "name": "modelToSketchSpace",
-      "owner": "adsk.fusion.Sketch",
-      "reason": null,
-      "receiver": "sketch",
-      "role": "required",
-      "span": "sketch.sketchPoints.add(sketch.modelToSketchSpace(worldPoint))"
-    },
-    {
-      "condition": null,
-      "name": "addByTwoPoints",
-      "owner": "adsk.fusion.SketchLines",
-      "reason": null,
-      "receiver": "sketch.sketchCurves.sketchLines",
-      "role": "required",
-      "span": "sketch.sketchCurves.sketchLines.addByTwoPoints(corner, nextCorner)"
-    }
-  ],
+  "calls": [],
   "citations": [
     {
-      "first": 997,
-      "last": 1002,
-      "path": "spec/screwgear/instructions.md"
-    },
-    {
-      "first": 929,
-      "last": 953,
+      "first": 1191,
+      "last": 1197,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -1650,131 +1893,98 @@ the seam — at every seam of the defaults' schedule and at the remainder's seam
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L997–1002; `spec/screwgear/instructions.md` L929–953.
+**From:** `spec/screwgear/instructions.md` L1191–1197.
 
-Proof: `stepRemainderSectionSketch`.
+## S15 `[GO]` The remainder's loft, when `r > 0`
 
-<!-- proof-run: proofkit.Run(remainderSectionCases, stepRemainderSectionSketch) -->
+The loft of S10 over the remainder's sections, in station order, raising unless it leaves one
+solid body. No slant check is run on it. Its first section is the body's last, so S16's join meets
+at a shared cross-section like every other.
 
-Only when `r = N mod c > 0` (none at the defaults; 69 teeth in four-tooth cells leave one), after
-the last round. `sketch = component.sketches.add(axisPlane_g)`, `sketch.name =
-f'{gearLabel} Cell Remainder'`, `sketch.isComputeDeferred = True` before the first point.
-
-Section `k`, for `k = 0 … r*n`, stands at `s_k = s0 + q*c*P + k*P/n` (from `s0 + q*c*P` to
-`s0 + N*P`), with `s0 = Z0_g - L/2`, and is the same rectangle as the Cell Sections sketch's:
-`u` from `-W/2` to `Utooth(s_k)`, `v` from `-T/2` to `T/2`, its four corners
-`World_g(s_k, -W/2, -T/2)`, `World_g(s_k, Utooth(s_k), -T/2)`, `World_g(s_k, Utooth(s_k), T/2)`,
-`World_g(s_k, -W/2, T/2)`, each `sketch.sketchPoints.add(sketch.modelToSketchSpace(worldPoint))`
-with its z kept; four solid lines `L1`…`L4` sharing them by
-`sketch.sketchCurves.sketchLines.addByTwoPoints(corner, nextCorner)`; every point `isFixed = True`
-after the last line. Then `sketch.isComputeDeferred = False`, raise unless
-`sketch.isFullyConstrained`, and raise with the count unless `sketch.profiles.count` is `r*n + 1`.
-Its first section is the body's last, so the join of S13 meets a shared cross-section.
-
-Proof stand-in: one planar sketch per section, as for the Cell Sections sketch.
-
-## S15 `[GO]` Remainder loft (per gear, only when r > 0)
-
-<!-- step-meta
-{
-  "calls": [
-    {
-      "condition": null,
-      "name": "createInput",
-      "owner": "adsk.fusion.LoftFeatures",
-      "reason": null,
-      "receiver": "component.features.loftFeatures",
-      "role": "required",
-      "span": "loftInput = component.features.loftFeatures.createInput(adsk.fusion.FeatureOperations.NewBodyFeatureOperation)"
-    },
-    {
-      "condition": null,
-      "name": "create",
-      "owner": "adsk.core.ObjectCollection",
-      "reason": null,
-      "receiver": "adsk.core.ObjectCollection",
-      "role": "required",
-      "span": "coll = adsk.core.ObjectCollection.create()"
-    },
-    {
-      "condition": null,
-      "name": "add",
-      "owner": "adsk.core.ObjectCollection",
-      "reason": null,
-      "receiver": "coll",
-      "role": "required",
-      "span": "coll.add(line)"
-    },
-    {
-      "condition": null,
-      "name": "add",
-      "owner": "adsk.fusion.LoftSections",
-      "reason": null,
-      "receiver": "loftInput.loftSections",
-      "role": "required",
-      "span": "loftInput.loftSections.add(component.features.createPath(coll, False))"
-    },
-    {
-      "condition": null,
-      "name": "createPath",
-      "owner": "adsk.fusion.Features",
-      "reason": null,
-      "receiver": "component.features",
-      "role": "required",
-      "span": "loftInput.loftSections.add(component.features.createPath(coll, False))"
-    },
-    {
-      "condition": null,
-      "name": "add",
-      "owner": "adsk.fusion.LoftFeatures",
-      "reason": null,
-      "receiver": "component.features.loftFeatures",
-      "role": "required",
-      "span": "loft = component.features.loftFeatures.add(loftInput)"
-    },
-    {
-      "condition": null,
-      "name": "item",
-      "owner": "adsk.fusion.BRepBodies",
-      "reason": null,
-      "receiver": "loft.bodies",
-      "role": "required",
-      "span": "loft.bodies.item(0).isSolid"
-    }
-  ],
-  "citations": [
-    {
-      "first": 997,
-      "last": 1002,
-      "path": "spec/screwgear/instructions.md"
-    },
-    {
-      "first": 955,
-      "last": 962,
-      "path": "spec/screwgear/instructions.md"
-    }
-  ],
-  "schema": 2
-}
--->
-
-**From:** `spec/screwgear/instructions.md` L997–1002; `spec/screwgear/instructions.md` L955–962.
+The proof lofts the remainder as S10's proof does, holds its volume within 4% under the helicoid's,
+its vertices on the analytic sections, and its first section on the cell's last carried by the
+screw step of the whole cells before it.
 
 Proof: `stepRemainderLoft`.
 
-<!-- proof-run: proofkit3d.RunSolid(remainderLoftCases, stepRemainderLoft, assertRemainderLoft) -->
+<!-- proof-run: proofkit3d.RunSolid(remainderCases, stepRemainderLoft, assertRemainderLoft) -->
 
-`loftInput = component.features.loftFeatures.createInput(adsk.fusion.FeatureOperations.NewBodyFeatureOperation)`;
-for each remainder section in order of `k`: `coll = adsk.core.ObjectCollection.create()`,
-`coll.add(line)` for its four lines, `loftInput.loftSections.add(component.features.createPath(coll, False))`;
-then `loft = component.features.loftFeatures.add(loftInput)`. Raise unless `loft.bodies.count` is
-1 and `loft.bodies.item(0).isSolid` ([PB-LOFT], [PB-EMPTY-RESULT]). That body is joined into the
-ribbon by S13 after the last round.
+<!-- step-meta
+{
+  "calls": [],
+  "citations": [
+    {
+      "first": 1191,
+      "last": 1197,
+      "path": "spec/screwgear/instructions.md"
+    }
+  ],
+  "schema": 2
+}
+-->
 
-Proof stand-in: the chain of two-section sheet lofts and a stitch, held to `T*(W - H/2)*r*P` and
-ending at the ribbon's positive end `s0 + N*P`.
+**From:** `spec/screwgear/instructions.md` L1191–1197.
 
-## S16 `[GO]` Sleeve sketch
+## S16 `[GO]` The remainder's join, and the gear body's name
+
+When `r > 0`, join the remainder to the body after the last round, exactly as S13, the body the
+target and the remainder the one tool, raising unless the combine feature's `bodies.count` is 1.
+After the last join (or the last round when `r = 0`, or the cell itself when `q = 1` and `r = 0`),
+name the body `Gear A` or `Gear B` (`body.name`) and keep it as `self.gearBodies[g]`.
+
+The proof stands in for the join as S13's does, with the last whole cell as the body and the
+remainder as the piece the screw step carries after it.
+
+Proof: `stepRemainderJoin`.
+
+<!-- proof-run: proofkit3d.RunSolid(remainderCases, stepRemainderJoin, assertRemainderJoin) -->
+
+<!-- step-meta
+{
+  "calls": [],
+  "citations": [
+    {
+      "first": 1191,
+      "last": 1203,
+      "path": "spec/screwgear/instructions.md"
+    }
+  ],
+  "schema": 2
+}
+-->
+
+**From:** `spec/screwgear/instructions.md` L1191–1203.
+
+## S17 `[GO]` The Sleeve sketch
+
+The method `buildCage` is S17 to S26. The cage is the **sleeve**: one tube about the frame's axis, the four
+bores cut through its wall by twisted sweeps, and up to two windows cut through the wall by
+extrusions `[SCREW-F-SLEEVE]`. Heights are along `n̂` from `C`; gear B's axis is on the `+n̂` side.
+
+Create `sleeve = design.sketches.add(self.targetPlane)` on the selected plane itself
+`[PB-USE-SELECTED-PLANE]`, named `Sleeve`; not deferred. With
+`centre = sleeve.modelToSketchSpace(C)` and `centre.z = 0` `[PB-SKETCH-ZERO-Z]`, draw two circles,
+`circle = sleeve.sketchCurves.sketchCircles.addByCenterRadius(centre, radius)` with radius `Ri` and
+then `Ro`. For each: set `circle.centerSketchPoint.isFixed = True` `[PB-CIRCLE-CENTER]` (the two
+centres are separate points at one place, both fixed, with no coincident between them), and add
+`sleeve.sketchDimensions.addDiameterDimension(circle, textPoint)` with its `parameter.value` set to
+`2*radius`, the text point on the circle, off the centre `[PB-RADIAL-DIM]`:
+`textPoint = adsk.core.Point3D.create(centre.x + radius, centre.y, 0)`. Nothing else is in the
+sketch. Raise naming the sketch unless `sleeve.isFullyConstrained`.
+
+The sketch has two profiles, the inner disc and the ring. The ring is the profile whose
+`profileLoops.count` is 2: iterate `sleeve.profiles`, take the one profile with two loops, and
+raise with the counts unless there is exactly one `[PB-EMPTY-RESULT]`. `find_profile_by_curve_counts`
+cannot pick it, because it treats a circle as a curve type that disqualifies a loop.
+
+The proof draws the two circles with their centres fixed and their diameters, picks the one
+profile with a hole and holds its area at `pi*(Ro^2 - Ri^2)`. It also runs S03's range checks on
+every case, the case being one the build accepts, and holds the wall between the bores at
+5.067 mm across the `-e` gap at the defaults, by S03's algorithm.
+
+Proof: `stepSleeveSketch`.
+
+<!-- proof-run: proofkit.Run(sleeveSketchCases, stepSleeveSketch) -->
 
 <!-- step-meta
 {
@@ -1784,36 +1994,36 @@ ending at the ribbon's positive end `s0 + N*P`.
       "name": "add",
       "owner": "adsk.fusion.Sketches",
       "reason": null,
-      "receiver": "component.sketches",
+      "receiver": "design.sketches",
       "role": "required",
-      "span": "sketch = component.sketches.add(self.plane)"
+      "span": "sleeve = design.sketches.add(self.targetPlane)"
     },
     {
       "condition": null,
       "name": "modelToSketchSpace",
       "owner": "adsk.fusion.Sketch",
       "reason": null,
-      "receiver": "sketch",
+      "receiver": "sleeve",
       "role": "required",
-      "span": "centre = sketch.modelToSketchSpace(C)"
+      "span": "centre = sleeve.modelToSketchSpace(C)"
     },
     {
       "condition": null,
       "name": "addByCenterRadius",
       "owner": "adsk.fusion.SketchCircles",
       "reason": null,
-      "receiver": "sketch.sketchCurves.sketchCircles",
+      "receiver": "sleeve.sketchCurves.sketchCircles",
       "role": "required",
-      "span": "inner = sketch.sketchCurves.sketchCircles.addByCenterRadius(centre, Ri/10)"
+      "span": "circle = sleeve.sketchCurves.sketchCircles.addByCenterRadius(centre, radius)"
     },
     {
       "condition": null,
       "name": "addDiameterDimension",
       "owner": "adsk.fusion.SketchDimensions",
       "reason": null,
-      "receiver": "sketch.sketchDimensions",
+      "receiver": "sleeve.sketchDimensions",
       "role": "required",
-      "span": "sketch.sketchDimensions.addDiameterDimension(inner, innerText)"
+      "span": "sleeve.sketchDimensions.addDiameterDimension(circle, textPoint)"
     },
     {
       "condition": null,
@@ -1822,52 +2032,54 @@ ending at the ribbon's positive end `s0 + N*P`.
       "reason": null,
       "receiver": "adsk.core.Point3D",
       "role": "required",
-      "span": "innerText = adsk.core.Point3D.create(centre.x + Ri/10, centre.y, 0)"
+      "span": "textPoint = adsk.core.Point3D.create(centre.x + radius, centre.y, 0)"
     }
   ],
   "citations": [
     {
-      "first": 1040,
-      "last": 1047,
+      "first": 1208,
+      "last": 1246,
       "path": "spec/screwgear/instructions.md"
     },
     {
-      "first": 438,
-      "last": 457,
+      "first": 503,
+      "last": 525,
       "path": "spec/screwgear/fusion.md"
+    },
+    {
+      "first": 451,
+      "last": 457,
+      "path": ".claude/skills/generate-gear/PLAYBOOK.md"
+    },
+    {
+      "first": 670,
+      "last": 674,
+      "path": ".claude/skills/generate-gear/PLAYBOOK.md"
     }
   ],
   "schema": 2
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1040–1047; `spec/screwgear/fusion.md` L438–457.
+**From:** `spec/screwgear/instructions.md` L1208–1246; `spec/screwgear/fusion.md` L503–525; `.claude/skills/generate-gear/PLAYBOOK.md` L451–457; `.claude/skills/generate-gear/PLAYBOOK.md` L670–674.
 
-Proof: `stepSleeveSketch`.
+## S18 `[GO]` Extrude the tube
 
-<!-- proof-run: proofkit.Run(sleeveSketchCases, stepSleeveSketch) -->
+`tubeInput = design.features.extrudeFeatures.createInput(ring, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)`,
+then `tubeInput.setSymmetricExtent(adsk.core.ValueInput.createByReal(cageRise), False)`: `False`
+makes the value each side's length `[PB-THROUGH-CUT]`, so the tube runs from `-cageRise` to
+`+cageRise` along `n̂`, 37.5 mm tall at the defaults with a flat 565.5 mm² ring at each end. Then
+`tubeFeature = design.features.extrudeFeatures.add(tubeInput)`. Raise naming the sleeve unless
+`tubeFeature.bodies.count` is 1; `tubeFeature.bodies.item(0)` is `self.cageBody` from here on.
 
-The method `buildCage` begins here ([SCREW-F-SLEEVE]). `sketch = component.sketches.add(self.plane)` on the
-selected plane ([PB-USE-SELECTED-PLANE]), `sketch.name = 'Sleeve'`. No deferral.
-`centre = sketch.modelToSketchSpace(C)`, `centre.z = 0` ([PB-SKETCH-ZERO-Z]). Two circles, each
-created at that position, never on a shared point:
+The sleeve prints standing on its `−n̂` end, the end below the selected plane, with no support.
 
-- `inner = sketch.sketchCurves.sketchCircles.addByCenterRadius(centre, Ri/10)`, then
-  `inner.centerSketchPoint.isFixed = True` ([PB-CIRCLE-CENTER]; never a coincident to another
-  point), then a diameter dimension
-  `sketch.sketchDimensions.addDiameterDimension(inner, innerText)` of `2*Ri/10` cm, its text
-  point `innerText = adsk.core.Point3D.create(centre.x + Ri/10, centre.y, 0)` on the circle, off
-  the centre ([PB-RADIAL-DIM]).
-- `outer` the same with radius `Ro/10`, its own centre point fixed, a diameter of `2*Ro/10` cm and
-  its text point at `centre.x + Ro/10`.
+The proof extrudes the ring symmetric and holds the volume at `pi*(Ro^2 - Ri^2)*2*cageRise` and the
+bounding box at `C ± (Ro, Ro, cageRise)`.
 
-Nothing else is in the sketch. Raise naming `Sleeve` unless `sketch.isFullyConstrained`. It has two
-profiles, the inner disc and the ring; the ring is the profile whose `profile.profileLoops.count`
-is 2. Iterate `sketch.profiles`, take the one profile with two loops, and raise with the counts
-when there is not exactly one ([PB-EMPTY-RESULT]). `find_profile_by_curve_counts` cannot pick it:
-it treats a circle as a curve type that disqualifies a loop.
+Proof: `stepExtrudeTube`.
 
-## S17 `[GO]` Sleeve tube extrude
+<!-- proof-run: proofkit3d.RunSolid(tubeCases, stepExtrudeTube, assertExtrudeTube) -->
 
 <!-- step-meta
 {
@@ -1877,18 +2089,18 @@ it treats a circle as a curve type that disqualifies a loop.
       "name": "createInput",
       "owner": "adsk.fusion.ExtrudeFeatures",
       "reason": null,
-      "receiver": "component.features.extrudeFeatures",
+      "receiver": "design.features.extrudeFeatures",
       "role": "required",
-      "span": "extrudeInput = component.features.extrudeFeatures.createInput(ring, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)"
+      "span": "tubeInput = design.features.extrudeFeatures.createInput(ring, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)"
     },
     {
       "condition": null,
       "name": "setSymmetricExtent",
       "owner": "adsk.fusion.ExtrudeFeatureInput",
       "reason": null,
-      "receiver": "extrudeInput",
+      "receiver": "tubeInput",
       "role": "required",
-      "span": "extrudeInput.setSymmetricExtent(adsk.core.ValueInput.createByReal(cageRise/10), False)"
+      "span": "tubeInput.setSymmetricExtent(adsk.core.ValueInput.createByReal(cageRise), False)"
     },
     {
       "condition": null,
@@ -1897,36 +2109,36 @@ it treats a circle as a curve type that disqualifies a loop.
       "reason": null,
       "receiver": "adsk.core.ValueInput",
       "role": "required",
-      "span": "extrudeInput.setSymmetricExtent(adsk.core.ValueInput.createByReal(cageRise/10), False)"
+      "span": "tubeInput.setSymmetricExtent(adsk.core.ValueInput.createByReal(cageRise), False)"
     },
     {
       "condition": null,
       "name": "add",
       "owner": "adsk.fusion.ExtrudeFeatures",
       "reason": null,
-      "receiver": "component.features.extrudeFeatures",
+      "receiver": "design.features.extrudeFeatures",
       "role": "required",
-      "span": "tube = component.features.extrudeFeatures.add(extrudeInput)"
+      "span": "tubeFeature = design.features.extrudeFeatures.add(tubeInput)"
     },
     {
       "condition": null,
       "name": "item",
       "owner": "adsk.fusion.BRepBodies",
       "reason": null,
-      "receiver": "tube.bodies",
+      "receiver": "tubeFeature.bodies",
       "role": "required",
-      "span": "tube.bodies.item(0)"
+      "span": "tubeFeature.bodies.item(0)"
     }
   ],
   "citations": [
     {
-      "first": 1047,
-      "last": 1052,
+      "first": 1227,
+      "last": 1246,
       "path": "spec/screwgear/instructions.md"
     },
     {
-      "first": 456,
-      "last": 459,
+      "first": 511,
+      "last": 525,
       "path": "spec/screwgear/fusion.md"
     }
   ],
@@ -1934,21 +2146,19 @@ it treats a circle as a curve type that disqualifies a loop.
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1047–1052; `spec/screwgear/fusion.md` L456–459.
+**From:** `spec/screwgear/instructions.md` L1227–1246; `spec/screwgear/fusion.md` L511–525.
 
-Proof: `stepSleeveTube`.
+## S19 `[PROSE]` A bore's plane
 
-<!-- proof-run: proofkit3d.RunSolid(sleeveTubeCases, stepSleeveTube, assertSleeveTube) -->
-
-`extrudeInput = component.features.extrudeFeatures.createInput(ring, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)`,
-`extrudeInput.setSymmetricExtent(adsk.core.ValueInput.createByReal(cageRise/10), False)` — `False`
-makes the value each side's length ([PB-THROUGH-CUT] for the argument), so the tube runs from
-`-cageRise` to `+cageRise` along `n̂`: 37.5 mm tall at the defaults, with a flat 565.5 mm² ring at
-each end. `tube = component.features.extrudeFeatures.add(extrudeInput)`. Raise with the count
-unless `tube.bodies.count` is 1. `tube.bodies.item(0)` is `self.cageBody` from here on, the first
-body of the cage.
-
-## S18 `[GO]` Bore section sketch (per bore)
+S19 to S22 run once per bore, in S03's order: gear A `-R`, gear A `+R`, gear B `-R`, gear B `+R`.
+For bore `(g, sigma)` the path line is `line = self.pathLines[g]['bore-']` for `-R` and
+`self.pathLines[g]['bore+']` for `+R`. Its section plane is
+`planeInput = design.constructionPlanes.createInput()`,
+`planeInput.setByDistanceOnPath(line, adsk.core.ValueInput.createByReal(0))`, with the line passed
+directly `[PB-CONSTRUCTION-PLANES]`, then `design.constructionPlanes.add(planeInput)`, named
+`{gearLabel} Bore -R Plane` or `{gearLabel} Bore +R Plane`. It stands at the span's negative end,
+station `s0 = -sOut` for `-R` and `sIn` for `+R`, square to the axis; Fusion put such a plane's
+origin on the station to four decimals of a millimetre.
 
 <!-- step-meta
 {
@@ -1958,9 +2168,9 @@ body of the cage.
       "name": "createInput",
       "owner": "adsk.fusion.ConstructionPlanes",
       "reason": null,
-      "receiver": "component.constructionPlanes",
+      "receiver": "design.constructionPlanes",
       "role": "required",
-      "span": "planeInput = component.constructionPlanes.createInput()"
+      "span": "planeInput = design.constructionPlanes.createInput()"
     },
     {
       "condition": null,
@@ -1985,187 +2195,20 @@ body of the cage.
       "name": "add",
       "owner": "adsk.fusion.ConstructionPlanes",
       "reason": null,
-      "receiver": "component.constructionPlanes",
+      "receiver": "design.constructionPlanes",
       "role": "required",
-      "span": "plane = component.constructionPlanes.add(planeInput)"
-    },
-    {
-      "condition": null,
-      "name": "add",
-      "owner": "adsk.fusion.Sketches",
-      "reason": null,
-      "receiver": "component.sketches",
-      "role": "required",
-      "span": "sketch = component.sketches.add(plane)"
-    },
-    {
-      "condition": null,
-      "name": "modelToSketchSpace",
-      "owner": "adsk.fusion.Sketch",
-      "reason": null,
-      "receiver": "sketch",
-      "role": "required",
-      "span": "sketch.modelToSketchSpace(worldPoint)"
-    },
-    {
-      "condition": null,
-      "name": "add",
-      "owner": "adsk.fusion.SketchPoints",
-      "reason": null,
-      "receiver": "sketch.sketchPoints",
-      "role": "required",
-      "span": "O = sketch.sketchPoints.add(local of origin_g + s0*dir_g)"
-    },
-    {
-      "condition": null,
-      "name": "add",
-      "owner": "adsk.fusion.SketchPoints",
-      "reason": null,
-      "receiver": "sketch.sketchPoints",
-      "role": "required",
-      "span": "Cp = sketch.sketchPoints.add(local of origin_g + s0*dir_g + (A/2)*u_g)"
-    },
-    {
-      "condition": null,
-      "name": "addByTwoPoints",
-      "owner": "adsk.fusion.SketchLines",
-      "reason": null,
-      "receiver": "sketch.sketchCurves.sketchLines",
-      "role": "required",
-      "span": "Ru = sketch.sketchCurves.sketchLines.addByTwoPoints(O, Cp)"
-    },
-    {
-      "condition": null,
-      "name": "addByTwoPoints",
-      "owner": "adsk.fusion.SketchLines",
-      "reason": null,
-      "receiver": "sketch.sketchCurves.sketchLines",
-      "role": "required",
-      "span": "K = sketch.sketchCurves.sketchLines.addByTwoPoints(O, seedE)"
-    },
-    {
-      "condition": null,
-      "name": "addByTwoPoints",
-      "owner": "adsk.fusion.SketchLines",
-      "reason": null,
-      "receiver": "sketch.sketchCurves.sketchLines",
-      "role": "required",
-      "span": "sketch.sketchCurves.sketchLines.addByTwoPoints(start, end)"
-    },
-    {
-      "condition": null,
-      "name": "addDistanceDimension",
-      "owner": "adsk.fusion.SketchDimensions",
-      "reason": null,
-      "receiver": "sketch.sketchDimensions",
-      "role": "required",
-      "span": "sketch.sketchDimensions.addDistanceDimension(O, E, adsk.fusion.DimensionOrientations.AlignedDimensionOrientation, textK)"
-    },
-    {
-      "condition": null,
-      "name": "addAngularDimension",
-      "owner": "adsk.fusion.SketchDimensions",
-      "reason": null,
-      "receiver": "sketch.sketchDimensions",
-      "role": "required",
-      "span": "sketch.sketchDimensions.addAngularDimension(Ru, second, textA)"
-    },
-    {
-      "condition": null,
-      "name": "addParallel",
-      "owner": "adsk.fusion.GeometricConstraints",
-      "reason": null,
-      "receiver": "sketch.geometricConstraints",
-      "role": "required",
-      "span": "sketch.geometricConstraints.addParallel(L1, K)"
-    },
-    {
-      "condition": null,
-      "name": "addOffsetDimension",
-      "owner": "adsk.fusion.SketchDimensions",
-      "reason": null,
-      "receiver": "sketch.sketchDimensions",
-      "role": "required",
-      "span": "sketch.sketchDimensions.addOffsetDimension(K, L1, textL1)"
-    },
-    {
-      "condition": null,
-      "name": "addParallel",
-      "owner": "adsk.fusion.GeometricConstraints",
-      "reason": null,
-      "receiver": "sketch.geometricConstraints",
-      "role": "required",
-      "span": "sketch.geometricConstraints.addParallel(L3, K)"
-    },
-    {
-      "condition": null,
-      "name": "addOffsetDimension",
-      "owner": "adsk.fusion.SketchDimensions",
-      "reason": null,
-      "receiver": "sketch.sketchDimensions",
-      "role": "required",
-      "span": "sketch.sketchDimensions.addOffsetDimension(K, L3, textL3)"
-    },
-    {
-      "condition": null,
-      "name": "addCoincident",
-      "owner": "adsk.fusion.GeometricConstraints",
-      "reason": null,
-      "receiver": "sketch.geometricConstraints",
-      "role": "required",
-      "span": "sketch.geometricConstraints.addCoincident(E, L2)"
-    },
-    {
-      "condition": null,
-      "name": "addPerpendicular",
-      "owner": "adsk.fusion.GeometricConstraints",
-      "reason": null,
-      "receiver": "sketch.geometricConstraints",
-      "role": "required",
-      "span": "sketch.geometricConstraints.addPerpendicular(L2, K)"
-    },
-    {
-      "condition": null,
-      "name": "addParallel",
-      "owner": "adsk.fusion.GeometricConstraints",
-      "reason": null,
-      "receiver": "sketch.geometricConstraints",
-      "role": "required",
-      "span": "sketch.geometricConstraints.addParallel(L4, L2)"
-    },
-    {
-      "condition": null,
-      "name": "addOffsetDimension",
-      "owner": "adsk.fusion.SketchDimensions",
-      "reason": null,
-      "receiver": "sketch.sketchDimensions",
-      "role": "required",
-      "span": "sketch.sketchDimensions.addOffsetDimension(L2, L4, textL4)"
-    },
-    {
-      "condition": null,
-      "name": "find_profile_by_curve_counts",
-      "owner": null,
-      "reason": "lib/geargen/utilities.py provides find_profile_by_curve_counts",
-      "receiver": null,
-      "role": "inherited",
-      "span": "profile = find_profile_by_curve_counts(sketch, lines=4)"
+      "span": "design.constructionPlanes.add(planeInput)"
     }
   ],
   "citations": [
     {
-      "first": 1104,
-      "last": 1110,
+      "first": 1304,
+      "last": 1310,
       "path": "spec/screwgear/instructions.md"
     },
     {
-      "first": 1126,
-      "last": 1163,
-      "path": "spec/screwgear/instructions.md"
-    },
-    {
-      "first": 364,
-      "last": 372,
+      "first": 429,
+      "last": 437,
       "path": "spec/screwgear/fusion.md"
     }
   ],
@@ -2173,82 +2216,331 @@ body of the cage.
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1104–1110; `spec/screwgear/instructions.md` L1126–1163; `spec/screwgear/fusion.md` L364–372.
+**From:** `spec/screwgear/instructions.md` L1304–1310; `spec/screwgear/fusion.md` L429–437.
+
+## S20 `[GO]` A bore's section sketch: the rectangle scheme
+
+Create `boreSketch = design.sketches.add(borePlane)`, named `{gearLabel} Bore -R` or
+`{gearLabel} Bore +R`, and set `boreSketch.isComputeDeferred = True` right away
+`[PB-SKETCH-DEFER]`, `[SCREW-F-DEFER]`. Everything below is at the plane's station `s0`, with
+`theta = Theta_g(s0)`, `uB = -hw`, `uF = hw`, and the bore's own `vLo` and `vHi` (S03). Every point
+is a `World_g` point mapped with `boreSketch.modelToSketchSpace(world)` and given `z = 0`
+`[PB-SKETCH-ZERO-Z]`. Nothing is projected into it `[PB-PROJECT-NOT-FIXED]`.
+
+1. **References.** Two reference points: `O` at `origin_g + s0*dir_g`, where the path pierces the
+   plane, and `Cp` at `origin_g + s0*dir_g + (A/2)*û_g`, both added with
+   `boreSketch.sketchPoints.add(local)`. The construction line
+   `Ru = boreSketch.sketchCurves.sketchLines.addByTwoPoints(O, Cp)`, `Ru.isConstruction = True`.
+2. **The spine.** The construction line `K` from `O` to `E`, `E` seeded at `World_g(s0, uF, 0)`:
+   `K = boreSketch.sketchCurves.sketchLines.addByTwoPoints(O, eSeed)` with `eSeed` the raw mapped
+   `Point3D`, `K.isConstruction = True`, and `E = K.endSketchPoint`. Then set `O.isFixed = True` and
+   `Cp.isFixed = True`, after `Ru` and `K` and before any dimension.
+3. **The rectangle.** Four solid lines sharing their corners, every seed the solved point
+   `[PB-SEED-NEAR]`, `[PB-SHARE-XOR-COINCIDENT]` (no coincident on a corner):
+   `L1 = addByTwoPoints(c0, c1)` with raw seeds `c0 = World_g(s0, uB, vLo)` and
+   `c1 = World_g(s0, uF, vLo)`; `L2 = addByTwoPoints(L1.endSketchPoint, c2)` with
+   `c2 = World_g(s0, uF, vHi)`; `L3 = addByTwoPoints(L2.endSketchPoint, c3)` with
+   `c3 = World_g(s0, uB, vHi)`; `L4 = addByTwoPoints(L3.endSketchPoint, L1.startSketchPoint)`, each
+   on `boreSketch.sketchCurves.sketchLines`.
+4. **The length.** `boreSketch.sketchDimensions.addDistanceDimension(O, E, adsk.fusion.DimensionOrientations.AlignedDimensionOrientation, textPoint)`
+   with `parameter.value = uF`, the text point at `World_g(s0, uF/2, 0.1 cm)` mapped, `z = 0`.
+5. **The angle** `[PB-ANGULAR-DIM]`. When `|sin(theta)| >= sqrt(1/2)` the two rays are `r1 = +û`
+   from `O` along `Ru` (toward `Cp`) and `r2 = O→E` along `K`, meeting at `O`, and the dimension is
+   `boreSketch.sketchDimensions.addAngularDimension(Ru, K, textPoint)`. Otherwise the rays are
+   `r1 = +û` along `Ru`'s line and `r2` along `L2` from its start to its end, meeting where `L2`'s line
+   crosses `Ru`'s, at `X = origin_g + s0*dir_g + (uF/cos(theta))*û_g`, and the dimension is
+   `boreSketch.sketchDimensions.addAngularDimension(Ru, L2, textPoint)`. In world terms
+   `r1 = û_g`, and `r2` is `cos(theta)*û_g + sin(theta)*v̂_g` for `K` or
+   `-sin(theta)*û_g + cos(theta)*v̂_g` for `L2`. The value is the angle between the rays,
+   `acos(r1 . r2)`, which always lies in 45°–135°; set `parameter.value` to it in radians. The
+   text point is inside that wedge: the vertex (`O` or `X`) plus `(uF/2)` times the unit bisector of
+   `r1` and `r2`, mapped, `z = 0`.
+6. **The rectangle's constraints** `[PB-OFFSET-DIM]`, `[PB-NO-OVERCONSTRAIN]`:
+   `boreSketch.geometricConstraints.addParallel(L1, K)` and
+   `boreSketch.sketchDimensions.addOffsetDimension(K, L1, textPoint)` with `parameter.value = -vLo`;
+   `boreSketch.geometricConstraints.addParallel(L3, K)` and
+   `boreSketch.sketchDimensions.addOffsetDimension(K, L3, textPoint)` with `parameter.value = vHi`;
+   `boreSketch.geometricConstraints.addCoincident(E, L2)`;
+   `boreSketch.geometricConstraints.addPerpendicular(L2, K)`;
+   `boreSketch.geometricConstraints.addParallel(L4, L2)` and
+   `boreSketch.sketchDimensions.addOffsetDimension(L2, L4, textPoint)` with
+   `parameter.value = uF - uB`. Each offset's text point is the midpoint of its second line's two
+   seeds, mapped, `z = 0`. All values are magnitudes; the side is the seed's
+   `[PB-DIM-VALUE-SEMANTICS]`.
+
+Ten degrees of freedom, `E` and the four corners, against ten rows: five dimensions and five
+constraints. Set `boreSketch.isComputeDeferred = False`, then raise naming the sketch unless
+`boreSketch.isFullyConstrained`. The profile is the rectangle, the one loop of four lines:
+`profile = find_profile_by_curve_counts(boreSketch, lines=4)` `[PB-PROFILE-MATCH]`; the
+construction lines bound nothing. At the defaults gear A's `-R` profile stands at −138.2° and takes
+the `L2` reference, and its `+R` profile at 57.4° and takes `K`.
+
+The proof draws the scheme on the bore's plane in the plane's coordinates. The engine's signed
+offset carries Fusion's parallel and offset dimension as one constraint, with the side as its sign,
+and its signed angle runs from `Ru`'s start→end to the other line's. It holds every corner where it
+was seeded, the unsigned angle in 45°–135° and equal to the dimension's value, the profile one valid
+loop of four lines with the rectangle's area, and the sketch fully constrained and unambiguous, at
+all four bores, at the 14° third print, with no roof allowance, level at 30°, at unequal angles,
+at 110° and at a 60 mm lead.
 
 Proof: `stepBoreSectionSketch`.
 
-<!-- proof-run: proofkit.Run(boreSketchCases, stepBoreSectionSketch) -->
+<!-- proof-run: proofkit.Run(boreSectionCases, stepBoreSectionSketch) -->
 
-For each bore of S02, in the order gear A `-R`, gear A `+R`, gear B `-R`, gear B `+R`, first its
-plane, then this sketch, then its cut (S19), before the next bore.
+<!-- step-meta
+{
+  "calls": [
+    {
+      "condition": null,
+      "name": "add",
+      "owner": "adsk.fusion.Sketches",
+      "reason": null,
+      "receiver": "design.sketches",
+      "role": "required",
+      "span": "boreSketch = design.sketches.add(borePlane)"
+    },
+    {
+      "condition": null,
+      "name": "modelToSketchSpace",
+      "owner": "adsk.fusion.Sketch",
+      "reason": null,
+      "receiver": "boreSketch",
+      "role": "required",
+      "span": "boreSketch.modelToSketchSpace(world)"
+    },
+    {
+      "condition": null,
+      "name": "add",
+      "owner": "adsk.fusion.SketchPoints",
+      "reason": null,
+      "receiver": "boreSketch.sketchPoints",
+      "role": "required",
+      "span": "boreSketch.sketchPoints.add(local)"
+    },
+    {
+      "condition": null,
+      "name": "addByTwoPoints",
+      "owner": "adsk.fusion.SketchLines",
+      "reason": null,
+      "receiver": "boreSketch.sketchCurves.sketchLines",
+      "role": "required",
+      "span": "Ru = boreSketch.sketchCurves.sketchLines.addByTwoPoints(O, Cp)"
+    },
+    {
+      "condition": null,
+      "name": "addByTwoPoints",
+      "owner": "adsk.fusion.SketchLines",
+      "reason": null,
+      "receiver": "boreSketch.sketchCurves.sketchLines",
+      "role": "required",
+      "span": "K = boreSketch.sketchCurves.sketchLines.addByTwoPoints(O, eSeed)"
+    },
+    {
+      "condition": null,
+      "name": "addByTwoPoints",
+      "owner": "adsk.fusion.SketchLines",
+      "reason": null,
+      "receiver": null,
+      "role": "required",
+      "span": "L1 = addByTwoPoints(c0, c1)"
+    },
+    {
+      "condition": null,
+      "name": "addByTwoPoints",
+      "owner": "adsk.fusion.SketchLines",
+      "reason": null,
+      "receiver": null,
+      "role": "required",
+      "span": "L2 = addByTwoPoints(L1.endSketchPoint, c2)"
+    },
+    {
+      "condition": null,
+      "name": "addByTwoPoints",
+      "owner": "adsk.fusion.SketchLines",
+      "reason": null,
+      "receiver": null,
+      "role": "required",
+      "span": "L3 = addByTwoPoints(L2.endSketchPoint, c3)"
+    },
+    {
+      "condition": null,
+      "name": "addByTwoPoints",
+      "owner": "adsk.fusion.SketchLines",
+      "reason": null,
+      "receiver": null,
+      "role": "required",
+      "span": "L4 = addByTwoPoints(L3.endSketchPoint, L1.startSketchPoint)"
+    },
+    {
+      "condition": null,
+      "name": "addDistanceDimension",
+      "owner": "adsk.fusion.SketchDimensions",
+      "reason": null,
+      "receiver": "boreSketch.sketchDimensions",
+      "role": "required",
+      "span": "boreSketch.sketchDimensions.addDistanceDimension(O, E, adsk.fusion.DimensionOrientations.AlignedDimensionOrientation, textPoint)"
+    },
+    {
+      "condition": null,
+      "name": "addAngularDimension",
+      "owner": "adsk.fusion.SketchDimensions",
+      "reason": null,
+      "receiver": "boreSketch.sketchDimensions",
+      "role": "required",
+      "span": "boreSketch.sketchDimensions.addAngularDimension(Ru, K, textPoint)"
+    },
+    {
+      "condition": null,
+      "name": "addAngularDimension",
+      "owner": "adsk.fusion.SketchDimensions",
+      "reason": null,
+      "receiver": "boreSketch.sketchDimensions",
+      "role": "required",
+      "span": "boreSketch.sketchDimensions.addAngularDimension(Ru, L2, textPoint)"
+    },
+    {
+      "condition": null,
+      "name": "addParallel",
+      "owner": "adsk.fusion.GeometricConstraints",
+      "reason": null,
+      "receiver": "boreSketch.geometricConstraints",
+      "role": "required",
+      "span": "boreSketch.geometricConstraints.addParallel(L1, K)"
+    },
+    {
+      "condition": null,
+      "name": "addOffsetDimension",
+      "owner": "adsk.fusion.SketchDimensions",
+      "reason": null,
+      "receiver": "boreSketch.sketchDimensions",
+      "role": "required",
+      "span": "boreSketch.sketchDimensions.addOffsetDimension(K, L1, textPoint)"
+    },
+    {
+      "condition": null,
+      "name": "addParallel",
+      "owner": "adsk.fusion.GeometricConstraints",
+      "reason": null,
+      "receiver": "boreSketch.geometricConstraints",
+      "role": "required",
+      "span": "boreSketch.geometricConstraints.addParallel(L3, K)"
+    },
+    {
+      "condition": null,
+      "name": "addOffsetDimension",
+      "owner": "adsk.fusion.SketchDimensions",
+      "reason": null,
+      "receiver": "boreSketch.sketchDimensions",
+      "role": "required",
+      "span": "boreSketch.sketchDimensions.addOffsetDimension(K, L3, textPoint)"
+    },
+    {
+      "condition": null,
+      "name": "addCoincident",
+      "owner": "adsk.fusion.GeometricConstraints",
+      "reason": null,
+      "receiver": "boreSketch.geometricConstraints",
+      "role": "required",
+      "span": "boreSketch.geometricConstraints.addCoincident(E, L2)"
+    },
+    {
+      "condition": null,
+      "name": "addPerpendicular",
+      "owner": "adsk.fusion.GeometricConstraints",
+      "reason": null,
+      "receiver": "boreSketch.geometricConstraints",
+      "role": "required",
+      "span": "boreSketch.geometricConstraints.addPerpendicular(L2, K)"
+    },
+    {
+      "condition": null,
+      "name": "addParallel",
+      "owner": "adsk.fusion.GeometricConstraints",
+      "reason": null,
+      "receiver": "boreSketch.geometricConstraints",
+      "role": "required",
+      "span": "boreSketch.geometricConstraints.addParallel(L4, L2)"
+    },
+    {
+      "condition": null,
+      "name": "addOffsetDimension",
+      "owner": "adsk.fusion.SketchDimensions",
+      "reason": null,
+      "receiver": "boreSketch.sketchDimensions",
+      "role": "required",
+      "span": "boreSketch.sketchDimensions.addOffsetDimension(L2, L4, textPoint)"
+    },
+    {
+      "condition": null,
+      "name": "find_profile_by_curve_counts",
+      "owner": null,
+      "reason": "lib/geargen/utilities.py defines find_profile_by_curve_counts",
+      "receiver": null,
+      "role": "inherited",
+      "span": "profile = find_profile_by_curve_counts(boreSketch, lines=4)"
+    }
+  ],
+  "citations": [
+    {
+      "first": 1326,
+      "last": 1364,
+      "path": "spec/screwgear/instructions.md"
+    },
+    {
+      "first": 429,
+      "last": 437,
+      "path": "spec/screwgear/fusion.md"
+    },
+    {
+      "first": 655,
+      "last": 669,
+      "path": ".claude/skills/generate-gear/PLAYBOOK.md"
+    }
+  ],
+  "schema": 2
+}
+-->
 
-**The plane** ([PB-CONSTRUCTION-PLANES], [SCREW-F-TWISTED-SLOT]): on the bore's own line of S07,
-`line = self.pathLines[gear]['bore-']` for a `-R` bore and `['bore+']` for a `+R` bore, passed
-directly: `planeInput = component.constructionPlanes.createInput()`,
-`planeInput.setByDistanceOnPath(line, adsk.core.ValueInput.createByReal(0))`,
-`plane = component.constructionPlanes.add(planeInput)`,
-`plane.name = f'{gearLabel} Bore {"-R" if sigma < 0 else "+R"} Plane'`. It stands square to the
-axis at the line's start, station `s0 = -sOut` for a `-R` bore and `s0 = sIn` for a `+R` bore.
+**From:** `spec/screwgear/instructions.md` L1326–1364; `spec/screwgear/fusion.md` L429–437; `.claude/skills/generate-gear/PLAYBOOK.md` L655–669.
 
-**The sketch** on it: `sketch = component.sketches.add(plane)`,
-`sketch.name = f'{gearLabel} Bore {"-R" if sigma < 0 else "+R"}'`, then
-`sketch.isComputeDeferred = True` ([SCREW-F-DEFER]). `th = Theta_g(s0)`. Every point below is the
-world point named, divided by 10, mapped with `sketch.modelToSketchSpace(worldPoint)` and given
-`z = 0` before use ([PB-SKETCH-ZERO-Z]) — reference points, seeds and text points alike. The
-rectangle spans `u` from `uB = -hw` to `uF = hw` and `v` from the bore's `vLo` to `vHi` (S02).
+## S21 `[GO]` A bore's twisted sweep cut, and its check
 
-1. **References.** `O = sketch.sketchPoints.add(local of origin_g + s0*dir_g)` and
-   `Cp = sketch.sketchPoints.add(local of origin_g + s0*dir_g + (A/2)*u_g)` (on the plane, `A/2`
-   along the unrotated `u_g`). The construction line
-   `Ru = sketch.sketchCurves.sketchLines.addByTwoPoints(O, Cp)`, `Ru.isConstruction = True`.
-2. **The spine.** `K = sketch.sketchCurves.sketchLines.addByTwoPoints(O, seedE)` with
-   `seedE` the local of `World_g(s0, uF, 0)`, `K.isConstruction = True`; `E = K.endSketchPoint`.
-   Now set `O.isFixed = True` and `Cp.isFixed = True` (after `Ru` and `K`, before any constraint
-   or dimension).
-3. **The rectangle.** Four solid lines sharing their corners ([PB-SHARE-XOR-COINCIDENT]: no
-   coincident on a corner), seeds the solved points: `L1` from `World_g(s0, uB, vLo)` to
-   `World_g(s0, uF, vLo)`, `L2` from `L1.endSketchPoint` to `World_g(s0, uF, vHi)`, `L3` from
-   `L2.endSketchPoint` to `World_g(s0, uB, vHi)`, `L4` from `L3.endSketchPoint` to
-   `L1.startSketchPoint`, each `sketch.sketchCurves.sketchLines.addByTwoPoints(start, end)`.
-4. **Constraints and dimensions**, all driving ([PB-DRIVING-DIM]), in this order:
-   - the spine's length: `sketch.sketchDimensions.addDistanceDimension(O, E, adsk.fusion.DimensionOrientations.AlignedDimensionOrientation, textK)`,
-     value `uF/10` cm, `textK` the local of `World_g(s0, uF/2, 0.5)`;
-   - the angle ([PB-ANGULAR-DIM]): when `|sin th| >= sqrt(1/2)`, between `Ru` and `K`;
-     otherwise between `Ru` and `L2`. Call `sketch.sketchDimensions.addAngularDimension(Ru, second, textA)`.
-     The value is the unsigned angle between two rays, `phi = |fold(psi)|` with `fold` taking an
-     angle into `(-pi, pi]` and `psi = th` for `K`, `psi = th + pi/2` for `L2`; it lies in
-     45°–135°. The rays: for `K`, from `O` along `u_g` (toward `Cp`) and from `O` toward `E`; for
-     `L2`, from `X` along `u_g` and from `X` along `L2`'s start→end direction, `X` the point where
-     the line through `O` and `Cp` meets the line of `L2`. The text point `textA` is the local of
-     `X + 0.3*(e1 + e2)/|e1 + e2|` (cm), `e1` the unit vector of the first ray and `e2` the
-     second's (`X = O` for `K`), so it sits inside the wedge the value measures;
-   - `sketch.geometricConstraints.addParallel(L1, K)`, then
-     `sketch.sketchDimensions.addOffsetDimension(K, L1, textL1)` of `-vLo/10` cm, `textL1` the
-     local of `World_g(s0, uF/2, vLo/2)`;
-   - `sketch.geometricConstraints.addParallel(L3, K)`, then
-     `sketch.sketchDimensions.addOffsetDimension(K, L3, textL3)` of `vHi/10` cm, `textL3` the
-     local of `World_g(s0, uF/2, vHi/2)`;
-   - `sketch.geometricConstraints.addCoincident(E, L2)` — `E` on the toothed side;
-   - `sketch.geometricConstraints.addPerpendicular(L2, K)`;
-   - `sketch.geometricConstraints.addParallel(L4, L2)`, then
-     `sketch.sketchDimensions.addOffsetDimension(L2, L4, textL4)` of `(uF - uB)/10` cm, `textL4`
-     the local of `World_g(s0, 0, (vLo + vHi)/2)` ([PB-OFFSET-DIM], [PB-NO-OVERCONSTRAIN]).
-   Each dimension's value is set by `dimension.parameter.value = value` with the magnitude above
-   ([PB-DIM-VALUE-SEMANTICS]); the seeds already sit on the right sides.
+`path = design.features.createPath(line, False)` on the bore's path line `[PB-PATH-FROM-SKETCH]`,
+`[SCREW-F-TWISTED-SLOT]`, then
+`sweepInput = design.features.sweepFeatures.createInput(profile, path, adsk.fusion.FeatureOperations.CutFeatureOperation)`,
+`sweepInput.twistAngle = adsk.core.ValueInput.createByReal((sOut - sIn)/Lambda)`, positive (80.78°
+at the defaults) `[PB-SWEEP-TWIST]`, and `sweepInput.participantBodies = [self.cageBody]`; set
+nothing else (not `orientation`, not `solidTwistAxis`, no rail). Then
+`sweepFeature = design.features.sweepFeatures.add(sweepInput)`. The ribbons pass through the
+channel and are not participants, so the cut leaves them whole.
 
-Ten degrees of freedom (`E` and the four corners) against ten rows. Then
-`sketch.isComputeDeferred = False`; raise naming the sketch unless `sketch.isFullyConstrained`. The
-profile is the one loop of four lines: `profile = find_profile_by_curve_counts(sketch, lines=4)`
-([PB-PROFILE-MATCH]); the construction lines bound nothing. Nothing is projected into this sketch:
-the Anchor Line's projection would run through `Cp` across the rectangle and split the profile.
+The sign is positive because the path runs along `+dir_g` with the profile at its start, the
+section's angle `s/Lambda + Phi_g` grows with `s`, and a positive `twistAngle` turns the profile
+that way, as measured on 2026-09-28. Each profile starts in air, in the hollow for a `+R` bore and
+outside the tube for a `-R` bore.
 
-Proof: the engine's `NewOffset` carries the parallel and the offset rows together, signed (the
-seed's side); its `NewAngle` is signed, so the proof writes the signed angle the seeds make and
-checks its magnitude is the 45°–135° value the build writes. Cases reach both angle branches,
-a `+R` level bore with its roof on `-v`, no roof allowance, a 0.05 mm clearance and a 100°
-crossing.
+**The sweep's sense is checked** `[SCREW-F-SWEEP-CHECK]`, `[PB-SELF-DIAGNOSING]`: raise naming the
+bore and the count unless `sweepFeature.bodies.count` is 1; `sweepFeature.bodies.item(0)` is the
+cage from then on. Then, at the crossing `sc = sigma*cageRadius`, with
+`û(sc) = cos(Theta_g(sc))*û_g + sin(Theta_g(sc))*v̂_g`, both probes
+`origin_g + sc*dir_g + (W/2 + clearance/2)*û(sc)` and `origin_g + sc*dir_g - (W/2 + clearance/2)*û(sc)`
+must read `adsk.fusion.PointContainment.PointOutsidePointContainment` from
+`self.cageBody.pointContainment(probe)`; otherwise raise naming the bore and the containment read.
+Under the wrong sense the channel at the crossing would stand turned `2*(sc - s0)/Lambda` from the
+right one (103° for `+R`, 58° for `-R`), which puts both probes in the wall.
 
-## S19 `[GO]` Bore sweep cut (per bore)
+The proof cannot run this cut. decad has no twisted sweep, so the channel stands in as a chain of
+two-section lofts through the sweep's own section turned by `s/Lambda + Phi_g` at a derived count
+of sections, no two more than 5° of twist apart nor more than `2*acos(1 - 0.04*clearance/c)`, 18 at
+the defaults; and decad refuses the cut of that chain from the curved tube. It holds that the
+profile starts and ends in air, the channel's volume within 8% under the rectangle carried along
+the span, and both probes in the tube's wall and in the exact channel under the right sense and
+outside it under the wrong one, reading the stand-in's own mesh too wherever the probe stands
+0.1 mm or more inside the channel's wall.
+
+Proof: `stepCutBore`.
+
+<!-- proof-run: proofkit3d.RunSolid(boreCutCases, stepCutBore, assertCutBore) -->
 
 <!-- step-meta
 {
@@ -2258,18 +2550,18 @@ crossing.
       "name": "createPath",
       "owner": "adsk.fusion.Features",
       "reason": null,
-      "receiver": "component.features",
+      "receiver": "design.features",
       "role": "required",
-      "span": "path = component.features.createPath(line, False)"
+      "span": "path = design.features.createPath(line, False)"
     },
     {
       "condition": null,
       "name": "createInput",
       "owner": "adsk.fusion.SweepFeatures",
       "reason": null,
-      "receiver": "component.features.sweepFeatures",
+      "receiver": "design.features.sweepFeatures",
       "role": "required",
-      "span": "sweepInput = component.features.sweepFeatures.createInput(profile, path, adsk.fusion.FeatureOperations.CutFeatureOperation)"
+      "span": "sweepInput = design.features.sweepFeatures.createInput(profile, path, adsk.fusion.FeatureOperations.CutFeatureOperation)"
     },
     {
       "condition": null,
@@ -2278,16 +2570,25 @@ crossing.
       "reason": null,
       "receiver": "adsk.core.ValueInput",
       "role": "required",
-      "span": "sweepInput.twistAngle = adsk.core.ValueInput.createByReal(+(sOut - sIn)/Lambda)"
+      "span": "sweepInput.twistAngle = adsk.core.ValueInput.createByReal((sOut - sIn)/Lambda)"
     },
     {
       "condition": null,
       "name": "add",
       "owner": "adsk.fusion.SweepFeatures",
       "reason": null,
-      "receiver": "component.features.sweepFeatures",
+      "receiver": "design.features.sweepFeatures",
       "role": "required",
-      "span": "sweep = component.features.sweepFeatures.add(sweepInput)"
+      "span": "sweepFeature = design.features.sweepFeatures.add(sweepInput)"
+    },
+    {
+      "condition": null,
+      "name": "item",
+      "owner": "adsk.fusion.BRepBodies",
+      "reason": null,
+      "receiver": "sweepFeature.bodies",
+      "role": "required",
+      "span": "sweepFeature.bodies.item(0)"
     },
     {
       "condition": null,
@@ -2296,33 +2597,65 @@ crossing.
       "reason": null,
       "receiver": "self.cageBody",
       "role": "required",
-      "span": "self.cageBody.pointContainment(probe) == adsk.fusion.PointContainment.PointOutsidePointContainment"
+      "span": "self.cageBody.pointContainment(probe)"
     }
   ],
   "citations": [
     {
-      "first": 1104,
-      "last": 1124,
+      "first": 1248,
+      "last": 1264,
       "path": "spec/screwgear/instructions.md"
     },
     {
-      "first": 1165,
-      "last": 1177,
+      "first": 1304,
+      "last": 1325,
       "path": "spec/screwgear/instructions.md"
     },
     {
-      "first": 1187,
-      "last": 1201,
+      "first": 1365,
+      "last": 1402,
       "path": "spec/screwgear/instructions.md"
     },
     {
-      "first": 374,
-      "last": 422,
+      "first": 412,
+      "last": 487,
       "path": "spec/screwgear/fusion.md"
     },
     {
-      "first": 1468,
-      "last": 1475,
+      "first": 851,
+      "last": 869,
+      "path": ".claude/skills/generate-gear/PLAYBOOK.md"
+    }
+  ],
+  "schema": 2
+}
+-->
+
+**From:** `spec/screwgear/instructions.md` L1248–1264; `spec/screwgear/instructions.md` L1304–1325; `spec/screwgear/instructions.md` L1365–1402; `spec/screwgear/fusion.md` L412–487; `.claude/skills/generate-gear/PLAYBOOK.md` L851–869.
+
+## S22 `[PROSE]` The roof allowance's print note
+
+After the four bores, log with `futil.log(...)` `[PB-LOGGING]` exactly
+`Print the cage standing on its end below the selected plane: the roof allowance is on the bridged roofs that way up.`,
+since nothing on the part shows which end that is.
+
+<!-- step-meta
+{
+  "calls": [
+    {
+      "condition": null,
+      "name": "log",
+      "owner": null,
+      "reason": "lib/fusion360utils defines log as futil.log",
+      "receiver": "futil",
+      "role": "inherited",
+      "span": "futil.log(...)"
+    }
+  ],
+  "citations": [
+    {
+      "first": 1295,
+      "last": 1302,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -2330,39 +2663,22 @@ crossing.
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1104–1124; `spec/screwgear/instructions.md` L1165–1177; `spec/screwgear/instructions.md` L1187–1201; `spec/screwgear/fusion.md` L374–422; `spec/screwgear/instructions.md` L1468–1475.
+**From:** `spec/screwgear/instructions.md` L1295–1302.
 
-Proof: `stepBoreCut`.
+## S23 `[PROSE]` The Window Plane
 
-<!-- proof-run: proofkit3d.RunSolid(boreCutCases, stepBoreCut, assertBoreCut) -->
+When `self.windows` is empty, make no Window Plane and skip S24 and S25. Otherwise make one plane,
+named `Window Plane`, through the frame's axis and square to the windows' facing `d`
+`[PB-CONSTRUCTION-PLANES]`, `[SCREW-F-SLEEVE]`:
 
-([SCREW-F-TWISTED-SLOT], [PB-SWEEP-TWIST], [PB-PATH-FROM-SKETCH]) For the bore just sketched:
-`path = component.features.createPath(line, False)` on the same line as its plane (S18),
-`sweepInput = component.features.sweepFeatures.createInput(profile, path, adsk.fusion.FeatureOperations.CutFeatureOperation)`,
-`sweepInput.twistAngle = adsk.core.ValueInput.createByReal(+(sOut - sIn)/Lambda)` (radians,
-positive; 80.78° at the defaults), `sweepInput.participantBodies = [self.cageBody]`, and nothing
-else — not `orientation`, not `solidTwistAxis`, no guide rail or surface. Then
-`sweep = component.features.sweepFeatures.add(sweepInput)`. The sign is positive: the path runs
-along `+dir_g`, `Theta_g` grows with `s`, and a positive twist turns the profile that way
-(measured 2026-09-28). The participant list keeps the ribbons whole.
+- For windows facing `±k̂` (`Sigma <= 90°`): `planeInput = design.constructionPlanes.createInput()`,
+  `planeInput.setByAngle(self.anchorLine, adsk.core.ValueInput.createByString('90 deg'), self.targetPlane)`,
+  the plane through the Anchor Line square to the selected plane, which holds `C`, `ê` and `n̂`.
+- For windows facing `±ê` (past 90°):
+  `planeInput.setByDistanceOnPath(self.anchorLine, adsk.core.ValueInput.createByReal(0.5))`, the plane
+  square to the Anchor Line through its midpoint, `C`.
 
-**The check** ([SCREW-F-SWEEP-CHECK], [PB-SELF-DIAGNOSING]). Raise naming the bore and the count
-unless `sweep.bodies.count` is 1; that body is `self.cageBody` from then on. Then, with
-`sc = sigma*cageRadius`, `th = Theta_g(sc)` and `uhat = cos(th)*u_g + sin(th)*v_g`, both probes
-`origin_g + sc*dir_g ± (W/2 + clearance/2)*uhat` (cm, as `adsk.core.Point3D`) must read
-`self.cageBody.pointContainment(probe) == adsk.fusion.PointContainment.PointOutsidePointContainment`;
-raise naming the bore, the probe and the containment read otherwise. They stand inside the wall
-(16.80 mm from the frame's axis for a `-R` bore and 16.30 mm for a `+R` bore at the defaults),
-clear of the ribbon and of the channel's wall by `clearance/2`; under the wrong twist sense they
-sit in the wall.
-
-Proof stand-in: decad has no twisted sweep, so each channel is the chain of two-section lofts
-through the bore's rectangle turned by `Theta_g` at `boreSections` stations over the span (18 at
-the defaults: no two more than 5° apart nor more than `2*acos(1 - 0.04*clearance/cc)`); chained
-cuts are refused on a faceted cage, so the cage after bore `i` is the tube cut once by the union of
-the channels so far. The probes are held inside the channel.
-
-## S20 `[PROSE]` Window Plane
+Then `windowPlane = design.constructionPlanes.add(planeInput)`.
 
 <!-- step-meta
 {
@@ -2372,9 +2688,9 @@ the channels so far. The probes are held inside the channel.
       "name": "createInput",
       "owner": "adsk.fusion.ConstructionPlanes",
       "reason": null,
-      "receiver": "component.constructionPlanes",
+      "receiver": "design.constructionPlanes",
       "role": "required",
-      "span": "planeInput = component.constructionPlanes.createInput()"
+      "span": "planeInput = design.constructionPlanes.createInput()"
     },
     {
       "condition": null,
@@ -2383,7 +2699,7 @@ the channels so far. The probes are held inside the channel.
       "reason": null,
       "receiver": "planeInput",
       "role": "required",
-      "span": "planeInput.setByAngle(self.anchorLine, adsk.core.ValueInput.createByString('90 deg'), self.plane)"
+      "span": "planeInput.setByAngle(self.anchorLine, adsk.core.ValueInput.createByString('90 deg'), self.targetPlane)"
     },
     {
       "condition": null,
@@ -2392,7 +2708,7 @@ the channels so far. The probes are held inside the channel.
       "reason": null,
       "receiver": "adsk.core.ValueInput",
       "role": "required",
-      "span": "planeInput.setByAngle(self.anchorLine, adsk.core.ValueInput.createByString('90 deg'), self.plane)"
+      "span": "planeInput.setByAngle(self.anchorLine, adsk.core.ValueInput.createByString('90 deg'), self.targetPlane)"
     },
     {
       "condition": null,
@@ -2417,20 +2733,20 @@ the channels so far. The probes are held inside the channel.
       "name": "add",
       "owner": "adsk.fusion.ConstructionPlanes",
       "reason": null,
-      "receiver": "component.constructionPlanes",
+      "receiver": "design.constructionPlanes",
       "role": "required",
-      "span": "windowPlane = component.constructionPlanes.add(planeInput)"
+      "span": "windowPlane = design.constructionPlanes.add(planeInput)"
     }
   ],
   "citations": [
     {
-      "first": 1386,
-      "last": 1391,
+      "first": 1588,
+      "last": 1593,
       "path": "spec/screwgear/instructions.md"
     },
     {
-      "first": 461,
-      "last": 468,
+      "first": 526,
+      "last": 533,
       "path": "spec/screwgear/fusion.md"
     }
   ],
@@ -2438,21 +2754,32 @@ the channels so far. The probes are held inside the channel.
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1386–1391; `spec/screwgear/fusion.md` L461–468.
+**From:** `spec/screwgear/instructions.md` L1588–1593; `spec/screwgear/fusion.md` L526–533.
 
-Made only when at least one window of S03 has room; one plane shared by both windows,
-([SCREW-F-SLEEVE], [PB-CONSTRUCTION-PLANES]) through the frame's axis and square to the facing
-direction. `planeInput = component.constructionPlanes.createInput()`, then:
+## S24 `[GO]` A Window sketch
 
-- windows facing `±k̂` (`crossAngle <= 90°`):
-  `planeInput.setByAngle(self.anchorLine, adsk.core.ValueInput.createByString('90 deg'), self.plane)`
-  — the plane through the Anchor Line square to the selected plane, holding `C`, `ê` and `n̂`;
-- windows facing `±ê`: `planeInput.setByDistanceOnPath(self.anchorLine, adsk.core.ValueInput.createByReal(0.5))`
-  — square to the Anchor Line at its midpoint, `C` (never run in Fusion at 0.5).
+For each window of `self.windows`, the one facing `d` before the one facing `-d`, create
+`windowSketch = design.sketches.add(windowPlane)`, named `Window {d}` with `{d}` its facing name
+(`Window +k`, `Window -k`, `Window +e` or `Window -e`); not deferred. For each corner `(t, z)` of
+its hexagon, in order, add one reference point at the world point `C + t*across + z*n̂`:
+`local = windowSketch.modelToSketchSpace(world)`, `local.z = 0` `[PB-SKETCH-ZERO-Z]`,
+`windowSketch.sketchPoints.add(local)`. Draw one solid line from each corner to the next, the last
+back to the first, sharing the points: `windowSketch.sketchCurves.sketchLines.addByTwoPoints(p_i, p_next)`
+`[PB-SHARE-XOR-COINCIDENT]`. Then set every point `isFixed = True`. Nothing else is in the sketch.
+Raise naming the sketch unless `windowSketch.isFullyConstrained`, raise unless
+`windowSketch.profiles.count` is 1, and take `profile = windowSketch.profiles.item(0)`
+`[PB-SINGLE-PROFILE]`. The two windows are two sketches because their hexagons cross on the shared
+plane.
 
-`windowPlane = component.constructionPlanes.add(planeInput)`, `windowPlane.name = 'Window Plane'`.
+The proof draws the hexagon the window search finds, by S03's algorithm, and holds the search's
+`lo`, `hi`, `bottom`, `top`, `left`, `right`, corners and area at the defaults to the figures S03
+quotes; it holds the profile valid with the hexagon's area and every edge upright or at 45°, for
+both windows at the defaults, the third print, 110° (where the windows face `±ê`), a 5 mm
+`collarWall` and a sleeve scaled by 0.75.
 
-## S21 `[GO]` Window sketch (per window)
+Proof: `stepWindowSketch`.
+
+<!-- proof-run: proofkit.Run(windowSketchCases, stepWindowSketch) -->
 
 <!-- step-meta
 {
@@ -2462,47 +2789,61 @@ direction. `planeInput = component.constructionPlanes.createInput()`, then:
       "name": "add",
       "owner": "adsk.fusion.Sketches",
       "reason": null,
-      "receiver": "component.sketches",
+      "receiver": "design.sketches",
       "role": "required",
-      "span": "sketch = component.sketches.add(windowPlane)"
+      "span": "windowSketch = design.sketches.add(windowPlane)"
+    },
+    {
+      "condition": null,
+      "name": "modelToSketchSpace",
+      "owner": "adsk.fusion.Sketch",
+      "reason": null,
+      "receiver": "windowSketch",
+      "role": "required",
+      "span": "local = windowSketch.modelToSketchSpace(world)"
     },
     {
       "condition": null,
       "name": "add",
       "owner": "adsk.fusion.SketchPoints",
       "reason": null,
-      "receiver": "sketch.sketchPoints",
+      "receiver": "windowSketch.sketchPoints",
       "role": "required",
-      "span": "pt = sketch.sketchPoints.add(local)"
+      "span": "windowSketch.sketchPoints.add(local)"
     },
     {
       "condition": null,
       "name": "addByTwoPoints",
       "owner": "adsk.fusion.SketchLines",
       "reason": null,
-      "receiver": "sketch.sketchCurves.sketchLines",
+      "receiver": "windowSketch.sketchCurves.sketchLines",
       "role": "required",
-      "span": "sketch.sketchCurves.sketchLines.addByTwoPoints(pts[i], pts[(i + 1) % len(pts)])"
+      "span": "windowSketch.sketchCurves.sketchLines.addByTwoPoints(p_i, p_next)"
     },
     {
       "condition": null,
       "name": "item",
       "owner": "adsk.fusion.Profiles",
       "reason": null,
-      "receiver": "sketch.profiles",
+      "receiver": "windowSketch.profiles",
       "role": "required",
-      "span": "profile = sketch.profiles.item(0)"
+      "span": "profile = windowSketch.profiles.item(0)"
     }
   ],
   "citations": [
     {
-      "first": 1391,
-      "last": 1398,
+      "first": 1554,
+      "last": 1566,
       "path": "spec/screwgear/instructions.md"
     },
     {
-      "first": 469,
-      "last": 472,
+      "first": 1588,
+      "last": 1600,
+      "path": "spec/screwgear/instructions.md"
+    },
+    {
+      "first": 534,
+      "last": 537,
       "path": "spec/screwgear/fusion.md"
     }
   ],
@@ -2510,26 +2851,41 @@ direction. `planeInput = component.constructionPlanes.createInput()`, then:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1391–1398; `spec/screwgear/fusion.md` L469–472.
+**From:** `spec/screwgear/instructions.md` L1554–1566; `spec/screwgear/instructions.md` L1588–1600; `spec/screwgear/fusion.md` L534–537.
 
-Proof: `stepWindowSketch`.
+## S25 `[GO]` A window's extrude cut, and its check
 
-<!-- proof-run: proofkit.Run(windowSketchCases, stepWindowSketch) -->
+Before the cut, take the probe `C + tc*across + zc*n̂ + ((a0(tc) + a1(tc))/2)*d`, with `(tc, zc)` the
+average of the hexagon's corners and `a0`, `a1` of S03 (in cm): the middle of the wall where the
+window goes. Raise naming the window unless `self.cageBody.pointContainment(probe)` reads
+`adsk.fusion.PointContainment.PointInsidePointContainment` `[PB-SELF-DIAGNOSING]`.
 
-For each window with room, the one facing `d` before the one facing `-d`; first this sketch, then
-its cut (S22). `sketch = component.sketches.add(windowPlane)`, `sketch.name = f'Window {name}'`
-with `name` one of `+k`, `-k`, `+e`, `-e`. No deferral. In the real frame `across = n̂ × d`. For
-each corner `(t, z)` of the window's hexagon (S03), in order: `local =
-sketch.modelToSketchSpace(C + (t*across + z*n̂)/10)`, `local.z = 0` ([PB-SKETCH-ZERO-Z]),
-`pt = sketch.sketchPoints.add(local)`. One solid line from each corner to the next, the last back
-to the first, sharing the points: `sketch.sketchCurves.sketchLines.addByTwoPoints(pts[i], pts[(i + 1) % len(pts)])`
-([PB-SHARE-XOR-COINCIDENT]). Then every point `isFixed = True`. Nothing else.
+`cutInput = design.features.extrudeFeatures.createInput(profile, adsk.fusion.FeatureOperations.CutFeatureOperation)`,
+then
+`cutInput.setOneSideExtent(adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByReal(Ro + 0.1)), direction)`,
+`cutInput.participantBodies = [self.cageBody]` so the ribbons in the hollow are left whole
+`[PB-THROUGH-CUT]`, then `cutFeature = design.features.extrudeFeatures.add(cutInput)`. `direction`
+is `adsk.fusion.ExtentDirections.PositiveExtentDirection` when
+`windowSketch.modelToSketchSpace(C + d)` has a positive `z`, that is when `d` points to the
+sketch's positive side, and `adsk.fusion.ExtentDirections.NegativeExtentDirection` otherwise. The
+cut runs one way only: the same hexagon on the far side of the axis is the other window's side of
+the wall, where the bores stand.
 
-Raise naming the sketch unless `sketch.isFullyConstrained`; raise with the count unless
-`sketch.profiles.count` is 1, then take `profile = sketch.profiles.item(0)` ([PB-SINGLE-PROFILE]).
-The two windows are two sketches because their hexagons cross on the shared plane.
+After the cut, raise naming the window and the count unless `cutFeature.bodies.count` is 1
+`[PB-EMPTY-RESULT]`, take `cutFeature.bodies.item(0)` as the cage, and raise naming the window and
+what it read unless the same probe now reads
+`adsk.fusion.PointContainment.PointOutsidePointContainment`. A cut extruded the wrong way leaves
+the probe inside.
 
-## S22 `[GO]` Window extrude cut (per window)
+The proof cuts each window from the plain tube: decad refuses a second cut from the curved tube.
+The window search keeps every face of the cut `collarWall` from every bore's channel, and the
+proof holds that at the probe, so the cut is the same with the bores. It picks the direction by the
+build's rule on a Window Plane facing either way, and holds the probe in the wall before the cut
+and outside the cage after it, and the cage's volume at the tube's less the wall over the hexagon.
+
+Proof: `stepCutWindow`.
+
+<!-- proof-run: proofkit3d.RunSolid(windowCutCases, stepCutWindow, assertCutWindow) -->
 
 <!-- step-meta
 {
@@ -2541,16 +2897,16 @@ The two windows are two sketches because their hexagons cross on the shared plan
       "reason": null,
       "receiver": "self.cageBody",
       "role": "required",
-      "span": "self.cageBody.pointContainment(probe) == adsk.fusion.PointContainment.PointInsidePointContainment"
+      "span": "self.cageBody.pointContainment(probe)"
     },
     {
       "condition": null,
       "name": "createInput",
       "owner": "adsk.fusion.ExtrudeFeatures",
       "reason": null,
-      "receiver": "component.features.extrudeFeatures",
+      "receiver": "design.features.extrudeFeatures",
       "role": "required",
-      "span": "cutInput = component.features.extrudeFeatures.createInput(profile, adsk.fusion.FeatureOperations.CutFeatureOperation)"
+      "span": "cutInput = design.features.extrudeFeatures.createInput(profile, adsk.fusion.FeatureOperations.CutFeatureOperation)"
     },
     {
       "condition": null,
@@ -2559,7 +2915,7 @@ The two windows are two sketches because their hexagons cross on the shared plan
       "reason": null,
       "receiver": "cutInput",
       "role": "required",
-      "span": "cutInput.setOneSideExtent(adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByReal(Ro/10 + 0.1)), direction)"
+      "span": "cutInput.setOneSideExtent(adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByReal(Ro + 0.1)), direction)"
     },
     {
       "condition": null,
@@ -2568,7 +2924,7 @@ The two windows are two sketches because their hexagons cross on the shared plan
       "reason": null,
       "receiver": "adsk.fusion.DistanceExtentDefinition",
       "role": "required",
-      "span": "cutInput.setOneSideExtent(adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByReal(Ro/10 + 0.1)), direction)"
+      "span": "cutInput.setOneSideExtent(adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByReal(Ro + 0.1)), direction)"
     },
     {
       "condition": null,
@@ -2577,50 +2933,45 @@ The two windows are two sketches because their hexagons cross on the shared plan
       "reason": null,
       "receiver": "adsk.core.ValueInput",
       "role": "required",
-      "span": "cutInput.setOneSideExtent(adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByReal(Ro/10 + 0.1)), direction)"
+      "span": "cutInput.setOneSideExtent(adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByReal(Ro + 0.1)), direction)"
     },
     {
       "condition": null,
       "name": "add",
       "owner": "adsk.fusion.ExtrudeFeatures",
       "reason": null,
-      "receiver": "component.features.extrudeFeatures",
+      "receiver": "design.features.extrudeFeatures",
       "role": "required",
-      "span": "cut = component.features.extrudeFeatures.add(cutInput)"
+      "span": "cutFeature = design.features.extrudeFeatures.add(cutInput)"
     },
     {
       "condition": null,
       "name": "modelToSketchSpace",
       "owner": "adsk.fusion.Sketch",
       "reason": null,
-      "receiver": "sketch",
+      "receiver": "windowSketch",
       "role": "required",
-      "span": "sketch.modelToSketchSpace(C + d)"
+      "span": "windowSketch.modelToSketchSpace(C + d)"
     },
     {
       "condition": null,
-      "name": "pointContainment",
-      "owner": "adsk.fusion.BRepBody",
+      "name": "item",
+      "owner": "adsk.fusion.BRepBodies",
       "reason": null,
-      "receiver": "self.cageBody",
+      "receiver": "cutFeature.bodies",
       "role": "required",
-      "span": "self.cageBody.pointContainment(probe) == adsk.fusion.PointContainment.PointOutsidePointContainment"
+      "span": "cutFeature.bodies.item(0)"
     }
   ],
   "citations": [
     {
-      "first": 1400,
-      "last": 1422,
+      "first": 1602,
+      "last": 1624,
       "path": "spec/screwgear/instructions.md"
     },
     {
-      "first": 1099,
-      "last": 1102,
-      "path": "spec/screwgear/instructions.md"
-    },
-    {
-      "first": 472,
-      "last": 484,
+      "first": 538,
+      "last": 549,
       "path": "spec/screwgear/fusion.md"
     }
   ],
@@ -2628,41 +2979,49 @@ The two windows are two sketches because their hexagons cross on the shared plan
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1400–1422; `spec/screwgear/instructions.md` L1099–1102; `spec/screwgear/fusion.md` L472–484.
+**From:** `spec/screwgear/instructions.md` L1602–1624; `spec/screwgear/fusion.md` L538–549.
 
-Proof: `stepWindowCut`.
+## S26 `[PROSE]` The cage's order and body count
 
-<!-- proof-run: proofkit3d.RunSolid(windowCutCases, stepWindowCut, assertWindowCut) -->
+The tube is the first body. The four bores are cut from it in S03's order, each with the cage as
+its only participant, then the windows, `d` before `-d`. Every cut leaves exactly one body,
+counted as the feature's `bodies.count`, and that body is `self.cageBody` from then on; the build
+raises with the piece's name otherwise. What remains is one piece, 16,602 mm³ at the defaults.
 
-**Before the cut** ([PB-SELF-DIAGNOSING]): with `(tc, zc)` the average of the hexagon's corners,
-`probe = C + (tc*across + zc*n̂ + ((a0(tc) + a1(tc))/2)*d)/10` (cm; `a0`, `a1` of S03) must read
-`self.cageBody.pointContainment(probe) == adsk.fusion.PointContainment.PointInsidePointContainment`;
-raise naming the window and the reading otherwise.
+<!-- step-meta
+{
+  "calls": [],
+  "citations": [
+    {
+      "first": 1619,
+      "last": 1624,
+      "path": "spec/screwgear/instructions.md"
+    },
+    {
+      "first": 547,
+      "last": 549,
+      "path": "spec/screwgear/fusion.md"
+    }
+  ],
+  "schema": 2
+}
+-->
 
-**The cut** ([SCREW-F-SLEEVE], [PB-THROUGH-CUT]):
-`cutInput = component.features.extrudeFeatures.createInput(profile, adsk.fusion.FeatureOperations.CutFeatureOperation)`,
-`cutInput.setOneSideExtent(adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByReal(Ro/10 + 0.1)), direction)`,
-`cutInput.participantBodies = [self.cageBody]`, `cut = component.features.extrudeFeatures.add(cutInput)`.
-`direction` is `adsk.fusion.ExtentDirections.PositiveExtentDirection` when
-`sketch.modelToSketchSpace(C + d)` has a positive `z`, else
-`adsk.fusion.ExtentDirections.NegativeExtentDirection`. The cut runs one way only.
+**From:** `spec/screwgear/instructions.md` L1619–1624; `spec/screwgear/fusion.md` L547–549.
 
-**After the cut:** raise with the count unless `cut.bodies.count` is 1; that body is
-`self.cageBody`. The same probe must now read
-`self.cageBody.pointContainment(probe) == adsk.fusion.PointContainment.PointOutsidePointContainment`;
-raise naming the window otherwise (a cut extruded the wrong way leaves it inside).
+## S27 `[PROSE]` Relocate the bodies and hide the construction geometry
 
-After the last window (or the last bore when no window has room), name the cage body `Cage`
-(`self.cageBody.name = 'Cage'`) and log, with `futil.log` ([PB-LOGGING]), exactly:
-`Print the cage standing on its end below the selected plane: the roof allowance is on the bridged roofs that way up.`
+The method `relocateBodies`: name the cage body `Cage` (`self.cageBody.name = 'Cage'`), then move each
+finished body into its sub-component with `body.moveToComponent(occurrence)`, which keeps its world
+position and needs no activation `[PB-NO-CROSS-SIBLING]`: `self.gearBodies[0]` into
+`self.gearOccs[0]`, `self.gearBodies[1]` into `self.gearOccs[1]`, and `self.cageBody` into
+`self.cageOcc`. Then call `solids.hide_construction_geometry(self.designOcc.component)`
+`[PB-TREE-CLEANUP]`: the `Design` component is where every sketch and construction plane was made,
+and the helper walks it and anything under it. Do not re-implement it, and add no display settle of
+your own `[PB-SETTLE-DISPLAY]`.
 
-Proof stand-in: the window's prism starts 1 mm out along `d` rather than on the plane (the two
-prisms would otherwise meet face to face on it, which decad refuses); the wall begins further out
-at every `t` of the hexagon, so the same wall is removed. The cage after a window is the tube cut
-once by the union of the four channels and the windows so far; the finished cage is held to the
-spec's 16,561 mm³ within 1%.
-
-## S23 `[PROSE]` Relocate the bodies and hide the construction geometry
+At the defaults the build makes 12 sketches, 7 construction planes and 42 features (61 timeline
+entries, 66 with the five component creations).
 
 <!-- step-meta
 {
@@ -2680,7 +3039,7 @@ spec's 16,561 mm³ within 1%.
       "condition": null,
       "name": "hide_construction_geometry",
       "owner": null,
-      "reason": "lib/geargen/solids.py provides hide_construction_geometry",
+      "reason": "lib/geargen/solids.py defines hide_construction_geometry",
       "receiver": "solids",
       "role": "inherited",
       "span": "solids.hide_construction_geometry(self.designOcc.component)"
@@ -2688,33 +3047,24 @@ spec's 16,561 mm³ within 1%.
   ],
   "citations": [
     {
-      "first": 1424,
-      "last": 1430,
+      "first": 871,
+      "last": 910,
       "path": "spec/screwgear/instructions.md"
     },
     {
-      "first": 759,
-      "last": 798,
+      "first": 1626,
+      "last": 1632,
       "path": "spec/screwgear/instructions.md"
+    },
+    {
+      "first": 534,
+      "last": 555,
+      "path": ".claude/skills/generate-gear/PLAYBOOK.md"
     }
   ],
   "schema": 2
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1424–1430; `spec/screwgear/instructions.md` L759–798.
+**From:** `spec/screwgear/instructions.md` L871–910; `spec/screwgear/instructions.md` L1626–1632; `.claude/skills/generate-gear/PLAYBOOK.md` L534–555.
 
-The method `relocateBodies` ([PB-NO-CROSS-SIBLING]): move each finished body into its sub-component with
-`body.moveToComponent(occurrence)`, which keeps the world position and needs no activation:
-`self.gearBodies[0]` into `self.gearOccs[0]` (`Gear A`), `self.gearBodies[1]` into
-`self.gearOccs[1]` (`Gear B`), and `self.cageBody` into `self.cageOcc` (`Cage`), in that order.
-Then `solids.hide_construction_geometry(self.designOcc.component)` ([PB-TREE-CLEANUP]) — never a
-re-implementation of it; the `Design` component holds every sketch and plane of the build.
-
-Counted at the defaults the build makes 12 sketches (Anchor, two Paths, two Cell Sections,
-Sleeve, four bore sections, two windows), 7 construction planes (two axis planes, four bore
-planes, the Window Plane) and 42 features (two lofts, 30 for the doubling — 5 rounds of copy,
-move and join per gear — the tube, four sweeps, two window cuts, three relocations): 61 timeline
-entries plus the five component creations, 66 in all. A remainder cell adds one sketch, one loft
-and one join per gear; a window without room takes off one sketch and one feature, and the Window
-Plane when neither has room.

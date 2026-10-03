@@ -1,54 +1,10 @@
 package screwgear_test
 
-// The solid steps of spec/screwgear/steps.md, each proved in decad through
-// proofkit3d.RunSolid: the document's verification has to come back Sound but
-// for an area or centroid reading a faceted boolean left outside the default
-// tolerance, and every returned body has to be a valid solid of one lump.
-//
-// Four kinds of step here are ones decad cannot build as Fusion does, and each
-// takes a stand-in, named beside the function that builds it:
-//
-//   - A loft through more than two sections. decad lofts between exactly two
-//     sections, ruled. The stand-in for the cell loft (and the remainder loft)
-//     is a chain of two-section lofts, one per neighbouring pair of sections,
-//     each built as a sheet (WithSurfaceResult), closed by a patch on each end
-//     section and welded into one solid by Stitch. Fusion's loft through the
-//     same sections is smooth between them (spec §2, "What the loft is").
-//   - A bore's twisted sweep cut. decad has no twisted sweep: WithSweepTwist
-//     accepts only zero at the pinned revision. The stand-in is the same
-//     chain-of-lofts solid through the sweep's own section turned by
-//     s/Lambda + Phi_g at each of the stations "What the proof's stand-in
-//     costs" derives, 18 at the defaults.
-//   - Copy, screw move and join. A copy coincides with its source and a moved
-//     copy shares a face with the body it is joined to; decad's pairwise
-//     verification reads both pairs Suspect (unsupported_pair_contact and
-//     unsupported_pair_payload, measured at the pinned revision), and Union
-//     refuses two bodies that meet face to face ("two operand facets overlap
-//     in one plane"). So the real operations, Duplicate and Placed, run in a
-//     document of their own and are held against the geometry the step is
-//     meant to produce, which the gated document builds in place; the join is
-//     proved as the weld of the two pieces that meet at the seam.
-//   - A chain of cuts. A cut leaves the cage a faceted body whose held mesh
-//     bound is coarser than the chord tolerance the next cut derives, which
-//     decad refuses ("requested tolerance … is below the faceted body's
-//     minimum mesh bound", measured on the second bore cut). The stand-in cuts
-//     the tube once by the union of every tool cut so far, which is the same
-//     solid the sequence of cuts leaves.
-//
-// The cost of the chain-of-lofts stand-in, measured here and not in the spec:
-// decad builds a two-section loft between line segments as two flat triangles
-// per wall cell, not as the ruled (bilinear) patch through its four corners.
-// Between two rectangles turned dtheta apart the triangle pair departs from the
-// ruled patch by |T|/4, T = vLo - vHi - wLo + wHi the cell's twist vector:
-// about 0.12 mm on a 15 mm face at the cell's 1.91° step, and about 0.34 mm on a
-// 15.4 mm bore face at the stand-in's 5° step. The spec's chord and facet
-// figures (1.0 µm, 0.007 mm) are for the ruled loft, which is neither what
-// Fusion builds nor what decad builds. The volume checks below carry the
-// triangle pair's departure as slack, computed from the sections
-// (sgTwistVolumeSlack).
+// The solid steps of the compiled step list. decad builds what Fusion builds
+// where it can, and where it cannot each step says what stands in and what
+// the stand-in costs, beside the construction it replaces.
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"testing"
@@ -61,145 +17,567 @@ import (
 	"github.com/lestrrat-3d/units"
 )
 
-// ---------------------------------------------------------------------------
-// Construction helpers.
+// Steps the proof does not build. S22's print note and S27's relocation and
+// cleanup change no geometry. S26's count of one cage body, 16,602 mm³ at the
+// defaults, needs the four bore cuts and both window cuts in one cage, which
+// decad cannot chain (stepCutBore says why); the hand-written
+// TestSleeveIsOnePiece holds the sleeve one piece on the implicit model.
 
-// sgSection is one planar section: its plane's frame (origin on the gear's
-// axis, x along û_g, y along v̂_g, normal +dir_g) and its corners on it.
-type sgSection struct {
-	origin, u, v r3.Vec
-	xy           [][2]float64
+func sgSolidCase(name string, p map[string]float64) proofkit3d.Case {
+	return proofkit3d.Case{Name: name, Params: p}
 }
 
-func (q sgSection) world(i int) r3.Vec {
-	return q.origin.Add(q.u.Scale(q.xy[i][0])).Add(q.v.Scale(q.xy[i][1]))
-}
-
-// sgSketchSection draws a section as fixed corners and lines on its own plane
-// and returns the one valid profile.
-func sgSketchSection(t *testing.T, w *sketch.World, q sgSection) (*sketch.Sketch, *sketch.Profile) {
+// sgPolygonSketch draws a closed polygon of fixed points on the plane with the
+// given frame and returns its one valid region.
+func sgPolygonSketch(t *testing.T, w *sketch.World, f r3.Frame, poly [][2]float64) (*sketch.Sketch, *sketch.Profile) {
 	t.Helper()
-	f, err := r3.NewFrame(q.origin, q.u, q.v)
-	if err != nil {
-		t.Fatalf("section frame: %v", err)
-	}
 	pl, err := w.CreatePlaneFromFrame(f)
 	if err != nil {
 		t.Fatalf("section plane: %v", err)
 	}
-	s, err := w.CreateSketch(pl)
+	sk, err := w.CreateSketch(pl)
 	if err != nil {
 		t.Fatalf("section sketch: %v", err)
 	}
-	pts := make([]*sketch.Point, len(q.xy))
-	for i, c := range q.xy {
-		pts[i] = s.CreatePoint(c[0], c[1])
+	var pts []*sketch.Point
+	for _, q := range poly {
+		pts = append(pts, sk.CreatePoint(q[0], q[1]))
 	}
 	for i := range pts {
-		s.CreateLine(pts[i], pts[(i+1)%len(pts)])
+		sk.CreateLine(pts[i], pts[(i+1)%len(pts)])
 	}
-	for _, pt := range pts {
-		s.Fix(pt)
+	for _, q := range pts {
+		sk.Fix(q)
 	}
-	return s, decadtest.SolveRegion(t, s)
+	return sk, decadtest.SolveRegion(t, sk)
 }
 
-// sgChainSolid is the chain-of-lofts stand-in: one sheet loft per pair of
-// neighbouring sections, a patch on each end section, welded by Stitch.
-func sgChainSolid(t *testing.T, doc *decad.Document, sections []sgSection, label string) *decad.Body {
+// sectionFrame is the plane square to gear g's axis at station s, with U
+// along û_g and V along v̂_g, so its normal is +dir_g.
+func (m *sgModel) sectionFrame(t *testing.T, g int, s float64) r3.Frame {
+	f, err := r3.NewFrame(m.Origin[g].Add(m.Dir[g].Scale(s)), m.U[g], m.V[g])
+	if err != nil {
+		t.Fatalf("section frame: %v", err)
+	}
+	return f
+}
+
+// sgLoftChain builds the solid through the given section polygons, one per
+// station in increasing order: a two-section ruled loft between each pair of
+// neighbours as a sheet, the two end sections as caps, all stitched into one
+// solid.
+//
+// What stands in, and what it costs. Fusion lofts a cell through all its
+// sections at once, smooth between them; decad lofts two sections at a time,
+// ruled, and walls each cell with two flat triangles, up to 0.125 mm off the
+// ruled loft on the ribbon's faces at the defaults
+// (TestLoftSectionCountHoldsTheHelicoid logs it). Two lofted solids that share
+// a section are a face-on-face contact decad's booleans refuse, so the cells
+// are built as sheets and stitched along their shared edges into one solid;
+// the stitched solid is sound but no boolean may take it, which is why the
+// joins of §3 and the cuts of §4 below stand in rather than run.
+func sgLoftChain(t *testing.T, doc *decad.Document, w *sketch.World, m *sgModel, g int, stations []float64, polys [][][2]float64) *decad.Body {
 	t.Helper()
 	ctx := t.Context()
-	w := sketch.NewWorld()
-	sks := make([]*sketch.Sketch, len(sections))
-	prs := make([]*sketch.Profile, len(sections))
-	for i, q := range sections {
-		sks[i], prs[i] = sgSketchSection(t, w, q)
+	var sks []*sketch.Sketch
+	var prs []*sketch.Profile
+	for i, st := range stations {
+		sk, pr := sgPolygonSketch(t, w, m.sectionFrame(t, g, st), polys[i])
+		sks = append(sks, sk)
+		prs = append(prs, pr)
 	}
 	var parts []*decad.Body
-	for i := 0; i+1 < len(sections); i++ {
-		b, err := doc.Loft(ctx, sks[i], prs[i], sks[i+1], prs[i+1], decad.WithSurfaceResult())
-		if err != nil {
-			t.Fatalf("%s: loft between sections %d and %d: %v", label, i, i+1, err)
-		}
-		parts = append(parts, b)
+	first, err := doc.Patch(ctx, sks[0], prs[0])
+	if err != nil {
+		t.Fatalf("first cap: %v", err)
 	}
-	for _, i := range []int{0, len(sections) - 1} {
-		b, err := doc.Patch(ctx, sks[i], prs[i])
+	parts = append(parts, first)
+	for i := 0; i+1 < len(stations); i++ {
+		wall, err := doc.Loft(ctx, sks[i], prs[i], sks[i+1], prs[i+1], decad.WithSurfaceResult())
 		if err != nil {
-			t.Fatalf("%s: patch on section %d: %v", label, i, err)
+			t.Fatalf("loft between stations %.4f and %.4f mm: %v", stations[i], stations[i+1], err)
 		}
-		parts = append(parts, b)
+		parts = append(parts, wall)
 	}
+	last, err := doc.Patch(ctx, sks[len(sks)-1], prs[len(prs)-1])
+	if err != nil {
+		t.Fatalf("last cap: %v", err)
+	}
+	parts = append(parts, last)
 	body, err := decad.Stitch(ctx, parts...)
 	if err != nil {
-		t.Fatalf("%s: stitch: %v", label, err)
+		t.Fatalf("stitch %d sheets: %v", len(parts), err)
 	}
 	if !body.IsSolid() {
-		t.Fatalf("%s: the stitched sections leave a sheet, not a solid", label)
+		free := 0
+		for _, e := range body.Edges() {
+			if e.IsFree() {
+				free++
+			}
+		}
+		t.Fatalf("the stitched sections leave a sheet with %d free edges, not a solid", free)
 	}
 	return body
 }
 
-// sgCellSections is the sections of a ribbon piece of `teeth` teeth starting
-// at station from, at the §2 spacing P/n.
-func sgCellSections(m sgModel, g sgGear, from float64, teeth int) []sgSection {
-	out := make([]sgSection, 0, teeth*m.n+1)
-	for k := 0; k <= teeth*m.n; k++ {
-		s, xy := m.cellCorners(g, from, k)
-		out = append(out, sgSection{origin: g.origin.Add(g.dir.Scale(s)), u: g.u, v: g.v, xy: xy[:]})
+// ribbonPiece is gear g's ribbon from station from over teeth whole pitches,
+// through teeth*n + 1 sections.
+func (m *sgModel) ribbonPiece(t *testing.T, doc *decad.Document, w *sketch.World, g int, from float64, teeth int) *decad.Body {
+	var stations []float64
+	var polys [][][2]float64
+	straight := true
+	for k := 0; k <= teeth*m.Steps; k++ {
+		st := from + float64(k)*m.P/float64(m.Steps)
+		poly := m.sectionPolygon(g, st)
+		stations = append(stations, st)
+		polys = append(polys, poly)
+		straight = straight && sgStraightSide(poly[1:len(poly)-1])
+	}
+	if straight {
+		// A straight ridge with no bow puts every toothed point of every
+		// section on the chord between the two toothed corners. The engine's
+		// profile then merges some of those collinear lines and not others,
+		// and sections of unlike segment counts cannot be lofted in pairs; the
+		// line between the corners is the same section, so the stand-in draws
+		// that.
+		for i, poly := range polys {
+			polys[i] = [][2]float64{poly[0], poly[1], poly[len(poly)-2], poly[len(poly)-1]}
+		}
+	}
+	return sgLoftChain(t, doc, w, m, g, stations, polys)
+}
+
+// sgStraightSide reports whether the points lie on the chord between the
+// first and the last, to 1e-9 mm.
+func sgStraightSide(pts [][2]float64) bool {
+	a, b := pts[0], pts[len(pts)-1]
+	ex, ey := b[0]-a[0], b[1]-a[1]
+	l := math.Hypot(ex, ey)
+	for _, q := range pts[1 : len(pts)-1] {
+		if math.Abs((q[0]-a[0])*ey-(q[1]-a[1])*ex)/l > 1e-9 {
+			return false
+		}
+	}
+	return true
+}
+
+// helicoidVolume is the exact ribbon's volume over teeth whole pitches: the
+// section's area does not change with the twist, and over whole pitches the
+// cosine averages out, leaving T*(W - H/2) less the bow's T^3/12.
+func (m *sgModel) helicoidVolume(teeth int) float64 {
+	return float64(teeth) * m.P * (m.T*(m.W-m.H/2) - m.Bow*m.T*m.T*m.T/12)
+}
+
+// sgMeasureBelow holds a stand-in's volume within rel under the exact
+// figure. The stand-in's chords all cut inside the curved surfaces they stand
+// for, so it can only read low.
+func sgMeasureBelow(t *testing.T, what string, body *decad.Body, exact, rel float64) {
+	t.Helper()
+	vol, err := body.Volume()
+	if err != nil {
+		t.Fatalf("%s volume: %v", what, err)
+	}
+	// The window is [exact*(1 - rel), exact], plus the reading's own bound.
+	decadtest.Measures(t, what, vol, units.CubicMillimeters(exact*(1-rel/2)), decadtest.Within(units.CubicMillimeters(exact*rel/2)))
+}
+
+// sgMeasureVolume holds a body's volume reading at want, within rel of it,
+// under the step's own name for the body.
+func sgMeasureVolume(t *testing.T, what string, body *decad.Body, want, rel float64) {
+	t.Helper()
+	vol, err := body.Volume()
+	if err != nil {
+		t.Fatalf("%s: %v", what, err)
+	}
+	decadtest.Measures(t, what, vol, units.CubicMillimeters(want), decadtest.WithinRel(units.Scalar(rel)))
+}
+
+// sgMesh is a body's boundary as triangles, for point containment.
+type sgMesh struct {
+	verts []r3.Vec
+	tris  [][3]int
+}
+
+// meshOf tessellates body. A lofted, stitched or boolean-built body restates
+// its own triangles; a curved prism is chorded at tol.
+func sgMeshOf(t *testing.T, body *decad.Body, tol float64) sgMesh {
+	t.Helper()
+	mesh, err := body.Tessellate(t.Context(), units.Millimeters(tol))
+	if err != nil {
+		t.Fatalf("tessellate: %v", err)
+	}
+	return sgMesh{verts: mesh.Vertices(), tris: mesh.Triangles()}
+}
+
+// contains is the generalized winding number of the mesh about q, rounded:
+// 1 inside a closed, outward-oriented mesh and 0 outside. Every probe here
+// stands at least 0.25 mm from the boundary it is read against, far beyond
+// any mesh's chording.
+func (s sgMesh) contains(q r3.Vec) bool {
+	total := 0.0
+	for _, tri := range s.tris {
+		a, b, c := s.verts[tri[0]].Sub(q), s.verts[tri[1]].Sub(q), s.verts[tri[2]].Sub(q)
+		la, lb, lc := a.Len(), b.Len(), c.Len()
+		num := a.Dot(b.Cross(c))
+		den := la*lb*lc + a.Dot(b)*lc + b.Dot(c)*la + c.Dot(a)*lb
+		total += 2 * math.Atan2(num, den)
+	}
+	return math.Round(total/(4*math.Pi)) != 0
+}
+
+// --- Cell loft -----------------------------------------------------------------
+
+var cellLoftCases = []proofkit3d.Case{
+	sgSolidCase("gear A defaults", sgWith(map[string]float64{"gear": 0})),
+	sgSolidCase("gear B defaults", sgWith(map[string]float64{"gear": 1})),
+	sgSolidCase("negative slant", sgWith(map[string]float64{"gear": 1, "toothSlant": -25.8})),
+	sgSolidCase("straight ridge", sgThirdPrint(map[string]float64{"gear": 0})),
+	sgSolidCase("slow twist, floor of eight", sgWith(map[string]float64{"gear": 0, "twistLead": 400})),
+	sgSolidCase("fast twist", sgWith(map[string]float64{"gear": 1, "twistLead": 20})),
+	sgSolidCase("mounted at 30 degrees", sgWith(map[string]float64{"gear": 0, "mountAngleA": 30, "mountAngleB": 30})),
+}
+
+// stepCellLoft is a gear's cell loft of §2: c*n + 1 sections from s0 to
+// s0 + c*P in station order, one body, then the slant's sign check. The loft
+// stands in as sgLoftChain says.
+func stepCellLoft(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
+	m := sgModelOf(p)
+	g := int(p["gear"])
+	w := sketch.NewWorld()
+	return []*decad.Body{m.ribbonPiece(t, doc, w, g, m.cellStart(g), m.Cell)}
+}
+
+// sgSlantProbe is one of the four probes of the slant's sign check.
+type sgSlantProbe struct {
+	Name      string
+	At        r3.Vec
+	M, MWrong float64
+}
+
+// slantProbes are §2's four probes for gear g's cell: on and off the ridge
+// through the first crest half a pitch into the cell, a quarter millimetre
+// inside each face and under the crest.
+func (m *sgModel) slantProbes(g int) []sgSlantProbe {
+	s0 := m.cellStart(g)
+	sc := m.Z0[g] + m.P*math.Ceil((s0+m.P/2-m.Z0[g])/m.P)
+	var out []sgSlantProbe
+	for _, face := range []float64{-1, 1} {
+		vp := face * (m.T/2 - 0.25)
+		up := m.W/2 - m.Bow*vp*vp - 0.25
+		for _, on := range []bool{true, false} {
+			st := sc + m.TanSlant*vp
+			name := "off"
+			if on {
+				st = sc - m.TanSlant*vp
+				name = "on"
+			}
+			out = append(out, sgSlantProbe{
+				Name:   fmt.Sprintf("%s-ridge probe at the %+.0f face", name, face),
+				At:     m.world(g, st, up, vp),
+				M:      m.utooth(g, vp, st, 1) - up,
+				MWrong: m.utooth(g, vp, st, -1) - up,
+			})
+		}
 	}
 	return out
 }
 
-// sgTwistVolumeSlack bounds how far the volume of the triangle-pair walls
-// decad builds can fall from the ruled walls through the same sections, plus
-// how far the ruled walls fall inside the exact helicoid. A wall cell with
-// side vectors a (along the axis) and b (across the face) and twist vector T
-// differs from its bilinear patch by det(a, T, b)/12 of volume
-// (decad docs/loft-design.md §5.2), so the sum of |det|/12 bounds the first.
-// The second is the sag of a straight chord between two turned corners,
-// rho*(1 - cos(dtheta/2)), over the cell's perimeter and length; the toothed
-// edge's straight chords integrate exactly over whole pitches (the trapezoid
-// rule is exact for a cosine sampled evenly over whole periods).
-func sgTwistVolumeSlack(m sgModel, g sgGear, sections []sgSection) float64 {
-	sum := 0.0
-	for k := 0; k+1 < len(sections); k++ {
-		a, b := sections[k], sections[k+1]
-		for i := range len(a.xy) {
-			j := (i + 1) % len(a.xy)
-			vLo, vHi := a.world(i), a.world(j)
-			wLo, wHi := b.world(i), b.world(j)
-			ax := wLo.Sub(vLo)
-			bx := vHi.Sub(vLo)
-			tw := vLo.Sub(vHi).Sub(wLo).Add(wHi)
-			sum += math.Abs(ax.Dot(tw.Cross(bx))) / 12
+func (p sgSlantProbe) used() bool {
+	return math.Abs(p.M) >= 0.1 && math.Abs(p.MWrong) >= 0.1 && (p.M > 0) != (p.MWrong > 0)
+}
+
+func assertCellLoft(t *testing.T, doc *decad.Document, bodies []*decad.Body, p map[string]float64) {
+	m := sgModelOf(p)
+	g := int(p["gear"])
+	cell := bodies[0]
+	// The stand-in falls short of the helicoid by its chords: across the
+	// thickness the toothed side is M - 1 lines, along the axis each cell is
+	// ruled, and decad walls it with two flat triangles. Measured at the
+	// defaults that is 2.1% of the volume; 4% bounds it at every case here.
+	sgMeasureBelow(t, "cell volume", cell, m.helicoidVolume(m.Cell), 0.04)
+	// Every point of the cell is within the crest rectangle's corner of the
+	// axis and between the cell's end stations.
+	reach := math.Hypot(m.W/2, m.T/2)
+	for _, v := range cell.Vertices() {
+		x, y, s := m.local(g, v.Position().Value)
+		if math.Hypot(x, y) > reach+1e-9 || s < m.cellStart(g)-1e-9 || s > m.cellStart(g)+float64(m.Cell)*m.P+1e-9 {
+			t.Fatalf("vertex at station %.4f mm, %.4f mm from the axis, is outside the cell", s, math.Hypot(x, y))
 		}
 	}
-	length := float64(len(sections)-1) * m.P / float64(m.n)
-	dtheta := m.P / float64(m.n) / m.lambda
-	rho := math.Hypot(m.W/2, m.T/2)
-	sag := 2 * (m.W + m.T) * length * rho * (1 - math.Cos(dtheta/2))
-	return sum + sag
-}
-
-// sgHelicoidVolume is the exact twisted ribbon's volume over whole teeth: the
-// cross-section's area integrated along the axis (Cavalieri), whose cosine
-// term vanishes over whole pitches: T*(W - H/2)*teeth*P.
-func sgHelicoidVolume(m sgModel, teeth int) float64 {
-	return m.T * (m.W - m.H/2) * float64(teeth) * m.P
-}
-
-func mm(x float64) units.Value  { return units.Millimeters(x) }
-func mm3(x float64) units.Value { return units.CubicMillimeters(x) }
-
-// sgVolume reads a body's volume in mm³.
-func sgVolume(t *testing.T, b *decad.Body) decad.Measurement {
-	t.Helper()
-	v, err := b.Volume()
-	if err != nil {
-		t.Fatalf("volume: %v", err)
+	// The slant's sign check: a used probe reads inside where the edge under
+	// the input slant passes outside it, and outside where it does not.
+	mesh := sgMeshOf(t, cell, 0.01)
+	used := 0
+	for _, probe := range m.slantProbes(g) {
+		if !probe.used() {
+			t.Logf("%s not used: m %.3f mm, under the negated slant %.3f mm", probe.Name, probe.M, probe.MWrong)
+			continue
+		}
+		used++
+		inside := mesh.contains(probe.At)
+		if inside != (probe.M > 0) {
+			t.Errorf("%s reads inside=%v, but the edge stands %.3f mm from it (%.3f mm under the negated slant)",
+				probe.Name, inside, probe.M, probe.MWrong)
+		}
 	}
-	return v
+	switch {
+	case sgIsDefaults(p):
+		// At the defaults all four are used: 0.25 mm inside the tooth under the
+		// right sign and 2.13 mm outside under the wrong one, and the reverse.
+		if used != 4 {
+			t.Errorf("%d of the four probes used at the defaults, want 4", used)
+		}
+		for i, probe := range m.slantProbes(g) {
+			near, far := 0.25, 2.13
+			if i%2 == 1 { // the off-ridge probe: outside, and inside under the wrong sign
+				near, far = far, near
+			}
+			decadtestMeasure(t, probe.Name+" margin", math.Abs(probe.M), near, 0.01)
+			decadtestMeasure(t, probe.Name+" margin under the wrong sign", math.Abs(probe.MWrong), far, 0.01)
+		}
+	case p["toothSlant"] == 0:
+		// The straight ridge leans neither way, so no probe can tell the sign
+		// and the build logs that it was not checked.
+		if used != 0 {
+			t.Errorf("%d probes used at a zero slant, want none", used)
+		}
+	}
+}
+
+// decadtestMeasure compares two plain figures of the model, which carry no
+// decad bound, with a stated slack.
+func decadtestMeasure(t *testing.T, what string, got, want, slack float64) {
+	t.Helper()
+	decadtest.Measures(t, what, decad.Measurement{Value: units.Millimeters(got), Exactness: decad.Exact},
+		units.Millimeters(want), decadtest.Within(units.Millimeters(slack)))
+}
+
+// --- Doubling: copy, move, join ------------------------------------------------
+
+// A note on documents. decad verifies every pair of live bodies in a
+// document, and a body beside its exact copy, or beside a piece it meets on a
+// shared section, is a contact its read-only intersection cannot classify:
+// the harness's gate would read the pair Suspect. So where a step's Fusion
+// result holds two bodies that coincide or touch, the step builds the pair in
+// a scratch document of its own, makes its checks there, and hands the
+// harness the one body the next step consumes.
+
+var copyCases = []proofkit3d.Case{
+	sgSolidCase("gear A cell", sgWith(map[string]float64{"gear": 0})),
+	sgSolidCase("gear B cell", sgWith(map[string]float64{"gear": 1})),
+}
+
+// stepCopyBody is a round's copy (§3): copyPasteBodies.add on the current
+// body, the copy taken from the feature's bodies. decad's Duplicate is the
+// same operation: a new body with the source's geometry, the source left
+// live. The source and its copy coincide, so they are compared in a scratch
+// document, and the harness gates the copy's geometry, the cell, alone.
+func stepCopyBody(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
+	m := sgModelOf(p)
+	g := int(p["gear"])
+	scratch := decad.New()
+	source := m.ribbonPiece(t, scratch, sketch.NewWorld(), g, m.cellStart(g), m.Cell)
+	copied, err := source.Duplicate(t.Context())
+	if err != nil {
+		t.Fatalf("copy: %v", err)
+	}
+	if copied == source {
+		t.Fatalf("the copy is the source body, not a body of its own")
+	}
+	a, err := source.Volume()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := copied.Volume()
+	if err != nil {
+		t.Fatal(err)
+	}
+	decadtest.Agree(t, "the copy against its source", a, b)
+	va, vb := source.Vertices(), copied.Vertices()
+	if len(va) != len(vb) {
+		t.Fatalf("the copy has %d vertices, its source %d", len(vb), len(va))
+	}
+	for i := range va {
+		decadtestMeasure(t, "a copied vertex against its source", va[i].Position().Value.Sub(vb[i].Position().Value).Len(), 0, 0)
+	}
+	return []*decad.Body{m.ribbonPiece(t, doc, sketch.NewWorld(), g, m.cellStart(g), m.Cell)}
+}
+
+func assertCopyBody(t *testing.T, doc *decad.Document, bodies []*decad.Body, p map[string]float64) {
+	m := sgModelOf(p)
+	sgMeasureBelow(t, "copied cell volume", bodies[0], m.helicoidVolume(m.Cell), 0.04)
+}
+
+var moveCases = []proofkit3d.Case{
+	sgSolidCase("gear A doubling a one-cell body", sgWith(map[string]float64{"gear": 0, "moveCells": 1})),
+	sgSolidCase("gear B doubling a two-cell body", sgWith(map[string]float64{"gear": 1, "moveCells": 2})),
+	sgSolidCase("gear A aside placed by 16 cells", sgWith(map[string]float64{"gear": 0, "moveCells": 16})),
+	sgSolidCase("gear B aside placed by 16 cells", sgWith(map[string]float64{"gear": 1, "moveCells": 16})),
+}
+
+// stepScrewMove is a round's move (§3): the copy moved by Step(m*c), a turn of
+// m*c*P/Lambda about the gear's axis and an advance of m*c*P along it, built
+// as the rotation about the axis followed by the translation along it. The
+// case moves a copy of the cell, which is the copy a doubling of a one-cell
+// body or an aside of one cell moves; a body of more cells moves the same way.
+func stepScrewMove(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
+	m := sgModelOf(p)
+	g := int(p["gear"])
+	copied := m.ribbonPiece(t, doc, sketch.NewWorld(), g, m.cellStart(g), m.Cell)
+	step, err := m.screwStep(g, int(p["moveCells"])*m.Cell)
+	if err != nil {
+		t.Fatalf("screw step: %v", err)
+	}
+	moved, err := copied.Placed(t.Context(), step)
+	if err != nil {
+		t.Fatalf("move: %v", err)
+	}
+	return []*decad.Body{moved}
+}
+
+// offSections reports the largest distance from any vertex of body to the
+// nearest point of the analytic section at its station, for gear g's
+// sections at stations from first, every P/n, over sections of them.
+func (m *sgModel) offSections(g int, body *decad.Body, first float64, sections int) float64 {
+	worst := 0.0
+	for _, v := range body.Vertices() {
+		q := v.Position().Value
+		_, _, s := m.local(g, q)
+		k := int(math.Round((s - first) / (m.P / float64(m.Steps))))
+		if k < 0 || k > sections {
+			return math.Inf(1)
+		}
+		st := first + float64(k)*m.P/float64(m.Steps)
+		best := math.Inf(1)
+		b0, b1, f := m.sectionUV(g, st)
+		for _, uv := range append([][2]float64{b0, b1}, f...) {
+			best = math.Min(best, m.world(g, st, uv[0], uv[1]).Sub(q).Len())
+		}
+		worst = math.Max(worst, best)
+	}
+	return worst
+}
+
+func assertScrewMove(t *testing.T, doc *decad.Document, bodies []*decad.Body, p map[string]float64) {
+	m := sgModelOf(p)
+	g := int(p["gear"])
+	shift := float64(int(p["moveCells"])*m.Cell) * m.P
+	// The ribbon is invariant under its screw step, so the moved copy is the
+	// ribbon's own cell that much further on, vertex for vertex. The move
+	// composes a rotation and a translation in float64, at stations up to
+	// 180 mm from the axis's origin, so its vertices land within a few
+	// nanometres of the analytic sections there; 1e-6 mm bounds that.
+	off := m.offSections(g, bodies[0], m.cellStart(g)+shift, m.Cell*m.Steps)
+	decadtestMeasure(t, "the moved copy against the cell it lands on", off, 0, 1e-6)
+	sgMeasureBelow(t, "moved cell volume", bodies[0], m.helicoidVolume(m.Cell), 0.04)
+}
+
+var joinCases = []proofkit3d.Case{
+	sgSolidCase("gear A one cell and its copy", sgWith(map[string]float64{"gear": 0})),
+	sgSolidCase("gear B one cell and its copy", sgWith(map[string]float64{"gear": 1})),
+	sgSolidCase("gear A mounted at 30 degrees", sgWith(map[string]float64{"gear": 0, "mountAngleA": 30, "mountAngleB": 30})),
+}
+
+// stepJoinBodies is a round's join (§3): the body and its moved copy joined
+// into one body, here the one-cell body of a doubling's first round.
+//
+// What stands in, and what it costs. The two pieces are stitched solids,
+// which no decad boolean takes, and they meet on a shared cross-section, a
+// face-on-face contact decad's union refuses even between plain prisms. So the
+// step builds the body and its moved copy in a scratch document, holds that
+// the copy's first section is the body's last one and that the two lie on
+// either side of it, and builds what the join leaves as the ribbon over both
+// spans, holding its volume to the two pieces' sum: no sliver and no overlap.
+// A stitched chain past about eight teeth exceeds decad's crossing audit, so
+// the proof joins one cell and its copy; a longer body joins the same way.
+// Fusion's combine and its one-body count are Fusion's.
+func stepJoinBodies(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
+	m := sgModelOf(p)
+	g := int(p["gear"])
+	return sgJoined(t, doc, m, g, m.cellStart(g), m.Cell, m.Cell)
+}
+
+// sgJoined builds, in a scratch document, a body of teethA teeth from station
+// from and the next teethB teeth as the copy a screw step moves there, checks
+// that the two meet on one section, and builds the joined ribbon over both in
+// doc.
+func sgJoined(t *testing.T, doc *decad.Document, m *sgModel, g int, from float64, teethA, teethB int) []*decad.Body {
+	scratch := decad.New()
+	w := sketch.NewWorld()
+	body := m.ribbonPiece(t, scratch, w, g, from, teethA)
+	step, err := m.screwStep(g, teethB)
+	if err != nil {
+		t.Fatalf("screw step: %v", err)
+	}
+	var moved *decad.Body
+	if teethA == teethB {
+		// A doubling: the copy is the body itself, moved by its own length.
+		moved, err = body.PlacedCopy(t.Context(), step)
+	} else {
+		// The remainder: the stretch of teethB teeth that the screw step
+		// carries onto the remainder's stations, which is the remainder.
+		seed := m.ribbonPiece(t, scratch, w, g, from+float64(teethA-teethB)*m.P, teethB)
+		moved, err = seed.Placed(t.Context(), step)
+	}
+	if err != nil {
+		t.Fatalf("move: %v", err)
+	}
+	junction := from + float64(teethA)*m.P
+	// The two pieces lie on either side of the junction's plane...
+	for name, b := range map[string]*decad.Body{"body": body, "copy": moved} {
+		for _, v := range b.Vertices() {
+			_, _, s := m.local(g, v.Position().Value)
+			if (name == "body" && s > junction+1e-6) || (name == "copy" && s < junction-1e-6) {
+				t.Fatalf("the %s reaches station %.6f mm across the junction at %.6f mm", name, s, junction)
+			}
+		}
+	}
+	// ...and meet on it at the same section: every vertex of the copy on the
+	// plane is a vertex of the body's last section, to the move's rounding.
+	var last []r3.Vec
+	for _, v := range body.Vertices() {
+		if _, _, s := m.local(g, v.Position().Value); math.Abs(s-junction) < 1e-6 {
+			last = append(last, v.Position().Value)
+		}
+	}
+	matched := 0
+	for _, v := range moved.Vertices() {
+		q := v.Position().Value
+		if _, _, s := m.local(g, q); math.Abs(s-junction) >= 1e-6 {
+			continue
+		}
+		best := math.Inf(1)
+		for _, l := range last {
+			best = math.Min(best, l.Sub(q).Len())
+		}
+		decadtestMeasure(t, "the copy's first section against the body's last", best, 0, 1e-6)
+		matched++
+	}
+	if matched == 0 || matched != len(last) {
+		t.Fatalf("the junction holds %d vertices of the copy and %d of the body", matched, len(last))
+	}
+	va, err := body.Volume()
+	if err != nil {
+		t.Fatal(err)
+	}
+	vb, err := moved.Volume()
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := m.ribbonPiece(t, doc, w, g, from, teethA+teethB)
+	vj, err := joined.Volume()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := decad.Measurement{
+		Value:     units.CubicMillimeters(sgMM3(t, va.Value) + sgMM3(t, vb.Value)),
+		Exactness: decad.Approximate,
+		Bound:     units.CubicMillimeters(sgMM3(t, va.Bound) + sgMM3(t, vb.Bound)),
+	}
+	// The pieces' sum and the joined ribbon are the same facets summed in a
+	// different order, up to the move's rounding: they agree to 1e-6 mm³.
+	decadtest.Agree(t, "the joined ribbon against its two pieces", vj, sum, decadtest.Within(units.CubicMillimeters(1e-6)))
+	return []*decad.Body{joined}
 }
 
 func sgMM3(t *testing.T, v units.Value) float64 {
@@ -211,727 +589,431 @@ func sgMM3(t *testing.T, v units.Value) float64 {
 	return x
 }
 
-func sgMM(t *testing.T, v units.Value) float64 {
-	t.Helper()
-	x, err := v.In(units.Millimeter)
-	if err != nil {
-		t.Fatalf("length unit: %v", err)
-	}
-	return x
+func assertJoinBodies(t *testing.T, doc *decad.Document, bodies []*decad.Body, p map[string]float64) {
+	m := sgModelOf(p)
+	sgMeasureBelow(t, "joined ribbon volume", bodies[0], m.helicoidVolume(2*m.Cell), 0.04)
 }
 
-// sgMeasuresVolume is decadtest.MeasuresVolume labelled with the piece's name.
-func sgMeasuresVolume(t *testing.T, name string, b *decad.Body, want, slack float64) {
-	t.Helper()
-	decadtest.Measures(t, name+" volume", sgVolume(t, b), mm3(want), decadtest.Within(mm3(slack)))
+// --- Remainder loft and join ---------------------------------------------------
+
+var remainderCases = []proofkit3d.Case{
+	sgSolidCase("gear A one tooth over", sgWith(map[string]float64{"gear": 0, "toothCount": 69})),
+	sgSolidCase("gear B two teeth over", sgWith(map[string]float64{"gear": 1, "toothCount": 70})),
+	sgSolidCase("gear A three teeth over", sgWith(map[string]float64{"gear": 0, "toothCount": 71})),
 }
 
-// sgScrewStep is Step(k) of §3 for gear g: rotate by k*P/Lambda about the
-// gear's axis, then translate by k*P along it.
-func sgScrewStep(t *testing.T, m sgModel, g sgGear, teeth int) r3.Transform {
-	t.Helper()
-	k := float64(teeth)
-	rot, err := r3.RotationAround(g.origin, g.dir, units.Radians(k*m.P/m.lambda))
-	if err != nil {
-		t.Fatalf("screw rotation: %v", err)
-	}
-	tr, err := r3.Translation(g.dir.Scale(k * m.P))
-	if err != nil {
-		t.Fatalf("screw translation: %v", err)
-	}
-	step, err := rot.Then(tr)
-	if err != nil {
-		t.Fatalf("screw step: %v", err)
-	}
-	return step
-}
-
-// ---------------------------------------------------------------------------
-// Cell loft (§2) and remainder loft (§3).
-
-var cellLoftCases = []proofkit3d.Case{
-	{Name: "Gear A defaults", Params: sgWith(map[string]float64{"gear": 0})},
-	{Name: "Gear B defaults", Params: sgWith(map[string]float64{"gear": 1})},
-	{Name: "Gear A lead 400", Params: sgWith(map[string]float64{"gear": 0, "twistLead": 400})},
-	{Name: "Gear A lead 20", Params: sgWith(map[string]float64{"gear": 0, "twistLead": 20})},
-	{Name: "Gear A mount -25", Params: sgWith(map[string]float64{"gear": 0, "mountAngleA": -25})},
-	{Name: "Gear B phase +2.6", Params: sgWith(map[string]float64{"gear": 1, "assemblyPhase": 2.6})},
-	{Name: "Gear B phase -2.6", Params: sgWith(map[string]float64{"gear": 1, "assemblyPhase": -2.6})},
-	{Name: "Gear A four teeth", Params: sgWith(map[string]float64{"gear": 0, "toothCount": 4})},
-	{Name: "Gear B tooth 7.4", Params: sgWith(map[string]float64{"gear": 1, "toothHeight": 7.4})},
-}
-
-// stepCellLoft is the gear's tooth cell: c = min(CELL_TEETH, N) teeth from
-// s0 = Z0 - L/2, lofted through c*n + 1 sections in station order. Stand-in:
-// the chain of two-section lofts (see the file comment).
-func stepCellLoft(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	m := newModel(p)
-	g := m.gears[int(p["gear"])]
-	sections := sgCellSections(m, g, m.cellStart(g), m.c)
-	if len(sections) != m.c*m.n+1 {
-		t.Fatalf("%s cell: %d sections, want c*n + 1 = %d", g.label, len(sections), m.c*m.n+1)
-	}
-	return []*decad.Body{sgChainSolid(t, doc, sections, g.label+" Cell")}
-}
-
-func assertCellLoft(t *testing.T, doc *decad.Document, bodies []*decad.Body, p map[string]float64) {
-	m := newModel(p)
-	g := m.gears[int(p["gear"])]
-	sections := sgCellSections(m, g, m.cellStart(g), m.c)
-	assertRibbonPiece(t, m, g, bodies[0], sections, m.c, g.label+" Cell")
-}
-
-// assertRibbonPiece holds a lofted ribbon piece to the exact helicoid's
-// volume, within the triangle-pair and chord-sag slack, and to its station
-// span: no vertex stands outside the piece's two end planes, so pieces built
-// at whole teeth apart meet only on a shared section.
-func assertRibbonPiece(t *testing.T, m sgModel, g sgGear, body *decad.Body, sections []sgSection, teeth int, name string) {
-	t.Helper()
-	slack := sgTwistVolumeSlack(m, g, sections)
-	t.Logf("%s: volume %.4f mm³ against the helicoid's %.4f, slack %.4f", name,
-		sgMM3(t, sgVolume(t, body).Value), sgHelicoidVolume(m, teeth), slack)
-	sgMeasuresVolume(t, name, body, sgHelicoidVolume(m, teeth), slack+1e-9*sgHelicoidVolume(m, teeth))
-	lo := sections[0].origin.Sub(g.origin).Dot(g.dir)
-	hi := sections[len(sections)-1].origin.Sub(g.origin).Dot(g.dir)
-	for _, v := range body.Vertices() {
-		pos := v.Position()
-		st := pos.Value.Sub(g.origin).Dot(g.dir)
-		b := sgMM(t, pos.Bound)
-		if st < lo-b-1e-9 || st > hi+b+1e-9 {
-			t.Fatalf("%s: a vertex stands at station %.6f, outside the piece's span %.6f..%.6f", name, st, lo, hi)
-		}
-	}
-}
-
-var remainderLoftCases = []proofkit3d.Case{
-	{Name: "Gear A 69 teeth", Params: sgWith(map[string]float64{"gear": 0, "toothCount": 69})},
-	{Name: "Gear B 69 teeth", Params: sgWith(map[string]float64{"gear": 1, "toothCount": 69})},
-	{Name: "Gear A 6 teeth", Params: sgWith(map[string]float64{"gear": 0, "toothCount": 6})},
-	{Name: "Gear B 7 teeth phase 2.6", Params: sgWith(map[string]float64{"gear": 1, "toothCount": 7, "assemblyPhase": 2.6})},
-}
-
-// stepRemainderLoft is the remainder cell: r = N mod c teeth, lofted through
-// r*n + 1 sections from s0 + q*c*P to s0 + N*P, where they belong.
+// stepRemainderLoft is the remainder cell of §3: r*n + 1 sections from
+// s0 + q*c*P to s0 + N*P, built where the teeth belong. The loft stands in as
+// sgLoftChain says.
 func stepRemainderLoft(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	m := newModel(p)
-	g := m.gears[int(p["gear"])]
-	if m.r == 0 {
-		t.Fatalf("%d teeth leave no remainder", m.N)
+	m := sgModelOf(p)
+	g := int(p["gear"])
+	if m.Remains == 0 {
+		t.Fatalf("toothCount %d leaves no remainder", m.N)
 	}
-	from := m.cellStart(g) + float64(m.q*m.c)*m.P
-	sections := sgCellSections(m, g, from, m.r)
-	if len(sections) != m.r*m.n+1 {
-		t.Fatalf("%s remainder: %d sections, want r*n + 1 = %d", g.label, len(sections), m.r*m.n+1)
-	}
-	return []*decad.Body{sgChainSolid(t, doc, sections, g.label+" Cell Remainder")}
+	from := m.cellStart(g) + float64(m.Whole*m.Cell)*m.P
+	return []*decad.Body{m.ribbonPiece(t, doc, sketch.NewWorld(), g, from, m.Remains)}
 }
 
 func assertRemainderLoft(t *testing.T, doc *decad.Document, bodies []*decad.Body, p map[string]float64) {
-	m := newModel(p)
-	g := m.gears[int(p["gear"])]
-	from := m.cellStart(g) + float64(m.q*m.c)*m.P
-	sections := sgCellSections(m, g, from, m.r)
-	assertRibbonPiece(t, m, g, bodies[0], sections, m.r, g.label+" Cell Remainder")
-	// The remainder's last section is the ribbon's positive end, s0 + N*P.
-	end := sections[len(sections)-1].origin.Sub(g.origin).Dot(g.dir)
-	if math.Abs(end-(m.cellStart(g)+m.L)) > 1e-9 {
-		t.Fatalf("%s remainder ends at station %.6f, want s0 + N*P = %.6f", g.label, end, m.cellStart(g)+m.L)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Doubling (§3): copy, screw move, join.
-
-// copyCases is the copy at the defaults on both gears; what a copy is does not
-// depend on how many cells the body holds.
-var copyCases = []proofkit3d.Case{
-	{Name: "Gear A defaults", Params: sgWith(map[string]float64{"gear": 0})},
-	{Name: "Gear B defaults", Params: sgWith(map[string]float64{"gear": 1})},
-}
-
-// stepCopyBody is copyPasteBodies.add(body) and the copy taken from the
-// feature's bodies. STAND-IN: the copy coincides with its source, which
-// decad's pairwise verification cannot classify, so the copy is made with
-// Duplicate in a document of its own and held against its source there; the
-// gated document holds the cell the copy is of.
-func stepCopyBody(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	m := newModel(p)
-	g := m.gears[int(p["gear"])]
-	sections := sgCellSections(m, g, m.cellStart(g), m.c)
-
-	side := decad.New()
-	src := sgChainSolid(t, side, sections, g.label+" source")
-	cp, err := src.Duplicate(t.Context())
-	if err != nil {
-		t.Fatalf("%s: copy: %v", g.label, err)
-	}
-	report := decadtest.Verify(t, side)
-	decadtest.IsValid(t, report, cp)
-	decadtest.Agree(t, g.label+" copy volume", sgVolume(t, cp), sgVolume(t, src), decadtest.Within(mm3(1e-9)))
-	cs, err := src.Centroid()
+	m := sgModelOf(p)
+	g := int(p["gear"])
+	sgMeasureBelow(t, "remainder volume", bodies[0], m.helicoidVolume(m.Remains), 0.04)
+	// Its first section is the body's last: the cell's last section carried
+	// by the screw step of the whole cells before it.
+	from := m.cellStart(g) + float64(m.Whole*m.Cell)*m.P
+	step, err := m.screwStep(g, (m.Whole-1)*m.Cell)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cc, err := cp.Centroid()
-	if err != nil {
-		t.Fatal(err)
+	cellEnd := m.cellStart(g) + float64(m.Cell)*m.P
+	b0, b1, f := m.sectionUV(g, cellEnd)
+	for _, uv := range append([][2]float64{b0, b1}, f...) {
+		carried := step.Apply(m.world(g, cellEnd, uv[0], uv[1]))
+		decadtestMeasure(t, "the body's last section against the remainder's first",
+			carried.Sub(m.world(g, from, uv[0], uv[1])).Len(), 0, 1e-9)
 	}
-	decadtest.MeasuresVec(t, g.label+" copy centroid", cc, cs.Value, decadtest.Within(cs.Bound))
-	if cp == src {
-		t.Fatalf("%s: the copy is the source body itself ([SCREW-F-COPY-BODY])", g.label)
-	}
-
-	return []*decad.Body{sgChainSolid(t, doc, sections, g.label+" Cell")}
+	off := m.offSections(g, bodies[0], from, m.Remains*m.Steps)
+	decadtestMeasure(t, "the remainder against its sections", off, 0, 1e-9)
 }
 
-func assertCopyBody(t *testing.T, doc *decad.Document, bodies []*decad.Body, p map[string]float64) {
-	m := newModel(p)
-	g := m.gears[int(p["gear"])]
-	sections := sgCellSections(m, g, m.cellStart(g), m.c)
-	assertRibbonPiece(t, m, g, bodies[0], sections, m.c, g.label+" Cell")
+// stepRemainderJoin is the remainder's join (§3), standing in as
+// stepJoinBodies does: the last whole cell and the remainder after it.
+func stepRemainderJoin(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
+	m := sgModelOf(p)
+	g := int(p["gear"])
+	if m.Remains == 0 {
+		t.Fatalf("toothCount %d leaves no remainder", m.N)
+	}
+	from := m.cellStart(g) + float64((m.Whole-1)*m.Cell)*m.P
+	// The remainder is lofted where it belongs rather than moved there; the
+	// copy sgJoined moves is the analytic remainder one cell back, which the
+	// screw step carries onto the remainder's own stations.
+	return sgJoined(t, doc, m, g, from, m.Cell, m.Remains)
 }
 
-// moveCases is every move the defaults' schedule makes, on both gears: the
-// four doublings move the copy by 4, 8, 16 and 32 teeth and the aside moves
-// by 64 (sgDoublingRounds(17, 4)).
-var moveCases = func() []proofkit3d.Case {
-	var out []proofkit3d.Case
-	d := newModel(sgDefaults())
-	for _, g := range []float64{0, 1} {
-		for _, r := range sgDoublingRounds(d.q, d.c) {
-			name := fmt.Sprintf("%s Step(%d)", map[float64]string{0: "Gear A", 1: "Gear B"}[g], r.moveTeeth)
-			if r.aside {
-				name += " aside"
-			}
-			out = append(out, proofkit3d.Case{Name: name, Params: sgWith(map[string]float64{"gear": g, "moveTeeth": float64(r.moveTeeth)})})
-		}
-	}
-	out = append(out, proofkit3d.Case{Name: "Gear A lead 20 Step(4)", Params: sgWith(map[string]float64{"gear": 0, "moveTeeth": 4, "twistLead": 20})})
-	out = append(out, proofkit3d.Case{Name: "Gear B mount -25 Step(8)", Params: sgWith(map[string]float64{"gear": 1, "moveTeeth": 8, "mountAngleB": -25})})
-	return out
-}()
-
-// stepScrewMove is the move of a copy by Step(k) ([SCREW-F-SCREW-STEP]):
-// rotate by k*P/Lambda about the gear's axis and translate k*P along it.
-// STAND-IN: the moved copy shares its first section with the body it will be
-// joined to, which decad's pairwise verification reads Suspect, so the copy
-// is made and moved in a document of its own; the gated document holds the
-// cell built in place k teeth further along, which is what the screw step
-// must land the copy on. A body of m cells moves as each of its cells does,
-// so one cell moved by each k the schedule uses stands for every body moved.
-func stepScrewMove(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	m := newModel(p)
-	g := m.gears[int(p["gear"])]
-	k := int(p["moveTeeth"])
-	target := sgCellSections(m, g, m.cellStart(g)+float64(k)*m.P, m.c)
-	return []*decad.Body{sgChainSolid(t, doc, target, fmt.Sprintf("%s Cell at +%d teeth", g.label, k))}
+func assertRemainderJoin(t *testing.T, doc *decad.Document, bodies []*decad.Body, p map[string]float64) {
+	m := sgModelOf(p)
+	sgMeasureBelow(t, "the last cell and the remainder", bodies[0], m.helicoidVolume(m.Cell+m.Remains), 0.04)
 }
 
-func assertScrewMove(t *testing.T, doc *decad.Document, bodies []*decad.Body, p map[string]float64) {
-	m := newModel(p)
-	g := m.gears[int(p["gear"])]
-	k := int(p["moveTeeth"])
-	inPlace := bodies[0]
+// --- Sleeve --------------------------------------------------------------------
 
-	side := decad.New()
-	src := sgChainSolid(t, side, sgCellSections(m, g, m.cellStart(g), m.c), g.label+" source")
-	cp, err := src.Duplicate(t.Context())
-	if err != nil {
-		t.Fatalf("copy: %v", err)
-	}
-	moved, err := cp.Placed(t.Context(), sgScrewStep(t, m, g, k))
-	if err != nil {
-		t.Fatalf("%s: move by Step(%d): %v", g.label, k, err)
-	}
-	report := decadtest.Verify(t, side)
-	decadtest.IsValid(t, report, moved)
-
-	decadtest.Agree(t, fmt.Sprintf("%s copy moved by Step(%d) volume", g.label, k), sgVolume(t, moved), sgVolume(t, inPlace), decadtest.Within(mm3(1e-9)))
-	cm, err := moved.Centroid()
-	if err != nil {
-		t.Fatal(err)
-	}
-	ci, err := inPlace.Centroid()
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The in-place reading carries its own bound; the 1e-9 mm is the rounding
-	// of a rotation of up to 64 teeth applied to coordinates of ~100 mm.
-	decadtest.MeasuresVec(t, fmt.Sprintf("%s copy moved by Step(%d) centroid", g.label, k), cm, ci.Value, decadtest.Within(mm(sgMM(t, ci.Bound)+1e-9)))
-	// Every vertex of the moved copy lands on a vertex of the cell built in
-	// place: the body is invariant under its screw step, not only its twist.
-	want := inPlace.Vertices()
-	for _, v := range moved.Vertices() {
-		pos := v.Position()
-		best := math.Inf(1)
-		for _, w := range want {
-			best = math.Min(best, pos.Value.Sub(w.Position().Value).Len())
-		}
-		if best > sgMM(t, pos.Bound)+1e-8 {
-			t.Fatalf("%s: a vertex of the copy moved by Step(%d) lands %.3g mm from every vertex of the cell built there", g.label, k, best)
-		}
-	}
-}
-
-// joinCases is every join of the defaults' schedule on both gears — the seam
-// after 4, 8, 16 and 32 teeth for the doublings and after 64 for the aside —
-// and the remainder joins: one tooth after 68 (69 teeth), two after 4 (six
-// teeth, one cell and no round), three after 4 (seven teeth, on gear B at a
-// shifted phase).
-var joinCases = func() []proofkit3d.Case {
-	var out []proofkit3d.Case
-	d := newModel(sgDefaults())
-	for _, g := range []float64{0, 1} {
-		label := map[float64]string{0: "Gear A", 1: "Gear B"}[g]
-		for _, r := range sgDoublingRounds(d.q, d.c) {
-			out = append(out, proofkit3d.Case{
-				Name:   fmt.Sprintf("%s seam after %d teeth", label, r.moveTeeth),
-				Params: sgWith(map[string]float64{"gear": g, "seamTeeth": float64(r.moveTeeth), "rightTeeth": float64(d.c)}),
-			})
-		}
-	}
-	out = append(out,
-		proofkit3d.Case{Name: "Gear A 69 teeth remainder", Params: sgWith(map[string]float64{"gear": 0, "toothCount": 69, "seamTeeth": 68, "rightTeeth": 1})},
-		proofkit3d.Case{Name: "Gear B 69 teeth remainder", Params: sgWith(map[string]float64{"gear": 1, "toothCount": 69, "seamTeeth": 68, "rightTeeth": 1})},
-		proofkit3d.Case{Name: "Gear A 6 teeth remainder", Params: sgWith(map[string]float64{"gear": 0, "toothCount": 6, "seamTeeth": 4, "rightTeeth": 2})},
-		proofkit3d.Case{Name: "Gear B 7 teeth remainder phase 2.6", Params: sgWith(map[string]float64{"gear": 1, "toothCount": 7, "assemblyPhase": 2.6, "seamTeeth": 4, "rightTeeth": 3})},
-	)
-	return out
-}()
-
-// stepJoinBodies is the combine join of the body and the moved copy (or the
-// remainder cell), which has to leave one body. STAND-IN: decad's Union
-// refuses two bodies that meet face to face, so the join is proved at its
-// seam: the last cell of the body (c teeth before the seam) and the first
-// piece after it (a cell, or the remainder's r teeth), each lofted from
-// sections drawn in sketches of its own, the seam section drawn twice, welded
-// into one solid with no face left at the seam. decad's stitch audit refuses a
-// whole 68-tooth ribbon ("the loft crossing audit's facet-pair count exceeds
-// the fixed work ceiling", measured; 32 teeth stitch), so the seam is what the
-// proof can reach; every piece stays inside its own station span
-// (assertRibbonPiece), so pieces whole teeth apart meet nowhere else.
-func stepJoinBodies(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	m := newModel(p)
-	g := m.gears[int(p["gear"])]
-	seam := m.cellStart(g) + p["seamTeeth"]*m.P
-	right := int(p["rightTeeth"])
-	left := sgCellSections(m, g, seam-float64(m.c)*m.P, m.c)
-	after := sgCellSections(m, g, seam, right)
-	return []*decad.Body{sgWeld(t, doc, left, after, fmt.Sprintf("%s join at %.4f", g.label, seam))}
-}
-
-// sgWeld lofts two pieces that share an end section, each from its own
-// sketches, and welds every sheet but the two seam patches into one solid.
-func sgWeld(t *testing.T, doc *decad.Document, left, right []sgSection, label string) *decad.Body {
+// sgTube is the Sleeve sketch's ring extruded cageRise each way, in a fresh
+// sketch on the selected plane (world XY through C).
+func sgTube(t *testing.T, doc *decad.Document, w *sketch.World, m *sgModel) *decad.Body {
 	t.Helper()
-	ctx := t.Context()
-	var parts []*decad.Body
-	for pi, piece := range [][]sgSection{left, right} {
-		w := sketch.NewWorld() // each piece in sketches of its own
-		sks := make([]*sketch.Sketch, len(piece))
-		prs := make([]*sketch.Profile, len(piece))
-		for i, q := range piece {
-			sks[i], prs[i] = sgSketchSection(t, w, q)
-		}
-		for i := 0; i+1 < len(piece); i++ {
-			b, err := doc.Loft(ctx, sks[i], prs[i], sks[i+1], prs[i+1], decad.WithSurfaceResult())
-			if err != nil {
-				t.Fatalf("%s: piece %d loft %d: %v", label, pi, i, err)
-			}
-			parts = append(parts, b)
-		}
-		// The outer end of each piece is capped; the seam is not.
-		end := 0
-		if pi == 1 {
-			end = len(piece) - 1
-		}
-		b, err := doc.Patch(ctx, sks[end], prs[end])
-		if err != nil {
-			t.Fatalf("%s: piece %d cap: %v", label, pi, err)
-		}
-		parts = append(parts, b)
-	}
-	body, err := decad.Stitch(ctx, parts...)
+	f, err := r3.NewFrame(m.Centre, m.Ex, m.Kx)
 	if err != nil {
-		t.Fatalf("%s: weld: %v", label, err)
+		t.Fatalf("selected plane: %v", err)
 	}
-	if !body.IsSolid() {
-		t.Fatalf("%s: the two pieces do not close at the seam; the weld leaves a sheet", label)
-	}
-	return body
-}
-
-func assertJoinBodies(t *testing.T, doc *decad.Document, bodies []*decad.Body, p map[string]float64) {
-	m := newModel(p)
-	g := m.gears[int(p["gear"])]
-	seam := m.cellStart(g) + p["seamTeeth"]*m.P
-	right := int(p["rightTeeth"])
-	sections := sgCellSections(m, g, seam-float64(m.c)*m.P, m.c+right)
-	assertRibbonPiece(t, m, g, bodies[0], sections, m.c+right, g.label+" joined")
-	// No face is left at the seam: the joined body keeps only its two end caps.
-	caps := 0
-	for _, f := range bodies[0].Faces() {
-		for _, o := range f.Origins() {
-			if o.Role == "patch" {
-				caps++
-			}
-		}
-	}
-	if caps != 2 {
-		t.Fatalf("%s joined: %d planar end faces, want 2 (none at the seam)", g.label, caps)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Sleeve tube (§4).
-
-var sleeveTubeCases = []proofkit3d.Case{
-	{Name: "defaults", Params: sgDefaults()},
-	{Name: "rise 25", Params: sgWith(map[string]float64{"cageRise": 25})},
-	{Name: "cage radius 25", Params: sgWith(map[string]float64{"cageRadius": 25, "collarHalf": 3.5})},
-	{Name: "collar half 2", Params: sgWith(map[string]float64{"collarHalf": 2})},
-}
-
-// sgTube is the Sleeve sketch's ring extruded symmetrically by cageRise each
-// side of the selected plane, which the proof puts at z = 0.
-func sgTube(t *testing.T, doc *decad.Document, m sgModel) *decad.Body {
-	t.Helper()
-	w := sketch.NewWorld()
-	s, err := w.CreateSketch(w.XY())
+	pl, err := w.CreatePlaneFromFrame(f)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ci := s.CreatePoint(0, 0)
-	co := s.CreatePoint(0, 0)
-	inner := s.CreateCircle(ci, m.Ri)
-	outer := s.CreateCircle(co, m.Ro)
-	s.Fix(ci)
-	s.Fix(co)
-	s.AddConstraint(sketch.NewDiameter(inner, 2*m.Ri), sketch.NewDiameter(outer, 2*m.Ro))
-	if _, err := s.Solve(t.Context()); err != nil {
-		t.Fatalf("Sleeve sketch: %v", err)
+	sk, err := w.CreateSketch(pl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range []float64{m.Ri, m.Ro} {
+		centre := sk.CreatePoint(0, 0)
+		c := sk.CreateCircle(centre, r)
+		sk.Fix(centre)
+		sk.AddConstraint(sketch.NewDiameter(c, 2*r))
+	}
+	if _, err := sk.Solve(t.Context()); err != nil {
+		t.Fatalf("sleeve sketch: %v", err)
 	}
 	var ring *sketch.Profile
-	for _, pr := range s.Profiles() {
+	for _, pr := range sk.Profiles() {
 		if pr.Valid && len(pr.Holes) == 1 {
 			if ring != nil {
-				t.Fatal("Sleeve: two profiles with two loops")
+				t.Fatalf("two profiles with two loops")
 			}
 			ring = pr
 		}
 	}
 	if ring == nil {
-		t.Fatal("Sleeve: no profile with two loops")
+		t.Fatalf("no ring among the sleeve sketch's profiles")
 	}
-	body, err := doc.Extrude(s, ring, decad.Symmetric{D: mm(m.cageRise)})
+	tube, err := doc.Extrude(sk, ring, decad.Symmetric{D: units.Millimeters(m.Rise)})
 	if err != nil {
-		t.Fatalf("Sleeve extrude: %v", err)
+		t.Fatalf("extrude the ring: %v", err)
 	}
-	return body
+	return tube
 }
 
-// stepSleeveTube is the tube: the ring between Ri and Ro extruded as a new
-// body with a symmetric extent of cageRise each side.
-func stepSleeveTube(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	return []*decad.Body{sgTube(t, doc, newModel(p))}
+var tubeCases = []proofkit3d.Case{
+	sgSolidCase("defaults", sgDefaults()),
+	sgSolidCase("tall", sgWith(map[string]float64{"cageRise": 25})),
+	sgSolidCase("wide, thick wall", sgWith(map[string]float64{"cageRadius": 17, "collarHalf": 3.25})),
 }
 
-func assertSleeveTube(t *testing.T, doc *decad.Document, bodies []*decad.Body, p map[string]float64) {
-	m := newModel(p)
-	// pi*(Ro² - Ri²)*2*cageRise: 21,205.75 mm³ at the defaults, 37.5 mm tall.
-	want := math.Pi * (m.Ro*m.Ro - m.Ri*m.Ri) * 2 * m.cageRise
-	sgMeasuresVolume(t, "Cage tube", bodies[0], want, 1e-9*want)
-	decadtest.MeasuresBounds(t, bodies[0], r3.NewVec(-m.Ro, -m.Ro, -m.cageRise), r3.NewVec(m.Ro, m.Ro, m.cageRise), decadtest.WithinRel(units.Scalar(1e-9)))
+// stepExtrudeTube is the tube of §4: the Sleeve sketch's ring extruded as a
+// new body, symmetric, cageRise each side.
+func stepExtrudeTube(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
+	m := sgModelOf(p)
+	return []*decad.Body{sgTube(t, doc, sketch.NewWorld(), m)}
 }
 
-// ---------------------------------------------------------------------------
-// Bore cuts (§4).
+func assertExtrudeTube(t *testing.T, doc *decad.Document, bodies []*decad.Body, p map[string]float64) {
+	m := sgModelOf(p)
+	// The ring's area times the height, exact for exact circles; decad's
+	// reading carries its own bound.
+	sgMeasureVolume(t, "tube volume", bodies[0], math.Pi*(m.Ro*m.Ro-m.Ri*m.Ri)*2*m.Rise, 1e-9)
+	box, err := bodies[0].Bounds()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lo := m.Centre.Sub(r3.NewVec(m.Ro, m.Ro, m.Rise))
+	hi := m.Centre.Add(r3.NewVec(m.Ro, m.Ro, m.Rise))
+	decadtest.MeasuresBox(t, "tube", box, lo, hi, decadtest.Within(units.Millimeters(1e-9)))
+}
 
-// boreCutCases is the four bores cut in the build's order at the defaults,
-// each case the cage after that bore, and the cage after all four with no
-// roof allowance and with gear A's +R bore the level one.
+// --- Bore cut ------------------------------------------------------------------
+
 var boreCutCases = []proofkit3d.Case{
-	{Name: "after Gear A Bore -R", Params: sgWith(map[string]float64{"bore": 0})},
-	{Name: "after Gear A Bore +R", Params: sgWith(map[string]float64{"bore": 1})},
-	{Name: "after Gear B Bore -R", Params: sgWith(map[string]float64{"bore": 2})},
-	{Name: "after Gear B Bore +R", Params: sgWith(map[string]float64{"bore": 3})},
-	{Name: "no roof allowance, after all four", Params: sgWith(map[string]float64{"bore": 3, "roofAllowance": 0})},
-	{Name: "mount -20 and 30, after all four", Params: sgWith(map[string]float64{"bore": 3, "mountAngleA": -20, "mountAngleB": 30})},
+	sgSolidCase("gear A -R defaults", sgWith(map[string]float64{"bore": 0})),
+	sgSolidCase("gear A +R defaults", sgWith(map[string]float64{"bore": 1})),
+	sgSolidCase("gear B -R defaults", sgWith(map[string]float64{"bore": 2})),
+	sgSolidCase("gear B +R defaults", sgWith(map[string]float64{"bore": 3})),
+	sgSolidCase("gear A +R third print", sgThirdPrint(map[string]float64{"bore": 1})),
+	sgSolidCase("gear B -R no allowance", sgWith(map[string]float64{"bore": 2, "roofAllowance": 0})),
+	sgSolidCase("gear B +R at 110 degrees", sgWith(map[string]float64{"bore": 3, "crossAngle": 110})),
+	sgSolidCase("gear A -R fine clearance", sgWith(map[string]float64{"bore": 0, "clearance": 0.05})),
 }
 
-// sgBoreSections is the stand-in channel's sections: the bore's rectangle,
-// u from -hw to hw and v from vLo to vHi, turned by s/Lambda + Phi_g at
-// boreSections() stations evenly spaced over the cut's span.
-func sgBoreSections(m sgModel, b sgBore) []sgSection {
-	g := m.gears[b.gear]
-	n := m.boreSections()
-	out := make([]sgSection, n)
-	for k := range n {
-		s := b.from + (b.to-b.from)*float64(k)/float64(n-1)
-		th := g.theta(s)
-		xy := make([][2]float64, 4)
-		for i, c := range [4][2]float64{{-m.hw, b.vLo}, {m.hw, b.vLo}, {m.hw, b.vHi}, {-m.hw, b.vHi}} {
-			xy[i][0], xy[i][1] = sgTurn(c[0], c[1], th)
+// boreSections is the stand-in's section count for a bore: no two
+// neighbouring sections more than 5 degrees of twist apart, nor more than the
+// angle at which the facets between them take 4% of the clearance.
+func (m *sgModel) boreSections(b sgBore) int {
+	turn := (b.SpanHi - b.SpanLo) / m.Lambda
+	step := math.Min(5*math.Pi/180, 2*math.Acos(1-0.04*m.Clear/m.Corner))
+	return int(math.Ceil(turn/step-1e-12)) + 1
+}
+
+// boreChannel is the stand-in for a bore's sweep: the bore's rectangle at
+// boreSections stations over its cut span, each turned by sense*(s - s0)/Lambda
+// from the profile's angle at s0, lofted as sgLoftChain does.
+func (m *sgModel) boreChannel(t *testing.T, doc *decad.Document, b sgBore, sense float64) *decad.Body {
+	count := m.boreSections(b)
+	th0 := m.theta(b.Gear, b.SpanLo)
+	var stations []float64
+	var polys [][][2]float64
+	for i := 0; i < count; i++ {
+		st := b.SpanLo + (b.SpanHi-b.SpanLo)*float64(i)/float64(count-1)
+		th := th0 + sense*(st-b.SpanLo)/m.Lambda
+		var poly [][2]float64
+		for _, c := range [][2]float64{{-m.Hw, b.VLo}, {m.Hw, b.VLo}, {m.Hw, b.VHi}, {-m.Hw, b.VHi}} {
+			x, y := sgTurn(c[0], c[1], th)
+			poly = append(poly, [2]float64{x, y})
 		}
-		out[k] = sgSection{origin: g.origin.Add(g.dir.Scale(s)), u: g.u, v: g.v, xy: xy}
+		stations = append(stations, st)
+		polys = append(polys, poly)
 	}
-	return out
+	return sgLoftChain(t, doc, sketch.NewWorld(), m, b.Gear, stations, polys)
 }
 
-// sgUnion folds bodies into one by Union, in order.
-func sgUnion(t *testing.T, bodies []*decad.Body, label string) *decad.Body {
-	t.Helper()
-	acc := bodies[0]
-	for i, b := range bodies[1:] {
-		u, err := decad.Union(t.Context(), acc, b)
-		if err != nil {
-			t.Fatalf("%s: union of tool %d: %v", label, i+1, err)
-		}
-		acc = u
-	}
-	return acc
+// stepCutBore stands in for a bore's twisted sweep cut (§4).
+//
+// What stands in, and what it costs. decad has no twisted sweep (a nonzero
+// WithSweepTwist is ErrUnsupported), so the channel is a chain of
+// two-section lofts through the sweep's own section turned by s/Lambda + Phi
+// at boreSections stations, 18 at the defaults. The cut itself cannot run:
+// the chain's cells cut from the tube one after another meet the previous
+// cut's face on their shared section, a contact decad refuses; stitched into
+// one solid, the channel is a body no boolean takes; and a second cut from
+// the curved tube is refused anyway, because the first cut's held mesh bound
+// exceeds the chord tolerance the next pair derives. A tube and a channel in
+// one document overlap, which decad's verification cannot classify either, so
+// the tube is built in a scratch document and the harness gates the channel.
+// The step holds what the cut depends on: the profile starts and ends in air,
+// the channel is the rectangle carried along the span, and the build's two
+// probes at the crossing stand in the tube's wall and in the channel under
+// the right twist sense, so the cut opens them, and outside it under the
+// wrong sense, so the check tells the senses apart. That the cut leaves one
+// body and the cage's volume after it are not read here: TestSleeveIsOnePiece
+// holds the sleeve one piece, on the hand-written model.
+func stepCutBore(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
+	m := sgModelOf(p)
+	b := m.bores()[int(p["bore"])]
+	// The tube is built beside the channel in a scratch document: the two
+	// overlap, a pair decad's verification cannot classify, and the tube's
+	// own step is stepExtrudeTube.
+	sgTube(t, decad.New(), sketch.NewWorld(), m)
+	return []*decad.Body{m.boreChannel(t, doc, b, +1)}
 }
 
-// sgBoreTools builds the stand-in channels of bores 0..last.
-func sgBoreTools(t *testing.T, doc *decad.Document, m sgModel, last int) []*decad.Body {
-	t.Helper()
-	var tools []*decad.Body
-	for i, b := range m.bores() {
-		if i > last {
-			break
-		}
-		tools = append(tools, sgChainSolid(t, doc, sgBoreSections(m, b), b.name+" channel"))
-	}
-	return tools
+// boreProbes are the build's two probes at the bore's crossing, on the
+// toothed and back sides of the channel's middle.
+func (m *sgModel) boreProbes(b sgBore) []r3.Vec {
+	sc := m.crossing(b)
+	th := m.theta(b.Gear, sc)
+	uDir := m.U[b.Gear].Scale(math.Cos(th)).Add(m.V[b.Gear].Scale(math.Sin(th)))
+	at := m.Origin[b.Gear].Add(m.Dir[b.Gear].Scale(sc))
+	off := m.W/2 + m.Clear/2
+	return []r3.Vec{at.Add(uDir.Scale(off)), at.Sub(uDir.Scale(off))}
 }
 
-// stepBoreCut is the cage after the twisted sweep cuts of bores 0..i. Each
-// sweep cut has the cage as its only participant; the proof's document holds
-// no ribbon, so the cut touches nothing else here, and that the ribbons are
-// left whole is Fusion's, measured on 2026-09-28. STAND-IN: each sweep is the
-// chain-of-lofts channel, and the cuts so far are one cut by their union.
-func stepBoreCut(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	m := newModel(p)
-	last := int(p["bore"])
-	tube := sgTube(t, doc, m)
-	tool := sgUnion(t, sgBoreTools(t, doc, m, last), "bore channels")
-	cage, err := decad.Cut(t.Context(), tube, tool)
-	if err != nil {
-		t.Fatalf("cut through %s: %v", m.bores()[last].name, err)
-	}
-	return []*decad.Body{cage}
+// inWall reports whether q is in the tube's material.
+func (m *sgModel) inWall(q r3.Vec) bool {
+	rel := q.Sub(m.Centre)
+	r := math.Hypot(rel.Dot(m.Ex), rel.Dot(m.Kx))
+	return r > m.Ri && r < m.Ro && math.Abs(rel.Dot(m.Nx)) < m.Rise
 }
 
-func assertBoreCut(t *testing.T, doc *decad.Document, bodies []*decad.Body, p map[string]float64) {
-	m := newModel(p)
-	last := int(p["bore"])
-	tube := math.Pi * (m.Ro*m.Ro - m.Ri*m.Ri) * 2 * m.cageRise
-	if v := sgMM3(t, sgVolume(t, bodies[0]).Value); !(v < tube) {
-		t.Fatalf("the cage after the cuts holds %.3f mm³, not less than the tube's %.3f", v, tube)
-	}
-	// [SCREW-F-SWEEP-CHECK]: the two probes at each crossing,
-	// origin_g + sc*dir_g ± (W/2 + clearance/2)*û(sc), sc = sigma*cageRadius,
-	// stand inside the wall (between Ri and Ro, within ±cageRise) and must be
-	// outside the cage, which here means inside the channel cut there.
-	for i, b := range m.bores() {
-		if i > last {
-			break
-		}
-		g := m.gears[b.gear]
-		sc := b.sigma * m.cageRadius
-		th := g.theta(sc)
-		uHat := g.u.Scale(math.Cos(th)).Add(g.v.Scale(math.Sin(th)))
-		for _, sgn := range []float64{1, -1} {
-			pt := g.origin.Add(g.dir.Scale(sc)).Add(uHat.Scale(sgn * (m.W/2 + m.clearance/2)))
-			rad := math.Hypot(pt.X, pt.Y)
-			if rad <= m.Ri || rad >= m.Ro || math.Abs(pt.Z) >= m.cageRise {
-				t.Fatalf("%s probe %+.0f at %v is not inside the wall (radius %.3f)", b.name, sgn, pt, rad)
+func assertCutBore(t *testing.T, doc *decad.Document, bodies []*decad.Body, p map[string]float64) {
+	m := sgModelOf(p)
+	b := m.bores()[int(p["bore"])]
+	channel := bodies[0]
+	// The profile starts and ends in air: every corner of the section at the
+	// span's two ends stands inside Ri (in the hollow) or outside Ro (outside
+	// the tube), never in the wall.
+	for _, st := range []float64{b.SpanLo, b.SpanHi} {
+		th := m.theta(b.Gear, st)
+		for _, c := range [][2]float64{{-m.Hw, b.VLo}, {m.Hw, b.VLo}, {m.Hw, b.VHi}, {-m.Hw, b.VHi}} {
+			_, y := sgTurn(c[0], c[1], th)
+			if r := math.Hypot(st, y); r >= m.Ri && r <= m.Ro {
+				t.Errorf("%s: a corner of the section at station %.3f mm stands %.3f mm from the frame's axis, in the wall", b.Name, st, r)
 			}
-			ch := sgBoreSections(m, b)
-			if !sgContains(t, func(d *decad.Document) *decad.Body { return sgChainSolid(t, d, ch, b.name+" probe channel") }, pt) {
-				t.Fatalf("%s: the probe %+.0f at %v, %.3f mm from the frame's axis, is not in the channel", b.name, sgn, pt, rad)
-			}
+		}
+	}
+	// The channel is the rectangle carried along the span, whose volume a
+	// rigid turn does not change. decad walls each lofted cell with two flat
+	// triangles, which fold inside the ruled wall by up to 0.32 mm on the long
+	// faces at the defaults' 5 degrees a cell (TestSleeveBoreSubstituteKeepsItsClearance
+	// logs it), so the stand-in reads 5.6% under the exact channel there and
+	// 3% at the 32 sections of a 0.05 mm clearance; 8% bounds both.
+	sgMeasureBelow(t, b.Name+" channel volume", channel, 2*m.Hw*(b.VHi-b.VLo)*(b.SpanHi-b.SpanLo), 0.08)
+	right := sgMeshOf(t, channel, 0.01)
+	wrongDoc := decad.New()
+	wrong := sgMeshOf(t, m.boreChannel(t, wrongDoc, b, -1), 0.01)
+	// A probe stands clearance/2 inside the channel's short wall. The
+	// stand-in's flat triangles fold inside that wall by up to 0.09 mm at the
+	// defaults, so the stand-in can be read at the probe only where the probe
+	// stands at least 0.1 mm inside; the exact channel is read at every case.
+	meshReadable := m.Clear/2 >= 0.1
+	for i, q := range m.boreProbes(b) {
+		name := fmt.Sprintf("%s probe %d", b.Name, i)
+		if !m.inWall(q) {
+			t.Errorf("%s stands outside the tube's wall, so the cut cannot be read there", name)
+		}
+		if !m.inChannel(b, q, +1) {
+			t.Errorf("%s is outside the exact channel under the right twist sense", name)
+		}
+		if m.inChannel(b, q, -1) {
+			t.Errorf("%s is inside the exact channel under the wrong twist sense, so the check cannot tell them apart", name)
+		}
+		if !meshReadable {
+			t.Logf("%s stands %.3f mm inside the short wall, under the stand-in's facet departure; read on the exact channel only", name, m.Clear/2)
+			continue
+		}
+		if !right.contains(q) {
+			t.Errorf("%s is outside the stand-in channel under the right twist sense", name)
+		}
+		if wrong.contains(q) {
+			t.Errorf("%s is inside the stand-in channel under the wrong twist sense", name)
 		}
 	}
 }
 
-// sgContains reports whether a 0.02 mm cube about pt lies inside the body mk
-// builds, by intersecting the two in a document of their own: an empty
-// intersection is outside, the whole cube is inside, and anything else means
-// the probe sits on the boundary, which fails. The cube is far smaller than the
-// probes' 0.1 mm clearance from every wall the spec places them by.
-func sgContains(t *testing.T, mk func(*decad.Document) *decad.Body, pt r3.Vec) bool {
-	t.Helper()
-	const h = 0.01
-	doc := decad.New()
-	body := mk(doc)
-	w := sketch.NewWorld()
-	f, err := r3.NewFrame(pt.Add(r3.NewVec(0, 0, -h)), r3.NewVec(1, 0, 0), r3.NewVec(0, 1, 0))
-	if err != nil {
-		t.Fatal(err)
-	}
-	pl, err := w.CreatePlaneFromFrame(f)
-	if err != nil {
-		t.Fatal(err)
-	}
-	s, err := w.CreateSketch(pl)
-	if err != nil {
-		t.Fatal(err)
-	}
-	c := [4]*sketch.Point{s.CreatePoint(-h, -h), s.CreatePoint(h, -h), s.CreatePoint(h, h), s.CreatePoint(-h, h)}
-	for i := range c {
-		s.CreateLine(c[i], c[(i+1)%4])
-	}
-	for _, p := range c {
-		s.Fix(p)
-	}
-	cube, err := doc.Extrude(s, decadtest.SolveRegion(t, s), decad.Distance{D: mm(2 * h), Dir: decad.Along})
-	if err != nil {
-		t.Fatal(err)
-	}
-	in, err := decad.Intersect(t.Context(), body, cube)
-	var be *decad.BooleanError
-	if errors.As(err, &be) && be.Code == decad.BooleanEmpty {
+// inChannel reports whether q lies in the bore's exact channel when the
+// sweep turns the profile by sense*(s - s0)/Lambda from its angle at s0.
+func (m *sgModel) inChannel(b sgBore, q r3.Vec, sense float64) bool {
+	x, y, s := m.local(b.Gear, q)
+	if s < b.SpanLo || s > b.SpanHi {
 		return false
 	}
-	if err != nil {
-		t.Fatalf("probe at %v: %v", pt, err)
-	}
-	v := sgMM3(t, sgVolume(t, in).Value)
-	if math.Abs(v-8*h*h*h) > 1e-3*8*h*h*h {
-		t.Fatalf("probe at %v straddles a face: %.3g of %.3g mm³ inside", pt, v, 8*h*h*h)
-	}
-	return true
+	th := m.theta(b.Gear, b.SpanLo) + sense*(s-b.SpanLo)/m.Lambda
+	u, v := sgTurn(x, y, -th)
+	return math.Abs(u) <= m.Hw && v >= b.VLo && v <= b.VHi
 }
 
-// ---------------------------------------------------------------------------
-// Window cuts (§4).
+// --- Window cut ----------------------------------------------------------------
 
 var windowCutCases = []proofkit3d.Case{
-	{Name: "after Window +k", Params: sgWith(map[string]float64{"window": 0})},
-	{Name: "after Window -k", Params: sgWith(map[string]float64{"window": 1})},
+	sgSolidCase("defaults, facing +k", sgWith(map[string]float64{"window": 0})),
+	sgSolidCase("defaults, facing -k", sgWith(map[string]float64{"window": 1})),
+	sgSolidCase("defaults, facing -k, plane the other way", sgWith(map[string]float64{"window": 1, "flipPlane": 1})),
+	sgSolidCase("third print, facing +k", sgThirdPrint(map[string]float64{"window": 0})),
+	sgSolidCase("110 degrees, facing +e", sgWith(map[string]float64{"window": 0, "crossAngle": 110})),
+	sgSolidCase("110 degrees, facing -e, plane the other way", sgWith(map[string]float64{"window": 1, "crossAngle": 110, "flipPlane": 1})),
 }
 
-// sgWindowPrism is one window's cut: the hexagon on the Window Plane pushed
-// out along d. STAND-IN for where it starts: Fusion extrudes from the Window
-// Plane itself, through the frame's axis, by Ro + 1 mm; on that plane the two
-// windows' hexagons overlap, and decad refuses a union of two prisms that
-// meet face to face there. The stand-in starts 1 mm out along d and runs to
-// the same far end, Ro + 1 mm. The wall begins at a0(t) = sqrt(Ri² - t²), more
-// than 1 mm out at every t of the hexagon (asserted), so it removes the same
-// wall; what it leaves is air in the hollow.
-func sgWindowPrism(t *testing.T, doc *decad.Document, m sgModel, win sgWindow) *decad.Body {
-	t.Helper()
-	const start = 1.0
-	q := win.corners(m.Ro)
-	for _, c := range q {
-		if math.Sqrt(math.Max(0, m.Ri*m.Ri-c[0]*c[0])) <= start {
-			t.Fatalf("%s: the wall reaches within %.1f mm of the plane at t = %.3f; the stand-in would miss it", win.name, start, c[0])
+// windowFrame is the Window Plane's frame: through C, holding n̂, square to
+// d. flip turns the frame's normal to -d, as Fusion's plane may face either
+// way.
+func (m *sgModel) windowFrame(t *testing.T, w sgWindow, flip bool) (r3.Frame, func(c [2]float64) [2]float64) {
+	if flip {
+		f, err := r3.NewFrame(m.Centre, m.Nx, w.Across)
+		if err != nil {
+			t.Fatal(err)
 		}
+		return f, func(c [2]float64) [2]float64 { return [2]float64{c[1], c[0]} }
+	}
+	f, err := r3.NewFrame(m.Centre, w.Across, m.Nx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return f, func(c [2]float64) [2]float64 { return c }
+}
+
+// stepCutWindow is a window's extrude cut of §4: the Window sketch's hexagon
+// extruded one way, Ro + 1 mm along d, cut from the cage alone. The direction
+// is the build's rule: positive when C + d maps to a positive sketch z.
+//
+// What stands in, and what it costs. decad refuses a second cut from the
+// curved tube (stepCutBore says why), so each case cuts its one window from
+// the tube alone, without the bores. The window search keeps every face of the
+// cut collarWall from every bore's channel, and the assertion holds that at
+// the probe, so the bores and the window do not meet and the cut is the same
+// with them. That both windows come out of one cage is Fusion's.
+func stepCutWindow(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
+	m := sgModelOf(p)
+	win := m.windows()[int(p["window"])]
+	if win.Corners == nil {
+		t.Fatalf("no window facing %s: %s", win.Facing, win.Reason)
 	}
 	w := sketch.NewWorld()
-	f, err := r3.NewFrame(win.d.Scale(start), win.across(), r3.NewVec(0, 0, 1))
-	if err != nil {
-		t.Fatal(err)
+	tube := sgTube(t, doc, w, m)
+	f, toSketch := m.windowFrame(t, win, p["flipPlane"] != 0)
+	var poly [][2]float64
+	for _, c := range win.Corners {
+		poly = append(poly, toSketch(c))
 	}
-	pl, err := w.CreatePlaneFromFrame(f)
-	if err != nil {
-		t.Fatal(err)
-	}
-	s, err := w.CreateSketch(pl)
-	if err != nil {
-		t.Fatal(err)
-	}
-	pts := make([]*sketch.Point, len(q))
-	for i, c := range q {
-		pts[i] = s.CreatePoint(c[0], c[1])
-	}
-	for i := range pts {
-		s.CreateLine(pts[i], pts[(i+1)%len(pts)])
-	}
-	for _, p := range pts {
-		s.Fix(p)
-	}
-	// The plane's normal is across × n̂ = d, so Along runs toward d: the
-	// build's PositiveExtentDirection when modelToSketchSpace(C + d).z > 0.
-	body, err := doc.Extrude(s, decadtest.SolveRegion(t, s), decad.Distance{D: mm(m.Ro + 1 - start), Dir: decad.Along})
-	if err != nil {
-		t.Fatalf("%s extrude: %v", win.name, err)
-	}
-	return body
-}
-
-// sgWindowProbe is §4's probe for a window: C + tc*across + zc*n̂ +
-// ((a0(tc) + a1(tc))/2)*d, (tc, zc) the average of the hexagon's corners.
-func sgWindowProbe(m sgModel, win sgWindow) r3.Vec {
-	q := win.corners(m.Ro)
-	var tc, zc float64
-	for _, c := range q {
-		tc += c[0]
-		zc += c[1]
-	}
-	tc /= float64(len(q))
-	zc /= float64(len(q))
-	a0 := math.Sqrt(math.Max(0, m.Ri*m.Ri-tc*tc))
-	a1 := math.Sqrt(math.Max(0, m.Ro*m.Ro-tc*tc))
-	return win.across().Scale(tc).Add(r3.NewVec(0, 0, zc)).Add(win.d.Scale((a0 + a1) / 2))
-}
-
-// stepWindowCut is the cage after the bores and the windows up to this one,
-// each an extrude cut of the window's hexagon from the Window Plane toward d
-// by Ro + 1 mm with the cage as the only participant. STAND-IN: one cut of
-// the tube by the union of the bore channels and the window prisms so far.
-func stepWindowCut(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	m := newModel(p)
-	last := int(p["window"])
-	tube := sgTube(t, doc, m)
-	tools := sgBoreTools(t, doc, m, 3)
-	for i, win := range sgDefaultWindows() {
-		if i > last {
-			break
+	if p["flipPlane"] != 0 {
+		// Swapping the axes reverses the walk; keep it counter-clockwise.
+		for i, j := 0, len(poly)-1; i < j; i, j = i+1, j-1 {
+			poly[i], poly[j] = poly[j], poly[i]
 		}
-		tools = append(tools, sgWindowPrism(t, doc, m, win))
 	}
-	cage, err := decad.Cut(t.Context(), tube, sgUnion(t, tools, "bore channels and windows"))
+	sk, profile := sgPolygonSketch(t, w, f, poly)
+	dir := decad.Against
+	if f.ToLocal(m.Centre.Add(win.D)).Z > 0 {
+		dir = decad.Along
+	}
+	tool, err := doc.Extrude(sk, profile, decad.Distance{D: units.Millimeters(m.Ro + 1), Dir: dir})
 	if err != nil {
-		t.Fatalf("cut through %s: %v", sgDefaultWindows()[last].name, err)
+		t.Fatalf("window tool: %v", err)
+	}
+	cage, err := decad.Cut(t.Context(), tube, tool)
+	if err != nil {
+		t.Fatalf("cut the window facing %s: %v", win.Facing, err)
 	}
 	return []*decad.Body{cage}
 }
 
-func assertWindowCut(t *testing.T, doc *decad.Document, bodies []*decad.Body, p map[string]float64) {
-	m := newModel(p)
-	last := int(p["window"])
-	for i, win := range sgDefaultWindows() {
-		if i > last {
-			break
-		}
-		pt := sgWindowProbe(m, win)
-		// Before the cut the probe is in the middle of the wall: in the tube
-		// (between Ri and Ro, within ±cageRise) and in no bore's channel.
-		rad := math.Hypot(pt.X, pt.Y)
-		if rad <= m.Ri || rad >= m.Ro || math.Abs(pt.Z) >= m.cageRise {
-			t.Fatalf("%s probe at %v is not in the tube (radius %.3f)", win.name, pt, rad)
-		}
-		for _, b := range m.bores() {
-			ch := sgBoreSections(m, b)
-			if sgContains(t, func(d *decad.Document) *decad.Body { return sgChainSolid(t, d, ch, b.name+" probe channel") }, pt) {
-				t.Fatalf("%s probe at %v is in %s's channel before the cut", win.name, pt, b.name)
+// windowVolume is the wall the window takes away: over the hexagon on the
+// plane, the wall's depth along d from a0(t) to a1(t).
+func (m *sgModel) windowVolume(w sgWindow) float64 {
+	tLo, tHi := math.Inf(1), math.Inf(-1)
+	for _, c := range w.Corners {
+		tLo, tHi = math.Min(tLo, c[0]), math.Max(tHi, c[0])
+	}
+	const n = 200000
+	total := 0.0
+	dt := (tHi - tLo) / n
+	for i := 0; i < n; i++ {
+		tt := tLo + (float64(i)+0.5)*dt
+		zLo, zHi := math.Inf(1), math.Inf(-1)
+		for j := range w.Corners {
+			a, b := w.Corners[j], w.Corners[(j+1)%len(w.Corners)]
+			if (a[0]-tt)*(b[0]-tt) > 0 || a[0] == b[0] {
+				continue
 			}
+			z := a[1] + (b[1]-a[1])*(tt-a[0])/(b[0]-a[0])
+			zLo, zHi = math.Min(zLo, z), math.Max(zHi, z)
 		}
-		// After the cut it is outside the cage: inside the window's cut.
-		if !sgContains(t, func(d *decad.Document) *decad.Body { return sgWindowPrism(t, d, m, win) }, pt) {
-			t.Fatalf("%s probe at %v is not in the window's cut", win.name, pt)
+		if zHi <= zLo {
+			continue
+		}
+		depth := math.Sqrt(m.Ro*m.Ro-tt*tt) - math.Sqrt(math.Max(0, m.Ri*m.Ri-tt*tt))
+		total += (zHi - zLo) * depth * dt
+	}
+	return total
+}
+
+func assertCutWindow(t *testing.T, doc *decad.Document, bodies []*decad.Body, p map[string]float64) {
+	m := sgModelOf(p)
+	win := m.windows()[int(p["window"])]
+	probe := m.windowProbe(win)
+	// Before the cut the probe is in the wall, where the window goes...
+	if !m.inWall(probe) {
+		t.Errorf("the window probe stands outside the tube's wall before the cut")
+	}
+	// ...and keeps collarWall from every bore's channel.
+	for _, b := range m.bores() {
+		if gap := m.wallGap(m.stationTable(b), probe, m.CollarWall); gap < m.CollarWall {
+			t.Errorf("the window probe stands %.3f mm from %s's channel, under collarWall", gap, b.Name)
 		}
 	}
-	if last == 1 {
-		// TestSleeveIsOnePiece's flood fill reads 16,561 mm³ at the defaults on
-		// a 0.25 mm grid, a count of cells and not an exact volume. The
-		// stand-in's channels stand inside the swept ones by up to the triangle
-		// pair's |T|/4 (file comment), so it removes a little less than Fusion's
-		// sweeps do: 16,647 mm³ at the pinned revision, 0.5% over. 1% holds the
-		// sleeve to the spec's number without pretending to the grid's precision.
-		t.Logf("Cage: %.1f mm³ against the flood fill's 16,561", sgMM3(t, sgVolume(t, bodies[0]).Value))
-		sgMeasuresVolume(t, "Cage", bodies[0], 16561, 0.01*16561)
+	// After it the probe is outside the cage: the cut went the right way.
+	if sgMeshOf(t, bodies[0], 0.01).contains(probe) {
+		t.Errorf("the window probe is still inside the cage after the cut facing %s", win.Facing)
 	}
+	// The cage is the tube less the wall over the hexagon. The integral is a
+	// midpoint sum over 200000 slices of a smooth integrand, good to well
+	// under 1e-6 of it; decad's reading carries the facet bound of the cut.
+	tube := math.Pi * (m.Ro*m.Ro - m.Ri*m.Ri) * 2 * m.Rise
+	sgMeasureVolume(t, "cage volume after the window facing "+win.Facing, bodies[0], tube-m.windowVolume(win), 1e-6)
 }

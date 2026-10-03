@@ -1,26 +1,10 @@
 package screwgear_test
 
-// The sketch steps of spec/screwgear/steps.md, each proved in the sketch
-// engine through proofkit.Run, which gates the result on the engine's own
-// verification report: DOF 0, no conflicting or redundant constraint, valid
-// profiles, a well-conditioned system and no discrete ambiguity.
-//
-// Fusion → engine mapping, as [PB-SKETCH-FIRST] gives it. A reference point
-// the build adds with sketchPoints.add and pins with isFixed is a point the
-// engine grounds with Fix; the one projected point, the Anchor sketch's centre,
-// is a reference point (CreateReferencePoint), since a projection is locked to
-// its source. A Fusion dimension is a magnitude whose side the seed decides
-// ([PB-DIM-VALUE-SEMANTICS]); the engine's signed dimensions carry that side
-// in their sign, so where the build seeds a point on one side the proof writes
-// the signed value of that side.
-//
-// Every sketch is drawn in its own plane's coordinates. Fusion picks a
-// sketch's x and y axes itself and the build maps world points in with
-// modelToSketchSpace; the proof draws the same points in a frame of its own
-// choosing on the same plane, named at each step. Nothing a step constrains
-// depends on which in-plane frame it is drawn in, except a signed angle,
-// which the build does not write: its angular dimension is unsigned and its
-// text point picks the wedge ([PB-ANGULAR-DIM]).
+// The sketch steps of the compiled step list. Each build draws one Fusion
+// sketch's scheme into the harness's sketch, which stands on the world XY
+// datum; the build maps the scheme's own plane coordinates onto it, so the
+// constraint verdict is the scheme's and the world placement is the model's
+// (compiled_model_test.go), asserted separately where a step pins it.
 
 import (
 	"fmt"
@@ -32,501 +16,560 @@ import (
 	"github.com/lestrrat-3d/sketch/sketchtest"
 )
 
-// ---------------------------------------------------------------------------
-// Anchor sketch (§1).
-
-// anchorCases puts the projected centre at the sketch origin and away from it
-// on both sides, since the line is seeded from wherever the projection lands.
-var anchorCases = []proofkit.Case{
-	{Name: "centre at origin", Params: sgWith(map[string]float64{"cx": 0, "cy": 0})},
-	{Name: "centre off origin", Params: sgWith(map[string]float64{"cx": 37.5, "cy": -12.25})},
-	{Name: "centre negative", Params: sgWith(map[string]float64{"cx": -140, "cy": 63})},
+// sgCase is a named parameter case.
+func sgCase(name string, p map[string]float64) proofkit.Case {
+	return proofkit.Case{Name: name, Params: p}
 }
 
-// stepAnchorSketch is the Anchor sketch: the projected centre, and the Anchor
-// Line through it, held by midpoint, horizontal and a horizontal start-to-end
-// distance of 10 mm.
-//
-// The build writes addCoincident and addMidPoint together, as the bevel gear
-// does; the engine's midpoint already carries the point-on-line row, so the
-// proof writes the midpoint alone, as proof/bevelgear does. A Fusion
-// horizontal distance from start to end is a magnitude whose side is the
-// seed's (end to the right of start); the engine's horizontal distance is
-// signed, +10 for that side, and a negative value would be the mirrored line
-// the aligned-length form could not tell apart.
-func stepAnchorSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
-	cx, cy := p["cx"], p["cy"]
-	proofkit.Step(t, "projected centre at (%.3f, %.3f)", cx, cy)
-	centre := s.CreateReferencePoint(cx, cy, "selected point")
-	proofkit.Step(t, "Anchor Line from seeds 5 mm either side along x")
-	start := s.CreatePoint(cx-5, cy)
-	end := s.CreatePoint(cx+5, cy)
-	line := s.CreateLine(start, end)
-	mid := sketch.NewMidpoint(centre, line)
-	hor := sketch.NewHorizontal(line)
-	dist := sketch.NewHorizontalDistance(start, end, 10)
-	s.AddConstraint(mid, hor, dist)
+// --- Anchor sketch -----------------------------------------------------------
 
+var anchorCases = []proofkit.Case{
+	sgCase("defaults", sgDefaults()),
+	sgCase("centre at the origin", sgWith(map[string]float64{"centreX": 0, "centreY": 0})),
+	sgCase("centre far off", sgWith(map[string]float64{"centreX": -120.5, "centreY": 87.25})),
+}
+
+// stepAnchorSketch is the Anchor sketch of §1: the selected point projected
+// in, and a 10 mm Anchor Line bisected by it, horizontal, with a horizontal
+// distance from its start to its end.
+//
+// The projection is a reference point, which the engine never moves, as
+// Fusion's projected point is driven by its source. Fusion's coincident and
+// midpoint are both written in the step list; the engine's midpoint carries
+// the coincident row itself, so the proof writes the midpoint alone. The
+// horizontal distance is signed here, as the engine's is; in Fusion its sign
+// is the seed's side, start left of end.
+func stepAnchorSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
+	m := sgModelOf(p)
+	proofkit.Step(t, "project the selected point")
+	centre := s.CreateReferencePoint(m.Centre.X, m.Centre.Y, "selected point")
+	proofkit.Step(t, "draw the Anchor Line from seeds 5 mm either side")
+	start := s.CreatePoint(m.Centre.X-5, m.Centre.Y)
+	end := s.CreatePoint(m.Centre.X+5, m.Centre.Y)
+	line := s.CreateLine(start, end)
+	proofkit.Step(t, "midpoint, horizontal, horizontal distance")
+	s.AddConstraint(
+		sketch.NewMidpoint(centre, line),
+		sketch.NewHorizontal(line),
+		sketch.NewHorizontalDistance(start, end, 10),
+	)
 	sketchtest.Solve(t, s)
+	// The seeds are the solved positions, so nothing moves: the readings below
+	// are exact up to the solver's tolerance.
+	sketchtest.MeasuresPoint(t, start, m.Centre.X-5, m.Centre.Y, sketchtest.Within(1e-9))
+	sketchtest.MeasuresPoint(t, end, m.Centre.X+5, m.Centre.Y, sketchtest.Within(1e-9))
+	// ê runs from the line's start to its end: +X, the frame's ê.
+	sketchtest.Measures(t, "ê along X", (end.X()-start.X())/line.Length(), 1, sketchtest.Within(1e-12))
+	sketchtest.Measures(t, "ê across Y", (end.Y()-start.Y())/line.Length(), 0, sketchtest.Within(1e-12))
 	for _, c := range s.Constraints() {
 		sketchtest.Satisfies(t, c, sketchtest.Within(1e-9))
 	}
-	// The frame the build reads from this sketch: C is the centre, ê runs from
-	// the line's start to its end. Both are exact here, the seeds being the
-	// solved positions ([PB-SEED-NEAR]); the 1e-9 mm is the solver's tolerance.
-	sketchtest.MeasuresPoint(t, start, cx-5, cy, sketchtest.Within(1e-9))
-	sketchtest.MeasuresPoint(t, end, cx+5, cy, sketchtest.Within(1e-9))
-	sketchtest.Measures(t, "Anchor Line length", line.Length(), 10, sketchtest.Within(1e-9))
 }
 
-// ---------------------------------------------------------------------------
-// Gear Paths sketch (§1).
+// --- Paths sketch ------------------------------------------------------------
 
-// pathsCases covers both gears, whose axes turn opposite ways about n̂, the
-// ends of the crossing angle's open range, the roof allowance at zero, and a
-// cage radius just past the least the "channel starts in the hollow" check
-// accepts, where sIn is barely positive.
-var pathsCases = func() []proofkit.Case {
-	var out []proofkit.Case
-	for _, g := range []float64{0, 1} {
-		name := map[float64]string{0: "Gear A", 1: "Gear B"}[g]
-		out = append(out,
-			proofkit.Case{Name: name + " defaults", Params: sgWith(map[string]float64{"gear": g})},
-			proofkit.Case{Name: name + " crossing 5 deg", Params: sgWith(map[string]float64{"gear": g, "crossAngle": 5})},
-			proofkit.Case{Name: name + " crossing 175 deg", Params: sgWith(map[string]float64{"gear": g, "crossAngle": 175})},
-			proofkit.Case{Name: name + " no roof allowance", Params: sgWith(map[string]float64{"gear": g, "roofAllowance": 0})},
-			// hypot(c, 1 mm) < Ri is the check; c = 8.058 at the defaults, so a
-			// cage radius of 3 + hypot(8.058, 1) + 0.05 puts sIn at about 0.05 mm.
-			proofkit.Case{Name: name + " sIn barely positive", Params: sgWith(map[string]float64{
-				"gear": g, "cageRadius": 3 + math.Hypot(math.Hypot(7.7, 2.375), 1) + 0.05})},
-		)
-	}
-	return out
-}()
+var pathsCases = []proofkit.Case{
+	sgCase("gear A defaults", sgWith(map[string]float64{"gear": 0})),
+	sgCase("gear B defaults", sgWith(map[string]float64{"gear": 1})),
+	sgCase("gear A at 110 degrees", sgWith(map[string]float64{"gear": 0, "crossAngle": 110})),
+	sgCase("gear B thick wall", sgWith(map[string]float64{"gear": 1, "collarHalf": 3.25, "cageRadius": 17})),
+	sgCase("gear A no roof allowance", sgWith(map[string]float64{"gear": 0, "roofAllowance": 0})),
+}
 
-// stepPathsSketch is a gear's Paths sketch on its Axis Plane: four reference
-// points on the gear's axis at stations -sOut, -sIn, sIn and sOut, and two
-// solid lines, bore- from -sOut to -sIn and bore+ from sIn to sOut, each
-// sharing its two points, then every point fixed.
+// The Axis Planes (S06, S07) are not built: the harness hands each sketch
+// step a sketch on the world XY datum, and a plane offset from the selected
+// one carries nothing the engine can check but its offset, which this step
+// checks as each point's height, and the sign of Fusion's normal, which is
+// Fusion's and is checked at build time ([SCREW-F-NORMAL-SIGN]).
 //
-// The proof draws the Axis Plane in coordinates x along ê and y along k̂,
-// with the gear's axis point origin_g at the sketch origin; the plane holds
-// the gear's axis, which runs at +Sigma/2 (gear A) or -Sigma/2 (gear B)
-// from ê.
+// stepPathsSketch is a gear's Paths sketch of §1 on its Axis Plane: four
+// points on the gear's axis at -sOut, -sIn, sIn and sOut, the bore- and bore+
+// lines between them, each from its negative station to its positive one, and
+// then all four points fixed. The Axis Plane is parallel to the selected
+// plane, so a point's plane coordinates are its world X and Y; its world Z,
+// the plane's offset, is asserted to be the plane's.
 func stepPathsSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
-	m := newModel(p)
-	g := m.gears[int(p["gear"])]
-	if !(m.sIn > 0) {
-		t.Fatalf("%s: sIn = %.4f mm; the channel-starts-in-the-hollow check refuses this input", g.label, m.sIn)
+	m := sgModelOf(p)
+	g := int(p["gear"])
+	stations := []float64{-m.SOut, -m.SIn, m.SIn, m.SOut}
+	if sgIsDefaults(p) {
+		// The defaults' stations: 7.892 mm and 19 mm ("The cage").
+		sketchtest.Measures(t, "sIn", m.SIn, 7.892, sketchtest.Within(0.0005))
+		sketchtest.Measures(t, "sOut", m.SOut, 19, sketchtest.Within(1e-12))
 	}
-	ex, ey := g.dir.X, g.dir.Y
-	stations := [4]float64{-m.sOut, -m.sIn, m.sIn, m.sOut}
-	var pts [4]*sketch.Point
-	proofkit.Step(t, "%s Paths: reference points at stations %v", g.label, stations)
-	for i, st := range stations {
-		pts[i] = s.CreatePoint(st*ex, st*ey)
+	if !(m.SIn > 0 && m.SIn < m.SOut) {
+		t.Fatalf("sIn %.4f mm must lie in (0, sOut %.4f mm)", m.SIn, m.SOut)
 	}
-	boreMinus := s.CreateLine(pts[0], pts[1])
-	borePlus := s.CreateLine(pts[2], pts[3])
-	for _, pt := range pts {
-		s.Fix(pt)
+	proofkit.Step(t, "reference points on the gear's axis")
+	var pts []*sketch.Point
+	for _, st := range stations {
+		w := m.Origin[g].Add(m.Dir[g].Scale(st))
+		sketchtest.Measures(t, "point on the Axis Plane", w.Sub(m.Centre).Dot(m.Nx), m.Origin[g].Sub(m.Centre).Dot(m.Nx), sketchtest.Within(1e-12))
+		pts = append(pts, s.CreatePoint(w.X, w.Y))
 	}
-
+	proofkit.Step(t, "bore- and bore+ lines")
+	lines := []*sketch.Line{s.CreateLine(pts[0], pts[1]), s.CreateLine(pts[2], pts[3])}
+	proofkit.Step(t, "fix the four points after the last line")
+	for _, q := range pts {
+		s.Fix(q)
+	}
 	sketchtest.Solve(t, s)
-	for i, st := range stations {
-		sketchtest.MeasuresPoint(t, pts[i], st*ex, st*ey, sketchtest.Within(1e-9))
+	for i, l := range lines {
+		name := []string{"bore-", "bore+"}[i]
+		sketchtest.Measures(t, name+" length", l.Length(), m.SOut-m.SIn, sketchtest.Within(1e-9))
+		// Each line runs along +dir_g: its start is its negative end.
+		dx, dy := l.End.X()-l.Start.X(), l.End.Y()-l.Start.Y()
+		sketchtest.Measures(t, name+" along dir", (dx*m.Dir[g].X+dy*m.Dir[g].Y)/l.Length(), 1, sketchtest.Within(1e-12))
 	}
-	// Each line runs from its negative station to its positive one, along
-	// +dir_g, so a plane at fraction 0 stands at its negative end.
-	for _, l := range []*sketch.Line{boreMinus, borePlus} {
-		sketchtest.Measures(t, g.label+" bore line length", l.Length(), m.sOut-m.sIn, sketchtest.WithinRel(1e-12))
-	}
-	if got := (borePlus.Start.Geometry().X)*ex + (borePlus.Start.Geometry().Y)*ey; math.Abs(got-m.sIn) > 1e-9 {
-		t.Fatalf("%s bore+ starts at station %.6f, want sIn %.6f", g.label, got, m.sIn)
-	}
-	if got := (boreMinus.Start.Geometry().X)*ex + (boreMinus.Start.Geometry().Y)*ey; math.Abs(got+m.sOut) > 1e-9 {
-		t.Fatalf("%s bore- starts at station %.6f, want -sOut %.6f", g.label, got, -m.sOut)
-	}
+	// The two lines leave the hollow's middle open between them, 2*sIn long.
+	sketchtest.Measures(t, "gap between the lines", pts[1].DistanceTo(pts[2]), 2*m.SIn, sketchtest.Within(1e-9))
 }
 
-// ---------------------------------------------------------------------------
-// Cell Sections sketch (§2), and the Remainder sections (§3).
+// --- Cell Sections sketch ----------------------------------------------------
+
+var cellSectionCases = []proofkit.Case{
+	sgCase("gear A first section", sgWith(map[string]float64{"gear": 0, "section": 0})),
+	sgCase("gear A middle section", sgWith(map[string]float64{"gear": 0, "section": 17})),
+	sgCase("gear A last section", sgWith(map[string]float64{"gear": 0, "section": 40})),
+	sgCase("gear B first section", sgWith(map[string]float64{"gear": 1, "section": 0})),
+	sgCase("gear B last section", sgWith(map[string]float64{"gear": 1, "section": 40})),
+	sgCase("negative slant", sgWith(map[string]float64{"gear": 0, "section": 5, "toothSlant": -25.8})),
+	sgCase("straight ridge", sgThirdPrint(map[string]float64{"gear": 1, "section": 7})),
+	sgCase("steep slant, no bow", sgWith(map[string]float64{"gear": 0, "section": 3, "toothSlant": 60, "toothBow": 0})),
+	sgCase("slow twist, floor of eight", sgWith(map[string]float64{"gear": 0, "section": 31, "twistLead": 400})),
+	sgCase("fast twist", sgWith(map[string]float64{"gear": 1, "section": 50, "twistLead": 20})),
+}
+
+// stepCellSectionsSketch stands in for one section of a gear's Cell Sections
+// sketch (§2).
 //
-// STAND-IN. Fusion's Cell Sections sketch is ONE sketch on the gear's Axis
-// Plane whose fixed points keep the z modelToSketchSpace gives them, so its
-// sections stand off the plane at their own stations. The sketch engine is
-// planar and cannot hold a point off its plane. The stand-in is one planar
-// sketch per section, on that station's own plane (x along û_g, y along v̂_g,
-// normal +dir_g), holding the section's four corners as fixed points and the
-// four lines L1..L4 sharing them. It pins every section's numbers and that
-// each closes one valid profile; it cannot see Fusion's verdict on the one 3D
-// sketch — fully constrained, one profile per section, measured on 2026-09-28
-// at 11, 41 and 81 sections — which is the step's [PROSE] part.
-
-// cellSectionCases runs every section of the cell at each parameter set: the
-// defaults on both gears; the slowest twist the floor of eight governs
-// (400 mm lead, n = 8) and a fast one (20 mm, n = 24); a negative mounting
-// angle; gear B at both ends of the assembly phase's open range; the thinnest
-// cell (four teeth, one cell, no rounds); a tooth as tall as the check
-// allows, just under W/2; and a narrow, thick ribbon.
-var cellSectionCases = func() []proofkit.Case {
-	sets := []struct {
-		name string
-		over map[string]float64
-	}{
-		{"Gear A defaults", map[string]float64{"gear": 0}},
-		{"Gear B defaults", map[string]float64{"gear": 1}},
-		{"Gear A lead 400", map[string]float64{"gear": 0, "twistLead": 400}},
-		{"Gear A lead 20", map[string]float64{"gear": 0, "twistLead": 20}},
-		{"Gear A mount -25", map[string]float64{"gear": 0, "mountAngleA": -25}},
-		{"Gear B phase +2.6", map[string]float64{"gear": 1, "assemblyPhase": 2.6}},
-		{"Gear B phase -2.6", map[string]float64{"gear": 1, "assemblyPhase": -2.6}},
-		{"Gear A four teeth", map[string]float64{"gear": 0, "toothCount": 4}},
-		{"Gear B tooth 7.4", map[string]float64{"gear": 1, "toothHeight": 7.4}},
-		{"Gear A narrow thick", map[string]float64{"gear": 0, "ribbonWidth": 10, "ribbonThickness": 5}},
+// What is substituted, and what it costs. Fusion draws every section of the
+// cell in one sketch on the Axis Plane, its points kept off the plane; the
+// engine is planar, so each case draws one section k on that section's own
+// plane, in the plane's coordinates x along û_g and y along v̂_g, turned to
+// the station's angle. The section's M + 2 points are added and fixed after
+// the last curve, the three lines L1, L3 and L4 share them, and the toothed
+// side is the engine's fit spline through F_0 … F_(M-1): a natural cubic that
+// interpolates every fit point, as Fusion's fitted spline does. Fusion's end
+// conditions are not stated in its reference, so where between the points
+// its spline runs is not this proof's to say (the step list's [PROSE] part,
+// and TestToothSplineHoldsTheEdge for the natural cubic). Fusion's verdict on
+// the one sketch of all the sections is Fusion's: a sketch of 41 rectangle
+// sections read fully constrained with one profile each on 2026-09-28, and
+// the sketch of spline sections has not been loaded.
+func stepCellSectionsSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
+	m := sgModelOf(p)
+	g := int(p["gear"])
+	k := int(p["section"])
+	if k < 0 || k > m.Cell*m.Steps {
+		t.Fatalf("section %d is outside the cell's %d sections", k, m.Cell*m.Steps+1)
 	}
-	var out []proofkit.Case
-	for _, set := range sets {
-		m := newModel(sgWith(set.over))
-		for k := 0; k <= m.c*m.n; k++ {
-			over := map[string]float64{"section": float64(k)}
-			for key, v := range set.over {
-				over[key] = v
-			}
-			out = append(out, proofkit.Case{Name: fmt.Sprintf("%s section %d of %d", set.name, k, m.c*m.n+1), Params: sgWith(over)})
-		}
+	if sgIsDefaults(p) {
+		// 10 steps a tooth and 41 sections in a four-tooth cell at the defaults.
+		sketchtest.Measures(t, "sections in the cell", float64(m.Cell*m.Steps+1), 41, sketchtest.Within(0))
 	}
-	return out
-}()
-
-// stepCellSectionSketch draws section k of the gear's tooth cell: stations
-// s_k = s0 + k*P/n from s0 = Z0 - L/2, the rectangle u from -W/2 to
-// Utooth(s_k), v from -T/2 to T/2, turned by theta_k = s_k/Lambda + Phi.
-func stepCellSectionSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
-	m := newModel(p)
-	g := m.gears[int(p["gear"])]
-	drawSection(t, s, m, g, m.cellStart(g), int(p["section"]))
+	st := m.station(g, k)
+	drawCellSection(t, s, m, g, st)
 }
 
-// remainderSectionCases covers each remainder a four-tooth cell leaves, one,
-// two and three teeth, on both gears, and gear B at a shifted phase.
-var remainderSectionCases = func() []proofkit.Case {
-	sets := []struct {
-		name string
-		over map[string]float64
-	}{
-		{"Gear A 69 teeth", map[string]float64{"gear": 0, "toothCount": 69}},
-		{"Gear B 69 teeth", map[string]float64{"gear": 1, "toothCount": 69}},
-		{"Gear A 6 teeth", map[string]float64{"gear": 0, "toothCount": 6}},
-		{"Gear B 7 teeth phase 2.6", map[string]float64{"gear": 1, "toothCount": 7, "assemblyPhase": 2.6}},
+// drawCellSection draws section at station st and checks it.
+func drawCellSection(t testing.TB, s *sketch.Sketch, m *sgModel, g int, st float64) {
+	poly := m.sectionPolygon(g, st)
+	proofkit.Step(t, "the section's %d points", len(poly))
+	var pts []*sketch.Point
+	for _, q := range poly {
+		pts = append(pts, s.CreatePoint(q[0], q[1]))
 	}
-	var out []proofkit.Case
-	for _, set := range sets {
-		m := newModel(sgWith(set.over))
-		for k := 0; k <= m.r*m.n; k++ {
-			over := map[string]float64{"section": float64(k)}
-			for key, v := range set.over {
-				over[key] = v
-			}
-			out = append(out, proofkit.Case{Name: fmt.Sprintf("%s remainder section %d of %d", set.name, k, m.r*m.n+1), Params: sgWith(over)})
-		}
+	b0, f, b1 := pts[0], pts[1:len(pts)-1], pts[len(pts)-1]
+	if len(f) != sgSplinePoints {
+		t.Fatalf("%d toothed points, want %d", len(f), sgSplinePoints)
 	}
-	return out
-}()
-
-// stepRemainderSectionSketch draws section k of the remainder cell: the
-// recipe of the Cell Sections sketch with c replaced by r = N mod c, at
-// stations from s0 + q*c*P to s0 + N*P.
-func stepRemainderSectionSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
-	m := newModel(p)
-	g := m.gears[int(p["gear"])]
-	if m.r == 0 {
-		t.Fatalf("%d teeth leave no remainder in %d-tooth cells", m.N, m.c)
+	proofkit.Step(t, "L1, S, L3, L4")
+	s.CreateLine(b0, f[0])
+	spline, err := s.CreateFitSpline(f...)
+	if err != nil {
+		t.Fatalf("fitted spline: %v", err)
 	}
-	drawSection(t, s, m, g, m.cellStart(g)+float64(m.q*m.c)*m.P, int(p["section"]))
-}
-
-func drawSection(t testing.TB, s *sketch.Sketch, m sgModel, g sgGear, from float64, k int) {
-	st, xy := m.cellCorners(g, from, k)
-	proofkit.Step(t, "%s section %d at station %.4f, theta %.4f rad", g.label, k, st, g.theta(st))
-	var pts [4]*sketch.Point
-	for i, c := range xy {
-		pts[i] = s.CreatePoint(c[0], c[1])
+	if len(spline.Fit) != sgSplinePoints || spline.Fit[0] != f[0] || spline.Fit[sgSplinePoints-1] != f[sgSplinePoints-1] {
+		t.Fatalf("the spline holds %d fit points, not the %d toothed points from F_0 to F_(M-1)", len(spline.Fit), sgSplinePoints)
 	}
-	for i := range 4 {
-		s.CreateLine(pts[i], pts[(i+1)%4]) // L1..L4, sharing the corners
+	s.CreateLine(f[sgSplinePoints-1], b1)
+	s.CreateLine(b1, b0)
+	proofkit.Step(t, "fix every point after the last curve")
+	for _, q := range pts {
+		s.Fix(q)
 	}
-	for _, pt := range pts {
-		s.Fix(pt) // after the last line, as the build sets isFixed
-	}
-	sketchtest.Solve(t, s)
 	report := sketchtest.Verify(t, s)
-	prof := sketchtest.SingleProfile(t, report)
-	sketchtest.IsValidProfile(t, prof)
-	// The rectangle is (Utooth(s_k) + W/2) by T; the shoelace area of four
-	// exact corners carries only rounding, 1e-12 relative.
-	want := (g.toothed(st) + m.W/2) * m.T
-	sketchtest.MeasuresProfileArea(t, prof, want, sketchtest.WithinRel(1e-9))
-	// The toothed edge is a pure cosine: crest W/2, root W/2 - H.
-	if u := g.toothed(st); u > m.W/2+1e-12 || u < m.W/2-m.H-1e-12 {
-		t.Fatalf("Utooth(%.4f) = %.6f outside [W/2 - H, W/2]", st, u)
+	profile := sketchtest.SingleProfile(t, report)
+	sketchtest.IsValidProfile(t, profile)
+	// The section's area is the edge's integral across the thickness, which
+	// the twist does not change. The fit spline departs from the cosine edge
+	// by under 0.02 mm along u (TestToothSplineHoldsTheEdge), which over the
+	// 3.75 mm thickness moves the area by under 0.08 mm² at the defaults; the
+	// slack is that departure times the thickness, scaled with the tooth.
+	want := 0.0
+	const n = 4000
+	for i := 0; i < n; i++ {
+		v := -m.T/2 + (float64(i)+0.5)*m.T/n
+		want += (m.utooth(g, v, st, 1) + m.W/2) * m.T / n
+	}
+	sketchtest.MeasuresProfileArea(t, profile, want, sketchtest.Within(0.02*m.T*m.H/2.625+1e-6))
+	// The cell is one pitch-periodic piece of the ribbon: the section a pitch
+	// further on is this one carried by Step(1), its toothed points included,
+	// which is what lets §3 repeat the cell (TestRibbonIsInvariantUnderItsScrewStep).
+	next := m.sectionPolygon(g, st+m.P)
+	turn := m.P / m.Lambda
+	for i, q := range poly {
+		x, y := sgTurn(q[0], q[1], turn)
+		sketchtest.Measures(t, fmt.Sprintf("point %d one pitch on, x", i), next[i][0], x, sketchtest.Within(1e-9))
+		sketchtest.Measures(t, fmt.Sprintf("point %d one pitch on, y", i), next[i][1], y, sketchtest.Within(1e-9))
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Sleeve sketch (§4).
+// --- Remainder Sections sketch -----------------------------------------------
 
-// sleeveSketchCases covers the defaults, a thin wall and a thick one, and a
-// centre away from the sketch origin.
+var remainderSectionCases = []proofkit.Case{
+	sgCase("one tooth over, first section", sgWith(map[string]float64{"gear": 0, "toothCount": 69, "section": 0})),
+	sgCase("two teeth over, last section", sgWith(map[string]float64{"gear": 1, "toothCount": 70, "section": 20})),
+	sgCase("three teeth over, middle", sgWith(map[string]float64{"gear": 0, "toothCount": 71, "section": 13})),
+}
+
+// stepRemainderSectionsSketch stands in for one section of a gear's Cell
+// Remainder sketch (§3): the recipe of the Cell Sections sketch with c
+// replaced by r, at stations s0 + q*c*P + k*P/n. The substitution is the Cell
+// Sections sketch's.
+func stepRemainderSectionsSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
+	m := sgModelOf(p)
+	g := int(p["gear"])
+	k := int(p["section"])
+	if m.Remains == 0 {
+		t.Fatalf("toothCount %d leaves no remainder in %d-tooth cells", m.N, m.Cell)
+	}
+	if k < 0 || k > m.Remains*m.Steps {
+		t.Fatalf("section %d is outside the remainder's %d sections", k, m.Remains*m.Steps+1)
+	}
+	first := m.cellStart(g) + float64(m.Whole*m.Cell)*m.P
+	drawCellSection(t, s, m, g, first+float64(k)*m.P/float64(m.Steps))
+}
+
+// --- Sleeve sketch -----------------------------------------------------------
+
 var sleeveSketchCases = []proofkit.Case{
-	{Name: "defaults", Params: sgWith(map[string]float64{"cx": 0, "cy": 0})},
-	{Name: "centre off origin", Params: sgWith(map[string]float64{"cx": -40, "cy": 22.5})},
-	{Name: "collar half 2", Params: sgWith(map[string]float64{"cx": 0, "cy": 0, "collarHalf": 2})},
-	{Name: "cage radius 25", Params: sgWith(map[string]float64{"cx": 3, "cy": 4, "cageRadius": 25, "collarHalf": 3.5})},
+	sgCase("defaults", sgDefaults()),
+	sgCase("the third print", sgThirdPrint(nil)),
+	sgCase("thick wall, wide cage", sgWith(map[string]float64{"cageRadius": 17, "collarHalf": 3.25})),
+	sgCase("110 degree crossing", sgWith(map[string]float64{"crossAngle": 110})),
+	sgCase("no roof allowance", sgWith(map[string]float64{"roofAllowance": 0})),
 }
 
-// stepSleeveSketch is the Sleeve sketch on the selected plane: two circles
-// about C of radii Ri and Ro, each centre a separate point fixed at C, each
-// with a diameter dimension. The ring is the one profile with two loops.
+// stepSleeveSketch is the Sleeve sketch of §4 on the selected plane: two
+// circles at C of radii Ri and Ro, each centre fixed, each with a diameter
+// dimension. The two centre points are separate points at one place, as
+// Fusion's are. It also runs the build's range checks on the case, so a case
+// here is one the build accepts, and holds the fourth sleeve check, the
+// separation between neighbouring bores, at the value the spec gives.
 func stepSleeveSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
-	m := newModel(p)
-	cx, cy := p["cx"], p["cy"]
-	proofkit.Step(t, "Sleeve: circles of radius %.3f and %.3f about (%.3f, %.3f)", m.Ri, m.Ro, cx, cy)
-	ci := s.CreatePoint(cx, cy)
-	co := s.CreatePoint(cx, cy)
-	inner := s.CreateCircle(ci, m.Ri)
-	outer := s.CreateCircle(co, m.Ro)
-	s.Fix(ci)
-	s.Fix(co)
-	s.AddConstraint(sketch.NewDiameter(inner, 2*m.Ri), sketch.NewDiameter(outer, 2*m.Ro))
-	sketchtest.Solve(t, s)
-	report := sketchtest.Verify(t, s)
-	_ = report
-	var ring *sketch.Profile
-	count := 0
-	profiles := s.Profiles()
-	for _, pr := range profiles {
-		if len(pr.Holes) == 1 {
-			ring = pr
-			count++
+	m := sgModelOf(p)
+	if why := m.refusal(p); why != "" {
+		t.Fatalf("the build refuses this case, naming %s", why)
+	}
+	sep, where := m.channelSeparation()
+	if sep < m.CollarWall {
+		t.Fatalf("the wall across the %s gap is %.4f mm, under collarWall %.3f mm", where, sep, m.CollarWall)
+	}
+	if p["crossAngle"] == 80 && p["mountAngleA"] == 0 && p["mountAngleB"] == 0 && p["cageRadius"] == 15 &&
+		p["roofAllowance"] == 0.3 && p["collarHalf"] == 3 {
+		// The defaults: 5.067 mm across the -ê gap ("The wall between the bores").
+		sketchtest.Measures(t, "separation at the defaults", sep, 5.067, sketchtest.Within(0.0005))
+		if where != "-e" {
+			t.Errorf("the least separation is across %s, want -e", where)
 		}
 	}
-	if len(profiles) != 2 || count != 1 {
-		t.Fatalf("Sleeve: %d profiles, %d with two loops; want 2 and 1", len(profiles), count)
+	proofkit.Step(t, "two circles at C")
+	var circles []*sketch.Circle
+	for _, r := range []float64{m.Ri, m.Ro} {
+		centre := s.CreatePoint(m.Centre.X, m.Centre.Y)
+		c := s.CreateCircle(centre, r)
+		s.Fix(centre)
+		s.AddConstraint(sketch.NewDiameter(c, 2*r))
+		circles = append(circles, c)
+	}
+	report := sketchtest.Verify(t, s)
+	var ring *sketch.Profile
+	for _, pr := range report.Profiles {
+		if len(pr.Holes) == 1 { // two loops: the outer and one hole
+			if ring != nil {
+				t.Fatalf("two profiles with two loops")
+			}
+			ring = pr
+		}
+	}
+	if ring == nil {
+		t.Fatalf("no profile with two loops among %d", len(report.Profiles))
 	}
 	sketchtest.IsValidProfile(t, ring)
-	sketchtest.IsCurrentProfile(t, ring)
-	// π(Ro² - Ri²); the engine's circle area is exact to rounding.
+	// A ring of two exact circles: the area is exact up to the solver.
 	sketchtest.MeasuresProfileArea(t, ring, math.Pi*(m.Ro*m.Ro-m.Ri*m.Ri), sketchtest.WithinRel(1e-9))
 }
 
-// ---------------------------------------------------------------------------
-// Bore section sketch (§4, "The rectangle scheme").
+// --- Bore section sketch -----------------------------------------------------
 
-// boreSketchCases runs all four bores at each parameter set. The defaults
-// reach only the spine branch of the angle (|sin theta| >= sqrt(1/2) at every
-// profile station); mounting angles of -57° and -40° put gear A's +R profile
-// and gear B's -R profile on the toothed-side branch, -20° makes gear A's +R
-// bore the level one with its roof on the -v face, and a zero roof allowance
-// leaves every rectangle symmetric about its axis. A 0.05 mm clearance is the
-// smallest the stand-in cost was derived for.
-var boreSketchCases = func() []proofkit.Case {
-	sets := []struct {
-		name string
-		over map[string]float64
-	}{
-		{"defaults", nil},
-		{"mount -57 and -40", map[string]float64{"mountAngleA": -57, "mountAngleB": -40}},
-		{"mount -20 and 30", map[string]float64{"mountAngleA": -20, "mountAngleB": 30}},
-		{"mount 90 and 170", map[string]float64{"mountAngleA": 90, "mountAngleB": 170}},
-		{"no roof allowance", map[string]float64{"roofAllowance": 0}},
-		{"clearance 0.05", map[string]float64{"clearance": 0.05}},
-		{"crossing 100", map[string]float64{"crossAngle": 100}},
-	}
-	var out []proofkit.Case
-	for _, set := range sets {
-		m := newModel(sgWith(set.over))
-		bores := m.bores()
-		for i, b := range bores {
-			over := map[string]float64{"bore": float64(i)}
-			for key, v := range set.over {
-				over[key] = v
-			}
-			g := m.gears[b.gear]
-			branch := "spine"
-			if math.Abs(math.Sin(g.theta(b.from))) < math.Sqrt(0.5) {
-				branch = "toothed side"
-			}
-			out = append(out, proofkit.Case{
-				Name:   fmt.Sprintf("%s %s (%s angle)", set.name, b.name, branch),
-				Params: sgWith(over),
-			})
-		}
-	}
-	return out
-}()
+var boreSectionCases = []proofkit.Case{
+	sgCase("gear A -R defaults", sgWith(map[string]float64{"bore": 0})),
+	sgCase("gear A +R defaults", sgWith(map[string]float64{"bore": 1})),
+	sgCase("gear B -R defaults", sgWith(map[string]float64{"bore": 2})),
+	sgCase("gear B +R defaults", sgWith(map[string]float64{"bore": 3})),
+	sgCase("gear A -R third print", sgThirdPrint(map[string]float64{"bore": 0})),
+	sgCase("gear B +R third print", sgThirdPrint(map[string]float64{"bore": 3})),
+	sgCase("gear A +R no allowance", sgWith(map[string]float64{"bore": 1, "roofAllowance": 0})),
+	sgCase("gear B -R no allowance", sgWith(map[string]float64{"bore": 2, "roofAllowance": 0})),
+	sgCase("gear A +R level at 30 degrees", sgWith(map[string]float64{"bore": 1, "mountAngleA": 30, "mountAngleB": 30})),
+	sgCase("gear B +R level at 30 degrees", sgWith(map[string]float64{"bore": 3, "mountAngleA": 30, "mountAngleB": 30})),
+	sgCase("gear A -R unequal angles", sgWith(map[string]float64{"bore": 0, "mountAngleA": -40, "mountAngleB": 25})),
+	sgCase("gear B -R 110 degrees", sgWith(map[string]float64{"bore": 2, "crossAngle": 110})),
+	sgCase("gear A +R long lead", sgWith(map[string]float64{"bore": 1, "twistLead": 60})),
+}
 
-// stepBoreSectionSketch draws one bore's section sketch by the rectangle
-// scheme, on the bore's plane at the cut's first station s0 (-sOut for a -R
-// bore, sIn for a +R bore), in coordinates x along û_g and y along v̂_g with
-// the axis point O at the origin.
+// sgAngleRef reports which reference the bore scheme dimensions its angle
+// against at angle th, and the angle the dimension carries, in degrees in
+// [45, 135]: the rays are +û from O along Ru, and either O→E along K or
+// L2's start→end direction from where L2 meets Ru's line.
+func sgAngleRef(th float64) (useK bool, deg float64) {
+	r1 := [2]float64{1, 0}
+	var r2 [2]float64
+	if math.Abs(math.Sin(th)) >= math.Sqrt(0.5) {
+		useK = true
+		r2 = [2]float64{math.Cos(th), math.Sin(th)}
+	} else {
+		r2 = [2]float64{-math.Sin(th), math.Cos(th)}
+	}
+	return useK, math.Acos(r1[0]*r2[0]+r1[1]*r2[1]) * 180 / math.Pi
+}
+
+// The bore's plane (S19) is not built: setByDistanceOnPath at fraction 0 of
+// the bore's path line stands square to the axis at the line's start, which
+// is the plane this sketch is drawn on, in its coordinates; where Fusion puts
+// that plane to a few nanometres is Fusion's ([PB-SKETCH-ZERO-Z]).
 //
-//   - References: O at (0, 0) and Cp at (A/2, 0), fixed after Ru and K exist;
-//     Ru is the construction line O→Cp.
-//   - Spine: construction line K from O to E, E seeded at (uF, 0) turned by
-//     theta, with a distance O–E of uF.
-//   - Angle: between Ru and K when |sin theta| >= sqrt(1/2), else between Ru
-//     and the toothed side L2.
-//   - Rectangle: L1 (uB, vLo)→(uF, vLo), L2 on to (uF, vHi), L3 on to
-//     (uB, vHi), L4 back, sharing corners; L1 offset from K by -vLo (the right
-//     of K), L3 by vHi (its left); E on L2; L2 perpendicular to K; L4 offset
-//     from L2 by uF - uB.
+// stepBoreSectionSketch is a bore's section sketch by the rectangle scheme of
+// §4, drawn on the bore's plane at the negative end of its cut, in the plane's
+// coordinates x along û_g and y along v̂_g.
 //
-// Mapping. Fusion's addParallel + addOffsetDimension is the engine's NewOffset,
-// which carries both rows; its value is signed, positive on the left of the
-// source line's start→end direction. Fusion's angular dimension is unsigned
-// and its text point picks the wedge; the engine's NewAngle is signed,
-// counter-clockwise from the first line's start→end direction to the
-// second's, so the proof writes the signed angle the seeds already make, and
-// the unsigned value the build writes is its magnitude, which lies in
-// 45°..135° on either branch.
+// Fusion's parallel plus offset dimension is the engine's signed offset, which
+// carries both rows; Fusion takes the side from the seed, the engine from the
+// sign, and the seeds are on the signed side. Fusion's angular dimension is
+// unsigned and keeps the seeded wedge through its text point; the engine's is
+// signed, from Ru's start→end to the other line's.
 func stepBoreSectionSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
-	m := newModel(p)
+	m := sgModelOf(p)
 	b := m.bores()[int(p["bore"])]
-	g := m.gears[b.gear]
-	s0 := b.from
-	th := g.theta(s0)
-	uB, uF := -m.hw, m.hw
-	proofkit.Step(t, "%s: plane at station %.4f, theta %.4f rad, v from %.4f to %.4f", b.name, s0, th, b.vLo, b.vHi)
-
-	// References.
+	st := b.planeStation()
+	th := m.theta(b.Gear, st)
+	uB, uF := -m.Hw, m.Hw
+	proofkit.Step(t, "reference points O and Cp, Ru and K")
 	o := s.CreatePoint(0, 0)
 	cp := s.CreatePoint(m.A/2, 0)
 	ru := s.CreateLine(o, cp)
 	ru.SetConstruction(true)
-
-	// Spine.
 	ex, ey := sgTurn(uF, 0, th)
 	e := s.CreatePoint(ex, ey)
 	k := s.CreateLine(o, e)
 	k.SetConstruction(true)
 	s.Fix(o)
 	s.Fix(cp)
-
-	// Rectangle.
-	corner := func(u, v float64) *sketch.Point {
-		x, y := sgTurn(u, v, th)
-		return s.CreatePoint(x, y)
+	proofkit.Step(t, "the rectangle's four lines")
+	var c []*sketch.Point
+	for _, q := range [][2]float64{{uB, b.VLo}, {uF, b.VLo}, {uF, b.VHi}, {uB, b.VHi}} {
+		x, y := sgTurn(q[0], q[1], th)
+		c = append(c, s.CreatePoint(x, y))
 	}
-	c1, c2, c3, c4 := corner(uB, b.vLo), corner(uF, b.vLo), corner(uF, b.vHi), corner(uB, b.vHi)
-	l1 := s.CreateLine(c1, c2)
-	l2 := s.CreateLine(c2, c3)
-	l3 := s.CreateLine(c3, c4)
-	l4 := s.CreateLine(c4, c1)
-
-	length := sketch.NewDistance(o, e, uF)
-	// The angle, by branch ([PB-ANGULAR-DIM]). sgSigned folds an angle into
-	// (-180°, 180°].
+	l1 := s.CreateLine(c[0], c[1])
+	l2 := s.CreateLine(c[1], c[2])
+	l3 := s.CreateLine(c[2], c[3])
+	l4 := s.CreateLine(c[3], c[0])
+	proofkit.Step(t, "length, angle, offsets, perpendicular, coincidence")
+	useK, deg := sgAngleRef(th)
+	if sgIsDefaults(p) && b.Gear == 0 {
+		// Gear A's -R profile stands at -138.2 degrees and takes L2; its +R
+		// profile at 57.4 degrees and takes K.
+		want := map[float64]float64{-1: -138.18, 1: 57.40}[b.Sigma]
+		sketchtest.Measures(t, b.Name+" profile angle", th*180/math.Pi, want, sketchtest.Within(0.005))
+		if useK != (b.Sigma > 0) {
+			t.Errorf("%s takes the other reference line", b.Name)
+		}
+	}
+	if deg < 45-1e-9 || deg > 135+1e-9 {
+		t.Fatalf("the angle dimension would read %.3f degrees, outside 45-135", deg)
+	}
 	var angle *sketch.Angle
-	var unsigned float64
-	if math.Abs(math.Sin(th)) >= math.Sqrt(0.5) {
-		a := sgSigned(th)
-		angle = sketch.NewAngle(ru, k, a*180/math.Pi)
-		unsigned = math.Abs(a)
-		proofkit.Step(t, "%s: angle Ru→K, %.4f°", b.name, unsigned*180/math.Pi)
+	if useK {
+		angle = sketch.NewAngle(ru, k, math.Mod(th*180/math.Pi+720, 360))
 	} else {
-		a := sgSigned(th + math.Pi/2)
-		angle = sketch.NewAngle(ru, l2, a*180/math.Pi)
-		unsigned = math.Abs(a)
-		proofkit.Step(t, "%s: angle Ru→L2, %.4f°", b.name, unsigned*180/math.Pi)
-	}
-	if unsigned < sgRad(45)-1e-12 || unsigned > sgRad(135)+1e-12 {
-		t.Fatalf("%s: the dimensioned angle %.4f° lies outside 45°..135°", b.name, unsigned*180/math.Pi)
+		angle = sketch.NewAngle(ru, l2, math.Mod(th*180/math.Pi+90+720, 360))
 	}
 	s.AddConstraint(
-		length, angle,
-		sketch.NewOffset(k, l1, b.vLo), // -vLo to the right of K
-		sketch.NewOffset(k, l3, b.vHi), // vHi to the left of K
+		sketch.NewDistance(o, e, uF),
+		angle,
+		sketch.NewOffset(k, l1, b.VLo),
+		sketch.NewOffset(k, l3, b.VHi),
 		sketch.NewPointOnLine(e, l2),
 		sketch.NewPerpendicular(l2, k),
-		sketch.NewOffset(l2, l4, uF-uB), // L4 on the left of L2's start→end
+		sketch.NewOffset(l2, l4, uF-uB),
 	)
-
 	sketchtest.Solve(t, s)
-	for _, c := range s.Constraints() {
-		sketchtest.Satisfies(t, c, sketchtest.Within(1e-9))
+	// The corners solve where they were seeded: the rectangle turned by theta.
+	for i, q := range [][2]float64{{uB, b.VLo}, {uF, b.VLo}, {uF, b.VHi}, {uB, b.VHi}} {
+		x, y := sgTurn(q[0], q[1], th)
+		proofkit.Step(t, "corner %d", i)
+		sketchtest.MeasuresPoint(t, c[i], x, y, sketchtest.Within(1e-9))
 	}
-	for i, want := range [4][2]float64{{uB, b.vLo}, {uF, b.vLo}, {uF, b.vHi}, {uB, b.vHi}} {
-		x, y := sgTurn(want[0], want[1], th)
-		sketchtest.MeasuresPoint(t, []*sketch.Point{c1, c2, c3, c4}[i], x, y, sketchtest.Within(1e-9))
+	sketchtest.Measures(t, "the unsigned angle Fusion dimensions", unsignedAngle(useK, ru, k, l2), deg, sketchtest.Within(1e-9))
+	for _, cs := range s.Constraints() {
+		sketchtest.Satisfies(t, cs, sketchtest.Within(1e-9))
 	}
 	report := sketchtest.Verify(t, s)
-	prof := sketchtest.SingleProfile(t, report)
-	sketchtest.IsValidProfile(t, prof)
-	if len(prof.Entities) != 4 {
-		t.Fatalf("%s: the profile is bounded by %d curves; find_profile_by_curve_counts(lines=4) needs 4", b.name, len(prof.Entities))
+	profile := sketchtest.SingleProfile(t, report)
+	sketchtest.IsValidProfile(t, profile)
+	sketchtest.MeasuresProfileArea(t, profile, (uF-uB)*(b.VHi-b.VLo), sketchtest.WithinRel(1e-9))
+	if len(profile.Entities) != 4 {
+		t.Fatalf("the profile has %d curves, want the rectangle's four lines", len(profile.Entities))
 	}
-	// 2*hw by (vHi - vLo): 15.4 by 4.15 mm, 4.45 mm on a level bore.
-	sketchtest.MeasuresProfileArea(t, prof, 2*m.hw*(b.vHi-b.vLo), sketchtest.WithinRel(1e-9))
 }
 
-// sgSigned folds an angle into (-pi, pi].
-func sgSigned(a float64) float64 {
-	a = math.Mod(a, 2*math.Pi)
-	if a > math.Pi {
-		a -= 2 * math.Pi
-	} else if a <= -math.Pi {
-		a += 2 * math.Pi
+// unsignedAngle is the angle between the dimension's two rays as Fusion reads
+// it.
+func unsignedAngle(useK bool, ru, k, l2 *sketch.Line) float64 {
+	other := l2
+	if useK {
+		other = k
 	}
-	return a
+	ax, ay := ru.End.X()-ru.Start.X(), ru.End.Y()-ru.Start.Y()
+	bx, by := other.End.X()-other.Start.X(), other.End.Y()-other.Start.Y()
+	return math.Acos((ax*bx+ay*by)/(math.Hypot(ax, ay)*math.Hypot(bx, by))) * 180 / math.Pi
 }
 
-// ---------------------------------------------------------------------------
-// Window sketches (§4).
+// --- Window sketch -----------------------------------------------------------
 
-// windowSketchCases is the two default windows, the only ones whose numbers
-// the spec states (see sgWindow).
 var windowSketchCases = []proofkit.Case{
-	{Name: "Window +k", Params: sgWith(map[string]float64{"window": 0})},
-	{Name: "Window -k", Params: sgWith(map[string]float64{"window": 1})},
+	sgCase("defaults, facing +k", sgWith(map[string]float64{"window": 0})),
+	sgCase("defaults, facing -k", sgWith(map[string]float64{"window": 1})),
+	sgCase("third print, facing -k", sgThirdPrint(map[string]float64{"window": 1})),
+	sgCase("110 degrees, facing +e", sgWith(map[string]float64{"window": 0, "crossAngle": 110})),
+	sgCase("110 degrees, facing -e", sgWith(map[string]float64{"window": 1, "crossAngle": 110})),
+	sgCase("thick wall, facing +k", sgRaised(sgWith(map[string]float64{"window": 0, "collarWall": 5}))),
+	sgCase("scaled by 0.75, facing -k", sgScaled(0.75, map[string]float64{"window": 1})),
 }
 
-// stepWindowSketch is one Window sketch on the Window Plane: a reference
-// point per hexagon corner at C + t*across + z*n̂, a solid line from each to
-// the next sharing the points, every point fixed. The proof draws the plane
-// in (t, z), whose normal across × n̂ is the facing direction d.
-func stepWindowSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
-	m := newModel(p)
-	w := sgDefaultWindows()[int(p["window"])]
-	q := w.corners(m.Ro)
-	proofkit.Step(t, "%s: %d corners %v", w.name, len(q), q)
-	if len(q) != 6 {
-		t.Fatalf("%s: %d corners, the spec's default window has six", w.name, len(q))
+// sgScaled is the defaults with every length of the ribbon and the frame
+// scaled by f, collarWall and the clearances held, and cageRise raised to the
+// least the end-wall check accepts when the scale leaves it short.
+func sgScaled(f float64, over map[string]float64) map[string]float64 {
+	p := sgDefaults()
+	for _, k := range []string{"ribbonWidth", "ribbonThickness", "toothPitch", "toothHeight", "twistLead",
+		"cageRadius", "cageRise", "collarHalf", "engagement", "assemblyPhase"} {
+		p[k] *= f
 	}
-	pts := make([]*sketch.Point, len(q))
-	for i, c := range q {
-		pts[i] = s.CreatePoint(c[0], c[1])
+	p["toothBow"] /= f
+	for k, v := range over {
+		p[k] = v
+	}
+	return sgRaised(p)
+}
+
+// sgRaised raises cageRise to the least the end-wall check accepts when the
+// case leaves it short, as TestSleeveWindowsFollowTheSize does.
+func sgRaised(p map[string]float64) map[string]float64 {
+	m := sgModelOf(p)
+	if least := m.A/2 + m.Corner + m.CollarWall; p["cageRise"] < least {
+		p["cageRise"] = least
+	}
+	return p
+}
+
+// sgDefaultWindows are the default windows the spec states ("The hexagon").
+var sgDefaultWindows = map[string]struct {
+	lo, hi, bottom, top, left, right, area float64
+	corners                                [][2]float64
+}{
+	"+k": {-5.180, 5.180, -22.151, 22.151, -11.570, 11.570, 220.7,
+		[][2]float64{{11.57, -6.39}, {-8.49, 13.67}, {-11.57, 10.58}, {-11.57, 6.39}, {8.49, -13.67}, {11.57, -10.58}}},
+	"-k": {-4.886, 5.180, -21.857, 22.151, -11.536, 11.570, 213.8,
+		[][2]float64{{11.57, -6.39}, {-8.49, 13.67}, {-11.54, 10.61}, {-11.54, 6.65}, {8.49, -13.37}, {11.57, -10.29}}},
+}
+
+func sgIsDefaults(p map[string]float64) bool {
+	for k, v := range sgDefaults() {
+		if k == "centreX" || k == "centreY" {
+			continue
+		}
+		if p[k] != v {
+			return false
+		}
+	}
+	return true
+}
+
+// The Window Plane (S23) is not built here; the window's cut step draws the
+// hexagon on a plane through the frame's axis square to d, facing either way.
+//
+// stepWindowSketch is a Window sketch of §4 on the Window Plane: one point per
+// corner of the hexagon the window search finds, a line from each corner to
+// the next sharing them, and every point fixed. The plane coordinates are
+// (t, z): t along n̂ × d and z along n̂. The search itself is the model's
+// newWindow, the spec's algorithm transcribed; at the defaults it is held to
+// the numbers the spec gives.
+func stepWindowSketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
+	m := sgModelOf(p)
+	if why := m.refusal(p); why != "" {
+		t.Fatalf("the build refuses this case, naming %s", why)
+	}
+	w := m.windows()[int(p["window"])]
+	if w.Corners == nil {
+		t.Fatalf("no window facing %s: %s", w.Facing, w.Reason)
+	}
+	if sgIsDefaults(p) {
+		want := sgDefaultWindows[w.Facing]
+		for _, c := range []struct {
+			name      string
+			got, want float64
+		}{{"lo", w.Lo, want.lo}, {"hi", w.Hi, want.hi}, {"bottom", w.Bottom, want.bottom},
+			{"top", w.Top, want.top}, {"left", w.Left, want.left}, {"right", w.Right, want.right}} {
+			// The spec quotes three decimals.
+			sketchtest.Measures(t, w.Facing+" "+c.name, c.got, c.want, sketchtest.Within(0.0005))
+		}
+		if len(w.Corners) != len(want.corners) {
+			t.Fatalf("%s window has %d corners %s, want %d", w.Facing, len(w.Corners), sgFormatCorners(w.Corners), len(want.corners))
+		}
+		for i, c := range want.corners {
+			// The spec quotes two decimals; the corners come in the clip's order.
+			sketchtest.Measures(t, fmt.Sprintf("%s corner %d t", w.Facing, i), w.Corners[i][0], c[0], sketchtest.Within(0.005))
+			sketchtest.Measures(t, fmt.Sprintf("%s corner %d z", w.Facing, i), w.Corners[i][1], c[1], sketchtest.Within(0.005))
+		}
+		sketchtest.Measures(t, w.Facing+" area", sgArea(w.Corners), want.area, sketchtest.Within(0.05))
+	}
+	proofkit.Step(t, "%d corner points and the lines between them", len(w.Corners))
+	var pts []*sketch.Point
+	for _, c := range w.Corners {
+		pts = append(pts, s.CreatePoint(c[0], c[1]))
 	}
 	for i := range pts {
 		s.CreateLine(pts[i], pts[(i+1)%len(pts)])
 	}
-	for _, pt := range pts {
-		s.Fix(pt)
+	for _, q := range pts {
+		s.Fix(q)
 	}
-	sketchtest.Solve(t, s)
 	report := sketchtest.Verify(t, s)
-	prof := sketchtest.SingleProfile(t, report)
-	sketchtest.IsValidProfile(t, prof)
-	// The spec quotes the area to 0.1 mm² from search numbers it quotes to
-	// 0.001 mm, so 0.05 mm² covers its rounding; the shoelace area of the
-	// corners themselves is exact to rounding.
-	sketchtest.MeasuresProfileArea(t, prof, w.area, sketchtest.Within(0.05))
-	sketchtest.MeasuresProfileArea(t, prof, sgPolygonArea(q), sketchtest.WithinRel(1e-9))
-	// Every edge is upright or at 45° on the plane (§4, "The hexagon").
-	for i := range q {
-		dt, dz := q[(i+1)%len(q)][0]-q[i][0], q[(i+1)%len(q)][1]-q[i][1]
-		if !(math.Abs(dt) < 1e-9 || math.Abs(math.Abs(dt)-math.Abs(dz)) < 1e-9) {
-			t.Fatalf("%s: edge %d (%.4f, %.4f) is neither upright nor at 45°", w.name, i, dt, dz)
+	profile := sketchtest.SingleProfile(t, report)
+	sketchtest.IsValidProfile(t, profile)
+	sketchtest.MeasuresProfileArea(t, profile, sgArea(w.Corners), sketchtest.WithinRel(1e-9))
+	// Every edge is upright or at 45 degrees to the plane's axes.
+	for i := range w.Corners {
+		a, b := w.Corners[i], w.Corners[(i+1)%len(w.Corners)]
+		dx, dy := math.Abs(b[0]-a[0]), math.Abs(b[1]-a[1])
+		// A corner dropped within 0.001 mm of its neighbour moves an edge's end
+		// by at most that much, so an edge is upright or at 45 degrees to 0.002 mm.
+		if !(dx < 0.002 || math.Abs(dx-dy) < 0.002) {
+			t.Errorf("edge %d runs (%.6f, %.6f), neither upright nor at 45 degrees", i, b[0]-a[0], b[1]-a[1])
 		}
 	}
 }
