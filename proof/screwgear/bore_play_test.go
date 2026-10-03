@@ -64,7 +64,7 @@ func fullSample(t *testing.T, dropped string) bool {
 // Could the proof have caught it? Yes: the bores and the mesh were both in
 // this package, and nothing joined them. This file joins them.
 //
-// The second sleeve, printed the same day at the defaults below, showed two
+// The second sleeve, printed the same day at the clearance below, showed two
 // more things (spec/screwgear/fusion.md [SCREW-F-PRINT-2]). Its two -R bores,
 // whose roofs the printer bridges, came out too tight to pass the ribbons,
 // which is why the level bore of each gear now carries a roof allowance and so
@@ -72,6 +72,14 @@ func fullSample(t *testing.T, dropped string) bool {
 // teeth meshed only sometimes. A printed tooth's tip comes out rounded and
 // short, which the model's exact cosine does not, so every case here that
 // judges the defaults blunts both ribbons' tips by printTipLoss.
+//
+// The third sleeve, printed with the roof allowance, fitted its ribbons and
+// the teeth still slipped: they touched at a point (contact_test.go,
+// spec/screwgear/fusion.md [SCREW-F-PRINT-3]). Since 2026-10-03 the defaults
+// carry the leaned tooth at zero mounting angles and a 1.05 mm engagement,
+// TestPairDrivesUnderBorePlay holds the contact's length over the play as
+// well, and the cases about the printed fits run at thirdPrintParams, the
+// straight tooth those prints carried.
 //
 // What the moves do to the mesh. Moving a ribbon by tx along its own Ex, which
 // points at the other ribbon, adds tx to the engagement. Rolling it by an angle
@@ -312,6 +320,11 @@ type playMesh struct {
 	winding, departure   float64
 	ribbonA, ribbonB     borePose
 	towardA, towardTotal float64
+	windows              []phaseWindow // the free window at each phase of A judged
+	// contact is the least stretch of the touching ridge within contactPlayNear
+	// of the other flank, over every window and both its ends, when the pose
+	// pair drives and meshOverPoses was asked to measure it; NaN otherwise.
+	contact float64
 }
 
 func (m playMesh) String() string {
@@ -338,7 +351,8 @@ func meshUnderPlay(ga, gb Gear) playMesh {
 	if !ok {
 		return playMesh{kind: playJams}
 	}
-	m := playMesh{narrowest: hi - lo, widest: hi - lo}
+	m := playMesh{narrowest: hi - lo, widest: hi - lo, contact: math.NaN()}
+	m.windows = append(m.windows, phaseWindow{0, lo, hi})
 	if hi-lo >= pitch {
 		m.kind = playLoose
 		return m
@@ -354,6 +368,7 @@ func meshUnderPlay(ga, gb Gear) playMesh {
 			return m
 		}
 		m.narrowest, m.widest = math.Min(m.narrowest, hi-lo), math.Max(m.widest, hi-lo)
+		m.windows = append(m.windows, phaseWindow{za, lo, hi})
 		if hi-lo >= pitch {
 			m.kind, m.at = playLoose, za
 			return m
@@ -373,8 +388,10 @@ func meshUnderPlay(ga, gb Gear) playMesh {
 }
 
 // meshOverPoses runs meshUnderPlay over every pair of a pose of A and a pose
-// of B, on as many goroutines as the process has CPUs.
-func meshOverPoses(ga, gb Gear, pairs [][2]borePose) []playMesh {
+// of B, on as many goroutines as the process has CPUs. With withContact set,
+// each pose pair that drives also has its contact measured (playMesh.contact)
+// at every window meshUnderPlay judged, with B a hair past either end.
+func meshOverPoses(ga, gb Gear, pairs [][2]borePose, withContact bool) []playMesh {
 	out := make([]playMesh, len(pairs))
 	work := make(chan int)
 	var wg sync.WaitGroup
@@ -384,9 +401,13 @@ func meshOverPoses(ga, gb Gear, pairs [][2]borePose) []playMesh {
 			defer wg.Done()
 			for i := range work {
 				a, b := pairs[i][0], pairs[i][1]
-				m := meshUnderPlay(movedInBores(ga, a), movedInBores(gb, b))
+				ma, mb := movedInBores(ga, a), movedInBores(gb, b)
+				m := meshUnderPlay(ma, mb)
 				m.ribbonA, m.ribbonB = a, b
 				m.towardA, m.towardTotal = math.Min(a.tx, b.tx), a.tx+b.tx
+				if withContact && m.kind == playDrives {
+					m.contact = leastPlayContact(ma, mb, m.windows)
+				}
 				out[i] = m
 			}
 		}()
@@ -397,6 +418,20 @@ func meshOverPoses(ga, gb Gear, pairs [][2]borePose) []playMesh {
 	close(work)
 	wg.Wait()
 	return out
+}
+
+// leastPlayContact is the least stretch of touching ridge within
+// contactPlayNear of the other flank, with B a hair past either end of each
+// window.
+func leastPlayContact(ga, gb Gear, windows []phaseWindow) float64 {
+	step := ga.P.ToothPitch / phaseStep
+	least := math.Inf(1)
+	for _, w := range windows {
+		for _, zb := range []float64{w.lo - step, w.hi + step} {
+			least = math.Min(least, touchAlong(ga, gb, w.za, zb).playNear)
+		}
+	}
+	return least
 }
 
 // everyPair is every pose of A against every pose of B.
@@ -485,14 +520,11 @@ func logPlay(t *testing.T, label string, runs []playMesh, v playVerdict) {
 }
 
 // maxPlayJams is how many of TestPairDrivesUnderBorePlay's pose pairs may jam.
-// In the full sample at the defaults four do, every one with gear A tilted
-// into its roof allowance so that its crossing stands 0.273 mm toward gear B,
-// against gear B pushed the whole 0.20 mm toward it at no roll, at 0.199 mm,
-// rolled 1 degree and pushed 0.069 mm, or at its roll limit of 1.53 degrees.
-// The default sample meets one of them, against gear B at 0.199 mm. With the
-// tips short by printTipLoss, both ribbons pushed the whole clearance together
-// no longer jams, as it did with the model's own tips.
-const maxPlayJams = 4
+// In the full sample at the defaults none does, and none did at the
+// engagement of 1.05 mm the leaned tooth was chosen at. At the straight tooth
+// of the third print four did, every one with gear A tilted into its roof
+// allowance against gear B pushed toward it or at its roll limit.
+const maxPlayJams = 0
 
 // The pair has to drive over the play its bores allow, not only at the nominal
 // pose, with tips as a print makes them. The full sample (SCREWGEAR_FULL=1)
@@ -506,11 +538,11 @@ const maxPlayJams = 4
 // away at no roll, the two roll limits and the two tilts, and runs each pose
 // of A against the same pose of B (samePose): 6 pose pairs. It leaves out the
 // whole degrees of roll short of the limits, and every pair of two different
-// poses, among them three of the four jams maxPlayJams counts. It keeps the
-// nominal pose, every kind of move this case makes, and the two pairs at the
-// edges of the full sample's windows: both ribbons pushed together, the
-// narrowest window, 0.026 mm, and both pulled apart with gear B tilted, the
-// widest, 1.654 mm, with the worst departure, 0.315 mm.
+// poses. It keeps the
+// nominal pose, every kind of move this case makes, and the full sample's
+// narrowest and widest windows, 0.669 and 1.496 mm. At the defaults all six
+// drive, and every one leaves at least 1.39 mm of the touching ridge within
+// 0.10 mm of the other flank, against 1.2 mm asked (contact_test.go).
 //
 // What the sampling gives up. It moves each ribbon along Ex, rolls it and
 // tilts it about Ey, and leaves the sideways move to
@@ -545,9 +577,10 @@ func TestPairDrivesUnderBorePlay(t *testing.T) {
 	ga.Blunt, gb.Blunt = printTipLoss, printTipLoss
 	// The nominal pose runs in the same batch, so that its mesh shares the
 	// CPUs with the others rather than running alone before them.
-	runs := meshOverPoses(ga, gb, append([][2]borePose{{}}, pairs...))
-	if m := runs[0]; m.kind != playDrives {
-		t.Fatalf("at the nominal pose, with tips %.2f mm short, the pair %s", printTipLoss, m)
+	runs := meshOverPoses(ga, gb, append([][2]borePose{{}}, pairs...), true)
+	nominal := runs[0]
+	if nominal.kind != playDrives {
+		t.Fatalf("at the nominal pose, with tips %.2f mm short, the pair %s", printTipLoss, nominal)
 	}
 	runs = runs[1:]
 	v := judgePlay(p, runs)
@@ -560,6 +593,25 @@ func TestPairDrivesUnderBorePlay(t *testing.T) {
 		t.Errorf("%d pose pairs jam with the ribbons pushed together, want at most %d",
 			v.accepted, maxPlayJams)
 	}
+	// The teeth touch along a line over the play too, if more loosely: with
+	// the ribbons moved and the tips short the ridges no longer lie exactly
+	// along each other, and the bound is a stretch of ridge rather than a share.
+	least, at := math.Inf(1), playMesh{}
+	for _, m := range append([]playMesh{nominal}, runs...) {
+		if m.kind != playDrives {
+			continue
+		}
+		if m.contact < contactPlayLength {
+			t.Errorf("with A at %s and B at %s the touching ridge lies within %.2f mm of the other flank over "+
+				"%.2f mm at the least, under %.1f mm", m.ribbonA, m.ribbonB, contactPlayNear, m.contact,
+				contactPlayLength)
+		}
+		if m.contact < least {
+			least, at = m.contact, m
+		}
+	}
+	t.Logf("over the pose pairs that drive, the touching ridge lies within %.2f mm of the other flank over "+
+		"%.2f mm at the least, with A at %s and B at %s", contactPlayNear, least, at.ribbonA, at.ribbonB)
 	for i, g := range []Gear{ga, gb} {
 		t.Logf("gear %c moves %.3f mm toward and %.3f mm away, and rolls %.2f and %+.2f deg",
 			'A'+i, shiftLimit(f, g, 0, 0), shiftLimit(f, g, math.Pi, 0),
@@ -579,8 +631,7 @@ func TestPairDrivesUnderBorePlay(t *testing.T) {
 // toward it: 6 pose pairs. It leaves out the other at its nominal pose, the
 // other pulled away, and the two ribbons at opposite sideways limits. It keeps
 // both ways sideways for each ribbon, and the full sample's narrowest window,
-// 0.092 mm with the other pushed toward, and its widest, 1.339 mm with the
-// worst departure, 0.249 mm, both ribbons at the same limit.
+// 0.892 mm. Its widest, 1.273 mm, is in a pair the default leaves out.
 func TestPairDrivesUnderSidewaysPlay(t *testing.T) {
 	t.Parallel()
 	p := defaultParams()
@@ -607,7 +658,7 @@ func TestPairDrivesUnderSidewaysPlay(t *testing.T) {
 		pairs = append(pairs, everyPair([]borePose{towardA}, sideB)...)
 	}
 	ga.Blunt, gb.Blunt = printTipLoss, printTipLoss
-	runs := meshOverPoses(ga, gb, pairs)
+	runs := meshOverPoses(ga, gb, pairs, false)
 	v := judgePlay(p, runs)
 	logPlay(t, "sideways", runs, v)
 	for _, m := range v.refused {
@@ -626,8 +677,8 @@ func TestPairDrivesUnderSidewaysPlay(t *testing.T) {
 // while its other bore holds, which moves the crossing along Ex. This holds
 // the first, to a micron and to 1e-4 rad, against the same sleeve with no
 // allowance, and measures the second: at the defaults gear A's crossing goes
-// 0.273 mm toward gear B and gear B's 0.273 mm away from gear A, against
-// 0.200 mm without the allowance, at a tilt of 0.60 degrees. The tilt is
+// 0.248 mm toward gear B and gear B's 0.248 mm away from gear A, against
+// 0.200 mm without the allowance, at a tilt of 0.38 degrees. The tilt is
 // capped by the other bore rather than by the allowance, so a roof left with
 // far more room, such as one chiselled open, lets the crossing go no further.
 func TestRoofAllowanceAddsOnlyATilt(t *testing.T) {
@@ -679,7 +730,7 @@ func TestRoofAllowanceAddsOnlyATilt(t *testing.T) {
 // allowance, a 0.75 mm engagement and 15 degrees on both mounting angles, gear
 // B built at -1.31 mm.
 func printedFit() (Params, Gear, Gear) {
-	p := defaultParams()
+	p := thirdPrintParams()
 	p.Clearance = 0.45
 	p.RoofAllowance = 0
 	p.Engagement = 0.75
@@ -722,7 +773,7 @@ func TestPrintedFitFailsUnderBorePlay(t *testing.T) {
 		pairs = everyPair(posesA, posesB)
 	}
 	// The nominal pose runs in the same batch, as in TestPairDrivesUnderBorePlay.
-	runs := meshOverPoses(ga, gb, append([][2]borePose{{}}, pairs...))
+	runs := meshOverPoses(ga, gb, append([][2]borePose{{}}, pairs...), false)
 	if m := runs[0]; m.kind != playDrives {
 		t.Fatalf("at the printed values the nominal pose %s; the print's failure was the play, "+
 			"not the nominal mesh", m)
@@ -736,9 +787,9 @@ func TestPrintedFitFailsUnderBorePlay(t *testing.T) {
 	}
 }
 
-// The second sleeve was printed at the defaults' mesh, a 0.20 mm clearance
-// with no roof allowance, and the ribbons printed before 2026-10-02, the same
-// part the defaults describe. Its two -R bores came out too tight and were
+// The second sleeve was printed at the mesh of thirdPrintParams, a 0.20 mm
+// clearance with no roof allowance, and the ribbons printed before 2026-10-02,
+// with the straight ridge. Its two -R bores came out too tight and were
 // chiselled open, and then the teeth meshed only sometimes, even with the
 // ribbons pressed together (spec/screwgear/fusion.md [SCREW-F-PRINT-2]).
 //
@@ -765,9 +816,9 @@ func TestPrintedFitFailsUnderBorePlay(t *testing.T) {
 // longest single-threaded stretch in the package.
 func TestSecondPrintMeshIsMarginal(t *testing.T) {
 	t.Parallel()
-	p := defaultParams()
+	p := thirdPrintParams()
 	p.RoofAllowance = 0
-	ga, gb := pair(p, p.Sigma(), 0, assemblyPhase)
+	ga, gb := pair(p, p.Sigma(), 0, thirdPrintPhase)
 	f := plainSleeve(ga, gb)
 	apartA := borePose{tx: -shiftLimit(f, ga, math.Pi, 0)}
 	apartB := borePose{tx: -shiftLimit(f, gb, math.Pi, 0)}

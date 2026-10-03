@@ -10,8 +10,11 @@ Each gear is described implicitly rather than as a solid. A world point belongs 
 after mapping into A's frame as `(u, v, s)` and undoing the twist by `-(s/Lambda + Phi)`,
 
 ```
--W/2 <= u <= W/2 - H/2 + (H/2)*cos(2*pi*(s - Z)/P)      and      |v| <= T/2
+-W/2 <= u <= W/2 - H/2 + (H/2)*cos(2*pi*(s + tan(Slant)*v - Z)/P) - Bow*v^2      and      |v| <= T/2
 ```
+
+Every search before 2026-10-03 ran at `Slant = 0` and `Bow = 0`, the straight ridge; "The search for
+line contact" below is the one that moved them.
 
 The signed slack to the nearest of those four bounds is positive inside the body and stands in for a
 distance. Sampling one body's boundary and evaluating the other body's slack at each sample gives
@@ -58,7 +61,8 @@ Results:
   arrived at independently. The spec states the rule rather than quoting the search, but the rule
   does not explain where this pair touches: the crest helices run parallel only at the station whose
   cross-section angle is zero, and `proof/screwgear` measures contact several millimetres away from
-  it. The contact is a point, as a crossed-helical pair's is.
+  it. At the straight ridge the contact is a point, as a crossed-helical pair's is; "The search for
+  line contact" below leans the ridges so that it is a line.
 
 The arrangement the spec carried until 2026-09-28 — `W` 10, `T` 2.5, `P` 1.75, `H` 1.2, `Sigma`
 80°, `Phi` 15° on both gears, same hand, engagement 0.36 — was re-run at a 0.01 mm sampling step,
@@ -129,7 +133,7 @@ takes 0.75 mm of engagement**, 0.29 of the tooth height, the same fraction the e
 run at `ToothHeight` 1.75 and `Engagement` 0.5 drove well at. The 0°/30° arrangement drives
 with a wider window and a third of the departure; equal angles are kept because the two gears
 are the same part held alike and the sleeve and its windows are then the same either way up,
-but for the roof allowance that came later (`instructions.md`, "Both Mounting Angles are 14°"). At the chosen values the lead was also
+but for the roof allowance that came later (`instructions.md`, "Both Mounting Angles are 0°"). At the chosen values the lead was also
 moved: 45 mm gives 0.72–0.76 mm and 0.037 mm, 60 mm gives 0.66–0.76 mm and 0.116 mm, 66 mm
 gives 0.55–0.67 mm and 0.074 mm, so 49.5 mm, the video's 3.3 widths, stays.
 
@@ -180,9 +184,10 @@ ribbons pushed toward each other by 0.204 mm or more in all, and none failed ano
 user accepted those six.
 
 **`proof/screwgear/pair_test.go` and `bore_play_test.go` re-derive all of this** and are the
-authority. At the defaults, and at the sampling `instructions.md` "Defaults" states beside the
-numbers, `pair_test.go` reports the same winding, a 0.433–0.473 mm window, a 0.042 mm departure
-from the 1:1 line, and 0.361 mm of slack between the two ribbons at the assembly phases;
+authority. At this arrangement, the defaults until 2026-10-03, and at the sampling
+`instructions.md` "Defaults" states beside the numbers, `pair_test.go` reported the same winding,
+a 0.433–0.473 mm window, a 0.042 mm departure from the 1:1 line, and 0.361 mm of slack between the
+two ribbons at the assembly phases;
 `bore_play_test.go` runs the mesh over the play. Its bounds are fractions of the pitch, because
 the transmission error tracks the pitch (above) and a uniform scale of the model scales the
 window with it. This file records only how the arrangement was found.
@@ -249,15 +254,81 @@ with the tips 0.35 mm short: no pose pair lets the teeth pass, and the four that
 the axes by more than a clearance (`fusion.md` `[SCREW-F-PRINT-2]`). Over the bores as drawn the
 mesh boxes the teeth at up to 0.40 mm of tip loss and not at 0.45 mm.
 
+## The search for line contact, 2026-10-03
+
+The third sleeve, printed with the roof allowance and ribbons of the straight tooth, fitted its
+ribbons, and the teeth still slipped; the user saw them meet at a single point rather than mating
+at the tooth surface (`fusion.md` `[SCREW-F-PRINT-3]`). This search measured where the teeth touch
+as a set rather than a yes or no, and looked for a tooth that touches along a line. Its scratch
+harness and logs are working notes in the worktree's `.tmp/linecontact/`, not tracked; every run
+used the model above at the proof's sampling.
+
+**The measurement.** With B a hair past either end of the free window, against either flank of A,
+take the flank sample of either ribbon deepest in the other, which is on the touching tooth; read
+the angle between the two ridges and between the two flank normals there; and walk the touching
+tooth's ridge across the thickness, taking at each step the least gap to the other flank. The
+stretch of ridge whose gap stays under a bound is the contact's length. `proof/screwgear`'s
+`touchAlong` is this measurement.
+
+**The straight ridge.** At the arrangement then printed — 14° on both gears, a 0.90 mm engagement
+— the two ridges stood 74–80° apart where they touched at every phase measured, the flank normals
+107–118° apart, and less than 0.13 mm of each 3.75 mm ridge came within 0.10 mm of the other flank:
+a corner of one tooth against the other's flank. Each ridge runs square to its own ribbon's axis,
+and the axes cross at 80°.
+
+**The slant.** For the ridges to lie along each other they have to run along the bisector of the
+obtuse angle between the axes, 50° from each ribbon's own axis. Leaning the cosine's phase by
+`tan(Slant)*v` turns the ridge in the section's chart; the twist then turns it further, and bends
+it, which `Bow*v^2` straightens. The runs, at a 0.90 mm engagement unless stated, contact judged
+within 0.02 mm:
+
+| Slant, mounting angles | Bow | Result |
+|---|---|---|
+| −40° to +40° every 5°, 0°–20° every 5° | 0 | the best, −25° at 10°, drove with 0.83 mm of ridge in contact, the ridges 7.6° apart; at 0° it drove with 0.10 mm |
+| −30° to −27°, 2°–14° | 0.046 | drove with 0.09–0.28 mm in contact, the ridges 5.8–21° apart |
+| −28° to −26.5°, −4° to +4° | 0.046 | drove; up to 0.56 mm in contact, the ridges 3.3–10.6° apart |
+| −25.9° to −25.5° every 0.1°, 0° | 0.040–0.052 | drove; at −25.8° and 0.044–0.052, 2.69–2.79 mm in contact and the ridges 0.1–2.4° apart |
+
+The slant's sign above is the chart's as the scratch harness wrote it, `s - tan(Slant)*v`; the spec
+writes `s + tan(Slant)*v`, so its 25.8° is this table's −25.8°. A crest ridge at 25.8° stands
+0.16 mm off its own chord with no bow and 0.003 mm with 0.048 mm⁻¹.
+
+**The engagement.** At 25.8° and 0.048 mm⁻¹, 0° on both gears, the window narrows as the
+engagement deepens, by about 0.9 mm of window per millimetre at −25.5° and 0.046 mm⁻¹, and at
+25.8° and 0.048 mm⁻¹ the contact stays a line, 2.72–2.74 mm, from 1.00 mm to 1.10 mm of
+engagement. Over the bores' play, with the tips 0.35 mm short and the
+proof's full sample of 100 pose pairs, 0.90 mm let the teeth pass at 4 pose pairs, both ribbons
+pulled apart; 1.05, 1.20, 1.35 and 1.50 mm drove all 100. The walk that checks the mesh is seen
+from both ends (`TestSleeveKeepsTheMeshVisibleAlongTheAxis`) finds 16 points of the grown
+footprint hidden at 1.18 mm, 32 at 1.20 mm, 376 at 1.35 mm and 1120 at 1.50 mm, and none at
+1.16 mm or less. The user chose 1.05 mm, the shallowest depth tried that drove all 100.
+
+**The mounting angles.** With the ridges leaned, equal angles from −12° to +12° drive with the
+tips 0.35 mm short, at six phases of A per pitch, and at ±16° B is never boxed in. 0° sits in the
+middle, which is what the user chose; at 0° both bores of each gear pass through level inside the
+wall (`instructions.md` §4, "The roof allowance").
+
+**What the user chose.** 25.8°, 0.048 mm⁻¹, 0° on both gears, a 1.05 mm engagement, and the
+clearance, the roof allowance and the ribbon blank unchanged, with the assembly phase measured
+again, −1.31 mm. `proof/screwgear` re-derives all of it: `TestPairDrivesOneToOne` reports a
+1.063–1.103 mm window, a winding of 1.0025 pitches and a 0.018 mm departure;
+`TestTeethTouchAlongALine` finds at least 2.67 mm of ridge, 97%, within 0.05 mm of the other flank
+at 24 poses, the ridges within 0.3° and the normals within 1° of facing; `TestPairDrivesUnderBorePlay`
+drives 100 of 100 pose pairs with at least 1.39 mm within 0.10 mm, and
+`TestPairDrivesUnderSidewaysPlay` 16 of 16. The analysis ran at −1.30 mm, where it measured a
+winding of 1.0000 and a 0.022 mm departure.
+
 ## What this does not establish
 
-The model is an exact sinusoid on an exact helicoid. The built part is one loft through ten
-rectangles per tooth, 41 for the four-tooth cell the build repeats. A ruled loft through those
+The model is an exact leaned sinusoid on an exact helicoid. The built part is one loft through
+ten sections per tooth, 41 for the four-tooth cell the build repeats, each a rectangle whose
+toothed side is a fitted spline through eleven points of the edge. A ruled loft through those
 sections would depart from the helicoid by about 1.0 µm at the crest and draw the toothed edge as
-a chord of the cosine between sections, 0.064 mm short of it at the deepest point — 14% of the
-0.46 mm backlash; Fusion's loft through more than two sections is smooth between them, and how far that
-surface departs is measured by nothing in this repository. A Fusion measurement on 2026-09-28
-put it within 0.04 mm at the 10 mm ribbon (`instructions.md` §2, "What the loft is").
+a chord of the cosine between sections, 0.064 mm short of it at the deepest point — 6% of the
+1.08 mm backlash; Fusion's loft through more than two sections is smooth between them, and how
+far that surface departs is measured by nothing in this repository. A Fusion measurement on
+2026-09-28 put it within 0.04 mm at the 10 mm ribbon with straight-ridge rectangles
+(`instructions.md` §2, "What the loft is"); the spline sections have not been measured.
 
 The search says these teeth drive. It says nothing about whether they are the right teeth. Conjugate
 flanks for two screw motions follow from the equation of meshing against the relative screw, which

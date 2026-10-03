@@ -6,8 +6,9 @@ the spec cites by name.
 
 Every anchor below is stated from the API reference and from what Fusion did when asked. The
 loads and diagnostics that asked are recorded under `[SCREW-F-FIRST-LOAD]` and
-`[SCREW-F-DIAGNOSTIC]`, and the two prints of the sleeve under `[SCREW-F-PRINT-MESH]` and
-`[SCREW-F-PRINT-2]`, per the "When Fusion gives a verdict" rule in `CLAUDE.md`; a sentence that
+`[SCREW-F-DIAGNOSTIC]`, and the three prints of the sleeve under `[SCREW-F-PRINT-MESH]`,
+`[SCREW-F-PRINT-2]` and `[SCREW-F-PRINT-3]`, per the "When Fusion gives a verdict" rule in
+`CLAUDE.md`; a sentence that
 gives a date is a measurement, and one that gives none is read from the reference.
 
 ## `[SCREW-F-FIRST-LOAD]` — what the Fusion loads said
@@ -154,7 +155,8 @@ defaults, gets a **roof allowance** of 0.30 mm on the long face that is its roof
 stands on its `-n̂` end, the end below the selected plane: 0.50 mm of room under the bridged roof
 and 0.20 mm everywhere else (`instructions.md` §4, "The roof allowance"). The 0.30 mm is the
 least the user asked for. The sleeve has to be printed standing on that end; the build logs
-which end it is. In `proof/screwgear`:
+which end it is. In `proof/screwgear`, at that fit, the straight tooth at 14°, before
+`[SCREW-F-PRINT-3]` moved the tooth and the mounting angles:
 
 - `TestRoofAllowanceAddsOnlyATilt` holds that the allowance adds no move along or across the
   axes and no roll, 0.200 mm and 1.53° with it as without it, and measures the one thing it adds:
@@ -179,8 +181,61 @@ partly: the proof modelled no tip loss, and a print's tips are short. It now blu
 ribbons' tips by 0.35 mm wherever it judges the mesh under play, and
 `TestSecondPrintMeshIsMarginal`, in `bore_play_test.go`, records that the fit printed in the
 second sleeve boxes the teeth at 0.40 mm of tip loss and lets them pass at 0.45 mm, with the
-answer to this question beside it. What it cannot reach is a bore opened by a chisel. Whether the
-third sleeve meshes is the next print's to say.
+answer to this question beside it. What it cannot reach is a bore opened by a chisel. The third
+sleeve is `[SCREW-F-PRINT-3]`.
+
+## `[SCREW-F-PRINT-3]` — the third sleeve: the bores fit, the teeth touch at a point, 2026-10-03
+
+**What was printed.** The sleeve at the defaults `[SCREW-F-PRINT-2]` moved to: a 0.20 mm
+clearance, a 0.30 mm roof allowance on each gear's `-R` bore, a 0.90 mm engagement, 14° on both
+mounting angles and an assembly phase of −1.30 mm, with ribbons of the straight-ridge tooth. That
+table is `thirdPrintParams` in `proof/screwgear/geometry_test.go`.
+
+**What happened.** The ribbons passed through the bores: the roof allowance fixed the fit. The
+teeth still slipped. The user saw that "they meet at a single _point_ rather than mating at the
+tooth surface".
+
+**Why.** Each ribbon's tooth ridges ran straight across its thickness, square to its own axis,
+and the two axes cross at 80°. Where the teeth touched, the two ridges stood 74–80° apart, so a
+corner of one tooth dug into the other's flank: less than 0.13 mm of each 3.75 mm ridge came
+within 0.10 mm of the other ribbon, and the two flank normals stood 107–118° apart instead of
+facing each other. The study that found it is
+`mesh-search.md` "The search for line contact"; its scratch harness and logs are kept in the
+worktree's `.tmp/linecontact/`, working notes that are not tracked.
+
+**The fix.** The ridges lean so that the two ribbons' ridges lie along each other where they
+touch: the toothed edge becomes
+`Utooth(v, s) = W/2 - H/2 + (H/2)*cos(2*pi*(s + tan(Slant)*v - Z)/P) - Bow*v^2` with a 25.8°
+slant and a 0.048 mm⁻¹ bow, two new dialog inputs. Both mounting angles went to 0°, the
+engagement to 1.05 mm and the assembly phase to −1.31 mm; the clearance, the roof allowance and
+the ribbon blank are unchanged (`instructions.md`, "What the print showed"). The ribbons and the
+sleeve are both reprinted. §2 of `instructions.md` draws each section's toothed side as a fitted
+spline through eleven points of the edge (`[SCREW-F-CELL-LOFT]`) and checks the slant's sign on
+the lofted cell. At those values in `proof/screwgear`:
+
+- `TestTeethTouchAlongALine` finds the touching ridge within 0.05 mm of the other flank over
+  2.67 mm at the least, 97% of it, at all 24 driving poses of a pitch, the ridges within 0.3° of
+  parallel and the normals within 1.0° of facing.
+- `TestPairDrivesOneToOne` finds a 1.063–1.103 mm window winding 1:1 with a 0.018 mm departure.
+- `TestPairDrivesUnderBorePlay` drives 100 of 100 pose pairs with the tips 0.35 mm short, the
+  touching ridge within 0.10 mm of the other flank over 1.39 mm at the least, and
+  `TestPairDrivesUnderSidewaysPlay` 16 of 16.
+
+**What it costs at the bores.** At 0° every bore passes through level inside the wall, at
+stations ±12.37 mm, so the printer bridges all four roofs, and only the `-R` bores carry the roof
+allowance; the `+R` bores' roofs are bridged with the 0.20 mm that closed up on the second
+sleeve. A roof allowance on both bores of each gear lets gear A move 0.344 mm toward gear B and
+gear B 0.344 mm away from gear A, instead of 0.200 mm, and over that play, in a scratch run of the full sample, 4 of
+100 pose pairs let the teeth pass and the least contact fell to 1.02 mm. Whether the `+R` bores
+pass the ribbons is the next print's to say.
+
+**Could the proof have caught it?** Yes, by the contact's length. Every quantity the analysis
+used was in the model when the straight tooth was printed; the proof asked only whether the two
+ribbons clear each other, and a point contact clears. `TestTeethTouchAlongALine` in
+`proof/screwgear/contact_test.go` now measures how much of the touching ridge lies near the
+other flank, and `TestStraightRidgesTouchAtAPoint` beside it holds that the check fails the
+printed tooth: no stretch of ridge within 0.05 mm, at most 0.13 mm within 0.10 mm, the ridges 76°
+and 79° apart.
 
 ## `[SCREW-F-DIAGNOSTIC]` — what the diagnostics of 2026-09-28 measured
 
@@ -292,25 +347,35 @@ one tooth at a time while never growing past one cell.
 ## `[SCREW-F-CELL-LOFT]` — one sketch of every section, one loft
 
 The tooth cell is `cellTeeth` teeth of ribbon, 4 at the defaults, lofted through `c*n + 1`
-rotated rectangles — 41 at the defaults, each rotated 1.91° further about the axis than the last
-and each a slightly different width. All of them are drawn in **one sketch**, on the gear's Axis
-Plane, and the loft is fed a path per section.
+rotated sections — 41 at the defaults, each rotated 1.91° further about the axis than the last.
+Each section is a rectangle whose toothed side is a fitted spline through eleven points of the
+leaned edge, since the third sleeve's print (`[SCREW-F-PRINT-3]`); until then it was four lines.
+All of them are drawn in **one sketch**, on the gear's Axis Plane, and the loft is fed a path
+per section.
 
-**The sketch.** Every corner is `sketch.sketchPoints.add(sketch.modelToSketchSpace(world))` with
+**The sketch.** Every point is `sketch.sketchPoints.add(sketch.modelToSketchSpace(world))` with
 the mapped point's `z` **kept**, which is the one place this build departs from
-`[PB-SKETCH-ZERO-Z]`: those corners are meant to lie off the plane, at every height above and
-below it, and the rule zeroes only a point that is meant to lie on it. The four lines of a
-section are `sketchLines.addByTwoPoints(corner, nextCorner)` sharing the points
-(`[PB-SHARE-XOR-COINCIDENT]`), and every point is set `isFixed = True` after the last line of
-the last section exists (`[PB-PROJECT-NOT-FIXED]` (b): fix after use). Draw it with
+`[PB-SKETCH-ZERO-Z]`: those points are meant to lie off the plane, at every height above and
+below it, and the rule zeroes only a point that is meant to lie on it. The three straight sides
+of a section are `sketchLines.addByTwoPoints(point, nextPoint)` sharing the points
+(`[PB-SHARE-XOR-COINCIDENT]`), and the toothed side is
+`sketch.sketchCurves.sketchFittedSplines.add(fitPoints)`, `fitPoints` an
+`adsk.core.ObjectCollection` of the side's eleven sketch points in order across the thickness,
+the two toothed corners at its ends (`instructions.md` §2 states the order, the checks and the
+signatures). Every point is set `isFixed = True` after the last curve of the last section exists
+(`[PB-PROJECT-NOT-FIXED]` (b): fix after use), each spline's `fitPoints` items included, since
+the reference does not say whether the spline keeps the points it was given. No tangent handle is
+activated. Draw it with
 `isComputeDeferred = True` from just after `sketches.add` until just after the last `isFixed`,
 then set it `False` (`[SCREW-F-DEFER]`). Fusion reads such a sketch fully constrained and finds
 one profile per section, each planar in its own station's plane — measured at 11, 41 and 81
-sections (`[SCREW-F-DIAGNOSTIC]`, `[PB-3D-SKETCH-SECTIONS]`). The build raises unless
-`isFullyConstrained` and unless `profiles.count == c*n + 1`; the profiles are not used, because
-nothing says which profile is which station, and the sections are made from the lines.
+sections of four lines (`[SCREW-F-DIAGNOSTIC]`, `[PB-3D-SKETCH-SECTIONS]`); a sketch of spline
+sections has not been loaded. The build raises unless `isFullyConstrained` and unless
+`profiles.count == c*n + 1`; the profiles are not used, because nothing says which profile is
+which station, and the sections are made from the curves.
 
-**The sections.** For section `k`, put its four lines in an `adsk.core.ObjectCollection` and
+**The sections.** For section `k`, put its four curves, line, spline, line, line, in an
+`adsk.core.ObjectCollection` and
 call `component.features.createPath(collection, False)` on the `Design` component, which owns
 the sketch (`[PB-PATH-FROM-SKETCH]`). `adsk.fusion.Path.create(collection, noChainedCurves)`
 raises `InternalValidationError` here, measured; do not fall back to it. Add the paths with

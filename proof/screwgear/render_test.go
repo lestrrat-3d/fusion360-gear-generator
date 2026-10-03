@@ -16,8 +16,9 @@ import (
 //
 // These are not proofs and they are skipped unless -render.out names a
 // directory. They live in the proof's own package because the alternative is a
-// second description of the same part: every section drawn here is Gear.section,
-// the same function the mesh proof samples, at the same defaults. A change that
+// second description of the same part: every section drawn here is Gear.outline,
+// whose toothed side is Gear.edgeAt, the same function the mesh proof samples,
+// at the same defaults. A change that
 // moves the proved geometry moves the pictures with it.
 //
 // The pair is drawn in the arrangement TestPairDrivesOneToOne passes at: gear B
@@ -37,6 +38,12 @@ var renderSettings = solidlens.Settings{Width: 1100, Height: 820}
 // has nothing to do with the sections the spec lofts a tooth from, which are
 // ten steps to the tooth at the defaults, 41 sections in a four-tooth cell.
 const renderStations = 16
+
+// renderEdgePoints is how many points across the thickness the toothed side
+// of each drawn section passes through. Thirteen put them 0.31 mm apart, so a
+// ridge leaning at the default slant moves 0.15 mm of station from one to the
+// next, under the 0.16 mm between drawn sections.
+const renderEdgePoints = 13
 
 var (
 	gearAColor = solidlens.RGB(0.29, 0.66, 0.72)
@@ -59,29 +66,36 @@ func ribbonMesh(g Gear, from, to float64) (*solidlens.Mesh, error) {
 		return nil, fmt.Errorf("a ribbon from %g to %g holds no section", from, to)
 	}
 
-	const corners = 4
+	// The toothed side leans across the thickness, so it is drawn through
+	// renderEdgePoints points of it rather than as one straight line.
+	const corners = renderEdgePoints + 2
 	vertices := make([]solidlens.Vec, 0, corners*(count+1))
 	for i := 0; i <= count; i++ {
-		for _, p := range g.section(from + float64(i)*step) {
+		for _, p := range g.outline(from+float64(i)*step, renderEdgePoints) {
 			vertices = append(vertices, solidlens.Vec{X: p.X, Y: p.Y, Z: p.Z})
 		}
 	}
 	at := func(station, corner int) int { return station*corners + corner%corners }
 
-	triangles := make([][3]int, 0, 2*corners*count+4)
+	// Each band between two sections is split along the diagonal from (i+1, j)
+	// to (i, j+1), which runs the way a ridge leans: toward the lower station as
+	// v grows. The other diagonal cuts across the ridges, and the folds it
+	// leaves draw as a fringe of short edges along every tooth.
+	triangles := make([][3]int, 0, 2*corners*count+2*corners)
 	for i := range count {
 		for j := range corners {
 			triangles = append(triangles,
-				[3]int{at(i, j), at(i, j+1), at(i+1, j+1)},
-				[3]int{at(i, j), at(i+1, j+1), at(i+1, j)})
+				[3]int{at(i, j), at(i, j+1), at(i+1, j)},
+				[3]int{at(i, j+1), at(i+1, j+1), at(i+1, j)})
 		}
 	}
-	// The caps, wound so each faces out of its own end.
-	triangles = append(triangles,
-		[3]int{at(0, 0), at(0, 2), at(0, 1)},
-		[3]int{at(0, 0), at(0, 3), at(0, 2)},
-		[3]int{at(count, 0), at(count, 1), at(count, 2)},
-		[3]int{at(count, 0), at(count, 2), at(count, 3)})
+	// The caps, fanned from the back corner at -T/2, which sees every point of
+	// the outline, and wound so each faces out of its own end.
+	for j := 1; j+1 < corners; j++ {
+		triangles = append(triangles,
+			[3]int{at(0, 0), at(0, j+1), at(0, j)},
+			[3]int{at(count, 0), at(count, j), at(count, j+1)})
+	}
 
 	return solidlens.NewMesh(vertices, triangles)
 }
@@ -126,10 +140,10 @@ func TestRenderMesh(t *testing.T) {
 	}
 	write(t, "mesh.png", parts, 8, -90, 26, meshA, meshB)
 
-	// And along the crossing from the other side, where the two tooth rows are
-	// seen to run at an angle to each other rather than along one line. That is
-	// what makes the contact a point rather than a line, and it is what the
-	// mounting angle is there to work around.
+	// And along the crossing from the other side, where the two tooth rows'
+	// ridges are seen leaning across each ribbon's thickness, so that where
+	// they meet they lie along each other and touch along a line
+	// (contact_test.go).
 	short := 0.6 * reach
 	nearA, err := ribbonMesh(ga, -short, short)
 	if err != nil {

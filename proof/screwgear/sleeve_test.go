@@ -265,9 +265,13 @@ func openingCorners(g Gear, sign float64) [4][2]float64 {
 // CollarHalf either side of its station, -1 for the -R bore and +1 for the +R
 // bore, the -R bore when the two tie. A long face runs along the section's u,
 // which stands theta from the gear's Ex, and Ex is along the frame's axis, so
-// the face is level where cos(theta) is zero. At the defaults the -R bore's
-// faces pass through level at station -14.30, inside the wall, and the +R
-// bore's come no nearer than 11.3 degrees, at the wall's inner end.
+// the face is level where cos(theta) is zero. At the defaults, both mounting
+// angles zero since 2026-10-03, both bores' faces pass through level inside the
+// wall, at stations -12.37 and +12.37, so the two tie and the -R bore takes the
+// allowance; the +R bore's roof is bridged with the clearance alone
+// (TestSleevePrintsStandingOnEitherEnd logs both). At the 14 degrees of the
+// third print the -R bore's faces passed through level at station -14.30 and
+// the +R bore's came no nearer than 11.3 degrees.
 func levelBore(g Gear) float64 {
 	p := g.P
 	tilt := func(sign float64) float64 {
@@ -303,10 +307,11 @@ func roofSide(g Gear, sign float64) float64 {
 // end of the ribbon to the other.
 func eachRibbonPoint(g Gear, step float64, fn func(pt r3.Vec, u, s float64)) {
 	from, to := g.span()
+	uLo, t := -g.P.Width/2, g.P.Thickness/2
 	for s := from; s <= to; s += step {
-		uHi, uLo, t := g.profile(s)
 		for i := range 5 {
 			v := -t + 2*t*float64(i)/4
+			uHi := g.edgeAt(v, s)
 			for _, u := range []float64{uHi, uLo, (uHi + uLo) / 2} {
 				fn(g.world(u, v, s), u, s)
 			}
@@ -433,7 +438,9 @@ func eachGrownEnvelopePoint(g Gear, grow, from, to, step float64, fn func(pt r3.
 // did not move. The section moved again the same day, when the second
 // sleeve's bridged -R roofs printed too tight and each gear's level bore took
 // a roof allowance on its roof face (spec/screwgear/fusion.md
-// [SCREW-F-PRINT-2]).
+// [SCREW-F-PRINT-2]). The angles moved again on 2026-10-03, from 123.1 and
+// -95.1 degrees, when both mounting angles went to zero with the leaned tooth
+// (spec/screwgear/fusion.md [SCREW-F-PRINT-3]).
 func TestSleeveBoresAreTheSameChannels(t *testing.T) {
 	f := defaultSleeve()
 	p := f.p
@@ -466,9 +473,9 @@ func TestSleeveBoresAreTheSameChannels(t *testing.T) {
 		t.Errorf("the bore twists at %.6f mm per radian, want %.6f", got, want)
 	}
 	for gi, g := range f.gears {
-		for _, c := range []struct{ station, deg float64 }{{15, 123.1}, {-15, -95.1}} {
-			if got := g.angle(c.station) * 180 / math.Pi; math.Abs(got-c.deg) > 0.05 {
-				t.Errorf("gear %d's bore at station %+.0f stands at %.2f degrees, want %.1f",
+		for _, c := range []struct{ station, deg float64 }{{15, 109.09}, {-15, -109.09}} {
+			if got := g.angle(c.station) * 180 / math.Pi; math.Abs(got-c.deg) > 0.005 {
+				t.Errorf("gear %d's bore at station %+.0f stands at %.2f degrees, want %.2f",
 					gi, c.station, got, c.deg)
 			}
 		}
@@ -669,8 +676,11 @@ func TestRibbonsStayInsideTheirBoresOverTheTravel(t *testing.T) {
 			g := b.g
 			g.Phase = b.g.Phase + d
 			for s := station - p.CollarHalf; s <= station+p.CollarHalf+1e-9; s += 0.02 {
-				uHi, uLo, vHalf := g.profile(s)
-				crest = math.Min(crest, hw-uHi)
+				uLo, vHalf := -p.Width/2, p.Thickness/2
+				for i := range toothSplinePoints {
+					v := -vHalf + 2*vHalf*float64(i)/float64(toothSplinePoints-1)
+					crest = math.Min(crest, hw-g.edgeAt(v, s))
+				}
 				back = math.Min(back, hw+uLo)
 				for _, side := range []float64{-1, 1} {
 					gap := vHi - vHalf
@@ -1557,9 +1567,9 @@ func TestSleeveInputsAreChecked(t *testing.T) {
 			p.CageRadius = p.CollarHalf + p.BoreCorner() + 0.02
 		}, refuseChannelInWall},
 		{"a 1.5 mm engagement", func(p *Params) { p.Engagement = 1.5 }, refuseMeshHidden},
-		{"a 17.5 mm rise", func(p *Params) { p.CageRise = 17.5 }, refuseEndWall},
-		{"a 4 mm CollarWall at a 70 degree crossing", func(p *Params) {
-			p.CollarWall, p.CrossAngle = 4, 70*math.Pi/180
+		{"a 16.5 mm rise", func(p *Params) { p.CageRise = 16.5 }, refuseEndWall},
+		{"a 4 mm CollarWall with a 0.55 mm clearance", func(p *Params) {
+			p.CollarWall, p.Clearance = 4, 0.55
 			p.CageRise = leastRise(*p)
 		}, refuseChannelsClose},
 	}
@@ -1594,19 +1604,19 @@ func TestSleeveInputsAreChecked(t *testing.T) {
 		t.Errorf("at a 1.5 mm engagement the engaged zone reaches %.2f mm, so a rule on the engaged zone "+
 			"alone refuses it too and the sleeve's own check is not what is reached", zone)
 	}
-	// And the rise check is not over-cautious there: at 17.5 mm the channels
+	// And the rise check is not over-cautious there: at 16.5 mm the channels
 	// really do leave less than CollarWall at the ends. The closed form is a
-	// bound, not the gap, so it also refuses the rises from about 17.55 mm up
-	// to its own 18.11 mm, which the channels would allow.
+	// bound, not the gap, so it also refuses the rises from about 16.81 mm up
+	// to its own 18.03 mm, which the channels would allow.
 	r := defaultParams()
-	r.CageRise = 17.5
+	r.CageRise = 16.5
 	ga, gb := pair(r, r.Sigma(), 0, assemblyPhase)
 	topReach, _ := newSleeve(ga, gb).channelTop()
 	if wall := r.CageRise - topReach; wall >= r.CollarWall {
-		t.Errorf("at a 17.5 mm rise the channels leave %.3f mm of end wall, which is enough; the refusal "+
+		t.Errorf("at a 16.5 mm rise the channels leave %.3f mm of end wall, which is enough; the refusal "+
 			"is stricter than the geometry", wall)
 	} else {
-		t.Logf("at a 17.5 mm rise the channels leave %.3f mm of end wall", wall)
+		t.Logf("at a 16.5 mm rise the channels leave %.3f mm of end wall", wall)
 	}
 	// The separation is a bound under the distance nearestChannels measures,
 	// and at the defaults it clears CollarWall with room to spare.
@@ -1628,8 +1638,8 @@ func TestSleeveInputsAreChecked(t *testing.T) {
 // The four bores sit round the tube at azimuths Sigma/2 and 180 - Sigma/2 on
 // the +Y side and at their images under the half turn about X on the -Y side:
 // 40, 140, 220 and 320 degrees at the defaults. Across +X and -X neighbouring
-// bores are Sigma apart, and their channels come within 7.35 and 5.24 mm of
-// each other, which is less than a CollarWall either side of any window.
+// bores are Sigma apart, and their channels come within 5.07 mm of each other
+// across -X, which is less than a CollarWall either side of any window.
 // Across +Y and -Y they are 180 - Sigma apart, one bore low and the other
 // high, and the wall between them is a band that runs at about 45 degrees from
 // above the low bore down to below the high one. Each window is cut along that
@@ -2201,7 +2211,7 @@ func (w sleeveWindow) room() string {
 // clear CollarWall by windowSlack, which is what the sampling can miss.
 //
 // The window stays inside the height the channels reach, so the end bands keep
-// the 4.21 mm end wall the channels leave; every edge of the hexagon is upright
+// the 4.94 mm end wall the channels leave; every edge of the hexagon is upright
 // or at 45 degrees or steeper; and where a window's face meets the tube's inner
 // or outer face the material comes to an edge no sharper than the bores'
 // mouths are held to.
@@ -2730,35 +2740,36 @@ func windowSizes() []sleeveSize {
 	for _, v := range []float64{40, 60} {
 		add(fmt.Sprintf("twist lead %g", v), func(p *Params) { p.TwistLead = v })
 	}
-	for _, v := range []float64{14.5, 17, 20, 25} {
+	for _, v := range []float64{14.75, 17, 20, 25} {
 		add(fmt.Sprintf("cage radius %g", v), func(p *Params) { p.CageRadius = v })
 	}
 	for _, v := range []float64{18.5, 25} {
 		add(fmt.Sprintf("cage rise %g", v), func(p *Params) { p.CageRise = v })
 	}
-	for _, v := range []float64{0.45, 0.9} {
+	for _, v := range []float64{0.45, 0.55} {
 		add(fmt.Sprintf("clearance %g", v), func(p *Params) { p.Clearance = v })
 	}
-	for _, v := range []float64{2, 3.5} {
+	for _, v := range []float64{2, 3.25} {
 		add(fmt.Sprintf("collar half length %g", v), func(p *Params) { p.CollarHalf = v })
 	}
 	for _, v := range []float64{2, 4, 5} {
 		add(fmt.Sprintf("collar wall %g", v), func(p *Params) { p.CollarWall = v })
 	}
-	for _, v := range []float64{70, 90, 100, 120} {
+	for _, v := range []float64{70, 90, 100, 110} {
 		add(fmt.Sprintf("crossing angle %g", v), func(p *Params) { p.CrossAngle = v * math.Pi / 180 })
 	}
 	add("mounting angles 0 and 30", func(p *Params) { p.MountAngleA, p.MountAngleB = 0, 30*math.Pi/180 })
-	add("collar wall 4, clearance 0.9", func(p *Params) { p.CollarWall, p.Clearance = 4, 0.9 })
-	add("collar wall 4, cage radius 14.5", func(p *Params) { p.CollarWall, p.CageRadius = 4, 14.5 })
+	add("collar wall 4, clearance 0.55", func(p *Params) { p.CollarWall, p.Clearance = 4, 0.55 })
+	add("collar wall 4, cage radius 14.75", func(p *Params) { p.CollarWall, p.CageRadius = 4, 14.75 })
 	add("collar wall 4, crossing angle 70", func(p *Params) { p.CollarWall, p.CrossAngle = 4, 70*math.Pi/180 })
 	return out
 }
 
 // quickWindowSizes are the inputs of windowSizes TestSleeveWindowsFollowTheSize
 // builds unless SCREWGEAR_FULL=1. Each stands for one thing the spread holds:
-//   - everything scaled by 2/3, the smallest sleeve, for the scaled inputs;
-//   - a 120 degree crossing, past a right angle, where the windows face ±X
+//   - everything scaled by 0.75, the smallest sleeve the build accepts, for
+//     the scaled inputs;
+//   - a 110 degree crossing, past a right angle, where the windows face ±X
 //     rather than ±Y;
 //   - a 5 mm CollarWall, the thickest the spread tries on its own, so the
 //     wall each window keeps from every bore is the thickest of the spread;
@@ -2766,11 +2777,11 @@ func windowSizes() []sleeveSize {
 //     are the only refusals in the spread and so the only inputs that reach
 //     channelSeparation's refusal.
 var quickWindowSizes = []string{
-	"everything scaled by 0.667",
-	"crossing angle 120",
+	"everything scaled by 0.75",
+	"crossing angle 110",
 	"collar wall 5",
-	"collar wall 4, clearance 0.9",
-	"collar wall 4, crossing angle 70",
+	"everything scaled by 0.667",
+	"collar wall 4, clearance 0.55",
 }
 
 // quickSizes picks quickWindowSizes out of sizes, and fails the test when one

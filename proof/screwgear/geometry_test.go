@@ -9,13 +9,16 @@
 // two lofted solids would be a tangency decad's exact predicates refuse to
 // classify. Nothing here goes through decad or sketch for that reason.
 //
-// The part this proves is the ideal ribbon: an exact cosine edge on an exact
-// helicoid. The part Fusion builds lofts a four-tooth cell through 41 rotated
-// rectangles at the defaults and repeats it by a screw step;
-// TestLoftSectionCountHoldsTheHelicoid bounds what a ruled loft through those
-// sections would lose, and a Fusion measurement on 2026-09-28
-// (spec/screwgear/fusion.md [SCREW-F-CELL-LOFT]) put the built smooth surface
-// within 0.04 mm of the helicoid between sections.
+// The part this proves is the ideal ribbon: an exact leaned cosine edge on an
+// exact helicoid. The part Fusion builds lofts a four-tooth cell through 41
+// rotated sections at the defaults, each a rectangle whose toothed side is a
+// fitted spline through eleven points of the edge across the thickness, and
+// repeats it by a screw step. TestLoftSectionCountHoldsTheHelicoid bounds what a
+// ruled loft through those sections would lose and TestToothSplineHoldsTheEdge
+// what a spline through those eleven points would; a Fusion measurement on
+// 2026-09-28 (spec/screwgear/fusion.md [SCREW-F-CELL-LOFT]) put the built smooth
+// surface within 0.04 mm of the helicoid between sections, at the straight
+// tooth of that day.
 package screwgear_test
 
 import (
@@ -41,6 +44,16 @@ type Params struct {
 	Engagement  float64 // how deep the crests overlap
 	ToothCount  int
 
+	// ToothSlant leans the tooth ridges across the thickness: the cosine's
+	// phase moves by tan(ToothSlant) per millimetre of v, so a ridge runs from
+	// (v, s) to (v + dv, s - tan(ToothSlant)*dv) in the section's own (u, v, s)
+	// chart. Zero is the straight ridge every print before 2026-10-03 carried.
+	ToothSlant float64
+	// ToothBow lowers the toothed edge by ToothBow*v^2, in mm per mm^2, so a
+	// ridge that leans along the axis runs straight in the world instead of
+	// bowing with the twist (TestToothRidgesRunStraight).
+	ToothBow float64
+
 	CageRadius float64 // where each ribbon crosses the frame, on its own axis from the middle
 	CageRise   float64 // half the sleeve's height, to its flat end faces
 	CollarHalf float64 // half the sleeve's wall, which each bore runs through
@@ -58,8 +71,8 @@ type Params struct {
 // CageRise is half the sleeve's height, to its flat end faces. The video
 // frame's 20.25 mm, measured to the centre of its ring's wire, would cost 3 mm
 // of print height for 1.5 mm more end wall and nothing else; 18.75 mm, 1.25
-// widths, leaves the 4.21 mm end wall TestSleeveIsOnePiece measures, against
-// the 17.54 mm the channels need for a CollarWall of end wall and the 18.11 mm
+// widths, leaves the 4.94 mm end wall TestSleeveIsOnePiece measures, against
+// the 16.81 mm the channels need for a CollarWall of end wall and the 18.03 mm
 // the build's closed form asks for.
 //
 // Clearance, Engagement and the two mounting angles changed on 2026-10-02,
@@ -72,6 +85,13 @@ type Params struct {
 // to pass the ribbons, and the +R bores, at the same 0.20 mm, did not
 // (spec/screwgear/fusion.md [SCREW-F-PRINT-2]). The 0.30 mm is the least the
 // user asked for, and it puts 0.50 mm of room under the bridged roof.
+//
+// ToothSlant and ToothBow came in on 2026-10-03, with the mounting angles
+// moved from 14 degrees to 0 and the engagement from 0.90 mm to 1.05 mm: the
+// third sleeve's bores fitted and its teeth still slipped, because the
+// straight ridges of the two ribbons crossed at 74 to 80 degrees where they
+// touched and met at a point (contact_test.go, spec/screwgear/fusion.md
+// [SCREW-F-PRINT-3]). thirdPrintParams is the table that print was made at.
 func defaultParams() Params {
 	return Params{
 		Width:       15,
@@ -80,10 +100,12 @@ func defaultParams() Params {
 		ToothPitch:  2.625,
 		TwistLead:   49.5,
 		CrossAngle:  80 * math.Pi / 180,
-		MountAngleA: 14 * math.Pi / 180,
-		MountAngleB: 14 * math.Pi / 180,
-		Engagement:  0.90,
+		MountAngleA: 0,
+		MountAngleB: 0,
+		Engagement:  1.05,
 		ToothCount:  68,
+		ToothSlant:  25.8 * math.Pi / 180,
+		ToothBow:    0.048,
 
 		CageRadius: 15,
 		CageRise:   18.75,
@@ -94,6 +116,22 @@ func defaultParams() Params {
 		RoofAllowance: 0.30,
 	}
 }
+
+// thirdPrintParams is the table the third sleeve and the ribbons in it were
+// printed at, the defaults until 2026-10-03: the straight-ridge tooth, 14
+// degrees on both mounting angles and a 0.90 mm engagement, with the bores of
+// today, and gear B built at thirdPrintPhase.
+func thirdPrintParams() Params {
+	p := defaultParams()
+	p.ToothSlant, p.ToothBow = 0, 0
+	p.MountAngleA = 14 * math.Pi / 180
+	p.MountAngleB = 14 * math.Pi / 180
+	p.Engagement = 0.90
+	return p
+}
+
+// thirdPrintPhase is the assembly phase of thirdPrintParams.
+const thirdPrintPhase = -1.30
 
 // sleeveParams is defaultParams under the name the compiled step proof calls.
 func sleeveParams() Params { return defaultParams() }
@@ -132,11 +170,12 @@ func (p Params) Beta() float64 { return math.Atan(math.Pi * p.Width / p.TwistLea
 //
 // It is an input, not a derivation. The crossed-helical rule makes 2*Beta the
 // angle at which the two crest helices run parallel, and that is where the
-// search starts. At the defaults, 2*Beta (87.2 degrees) departs from the 1:1
-// line by 0.120 mm, 4.6% of the pitch, and 90 degrees by 0.166 mm, 6.3%, past
-// TestPairDrivesOneToOne's bound of 6% of the pitch; 80 degrees departs by
-// 0.042 mm, 1.6%. The search chose 80 degrees at the arrangement before
-// 2026-10-02, where 90 degrees departed by 7.4% and 80 degrees by 2.4%.
+// search starts. The search chose 80 degrees at the arrangement before
+// 2026-10-02, where 90 degrees departed from the 1:1 line by 7.4% of the pitch,
+// past TestPairDrivesOneToOne's bound of 6%, and 80 degrees by 2.4%. The
+// leaned tooth of 2026-10-03 was fitted to 80 degrees, and there it departs by
+// 0.018 mm, 0.7%; with nothing else moved, 2*Beta (87.2 degrees) departs by
+// 0.037 mm, 1.4%, and 90 degrees by 0.048 mm, 1.8%.
 // TestCrossedHelicalRuleMakesTheCrestHelicesParallel still holds the rule;
 // this is the angle the pair is actually built at.
 func (p Params) Sigma() float64 { return p.CrossAngle }
@@ -209,6 +248,8 @@ type Gear struct {
 	Mount      float64 // this gear's own cross-section angle where the axes cross
 	Phase      float64 // the tooth phase, and the only thing the motion moves
 	Blunt      float64 // how far a printed tip falls short of the crest; zero is the model's tooth
+	Slant      float64 // tan(ToothSlant): the cosine's phase moves this much per mm of v
+	Bow        float64 // ToothBow: the edge falls Bow*v^2 below the cosine
 }
 
 func (g Gear) lambda() float64 { return g.Hand * g.P.Lambda() }
@@ -216,14 +257,16 @@ func (g Gear) lambda() float64 { return g.Hand * g.P.Lambda() }
 // angle is the cross-section's rotation about the axis at station s.
 func (g Gear) angle(s float64) float64 { return s/g.lambda() + g.Mount }
 
-// edge is the toothed edge's u coordinate at station s: a pure cosine, crest at
-// Width/2 and root at Width/2 - ToothHeight. A blunted gear is the same cosine
-// cut flat Blunt under the crest, which is how bore_play_test.go stands in for
-// a printed tip that came out rounded or short; every other gear has Blunt 0
-// and is the exact cosine.
-func (g Gear) edge(s float64) float64 {
+// edgeAt is the toothed edge's u coordinate at (v, s): a cosine whose phase
+// moves by Slant per millimetre of v, so its ridges lean across the thickness,
+// lowered by Bow*v^2. Crest at Width/2 on the mid plane, root at
+// Width/2 - ToothHeight, and both Bow*(Thickness/2)^2 lower at the faces. A
+// blunted gear is the same edge cut flat Blunt under the crest, which is how
+// bore_play_test.go stands in for a printed tip that came out rounded or short;
+// every other gear has Blunt 0 and is the exact edge.
+func (g Gear) edgeAt(v, s float64) float64 {
 	h := g.P.ToothHeight
-	e := g.P.Width/2 - h/2 + h/2*math.Cos(2*math.Pi*(s-g.Phase)/g.P.ToothPitch)
+	e := g.P.Width/2 - h/2 + h/2*math.Cos(2*math.Pi*(s+g.Slant*v-g.Phase)/g.P.ToothPitch) - g.Bow*v*v
 	return math.Min(e, g.P.Width/2-g.Blunt)
 }
 
@@ -231,19 +274,11 @@ func (g Gear) edge(s float64) float64 {
 // phase: the crest rectangle. It is the same at every station, because some
 // phase of the travel puts a crest at every station, and it is what the frame
 // has to clear, since a gear is somewhere in its travel whenever it is in the
-// frame at all.
+// frame at all. The edge reaches Width/2 on the mid plane and falls short of it
+// by Bow*v^2 elsewhere, so the rectangle holds it with no room to spare at v = 0.
 func (g Gear) envelope() (uHi, uLo, vHalf float64) {
 	p := g.P
 	return p.Width / 2, -p.Width / 2, p.Thickness / 2
-}
-
-// profile is the ribbon's cross-section at station s: how far it reaches on the
-// toothed side, on the back side, and either side of its own mid plane. The
-// ribbon is the same twisted rack along its whole length, so only the toothed
-// side varies, and it does so with the tooth phase alone.
-func (g Gear) profile(s float64) (uHi, uLo, vHalf float64) {
-	p := g.P
-	return g.edge(s), -p.Width / 2, p.Thickness / 2
 }
 
 // span is the stretch of the axis the ribbon occupies at its current tooth
@@ -295,7 +330,7 @@ func (g Gear) world(u, v, s float64) r3.Vec {
 // window that can reach the other gear, which is far shorter than the ribbon.
 func (g Gear) margin(pt r3.Vec) float64 {
 	u, v, s := g.local(pt)
-	uHi, uLo, vHalf := g.profile(s)
+	uHi, uLo, vHalf := g.edgeAt(v, s), -g.P.Width/2, g.P.Thickness/2
 	m := uHi - u
 	if b := u - uLo; b < m {
 		m = b
@@ -307,15 +342,34 @@ func (g Gear) margin(pt r3.Vec) float64 {
 }
 
 // section is the cross-section at station s, as its four corners in world
-// space, wound counter-clockwise about +Ez.
+// space, wound counter-clockwise about +Ez. The toothed side between the two
+// toothed corners is not a straight line; outline draws it.
 func (g Gear) section(s float64) [4]r3.Vec {
-	uHi, uLo, t := g.profile(s)
+	uLo, t := -g.P.Width/2, g.P.Thickness/2
 	return [4]r3.Vec{
 		g.world(uLo, -t, s),
-		g.world(uHi, -t, s),
-		g.world(uHi, t, s),
+		g.world(g.edgeAt(-t, s), -t, s),
+		g.world(g.edgeAt(t, s), t, s),
 		g.world(uLo, t, s),
 	}
+}
+
+// toothSplinePoints is how many points the build fits each section's toothed
+// side through, evenly across the thickness, ends included (spec §2).
+const toothSplinePoints = 11
+
+// outline is the cross-section at station s as a polygon wound like section:
+// the back corner at -T/2, the toothed side at n points from v = -T/2 to +T/2,
+// and the back corner at +T/2.
+func (g Gear) outline(s float64, n int) []r3.Vec {
+	uLo, t := -g.P.Width/2, g.P.Thickness/2
+	out := make([]r3.Vec, 0, n+2)
+	out = append(out, g.world(uLo, -t, s))
+	for i := range n {
+		v := -t + 2*t*float64(i)/float64(n-1)
+		out = append(out, g.world(g.edgeAt(v, s), v, s))
+	}
+	return append(out, g.world(uLo, t, s))
 }
 
 // crestTangent is the direction of the helix the tooth crests lie on, at
@@ -343,20 +397,24 @@ func pair(p Params, sigma, phaseA, phaseB float64) (Gear, Gear) {
 	ax := r3.NewVec(0, 0, 1)  // gear A looks up at gear B
 	bx := r3.NewVec(0, 0, -1) // gear B looks down at gear A
 
+	slant := math.Tan(p.ToothSlant)
 	ga := Gear{P: p, Origin: r3.NewVec(0, 0, -a/2), Ex: ax, Ez: az, Hand: 1,
-		Mount: p.MountAngleA, Phase: phaseA}
+		Mount: p.MountAngleA, Phase: phaseA, Slant: slant, Bow: p.ToothBow}
 	ga.Ey = ga.Ez.Cross(ga.Ex)
 	gb := Gear{P: p, Origin: r3.NewVec(0, 0, a/2), Ex: bx, Ez: bz, Hand: 1,
-		Mount: p.MountAngleB, Phase: phaseB}
+		Mount: p.MountAngleB, Phase: phaseB, Slant: slant, Bow: p.ToothBow}
 	gb.Ey = gb.Ez.Cross(gb.Ex)
 	return ga, gb
 }
 
 // assemblyPhase is the tooth phase gear B is built at, with gear A at zero. It
-// is not half a pitch: the two gears are mounted at different cross-section
-// angles, so the phase that puts a crest against a root is its own number.
-// TestAssemblyPhaseSitsInTheFreeWindow holds it to the middle of the play.
-const assemblyPhase = -1.30
+// is not half a pitch: the two ribbons cross at an angle and their ridges lean,
+// so the phase that puts a crest against a root is its own number. At the
+// defaults the free window at A's zero runs from -1.850 to -0.775 mm by
+// bisection, whose middle is -1.3125; TestAssemblyPhaseSitsInTheFreeWindow
+// holds it to the middle of the play. It was -1.30 mm at the straight tooth
+// until 2026-10-03.
+const assemblyPhase = -1.31
 
 // defaultPair is the arrangement the spec's default table describes.
 func defaultPair() (Gear, Gear) {
@@ -367,25 +425,40 @@ func defaultPair() (Gear, Gear) {
 func TestToothProfileIsACosineOfTheStatedHeight(t *testing.T) {
 	g, _ := defaultPair()
 	p := g.P
+	th := p.Thickness / 2
 
-	if got, want := g.edge(0), p.Width/2; math.Abs(got-want) > 1e-12 {
+	if got, want := g.edgeAt(0, 0), p.Width/2; math.Abs(got-want) > 1e-12 {
 		t.Errorf("crest at the tooth phase is %.6f mm from the axis, want %.6f", got, want)
 	}
-	if got, want := g.edge(p.ToothPitch/2), p.Width/2-p.ToothHeight; math.Abs(got-want) > 1e-12 {
+	if got, want := g.edgeAt(0, p.ToothPitch/2), p.Width/2-p.ToothHeight; math.Abs(got-want) > 1e-12 {
 		t.Errorf("root half a pitch on is %.6f mm from the axis, want %.6f", got, want)
 	}
-	for _, s := range []float64{0, 0.7, 1.9, 3.2} {
-		if got, want := g.edge(s+p.ToothPitch), g.edge(s); math.Abs(got-want) > 1e-12 {
-			t.Errorf("edge at s=%.2f repeats as %.6f one pitch on, want %.6f", s, got, want)
+	for _, v := range []float64{-th, -0.6, 0, 1.1, th} {
+		for _, s := range []float64{0, 0.7, 1.9, 3.2} {
+			if got, want := g.edgeAt(v, s+p.ToothPitch), g.edgeAt(v, s); math.Abs(got-want) > 1e-12 {
+				t.Errorf("edge at v=%.2f s=%.2f repeats as %.6f one pitch on, want %.6f", v, s, got, want)
+			}
+			// The ridge leans: the edge at v is the mid-plane edge Slant*v further
+			// along s, lowered by Bow*v^2.
+			if got, want := g.edgeAt(v, s), g.edgeAt(0, s+g.Slant*v)-g.Bow*v*v; math.Abs(got-want) > 1e-12 {
+				t.Errorf("edge at v=%.2f s=%.2f is %.6f, want the mid plane's %.6f", v, s, got, want)
+			}
 		}
 	}
-	// Nothing on the edge ever passes the crest or falls below the root.
-	for i := range 400 {
-		s := float64(i) * p.ToothPitch / 400
-		if e := g.edge(s); e > p.Width/2+1e-12 || e < p.Width/2-p.ToothHeight-1e-12 {
-			t.Fatalf("edge at s=%.4f is %.6f, outside [%.6f, %.6f]",
-				s, e, p.Width/2-p.ToothHeight, p.Width/2)
+	// Nothing on the edge ever passes the crest or falls below the root less
+	// the bow at the faces.
+	floor := p.Width/2 - p.ToothHeight - p.ToothBow*th*th
+	for j := range 9 {
+		v := -th + 2*th*float64(j)/8
+		for i := range 400 {
+			s := float64(i) * p.ToothPitch / 400
+			if e := g.edgeAt(v, s); e > p.Width/2+1e-12 || e < floor-1e-12 {
+				t.Fatalf("edge at v=%.3f s=%.4f is %.6f, outside [%.6f, %.6f]", v, s, e, floor, p.Width/2)
+			}
 		}
+	}
+	if got := math.Atan(g.Slant) * 180 / math.Pi; math.Abs(got-25.8) > 1e-9 {
+		t.Errorf("the ridges lean %.4f degrees in the chart, the spec's default is 25.8", got)
 	}
 }
 
@@ -401,10 +474,13 @@ func tangencyStation(g Gear) float64 { return -g.Mount * g.lambda() }
 //
 // They run parallel at ONE station on each ribbon — the one whose cross-section
 // angle is zero — and not along the whole engagement. Everywhere else the two
-// crest helices cross, which is why this pair carries a point contact like a
-// crossed-helical pair rather than the line contact a spur pair has, and why
-// the mounting angle does not spoil the rule: it moves that station along the
-// ribbon instead of destroying it.
+// crest helices cross, and the mounting angle does not spoil the rule: it
+// moves that station along the ribbon instead of destroying it. The crest
+// helices are not the ridges, though: a ridge runs across the thickness, and
+// the straight ridge every print before 2026-10-03 carried crossed the other
+// ribbon's at 74 to 80 degrees and touched it at a point. The leaned ridge of
+// ToothSlant lies along the other ribbon's where they touch, which is what
+// makes the contact a line (contact_test.go).
 func TestCrossedHelicalRuleMakesTheCrestHelicesParallel(t *testing.T) {
 	p := defaultParams()
 	p.MountAngleA, p.MountAngleB = 0, 0
@@ -483,30 +559,32 @@ func TestRibbonIsInvariantUnderItsScrewStep(t *testing.T) {
 		t.Errorf("a point carried by one screw step misses its own image by %.3e mm, want 0", worst)
 	}
 
-	// The blank is invariant, and so is the body cut from it: the cross-section
-	// one pitch on is the same rectangle, teeth included, so the four corners of
-	// a section carried by the step land on the corners of the next cell's
-	// section. This is the claim the build rests on when it copies one cell and
-	// screw-moves the copy: every placement is exact because the body is the
-	// same at every cell, not just the twist.
+	// The blank is invariant, and so is the body cut from it: the toothed edge
+	// one pitch on is the same at every v, so the cross-section one pitch on is
+	// the same outline, leaned teeth included, and the corners of a section
+	// carried by the step land on the corners of the next cell's section. This
+	// is the claim the build rests on when it copies one cell and screw-moves
+	// the copy: every placement is exact because the body is the same at every
+	// cell, not just the twist.
 	worst = 0
 	for i := range 240 {
 		s := float64(i) * p.ToothPitch / 24
-		uHi, uLo, vHalf := g.profile(s)
-		nHi, nLo, nHalf := g.profile(s + p.ToothPitch)
-		if d := math.Max(math.Abs(uHi-nHi), math.Max(math.Abs(uLo-nLo), math.Abs(vHalf-nHalf))); d > 1e-12 {
-			t.Fatalf("the cross-section at s=%.3f is (%.6f, %.6f, %.6f) and one pitch on it is "+
-				"(%.6f, %.6f, %.6f): the body is not one cell repeated", s, uHi, uLo, vHalf, nHi, nLo, nHalf)
+		for j := range toothSplinePoints {
+			v := -p.Thickness/2 + p.Thickness*float64(j)/float64(toothSplinePoints-1)
+			if here, next := g.edgeAt(v, s), g.edgeAt(v, s+p.ToothPitch); math.Abs(here-next) > 1e-12 {
+				t.Fatalf("the toothed edge at v=%.3f s=%.3f is %.6f and one pitch on it is %.6f: the body "+
+					"is not one cell repeated", v, s, here, next)
+			}
 		}
-		here, next := g.section(s), g.section(s+p.ToothPitch)
-		for k := range 4 {
+		here, next := g.outline(s, toothSplinePoints), g.outline(s+p.ToothPitch, toothSplinePoints)
+		for k := range here {
 			if d := step.Apply(here[k]).Sub(next[k]).Len(); d > worst {
 				worst = d
 			}
 		}
 	}
 	if worst > 1e-9 {
-		t.Errorf("a section corner carried by one screw step misses the next cell's corner by %.3e mm, want 0", worst)
+		t.Errorf("a section point carried by one screw step misses the next cell's by %.3e mm, want 0", worst)
 	}
 
 	// The same statement seen from the motion: advancing the gear by one pitch
@@ -515,8 +593,10 @@ func TestRibbonIsInvariantUnderItsScrewStep(t *testing.T) {
 	moved.Phase = g.Phase + p.ToothPitch
 	for i := range 100 {
 		s := float64(i) * p.ToothPitch / 10
-		if got, want := moved.edge(s), g.edge(s); math.Abs(got-want) > 1e-12 {
-			t.Fatalf("one pitch of advance moves the edge at s=%.3f from %.6f to %.6f", s, want, got)
+		for _, v := range []float64{-p.Thickness / 2, 0, p.Thickness / 2} {
+			if got, want := moved.edgeAt(v, s), g.edgeAt(v, s); math.Abs(got-want) > 1e-12 {
+				t.Fatalf("one pitch of advance moves the edge at v=%.2f s=%.3f from %.6f to %.6f", v, s, want, got)
+			}
 		}
 	}
 }
@@ -531,7 +611,8 @@ func TestRibbonIsInvariantUnderItsScrewStep(t *testing.T) {
 // at any twist and under a fifth of the backlash at the defaults. It was under
 // a tenth until the looser fit of 2026-10-02 narrowed the backlash from 0.82 to
 // 0.46 mm without changing the printed ribbon, and so without changing the
-// sections (spec/screwgear/fusion.md [SCREW-F-PRINT-MESH]). The floor is
+// sections (spec/screwgear/fusion.md [SCREW-F-PRINT-MESH]); the leaned tooth of
+// 2026-10-03 widened it to 1.08 mm, where the chord is 6% of it. The floor is
 // what holds the chord where the twist is slow, so the leads swept here reach
 // well past the one the count stops growing at.
 //

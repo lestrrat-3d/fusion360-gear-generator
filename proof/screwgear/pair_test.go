@@ -1,7 +1,9 @@
 package screwgear_test
 
 import (
+	"fmt"
 	"math"
+	"sync"
 	"testing"
 
 	"github.com/lestrrat-3d/r3"
@@ -9,8 +11,9 @@ import (
 
 // measuredBacklash is the free play the default arrangement leaves, in mm. It
 // is what a printed pair is judged by, and geometry_test.go measures the loft's
-// section count against it.
-const measuredBacklash = 0.46
+// section count against it. It was 0.46 mm at the straight tooth, 14 degrees
+// and a 0.90 mm engagement until 2026-10-03.
+const measuredBacklash = 1.08
 
 // The bounds the mesh is held to are fractions of the pitch, not lengths. The
 // model is an exact cosine on an exact helicoid, so a pair scaled by k has its
@@ -64,16 +67,18 @@ func withPhase(g Gear, z float64) Gear { g.Phase = z; return g }
 func eachBoundarySample(g Gear, window float64, fn func(p r3.Vec, u, s float64)) {
 	w, t := g.P.Width/2, g.P.Thickness/2
 	for s := -window; s <= window; s += stationStep {
-		e := g.edge(s)
 		for i := 0; i <= edgeSamples; i++ {
 			v := -t + 2*t*float64(i)/float64(edgeSamples)
+			e := g.edgeAt(v, s)
 			fn(g.world(e, v, s), e, s)
 			fn(g.world(-w, v, s), -w, s)
 		}
+		eHi, eLo := g.edgeAt(t, s), g.edgeAt(-t, s)
 		for i := 0; i <= faceSamples; i++ {
-			u := -w + (e+w)*float64(i)/float64(faceSamples)
-			fn(g.world(u, t, s), u, s)
-			fn(g.world(u, -t, s), u, s)
+			k := float64(i) / float64(faceSamples)
+			uHi, uLo := -w+(eHi+w)*k, -w+(eLo+w)*k
+			fn(g.world(uHi, t, s), uHi, s)
+			fn(g.world(uLo, -t, s), uLo, s)
 		}
 	}
 }
@@ -124,16 +129,16 @@ func clearAt(ga, gb Gear, za, zb float64) bool {
 func reachesInto(from, into Gear, window float64) bool {
 	w, t := from.P.Width/2, from.P.Thickness/2
 	for s := -window; s <= window; s += stationStep {
-		e := from.edge(s)
 		for i := 0; i <= edgeSamples; i++ {
 			v := -t + 2*t*float64(i)/float64(edgeSamples)
-			if into.margin(from.world(e, v, s)) > 0 || into.margin(from.world(-w, v, s)) > 0 {
+			if into.margin(from.world(from.edgeAt(v, s), v, s)) > 0 || into.margin(from.world(-w, v, s)) > 0 {
 				return true
 			}
 		}
+		eHi, eLo := from.edgeAt(t, s), from.edgeAt(-t, s)
 		for i := 0; i <= faceSamples; i++ {
-			u := -w + (e+w)*float64(i)/float64(faceSamples)
-			if into.margin(from.world(u, t, s)) > 0 || into.margin(from.world(u, -t, s)) > 0 {
+			k := float64(i) / float64(faceSamples)
+			if into.margin(from.world(-w+(eHi+w)*k, t, s)) > 0 || into.margin(from.world(-w+(eLo+w)*k, -t, s)) > 0 {
 				return true
 			}
 		}
@@ -142,7 +147,16 @@ func reachesInto(from, into Gear, window float64) bool {
 }
 
 // freeWindow returns the interval of gear B's tooth phase that clears gear A,
-// taken as the one containing seed or the nearest one to it.
+// taken as the one containing seed or the nearest one to it, with its ends on
+// the grid of P/phaseStep steps from the seed and at most a pitch from it.
+//
+// Each end is found by doubling the step count outward from the seed while
+// the pair stays clear and then bisecting between the last clear count and
+// the first blocked one. That is the end a walk outward one step at a time
+// finds whenever the phases that clear form one interval, which they do: a
+// blocked phase between two clear ones would be a jam B passes through. It
+// asks clearAt about 14 times an end rather than once a step, and the windows
+// here run to 80 steps and more.
 func freeWindow(ga, gb Gear, za, seed float64) (lo, hi float64, ok bool) {
 	p := ga.P.ToothPitch
 	step := p / phaseStep
@@ -162,15 +176,77 @@ func freeWindow(ga, gb Gear, za, seed float64) (lo, hi float64, ok bool) {
 			return 0, 0, false
 		}
 	}
-	lo, hi = seed, seed
-	for lo > seed-p && clear(lo-step) {
-		lo -= step
-	}
-	for hi < seed+p && clear(hi+step) {
-		hi += step
-	}
-	return lo, hi, true
+	return lastClear(clear, seed, -step), lastClear(clear, seed, step), true
 }
+
+// lastClear is the last of seed + k*step, for k from 0 to phaseStep, before
+// the first that is not clear, given that seed is clear.
+func lastClear(clear func(float64) bool, seed, step float64) float64 {
+	good, bad := 0, -1
+	for k := 1; ; k *= 2 {
+		k = min(k, phaseStep)
+		if !clear(seed + float64(k)*step) {
+			bad = k
+			break
+		}
+		good = k
+		if k == phaseStep {
+			return seed + float64(good)*step
+		}
+	}
+	for bad-good > 1 {
+		mid := (good + bad) / 2
+		if clear(seed + float64(mid)*step) {
+			good = mid
+		} else {
+			bad = mid
+		}
+	}
+	return seed + float64(good)*step
+}
+
+// phaseWindow is the free window of B's tooth phase, [lo, hi], at A's tooth
+// phase za.
+type phaseWindow struct{ za, lo, hi float64 }
+
+// windowTrack is the free window followed through one pitch of A: the window
+// at A's phase 0, found from B's own phase, and then one at each of
+// phaseSamples equal steps of A, each found from the middle of the one before.
+// failure is why the walk stopped, or "" when it went the whole pitch.
+type windowTrack struct {
+	windows []phaseWindow
+	failure string
+}
+
+func trackWindows(ga, gb Gear) windowTrack {
+	pitch := ga.P.ToothPitch
+	lo, hi, ok := freeWindow(ga, gb, 0, gb.Phase)
+	if !ok {
+		return windowTrack{failure: "the pair jams at the assembly phase: no phase of B clears A"}
+	}
+	r := windowTrack{windows: []phaseWindow{{0, lo, hi}}}
+	seed := (lo + hi) / 2
+	for i := 1; i <= phaseSamples; i++ {
+		za := float64(i) * pitch / phaseSamples
+		lo, hi, ok := freeWindow(ga, gb, za, seed)
+		if !ok {
+			r.failure = fmt.Sprintf("the pair jams: at tooth phase %.3f mm of A no phase of B clears it", za)
+			return r
+		}
+		r.windows = append(r.windows, phaseWindow{za, lo, hi})
+		if hi-lo >= pitch {
+			r.failure = fmt.Sprintf("at tooth phase %.3f mm of A every phase of B clears it over %.3f mm: "+
+				"the teeth never box B in, so nothing is driven", za, hi-lo)
+			return r
+		}
+		seed = (lo + hi) / 2
+	}
+	return r
+}
+
+// defaultTrack is trackWindows at the defaults, found once: TestPairDrivesOneToOne
+// judges the windows and TestTeethTouchAlongALine judges the contact at them.
+var defaultTrack = sync.OnceValue(func() windowTrack { return trackWindows(defaultPair()) })
 
 // This is the proof the whole gear rests on. Three things have to hold across a
 // full tooth cycle for the pair to be a gear rather than two parts that touch:
@@ -185,52 +261,41 @@ func freeWindow(ga, gb Gear, za, seed float64) (lo, hi float64, ok bool) {
 func TestPairDrivesOneToOne(t *testing.T) {
 	t.Parallel()
 	ga, gb := defaultPair()
-	p := ga.P
-	pitch := p.ToothPitch
+	pitch := ga.P.ToothPitch
 
-	lo, hi, ok := freeWindow(ga, gb, 0, gb.Phase)
-	if !ok {
-		t.Fatal("the pair jams at the assembly phase: no phase of B clears A")
+	track := defaultTrack()
+	if track.failure != "" {
+		t.Fatal(track.failure)
 	}
-	start := (lo + hi) / 2
-	seed := start
-
-	widest, tightest := hi-lo, hi-lo
+	first := track.windows[0]
+	start := (first.lo + first.hi) / 2
+	widest, tightest := first.hi-first.lo, first.hi-first.lo
 	centres := make([]float64, 0, phaseSamples)
-	for i := 1; i <= phaseSamples; i++ {
-		za := float64(i) * pitch / phaseSamples
-		lo, hi, ok := freeWindow(ga, gb, za, seed)
-		if !ok {
-			t.Fatalf("the pair jams: at tooth phase %.3f mm of A no phase of B clears it", za)
-		}
-		width := hi - lo
-		if width >= pitch {
-			t.Fatalf("at tooth phase %.3f mm of A every phase of B clears it over %.3f mm: "+
-				"the teeth never box B in, so nothing is driven", za, width)
-		}
+	for _, w := range track.windows[1:] {
+		width := w.hi - w.lo
 		widest, tightest = math.Max(widest, width), math.Min(tightest, width)
-		seed = (lo + hi) / 2
-		centres = append(centres, seed)
+		centres = append(centres, (w.lo+w.hi)/2)
 
 		// Where the teeth actually touch, taken a hair outside the free window
 		// so the pair is in contact rather than clear.
-		touch := deepest(ga, gb, za, lo-pitch/phaseStep)
+		touch := deepest(ga, gb, w.za, w.lo-pitch/phaseStep)
 		side := "B"
 		if touch.onA {
 			side = "A"
 		}
 		t.Logf("phase %.3f: window [%.3f, %.3f] wide %.3f, contact on %s at u=%+.2f s=%+.2f",
-			za, lo, hi, width, side, touch.u, touch.s)
+			w.za, w.lo, w.hi, width, side, touch.u, touch.s)
 	}
+	end := centres[len(centres)-1]
 
-	winding := (seed - start) / pitch
+	winding := (end - start) / pitch
 	if math.Abs(winding-1) > 0.02 {
 		t.Errorf("gear B advances %.4f pitches while A advances one: the ratio is not 1:1", winding)
 	}
 
 	var departure float64
 	for i, c := range centres {
-		want := start + (seed-start)*float64(i+1)/phaseSamples
+		want := start + (end-start)*float64(i+1)/phaseSamples
 		departure = math.Max(departure, math.Abs(c-want))
 	}
 	if departure > maxDeparture*pitch {
@@ -268,16 +333,31 @@ func TestAssemblyPhaseSitsInTheFreeWindow(t *testing.T) {
 	t.Logf("assembly phase %.3f in a free window [%.3f, %.3f]", assemblyPhase, lo, hi)
 }
 
-// The arrangement that looks right jams, and this records it. Pointing both
-// toothed edges straight at each other where the axes cross puts two or three
-// tooth pairs in the engaged zone at once, and their ridges cross at an angle,
-// so they cannot all interdigitate. The mounting angle exists for this reason,
-// and a future simplification that drops it would be caught here.
-func TestSymmetricMountJams(t *testing.T) {
-	p := defaultParams()
+// The defaults point both toothed edges straight at each other where the axes
+// cross, both mounting angles zero, and that arrangement drives only because
+// the ridges lean. With the straight ridge every print before 2026-10-03
+// carried it jams: the engaged zone holds two or three tooth pairs at once,
+// and ridges that cross at an angle cannot all interdigitate. The mounting
+// angles of 14 degrees existed to move the contact off the crossing for that
+// tooth (mesh-search.md). With the ridges leaned to lie along each other where
+// they meet, the tooth pairs in the engaged zone interdigitate at zero, which
+// TestPairDrivesOneToOne measures at the defaults; this holds that the
+// defaults are that arrangement and that the straight tooth still jams there,
+// so a change that drops the lean while keeping the angles is caught.
+func TestSymmetricMountNeedsTheLeanedRidge(t *testing.T) {
+	t.Parallel()
+	d := defaultParams()
+	if d.MountAngleA != 0 || d.MountAngleB != 0 {
+		t.Errorf("the default mounting angles are %.1f and %.1f degrees, want 0 and 0",
+			d.MountAngleA*180/math.Pi, d.MountAngleB*180/math.Pi)
+	}
+	if track := defaultTrack(); track.failure != "" {
+		t.Errorf("with the leaned ridge at zero mounting angles: %s", track.failure)
+	}
+
+	p := thirdPrintParams()
 	p.MountAngleA, p.MountAngleB = 0, 0
 	ga, gb := pair(p, p.Sigma(), 0, p.ToothPitch/2)
-
 	jammed := false
 	for i := range phaseSamples {
 		za := float64(i) * p.ToothPitch / phaseSamples
@@ -290,13 +370,14 @@ func TestSymmetricMountJams(t *testing.T) {
 		}
 		if free == 0 {
 			jammed = true
-			t.Logf("at tooth phase %.3f mm of A, no phase of B clears it", za)
+			t.Logf("with the straight ridge at zero mounting angles, at tooth phase %.3f mm of A no phase of B "+
+				"clears it", za)
 			break
 		}
 	}
 	if !jammed {
-		t.Error("the symmetric mounting cleared at every phase; the spec says it jams, " +
-			"so either the spec's reason for the mounting angle is wrong or this model is")
+		t.Error("the straight ridge at zero mounting angles cleared at every phase; the spec says it jams, " +
+			"so either the spec's reason for the lean is wrong or this model is")
 	}
 }
 
@@ -330,10 +411,10 @@ func TestFullRibbonsClearOutsideTheEngagement(t *testing.T) {
 	worst, worstAt := math.Inf(-1), 0.0
 	check := func(from, into Gear) {
 		for s := -half; s <= half; s += stationStep {
-			e, w, th := from.edge(s), from.P.Width/2, from.P.Thickness/2
+			w, th := from.P.Width/2, from.P.Thickness/2
 			for i := 0; i <= edgeSamples; i++ {
 				v := -th + 2*th*float64(i)/float64(edgeSamples)
-				for _, u := range []float64{e, -w} {
+				for _, u := range []float64{from.edgeAt(v, s), -w} {
 					if m := into.margin(from.world(u, v, s)); m > worst {
 						worst, worstAt = m, s
 					}
