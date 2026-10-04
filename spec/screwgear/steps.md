@@ -9,7 +9,7 @@ The proof files are `proof/screwgear/sketches_test.go`, `proof/screwgear/constru
 | `spec/screwgear/instructions.md` | `65c0a702310ed893f36a1af3ce1d56f25872c32f` |
 | `spec/screwgear/fusion.md` | `44259a5d084b537745c4d168ba9fd734e3f4b4fb` |
 | `CLAUDE.md` | `916e8624ca88af226c264c21f295c14a9fb9e901` |
-| `proof/screwgear/README.md` | `485a08412a102a277ec5491d5feb2fca2d7ae20c` |
+| `proof/screwgear/README.md` | `4407c8cc550abd64b4096efe9198abe58b39b560` |
 | `spec/cycloidal/fusion.md` | `afa5a99986f2e0d9f82fb5e21591553cdc54aac4` |
 | `spec/screwgear/mesh-search.md` | `245bc5c833387a83598ee6c8a7971e8efd5825be` |
 | `.claude/skills/generate-gear/PLAYBOOK.md` | `cdd32545b0f8c651752827c6697601f1e32b4d39` |
