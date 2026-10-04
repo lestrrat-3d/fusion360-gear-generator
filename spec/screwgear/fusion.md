@@ -653,3 +653,12 @@ other ways of getting the whole ribbon in fewer features were measured on 2026-0
 out: the ruled ribbon built as temporary-BRep sheets and stitched fails at the stitch
 (`[PB-TEMP-BREP-STITCH]`), and a two-section loft with a centreline does not turn between its
 ends (`[PB-LOFT-TWO-SECTIONS-STRAIGHT]`).
+
+## `[SCREW-F-BORE-MARKS]` — raised signs on the sleeve
+
+After the bore and window cuts, the add-in makes two circles for the `+R` bores and two squares
+for the `-R` bores on the sleeve's top end. Each extrusion starts up to 0.1 mm inside the end face,
+rises 0.4 mm above it, and is joined to the cage with `[SCREW-F-JOIN]`. The mark's centre follows
+the bore's direction from the sleeve axis, while its footprint stays within the annular end face
+at every accepted wall thickness. The bottom end stays flat for printing. The proof's sleeve
+surface and render omit these identification marks.

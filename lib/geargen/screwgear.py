@@ -1338,6 +1338,83 @@ class ScrewGearGenerator(Generator):
             for window in self.windows:
                 self._buildWindow(design, windowPlane, window)
 
+        self._buildBoreMarkers(design)
+        futil.log('On the cage top end, circles mark +R bores and squares mark -R bores.')
+
+    def _buildBoreMarkers(self, design):
+        # The marks are on the top end. The bottom end stays flat so the cage
+        # can stand on the bed with the roof allowance above the bore floors.
+        inset = min(0.01, self.collarWall / 2.0)
+        height = inset + 0.04  # 0.4 mm remains above the end face.
+        halfSize = min(0.1, self.collarHalf / 2.0)
+        planeInput = design.constructionPlanes.createInput()
+        planeInput.setByOffset(
+            self.targetPlane, adsk.core.ValueInput.createByReal(self.cageRise - inset))
+        markerPlane = design.constructionPlanes.add(planeInput)
+        markerPlane.name = 'Bore Marker Plane'
+        offset = _vdot(_vsub(_tup(markerPlane.geometry.origin), self.C), self.nHat)
+        if abs(offset - (self.cageRise - inset)) > 1e-6:
+            raise Exception('ScrewGear: bore marker plane is not on the cage top end')
+
+        top = _vadd(self.C, _vscale(self.nHat, self.cageRise - inset))
+        for bore in self.bores:
+            g, sigma = bore['gear'], bore['sigma']
+            gearLabel = 'Gear A' if g == 0 else 'Gear B'
+            sideLabel = '-R' if sigma < 0 else '+R'
+            shape = 'Square' if sigma < 0 else 'Circle'
+            centre = _vadd(top, _vscale(self.dirVecs[g], sigma * self.cageRadius))
+
+            markerSketch = design.sketches.add(markerPlane)
+            markerSketch.name = f'{gearLabel} Bore {sideLabel} {shape} Marker'
+            local = markerSketch.modelToSketchSpace(_pt3(centre))
+            local.z = 0.0
+            if sigma > 0:
+                circle = markerSketch.sketchCurves.sketchCircles.addByCenterRadius(local, halfSize)
+                circle.centerSketchPoint.isFixed = True
+                text = adsk.core.Point3D.create(local.x + halfSize, local.y, 0.0)
+                diameter = markerSketch.sketchDimensions.addDiameterDimension(circle, text)
+                diameter.parameter.value = 2.0 * halfSize
+                if markerSketch.profiles.count != 1:
+                    raise Exception(
+                        f'ScrewGear: sketch "{markerSketch.name}" has '
+                        f'{markerSketch.profiles.count} profiles, want 1')
+                profile = markerSketch.profiles.item(0)
+            else:
+                corners = []
+                for x, y in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
+                    world = _vadd(centre, _vadd(
+                        _vscale(self.eHat, x * halfSize),
+                        _vscale(self.kHat, y * halfSize)))
+                    point = markerSketch.modelToSketchSpace(_pt3(world))
+                    point.z = 0.0
+                    corner = markerSketch.sketchPoints.add(point)
+                    corner.isFixed = True
+                    corners.append(corner)
+                for i in range(4):
+                    markerSketch.sketchCurves.sketchLines.addByTwoPoints(
+                        corners[i], corners[(i + 1) % 4])
+                profile = find_profile_by_curve_counts(markerSketch, lines=4)
+
+            if not markerSketch.isFullyConstrained:
+                raise Exception(f'ScrewGear: sketch "{markerSketch.name}" is not fully constrained')
+
+            extrusion = design.features.extrudeFeatures.createInput(
+                profile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+            above = markerSketch.modelToSketchSpace(_pt3(_vadd(centre, self.nHat)))
+            direction = (adsk.fusion.ExtentDirections.PositiveExtentDirection if above.z > 0
+                         else adsk.fusion.ExtentDirections.NegativeExtentDirection)
+            extrusion.setOneSideExtent(
+                adsk.fusion.DistanceExtentDefinition.create(
+                    adsk.core.ValueInput.createByReal(height)), direction)
+            markerFeature = design.features.extrudeFeatures.add(extrusion)
+            if markerFeature.bodies.count != 1:
+                raise Exception(
+                    f'ScrewGear: {gearLabel} Bore {sideLabel} marker extrude left '
+                    f'{markerFeature.bodies.count} bodies, want 1')
+            self.cageBody = self._joinBodies(
+                design, self.cageBody, markerFeature.bodies.item(0),
+                f'{gearLabel} Bore {sideLabel} marker')
+
     def _buildBore(self, design, bore):
         g = bore['gear']
         sigma = bore['sigma']

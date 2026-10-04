@@ -6,10 +6,10 @@ The proof of this step list is `proof/screwgear/compiled_model_test.go`, `proof/
 
 | file | `git hash-object` |
 |---|---|
-| `spec/screwgear/instructions.md` | `ff3456913206f80ea67780071b832f9b49d37a08` |
-| `spec/screwgear/fusion.md` | `69e17cdba140c0049c70fdf0f7a7eba6a409cc58` |
+| `spec/screwgear/instructions.md` | `4e888f38cbd9c5d5ddbe2e5a10942421aab4d6a6` |
+| `spec/screwgear/fusion.md` | `67ed5840cd39ad1bdd72144fbf82b449007ec325` |
 | `CLAUDE.md` | `916e8624ca88af226c264c21f295c14a9fb9e901` |
-| `proof/screwgear/README.md` | `6c88c234b84a8e330228b91f4fc68d2d2d1e4613` |
+| `proof/screwgear/README.md` | `485a08412a102a277ec5491d5feb2fca2d7ae20c` |
 | `spec/cycloidal/fusion.md` | `afa5a99986f2e0d9f82fb5e21591553cdc54aac4` |
 | `spec/screwgear/mesh-search.md` | `245bc5c833387a83598ee6c8a7971e8efd5825be` |
 | `.claude/skills/generate-gear/PLAYBOOK.md` | `cdd32545b0f8c651752827c6697601f1e32b4d39` |
@@ -2637,7 +2637,7 @@ Proof: `stepCutBore`.
 
 After the four bores, log with `futil.log(...)` `[PB-LOGGING]` exactly
 `Print the cage standing on its end below the selected plane: the roof allowance is on the bridged roofs that way up.`,
-since nothing on the part shows which end that is.
+so the print orientation is explicit even when the bore marks are hard to see.
 
 <!-- step-meta
 {
@@ -2985,8 +2985,10 @@ Proof: `stepCutWindow`.
 
 The tube is the first body. The four bores are cut from it in S03's order, each with the cage as
 its only participant, then the windows, `d` before `-d`. Every cut leaves exactly one body,
-counted as the feature's `bodies.count`, and that body is `self.cageBody` from then on; the build
-raises with the piece's name otherwise. What remains is one piece, 16,602 mm³ at the defaults.
+counted as the feature's `bodies.count`, and that body is `self.cageBody` from then on. Four
+marks are then extruded on the top end and joined to the cage: circles beside `+R` bores and
+squares beside `-R` bores. Each join leaves one cage body; the build raises with the piece's name
+otherwise. The proof's unmarked sleeve is 16,602 mm³ at the defaults; the marks add about 5.7 mm³.
 
 <!-- step-meta
 {
@@ -3001,13 +3003,23 @@ raises with the piece's name otherwise. What remains is one piece, 16,602 mm³ a
       "first": 547,
       "last": 549,
       "path": "spec/screwgear/fusion.md"
+    },
+    {
+      "first": 2014,
+      "last": 2024,
+      "path": "spec/screwgear/instructions.md"
+    },
+    {
+      "first": 657,
+      "last": 664,
+      "path": "spec/screwgear/fusion.md"
     }
   ],
   "schema": 2
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1619–1624; `spec/screwgear/fusion.md` L547–549.
+**From:** `spec/screwgear/instructions.md` L1619–1624; `spec/screwgear/fusion.md` L547–549; `spec/screwgear/instructions.md` L2014–2024; `spec/screwgear/fusion.md` L657–664.
 
 ## S27 `[PROSE]` Relocate the bodies and hide the construction geometry
 
@@ -3020,8 +3032,8 @@ position and needs no activation `[PB-NO-CROSS-SIBLING]`: `self.gearBodies[0]` i
 and the helper walks it and anything under it. Do not re-implement it, and add no display settle of
 your own `[PB-SETTLE-DISPLAY]`.
 
-At the defaults the build makes 12 sketches, 7 construction planes and 42 features (61 timeline
-entries, 66 with the five component creations).
+At the defaults the build makes 16 sketches, 8 construction planes and 50 features (70 timeline
+entries, 75 with the five component creations).
 
 <!-- step-meta
 {
@@ -3067,4 +3079,3 @@ entries, 66 with the five component creations).
 -->
 
 **From:** `spec/screwgear/instructions.md` L871–910; `spec/screwgear/instructions.md` L1626–1632; `.claude/skills/generate-gear/PLAYBOOK.md` L534–555.
-

@@ -120,8 +120,11 @@ the bottom. [sleeve_test.go](sleeve_test.go) proves the sleeve.
 
 ![The sleeve alone: a thick tube standing on one flat end, with two twisted rectangular holes through its wall, one high on the left and one low on the right, and the edge of a slanted window at the right](images/sleeve-frame.png)
 
-The sleeve is one thick-walled tube about the frame's axis with the four bores and two slanted
-windows cut through its wall, and nothing else. Its inner radius is `CageRadius − CollarHalf`,
+The sleeve's working volume is one thick-walled tube about the frame's axis with four bores and
+two slanted windows cut through its wall. The add-in also raises four small marks on the top end:
+circles beside the `+R` bores and squares beside the `-R` bores. The proof and its pictures omit
+the marks; they measure the bores and the tube below them. The sleeve's inner radius is
+`CageRadius − CollarHalf`,
 12 mm, and its outer radius `CageRadius + CollarHalf`, 18 mm, so on each bore's centre line the
 6 mm wall runs from station 12 to station 18 mm of the gear's axis, and the far face of the bore
 at 18 mm is what limits the travel. It stands 18.75 mm either side of the middle plane, 37.5 mm
@@ -142,9 +145,9 @@ allowed ("The play in the bores" below).
 One gear passes through the sleeve by its two holes, which sit on opposite sides of the tube at
 the gear's own height, 6.98 mm below the middle for gear A and as far above it for gear B, so
 the two gears pass at different heights and their teeth meet in the middle. A half turn about
-the line that bisects the two axes carries gear A's holes onto gear B's, so the sleeve is the
-same either way up but for the roof allowance, which is on the roofs only when the sleeve stands
-on its bottom end, the end below the plane the mechanism was built on.
+the line that bisects the two axes carries gear A's holes onto gear B's. The add-in's top marks
+identify the bore signs, and the roof allowance lies under the bridged roofs only when the sleeve
+stands on its bottom end, the end below the plane the mechanism was built on.
 
 **The bores hold each gear to its screw motion.** Each bore is twisted at the ribbon's own lead,
 so a gear that turns without advancing jams in it. `TestSleeveAdmitsOnlyTheScrewMotion` measures
@@ -273,9 +276,10 @@ cylinder or a flat end ring of 565.5 mm², and every face of a window is upright
 `TestSleevePrintsStandingOnEitherEnd` samples the sleeve on a 0.25 mm grid and finds every cell
 with no material within one cell under it, which is a 45° rule at that size. Standing on its
 bottom end there are 1429 such cells, 89 mm², and on its top end 1428, 89 mm²; every one is in
-the roof of a bore. Nowhere else does the printer lay material on air. Either end prints, but
-only the bottom end puts the roof allowance under the bridged roofs. The same test holds the end
-wall above and below the channels, 4.94 mm, and the two nearest channels, gear A's and gear B's
+the roof of a bore. Nowhere else does the printer lay material on air. The unmarked proof body
+prints on either end, but only the bottom end puts the roof allowance under the bridged roofs.
+The same test holds the end wall above and below the channels, 4.94 mm, and the two nearest
+channels, gear A's and gear B's
 −R bores 5.07 mm apart, over the 3 mm `CollarWall`, and logs the edge each hole's mouth leaves:
 47.8° on the inner face and 63.4° on the outer. `TestSleeveIsOnePiece` flood-fills the same grid
 and reaches every cell: one piece of 16,602 mm³, about 21 g of PLA.
@@ -292,12 +296,12 @@ and reaches every cell: one piece of 16,602 mm³, about 21 g of PLA.
 | Window to channel | 3.000 mm to the flanking bores, measured on the window's plane; 3.076 mm to the others, sampled in space |
 | Beside the windows | the narrowest post 3.73 mm; stretches under 6 mm wide at most 0.70 times as tall as they are wide |
 | Side view | 81.6% of the mesh zone seen through a window past both ribbons, 55.8% along a level line |
-| Base | a 565.5 mm² flat ring at either end |
+| Base in the proof | a 565.5 mm² flat ring at either end; the add-in raises marks on the top end |
 | Material laid on air | 1429 cells of 0.25 mm, 89 mm², standing on the bottom end, 1428 on the top end, all in the bores' roofs |
 | End wall | 4.94 mm above and below the channels and the windows |
 | Between channels | 5.07 mm at the nearest, gear A's and gear B's −R bores; the build's check (`channelSeparation`) holds them 5.07 mm apart |
 | Hole mouths | 47.8° edges on the inner face, 63.4° on the outer |
-| Volume | 16,602 mm³, about 21 g of PLA |
+| Volume in the proof | 16,602 mm³, about 21 g of PLA, before the four raised marks |
 | Build's twist check | probes at stations ±15 mm, 16.63 mm from the axis, inside the channel under the right twist sense; under the wrong one they sit 6.46 and 7.39 mm across a channel 2.075 mm half thick, in the wall |
 | Bore wall stand-in | a ruled wall through 18 sections leaves 0.194 mm of the 0.20 mm clearance; decad's two triangles a cell depart from it by up to 0.32 mm |
 

@@ -547,8 +547,8 @@ A ribbon rolls in its bores, 1.53° either way at the 0.20 mm clearance, and eve
 is a degree of mounting angle to the mesh; a sideways move in the bores acts as a roll as well
 (`bore_play_test.go`). So the bores' play stays far inside the band, where the 14° of the straight
 tooth stood 2° from both of its edges. The two gears are the same part held alike, and at equal
-angles a half turn about `ê` carries each gear's bores onto the other's, so the sleeve and its two
-windows are the same either way up but for the roof allowance (§4). Unequal angles have not been
+angles a half turn about `ê` carries each gear's bores onto the other's, so the bores and windows
+are the same either way up but for the roof allowance (§4). Unequal angles have not been
 measured at the leaned tooth. The arrangement is an input on both gears, and an unequal pair is a
 change of two dialog values.
 
@@ -888,12 +888,12 @@ replace the ring, rods, loop and collars and have not been built in Fusion.
 | Both gears, subtotal | 4 | 0 | 32 | 44 |
 | Sleeve (§4): Sleeve sketch, extrude | 1 | 0 | 1 | 1 |
 | Bores (§4): 4 planes, 4 sketches, 4 sweep cuts | 4 | 4 | 4 | 4 |
-| Windows (§4): Window Plane, 2 sketches, 2 extrude cuts | 2 | 1 | 2 | 2 |
+| Windows and marks (§4): 2 planes, 6 sketches, 2 cuts, 4 extrudes, 4 joins | 6 | 2 | 10 | 10 |
 | Relocate (§5): 3 `moveToComponent` | 0 | 0 | 3 | 3 |
-| **Total** | **12** | **7** | **42** | **54** |
+| **Total** | **16** | **8** | **50** | **62** |
 
-That is 61 timeline entries at `cellTeeth = 4` and 73 at `cellTeeth = 1`, plus the five
-component creations: 66 and 78 in all, against 96 and 108 for the video frame. The third Fusion
+That is 70 timeline entries at `cellTeeth = 4` and 82 at `cellTeeth = 1`, plus the five
+component creations: 75 and 87 in all, against 96 and 108 for the video frame. The third Fusion
 load (`[SCREW-F-FIRST-LOAD]`) counted exactly 96 timeline items for that frame. Check a load
 against the timeline count, not against `Component.features.count`: at that load, summed over
 the five components, it read 62, six more than the 56 features the timeline held, all six in
@@ -1298,8 +1298,8 @@ bore's end rising into the room while the other bore holds, which carries the cr
 instead of 0.200 mm toward the other ribbon for gear A and away from it for gear B
 (`TestRoofAllowanceAddsOnlyATilt`). After the sleeve is built the build logs, with `futil.log`
 (`[PB-LOGGING]`), `Print the cage standing on its end below the selected plane: the roof
-allowance is on the bridged roofs that way up.`, since nothing on the part shows which end that
-is.
+allowance is on the bridged roofs that way up.`, so the print orientation is explicit even when
+the bore marks are hard to see.
 
 **Cut each bore with a twisted sweep** (`[SCREW-F-TWISTED-SLOT]`, `[PB-SWEEP-TWIST]`): the bore's
 rectangle, drawn by the rectangle scheme below on the bore's own plane,
@@ -1620,8 +1620,8 @@ leaves the probe inside.
 only participant, in the order gear A `-R`, gear A `+R`, gear B `-R`, gear B `+R`; then the
 windows, the one facing `d` before the one facing `-d`. Every cut has to leave exactly one body,
 counted as the feature's `bodies.count`, and that body is the cage from then on; the build raises
-with the piece's name otherwise. `TestSleeveIsOnePiece` holds that what remains is one piece:
-16,602 mm³ at the defaults, about 21 g of PLA.
+with the piece's name otherwise. The marks are joined after the cuts. `TestSleeveIsOnePiece`
+holds the unmarked sleeve is one piece: 16,602 mm³ at the defaults, about 21 g of PLA.
 
 ### 5: Relocate the bodies
 
@@ -2010,3 +2010,15 @@ the contact ran along a ridge. `TestTeethTouchAlongALine` now does, and
 It cannot see the video's model either. The ratios in "What the video shows" were read off
 1280×720 frames by hand, and `TestProportionsFollowTheVideo` holds the defaults inside those
 readings widened by the ±20% they carry; a finer reading needs the model, not the video.
+
+## Bore identification marks
+
+After the bores and windows, raise one mark beside each bore on the top end, opposite the flat
+end that stands on the print bed. A circle marks `+R` and a square marks `-R`. For gear `g` and
+bore sign `sigma`, centre the mark at
+`C + cageRise*nHat + sigma*cageRadius*dirVecs[g]`, projected into the top end plane. At the
+defaults, each circle is 2 mm across, each square is 2 mm on a side, and each rises 0.4 mm.
+Use half-size `min(1 mm, collarHalf/2)` so every square corner stays inside the annulus when
+the wall is thinner. Begin each extrusion up to 0.1 mm inside the end face, make a separate body,
+then join it only to the cage. Leave the bottom end flat. The proof's sleeve surface and pictures
+omit these identification marks; the marks lie above its bore and window checks.
