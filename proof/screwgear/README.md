@@ -5,8 +5,9 @@ describes, drawn at the defaults that spec's table gives: the ribbons and the pr
 holds them. Every ribbon section in every picture comes from `Gear.outline` in
 [geometry_test.go](geometry_test.go), whose toothed side is `Gear.edgeAt`, the same function the
 meshing proof samples, and the
-sleeve's surface comes from `sleeve.inFrame` in [sleeve_test.go](sleeve_test.go), the same test
-the sleeve's proof walks, so a change that moves the proved geometry moves these pictures with it.
+sleeve's cut surface comes from `sleeve.inFrame` in [sleeve_test.go](sleeve_test.go), the same test
+the sleeve's proof walks. The four raised signs use the dimensions and positions checked by the
+compiled marker proof in [construction_test.go](construction_test.go).
 The three `TestRender` cases in [render_test.go](render_test.go) write them, and they run only
 when `-render.out` names a directory, so an ordinary proof run writes no images.
 
@@ -51,6 +52,10 @@ shared by exactly two triangles, one running it each way; `TestSleeveMeshDrawsTh
 same check on a 0.5 mm grid with the proofs. One vertex a cube cannot follow a wedge thinner than
 a cube, so where a bore's wall leaves a cylinder at a shallow angle, as at the pointed tip of a
 bore's mouth, the edge still shows a few short ticks about one grid cube long.
+
+The raised signs are separate square and 48-section round prism meshes. They start inside the
+sleeve's top face and rise 0.4 mm above it; the renderer does not join their triangles to the
+sleeve mesh.
 
 The channel's wall drawn here is the ideal, and so is the one Fusion cuts: each bore is one sweep
 of its section along the axis with a twist, a rectangle turning rigidly, with no sections and no
@@ -122,8 +127,9 @@ the bottom. [sleeve_test.go](sleeve_test.go) proves the sleeve.
 
 The sleeve's working volume is one thick-walled tube about the frame's axis with four bores and
 two slanted windows cut through its wall. The add-in also raises four small marks on the top end:
-circles beside the `+R` bores and squares beside the `-R` bores. The proof and its pictures omit
-the marks; they measure the bores and the tube below them. The sleeve's inner radius is
+circles beside the `+R` bores and squares beside the `-R` bores. The sleeve proof measures the
+bores and the tube below them; the compiled marker proof checks the marks separately. The sleeve's
+inner radius is
 `CageRadius − CollarHalf`,
 12 mm, and its outer radius `CageRadius + CollarHalf`, 18 mm, so on each bore's centre line the
 6 mm wall runs from station 12 to station 18 mm of the gear's axis, and the far face of the bore
@@ -198,6 +204,8 @@ its length.
 and the tube is open at both ends.
 
 ![Looking straight down the hollow from the top end: gear B's ribbon crosses it on edge, and beside it gear A's teeth sit in gear B's](images/sleeve-top.png)
+
+![The top end without ribbons: a circular mark beside each +R bore and a square mark beside each −R bore](images/sleeve-marks.png)
 
 ![The same view from the bottom end, where gear A's ribbon is the nearer one](images/sleeve-bottom.png)
 

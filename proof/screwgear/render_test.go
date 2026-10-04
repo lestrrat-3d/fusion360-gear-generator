@@ -166,6 +166,50 @@ func TestRenderMesh(t *testing.T) {
 // 0.1 mm.
 const sleeveMeshStep = 0.1
 
+// boreMarkMesh draws one raised bore sign from the same dimensions and centre
+// rule as the compiled marker proof. Its lower face starts inside the sleeve.
+func boreMarkMesh(f sleeve, gear int, sign float64) (*solidlens.Mesh, error) {
+	angle := f.p.Sigma() / 2
+	if gear == 1 {
+		angle = -angle
+	}
+	x := sign * f.p.CageRadius * math.Cos(angle)
+	y := sign * f.p.CageRadius * math.Sin(angle)
+	halfSize := math.Min(1, f.p.CollarHalf/2)
+	inset := math.Min(0.1, f.p.CollarWall/2)
+
+	outline := make([][2]float64, 0, 48)
+	if sign > 0 {
+		for i := range 48 {
+			a := 2 * math.Pi * float64(i) / 48
+			outline = append(outline, [2]float64{x + halfSize*math.Cos(a), y + halfSize*math.Sin(a)})
+		}
+	} else {
+		outline = append(outline,
+			[2]float64{x - halfSize, y - halfSize},
+			[2]float64{x + halfSize, y - halfSize},
+			[2]float64{x + halfSize, y + halfSize},
+			[2]float64{x - halfSize, y + halfSize})
+	}
+
+	n := len(outline)
+	vertices := make([]solidlens.Vec, 0, 2*n)
+	for _, z := range []float64{f.zb - inset, f.zb + 0.4} {
+		for _, point := range outline {
+			vertices = append(vertices, solidlens.Vec{X: point[0], Y: point[1], Z: z})
+		}
+	}
+	triangles := make([][3]int, 0, 4*n-4)
+	for i := range n {
+		j := (i + 1) % n
+		triangles = append(triangles, [3]int{i, j, n + j}, [3]int{i, n + j, n + i})
+	}
+	for j := 1; j+1 < n; j++ {
+		triangles = append(triangles, [3]int{0, j + 1, j}, [3]int{n, n + j, n + j + 1})
+	}
+	return solidlens.NewMesh(vertices, triangles)
+}
+
 // TestRenderSleeve draws the printable sleeve that sleeve_test.go proves, with
 // the same ribbons in it. The sleeve has four twisted holes and two windows
 // cut through a tube, and these pictures have no boolean to cut them with, so
@@ -196,14 +240,25 @@ func TestRenderSleeve(t *testing.T) {
 		t.Fatalf("mesh gear B: %v", err)
 	}
 	sleevePart := render.Part{Mesh: frame, Color: cageColor}
-	both := []render.Part{{Mesh: meshA, Color: gearAColor}, {Mesh: meshB, Color: gearBColor}, sleevePart}
+	sleeveParts := []render.Part{sleevePart}
+	for gear := range 2 {
+		for _, sign := range []float64{-1, 1} {
+			mark, err := boreMarkMesh(f, gear, sign)
+			if err != nil {
+				t.Fatalf("mesh gear %d bore %+.0f mark: %v", gear, sign, err)
+			}
+			sleeveParts = append(sleeveParts, render.Part{Mesh: mark, Color: cageColor})
+		}
+	}
+	both := append([]render.Part{{Mesh: meshA, Color: gearAColor}, {Mesh: meshB, Color: gearBColor}}, sleeveParts...)
 
 	// The sleeve alone, standing on the end it prints on, looking at the +X
 	// side: gear A's +R hole low at 40 degrees beside gear B's +R hole high at
 	// 320 degrees.
-	write(t, "sleeve-frame.png", []render.Part{sleevePart}, 20, 0, 30, frame)
+	write(t, "sleeve-frame.png", sleeveParts, 20, 0, 30, frame)
 	// One gear through it, its teeth running through both its holes.
-	write(t, "sleeve-cage.png", []render.Part{{Mesh: meshA, Color: gearAColor}, sleevePart}, 20, -50, 30, frame)
+	write(t, "sleeve-cage.png", append([]render.Part{{Mesh: meshA, Color: gearAColor}}, sleeveParts...),
+		20, -50, 30, frame)
 	// Both gears, from the side and from almost overhead, which is the only
 	// view that shows the angle the two axes cross at. From the side the pair
 	// reads as two ribbons lying near each other whatever that angle is.
@@ -213,10 +268,11 @@ func TestRenderSleeve(t *testing.T) {
 	// seen from the top and from the bottom. The camera stops a degree short of
 	// the axis because its up direction is the axis.
 	write(t, "sleeve-top.png", both, 89, -90, 30, frame)
+	write(t, "sleeve-marks.png", sleeveParts, 89, -90, 30, frame)
 	write(t, "sleeve-bottom.png", both, -89, -90, 30, frame)
 	// The window facing +Y, square on and a little from above, alone and
 	// with the ribbons meshing behind it.
-	write(t, "sleeve-window.png", []render.Part{sleevePart}, 12, 90, 30, frame)
+	write(t, "sleeve-window.png", sleeveParts, 12, 90, 30, frame)
 	write(t, "sleeve-side.png", both, 6, 90, 30, frame)
 }
 
