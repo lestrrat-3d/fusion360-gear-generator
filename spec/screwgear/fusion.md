@@ -656,9 +656,12 @@ ends (`[PB-LOFT-TWO-SECTIONS-STRAIGHT]`).
 
 ## `[SCREW-F-BORE-MARKS]` — raised signs on the sleeve
 
-After the bore and window cuts, the add-in makes two circles for the `+R` bores and two squares
-for the `-R` bores on the sleeve's top end. Each extrusion starts up to 0.1 mm inside the end face,
-rises 0.4 mm above it, and is joined to the cage with `[SCREW-F-JOIN]`. The mark's centre follows
-the bore's direction from the sleeve axis, while its footprint stays within the annular end face
-at every accepted wall thickness. The bottom end stays flat for printing. The proof's sleeve
-surface and render omit these identification marks.
+Follow "Bore identification marks" in `instructions.md` after the bore and window cuts. Offset
+one plane from Gear B Axis Plane to 0.1 mm or less inside the top end. Use one fully constrained
+sketch and one new-body extrusion per mark. Map the mark centre plus `nHat` to the sketch to
+choose the extent direction that rises above
+the top face; the selected plane can orient its local normal either way. Each extrusion begins
+inside solid end-wall material, rises 0.4 mm above the face, and joins only to the cage with
+`[SCREW-F-JOIN]`. Check the plane offset, each profile and feature body count, and each join's
+single body in Fusion. The bottom end stays flat for printing. The marker proof checks the
+sketches and a marked uncut sleeve; the full sleeve surface and render still omit the marks.

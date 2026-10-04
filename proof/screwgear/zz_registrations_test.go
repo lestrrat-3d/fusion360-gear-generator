@@ -9,66 +9,66 @@ import (
 	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit3d"
 )
 
-func TestAnchorSketch(t *testing.T) {
-	proofkit.Run(t, anchorCases, stepAnchorSketch)
+func TestAnchor(t *testing.T) {
+	proofkit.Run(t, anchorCases, stepAnchor)
 }
 
-func TestPathsSketch(t *testing.T) {
-	proofkit.Run(t, pathsCases, stepPathsSketch)
+func TestPaths(t *testing.T) {
+	proofkit.Run(t, pathCases, stepPaths)
 }
 
-func TestCellSectionsSketch(t *testing.T) {
-	proofkit.Run(t, cellSectionCases, stepCellSectionsSketch)
+func TestCellSections(t *testing.T) {
+	proofkit.Run(t, sectionCases, stepCellSections)
 }
 
 func TestCellLoft(t *testing.T) {
-	proofkit3d.RunSolid(t, cellLoftCases, stepCellLoft, assertCellLoft)
+	proofkit3d.RunSolid(t, cellCases, stepCellLoft, assertCellLoft)
 }
 
-func TestCopyBody(t *testing.T) {
-	proofkit3d.RunSolid(t, copyCases, stepCopyBody, assertCopyBody)
+func TestCellCopy(t *testing.T) {
+	proofkit3d.RunSolid(t, cellCases, stepCellCopy, assertCellCopy)
 }
 
-func TestScrewMove(t *testing.T) {
-	proofkit3d.RunSolid(t, moveCases, stepScrewMove, assertScrewMove)
+func TestCellMove(t *testing.T) {
+	proofkit3d.RunSolid(t, cellCases, stepCellMove, assertCellMove)
 }
 
-func TestJoinBodies(t *testing.T) {
-	proofkit3d.RunSolid(t, joinCases, stepJoinBodies, assertJoinBodies)
-}
-
-func TestRemainderSectionsSketch(t *testing.T) {
-	proofkit.Run(t, remainderSectionCases, stepRemainderSectionsSketch)
-}
-
-func TestRemainderLoft(t *testing.T) {
-	proofkit3d.RunSolid(t, remainderCases, stepRemainderLoft, assertRemainderLoft)
-}
-
-func TestRemainderJoin(t *testing.T) {
-	proofkit3d.RunSolid(t, remainderCases, stepRemainderJoin, assertRemainderJoin)
+func TestCellJoin(t *testing.T) {
+	proofkit3d.RunSolid(t, cellCases, stepCellJoin, assertCellJoin)
 }
 
 func TestSleeveSketch(t *testing.T) {
-	proofkit.Run(t, sleeveSketchCases, stepSleeveSketch)
+	proofkit.Run(t, sleeveCases, stepSleeveSketch)
 }
 
-func TestExtrudeTube(t *testing.T) {
-	proofkit3d.RunSolid(t, tubeCases, stepExtrudeTube, assertExtrudeTube)
+func TestSleeveExtrude(t *testing.T) {
+	proofkit3d.RunSolid(t, tubeCases, stepSleeveExtrude, assertSleeveExtrude)
 }
 
-func TestBoreSectionSketch(t *testing.T) {
-	proofkit.Run(t, boreSectionCases, stepBoreSectionSketch)
+func TestBoreSketch(t *testing.T) {
+	proofkit.Run(t, boreCases, stepBoreSketch)
 }
 
-func TestCutBore(t *testing.T) {
-	proofkit3d.RunSolid(t, boreCutCases, stepCutBore, assertCutBore)
+func TestBoreSweep(t *testing.T) {
+	proofkit3d.RunSolid(t, boreSolidCases, stepBoreSweep, assertBoreSweep)
 }
 
 func TestWindowSketch(t *testing.T) {
-	proofkit.Run(t, windowSketchCases, stepWindowSketch)
+	proofkit.Run(t, windowCases, stepWindowSketch)
 }
 
-func TestCutWindow(t *testing.T) {
-	proofkit3d.RunSolid(t, windowCutCases, stepCutWindow, assertCutWindow)
+func TestWindowCut(t *testing.T) {
+	proofkit3d.RunSolid(t, windowSolidCases, stepWindowCut, assertWindowCut)
+}
+
+func TestMarkerSketch(t *testing.T) {
+	proofkit.Run(t, markerCases, stepMarkerSketch)
+}
+
+func TestMarkerExtrude(t *testing.T) {
+	proofkit3d.RunSolid(t, markerSolidCases, stepMarkerExtrude, assertMarkerExtrude)
+}
+
+func TestMarkerJoin(t *testing.T) {
+	proofkit3d.RunSolid(t, markerSolidCases, stepMarkerJoin, assertMarkerJoin)
 }

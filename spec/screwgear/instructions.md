@@ -2013,12 +2013,48 @@ readings widened by the ±20% they carry; a finer reading needs the model, not t
 
 ## Bore identification marks
 
-After the bores and windows, raise one mark beside each bore on the top end, opposite the flat
-end that stands on the print bed. A circle marks `+R` and a square marks `-R`. For gear `g` and
-bore sign `sigma`, centre the mark at
-`C + cageRise*nHat + sigma*cageRadius*dirVecs[g]`, projected into the top end plane. At the
-defaults, each circle is 2 mm across, each square is 2 mm on a side, and each rises 0.4 mm.
-Use half-size `min(1 mm, collarHalf/2)` so every square corner stays inside the annulus when
-the wall is thinner. Begin each extrusion up to 0.1 mm inside the end face, make a separate body,
-then join it only to the cage. Leave the bottom end flat. The proof's sleeve surface and pictures
-omit these identification marks; the marks lie above its bore and window checks.
+After the four bore cuts and any window cuts, raise one mark for each bore on the top end at
+`+cageRise` along `nHat`. The opposite end stays flat on the print bed. Follow the bore-cut
+order: Gear A `-R`, Gear A `+R`, Gear B `-R`, Gear B `+R`. Use the bore's gear index `g` and
+sign `sigma`: a **circle** identifies `+R` (`sigma = +1`),
+and a **square** identifies `-R` (`sigma = -1`). Both gears get both marks. The marks join only
+to the sleeve, never to either ribbon.
+
+Use `halfSize = min(1 mm, collarHalf/2)` and `inset = min(0.1 mm, collarWall/2)` in the same
+length units as the sleeve. At the defaults, `halfSize = 1 mm` and `inset = 0.1 mm`. Make one
+construction plane parallel to Gear B Axis Plane. That plane is `+A/2` along `nHat` from `C`,
+so offset it by `cageRise - inset - A/2` toward `+nHat`. Choose the signed Fusion offset from
+the dot product of Gear B Axis Plane's normal with `nHat`. Check the new plane's origin's
+signed offset from `C` along `nHat` against `cageRise - inset`. The end-wall range
+check keeps this plane inside solid sleeve material. For each bore, create a separate sketch on
+that plane, named `Gear A Bore +R Circle Marker`, `Gear A Bore -R Square Marker`, and likewise
+for Gear B. Its centre in world coordinates is
+`C + (cageRise - inset)*nHat + sigma*cageRadius*dirVecs[g]`. Map every point into the sketch
+and set its local `z` to zero before drawing.
+
+For a `+R` mark, draw one circle of radius `halfSize`, fix its centre point, and dimension its
+diameter to `2*halfSize`. For a `-R` mark, draw four lines joining four fixed sketch points in
+counter-clockwise order. Their world coordinates are the centre plus
+`(-halfSize,-halfSize)`, `(halfSize,-halfSize)`, `(halfSize,halfSize)`, and
+`(-halfSize,halfSize)` in the `(eHat,kHat)` basis. Do not draw a circle and a square in the same
+sketch. Each sketch must be fully constrained and have exactly one closed profile; raise with
+its name and the observed profile count or constraint status otherwise. For every accepted
+`collarHalf`, each profile lies strictly inside the annular top face: the square corner's radial
+offset from its centre is at most `sqrt(2)*halfSize < collarHalf`, and the circle is smaller.
+
+Extrude that profile as a **new body** by `inset + 0.4 mm`, toward `+nHat`, selecting the
+sketch's positive or negative extent from the mapped position of the mark centre plus `nHat`.
+The start lies inside the sleeve and the visible part rises exactly 0.4 mm above the end face. Require the
+extrude feature to have one body. Join that body to the current cage body using
+`[SCREW-F-JOIN]`, require the combine feature to have one body, and use that body as the cage
+for the next mark. Include the gear and bore sign in either failure. At the defaults the two
+visible circles add `2*pi*(1 mm)^2*(0.4 mm)` and the two visible squares add
+`2*(2 mm)^2*(0.4 mm)`, for about 5.713 mm³ above the original end face.
+
+The proof builds the mark sketches and the extruded marks against an uncut annular sleeve,
+since the bore and window proof cannot chain all six cuts in one body. It checks each sketch's
+constraint and profile result, the four marks' positions and shapes, their containment in the
+annular end face, the 0.4 mm visible height, and one connected sleeve body after each join.
+The full sleeve surface and pictures may continue to omit marks, but they do not replace these
+marker checks. The proof cannot test Fusion's choice of extrusion direction or a printer's
+result; the mapped mark-centre-plus-`nHat` direction check belongs in the Add-In.
