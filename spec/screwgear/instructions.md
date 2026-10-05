@@ -1387,9 +1387,13 @@ computing deferred (Sketch Discipline); the video frame's collar sections, drawn
 scheme, read fully constrained in Fusion on 2026-09-28.
 
 After the sketch computes, compare each corner's solved `SketchPoint.geometry` with the local
-position of its expected world seed. Require each distance to be at most 0.001 mm and raise with
-the sketch name, corner index and observed distance otherwise. This checks the roof's chosen
-side and the solved section size; `isFullyConstrained` alone checks neither.
+position of its expected world seed. Check all four corners; require the largest distance to be
+at most 0.005 mm (0.0005 cm in Fusion), and otherwise raise with the sketch name, corner index
+and largest observed distance. Fusion moved Gear A's first `-R` bore corner 0.0025 mm after
+solving the sketch, beyond the earlier 0.001 mm guard (`[SCREW-F-BORE-SEED-RESIDUAL]`). The new
+limit is one tenth of the smallest proved clearance and far below the 0.60 mm default roof
+allowance. This checks the roof's chosen side and the solved section size; `isFullyConstrained`
+alone checks neither.
 
 **What the proof's stand-in costs.** The proof's solid engine has no twisted sweep, so the compiled step
 proof builds each bore's channel as a chain of two-section lofts through rotated rectangles ("What the

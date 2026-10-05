@@ -268,6 +268,17 @@ of these two changes caused Fusion's refusal, so restore both known-working deta
 rectangle scheme. The standalone sketch solver checks the completed constraint system, but
 does not call Fusion's incremental `addAngularDimension` and cannot catch this runtime refusal.
 
+## `[SCREW-F-BORE-SEED-RESIDUAL]` — Fusion moved a solved bore corner, 2026-10-05
+
+After the angle-order repair, Gear A's `-R` bore passed the fully constrained and four-line
+profile checks. Its first solved corner was 0.0025 mm from the mapped seed, so the 0.001 mm
+corner guard stopped generation before the sweep. The sketch solver in the proof does not run
+Fusion's constraint solver and cannot measure this residual. Accept at most 0.005 mm of corner
+motion, checking all four corners and reporting the largest. That limit is twice the observed
+residual, 2.5% of the default 0.20 mm clearance, and 10% of the smallest 0.05 mm clearance
+covered by the proof. A roof on the wrong side moves a corner by the 0.60 mm default allowance,
+well beyond this limit. This Fusion run stopped before a bore cut, so it gives no fit result.
+
 ## `[SCREW-F-DIAGNOSTIC]` — what the diagnostics of 2026-09-28 measured
 
 Two scripts ran in the user's Fusion on 2026-09-28, each in a scratch document holding the
@@ -466,7 +477,7 @@ rectangle scheme (§4), which draws the bore's rectangle at that station's own a
 `find_profile_by_curve_counts(sketch, lines=4)`. The sketch is drawn with computing deferred
 (`[SCREW-F-DEFER]`); the collar sections drawn by the same scheme read fully constrained on
 2026-09-28. After solving, compare each of the four sketch corner points with its mapped world
-seed to within 0.001 mm. A fully constrained sketch with the roof allowance on the opposite
+seed to within 0.005 mm. A fully constrained sketch with the roof allowance on the opposite
 face must fail this check before it can cut the sleeve.
 
 **The sweep.** `sweepFeatures.createInput(profile, path, CutFeatureOperation)`, then

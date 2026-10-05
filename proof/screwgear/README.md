@@ -22,6 +22,11 @@ example of one.
 No image here comes from Fusion, and nothing in this directory builds a Fusion body. Loading a
 gear into Fusion is still the only check that sees the real thing.
 
+The bore sketch proof uses a separate constraint solver and cannot measure Fusion's corner
+residual. Fusion moved Gear A's first `-R` corner 0.0025 mm from its seed on 2026-10-05 after
+reporting a fully constrained sketch and a four-line profile. The Add-In now permits 0.005 mm
+of movement at each corner; the proof keeps its tighter ideal-geometry check.
+
 The pictures draw the **ideal** ribbon: an exact leaned cosine edge on an exact helicoid, which
 is what the proof reasons about. The part Fusion builds is a four-tooth cell lofted through 41
 rotated sections, ten to the tooth, each a rectangle whose toothed side is a fitted spline

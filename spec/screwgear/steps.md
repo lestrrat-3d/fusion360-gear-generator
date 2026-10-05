@@ -6,10 +6,10 @@ The runnable proof files are `proof/screwgear/sketches_test.go`, `proof/screwgea
 
 | file | `git hash-object` |
 |---|---|
-| `spec/screwgear/instructions.md` | `7f645db3c91a00a85a30686448a55c399b50a9b1` |
-| `spec/screwgear/fusion.md` | `04129978aea51d49ff8363c00f93955ce5d11ac5` |
+| `spec/screwgear/instructions.md` | `76386e7059ba7ff9a567bc39b881821edea10ac6` |
+| `spec/screwgear/fusion.md` | `d2b722e37acc8d2891963842db1f07c98df8e603` |
 | `CLAUDE.md` | `916e8624ca88af226c264c21f295c14a9fb9e901` |
-| `proof/screwgear/README.md` | `4bf5085d20c63599a401cb86952fc45bd40b4da1` |
+| `proof/screwgear/README.md` | `8dc36311572aa0fe441584f445fdc5ae9ead7a44` |
 | `spec/cycloidal/fusion.md` | `afa5a99986f2e0d9f82fb5e21591553cdc54aac4` |
 | `spec/screwgear/mesh-search.md` | `245bc5c833387a83598ee6c8a7971e8efd5825be` |
 | `.claude/skills/generate-gear/PLAYBOOK.md` | `cdd32545b0f8c651752827c6697601f1e32b4d39` |
@@ -5981,9 +5981,13 @@ computing deferred (Sketch Discipline); the video frame's collar sections, drawn
 scheme, read fully constrained in Fusion on 2026-09-28.
 
 After the sketch computes, compare each corner's solved 'SketchPoint.geometry' with the local
-position of its expected world seed. Require each distance to be at most 0.001 mm and raise with
-the sketch name, corner index and observed distance otherwise. This checks the roof's chosen
-side and the solved section size; 'isFullyConstrained' alone checks neither.
+position of its expected world seed. Check all four corners; require the largest distance to be
+at most 0.005 mm (0.0005 cm in Fusion), and otherwise raise with the sketch name, corner index
+and largest observed distance. Fusion moved Gear A's first '-R' bore corner 0.0025 mm after
+solving the sketch, beyond the earlier 0.001 mm guard ('[SCREW-F-BORE-SEED-RESIDUAL]'). The new
+limit is one tenth of the smallest proved clearance and far below the 0.60 mm default roof
+allowance. This checks the roof's chosen side and the solved section size; 'isFullyConstrained'
+alone checks neither.
 
 **What the proof's stand-in costs.** The proof's solid engine has no twisted sweep, so the compiled step
 proof builds each bore's channel as a chain of two-section lofts through rotated rectangles ("What the
@@ -6030,7 +6034,11 @@ roof room. The point at 'v = -roofSign*(ht + roofAllowance/2)' must remain insid
 beyond the floor. Raise with the bore name, roof or floor, and observed containment. The first
 two probes establish the sweep's turn; these two establish which face got the allowance.
 
-This entry draws exactly this bore's section, not the other three. It defers computing until all dimensions and constraints exist. Every planar mapped point has z=0. Require isFullyConstrained, one four-line profile and all solved corners within 0.001 mm of their expected mapped seeds. [PB-SKETCH-FIRST] [PB-SKETCH-DEFER] [PB-SKETCH-ZERO-Z].
+This entry draws exactly this bore's section, not the other three. It defers computing
+until all dimensions and constraints exist. Every planar mapped point has z=0.
+Require isFullyConstrained, one four-line profile and all four solved corners within
+0.005 mm of their expected mapped seeds. Report the largest distance if any corner
+exceeds that limit. [PB-SKETCH-FIRST] [PB-SKETCH-DEFER] [PB-SKETCH-ZERO-Z].
 
 The proof function is `stepEntry49GearAboreRsketch`.
 
@@ -6206,7 +6214,7 @@ Make these required Fusion calls:
   "citations": [
     {
       "first": 1274,
-      "last": 1390,
+      "last": 1396,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -6214,7 +6222,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1274–1390.
+**From:** `spec/screwgear/instructions.md` L1274–1396.
 
 ## 50 `[GO]` Gear A bore -R sweep cut
 
@@ -6320,7 +6328,7 @@ four containment checks remain required in Fusion; the current solid API provide
   "citations": [
     {
       "first": 1257,
-      "last": 1438,
+      "last": 1442,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -6328,7 +6336,7 @@ four containment checks remain required in Fusion; the current solid API provide
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1257–1438.
+**From:** `spec/screwgear/instructions.md` L1257–1442.
 
 ## 51 `[PROSE]` Gear A bore +R plane
 
@@ -6512,9 +6520,13 @@ computing deferred (Sketch Discipline); the video frame's collar sections, drawn
 scheme, read fully constrained in Fusion on 2026-09-28.
 
 After the sketch computes, compare each corner's solved 'SketchPoint.geometry' with the local
-position of its expected world seed. Require each distance to be at most 0.001 mm and raise with
-the sketch name, corner index and observed distance otherwise. This checks the roof's chosen
-side and the solved section size; 'isFullyConstrained' alone checks neither.
+position of its expected world seed. Check all four corners; require the largest distance to be
+at most 0.005 mm (0.0005 cm in Fusion), and otherwise raise with the sketch name, corner index
+and largest observed distance. Fusion moved Gear A's first '-R' bore corner 0.0025 mm after
+solving the sketch, beyond the earlier 0.001 mm guard ('[SCREW-F-BORE-SEED-RESIDUAL]'). The new
+limit is one tenth of the smallest proved clearance and far below the 0.60 mm default roof
+allowance. This checks the roof's chosen side and the solved section size; 'isFullyConstrained'
+alone checks neither.
 
 **What the proof's stand-in costs.** The proof's solid engine has no twisted sweep, so the compiled step
 proof builds each bore's channel as a chain of two-section lofts through rotated rectangles ("What the
@@ -6561,7 +6573,11 @@ roof room. The point at 'v = -roofSign*(ht + roofAllowance/2)' must remain insid
 beyond the floor. Raise with the bore name, roof or floor, and observed containment. The first
 two probes establish the sweep's turn; these two establish which face got the allowance.
 
-This entry draws exactly this bore's section, not the other three. It defers computing until all dimensions and constraints exist. Every planar mapped point has z=0. Require isFullyConstrained, one four-line profile and all solved corners within 0.001 mm of their expected mapped seeds. [PB-SKETCH-FIRST] [PB-SKETCH-DEFER] [PB-SKETCH-ZERO-Z].
+This entry draws exactly this bore's section, not the other three. It defers computing
+until all dimensions and constraints exist. Every planar mapped point has z=0.
+Require isFullyConstrained, one four-line profile and all four solved corners within
+0.005 mm of their expected mapped seeds. Report the largest distance if any corner
+exceeds that limit. [PB-SKETCH-FIRST] [PB-SKETCH-DEFER] [PB-SKETCH-ZERO-Z].
 
 The proof function is `stepEntry52GearAboreRsketch`.
 
@@ -6737,7 +6753,7 @@ Make these required Fusion calls:
   "citations": [
     {
       "first": 1274,
-      "last": 1390,
+      "last": 1396,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -6745,7 +6761,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1274–1390.
+**From:** `spec/screwgear/instructions.md` L1274–1396.
 
 ## 53 `[GO]` Gear A bore +R sweep cut
 
@@ -6851,7 +6867,7 @@ four containment checks remain required in Fusion; the current solid API provide
   "citations": [
     {
       "first": 1257,
-      "last": 1438,
+      "last": 1442,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -6859,7 +6875,7 @@ four containment checks remain required in Fusion; the current solid API provide
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1257–1438.
+**From:** `spec/screwgear/instructions.md` L1257–1442.
 
 ## 54 `[PROSE]` Gear B bore -R plane
 
@@ -7043,9 +7059,13 @@ computing deferred (Sketch Discipline); the video frame's collar sections, drawn
 scheme, read fully constrained in Fusion on 2026-09-28.
 
 After the sketch computes, compare each corner's solved 'SketchPoint.geometry' with the local
-position of its expected world seed. Require each distance to be at most 0.001 mm and raise with
-the sketch name, corner index and observed distance otherwise. This checks the roof's chosen
-side and the solved section size; 'isFullyConstrained' alone checks neither.
+position of its expected world seed. Check all four corners; require the largest distance to be
+at most 0.005 mm (0.0005 cm in Fusion), and otherwise raise with the sketch name, corner index
+and largest observed distance. Fusion moved Gear A's first '-R' bore corner 0.0025 mm after
+solving the sketch, beyond the earlier 0.001 mm guard ('[SCREW-F-BORE-SEED-RESIDUAL]'). The new
+limit is one tenth of the smallest proved clearance and far below the 0.60 mm default roof
+allowance. This checks the roof's chosen side and the solved section size; 'isFullyConstrained'
+alone checks neither.
 
 **What the proof's stand-in costs.** The proof's solid engine has no twisted sweep, so the compiled step
 proof builds each bore's channel as a chain of two-section lofts through rotated rectangles ("What the
@@ -7092,7 +7112,11 @@ roof room. The point at 'v = -roofSign*(ht + roofAllowance/2)' must remain insid
 beyond the floor. Raise with the bore name, roof or floor, and observed containment. The first
 two probes establish the sweep's turn; these two establish which face got the allowance.
 
-This entry draws exactly this bore's section, not the other three. It defers computing until all dimensions and constraints exist. Every planar mapped point has z=0. Require isFullyConstrained, one four-line profile and all solved corners within 0.001 mm of their expected mapped seeds. [PB-SKETCH-FIRST] [PB-SKETCH-DEFER] [PB-SKETCH-ZERO-Z].
+This entry draws exactly this bore's section, not the other three. It defers computing
+until all dimensions and constraints exist. Every planar mapped point has z=0.
+Require isFullyConstrained, one four-line profile and all four solved corners within
+0.005 mm of their expected mapped seeds. Report the largest distance if any corner
+exceeds that limit. [PB-SKETCH-FIRST] [PB-SKETCH-DEFER] [PB-SKETCH-ZERO-Z].
 
 The proof function is `stepEntry55GearBboreRsketch`.
 
@@ -7268,7 +7292,7 @@ Make these required Fusion calls:
   "citations": [
     {
       "first": 1274,
-      "last": 1390,
+      "last": 1396,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -7276,7 +7300,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1274–1390.
+**From:** `spec/screwgear/instructions.md` L1274–1396.
 
 ## 56 `[GO]` Gear B bore -R sweep cut
 
@@ -7382,7 +7406,7 @@ four containment checks remain required in Fusion; the current solid API provide
   "citations": [
     {
       "first": 1257,
-      "last": 1438,
+      "last": 1442,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -7390,7 +7414,7 @@ four containment checks remain required in Fusion; the current solid API provide
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1257–1438.
+**From:** `spec/screwgear/instructions.md` L1257–1442.
 
 ## 57 `[PROSE]` Gear B bore +R plane
 
@@ -7574,9 +7598,13 @@ computing deferred (Sketch Discipline); the video frame's collar sections, drawn
 scheme, read fully constrained in Fusion on 2026-09-28.
 
 After the sketch computes, compare each corner's solved 'SketchPoint.geometry' with the local
-position of its expected world seed. Require each distance to be at most 0.001 mm and raise with
-the sketch name, corner index and observed distance otherwise. This checks the roof's chosen
-side and the solved section size; 'isFullyConstrained' alone checks neither.
+position of its expected world seed. Check all four corners; require the largest distance to be
+at most 0.005 mm (0.0005 cm in Fusion), and otherwise raise with the sketch name, corner index
+and largest observed distance. Fusion moved Gear A's first '-R' bore corner 0.0025 mm after
+solving the sketch, beyond the earlier 0.001 mm guard ('[SCREW-F-BORE-SEED-RESIDUAL]'). The new
+limit is one tenth of the smallest proved clearance and far below the 0.60 mm default roof
+allowance. This checks the roof's chosen side and the solved section size; 'isFullyConstrained'
+alone checks neither.
 
 **What the proof's stand-in costs.** The proof's solid engine has no twisted sweep, so the compiled step
 proof builds each bore's channel as a chain of two-section lofts through rotated rectangles ("What the
@@ -7623,7 +7651,11 @@ roof room. The point at 'v = -roofSign*(ht + roofAllowance/2)' must remain insid
 beyond the floor. Raise with the bore name, roof or floor, and observed containment. The first
 two probes establish the sweep's turn; these two establish which face got the allowance.
 
-This entry draws exactly this bore's section, not the other three. It defers computing until all dimensions and constraints exist. Every planar mapped point has z=0. Require isFullyConstrained, one four-line profile and all solved corners within 0.001 mm of their expected mapped seeds. [PB-SKETCH-FIRST] [PB-SKETCH-DEFER] [PB-SKETCH-ZERO-Z].
+This entry draws exactly this bore's section, not the other three. It defers computing
+until all dimensions and constraints exist. Every planar mapped point has z=0.
+Require isFullyConstrained, one four-line profile and all four solved corners within
+0.005 mm of their expected mapped seeds. Report the largest distance if any corner
+exceeds that limit. [PB-SKETCH-FIRST] [PB-SKETCH-DEFER] [PB-SKETCH-ZERO-Z].
 
 The proof function is `stepEntry58GearBboreRsketch`.
 
@@ -7799,7 +7831,7 @@ Make these required Fusion calls:
   "citations": [
     {
       "first": 1274,
-      "last": 1390,
+      "last": 1396,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -7807,7 +7839,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1274–1390.
+**From:** `spec/screwgear/instructions.md` L1274–1396.
 
 ## 59 `[GO]` Gear B bore +R sweep cut
 
@@ -7913,7 +7945,7 @@ four containment checks remain required in Fusion; the current solid API provide
   "citations": [
     {
       "first": 1257,
-      "last": 1438,
+      "last": 1442,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -7921,7 +7953,7 @@ four containment checks remain required in Fusion; the current solid API provide
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1257–1438.
+**From:** `spec/screwgear/instructions.md` L1257–1442.
 
 ## 60 `[PROSE]` Window plane
 
@@ -7996,8 +8028,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 1618,
-      "last": 1625,
+      "first": 1622,
+      "last": 1629,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -8005,7 +8037,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1618–1625.
+**From:** `spec/screwgear/instructions.md` L1622–1629.
 
 ## 61 `[GO]` Window d sketch
 
@@ -8084,8 +8116,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 1595,
-      "last": 1634,
+      "first": 1599,
+      "last": 1638,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -8093,7 +8125,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1595–1634.
+**From:** `spec/screwgear/instructions.md` L1599–1638.
 
 ## 62 `[GO]` Window d extrude cut
 
@@ -8192,8 +8224,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 1636,
-      "last": 1661,
+      "first": 1640,
+      "last": 1665,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -8201,7 +8233,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1636–1661.
+**From:** `spec/screwgear/instructions.md` L1640–1665.
 
 ## 63 `[GO]` Window -d sketch
 
@@ -8280,8 +8312,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 1595,
-      "last": 1634,
+      "first": 1599,
+      "last": 1638,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -8289,7 +8321,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1595–1634.
+**From:** `spec/screwgear/instructions.md` L1599–1638.
 
 ## 64 `[GO]` Window -d extrude cut
 
@@ -8388,8 +8420,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 1636,
-      "last": 1661,
+      "first": 1640,
+      "last": 1665,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -8397,7 +8429,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1636–1661.
+**From:** `spec/screwgear/instructions.md` L1640–1665.
 
 ## 65 `[PROSE]` Marker plane
 
@@ -8474,8 +8506,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 2053,
-      "last": 2073,
+      "first": 2057,
+      "last": 2077,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -8483,7 +8515,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2053–2073.
+**From:** `spec/screwgear/instructions.md` L2057–2077.
 
 ## 66 `[GO]` Gear A bore -R square marker sketch
 
@@ -8563,8 +8595,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 2074,
-      "last": 2084,
+      "first": 2078,
+      "last": 2088,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -8572,7 +8604,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2074–2084.
+**From:** `spec/screwgear/instructions.md` L2078–2088.
 
 ## 67 `[GO]` Gear A bore -R marker extrude
 
@@ -8661,8 +8693,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 2086,
-      "last": 2090,
+      "first": 2090,
+      "last": 2094,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -8670,7 +8702,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2086–2090.
+**From:** `spec/screwgear/instructions.md` L2090–2094.
 
 ## 68 `[GO]` Gear A bore -R marker join
 
@@ -8746,8 +8778,8 @@ Fusion combine behavior.
   ],
   "citations": [
     {
-      "first": 2090,
-      "last": 2099,
+      "first": 2094,
+      "last": 2103,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -8755,7 +8787,7 @@ Fusion combine behavior.
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2090–2099.
+**From:** `spec/screwgear/instructions.md` L2094–2103.
 
 ## 69 `[GO]` Gear A bore +R circle marker sketch
 
@@ -8835,8 +8867,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 2074,
-      "last": 2084,
+      "first": 2078,
+      "last": 2088,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -8844,7 +8876,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2074–2084.
+**From:** `spec/screwgear/instructions.md` L2078–2088.
 
 ## 70 `[GO]` Gear A bore +R marker extrude
 
@@ -8933,8 +8965,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 2086,
-      "last": 2090,
+      "first": 2090,
+      "last": 2094,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -8942,7 +8974,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2086–2090.
+**From:** `spec/screwgear/instructions.md` L2090–2094.
 
 ## 71 `[GO]` Gear A bore +R marker join
 
@@ -9018,8 +9050,8 @@ Fusion combine behavior.
   ],
   "citations": [
     {
-      "first": 2090,
-      "last": 2099,
+      "first": 2094,
+      "last": 2103,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -9027,7 +9059,7 @@ Fusion combine behavior.
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2090–2099.
+**From:** `spec/screwgear/instructions.md` L2094–2103.
 
 ## 72 `[GO]` Gear B bore -R square marker sketch
 
@@ -9107,8 +9139,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 2074,
-      "last": 2084,
+      "first": 2078,
+      "last": 2088,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -9116,7 +9148,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2074–2084.
+**From:** `spec/screwgear/instructions.md` L2078–2088.
 
 ## 73 `[GO]` Gear B bore -R marker extrude
 
@@ -9205,8 +9237,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 2086,
-      "last": 2090,
+      "first": 2090,
+      "last": 2094,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -9214,7 +9246,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2086–2090.
+**From:** `spec/screwgear/instructions.md` L2090–2094.
 
 ## 74 `[GO]` Gear B bore -R marker join
 
@@ -9290,8 +9322,8 @@ Fusion combine behavior.
   ],
   "citations": [
     {
-      "first": 2090,
-      "last": 2099,
+      "first": 2094,
+      "last": 2103,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -9299,7 +9331,7 @@ Fusion combine behavior.
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2090–2099.
+**From:** `spec/screwgear/instructions.md` L2094–2103.
 
 ## 75 `[GO]` Gear B bore +R circle marker sketch
 
@@ -9379,8 +9411,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 2074,
-      "last": 2084,
+      "first": 2078,
+      "last": 2088,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -9388,7 +9420,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2074–2084.
+**From:** `spec/screwgear/instructions.md` L2078–2088.
 
 ## 76 `[GO]` Gear B bore +R marker extrude
 
@@ -9477,8 +9509,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 2086,
-      "last": 2090,
+      "first": 2090,
+      "last": 2094,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -9486,7 +9518,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2086–2090.
+**From:** `spec/screwgear/instructions.md` L2090–2094.
 
 ## 77 `[GO]` Gear B bore +R marker join
 
@@ -9562,8 +9594,8 @@ Fusion combine behavior.
   ],
   "citations": [
     {
-      "first": 2090,
-      "last": 2099,
+      "first": 2094,
+      "last": 2103,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -9571,7 +9603,7 @@ Fusion combine behavior.
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2090–2099.
+**From:** `spec/screwgear/instructions.md` L2094–2103.
 
 ## 78 `[PROSE]` Relocate Gear A
 
@@ -9596,8 +9628,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 1662,
-      "last": 1668,
+      "first": 1666,
+      "last": 1672,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -9605,7 +9637,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1662–1668.
+**From:** `spec/screwgear/instructions.md` L1666–1672.
 
 ## 79 `[PROSE]` Relocate Gear B
 
@@ -9630,8 +9662,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 1662,
-      "last": 1668,
+      "first": 1666,
+      "last": 1672,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -9639,7 +9671,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1662–1668.
+**From:** `spec/screwgear/instructions.md` L1666–1672.
 
 ## 80 `[PROSE]` Relocate Cage
 
@@ -9664,8 +9696,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 1662,
-      "last": 1668,
+      "first": 1666,
+      "last": 1672,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -9673,4 +9705,4 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1662–1668.
+**From:** `spec/screwgear/instructions.md` L1666–1672.
