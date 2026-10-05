@@ -901,8 +901,8 @@ replace the ring, rods, loop and collars and have not been built in Fusion.
 | Relocate (§5): 3 `moveToComponent` | 0 | 0 | 3 | 3 |
 | **Total** | **16** | **8** | **50** | **62** |
 
-That is 70 timeline entries at `cellTeeth = 4` and 82 at `cellTeeth = 1`, plus the five
-component creations: 75 and 87 in all, against 96 and 108 for the video frame. The third Fusion
+That is 74 timeline entries at `cellTeeth = 4` and 86 at `cellTeeth = 1`, plus the five
+component creations: 79 and 91 in all, against 96 and 108 for the video frame. The third Fusion
 load (`[SCREW-F-FIRST-LOAD]`) counted exactly 96 timeline items for that frame. Check a load
 against the timeline count, not against `Component.features.count`: at that load, summed over
 the five components, it read 62, six more than the 56 features the timeline held, all six in
@@ -1353,13 +1353,28 @@ spine through `O` can, and this is the scheme:
   `theta`, with a distance dimension `O`–`E` of `uF`.
 - **The angle.** An angular dimension between `Ru` and `K` when `|sin theta| >= sqrt(1/2)`,
   where the angle is `theta` folded into 45°–135°, and otherwise between `Ru` and the toothed
-  side `L2`, which stands at `theta + 90°` (Sketch Discipline).
+  side `L2`, which stands at `theta + 90°` (Sketch Discipline). Compute the text point from the
+  actual sketch-space endpoints, not from the world-frame rays. For `Ru`–`K`, take unit rays
+  `O`→`Cp` and `O`→`E`, and place the text at `O + (rayRu + rayK)*uF/3`. For `Ru`–`L2`, intersect
+  the infinite lines through `O,Cp` and `P1,P2` in sketch space. Take the unit ray along `Ru`
+  from that intersection toward `Cp` (toward `O` if `Cp` coincides with it), and the unit ray
+  `P1`→`P2` along `L2`. Place the text at `intersection + (rayRu + rayL2)*uF/3`. Write the
+  clamped `acos` of the rays' dot product as the angular dimension's value. The text must be
+  inside that angle's wedge at the lines' actual intersection (`[PB-ANGULAR-DIM]`).
 - **The rectangle.** Four lines sharing their corners: `L1` from `(uB, vLo)` to `(uF, vLo)`,
   `L2` on to `(uF, vHi)`, `L3` on to `(uB, vHi)`, `L4` back to the start, every seed the solved
   point (`[PB-SHARE-XOR-COINCIDENT]`: shared, no coincident on a corner). Then `L1` parallel to
   `K` with an offset dimension of `-vLo`, and `L3` on the other side with one of `vHi`; `E` coincident on
   `L2`, and `L2` perpendicular to `K`; `L4` parallel to `L2` with an offset dimension of
   `uF - uB` (`[PB-OFFSET-DIM]`, `[PB-NO-OVERCONSTRAIN]`).
+
+Create the length and angular dimensions **before** adding any rectangle parallel, coincidence,
+or perpendicular constraint. Then add those five geometric constraints, followed by the three
+offset dimensions. Preserve this order and the intersection-based angle text placement: Fusion
+accepted it on the sleeve printed before 2026-10-05, while a regenerated sketch that changed
+both details failed at `addAngularDimension(Ru, L2, angleText)` with
+`VCS_SKETCH_OVER_CONSTRAINTS` (`[SCREW-F-BORE-ANGLE-ORDER]`). The proof's solver sees only the
+completed constraint system, so it cannot verify Fusion's dimension-creation order.
 
 Ten degrees of freedom — `E` and the four corners — against ten rows: five dimensions (the
 length, the angle, three offsets) and five constraints (three parallels, a perpendicular, a

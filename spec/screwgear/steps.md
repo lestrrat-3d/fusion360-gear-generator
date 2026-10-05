@@ -6,8 +6,8 @@ The runnable proof files are `proof/screwgear/sketches_test.go`, `proof/screwgea
 
 | file | `git hash-object` |
 |---|---|
-| `spec/screwgear/instructions.md` | `364b7762fe4ca411cc007d2f5e7019d18fb884c0` |
-| `spec/screwgear/fusion.md` | `3a2bccb05daf69f1c47d62b9c52d4d5b200e10ac` |
+| `spec/screwgear/instructions.md` | `7f645db3c91a00a85a30686448a55c399b50a9b1` |
+| `spec/screwgear/fusion.md` | `04129978aea51d49ff8363c00f93955ce5d11ac5` |
 | `CLAUDE.md` | `916e8624ca88af226c264c21f295c14a9fb9e901` |
 | `proof/screwgear/README.md` | `4bf5085d20c63599a401cb86952fc45bd40b4da1` |
 | `spec/cycloidal/fusion.md` | `afa5a99986f2e0d9f82fb5e21591553cdc54aac4` |
@@ -5947,13 +5947,28 @@ spine through 'O' can, and this is the scheme:
   'theta', with a distance dimension 'O'–'E' of 'uF'.
 - **The angle.** An angular dimension between 'Ru' and 'K' when '|sin theta| >= sqrt(1/2)',
   where the angle is 'theta' folded into 45°–135°, and otherwise between 'Ru' and the toothed
-  side 'L2', which stands at 'theta + 90°' (Sketch Discipline).
+  side 'L2', which stands at 'theta + 90°' (Sketch Discipline). Compute the text point from the
+  actual sketch-space endpoints, not from the world-frame rays. For 'Ru'–'K', take unit rays
+  'O'→'Cp' and 'O'→'E', and place the text at 'O + (rayRu + rayK)*uF/3'. For 'Ru'–'L2', intersect
+  the infinite lines through 'O,Cp' and 'P1,P2' in sketch space. Take the unit ray along 'Ru'
+  from that intersection toward 'Cp' (toward 'O' if 'Cp' coincides with it), and the unit ray
+  'P1'→'P2' along 'L2'. Place the text at 'intersection + (rayRu + rayL2)*uF/3'. Write the
+  clamped 'acos' of the rays' dot product as the angular dimension's value. The text must be
+  inside that angle's wedge at the lines' actual intersection ('[PB-ANGULAR-DIM]').
 - **The rectangle.** Four lines sharing their corners: 'L1' from '(uB, vLo)' to '(uF, vLo)',
   'L2' on to '(uF, vHi)', 'L3' on to '(uB, vHi)', 'L4' back to the start, every seed the solved
   point ('[PB-SHARE-XOR-COINCIDENT]': shared, no coincident on a corner). Then 'L1' parallel to
   'K' with an offset dimension of '-vLo', and 'L3' on the other side with one of 'vHi'; 'E' coincident on
   'L2', and 'L2' perpendicular to 'K'; 'L4' parallel to 'L2' with an offset dimension of
   'uF - uB' ('[PB-OFFSET-DIM]', '[PB-NO-OVERCONSTRAIN]').
+
+Create the length and angular dimensions **before** adding any rectangle parallel, coincidence,
+or perpendicular constraint. Then add those five geometric constraints, followed by the three
+offset dimensions. Preserve this order and the intersection-based angle text placement: Fusion
+accepted it on the sleeve printed before 2026-10-05, while a regenerated sketch that changed
+both details failed at 'addAngularDimension(Ru, L2, angleText)' with
+'VCS_SKETCH_OVER_CONSTRAINTS' ('[SCREW-F-BORE-ANGLE-ORDER]'). The proof's solver sees only the
+completed constraint system, so it cannot verify Fusion's dimension-creation order.
 
 Ten degrees of freedom — 'E' and the four corners — against ten rows: five dimensions (the
 length, the angle, three offsets) and five constraints (three parallels, a perpendicular, a
@@ -6028,14 +6043,14 @@ Make these required Fusion calls:
 - `sketch.modelToSketchSpace(worldPoint)`.
 - `sketch.sketchPoints.add(local)`.
 - `sketch.sketchCurves.sketchLines.addByTwoPoints(startPoint, endPoint)`.
+- `sketch.sketchDimensions.addDistanceDimension(O, E, adsk.fusion.DimensionOrientations.AlignedDimensionOrientation, lengthText)`.
+- `sketch.sketchDimensions.addAngularDimension(Ru, K, angleText)`.
+- `sketch.sketchDimensions.addAngularDimension(Ru, L2, angleText)`.
 - `sketch.geometricConstraints.addParallel(L1, K)`.
 - `sketch.geometricConstraints.addParallel(L3, K)`.
 - `sketch.geometricConstraints.addParallel(L4, L2)`.
 - `sketch.geometricConstraints.addCoincident(E, L2)`.
 - `sketch.geometricConstraints.addPerpendicular(L2, K)`.
-- `sketch.sketchDimensions.addDistanceDimension(O, E, adsk.fusion.DimensionOrientations.AlignedDimensionOrientation, lengthText)`.
-- `sketch.sketchDimensions.addAngularDimension(Ru, K, angleText)`.
-- `sketch.sketchDimensions.addAngularDimension(Ru, L2, angleText)`.
 - `sketch.sketchDimensions.addOffsetDimension(K, L1, lowerText)`.
 - `sketch.sketchDimensions.addOffsetDimension(K, L3, upperText)`.
 - `sketch.sketchDimensions.addOffsetDimension(L2, L4, widthText)`.
@@ -6090,6 +6105,33 @@ Make these required Fusion calls:
     },
     {
       "condition": null,
+      "name": "addDistanceDimension",
+      "owner": "adsk.fusion.SketchDimensions",
+      "reason": null,
+      "receiver": "sketch.sketchDimensions",
+      "role": "required",
+      "span": "sketch.sketchDimensions.addDistanceDimension(O, E, adsk.fusion.DimensionOrientations.AlignedDimensionOrientation, lengthText)"
+    },
+    {
+      "condition": null,
+      "name": "addAngularDimension",
+      "owner": "adsk.fusion.SketchDimensions",
+      "reason": null,
+      "receiver": "sketch.sketchDimensions",
+      "role": "required",
+      "span": "sketch.sketchDimensions.addAngularDimension(Ru, K, angleText)"
+    },
+    {
+      "condition": null,
+      "name": "addAngularDimension",
+      "owner": "adsk.fusion.SketchDimensions",
+      "reason": null,
+      "receiver": "sketch.sketchDimensions",
+      "role": "required",
+      "span": "sketch.sketchDimensions.addAngularDimension(Ru, L2, angleText)"
+    },
+    {
+      "condition": null,
       "name": "addParallel",
       "owner": "adsk.fusion.GeometricConstraints",
       "reason": null,
@@ -6135,33 +6177,6 @@ Make these required Fusion calls:
     },
     {
       "condition": null,
-      "name": "addDistanceDimension",
-      "owner": "adsk.fusion.SketchDimensions",
-      "reason": null,
-      "receiver": "sketch.sketchDimensions",
-      "role": "required",
-      "span": "sketch.sketchDimensions.addDistanceDimension(O, E, adsk.fusion.DimensionOrientations.AlignedDimensionOrientation, lengthText)"
-    },
-    {
-      "condition": null,
-      "name": "addAngularDimension",
-      "owner": "adsk.fusion.SketchDimensions",
-      "reason": null,
-      "receiver": "sketch.sketchDimensions",
-      "role": "required",
-      "span": "sketch.sketchDimensions.addAngularDimension(Ru, K, angleText)"
-    },
-    {
-      "condition": null,
-      "name": "addAngularDimension",
-      "owner": "adsk.fusion.SketchDimensions",
-      "reason": null,
-      "receiver": "sketch.sketchDimensions",
-      "role": "required",
-      "span": "sketch.sketchDimensions.addAngularDimension(Ru, L2, angleText)"
-    },
-    {
-      "condition": null,
       "name": "addOffsetDimension",
       "owner": "adsk.fusion.SketchDimensions",
       "reason": null,
@@ -6191,7 +6206,7 @@ Make these required Fusion calls:
   "citations": [
     {
       "first": 1274,
-      "last": 1375,
+      "last": 1390,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -6199,7 +6214,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1274–1375.
+**From:** `spec/screwgear/instructions.md` L1274–1390.
 
 ## 50 `[GO]` Gear A bore -R sweep cut
 
@@ -6305,7 +6320,7 @@ four containment checks remain required in Fusion; the current solid API provide
   "citations": [
     {
       "first": 1257,
-      "last": 1423,
+      "last": 1438,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -6313,7 +6328,7 @@ four containment checks remain required in Fusion; the current solid API provide
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1257–1423.
+**From:** `spec/screwgear/instructions.md` L1257–1438.
 
 ## 51 `[PROSE]` Gear A bore +R plane
 
@@ -6463,13 +6478,28 @@ spine through 'O' can, and this is the scheme:
   'theta', with a distance dimension 'O'–'E' of 'uF'.
 - **The angle.** An angular dimension between 'Ru' and 'K' when '|sin theta| >= sqrt(1/2)',
   where the angle is 'theta' folded into 45°–135°, and otherwise between 'Ru' and the toothed
-  side 'L2', which stands at 'theta + 90°' (Sketch Discipline).
+  side 'L2', which stands at 'theta + 90°' (Sketch Discipline). Compute the text point from the
+  actual sketch-space endpoints, not from the world-frame rays. For 'Ru'–'K', take unit rays
+  'O'→'Cp' and 'O'→'E', and place the text at 'O + (rayRu + rayK)*uF/3'. For 'Ru'–'L2', intersect
+  the infinite lines through 'O,Cp' and 'P1,P2' in sketch space. Take the unit ray along 'Ru'
+  from that intersection toward 'Cp' (toward 'O' if 'Cp' coincides with it), and the unit ray
+  'P1'→'P2' along 'L2'. Place the text at 'intersection + (rayRu + rayL2)*uF/3'. Write the
+  clamped 'acos' of the rays' dot product as the angular dimension's value. The text must be
+  inside that angle's wedge at the lines' actual intersection ('[PB-ANGULAR-DIM]').
 - **The rectangle.** Four lines sharing their corners: 'L1' from '(uB, vLo)' to '(uF, vLo)',
   'L2' on to '(uF, vHi)', 'L3' on to '(uB, vHi)', 'L4' back to the start, every seed the solved
   point ('[PB-SHARE-XOR-COINCIDENT]': shared, no coincident on a corner). Then 'L1' parallel to
   'K' with an offset dimension of '-vLo', and 'L3' on the other side with one of 'vHi'; 'E' coincident on
   'L2', and 'L2' perpendicular to 'K'; 'L4' parallel to 'L2' with an offset dimension of
   'uF - uB' ('[PB-OFFSET-DIM]', '[PB-NO-OVERCONSTRAIN]').
+
+Create the length and angular dimensions **before** adding any rectangle parallel, coincidence,
+or perpendicular constraint. Then add those five geometric constraints, followed by the three
+offset dimensions. Preserve this order and the intersection-based angle text placement: Fusion
+accepted it on the sleeve printed before 2026-10-05, while a regenerated sketch that changed
+both details failed at 'addAngularDimension(Ru, L2, angleText)' with
+'VCS_SKETCH_OVER_CONSTRAINTS' ('[SCREW-F-BORE-ANGLE-ORDER]'). The proof's solver sees only the
+completed constraint system, so it cannot verify Fusion's dimension-creation order.
 
 Ten degrees of freedom — 'E' and the four corners — against ten rows: five dimensions (the
 length, the angle, three offsets) and five constraints (three parallels, a perpendicular, a
@@ -6544,14 +6574,14 @@ Make these required Fusion calls:
 - `sketch.modelToSketchSpace(worldPoint)`.
 - `sketch.sketchPoints.add(local)`.
 - `sketch.sketchCurves.sketchLines.addByTwoPoints(startPoint, endPoint)`.
+- `sketch.sketchDimensions.addDistanceDimension(O, E, adsk.fusion.DimensionOrientations.AlignedDimensionOrientation, lengthText)`.
+- `sketch.sketchDimensions.addAngularDimension(Ru, K, angleText)`.
+- `sketch.sketchDimensions.addAngularDimension(Ru, L2, angleText)`.
 - `sketch.geometricConstraints.addParallel(L1, K)`.
 - `sketch.geometricConstraints.addParallel(L3, K)`.
 - `sketch.geometricConstraints.addParallel(L4, L2)`.
 - `sketch.geometricConstraints.addCoincident(E, L2)`.
 - `sketch.geometricConstraints.addPerpendicular(L2, K)`.
-- `sketch.sketchDimensions.addDistanceDimension(O, E, adsk.fusion.DimensionOrientations.AlignedDimensionOrientation, lengthText)`.
-- `sketch.sketchDimensions.addAngularDimension(Ru, K, angleText)`.
-- `sketch.sketchDimensions.addAngularDimension(Ru, L2, angleText)`.
 - `sketch.sketchDimensions.addOffsetDimension(K, L1, lowerText)`.
 - `sketch.sketchDimensions.addOffsetDimension(K, L3, upperText)`.
 - `sketch.sketchDimensions.addOffsetDimension(L2, L4, widthText)`.
@@ -6606,6 +6636,33 @@ Make these required Fusion calls:
     },
     {
       "condition": null,
+      "name": "addDistanceDimension",
+      "owner": "adsk.fusion.SketchDimensions",
+      "reason": null,
+      "receiver": "sketch.sketchDimensions",
+      "role": "required",
+      "span": "sketch.sketchDimensions.addDistanceDimension(O, E, adsk.fusion.DimensionOrientations.AlignedDimensionOrientation, lengthText)"
+    },
+    {
+      "condition": null,
+      "name": "addAngularDimension",
+      "owner": "adsk.fusion.SketchDimensions",
+      "reason": null,
+      "receiver": "sketch.sketchDimensions",
+      "role": "required",
+      "span": "sketch.sketchDimensions.addAngularDimension(Ru, K, angleText)"
+    },
+    {
+      "condition": null,
+      "name": "addAngularDimension",
+      "owner": "adsk.fusion.SketchDimensions",
+      "reason": null,
+      "receiver": "sketch.sketchDimensions",
+      "role": "required",
+      "span": "sketch.sketchDimensions.addAngularDimension(Ru, L2, angleText)"
+    },
+    {
+      "condition": null,
       "name": "addParallel",
       "owner": "adsk.fusion.GeometricConstraints",
       "reason": null,
@@ -6651,33 +6708,6 @@ Make these required Fusion calls:
     },
     {
       "condition": null,
-      "name": "addDistanceDimension",
-      "owner": "adsk.fusion.SketchDimensions",
-      "reason": null,
-      "receiver": "sketch.sketchDimensions",
-      "role": "required",
-      "span": "sketch.sketchDimensions.addDistanceDimension(O, E, adsk.fusion.DimensionOrientations.AlignedDimensionOrientation, lengthText)"
-    },
-    {
-      "condition": null,
-      "name": "addAngularDimension",
-      "owner": "adsk.fusion.SketchDimensions",
-      "reason": null,
-      "receiver": "sketch.sketchDimensions",
-      "role": "required",
-      "span": "sketch.sketchDimensions.addAngularDimension(Ru, K, angleText)"
-    },
-    {
-      "condition": null,
-      "name": "addAngularDimension",
-      "owner": "adsk.fusion.SketchDimensions",
-      "reason": null,
-      "receiver": "sketch.sketchDimensions",
-      "role": "required",
-      "span": "sketch.sketchDimensions.addAngularDimension(Ru, L2, angleText)"
-    },
-    {
-      "condition": null,
       "name": "addOffsetDimension",
       "owner": "adsk.fusion.SketchDimensions",
       "reason": null,
@@ -6707,7 +6737,7 @@ Make these required Fusion calls:
   "citations": [
     {
       "first": 1274,
-      "last": 1375,
+      "last": 1390,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -6715,7 +6745,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1274–1375.
+**From:** `spec/screwgear/instructions.md` L1274–1390.
 
 ## 53 `[GO]` Gear A bore +R sweep cut
 
@@ -6821,7 +6851,7 @@ four containment checks remain required in Fusion; the current solid API provide
   "citations": [
     {
       "first": 1257,
-      "last": 1423,
+      "last": 1438,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -6829,7 +6859,7 @@ four containment checks remain required in Fusion; the current solid API provide
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1257–1423.
+**From:** `spec/screwgear/instructions.md` L1257–1438.
 
 ## 54 `[PROSE]` Gear B bore -R plane
 
@@ -6979,13 +7009,28 @@ spine through 'O' can, and this is the scheme:
   'theta', with a distance dimension 'O'–'E' of 'uF'.
 - **The angle.** An angular dimension between 'Ru' and 'K' when '|sin theta| >= sqrt(1/2)',
   where the angle is 'theta' folded into 45°–135°, and otherwise between 'Ru' and the toothed
-  side 'L2', which stands at 'theta + 90°' (Sketch Discipline).
+  side 'L2', which stands at 'theta + 90°' (Sketch Discipline). Compute the text point from the
+  actual sketch-space endpoints, not from the world-frame rays. For 'Ru'–'K', take unit rays
+  'O'→'Cp' and 'O'→'E', and place the text at 'O + (rayRu + rayK)*uF/3'. For 'Ru'–'L2', intersect
+  the infinite lines through 'O,Cp' and 'P1,P2' in sketch space. Take the unit ray along 'Ru'
+  from that intersection toward 'Cp' (toward 'O' if 'Cp' coincides with it), and the unit ray
+  'P1'→'P2' along 'L2'. Place the text at 'intersection + (rayRu + rayL2)*uF/3'. Write the
+  clamped 'acos' of the rays' dot product as the angular dimension's value. The text must be
+  inside that angle's wedge at the lines' actual intersection ('[PB-ANGULAR-DIM]').
 - **The rectangle.** Four lines sharing their corners: 'L1' from '(uB, vLo)' to '(uF, vLo)',
   'L2' on to '(uF, vHi)', 'L3' on to '(uB, vHi)', 'L4' back to the start, every seed the solved
   point ('[PB-SHARE-XOR-COINCIDENT]': shared, no coincident on a corner). Then 'L1' parallel to
   'K' with an offset dimension of '-vLo', and 'L3' on the other side with one of 'vHi'; 'E' coincident on
   'L2', and 'L2' perpendicular to 'K'; 'L4' parallel to 'L2' with an offset dimension of
   'uF - uB' ('[PB-OFFSET-DIM]', '[PB-NO-OVERCONSTRAIN]').
+
+Create the length and angular dimensions **before** adding any rectangle parallel, coincidence,
+or perpendicular constraint. Then add those five geometric constraints, followed by the three
+offset dimensions. Preserve this order and the intersection-based angle text placement: Fusion
+accepted it on the sleeve printed before 2026-10-05, while a regenerated sketch that changed
+both details failed at 'addAngularDimension(Ru, L2, angleText)' with
+'VCS_SKETCH_OVER_CONSTRAINTS' ('[SCREW-F-BORE-ANGLE-ORDER]'). The proof's solver sees only the
+completed constraint system, so it cannot verify Fusion's dimension-creation order.
 
 Ten degrees of freedom — 'E' and the four corners — against ten rows: five dimensions (the
 length, the angle, three offsets) and five constraints (three parallels, a perpendicular, a
@@ -7060,14 +7105,14 @@ Make these required Fusion calls:
 - `sketch.modelToSketchSpace(worldPoint)`.
 - `sketch.sketchPoints.add(local)`.
 - `sketch.sketchCurves.sketchLines.addByTwoPoints(startPoint, endPoint)`.
+- `sketch.sketchDimensions.addDistanceDimension(O, E, adsk.fusion.DimensionOrientations.AlignedDimensionOrientation, lengthText)`.
+- `sketch.sketchDimensions.addAngularDimension(Ru, K, angleText)`.
+- `sketch.sketchDimensions.addAngularDimension(Ru, L2, angleText)`.
 - `sketch.geometricConstraints.addParallel(L1, K)`.
 - `sketch.geometricConstraints.addParallel(L3, K)`.
 - `sketch.geometricConstraints.addParallel(L4, L2)`.
 - `sketch.geometricConstraints.addCoincident(E, L2)`.
 - `sketch.geometricConstraints.addPerpendicular(L2, K)`.
-- `sketch.sketchDimensions.addDistanceDimension(O, E, adsk.fusion.DimensionOrientations.AlignedDimensionOrientation, lengthText)`.
-- `sketch.sketchDimensions.addAngularDimension(Ru, K, angleText)`.
-- `sketch.sketchDimensions.addAngularDimension(Ru, L2, angleText)`.
 - `sketch.sketchDimensions.addOffsetDimension(K, L1, lowerText)`.
 - `sketch.sketchDimensions.addOffsetDimension(K, L3, upperText)`.
 - `sketch.sketchDimensions.addOffsetDimension(L2, L4, widthText)`.
@@ -7122,6 +7167,33 @@ Make these required Fusion calls:
     },
     {
       "condition": null,
+      "name": "addDistanceDimension",
+      "owner": "adsk.fusion.SketchDimensions",
+      "reason": null,
+      "receiver": "sketch.sketchDimensions",
+      "role": "required",
+      "span": "sketch.sketchDimensions.addDistanceDimension(O, E, adsk.fusion.DimensionOrientations.AlignedDimensionOrientation, lengthText)"
+    },
+    {
+      "condition": null,
+      "name": "addAngularDimension",
+      "owner": "adsk.fusion.SketchDimensions",
+      "reason": null,
+      "receiver": "sketch.sketchDimensions",
+      "role": "required",
+      "span": "sketch.sketchDimensions.addAngularDimension(Ru, K, angleText)"
+    },
+    {
+      "condition": null,
+      "name": "addAngularDimension",
+      "owner": "adsk.fusion.SketchDimensions",
+      "reason": null,
+      "receiver": "sketch.sketchDimensions",
+      "role": "required",
+      "span": "sketch.sketchDimensions.addAngularDimension(Ru, L2, angleText)"
+    },
+    {
+      "condition": null,
       "name": "addParallel",
       "owner": "adsk.fusion.GeometricConstraints",
       "reason": null,
@@ -7167,33 +7239,6 @@ Make these required Fusion calls:
     },
     {
       "condition": null,
-      "name": "addDistanceDimension",
-      "owner": "adsk.fusion.SketchDimensions",
-      "reason": null,
-      "receiver": "sketch.sketchDimensions",
-      "role": "required",
-      "span": "sketch.sketchDimensions.addDistanceDimension(O, E, adsk.fusion.DimensionOrientations.AlignedDimensionOrientation, lengthText)"
-    },
-    {
-      "condition": null,
-      "name": "addAngularDimension",
-      "owner": "adsk.fusion.SketchDimensions",
-      "reason": null,
-      "receiver": "sketch.sketchDimensions",
-      "role": "required",
-      "span": "sketch.sketchDimensions.addAngularDimension(Ru, K, angleText)"
-    },
-    {
-      "condition": null,
-      "name": "addAngularDimension",
-      "owner": "adsk.fusion.SketchDimensions",
-      "reason": null,
-      "receiver": "sketch.sketchDimensions",
-      "role": "required",
-      "span": "sketch.sketchDimensions.addAngularDimension(Ru, L2, angleText)"
-    },
-    {
-      "condition": null,
       "name": "addOffsetDimension",
       "owner": "adsk.fusion.SketchDimensions",
       "reason": null,
@@ -7223,7 +7268,7 @@ Make these required Fusion calls:
   "citations": [
     {
       "first": 1274,
-      "last": 1375,
+      "last": 1390,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -7231,7 +7276,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1274–1375.
+**From:** `spec/screwgear/instructions.md` L1274–1390.
 
 ## 56 `[GO]` Gear B bore -R sweep cut
 
@@ -7337,7 +7382,7 @@ four containment checks remain required in Fusion; the current solid API provide
   "citations": [
     {
       "first": 1257,
-      "last": 1423,
+      "last": 1438,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -7345,7 +7390,7 @@ four containment checks remain required in Fusion; the current solid API provide
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1257–1423.
+**From:** `spec/screwgear/instructions.md` L1257–1438.
 
 ## 57 `[PROSE]` Gear B bore +R plane
 
@@ -7495,13 +7540,28 @@ spine through 'O' can, and this is the scheme:
   'theta', with a distance dimension 'O'–'E' of 'uF'.
 - **The angle.** An angular dimension between 'Ru' and 'K' when '|sin theta| >= sqrt(1/2)',
   where the angle is 'theta' folded into 45°–135°, and otherwise between 'Ru' and the toothed
-  side 'L2', which stands at 'theta + 90°' (Sketch Discipline).
+  side 'L2', which stands at 'theta + 90°' (Sketch Discipline). Compute the text point from the
+  actual sketch-space endpoints, not from the world-frame rays. For 'Ru'–'K', take unit rays
+  'O'→'Cp' and 'O'→'E', and place the text at 'O + (rayRu + rayK)*uF/3'. For 'Ru'–'L2', intersect
+  the infinite lines through 'O,Cp' and 'P1,P2' in sketch space. Take the unit ray along 'Ru'
+  from that intersection toward 'Cp' (toward 'O' if 'Cp' coincides with it), and the unit ray
+  'P1'→'P2' along 'L2'. Place the text at 'intersection + (rayRu + rayL2)*uF/3'. Write the
+  clamped 'acos' of the rays' dot product as the angular dimension's value. The text must be
+  inside that angle's wedge at the lines' actual intersection ('[PB-ANGULAR-DIM]').
 - **The rectangle.** Four lines sharing their corners: 'L1' from '(uB, vLo)' to '(uF, vLo)',
   'L2' on to '(uF, vHi)', 'L3' on to '(uB, vHi)', 'L4' back to the start, every seed the solved
   point ('[PB-SHARE-XOR-COINCIDENT]': shared, no coincident on a corner). Then 'L1' parallel to
   'K' with an offset dimension of '-vLo', and 'L3' on the other side with one of 'vHi'; 'E' coincident on
   'L2', and 'L2' perpendicular to 'K'; 'L4' parallel to 'L2' with an offset dimension of
   'uF - uB' ('[PB-OFFSET-DIM]', '[PB-NO-OVERCONSTRAIN]').
+
+Create the length and angular dimensions **before** adding any rectangle parallel, coincidence,
+or perpendicular constraint. Then add those five geometric constraints, followed by the three
+offset dimensions. Preserve this order and the intersection-based angle text placement: Fusion
+accepted it on the sleeve printed before 2026-10-05, while a regenerated sketch that changed
+both details failed at 'addAngularDimension(Ru, L2, angleText)' with
+'VCS_SKETCH_OVER_CONSTRAINTS' ('[SCREW-F-BORE-ANGLE-ORDER]'). The proof's solver sees only the
+completed constraint system, so it cannot verify Fusion's dimension-creation order.
 
 Ten degrees of freedom — 'E' and the four corners — against ten rows: five dimensions (the
 length, the angle, three offsets) and five constraints (three parallels, a perpendicular, a
@@ -7576,14 +7636,14 @@ Make these required Fusion calls:
 - `sketch.modelToSketchSpace(worldPoint)`.
 - `sketch.sketchPoints.add(local)`.
 - `sketch.sketchCurves.sketchLines.addByTwoPoints(startPoint, endPoint)`.
+- `sketch.sketchDimensions.addDistanceDimension(O, E, adsk.fusion.DimensionOrientations.AlignedDimensionOrientation, lengthText)`.
+- `sketch.sketchDimensions.addAngularDimension(Ru, K, angleText)`.
+- `sketch.sketchDimensions.addAngularDimension(Ru, L2, angleText)`.
 - `sketch.geometricConstraints.addParallel(L1, K)`.
 - `sketch.geometricConstraints.addParallel(L3, K)`.
 - `sketch.geometricConstraints.addParallel(L4, L2)`.
 - `sketch.geometricConstraints.addCoincident(E, L2)`.
 - `sketch.geometricConstraints.addPerpendicular(L2, K)`.
-- `sketch.sketchDimensions.addDistanceDimension(O, E, adsk.fusion.DimensionOrientations.AlignedDimensionOrientation, lengthText)`.
-- `sketch.sketchDimensions.addAngularDimension(Ru, K, angleText)`.
-- `sketch.sketchDimensions.addAngularDimension(Ru, L2, angleText)`.
 - `sketch.sketchDimensions.addOffsetDimension(K, L1, lowerText)`.
 - `sketch.sketchDimensions.addOffsetDimension(K, L3, upperText)`.
 - `sketch.sketchDimensions.addOffsetDimension(L2, L4, widthText)`.
@@ -7638,6 +7698,33 @@ Make these required Fusion calls:
     },
     {
       "condition": null,
+      "name": "addDistanceDimension",
+      "owner": "adsk.fusion.SketchDimensions",
+      "reason": null,
+      "receiver": "sketch.sketchDimensions",
+      "role": "required",
+      "span": "sketch.sketchDimensions.addDistanceDimension(O, E, adsk.fusion.DimensionOrientations.AlignedDimensionOrientation, lengthText)"
+    },
+    {
+      "condition": null,
+      "name": "addAngularDimension",
+      "owner": "adsk.fusion.SketchDimensions",
+      "reason": null,
+      "receiver": "sketch.sketchDimensions",
+      "role": "required",
+      "span": "sketch.sketchDimensions.addAngularDimension(Ru, K, angleText)"
+    },
+    {
+      "condition": null,
+      "name": "addAngularDimension",
+      "owner": "adsk.fusion.SketchDimensions",
+      "reason": null,
+      "receiver": "sketch.sketchDimensions",
+      "role": "required",
+      "span": "sketch.sketchDimensions.addAngularDimension(Ru, L2, angleText)"
+    },
+    {
+      "condition": null,
       "name": "addParallel",
       "owner": "adsk.fusion.GeometricConstraints",
       "reason": null,
@@ -7683,33 +7770,6 @@ Make these required Fusion calls:
     },
     {
       "condition": null,
-      "name": "addDistanceDimension",
-      "owner": "adsk.fusion.SketchDimensions",
-      "reason": null,
-      "receiver": "sketch.sketchDimensions",
-      "role": "required",
-      "span": "sketch.sketchDimensions.addDistanceDimension(O, E, adsk.fusion.DimensionOrientations.AlignedDimensionOrientation, lengthText)"
-    },
-    {
-      "condition": null,
-      "name": "addAngularDimension",
-      "owner": "adsk.fusion.SketchDimensions",
-      "reason": null,
-      "receiver": "sketch.sketchDimensions",
-      "role": "required",
-      "span": "sketch.sketchDimensions.addAngularDimension(Ru, K, angleText)"
-    },
-    {
-      "condition": null,
-      "name": "addAngularDimension",
-      "owner": "adsk.fusion.SketchDimensions",
-      "reason": null,
-      "receiver": "sketch.sketchDimensions",
-      "role": "required",
-      "span": "sketch.sketchDimensions.addAngularDimension(Ru, L2, angleText)"
-    },
-    {
-      "condition": null,
       "name": "addOffsetDimension",
       "owner": "adsk.fusion.SketchDimensions",
       "reason": null,
@@ -7739,7 +7799,7 @@ Make these required Fusion calls:
   "citations": [
     {
       "first": 1274,
-      "last": 1375,
+      "last": 1390,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -7747,7 +7807,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1274–1375.
+**From:** `spec/screwgear/instructions.md` L1274–1390.
 
 ## 59 `[GO]` Gear B bore +R sweep cut
 
@@ -7853,7 +7913,7 @@ four containment checks remain required in Fusion; the current solid API provide
   "citations": [
     {
       "first": 1257,
-      "last": 1423,
+      "last": 1438,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -7861,7 +7921,7 @@ four containment checks remain required in Fusion; the current solid API provide
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1257–1423.
+**From:** `spec/screwgear/instructions.md` L1257–1438.
 
 ## 60 `[PROSE]` Window plane
 
@@ -7936,8 +7996,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 1603,
-      "last": 1610,
+      "first": 1618,
+      "last": 1625,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -7945,7 +8005,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1603–1610.
+**From:** `spec/screwgear/instructions.md` L1618–1625.
 
 ## 61 `[GO]` Window d sketch
 
@@ -8024,8 +8084,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 1580,
-      "last": 1619,
+      "first": 1595,
+      "last": 1634,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -8033,7 +8093,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1580–1619.
+**From:** `spec/screwgear/instructions.md` L1595–1634.
 
 ## 62 `[GO]` Window d extrude cut
 
@@ -8132,8 +8192,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 1621,
-      "last": 1646,
+      "first": 1636,
+      "last": 1661,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -8141,7 +8201,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1621–1646.
+**From:** `spec/screwgear/instructions.md` L1636–1661.
 
 ## 63 `[GO]` Window -d sketch
 
@@ -8220,8 +8280,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 1580,
-      "last": 1619,
+      "first": 1595,
+      "last": 1634,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -8229,7 +8289,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1580–1619.
+**From:** `spec/screwgear/instructions.md` L1595–1634.
 
 ## 64 `[GO]` Window -d extrude cut
 
@@ -8328,8 +8388,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 1621,
-      "last": 1646,
+      "first": 1636,
+      "last": 1661,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -8337,7 +8397,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1621–1646.
+**From:** `spec/screwgear/instructions.md` L1636–1661.
 
 ## 65 `[PROSE]` Marker plane
 
@@ -8414,8 +8474,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 2038,
-      "last": 2058,
+      "first": 2053,
+      "last": 2073,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -8423,7 +8483,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2038–2058.
+**From:** `spec/screwgear/instructions.md` L2053–2073.
 
 ## 66 `[GO]` Gear A bore -R square marker sketch
 
@@ -8503,8 +8563,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 2059,
-      "last": 2069,
+      "first": 2074,
+      "last": 2084,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -8512,7 +8572,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2059–2069.
+**From:** `spec/screwgear/instructions.md` L2074–2084.
 
 ## 67 `[GO]` Gear A bore -R marker extrude
 
@@ -8601,8 +8661,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 2071,
-      "last": 2075,
+      "first": 2086,
+      "last": 2090,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -8610,7 +8670,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2071–2075.
+**From:** `spec/screwgear/instructions.md` L2086–2090.
 
 ## 68 `[GO]` Gear A bore -R marker join
 
@@ -8686,8 +8746,8 @@ Fusion combine behavior.
   ],
   "citations": [
     {
-      "first": 2075,
-      "last": 2084,
+      "first": 2090,
+      "last": 2099,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -8695,7 +8755,7 @@ Fusion combine behavior.
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2075–2084.
+**From:** `spec/screwgear/instructions.md` L2090–2099.
 
 ## 69 `[GO]` Gear A bore +R circle marker sketch
 
@@ -8775,8 +8835,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 2059,
-      "last": 2069,
+      "first": 2074,
+      "last": 2084,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -8784,7 +8844,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2059–2069.
+**From:** `spec/screwgear/instructions.md` L2074–2084.
 
 ## 70 `[GO]` Gear A bore +R marker extrude
 
@@ -8873,8 +8933,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 2071,
-      "last": 2075,
+      "first": 2086,
+      "last": 2090,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -8882,7 +8942,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2071–2075.
+**From:** `spec/screwgear/instructions.md` L2086–2090.
 
 ## 71 `[GO]` Gear A bore +R marker join
 
@@ -8958,8 +9018,8 @@ Fusion combine behavior.
   ],
   "citations": [
     {
-      "first": 2075,
-      "last": 2084,
+      "first": 2090,
+      "last": 2099,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -8967,7 +9027,7 @@ Fusion combine behavior.
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2075–2084.
+**From:** `spec/screwgear/instructions.md` L2090–2099.
 
 ## 72 `[GO]` Gear B bore -R square marker sketch
 
@@ -9047,8 +9107,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 2059,
-      "last": 2069,
+      "first": 2074,
+      "last": 2084,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -9056,7 +9116,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2059–2069.
+**From:** `spec/screwgear/instructions.md` L2074–2084.
 
 ## 73 `[GO]` Gear B bore -R marker extrude
 
@@ -9145,8 +9205,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 2071,
-      "last": 2075,
+      "first": 2086,
+      "last": 2090,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -9154,7 +9214,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2071–2075.
+**From:** `spec/screwgear/instructions.md` L2086–2090.
 
 ## 74 `[GO]` Gear B bore -R marker join
 
@@ -9230,8 +9290,8 @@ Fusion combine behavior.
   ],
   "citations": [
     {
-      "first": 2075,
-      "last": 2084,
+      "first": 2090,
+      "last": 2099,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -9239,7 +9299,7 @@ Fusion combine behavior.
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2075–2084.
+**From:** `spec/screwgear/instructions.md` L2090–2099.
 
 ## 75 `[GO]` Gear B bore +R circle marker sketch
 
@@ -9319,8 +9379,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 2059,
-      "last": 2069,
+      "first": 2074,
+      "last": 2084,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -9328,7 +9388,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2059–2069.
+**From:** `spec/screwgear/instructions.md` L2074–2084.
 
 ## 76 `[GO]` Gear B bore +R marker extrude
 
@@ -9417,8 +9477,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 2071,
-      "last": 2075,
+      "first": 2086,
+      "last": 2090,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -9426,7 +9486,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2071–2075.
+**From:** `spec/screwgear/instructions.md` L2086–2090.
 
 ## 77 `[GO]` Gear B bore +R marker join
 
@@ -9502,8 +9562,8 @@ Fusion combine behavior.
   ],
   "citations": [
     {
-      "first": 2075,
-      "last": 2084,
+      "first": 2090,
+      "last": 2099,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -9511,7 +9571,7 @@ Fusion combine behavior.
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2075–2084.
+**From:** `spec/screwgear/instructions.md` L2090–2099.
 
 ## 78 `[PROSE]` Relocate Gear A
 
@@ -9536,8 +9596,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 1647,
-      "last": 1653,
+      "first": 1662,
+      "last": 1668,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -9545,7 +9605,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1647–1653.
+**From:** `spec/screwgear/instructions.md` L1662–1668.
 
 ## 79 `[PROSE]` Relocate Gear B
 
@@ -9570,8 +9630,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 1647,
-      "last": 1653,
+      "first": 1662,
+      "last": 1668,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -9579,7 +9639,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1647–1653.
+**From:** `spec/screwgear/instructions.md` L1662–1668.
 
 ## 80 `[PROSE]` Relocate Cage
 
@@ -9604,8 +9664,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 1647,
-      "last": 1653,
+      "first": 1662,
+      "last": 1668,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -9613,4 +9673,4 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1647–1653.
+**From:** `spec/screwgear/instructions.md` L1662–1668.

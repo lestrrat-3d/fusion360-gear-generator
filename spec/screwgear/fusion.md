@@ -254,6 +254,20 @@ sketch corners and both sides of the roof allowance in its cut. These checks can
 Fusion cut; they cannot measure shrink or sag in the printed sleeve. A new print decides whether
 0.80 mm of drawn roof room is enough.
 
+## `[SCREW-F-BORE-ANGLE-ORDER]` — Fusion rejected the regenerated bore sketch, 2026-10-05
+
+The Add-In generated after `[SCREW-F-PRINT-4]` stopped at
+`sketch.sketchDimensions.addAngularDimension(Ru, L2, angleText)` with
+`VCS_SKETCH_OVER_CONSTRAINTS`. At the default inputs the first bore is Gear A `-R`; its starting
+angle is about -138°, so it uses the `Ru`–`L2` branch. No bore cut ran. That generated sketch added
+all five geometric constraints before the angular dimension and placed `angleText` relative to
+`O`, although `Ru` and `L2` intersect elsewhere. The previous Add-In created the length and
+angle dimensions before those constraints, and placed the text inside the wedge at the lines'
+intersection; it generated the sleeve that was printed. The traceback does not isolate which
+of these two changes caused Fusion's refusal, so restore both known-working details in the
+rectangle scheme. The standalone sketch solver checks the completed constraint system, but
+does not call Fusion's incremental `addAngularDimension` and cannot catch this runtime refusal.
+
 ## `[SCREW-F-DIAGNOSTIC]` — what the diagnostics of 2026-09-28 measured
 
 Two scripts ran in the user's Fusion on 2026-09-28, each in a scratch document holding the
