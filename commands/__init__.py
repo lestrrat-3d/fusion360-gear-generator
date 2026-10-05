@@ -7,6 +7,7 @@ from .helicalgear import entry as helicalgear
 from .herringbonegear import entry as herringbonegear
 from .bevelgear import entry as bevelgear
 from .cycloidaldrive import entry as cycloidaldrive
+from .screwgear import entry as screwgear
 
 # Fusion will automatically call the start() and stop() functions.
 commands = [
@@ -15,6 +16,7 @@ commands = [
     herringbonegear,
     bevelgear,
     cycloidaldrive,
+    screwgear,
 ]
 
 
