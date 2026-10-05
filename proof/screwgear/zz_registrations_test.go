@@ -9,66 +9,278 @@ import (
 	"github.com/lestrrat-3d/fusion360-gear-generator/proof/proofkit3d"
 )
 
-func TestAnchor(t *testing.T) {
-	proofkit.Run(t, anchorCases, stepAnchor)
+func TestEntry05Anchorsketch(t *testing.T) {
+	proofkit.Run(t, anchorCases, stepEntry05Anchorsketch)
 }
 
-func TestPaths(t *testing.T) {
-	proofkit.Run(t, pathCases, stepPaths)
+func TestEntry08GearApathssketch(t *testing.T) {
+	proofkit.Run(t, pathCases, stepEntry08GearApathssketch)
 }
 
-func TestCellSections(t *testing.T) {
-	proofkit.Run(t, sectionCases, stepCellSections)
+func TestEntry9GearAcellsectionssketch(t *testing.T) {
+	proofkit.Run(t, sectionCases, stepEntry9GearAcellsectionssketch)
 }
 
-func TestCellLoft(t *testing.T) {
-	proofkit3d.RunSolid(t, cellCases, stepCellLoft, assertCellLoft)
+func TestEntry10GearAcellloft(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry10GearAcellloft, assertCellSegmentLoft)
 }
 
-func TestCellCopy(t *testing.T) {
-	proofkit3d.RunSolid(t, cellCases, stepCellCopy, assertCellCopy)
+func TestEntry11GearAasidecopy(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry11GearAasidecopy, assertCopyCell)
 }
 
-func TestCellMove(t *testing.T) {
-	proofkit3d.RunSolid(t, cellCases, stepCellMove, assertCellMove)
+func TestEntry12GearAdoubling1copy(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry12GearAdoubling1copy, assertCopyCell)
 }
 
-func TestCellJoin(t *testing.T) {
-	proofkit3d.RunSolid(t, cellCases, stepCellJoin, assertCellJoin)
+func TestEntry13GearAdoubling1move(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry13GearAdoubling1move, assertMoveCell)
 }
 
-func TestSleeveSketch(t *testing.T) {
-	proofkit.Run(t, sleeveCases, stepSleeveSketch)
+func TestEntry14GearAdoubling1join(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry14GearAdoubling1join, assertJoinCell)
 }
 
-func TestSleeveExtrude(t *testing.T) {
-	proofkit3d.RunSolid(t, tubeCases, stepSleeveExtrude, assertSleeveExtrude)
+func TestEntry15GearAdoubling2copy(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry15GearAdoubling2copy, assertCopyCell)
 }
 
-func TestBoreSketch(t *testing.T) {
-	proofkit.Run(t, boreCases, stepBoreSketch)
+func TestEntry16GearAdoubling2move(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry16GearAdoubling2move, assertMoveCell)
 }
 
-func TestBoreSweep(t *testing.T) {
-	proofkit3d.RunSolid(t, boreSolidCases, stepBoreSweep, assertBoreSweep)
+func TestEntry17GearAdoubling2join(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry17GearAdoubling2join, assertJoinCell)
 }
 
-func TestWindowSketch(t *testing.T) {
-	proofkit.Run(t, windowCases, stepWindowSketch)
+func TestEntry18GearAdoubling3copy(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry18GearAdoubling3copy, assertCopyCell)
 }
 
-func TestWindowCut(t *testing.T) {
-	proofkit3d.RunSolid(t, windowSolidCases, stepWindowCut, assertWindowCut)
+func TestEntry19GearAdoubling3move(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry19GearAdoubling3move, assertMoveCell)
 }
 
-func TestMarkerSketch(t *testing.T) {
-	proofkit.Run(t, markerCases, stepMarkerSketch)
+func TestEntry20GearAdoubling3join(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry20GearAdoubling3join, assertJoinCell)
 }
 
-func TestMarkerExtrude(t *testing.T) {
-	proofkit3d.RunSolid(t, markerSolidCases, stepMarkerExtrude, assertMarkerExtrude)
+func TestEntry21GearAdoubling4copy(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry21GearAdoubling4copy, assertCopyCell)
 }
 
-func TestMarkerJoin(t *testing.T) {
-	proofkit3d.RunSolid(t, markerSolidCases, stepMarkerJoin, assertMarkerJoin)
+func TestEntry22GearAdoubling4move(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry22GearAdoubling4move, assertMoveCell)
+}
+
+func TestEntry23GearAdoubling4join(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry23GearAdoubling4join, assertJoinCell)
+}
+
+func TestEntry24GearAasidemove(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry24GearAasidemove, assertMoveCell)
+}
+
+func TestEntry25GearAasidejoin(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry25GearAasidejoin, assertJoinCell)
+}
+
+func TestEntry26r1GearAremaindersectionssketch(t *testing.T) {
+	proofkit.Run(t, sectionCases, stepEntry26r1GearAremaindersectionssketch)
+}
+
+func TestEntry26r2GearAremainderloft(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry26r2GearAremainderloft, assertCellSegmentLoft)
+}
+
+func TestEntry26r3GearAremainderjoin(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry26r3GearAremainderjoin, assertJoinCell)
+}
+
+func TestEntry27GearBpathssketch(t *testing.T) {
+	proofkit.Run(t, pathCases, stepEntry27GearBpathssketch)
+}
+
+func TestEntry28GearBcellsectionssketch(t *testing.T) {
+	proofkit.Run(t, sectionCases, stepEntry28GearBcellsectionssketch)
+}
+
+func TestEntry29GearBcellloft(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry29GearBcellloft, assertCellSegmentLoft)
+}
+
+func TestEntry30GearBasidecopy(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry30GearBasidecopy, assertCopyCell)
+}
+
+func TestEntry31GearBdoubling1copy(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry31GearBdoubling1copy, assertCopyCell)
+}
+
+func TestEntry32GearBdoubling1move(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry32GearBdoubling1move, assertMoveCell)
+}
+
+func TestEntry33GearBdoubling1join(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry33GearBdoubling1join, assertJoinCell)
+}
+
+func TestEntry34GearBdoubling2copy(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry34GearBdoubling2copy, assertCopyCell)
+}
+
+func TestEntry35GearBdoubling2move(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry35GearBdoubling2move, assertMoveCell)
+}
+
+func TestEntry36GearBdoubling2join(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry36GearBdoubling2join, assertJoinCell)
+}
+
+func TestEntry37GearBdoubling3copy(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry37GearBdoubling3copy, assertCopyCell)
+}
+
+func TestEntry38GearBdoubling3move(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry38GearBdoubling3move, assertMoveCell)
+}
+
+func TestEntry39GearBdoubling3join(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry39GearBdoubling3join, assertJoinCell)
+}
+
+func TestEntry40GearBdoubling4copy(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry40GearBdoubling4copy, assertCopyCell)
+}
+
+func TestEntry41GearBdoubling4move(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry41GearBdoubling4move, assertMoveCell)
+}
+
+func TestEntry42GearBdoubling4join(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry42GearBdoubling4join, assertJoinCell)
+}
+
+func TestEntry43GearBasidemove(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry43GearBasidemove, assertMoveCell)
+}
+
+func TestEntry44GearBasidejoin(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry44GearBasidejoin, assertJoinCell)
+}
+
+func TestEntry45r1GearBremaindersectionssketch(t *testing.T) {
+	proofkit.Run(t, sectionCases, stepEntry45r1GearBremaindersectionssketch)
+}
+
+func TestEntry45r2GearBremainderloft(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry45r2GearBremainderloft, assertCellSegmentLoft)
+}
+
+func TestEntry45r3GearBremainderjoin(t *testing.T) {
+	proofkit3d.RunSolid(t, cellSolidCases, stepEntry45r3GearBremainderjoin, assertJoinCell)
+}
+
+func TestEntry46Sleevesketch(t *testing.T) {
+	proofkit.Run(t, sleeveSketchCases, stepEntry46Sleevesketch)
+}
+
+func TestEntry47Sleeveextrude(t *testing.T) {
+	proofkit3d.RunSolid(t, sleeveSolidCases, stepEntry47Sleeveextrude, assertSleeveExtrude)
+}
+
+func TestEntry49GearAboreRsketch(t *testing.T) {
+	proofkit.Run(t, boreSketchCases, stepEntry49GearAboreRsketch)
+}
+
+func TestEntry50GearAboreRsweepcut(t *testing.T) {
+	proofkit3d.RunSolid(t, boreSolidCases, stepEntry50GearAboreRsweepcut, assertBoreCut)
+}
+
+func TestEntry52GearAboreRsketch(t *testing.T) {
+	proofkit.Run(t, boreSketchCases, stepEntry52GearAboreRsketch)
+}
+
+func TestEntry53GearAboreRsweepcut(t *testing.T) {
+	proofkit3d.RunSolid(t, boreSolidCases, stepEntry53GearAboreRsweepcut, assertBoreCut)
+}
+
+func TestEntry55GearBboreRsketch(t *testing.T) {
+	proofkit.Run(t, boreSketchCases, stepEntry55GearBboreRsketch)
+}
+
+func TestEntry56GearBboreRsweepcut(t *testing.T) {
+	proofkit3d.RunSolid(t, boreSolidCases, stepEntry56GearBboreRsweepcut, assertBoreCut)
+}
+
+func TestEntry58GearBboreRsketch(t *testing.T) {
+	proofkit.Run(t, boreSketchCases, stepEntry58GearBboreRsketch)
+}
+
+func TestEntry59GearBboreRsweepcut(t *testing.T) {
+	proofkit3d.RunSolid(t, boreSolidCases, stepEntry59GearBboreRsweepcut, assertBoreCut)
+}
+
+func TestEntry61Windowdsketch(t *testing.T) {
+	proofkit.Run(t, windowCases, stepEntry61Windowdsketch)
+}
+
+func TestEntry62Windowdextrudecut(t *testing.T) {
+	proofkit3d.RunSolid(t, windowSolidCases, stepEntry62Windowdextrudecut, assertWindowCut)
+}
+
+func TestEntry63Windowdsketch(t *testing.T) {
+	proofkit.Run(t, windowCases, stepEntry63Windowdsketch)
+}
+
+func TestEntry64Windowdextrudecut(t *testing.T) {
+	proofkit3d.RunSolid(t, windowSolidCases, stepEntry64Windowdextrudecut, assertWindowCut)
+}
+
+func TestEntry66GearAboreRsquaremarkersketch(t *testing.T) {
+	proofkit.Run(t, markerCases, stepEntry66GearAboreRsquaremarkersketch)
+}
+
+func TestEntry67GearAboreRmarkerextrude(t *testing.T) {
+	proofkit3d.RunSolid(t, markerSolidCases, stepEntry67GearAboreRmarkerextrude, assertMarkerExtrude)
+}
+
+func TestEntry68GearAboreRmarkerjoin(t *testing.T) {
+	proofkit3d.RunSolid(t, markerSolidCases, stepEntry68GearAboreRmarkerjoin, assertMarkerJoin)
+}
+
+func TestEntry69GearAboreRcirclemarkersketch(t *testing.T) {
+	proofkit.Run(t, markerCases, stepEntry69GearAboreRcirclemarkersketch)
+}
+
+func TestEntry70GearAboreRmarkerextrude(t *testing.T) {
+	proofkit3d.RunSolid(t, markerSolidCases, stepEntry70GearAboreRmarkerextrude, assertMarkerExtrude)
+}
+
+func TestEntry71GearAboreRmarkerjoin(t *testing.T) {
+	proofkit3d.RunSolid(t, markerSolidCases, stepEntry71GearAboreRmarkerjoin, assertMarkerJoin)
+}
+
+func TestEntry72GearBboreRsquaremarkersketch(t *testing.T) {
+	proofkit.Run(t, markerCases, stepEntry72GearBboreRsquaremarkersketch)
+}
+
+func TestEntry73GearBboreRmarkerextrude(t *testing.T) {
+	proofkit3d.RunSolid(t, markerSolidCases, stepEntry73GearBboreRmarkerextrude, assertMarkerExtrude)
+}
+
+func TestEntry74GearBboreRmarkerjoin(t *testing.T) {
+	proofkit3d.RunSolid(t, markerSolidCases, stepEntry74GearBboreRmarkerjoin, assertMarkerJoin)
+}
+
+func TestEntry75GearBboreRcirclemarkersketch(t *testing.T) {
+	proofkit.Run(t, markerCases, stepEntry75GearBboreRcirclemarkersketch)
+}
+
+func TestEntry76GearBboreRmarkerextrude(t *testing.T) {
+	proofkit3d.RunSolid(t, markerSolidCases, stepEntry76GearBboreRmarkerextrude, assertMarkerExtrude)
+}
+
+func TestEntry77GearBboreRmarkerjoin(t *testing.T) {
+	proofkit3d.RunSolid(t, markerSolidCases, stepEntry77GearBboreRmarkerjoin, assertMarkerJoin)
 }

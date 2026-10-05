@@ -458,7 +458,7 @@ func TestSleeveBoresAreTheSameChannels(t *testing.T) {
 		if got := levelBore(g); got != -1 {
 			t.Errorf("gear %d's level bore is its %+.0fR bore, want -R", gi, got)
 		}
-		want := [2][2]float64{{-2.075, 2.375}, {-2.375, 2.075}}[gi]
+		want := [2][2]float64{{-2.075, 2.675}, {-2.675, 2.075}}[gi]
 		if _, lo, hi := boreOpening(g, -1); math.Abs(lo-want[0]) > 1e-12 || math.Abs(hi-want[1]) > 1e-12 {
 			t.Errorf("gear %d's -R bore spans v from %.3f to %.3f, want %.3f to %.3f", gi, lo, hi, want[0], want[1])
 		}

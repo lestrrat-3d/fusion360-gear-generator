@@ -83,8 +83,9 @@ type Params struct {
 // RoofAllowance came in on 2026-10-02 with the second sleeve's print: the two
 // -R bores, whose roofs the printer bridges 15.4 mm across, came out too tight
 // to pass the ribbons, and the +R bores, at the same 0.20 mm, did not
-// (spec/screwgear/fusion.md [SCREW-F-PRINT-2]). The 0.30 mm is the least the
-// user asked for, and it puts 0.50 mm of room under the bridged roof.
+// (spec/screwgear/fusion.md [SCREW-F-PRINT-2]). The later marked sleeve stopped
+// both -R ribbons at their mouths, so the next trial increases the default to
+// 0.60 mm, giving 0.80 mm of drawn room under each bridged roof.
 //
 // ToothSlant and ToothBow came in on 2026-10-03, with the mounting angles
 // moved from 14 degrees to 0 and the engagement from 0.90 mm to 1.05 mm: the
@@ -113,20 +114,21 @@ func defaultParams() Params {
 		CollarWall: 3,
 		Clearance:  0.20,
 
-		RoofAllowance: 0.30,
+		RoofAllowance: 0.60,
 	}
 }
 
 // thirdPrintParams is the table the third sleeve and the ribbons in it were
 // printed at, the defaults until 2026-10-03: the straight-ridge tooth, 14
-// degrees on both mounting angles and a 0.90 mm engagement, with the bores of
-// today, and gear B built at thirdPrintPhase.
+// degrees on both mounting angles, a 0.90 mm engagement, and the 0.30 mm roof
+// allowance used for that print, with gear B built at thirdPrintPhase.
 func thirdPrintParams() Params {
 	p := defaultParams()
 	p.ToothSlant, p.ToothBow = 0, 0
 	p.MountAngleA = 14 * math.Pi / 180
 	p.MountAngleB = 14 * math.Pi / 180
 	p.Engagement = 0.90
+	p.RoofAllowance = 0.30
 	return p
 }
 

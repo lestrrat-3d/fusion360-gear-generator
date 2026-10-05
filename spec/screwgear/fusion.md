@@ -237,6 +237,23 @@ other flank, and `TestStraightRidgesTouchAtAPoint` beside it holds that the chec
 printed tooth: no stretch of ridge within 0.05 mm, at most 0.13 mm within 0.10 mm, the ridges 76°
 and 79° apart.
 
+## `[SCREW-F-PRINT-4]` — the square-marked bores reject the ribbons, 2026-10-05
+
+The user printed a new sleeve from the Add-In deployed on 2026-10-04, standing on its flat,
+unmarked end. Both square-marked `-R` bores stop the ribbons at their mouths, whether approached
+from the tube's outside or inside. The Roof Allowance value in the generating dialog was not
+recorded. Its default was 0.30 mm, but this report alone does not show whether the cut contained
+that allowance or how much the printed opening closed. The two `+R` bores were not reported as
+blocking.
+
+The next print uses a 0.60 mm default roof allowance, giving 0.80 mm of drawn room at each `-R`
+roof while keeping 0.20 mm at its other faces. At 0.60 mm the focused bore-play proof still
+finds all six sampled pose pairs driving, and the roof allowance does not increase the measured
+translation or roll; the opposite bore limits those moves. The build must also check the solved
+sketch corners and both sides of the roof allowance in its cut. These checks can reject a wrong
+Fusion cut; they cannot measure shrink or sag in the printed sleeve. A new print decides whether
+0.80 mm of drawn roof room is enough.
+
 ## `[SCREW-F-DIAGNOSTIC]` — what the diagnostics of 2026-09-28 measured
 
 Two scripts ran in the user's Fusion on 2026-09-28, each in a scratch document holding the
@@ -434,7 +451,9 @@ rectangle scheme (§4), which draws the bore's rectangle at that station's own a
 `s/Lambda + Phi_g`; its four lines are solid and the profile is the rectangle,
 `find_profile_by_curve_counts(sketch, lines=4)`. The sketch is drawn with computing deferred
 (`[SCREW-F-DEFER]`); the collar sections drawn by the same scheme read fully constrained on
-2026-09-28.
+2026-09-28. After solving, compare each of the four sketch corner points with its mapped world
+seed to within 0.001 mm. A fully constrained sketch with the roof allowance on the opposite
+face must fail this check before it can cut the sleeve.
 
 **The sweep.** `sweepFeatures.createInput(profile, path, CutFeatureOperation)`, then
 `input.twistAngle = adsk.core.ValueInput.createByReal(twist)` with `twist` in radians, then
@@ -444,7 +463,7 @@ path, not `solidTwistAxis`, which is for a solid sweep (`[SCREW-F-NO-SOLID-TWIST
 rail or surface, which would make `twistAngle` ignored per the reference. The participant list
 makes the cut touch the cage and nothing else; the ribbons run through the channel and are left
 whole, measured (`[PB-SWEEP-TWIST]`). The twist is the span divided by `Lambda`, positive:
-`+(sOut - sIn)/Lambda`, 80.78° at the defaults. **Positive is the spec's sense**, measured on a
+`+(sOut - sIn)/Lambda`, 81.41° at the defaults. **Positive is the spec's sense**, measured on a
 collar: with the profile at the line's start and the line running along `+dir_g`, a positive
 `twistAngle` turned the section the way `s/Lambda + Phi_g` grows, and the far end of the collar
 landed 0.0047 mm from the spec's own section there, against 4.9 mm under the opposite sign; the
@@ -485,6 +504,14 @@ sits at — 103° for a `+R` bore and 58° for a `-R` bore — and both probes t
 holds both halves. The video frame's collars also had their end vertices checked against the
 turned outline, 0.0047 mm with the right sign and 4.8979 mm with the wrong one; a sleeve has no
 swept body of its own to read vertices from, so the probes are the whole check.
+
+For a level bore with `roofAllowance > 0`, also probe the cut at its crossing station with
+`u = 0` and `v = roofSign*(ht + roofAllowance/2)`, where `roofSign` is `+1` for a `+v` roof and
+`-1` for a `-v` roof. That point must be outside the cage. At
+`v = -roofSign*(ht + roofAllowance/2)` the point must remain inside the cage. The pair detects
+an allowance missing from the roof, put on the floor, or applied to both faces; the existing
+toothed-side and back-side probes would miss those mistakes. Raise with the bore name, the
+side, and the containment result.
 
 ## `[SCREW-F-DEFER]` — where sketch computing is deferred
 

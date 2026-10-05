@@ -138,11 +138,11 @@ tall: its `CageRise` is 18.75 mm, 1.25 ribbon widths.
 
 Each bore is the ribbon's crest rectangle plus 0.20 mm all round, 15.4 by 4.15 mm, turned with
 the ribbon at its own lead. Every bore passes through level inside the wall, and the printer
-bridges its roof; each gear's −R bore has a 0.30 mm **roof allowance** more on that face, so the
-−R bores are 4.45 mm through ("The roof allowance" below). The tube's inside is a cylinder, not a plane
+bridges its roof; each gear's −R bore has a 0.60 mm **roof allowance** more on that face, so the
+−R bores are 4.75 mm through ("The roof allowance" below). The tube's inside is a cylinder, not a plane
 square to the ribbon, so the channel's corners reach into the wall before its centre line does.
 The cut runs from 1 mm before a corner first touches the inner cylinder, station 7.89 mm of the
-gear's axis, to 1 mm outside the tube, station 19 mm, and turns 80.8° over those 11.1 mm. The
+gear's axis, to 1 mm outside the tube, station 19 mm, and turns 81.4° over those 11.2 mm. The
 clearance was 0.45 mm until a print of 2026-10-02 showed the teeth not meshing over the play it
 allowed ("The play in the bores" below).
 
@@ -166,7 +166,7 @@ tooth. What bears on the bore's toothed side is the crests, one every pitch; the
 the faces run the clearance from the wall at every station, the −R bores' roofs the clearance
 and the roof allowance. `TestRibbonsStayInsideTheirBoresOverTheTravel` holds every point of the
 ribbon inside every bore by the clearance at every phase of the travel, and holds each side of
-the bore to the clearance, 0.200 mm, and each −R roof to 0.500 mm, so the bore is cut to the
+the bore to the clearance, 0.200 mm, and each −R roof to 0.800 mm, so the bore is cut to the
 ribbon and not merely round it. `TestRibbonsClearTheSleeveOverTheTravel` walks both ribbons'
 crest rectangles, grown by the clearance, over the whole travel and finds no point of them in
 the sleeve; outside the bores' cuts the ribbons keep 1.00 mm from the tube.
@@ -178,8 +178,8 @@ mm, and the +R bores came no nearer level than 11.3°. The second sleeve, printe
 clearance all round, came out with its two −R bores too tight to pass the ribbons and its two +R
 bores fine, so the −R roofs most likely sagged
 ([`spec/screwgear/fusion.md`](../../spec/screwgear/fusion.md) `[SCREW-F-PRINT-2]`). Each gear's
-level bore, the −R bore, has 0.30 mm more room on the long face that is its roof when the
-sleeve stands on its bottom end: the +v face for gear A and the −v face for gear B, 0.50 mm in
+level bore, the −R bore, has 0.60 mm more room on the long face that is its roof when the
+sleeve stands on its bottom end: the +v face for gear A and the −v face for gear B, 0.80 mm in
 all. `levelBore`, `roofSide` and `boreOpening` in [sleeve_test.go](sleeve_test.go) pick the bore
 and the face, and every channel the proof walks uses that opening. The sleeve has to be printed
 standing on its bottom end, the end below the plane the mechanism was built on; stood on the
@@ -224,13 +224,13 @@ radius; `TestSleeveInputsAreChecked` reaches that refusal with a 1.5 mm engageme
 ![The same view with both ribbons in place: through the window, gear B's teeth run down the upper edge and gear A's along the lower, meeting in the middle](images/sleeve-side.png)
 
 The four bores sit round the tube at 40°, 140°, 220° and 320°. Across the +X and −X sides the
-neighbouring bores are 80° apart and their channels come within 5.07 mm of each other across −X,
+neighbouring bores are 80° apart and their channels come within 4.97 mm of each other across −X,
 which leaves no room for a window with a 3 mm `CollarWall` on both sides of it. Across +Y and −Y
 they are 100° apart, one bore low and the other high, and the wall between them is a band that
 runs at about 45° from above the low bore down to below the high one. Each window is cut along
 that band, one facing +Y and one facing −Y. Without the roof allowance the −Y window would be
 the +Y window turned half a turn about X, as the bores are; gear A's −R bore flanks the −Y window,
-and its roof allowance narrows that window's band from 7.33 to 7.12 mm.
+and its roof allowance narrows that window's band from 7.33 to 6.91 mm.
 
 A window is a six-sided hole drawn on the plane through the frame's axis square to the direction
 it faces and pushed straight out through the wall on that side. Its two long sides are 45° lines
@@ -249,8 +249,8 @@ sampling can miss, from the other two bores. At the 0.45 mm clearance the defaul
 and engagement of that time, the corners alone would have let an end's inner edge come 2.60 mm
 from a bore, and the edges are what hold them. No end stands further than `SleeveOuter/√2` from the
 middle, which keeps its roofs off the outer face at the angle the next paragraph describes for
-the inner one. The trims keep the window within the 13.81 mm of the middle
-the channels already reach, so both end bands keep the 4.94 mm end wall. They also keep each long
+the inner one. The trims keep the window within the 14.04 mm of the middle
+the channels already reach, so both end bands keep the 4.71 mm end wall. They also keep each long
 side from meeting the inner face more than 45° round from the window's facing direction. Where a
 45° roof meets the curved inner face, the line they meet on descends more gently than the roof,
 and past 45° round it is flatter than the 0.25 mm grid's 45° rule accepts.
@@ -260,56 +260,56 @@ lies exactly 3.000 mm beyond one of the window's long sides, measured on the win
 settles the bore without sampling: a point is never nearer the window in space than its
 projection is on the plane. The other two
 bores are measured in space from every face of the window's cut, sampled every 0.1 mm, and keep
-3.076 mm. The windows reach 13.67 mm from the middle, inside the 13.81 mm the channels reach;
+3.076 mm. The windows reach 13.67 mm from the middle, inside the 14.04 mm the channels reach;
 every edge rises at 45° or more; the window's faces meet the tube at edges of 50.0° or more; and
 the lines where its roofs meet the tube descend at 35.3° or more, one cell diagonally on the grid.
-The +Y window is 220.7 mm² on its plane and takes about 1500 mm³ of wall, the −Y window 213.8 mm²
-and about 1453 mm³.
+The +Y window is 220.7 mm² on its plane and takes about 1500 mm³ of wall, the −Y window 206.7 mm²
+and about 1401 mm³.
 
 `TestSleeveWindowPostsStandFirm` cuts level sections every 0.1 mm and walks each round the inner
 face, the middle of the wall and the outer face at 0.1° steps. The narrowest post beside a window
-is 3.73 mm, between gear B's +R bore and the +Y window. Where a post is narrower than two
-`CollarWall`s, 6 mm, the tallest unbroken stretch is 2.6 mm tall on 3.73 mm: 0.70 times its width,
+is 3.77 mm, between gear A's −R bore and the +Y window. Where a post is narrower than two
+`CollarWall`s, 6 mm, the tallest unbroken stretch is 2.6 mm tall on 3.77 mm: 0.69 times its width,
 against a limit of 2.
 
 `TestSleeveWindowsShowTheMeshFromTheSide` takes the 4896 points of the mesh zone that the axial
 test projects into the footprint, sampled every 0.25 mm of station, and asks of each whether a
 straight line from it leaves the tube through a window without touching either ribbon's crest
-rectangle. 3993 of them can be seen, 81.6%: 48.7% through the +Y window and 48.4% through the −Y
-window. Along a level line, as someone beside the frame at the mesh's height would look, 55.8% can
+rectangle. 3945 of them can be seen, 80.6%: 48.7% through the +Y window and 47.2% through the −Y
+window. Along a level line, as someone beside the frame at the mesh's height would look, 55.3% can
 be. The plain tube has no opening in its side but the bores, and the ribbons fill those.
 
 **It prints standing on its bottom end, with no support.** Every outside face is a vertical
 cylinder or a flat end ring of 565.5 mm², and every face of a window is upright or at 45°.
 `TestSleevePrintsStandingOnEitherEnd` samples the sleeve on a 0.25 mm grid and finds every cell
 with no material within one cell under it, which is a 45° rule at that size. Standing on its
-bottom end there are 1429 such cells, 89 mm², and on its top end 1428, 89 mm²; every one is in
+bottom end there are 1437 such cells, 90 mm², and on its top end 1428, 89 mm²; every one is in
 the roof of a bore. Nowhere else does the printer lay material on air. The unmarked proof body
 prints on either end, but only the bottom end puts the roof allowance under the bridged roofs.
-The same test holds the end wall above and below the channels, 4.94 mm, and the two nearest
+The same test holds the end wall above and below the channels, 4.71 mm, and the two nearest
 channels, gear A's and gear B's
-−R bores 5.07 mm apart, over the 3 mm `CollarWall`, and logs the edge each hole's mouth leaves:
-47.8° on the inner face and 63.4° on the outer. `TestSleeveIsOnePiece` flood-fills the same grid
-and reaches every cell: one piece of 16,602 mm³, about 21 g of PLA.
+−R bores 4.97 mm apart, over the 3 mm `CollarWall`, and logs the edge each hole's mouth leaves:
+47.2° on the inner face and 63.1° on the outer. `TestSleeveIsOnePiece` flood-fills the same grid
+and reaches every cell: one piece of 16,582 mm³, about 21 g of PLA.
 
 | Quantity | Value |
 |---|---|
 | Sleeve | radius 12 to 18 mm, a 6 mm wall, 37.5 mm tall |
-| Bore | 15.4 by 4.15 mm, the −R bores 4.45 mm through with the 0.30 mm roof allowance, cut over stations 7.892 to 19 mm of its gear's axis and turning 80.78° over them |
+| Bore | 15.4 by 4.15 mm, the −R bores 4.75 mm through with the 0.60 mm roof allowance, cut over stations 7.806 to 19 mm of its gear's axis and turning 81.41° over them |
 | Play in the frame | the bores jam a gear 1.60° out of step |
 | Play in the bores | each ribbon moves 0.20 mm toward, away or sideways and rolls 1.53°; the roof allowance adds a tilt that carries a crossing 0.248 mm |
 | Frame to ribbon | no point of either ribbon, grown by the clearance, in the sleeve over the travel; 1.00 mm from the tube outside the bores' cuts |
 | Mesh footprint | 11.24 mm from the axis, 11.60 mm grown by the clearance as a box, inside the 12 mm inner radius |
-| Windows | two, facing +Y and −Y; long sides at 45°, 7.33 and 7.12 mm apart (10.36 and 10.07 mm up the axis); upright ends 23.14 and 23.11 mm apart; 220.7 and 213.8 mm², about 1500 and 1453 mm³ |
+| Windows | two, facing +Y and −Y; long sides at 45°, 7.33 and 6.91 mm apart (10.36 and 9.77 mm up the axis); upright ends 23.14 and 23.07 mm apart; 220.7 and 206.7 mm², about 1500 and 1401 mm³ |
 | Window to channel | 3.000 mm to the flanking bores, measured on the window's plane; 3.076 mm to the others, sampled in space |
-| Beside the windows | the narrowest post 3.73 mm; stretches under 6 mm wide at most 0.70 times as tall as they are wide |
-| Side view | 81.6% of the mesh zone seen through a window past both ribbons, 55.8% along a level line |
+| Beside the windows | the narrowest post 3.77 mm; stretches under 6 mm wide at most 0.69 times as tall as they are wide |
+| Side view | 80.6% of the mesh zone seen through a window past both ribbons, 55.3% along a level line |
 | Base in the proof | a 565.5 mm² flat ring at either end; the add-in raises marks on the top end |
-| Material laid on air | 1429 cells of 0.25 mm, 89 mm², standing on the bottom end, 1428 on the top end, all in the bores' roofs |
-| End wall | 4.94 mm above and below the channels and the windows |
-| Between channels | 5.07 mm at the nearest, gear A's and gear B's −R bores; the build's check (`channelSeparation`) holds them 5.07 mm apart |
-| Hole mouths | 47.8° edges on the inner face, 63.4° on the outer |
-| Volume in the proof | 16,602 mm³, about 21 g of PLA, before the four raised marks |
+| Material laid on air | 1437 cells of 0.25 mm, 90 mm², standing on the bottom end, 1428 on the top end, all in the bores' roofs |
+| End wall | 4.71 mm above and below the channels and the windows |
+| Between channels | 4.97 mm at the nearest, gear A's and gear B's −R bores; the build's check (`channelSeparation`) holds them 4.967 mm apart |
+| Hole mouths | 47.2° edges on the inner face, 63.1° on the outer |
+| Volume in the proof | 16,582 mm³, about 21 g of PLA, before the four raised marks |
 | Build's twist check | probes at stations ±15 mm, 16.63 mm from the axis, inside the channel under the right twist sense; under the wrong one they sit 6.46 and 7.39 mm across a channel 2.075 mm half thick, in the wall |
 | Bore wall stand-in | a ruled wall through 18 sections leaves 0.194 mm of the 0.20 mm clearance; decad's two triangles a cell depart from it by up to 0.32 mm |
 
@@ -323,12 +323,12 @@ bores are the ones across ±X, and the windows face those. Every window passes. 
 leave no room for is left out; no input the build accepts reaches that, and the test leaves both
 windows out at a 7 mm `CollarWall`. The same run found that the sleeve itself needed a fourth
 input check: at two of the inputs two neighbouring bores come nearer each other than `CollarWall`
-(2.93 mm for the sleeve scaled by 2/3 with the 3 mm wall kept, 3.95 mm for a 4 mm wall with a
+(2.76 mm for the sleeve scaled by 2/3 with the 3 mm wall kept, 3.83 mm for a 4 mm wall with a
 0.55 mm clearance), which no closed form on the inputs predicts. `channelSeparation` is the build's check. It projects the two bores' sampled
 outlines onto the plane across their gap and takes how far apart the two convex hulls stand, which
 can only be less than the distance between the outlines; the build refuses the input when that is
-under `CollarWall`. It is 5.07 mm at the defaults, and of the 33 inputs it refuses exactly those
-two. Those counts are the full sample's; by default the test builds five of the 33 inputs
+under `CollarWall`. It is 4.967 mm at the defaults, and the 33-input sample refuses exactly
+three inputs, including a 5 mm `CollarWall`. By default the test builds five of the 33 inputs
 ("Running the proof" below). Finding each end walks the far bores' channels at 2
 µm stations; `wallGap` now builds each bore's stations once and walks out from the nearest,
 stopping where no further station could come nearer, which gives the same distances and cuts
@@ -337,7 +337,7 @@ building both windows from 1.2 s to 0.07 s.
 **What the proof cannot reach.** Every bore passes through level: its 15.4 mm-wide roof is flat
 at station ±12.37 mm, inside the wall near its inner face, and the printer has to bridge it
 across the wall. The second sleeve showed bridged roofs closing up a 0.20 mm clearance; whether
-the 0.50 mm under the −R roofs is enough, and whether the +R roofs, at 0.20 mm, pass the ribbons,
+the 0.80 mm under the −R roofs is enough, and whether the +R roofs, at 0.20 mm, pass the ribbons,
 only a print settles. The proof takes the bore as drawn, with no sag at all; it logs the roofs and enforces
 nothing about them. The add-in at c8a63b5 built the 0.45 mm sleeve that
 was printed on 2026-10-02, and the ribbons screwed through its bores; nothing else was read
@@ -390,7 +390,7 @@ holds both.
 | Contact | at least 2.67 mm of the touching ridge, 97% of it, within 0.05 mm of the other flank at 24 driving poses; the ridges within 0.3° of parallel |
 | Slack between the ribbons at the assembly phases | 1.137 mm at the closest approach, in the mesh, with gear B in the middle of a 1.063 mm window |
 | Mesh over the bores' play, tips 0.35 mm short | 100 of 100 pose pairs drive in the full sample, windows 0.669–1.496 mm, at least 1.39 mm of the touching ridge within 0.10 mm of the other flank |
-| Bore | 15.4 by 4.15 mm, the crest rectangle plus 0.20 mm all round and 0.30 mm more on each −R roof; the ribbon at 0.200 mm on every other side over the travel |
+| Bore | 15.4 by 4.15 mm, the crest rectangle plus 0.20 mm all round and 0.60 mm more on each −R roof; the ribbon at 0.200 mm on every other side over the travel |
 | Travel | 141.2 mm, 53.8 teeth, 79% of the ribbon: 69.9 mm back and 71.3 mm forward of the assembly position |
 | Ribbon to ribbon outside the engaged zone | 3.62 mm at every phase of the travel, at station 8.40 mm, crest rectangle against crest rectangle |
 
