@@ -245,8 +245,8 @@ func TestEntry67GearAboreRmarkerextrude(t *testing.T) {
 	proofkit3d.RunSolid(t, markerSolidCases, stepEntry67GearAboreRmarkerextrude, assertMarkerExtrude)
 }
 
-func TestEntry68GearAboreRmarkerjoin(t *testing.T) {
-	proofkit3d.RunSolid(t, markerSolidCases, stepEntry68GearAboreRmarkerjoin, assertMarkerJoin)
+func TestEntry68GearAboreRmarkercut(t *testing.T) {
+	proofkit3d.RunSolid(t, markerSolidCases, stepEntry68GearAboreRmarkercut, assertMarkerCut)
 }
 
 func TestEntry69GearAboreRcirclemarkersketch(t *testing.T) {
@@ -257,8 +257,8 @@ func TestEntry70GearAboreRmarkerextrude(t *testing.T) {
 	proofkit3d.RunSolid(t, markerSolidCases, stepEntry70GearAboreRmarkerextrude, assertMarkerExtrude)
 }
 
-func TestEntry71GearAboreRmarkerjoin(t *testing.T) {
-	proofkit3d.RunSolid(t, markerSolidCases, stepEntry71GearAboreRmarkerjoin, assertMarkerJoin)
+func TestEntry71GearAboreRmarkercut(t *testing.T) {
+	proofkit3d.RunSolid(t, markerSolidCases, stepEntry71GearAboreRmarkercut, assertMarkerCut)
 }
 
 func TestEntry72GearBboreRsquaremarkersketch(t *testing.T) {
@@ -269,8 +269,8 @@ func TestEntry73GearBboreRmarkerextrude(t *testing.T) {
 	proofkit3d.RunSolid(t, markerSolidCases, stepEntry73GearBboreRmarkerextrude, assertMarkerExtrude)
 }
 
-func TestEntry74GearBboreRmarkerjoin(t *testing.T) {
-	proofkit3d.RunSolid(t, markerSolidCases, stepEntry74GearBboreRmarkerjoin, assertMarkerJoin)
+func TestEntry74GearBboreRmarkercut(t *testing.T) {
+	proofkit3d.RunSolid(t, markerSolidCases, stepEntry74GearBboreRmarkercut, assertMarkerCut)
 }
 
 func TestEntry75GearBboreRcirclemarkersketch(t *testing.T) {
@@ -281,6 +281,6 @@ func TestEntry76GearBboreRmarkerextrude(t *testing.T) {
 	proofkit3d.RunSolid(t, markerSolidCases, stepEntry76GearBboreRmarkerextrude, assertMarkerExtrude)
 }
 
-func TestEntry77GearBboreRmarkerjoin(t *testing.T) {
-	proofkit3d.RunSolid(t, markerSolidCases, stepEntry77GearBboreRmarkerjoin, assertMarkerJoin)
+func TestEntry77GearBboreRmarkercut(t *testing.T) {
+	proofkit3d.RunSolid(t, markerSolidCases, stepEntry77GearBboreRmarkercut, assertMarkerCut)
 }

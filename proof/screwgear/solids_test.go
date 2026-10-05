@@ -283,16 +283,16 @@ func assertJoinCell(t *testing.T, doc *decad.Document, b []*decad.Body, p map[st
 func boreLimits(p map[string]float64) (float64, float64) {
 	ht := p["T"]/2 + p["clearance"]
 	lo, hi := -ht, ht
-	if p["sigma"] < 0 {
-		sign := 1.
-		if p["gear"] == 1 {
-			sign = -1
-		}
-		if sign > 0 {
-			hi += p["roof"]
-		} else {
-			lo -= p["roof"]
-		}
+	sc := p["sigma"] * p["radius"]
+	theta := sc/(p["lead"]/(2*math.Pi)) + p["mount"]*math.Pi/180
+	uDotN := 1.
+	if p["gear"] == 1 {
+		uDotN = -1
+	}
+	if -math.Sin(theta)*uDotN > 0 {
+		hi += p["roof"]
+	} else {
+		lo -= p["roof"]
 	}
 	return lo, hi
 }
@@ -368,46 +368,51 @@ var boreSolidCases = func() []proofkit3d.Case {
 	return out
 }()
 
+func markerDepth(p map[string]float64) float64   { return math.Min(0.8, p["wall"]/3) }
+func markerOverrun(p map[string]float64) float64 { return math.Min(0.1, p["wall"]/20) }
 func markerBody(t *testing.T, doc *decad.Document, p map[string]float64) *decad.Body {
-	inset := math.Min(0.1, p["wall"]/2)
-	s := horizontalSketch(t, p["rise"]-inset)
+	depth := markerDepth(p)
+	s := horizontalSketch(t, p["rise"]-depth)
 	drawMarker(s, p)
-	return decadtest.NewPrism(t, doc, s, decadtest.SolveRegion(t, s), units.Millimeters(inset+0.4))
+	return decadtest.NewPrism(t, doc, s, decadtest.SolveRegion(t, s),
+		units.Millimeters(depth+markerOverrun(p)))
 }
 func buildMarkerExtrude(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	return []*decad.Body{markerBody(t, doc, p)}
 }
 func assertMarkerExtrude(t *testing.T, doc *decad.Document, b []*decad.Body, p map[string]float64) {
 	require.Len(t, b, 1)
-	h := math.Min(1, p["half"]/2)
+	h := math.Min(1.5, p["half"]/2)
 	area := 4 * h * h
 	if p["sigma"] > 0 {
 		area = math.Pi * h * h
 	}
-	inset := math.Min(0.1, p["wall"]/2)
+	depth := markerDepth(p)
+	overrun := markerOverrun(p)
 	v, err := b[0].Volume()
 	require.NoError(t, err)
 	// Analytic extrusion oracle has only floating point roundoff.
-	decadtest.Measures(t, "mark volume", v, units.CubicMillimeters(area*(inset+0.4)),
+	decadtest.Measures(t, "mark tool volume", v, units.CubicMillimeters(area*(depth+overrun)),
 		decadtest.Within(units.CubicMillimeters(1e-7)))
 	box, err := b[0].Bounds()
 	require.NoError(t, err)
 	x, y := markerCentre(p)
-	decadtest.MeasuresBox(t, "mark bounds", box, r3.NewVec(x-h, y-h, p["rise"]-inset),
-		r3.NewVec(x+h, y+h, p["rise"]+0.4), decadtest.Within(units.Millimeters(1e-7)))
+	decadtest.MeasuresBox(t, "mark tool bounds", box, r3.NewVec(x-h, y-h, p["rise"]-depth),
+		r3.NewVec(x+h, y+h, p["rise"]+overrun), decadtest.Within(units.Millimeters(1e-7)))
 }
-func buildMarkerJoin(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
-	// Marks are checked against an uncut annular sleeve, as the spec requires.
+func buildMarkerCut(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
+	// Pockets are checked against an uncut annular sleeve because the bore
+	// and window proof cannot chain all six cuts in one body.
 	cage := sleeveBody(t, doc, p)
 	mark := markerBody(t, doc, p)
-	body, err := decad.Union(t.Context(), cage, mark)
+	body, err := decad.Cut(t.Context(), cage, mark)
 	require.NoError(t, err)
 	return []*decad.Body{body}
 }
-func assertMarkerJoin(t *testing.T, doc *decad.Document, b []*decad.Body, p map[string]float64) {
+func assertMarkerCut(t *testing.T, doc *decad.Document, b []*decad.Body, p map[string]float64) {
 	require.Len(t, b, 1)
 	require.Len(t, b[0].Lumps(), 1)
-	h := math.Min(1, p["half"]/2)
+	h := math.Min(1.5, p["half"]/2)
 	area := 4 * h * h
 	if p["sigma"] > 0 {
 		area = math.Pi * h * h
@@ -415,8 +420,9 @@ func assertMarkerJoin(t *testing.T, doc *decad.Document, b []*decad.Body, p map[
 	whole := math.Pi * (math.Pow(p["radius"]+p["half"], 2) - math.Pow(p["radius"]-p["half"], 2)) * 2 * p["rise"]
 	v, err := b[0].Volume()
 	require.NoError(t, err)
-	// Only the visible 0.4 mm of the marker adds volume to the real sleeve.
-	decadtest.Measures(t, "marked sleeve volume", v, units.CubicMillimeters(whole+area*0.4),
+	// Only the depth below the top face removes material; overrun is in air.
+	decadtest.Measures(t, "pocketed sleeve volume", v,
+		units.CubicMillimeters(whole-area*markerDepth(p)),
 		decadtest.Within(units.CubicMillimeters(1e-5)))
 }
 

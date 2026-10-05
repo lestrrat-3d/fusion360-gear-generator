@@ -609,7 +609,7 @@ func stepEntry67GearAboreRmarkerextrude(t *testing.T, doc *decad.Document, p map
 	return buildMarkerExtrude(t, doc, p)
 }
 
-func stepEntry68GearAboreRmarkerjoin(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
+func stepEntry68GearAboreRmarkercut(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	delete(p, "start")
 	p["cell"] = 4
 	p["moveTeeth"] = 4
@@ -618,7 +618,7 @@ func stepEntry68GearAboreRmarkerjoin(t *testing.T, doc *decad.Document, p map[st
 	p["phase"] = 0
 	p["gear"] = 0
 	p["sigma"] = -1
-	return buildMarkerJoin(t, doc, p)
+	return buildMarkerCut(t, doc, p)
 }
 
 func stepEntry69GearAboreRcirclemarkersketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
@@ -645,7 +645,7 @@ func stepEntry70GearAboreRmarkerextrude(t *testing.T, doc *decad.Document, p map
 	return buildMarkerExtrude(t, doc, p)
 }
 
-func stepEntry71GearAboreRmarkerjoin(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
+func stepEntry71GearAboreRmarkercut(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	delete(p, "start")
 	p["cell"] = 4
 	p["moveTeeth"] = 4
@@ -654,7 +654,7 @@ func stepEntry71GearAboreRmarkerjoin(t *testing.T, doc *decad.Document, p map[st
 	p["phase"] = 0
 	p["gear"] = 0
 	p["sigma"] = 1
-	return buildMarkerJoin(t, doc, p)
+	return buildMarkerCut(t, doc, p)
 }
 
 func stepEntry72GearBboreRsquaremarkersketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
@@ -681,7 +681,7 @@ func stepEntry73GearBboreRmarkerextrude(t *testing.T, doc *decad.Document, p map
 	return buildMarkerExtrude(t, doc, p)
 }
 
-func stepEntry74GearBboreRmarkerjoin(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
+func stepEntry74GearBboreRmarkercut(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	delete(p, "start")
 	p["cell"] = 4
 	p["moveTeeth"] = 4
@@ -690,7 +690,7 @@ func stepEntry74GearBboreRmarkerjoin(t *testing.T, doc *decad.Document, p map[st
 	p["phase"] = -1.31
 	p["gear"] = 1
 	p["sigma"] = -1
-	return buildMarkerJoin(t, doc, p)
+	return buildMarkerCut(t, doc, p)
 }
 
 func stepEntry75GearBboreRcirclemarkersketch(t testing.TB, s *sketch.Sketch, p map[string]float64) {
@@ -717,7 +717,7 @@ func stepEntry76GearBboreRmarkerextrude(t *testing.T, doc *decad.Document, p map
 	return buildMarkerExtrude(t, doc, p)
 }
 
-func stepEntry77GearBboreRmarkerjoin(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
+func stepEntry77GearBboreRmarkercut(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	delete(p, "start")
 	p["cell"] = 4
 	p["moveTeeth"] = 4
@@ -726,5 +726,5 @@ func stepEntry77GearBboreRmarkerjoin(t *testing.T, doc *decad.Document, p map[st
 	p["phase"] = -1.31
 	p["gear"] = 1
 	p["sigma"] = 1
-	return buildMarkerJoin(t, doc, p)
+	return buildMarkerCut(t, doc, p)
 }

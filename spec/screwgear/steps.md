@@ -6,10 +6,10 @@ The runnable proof files are `proof/screwgear/sketches_test.go`, `proof/screwgea
 
 | file | `git hash-object` |
 |---|---|
-| `spec/screwgear/instructions.md` | `76386e7059ba7ff9a567bc39b881821edea10ac6` |
-| `spec/screwgear/fusion.md` | `d2b722e37acc8d2891963842db1f07c98df8e603` |
+| `spec/screwgear/instructions.md` | `8033117c6165d4e585a5855bd47c098bd4789cd7` |
+| `spec/screwgear/fusion.md` | `426c7436b621f593acf92b2bd3a0963dcf26cd9e` |
 | `CLAUDE.md` | `916e8624ca88af226c264c21f295c14a9fb9e901` |
-| `proof/screwgear/README.md` | `8dc36311572aa0fe441584f445fdc5ae9ead7a44` |
+| `proof/screwgear/README.md` | `aa51e4bb0c44997dda014bd81ab747248256c869` |
 | `spec/cycloidal/fusion.md` | `afa5a99986f2e0d9f82fb5e21591553cdc54aac4` |
 | `spec/screwgear/mesh-search.md` | `245bc5c833387a83598ee6c8a7971e8efd5825be` |
 | `.claude/skills/generate-gear/PLAYBOOK.md` | `cdd32545b0f8c651752827c6697601f1e32b4d39` |
@@ -79,7 +79,7 @@ The frame's inputs keep the names the video frame gave them, and mean this for t
 thickness, so the sleeve runs from radius 'cageRadius - collarHalf' to 'cageRadius + collarHalf';
 'collarWall' is the least material the build leaves round every bore and every window, at the
 end faces, between two bores and beside a window; 'clearance' is added all round the bore's
-rectangle; 'roofAllowance' is added on one face of one bore of each gear, the roof the printer
+rectangle; 'roofAllowance' is added on the roof face of every bore, which the printer
 bridges (§4, "The roof allowance"). The video frame's 'ringRadius', 'ringWire' and 'rodDiameter' are gone with its ring,
 loop and rods.
 
@@ -106,14 +106,14 @@ least important, as listed.
 | 'ribbonGroup', Ribbon | Tooth Height | 'toothHeight' | mm | 2.625 |
 | 'ribbonGroup', Ribbon | Tooth Slant | 'toothSlant' | deg | 25.8 |
 | 'ribbonGroup', Ribbon | Tooth Bow | 'toothBow' | — (mm⁻¹) | 0.048 |
-| 'frameGroup', Frame | Cage Radius | 'cageRadius' | mm | 15 |
+| 'frameGroup', Frame | Cage Radius | 'cageRadius' | mm | 15.5 |
 | 'frameGroup', Frame | Cage Rise | 'cageRise' | mm | 18.75 |
 | 'frameGroup', Frame | Clearance | 'clearance' | mm | 0.20 |
 | 'frameGroup', Frame | Roof Allowance | 'roofAllowance' | mm | 0.60 |
 | 'frameGroup', Frame | Collar Half Length | 'collarHalf' | mm | 3 |
 | 'frameGroup', Frame | Collar Wall | 'collarWall' | mm | 3 |
 | 'meshGroup', Mesh (from the mesh search) | Crossing Angle | 'crossAngle' | deg | 80 |
-| 'meshGroup', Mesh (from the mesh search) | Engagement | 'engagement' | mm | 1.05 |
+| 'meshGroup', Mesh (from the mesh search) | Engagement | 'engagement' | mm | 1.15 |
 | 'meshGroup', Mesh (from the mesh search) | Mounting Angle A | 'mountAngleA' | deg | 0 |
 | 'meshGroup', Mesh (from the mesh search) | Mounting Angle B | 'mountAngleB' | deg | 0 |
 | 'meshGroup', Mesh (from the mesh search) | Assembly Phase | 'assemblyPhase' | mm | −1.31 |
@@ -181,7 +181,7 @@ The sleeve's own four checks come next, in this order, each naming the field giv
 bound; 'sleeveRefusal' in 'sleeve_test.go' is the same four in the same order, and
 'TestSleeveInputsAreChecked' reaches each with an input that passes every check before it.
 'Ri = cageRadius - collarHalf' is the sleeve's inner radius and 'c = hypot(W/2 + clearance,
-T/2 + clearance + roofAllowance)' the corner radius of the level bore's roof side, the furthest
+T/2 + clearance + roofAllowance)' the corner radius of a bore's roof side, the furthest
 any bore's corner stands from its axis, 8.151 mm at the defaults; every check takes it for all
 four bores.
 
@@ -189,35 +189,30 @@ four bores.
   cut starts a millimetre before the channel's corner first reaches the inner face, at station
   'sIn = sqrt(Ri^2 - c^2) - 1 mm' (§4), and the check is 'sIn > 0'. That needs the corner inside
   the inner radius by more than the millimetre allows: with 'c < Ri' alone, a corner within about
-  0.04 mm of a 12 mm inner radius would put 'sIn' at or before the middle, so a gear's 'bore-' and
+  0.04 mm of a 12.5 mm inner radius would put 'sIn' at or before the middle, so a gear's 'bore-' and
   'bore+' lines would overlap or run backwards and the build would fail inside Fusion. A 4 mm
   clearance fails it, and so does a cage radius 0.02 mm past 'collarHalf + c', where 'sIn' is
   −0.44 mm.
 - **The mesh stays visible along the axis**, naming 'cageRadius':
   'hypot(axialWindow, hypot(W/2, T/2)) + clearance <= Ri', with
-  'axialWindow = 1.5 * sqrt(W^2 - A^2) / sin(Sigma)', 8.40 mm at the defaults, the reach the
-  proof's 'axialWindow' samples. The left side bounds how far the engaged zone's footprint along
-  the frame's axis reaches from it, 11.41 mm, and with the clearance 11.61 mm against the 12 mm
-  inner radius at the defaults; 'TestSleeveKeepsTheMeshVisibleAlongTheAxis' walks the footprint
-  itself, 11.24 mm. At a 1.18 mm engagement the check still passes, by 0.025 mm, while the
-  test's walk of the footprint grown by the clearance as a box already finds 16 points hidden;
-  the box reaches past the clearance at its corners, which the closed form does not count. At
-  1.20 mm the check refuses. The bound is at least 'axialWindow', so it also keeps the engaged zone
-  inside the hollow. A 1.5 mm engagement fails it.
+  'axialWindow = 1.5 * sqrt(W^2 - A^2) / sin(Sigma)', about 8.77 mm at the defaults, the reach the
+  proof's 'axialWindow' samples. The closed form bounds the footprint at 11.69 mm and its
+  clearance at 11.89 mm against the 12.5 mm inner radius. The proof walks the footprint at
+  11.58 mm and its grown box at 11.93 mm. The bound is at least 'axialWindow', so it also keeps
+  the engaged zone inside the hollow. A 1.5 mm engagement fails it.
 - **The end faces keep 'collarWall'**, naming 'cageRise':
-  'cageRise >= A/2 + c + collarWall', 18.13 mm at the defaults. No point of a channel is further
+  'cageRise >= A/2 + c + collarWall', 18.08 mm at the defaults. No point of a channel is further
   from the middle plane than its axis, 'A/2', plus 'c'. That is a sufficient bound, not the gap:
-  the channels reach 14.04 mm from the middle inside the wall, which leaves 4.71 mm of end wall
-  at the 18.75 mm default, and a 16.5 mm rise, which this check refuses, leaves 2.46 mm. The
-  check also refuses rises from about 17.04 mm up to 18.13 mm, which the channels would allow.
+  the channels reach 14.23 mm from the middle inside the wall, which leaves 4.52 mm of end wall
+  at the 18.75 mm default, and a 16.5 mm rise, which this check refuses, leaves 2.27 mm. The
+  check also refuses rises from about 17.23 mm up to 18.08 mm, which the channels would allow.
 - **The wall between two neighbouring bores keeps 'collarWall'**, naming 'collarWall': the
   separation §4 computes under "The wall between the bores" must be at least 'collarWall'; the
-  message names the two bores and the separation. It is 4.967 mm at the defaults, across the gap
+  message names the two bores and the separation. It is 5.310 mm at the defaults, across the gap
   between the two '-R' bores. It depends on nearly every input at once, so it is computed rather
-  than bounded by a closed form: 'TestSleeveWindowsFollowTheSize' finds it refusing a sleeve
-  scaled to 2/3 with the 3 mm wall kept (2.759 mm), a 4 mm 'collarWall' with a 0.55 mm
-  clearance (3.828 mm), and a 5 mm 'collarWall' (4.967 mm), while accepting a sleeve scaled to
-  0.75 (3.344 mm).
+  than bounded by a closed form: 'TestSleeveInputsAreChecked' reaches this refusal with a
+  4.5 mm 'collarWall' and 0.55 mm clearance. The 33 size inputs of
+  'TestSleeveWindowsFollowTheSize' pass, including a sleeve scaled to 2/3 and a 5 mm 'collarWall'.
 
 'collarHalf' trades grip against travel. A thicker wall holds the gear closer to its screw motion
 and shortens the travel by twice its own growth, because a ribbon runs
@@ -231,7 +226,6 @@ angles from −12° to +12° drive and 0° is the default; what happens elsewher
 map, and this spec does not clamp what has not been measured. Nor is a range enforced on the
 slant and the bow past the checks above: the defaults are fitted to the default crossing angle
 and lead, and away from them the contact shortens by an amount nothing here measures.
-
 
 ## Sketch Discipline
 
@@ -309,7 +303,7 @@ them, with nothing left to solve.
 
 '''
 generate(inputs)
-  → processInputs(inputs)                    # read, check, precompute; each gear's level bore, the bore-wall check and the window search run here
+  → processInputs(inputs)                    # read, check, precompute; each bore's roof side, the bore-wall check and the window search run here
   → buildComponentTree()                     # Screw Gearing + Design + 3 children
   → buildAnchor()                            # anchor sketch, centre point, reference direction, axis planes, n̂
   → buildGear(index)   x2                    # per gear: paths → cell → repeat → one body
@@ -352,8 +346,8 @@ B's '+R') and '+ê' (the two '+R' bores).
 Projecting onto a plane and then onto a line brings no two points nearer, and the hull holds
 every projected point, so the separation never exceeds the least distance between the two
 outlines, which 'nearestChannels' in the proof measures and 'TestSleevePrintsStandingOnEitherEnd'
-holds to 'collarWall'. At the defaults it is 4.967 mm, across the '-ê' gap, where
-'nearestChannels' measures 4.968 mm; at the 14° mounting angles before 2026-10-03 they were 5.078
+holds to 'collarWall'. At the defaults it is 5.310 mm, across the '-ê' gap, where
+'nearestChannels' measures 5.484 mm; at the 14° mounting angles before 2026-10-03 they were 5.078
 and 5.187 mm.
 
 **The windows.** Down the hollow is one way to see the mesh; two windows through the wall show it
@@ -406,7 +400,7 @@ linear measure of a piece is extreme at a corner, so the corners are all the wal
 down ('channelTop'): over all four bores, at stations from 'σ*sIn' outward every 0.01 mm while
 '|s| <= sOut', wherever the section reaches the wall — '|s| <= Ro' and 'hypot(s, y) >= Ri' for the
 largest 'y = |u*sin theta + v*cos theta|' over the bore's four corners '(u, v)' — it is the largest
-'|(origin_g - C)·n̂ + (u*cos theta - v*sin theta)*(û_g·n̂)|' over those corners, 14.04 mm at the
+'|(origin_g - C)·n̂ + (u*cos theta - v*sin theta)*(û_g·n̂)|' over those corners, 14.23 mm at the
 defaults. Then
 
 '''
@@ -479,14 +473,12 @@ not, so it finds the least a walk of every station would.
 'lean*t + z <= hi', '-lean*t - z <= -lo', '-lean*t + z <= top', 'lean*t - z <= -bottom',
 't <= right' and '-t <= -left' ('clipCorners'), so every edge is upright or at 45°. Drop a corner
 that lies within 0.001 mm of the one before it, since a sketch line cannot have zero length. At
-the defaults the '+k̂' window has 'lo = -5.180', 'hi = 5.180', 'bottom = -22.151', 'top = 22.151',
-'left = -11.570' and 'right = 11.570', and its six corners in '(t, z)' are '(11.57, -6.39)',
-'(-8.49, 13.67)', '(-11.57, 10.58)', '(-11.57, 6.39)', '(8.49, -13.67)' and '(11.57, -10.58)': long
-sides 7.33 mm apart across the band, ends 23.14 mm apart, 220.7 mm² on the plane, reaching
-13.67 mm from the middle against the channels' 14.04 mm. The '-k̂' window has 'lo = -4.587',
-'hi = 5.180', 'bottom = -21.558', 'top = 22.151', 'left = -11.500' and 'right = 11.570', and its
-corners are '(11.57, -6.39)', '(-8.49, 13.67)', '(-11.50, 10.65)', '(-11.50, 6.91)',
-'(8.49, -13.07)' and '(11.57, -9.99)': long sides 6.91 mm apart, ends 23.07 mm apart, 206.7 mm².
+the defaults both windows have 'lo = -4.537', 'hi = 5.130', 'bottom = -22.215',
+'top = 22.808', 'left = -12.121' and 'right = 12.172'. Each window's six corners in '(t, z)'
+are '(12.17, -7.04)', '(-8.84, 13.97)', '(-12.12, 10.69)', '(-12.12, 7.58)',
+'(8.84, -13.38)' and '(12.17, -10.04)': long sides 6.84 mm apart across the band,
+ends 24.29 mm apart, 213.0 mm² on the plane, reaching 13.97 mm from the middle against
+the channels' 14.23 mm.
 
 *When a gap has no room* ('room'). A window is not cut when 'hi <= lo', the flanking bores leaving
 no band between them, or when 'right <= left' or the hexagon has fewer than three distinct
@@ -502,12 +494,13 @@ flanking bore's channel lies exactly 3.000 mm beyond a long side, measured on th
 face of the cut keeps 3.076 mm from the far bores' channels, sampled every 0.1 mm; every edge
 rises at 45° or more; the faces meet the tube at edges of 50.0° or more; and the lines where the
 roofs meet the tube descend at 35.3° or more. 'TestSleeveWindowPostsStandFirm' holds every post
-beside a window to at least 'collarWall' wide, 3.77 mm at the narrowest at the defaults, and any
-stretch of post under two 'collarWall's wide to at most twice as tall as it is wide, 0.69 times
-at the defaults. Through either window 80.6% of the mesh zone can be seen past both ribbons
+beside a window to at least 'collarWall' wide, 3.93 mm at the narrowest at the defaults, and any
+stretch of post under two 'collarWall's wide to at most twice as tall as it is wide, 0.66 times
+at the defaults. Through either window 81.8% of the mesh zone can be seen past both ribbons
 ('TestSleeveWindowsShowTheMeshFromTheSide').
 'TestSleeveWindowsFollowTheSize' runs all of those checks, with the one-piece and printing checks,
 at 33 inputs across the dialog's ranges, and every window it cuts passes.
+
 
 
 The 'show Sketch.project' query has no match; the spec deliberately retains the historically measured call. The API docs forbid parent preselection with addSelection during commandCreated; the configure recipe does not state an activate hook. Both are spec gaps; preserve the requirements for source review.
@@ -624,13 +617,18 @@ Make these required Fusion calls:
       "first": 576,
       "last": 879,
       "path": "spec/screwgear/instructions.md"
+    },
+    {
+      "first": 1411,
+      "last": 1612,
+      "path": "spec/screwgear/instructions.md"
     }
   ],
   "schema": 2
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L576–879.
+**From:** `spec/screwgear/instructions.md` L576–879; `spec/screwgear/instructions.md` L1411–1612.
 
 ## 01 `[PROSE]` Create Design component
 
@@ -1109,7 +1107,7 @@ Make these required Fusion calls:
 each holding the two lines that gear's bores are swept along (§4), both on the gear's axis,
 which lies in that plane. The '+R' bore's cut spans stations 'sIn' to 'sOut' of the gear's axis
 and the '-R' bore's '-sOut' to '-sIn', with 'sIn = sqrt(Ri^2 - c^2) - 1 mm' and
-'sOut = cageRadius + collarHalf + 1 mm' (§4): 7.806 and 19 mm at the defaults. The sketch holds
+'sOut = cageRadius + collarHalf + 1 mm' (§4): 8.477 and 19.5 mm at the defaults. The sketch holds
 four reference points (Sketch Discipline), at 'origin_g + s*dir_g' for 's' = '-sOut', '-sIn',
 'sIn' and 'sOut', all on the plane, and two solid lines — 'bore-' from '-sOut' to '-sIn' and
 'bore+' from 'sIn' to 'sOut' — each drawn from its negative station to its positive one, sharing
@@ -1191,8 +1189,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 979,
-      "last": 998,
+      "first": 980,
+      "last": 1009,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -1200,7 +1198,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L979–998.
+**From:** `spec/screwgear/instructions.md` L980–1009.
 
 ## 9 `[GO]` Gear A cell sections sketch
 
@@ -3379,7 +3377,7 @@ Fusion combine behavior.
 each holding the two lines that gear's bores are swept along (§4), both on the gear's axis,
 which lies in that plane. The '+R' bore's cut spans stations 'sIn' to 'sOut' of the gear's axis
 and the '-R' bore's '-sOut' to '-sIn', with 'sIn = sqrt(Ri^2 - c^2) - 1 mm' and
-'sOut = cageRadius + collarHalf + 1 mm' (§4): 7.806 and 19 mm at the defaults. The sketch holds
+'sOut = cageRadius + collarHalf + 1 mm' (§4): 8.477 and 19.5 mm at the defaults. The sketch holds
 four reference points (Sketch Discipline), at 'origin_g + s*dir_g' for 's' = '-sOut', '-sIn',
 'sIn' and 'sOut', all on the plane, and two solid lines — 'bore-' from '-sOut' to '-sIn' and
 'bore+' from 'sIn' to 'sOut' — each drawn from its negative station to its positive one, sharing
@@ -3461,8 +3459,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 979,
-      "last": 998,
+      "first": 980,
+      "last": 1009,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -3470,7 +3468,7 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L979–998.
+**From:** `spec/screwgear/instructions.md` L980–1009.
 
 ## 28 `[GO]` Gear B cell sections sketch
 
@@ -5852,8 +5850,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 979,
-      "last": 998,
+      "first": 980,
+      "last": 1009,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -5861,45 +5859,30 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L979–998.
+**From:** `spec/screwgear/instructions.md` L980–1009.
 
 ## 49 `[GO]` Gear A bore -R sketch
 
-**The roof allowance** ('levelBore', 'roofSide', 'boreOpening'). With the sleeve standing on its
-'−n̂' end, a bore whose long faces pass through level inside the wall has its roof bridged across
-the hole by the printer. At the 14° mounting angles of the second sleeve that was each gear's
-'-R' bore alone, whose long faces lay flat at station −14.30 mm, and the second sleeve printed
-those two bores too tight and the two '+R' bores not ('[SCREW-F-PRINT-2]'). So each gear's
-**level bore** has its roof face moved out by 'roofAllowance', and every other face of every bore
-stays at the clearance. At the defaults' zero mounting angles **both** bores of each gear pass
-through level, at stations ±12.37 mm, so the two tie and the '-R' bore takes the allowance; the
-'+R' bores' roofs are bridged 15.4 mm across with the clearance alone, as the second sleeve's
-tight roofs were ("What the print showed", "What the proof cannot reach"):
-
-- The level bore is, of the gear's two bores, the one whose long faces come nearest level over
-  the wall's span on its centre line. A long face runs along the section's 'u', which stands
-  'theta' from 'û_g', and 'û_g' is along '±n̂', so a long face is level where 'cos(theta)' is zero.
-  For the bore at 'σ*cageRadius', 'σ' being '-1' or '+1', take 'theta' at the two stations
-  'σ*(cageRadius - collarHalf)' and 'σ*(cageRadius + collarHalf)'; when some 'pi/2 + k*pi' lies
-  between them its tilt is 0, and otherwise it is the smaller '|cos theta|' of the two. The bore
-  with the smaller tilt is the level bore, the '-R' bore when they tie. At the defaults both
-  bores' tilt is 0, so the '-R' bore is the level bore; at the 14° of the third print the '-R'
-  bores' tilt was 0 and the '+R' bores' '|cos 101.3°|', 0.195.
+**The roof allowance** ('roofSide', 'boreOpening'). With the sleeve standing on its '−n̂' end,
+the printer bridges each bore's long-face roof where it passes through level in the wall. At the
+14° mounting angles of the second sleeve, only the '-R' bores passed through level and printed
+too tight ('[SCREW-F-PRINT-2]'). At the default zero angles, all four bores pass through level
+at stations ±12.37 mm. The fifth sleeve's '-R' bores fitted with a 0.60 mm allowance, while
+its '+R' bores with clearance alone blocked both ribbons ('[SCREW-F-PRINT-5]'). Move the roof
+face of **every bore** out by 'roofAllowance'; every other face stays at the clearance.
 - The roof face is the long face that is up when the sleeve stands on its '−n̂' end: the '+v'
   face when 'v̂(sc)·n̂ = -sin(theta(sc))*(û_g·n̂)' is positive at the bore's crossing station
   'sc = σ*cageRadius', and the '-v' face otherwise. 'v̂_g·n̂' is zero, so that is the whole
   product. At the defaults it is gear A's '+v' face and gear B's '-v' face. The sign holds over
   the whole cut: 'v̂·n̂' changes sign only where a long face stands upright, 90° of twist, 12.4 mm
   of axis, from where it lies level.
-- The level bore's rectangle spans 'v' from 'vLo = -ht' to 'vHi = ht + a' when its roof is the
+- Every bore's rectangle spans 'v' from 'vLo = -ht' to 'vHi = ht + a' when its roof is the
   '+v' face, and from 'vLo = -ht - a' to 'vHi = ht' otherwise: 4.75 mm through at the defaults.
-  Every other bore spans '-ht' to 'ht', and every bore spans 'u' from '-hw' to 'hw'.
+  Every bore spans 'u' from '-hw' to 'hw'.
 
-The allowance adds no move of the ribbon along or across the axes and no roll: the other bore and
-the level bore's floor hold the ribbon to the clearance there. It lets the ribbon tilt, its level
-bore's end rising into the room while the other bore holds, which carries the crossing 0.248 mm
-instead of 0.200 mm toward the other ribbon for gear A and away from it for gear B
-('TestRoofAllowanceAddsOnlyATilt'). After the sleeve is built the build logs, with 'futil.log'
+The allowance on both bores adds play along the axis between the ribbons and can reduce tooth
+contact. The 1.15 mm engagement keeps all 100 full-sample pose pairs driving, with at least
+1.85 mm of close contact ('TestPairDrivesUnderBorePlay'). After the sleeve is built the build logs, with 'futil.log'
 ('[PB-LOGGING]'), 'Print the cage standing on its end below the selected plane: the roof
 allowance is on the bridged roofs that way up.', so the print orientation is explicit even when
 the bore marks are hard to see.
@@ -5928,8 +5911,8 @@ samples. The two bores of one gear stand '2*cageRadius' apart and are two sweeps
 
 **The rectangle scheme.** Each of the four bore section sketches is a rectangle spanning 'v' from
 'vLo' to 'vHi' and 'u' from 'uB' to 'uF', turned by 'theta = s/Lambda + Phi_g' about the axis point
-'O', which lies on the line 'v = 0'; for a bore other than a level one, at its centre, and for a
-level bore 'a/2' off it across the thickness. Four lines, two
+'O', which lies on the line 'v = 0', 'a/2' from each bore's centre across the thickness when the
+roof allowance is positive. Four lines, two
 dimensions, one coincidence and one angle cannot fix 'O' inside such a rectangle; a construction
 spine through 'O' can, and this is the scheme:
 
@@ -5994,7 +5977,7 @@ proof builds each bore's channel as a chain of two-section lofts through rotated
 proof checks"), and the count it lofts through is derived from the turn and the clearance: no two
 neighbouring sections more than 5° of twist apart, nor more than the angle at which the facets between them
 take 4% of the clearance, '2*acos(1 - 0.04*clearance/c)', and the count is 'ceil(turn / step) + 1' for the
-smaller step. At the defaults the turn is 81.41°, the facet bound 5.1° and 5° governs: 18 sections. At a
+smaller step. At the defaults the turn is 80.17°, the facet bound 5.1° and 5° governs: 18 sections. At a
 clearance of 0.05 mm the turn is 80.15°, the facet bound 2.6° governs, and the count is 33. Those facets
 are a ruled wall's: flat between sections, inside the true channel, and 0.007 mm of the 0.20 mm clearance
 at the derived count, which 'TestSleeveBoreSubstituteKeepsItsClearance' holds at 95% of the clearance from
@@ -6017,17 +6000,17 @@ cage with 'pointContainment' at the two points 'origin_g + sc*dir_g ± (W/2 + cl
 at the crossing itself, 'sc = ±cageRadius', where 'û(s)' is the section's turned 'u' direction,
 'cos(theta)*û_g + sin(theta)*v̂_g' with 'theta = s/Lambda + Phi_g'. Both must be
 'PointOutsidePointContainment', the channel being open there, and the build raises naming the
-bore otherwise. The probes stand 16.63 mm from the frame's axis at all four bores,
+bore otherwise. The probes stand 17.01 mm from the frame's axis at all four bores,
 inside the wall, and clear of the ribbon and of the channel's wall by 'clearance/2'. They tell
 the two senses apart on their own. The profile sits at the cut's first station 's0', 'sIn' or
 '-sOut', and under the wrong sense the channel at the crossing is turned '2*(sc - s0)/Lambda'
-from the right one — 103° for a '+R' bore, 58° for a '-R' bore — which puts the probes 7.39 and
-6.46 mm across a channel 2.075 mm half thick, or 2.675 mm on the level bore's roof side, in the
+from the right one — 102° for a '+R' bore, 58° for a '-R' bore — which puts the probes 7.43 and
+6.46 mm across a channel 2.075 mm half thick, or 2.675 mm on its roof side, in the
 wall
 ('TestSleeveBoreProbesTellTheTwistSense'). With no collar body there is no end-vertex check; the
 probes are the whole of the sense check.
 
-For the level bore when 'roofAllowance > 0', use two more containment probes at its crossing
+For every bore when 'roofAllowance > 0', use two more containment probes at its crossing
 station with 'u = 0'. Set 'roofSign = +1' when '-sin(theta(sc))*(û_g·n̂) > 0', else '-1'.
 The point at 'v = roofSign*(ht + roofAllowance/2)' must be outside the cage, in the added
 roof room. The point at 'v = -roofSign*(ht + roofAllowance/2)' must remain inside the cage,
@@ -6213,8 +6196,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 1274,
-      "last": 1396,
+      "first": 1275,
+      "last": 1425,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -6222,13 +6205,13 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1274–1396.
+**From:** `spec/screwgear/instructions.md` L1275–1425.
 
 ## 50 `[GO]` Gear A bore -R sweep cut
 
 **The bores.** One per crossing: a gear's '+R' bore runs through the wall where its axis crosses
 the circle of radius 'cageRadius', at station '+cageRadius' of the axis, and its '-R' bore at
-'-cageRadius'. Each is the crest rectangle plus the clearance, '2*hw' by '2*ht', 15.4 by 4.15 mm,
+'-cageRadius'. Each is the crest rectangle plus clearance and roof allowance, '2*hw' by '2*ht + roofAllowance', 15.4 by 4.75 mm,
 turned at every station 's' to the ribbon's own angle 's/Lambda + Phi_g'. That is the channel the
 video frame's collars were cut with, and 'TestSleeveBoresAreTheSameChannels' pins it: the
 rectangle, the stations, the twist, the angles at the crossings, 109.09° and −109.09° (123.1°
@@ -6239,13 +6222,13 @@ into the wall before its centre line does: a corner first touches the inner face
 'sqrt(Ri^2 - c^2)', 8.806 mm. The cut runs from a millimetre before that, 'sIn', where the whole
 section is in the hollow, to a millimetre past the outer face, 'sOut', where the whole section is
 outside: '[sIn, sOut]' for a '+R' bore and '[-sOut, -sIn]' for a '-R' bore, 11.194 mm of axis and
-81.41° of turn. The assembly phase moves
+80.17° of turn. The assembly phase moves
 gear B's ribbon along its axis and not its bores: any stretch of the ribbon fits a bore, and the
 ribbon can go in at any phase a pitch apart, so the frame has no way to know the phase.
 
 
 
-Sweep only this bore's rectangle on its own path. Use CutFeatureOperation, twistAngle=ValueInput of +(sOut-sIn)/Lambda and participantBodies=[cageBody]. Set no orientation, solid twist axis, guide rail, or guide surface. Require one feature body. At sc=sigma*cageRadius both u-side probes must be outside. For the level bore and positive roofAllowance, the probe at u=0, v=roofSign*(ht+roofAllowance/2) must be outside, and the opposite v probe must be inside. [PB-SWEEP-TWIST] [PB-PATH-FROM-SKETCH] [PB-SELF-DIAGNOSING].
+Sweep only this bore's rectangle on its own path. Use CutFeatureOperation, twistAngle=ValueInput of +(sOut-sIn)/Lambda and participantBodies=[cageBody]. Set no orientation, solid twist axis, guide rail, or guide surface. Require one feature body. At sc=sigma*cageRadius both u-side probes must be outside. For every bore with positive roofAllowance, the probe at u=0, v=roofSign*(ht+roofAllowance/2) must be outside, and the opposite v probe must be inside. [PB-SWEEP-TWIST] [PB-PATH-FROM-SKETCH] [PB-SELF-DIAGNOSING].
 
 The proof function is `stepEntry50GearAboreRsweepcut`.
 
@@ -6391,8 +6374,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 979,
-      "last": 998,
+      "first": 980,
+      "last": 1009,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -6400,45 +6383,30 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L979–998.
+**From:** `spec/screwgear/instructions.md` L980–1009.
 
 ## 52 `[GO]` Gear A bore +R sketch
 
-**The roof allowance** ('levelBore', 'roofSide', 'boreOpening'). With the sleeve standing on its
-'−n̂' end, a bore whose long faces pass through level inside the wall has its roof bridged across
-the hole by the printer. At the 14° mounting angles of the second sleeve that was each gear's
-'-R' bore alone, whose long faces lay flat at station −14.30 mm, and the second sleeve printed
-those two bores too tight and the two '+R' bores not ('[SCREW-F-PRINT-2]'). So each gear's
-**level bore** has its roof face moved out by 'roofAllowance', and every other face of every bore
-stays at the clearance. At the defaults' zero mounting angles **both** bores of each gear pass
-through level, at stations ±12.37 mm, so the two tie and the '-R' bore takes the allowance; the
-'+R' bores' roofs are bridged 15.4 mm across with the clearance alone, as the second sleeve's
-tight roofs were ("What the print showed", "What the proof cannot reach"):
-
-- The level bore is, of the gear's two bores, the one whose long faces come nearest level over
-  the wall's span on its centre line. A long face runs along the section's 'u', which stands
-  'theta' from 'û_g', and 'û_g' is along '±n̂', so a long face is level where 'cos(theta)' is zero.
-  For the bore at 'σ*cageRadius', 'σ' being '-1' or '+1', take 'theta' at the two stations
-  'σ*(cageRadius - collarHalf)' and 'σ*(cageRadius + collarHalf)'; when some 'pi/2 + k*pi' lies
-  between them its tilt is 0, and otherwise it is the smaller '|cos theta|' of the two. The bore
-  with the smaller tilt is the level bore, the '-R' bore when they tie. At the defaults both
-  bores' tilt is 0, so the '-R' bore is the level bore; at the 14° of the third print the '-R'
-  bores' tilt was 0 and the '+R' bores' '|cos 101.3°|', 0.195.
+**The roof allowance** ('roofSide', 'boreOpening'). With the sleeve standing on its '−n̂' end,
+the printer bridges each bore's long-face roof where it passes through level in the wall. At the
+14° mounting angles of the second sleeve, only the '-R' bores passed through level and printed
+too tight ('[SCREW-F-PRINT-2]'). At the default zero angles, all four bores pass through level
+at stations ±12.37 mm. The fifth sleeve's '-R' bores fitted with a 0.60 mm allowance, while
+its '+R' bores with clearance alone blocked both ribbons ('[SCREW-F-PRINT-5]'). Move the roof
+face of **every bore** out by 'roofAllowance'; every other face stays at the clearance.
 - The roof face is the long face that is up when the sleeve stands on its '−n̂' end: the '+v'
   face when 'v̂(sc)·n̂ = -sin(theta(sc))*(û_g·n̂)' is positive at the bore's crossing station
   'sc = σ*cageRadius', and the '-v' face otherwise. 'v̂_g·n̂' is zero, so that is the whole
   product. At the defaults it is gear A's '+v' face and gear B's '-v' face. The sign holds over
   the whole cut: 'v̂·n̂' changes sign only where a long face stands upright, 90° of twist, 12.4 mm
   of axis, from where it lies level.
-- The level bore's rectangle spans 'v' from 'vLo = -ht' to 'vHi = ht + a' when its roof is the
+- Every bore's rectangle spans 'v' from 'vLo = -ht' to 'vHi = ht + a' when its roof is the
   '+v' face, and from 'vLo = -ht - a' to 'vHi = ht' otherwise: 4.75 mm through at the defaults.
-  Every other bore spans '-ht' to 'ht', and every bore spans 'u' from '-hw' to 'hw'.
+  Every bore spans 'u' from '-hw' to 'hw'.
 
-The allowance adds no move of the ribbon along or across the axes and no roll: the other bore and
-the level bore's floor hold the ribbon to the clearance there. It lets the ribbon tilt, its level
-bore's end rising into the room while the other bore holds, which carries the crossing 0.248 mm
-instead of 0.200 mm toward the other ribbon for gear A and away from it for gear B
-('TestRoofAllowanceAddsOnlyATilt'). After the sleeve is built the build logs, with 'futil.log'
+The allowance on both bores adds play along the axis between the ribbons and can reduce tooth
+contact. The 1.15 mm engagement keeps all 100 full-sample pose pairs driving, with at least
+1.85 mm of close contact ('TestPairDrivesUnderBorePlay'). After the sleeve is built the build logs, with 'futil.log'
 ('[PB-LOGGING]'), 'Print the cage standing on its end below the selected plane: the roof
 allowance is on the bridged roofs that way up.', so the print orientation is explicit even when
 the bore marks are hard to see.
@@ -6467,8 +6435,8 @@ samples. The two bores of one gear stand '2*cageRadius' apart and are two sweeps
 
 **The rectangle scheme.** Each of the four bore section sketches is a rectangle spanning 'v' from
 'vLo' to 'vHi' and 'u' from 'uB' to 'uF', turned by 'theta = s/Lambda + Phi_g' about the axis point
-'O', which lies on the line 'v = 0'; for a bore other than a level one, at its centre, and for a
-level bore 'a/2' off it across the thickness. Four lines, two
+'O', which lies on the line 'v = 0', 'a/2' from each bore's centre across the thickness when the
+roof allowance is positive. Four lines, two
 dimensions, one coincidence and one angle cannot fix 'O' inside such a rectangle; a construction
 spine through 'O' can, and this is the scheme:
 
@@ -6533,7 +6501,7 @@ proof builds each bore's channel as a chain of two-section lofts through rotated
 proof checks"), and the count it lofts through is derived from the turn and the clearance: no two
 neighbouring sections more than 5° of twist apart, nor more than the angle at which the facets between them
 take 4% of the clearance, '2*acos(1 - 0.04*clearance/c)', and the count is 'ceil(turn / step) + 1' for the
-smaller step. At the defaults the turn is 81.41°, the facet bound 5.1° and 5° governs: 18 sections. At a
+smaller step. At the defaults the turn is 80.17°, the facet bound 5.1° and 5° governs: 18 sections. At a
 clearance of 0.05 mm the turn is 80.15°, the facet bound 2.6° governs, and the count is 33. Those facets
 are a ruled wall's: flat between sections, inside the true channel, and 0.007 mm of the 0.20 mm clearance
 at the derived count, which 'TestSleeveBoreSubstituteKeepsItsClearance' holds at 95% of the clearance from
@@ -6556,17 +6524,17 @@ cage with 'pointContainment' at the two points 'origin_g + sc*dir_g ± (W/2 + cl
 at the crossing itself, 'sc = ±cageRadius', where 'û(s)' is the section's turned 'u' direction,
 'cos(theta)*û_g + sin(theta)*v̂_g' with 'theta = s/Lambda + Phi_g'. Both must be
 'PointOutsidePointContainment', the channel being open there, and the build raises naming the
-bore otherwise. The probes stand 16.63 mm from the frame's axis at all four bores,
+bore otherwise. The probes stand 17.01 mm from the frame's axis at all four bores,
 inside the wall, and clear of the ribbon and of the channel's wall by 'clearance/2'. They tell
 the two senses apart on their own. The profile sits at the cut's first station 's0', 'sIn' or
 '-sOut', and under the wrong sense the channel at the crossing is turned '2*(sc - s0)/Lambda'
-from the right one — 103° for a '+R' bore, 58° for a '-R' bore — which puts the probes 7.39 and
-6.46 mm across a channel 2.075 mm half thick, or 2.675 mm on the level bore's roof side, in the
+from the right one — 102° for a '+R' bore, 58° for a '-R' bore — which puts the probes 7.43 and
+6.46 mm across a channel 2.075 mm half thick, or 2.675 mm on its roof side, in the
 wall
 ('TestSleeveBoreProbesTellTheTwistSense'). With no collar body there is no end-vertex check; the
 probes are the whole of the sense check.
 
-For the level bore when 'roofAllowance > 0', use two more containment probes at its crossing
+For every bore when 'roofAllowance > 0', use two more containment probes at its crossing
 station with 'u = 0'. Set 'roofSign = +1' when '-sin(theta(sc))*(û_g·n̂) > 0', else '-1'.
 The point at 'v = roofSign*(ht + roofAllowance/2)' must be outside the cage, in the added
 roof room. The point at 'v = -roofSign*(ht + roofAllowance/2)' must remain inside the cage,
@@ -6752,8 +6720,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 1274,
-      "last": 1396,
+      "first": 1275,
+      "last": 1425,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -6761,13 +6729,13 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1274–1396.
+**From:** `spec/screwgear/instructions.md` L1275–1425.
 
 ## 53 `[GO]` Gear A bore +R sweep cut
 
 **The bores.** One per crossing: a gear's '+R' bore runs through the wall where its axis crosses
 the circle of radius 'cageRadius', at station '+cageRadius' of the axis, and its '-R' bore at
-'-cageRadius'. Each is the crest rectangle plus the clearance, '2*hw' by '2*ht', 15.4 by 4.15 mm,
+'-cageRadius'. Each is the crest rectangle plus clearance and roof allowance, '2*hw' by '2*ht + roofAllowance', 15.4 by 4.75 mm,
 turned at every station 's' to the ribbon's own angle 's/Lambda + Phi_g'. That is the channel the
 video frame's collars were cut with, and 'TestSleeveBoresAreTheSameChannels' pins it: the
 rectangle, the stations, the twist, the angles at the crossings, 109.09° and −109.09° (123.1°
@@ -6778,13 +6746,13 @@ into the wall before its centre line does: a corner first touches the inner face
 'sqrt(Ri^2 - c^2)', 8.806 mm. The cut runs from a millimetre before that, 'sIn', where the whole
 section is in the hollow, to a millimetre past the outer face, 'sOut', where the whole section is
 outside: '[sIn, sOut]' for a '+R' bore and '[-sOut, -sIn]' for a '-R' bore, 11.194 mm of axis and
-81.41° of turn. The assembly phase moves
+80.17° of turn. The assembly phase moves
 gear B's ribbon along its axis and not its bores: any stretch of the ribbon fits a bore, and the
 ribbon can go in at any phase a pitch apart, so the frame has no way to know the phase.
 
 
 
-Sweep only this bore's rectangle on its own path. Use CutFeatureOperation, twistAngle=ValueInput of +(sOut-sIn)/Lambda and participantBodies=[cageBody]. Set no orientation, solid twist axis, guide rail, or guide surface. Require one feature body. At sc=sigma*cageRadius both u-side probes must be outside. For the level bore and positive roofAllowance, the probe at u=0, v=roofSign*(ht+roofAllowance/2) must be outside, and the opposite v probe must be inside. [PB-SWEEP-TWIST] [PB-PATH-FROM-SKETCH] [PB-SELF-DIAGNOSING].
+Sweep only this bore's rectangle on its own path. Use CutFeatureOperation, twistAngle=ValueInput of +(sOut-sIn)/Lambda and participantBodies=[cageBody]. Set no orientation, solid twist axis, guide rail, or guide surface. Require one feature body. At sc=sigma*cageRadius both u-side probes must be outside. For every bore with positive roofAllowance, the probe at u=0, v=roofSign*(ht+roofAllowance/2) must be outside, and the opposite v probe must be inside. [PB-SWEEP-TWIST] [PB-PATH-FROM-SKETCH] [PB-SELF-DIAGNOSING].
 
 The proof function is `stepEntry53GearAboreRsweepcut`.
 
@@ -6930,8 +6898,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 979,
-      "last": 998,
+      "first": 980,
+      "last": 1009,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -6939,45 +6907,30 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L979–998.
+**From:** `spec/screwgear/instructions.md` L980–1009.
 
 ## 55 `[GO]` Gear B bore -R sketch
 
-**The roof allowance** ('levelBore', 'roofSide', 'boreOpening'). With the sleeve standing on its
-'−n̂' end, a bore whose long faces pass through level inside the wall has its roof bridged across
-the hole by the printer. At the 14° mounting angles of the second sleeve that was each gear's
-'-R' bore alone, whose long faces lay flat at station −14.30 mm, and the second sleeve printed
-those two bores too tight and the two '+R' bores not ('[SCREW-F-PRINT-2]'). So each gear's
-**level bore** has its roof face moved out by 'roofAllowance', and every other face of every bore
-stays at the clearance. At the defaults' zero mounting angles **both** bores of each gear pass
-through level, at stations ±12.37 mm, so the two tie and the '-R' bore takes the allowance; the
-'+R' bores' roofs are bridged 15.4 mm across with the clearance alone, as the second sleeve's
-tight roofs were ("What the print showed", "What the proof cannot reach"):
-
-- The level bore is, of the gear's two bores, the one whose long faces come nearest level over
-  the wall's span on its centre line. A long face runs along the section's 'u', which stands
-  'theta' from 'û_g', and 'û_g' is along '±n̂', so a long face is level where 'cos(theta)' is zero.
-  For the bore at 'σ*cageRadius', 'σ' being '-1' or '+1', take 'theta' at the two stations
-  'σ*(cageRadius - collarHalf)' and 'σ*(cageRadius + collarHalf)'; when some 'pi/2 + k*pi' lies
-  between them its tilt is 0, and otherwise it is the smaller '|cos theta|' of the two. The bore
-  with the smaller tilt is the level bore, the '-R' bore when they tie. At the defaults both
-  bores' tilt is 0, so the '-R' bore is the level bore; at the 14° of the third print the '-R'
-  bores' tilt was 0 and the '+R' bores' '|cos 101.3°|', 0.195.
+**The roof allowance** ('roofSide', 'boreOpening'). With the sleeve standing on its '−n̂' end,
+the printer bridges each bore's long-face roof where it passes through level in the wall. At the
+14° mounting angles of the second sleeve, only the '-R' bores passed through level and printed
+too tight ('[SCREW-F-PRINT-2]'). At the default zero angles, all four bores pass through level
+at stations ±12.37 mm. The fifth sleeve's '-R' bores fitted with a 0.60 mm allowance, while
+its '+R' bores with clearance alone blocked both ribbons ('[SCREW-F-PRINT-5]'). Move the roof
+face of **every bore** out by 'roofAllowance'; every other face stays at the clearance.
 - The roof face is the long face that is up when the sleeve stands on its '−n̂' end: the '+v'
   face when 'v̂(sc)·n̂ = -sin(theta(sc))*(û_g·n̂)' is positive at the bore's crossing station
   'sc = σ*cageRadius', and the '-v' face otherwise. 'v̂_g·n̂' is zero, so that is the whole
   product. At the defaults it is gear A's '+v' face and gear B's '-v' face. The sign holds over
   the whole cut: 'v̂·n̂' changes sign only where a long face stands upright, 90° of twist, 12.4 mm
   of axis, from where it lies level.
-- The level bore's rectangle spans 'v' from 'vLo = -ht' to 'vHi = ht + a' when its roof is the
+- Every bore's rectangle spans 'v' from 'vLo = -ht' to 'vHi = ht + a' when its roof is the
   '+v' face, and from 'vLo = -ht - a' to 'vHi = ht' otherwise: 4.75 mm through at the defaults.
-  Every other bore spans '-ht' to 'ht', and every bore spans 'u' from '-hw' to 'hw'.
+  Every bore spans 'u' from '-hw' to 'hw'.
 
-The allowance adds no move of the ribbon along or across the axes and no roll: the other bore and
-the level bore's floor hold the ribbon to the clearance there. It lets the ribbon tilt, its level
-bore's end rising into the room while the other bore holds, which carries the crossing 0.248 mm
-instead of 0.200 mm toward the other ribbon for gear A and away from it for gear B
-('TestRoofAllowanceAddsOnlyATilt'). After the sleeve is built the build logs, with 'futil.log'
+The allowance on both bores adds play along the axis between the ribbons and can reduce tooth
+contact. The 1.15 mm engagement keeps all 100 full-sample pose pairs driving, with at least
+1.85 mm of close contact ('TestPairDrivesUnderBorePlay'). After the sleeve is built the build logs, with 'futil.log'
 ('[PB-LOGGING]'), 'Print the cage standing on its end below the selected plane: the roof
 allowance is on the bridged roofs that way up.', so the print orientation is explicit even when
 the bore marks are hard to see.
@@ -7006,8 +6959,8 @@ samples. The two bores of one gear stand '2*cageRadius' apart and are two sweeps
 
 **The rectangle scheme.** Each of the four bore section sketches is a rectangle spanning 'v' from
 'vLo' to 'vHi' and 'u' from 'uB' to 'uF', turned by 'theta = s/Lambda + Phi_g' about the axis point
-'O', which lies on the line 'v = 0'; for a bore other than a level one, at its centre, and for a
-level bore 'a/2' off it across the thickness. Four lines, two
+'O', which lies on the line 'v = 0', 'a/2' from each bore's centre across the thickness when the
+roof allowance is positive. Four lines, two
 dimensions, one coincidence and one angle cannot fix 'O' inside such a rectangle; a construction
 spine through 'O' can, and this is the scheme:
 
@@ -7072,7 +7025,7 @@ proof builds each bore's channel as a chain of two-section lofts through rotated
 proof checks"), and the count it lofts through is derived from the turn and the clearance: no two
 neighbouring sections more than 5° of twist apart, nor more than the angle at which the facets between them
 take 4% of the clearance, '2*acos(1 - 0.04*clearance/c)', and the count is 'ceil(turn / step) + 1' for the
-smaller step. At the defaults the turn is 81.41°, the facet bound 5.1° and 5° governs: 18 sections. At a
+smaller step. At the defaults the turn is 80.17°, the facet bound 5.1° and 5° governs: 18 sections. At a
 clearance of 0.05 mm the turn is 80.15°, the facet bound 2.6° governs, and the count is 33. Those facets
 are a ruled wall's: flat between sections, inside the true channel, and 0.007 mm of the 0.20 mm clearance
 at the derived count, which 'TestSleeveBoreSubstituteKeepsItsClearance' holds at 95% of the clearance from
@@ -7095,17 +7048,17 @@ cage with 'pointContainment' at the two points 'origin_g + sc*dir_g ± (W/2 + cl
 at the crossing itself, 'sc = ±cageRadius', where 'û(s)' is the section's turned 'u' direction,
 'cos(theta)*û_g + sin(theta)*v̂_g' with 'theta = s/Lambda + Phi_g'. Both must be
 'PointOutsidePointContainment', the channel being open there, and the build raises naming the
-bore otherwise. The probes stand 16.63 mm from the frame's axis at all four bores,
+bore otherwise. The probes stand 17.01 mm from the frame's axis at all four bores,
 inside the wall, and clear of the ribbon and of the channel's wall by 'clearance/2'. They tell
 the two senses apart on their own. The profile sits at the cut's first station 's0', 'sIn' or
 '-sOut', and under the wrong sense the channel at the crossing is turned '2*(sc - s0)/Lambda'
-from the right one — 103° for a '+R' bore, 58° for a '-R' bore — which puts the probes 7.39 and
-6.46 mm across a channel 2.075 mm half thick, or 2.675 mm on the level bore's roof side, in the
+from the right one — 102° for a '+R' bore, 58° for a '-R' bore — which puts the probes 7.43 and
+6.46 mm across a channel 2.075 mm half thick, or 2.675 mm on its roof side, in the
 wall
 ('TestSleeveBoreProbesTellTheTwistSense'). With no collar body there is no end-vertex check; the
 probes are the whole of the sense check.
 
-For the level bore when 'roofAllowance > 0', use two more containment probes at its crossing
+For every bore when 'roofAllowance > 0', use two more containment probes at its crossing
 station with 'u = 0'. Set 'roofSign = +1' when '-sin(theta(sc))*(û_g·n̂) > 0', else '-1'.
 The point at 'v = roofSign*(ht + roofAllowance/2)' must be outside the cage, in the added
 roof room. The point at 'v = -roofSign*(ht + roofAllowance/2)' must remain inside the cage,
@@ -7291,8 +7244,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 1274,
-      "last": 1396,
+      "first": 1275,
+      "last": 1425,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -7300,13 +7253,13 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1274–1396.
+**From:** `spec/screwgear/instructions.md` L1275–1425.
 
 ## 56 `[GO]` Gear B bore -R sweep cut
 
 **The bores.** One per crossing: a gear's '+R' bore runs through the wall where its axis crosses
 the circle of radius 'cageRadius', at station '+cageRadius' of the axis, and its '-R' bore at
-'-cageRadius'. Each is the crest rectangle plus the clearance, '2*hw' by '2*ht', 15.4 by 4.15 mm,
+'-cageRadius'. Each is the crest rectangle plus clearance and roof allowance, '2*hw' by '2*ht + roofAllowance', 15.4 by 4.75 mm,
 turned at every station 's' to the ribbon's own angle 's/Lambda + Phi_g'. That is the channel the
 video frame's collars were cut with, and 'TestSleeveBoresAreTheSameChannels' pins it: the
 rectangle, the stations, the twist, the angles at the crossings, 109.09° and −109.09° (123.1°
@@ -7317,13 +7270,13 @@ into the wall before its centre line does: a corner first touches the inner face
 'sqrt(Ri^2 - c^2)', 8.806 mm. The cut runs from a millimetre before that, 'sIn', where the whole
 section is in the hollow, to a millimetre past the outer face, 'sOut', where the whole section is
 outside: '[sIn, sOut]' for a '+R' bore and '[-sOut, -sIn]' for a '-R' bore, 11.194 mm of axis and
-81.41° of turn. The assembly phase moves
+80.17° of turn. The assembly phase moves
 gear B's ribbon along its axis and not its bores: any stretch of the ribbon fits a bore, and the
 ribbon can go in at any phase a pitch apart, so the frame has no way to know the phase.
 
 
 
-Sweep only this bore's rectangle on its own path. Use CutFeatureOperation, twistAngle=ValueInput of +(sOut-sIn)/Lambda and participantBodies=[cageBody]. Set no orientation, solid twist axis, guide rail, or guide surface. Require one feature body. At sc=sigma*cageRadius both u-side probes must be outside. For the level bore and positive roofAllowance, the probe at u=0, v=roofSign*(ht+roofAllowance/2) must be outside, and the opposite v probe must be inside. [PB-SWEEP-TWIST] [PB-PATH-FROM-SKETCH] [PB-SELF-DIAGNOSING].
+Sweep only this bore's rectangle on its own path. Use CutFeatureOperation, twistAngle=ValueInput of +(sOut-sIn)/Lambda and participantBodies=[cageBody]. Set no orientation, solid twist axis, guide rail, or guide surface. Require one feature body. At sc=sigma*cageRadius both u-side probes must be outside. For every bore with positive roofAllowance, the probe at u=0, v=roofSign*(ht+roofAllowance/2) must be outside, and the opposite v probe must be inside. [PB-SWEEP-TWIST] [PB-PATH-FROM-SKETCH] [PB-SELF-DIAGNOSING].
 
 The proof function is `stepEntry56GearBboreRsweepcut`.
 
@@ -7469,8 +7422,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 979,
-      "last": 998,
+      "first": 980,
+      "last": 1009,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -7478,45 +7431,30 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L979–998.
+**From:** `spec/screwgear/instructions.md` L980–1009.
 
 ## 58 `[GO]` Gear B bore +R sketch
 
-**The roof allowance** ('levelBore', 'roofSide', 'boreOpening'). With the sleeve standing on its
-'−n̂' end, a bore whose long faces pass through level inside the wall has its roof bridged across
-the hole by the printer. At the 14° mounting angles of the second sleeve that was each gear's
-'-R' bore alone, whose long faces lay flat at station −14.30 mm, and the second sleeve printed
-those two bores too tight and the two '+R' bores not ('[SCREW-F-PRINT-2]'). So each gear's
-**level bore** has its roof face moved out by 'roofAllowance', and every other face of every bore
-stays at the clearance. At the defaults' zero mounting angles **both** bores of each gear pass
-through level, at stations ±12.37 mm, so the two tie and the '-R' bore takes the allowance; the
-'+R' bores' roofs are bridged 15.4 mm across with the clearance alone, as the second sleeve's
-tight roofs were ("What the print showed", "What the proof cannot reach"):
-
-- The level bore is, of the gear's two bores, the one whose long faces come nearest level over
-  the wall's span on its centre line. A long face runs along the section's 'u', which stands
-  'theta' from 'û_g', and 'û_g' is along '±n̂', so a long face is level where 'cos(theta)' is zero.
-  For the bore at 'σ*cageRadius', 'σ' being '-1' or '+1', take 'theta' at the two stations
-  'σ*(cageRadius - collarHalf)' and 'σ*(cageRadius + collarHalf)'; when some 'pi/2 + k*pi' lies
-  between them its tilt is 0, and otherwise it is the smaller '|cos theta|' of the two. The bore
-  with the smaller tilt is the level bore, the '-R' bore when they tie. At the defaults both
-  bores' tilt is 0, so the '-R' bore is the level bore; at the 14° of the third print the '-R'
-  bores' tilt was 0 and the '+R' bores' '|cos 101.3°|', 0.195.
+**The roof allowance** ('roofSide', 'boreOpening'). With the sleeve standing on its '−n̂' end,
+the printer bridges each bore's long-face roof where it passes through level in the wall. At the
+14° mounting angles of the second sleeve, only the '-R' bores passed through level and printed
+too tight ('[SCREW-F-PRINT-2]'). At the default zero angles, all four bores pass through level
+at stations ±12.37 mm. The fifth sleeve's '-R' bores fitted with a 0.60 mm allowance, while
+its '+R' bores with clearance alone blocked both ribbons ('[SCREW-F-PRINT-5]'). Move the roof
+face of **every bore** out by 'roofAllowance'; every other face stays at the clearance.
 - The roof face is the long face that is up when the sleeve stands on its '−n̂' end: the '+v'
   face when 'v̂(sc)·n̂ = -sin(theta(sc))*(û_g·n̂)' is positive at the bore's crossing station
   'sc = σ*cageRadius', and the '-v' face otherwise. 'v̂_g·n̂' is zero, so that is the whole
   product. At the defaults it is gear A's '+v' face and gear B's '-v' face. The sign holds over
   the whole cut: 'v̂·n̂' changes sign only where a long face stands upright, 90° of twist, 12.4 mm
   of axis, from where it lies level.
-- The level bore's rectangle spans 'v' from 'vLo = -ht' to 'vHi = ht + a' when its roof is the
+- Every bore's rectangle spans 'v' from 'vLo = -ht' to 'vHi = ht + a' when its roof is the
   '+v' face, and from 'vLo = -ht - a' to 'vHi = ht' otherwise: 4.75 mm through at the defaults.
-  Every other bore spans '-ht' to 'ht', and every bore spans 'u' from '-hw' to 'hw'.
+  Every bore spans 'u' from '-hw' to 'hw'.
 
-The allowance adds no move of the ribbon along or across the axes and no roll: the other bore and
-the level bore's floor hold the ribbon to the clearance there. It lets the ribbon tilt, its level
-bore's end rising into the room while the other bore holds, which carries the crossing 0.248 mm
-instead of 0.200 mm toward the other ribbon for gear A and away from it for gear B
-('TestRoofAllowanceAddsOnlyATilt'). After the sleeve is built the build logs, with 'futil.log'
+The allowance on both bores adds play along the axis between the ribbons and can reduce tooth
+contact. The 1.15 mm engagement keeps all 100 full-sample pose pairs driving, with at least
+1.85 mm of close contact ('TestPairDrivesUnderBorePlay'). After the sleeve is built the build logs, with 'futil.log'
 ('[PB-LOGGING]'), 'Print the cage standing on its end below the selected plane: the roof
 allowance is on the bridged roofs that way up.', so the print orientation is explicit even when
 the bore marks are hard to see.
@@ -7545,8 +7483,8 @@ samples. The two bores of one gear stand '2*cageRadius' apart and are two sweeps
 
 **The rectangle scheme.** Each of the four bore section sketches is a rectangle spanning 'v' from
 'vLo' to 'vHi' and 'u' from 'uB' to 'uF', turned by 'theta = s/Lambda + Phi_g' about the axis point
-'O', which lies on the line 'v = 0'; for a bore other than a level one, at its centre, and for a
-level bore 'a/2' off it across the thickness. Four lines, two
+'O', which lies on the line 'v = 0', 'a/2' from each bore's centre across the thickness when the
+roof allowance is positive. Four lines, two
 dimensions, one coincidence and one angle cannot fix 'O' inside such a rectangle; a construction
 spine through 'O' can, and this is the scheme:
 
@@ -7611,7 +7549,7 @@ proof builds each bore's channel as a chain of two-section lofts through rotated
 proof checks"), and the count it lofts through is derived from the turn and the clearance: no two
 neighbouring sections more than 5° of twist apart, nor more than the angle at which the facets between them
 take 4% of the clearance, '2*acos(1 - 0.04*clearance/c)', and the count is 'ceil(turn / step) + 1' for the
-smaller step. At the defaults the turn is 81.41°, the facet bound 5.1° and 5° governs: 18 sections. At a
+smaller step. At the defaults the turn is 80.17°, the facet bound 5.1° and 5° governs: 18 sections. At a
 clearance of 0.05 mm the turn is 80.15°, the facet bound 2.6° governs, and the count is 33. Those facets
 are a ruled wall's: flat between sections, inside the true channel, and 0.007 mm of the 0.20 mm clearance
 at the derived count, which 'TestSleeveBoreSubstituteKeepsItsClearance' holds at 95% of the clearance from
@@ -7634,17 +7572,17 @@ cage with 'pointContainment' at the two points 'origin_g + sc*dir_g ± (W/2 + cl
 at the crossing itself, 'sc = ±cageRadius', where 'û(s)' is the section's turned 'u' direction,
 'cos(theta)*û_g + sin(theta)*v̂_g' with 'theta = s/Lambda + Phi_g'. Both must be
 'PointOutsidePointContainment', the channel being open there, and the build raises naming the
-bore otherwise. The probes stand 16.63 mm from the frame's axis at all four bores,
+bore otherwise. The probes stand 17.01 mm from the frame's axis at all four bores,
 inside the wall, and clear of the ribbon and of the channel's wall by 'clearance/2'. They tell
 the two senses apart on their own. The profile sits at the cut's first station 's0', 'sIn' or
 '-sOut', and under the wrong sense the channel at the crossing is turned '2*(sc - s0)/Lambda'
-from the right one — 103° for a '+R' bore, 58° for a '-R' bore — which puts the probes 7.39 and
-6.46 mm across a channel 2.075 mm half thick, or 2.675 mm on the level bore's roof side, in the
+from the right one — 102° for a '+R' bore, 58° for a '-R' bore — which puts the probes 7.43 and
+6.46 mm across a channel 2.075 mm half thick, or 2.675 mm on its roof side, in the
 wall
 ('TestSleeveBoreProbesTellTheTwistSense'). With no collar body there is no end-vertex check; the
 probes are the whole of the sense check.
 
-For the level bore when 'roofAllowance > 0', use two more containment probes at its crossing
+For every bore when 'roofAllowance > 0', use two more containment probes at its crossing
 station with 'u = 0'. Set 'roofSign = +1' when '-sin(theta(sc))*(û_g·n̂) > 0', else '-1'.
 The point at 'v = roofSign*(ht + roofAllowance/2)' must be outside the cage, in the added
 roof room. The point at 'v = -roofSign*(ht + roofAllowance/2)' must remain inside the cage,
@@ -7830,8 +7768,8 @@ Make these required Fusion calls:
   ],
   "citations": [
     {
-      "first": 1274,
-      "last": 1396,
+      "first": 1275,
+      "last": 1425,
       "path": "spec/screwgear/instructions.md"
     }
   ],
@@ -7839,13 +7777,13 @@ Make these required Fusion calls:
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L1274–1396.
+**From:** `spec/screwgear/instructions.md` L1275–1425.
 
 ## 59 `[GO]` Gear B bore +R sweep cut
 
 **The bores.** One per crossing: a gear's '+R' bore runs through the wall where its axis crosses
 the circle of radius 'cageRadius', at station '+cageRadius' of the axis, and its '-R' bore at
-'-cageRadius'. Each is the crest rectangle plus the clearance, '2*hw' by '2*ht', 15.4 by 4.15 mm,
+'-cageRadius'. Each is the crest rectangle plus clearance and roof allowance, '2*hw' by '2*ht + roofAllowance', 15.4 by 4.75 mm,
 turned at every station 's' to the ribbon's own angle 's/Lambda + Phi_g'. That is the channel the
 video frame's collars were cut with, and 'TestSleeveBoresAreTheSameChannels' pins it: the
 rectangle, the stations, the twist, the angles at the crossings, 109.09° and −109.09° (123.1°
@@ -7856,13 +7794,13 @@ into the wall before its centre line does: a corner first touches the inner face
 'sqrt(Ri^2 - c^2)', 8.806 mm. The cut runs from a millimetre before that, 'sIn', where the whole
 section is in the hollow, to a millimetre past the outer face, 'sOut', where the whole section is
 outside: '[sIn, sOut]' for a '+R' bore and '[-sOut, -sIn]' for a '-R' bore, 11.194 mm of axis and
-81.41° of turn. The assembly phase moves
+80.17° of turn. The assembly phase moves
 gear B's ribbon along its axis and not its bores: any stretch of the ribbon fits a bore, and the
 ribbon can go in at any phase a pitch apart, so the frame has no way to know the phase.
 
 
 
-Sweep only this bore's rectangle on its own path. Use CutFeatureOperation, twistAngle=ValueInput of +(sOut-sIn)/Lambda and participantBodies=[cageBody]. Set no orientation, solid twist axis, guide rail, or guide surface. Require one feature body. At sc=sigma*cageRadius both u-side probes must be outside. For the level bore and positive roofAllowance, the probe at u=0, v=roofSign*(ht+roofAllowance/2) must be outside, and the opposite v probe must be inside. [PB-SWEEP-TWIST] [PB-PATH-FROM-SKETCH] [PB-SELF-DIAGNOSING].
+Sweep only this bore's rectangle on its own path. Use CutFeatureOperation, twistAngle=ValueInput of +(sOut-sIn)/Lambda and participantBodies=[cageBody]. Set no orientation, solid twist axis, guide rail, or guide surface. Require one feature body. At sc=sigma*cageRadius both u-side probes must be outside. For every bore with positive roofAllowance, the probe at u=0, v=roofSign*(ht+roofAllowance/2) must be outside, and the opposite v probe must be inside. [PB-SWEEP-TWIST] [PB-PATH-FROM-SKETCH] [PB-SELF-DIAGNOSING].
 
 The proof function is `stepEntry59GearBboreRsweepcut`.
 
@@ -8433,104 +8371,76 @@ Make these required Fusion calls:
 
 ## 65 `[PROSE]` Marker plane
 
-## Bore identification marks
-
-After the four bore cuts and any window cuts, raise one mark for each bore on the top end at
-'+cageRise' along 'nHat'. The opposite end stays flat on the print bed. Follow the bore-cut
-order: Gear A '-R', Gear A '+R', Gear B '-R', Gear B '+R'. Use the bore's gear index 'g' and
-sign 'sigma': a **circle** identifies '+R' ('sigma = +1'),
-and a **square** identifies '-R' ('sigma = -1'). Both gears get both marks. The marks join only
-to the sleeve, never to either ribbon.
-
-Use 'halfSize = min(1 mm, collarHalf/2)' and 'inset = min(0.1 mm, collarWall/2)' in the same
-length units as the sleeve. At the defaults, 'halfSize = 1 mm' and 'inset = 0.1 mm'. Make one
-construction plane parallel to Gear B Axis Plane. That plane is '+A/2' along 'nHat' from 'C',
-so offset it by 'cageRise - inset - A/2' toward '+nHat'. Choose the signed Fusion offset from
-the dot product of Gear B Axis Plane's normal with 'nHat'. Check the new plane's origin's
-signed offset from 'C' along 'nHat' against 'cageRise - inset'. The end-wall range
-check keeps this plane inside solid sleeve material. For each bore, create a separate sketch on
-that plane, named 'Gear A Bore +R Circle Marker', 'Gear A Bore -R Square Marker', and likewise
-for Gear B. Its centre in world coordinates is
-'C + (cageRise - inset)*nHat + sigma*cageRadius*dirVecs[g]'. Map every point into the sketch
-and set its local 'z' to zero before drawing.
-
-
-[PB-CONSTRUCTION-PLANES] [PB-SKETCH-ZERO-Z] [SCREW-F-BORE-MARKS].
+After all bore and window cuts, place one plane at z = cageRise - depth, where depth = min(0.8 mm, collarWall/3). Offset Gear B Axis Plane by cageRise - depth - A/2 along nHat, choosing the signed offset from its normal. Check the new plane origin against that z. The top at +cageRise receives four blind pockets; the bottom stays flat. At defaults the finished timeline has 16 sketches, 8 planes, and 50 features, 74 entries, plus five component creations. [PB-CONSTRUCTION-PLANES] [SCREW-F-BORE-MARKS].
 
 Make these required Fusion calls:
 
 - `design.constructionPlanes.createInput()`.
-- `adsk.core.ValueInput.createByReal(value)`.
+- `adsk.core.ValueInput.createByReal(signedOffset)`.
+- `planeInput.setByOffset(gearBAxisPlane, offsetValue)`.
 - `design.constructionPlanes.add(planeInput)`.
-- `planeInput.setByOffset(gearBAxisPlane, signedOffset)`.
 
 <!-- step-meta
 {
-  "calls": [
-    {
-      "condition": null,
-      "name": "createInput",
-      "owner": "adsk.fusion.ConstructionPlanes",
-      "reason": null,
-      "receiver": "design.constructionPlanes",
-      "role": "required",
-      "span": "design.constructionPlanes.createInput()"
-    },
-    {
-      "condition": null,
-      "name": "createByReal",
-      "owner": "adsk.core.ValueInput",
-      "reason": null,
-      "receiver": "adsk.core.ValueInput",
-      "role": "required",
-      "span": "adsk.core.ValueInput.createByReal(value)"
-    },
-    {
-      "condition": null,
-      "name": "add",
-      "owner": "adsk.fusion.ConstructionPlanes",
-      "reason": null,
-      "receiver": "design.constructionPlanes",
-      "role": "required",
-      "span": "design.constructionPlanes.add(planeInput)"
-    },
-    {
-      "condition": null,
-      "name": "setByOffset",
-      "owner": "adsk.fusion.ConstructionPlaneInput",
-      "reason": null,
-      "receiver": "planeInput",
-      "role": "required",
-      "span": "planeInput.setByOffset(gearBAxisPlane, signedOffset)"
-    }
-  ],
+  "schema": 2,
   "citations": [
     {
-      "first": 2057,
-      "last": 2077,
-      "path": "spec/screwgear/instructions.md"
+      "path": "spec/screwgear/instructions.md",
+      "first": 2028,
+      "last": 2078
+    },
+    {
+      "path": "spec/screwgear/fusion.md",
+      "first": 731,
+      "last": 741
     }
   ],
-  "schema": 2
+  "calls": [
+    {
+      "span": "design.constructionPlanes.createInput()",
+      "name": "createInput",
+      "receiver": "design.constructionPlanes",
+      "owner": "adsk.fusion.ConstructionPlanes",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "adsk.core.ValueInput.createByReal(signedOffset)",
+      "name": "createByReal",
+      "receiver": "adsk.core.ValueInput",
+      "owner": "adsk.core.ValueInput",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "planeInput.setByOffset(gearBAxisPlane, offsetValue)",
+      "name": "setByOffset",
+      "receiver": "planeInput",
+      "owner": "adsk.fusion.ConstructionPlaneInput",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "design.constructionPlanes.add(planeInput)",
+      "name": "add",
+      "receiver": "design.constructionPlanes",
+      "owner": "adsk.fusion.ConstructionPlanes",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    }
+  ]
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2057–2077.
+**From:** `spec/screwgear/instructions.md` L2028–2078; `spec/screwgear/fusion.md` L731–741.
 
 ## 66 `[GO]` Gear A bore -R square marker sketch
 
-For a '+R' mark, draw one circle of radius 'halfSize', fix its centre point, and dimension its
-diameter to '2*halfSize'. For a '-R' mark, draw four lines joining four fixed sketch points in
-counter-clockwise order. Their world coordinates are the centre plus
-'(-halfSize,-halfSize)', '(halfSize,-halfSize)', '(halfSize,halfSize)', and
-'(-halfSize,halfSize)' in the '(eHat,kHat)' basis. Do not draw a circle and a square in the same
-sketch. Each sketch must be fully constrained and have exactly one closed profile; raise with
-its name and the observed profile count or constraint status otherwise. For every accepted
-'collarHalf', each profile lies strictly inside the annular top face: the square corner's radial
-offset from its centre is at most 'sqrt(2)*halfSize < collarHalf', and the circle is smaller.
-
-
-Draw only this bore's mark. Its name is Gear A Bore -R Square Marker. Require one closed profile, constrained geometry, and zero mapped z for every planar point. [PB-CIRCLE-CENTER] [PB-RADIAL-DIM] [PB-SHARE-XOR-COINCIDENT] [PB-SINGLE-PROFILE].
+Draw only the Gear A bore -R square pocket profile on Marker Plane. Its centre is C + (cageRise - depth)*nHat + sigma*cageRadius*dirVecs[g], with sigma=+1 for a circle and -1 for a square. Map each point into the sketch and zero its local z. halfSize = min(1.5 mm, collarHalf/2). Draw the four square corners at centre plus (±halfSize, ±halfSize) in the (eHat, kHat) basis. Share adjacent fixed points in four solid lines. Require fully constrained and exactly one closed profile. Its radial extent must stay strictly inside the annular top face. [PB-SKETCH-ZERO-Z] [PB-SINGLE-PROFILE] [SCREW-F-BORE-MARKS].
 
 The proof function is `stepEntry66GearAboreRsquaremarkersketch`.
 
@@ -8538,77 +8448,92 @@ The proof function is `stepEntry66GearAboreRsquaremarkersketch`.
 
 Make these required Fusion calls:
 
-- `design.sketches.add(plane)`.
+- `design.sketches.add(markerPlane)`.
 - `adsk.core.Point3D.create(x, y, z)`.
 - `sketch.modelToSketchSpace(worldPoint)`.
-- `sketch.sketchPoints.add(local)`.
-- `sketch.sketchCurves.sketchLines.addByTwoPoints(startPoint, endPoint)`.
+- `sketch.sketchPoints.add(localPoint)`.
+- `sketch.sketchCurves.sketchLines.addByTwoPoints(p0, p1)`.
+- `sketch.profiles.item(0)`.
 
 <!-- step-meta
 {
-  "calls": [
-    {
-      "condition": null,
-      "name": "add",
-      "owner": "adsk.fusion.Sketches",
-      "reason": null,
-      "receiver": "design.sketches",
-      "role": "required",
-      "span": "design.sketches.add(plane)"
-    },
-    {
-      "condition": null,
-      "name": "create",
-      "owner": "adsk.core.Point3D",
-      "reason": null,
-      "receiver": "adsk.core.Point3D",
-      "role": "required",
-      "span": "adsk.core.Point3D.create(x, y, z)"
-    },
-    {
-      "condition": null,
-      "name": "modelToSketchSpace",
-      "owner": "adsk.fusion.Sketch",
-      "reason": null,
-      "receiver": "sketch",
-      "role": "required",
-      "span": "sketch.modelToSketchSpace(worldPoint)"
-    },
-    {
-      "condition": null,
-      "name": "add",
-      "owner": "adsk.fusion.SketchPoints",
-      "reason": null,
-      "receiver": "sketch.sketchPoints",
-      "role": "required",
-      "span": "sketch.sketchPoints.add(local)"
-    },
-    {
-      "condition": null,
-      "name": "addByTwoPoints",
-      "owner": "adsk.fusion.SketchLines",
-      "reason": null,
-      "receiver": "sketch.sketchCurves.sketchLines",
-      "role": "required",
-      "span": "sketch.sketchCurves.sketchLines.addByTwoPoints(startPoint, endPoint)"
-    }
-  ],
+  "schema": 2,
   "citations": [
     {
-      "first": 2078,
-      "last": 2088,
-      "path": "spec/screwgear/instructions.md"
+      "path": "spec/screwgear/instructions.md",
+      "first": 2028,
+      "last": 2078
+    },
+    {
+      "path": "spec/screwgear/fusion.md",
+      "first": 731,
+      "last": 741
     }
   ],
-  "schema": 2
+  "calls": [
+    {
+      "span": "design.sketches.add(markerPlane)",
+      "name": "add",
+      "receiver": "design.sketches",
+      "owner": "adsk.fusion.Sketches",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "adsk.core.Point3D.create(x, y, z)",
+      "name": "create",
+      "receiver": "adsk.core.Point3D",
+      "owner": "adsk.core.Point3D",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "sketch.modelToSketchSpace(worldPoint)",
+      "name": "modelToSketchSpace",
+      "receiver": "sketch",
+      "owner": "adsk.fusion.Sketch",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "sketch.sketchPoints.add(localPoint)",
+      "name": "add",
+      "receiver": "sketch.sketchPoints",
+      "owner": "adsk.fusion.SketchPoints",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "sketch.sketchCurves.sketchLines.addByTwoPoints(p0, p1)",
+      "name": "addByTwoPoints",
+      "receiver": "sketch.sketchCurves.sketchLines",
+      "owner": "adsk.fusion.SketchLines",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "sketch.profiles.item(0)",
+      "name": "item",
+      "receiver": "sketch.profiles",
+      "owner": "adsk.fusion.Profiles",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    }
+  ]
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2078–2088.
+**From:** `spec/screwgear/instructions.md` L2028–2078; `spec/screwgear/fusion.md` L731–741.
 
-## 67 `[GO]` Gear A bore -R marker extrude
+## 67 `[GO]` Gear A bore -R marker tool extrude
 
-Extrude this marker profile as NewBodyFeatureOperation by inset+0.4 mm. Choose its direction from the mapped mark-centre-plus-nHat, positive or negative local z. Require exactly one feature body; the mark starts inside the sleeve and rises 0.4 mm above the top end. [PB-THROUGH-CUT] [PB-EMPTY-RESULT] [SCREW-F-BORE-MARKS].
+Extrude this one profile as NewBodyFeatureOperation from the plane depth below the top face toward +nHat. Use depth = min(0.8 mm, collarWall/3) and overrun = min(0.1 mm, collarWall/20); the extent is depth + overrun. Choose positive or negative sketch extent from the mapped marker centre plus nHat. Require exactly one tool body. At defaults the blind pocket is 0.8 mm deep and its tool ends 0.1 mm above the face. [PB-THROUGH-CUT] [PB-EMPTY-RESULT] [SCREW-F-BORE-MARKS].
 
 The proof function is `stepEntry67GearAboreRmarkerextrude`.
 
@@ -8626,183 +8551,205 @@ Make these required Fusion calls:
 
 <!-- step-meta
 {
-  "calls": [
-    {
-      "condition": null,
-      "name": "createInput",
-      "owner": "adsk.fusion.ExtrudeFeatures",
-      "reason": null,
-      "receiver": "design.features.extrudeFeatures",
-      "role": "required",
-      "span": "design.features.extrudeFeatures.createInput(profile, operation)"
-    },
-    {
-      "condition": null,
-      "name": "createByReal",
-      "owner": "adsk.core.ValueInput",
-      "reason": null,
-      "receiver": "adsk.core.ValueInput",
-      "role": "required",
-      "span": "adsk.core.ValueInput.createByReal(value)"
-    },
-    {
-      "condition": null,
-      "name": "create",
-      "owner": "adsk.fusion.DistanceExtentDefinition",
-      "reason": null,
-      "receiver": "adsk.fusion.DistanceExtentDefinition",
-      "role": "required",
-      "span": "adsk.fusion.DistanceExtentDefinition.create(distanceValue)"
-    },
-    {
-      "condition": null,
-      "name": "setOneSideExtent",
-      "owner": "adsk.fusion.ExtrudeFeatureInput",
-      "reason": null,
-      "receiver": "extrudeInput",
-      "role": "required",
-      "span": "extrudeInput.setOneSideExtent(extent, direction)"
-    },
-    {
-      "condition": null,
-      "name": "add",
-      "owner": "adsk.fusion.ExtrudeFeatures",
-      "reason": null,
-      "receiver": "design.features.extrudeFeatures",
-      "role": "required",
-      "span": "design.features.extrudeFeatures.add(extrudeInput)"
-    },
-    {
-      "condition": null,
-      "name": "item",
-      "owner": "adsk.fusion.BRepBodies",
-      "reason": null,
-      "receiver": "extrudeFeature.bodies",
-      "role": "required",
-      "span": "extrudeFeature.bodies.item(0)"
-    },
-    {
-      "condition": null,
-      "name": "modelToSketchSpace",
-      "owner": "adsk.fusion.Sketch",
-      "reason": null,
-      "receiver": "sketch",
-      "role": "required",
-      "span": "sketch.modelToSketchSpace(markCentrePlusNormal)"
-    }
-  ],
+  "schema": 2,
   "citations": [
     {
-      "first": 2090,
-      "last": 2094,
-      "path": "spec/screwgear/instructions.md"
+      "path": "spec/screwgear/instructions.md",
+      "first": 2028,
+      "last": 2078
+    },
+    {
+      "path": "spec/screwgear/fusion.md",
+      "first": 731,
+      "last": 741
     }
   ],
-  "schema": 2
+  "calls": [
+    {
+      "span": "design.features.extrudeFeatures.createInput(profile, operation)",
+      "name": "createInput",
+      "receiver": "design.features.extrudeFeatures",
+      "owner": "adsk.fusion.ExtrudeFeatures",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "adsk.core.ValueInput.createByReal(value)",
+      "name": "createByReal",
+      "receiver": "adsk.core.ValueInput",
+      "owner": "adsk.core.ValueInput",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "adsk.fusion.DistanceExtentDefinition.create(distanceValue)",
+      "name": "create",
+      "receiver": "adsk.fusion.DistanceExtentDefinition",
+      "owner": "adsk.fusion.DistanceExtentDefinition",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "extrudeInput.setOneSideExtent(extent, direction)",
+      "name": "setOneSideExtent",
+      "receiver": "extrudeInput",
+      "owner": "adsk.fusion.ExtrudeFeatureInput",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "design.features.extrudeFeatures.add(extrudeInput)",
+      "name": "add",
+      "receiver": "design.features.extrudeFeatures",
+      "owner": "adsk.fusion.ExtrudeFeatures",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "extrudeFeature.bodies.item(0)",
+      "name": "item",
+      "receiver": "extrudeFeature.bodies",
+      "owner": "adsk.fusion.BRepBodies",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "sketch.modelToSketchSpace(markCentrePlusNormal)",
+      "name": "modelToSketchSpace",
+      "receiver": "sketch",
+      "owner": "adsk.fusion.Sketch",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    }
+  ]
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2090–2094.
+**From:** `spec/screwgear/instructions.md` L2028–2078; `spec/screwgear/fusion.md` L731–741.
 
-## 68 `[GO]` Gear A bore -R marker join
+## 68 `[GO]` Gear A bore -R marker pocket cut
 
-Join this extruded marker as the sole tool to the current cageBody. Set JoinFeatureOperation and isKeepToolBodies=False. Require one combine feature body and retain it as cageBody for the next marker. The proof targets the real uncut annular sleeve, as the spec explicitly prescribes for marker checks. [SCREW-F-JOIN] [PB-EMPTY-RESULT].
+Before cutting, require material at the pocket centre halfway down. Use the extruded mark as the sole tool to the current cage body, set CutFeatureOperation and isKeepToolBodies=False, and require exactly one result body. Keep that result as cageBody for the next mark. After cutting, require air halfway down and material 0.1 mm below the pocket floor; report the gear and bore sign on failure. The proof cuts a real uncut annular sleeve because the bore and window evaluator cannot chain all six cuts. It checks a connected result and removed volume equal to the profile area times depth. [SCREW-F-JOIN] [SCREW-F-BORE-MARKS] [PB-SELF-DIAGNOSING] [PB-EMPTY-RESULT].
 
-The proof function is `stepEntry68GearAboreRmarkerjoin`.
+The proof function is `stepEntry68GearAboreRmarkercut`.
 
-<!-- proof-run: proofkit3d.RunSolid(markerSolidCases, stepEntry68GearAboreRmarkerjoin, assertMarkerJoin) -->
+<!-- proof-run: proofkit3d.RunSolid(markerSolidCases, stepEntry68GearAboreRmarkercut, assertMarkerCut) -->
 
 Make these required Fusion calls:
 
+- `cageBody.pointContainment(beforeProbe)`.
 - `adsk.core.ObjectCollection.create()`.
 - `tools.add(markBody)`.
 - `design.features.combineFeatures.createInput(cageBody, tools)`.
 - `design.features.combineFeatures.add(combineInput)`.
 - `combineFeature.bodies.item(0)`.
-
-The supported proof substitution is explicit:
-
-The proof substitutes a straight prism with the exact pitch-averaged section area and actual axial span. Copy and
-screw placement operate on that real prism. For a refused tangent join, the proof extrudes the combined span
-directly and checks its summed volume and connected solid verdict. This gives up the twisted tooth surface and
-Fusion combine behavior.
+- `cageBody.pointContainment(afterProbe)`.
+- `cageBody.pointContainment(floorProbe)`.
 
 <!-- step-meta
 {
-  "calls": [
-    {
-      "condition": null,
-      "name": "create",
-      "owner": "adsk.core.ObjectCollection",
-      "reason": null,
-      "receiver": "adsk.core.ObjectCollection",
-      "role": "required",
-      "span": "adsk.core.ObjectCollection.create()"
-    },
-    {
-      "condition": null,
-      "name": "add",
-      "owner": "adsk.core.ObjectCollection",
-      "reason": null,
-      "receiver": "tools",
-      "role": "required",
-      "span": "tools.add(markBody)"
-    },
-    {
-      "condition": null,
-      "name": "createInput",
-      "owner": "adsk.fusion.CombineFeatures",
-      "reason": null,
-      "receiver": "design.features.combineFeatures",
-      "role": "required",
-      "span": "design.features.combineFeatures.createInput(cageBody, tools)"
-    },
-    {
-      "condition": null,
-      "name": "add",
-      "owner": "adsk.fusion.CombineFeatures",
-      "reason": null,
-      "receiver": "design.features.combineFeatures",
-      "role": "required",
-      "span": "design.features.combineFeatures.add(combineInput)"
-    },
-    {
-      "condition": null,
-      "name": "item",
-      "owner": "adsk.fusion.BRepBodies",
-      "reason": null,
-      "receiver": "combineFeature.bodies",
-      "role": "required",
-      "span": "combineFeature.bodies.item(0)"
-    }
-  ],
+  "schema": 2,
   "citations": [
     {
-      "first": 2094,
-      "last": 2103,
-      "path": "spec/screwgear/instructions.md"
+      "path": "spec/screwgear/instructions.md",
+      "first": 2028,
+      "last": 2078
+    },
+    {
+      "path": "spec/screwgear/fusion.md",
+      "first": 731,
+      "last": 741
     }
   ],
-  "schema": 2
+  "calls": [
+    {
+      "span": "cageBody.pointContainment(beforeProbe)",
+      "name": "pointContainment",
+      "receiver": "cageBody",
+      "owner": "adsk.fusion.BRepBody",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "adsk.core.ObjectCollection.create()",
+      "name": "create",
+      "receiver": "adsk.core.ObjectCollection",
+      "owner": "adsk.core.ObjectCollection",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "tools.add(markBody)",
+      "name": "add",
+      "receiver": "tools",
+      "owner": "adsk.core.ObjectCollection",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "design.features.combineFeatures.createInput(cageBody, tools)",
+      "name": "createInput",
+      "receiver": "design.features.combineFeatures",
+      "owner": "adsk.fusion.CombineFeatures",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "design.features.combineFeatures.add(combineInput)",
+      "name": "add",
+      "receiver": "design.features.combineFeatures",
+      "owner": "adsk.fusion.CombineFeatures",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "combineFeature.bodies.item(0)",
+      "name": "item",
+      "receiver": "combineFeature.bodies",
+      "owner": "adsk.fusion.BRepBodies",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "cageBody.pointContainment(afterProbe)",
+      "name": "pointContainment",
+      "receiver": "cageBody",
+      "owner": "adsk.fusion.BRepBody",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "cageBody.pointContainment(floorProbe)",
+      "name": "pointContainment",
+      "receiver": "cageBody",
+      "owner": "adsk.fusion.BRepBody",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    }
+  ]
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2094–2103.
+**From:** `spec/screwgear/instructions.md` L2028–2078; `spec/screwgear/fusion.md` L731–741.
 
 ## 69 `[GO]` Gear A bore +R circle marker sketch
 
-For a '+R' mark, draw one circle of radius 'halfSize', fix its centre point, and dimension its
-diameter to '2*halfSize'. For a '-R' mark, draw four lines joining four fixed sketch points in
-counter-clockwise order. Their world coordinates are the centre plus
-'(-halfSize,-halfSize)', '(halfSize,-halfSize)', '(halfSize,halfSize)', and
-'(-halfSize,halfSize)' in the '(eHat,kHat)' basis. Do not draw a circle and a square in the same
-sketch. Each sketch must be fully constrained and have exactly one closed profile; raise with
-its name and the observed profile count or constraint status otherwise. For every accepted
-'collarHalf', each profile lies strictly inside the annular top face: the square corner's radial
-offset from its centre is at most 'sqrt(2)*halfSize < collarHalf', and the circle is smaller.
-
-
-Draw only this bore's mark. Its name is Gear A Bore +R Circle Marker. Require one closed profile, constrained geometry, and zero mapped z for every planar point. [PB-CIRCLE-CENTER] [PB-RADIAL-DIM] [PB-SHARE-XOR-COINCIDENT] [PB-SINGLE-PROFILE].
+Draw only the Gear A bore +R circle pocket profile on Marker Plane. Its centre is C + (cageRise - depth)*nHat + sigma*cageRadius*dirVecs[g], with sigma=+1 for a circle and -1 for a square. Map each point into the sketch and zero its local z. halfSize = min(1.5 mm, collarHalf/2). Draw one circle of radius halfSize, fix its centre and dimension diameter 2*halfSize. Require fully constrained and exactly one closed profile. Its radial extent must stay strictly inside the annular top face. [PB-SKETCH-ZERO-Z] [PB-SINGLE-PROFILE] [SCREW-F-BORE-MARKS].
 
 The proof function is `stepEntry69GearAboreRcirclemarkersketch`.
 
@@ -8810,77 +8757,92 @@ The proof function is `stepEntry69GearAboreRcirclemarkersketch`.
 
 Make these required Fusion calls:
 
-- `design.sketches.add(plane)`.
+- `design.sketches.add(markerPlane)`.
 - `adsk.core.Point3D.create(x, y, z)`.
 - `sketch.modelToSketchSpace(worldPoint)`.
-- `sketch.sketchCurves.sketchCircles.addByCenterRadius(centre, radius)`.
+- `sketch.sketchCurves.sketchCircles.addByCenterRadius(center, halfSize)`.
 - `sketch.sketchDimensions.addDiameterDimension(circle, textPoint)`.
+- `sketch.profiles.item(0)`.
 
 <!-- step-meta
 {
-  "calls": [
-    {
-      "condition": null,
-      "name": "add",
-      "owner": "adsk.fusion.Sketches",
-      "reason": null,
-      "receiver": "design.sketches",
-      "role": "required",
-      "span": "design.sketches.add(plane)"
-    },
-    {
-      "condition": null,
-      "name": "create",
-      "owner": "adsk.core.Point3D",
-      "reason": null,
-      "receiver": "adsk.core.Point3D",
-      "role": "required",
-      "span": "adsk.core.Point3D.create(x, y, z)"
-    },
-    {
-      "condition": null,
-      "name": "modelToSketchSpace",
-      "owner": "adsk.fusion.Sketch",
-      "reason": null,
-      "receiver": "sketch",
-      "role": "required",
-      "span": "sketch.modelToSketchSpace(worldPoint)"
-    },
-    {
-      "condition": null,
-      "name": "addByCenterRadius",
-      "owner": "adsk.fusion.SketchCircles",
-      "reason": null,
-      "receiver": "sketch.sketchCurves.sketchCircles",
-      "role": "required",
-      "span": "sketch.sketchCurves.sketchCircles.addByCenterRadius(centre, radius)"
-    },
-    {
-      "condition": null,
-      "name": "addDiameterDimension",
-      "owner": "adsk.fusion.SketchDimensions",
-      "reason": null,
-      "receiver": "sketch.sketchDimensions",
-      "role": "required",
-      "span": "sketch.sketchDimensions.addDiameterDimension(circle, textPoint)"
-    }
-  ],
+  "schema": 2,
   "citations": [
     {
-      "first": 2078,
-      "last": 2088,
-      "path": "spec/screwgear/instructions.md"
+      "path": "spec/screwgear/instructions.md",
+      "first": 2028,
+      "last": 2078
+    },
+    {
+      "path": "spec/screwgear/fusion.md",
+      "first": 731,
+      "last": 741
     }
   ],
-  "schema": 2
+  "calls": [
+    {
+      "span": "design.sketches.add(markerPlane)",
+      "name": "add",
+      "receiver": "design.sketches",
+      "owner": "adsk.fusion.Sketches",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "adsk.core.Point3D.create(x, y, z)",
+      "name": "create",
+      "receiver": "adsk.core.Point3D",
+      "owner": "adsk.core.Point3D",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "sketch.modelToSketchSpace(worldPoint)",
+      "name": "modelToSketchSpace",
+      "receiver": "sketch",
+      "owner": "adsk.fusion.Sketch",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "sketch.sketchCurves.sketchCircles.addByCenterRadius(center, halfSize)",
+      "name": "addByCenterRadius",
+      "receiver": "sketch.sketchCurves.sketchCircles",
+      "owner": "adsk.fusion.SketchCircles",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "sketch.sketchDimensions.addDiameterDimension(circle, textPoint)",
+      "name": "addDiameterDimension",
+      "receiver": "sketch.sketchDimensions",
+      "owner": "adsk.fusion.SketchDimensions",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "sketch.profiles.item(0)",
+      "name": "item",
+      "receiver": "sketch.profiles",
+      "owner": "adsk.fusion.Profiles",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    }
+  ]
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2078–2088.
+**From:** `spec/screwgear/instructions.md` L2028–2078; `spec/screwgear/fusion.md` L731–741.
 
-## 70 `[GO]` Gear A bore +R marker extrude
+## 70 `[GO]` Gear A bore +R marker tool extrude
 
-Extrude this marker profile as NewBodyFeatureOperation by inset+0.4 mm. Choose its direction from the mapped mark-centre-plus-nHat, positive or negative local z. Require exactly one feature body; the mark starts inside the sleeve and rises 0.4 mm above the top end. [PB-THROUGH-CUT] [PB-EMPTY-RESULT] [SCREW-F-BORE-MARKS].
+Extrude this one profile as NewBodyFeatureOperation from the plane depth below the top face toward +nHat. Use depth = min(0.8 mm, collarWall/3) and overrun = min(0.1 mm, collarWall/20); the extent is depth + overrun. Choose positive or negative sketch extent from the mapped marker centre plus nHat. Require exactly one tool body. At defaults the blind pocket is 0.8 mm deep and its tool ends 0.1 mm above the face. [PB-THROUGH-CUT] [PB-EMPTY-RESULT] [SCREW-F-BORE-MARKS].
 
 The proof function is `stepEntry70GearAboreRmarkerextrude`.
 
@@ -8898,183 +8860,205 @@ Make these required Fusion calls:
 
 <!-- step-meta
 {
-  "calls": [
-    {
-      "condition": null,
-      "name": "createInput",
-      "owner": "adsk.fusion.ExtrudeFeatures",
-      "reason": null,
-      "receiver": "design.features.extrudeFeatures",
-      "role": "required",
-      "span": "design.features.extrudeFeatures.createInput(profile, operation)"
-    },
-    {
-      "condition": null,
-      "name": "createByReal",
-      "owner": "adsk.core.ValueInput",
-      "reason": null,
-      "receiver": "adsk.core.ValueInput",
-      "role": "required",
-      "span": "adsk.core.ValueInput.createByReal(value)"
-    },
-    {
-      "condition": null,
-      "name": "create",
-      "owner": "adsk.fusion.DistanceExtentDefinition",
-      "reason": null,
-      "receiver": "adsk.fusion.DistanceExtentDefinition",
-      "role": "required",
-      "span": "adsk.fusion.DistanceExtentDefinition.create(distanceValue)"
-    },
-    {
-      "condition": null,
-      "name": "setOneSideExtent",
-      "owner": "adsk.fusion.ExtrudeFeatureInput",
-      "reason": null,
-      "receiver": "extrudeInput",
-      "role": "required",
-      "span": "extrudeInput.setOneSideExtent(extent, direction)"
-    },
-    {
-      "condition": null,
-      "name": "add",
-      "owner": "adsk.fusion.ExtrudeFeatures",
-      "reason": null,
-      "receiver": "design.features.extrudeFeatures",
-      "role": "required",
-      "span": "design.features.extrudeFeatures.add(extrudeInput)"
-    },
-    {
-      "condition": null,
-      "name": "item",
-      "owner": "adsk.fusion.BRepBodies",
-      "reason": null,
-      "receiver": "extrudeFeature.bodies",
-      "role": "required",
-      "span": "extrudeFeature.bodies.item(0)"
-    },
-    {
-      "condition": null,
-      "name": "modelToSketchSpace",
-      "owner": "adsk.fusion.Sketch",
-      "reason": null,
-      "receiver": "sketch",
-      "role": "required",
-      "span": "sketch.modelToSketchSpace(markCentrePlusNormal)"
-    }
-  ],
+  "schema": 2,
   "citations": [
     {
-      "first": 2090,
-      "last": 2094,
-      "path": "spec/screwgear/instructions.md"
+      "path": "spec/screwgear/instructions.md",
+      "first": 2028,
+      "last": 2078
+    },
+    {
+      "path": "spec/screwgear/fusion.md",
+      "first": 731,
+      "last": 741
     }
   ],
-  "schema": 2
+  "calls": [
+    {
+      "span": "design.features.extrudeFeatures.createInput(profile, operation)",
+      "name": "createInput",
+      "receiver": "design.features.extrudeFeatures",
+      "owner": "adsk.fusion.ExtrudeFeatures",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "adsk.core.ValueInput.createByReal(value)",
+      "name": "createByReal",
+      "receiver": "adsk.core.ValueInput",
+      "owner": "adsk.core.ValueInput",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "adsk.fusion.DistanceExtentDefinition.create(distanceValue)",
+      "name": "create",
+      "receiver": "adsk.fusion.DistanceExtentDefinition",
+      "owner": "adsk.fusion.DistanceExtentDefinition",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "extrudeInput.setOneSideExtent(extent, direction)",
+      "name": "setOneSideExtent",
+      "receiver": "extrudeInput",
+      "owner": "adsk.fusion.ExtrudeFeatureInput",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "design.features.extrudeFeatures.add(extrudeInput)",
+      "name": "add",
+      "receiver": "design.features.extrudeFeatures",
+      "owner": "adsk.fusion.ExtrudeFeatures",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "extrudeFeature.bodies.item(0)",
+      "name": "item",
+      "receiver": "extrudeFeature.bodies",
+      "owner": "adsk.fusion.BRepBodies",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "sketch.modelToSketchSpace(markCentrePlusNormal)",
+      "name": "modelToSketchSpace",
+      "receiver": "sketch",
+      "owner": "adsk.fusion.Sketch",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    }
+  ]
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2090–2094.
+**From:** `spec/screwgear/instructions.md` L2028–2078; `spec/screwgear/fusion.md` L731–741.
 
-## 71 `[GO]` Gear A bore +R marker join
+## 71 `[GO]` Gear A bore +R marker pocket cut
 
-Join this extruded marker as the sole tool to the current cageBody. Set JoinFeatureOperation and isKeepToolBodies=False. Require one combine feature body and retain it as cageBody for the next marker. The proof targets the real uncut annular sleeve, as the spec explicitly prescribes for marker checks. [SCREW-F-JOIN] [PB-EMPTY-RESULT].
+Before cutting, require material at the pocket centre halfway down. Use the extruded mark as the sole tool to the current cage body, set CutFeatureOperation and isKeepToolBodies=False, and require exactly one result body. Keep that result as cageBody for the next mark. After cutting, require air halfway down and material 0.1 mm below the pocket floor; report the gear and bore sign on failure. The proof cuts a real uncut annular sleeve because the bore and window evaluator cannot chain all six cuts. It checks a connected result and removed volume equal to the profile area times depth. [SCREW-F-JOIN] [SCREW-F-BORE-MARKS] [PB-SELF-DIAGNOSING] [PB-EMPTY-RESULT].
 
-The proof function is `stepEntry71GearAboreRmarkerjoin`.
+The proof function is `stepEntry71GearAboreRmarkercut`.
 
-<!-- proof-run: proofkit3d.RunSolid(markerSolidCases, stepEntry71GearAboreRmarkerjoin, assertMarkerJoin) -->
+<!-- proof-run: proofkit3d.RunSolid(markerSolidCases, stepEntry71GearAboreRmarkercut, assertMarkerCut) -->
 
 Make these required Fusion calls:
 
+- `cageBody.pointContainment(beforeProbe)`.
 - `adsk.core.ObjectCollection.create()`.
 - `tools.add(markBody)`.
 - `design.features.combineFeatures.createInput(cageBody, tools)`.
 - `design.features.combineFeatures.add(combineInput)`.
 - `combineFeature.bodies.item(0)`.
-
-The supported proof substitution is explicit:
-
-The proof substitutes a straight prism with the exact pitch-averaged section area and actual axial span. Copy and
-screw placement operate on that real prism. For a refused tangent join, the proof extrudes the combined span
-directly and checks its summed volume and connected solid verdict. This gives up the twisted tooth surface and
-Fusion combine behavior.
+- `cageBody.pointContainment(afterProbe)`.
+- `cageBody.pointContainment(floorProbe)`.
 
 <!-- step-meta
 {
-  "calls": [
-    {
-      "condition": null,
-      "name": "create",
-      "owner": "adsk.core.ObjectCollection",
-      "reason": null,
-      "receiver": "adsk.core.ObjectCollection",
-      "role": "required",
-      "span": "adsk.core.ObjectCollection.create()"
-    },
-    {
-      "condition": null,
-      "name": "add",
-      "owner": "adsk.core.ObjectCollection",
-      "reason": null,
-      "receiver": "tools",
-      "role": "required",
-      "span": "tools.add(markBody)"
-    },
-    {
-      "condition": null,
-      "name": "createInput",
-      "owner": "adsk.fusion.CombineFeatures",
-      "reason": null,
-      "receiver": "design.features.combineFeatures",
-      "role": "required",
-      "span": "design.features.combineFeatures.createInput(cageBody, tools)"
-    },
-    {
-      "condition": null,
-      "name": "add",
-      "owner": "adsk.fusion.CombineFeatures",
-      "reason": null,
-      "receiver": "design.features.combineFeatures",
-      "role": "required",
-      "span": "design.features.combineFeatures.add(combineInput)"
-    },
-    {
-      "condition": null,
-      "name": "item",
-      "owner": "adsk.fusion.BRepBodies",
-      "reason": null,
-      "receiver": "combineFeature.bodies",
-      "role": "required",
-      "span": "combineFeature.bodies.item(0)"
-    }
-  ],
+  "schema": 2,
   "citations": [
     {
-      "first": 2094,
-      "last": 2103,
-      "path": "spec/screwgear/instructions.md"
+      "path": "spec/screwgear/instructions.md",
+      "first": 2028,
+      "last": 2078
+    },
+    {
+      "path": "spec/screwgear/fusion.md",
+      "first": 731,
+      "last": 741
     }
   ],
-  "schema": 2
+  "calls": [
+    {
+      "span": "cageBody.pointContainment(beforeProbe)",
+      "name": "pointContainment",
+      "receiver": "cageBody",
+      "owner": "adsk.fusion.BRepBody",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "adsk.core.ObjectCollection.create()",
+      "name": "create",
+      "receiver": "adsk.core.ObjectCollection",
+      "owner": "adsk.core.ObjectCollection",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "tools.add(markBody)",
+      "name": "add",
+      "receiver": "tools",
+      "owner": "adsk.core.ObjectCollection",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "design.features.combineFeatures.createInput(cageBody, tools)",
+      "name": "createInput",
+      "receiver": "design.features.combineFeatures",
+      "owner": "adsk.fusion.CombineFeatures",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "design.features.combineFeatures.add(combineInput)",
+      "name": "add",
+      "receiver": "design.features.combineFeatures",
+      "owner": "adsk.fusion.CombineFeatures",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "combineFeature.bodies.item(0)",
+      "name": "item",
+      "receiver": "combineFeature.bodies",
+      "owner": "adsk.fusion.BRepBodies",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "cageBody.pointContainment(afterProbe)",
+      "name": "pointContainment",
+      "receiver": "cageBody",
+      "owner": "adsk.fusion.BRepBody",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "cageBody.pointContainment(floorProbe)",
+      "name": "pointContainment",
+      "receiver": "cageBody",
+      "owner": "adsk.fusion.BRepBody",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    }
+  ]
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2094–2103.
+**From:** `spec/screwgear/instructions.md` L2028–2078; `spec/screwgear/fusion.md` L731–741.
 
 ## 72 `[GO]` Gear B bore -R square marker sketch
 
-For a '+R' mark, draw one circle of radius 'halfSize', fix its centre point, and dimension its
-diameter to '2*halfSize'. For a '-R' mark, draw four lines joining four fixed sketch points in
-counter-clockwise order. Their world coordinates are the centre plus
-'(-halfSize,-halfSize)', '(halfSize,-halfSize)', '(halfSize,halfSize)', and
-'(-halfSize,halfSize)' in the '(eHat,kHat)' basis. Do not draw a circle and a square in the same
-sketch. Each sketch must be fully constrained and have exactly one closed profile; raise with
-its name and the observed profile count or constraint status otherwise. For every accepted
-'collarHalf', each profile lies strictly inside the annular top face: the square corner's radial
-offset from its centre is at most 'sqrt(2)*halfSize < collarHalf', and the circle is smaller.
-
-
-Draw only this bore's mark. Its name is Gear B Bore -R Square Marker. Require one closed profile, constrained geometry, and zero mapped z for every planar point. [PB-CIRCLE-CENTER] [PB-RADIAL-DIM] [PB-SHARE-XOR-COINCIDENT] [PB-SINGLE-PROFILE].
+Draw only the Gear B bore -R square pocket profile on Marker Plane. Its centre is C + (cageRise - depth)*nHat + sigma*cageRadius*dirVecs[g], with sigma=+1 for a circle and -1 for a square. Map each point into the sketch and zero its local z. halfSize = min(1.5 mm, collarHalf/2). Draw the four square corners at centre plus (±halfSize, ±halfSize) in the (eHat, kHat) basis. Share adjacent fixed points in four solid lines. Require fully constrained and exactly one closed profile. Its radial extent must stay strictly inside the annular top face. [PB-SKETCH-ZERO-Z] [PB-SINGLE-PROFILE] [SCREW-F-BORE-MARKS].
 
 The proof function is `stepEntry72GearBboreRsquaremarkersketch`.
 
@@ -9082,77 +9066,92 @@ The proof function is `stepEntry72GearBboreRsquaremarkersketch`.
 
 Make these required Fusion calls:
 
-- `design.sketches.add(plane)`.
+- `design.sketches.add(markerPlane)`.
 - `adsk.core.Point3D.create(x, y, z)`.
 - `sketch.modelToSketchSpace(worldPoint)`.
-- `sketch.sketchPoints.add(local)`.
-- `sketch.sketchCurves.sketchLines.addByTwoPoints(startPoint, endPoint)`.
+- `sketch.sketchPoints.add(localPoint)`.
+- `sketch.sketchCurves.sketchLines.addByTwoPoints(p0, p1)`.
+- `sketch.profiles.item(0)`.
 
 <!-- step-meta
 {
-  "calls": [
-    {
-      "condition": null,
-      "name": "add",
-      "owner": "adsk.fusion.Sketches",
-      "reason": null,
-      "receiver": "design.sketches",
-      "role": "required",
-      "span": "design.sketches.add(plane)"
-    },
-    {
-      "condition": null,
-      "name": "create",
-      "owner": "adsk.core.Point3D",
-      "reason": null,
-      "receiver": "adsk.core.Point3D",
-      "role": "required",
-      "span": "adsk.core.Point3D.create(x, y, z)"
-    },
-    {
-      "condition": null,
-      "name": "modelToSketchSpace",
-      "owner": "adsk.fusion.Sketch",
-      "reason": null,
-      "receiver": "sketch",
-      "role": "required",
-      "span": "sketch.modelToSketchSpace(worldPoint)"
-    },
-    {
-      "condition": null,
-      "name": "add",
-      "owner": "adsk.fusion.SketchPoints",
-      "reason": null,
-      "receiver": "sketch.sketchPoints",
-      "role": "required",
-      "span": "sketch.sketchPoints.add(local)"
-    },
-    {
-      "condition": null,
-      "name": "addByTwoPoints",
-      "owner": "adsk.fusion.SketchLines",
-      "reason": null,
-      "receiver": "sketch.sketchCurves.sketchLines",
-      "role": "required",
-      "span": "sketch.sketchCurves.sketchLines.addByTwoPoints(startPoint, endPoint)"
-    }
-  ],
+  "schema": 2,
   "citations": [
     {
-      "first": 2078,
-      "last": 2088,
-      "path": "spec/screwgear/instructions.md"
+      "path": "spec/screwgear/instructions.md",
+      "first": 2028,
+      "last": 2078
+    },
+    {
+      "path": "spec/screwgear/fusion.md",
+      "first": 731,
+      "last": 741
     }
   ],
-  "schema": 2
+  "calls": [
+    {
+      "span": "design.sketches.add(markerPlane)",
+      "name": "add",
+      "receiver": "design.sketches",
+      "owner": "adsk.fusion.Sketches",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "adsk.core.Point3D.create(x, y, z)",
+      "name": "create",
+      "receiver": "adsk.core.Point3D",
+      "owner": "adsk.core.Point3D",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "sketch.modelToSketchSpace(worldPoint)",
+      "name": "modelToSketchSpace",
+      "receiver": "sketch",
+      "owner": "adsk.fusion.Sketch",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "sketch.sketchPoints.add(localPoint)",
+      "name": "add",
+      "receiver": "sketch.sketchPoints",
+      "owner": "adsk.fusion.SketchPoints",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "sketch.sketchCurves.sketchLines.addByTwoPoints(p0, p1)",
+      "name": "addByTwoPoints",
+      "receiver": "sketch.sketchCurves.sketchLines",
+      "owner": "adsk.fusion.SketchLines",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "sketch.profiles.item(0)",
+      "name": "item",
+      "receiver": "sketch.profiles",
+      "owner": "adsk.fusion.Profiles",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    }
+  ]
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2078–2088.
+**From:** `spec/screwgear/instructions.md` L2028–2078; `spec/screwgear/fusion.md` L731–741.
 
-## 73 `[GO]` Gear B bore -R marker extrude
+## 73 `[GO]` Gear B bore -R marker tool extrude
 
-Extrude this marker profile as NewBodyFeatureOperation by inset+0.4 mm. Choose its direction from the mapped mark-centre-plus-nHat, positive or negative local z. Require exactly one feature body; the mark starts inside the sleeve and rises 0.4 mm above the top end. [PB-THROUGH-CUT] [PB-EMPTY-RESULT] [SCREW-F-BORE-MARKS].
+Extrude this one profile as NewBodyFeatureOperation from the plane depth below the top face toward +nHat. Use depth = min(0.8 mm, collarWall/3) and overrun = min(0.1 mm, collarWall/20); the extent is depth + overrun. Choose positive or negative sketch extent from the mapped marker centre plus nHat. Require exactly one tool body. At defaults the blind pocket is 0.8 mm deep and its tool ends 0.1 mm above the face. [PB-THROUGH-CUT] [PB-EMPTY-RESULT] [SCREW-F-BORE-MARKS].
 
 The proof function is `stepEntry73GearBboreRmarkerextrude`.
 
@@ -9170,183 +9169,205 @@ Make these required Fusion calls:
 
 <!-- step-meta
 {
-  "calls": [
-    {
-      "condition": null,
-      "name": "createInput",
-      "owner": "adsk.fusion.ExtrudeFeatures",
-      "reason": null,
-      "receiver": "design.features.extrudeFeatures",
-      "role": "required",
-      "span": "design.features.extrudeFeatures.createInput(profile, operation)"
-    },
-    {
-      "condition": null,
-      "name": "createByReal",
-      "owner": "adsk.core.ValueInput",
-      "reason": null,
-      "receiver": "adsk.core.ValueInput",
-      "role": "required",
-      "span": "adsk.core.ValueInput.createByReal(value)"
-    },
-    {
-      "condition": null,
-      "name": "create",
-      "owner": "adsk.fusion.DistanceExtentDefinition",
-      "reason": null,
-      "receiver": "adsk.fusion.DistanceExtentDefinition",
-      "role": "required",
-      "span": "adsk.fusion.DistanceExtentDefinition.create(distanceValue)"
-    },
-    {
-      "condition": null,
-      "name": "setOneSideExtent",
-      "owner": "adsk.fusion.ExtrudeFeatureInput",
-      "reason": null,
-      "receiver": "extrudeInput",
-      "role": "required",
-      "span": "extrudeInput.setOneSideExtent(extent, direction)"
-    },
-    {
-      "condition": null,
-      "name": "add",
-      "owner": "adsk.fusion.ExtrudeFeatures",
-      "reason": null,
-      "receiver": "design.features.extrudeFeatures",
-      "role": "required",
-      "span": "design.features.extrudeFeatures.add(extrudeInput)"
-    },
-    {
-      "condition": null,
-      "name": "item",
-      "owner": "adsk.fusion.BRepBodies",
-      "reason": null,
-      "receiver": "extrudeFeature.bodies",
-      "role": "required",
-      "span": "extrudeFeature.bodies.item(0)"
-    },
-    {
-      "condition": null,
-      "name": "modelToSketchSpace",
-      "owner": "adsk.fusion.Sketch",
-      "reason": null,
-      "receiver": "sketch",
-      "role": "required",
-      "span": "sketch.modelToSketchSpace(markCentrePlusNormal)"
-    }
-  ],
+  "schema": 2,
   "citations": [
     {
-      "first": 2090,
-      "last": 2094,
-      "path": "spec/screwgear/instructions.md"
+      "path": "spec/screwgear/instructions.md",
+      "first": 2028,
+      "last": 2078
+    },
+    {
+      "path": "spec/screwgear/fusion.md",
+      "first": 731,
+      "last": 741
     }
   ],
-  "schema": 2
+  "calls": [
+    {
+      "span": "design.features.extrudeFeatures.createInput(profile, operation)",
+      "name": "createInput",
+      "receiver": "design.features.extrudeFeatures",
+      "owner": "adsk.fusion.ExtrudeFeatures",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "adsk.core.ValueInput.createByReal(value)",
+      "name": "createByReal",
+      "receiver": "adsk.core.ValueInput",
+      "owner": "adsk.core.ValueInput",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "adsk.fusion.DistanceExtentDefinition.create(distanceValue)",
+      "name": "create",
+      "receiver": "adsk.fusion.DistanceExtentDefinition",
+      "owner": "adsk.fusion.DistanceExtentDefinition",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "extrudeInput.setOneSideExtent(extent, direction)",
+      "name": "setOneSideExtent",
+      "receiver": "extrudeInput",
+      "owner": "adsk.fusion.ExtrudeFeatureInput",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "design.features.extrudeFeatures.add(extrudeInput)",
+      "name": "add",
+      "receiver": "design.features.extrudeFeatures",
+      "owner": "adsk.fusion.ExtrudeFeatures",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "extrudeFeature.bodies.item(0)",
+      "name": "item",
+      "receiver": "extrudeFeature.bodies",
+      "owner": "adsk.fusion.BRepBodies",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "sketch.modelToSketchSpace(markCentrePlusNormal)",
+      "name": "modelToSketchSpace",
+      "receiver": "sketch",
+      "owner": "adsk.fusion.Sketch",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    }
+  ]
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2090–2094.
+**From:** `spec/screwgear/instructions.md` L2028–2078; `spec/screwgear/fusion.md` L731–741.
 
-## 74 `[GO]` Gear B bore -R marker join
+## 74 `[GO]` Gear B bore -R marker pocket cut
 
-Join this extruded marker as the sole tool to the current cageBody. Set JoinFeatureOperation and isKeepToolBodies=False. Require one combine feature body and retain it as cageBody for the next marker. The proof targets the real uncut annular sleeve, as the spec explicitly prescribes for marker checks. [SCREW-F-JOIN] [PB-EMPTY-RESULT].
+Before cutting, require material at the pocket centre halfway down. Use the extruded mark as the sole tool to the current cage body, set CutFeatureOperation and isKeepToolBodies=False, and require exactly one result body. Keep that result as cageBody for the next mark. After cutting, require air halfway down and material 0.1 mm below the pocket floor; report the gear and bore sign on failure. The proof cuts a real uncut annular sleeve because the bore and window evaluator cannot chain all six cuts. It checks a connected result and removed volume equal to the profile area times depth. [SCREW-F-JOIN] [SCREW-F-BORE-MARKS] [PB-SELF-DIAGNOSING] [PB-EMPTY-RESULT].
 
-The proof function is `stepEntry74GearBboreRmarkerjoin`.
+The proof function is `stepEntry74GearBboreRmarkercut`.
 
-<!-- proof-run: proofkit3d.RunSolid(markerSolidCases, stepEntry74GearBboreRmarkerjoin, assertMarkerJoin) -->
+<!-- proof-run: proofkit3d.RunSolid(markerSolidCases, stepEntry74GearBboreRmarkercut, assertMarkerCut) -->
 
 Make these required Fusion calls:
 
+- `cageBody.pointContainment(beforeProbe)`.
 - `adsk.core.ObjectCollection.create()`.
 - `tools.add(markBody)`.
 - `design.features.combineFeatures.createInput(cageBody, tools)`.
 - `design.features.combineFeatures.add(combineInput)`.
 - `combineFeature.bodies.item(0)`.
-
-The supported proof substitution is explicit:
-
-The proof substitutes a straight prism with the exact pitch-averaged section area and actual axial span. Copy and
-screw placement operate on that real prism. For a refused tangent join, the proof extrudes the combined span
-directly and checks its summed volume and connected solid verdict. This gives up the twisted tooth surface and
-Fusion combine behavior.
+- `cageBody.pointContainment(afterProbe)`.
+- `cageBody.pointContainment(floorProbe)`.
 
 <!-- step-meta
 {
-  "calls": [
-    {
-      "condition": null,
-      "name": "create",
-      "owner": "adsk.core.ObjectCollection",
-      "reason": null,
-      "receiver": "adsk.core.ObjectCollection",
-      "role": "required",
-      "span": "adsk.core.ObjectCollection.create()"
-    },
-    {
-      "condition": null,
-      "name": "add",
-      "owner": "adsk.core.ObjectCollection",
-      "reason": null,
-      "receiver": "tools",
-      "role": "required",
-      "span": "tools.add(markBody)"
-    },
-    {
-      "condition": null,
-      "name": "createInput",
-      "owner": "adsk.fusion.CombineFeatures",
-      "reason": null,
-      "receiver": "design.features.combineFeatures",
-      "role": "required",
-      "span": "design.features.combineFeatures.createInput(cageBody, tools)"
-    },
-    {
-      "condition": null,
-      "name": "add",
-      "owner": "adsk.fusion.CombineFeatures",
-      "reason": null,
-      "receiver": "design.features.combineFeatures",
-      "role": "required",
-      "span": "design.features.combineFeatures.add(combineInput)"
-    },
-    {
-      "condition": null,
-      "name": "item",
-      "owner": "adsk.fusion.BRepBodies",
-      "reason": null,
-      "receiver": "combineFeature.bodies",
-      "role": "required",
-      "span": "combineFeature.bodies.item(0)"
-    }
-  ],
+  "schema": 2,
   "citations": [
     {
-      "first": 2094,
-      "last": 2103,
-      "path": "spec/screwgear/instructions.md"
+      "path": "spec/screwgear/instructions.md",
+      "first": 2028,
+      "last": 2078
+    },
+    {
+      "path": "spec/screwgear/fusion.md",
+      "first": 731,
+      "last": 741
     }
   ],
-  "schema": 2
+  "calls": [
+    {
+      "span": "cageBody.pointContainment(beforeProbe)",
+      "name": "pointContainment",
+      "receiver": "cageBody",
+      "owner": "adsk.fusion.BRepBody",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "adsk.core.ObjectCollection.create()",
+      "name": "create",
+      "receiver": "adsk.core.ObjectCollection",
+      "owner": "adsk.core.ObjectCollection",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "tools.add(markBody)",
+      "name": "add",
+      "receiver": "tools",
+      "owner": "adsk.core.ObjectCollection",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "design.features.combineFeatures.createInput(cageBody, tools)",
+      "name": "createInput",
+      "receiver": "design.features.combineFeatures",
+      "owner": "adsk.fusion.CombineFeatures",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "design.features.combineFeatures.add(combineInput)",
+      "name": "add",
+      "receiver": "design.features.combineFeatures",
+      "owner": "adsk.fusion.CombineFeatures",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "combineFeature.bodies.item(0)",
+      "name": "item",
+      "receiver": "combineFeature.bodies",
+      "owner": "adsk.fusion.BRepBodies",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "cageBody.pointContainment(afterProbe)",
+      "name": "pointContainment",
+      "receiver": "cageBody",
+      "owner": "adsk.fusion.BRepBody",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "cageBody.pointContainment(floorProbe)",
+      "name": "pointContainment",
+      "receiver": "cageBody",
+      "owner": "adsk.fusion.BRepBody",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    }
+  ]
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2094–2103.
+**From:** `spec/screwgear/instructions.md` L2028–2078; `spec/screwgear/fusion.md` L731–741.
 
 ## 75 `[GO]` Gear B bore +R circle marker sketch
 
-For a '+R' mark, draw one circle of radius 'halfSize', fix its centre point, and dimension its
-diameter to '2*halfSize'. For a '-R' mark, draw four lines joining four fixed sketch points in
-counter-clockwise order. Their world coordinates are the centre plus
-'(-halfSize,-halfSize)', '(halfSize,-halfSize)', '(halfSize,halfSize)', and
-'(-halfSize,halfSize)' in the '(eHat,kHat)' basis. Do not draw a circle and a square in the same
-sketch. Each sketch must be fully constrained and have exactly one closed profile; raise with
-its name and the observed profile count or constraint status otherwise. For every accepted
-'collarHalf', each profile lies strictly inside the annular top face: the square corner's radial
-offset from its centre is at most 'sqrt(2)*halfSize < collarHalf', and the circle is smaller.
-
-
-Draw only this bore's mark. Its name is Gear B Bore +R Circle Marker. Require one closed profile, constrained geometry, and zero mapped z for every planar point. [PB-CIRCLE-CENTER] [PB-RADIAL-DIM] [PB-SHARE-XOR-COINCIDENT] [PB-SINGLE-PROFILE].
+Draw only the Gear B bore +R circle pocket profile on Marker Plane. Its centre is C + (cageRise - depth)*nHat + sigma*cageRadius*dirVecs[g], with sigma=+1 for a circle and -1 for a square. Map each point into the sketch and zero its local z. halfSize = min(1.5 mm, collarHalf/2). Draw one circle of radius halfSize, fix its centre and dimension diameter 2*halfSize. Require fully constrained and exactly one closed profile. Its radial extent must stay strictly inside the annular top face. [PB-SKETCH-ZERO-Z] [PB-SINGLE-PROFILE] [SCREW-F-BORE-MARKS].
 
 The proof function is `stepEntry75GearBboreRcirclemarkersketch`.
 
@@ -9354,77 +9375,92 @@ The proof function is `stepEntry75GearBboreRcirclemarkersketch`.
 
 Make these required Fusion calls:
 
-- `design.sketches.add(plane)`.
+- `design.sketches.add(markerPlane)`.
 - `adsk.core.Point3D.create(x, y, z)`.
 - `sketch.modelToSketchSpace(worldPoint)`.
-- `sketch.sketchCurves.sketchCircles.addByCenterRadius(centre, radius)`.
+- `sketch.sketchCurves.sketchCircles.addByCenterRadius(center, halfSize)`.
 - `sketch.sketchDimensions.addDiameterDimension(circle, textPoint)`.
+- `sketch.profiles.item(0)`.
 
 <!-- step-meta
 {
-  "calls": [
-    {
-      "condition": null,
-      "name": "add",
-      "owner": "adsk.fusion.Sketches",
-      "reason": null,
-      "receiver": "design.sketches",
-      "role": "required",
-      "span": "design.sketches.add(plane)"
-    },
-    {
-      "condition": null,
-      "name": "create",
-      "owner": "adsk.core.Point3D",
-      "reason": null,
-      "receiver": "adsk.core.Point3D",
-      "role": "required",
-      "span": "adsk.core.Point3D.create(x, y, z)"
-    },
-    {
-      "condition": null,
-      "name": "modelToSketchSpace",
-      "owner": "adsk.fusion.Sketch",
-      "reason": null,
-      "receiver": "sketch",
-      "role": "required",
-      "span": "sketch.modelToSketchSpace(worldPoint)"
-    },
-    {
-      "condition": null,
-      "name": "addByCenterRadius",
-      "owner": "adsk.fusion.SketchCircles",
-      "reason": null,
-      "receiver": "sketch.sketchCurves.sketchCircles",
-      "role": "required",
-      "span": "sketch.sketchCurves.sketchCircles.addByCenterRadius(centre, radius)"
-    },
-    {
-      "condition": null,
-      "name": "addDiameterDimension",
-      "owner": "adsk.fusion.SketchDimensions",
-      "reason": null,
-      "receiver": "sketch.sketchDimensions",
-      "role": "required",
-      "span": "sketch.sketchDimensions.addDiameterDimension(circle, textPoint)"
-    }
-  ],
+  "schema": 2,
   "citations": [
     {
-      "first": 2078,
-      "last": 2088,
-      "path": "spec/screwgear/instructions.md"
+      "path": "spec/screwgear/instructions.md",
+      "first": 2028,
+      "last": 2078
+    },
+    {
+      "path": "spec/screwgear/fusion.md",
+      "first": 731,
+      "last": 741
     }
   ],
-  "schema": 2
+  "calls": [
+    {
+      "span": "design.sketches.add(markerPlane)",
+      "name": "add",
+      "receiver": "design.sketches",
+      "owner": "adsk.fusion.Sketches",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "adsk.core.Point3D.create(x, y, z)",
+      "name": "create",
+      "receiver": "adsk.core.Point3D",
+      "owner": "adsk.core.Point3D",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "sketch.modelToSketchSpace(worldPoint)",
+      "name": "modelToSketchSpace",
+      "receiver": "sketch",
+      "owner": "adsk.fusion.Sketch",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "sketch.sketchCurves.sketchCircles.addByCenterRadius(center, halfSize)",
+      "name": "addByCenterRadius",
+      "receiver": "sketch.sketchCurves.sketchCircles",
+      "owner": "adsk.fusion.SketchCircles",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "sketch.sketchDimensions.addDiameterDimension(circle, textPoint)",
+      "name": "addDiameterDimension",
+      "receiver": "sketch.sketchDimensions",
+      "owner": "adsk.fusion.SketchDimensions",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "sketch.profiles.item(0)",
+      "name": "item",
+      "receiver": "sketch.profiles",
+      "owner": "adsk.fusion.Profiles",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    }
+  ]
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2078–2088.
+**From:** `spec/screwgear/instructions.md` L2028–2078; `spec/screwgear/fusion.md` L731–741.
 
-## 76 `[GO]` Gear B bore +R marker extrude
+## 76 `[GO]` Gear B bore +R marker tool extrude
 
-Extrude this marker profile as NewBodyFeatureOperation by inset+0.4 mm. Choose its direction from the mapped mark-centre-plus-nHat, positive or negative local z. Require exactly one feature body; the mark starts inside the sleeve and rises 0.4 mm above the top end. [PB-THROUGH-CUT] [PB-EMPTY-RESULT] [SCREW-F-BORE-MARKS].
+Extrude this one profile as NewBodyFeatureOperation from the plane depth below the top face toward +nHat. Use depth = min(0.8 mm, collarWall/3) and overrun = min(0.1 mm, collarWall/20); the extent is depth + overrun. Choose positive or negative sketch extent from the mapped marker centre plus nHat. Require exactly one tool body. At defaults the blind pocket is 0.8 mm deep and its tool ends 0.1 mm above the face. [PB-THROUGH-CUT] [PB-EMPTY-RESULT] [SCREW-F-BORE-MARKS].
 
 The proof function is `stepEntry76GearBboreRmarkerextrude`.
 
@@ -9442,168 +9478,201 @@ Make these required Fusion calls:
 
 <!-- step-meta
 {
-  "calls": [
-    {
-      "condition": null,
-      "name": "createInput",
-      "owner": "adsk.fusion.ExtrudeFeatures",
-      "reason": null,
-      "receiver": "design.features.extrudeFeatures",
-      "role": "required",
-      "span": "design.features.extrudeFeatures.createInput(profile, operation)"
-    },
-    {
-      "condition": null,
-      "name": "createByReal",
-      "owner": "adsk.core.ValueInput",
-      "reason": null,
-      "receiver": "adsk.core.ValueInput",
-      "role": "required",
-      "span": "adsk.core.ValueInput.createByReal(value)"
-    },
-    {
-      "condition": null,
-      "name": "create",
-      "owner": "adsk.fusion.DistanceExtentDefinition",
-      "reason": null,
-      "receiver": "adsk.fusion.DistanceExtentDefinition",
-      "role": "required",
-      "span": "adsk.fusion.DistanceExtentDefinition.create(distanceValue)"
-    },
-    {
-      "condition": null,
-      "name": "setOneSideExtent",
-      "owner": "adsk.fusion.ExtrudeFeatureInput",
-      "reason": null,
-      "receiver": "extrudeInput",
-      "role": "required",
-      "span": "extrudeInput.setOneSideExtent(extent, direction)"
-    },
-    {
-      "condition": null,
-      "name": "add",
-      "owner": "adsk.fusion.ExtrudeFeatures",
-      "reason": null,
-      "receiver": "design.features.extrudeFeatures",
-      "role": "required",
-      "span": "design.features.extrudeFeatures.add(extrudeInput)"
-    },
-    {
-      "condition": null,
-      "name": "item",
-      "owner": "adsk.fusion.BRepBodies",
-      "reason": null,
-      "receiver": "extrudeFeature.bodies",
-      "role": "required",
-      "span": "extrudeFeature.bodies.item(0)"
-    },
-    {
-      "condition": null,
-      "name": "modelToSketchSpace",
-      "owner": "adsk.fusion.Sketch",
-      "reason": null,
-      "receiver": "sketch",
-      "role": "required",
-      "span": "sketch.modelToSketchSpace(markCentrePlusNormal)"
-    }
-  ],
+  "schema": 2,
   "citations": [
     {
-      "first": 2090,
-      "last": 2094,
-      "path": "spec/screwgear/instructions.md"
+      "path": "spec/screwgear/instructions.md",
+      "first": 2028,
+      "last": 2078
+    },
+    {
+      "path": "spec/screwgear/fusion.md",
+      "first": 731,
+      "last": 741
     }
   ],
-  "schema": 2
+  "calls": [
+    {
+      "span": "design.features.extrudeFeatures.createInput(profile, operation)",
+      "name": "createInput",
+      "receiver": "design.features.extrudeFeatures",
+      "owner": "adsk.fusion.ExtrudeFeatures",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "adsk.core.ValueInput.createByReal(value)",
+      "name": "createByReal",
+      "receiver": "adsk.core.ValueInput",
+      "owner": "adsk.core.ValueInput",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "adsk.fusion.DistanceExtentDefinition.create(distanceValue)",
+      "name": "create",
+      "receiver": "adsk.fusion.DistanceExtentDefinition",
+      "owner": "adsk.fusion.DistanceExtentDefinition",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "extrudeInput.setOneSideExtent(extent, direction)",
+      "name": "setOneSideExtent",
+      "receiver": "extrudeInput",
+      "owner": "adsk.fusion.ExtrudeFeatureInput",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "design.features.extrudeFeatures.add(extrudeInput)",
+      "name": "add",
+      "receiver": "design.features.extrudeFeatures",
+      "owner": "adsk.fusion.ExtrudeFeatures",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "extrudeFeature.bodies.item(0)",
+      "name": "item",
+      "receiver": "extrudeFeature.bodies",
+      "owner": "adsk.fusion.BRepBodies",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "sketch.modelToSketchSpace(markCentrePlusNormal)",
+      "name": "modelToSketchSpace",
+      "receiver": "sketch",
+      "owner": "adsk.fusion.Sketch",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    }
+  ]
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2090–2094.
+**From:** `spec/screwgear/instructions.md` L2028–2078; `spec/screwgear/fusion.md` L731–741.
 
-## 77 `[GO]` Gear B bore +R marker join
+## 77 `[GO]` Gear B bore +R marker pocket cut
 
-Join this extruded marker as the sole tool to the current cageBody. Set JoinFeatureOperation and isKeepToolBodies=False. Require one combine feature body and retain it as cageBody for the next marker. The proof targets the real uncut annular sleeve, as the spec explicitly prescribes for marker checks. [SCREW-F-JOIN] [PB-EMPTY-RESULT].
+Before cutting, require material at the pocket centre halfway down. Use the extruded mark as the sole tool to the current cage body, set CutFeatureOperation and isKeepToolBodies=False, and require exactly one result body. Keep that result as cageBody for the next mark. After cutting, require air halfway down and material 0.1 mm below the pocket floor; report the gear and bore sign on failure. The proof cuts a real uncut annular sleeve because the bore and window evaluator cannot chain all six cuts. It checks a connected result and removed volume equal to the profile area times depth. [SCREW-F-JOIN] [SCREW-F-BORE-MARKS] [PB-SELF-DIAGNOSING] [PB-EMPTY-RESULT].
 
-The proof function is `stepEntry77GearBboreRmarkerjoin`.
+The proof function is `stepEntry77GearBboreRmarkercut`.
 
-<!-- proof-run: proofkit3d.RunSolid(markerSolidCases, stepEntry77GearBboreRmarkerjoin, assertMarkerJoin) -->
+<!-- proof-run: proofkit3d.RunSolid(markerSolidCases, stepEntry77GearBboreRmarkercut, assertMarkerCut) -->
 
 Make these required Fusion calls:
 
+- `cageBody.pointContainment(beforeProbe)`.
 - `adsk.core.ObjectCollection.create()`.
 - `tools.add(markBody)`.
 - `design.features.combineFeatures.createInput(cageBody, tools)`.
 - `design.features.combineFeatures.add(combineInput)`.
 - `combineFeature.bodies.item(0)`.
-
-The supported proof substitution is explicit:
-
-The proof substitutes a straight prism with the exact pitch-averaged section area and actual axial span. Copy and
-screw placement operate on that real prism. For a refused tangent join, the proof extrudes the combined span
-directly and checks its summed volume and connected solid verdict. This gives up the twisted tooth surface and
-Fusion combine behavior.
+- `cageBody.pointContainment(afterProbe)`.
+- `cageBody.pointContainment(floorProbe)`.
 
 <!-- step-meta
 {
-  "calls": [
-    {
-      "condition": null,
-      "name": "create",
-      "owner": "adsk.core.ObjectCollection",
-      "reason": null,
-      "receiver": "adsk.core.ObjectCollection",
-      "role": "required",
-      "span": "adsk.core.ObjectCollection.create()"
-    },
-    {
-      "condition": null,
-      "name": "add",
-      "owner": "adsk.core.ObjectCollection",
-      "reason": null,
-      "receiver": "tools",
-      "role": "required",
-      "span": "tools.add(markBody)"
-    },
-    {
-      "condition": null,
-      "name": "createInput",
-      "owner": "adsk.fusion.CombineFeatures",
-      "reason": null,
-      "receiver": "design.features.combineFeatures",
-      "role": "required",
-      "span": "design.features.combineFeatures.createInput(cageBody, tools)"
-    },
-    {
-      "condition": null,
-      "name": "add",
-      "owner": "adsk.fusion.CombineFeatures",
-      "reason": null,
-      "receiver": "design.features.combineFeatures",
-      "role": "required",
-      "span": "design.features.combineFeatures.add(combineInput)"
-    },
-    {
-      "condition": null,
-      "name": "item",
-      "owner": "adsk.fusion.BRepBodies",
-      "reason": null,
-      "receiver": "combineFeature.bodies",
-      "role": "required",
-      "span": "combineFeature.bodies.item(0)"
-    }
-  ],
+  "schema": 2,
   "citations": [
     {
-      "first": 2094,
-      "last": 2103,
-      "path": "spec/screwgear/instructions.md"
+      "path": "spec/screwgear/instructions.md",
+      "first": 2028,
+      "last": 2078
+    },
+    {
+      "path": "spec/screwgear/fusion.md",
+      "first": 731,
+      "last": 741
     }
   ],
-  "schema": 2
+  "calls": [
+    {
+      "span": "cageBody.pointContainment(beforeProbe)",
+      "name": "pointContainment",
+      "receiver": "cageBody",
+      "owner": "adsk.fusion.BRepBody",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "adsk.core.ObjectCollection.create()",
+      "name": "create",
+      "receiver": "adsk.core.ObjectCollection",
+      "owner": "adsk.core.ObjectCollection",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "tools.add(markBody)",
+      "name": "add",
+      "receiver": "tools",
+      "owner": "adsk.core.ObjectCollection",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "design.features.combineFeatures.createInput(cageBody, tools)",
+      "name": "createInput",
+      "receiver": "design.features.combineFeatures",
+      "owner": "adsk.fusion.CombineFeatures",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "design.features.combineFeatures.add(combineInput)",
+      "name": "add",
+      "receiver": "design.features.combineFeatures",
+      "owner": "adsk.fusion.CombineFeatures",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "combineFeature.bodies.item(0)",
+      "name": "item",
+      "receiver": "combineFeature.bodies",
+      "owner": "adsk.fusion.BRepBodies",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "cageBody.pointContainment(afterProbe)",
+      "name": "pointContainment",
+      "receiver": "cageBody",
+      "owner": "adsk.fusion.BRepBody",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    },
+    {
+      "span": "cageBody.pointContainment(floorProbe)",
+      "name": "pointContainment",
+      "receiver": "cageBody",
+      "owner": "adsk.fusion.BRepBody",
+      "role": "required",
+      "condition": null,
+      "reason": null
+    }
+  ]
 }
 -->
 
-**From:** `spec/screwgear/instructions.md` L2094–2103.
+**From:** `spec/screwgear/instructions.md` L2028–2078; `spec/screwgear/fusion.md` L731–741.
 
 ## 78 `[PROSE]` Relocate Gear A
 
