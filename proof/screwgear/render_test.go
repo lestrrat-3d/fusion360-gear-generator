@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/lestrrat-3d/fusion360-gear-generator/proof/render"
+	"github.com/lestrrat-3d/r3"
 	"github.com/lestrrat-3d/solidlens"
 )
 
@@ -166,48 +167,93 @@ func TestRenderMesh(t *testing.T) {
 // 0.1 mm.
 const sleeveMeshStep = 0.1
 
-// boreMarkMesh draws one raised bore sign from the same dimensions and centre
-// rule as the compiled marker proof. Its lower face starts inside the sleeve.
-func boreMarkMesh(f sleeve, gear int, sign float64) (*solidlens.Mesh, error) {
+// markedSleeveSolid adds the four blind pocket cuts to the same sleeve used by
+// the mechanism proof. Each pocket has six face slots, including unused slots
+// for a circle, so the dual contouring face identifiers stay stable.
+type markedSleeveSolid struct{ base sleeveSolid }
+
+func (s markedSleeveSolid) pocketLevels(mark int, pt r3.Vec) ([6]float64, int) {
+	f := s.base.f
+	gear, sign := mark/2, float64(-1)
+	if mark%2 == 1 {
+		sign = 1
+	}
 	angle := f.p.Sigma() / 2
 	if gear == 1 {
 		angle = -angle
 	}
 	x := sign * f.p.CageRadius * math.Cos(angle)
 	y := sign * f.p.CageRadius * math.Sin(angle)
-	halfSize := math.Min(1, f.p.CollarHalf/2)
-	inset := math.Min(0.1, f.p.CollarWall/2)
-
-	outline := make([][2]float64, 0, 48)
+	dx, dy := pt.X-x, pt.Y-y
+	halfSize := math.Min(1.5, f.p.CollarHalf/2)
+	depth := math.Min(0.8, f.p.CollarWall/3)
+	overrun := math.Min(0.1, f.p.CollarWall/20)
+	var levels [6]float64
 	if sign > 0 {
-		for i := range 48 {
-			a := 2 * math.Pi * float64(i) / 48
-			outline = append(outline, [2]float64{x + halfSize*math.Cos(a), y + halfSize*math.Sin(a)})
-		}
-	} else {
-		outline = append(outline,
-			[2]float64{x - halfSize, y - halfSize},
-			[2]float64{x + halfSize, y - halfSize},
-			[2]float64{x + halfSize, y + halfSize},
-			[2]float64{x - halfSize, y + halfSize})
+		levels[0] = math.Hypot(dx, dy) - halfSize
+		levels[1] = f.zb - depth - pt.Z
+		levels[2] = pt.Z - (f.zb + overrun)
+		return levels, 3
 	}
+	levels[0], levels[1] = dx-halfSize, -dx-halfSize
+	levels[2], levels[3] = dy-halfSize, -dy-halfSize
+	levels[4] = f.zb - depth - pt.Z
+	levels[5] = pt.Z - (f.zb + overrun)
+	return levels, 6
+}
 
-	n := len(outline)
-	vertices := make([]solidlens.Vec, 0, 2*n)
-	for _, z := range []float64{f.zb - inset, f.zb + 0.4} {
-		for _, point := range outline {
-			vertices = append(vertices, solidlens.Vec{X: point[0], Y: point[1], Z: z})
+func (s markedSleeveSolid) pocketLevel(mark int, pt r3.Vec) (float64, int) {
+	levels, n := s.pocketLevels(mark, pt)
+	best, face := levels[0], 0
+	for i := 1; i < n; i++ {
+		if levels[i] > best {
+			best, face = levels[i], i
 		}
 	}
-	triangles := make([][3]int, 0, 4*n-4)
-	for i := range n {
-		j := (i + 1) % n
-		triangles = append(triangles, [3]int{i, j, n + j}, [3]int{i, n + j, n + i})
+	return best, face
+}
+
+func (s markedSleeveSolid) active(pt r3.Vec) (float64, int) {
+	best, face := s.base.level(pt), s.base.face(pt)
+	for mark := range 4 {
+		level, pocketFace := s.pocketLevel(mark, pt)
+		if -level > best {
+			best, face = -level, sleeveFaceCount+6*mark+pocketFace
+		}
 	}
-	for j := 1; j+1 < n; j++ {
-		triangles = append(triangles, [3]int{0, j + 1, j}, [3]int{n, n + j, n + j + 1})
+	return best, face
+}
+
+func (s markedSleeveSolid) inside(pt r3.Vec) bool {
+	if !s.base.inside(pt) {
+		return false
 	}
-	return solidlens.NewMesh(vertices, triangles)
+	for mark := range 4 {
+		level, _ := s.pocketLevel(mark, pt)
+		if level <= 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func (s markedSleeveSolid) face(pt r3.Vec) int {
+	_, face := s.active(pt)
+	return face
+}
+
+func (s markedSleeveSolid) faceLevel(face int, pt r3.Vec) float64 {
+	if face < sleeveFaceCount {
+		return s.base.faceLevel(face, pt)
+	}
+	mark, local := (face-sleeveFaceCount)/6, (face-sleeveFaceCount)%6
+	levels, _ := s.pocketLevels(mark, pt)
+	return -levels[local]
+}
+
+func (s markedSleeveSolid) level(pt r3.Vec) float64 {
+	level, _ := s.active(pt)
+	return level
 }
 
 // TestRenderSleeve draws the printable sleeve that sleeve_test.go proves, with
@@ -223,8 +269,15 @@ func TestRenderSleeve(t *testing.T) {
 	f := defaultSleeve()
 	ga, gb := f.gears[0], f.gears[1]
 
-	m := sleeveSharpMesh(f, sleeveMeshStep)
-	checkSleeveMesh(t, f, m)
+	marked := markedSleeveSolid{base: sleeveSolid{f: f}}
+	pad := r3.NewVec(1.3*sleeveMeshStep, 1.3*sleeveMeshStep, 1.3*sleeveMeshStep)
+	lo := r3.NewVec(-f.ro, -f.ro, -f.zb).Sub(pad)
+	hi := r3.NewVec(f.ro, f.ro, f.zb).Add(pad)
+	m := dualContour(marked, lo, hi, sleeveMeshStep)
+	if faults := sleeveMeshFaults(marked, m, sleeveMeshTolerance); faults.offSurface != 0 ||
+		faults.open != 0 || faults.pinched != 0 || faults.flat != 0 {
+		t.Fatalf("the marked sleeve mesh: %v", faults)
+	}
 	frame, err := solidlens.NewMesh(m.vertices, m.triangles)
 	if err != nil {
 		t.Fatalf("mesh the sleeve: %v", err)
@@ -241,15 +294,6 @@ func TestRenderSleeve(t *testing.T) {
 	}
 	sleevePart := render.Part{Mesh: frame, Color: cageColor}
 	sleeveParts := []render.Part{sleevePart}
-	for gear := range 2 {
-		for _, sign := range []float64{-1, 1} {
-			mark, err := boreMarkMesh(f, gear, sign)
-			if err != nil {
-				t.Fatalf("mesh gear %d bore %+.0f mark: %v", gear, sign, err)
-			}
-			sleeveParts = append(sleeveParts, render.Part{Mesh: mark, Color: cageColor})
-		}
-	}
 	both := append([]render.Part{{Mesh: meshA, Color: gearAColor}, {Mesh: meshB, Color: gearBColor}}, sleeveParts...)
 
 	// The sleeve alone, standing on the end it prints on, looking at the +X

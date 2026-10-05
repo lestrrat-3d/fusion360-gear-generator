@@ -279,6 +279,28 @@ residual, 2.5% of the default 0.20 mm clearance, and 10% of the smallest 0.05 mm
 covered by the proof. A roof on the wrong side moves a corner by the 0.60 mm default allowance,
 well beyond this limit. This Fusion run stopped before a bore cut, so it gives no fit result.
 
+## `[SCREW-F-PRINT-5]` — square bores fit, circle bores stop at the mouths, 2026-10-05
+
+The user printed a sleeve from the regenerated Add-In. Both ribbons passed through the two
+square-marked `-R` bores from outside. Neither ribbon entered either circle-marked `+R` bore
+from outside or inside; both stopped at the openings. The `-R` roofs had 0.60 mm of extra drawn
+room at the default, and the `+R` roofs had none. The print does not measure the cause or amount
+of closing. A new trial gives all four roofs the 0.60 mm allowance, without changing the
+0.20 mm clearance on the other faces.
+
+With both bores of each gear widened, an offline run at the old 1.05 mm engagement found two
+failures in the six matching poses. At 1.15 mm engagement, all 100 full-sample pose pairs drove,
+with at least 1.389 mm of touching ridge within 0.10 mm of the other flank. The raised 2 mm
+markers were also hard to distinguish on the print. The new markers are 3 mm circle and square
+blind pockets, 0.8 mm deep. The new sleeve and mesh still need a Fusion build and physical print;
+the geometry proof cannot measure the printed roof shape.
+
+At 1.15 mm engagement with the old 15 mm cage radius, the sleeve occupied a point in the
+meshing space near `(-8.8, -8.8, -4.2)` mm. The full sleeve check rejected that combination.
+Widening the cage radius to 15.5 mm made the meshing space and projected mesh footprint open
+along the sleeve's axis in the proof. This changes the sleeve's bore positions, so the new print
+must use the new sleeve.
+
 ## `[SCREW-F-DIAGNOSTIC]` — what the diagnostics of 2026-09-28 measured
 
 Two scripts ran in the user's Fusion on 2026-09-28, each in a scratch document holding the
@@ -488,7 +510,7 @@ path, not `solidTwistAxis`, which is for a solid sweep (`[SCREW-F-NO-SOLID-TWIST
 rail or surface, which would make `twistAngle` ignored per the reference. The participant list
 makes the cut touch the cage and nothing else; the ribbons run through the channel and are left
 whole, measured (`[PB-SWEEP-TWIST]`). The twist is the span divided by `Lambda`, positive:
-`+(sOut - sIn)/Lambda`, 81.41° at the defaults. **Positive is the spec's sense**, measured on a
+`+(sOut - sIn)/Lambda`, 80.17° at the defaults. **Positive is the spec's sense**, measured on a
 collar: with the profile at the line's start and the line running along `+dir_g`, a positive
 `twistAngle` turned the section the way `s/Lambda + Phi_g` grows, and the far end of the collar
 landed 0.0047 mm from the spec's own section there, against 4.9 mm under the opposite sign; the
@@ -520,17 +542,17 @@ The check carries its measured quantities in the error it raises (`[PB-SELF-DIAG
 `origin_g + sc*dir_g ± (W/2 + clearance/2)*û(sc)` at the crossing itself, `sc = ±cageRadius`,
 where `û(s)` is `cos(theta)*û_g + sin(theta)*v̂_g` with `theta = s/Lambda + Phi_g`: the
 toothed-side and back-side middles of the channel, clear of the ribbon by `clearance/2` and of the
-channel's wall by the same, 16.80 mm and 16.30 mm from the frame's axis at the defaults, inside
+channel's wall by the same, 17.01 mm from the frame's axis at the defaults, inside
 the wall. Raise naming the bore and the containment read otherwise. A channel that is open there
 was cut, and the probes also tell the two senses apart: under the wrong sense the channel at the
 crossing stands turned `2*(sc - s0)/Lambda` from the right one, `s0` being the station the profile
-sits at — 103° for a `+R` bore and 58° for a `-R` bore — and both probes then sit 7.39 and
+sits at — 102° for a `+R` bore and 58° for a `-R` bore — and both probes then sit 7.43 and
 6.46 mm across a channel 2.075 mm half thick, in the wall. `TestSleeveBoreProbesTellTheTwistSense`
 holds both halves. The video frame's collars also had their end vertices checked against the
 turned outline, 0.0047 mm with the right sign and 4.8979 mm with the wrong one; a sleeve has no
 swept body of its own to read vertices from, so the probes are the whole check.
 
-For a level bore with `roofAllowance > 0`, also probe the cut at its crossing station with
+For every bore with `roofAllowance > 0`, also probe the cut at its crossing station with
 `u = 0` and `v = roofSign*(ht + roofAllowance/2)`, where `roofSign` is `+1` for a `+v` roof and
 `-1` for a `-v` roof. That point must be outside the cage. At
 `v = -roofSign*(ht + roofAllowance/2)` the point must remain inside the cage. The pair detects
@@ -706,14 +728,14 @@ out: the ruled ribbon built as temporary-BRep sheets and stitched fails at the s
 (`[PB-TEMP-BREP-STITCH]`), and a two-section loft with a centreline does not turn between its
 ends (`[PB-LOFT-TWO-SECTIONS-STRAIGHT]`).
 
-## `[SCREW-F-BORE-MARKS]` — raised signs on the sleeve
+## `[SCREW-F-BORE-MARKS]` — blind signs in the sleeve
 
 Follow "Bore identification marks" in `instructions.md` after the bore and window cuts. Offset
-one plane from Gear B Axis Plane to 0.1 mm or less inside the top end. Use one fully constrained
-sketch and one new-body extrusion per mark. Map the mark centre plus `nHat` to the sketch to
-choose the extent direction that rises above
-the top face; the selected plane can orient its local normal either way. Each extrusion begins
-inside solid end-wall material, rises 0.4 mm above the face, and joins only to the cage with
-`[SCREW-F-JOIN]`. Check the plane offset, each profile and feature body count, and each join's
-single body in Fusion. The bottom end stays flat for printing. The marker proof checks the
-sketches and a marked uncut sleeve; the full sleeve surface and render still omit the marks.
+one plane from Gear B Axis Plane to `depth` inside the top end. Use one fully constrained sketch
+and one new-body extrusion per mark. Map the mark centre plus `nHat` to the sketch to choose the
+extent direction; the selected plane can orient its local normal either way. Each extrusion
+begins inside solid end-wall material and extends `overrun` past the top face. Cut the tool from
+the cage with `[SCREW-F-JOIN]`'s combine procedure, retaining one cage body. Check the plane
+offset, each profile and feature body count, and the cavity's before/after probes in Fusion. The
+bottom end stays flat for printing. The marker proof checks the sketches and blind pockets in an
+uncut sleeve; the full sleeve surface may omit the marks.

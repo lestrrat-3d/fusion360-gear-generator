@@ -669,19 +669,10 @@ func TestPairDrivesUnderSidewaysPlay(t *testing.T) {
 	}
 }
 
-// The roof allowance widens one face of one bore of each gear, and the other
-// bore and the level bore's floor still hold the ribbon at the clearance. So
-// no move of the whole ribbon along Ex or Ey and no roll gains anything: each
-// is stopped by a face the allowance does not touch. What it does let a ribbon
-// do is tilt about its Ey, its level bore's end rising into the allowance
-// while its other bore holds, which moves the crossing along Ex. This holds
-// the first, to a micron and to 1e-4 rad, against the same sleeve with no
-// allowance, and measures the second: at the defaults gear A's crossing goes
-// 0.248 mm toward gear B and gear B's 0.248 mm away from gear A, against
-// 0.200 mm without the allowance, at a tilt of 0.38 degrees. The tilt is
-// capped by the other bore rather than by the allowance, so a roof left with
-// far more room, such as one chiselled open, lets the crossing go no further.
-func TestRoofAllowanceAddsOnlyATilt(t *testing.T) {
+// With both roofs opened, a ribbon gains translation toward the other gear
+// and tilt. The proof measures that gain against the same sleeve without roof
+// allowance; the mesh test separately judges every pose the opened bores allow.
+func TestRoofAllowanceOnBothBoresExpandsPlay(t *testing.T) {
 	t.Parallel()
 	p := defaultParams()
 	ga, gb := defaultPair()
@@ -693,14 +684,23 @@ func TestRoofAllowanceAddsOnlyATilt(t *testing.T) {
 
 	for i, gs := range [][2]Gear{{ga, qa}, {gb, qb}} {
 		g, h := gs[0], gs[1]
-		if got := levelBore(g); got != -1 {
-			t.Errorf("gear %c's roof allowance is on its %+.0fR bore, want the -R bore", 'A'+i, got)
-		}
+		largestGain := 0.0
 		for _, a := range []float64{0, math.Pi, math.Pi / 2, -math.Pi / 2} {
-			if got, want := shiftLimit(f, g, a, 0), shiftLimit(fq, h, a, 0); math.Abs(got-want) > 1e-3 {
-				t.Errorf("gear %c moves %.4f mm along %.0f degrees with the allowance and %.4f without",
+			got, want := shiftLimit(f, g, a, 0), shiftLimit(fq, h, a, 0)
+			if a == math.Pi/2 || a == -math.Pi/2 {
+				if math.Abs(got-want) > 1e-3 {
+					t.Errorf("gear %c moves %.4f mm sideways with the allowance and %.4f without", 'A'+i, got, want)
+				}
+				continue
+			}
+			if got+1e-3 < want || got-want > p.RoofAllowance/2 {
+				t.Errorf("gear %c moves %.4f mm toward %.0f degrees with the allowance and %.4f without",
 					'A'+i, got, a*180/math.Pi, want)
 			}
+			largestGain = math.Max(largestGain, got-want)
+		}
+		if largestGain < 0.10 {
+			t.Errorf("gear %c gains only %.4f mm of translation; both roof cuts should change its play", 'A'+i, largestGain)
 		}
 		for _, sign := range []float64{-1, 1} {
 			if got, want := rollLimit(f, g, sign), rollLimit(fq, h, sign); math.Abs(got-want) > 1e-4 {
@@ -718,9 +718,9 @@ func TestRoofAllowanceAddsOnlyATilt(t *testing.T) {
 			t.Errorf("gear %c's tilt moves its crossing %.3f mm further, more than half the %.2f mm allowance",
 				'A'+i, gain, p.RoofAllowance)
 		}
-		t.Logf("gear %c: moves and rolls as without the allowance; tilts %.2f to %+.2f deg against %.2f to %+.2f "+
+		t.Logf("gear %c: gains %.3f mm of translation; tilts %.2f to %+.2f deg against %.2f to %+.2f "+
 			"without, and its crossing reaches %+.3f to %+.3f mm (%s and %s) against %+.3f to %+.3f",
-			'A'+i, with.lo*180/math.Pi, with.hi*180/math.Pi, without.lo*180/math.Pi, without.hi*180/math.Pi,
+			'A'+i, largestGain, with.lo*180/math.Pi, with.hi*180/math.Pi, without.lo*180/math.Pi, without.hi*180/math.Pi,
 			with.away.tx, with.toward.tx, with.away, with.toward, without.away.tx, without.toward.tx)
 	}
 }

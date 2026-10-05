@@ -13,7 +13,7 @@ import (
 // is what a printed pair is judged by, and geometry_test.go measures the loft's
 // section count against it. It was 0.46 mm at the straight tooth, 14 degrees
 // and a 0.90 mm engagement until 2026-10-03.
-const measuredBacklash = 1.08
+const measuredBacklash = 1.00
 
 // The bounds the mesh is held to are fractions of the pitch, not lengths. The
 // model is an exact cosine on an exact helicoid, so a pair scaled by k has its

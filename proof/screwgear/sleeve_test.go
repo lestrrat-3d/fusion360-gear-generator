@@ -238,15 +238,12 @@ func boreGap(g Gear, pt r3.Vec) (float64, float64) {
 // boreOpening is one bore's opening in its gear's own section, before the
 // twist: u from -hw to hw and v from vLo to vHi. sign is -1 for the -R bore and
 // +1 for the +R bore. Every bore is the crest rectangle plus Clearance all
-// round, and the level bore (levelBore) also takes RoofAllowance on the long
-// face that is its roof when the sleeve stands on its -n end (roofSide).
+// round, with RoofAllowance on the long face that is its roof when the sleeve
+// stands on its -n end (roofSide).
 func boreOpening(g Gear, sign float64) (float64, float64, float64) {
 	p := g.P
 	hw, ht := p.BoreHalfWidth(), p.BoreHalfThickness()
 	vLo, vHi := -ht, ht
-	if sign != levelBore(g) {
-		return hw, vLo, vHi
-	}
 	if roofSide(g, sign) > 0 {
 		return hw, vLo, vHi + p.RoofAllowance
 	}
@@ -258,37 +255,6 @@ func boreOpening(g Gear, sign float64) (float64, float64, float64) {
 func openingCorners(g Gear, sign float64) [4][2]float64 {
 	hw, vLo, vHi := boreOpening(g, sign)
 	return [4][2]float64{{-hw, vLo}, {hw, vLo}, {hw, vHi}, {-hw, vHi}}
-}
-
-// levelBore is which of a gear's two bores takes the roof allowance: the one
-// whose long faces come nearest level over the wall's span on its centre line,
-// CollarHalf either side of its station, -1 for the -R bore and +1 for the +R
-// bore, the -R bore when the two tie. A long face runs along the section's u,
-// which stands theta from the gear's Ex, and Ex is along the frame's axis, so
-// the face is level where cos(theta) is zero. At the defaults, both mounting
-// angles zero since 2026-10-03, both bores' faces pass through level inside the
-// wall, at stations -12.37 and +12.37, so the two tie and the -R bore takes the
-// allowance; the +R bore's roof is bridged with the clearance alone
-// (TestSleevePrintsStandingOnEitherEnd logs both). At the 14 degrees of the
-// third print the -R bore's faces passed through level at station -14.30 and
-// the +R bore's came no nearer than 11.3 degrees.
-func levelBore(g Gear) float64 {
-	p := g.P
-	tilt := func(sign float64) float64 {
-		lo := g.angle(sign * (p.CageRadius - p.CollarHalf))
-		hi := g.angle(sign * (p.CageRadius + p.CollarHalf))
-		if lo > hi {
-			lo, hi = hi, lo
-		}
-		if level := math.Pi/2 + math.Ceil((lo-math.Pi/2)/math.Pi)*math.Pi; level <= hi {
-			return 0
-		}
-		return math.Min(math.Abs(math.Cos(lo)), math.Abs(math.Cos(hi)))
-	}
-	if tilt(1) < tilt(-1) {
-		return 1
-	}
-	return -1
 }
 
 // roofSide is which long face of a gear's bore is its roof when the sleeve
@@ -441,6 +407,24 @@ func eachGrownEnvelopePoint(g Gear, grow, from, to, step float64, fn func(pt r3.
 // [SCREW-F-PRINT-2]). The angles moved again on 2026-10-03, from 123.1 and
 // -95.1 degrees, when both mounting angles went to zero with the leaned tooth
 // (spec/screwgear/fusion.md [SCREW-F-PRINT-3]).
+func TestBothBoreRoofsHaveAllowance(t *testing.T) {
+	f := defaultSleeve()
+	for gi, gear := range f.gears {
+		for _, sign := range []float64{-1, 1} {
+			_, lo, hi := boreOpening(gear, sign)
+			roof := hi - gear.P.Thickness/2
+			floor := -lo - gear.P.Thickness/2
+			if roofSide(gear, sign) < 0 {
+				roof, floor = floor, roof
+			}
+			if math.Abs(roof-(gear.P.Clearance+gear.P.RoofAllowance)) > 1e-9 ||
+				math.Abs(floor-gear.P.Clearance) > 1e-9 {
+				t.Errorf("gear %d bore %+.0fR roof %.3f mm and floor %.3f mm", gi, sign, roof, floor)
+			}
+		}
+	}
+}
+
 func TestSleeveBoresAreTheSameChannels(t *testing.T) {
 	f := defaultSleeve()
 	p := f.p
@@ -451,23 +435,22 @@ func TestSleeveBoresAreTheSameChannels(t *testing.T) {
 	if got := p.BoreHalfThickness(); math.Abs(got-2.075) > 1e-12 {
 		t.Errorf("the bore is %.4f mm through, want 4.15", 2*got)
 	}
-	// The level bore of each gear is the -R bore, and its roof allowance is on
-	// the face that is up when the sleeve stands on its -n end: +v for gear A,
-	// whose Ex points up, and -v for gear B.
+	// Both bores of each gear have the allowance on the face that is up when
+	// the sleeve stands on its -n end.
 	for gi, g := range f.gears {
-		if got := levelBore(g); got != -1 {
-			t.Errorf("gear %d's level bore is its %+.0fR bore, want -R", gi, got)
-		}
-		want := [2][2]float64{{-2.075, 2.675}, {-2.675, 2.075}}[gi]
-		if _, lo, hi := boreOpening(g, -1); math.Abs(lo-want[0]) > 1e-12 || math.Abs(hi-want[1]) > 1e-12 {
-			t.Errorf("gear %d's -R bore spans v from %.3f to %.3f, want %.3f to %.3f", gi, lo, hi, want[0], want[1])
-		}
-		if _, lo, hi := boreOpening(g, 1); lo != -2.075 || hi != 2.075 {
-			t.Errorf("gear %d's +R bore spans v from %.3f to %.3f, want +/-2.075", gi, lo, hi)
+		for _, sign := range []float64{-1, 1} {
+			want := [2]float64{-2.075, 2.675}
+			if roofSide(g, sign) < 0 {
+				want = [2]float64{-2.675, 2.075}
+			}
+			if _, lo, hi := boreOpening(g, sign); math.Abs(lo-want[0]) > 1e-12 || math.Abs(hi-want[1]) > 1e-12 {
+				t.Errorf("gear %d's %+.0fR bore spans v from %.3f to %.3f, want %.3f to %.3f",
+					gi, sign, lo, hi, want[0], want[1])
+			}
 		}
 	}
-	if st := boreStations(p); st[0] != -15 || st[1] != 15 {
-		t.Errorf("the bores sit at stations %v, want -15 and +15", st)
+	if st := boreStations(p); st[0] != -15.5 || st[1] != 15.5 {
+		t.Errorf("the bores sit at stations %v, want -15.5 and +15.5", st)
 	}
 	if got, want := p.Lambda(), 49.5/(2*math.Pi); math.Abs(got-want) > 1e-12 {
 		t.Errorf("the bore twists at %.6f mm per radian, want %.6f", got, want)
@@ -661,16 +644,13 @@ func TestRibbonsStayInsideTheirBoresOverTheTravel(t *testing.T) {
 	p := f.p
 
 	// The least gap on each side of the bore, over every bore, phase and
-	// station: the crest side, the back edge and the faces, the level bore's
+	// station: the crest side, the back edge and the faces, each bore's
 	// roof face apart.
 	behind, ahead := f.travelLimits()
 	crest, back, face, roof := math.Inf(1), math.Inf(1), math.Inf(1), math.Inf(1)
 	for _, b := range f.bores() {
 		hw, vLo, vHi := boreOpening(b.g, b.sign)
-		roofV := 0.0
-		if b.sign == levelBore(b.g) {
-			roofV = roofSide(b.g, b.sign)
-		}
+		roofV := roofSide(b.g, b.sign)
 		station := b.sign * p.CageRadius
 		for d := -behind; d <= ahead+1e-9; d += 0.05 {
 			g := b.g
@@ -1196,10 +1176,7 @@ func checkSleevePrints(t testing.TB, v *voxels) {
 					}
 				}
 			}
-			roof := "no roof allowance"
-			if sign == levelBore(g) {
-				roof = fmt.Sprintf("the %.2f mm roof allowance on its %+.0fv face", p.RoofAllowance, roofSide(g, sign))
-			}
+			roof := fmt.Sprintf("the %.2f mm roof allowance on its %+.0fv face", p.RoofAllowance, roofSide(g, sign))
 			t.Logf("gear %c's bore at station %+.0f has its flattest roof at station %+.2f, %.1f degrees "+
 				"from upright, and bridges %.1f mm there over the wall; it carries %s",
 				'A'+gi, sign*p.CageRadius, at, worst, span, roof)
@@ -1568,8 +1545,8 @@ func TestSleeveInputsAreChecked(t *testing.T) {
 		}, refuseChannelInWall},
 		{"a 1.5 mm engagement", func(p *Params) { p.Engagement = 1.5 }, refuseMeshHidden},
 		{"a 16.5 mm rise", func(p *Params) { p.CageRise = 16.5 }, refuseEndWall},
-		{"a 4 mm CollarWall with a 0.55 mm clearance", func(p *Params) {
-			p.CollarWall, p.Clearance = 4, 0.55
+		{"a 4.5 mm CollarWall with a 0.55 mm clearance", func(p *Params) {
+			p.CollarWall, p.Clearance = 4.5, 0.55
 			p.CageRise = leastRise(*p)
 		}, refuseChannelsClose},
 	}
@@ -2740,7 +2717,7 @@ func windowSizes() []sleeveSize {
 	for _, v := range []float64{40, 60} {
 		add(fmt.Sprintf("twist lead %g", v), func(p *Params) { p.TwistLead = v })
 	}
-	for _, v := range []float64{14.75, 17, 20, 25} {
+	for _, v := range []float64{15, 17, 20, 25} {
 		add(fmt.Sprintf("cage radius %g", v), func(p *Params) { p.CageRadius = v })
 	}
 	for _, v := range []float64{18.5, 25} {
@@ -2760,22 +2737,20 @@ func windowSizes() []sleeveSize {
 	}
 	add("mounting angles 0 and 30", func(p *Params) { p.MountAngleA, p.MountAngleB = 0, 30*math.Pi/180 })
 	add("collar wall 4, clearance 0.55", func(p *Params) { p.CollarWall, p.Clearance = 4, 0.55 })
-	add("collar wall 4, cage radius 14.75", func(p *Params) { p.CollarWall, p.CageRadius = 4, 14.75 })
+	add("collar wall 4, cage radius 15", func(p *Params) { p.CollarWall, p.CageRadius = 4, 15 })
 	add("collar wall 4, crossing angle 70", func(p *Params) { p.CollarWall, p.CrossAngle = 4, 70*math.Pi/180 })
 	return out
 }
 
 // quickWindowSizes are the inputs of windowSizes TestSleeveWindowsFollowTheSize
 // builds unless SCREWGEAR_FULL=1. Each stands for one thing the spread holds:
-//   - everything scaled by 0.75, the smallest sleeve the build accepts, for
-//     the scaled inputs;
+//   - everything scaled by 0.667 and 0.75, the two smallest scaled sleeves;
 //   - a 110 degree crossing, past a right angle, where the windows face ±X
 //     rather than ±Y;
 //   - a 5 mm CollarWall, the thickest the spread tries on its own, so the
 //     wall each window keeps from every bore is the thickest of the spread;
-//   - the two inputs the build refuses for the wall between two bores, which
-//     are the only refusals in the spread and so the only inputs that reach
-//     channelSeparation's refusal.
+//   - a 4 mm CollarWall with 0.55 mm clearance, a near limit for the wall
+//     between neighbouring bores.
 var quickWindowSizes = []string{
 	"everything scaled by 0.75",
 	"crossing angle 110",
