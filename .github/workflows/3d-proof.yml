@@ -28,6 +28,12 @@ env:
   # the proof job reads that so CI and a local proof/run.sh use one revision.
   # Only `go get` moves a pin, and it moves it in one place.
   FUSION_API_COMMIT: a5e6aa196bd3e21d11e1b936415caadd1ed6bf0c
+  # The gate scripts and their tests run on this Python, not on whatever the runner image ships.
+  # test_check_compile.py compares Python's Unicode tables with Go's, and Python releases carry
+  # newer tables than Go: Go 1.26 has Unicode 15.0.0, which Python 3.12 matches. An unpinned
+  # runner Python newer than that failed the comparison from code point 67008 upward. Move this
+  # pin only to a Python whose `unicodedata.unidata_version` equals Go's `unicode.Version`.
+  PYTHON_VERSION: '3.12'
 
 jobs:
   checkers:
@@ -49,6 +55,10 @@ jobs:
             plugins/fusion/skills/query-api/data
             plugins/fusion/skills/query-api/scripts
           sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install gate dependencies
         env:
@@ -230,6 +240,10 @@ jobs:
             plugins/fusion/skills/query-api/data
             plugins/fusion/skills/query-api/scripts
           sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install gate dependencies
         env:
