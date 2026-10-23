@@ -294,3 +294,17 @@ numeric agreement of the body with the gallery body.
 Every generated add-in carries `GEAR_BUILD_ID`, the first 12 hex digits of the SHA-256 of the file without its three
 stamp lines, and logs `<gear> build <id>` when Fusion imports the module. `gearport id <gear>` prints the id the
 file in the working tree carries. A match between the Fusion log and that output shows Fusion ran that file.
+
+## Herringbone gear port
+
+`gearport gen herringbonegear` writes `lib/geargen/herringbonegear.py`. The gallery herringbone `Params` is an alias
+of the helical `Params`, so the gear has no input or parameter of its own, and the stored fragment
+`port/herringbone/fragments/herringbonegear.py.frag` is the whole previous add-in. The generated file equals the
+previous one except for the header and the build id lines.
+
+The generator stops when `Params` stops aliasing `helicalgear.Params`, when the herringbone build performs operations
+other than `Loft`, `Union` and `Union`, or when the code of `Build` or `BuildTooth` changes. The helical and spur
+checks cover the pattern, join and finishing operations the gallery performs in those packages.
+
+Loaded in Fusion on 2026-10-23 from the regenerated file (build id `484f3cd3b91a`), the default herringbone gear
+built without error. Not checked: a bore, a cap chamfer, an embedded gear and sketch-only mode.

@@ -8,6 +8,9 @@ type Model struct {
 	pkg *parsedPackage
 	// Package is the Go package name, for example "spurgear".
 	Package string
+	// ParamsAlias is the type Params aliases, for example "helicalgear.Params", or empty
+	// when Params is a struct the package declares.
+	ParamsAlias string
 	// Inputs lists the fields of the Params struct in declaration order.
 	Inputs []Input
 	// Table lists the parameter table entries in the order defineParameters writes them.

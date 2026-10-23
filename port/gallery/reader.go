@@ -35,6 +35,9 @@ func Load(dir string) (*Model, error) {
 	}
 	pkg := &parsedPackage{fset: fset, files: files}
 	m := &Model{Package: files[0].Name.Name, pkg: pkg}
+	if m.ParamsAlias, err = pkg.paramsAlias(); err != nil {
+		return nil, err
+	}
 	if m.Inputs, err = pkg.inputs(); err != nil {
 		return nil, err
 	}
@@ -85,4 +88,13 @@ func (p *parsedPackage) typeSpec(name string) (*ast.TypeSpec, error) {
 // pos formats the source position of n for error messages.
 func (p *parsedPackage) pos(n ast.Node) string {
 	return p.fset.Position(n.Pos()).String()
+}
+
+// paramsAlias returns the aliased type of Params, or "" when Params is not an alias.
+func (p *parsedPackage) paramsAlias() (string, error) {
+	ts, err := p.typeSpec("Params")
+	if err != nil || !ts.Assign.IsValid() {
+		return "", err
+	}
+	return p.exprText(ts.Type)
 }
