@@ -306,4 +306,5 @@ The generator stops when `Params` stops aliasing `helicalgear.Params`, when the 
 other than `Loft`, `Union` and `Union`, or when the code of `Build` or `BuildTooth` changes. The helical and spur
 checks cover the pattern, join and finishing operations the gallery performs in those packages.
 
-Not yet loaded in Fusion.
+Loaded in Fusion on 2026-10-23 from the regenerated file (build id `484f3cd3b91a`), the default herringbone gear
+built without error. Not checked: a bore, a cap chamfer, an embedded gear and sketch-only mode.
