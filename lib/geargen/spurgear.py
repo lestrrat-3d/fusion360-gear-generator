@@ -172,14 +172,14 @@ class SpurGearGenerator(Generator):
         self.addParameter(
             PARAM_TIP_RADIUS, adsk.core.ValueInput.createByString(expression),
             'mm', 'Tip circle radius')
-        expression = 'tan({}) - ({} / 1 deg) * pi / 180'.format(
+        expression = 'tan({}) - ({} / 1 deg) * PI / 180'.format(
             self.parameterName(PARAM_PRESSURE_ANGLE),
             self.parameterName(PARAM_PRESSURE_ANGLE),
         )
         self.addParameter(
             PARAM_INVOLUTE_ANGLE, adsk.core.ValueInput.createByString(expression),
             '', 'Involute function of the pressure angle')
-        expression = '(0.9 * {} * (pi / {} - 2 * {}) / 2) * {}'.format(
+        expression = '(0.9 * {} * (PI / {} - 2 * {}) / 2) * {}'.format(
             self.parameterName(PARAM_ROOT_RADIUS),
             self.parameterName(PARAM_TOOTH_NUMBER),
             self.parameterName(PARAM_INVOLUTE_ANGLE),

@@ -6,9 +6,9 @@
 // a unit, and a unit-carrying angle cannot be added to a plain number. The rules
 // here are the translations that keep the value the gallery computes.
 //
-// Every rule marked "unverified" below is a hypothesis about Fusion that only a
-// Fusion load can confirm. When one is wrong, change the rule here and add the
-// finding to PLAYBOOK.md.
+// A rule marked "unverified" below is a hypothesis about Fusion that only a Fusion
+// load can confirm. When Fusion disagrees, change the rule here and record the finding
+// beside it with the Fusion version, as the pi rule does.
 package fusionexpr
 
 import (
@@ -87,7 +87,10 @@ func (t *translator) walk(e ast.Expr) (string, Kind, error) {
 
 func (t *translator) ident(e *ast.Ident) (string, Kind, error) {
 	if e.Name == "pi" {
-		return "pi", KindNone, nil
+		// Through the API, Fusion parses lowercase "pi" as a unit, so a parameter built on it
+		// evaluates to 0 or is rejected next to a length or an angle. Verified in Fusion 2705.1.25
+		// on 2026-10-23 with diag_params.py. Capital "PI" is the constant.
+		return "PI", KindNone, nil
 	}
 	kind, ok := t.kinds[e.Name]
 	if !ok {
@@ -173,8 +176,8 @@ func (t *translator) call(e *ast.CallExpr) (string, Kind, error) {
 		}
 		return fn.Name + "(" + strings.TrimSpace(arg) + ")", KindNone, nil
 	case "deg":
-		// deg(angle) is the angle in degrees as a plain number. Unverified in Fusion:
-		// dividing an angle by "1 deg" is assumed to give a unitless ratio.
+		// deg(angle) is the angle in degrees as a plain number. Verified in Fusion
+		// 2705.1.25: dividing an angle by "1 deg" gives a unitless ratio.
 		if kind != KindAngle {
 			return "", 0, fmt.Errorf("deg of a kind %d value, want an angle", kind)
 		}

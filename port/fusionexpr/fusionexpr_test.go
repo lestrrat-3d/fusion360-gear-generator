@@ -48,11 +48,11 @@ func TestTranslateSpurTable(t *testing.T) {
 			Kind: fusionexpr.KindLength,
 		},
 		"involute_angle": {
-			Format: "tan({}) - ({} / 1 deg) * pi / 180", Names: []string{"pressure_angle", "pressure_angle"},
+			Format: "tan({}) - ({} / 1 deg) * PI / 180", Names: []string{"pressure_angle", "pressure_angle"},
 			Kind: fusionexpr.KindNone,
 		},
 		"fillet_radius": {
-			Format: "0.9 * {} * (pi / {} - 2 * {}) / 2", Names: []string{"root_radius", "teeth", "involute_angle"},
+			Format: "0.9 * {} * (PI / {} - 2 * {}) / 2", Names: []string{"root_radius", "teeth", "involute_angle"},
 			Kind: fusionexpr.KindLength,
 		},
 		"bore_tool_length": {
@@ -86,4 +86,12 @@ func TestTranslateRefusesWhatItHasNoRuleFor(t *testing.T) {
 		_, err := fusionexpr.Translate(tc.expr, kinds)
 		require.Error(t, err, tc.name)
 	}
+}
+
+// TestTranslateWritesPiInCapitals records a Fusion finding: through the API lowercase "pi"
+// parses as a unit, and capital "PI" is the constant.
+func TestTranslateWritesPiInCapitals(t *testing.T) {
+	got, err := fusionexpr.Translate("pi / 2", map[string]fusionexpr.Kind{})
+	require.NoError(t, err)
+	require.Equal(t, "PI / 2", got.Format)
 }

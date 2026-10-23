@@ -241,12 +241,18 @@ a definition. The helical, herringbone and bevel gates pass against the generate
 - The embedded-flank tooth keeps the Fusion construction (flanks from the base circle, trimmed by the root circle).
   The gallery closes its embedded tooth with an arc just inside the root circle. Both give the same joined gear.
 
-### Unverified in Fusion
+### Fusion findings
 
-- `InvoluteAngle` is written as `tan(a) - (a / 1 deg) * pi / 180`. It assumes Fusion divides an angle by `1 deg`
-  into a plain number. If Fusion rejects it, change the `deg` rule in `port/fusionexpr`.
-- The embedded-flank tooth was not exercised.
-- The generated file was not loaded in Fusion at all.
+First load, Fusion 2705.1.25, 2026-10-23: `FilletRadius` was rejected with "Invalid expression". A probe of about
+twenty expression variants (`diag_params.py`, one run) showed:
+
+- Through the API, lowercase `pi` parses as a unit, not a constant. It evaluates to 0 in a unitless parameter and is
+  rejected next to a length, which made `InvoluteAngle` silently 0 and `FilletRadius` invalid. Capital `PI` is the
+  constant, so the translator writes `PI` (`port/fusionexpr`, with a test).
+- Dividing an angle by `1 deg` gives a plain number, so the `deg()` rule holds.
+
+Still unverified: the corrected `FilletRadius` registration itself, the embedded-flank tooth, and the generated
+file as a whole.
 
 ### CI
 
