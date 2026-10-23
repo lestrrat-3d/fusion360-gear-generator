@@ -251,8 +251,10 @@ twenty expression variants (`diag_params.py`, one run) showed:
   constant, so the translator writes `PI` (`port/fusionexpr`, with a test).
 - Dividing an angle by `1 deg` gives a plain number, so the `deg()` rule holds.
 
-Still unverified: the corrected `FilletRadius` registration itself, the embedded-flank tooth, and the generated
-file as a whole.
+Loaded in Fusion 2705.1.25 on 2026-10-23 after the `PI` change, each without error: the default gear, an embedded
+gear (12 teeth), a bore, a cap chamfer, and the default helical gear (which reuses the spur generator and its
+fillet helix hook). Not checked: sketch-only mode, the herringbone and bevel gears with the new file, and numeric
+agreement of the resulting body with the gallery body.
 
 ### CI
 
