@@ -41,9 +41,7 @@ func Load(dir string) (*Model, error) {
 	if m.Inputs, err = pkg.inputs(); err != nil {
 		return nil, err
 	}
-	if m.Table, err = pkg.table(); err != nil {
-		return nil, err
-	}
+	m.Table, m.TableErr = pkg.table()
 	return m, nil
 }
 
