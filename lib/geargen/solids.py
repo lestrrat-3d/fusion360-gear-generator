@@ -23,6 +23,15 @@ class NonIntersectError(RuntimeError):
     catch THIS type; any other split failure stays a plain RuntimeError."""
 
 
+def name_feature(obj, name):
+    # Name a timeline feature, construction plane or sketch by its role. A refused
+    # name must never fail a build, so the failure is logged and ignored.
+    try:
+        obj.name = name
+    except Exception as e:
+        futil.log(f'could not name "{name}": {e}')
+
+
 def surface_distance(surface, worldPoint):
     # Distance from worldPoint to its projection onto the (infinite) surface.
     # Returns float('inf') when the evaluator cannot project the point (e.g.
@@ -62,15 +71,17 @@ def select_keeper(component, pieces, apexWorld, label):
     for piece in pieces:
         containment = piece.pointContainment(apexWorld)
         if containment == adsk.fusion.PointContainment.PointInsidePointContainment:
-            component.features.removeFeatures.add(piece)
+            removal = component.features.removeFeatures.add(piece)
+            name_feature(removal, f'{label} apex piece removal')
         else:
             nonApex.append(piece)
     if len(nonApex) == 0:
         raise RuntimeError(f'{label}: no non-apex piece after cut')
     nonApex.sort(key=lambda b: b.physicalProperties.volume, reverse=True)
     keeper = nonApex[0]
-    for extra in nonApex[1:]:
-        component.features.removeFeatures.add(extra)
+    for k, extra in enumerate(nonApex[1:], start=1):
+        removal = component.features.removeFeatures.add(extra)
+        name_feature(removal, f'{label} extra piece removal {k}')
     return keeper
 
 
@@ -93,6 +104,7 @@ def apply_conical_cut(component, targetBody, frustumBody, edgeMidWorld,
             splitInput = features.splitBodyFeatures.createInput(
                 targetBody, face, True)
             split = features.splitBodyFeatures.add(splitInput)
+            name_feature(split, f'{label} split')
             if split.bodies.count > 1:
                 pieces = [split.bodies.item(i) for i in range(split.bodies.count)]
                 keeper = select_keeper(component, pieces, apexWorld, label)
@@ -131,7 +143,7 @@ def cut_conical_ends(component, toothBody, gearBody, toeMid, heelMid,
     return keeper
 
 
-def slice_body_by_offset_planes(component, body, basePlane, offsets):
+def slice_body_by_offset_planes(component, body, basePlane, offsets, label='Slice'):
     # Split `body` piece-by-piece with construction planes offset from
     # basePlane by each value in `offsets` (cm). A plane that misses a piece
     # leaves that piece whole (the split's RuntimeError is absorbed).
@@ -140,16 +152,18 @@ def slice_body_by_offset_planes(component, body, basePlane, offsets):
     planes = component.constructionPlanes
     features = component.features
     pieces = [body]
-    for offset in offsets:
+    for k, offset in enumerate(offsets, start=1):
         cpInput = planes.createInput()
         cpInput.setByOffset(basePlane, adsk.core.ValueInput.createByReal(offset))
         cutPlane = planes.add(cpInput)
+        name_feature(cutPlane, f'{label} plane {k}')
         newPieces = []
         for piece in pieces:
             try:
                 splitInput = features.splitBodyFeatures.createInput(
                     piece, cutPlane, True)
                 split = features.splitBodyFeatures.add(splitInput)
+                name_feature(split, f'{label} split {k}')
                 for b in split.bodies:
                     newPieces.append(b)
             except RuntimeError:
@@ -158,7 +172,7 @@ def slice_body_by_offset_planes(component, body, basePlane, offsets):
     return pieces
 
 
-def rotate_body_about_edge(component, body, edge, angle):
+def rotate_body_about_edge(component, body, edge, angle, name=None):
     # Rotate `body` by `angle` (radians) about the axis through the sketch
     # edge's WORLD endpoints, via a free-move matrix ([PB-MOVE-ROTATE]).
     #
@@ -181,7 +195,9 @@ def rotate_body_about_edge(component, body, edge, angle):
     bodies.add(body)
     moveInput = component.features.moveFeatures.createInput2(bodies)
     moveInput.defineAsFreeMove(matrix)
-    component.features.moveFeatures.add(moveInput)
+    move = component.features.moveFeatures.add(moveInput)
+    if name:
+        name_feature(move, name)
 
 
 def plane_by_angle(component, line, refPlane, angleDeg):

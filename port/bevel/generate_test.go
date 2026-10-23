@@ -96,3 +96,18 @@ func TestGenerateRefusesAnUnmappedInput(t *testing.T) {
 	_, err := bevel.Generate(m, "v0", fragment, reviewed)
 	require.ErrorContains(t, err, "NewOption")
 }
+
+// TestEveryCreatedObjectIsNamedByRole requires every sketch and construction plane the
+// add-in creates to be given a name, so the Fusion browser shows roles and not Sketch1.
+func TestEveryCreatedObjectIsNamedByRole(t *testing.T) {
+	have, err := os.ReadFile(filepath.Join("..", "..", "lib", "geargen", "bevelgear.py"))
+	require.NoError(t, err)
+	text := string(have)
+	created := regexp.MustCompile(`(?m)^\s*(\w+)\s*=\s*[\w.]*(?:sketches|constructionPlanes)\.add\(`)
+	matches := created.FindAllStringSubmatch(text, -1)
+	require.NotEmpty(t, matches)
+	for _, m := range matches {
+		named := regexp.MustCompile(`(?m)^\s*` + regexp.QuoteMeta(m[1]) + `\.name = `)
+		require.Truef(t, named.MatchString(text), "%s is created without a name", m[1])
+	}
+}
