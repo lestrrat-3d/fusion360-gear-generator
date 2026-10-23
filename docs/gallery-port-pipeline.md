@@ -1,8 +1,9 @@
 # Gallery port pipeline
 
-Status: design, agreed in conversation on 2026-10-23. Nothing here is built yet. Sections marked "Proposed" were
-not decided by the user and need confirmation before they are treated as settled. The user accepted the fragment
-store and regenerate-and-diff drift check.
+Status: design agreed in conversation on 2026-10-23, with a spur gear prototype built (see "Spur gear prototype").
+The prototype has not been loaded in Fusion. Sections marked "Proposed" were not decided by the user and need
+confirmation before they are treated as settled. The user accepted the fragment store and the regenerate-and-diff
+drift check.
 
 ## Goal
 
@@ -188,3 +189,68 @@ Check each of these against the built pipeline:
 - The ported add-in registers Fusion user parameters, and editing one updates the body.
 - The gallery pin in `go.mod` equals the revision recorded for the port.
 - A Fusion load of the ported spur gear succeeds for the default parameters and for the bore and chamfer cases.
+
+## Spur gear prototype
+
+The prototype lives in `port/`, a Go module whose `go.mod` pins the gallery revision.
+`go build -C port -o ../.tmp/gearport ./cmd/gearport` builds the command. From the repository root:
+
+| Command | Effect |
+| --- | --- |
+| `gearport gen spurgear` | Writes `lib/geargen/spurgear.py`. |
+| `gearport check spurgear` | Exits non-zero when that file differs from a fresh generation. |
+| `gearport accept spurgear` | Records the digest of the gallery code the fragment was reviewed against. |
+
+Packages:
+
+| Package | Role |
+| --- | --- |
+| `port/gallery` | Parses the pinned gallery spur source: `Params` fields and defaults, the parameter table, the decad operations `Build` performs, and a digest of named functions. |
+| `port/fusionexpr` | Rewrites a gallery parameter expression into a Fusion expression. It refuses a function it has no rule for. |
+| `port/gotopy` | Translates the pure numeric helpers (`rotate`, `involutePoint`, `flankBeta`, `sampleFlanks`) to Python. A test runs the Python and the Go on the same inputs and requires the flank points to agree to 1e-9. |
+| `port/spur` | The mapping from gallery names to Fusion names and dialog inputs, the stored fragment `fragments/spurgear.py.frag`, and the generator that fills the fragment's marker lines. |
+
+What comes from the gallery source: the dialog inputs and their defaults, the registered Fusion parameters and their
+expressions, and the involute sampling code. What stays in the fragment: the dialog selections, the anchor and
+sketch construction, the extrude, pattern, join, fillet, bore and chamfer calls, and the profile finding. The first
+fragment is the existing add-in with the generated parts replaced by marker lines.
+
+The generator stops, with a message naming the cause, in three cases:
+
+- The gallery parameter table gains or loses an entry the mapping does not list.
+- The decad operations `Build` performs differ from `ExpectedOps` in `port/spur/mapping.go`.
+- The code of the functions in `ReviewedFuncs` changes. A person reviews the fragment, then runs `gearport accept`.
+
+### Surface kept for the other gears
+
+`helicalgear.py`, `herringbonegear.py` and `bevelgear.py` import classes and constants from `spurgear.py`, and the
+helical gear overrides `filletHelixFactorExpression`. The generated file keeps the four classes
+(`SpurGearCommandInputsConfigurator`, `SpurGearGenerationContext`, `SpurGearGenerator`,
+`SpurGearInvoluteToothDesignGenerator`), the `PARAM_` and `INPUT_ID_` names they use, and the fillet helix hook.
+`port/spur/generate_test.go` checks that the classes exist and that no `PARAM_` or `INPUT_ID_` name is used without
+a definition. The helical, herringbone and bevel gates pass against the generated file.
+
+### Differences from the previous add-in
+
+- The pitch, base, root and tip diameters, the tooth space angle and arc, and the fillet clearance parameters are
+  gone. The gallery table has radii only, and no file outside `spurgear.py` read the removed names except as keys
+  that `spurproxy.py` serves.
+- Two parameters are new: `InvoluteAngle`, and the fillet radius now follows the gallery formula
+  `0.9 * root_radius * (pi / teeth - 2 * involute_angle) / 2`.
+- The involute sampling code is the gallery's, not a hand-written copy.
+- The embedded-flank tooth keeps the Fusion construction (flanks from the base circle, trimmed by the root circle).
+  The gallery closes its embedded tooth with an arc just inside the root circle. Both give the same joined gear.
+
+### Unverified in Fusion
+
+- `InvoluteAngle` is written as `tan(a) - (a / 1 deg) * pi / 180`. It assumes Fusion divides an angle by `1 deg`
+  into a plain number. If Fusion rejects it, change the `deg` rule in `port/fusionexpr`.
+- The embedded-flank tooth was not exercised.
+- The generated file was not loaded in Fusion at all.
+
+### CI
+
+The old gates no longer run on `spurgear`: the contract manifest lists the removed constants, and the API-call
+check does not know `collections.namedtuple`. A new `port` job runs `go test ./...` in `port/` and
+`gearport check spurgear`. `WorkflowGateWiringTest` skips a gear whose file starts with the generated header, and
+the exact-values drift test skips the module comparison for the same reason.
