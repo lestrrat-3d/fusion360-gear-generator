@@ -1,5 +1,5 @@
 {
-  "digest": "b6772ed0279f5d4b1400ddb5ca3d0fc955f9ebc2093296ec7fe5edf56de48878",
+  "digest": "4609a2fa7bc1a55c14f30aae4810c753b1a875403a1354626ca471c1ae817ede",
   "functions": [
     "Build",
     "BuildPair",
@@ -8,6 +8,7 @@
     "buildStraightMember",
     "buildSpiralMember",
     "derive",
-    "defineParameters"
+    "defineParameters",
+    "validateSpiralBuild"
   ]
 }

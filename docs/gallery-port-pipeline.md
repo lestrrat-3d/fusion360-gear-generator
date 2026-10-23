@@ -338,9 +338,12 @@ change. `buildSpiralMember` now always takes the serial route and decad's gear-s
 spiral part of the decad operation order in `ExpectedOps` is shorter. The add-in's Fusion construction does not follow
 the gallery's spiral construction, so the fragment did not change.
 
-Open gap: the gallery builds a spiral member only with equal tooth counts, module 1, a 90 degree shaft and 15 samples
-(`validateSpiralBuild`). The add-in's dialog accepts other values for the first three, so those spiral inputs are not
-proved by the gallery. `decad-gallery-93` has been asked to close the gap. The port drops no input.
+Pin update to gallery 04ee58c (PR #84, 55 of 55 CI jobs green). The gallery now builds a spiral member for any module,
+tooth counts and shaft angle (`validateSpiralBuild` refuses only samples other than 15 and a hand other than right or
+left), so the gap that the previous pin left is closed. The 20-tooth member of a 40/20 pair builds but fails
+`VerifyAll` at 0.1 mm, with the 14.5 degree pressure angle, 20 degree spiral angle and the lone cutter-radius-30 member
+(the shallow-crossing mesh bound recorded in decad's `agent-docs/faceted-vertex-bounds-design.md`). `validateSpiralBuild`
+is now in `ReviewedFuncs`, so a later tightening of that gate stops the port. The port drops no input.
 
 The gallery builds every other option the add-in offers as of gallery PR #80 (7679362). Left-hand spiral, spiral angle 20
 degrees and a 14.5 degree pressure angle build in the gallery with a weaker check than the others (a volume bound

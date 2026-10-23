@@ -73,5 +73,5 @@ var ExpectedOps = []string{
 // stops the port until the fragment is reviewed and the digest accepted.
 var ReviewedFuncs = []string{
 	"Build", "BuildPair", "prepareBuild", "buildMember", "buildStraightMember", "buildSpiralMember",
-	"derive", "defineParameters",
+	"derive", "defineParameters", "validateSpiralBuild",
 }
