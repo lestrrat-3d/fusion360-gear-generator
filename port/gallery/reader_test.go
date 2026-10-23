@@ -77,3 +77,34 @@ func TestLoadSpurTable(t *testing.T) {
 	}, byName["base_radius"])
 	require.Equal(t, "One", byName["involute_angle"].Unit)
 }
+
+func TestSpurDecadCalls(t *testing.T) {
+	m := loadSpur(t)
+	calls, err := m.DecadCalls("Build")
+	require.NoError(t, err)
+	require.Equal(t, []string{
+		"Extrude",       // root disc
+		"Extrude",       // tooth
+		"PatternCopies", // teeth
+		"Union",         // join
+		"Fillet",        // ordinary root fillet
+		"Fillet",        // embedded root fillet
+		"Extrude",       // bore tool
+		"Cut",           // bore
+		"Chamfer",       // cap chamfer
+	}, calls)
+}
+
+func TestSourceDigestIgnoresCommentsOnly(t *testing.T) {
+	m := loadSpur(t)
+	a, err := m.SourceDigest("Build", "cutBore")
+	require.NoError(t, err)
+	b, err := m.SourceDigest("Build", "cutBore")
+	require.NoError(t, err)
+	require.Equal(t, a, b)
+	c, err := m.SourceDigest("cutBore", "Build")
+	require.NoError(t, err)
+	require.NotEqual(t, a, c)
+	_, err = m.SourceDigest("noSuchFunction")
+	require.Error(t, err)
+}
