@@ -64,8 +64,7 @@ var GalleryOnly = []string{"PressureAngle", "Samples", "Placement"}
 // because the Fusion construction in the fragment was reviewed against this sequence.
 var ExpectedOps = []string{
 	"Revolve", "Revolve", "Extrude", "Revolve", "Revolve", "Cut", "Revolve", "Revolve", "Intersect",
-	"Union", "Union", "Union", "Intersect", "Revolve", "Extrude", "Revolve", "Revolve", "Cut", "Revolve",
-	"Revolve", "Intersect", "Union", "Revolve", "Revolve", "Cut", "Revolve", "Intersect", "Union",
+	"Union", "Union", "Union", "Intersect", "Revolve", "Revolve", "Cut", "Revolve", "Intersect", "Union",
 	"Union", "Extrude", "Cut",
 }
 

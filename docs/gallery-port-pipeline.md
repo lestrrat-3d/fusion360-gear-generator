@@ -332,12 +332,17 @@ The generator stops when a gallery `Params` field has no mapping, when the decad
 the pressure angle (20 degrees) and the sample count (15) that `lib/geargen/spurproxy.py` fixes for the tooth to equal
 the gallery defaults.
 
-Status: provisional. The gallery bevel source is not final: the gallery is still moving its spiral members to
-decad's generic route and decad is retiring its gear-shaped spiral route. The port is generated against 7679362
-and is complete only after a bump to the final gallery revision, with the reviewed functions and the operation
-order reviewed again.
+The pin is gallery 838801e (decad c664e84), the revision `decad-gallery-93` reported as final on 2026-10-24.
+Review against 7679362: `Params`, `derive`, `defineParameters`, `prepareBuild`, `BuildPair` and `buildMember` did not
+change. `buildSpiralMember` now always takes the serial route and decad's gear-shaped spiral route is deleted, so the
+spiral part of the decad operation order in `ExpectedOps` is shorter. The add-in's Fusion construction does not follow
+the gallery's spiral construction, so the fragment did not change.
 
-The gallery builds every option the add-in offers as of gallery PR #80 (7679362). Left-hand spiral, spiral angle 20
+Open gap: the gallery builds a spiral member only with equal tooth counts, module 1, a 90 degree shaft and 15 samples
+(`validateSpiralBuild`). The add-in's dialog accepts other values for the first three, so those spiral inputs are not
+proved by the gallery. `decad-gallery-93` has been asked to close the gap. The port drops no input.
+
+The gallery builds every other option the add-in offers as of gallery PR #80 (7679362). Left-hand spiral, spiral angle 20
 degrees and a 14.5 degree pressure angle build in the gallery with a weaker check than the others (a volume bound
 below 15 percent instead of `VerifyAll` at 0.1 mm), per `decad-7e`'s report. The Fusion add-in does not depend on that
 check. Not yet loaded in Fusion.
