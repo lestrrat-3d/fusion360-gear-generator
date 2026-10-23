@@ -21,16 +21,14 @@ var Input = struct {
 }
 
 // ExpectedOps is the sequence of decad feature operations the fragment implements.
-// The spur fragment implements the finishing operations, which the gallery calls in
-// the spurgear package.
+// The root disc, pattern, join, bore and cap chamfer run in the spurgear package's
+// pipeline, which the spur port checks.
 var ExpectedOps = []string{
-	"Loft",    // twisted tooth
-	"Extrude", // root disc
-	"Union",   // join
-	"Fillet",  // root fillet, scaled by cos(HelixAngle)
+	"Fillet", // root fillet, scaled by cos(HelixAngle)
+	"Loft",   // twisted tooth
 }
 
 // ReviewedFuncs are the gallery functions the fragment's Fusion construction follows.
 var ReviewedFuncs = []string{
-	"Build", "Assemble", "PreparePattern", "FinishAssembly", "buildTooth", "buildRootDisc", "filletRootEdges",
+	"Build", "Variant", "LoftTooth", "filletRootEdges",
 }

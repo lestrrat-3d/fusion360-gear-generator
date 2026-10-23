@@ -125,8 +125,9 @@ var ExpectedOps = []string{
 // follows. The fragment records a digest of their code (reviewed.json); a change
 // to any of them stops the port until the fragment is reviewed and the digest accepted.
 var ReviewedFuncs = []string{
-	"Build", "buildToothSection", "buildEmbeddedTooth", "addToothPoints", "closingRadius", "halfAngle",
-	"filletRootsValue", "filletEmbedded", "buildBoreProfile", "cutBore", "chamferOuterCaps",
+	"assemble", "tooth", "filletSpurRoots", "buildToothSection", "buildEmbeddedTooth", "addToothPoints",
+	"closingRadius", "halfAngle", "filletRootsValue", "filletEmbedded", "buildBoreProfile", "cutBore",
+	"chamferOuterCaps",
 }
 
 // MathStructs and MathFuncs are the gallery helpers translated to Python.

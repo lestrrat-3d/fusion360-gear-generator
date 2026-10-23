@@ -308,3 +308,12 @@ checks cover the pattern, join and finishing operations the gallery performs in 
 
 Loaded in Fusion on 2026-10-23 from the regenerated file (build id `484f3cd3b91a`), the default herringbone gear
 built without error. Not checked: a bore, a cap chamfer, an embedded gear and sketch-only mode.
+
+## Gallery pin 685d4e0
+
+The pin moved from 872277b to 685d4e0. The gallery now builds spur, helical and herringbone through one
+`spurgear.Variant` pipeline and reads dimensions from the document's parameter table. The geometry did not change,
+so the fragments did not change. The reader follows methods of the model package and package functions passed as
+values, once per method, so a build split into pipeline stages still lists its decad operations. The helical and
+herringbone gears list only the operations in their own package, and the spur port checks the shared stages. The
+`ReviewedFuncs` lists name the new functions. Only the header and build id of the three generated files changed.

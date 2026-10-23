@@ -1,12 +1,9 @@
 {
-  "digest": "d08458e6e60edce0023030ca72b92f7664a076ba8e5b23a15aa6cf782821248e",
+  "digest": "b5acda58afdbf74065c116a60b178d8c67dfc54a41e79022fa3a8469603155ef",
   "functions": [
     "Build",
-    "Assemble",
-    "PreparePattern",
-    "FinishAssembly",
-    "buildTooth",
-    "buildRootDisc",
+    "Variant",
+    "LoftTooth",
     "filletRootEdges"
   ]
 }
