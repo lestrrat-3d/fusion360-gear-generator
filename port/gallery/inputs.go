@@ -16,6 +16,10 @@ func (p *parsedPackage) inputs() ([]Input, error) {
 	if err != nil {
 		return nil, err
 	}
+	if ts.Assign.IsValid() {
+		// A model that aliases another model's Params adds no inputs of its own.
+		return nil, nil
+	}
 	st, ok := ts.Type.(*ast.StructType)
 	if !ok {
 		return nil, fmt.Errorf("%s: Params is not a struct", p.pos(ts))
