@@ -15,6 +15,14 @@ pipeline. `port/go.mod` pins the gallery revision, and `go get` is the only thin
 A change to the gallery model that touches code the stored fragment follows makes `gearport gen` stop.
 Review the fragments under `port/<gear>/fragments/`, then run `gearport accept <gear>` to record the reviewed code.
 
+## Naming
+
+Every sketch, construction plane, axis, timeline feature, body and component a gear creates in Fusion is named by its
+role (`[PB-NAME-BY-ROLE]` in the playbook). `.claude/skills/generate-gear/test_naming_by_role.py` fails on an unnamed
+creation in any `lib/geargen/*.py`. A ported gear gets its names from its fragment, so a new gear's fragment names
+everything before it is accepted. `PENDING_REGENERATION` in that test lists gears built by the compile+emit pipeline
+that have not been regenerated with the rule; an entry leaves the list when its gear is regenerated.
+
 ## Which skill regenerates any other gear
 
 A gear that has a compiled step list `spec/<gear>/steps.md` is regenerated with the
