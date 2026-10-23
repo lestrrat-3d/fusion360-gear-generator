@@ -11,9 +11,13 @@ import (
 
 // Transpile renders the named struct types as Python namedtuples and the named
 // functions as Python functions, in that order. A function may call another one in
-// funcs. Python function names are the Go names in snake_case.
-func Transpile(m *gallery.Model, structNames, funcNames []string) (string, error) {
-	tr := &transpiler{model: m, structs: map[string]*structInfo{}, funcs: map[string]*funcInfo{}}
+// funcs. Python function names are the Go names in snake_case and class names are
+// the struct names capitalized, each with prefix in front. A prefix of "_" keeps the
+// names out of a star import.
+func Transpile(m *gallery.Model, prefix string, structNames, funcNames []string) (string, error) {
+	tr := &transpiler{
+		model: m, prefix: prefix, structs: map[string]*structInfo{}, funcs: map[string]*funcInfo{},
+	}
 	var out strings.Builder
 	for _, name := range structNames {
 		info, err := tr.loadStruct(name)
@@ -30,7 +34,7 @@ func Transpile(m *gallery.Model, structNames, funcNames []string) (string, error
 		tr.funcs[name] = info
 	}
 	for _, name := range structNames {
-		out.WriteString(tr.structs[name].python())
+		out.WriteString(tr.structs[name].python(prefix))
 		out.WriteString("\n\n")
 	}
 	for _, name := range funcNames {
@@ -46,6 +50,7 @@ func Transpile(m *gallery.Model, structNames, funcNames []string) (string, error
 
 type transpiler struct {
 	model   *gallery.Model
+	prefix  string
 	structs map[string]*structInfo
 	funcs   map[string]*funcInfo
 }
@@ -67,13 +72,13 @@ type namedType struct {
 	typ  typ
 }
 
-func (s *structInfo) python() string {
+func (s *structInfo) python(prefix string) string {
 	quoted := make([]string, len(s.fields))
 	for i, f := range s.fields {
 		quoted[i] = "'" + f + "'"
 	}
-	return fmt.Sprintf("%s = collections.namedtuple('%s', [%s])",
-		pyClass(s.name), pyClass(s.name), strings.Join(quoted, ", "))
+	return fmt.Sprintf("%s%s = collections.namedtuple('%s', [%s])",
+		prefix, pyClass(s.name), pyClass(s.name), strings.Join(quoted, ", "))
 }
 
 func (t *transpiler) loadStruct(name string) (*structInfo, error) {
@@ -144,7 +149,7 @@ func (t *transpiler) function(fi *funcInfo) (string, error) {
 		args[i] = pyName(p.name)
 	}
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "def %s(%s):\n", pySnake(fi.name), strings.Join(args, ", "))
+	fmt.Fprintf(&sb, "def %s%s(%s):\n", t.prefix, pySnake(fi.name), strings.Join(args, ", "))
 	fn.indent = 1
 	if fi.named {
 		for _, r := range fi.results {

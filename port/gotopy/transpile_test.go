@@ -22,17 +22,17 @@ func transpileSpur(t *testing.T) string {
 	require.NoError(t, err)
 	m, err := gallery.Load(src.Dir)
 	require.NoError(t, err)
-	out, err := gotopy.Transpile(m, []string{"point"}, helperFuncs)
+	out, err := gotopy.Transpile(m, "_", []string{"point"}, helperFuncs)
 	require.NoError(t, err)
 	return out
 }
 
 func TestTranspileSpurHelpersText(t *testing.T) {
 	out := transpileSpur(t)
-	require.Contains(t, out, "Point = collections.namedtuple('Point', ['x', 'y'])")
-	require.Contains(t, out, "def involute_point(base, r):")
+	require.Contains(t, out, "_Point = collections.namedtuple('Point', ['x', 'y'])")
+	require.Contains(t, out, "def _involute_point(base, r):")
 	require.Contains(t, out, "t = math.tan(math.acos(ratio))")
-	require.Contains(t, out, "def sample_flanks(pitch, base, start, tip, teeth, samples, angle):")
+	require.Contains(t, out, "def _sample_flanks(pitch, base, start, tip, teeth, samples, angle):")
 	require.Contains(t, out, "for i in range(0, samples):")
 }
 
@@ -53,7 +53,7 @@ for c in cases:
     pitch = c['module'] * c['teeth'] / 2
     base = pitch * math.cos(c['pressure_angle'])
     tip = pitch + c['module']
-    left, right = sample_flanks(pitch, base, base, tip, float(c['teeth']), c['samples'], c['angle'])
+    left, right = _sample_flanks(pitch, base, base, tip, float(c['teeth']), c['samples'], c['angle'])
     out.append({'left': [list(p) for p in left], 'right': [list(p) for p in right]})
 json.dump(out, sys.stdout)
 `
@@ -112,6 +112,6 @@ func TestTranspileRefusesWhatItCannotTranslate(t *testing.T) {
 	require.NoError(t, err)
 
 	// Build uses contexts, documents and method calls outside the subset.
-	_, err = gotopy.Transpile(m, []string{"point"}, []string{"Build"})
+	_, err = gotopy.Transpile(m, "_", []string{"point"}, []string{"Build"})
 	require.Error(t, err)
 }

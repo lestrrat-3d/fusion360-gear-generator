@@ -209,7 +209,7 @@ func (f *fnState) identCall(e *ast.CallExpr, fn *ast.Ident) (string, typ, error)
 	if err != nil {
 		return "", typ{}, err
 	}
-	return pySnake(fn.Name) + "(" + strings.Join(args, ", ") + ")", callee.results[0].typ, nil
+	return f.t.prefix + pySnake(fn.Name) + "(" + strings.Join(args, ", ") + ")", callee.results[0].typ, nil
 }
 
 func (f *fnState) conversion(e *ast.CallExpr, py string, t typ) (string, typ, error) {
@@ -299,5 +299,5 @@ func (f *fnState) composite(e *ast.CompositeLit) (string, typ, error) {
 	if err != nil {
 		return "", typ{}, err
 	}
-	return pyClass(id.Name) + "(" + strings.Join(args, ", ") + ")", typ{kind: kindStruct, name: id.Name}, nil
+	return f.t.prefix + pyClass(id.Name) + "(" + strings.Join(args, ", ") + ")", typ{kind: kindStruct, name: id.Name}, nil
 }
