@@ -1,17 +1,20 @@
 name: 3D proof
 
 # Runs the geometry proofs and re-gates every checked-in generator as if it were a fresh
-# candidate. Three jobs, so a failure says which layer broke:
+# candidate. Four jobs, so a failure says which layer broke:
 #
 #   checkers  the gate scripts' own regression tests, which are gear-independent
 #   proof     proof/run.sh, which builds every gear's proof against pinned engine revisions
 #   gates     one leg per gear, running that gear's compile check, playbook-citation check and
 #             gate battery
+#   port      port/, which generates the gears ported from decad-gallery and fails when a
+#             checked-in ported gear differs from a fresh generation
 #
-# The gates matrix covers every gear /compile-gear has produced a step list for. Add a gear to it
-# when it gains a spec/<gear>/steps.md; check_step_calls.py's WorkflowGateWiringTest fails the
-# build if a compiled gear is missing here, so the matrix cannot silently lag the repo.
-# Every gear is compiled, so the matrix covers all of them.
+# The gates matrix covers every gear /compile-gear has produced a step list for, except a gear
+# whose lib/geargen file the port generates: that file is gated by the port job instead. Add a
+# gear to the matrix when it gains a spec/<gear>/steps.md; check_step_calls.py's
+# WorkflowGateWiringTest fails the build if a compiled, unported gear is missing here, so the
+# matrix cannot silently lag the repo.
 #
 # The engines publish no tags, so a SHA is the only stable handle. Bumping one is a deliberate
 # PR, and these proofs are what decide whether the new engine is acceptable.
@@ -214,8 +217,6 @@ jobs:
         include:
           # require_contract is set for a gear whose spec/<gear>/contract.json must exist, so a
           # deleted manifest fails the run instead of silently skipping the contract gate.
-          - gear: spurgear
-            require_contract: '--require-contract'
           - gear: helicalgear
             require_contract: '--require-contract'
           - gear: bevelgear
@@ -288,3 +289,32 @@ jobs:
           python3 .claude/skills/generate-gear/run_gates.py ${{ matrix.gear }} \
             --gate-novel-types ${{ matrix.require_contract }}
         working-directory: gears
+
+  port:
+    name: Gallery port
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the gear repository
+        uses: actions/checkout@v4
+
+      # port/go.mod pins the decad-gallery revision the ported gears are generated from, and the
+      # Go module cache supplies that source, so no sibling checkout is needed.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: port/go.mod
+          cache: false
+
+      # The differential tests run the Python translation of the gallery's Go helpers, and the
+      # same Python runs the generated add-in's syntax check.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Run the port tests
+        run: go test ./...
+        working-directory: port
+
+      - name: Check lib/geargen/spurgear.py is what the port generates
+        run: |
+          go build -C port -o ../.tmp/gearport ./cmd/gearport
+          .tmp/gearport check spurgear

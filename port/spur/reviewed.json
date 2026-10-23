@@ -1,0 +1,16 @@
+{
+  "digest": "bcb7ea3eae66e1f3ca6620b78efcfac8496affcc99585b7efd6299719f311e5e",
+  "functions": [
+    "Build",
+    "buildToothSection",
+    "buildEmbeddedTooth",
+    "addToothPoints",
+    "closingRadius",
+    "halfAngle",
+    "filletRootsValue",
+    "filletEmbedded",
+    "buildBoreProfile",
+    "cutBore",
+    "chamferOuterCaps"
+  ]
+}
