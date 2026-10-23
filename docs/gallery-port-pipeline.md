@@ -251,10 +251,13 @@ twenty expression variants (`diag_params.py`, one run) showed:
   constant, so the translator writes `PI` (`port/fusionexpr`, with a test).
 - Dividing an angle by `1 deg` gives a plain number, so the `deg()` rule holds.
 
-Sketch-only mode in Fusion 2705.1.25: the Tools and Gear Profile sketches showed as not fully constrained in the
-browser, and each showed fully constrained after the sketch was opened. The proof reads both as fully constrained, so
-this is the stale icon of `PB-SETTLE-DISPLAY`. `settle_sketch_display`, which the command runs after generation, did
-not refresh them in this build. Nothing in the port changed the sketch calls.
+Sketch-only mode in Fusion 2705.1.25: on the first run the Tools and Gear Profile sketches showed as not fully
+constrained in the browser, and each showed fully constrained after the sketch was opened. A later run showed both
+fully constrained without any action. The proof reads both as fully constrained, probes that build sketches the way
+the generators do (in the root and in a new component) showed no stale icon at all, and the playbook records that
+the icon and the property can disagree and that a labelled sketch reads unstably (`PB-SETTLE-DISPLAY`,
+`PB-TEXT-HOLDS-DOF`). The first reading was not reproduced, and nothing in the port changed the sketch calls, so no
+code changed.
 
 Loaded in Fusion 2705.1.25 on 2026-10-23 after the `PI` change, each without error: the default gear, an embedded
 gear (12 teeth), a bore, a cap chamfer, and the default helical gear (which reuses the spur generator and its
