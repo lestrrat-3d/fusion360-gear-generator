@@ -1,0 +1,13 @@
+{
+  "digest": "e8af0ff62395c22c16762b001baf262218251871add01ffce114129e7abc957f",
+  "functions": [
+    "Build",
+    "BuildPair",
+    "prepareBuild",
+    "buildMember",
+    "buildStraightMember",
+    "buildSpiralMember",
+    "derive",
+    "defineParameters"
+  ]
+}

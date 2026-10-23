@@ -317,3 +317,26 @@ so the fragments did not change. The reader follows methods of the model package
 values, once per method, so a build split into pipeline stages still lists its decad operations. The helical and
 herringbone gears list only the operations in their own package, and the spur port checks the shared stages. The
 `ReviewedFuncs` lists name the new functions. Only the header and build id of the three generated files changed.
+
+## Bevel gear port
+
+`gearport gen bevelgear` writes `lib/geargen/bevelgear.py` from the pinned gallery `models/bevelgear`. The add-in
+builds the pair with Fusion calls that the stored fragment `port/bevel/fragments/bevelgear.py.frag` holds, and it
+registers no Fusion user parameters, so the gallery's derived parameter table is not read. The port takes the dialog
+inputs and their defaults from the gallery `Params` and `DefaultParams`: module, teeth, shaft angle, base heights,
+bore, face width, tooth spacing, spiral angle and hand, cutter radius, toe extension and toe radii. The generated file
+equals the previous one except for the header and build id lines.
+
+The generator stops when a gallery `Params` field has no mapping, when the decad operations of `Build` differ from
+`ExpectedOps` in `port/bevel/mapping.go`, or when the code of the functions in `ReviewedFuncs` changes. A test requires
+the pressure angle (20 degrees) and the sample count (15) that `lib/geargen/spurproxy.py` fixes for the tooth to equal
+the gallery defaults.
+
+The gallery builds every option the add-in offers as of gallery PR #80 (7679362). Left-hand spiral, spiral angle 20
+degrees and a 14.5 degree pressure angle build in the gallery with a weaker check than the others (a volume bound
+below 15 percent instead of `VerifyAll` at 0.1 mm), per `decad-7e`'s report. The Fusion add-in does not depend on that
+check. Not yet loaded in Fusion.
+
+The reader now reads string and bool defaults, follows `Params` that alias another model's, and no longer fails on a
+model whose `defineParameters` uses loops: the bevel table form (a loop over struct literals and a computed face width
+expression) is not read, and `Model.TableErr` records why. A port that needs the table reports it.
