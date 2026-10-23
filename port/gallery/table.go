@@ -13,7 +13,8 @@ import (
 func (p *parsedPackage) table() ([]Parameter, error) {
 	fd, err := p.funcDecl("defineParameters")
 	if err != nil {
-		return nil, err
+		// A model that derives its values from another model has no table of its own.
+		return nil, nil
 	}
 	recv, err := p.tableReceiver(fd)
 	if err != nil {

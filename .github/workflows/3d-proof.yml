@@ -217,8 +217,6 @@ jobs:
         include:
           # require_contract is set for a gear whose spec/<gear>/contract.json must exist, so a
           # deleted manifest fails the run instead of silently skipping the contract gate.
-          - gear: helicalgear
-            require_contract: '--require-contract'
           - gear: bevelgear
             require_contract: ''
           - gear: herringbonegear
@@ -318,3 +316,8 @@ jobs:
         run: |
           go build -C port -o ../.tmp/gearport ./cmd/gearport
           .tmp/gearport check spurgear
+
+      - name: Check lib/geargen/helicalgear.py is what the port generates
+        run: |
+          go build -C port -o ../.tmp/gearport ./cmd/gearport
+          .tmp/gearport check helicalgear

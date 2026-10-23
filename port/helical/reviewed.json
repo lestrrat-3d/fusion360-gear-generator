@@ -1,0 +1,12 @@
+{
+  "digest": "d08458e6e60edce0023030ca72b92f7664a076ba8e5b23a15aa6cf782821248e",
+  "functions": [
+    "Build",
+    "Assemble",
+    "PreparePattern",
+    "FinishAssembly",
+    "buildTooth",
+    "buildRootDisc",
+    "filletRootEdges"
+  ]
+}

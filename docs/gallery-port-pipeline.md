@@ -270,3 +270,27 @@ The old gates no longer run on `spurgear`: the contract manifest lists the remov
 check does not know `collections.namedtuple`. A new `port` job runs `go test ./...` in `port/` and
 `gearport check spurgear`. `WorkflowGateWiringTest` skips a gear whose file starts with the generated header, and
 the exact-values drift test skips the module comparison for the same reason.
+
+## Helical gear port
+
+`gearport gen helicalgear` writes `lib/geargen/helicalgear.py` from the pinned `models/helicalgear`. The gallery
+helical gear is the spur gear plus `HelixAngle` and a loft between two twisted sections, and the add-in already
+builds on the generated spur add-in. So the port generates only what the helical source defines: the `HelixAngle`
+dialog input, its default and the two name constants. The rest is the stored fragment
+`port/helical/fragments/helicalgear.py.frag`, which is the previous add-in with those lines replaced by markers.
+The generated file equals the previous one except for the header.
+
+The generator stops when the helical build performs operations other than `Loft`, `Extrude`, `Union` and `Fillet`,
+when `Params` gains a field beyond `HelixAngle`, or when the code of the functions in `ReviewedFuncs`
+(`port/helical/mapping.go`) changes. The root fillet radius, which the gallery scales by `cos(HelixAngle)`, stays
+in the spur parameter through `filletHelixFactorExpression`.
+
+Loaded in Fusion on 2026-10-23 from the regenerated file (build id `a37e99a9aedb`, confirmed in the Fusion log), the
+default helical gear built without error. Not checked: a bore, a cap chamfer, an embedded gear, sketch-only mode, and
+numeric agreement of the body with the gallery body.
+
+### Build id
+
+Every generated add-in carries `GEAR_BUILD_ID`, the first 12 hex digits of the SHA-256 of the file without its three
+stamp lines, and logs `<gear> build <id>` when Fusion imports the module. `gearport id <gear>` prints the id the
+file in the working tree carries. A match between the Fusion log and that output shows Fusion ran that file.

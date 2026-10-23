@@ -13,7 +13,7 @@ repository root (build it with `go build -C port -o ../.tmp/gearport ./cmd/gearp
 pipeline. `port/go.mod` pins the gallery revision, and `go get` is the only thing that moves it.
 
 A change to the gallery model that touches code the stored fragment follows makes `gearport gen` stop.
-Review `port/spur/fragments/`, then run `gearport accept <gear>` to record the reviewed code.
+Review `port/spur/fragments/` or `port/helical/fragments/`, then run `gearport accept <gear>` to record the reviewed code.
 
 ## Which skill regenerates any other gear
 
@@ -69,7 +69,8 @@ the spec, the step list and the proof describing a gear that no longer exists.
 
 For a gear the port generates, send the finding to whichever of these fits, then run `gearport gen`:
 
-- A Fusion construction detail of one gear goes in its stored fragment, `port/spur/fragments/`.
+- A Fusion construction detail of one gear goes in its stored fragment, `port/spur/fragments/` or
+  `port/helical/fragments/`.
 - A translation rule for a gallery parameter expression goes in `port/fusionexpr`.
 - A mapping of gallery names to Fusion names or dialog inputs goes in `port/spur/mapping.go`.
 - A geometry rule belongs in the gallery model, so ask the gallery to change it.
