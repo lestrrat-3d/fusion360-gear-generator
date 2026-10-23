@@ -5,6 +5,7 @@ package gallery
 
 // Model is what the reader extracts from one gallery model package.
 type Model struct {
+	pkg *parsedPackage
 	// Package is the Go package name, for example "spurgear".
 	Package string
 	// Inputs lists the fields of the Params struct in declaration order.

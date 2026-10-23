@@ -34,7 +34,7 @@ func Load(dir string) (*Model, error) {
 		return nil, fmt.Errorf("no Go source files in %s", dir)
 	}
 	pkg := &parsedPackage{fset: fset, files: files}
-	m := &Model{Package: files[0].Name.Name}
+	m := &Model{Package: files[0].Name.Name, pkg: pkg}
 	if m.Inputs, err = pkg.inputs(); err != nil {
 		return nil, err
 	}
