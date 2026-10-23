@@ -4,6 +4,7 @@
 //	gearport gen <gear>      write lib/geargen/<gear>.py
 //	gearport check <gear>    fail when that file differs from a fresh generation
 //	gearport accept <gear>   record the gallery code the fragment was reviewed against
+//	gearport id <gear>       print the build id the file's contents carry
 //
 // The gears are spurgear and helicalgear.
 //
@@ -22,7 +23,7 @@ import (
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/spur"
 )
 
-const usage = "usage: gearport gen|check|accept spurgear|helicalgear"
+const usage = "usage: gearport gen|check|accept|id spurgear|helicalgear"
 
 // gear describes one ported gear: where its stored files live and how to generate it.
 type gear struct {
@@ -72,6 +73,13 @@ func run(ctx context.Context, args []string) error {
 		return err
 	}
 	switch args[0] {
+	case "id":
+		have, err := os.ReadFile(g.output)
+		if err != nil {
+			return err
+		}
+		fmt.Println(spur.FileID(string(have)))
+		return nil
 	case "gen":
 		return g.gen(m, src.Version, args[1], false)
 	case "check":

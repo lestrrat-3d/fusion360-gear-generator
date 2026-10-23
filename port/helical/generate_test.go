@@ -55,3 +55,10 @@ func TestGenerateRefusesAnUnfilledFragment(t *testing.T) {
 	_, err := helical.Generate(m, "v0", "x = 1\n", reviewed)
 	require.ErrorContains(t, err, "markers")
 }
+
+// TestBuildIdMatchesTheFile requires the id the add-in logs to be the id its contents hash to.
+func TestBuildIdMatchesTheFile(t *testing.T) {
+	have, err := os.ReadFile(filepath.Join("..", "..", "lib", "geargen", "helicalgear.py"))
+	require.NoError(t, err)
+	require.Contains(t, string(have), "GEAR_BUILD_ID = '"+spur.FileID(string(have))+"'")
+}

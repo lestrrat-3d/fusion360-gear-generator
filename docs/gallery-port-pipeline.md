@@ -287,3 +287,9 @@ in the spur parameter through `filletHelixFactorExpression`.
 
 Loaded in Fusion before this change, the default helical gear built without error (see above). The Fusion check of
 the regenerated file is still to do.
+
+### Build id
+
+Every generated add-in carries `GEAR_BUILD_ID`, the first 12 hex digits of the SHA-256 of the file without its three
+stamp lines, and logs `<gear> build <id>` when Fusion imports the module. `gearport id <gear>` prints the id the
+file in the working tree carries. A match between the Fusion log and that output shows Fusion ran that file.
