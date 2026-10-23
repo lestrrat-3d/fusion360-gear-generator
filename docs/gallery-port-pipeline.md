@@ -285,8 +285,9 @@ when `Params` gains a field beyond `HelixAngle`, or when the code of the functio
 (`port/helical/mapping.go`) changes. The root fillet radius, which the gallery scales by `cos(HelixAngle)`, stays
 in the spur parameter through `filletHelixFactorExpression`.
 
-Loaded in Fusion before this change, the default helical gear built without error (see above). The Fusion check of
-the regenerated file is still to do.
+Loaded in Fusion on 2026-10-23 from the regenerated file (build id `a37e99a9aedb`, confirmed in the Fusion log), the
+default helical gear built without error. Not checked: a bore, a cap chamfer, an embedded gear, sketch-only mode, and
+numeric agreement of the body with the gallery body.
 
 ### Build id
 
