@@ -53,7 +53,7 @@ func Generate(m *gallery.Model, version, fragment string, reviewed Reviewed) (st
 		{"derived_parameters", gen.derived},
 		{"geometry_helpers", gen.helpers},
 	} {
-		if out, err = fill(out, r.marker, r.text); err != nil {
+		if out, err = Fill(out, r.marker, r.text); err != nil {
 			return "", err
 		}
 	}
@@ -120,8 +120,8 @@ func checkReviewed(m *gallery.Model, rec Reviewed) error {
 
 var markerLine = regexp.MustCompile(`(?m)^[ \t]*# @@([a-z_]+)@@\n`)
 
-// fill replaces the line holding the named marker with text, which must end in a newline.
-func fill(src, marker, text string) (string, error) {
+// Fill replaces the line holding the named marker with text, which must end in a newline.
+func Fill(src, marker, text string) (string, error) {
 	found := 0
 	out := markerLine.ReplaceAllStringFunc(src, func(line string) string {
 		if markerLine.FindStringSubmatch(line)[1] != marker {

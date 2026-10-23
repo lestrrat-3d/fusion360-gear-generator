@@ -71,6 +71,11 @@ func (p *parsedPackage) defaults() (map[string]float64, error) {
 		if !ok {
 			return nil, fmt.Errorf("%s: DefaultParams key is not a field name", p.pos(kv.Key))
 		}
+		if _, embedded := kv.Value.(*ast.CallExpr); embedded && key.Name == "Params" {
+			// A model that embeds another model's Params starts from that model's
+			// defaults; only its own fields are read here.
+			continue
+		}
 		v, err := p.constant(kv.Value)
 		if err != nil {
 			return nil, fmt.Errorf("default of %s: %w", key.Name, err)

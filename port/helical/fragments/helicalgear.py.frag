@@ -1,0 +1,91 @@
+import math
+
+import adsk.core
+import adsk.fusion
+
+from .base import get_value
+from .spurgear import (
+    PARAM_MODULE,
+    PARAM_TOOTH_NUMBER,
+    PARAM_THICKNESS,
+    SpurGearCommandInputsConfigurator,
+    SpurGearGenerationContext,
+    SpurGearGenerator,
+    SpurGearInvoluteToothDesignGenerator,
+)
+from .utilities import find_profile_by_curve_counts
+
+
+# @@constants@@
+
+class HelicalGearCommandConfigurator(SpurGearCommandInputsConfigurator):
+    @classmethod
+    def configure(cls, cmd):
+        super().configure(cmd)
+        inputs: adsk.core.CommandInputs = cmd.commandInputs
+        # @@inputs@@
+
+
+class HelicalGearGenerationContext(SpurGearGenerationContext):
+    def __init__(self):
+        super().__init__()
+        self.helixPlane = adsk.fusion.ConstructionPlane.cast(None)
+        self.twistedGearProfileSketch = adsk.fusion.Sketch.cast(None)
+
+
+class HelicalGearGenerator(SpurGearGenerator):
+    def newContext(self) -> HelicalGearGenerationContext:
+        return HelicalGearGenerationContext()
+
+    def prefixBase(self) -> str:
+        return 'HelicalGear'
+
+    def generateName(self) -> str:
+        module = self.getParameter(PARAM_MODULE)
+        toothNumber = self.getParameter(PARAM_TOOTH_NUMBER)
+        thickness = self.getParameter(PARAM_THICKNESS)
+        helixAngle = self.getParameter(PARAM_HELIX_ANGLE)
+        return 'Helical Gear (M={}, Tooth={}, Thickness={}, Angle={})'.format(
+            module.expression, toothNumber.expression, thickness.expression, helixAngle.expression)
+
+    def addExtraPrimaryParameters(self, inputs):
+        self.addParameter(
+            PARAM_HELIX_ANGLE, get_value(inputs, INPUT_ID_HELIX_ANGLE, 'rad'),
+            'rad', 'Helix angle for the helical gear')
+
+    def filletHelixFactorExpression(self) -> str:
+        return 'cos({})'.format(self.parameterName(PARAM_HELIX_ANGLE))
+
+    def helicalPlaneOffset(self) -> adsk.core.ValueInput:
+        return self.getParameterAsValueInput(PARAM_THICKNESS)
+
+    def buildSketches(self, ctx: SpurGearGenerationContext):
+        assert isinstance(ctx, HelicalGearGenerationContext)
+        super().buildSketches(ctx)
+        planes = self.getComponent().constructionPlanes
+        planeInput = planes.createInput()
+        offset = self.helicalPlaneOffset()
+        planeInput.setByOffset(self.plane, offset)
+        plane = planes.add(planeInput)
+        ctx.helixPlane = plane
+        loftSketch = self.createSketchObject('Twisted Gear Profile', plane=plane)
+        toothGenerator = SpurGearInvoluteToothDesignGenerator(loftSketch, self)
+        helixAngle = self.getParameter(PARAM_HELIX_ANGLE).value
+        toothGenerator.draw(ctx.anchorPoint, angle=helixAngle)
+        ctx.twistedGearProfileSketch = loftSketch
+
+    def buildTooth(self, ctx: SpurGearGenerationContext):
+        assert isinstance(ctx, HelicalGearGenerationContext)
+        self.loftTooth(ctx)
+
+    def loftTooth(self, ctx: SpurGearGenerationContext):
+        assert isinstance(ctx, HelicalGearGenerationContext)
+        bottomToothProfile = find_profile_by_curve_counts(ctx.gearProfileSketch, nurbs=2, arcs=2, lines=2)
+        topToothProfile = find_profile_by_curve_counts(ctx.twistedGearProfileSketch, nurbs=2, arcs=2, lines=2)
+        lofts = self.getComponent().features.loftFeatures
+        loftInput = lofts.createInput(adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+        loftInput.loftSections.add(bottomToothProfile)
+        loftInput.loftSections.add(topToothProfile)
+        loftResult = lofts.add(loftInput)
+        ctx.toothBody = loftResult.bodies.item(0)
+        ctx.toothBody.name = 'Tooth Body'
