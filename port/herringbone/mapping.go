@@ -3,20 +3,48 @@
 //
 // The gallery herringbone gear takes the helical gear's Params unchanged and differs
 // only in its tooth: it lofts half the twist to the mid-plane, mirrors that half and
-// joins the two. The add-in builds on the generated helical add-in, so it has no
-// dialog input or parameter of its own and the stored fragment carries the whole file.
+// joins the two. The chevron tooth is translated from the gallery (FeatureSpec). The
+// add-in builds on the generated helical add-in, so it has no dialog input of its own.
 package herringbone
+
+import (
+	"github.com/lestrrat-3d/fusion360-gear-generator/port/go2py"
+	"github.com/lestrrat-3d/fusion360-gear-generator/port/helical"
+)
 
 // ParamsAlias is the type the gallery Params must alias, so that the dialog inputs
 // the helical add-in registers are the inputs this gear needs.
 const ParamsAlias = "helicalgear.Params"
 
-// ExpectedOps is the sequence of decad feature operations the gallery Build performs
-// in its own package. The helical package performs the pattern, join and finishing
-// operations, and port/helical checks those.
-var ExpectedOps = []string{
-	"Union", // join the mirrored halves
+// PlaneOffset is the helical plane offset the gallery's variant passes: half the thickness.
+var PlaneOffset = helical.Parameter{
+	Table: helical.PlaneOffset.Table, Const: helical.PlaneOffset.Const, Name: helical.PlaneOffset.Name,
+	Unit: helical.PlaneOffset.Unit, Comment: helical.PlaneOffset.Comment, Expr: "thickness / 2",
 }
 
-// ReviewedFuncs are the gallery functions the fragment's Fusion construction follows.
-var ReviewedFuncs = []string{"Build", "variant", "chevron"}
+// ReviewedFuncs are the gallery functions whose code PlaneOffset and the Variant wiring in
+// the fragment copy. The fragment records a digest of them (reviewed.json).
+var ReviewedFuncs = []string{"variant"}
+
+// FeatureSpec is what the port translates from the gallery's herringbone model: the
+// chevron tooth. It calls the helical loft and the spur's tooth input.
+var FeatureSpec = go2py.Spec{
+	Prefix: "_",
+	Funcs:  []string{"chevron"},
+	Roles: map[string]go2py.Role{
+		"chevron:decad.MirroredCopy#1": {Feature: "Tooth Half Mirror", Body: "Tooth Body (Mirrored)"},
+		"chevron:decad.Union#1":        {Feature: "Tooth Halves Join"},
+	},
+	External:      external(),
+	ExternalTypes: helical.SpurExternalTypes,
+}
+
+func external() map[string]go2py.External {
+	out := map[string]go2py.External{
+		"helicalgear.LoftTooth": {Python: "_helical.loft_tooth", Results: []string{"decad.Body"}},
+	}
+	for k, v := range helical.SpurExternal {
+		out[k] = v
+	}
+	return out
+}

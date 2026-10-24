@@ -26,6 +26,7 @@ const (
 	kindString
 	// kindNil is the nil literal, and the value of any field of a zero-valued struct.
 	kindNil
+	kindMap
 )
 
 // typ is the Go type of a translated expression.
@@ -33,8 +34,10 @@ type typ struct {
 	kind kind
 	// name is the struct type name when kind is kindStruct, and the Go type when kind is kindOpaque.
 	name string
-	// elem is the element type when kind is kindSlice.
+	// elem is the element type when kind is kindSlice, and the value type when kind is kindMap.
 	elem *typ
+	// key is the key type when kind is kindMap.
+	key *typ
 }
 
 var (
@@ -61,6 +64,8 @@ func (t typ) zero() (string, error) {
 		return "False", nil
 	case kindOpaque, kindNil:
 		return "None", nil
+	case kindMap:
+		return "{}", nil
 	case kindString:
 		return `""`, nil
 	}
@@ -90,6 +95,11 @@ func fromAST(e ast.Expr, structs map[string]*structInfo) (typ, error) {
 		if name, ok := opaqueType(e); ok {
 			return typ{kind: kindOpaque, name: name}, nil
 		}
+		if pkg, ok := e.X.(*ast.Ident); ok {
+			if info, ok := structs[pkg.Name+"."+e.Sel.Name]; ok && info.external {
+				return typ{kind: kindOpaque, name: info.name}, nil
+			}
+		}
 		if pkg, ok := e.X.(*ast.Ident); ok && pkg.Name == "context" && e.Sel.Name == "Context" {
 			return ctxType, nil
 		}
@@ -102,6 +112,35 @@ func fromAST(e ast.Expr, structs map[string]*structInfo) (typ, error) {
 			return typ{}, err
 		}
 		return typ{kind: kindSlice, elem: &elem}, nil
+	case *ast.MapType:
+		key, err := fromAST(e.Key, structs)
+		if err != nil {
+			return typ{}, err
+		}
+		val, err := fromAST(e.Value, structs)
+		if err != nil {
+			return typ{}, err
+		}
+		return typ{kind: kindMap, key: &key, elem: &val}, nil
+	case *ast.FuncType:
+		ft := typ{kind: kindOpaque, name: "func"}
+		if e.Results != nil {
+			for _, r := range e.Results.List {
+				if id, ok := r.Type.(*ast.Ident); ok && id.Name == "error" {
+					continue
+				}
+				rt, err := fromAST(r.Type, structs)
+				if err != nil {
+					return typ{}, err
+				}
+				ft.elem = &rt
+			}
+		}
+		return ft, nil
+	case *ast.StructType:
+		if len(e.Fields.List) == 0 {
+			return typ{kind: kindOpaque, name: "struct{}"}, nil
+		}
 	}
 	return typ{}, fmt.Errorf("unsupported type %T", e)
 }
@@ -127,6 +166,9 @@ type structInfo struct {
 	// zero marks a struct the translation treats as its zero value, such as an options
 	// struct with every field unset. Every field reads as nil.
 	zero bool
+	// external marks a struct of another gallery package, which the translation holds as an
+	// opaque handle and reads only the listed fields of.
+	external bool
 }
 
 // mutable reports whether the struct holds slices or handles, which a function fills in

@@ -118,7 +118,15 @@ build on the shared `[PB-FULL-CONSTRAINT]`, `[PB-SHARE-XOR-COINCIDENT]`, `[PB-NO
   dimensions from the local origin, and last the coincident constraint onto the anchor. The tooth angle is part of the
   sampled points, so there is no spine, reference line or angular dimension. The ribs below, `[SPUR-F-SPINE]` and
   `[SPUR-F-ROTATE-CONFIRM]` describe the old construction, which only `lib/geargen/legacyspur.py` still draws, for the
-  helical, herringbone and bevel add-ins until those are translated.
+  bevel add-in until it is translated.
+
+- **[SPUR-F-LOCAL-FRAME] The translated code builds in the gallery's local frame, and the runtime maps to the design.**
+  The gallery builds a gear about the local origin and +Z and moves it onto its placement at the end. The translated
+  spur, helical and herringbone code does the same: the frame it receives is the identity, a position it reads from an
+  edge (`Position.Value`) is local, and a position it hands back (a pattern axis, a plane's frame, an edge end point)
+  is local too. `Runtime.build_frame` records where the gear lies (the anchor, the Tools sketch's axes and their
+  normal), and `to_local`, `to_world` and `to_world_dir` convert at each of those places. The helical root fillet
+  tests a root edge by its Z component, so it only works because Z is the gear axis.
 
 - **[SPUR-F-RUNTIME-RULES] What `decadfusion.py` decides, because the gallery does not.** The extrude distance and
   the fillet and chamfer sizes are the user parameters, as expressions, so the features stay parametric. A radius or

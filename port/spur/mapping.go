@@ -35,9 +35,6 @@ type Param struct {
 	Comment string
 	// Input is the dialog input of a primary parameter.
 	Input *Input
-	// HelixFactor multiplies the parameter's expression by the generator's
-	// filletHelixFactorExpression hook, which the helical gear overrides.
-	HelixFactor bool
 }
 
 // Convert tells how a gallery default becomes a Python dialog default.
@@ -105,7 +102,7 @@ var Params = []Param{
 	{Table: "involute_angle", Kind: Derived, Const: "PARAM_INVOLUTE_ANGLE", Name: "InvoluteAngle",
 		Comment: "Involute function of the pressure angle"},
 	{Table: "fillet_radius", Kind: Derived, Const: "PARAM_FILLET_RADIUS", Name: "FilletRadius", Unit: "mm",
-		Comment: "Radius of the root fillets", HelixFactor: true},
+		Comment: "Radius of the root fillets"},
 	{Table: "bore_tool_length", Kind: Derived, Const: "PARAM_BORE_TOOL_LENGTH", Name: "BoreToolLength", Unit: "mm",
 		Comment: "Length of the bore tool"},
 }
@@ -120,16 +117,18 @@ var Params = []Param{
 // helical, herringbone and bevel add-ins still use until their constructions are translated too.
 var FeatureSpec = go2py.Spec{
 	Prefix:   "_",
-	Structs:  []string{"point", "dimensions", "toothPoints"},
+	Structs:  []string{"point", "dimensions", "toothPoints", "Variant", "ToothInput"},
 	TypeOnly: []string{"Params", "run"},
-	Zero:     []string{"Variant"},
-	// The add-in registers the parameters itself, from the mapping above.
-	Provided: []string{"defineParameters"},
+	// The add-in registers the parameters and checks the inputs itself.
+	Provided: []string{"defineParameters", "validate"},
+	// The runtime reads the dimensions from the user parameters instead of a scratch document.
+	Bound: map[string]go2py.Bound{"derive": {Python: "_fx.derive", Result: "dimensions"}},
 	Funcs: []string{
 		"rotate", "involutePoint", "flankBeta", "sampleFlanks", "rootContact", "toothAngle", "addToothPoints",
 		"toWorld", "shifted", "placement", "singleProfile", "solveAndVerify", "halfAngle", "closingRadius",
-		"buildToothSection", "buildEmbeddedTooth", "tooth", "filletSpurRoots", "filletRootsValue",
-		"filletEmbedded", "buildBoreProfile", "cutBore", "chamferOuterCaps", "assemble",
+		"buildToothSection", "BuildToothSection", "buildEmbeddedTooth", "Shifted", "PlaneAt", "tooth",
+		"filletSpurRoots", "filletRootsValue", "filletEmbedded", "buildBoreProfile", "cutBore",
+		"chamferOuterCaps", "assemble",
 	},
 	Steps: []go2py.Steps{{
 		Name: "buildToothSection", PyName: "draw_tooth_section", StopAt: "solveAndVerify",
@@ -147,6 +146,7 @@ var Roles = map[string]go2py.Role{
 	"buildToothSection:sketch.World.CreateSketch#1":        {Feature: "Tooth Profile"},
 	"buildEmbeddedTooth:sketch.World.CreateSketch#1":       {Feature: "Tooth Profile"},
 	"tooth:decad.Extrude#1":                                {Feature: "Tooth Extrude", Body: "Tooth"},
+	"PlaneAt:sketch.World.CreatePlaneFromFrame#1":          {Feature: "Twisted Section Plane"},
 	"assemble:sketch.World.CreateSketch#1":                 {Feature: "Root Disc Profile"},
 	"assemble:decad.Extrude#1":                             {Feature: "Root Disc Extrude", Body: "Gear Body"},
 	"assemble:decad.PatternCopies#1":                       {Feature: "Tooth Pattern"},
