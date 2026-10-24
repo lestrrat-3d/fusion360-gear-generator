@@ -2,59 +2,55 @@ package cycloidal
 
 import (
 	"fmt"
-	"regexp"
-	"slices"
 	"strings"
 
+	"github.com/lestrrat-3d/fusion360-gear-generator/port/fusionexpr"
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/gallery"
+	"github.com/lestrrat-3d/fusion360-gear-generator/port/go2py"
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/spur"
 )
 
-// ComputeReviewed returns the record of the gallery code the fragment follows.
-func ComputeReviewed(m *gallery.Model) (spur.Reviewed, error) {
-	digest, err := m.SourceDigest(ReviewedFuncs...)
-	if err != nil {
-		return spur.Reviewed{}, err
-	}
-	return spur.Reviewed{Digest: digest, Functions: slices.Clone(ReviewedFuncs)}, nil
-}
+// ComputeReviewed returns the empty record: the drive follows no reviewed code, because the build,
+// the dimensions and the validity checks are translated from the gallery.
+func ComputeReviewed(m *gallery.Model) (spur.Reviewed, error) { return spur.Reviewed{}, nil }
 
 // Generate returns the contents of lib/geargen/cycloidal.py for the gallery model m at version,
-// using fragment as the stored Fusion construction. It fails when the gallery has drifted from
-// what the mapping and the fragment were written against.
+// using fragment as the Fusion wiring. It fails when the gallery has drifted from what the
+// mapping was written against.
 func Generate(m *gallery.Model, version, fragment string, reviewed spur.Reviewed) (string, error) {
 	if err := checkInputs(m); err != nil {
 		return "", err
 	}
-	if err := checkTable(m, fragment); err != nil {
-		return "", err
+	if m.TableErr != nil {
+		return "", m.TableErr
 	}
-	ops, err := m.DecadCalls("Build")
+	translated, err := go2py.TranspileSpec(m, FeatureSpec)
+	if err != nil {
+		return "", fmt.Errorf("translate the cycloidal drive: %w", err)
+	}
+	inputs, err := inputsBlock(m)
 	if err != nil {
 		return "", err
 	}
-	if !slices.Equal(ops, ExpectedOps) {
-		return "", fmt.Errorf("gallery build performs %v, the fragment implements %v: review port/cycloidal/fragments",
-			ops, ExpectedOps)
-	}
-	if !slices.Equal(reviewed.Functions, ReviewedFuncs) {
-		return "", fmt.Errorf("reviewed.json lists different functions than ReviewedFuncs: run gearport accept")
-	}
-	now, err := ComputeReviewed(m)
+	pieces, err := newPieces(m)
 	if err != nil {
 		return "", err
 	}
-	if now.Digest != reviewed.Digest {
-		return "", fmt.Errorf("the gallery code behind the fragment changed (%s): review port/cycloidal/fragments, "+
-			"then run gearport accept", strings.Join(ReviewedFuncs, ", "))
-	}
-	block, err := inputsBlock(m)
-	if err != nil {
-		return "", err
-	}
-	out, err := spur.Fill(fragment, "inputs", block)
-	if err != nil {
-		return "", err
+	out := fragment
+	for _, r := range []struct{ marker, text string }{
+		{"inputs", inputs},
+		{"constants", pieces.constants()},
+		{"params_class", pieces.paramsClass()},
+		{"params_from_parameters", pieces.paramsFromParameters()},
+		{"params_from_inputs", pieces.paramsFromInputs()},
+		{"primary_parameters", pieces.primary},
+		{"derived_parameters", pieces.derived},
+		{"gallery_parameters", pieces.galleryParameters()},
+		{"translated", "# Translated from the gallery's cycloidal model. Do not edit.\n" + translated + "\n"},
+	} {
+		if out, err = spur.Fill(out, r.marker, r.text); err != nil {
+			return "", err
+		}
 	}
 	if strings.Contains(out, "@@") {
 		return "", fmt.Errorf("fragment has an unfilled marker")
@@ -91,38 +87,207 @@ func checkInputs(m *gallery.Model) error {
 	return nil
 }
 
-// checkTable requires the gallery parameter table and the mapping to list the same names, and every
-// parameter the add-in registers to be defined in the fragment.
-func checkTable(m *gallery.Model, fragment string) error {
-	if m.TableErr != nil {
-		return m.TableErr
+// pieces holds the generated text for each marker.
+type pieces struct {
+	m       *gallery.Model
+	byField map[string]Input
+	// entryOf maps a Params field to the parameter table entry that reads it.
+	entryOf map[string]gallery.Parameter
+	primary string
+	derived string
+}
+
+func newPieces(m *gallery.Model) (*pieces, error) {
+	p := &pieces{m: m, byField: map[string]Input{}, entryOf: map[string]gallery.Parameter{}}
+	for _, in := range Inputs {
+		p.byField[in.Field] = in
 	}
-	known := map[string]bool{}
-	for _, name := range TableGalleryOnly {
-		known[name] = true
-	}
-	for name := range RegisteredParams {
-		known[name] = true
-	}
-	inTable := map[string]bool{}
 	for _, e := range m.Table {
-		inTable[e.Name] = true
-		if !known[e.Name] {
-			return fmt.Errorf("gallery parameter %q has no mapping: add it to port/cycloidal/mapping.go", e.Name)
+		if e.Kind == gallery.KindInput || e.Kind == gallery.KindCount {
+			p.entryOf[e.Field] = e
 		}
 	}
-	for name := range known {
-		if !inTable[name] {
-			return fmt.Errorf("mapping lists parameter %q, which the gallery table no longer defines", name)
+	var err error
+	if p.primary, err = p.primaryParameters(); err != nil {
+		return nil, err
+	}
+	if p.derived, err = p.derivedParameters(); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+func (p *pieces) constants() string {
+	var sb strings.Builder
+	for _, e := range p.m.Table {
+		fmt.Fprintf(&sb, "%s = '%s'\n", ParamConst(e.Name), ParamName(e.Name))
+	}
+	return sb.String()
+}
+
+// paramsClass renders the Python record of the gallery Params fields.
+func (p *pieces) paramsClass() string {
+	fields := make([]string, len(p.m.Inputs))
+	for i, in := range p.m.Inputs {
+		fields[i] = "'" + in.Name + "'"
+	}
+	return fmt.Sprintf("_Params = collections.namedtuple('Params', [%s])\n", strings.Join(fields, ", "))
+}
+
+// paramsFromParameters renders the method that reads the gallery Params, in millimetres, from the user
+// parameters the dialog registered.
+func (p *pieces) paramsFromParameters() string {
+	var sb strings.Builder
+	sb.WriteString("        value = lambda constant: self.getParameter(constant).value\n")
+	sb.WriteString("        return _Params(\n")
+	for _, in := range p.m.Inputs {
+		fmt.Fprintf(&sb, "            %s=%s,\n", in.Name, p.fieldFromParameter(in.Name))
+	}
+	sb.WriteString("        )\n")
+	return sb.String()
+}
+
+func (p *pieces) fieldFromParameter(field string) string {
+	e, ok := p.entryOf[field]
+	if !ok {
+		return "None"
+	}
+	c := ParamConst(e.Name)
+	switch {
+	case e.Kind == gallery.KindCount:
+		return fmt.Sprintf("int(round(value(%s)))", c)
+	default:
+		return fmt.Sprintf("to_mm(value(%s))", c)
+	}
+}
+
+// paramsFromInputs renders the function that reads the gallery Params, in millimetres, from the dialog
+// inputs, for the live validity check.
+func (p *pieces) paramsFromInputs() string {
+	var sb strings.Builder
+	sb.WriteString("    return _Params(\n")
+	for _, in := range p.m.Inputs {
+		input, ok := p.byField[in.Name]
+		if !ok {
+			fmt.Fprintf(&sb, "        %s=None,\n", in.Name)
+			continue
+		}
+		switch input.Kind {
+		case Count:
+			fmt.Fprintf(&sb, "        %s=int(inputs.itemById(%s).selectedItem.name),\n", in.Name, input.Const)
+		case Number:
+			fmt.Fprintf(&sb, "        %s=int(round(inputs.itemById(%s).value)),\n", in.Name, input.Const)
+		default:
+			fmt.Fprintf(&sb, "        %s=to_mm(inputs.itemById(%s).value),\n", in.Name, input.Const)
 		}
 	}
-	for name, constName := range RegisteredParams {
-		def := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(constName) + ` = '`)
-		if !def.MatchString(fragment) {
-			return fmt.Errorf("parameter %q maps to %s, which the fragment does not define", name, constName)
+	sb.WriteString("    )\n")
+	return sb.String()
+}
+
+// primaryParameters registers the entries the dialog sets, in table order.
+func (p *pieces) primaryParameters() (string, error) {
+	var sb strings.Builder
+	for _, e := range p.m.Table {
+		if e.Kind != gallery.KindInput && e.Kind != gallery.KindCount {
+			continue
+		}
+		input, ok := p.byField[e.Field]
+		if !ok {
+			return "", fmt.Errorf("gallery parameter %q reads Params.%s, which has no dialog input: add it to port/cycloidal/mapping.go", e.Name, e.Field)
+		}
+		c := ParamConst(e.Name)
+		switch input.Kind {
+		case Count:
+			fmt.Fprintf(&sb, "        self.addParameter(\n            %s,\n"+
+				"            adsk.core.ValueInput.createByReal(int(inputs.itemById(%s).selectedItem.name)), '', '%s')\n",
+				c, input.Const, input.Label)
+		case Number:
+			fmt.Fprintf(&sb, "        self.addParameter(\n            %s, get_value(inputs, %s, ''), '', '%s')\n",
+				c, input.Const, input.Label)
+		default:
+			fmt.Fprintf(&sb, "        self.addParameter(\n            %s, get_value(inputs, %s, 'mm'), 'mm', '%s')\n",
+				c, input.Const, input.Label)
 		}
 	}
-	return nil
+	return sb.String(), nil
+}
+
+// derivedParameters registers the entries computed from the others, in table order: expressions stay
+// live, and the numeric snapshots and constants take their value from the translated dimensions.
+func (p *pieces) derivedParameters() (string, error) {
+	kinds := map[string]fusionexpr.Kind{}
+	for _, e := range p.m.Table {
+		kinds[e.Name] = kindOfUnit(e.Unit)
+	}
+	var sb strings.Builder
+	for _, e := range p.m.Table {
+		c, unit := ParamConst(e.Name), unitString(e.Unit)
+		comment := strings.ReplaceAll(strings.Title(strings.ReplaceAll(e.Name, "_", " ")), "'", "")
+		switch e.Kind {
+		case gallery.KindInput, gallery.KindCount:
+			continue
+		case gallery.KindExpr:
+			res, err := fusionexpr.Translate(e.Expr, kinds)
+			if err != nil {
+				return "", fmt.Errorf("parameter %s: %w", e.Name, err)
+			}
+			args := make([]string, len(res.Names))
+			for i, name := range res.Names {
+				args[i] = fmt.Sprintf("self.parameterName(%s)", ParamConst(name))
+			}
+			if len(args) == 0 {
+				fmt.Fprintf(&sb, "        expression = '%s'\n", res.Format)
+			} else {
+				fmt.Fprintf(&sb, "        expression = '%s'.format(\n            %s)\n", res.Format, strings.Join(args, ",\n            "))
+			}
+			fmt.Fprintf(&sb, "        self.addParameter(\n            %s, adsk.core.ValueInput.createByString(expression),\n"+
+				"            '%s', '%s')\n", c, unit, comment)
+		case gallery.KindSnapshot:
+			field := strings.TrimPrefix(e.Field, "d.")
+			fmt.Fprintf(&sb, "        self.addParameter(\n            %s, adsk.core.ValueInput.createByReal(to_cm(dims.%s)),\n"+
+				"            '%s', '%s (numeric snapshot)')\n", c, field, unit, comment)
+		case gallery.KindConstant:
+			fmt.Fprintf(&sb, "        self.addParameter(\n            %s, adsk.core.ValueInput.createByReal(to_cm(%s)),\n"+
+				"            '%s', '%s')\n", c, number(e.Value), unit, comment)
+		default:
+			return "", fmt.Errorf("parameter %s: unsupported table kind %q", e.Name, e.Kind)
+		}
+	}
+	return sb.String(), nil
+}
+
+// galleryParameters maps each gallery table name to the constant of its Fusion parameter.
+func (p *pieces) galleryParameters() string {
+	var sb strings.Builder
+	sb.WriteString("_GALLERY_PARAMETERS = {\n")
+	for _, e := range p.m.Table {
+		fmt.Fprintf(&sb, "    '%s': %s,\n", e.Name, ParamConst(e.Name))
+	}
+	sb.WriteString("}\n")
+	return sb.String()
+}
+
+// kindOfUnit maps the units constructor a table entry names to an expression kind.
+func kindOfUnit(unit string) fusionexpr.Kind {
+	switch unit {
+	case "Millimeters", "Millimeter":
+		return fusionexpr.KindLength
+	case "Radians", "Radian":
+		return fusionexpr.KindAngle
+	}
+	return fusionexpr.KindNone
+}
+
+// unitString is the Fusion parameter unit of a table entry.
+func unitString(unit string) string {
+	switch unit {
+	case "Millimeters", "Millimeter":
+		return "mm"
+	case "Radians", "Radian":
+		return "rad"
+	}
+	return ""
 }
 
 // inputsBlock renders the dialog inputs, in dialog order, with the gallery defaults.

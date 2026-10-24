@@ -119,14 +119,16 @@ def r3_new_frame(origin, u, v):
 
 
 class Value:
-    """A user parameter. base() is its value in cm (or radians); expression names it for a dimension or a feature."""
+    """A user parameter. base() is its value in the unit of the translated code; expression names it for a
+    dimension or a feature. [PB-UNITS]"""
 
-    def __init__(self, name, parameter):
+    def __init__(self, name, parameter, scale=1.0):
         self.expression = name
         self._parameter = parameter
+        self._scale = scale
 
     def base(self):
-        return self._parameter.value
+        return self._parameter.value / self._scale
 
 
 class Distance:
@@ -138,6 +140,31 @@ def decad_distance(D, Dir):
     return Distance(D, Dir)
 
 
+class DistanceSide:
+    def __init__(self, D):
+        self.D = D
+
+
+def decad_distance_side(D):
+    return DistanceSide(D)
+
+
+class TwoSided:
+    """An extent that reaches One from the sketch along its normal and Two against it."""
+
+    def __init__(self, One, Two):
+        self.One, self.Two = One, Two
+
+
+def decad_two_sided(One, Two):
+    return TwoSided(One, Two)
+
+
+def units_millimeters(x):
+    # The translated code already runs in a unit the runtime converts, so a length is its number.
+    return x
+
+
 class CircularPattern:
     def __init__(self, Center, Axis, Count):
         self.Center, self.Axis, self.Count = Center, Axis, Count
@@ -147,17 +174,22 @@ def decad_circular_pattern(Center, Axis, Count):
     return CircularPattern(Center, Axis, Count)
 
 
-def value_input(value):
-    """A ValueInput for a Value (its user parameter, so the feature stays parametric) or a number."""
+def value_input(value, scale=1.0):
+    """A ValueInput for a Value (its user parameter, so the feature stays parametric) or a number, which is in
+    the unit of the translated code and becomes centimetres by scale. [PB-UNITS]"""
     if isinstance(value, Value):
         return adsk.core.ValueInput.createByString(value.expression)
-    return adsk.core.ValueInput.createByReal(value)
+    return adsk.core.ValueInput.createByReal(value * scale)
 
 
 class Runtime:
     """The design a translated gallery model builds in. It is the gallery's Document and World."""
 
-    def __init__(self, component, plane, anchor, parameters, sketch_only=False):
+    def __init__(self, component, plane, anchor, parameters, sketch_only=False, scale=1.0):
+        # scale is the centimetres of one unit of length in the translated code. The spur-family gears run in
+        # centimetres (1.0). A gallery model with absolute lengths in millimetres runs in millimetres (0.1), and
+        # the runtime converts at every place a length enters or leaves Fusion. [PB-UNITS]
+        self.scale = scale
         # component: the adsk.fusion.Component to build in.
         # plane: the ConstructionPlane the lower cap lies on.
         # anchor: a SketchPoint at the gear centre, projected into a fully constrained sketch.
@@ -194,7 +226,8 @@ class Runtime:
 
     def to_world(self, point):
         p = self.placement
-        return p.origin().add(p.u().scale(point.x)).add(p.v().scale(point.y)).add(p.n().scale(point.z))
+        local = point.scale(self.scale)
+        return p.origin().add(p.u().scale(local.x)).add(p.v().scale(local.y)).add(p.n().scale(local.z))
 
     def to_world_dir(self, direction):
         p = self.placement
@@ -202,13 +235,13 @@ class Runtime:
 
     def to_local(self, point):
         p = self.placement
-        d = point.sub(p.origin())
+        d = point.sub(p.origin()).scale(1.0 / self.scale)
         return Vec(d.dot(p.u()), d.dot(p.v()), d.dot(p.n()))
 
     # decad.Document
     def param(self, name):
         parameterName, parameter = self._parameters(name)
-        return Value(parameterName, parameter)
+        return Value(parameterName, parameter, self.scale)
 
     # sketch.World
     def params(self):
@@ -243,7 +276,7 @@ class Runtime:
         return sketch
 
     def create_plane_from_frame(self, frame, name):
-        offset = frame.origin().sub(self.frame.origin()).dot(self.frame.n())
+        offset = frame.origin().sub(self.frame.origin()).dot(self.frame.n()) * self.scale
         name = self.unique(name)
         planes: adsk.fusion.ConstructionPlanes = self.component.constructionPlanes
         planeInput: adsk.fusion.ConstructionPlaneInput = planes.createInput()
@@ -308,9 +341,12 @@ class Profile:
     def __init__(self, fprofile):
         self.fprofile = fprofile
         self.Outer = []
+        self.Holes = []
         for loop in fprofile.profileLoops:
             if loop.isOuter:
                 self.Outer = [curve for curve in loop.profileCurves]
+            else:
+                self.Holes.append([curve for curve in loop.profileCurves])
 
 
 class Sketch:
@@ -325,6 +361,7 @@ class Sketch:
 
     def __init__(self, runtime, fsketch, origin=None, rootCircle=None, rootRadius=None):
         self.runtime = runtime
+        self._scale = runtime.scale if runtime is not None else 1.0
         self.sketch: adsk.fusion.Sketch = fsketch
         # The local origin is a point the anchor constraint can move, which the sketch's own origin is not.
         self._origin = origin if origin is not None else fsketch.sketchPoints.add(adsk.core.Point3D.create(0, 0, 0))
@@ -364,7 +401,14 @@ class Sketch:
 
     def create_circle(self, center, radius):
         circles: adsk.fusion.SketchCircles = self.sketch.sketchCurves.sketchCircles
-        return circles.addByCenterRadius(center, radius)
+        if isinstance(center, PendingPoint):
+            # A circle whose centre the gallery dimensions from the origin: Fusion makes the centre point with
+            # the circle, and the dimension step then places it.
+            circle = circles.addByCenterRadius(
+                adsk.core.Point3D.create(center.x * self._scale, center.y * self._scale, 0), radius * self._scale)
+            center.point = circle.centerSketchPoint
+            return circle
+        return circles.addByCenterRadius(center, radius * self._scale)
 
     def add_constraint(self, constraint):
         self._constraints.append(constraint)
@@ -409,7 +453,7 @@ class Sketch:
         for points in self._splines:
             collection = adsk.core.ObjectCollection.create()
             for point in points:
-                collection.add(adsk.core.Point3D.create(point.x, point.y, 0))
+                collection.add(adsk.core.Point3D.create(point.x * self._scale, point.y * self._scale, 0))
             fits: adsk.fusion.SketchPointList = splines.add(collection).fitPoints
             for i, point in enumerate(points):
                 point.point = fits.item(i)
@@ -418,7 +462,7 @@ class Sketch:
     def _end(self, point):
         if point.point is not None:
             return point.point
-        return adsk.core.Point3D.create(point.x, point.y, 0)
+        return adsk.core.Point3D.create(point.x * self._scale, point.y * self._scale, 0)
 
     def _drawLines(self):
         lines: adsk.fusion.SketchLines = self.sketch.sketchCurves.sketchLines
@@ -464,7 +508,7 @@ class Sketch:
 
     def _dimension(self, point, orientation):
         dims: adsk.fusion.SketchDimensions = self.sketch.sketchDimensions
-        textPoint = adsk.core.Point3D.create(point.x, point.y, 0)
+        textPoint = adsk.core.Point3D.create(point.x * self._scale, point.y * self._scale, 0)
         try:
             dims.addDistanceDimension(self._origin, point.point, orientation, textPoint)
             return
@@ -520,11 +564,19 @@ class Body:
     def is_solid(self):
         return self.body.isSolid
 
+    def centroid(self):
+        return Centroid(self.runtime, self.body.physicalProperties.centerOfMass)
+
     def faces(self):
         return [Face(self.runtime, f) for f in self.body.faces]
 
 
 class Position:
+    def __init__(self, runtime, point):
+        self.Value = runtime.to_local(vec_of(point))
+
+
+class Centroid:
     def __init__(self, runtime, point):
         self.Value = runtime.to_local(vec_of(point))
 
@@ -629,7 +681,7 @@ class Face:
 
     def surface(self):
         if self.face.geometry.surfaceType == adsk.core.SurfaceTypes.CylinderSurfaceType:
-            return Cylinder(cast(adsk.core.Cylinder, self.face.geometry).radius)
+            return Cylinder(cast(adsk.core.Cylinder, self.face.geometry).radius / self.runtime.scale)
         return Surface()
 
     def edges(self):
@@ -660,6 +712,19 @@ def decad_endpoint_at(point):
     def test(edge, body):
         world = edge.runtime.to_world(point)
         return any(vec_of(p).sub(world).len() <= SAME_COORDINATE for p in edge.ends())
+    return Predicate(test)
+
+
+def decad_circular():
+    def test(edge, body):
+        return edge.edge.geometry.curveType in (
+            adsk.core.Curve3DTypes.Circle3DCurveType, adsk.core.Curve3DTypes.Arc3DCurveType)
+    return Predicate(test)
+
+
+def decad_longer_than(length):
+    def test(edge, body):
+        return edge.edge.length / edge.runtime.scale > length
     return Predicate(test)
 
 
@@ -773,10 +838,15 @@ def decad_extrude(doc, sketch, profile, extent, name, body):
     extrudes: adsk.fusion.ExtrudeFeatures = doc.component.features.extrudeFeatures
     operation = adsk.fusion.FeatureOperations.NewBodyFeatureOperation
     extrudeInput: adsk.fusion.ExtrudeFeatureInput = extrudes.createInput(profile.fprofile, operation)
-    distance = adsk.fusion.DistanceExtentDefinition.create(value_input(extent.D))
-    direction = (adsk.fusion.ExtentDirections.PositiveExtentDirection if extent.Dir == DECAD_ALONG
-                 else adsk.fusion.ExtentDirections.NegativeExtentDirection)
-    extrudeInput.setOneSideExtent(distance, direction)
+    if isinstance(extent, TwoSided):
+        extrudeInput.setTwoSidesExtent(
+            adsk.fusion.DistanceExtentDefinition.create(value_input(extent.One.D, doc.scale)),
+            adsk.fusion.DistanceExtentDefinition.create(value_input(extent.Two.D, doc.scale)))
+    else:
+        distance = adsk.fusion.DistanceExtentDefinition.create(value_input(extent.D, doc.scale))
+        direction = (adsk.fusion.ExtentDirections.PositiveExtentDirection if extent.Dir == DECAD_ALONG
+                     else adsk.fusion.ExtentDirections.NegativeExtentDirection)
+        extrudeInput.setOneSideExtent(distance, direction)
     extrude: adsk.fusion.ExtrudeFeature = extrudes.add(extrudeInput)
     solids.name_feature(extrude, name)
     if extrude.bodies.count != 1:
@@ -858,7 +928,7 @@ def decad_fillet(body, selector, radius, name):
         edges = _edge_collection(selector, body, name)
     fillets: adsk.fusion.FilletFeatures = body.runtime.component.features.filletFeatures
     filletInput: adsk.fusion.FilletFeatureInput = fillets.createInput()
-    filletInput.addConstantRadiusEdgeSet(edges, value_input(radius), False)
+    filletInput.addConstantRadiusEdgeSet(edges, value_input(radius, body.runtime.scale), False)
     with timed(f'{name} feature'):
         feature = fillets.add(filletInput)
     solids.name_feature(feature, name)
@@ -871,7 +941,7 @@ def decad_chamfer(body, selector, setback, name):
         edges = _edge_collection(selector, body, name)
     chamfers: adsk.fusion.ChamferFeatures = body.runtime.component.features.chamferFeatures
     chamferInput: adsk.fusion.ChamferFeatureInput = chamfers.createInput2()
-    chamferInput.chamferEdgeSets.addEqualDistanceChamferEdgeSet(edges, value_input(setback), False)
+    chamferInput.chamferEdgeSets.addEqualDistanceChamferEdgeSet(edges, value_input(setback, body.runtime.scale), False)
     with timed(f'{name} feature'):
         feature = chamfers.add(chamferInput)
     solids.name_feature(feature, name)

@@ -70,12 +70,19 @@ func (f *fnState) ident(e *ast.Ident) (string, typ, error) {
 	}
 	t, ok := f.env[e.Name]
 	if !ok {
+		if g, ok := f.t.globals[e.Name]; ok {
+			return g.py, g.t, nil
+		}
 		return "", typ{}, fmt.Errorf("%s: unknown name %s", f.pos(e), e.Name)
 	}
 	return pyName(e.Name), t, nil
 }
 
 func (f *fnState) unary(e *ast.UnaryExpr) (string, typ, error) {
+	if e.Op == token.AND {
+		// A pointer to a literal is the literal: translated structs are Python objects.
+		return f.expr(e.X)
+	}
 	text, t, err := f.expr(e.X)
 	if err != nil {
 		return "", typ{}, err
@@ -93,7 +100,7 @@ func (f *fnState) unary(e *ast.UnaryExpr) (string, typ, error) {
 }
 
 var pyOps = map[token.Token]string{
-	token.ADD: "+", token.SUB: "-", token.MUL: "*", token.QUO: "/",
+	token.ADD: "+", token.SUB: "-", token.MUL: "*", token.QUO: "/", token.REM: "%",
 	token.LSS: "<", token.LEQ: "<=", token.GTR: ">", token.GEQ: ">=", token.EQL: "==", token.NEQ: "!=",
 	token.LAND: "and", token.LOR: "or",
 }
@@ -173,6 +180,17 @@ func (f *fnState) call(e *ast.CallExpr) (string, typ, error) {
 		if ok && pkg.Name == "math" {
 			return f.mathCall(e, fn.Sel.Name)
 		}
+		if ok && f.t.sketch {
+			switch pkg.Name + "." + fn.Sel.Name {
+			case "errors.Is":
+				// A translated call raises instead of returning an error: see "Retry loops".
+				return "False", boolType, nil
+			case "fmt.Sprintf":
+				return f.sprintf(e)
+			case "sort.Slice":
+				return f.sortSlice(e)
+			}
+		}
 		if f.t.sketch {
 			if text, rt, handled, err := f.externalCall(e, fn); handled {
 				return text, rt, err
@@ -187,6 +205,16 @@ func (f *fnState) call(e *ast.CallExpr) (string, typ, error) {
 }
 
 func (f *fnState) mathCall(e *ast.CallExpr, name string) (string, typ, error) {
+	if name == "Inf" && len(e.Args) == 1 {
+		sign, _, err := f.expr(e.Args[0])
+		if err != nil {
+			return "", typ{}, err
+		}
+		if strings.HasPrefix(sign, "-") {
+			return "-math.inf", floatType, nil
+		}
+		return "math.inf", floatType, nil
+	}
 	switch name {
 	case "IsNaN", "IsInf":
 		// IsInf(x, 0) is true for an infinity of either sign, as math.isinf is.
@@ -324,6 +352,29 @@ func (f *fnState) identCall(e *ast.CallExpr, fn *ast.Ident) (string, typ, error)
 		return f.make(e)
 	case "append":
 		return f.appendCall(e)
+	case "min", "max":
+		if _, local := f.env[fn.Name]; !local {
+			args, err := f.args(e.Args)
+			if err != nil {
+				return "", typ{}, err
+			}
+			_, t, err := f.expr(e.Args[0])
+			if err != nil {
+				return "", typ{}, err
+			}
+			return fn.Name + "(" + strings.Join(args, ", ") + ")", t, nil
+		}
+	}
+	if t, ok := f.env[fn.Name]; ok && t.kind == kindOpaque && t.name == "func" {
+		args, err := f.args(e.Args)
+		if err != nil {
+			return "", typ{}, err
+		}
+		rt := typ{kind: kindOpaque, name: "void"}
+		if t.elem != nil {
+			rt = *t.elem
+		}
+		return pyName(fn.Name) + "(" + strings.Join(args, ", ") + ")", rt, nil
 	}
 	return f.translatedCall(e, fn.Name)
 }
@@ -356,7 +407,7 @@ func (f *fnState) translatedCall(e *ast.CallExpr, name string) (string, typ, err
 	if len(callee.results) == 1 {
 		rt = callee.results[0].typ
 	}
-	return f.t.prefix + pySnake(name) + "(" + strings.Join(args, ", ") + ")", rt, nil
+	return f.t.pyFunc(callee) + "(" + strings.Join(args, ", ") + ")", rt, nil
 }
 
 func (f *fnState) conversion(e *ast.CallExpr, py string, t typ) (string, typ, error) {
@@ -375,7 +426,7 @@ func (f *fnState) conversion(e *ast.CallExpr, py string, t typ) (string, typ, er
 
 // make renders make([]T, n) as a list of n zero values.
 func (f *fnState) make(e *ast.CallExpr) (string, typ, error) {
-	if len(e.Args) == 1 {
+	if len(e.Args) == 1 || len(e.Args) == 2 {
 		if mt, err := fromAST(e.Args[0], f.t.structs); err == nil && mt.kind == kindMap {
 			return "{}", mt, nil
 		}
@@ -511,6 +562,17 @@ func (f *fnState) composite(e *ast.CompositeLit) (string, typ, error) {
 	if st, ok := e.Type.(*ast.StructType); ok && len(st.Fields.List) == 0 && len(e.Elts) == 0 {
 		return "True", typ{kind: kindOpaque, name: "struct{}"}, nil
 	}
+	if st, ok := e.Type.(*ast.StructType); ok {
+		at, err := anonStruct(st, f.t.structs)
+		if err != nil {
+			return "", typ{}, err
+		}
+		args, err := f.args(e.Elts)
+		if err != nil {
+			return "", typ{}, err
+		}
+		return f.t.prefix + pyClass(at.name) + "(" + strings.Join(args, ", ") + ")", at, nil
+	}
 	id, ok := e.Type.(*ast.Ident)
 	if !ok {
 		return "", typ{}, fmt.Errorf("%s: unsupported composite literal", f.pos(e))
@@ -604,4 +666,84 @@ func (f *fnState) slice(e *ast.SliceExpr) (string, typ, error) {
 		}
 	}
 	return xs + "[" + lo + ":" + hi + "]", xt, nil
+}
+
+// sprintf renders fmt.Sprintf as Python's % operator. A %v prints with %s, and a spread argument
+// list becomes a tuple.
+func (f *fnState) sprintf(e *ast.CallExpr) (string, typ, error) {
+	if len(e.Args) == 0 {
+		return "", typ{}, fmt.Errorf("%s: Sprintf needs a format", f.pos(e))
+	}
+	format, _, err := f.expr(e.Args[0])
+	if err != nil {
+		return "", typ{}, err
+	}
+	if lit, ok := e.Args[0].(*ast.BasicLit); ok {
+		if strings.Contains(lit.Value, "%w") {
+			return "", typ{}, fmt.Errorf("%s: %%w is unsupported", f.pos(e))
+		}
+		format = strings.ReplaceAll(format, "%v", "%s")
+	}
+	if len(e.Args) == 1 {
+		return format, stringType, nil
+	}
+	if e.Ellipsis.IsValid() {
+		spread, _, err := f.expr(e.Args[len(e.Args)-1])
+		if err != nil {
+			return "", typ{}, err
+		}
+		return format + " % tuple(" + spread + ")", stringType, nil
+	}
+	args, err := f.args(e.Args[1:])
+	if err != nil {
+		return "", typ{}, err
+	}
+	return format + " % (" + strings.Join(args, ", ") + ",)", stringType, nil
+}
+
+// sortSlice renders sort.Slice(xs, func(i, j int) bool { return key(xs[i]) < key(xs[j]) }) as a sort
+// by key. The comparison must be the same expression of xs[i] and of xs[j], or the port stops.
+func (f *fnState) sortSlice(e *ast.CallExpr) (string, typ, error) {
+	bad := fmt.Errorf("%s: sort.Slice must compare key(xs[i]) < key(xs[j]) for one key", f.pos(e))
+	if len(e.Args) != 2 {
+		return "", typ{}, bad
+	}
+	xs, ok := e.Args[0].(*ast.Ident)
+	lit, ok2 := e.Args[1].(*ast.FuncLit)
+	if !ok || !ok2 || len(lit.Body.List) != 1 || len(lit.Type.Params.List) != 1 || len(lit.Type.Params.List[0].Names) != 2 {
+		return "", typ{}, bad
+	}
+	ret, ok := lit.Body.List[0].(*ast.ReturnStmt)
+	if !ok || len(ret.Results) != 1 {
+		return "", typ{}, bad
+	}
+	cmp, ok := ret.Results[0].(*ast.BinaryExpr)
+	if !ok || (cmp.Op != token.LSS && cmp.Op != token.GTR) {
+		return "", typ{}, bad
+	}
+	i, j := lit.Type.Params.List[0].Names[0].Name, lit.Type.Params.List[0].Names[1].Name
+	inner := &fnState{t: f.t, info: f.info, env: map[string]typ{}, calls: map[string]int{}}
+	for k, v := range f.env {
+		inner.env[k] = v
+	}
+	inner.env[i], inner.env[j] = intType, intType
+	left, _, err := inner.expr(cmp.X)
+	if err != nil {
+		return "", typ{}, err
+	}
+	right, _, err := inner.expr(cmp.Y)
+	if err != nil {
+		return "", typ{}, err
+	}
+	name := pyName(xs.Name)
+	at := func(index string) string { return name + "[" + index + "]" }
+	key := strings.ReplaceAll(left, at(pyName(i)), "_v")
+	if strings.ReplaceAll(right, at(pyName(j)), "_v") != key || key == left {
+		return "", typ{}, bad
+	}
+	reverse := ""
+	if cmp.Op == token.GTR {
+		reverse = ", reverse=True"
+	}
+	return name + ".sort(key=lambda _v: " + key + reverse + ")", typ{kind: kindOpaque, name: "void"}, nil
 }

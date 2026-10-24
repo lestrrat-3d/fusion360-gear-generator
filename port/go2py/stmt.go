@@ -41,6 +41,8 @@ func (f *fnState) stmt(sb *strings.Builder, s ast.Stmt) error {
 		return nil
 	case *ast.RangeStmt:
 		return f.rangeStmt(sb, s)
+	case *ast.SwitchStmt:
+		return f.switchStmt(sb, s)
 	case *ast.ReturnStmt:
 		return f.returnStmt(sb, s)
 	case *ast.IfStmt:
@@ -49,6 +51,17 @@ func (f *fnState) stmt(sb *strings.Builder, s ast.Stmt) error {
 		return f.forStmt(sb, s)
 	case *ast.DeclStmt:
 		return f.declStmt(sb, s)
+	case *ast.IncDecStmt:
+		text, _, err := f.expr(s.X)
+		if err != nil {
+			return err
+		}
+		op := "+="
+		if s.Tok == token.DEC {
+			op = "-="
+		}
+		f.line(sb, "%s %s 1", text, op)
+		return nil
 	case *ast.BranchStmt:
 		switch s.Tok {
 		case token.BREAK:
@@ -119,6 +132,13 @@ func (f *fnState) declStmt(sb *strings.Builder, s *ast.DeclStmt) error {
 }
 
 func (f *fnState) assign(sb *strings.Builder, s *ast.AssignStmt) error {
+	if len(s.Lhs) == 1 && len(s.Rhs) == 1 && s.Tok == token.DEFINE {
+		if lit, ok := s.Rhs[0].(*ast.FuncLit); ok {
+			if id, ok := s.Lhs[0].(*ast.Ident); ok {
+				return f.closure(sb, id.Name, lit)
+			}
+		}
+	}
 	switch s.Tok {
 	case token.DEFINE, token.ASSIGN:
 	case token.ADD_ASSIGN, token.SUB_ASSIGN, token.MUL_ASSIGN, token.QUO_ASSIGN:
@@ -248,7 +268,9 @@ func (f *fnState) returnStmt(sb *strings.Builder, s *ast.ReturnStmt) error {
 	if info.errorResult {
 		last := results[len(results)-1]
 		results = results[:len(results)-1]
-		if !isNil(last) {
+		// A stored error value (return nil, err) is never set in a translated function, which raises
+		// instead, so only the other results are returned.
+		if !isNil(last) && !(f.t.sketch && isIdent(last, "err")) {
 			return f.raise(sb, last)
 		}
 	}
@@ -360,6 +382,19 @@ func (f *fnState) ifStmt(sb *strings.Builder, s *ast.IfStmt, word string) error 
 
 // forStmt renders "for i := a; i < b; i++" as a range loop.
 func (f *fnState) forStmt(sb *strings.Builder, s *ast.ForStmt) error {
+	if s.Init == nil && s.Post == nil && s.Cond != nil {
+		cond, ct, err := f.expr(s.Cond)
+		if err != nil {
+			return err
+		}
+		if ct.kind != kindBool {
+			return fmt.Errorf("%s: loop condition is not a bool", f.pos(s.Cond))
+		}
+		f.line(sb, "while %s:", cond)
+		f.indent++
+		defer func() { f.indent-- }()
+		return f.block(sb, s.Body.List)
+	}
 	init, ok := s.Init.(*ast.AssignStmt)
 	if !ok || init.Tok != token.DEFINE || len(init.Lhs) != 1 || len(init.Rhs) != 1 {
 		return fmt.Errorf("%s: for loop needs a single i := start init", f.pos(s))
@@ -372,9 +407,22 @@ func (f *fnState) forStmt(sb *strings.Builder, s *ast.ForStmt) error {
 	if !ok || (cond.Op != token.LSS && cond.Op != token.LEQ) || !isIdent(cond.X, id.Name) {
 		return fmt.Errorf("%s: for loop condition must be i < n or i <= n", f.pos(s))
 	}
-	post, ok := s.Post.(*ast.IncDecStmt)
-	if !ok || post.Tok != token.INC || !isIdent(post.X, id.Name) {
-		return fmt.Errorf("%s: for loop post statement must be i++", f.pos(s))
+	step := ""
+	switch post := s.Post.(type) {
+	case *ast.IncDecStmt:
+		if post.Tok != token.INC || !isIdent(post.X, id.Name) {
+			return fmt.Errorf("%s: for loop post statement must be i++ or i += n", f.pos(s))
+		}
+	case *ast.AssignStmt:
+		if post.Tok != token.ADD_ASSIGN || len(post.Lhs) != 1 || !isIdent(post.Lhs[0], id.Name) {
+			return fmt.Errorf("%s: for loop post statement must be i++ or i += n", f.pos(s))
+		}
+		var err error
+		if step, _, err = f.expr(post.Rhs[0]); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("%s: for loop post statement must be i++ or i += n", f.pos(s))
 	}
 	start, _, err := f.expr(init.Rhs[0])
 	if err != nil {
@@ -388,7 +436,11 @@ func (f *fnState) forStmt(sb *strings.Builder, s *ast.ForStmt) error {
 	if cond.Op == token.LEQ {
 		limit += " + 1"
 	}
-	f.line(sb, "for %s in range(%s, %s):", pyName(id.Name), start, limit)
+	if step != "" {
+		f.line(sb, "for %s in range(%s, %s, %s):", pyName(id.Name), start, limit, step)
+	} else {
+		f.line(sb, "for %s in range(%s, %s):", pyName(id.Name), start, limit)
+	}
 	f.indent++
 	defer func() { f.indent-- }()
 	return f.block(sb, s.Body.List)

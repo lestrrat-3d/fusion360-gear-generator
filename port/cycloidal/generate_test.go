@@ -53,23 +53,19 @@ func TestDialogDefaultsComeFromTheGallery(t *testing.T) {
 	require.Contains(t, out, "discCountInput.listItems.add('2', False)")
 }
 
-func TestPinsMatchTheGalleryTable(t *testing.T) {
-	_, m, _, _ := generate(t)
+// TestEveryTableEntryHasAFusionParameter requires a constant, a registration and a lookup entry for
+// every name of the gallery's parameter table, so the translated build can read each one.
+func TestEveryTableEntryHasAFusionParameter(t *testing.T) {
+	out, m, _, _ := generate(t)
 	require.NoError(t, m.TableErr)
-	names := map[string]bool{}
 	for _, e := range m.Table {
-		names[e.Name] = true
+		c := cycloidal.ParamConst(e.Name)
+		require.Contains(t, out, c+" = '"+cycloidal.ParamName(e.Name)+"'", e.Name)
+		require.Contains(t, out, "'"+e.Name+"': "+c+",", e.Name)
+		if e.Kind != gallery.KindInput && e.Kind != gallery.KindCount {
+			require.Contains(t, out, "            "+c+", adsk.core.ValueInput.create", e.Name)
+		}
 	}
-	for name := range cycloidal.RegisteredParams {
-		require.Truef(t, names[name], "gallery table lacks %s", name)
-	}
-}
-
-func TestGenerateRefusesChangedGalleryCode(t *testing.T) {
-	_, m, reviewed, fragment := generate(t)
-	reviewed.Digest = "0000"
-	_, err := cycloidal.Generate(m, "v0", fragment, reviewed)
-	require.ErrorContains(t, err, "gearport accept")
 }
 
 func TestGenerateRefusesAnUnmappedInput(t *testing.T) {
@@ -85,11 +81,11 @@ func TestEveryCreatedObjectIsNamedByRole(t *testing.T) {
 	have, err := os.ReadFile(filepath.Join("..", "..", "lib", "geargen", "cycloidal.py"))
 	require.NoError(t, err)
 	text := string(have)
-	created := regexp.MustCompile(`(?m)^\s*(\w+)\s*=\s*[\w.]*(?:sketches|constructionPlanes)\.add\(`)
+	created := regexp.MustCompile(`(?m)^\s*(\w+)\s*(?::[^=]+)?=\s*[\w.]*(?:sketches|constructionPlanes)\.add\(`)
 	matches := created.FindAllStringSubmatch(text, -1)
 	require.NotEmpty(t, matches)
 	for _, m := range matches {
-		named := regexp.MustCompile(`(?m)^\s*` + regexp.QuoteMeta(m[1]) + `\.name = `)
+		named := regexp.MustCompile(`(?m)^\s*(?:self\.)?` + regexp.QuoteMeta(m[1]) + `\.name = `)
 		require.Truef(t, named.MatchString(text), "%s is created without a name", m[1])
 	}
 }

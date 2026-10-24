@@ -1,10 +1,17 @@
 // Package cycloidal ports the decad-gallery cycloidal drive to the Fusion add-in file
 // lib/geargen/cycloidal.py.
 //
-// The add-in builds the drive with Fusion calls that the stored fragment holds. From the
-// gallery source the port takes the dialog inputs and their defaults, and it stops when the
-// gallery's inputs, parameter table, build operations or reviewed code change.
+// The drive is translated from the gallery: the rotor discs, cam, housing, output plate and pins, their
+// chamfers, the validity checks and the dimensions all come from FeatureSpec. From the gallery source the
+// port also takes the dialog inputs and their defaults and the whole parameter table. The fragment holds the
+// Fusion wiring: the dialog, the component groups and the call of the translated build.
 package cycloidal
+
+import (
+	"strings"
+
+	"github.com/lestrrat-3d/fusion360-gear-generator/port/go2py"
+)
 
 // Kind tells how a gallery default becomes a dialog default.
 type Kind int
@@ -55,44 +62,71 @@ var Inputs = []Input{
 // placement; the add-in takes a Target Plane and an Anchor Point instead.
 var GalleryOnly = []string{"Placement"}
 
-// RegisteredParams maps the gallery parameter table names that the add-in registers as Fusion user
-// parameters to the Python constants it registers them under. The test compares them with the
-// fragment, so a gallery rename or a new derived dimension stops the port.
-var RegisteredParams = map[string]string{
-	"pin_count": "PARAM_PIN_COUNT", "pin_circle_diameter": "PARAM_PIN_CIRCLE_DIAMETER",
-	"pin_diameter": "PARAM_PIN_DIAMETER", "eccentricity": "PARAM_ECCENTRICITY",
-	"disk_clearance": "PARAM_DISK_CLEARANCE", "disc_thickness": "PARAM_DISC_THICKNESS",
-	"disc_gap": "PARAM_DISC_GAP", "center_bearing_diameter": "PARAM_CENTER_BEARING_DIAMETER",
-	"input_shaft_diameter": "PARAM_INPUT_SHAFT_DIAMETER", "bearing_clearance": "PARAM_BEARING_CLEARANCE",
-	"output_pin_circle_diameter": "PARAM_OUTPUT_PIN_CIRCLE_DIAMETER",
-	"output_pin_count":           "PARAM_OUTPUT_PIN_COUNT", "output_pin_diameter": "PARAM_OUTPUT_PIN_DIAMETER",
-	"wall": "PARAM_WALL", "base_thickness": "PARAM_BASE_THICKNESS",
-	"output_plate_thickness": "PARAM_OUTPUT_PLATE_THICKNESS", "chamfer_size": "PARAM_CHAMFER_SIZE",
-	"lobes": "PARAM_LOBES", "pin_circle_radius": "PARAM_PIN_CIRCLE_RADIUS",
-	"output_pin_circle_radius": "PARAM_OUTPUT_PIN_CIRCLE_RADIUS", "pin_radius": "PARAM_PIN_RADIUS",
-	"output_hole_diameter": "PARAM_OUTPUT_HOLE_DIAMETER", "housing_inner_diameter": "PARAM_HOUSING_INNER_DIAMETER",
-	"housing_outer_diameter": "PARAM_HOUSING_OUTER_DIAMETER", "output_plate_diameter": "PARAM_OUTPUT_PLATE_DIAMETER",
+// ParamConst is the Python constant of the Fusion parameter for a gallery table name.
+func ParamConst(table string) string { return "PARAM_" + strings.ToUpper(table) }
+
+// ParamName is the Fusion parameter name for a gallery table name: its words capitalised.
+func ParamName(table string) string {
+	var sb strings.Builder
+	for _, w := range strings.Split(table, "_") {
+		if w != "" {
+			sb.WriteString(strings.ToUpper(w[:1]) + w[1:])
+		}
+	}
+	return sb.String()
 }
 
-// TableGalleryOnly lists the table names the gallery defines for its own build and the add-in
-// does not register: the add-in composes these from the parameters above.
-// disc_count is the drop-down selection, which the add-in reads and does not register.
-var TableGalleryOnly = []string{
-	"disc_count", "root_circle_diameter", "disc_bore_diameter", "resolved_output_pin_diameter",
-	"plane_gap", "disc_pitch", "stack_height", "output_plate_height", "output_pin_length",
-}
-
-// ExpectedOps is the sequence of decad feature operations the gallery Build performs. The port stops
-// when it changes, because the Fusion construction in the fragment was reviewed against this sequence.
-var ExpectedOps = []string{
-	"Extrude", "Extrude", "Extrude", "Union", "Extrude", "Cut", "Extrude", "Extrude", "Cut", "Extrude", "Cut",
-	"Chamfer", "Extrude", "Extrude",
-}
-
-// ReviewedFuncs are the gallery functions the fragment's Fusion construction follows. The fragment
-// records a digest of their code (reviewed.json); a change to any of them stops the port until the
-// fragment is reviewed and the digest accepted.
-var ReviewedFuncs = []string{
-	"Build", "resolve", "Problems", "Validate", "undercutBound", "undercuts", "minInwardCurvatureRadius",
-	"defineParameters",
+// FeatureSpec is what the port translates from the gallery model: the rotor profile, the casing
+// contour, the dimensions, the validity checks and the whole build, in the order the gallery performs it.
+// The Fusion runtime that executes the calls is lib/geargen/decadfusion.py, run in millimetres.
+//
+// The retry loops over lobeTurnLimits and contourStrides run once, with their first entry:
+// docs/gallery-translation-goal.md, "Retry loops".
+var FeatureSpec = go2py.Spec{
+	Prefix:    "_",
+	Structs:   []string{"point", "dimensions", "run", "Drive", "NamedBody"},
+	TypeOnly:  []string{"Params"},
+	Mutable:   []string{"dimensions"},
+	Provided:  []string{"defineParameters", "Validate"},
+	Bound:     map[string]go2py.Bound{"begin": {Python: "_begin", Result: "run"}},
+	FirstOnly: []string{"lobeTurnLimits", "contourStrides"},
+	Values: []string{
+		"undercutScanPoints", "HousingName", "CamName", "OutputPlateName", "planeGap", "camSeparation",
+		"camOverlap", "lobeTurnLimits", "contourStrides", "lobeFineSteps", "contourPoints", "contourCamSteps",
+		"contourCurveSteps",
+	},
+	Funcs: []string{
+		"placement", "regionWithHoles", "solveAndVerify", "discPoint", "lobeParameters", "profileCurvature",
+		"inflections", "lobeSegments", "housingContour", "splitAtInflections", "thinned", "resolve",
+		"minInwardCurvatureRadius", "undercuts", "undercutBound", "Problems", "planeAt", "circleAt",
+		"discGeometry", "discHeight", "buildDisc", "buildDiscSampled", "buildHousing", "buildCavity", "buildCam",
+		"buildCamBridge", "outputPinCenter", "buildOutput", "chamfered", "chamferedBy", "housingOuterCircles",
+		"Build", "DiscName", "OutputPinName", "Named",
+	},
+	Roles: map[string]go2py.Role{
+		"planeAt:sketch.World.CreatePlaneFromFrame#1":  {Feature: "Section Plane"},
+		"buildDiscSampled:sketch.World.CreateSketch#1": {Feature: "Disc Profile"},
+		"buildDiscSampled:decad.Extrude#1":             {Feature: "Disc Extrude", Body: "Disc"},
+		"buildHousing:sketch.World.CreateSketch#1":     {Feature: "Housing Outer Profile"},
+		"buildHousing:sketch.World.CreateSketch#2":     {Feature: "Housing Hole Profile"},
+		"buildHousing:decad.Extrude#1":                 {Feature: "Housing Outer Extrude", Body: "Housing"},
+		"buildHousing:decad.Extrude#2":                 {Feature: "Housing Hole Extrude", Body: "Housing Hole Tool"},
+		"buildHousing:decad.Cut#1":                     {Feature: "Casing Cavity Cut"},
+		"buildHousing:decad.Cut#2":                     {Feature: "Housing Hole Cut"},
+		"buildCavity:sketch.World.CreateSketch#1":      {Feature: "Casing Profile"},
+		"buildCavity:decad.Extrude#1":                  {Feature: "Casing Cavity Extrude", Body: "Casing Cavity Tool"},
+		"buildCam:sketch.World.CreateSketch#1":         {Feature: "Cam Section Profile"},
+		"buildCam:sketch.World.CreateSketch#2":         {Feature: "Input Bore Profile"},
+		"buildCam:decad.Extrude#1":                     {Feature: "Cam Section Extrude", Body: "Cam"},
+		"buildCam:decad.Extrude#2":                     {Feature: "Input Bore Extrude", Body: "Input Bore Tool"},
+		"buildCam:decad.Union#1":                       {Feature: "Cam Join"},
+		"buildCam:decad.Cut#1":                         {Feature: "Input Bore Cut"},
+		"buildCamBridge:sketch.World.CreateSketch#1":   {Feature: "Cam Bridge Profile"},
+		"buildCamBridge:decad.Extrude#1":               {Feature: "Cam Bridge Extrude", Body: "Cam Bridge"},
+		"buildOutput:sketch.World.CreateSketch#1":      {Feature: "Output Plate Profile"},
+		"buildOutput:sketch.World.CreateSketch#2":      {Feature: "Output Pin Profile"},
+		"buildOutput:decad.Extrude#1":                  {Feature: "Output Plate Extrude", Body: "Output Plate"},
+		"buildOutput:decad.Extrude#2":                  {Feature: "Output Pin Extrude", Body: "Output Pin"},
+		"chamferedBy:decad.Chamfer#1":                  {Feature: "Chamfer", Qualify: "what"},
+	},
 }

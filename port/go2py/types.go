@@ -7,6 +7,7 @@ package go2py
 import (
 	"fmt"
 	"go/ast"
+	"strings"
 )
 
 type kind int
@@ -87,6 +88,8 @@ func fromAST(e ast.Expr, structs map[string]*structInfo) (typ, error) {
 			return boolType, nil
 		case "string":
 			return stringType, nil
+		case "any":
+			return typ{kind: kindOpaque, name: "any"}, nil
 		}
 		if _, ok := structs[e.Name]; ok {
 			return typ{kind: kindStruct, name: e.Name}, nil
@@ -149,6 +152,7 @@ func fromAST(e ast.Expr, structs map[string]*structInfo) (typ, error) {
 		if len(e.Fields.List) == 0 {
 			return typ{kind: kindOpaque, name: "struct{}"}, nil
 		}
+		return anonStruct(e, structs)
 	}
 	return typ{}, fmt.Errorf("unsupported type %T", e)
 }
@@ -177,15 +181,45 @@ type structInfo struct {
 	// external marks a struct of another gallery package, which the translation holds as an
 	// opaque handle and reads only the listed fields of.
 	external bool
+	// anonymous marks a struct type written inline; its class is rendered with the others.
+	anonymous bool
+	// assigned marks a struct the translated code fills in field by field, which becomes a class.
+	assigned bool
 }
 
 // mutable reports whether the struct holds slices or handles, which a function fills in
 // field by field. It becomes a plain class instead of an immutable namedtuple.
 func (s *structInfo) mutable() bool {
+	if s.assigned {
+		return true
+	}
 	for _, t := range s.types {
 		if t.kind == kindSlice || t.kind == kindOpaque {
 			return true
 		}
 	}
 	return false
+}
+
+// anonStruct registers an anonymous struct type, such as the row type of a table written inline, under a
+// name made from its fields, and returns it. The same fields give the same name.
+func anonStruct(e *ast.StructType, structs map[string]*structInfo) (typ, error) {
+	info := &structInfo{types: map[string]typ{}, anonymous: true}
+	for _, f := range e.Fields.List {
+		ft, err := fromAST(f.Type, structs)
+		if err != nil {
+			return typ{}, err
+		}
+		for _, n := range f.Names {
+			info.fields = append(info.fields, n.Name)
+			info.types[n.Name] = ft
+		}
+	}
+	info.name = "Anon" + strings.Join(info.fields, "")
+	if existing, ok := structs[info.name]; ok {
+		info = existing
+	} else {
+		structs[info.name] = info
+	}
+	return typ{kind: kindStruct, name: info.name}, nil
 }

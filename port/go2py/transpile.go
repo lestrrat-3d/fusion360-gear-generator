@@ -3,6 +3,7 @@ package go2py
 import (
 	"fmt"
 	"go/ast"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -27,6 +28,16 @@ type Spec struct {
 	// TypeOnly structs are known to the translator but not rendered. Fields of a type
 	// the translator does not know are left out.
 	TypeOnly []string
+	// Mutable lists the structs the translated code assigns field by field. They become classes
+	// with equality by field, not namedtuples.
+	Mutable []string
+	// Values are package-level constants and variables, rendered before the functions in the
+	// order listed. A value may use the ones before it.
+	Values []string
+	// FirstOnly lists package-level slices that a retry loop walks. A loop over one runs once,
+	// with the first entry, and errors.Is is false: see docs/gallery-translation-goal.md,
+	// "Retry loops".
+	FirstOnly []string
 	// Funcs are translated whole.
 	Funcs []string
 	// Steps are the creation sequences of drawing functions, translated up to a stop call.
@@ -93,6 +104,10 @@ func TranspileSpec(m *gallery.Model, spec Spec) (string, error) {
 		model: m, prefix: spec.Prefix, structs: map[string]*structInfo{}, funcs: map[string]*funcInfo{},
 		sketch:  len(spec.Steps) > 0 || len(spec.TypeOnly) > 0 || len(spec.Roles) > 0 || len(spec.External) > 0,
 		runtime: spec.Runtime, roles: spec.Roles, provided: map[string]bool{}, external: spec.External, bound: spec.Bound,
+		globals: map[string]global{}, firstOnly: map[string]bool{},
+	}
+	for _, name := range spec.FirstOnly {
+		tr.firstOnly[name] = true
 	}
 	for name, fields := range spec.ExternalTypes {
 		info := &structInfo{name: name, types: map[string]typ{}, external: true}
@@ -136,8 +151,30 @@ func TranspileSpec(m *gallery.Model, spec Spec) (string, error) {
 		}
 		todo = failed
 	}
+	for _, name := range spec.Mutable {
+		if info, ok := tr.structs[name]; ok {
+			info.assigned = true
+		}
+	}
 	for _, name := range spec.Zero {
 		tr.structs[name] = &structInfo{name: name, types: map[string]typ{}, zero: true}
+	}
+	for _, name := range spec.Values {
+		expr, err := m.PackageValue(name)
+		if err != nil {
+			return "", err
+		}
+		fn := &fnState{t: tr, info: &funcInfo{name: name}, env: map[string]typ{}, calls: map[string]int{}}
+		text, vt, err := fn.expr(expr)
+		if err != nil {
+			return "", fmt.Errorf("value %s: %w", name, err)
+		}
+		if vt.kind == kindUntyped {
+			vt = intType
+		}
+		py := tr.prefix + pySnake(name)
+		tr.globals[name] = global{py: py, t: vt}
+		fmt.Fprintf(&out, "%s = %s\n\n", py, text)
 	}
 	for _, name := range spec.Funcs {
 		info, err := tr.loadSignature(name)
@@ -150,22 +187,36 @@ func TranspileSpec(m *gallery.Model, spec Spec) (string, error) {
 		out.WriteString(tr.structs[name].python(spec.Prefix))
 		out.WriteString("\n\n")
 	}
+	var body strings.Builder
 	for _, name := range spec.Funcs {
 		src, err := tr.function(tr.funcs[name])
 		if err != nil {
 			return "", fmt.Errorf("function %s: %w", name, err)
 		}
-		out.WriteString(src)
-		out.WriteString("\n\n")
+		body.WriteString(src)
+		body.WriteString("\n\n")
 	}
 	for _, st := range spec.Steps {
 		src, err := tr.steps(st)
 		if err != nil {
 			return "", fmt.Errorf("function %s: %w", st.Name, err)
 		}
-		out.WriteString(src)
+		body.WriteString(src)
+		body.WriteString("\n\n")
+	}
+	// Struct types written inline are known only after the functions that use them are translated.
+	var anon []string
+	for name, info := range tr.structs {
+		if info.anonymous {
+			anon = append(anon, name)
+		}
+	}
+	slices.Sort(anon)
+	for _, name := range anon {
+		out.WriteString(tr.structs[name].python(spec.Prefix))
 		out.WriteString("\n\n")
 	}
+	out.WriteString(body.String())
 	return strings.TrimRight(out.String(), "\n") + "\n", nil
 }
 
@@ -181,6 +232,9 @@ type transpiler struct {
 	bound    map[string]Bound
 	roles    map[string]Role
 	provided map[string]bool
+	// globals are the package-level values, by Go name, with their Python names and types.
+	globals   map[string]global
+	firstOnly map[string]bool
 }
 
 // funcInfo is the parsed signature of a function to translate.
@@ -214,6 +268,9 @@ func (s *structInfo) python(prefix string) string {
 		fmt.Fprintf(&sb, "class %s%s:\n    def __init__(self, %s):\n", prefix, pyClass(s.name), strings.Join(params, ", "))
 		for _, f := range s.fields {
 			fmt.Fprintf(&sb, "        self.%s = %s\n", f, f)
+		}
+		if s.assigned {
+			fmt.Fprintf(&sb, "\n    def __eq__(self, other):\n        return vars(self) == vars(other)\n")
 		}
 		return strings.TrimRight(sb.String(), "\n")
 	}
@@ -421,4 +478,10 @@ func pyClass(s string) string {
 		return s
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// global is a package-level value the translation renders as a module-level Python name.
+type global struct {
+	py string
+	t  typ
 }
