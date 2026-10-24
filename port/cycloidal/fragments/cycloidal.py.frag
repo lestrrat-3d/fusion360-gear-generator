@@ -700,6 +700,7 @@ class CycloidalDriveGenerator(Generator):
             adsk.fusion.ExtentDirections.PositiveExtentDirection)
         extrude = component.features.extrudeFeatures.add(ext)
         extrude.bodies.item(0).name = 'Cycloidal Disk {}'.format(d + 1)
+        solids.name_feature(extrude, 'Cycloidal Disk {} Sector Extrude'.format(d + 1))
 
         # S09 — construction axis through the disc centre, from the cap face's normal.
         capFace = extrude.startFaces.item(0)
@@ -713,7 +714,8 @@ class CycloidalDriveGenerator(Generator):
         pat.quantity = adsk.core.ValueInput.createByReal(L)
         pat.totalAngle = adsk.core.ValueInput.createByString('360 deg')
         pat.isSymmetric = False
-        component.features.circularPatternFeatures.add(pat)
+        lobePattern = component.features.circularPatternFeatures.add(pat)
+        solids.name_feature(lobePattern, 'Cycloidal Disk {} Lobe Pattern'.format(d + 1))
 
         # S11 — join disc d's own L sectors into one body.
         target = component.bRepBodies.item(base)
@@ -722,7 +724,8 @@ class CycloidalDriveGenerator(Generator):
             tools.add(component.bRepBodies.item(i))
         ci = component.features.combineFeatures.createInput(target, tools)
         ci.operation = adsk.fusion.FeatureOperations.JoinFeatureOperation
-        component.features.combineFeatures.add(ci)
+        lobeJoin = component.features.combineFeatures.add(ci)
+        solids.name_feature(lobeJoin, 'Cycloidal Disk {} Lobe Join'.format(d + 1))
 
         target.name = 'Cycloidal Disk {}'.format(d + 1)
         self.diskBodies[d] = target
@@ -798,6 +801,7 @@ class CycloidalDriveGenerator(Generator):
             adsk.fusion.ExtentDirections.PositiveExtentDirection)
         ci.participantBodies = [self.diskBodies[d]]
         cut = component.features.extrudeFeatures.add(ci)
+        solids.name_feature(cut, 'Cycloidal Disk {} Output Hole Cut'.format(d + 1))
 
         coll = adsk.core.ObjectCollection.create()
         coll.add(cut)
@@ -806,7 +810,8 @@ class CycloidalDriveGenerator(Generator):
         pat.quantity = adsk.core.ValueInput.createByReal(M)
         pat.totalAngle = adsk.core.ValueInput.createByString('360 deg')
         pat.isSymmetric = False
-        component.features.circularPatternFeatures.add(pat)
+        holePattern = component.features.circularPatternFeatures.add(pat)
+        solids.name_feature(holePattern, 'Cycloidal Disk {} Output Hole Pattern'.format(d + 1))
 
     # -- S15/S16 ---------------------------------------------------------------------------
     def buildDiskBore(self, d):
@@ -842,7 +847,8 @@ class CycloidalDriveGenerator(Generator):
                 self.parameterName(PARAM_DISC_THICKNESS))),
             adsk.fusion.ExtentDirections.PositiveExtentDirection)
         ci.participantBodies = [self.diskBodies[d]]
-        component.features.extrudeFeatures.add(ci)
+        boreCut = component.features.extrudeFeatures.add(ci)
+        solids.name_feature(boreCut, 'Cycloidal Disk {} Bore Cut'.format(d + 1))
 
     # -- S17/S18/S19 -------------------------------------------------------------------
     def buildCam(self):
@@ -903,6 +909,7 @@ class CycloidalDriveGenerator(Generator):
                     adsk.core.ValueInput.createByString(extentExpr)),
                 adsk.fusion.ExtentDirections.PositiveExtentDirection)
             extrude = component.features.extrudeFeatures.add(ext)
+            solids.name_feature(extrude, 'Eccentric Cam {} Section Extrude'.format(d + 1))
             body = extrude.bodies.item(0)
             body.name = 'Eccentric Cam {}'.format(d + 1)
             sectionBodies.append(body)
@@ -918,7 +925,8 @@ class CycloidalDriveGenerator(Generator):
                 tools.add(body)
             ci = component.features.combineFeatures.createInput(target, tools)
             ci.operation = adsk.fusion.FeatureOperations.JoinFeatureOperation
-            component.features.combineFeatures.add(ci)
+            camJoin = component.features.combineFeatures.add(ci)
+            solids.name_feature(camJoin, 'Eccentric Cam Section Join')
             target.name = 'Eccentric Cam'
             self.cam = target
 
@@ -976,6 +984,7 @@ class CycloidalDriveGenerator(Generator):
                 self.parameterName(PARAM_BASE_THICKNESS))),
             adsk.fusion.ExtentDirections.NegativeExtentDirection)
         housingExtrude = component.features.extrudeFeatures.add(ext)
+        solids.name_feature(housingExtrude, 'Housing Ring Extrude')
         self.housingRing = housingExtrude.bodies.item(0)
         self.housingRing.name = 'Housing Ring'
 
@@ -1086,6 +1095,7 @@ class CycloidalDriveGenerator(Generator):
             adsk.fusion.DistanceExtentDefinition.create(
                 adsk.core.ValueInput.createByString('1 mm')))
         sectorFeature = component.features.extrudeFeatures.add(ext)
+        solids.name_feature(sectorFeature, 'Casing Sector Extrude')
 
         # S26 — circular-pattern the casing sector N times about the drive axis.
         coll2 = adsk.core.ObjectCollection.create()
@@ -1095,7 +1105,8 @@ class CycloidalDriveGenerator(Generator):
         pat.quantity = adsk.core.ValueInput.createByReal(N)
         pat.totalAngle = adsk.core.ValueInput.createByString('360 deg')
         pat.isSymmetric = False
-        component.features.circularPatternFeatures.add(pat)
+        sectorPattern = component.features.circularPatternFeatures.add(pat)
+        solids.name_feature(sectorPattern, 'Casing Sector Pattern')
 
         # S27 — join the N casing sectors into one casing.
         target = component.bRepBodies.item(base)
@@ -1104,7 +1115,8 @@ class CycloidalDriveGenerator(Generator):
             tools.add(component.bRepBodies.item(i))
         ci = component.features.combineFeatures.createInput(target, tools)
         ci.operation = adsk.fusion.FeatureOperations.JoinFeatureOperation
-        component.features.combineFeatures.add(ci)
+        casingJoin = component.features.combineFeatures.add(ci)
+        solids.name_feature(casingJoin, 'Casing Sector Join')
         self.ringCasing = target
 
         # S28 — combine the casing into the Housing.
@@ -1112,7 +1124,8 @@ class CycloidalDriveGenerator(Generator):
         tools2.add(self.ringCasing)
         ci2 = component.features.combineFeatures.createInput(self.housingRing, tools2)
         ci2.operation = adsk.fusion.FeatureOperations.JoinFeatureOperation
-        component.features.combineFeatures.add(ci2)
+        housingJoin = component.features.combineFeatures.add(ci2)
+        solids.name_feature(housingJoin, 'Housing Casing Join')
         self.housingRing.name = 'Housing'
         self.ringCasing = None
 
@@ -1180,6 +1193,7 @@ class CycloidalDriveGenerator(Generator):
                 self.parameterName(PARAM_OUTPUT_PLATE_THICKNESS))),
             adsk.fusion.ExtentDirections.PositiveExtentDirection)
         plateExtrude = component.features.extrudeFeatures.add(ext)
+        solids.name_feature(plateExtrude, 'Output Plate Extrude')
         self.outputPlate = plateExtrude.bodies.item(0)
         self.outputPlate.name = 'Output Plate'
 
@@ -1203,6 +1217,7 @@ class CycloidalDriveGenerator(Generator):
             adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByString(
                 stackTopExpr + ' + 1 mm')))
         pinFeature = component.features.extrudeFeatures.add(pinExt)
+        solids.name_feature(pinFeature, 'Output Pin Extrude')
         pinBody = pinFeature.bodies.item(0)
         pinBody.name = 'Output Pin'
 
@@ -1213,6 +1228,7 @@ class CycloidalDriveGenerator(Generator):
         ci.operation = adsk.fusion.FeatureOperations.CutFeatureOperation
         ci.isKeepToolBodies = True
         combineFeature = component.features.combineFeatures.add(ci)
+        solids.name_feature(combineFeature, 'Output Plate Pin Socket Cut')
 
         # S34 — chamfer the output pin's ends.
         chamferFeature = self._chamferCapRims(pinBody)
@@ -1229,7 +1245,8 @@ class CycloidalDriveGenerator(Generator):
         pat.quantity = adsk.core.ValueInput.createByReal(M)
         pat.totalAngle = adsk.core.ValueInput.createByString('360 deg')
         pat.isSymmetric = False
-        component.features.circularPatternFeatures.add(pat)
+        pinPattern = component.features.circularPatternFeatures.add(pat)
+        solids.name_feature(pinPattern, 'Output Pin Pattern')
 
         for k in range(M):
             component.bRepBodies.item(pinBase + k).name = 'Output Pin {}'.format(k + 1)
