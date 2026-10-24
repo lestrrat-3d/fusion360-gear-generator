@@ -167,14 +167,21 @@ def build(label, module_mm, teeth, pressure_deg, samples, angle_rad, first='righ
                 pt = sp.fitPoints.item(i)
                 tag = '%s%d' % (side, i)
                 second_first_point = (i == 0 and side == order[1][0])
-                if second_first_point and fix == 'vertical':
+                if second_first_point and fix in ('vertical', 'fallback'):
                     # x equal to the other flank's first point by alignment, then only the vertical distance
                     other = order[0][1].fitPoints.item(0)
-                    try:
-                        sk.geometricConstraints.addVertical(pt, other)
-                        Tally.ok += 1
-                    except Exception as e:
-                        Tally.failed.append('%s vertical align: %s' % (tag, str(e).strip()[:60]))
+                    if fix == 'fallback':
+                        before = len(Tally.failed)
+                        add_dim(sk, local, pt, H, tag)
+                        if len(Tally.failed) > before:
+                            log('fallback: H dimension of %s refused (%s), aligning instead' % (tag, Tally.failed.pop()[:40]))
+                            sk.geometricConstraints.addVerticalPoints(pt, other)
+                    else:
+                        try:
+                            sk.geometricConstraints.addVerticalPoints(pt, other)
+                            Tally.ok += 1
+                        except Exception as e:
+                            Tally.failed.append('%s vertical align: %s' % (tag, str(e).strip()[:60]))
                     add_dim(sk, local, pt, V, tag)
                 elif second_first_point and fix == 'vh':
                     add_dim(sk, local, pt, V, tag)
@@ -251,20 +258,13 @@ def probe_pair(label, qx, qy, order='HV', second_first='H'):
 doc = app.documents.add(adsk.core.DocumentTypes.FusionDesignDocumentType)
 try:
     Tally.failed = []
-    log('=== minimal probes: p = (1.58829, 0.17109) dimensioned H then V; then q dimensioned')
-    probe_pair('q mirror of p (a, -b)', 1.58829, -0.17109)
-    probe_pair('q mirror, V first', 1.58829, -0.17109, second_first='V')
-    probe_pair('q mirror, p dimensioned V then H', 1.58829, -0.17109, order='VH')
-    probe_pair('q equal x, y = 2b', 1.58829, 0.34218)
-    probe_pair('q x + 1e-9', 1.58829 + 1e-9, -0.17109)
-    probe_pair('q x + 1e-6', 1.58829 + 1e-6, -0.17109)
-    probe_pair('q different x and y', 1.7, -0.3)
-    probe_pair('q equal y, different x', 1.9, 0.17109)
-    log('=== full tooth, angle 0, variants')
-    build('F1 angle 0, anchored first', 2.0, 17, 20.0, 15, 0.0, anchor_first=True)
-    build('F2 angle 0, vertical alignment for the first pair', 2.0, 17, 20.0, 15, 0.0, fix='vertical')
-    build('F3 angle 0, V then H on the second first point', 2.0, 17, 20.0, 15, 0.0, fix='vh')
-    build('F4 angle 0, anchored first and vertical alignment', 2.0, 17, 20.0, 15, 0.0, anchor_first=True, fix='vertical')
+    build('G1 17 teeth, angle 0, vertical alignment of the start points', 2.0, 17, 20.0, 15, 0.0, fix='vertical')
+    build('G2 17 teeth, angle 0, fallback to alignment', 2.0, 17, 20.0, 15, 0.0, fix='fallback')
+    build('G3 40 teeth, angle 0, fallback to alignment', 1.0, 40, 20.0, 15, 0.0, fix='fallback')
+    build('G4 24 teeth, 25 deg, 9 samples, angle 0, fallback', 3.0, 24, 25.0, 9, 0.0, fix='fallback')
+    build('G5 17 teeth, angle 1e-4, fallback (should not trigger)', 2.0, 17, 20.0, 15, 1e-4, fix='fallback')
+    build('G6 17 teeth, angle 14.5 deg, fallback (should not trigger)', 2.0, 17, 20.0, 15, math.radians(14.5), fix='fallback')
+    build('G7 17 teeth, angle 90 deg, fallback', 2.0, 17, 20.0, 15, math.radians(90), fix='fallback')
 finally:
     text = '\n'.join(lines)
     appdata = os.environ.get('APPDATA')
