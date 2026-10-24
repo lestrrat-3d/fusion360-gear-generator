@@ -62,113 +62,132 @@ def p3(x, y):
     return adsk.core.Point3D.create(x, y, 0)
 
 
-def dim_point(sk, origin, pt, full=True, arc_end=False):
-    """Dimension pt from origin the way the gallery's DimensionPoint / DimensionArcEnd do."""
+class Tally:
+    ok = 0
+    failed = []
+
+
+def add_dim(sk, origin, pt, orient, tag):
     g = pt.geometry
-    ox = origin.geometry
-    x, y = g.x - ox.x, g.y - ox.y
-    n = 0
-    if full or not arc_end:
-        sk.sketchDimensions.addDistanceDimension(origin, pt, H, p3(g.x, g.y - 0.3)); n += 1
-        sk.sketchDimensions.addDistanceDimension(origin, pt, V, p3(g.x + 0.3, g.y)); n += 1
-        return n
-    # arc end: one coordinate only, the radial one comes from the arc
-    if abs(x) >= abs(y):
-        sk.sketchDimensions.addDistanceDimension(origin, pt, V, p3(g.x + 0.3, g.y))
+    text = p3(g.x, g.y - 0.3) if orient == H else p3(g.x + 0.3, g.y)
+    try:
+        sk.sketchDimensions.addDistanceDimension(origin, pt, orient, text)
+        Tally.ok += 1
+        return True
+    except Exception as e:
+        Tally.failed.append('%s %s at (%.5f, %.5f): %s' % (tag, 'H' if orient == H else 'V', g.x, g.y, str(e).strip()[:60]))
+        return False
+
+
+def dim_point(sk, origin, pt, tag, arc_end=False):
+    """The gallery's DimensionPoint (H and V distance from the origin) or DimensionArcEnd (one coordinate)."""
+    g = pt.geometry
+    o = origin.geometry
+    if not arc_end:
+        add_dim(sk, origin, pt, H, tag)
+        add_dim(sk, origin, pt, V, tag)
+    elif abs(g.x - o.x) >= abs(g.y - o.y):
+        add_dim(sk, origin, pt, V, tag)
     else:
-        sk.sketchDimensions.addDistanceDimension(origin, pt, H, p3(g.x, g.y - 0.3))
-    return 1
+        add_dim(sk, origin, pt, H, tag)
 
 
-def build(label, module_mm, teeth, pressure_deg, samples, angle_rad, anchor_on_origin=True, probe=None):
-    log('--- %s: module %g mm, %d teeth, pressure %g deg, %d samples, angle %.4f rad'
-        % (label, module_mm, teeth, pressure_deg, samples, angle_rad))
+def entity_report(sk):
+    free = []
+    for i in range(sk.sketchCurves.count):
+        c = sk.sketchCurves.item(i)
+        if not c.isFullyConstrained:
+            free.append('curve %d type %s' % (i, c.geometry.curveType))
+    for i in range(sk.sketchPoints.count):
+        p = sk.sketchPoints.item(i)
+        if not p.isFullyConstrained:
+            g = p.geometry
+            free.append('point %d (%.5f, %.5f)' % (i, g.x, g.y))
+    log('entities not fully constrained: %d' % len(free))
+    for f in free[:12]:
+        log('   ' + f)
+
+
+def build(label, module_mm, teeth, pressure_deg, samples, angle_rad, first='right', arcs_first=False, anchor=True):
+    log('--- %s: module %g mm, %d teeth, pressure %g, %d samples, angle %.5f, first=%s, arcs_first=%s'
+        % (label, module_mm, teeth, pressure_deg, samples, angle_rad, first, arcs_first))
+    Tally.ok = 0
+    Tally.failed = []
     root = app.activeProduct.rootComponent
     sk = root.sketches.add(root.xYConstructionPlane)
     sk.name = 'Gallery Scheme ' + label
     try:
-        m = module_mm / 10.0                       # cm
+        m = module_mm / 10.0
         pitch = m * teeth / 2
         base = pitch * math.cos(math.radians(pressure_deg))
         rootr = (m * teeth - 2.5 * m) / 2
         tip = (m * teeth + 2 * m) / 2
         left, right = _sample_flanks(pitch, base, base, tip, teeth, samples, angle_rad)
-        local = sk.sketchPoints.add(p3(0, 0))      # movable local origin, as the add-in keeps ([SPUR-F-LOCAL-ORIGIN])
-        # fit splines through Point3Ds; the spline owns its fit SketchPoints
-        rc = adsk.core.ObjectCollection.create()
-        for q in right:
-            rc.add(p3(q.x, q.y))
-        rspline = sk.sketchCurves.sketchFittedSplines.add(rc)
-        lc = adsk.core.ObjectCollection.create()
-        for q in left:
-            lc.add(p3(q.x, q.y))
-        lspline = sk.sketchCurves.sketchFittedSplines.add(lc)
-        ndim = 0
-        for i in range(samples):
-            ndim += dim_point(sk, local, rspline.fitPoints.item(i))
-        for i in range(samples):
-            ndim += dim_point(sk, local, lspline.fitPoints.item(i), full=(i != samples - 1), arc_end=(i == samples - 1))
-        log('fit-point dimensions created: %d' % ndim)
-        # root contacts: base sample scaled to the root circle
-        def root_contact(q):
+        local = sk.sketchPoints.add(p3(0, 0))
+        def spline(points):
+            c = adsk.core.ObjectCollection.create()
+            for q in points:
+                c.add(p3(q.x, q.y))
+            return sk.sketchCurves.sketchFittedSplines.add(c)
+        rspline = spline(right)
+        lspline = spline(left)
+        def rc(q):
             return p3(q.x * rootr / base, q.y * rootr / base)
-        rr = sk.sketchPoints.add(root_contact(right[0]))
-        lr = sk.sketchPoints.add(root_contact(left[0]))
-        ndim += dim_point(sk, local, lr, full=False, arc_end=True)   # the gallery creates the left root first
-        ndim += dim_point(sk, local, rr)
-        lines_ = sk.sketchCurves.sketchLines
-        lines_.addByTwoPoints(rr, rspline.startSketchPoint)
-        lines_.addByTwoPoints(lspline.startSketchPoint, lr)
-        arcs = sk.sketchCurves.sketchArcs
-        arcs.addByCenterStartEnd(local, rspline.endSketchPoint, lspline.endSketchPoint)   # tip arc
-        arcs.addByCenterStartEnd(local, rr, lr)                                            # root arc
-        log('before anchoring: isFullyConstrained = %s' % sk.isFullyConstrained)
-        if anchor_on_origin:
-            sk.geometricConstraints.addCoincident(local, sk.originPoint)
-            log('after coincident with origin: isFullyConstrained = %s' % sk.isFullyConstrained)
-        # how far did the solver move the fit points from their targets?
+        rr = sk.sketchPoints.add(rc(right[0]))
+        lr = sk.sketchPoints.add(rc(left[0]))
+        def lines_and_arcs():
+            sk.sketchCurves.sketchLines.addByTwoPoints(rr, rspline.startSketchPoint)
+            sk.sketchCurves.sketchLines.addByTwoPoints(lspline.startSketchPoint, lr)
+            sk.sketchCurves.sketchArcs.addByCenterStartEnd(local, rspline.endSketchPoint, lspline.endSketchPoint)
+            sk.sketchCurves.sketchArcs.addByCenterStartEnd(local, rr, lr)
+        if arcs_first:
+            lines_and_arcs()
+        order = [('R', rspline, False), ('L', lspline, True)]
+        if first == 'left':
+            order.reverse()
+        for side, sp, has_arc_end in order:
+            for i in range(samples):
+                dim_point(sk, local, sp.fitPoints.item(i), '%s%d' % (side, i), arc_end=(has_arc_end and i == samples - 1))
+        dim_point(sk, local, lr, 'Lroot', arc_end=True)
+        dim_point(sk, local, rr, 'Rroot')
+        if not arcs_first:
+            lines_and_arcs()
+        log('dimensions created: %d, failed: %d' % (Tally.ok, len(Tally.failed)))
+        for f in Tally.failed[:6]:
+            log('   FAILED ' + f)
+        log('isFullyConstrained before anchoring = %s' % sk.isFullyConstrained)
+        if anchor:
+            try:
+                sk.geometricConstraints.addCoincident(local, sk.originPoint)
+                log('after coincident with origin: isFullyConstrained = %s' % sk.isFullyConstrained)
+            except Exception as e:
+                log('anchoring RAISED: %s' % str(e).strip()[:80])
+        entity_report(sk)
         worst = 0.0
-        for spline, pts in ((rspline, right), (lspline, left)):
+        for sp, pts in ((rspline, right), (lspline, left)):
             for i, q in enumerate(pts):
-                g = spline.fitPoints.item(i).geometry
+                g = sp.fitPoints.item(i).geometry
                 worst = max(worst, math.hypot(g.x - q.x, g.y - q.y))
-        log('worst fit-point displacement from target: %.3e cm' % worst)
-        log('profiles: %d' % sk.profiles.count)
+        log('worst fit-point displacement: %.3e cm; profiles: %d' % (worst, sk.profiles.count))
         for i in range(sk.profiles.count):
             prof = sk.profiles.item(i)
             for j in range(prof.profileLoops.count):
                 loop = prof.profileLoops.item(j)
-                kinds = {}
-                for k in range(loop.profileCurves.count):
-                    t = str(loop.profileCurves.item(k).geometry.curveType)
-                    kinds[t] = kinds.get(t, 0) + 1
-                log('  profile %d loop %d: %d curves %s' % (i, j, loop.profileCurves.count, kinds))
-        if probe:
-            probe(sk, local, rspline, lspline)
+                log('  profile %d loop %d: %d curves' % (i, j, loop.profileCurves.count))
     except Exception:
         log('RAISED:\n' + traceback.format_exc())
     return sk
 
 
-def probe_edit(sk, local, rspline, lspline):
-    """Is the sketch really determined? Nudge one interior fit-point dimension and see the profile survive."""
-    try:
-        d = sk.sketchDimensions.item(4)
-        old = d.parameter.value
-        d.parameter.value = old * 1.0001
-        log('probe: edited dimension 4 %.6f -> %.6f; isFullyConstrained = %s; profiles = %d'
-            % (old, d.parameter.value, sk.isFullyConstrained, sk.profiles.count))
-        d.parameter.value = old
-    except Exception:
-        log('probe RAISED:\n' + traceback.format_exc())
-
-
 doc = app.documents.add(adsk.core.DocumentTypes.FusionDesignDocumentType)
 try:
-    build('A default 17 teeth', 2.0, 17, 20.0, 15, 0.0, probe=probe_edit)
-    build('B rotated 14.5 deg', 2.0, 17, 20.0, 15, math.radians(14.5))
-    build('C 40 teeth', 1.0, 40, 20.0, 15, 0.0)
-    build('D 24 teeth, 25 deg pressure, 9 samples', 3.0, 24, 25.0, 9, 0.0)
+    build('A0 17 teeth, angle 0', 2.0, 17, 20.0, 15, 0.0)
+    build('A1 17 teeth, angle 1e-4', 2.0, 17, 20.0, 15, 1e-4)
+    build('A2 17 teeth, angle 0, left first', 2.0, 17, 20.0, 15, 0.0, first='left')
+    build('A3 17 teeth, angle 0, arcs first', 2.0, 17, 20.0, 15, 0.0, arcs_first=True)
+    build('B 17 teeth, angle 14.5 deg', 2.0, 17, 20.0, 15, math.radians(14.5))
+    build('B2 17 teeth, angle 14.5 deg, arcs first', 2.0, 17, 20.0, 15, math.radians(14.5), arcs_first=True)
+    build('C 40 teeth, angle 0', 1.0, 40, 20.0, 15, 0.0)
 finally:
     text = '\n'.join(lines)
     appdata = os.environ.get('APPDATA')
