@@ -40,6 +40,21 @@ Fusion taught us. This file owns the goal, the rules for reaching it, and the de
 - Every translated sketch follows the Fusion rules in `docs/fusion/spurgear.md` (local origin, anchor projection).
 - Decided with the user on 2026-10-24. The spur is re-verified in Fusion after the change.
 
+## Retry loops
+
+- A loop that retries a build with other numbers because decad refused the first try runs ONCE, with the first entry of
+  each list. The spiral bevel build has two: `spiralOvershoots` (five overshoot values, in modules) and the join orders
+  tried for each. The translation uses overshoot 0.5 and the first join order.
+- A failure of that first try is an error, reported as it is. NEVER add a retry to the translation until Fusion refuses
+  a member the gallery builds. Record the case here when it happens.
+- Why: decad's booleans work on float meshes and can refuse a result whose rounding folds two facets through each other
+  or leaves two facets too close to tell. The refusal depends on the numbers, not on the gear, so the gallery builds
+  again with the next numbers. Every try that decad accepts gives the same gear, because the overshoot is trimmed flush
+  afterwards. Fusion's kernel is exact and has no such refusal. A failed Fusion feature stays in the timeline as an
+  error, so retrying there would need a rollback that does not exist.
+- The retry loops are listed in `port/bevel/mapping.go` (`FirstEntryOnly`), so the rule is visible in the code that
+  applies it. Decided with the user on 2026-10-24.
+
 ## Order of work
 
 1. Spur: the embedded tooth, then the feature sequence (root disc, tooth extrude, pattern, join, fillets, bore,
