@@ -6,7 +6,7 @@
 // gallery source, and the rest is Fusion knowledge kept in the fragment.
 package spur
 
-import "github.com/lestrrat-3d/fusion360-gear-generator/port/gotopy"
+import "github.com/lestrrat-3d/fusion360-gear-generator/port/go2py"
 
 // ParamKind tells how a mapped parameter reaches Fusion.
 type ParamKind int
@@ -118,7 +118,7 @@ var Params = []Param{
 // The tooth section is translated twice. buildToothSection builds a sketch of its own, which the
 // spur uses. The drawing steps (draw_tooth_section) draw into a sketch the caller made, which the
 // helical, herringbone and bevel add-ins still use until their constructions are translated too.
-var FeatureSpec = gotopy.Spec{
+var FeatureSpec = go2py.Spec{
 	Prefix:   "_",
 	Structs:  []string{"point", "dimensions", "toothPoints"},
 	TypeOnly: []string{"Params", "run"},
@@ -131,9 +131,9 @@ var FeatureSpec = gotopy.Spec{
 		"buildToothSection", "buildEmbeddedTooth", "tooth", "filletSpurRoots", "filletRootsValue",
 		"filletEmbedded", "buildBoreProfile", "cutBore", "chamferOuterCaps", "assemble",
 	},
-	Steps: []gotopy.Steps{{
+	Steps: []go2py.Steps{{
 		Name: "buildToothSection", PyName: "draw_tooth_section", StopAt: "solveAndVerify",
-		Args: []gotopy.StepArg{
+		Args: []go2py.StepArg{
 			{Name: "s", Type: "*sketch.Sketch"}, {Name: "p", Type: "Params"},
 			{Name: "d", Type: "dimensions"}, {Name: "angle", Type: "float64"},
 		},
@@ -143,7 +143,7 @@ var FeatureSpec = gotopy.Spec{
 
 // Roles names each object the translated build creates in Fusion, by its role. A key is the Go
 // function, the operation and the number of the call in that function.
-var Roles = map[string]gotopy.Role{
+var Roles = map[string]go2py.Role{
 	"buildToothSection:sketch.World.CreateSketch#1":        {Feature: "Tooth Profile"},
 	"buildEmbeddedTooth:sketch.World.CreateSketch#1":       {Feature: "Tooth Profile"},
 	"tooth:decad.Extrude#1":                                {Feature: "Tooth Extrude", Body: "Tooth"},

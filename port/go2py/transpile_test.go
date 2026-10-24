@@ -1,4 +1,4 @@
-package gotopy_test
+package go2py_test
 
 import (
 	"bytes"
@@ -9,7 +9,7 @@ import (
 
 	"github.com/lestrrat-3d/decad-gallery/models/spurgear"
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/gallery"
-	"github.com/lestrrat-3d/fusion360-gear-generator/port/gotopy"
+	"github.com/lestrrat-3d/fusion360-gear-generator/port/go2py"
 	"github.com/stretchr/testify/require"
 )
 
@@ -22,7 +22,7 @@ func transpileSpur(t *testing.T) string {
 	require.NoError(t, err)
 	m, err := gallery.Load(src.Dir)
 	require.NoError(t, err)
-	out, err := gotopy.Transpile(m, "_", []string{"point"}, helperFuncs)
+	out, err := go2py.Transpile(m, "_", []string{"point"}, helperFuncs)
 	require.NoError(t, err)
 	return out
 }
@@ -112,7 +112,7 @@ func TestTranspileRefusesWhatItCannotTranslate(t *testing.T) {
 	require.NoError(t, err)
 
 	// Build uses contexts, documents and method calls outside the subset.
-	_, err = gotopy.Transpile(m, "_", []string{"point"}, []string{"Build"})
+	_, err = go2py.Transpile(m, "_", []string{"point"}, []string{"Build"})
 	require.Error(t, err)
 }
 
@@ -122,11 +122,11 @@ func TestTranspileSketchRefusesWhatItDoesNotKnow(t *testing.T) {
 	m, err := gallery.Load(src.Dir)
 	require.NoError(t, err)
 
-	args := []gotopy.StepArg{
+	args := []go2py.StepArg{
 		{Name: "s", Type: "*sketch.Sketch"}, {Name: "p", Type: "Params"},
 		{Name: "d", Type: "dimensions"}, {Name: "angle", Type: "float64"},
 	}
-	spec := gotopy.Spec{
+	spec := go2py.Spec{
 		Prefix:   "_",
 		Structs:  []string{"point", "dimensions", "toothPoints"},
 		TypeOnly: []string{"Params"},
@@ -137,13 +137,13 @@ func TestTranspileSketchRefusesWhatItDoesNotKnow(t *testing.T) {
 
 	// A stop call the function never makes lets the translation run into the solver and
 	// profile checks, which the Python runtime does not perform, so the port refuses.
-	spec.Steps = []gotopy.Steps{{Name: "buildToothSection", PyName: "x", Args: args, StopAt: "noSuchCall"}}
-	_, err = gotopy.TranspileSpec(m, spec)
+	spec.Steps = []go2py.Steps{{Name: "buildToothSection", PyName: "x", Args: args, StopAt: "noSuchCall"}}
+	_, err = go2py.TranspileSpec(m, spec)
 	require.ErrorContains(t, err, "not translated")
 
 	// A function that is not in the list cannot be called from a translated one.
 	spec.Funcs = []string{"rotate", "involutePoint", "flankBeta", "sampleFlanks", "addToothPoints"}
 	spec.Steps = nil
-	_, err = gotopy.TranspileSpec(m, spec)
+	_, err = go2py.TranspileSpec(m, spec)
 	require.ErrorContains(t, err, "rootContact")
 }

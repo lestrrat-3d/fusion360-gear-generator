@@ -10,7 +10,7 @@ import (
 
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/fusionexpr"
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/gallery"
-	"github.com/lestrrat-3d/fusion360-gear-generator/port/gotopy"
+	"github.com/lestrrat-3d/fusion360-gear-generator/port/go2py"
 )
 
 // Reviewed records the gallery code a stored fragment was reviewed against. The spur has no
@@ -120,7 +120,7 @@ func newPieces(m *gallery.Model) (*pieces, error) {
 	if p.derived, err = p.derivedMethod(); err != nil {
 		return nil, err
 	}
-	python, err := gotopy.TranspileSpec(m, FeatureSpec)
+	python, err := go2py.TranspileSpec(m, FeatureSpec)
 	if err != nil {
 		return nil, fmt.Errorf("translate involute math and tooth section: %w", err)
 	}

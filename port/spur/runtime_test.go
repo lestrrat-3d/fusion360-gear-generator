@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/lestrrat-3d/fusion360-gear-generator/port/gotopy"
+	"github.com/lestrrat-3d/fusion360-gear-generator/port/go2py"
 	"github.com/stretchr/testify/require"
 )
 
@@ -66,7 +66,7 @@ func TestRuntimeDefinesEveryOperationTheTranslatorAccepts(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &defs))
 
 	var missing []string
-	for _, entry := range gotopy.API() {
+	for _, entry := range go2py.API() {
 		if entry.Receiver == "" {
 			if !contains(defs.Top, entry.Python) {
 				missing = append(missing, entry.Go)

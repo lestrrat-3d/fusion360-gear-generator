@@ -1,4 +1,4 @@
-package gotopy
+package go2py
 
 import (
 	"fmt"

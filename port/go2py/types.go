@@ -1,8 +1,8 @@
-// Package gotopy translates a small subset of Go into Python. The subset is the
+// Package go2py translates a small subset of Go into Python. The subset is the
 // pure numeric helpers of a gallery model: float and int arithmetic, math calls,
 // small structs, slices, if, and counted for loops. Anything outside it is an error,
 // so a helper that grows past the subset fails the port instead of mistranslating.
-package gotopy
+package go2py
 
 import (
 	"fmt"

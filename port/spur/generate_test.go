@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/gallery"
-	"github.com/lestrrat-3d/fusion360-gear-generator/port/gotopy"
+	"github.com/lestrrat-3d/fusion360-gear-generator/port/go2py"
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/spur"
 	"github.com/stretchr/testify/require"
 )
@@ -92,8 +92,8 @@ func TestGenerateNeedsARoleNameForEveryCreatedObject(t *testing.T) {
 	m, err := gallery.Load(src.Dir)
 	require.NoError(t, err)
 	spec := spur.FeatureSpec
-	spec.Roles = map[string]gotopy.Role{}
-	_, err = gotopy.TranspileSpec(m, spec)
+	spec.Roles = map[string]go2py.Role{}
+	_, err = go2py.TranspileSpec(m, spec)
 	require.ErrorContains(t, err, "no role name")
 }
 

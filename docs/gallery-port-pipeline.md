@@ -207,7 +207,7 @@ Packages:
 | --- | --- |
 | `port/gallery` | Parses the pinned gallery spur source: `Params` fields and defaults, the parameter table, the decad operations `Build` performs, and a digest of named functions. |
 | `port/fusionexpr` | Rewrites a gallery parameter expression into a Fusion expression. It refuses a function it has no rule for. |
-| `port/gotopy` | Translates the pure numeric helpers (`rotate`, `involutePoint`, `flankBeta`, `sampleFlanks`) to Python. A test runs the Python and the Go on the same inputs and requires the flank points to agree to 1e-9. |
+| `port/go2py` | Translates the pure numeric helpers (`rotate`, `involutePoint`, `flankBeta`, `sampleFlanks`) to Python. A test runs the Python and the Go on the same inputs and requires the flank points to agree to 1e-9. |
 | `port/spur` | The mapping from gallery names to Fusion names and dialog inputs, the stored fragment `fragments/spurgear.py.frag`, and the generator that fills the fragment's marker lines. |
 
 What comes from the gallery source: the dialog inputs and their defaults, the registered Fusion parameters and their
@@ -405,28 +405,30 @@ Not yet covered: a numeric comparison of the add-in's derived-parameter formulas
 add-in's `evaluate_problems` with the gallery's `Problems`. Loaded in Fusion on 2026-10-24 from the file with build id
 `b9c655b02d33`; the user reports the drive looks right. Not checked: a two-disc drive with a disc gap of zero.
 
-## Spur tooth sketch translated from the gallery
+## Spur build translated from the gallery
 
-The first spur port stored the add-in's rib construction and generated only the inputs, parameters and involute math.
-The user rejected that as not being a port. The ordinary tooth is now translated.
+The first spur port stored the add-in's Fusion construction and generated only the inputs, parameters and involute
+math. The user rejected that as not being a port. The whole spur build is now translated.
 
-- `port/gotopy` gained a sketch mode (`TranspileSpec`). It translates `addToothPoints` and the creation sequence of
-  `buildToothSection` up to its `solveAndVerify` call. The sketch calls map to methods of a Python builder, the error
-  checks and the sketch creation drop out, and any other call stops the port.
-- `_ToothSketchBuilder` in the spur fragment is the Fusion side. It draws splines first, then lines, the tip arc and the
-  dimensions, ties each arc centre to the local origin, aligns two points where Fusion refuses a dimension, and leaves
-  the root arc to the root circle (`[SPUR-F-GALLERY-SKETCH]`, `[SPUR-F-ARC-CENTRE]`, `[SPUR-F-ALIGN-DUPLICATE]`,
-  `[SPUR-F-ROOT-ARC]` in `docs/fusion/spurgear.md`).
-- `rootContact` joined the gallery functions the port follows, so a change to it stops the port until it is reviewed.
-- `port/spur/tooth_test.go` runs the translated sequence against a recorder and requires every point to lie on the
-  gallery's own verified tooth profile, at angles 0, 90, 14.5 and -14.5 degrees and several tooth counts.
-  `tests/test_tooth_sketch_builder.py` runs the builder against a fake sketch.
-- The embedded tooth (base radius below root radius) is still drawn with the old ribs. The gallery's embedded tooth
-  closes with a different arc, and translating it is a separate change.
-- Not yet checked in Fusion: the new spur, helical, herringbone and bevel sketches. The probes (diagnostic
-  `diag_gallery_scheme.py`) showed the same scheme fully constrained, extruding and editable in Fusion for 17, 24 and 40
-  teeth at 0, 14.5, 45 and 90 degrees. The probes dimensioned the points differently (no root circle), so the real add-in
-  still needs a load.
+- `port/go2py` translates Go into Python. Its sketch mode takes the gallery's drawing and build functions: it drops the
+  error checks, because the runtime raises, drops the context argument, folds branches on an unset options struct, and
+  maps calls of `decad`, `sketch`, `r3` and `sketchcheck` to the operations in its API table (`api.go`). A call of
+  anything else stops the port. Each call that creates a Fusion object needs a role name from the table in
+  `port/spur/mapping.go`, so naming by role is enforced at generation.
+- `lib/geargen/decadfusion.py` is the Fusion implementation of that table. `port/spur/runtime_test.go` fails when the
+  table has an entry the module does not define.
+- `port/spur/build_test.go` runs the translated build against a fake runtime and requires the sketches, features,
+  role names and counts the gallery produces. `port/spur/tooth_test.go` requires every translated tooth point to lie on
+  the gallery's own verified profile. `tests/test_tooth_sketch_builder.py` runs the sketch class against a fake sketch.
+- The spur's stored `reviewed.json` digest and `ExpectedOps` list are gone for the spur: nothing stored follows the
+  gallery's code any more, so a changed gallery build is a changed translation, and the committed add-in no longer
+  matches `gearport gen`.
+- `tool_margin` and `bore_tool_length` are now Fusion user parameters (`ToolMargin`, `BoreToolLength`), because the
+  gallery reads them.
+- The spur's old construction moved to `lib/geargen/legacyspur.py`. HelicalGearGenerator builds on it and the bevel
+  add-in draws its tooth sketch with it. It is deleted when the last of them is translated.
+- Not yet checked in Fusion: the translated spur. The helical, herringbone and bevel add-ins run the same code as
+  before through the transitional module.
 
 ## Removal of the old pipeline
 

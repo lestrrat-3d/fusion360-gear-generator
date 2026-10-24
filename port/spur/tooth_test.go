@@ -9,7 +9,7 @@ import (
 
 	"github.com/lestrrat-3d/decad-gallery/models/spurgear"
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/gallery"
-	"github.com/lestrrat-3d/fusion360-gear-generator/port/gotopy"
+	"github.com/lestrrat-3d/fusion360-gear-generator/port/go2py"
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/spur"
 	"github.com/lestrrat-3d/sketch"
 	"github.com/stretchr/testify/require"
@@ -72,7 +72,7 @@ func TestTranslatedToothSectionMatchesGallery(t *testing.T) {
 	require.NoError(t, err)
 	m, err := gallery.Load(src.Dir)
 	require.NoError(t, err)
-	text, err := gotopy.TranspileSpec(m, spur.FeatureSpec)
+	text, err := go2py.TranspileSpec(m, spur.FeatureSpec)
 	require.NoError(t, err)
 
 	cases := []toothCase{
