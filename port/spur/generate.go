@@ -265,10 +265,6 @@ func (p *pieces) writeDerived(sb *strings.Builder, mp Param, e gallery.Parameter
 		}
 		args = append(args, fmt.Sprintf("self.parameterName(%s)", ref.Const))
 	}
-	if mp.HelixFactor {
-		format = "(" + format + ") * {}"
-		args = append(args, "self.filletHelixFactorExpression()")
-	}
 	if len(args) == 0 {
 		fmt.Fprintf(sb, "        expression = '%s'\n", format)
 	} else {

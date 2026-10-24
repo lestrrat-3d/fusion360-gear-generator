@@ -63,9 +63,6 @@ class SpurGearGenerator(Generator):
     def addExtraPrimaryParameters(self, inputs):
         pass
 
-    def filletHelixFactorExpression(self) -> str:
-        return '1'
-
     def generateName(self) -> str:
         module = self.getParameter(PARAM_MODULE)
         toothNumber = self.getParameter(PARAM_TOOTH_NUMBER)
@@ -154,9 +151,17 @@ class SpurGearGenerator(Generator):
             raise RuntimeError(f'{sketch.name}: anchor projection produced no SketchPoint')
         sketch.geometricConstraints.addCoincident(localOrigin, projectedAnchor)
 
+    def variant(self):
+        """The changes this gear makes to the spur build. The spur makes none; a subclass returns its own."""
+        return _Variant()
+
+    def galleryParameters(self):
+        """The Fusion parameter constant of each gallery parameter table entry. A subclass adds its own."""
+        return _GALLERY_PARAMETERS
+
     def galleryParameter(self, name):
         """The Fusion name and user parameter of a gallery parameter table entry."""
-        constant = _GALLERY_PARAMETERS[name]
+        constant = self.galleryParameters()[name]
         return self.parameterName(constant), self.getParameter(constant)
 
     def buildGear(self, ctx: SpurGearGenerationContext):
@@ -165,21 +170,22 @@ class SpurGearGenerator(Generator):
         runtime = _fx.Runtime(self.getComponent(), ctx.plane, ctx.anchorPoint, self.galleryParameter, sketchOnly)
         runtime.activate()
         self._runtime = runtime
-        frame = runtime.build_frame(self._toolsSketch)
+        runtime.build_frame(self._toolsSketch)
         value = lambda constant: self.getParameter(constant).value
         params = _GalleryParams(
             Module=value(PARAM_MODULE), Teeth=int(round(value(PARAM_TOOTH_NUMBER))),
             PressureAngle=value(PARAM_PRESSURE_ANGLE), Thickness=value(PARAM_THICKNESS),
             Samples=int(value(PARAM_INVOLUTE_STEPS)), BoreDiameter=value(PARAM_BORE_DIAMETER),
-            CapChamfer=value(PARAM_CHAMFER_TOOTH), Placement=frame)
+            CapChamfer=value(PARAM_CHAMFER_TOOTH), Placement=None)
         dimensions = _Dimensions(
             value(PARAM_PITCH_RADIUS), value(PARAM_BASE_RADIUS), value(PARAM_ROOT_RADIUS),
             value(PARAM_TIP_RADIUS), value(PARAM_FILLET_RADIUS))
+        frame = _placement(params)
         run = _Run(
             doc=runtime, world=runtime, p=params, d=dimensions, frame=frame, lower=runtime.xy(),
             extent=_fx.Distance(D=runtime.param('thickness'), Dir=_fx.DECAD_ALONG), teeth=params.Teeth)
         try:
-            _assemble(run)
+            _variant_assemble(self.variant(), run)
         except _fx.SketchOnly:
             futil.log('Sketch only: stopped before the first feature')
 

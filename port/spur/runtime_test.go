@@ -42,8 +42,9 @@ json.dump({'top': sorted(top), 'classes': classes}, sys.stdout)
 
 // runtimeClass maps the Go type a method belongs to onto the class of lib/geargen/decadfusion.py.
 var runtimeClass = map[string]string{
-	"decad.Document": "Runtime", "sketch.World": "Runtime", "decad.Value": "Value", "decad.Body": "Body",
-	"decad.Selector": "Selector", "decad.Edge": "Edge", "decad.Vertex": "Vertex", "decad.Position": "Position",
+	"decad.Document": "Runtime", "sketch.World": "Runtime", "units.Value": "Value", "decad.Body": "Body",
+	"decad.EdgeQuery": "Selector", "decad.Edge": "Edge", "decad.Vertex": "Vertex", "decad.Position": "Position",
+	"decad.Face": "Face", "decad.Cylinder": "Cylinder",
 	"sketch.Sketch": "Sketch", "sketch.Profile": "Profile", "r3.Frame": "Frame", "r3.Vec": "Vec",
 }
 

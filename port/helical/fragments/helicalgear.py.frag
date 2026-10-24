@@ -4,19 +4,17 @@ import adsk.core
 import adsk.fusion
 
 from .base import get_value
+from . import decadfusion as _fx
+from . import spurgear as _spur
 from .spurgear import (
     PARAM_MODULE,
     PARAM_TOOTH_NUMBER,
     PARAM_THICKNESS,
+    PARAM_FILLET_RADIUS,
     SpurGearCommandInputsConfigurator,
+    SpurGearGenerationContext,
+    SpurGearGenerator,
 )
-from .legacyspur import (
-    SpurGearInvoluteToothDesignGenerator,
-    StoredSpurGenerationContext,
-    StoredSpurGearGenerator,
-)
-from .utilities import find_profile_by_curve_counts
-from . import solids
 
 
 # @@constants@@
@@ -29,14 +27,11 @@ class HelicalGearCommandConfigurator(SpurGearCommandInputsConfigurator):
         # @@inputs@@
 
 
-class HelicalGearGenerationContext(StoredSpurGenerationContext):
-    def __init__(self):
-        super().__init__()
-        self.helixPlane = adsk.fusion.ConstructionPlane.cast(None)
-        self.twistedGearProfileSketch = adsk.fusion.Sketch.cast(None)
+class HelicalGearGenerationContext(SpurGearGenerationContext):
+    pass
 
 
-class HelicalGearGenerator(StoredSpurGearGenerator):
+class HelicalGearGenerator(SpurGearGenerator):
     def newContext(self) -> HelicalGearGenerationContext:
         return HelicalGearGenerationContext()
 
@@ -56,41 +51,25 @@ class HelicalGearGenerator(StoredSpurGearGenerator):
             PARAM_HELIX_ANGLE, get_value(inputs, INPUT_ID_HELIX_ANGLE, 'rad'),
             'rad', 'Helix angle for the helical gear')
 
-    def filletHelixFactorExpression(self) -> str:
-        return 'cos({})'.format(self.parameterName(PARAM_HELIX_ANGLE))
+    def registerDerivedParameters(self):
+        super().registerDerivedParameters()
+        # @@derived_parameters@@
 
-    def helicalPlaneOffset(self) -> adsk.core.ValueInput:
-        return self.getParameterAsValueInput(PARAM_THICKNESS)
+    def helixPlaneOffsetExpression(self) -> str:
+        # @@plane_offset@@
+        return expression
 
-    def buildSketches(self, ctx: StoredSpurGenerationContext):
-        assert isinstance(ctx, HelicalGearGenerationContext)
-        super().buildSketches(ctx)
-        planes = self.getComponent().constructionPlanes
-        planeInput = planes.createInput()
-        offset = self.helicalPlaneOffset()
-        planeInput.setByOffset(self.plane, offset)
-        plane = planes.add(planeInput)
-        plane.name = 'Twisted Section Plane'
-        ctx.helixPlane = plane
-        loftSketch = self.createSketchObject('Twisted Gear Profile', plane=plane)
-        toothGenerator = SpurGearInvoluteToothDesignGenerator(loftSketch, self)
-        helixAngle = self.getParameter(PARAM_HELIX_ANGLE).value
-        toothGenerator.draw(ctx.anchorPoint, angle=helixAngle)
-        ctx.twistedGearProfileSketch = loftSketch
+    def galleryParameters(self):
+        return {
+            **super().galleryParameters(),
+            'helix_angle': PARAM_HELIX_ANGLE,
+            'helix_plane_offset': PARAM_HELIX_PLANE_OFFSET,
+            'helical_fillet_radius': PARAM_HELICAL_FILLET_RADIUS,
+        }
 
-    def buildTooth(self, ctx: StoredSpurGenerationContext):
-        assert isinstance(ctx, HelicalGearGenerationContext)
-        self.loftTooth(ctx)
+    def variant(self):
+        """The helical build: the spur build with a lofted tooth and a root fillet scaled by the helix angle."""
+        return _spur._Variant(Tooth=loft_tooth, RootFillet=_fillet_root_edges)
 
-    def loftTooth(self, ctx: StoredSpurGenerationContext):
-        assert isinstance(ctx, HelicalGearGenerationContext)
-        bottomToothProfile = find_profile_by_curve_counts(ctx.gearProfileSketch, nurbs=2, arcs=2, lines=2)
-        topToothProfile = find_profile_by_curve_counts(ctx.twistedGearProfileSketch, nurbs=2, arcs=2, lines=2)
-        lofts = self.getComponent().features.loftFeatures
-        loftInput = lofts.createInput(adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
-        loftInput.loftSections.add(bottomToothProfile)
-        loftInput.loftSections.add(topToothProfile)
-        loftResult = lofts.add(loftInput)
-        solids.name_feature(loftResult, 'Twisted Tooth Loft')
-        ctx.toothBody = loftResult.bodies.item(0)
-        ctx.toothBody.name = 'Tooth Body'
+
+# @@translated@@
