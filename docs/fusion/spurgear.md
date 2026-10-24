@@ -1,12 +1,12 @@
 # Spur Gear — Fusion realization notes
 
-This is the **Fusion-specific** sidecar to `instructions.md`. `instructions.md` carries the design
+This is the **Fusion-specific** sidecar to the gallery model's `instructions.md` (`models/spurgear`). the gallery model's `instructions.md` (`models/spurgear`) carries the design
 and geometry *intent* (what to build and why); this file carries the *how* — the Fusion-API
 realization that is **specific to the spur (involute) gear family** and not worth promoting to the
-shared `PLAYBOOK.md`. The build steps in `instructions.md` cite these rules by anchor (`[SPUR-F…]`).
+shared `playbook.md`. The build steps in the gallery model's `instructions.md` (`models/spurgear`) cite these rules by anchor (`[SPUR-F…]`).
 
 **Anchor convention** (mirrors the playbook's `[PB-…]`): rules carry stable IDs like
-`**[SPUR-F-RIBS]**`. `instructions.md` cites the anchor instead of restating it; the text HERE is
+`**[SPUR-F-RIBS]**`. the gallery model's `instructions.md` (`models/spurgear`) cites the anchor instead of restating it; the text HERE is
 authoritative. IDs are permanent — never renamed or reused once cited. Where a rule is just the
 spur application of a cross-gear convention, it cites the `[PB-…]` anchor and adds only the
 spur-specific delta (which points, which entities) — no duplication of the shared rule.

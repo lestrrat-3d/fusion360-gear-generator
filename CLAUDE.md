@@ -21,7 +21,9 @@ to a file.
 Every sketch, construction plane, axis, timeline feature, body and component a gear creates in Fusion is named by its
 role. A name says what the object is for, such as `Driving Crown Scale Anchor 2` or `Pinion Teeth Join`, and carries an
 index when it repeats; none keeps Fusion's default (`Sketch12`, `Extrude3`). `solids.name_feature` names a feature and
-never fails a build. `tests/test_naming_by_role.py` fails on an unnamed creation in any `lib/geargen/*.py`. A gear gets
+never fails a build. `tests/test_naming_by_role.py` fails on an unnamed creation in any `lib/geargen/*.py`, including one made through a
+local alias such as `extrudes = component.features.extrudeFeatures`. `tests/test_addin_imports.py` compiles every file
+under `lib/` and `commands/` and imports the add-in with the Fusion modules stubbed. A gear gets
 its names from its fragment, so a new gear's fragment names everything before it is accepted.
 
 ## When Fusion gives a verdict

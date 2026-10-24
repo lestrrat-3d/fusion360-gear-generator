@@ -1,20 +1,20 @@
 # Bevel Gear — Fusion realization notes
 
-This is the **Fusion-specific** sidecar to `instructions.md`. `instructions.md` carries the design
+This is the **Fusion-specific** sidecar to `bevelgear-contract-archive.md`. `bevelgear-contract-archive.md` carries the design
 and geometry *intent*; this file carries the bevel-specific Fusion-API realization (the §2 lattice
 constraint style, the sketch-local apex positioning, the full-constraint gate and its exemptions,
-the cleanup recipe) that is not worth promoting to the shared `PLAYBOOK.md`. The build steps cite
+the cleanup recipe) that is not worth promoting to the shared `playbook.md`. The build steps cite
 these rules by anchor (`[BEVEL-F…]`). The cross-gear conventions they build on stay cited as
 `[PB-…]`.
 
 **Anchor convention** (mirrors the playbook's `[PB-…]`): rules carry stable IDs like
-`**[BEVEL-F-COINCIDENT-STYLE]**`; `instructions.md` cites the anchor, the text HERE is
+`**[BEVEL-F-COINCIDENT-STYLE]**`; `bevelgear-contract-archive.md` cites the anchor, the text HERE is
 authoritative, and IDs are permanent. Where a rule is the bevel delta of a cross-gear convention it
 cites the `[PB-…]` anchor and states only the bevel-specific difference. These rules are
 **binding** — every ⚠️ encodes a known failure mode.
 
 Bevel's sketch work differs from the spur family — these are the deltas (the general Fusion gotchas
-in `PLAYBOOK.md` still apply).
+in `playbook.md` still apply).
 
 ## Full-constraint gate (and its exemptions)
 
@@ -89,7 +89,7 @@ in `PLAYBOOK.md` still apply).
     B′, so each of those two has one endpoint that does not exist yet and takes **one**
     `addCoincident` rather than two. `N→A′` and `B′→I` connect points that both already exist and
     take one per end, which is why they sit in the list above. A regen that draws `N→A` or `P→B` is
-    building the pre-Toe-Radius figure, where N was pinned to the `A→Apex2` drop; `instructions.md`
+    building the pre-Toe-Radius figure, where N was pinned to the `A→Apex2` drop; `bevelgear-contract-archive.md`
     §2 owns that change and states why N is never pinned to a shaft axis.
 - **[BEVEL-F-LINE-ONCE] Each named §2 line is created ONCE; later references REUSE that line
   object — never redraw it.** The extension lines (A→E, B→F, E→G, F→I) and the dedendum /
@@ -128,14 +128,14 @@ in `PLAYBOOK.md` still apply).
 - **[BEVEL-F-MIRROR-FIGURE] §2 holds 15 constraint sites whose side is decided by the SEED alone,
   and Fusion offers no constraint that pins any of them.** Treat every §2 seed as load-bearing
   geometry, never as a convergence hint: a flipped seed solves cleanly and the wrong gear gets
-  built rather than refused. Counts on the lattice `instructions.md` §2 specifies:
+  built rather than refused. Counts on the lattice `bevelgear-contract-archive.md` §2 specifies:
   - **13 independent binary choices** on a 43/31 pair at Shaft Angle 75° with Tooth Spacing above
     zero, so **8192** distinct figures satisfy every constraint. For the default pair (31/31 at
     90°, Tooth Spacing 0) it is **10 choices and 1024 figures** — at 90° the shaft-angle
     dimension's two senses are the same line, and the two Tooth Spacing sites do not exist at 0.
   - ⚠️ **The count is 15, not seven, and "C collapses onto D" is NOT caused by the Apex 2 drops.**
     Both readings were written down and both were wrong; the collapse belongs to the two
-    `Apex 2 -> dedendum` perpendiculars. `instructions.md` §2 states each site's seed and each
+    `Apex 2 -> dedendum` perpendiculars. `bevelgear-contract-archive.md` §2 states each site's seed and each
     flip's consequence at the step that creates the site — that is the owning text, and this
     anchor carries only the count and the policy.
 - **NEVER add a Fusion constraint to pin a side.** Every geometric constraint Fusion offers is
@@ -144,7 +144,7 @@ in `PLAYBOOK.md` still apply).
   comes from the seed. Two mechanisms fix a side at all and both are refused, recorded here so the
   question is not re-opened:
   - `addSymmetry` on C and D against the Pitch Line rules out the collapse but not the swap, and it
-    replaces a dedendum's perpendicular plus length — a net redesign. `instructions.md`'s
+    replaces a dedendum's perpendicular plus length — a net redesign. `bevelgear-contract-archive.md`'s
     sketch-first paragraph is what governs one now that the `[PB-SKETCH-FIRST]` waiver is retired:
     the §2 scheme is bench-proven by `TestGearProfiles` in `proof/bevelgear/sketches_test.go`, so a
     regen changes it only together with that proof, and never on its own.
@@ -184,7 +184,7 @@ in `PLAYBOOK.md` still apply).
     the Pitch Cone Distance and `γ_g` the driving pitch cone angle. **Not `c + perp·DPD`**, which is
     what this anchor said before: the constraint net closes the line at `R·cos γ_g` above point I
     plus that base height, so for the default 31/31 pair at Shaft Angle 90° the old seed sat
-    11.6 mm past where the solve puts it. `instructions.md`'s §2 owns this formula and the full
+    11.6 mm past where the solve puts it. `bevelgear-contract-archive.md`'s §2 owns this formula and the full
     reason; this line repeats it only so the anchor is not read alone and left wrong.
     Build it as the free **end** of a construction line
     from the projected center, seeded at that 2-D point but **left undimensioned** (pinned later via

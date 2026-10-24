@@ -48,10 +48,10 @@ The add-in installs one command per generator into a **Gears** dropdown in the F
 </tbody>
 </table>
 
-Those pictures are renders of the gallery models, not illustrations. Each gear's geometry is built and
-checked in [decad-gallery](https://github.com/lestrrat-3d/decad-gallery), and its images come from the same solids
-with [SolidLens](https://github.com/lestrrat-3d/solidlens). So a change to the proved geometry changes the pictures
-too.
+Those pictures are renders of solids built from the gear models, not illustrations. Each gear's geometry is built
+and checked in [decad-gallery](https://github.com/lestrrat-3d/decad-gallery), which renders its own images with
+[SolidLens](https://github.com/lestrrat-3d/solidlens). The images here were made by the earlier proofs and have not
+been regenerated from the gallery.
 
 # INSTALLATION
 

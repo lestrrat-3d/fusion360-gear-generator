@@ -1,11 +1,13 @@
 name: 3D proof
 
 # Checks that every generated gear add-in is what the port produces from the pinned decad-gallery
-# revision, and that every object the add-ins create in Fusion is named by its role. Two jobs:
+# revision, that every add-in compiles and imports with the Fusion modules stubbed, and that every object
+# the add-ins create in Fusion is named by its role. Two jobs:
 #
 #   port    port/, which generates the gears from decad-gallery and fails when a checked-in gear
 #           differs from a fresh generation
-#   naming  tests/, which fails when an add-in creates a sketch, plane, feature or body without a name
+#   addins  tests/, which fails when an add-in does not compile or import, or creates a sketch, plane,
+#           feature or body without a name
 #
 # The gallery proves each gear's geometry in its own repository. This repository holds no proof.
 
@@ -19,8 +21,8 @@ env:
   PYTHON_VERSION: '3.12'
 
 jobs:
-  naming:
-    name: Naming test
+  addins:
+    name: Add-in checks
     runs-on: ubuntu-latest
     steps:
       - name: Check out the gear repository
@@ -30,7 +32,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Check every created object is named by its role
+      - name: Compile and import the add-ins, and check every created object is named
         run: python3 -m unittest discover -s tests -p 'test_*.py'
 
   port:
