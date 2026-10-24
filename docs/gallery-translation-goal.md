@@ -67,6 +67,14 @@ Fusion taught us. This file owns the goal, the rules for reaching it, and the de
 - Starting a gear: list the gallery operations it uses, then list which are already covered by a rule.
 - The screw gear has no gallery model and is outside this goal. It stays on `feat-screwgear` branches.
 
+## Waiting on other sessions
+
+- Bevel: the gear is two members in one pair. The Fusion add-in keeps them in components and describes both blank
+  profiles in one shared sketch. Requested on 2026-10-24: decad gets a generic grouping container (`decad-7e`: nestable,
+  grouping only, no instancing, no transform), then the gallery's `BuildPair` draws one shared sketch for both blanks and
+  puts each member in a container (`decad-gallery-93`). The translation maps the containers to Fusion components and
+  keeps the shared sketch. Until both land, the straight bevel path is translated against the current model and reworked.
+
 ## Definition of done for a gear
 
 - The fragment holds no Fusion construction.
