@@ -24,7 +24,21 @@ func (f *fnState) block(sb *strings.Builder, list []ast.Stmt) error {
 func (f *fnState) stmt(sb *strings.Builder, s ast.Stmt) error {
 	switch s := s.(type) {
 	case *ast.AssignStmt:
+		if f.t.sketch {
+			if handled, err := f.sketchAssign(sb, s); handled || err != nil {
+				return err
+			}
+		}
 		return f.assign(sb, s)
+	case *ast.ExprStmt:
+		text, _, err := f.expr(s.X)
+		if err != nil {
+			return err
+		}
+		f.line(sb, "%s", text)
+		return nil
+	case *ast.RangeStmt:
+		return f.rangeStmt(sb, s)
 	case *ast.ReturnStmt:
 		return f.returnStmt(sb, s)
 	case *ast.IfStmt:
@@ -52,6 +66,9 @@ func (f *fnState) declStmt(sb *strings.Builder, s *ast.DeclStmt) error {
 			return fmt.Errorf("%s: %w", f.pos(s), err)
 		}
 		zero, err := vt.zero()
+		if vt.kind == kindStruct && f.t.structs[vt.name].mutable() {
+			zero, err = f.t.prefix+pyClass(vt.name)+"()", nil
+		}
 		if err != nil {
 			return fmt.Errorf("%s: %w", f.pos(s), err)
 		}
@@ -115,7 +132,7 @@ func (f *fnState) target(l ast.Expr, define bool, rt typ) (string, error) {
 			return "", fmt.Errorf("%s: assignment to unknown name %s", f.pos(l), l.Name)
 		}
 		return pyName(l.Name), nil
-	case *ast.IndexExpr:
+	case *ast.IndexExpr, *ast.SelectorExpr:
 		text, _, err := f.expr(l)
 		return text, err
 	}
@@ -231,6 +248,15 @@ func (f *fnState) raise(sb *strings.Builder, e ast.Expr) error {
 }
 
 func (f *fnState) ifStmt(sb *strings.Builder, s *ast.IfStmt, word string) error {
+	if f.t.sketch && s.Else == nil && isErrCheck(s.Cond) {
+		// The check guards a call whose error the drawing runtime raises itself.
+		if init, ok := s.Init.(*ast.AssignStmt); ok {
+			if handled, err := f.sketchAssign(sb, init); !handled || err != nil {
+				return fmt.Errorf("%s: unsupported error check", f.pos(s))
+			}
+		}
+		return nil
+	}
 	if s.Init != nil {
 		return fmt.Errorf("%s: if with an init statement is unsupported", f.pos(s))
 	}

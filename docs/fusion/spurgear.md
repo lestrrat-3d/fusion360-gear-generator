@@ -107,6 +107,34 @@ build on the shared `[PB-FULL-CONSTRAINT]`, `[PB-SHARE-XOR-COINCIDENT]`, `[PB-NO
   ⚠️ Putting the centre on the origin makes the **last rib's perpendicular redundant** — see
   `[SPUR-F-RIBS]`, which omits it. Keeping both is what throws `VCS_SKETCH_OVER_CONSTRAINTS`.
 
+- **[SPUR-F-GALLERY-SKETCH] The ordinary tooth is drawn from the gallery's tooth section.** The port
+  translates the gallery's `addToothPoints` and `buildToothSection` into Python (`_add_tooth_points`,
+  `_build_tooth_section`). They call `dimension_point`, `dimension_arc_end`, `create_line`, `create_arc` and
+  `create_fit_spline` in the gallery's order, and `_ToothSketchBuilder` (kept in the port's spur fragment) draws
+  them. Every point is placed by distance dimensions from the local origin: two for an ordinary point, one for an arc
+  end. The builder draws the splines first so each line and arc ends on a spline's own fit points, then the lines, the
+  tip arc, and last the dimensions. The tooth angle is part of the sampled points, so a rotated tooth needs no spine,
+  no reference line and no angular dimension. The ribs below, `[SPUR-F-SPINE]` and `[SPUR-F-ROTATE-CONFIRM]` now apply
+  only to the embedded tooth (base radius below root radius), which is still drawn the old way. The gallery's
+  embedded tooth closes with a different arc, so translating it is a separate change.
+
+- **[SPUR-F-ARC-CENTRE] An arc's centre is tied to the local origin by a coincident constraint.** Fusion creates its
+  own centre point for `addByCenterStartEnd`, even when the point you pass is the local origin, so the arc stays
+  under-constrained until `addCoincident(arc.centerSketchPoint, localOrigin)`. Verified in Fusion on 2026-10-24.
+
+- **[SPUR-F-ALIGN-DUPLICATE] If Fusion refuses a point's distance dimension, align it with the earlier point that has
+  the same coordinate.** At tooth angle 0 and 90 degrees the two flanks are mirror images. In the probes Fusion raised
+  `VCS_SKETCH_OVER_CONSTRAINTS` on one horizontal (or vertical) dimension, the first point of the second flank, and
+  accepted all the others. A vertical (or horizontal) alignment of the two points (`addVerticalPoints`,
+  `addHorizontalPoints`, not `addVertical`) fixes the same coordinate and leaves the sketch fully constrained. The
+  cause is not understood, so `_ToothSketchBuilder._dimension` applies the alignment to any refused dimension that has
+  a partner with the same coordinate (within 1e-6 cm) and raises otherwise.
+
+- **[SPUR-F-ROOT-ARC] The gallery's root arc is the root circle.** `drawCircles` already draws the root circle, sized by
+  the root radius parameter, and the profile finders count its arc. A second arc over it would split the circle and
+  change the curve counts. The builder leaves the root arc undrawn and puts both root points on the root circle with a
+  coincident constraint. Each then gets one dimension, because the circle fixes its radius.
+
 - **[SPUR-F-SPINE] Spine + +X reference + angular pin (step 7).** Draw the spine as a construction
   line `addByTwoPoints(localOrigin, toothTopPoint)` — pass **both** existing `SketchPoint`s
   directly (share them). Do **not** create it from `.geometry`, do **not** add a separate

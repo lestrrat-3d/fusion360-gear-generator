@@ -158,12 +158,12 @@ func newPieces(m *gallery.Model) (*pieces, error) {
 	if p.derived, err = p.derivedMethod(); err != nil {
 		return nil, err
 	}
-	python, err := gotopy.Transpile(m, "_", MathStructs, MathFuncs)
+	python, err := gotopy.TranspileSpec(m, ToothSpec)
 	if err != nil {
-		return nil, fmt.Errorf("translate involute math: %w", err)
+		return nil, fmt.Errorf("translate involute math and tooth section: %w", err)
 	}
-	p.helpers = "# Involute sampling, translated from the gallery model's Go source. Do not edit.\n" +
-		python + "\n"
+	p.helpers = "# Involute sampling and the tooth section, translated from the gallery model's Go source.\n" +
+		"# Do not edit.\n" + python + "\n"
 	return p, nil
 }
 

@@ -343,6 +343,156 @@ class SpurGearGenerator(Generator):
 
 # @@geometry_helpers@@
 
+_ToothParams = collections.namedtuple('ToothParams', ['Teeth', 'Samples'])
+
+
+class _PendingPoint:
+    """A point the gallery places by coordinates. Fusion creates it with the first curve that uses it."""
+
+    def __init__(self, x, y, arcEnd):
+        self.x = x
+        self.y = y
+        # An arc end is placed by one coordinate; its radius comes from the arc or circle it ends.
+        self.arcEnd = arcEnd
+        # The SketchPoint, once a curve has created it.
+        self.point = None
+
+
+class _ToothSketchBuilder:
+    """Draws the gallery's tooth section in a Fusion sketch.
+
+    The translated gallery code calls dimension_point, dimension_arc_end, create_line, create_arc and
+    create_fit_spline in the gallery's order. This class records them and finish() draws them in the
+    order Fusion needs: splines first, so every line and arc ends on a spline's own fit points, then
+    lines, then arcs, then the dimensions from the local origin.
+    [SPUR-F-GALLERY-SKETCH] [SPUR-F-ALIGN-DUPLICATE] [SPUR-F-ARC-CENTRE]
+    """
+
+    # Coordinates closer than this are one value to Fusion's solver, in cm.
+    SAME_COORDINATE = 1e-6
+
+    def __init__(self, sketch: adsk.fusion.Sketch, origin: adsk.fusion.SketchPoint,
+                 rootCircle: adsk.fusion.SketchCircle, rootRadius):
+        self.sketch = sketch
+        self._origin = origin
+        self._rootCircle = rootCircle
+        self._rootRadius = rootRadius
+        self._points = []
+        self._lines = []
+        self._arcs = []
+        self._splines = []
+        self._dimensioned = []
+
+    def origin(self):
+        return self._origin
+
+    def dimension_point(self, x, y):
+        point = _PendingPoint(x, y, False)
+        self._points.append(point)
+        return point
+
+    def dimension_arc_end(self, x, y):
+        point = _PendingPoint(x, y, True)
+        self._points.append(point)
+        return point
+
+    def create_line(self, start, end):
+        self._lines.append((start, end))
+
+    def create_arc(self, center, start, end):
+        self._arcs.append((center, start, end))
+
+    def create_fit_spline(self, *points):
+        self._splines.append(points)
+
+    def finish(self):
+        self._drawSplines()
+        self._drawLines()
+        self._drawArcs()
+        for point in self._points:
+            self._dimensionPoint(point)
+
+    def _drawSplines(self):
+        splines: adsk.fusion.SketchFittedSplines = self.sketch.sketchCurves.sketchFittedSplines
+        for points in self._splines:
+            collection = adsk.core.ObjectCollection.create()
+            for point in points:
+                collection.add(adsk.core.Point3D.create(point.x, point.y, 0))
+            fits: adsk.fusion.SketchPointList = splines.add(collection).fitPoints
+            for i, point in enumerate(points):
+                point.point = fits.item(i)
+
+    def _end(self, point):
+        if point.point is not None:
+            return point.point
+        return adsk.core.Point3D.create(point.x, point.y, 0)
+
+    def _drawLines(self):
+        lines: adsk.fusion.SketchLines = self.sketch.sketchCurves.sketchLines
+        for start, end in self._lines:
+            line: adsk.fusion.SketchLine = lines.addByTwoPoints(self._end(start), self._end(end))
+            if start.point is None:
+                start.point = line.startSketchPoint
+            if end.point is None:
+                end.point = line.endSketchPoint
+
+    def _onRootCircle(self, point):
+        return abs(math.hypot(point.x, point.y) - self._rootRadius) < self.SAME_COORDINATE
+
+    def _drawArcs(self):
+        arcs: adsk.fusion.SketchArcs = self.sketch.sketchCurves.sketchArcs
+        constraints: adsk.fusion.GeometricConstraints = self.sketch.geometricConstraints
+        for center, start, end in self._arcs:
+            if self._onRootCircle(start) and self._onRootCircle(end):
+                # The root arc is part of the root circle drawCircles already made, which the
+                # parameters size. Its ends sit on that circle instead of getting a second arc.
+                for point in (start, end):
+                    point.arcEnd = True
+                    constraints.addCoincident(point.point, self._rootCircle)
+                continue
+            arc: adsk.fusion.SketchArc = arcs.addByCenterStartEnd(center, start.point, end.point)
+            # Fusion makes its own centre point for the arc; tie it to the local origin.
+            constraints.addCoincident(arc.centerSketchPoint, center)
+
+    def _dimensionPoint(self, point):
+        horizontal = adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation
+        vertical = adsk.fusion.DimensionOrientations.VerticalDimensionOrientation
+        if not point.arcEnd:
+            self._dimension(point, horizontal)
+            self._dimension(point, vertical)
+        elif abs(point.x) >= abs(point.y):
+            self._dimension(point, vertical)
+        else:
+            self._dimension(point, horizontal)
+        self._dimensioned.append(point)
+
+    def _dimension(self, point, orientation):
+        dims: adsk.fusion.SketchDimensions = self.sketch.sketchDimensions
+        textPoint = adsk.core.Point3D.create(point.x, point.y, 0)
+        try:
+            dims.addDistanceDimension(self._origin, point.point, orientation, textPoint)
+            return
+        except RuntimeError:
+            partner = self._sameCoordinate(point, orientation)
+            if partner is None:
+                raise
+        # Fusion refuses a second dimension with the value and direction of an earlier one from the
+        # same origin, as at tooth angle 0 where both flanks start at one x. Aligning the two points
+        # fixes the same coordinate.
+        constraints: adsk.fusion.GeometricConstraints = self.sketch.geometricConstraints
+        if orientation == adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation:
+            constraints.addVerticalPoints(point.point, partner.point)
+        else:
+            constraints.addHorizontalPoints(point.point, partner.point)
+
+    def _sameCoordinate(self, point, orientation):
+        horizontal = orientation == adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation
+        for other in self._dimensioned:
+            if abs((other.x - point.x) if horizontal else (other.y - point.y)) < self.SAME_COORDINATE:
+                return other
+        return None
+
+
 class SpurGearInvoluteToothDesignGenerator:
     def __init__(self, sketch: adsk.fusion.Sketch, parent, angle=0):
         self.sketch: adsk.fusion.Sketch = sketch
@@ -350,6 +500,7 @@ class SpurGearInvoluteToothDesignGenerator:
         self.toothAngle = angle
         self.anchorPoint: adsk.fusion.SketchPoint = sketch.sketchPoints.add(adsk.core.Point3D.create(0, 0, 0))
         self._tipCircle = adsk.fusion.SketchCircle.cast(None)
+        self._rootCircle = adsk.fusion.SketchCircle.cast(None)
         self._angleDimension = adsk.fusion.SketchAngularDimension.cast(None)
         self._boreProjectedAnchor = adsk.fusion.SketchPoint.cast(None)
 
@@ -368,9 +519,7 @@ class SpurGearInvoluteToothDesignGenerator:
             raise RuntimeError(f'{sketch.name}: anchor projection produced no SketchPoint')
         constraints: adsk.fusion.GeometricConstraints = sketch.geometricConstraints
         constraints.addCoincident(self.anchorPoint, projectedAnchor)
-        if angle != 0:
-            if self._angleDimension is None:
-                raise RuntimeError(f'{sketch.name}: missing confirming angular dimension')
+        if angle != 0 and self._angleDimension is not None:
             self._angleDimension.parameter.value = angle
 
     def drawCircles(self):
@@ -397,8 +546,31 @@ class SpurGearInvoluteToothDesignGenerator:
             sketch.sketchTexts.add(textInput)
             if parameter == PARAM_TIP_RADIUS:
                 self._tipCircle = circle
+            if parameter == PARAM_ROOT_RADIUS:
+                self._rootCircle = circle
 
     def drawTooth(self, angle=0):
+        baseRadius = self.getParameterValue(PARAM_BASE_RADIUS)
+        tipRadius = self.getParameterValue(PARAM_TIP_RADIUS)
+        rootRadius = self.getParameterValue(PARAM_ROOT_RADIUS)
+        pitchRadius = self.getParameterValue(PARAM_PITCH_RADIUS)
+        toothNumber = self.getParameterValue(PARAM_TOOTH_NUMBER)
+        steps = int(self.getParameterValue(PARAM_INVOLUTE_STEPS))
+        if steps < 2:
+            raise RuntimeError('Gear Profile: InvoluteSteps must be at least two')
+        if pitchRadius < baseRadius:
+            raise RuntimeError('Gear Profile: pitch radius is below base radius')
+        self.parent._lastToothEmbedded = baseRadius < rootRadius
+        if self.parent._lastToothEmbedded:
+            self.drawEmbeddedTooth(angle)
+            return
+        builder = _ToothSketchBuilder(self.sketch, self.anchorPoint, self._rootCircle, rootRadius)
+        _build_tooth_section(
+            builder, _ToothParams(toothNumber, steps),
+            _Dimensions(pitchRadius, baseRadius, rootRadius, tipRadius, 0.0), angle)
+        builder.finish()
+
+    def drawEmbeddedTooth(self, angle=0):
         sketch: adsk.fusion.Sketch = self.sketch
         baseRadius = self.getParameterValue(PARAM_BASE_RADIUS)
         tipRadius = self.getParameterValue(PARAM_TIP_RADIUS)
@@ -477,36 +649,6 @@ class SpurGearInvoluteToothDesignGenerator:
                 constraints.addPerpendicular(spine, rib)
             dims.addDistanceDimension(previousMidpoint, midpoint, alongOrientation, textPoint)
             previousMidpoint = midpoint
-        firstLeft: adsk.fusion.SketchPoint = leftFits.item(0)
-        firstRight: adsk.fusion.SketchPoint = rightFits.item(0)
-        firstRadius = math.hypot(
-            firstLeft.geometry.x - localOrigin.geometry.x,
-            firstLeft.geometry.y - localOrigin.geometry.y)
-        self.parent._lastToothEmbedded = firstRadius < rootRadius
-        if not self.parent._lastToothEmbedded:
-            self._drawFlankToRoot(firstLeft, rootRadius)
-            self._drawFlankToRoot(firstRight, rootRadius)
-
-    def _drawFlankToRoot(self, flankStartFitPoint: adsk.fusion.SketchPoint, rootRadius):
-        localOrigin: adsk.fusion.SketchPoint = self.anchorPoint
-        dx = flankStartFitPoint.geometry.x - localOrigin.geometry.x
-        dy = flankStartFitPoint.geometry.y - localOrigin.geometry.y
-        scale = rootRadius / math.hypot(dx, dy)
-        dx, dy = dx * scale, dy * scale
-        rootEndGeometry = adsk.core.Point3D.create(localOrigin.geometry.x + dx, localOrigin.geometry.y + dy, 0)
-        lines: adsk.fusion.SketchLines = self.sketch.sketchCurves.sketchLines
-        line: adsk.fusion.SketchLine = lines.addByTwoPoints(rootEndGeometry, flankStartFitPoint)
-        rootEnd = line.startSketchPoint
-        dims: adsk.fusion.SketchDimensions = self.sketch.sketchDimensions
-        horizontal = adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation
-        vertical = adsk.fusion.DimensionOrientations.VerticalDimensionOrientation
-        textPoint = rootEndGeometry
-        horizontalDim: adsk.fusion.SketchLinearDimension = dims.addDistanceDimension(
-            localOrigin, rootEnd, horizontal, textPoint)
-        horizontalDim.parameter.value = abs(dx)
-        verticalDim: adsk.fusion.SketchLinearDimension = dims.addDistanceDimension(
-            localOrigin, rootEnd, vertical, textPoint)
-        verticalDim.parameter.value = abs(dy)
 
     def drawBore(self, anchorPoint, diameter):
         sketch: adsk.fusion.Sketch = self.sketch

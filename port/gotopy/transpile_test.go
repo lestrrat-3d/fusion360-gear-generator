@@ -115,3 +115,35 @@ func TestTranspileRefusesWhatItCannotTranslate(t *testing.T) {
 	_, err = gotopy.Transpile(m, "_", []string{"point"}, []string{"Build"})
 	require.Error(t, err)
 }
+
+func TestTranspileSketchRefusesWhatItDoesNotKnow(t *testing.T) {
+	src, err := gallery.Locate(t.Context(), "..", "spurgear")
+	require.NoError(t, err)
+	m, err := gallery.Load(src.Dir)
+	require.NoError(t, err)
+
+	args := []gotopy.StepArg{
+		{Name: "s", Type: "*sketch.Sketch"}, {Name: "p", Type: "Params"},
+		{Name: "d", Type: "dimensions"}, {Name: "angle", Type: "float64"},
+	}
+	spec := gotopy.Spec{
+		Prefix:   "_",
+		Structs:  []string{"point", "dimensions", "toothPoints"},
+		TypeOnly: []string{"Params"},
+		Funcs: []string{
+			"rotate", "involutePoint", "flankBeta", "sampleFlanks", "rootContact", "addToothPoints",
+		},
+	}
+
+	// A stop call the function never makes lets the translation run into the solver and
+	// profile checks, which the Python runtime does not perform, so the port refuses.
+	spec.Steps = []gotopy.Steps{{Name: "buildToothSection", PyName: "x", Args: args, StopAt: "noSuchCall"}}
+	_, err = gotopy.TranspileSpec(m, spec)
+	require.ErrorContains(t, err, "unsupported error check")
+
+	// A function that is not in the list cannot be called from a translated one.
+	spec.Funcs = []string{"rotate", "involutePoint", "flankBeta", "sampleFlanks", "addToothPoints"}
+	spec.Steps = nil
+	_, err = gotopy.TranspileSpec(m, spec)
+	require.ErrorContains(t, err, "rootContact")
+}
