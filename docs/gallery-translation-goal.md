@@ -30,6 +30,16 @@ Fusion taught us. This file owns the goal, the rules for reaching it, and the de
 - Fusion-specific adjustments live in the Fusion runtime layer of the fragment, not in the gallery. Examples already
   recorded in `docs/fusion/spurgear.md`: `[SPUR-F-ARC-CENTRE]`, `[SPUR-F-ALIGN-DUPLICATE]`, `[SPUR-F-ROOT-ARC]`.
 
+## Structure
+
+- ALWAYS translate 1:1. One gallery sketch → one Fusion sketch. One gallery operation → one Fusion feature.
+- NEVER keep the old add-in's structure where it differs from the gallery's (shared profile sketch, profile finder by
+  curve counts, to-entity cut). The gallery's order and grouping win.
+- Fusion-only helpers that the gallery does not model (reference circles, text labels) go in their own sketch. They
+  NEVER share a sketch with a gallery sketch.
+- Every translated sketch follows the Fusion rules in `docs/fusion/spurgear.md` (local origin, anchor projection).
+- Decided with the user on 2026-10-24. The spur is re-verified in Fusion after the change.
+
 ## Order of work
 
 1. Spur: the embedded tooth, then the feature sequence (root disc, tooth extrude, pattern, join, fillets, bore,
