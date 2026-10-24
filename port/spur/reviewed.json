@@ -1,5 +1,5 @@
 {
-  "digest": "383839b64be148c75d044398829ac37deff32a2f116cc19142ab8440419e2f7f",
+  "digest": "651837dddbe2673a57c6329f9da8d28d074cf0896a8be3c5dd29220d0ab2d8c6",
   "functions": [
     "assemble",
     "tooth",
@@ -13,6 +13,7 @@
     "filletEmbedded",
     "buildBoreProfile",
     "cutBore",
-    "chamferOuterCaps"
+    "chamferOuterCaps",
+    "rootContact"
   ]
 }

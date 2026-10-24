@@ -155,6 +155,9 @@ func (f *fnState) call(e *ast.CallExpr) (string, typ, error) {
 		if ok && pkg.Name == "math" {
 			return f.mathCall(e, fn.Sel.Name)
 		}
+		if text, rt, handled, err := f.sketchCall(e, fn); handled {
+			return text, rt, err
+		}
 	}
 	return "", typ{}, fmt.Errorf("%s: unsupported call", f.pos(e))
 }

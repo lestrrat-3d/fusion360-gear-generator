@@ -6,6 +6,8 @@
 // gallery source, and the rest is Fusion knowledge kept in the fragment.
 package spur
 
+import "github.com/lestrrat-3d/fusion360-gear-generator/port/gotopy"
+
 // ParamKind tells how a mapped parameter reaches Fusion.
 type ParamKind int
 
@@ -127,11 +129,25 @@ var ExpectedOps = []string{
 var ReviewedFuncs = []string{
 	"assemble", "tooth", "filletSpurRoots", "buildToothSection", "buildEmbeddedTooth", "addToothPoints",
 	"closingRadius", "halfAngle", "filletRootsValue", "filletEmbedded", "buildBoreProfile", "cutBore",
-	"chamferOuterCaps",
+	"chamferOuterCaps", "rootContact",
 }
 
-// MathStructs and MathFuncs are the gallery helpers translated to Python.
-var (
-	MathStructs = []string{"point"}
-	MathFuncs   = []string{"rotate", "involutePoint", "flankBeta", "sampleFlanks"}
-)
+// ToothSpec is what the port translates from the gallery model into the Fusion add-in: the
+// involute sampling, the dimensioned points of one tooth, and the order in which the tooth
+// section creates its curves. The Fusion runtime that executes the creation sequence is in
+// the fragment (_ToothSketchBuilder).
+var ToothSpec = gotopy.Spec{
+	Prefix:   "_",
+	Structs:  []string{"point", "dimensions", "toothPoints"},
+	TypeOnly: []string{"Params"},
+	Funcs: []string{
+		"rotate", "involutePoint", "flankBeta", "sampleFlanks", "rootContact", "addToothPoints",
+	},
+	Steps: []gotopy.Steps{{
+		Name: "buildToothSection", PyName: "build_tooth_section", StopAt: "solveAndVerify",
+		Args: []gotopy.StepArg{
+			{Name: "s", Type: "*sketch.Sketch"}, {Name: "p", Type: "Params"},
+			{Name: "d", Type: "dimensions"}, {Name: "angle", Type: "float64"},
+		},
+	}},
+}
