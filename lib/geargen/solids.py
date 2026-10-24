@@ -4,7 +4,7 @@
 # selection, keeper selection, lenient non-intersecting cuts, piece-wise
 # slicing) that were proven in the bevel generator. They are framework code:
 # gear generators MUST call them rather than re-implement the patterns — see
-# PLAYBOOK.md "Shared geargen helper library".
+# docs/fusion/playbook.md "Shared geargen helper library".
 
 import math
 import adsk.core, adsk.fusion
