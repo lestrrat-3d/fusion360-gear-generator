@@ -125,13 +125,20 @@ func (p *pieces) constants() string {
 	return sb.String()
 }
 
-// paramsClass renders the Python record of the gallery Params fields.
+// paramsClass renders the Python record of the gallery Params fields. It is a class, because the gallery
+// copies a Params and changes the copy.
 func (p *pieces) paramsClass() string {
-	fields := make([]string, len(p.m.Inputs))
+	var sb strings.Builder
+	params := make([]string, len(p.m.Inputs))
 	for i, in := range p.m.Inputs {
-		fields[i] = "'" + in.Name + "'"
+		params[i] = in.Name + "=None"
 	}
-	return fmt.Sprintf("_Params = collections.namedtuple('Params', [%s])\n", strings.Join(fields, ", "))
+	fmt.Fprintf(&sb, "class _Params:\n    def __init__(self, %s):\n", strings.Join(params, ", "))
+	for _, in := range p.m.Inputs {
+		fmt.Fprintf(&sb, "        self.%s = %s\n", in.Name, in.Name)
+	}
+	sb.WriteString("\n    def _copy(self):\n        return _Params(**vars(self))\n")
+	return sb.String()
 }
 
 // paramsFromParameters renders the method that reads the gallery Params, in millimetres, from the user

@@ -271,6 +271,7 @@ func (s *structInfo) python(prefix string) string {
 		}
 		if s.assigned {
 			fmt.Fprintf(&sb, "\n    def __eq__(self, other):\n        return vars(self) == vars(other)\n")
+			fmt.Fprintf(&sb, "\n    def _copy(self):\n        return %s%s(**vars(self))\n", prefix, pyClass(s.name))
 		}
 		return strings.TrimRight(sb.String(), "\n")
 	}

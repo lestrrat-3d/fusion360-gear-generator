@@ -161,6 +161,12 @@ func (f *fnState) assign(sb *strings.Builder, s *ast.AssignStmt) error {
 		if err != nil {
 			return err
 		}
+		// A struct is a value in Go: copying it from a name must not share the object the copy is changed in.
+		if _, named := r.(*ast.Ident); named && s.Tok == token.DEFINE && rt.kind == kindStruct {
+			if info := f.t.structs[rt.name]; info != nil && info.assigned {
+				text += "._copy()"
+			}
+		}
 		rhs[i], types[i] = text, rt
 	}
 	for i, l := range s.Lhs {
