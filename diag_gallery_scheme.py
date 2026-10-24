@@ -174,8 +174,16 @@ def build(label, module_mm, teeth, pressure_deg, samples, angle_rad, first='righ
                         before = len(Tally.failed)
                         add_dim(sk, local, pt, H, tag)
                         if len(Tally.failed) > before:
-                            log('fallback: H dimension of %s refused (%s), aligning instead' % (tag, Tally.failed.pop()[:40]))
+                            log('fallback: H dimension of %s refused, aligning vertically instead' % tag)
+                            Tally.failed.pop()
                             sk.geometricConstraints.addVerticalPoints(pt, other)
+                        before = len(Tally.failed)
+                        add_dim(sk, local, pt, V, tag)
+                        if len(Tally.failed) > before:
+                            log('fallback: V dimension of %s refused, aligning horizontally instead' % tag)
+                            Tally.failed.pop()
+                            sk.geometricConstraints.addHorizontalPoints(pt, other)
+                        continue
                     else:
                         try:
                             sk.geometricConstraints.addVerticalPoints(pt, other)
@@ -238,6 +246,99 @@ def build(label, module_mm, teeth, pressure_deg, samples, angle_rad, first='righ
     return sk
 
 
+def build_ribs(label, module_mm, teeth, pressure_deg, samples, angle_rad):
+    """The Fusion add-in's own scheme (drawCircles + drawTooth + flank-to-root), for comparison."""
+    log('--- RIBS %s: module %g mm, %d teeth, angle %.5f' % (label, module_mm, teeth, angle_rad))
+    root = app.activeProduct.rootComponent
+    sk = root.sketches.add(root.xYConstructionPlane)
+    sk.name = 'Ribs ' + label
+    try:
+        m = module_mm / 10.0
+        pitchR = m * teeth / 2
+        baseR = pitchR * math.cos(math.radians(pressure_deg))
+        rootR = (m * teeth - 2.5 * m) / 2
+        tipR = (m * teeth + 2 * m) / 2
+        cons = sk.geometricConstraints
+        dims = sk.sketchDimensions
+        lines_ = sk.sketchCurves.sketchLines
+        arcs_ = sk.sketchCurves.sketchArcs
+        local = sk.sketchPoints.add(p3(0, 0))
+        circles = {}
+        for name, r, construction in (('root', rootR, False), ('tip', tipR, True)):
+            c = sk.sketchCurves.sketchCircles.addByCenterRadius(local, r)
+            c.isConstruction = construction
+            d = dims.addDiameterDimension(c, p3(r, r))
+            d.parameter.value = 2 * r
+            circles[name] = c
+        ca, sa = math.cos(angle_rad), math.sin(angle_rad)
+        left, right = _sample_flanks(pitchR, baseR, baseR, tipR, teeth, samples, angle_rad)
+        lc = adsk.core.ObjectCollection.create()
+        rc = adsk.core.ObjectCollection.create()
+        for q in left:
+            lc.add(p3(q.x, q.y))
+        for q in right:
+            rc.add(p3(q.x, q.y))
+        lsp = sk.sketchCurves.sketchFittedSplines.add(lc)
+        rsp = sk.sketchCurves.sketchFittedSplines.add(rc)
+        lfits, rfits = lsp.fitPoints, rsp.fitPoints
+        top = sk.sketchPoints.add(p3(tipR * ca, tipR * sa))
+        cons.addCoincident(top, circles['tip'])
+        arc = arcs_.addByCenterStartEnd(local, rfits.item(rfits.count - 1), lfits.item(lfits.count - 1))
+        cons.addCoincident(arc.centerSketchPoint, local)
+        spine = lines_.addByTwoPoints(local, top)
+        spine.isConstruction = True
+        refEnd = sk.sketchPoints.add(p3(tipR, 0))
+        tp = p3(tipR, tipR / 2)
+        hd = dims.addDistanceDimension(local, refEnd, H, tp)
+        hd.parameter.value = tipR
+        vd = dims.addDistanceDimension(local, refEnd, V, tp)
+        vd.parameter.value = 0
+        ref = lines_.addByTwoPoints(local, refEnd)
+        ref.isConstruction = True
+        angdim = dims.addAngularDimension(ref, spine, p3(tipR / 2 * math.cos(angle_rad / 2), tipR / 2 * math.sin(angle_rad / 2)))
+        across = V if abs(ca) >= abs(sa) else H
+        along = H if abs(ca) >= abs(sa) else V
+        prev = local
+        for i in range(lfits.count):
+            lf, rf = lfits.item(i), rfits.item(i)
+            rib = lines_.addByTwoPoints(lf, rf)
+            rib.isConstruction = True
+            fit = lf.geometry
+            tpt = p3(fit.x, fit.y)
+            dims.addDistanceDimension(lf, rf, across, tpt)
+            t = fit.x * ca + fit.y * sa
+            mid = sk.sketchPoints.add(p3(t * ca, t * sa))
+            cons.addCoincident(mid, spine)
+            cons.addMidPoint(mid, rib)
+            if i != lfits.count - 1:
+                cons.addPerpendicular(spine, rib)
+            dims.addDistanceDimension(prev, mid, along, tpt)
+            prev = mid
+        for fp in (lfits.item(0), rfits.item(0)):
+            g = fp.geometry
+            k = rootR / math.hypot(g.x, g.y)
+            end = p3(g.x * k, g.y * k)
+            ln = lines_.addByTwoPoints(end, fp)
+            rend = ln.startSketchPoint
+            hdm = dims.addDistanceDimension(local, rend, H, end)
+            hdm.parameter.value = abs(end.x)
+            vdm = dims.addDistanceDimension(local, rend, V, end)
+            vdm.parameter.value = abs(end.y)
+        if angle_rad != 0:
+            angdim.parameter.value = angle_rad
+        proj_ok = True
+        cons.addCoincident(local, sk.originPoint)
+        log('constraints %d, dimensions %d; isFullyConstrained = %s' % (cons.count, dims.count, sk.isFullyConstrained))
+        entity_report(sk)
+        log('profiles: %d' % sk.profiles.count)
+        for i in range(sk.profiles.count):
+            prof = sk.profiles.item(i)
+            for j in range(prof.profileLoops.count):
+                log('  profile %d loop %d: %d curves' % (i, j, prof.profileLoops.item(j).profileCurves.count))
+    except Exception:
+        log('RAISED:\n' + traceback.format_exc())
+
+
 def probe_pair(label, qx, qy, order='HV', second_first='H'):
     """Two free points p, q dimensioned from a free local origin: does the second point's first dimension raise?"""
     root = app.activeProduct.rootComponent
@@ -258,13 +359,17 @@ def probe_pair(label, qx, qy, order='HV', second_first='H'):
 doc = app.documents.add(adsk.core.DocumentTypes.FusionDesignDocumentType)
 try:
     Tally.failed = []
-    build('G1 17 teeth, angle 0, vertical alignment of the start points', 2.0, 17, 20.0, 15, 0.0, fix='vertical')
-    build('G2 17 teeth, angle 0, fallback to alignment', 2.0, 17, 20.0, 15, 0.0, fix='fallback')
-    build('G3 40 teeth, angle 0, fallback to alignment', 1.0, 40, 20.0, 15, 0.0, fix='fallback')
-    build('G4 24 teeth, 25 deg, 9 samples, angle 0, fallback', 3.0, 24, 25.0, 9, 0.0, fix='fallback')
-    build('G5 17 teeth, angle 1e-4, fallback (should not trigger)', 2.0, 17, 20.0, 15, 1e-4, fix='fallback')
-    build('G6 17 teeth, angle 14.5 deg, fallback (should not trigger)', 2.0, 17, 20.0, 15, math.radians(14.5), fix='fallback')
-    build('G7 17 teeth, angle 90 deg, fallback', 2.0, 17, 20.0, 15, math.radians(90), fix='fallback')
+    log('=== COMPARISON: gallery dimension scheme (with arc-centre and duplicate-dimension fixes) versus the add-in ribs')
+    for name, mod, teeth, pr, smp, deg in (
+            ('17 teeth', 2.0, 17, 20.0, 15, 0.0),
+            ('17 teeth', 2.0, 17, 20.0, 15, 14.5),
+            ('17 teeth', 2.0, 17, 20.0, 15, 45.0),
+            ('17 teeth', 2.0, 17, 20.0, 15, 90.0),
+            ('40 teeth', 1.0, 40, 20.0, 15, 0.0),
+            ('24 teeth, 25 deg, 9 samples', 3.0, 24, 25.0, 9, 0.0)):
+        ang = math.radians(deg)
+        build('DIM %s @ %g deg' % (name, deg), mod, teeth, pr, smp, ang, fix='fallback')
+        build_ribs('%s @ %g deg' % (name, deg), mod, teeth, pr, smp, ang)
 finally:
     text = '\n'.join(lines)
     appdata = os.environ.get('APPDATA')
