@@ -10,10 +10,14 @@
 # The translated code is the gallery's: it creates sketches, features and bodies in the gallery's order, and passes
 # the role name of each one it creates. This module never decides geometry.
 
+import functools
 import math
+import time
+from contextlib import contextmanager
 from typing import cast
 import adsk.core
 import adsk.fusion
+from ...lib import fusion360utils as futil
 from . import solids
 
 DECAD_ALONG = 1
@@ -25,6 +29,25 @@ SAME_COORDINATE = 1e-6
 # The active runtime. A translated function reaches the design through the objects it is handed, except
 # sketch_new_world(), which the gallery calls with no argument.
 _active = None
+
+
+@contextmanager
+def timed(what):
+    """Log how long a step takes, so a slow build shows which operation is slow."""
+    start = time.perf_counter()
+    try:
+        yield
+    finally:
+        futil.log(f'{what}: {time.perf_counter() - start:.2f}s')
+
+
+def logged(function):
+    """Time a decad operation under its role name."""
+    @functools.wraps(function)
+    def wrapper(*args, **kwargs):
+        with timed(kwargs.get('name') or function.__name__):
+            return function(*args, **kwargs)
+    return wrapper
 
 
 class SketchOnly(Exception):
@@ -302,8 +325,9 @@ class Sketch:
         self._bindings.append((constraint, name))
 
     def solve(self):
-        self.finish()
-        self._anchor()
+        with timed(f'{self.sketch.name} solve'):
+            self.finish()
+            self._anchor()
 
     def profiles(self):
         return [Profile(profile) for profile in self.sketch.profiles]
@@ -466,16 +490,22 @@ class Edge:
     def __init__(self, runtime, edge):
         self.runtime = runtime
         self.edge: adsk.fusion.BRepEdge = edge
+        self._ends = None
+        self._axial = None
 
     def ends(self):
-        return self.edge.startVertex.geometry, self.edge.endVertex.geometry
+        if self._ends is None:
+            self._ends = (self.edge.startVertex.geometry, self.edge.endVertex.geometry)
+        return self._ends
 
     def is_axial(self):
-        axis = self.runtime.frame.n()
-        a, b = (vec_of(p) for p in self.ends())
-        d = b.sub(a)
-        length = d.len()
-        return length > 0 and abs(abs(d.dot(axis)) - length) <= 1e-6 * max(length, 1.0)
+        if self._axial is None:
+            axis = self.runtime.frame.n()
+            a, b = (vec_of(p) for p in self.ends())
+            d = b.sub(a)
+            length = d.len()
+            self._axial = length > 0 and abs(abs(d.dot(axis)) - length) <= 1e-6 * max(length, 1.0)
+        return self._axial
 
     def axisDirection(self):
         a, b = (vec_of(p) for p in self.ends())
@@ -510,8 +540,13 @@ def decad_endpoint_at(point):
 
 
 def decad_concave():
+    # The concave edges are asked of Fusion once per selection, not once per edge.
+    memo = {}
+
     def test(edge, body):
-        return edge.edge.tempId in {e.tempId for e in body.body.concaveEdges}
+        if 'tokens' not in memo:
+            memo['tokens'] = {e.tempId for e in body.body.concaveEdges}
+        return edge.edge.tempId in memo['tokens']
     return Predicate(test)
 
 
@@ -553,13 +588,18 @@ def cap_faces(runtime, body, high):
 
 
 def decad_outer_loop_of(selector):
+    # The cap's outer loop is read once per selection, not once per edge.
+    memo = {}
+
     def test(edge, body):
-        tokens = set()
-        for face in cap_faces(edge.runtime, selector.body, selector.high):
-            for loop in face.loops:
-                if loop.isOuter:
-                    tokens.update(e.tempId for e in loop.edges)
-        return edge.edge.tempId in tokens
+        if 'tokens' not in memo:
+            tokens = set()
+            for face in cap_faces(edge.runtime, selector.body, selector.high):
+                for loop in face.loops:
+                    if loop.isOuter:
+                        tokens.update(e.tempId for e in loop.edges)
+            memo['tokens'] = tokens
+        return edge.edge.tempId in memo['tokens']
     return Predicate(test)
 
 
@@ -599,6 +639,7 @@ def _edge_collection(selector, body, what):
     return collection
 
 
+@logged
 def decad_extrude(doc, sketch, profile, extent, name, body):
     if doc.sketch_only:
         raise SketchOnly()
@@ -642,6 +683,7 @@ def _axis_through(runtime, pattern, name):
     raise RuntimeError(f'{name}: no cylindrical face on the pattern axis')
 
 
+@logged
 def decad_pattern_copies(tooth, pattern, name):
     runtime = tooth.runtime
     axis = _axis_through(runtime, pattern, name + ' Axis')
@@ -673,29 +715,37 @@ def _combine(base, tools, operation, name):
     return base
 
 
+@logged
 def decad_union(base, *others, name):
     return _combine(base, others, adsk.fusion.FeatureOperations.JoinFeatureOperation, name)
 
 
+@logged
 def decad_cut(base, tool, name):
     return _combine(base, [tool], adsk.fusion.FeatureOperations.CutFeatureOperation, name)
 
 
+@logged
 def decad_fillet(body, selector, radius, name):
-    edges = _edge_collection(selector, body, name)
+    with timed(f'{name} edge selection'):
+        edges = _edge_collection(selector, body, name)
     fillets: adsk.fusion.FilletFeatures = body.runtime.component.features.filletFeatures
     filletInput: adsk.fusion.FilletFeatureInput = fillets.createInput()
     filletInput.addConstantRadiusEdgeSet(edges, value_input(radius), False)
-    feature = fillets.add(filletInput)
+    with timed(f'{name} feature'):
+        feature = fillets.add(filletInput)
     solids.name_feature(feature, name)
     return body
 
 
+@logged
 def decad_chamfer(body, selector, setback, name):
-    edges = _edge_collection(selector, body, name)
+    with timed(f'{name} edge selection'):
+        edges = _edge_collection(selector, body, name)
     chamfers: adsk.fusion.ChamferFeatures = body.runtime.component.features.chamferFeatures
     chamferInput: adsk.fusion.ChamferFeatureInput = chamfers.createInput2()
     chamferInput.chamferEdgeSets.addEqualDistanceChamferEdgeSet(edges, value_input(setback), False)
-    feature = chamfers.add(chamferInput)
+    with timed(f'{name} feature'):
+        feature = chamfers.add(chamferInput)
     solids.name_feature(feature, name)
     return body
