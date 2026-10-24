@@ -49,6 +49,9 @@ func Load(dir string) (*Model, error) {
 type parsedPackage struct {
 	fset  *token.FileSet
 	files []*ast.File
+	// unitAliases maps a local name to the units constructor it stands for, such as mm to
+	// Millimeters, while the parameter table is read.
+	unitAliases map[string]string
 }
 
 // funcDecl returns the package-level function or method-less declaration called name.

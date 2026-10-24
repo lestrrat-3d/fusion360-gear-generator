@@ -6,6 +6,8 @@ github.com/lestrrat-3d/decad v0.0.0-20261023204801-d66186b7ed0f h1:QjJ7PAr5WhkMp
 github.com/lestrrat-3d/decad v0.0.0-20261023204801-d66186b7ed0f/go.mod h1:1L4Ms7oEZiNpACqMWiGeJncdtFGksFQgNl7V3rtul2I=
 github.com/lestrrat-3d/decad v0.0.0-20261023223833-c664e841f8c4 h1:YYtiaNl0xPWO84iBciH3FxHUvkvgZZDvhW5cgNG67NQ=
 github.com/lestrrat-3d/decad v0.0.0-20261023223833-c664e841f8c4/go.mod h1:1L4Ms7oEZiNpACqMWiGeJncdtFGksFQgNl7V3rtul2I=
+github.com/lestrrat-3d/decad v0.0.0-20261024004702-2563abab6a1e h1:fgciJH0MKiO4T+ifCzrrCwvq1g0HEBOFGMQMndyJAwg=
+github.com/lestrrat-3d/decad v0.0.0-20261024004702-2563abab6a1e/go.mod h1:1L4Ms7oEZiNpACqMWiGeJncdtFGksFQgNl7V3rtul2I=
 github.com/lestrrat-3d/decad-gallery v0.0.0-20261023000747-872277bc9ef3 h1:EoLLf4D9bbNH3e/+TjvTuLQQIzhYTipEGWgUMLmYF+Y=
 github.com/lestrrat-3d/decad-gallery v0.0.0-20261023000747-872277bc9ef3/go.mod h1:e9R0FdtXW05kWd4VpUY13ATuyCtJon1D8qGv5M2gtEw=
 github.com/lestrrat-3d/decad-gallery v0.0.0-20261023134347-685d4e005c8b h1:WUpAfUJoOi1V5u15IRKWqoL5XGBAbh6Hl+sAqodeyZA=
@@ -18,6 +20,8 @@ github.com/lestrrat-3d/decad-gallery v0.0.0-20261023235810-04ee58c509c5 h1:tMePj
 github.com/lestrrat-3d/decad-gallery v0.0.0-20261023235810-04ee58c509c5/go.mod h1:/9xzwc6tIHBxGf4fA5xUkg8pTw3bD+1DSpidvbT0fLk=
 github.com/lestrrat-3d/decad-gallery v0.0.0-20261024002002-dee5ca3580e8 h1:Nkz8JtTm9KMs9NJiiEYuY9OEHKJaLc4Fyk61A3i9pBU=
 github.com/lestrrat-3d/decad-gallery v0.0.0-20261024002002-dee5ca3580e8/go.mod h1:/9xzwc6tIHBxGf4fA5xUkg8pTw3bD+1DSpidvbT0fLk=
+github.com/lestrrat-3d/decad-gallery v0.0.0-20261024011015-8cbd839aced7 h1:UwxSZBrXSnG69WvX82Jt3fCY30sW7Q7hMXte8HyhDBU=
+github.com/lestrrat-3d/decad-gallery v0.0.0-20261024011015-8cbd839aced7/go.mod h1:gfWanCfFZ1xmFu88z/MKt1Q5jsEaFRZ2bV7ACOzzYts=
 github.com/lestrrat-3d/r3 v0.0.0-20261014125509-3c90eee135e1 h1:fgCGzCJZtB56H7nPuXgr3OTS7km1+f8AVLCOMBWJeGA=
 github.com/lestrrat-3d/r3 v0.0.0-20261014125509-3c90eee135e1/go.mod h1:4ZWWwLiR9tf6tOORKYM95+OXLMbdAmHywWdUYsDJfYc=
 github.com/lestrrat-3d/sketch v0.0.0-20261022202037-7e4c166ee065 h1:v43aqXvanhnsqBne3w35SyeiIKN3M01HHwUurSE7M1k=
