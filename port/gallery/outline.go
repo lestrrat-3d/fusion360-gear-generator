@@ -32,31 +32,68 @@ func (m *Model) DecadCalls(build string) ([]string, error) {
 }
 
 func (p *parsedPackage) collectCalls(name string, active map[string]bool, out *[]string) error {
-	if active[name] {
-		return fmt.Errorf("function %s calls itself", name)
-	}
-	fd, err := p.funcDecl(name)
+	fd, err := p.callable(name)
 	if err != nil {
 		return err
+	}
+	return p.collectBody(name, fd, active, out)
+}
+
+// collectMethod follows a method of the package by name, once. A pipeline stage
+// that two branches of the build both reach is listed at its first call, because
+// the branches run one of them, not both.
+func (p *parsedPackage) collectMethod(name string, active map[string]bool, out *[]string) error {
+	fd, err := p.method(name)
+	if err != nil {
+		return err
+	}
+	if active["done "+name] {
+		return nil
+	}
+	defer func() { active["done "+name] = true }()
+	return p.collectBody("method "+name, fd, active, out)
+}
+
+func (p *parsedPackage) collectBody(name string, fd *ast.FuncDecl, active map[string]bool, out *[]string) error {
+	if active[name] {
+		return fmt.Errorf("function %s calls itself", name)
 	}
 	active[name] = true
 	defer delete(active, name)
 	var walkErr error
+	called := map[*ast.Ident]bool{}
 	ast.Inspect(fd.Body, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok || walkErr != nil {
-			return walkErr == nil
+		if walkErr != nil {
+			return false
 		}
-		switch fn := call.Fun.(type) {
-		case *ast.SelectorExpr:
-			if id, ok := fn.X.(*ast.Ident); ok && id.Name == "decad" {
-				if _, op := featureOps[fn.Sel.Name]; op {
-					*out = append(*out, fn.Sel.Name)
+		switch n := n.(type) {
+		case *ast.CallExpr:
+			switch fn := n.Fun.(type) {
+			case *ast.SelectorExpr:
+				if id, ok := fn.X.(*ast.Ident); ok && id.Name == "decad" {
+					if _, op := featureOps[fn.Sel.Name]; op {
+						*out = append(*out, fn.Sel.Name)
+					}
+					break
+				}
+				// A method of this package, such as a pipeline stage on a receiver.
+				if _, err := p.method(fn.Sel.Name); err == nil {
+					walkErr = p.collectMethod(fn.Sel.Name, active, out)
+				}
+			case *ast.Ident:
+				called[fn] = true
+				if _, err := p.funcDecl(fn.Name); err == nil {
+					walkErr = p.collectCalls(fn.Name, active, out)
 				}
 			}
 		case *ast.Ident:
-			if _, err := p.funcDecl(fn.Name); err == nil {
-				walkErr = p.collectCalls(fn.Name, active, out)
+			// A package function passed as a value, such as a tooth builder handed to a
+			// pipeline, runs wherever the receiver calls it; count it where it is named.
+			if called[n] || n.Name == name {
+				break
+			}
+			if _, err := p.funcDecl(n.Name); err == nil {
+				walkErr = p.collectCalls(n.Name, active, out)
 			}
 		}
 		return walkErr == nil
@@ -71,7 +108,7 @@ func (p *parsedPackage) collectCalls(name string, active map[string]bool, out *[
 func (m *Model) SourceDigest(funcs ...string) (string, error) {
 	h := sha256.New()
 	for _, name := range funcs {
-		fd, err := m.pkg.funcDecl(name)
+		fd, err := m.pkg.callable(name)
 		if err != nil {
 			return "", err
 		}

@@ -34,26 +34,25 @@ func (p *parsedPackage) inputs() ([]Input, error) {
 			in = append(in, Input{Name: name.Name, Type: typ})
 		}
 	}
-	defaults, err := p.defaults()
+	defaults, texts, err := p.defaults()
 	if err != nil {
 		return nil, err
 	}
 	for i := range in {
-		v, ok := defaults[in[i].Name]
-		if !ok {
-			continue
+		if v, ok := defaults[in[i].Name]; ok {
+			in[i].Default = v
+			in[i].HasDefault = true
 		}
-		in[i].Default = v
-		in[i].HasDefault = true
+		in[i].DefaultText = texts[in[i].Name]
 	}
 	return in, nil
 }
 
 // defaults evaluates the keyed fields of the Params literal DefaultParams returns.
-func (p *parsedPackage) defaults() (map[string]float64, error) {
+func (p *parsedPackage) defaults() (map[string]float64, map[string]string, error) {
 	fd, err := p.funcDecl("DefaultParams")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var lit *ast.CompositeLit
 	ast.Inspect(fd.Body, func(n ast.Node) bool {
@@ -63,30 +62,52 @@ func (p *parsedPackage) defaults() (map[string]float64, error) {
 		return lit == nil
 	})
 	if lit == nil {
-		return nil, fmt.Errorf("%s: DefaultParams does not return a composite literal", p.pos(fd))
+		return nil, nil, fmt.Errorf("%s: DefaultParams does not return a composite literal", p.pos(fd))
 	}
 	out := make(map[string]float64, len(lit.Elts))
+	texts := map[string]string{}
 	for _, e := range lit.Elts {
 		kv, ok := e.(*ast.KeyValueExpr)
 		if !ok {
-			return nil, fmt.Errorf("%s: DefaultParams element is not keyed", p.pos(e))
+			return nil, nil, fmt.Errorf("%s: DefaultParams element is not keyed", p.pos(e))
 		}
 		key, ok := kv.Key.(*ast.Ident)
 		if !ok {
-			return nil, fmt.Errorf("%s: DefaultParams key is not a field name", p.pos(kv.Key))
+			return nil, nil, fmt.Errorf("%s: DefaultParams key is not a field name", p.pos(kv.Key))
 		}
 		if _, embedded := kv.Value.(*ast.CallExpr); embedded && key.Name == "Params" {
 			// A model that embeds another model's Params starts from that model's
 			// defaults; only its own fields are read here.
 			continue
 		}
+		if text, ok := p.textConstant(kv.Value); ok {
+			texts[key.Name] = text
+			continue
+		}
 		v, err := p.constant(kv.Value)
 		if err != nil {
-			return nil, fmt.Errorf("default of %s: %w", key.Name, err)
+			return nil, nil, fmt.Errorf("default of %s: %w", key.Name, err)
 		}
 		out[key.Name] = v
 	}
-	return out, nil
+	return out, texts, nil
+}
+
+// textConstant reads a string literal or a true or false identifier.
+func (p *parsedPackage) textConstant(e ast.Expr) (string, bool) {
+	switch e := e.(type) {
+	case *ast.BasicLit:
+		if e.Kind == token.STRING {
+			if text, err := strconv.Unquote(e.Value); err == nil {
+				return text, true
+			}
+		}
+	case *ast.Ident:
+		if e.Name == "true" || e.Name == "false" {
+			return e.Name, true
+		}
+	}
+	return "", false
 }
 
 // constant evaluates a numeric constant expression made of literals, math.Pi,

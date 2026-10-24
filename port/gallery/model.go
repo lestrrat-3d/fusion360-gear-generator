@@ -15,6 +15,10 @@ type Model struct {
 	Inputs []Input
 	// Table lists the parameter table entries in the order defineParameters writes them.
 	Table []Parameter
+	// TableErr is why Table could not be read, for a model whose defineParameters is
+	// not in the form the reader accepts (string-literal Set calls and no loops). A port
+	// that needs the table must report it; a port that does not is unaffected.
+	TableErr error
 }
 
 // Input is one field of the model's Params struct.
@@ -27,6 +31,9 @@ type Input struct {
 	// DefaultParams leaves the field at its zero value.
 	Default    float64
 	HasDefault bool
+	// DefaultText is the default of a string or bool field, as written without quotes.
+	// HasDefault is false for these fields.
+	DefaultText string
 }
 
 // ParameterKind tells how a table entry gets its value.

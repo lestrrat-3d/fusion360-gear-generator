@@ -15,10 +15,8 @@ const ParamsAlias = "helicalgear.Params"
 // in its own package. The helical package performs the pattern, join and finishing
 // operations, and port/helical checks those.
 var ExpectedOps = []string{
-	"Loft",  // half tooth
 	"Union", // join the mirrored halves
-	"Union", // join the pattern to the root disc
 }
 
 // ReviewedFuncs are the gallery functions the fragment's Fusion construction follows.
-var ReviewedFuncs = []string{"Build", "BuildTooth"}
+var ReviewedFuncs = []string{"Build", "variant", "chevron"}

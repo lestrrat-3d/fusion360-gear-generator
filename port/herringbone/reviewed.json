@@ -1,7 +1,8 @@
 {
-  "digest": "dfc8c755f815de9a892c3916d687de8f4e837ca950817cb21963e86c0814f48b",
+  "digest": "8e7164091769533cb91f982ffe8a4e633f8ed57f32ec445889f5631d139b9382",
   "functions": [
     "Build",
-    "BuildTooth"
+    "variant",
+    "chevron"
   ]
 }

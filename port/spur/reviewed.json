@@ -1,7 +1,9 @@
 {
-  "digest": "bcb7ea3eae66e1f3ca6620b78efcfac8496affcc99585b7efd6299719f311e5e",
+  "digest": "383839b64be148c75d044398829ac37deff32a2f116cc19142ab8440419e2f7f",
   "functions": [
-    "Build",
+    "assemble",
+    "tooth",
+    "filletSpurRoots",
     "buildToothSection",
     "buildEmbeddedTooth",
     "addToothPoints",

@@ -34,6 +34,9 @@ func ComputeReviewed(m *gallery.Model) (Reviewed, error) {
 // at version, using fragment as the stored Fusion construction. It fails when the
 // gallery has drifted from what the mapping and the fragment were written against.
 func Generate(m *gallery.Model, version, fragment string, reviewed Reviewed) (string, error) {
+	if m.TableErr != nil {
+		return "", m.TableErr
+	}
 	if err := checkCoverage(m); err != nil {
 		return "", err
 	}

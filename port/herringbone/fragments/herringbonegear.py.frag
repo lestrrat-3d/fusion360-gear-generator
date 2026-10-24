@@ -46,6 +46,7 @@ class HerringboneGearGenerator(HelicalGearGenerator):
         entities.add(ctx.toothBody)
         mirrorInput = self.getComponent().features.mirrorFeatures.createInput(entities, ctx.helixPlane)
         mirrorResult = self.getComponent().features.mirrorFeatures.add(mirrorInput)
+        mirrorResult.name = 'Tooth Half Mirror'
         mirrorResult.bodies.item(0).name = 'Tooth Body (Mirrored)'
 
         entities = adsk.core.ObjectCollection.create()
@@ -54,4 +55,5 @@ class HerringboneGearGenerator(HelicalGearGenerator):
             self.getComponent().bRepBodies.itemByName('Tooth Body'),
             entities,
         )
-        self.getComponent().features.combineFeatures.add(combineInput)
+        halvesJoin = self.getComponent().features.combineFeatures.add(combineInput)
+        halvesJoin.name = 'Tooth Halves Join'

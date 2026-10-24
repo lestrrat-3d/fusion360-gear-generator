@@ -41,9 +41,7 @@ func Load(dir string) (*Model, error) {
 	if m.Inputs, err = pkg.inputs(); err != nil {
 		return nil, err
 	}
-	if m.Table, err = pkg.table(); err != nil {
-		return nil, err
-	}
+	m.Table, m.TableErr = pkg.table()
 	return m, nil
 }
 
@@ -64,6 +62,34 @@ func (p *parsedPackage) funcDecl(name string) (*ast.FuncDecl, error) {
 		}
 	}
 	return nil, fmt.Errorf("function %s not found", name)
+}
+
+// callable returns the package-level function called name or, when there is none, the
+// first method of that name on any receiver.
+func (p *parsedPackage) callable(name string) (*ast.FuncDecl, error) {
+	if fd, err := p.funcDecl(name); err == nil {
+		return fd, nil
+	}
+	for _, f := range p.files {
+		for _, d := range f.Decls {
+			if fd, ok := d.(*ast.FuncDecl); ok && fd.Recv != nil && fd.Name.Name == name {
+				return fd, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("function %s not found", name)
+}
+
+// method returns the first method called name on any receiver.
+func (p *parsedPackage) method(name string) (*ast.FuncDecl, error) {
+	for _, f := range p.files {
+		for _, d := range f.Decls {
+			if fd, ok := d.(*ast.FuncDecl); ok && fd.Recv != nil && fd.Name.Name == name {
+				return fd, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("method %s not found", name)
 }
 
 // typeSpec returns the type declaration called name.

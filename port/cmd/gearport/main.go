@@ -6,7 +6,7 @@
 //	gearport accept <gear>   record the gallery code the fragment was reviewed against
 //	gearport id <gear>       print the build id the file's contents carry
 //
-// The gears are spurgear, helicalgear and herringbonegear.
+// The gears are spurgear, helicalgear, herringbonegear and bevelgear.
 //
 // Run it from the repository root.
 package main
@@ -18,13 +18,14 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/lestrrat-3d/fusion360-gear-generator/port/bevel"
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/gallery"
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/helical"
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/herringbone"
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/spur"
 )
 
-const usage = "usage: gearport gen|check|accept|id spurgear|helicalgear|herringbonegear"
+const usage = "usage: gearport gen|check|accept|id spurgear|helicalgear|herringbonegear|bevelgear"
 
 // gear describes one ported gear: where its stored files live and how to generate it.
 type gear struct {
@@ -47,6 +48,13 @@ var gears = map[string]gear{
 		output:          filepath.Join("lib", "geargen", "helicalgear.py"),
 		generate:        helical.Generate,
 		computeReviewed: helical.ComputeReviewed,
+	},
+	"bevelgear": {
+		fragment:        filepath.Join("port", "bevel", "fragments", "bevelgear.py.frag"),
+		reviewed:        filepath.Join("port", "bevel", "reviewed.json"),
+		output:          filepath.Join("lib", "geargen", "bevelgear.py"),
+		generate:        bevel.Generate,
+		computeReviewed: bevel.ComputeReviewed,
 	},
 	"herringbonegear": {
 		fragment:        filepath.Join("port", "herringbone", "fragments", "herringbonegear.py.frag"),
