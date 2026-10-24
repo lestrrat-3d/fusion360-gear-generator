@@ -1,4 +1,4 @@
-package gotopy
+package go2py
 
 import (
 	"fmt"
@@ -25,7 +25,7 @@ func (f *fnState) stmt(sb *strings.Builder, s ast.Stmt) error {
 	switch s := s.(type) {
 	case *ast.AssignStmt:
 		if f.t.sketch {
-			if handled, err := f.sketchAssign(sb, s); handled || err != nil {
+			if handled, err := f.apiAssign(sb, s); handled || err != nil {
 				return err
 			}
 		}
@@ -35,7 +35,9 @@ func (f *fnState) stmt(sb *strings.Builder, s ast.Stmt) error {
 		if err != nil {
 			return err
 		}
-		f.line(sb, "%s", text)
+		if text != "None" {
+			f.line(sb, "%s", text)
+		}
 		return nil
 	case *ast.RangeStmt:
 		return f.rangeStmt(sb, s)
@@ -47,6 +49,15 @@ func (f *fnState) stmt(sb *strings.Builder, s ast.Stmt) error {
 		return f.forStmt(sb, s)
 	case *ast.DeclStmt:
 		return f.declStmt(sb, s)
+	case *ast.BranchStmt:
+		switch s.Tok {
+		case token.BREAK:
+			f.line(sb, "break")
+			return nil
+		case token.CONTINUE:
+			f.line(sb, "continue")
+			return nil
+		}
 	}
 	return fmt.Errorf("%s: unsupported statement %T", f.pos(s), s)
 }
@@ -61,11 +72,18 @@ func (f *fnState) declStmt(sb *strings.Builder, s *ast.DeclStmt) error {
 		if len(vs.Values) != 0 {
 			return fmt.Errorf("%s: var with a value is unsupported", f.pos(s))
 		}
+		if isIdent(vs.Type, "error") {
+			// The runtime raises instead of returning an error.
+			continue
+		}
 		vt, err := fromAST(vs.Type, f.t.structs)
 		if err != nil {
 			return fmt.Errorf("%s: %w", f.pos(s), err)
 		}
 		zero, err := vt.zero()
+		if vt.kind == kindSlice {
+			zero, err = "[]", nil
+		}
 		if vt.kind == kindStruct && f.t.structs[vt.name].mutable() {
 			zero, err = f.t.prefix+pyClass(vt.name)+"()", nil
 		}
@@ -195,6 +213,16 @@ func (f *fnState) returnStmt(sb *strings.Builder, s *ast.ReturnStmt) error {
 		return nil
 	}
 	results := s.Results
+	if len(results) == 1 && info.errorResult && len(info.results) == 1 {
+		if call, ok := results[0].(*ast.CallExpr); ok {
+			text, _, err := f.expr(call)
+			if err != nil {
+				return err
+			}
+			f.line(sb, "return %s", text)
+			return nil
+		}
+	}
 	if info.errorResult {
 		last := results[len(results)-1]
 		results = results[:len(results)-1]
@@ -204,6 +232,10 @@ func (f *fnState) returnStmt(sb *strings.Builder, s *ast.ReturnStmt) error {
 	}
 	if len(results) != len(info.results) {
 		return fmt.Errorf("%s: return has %d values, want %d", f.pos(s), len(results), len(info.results))
+	}
+	if len(results) == 0 {
+		f.line(sb, "return")
+		return nil
 	}
 	parts := make([]string, len(results))
 	for i, r := range results {
@@ -250,15 +282,20 @@ func (f *fnState) raise(sb *strings.Builder, e ast.Expr) error {
 func (f *fnState) ifStmt(sb *strings.Builder, s *ast.IfStmt, word string) error {
 	if f.t.sketch && s.Else == nil && isErrCheck(s.Cond) {
 		// The check guards a call whose error the drawing runtime raises itself.
-		if init, ok := s.Init.(*ast.AssignStmt); ok {
-			if handled, err := f.sketchAssign(sb, init); !handled || err != nil {
-				return fmt.Errorf("%s: unsupported error check", f.pos(s))
+		if s.Init != nil {
+			if err := f.stmt(sb, s.Init); err != nil {
+				return err
 			}
 		}
 		return nil
 	}
 	if s.Init != nil {
-		return fmt.Errorf("%s: if with an init statement is unsupported", f.pos(s))
+		if !f.t.sketch {
+			return fmt.Errorf("%s: if with an init statement is unsupported", f.pos(s))
+		}
+		if err := f.stmt(sb, s.Init); err != nil {
+			return err
+		}
 	}
 	cond, ct, err := f.expr(s.Cond)
 	if err != nil {
@@ -266,6 +303,18 @@ func (f *fnState) ifStmt(sb *strings.Builder, s *ast.IfStmt, word string) error 
 	}
 	if ct.kind != kindBool {
 		return fmt.Errorf("%s: if condition is not a bool", f.pos(s.Cond))
+	}
+	if cond == "None is not None" {
+		// A field of a zero-valued struct is never set, so this branch never runs.
+		switch e := s.Else.(type) {
+		case nil:
+			return nil
+		case *ast.IfStmt:
+			return f.ifStmt(sb, e, word)
+		case *ast.BlockStmt:
+			return f.block(sb, e.List)
+		}
+		return fmt.Errorf("%s: unsupported else", f.pos(s))
 	}
 	f.line(sb, "%s %s:", word, cond)
 	f.indent++

@@ -1,8 +1,8 @@
-// Package gotopy translates a small subset of Go into Python. The subset is the
+// Package go2py translates a small subset of Go into Python. The subset is the
 // pure numeric helpers of a gallery model: float and int arithmetic, math calls,
 // small structs, slices, if, and counted for loops. Anything outside it is an error,
 // so a helper that grows past the subset fails the port instead of mistranslating.
-package gotopy
+package go2py
 
 import (
 	"fmt"
@@ -21,6 +21,11 @@ const (
 	kindSlice
 	// kindOpaque is a handle the Python runtime owns, such as a sketch point.
 	kindOpaque
+	// kindCtx is a context.Context. A translated function takes none and passes none.
+	kindCtx
+	kindString
+	// kindNil is the nil literal, and the value of any field of a zero-valued struct.
+	kindNil
 )
 
 // typ is the Go type of a translated expression.
@@ -37,6 +42,9 @@ var (
 	intType     = typ{kind: kindInt}
 	untypedType = typ{kind: kindUntyped}
 	boolType    = typ{kind: kindBool}
+	stringType  = typ{kind: kindString}
+	nilType     = typ{kind: kindNil}
+	ctxType     = typ{kind: kindCtx}
 )
 
 // numeric reports whether t is a float, int or untyped integer.
@@ -51,8 +59,10 @@ func (t typ) zero() (string, error) {
 		return "0", nil
 	case kindBool:
 		return "False", nil
-	case kindOpaque:
+	case kindOpaque, kindNil:
 		return "None", nil
+	case kindString:
+		return `""`, nil
 	}
 	return "", fmt.Errorf("no zero value for a %v type", t.kind)
 }
@@ -68,13 +78,20 @@ func fromAST(e ast.Expr, structs map[string]*structInfo) (typ, error) {
 			return intType, nil
 		case "bool":
 			return boolType, nil
+		case "string":
+			return stringType, nil
 		}
 		if _, ok := structs[e.Name]; ok {
 			return typ{kind: kindStruct, name: e.Name}, nil
 		}
 	case *ast.StarExpr:
-		if name, ok := sketchType(e.X); ok {
-			return typ{kind: kindOpaque, name: "sketch." + name}, nil
+		return fromAST(e.X, structs)
+	case *ast.SelectorExpr:
+		if name, ok := opaqueType(e); ok {
+			return typ{kind: kindOpaque, name: name}, nil
+		}
+		if pkg, ok := e.X.(*ast.Ident); ok && pkg.Name == "context" && e.Sel.Name == "Context" {
+			return ctxType, nil
 		}
 	case *ast.ArrayType:
 		if e.Len != nil {
@@ -89,27 +106,27 @@ func fromAST(e ast.Expr, structs map[string]*structInfo) (typ, error) {
 	return typ{}, fmt.Errorf("unsupported type %T", e)
 }
 
-// sketchType returns the type name of a sketch.Name selector that is an opaque handle.
-func sketchType(e ast.Expr) (string, bool) {
-	sel, ok := e.(*ast.SelectorExpr)
-	if !ok {
-		return "", false
-	}
-	pkg, ok := sel.X.(*ast.Ident)
-	if !ok || pkg.Name != "sketch" || !opaqueTypes[sel.Sel.Name] {
-		return "", false
-	}
-	return sel.Sel.Name, true
-}
+// opaquePackages are the packages whose types a translated function may hold without
+// looking inside. The Python runtime implements the methods the API table lists.
+var opaquePackages = map[string]bool{"sketch": true, "decad": true, "r3": true, "units": true}
 
-// opaqueTypes are the sketch package types a translated function may hold without looking inside.
-var opaqueTypes = map[string]bool{"Point": true, "Sketch": true}
+// opaqueType returns "pkg.Name" for a selector naming a type of an opaque package.
+func opaqueType(e *ast.SelectorExpr) (string, bool) {
+	pkg, ok := e.X.(*ast.Ident)
+	if !ok || !opaquePackages[pkg.Name] {
+		return "", false
+	}
+	return pkg.Name + "." + e.Sel.Name, true
+}
 
 // structInfo is a translated struct type: a Python namedtuple.
 type structInfo struct {
 	name   string
 	fields []string
 	types  map[string]typ
+	// zero marks a struct the translation treats as its zero value, such as an options
+	// struct with every field unset. Every field reads as nil.
+	zero bool
 }
 
 // mutable reports whether the struct holds slices or handles, which a function fills in
