@@ -12,7 +12,7 @@ var mathFuncs = map[string]string{
 	"Sin": "math.sin", "Cos": "math.cos", "Tan": "math.tan",
 	"Asin": "math.asin", "Acos": "math.acos", "Atan": "math.atan", "Atan2": "math.atan2",
 	"Sqrt": "math.sqrt", "Hypot": "math.hypot", "Abs": "abs", "Pow": "math.pow",
-	"Floor": "math.floor", "Ceil": "math.ceil",
+	"Floor": "math.floor", "Ceil": "math.ceil", "Min": "min", "Max": "max",
 }
 
 // expr renders an expression and reports its Go type.
@@ -469,7 +469,17 @@ func (f *fnState) composite(e *ast.CompositeLit) (string, typ, error) {
 		if err != nil {
 			return "", typ{}, fmt.Errorf("%s: %w", f.pos(e), err)
 		}
-		args, err := f.args(e.Elts)
+		// An element written {..} takes the element type of the slice.
+		elts := make([]ast.Expr, len(e.Elts))
+		for i, elt := range e.Elts {
+			if lit, ok := elt.(*ast.CompositeLit); ok && lit.Type == nil {
+				typed := *lit
+				typed.Type = t.Elt
+				elt = &typed
+			}
+			elts[i] = elt
+		}
+		args, err := f.args(elts)
 		if err != nil {
 			return "", typ{}, err
 		}

@@ -312,6 +312,10 @@ func (t *transpiler) function(fi *funcInfo) (string, error) {
 		if p.typ.kind == kindCtx {
 			continue
 		}
+		if p.typ.variadic {
+			args = append(args, "*"+pyName(p.name))
+			continue
+		}
 		args = append(args, pyName(p.name))
 	}
 	var sb strings.Builder

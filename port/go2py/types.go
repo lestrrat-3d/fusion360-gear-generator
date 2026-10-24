@@ -38,6 +38,8 @@ type typ struct {
 	elem *typ
 	// key is the key type when kind is kindMap.
 	key *typ
+	// variadic marks the type of a parameter written ...T, which Python takes as *name.
+	variadic bool
 }
 
 var (
@@ -122,6 +124,12 @@ func fromAST(e ast.Expr, structs map[string]*structInfo) (typ, error) {
 			return typ{}, err
 		}
 		return typ{kind: kindMap, key: &key, elem: &val}, nil
+	case *ast.Ellipsis:
+		elem, err := fromAST(e.Elt, structs)
+		if err != nil {
+			return typ{}, err
+		}
+		return typ{kind: kindSlice, elem: &elem, variadic: true}, nil
 	case *ast.FuncType:
 		ft := typ{kind: kindOpaque, name: "func"}
 		if e.Results != nil {
