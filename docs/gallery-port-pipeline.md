@@ -398,4 +398,5 @@ The gallery model differs from the add-in, per its README:
 - Sub-components, the casing contour's under-constraint exemption and the skipped-chamfer message box are Fusion-only.
 
 Not yet covered: a numeric comparison of the add-in's derived-parameter formulas with the gallery's table, and of the
-add-in's `evaluate_problems` with the gallery's `Problems`. Not yet loaded in Fusion.
+add-in's `evaluate_problems` with the gallery's `Problems`. Loaded in Fusion on 2026-10-24 from the file with build id
+`b9c655b02d33`; the user reports the drive looks right. Not checked: a two-disc drive with a disc gap of zero.
