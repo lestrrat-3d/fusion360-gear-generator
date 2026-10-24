@@ -9,7 +9,7 @@ import re
 import unittest
 from pathlib import Path
 
-GEARGEN = Path(__file__).resolve().parents[3] / 'lib' / 'geargen'
+GEARGEN = Path(__file__).resolve().parents[1] / 'lib' / 'geargen'
 
 KINDS = (r'sketches|constructionPlanes|constructionAxes|constructionPoints|\w+Features|'
          r'occurrences')
