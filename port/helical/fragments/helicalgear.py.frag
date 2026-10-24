@@ -14,6 +14,7 @@ from .spurgear import (
     SpurGearInvoluteToothDesignGenerator,
 )
 from .utilities import find_profile_by_curve_counts
+from . import solids
 
 
 # @@constants@@
@@ -67,6 +68,7 @@ class HelicalGearGenerator(SpurGearGenerator):
         offset = self.helicalPlaneOffset()
         planeInput.setByOffset(self.plane, offset)
         plane = planes.add(planeInput)
+        plane.name = 'Twisted Section Plane'
         ctx.helixPlane = plane
         loftSketch = self.createSketchObject('Twisted Gear Profile', plane=plane)
         toothGenerator = SpurGearInvoluteToothDesignGenerator(loftSketch, self)
@@ -87,5 +89,6 @@ class HelicalGearGenerator(SpurGearGenerator):
         loftInput.loftSections.add(bottomToothProfile)
         loftInput.loftSections.add(topToothProfile)
         loftResult = lofts.add(loftInput)
+        solids.name_feature(loftResult, 'Twisted Tooth Loft')
         ctx.toothBody = loftResult.bodies.item(0)
         ctx.toothBody.name = 'Tooth Body'

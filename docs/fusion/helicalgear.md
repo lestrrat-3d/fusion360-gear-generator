@@ -2,7 +2,7 @@
 
 Helical reuses spur's Fusion mechanics for everything except the twisted-profile plane, the loft, and
 the chamfer edge count. These are the only helical-specific anchors; the tooth itself is spur's
-(`[SPUR-F-…]`). `instructions.md` cites these instead of restating them.
+(`[SPUR-F-…]`). the gallery model's `instructions.md` (`models/helicalgear`) cites these instead of restating them.
 
 ## Twisted top profile
 

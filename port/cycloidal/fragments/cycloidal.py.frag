@@ -166,7 +166,7 @@ def _undercut_limit(R, E, N, c, pinDiameterRaw):
 
 
 def evaluate_problems(N, M, D, R, E, c, CBD, ISD, clr, Rop, pinDiameterRaw, outputPinDiameterRaw):
-    """The whole validity list, in the order the spec's table gives. Returns every failing
+    """The whole validity list, in the order the gallery's validity table gives. Returns every failing
     message, not just the first. All inputs are internal cm / plain ints."""
     problems = []
 
@@ -486,6 +486,7 @@ class CycloidalDriveGenerator(Generator):
             planeInput = component.constructionPlanes.createInput()
             planeInput.setByOffset(self.plane, adsk.core.ValueInput.createByReal(0))
             self.plane = component.constructionPlanes.add(planeInput)
+            self.plane.name = 'Drive Base Plane'
 
         # S06 through S16 — per-disc loop.
         discCount = len(self.diskBodies)

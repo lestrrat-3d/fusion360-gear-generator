@@ -1,6 +1,7 @@
 import adsk.core
 import adsk.fusion
 from .base import GenerationContext
+from . import solids
 from .spurgear import PARAM_MODULE, PARAM_TOOTH_NUMBER, PARAM_THICKNESS
 from .helicalgear import (
     PARAM_HELIX_ANGLE,
@@ -46,7 +47,7 @@ class HerringboneGearGenerator(HelicalGearGenerator):
         entities.add(ctx.toothBody)
         mirrorInput = self.getComponent().features.mirrorFeatures.createInput(entities, ctx.helixPlane)
         mirrorResult = self.getComponent().features.mirrorFeatures.add(mirrorInput)
-        mirrorResult.name = 'Tooth Half Mirror'
+        solids.name_feature(mirrorResult, 'Tooth Half Mirror')
         mirrorResult.bodies.item(0).name = 'Tooth Body (Mirrored)'
 
         entities = adsk.core.ObjectCollection.create()
@@ -56,4 +57,4 @@ class HerringboneGearGenerator(HelicalGearGenerator):
             entities,
         )
         halvesJoin = self.getComponent().features.combineFeatures.add(combineInput)
-        halvesJoin.name = 'Tooth Halves Join'
+        solids.name_feature(halvesJoin, 'Tooth Halves Join')

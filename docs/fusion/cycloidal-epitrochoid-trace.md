@@ -1,6 +1,6 @@
 # Cycloidal rotor profile — geometry oracle
 
-This is the geometry oracle for the cycloidal-rotor generator (cited from `instructions.md`). Reproduce
+This is the geometry oracle for the cycloidal-rotor generator (cited from the gallery model's `instructions.md`). Reproduce
 the point function and formulas **exactly** — no mechanical gate verifies geometry, so these are the
 asserted facts. The generator works in Fusion-internal **cm**; convert mm inputs with `to_cm`. Profile
 points computed here are **already cm** — add them to sketches as-is (never re-wrap in `to_cm`).

@@ -1,7 +1,7 @@
 # Cycloidal drive — Fusion-API realization
 
-The gear-specific *how*: binding Fusion-API recipes cited by anchor from `instructions.md`. Shared
-conventions are in `PLAYBOOK.md` (`[PB-…]`); reuse `lib/geargen/spurgear.py`'s idioms where noted. The
+The gear-specific *how*: binding Fusion-API recipes cited by anchor from the gallery model's `instructions.md` (`models/cycloidal`). Shared
+conventions are in `playbook.md` (`[PB-…]`); reuse `lib/geargen/spurgear.py`'s idioms where noted. The
 generator works in internal **cm** — convert mm inputs with `misc.to_cm`. This file covers the full
 drive: rotor disc(s), pinless housing, eccentric cam, output plate + pins, chamfers, sub-components.
 
@@ -25,7 +25,7 @@ explicitly so `E` is a visible, driving dimension:
    True`; `geometricConstraints.addHorizontal(eccLine)`; and a driving **distance** dimension between
    `localOrigin` and `diskCentre` (`sketchDimensions.addDistanceDimension(...)`), then **set its
    `.parameter.expression` to the registered `Eccentricity` parameter's name** (the "parameter-referenced
-   dimensions" rule in `instructions.md` Sketch Discipline — NOT a numeric value). This pins `diskCentre`
+   dimensions" rule in the gallery model's `instructions.md` (`models/cycloidal`) Sketch Discipline — NOT a numeric value). This pins `diskCentre`
    at `(E, 0)` and keeps it tied to `Eccentricity`.
 
 Everything that belongs to the **disk** (root circle, lobe, spokes, angle dim, output holes) is centred on
@@ -46,7 +46,7 @@ circle's name string below.
 
 1. **Pin circle (construction, on `O`).** `addByCenterRadius(Point3D.create(0,0,0), R)`, `isConstruction =
    True`, centre coincident to **`localOrigin`**, diameter dim referencing **`PinCircleDiameter`** (the
-   "parameter-referenced dimensions" rule, `instructions.md` Sketch Discipline), and an **along-path label
+   "parameter-referenced dimensions" rule, the gallery model's `instructions.md` (`models/cycloidal`) Sketch Discipline), and an **along-path label
    `'Pin Circle'`**. The fixed ring — on the drive axis, **not** the disk centre.
 
 2. **Output-pin circle (construction, on the disk centre `Od`).** `addByCenterRadius(Point3D.create(E,0,0),
@@ -62,7 +62,7 @@ circle's name string below.
    **along-path label `'Root Circle'`**. The valleys sit on it.
 
 4. **Lobe spline (open, adaptively sampled) — NO arc.** Sample one lobe via `disk_point(t, E, 0, 0)` using
-   the **adaptive (bounded-turn-angle) sampling** of `epitrochoid-trace.md` "Sampling" — **not** uniform
+   the **adaptive (bounded-turn-angle) sampling** of `cycloidal-epitrochoid-trace.md` "Sampling" — **not** uniform
    `t` (uniform overshoots into rabbit-ears near the undercut limit). Add each kept `Point3D.create(x,y,0)`
    to an `ObjectCollection`, `spline = sketchCurves.sketchFittedSplines.add(coll)` (`[PB-SKETCHCURVES]`).
    **Leave open — no `isClosed`, no closing arc.** `startPt = spline.fitPoints.item(0)` (start valley
@@ -193,7 +193,7 @@ and hole profiles never interfere. Anchor it (`[CYCLOIDAL-F-ANCHOR-CHAIN]`) and 
    diameter dim referencing **`OutputPinCircleDiameter`** (the parameter-references rule), and an
    **along-path label `'Output Hole Circle'`** (same `sketchTexts`/`setAsAlongPath` idiom, height `Rr`).
 2. **One hole (solid).** `hole = addByCenterRadius(Point3D.create(E+Rop, 0, 0), D_hole/2)` — **solid** (no
-   `isConstruction`). `D_hole = D_pin + 2E` (`epitrochoid-trace.md`; cm as-is). Pin its **diameter** with a
+   `isConstruction`). `D_hole = D_pin + 2E` (`cycloidal-epitrochoid-trace.md`; cm as-is). Pin its **diameter** with a
    driving diameter dim whose `.parameter.expression` references **`OutputHoleDiameter`** (the rule). Pin
    its **position**: `addCoincident(
    hole.centerSketchPoint, outputHoleCircle)` (on the `Rop` circle) **and** a horizontal construction line
@@ -239,7 +239,7 @@ the ring-pin pattern, and the output-pin pattern alike.
 
 The fixed reaction member is **ONE `Housing` body** on `O` (NOT `Od`), built as two extrusions that are then
 **Combined into a single printable part**: a base annulus `1 mm` below the disc, and the ring casing
-surrounding the disc stack whose inner wall is the integral rolling contour (`epitrochoid-trace.md` "Pinless
+surrounding the disc stack whose inner wall is the integral rolling contour (`cycloidal-epitrochoid-trace.md` "Pinless
 ring casing"). The two extrusions are made to **meet** (the casing reaches down to the base top — no floating
 gap) and Joined. **No discrete pins.** Build `buildRingPins()` after the discs + cam:
 
@@ -260,18 +260,18 @@ gap) and Joined. **No discrete pins.** Build `buildRingPins()` after the discs +
 3. **Drive axis at `O`.** `capFace = housingExtrude.startFaces.item(0)` (cap by NORMAL);
    `axInput.setByPerpendicularAtPoint(capFace, originPoint)`; name `'Drive Axis'`; stash **`self.driveAxis`**.
 4. **Ring casing — one section, patterned ×`N`** (mirrors the disc's lobe-sector → pattern → join). The inner
-   wall is the disc's **swept envelope** `contour(φ) = env(φ) + c` (`epitrochoid-trace.md` "Pinless ring
+   wall is the disc's **swept envelope** `contour(φ) = env(φ) + c` (`cycloidal-epitrochoid-trace.md` "Pinless ring
    casing") — a smooth conjugate curve, NOT a constant circle.
    - **Compute one pin-pitch of the contour (Python).** `env = {}`; for `θ` in `linspace(0, 2π, Nθ = 240)`:
      `cx, cy = E*cos θ, E*sin θ`; `phi = -θ/L`; for `t` in `linspace(0, 2π, Nt = 240)`:
      `x, y = disk_point(t, cx, cy, phi)`; `a = atan2(y, x)`; **if `a ∈ [−π/N, π/N]`**: bin `a` into
      **`nbins = 80`** bins, keep `max(r=hypot(x,y))` per bin (`binMax`). (Empty bins: per
-     `epitrochoid-trace.md` — an edge uses only its hit neighbours; both-unhit edges fall back to radius `c`.) ⚠️ **Emit the contour points at bin EDGES so the FIRST
+     `cycloidal-epitrochoid-trace.md` — an edge uses only its hit neighbours; both-unhit edges fall back to radius `c`.) ⚠️ **Emit the contour points at bin EDGES so the FIRST
      lands exactly on `−π/N` and the LAST exactly on `+π/N`** — `nbins+1` points at `φ_i = −π/N + (2π/N)·i/nbins`
      (`i = 0 … nbins`), radius `(c + max(binMax[i−1], binMax[i]))` (single neighbour at the two ends), as
      `[(r_i·cos φ_i, r_i·sin φ_i)]` ordered by angle (all cm; `disk_point` returns cm, use as-is). **Do NOT use
      bin CENTRES `(b+0.5)/nbins`** — that insets the endpoints by half a bin, leaving an angular gap between
-     every patterned sector so the ×`N` sectors don't touch and won't Join (see `epitrochoid-trace.md` "Build
+     every patterned sector so the ×`N` sectors don't touch and won't Join (see `cycloidal-epitrochoid-trace.md` "Build
      one section" ⚠️, and the spoke note below).
    - **Section sketch `Ring Casing`** on `self.plane`, local origin on `O`: **outer**
      `addByCenterRadius(O, R − Rr + 2·E + Wall)` (= contour peak + `Wall`, the thin pinless wall; matches the

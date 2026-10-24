@@ -7,6 +7,7 @@ from ...lib import fusion360utils as futil
 from .base import Generator, GenerationContext, get_value, get_boolean, get_selection
 from .misc import to_cm, get_design
 from .utilities import get_normal, find_profile_by_curve_counts
+from . import solids
 
 
 INPUT_ID_PARENT = 'parentComponent'
@@ -109,6 +110,7 @@ class SpurGearGenerator(Generator):
             offset = adsk.core.ValueInput.createByReal(0)
             planeInput.setByOffset(selectedPlane, offset)
             self.plane = planes.add(planeInput)
+            self.plane.name = 'Target Plane'
             self.plane.isLightBulbOn = True
             self._createdTargetPlane = True
         ctx = self.newContext()
@@ -167,6 +169,7 @@ class SpurGearGenerator(Generator):
         extent = adsk.fusion.ToEntityExtentDefinition.create(ctx.extrusionEndPlane, False)
         extrudeInput.setOneSideExtent(extent, adsk.fusion.ExtentDirections.PositiveExtentDirection)
         extrude: adsk.fusion.ExtrudeFeature = extrudes.add(extrudeInput)
+        solids.name_feature(extrude, 'Extrude tooth')
         if extrude.bodies.count != 1:
             raise RuntimeError(f'Extrude tooth: expected one body, got {extrude.bodies.count}')
         ctx.toothBody = extrude.bodies.item(0)
@@ -215,6 +218,7 @@ class SpurGearGenerator(Generator):
         patternInput.totalAngle = adsk.core.ValueInput.createByString('360 deg')
         patternInput.isSymmetric = False
         pattern: adsk.fusion.CircularPatternFeature = patterns.add(patternInput)
+        solids.name_feature(pattern, 'Tooth Pattern')
         tools = adsk.core.ObjectCollection.create()
         for patternBody in pattern.bodies:
             tools.add(patternBody)
@@ -223,7 +227,8 @@ class SpurGearGenerator(Generator):
         combines: adsk.fusion.CombineFeatures = self.getComponent().features.combineFeatures
         combineInput: adsk.fusion.CombineFeatureInput = combines.createInput(ctx.gearBody, tools)
         combineInput.operation = adsk.fusion.FeatureOperations.JoinFeatureOperation
-        combines.add(combineInput)
+        teethJoin = combines.add(combineInput)
+        solids.name_feature(teethJoin, 'Teeth Join')
 
     def createFillets(self, ctx: SpurGearGenerationContext):
         radius = self.getParameter(PARAM_FILLET_RADIUS).value
@@ -253,7 +258,8 @@ class SpurGearGenerator(Generator):
         filletInput: adsk.fusion.FilletFeatureInput = fillets.createInput()
         radiusValue = adsk.core.ValueInput.createByReal(radius)
         filletInput.addConstantRadiusEdgeSet(edges, radiusValue, False)
-        fillets.add(filletInput)
+        rootFillet = fillets.add(filletInput)
+        solids.name_feature(rootFillet, 'Root Fillet')
 
     def buildBore(self, ctx: SpurGearGenerationContext):
         if self.getParameterAsBoolean(PARAM_SKETCH_ONLY):
@@ -280,7 +286,8 @@ class SpurGearGenerator(Generator):
         extent = adsk.fusion.ToEntityExtentDefinition.create(ctx.extrusionExtent, False)
         extrudeInput.setOneSideExtent(extent, adsk.fusion.ExtentDirections.PositiveExtentDirection)
         extrudeInput.participantBodies = [ctx.gearBody]
-        extrudes.add(extrudeInput)
+        boreCut = extrudes.add(extrudeInput)
+        solids.name_feature(boreCut, 'Bore Cut')
 
     def chamferTeeth(self, ctx: SpurGearGenerationContext):
         if self.getParameterAsBoolean(PARAM_SKETCH_ONLY):
@@ -315,7 +322,8 @@ class SpurGearGenerator(Generator):
         chamferInput: adsk.fusion.ChamferFeatureInput = chamfers.createInput2()
         distance = adsk.core.ValueInput.createByReal(chamferDistance)
         chamferInput.chamferEdgeSets.addEqualDistanceChamferEdgeSet(edges, distance, False)
-        chamfers.add(chamferInput)
+        toothChamfer = chamfers.add(chamferInput)
+        solids.name_feature(toothChamfer, 'Tooth Chamfer')
 
     def cleanup(self, ctx: SpurGearGenerationContext):
         if self._createdTargetPlane and ctx.plane is not None:
