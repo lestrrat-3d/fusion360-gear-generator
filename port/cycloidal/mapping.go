@@ -85,7 +85,7 @@ var TableGalleryOnly = []string{
 // ExpectedOps is the sequence of decad feature operations the gallery Build performs. The port stops
 // when it changes, because the Fusion construction in the fragment was reviewed against this sequence.
 var ExpectedOps = []string{
-	"Extrude", "Extrude", "Union", "Extrude", "Cut", "Extrude", "Extrude", "Cut", "Extrude", "Cut",
+	"Extrude", "Extrude", "Extrude", "Union", "Extrude", "Cut", "Extrude", "Extrude", "Cut", "Extrude", "Cut",
 	"Chamfer", "Extrude", "Extrude",
 }
 

@@ -3,7 +3,7 @@ module github.com/lestrrat-3d/fusion360-gear-generator/port
 go 1.26.8
 
 require (
-	github.com/lestrrat-3d/decad-gallery v0.0.0-20261024011015-8cbd839aced7
+	github.com/lestrrat-3d/decad-gallery v0.0.0-20261024013427-23f43f3aaedd
 	github.com/stretchr/testify v1.12.1
 )
 

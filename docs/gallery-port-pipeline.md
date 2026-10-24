@@ -361,8 +361,8 @@ expression) is not read, and `Model.TableErr` records why. A port that needs the
 
 ## Cycloidal drive port
 
-`gearport gen cycloidal` writes `lib/geargen/cycloidal.py` from the pinned gallery `models/cycloidal` (gallery 8cbd839,
-PR #87, decad 2563aba). The add-in is parametric and registers Fusion user parameters, and it builds the drive with Fusion
+`gearport gen cycloidal` writes `lib/geargen/cycloidal.py` from the pinned gallery `models/cycloidal` (gallery 23f43f3,
+PRs #87 and #88, decad 2563aba). The add-in is parametric and registers Fusion user parameters, and it builds the drive with Fusion
 calls that the stored fragment `port/cycloidal/fragments/cycloidal.py.frag` holds. The port takes the 18 dialog inputs
 and their defaults from the gallery `Params` and `DefaultParams`: disc count, pin count, pin circle diameter, pin
 diameter, eccentricity, disk clearance, disc thickness and gap, center bearing and input shaft diameters, bearing
@@ -388,8 +388,11 @@ The gallery model differs from the add-in, per its README:
 
 - The rotor discs are not chamfered in the gallery. Decad cannot chamfer a rim made only of fit splines, and Fusion keeps
   its disc chamfer.
-- Two discs need a disc gap above zero in the gallery (rule 12 of its validity table). The add-in's validity table has
-  eleven rules and accepts a gap of zero, so the gallery does not prove that case.
+- Two discs with a disc gap of zero now build in the gallery (gallery 23f43f3, PR #88). The gallery cam stops 0.25 mm
+  short of the plane between the discs and a bridge cylinder joins the two sections; Fusion's cam has no relief there.
+  The gallery's ten validity rules have the same conditions and message text as the add-in's `evaluate_problems`. The
+  gallery also refuses inputs the add-in does not check and Fusion cannot build either: a pin count below 4, an output
+  pin count below 3, a disc count other than 1 or 2, non-finite values, and lengths at or below zero.
 - The gallery draws each lobe as three fit splines and builds the casing from an exact per-direction envelope; the
   housing is one cylinder minus a contour cavity and a base hole. The add-in keeps its own construction.
 - Sub-components, the casing contour's under-constraint exemption and the skipped-chamfer message box are Fusion-only.
