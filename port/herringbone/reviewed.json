@@ -1,8 +1,6 @@
 {
-  "digest": "8e7164091769533cb91f982ffe8a4e633f8ed57f32ec445889f5631d139b9382",
+  "digest": "b3a8bf4a51b949c4f4231e7f58a2956af386daa70b13bba0a6efcb4303354d15",
   "functions": [
-    "Build",
-    "variant",
-    "chevron"
+    "variant"
   ]
 }

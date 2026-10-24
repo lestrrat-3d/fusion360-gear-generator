@@ -161,7 +161,7 @@ for c in json.load(sys.stdin):
     run = _Run(doc=RUNTIME, world=RUNTIME, p=p, d=d, frame=frame, lower=Plane(),
                extent=types.SimpleNamespace(D=RUNTIME.param('thickness'), Dir=1), teeth=teeth)
     RUN.update(frame=frame, teeth=teeth)
-    _assemble(run)
+    _variant_assemble(_Variant(), run)
     out.append(LOG[:])
 json.dump(out, sys.stdout)
 `

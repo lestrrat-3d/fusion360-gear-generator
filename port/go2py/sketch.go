@@ -77,6 +77,11 @@ func (f *fnState) apiAssign(sb *strings.Builder, s *ast.AssignStmt) (bool, error
 	if len(s.Rhs) != 1 {
 		return false, nil
 	}
+	if len(s.Lhs) == 2 {
+		if handled, err := f.commaOK(sb, s); handled || err != nil {
+			return handled, err
+		}
+	}
 	call, ok := s.Rhs[0].(*ast.CallExpr)
 	if !ok {
 		return false, nil
@@ -119,25 +124,54 @@ func (f *fnState) apiAssign(sb *strings.Builder, s *ast.AssignStmt) (bool, error
 // multiResult renders "a, b := f(...)" for a translated function with that many results,
 // not counting a trailing error.
 func (f *fnState) multiResult(sb *strings.Builder, s *ast.AssignStmt, call *ast.CallExpr, errs int) (bool, error) {
-	id, ok := call.Fun.(*ast.Ident)
-	if !ok {
-		return false, nil
-	}
-	callee, ok := f.t.funcs[id.Name]
-	if !ok || len(callee.results) != len(s.Lhs)-errs {
+	var (
+		callee string
+		recv   string
+		types  []typ
+	)
+	switch fn := call.Fun.(type) {
+	case *ast.Ident:
+		info, ok := f.t.funcs[fn.Name]
+		if !ok || len(info.results) != len(s.Lhs)-errs {
+			return false, nil
+		}
+		callee = f.t.pyFunc(info)
+		for _, r := range info.results {
+			types = append(types, r.typ)
+		}
+	case *ast.SelectorExpr:
+		key, r, ok := f.externalKey(fn)
+		if !ok {
+			return false, nil
+		}
+		ext, ok := f.t.external[key]
+		if !ok || len(ext.Results) != len(s.Lhs)-errs {
+			return false, nil
+		}
+		callee, recv = ext.Python, r
+		for _, r := range ext.Results {
+			types = append(types, parseAPIType(r))
+		}
+		if !ext.Method {
+			recv = ""
+		}
+	default:
 		return false, nil
 	}
 	args, err := f.args(call.Args)
 	if err != nil {
 		return true, err
 	}
-	targets := make([]string, len(callee.results))
-	for i := range callee.results {
-		if targets[i], err = f.target(s.Lhs[i], s.Tok == token.DEFINE, callee.results[i].typ); err != nil {
+	if recv != "" {
+		args = append([]string{recv}, args...)
+	}
+	targets := make([]string, len(types))
+	for i := range types {
+		if targets[i], err = f.target(s.Lhs[i], s.Tok == token.DEFINE, types[i]); err != nil {
 			return true, err
 		}
 	}
-	f.line(sb, "%s = %s%s(%s)", strings.Join(targets, ", "), f.t.prefix, pySnake(id.Name), strings.Join(args, ", "))
+	f.line(sb, "%s = %s(%s)", strings.Join(targets, ", "), callee, strings.Join(args, ", "))
 	return true, nil
 }
 
@@ -181,3 +215,68 @@ func createsSketch(s ast.Stmt) bool {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	return ok && sel.Sel.Name == "CreateSketch"
 }
+
+// commaOK renders "v, ok := x.(T)" and "v, ok := m[k]". A type assertion is a test of the
+// value by a runtime function named after the type, and a map lookup is a membership test.
+func (f *fnState) commaOK(sb *strings.Builder, s *ast.AssignStmt) (bool, error) {
+	okName, isIdent := s.Lhs[1].(*ast.Ident)
+	if !isIdent {
+		return false, nil
+	}
+	switch r := s.Rhs[0].(type) {
+	case *ast.TypeAssertExpr:
+		sel, ok := r.Type.(*ast.SelectorExpr)
+		if !ok {
+			return false, nil
+		}
+		name, ok := opaqueType(sel)
+		if !ok || !apiTypeTests[name] {
+			return true, fmt.Errorf("%s: a type assertion to %s is not in the API table", f.pos(s), name)
+		}
+		x, _, err := f.expr(r.X)
+		if err != nil {
+			return true, err
+		}
+		test := f.t.runtime + "." + typeTestName(name)
+		value := x
+		if !isIdentNamed(s.Lhs[0], "_") {
+			target, err := f.target(s.Lhs[0], s.Tok == token.DEFINE, typ{kind: kindOpaque, name: name})
+			if err != nil {
+				return true, err
+			}
+			f.line(sb, "%s = %s", target, x)
+			value = target
+		}
+		okTarget, err := f.target(okName, s.Tok == token.DEFINE, boolType)
+		if err != nil {
+			return true, err
+		}
+		f.line(sb, "%s = %s(%s)", okTarget, test, value)
+		return true, nil
+	case *ast.IndexExpr:
+		m, mt, err := f.expr(r.X)
+		if err != nil || mt.kind != kindMap {
+			return false, nil
+		}
+		k, _, err := f.expr(r.Index)
+		if err != nil {
+			return true, err
+		}
+		if !isIdentNamed(s.Lhs[0], "_") {
+			target, err := f.target(s.Lhs[0], s.Tok == token.DEFINE, *mt.elem)
+			if err != nil {
+				return true, err
+			}
+			f.line(sb, "%s = %s.get(%s)", target, m, k)
+		}
+		okTarget, err := f.target(okName, s.Tok == token.DEFINE, boolType)
+		if err != nil {
+			return true, err
+		}
+		f.line(sb, "%s = %s in %s", okTarget, k, m)
+		return true, nil
+	}
+	return false, nil
+}
+
+func isIdentNamed(e ast.Expr, name string) bool { return isIdent(e, name) }

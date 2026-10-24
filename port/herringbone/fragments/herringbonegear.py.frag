@@ -1,7 +1,8 @@
 import adsk.core
 import adsk.fusion
-from .base import GenerationContext
-from . import solids
+from . import decadfusion as _fx
+from . import helicalgear as _helical
+from . import spurgear as _spur
 from .spurgear import PARAM_MODULE, PARAM_TOOTH_NUMBER, PARAM_THICKNESS
 from .helicalgear import (
     PARAM_HELIX_ANGLE,
@@ -35,26 +36,13 @@ class HerringboneGearGenerator(HelicalGearGenerator):
             module.expression, toothNumber.expression, thickness.expression,
             helixAngle.expression)
 
-    def helicalPlaneOffset(self):
-        thickness = self.getParameter(PARAM_THICKNESS).value
-        return adsk.core.ValueInput.createByReal(thickness / 2)
+    def helixPlaneOffsetExpression(self) -> str:
+        # @@plane_offset@@
+        return expression
 
-    def buildTooth(self, ctx: GenerationContext):
-        assert isinstance(ctx, HerringboneGearGenerationContext)
-        self.loftTooth(ctx)
+    def variant(self):
+        """The herringbone build: the helical build with a mirrored tooth and the twisted section at mid-height."""
+        return _spur._Variant(Tooth=_chevron, RootFillet=_helical._fillet_root_edges)
 
-        entities = adsk.core.ObjectCollection.create()
-        entities.add(ctx.toothBody)
-        mirrorInput = self.getComponent().features.mirrorFeatures.createInput(entities, ctx.helixPlane)
-        mirrorResult = self.getComponent().features.mirrorFeatures.add(mirrorInput)
-        solids.name_feature(mirrorResult, 'Tooth Half Mirror')
-        mirrorResult.bodies.item(0).name = 'Tooth Body (Mirrored)'
 
-        entities = adsk.core.ObjectCollection.create()
-        entities.add(mirrorResult.bodies.item(0))
-        combineInput = self.getComponent().features.combineFeatures.createInput(
-            self.getComponent().bRepBodies.itemByName('Tooth Body'),
-            entities,
-        )
-        halvesJoin = self.getComponent().features.combineFeatures.add(combineInput)
-        solids.name_feature(halvesJoin, 'Tooth Halves Join')
+# @@translated@@

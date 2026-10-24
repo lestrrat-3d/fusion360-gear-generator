@@ -111,6 +111,10 @@ func (f *fnState) binary(e *ast.BinaryExpr) (string, typ, error) {
 	if err != nil {
 		return "", typ{}, err
 	}
+	if (lt.kind == kindCtx || rt.kind == kindCtx) && (e.Op == token.EQL || e.Op == token.NEQ) {
+		// A translated function takes no context, so one is never nil.
+		return map[token.Token]string{token.EQL: "False", token.NEQ: "True"}[e.Op], boolType, nil
+	}
 	if (lt.kind == kindNil || rt.kind == kindNil) && (e.Op == token.EQL || e.Op == token.NEQ) {
 		op = map[token.Token]string{token.EQL: "is", token.NEQ: "is not"}[e.Op]
 		return l + " " + op + " " + r, boolType, nil
@@ -170,16 +174,31 @@ func (f *fnState) call(e *ast.CallExpr) (string, typ, error) {
 			return f.mathCall(e, fn.Sel.Name)
 		}
 		if f.t.sketch {
+			if text, rt, handled, err := f.externalCall(e, fn); handled {
+				return text, rt, err
+			}
 			if text, rt, handled, err := f.apiCall(e, fn); handled {
 				return text, rt, err
 			}
-			return f.zeroMethodCall(e, fn)
+			return f.structCall(e, fn)
 		}
 	}
 	return "", typ{}, fmt.Errorf("%s: unsupported call", f.pos(e))
 }
 
 func (f *fnState) mathCall(e *ast.CallExpr, name string) (string, typ, error) {
+	switch name {
+	case "IsNaN", "IsInf":
+		// IsInf(x, 0) is true for an infinity of either sign, as math.isinf is.
+		if len(e.Args) == 0 {
+			return "", typ{}, fmt.Errorf("%s: math.%s needs an argument", f.pos(e), name)
+		}
+		x, _, err := f.expr(e.Args[0])
+		if err != nil {
+			return "", typ{}, err
+		}
+		return "math.is" + strings.ToLower(name[2:]) + "(" + x + ")", boolType, nil
+	}
 	py, ok := mathFuncs[name]
 	if !ok {
 		return "", typ{}, fmt.Errorf("%s: math.%s is unsupported", f.pos(e), name)
@@ -206,14 +225,87 @@ func (f *fnState) args(list []ast.Expr) ([]string, error) {
 	return out, nil
 }
 
-// zeroMethodCall renders a call of a method on a zero-valued receiver, such as v.tooth(ctx, r),
-// as a call of the translated method, which takes no receiver.
-func (f *fnState) zeroMethodCall(e *ast.CallExpr, sel *ast.SelectorExpr) (string, typ, error) {
-	_, xt, err := f.expr(sel.X)
-	if err != nil || xt.kind != kindStruct || f.t.structs[xt.name] == nil || !f.t.structs[xt.name].zero {
+// structCall renders a call on a value of a translated struct: a field that holds a function,
+// such as v.Tooth(ctx, in), or a method, such as in.Shifted(d), which becomes a call of the
+// translated function with the receiver first.
+func (f *fnState) structCall(e *ast.CallExpr, sel *ast.SelectorExpr) (string, typ, error) {
+	x, xt, err := f.expr(sel.X)
+	if err != nil || xt.kind != kindStruct || f.t.structs[xt.name] == nil {
 		return "", typ{}, fmt.Errorf("%s: unsupported call", f.pos(e))
 	}
-	return f.translatedCall(e, sel.Sel.Name)
+	info := f.t.structs[xt.name]
+	if ft, ok := info.types[sel.Sel.Name]; ok && ft.kind == kindOpaque && ft.name == "func" {
+		args, err := f.args(e.Args)
+		if err != nil {
+			return "", typ{}, err
+		}
+		rt := typ{kind: kindOpaque, name: "void"}
+		if ft.elem != nil {
+			rt = *ft.elem
+		}
+		return x + "." + sel.Sel.Name + "(" + strings.Join(args, ", ") + ")", rt, nil
+	}
+	callee, ok := f.t.funcs[sel.Sel.Name]
+	if !ok || callee.recvType == nil || callee.recvType.name != xt.name {
+		return "", typ{}, fmt.Errorf("%s: %s.%s is not translated", f.pos(e), xt.name, sel.Sel.Name)
+	}
+	if info.zero {
+		return f.translatedCall(e, sel.Sel.Name)
+	}
+	args, err := f.args(e.Args)
+	if err != nil {
+		return "", typ{}, err
+	}
+	rt := typ{kind: kindOpaque, name: "void"}
+	if len(callee.results) == 1 {
+		rt = callee.results[0].typ
+	} else if len(callee.results) > 1 {
+		return "", typ{}, fmt.Errorf("%s: %s returns %d values; use it in a multi-value assignment", f.pos(e), sel.Sel.Name, len(callee.results))
+	}
+	return f.t.pyFunc(callee) + "(" + strings.Join(append([]string{x}, args...), ", ") + ")", rt, nil
+}
+
+// externalCall renders a call of a function or method of another gallery package.
+func (f *fnState) externalCall(e *ast.CallExpr, sel *ast.SelectorExpr) (string, typ, bool, error) {
+	key, recv, ok := f.externalKey(sel)
+	if !ok {
+		return "", typ{}, false, nil
+	}
+	ext, ok := f.t.external[key]
+	if !ok {
+		return "", typ{}, false, nil
+	}
+	if len(ext.Results) > 1 {
+		return "", typ{}, true, fmt.Errorf("%s: %s returns %d values; use it in a multi-value assignment", f.pos(e), key, len(ext.Results))
+	}
+	args, err := f.args(e.Args)
+	if err != nil {
+		return "", typ{}, true, err
+	}
+	if ext.Method {
+		args = append([]string{recv}, args...)
+	}
+	rt := typ{kind: kindOpaque, name: "void"}
+	if len(ext.Results) == 1 {
+		rt = parseAPIType(ext.Results[0])
+	}
+	return ext.Python + "(" + strings.Join(args, ", ") + ")", rt, true, nil
+}
+
+// externalKey names the callee of a selector call for the External table: "pkg.Func" for a
+// package-level function and "pkg.Type.Method" for a method of an external struct. recv is the
+// rendered receiver of a method.
+func (f *fnState) externalKey(sel *ast.SelectorExpr) (key, recv string, ok bool) {
+	if pkg, isPkg := sel.X.(*ast.Ident); isPkg {
+		if _, local := f.env[pkg.Name]; !local {
+			return pkg.Name + "." + sel.Sel.Name, "", true
+		}
+	}
+	text, xt, err := f.expr(sel.X)
+	if err != nil || xt.kind != kindOpaque || f.t.structs[xt.name] == nil || !f.t.structs[xt.name].external {
+		return "", "", false
+	}
+	return xt.name + "." + sel.Sel.Name, text, true
 }
 
 func (f *fnState) identCall(e *ast.CallExpr, fn *ast.Ident) (string, typ, error) {
@@ -242,11 +334,18 @@ func (f *fnState) translatedCall(e *ast.CallExpr, name string) (string, typ, err
 	if f.t.provided[name] {
 		return "None", typ{kind: kindOpaque, name: "void"}, nil
 	}
+	if b, ok := f.t.bound[name]; ok {
+		args, err := f.args(e.Args)
+		if err != nil {
+			return "", typ{}, err
+		}
+		return b.Python + "(" + strings.Join(args, ", ") + ")", typ{kind: kindStruct, name: b.Result}, nil
+	}
 	callee, ok := f.t.funcs[name]
 	if !ok {
 		return "", typ{}, fmt.Errorf("%s: call of %s, which is not translated", f.pos(e), name)
 	}
-	if len(callee.results) > 1 {
+	if len(callee.results) > 1 && !f.multi {
 		return "", typ{}, fmt.Errorf("%s: %s returns %d values; use it in a multi-value assignment", f.pos(e), name, len(callee.results))
 	}
 	args, err := f.args(e.Args)
@@ -276,6 +375,11 @@ func (f *fnState) conversion(e *ast.CallExpr, py string, t typ) (string, typ, er
 
 // make renders make([]T, n) as a list of n zero values.
 func (f *fnState) make(e *ast.CallExpr) (string, typ, error) {
+	if len(e.Args) == 1 {
+		if mt, err := fromAST(e.Args[0], f.t.structs); err == nil && mt.kind == kindMap {
+			return "{}", mt, nil
+		}
+	}
 	if len(e.Args) != 2 {
 		return "", typ{}, fmt.Errorf("%s: make needs a slice type and a length", f.pos(e))
 	}
@@ -313,6 +417,13 @@ func (f *fnState) selector(e *ast.SelectorExpr) (string, typ, error) {
 	if err != nil {
 		return "", typ{}, err
 	}
+	if xt.kind == kindOpaque && f.t.structs[xt.name] != nil && f.t.structs[xt.name].external {
+		ft, ok := f.t.structs[xt.name].types[e.Sel.Name]
+		if !ok {
+			return "", typ{}, fmt.Errorf("%s: %s.%s is not listed for the external type", f.pos(e), xt.name, e.Sel.Name)
+		}
+		return x + "." + e.Sel.Name, ft, nil
+	}
 	if xt.kind == kindOpaque {
 		ft, ok := apiFields[xt.name+"."+e.Sel.Name]
 		if !ok {
@@ -338,7 +449,7 @@ func (f *fnState) index(e *ast.IndexExpr) (string, typ, error) {
 	if err != nil {
 		return "", typ{}, err
 	}
-	if xt.kind != kindSlice {
+	if xt.kind != kindSlice && xt.kind != kindMap {
 		return "", typ{}, fmt.Errorf("%s: index of a non-slice", f.pos(e))
 	}
 	i, _, err := f.expr(e.Index)
@@ -387,6 +498,9 @@ func (f *fnState) composite(e *ast.CompositeLit) (string, typ, error) {
 		}
 		return f.t.runtime + "." + runtimeName(name) + "(" + strings.Join(kw, ", ") + ")", typ{kind: kindOpaque, name: name}, nil
 	}
+	if st, ok := e.Type.(*ast.StructType); ok && len(st.Fields.List) == 0 && len(e.Elts) == 0 {
+		return "True", typ{kind: kindOpaque, name: "struct{}"}, nil
+	}
 	id, ok := e.Type.(*ast.Ident)
 	if !ok {
 		return "", typ{}, fmt.Errorf("%s: unsupported composite literal", f.pos(e))
@@ -394,6 +508,27 @@ func (f *fnState) composite(e *ast.CompositeLit) (string, typ, error) {
 	info, ok := f.t.structs[id.Name]
 	if !ok {
 		return "", typ{}, fmt.Errorf("%s: literal of untranslated type %s", f.pos(e), id.Name)
+	}
+	if len(e.Elts) > 0 {
+		if _, keyed := e.Elts[0].(*ast.KeyValueExpr); keyed {
+			var kw []string
+			for _, elt := range e.Elts {
+				kv, ok := elt.(*ast.KeyValueExpr)
+				if !ok {
+					return "", typ{}, fmt.Errorf("%s: a literal of %s mixes keyed and unkeyed fields", f.pos(e), id.Name)
+				}
+				key, ok := kv.Key.(*ast.Ident)
+				if !ok {
+					return "", typ{}, fmt.Errorf("%s: a literal of %s needs field names", f.pos(e), id.Name)
+				}
+				text, _, err := f.expr(kv.Value)
+				if err != nil {
+					return "", typ{}, err
+				}
+				kw = append(kw, key.Name+"="+text)
+			}
+			return f.t.prefix + pyClass(id.Name) + "(" + strings.Join(kw, ", ") + ")", typ{kind: kindStruct, name: id.Name}, nil
+		}
 	}
 	if len(e.Elts) != len(info.fields) {
 		return "", typ{}, fmt.Errorf("%s: literal of %s needs %d unkeyed fields", f.pos(e), id.Name, len(info.fields))
