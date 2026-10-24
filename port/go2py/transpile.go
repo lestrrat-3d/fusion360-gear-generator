@@ -267,6 +267,11 @@ func (s *structInfo) python(prefix string) string {
 		}
 		fmt.Fprintf(&sb, "class %s%s:\n    def __init__(self, %s):\n", prefix, pyClass(s.name), strings.Join(params, ", "))
 		for _, f := range s.fields {
+			if s.types[f].kind == kindSlice {
+				// A Go slice field starts as nil, which appends to; Python's None does not.
+				fmt.Fprintf(&sb, "        self.%s = [] if %s is None else %s\n", f, f, f)
+				continue
+			}
 			fmt.Fprintf(&sb, "        self.%s = %s\n", f, f)
 		}
 		if s.assigned {
