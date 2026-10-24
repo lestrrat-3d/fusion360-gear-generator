@@ -9,9 +9,11 @@ from .spurgear import (
     PARAM_TOOTH_NUMBER,
     PARAM_THICKNESS,
     SpurGearCommandInputsConfigurator,
-    SpurGearGenerationContext,
-    SpurGearGenerator,
+)
+from .legacyspur import (
     SpurGearInvoluteToothDesignGenerator,
+    StoredSpurGenerationContext,
+    StoredSpurGearGenerator,
 )
 from .utilities import find_profile_by_curve_counts
 from . import solids
@@ -27,14 +29,14 @@ class HelicalGearCommandConfigurator(SpurGearCommandInputsConfigurator):
         # @@inputs@@
 
 
-class HelicalGearGenerationContext(SpurGearGenerationContext):
+class HelicalGearGenerationContext(StoredSpurGenerationContext):
     def __init__(self):
         super().__init__()
         self.helixPlane = adsk.fusion.ConstructionPlane.cast(None)
         self.twistedGearProfileSketch = adsk.fusion.Sketch.cast(None)
 
 
-class HelicalGearGenerator(SpurGearGenerator):
+class HelicalGearGenerator(StoredSpurGearGenerator):
     def newContext(self) -> HelicalGearGenerationContext:
         return HelicalGearGenerationContext()
 
@@ -60,7 +62,7 @@ class HelicalGearGenerator(SpurGearGenerator):
     def helicalPlaneOffset(self) -> adsk.core.ValueInput:
         return self.getParameterAsValueInput(PARAM_THICKNESS)
 
-    def buildSketches(self, ctx: SpurGearGenerationContext):
+    def buildSketches(self, ctx: StoredSpurGenerationContext):
         assert isinstance(ctx, HelicalGearGenerationContext)
         super().buildSketches(ctx)
         planes = self.getComponent().constructionPlanes
@@ -76,11 +78,11 @@ class HelicalGearGenerator(SpurGearGenerator):
         toothGenerator.draw(ctx.anchorPoint, angle=helixAngle)
         ctx.twistedGearProfileSketch = loftSketch
 
-    def buildTooth(self, ctx: SpurGearGenerationContext):
+    def buildTooth(self, ctx: StoredSpurGenerationContext):
         assert isinstance(ctx, HelicalGearGenerationContext)
         self.loftTooth(ctx)
 
-    def loftTooth(self, ctx: SpurGearGenerationContext):
+    def loftTooth(self, ctx: StoredSpurGenerationContext):
         assert isinstance(ctx, HelicalGearGenerationContext)
         bottomToothProfile = find_profile_by_curve_counts(ctx.gearProfileSketch, nurbs=2, arcs=2, lines=2)
         topToothProfile = find_profile_by_curve_counts(ctx.twistedGearProfileSketch, nurbs=2, arcs=2, lines=2)

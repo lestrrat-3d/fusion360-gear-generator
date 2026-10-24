@@ -139,7 +139,7 @@ func TestTranspileSketchRefusesWhatItDoesNotKnow(t *testing.T) {
 	// profile checks, which the Python runtime does not perform, so the port refuses.
 	spec.Steps = []gotopy.Steps{{Name: "buildToothSection", PyName: "x", Args: args, StopAt: "noSuchCall"}}
 	_, err = gotopy.TranspileSpec(m, spec)
-	require.ErrorContains(t, err, "unsupported error check")
+	require.ErrorContains(t, err, "not translated")
 
 	// A function that is not in the list cannot be called from a translated one.
 	spec.Funcs = []string{"rotate", "involutePoint", "flankBeta", "sampleFlanks", "addToothPoints"}

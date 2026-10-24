@@ -22,6 +22,10 @@ func (f *fnState) expr(e ast.Expr) (string, typ, error) {
 		return f.literal(e)
 	case *ast.Ident:
 		return f.ident(e)
+	case *ast.StarExpr:
+		return f.expr(e.X)
+	case *ast.SliceExpr:
+		return f.slice(e)
 	case *ast.ParenExpr:
 		text, t, err := f.expr(e.X)
 		return "(" + text + ")", t, err
@@ -47,6 +51,10 @@ func (f *fnState) literal(e *ast.BasicLit) (string, typ, error) {
 		return e.Value, untypedType, nil
 	case token.FLOAT:
 		return e.Value, floatType, nil
+	case token.STRING:
+		if f.t.sketch {
+			return e.Value, stringType, nil
+		}
 	}
 	return "", typ{}, fmt.Errorf("%s: unsupported literal %s", f.pos(e), e.Value)
 }
@@ -57,6 +65,8 @@ func (f *fnState) ident(e *ast.Ident) (string, typ, error) {
 		return "True", boolType, nil
 	case "false":
 		return "False", boolType, nil
+	case "nil":
+		return "None", nilType, nil
 	}
 	t, ok := f.env[e.Name]
 	if !ok {
@@ -100,6 +110,10 @@ func (f *fnState) binary(e *ast.BinaryExpr) (string, typ, error) {
 	r, rt, err := f.operand(e.Y)
 	if err != nil {
 		return "", typ{}, err
+	}
+	if (lt.kind == kindNil || rt.kind == kindNil) && (e.Op == token.EQL || e.Op == token.NEQ) {
+		op = map[token.Token]string{token.EQL: "is", token.NEQ: "is not"}[e.Op]
+		return l + " " + op + " " + r, boolType, nil
 	}
 	text := l + " " + op + " " + r
 	switch e.Op {
@@ -155,8 +169,11 @@ func (f *fnState) call(e *ast.CallExpr) (string, typ, error) {
 		if ok && pkg.Name == "math" {
 			return f.mathCall(e, fn.Sel.Name)
 		}
-		if text, rt, handled, err := f.sketchCall(e, fn); handled {
-			return text, rt, err
+		if f.t.sketch {
+			if text, rt, handled, err := f.apiCall(e, fn); handled {
+				return text, rt, err
+			}
+			return f.zeroMethodCall(e, fn)
 		}
 	}
 	return "", typ{}, fmt.Errorf("%s: unsupported call", f.pos(e))
@@ -175,15 +192,28 @@ func (f *fnState) mathCall(e *ast.CallExpr, name string) (string, typ, error) {
 }
 
 func (f *fnState) args(list []ast.Expr) ([]string, error) {
-	out := make([]string, len(list))
-	for i, a := range list {
-		text, _, err := f.expr(a)
+	out := make([]string, 0, len(list))
+	for _, a := range list {
+		text, at, err := f.expr(a)
 		if err != nil {
 			return nil, err
 		}
-		out[i] = text
+		if at.kind == kindCtx {
+			continue
+		}
+		out = append(out, text)
 	}
 	return out, nil
+}
+
+// zeroMethodCall renders a call of a method on a zero-valued receiver, such as v.tooth(ctx, r),
+// as a call of the translated method, which takes no receiver.
+func (f *fnState) zeroMethodCall(e *ast.CallExpr, sel *ast.SelectorExpr) (string, typ, error) {
+	_, xt, err := f.expr(sel.X)
+	if err != nil || xt.kind != kindStruct || f.t.structs[xt.name] == nil || !f.t.structs[xt.name].zero {
+		return "", typ{}, fmt.Errorf("%s: unsupported call", f.pos(e))
+	}
+	return f.translatedCall(e, sel.Sel.Name)
 }
 
 func (f *fnState) identCall(e *ast.CallExpr, fn *ast.Ident) (string, typ, error) {
@@ -200,19 +230,34 @@ func (f *fnState) identCall(e *ast.CallExpr, fn *ast.Ident) (string, typ, error)
 		return "len(" + args[0] + ")", intType, nil
 	case "make":
 		return f.make(e)
+	case "append":
+		return f.appendCall(e)
 	}
-	callee, ok := f.t.funcs[fn.Name]
+	return f.translatedCall(e, fn.Name)
+}
+
+// translatedCall renders a call of a function in the translation list. A function whose only
+// result is an error has no value, and a function with a trailing error returns its other results.
+func (f *fnState) translatedCall(e *ast.CallExpr, name string) (string, typ, error) {
+	if f.t.provided[name] {
+		return "None", typ{kind: kindOpaque, name: "void"}, nil
+	}
+	callee, ok := f.t.funcs[name]
 	if !ok {
-		return "", typ{}, fmt.Errorf("%s: call of %s, which is not translated", f.pos(e), fn.Name)
+		return "", typ{}, fmt.Errorf("%s: call of %s, which is not translated", f.pos(e), name)
 	}
-	if len(callee.results) != 1 {
-		return "", typ{}, fmt.Errorf("%s: %s returns %d values; the subset calls single-result functions", f.pos(e), fn.Name, len(callee.results))
+	if len(callee.results) > 1 {
+		return "", typ{}, fmt.Errorf("%s: %s returns %d values; use it in a multi-value assignment", f.pos(e), name, len(callee.results))
 	}
 	args, err := f.args(e.Args)
 	if err != nil {
 		return "", typ{}, err
 	}
-	return f.t.prefix + pySnake(fn.Name) + "(" + strings.Join(args, ", ") + ")", callee.results[0].typ, nil
+	rt := typ{kind: kindOpaque, name: "void"}
+	if len(callee.results) == 1 {
+		rt = callee.results[0].typ
+	}
+	return f.t.prefix + pySnake(name) + "(" + strings.Join(args, ", ") + ")", rt, nil
 }
 
 func (f *fnState) conversion(e *ast.CallExpr, py string, t typ) (string, typ, error) {
@@ -256,9 +301,27 @@ func (f *fnState) selector(e *ast.SelectorExpr) (string, typ, error) {
 		}
 		return "", typ{}, fmt.Errorf("%s: math.%s is unsupported", f.pos(e), e.Sel.Name)
 	}
+	if pkg, ok := e.X.(*ast.Ident); ok && f.t.sketch && opaquePackages[pkg.Name] {
+		name := pkg.Name + "." + e.Sel.Name
+		ct, ok := apiConsts[name]
+		if !ok {
+			return "", typ{}, fmt.Errorf("%s: %s is not in the API table", f.pos(e), name)
+		}
+		return f.t.runtime + "." + strings.ToUpper(pkg.Name) + "_" + strings.ToUpper(pySnake(e.Sel.Name)), parseAPIType(ct), nil
+	}
 	x, xt, err := f.expr(e.X)
 	if err != nil {
 		return "", typ{}, err
+	}
+	if xt.kind == kindOpaque {
+		ft, ok := apiFields[xt.name+"."+e.Sel.Name]
+		if !ok {
+			return "", typ{}, fmt.Errorf("%s: %s.%s is not in the API table", f.pos(e), xt.name, e.Sel.Name)
+		}
+		return x + "." + e.Sel.Name, parseAPIType(ft), nil
+	}
+	if xt.kind == kindStruct && f.t.structs[xt.name] != nil && f.t.structs[xt.name].zero {
+		return "None", nilType, nil
 	}
 	if xt.kind != kindStruct {
 		return "", typ{}, fmt.Errorf("%s: field access on a non-struct", f.pos(e))
@@ -285,8 +348,45 @@ func (f *fnState) index(e *ast.IndexExpr) (string, typ, error) {
 	return x + "[" + i + "]", *xt.elem, nil
 }
 
-// composite renders an unkeyed struct literal as a namedtuple construction.
+// composite renders a struct literal. An unkeyed literal of a translated struct is a namedtuple
+// construction. A keyed literal of an API struct is a runtime call with keyword arguments, and
+// a slice literal is a list.
 func (f *fnState) composite(e *ast.CompositeLit) (string, typ, error) {
+	switch t := e.Type.(type) {
+	case *ast.ArrayType:
+		elem, err := fromAST(t.Elt, f.t.structs)
+		if err != nil {
+			return "", typ{}, fmt.Errorf("%s: %w", f.pos(e), err)
+		}
+		args, err := f.args(e.Elts)
+		if err != nil {
+			return "", typ{}, err
+		}
+		return "[" + strings.Join(args, ", ") + "]", typ{kind: kindSlice, elem: &elem}, nil
+	case *ast.SelectorExpr:
+		name, ok := opaqueType(t)
+		if !ok || apiLiterals[name] == "" || !f.t.sketch {
+			return "", typ{}, fmt.Errorf("%s: unsupported composite literal", f.pos(e))
+		}
+		var kw []string
+		for _, elt := range e.Elts {
+			kv, ok := elt.(*ast.KeyValueExpr)
+			key, isIdent := ast.Expr(nil), false
+			if ok {
+				key, isIdent = kv.Key, true
+			}
+			id, idOK := key.(*ast.Ident)
+			if !isIdent || !idOK {
+				return "", typ{}, fmt.Errorf("%s: a %s literal needs keyed fields", f.pos(e), name)
+			}
+			text, _, err := f.expr(kv.Value)
+			if err != nil {
+				return "", typ{}, err
+			}
+			kw = append(kw, id.Name+"="+text)
+		}
+		return f.t.runtime + "." + runtimeName(name) + "(" + strings.Join(kw, ", ") + ")", typ{kind: kindOpaque, name: name}, nil
+	}
 	id, ok := e.Type.(*ast.Ident)
 	if !ok {
 		return "", typ{}, fmt.Errorf("%s: unsupported composite literal", f.pos(e))
@@ -303,4 +403,60 @@ func (f *fnState) composite(e *ast.CompositeLit) (string, typ, error) {
 		return "", typ{}, err
 	}
 	return f.t.prefix + pyClass(id.Name) + "(" + strings.Join(args, ", ") + ")", typ{kind: kindStruct, name: id.Name}, nil
+}
+
+// appendCall renders append(xs, ys...) and append(xs, y, z) as list concatenation.
+func (f *fnState) appendCall(e *ast.CallExpr) (string, typ, error) {
+	if len(e.Args) < 2 {
+		return "", typ{}, fmt.Errorf("%s: append needs a slice and values", f.pos(e))
+	}
+	xs, xt, err := f.expr(e.Args[0])
+	if err != nil {
+		return "", typ{}, err
+	}
+	if xt.kind != kindSlice {
+		return "", typ{}, fmt.Errorf("%s: append to a non-slice", f.pos(e))
+	}
+	rest := e.Args[1:]
+	if e.Ellipsis.IsValid() {
+		if len(rest) != 1 {
+			return "", typ{}, fmt.Errorf("%s: append with a spread takes one slice", f.pos(e))
+		}
+		ys, _, err := f.expr(rest[0])
+		if err != nil {
+			return "", typ{}, err
+		}
+		return xs + " + list(" + ys + ")", xt, nil
+	}
+	vals, err := f.args(rest)
+	if err != nil {
+		return "", typ{}, err
+	}
+	return xs + " + [" + strings.Join(vals, ", ") + "]", xt, nil
+}
+
+// slice renders xs[lo:hi].
+func (f *fnState) slice(e *ast.SliceExpr) (string, typ, error) {
+	if e.Slice3 {
+		return "", typ{}, fmt.Errorf("%s: three-index slices are unsupported", f.pos(e))
+	}
+	xs, xt, err := f.expr(e.X)
+	if err != nil {
+		return "", typ{}, err
+	}
+	if xt.kind != kindSlice {
+		return "", typ{}, fmt.Errorf("%s: slice of a non-slice", f.pos(e))
+	}
+	var lo, hi string
+	if e.Low != nil {
+		if lo, _, err = f.expr(e.Low); err != nil {
+			return "", typ{}, err
+		}
+	}
+	if e.High != nil {
+		if hi, _, err = f.expr(e.High); err != nil {
+			return "", typ{}, err
+		}
+	}
+	return xs + "[" + lo + ":" + hi + "]", xt, nil
 }

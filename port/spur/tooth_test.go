@@ -44,7 +44,7 @@ for c in json.load(sys.stdin):
     pitch = c['module'] * c['teeth'] / 2
     d = _Dimensions(pitch, pitch * math.cos(c['pressure_angle']), pitch - 1.25 * c['module'], pitch + c['module'], 0.0)
     r = Recorder()
-    _build_tooth_section(r, Params(c['teeth'], c['samples']), d, c['angle'])
+    _draw_tooth_section(r, Params(c['teeth'], c['samples']), d, c['angle'])
     out.append(r.__dict__)
 json.dump(out, sys.stdout)
 `
@@ -72,7 +72,7 @@ func TestTranslatedToothSectionMatchesGallery(t *testing.T) {
 	require.NoError(t, err)
 	m, err := gallery.Load(src.Dir)
 	require.NoError(t, err)
-	text, err := gotopy.TranspileSpec(m, spur.ToothSpec)
+	text, err := gotopy.TranspileSpec(m, spur.FeatureSpec)
 	require.NoError(t, err)
 
 	cases := []toothCase{

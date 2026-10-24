@@ -8,30 +8,13 @@ import (
 	"strings"
 )
 
-// sketchMethods are the sketch.Sketch methods a drawing function may call and the
-// result each has. A call renders as a method call with the snake_case name on the
-// sketch value, so the Python runtime provides one method per entry.
-var sketchMethods = map[string]typ{
-	"CreateLine":      {kind: kindOpaque, name: "void"},
-	"CreateArc":       {kind: kindOpaque, name: "void"},
-	"CreateFitSpline": {kind: kindOpaque, name: "void"},
-	"Origin":          {kind: kindOpaque, name: "sketch.Point"},
-}
-
-// checkHelpers are the sketchcheck functions a drawing function may call. Each renders as
-// a method call on its first argument, the sketch.
-var checkHelpers = map[string]typ{
-	"DimensionPoint":  {kind: kindOpaque, name: "sketch.Point"},
-	"DimensionArcEnd": {kind: kindOpaque, name: "sketch.Point"},
-}
-
 // steps renders the creation sequence of one drawing function.
 func (t *transpiler) steps(st Steps) (string, error) {
 	decl, err := t.model.Func(st.Name)
 	if err != nil {
 		return "", err
 	}
-	fn := &fnState{t: t, info: &funcInfo{name: st.Name, decl: decl}, env: map[string]typ{}}
+	fn := &fnState{t: t, info: &funcInfo{name: st.Name, decl: decl}, env: map[string]typ{}, calls: map[string]int{}}
 	names := make([]string, len(st.Args))
 	for i, a := range st.Args {
 		expr, err := parser.ParseExpr(a.Type)
@@ -50,6 +33,9 @@ func (t *transpiler) steps(st Steps) (string, error) {
 	fn.indent = 1
 	stopped := false
 	for _, s := range decl.Body.List {
+		if createsSketch(s) {
+			continue
+		}
 		if callsFunc(s, st.StopAt) {
 			stopped = true
 			break
@@ -84,9 +70,10 @@ func isErrCheck(e ast.Expr) bool {
 	return ok && b.Op == token.NEQ && isIdent(b.X, "err") && isNil(b.Y)
 }
 
-// sketchAssign renders the assignments only a drawing function makes. It reports false
-// when the assignment is an ordinary one.
-func (f *fnState) sketchAssign(sb *strings.Builder, s *ast.AssignStmt) (bool, error) {
+// apiAssign renders the assignments a drawing function makes with a trailing error: the
+// call is made and the error result dropped, because the Python runtime raises instead. It
+// reports false when the assignment is an ordinary one.
+func (f *fnState) apiAssign(sb *strings.Builder, s *ast.AssignStmt) (bool, error) {
 	if len(s.Rhs) != 1 {
 		return false, nil
 	}
@@ -94,47 +81,59 @@ func (f *fnState) sketchAssign(sb *strings.Builder, s *ast.AssignStmt) (bool, er
 	if !ok {
 		return false, nil
 	}
-	if len(s.Lhs) == 2 && isIdent(s.Lhs[1], "err") {
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok {
-			return false, nil
+	last := len(s.Lhs) - 1
+	if !isIdent(s.Lhs[last], "err") {
+		if len(s.Lhs) > 1 {
+			return f.multiResult(sb, s, call, 0)
 		}
-		switch {
-		case sel.Sel.Name == "CreateSketch":
-			return true, nil
-		case isIdent(s.Lhs[0], "_"):
-			text, _, err := f.expr(call)
-			if err != nil {
-				return true, err
-			}
+		return false, nil
+	}
+	if last >= 2 {
+		return f.multiResult(sb, s, call, 1)
+	}
+	text, rt, err := f.expr(call)
+	if err != nil {
+		return true, err
+	}
+	switch last {
+	case 0:
+		if text != "None" {
 			f.line(sb, "%s", text)
+		}
+	case 1:
+		if isIdent(s.Lhs[0], "_") {
+			if text != "None" {
+				f.line(sb, "%s", text)
+			}
 			return true, nil
 		}
-		return false, fmt.Errorf("%s: unsupported two-value assignment", f.pos(s))
+		target, err := f.target(s.Lhs[0], s.Tok == token.DEFINE, rt)
+		if err != nil {
+			return true, err
+		}
+		f.line(sb, "%s = %s", target, text)
 	}
-	if len(s.Lhs) > 1 {
-		return f.multiResult(sb, s, call)
-	}
-	return false, nil
+	return true, nil
 }
 
-// multiResult renders "a, b := f(...)" for a translated function with that many results.
-func (f *fnState) multiResult(sb *strings.Builder, s *ast.AssignStmt, call *ast.CallExpr) (bool, error) {
+// multiResult renders "a, b := f(...)" for a translated function with that many results,
+// not counting a trailing error.
+func (f *fnState) multiResult(sb *strings.Builder, s *ast.AssignStmt, call *ast.CallExpr, errs int) (bool, error) {
 	id, ok := call.Fun.(*ast.Ident)
 	if !ok {
 		return false, nil
 	}
 	callee, ok := f.t.funcs[id.Name]
-	if !ok || len(callee.results) != len(s.Lhs) {
+	if !ok || len(callee.results) != len(s.Lhs)-errs {
 		return false, nil
 	}
 	args, err := f.args(call.Args)
 	if err != nil {
 		return true, err
 	}
-	targets := make([]string, len(s.Lhs))
-	for i, l := range s.Lhs {
-		if targets[i], err = f.target(l, s.Tok == token.DEFINE, callee.results[i].typ); err != nil {
+	targets := make([]string, len(callee.results))
+	for i := range callee.results {
+		if targets[i], err = f.target(s.Lhs[i], s.Tok == token.DEFINE, callee.results[i].typ); err != nil {
 			return true, err
 		}
 	}
@@ -168,53 +167,17 @@ func (f *fnState) rangeStmt(sb *strings.Builder, s *ast.RangeStmt) error {
 	return f.block(sb, s.Body.List)
 }
 
-// sketchCall renders a call to a sketchcheck helper or a sketch method. It reports false
-// when the call is neither.
-func (f *fnState) sketchCall(e *ast.CallExpr, sel *ast.SelectorExpr) (string, typ, bool, error) {
-	if !f.t.sketch {
-		return "", typ{}, false, nil
+// createsSketch reports whether the statement is "s, err := world.CreateSketch(plane)". A drawing
+// function that is translated up to a stop call draws in a sketch its caller made.
+func createsSketch(s ast.Stmt) bool {
+	a, ok := s.(*ast.AssignStmt)
+	if !ok || len(a.Rhs) != 1 {
+		return false
 	}
-	var (
-		recv string
-		args []ast.Expr
-		res  typ
-	)
-	switch pkg, _ := sel.X.(*ast.Ident); {
-	case pkg != nil && pkg.Name == "sketchcheck":
-		r, ok := checkHelpers[sel.Sel.Name]
-		if !ok || len(e.Args) == 0 {
-			return "", typ{}, true, fmt.Errorf("%s: sketchcheck.%s is not translated", f.pos(e), sel.Sel.Name)
-		}
-		res, args = r, e.Args
-		text, _, err := f.expr(e.Args[0])
-		if err != nil {
-			return "", typ{}, true, err
-		}
-		recv, args = text, e.Args[1:]
-	default:
-		r, ok := sketchMethods[sel.Sel.Name]
-		if !ok {
-			return "", typ{}, false, nil
-		}
-		text, xt, err := f.expr(sel.X)
-		if err != nil {
-			return "", typ{}, true, err
-		}
-		if xt.kind != kindOpaque || xt.name != "sketch.Sketch" {
-			return "", typ{}, true, fmt.Errorf("%s: %s on a value that is not a sketch", f.pos(e), sel.Sel.Name)
-		}
-		res, recv, args = r, text, e.Args
+	call, ok := a.Rhs[0].(*ast.CallExpr)
+	if !ok {
+		return false
 	}
-	parts := make([]string, len(args))
-	for i, a := range args {
-		text, _, err := f.expr(a)
-		if err != nil {
-			return "", typ{}, true, err
-		}
-		if e.Ellipsis.IsValid() && i == len(args)-1 {
-			text = "*" + text
-		}
-		parts[i] = text
-	}
-	return fmt.Sprintf("%s.%s(%s)", recv, pySnake(sel.Sel.Name), strings.Join(parts, ", ")), res, true, nil
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	return ok && sel.Sel.Name == "CreateSketch"
 }

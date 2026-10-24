@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"regexp"
-	"slices"
 	"strings"
 
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/fusionexpr"
@@ -14,21 +13,16 @@ import (
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/gotopy"
 )
 
-// Reviewed records the gallery code the stored fragment was reviewed against.
+// Reviewed records the gallery code a stored fragment was reviewed against. The spur has no
+// stored construction left, so its record is empty; the other gears still use it.
 type Reviewed struct {
 	// Digest is gallery.Model.SourceDigest of Functions.
 	Digest    string   `json:"digest"`
 	Functions []string `json:"functions"`
 }
 
-// ComputeReviewed returns the Reviewed record for the model as it stands.
-func ComputeReviewed(m *gallery.Model) (Reviewed, error) {
-	digest, err := m.SourceDigest(ReviewedFuncs...)
-	if err != nil {
-		return Reviewed{}, err
-	}
-	return Reviewed{Digest: digest, Functions: slices.Clone(ReviewedFuncs)}, nil
-}
+// ComputeReviewed returns the empty record: the spur follows no reviewed code.
+func ComputeReviewed(m *gallery.Model) (Reviewed, error) { return Reviewed{}, nil }
 
 // Generate returns the contents of lib/geargen/spurgear.py for the gallery model m
 // at version, using fragment as the stored Fusion construction. It fails when the
@@ -38,12 +32,6 @@ func Generate(m *gallery.Model, version, fragment string, reviewed Reviewed) (st
 		return "", m.TableErr
 	}
 	if err := checkCoverage(m); err != nil {
-		return "", err
-	}
-	if err := checkOps(m); err != nil {
-		return "", err
-	}
-	if err := checkReviewed(m, reviewed); err != nil {
 		return "", err
 	}
 	gen, err := newPieces(m)
@@ -57,6 +45,7 @@ func Generate(m *gallery.Model, version, fragment string, reviewed Reviewed) (st
 		{"primary_parameters", gen.primaryParameters()},
 		{"derived_parameters", gen.derived},
 		{"geometry_helpers", gen.helpers},
+		{"gallery_parameters", gen.galleryParameters()},
 	} {
 		if out, err = Fill(out, r.marker, r.text); err != nil {
 			return "", err
@@ -96,33 +85,6 @@ func checkCoverage(m *gallery.Model) error {
 	return nil
 }
 
-// checkOps requires the gallery build to perform the decad operations the fragment implements.
-func checkOps(m *gallery.Model) error {
-	ops, err := m.DecadCalls("Build")
-	if err != nil {
-		return err
-	}
-	if !slices.Equal(ops, ExpectedOps) {
-		return fmt.Errorf("gallery build performs %v, the fragment implements %v: review port/spur/fragments", ops, ExpectedOps)
-	}
-	return nil
-}
-
-func checkReviewed(m *gallery.Model, rec Reviewed) error {
-	if !slices.Equal(rec.Functions, ReviewedFuncs) {
-		return fmt.Errorf("reviewed.json lists different functions than ReviewedFuncs: run gearport accept")
-	}
-	now, err := ComputeReviewed(m)
-	if err != nil {
-		return err
-	}
-	if now.Digest != rec.Digest {
-		return fmt.Errorf("the gallery code behind the fragment changed (%s): review port/spur/fragments, then run gearport accept",
-			strings.Join(ReviewedFuncs, ", "))
-	}
-	return nil
-}
-
 var markerLine = regexp.MustCompile(`(?m)^[ \t]*# @@([a-z_]+)@@\n`)
 
 // Fill replaces the line holding the named marker with text, which must end in a newline.
@@ -158,7 +120,7 @@ func newPieces(m *gallery.Model) (*pieces, error) {
 	if p.derived, err = p.derivedMethod(); err != nil {
 		return nil, err
 	}
-	python, err := gotopy.TranspileSpec(m, ToothSpec)
+	python, err := gotopy.TranspileSpec(m, FeatureSpec)
 	if err != nil {
 		return nil, fmt.Errorf("translate involute math and tooth section: %w", err)
 	}
@@ -190,6 +152,20 @@ func (p *pieces) goDefault(field string) float64 {
 		}
 	}
 	return 0
+}
+
+// galleryParameters maps each gallery table name to the constant of its Fusion parameter, for the
+// translated build to look its parameters up by the gallery's names.
+func (p *pieces) galleryParameters() string {
+	var sb strings.Builder
+	sb.WriteString("_GALLERY_PARAMETERS = {\n")
+	for _, mp := range Params {
+		if mp.Const != "" {
+			fmt.Fprintf(&sb, "    '%s': %s,\n", mp.Table, mp.Const)
+		}
+	}
+	sb.WriteString("}\n")
+	return sb.String()
 }
 
 func (p *pieces) inputs() string {
