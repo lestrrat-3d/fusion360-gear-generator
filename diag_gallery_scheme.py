@@ -92,6 +92,14 @@ def dim_point(sk, origin, pt, tag, arc_end=False):
         add_dim(sk, origin, pt, H, tag)
 
 
+def list_constraints(sk, header):
+    kinds = {}
+    for i in range(sk.geometricConstraints.count):
+        t = sk.geometricConstraints.item(i).objectType.split('::')[-1]
+        kinds[t] = kinds.get(t, 0) + 1
+    log('%s: %d geometric constraints %s, %d dimensions' % (header, sk.geometricConstraints.count, kinds, sk.sketchDimensions.count))
+
+
 def entity_report(sk):
     free = []
     for i in range(sk.sketchCurves.count):
@@ -108,7 +116,8 @@ def entity_report(sk):
         log('   ' + f)
 
 
-def build(label, module_mm, teeth, pressure_deg, samples, angle_rad, first='right', arcs_first=False, anchor=True):
+def build(label, module_mm, teeth, pressure_deg, samples, angle_rad, first='right', arcs_first=False, anchor=True,
+          centres=True, skip_redundant=True, extrude=True):
     log('--- %s: module %g mm, %d teeth, pressure %g, %d samples, angle %.5f, first=%s, arcs_first=%s'
         % (label, module_mm, teeth, pressure_deg, samples, angle_rad, first, arcs_first))
     Tally.ok = 0
@@ -135,11 +144,17 @@ def build(label, module_mm, teeth, pressure_deg, samples, angle_rad, first='righ
             return p3(q.x * rootr / base, q.y * rootr / base)
         rr = sk.sketchPoints.add(rc(right[0]))
         lr = sk.sketchPoints.add(rc(left[0]))
+        list_constraints(sk, 'after splines and root points')
         def lines_and_arcs():
             sk.sketchCurves.sketchLines.addByTwoPoints(rr, rspline.startSketchPoint)
             sk.sketchCurves.sketchLines.addByTwoPoints(lspline.startSketchPoint, lr)
-            sk.sketchCurves.sketchArcs.addByCenterStartEnd(local, rspline.endSketchPoint, lspline.endSketchPoint)
-            sk.sketchCurves.sketchArcs.addByCenterStartEnd(local, rr, lr)
+            tip_arc = sk.sketchCurves.sketchArcs.addByCenterStartEnd(local, rspline.endSketchPoint, lspline.endSketchPoint)
+            root_arc = sk.sketchCurves.sketchArcs.addByCenterStartEnd(local, rr, lr)
+            if centres:
+                for arc in (tip_arc, root_arc):
+                    cp = arc.centerSketchPoint
+                    log('arc centre is the local origin point: %s' % (cp.entityToken == local.entityToken))
+                    sk.geometricConstraints.addCoincident(cp, local)
         if arcs_first:
             lines_and_arcs()
         order = [('R', rspline, False), ('L', lspline, True)]
@@ -152,6 +167,7 @@ def build(label, module_mm, teeth, pressure_deg, samples, angle_rad, first='righ
         dim_point(sk, local, rr, 'Rroot')
         if not arcs_first:
             lines_and_arcs()
+        list_constraints(sk, 'after dimensions, lines and arcs')
         log('dimensions created: %d, failed: %d' % (Tally.ok, len(Tally.failed)))
         for f in Tally.failed[:6]:
             log('   FAILED ' + f)
@@ -174,6 +190,24 @@ def build(label, module_mm, teeth, pressure_deg, samples, angle_rad, first='righ
             for j in range(prof.profileLoops.count):
                 loop = prof.profileLoops.item(j)
                 log('  profile %d loop %d: %d curves' % (i, j, loop.profileCurves.count))
+        if extrude and sk.profiles.count == 1:
+            try:
+                ext = root.features.extrudeFeatures
+                inp = ext.createInput(sk.profiles.item(0), adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+                inp.setDistanceExtent(False, adsk.core.ValueInput.createByReal(0.5))
+                body = ext.add(inp).bodies.item(0)
+                log('extruded: %d faces, volume %.4f cm3' % (body.faces.count, body.physicalProperties.volume))
+            except Exception:
+                log('extrude RAISED:\n' + traceback.format_exc())
+            try:
+                d = sk.sketchDimensions.item(4)
+                old = d.parameter.value
+                d.parameter.value = old * 1.001
+                log('edit probe: dimension 4 %.6f -> %.6f, profiles still %d, isFullyConstrained %s'
+                    % (old, d.parameter.value, sk.profiles.count, sk.isFullyConstrained))
+                d.parameter.value = old
+            except Exception:
+                log('edit probe RAISED:\n' + traceback.format_exc())
     except Exception:
         log('RAISED:\n' + traceback.format_exc())
     return sk
@@ -181,13 +215,12 @@ def build(label, module_mm, teeth, pressure_deg, samples, angle_rad, first='righ
 
 doc = app.documents.add(adsk.core.DocumentTypes.FusionDesignDocumentType)
 try:
-    build('A0 17 teeth, angle 0', 2.0, 17, 20.0, 15, 0.0)
-    build('A1 17 teeth, angle 1e-4', 2.0, 17, 20.0, 15, 1e-4)
-    build('A2 17 teeth, angle 0, left first', 2.0, 17, 20.0, 15, 0.0, first='left')
-    build('A3 17 teeth, angle 0, arcs first', 2.0, 17, 20.0, 15, 0.0, arcs_first=True)
-    build('B 17 teeth, angle 14.5 deg', 2.0, 17, 20.0, 15, math.radians(14.5))
-    build('B2 17 teeth, angle 14.5 deg, arcs first', 2.0, 17, 20.0, 15, math.radians(14.5), arcs_first=True)
-    build('C 40 teeth, angle 0', 1.0, 40, 20.0, 15, 0.0)
+    build('A0 17 teeth, angle 0, centres constrained', 2.0, 17, 20.0, 15, 0.0)
+    build('A1 17 teeth, angle 1e-4, centres constrained', 2.0, 17, 20.0, 15, 1e-4)
+    build('B 17 teeth, angle 14.5 deg, centres constrained', 2.0, 17, 20.0, 15, math.radians(14.5))
+    build('C 40 teeth, angle 0, centres constrained', 1.0, 40, 20.0, 15, 0.0)
+    build('D 24 teeth, 25 deg, 9 samples, centres constrained', 3.0, 24, 25.0, 9, 0.0)
+    build('E 17 teeth, angle 0, centres NOT constrained (control)', 2.0, 17, 20.0, 15, 0.0, centres=False, extrude=False)
 finally:
     text = '\n'.join(lines)
     appdata = os.environ.get('APPDATA')
