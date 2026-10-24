@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Every object a gear add-in creates in Fusion is named by its role ([PB-NAME-BY-ROLE]).
+"""Every object a gear add-in creates in Fusion is named by its role (see CLAUDE.md, "Naming").
 
 The scan reads lib/geargen/*.py and flags a sketch, construction plane, axis or point,
 timeline feature or new component that is created without a name. A name is a
@@ -16,8 +16,7 @@ KINDS = (r'sketches|constructionPlanes|constructionAxes|constructionPoints|\w+Fe
 CREATOR = re.compile(
     r'(?m)^[ \t]*(?:(\w+)\s*=\s*)?[^\n=#]*?\b(' + KINDS + r')\.(add|addNewComponent)\(')
 
-# Gears still built by the compile+emit pipeline and not yet regenerated with the rule in
-# the playbook. Each entry is the number of unnamed creations the scan finds today. The
+# Gears still built by the compile+emit pipeline and not yet regenerated with the rule. Each entry is the number of unnamed creations the scan finds today. The
 # test fails when a count changes, so an entry is removed when its gear is regenerated and
 # can never grow.
 PENDING_REGENERATION = {'cycloidal.py': 17}
@@ -48,7 +47,7 @@ class NamingByRoleTest(unittest.TestCase):
                 self.assertEqual(
                     [], unnamed(path),
                     f'{path.name} creates objects without a name: name each by its role '
-                    '([PB-NAME-BY-ROLE]); for a ported gear change its fragment under '
+                    '(CLAUDE.md, "Naming"); for a ported gear change its fragment under '
                     'port/<gear>/fragments/ and run gearport gen')
 
     def test_pending_regeneration_list_is_exact(self):

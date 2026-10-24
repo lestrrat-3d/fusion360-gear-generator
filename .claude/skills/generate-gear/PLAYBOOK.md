@@ -832,12 +832,6 @@ a *set* of related components (bevel: a parent holding a shared **Design** compo
   (`moveToComponent` preserves world position and needs no activation). Do not sketch or
   path-reference geometry that lives in a sibling. Note this does **not** require activating
   anything — building everything in one component already avoids cross-sibling references.
-- **[PB-NAME-BY-ROLE] Name every object the add-in creates by its role.** Every sketch, construction plane, axis and
-  point, timeline feature, body and new component gets a name that says what it is for, such as
-  `Driving Crown Scale Anchor 2` or `Pinion Teeth Join`; none keeps Fusion's default (`Sketch12`, `Extrude3`). A name
-  that repeats per instance carries an index. Naming is cosmetic, so a refused name is logged and ignored and never
-  fails a build (`solids.name_feature`). `.claude/skills/generate-gear/test_naming_by_role.py` scans `lib/geargen/*.py`
-  and fails on a creation that is never named.
 - **[PB-TREE-CLEANUP]** Cleanup/rollback is hand-rolled: a recursive walk turning off `isLightBulbOn` on every sketch /
   construction plane / construction axis across the tree (dedupe by `entityToken`), and
   `deleteComponent()` calls `deleteMe()` on the top occurrence for error rollback.
