@@ -1,0 +1,13 @@
+{
+  "digest": "be19f89e33f1d6cf750068334d47f979aa3bc84c40f858d487971f70575a1e5d",
+  "functions": [
+    "Build",
+    "resolve",
+    "Problems",
+    "Validate",
+    "undercutBound",
+    "undercuts",
+    "minInwardCurvatureRadius",
+    "defineParameters"
+  ]
+}

@@ -46,6 +46,11 @@ const (
 	KindCount ParameterKind = "count"
 	// KindExpr is an entry computed from an expression over other entries.
 	KindExpr ParameterKind = "expr"
+	// KindSnapshot is an entry set from a value the build computed before the table, such as
+	// the auto-or-override choice of a size. Field names that value, for example "d.pinRadius".
+	KindSnapshot ParameterKind = "snapshot"
+	// KindConstant is an entry set from a numeric constant the package declares; Value holds it.
+	KindConstant ParameterKind = "constant"
 )
 
 // Parameter is one entry of the parameter table.
@@ -60,4 +65,6 @@ type Parameter struct {
 	Field string
 	// Expr is the expression text of an expression entry.
 	Expr string
+	// Value is the number of a constant entry.
+	Value float64
 }

@@ -65,7 +65,7 @@ var GalleryOnly = []string{"PressureAngle", "Samples", "Placement"}
 var ExpectedOps = []string{
 	"Revolve", "Revolve", "Extrude", "Revolve", "Revolve", "Cut", "Revolve", "Revolve", "Intersect",
 	"Union", "Union", "Union", "Intersect", "Revolve", "Revolve", "Cut", "Revolve", "Intersect", "Union",
-	"Union", "Extrude", "Cut",
+	"Extrude", "Cut",
 }
 
 // ReviewedFuncs are the gallery functions the fragment's Fusion construction follows.

@@ -358,3 +358,45 @@ check. Not yet loaded in Fusion.
 The reader now reads string and bool defaults, follows `Params` that alias another model's, and no longer fails on a
 model whose `defineParameters` uses loops: the bevel table form (a loop over struct literals and a computed face width
 expression) is not read, and `Model.TableErr` records why. A port that needs the table reports it.
+
+## Cycloidal drive port
+
+`gearport gen cycloidal` writes `lib/geargen/cycloidal.py` from the pinned gallery `models/cycloidal` (gallery 23f43f3,
+PRs #87 and #88, decad 2563aba). The add-in is parametric and registers Fusion user parameters, and it builds the drive with Fusion
+calls that the stored fragment `port/cycloidal/fragments/cycloidal.py.frag` holds. The port takes the 18 dialog inputs
+and their defaults from the gallery `Params` and `DefaultParams`: disc count, pin count, pin circle diameter, pin
+diameter, eccentricity, disk clearance, disc thickness and gap, center bearing and input shaft diameters, bearing
+clearance, output pin circle diameter, count and diameter, housing wall, base and output plate thickness, and chamfer
+size. The Target Plane, Anchor Point and Parent Component selections stay in the fragment, because the gallery replaces
+them with a `Placement` frame.
+
+The generator stops when a gallery `Params` field has no mapping, when a parameter table name is in neither
+`RegisteredParams` nor `TableGalleryOnly` in `port/cycloidal/mapping.go`, when a registered parameter loses its constant
+in the fragment, when the decad operations of `Build` differ from `ExpectedOps`, or when the code of the functions in
+`ReviewedFuncs` changes. The reader now parses the gallery's parameter table form for this model: a local alias for a
+units constructor, values computed before the table (`KindSnapshot`, the pin radius and the output hole diameter) and
+a package constant (`KindConstant`).
+
+The first generated file had the same syntax tree as the previous add-in apart from the header and build id. The only
+changes after that are names. Every sketch, plane, axis, feature, body and component is named by its role, and the
+17 unnamed features, patterns and joins are now named (`Cycloidal Disk 1 Lobe Pattern`, `Casing Sector Join`,
+`Output Plate Pin Socket Cut` and so on). `PENDING_REGENERATION` in `test_naming_by_role.py` is now empty. The per-gear
+`gates` job in the workflow is removed, because no gear uses the compile+emit pipeline's gates any more; the
+cycloidal compile check, gate battery and playbook-citation check no longer run.
+
+The gallery model differs from the add-in, per its README:
+
+- The rotor discs are not chamfered in the gallery. Decad cannot chamfer a rim made only of fit splines, and Fusion keeps
+  its disc chamfer.
+- Two discs with a disc gap of zero now build in the gallery (gallery 23f43f3, PR #88). The gallery cam stops 0.25 mm
+  short of the plane between the discs and a bridge cylinder joins the two sections; Fusion's cam has no relief there.
+  The gallery's ten validity rules have the same conditions and message text as the add-in's `evaluate_problems`. The
+  gallery also refuses inputs the add-in does not check and Fusion cannot build either: a pin count below 4, an output
+  pin count below 3, a disc count other than 1 or 2, non-finite values, and lengths at or below zero.
+- The gallery draws each lobe as three fit splines and builds the casing from an exact per-direction envelope; the
+  housing is one cylinder minus a contour cavity and a base hole. The add-in keeps its own construction.
+- Sub-components, the casing contour's under-constraint exemption and the skipped-chamfer message box are Fusion-only.
+
+Not yet covered: a numeric comparison of the add-in's derived-parameter formulas with the gallery's table, and of the
+add-in's `evaluate_problems` with the gallery's `Problems`. Loaded in Fusion on 2026-10-24 from the file with build id
+`b9c655b02d33`; the user reports the drive looks right. Not checked: a two-disc drive with a disc gap of zero.

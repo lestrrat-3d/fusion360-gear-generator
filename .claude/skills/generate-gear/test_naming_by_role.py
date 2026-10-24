@@ -19,7 +19,7 @@ CREATOR = re.compile(
 # Gears still built by the compile+emit pipeline and not yet regenerated with the rule. Each entry is the number of unnamed creations the scan finds today. The
 # test fails when a count changes, so an entry is removed when its gear is regenerated and
 # can never grow.
-PENDING_REGENERATION = {'cycloidal.py': 17}
+PENDING_REGENERATION = {}
 
 
 def unnamed(path):

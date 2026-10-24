@@ -20,6 +20,7 @@ func (p *parsedPackage) table() ([]Parameter, error) {
 	if err != nil {
 		return nil, err
 	}
+	p.unitAliases = unitAliasesIn(fd)
 	var out []Parameter
 	var walkErr error
 	ast.Inspect(fd.Body, func(n ast.Node) bool {
@@ -106,18 +107,56 @@ func (p *parsedPackage) tableValue(call *ast.CallExpr, kind ParameterKind, wrap 
 		}
 		param.Unit = f.Sel.Name
 	case *ast.Ident:
-		if f.Name != wrap {
+		if unit, aliased := p.unitAliases[f.Name]; aliased && wrap == "units" {
+			param.Unit = unit
+		} else if f.Name != wrap {
 			return Parameter{}, fmt.Errorf("%s: parameter %s conversion is not a %s call", p.pos(call), name, wrap)
 		}
 	default:
 		return Parameter{}, fmt.Errorf("%s: parameter %s conversion is not a call by name", p.pos(call), name)
+	}
+	if id, isIdent := conv.Args[0].(*ast.Ident); isIdent {
+		value, err := p.packageConstant(id.Name)
+		if err != nil {
+			return Parameter{}, fmt.Errorf("%s: parameter %s: %w", p.pos(call), name, err)
+		}
+		param.Kind = KindConstant
+		param.Field = id.Name
+		param.Value = value
+		return param, nil
 	}
 	field, ok := conv.Args[0].(*ast.SelectorExpr)
 	if !ok {
 		return Parameter{}, fmt.Errorf("%s: parameter %s does not read a Params field", p.pos(call), name)
 	}
 	param.Field = field.Sel.Name
+	if base, ok := field.X.(*ast.Ident); ok && base.Name != "p" {
+		// A value computed before the table is written, not a field of Params.
+		param.Kind = KindSnapshot
+		param.Field = base.Name + "." + field.Sel.Name
+	}
 	return param, nil
+}
+
+// unitAliasesIn finds assignments such as mm := units.Millimeters in a function body.
+func unitAliasesIn(fd *ast.FuncDecl) map[string]string {
+	out := map[string]string{}
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		as, ok := n.(*ast.AssignStmt)
+		if !ok || as.Tok != token.DEFINE || len(as.Lhs) != 1 || len(as.Rhs) != 1 {
+			return true
+		}
+		name, ok := as.Lhs[0].(*ast.Ident)
+		sel, ok2 := as.Rhs[0].(*ast.SelectorExpr)
+		if !ok || !ok2 {
+			return true
+		}
+		if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "units" {
+			out[name.Name] = sel.Sel.Name
+		}
+		return true
+	})
+	return out
 }
 
 // tableExpr decodes recv.SetExpr("name", "expression", units.Unit).
@@ -148,4 +187,25 @@ func (p *parsedPackage) stringLiteral(e ast.Expr) (string, error) {
 		return "", fmt.Errorf("%s: %q is not a string literal", p.pos(e), text)
 	}
 	return strconv.Unquote(lit.Value)
+}
+
+// packageConstant evaluates the numeric constant the package declares as name.
+func (p *parsedPackage) packageConstant(name string) (float64, error) {
+	for _, f := range p.files {
+		for _, d := range f.Decls {
+			gd, ok := d.(*ast.GenDecl)
+			if !ok || gd.Tok != token.CONST {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				vs := spec.(*ast.ValueSpec)
+				for i, id := range vs.Names {
+					if id.Name == name && i < len(vs.Values) {
+						return p.constant(vs.Values[i])
+					}
+				}
+			}
+		}
+	}
+	return 0, fmt.Errorf("%s is not a constant of the package", name)
 }
