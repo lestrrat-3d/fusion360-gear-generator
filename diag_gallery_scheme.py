@@ -117,9 +117,9 @@ def entity_report(sk):
 
 
 def build(label, module_mm, teeth, pressure_deg, samples, angle_rad, first='right', arcs_first=False, anchor=True,
-          centres=True, skip_redundant=True, extrude=True):
-    log('--- %s: module %g mm, %d teeth, pressure %g, %d samples, angle %.5f, first=%s, arcs_first=%s'
-        % (label, module_mm, teeth, pressure_deg, samples, angle_rad, first, arcs_first))
+          centres=True, skip_redundant=True, extrude=True, fix='none', anchor_first=False):
+    log('--- %s: module %g mm, %d teeth, angle %.5f, fix=%s, anchor_first=%s'
+        % (label, module_mm, teeth, angle_rad, fix, anchor_first))
     Tally.ok = 0
     Tally.failed = []
     root = app.activeProduct.rootComponent
@@ -133,6 +133,8 @@ def build(label, module_mm, teeth, pressure_deg, samples, angle_rad, first='righ
         tip = (m * teeth + 2 * m) / 2
         left, right = _sample_flanks(pitch, base, base, tip, teeth, samples, angle_rad)
         local = sk.sketchPoints.add(p3(0, 0))
+        if anchor_first:
+            sk.geometricConstraints.addCoincident(local, sk.originPoint)
         def spline(points):
             c = adsk.core.ObjectCollection.create()
             for q in points:
@@ -162,7 +164,23 @@ def build(label, module_mm, teeth, pressure_deg, samples, angle_rad, first='righ
             order.reverse()
         for side, sp, has_arc_end in order:
             for i in range(samples):
-                dim_point(sk, local, sp.fitPoints.item(i), '%s%d' % (side, i), arc_end=(has_arc_end and i == samples - 1))
+                pt = sp.fitPoints.item(i)
+                tag = '%s%d' % (side, i)
+                second_first_point = (i == 0 and side == order[1][0])
+                if second_first_point and fix == 'vertical':
+                    # x equal to the other flank's first point by alignment, then only the vertical distance
+                    other = order[0][1].fitPoints.item(0)
+                    try:
+                        sk.geometricConstraints.addVertical(pt, other)
+                        Tally.ok += 1
+                    except Exception as e:
+                        Tally.failed.append('%s vertical align: %s' % (tag, str(e).strip()[:60]))
+                    add_dim(sk, local, pt, V, tag)
+                elif second_first_point and fix == 'vh':
+                    add_dim(sk, local, pt, V, tag)
+                    add_dim(sk, local, pt, H, tag)
+                else:
+                    dim_point(sk, local, pt, tag, arc_end=(has_arc_end and i == samples - 1))
         dim_point(sk, local, lr, 'Lroot', arc_end=True)
         dim_point(sk, local, rr, 'Rroot')
         if not arcs_first:
@@ -213,14 +231,40 @@ def build(label, module_mm, teeth, pressure_deg, samples, angle_rad, first='righ
     return sk
 
 
+def probe_pair(label, qx, qy, order='HV', second_first='H'):
+    """Two free points p, q dimensioned from a free local origin: does the second point's first dimension raise?"""
+    root = app.activeProduct.rootComponent
+    sk = root.sketches.add(root.xYConstructionPlane)
+    sk.name = 'Probe ' + label
+    a, b = 1.58829, 0.17109
+    local = sk.sketchPoints.add(p3(0, 0))
+    p = sk.sketchPoints.add(p3(a, b))
+    q = sk.sketchPoints.add(p3(qx, qy))
+    res = []
+    for o in (H, V) if order == 'HV' else (V, H):
+        res.append('p%s=%s' % ('H' if o == H else 'V', add_dim(sk, local, p, o, 'p')))
+    for o in ((H, V) if second_first == 'H' else (V, H)):
+        res.append('q%s=%s' % ('H' if o == H else 'V', add_dim(sk, local, q, o, 'q')))
+    log('probe %-34s %s' % (label, ' '.join(res)))
+
+
 doc = app.documents.add(adsk.core.DocumentTypes.FusionDesignDocumentType)
 try:
-    build('A0 17 teeth, angle 0, centres constrained', 2.0, 17, 20.0, 15, 0.0)
-    build('A1 17 teeth, angle 1e-4, centres constrained', 2.0, 17, 20.0, 15, 1e-4)
-    build('B 17 teeth, angle 14.5 deg, centres constrained', 2.0, 17, 20.0, 15, math.radians(14.5))
-    build('C 40 teeth, angle 0, centres constrained', 1.0, 40, 20.0, 15, 0.0)
-    build('D 24 teeth, 25 deg, 9 samples, centres constrained', 3.0, 24, 25.0, 9, 0.0)
-    build('E 17 teeth, angle 0, centres NOT constrained (control)', 2.0, 17, 20.0, 15, 0.0, centres=False, extrude=False)
+    Tally.failed = []
+    log('=== minimal probes: p = (1.58829, 0.17109) dimensioned H then V; then q dimensioned')
+    probe_pair('q mirror of p (a, -b)', 1.58829, -0.17109)
+    probe_pair('q mirror, V first', 1.58829, -0.17109, second_first='V')
+    probe_pair('q mirror, p dimensioned V then H', 1.58829, -0.17109, order='VH')
+    probe_pair('q equal x, y = 2b', 1.58829, 0.34218)
+    probe_pair('q x + 1e-9', 1.58829 + 1e-9, -0.17109)
+    probe_pair('q x + 1e-6', 1.58829 + 1e-6, -0.17109)
+    probe_pair('q different x and y', 1.7, -0.3)
+    probe_pair('q equal y, different x', 1.9, 0.17109)
+    log('=== full tooth, angle 0, variants')
+    build('F1 angle 0, anchored first', 2.0, 17, 20.0, 15, 0.0, anchor_first=True)
+    build('F2 angle 0, vertical alignment for the first pair', 2.0, 17, 20.0, 15, 0.0, fix='vertical')
+    build('F3 angle 0, V then H on the second first point', 2.0, 17, 20.0, 15, 0.0, fix='vh')
+    build('F4 angle 0, anchored first and vertical alignment', 2.0, 17, 20.0, 15, 0.0, anchor_first=True, fix='vertical')
 finally:
     text = '\n'.join(lines)
     appdata = os.environ.get('APPDATA')
