@@ -866,6 +866,13 @@ internal units (cm for length, **radians** for angle) regardless of the unit str
 field comes back in radians; convert with `math.degrees(...)` before any degree-range check. Don't
 read via `ValueInput.realValue`.
 
+**[PB-DEFERRED-COMPUTE] A sketch with hundreds of dimensioned points is drawn with the solver deferred.** Every
+`addDistanceDimension` re-solves the whole sketch, so a profile with a thousand dimensioned points (the cycloidal
+drive's rotor and casing) ran for minutes. `decadfusion.Sketch` sets `sketch.isComputeDeferred = True` while it draws a
+sketch of more than `BULK_POINTS` points and solves once at the end. A deferred solver reports a refused dimension
+only later, so the runtime finds a repeated coordinate itself and aligns the two points instead of waiting for an
+exception. The involute gears stay below the threshold and keep the try-first path.
+
 ## What the spec need not pin (free to vary)
 
 Local variable names, comments, log strings, and how build steps are decomposed into private

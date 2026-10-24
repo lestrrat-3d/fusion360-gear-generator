@@ -26,6 +26,11 @@ DECAD_AGAINST = -1
 # Two coordinates closer than this, in cm, are one value to Fusion's sketch solver.
 SAME_COORDINATE = 1e-6
 
+# A sketch with more points than this is drawn with Fusion's solver deferred: every added dimension would
+# otherwise re-solve the whole sketch, which grows with the square of the point count and took minutes for the
+# cycloidal drive's thousand-point profiles. [PB-DEFERRED-COMPUTE]
+BULK_POINTS = 200
+
 # The active runtime. A translated function reaches the design through the objects it is handed, except
 # sketch_new_world(), which the gallery calls with no argument.
 _active = None
@@ -375,6 +380,8 @@ class Sketch:
         self._constraints = []
         self._bindings = []
         self._dimensioned = []
+        self._bulk = False
+        self._coordinates = {}
 
     # sketch.Sketch
     def origin(self):
@@ -427,15 +434,26 @@ class Sketch:
     # The drawing
     def finish(self):
         """Draw everything recorded, without moving the local origin."""
-        self._drawSplines()
-        self._drawLines()
-        self._drawArcs()
-        for point in self._points:
-            self._dimensionPoint(point)
-        self._points = []
-        for constraint in self._constraints:
-            self._dimensionCircle(constraint)
-        self._constraints = []
+        self._bulk = len(self._points) > BULK_POINTS
+        self._coordinates = {}
+        if self._bulk:
+            self.sketch.isComputeDeferred = True
+        try:
+            with timed(f'{self.sketch.name} draw'):
+                self._drawSplines()
+                self._drawLines()
+                self._drawArcs()
+            with timed(f'{self.sketch.name} dimension {len(self._points)} points'):
+                for point in self._points:
+                    self._dimensionPoint(point)
+                self._points = []
+                for constraint in self._constraints:
+                    self._dimensionCircle(constraint)
+                self._constraints = []
+        finally:
+            if self._bulk:
+                with timed(f'{self.sketch.name} compute'):
+                    self.sketch.isComputeDeferred = False
         for constraint, name in self._bindings:
             self._bind(constraint, name)
         self._bindings = []
@@ -509,13 +527,20 @@ class Sketch:
     def _dimension(self, point, orientation):
         dims: adsk.fusion.SketchDimensions = self.sketch.sketchDimensions
         textPoint = adsk.core.Point3D.create(point.x * self._scale, point.y * self._scale, 0)
-        try:
-            dims.addDistanceDimension(self._origin, point.point, orientation, textPoint)
-            return
-        except RuntimeError:
-            partner = self._sameCoordinate(point, orientation)
+        if self._bulk:
+            # A deferred solver reports a refused dimension only later, so find the repeated coordinate here.
+            partner = self._repeated(point, orientation)
             if partner is None:
-                raise
+                dims.addDistanceDimension(self._origin, point.point, orientation, textPoint)
+                return
+        else:
+            try:
+                dims.addDistanceDimension(self._origin, point.point, orientation, textPoint)
+                return
+            except RuntimeError:
+                partner = self._sameCoordinate(point, orientation)
+                if partner is None:
+                    raise
         # Fusion refuses a second dimension with the value and direction of an earlier one from the
         # same origin, as at tooth angle 0 where both flanks start at one x. Aligning the two points
         # fixes the same coordinate. [SPUR-F-ALIGN-DUPLICATE]
@@ -524,6 +549,18 @@ class Sketch:
             constraints.addVerticalPoints(point.point, partner.point)
         else:
             constraints.addHorizontalPoints(point.point, partner.point)
+
+    def _repeated(self, point, orientation):
+        """The earlier point that has this point's coordinate in this direction, or None, and records the point."""
+        horizontal = orientation == adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation
+        value = point.x if horizontal else point.y
+        key = (horizontal, round(value / SAME_COORDINATE))
+        for near in (key[1] - 1, key[1], key[1] + 1):
+            other = self._coordinates.get((horizontal, near))
+            if other is not None and abs((other.x if horizontal else other.y) - value) < SAME_COORDINATE:
+                return other
+        self._coordinates[key] = point
+        return None
 
     def _sameCoordinate(self, point, orientation):
         horizontal = orientation == adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation
