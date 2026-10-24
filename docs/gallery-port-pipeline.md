@@ -346,6 +346,10 @@ The 14.5 degree pressure angle, the 20 degree spiral angle and the lone cutter-r
 (the shallow-crossing mesh bound recorded in decad's `agent-docs/faceted-vertex-bounds-design.md`). `validateSpiralBuild`
 is now in `ReviewedFuncs`, so a later tightening of that gate stops the port. The port drops no input.
 
+`decad-gallery-93` confirmed in writing that gallery dee5ca3 is the final bevel model: no further change is planned to
+`Build`, `BuildPair`, `prepareBuild`, `buildMember`, `buildStraightMember`, `buildSpiralMember`, `validateSpiralBuild`,
+`derive`, `defineParameters` or `Params`, and the three cases above stay at "builds, volume bound under 15 percent".
+
 The gallery builds every other option the add-in offers as of gallery PR #80 (7679362). Left-hand spiral, spiral angle 20
 degrees and a 14.5 degree pressure angle build in the gallery with a weaker check than the others (a volume bound
 below 15 percent instead of `VerifyAll` at 0.1 mm), per `decad-7e`'s report. The Fusion add-in does not depend on that
