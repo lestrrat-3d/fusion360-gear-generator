@@ -60,11 +60,13 @@ var Inputs = []Input{
 var GalleryOnly = []string{"PressureAngle", "Samples", "Placement"}
 
 // ExpectedOps is the sequence of decad feature operations the gallery Build performs,
-// following both its straight and its spiral branch. The port stops when it changes,
+// following both its straight and its spiral branch, with the extra Unions of the spiral
+// build's alternative tooth-join orders (grouped, balanced) that only change how fast decad
+// joins the same teeth. The port stops when it changes,
 // because the Fusion construction in the fragment was reviewed against this sequence.
 var ExpectedOps = []string{
 	"Revolve", "Revolve", "Extrude", "Revolve", "Revolve", "Cut", "Revolve", "Revolve", "Intersect",
-	"Union", "Union", "Union", "Intersect", "Revolve", "Revolve", "Cut", "Revolve", "Intersect", "Union",
+	"Union", "Union", "Union", "Union", "Union", "Union", "Union", "Intersect", "Revolve", "Revolve", "Cut", "Revolve", "Intersect", "Union",
 	"Extrude", "Cut",
 }
 
