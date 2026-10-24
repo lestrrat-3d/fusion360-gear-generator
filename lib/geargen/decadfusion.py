@@ -655,7 +655,7 @@ def decad_pattern_copies(tooth, pattern, name):
     feature: adsk.fusion.CircularPatternFeature = patterns.add(patternInput)
     solids.name_feature(feature, name)
     # The result may or may not list the original body; the copies are the others.
-    copies = [Body(runtime, b) for b in feature.bodies if b.tempId != tooth.body.tempId]
+    copies = [Body(runtime, b) for b in feature.bodies if b.entityToken != tooth.body.entityToken]
     if not copies:
         raise RuntimeError(f'{name}: the pattern made no copies')
     return copies
