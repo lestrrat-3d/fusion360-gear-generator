@@ -147,6 +147,19 @@ class BatchingTest(unittest.TestCase):
         tokens = {c.body.entityToken for c in pieces[1:]}
         self.assertEqual(teeth - 1, len(tokens))
 
+    def test_a_union_takes_the_place_of_its_base_in_the_container(self):
+        fx = self.fx
+        container = fx.Container(self.runtime, 'Gear')
+        blank, tooth = self.body(0, 0, 0), self.body(1.0, 3.0, 0.0)
+        for body in (blank, tooth):
+            body.container = container
+            container.bodies.append(body)
+        joined = fx.decad_union(blank, tooth, name='Join')
+        self.assertEqual([joined, tooth], container.bodies)
+        joined.body
+        self.assertEqual([joined], container.bodies)
+        self.assertIs(container, joined.container)
+
     def test_copies_at_uneven_angles_are_made_one_by_one(self):
         fx = self.fx
         tooth = self.body(1.0, 3.0, 0.0)

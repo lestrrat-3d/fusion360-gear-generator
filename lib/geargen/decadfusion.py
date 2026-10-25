@@ -1498,6 +1498,10 @@ class UnionBody(Body):
         self._body = None
         self._absorbed = False
         self._parts = [base] + list(others)
+        # The union stands where its base stood: the base is the body the container holds.
+        if base.container is not None and base in base.container.bodies:
+            base.container.bodies[base.container.bodies.index(base)] = self
+            base.container = None
 
     @property
     def body(self):
