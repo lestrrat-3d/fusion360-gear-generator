@@ -11,6 +11,7 @@
 # the role name of each one it creates. This module never decides geometry.
 
 import functools
+import hashlib
 import math
 import os
 import tempfile
@@ -27,6 +28,23 @@ DECAD_AGAINST = -1
 
 # Two coordinates closer than this, in cm, are one value to Fusion's sketch solver.
 SAME_COORDINATE = 1e-6
+
+def _source_hash():
+    try:
+        with open(__file__, 'rb') as source:
+            return hashlib.sha1(source.read()).hexdigest()[:12]
+    except OSError:
+        return 'unreadable'
+
+
+# The hash of this file when Fusion imported it. Fusion keeps imported modules across an add-in Stop and Run, so a
+# deploy of this file can leave the old code running; the command compares this with the file on disk.
+RUNTIME_BUILD = _source_hash()
+
+
+def runtime_is_stale():
+    return _source_hash() != RUNTIME_BUILD
+
 
 # The active runtime. A translated function reaches the design through the objects it is handed, except
 # sketch_new_world(), which the gallery calls with no argument.
