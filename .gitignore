@@ -5,4 +5,5 @@ __pycache__
 .tmp/
 .gauntlet/
 .worktrees/
-.pyright_check.tmp.json
+# Output the diag_*.py scripts write beside themselves when the repo is the add-in folder.
+diag_*_out.txt

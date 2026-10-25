@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"go/ast"
 	"go/parser"
+	"maps"
 	"slices"
 	"strings"
 	"unicode"
@@ -31,8 +32,11 @@ type Spec struct {
 	// the translator does not know are left out.
 	TypeOnly []string
 	// Mutable lists the structs the translated code assigns field by field. They become classes
-	// with equality by field, not namedtuples.
+	// with equality by field and a copy method, not namedtuples, and a Go copy of one is a copy in Python.
 	Mutable []string
+	// Filled lists the structs with slice or handle fields, which are classes anyway, that the translated code
+	// fills field by field and never copies. A copy of one is refused, because Python would share the object.
+	Filled []string
 	// Values are package-level constants and variables, rendered before the functions in the
 	// order listed. A value may use the ones before it.
 	Values []string
@@ -42,8 +46,6 @@ type Spec struct {
 	FirstOnly []string
 	// Funcs are translated whole.
 	Funcs []string
-	// Steps are the creation sequences of drawing functions, translated up to a stop call.
-	Steps []Steps
 	// Runtime is the name of the Python module that implements the API table. Default "_fx".
 	Runtime string
 	// Roles maps a creating call, keyed "<Go function>:<Type.Method or pkg.Func>#<n>", to the
@@ -52,8 +54,6 @@ type Spec struct {
 	// Provided lists Go functions the Fusion wiring already does, such as registering the
 	// parameters. A call of one renders nothing.
 	Provided []string
-	// Zero lists the struct types the translation treats as their zero value.
-	Zero []string
 	// Bound maps Go functions the runtime implements to the Python callee, with the struct
 	// type each returns, such as derive.
 	Bound map[string]Bound
@@ -66,6 +66,12 @@ type Spec struct {
 	Aliases map[string]string
 	// IotaConsts lists the constants of a const block written with iota, in order: the first is 0.
 	IotaConsts []string
+	// Catch maps a gallery error value, keyed "pkg.Name" such as "decad.ErrDegenerate", to the Python exception
+	// class the runtime raises for it, such as "_errors.Degenerate". errors.Is(err, X) of a listed value becomes an
+	// isinstance test, and the call it examines, the last one that sets err before it, a try statement that
+	// stores the exception in err. errors.Is of any other value is false: see "Retry loops" in
+	// docs/gallery-translation-goal.md.
+	Catch map[string]string
 	// ExternalTypes lists the structs of another gallery package, keyed "pkg.Type", and the
 	// type of each field the translated code reads.
 	ExternalTypes map[string]map[string]string
@@ -91,28 +97,39 @@ type External struct {
 	Method bool
 }
 
-// Steps names a gallery function that draws on a sketch and the part of it to translate.
-// The translation keeps the calls that create or constrain sketch entities and drops
-// the error checks, the sketch creation, and everything from the StopAt call on.
-type Steps struct {
-	Name   string
-	PyName string
-	// Args are the Python function's parameters in order.
-	Args []StepArg
-	// StopAt is the name of the first call the translation leaves out.
-	StopAt string
+// TranspileSpec renders the structs and functions of spec, in that order.
+func TranspileSpec(m *gallery.Model, spec Spec) (string, error) {
+	tr, err := Translate(m, spec)
+	return tr.Python, err
 }
 
-// StepArg is a parameter of a Steps function and its Go type, such as "*sketch.Sketch".
-type StepArg struct{ Name, Type string }
+// Translation is the result of Translate.
+type Translation struct {
+	// Python is the rendered code.
+	Python string
+	// Creations lists, for each translated function that creates Fusion objects, its creating calls in the order
+	// the translation makes them. An entry is the role key's operation and number, then the Go call:
+	// "decad.Extrude#1 decad.Extrude(ctx, doc, s, prof, extent)". It is the sequence the Roles keys count, so a
+	// gallery change to it, such as two swapped calls of one operation, moves a role name to another call.
+	Creations map[string][]string
+}
 
-// TranspileSpec renders the structs, functions and drawing sequences of spec, in that order.
-func TranspileSpec(m *gallery.Model, spec Spec) (string, error) {
+// Translate renders spec as TranspileSpec does and also reports the creating calls of each function.
+func Translate(m *gallery.Model, spec Spec) (Translation, error) {
+	text, creations, err := translate(m, spec)
+	if err != nil {
+		return Translation{}, err
+	}
+	return Translation{Python: text, Creations: creations}, nil
+}
+
+func translate(m *gallery.Model, spec Spec) (string, map[string][]string, error) {
 	tr := &transpiler{
 		model: m, prefix: spec.Prefix, structs: map[string]*structInfo{}, funcs: map[string]*funcInfo{},
-		sketch:  len(spec.Steps) > 0 || len(spec.TypeOnly) > 0 || len(spec.Roles) > 0 || len(spec.External) > 0,
+		sketch:  len(spec.TypeOnly) > 0 || len(spec.Roles) > 0 || len(spec.External) > 0,
 		runtime: spec.Runtime, roles: spec.Roles, provided: map[string]bool{}, external: spec.External, bound: spec.Bound,
-		globals: map[string]global{}, firstOnly: map[string]bool{},
+		globals: map[string]global{}, firstOnly: map[string]bool{}, used: map[string]struct{}{}, catch: spec.Catch,
+		creations: map[string][]string{},
 	}
 	for _, name := range spec.FirstOnly {
 		tr.firstOnly[name] = true
@@ -155,7 +172,7 @@ func TranspileSpec(m *gallery.Model, spec Spec) (string, error) {
 			tr.structs[p.name] = info
 		}
 		if len(failed) == len(todo) {
-			return "", lastErr
+			return "", nil, lastErr
 		}
 		todo = failed
 	}
@@ -164,19 +181,23 @@ func TranspileSpec(m *gallery.Model, spec Spec) (string, error) {
 			info.assigned = true
 		}
 	}
+	for _, name := range spec.Filled {
+		info, ok := tr.structs[name]
+		if !ok || !info.mutable() {
+			return "", nil, fmt.Errorf("Spec.Filled lists %s, which is not a translated struct with a slice or handle field", name)
+		}
+		info.filled = true
+	}
 	for name, underlying := range spec.Aliases {
 		expr, err := parser.ParseExpr(underlying)
 		if err != nil {
-			return "", fmt.Errorf("alias %s: %w", name, err)
+			return "", nil, fmt.Errorf("alias %s: %w", name, err)
 		}
 		at, err := fromAST(expr, tr.structs)
 		if err != nil {
-			return "", fmt.Errorf("alias %s: %w", name, err)
+			return "", nil, fmt.Errorf("alias %s: %w", name, err)
 		}
 		tr.structs[name] = &structInfo{name: name, types: map[string]typ{}, alias: &at}
-	}
-	for _, name := range spec.Zero {
-		tr.structs[name] = &structInfo{name: name, types: map[string]typ{}, zero: true}
 	}
 	var values strings.Builder
 	for i, name := range spec.IotaConsts {
@@ -187,15 +208,18 @@ func TranspileSpec(m *gallery.Model, spec Spec) (string, error) {
 	for _, name := range spec.Values {
 		expr, err := m.PackageValue(name)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 		fn := &fnState{t: tr, info: &funcInfo{name: name}, env: map[string]typ{}, calls: map[string]int{}}
 		text, vt, err := fn.expr(expr)
 		if err != nil {
-			return "", fmt.Errorf("value %s: %w", name, err)
+			return "", nil, fmt.Errorf("value %s: %w", name, err)
 		}
-		if vt.kind == kindUntyped {
+		switch vt.kind {
+		case kindUntyped:
 			vt = intType
+		case kindUntypedFloat:
+			vt = floatType
 		}
 		py := tr.prefix + pySnake(name)
 		tr.globals[name] = global{py: py, t: vt}
@@ -216,7 +240,7 @@ func TranspileSpec(m *gallery.Model, spec Spec) (string, error) {
 		tr.funcs[name] = info
 	}
 	if len(signatureFailures) > 0 {
-		return "", errors.Join(signatureFailures...)
+		return "", nil, errors.Join(signatureFailures...)
 	}
 	for _, name := range spec.Structs {
 		out.WriteString(tr.structs[name].python(spec.Prefix))
@@ -236,15 +260,7 @@ func TranspileSpec(m *gallery.Model, spec Spec) (string, error) {
 		body.WriteString("\n\n")
 	}
 	if len(failures) > 0 {
-		return "", errors.Join(failures...)
-	}
-	for _, st := range spec.Steps {
-		src, err := tr.steps(st)
-		if err != nil {
-			return "", fmt.Errorf("function %s: %w", st.Name, err)
-		}
-		body.WriteString(src)
-		body.WriteString("\n\n")
+		return "", nil, errors.Join(failures...)
 	}
 	// Struct types written inline are known only after the functions that use them are translated.
 	var anon []string
@@ -259,7 +275,38 @@ func TranspileSpec(m *gallery.Model, spec Spec) (string, error) {
 		out.WriteString("\n\n")
 	}
 	out.WriteString(body.String())
-	return strings.TrimRight(out.String(), "\n") + "\n", nil
+	if err := tr.checkUnused(spec); err != nil {
+		return "", nil, err
+	}
+	return strings.TrimRight(out.String(), "\n") + "\n", tr.creations, nil
+}
+
+// use records that the translation used the entry key of the Spec table named table.
+func (t *transpiler) use(table, key string) { t.used[table+" "+key] = struct{}{} }
+
+// checkUnused fails for an entry of Roles, FirstOnly, Bound, External, Provided or Catch that the translation never
+// used. A stale key does nothing, or names the wrong call when the calls of a function are renumbered.
+func (t *transpiler) checkUnused(spec Spec) error {
+	var stale []string
+	check := func(table string, keys []string) {
+		slices.Sort(keys)
+		for _, k := range keys {
+			if _, ok := t.used[table+" "+k]; !ok {
+				stale = append(stale, fmt.Sprintf("%s[%q]", table, k))
+			}
+		}
+	}
+	check("Roles", slices.Collect(maps.Keys(spec.Roles)))
+	check("FirstOnly", slices.Clone(spec.FirstOnly))
+	check("Bound", slices.Collect(maps.Keys(spec.Bound)))
+	check("External", slices.Collect(maps.Keys(spec.External)))
+	check("Provided", slices.Clone(spec.Provided))
+	check("Catch", slices.Collect(maps.Keys(spec.Catch)))
+	if len(stale) > 0 {
+		return fmt.Errorf("the translation never uses these Spec entries; remove or correct them: %s",
+			strings.Join(stale, ", "))
+	}
+	return nil
 }
 
 type transpiler struct {
@@ -277,6 +324,12 @@ type transpiler struct {
 	// globals are the package-level values, by Go name, with their Python names and types.
 	globals   map[string]global
 	firstOnly map[string]bool
+	// used records the Spec table entries the translation used, as "<table> <key>".
+	used map[string]struct{}
+	// creations lists the creating calls of each function: see Translation.Creations.
+	creations map[string][]string
+	// catch is Spec.Catch.
+	catch map[string]string
 }
 
 // funcInfo is the parsed signature of a function to translate.
@@ -289,8 +342,8 @@ type funcInfo struct {
 	// returns the other results and raises RuntimeError for a non-nil error.
 	errorResult bool
 	named       bool
-	// recvName and recvType describe the receiver of a method. The receiver is a zero-valued
-	// struct, so the Python function takes no argument for it.
+	// recvName and recvType describe the receiver of a method. The Python function takes a struct
+	// receiver as its first argument.
 	recvName string
 	recvType *typ
 }
@@ -310,7 +363,8 @@ func (s *structInfo) python(prefix string) string {
 		fmt.Fprintf(&sb, "class %s%s:\n    def __init__(self, %s):\n", prefix, pyClass(s.name), strings.Join(params, ", "))
 		for _, f := range s.fields {
 			if s.types[f].kind == kindSlice {
-				// A Go slice field starts as nil, which appends to; Python's None does not.
+				// A Go slice field starts as nil, which appends to; Python's None does not. The translation passes
+				// an array field's zero values itself (defaultOf, arrayFields).
 				fmt.Fprintf(&sb, "        self.%s = [] if %s is None else %s\n", f, f, f)
 				continue
 			}
@@ -404,16 +458,20 @@ func (t *transpiler) loadSignature(name string) (*funcInfo, error) {
 
 // function renders one function.
 func (t *transpiler) function(fi *funcInfo) (string, error) {
-	fn := &fnState{t: t, info: fi, env: map[string]typ{}, calls: map[string]int{}}
+	fn := &fnState{t: t, info: fi, env: map[string]typ{}, calls: map[string]int{}, root: fi.decl}
+	// The parameters, the named results and the body's own declarations are one Go block.
+	fn.push(fi.decl.Body.Pos(), fi.decl.Body.End())
 	if fi.recvType != nil && fi.recvName != "" {
 		fn.env[fi.recvName] = *fi.recvType
+		fn.scopes[0].names[fi.recvName] = fi.decl.Pos()
 	}
 	var args []string
-	if fi.recvType != nil && fi.recvName != "" && fi.recvType.kind == kindStruct && !t.structs[fi.recvType.name].zero {
+	if fi.recvType != nil && fi.recvName != "" && fi.recvType.kind == kindStruct {
 		args = append(args, pyName(fi.recvName))
 	}
 	for _, p := range fi.params {
 		fn.env[p.name] = p.typ
+		fn.scopes[0].names[p.name] = fi.decl.Pos()
 		if p.typ.kind == kindCtx {
 			continue
 		}
@@ -429,8 +487,13 @@ func (t *transpiler) function(fi *funcInfo) (string, error) {
 	if fi.named {
 		for _, r := range fi.results {
 			fn.env[r.name] = r.typ
+			fn.scopes[0].names[r.name] = fi.decl.Pos()
 			if r.typ.kind == kindSlice {
-				fn.line(&sb, "%s = []", pyName(r.name))
+				empty, err := r.typ.emptyList()
+				if err != nil {
+					return "", err
+				}
+				fn.line(&sb, "%s = %s", pyName(r.name), empty)
 				continue
 			}
 			zero, err := r.typ.zero()
@@ -440,7 +503,13 @@ func (t *transpiler) function(fi *funcInfo) (string, error) {
 			fn.line(&sb, "%s = %s", pyName(r.name), zero)
 		}
 	}
-	if err := fn.block(&sb, fi.decl.Body.List); err != nil {
+	if err := fn.planCatches(fi.decl.Body); err != nil {
+		return "", err
+	}
+	if err := fn.copyParams(&sb, fi.params); err != nil {
+		return "", err
+	}
+	if err := fn.stmts(&sb, fi.decl.Body.List); err != nil {
 		return "", err
 	}
 	return strings.TrimRight(sb.String(), "\n"), nil
@@ -456,6 +525,33 @@ type fnState struct {
 	multi bool
 	// calls counts the creating calls made so far, per operation, to key the roles table.
 	calls map[string]int
+	// scopes are the Go blocks open at the statement being translated, innermost last: see define.
+	scopes []scope
+	// root is the declaration of the Go function being translated, which a closure shares with its function.
+	root ast.Node
+	// breaks lists what a break leaves in the statements open at the one being translated, innermost last.
+	breaks []breakKind
+	// loopPosts holds, for each enclosing loop, the post statement a `continue` must run first ("" for none), and
+	// pendingPost is the one the loop being opened will push.
+	loopPosts   []string
+	pendingPost string
+	// catchSites are the calls whose error a test of errors.Is examines, and caught the error variables they set:
+	// see Spec.Catch.
+	catchSites map[*ast.AssignStmt]*catchSite
+	caught     map[caughtVar]struct{}
+	// remZero lists the remainders that are only compared with zero, where Python's % agrees with Go's.
+	remZero []*ast.BinaryExpr
+	// counters are the loop variables that never go below zero: range keys and counted loops that start at a
+	// constant that is not negative and step up by one. Python's % agrees with Go's on them.
+	counters map[string]struct{}
+}
+
+// nonNegative records that the loop variable name never goes below zero.
+func (f *fnState) nonNegative(name string) {
+	if f.counters == nil {
+		f.counters = map[string]struct{}{}
+	}
+	f.counters[name] = struct{}{}
 }
 
 func (f *fnState) line(sb *strings.Builder, format string, args ...any) {
@@ -497,8 +593,11 @@ func pySnake(s string) string {
 }
 
 // pyFunc is the Python name of a translated Go function or method. An exported Go name is
-// public in Python and an unexported one carries the prefix. A method is named after its
-// receiver type, so two receivers can share a method name.
+// public in Python and an unexported one carries the prefix. A method's Python name starts
+// with its receiver type, but a name in Spec.Funcs names one Go function, the package-level
+// one or else the first method of that name (gallery.Model.Callable), and the translation keys
+// functions by that bare name (transpiler.funcs). Two methods of one name on different
+// receivers cannot both be translated.
 func (t *transpiler) pyFunc(fi *funcInfo) string {
 	name := pySnake(fi.name)
 	if fi.recvType != nil && fi.recvType.kind == kindStruct {
@@ -528,16 +627,35 @@ func pyClass(s string) string {
 	return strings.ToUpper(s[:1]) + s[1:]
 }
 
+// arrayFields renders the keyword arguments that give each array field of a struct its zero values, for a struct
+// the Go code declares without a value.
+func (s *structInfo) arrayFields() string {
+	var kw []string
+	for _, f := range s.fields {
+		if t := s.types[f]; t.kind == kindSlice && t.length != "" {
+			kw = append(kw, f+"="+s.defaultOf(f))
+		}
+	}
+	return strings.Join(kw, ", ")
+}
+
 // global is a package-level value the translation renders as a module-level Python name.
 type global struct {
 	py string
 	t  typ
 }
 
-// defaultOf is the Python default of a field of a class: the zero value of a number or bool, else None.
+// defaultOf is the Python default of a field of a class: the zero value of a number or bool, the zero values of an
+// array, else None.
 func (s *structInfo) defaultOf(field string) string {
 	switch t := s.types[field]; t.kind {
-	case kindFloat, kindInt, kindUntyped, kindBool:
+	case kindSlice:
+		if t.length != "" {
+			if empty, err := t.emptyList(); err == nil {
+				return empty
+			}
+		}
+	case kindFloat, kindInt, kindUntyped, kindUntypedFloat, kindBool:
 		if zero, err := t.zero(); err == nil {
 			return zero
 		}

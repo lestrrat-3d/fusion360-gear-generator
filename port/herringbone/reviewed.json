@@ -1,6 +1,12 @@
 {
-  "digest": "b3a8bf4a51b949c4f4231e7f58a2956af386daa70b13bba0a6efcb4303354d15",
+  "digest": "66ec7d5f824cf7d6459a2020ee9265980578a6a95f3609fae05942a31989ca9f",
   "functions": [
     "variant"
-  ]
+  ],
+  "creations": {
+    "chevron": [
+      "decad.MirroredCopy#1 decad.MirroredCopy(ctx, half, decad.MirrorFrame{Frame: mid})",
+      "decad.Union#1 decad.Union(ctx, half, mirrored)"
+    ]
+  }
 }

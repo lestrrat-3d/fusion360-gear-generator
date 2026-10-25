@@ -3,7 +3,10 @@ package gallery
 import (
 	"fmt"
 	"go/ast"
+	"go/printer"
 	"go/token"
+	"regexp"
+	"strings"
 )
 
 // FileSet returns the file set that positions the nodes the model returns.
@@ -49,4 +52,24 @@ func (m *Model) PackageValue(name string) (ast.Expr, error) {
 		}
 	}
 	return nil, fmt.Errorf("package-level value %s not found", name)
+}
+
+var (
+	codeSpace = regexp.MustCompile(`\s+`)
+	codeOpen  = regexp.MustCompile(`([({\[]) `)
+	codeClose = regexp.MustCompile(` ?,? ?([)}\]])`)
+)
+
+// CodeText renders a node of the model's source on one line, so the same code reads the same
+// however it is wrapped: line breaks and runs of spaces become one space, and a trailing comma before a closing
+// bracket, which gofmt adds when it wraps a list, is dropped. A node that cannot be printed renders as its
+// position. go/printer prints no comments for a node that is not a file.
+func (m *Model) CodeText(n ast.Node) string {
+	var sb strings.Builder
+	if err := printer.Fprint(&sb, m.pkg.fset, n); err != nil {
+		return m.pkg.pos(n)
+	}
+	text := codeSpace.ReplaceAllString(strings.TrimSpace(sb.String()), " ")
+	text = codeOpen.ReplaceAllString(text, "$1")
+	return codeClose.ReplaceAllString(text, "$1")
 }

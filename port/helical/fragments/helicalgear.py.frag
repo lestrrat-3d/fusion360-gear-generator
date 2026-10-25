@@ -51,6 +51,11 @@ class HelicalGearGenerator(SpurGearGenerator):
             PARAM_HELIX_ANGLE, get_value(inputs, INPUT_ID_HELIX_ANGLE, 'rad'),
             'rad', 'Helix angle for the helical gear')
 
+    def validateGallery(self):
+        """The gallery's helical build checks the helix angle, then runs the spur's checks."""
+        validate_helix_angle(self.getParameter(PARAM_HELIX_ANGLE).value)
+        super().validateGallery()
+
     def registerDerivedParameters(self):
         super().registerDerivedParameters()
         # @@derived_parameters@@

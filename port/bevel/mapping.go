@@ -7,7 +7,11 @@
 // translated build. The Fusion runtime that executes the calls is lib/geargen/decadfusion.py, run in millimetres.
 package bevel
 
-import "github.com/lestrrat-3d/fusion360-gear-generator/port/go2py"
+import (
+	"math"
+
+	"github.com/lestrrat-3d/fusion360-gear-generator/port/go2py"
+)
 
 // Kind tells how a gallery default becomes a dialog default.
 type Kind int
@@ -36,6 +40,12 @@ type Input struct {
 	Const string
 	Label string
 	Kind  Kind
+	// Fallback is the dialog default when the gallery default is zero. The spiral angle is zero by default
+	// (straight teeth), and a spiral pair needs an angle above zero, so the field starts at a working value.
+	Fallback float64
+	// SpiralOnly marks an input the dialog hides for straight teeth. A straight pair does not read it and takes the
+	// gallery default instead, so a value typed while Spiral was selected cannot fail a straight build.
+	SpiralOnly bool
 }
 
 // Inputs lists the dialog inputs in dialog order. A gallery Params field that is in
@@ -53,9 +63,10 @@ var Inputs = []Input{
 	{Field: "FaceWidth", Const: "INPUT_ID_FACE_WIDTH", Label: "Face Width", Kind: Length},
 	{Field: "ToothSpacing", Const: "INPUT_ID_TOOTH_SPACING", Label: "Tooth Spacing", Kind: Length},
 	{Const: "INPUT_ID_TOOTH_TYPE", Label: "Tooth Type", Kind: ToothType},
-	{Field: "SpiralAngle", Const: "INPUT_ID_SPIRAL_ANGLE", Label: "Mean Spiral Angle", Kind: Angle},
-	{Field: "SpiralHand", Const: "INPUT_ID_HAND", Label: "Hand of Spiral", Kind: Hand},
-	{Field: "CutterRadius", Const: "INPUT_ID_CUTTER_RADIUS", Label: "Cutter Radius", Kind: Length},
+	{Field: "SpiralAngle", Const: "INPUT_ID_SPIRAL_ANGLE", Label: "Mean Spiral Angle", Kind: Angle,
+		Fallback: 35 * math.Pi / 180, SpiralOnly: true},
+	{Field: "SpiralHand", Const: "INPUT_ID_HAND", Label: "Hand of Spiral", Kind: Hand, SpiralOnly: true},
+	{Field: "CutterRadius", Const: "INPUT_ID_CUTTER_RADIUS", Label: "Cutter Radius", Kind: Length, SpiralOnly: true},
 	{Field: "ToeExtension", Const: "INPUT_ID_TOE_EXTENSION", Label: "Toe Extension (%)", Kind: Number},
 	{Field: "ToeRadius", Const: "INPUT_ID_DRIVING_TOE_RADIUS", Label: "Driving Gear Toe Radius", Kind: Length},
 	{Field: "MateToeRadius", Const: "INPUT_ID_PINION_TOE_RADIUS", Label: "Pinion Gear Toe Radius", Kind: Length},
@@ -74,10 +85,14 @@ var FeatureSpec = go2py.Spec{
 		"spiralSliceFrame", "spiralTrace", "serialEnds", "spiralHeelSection"},
 	TypeOnly:   []string{"Params"},
 	Mutable:    []string{"axialPoint", "Params", "dimensions", "shaftFrame"},
+	Filled:     []string{"spiralSliceFrame"},
 	Aliases:    map[string]string{"joinOrder": "int"},
 	IotaConsts: []string{"joinOneByOne", "joinTeethGrouped", "joinTeethFirst", "joinTeethBalancedFirst"},
 	FirstOnly:  []string{"spiralOvershoots", "orders", "sliceSpiralPointTooth:reach"},
-	Values: []string{"spiralOvershoots", "spiralCrownPerRad",
+	// A slice plane that misses the tooth is skipped, and the sign of the offsets flips when every plane misses.
+	// decad reports the miss as ErrDegenerate and the runtime raises decaderrors.Degenerate.
+	Catch: map[string]string{"decad.ErrDegenerate": "_errors.Degenerate"},
+	Values: []string{"spiralOvershoots", "spiralCrownPerRad", "verifiedSpiralAngle",
 		"directionBits", "gridBits", "localShaft", "pairContainerName", "drivingContainerName", "pinionContainerName",
 	},
 	Bound: map[string]go2py.Bound{
@@ -117,8 +132,7 @@ var FeatureSpec = go2py.Spec{
 		"sliceSpiralPointTooth:decad.Split#1":                           {Feature: "Spiral Slice"},
 		"sliceSpiralPointTooth:decad.Remove#1":                          {Feature: "Short Slice Sheet Removal"},
 		"sliceSpiralPointTooth:decad.Remove#2":                          {Feature: "Missed Slice Sheet Removal"},
-		"sliceSpiralPointTooth:decad.Remove#3":                          {Feature: "Refused Slice Sheet Removal"},
-		"sliceSpiralPointTooth:decad.Remove#4":                          {Feature: "Spiral Apex Scrap Removal"},
+		"sliceSpiralPointTooth:decad.Remove#3":                          {Feature: "Spiral Apex Scrap Removal"},
 		"spiralSliceSheet:sketch.World.CreateSketch#1":                  {Feature: "Slice Sheet"},
 		"spiralSliceSheet:decad.Extrude#1":                              {Feature: "Slice Sheet Extrude", Body: "Slice Sheet"},
 		"trimSpiralToothBy:decad.Cut#1":                                 {Feature: "Spiral Tooth Toe Trim"},

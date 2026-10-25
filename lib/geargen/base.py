@@ -63,6 +63,11 @@ class ComponentCleaner:
         self.occurrence = occurrence
     
     def deleteAll(self):
+        # The occurrence goes first. Its sketch dimensions and feature extents reference the parameters, and a
+        # parameter that has dependents is not deletable (UserParameter.isDeletable), so deleting the parameters
+        # first would leave them behind after a failed build.
+        self.occurrence.deleteMe()
+
         userParameters = get_design().userParameters
         toDelete = {}
         for param in userParameters:
@@ -83,8 +88,6 @@ class ComponentCleaner:
             if toDeleteSize == currentDeleteSize: # nothing was deleted
                 break
             toDeleteSize = currentDeleteSize
-        
-        self.occurrence.deleteMe()
 
 
 

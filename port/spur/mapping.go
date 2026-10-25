@@ -111,32 +111,24 @@ var Params = []Param{
 // involute sampling, the dimensioned points of one tooth, and the whole build (tooth, root disc,
 // pattern, join, root fillet, bore, cap chamfer) in the order the gallery performs it. The Fusion
 // runtime that executes the calls is lib/geargen/decadfusion.py.
-//
-// The tooth section is translated twice. buildToothSection builds a sketch of its own, which the
-// spur uses. The drawing steps (draw_tooth_section) draw into a sketch the caller made, which the
-// helical, herringbone and bevel add-ins still use until their constructions are translated too.
+
 var FeatureSpec = go2py.Spec{
 	Prefix:   "_",
 	Structs:  []string{"point", "dimensions", "toothPoints", "Variant", "ToothInput"},
 	TypeOnly: []string{"Params", "run"},
-	// The add-in registers the parameters and checks the inputs itself.
-	Provided: []string{"defineParameters", "validate"},
+	Filled:   []string{"toothPoints"},
+	// The add-in registers the parameters itself.
+	Provided: []string{"defineParameters"},
 	// The runtime reads the dimensions from the user parameters instead of a scratch document.
 	Bound: map[string]go2py.Bound{"derive": {Python: "_fx.derive", Result: "dimensions"}},
 	Funcs: []string{
+		"validate",
 		"rotate", "involutePoint", "flankBeta", "sampleFlanks", "InvoluteFlanks", "rootContact", "toothAngle", "addToothPoints",
 		"toWorld", "shifted", "placement", "singleProfile", "solveAndVerify", "halfAngle", "closingRadius",
 		"buildToothSection", "BuildToothSection", "buildEmbeddedTooth", "Shifted", "PlaneAt", "tooth",
 		"filletSpurRoots", "filletRootsValue", "filletEmbedded", "buildBoreProfile", "cutBore",
 		"chamferOuterCaps", "assemble",
 	},
-	Steps: []go2py.Steps{{
-		Name: "buildToothSection", PyName: "draw_tooth_section", StopAt: "solveAndVerify",
-		Args: []go2py.StepArg{
-			{Name: "s", Type: "*sketch.Sketch"}, {Name: "p", Type: "Params"},
-			{Name: "d", Type: "dimensions"}, {Name: "angle", Type: "float64"},
-		},
-	}},
 	Roles: Roles,
 }
 

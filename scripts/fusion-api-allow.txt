@@ -1,0 +1,16 @@
+# Findings of scripts/check_fusion_api.py that are known and still work in Fusion, one `<path>: <message>` per line.
+# Each entry is a finding to fix, not a rule: remove it when the code no longer raises it, and the check warns about an
+# entry that matches nothing.
+#
+# Sketch.project, SketchTexts.createInput2 and FilletFeatureInput.addConstantRadiusEdgeSet are retired members: the
+# stubs list their replacements (Sketch.project2, SketchTexts.createInput3,
+# FilletFeatureInput.edgeSetInputs.addConstantRadiusEdgeSet), and Fusion still serves the retired ones.
+lib/geargen/bevelgear.py: Cannot access attribute "project" for class "Sketch"
+lib/geargen/cycloidal.py: Cannot access attribute "project" for class "Sketch"
+lib/geargen/decadfusion.py: Cannot access attribute "project" for class "Sketch"
+lib/geargen/spurgear.py: Cannot access attribute "project" for class "Sketch"
+lib/geargen/spurgear.py: Cannot access attribute "createInput2" for class "SketchTexts"
+lib/geargen/decadfusion.py: Cannot access attribute "addConstantRadiusEdgeSet" for class "FilletFeatureInput"
+#
+# misc.py imports adsk.core only and names adsk.fusion; it works because another module has imported adsk.fusion first.
+lib/geargen/misc.py: "fusion" is not a known attribute of module "adsk"

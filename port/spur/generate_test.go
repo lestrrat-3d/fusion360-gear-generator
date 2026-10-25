@@ -3,9 +3,11 @@ package spur_test
 import (
 	"bytes"
 	"encoding/json"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/gallery"
@@ -101,4 +103,46 @@ func TestGenerateRefusesAnUnfilledFragment(t *testing.T) {
 	_, m, reviewed := generate(t)
 	_, err := spur.Generate(m, "v0", "x = 1\n", reviewed)
 	require.ErrorContains(t, err, "markers")
+}
+
+// TestGenerateRefusesChangedCreatingCalls requires the port to stop when the creating calls of a translated function
+// differ from reviewed.json, as when the gallery swaps two calls of one operation and the role names would follow
+// the positions.
+func TestGenerateRefusesChangedCreatingCalls(t *testing.T) {
+	_, m, reviewed := generate(t)
+	fragment := readFragment(t)
+	calls := slices.Clone(reviewed.Creations["assemble"])
+	require.NotEmpty(t, calls)
+	calls[0], calls[len(calls)-1] = calls[len(calls)-1], calls[0]
+	require.NotEqual(t, reviewed.Creations["assemble"], calls)
+	reviewed.Creations = maps.Clone(reviewed.Creations)
+	reviewed.Creations["assemble"] = calls
+	_, err := spur.Generate(m, "v0", fragment, reviewed)
+	require.ErrorContains(t, err, "assemble")
+	require.ErrorContains(t, err, "gearport accept spurgear")
+
+	reviewed.Creations = nil
+	_, err = spur.Generate(m, "v0", fragment, reviewed)
+	require.ErrorContains(t, err, "records no creating calls")
+}
+
+func readFragment(t *testing.T) string {
+	t.Helper()
+	fragment, err := os.ReadFile(filepath.Join("fragments", "spurgear.py.frag"))
+	require.NoError(t, err)
+	return string(fragment)
+}
+
+func TestGenerateRefusesAnAngleRegisteredAsALength(t *testing.T) {
+	_, m, reviewed := generate(t)
+	table := slices.Clone(m.Table)
+	for i := range table {
+		if table[i].Name == "base_radius" {
+			table[i].Expr = "pressure_angle"
+		}
+	}
+	m.Table = table
+	_, err := spur.Generate(m, "v0", readFragment(t), reviewed)
+	require.ErrorContains(t, err, "base_radius")
+	require.ErrorContains(t, err, "angle")
 }

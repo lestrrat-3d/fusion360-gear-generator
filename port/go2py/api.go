@@ -118,6 +118,7 @@ var apiMethods = map[string]apiSig{
 	"sketch.Sketch.CreateFitSpline":           {res: "sketch.Entity"},
 	"sketch.Sketch.CreatePoint":               {res: "sketch.Point"},
 	"sketch.Sketch.CreatePatternCircularRing": {res: "sketch.Entity"},
+	"sketch.Sketch.CreatePatternCircular":     {res: "[]sketch.Entity"},
 	"sketch.Sketch.AddConstraint":             {},
 	"sketch.Sketch.Bind":                      {},
 	"sketch.Sketch.Origin":                    {res: "sketch.Point"},
@@ -248,9 +249,6 @@ func (f *fnState) apiCall(e *ast.CallExpr, sel *ast.SelectorExpr) (string, typ, 
 	if err != nil {
 		return "", typ{}, false, nil
 	}
-	if rt.kind == kindStruct && f.t.structs[rt.name] != nil && f.t.structs[rt.name].zero {
-		return "", typ{}, false, nil
-	}
 	if rt.kind != kindOpaque {
 		return "", typ{}, false, nil
 	}
@@ -295,6 +293,9 @@ func (f *fnState) finishCall(e *ast.CallExpr, name string, sig apiSig, callee st
 		if !ok {
 			return "", typ{}, true, fmt.Errorf("%s: no role name for %s: add it to the roles table", f.pos(e), key)
 		}
+		f.t.use("Roles", key)
+		f.t.creations[f.info.name] = append(f.t.creations[f.info.name],
+			fmt.Sprintf("%s#%d %s", name, f.calls[name], f.t.model.CodeText(e)))
 		if role.Qualify != "" {
 			args = append(args, "name="+quote(role.Feature+" ")+" + "+pyName(role.Qualify))
 		} else {
@@ -325,9 +326,6 @@ type APIEntry struct {
 func API() []APIEntry {
 	var out []APIEntry
 	for name, sig := range apiFuncs {
-		if strings.HasSuffix(name, "#v") {
-			continue
-		}
 		if sig.recv {
 			_, fn, _ := strings.Cut(name, ".")
 			out = append(out, APIEntry{Go: name, Python: pySnake(fn), Receiver: "sketch.Sketch"})

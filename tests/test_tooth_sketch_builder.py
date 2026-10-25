@@ -18,6 +18,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from fakefusion import redirect_progress
+
 ROOT = Path(__file__).resolve().parents[1]
 H, V = 'horizontal', 'vertical'
 
@@ -45,9 +47,15 @@ class FakeSketch:
         self.lines = []
         self.arcs = []
         self.splines = []
-        self.origin = FakePoint(0.0, 0.0)
+        self.origin = None
         self.refused = False
         sketch = self
+
+        class Points:
+            def add(self, point):
+                # The runtime's local origin: the one point it adds by itself.
+                sketch.origin = FakePoint(point.x, point.y)
+                return sketch.origin
         point_of = lambda e: e if isinstance(e, FakePoint) else FakePoint(e.x, e.y)
 
         class Splines:
@@ -88,6 +96,7 @@ class FakeSketch:
                     raise RuntimeError('3 : VCS_SKETCH_OVER_CONSTRAINTS')
                 sketch.dimensions.append((key, point))
 
+        self.sketchPoints = Points()
         self.sketchCurves = SimpleNamespace(
             sketchFittedSplines=Splines(), sketchLines=Lines(), sketchArcs=Arcs())
         self.geometricConstraints = Constraints()
@@ -122,12 +131,14 @@ class ToothSketchBuilderTest(unittest.TestCase):
         sys.modules['addin'] = package
         cls.spur = importlib.import_module('addin.lib.geargen.spurgear')
         cls.fx = importlib.import_module('addin.lib.geargen.decadfusion')
+        cls.progress = redirect_progress(cls.fx)
 
     @classmethod
     def tearDownClass(cls):
         for name in [n for n in sys.modules if n == 'adsk' or n.startswith(('adsk.', 'addin'))]:
             del sys.modules[name]
         sys.modules.update(cls.saved)
+        cls.progress.cleanup()
 
     def draw(self, teeth, angle, samples=15):
         spur = self.spur
@@ -136,34 +147,48 @@ class ToothSketchBuilderTest(unittest.TestCase):
         base = pitch * math.cos(math.radians(20))
         root, tip = pitch - 1.25 * module, pitch + module
         sketch = FakeSketch()
-        circle = object()
-        builder = self.fx.Sketch(None, sketch, sketch.origin, circle, root)
+        # The sketch as Runtime.create_sketch makes it: the runtime adds the local origin itself.
+        builder = self.fx.Sketch(None, sketch)
         params = collections.namedtuple('Params', ['Teeth', 'Samples'])(teeth, samples)
-        spur._draw_tooth_section(builder, params, spur._Dimensions(pitch, base, root, tip, 0.0), angle)
+        # The curves _build_tooth_section draws, without the profile check that needs a real Fusion sketch.
+        tp = spur._add_tooth_points(builder, params, spur._Dimensions(pitch, base, root, tip, 0.0), angle)
+        last = samples - 1
+        builder.create_line(tp.rightRoot, tp.right[0])
+        builder.create_fit_spline(*tp.right)
+        builder.create_arc(builder.origin(), tp.right[last], tp.left[last])
+        builder.create_fit_spline(*tp.left)
+        builder.create_line(tp.left[0], tp.leftRoot)
+        builder.create_arc(builder.origin(), tp.rightRoot, tp.leftRoot)
         builder.finish()
-        return sketch, circle
+        return sketch, root
 
-    def test_draws_two_splines_two_lines_and_one_tip_arc(self):
-        sketch, circle = self.draw(17, 0.0)
+    def test_draws_two_splines_two_lines_a_tip_arc_and_a_root_arc(self):
+        sketch, root = self.draw(17, 0.0)
         self.assertEqual(2, len(sketch.splines))
         self.assertEqual(2, len(sketch.lines))
-        self.assertEqual(1, len(sketch.arcs), 'the root arc is the root circle')
-        self.assertIn(('coincident', sketch.arcs[0].centerSketchPoint, sketch.origin), sketch.constraints)
+        self.assertEqual(2, len(sketch.arcs))
+        for arc in sketch.arcs:
+            self.assertIs(sketch.origin, arc.center)
+            self.assertIn(('coincident', arc.centerSketchPoint, sketch.origin), sketch.constraints)
 
-    def test_root_points_sit_on_the_root_circle(self):
-        sketch, circle = self.draw(17, 0.0)
-        on_circle = [c for c in sketch.constraints if c[0] == 'coincident' and c[2] is circle]
-        self.assertEqual(2, len(on_circle))
+    def test_the_root_arc_joins_the_two_root_points(self):
+        sketch, root = self.draw(17, 0.0)
+        on_root = [arc for arc in sketch.arcs
+                   if all(abs(math.hypot(p.geometry.x, p.geometry.y) - root) < 1e-9 for p in (arc.start, arc.end))]
+        self.assertEqual(1, len(on_root), 'one arc runs between the root points')
+        line_ends = [p for line in sketch.lines for p in (line.startSketchPoint, line.endSketchPoint)]
+        for point in (on_root[0].start, on_root[0].end):
+            self.assertTrue(any(point is end for end in line_ends), 'the root arc shares its ends with the flank lines')
 
     def test_every_point_is_dimensioned_or_aligned(self):
         for angle in (0.0, math.radians(14.5), math.radians(90.0), -0.4):
             with self.subTest(angle=angle):
                 sketch, _ = self.draw(17, angle)
                 aligned = [c for c in sketch.constraints if c[0] in ('vertical', 'horizontal')]
-                # 2n flank points and two root points; the last left flank point and both root
-                # points get one dimension, the others two, less one per alignment.
+                # n points on each flank and two root points. The last left flank point and the left root
+                # point end arcs and get one dimension, the others two, less one per alignment.
                 n = 15
-                self.assertEqual(2 * (2 * n - 1) + 3 - len(aligned), len(sketch.dimensions))
+                self.assertEqual(2 * (2 * n + 2) - 2 - len(aligned), len(sketch.dimensions))
 
     def test_alignment_replaces_a_refused_dimension_only_at_right_angles(self):
         for angle, aligned in ((0.0, 1), (math.radians(90.0), 1), (math.radians(14.5), 0), (1e-4, 0)):
@@ -175,13 +200,45 @@ class ToothSketchBuilderTest(unittest.TestCase):
     def test_a_refusal_with_no_partner_is_raised(self):
         spur = self.spur
         sketch = FakeSketch()
-        builder = self.fx.Sketch(None, sketch, sketch.origin, object(), 1.0)
+        builder = self.fx.Sketch(None, sketch)
         first = self.fx.PendingPoint(1.0, 2.0, False)
         first.point = FakePoint(1.0, 2.0)
         sketch.sketchDimensions.addDistanceDimension(sketch.origin, first.point, H, None)
         second = self.fx.PendingPoint(5.0, 2.0, False)
         second.point = FakePoint(1.0, 2.0)  # the fake refuses it, but no earlier point shares its x
         with self.assertRaises(RuntimeError):
+            builder._dimension(second, H)
+
+    def test_a_refusal_other_than_over_constraint_is_raised(self):
+        sketch = FakeSketch()
+        builder = self.fx.Sketch(None, sketch)
+        first = self.fx.PendingPoint(1.0, 2.0, False)
+        first.point = FakePoint(1.0, 2.0)
+        builder._dimensioned.append(first)
+        second = self.fx.PendingPoint(1.0, 5.0, False)
+        second.point = FakePoint(1.0, 5.0)
+
+        def refuse(*args):
+            raise RuntimeError('3 : bad entity parameter')
+        sketch.sketchDimensions.addDistanceDimension = refuse
+        with self.assertRaisesRegex(RuntimeError, 'bad entity'):
+            builder._dimension(second, H)
+        self.assertEqual([], sketch.constraints, 'no alignment stands in for another refusal')
+
+    def test_a_refused_alignment_raises_the_refused_dimension(self):
+        sketch = FakeSketch()
+        builder = self.fx.Sketch(None, sketch)
+        first = self.fx.PendingPoint(1.0, 2.0, False)
+        first.point = FakePoint(1.0, 2.0)
+        builder._dimensioned.append(first)
+        second = self.fx.PendingPoint(1.0, 5.0, False)
+        second.point = FakePoint(1.0, 5.0)
+
+        def refuse(*args):
+            raise RuntimeError('3 : VCS_SKETCH_OVER_CONSTRAINTS')
+        sketch.sketchDimensions.addDistanceDimension = refuse
+        sketch.geometricConstraints.addVerticalPoints = refuse
+        with self.assertRaisesRegex(RuntimeError, 'refused a distance dimension'):
             builder._dimension(second, H)
 
 

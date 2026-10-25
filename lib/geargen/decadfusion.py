@@ -22,6 +22,7 @@ import adsk.core
 import adsk.fusion
 from ...lib import fusion360utils as futil
 from . import solids
+from .decaderrors import Degenerate
 
 DECAD_ALONG = 1
 DECAD_AGAINST = -1
@@ -29,9 +30,13 @@ DECAD_AGAINST = -1
 # Two coordinates closer than this, in cm, are one value to Fusion's sketch solver.
 SAME_COORDINATE = 1e-6
 
-def _source_hash():
+# The error Fusion raises for a dimension or constraint the sketch already fixes. [SPUR-F-ALIGN-DUPLICATE]
+OVER_CONSTRAINED = 'VCS_SKETCH_OVER_CONSTRAINTS'
+
+def source_hash(path):
+    """The first 12 hex digits of the SHA-1 of a file, or 'unreadable'."""
     try:
-        with open(__file__, 'rb') as source:
+        with open(path, 'rb') as source:
             return hashlib.sha1(source.read()).hexdigest()[:12]
     except OSError:
         return 'unreadable'
@@ -39,11 +44,12 @@ def _source_hash():
 
 # The hash of this file when Fusion imported it. Fusion keeps imported modules across an add-in Stop and Run, so a
 # deploy of this file can leave the old code running; the command compares this with the file on disk.
-RUNTIME_BUILD = _source_hash()
+# [PB-STALE-MODULE]
+RUNTIME_BUILD = source_hash(__file__)
 
 
 def runtime_is_stale():
-    return _source_hash() != RUNTIME_BUILD
+    return source_hash(__file__) != RUNTIME_BUILD
 
 
 # The active runtime. A translated function reaches the design through the objects it is handed, except
@@ -55,6 +61,15 @@ _active = None
 # returns leaves no trace there. The progress file is written and flushed line by line, so it shows the step a hung
 # build stopped in.
 PROGRESS_FILE = os.path.join(tempfile.gettempdir(), 'geargen-progress.log')
+
+
+def progress_reset():
+    """Empty the progress file, so it holds the steps of one build. The command calls it before each build."""
+    try:
+        with open(PROGRESS_FILE, 'w'):
+            pass
+    except OSError:
+        pass
 
 
 def progress(message):
@@ -91,6 +106,21 @@ def logged(function):
 
 class SketchOnly(Exception):
     """Raised by the first extrude when the dialog asks for sketches only, which ends the build."""
+
+
+class FusionRefused(RuntimeError):
+    """Fusion answered null, or fewer results than the build needs, where the API reports a failure that way.
+    [PB-EMPTY-RESULT]"""
+
+
+class Untranslated(RuntimeError):
+    """The translated build asked for something this runtime has no Fusion form for, such as an axis, a plane or an
+    extent it cannot represent. Raised instead of building something else."""
+
+
+class ConsumedBody(RuntimeError):
+    """A body that an earlier union consumed was used again. Fusion's join deletes its tools, so the eager sequence
+    of features would fail at the same step."""
 
 
 class Vec:
@@ -165,6 +195,11 @@ def r3_new_frame(origin, u, v):
     return Frame(origin, u, v, u.cross(v).unit())
 
 
+# Fusion units whose parameter value is not a length: an angle is in radians and a unitless value is a number
+# whatever the runtime's length unit. [PB-UNITS]
+_NOT_LENGTH_UNITS = {'', 'deg', 'rad'}
+
+
 class Value:
     """A user parameter. base() is its value in the unit of the translated code; expression names it for a
     dimension or a feature. [PB-UNITS]"""
@@ -175,7 +210,12 @@ class Value:
         self._scale = scale
 
     def base(self):
-        return self._parameter.value / self._scale
+        """Fusion holds a length in centimetres, an angle in radians and a unitless value as it is. Only a length
+        changes with the runtime's unit."""
+        value = self._parameter.value
+        if self._scale == 1.0 or self._parameter.unit in _NOT_LENGTH_UNITS:
+            return value
+        return value / self._scale
 
 
 class Distance:
@@ -208,8 +248,11 @@ def decad_two_sided(One, Two):
 
 
 def units_millimeters(x):
-    # The translated code already runs in a unit the runtime converts, so a length is its number.
-    return x
+    """x millimetres in the length unit of the translated code: the number itself in a millimetre runtime (scale
+    0.1), a tenth of it in a centimetre runtime (scale 1.0). Translated code that runs with no runtime active, such
+    as a gallery calculation the port's tests call directly, computes in the gallery's millimetres. [PB-UNITS]"""
+    scale = _active.scale if _active is not None else 0.1
+    return x * 0.1 / scale
 
 
 class CircularPattern:
@@ -243,8 +286,15 @@ def units_radians(x):
 
 
 def math_round(x):
-    """Go's math.Round: halfway cases round away from zero."""
-    return math.copysign(math.floor(abs(x) + 0.5), x)
+    """Go's math.Round: the nearest integer, halfway cases away from zero, computed exactly. Adding 0.5 first is not
+    exact: 0.49999999999999994 + 0.5 rounds to 1.0 in floating point, where Go gives 0."""
+    if math.isnan(x) or math.isinf(x):
+        return x
+    whole = float(math.trunc(x))
+    # x - whole is exact: both share x's exponent range and whole drops only x's fraction bits.
+    if abs(x - whole) >= 0.5:
+        whole += math.copysign(1.0, x)
+    return math.copysign(whole, x)
 
 
 def math_ilogb(x):
@@ -370,7 +420,10 @@ class Container:
             occurrence.component.name = child._name
             child.context = occurrence if context is None else occurrence.createForAssemblyContext(context)
             for body in child.bodies:
-                body.body = body.body.moveToComponent(child.context)
+                moved = body.body.moveToComponent(child.context)
+                if moved is None:
+                    raise FusionRefused(f'{child._name}: Fusion did not move body {body.body.name} into the component')
+                body.body = moved
             child.realize(occurrence.component, child.context)
 
 
@@ -454,14 +507,16 @@ class Runtime:
         return self._root
 
     def bodies(self):
-        """Every body of the component, the same wrapper for the same body."""
-        registry = self.__dict__.setdefault('_bodyRegistry', {})
+        """Every body of the component, the same wrapper for the same body. Bodies are matched with ==: one entity can
+        return different entityToken strings over time, so tokens are never compared."""
+        registry = self.__dict__.setdefault('_bodyRegistry', [])
         found = []
         for fbody in self.component.bRepBodies:
-            token = fbody.entityToken
-            if token not in registry:
-                registry[token] = Body(self, fbody)
-            found.append(registry[token])
+            wrapper = next((known for known in registry if known.body == fbody), None)
+            if wrapper is None:
+                wrapper = Body(self, fbody)
+                registry.append(wrapper)
+            found.append(wrapper)
         return found
 
     def move_body(self, body, container):
@@ -484,10 +539,12 @@ class Runtime:
     def xy(self):
         return Plane(self, self.plane, frame=self.frame if self.mapped else None)
 
-    def unique(self, name):
-        """A role name that repeats gets an index: Tooth Profile, Tooth Profile 2."""
-        count = self._names.get(name, 0) + 1
-        self._names[name] = count
+    def unique(self, name, kind=None):
+        """A role name that repeats among objects of one kind gets an index: Tooth Profile, Tooth Profile 2. Sketches,
+        planes and axes are one kind (None); timeline features ('feature') and bodies ('body') count apart."""
+        key = name if kind is None else (kind, name)
+        count = self._names.get(key, 0) + 1
+        self._names[key] = count
         return name if count == 1 else f'{name} {count}'
 
     def derive(self, p):
@@ -510,12 +567,26 @@ class Runtime:
         return sketch
 
     def create_plane_from_frame(self, frame, name):
+        """A construction plane for a gallery frame, which a sketch on it maps its coordinates through. Two kinds are
+        translated: a frame across the base plane with its origin in the base plane, and a frame that is the build's
+        own frame moved along its normal. Any other frame raises Untranslated, because a sketch on its plane would be
+        drawn somewhere else. [PB-FRAME-PLANE]"""
         across = frame.n().dot(self.frame.n())
-        if abs(across) < 1e-9 and abs(frame.origin().dot(self.frame.n())) < 1e-9:
+        height = frame.origin().sub(self.frame.origin()).dot(self.frame.n())
+        if abs(across) < 1e-9:
+            if abs(height) > 1e-9:
+                raise Untranslated(f'{name}: a plane across the base plane is translated only through a point of the base '
+                                   f'plane; its origin is {height:g} off it')
             return self._plane_across(frame, name)
         if abs(abs(across) - 1.0) > 1e-9:
-            raise RuntimeError(f'{name}: a plane that is neither parallel nor perpendicular to the base plane is not translated')
-        offset = frame.origin().sub(self.frame.origin()).dot(self.frame.n()) * self.scale
+            raise Untranslated(f'{name}: a plane that is neither parallel nor perpendicular to the base plane is not '
+                               'translated')
+        shift = frame.origin().sub(self.frame.origin()).sub(self.frame.n().scale(height))
+        if across < 0 or shift.len() > 1e-9 or frame.u().sub(self.frame.u()).len() > 1e-9 \
+                or frame.v().sub(self.frame.v()).len() > 1e-9:
+            raise Untranslated(f'{name}: a plane parallel to the base plane is translated only as the build frame moved '
+                               'along its normal; this frame is reversed, turned or moved within the plane')
+        offset = height * self.scale
         name = self.unique(name)
         planes: adsk.fusion.ConstructionPlanes = self.component.constructionPlanes
         planeInput: adsk.fusion.ConstructionPlaneInput = planes.createInput()
@@ -551,7 +622,17 @@ class Runtime:
     def axis_line(self, center, direction, name):
         """A construction line from center along direction, in a Fusion-only sketch on the base plane, for a revolve or
         a pattern about an axis. The sketch being revolved cannot hold it: adding a curve to a sketch invalidates the
-        profiles already read from it. One line serves every use of the same axis. [PB-FRAME-PLANE]"""
+        profiles already read from it. One line serves every use of the same axis. [PB-FRAME-PLANE]
+
+        The line lies in the base plane, so an axis that leaves the plane, or does not start in it, has no line here and
+        is refused rather than replaced by its projection."""
+        length = direction.len()
+        if length < 1e-12:
+            raise Untranslated(f'{name}: the axis has no direction')
+        if abs(direction.z) > 1e-9 * length or abs(center.z) > 1e-9:
+            raise Untranslated(f'{name}: an axis through ({center.x:g}, {center.y:g}, {center.z:g}) along '
+                               f'({direction.x:g}, {direction.y:g}, {direction.z:g}) does not lie in the base plane, and '
+                               'only a cylindrical face or a line in the base plane makes a construction axis here')
         unit = Vec(direction.x, direction.y, 0).unit()
         key = tuple(round(v, 9) for v in (center.x, center.y, unit.x, unit.y))
         if key in self._axes:
@@ -649,19 +730,25 @@ class Profile:
                 self.Outer = [curve for curve in loop.profileCurves]
             else:
                 self.Holes.append([curve for curve in loop.profileCurves])
-        # The sketch entities on the outer boundary, by token, so a line the build drew compares equal to its entity.
-        self.Entities = [EntityRef(curve.sketchEntity.entityToken) for curve in self.Outer]
+        # The sketch entities on the outer boundary, so a line the build drew compares equal to its entity.
+        self.Entities = [EntityRef(curve.sketchEntity) for curve in self.Outer]
 
 
 class EntityRef:
-    def __init__(self, token):
-        self.token = token
+    """A sketch entity of a profile. It equals a Line the build drew when the line's Fusion entity is the same entity,
+    compared with ==: one entity can return different entityToken strings over time, so tokens are never compared."""
+
+    def __init__(self, entity):
+        self.entity = entity
 
     def __eq__(self, other):
-        return getattr(other, 'token', None) == self.token
+        if isinstance(other, EntityRef):
+            return self.entity == other.entity
+        fusion = getattr(other, 'fusion', None)
+        return fusion is not None and fusion == self.entity
 
-    def __hash__(self):
-        return hash(self.token)
+    # Equality follows Fusion's ==, which no hash can follow.
+    __hash__ = None
 
 
 class Line:
@@ -674,10 +761,6 @@ class Line:
 
     def set_construction(self, flag):
         self.construction = flag
-
-    @property
-    def token(self):
-        return self.fusion.entityToken
 
 
 def _coordinates(point):
@@ -702,7 +785,7 @@ class Sketch:
     anchor. [SPUR-F-GALLERY-SKETCH] [SPUR-F-ARC-CENTRE] [SPUR-F-ALIGN-DUPLICATE] [SPUR-F-LOCAL-ORIGIN]
     """
 
-    def __init__(self, runtime, fsketch, origin=None, rootCircle=None, rootRadius=None, plane=None):
+    def __init__(self, runtime, fsketch, plane=None):
         self.runtime = runtime
         self._scale = runtime.scale if runtime is not None else 1.0
         self.sketch: adsk.fusion.Sketch = fsketch
@@ -722,10 +805,7 @@ class Sketch:
                 self._anchorPoint = plane.anchor
         self._lineHandles = []
         # The local origin is a point the anchor constraint can move, which the sketch's own origin is not.
-        self._origin = origin if origin is not None else fsketch.sketchPoints.add(adsk.core.Point3D.create(0, 0, 0))
-        # A caller that draws the root circle itself passes it, and the root arc then lies on that circle.
-        self._rootCircle = rootCircle
-        self._rootRadius = rootRadius
+        self._origin = fsketch.sketchPoints.add(adsk.core.Point3D.create(0, 0, 0))
         self._points = []
         self._lines = []
         self._arcs = []
@@ -795,6 +875,12 @@ class Sketch:
         """A circular pattern of splines about center, n copies in all, closing into a ring. [PB-SPLINE-RING]"""
         self._patterns.append((splines, center, n, start, end))
         return splines[0]
+
+    def create_pattern_circular(self, entities, center, n):
+        """A circular pattern of circles or splines about center, n copies in all. The copies follow the seed's
+        dimensions, so one circle is dimensioned where n would be. [PB-DIMENSION-COST]"""
+        self._patterns.append((entities, center, n, None, None))
+        return entities
 
     def create_circle(self, center, radius):
         circles: adsk.fusion.SketchCircles = self.sketch.sketchCurves.sketchCircles
@@ -882,12 +968,15 @@ class Sketch:
         neighbouring pair would add redundant constraints. [PB-SPLINE-RING]"""
         constraints: adsk.fusion.GeometricConstraints = self.sketch.geometricConstraints
         centre = center.point if isinstance(center, PendingPoint) else center
-        patternInput = constraints.createCircularPatternInput([spline.fusion for spline in splines], centre)
+        seeds = [seed.fusion if isinstance(seed, Spline) else seed.circle for seed in splines]
+        patternInput = constraints.createCircularPatternInput(seeds, centre)
         patternInput.quantity = adsk.core.ValueInput.createByReal(n)
         patternInput.totalAngle = adsk.core.ValueInput.createByString('360 deg')
         pattern = constraints.addCircularPattern(patternInput)
         if pattern is None:
             raise RuntimeError(f'{self.sketch.name}: the circular pattern was not created')
+        if start is None:
+            return
         # The first copy starts where the seed's start turned one step about the centre.
         origin, first = centre.geometry, start.point.geometry
         step = 2 * math.pi / n
@@ -927,21 +1016,10 @@ class Sketch:
                 end.point = line.endSketchPoint
         self._lines = []
 
-    def _onRootCircle(self, point):
-        assert self._rootRadius is not None
-        return abs(math.hypot(point.x, point.y) - self._rootRadius) < SAME_COORDINATE
-
     def _drawArcs(self):
         arcs: adsk.fusion.SketchArcs = self.sketch.sketchCurves.sketchArcs
         constraints: adsk.fusion.GeometricConstraints = self.sketch.geometricConstraints
         for center, start, end in self._arcs:
-            if self._rootCircle is not None and self._onRootCircle(start) and self._onRootCircle(end):
-                # The root arc is part of the root circle the caller already drew, which the parameters size.
-                # Its ends sit on that circle instead of getting a second arc. [SPUR-F-ROOT-ARC]
-                for point in (start, end):
-                    point.arcEnd = True
-                    constraints.addCoincident(point.point, self._rootCircle)
-                continue
             # An arc runs counter-clockwise from its start; a reflected map reverses that. [PB-FRAME-PLANE]
             first, last = (end, start) if self.flipped else (start, end)
             arc: adsk.fusion.SketchArc = arcs.addByCenterStartEnd(center, first.point, last.point)
@@ -969,18 +1047,24 @@ class Sketch:
         try:
             dims.addDistanceDimension(self._origin, point.point, orientation, textPoint)
             return
-        except RuntimeError:
-            partner = self._sameCoordinate(point, orientation)
+        except RuntimeError as error:
+            # Only the refusal the probes recorded is replaced; any other refusal is the build's error.
+            partner = self._sameCoordinate(point, orientation) if OVER_CONSTRAINED in str(error) else None
             if partner is None:
                 raise
+            refusal = error
         # Fusion refuses a second dimension with the value and direction of an earlier one from the
         # same origin, as at tooth angle 0 where both flanks start at one x. Aligning the two points
         # fixes the same coordinate. [SPUR-F-ALIGN-DUPLICATE]
         constraints: adsk.fusion.GeometricConstraints = self.sketch.geometricConstraints
-        if orientation == adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation:
-            constraints.addVerticalPoints(point.point, partner.point)
-        else:
-            constraints.addHorizontalPoints(point.point, partner.point)
+        try:
+            if orientation == adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation:
+                constraints.addVerticalPoints(point.point, partner.point)
+            else:
+                constraints.addHorizontalPoints(point.point, partner.point)
+        except RuntimeError as alignment:
+            raise RuntimeError(f'{self.sketch.name}: Fusion refused a distance dimension ({refusal}) and the alignment '
+                               f'that replaces it ({alignment})') from refusal
 
     def _sameCoordinate(self, point, orientation):
         horizontal = orientation == adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation
@@ -1066,6 +1150,7 @@ class Body:
         """The smallest box around the body in the build's local frame. The body's bounding box in the design is
         axis-aligned in the design, so its corners are mapped to the local frame, which can make the box larger than
         the body; a caller that only needs the body's reach along a direction gets a safe margin."""
+        _settle(self)
         box = self.body.boundingBox
         corners = [Vec(x, y, z) for x in (box.minPoint.x, box.maxPoint.x) for y in (box.minPoint.y, box.maxPoint.y)
                    for z in (box.minPoint.z, box.maxPoint.z)]
@@ -1074,13 +1159,16 @@ class Body:
                    Vec(max(c.x for c in local), max(c.y for c in local), max(c.z for c in local)))
 
     def is_solid(self):
+        _settle(self)
         return self.body.isSolid
 
     def centroid(self):
+        _settle(self)
         return Centroid(self.runtime, self.body.physicalProperties.centerOfMass)
 
     def faces(self):
-        return [Face(self.runtime, f) for f in self.body.faces]
+        _settle(self)
+        return [Face(self.runtime, f, self) for f in self.body.faces]
 
     def extreme_faces_by_centroid(self, axis):
         """The faces with the least and the greatest centroid along axis, a direction of the build frame."""
@@ -1209,9 +1297,11 @@ def decad_is_cylinder(surface):
 
 
 class Face:
-    def __init__(self, runtime, face):
+    def __init__(self, runtime, face, owner=None):
         self.runtime = runtime
         self.face: adsk.fusion.BRepFace = face
+        # The Body the face was read from, when it was read from one.
+        self.owner = owner
 
     def surface(self):
         if self.face.geometry.surfaceType == adsk.core.SurfaceTypes.CylinderSurfaceType:
@@ -1383,9 +1473,12 @@ def decad_extrude(doc, sketch, profile, extent, name, body):
     else:
         extrudeInput = extrudes.createInput(profile.fprofile, operation)
     if isinstance(extent, TwoSided):
+        # Side one runs along the sketch's normal, which runs against the frame's when the plane's map is a
+        # reflection. [PB-FRAME-PLANE]
+        along, against = (extent.Two, extent.One) if reversed_ else (extent.One, extent.Two)
         extrudeInput.setTwoSidesExtent(
-            adsk.fusion.DistanceExtentDefinition.create(value_input(extent.One.D, doc.scale)),
-            adsk.fusion.DistanceExtentDefinition.create(value_input(extent.Two.D, doc.scale)))
+            adsk.fusion.DistanceExtentDefinition.create(value_input(along.D, doc.scale)),
+            adsk.fusion.DistanceExtentDefinition.create(value_input(against.D, doc.scale)))
     else:
         distance = adsk.fusion.DistanceExtentDefinition.create(value_input(extent.D, doc.scale))
         # The sketch's normal runs against the frame's when the plane's map is a reflection. [PB-FRAME-PLANE]
@@ -1394,18 +1487,31 @@ def decad_extrude(doc, sketch, profile, extent, name, body):
                      else adsk.fusion.ExtentDirections.NegativeExtentDirection)
         extrudeInput.setOneSideExtent(distance, direction)
     extrude: adsk.fusion.ExtrudeFeature = extrudes.add(extrudeInput)
-    solids.name_feature(extrude, name)
+    _name_feature(extrude, name, doc)
     if extrude.bodies.count != 1:
         raise RuntimeError(f'{name}: expected one body, got {extrude.bodies.count}')
     fbody: adsk.fusion.BRepBody = extrude.bodies.item(0)
-    solids.name_feature(fbody, body)
+    _name_feature(fbody, body, doc, 'body')
     return _placed(Body(doc, fbody), sketch)
 
 
-def _placed(body, sketch):
-    """A body made from a sketch that the gallery put in a container belongs to that container."""
-    if sketch.container is not None:
-        body.runtime.move_body(body, sketch.container)
+def _name_feature(obj, name, runtime, kind='feature'):
+    """Name a Fusion object by its role, with an index when the role repeats among objects of its kind, and return it.
+    Naming never fails a build. (CLAUDE.md, "Naming")"""
+    solids.name_feature(obj, runtime.unique(name, kind))
+    return obj
+
+
+def _other_bodies(feature, original):
+    """The bodies a feature lists other than original. A pattern or mirror may or may not list its source body with the
+    bodies it made; bodies are compared with ==, never by entityToken."""
+    return [fbody for fbody in feature.bodies if not fbody == original]
+
+
+def _placed(body, source):
+    """A body made from a sketch or from another body belongs to the container the gallery put that source in."""
+    if source is not None and source.container is not None:
+        body.runtime.move_body(body, source.container)
     return body
 
 
@@ -1427,15 +1533,21 @@ def _axis_through(runtime, pattern, name):
             axisInput: adsk.fusion.ConstructionAxisInput = axes.createInput()
             axisInput.setByCircularFace(face)
             entity = axes.add(axisInput)
-            solids.name_feature(entity, name)
+            _name_feature(entity, name, runtime, None)
             entity.isLightBulbOn = False
             return entity
-    # No face lies on the axis (a revolved blank is a cone), so a construction line along it is the axis.
+    # No face lies on the axis (a revolved blank is a cone), so a construction line along it is the axis. The line lies
+    # in the base plane; axis_line refuses an axis that does not.
     return runtime.axis_line(pattern.Center, pattern.Axis, name)
 
 
 @logged
 def decad_pattern_copies(tooth, pattern, name):
+    _settle(tooth)
+    return [_placed(copy, tooth) for copy in _circular_pattern(tooth, pattern, name)]
+
+
+def _circular_pattern(tooth, pattern, name):
     runtime = tooth.runtime
     axis = _axis_through(runtime, pattern, name + ' Axis')
     entities = adsk.core.ObjectCollection.create()
@@ -1446,9 +1558,9 @@ def decad_pattern_copies(tooth, pattern, name):
     patternInput.totalAngle = adsk.core.ValueInput.createByString('360 deg')
     patternInput.isSymmetric = False
     feature: adsk.fusion.CircularPatternFeature = patterns.add(patternInput)
-    solids.name_feature(feature, name)
-    # The result may or may not list the original body; the copies are the others.
-    copies = [Body(runtime, b) for b in feature.bodies if b.entityToken != tooth.body.entityToken]
+    _name_feature(feature, name, runtime)
+    copies = [Body(runtime, _name_feature(b, name + ' Copy', runtime, 'body'))
+              for b in _other_bodies(feature, tooth.body)]
     if not copies:
         raise RuntimeError(f'{name}: the pattern made no copies')
     return copies
@@ -1469,6 +1581,13 @@ def decad_with_copy_placement(turn):
     return Option(turn)
 
 
+def _leave_container(body):
+    if body.container is not None:
+        if any(held is body for held in body.container.bodies):
+            body.container.bodies.remove(body)
+        body.container = None
+
+
 def _combine(base, tools, operation, name):
     collection = adsk.core.ObjectCollection.create()
     for tool in tools:
@@ -1477,13 +1596,43 @@ def _combine(base, tools, operation, name):
     combineInput: adsk.fusion.CombineFeatureInput = combines.createInput(base.body, collection)
     combineInput.operation = operation
     feature = combines.add(combineInput)
-    solids.name_feature(feature, name)
+    _name_feature(feature, name, base.runtime)
     # The tools are consumed, so they no longer belong to a container.
     for tool in tools:
-        if tool.container is not None:
-            tool.container.bodies.remove(tool)
-            tool.container = None
+        _leave_container(tool)
     return base
+
+
+def _depend(body, lazy):
+    """Record that a pending union or copy takes body, so that an operation on body makes it first. [PB-LAZY-JOIN]"""
+    body.__dict__.setdefault('_dependents', []).append(lazy)
+
+
+def _settle(body, upto=None):
+    """Make the pending copies of body and the pending unions that take it, in the order the gallery asked for them,
+    before anything else changes or reads body. The lazy batching then gives every body the shape the eager sequence
+    of features would. With upto, only what was asked for before upto is made; once upto is no longer pending,
+    everything before it was made already. Copies asked for one after another are made together, so the copies of one
+    tooth stay one pattern. [PB-LAZY-JOIN]"""
+    pending = body.__dict__.get('_dependents')
+    if not pending:
+        return
+    if upto is not None and not any(entry is upto for entry in pending):
+        return
+    while pending and pending[0] is not upto:
+        entry = pending.pop(0)
+        if isinstance(entry, CopyBody):
+            run = [entry]
+            while pending and pending[0] is not upto and isinstance(pending[0], CopyBody):
+                run.append(pending.pop(0))
+            _make_copies(run)
+        elif entry._body is None and not entry._absorbed:
+            entry._realize()
+
+
+def _settle_all(*bodies):
+    for body in bodies:
+        _settle(body)
 
 
 class UnionBody(Body):
@@ -1498,6 +1647,8 @@ class UnionBody(Body):
         self._body = None
         self._absorbed = False
         self._parts = [base] + list(others)
+        for part in self._parts:
+            _depend(part, self)
         # The union stands where its base stood: the base is the body the container holds.
         if base.container is not None and base in base.container.bodies:
             base.container.bodies[base.container.bodies.index(base)] = self
@@ -1506,7 +1657,7 @@ class UnionBody(Body):
     @property
     def body(self):
         if self._absorbed:
-            raise RuntimeError(f'{self._name}: a union that a later union took over was used again')
+            raise ConsumedBody(f'{self._name}: a union that a later union took over was used again')
         if self._body is None:
             self._realize()
         return self._body
@@ -1517,6 +1668,10 @@ class UnionBody(Body):
         self._body = value
 
     def _realize(self):
+        # What the gallery asked of each part before this union comes first: a copy of a tool is made before the
+        # join consumes the tool, and an earlier union that takes a part is joined first.
+        for part in self._parts:
+            _settle(part, upto=self)
         _realize_copies(self._parts)
         base, tools = self._parts[0], self._parts[1:]
         _combine(base, tools, adsk.fusion.FeatureOperations.JoinFeatureOperation, self._name)
@@ -1526,6 +1681,9 @@ class UnionBody(Body):
 
 @logged
 def decad_union(base, *others, name):
+    for body in (base,) + others:
+        if isinstance(body, UnionBody) and body._absorbed:
+            raise ConsumedBody(f'{name}: {body._name} was joined into a later union and cannot be joined again')
     parts = []
     for other in others:
         # A pending union of the tool joins the same base, so its parts become tools of this one.
@@ -1533,10 +1691,16 @@ def decad_union(base, *others, name):
             parts.extend(other._parts)
             other._parts = []
             other._absorbed = True
+            # The eager join consumes the tool, so the union it stood for leaves its container.
+            _leave_container(other)
         else:
             parts.append(other)
+            # The eager join consumes its tools, so they leave their containers when the union is asked for.
+            _leave_container(other)
     if isinstance(base, UnionBody) and base._body is None:
         base._parts.extend(parts)
+        for part in parts:
+            _depend(part, base)
         base._name = name
         return base
     return UnionBody(base.runtime, base, parts, name)
@@ -1544,11 +1708,13 @@ def decad_union(base, *others, name):
 
 @logged
 def decad_cut(base, tool, *options, name):
+    _settle_all(base, tool)
     return _combine(base, [tool], adsk.fusion.FeatureOperations.CutFeatureOperation, name)
 
 
 @logged
 def decad_intersect(base, tool, *options, name):
+    _settle_all(base, tool)
     return _combine(base, [tool], adsk.fusion.FeatureOperations.IntersectFeatureOperation, name)
 
 
@@ -1571,6 +1737,7 @@ class CopyBody(Body):
         self.container = source.container
         self.source, self.rotation, self._name = source, rotation, name
         self._body = None
+        _depend(source, self)
 
     @property
     def body(self):
@@ -1583,15 +1750,17 @@ class CopyBody(Body):
         self._body = value
 
     def _make(self):
+        # The copy is of the source as it stood when the copy was asked for.
+        _settle(self.source, upto=self)
         runtime = self.runtime
         entities = adsk.core.ObjectCollection.create()
         entities.add(self.source.body)
         copies: adsk.fusion.CopyPasteBodies = runtime.component.features.copyPasteBodies
         feature = copies.add(entities)
-        solids.name_feature(feature, self._name)
+        _name_feature(feature, self._name, runtime)
         if feature.bodies.count != 1:
             raise RuntimeError(f'{self._name}: expected one copied body, got {feature.bodies.count}')
-        self._body = feature.bodies.item(0)
+        self._body = _name_feature(feature.bodies.item(0), self._name, runtime, 'body')
         if self.rotation is not None:
             turned = Body(runtime, self._body)
             decad_transform(turned, self.rotation, name=self._name + ' Turn')
@@ -1612,6 +1781,14 @@ def decad_copy(body, *options, name):
     if body.container is not None:
         body.container.bodies.append(copy)
     return copy
+
+
+def _make_copies(copies):
+    """Make pending copies, the ones at equal angles about one axis as one pattern and the others one by one."""
+    _realize_copies(copies)
+    for copy in copies:
+        if copy._body is None:
+            copy._make()
 
 
 def _realize_copies(parts):
@@ -1645,16 +1822,20 @@ def _same_centre(a, b):
 
 def _pattern_copies(copies, axis, center, count, step):
     """One circular pattern of the source for all its pending copies. Each new body is given to the copy whose angle
-    about the axis matches the body's centroid, since Fusion does not say which instance is which."""
+    about the rotation centre and axis matches the body's centroid, since Fusion does not say which instance is
+    which."""
     source, runtime = copies[0].source, copies[0].runtime
     name = copies[0]._name
-    made = decad_pattern_copies(source, CircularPattern(center, axis, count), name)
+    made = _circular_pattern(source, CircularPattern(center, axis, count), name)
+    if len(made) != len(copies):
+        raise FusionRefused(f'{name}: the pattern made {len(made)} copies; want {len(copies)} [PB-EMPTY-RESULT]')
     perpendicular = Vec(0.0, 0.0, 1.0) if abs(axis.z) < 0.9 else Vec(1.0, 0.0, 0.0)
     e1 = axis.cross(perpendicular).unit()
     e2 = axis.cross(e1)
 
     def angle(body):
-        c = body.centroid().Value
+        # The raw centre of mass: reading the source through Body would make its pending copies, which are these.
+        c = Centroid(runtime, body.body.physicalProperties.centerOfMass).Value.sub(center)
         return math.atan2(c.dot(e2), c.dot(e1))
 
     origin = angle(source)
@@ -1671,9 +1852,10 @@ def _pattern_copies(copies, axis, center, count, step):
 @logged
 def decad_remove(body, name):
     """Delete a body from the design. The body stays readable to the gallery but nothing takes it again."""
+    _settle(body)
     removes: adsk.fusion.RemoveFeatures = body.runtime.component.features.removeFeatures
     feature = removes.add(body.body)
-    solids.name_feature(feature, name)
+    _name_feature(feature, name, body.runtime)
     if body.container is not None:
         body.container.bodies.remove(body)
         body.container = None
@@ -1694,6 +1876,7 @@ def _planar_face_through(body, world):
 @logged
 def decad_scaled_at(body, anchor, factor, name):
     """Scale the body uniformly about a point of the build frame, in place."""
+    _settle(body)
     runtime = body.runtime
     world = runtime.to_world(anchor)
     where = adsk.core.Point3D.create(world.x, world.y, world.z)
@@ -1701,7 +1884,7 @@ def decad_scaled_at(body, anchor, factor, name):
     # A construction point at a bare Point3D is valid only in direct modeling, so the base point is a sketch point
     # on a face that passes through the anchor. [PB-SCALE-BASE-POINT]
     anchorSketch = runtime.component.sketches.add(face)
-    solids.name_feature(anchorSketch, name + ' Anchor')
+    _name_feature(anchorSketch, name + ' Anchor', runtime, None)
     base = anchorSketch.sketchPoints.add(anchorSketch.modelToSketchSpace(where))
     anchorSketch.isLightBulbOn = False
     entities = adsk.core.ObjectCollection.create()
@@ -1710,7 +1893,7 @@ def decad_scaled_at(body, anchor, factor, name):
     scaleInput: adsk.fusion.ScaleFeatureInput = scales.createInput(
         entities, base, adsk.core.ValueInput.createByReal(factor))
     feature = scales.add(scaleInput)
-    solids.name_feature(feature, name)
+    _name_feature(feature, name, runtime)
     return body
 
 
@@ -1718,16 +1901,26 @@ def decad_scaled_at(body, anchor, factor, name):
 def decad_split(target, sheet, name):
     """Cut a solid with a surface body and return its two pieces, the one nearer the local origin first. The gallery
     walks the slices from the heel toward the apex, so the first piece is the one the next plane can still meet."""
+    _settle_all(target, sheet)
     runtime = target.runtime
     splits: adsk.fusion.SplitBodyFeatures = runtime.component.features.splitBodyFeatures
     splitInput: adsk.fusion.SplitBodyFeatureInput = splits.createInput(target.body, sheet.body, True)
-    feature = splits.add(splitInput)
-    solids.name_feature(feature, name)
+    try:
+        feature = splits.add(splitInput)
+    except RuntimeError as refusal:
+        # Fusion refuses a sheet that does not meet the body: decad's ErrDegenerate, which the gallery skips.
+        raise Degenerate(f'{name}: the sheet does not split the body ({refusal})') from refusal
+    if feature.bodies.count < 2:
+        # A split that leaves one body missed it. The feature is taken out so the target stands as it was.
+        feature.deleteMe()
+        raise Degenerate(f'{name}: the sheet missed the body')
+    _name_feature(feature, name, runtime)
     if feature.bodies.count != 2:
         raise RuntimeError(f'{name}: the sheet made {feature.bodies.count} pieces; want two')
     container = target.container
     pieces = []
     for fbody in feature.bodies:
+        _name_feature(fbody, name + ' Piece', runtime, 'body')
         pieces.append(Body(runtime, fbody))
     pieces.sort(key=lambda piece: piece.centroid().Value.len())
     # Fusion keeps the splitting tool as a body of its own, where decad consumes it, so the sheet is removed. Left in
@@ -1747,21 +1940,25 @@ def decad_split(target, sheet, name):
 
 @logged
 def decad_loft_faces(doc, *faces, name, body):
+    owners = [face.owner for face in faces if face.owner is not None]
+    _settle_all(*owners)
     lofts: adsk.fusion.LoftFeatures = doc.component.features.loftFeatures
     loftInput: adsk.fusion.LoftFeatureInput = lofts.createInput(adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
     for face in faces:
         loftInput.loftSections.add(face.face)
     loft: adsk.fusion.LoftFeature = lofts.add(loftInput)
-    solids.name_feature(loft, name)
+    _name_feature(loft, name, doc)
     if loft.bodies.count != 1:
         raise RuntimeError(f'{name}: expected one body, got {loft.bodies.count}')
     fbody: adsk.fusion.BRepBody = loft.bodies.item(0)
-    solids.name_feature(fbody, body)
-    return Body(doc, fbody)
+    _name_feature(fbody, body, doc, 'body')
+    # The loft belongs where the body of its first section is.
+    return _placed(Body(doc, fbody), owners[0] if owners else None)
 
 
 @logged
 def decad_fillet(body, selector, radius, name):
+    _settle(body)
     with timed(f'{name} edge selection'):
         edges = _edge_collection(selector, body, name)
     fillets: adsk.fusion.FilletFeatures = body.runtime.component.features.filletFeatures
@@ -1769,12 +1966,13 @@ def decad_fillet(body, selector, radius, name):
     filletInput.addConstantRadiusEdgeSet(edges, value_input(radius, body.runtime.scale), False)
     with timed(f'{name} feature'):
         feature = fillets.add(filletInput)
-    solids.name_feature(feature, name)
+    _name_feature(feature, name, body.runtime)
     return body
 
 
 @logged
 def decad_chamfer(body, selector, setback, name):
+    _settle(body)
     with timed(f'{name} edge selection'):
         edges = _edge_collection(selector, body, name)
     chamfers: adsk.fusion.ChamferFeatures = body.runtime.component.features.chamferFeatures
@@ -1782,7 +1980,7 @@ def decad_chamfer(body, selector, setback, name):
     chamferInput.chamferEdgeSets.addEqualDistanceChamferEdgeSet(edges, value_input(setback, body.runtime.scale), False)
     with timed(f'{name} feature'):
         feature = chamfers.add(chamferInput)
-    solids.name_feature(feature, name)
+    _name_feature(feature, name, body.runtime)
     return body
 
 
@@ -1795,12 +1993,12 @@ def decad_loft(doc, lowerSketch, lowerProfile, upperSketch, upperProfile, name, 
     loftInput.loftSections.add(lowerProfile.fprofile)
     loftInput.loftSections.add(upperProfile.fprofile)
     loft: adsk.fusion.LoftFeature = lofts.add(loftInput)
-    solids.name_feature(loft, name)
+    _name_feature(loft, name, doc)
     if loft.bodies.count != 1:
         raise RuntimeError(f'{name}: expected one body, got {loft.bodies.count}')
     fbody: adsk.fusion.BRepBody = loft.bodies.item(0)
-    solids.name_feature(fbody, body)
-    return Body(doc, fbody)
+    _name_feature(fbody, body, doc, 'body')
+    return _placed(Body(doc, fbody), lowerSketch)
 
 
 class Rotation:
@@ -1832,9 +2030,13 @@ def placement_place(body, frame):
 
 @logged
 def decad_transform(body, transform, name):
+    _settle(body)
     runtime = body.runtime
     if not isinstance(transform, Rotation):
         raise RuntimeError(f'{name}: only a rotation is translated')
+    if transform.angle == 0:
+        # A zero turn is no move, and Fusion refuses a move by the identity with "invalid transform".
+        return body
     axis = runtime.to_world_dir(transform.axis).unit()
     origin = runtime.placement.origin() if transform.center is None else runtime.to_world(transform.center)
     matrix = adsk.core.Matrix3D.create()
@@ -1846,7 +2048,7 @@ def decad_transform(body, transform, name):
     moveInput: adsk.fusion.MoveFeatureInput = moves.createInput2(entities)
     moveInput.defineAsFreeMove(matrix)
     feature = moves.add(moveInput)
-    solids.name_feature(feature, name)
+    _name_feature(feature, name, runtime)
     return body
 
 
@@ -1890,10 +2092,13 @@ def decad_revolve(doc, sketch, profile, axis, extent, name):
         profile.fprofile, line, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
     revolveInput.setAngleExtent(False, adsk.core.ValueInput.createByString('360 deg'))
     feature: adsk.fusion.RevolveFeature = revolves.add(revolveInput)
-    solids.name_feature(feature, name)
+    _name_feature(feature, name, doc)
     if feature.bodies.count != 1:
         raise RuntimeError(f'{name}: expected one body, got {feature.bodies.count}')
-    return _placed(Body(doc, feature.bodies.item(0)), sketch)
+    # The gallery's revolve names no body, so the body takes the feature's role.
+    fbody: adsk.fusion.BRepBody = feature.bodies.item(0)
+    _name_feature(fbody, name, doc, 'body')
+    return _placed(Body(doc, fbody), sketch)
 
 
 @logged
@@ -1906,11 +2111,11 @@ def decad_loft_from_point(doc, point, sketch, profile, name, body):
     loftInput.loftSections.add(doc.anchor)
     loftInput.loftSections.add(profile.fprofile)
     loft: adsk.fusion.LoftFeature = lofts.add(loftInput)
-    solids.name_feature(loft, name)
+    _name_feature(loft, name, doc)
     if loft.bodies.count != 1:
         raise RuntimeError(f'{name}: expected one body, got {loft.bodies.count}')
     fbody: adsk.fusion.BRepBody = loft.bodies.item(0)
-    solids.name_feature(fbody, body)
+    _name_feature(fbody, body, doc, 'body')
     return _placed(Body(doc, fbody), sketch)
 
 
@@ -1939,19 +2144,31 @@ def decad_mirror_frame(Frame):
     return MirrorFrame(Frame)
 
 
+def _mirror_plane_frame(runtime, frame):
+    """A mirror needs only the plane, not the frame's axes or where in the plane its origin lies. A plane parallel to
+    the base plane is given as the build frame moved along its normal, the one parallel frame create_plane_from_frame
+    translates."""
+    base = runtime.frame
+    if abs(abs(frame.n().dot(base.n())) - 1.0) > 1e-9:
+        return frame
+    height = frame.origin().sub(base.origin()).dot(base.n())
+    return Frame(base.origin().add(base.n().scale(height)), base.u(), base.v(), base.n())
+
+
 @logged
 def decad_mirrored_copy(source, mirror, name, body):
+    _settle(source)
     runtime = source.runtime
-    plane = runtime.create_plane_from_frame(mirror.Frame, name + ' Plane')
+    plane = runtime.create_plane_from_frame(_mirror_plane_frame(runtime, mirror.Frame), name + ' Plane')
     entities = adsk.core.ObjectCollection.create()
     entities.add(source.body)
     mirrors: adsk.fusion.MirrorFeatures = runtime.component.features.mirrorFeatures
     mirrorInput: adsk.fusion.MirrorFeatureInput = mirrors.createInput(entities, plane.entity)
     mirrorInput.isCombine = False
     feature: adsk.fusion.MirrorFeature = mirrors.add(mirrorInput)
-    solids.name_feature(feature, name)
-    copies = [b for b in feature.bodies if b.entityToken != source.body.entityToken]
+    _name_feature(feature, name, runtime)
+    copies = _other_bodies(feature, source.body)
     if len(copies) != 1:
         raise RuntimeError(f'{name}: expected one mirrored body, got {len(copies)}')
-    solids.name_feature(copies[0], body)
-    return Body(runtime, copies[0])
+    _name_feature(copies[0], body, runtime, 'body')
+    return _placed(Body(runtime, copies[0]), source)

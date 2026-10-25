@@ -2,8 +2,10 @@ package herringbone_test
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/gallery"
@@ -49,4 +51,24 @@ func TestGenerateRefusesChangedGalleryCode(t *testing.T) {
 	reviewed.Digest = "0000"
 	_, err := herringbone.Generate(m, "v0", fragment, reviewed)
 	require.ErrorContains(t, err, "gearport accept")
+}
+
+// TestGenerateRefusesChangedCreatingCalls requires the port to stop when the creating calls of a translated function
+// differ from reviewed.json, as when the gallery swaps two calls of one operation and the role names would follow
+// the positions.
+func TestGenerateRefusesChangedCreatingCalls(t *testing.T) {
+	_, m, reviewed, fragment := generate(t)
+	calls := slices.Clone(reviewed.Creations["chevron"])
+	require.NotEmpty(t, calls)
+	calls[0], calls[len(calls)-1] = calls[len(calls)-1], calls[0]
+	require.NotEqual(t, reviewed.Creations["chevron"], calls)
+	reviewed.Creations = maps.Clone(reviewed.Creations)
+	reviewed.Creations["chevron"] = calls
+	_, err := herringbone.Generate(m, "v0", fragment, reviewed)
+	require.ErrorContains(t, err, "chevron")
+	require.ErrorContains(t, err, "gearport accept herringbonegear")
+
+	reviewed.Creations = nil
+	_, err = herringbone.Generate(m, "v0", fragment, reviewed)
+	require.ErrorContains(t, err, "records no creating calls")
 }

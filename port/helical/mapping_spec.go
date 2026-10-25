@@ -7,16 +7,30 @@ import "github.com/lestrrat-3d/fusion360-gear-generator/port/go2py"
 // (port/spur) supplies the rest. lib/geargen/spurgear.py provides the spur functions they call.
 var FeatureSpec = go2py.Spec{
 	Prefix: "_",
-	Funcs:  []string{"LoftTooth", "filletRootEdges"},
+	Funcs:  []string{"ValidateHelixAngle", "LoftTooth", "filletRootEdges"},
 	Roles: map[string]go2py.Role{
 		"LoftTooth:decad.Loft#1":         {Feature: "Twisted Tooth Loft", Body: "Tooth"},
 		"filletRootEdges:decad.Fillet#1": {Feature: "Root Fillet"},
 	},
-	External:      SpurExternal,
+	External:      SpurExternals("spurgear.BuildToothSection", "spurgear.ToothInput.PlaneAt"),
 	ExternalTypes: SpurExternalTypes,
 }
 
-// SpurExternal lists the spur functions and methods the helical model calls, and the Python
+// SpurExternals returns the entries of SpurExternal named by keys, for a Spec that calls only those. A Spec must
+// list only the externals its translation calls.
+func SpurExternals(keys ...string) map[string]go2py.External {
+	out := make(map[string]go2py.External, len(keys))
+	for _, k := range keys {
+		ext, ok := SpurExternal[k]
+		if !ok {
+			panic("helical.SpurExternals: no entry " + k)
+		}
+		out[k] = ext
+	}
+	return out
+}
+
+// SpurExternal lists the spur functions and methods the helical and herringbone models call, and the Python
 // that stands for each in the generated add-in, which imports lib/geargen/spurgear.py as _spur.
 var SpurExternal = map[string]go2py.External{
 	"spurgear.BuildToothSection": {

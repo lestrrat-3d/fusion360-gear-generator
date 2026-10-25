@@ -5,6 +5,7 @@ from ...lib import fusion360utils as futil
 from .misc import to_cm, to_mm, get_design
 from .base import Generator, get_selection
 from . import decadfusion as _fx
+from . import decaderrors as _errors
 from . import spurgear as _spur
 from . import solids
 

@@ -40,11 +40,7 @@ var FeatureSpec = go2py.Spec{
 }
 
 func external() map[string]go2py.External {
-	out := map[string]go2py.External{
-		"helicalgear.LoftTooth": {Python: "_helical.loft_tooth", Results: []string{"decad.Body"}},
-	}
-	for k, v := range helical.SpurExternal {
-		out[k] = v
-	}
+	out := helical.SpurExternals("spurgear.ToothInput.Shifted")
+	out["helicalgear.LoftTooth"] = go2py.External{Python: "_helical.loft_tooth", Results: []string{"decad.Body"}}
 	return out
 }

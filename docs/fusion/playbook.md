@@ -1,980 +1,629 @@
-# Gear Generator Playbook — framework conventions (gear-agnostic)
+# Fusion playbook
 
-This playbook captures the **repo scaffolding and Fusion-API conventions** shared by every gear
-generator in `lib/geargen/`. It is the *how*. A per-gear spec (e.g. `spec/spurgear/instructions.md`)
-supplies the *what* — the geometry. A code generator is given **both** the spec and this
-playbook, and must not need anything else.
+This file records what Fusion does that matters to every gear: its units, its sketch solver, its features, and the
+calls it refuses. Read it before you change the Fusion runtime `lib/geargen/decadfusion.py`, the translator in
+`port/go2py` and `port/fusionexpr`, or a stored fragment under `port/<gear>/fragments/`. A behaviour of one gear goes in
+`docs/fusion/<gear>.md` instead.
 
-Deliberately, this file contains **no gear-specific geometry** (no involute math, no
-tooth/root/flank construction). That belongs in the spec, so that regenerating a `.py` from its
-spec is an honest test of the spec's completeness.
+## Adding an entry
 
-**Anchor convention.** Rules below carry stable IDs like `**[PB-RADIAL-DIM]**`. Specs cite a rule
-as `[PB-…]` instead of restating it; the anchor text HERE is authoritative, and the spec states
-only its gear-specific delta. When generating, a `[PB-…]` citation binds the full anchored rule at
-that point of use. IDs are permanent — never renamed or reused once a spec cites them.
+`CLAUDE.md` ("When Fusion gives a verdict") sends every Fusion finding that holds for all gears to this file.
 
-## Module layout & imports
+- Start the paragraph with a new anchor in bold, `[PB-…]`. Code comments and the per-gear files cite anchors, so never
+  rename or reuse one. To retire an entry, keep its heading and say in one sentence what replaced it.
+- State what Fusion did, the date and Fusion version of the observation, and the error text when there was one.
+- Say where the code relies on the rule, and cite the anchor in a comment at that place. Name the test that enforces
+  it, if one does.
+- Never put the fix in `lib/geargen/<gear>.py`: `gearport gen` writes that file. Change the runtime, the translator or
+  the fragment, then regenerate.
+- When code can express the rule, write the code and keep the entry short.
 
-Each gear lives in `lib/geargen/<gear>.py` and imports **explicitly — no `import *` in gear
-modules** (star-imports hide real dependencies and have broken modules that relied on a name
-arriving transitively). Import exactly the names the module uses, from their home modules:
+Entries carry a date or a Fusion version where one was recorded. An entry without either was observed in Fusion before
+the gallery port and has not been checked since. API names and signatures were checked against the Fusion API
+reference (FusionAPIReference commit 07814d1) with the `fusion:query-api` skill on 2026-10-25.
 
-```python
-import math
-import adsk.core, adsk.fusion
-from ...lib import fusion360utils as futil
-from .misc import to_cm, to_mm, get_design
-from .base import Generator, GenerationContext, get_value, get_boolean, get_selection
-from .utilities import get_normal, find_profile_by_curve_counts, find_circle_by_radius
-from . import solids                     # body-op helpers — only gears that need them
-from .spurproxy import VirtualSpurProxy  # only gears that borrow the spur tooth drawer
-```
+## How the add-in is put together
 
-(Trim the list to what the gear actually uses; the last two lines apply only to gears whose spec
-calls for them. `lib/geargen/__init__.py` star-imports each gear module to build the package
-facade — that one facade star-import is fine; gear modules themselves never use `import *`.)
+- `commands/_gear_command.py` (`GearCommand`) is the Fusion command of every gear. Each `commands/<gear>/entry.py`
+  declares one `GearCommand` with the gear's configurator and generator class, and lists it in `commands/__init__.py`.
+  The command refuses a design that is not a Hybrid or Assembly design, runs `generator_class(design).generate(inputs)`,
+  and calls `deleteComponent()` when that raises. The error box carries a Build line ([PB-STALE-MODULE]).
+- `port/cmd/gearport` writes each `lib/geargen/<gear>.py`. The dialog, the input reading, the parameter registration
+  and the sketches the gallery does not model (the `Tools` anchor sketch, the spur's `Reference Circles`) come from the
+  stored fragment `port/<gear>/fragments/<gear>.py.frag`. The build itself is the gallery model translated by
+  `port/go2py`.
+- The translated build calls the functions and classes in `lib/geargen/decadfusion.py`, one for each entry of the API
+  table in `port/go2py/api.go`. `TestRuntimeDefinesEveryOperationTheTranslatorAccepts` (`port/spur/runtime_test.go`)
+  fails when the table names something the runtime does not define.
+- Every generator subclasses `base.Generator`. `getOccurrence()` adds the gear's component under the selected parent
+  and sets the parameter prefix to `<prefixBase>_<component id without dashes>`. `addParameter` registers a user
+  parameter under that prefix. `deleteComponent()` deletes those parameters and the occurrence.
+- `HelicalGearGenerator` subclasses `SpurGearGenerator`, and `HerringboneGearGenerator` subclasses the helical one; the
+  configurator and context classes follow the same chain. `TestGeneratedModuleKeepsTheSurfaceOtherGearsUse`
+  (`port/spur/generate_test.go`) requires the three spur classes and every `PARAM_` and `INPUT_ID_` name they use.
+- A gear module imports each name it uses explicitly. Only `lib/geargen/__init__.py` star-imports, to build the package.
+- These helpers are in use: `base.get_value`, `base.get_boolean`, `base.get_selection`, `misc.settle_sketch_display`,
+  `solids.name_feature` and `solids.hide_construction_geometry`. No gear calls the cone-cut, slicing and rotation
+  helpers in `solids.py`, anything in `utilities.py`, or `spurproxy.py` and `legacyspur.py` any more.
+- Every object a gear creates is named by its role. `tests/test_naming_by_role.py` fails on an unnamed creation in any
+  `lib/geargen/*.py`.
 
-Module-level constants name the recurring parameters and dialog input ids, e.g.
-`PARAM_MODULE = 'Module'`, `INPUT_ID_PARENT = 'parentComponent'`, `INPUT_ID_PLANE = 'plane'`,
-`INPUT_ID_ANCHOR_POINT = 'anchorPoint'`. A subclass may add its own (e.g. a helix-angle param).
+## Dialog inputs
 
-## The four-class pattern (involute family — one option, not mandatory)
-
-This is the architecture the **involute gear family** (`spurgear` + its `helicalgear` /
-`herringbonegear` subclasses) uses. It is **not** the only valid shape: a gear is free to use a
-different class layout, skip `GenerationContext`, or not subclass `base.Generator` at all (e.g.
-`bevelgear` does none of these). **The gear's own spec declares its architecture** (see the
-skill's "Required spec sections"); use this four-class pattern only when that spec says to.
-
-When a gear *does* use it, the four class names are part of the public API — subclasses bind to
-them **by name** (see Contract), so reproduce them exactly:
-
-1. **`<Gear>CommandInputsConfigurator`** — a class with `@classmethod def configure(cls, cmd)`
-   that adds the dialog inputs to `cmd.commandInputs`. Selection inputs use
-   `addSelectionInput(id, label, tooltip)` + `addSelectionFilter(...)` + `setSelectionLimits(...)`
-   with the filter set and limits the spec declares per input ([PB-SELECTION-DECL]);
-   the parent selection pre-selects `get_design().rootComponent`. Value inputs use
-   `addValueInput(id, label, unit, ValueInput.createByReal(default))` with the default in
-   internal units ([PB-DIALOG-DEFAULT-UNITS]); booleans
-   `addBoolValueInput(...)`; expression-style fields `addStringValueInput(...)`.
-
-2. **`<Gear>GenerationContext(GenerationContext)`** — a plain data carrier whose `__init__`
-   declares the fields passed between steps (each `cast(None)` initialised). These field names
-   are public API; subclasses read and add to them.
-
-3. **`<Gear>InvoluteToothDesignGenerator`** — constructed as `(sketch, parent)` (optionally an
-   `angle`); draws the tooth/profile geometry into the given sketch via `.draw(anchorPoint,
-   angle=0)` and related helpers. This is where the spec's geometry section is realised. The
-   `parent` is the generator, used to read parameters via `parent.getParameter(...)` /
-   `parent.parameterName(...)`.
-
-4. **`<Gear>Generator(Generator)`** — the orchestrator. Subclass of `base.Generator`. Holds
-   `processInputs`, `generate`, the parameter registration, and the per-step build methods.
-
-## `base.Generator` — what you inherit (do not re-implement)
-
-Use this **when the gear's spec says it subclasses `base.Generator`** (the involute family does;
-a gear with a standalone generator, e.g. `bevelgear`, manages its own occurrence/cleanup instead
-and the spec describes that). When inherited, `lib/geargen/base.py` provides:
-
-- `__init__(self, design)` — sets `self.design`, `self.parentComponent`, `self.occurrence`,
-  `self.prefix`, `self.cleaner`.
-- `getOccurrence()` — lazily creates the child occurrence under `self.parentComponent`, and on
-  first creation builds the `ParamNamePrefix` as `f'{self.prefixBase()}_{component.id without
-  dashes}'` and a `ComponentCleaner`. **Calling this (or anything that calls it transitively,
-  including `parameterName()`/`addParameter()`) shifts Fusion's active component context.**
-- `getComponent()` → `getOccurrence().component`.
-- `addParameter(name, ValueInput, units, comment)` → `design.userParameters.add(parameterName(name), …)`.
-- `getParameter(name)`, `getParameterAsValueInput(name)`, `getParameterAsBoolean(name)`.
-- `parameterName(name)` → `f'{prefix}_{name}'` (creates the occurrence if needed).
-- `prefixBase()` → default `'Gear'`; override per gear (`'SpurGear'`, `'HelicalGear'`, …).
-- `deleteComponent()` — deletes the registered user parameters (via `ComponentCleaner`) and the
-  occurrence; used by the entry point on failure.
-- `createSketchObject(name, plane=None)` — adds a sketch (defaults to XY plane), names it, sets
-  `isVisible=False`, returns it. (Note: a sketch created this way starts hidden; make it visible
-  while you draw/consume profiles, per the spec's sketch-discipline rules.)
-- `@abstractmethod generate(self, inputs)` — every gear implements this.
-
-Helpers (free functions in `base.py`): `get_selection(inputs, id)` → list of selected entities;
-`get_boolean(inputs, id)` → bool; `get_value(inputs, id, units)` → `ValueInput` (raises on an
-invalid expression).
-
-**[PB-INPUT-READ] Read each input with the helper that matches the type it was declared with.** The
-read helper is fixed by the `add*Input` used in `configure()`, not chosen freely:
+**[PB-INPUT-READ] Read each input with the helper that matches the type it was declared with.**
 
 | declared in `configure()` | read with | reads |
 |---|---|---|
-| `addValueInput` / `addStringValueInput` | `get_value(inputs, id, units)` | `.expression` → `ValueInput` |
+| `addValueInput` / `addStringValueInput` | `get_value(inputs, id, units)` | `.expression` or `.value`, as a `ValueInput` |
 | `addBoolValueInput` (checkbox) | `get_boolean(inputs, id)` | `.value` (bool) |
 | `addSelectionInput` | `get_selection(inputs, id)` | `.selection(i).entity` |
+| `addDropDownCommandInput` | `inputs.itemById(id).selectedItem` | the selected `ListItem` |
 
-A boolean dialog input is therefore read with **`get_boolean`**, then registered as a `1`/`0`
-user-parameter and read back later via `getParameterAsBoolean` — do **NOT** call `get_value` on a
-bool input: `get_value` accesses `input.expression`, which `BoolValueCommandInput` does not have, and
-Fusion raises `AttributeError: 'BoolValueCommandInput' object has no attribute 'expression'` at
-generation time. (pyright cannot catch this — the helper resolves the input by a runtime string key,
-so the concrete input type is invisible to static typing; the `check_input_read.py` gate does catch
-it.) A dropdown (`addDropDownCommandInput`) is read via `itemById(id).selectedItem`, never a `get_*`.
+`BoolValueCommandInput` has no `expression` member, so `get_value` on a checkbox raises `AttributeError:
+'BoolValueCommandInput' object has no attribute 'expression'` at generation time. The spur reads its Sketch Only box
+with `get_boolean` and registers it as a `1`/`0` user parameter, which `getParameterAsBoolean` reads back. The bevel
+and cycloidal fragments also read their numbers straight from `inputs.itemById(id).value` in `_params_of_inputs`, which
+gives internal units ([PB-UNITS]). No test checks the pairing: `tests/test_addin_imports.py` stubs `adsk` with
+`MagicMock`, which answers every name.
 
-**[PB-GET-VALUE-CONTRACT]** `get_value` ALWAYS returns a `ValueInput` ready to pass straight to
-`addParameter` / `userParameters.add` — string-value (expression) inputs included: a text that
-names an existing user parameter becomes a live `createByString` reference; a literal expression
-(e.g. `'5 mm'`) is evaluated to internal units and wrapped `createByReal`; numeric inputs are
-evaluated and wrapped `createByReal`. It **raises** on an invalid expression rather than returning
-`None`. No caller-side `ok`-flag handling or `ValueInput` wrapping is needed — `addParameter` the
-result directly.
+**[PB-GET-VALUE-CONTRACT]** `base.get_value` always returns a `ValueInput` that can go straight to `addParameter`. For a
+string input whose text names an existing user parameter it returns `createByString(text)`, a live reference to that
+parameter. For any other text, and for a numeric input, it evaluates the expression to internal units and returns
+`createByReal`. It raises on an invalid expression and never returns `None`.
 
-**[PB-DIALOG-DEFAULT-UNITS] Dialog defaults passed as `ValueInput.createByReal(...)` are in Fusion
-INTERNAL units — cm for length, radians for angle — regardless of the input's unit string.** A
-10 mm default is `createByReal(to_cm(10))` and a 20° default is `createByReal(math.radians(20))`;
-writing `createByReal(10)` / `createByReal(20)` ships a 100 mm / 20-radian default even though the
-dialog displays `mm` / `deg`. The unit string on `addValueInput` controls display and expression
-parsing only, never the interpretation of the `createByReal` default. No mechanical gate catches a
-wrong default (it is valid code and a valid dialog) — pin every default's internal-unit conversion
-at authoring time, and specs state defaults in display units with the conversion implied by this
-rule.
+**[PB-UNITS] Fusion's internal units are the centimetre and the radian.** A `ValueInput.createByReal` number, a user
+parameter's `.value`, a `ValueCommandInput`'s `.value`, sketch coordinates and a circle's radius are in those units,
+whatever unit the dialog shows (API reference: `ValueCommandInput.value`, `SketchCircles.addByCenterRadius`,
+`FilletEdgeSetInputs.addConstantRadiusEdgeSet`). `decadfusion.Runtime` takes a `scale`, the centimetres in one unit of
+length of the translated code. The spur family runs in centimetres (1.0). The bevel and cycloidal gallery models use
+absolute millimetres, so their fragments pass `MILLIMETRE = 0.1`. The runtime converts at every place a length enters
+or leaves Fusion: `Runtime.to_world` and `to_local`, `Sketch._p3`, `value_input` and `Value.base`.
 
-**[PB-SELECTION-DECL] A selection input's filter enums and `setSelectionLimits(min, max)` are
-contract surface — the gear's spec declares both, per input.** Do not improvise them: the filter
-set decides what the user can pick and the limits decide dialog validity (`setSelectionLimits(1)`
-alone means min-1/no-max — usually wrong; the existing gears use `setSelectionLimits(1, 1)`
-exactly-one, or `(0, 1)` plus an explicit empty-selection fallback the spec must also state).
-Filters are enum constants, never strings ([PB-SELECTION-FILTER-ENUM]).
+**[PB-DIALOG-DEFAULT-UNITS] A dialog default passed as `ValueInput.createByReal(...)` is in internal units, whatever
+the input's unit string.** The API reference says a real initial value "is assumed to be in database units". A 10 mm
+default is `createByReal(to_cm(10))` and a 20 degree default is `createByReal(math.radians(20))`; `createByReal(10)`
+would show 100 mm. The unit string on `addValueInput` sets display and expression parsing only. The generators write
+the conversion: `port/spur/generate.go` emits `to_cm(...)` and `math.radians(...)`, and `port/bevel` and
+`port/cycloidal` emit `to_cm(...)` or a string such as `createByString('90 deg')`.
+`TestDialogDefaultsComeFromTheGallery` (`port/bevel`, `port/cycloidal`) and
+`TestHelixInputComesFromTheGalleryDefault` (`port/helical`) check the defaults.
 
-The framework carries a small library of **proven** helpers; each encodes a known Fusion failure
-mode that took real debugging to pin down. A generated gear **MUST call these instead of
-re-implementing the pattern** — re-defining one of these names (or writing a private equivalent of
-one) in a generated module is a contract violation the validation step checks for. The gear's spec
-says *which* helpers it uses and *on what geometry*; the behavior below is the helper's contract.
+**[PB-EVAL-EXPRESSION] `UnitsManager.evaluateExpression(expression, units)` returns internal units.** A `deg` field
+comes back in radians, so convert with `math.degrees(...)` before a check on a range in degrees. The reference says it
+returns -1 on an invalid expression, so `base.get_value` calls `isValidExpression` first and raises. Reading
+`ValueCommandInput.value` gives the same internal-unit number.
 
-**`lib/geargen/utilities.py`:**
-- `find_profile_by_curve_counts(sketch, nurbs=0, arcs=0, lines=0)` → the profile whose loop has
-  exactly those curve-type counts and no other curve types ([PB-PROFILE-MATCH]); raises (never
-  falls back to a wrong profile) with a self-diagnosing message.
-- `find_circle_by_radius(sketch, radius, tolerance=0.0001)` → the sketch circle matching the
-  radius (cm); raises on no match.
-- `get_normal(entity)` → world normal of a `BRepFace` / `ConstructionPlane` / `Plane` / `Sketch`.
+**[PB-SELECTION-DECL] Each selection input's filters and `setSelectionLimits(min, max)` are part of the fragment, per
+input.** The filters decide what the user can pick, and the limits decide when the dialog is valid.
+`setSelectionLimits(1)` means at least one with no maximum, because a maximum of 0 means no limit. Every gear uses
+`(1, 1)` for the Target Plane and the anchor point. Every gear pre-selects the root component as the parent. The
+parent is `(1, 1)` in the spur family and the bevel, and `(0, 1)` in the cycloidal drive; the bevel and cycloidal
+generators fall back to the root component when nothing is selected. Write filters as constants
+([PB-SELECTION-FILTER-ENUM]).
 
-**`lib/geargen/solids.py`** (body operations; all take the owning component first):
-- `cut_conical_ends(component, toothBody, gearBody, toeMid, heelMid, apexWorld, label)` → the
-  toe-then-heel two-cone flush trim. Toe cut is strict (failure raises); a heel cone that does not
-  intersect the keeper is caught (typed `NonIntersectError`) and the keeper is returned intact.
-  Exactly two split features per gear, every gear ratio.
-- `apply_conical_cut(component, targetBody, frustumBody, edgeMidWorld, apexWorld, label)` → one
-  conical cut: candidate `ConeSurfaceType` faces of `frustumBody` ordered best-first by the cut
-  edge's world-MIDPOINT distance ([PB-FACE-BY-MIDPOINT]), each tried as the split tool
-  (`isSplittingToolExtended=True`), first that splits wins; keeper per `select_keeper`. When no
-  face splits: raises `NonIntersectError` if the per-face failures carried Fusion's
-  `SPLIT_TARGET_TOOL_NOT_INTERSECT` (or localized `交差`) signal, else `RuntimeError` — both with
-  the full per-face distance/error history ([PB-SELF-DIAGNOSING]).
-- `select_keeper(component, pieces, apexWorld, label)` → drops apex-containing pieces, keeps the
-  largest remaining, removes the rest ([PB-REMOVE-PIECES]); raises when nothing remains.
-- `find_cone_faces_by_midpoint(frustumBody, edgeMidWorld)` / `surface_distance(surface, point)` —
-  the face-candidate ordering primitives (unevaluable distance → `inf`, "try last").
-- `slice_body_by_offset_planes(component, body, basePlane, offsets)` → splits piece-by-piece with
-  planes offset by each value (cm); a plane that misses a piece leaves it whole. The caller picks
-  the offsets/signs and asserts the resulting piece count ([PB-EMPTY-RESULT]).
-- `rotate_body_about_edge(component, body, edge, angleRad)` — rotation about a sketch edge's world
-  endpoints via free-move matrix ([PB-MOVE-ROTATE]).
-- `plane_by_angle(component, line, refPlane, angleDeg)` — `setByAngle` construction plane through
-  a sketch line (passed directly, never via `Path.create` — [PB-CONSTRUCTION-PLANES]).
-- `combine_point(base, a, e1, b=0.0, e2=None)` → world `Point3D` = base + a·e1 (+ b·e2), cm.
-- `circle_intersect_nearest(R, Cx, Cy, r_c, refX, refY)` → the 2-D circle∩circle intersection
-  nearest the reference point (non-overlap clamps to tangency).
-- `hide_construction_geometry(component)` — recursive light-bulb-off walk over every sketch /
-  construction plane / axis in the tree, deduped by `entityToken` ([PB-TREE-CLEANUP]).
+**[PB-SELECTION-FILTER-ENUM] Write a selection filter as the named constant, never a quoted literal.** Use
+`addSelectionFilter(adsk.core.SelectionCommandInput.ConstructionPlanes)`. The member names match the entity kinds
+(`ConstructionPlanes`, `PlanarFaces`, `ConstructionPoints`, `SketchPoints`, `Occurrences`, `RootComponents`, `Bodies`).
+The reference types the parameter as `addSelectionFilter(filter: str)`, and `SelectionCommandInput.ConstructionPlanes`
+is the string `'ConstructionPlanes'`, so the constant and the literal pass the same value. An earlier version of this
+entry said a literal raises `TypeError`; it does not. The constant is still the rule: a misspelt constant raises
+`AttributeError` when `configure()` runs, while a misspelt literal only makes `addSelectionFilter` return `False`,
+which no caller checks.
 
-**`lib/geargen/spurproxy.py`:**
-- `VirtualSpurProxy(module_mm, virtualTeeth, pressureAngleRad=radians(20), involuteSteps=15,
-  rootSink_mm=0.0)` — a fake spur `parent` for `SpurGearInvoluteToothDesignGenerator`
-  ([PB-PRECOMPUTED-MODE]): serves, in internal cm, exactly the parameter keys the spur drawer reads
-  (`Module`, `ToothNumber`, `PressureAngle`, the Pitch/Base/Root/Tip circle diameters+radii,
-  `InvoluteSteps`), each wrapped in a `.value` carrier (`Val`). Carries the `_lastToothEmbedded`
-  output slot the drawer writes during `draw()` — the borrowing gear reads it back afterward.
-  - `virtualTeeth` may be a **real number**. The pitch diameter is `virtualTeeth * module_mm`, so a
-    gear that needs a pitch circle at a radius the tooth count does not land on passes the real
-    count and gets that radius. The drawer reads `ToothNumber` only for the angular half-thickness
-    `pi / (2 * ToothNumber)`, which a real count leaves at the standard `pi * module / 2` of tooth
-    at the pitch circle.
-  - `rootSink_mm` shortens the ROOT circle by `2 * rootSink_mm` of diameter and leaves pitch, base
-    and tip where they are. It exists for a gear whose tooth is joined onto a curved body, where a
-    root circle at the dedendum corner exactly meets that body along one line. It defaults to 0,
-    which is the plain spur tooth.
+**[PB-SELECTION-STASH] Read every selection before anything creates the gear's occurrence.** Creating the occurrence
+shifts Fusion's active context, and selections read after that come back empty. `getOccurrence()` creates it, and so
+does anything that calls it, including `parameterName()` and `addParameter()`. The spur's `processInputs`, the bevel's
+`generate` and the cycloidal drive's `processInputs` read their selections first.
 
-## `processInputs` pattern
+**[PB-VALIDATE-INPUTS]** `GearCommand.command_validate_input` lets a gear disable OK and say why while the dialog stays
+open. A generator class opts in with a static method `validate_inputs(inputs) -> list[str]`. It runs on every keystroke,
+so it reads values straight from `inputs.itemById(id).value` (internal units), touches no parameter or document, and
+returns one message per problem, best with the input's name and a numeric bound. An empty list means valid.
+`GearCommand` then sets `args.areInputsValid = not problems`, and treats an exception from the hook (a half-typed
+expression) as valid, so the generator's own check at execute time stays the backstop. To show the messages, add a
+hidden read-only `addTextBoxCommandInput` after each editable input, with the input's id plus `'__status'`, and name a
+fallback slot in the class attribute `DEFAULT_STATUS_INPUT_ID`. The handler writes the problems into the slot of the
+input the user last changed, or the fallback for a selection or the first open, and hides the slot it showed before.
+The cycloidal drive is the only gear that opts in. Its `validate_inputs` and its `processInputs` both call the
+translated gallery `problems()`, so the two checks cannot drift; `TestTranslatedValidityChecksMatchTheGallery`
+(`port/cycloidal`) compares that function with the gallery's.
 
-Order is load-bearing (see the spec's "Generation Order"): **pull every selection input out of
-`inputs` and stash it on `self` before anything creates the occurrence.** Numeric/boolean inputs
-are immune to the context shift, but they must be read and registered as parameters, which *does*
-create the occurrence — so read selections first.
+**[PB-AUTOFOCUS-FIRST] Fusion focuses the first `SelectionCommandInput` of a dialog and ignores a later
+`hasFocus = True`.** Add the selection that should open with focus first. Every gear adds its Target Plane first.
 
-1. `get_selection` for parent → resolve `Occurrence.component` vs `Component` into
-   `self.parentComponent`; raise on wrong count/type.
-2. `get_selection` for plane and anchor point → `self.plane`, `self.anchorPoint`.
-3. For each numeric/bool input: `get_value`/`get_boolean`, then `addParameter(...)` with the
-   right units (`''`, `'mm'`, `'rad'`).
-4. Call the `addExtraPrimaryParameters(inputs)` hook (subclasses inject their own primary
-   parameters here, **before** derived parameters reference them).
-5. Register **derived** parameters as live Fusion expression strings via
-   `ValueInput.createByString(f'{parameterName(...)} * …')`. The exact parameters and formulas
-   live in the spec's Variables section.
-6. Any parameter Fusion's expression engine can't evaluate (e.g. one mixing the unitless `tan()`
-   output with a radian value in a subtraction) is **pre-computed in Python** and registered with
-   `ValueInput.createByReal(...)`. The spec flags which ones. Watch the registration **units**
-   too: an angle (radian magnitude) that is later used as a bare multiplier of a length must be
-   registered **unitless** (`''`), not `'rad'`, or Fusion rejects the dependent length expression
-   (`mm·rad`) as invalid.
+## Parameters
 
-**[PB-NUMERIC-SNAPSHOT]** Caveat to honor: sketch **dimensions** and **feature inputs** are set
-from the *current numeric value* of a parameter at generation time, not as live links — editing a
-`<prefix>_…` parameter does not update an existing gear; regenerate. (Wiring live links —
-`dim.parameter.expression = parameterName(...)` for sketch dims, `ValueInput.createByString(...)`
-for feature inputs — has been tried repeatedly and does not propagate reliably in Fusion: sketch
-dims appear to need the sketch reopened/edited before downstream parameters drive geometry, and
-feature inputs capture the expression only intermittently. So the user parameters under
-`<prefix>_…` stay visible for reference but are not design-editable; re-run the dialog to change a
-gear.)
+**[PB-NUMERIC-SNAPSHOT] Before the port, sketch dimensions and feature inputs were set from numbers, because live
+links did not update reliably.** Setting `dim.parameter.expression` for a sketch dimension and
+`ValueInput.createByString(...)` for a feature input had seemed to need the sketch reopened before downstream
+geometry followed, and features picked up the expression only some of the time. The translated gears now link
+some values: `decadfusion.Sketch._bind` sets a radius or diameter dimension's expression to the user parameter the
+gallery binds it to, and `value_input` passes a `Value` as `createByString(<parameter name>)` to extrudes, fillets and
+chamfers. Point dimensions, pattern counts, plane offsets and the spur's `Reference Circles` dimensions are still
+numbers taken at generation time. No Fusion run has yet recorded whether editing a linked parameter updates a
+translated gear; re-run the dialog to change a gear until one does.
 
-**[PB-DIM-VALUE-SEMANTICS] A linear sketch dimension's value is a magnitude plus a direction
-captured at creation — never assign an axis-signed delta.** `addDistanceDimension(...)` measures
-the geometry as it sits and creates its parameter at the **absolute** distance: a point at
-Δy = −0.5 yields `parameter.value == +0.5`, with the dimension remembering which side the second
-point sat on. Assigning a **negative** value flips the point to the **opposite** side of wherever
-it currently is (verified in-Fusion: assigning −0.5 to that dimension moved the point to
-Δy = +0.5, and assigning +0.5 moved it back). So a point's side is chosen by **seeding the
-geometry on the intended side before creating the dimension**; the value, when assigned at all,
-is the **absolute** magnitude `abs(Δ)`. Writing the axis-signed delta instead mirrors the point
-whenever the delta is negative, the sketch still solves, and the failure surfaces only later as a
-missing profile ([PB-PROFILE-MATCH]). The bench engine's `NewHorizontalDistance` /
-`NewVerticalDistance` take **signed** targets; when transcribing to Fusion, the target's sign is
-realized by the seed side and only `abs(target)` may go into `parameter.value`.
+**[PB-PARAM-EXPRESSIONS] What Fusion's parameter expressions accept.**
+- Through the API, lowercase `pi` parses as a unit, not the constant. It evaluates to 0 in a unitless parameter and is
+  rejected next to a length. Capital `PI` is the constant (Fusion 2705.1.25, 2026-10-23). `port/fusionexpr` writes `PI`,
+  and `TestTranslateWritesPiInCapitals` checks it.
+- Dividing an angle by `1 deg` gives a plain number (Fusion 2705.1.25). `port/fusionexpr` translates the gallery's
+  `deg(a)` to `(a / 1 deg)`, and the spur's `InvoluteAngle` uses it to subtract an angle from `tan(...)`.
+- An angle used as a bare factor of a length must be registered unitless (`''`), not `'rad'`. Otherwise the dependent
+  length expression has the unit `mm·rad` and Fusion rejects it. The spur registers `InvoluteAngle` unitless.
+- `port/fusionexpr` refuses a gallery function it has no rule for (`TestTranslateRefusesWhatItHasNoRuleFor`).
 
-## `generate` orchestration
+**[PB-PRECOMPUTED-MODE] A gear either registers Fusion user parameters or keeps its numbers in Python.** The spur
+family and the cycloidal drive register user parameters, with derived ones written as expressions of the dialog's
+values ([PB-PARAM-EXPRESSIONS]). The bevel pair registers none: its table lives in `decadfusion.ParamTable`
+([PB-PARAM-TABLE]), and its fragment raises if the runtime asks for a Fusion parameter. A value Fusion cannot express
+is computed in Python and registered with `createByReal`, as the cycloidal drive does for `PinRadius` and
+`OutputHoleDiameter` (their comments say "numeric snapshot").
 
-`generate(inputs)`:
-1. `processInputs(inputs)`.
-2. `component = self.getComponent(); component.name = self.generateName()`.
-3. Normalise the plane: if `self.plane` is not a `ConstructionPlane`, create a coplanar one via
-   `constructionPlanes.add(createInput().setByOffset(self.plane, 0))` and replace `self.plane`.
-4. `ctx = self.newContext()`.
-5. Run the build steps in the order the spec's "Generation Order" lists. The spec's "Method
-   contract" section pins which build methods own which steps; preserve those method boundaries
-   and names (subclasses override at them). Private-helper decomposition beyond that is free.
+**[PB-PARAM-TABLE] A model that only reads its parameters back keeps them in Python.** The bevel gear's
+`defineParameters` writes inputs and expressions into a table, and its build reads the results (cone angle, radii, face
+width). No sketch binds a dimension to a parameter, so no Fusion user parameter is made. `decadfusion.ParamTable` holds
+the values and evaluates the expressions with Python's arithmetic and the functions in `_EXPRESSION_FUNCTIONS` (`hypot`,
+`atan2`, `atan`, `asin`, `acos`, `sin`, `cos`, `tan`, `sqrt`, `min`, `max`, `pow`, `abs`). `Runtime.param` reads from it
+first.
 
-## Dependent-gear contract (preserve verbatim — when a spec declares one)
+## Sketches
 
-This applies **only when a gear's spec declares dependents** — another gear that either subclasses
-its classes or imports one of them. For the involute gears, `helicalgear.py` and
-`herringbonegear.py` subclass `spurgear`'s classes and override/call members **by name**; a gear
-may also be borrowed by composition (e.g. `bevelgear` imports `spurgear`'s tooth generator). In
-any such case the depended-on gear's public surface is a contract a regenerated `.py` must
-preserve exactly, or the dependents break. That surface typically includes:
+**[PB-SKETCH-FIRST]** Retired with `proof/` in #192. The gallery proves each model's sketches with its own tests, and
+nothing in this repository checks the degrees of freedom of the Fusion-only sketches (see
+`docs/gallery-port-pipeline.md`, "Checks").
 
-- the class names the dependent binds to;
-- the overridable hook methods — kept as **distinct, overridable steps** (subclasses override them
-  and call them via `super()`);
-- the tooth/profile-generator entry point and its `draw(anchorPoint, angle=<radians>)` signature
-  (a subclass may pass a non-zero `angle`);
-- every `GenerationContext` field name the dependent reads or extends (for gears that use a
-  context object);
-- the inherited `base.Generator` helpers the dependent leans on — `parameterName`, `getParameter`,
-  `getComponent`, `createSketchObject`.
+**[PB-FULL-CONSTRAINT] Leave no sketch under-constrained, and check it with `sketch.isFullyConstrained`.** Every point
+either carries constraints or dimensions, or is driven by them (a projected point follows its source). A free degree
+of freedom lets the geometry move between rebuilds. `decadfusion.sketchcheck_verify_fully_constrained` raises for a
+translated sketch that is not fully constrained, and `unconstrained_entities` lists the curves and fit points it left
+free, in mm. The fragments raise the same way for their `Tools` sketches. A labelled sketch is the one exception
+([PB-TEXT-HOLDS-DOF]).
+  - **[PB-REFLINE-DIRECTION] Fix reference-line directions.** A line created only with coincident or midpoint
+    constraints and a length still rotates freely (1 DOF). Pin it with a sketch-local `addHorizontal`/`addVertical`,
+    which holds on a tilted plane because it uses the sketch's own frame, or with an angle dimension. The bevel's
+    `Tools` line uses `addHorizontal`.
+  - **[PB-CIRCLE-CENTER] A circle's centre is free even when created at (0, 0, 0).**
+    `sketchCircles.addByCenterRadius(Point3D.create(0, 0, 0), r)` does not reuse the sketch's `originPoint`; its
+    `centerSketchPoint` is a new free point that sits at the origin. Pass an existing `SketchPoint` as the centre to
+    share it (the reference allows either), or fix the new centre. `addCoincident(circle.centerSketchPoint,
+    sketch.originPoint)` was observed to throw `VCS_SKETCH_SOLVING_FAILED` on a `setByDistanceOnPath` plane.
+    `decadfusion.Sketch.create_circle` places a free centre with dimensions from the local origin.
+  - **[PB-PROJECT-NOT-FIXED] Check each projected entity's constrained state.** `sketch.project(...)` brings geometry
+    in associatively, but its displayed position does not prove the sketch is fully constrained. A projection from a
+    constrained source anchors a point, as the spur `Tools` sketch shows by passing `isFullyConstrained`. A projection
+    from geometry with free DOF can leave the destination under-constrained. For a free projection, either
+    `addCoincident` it to a fixed point, or create new points with
+    `sketch.sketchPoints.add(sketch.modelToSketchSpace(src.worldGeometry))`, draw the curves that share them, and only
+    then set `isFixed = True` on the line endpoints. Setting `isFixed` on a bare point before a line uses it did not
+    leave the sketch fully constrained.
+  - **[PB-NO-OVERCONSTRAIN] Do not over-constrain to get there.** A dimension on a length that perpendicular,
+    collinear or closing constraints already drive throws `VCS_SKETCH_OVER_CONSTRAINTS`. Full constraint comes from the
+    missing constraint, not from more dimensions.
+  - **[PB-COLLINEAR-CHAIN] A collinear names the line the new line's start point actually sits on, never a line farther
+    up the same chain.** `addCollinear` carries two point-on-line rows. When the new line starts at the reference
+    line's own endpoint, one row is already satisfied and Fusion absorbs the other. When the start reaches the named
+    line only through an earlier collinear, the two chains assert the same fact twice and the sketch over-determines.
+    In a chain A→E then E→G, the second collinear names A→E, not the axis A→E is collinear with.
+    - Measured 2026-09-03 on the bevel lattice: `addCollinear(E→G, Apex→A)` raised `RuntimeError: 3 : failed to
+      create offset: VCS_SKETCH_OVER_CONSTRAINTS` at the second such call, and `addCollinear(E→G, A→E)` builds. Where
+      both endpoints are already fixed, drop the collinear and pin the point with two point-on-line `addCoincident`
+      calls.
+    - The sketch library behind the gallery's tests counts a collinear as the same two rows, so a gallery test cannot
+      tell the two forms apart. Only Fusion does.
 
-**The concrete names, and whether any dependents exist at all, live in that gear's spec, not
-here** — see the spec's "Method contract / call graph", "Generation Context", and "Dependencies"
-sections, which enumerate the exact classes, hook methods, call graph, `ctx` fields, and
-borrowed/inherited surface to reproduce. Treat them as fixed identifiers; don't rename or drop any.
-(Hooks typically include ones a subclass uses to vary behaviour — a fillet-scaling expression, an
-expected front-face edge count, etc.; the spec says what each returns for the depended-on gear.)
+**[PB-DIM-VALUE-SEMANTICS] A linear sketch dimension's value is a magnitude, with a direction captured at creation.**
+`addDistanceDimension(...)` measures the geometry as it sits and creates its parameter at the absolute distance: a
+point at Δy = −0.5 gives `parameter.value == +0.5`, and the dimension remembers which side the point was on. Assigning
+a negative value moves the point to the opposite side (verified in Fusion: −0.5 moved the point to Δy = +0.5, and
++0.5 moved it back). So choose a point's side by seeding it on that side before the dimension exists, and assign only
+`abs(Δ)`. A signed delta mirrors the point whenever it is negative; the sketch still solves, and the fault shows only
+later as a missing profile. The gallery's sketch library takes signed horizontal and vertical distances.
+`decadfusion.Sketch` seeds each point at the gallery's signed coordinates and lets `addDistanceDimension` measure, so it
+never assigns a distance value.
 
-## Command-entry wiring (`commands/<gear>/entry.py`)
+**[PB-TEXT-HOLDS-DOF] Sketch text counts toward `isFullyConstrained`, so a labelled sketch may not report fully
+constrained.** Text placed with `setAsAlongPath` ([PB-SKETCH-TEXT]) has its own position along the curve, and nothing
+pins it. Measured 2026-09-02 on the spur tooth sketch: `False` with its four circle labels, `True` with the labels
+deleted and no other change. The bevel tooth sketches, labelled the same way, read `False` in one run on 2026-09-12 and
+`True` in the two runs after it, with identical counts (53 points, 47 constraints, 41 dimensions, 4 texts) and the same
+coordinates to four decimals, so the reading is not stable ([PB-SETTLE-DISPLAY]). Never gate a labelled sketch on the
+property; log it. This exempts the labels and nothing else. The spur now draws its labels in a `Reference Circles`
+sketch of their own, which is not gated, and the translated sketches carry no text and are gated.
 
-The Fusion command boilerplate lives once in `commands/_gear_command.py` (`GearCommand`): it
-registers the button in the shared Gears dropdown, wires the
-execute/inputChanged/validateInputs/destroy handlers via `futil.add_handler`, runs
-`generator_class(get_design()).generate(inputs)` inside `try/except Exception` (failure →
-`futil.handle_error('Generation error', show_message_box=True)` + `g.deleteComponent()`), and on
-`stop()` removes only its own control — the shared dropdown is deleted once by
-`commands/__init__.py` after all commands stop. An entry module only declares its command and
-re-exports the lifecycle hooks:
+**[PB-SETTLE-DISPLAY] Fusion's browser shows a stale constraint icon for a sketch a generator authors, until something
+makes it settle.** The icon reflects the sketch as it was when created, before its constraints existed, so a finished,
+fully constrained sketch shows as unconstrained. Opening the sketch and closing it refreshes the icon.
+  - The icon is not evidence. Measured 2026-09-12: `isFullyConstrained` returned `True` for the bevel's Anchor, Gear
+    Profiles and both per-gear Profile sketches when each was built and after the last feature, while all four icons
+    showed otherwise. Read the property, not the browser.
+  - `commands/_gear_command.py` records the sketches that exist before `generate()`, and afterwards calls
+    `geargen.settle_sketch_display` once. That toggles `isComputeDeferred` on each new sketch, reads
+    `isFullyConstrained`, and calls `adsk.doEvents()`. Every gear goes through that one call, so no fragment or runtime
+    function adds its own.
+  - It changes only the display. Across three instrumented bevel builds the geometry, constraint and dimension counts
+    were the same with and without it. It also refreshed a control sketch it was not applied to, which points at
+    `adsk.doEvents()` as the part that does the work; both parts are kept because only the pair was measured.
+  - Sketch-only spur, Fusion 2705.1.25: the first run showed the `Tools` and `Gear Profile` sketches as not fully
+    constrained, and a later run showed both fully constrained without any action. The first reading was not
+    reproduced. Nothing in the port changed the sketch calls, so no code changed.
 
+**[PB-SKETCH-TEXT] Along-path sketch text takes three calls.**
 ```python
-import os
-from ...lib import geargen
-from .._gear_command import GearCommand
-
-command = GearCommand(
-    gear_type='SpurGear',     # CMD_ID becomes f'{COMPANY_NAME}_{ADDIN_NAME}_{gear_type}_cmdDialog'
-    name='Spur Gear Generator',
-    description='Generates a Spur Gear',
-    icon_folder=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'resources', ''),
-    configurator=geargen.SpurGearCommandInputsConfigurator,
-    generator_class=geargen.SpurGearGenerator,
-    # optional: input_changed=<callback(args)> for dialogs with reactive inputs
-    # (e.g. bevel passes its configurator's handle_input_changed to drive
-    # conditional visibility of the spiral-only inputs)
-)
-
-start = command.start
-stop = command.stop
+textInput = sketch.sketchTexts.createInput2(text, height)   # height in cm
+textInput.setAsAlongPath(curve, True, adsk.core.HorizontalAlignments.CenterHorizontalAlignment, 0)
+sketch.sketchTexts.add(textInput)
 ```
+`setAsAlongPath(path, isAbovePath, horizontalAlignment, characterSpacing)` lays the text along the curve; the last
+argument is a percentage change in character spacing. The reference now lists only
+`createInput3(expression, height: ValueInput)`, but Fusion still runs `createInput2(text, height)`: the spur's
+`Reference Circles` sketch uses it, as the add-in loaded on 2026-10-23 did.
 
-New gears: add the entry directory (with `resources/`), then import and list it in
-`commands/__init__.py`.
+**[PB-SHARE-XOR-COINCIDENT] Never bind a point twice: share it or add one coincident, not both.** To start a curve at
+an existing sketch point, either pass that `SketchPoint` into the creation call, `addByTwoPoints(existingPoint,
+otherEnd)`, and add no coincident, or create the curve from a `Point3D` and add exactly one
+`addCoincident(curve.startSketchPoint, existingPoint)`. Both together stack a redundant coincident and the solver fails
+with `VCS_SKETCH_SOLVING_FAILED`. Never `addCoincident` two points that are already one shared point.
+  - Not every creation call shares every point it is given. `sketchArcs.addByCenterStartEnd(centre, start, end)`
+    shares the start and end but copies the centre into a new free `SketchPoint`, so the arc needs
+    `addCoincident(arc.centerSketchPoint, existingPoint)`. That is the one case where passing a point and adding a
+    coincident to it is right. The reference adds that an end point not on the arc is replaced by a new point that is.
+    Compare `entityToken`s to confirm sharing. Found 2026-09-02: the bevel tooth-top arc's centre stayed 22.9 mm behind
+    its origin, giving a 0.5743 mm arc where 22.5 mm was intended, on a sketch that raised no error.
+    `decadfusion.Sketch._drawArcs` adds that coincident ([SPUR-F-ARC-CENTRE] in `docs/fusion/spurgear.md`).
 
-### Optional: live input validation (`validateInputs`) — `[PB-VALIDATE-INPUTS]`
+**[PB-SEED-NEAR] Seed coordinates near the solved position; the solver depends on the seed.** Fusion's sketch solver is
+iterative. A seed far from its solution, or on the wrong side of a parallel or offset target, can fail with
+`VCS_SKETCH_SOLVING_FAILED` although the constraints can be met. A point that must end on a line should start near
+that line. `decadfusion.Sketch` seeds every point at the gallery's solved coordinates.
 
-**[PB-VALIDATE-INPUTS]** `GearCommand.command_validate_input` supports an **opt-in** per-gear hook
-so a dialog can grey out OK and show *why* — keeping the dialog open and editable — instead of
-failing only at execute time. A gear opts in by declaring on its **generator class**:
+**[PB-SOLVED-GEOMETRY] Read solved `.geometry` for any value computed from constrained points, not the seed
+coordinates.** Fusion solves as each constraint is added, so a point's `.geometry` is its solved position once the
+constraints that place it exist. The seeds passed to `addByTwoPoints` can differ from the solved positions, markedly so
+for asymmetric configurations.
 
-- `@staticmethod validate_inputs(inputs) -> list[str]` — a **pure** check that reads raw values
-  straight off `inputs.itemById(<id>).value` (internal cm — no `get_value`, no parameters, no
-  document mutation; it runs on every keystroke) and returns a list of human-readable problems,
-  **each ideally naming the offending input and a concrete numeric bound** (e.g. "Output Pin
-  Circle Diameter must be below 42.5 mm"). An empty list means valid. This member alone enables the
-  OK-greying behavior.
-- (to also *show* the messages) a **per-field message slot** after each editable input: a hidden
-  read-only `addTextBoxCommandInput` whose id is the input's id + `STATUS_SUFFIX` (`'__status'`),
-  created `isVisible = False`; plus a class attribute `DEFAULT_STATUS_INPUT_ID` naming one such slot
-  to use as a fallback. The shared handler records the **last-changed input** (in `inputChanged`) and,
-  on a problem, writes the list into `<last-changed-id> + '__status'` (or `DEFAULT_STATUS_INPUT_ID`
-  when that input has no slot — e.g. selections, or the initial open), hiding whichever slot it showed
-  before. This puts the guidance **next to the field the user just edited** instead of in one fixed
-  box that may be scrolled out of view in a long dialog.
+**[PB-WORLDGEO-CONSTRAINED] Read `.worldGeometry` only from a constrained sketch entity.** A point used to build a world
+axis, origin or tool must be shared with or coincident to fixed geometry. A fully free sketch point gave a wrong
+`worldGeometry` and the feature built from it landed in the wrong place. The case that showed this was not recorded,
+so treat the mechanism as unverified; the rule costs nothing to follow.
 
-When `validate_inputs` is present the shared handler sets `args.areInputsValid = not problems`
-(OK disabled while any problem remains). It swallows exceptions from the hook (a half-typed
-expression) and falls back to valid, so the hook never traps the user; the generator's
-execute-time validity guard stays as the backstop. A gear may define `validate_inputs` without any
-slots (OK greys out, no inline text). Gears that declare neither keep the default always-valid
-behavior. Keep the resolve+validate math in **one routine** shared by `validate_inputs` and the
-execute-time resolve so the two never drift.
+**[PB-WORLD-FRAME] `.geometry` is in the sketch's frame and `.worldGeometry` in the design's; match the frame of what
+you compare against.** Mixing a sketch-frame curve with a world axis returns wrong numbers with no error, for example a
+wrong spiral twist that made meshing teeth interfere. The two frames agree only for a sketch on the world XY plane.
+The runtime reads the anchor's `worldGeometry` and maps every position through `Runtime.to_world` and `to_local`.
 
-**[PB-AUTOFOCUS-FIRST] Dialog auto-focus ordering gotcha.** Fusion auto-focuses the FIRST `SelectionCommandInput` and
-ignores a later `hasFocus=True`; add the selection input that should own initial focus first (so the
-`configure()` add-order, not a focus flag, decides which selection the dialog opens on).
+**[PB-SPACE-METHODS] `sketch.modelToSketchSpace(p)` and `sketch.sketchToModelSpace(p)` are methods that transform a
+point, not matrices.** Each takes a `Point3D` and returns one: `local = sketch.modelToSketchSpace(worldPoint)`. Passing
+the bound method to `Point3D.transformBy`, which expects a `Matrix3D`, raises `TypeError`. `decad_scaled_at` uses
+`modelToSketchSpace` to place its base point.
 
-## Sketch-first proof — fully constrain in the `sketch` engine before generating ([PB-SKETCH-FIRST])
+**[PB-POINT-HELPER]** Retired: it was advice for hand-written point helpers. The runtime builds every `Point3D` from
+numbers in one place each (`Sketch._p3`, `Runtime.to_world`).
 
-**[PB-SKETCH-FIRST] Before emitting Fusion code for a gear whose profile is a non-trivial
-constrained sketch, first reproduce that sketch in the standalone
-[lestrrat-3d/sketch](https://github.com/lestrrat-3d/sketch) engine and prove the constraint scheme
-fully constrains — `DOF == 0`, no redundant or conflicting constraints, well-conditioned. Only
-once that passes do you generate the Fusion add-in code.** A constraint scheme that is silently
-under- or over-constrained (`[PB-FULL-CONSTRAINT]`, `[PB-NO-OVERCONSTRAIN]`) is expensive to
-discover inside Fusion and hard to attribute. The sketch engine is a headless, scriptable oracle
-for exactly this question, so the scheme is proven on the bench before it is committed to geometry.
+**[PB-DRIVING-DIM] Driving and driven dimensions.** Every `add*Dimension(...)` takes a trailing `isDriving`, default
+`True`. Passing `False` makes a driven dimension, which constrains nothing.
 
-**Where it lives.** The proof is a committed Go test per gear at
-`proof/<gear>/sketches_test.go` (registered from `spec/<gear>/steps.md`). It reproduces the gear's
-constraint-bearing sketch(es) from the same `[SPUR-F-…]`/spec recipes the Fusion code will use, runs
-the solver, and reports success through `proof/run.sh`: exit **0** means selected Go tests pass,
-exit **1** means proof compilation or execution failed, and exit **2** means runner setup failed.
-Every gear's proof MUST use this contract. Run the compiled gear package, such as
-`proof/run.sh --package ./helicalgear -- -count=1`; a selector that runs zero tests is a failed proof.
-Proof-specific deviations belong beside the maintained proof or in the authoritative gear spec.
-The proof comments record Fusion behavior that the sketch engine cannot reproduce.
-The gear spec records behavioral waivers and scope when a proof cannot model a Fusion operation.
-`proof/spurgear/sketches_test.go` is the worked example (the spur
-Gear Profile: four circles, involute flanks, ribs, spine, flank-to-root lines). `run.sh` resolves a
-local checkout of the engine (source-available, not go-gettable) via `$SKETCH_DIR` or a sibling
-`<repo>/../sketch` located with `git --git-common-dir`, injecting the replace through a throwaway
-`GOWORK` so the committed `go.mod` stays portable.
+**[PB-OFFSET-DIM] Line-to-line offset dimension.** To dimension the gap between two parallel lines, use
+`sketch.sketchDimensions.addOffsetDimension(line, entityTwo, textPoint)`, where `entityTwo` is a parallel line or a
+point, and set `.parameter.value`. It is not `addDistanceDimension`, which is point to point. Add `addParallel` only
+when the lines are not already parallel by construction (for example both perpendicular to a third line); a redundant
+`addParallel` throws `VCS_SKETCH_OVER_CONSTRAINTS`.
 
-**The gate.** Register sketch cases through `proofkit.Run`, `proofkit.RunParallel`, or
-`proofkit.RunWithExpectedFailures`. `proofkit.RequireSound` in `proof/proofkit/proofkit.go` owns
-the positive gate: the solve must converge and the pinned engine's `VerificationReport.Check()`
-must pass. Follow that gate instead of copying selected verification fields into a second runner.
+**[PB-ANGULAR-DIM] An angular dimension measures the quadrant that holds its text point.**
+`addAngularDimension(lineA, lineB, textPoint)` dimensions the angle on the side where `textPoint` lies, so place it
+inside the wedge you mean (a shaft angle Σ, not 180 − Σ).
 
-- Treat invalid profiles and discrete ambiguity as failures, as the maintained gate does.
-  Investigate engine limitations before changing the proof; record any scoped exception at its
-  call site and in the gear spec. A seeded pose can hide a mirrored solution even at `DOF == 0`.
-- Declare negative controls through `ExpectedFailureCase`; its gate requires the declared status,
-  DOF, and sole failure reason while retaining mandatory positive cases. A process crash or an
-  unrelated verification failure is not a passing negative control.
+**[PB-RADIAL-DIM] A radial or diameter dimension's text point must not be the centre.** `addRadialDimension(arc,
+textPoint)` and `addDiameterDimension(circle, textPoint)` reject a text point at the centre with `RuntimeError: 3 : …
+一部の入力引数が無効です` ("some input arguments are invalid"). `decadfusion.Sketch._dimensionCircle` and the spur's
+`Reference Circles` put it at `(r, r)`.
 
-**Constraint mapping (Fusion → sketch engine).** The two constraint sets are near-identical, so the
-scheme translates almost verbatim: `addByCenterRadius`→`CreateCircle`; a driving diameter/radius
-dim→`NewDiameter`/`NewRadius`; `addCoincident`→`NewCoincident` (or grounding a shared point with
-`Fix`); `addHorizontal`/`addVertical`→`NewHorizontal`/`NewVertical`; `addPerpendicular`→`NewPerpendicular`;
-`addMidPoint`→`NewMidpoint`; a point-on-line/`addCollinear`→`NewPointOnLine`/`NewCollinear`;
-point-on-circle→`NewPointOnCircle`; an angular/`addAngularDimension`→`NewAngle`; a fitted
-spline→`CreateSpline`; a horizontal/vertical
-`addDistanceDimension`→`NewHorizontalDistance`/`NewVerticalDistance` — but the engine's target is
-**signed** while Fusion's dimension value is a magnitude whose direction is captured from the
-seeded geometry at creation, so the sign crosses over as the seed side, never as a negative
-`parameter.value` ([PB-DIM-VALUE-SEMANTICS]). Share a `*Point` between entities to express a shared vertex (the engine's
-analog of `[PB-SHARE-XOR-COINCIDENT]`). A Fusion three-point arc with a diameter dim maps to
-`CreateArc(freeCenter, start, end)` + `NewDiameter` (the arc's own free centre is pinned by the two
-shared ends + the diameter). The anchor coincidence that grounds the whole sketch maps to fixing the
-local-origin point (`MoveTo` + `Fix`).
+**[PB-SINGLE-PROFILE] When a sketch has one closed loop, take `sketch.profiles.item(0)`.** A filter on the curve type
+of the loop (`ProfileCurve.geometry.curveType == Line3DCurveType`) once rejected a valid all-line loop and made a
+revolve fail with "could not find profile". Filter only when the sketch holds several profiles.
 
-**The proof is a bench model, not the Fusion code.** Where an engine primitive differs, use the
-closest faithful equivalent and document it beside the maintained proof and in the gear spec.
-For example, Fusion derives a tooth's
-root arc by profile-splitting a solid root circle, which the prototype models with an explicit root
-arc (the same derived boundary) while keeping the root circle construction. The point is to prove
-the *constraint logic* reaches `DOF == 0` across a parameter sweep, not to byte-match Fusion's entity
-list. Run the check across several `Module`/`Tooth Number` sizes to prove the **parametric** scheme
-holds, and note any parameter region it does **not** (e.g. an ill-conditioned near-degenerate
-transition) as a finding.
+**[PB-PROFILE-MATCH] When a sketch holds several profiles, find one by its curves, not its index.** Iterate
+`sketch.profiles` and `profile.profileLoops`, and match the loop whose `profileCurves` have the expected count and
+types. Read a curve's type from `curve.geometry.curveType` and compare it with `adsk.core.Curve3DTypes`, whose members
+end in `CurveType`: `Line3DCurveType`, `Arc3DCurveType`, `Circle3DCurveType`, `NurbsCurve3DCurveType`.
+`NurbsCurve3DType` and `Arc3DType` do not exist. `decadfusion.select_embedded_tooth_profile` matches this way
+([PB-EMBEDDED-TOOTH]).
 
-**Engine bug found and fixed by this work (context, not a rule):** a line meeting an arc at a shared
-loop corner (a circular segment, slot, pie slice, gear tooth) was false-flagged as a *degenerate
-arrangement* by the sketch engine's profile consistency gate — it counted the endpoint corner-join
-against the sampled interior-crossing count. Fixed in lestrrat-3d/sketch `main` (PR #12 —
-`cornerJoin` handling in `geom/arrange.go` + a regression test). `ProfilesValid`
-is true for the gear teeth only against an engine that carries this fix. When the bench oracle
-disagrees with a hand proof, suspect (and, if authorized, fix) the oracle too — don't just downgrade
-the check.
+**[PB-PROFILE-STALE] Adding a curve to a sketch invalidates the profiles already read from it.** A revolve whose axis
+was added to the profile's own sketch after `sketch.profiles` was read failed with `invalid profile(s) for Revolve
+Feature`. The axis goes in a sketch of its own, or the sketch draws it before the profiles are read.
+`Runtime.axis_line` draws each axis in a Fusion-only sketch, and one line serves every revolve and pattern about the
+same axis ([PB-FRAME-PLANE]).
 
-## Fusion-API conventions & gotchas (cross-gear)
+**[PB-BAD-ENTITY] `Sketch.project` answers `Bad entity parameter` for an entity that is missing or stale.** Two causes
+were seen. The entity was `None`, because a sketch took its anchor from a plane that has none. And a `SketchPoint`
+that another sketch had projected is refused once that sketch gains curves and constraints. So the bevel projects the
+point the user chose into its `Pair Tools` sketch, not the copy its `Tools` sketch holds. The spur and cycloidal
+`Tools` sketches hold only the projected point, so the runtime projects that copy. `tests/test_bevel_runtime.py` covers
+the missing-anchor case.
 
-- **[PB-API-LOOKUP] Look the API up before you write it — never guess an `adsk.*` name, module, or signature.** The `fusion` plugin ships a compiled database of the entire Fusion Python API and answers it through the `fusion:query-api` skill, with no setup and no path to pass. It knows what class declares each member, and it resolves inheritance the way Python does, so it answers the question that matters — does *this* class have this member — rather than the weaker one, does the name exist somewhere. Use it two ways:
-  - **Verification (point lookup) — do this for any call you're not 100% sure of.** Ask `show <Class>.<member>` first: it answers in a few lines, resolving members declared on any base and naming the class that declares each, and it gives that member's exact signature, casing, submodule and docs. When `show` reports no match or returns a candidate list, the name as written does not exist; only then ask `members <Class>`, which lists everything the class offers, inherited members included, each tagged with its declaring class — that is how you find you want `sketch.sketchCurves.sketchCircles`, not `sketch.sketchCircles`, since `sketchCircles` belongs to `SketchCurves`, not `Sketch`. Prefer `show` per call: `members` prints a class's whole surface, which is a large answer to a small question. This shifts the two BLOCKING bug classes (`reportUndefinedVariable`, wrong-submodule `reportAttributeAccessIssue`) left — before writing — rather than relying on the after-the-fact `pyright_check.py` gate.
-  - **Discovery (concept lookup) — when you know the concept but not the name.** `search <term>` matches names, `doc-search <term>` matches documentation, and `tree <Class>` gives the base chain and direct subclasses. A name the database does not have is a name Autodesk does not document; that is worth reporting, not worth working around. The same database backs `check_api_calls.py` and `check_compile.py` through `.claude/skills/generate-gear/fusion_api.py`, so what those gates accept is what you can look up here.
-- **[PB-ADSK-MODULES] `adsk.core` vs `adsk.fusion` — get the module right; the wrong one is a runtime `AttributeError`, not a parse error.** `adsk` is native and unimportable outside Fusion, so `ast.parse`/`pyflakes` happily accept `adsk.fusion.SurfaceTypes` even though `SurfaceTypes` is in **`adsk.core`** — it dies only at runtime with `AttributeError: module 'adsk.fusion' has no attribute 'SurfaceTypes'`. **Resolve the module mechanically: ask `fusion:query-api` ([PB-API-LOOKUP]) with `show <Name>` and read the module its qualified name starts with** — definitive for any name, no memorization. As a rule of thumb when the database isn't handy: geometry/value types — `Point3D`, `Vector3D`, `Matrix3D`, `Line3D`, `ObjectCollection`, `ValueInput`, **`SurfaceTypes`**, `Curve3DTypes`/`Curve2DTypes` — live in **`adsk.core`**; feature/operation/topology enums — `FeatureOperations`, `SurfaceProjectTypes`, `PatternComputeOptions`, `PointContainment`, `Path` — live in **`adsk.fusion`**. The generate-gear validation runs `pyright_check.py` (pyright + Fusion API stubs), which flags a wrong-submodule ref as a **BLOCKING** `reportAttributeAccessIssue` (`"SurfaceTypes" is not a known attribute of module "adsk.fusion"`); when the stubs are unavailable, the `show <Name>` lookup above is the stub-free fallback, since the compiled database ships with the plugin. Either way, get it right at authoring time rather than relying on the lint.
-- **[PB-WORLD-FRAME] `.geometry` (sketch-local) vs `.worldGeometry` (world) — match the frame of whatever you measure against.** A sketch curve/point's `.geometry` lives in its sketch's *local* coordinate system; `.worldGeometry` is world/model space. When you measure an angle, distance, or perpendicular component against a **world** quantity — a world axis vector, a world apex point, another body's geometry — you must sample the curve in **world** space (`entity.worldGeometry.evaluator.getParameterExtents()`/`getPointAtParameter`). Mixing a local-frame curve with a world axis is valid Python that **silently returns wrong numbers** — no exception, no parse/lint catch — e.g. a wrong spiral-twist magnitude that makes meshing teeth interfere. The two frames coincide only when the sketch sits on the world-origin plane, which is generally not the case. No mechanical gate catches this; it's an authoring rule.
-- **[PB-EMPTY-RESULT] Geometry ops can legitimately yield zero results — never feed that straight into `max()`/`min()`/`[0]`/`.index(max(...))`.** A `splitBodyFeatures` that doesn't intersect, a face/edge search that finds nothing, a piece list after filtering or after dropping a scrap — any of these can be **empty**. `max([])`/`min([])` raise `ValueError: max() iterable argument is empty` and `coll[0]` raises `IndexError`, both **cryptic and far from the real cause** (often surfacing several calls downstream). **Guard every such collection at the point it's produced:** if zero is a valid outcome, skip gracefully; otherwise `raise` a clear self-diagnosing error that names the operation, the gear/part, and the actual count (e.g. `"{gear}: slice produced {n} piece(s), expected >=2 — cut planes missed"`). Assert the expected count **right after** the split/search/removal, not three steps later where `max([])` blows up. (This is how the conical-cut and slice steps already self-diagnose — follow that pattern for any zero-able collection.)
-- **[PB-FULL-CONSTRAINT] Leave no sketch under-constrained — and verify it with `sketch.isFullyConstrained`.**
-  (Prove the scheme reaches this *before* generating, on the bench, per `[PB-SKETCH-FIRST]`.) A
-  well-formed parametric sketch should end with **zero free degrees of freedom**: every point either
-  carries explicit constraints/dimensions or is *driven* (a projected point tracks its source; an
-  endpoint at a perpendicular/collinear intersection is determined by those constraints). A free DOF
-  is a latent defect — the geometry can shift between rebuilds. Two practical rules:
-  - **[PB-REFLINE-DIRECTION] Fix reference-line directions.** A line created only with coincident/midpoint + a length still
-    has a free *rotation* (1 DOF). If nothing downstream needs a particular angle, pin it with a
-    **sketch-local** `addHorizontal`/`addVertical` (defined in the sketch's own frame, so it survives
-    a tilted host plane) or an angle dimension — don't leave it spinning.
-  - **[PB-CIRCLE-CENTER] A circle's center is FREE even when created at (0,0,0) — fix it, don't coincident it to the
-    origin.** `sketchCircles.addByCenterRadius(Point3D.create(0,0,0), r)` does NOT reuse the sketch's
-    `originPoint`; its `centerSketchPoint` is a free point that happens to sit at the origin. Fully
-    constrain with `circle.centerSketchPoint.isFixed = True` + a radius/diameter dimension (2 DOF +
-    1 DOF = 0). Do NOT `addCoincident(circle.centerSketchPoint, sketch.originPoint)` — observed to
-    throw `VCS_SKETCH_SOLVING_FAILED` (at least on a `setByDistanceOnPath` plane). `isFixed` on the
-    center is the reliable pin.
-  - **[PB-PROJECT-NOT-FIXED] Check each projected entity's constrained state.** `sketch.project(...)`
-    brings geometry in associatively; its displayed position alone does not prove that the new
-    sketch is fully constrained. A projection from a constrained source can anchor a movable local
-    point, as the spur Tools and Bore sketches verify with `sketch.isFullyConstrained`. A projection
-    from geometry with free DOF can leave the destination under-constrained even when its
-    `worldGeometry` looks correct. Check `isFullyConstrained` before treating a projection as an
-    anchor. For a free projection, either (a) `addCoincident` it to an already-fixed point, or
-    (b) **recreate each as a brand-new point and fix it AFTER the geometry that uses it is built** —
-    `verts = [sketch.sketchPoints.add(
-    sketch.modelToSketchSpace(src.worldGeometry)) for src in pts]`, draw the curves *sharing* those
-    `verts`, then `for e in lines: e.startSketchPoint.isFixed = True; e.endSketchPoint.isFixed =
-    True`. **Order matters:** setting `isFixed = True` on a bare point *before* it is consumed as a
-    line endpoint does NOT leave the sketch fully constrained — fix the endpoints once the lines
-    exist. (`modelToSketchSpace(worldGeometry)` is exact when source and target sketches share a
-    plane; it needs the source sketch fully constrained so `worldGeometry` is defined.)
-  - **[PB-NO-OVERCONSTRAIN] But do NOT over-constrain to get there:** dimensioning a length that is already *driven* by a
-    perpendicular/collinear/closing constraint throws `VCS_SKETCH_OVER_CONSTRAINTS`. Full constraint
-    comes from the *missing* constraint, not from piling on dimensions. When unsure which DOF is
-    free, a runtime gate (`if not sketch.isFullyConstrained: raise ...` naming the sketch) surfaces
-    exactly which sketch fell short the moment it builds in Fusion — far better than eyeballing the
-    timeline for blue geometry.
-  - **[PB-COLLINEAR-CHAIN] A collinear names the line the new line's start point actually sits ON,
-    never a farther line up the same chain.** `addCollinear` carries **two** point-on-line rows.
-    When the new line's start is pinned to the reference line's own endpoint, one of those rows is
-    already satisfied and Fusion absorbs the other. When the start reaches the named line only
-    *through an earlier collinear*, the two chains assert the same fact independently and the sketch
-    over-determines. So in a chain A→E then E→G, the second collinear names **A→E**, not the axis
-    A→E is itself collinear with, even though both describe the same infinite line.
-    - Measured 2026-09-03 on the bevel §2 lattice: `addCollinear(E→G, Apex→A)` raised
-      `RuntimeError: 3 : failed to create offset: VCS_SKETCH_OVER_CONSTRAINTS` at the second such
-      call, the first having been absorbed; `addCollinear(E→G, A→E)` builds. Where both endpoints
-      are already fixed, drop the collinear entirely and pin the point with two point-on-line
-      `addCoincident` calls instead.
-    - **A proof cannot catch this.** The sketch engine counts collinear the same two rows, so a
-      proof written against it substitutes the single point-on-line row that is not already implied,
-      and that substitution makes both readings identical. Only a Fusion session tells them apart.
-- **[PB-SINGLE-PROFILE] When a sketch has exactly one closed loop, grab `sketch.profiles.item(0)` — don't filter.** If
-  you build a sketch whose only geometry is one closed region, it has `profiles.count == 1`; take
-  that profile directly. Resist inventing a search that filters by `profileLoops` /
-  `profileCurves.count` or by curve type (`ProfileCurve.geometry.curveType == Line3DCurveType`) — a
-  curve-type filter in particular has spuriously rejected a valid all-line loop and made the revolve
-  fail with "could not find profile". Filter only when a sketch genuinely holds multiple profiles you
-  must disambiguate.
-- **[PB-API-SPELLING] Geometric-constraint method names are exact — watch the easy misspellings.** The collinear
-  constraint is `geometricConstraints.addCollinear(...)` with a **double "l"**; `addColinear` (single
-  "l") does not exist and raises `AttributeError` (Fusion's own message even suggests "Did you mean
-  'addCollinear'?"). Don't let English prose spelling ("colinear") leak into the API call. Likewise
-  `addCoincident`, `addPerpendicular`, `addParallel`, `addHorizontal`, `addMidPoint` (capital P),
-  `addOffsetDimension`, `addDiameterDimension` — copy the exact casing/spelling, don't infer it.
-  **The API database ([PB-API-LOOKUP]) settles any spelling mechanically:** `members
-  GeometricConstraints` lists `addCollinear` and not `addColinear`; use the listed spelling.
-- **[PB-SKETCHCURVES] Sketch curve collections live under `sketch.sketchCurves`, never on the sketch directly.** Add
-  geometry via `sketch.sketchCurves.sketchCircles`, `.sketchLines`, `.sketchArcs`,
-  `.sketchFittedSplines`. `sketch.sketchCircles` (etc.) does NOT exist and raises `AttributeError:
-  'Sketch' object has no attribute 'sketchCircles'`. (By contrast `sketch.sketchPoints`,
-  `sketch.sketchDimensions`, `sketch.geometricConstraints`, `sketch.sketchTexts`, and
-  `sketch.profiles` ARE direct members of the sketch — only the *curve* collections sit under
-  `sketchCurves`.) The API database ([PB-API-LOOKUP]) confirms ownership: `members SketchCurves`
-  lists `sketchCircles`, so the access path must go through `sketchCurves`.
-- **[PB-TEXT-HOLDS-DOF] Sketch text counts toward `isFullyConstrained`, so a labelled sketch never
-  reports fully constrained.** Text placed with `setAsAlongPath` (`[PB-SKETCH-TEXT]`) carries its
-  own position along the curve, and nothing in the recipes here pins it. A sketch whose geometry is
-  completely determined therefore still reads `False` purely because it is labelled. Measured in
-  Fusion 2026-09-02 on the spur tooth sketch: `False` with its four circle labels, `True` for the
-  same sketch with the labels deleted and no other change.
-  - **What to do.** A gear that labels a sketch cannot gate that sketch on `isFullyConstrained`;
-    log the result rather than raising. **This exempts the labels and nothing else** — never read it
-    as licence for loose geometry, and gate every sketch that carries no text normally.
-  - ⚠️ **"Never" overstates it, measured.** The bevel tooth sketches, labelled with the same four
-    circle labels, read `False` in one Fusion run on 2026-09-12 and `True` in the two runs after it,
-    with byte-identical counts (53 points, 47 constraints, 41 dimensions, 4 texts) and the same
-    coordinates to four decimals. So a labelled sketch sometimes does report fully constrained, and
-    the reading is not stable between runs — see `[PB-SETTLE-DISPLAY]` for why a just-authored
-    sketch's state can be read before it has settled. The instruction above does not change: log,
-    never raise, because the answer cannot be relied on either way.
+**[PB-POINT-POSITION] The position of a point has a different name on each kind of point.** A `SketchPoint` has
+`geometry` in its sketch and `worldGeometry` in the design. A `ConstructionPoint` and a `BRepVertex` have `geometry`
+only. `Runtime.build_frame` reads whichever exists for the user's anchor, and `tests/test_bevel_runtime.py` covers both
+kinds.
 
-- **[PB-SETTLE-DISPLAY] Fusion's browser shows a stale constraint icon for every sketch a generator
-  authors, until something makes it settle.** A sketch created through the API gets a browser node
-  whose constraint icon reflects the sketch as it was at creation, which is before any of its
-  constraints exist, so a finished, fully constrained sketch still shows the unconstrained icon.
-  Opening the sketch in the editor and closing it again refreshes the icon, which is how this was
-  first noticed: every sketch in a finished bevel gear looked unconstrained, and each one flipped to
-  fully constrained after a double-click and an escape.
-  - **The icon is not evidence.** Measured in Fusion on 2026-09-12, `isFullyConstrained` returned
-    `True` for the Anchor, Gear Profiles and both per-gear Profile sketches at the moment each was
-    built and again after the last feature, while all four icons showed otherwise. Never conclude
-    anything about constraint state from the browser; read the property.
-  - **What to do.** `commands/_gear_command.py` calls `geargen.settle_sketch_display` once after
-    `generate()` returns, which recomputes and re-reads each sketch the generator authored and then
-    calls `adsk.doEvents()` so Fusion processes the updates it has queued. Every gear command runs
-    through that one call, so **a generator must not add its own** — nothing about this belongs in a
-    generated module or in a step list.
-  - **It is display-only.** Across three instrumented bevel builds the geometry, constraint and
-    dimension counts were identical with and without the settle, so this changes what the browser
-    shows and nothing else. It also reached sketches it was never applied to, including a control
-    sketch deliberately left untouched, which points at `adsk.doEvents()` rather than the per-sketch
-    recompute as the part that does the work. Both are kept because the cost is nil and only their
-    combination has been measured.
-
-- **[PB-SELECTION-FILTER-ENUM] Write a selection filter as the named constant, never a quoted
-  literal.** Use `addSelectionFilter(adsk.core.SelectionCommandInput.ConstructionPlanes)`. The
-  member names match the entity kinds (`ConstructionPlanes`, `PlanarFaces`, `ConstructionPoints`,
-  `SketchPoints`, `Occurrences`, `RootComponents`, `Bodies`, …).
-  - **Why, accurately.** An earlier wording of this rule said the parameter is an int enum and that
-    passing `'ConstructionPlanes'` raises `TypeError`. That is false, and believing it will send you
-    hunting for a type error that cannot happen. The API database types the parameter as
-    `addSelectionFilter(filter: str)`, and `SelectionCommandInput.ConstructionPlanes` is an
-    attribute whose value is the string `'ConstructionPlanes'` — so the constant and the literal are
-    the same value and both work. The rule stands anyway, on different grounds: the constant is
-    checked for typos at import, reads as the API's own vocabulary, and survives a renamed filter,
-    where a quoted literal fails silently by selecting nothing.
-- **[PB-FILLET-CHAMFER] Fillet vs chamfer edge-sets are asymmetric — easy to get backwards:**
-  - **Fillet:** add the edge set on the input **itself** —
-    `filletInput.addConstantRadiusEdgeSet(edges, ValueInput, isTangentChain)`. There is no
-    `filletInput.edgeSetInputs`; reaching for it raises `AttributeError`.
-  - **Chamfer:** add the edge set on the input's **`chamferEdgeSets`** collection —
-    `chamferInput.chamferEdgeSets.addEqualDistanceChamferEdgeSet(edges, ValueInput, isFlipped)`.
-  Do not mirror one onto the other.
-- **[PB-POINT-HELPER] A 2-D-coord→`Point3D` helper MUST tolerate both raw `(x, y[, z])` tuples AND objects with
-  `.x/.y/.z` (`Point3D` / `SketchPoint.geometry`).** Generators routinely mix **seed tuples** (e.g.
-  `apexSeed = (cx, cy)`) with **solved `.geometry`** points and feed both to the same little helper
-  (`P2(p)`, `add_point(p)`). A helper written as `Point3D.create(p.x, p.y, p.z)` then throws
-  `AttributeError: 'tuple' object has no attribute 'x'` the moment a seed tuple reaches it — a pure
-  **runtime** crash that `ast.parse` and pyright (untyped helper params ⇒ nothing inferred) do NOT
-  catch. Make such helpers branch on type:
-  `p[0], p[1]` for a tuple/list, `p.x, p.y` otherwise (or standardize every call on one form). The
-  same applies to a tuple-only helper handed a `Point3D` (`p[0]` fails).
-- **[PB-SPACE-METHODS] `sketch.modelToSketchSpace(p)` / `sketch.sketchToModelSpace(p)` are point-transforming
-  METHODS, not matrices.** Each takes a `Point3D` (world resp. sketch) and returns the transformed
-  `Point3D`: `local = sketch.modelToSketchSpace(worldPoint)`. Do NOT do `m = sketch.modelToSketchSpace`
-  then `worldPoint.transformBy(m)` — passing a bound method where `Point3D.transformBy` expects a
-  `Matrix3D` raises `TypeError: … argument 2 of type 'Matrix3D'`. (To map a world point into a
-  sketch — e.g. an apex computed from a plane normal — call the method directly.)
-- **[PB-SOLVED-GEOMETRY] Read SOLVED `.geometry` for any computed-from-geometry bound — not the seed coordinates.** When
-  a value is derived from the positions of constrained sketch points (a clearance, a max-offset
-  bound, a measured distance), read each point's `.geometry` *after* the constraints that locate it
-  have been added (Fusion solves incrementally, so the point is already in its solved position).
-  Do NOT reuse the raw `Point3D` seed coordinates you passed to `addByTwoPoints` — seeds can diverge
-  from the solved positions (markedly so for asymmetric / non-symmetric configurations), making a
-  seed-based bound wrong even though the same formula on solved geometry is correct.
-- **[PB-WORLDGEO-CONSTRAINED] A sketch entity you'll read `.worldGeometry` from must be CONSTRAINED, not free.** If you later
-  take `someSketchLine.startSketchPoint.worldGeometry` (or a sketch point's `worldGeometry`) to build
-  a world-space axis/origin/tool, that point must be pinned (shared with, or coincident to, fixed
-  geometry). A **fully-unconstrained** sketch line/point has an **undefined `worldGeometry`** — Fusion
-  resolves its free DOF against a default/world frame, so the value silently comes back wrong and any
-  feature built from it (a rotation axis, a move) lands the body in the wrong place. Drawing a line
-  from raw `.geometry` coordinates *without* coincident-pinning its endpoints is the classic trap:
-  it looks placed, but its `worldGeometry` is not trustworthy.
-- **[PB-SEED-NEAR] Seed coordinates near the solved position — the solver is seed-sensitive.** When you create a
-  curve/point from raw `Point3D` coordinates that constraints will then pin, place the seed close to
-  where it will end up and on the correct side. Fusion's sketch solver is an iterative numerical
-  solver: a seed that starts far away, or on the wrong side of a parallel/offset target, can fail to
-  converge with `RuntimeError … VCS_SKETCH_SOLVING_FAILED` *even though the constraint system is
-  perfectly solvable*. (Seeds are not constraints — they don't pin anything — but a bad seed still
-  breaks the solve. Especially: a point that must end up *on another line* should be seeded near
-  that line, not near some unrelated point.)
-- **[PB-SHARE-XOR-COINCIDENT] Never double-bind a point — share it OR coincident a fresh one, never both.** To start/anchor
-  a curve at an existing sketch point, choose ONE: (a) pass that `SketchPoint` object directly into
-  the creation call — `addByTwoPoints(existingPoint, otherEnd)` — so the curve *shares* it, and add
-  **no** coincident; or (b) create the curve from raw `Point3D` coordinates and add **exactly one**
-  `addCoincident(curve.startSketchPoint, existingPoint)`. Doing **both** (passing the shared point
-  *and* then adding a coincident to it) stacks a redundant self-coincident and the solver dies with
-  `RuntimeError … VCS_SKETCH_SOLVING_FAILED`. Same trap: never `addCoincident` two points that are
-  already the same shared point. (This is the single most common over-constraint failure; it bit
-  both spur and bevel.)
-
-  ⚠️ **Not every creation call shares every `SketchPoint` you hand it — verify, never assume.**
-  `sketchArcs.addByCenterStartEnd(centre, start, end)` shares the **start and end** points but
-  **copies the centre**: the arc gets a fresh `SketchPoint` at that location, with nothing tying it
-  to the point you passed. Branch (a) above therefore does not apply to that centre, and the arc
-  needs an explicit `addCoincident(arc.centerSketchPoint, existingPoint)` — which is the one place
-  in this rule where passing a point *and* adding a coincident to it is correct rather than
-  redundant. Confirm sharing by comparing `entityToken`s rather than trusting the argument name; a
-  copied centre is a free point, and if the surrounding geometry is later dragged onto an anchor it
-  stays behind by the drag distance and silently deforms the curve. Found in Fusion 2026-09-02:
-  the bevel tooth-top arc's centre stranded 22.9 mm behind its origin, giving a 0.5743 mm arc where
-  22.5 mm was intended, on a sketch that raised no error.
-- **[PB-DRIVING-DIM] Driving vs driven dimensions:** `add*Dimension(...)` is *driving* by default; the trailing
-  argument is `isDriving` (default `True`). Never pass `isDriving=False`/`False`: it makes a driven dimension.
-- **[PB-OFFSET-DIM] Line-to-line / parallel-offset dimension:** to dimension the gap between two (parallel) lines —
-  used for base heights, face widths, and similar offsets — use
-  `sketch.sketchDimensions.addOffsetDimension(lineA, lineB, textPoint)` and set the value via the
-  returned dimension's `.parameter.value = <number>`. It is *not* `addDistanceDimension`
-  (point-to-point). The two lines must be parallel — but **only add an `addParallel` constraint if
-  they are not already parallel.** If the two lines are already parallel *by construction* (e.g.
-  both are perpendicular to a common third line), they're parallel already; adding a redundant
-  `addParallel` over-constrains the sketch and throws `VCS_SKETCH_OVER_CONSTRAINTS`. Add `addParallel`
-  only for a freshly-drawn line that isn't yet parallel to its target (e.g. a toe line you just drew
-  at arbitrary angle); for a line whose direction the existing constraints already fix, call
-  `addOffsetDimension` directly with no parallel constraint.
-- **[PB-ANGULAR-DIM] Angular dimension picks the wedge containing its text point:**
-  `addAngularDimension(lineA, lineB, textPoint)` measures the angle on the side where `textPoint`
-  lies. To get the intended angle (e.g. a shaft angle Σ rather than its supplement 180−Σ), place
-  `textPoint` inside the wedge you mean.
-- **[PB-RADIAL-DIM] Radial/diameter dimension text points must be OFF-CENTRE.** `addRadialDimension(arc, textPoint)` /
-  `addDiameterDimension(circle, textPoint)` reject a `textPoint` at the curve's **centre** with
-  `RuntimeError: 3 : … 一部の入力引数が無効です` ("some input arguments are invalid") — at the centre
-  there is no radial direction to place the dimension. Pass a point **on or near the curve** instead
-  (e.g. a point at radius `r` from the centre, or one of the arc's own through-points).
-- **[PB-SELECTION-STASH] Selections drop on context shift:** stash selection entities before occurrence creation
-  (above).
-- **[PB-HIDE-AFTER-USE] Hide a sketch only after consuming it:** draw → project → constrain → run
-  features → then `isVisible=False`. `sketch.project(...)` and profile extraction have failed on
-  invisible sketches in this repo's history, so visible-while-consumed is the default discipline —
-  but the failure is operation-dependent, not universal: reading `sketch.profiles` for a loft is
-  observed to work on a sketch that was never made visible (helical's twisted profile). A gear may
-  rely on such a verified exception only when its spec declares it as a sketch-discipline delta;
-  never generalize the exception on your own. Same for
-  construction planes later features still consume. **And hide construction geometry with the right
-  property:** a `ConstructionPlane`/`ConstructionAxis` is **not** hidden by `isVisible = False` (it
-  has no visible effect on construction geometry — a Fusion gotcha); use `entity.isLightBulbOn =
-  False`. So `isVisible=False` hides **sketches**, `isLightBulbOn=False` hides **construction
-  planes/axes** — don't cross them. (A gear's own cleanup recipe — which entities, and any per-mode
-  split — is gear-specific; see that gear's spec.)
-- **[PB-PROFILE-MATCH] Profiles are found by curve count/type**, not index — iterate `sketch.profiles` /
-  `profile.profileLoops` and match the loop whose `profileCurves` have the expected count/type
-  mix (the spec states the expected counts per loop, including any variant cases). Read a curve's
-  type with `curve.geometry.curveType` and compare against the `adsk.core.Curve3DTypes` enum.
-  **The exact member names end in `...CurveType`** (easy to get wrong — `NurbsCurve3DType` /
-  `Arc3DType` do NOT exist and raise `AttributeError`). The correct constants:
-  - `adsk.core.Curve3DTypes.Line3DCurveType`
-  - `adsk.core.Curve3DTypes.Arc3DCurveType`
-  - `adsk.core.Curve3DTypes.Circle3DCurveType`
-  - `adsk.core.Curve3DTypes.NurbsCurve3DCurveType`
-- **[PB-SKETCH-TEXT] Along-path sketch text** (e.g. labelling a circle) has a fixed three-call shape — use it
-  exactly; don't guess or wrap it defensively, this is the working API:
-  ```python
-  textInput = sketch.sketchTexts.createInput2(text, height)   # height in cm (internal units)
-  textInput.setAsAlongPath(curve, True,
-                           adsk.core.HorizontalAlignments.CenterHorizontalAlignment, 0)
-  sketch.sketchTexts.add(textInput)
-  ```
-  `createInput2(text, height)` takes the string and a text height; `setAsAlongPath(curve,
-  isAbovePath, horizontalAlignment, offset)` lays it along the curve. The spec gives the text
-  content and the height to use.
-- **[PB-PATTERN-BODIES] Patterns return original + copies:** `CircularPatternFeature.bodies` already includes the
-  seed body plus copies, so don't re-add the seed. **Copy them into an `ObjectCollection` first** —
-  `pattern.bodies` is a `BRepBodies`, and `combineFeatures.createInput(targetBody: BRepBody,
-  toolBodies: core.ObjectCollection)` rejects it. Loop `pattern.bodies.item(i)` into a fresh
-  `adsk.core.ObjectCollection.create()` and pass that.
-- **[PB-CIRCULAR-PATTERN] Circular-pattern input shape:** `circularPatternFeatures.createInput(bodies, axis)` →
-  set `quantity` (`ValueInput`), `totalAngle = ValueInput.createByString('360 deg')`,
-  `isSymmetric = False` → `add(input)`. Pin all three explicitly — do not rely on Fusion's
-  defaults staying equal to them. Where a gear patterns many features and rebuild cost matters, its
-  spec may additionally call for `patternComputeOption = adsk.fusion.PatternComputeOptions.AdjustPatternCompute`;
-  the resulting bodies follow [PB-PATTERN-BODIES].
-- **[PB-LOGGING] Logging/robustness:** use `futil.log(...)` for step progress; let the entry point's
-  try/except + `deleteComponent()` handle rollback rather than swallowing errors mid-step — don't
-  invent new silent failure paths.
-
-## Solid-modelling features beyond extrude (used by revolved/cut gears, e.g. bevel)
-
-The involute gears only extrude + pattern + combine + chamfer + fillet. Gears whose spec calls for
-revolved bodies, lofted teeth, or split-by-face shaping (bevel) use these additional features. The
-spec says *which* to use and *on what geometry*; this pins the *API shape*. Several of these
-patterns are implemented once in `lib/geargen/solids.py` (see "Shared geargen helper library") —
-when a helper exists, call it instead of re-implementing the pattern; the anchors below remain the
-authoritative description of the behavior the helpers encode.
-
-- **[PB-REVOLVE] Revolve** (`component.features.revolveFeatures`): `createInput(profile, axis, operation)` →
-  `setAngleExtent(False, ValueInput.createByString('360 deg'))` → `add(input)`. The `axis` is a
-  sketch line or construction axis. **Hard failure to design around: the profile must NOT cross the
-  axis of revolution** — if it does, Fusion aborts with `RuntimeError … ASM_WIRE_X_AXIS … the
-  profile crosses the axis of revolution`. A spec that revolves a profile bounded by a
-  geometrically-derived dimension (e.g. bevel's Face Width) must cap that dimension so the profile
-  stays on one side of the axis; reproduce the cap exactly.
-- **[PB-LOFT] Loft, including point-to-profile** (`component.features.loftFeatures`): `createInput(operation)`
-  → `loftSections.add(entity)` for each section in order → `add(input)`. A section may be a
-  **single point** (a `SketchPoint`/`ConstructionPoint`) for a degenerate end — lofting an apex
-  point to a profile yields a tapered/pointed body. Order of `loftSections.add(...)` is the loft
-  order.
-- **[PB-THROUGH-CUT] Symmetric through-cut extent:** for an extrude-cut that must pierce a body fully regardless of
-  thickness, use `extentInput.setSymmetricExtent(ValueInput.createByReal(largeDist), False)` — the
-  second arg `isFullLength=False` means `largeDist` is the half-length *per side*. Do not pass a
-  third (taper) argument. Restrict the cut with `participantBodies = [theBody]`.
-- **[PB-SPLIT-BODY] Split body by a face** (`component.features.splitBodyFeatures`): `createInput(bodyToSplit,
-  splittingTool, isSplittingToolExtended)` → `add(input)`. The splitting tool can be a `BRepFace`
-  (reuse an existing face of another body rather than building a fresh surface — building a surface
-  from a sketch line in a sibling/parent component fails, see cross-component below). Pass
-  `isSplittingToolExtended=True` to extend the tool surface to fully bisect the target. A split that
-  doesn't intersect raises `RuntimeError … SPLIT_TARGET_TOOL_NOT_INTERSECT` (message text may be
-  localized) — catch it where the spec says a cut may be a no-op.
-- **[PB-FACE-BY-MIDPOINT] Find a face by surface type, incl. cones** (cross-gear pattern, extends the profile/face-finding
-  rule above): iterate `body.faces`, test `face.geometry.surfaceType` against
-  `adsk.core.SurfaceTypes` (e.g. `ConeSurfaceType`, `CylinderSurfaceType`, `PlaneSurfaceType`).
-  When several faces share a type, disambiguate by **world-coordinate containment**: project the
-  point with `surface.evaluator.getParameterAtPoint` → `getPointAtParameter` and compare distance
-  within a tolerance like `1e-2` cm. **But that distance is to the *infinite* surface, so it is NOT
-  a reliable unique key** — several trimmed faces whose infinite surface passes through the same
-  points tie at distance ≈0 (common with near-coaxial cones), and a min-distance pick can land on a
-  trimmed face that isn't the one you want. When the face is going to be *used in an operation*
-  (e.g. a split tool), **validate against the operation rather than trusting the distance**: collect
-  the candidate faces by surface type, order them best-first by distance, and **try each in the
-  actual operation, keeping the first that succeeds** (e.g. the first cone face that actually splits
-  the target body into >1 piece). **Do not use distance as a hard filter** — `getParameterAtPoint`
-  returns no-result (None) near a surface singularity (a cone's apex), so a point actually *on* the
-  surface can report an unevaluable distance; gating on "distance < tol" then wrongly drops the right
-  face. Treat an unevaluable distance as "try last," never as "disqualified." Never rely on
-  `body.faces` enumeration order to break a distance tie — that is luck, not correctness.
-  **Identify a revolved-edge face by the edge's MIDPOINT, not its endpoints.** An endpoint that sits
-  near the surface's singularity (a cone's apex) makes `getParameterAtPoint` return `None` there, so
-  endpoint-distance can't see the right face; the edge midpoint is clear of the apex (reliable) and
-  uniquely picks the face that edge swept (different edges → different midpoints), so it
-  distinguishes adjacent/coaxial cones that endpoint-distance can't.
-- **[PB-SELF-DIAGNOSING] Make runtime-topology failures self-diagnosing.** Steps whose outcome depends on geometry the
-  parse/contract checks can't see (face-finding by containment, body splits, piece counts) must
-  raise exceptions that **carry the measured quantities** — candidate face distances vs. tolerance,
-  pieces-in/pieces-out per operation, which entity was selected — never a bare count or a silent
-  no-op. In a headless/Fusion-add-in run the exception text is the only telemetry the caller gets,
-  so "expected 3 pieces, got 2" is useless but "got 2 (cut#1 found 3 cone faces, dists …, produced
-  2; cut#2 found 0 faces within tol 1e-2, dists …)" pinpoints the cause. Prefer raising a rich error
-  over returning unchanged on a lookup miss.
-- **[PB-REMOVE-PIECES] Select/remove split pieces:** after a split, identify pieces with
-  `body.pointContainment(worldPoint)` (returns `adsk.fusion.PointContainment.PointInside` /
-  `PointOnPoint`(`PointOnPointContainment`)`/Outside`) and rank by
-  `body.physicalProperties.volume`. Delete unwanted pieces with
-  `component.features.removeFeatures.add(body)` (timeline-visible) — not a bare `deleteMe()`.
-- **[PB-CONSTRUCTION-PLANES] Construction planes beyond offset:** `constructionPlanes.createInput()` then
-  `setByOffset(plane, ValueInput)` (coplanar/offset), `setByAngle(line, ValueInput, refPlane)`
-  (a plane through a line tilted by an angle off a reference plane — e.g. a plane *perpendicular* to
-  a sketch by passing `'90 deg'`), or `setByDistanceOnPath(curve, ValueInput)` (a plane normal to a
-  curve at a fractional distance 0–1). The spec says which constructor and inputs.
-  **Pass the `SketchLine` (or edge / construction axis) DIRECTLY** to `setByAngle` /
-  `setByDistanceOnPath` — both accept a single linear/curve entity. Do **NOT** wrap it in
-  `adsk.fusion.Path.create(curve, …)` first: `Path.create` on a sketch curve raises
-  `RuntimeError … InternalValidationError : Utils::getObjectPath(sketchCurve, …, nullptr,
-  contextPath)` whenever the curve's owner sketch isn't trivially resolvable in the current
-  (multi-component) context. Avoid `Path.create` on sketch curves entirely; the plane/axis builders
-  resolve the curve themselves.
-- **[PB-CONSTRUCTION-AXES] Construction axes beyond circular-face:** `constructionAxes.createInput()` then
-  `setByLine(infiniteLine)` (axis along a sketch/3D line), `setByCircularFace(face)` (off a
-  cylinder/cone), or `setByTwoPlanes(planeA, planeB)` (their intersection — a usable workaround when
-  `setByPerpendicularAtPoint` would need a `BRepFace` you don't have).
-- **[PB-CONSTRUCTION-NEEDS-ACTIVE] Construction geometry (points/axes/planes) needs an ACTIVE component — sketch geometry does
-  not.** `component.constructionPoints.add(...)` / `constructionAxes.add(...)` raise `RuntimeError:
-  3 : Environment is not supported` when `component` is not the activated one. Sketches, solids, and
-  features happily build on a non-activated component, but construction geometry does not — and the
-  cross-gear rule is to **never** activate (activating mis-resolves externally-selected planes onto
-  world XY). So when you'd reach for a construction point/axis, prefer geometry that needs no active
-  component: use a **`SketchPoint`** as a loft point-section (not a `ConstructionPoint`), and feed
-  rotations a `Matrix3D` axis from a sketch edge's `worldGeometry` (not a `ConstructionAxis`). Reserve
-  construction geometry for code paths that genuinely run in the active/root component.
-- **[PB-MOVE-ROTATE] Move/rotate a body** (`component.features.moveFeatures`): `createInput2(bodyCollection)` →
-  `defineAsFreeMove(matrix3D)` → `add(input)`, where the matrix is built with
-  `Matrix3D.setToRotation(angleRadians, axisVector, originPoint)`. Use `defineAsFreeMove` with a
-  matrix (not `defineAsRotate`, which rejects a `SketchLine` axis). Used for aesthetic/meshing
-  rotations.
-  - **A zero angle is a no-op, not a move.** `setToRotation(0, axis, origin)` builds the identity
-    and Fusion refuses to move a body by it, with `RuntimeError: 3 : invalid transform`. Measured
-    2026-09-02 on the bevel pinion, whose mesh phase is 0 by default. Any caller that *computes* an
-    angle can legitimately arrive at zero, so return early rather than making each call site guard
-    it; `solids.rotate_body_about_edge` absorbs it for exactly this reason.
-
-## Multi-component orchestration (a gear that builds several sibling components, e.g. a pair)
-
-Single-gear modules create one occurrence (`base.Generator.getOccurrence()`). A gear that produces
-a *set* of related components (bevel: a parent holding a shared **Design** component plus a
-**body-per-gear** component) cannot use that helper and must manage the tree itself:
-
-- **[PB-OCCURRENCE-TREE]** Create each occurrence with `parent.occurrences.addNewComponent(adsk.core.Matrix3D.create())` and
-  name `occurrence.component.name`. Typical tree: `<Pair> Gear` under the user's parent → `Design`
-  sub-component (all sketches/construction geometry/features run **here**) + one sub-component per
-  output gear (the finished bodies are relocated into these at the end).
-- **[PB-NEVER-ACTIVATE] NEVER call `occurrence.activate()`.** Build in a component by calling its own collections
-  (`comp.sketches.add(...)`, `comp.features.*`) on the *non-activated* component — exactly as a
-  single-gear generator does. Activating a sub-occurrence and then sketching on a plane/face the
-  **user selected in another component** (root) makes Fusion resolve that external reference in the
-  activated component's **local frame** (identity → world-XY-aligned), silently collapsing the
-  build's orientation onto XY no matter what plane the user picked. This is a real, hard-to-see
-  trap: the gear still builds, just flat on XY. A single-gear generator that respects arbitrary
-  planes works precisely *because* it never activates — match that.
-- **[PB-NO-CROSS-SIBLING] Fusion rejects cross-sibling sketch/`project`/`Path.create` references** (entities wrapped via
-  `createForAssemblyContext` don't help). So: run **all** feature operations in the one Design
-  component, then **relocate finished bodies** with `body.moveToComponent(targetOccurrence)`
-  (`moveToComponent` preserves world position and needs no activation). Do not sketch or
-  path-reference geometry that lives in a sibling. Note this does **not** require activating
-  anything — building everything in one component already avoids cross-sibling references.
-- **[PB-TREE-CLEANUP]** Cleanup/rollback is hand-rolled: a recursive walk turning off `isLightBulbOn` on every sketch /
-  construction plane / construction axis across the tree (dedupe by `entityToken`), and
-  `deleteComponent()` calls `deleteMe()` on the top occurrence for error rollback.
-- **[PB-USE-SELECTED-PLANE] Don't re-derive a user-selected plane/face inside your sub-component — use it directly.** When
-  the user selects a target plane (a `ConstructionPlane` or `PlanarFace`) that lives in the root or
-  another component, place sketches **directly** on that selected entity (`sketches.add(target)`)
-  and pass the selected entity itself to plane builders (`setByAngle(line, angle, target)`). Do NOT
-  "normalize" it by building a coplanar construction plane (`setByOffset(target, 0)`) inside your
-  activated sub-component first: a construction plane created in a sub-occurrence, offset from a
-  face in a *different* component, resolves in the sub-component's own coordinate frame (identity →
-  effectively world XY for a freshly-added component) and **silently loses the selected plane's
-  world orientation** — the whole build then lies flat on XY regardless of what the user picked.
-  (A single-component generator can normalize safely because there's no cross-component frame
-  mismatch; a multi-component one must not.)
-
-## Parameters: live-expression mode vs all-Python-precomputed mode
-
-**[PB-PRECOMPUTED-MODE]** The involute gears register Fusion **user parameters** as live expression strings (the
-`processInputs` pattern above) so they appear in the parameter table. This is **one valid mode, not
-mandatory.** A gear may instead **precompute every value in Python** (internal cm) and write
-geometry numerically — setting sketch dimensions via `dimension.parameter.value = <number>` and
-feature inputs via `ValueInput.createByReal(<number>)` — registering **no** named user parameters
-(bevel does this). When a gear borrows another gear's tooth generator that expects
-`parent.getParameter(name).value`, it can satisfy that interface with a lightweight **proxy object**
-that returns precomputed values, rather than registering real parameters (see the borrowing gear's
-spec Dependencies section). The spec declares which mode the gear uses; either is acceptable, but
-the contract self-check only looks for the parameter names the spec actually declares.
-
-**[PB-EVAL-EXPRESSION] Reading raw dialog inputs in this mode.** Read raw dialog inputs with
-`design.unitsManager.evaluateExpression(input.expression, units)` — it ALWAYS returns Fusion
-internal units (cm for length, **radians** for angle) regardless of the unit string, so a `deg`
-field comes back in radians; convert with `math.degrees(...)` before any degree-range check. Don't
-read via `ValueInput.realValue`.
-
-**[PB-DIMENSION-COST] The cost of a sketch's dimensions grows with the cube of its points, so a loop is patterned.**
-`addDistanceDimension` took 0.003 s per call on a 40-point sketch and 0.06 s per call after 150 spline fit points. The
-cycloidal drive's rotor profile had 457 dimensioned points and its dimensions took 359 s, the casing's 448 took 99 s.
-Deferring the solver (`isComputeDeferred`), hiding the sketch and switching off its display changed none of this: the
-deferred solve took 0.2 s, so the time is in the calls. A shape of repeated lobes is therefore drawn once and
-patterned, as the gallery model does ([PB-SPLINE-RING]), instead of dimensioned lobe by lobe.
+**[PB-DIMENSION-COST] The cost of a sketch's dimensions grows with the cube of its points, so a repeated shape is
+patterned.** `addDistanceDimension` took 0.003 s per call on a 40-point sketch and 0.06 s per call after 150 spline fit
+points. The cycloidal drive's rotor profile had 457 dimensioned points and its dimensions took 359 s; the casing's 448
+took 99 s. Deferring the solver (`isComputeDeferred`), hiding the sketch and switching off its display changed none of
+this: the deferred solve took 0.2 s, so the time is in the calls. A shape of repeated lobes is therefore drawn once and
+patterned, as the gallery model does ([PB-SPLINE-RING]).
 
 **[PB-SPLINE-RING] A circular pattern of splines closes a ring with one coincident.** The gallery draws one lobe of
 chained fitted splines, leaves the last end point free, and patterns the lobe about a centre point. In Fusion,
-`GeometricConstraints.addCircularPattern` copies the splines in 0.02 s and the copies already form one closed outline
-with the seed, because Fusion connects curve ends that sit on one point. Only the seed's free end needs a constraint:
-a coincident to the start of the first copy, found as the created spline whose first fit point lies one step around
-from the seed's start. That leaves the sketch fully constrained. A coincident between every neighbouring pair is
-refused as redundant for 44 of 45 junctions, and merging the end points works but is no better and slower.
-The pattern goes in after the local origin is anchored. While the origin is a loose point, the copies' junction
-points stay free and the sketch reads as not fully constrained: with the anchor coincident added after the pattern
-the check failed with the end of each copy's last spline and the point beside it free, and with the anchor added
-before the pattern it passed. `decadfusion.Sketch.solve` therefore anchors between the dimensions and the patterns when the sketch has a pattern, and
-stays last otherwise, as [SPUR-F-LOCAL-ORIGIN] has it.
+`GeometricConstraints.addCircularPattern` copies the splines in 0.02 s, and the copies already form one closed outline
+with the seed, because Fusion connects curve ends that sit on one point. Only the seed's free end needs a constraint: a
+coincident to the start of the first copy, found as the created spline whose first fit point lies one step around from
+the seed's start. That leaves the sketch fully constrained. A coincident between every neighbouring pair is refused as
+redundant for 44 of 45 junctions, and merging the end points works but is slower and no better.
+The pattern goes in after the local origin is anchored. While the origin is a loose point, the copies' junction points
+stay free: with the anchor coincident added after the pattern, the check failed with the end of each copy's last
+spline and the point beside it free, and with the anchor added before the pattern it passed.
+`decadfusion.Sketch.finish` therefore anchors between the dimensions and the patterns when the sketch has a pattern,
+and last otherwise ([SPUR-F-LOCAL-ORIGIN] in `docs/fusion/spurgear.md`).
+With the anchor first, it does not matter which spline carries the junction dimension (the earlier spline's last fit point or
+the later spline's first) or where the pattern centre lies: the ring is fully constrained in each variant.
 
-**[PB-PARAM-TABLE] A model that only reads its parameters back keeps them in Python.** The bevel gear's
-`defineParameters` writes inputs and expressions into a table and its build reads the results (cone angle, radii, face
-width). No sketch binds a dimension to a parameter, so no Fusion user parameter is made. `decadfusion.ParamTable` holds
-the values, evaluates the expressions with Python's arithmetic and the functions the gallery names (`hypot`, `atan2`,
-`sin`, `cos`, `min`, `max`, `pow`), and `Runtime.param` reads from it first.
+**[PB-EMBEDDED-TOOTH] The embedded virtual tooth is the region bounded by two flank splines, a tip arc and a root
+arc.** Decad numbers the trim of each flank at the root circle. Fusion's regions carry their trimmed curves, so
+`decadfusion.select_embedded_tooth_profile` picks the one valid region with no hole and four edges, two of them
+splines, and raises when it finds any other number.
+
+**[PB-HIDE-AFTER-USE] Hide a sketch only after the features that use it, and hide construction geometry with
+`isLightBulbOn`.** Projection and profile reads failed on invisible sketches before the port, so a sketch stays visible
+while it is used. `Runtime.create_sketch` makes every translated sketch visible, and `Runtime.hide_helpers` hides the
+sketches and planes after the build. The failure depends on the operation: before the port the helical gear lofted the
+profile of a sketch that was never shown. Construction planes and axes are hidden with `isLightBulbOn = False`;
+`ConstructionPlane.isVisible` is read-only in the reference. A sketch has both a writable `isVisible` and
+`isLightBulbOn`: the runtime and the spur set `isVisible = False`, and `solids.hide_construction_geometry`
+([PB-TREE-CLEANUP]) turns off `isLightBulbOn` on every sketch, plane and axis of the bevel and cycloidal components.
+
+## Fusion API names
+
+**[PB-API-LOOKUP] Look an API name up before you write it.** The `fusion:query-api` skill answers from a compiled
+database of the Fusion Python API, and it resolves inherited members the way Python does. Ask `show <Class>.<member>`
+for one call: it gives the declaring class, signature and docs. When `show` finds nothing, the name as written does not
+exist on that class; `members <Class>` then lists what the class offers, which is how you find that `sketchCircles`
+belongs to `SketchCurves`, not `Sketch`. `search <term>` matches names, `doc-search <term>` matches documentation, and
+`tree <Class>` gives the base chain.
+The reference leaves out some members that Fusion still runs and the current code calls: `Sketch.project` (the
+reference lists `project2`), `SketchTexts.createInput2` ([PB-SKETCH-TEXT]) and
+`FilletFeatureInput.addConstantRadiusEdgeSet` ([PB-FILLET-CHAMFER]). A name missing from the reference is therefore
+not proof that Fusion lacks it, but a new call should use a name the reference lists.
+
+**[PB-ADSK-MODULES] `adsk.core` or `adsk.fusion`: a name in the wrong module fails only at run time.** `adsk` cannot be
+imported outside Fusion, so a parse accepts `adsk.fusion.SurfaceTypes` although `SurfaceTypes` lives in `adsk.core`;
+it fails in Fusion with `AttributeError: module 'adsk.fusion' has no attribute 'SurfaceTypes'`. No test catches it:
+`tests/test_addin_imports.py` stubs both modules with `MagicMock`. `show <Name>` gives the qualified name. Geometry and
+value types (`Point3D`, `Vector3D`, `Matrix3D`, `ObjectCollection`, `ValueInput`, `SurfaceTypes`, `Curve3DTypes`) live
+in `adsk.core`. Feature and topology types (`FeatureOperations`, `SurfaceProjectTypes`, `PatternComputeOptions`,
+`PointContainment`, `Path`) live in `adsk.fusion`.
+
+**[PB-API-SPELLING] Geometric-constraint method names are exact.** The collinear constraint is
+`geometricConstraints.addCollinear(...)`, with two l's; `addColinear` raises `AttributeError`, and Fusion's message
+suggests the right name. Copy the casing of `addCoincident`, `addPerpendicular`, `addParallel`, `addHorizontal`,
+`addMidPoint` (capital P), `addOffsetDimension` and `addDiameterDimension` from `members GeometricConstraints` and
+`members SketchDimensions`.
+
+**[PB-SKETCHCURVES] Curve collections live under `sketch.sketchCurves`.** Add curves through
+`sketch.sketchCurves.sketchCircles`, `.sketchLines`, `.sketchArcs` and `.sketchFittedSplines`. `sketch.sketchCircles`
+raises `AttributeError: 'Sketch' object has no attribute 'sketchCircles'`. `sketch.sketchPoints`,
+`sketch.sketchDimensions`, `sketch.geometricConstraints`, `sketch.sketchTexts` and `sketch.profiles` are members of
+the sketch itself.
+
+**[PB-FILLET-CHAMFER] Fillet and chamfer inputs take their edge sets in different places.**
+  - Fillet: the reference documents `filletInput.edgeSetInputs.addConstantRadiusEdgeSet(edges, radius,
+    isTangentChain)`. `decadfusion.decad_fillet` calls `filletInput.addConstantRadiusEdgeSet(...)` on the input itself,
+    which the reference no longer lists but Fusion runs: the spur add-in loaded on 2026-10-23 used it. An earlier
+    version of this entry said `edgeSetInputs` does not exist; the reference shows that it does.
+  - Chamfer: `chamferInput = chamferFeatures.createInput2()`, then
+    `chamferInput.chamferEdgeSets.addEqualDistanceChamferEdgeSet(edges, distance, isFlipped)`, as `decad_chamfer` does.
+
+**[PB-LOGGING] Log progress and let failures raise.** Log steps with `futil.log(...)`; `decadfusion.timed` and the
+`logged` decorator time each operation under its role name ([PB-PROGRESS-FILE]). Do not catch an error inside a step to
+carry on. `GearCommand.command_execute` catches it, shows it and calls `deleteComponent()`.
+
+## Bodies and features
+
+**[PB-EMPTY-RESULT] A geometry operation can yield nothing, so check the count where the collection is made.** A split
+that misses, a face or edge search that finds nothing, a piece list after filtering: each can be empty, and `max([])`
+or `coll[0]` then fails far from the cause. Raise right after the operation with the operation, the part and the
+count. The runtime does this: an extrude, loft or revolve raises unless it made one body, `_edge_collection` raises on
+a wrong or zero edge count, and `decad_split` raises unless the sheet made two pieces.
+
+**[PB-SELF-DIAGNOSING] Make failures that depend on topology carry the measured quantities.** In a Fusion add-in the
+exception text is the only telemetry. "expected 3 pieces, got 2" helps little; the candidate distances, pieces in and
+out, and the entity selected point at the cause. `unconstrained_entities`, `_edge_collection` ("selected N edges, want
+M") and `_pattern_copies` ("no pattern instance lies at θ rad") follow this. Prefer a rich error to returning
+unchanged on a miss.
+
+**[PB-PATTERN-BODIES] The bodies of a circular pattern feature, and joining them.** The reference says `Feature.bodies`
+holds the bodies the feature modified or created. Older add-ins treated it as the seed plus the copies; the runtime
+does not rely on whether the seed is listed and drops it by `entityToken` (`decad_pattern_copies`). `pattern.bodies` is
+a `BRepBodies`, and `combineFeatures.createInput(targetBody, toolBodies)` takes an `ObjectCollection`, so copy the
+bodies into `adsk.core.ObjectCollection.create()` first, as `_combine` does.
+
+**[PB-CIRCULAR-PATTERN] Set every circular-pattern input.** `circularPatternFeatures.createInput(entities, axis)`, then
+set `quantity`, `totalAngle = ValueInput.createByString('360 deg')` and `isSymmetric = False` before `add(input)`;
+do not rely on Fusion's defaults. `patternComputeOption` (`adsk.fusion.PatternComputeOptions`) is also available; no
+current gear sets it. `decad_pattern_copies` is the implementation. Its axis is a construction axis from a cylindrical
+face on the pattern axis, or a construction line when no such face exists ([PB-FRAME-PLANE]).
+
+**[PB-LAZY-JOIN] Join and copy once, not once per tooth.** Fusion's kernel joins any number of bodies in one combine,
+and makes every copy of a body at equal angles in one circular pattern. The gallery joins and copies tooth by tooth,
+because decad's kernel needs that, so the runtime records a `decad.Union` and a rotated `decad.Copy` and makes the
+pattern and the single combine when a later step first reads the body. Thirty-one teeth cost two features, not about
+ninety. A copy at an angle that is not part of an equal set is made on its own. `tests/test_bevel_batching.py` counts
+the features.
+
+**[PB-REVOLVE] Revolve.** `revolveFeatures.createInput(profile, axis, operation)`, then
+`setAngleExtent(False, ValueInput.createByString('360 deg'))`, then `add(input)`. The axis is a sketch line or a
+construction axis. The profile must not cross the axis: Fusion aborts with `RuntimeError … ASM_WIRE_X_AXIS … the
+profile crosses the axis of revolution`. The gallery owns the geometry that keeps a profile on one side.
+`decad_revolve` translates only a full revolution.
+
+**[PB-LOFT] Loft, including from a point.** `loftFeatures.createInput(operation)`, then `loftSections.add(entity)` for
+each section in order, then `add(input)`. A section may be a single point (a `SketchPoint` or `ConstructionPoint`) for
+a pointed end. `decad_loft_from_point` lofts from the anchor `SketchPoint`, and `decad_loft_faces` lofts through planar
+faces.
+
+**[PB-THROUGH-CUT] Symmetric through-cut extent.** For an extrude cut that must pierce a body whatever its thickness,
+use `extrudeInput.setSymmetricExtent(ValueInput.createByReal(largeDist), False)`. With `isFullLength = False`,
+`largeDist` is the length on each side. The third argument, a taper angle, is optional and not needed. Restrict the cut
+with `participantBodies = [theBody]`. No current gear cuts this way; cuts go through `combineFeatures`.
+
+**[PB-SPLIT-BODY] Split a body.** `splitBodyFeatures.createInput(bodyToSplit, splittingTool, isSplittingToolExtended)`,
+then `add(input)`. The reference accepts a solid or open body, a construction plane, a profile or a face as the tool.
+`isSplittingToolExtended = True` extends the tool to cross the whole target. A split that does not intersect raises
+`RuntimeError … SPLIT_TARGET_TOOL_NOT_INTERSECT`, and the message text may be localized. A surface built from a sketch
+line in a sibling or parent component failed as a tool ([PB-NO-CROSS-SIBLING]). `decad_split` uses a sheet body
+extruded in the same component.
+
+**[PB-SPLIT-TOOL] A Split Body feature leaves its splitting tool in the design.** The gallery's `decad.Split` consumes
+the sheet, so `decad_split` removes the sheet body after the split. A sheet left behind shows as a plate, one per cut,
+across the gear.
+
+**[PB-FACE-BY-MIDPOINT] Find a face by surface type, and break ties by trying the operation.** Iterate `body.faces` and
+compare `face.geometry.surfaceType` with `adsk.core.SurfaceTypes` (`ConeSurfaceType`, `CylinderSurfaceType`,
+`PlaneSurfaceType`). Measuring a point's distance with `surface.evaluator.getParameterAtPoint` and
+`getPointAtParameter` measures to the infinite surface, so trimmed faces on one surface tie at distance 0, which is
+common with near-coaxial cones. `getParameterAtPoint` returns no result near a singularity such as a cone's apex, so a
+point on the surface can have no distance. When the face feeds an operation, order the candidates by distance, treat
+an unevaluable distance as "try last", and keep the first face for which the operation succeeds. Identify a revolved
+edge's face by the edge's midpoint, which is clear of the apex and differs between adjacent cones. Never break a tie by
+the order of `body.faces`. The helpers `solids.find_cone_faces_by_midpoint` and `apply_conical_cut` implement this; no
+current gear calls them.
+
+**[PB-REMOVE-PIECES] Select and remove split pieces.** Identify pieces with `body.pointContainment(worldPoint)`, which
+returns `adsk.fusion.PointContainment.PointInsidePointContainment`, `PointOnPointContainment`,
+`PointOutsidePointContainment` or `UnknownPointContainment`, and rank them by `body.physicalProperties.volume`. Delete
+an unwanted piece with `component.features.removeFeatures.add(body)`, which shows in the timeline, not `deleteMe()`.
+`decad_remove` uses a Remove feature.
+
+**[PB-MOVE-ROTATE] Move or turn a body.** `moveFeatures.createInput2(bodies)`, then `defineAsFreeMove(matrix)`, then
+`add(input)`, with the matrix from `Matrix3D.setToRotation(angle, axisVector, originPoint)`. `decad_transform` does
+this. An earlier note said `defineAsRotate` rejects a `SketchLine` axis; the reference says it accepts a linear edge,
+construction axis or sketch line, and the case behind the note was not recorded.
+  - A zero angle is refused. `setToRotation(0, axis, origin)` builds the identity, and Fusion refuses to move a body by
+    it with `RuntimeError: 3 : invalid transform` (measured 2026-09-02 on the bevel pinion, whose mesh phase was 0 by
+    default). `decad_transform` returns the body unchanged for a zero turn for exactly this reason.
+
+**[PB-SCALE-BASE-POINT] A Scale feature's base point is a sketch point, never a construction point at a bare point.**
+The reference says `ConstructionPointInput.setByPoint` with a `Point3D` is valid only in direct modeling and fails in a
+parametric design, where Fusion raises "3 : Environment is not supported". `decad_scaled_at` puts a sketch on a planar
+face that passes through the anchor and adds the base point there with `modelToSketchSpace`. The previous bevel add-in
+also made its Design occurrence active for its scale features (`docs/fusion/bevelgear-design-record.md`). `decad_scaled_at`
+activates nothing, and the default spiral pair built in Fusion with it, so a Scale feature needs no active occurrence
+when its base point is a sketch point.
+
+## Construction geometry
+
+**[PB-CONSTRUCTION-PLANES] Construction planes.** `constructionPlanes.createInput()`, then `setByOffset(plane,
+ValueInput)`, `setByAngle(linearEntity, ValueInput, planarEntity)` (through a line, at an angle to a plane; `'90 deg'`
+gives a perpendicular plane) or `setByDistanceOnPath(pathEntity, ValueInput)` (normal to a curve at a fraction 0 to 1
+along it). Pass the `SketchLine`, edge or axis itself. Wrapping a sketch curve in `adsk.fusion.Path.create(curve, …)`
+raised `RuntimeError … InternalValidationError : Utils::getObjectPath(sketchCurve, …)` when the curve's sketch was in
+another component. The bevel's `Pair Plane` uses `setByAngle` on its `Tools` line, and `Runtime._plane_across` uses
+`setByDistanceOnPath` on a construction line.
+
+**[PB-CONSTRUCTION-AXES] Construction axes.** `constructionAxes.createInput()`, then `setByCircularFace(face)` (the axis
+of a cylinder, cone or torus face) or `setByTwoPlanes(planeA, planeB)` (their intersection, which needs no face, unlike
+`setByPerpendicularAtPoint`). `setByLine(InfiniteLine3D)` is valid only in direct modeling, per the reference. The
+runtime's pattern axis uses `setByCircularFace` (`_axis_through`), and a construction line in a sketch when no face
+lies on the axis.
+
+**[PB-CONSTRUCTION-NEEDS-ACTIVE]** Replaced: "Environment is not supported" comes from construction inputs that are
+valid only in direct modeling, not from an inactive component. `ConstructionPointInput.setByPoint` with a `Point3D` and
+`ConstructionAxisInput.setByLine` are such inputs ([PB-SCALE-BASE-POINT], [PB-CONSTRUCTION-AXES]). Planes and axes
+defined by entities build in a component that is not active: the spur gear's pattern axis and the bevel's `Pair Plane`
+do. Where a point or line will do, a `SketchPoint` or sketch line is still the simplest choice.
+
+**[PB-FRAME-PLANE] A plane across the base plane comes from a construction line.** The bevel pair's bore plane and
+tooth plane are perpendicular to the base plane and pass through a point of it. A Fusion-only sketch on the base plane
+holds a construction line from that point along the plane's normal, and the plane is normal to the line at its start,
+so it follows the anchor. Fusion picks the axes of a sketch on such a plane, so the sketch maps the gallery's
+coordinates to them by the dot products of the frame's axes and the sketch's. When that map is a reflection, it draws
+each arc from the other end and extrudes the other way, and it anchors on the line's start point. A pattern about an
+axis that no cylindrical face lies on uses the same kind of line as its axis.
+
+**[PB-PAIR-PLANE] A gear that stands on the Target Plane is drawn in a plane across it, with its apex above the
+point.** The bevel's driving gear stands on its flat back face on the Target Plane, with the Center Point at the centre
+of that face. The pair's apex is above the point on the side the plane's normal points to, by R cos(gamma) plus the
+driving base height, which is the blank's heel station. The pinion shaft is the driving shaft turned about the apex,
+toward the greater X of the plane that holds both shafts. The gallery draws the pair with its apex at the origin, so
+the add-in places it. A short line through the Center Point along the `Tools` sketch's X axis, fully constrained,
+carries a construction plane at 90 degrees to the Target Plane, or at minus 90 when the pinion would lie toward the
+lesser X. A `Pair Tools` sketch on that plane projects the Center Point and holds the apex, dimensioned horizontally and
+vertically from it, or aligned with it where Fusion refuses a dimension of zero. The gallery's U is the Target Plane's
+normal turned round, so the driving shaft runs from the apex down into the plane, and V completes a right-handed pair
+about the sketch's normal. `Runtime.build_frame` takes them, and every sketch maps the gallery's axes to Fusion's by dot
+products ([PB-FRAME-PLANE]). The user asked for this placement on 2026-10-25 (`docs/gallery-translation-goal.md`,
+"Bevel").
+
+**[PB-NO-GRID-SNAP] Decad's grid snap of a section about a rotated shaft is not applied in Fusion.** The gallery snaps
+the points of every section about a rotated shaft to a grid whose step depends on the section's reach, so that decad's
+revolve sees exact floats. In Fusion, the pinion faces that should lie on one cone (the toe dish of its blank, and the
+faces its toe cone trims into every tooth) came out as 31 extra cone faces, one per tooth, and the teeth looked as if
+they stood on the body with a crease at each end. The driving gear, built about an unrotated shaft and so not snapped,
+merged them into one face (face counts 129 and 160, with the same volume to 0.009 percent). Fusion's kernel is exact,
+so `decadfusion.shaft_snap` returns the section as it is. The rounding of the shaft direction to 26 bits stays
+(`_direction_bits` in the bevel module), so every feature about one shaft uses the same value.
+
+**[PB-READING-BOUND] Fusion reports a position as a plain number, with no error bound.** Decad reads a faceted body and
+gives each reading a `Bound` that covers its error, and the gallery widens its comparisons by that bound.
+`decadfusion.Position` and `Centroid` return a bound of 0, so such a comparison uses Fusion's value as it is.
+
+## Components
+
+**[PB-OCCURRENCE-TREE]** Create an occurrence with `parent.occurrences.addNewComponent(adsk.core.Matrix3D.create())` and
+set `occurrence.component.name`. `base.Generator.getOccurrence` makes the gear's component this way. Each gear builds in
+that one component and makes its sub-components last ([PB-CONTAINER-BODIES]); the bevel no longer has the separate
+`Design` component of the previous add-in.
+
+**[PB-NEVER-ACTIVATE] Never call `occurrence.activate()`.** Build in a component by calling its own collections
+(`comp.sketches.add(...)`, `comp.features.*`) without activating it. When a sub-occurrence was activated and a sketch
+was then put on a plane the user selected in another component, Fusion resolved that plane in the activated
+component's local frame and the build lay flat on world XY, whatever plane the user picked. `Runtime.activate()` in
+the runtime only marks the Python object as the active runtime; it does not activate a Fusion occurrence.
+
+**[PB-NO-CROSS-SIBLING] Fusion rejects sketch, `project` and `Path.create` references to a sibling component.** Entities
+wrapped with `createForAssemblyContext` did not help. Run every feature in one component, then move finished bodies
+with `body.moveToComponent(targetOccurrence)`, which keeps their world position and needs no activation
+([PB-CONTAINER-BODIES]).
+
+**[PB-TREE-CLEANUP]** Cleanup walks the tree: `solids.hide_construction_geometry` turns off `isLightBulbOn` on every
+sketch, construction plane and construction axis in the component and its children, deduplicated by `entityToken`.
+On an error, `deleteComponent()` deletes the gear's user parameters and its top occurrence.
+
+**[PB-USE-SELECTED-PLANE] Use a selected plane or face directly; do not rebuild it inside an activated
+sub-component.** A coplanar construction plane (`setByOffset(target, 0)`) created in an activated sub-occurrence, from
+a face in another component, resolved in that sub-component's frame and lost the selected plane's orientation. No gear
+activates anything ([PB-NEVER-ACTIVATE]). The spur, bevel and cycloidal generators turn a selected planar face into a
+construction plane with `setByOffset(target, 0)` in the component they build in, and that keeps its orientation.
 
 **[PB-CONTAINER-BODIES] A gallery container is a Fusion component made last.** The gallery nests containers and puts
 sketches, planes and bodies in them. A feature on a body inside a component runs in that component's context, and its
 inputs would have to be proxies. So the build runs in one component, `Container` only records which container a body
 belongs to, and `Runtime.finish_containers` makes a component for each container that holds a body and moves the bodies
-in. Sketches and planes stay where they are, so they keep following the anchor. A body a boolean consumes leaves its
-container. The cycloidal drive's sub-components follow the same rule.
+in. Sketches and planes stay where they are, so they keep following the anchor. A body that a boolean consumes leaves
+its container. The cycloidal drive's sub-components follow the same rule (`_buildSubComponents`).
 
-**[PB-FRAME-PLANE] A plane across the base plane comes from a construction line.** The bevel pair's bore plane and tooth
-plane are perpendicular to the base plane and pass through a point of it. A Fusion-only sketch on the base plane holds a
-construction line from that point along the plane's normal, and the plane is normal to the line at its start, so it
-follows the anchor. Fusion picks the axes of a sketch on such a plane, so the sketch maps the gallery's coordinates to
-them by the dot products of the frame's axes and the sketch's, draws an arc from the other end when the map is a
-reflection, extrudes the other way for the same reason, and anchors on the line's start point. A pattern about an axis
-that no cylindrical face lies on uses the same kind of line as its axis.
-
-**[PB-PAIR-PLANE] A gear that stands on the Target Plane is drawn in a plane across it, with its apex above the point.** The
-original spec (`spec/bevelgear/instructions.md`, removed from `feat-gallery-port`, still on `main`) puts the Target Plane
-under the driving gear's flat back face and the Center Point at the centre of that face. The pair's apex is above the point on
-the side the plane's normal points to, by R cos(gamma) plus the driving base height, which is the blank's heel station. The
-pinion shaft is the driving shaft turned about the apex, toward the greater X of the plane that holds both shafts. The
-gallery draws the pair with its apex at the origin, so the add-in places it. A short line through the Center Point along the
-plane's X axis (in the `Tools` sketch, fully constrained) carries a construction plane at 90 degrees to the Target Plane,
-made at minus 90 when the pinion would lie toward the lesser X. A `Pair Tools` sketch on that plane projects the Center
-Point and holds the apex, dimensioned horizontally and vertically from it. The gallery's U is the Target Plane's normal turned
-round, so the driving shaft runs from the apex down into the plane, and V completes a right-handed pair about the sketch's
-normal. `Runtime.build_frame` takes them, and every sketch maps the gallery's axes to Fusion's by dot products.
-[PB-FRAME-PLANE]
-
-**[PB-NO-GRID-SNAP] Decad's grid snap of a section about a rotated shaft is not applied in Fusion.** The gallery snaps the
-points of every section about a rotated shaft to a grid whose step depends on the section's reach, so that decad's
-revolve sees exact floats. In Fusion the pinion's faces that should lie on one cone, the toe dish of its blank and the
-faces its toe cone trims into every tooth, came out as 31 extra cone faces, one per tooth, and the pinion looked as if
-its teeth stood on the body with a crease at each end. The driving gear, built about an unrotated shaft and so not
-snapped, merged them into one face (face counts 129 and 160, with the same volume to 0.009 percent). Fusion's kernel is
-exact, so `decadfusion.shaft_snap` returns the section as it is. The shaft direction's rounding to 26 bits stays: every
-feature about one shaft uses the same value.
-
-**[PB-EMBEDDED-TOOTH] The embedded virtual tooth is the region bounded by two flank splines, a tip arc and a root arc.**
-Decad numbers the trim of each flank at the root circle; Fusion's regions carry their trimmed curves, so the runtime
-picks the one valid, hole-free region with four edges of which two are splines.
+## Diagnosing a Fusion run
 
 **[PB-STALE-MODULE] Fusion keeps imported modules across an add-in Stop and Run.** A deploy that changes
 `decadfusion.py` and not the generated gear file can leave the old runtime running, and a traceback then names line
-numbers and messages of code that is gone. The error dialog's Build line shows the runtime's hash and whether it matches
-the file on disk, and the command reloads the runtime when the hash differs. Read that line before trusting a report.
+numbers and messages of code that is gone. Before a build the command compares each geargen module the generator uses
+with a hash of its file, and reloads, in dependency order, every module whose file changed or that uses a module reloaded
+after it. A module still stale after that fails the build. The Build line in the log and in the error box names each
+module with its build id (`gearport id <gear>`) or file hash and marks a stale one. Read that line before trusting a
+report.
 
-**[PB-PROFILE-STALE] Adding a curve to a sketch invalidates the profiles already read from it.** A revolve whose axis was
-added to the profile's own sketch after `sketch.profiles` was read failed with `invalid profile(s) for Revolve Feature`.
-The axis goes in a sketch of its own, or the sketch draws it before the profiles are read. One axis line serves every
-revolve and pattern about the same axis. [PB-FRAME-PLANE]
-
-**[PB-BAD-ENTITY] `Sketch.project` answers `Bad entity parameter` for an entity that is not there or is stale.** Two causes
-were seen. The entity was None, because a sketch took its anchor from a plane that has none. A SketchPoint that another
-sketch had projected is also refused once that sketch gains curves and constraints, so a build projects the point the user
-chose and not the copy a tools sketch holds.
-
-**[PB-POINT-POSITION] The position of a point has a different name on each kind of point.** A SketchPoint has `geometry` in
-its sketch and `worldGeometry` in the design, a ConstructionPoint has `geometry` only, and a BRepVertex has `geometry`.
-Code that accepts the user's Center Point reads whichever exists.
-
-**[PB-PROGRESS-FILE] A build that hangs leaves no trace in the Text Commands window.** The window does not repaint while the
-add-in blocks Fusion's thread. `decadfusion.progress` appends a flushed line to `geargen-progress.log` in the system temp
-directory for each timed step, so the last line names the step that never returned. `unconstrained_entities` makes a failed
-constraint check name the curves and fit points it left free.
-
-## What the spec need not pin (free to vary)
-
-Local variable names, comments, log strings, and how build steps are decomposed into private
-helper methods. What the spec **does** pin and the output must reproduce: the contract surface (the
-classes, hook methods, `ctx` fields, and call graph the spec declares), parameter names/ids, the
-geometry the spec prescribes, feature order, and edge-case handling.
-
-**[PB-LAZY-JOIN] Join and copy once, not once per tooth.** Fusion's kernel joins any number of bodies in one combine, and
-makes every copy of a body at equal angles in one circular pattern. The gallery joins and copies tooth by tooth (its
-kernel needs that), so the runtime records a `decad.Union` and a rotated `decad.Copy` and makes the pattern and the single
-combine when a later step first reads the body. Thirty-one teeth cost two features, not about ninety. A copy at an angle
-that is not part of an equal set is made on its own. `tests/test_bevel_batching.py` counts the features.
-
-**[PB-SCALE-BASE-POINT] A Scale feature's base point is a sketch point, never a construction point at a bare point.**
-`ConstructionPointInput.setByPoint` with a `Point3D` is valid only in direct modeling; in a parametric design it fails
-with "3 : Environment is not supported". The base point is a sketch point on a planar face that passes through the
-anchor, placed with `modelToSketchSpace`.
-
-**[PB-SPLIT-TOOL] A Split Body feature leaves its splitting tool in the design.** The gallery's `decad.Split` consumes the
-sheet, so the runtime removes the sheet body after the split. A sheet left behind shows as a plate, one per cut, across
-the gear.
+**[PB-PROGRESS-FILE] A build that hangs leaves no trace in the Text Commands window.** The window does not repaint while
+the add-in blocks Fusion's thread. `decadfusion.progress` appends a flushed line to `geargen-progress.log` in the
+system temp directory for each timed step, so the last line names the step that never returned. The command empties the
+file before each build, and the tests point it at a temporary path.

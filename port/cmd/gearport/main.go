@@ -88,6 +88,15 @@ func run(ctx context.Context, args []string) error {
 	if !ok {
 		return fmt.Errorf("%s", usage)
 	}
+	if args[0] == "id" {
+		// The id is read from the file alone, so it needs no gallery.
+		have, err := os.ReadFile(g.output)
+		if err != nil {
+			return err
+		}
+		fmt.Println(spur.FileID(string(have)))
+		return nil
+	}
 	src, err := gallery.Locate(ctx, "port", args[1])
 	if err != nil {
 		return err
@@ -97,13 +106,6 @@ func run(ctx context.Context, args []string) error {
 		return err
 	}
 	switch args[0] {
-	case "id":
-		have, err := os.ReadFile(g.output)
-		if err != nil {
-			return err
-		}
-		fmt.Println(spur.FileID(string(have)))
-		return nil
 	case "gen":
 		return g.gen(m, src.Version, args[1], false)
 	case "check":

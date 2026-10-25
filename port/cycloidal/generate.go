@@ -11,9 +11,14 @@ import (
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/spur"
 )
 
-// ComputeReviewed returns the empty record: the drive follows no reviewed code, because the build,
-// the dimensions and the validity checks are translated from the gallery.
-func ComputeReviewed(m *gallery.Model) (spur.Reviewed, error) { return spur.Reviewed{}, nil }
+// ComputeReviewed returns the record of the translation: its creating calls, which the role names are keyed on.
+func ComputeReviewed(m *gallery.Model) (spur.Reviewed, error) {
+	tr, err := go2py.Translate(m, FeatureSpec)
+	if err != nil {
+		return spur.Reviewed{}, err
+	}
+	return spur.Reviewed{Creations: tr.Creations}, nil
+}
 
 // Generate returns the contents of lib/geargen/cycloidal.py for the gallery model m at version,
 // using fragment as the Fusion wiring. It fails when the gallery has drifted from what the
@@ -25,10 +30,14 @@ func Generate(m *gallery.Model, version, fragment string, reviewed spur.Reviewed
 	if m.TableErr != nil {
 		return "", m.TableErr
 	}
-	translated, err := go2py.TranspileSpec(m, FeatureSpec)
+	tr, err := go2py.Translate(m, FeatureSpec)
 	if err != nil {
 		return "", fmt.Errorf("translate the cycloidal drive: %w", err)
 	}
+	if err := spur.CheckCreations("cycloidal", reviewed, tr.Creations); err != nil {
+		return "", err
+	}
+	translated := tr.Python
 	inputs, err := inputsBlock(m)
 	if err != nil {
 		return "", err
@@ -37,12 +46,16 @@ func Generate(m *gallery.Model, version, fragment string, reviewed spur.Reviewed
 	if err != nil {
 		return "", err
 	}
+	fromParameters, err := pieces.paramsFromParameters()
+	if err != nil {
+		return "", err
+	}
 	out := fragment
 	for _, r := range []struct{ marker, text string }{
 		{"inputs", inputs},
 		{"constants", pieces.constants()},
 		{"params_class", pieces.paramsClass()},
-		{"params_from_parameters", pieces.paramsFromParameters()},
+		{"params_from_parameters", fromParameters},
 		{"params_from_inputs", pieces.paramsFromInputs()},
 		{"primary_parameters", pieces.primary},
 		{"derived_parameters", pieces.derived},
@@ -144,27 +157,35 @@ func (p *pieces) paramsClass() string {
 
 // paramsFromParameters renders the method that reads the gallery Params, in millimetres, from the user
 // parameters the dialog registered.
-func (p *pieces) paramsFromParameters() string {
+func (p *pieces) paramsFromParameters() (string, error) {
 	var sb strings.Builder
 	sb.WriteString("        value = lambda constant: self.getParameter(constant).value\n")
 	sb.WriteString("        return _Params(\n")
 	for _, in := range p.m.Inputs {
-		fmt.Fprintf(&sb, "            %s=%s,\n", in.Name, p.fieldFromParameter(in.Name))
+		field, err := p.fieldFromParameter(in.Name)
+		if err != nil {
+			return "", err
+		}
+		fmt.Fprintf(&sb, "            %s=%s,\n", in.Name, field)
 	}
 	sb.WriteString("        )\n")
-	return sb.String()
+	return sb.String(), nil
 }
 
-func (p *pieces) fieldFromParameter(field string) string {
+func (p *pieces) fieldFromParameter(field string) (string, error) {
 	e, ok := p.entryOf[field]
 	if !ok {
-		return "None"
+		return "None", nil
 	}
 	c := ParamConst(e.Name)
 	if e.Kind == gallery.KindCount {
-		return fmt.Sprintf("int(round(value(%s)))", c)
+		return fmt.Sprintf("int(round(value(%s)))", c), nil
 	}
-	return fmt.Sprintf("to_mm(value(%s))", c)
+	unit, err := unitString(e.Unit)
+	if err != nil {
+		return "", fmt.Errorf("parameter %s: %w", e.Name, err)
+	}
+	return fromFusion(fmt.Sprintf("value(%s)", c), unit), nil
 }
 
 // paramsFromInputs renders the function that reads the gallery Params, in millimetres, from the dialog
@@ -203,6 +224,13 @@ func (p *pieces) primaryParameters() (string, error) {
 			return "", fmt.Errorf("gallery parameter %q reads Params.%s, which has no dialog input: add it to port/cycloidal/mapping.go", e.Name, e.Field)
 		}
 		c := ParamConst(e.Name)
+		unit, err := unitString(e.Unit)
+		if err != nil {
+			return "", fmt.Errorf("parameter %s: %w", e.Name, err)
+		}
+		if lengthInput := input.Kind == Length; lengthInput != (unit == "mm") || (e.Kind == gallery.KindCount && lengthInput) {
+			return "", fmt.Errorf("parameter %s has the unit %q, which its dialog input %s does not give", e.Name, e.Unit, input.Const)
+		}
 		switch input.Kind {
 		case Count:
 			fmt.Fprintf(&sb, "        self.addParameter(\n            %s,\n"+
@@ -228,7 +256,11 @@ func (p *pieces) derivedParameters() (string, error) {
 	}
 	var sb strings.Builder
 	for _, e := range p.m.Table {
-		c, unit := ParamConst(e.Name), unitString(e.Unit)
+		c := ParamConst(e.Name)
+		unit, err := unitString(e.Unit)
+		if err != nil {
+			return "", fmt.Errorf("parameter %s: %w", e.Name, err)
+		}
 		comment := strings.ReplaceAll(titleWords(strings.ReplaceAll(e.Name, "_", " ")), "'", "")
 		switch e.Kind {
 		case gallery.KindInput, gallery.KindCount:
@@ -236,6 +268,9 @@ func (p *pieces) derivedParameters() (string, error) {
 		case gallery.KindExpr:
 			res, err := fusionexpr.Translate(e.Expr, kinds)
 			if err != nil {
+				return "", fmt.Errorf("parameter %s: %w", e.Name, err)
+			}
+			if err := fusionexpr.CheckUnit(res.Kind, unit); err != nil {
 				return "", fmt.Errorf("parameter %s: %w", e.Name, err)
 			}
 			args := make([]string, len(res.Names))
@@ -251,11 +286,11 @@ func (p *pieces) derivedParameters() (string, error) {
 				"            '%s', '%s')\n", c, unit, comment)
 		case gallery.KindSnapshot:
 			field := strings.TrimPrefix(e.Field, "d.")
-			fmt.Fprintf(&sb, "        self.addParameter(\n            %s, adsk.core.ValueInput.createByReal(to_cm(dims.%s)),\n"+
-				"            '%s', '%s (numeric snapshot)')\n", c, field, unit, comment)
+			fmt.Fprintf(&sb, "        self.addParameter(\n            %s, adsk.core.ValueInput.createByReal(%s),\n"+
+				"            '%s', '%s (numeric snapshot)')\n", c, toFusion("dims."+field, unit), unit, comment)
 		case gallery.KindConstant:
-			fmt.Fprintf(&sb, "        self.addParameter(\n            %s, adsk.core.ValueInput.createByReal(to_cm(%s)),\n"+
-				"            '%s', '%s')\n", c, number(e.Value), unit, comment)
+			fmt.Fprintf(&sb, "        self.addParameter(\n            %s, adsk.core.ValueInput.createByReal(%s),\n"+
+				"            '%s', '%s')\n", c, toFusion(number(e.Value), unit), unit, comment)
 		default:
 			return "", fmt.Errorf("parameter %s: unsupported table kind %q", e.Name, e.Kind)
 		}
@@ -285,15 +320,34 @@ func kindOfUnit(unit string) fusionexpr.Kind {
 	return fusionexpr.KindNone
 }
 
-// unitString is the Fusion parameter unit of a table entry.
-func unitString(unit string) string {
+// unitString is the Fusion parameter unit of a table entry. A unit the port has no rule for is an error.
+func unitString(unit string) (string, error) {
 	switch unit {
 	case "Millimeters", "Millimeter":
-		return "mm"
+		return "mm", nil
 	case "Radians", "Radian":
-		return "rad"
+		return "rad", nil
+	case "One", "":
+		return "", nil
 	}
-	return ""
+	return "", fmt.Errorf("the port has no rule for the unit %q", unit)
+}
+
+// toFusion renders the conversion of a value in the translated code's unit, millimetres or radians, to the internal
+// unit of a Fusion parameter with the given unit: centimetres for a length, radians for an angle.
+func toFusion(value, unit string) string {
+	if unit == "mm" {
+		return "to_cm(" + value + ")"
+	}
+	return value
+}
+
+// fromFusion renders the conversion of a Fusion parameter's internal value to the translated code's unit.
+func fromFusion(value, unit string) string {
+	if unit == "mm" {
+		return "to_mm(" + value + ")"
+	}
+	return value
 }
 
 // inputsBlock renders the dialog inputs, in dialog order, with the gallery defaults.

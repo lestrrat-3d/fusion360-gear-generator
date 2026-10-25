@@ -18,7 +18,11 @@ func ComputeReviewed(m *gallery.Model) (spur.Reviewed, error) {
 	if err != nil {
 		return spur.Reviewed{}, err
 	}
-	return spur.Reviewed{Digest: digest, Functions: slices.Clone(ReviewedFuncs)}, nil
+	tr, err := go2py.Translate(m, FeatureSpec)
+	if err != nil {
+		return spur.Reviewed{}, err
+	}
+	return spur.Reviewed{Digest: digest, Functions: slices.Clone(ReviewedFuncs), Creations: tr.Creations}, nil
 }
 
 // Generate returns the contents of lib/geargen/helicalgear.py for the gallery model m
@@ -40,10 +44,14 @@ func Generate(m *gallery.Model, version, fragment string, reviewed spur.Reviewed
 		return "", fmt.Errorf("the gallery code behind the fragment changed (%s): review port/helical, "+
 			"then run gearport accept", strings.Join(ReviewedFuncs, ", "))
 	}
-	translated, err := go2py.TranspileSpec(m, FeatureSpec)
+	tr, err := go2py.Translate(m, FeatureSpec)
 	if err != nil {
 		return "", fmt.Errorf("translate the helical build: %w", err)
 	}
+	if err := spur.CheckCreations("helicalgear", reviewed, tr.Creations); err != nil {
+		return "", err
+	}
+	translated := tr.Python
 	registration, err := Registration(PlaneOffset)
 	if err != nil {
 		return "", err
@@ -85,6 +93,9 @@ func Generate(m *gallery.Model, version, fragment string, reviewed spur.Reviewed
 func Registration(p Parameter) (string, error) {
 	res, err := fusionexpr.Translate(p.Expr, kinds)
 	if err != nil {
+		return "", fmt.Errorf("parameter %s: %w", p.Table, err)
+	}
+	if err := fusionexpr.CheckUnit(res.Kind, p.Unit); err != nil {
 		return "", fmt.Errorf("parameter %s: %w", p.Table, err)
 	}
 	var sb strings.Builder

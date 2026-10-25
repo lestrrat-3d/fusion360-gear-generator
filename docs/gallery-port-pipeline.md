@@ -1,456 +1,159 @@
 # Gallery port pipeline
 
-Status: design agreed in conversation on 2026-10-23, with a spur gear prototype built (see "Spur gear prototype").
-The prototype has not been loaded in Fusion. Sections marked "Proposed" were not decided by the user and need
-confirmation before they are treated as settled. The user accepted the fragment store and the regenerate-and-diff
-drift check.
+Every gear add-in under `lib/geargen/` is generated from a model in
+[decad-gallery](https://github.com/lestrrat-3d/decad-gallery). The gallery builds each gear as Go code on top of
+[decad](https://github.com/lestrrat-3d/decad) and [sketch](https://github.com/lestrrat-3d/sketch) and proves its
+geometry in its own repository. This repository translates that Go code into Fusion 360 Python and holds what the
+gallery cannot say: the dialog, the Fusion runtime and what Fusion taught us.
 
-## Goal
+`docs/gallery-translation-goal.md` owns the goal, the translation rules and the definition of done. `docs/fusion/`
+holds the Fusion findings. This file describes how the pipeline works and where it stops.
 
-Replace the first half of the gear generator pipeline, which runs from `spec/<gear>/instructions.md` through
-`/compile-gear` to `steps.md` and the Go proofs in `proof/<gear>/`. Models are built and proved in the
-[decad-gallery](https://github.com/lestrrat-3d/decad-gallery) repository instead, as Go code on top of
-[decad](https://github.com/lestrrat-3d/decad) and [sketch](https://github.com/lestrrat-3d/sketch). This
-repository then only translates a gallery model into the Fusion add-in Python under `lib/geargen/`.
+## Layout
 
-## Current pipeline and target pipeline
-
-| Stage | Today | Target |
-| --- | --- | --- |
-| Construction contract | `spec/<gear>/instructions.md` and `fusion.md` | `models/<gear>/instructions.md` in the gallery, plus Fusion rules kept here |
-| Step list | `spec/<gear>/steps.md`, written by `/compile-gear` | `models/<gear>/steps.md` in the gallery |
-| Geometry proof | `proof/<gear>/`, run by `proof/run.sh` | the gallery's `go test ./models/<gear>`; this repository does not repeat it |
-| Fusion code | `/emit-gear` writes `lib/geargen/<gear>.py` from the step list | a translator writes `lib/geargen/<gear>.py` from the gallery's Go source |
-| Fusion check | the user loads the add-in by hand | unchanged |
-
-## Decisions
-
-The user made these decisions during the planning conversation.
-
-1. The translator reads the gallery's generated Go code as its main input. The gallery and decad provide the geometry
-   proof, so this repository does not prove geometry again.
-2. The translator is a mix of a deterministic part and an LLM part. The Go-source reader is the deterministic part and
-   is written in Go in this repository.
-3. The ported add-in stays parametric, with Fusion user parameters and a feature timeline that update when the user
-   edits a value.
-4. The command dialog and the sketch-only mode of today's add-in carry over unchanged. They have no source in the
-   gallery, so they live here as a fixed template.
-5. The translator writes `lib/geargen/<gear>.py` directly, replacing the current generated file.
-6. Fusion-specific knowledge stays in this repository. Where it can be expressed either as prose or as code, the user
-   prefers code.
-7. The ported gear must be close enough to today's gear in its end result. It does not have to match
-   `spec/<gear>/` step for step.
-8. The Fusion load check is a manual step, because only the user can run Fusion. Findings still go to `PLAYBOOK.md` or
-   the gear's `fusion.md`, as `CLAUDE.md` requires.
-9. The gallery revision is pinned in a `go.mod` pseudo-version, like the decad and sketch pins in `proof/go.mod`.
-10. The first milestone is the spur gear alone. Helical and herringbone, which the gallery already has, wait until the
-    spur gear loads in Fusion.
-11. The existing `spec/`, `proof/`, `steps.md`, `/compile-gear` and `/emit-gear` are removed only after every gear is
-    ported.
-
-## What the translator reads and writes
-
-Input is a pinned revision of the gallery. For the spur gear that is `models/spurgear/*.go`, which holds
-`Params`, `DefaultParams`, `validate`, `derive`, the profile builders and `Build`.
-
-Output is `lib/geargen/spurgear.py`. The generated file keeps the current add-in's public surface: the command inputs,
-the generation context, and the registered parameter names.
-
-### Deterministic part
-
-The Go-source reader parses the gallery package and extracts:
-
-- the `Params` fields and their defaults, which become the dialog inputs;
-- the derived values and their expressions, which become Fusion user parameters;
-- the ordered list of sketches, constraints and feature calls in `Build`.
-
-It maps each Decad call to a Fusion call:
-
-| Decad | Fusion |
+| Path | Role |
 | --- | --- |
-| `sketch.CreateCircle`, `CreateLine`, `CreateArc`, `CreateFitSpline` | `sketchCurves` additions |
-| `sketch.NewRadius`, `NewDiameter` and the other dimensions | `sketchDimensions` and `geometricConstraints` |
-| `decad.Extrude` | `extrudeFeatures` |
-| `decad.PatternCopies` with `Union` | circular pattern, then a join `combineFeatures` |
-| `decad.Union`, `decad.Cut` | `combineFeatures` |
-| `decad.Fillet`, `decad.Chamfer` | `filletFeatures`, `chamferFeatures` |
+| `port/go.mod` | Pins the gallery, decad and sketch revisions as pseudo-versions. `go get` is the only thing that moves a pin. |
+| `port/gallery` | Reads the pinned gallery source: `Params`, defaults, the parameter table, the operations a build performs, and a digest of named functions. |
+| `port/go2py` | Translates gallery Go into Python. `api.go` is the table of operations the translator accepts. |
+| `port/fusionexpr` | Rewrites a gallery parameter expression into a Fusion expression. It refuses a function it has no rule for. |
+| `port/<gear>/` | One package per gear (`spur`, `helical`, `herringbone`, `cycloidal`, `bevel`): the mapping from gallery names to Fusion names and dialog inputs (`mapping.go`), the generator, and `reviewed.json`, which records what the gallery's build looked like when the translation was reviewed. |
+| `port/<gear>/fragments/` | The stored Python that wraps the translation: dialog, command handlers, selections and anchor. It holds marker lines where generated code goes. |
+| `port/cmd/gearport` | The command. |
+| `lib/geargen/decadfusion.py` | The Fusion implementation of the API table. It stands in for the gallery's Document, World, Sketch and Body. Written by hand. |
+| `lib/geargen/<gear>.py` | Build output. The next `gearport gen` overwrites it. |
 
-### LLM part
+## Commands
 
-Some Decad constructs have no one-to-one Fusion form. Selectors such as `ParallelTo`, `EndpointAt` and
-`OuterLoopOf(CapStart)` become BRep face and edge searches. Profile finding after a sketch, and the coincidence order
-that avoids `VCS_SKETCH_OVER_CONSTRAINTS`, come from the rules in `PLAYBOOK.md` and `spec/spurgear/fusion.md`.
-
-The LLM output for each such construct is stored as a reviewable fragment file beside the translator, so a rerun
-with unchanged input is byte-identical and the pipeline stays repeatable.
-
-1. The reader splits the gallery Go into constructs: a sketch, a constraint group, a feature call.
-2. The mapping table turns each mapped construct into Python.
-3. For an unmapped construct the translator looks up a fragment by key. The key is a hash of the construct's
-   normalized Go text, the names of the variables the fragment reads and writes, the text of the Fusion rules and
-   helpers its prompt cites, and the prompt version.
-4. On a miss the translator writes a prompt file and stops. An LLM session produces the fragment, a human reviews it
-   in the pull request, and a second run finishes.
-5. Changed input invalidates only the fragments whose key changed, so the Fusion recheck covers those.
-
-The fragment store is transitional. After Fusion accepts a fragment, and the construct appears in a second gear, the
-fragment is promoted to a rule in the mapping table, which is code.
-
-### Fusion knowledge as code
-
-Proposed: the rules in `PLAYBOOK.md` and each gear's `fusion.md` move into code where they can. Helper functions in
-`lib/geargen/` (for example `solids.py` and `utilities.py`) hold the Fusion workarounds, and the translator's mapping
-table calls them. A rule that cannot be expressed as code stays as a `[PB-…]` or `[<GEAR>-F-…]` anchor, and the
-translator or its tests cite the anchor.
-
-## Parametric requirement and its dependency on decad
-
-The gallery spur code today computes `derive(p)` and every dimension as plain floats, so its Go source carries no
-parameter names. A parametric add-in needs Fusion parameter expressions such as a root radius written in terms of
-module and tooth count.
-
-The sketch library already has a parameter engine in `sketch/param`: a `param.Table` of named parameters with
-expressions, forward references and cycle errors, and `Sketch.Bind` to tie a dimension to an expression. Decad's
-feature calls (`Extrude`, `Fillet`, `Chamfer`, pattern count) take plain `units.Value` numbers and cannot carry an
-expression.
-
-Agreed plan:
-
-1. Decad uses `sketch/param` directly now. Extracting `param` into its own module is a later step, once it is worth a
-   third consumer.
-2. Decad has no feature history: the Go builder function is the feature tree. So an edit means calling
-   `table.Set(...)` and running the builder again. Fusion keeps its own timeline, so decad needs no replay engine.
-3. Decad gains a `decad.WithParams(*param.Table)` document option, `doc.Param(name)` and `doc.Expr(expr)`, which
-   return the existing `units.Value` after evaluating through the table, and `doc.ParamInt(name)` for counts. The
-   existing call signatures do not change. A read-only `Document.Bindings()` ledger lists each use with its feature,
-   field, expression, evaluated value and dependencies. The decad session records this design in
-   `agent-docs/param-binding-design.md` in the decad repository and ships it with the implementation.
-4. After decad is ready, the gallery spur rewrites `derive`, its dimensions and its feature values as
-   `param.Table` entries.
-5. The translator reads those names and expressions from the Go source. Parameter names and expressions must be
-   string literals in the gallery source (`table.Set("root_radius", "...")` and `doc.Param("root_radius")`), not
-   built by concatenation or loops. The `Bindings()` ledger from a real run checks the reader's output.
-
-Sampled involute points depend on a sample count and loops, so they may remain computed values that read the table.
-The spur port does not depend on settling that detail first.
-
-## Drift detection and pinning
-
-The gallery will keep changing in small ways. The gallery revision is pinned in a `go.mod` pseudo-version in this
-repository. There is no record file of hashes. CI detects drift by regenerating:
-
-1. CI checks out the pinned gallery revision, as the proofs already do from `proof/go.mod`.
-2. CI runs the translator with the committed fragments.
-3. CI fails if the output differs from the committed `lib/geargen/<gear>.py`, or if a fragment is missing.
-
-This catches a pin bump with no regeneration, a hand edit of the generated file, a stale fragment, and a translator
-change. It depends on the translator being deterministic once the fragments exist. A header comment in the generated
-file records the gallery revision and translator version for human readers; the check does not read it.
-
-Bumping the pin is its own change, and the Fusion check decides whether the bump is accepted.
-
-## Spur gear milestone
-
-Order of work:
-
-1. Gallery changes the spur tooth from a loft between two identical sections to one `decad.Extrude` of the tooth
-   section. The gallery already builds one tooth, copies it with `decad.PatternCopies`, and joins it with one
-   `decad.Union` (gallery PRs #68 and #69). The extrude is the remaining difference from today's Fusion construction.
-2. Decad accepts expression-carrying feature values, and the gallery spur adopts them.
-3. This repository builds the Go-source reader, the mapping table and the drift check against the pinned gallery spur.
-4. The translator writes `lib/geargen/spurgear.py`, and the user loads it in Fusion.
-5. Fusion findings go into the supplement and the translator, and the spur port is rerun until it loads.
-
-Steps 1 and 2 are owned by the gallery and decad sessions. Step 3 can start before they finish, because the reader
-works on the gallery code as it stands.
-
-Known gallery limits that carry into the port: an oblique placement frame joins but its root fillet refuses, a fillet
-radius larger than the connector length refuses, and copies whose spline edges cross each other or an arc refuse.
-
-## Open points for later verification
-
-- Acceptance check. The user decided that decad provides the geometry proof and that the Fusion load is manual. No one
-  has decided whether to also compare the Fusion body with the gallery body (for example by volume and bounds) to catch
-  translation mistakes before the Fusion load.
-- Where the Go translator lives in this repository. Proposed: a new module beside `proof/`, with its own `go.mod` that
-  pins the gallery.
-- How long the old pipeline coexists. Decision 11 removes it after every gear is ported. Until then both pipelines run,
-  and the gears without a gallery model keep using `/compile-gear` and `/emit-gear`.
-- Whether the gallery spur and today's `lib/geargen/spurgear.py` differ in behavior the user cares about, such as
-  input names or parameter names. The user accepted "close enough", so differences are tolerated unless the add-in's
-  dialog or saved designs depend on them.
-
-## Verification of this design
-
-Check each of these against the built pipeline:
-
-- No file under `proof/` or `spec/` is read when a gear is ported from the gallery.
-- `lib/geargen/spurgear.py` is written only by the translator. A hand edit makes the drift check fail.
-- The ported add-in registers Fusion user parameters, and editing one updates the body.
-- The gallery pin in `go.mod` equals the revision recorded for the port.
-- A Fusion load of the ported spur gear succeeds for the default parameters and for the bore and chamfer cases.
-
-## Spur gear prototype
-
-The prototype lives in `port/`, a Go module whose `go.mod` pins the gallery revision.
-`go build -C port -o ../.tmp/gearport ./cmd/gearport` builds the command. From the repository root:
+Build once with `go build -C port -o ../.tmp/gearport ./cmd/gearport`, then run from the repository root:
 
 | Command | Effect |
 | --- | --- |
-| `gearport gen spurgear` | Writes `lib/geargen/spurgear.py`. |
-| `gearport check spurgear` | Exits non-zero when that file differs from a fresh generation. |
-| `gearport accept spurgear` | Records the digest of the gallery code the fragment was reviewed against. |
+| `gearport gen <gear>` | Writes `lib/geargen/<gear>.py`. |
+| `gearport check <gear>` | Exits non-zero when that file differs from a fresh generation. |
+| `gearport accept <gear>` | Records the digest of the gallery functions the fragment was reviewed against. |
+| `gearport id <gear>` | Prints the build id the file's contents carry. |
 
-Packages:
+The gears are `spurgear`, `helicalgear`, `herringbonegear`, `bevelgear` and `cycloidal`.
 
-| Package | Role |
-| --- | --- |
-| `port/gallery` | Parses the pinned gallery spur source: `Params` fields and defaults, the parameter table, the decad operations `Build` performs, and a digest of named functions. |
-| `port/fusionexpr` | Rewrites a gallery parameter expression into a Fusion expression. It refuses a function it has no rule for. |
-| `port/go2py` | Translates the pure numeric helpers (`rotate`, `involutePoint`, `flankBeta`, `sampleFlanks`) to Python. A test runs the Python and the Go on the same inputs and requires the flank points to agree to 1e-9. |
-| `port/spur` | The mapping from gallery names to Fusion names and dialog inputs, the stored fragment `fragments/spurgear.py.frag`, and the generator that fills the fragment's marker lines. |
+Every generated file starts with a header naming the gallery revision and carries `GEAR_BUILD_ID`, the first 12 hex
+digits of the SHA-256 of the file without its three stamp lines. Fusion logs `<gear> build <id>` when it imports the
+module, so a match with `gearport id` shows that Fusion ran that file.
 
-What comes from the gallery source: the dialog inputs and their defaults, the registered Fusion parameters and their
-expressions, and the involute sampling code. What stays in the fragment: the dialog selections, the anchor and
-sketch construction, the extrude, pattern, join, fillet, bore and chamfer calls, and the profile finding. The first
-fragment is the existing add-in with the generated parts replaced by marker lines.
+## How a gear is generated
 
-The generator stops, with a message naming the cause, in three cases:
+1. The gallery reader loads the pinned model package.
+2. The generator fills the marker lines of the stored fragment: dialog inputs with the gallery defaults, the
+   parameter names, and the translated Python.
+3. `port/go2py` translates the gallery functions the gear's `Spec` lists (`FeatureSpec` in the gear's `mapping.go`).
+   The `Spec` names the structs to render, the functions to translate whole, the drawing steps to translate up to a
+   stop call, package values, and the points where the Fusion runtime replaces gallery code.
+4. Each call of `decad`, `sketch`, `r3`, `units` or `sketchcheck` in the translated code maps to an entry of the API
+   table, which `decadfusion.py` implements. `port/spur/runtime_test.go` fails when the table has an entry the module
+   does not define.
+5. Each call that creates a Fusion object needs a role name from the gear's `Roles` table, so every sketch, plane,
+   feature and body is named by what it is for (see `CLAUDE.md`, "Naming").
 
-- The gallery parameter table gains or loses an entry the mapping does not list.
-- The decad operations `Build` performs differ from `ExpectedOps` in `port/spur/mapping.go`.
-- The code of the functions in `ReviewedFuncs` changes. A person reviews the fragment, then runs `gearport accept`.
+What the translator does with Go that Python reads differently: it drops error checks, because the runtime raises
+instead; it drops the context argument; it folds branches on an unset options struct; it copies a struct that the
+translated code assigns field by field (`Mutable`); and it reads a missing map key as the zero value. A call of
+anything not in the API table stops the port. Nothing is skipped silently.
 
-### Surface kept for the other gears
+A function the runtime implements instead of the translator (`Bound`), a function of another gallery package
+(`External`), a function the add-in does itself (`Provided`), and a retry loop that runs once (`FirstOnly`, see
+`docs/gallery-translation-goal.md`) are the only places where gallery code is not translated. One gallery error value,
+`decad.ErrDegenerate`, is translated as an exception (`Catch`): a split sheet that misses the tooth is a skip in the
+gallery, so the runtime raises `decaderrors.Degenerate` and the translated `errors.Is` becomes `isinstance`. Every other
+`errors.Is` is false.
 
-`helicalgear.py`, `herringbonegear.py` and `bevelgear.py` import classes and constants from `spurgear.py`, and the
-helical gear overrides `filletHelixFactorExpression`. The generated file keeps the four classes
-(`SpurGearCommandInputsConfigurator`, `SpurGearGenerationContext`, `SpurGearGenerator`,
-`SpurGearInvoluteToothDesignGenerator`), the `PARAM_` and `INPUT_ID_` names they use, and the fillet helix hook.
-`port/spur/generate_test.go` checks that the classes exist and that no `PARAM_` or `INPUT_ID_` name is used without
-a definition. The helical, herringbone and bevel gates pass against the generated file.
+The translator refuses Go it would turn into different Python: a redeclared name that shadows one read again, mixed
+integer and float literals, float loop variables, a loop condition the body changes, `%` on operands that may be
+negative (Go truncates, Python floors), a `break` inside a `switch` in a loop, copies of structs it cannot copy, and
+`Sprintf` verbs it does not render as Go does. One known difference remains: Python's `math.acos`, `math.sqrt` and
+division raise where Go returns NaN or Inf.
 
-### Differences from the previous add-in
+### What stops `gearport gen`
 
-- The pitch, base, root and tip diameters, the tooth space angle and arc, and the fillet clearance parameters are
-  gone. The gallery table has radii only, and no file outside `spurgear.py` read the removed names except as keys
-  that `spurproxy.py` serves.
-- One parameter is new, `InvoluteAngle`. The fillet radius now follows the gallery formula
-  `0.9 * root_radius * (pi / teeth - 2 * involute_angle) / 2`; its values are identical to the previous add-in's (checked
-  over 1008 input cases, worst difference 4e-16). One behaviour changes: the previous add-in froze the tooth space angle
-  at registration, so `FilletRadius` ignored later edits to `ToothNumber` or `PressureAngle`, and it now follows them.
-  `InvoluteSteps` is registered first, and a user design that referenced `<prefix>_PitchCircleDiameter` or another
-  removed name finds nothing on a newly generated gear.
-- The involute sampling code is the gallery's, not a hand-written copy.
-- The embedded-flank tooth keeps the Fusion construction (flanks from the base circle, trimmed by the root circle).
-  The gallery closes its embedded tooth with an arc just inside the root circle. Both give the same joined gear.
+- A gallery `Params` field that is in neither the gear's inputs nor its gallery-only list.
+- A parameter table entry the mapping does not list.
+- A gallery call, option or struct the translator has no rule for.
+- A creating call with no role name.
+- A `Roles`, `FirstOnly`, `Bound`, `External`, `Provided` or `Catch` entry that the translation never uses.
+- A change in the ordered list of creating calls of a translated function, or in the code of the functions a gear
+  reviews by digest. Both are recorded in `reviewed.json`. A person reviews the translation, then runs
+  `gearport accept <gear>`. Because each entry carries the call's text, two swapped calls of one operation stop the port
+  too, so role names cannot swap silently.
+- A gallery module that is not in the Go module cache and cannot be downloaded, or one that a `replace` directive
+  points at a local checkout.
 
-### Fusion findings
+## The Fusion runtime
 
-First load, Fusion 2705.1.25, 2026-10-23: `FilletRadius` was rejected with "Invalid expression". A probe of about
-twenty expression variants (`diag_params.py`, one run) showed:
+`lib/geargen/decadfusion.py` implements the API table on Fusion's API. These parts matter when reading a failure:
 
-- Through the API, lowercase `pi` parses as a unit, not a constant. It evaluates to 0 in a unitless parameter and is
-  rejected next to a length, which made `InvoluteAngle` silently 0 and `FilletRadius` invalid. Capital `PI` is the
-  constant, so the translator writes `PI` (`port/fusionexpr`, with a test).
-- Dividing an angle by `1 deg` gives a plain number, so the `deg()` rule holds.
+- A `Runtime(component, plane, anchor, parameters, sketch_only, scale)` is one build. The gallery's coordinates are in
+  the build's local frame; `to_world` and `to_local` convert. Spur, helical and herringbone run in centimetres;
+  cycloidal and bevel run in millimetres with a scale of 0.1.
+- Each sketch records the gallery's calls and draws them in the order Fusion needs (`[PB-SPLINE-RING]`,
+  `[PB-DIMENSION-COST]`), then anchors its local origin. A sketch on a plane across the base plane gets an axis map
+  (`[PB-FRAME-PLANE]`).
+- A gallery container becomes a Fusion component made after the build (`[PB-CONTAINER-BODIES]`).
+- A union and a rotated copy are recorded and made as one combine and one circular pattern when something first reads
+  the body (`[PB-LAZY-JOIN]`).
+- A model that only reads its parameters back keeps them in a Python table (`[PB-PARAM-TABLE]`). The bevel gear does
+  this and registers no Fusion user parameter. The other gears register user parameters from the gallery table.
+- A stale module guard compares the runtime's source hash with the file on disk, and the command reloads the runtime
+  when they differ (`[PB-STALE-MODULE]`). The error dialog shows the build line. A running build writes a progress
+  file (`[PB-PROGRESS-FILE]`).
 
-Sketch-only mode in Fusion 2705.1.25: on the first run the Tools and Gear Profile sketches showed as not fully
-constrained in the browser, and each showed fully constrained after the sketch was opened. A later run showed both
-fully constrained without any action. The proof reads both as fully constrained, probes that build sketches the way
-the generators do (in the root and in a new component) showed no stale icon at all, and the playbook records that
-the icon and the property can disagree and that a labelled sketch reads unstably (`PB-SETTLE-DISPLAY`,
-`PB-TEXT-HOLDS-DOF`). The first reading was not reproduced, and nothing in the port changed the sketch calls, so no
-code changed.
+## Checks
 
-Loaded in Fusion 2705.1.25 on 2026-10-23 after the `PI` change, each without error: the default gear, an embedded
-gear (12 teeth), a bore, a cap chamfer, and the default helical gear (which reuses the spur generator and its
-fillet helix hook). Not checked: sketch-only mode, the herringbone and bevel gears with the new file, and numeric
-agreement of the resulting body with the gallery body.
+`.github/workflows/checks.yml` runs on every pull request and on pushes to `main`:
 
-### CI
+- `port` runs `go mod tidy` (and fails on a diff), `go vet`, golangci-lint and `go test ./...` in `port/`, then
+  `scripts/check-generated-gears.sh`, which names every gear whose file differs from a fresh generation. A pin bump with no
+  regeneration, a hand edit of a generated file, a stale fragment and a translator change all fail here.
+- `addins` runs `python3 -m unittest discover -s tests` and `scripts/check_fusion_api.py`. The tests compile and import
+  the add-in, its entry file and the shipped diag scripts with the Fusion modules stubbed, require every `_fx.<name>` a
+  generated file uses to exist in the runtime, fail on an unnamed sketch, plane, feature or body, run the translated
+  bevel build against a fake Fusion, and test the runtime's bookkeeping (containers, lazy joins and copies, split, scale,
+  planes, units). The API check runs pyright against the FusionAPIReference stubs, pinned in the workflow, and fails on an
+  unknown Fusion member, a wrong argument count or an undefined name. `scripts/fusion-api-allow.txt` lists the retired
+  members the code still uses, which work in Fusion today. `scripts/check-deploy.sh` runs `deploy.sh` into a temporary
+  folder, compiles what it copied and fails if it shipped a test, a Go file or a document.
 
-The old gates no longer run on `spurgear`: the contract manifest lists the removed constants, and the API-call
-check does not know `collections.namedtuple`. A new `port` job runs `go test ./...` in `port/` and
-`gearport check spurgear`. `WorkflowGateWiringTest` skips a gear whose file starts with the generated header, and
-the exact-values drift test skips the module comparison for the same reason.
+The gallery proves each gear's geometry. This repository does not repeat it.
 
-## Helical gear port
+What nothing checks: the degrees of freedom of the add-in's own sketches, the Fusion API calls on values whose type
+pyright cannot see, and the numeric agreement of a Fusion body with the gallery body. Only a person can run Fusion, so
+the Fusion load stays a manual step. Its findings go where `CLAUDE.md`, "When Fusion gives a verdict", says.
 
-`gearport gen helicalgear` writes `lib/geargen/helicalgear.py` from the pinned `models/helicalgear`. The gallery
-helical gear is the spur gear plus `HelixAngle` and a loft between two twisted sections, and the add-in already
-builds on the generated spur add-in. So the port generates only what the helical source defines: the `HelixAngle`
-dialog input, its default and the two name constants. The rest is the stored fragment
-`port/helical/fragments/helicalgear.py.frag`, which is the previous add-in with those lines replaced by markers.
-The generated file equals the previous one except for the header.
+Bumping a pin is its own change, and the Fusion load decides whether the bump is accepted.
 
-The generator stops when the helical build performs operations other than `Loft`, `Extrude`, `Union` and `Fillet`,
-when `Params` gains a field beyond `HelixAngle`, or when the code of the functions in `ReviewedFuncs`
-(`port/helical/mapping.go`) changes. The root fillet radius, which the gallery scales by `cos(HelixAngle)`, stays
-in the spur parameter through `filletHelixFactorExpression`.
+## Gears
 
-Loaded in Fusion on 2026-10-23 from the regenerated file (build id `a37e99a9aedb`, confirmed in the Fusion log), the
-default helical gear built without error. Not checked: a bore, a cap chamfer, an embedded gear, sketch-only mode, and
-numeric agreement of the body with the gallery body.
+| Gear | Translated | Fusion check |
+| --- | --- | --- |
+| Spur | Whole build, with the root fillet and the embedded tooth | Merged in PRs #196 and #197 |
+| Helical | The spur pipeline with its own tooth loft and root fillet | Merged in PRs #196 and #197 |
+| Herringbone | The helical pipeline with a mirrored half | Merged in PRs #196 and #197 |
+| Cycloidal | Whole build, one lobe and a circular pattern | Default drive loaded and confirmed by the user (PR #198); not checked with two discs and a disc gap of zero |
+| Bevel | Straight and spiral pairs, one Tooth Type drop-down | Straight pair and the default spiral pair loaded and confirmed by the user (PR #199) |
 
-### Build id
+The screw gear has no gallery model and is not part of the port.
 
-Every generated add-in carries `GEAR_BUILD_ID`, the first 12 hex digits of the SHA-256 of the file without its three
-stamp lines, and logs `<gear> build <id>` when Fusion imports the module. `gearport id <gear>` prints the id the
-file in the working tree carries. A match between the Fusion log and that output shows Fusion ran that file.
+### Where the add-in differs from the gallery
 
-## Herringbone gear port
-
-`gearport gen herringbonegear` writes `lib/geargen/herringbonegear.py`. The gallery herringbone `Params` is an alias
-of the helical `Params`, so the gear has no input or parameter of its own, and the stored fragment
-`port/herringbone/fragments/herringbonegear.py.frag` is the whole previous add-in. The generated file equals the
-previous one except for the header and the build id lines.
-
-The generator stops when `Params` stops aliasing `helicalgear.Params`, when the herringbone build performs operations
-other than `Loft`, `Union` and `Union`, or when the code of `Build` or `BuildTooth` changes. The helical and spur
-checks cover the pattern, join and finishing operations the gallery performs in those packages.
-
-Loaded in Fusion on 2026-10-23 from the regenerated file (build id `484f3cd3b91a`), the default herringbone gear
-built without error. Not checked: a bore, a cap chamfer, an embedded gear and sketch-only mode.
-
-## Gallery pin 685d4e0
-
-The pin moved from 872277b to 685d4e0. The gallery now builds spur, helical and herringbone through one
-`spurgear.Variant` pipeline and reads dimensions from the document's parameter table. The geometry did not change,
-so the fragments did not change. The reader follows methods of the model package and package functions passed as
-values, once per method, so a build split into pipeline stages still lists its decad operations. The helical and
-herringbone gears list only the operations in their own package, and the spur port checks the shared stages. The
-`ReviewedFuncs` lists name the new functions. Only the header and build id of the three generated files changed.
-
-## Bevel pair translated from the gallery
-
-`gearport gen bevelgear` writes `lib/geargen/bevelgear.py` from the pinned gallery `models/bevelgear`. The straight pair
-is translated: `BuildPair`, `buildMember`, `buildStraightMember`, the blanks, the cones, the point tooth, the bore, the
-containers and the validity checks. The fragment holds the dialog, the `Tools` sketch, the Pair Plane and the call of the
-translated build. A spiral pair is translated from the same functions and has not yet been loaded in Fusion. The old stored fragment is gone.
-
-The gallery needed two seams for the translation, both merged in gallery PR #107: `selectEmbeddedToothProfile` holds the
-embedded-region walk that reads decad internals, and the straight tooth pattern is `decad.PatternCopies`, which Fusion
-maps to one circular pattern. The parameter table is kept in Python ([PB-PARAM-TABLE]); no Fusion user parameter is made.
-
-Decided with the user on 2026-10-25: the driving gear stands on the Target Plane with its apex on the Center Point
-([PB-PAIR-PLANE]). The first build put both shafts in the Target Plane, as the gallery's default placement does, and the
-user said it was the wrong orientation.
-
-Findings from the first Fusion loads, all written up in `docs/fusion/playbook.md`. The offline tests could not have caught
-the Fusion behaviours, and two of the defects were mine and a test now covers them:
-
-- A revolve axis added to the profile's own sketch invalidated the profile ([PB-PROFILE-STALE]). A fake sketch does not
-  invalidate profiles, so only a Fusion load shows it.
-- Projecting a stale or missing entity gives `Bad entity parameter` ([PB-BAD-ENTITY]). The missing-anchor case was my bug
-  and `tests/test_bevel_runtime.py` covers it.
-- A construction point has no `worldGeometry` ([PB-POINT-POSITION]). The same test file covers it.
-- A changed runtime can stay unloaded across a Stop and Run ([PB-STALE-MODULE]), and a hung build leaves no trace
-  ([PB-PROGRESS-FILE]). Both cost round trips before the fixes, and the fixes are in the add-in.
-
-## Cycloidal drive port
-
-`gearport gen cycloidal` writes `lib/geargen/cycloidal.py` from the pinned gallery `models/cycloidal` (gallery 23f43f3,
-PRs #87 and #88, decad 2563aba). The add-in is parametric and registers Fusion user parameters, and it builds the drive with Fusion
-calls that the stored fragment `port/cycloidal/fragments/cycloidal.py.frag` holds. The port takes the 18 dialog inputs
-and their defaults from the gallery `Params` and `DefaultParams`: disc count, pin count, pin circle diameter, pin
-diameter, eccentricity, disk clearance, disc thickness and gap, center bearing and input shaft diameters, bearing
-clearance, output pin circle diameter, count and diameter, housing wall, base and output plate thickness, and chamfer
-size. The Target Plane, Anchor Point and Parent Component selections stay in the fragment, because the gallery replaces
-them with a `Placement` frame.
-
-The generator stops when a gallery `Params` field has no mapping, when a parameter table name is in neither
-`RegisteredParams` nor `TableGalleryOnly` in `port/cycloidal/mapping.go`, when a registered parameter loses its constant
-in the fragment, when the decad operations of `Build` differ from `ExpectedOps`, or when the code of the functions in
-`ReviewedFuncs` changes. The reader now parses the gallery's parameter table form for this model: a local alias for a
-units constructor, values computed before the table (`KindSnapshot`, the pin radius and the output hole diameter) and
-a package constant (`KindConstant`).
-
-The first generated file had the same syntax tree as the previous add-in apart from the header and build id. The only
-changes after that are names. Every sketch, plane, axis, feature, body and component is named by its role, and the
-17 unnamed features, patterns and joins are now named (`Cycloidal Disk 1 Lobe Pattern`, `Casing Sector Join`,
-`Output Plate Pin Socket Cut` and so on). `PENDING_REGENERATION` in `test_naming_by_role.py` is now empty. The per-gear
-`gates` job in the workflow is removed, because no gear uses the compile+emit pipeline's gates any more; the
-cycloidal compile check, gate battery and playbook-citation check no longer run.
-
-The gallery model differs from the add-in, per its README:
-
-- The rotor discs are not chamfered in the gallery. Decad cannot chamfer a rim made only of fit splines, and Fusion keeps
-  its disc chamfer.
-- Two discs with a disc gap of zero now build in the gallery (gallery 23f43f3, PR #88). The gallery cam stops 0.25 mm
-  short of the plane between the discs and a bridge cylinder joins the two sections; Fusion's cam has no relief there.
-  The gallery's ten validity rules have the same conditions and message text as the add-in's `evaluate_problems`. The
-  gallery also refuses inputs the add-in does not check and Fusion cannot build either: a pin count below 4, an output
-  pin count below 3, a disc count other than 1 or 2, non-finite values, and lengths at or below zero.
-- The gallery draws each lobe as three fit splines and builds the casing from an exact per-direction envelope; the
-  housing is one cylinder minus a contour cavity and a base hole. The add-in keeps its own construction.
-- Sub-components, the casing contour's under-constraint exemption and the skipped-chamfer message box are Fusion-only.
-
-Not yet covered: a numeric comparison of the add-in's derived-parameter formulas with the gallery's table, and of the
-add-in's `evaluate_problems` with the gallery's `Problems`. Loaded in Fusion on 2026-10-24 from the file with build id
-`b9c655b02d33`; the user reports the drive looks right. Not checked: a two-disc drive with a disc gap of zero.
-
-## Spur build translated from the gallery
-
-The first spur port stored the add-in's Fusion construction and generated only the inputs, parameters and involute
-math. The user rejected that as not being a port. The whole spur build is now translated.
-
-- `port/go2py` translates Go into Python. Its sketch mode takes the gallery's drawing and build functions: it drops the
-  error checks, because the runtime raises, drops the context argument, folds branches on an unset options struct, and
-  maps calls of `decad`, `sketch`, `r3` and `sketchcheck` to the operations in its API table (`api.go`). A call of
-  anything else stops the port. Each call that creates a Fusion object needs a role name from the table in
-  `port/spur/mapping.go`, so naming by role is enforced at generation.
-- `lib/geargen/decadfusion.py` is the Fusion implementation of that table. `port/spur/runtime_test.go` fails when the
-  table has an entry the module does not define.
-- `port/spur/build_test.go` runs the translated build against a fake runtime and requires the sketches, features,
-  role names and counts the gallery produces. `port/spur/tooth_test.go` requires every translated tooth point to lie on
-  the gallery's own verified profile. `tests/test_tooth_sketch_builder.py` runs the sketch class against a fake sketch.
-- The spur's stored `reviewed.json` digest and `ExpectedOps` list are gone for the spur: nothing stored follows the
-  gallery's code any more, so a changed gallery build is a changed translation, and the committed add-in no longer
-  matches `gearport gen`.
-- `tool_margin` and `bore_tool_length` are now Fusion user parameters (`ToolMargin`, `BoreToolLength`), because the
-  gallery reads them.
-- The spur's old construction moved to `lib/geargen/legacyspur.py`. HelicalGearGenerator builds on it and the bevel
-  add-in draws its tooth sketch with it. It is deleted when the last of them is translated.
-- Not yet checked in Fusion: the translated spur. The helical, herringbone and bevel add-ins run the same code as
-  before through the transitional module.
-
-## Helical and herringbone builds translated from the gallery
-
-- The gallery builds a helical gear with the spur pipeline and a `Variant`: its own tooth (a loft between the lower
-  section and a twisted section) and its own root fillet. The spur translation takes the variant as a parameter
-  (`_variant_assemble(v, r)`), the helical add-in passes `_Variant(Tooth=loft_tooth, RootFillet=_fillet_root_edges)`,
-  and the herringbone add-in passes `_chevron` with the same fillet.
-- `loft_tooth`, `_fillet_root_edges` (from the helical model) and `_chevron` (from the herringbone model) are
-  translated by `port/go2py`. They call the spur's translated `build_tooth_section`, `tooth_input_plane_at` and
-  `tooth_input_shifted`, which `port/helical/mapping_spec.go` lists as external functions of another gallery package.
-- go2py gained struct receivers, keyed struct literals, maps, constants, comma-ok type assertions and map lookups, and
-  calls into another gallery package. The runtime gained loft, mirrored copy, faces and surfaces.
-- The parameters the gallery's `Variant` defines (`helix_plane_offset`, `helical_fillet_radius`) are registered by the
-  generated add-in from expressions in `port/helical/mapping.go`, guarded by a digest of `Build` and `Variant`. The
-  old hook that multiplied the spur's `FilletRadius` by cos(helix angle) is gone; `HelicalFilletRadius` is a parameter
-  of its own, as in the gallery.
-- The translated code builds in the gallery's local frame (`[SPUR-F-LOCAL-FRAME]`), so the helical root fillet's test
-  of a root edge by its Z component holds on any sketch plane.
-- `lib/geargen/legacyspur.py` now holds only the tooth sketch drawer the bevel add-in uses.
-- Not yet checked in Fusion: the translated helical and herringbone add-ins, and the spur after the move to the local
-  frame.
-
-## Removal of the old pipeline
-
-With every gear generated by the port, `spec/`, `proof/` and the compile+emit skills (`/compile-gear`, `/emit-gear`,
-`/generate-gear`, their gate scripts and tests) were removed, as decision 11 planned. The gallery owns each gear's
-contract, step list and geometry proof. The Fusion knowledge in the old spec and playbook was kept as prose under
-`docs/fusion/`: `playbook.md` for rules that hold for every gear, one file per gear for the rest, and the cycloidal
-epitrochoid trace. The naming test moved to `tests/test_naming_by_role.py`. The workflow keeps the `port` job and an
-`addins` job. Older notes under `docs/` that mention the removed paths describe the pipeline as it was.
-
-## What the old checks covered and what covers it now
-
-The old workflow ran a static check of each generated add-in against the Fusion API (parse, call coverage, pyright with
-the Fusion stubs), a contract check, and Go proofs of the add-in's own sketch construction. The `addins` job now compiles
-and imports every add-in with the Fusion modules stubbed and checks the naming rule. Nothing checks the Fusion API calls
-statically, and nothing checks the degrees of freedom of the add-in's own sketches (the spur Gear Profile, the bevel
-lattice and the cycloidal sketches); the gallery proves its own construction, which differs from the add-in's in the
-places listed above. A pyright run against the FusionAPIReference stubs and a port of those sketch proofs would close
-these gaps.
+- Cycloidal: the drive is grouped into sub-components, which the gallery does not have. The dialog checks the inputs
+  as you type with the gallery's own `Problems` function, translated.
+- Spur, helical and herringbone: the gallery's own checks (`validate`, `ValidateHelixAngle`) run, translated, before
+  anything is built, so a bad input raises the gallery's message. The dialog has no live check for them, because they
+  need the derived parameters.
+- Bevel: the dialog has a Tooth Type drop-down that the gallery does not have. Straight is the default and builds
+  with a spiral angle of zero; Spiral shows Mean Spiral Angle, Hand of Spiral and Cutter Radius. The gallery default is
+  also straight, and the dialog starts Mean Spiral Angle at 35° because a spiral pair needs an angle above zero. The
+  add-in places the pair on a Target Plane at a Center Point (`[PB-PAIR-PLANE]`) and leaves the gallery's `Placement`
+  empty.
+- Bevel: the gallery retries a spiral build with other overshoots and join orders when decad refuses a boolean. The
+  translation runs the first try only, because Fusion's kernel is exact (`docs/gallery-translation-goal.md`).
+- All gears: a failed generation deletes the new component and the user parameters it registered (`lib/geargen/base.py`)
+  and reports the error in a dialog.

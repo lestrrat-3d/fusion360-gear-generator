@@ -33,6 +33,34 @@ const (
 	KindOther
 )
 
+// CheckUnit fails when an expression of kind k cannot be the value of a Fusion parameter with the given unit: a
+// length needs a length unit, an angle an angle unit, and a parameter with no unit takes a plain number. A plain
+// number fits any unit, which it takes.
+func CheckUnit(k Kind, unit string) error {
+	want := map[string]Kind{"mm": KindLength, "cm": KindLength, "rad": KindAngle, "deg": KindAngle, "": KindNone}
+	w, ok := want[unit]
+	switch {
+	case !ok:
+		return fmt.Errorf("unit %q has no rule", unit)
+	case k == KindNone || k == w:
+		return nil
+	}
+	return fmt.Errorf("a %s expression cannot be registered with unit %q", k, unit)
+}
+
+// String names the kind.
+func (k Kind) String() string {
+	switch k {
+	case KindNone:
+		return "plain number"
+	case KindLength:
+		return "length"
+	case KindAngle:
+		return "angle"
+	}
+	return "mixed-unit"
+}
+
 // Result is a translated expression. Format is a Python str.format template with one
 // "{}" for each name in Names, in order of appearance. A name that appears twice is
 // listed twice.

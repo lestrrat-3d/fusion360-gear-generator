@@ -1,0 +1,9 @@
+The gear generators in lib/geargen/ contain code translated from decad-gallery
+(https://github.com/lestrrat-3d/decad-gallery) by port/cmd/gearport. decad-gallery is licensed under
+the PolyForm Noncommercial License 1.0.0:
+
+  https://polyformproject.org/licenses/noncommercial/1.0.0
+
+decad-gallery carries this notice:
+
+Required Notice: Copyright Daisuke Maki (https://github.com/lestrrat-3d/decad-gallery)

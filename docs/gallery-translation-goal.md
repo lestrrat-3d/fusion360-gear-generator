@@ -1,10 +1,11 @@
 # Gallery translation goal
 
 Goal: every gear add-in in `lib/geargen/` is a translation of its decad-gallery model, with no Fusion construction
-kept as stored text. `feat-gallery-port` merges into `main` only when this goal is reached.
+kept as stored text. The goal is reached for spur, helical, herringbone, cycloidal and bevel. The screw gear has no
+gallery model and is outside it.
 
-Owners: `docs/gallery-port-pipeline.md` describes the current pipeline and its history. `docs/fusion/` holds what
-Fusion taught us. This file owns the goal, the rules for reaching it, and the definition of done.
+Owners: `docs/gallery-port-pipeline.md` describes how the pipeline works. `docs/fusion/` holds what Fusion taught us.
+This file owns the goal, the rules for keeping it, and the definition of done for a gear.
 
 ## Division of work
 
@@ -27,8 +28,8 @@ Fusion taught us. This file owns the goal, the rules for reaching it, and the de
 - The translator reads the gallery's Go source in the order it creates entities and features. That order is the
   contract. A gallery change to the order stops the port until the rules are reviewed.
 - Anything the translator does not recognise is an error. NEVER skip it silently.
-- Fusion-specific adjustments live in the Fusion runtime layer of the fragment, not in the gallery. Examples already
-  recorded in `docs/fusion/spurgear.md`: `[SPUR-F-ARC-CENTRE]`, `[SPUR-F-ALIGN-DUPLICATE]`, `[SPUR-F-ROOT-ARC]`.
+- Fusion-specific adjustments live in the Fusion runtime (`lib/geargen/decadfusion.py`), not in the gallery. Examples
+  are recorded in `docs/fusion/spurgear.md` and `docs/fusion/playbook.md`.
 
 ## Structure
 
@@ -52,19 +53,20 @@ Fusion taught us. This file owns the goal, the rules for reaching it, and the de
   again with the next numbers. Every try that decad accepts gives the same gear, because the overshoot is trimmed flush
   afterwards. Fusion's kernel is exact and has no such refusal. A failed Fusion feature stays in the timeline as an
   error, so retrying there would need a rollback that does not exist.
-- The retry loops are listed in `port/bevel/mapping.go` (`FirstEntryOnly`), so the rule is visible in the code that
+- The retry loops are listed in `port/bevel/mapping.go` (`FirstOnly`), so the rule is visible in the code that
   applies it. Decided with the user on 2026-10-24.
+- A skip is not a retry. The spiral slicer tests `errors.Is(err, decad.ErrDegenerate)` after a split: the plane missed
+  the tooth, so the gallery removes the sheet and moves to the next plane, and flips the side of the planes when every
+  plane misses. `Catch` in `port/bevel/mapping.go` maps `decad.ErrDegenerate` to the Python class
+  `decaderrors.Degenerate`. The translation puts the split in a `try` statement that stores that exception in `err`, and
+  `errors.Is` becomes `isinstance`. Every other `errors.Is` is false, as the rule above says. The runtime raises
+  `Degenerate` when a split sheet misses the body, and a plain `RuntimeError` for any other failure.
 
-## Order of work
+## Adding a gear
 
-1. Spur: the embedded tooth, then the feature sequence (root disc, tooth extrude, pattern, join, fillets, bore,
-   chamfers).
-2. Helical and herringbone.
-3. Bevel.
-4. Cycloidal.
-
-- Finish one gear before starting the next.
 - Starting a gear: list the gallery operations it uses, then list which are already covered by a rule.
+- A gear that needs something new gets a new shared rule, and the rule leaves every finished gear's output unchanged.
+- Finish one gear before starting the next.
 - The screw gear has no gallery model and is outside this goal. It stays on `feat-screwgear` branches.
 
 ## Bevel
@@ -75,17 +77,18 @@ Fusion taught us. This file owns the goal, the rules for reaching it, and the de
 - The driving gear stands on its back face on the Target Plane with its axis through the Center Point, so the pair's apex
   is above the point by the blank's heel station and the driving shaft is the Target Plane's normal turned round. The
   pair lies in the Pair Plane, across the Target Plane through the Center Point along its X axis, and the pinion's shaft
-  turns toward the X axis. The user expected the gear on the plane, with its centre on the point, on 2026-10-25 and said
-  both builds that put the apex on the point were wrong: first with both shafts in the Target Plane, then with the
-  driving shaft along its normal.
+  turns toward the X axis. The user expected the gear on the plane with its centre on the point, and rejected two
+  builds that put the apex on the point: first with both shafts in the Target Plane, then with the driving shaft along
+  its normal.
 - The dialog has a Tooth Type drop-down, Straight or Spiral, which the gallery does not have. Straight hides Mean Spiral
   Angle, Hand of Spiral and Cutter Radius and builds with a spiral angle of zero. Spiral shows them and needs an angle
-  above zero. Straight is the default until the spiral pair is translated; the gallery's default is spiral. Requested by
-  the user on 2026-10-26.
-- The straight pair is translated and Fusion-verified. The spiral pair is translated too, from the same gallery
-  functions, and awaits its first Fusion load. Its decad-only steps map to Fusion as follows: `Split` is a surface
-  extrude of the cut line plus a Split Body feature (the piece nearer the apex comes first), `ScaledAt` is a Scale
-  feature about a construction point, `LoftFaces` is a loft through the slabs' planar caps, and `Copy` with a rotation
+  above zero. Straight is the default, as in the gallery. The Mean Spiral Angle field starts at 35° so that choosing Spiral
+  works at once. Requested by the user.
+- Both pairs are translated from the same gallery functions, and the user loaded them in Fusion and confirmed them.
+  The spiral build's decad-only steps map to Fusion as follows: `Split` is a surface extrude of the cut line plus a
+  Split Body feature (the piece nearer the apex comes first), `ScaledAt` is a Scale
+  feature about a sketch point on a face through the anchor ([PB-SCALE-BASE-POINT]), the cut sheet is removed after
+  each split ([PB-SPLIT-TOOL]), `LoftFaces` is a loft through the slabs' planar caps, and `Copy` with a rotation
   is a Copy/Paste Body plus a free move.
 
 ## Definition of done for a gear
@@ -96,16 +99,9 @@ Fusion taught us. This file owns the goal, the rules for reaching it, and the de
 - Every finished gear's generated output is unchanged by the rules added for this one, or the change is explained.
 - The user loaded the generated add-in in Fusion and reported it works. NEVER mark a gear done on tests alone.
 
-## Definition of done for the goal
-
-- Every gear in the order above is done.
-- A change to a gallery model's operations or order stops `gearport gen` for that gear.
-- `docs/gallery-port-pipeline.md` describes the final state.
-- The user decides when `feat-gallery-port` merges into `main`. NEVER merge it earlier.
-
 ## Working rules
 
-- Work in a worktree off `feat-gallery-port`, named `.worktrees/<branch>`.
-- Open PRs against `feat-gallery-port`. NEVER push, open a PR or merge unless the user says so in that turn.
+- Work in a worktree off `main`, named `.worktrees/<branch>`.
+- NEVER push, open a PR or merge unless the user says so in that turn.
 - A Fusion verdict follows `CLAUDE.md`, "When Fusion gives a verdict": write the finding down, then regenerate.
 - A gallery or decad change needed goes to the owning session. NEVER edit those repos' main branches directly.

@@ -3,67 +3,10 @@ package go2py
 import (
 	"fmt"
 	"go/ast"
-	"go/parser"
 	"go/token"
 	"slices"
 	"strings"
 )
-
-// steps renders the creation sequence of one drawing function.
-func (t *transpiler) steps(st Steps) (string, error) {
-	decl, err := t.model.Func(st.Name)
-	if err != nil {
-		return "", err
-	}
-	fn := &fnState{t: t, info: &funcInfo{name: st.Name, decl: decl}, env: map[string]typ{}, calls: map[string]int{}}
-	names := make([]string, len(st.Args))
-	for i, a := range st.Args {
-		expr, err := parser.ParseExpr(a.Type)
-		if err != nil {
-			return "", fmt.Errorf("argument %s: %w", a.Name, err)
-		}
-		at, err := fromAST(expr, t.structs)
-		if err != nil {
-			return "", fmt.Errorf("argument %s: %w", a.Name, err)
-		}
-		fn.env[a.Name] = at
-		names[i] = pyName(a.Name)
-	}
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "def %s%s(%s):\n", t.prefix, st.PyName, strings.Join(names, ", "))
-	fn.indent = 1
-	stopped := false
-	for _, s := range decl.Body.List {
-		if createsSketch(s) {
-			continue
-		}
-		if callsFunc(s, st.StopAt) {
-			stopped = true
-			break
-		}
-		if err := fn.stmt(&sb, s); err != nil {
-			return "", err
-		}
-	}
-	if !stopped {
-		return "", fmt.Errorf("no call of %s to stop at", st.StopAt)
-	}
-	return strings.TrimRight(sb.String(), "\n"), nil
-}
-
-// callsFunc reports whether the statement calls the function name.
-func callsFunc(s ast.Stmt, name string) bool {
-	found := false
-	ast.Inspect(s, func(n ast.Node) bool {
-		if c, ok := n.(*ast.CallExpr); ok {
-			if id, ok := c.Fun.(*ast.Ident); ok && id.Name == name {
-				found = true
-			}
-		}
-		return !found
-	})
-	return found
-}
 
 // isErrIdent reports whether e names an error variable: err, or a name ending in Err such as phaseErr.
 func isErrIdent(e ast.Expr) bool {
@@ -174,6 +117,7 @@ func (f *fnState) multiResult(sb *strings.Builder, s *ast.AssignStmt, call *ast.
 		if !ok || len(ext.Results) != len(s.Lhs)-errs {
 			return false, nil
 		}
+		f.t.use("External", key)
 		callee, recv = ext.Python, r
 		for _, r := range ext.Results {
 			types = append(types, parseAPIType(r))
@@ -214,10 +158,16 @@ func (f *fnState) rangeStmt(sb *strings.Builder, s *ast.RangeStmt) error {
 	if err != nil {
 		return err
 	}
+	// The key and the value are declared in a block around the loop.
+	f.push(s.Pos(), s.End())
+	defer f.pop()
 	keyName := "_"
 	if key != nil && key.Name != "_" {
 		keyName = pyName(key.Name)
-		f.env[key.Name] = intType
+		if err := f.define(key, key.Name, intType); err != nil {
+			return err
+		}
+		f.nonNegative(key.Name)
 	}
 	switch {
 	case xt.numeric():
@@ -227,17 +177,33 @@ func (f *fnState) rangeStmt(sb *strings.Builder, s *ast.RangeStmt) error {
 		f.line(sb, "for %s in range(%s):", keyName, xs)
 	case xt.kind == kindSlice:
 		if id, ok := s.X.(*ast.Ident); ok && f.t.firstOnly[id.Name] {
+			f.t.use("FirstOnly", id.Name)
 			xs += "[:1]"
 		} else if val != nil && f.t.firstOnly[f.info.name+":"+val.Name] {
 			// A list written in the loop itself is named by the function and the loop variable.
+			f.t.use("FirstOnly", f.info.name+":"+val.Name)
 			xs += "[:1]"
 		}
 		if val != nil && val.Name != "_" {
-			f.env[val.Name] = *xt.elem
+			if err := f.define(val, val.Name, *xt.elem); err != nil {
+				return err
+			}
 			if keyName == "_" {
 				f.line(sb, "for %s in %s:", pyName(val.Name), xs)
 			} else {
 				f.line(sb, "for %s, %s in enumerate(%s):", keyName, pyName(val.Name), xs)
+			}
+			// The value is a copy of the element in Go.
+			elem := &ast.IndexExpr{X: s.X, Lbrack: s.X.End(), Index: &ast.BasicLit{Kind: token.INT, Value: "0"},
+				Rbrack: s.X.End()}
+			copied, err := f.copyValue(elem, pyName(val.Name), *xt.elem, val.Name)
+			if err != nil {
+				return err
+			}
+			if copied != pyName(val.Name) {
+				f.indent++
+				f.line(sb, "%s = %s", pyName(val.Name), copied)
+				f.indent--
 			}
 		} else {
 			f.line(sb, "for %s in range(len(%s)):", keyName, xs)
@@ -247,12 +213,14 @@ func (f *fnState) rangeStmt(sb *strings.Builder, s *ast.RangeStmt) error {
 	}
 	f.indent++
 	defer func() { f.indent-- }()
-	return f.block(sb, s.Body.List)
+	return f.loopBody(sb, s.Body.List)
 }
 
 // switchStmt renders a switch as if, elif and else. A switch with no tag tests each case expression,
 // and a tagged switch tests the tag against each.
 func (f *fnState) switchStmt(sb *strings.Builder, s *ast.SwitchStmt) error {
+	f.push(s.Pos(), s.End())
+	defer f.pop()
 	if s.Init != nil {
 		return fmt.Errorf("%s: switch with an init statement is unsupported", f.pos(s))
 	}
@@ -285,21 +253,28 @@ func (f *fnState) switchStmt(sb *strings.Builder, s *ast.SwitchStmt) error {
 		f.line(sb, "%s %s:", word, strings.Join(conds, " or "))
 		word = "elif"
 		f.indent++
-		if err := f.block(sb, clause.Body); err != nil {
+		if err := f.caseBody(sb, clause.Body); err != nil {
 			return err
 		}
 		f.indent--
 	}
 	if def != nil {
 		if word == "if" {
-			return f.block(sb, def.Body)
+			return f.caseBody(sb, def.Body)
 		}
 		f.line(sb, "else:")
 		f.indent++
 		defer func() { f.indent-- }()
-		return f.block(sb, def.Body)
+		return f.caseBody(sb, def.Body)
 	}
 	return nil
+}
+
+// caseBody renders the body of a switch case, where a break would leave the switch.
+func (f *fnState) caseBody(sb *strings.Builder, list []ast.Stmt) error {
+	f.breaks = append(f.breaks, breakSwitch)
+	defer func() { f.breaks = f.breaks[:len(f.breaks)-1] }()
+	return f.block(sb, list)
 }
 
 // closure renders "name := func(params) result { ... }" as a nested def. The body sees the names of
@@ -310,6 +285,17 @@ func (f *fnState) closure(sb *strings.Builder, name string, lit *ast.FuncLit) er
 	for k, v := range f.env {
 		inner.env[k] = v
 	}
+	// The closure is declared where it is written, and its parameters and body are a block inside the blocks open
+	// there.
+	if err := f.define(lit, name, typ{kind: kindOpaque, name: "func"}); err != nil {
+		return err
+	}
+	inner.root = f.root
+	inner.scopes = slices.Clone(f.scopes)
+	inner.push(lit.Pos(), lit.End())
+	if err := inner.planCatches(lit.Body); err != nil {
+		return err
+	}
 	var params []string
 	local := map[string]bool{}
 	for _, fld := range lit.Type.Params.List {
@@ -318,7 +304,9 @@ func (f *fnState) closure(sb *strings.Builder, name string, lit *ast.FuncLit) er
 			return fmt.Errorf("%s: %w", f.pos(lit), err)
 		}
 		for _, n := range fld.Names {
-			inner.env[n.Name] = ft
+			if err := inner.define(n, n.Name, ft); err != nil {
+				return err
+			}
 			local[n.Name] = true
 			if ft.variadic {
 				params = append(params, "*"+pyName(n.Name))
@@ -346,6 +334,10 @@ func (f *fnState) closure(sb *strings.Builder, name string, lit *ast.FuncLit) er
 	var outer []string
 	declared := map[string]bool{}
 	ast.Inspect(lit.Body, func(n ast.Node) bool {
+		if inc, ok := n.(*ast.IncDecStmt); ok {
+			// n++ assigns n, as n = n + 1 does.
+			n = &ast.AssignStmt{Lhs: []ast.Expr{inc.X}, Tok: token.ADD_ASSIGN}
+		}
 		a, ok := n.(*ast.AssignStmt)
 		if !ok {
 			return true
@@ -371,7 +363,7 @@ func (f *fnState) closure(sb *strings.Builder, name string, lit *ast.FuncLit) er
 	if len(outer) > 0 {
 		sb.WriteString(strings.Repeat("    ", inner.indent) + "nonlocal " + strings.Join(outer, ", ") + "\n")
 	}
-	return inner.block(sb, lit.Body.List)
+	return inner.stmts(sb, lit.Body.List)
 }
 
 // commaOK renders "v, ok := x.(T)" and "v, ok := m[k]". A type assertion is a test of the
@@ -438,18 +430,3 @@ func (f *fnState) commaOK(sb *strings.Builder, s *ast.AssignStmt) (bool, error) 
 }
 
 func isIdentNamed(e ast.Expr, name string) bool { return isIdent(e, name) }
-
-// createsSketch reports whether the statement is "s, err := world.CreateSketch(plane)". A drawing
-// function that is translated up to a stop call draws in a sketch its caller made.
-func createsSketch(s ast.Stmt) bool {
-	a, ok := s.(*ast.AssignStmt)
-	if !ok || len(a.Rhs) != 1 {
-		return false
-	}
-	call, ok := a.Rhs[0].(*ast.CallExpr)
-	if !ok {
-		return false
-	}
-	sel, ok := call.Fun.(*ast.SelectorExpr)
-	return ok && sel.Sel.Name == "CreateSketch"
-}

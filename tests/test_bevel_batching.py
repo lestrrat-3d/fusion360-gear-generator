@@ -15,6 +15,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from fakefusion import redirect_progress
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -90,19 +92,22 @@ class BatchingTest(unittest.TestCase):
             'addin', ROOT / '__init__.py', submodule_search_locations=[str(ROOT)])
         sys.modules['addin'] = importlib.util.module_from_spec(spec)
         cls.fx = importlib.import_module('addin.lib.geargen.decadfusion')
+        cls.progress = redirect_progress(cls.fx)
 
     @classmethod
     def tearDownClass(cls):
         for name in [n for n in sys.modules if n == 'adsk' or n.startswith(('adsk.', 'addin'))]:
             del sys.modules[name]
         sys.modules.update(cls.saved)
+        cls.progress.cleanup()
 
     def setUp(self):
         fx = self.fx
         self.log = []
         self.runtime = SimpleNamespace(
             component=SimpleNamespace(features=FakeFeatures(self.log, 12)),
-            to_local=lambda v: v, to_world=lambda v: v, to_world_dir=lambda v: v, scale=1.0)
+            to_local=lambda v: v, to_world=lambda v: v, to_world_dir=lambda v: v, scale=1.0,
+            unique=lambda name, kind=None: name)
         self.patches = [
             mock.patch.object(fx.adsk.core.ObjectCollection, 'create', side_effect=FakeCollection),
             mock.patch.object(fx, '_axis_through', return_value='axis'),
@@ -155,7 +160,8 @@ class BatchingTest(unittest.TestCase):
             body.container = container
             container.bodies.append(body)
         joined = fx.decad_union(blank, tooth, name='Join')
-        self.assertEqual([joined, tooth], container.bodies)
+        # The join consumes the tooth when the union is asked for, as the eager feature would.
+        self.assertEqual([joined], container.bodies)
         joined.body
         self.assertEqual([joined], container.bodies)
         self.assertIs(container, joined.container)

@@ -3,6 +3,7 @@ package bevel
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/gallery"
@@ -10,9 +11,14 @@ import (
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/spur"
 )
 
-// ComputeReviewed returns the empty record: the pair follows no reviewed code, because the build and its
-// validity checks are translated from the gallery.
-func ComputeReviewed(m *gallery.Model) (spur.Reviewed, error) { return spur.Reviewed{}, nil }
+// ComputeReviewed returns the record of the translation: its creating calls, which the role names are keyed on.
+func ComputeReviewed(m *gallery.Model) (spur.Reviewed, error) {
+	tr, err := go2py.Translate(m, FeatureSpec)
+	if err != nil {
+		return spur.Reviewed{}, err
+	}
+	return spur.Reviewed{Creations: tr.Creations}, nil
+}
 
 // Generate returns the contents of lib/geargen/bevelgear.py for the gallery model m at version, using
 // fragment as the Fusion wiring. It fails when the gallery has drifted from what the mapping was written
@@ -21,10 +27,14 @@ func Generate(m *gallery.Model, version, fragment string, reviewed spur.Reviewed
 	if err := checkInputs(m); err != nil {
 		return "", err
 	}
-	translated, err := go2py.TranspileSpec(m, FeatureSpec)
+	tr, err := go2py.Translate(m, FeatureSpec)
 	if err != nil {
 		return "", fmt.Errorf("translate the bevel pair: %w", err)
 	}
+	if err := spur.CheckCreations("bevelgear", reviewed, tr.Creations); err != nil {
+		return "", err
+	}
+	translated := tr.Python
 	inputs, err := inputsBlock(m)
 	if err != nil {
 		return "", err
@@ -88,27 +98,25 @@ func paramsFromInputs(m *gallery.Model) string {
 			continue
 		}
 		item := fmt.Sprintf("inputs.itemById(%s)", in.Const)
+		var read string
 		switch in.Kind {
 		case Number:
+			read = item + ".value"
 			if g.Type == "int" {
-				fmt.Fprintf(&sb, "        %s=int(round(%s.value)),\n", g.Name, item)
-			} else {
-				fmt.Fprintf(&sb, "        %s=%s.value,\n", g.Name, item)
+				read = "int(round(" + item + ".value))"
 			}
-		case Angle:
-			if g.Name == "SpiralAngle" {
-				// Straight teeth build with a spiral angle of zero, whatever the hidden field holds.
-				fmt.Fprintf(&sb, "        %s=%s.value if _is_spiral(inputs) else 0.0,\n", g.Name, item)
-			} else {
-				fmt.Fprintf(&sb, "        %s=%s.value,\n", g.Name, item)
-			}
+		case Angle, Bool:
+			read = item + ".value"
 		case Length:
-			fmt.Fprintf(&sb, "        %s=to_mm(%s.value),\n", g.Name, item)
-		case Bool:
-			fmt.Fprintf(&sb, "        %s=%s.value,\n", g.Name, item)
+			read = "to_mm(" + item + ".value)"
 		case Hand:
-			fmt.Fprintf(&sb, "        %s=%s.selectedItem.name.lower(),\n", g.Name, item)
+			read = item + ".selectedItem.name.lower()"
 		}
+		if in.SpiralOnly {
+			// Straight teeth build with the gallery default, a spiral angle of zero, whatever the hidden field holds.
+			read += " if _is_spiral(inputs) else " + pyDefault(g)
+		}
+		fmt.Fprintf(&sb, "        %s=%s,\n", g.Name, read)
 	}
 	sb.WriteString("    )\n")
 	return sb.String()
@@ -162,7 +170,11 @@ func inputsBlock(m *gallery.Model) (string, error) {
 		case Number:
 			entries = append(entries, valueInput(in, "''", fmt.Sprintf("createByReal(%s)", number(g.Default))))
 		case Angle:
-			deg := math.Round(g.Default*180/math.Pi*1e9) / 1e9
+			value := g.Default
+			if value == 0 {
+				value = in.Fallback
+			}
+			deg := math.Round(value*180/math.Pi*1e9) / 1e9
 			entries = append(entries, valueInput(in, "'deg'", fmt.Sprintf("createByString('%s deg')", number(deg))))
 		case Length:
 			entries = append(entries, valueInput(in, "'mm'", fmt.Sprintf("createByReal(to_cm(%s))", number(g.Default))))
@@ -193,3 +205,16 @@ func valueInput(in Input, unit, value string) string {
 }
 
 func number(v float64) string { return fmt.Sprintf("%g", v) }
+
+// pyDefault renders the gallery default of a Params field as a Python value: the text of a string field, else the
+// number as a float.
+func pyDefault(g gallery.Input) string {
+	if g.Type == "string" {
+		return fmt.Sprintf("%q", g.DefaultText)
+	}
+	text := strconv.FormatFloat(g.Default, 'g', -1, 64)
+	if !strings.ContainsAny(text, ".eEn") {
+		text += ".0"
+	}
+	return text
+}

@@ -2,8 +2,10 @@ package bevel_test
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -63,4 +65,46 @@ func TestGenerateRefusesAnUnmappedInput(t *testing.T) {
 	m.Inputs = append(m.Inputs, gallery.Input{Name: "NewOption", Type: "float64"})
 	_, err := bevel.Generate(m, "v0", fragment, reviewed)
 	require.ErrorContains(t, err, "NewOption")
+}
+
+// TestApexScrapRemovalNamedByRole requires the removal of the apex-side slab, the last decad.Remove of
+// sliceSpiralPointTooth as translated, to carry its own role name.
+func TestApexScrapRemovalNamedByRole(t *testing.T) {
+	out, _, _, _ := generate(t)
+	require.Contains(t, out, `_fx.decad_remove(ranked[0].body, name="Spiral Apex Scrap Removal")`)
+}
+
+// TestGenerateRefusesChangedCreatingCalls requires the port to stop when the creating calls of a translated function
+// differ from reviewed.json, as when the gallery swaps two calls of one operation and the role names would follow
+// the positions.
+func TestGenerateRefusesChangedCreatingCalls(t *testing.T) {
+	_, m, reviewed, fragment := generate(t)
+	calls := slices.Clone(reviewed.Creations["cutBore"])
+	require.NotEmpty(t, calls)
+	calls[0], calls[len(calls)-1] = calls[len(calls)-1], calls[0]
+	require.NotEqual(t, reviewed.Creations["cutBore"], calls)
+	reviewed.Creations = maps.Clone(reviewed.Creations)
+	reviewed.Creations["cutBore"] = calls
+	_, err := bevel.Generate(m, "v0", fragment, reviewed)
+	require.ErrorContains(t, err, "cutBore")
+	require.ErrorContains(t, err, "gearport accept bevelgear")
+
+	reviewed.Creations = nil
+	_, err = bevel.Generate(m, "v0", fragment, reviewed)
+	require.ErrorContains(t, err, "records no creating calls")
+}
+
+// TestMissedSlicePlaneIsSkipped requires the spiral slicer to catch decad's ErrDegenerate from a split, as the
+// gallery's errors.Is does, and to remove the sheet and move to the next plane.
+func TestMissedSlicePlaneIsSkipped(t *testing.T) {
+	out, _, _, _ := generate(t)
+	require.Contains(t, out, "from . import decaderrors as _errors\n")
+	require.Contains(t, out, "                try:\n"+
+		"                    cut = _fx.decad_split(inner, sheet, name=\"Spiral Slice\")\n"+
+		"                    err = None\n"+
+		"                except _errors.Degenerate as _caught:\n"+
+		"                    err = _caught\n")
+	require.Contains(t, out, "            if isinstance(err, _errors.Degenerate):\n"+
+		"                _fx.decad_remove(sheet, name=\"Missed Slice Sheet Removal\")\n"+
+		"                continue\n")
 }
