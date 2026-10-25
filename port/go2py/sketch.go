@@ -65,10 +65,16 @@ func callsFunc(s ast.Stmt, name string) bool {
 	return found
 }
 
+// isErrIdent reports whether e names an error variable: err, or a name ending in Err such as phaseErr.
+func isErrIdent(e ast.Expr) bool {
+	id, ok := e.(*ast.Ident)
+	return ok && (id.Name == "err" || strings.HasSuffix(id.Name, "Err"))
+}
+
 // isErrCheck reports whether e is err != nil.
 func isErrCheck(e ast.Expr) bool {
 	b, ok := e.(*ast.BinaryExpr)
-	return ok && b.Op == token.NEQ && isIdent(b.X, "err") && isNil(b.Y)
+	return ok && b.Op == token.NEQ && isErrIdent(b.X) && isNil(b.Y)
 }
 
 // apiAssign renders the assignments a drawing function makes with a trailing error: the
@@ -88,7 +94,7 @@ func (f *fnState) apiAssign(sb *strings.Builder, s *ast.AssignStmt) (bool, error
 		return false, nil
 	}
 	last := len(s.Lhs) - 1
-	if !isIdent(s.Lhs[last], "err") {
+	if !isErrIdent(s.Lhs[last]) {
 		if len(s.Lhs) > 1 {
 			return f.multiResult(sb, s, call, 0)
 		}
@@ -312,6 +318,11 @@ func (f *fnState) closure(sb *strings.Builder, name string, lit *ast.FuncLit) er
 	result := typ{kind: kindOpaque, name: "void"}
 	if lit.Type.Results != nil {
 		for _, r := range lit.Type.Results.List {
+			if isIdent(r.Type, "error") {
+				// The runtime raises instead of returning an error.
+				inner.info.errorResult = true
+				continue
+			}
 			rt, err := fromAST(r.Type, f.t.structs)
 			if err != nil {
 				return fmt.Errorf("%s: %w", f.pos(lit), err)

@@ -196,7 +196,7 @@ func (f *fnState) target(l ast.Expr, define bool, rt typ) (string, error) {
 			return "", fmt.Errorf("%s: assignment to unknown name %s", f.pos(l), l.Name)
 		}
 		return pyName(l.Name), nil
-	case *ast.IndexExpr, *ast.SelectorExpr:
+	case *ast.IndexExpr, *ast.SelectorExpr, *ast.StarExpr:
 		text, _, err := f.expr(l)
 		return text, err
 	}
@@ -226,8 +226,24 @@ func (f *fnState) opAssign(sb *strings.Builder, s *ast.AssignStmt) error {
 // sincos renders "s, c := math.Sincos(x)", the one two-value call the subset allows.
 func (f *fnState) sincos(sb *strings.Builder, s *ast.AssignStmt) error {
 	call, ok := s.Rhs[0].(*ast.CallExpr)
+	if ok && isMathCall(call, "Frexp") && len(call.Args) == 1 {
+		arg, _, err := f.expr(call.Args[0])
+		if err != nil {
+			return err
+		}
+		mantissa, err := f.target(s.Lhs[0], s.Tok == token.DEFINE, floatType)
+		if err != nil {
+			return err
+		}
+		exponent, err := f.target(s.Lhs[1], s.Tok == token.DEFINE, intType)
+		if err != nil {
+			return err
+		}
+		f.line(sb, "%s, %s = math.frexp(%s)", mantissa, exponent, arg)
+		return nil
+	}
 	if !ok || !isMathCall(call, "Sincos") || len(call.Args) != 1 {
-		return fmt.Errorf("%s: only math.Sincos may return two values", f.pos(s))
+		return fmt.Errorf("%s: only math.Sincos and math.Frexp may return two values", f.pos(s))
 	}
 	arg, _, err := f.expr(call.Args[0])
 	if err != nil {
@@ -276,7 +292,7 @@ func (f *fnState) returnStmt(sb *strings.Builder, s *ast.ReturnStmt) error {
 		results = results[:len(results)-1]
 		// A stored error value (return nil, err) is never set in a translated function, which raises
 		// instead, so only the other results are returned.
-		if !isNil(last) && (!f.t.sketch || !isIdent(last, "err")) {
+		if !isNil(last) && (!f.t.sketch || !isErrIdent(last)) {
 			return f.raise(sb, last)
 		}
 	}
@@ -409,6 +425,9 @@ func (f *fnState) forStmt(sb *strings.Builder, s *ast.ForStmt) error {
 	if !ok {
 		return fmt.Errorf("%s: for loop variable is not a name", f.pos(s))
 	}
+	if s.Cond == nil {
+		return f.openLoop(sb, s, init, id)
+	}
 	cond, ok := s.Cond.(*ast.BinaryExpr)
 	if !ok || (cond.Op != token.LSS && cond.Op != token.LEQ) || !isIdent(cond.X, id.Name) {
 		return fmt.Errorf("%s: for loop condition must be i < n or i <= n", f.pos(s))
@@ -464,4 +483,39 @@ func isMathCall(c *ast.CallExpr, fn string) bool { return isPkgCall(c, "math", f
 func isPkgCall(c *ast.CallExpr, pkg, fn string) bool {
 	sel, ok := c.Fun.(*ast.SelectorExpr)
 	return ok && isIdent(sel.X, pkg) && sel.Sel.Name == fn
+}
+
+// openLoop renders "for i := start; ; i++": a loop with no bound, which the body leaves with break.
+func (f *fnState) openLoop(sb *strings.Builder, s *ast.ForStmt, init *ast.AssignStmt, id *ast.Ident) error {
+	post, ok := s.Post.(*ast.IncDecStmt)
+	if !ok || post.Tok != token.INC || !isIdent(post.X, id.Name) {
+		return fmt.Errorf("%s: an unbounded for loop post statement must be i++", f.pos(s))
+	}
+	continues := false
+	ast.Inspect(s.Body, func(n ast.Node) bool {
+		if b, ok := n.(*ast.BranchStmt); ok && b.Tok == token.CONTINUE {
+			continues = true
+		}
+		return !continues
+	})
+	if continues {
+		return fmt.Errorf("%s: an unbounded for loop cannot continue", f.pos(s))
+	}
+	start, st, err := f.expr(init.Rhs[0])
+	if err != nil {
+		return err
+	}
+	if st.kind == kindUntyped {
+		st = intType
+	}
+	f.env[id.Name] = st
+	f.line(sb, "%s = %s", pyName(id.Name), start)
+	f.line(sb, "while True:")
+	f.indent++
+	defer func() { f.indent-- }()
+	if err := f.block(sb, s.Body.List); err != nil {
+		return err
+	}
+	f.line(sb, "%s += 1", pyName(id.Name))
+	return nil
 }

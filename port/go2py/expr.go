@@ -13,6 +13,7 @@ var mathFuncs = map[string]string{
 	"Asin": "math.asin", "Acos": "math.acos", "Atan": "math.atan", "Atan2": "math.atan2",
 	"Sqrt": "math.sqrt", "Hypot": "math.hypot", "Abs": "abs", "Pow": "math.pow",
 	"Floor": "math.floor", "Ceil": "math.ceil", "Min": "min", "Max": "max",
+	"Ldexp": "math.ldexp", "Round": "_fx.math_round", "Ilogb": "_fx.math_ilogb",
 }
 
 // expr renders an expression and reports its Go type.
@@ -23,7 +24,12 @@ func (f *fnState) expr(e ast.Expr) (string, typ, error) {
 	case *ast.Ident:
 		return f.ident(e)
 	case *ast.StarExpr:
-		return f.expr(e.X)
+		text, t, err := f.expr(e.X)
+		if err == nil && t.ptr {
+			t.ptr = false
+			return text + ".value", t, nil
+		}
+		return text, t, err
 	case *ast.SliceExpr:
 		return f.slice(e)
 	case *ast.ParenExpr:
@@ -80,6 +86,18 @@ func (f *fnState) ident(e *ast.Ident) (string, typ, error) {
 
 func (f *fnState) unary(e *ast.UnaryExpr) (string, typ, error) {
 	if e.Op == token.AND {
+		if sel, ok := e.X.(*ast.SelectorExpr); ok {
+			// The address of a number field is a reference to the field.
+			obj, _, err := f.expr(sel.X)
+			if err != nil {
+				return "", typ{}, err
+			}
+			_, ft, err := f.expr(sel)
+			if err == nil && (ft.numeric() || ft.kind == kindBool) {
+				ft.ptr = true
+				return f.t.runtime + ".field_ref(" + obj + ", " + quote(sel.Sel.Name) + ")", ft, nil
+			}
+		}
 		// A pointer to a literal is the literal: translated structs are Python objects.
 		return f.expr(e.X)
 	}
@@ -180,6 +198,11 @@ func (f *fnState) call(e *ast.CallExpr) (string, typ, error) {
 		if ok && pkg.Name == "math" {
 			return f.mathCall(e, fn.Sel.Name)
 		}
+		if ok && f.t.sketch && apiConversions[pkg.Name+"."+fn.Sel.Name] && len(e.Args) == 1 {
+			// A conversion between handles the runtime holds as one object.
+			text, _, err := f.expr(e.Args[0])
+			return text, typ{kind: kindOpaque, name: pkg.Name + "." + fn.Sel.Name}, err
+		}
 		if ok && f.t.sketch {
 			switch pkg.Name + "." + fn.Sel.Name {
 			case "errors.Is":
@@ -234,6 +257,9 @@ func (f *fnState) mathCall(e *ast.CallExpr, name string) (string, typ, error) {
 	args, err := f.args(e.Args)
 	if err != nil {
 		return "", typ{}, err
+	}
+	if name == "Ilogb" {
+		return py + "(" + strings.Join(args, ", ") + ")", intType, nil
 	}
 	return py + "(" + strings.Join(args, ", ") + ")", floatType, nil
 }
@@ -350,6 +376,13 @@ func (f *fnState) identCall(e *ast.CallExpr, fn *ast.Ident) (string, typ, error)
 		return "len(" + args[0] + ")", intType, nil
 	case "make":
 		return f.make(e)
+	case "copy":
+		args, err := f.args(e.Args)
+		if err != nil || len(args) != 2 {
+			return "", typ{}, fmt.Errorf("%s: copy takes two arguments", f.pos(e))
+		}
+		n := "min(len(" + args[0] + "), len(" + args[1] + "))"
+		return args[0] + "[:" + n + "] = " + args[1] + "[:" + n + "]", intType, nil
 	case "append":
 		return f.appendCall(e)
 	case "min", "max":
@@ -390,7 +423,14 @@ func (f *fnState) translatedCall(e *ast.CallExpr, name string) (string, typ, err
 		if err != nil {
 			return "", typ{}, err
 		}
-		return b.Python + "(" + strings.Join(args, ", ") + ")", typ{kind: kindStruct, name: b.Result}, nil
+		bt := typ{kind: kindStruct, name: b.Result}
+		switch {
+		case b.Result == "":
+			bt = typ{kind: kindOpaque, name: "void"}
+		case strings.Contains(b.Result, "."):
+			bt = typ{kind: kindOpaque, name: b.Result}
+		}
+		return b.Python + "(" + strings.Join(args, ", ") + ")", bt, nil
 	}
 	callee, ok := f.t.funcs[name]
 	if !ok {
@@ -516,6 +556,15 @@ func (f *fnState) index(e *ast.IndexExpr) (string, typ, error) {
 // a slice literal is a list.
 func (f *fnState) composite(e *ast.CompositeLit) (string, typ, error) {
 	switch t := e.Type.(type) {
+	case *ast.MapType:
+		if len(e.Elts) != 0 {
+			return "", typ{}, fmt.Errorf("%s: a map literal with entries is unsupported", f.pos(e))
+		}
+		mt, err := fromAST(t, f.t.structs)
+		if err != nil {
+			return "", typ{}, fmt.Errorf("%s: %w", f.pos(e), err)
+		}
+		return "{}", mt, nil
 	case *ast.ArrayType:
 		elem, err := fromAST(t.Elt, f.t.structs)
 		if err != nil {
@@ -585,6 +634,7 @@ func (f *fnState) composite(e *ast.CompositeLit) (string, typ, error) {
 	if len(e.Elts) > 0 {
 		if _, keyed := e.Elts[0].(*ast.KeyValueExpr); keyed {
 			var kw []string
+			given := map[string]bool{}
 			for _, elt := range e.Elts {
 				kv, ok := elt.(*ast.KeyValueExpr)
 				if !ok {
@@ -599,6 +649,13 @@ func (f *fnState) composite(e *ast.CompositeLit) (string, typ, error) {
 					return "", typ{}, err
 				}
 				kw = append(kw, key.Name+"="+text)
+				given[key.Name] = true
+			}
+			// A field the literal leaves out holds the zero value of its type.
+			for _, field := range info.fields {
+				if !given[field] {
+					kw = append(kw, field+"="+info.defaultOf(field))
+				}
 			}
 			return f.t.prefix + pyClass(id.Name) + "(" + strings.Join(kw, ", ") + ")", typ{kind: kindStruct, name: id.Name}, nil
 		}

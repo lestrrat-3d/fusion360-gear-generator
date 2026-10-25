@@ -886,6 +886,31 @@ the check failed with the end of each copy's last spline and the point beside it
 before the pattern it passed. `decadfusion.Sketch.solve` therefore anchors between the dimensions and the patterns when the sketch has a pattern, and
 stays last otherwise, as [SPUR-F-LOCAL-ORIGIN] has it.
 
+**[PB-PARAM-TABLE] A model that only reads its parameters back keeps them in Python.** The bevel gear's
+`defineParameters` writes inputs and expressions into a table and its build reads the results (cone angle, radii, face
+width). No sketch binds a dimension to a parameter, so no Fusion user parameter is made. `decadfusion.ParamTable` holds
+the values, evaluates the expressions with Python's arithmetic and the functions the gallery names (`hypot`, `atan2`,
+`sin`, `cos`, `min`, `max`, `pow`), and `Runtime.param` reads from it first.
+
+**[PB-CONTAINER-BODIES] A gallery container is a Fusion component made last.** The gallery nests containers and puts
+sketches, planes and bodies in them. A feature on a body inside a component runs in that component's context, and its
+inputs would have to be proxies. So the build runs in one component, `Container` only records which container a body
+belongs to, and `Runtime.finish_containers` makes a component for each container that holds a body and moves the bodies
+in. Sketches and planes stay where they are, so they keep following the anchor. A body a boolean consumes leaves its
+container. The cycloidal drive's sub-components follow the same rule.
+
+**[PB-FRAME-PLANE] A plane across the base plane comes from a construction line.** The bevel pair's bore plane and tooth
+plane are perpendicular to the base plane and pass through a point of it. A Fusion-only sketch on the base plane holds a
+construction line from that point along the plane's normal, and the plane is normal to the line at its start, so it
+follows the anchor. Fusion picks the axes of a sketch on such a plane, so the sketch maps the gallery's coordinates to
+them by the dot products of the frame's axes and the sketch's, draws an arc from the other end when the map is a
+reflection, extrudes the other way for the same reason, and anchors on the line's start point. A pattern about an axis
+that no cylindrical face lies on uses the same kind of line as its axis.
+
+**[PB-EMBEDDED-TOOTH] The embedded virtual tooth is the region bounded by two flank splines, a tip arc and a root arc.**
+Decad numbers the trim of each flank at the root circle; Fusion's regions carry their trimmed curves, so the runtime
+picks the one valid, hole-free region with four edges of which two are splines.
+
 ## What the spec need not pin (free to vary)
 
 Local variable names, comments, log strings, and how build steps are decomposed into private

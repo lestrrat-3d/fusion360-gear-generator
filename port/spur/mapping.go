@@ -124,7 +124,7 @@ var FeatureSpec = go2py.Spec{
 	// The runtime reads the dimensions from the user parameters instead of a scratch document.
 	Bound: map[string]go2py.Bound{"derive": {Python: "_fx.derive", Result: "dimensions"}},
 	Funcs: []string{
-		"rotate", "involutePoint", "flankBeta", "sampleFlanks", "rootContact", "toothAngle", "addToothPoints",
+		"rotate", "involutePoint", "flankBeta", "sampleFlanks", "InvoluteFlanks", "rootContact", "toothAngle", "addToothPoints",
 		"toWorld", "shifted", "placement", "singleProfile", "solveAndVerify", "halfAngle", "closingRadius",
 		"buildToothSection", "BuildToothSection", "buildEmbeddedTooth", "Shifted", "PlaneAt", "tooth",
 		"filletSpurRoots", "filletRootsValue", "filletEmbedded", "buildBoreProfile", "cutBore",

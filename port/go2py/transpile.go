@@ -1,6 +1,7 @@
 package go2py
 
 import (
+	"errors"
 	"fmt"
 	"go/ast"
 	"slices"
@@ -159,6 +160,7 @@ func TranspileSpec(m *gallery.Model, spec Spec) (string, error) {
 	for _, name := range spec.Zero {
 		tr.structs[name] = &structInfo{name: name, types: map[string]typ{}, zero: true}
 	}
+	var values strings.Builder
 	for _, name := range spec.Values {
 		expr, err := m.PackageValue(name)
 		if err != nil {
@@ -174,27 +176,44 @@ func TranspileSpec(m *gallery.Model, spec Spec) (string, error) {
 		}
 		py := tr.prefix + pySnake(name)
 		tr.globals[name] = global{py: py, t: vt}
-		fmt.Fprintf(&out, "%s = %s\n\n", py, text)
+		if vt.kind == kindStruct {
+			// A value that builds a struct follows the struct classes.
+			fmt.Fprintf(&values, "%s = %s\n\n", py, text)
+		} else {
+			fmt.Fprintf(&out, "%s = %s\n\n", py, text)
+		}
 	}
+	var signatureFailures []error
 	for _, name := range spec.Funcs {
 		info, err := tr.loadSignature(name)
 		if err != nil {
-			return "", err
+			signatureFailures = append(signatureFailures, fmt.Errorf("signature of %s: %w", name, err))
+			continue
 		}
 		tr.funcs[name] = info
+	}
+	if len(signatureFailures) > 0 {
+		return "", errors.Join(signatureFailures...)
 	}
 	for _, name := range spec.Structs {
 		out.WriteString(tr.structs[name].python(spec.Prefix))
 		out.WriteString("\n\n")
 	}
+	out.WriteString(values.String())
 	var body strings.Builder
+	// Every function is translated on its own, so report all that fail at once.
+	var failures []error
 	for _, name := range spec.Funcs {
 		src, err := tr.function(tr.funcs[name])
 		if err != nil {
-			return "", fmt.Errorf("function %s: %w", name, err)
+			failures = append(failures, fmt.Errorf("function %s: %w", name, err))
+			continue
 		}
 		body.WriteString(src)
 		body.WriteString("\n\n")
+	}
+	if len(failures) > 0 {
+		return "", errors.Join(failures...)
 	}
 	for _, st := range spec.Steps {
 		src, err := tr.steps(st)
@@ -490,4 +509,15 @@ func pyClass(s string) string {
 type global struct {
 	py string
 	t  typ
+}
+
+// defaultOf is the Python default of a field of a class: the zero value of a number or bool, else None.
+func (s *structInfo) defaultOf(field string) string {
+	switch t := s.types[field]; t.kind {
+	case kindFloat, kindInt, kindUntyped, kindBool:
+		if zero, err := t.zero(); err == nil {
+			return zero
+		}
+	}
+	return "None"
 }
