@@ -305,6 +305,7 @@ func (f *fnState) structCall(e *ast.CallExpr, sel *ast.SelectorExpr) (string, ty
 	}
 	if b, ok := f.t.bound[sel.Sel.Name]; ok {
 		// A method the runtime implements: the receiver is its first argument.
+		f.t.use("Bound", sel.Sel.Name)
 		args, err := f.args(e.Args)
 		if err != nil {
 			return "", typ{}, err
@@ -344,6 +345,7 @@ func (f *fnState) externalCall(e *ast.CallExpr, sel *ast.SelectorExpr) (string, 
 	if len(ext.Results) > 1 {
 		return "", typ{}, true, fmt.Errorf("%s: %s returns %d values; use it in a multi-value assignment", f.pos(e), key, len(ext.Results))
 	}
+	f.t.use("External", key)
 	args, err := f.args(e.Args)
 	if err != nil {
 		return "", typ{}, true, err
@@ -428,9 +430,11 @@ func (f *fnState) identCall(e *ast.CallExpr, fn *ast.Ident) (string, typ, error)
 // result is an error has no value, and a function with a trailing error returns its other results.
 func (f *fnState) translatedCall(e *ast.CallExpr, name string) (string, typ, error) {
 	if f.t.provided[name] {
+		f.t.use("Provided", name)
 		return "None", typ{kind: kindOpaque, name: "void"}, nil
 	}
 	if b, ok := f.t.bound[name]; ok {
+		f.t.use("Bound", name)
 		args, err := f.args(e.Args)
 		if err != nil {
 			return "", typ{}, err

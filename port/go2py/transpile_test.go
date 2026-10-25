@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"math"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"github.com/lestrrat-3d/decad-gallery/models/spurgear"
@@ -146,4 +148,56 @@ func TestTranspileSketchRefusesWhatItDoesNotKnow(t *testing.T) {
 	spec.Steps = nil
 	_, err = go2py.TranspileSpec(m, spec)
 	require.ErrorContains(t, err, "rootContact")
+}
+
+// loadModel parses src as the body of a gallery model package. The package gets the Params type and the
+// DefaultParams function the reader requires, so src holds only what a test translates.
+func loadModel(t *testing.T, src string) *gallery.Model {
+	t.Helper()
+	dir := t.TempDir()
+	text := "package m\n\nimport (\n\t\"context\"\n\t\"errors\"\n\t\"fmt\"\n\t\"math\"\n\n" +
+		"\t\"github.com/lestrrat-3d/decad\"\n)\n\n" +
+		"var _ = context.Background\nvar _ = errors.Is\nvar _ = fmt.Sprintf\nvar _ = math.Pi\nvar _ *decad.Body\n\n" +
+		"type Params struct{ A float64 }\n\nfunc DefaultParams() Params { return Params{A: 1} }\n\n" + src
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "m.go"), []byte(text), 0o600))
+	m, err := gallery.Load(dir)
+	require.NoError(t, err)
+	return m
+}
+
+const joinSource = `
+func join(ctx context.Context, a, b *decad.Body) (*decad.Body, error) {
+	return decad.Union(ctx, a, b)
+}
+`
+
+func TestTranspileRefusesUnusedSpecEntries(t *testing.T) {
+	m := loadModel(t, joinSource)
+	used := go2py.Spec{
+		Prefix: "_",
+		Funcs:  []string{"join"},
+		Roles:  map[string]go2py.Role{"join:decad.Union#1": {Feature: "Join"}},
+	}
+	_, err := go2py.TranspileSpec(m, used)
+	require.NoError(t, err)
+
+	cases := map[string]func(s *go2py.Spec){
+		`Roles["join:decad.Union#2"]`: func(s *go2py.Spec) {
+			s.Roles = map[string]go2py.Role{"join:decad.Union#1": {Feature: "Join"}, "join:decad.Union#2": {Feature: "X"}}
+		},
+		`FirstOnly["tries"]`:   func(s *go2py.Spec) { s.FirstOnly = []string{"tries"} },
+		`Bound["derive"]`:      func(s *go2py.Spec) { s.Bound = map[string]go2py.Bound{"derive": {Python: "_fx.derive"}} },
+		`Provided["validate"]`: func(s *go2py.Spec) { s.Provided = []string{"validate"} },
+		`External["spurgear.Tooth"]`: func(s *go2py.Spec) {
+			s.External = map[string]go2py.External{"spurgear.Tooth": {Python: "_spur.tooth"}}
+		},
+	}
+	for entry, mutate := range cases {
+		t.Run(entry, func(t *testing.T) {
+			spec := used
+			mutate(&spec)
+			_, err := go2py.TranspileSpec(m, spec)
+			require.ErrorContains(t, err, entry)
+		})
+	}
 }

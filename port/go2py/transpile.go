@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"go/ast"
 	"go/parser"
+	"maps"
 	"slices"
 	"strings"
 	"unicode"
@@ -112,7 +113,7 @@ func TranspileSpec(m *gallery.Model, spec Spec) (string, error) {
 		model: m, prefix: spec.Prefix, structs: map[string]*structInfo{}, funcs: map[string]*funcInfo{},
 		sketch:  len(spec.Steps) > 0 || len(spec.TypeOnly) > 0 || len(spec.Roles) > 0 || len(spec.External) > 0,
 		runtime: spec.Runtime, roles: spec.Roles, provided: map[string]bool{}, external: spec.External, bound: spec.Bound,
-		globals: map[string]global{}, firstOnly: map[string]bool{},
+		globals: map[string]global{}, firstOnly: map[string]bool{}, used: map[string]struct{}{},
 	}
 	for _, name := range spec.FirstOnly {
 		tr.firstOnly[name] = true
@@ -259,7 +260,37 @@ func TranspileSpec(m *gallery.Model, spec Spec) (string, error) {
 		out.WriteString("\n\n")
 	}
 	out.WriteString(body.String())
+	if err := tr.checkUnused(spec); err != nil {
+		return "", err
+	}
 	return strings.TrimRight(out.String(), "\n") + "\n", nil
+}
+
+// use records that the translation used the entry key of the Spec table named table.
+func (t *transpiler) use(table, key string) { t.used[table+" "+key] = struct{}{} }
+
+// checkUnused fails for an entry of Roles, FirstOnly, Bound, External or Provided that the translation never
+// used. A stale key does nothing, or names the wrong call when the calls of a function are renumbered.
+func (t *transpiler) checkUnused(spec Spec) error {
+	var stale []string
+	check := func(table string, keys []string) {
+		slices.Sort(keys)
+		for _, k := range keys {
+			if _, ok := t.used[table+" "+k]; !ok {
+				stale = append(stale, fmt.Sprintf("%s[%q]", table, k))
+			}
+		}
+	}
+	check("Roles", slices.Collect(maps.Keys(spec.Roles)))
+	check("FirstOnly", slices.Clone(spec.FirstOnly))
+	check("Bound", slices.Collect(maps.Keys(spec.Bound)))
+	check("External", slices.Collect(maps.Keys(spec.External)))
+	check("Provided", slices.Clone(spec.Provided))
+	if len(stale) > 0 {
+		return fmt.Errorf("the translation never uses these Spec entries; remove or correct them: %s",
+			strings.Join(stale, ", "))
+	}
+	return nil
 }
 
 type transpiler struct {
@@ -277,6 +308,8 @@ type transpiler struct {
 	// globals are the package-level values, by Go name, with their Python names and types.
 	globals   map[string]global
 	firstOnly map[string]bool
+	// used records the Spec table entries the translation used, as "<table> <key>".
+	used map[string]struct{}
 }
 
 // funcInfo is the parsed signature of a function to translate.

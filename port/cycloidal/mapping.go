@@ -87,7 +87,6 @@ var FeatureSpec = go2py.Spec{
 	Structs:   []string{"point", "dimensions", "run", "Drive", "NamedBody"},
 	TypeOnly:  []string{"Params"},
 	Mutable:   []string{"dimensions", "Params"},
-	Provided:  []string{"defineParameters", "Validate"},
 	Bound:     map[string]go2py.Bound{"begin": {Python: "_begin", Result: "run"}},
 	FirstOnly: []string{"lobeTurnLimits", "contourStrides"},
 	Values: []string{

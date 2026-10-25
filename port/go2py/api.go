@@ -295,6 +295,7 @@ func (f *fnState) finishCall(e *ast.CallExpr, name string, sig apiSig, callee st
 		if !ok {
 			return "", typ{}, true, fmt.Errorf("%s: no role name for %s: add it to the roles table", f.pos(e), key)
 		}
+		f.t.use("Roles", key)
 		if role.Qualify != "" {
 			args = append(args, "name="+quote(role.Feature+" ")+" + "+pyName(role.Qualify))
 		} else {

@@ -174,6 +174,7 @@ func (f *fnState) multiResult(sb *strings.Builder, s *ast.AssignStmt, call *ast.
 		if !ok || len(ext.Results) != len(s.Lhs)-errs {
 			return false, nil
 		}
+		f.t.use("External", key)
 		callee, recv = ext.Python, r
 		for _, r := range ext.Results {
 			types = append(types, parseAPIType(r))
@@ -227,9 +228,11 @@ func (f *fnState) rangeStmt(sb *strings.Builder, s *ast.RangeStmt) error {
 		f.line(sb, "for %s in range(%s):", keyName, xs)
 	case xt.kind == kindSlice:
 		if id, ok := s.X.(*ast.Ident); ok && f.t.firstOnly[id.Name] {
+			f.t.use("FirstOnly", id.Name)
 			xs += "[:1]"
 		} else if val != nil && f.t.firstOnly[f.info.name+":"+val.Name] {
 			// A list written in the loop itself is named by the function and the loop variable.
+			f.t.use("FirstOnly", f.info.name+":"+val.Name)
 			xs += "[:1]"
 		}
 		if val != nil && val.Name != "_" {

@@ -64,3 +64,10 @@ func TestGenerateRefusesAnUnmappedInput(t *testing.T) {
 	_, err := bevel.Generate(m, "v0", fragment, reviewed)
 	require.ErrorContains(t, err, "NewOption")
 }
+
+// TestApexScrapRemovalNamedByRole requires the removal of the apex-side slab, the last decad.Remove of
+// sliceSpiralPointTooth as translated, to carry its own role name.
+func TestApexScrapRemovalNamedByRole(t *testing.T) {
+	out, _, _, _ := generate(t)
+	require.Contains(t, out, `_fx.decad_remove(ranked[0].body, name="Spiral Apex Scrap Removal")`)
+}
