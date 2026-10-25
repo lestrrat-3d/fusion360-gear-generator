@@ -12,6 +12,8 @@
 
 import functools
 import math
+import os
+import tempfile
 import time
 from contextlib import contextmanager
 from typing import cast
@@ -36,14 +38,33 @@ BULK_POINTS = 200
 _active = None
 
 
+# Fusion's Text Commands window does not repaint while the add-in blocks the main thread, so a step that never
+# returns leaves no trace there. The progress file is written and flushed line by line, so it shows the step a hung
+# build stopped in.
+PROGRESS_FILE = os.path.join(tempfile.gettempdir(), 'geargen-progress.log')
+
+
+def progress(message):
+    try:
+        with open(PROGRESS_FILE, 'a') as out:
+            out.write(f'{time.strftime("%H:%M:%S")} {message}\n')
+            out.flush()
+            os.fsync(out.fileno())
+    except OSError:
+        pass
+
+
 @contextmanager
 def timed(what):
     """Log how long a step takes, so a slow build shows which operation is slow."""
+    progress(f'start {what}')
     start = time.perf_counter()
     try:
         yield
     finally:
-        futil.log(f'{what}: {time.perf_counter() - start:.2f}s')
+        message = f'{what}: {time.perf_counter() - start:.2f}s'
+        progress(message)
+        futil.log(message)
 
 
 def logged(function):
@@ -426,7 +447,8 @@ class Sketch:
     def solve(self):
         with timed(f'{self.sketch.name} solve'):
             self.finish()
-            self._anchor()
+            with timed(f'{self.sketch.name} anchor'):
+                self._anchor()
 
     def profiles(self):
         return [Profile(profile) for profile in self.sketch.profiles]
@@ -444,7 +466,9 @@ class Sketch:
                 self._drawLines()
                 self._drawArcs()
             with timed(f'{self.sketch.name} dimension {len(self._points)} points'):
-                for point in self._points:
+                for i, point in enumerate(self._points):
+                    if i % 100 == 0:
+                        progress(f'{self.sketch.name} dimension point {i}')
                     self._dimensionPoint(point)
                 self._points = []
                 for constraint in self._constraints:
@@ -585,7 +609,9 @@ class Sketch:
 
 
 def sketchcheck_verify_fully_constrained(sketch):
-    if not sketch.sketch.isFullyConstrained:
+    with timed(f'{sketch.sketch.name} constraint check'):
+        constrained = sketch.sketch.isFullyConstrained
+    if not constrained:
         raise RuntimeError(f'{sketch.sketch.name}: sketch is not fully constrained')
 
 
