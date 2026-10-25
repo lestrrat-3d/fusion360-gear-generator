@@ -213,5 +213,50 @@ class LazyBookkeepingTest(RuntimeTestCase):
                 self.assertEqual('copy', self.features.kinds()[0])
 
 
+class PatternCopiesTest(RuntimeTestCase):
+    """Copies at equal angles are made by one circular pattern and matched to the instances by angle."""
+
+    def copies(self, source, centre, count):
+        fx = self.fx
+        return [fx.decad_copy(source, fx.decad_with_copy_rotation(centre, fx.r3_new_vec(1, 0, 0),
+                                                                   2 * math.pi * k / count), name='Copy')
+                for k in range(1, count)]
+
+    def test_copies_turned_about_another_centre_get_their_own_instances(self):
+        fx = self.fx
+        centre = fx.Vec(0.0, 5.0, 0.0)
+        self.features.pattern_axis = ((0.0, 5.0, 0.0), (1.0, 0.0, 0.0))
+        source = self.body(1.0, 8.0, 0.0)
+        copies = self.copies(source, centre, 4)
+        fx._realize_copies(copies)
+        self.assertEqual(['pattern'], self.features.kinds())
+        for k, copy in enumerate(copies, start=1):
+            c = copy.body.physicalProperties.centerOfMass
+            a = 2 * math.pi * k / 4
+            want = (1.0, 5.0 + 3.0 * math.cos(a), 3.0 * math.sin(a))
+            self.assertAlmostEqual(0.0, math.dist(want, (c.x, c.y, c.z)), places=9)
+
+    def test_a_pattern_with_too_few_instances_is_a_named_error(self):
+        fx = self.fx
+        source = self.body(1.0, 3.0, 0.0)
+        copies = self.copies(source, fx.r3_vec(), 4)
+        real = fx._circular_pattern
+        with mock.patch.object(fx, '_circular_pattern', lambda *a: real(*a)[:1]):
+            with self.assertRaisesRegex(fx.FusionRefused, 'made 1 copies; want 3'):
+                fx._realize_copies(copies)
+
+    def test_a_copy_made_on_its_own_turns_about_its_centre(self):
+        fx = self.fx
+        source = self.body(1.0, 8.0, 0.0)
+        copy = fx.decad_copy(source, fx.decad_with_copy_rotation(fx.Vec(0.0, 5.0, 0.0), fx.r3_new_vec(1, 0, 0), 0.5),
+                             name='Copy')
+        matrix = fx.adsk.core.Matrix3D.create.return_value
+        matrix.reset_mock()
+        copy.body
+        angle, axis, origin = matrix.setToRotation.call_args.args
+        self.assertEqual(0.5, angle)
+        self.assertEqual((0.0, 5.0, 0.0), (origin.x, origin.y, origin.z))
+
+
 if __name__ == '__main__':
     unittest.main()

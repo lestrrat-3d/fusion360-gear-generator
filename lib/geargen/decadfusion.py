@@ -1742,17 +1742,20 @@ def _same_centre(a, b):
 
 def _pattern_copies(copies, axis, center, count, step):
     """One circular pattern of the source for all its pending copies. Each new body is given to the copy whose angle
-    about the axis matches the body's centroid, since Fusion does not say which instance is which."""
+    about the rotation centre and axis matches the body's centroid, since Fusion does not say which instance is
+    which."""
     source, runtime = copies[0].source, copies[0].runtime
     name = copies[0]._name
     made = _circular_pattern(source, CircularPattern(center, axis, count), name)
+    if len(made) != len(copies):
+        raise FusionRefused(f'{name}: the pattern made {len(made)} copies; want {len(copies)} [PB-EMPTY-RESULT]')
     perpendicular = Vec(0.0, 0.0, 1.0) if abs(axis.z) < 0.9 else Vec(1.0, 0.0, 0.0)
     e1 = axis.cross(perpendicular).unit()
     e2 = axis.cross(e1)
 
     def angle(body):
         # The raw centre of mass: reading the source through Body would make its pending copies, which are these.
-        c = Centroid(runtime, body.body.physicalProperties.centerOfMass).Value
+        c = Centroid(runtime, body.body.physicalProperties.centerOfMass).Value.sub(center)
         return math.atan2(c.dot(e2), c.dot(e1))
 
     origin = angle(source)
