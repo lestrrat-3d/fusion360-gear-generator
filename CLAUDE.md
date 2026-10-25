@@ -7,7 +7,7 @@ the Fusion construction calls and what Fusion taught us.
 ## Goal
 
 The goal is that no gear keeps Fusion construction as stored text. `docs/gallery-translation-goal.md` owns the goal,
-the translation rules and the definition of done. `feat-gallery-port` merges into `main` only when that goal is reached.
+the translation rules and the definition of done.
 
 ## Which tool regenerates a gear
 
@@ -43,7 +43,8 @@ Send the finding to whichever of these fits, then run `gearport gen`:
 - A translation rule for a gallery parameter expression goes in `port/fusionexpr`.
 - A mapping of gallery names to Fusion names or dialog inputs goes in that gear's `port/<gear>/mapping.go`.
 - A behaviour that holds for every gear goes in `docs/fusion/playbook.md` under a `[PB-…]` anchor, and a behaviour of
-  one gear in `docs/fusion/<gear>.md`. Code is better than prose where it can express the rule.
+  one gear in `docs/fusion/<gear>.md` (`spurgear.md` also covers helical and herringbone). Code is better than prose
+  where it can express the rule.
 - A geometry rule belongs in the gallery model, so ask the gallery to change it.
 
 A verdict that is only remembered in a conversation is lost.
@@ -51,4 +52,4 @@ A verdict that is only remembered in a conversation is lost.
 ## Ask what the gallery's proof missed
 
 Every Fusion verdict gets one more question: could the gallery's geometry test have caught this? If it could, ask the
-gallery to add the case. If it could not, write down why not in `docs/gallery-port-pipeline.md`, next to the gear.
+gallery to add the case. If it could not, write down why not in that gear's `docs/fusion/<gear>.md`.

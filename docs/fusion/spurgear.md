@@ -1,292 +1,133 @@
-# Spur Gear — Fusion realization notes
+# Spur family: Fusion notes
 
-This is the **Fusion-specific** sidecar to the gallery model's `instructions.md` (`models/spurgear`). the gallery model's `instructions.md` (`models/spurgear`) carries the design
-and geometry *intent* (what to build and why); this file carries the *how* — the Fusion-API
-realization that is **specific to the spur (involute) gear family** and not worth promoting to the
-shared `playbook.md`. The build steps in the gallery model's `instructions.md` (`models/spurgear`) cite these rules by anchor (`[SPUR-F…]`).
+This file covers the spur, helical and herringbone gears. `gearport` generates `lib/geargen/spurgear.py`,
+`helicalgear.py` and `herringbonegear.py` from the gallery models `models/spurgear`, `models/helicalgear` and
+`models/herringbonegear`. The gallery owns their geometry and its checks. This file records what Fusion needs that
+the gallery does not say. Rules that hold for every gear are in `playbook.md` (`[PB-…]`).
 
-**Anchor convention** (mirrors the playbook's `[PB-…]`): rules carry stable IDs like
-`**[SPUR-F-RIBS]**`. the gallery model's `instructions.md` (`models/spurgear`) cites the anchor instead of restating it; the text HERE is
-authoritative. IDs are permanent — never renamed or reused once cited. Where a rule is just the
-spur application of a cross-gear convention, it cites the `[PB-…]` anchor and adds only the
-spur-specific delta (which points, which entities) — no duplication of the shared rule.
+Several entries describe `lib/geargen/decadfusion.py`, the runtime every translated gear calls. They live here
+because the spur was the first gear translated, and the runtime cites them by these anchors.
 
-These rules are **binding**, exactly like the spec body: every ⚠️ here encodes a known failure
-mode. The whole construction falls apart without them, and they're not obvious from the step list.
+## How the translated build maps to Fusion
 
-## Sketch-following-the-anchor design
+### [SPUR-F-GALLERY-SKETCH] One gallery sketch is one Fusion sketch
 
-- **[SPUR-F-ANCHOR-CHAIN] The gear tracks the user's anchor through a chain of sketch
-  projections.** A sketch can't reference a `SketchPoint` or curve owned by another sketch, so when
-  the Gear Profile or Bore Profile sketches need the user's anchor they call `sketch.project(...)`
-  to pull it in locally. That call returns an `ObjectCollection`; take `.item(0)` to get the
-  projected `SketchPoint` before passing it to a sketch constraint or storing it as an anchor.
-  The **Tools-sketch projection is the canonical handle**; every later sketch projects *that* in
-  again, forming a chain of projections all tied back to the user's
-  original anchor entity — so the whole gear moves if the anchor moves later.
+`port/go2py` translates the gallery's build functions into `spurgear.py`. They call `decad_extrude`,
+`decad_union` and the other operations of `decadfusion.py`. Each gallery sketch becomes one Fusion sketch
+(`Tooth Profile`, `Root Disc Profile`, `Bore Profile`). Each gallery operation becomes one timeline feature
+(`Tooth Extrude`, `Root Disc Extrude`, `Tooth Pattern`, `Teeth Join`, `Root Fillet`, `Bore Tool Extrude`,
+`Bore Cut`, `Cap Chamfer`). `port/spur/mapping.go` holds these role names.
 
-- **[SPUR-F-LOCAL-ORIGIN] Each sketch that must follow the anchor keeps its own movable local
-  origin.** That is a fresh `SketchPoint` added at (0, 0, 0) — **not** `sketch.originPoint`, which
-  is immutable and can't be coincident-constrained to anything brought in from elsewhere. The tooth
-  generator draws all its geometry relative to this local origin (the field `self.anchorPoint`),
-  then at the very end constrains it coincident with the projected anchor (step 5); Fusion then
-  slides the whole sketch onto the user's anchor as a unit.
+`decadfusion.Sketch` records the gallery's calls and draws them in `solve()`, in this order:
 
-- **[SPUR-F-SHARED-ADJACENCY] Every adjacency in the tooth profile loop is a *shared*
-  `SketchPoint`** — not two free points that happen to share coordinates. Ribs pass through the
-  flank splines' `fitPoints[i]`; the tooth-top arc passes through the flanks' `endSketchPoint`s;
-  flank-to-root lines end at the flanks' `startSketchPoint`s. Handing Fusion raw `Point3D`s at
-  matching coordinates creates *fresh* sketch points, and then the tooth loop is not recognised as
-  a closed profile when the extrude step searches for it. This is `[PB-SHARE-XOR-COINCIDENT]`
-  applied to the profile loop: pass the existing `SketchPoint` object directly into the creation
-  call (share it), never create from `.geometry` and then re-coincident. The spur points anchored
-  this way are the four circle centers, the spine start, and the rib chain — all on the local
-  origin; piling redundant coincidents onto that shared origin is what makes the solver fail
-  (`VCS_SKETCH_SOLVING_FAILED`) or over-constrain.
+1. Splines first, so that every line and arc ends on a spline's own fit point. A curve drawn from a raw `Point3D` at
+   the same coordinates gets a fresh point, and the earlier add-in recorded that the tooth loop was then not found
+   as a closed profile.
+2. Lines, then arcs.
+3. Dimensions from the local origin. A point gets a horizontal and a vertical distance dimension. A point the
+   gallery marks as an arc end gets one, vertical when |x| >= |y|, because the arc already fixes its radius.
+   Circles get their radius or diameter dimension.
+4. The coincident constraint that moves the local origin onto the anchor (`[SPUR-F-LOCAL-ORIGIN]`).
 
-## Rotation (shared with helical / herringbone / bevel virtual tooth)
+The tooth angle is part of the sampled points, so the sketch has no spine, ribs or angular dimension. That older
+construction is gone. `lib/geargen/legacyspur.py` still holds a copy, but nothing imports it.
 
-- **[SPUR-F-ROTATE-CONFIRM] The requested rotation is drawn AND confirmed — two distinct,
-  both-required actions.** When a non-zero `angle` is passed, the tooth geometry is drawn **already
-  rotated by `angle`** in the Python point math (step 4 — every flank point, the tooth-top point,
-  and the rib-midpoint seeds sit at their `angle`-rotated positions). Then, **as the very last
-  action after the entire constraint network exists**, the spine-to-horizontal angular dimension's
-  value is set to `angle` (step 7). These are NOT alternatives — do both: the pre-rotation puts the
-  geometry on the correct solver branch, and the final dimension value-set *confirms and locks*
-  that rotation rather than swinging the tooth into place from +X. (Drawing the tooth flat and
-  relying solely on the dimension to swing it lets Fusion pick the wrong ~180°-off branch and ruins
-  the helical loft — bottom profile at 0°, top ~180° away → the loft passes through the gear
-  centre.) Concretely: `if angle != 0: spineAngularDimension.parameter.value = angle`. The angular
-  dimension itself exists for **every** angle including 0, because it is what says which way the
-  spine points (`[SPUR-F-SPINE]`); at `angle = 0` it is created at 0 and there is simply nothing to
-  set afterwards.
+### [SPUR-F-LOCAL-ORIGIN] Each sketch has its own movable origin
 
-## Per-step constraint recipes (the over-constraint-sensitive ones)
+Each translated sketch adds a point at (0, 0, 0) and measures every dimension from it. It does not use
+`sketch.originPoint`, which a constraint cannot move. The coincident constraint between this point and the
+projected anchor comes last, so Fusion moves the finished sketch onto the anchor in one step. A sketch with a circular
+pattern of splines is the exception: its anchor goes in before the pattern ([PB-SPLINE-RING]).
 
-These are the spur-specific constraint constructions whose **exact set and order** matter — a
-different set or order throws `VCS_SKETCH_OVER_CONSTRAINTS` or `VCS_SKETCH_SOLVING_FAILED`. (They
-build on the shared `[PB-FULL-CONSTRAINT]`, `[PB-SHARE-XOR-COINCIDENT]`, `[PB-NO-OVERCONSTRAIN]`,
-`[PB-DRIVING-DIM]` rules; here is the spur application.)
+### [SPUR-F-ANCHOR-CHAIN] Every sketch projects the Tools sketch's anchor
 
-- **[SPUR-F-TOOTHTOP-ARC] Tooth-top arc — centred on the local origin (step 6).** The arc caps the
-  tooth at the tip circle, so it *is* part of that circle and must bulge outward. Say that by
-  **putting the arc's centre on the local origin**, and add nothing else.
-  1. Materialize a **tooth-top point**: a `SketchPoint` at the tip, **rotated by `angle`** to match
-     the rotated flanks — `(Tip Circle Radius · cos(angle), Tip Circle Radius · sin(angle))` —
-     constrained **coincident to the tip circle**.
-  2. Create the arc with `sketchArcs.addByCenterStartEnd(localOrigin, rightFlankEndPoint,
-     leftFlankEndPoint)` — pass the two flank splines' **end `SketchPoint`s directly**, which the
-     arc does share, so they need no coincidences.
-  3. **Then tie the centre back:** `addCoincident(arc.centerSketchPoint, localOrigin)`. The call
-     shares the start and end points but **copies the centre** into a fresh `SketchPoint`
-     (`[PB-SHARE-XOR-COINCIDENT]`), so passing `localOrigin` as the first argument fixes nothing.
-     This is the one arc in this sketch whose centre must be coincident rather than shared, and it
-     is not the redundant double-bind that rule otherwise forbids.
-  4. Add **no diameter dimension**. The coincident centre and the two shared ends already determine
-     the arc, and its radius follows from the flank ends being on the tip circle.
+The `Tools` sketch projects the user's anchor (`sketch.project(anchor).item(0)`) and must be fully constrained.
+`Runtime` receives that projected point, and every later sketch, `Reference Circles` included, projects it
+again. That works because the Tools sketch holds no curves: Fusion refuses to project a point from a sketch that
+has gained curves and constraints ([PB-BAD-ENTITY]).
 
-  ⚠️ Without step 3 the centre is a **free point** carrying only the arc's own equal-radius
-  relation to the two flank ends, which leaves 2 DOF. Everything else in the tooth is built about
-  the local origin and then dragged onto the anchor in step 5, and the stranded centre does not
-  follow: it stays behind by the drag distance and the arc's radius becomes whatever the solver
-  lands on. A spur gear hides this because its anchor sits at the sketch origin, so the drag is
-  zero and the copied centre happens to stay put. The bevel gear drags its tooth 8–36 mm onto K′/L′
-  and the arc collapses — measured in Fusion 2026-09-02 on a default 31/31 pair, a 0.5743 mm radius
-  on the pinion and 17.0204 mm on the driving gear where both should have been the 22.5 mm tip
-  radius, from two sketches with byte-identical constraint counts and dimension values. The bench
-  carries this as a negative control: `proof/spurgear/sketches_test.go` runs with the centre left free,
-  reports `DOF=2, underconstrained`, and must keep failing. The Fusion observation on 2026-09-02
-  placed the pinion centre 22.9 mm behind its origin and the driving-gear centre 5.5 mm behind.
-  The maintained proof checks the unconstrained state, not those historical Fusion measurements.
+### [SPUR-F-LOCAL-FRAME] The translated code builds in the gallery's local frame
 
-  ⚠️ A **free centre plus a diameter dimension** determines the arc's size but not which way it
-  curves: an arc of the same radius through the same two ends can bulge inward, back through the
-  tooth. The sketch then reaches DOF 0 with two valid answers and the solver picks by where the
-  centre was seeded. Putting the centre on the origin removes the choice.
+The gallery builds a gear about the local origin and +Z and moves it onto its placement at the end. The translated
+spur, helical and herringbone code does the same: the frame it receives is the identity, a position it reads from an
+edge (`Position.Value`) is local, and a position it hands back (a pattern axis, a plane's frame, an edge end point)
+is local too. `Runtime.build_frame` records where the gear lies (the anchor, the Tools sketch's axes and their
+normal), and `to_local`, `to_world` and `to_world_dir` convert at each of those places. The helical root fillet
+tests a root edge by its Z component, so it only works because Z is the gear axis.
 
-  ⚠️ Putting the centre on the origin makes the **last rib's perpendicular redundant** — see
-  `[SPUR-F-RIBS]`, which omits it. Keeping both is what throws `VCS_SKETCH_OVER_CONSTRAINTS`.
+### [SPUR-F-RUNTIME-RULES] What `decadfusion.py` decides, because the gallery does not
 
-- **[SPUR-F-GALLERY-SKETCH] The spur is built by the gallery's own code, translated.** `spurgear.py` holds the
-  gallery's `assemble`, `tooth`, `buildToothSection`, `buildEmbeddedTooth`, the fillet, bore and chamfer functions,
-  translated by `port/go2py`. They call `decad_extrude`, `decad_union` and the other operations of
-  `lib/geargen/decadfusion.py`, which does the Fusion work once for every gear. Each gallery sketch is one Fusion
-  sketch (`Tooth Profile`, `Root Disc Profile`, `Bore Profile`), each gallery operation is one timeline feature
-  (`Tooth Extrude`, `Root Disc Extrude`, `Tooth Pattern`, `Teeth Join`, `Root Fillet`, `Bore Tool Extrude`,
-  `Bore Cut`, `Cap Chamfer`), and `port/spur/mapping.go` names them. A sketch records the gallery's calls and draws
-  them in `solve()`: splines first, so each line and arc ends on a spline's own fit points, then lines, arcs and the
-  dimensions from the local origin, and last the coincident constraint onto the anchor. The tooth angle is part of the
-  sampled points, so there is no spine, reference line or angular dimension. The ribs below, `[SPUR-F-SPINE]` and
-  `[SPUR-F-ROTATE-CONFIRM]` describe the old construction, which no add-in draws any more (`legacyspur.py` was
-  deleted on 2026-10-25); they are kept as history.
+- The extrude distances, the bore tool length and the fillet and chamfer sizes are passed as the user parameters'
+  names (`ValueInput.createByString`). A radius or diameter dimension the gallery binds to a table entry gets that
+  parameter as its expression.
+- The tooth's point dimensions, the pattern's tooth count, the offsets of construction planes and the
+  `Reference Circles` dimensions are numbers taken at generation time. Changing Module or Tooth Number therefore
+  needs a new gear. No Fusion run records whether an edit to a bound parameter updates a translated gear;
+  [PB-NUMERIC-SNAPSHOT] says such links did not update reliably in the old add-in.
+- An axial edge starts at its end on the lower cap, as in decad.
+- The pattern axis is a construction axis made with `setByCircularFace` from a cylindrical face that lies on the
+  axis. For the spur family the root disc provides that face, because it is extruded before the pattern. When no
+  such face exists, a construction line in a Fusion-only sketch serves as the axis. A face-less axis made with
+  `setByLine` was refused ([CYCLOIDAL-F-DISK-AXIS]).
+- The cap faces are the planar faces perpendicular to the axis at its lowest and highest position.
+- The lower cap's frame comes from the Tools sketch: its origin is the anchor and its axes are the sketch's.
+- The root, tip, base and pitch circles and their labels are not in the gallery. `drawReferenceCircles` draws them in
+  a `Reference Circles` sketch of their own.
 
-- **[SPUR-F-LOCAL-FRAME] The translated code builds in the gallery's local frame, and the runtime maps to the design.**
-  The gallery builds a gear about the local origin and +Z and moves it onto its placement at the end. The translated
-  spur, helical and herringbone code does the same: the frame it receives is the identity, a position it reads from an
-  edge (`Position.Value`) is local, and a position it hands back (a pattern axis, a plane's frame, an edge end point)
-  is local too. `Runtime.build_frame` records where the gear lies (the anchor, the Tools sketch's axes and their
-  normal), and `to_local`, `to_world` and `to_world_dir` convert at each of those places. The helical root fillet
-  tests a root edge by its Z component, so it only works because Z is the gear axis.
+These rules had not been verified in Fusion as of 2026-10-24.
 
-- **[SPUR-F-RUNTIME-RULES] What `decadfusion.py` decides, because the gallery does not.** The extrude distance and
-  the fillet and chamfer sizes are the user parameters, as expressions, so the features stay parametric. A radius or
-  diameter dimension bound by the gallery is driven by its parameter. An axial edge starts at the end on the lower
-  cap, as in decad. The pattern axis is the axis of a cylindrical face of the component's bodies that lies on the
-  pattern axis, since a disc exists by then. The cap faces are the planar faces perpendicular to the axis at its
-  lowest and highest position. The lower cap's frame comes from the Tools sketch: its origin is the anchor and its axes
-  are the sketch's. The root, tip, base and pitch circles with their labels are not in the gallery, so they are drawn
-  in a `Reference Circles` sketch of their own. Not yet verified in Fusion on 2026-10-24.
+## Sketch workarounds
 
-- **[SPUR-F-ARC-CENTRE] An arc's centre is tied to the local origin by a coincident constraint.** Fusion creates its
-  own centre point for `addByCenterStartEnd`, even when the point you pass is the local origin, so the arc stays
-  under-constrained until `addCoincident(arc.centerSketchPoint, localOrigin)`. Verified in Fusion on 2026-10-24.
+### [SPUR-F-ARC-CENTRE] An arc's centre gets a coincident constraint to the local origin
 
-- **[SPUR-F-ALIGN-DUPLICATE] If Fusion refuses a point's distance dimension, align it with the earlier point that has
-  the same coordinate.** At tooth angle 0 and 90 degrees the two flanks are mirror images. In the probes Fusion raised
-  `VCS_SKETCH_OVER_CONSTRAINTS` on one horizontal (or vertical) dimension, the first point of the second flank, and
-  accepted all the others. A vertical (or horizontal) alignment of the two points (`addVerticalPoints`,
-  `addHorizontalPoints`, not `addVertical`) fixes the same coordinate and leaves the sketch fully constrained. The
-  cause is not understood, so `decadfusion.Sketch._dimension` applies the alignment to a dimension refused with
-  `VCS_SKETCH_OVER_CONSTRAINTS` that has a partner with the same coordinate (within 1e-6 cm). It raises any other
-  refusal, and raises the refused dimension when Fusion refuses the alignment too.
+`addByCenterStartEnd` shares the start and end points but makes a new centre point, even when the point passed is
+the local origin. [PB-SHARE-XOR-COINCIDENT] records this behaviour and the bevel arc that collapsed because of it.
+`Sketch._drawArcs` therefore adds `addCoincident(arc.centerSketchPoint, localOrigin)` after each arc. The arc gets no
+diameter dimension. A free centre with a diameter fixes the arc's size but not which way it bulges: an arc of the
+same radius through the same two ends can curve back through the tooth, and the sketch then has two solutions at
+zero degrees of freedom. Verified in Fusion on 2026-10-24.
 
-- **[SPUR-F-ROOT-ARC] The gallery's root arc is the root circle.** `drawCircles` already draws the root circle, sized by
-  the root radius parameter, and the profile finders count its arc. A second arc over it would split the circle and
-  change the curve counts. The builder leaves the root arc undrawn and puts both root points on the root circle with a
-  coincident constraint. Each then gets one dimension, because the circle fixes its radius. This was the old
-  construction's rule; the translated tooth sketch draws the gallery's root arc, and the runtime branch that applied
-  this rule was deleted with `legacyspur.py` on 2026-10-25.
+### [SPUR-F-ALIGN-DUPLICATE] Align a point Fusion refuses to dimension with the earlier point at the same coordinate
 
-- **[SPUR-F-SPINE] Spine + +X reference + angular pin (step 7).** Draw the spine as a construction
-  line `addByTwoPoints(localOrigin, toothTopPoint)` — pass **both** existing `SketchPoint`s
-  directly (share them). Do **not** create it from `.geometry`, do **not** add a separate
-  start-coincident to the origin (sharing already ties it; an extra coincident makes the solver
-  fail), and do **not** constrain the spine's end onto the arc (the tooth-top point already lies on
-  the tip circle).
+At tooth angle 0 and 90 degrees the two flanks are mirror images. In the probes, Fusion raised
+`VCS_SKETCH_OVER_CONSTRAINTS` on one horizontal (or vertical) dimension, the first point of the second flank, and
+accepted all the others. A vertical (or horizontal) alignment of the two points (`addVerticalPoints`,
+`addHorizontalPoints`, not `addVertical`) fixes the same coordinate and leaves the sketch fully constrained. The
+cause is not understood. `decadfusion.Sketch._dimension` therefore catches a refused distance dimension, aligns
+the point with an earlier dimensioned point whose coordinate matches within `SAME_COORDINATE`, and raises the error
+again when there is none.
 
-  Build the **+X reference construction line** for **every** `angle`, including 0:
-  1. Add a far endpoint at `(Tip Circle Radius, 0)` and pin it with **two axis dimensions from
-     the local origin** — `addDistanceDimension(..., HorizontalDimensionOrientation, Tip Circle
-     Radius)` and the vertical one at `0`; both values are non-negative magnitudes and the
-     endpoint is seeded on the +X side, per `[PB-DIM-VALUE-SEMANTICS]`. Pin it this way rather
-     than with `addCoincident(end, tipCircle)`: a point on a circle has two answers, and pinning
-     its x at the tip radius instead touches the circle at its extreme, where the numbers go
-     unstable.
-  2. Draw the reference line from the origin to that endpoint and mark it construction.
-  3. Add an angular dimension **from the reference to the spine, in that argument order**
-     (`addAngularDimension(reference, spine, …)`); place its text on the **bisector of the intended
-     angle** (`(R·cos(angle/2), R·sin(angle/2))` for small R) so Fusion selects `angle`, not its
-     supplement. Set its value to `angle` as the very last action (see `[SPUR-F-ROTATE-CONFIRM]`).
+### [SPUR-F-ROOT-ARC] A root arc on a root circle the caller drew
 
-  ⚠️ Do **not** use a plain `addHorizontal` on the spine for the `angle = 0` case. Horizontal fixes
-  the line's direction but says nothing about which way it points, so the tooth top can settle at
-  either end of the tip circle and the whole tooth comes out 180° around. The angular dimension
-  against a reference that is pinned to +X is what says which way, and using it for every `angle`
-  keeps spur, helical, herringbone and the bevel virtual tooth on one path.
+When a caller passes its own root circle into `decadfusion.Sketch`, an arc whose two ends lie on that circle is
+not drawn. Its ends get a coincident constraint to the circle instead, and each end then needs only one dimension.
+A second arc over the circle would split it and change the profile's curves. Only `legacyspur.py` passes a root
+circle, and nothing imports it. The translated spur draws its root arc as an ordinary arc.
 
-- **[SPUR-F-RIBS] Ribs — exact construction order (step 8).** A rib construction line runs between
-  each pair of matching left/right flank points — **one per fit-point index `i` for all N indices,
-  endpoints included** (the base-circle pair `i=0` and the tip pair `i=N-1` both get a rib, even
-  though the tip ends are also joined by the tooth-top arc; the fit-points have no other constraint,
-  so an omitted endpoint rib leaves the sketch under-constrained). Each needs a materialized
-  **midpoint sketch point** on the spine. Build each rib in **this exact order** — a different order
-  over-constrains the sketch (`VCS_SKETCH_OVER_CONSTRAINTS`):
-  1. Add the rib with `addByTwoPoints(leftSpline.fitPoints[i], rightSpline.fitPoints[i])` — pass the
-     two fit-point `SketchPoint`s **directly** so the rib shares them; mark it construction.
-  2. Dimension the rib with an **axis** dimension (horizontal/vertical), not an aligned one: for
-     `angle = 0` use `addDistanceDimension(left, right, VerticalDimensionOrientation, …)`, created
-     with the fit points already at their seeded positions and its value left at the measured
-     magnitude — the direction is captured from the seed at creation, per
-     `[PB-DIM-VALUE-SEMANTICS]`. For a rotated tooth, the rib takes the axis **across** the spine
-     and the midpoint chain takes the one **along** it: use vertical for the rib and horizontal
-     for the chain when `|cos(angle)| >= |sin(angle)|`, and swap both otherwise. That reduces to
-     the pair above at `angle = 0`, and a tooth at 90° fails without it. An **aligned** dimension
-     gives only the length, which the left and right flanks satisfy equally well swapped over, so
-     the tooth can come out mirrored; the axis dimension's captured direction is what forbids the
-     swap.
-  3. Add a fresh `SketchPoint` for the midpoint, created **already on the spine**. The spine is the
-     line at `angle` through the local origin, so seed the midpoint at the **foot of the left fit
-     point on that line**: with `t = fitX·cos(angle) + fitY·sin(angle)`, the seed is
-     `(t·cos(angle), t·sin(angle))`. (For `angle = 0` this reduces to `(fitX, 0)`.) Do **not** seed
-     it at the rib's true 2-D midpoint, and do **not** seed it at `(fitX, 0)` for a rotated tooth.
-  4. `addCoincident(midpoint, spine)` — pin the point onto the spine **first**.
-  5. `addMidPoint(midpoint, rib)` — then make it the rib's midpoint.
-  6. `addPerpendicular(spine, rib)` — then make the rib perpendicular to the spine. **Skip this for
-     the last rib.** That rib joins the two flank tips, which the tooth-top arc already holds at
-     equal radius either side of the spine (`[SPUR-F-TOOTHTOP-ARC]`), so its perpendicular says
-     nothing new and Fusion rejects it with `VCS_SKETCH_OVER_CONSTRAINTS`.
+## Helical and herringbone
 
-  Then dimension the distance from each rib's midpoint to the previous rib's midpoint with an
-  **axis** dimension along the spine direction (horizontal for `angle = 0`) — and **for the first
-  rib, dimension it from the local origin to its midpoint** (start the chain with
-  `previous = local origin`). The axis dimension's direction, captured from the seeded midpoints
-  at creation (`[PB-DIM-VALUE-SEMANTICS]`), makes the chain run outward; an aligned dimension is
-  equally happy running the other way, which is one of the ways the tooth ends up reversed. Without that origin-to-first dim the whole rib chain has
-  one residual DOF (it slides along the spine as a unit) and the sketch never fully constrains. Per
-  rib this is exactly determined; any further constraint, wrong order, or off-spine midpoint seed
-  over-constrains it.
+The helical and herringbone add-ins run the spur's translated build with a variant. `HelicalGearGenerator.variant`
+returns `_Variant(Tooth=loft_tooth, RootFillet=_fillet_root_edges)`, and the herringbone passes `_chevron` with the
+same fillet. The gallery owns the tooth, the twist and the fillet radius `fillet_radius * cos(helix_angle)`.
 
-- **[SPUR-F-FLANK-ROOT] Flank-to-root lines — exactly two constraints, and embedded-case detection
-  (step 9).** If the flank's first point (on the base circle) lies **outside** the root circle, draw
-  a short radial line from the root circle up to that start point on each side. Build each as
-  `addByTwoPoints(rootEndGeometry, flankStartFitPoint)` — pass the flank spline's **start
-  `SketchPoint` directly** as the far endpoint (share it; no separate coincident). Then place the
-  root end with **exactly these two axis dimensions from the local origin**, no others:
-  - (a) `addDistanceDimension(localOrigin, rootEnd, HorizontalDimensionOrientation, …)`;
-  - (b) the same with `VerticalDimensionOrientation`.
+- The twisted section lies on a construction plane, `Twisted Section Plane`, offset from the Target Plane by
+  `HelixPlaneOffset` (Thickness for helical, Thickness / 2 for herringbone). The offset is a number, so editing
+  Thickness does not move the plane. The runtime refuses a plane that is neither parallel nor perpendicular to the
+  Target Plane.
+- The loft (`Twisted Tooth Loft`) adds the lower section first, then the upper. The upper section's points are
+  drawn already turned by the helix angle.
+- Both sections come from `build_tooth_section`, which raises `tooth section: embedded flanks are not supported`
+  when the base circle lies inside the root circle. With the root radius `(m z - 2.5 m) / 2`, that happens above
+  `2.5 / (1 - cos(PressureAngle))` teeth: 41.5 at 20 degrees, 78.5 at 14.5 degrees and 26.7 at 25 degrees. The spur
+  builds those gears with its embedded tooth.
+- The herringbone mirrors the lofted half with a Mirror feature (`Tooth Half Mirror`). The runtime makes that
+  feature's mirror plane itself (`Tooth Half Mirror Plane`), so two construction planes sit at Thickness / 2. The
+  mirror does not combine. A separate join, `Tooth Halves Join`, is made when the pattern first needs the tooth
+  ([PB-LAZY-JOIN]).
 
-  The root end is seeded at its exact computed position **before** the dimensions are created, so
-  each dimension captures its direction from that seed and its created value is already the exact
-  magnitude — set values only to `abs(Δx)` / `abs(Δy)`, and **never to the axis-signed deltas: a
-  negative `parameter.value` flips the point to the other side of the origin**
-  (`[PB-DIM-VALUE-SEMANTICS]`; this exact flip mirrored the right-hand root end and left the
-  tooth loop open, found in-Fusion 2026-08-24). Together the two dimensions exactly constrain the
-  root end (2 DOF → 0), and their captured directions say **which side of the gear centre** it
-  sits on.
+## Visibility after a build
 
-  ⚠️ Do **not** place it instead with "root end on the root circle" plus "local origin on the
-  line". Those two are satisfied by **two** points, because the line through the flank start and
-  the centre carries on and meets the root circle again on the far side. The stub then stops being
-  a stub and becomes a long line straight across the gear, and the sketch reaches DOF 0 with both
-  answers available. The dimensions' captured directions are what rule the far one out. This common case yields a tooth loop
-  of **6 curves** (2 splines + 2 flank-to-root lines + 2 arcs). If instead the flank starts
-  **inside** the root circle (**high** tooth counts drop the base circle below the root: it happens
-  above `2.5 / (1 - cos(PressureAngle))` teeth, which is 41.5 at 20°, 78.5 at 14.5° and 26.7 at
-  25°, so a larger pressure angle brings it on sooner), no flank-to-root line is drawn and the loop has **4 curves** (2 splines + 2
-  arcs) — the profile is "embedded."
-
-  **The embedded test is strict `<`:** with `firstRadius` the distance from the local origin to the
-  left flank's first fit point, `embedded = firstRadius < Root Circle Radius` (compare raw values,
-  no tolerance). Exact equality therefore counts as **non**-embedded and draws a **zero-length**
-  flank-to-root stub (root end and flank start coincide) — this is the ill-conditioned region the
-  bench proof flags. Keep the strict comparison; do not "improve" it with `<=` or a tolerance.
-
-  **Embedded-flag mechanism (the tooth generator has no `ctx`):** the tooth generator sets the
-  boolean on its **parent generator** — `self.parent._lastToothEmbedded = True/False` — during
-  `drawTooth`. `SpurGearGenerator.__init__` MUST pre-initialise `self._lastToothEmbedded = False`
-  (alongside `self.toolsSketch = None` and `self.boreSketch = None`). Then `buildSketches` (which
-  holds `ctx`) copies it across: `ctx.toothProfileIsEmbedded = self._lastToothEmbedded`. Do not try
-  to set `ctx.toothProfileIsEmbedded` from inside the tooth generator — it cannot reach `ctx`.
-
-## Cleanup
-
-- **[SPUR-F-CLEANUP] End-of-build cleanup recipe.** Hide construction geometry and sketches per
-  `[PB-HIDE-AFTER-USE]` (`isLightBulbOn = False` for construction planes/axes; `isVisible = False`
-  for sketches — never crossed). The spur-specific recipe: the cleanup turns off the light bulb on
-  **every** construction plane/axis it created — the Extrusion End Plane, the `Gear Center` axis,
-  and the normalized target plane if one was created in step 1 — and sets `isVisible = False` on the
-  Tools, Gear Profile, and Bore Profile sketches, so only the finished gear body shows. **Split by
-  entity kind and mode:** the construction-plane/axis hiding **always runs, in both modes**
-  (including Generate-Sketches-Only, so no stray plane floats); the **sketch** hiding runs **only on
-  the full-build path** (sketch-only mode leaves Tools/Gear Profile visible for inspection — see
-  step 6). Guard each entity individually (only hide it if it was actually created — the `Gear
-  Center` axis and Bore Profile sketch don't exist in sketch-only mode).
-
-## Numeric snapshots
-
-- **[SPUR-F-SNAPSHOT] Dimensions and feature inputs are numeric snapshots.** Per
-  `[PB-NUMERIC-SNAPSHOT]`: every dimension and feature input (extrude offset, chamfer distance,
-  fillet radius, pattern count, bore-circle diameter) is set with the *current numeric value* of its
-  source parameter at generation time, not a live expression. Editing a `<prefix>_…` user parameter
-  does **not** change an existing spur gear — re-run the dialog to regenerate. The parameters stay
-  visible in the table for reference only. (This matches the original implementation.)
+After a full build, `cleanup` hides the Tools and Reference Circles sketches, and `Runtime.hide_helpers` hides
+every sketch the runtime drew and turns off every construction plane it made. In sketch-only mode the build stops
+at the first feature (`Tooth Extrude`, or the loft for helical and herringbone). The sketches drawn so far and the
+`Twisted Section Plane` stay visible. Only a Target Plane that the add-in created is turned off.
