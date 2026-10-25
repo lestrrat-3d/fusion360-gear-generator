@@ -119,11 +119,12 @@ var FeatureSpec = go2py.Spec{
 	Prefix:   "_",
 	Structs:  []string{"point", "dimensions", "toothPoints", "Variant", "ToothInput"},
 	TypeOnly: []string{"Params", "run"},
-	// The add-in registers the parameters and checks the inputs itself.
-	Provided: []string{"defineParameters", "validate"},
+	// The add-in registers the parameters itself.
+	Provided: []string{"defineParameters"},
 	// The runtime reads the dimensions from the user parameters instead of a scratch document.
 	Bound: map[string]go2py.Bound{"derive": {Python: "_fx.derive", Result: "dimensions"}},
 	Funcs: []string{
+		"validate",
 		"rotate", "involutePoint", "flankBeta", "sampleFlanks", "InvoluteFlanks", "rootContact", "toothAngle", "addToothPoints",
 		"toWorld", "shifted", "placement", "singleProfile", "solveAndVerify", "halfAngle", "closingRadius",
 		"buildToothSection", "BuildToothSection", "buildEmbeddedTooth", "Shifted", "PlaneAt", "tooth",

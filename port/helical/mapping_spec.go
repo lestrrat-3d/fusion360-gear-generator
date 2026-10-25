@@ -7,7 +7,7 @@ import "github.com/lestrrat-3d/fusion360-gear-generator/port/go2py"
 // (port/spur) supplies the rest. lib/geargen/spurgear.py provides the spur functions they call.
 var FeatureSpec = go2py.Spec{
 	Prefix: "_",
-	Funcs:  []string{"LoftTooth", "filletRootEdges"},
+	Funcs:  []string{"ValidateHelixAngle", "LoftTooth", "filletRootEdges"},
 	Roles: map[string]go2py.Role{
 		"LoftTooth:decad.Loft#1":         {Feature: "Twisted Tooth Loft", Body: "Tooth"},
 		"filletRootEdges:decad.Fillet#1": {Feature: "Root Fillet"},

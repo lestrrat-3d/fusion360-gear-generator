@@ -15,6 +15,8 @@ INPUT_ID_PLANE = 'plane'
 INPUT_ID_ANCHOR_POINT = 'anchorPoint'
 INPUT_ID_SKETCH_ONLY = 'sketchOnly'
 PARAM_SKETCH_ONLY = 'SketchOnly'
+# The centimetres of one millimetre, the unit the gallery's checks print lengths in. [PB-UNITS]
+_MILLIMETRE = 0.1
 # @@constants@@
 
 class SpurGearCommandInputsConfigurator:
@@ -90,6 +92,7 @@ class SpurGearGenerator(Generator):
 
     def generate(self, inputs: adsk.core.CommandInputs):
         self.processInputs(inputs)
+        self.validateGallery()
         component: adsk.fusion.Component = self.getComponent()
         component.name = self.generateName()
         self._createdTargetPlane = False
@@ -164,6 +167,25 @@ class SpurGearGenerator(Generator):
         constant = self.galleryParameters()[name]
         return self.parameterName(constant), self.getParameter(constant)
 
+    def galleryParams(self, scale=1.0):
+        """The gallery's Params, read from the user parameters. scale is the centimetres of one unit of length of the
+        translated code. The module is a unitless parameter that holds millimetres, so it is read as it is."""
+        value = lambda constant: self.getParameter(constant).value
+        length = lambda constant: value(constant) / scale
+        return _GalleryParams(
+            Module=value(PARAM_MODULE), Teeth=int(round(value(PARAM_TOOTH_NUMBER))),
+            PressureAngle=value(PARAM_PRESSURE_ANGLE), Thickness=length(PARAM_THICKNESS),
+            Samples=int(value(PARAM_INVOLUTE_STEPS)), BoreDiameter=length(PARAM_BORE_DIAMETER),
+            CapChamfer=length(PARAM_CHAMFER_TOOTH), Placement=None)
+
+    def validateGallery(self):
+        """Run the gallery's input checks, translated, before anything is built. They read the derived dimensions
+        from the user parameters, so a runtime over them is made active. It runs in millimetres, so a message shows
+        the numbers the dialog shows."""
+        runtime = _fx.Runtime(self.getComponent(), None, None, self.galleryParameter, False, _MILLIMETRE)
+        runtime.activate()
+        _validate(self.galleryParams(_MILLIMETRE))
+
     def buildGear(self, ctx: SpurGearGenerationContext):
         """Run the gallery's build, translated, in this design."""
         sketchOnly = self.getParameterAsBoolean(PARAM_SKETCH_ONLY)
@@ -172,11 +194,7 @@ class SpurGearGenerator(Generator):
         self._runtime = runtime
         runtime.build_frame(self._toolsSketch)
         value = lambda constant: self.getParameter(constant).value
-        params = _GalleryParams(
-            Module=value(PARAM_MODULE), Teeth=int(round(value(PARAM_TOOTH_NUMBER))),
-            PressureAngle=value(PARAM_PRESSURE_ANGLE), Thickness=value(PARAM_THICKNESS),
-            Samples=int(value(PARAM_INVOLUTE_STEPS)), BoreDiameter=value(PARAM_BORE_DIAMETER),
-            CapChamfer=value(PARAM_CHAMFER_TOOTH), Placement=None)
+        params = self.galleryParams()
         dimensions = _Dimensions(
             value(PARAM_PITCH_RADIUS), value(PARAM_BASE_RADIUS), value(PARAM_ROOT_RADIUS),
             value(PARAM_TIP_RADIUS), value(PARAM_FILLET_RADIUS))
