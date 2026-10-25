@@ -908,14 +908,17 @@ reflection, extrudes the other way for the same reason, and anchors on the line'
 that no cylindrical face lies on uses the same kind of line as its axis.
 
 **[PB-PAIR-PLANE] A gear that stands on the Target Plane is drawn in a plane across it, with its apex above the point.** The
-gallery draws a bevel pair in one plane, its apex at the origin and the driving shaft along its X axis. The user's
-Center Point is the centre of the driving gear's back face on the Target Plane, not the apex. A short line through the
-Center Point along the plane's X axis (in the `Tools` sketch, fully constrained) carries a construction plane at 90 degrees
-to the Target Plane, made at minus 90 if its normal came out along the Target Plane's Y direction. A `Pair Tools` sketch on
-that plane projects the Center Point and holds the apex, a point the height of the blank's heel station above it,
-dimensioned horizontally and vertically. The gallery's U is the Target Plane's normal turned round, so the driving shaft
-runs from the apex down into the plane, and V completes a right-handed pair about the sketch's normal. `Runtime.build_frame`
-takes them, and every sketch maps the gallery's axes to Fusion's by dot products. [PB-FRAME-PLANE]
+original spec (`spec/bevelgear/instructions.md`, removed from `feat-gallery-port`, still on `main`) puts the Target Plane
+under the driving gear's flat back face and the Center Point at the centre of that face. The pair's apex is above the point on
+the side the plane's normal points to, by R cos(gamma) plus the driving base height, which is the blank's heel station. The
+pinion shaft is the driving shaft turned about the apex, toward the greater X of the plane that holds both shafts. The
+gallery draws the pair with its apex at the origin, so the add-in places it. A short line through the Center Point along the
+plane's X axis (in the `Tools` sketch, fully constrained) carries a construction plane at 90 degrees to the Target Plane,
+made at minus 90 when the pinion would lie toward the lesser X. A `Pair Tools` sketch on that plane projects the Center
+Point and holds the apex, dimensioned horizontally and vertically from it. The gallery's U is the Target Plane's normal turned
+round, so the driving shaft runs from the apex down into the plane, and V completes a right-handed pair about the sketch's
+normal. `Runtime.build_frame` takes them, and every sketch maps the gallery's axes to Fusion's by dot products.
+[PB-FRAME-PLANE]
 
 **[PB-EMBEDDED-TOOTH] The embedded virtual tooth is the region bounded by two flank splines, a tip arc and a root arc.**
 Decad numbers the trim of each flank at the root circle; Fusion's regions carry their trimmed curves, so the runtime
