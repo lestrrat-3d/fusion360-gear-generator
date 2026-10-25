@@ -56,6 +56,8 @@ fi
 mkdir -p "$FUSION_ADDIN_DIR"
 rsync -r --delete \
     --exclude '__pycache__' \
+    --exclude '*.pyc' \
+    --exclude '*_out.txt' \
     --include '/Gear Generator.py' \
     --include '/Gear Generator.manifest' \
     --include '/config.py' \

@@ -70,7 +70,9 @@ This is a standard Fusion 360 add-in. There is no Marketplace package yet, so in
 
    If you keep your checkout somewhere else, run `./deploy.sh` from it instead. That script copies only
    the files Fusion actually loads (`Gear Generator.py`, the manifest, `config.py`, `commands/`, `lib/`
-   and the `diag_*.py` helpers) and leaves the specs, proofs and tooling behind. It picks the
+   and the `diag_*.py` helpers) and leaves the port, docs, tests and tooling behind. It deletes files
+   under `commands/` and `lib/` in the destination, and `diag_*.py` files at its top, that the checkout
+   does not have; other files you keep in the destination folder are left alone. It picks the
    destination from `$FUSION_ADDIN_DIR`, then from an untracked `.deploy.conf` beside the script, then
    by searching the standard locations listed above. Re-run it after every change.
 
