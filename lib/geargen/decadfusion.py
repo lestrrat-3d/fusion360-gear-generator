@@ -635,11 +635,40 @@ class Sketch:
         constraint.dimension.parameter.expression = parameterName
 
 
+def unconstrained_entities(fsketch, limit=24):
+    """Describe the curves and fit points a sketch leaves free, in mm, so a failed check says what to constrain."""
+    found = []
+    curves = fsketch.sketchCurves
+    for i in range(curves.count):
+        curve = curves.item(i)
+        if curve.isFullyConstrained:
+            continue
+        kind = curve.objectType.split('::')[-1]
+        start = curve.startSketchPoint.geometry if hasattr(curve, 'startSketchPoint') else None
+        where = '' if start is None else f' from ({start.x * 10:.3f}, {start.y * 10:.3f})'
+        loose = []
+        fitted = adsk.fusion.SketchFittedSpline.cast(curve)
+        if fitted is not None:
+            for j in range(fitted.fitPoints.count):
+                point = fitted.fitPoints.item(j)
+                if not point.isFullyConstrained:
+                    loose.append(f'{j}:({point.geometry.x * 10:.3f}, {point.geometry.y * 10:.3f})')
+        found.append(f'{kind}{where}' + (f' free fit points {", ".join(loose)}' if loose else ''))
+    points = fsketch.sketchPoints
+    for i in range(points.count):
+        point = points.item(i)
+        if not point.isFullyConstrained:
+            found.append(f'point ({point.geometry.x * 10:.3f}, {point.geometry.y * 10:.3f})')
+    more = len(found) - limit
+    return found[:limit] + ([f'and {more} more'] if more > 0 else [])
+
+
 def sketchcheck_verify_fully_constrained(sketch):
     with timed(f'{sketch.sketch.name} constraint check'):
         constrained = sketch.sketch.isFullyConstrained
     if not constrained:
-        raise RuntimeError(f'{sketch.sketch.name}: sketch is not fully constrained')
+        free = unconstrained_entities(sketch.sketch)
+        raise RuntimeError(f'{sketch.sketch.name}: sketch is not fully constrained; free: ' + '; '.join(free))
 
 
 # ---------------------------------------------------------------------------------------------
