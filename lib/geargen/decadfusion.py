@@ -692,7 +692,8 @@ class Sketch:
             u, v = runtime.to_world_dir(plane.frame.u()).unit(), runtime.to_world_dir(plane.frame.v()).unit()
             self._map = (u.dot(x), v.dot(x), u.dot(y), v.dot(y))
             self.flipped = self._map[0] * self._map[3] - self._map[1] * self._map[2] < 0
-            self._anchorPoint = plane.anchor
+            if plane.anchor is not None:
+                self._anchorPoint = plane.anchor
         self._lineHandles = []
         # The local origin is a point the anchor constraint can move, which the sketch's own origin is not.
         self._origin = origin if origin is not None else fsketch.sketchPoints.add(adsk.core.Point3D.create(0, 0, 0))
