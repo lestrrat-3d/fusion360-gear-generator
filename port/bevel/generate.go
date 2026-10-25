@@ -162,7 +162,11 @@ func inputsBlock(m *gallery.Model) (string, error) {
 		case Number:
 			entries = append(entries, valueInput(in, "''", fmt.Sprintf("createByReal(%s)", number(g.Default))))
 		case Angle:
-			deg := math.Round(g.Default*180/math.Pi*1e9) / 1e9
+			value := g.Default
+			if value == 0 {
+				value = in.Fallback
+			}
+			deg := math.Round(value*180/math.Pi*1e9) / 1e9
 			entries = append(entries, valueInput(in, "'deg'", fmt.Sprintf("createByString('%s deg')", number(deg))))
 		case Length:
 			entries = append(entries, valueInput(in, "'mm'", fmt.Sprintf("createByReal(to_cm(%s))", number(g.Default))))

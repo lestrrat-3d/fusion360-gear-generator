@@ -7,7 +7,11 @@
 // translated build. The Fusion runtime that executes the calls is lib/geargen/decadfusion.py, run in millimetres.
 package bevel
 
-import "github.com/lestrrat-3d/fusion360-gear-generator/port/go2py"
+import (
+	"math"
+
+	"github.com/lestrrat-3d/fusion360-gear-generator/port/go2py"
+)
 
 // Kind tells how a gallery default becomes a dialog default.
 type Kind int
@@ -36,6 +40,9 @@ type Input struct {
 	Const string
 	Label string
 	Kind  Kind
+	// Fallback is the dialog default when the gallery default is zero. The spiral angle is zero by default
+	// (straight teeth), and a spiral pair needs an angle above zero, so the field starts at a working value.
+	Fallback float64
 }
 
 // Inputs lists the dialog inputs in dialog order. A gallery Params field that is in
@@ -53,7 +60,8 @@ var Inputs = []Input{
 	{Field: "FaceWidth", Const: "INPUT_ID_FACE_WIDTH", Label: "Face Width", Kind: Length},
 	{Field: "ToothSpacing", Const: "INPUT_ID_TOOTH_SPACING", Label: "Tooth Spacing", Kind: Length},
 	{Const: "INPUT_ID_TOOTH_TYPE", Label: "Tooth Type", Kind: ToothType},
-	{Field: "SpiralAngle", Const: "INPUT_ID_SPIRAL_ANGLE", Label: "Mean Spiral Angle", Kind: Angle},
+	{Field: "SpiralAngle", Const: "INPUT_ID_SPIRAL_ANGLE", Label: "Mean Spiral Angle", Kind: Angle,
+		Fallback: 35 * math.Pi / 180},
 	{Field: "SpiralHand", Const: "INPUT_ID_HAND", Label: "Hand of Spiral", Kind: Hand},
 	{Field: "CutterRadius", Const: "INPUT_ID_CUTTER_RADIUS", Label: "Cutter Radius", Kind: Length},
 	{Field: "ToeExtension", Const: "INPUT_ID_TOE_EXTENSION", Label: "Toe Extension (%)", Kind: Number},
@@ -77,7 +85,7 @@ var FeatureSpec = go2py.Spec{
 	Aliases:    map[string]string{"joinOrder": "int"},
 	IotaConsts: []string{"joinOneByOne", "joinTeethGrouped", "joinTeethFirst", "joinTeethBalancedFirst"},
 	FirstOnly:  []string{"spiralOvershoots", "orders", "sliceSpiralPointTooth:reach"},
-	Values: []string{"spiralOvershoots", "spiralCrownPerRad",
+	Values: []string{"spiralOvershoots", "spiralCrownPerRad", "verifiedSpiralAngle",
 		"directionBits", "gridBits", "localShaft", "pairContainerName", "drivingContainerName", "pinionContainerName",
 	},
 	Bound: map[string]go2py.Bound{

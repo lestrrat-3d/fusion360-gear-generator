@@ -12,6 +12,8 @@ github.com/lestrrat-3d/decad-gallery v0.0.0-20261025101518-f81d6185bfcf h1:FQ0IF
 github.com/lestrrat-3d/decad-gallery v0.0.0-20261025101518-f81d6185bfcf/go.mod h1:omc4mnfyBqtMmQFH3DGqbOQlRURZECXoSotOiTy16RY=
 github.com/lestrrat-3d/decad-gallery v0.0.0-20261025104755-80bc6b8ad519 h1:0KoKMMmwYKMp6jO6WrNos4kP2Gi6WN6FlkqCHn6P15Y=
 github.com/lestrrat-3d/decad-gallery v0.0.0-20261025104755-80bc6b8ad519/go.mod h1:omc4mnfyBqtMmQFH3DGqbOQlRURZECXoSotOiTy16RY=
+github.com/lestrrat-3d/decad-gallery v0.0.0-20261025112832-19c0f5f78762 h1:d3vXtQZgMs6SQNt6rCnXJa89XwQxAXpwZItwljhYpu8=
+github.com/lestrrat-3d/decad-gallery v0.0.0-20261025112832-19c0f5f78762/go.mod h1:omc4mnfyBqtMmQFH3DGqbOQlRURZECXoSotOiTy16RY=
 github.com/lestrrat-3d/r3 v0.0.0-20261014125509-3c90eee135e1 h1:fgCGzCJZtB56H7nPuXgr3OTS7km1+f8AVLCOMBWJeGA=
 github.com/lestrrat-3d/r3 v0.0.0-20261014125509-3c90eee135e1/go.mod h1:4ZWWwLiR9tf6tOORKYM95+OXLMbdAmHywWdUYsDJfYc=
 github.com/lestrrat-3d/sketch v0.0.0-20261024043619-e616ba6dda03 h1:q+jFXTb/jhu4yPmumIBmipDjkhf9UzoLDjHHakV7cSE=
