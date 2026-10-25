@@ -3,6 +3,7 @@ package bevel
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/gallery"
@@ -97,27 +98,25 @@ func paramsFromInputs(m *gallery.Model) string {
 			continue
 		}
 		item := fmt.Sprintf("inputs.itemById(%s)", in.Const)
+		var read string
 		switch in.Kind {
 		case Number:
+			read = item + ".value"
 			if g.Type == "int" {
-				fmt.Fprintf(&sb, "        %s=int(round(%s.value)),\n", g.Name, item)
-			} else {
-				fmt.Fprintf(&sb, "        %s=%s.value,\n", g.Name, item)
+				read = "int(round(" + item + ".value))"
 			}
-		case Angle:
-			if g.Name == "SpiralAngle" {
-				// Straight teeth build with a spiral angle of zero, whatever the hidden field holds.
-				fmt.Fprintf(&sb, "        %s=%s.value if _is_spiral(inputs) else 0.0,\n", g.Name, item)
-			} else {
-				fmt.Fprintf(&sb, "        %s=%s.value,\n", g.Name, item)
-			}
+		case Angle, Bool:
+			read = item + ".value"
 		case Length:
-			fmt.Fprintf(&sb, "        %s=to_mm(%s.value),\n", g.Name, item)
-		case Bool:
-			fmt.Fprintf(&sb, "        %s=%s.value,\n", g.Name, item)
+			read = "to_mm(" + item + ".value)"
 		case Hand:
-			fmt.Fprintf(&sb, "        %s=%s.selectedItem.name.lower(),\n", g.Name, item)
+			read = item + ".selectedItem.name.lower()"
 		}
+		if in.SpiralOnly {
+			// Straight teeth build with the gallery default, a spiral angle of zero, whatever the hidden field holds.
+			read += " if _is_spiral(inputs) else " + pyDefault(g)
+		}
+		fmt.Fprintf(&sb, "        %s=%s,\n", g.Name, read)
 	}
 	sb.WriteString("    )\n")
 	return sb.String()
@@ -206,3 +205,16 @@ func valueInput(in Input, unit, value string) string {
 }
 
 func number(v float64) string { return fmt.Sprintf("%g", v) }
+
+// pyDefault renders the gallery default of a Params field as a Python value: the text of a string field, else the
+// number as a float.
+func pyDefault(g gallery.Input) string {
+	if g.Type == "string" {
+		return fmt.Sprintf("%q", g.DefaultText)
+	}
+	text := strconv.FormatFloat(g.Default, 'g', -1, 64)
+	if !strings.ContainsAny(text, ".eEn") {
+		text += ".0"
+	}
+	return text
+}

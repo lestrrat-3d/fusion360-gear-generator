@@ -43,6 +43,9 @@ type Input struct {
 	// Fallback is the dialog default when the gallery default is zero. The spiral angle is zero by default
 	// (straight teeth), and a spiral pair needs an angle above zero, so the field starts at a working value.
 	Fallback float64
+	// SpiralOnly marks an input the dialog hides for straight teeth. A straight pair does not read it and takes the
+	// gallery default instead, so a value typed while Spiral was selected cannot fail a straight build.
+	SpiralOnly bool
 }
 
 // Inputs lists the dialog inputs in dialog order. A gallery Params field that is in
@@ -61,9 +64,9 @@ var Inputs = []Input{
 	{Field: "ToothSpacing", Const: "INPUT_ID_TOOTH_SPACING", Label: "Tooth Spacing", Kind: Length},
 	{Const: "INPUT_ID_TOOTH_TYPE", Label: "Tooth Type", Kind: ToothType},
 	{Field: "SpiralAngle", Const: "INPUT_ID_SPIRAL_ANGLE", Label: "Mean Spiral Angle", Kind: Angle,
-		Fallback: 35 * math.Pi / 180},
-	{Field: "SpiralHand", Const: "INPUT_ID_HAND", Label: "Hand of Spiral", Kind: Hand},
-	{Field: "CutterRadius", Const: "INPUT_ID_CUTTER_RADIUS", Label: "Cutter Radius", Kind: Length},
+		Fallback: 35 * math.Pi / 180, SpiralOnly: true},
+	{Field: "SpiralHand", Const: "INPUT_ID_HAND", Label: "Hand of Spiral", Kind: Hand, SpiralOnly: true},
+	{Field: "CutterRadius", Const: "INPUT_ID_CUTTER_RADIUS", Label: "Cutter Radius", Kind: Length, SpiralOnly: true},
 	{Field: "ToeExtension", Const: "INPUT_ID_TOE_EXTENSION", Label: "Toe Extension (%)", Kind: Number},
 	{Field: "ToeRadius", Const: "INPUT_ID_DRIVING_TOE_RADIUS", Label: "Driving Gear Toe Radius", Kind: Length},
 	{Field: "MateToeRadius", Const: "INPUT_ID_PINION_TOE_RADIUS", Label: "Pinion Gear Toe Radius", Kind: Length},
