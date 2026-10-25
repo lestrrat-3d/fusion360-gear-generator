@@ -18,6 +18,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from fakefusion import redirect_progress
+
 ROOT = Path(__file__).resolve().parents[1]
 H, V = 'horizontal', 'vertical'
 
@@ -122,12 +124,14 @@ class ToothSketchBuilderTest(unittest.TestCase):
         sys.modules['addin'] = package
         cls.spur = importlib.import_module('addin.lib.geargen.spurgear')
         cls.fx = importlib.import_module('addin.lib.geargen.decadfusion')
+        cls.progress = redirect_progress(cls.fx)
 
     @classmethod
     def tearDownClass(cls):
         for name in [n for n in sys.modules if n == 'adsk' or n.startswith(('adsk.', 'addin'))]:
             del sys.modules[name]
         sys.modules.update(cls.saved)
+        cls.progress.cleanup()
 
     def draw(self, teeth, angle, samples=15):
         spur = self.spur

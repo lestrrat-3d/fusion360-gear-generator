@@ -15,6 +15,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from fakefusion import redirect_progress
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -90,12 +92,14 @@ class BatchingTest(unittest.TestCase):
             'addin', ROOT / '__init__.py', submodule_search_locations=[str(ROOT)])
         sys.modules['addin'] = importlib.util.module_from_spec(spec)
         cls.fx = importlib.import_module('addin.lib.geargen.decadfusion')
+        cls.progress = redirect_progress(cls.fx)
 
     @classmethod
     def tearDownClass(cls):
         for name in [n for n in sys.modules if n == 'adsk' or n.startswith(('adsk.', 'addin'))]:
             del sys.modules[name]
         sys.modules.update(cls.saved)
+        cls.progress.cleanup()
 
     def setUp(self):
         fx = self.fx

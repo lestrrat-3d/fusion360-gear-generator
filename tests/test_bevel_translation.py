@@ -16,6 +16,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from fakefusion import redirect_progress
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -146,6 +148,9 @@ class FakeBody:
 class FakeRuntime:
     """The gallery's Document and World, with the real parameter table and containers."""
 
+    # The bevel runtime builds in millimetres, as BevelGearGenerator makes it.
+    scale = 0.1
+
     def __init__(self, fx):
         self.fx, self.log = fx, []
         self._table = fx.ParamTable()
@@ -199,12 +204,14 @@ class BevelTranslationTest(unittest.TestCase):
         sys.modules['addin'] = importlib.util.module_from_spec(spec)
         cls.bevel = importlib.import_module('addin.lib.geargen.bevelgear')
         cls.fx = importlib.import_module('addin.lib.geargen.decadfusion')
+        cls.progress = redirect_progress(cls.fx)
 
     @classmethod
     def tearDownClass(cls):
         for name in [n for n in sys.modules if n == 'adsk' or n.startswith(('adsk.', 'addin'))]:
             del sys.modules[name]
         sys.modules.update(cls.saved)
+        cls.progress.cleanup()
 
     def run_pair(self, **changes):
         bevel, fx = self.bevel, self.fx
@@ -269,13 +276,14 @@ class BevelTranslationTest(unittest.TestCase):
             SpiralAngle=0.0, SpiralHand='right', CutterRadius=0.0, ToothSpacing=0.0, ToeExtension=0.0,
             ToeRadius=0.0, MateToeRadius=0.0, BaseHeight=0.0, MateBaseHeight=0.0, Placement=None)
         sketch_parameters.update(changes)
-        saved = bevel._fx, bevel._spur
+        saved = bevel._fx, bevel._spur, fx._active
         bevel._fx = namespace
         bevel._spur = SimpleNamespace(involute_flanks=self.involute)
+        fx._active = runtime
         try:
             pair = bevel.build_pair(runtime, bevel._Params(**sketch_parameters))
         finally:
-            bevel._fx, bevel._spur = saved
+            bevel._fx, bevel._spur, fx._active = saved
         return runtime, log, pair
 
     @staticmethod

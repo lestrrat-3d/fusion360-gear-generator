@@ -281,6 +281,8 @@ class GearCommand:
             # modules are reloaded from the files on disk when they changed. [PB-STALE-MODULE]
             self.generator_class = fresh_generator_class(self.generator_class)
             futil.log(f'{self.name} {_build_label(self.generator_class)}')
+            # [PB-PROGRESS-FILE]: the progress file holds the steps of this build only.
+            _runtime.progress_reset()
             # [PB-SETTLE-DISPLAY]: remember the user's own sketches, so the settle below only
             # touches the ones this generator is about to author.
             preexisting = geargen.existing_sketches(design)

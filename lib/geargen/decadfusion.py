@@ -62,6 +62,15 @@ _active = None
 PROGRESS_FILE = os.path.join(tempfile.gettempdir(), 'geargen-progress.log')
 
 
+def progress_reset():
+    """Empty the progress file, so it holds the steps of one build. The command calls it before each build."""
+    try:
+        with open(PROGRESS_FILE, 'w'):
+            pass
+    except OSError:
+        pass
+
+
 def progress(message):
     try:
         with open(PROGRESS_FILE, 'a') as out:
@@ -185,6 +194,11 @@ def r3_new_frame(origin, u, v):
     return Frame(origin, u, v, u.cross(v).unit())
 
 
+# Fusion units whose parameter value is not a length: an angle is in radians and a unitless value is a number
+# whatever the runtime's length unit. [PB-UNITS]
+_NOT_LENGTH_UNITS = {'', 'deg', 'rad'}
+
+
 class Value:
     """A user parameter. base() is its value in the unit of the translated code; expression names it for a
     dimension or a feature. [PB-UNITS]"""
@@ -195,7 +209,12 @@ class Value:
         self._scale = scale
 
     def base(self):
-        return self._parameter.value / self._scale
+        """Fusion holds a length in centimetres, an angle in radians and a unitless value as it is. Only a length
+        changes with the runtime's unit."""
+        value = self._parameter.value
+        if self._scale == 1.0 or self._parameter.unit in _NOT_LENGTH_UNITS:
+            return value
+        return value / self._scale
 
 
 class Distance:
@@ -228,8 +247,11 @@ def decad_two_sided(One, Two):
 
 
 def units_millimeters(x):
-    # The translated code already runs in a unit the runtime converts, so a length is its number.
-    return x
+    """x millimetres in the length unit of the translated code: the number itself in a millimetre runtime (scale
+    0.1), a tenth of it in a centimetre runtime (scale 1.0). [PB-UNITS]"""
+    if _active is None:
+        raise RuntimeError('units_millimeters needs an active runtime to know the unit of the translated code')
+    return x * 0.1 / _active.scale
 
 
 class CircularPattern:
@@ -263,8 +285,15 @@ def units_radians(x):
 
 
 def math_round(x):
-    """Go's math.Round: halfway cases round away from zero."""
-    return math.copysign(math.floor(abs(x) + 0.5), x)
+    """Go's math.Round: the nearest integer, halfway cases away from zero, computed exactly. Adding 0.5 first is not
+    exact: 0.49999999999999994 + 0.5 rounds to 1.0 in floating point, where Go gives 0."""
+    if math.isnan(x) or math.isinf(x):
+        return x
+    whole = float(math.trunc(x))
+    # x - whole is exact: both share x's exponent range and whole drops only x's fraction bits.
+    if abs(x - whole) >= 0.5:
+        whole += math.copysign(1.0, x)
+    return math.copysign(whole, x)
 
 
 def math_ilogb(x):
@@ -1986,6 +2015,9 @@ def decad_transform(body, transform, name):
     runtime = body.runtime
     if not isinstance(transform, Rotation):
         raise RuntimeError(f'{name}: only a rotation is translated')
+    if transform.angle == 0:
+        # A zero turn is no move, and Fusion refuses a move by the identity with "invalid transform".
+        return body
     axis = runtime.to_world_dir(transform.axis).unit()
     origin = runtime.placement.origin() if transform.center is None else runtime.to_world(transform.center)
     matrix = adsk.core.Matrix3D.create()

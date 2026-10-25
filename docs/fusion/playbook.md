@@ -956,7 +956,8 @@ Code that accepts the user's Center Point reads whichever exists.
 
 **[PB-PROGRESS-FILE] A build that hangs leaves no trace in the Text Commands window.** The window does not repaint while the
 add-in blocks Fusion's thread. `decadfusion.progress` appends a flushed line to `geargen-progress.log` in the system temp
-directory for each timed step, so the last line names the step that never returned. `unconstrained_entities` makes a failed
+directory for each timed step, so the last line names the step that never returned. The command empties the file
+before each build, and the tests point it at a temporary path. `unconstrained_entities` makes a failed
 constraint check name the curves and fit points it left free.
 
 ## What the spec need not pin (free to vary)

@@ -43,6 +43,13 @@ def restore_modules(saved):
     sys.modules.update(saved)
 
 
+def redirect_progress(fx):
+    """Point the runtime's progress file at a new temporary directory, which the caller cleans up."""
+    directory = tempfile.TemporaryDirectory()
+    fx.PROGRESS_FILE = str(Path(directory.name) / 'geargen-progress.log')
+    return directory
+
+
 class FusionTestCase(unittest.TestCase):
     """Loads addin.lib.geargen.decadfusion as cls.fx with Fusion stubbed."""
 
@@ -58,9 +65,8 @@ class FusionTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.saved = install_stubs(core=cls.make_core())
-        cls.progress_dir = tempfile.TemporaryDirectory()
         cls.fx = importlib.import_module('addin.lib.geargen.decadfusion')
-        cls.fx.PROGRESS_FILE = str(Path(cls.progress_dir.name) / 'geargen-progress.log')
+        cls.progress_dir = redirect_progress(cls.fx)
 
     @classmethod
     def tearDownClass(cls):

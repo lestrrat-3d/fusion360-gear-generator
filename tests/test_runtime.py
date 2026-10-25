@@ -394,5 +394,62 @@ class PlaneTest(RuntimeTestCase):
                 self.assertEqual([want], extrude_input.called('setTwoSidesExtent'))
 
 
+class NumbersTest(RuntimeTestCase):
+    """Units, Go's rounding, the progress file and the zero turn."""
+
+    def test_a_parameter_reads_in_the_unit_of_the_translated_code(self):
+        fx = self.fx
+        length = SimpleNamespace(value=1.5, unit='mm')
+        angle = SimpleNamespace(value=0.5, unit='deg')
+        count = SimpleNamespace(value=12.0, unit='')
+        self.assertAlmostEqual(15.0, fx.Value('L', length, 0.1).base())
+        self.assertEqual(0.5, fx.Value('A', angle, 0.1).base())
+        self.assertEqual(12.0, fx.Value('N', count, 0.1).base())
+        for parameter in (length, angle, count):
+            self.assertEqual(parameter.value, fx.Value('P', parameter, 1.0).base())
+
+    def test_millimetres_follow_the_runtime_unit(self):
+        fx = self.fx
+        saved = fx._active
+        try:
+            fx.Runtime(self.component, 'plane', None, None, scale=0.1).activate()
+            self.assertEqual(5.0, fx.units_millimeters(5.0))
+            fx.Runtime(self.component, 'plane', None, None, scale=1.0).activate()
+            self.assertAlmostEqual(0.5, fx.units_millimeters(5.0))
+            fx._active = None
+            with self.assertRaises(RuntimeError):
+                fx.units_millimeters(5.0)
+        finally:
+            fx._active = saved
+
+    def test_round_matches_go(self):
+        fx = self.fx
+        cases = {0.49999999999999994: 0.0, 0.5: 1.0, -0.5: -1.0, 2.5: 3.0, -2.4: -2.0, 1.5: 2.0,
+                 4503599627370497.0: 4503599627370497.0, 1e300: 1e300, -0.4: -0.0}
+        for x, want in cases.items():
+            with self.subTest(x=x):
+                got = fx.math_round(x)
+                self.assertEqual(want, got)
+                self.assertEqual(math.copysign(1, want), math.copysign(1, got))
+        self.assertTrue(math.isnan(fx.math_round(float('nan'))))
+        self.assertEqual(float('-inf'), fx.math_round(float('-inf')))
+
+    def test_the_progress_file_holds_one_build(self):
+        fx = self.fx
+        fx.progress('an earlier build')
+        fx.progress_reset()
+        fx.progress('this build')
+        with open(fx.PROGRESS_FILE) as lines:
+            self.assertEqual(['this build'], [line.split(' ', 1)[1].strip() for line in lines])
+
+    def test_a_zero_turn_makes_no_move(self):
+        fx = self.fx
+        body = self.body(1.0)
+        self.assertIs(body, fx.decad_transform(body, fx.r3_rotation(fx.r3_new_vec(1, 0, 0), 0.0), name='Turn'))
+        self.assertEqual([], self.features.kinds())
+        fx.decad_transform(body, fx.r3_rotation(fx.r3_new_vec(1, 0, 0), 0.25), name='Turn')
+        self.assertEqual(['move'], self.features.kinds())
+
+
 if __name__ == '__main__':
     unittest.main()
