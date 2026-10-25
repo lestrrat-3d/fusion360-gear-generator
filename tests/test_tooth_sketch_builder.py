@@ -150,7 +150,15 @@ class ToothSketchBuilderTest(unittest.TestCase):
         # The sketch as Runtime.create_sketch makes it: the runtime adds the local origin itself.
         builder = self.fx.Sketch(None, sketch)
         params = collections.namedtuple('Params', ['Teeth', 'Samples'])(teeth, samples)
-        spur._draw_tooth_section(builder, params, spur._Dimensions(pitch, base, root, tip, 0.0), angle)
+        # The curves _build_tooth_section draws, without the profile check that needs a real Fusion sketch.
+        tp = spur._add_tooth_points(builder, params, spur._Dimensions(pitch, base, root, tip, 0.0), angle)
+        last = samples - 1
+        builder.create_line(tp.rightRoot, tp.right[0])
+        builder.create_fit_spline(*tp.right)
+        builder.create_arc(builder.origin(), tp.right[last], tp.left[last])
+        builder.create_fit_spline(*tp.left)
+        builder.create_line(tp.left[0], tp.leftRoot)
+        builder.create_arc(builder.origin(), tp.rightRoot, tp.leftRoot)
         builder.finish()
         return sketch, root
 

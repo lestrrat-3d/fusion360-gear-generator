@@ -47,13 +47,16 @@ def parameters(inputs):
     values['HelixAngle'] = inputs['helix_angle']
     return values
 
+units = {m['Name']: m['Unit'] for m in data['mapping']}
+units['HelixAngle'] = 'rad'
+
 out = []
 for c in data['cases']:
     values = parameters(c['inputs'])
     g = object.__new__(gears[c['gear']])
     g.getComponent = lambda: types.SimpleNamespace(name='Gear')
     g.parameterName = lambda constant: constant
-    g.getParameter = lambda constant, values=values: types.SimpleNamespace(value=values[constant])
+    g.getParameter = lambda constant, values=values: types.SimpleNamespace(value=values[constant], unit=units.get(constant, ''))
     try:
         g.validateGallery()
         out.append('')
