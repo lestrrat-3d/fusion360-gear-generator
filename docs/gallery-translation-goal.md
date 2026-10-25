@@ -67,6 +67,27 @@ Fusion taught us. This file owns the goal, the rules for reaching it, and the de
 - Starting a gear: list the gallery operations it uses, then list which are already covered by a rule.
 - The screw gear has no gallery model and is outside this goal. It stays on `feat-screwgear` branches.
 
+## Bevel
+
+- The gear is two members in one pair. The translation maps the gallery's containers "Pair", "Driving Gear" and
+  "Pinion Gear" to Fusion components made after the build ([PB-CONTAINER-BODIES]), and the shared "Gear Profiles" sketch
+  is the gallery's own. Decided with the user on 2026-10-25.
+- The driving gear stands on its back face on the Target Plane with its axis through the Center Point, so the pair's apex
+  is above the point by the blank's heel station and the driving shaft is the Target Plane's normal turned round. The
+  pair lies in the Pair Plane, across the Target Plane through the Center Point along its X axis, and the pinion's shaft
+  turns toward the X axis. The user expected the gear on the plane, with its centre on the point, on 2026-10-25 and said
+  both builds that put the apex on the point were wrong: first with both shafts in the Target Plane, then with the
+  driving shaft along its normal.
+- The dialog has a Tooth Type drop-down, Straight or Spiral, which the gallery does not have. Straight hides Mean Spiral
+  Angle, Hand of Spiral and Cutter Radius and builds with a spiral angle of zero. Spiral shows them and needs an angle
+  above zero. Straight is the default until the spiral pair is translated; the gallery's default is spiral. Requested by
+  the user on 2026-10-26.
+- The straight pair is translated and Fusion-verified. The spiral pair is translated too, from the same gallery
+  functions, and awaits its first Fusion load. Its decad-only steps map to Fusion as follows: `Split` is a surface
+  extrude of the cut line plus a Split Body feature (the piece nearer the apex comes first), `ScaledAt` is a Scale
+  feature about a construction point, `LoftFaces` is a loft through the slabs' planar caps, and `Copy` with a rotation
+  is a Copy/Paste Body plus a free move.
+
 ## Definition of done for a gear
 
 - The fragment holds no Fusion construction.

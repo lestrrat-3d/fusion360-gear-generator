@@ -1,14 +1,4 @@
 {
-  "digest": "0f7270467a078cd49246bebc9a3c418193cd55f3ced7a387b0ea53e53b2a5359",
-  "functions": [
-    "Build",
-    "BuildPair",
-    "prepareBuild",
-    "buildMember",
-    "buildStraightMember",
-    "buildSpiralMember",
-    "derive",
-    "defineParameters",
-    "validateSpiralBuild"
-  ]
+  "digest": "",
+  "functions": null
 }

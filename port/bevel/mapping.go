@@ -1,10 +1,13 @@
 // Package bevel ports the decad-gallery bevel gear to the Fusion add-in file
 // lib/geargen/bevelgear.py.
 //
-// The add-in builds the pair with Fusion calls the stored fragment holds. From the
-// gallery source the port takes the dialog inputs and their defaults, and it stops
-// when the gallery's inputs, build operations or reviewed code change.
+// The pair is translated from the gallery: the blanks, the teeth, the cones, the bore, the containers and the
+// validity checks all come from FeatureSpec. From the gallery source the port also takes the dialog inputs and
+// their defaults. The fragment holds the Fusion wiring: the dialog, the Tools sketch and the call of the
+// translated build. The Fusion runtime that executes the calls is lib/geargen/decadfusion.py, run in millimetres.
 package bevel
+
+import "github.com/lestrrat-3d/fusion360-gear-generator/port/go2py"
 
 // Kind tells how a gallery default becomes a dialog default.
 type Kind int
@@ -20,11 +23,14 @@ const (
 	Bool
 	// Hand writes a drop-down of Right and Left with the default selected.
 	Hand
+	// ToothType writes a drop-down of Straight and Spiral that no gallery field backs. Choosing Straight hides the
+	// spiral-only inputs and builds with a spiral angle of zero.
+	ToothType
 )
 
 // Input maps one gallery Params field to a dialog input.
 type Input struct {
-	// Field is the gallery Params field.
+	// Field is the gallery Params field. It is empty for an input the gallery does not have.
 	Field string
 	// Const is the Python constant of the input id.
 	Const string
@@ -46,6 +52,7 @@ var Inputs = []Input{
 	{Field: "MateBoreDiameter", Const: "INPUT_ID_PINION_BORE", Label: "Pinion Gear Bore Diameter", Kind: Length},
 	{Field: "FaceWidth", Const: "INPUT_ID_FACE_WIDTH", Label: "Face Width", Kind: Length},
 	{Field: "ToothSpacing", Const: "INPUT_ID_TOOTH_SPACING", Label: "Tooth Spacing", Kind: Length},
+	{Const: "INPUT_ID_TOOTH_TYPE", Label: "Tooth Type", Kind: ToothType},
 	{Field: "SpiralAngle", Const: "INPUT_ID_SPIRAL_ANGLE", Label: "Mean Spiral Angle", Kind: Angle},
 	{Field: "SpiralHand", Const: "INPUT_ID_HAND", Label: "Hand of Spiral", Kind: Hand},
 	{Field: "CutterRadius", Const: "INPUT_ID_CUTTER_RADIUS", Label: "Cutter Radius", Kind: Length},
@@ -54,26 +61,92 @@ var Inputs = []Input{
 	{Field: "MateToeRadius", Const: "INPUT_ID_PINION_TOE_RADIUS", Label: "Pinion Gear Toe Radius", Kind: Length},
 }
 
-// GalleryOnly lists the Params fields with no dialog input. PressureAngle and Samples
-// are fixed in lib/geargen/spurproxy.py, which the tests compare with the gallery defaults.
-// Placement is the decad document's placement and has no Fusion counterpart.
+// GalleryOnly lists the Params fields with no dialog input. PressureAngle and Samples keep the gallery default.
+// Placement is the decad document's placement and has no Fusion counterpart: the add-in takes a Target Plane and a
+// Center Point instead.
 var GalleryOnly = []string{"PressureAngle", "Samples", "Placement"}
 
-// ExpectedOps is the sequence of decad feature operations the gallery Build performs,
-// following both its straight and its spiral branch, with the extra Unions of the spiral
-// build's alternative tooth-join orders (grouped, balanced) that only change how fast decad
-// joins the same teeth. The port stops when it changes,
-// because the Fusion construction in the fragment was reviewed against this sequence.
-var ExpectedOps = []string{
-	"Revolve", "Revolve", "Extrude", "Revolve", "Revolve", "Cut", "Revolve", "Revolve", "Intersect",
-	"Union", "Union", "Union", "Union", "Union", "Union", "Union", "Intersect", "Revolve", "Revolve", "Cut", "Revolve", "Intersect", "Union",
-	"Extrude", "Cut",
-}
-
-// ReviewedFuncs are the gallery functions the fragment's Fusion construction follows.
-// The fragment records a digest of their code (reviewed.json); a change to any of them
-// stops the port until the fragment is reviewed and the digest accepted.
-var ReviewedFuncs = []string{
-	"Build", "BuildPair", "prepareBuild", "buildMember", "buildStraightMember", "buildSpiralMember",
-	"derive", "defineParameters", "validateSpiralBuild",
+// FeatureSpec is what the port translates from the gallery model: the whole build of a straight or spiral pair, in
+// the order the gallery performs it.
+var FeatureSpec = go2py.Spec{
+	Prefix: "_",
+	Structs: []string{"axialPoint", "shaftFrame", "dimensions", "memberBuildPlan", "GearPair", "pairContainers",
+		"spiralSliceFrame", "spiralTrace", "serialEnds", "spiralHeelSection"},
+	TypeOnly:   []string{"Params"},
+	Mutable:    []string{"axialPoint", "Params", "dimensions", "shaftFrame"},
+	Aliases:    map[string]string{"joinOrder": "int"},
+	IotaConsts: []string{"joinOneByOne", "joinTeethGrouped", "joinTeethFirst", "joinTeethBalancedFirst"},
+	FirstOnly:  []string{"spiralOvershoots", "orders", "sliceSpiralPointTooth:reach"},
+	Values: []string{"spiralOvershoots", "spiralCrownPerRad",
+		"directionBits", "gridBits", "localShaft", "pairContainerName", "drivingContainerName", "pinionContainerName",
+	},
+	Bound: map[string]go2py.Bound{
+		"buildSpiralMember":          {Python: "_build_spiral_member", Result: "decad.Body"},
+		"buildSpiralPair":            {Python: "_build_spiral_pair", Result: "GearPair"},
+		"validateSpiralBuild":        {Python: "_validate_spiral_build", Result: ""},
+		"snap":                       {Python: "_fx.shaft_snap", Result: "[]axialPoint"},
+		"selectEmbeddedToothProfile": {Python: "_fx.select_embedded_tooth_profile", Result: "sketch.Profile"},
+	},
+	Funcs: []string{
+		"finite", "derive", "defineParameters", "unitOf", "recordParameters", "Build", "BuildPair", "prepareBuild",
+		"buildMember", "buildStraightMember", "placePair", "resolvedBaseHeight", "blankSection", "blankSectionOf",
+		"revolveBlankIn", "revolveAxialSectionIn", "revolveSharedBlanks", "profileUses", "buildToeConeIn",
+		"buildHeelConeIn", "endConeSection", "buildEndCone", "buildPointToothIn", "ResolveBoreDiameter",
+		"maximumBoreDiameter", "cutBore", "newPairContainers", "uniqueChild", "addSketch", "addPlane", "moveBody",
+		"newShaftFrame", "roundBits", "apexFrame", "heelStation", "buildSpiralMember", "buildSpiralMemberSerial",
+		"buildSpiralMemberSerialTrace", "spiralJoinGroupsFirst", "buildSpiralMemberOvershoot", "buildSpiralTooth",
+		"patternSpiralTooth", "trimSpiralToothBy", "sliceSpiralPointTooth", "spiralSliceSheet", "validateSpiralBuild",
+		"buildSpiralTrace", "cutterIntersectionNear", "twistSpiralSlabs", "crownSpiralSlabs", "spiralHeelRootAnchor",
+		"spiralLoftFaces", "buildSerialEnds", "DefaultParams", "buildSpiralPair", "BuildPointTooth", "buildBackConeToothProfile", "buildVirtualToothProfile", "local", "axis", "sketchAxis", "unit", "vec",
+		"sectionXY", "revolveAxialSection", "buildShiftedEndCone",
+	},
+	Roles: map[string]go2py.Role{
+		"buildSpiralMemberSerialTrace:decad.Remove#1":                   {Feature: "Failed Spiral Member Removal"},
+		"buildSpiralMemberOvershoot:decad.Union#1":                      {Feature: "Spiral Tooth Pair Join"},
+		"buildSpiralMemberOvershoot:decad.Union#2":                      {Feature: "Spiral Teeth Join"},
+		"buildSpiralMemberOvershoot:decad.Union#3":                      {Feature: "Spiral Tooth Pair Join"},
+		"buildSpiralMemberOvershoot:decad.Union#4":                      {Feature: "Spiral Teeth Group Join"},
+		"buildSpiralMemberOvershoot:decad.Union#5":                      {Feature: "Spiral Tooth Join"},
+		"buildSpiralMemberOvershoot:decad.Union#6":                      {Feature: "Spiral Teeth Join"},
+		"buildSpiralMemberOvershoot:decad.Union#7":                      {Feature: "Spiral Tooth Join"},
+		"buildSpiralMemberOvershoot:decad.Intersect#1":                  {Feature: "Spiral Member Cap Trim"},
+		"buildSpiralTooth:decad.LoftFaces#1":                            {Feature: "Spiral Tooth Loft", Body: "Spiral Tooth"},
+		"buildSpiralTooth:decad.Remove#1":                               {Feature: "Spiral Slab Removal"},
+		"crownSpiralSlabs:decad.ScaledAt#1":                             {Feature: "Spiral Crown Scale"},
+		"patternSpiralTooth:decad.Copy#1":                               {Feature: "Spiral Tooth Copy"},
+		"sliceSpiralPointTooth:decad.Split#1":                           {Feature: "Spiral Slice"},
+		"sliceSpiralPointTooth:decad.Remove#1":                          {Feature: "Short Slice Sheet Removal"},
+		"sliceSpiralPointTooth:decad.Remove#2":                          {Feature: "Missed Slice Sheet Removal"},
+		"sliceSpiralPointTooth:decad.Remove#3":                          {Feature: "Refused Slice Sheet Removal"},
+		"sliceSpiralPointTooth:decad.Remove#4":                          {Feature: "Spiral Apex Scrap Removal"},
+		"spiralSliceSheet:sketch.World.CreateSketch#1":                  {Feature: "Slice Sheet"},
+		"spiralSliceSheet:decad.Extrude#1":                              {Feature: "Slice Sheet Extrude", Body: "Slice Sheet"},
+		"trimSpiralToothBy:decad.Cut#1":                                 {Feature: "Spiral Tooth Toe Trim"},
+		"trimSpiralToothBy:decad.Intersect#1":                           {Feature: "Spiral Tooth Heel Trim"},
+		"twistSpiralSlabs:decad.Transform#1":                            {Feature: "Spiral Slab Twist"},
+		"buildSpiralPair:decad.MirroredCopy#1":                          {Feature: "Spiral Driving Gear Mirror", Body: "Spiral Driving Gear"},
+		"buildSpiralPair:decad.Transform#1":                             {Feature: "Pinion Tooth Phase Turn"},
+		"buildSpiralPair:decad.Transform#2":                             {Feature: "Pinion Shaft Turn"},
+		"BuildPair:decad.Transform#1":                                   {Feature: "Pinion Tooth Phase Turn"},
+		"placePair:decad.Transform#1":                                   {Feature: "Driving Gear Phase Turn"},
+		"buildStraightMember:decad.Cut#1":                               {Feature: "Tooth Toe Trim"},
+		"buildStraightMember:decad.Intersect#1":                         {Feature: "Tooth Heel Trim"},
+		"buildStraightMember:decad.PatternCopies#1":                     {Feature: "Tooth Pattern"},
+		"buildStraightMember:decad.Union#1":                             {Feature: "Teeth Join"},
+		"revolveAxialSectionIn:sketch.World.CreateSketch#1":             {Feature: "Axial Section", Qualify: "label"},
+		"revolveAxialSectionIn:decad.Revolve#1":                         {Feature: "Revolve", Qualify: "label"},
+		"revolveSharedBlanks:sketch.World.CreateSketch#1":               {Feature: "Gear Profiles"},
+		"revolve:decad.Revolve#1":                                       {Feature: "Revolve", Qualify: "label"},
+		"buildPointToothIn:decad.LoftFromPoint#1":                       {Feature: "Tooth Loft", Body: "Tooth"},
+		"cutBore:sketch.World.CreatePlaneFromFrame#1":                   {Feature: "Bore Plane"},
+		"cutBore:sketch.World.CreateSketch#1":                           {Feature: "Bore Profile"},
+		"cutBore:decad.Extrude#1":                                       {Feature: "Bore Extrude", Body: "Bore Tool"},
+		"cutBore:decad.Cut#1":                                           {Feature: "Bore Cut"},
+		"buildBackConeToothProfile:sketch.World.CreatePlaneFromFrame#1": {Feature: "Tooth Plane"},
+		"buildVirtualToothProfile:sketch.World.CreateSketch#1":          {Feature: "Tooth Profile"},
+	},
+	External: map[string]go2py.External{
+		"placement.Place":         {Python: "_fx.placement_place", Results: []string{"decad.Body"}},
+		"spurgear.InvoluteFlanks": {Python: "_spur.involute_flanks", Results: []string{"[][2]float", "[][2]float"}},
+	},
 }

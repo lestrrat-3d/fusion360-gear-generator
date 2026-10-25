@@ -41,6 +41,8 @@ type typ struct {
 	key *typ
 	// variadic marks the type of a parameter written ...T, which Python takes as *name.
 	variadic bool
+	// ptr marks a pointer to a number or bool, which Python holds as a reference object with a value property.
+	ptr bool
 }
 
 var (
@@ -91,11 +93,18 @@ func fromAST(e ast.Expr, structs map[string]*structInfo) (typ, error) {
 		case "any":
 			return typ{kind: kindOpaque, name: "any"}, nil
 		}
-		if _, ok := structs[e.Name]; ok {
+		if info, ok := structs[e.Name]; ok {
+			if info.alias != nil {
+				return *info.alias, nil
+			}
 			return typ{kind: kindStruct, name: e.Name}, nil
 		}
 	case *ast.StarExpr:
-		return fromAST(e.X, structs)
+		inner, err := fromAST(e.X, structs)
+		if err == nil && (inner.numeric() || inner.kind == kindBool) {
+			inner.ptr = true
+		}
+		return inner, err
 	case *ast.SelectorExpr:
 		if name, ok := opaqueType(e); ok {
 			return typ{kind: kindOpaque, name: name}, nil
@@ -109,9 +118,7 @@ func fromAST(e ast.Expr, structs map[string]*structInfo) (typ, error) {
 			return ctxType, nil
 		}
 	case *ast.ArrayType:
-		if e.Len != nil {
-			break
-		}
+		// A fixed-length array [N]T is held as a list, like a slice.
 		elem, err := fromAST(e.Elt, structs)
 		if err != nil {
 			return typ{}, err
@@ -159,7 +166,7 @@ func fromAST(e ast.Expr, structs map[string]*structInfo) (typ, error) {
 
 // opaquePackages are the packages whose types a translated function may hold without
 // looking inside. The Python runtime implements the methods the API table lists.
-var opaquePackages = map[string]bool{"sketch": true, "decad": true, "r3": true, "units": true}
+var opaquePackages = map[string]bool{"sketch": true, "decad": true, "r3": true, "units": true, "param": true}
 
 // opaqueType returns "pkg.Name" for a selector naming a type of an opaque package.
 func opaqueType(e *ast.SelectorExpr) (string, bool) {
@@ -185,6 +192,8 @@ type structInfo struct {
 	anonymous bool
 	// assigned marks a struct the translated code fills in field by field, which becomes a class.
 	assigned bool
+	// alias is the underlying type of a defined number, bool or string type, which has no class of its own.
+	alias *typ
 }
 
 // mutable reports whether the struct holds slices or handles, which a function fills in

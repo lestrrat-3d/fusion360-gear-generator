@@ -17,33 +17,52 @@ type apiSig struct {
 	named bool
 	// recv marks a sketchcheck helper whose first argument is the receiver.
 	recv bool
+	// results are the types of an operation that returns several values, not counting an error.
+	results []string
 }
 
 // apiFuncs are the package-level functions a translated function may call.
 var apiFuncs = map[string]apiSig{
-	"decad.Extrude":       {res: "decad.Body", named: true},
-	"decad.PatternCopies": {res: "[]decad.Body", named: true},
-	"decad.Union":         {res: "decad.Body", named: true},
-	"decad.Cut":           {res: "decad.Body", named: true},
-	"decad.Fillet":        {res: "decad.Body", named: true},
-	"decad.Chamfer":       {res: "decad.Body", named: true},
-	"decad.Circular":      {res: "decad.Predicate"},
-	"decad.LongerThan":    {res: "decad.Predicate"},
-	"units.Millimeters":   {res: "units.Value"},
-	"decad.Loft":          {res: "decad.Body", named: true},
-	"decad.MirroredCopy":  {res: "decad.Body", named: true},
-	"decad.Edges":         {res: "decad.EdgeQuery"},
-	"decad.ParallelTo":    {res: "decad.Predicate"},
-	"decad.EndpointAt":    {res: "decad.Predicate"},
-	"decad.Concave":       {res: "decad.Predicate"},
-	"decad.OuterLoopOf":   {res: "decad.Predicate"},
-	"decad.CapStart":      {res: "decad.EdgeQuery"},
-	"decad.CapEnd":        {res: "decad.EdgeQuery"},
-	"sketch.NewWorld":     {res: "sketch.World"},
-	"sketch.NewRadius":    {res: "sketch.Constraint"},
-	"sketch.NewDiameter":  {res: "sketch.Constraint"},
-	"r3.NewFrame":         {res: "r3.Frame"},
-	"r3.NewVec":           {res: "r3.Vec"},
+	"decad.Extrude":           {res: "decad.Body", named: true},
+	"decad.PatternCopies":     {res: "[]decad.Body", named: true},
+	"decad.Union":             {res: "decad.Body", named: true},
+	"decad.Cut":               {res: "decad.Body", named: true},
+	"decad.Fillet":            {res: "decad.Body", named: true},
+	"decad.Chamfer":           {res: "decad.Body", named: true},
+	"decad.Circular":          {res: "decad.Predicate"},
+	"decad.Revolve":           {res: "decad.Body", named: true},
+	"decad.LoftFaces":         {res: "decad.Body", named: true},
+	"decad.Split":             {res: "[]decad.Body", named: true},
+	"decad.Remove":            {named: true},
+	"decad.ScaledAt":          {res: "decad.Body", named: true},
+	"decad.WithCopyRotation":  {res: "decad.Option"},
+	"r3.RotationAround":       {res: "r3.Transform"},
+	"units.Scalar":            {res: "units.Value"},
+	"decad.Intersect":         {res: "decad.Body", named: true},
+	"decad.Copy":              {res: "decad.Body", named: true},
+	"decad.Transform":         {res: "decad.Body", named: true},
+	"decad.LoftFromPoint":     {res: "decad.Body", named: true},
+	"decad.WithMatchingFaces": {res: "decad.Option"},
+	"decad.WithCopyPlacement": {res: "decad.Option"},
+	"param.New":               {res: "param.Table"},
+	"units.Radians":           {res: "units.Value"},
+	"r3.Rotation":             {res: "r3.Transform"},
+	"decad.LongerThan":        {res: "decad.Predicate"},
+	"units.Millimeters":       {res: "units.Value"},
+	"decad.Loft":              {res: "decad.Body", named: true},
+	"decad.MirroredCopy":      {res: "decad.Body", named: true},
+	"decad.Edges":             {res: "decad.EdgeQuery"},
+	"decad.ParallelTo":        {res: "decad.Predicate"},
+	"decad.EndpointAt":        {res: "decad.Predicate"},
+	"decad.Concave":           {res: "decad.Predicate"},
+	"decad.OuterLoopOf":       {res: "decad.Predicate"},
+	"decad.CapStart":          {res: "decad.EdgeQuery"},
+	"decad.CapEnd":            {res: "decad.EdgeQuery"},
+	"sketch.NewWorld":         {res: "sketch.World"},
+	"sketch.NewRadius":        {res: "sketch.Constraint"},
+	"sketch.NewDiameter":      {res: "sketch.Constraint"},
+	"r3.NewFrame":             {res: "r3.Frame"},
+	"r3.NewVec":               {res: "r3.Vec"},
 
 	"sketchcheck.DimensionPoint":         {res: "sketch.Point", recv: true},
 	"sketchcheck.DimensionArcEnd":        {res: "sketch.Point", recv: true},
@@ -52,29 +71,49 @@ var apiFuncs = map[string]apiSig{
 
 // apiMethods are the methods of the opaque types, keyed "Type.Method".
 var apiMethods = map[string]apiSig{
-	"decad.Document.Param":        {res: "units.Value"},
-	"units.Value.Base":            {res: "float"},
-	"decad.Body.IsSolid":          {res: "bool"},
-	"decad.EdgeQuery.Or":          {res: "decad.EdgeQuery"},
-	"decad.EdgeQuery.Exactly":     {res: "decad.EdgeQuery"},
-	"decad.EdgeQuery.SelectEdges": {res: "[]decad.Edge"},
-	"decad.Edge.Start":            {res: "decad.Vertex"},
-	"decad.Edge.End":              {res: "decad.Vertex"},
-	"decad.Edge.Curve":            {res: "decad.Curve"},
-	"decad.Body.Faces":            {res: "[]decad.Face"},
-	"decad.Body.Centroid":         {res: "decad.Centroid"},
-	"r3.Vec.Dot":                  {res: "float"},
-	"r3.Vec.Cross":                {res: "r3.Vec"},
-	"decad.Face.Surface":          {res: "decad.Surface"},
-	"decad.Face.Edges":            {res: "[]decad.Edge"},
-	"decad.Vertex.Position":       {res: "decad.Position"},
+	"decad.Document.Param":              {res: "units.Value"},
+	"decad.Document.Params":             {res: "param.Table"},
+	"decad.Document.Root":               {res: "decad.Container"},
+	"decad.Document.MoveBody":           {},
+	"decad.Document.ContainerOf":        {res: "decad.Container"},
+	"decad.Container.NewChild":          {res: "decad.Container"},
+	"decad.Container.Children":          {res: "[]decad.Container"},
+	"decad.Container.Name":              {res: "string"},
+	"decad.Container.AddSketch":         {},
+	"decad.Container.AddPlane":          {},
+	"decad.Body.Bounds":                 {res: "decad.Box"},
+	"decad.Face.Centroid":               {res: "decad.Centroid"},
+	"decad.Document.Bodies":             {res: "[]decad.Body"},
+	"sketch.Sketch.Chains":              {res: "[]sketch.Chain"},
+	"decad.Body.ExtremeFacesByCentroid": {results: []string{"decad.Face", "decad.Face"}},
+	"param.Table.SetValue":              {},
+	"param.Table.SetNumber":             {},
+	"param.Table.SetExpr":               {},
+	"param.Table.GetValue":              {res: "units.Value"},
+	"r3.Frame.IsValid":                  {res: "bool"},
+	"sketch.Line.SetConstruction":       {},
+	"units.Value.Base":                  {res: "float"},
+	"decad.Body.IsSolid":                {res: "bool"},
+	"decad.EdgeQuery.Or":                {res: "decad.EdgeQuery"},
+	"decad.EdgeQuery.Exactly":           {res: "decad.EdgeQuery"},
+	"decad.EdgeQuery.SelectEdges":       {res: "[]decad.Edge"},
+	"decad.Edge.Start":                  {res: "decad.Vertex"},
+	"decad.Edge.End":                    {res: "decad.Vertex"},
+	"decad.Edge.Curve":                  {res: "decad.Curve"},
+	"decad.Body.Faces":                  {res: "[]decad.Face"},
+	"decad.Body.Centroid":               {res: "decad.Centroid"},
+	"r3.Vec.Dot":                        {res: "float"},
+	"r3.Vec.Cross":                      {res: "r3.Vec"},
+	"decad.Face.Surface":                {res: "decad.Surface"},
+	"decad.Face.Edges":                  {res: "[]decad.Edge"},
+	"decad.Vertex.Position":             {res: "decad.Position"},
 
 	"sketch.World.CreateSketch":               {res: "sketch.Sketch", named: true},
 	"sketch.World.CreatePlaneFromFrame":       {res: "sketch.Plane", named: true},
 	"sketch.World.Params":                     {res: "sketch.Table"},
 	"sketch.World.XY":                         {res: "sketch.Plane"},
 	"sketch.Sketch.CreateCircle":              {res: "sketch.Circle"},
-	"sketch.Sketch.CreateLine":                {},
+	"sketch.Sketch.CreateLine":                {res: "sketch.Line"},
 	"sketch.Sketch.CreateArc":                 {},
 	"sketch.Sketch.CreateFitSpline":           {res: "sketch.Entity"},
 	"sketch.Sketch.CreatePoint":               {res: "sketch.Point"},
@@ -97,21 +136,29 @@ var apiMethods = map[string]apiSig{
 
 // apiFields are the fields of the opaque types, keyed "Type.Field".
 var apiFields = map[string]string{
-	"decad.Position.Value":  "r3.Vec",
-	"decad.Cylinder.Radius": "units.Value",
-	"decad.Centroid.Value":  "r3.Vec",
-	"sketch.Profile.Holes":  "[]sketch.Edge",
-	"sketch.Circle.Center":  "sketch.Point",
-	"r3.Vec.X":              "float",
-	"r3.Vec.Y":              "float",
-	"r3.Vec.Z":              "float",
-	"sketch.Profile.Valid":  "bool",
-	"sketch.Profile.Outer":  "[]sketch.Edge",
+	"decad.Position.Value":    "r3.Vec",
+	"decad.Cylinder.Radius":   "units.Value",
+	"decad.Centroid.Value":    "r3.Vec",
+	"decad.Centroid.Bound":    "units.Value",
+	"decad.Position.Bound":    "units.Value",
+	"sketch.Profile.Holes":    "[]sketch.Edge",
+	"sketch.Circle.Center":    "sketch.Point",
+	"r3.Vec.X":                "float",
+	"r3.Vec.Y":                "float",
+	"r3.Vec.Z":                "float",
+	"sketch.Profile.Valid":    "bool",
+	"sketch.Profile.Entities": "[]sketch.Entity",
+	"decad.Box.Min":           "r3.Vec",
+	"decad.Box.Max":           "r3.Vec",
+	"sketch.Profile.Outer":    "[]sketch.Edge",
 }
 
 // apiConsts are the package-level constants of the opaque packages.
 var apiConsts = map[string]string{
-	"decad.Along": "int",
+	"decad.Along":      "int",
+	"units.Millimeter": "units.Unit",
+	"units.Radian":     "units.Unit",
+	"units.One":        "units.Unit",
 }
 
 // apiLiterals are the struct types of the opaque packages a translated function may build
@@ -122,7 +169,15 @@ var apiLiterals = map[string]string{
 	"decad.MirrorFrame":     "decad.MirrorFrame",
 	"decad.TwoSided":        "decad.TwoSided",
 	"decad.DistanceSide":    "decad.DistanceSide",
+	"decad.FullRevolution":  "decad.FullRevolution",
+	"decad.SketchLine":      "decad.SketchLine",
+	"decad.Point2":          "decad.Point2",
+	"r3.Vec":                "r3.Vec",
 }
+
+// apiConversions are the handle types a translated function may convert a value to: the conversion
+// changes nothing at run time.
+var apiConversions = map[string]bool{"sketch.Entity": true}
 
 // apiTypeTests are the types a translated function may test a value against, with a type
 // assertion. Each becomes a runtime function named is_<type>.
@@ -147,8 +202,9 @@ func parseAPIType(s string) typ {
 		return boolType
 	case s == "string":
 		return stringType
-	case strings.HasPrefix(s, "[]"):
-		elem := parseAPIType(s[2:])
+	case strings.HasPrefix(s, "["):
+		// A slice []T or an array [N]T.
+		elem := parseAPIType(s[strings.Index(s, "]")+1:])
 		return typ{kind: kindSlice, elem: &elem}
 	}
 	return typ{kind: kindOpaque, name: s}

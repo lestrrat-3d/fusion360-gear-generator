@@ -1,8 +1,10 @@
 package go2py
 
 import (
+	"errors"
 	"fmt"
 	"go/ast"
+	"go/parser"
 	"slices"
 	"strings"
 	"unicode"
@@ -59,6 +61,11 @@ type Spec struct {
 	// code calls, keyed "pkg.Func" or "pkg.Type.Method". The Python module that holds the
 	// translation of that package provides them.
 	External map[string]External
+	// Aliases lists defined types whose underlying type is a number, bool or string, keyed by name:
+	// "joinOrder": "int". The translation treats a value of one as its underlying type.
+	Aliases map[string]string
+	// IotaConsts lists the constants of a const block written with iota, in order: the first is 0.
+	IotaConsts []string
 	// ExternalTypes lists the structs of another gallery package, keyed "pkg.Type", and the
 	// type of each field the translated code reads.
 	ExternalTypes map[string]map[string]string
@@ -68,7 +75,8 @@ type Spec struct {
 type Bound struct {
 	// Python is the callee, such as "_fx.derive".
 	Python string
-	// Result is the translated struct the function returns.
+	// Result is the type the function returns: a translated struct, a handle such as "decad.Body", a slice such as
+	// "[]axialPoint", or empty for nothing.
 	Result string
 }
 
@@ -156,8 +164,25 @@ func TranspileSpec(m *gallery.Model, spec Spec) (string, error) {
 			info.assigned = true
 		}
 	}
+	for name, underlying := range spec.Aliases {
+		expr, err := parser.ParseExpr(underlying)
+		if err != nil {
+			return "", fmt.Errorf("alias %s: %w", name, err)
+		}
+		at, err := fromAST(expr, tr.structs)
+		if err != nil {
+			return "", fmt.Errorf("alias %s: %w", name, err)
+		}
+		tr.structs[name] = &structInfo{name: name, types: map[string]typ{}, alias: &at}
+	}
 	for _, name := range spec.Zero {
 		tr.structs[name] = &structInfo{name: name, types: map[string]typ{}, zero: true}
+	}
+	var values strings.Builder
+	for i, name := range spec.IotaConsts {
+		py := tr.prefix + pySnake(name)
+		tr.globals[name] = global{py: py, t: intType}
+		fmt.Fprintf(&out, "%s = %d\n\n", py, i)
 	}
 	for _, name := range spec.Values {
 		expr, err := m.PackageValue(name)
@@ -174,27 +199,44 @@ func TranspileSpec(m *gallery.Model, spec Spec) (string, error) {
 		}
 		py := tr.prefix + pySnake(name)
 		tr.globals[name] = global{py: py, t: vt}
-		fmt.Fprintf(&out, "%s = %s\n\n", py, text)
+		if vt.kind == kindStruct {
+			// A value that builds a struct follows the struct classes.
+			fmt.Fprintf(&values, "%s = %s\n\n", py, text)
+		} else {
+			fmt.Fprintf(&out, "%s = %s\n\n", py, text)
+		}
 	}
+	var signatureFailures []error
 	for _, name := range spec.Funcs {
 		info, err := tr.loadSignature(name)
 		if err != nil {
-			return "", err
+			signatureFailures = append(signatureFailures, fmt.Errorf("signature of %s: %w", name, err))
+			continue
 		}
 		tr.funcs[name] = info
+	}
+	if len(signatureFailures) > 0 {
+		return "", errors.Join(signatureFailures...)
 	}
 	for _, name := range spec.Structs {
 		out.WriteString(tr.structs[name].python(spec.Prefix))
 		out.WriteString("\n\n")
 	}
+	out.WriteString(values.String())
 	var body strings.Builder
+	// Every function is translated on its own, so report all that fail at once.
+	var failures []error
 	for _, name := range spec.Funcs {
 		src, err := tr.function(tr.funcs[name])
 		if err != nil {
-			return "", fmt.Errorf("function %s: %w", name, err)
+			failures = append(failures, fmt.Errorf("function %s: %w", name, err))
+			continue
 		}
 		body.WriteString(src)
 		body.WriteString("\n\n")
+	}
+	if len(failures) > 0 {
+		return "", errors.Join(failures...)
 	}
 	for _, st := range spec.Steps {
 		src, err := tr.steps(st)
@@ -490,4 +532,15 @@ func pyClass(s string) string {
 type global struct {
 	py string
 	t  typ
+}
+
+// defaultOf is the Python default of a field of a class: the zero value of a number or bool, else None.
+func (s *structInfo) defaultOf(field string) string {
+	switch t := s.types[field]; t.kind {
+	case kindFloat, kindInt, kindUntyped, kindBool:
+		if zero, err := t.zero(); err == nil {
+			return zero
+		}
+	}
+	return "None"
 }

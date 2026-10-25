@@ -130,6 +130,11 @@ def r3_new_vec(x, y, z):
     return Vec(x, y, z)
 
 
+def r3_vec(X=0.0, Y=0.0, Z=0.0):
+    """The gallery's r3.Vec{} literal: a vector with the fields it names, the others zero."""
+    return Vec(X, Y, Z)
+
+
 def vec_of(point):
     return Vec(point.x, point.y, point.z)
 
@@ -151,6 +156,9 @@ class Frame:
 
     def n(self):
         return self._n
+
+    def is_valid(self):
+        return True
 
 
 def r3_new_frame(origin, u, v):
@@ -221,6 +229,151 @@ def value_input(value, scale=1.0):
     return adsk.core.ValueInput.createByReal(value * scale)
 
 
+# ---------------------------------------------------------------------------------------------
+# Numbers, units and the parameter table of a model that computes its dimensions from expressions
+
+
+UNITS_MILLIMETER = 'mm'
+UNITS_RADIAN = 'rad'
+UNITS_ONE = ''
+
+
+def units_radians(x):
+    return x
+
+
+def math_round(x):
+    """Go's math.Round: halfway cases round away from zero."""
+    return math.copysign(math.floor(abs(x) + 0.5), x)
+
+
+def math_ilogb(x):
+    """Go's math.Ilogb: the binary exponent of x as an integer."""
+    return math.frexp(x)[1] - 1
+
+
+class FieldRef:
+    """A pointer to a number field of a translated struct: Go's &d.field. value reads and writes the field."""
+
+    def __init__(self, owner, field):
+        self._owner, self._field = owner, field
+
+    @property
+    def value(self):
+        return getattr(self._owner, self._field)
+
+    @value.setter
+    def value(self, number):
+        setattr(self._owner, self._field, number)
+
+
+def field_ref(owner, field):
+    return FieldRef(owner, field)
+
+
+class Quantity:
+    """A number the parameter table holds, in the unit of the translated code."""
+
+    def __init__(self, number):
+        self._number = number
+
+    def base(self):
+        return self._number
+
+
+# The functions a gallery parameter expression may call.
+_EXPRESSION_FUNCTIONS = {
+    'hypot': math.hypot, 'atan2': math.atan2, 'sin': math.sin, 'cos': math.cos, 'tan': math.tan, 'sqrt': math.sqrt,
+    'min': min, 'max': max, 'pow': pow, 'abs': abs, 'atan': math.atan, 'asin': math.asin, 'acos': math.acos,
+}
+
+
+class ParamTable:
+    """A model's parameter table, computed in Python. A model whose sketches bind no dimension to a parameter keeps
+    its dimensions here, and no Fusion user parameter is made for them: the gallery's bevel gear derives its
+    cone angles, radii and face width from expressions it only reads back. [PB-PARAM-TABLE]"""
+
+    def __init__(self):
+        self.values = {}
+
+    def set_value(self, name, value):
+        self.values[name] = float(value)
+
+    def set_number(self, name, value):
+        self.values[name] = float(value)
+
+    def set_expr(self, name, expr, unit):
+        names = dict(_EXPRESSION_FUNCTIONS)
+        names.update(self.values)
+        try:
+            self.values[name] = float(eval(compile(expr, name, 'eval'), {'__builtins__': {}}, names))
+        except NameError as error:
+            raise RuntimeError(f'parameter {name}: {error}') from error
+
+    def get_value(self, name):
+        if name not in self.values:
+            raise RuntimeError(f'parameter {name} is not defined')
+        return Quantity(self.values[name])
+
+
+def param_new():
+    return ParamTable()
+
+
+def shaft_snap(frame, section):
+    """The gallery snaps the points of a section about a rotated shaft to a grid, so that decad's revolve about that axis
+    sees exact floats. Fusion's kernel is exact, and the snap does harm there: the grid depends on the section's reach,
+    so the same surface drawn in two sections lands on two slightly different cones, and Fusion keeps the faces apart where
+    it merges the faces of an unsnapped gear. The section is returned as it is. [PB-NO-GRID-SNAP]"""
+    return list(section)
+
+
+class Container:
+    """The gallery's container: a group of bodies that nest. Fusion makes a component for it once the build is done,
+    and moves its bodies in, because a feature on a body inside a component would run in that component's
+    context. Sketches and planes stay in the component the build runs in, so they keep following the anchor.
+    [PB-CONTAINER-BODIES]"""
+
+    def __init__(self, runtime, name, parent=None):
+        self._runtime, self._name, self._parent = runtime, name, parent
+        self._children = []
+        self.bodies = []
+        # The occurrence a body moves to, once the component exists.
+        self.context = None
+
+    def name(self):
+        return self._name
+
+    def children(self):
+        return list(self._children)
+
+    def new_child(self, name):
+        child = Container(self._runtime, name, self)
+        self._children.append(child)
+        return child
+
+    def add_sketch(self, sketch):
+        sketch.container = self
+
+    def add_plane(self, plane):
+        plane.container = self
+
+    def holds_bodies(self):
+        return bool(self.bodies) or any(child.holds_bodies() for child in self._children)
+
+    def realize(self, component, context):
+        """Make the components of the children that hold bodies, and move the bodies in."""
+        for child in self._children:
+            if not child.holds_bodies():
+                continue
+            occurrence: adsk.fusion.Occurrence = component.occurrences.addNewComponent(adsk.core.Matrix3D.create())
+            occurrence.component.name = child._name
+            child.context = occurrence if context is None else occurrence.createForAssemblyContext(context)
+            for body in child.bodies:
+                body.body = body.body.moveToComponent(child.context)
+            child.realize(occurrence.component, child.context)
+
+
 class Runtime:
     """The design a translated gallery model builds in. It is the gallery's Document and World."""
 
@@ -241,6 +394,12 @@ class Runtime:
         self.sketches = []
         self.helpers = []
         self._names = {}
+        # The parameter table of a model that computes its dimensions in Python, and the gallery's containers.
+        self._table = ParamTable()
+        self._root = Container(self, component.name)
+        self._axes = {}
+        # True when the gallery's axes are not the sketch plane's own: the build lies across the sketch plane.
+        self.mapped = False
         # The gallery builds a gear about the local origin and +Z. frame is that local frame, and
         # placement is where it lies in the design: the anchor, the sketch's axes and their normal.
         self.frame: Frame = Frame(Vec(0, 0, 0), Vec(1, 0, 0), Vec(0, 1, 0), Vec(0, 0, 1))
@@ -251,16 +410,23 @@ class Runtime:
         _active = self
         return self
 
-    def build_frame(self, sketch):
+    def build_frame(self, sketch, u=None, v=None):
         """Place the gear: its origin is the anchor and its axes are the sketch's. [SPUR-F-LOCAL-ORIGIN]
 
         Returns the local frame the translated code builds in. Positions that come out of the design
         (vertices of edges) are in that frame, and positions that go in (the pattern axis, a plane's
         frame, an edge's end point) are mapped to the design, as the gallery's Place does at the end.
         """
-        u = vec_of(sketch.xDirection)
-        v = vec_of(sketch.yDirection)
-        self.placement = Frame(vec_of(self.anchor.worldGeometry), u, v, u.cross(v).unit())
+        if u is None:
+            u = vec_of(sketch.xDirection)
+            v = vec_of(sketch.yDirection)
+        else:
+            # The gallery's U and V are given in the design, in the sketch's plane: a gear whose shaft is the gallery's U
+            # stands on a plane it lies across. The sketch's own axes then map to them. [PB-FRAME-PLANE]
+            self.mapped = True
+        # A sketch point has a world position; a construction point's position is already in the design's space.
+        position = self.anchor.worldGeometry if hasattr(self.anchor, 'worldGeometry') else self.anchor.geometry
+        self.placement = Frame(vec_of(position), u, v, u.cross(v).unit())
         return self.frame
 
     def to_world(self, point):
@@ -279,15 +445,44 @@ class Runtime:
 
     # decad.Document
     def param(self, name):
+        if name in self._table.values:
+            return self._table.get_value(name)
         parameterName, parameter = self._parameters(name)
         return Value(parameterName, parameter, self.scale)
 
-    # sketch.World
+    def root(self):
+        return self._root
+
+    def bodies(self):
+        """Every body of the component, the same wrapper for the same body."""
+        registry = self.__dict__.setdefault('_bodyRegistry', {})
+        found = []
+        for fbody in self.component.bRepBodies:
+            token = fbody.entityToken
+            if token not in registry:
+                registry[token] = Body(self, fbody)
+            found.append(registry[token])
+        return found
+
+    def move_body(self, body, container):
+        if body.container is not None:
+            body.container.bodies.remove(body)
+        container.bodies.append(body)
+        body.container = container
+
+    def container_of(self, body):
+        return body.container if body.container is not None else self._root
+
+    def finish_containers(self):
+        """Make a component for each container that holds a body and move the bodies in. [PB-CONTAINER-BODIES]"""
+        self._root.realize(self.component, None)
+
+    # sketch.World, and decad.Document: the parameter table
     def params(self):
-        return None
+        return self._table
 
     def xy(self):
-        return Plane(self, self.plane)
+        return Plane(self, self.plane, frame=self.frame if self.mapped else None)
 
     def unique(self, name):
         """A role name that repeats gets an index: Tooth Profile, Tooth Profile 2."""
@@ -310,11 +505,16 @@ class Runtime:
         fsketch: adsk.fusion.Sketch = self.component.sketches.add(plane.entity)
         solids.name_feature(fsketch, name)
         fsketch.isVisible = True
-        sketch = Sketch(self, fsketch)
+        sketch = Sketch(self, fsketch, plane=plane)
         self.sketches.append(fsketch)
         return sketch
 
     def create_plane_from_frame(self, frame, name):
+        across = frame.n().dot(self.frame.n())
+        if abs(across) < 1e-9 and abs(frame.origin().dot(self.frame.n())) < 1e-9:
+            return self._plane_across(frame, name)
+        if abs(abs(across) - 1.0) > 1e-9:
+            raise RuntimeError(f'{name}: a plane that is neither parallel nor perpendicular to the base plane is not translated')
         offset = frame.origin().sub(self.frame.origin()).dot(self.frame.n()) * self.scale
         name = self.unique(name)
         planes: adsk.fusion.ConstructionPlanes = self.component.constructionPlanes
@@ -324,7 +524,49 @@ class Runtime:
         solids.name_feature(entity, name)
         entity.isLightBulbOn = True
         self.helpers.append(entity)
-        return Plane(self, entity)
+        return Plane(self, entity, frame=self.frame if self.mapped else None)
+
+    def _plane_across(self, frame, name):
+        """A plane perpendicular to the base plane through the frame's origin: a Fusion-only sketch holds a
+        construction line from the origin along the frame's normal, and the plane is normal to that line at its start.
+        The line follows the anchor, so the plane does. [PB-FRAME-PLANE]"""
+        name = self.unique(name)
+        helper = self.create_sketch(self.xy(), name + ' Axis')
+        direction = Vec(frame.n().x, frame.n().y, 0).unit()
+        origin = frame.origin()
+        start = helper.dimension_point(origin.x, origin.y)
+        end = helper.dimension_point(origin.x + direction.x, origin.y + direction.y)
+        line = helper.create_line(start, end)
+        line.set_construction(True)
+        helper.solve()
+        planes: adsk.fusion.ConstructionPlanes = self.component.constructionPlanes
+        planeInput: adsk.fusion.ConstructionPlaneInput = planes.createInput()
+        planeInput.setByDistanceOnPath(line.fusion, adsk.core.ValueInput.createByReal(0))
+        entity = planes.add(planeInput)
+        solids.name_feature(entity, name)
+        entity.isLightBulbOn = True
+        self.helpers.append(entity)
+        return Plane(self, entity, frame=frame, anchor=start.point)
+
+    def axis_line(self, center, direction, name):
+        """A construction line from center along direction, in a Fusion-only sketch on the base plane, for a revolve or
+        a pattern about an axis. The sketch being revolved cannot hold it: adding a curve to a sketch invalidates the
+        profiles already read from it. One line serves every use of the same axis. [PB-FRAME-PLANE]"""
+        unit = Vec(direction.x, direction.y, 0).unit()
+        key = tuple(round(v, 9) for v in (center.x, center.y, unit.x, unit.y))
+        if key in self._axes:
+            return self._axes[key]
+        helper = self.create_sketch(self.xy(), name)
+        if abs(center.x) < 1e-12 and abs(center.y) < 1e-12:
+            start = helper.origin()
+        else:
+            start = helper.dimension_point(center.x, center.y)
+        end = helper.dimension_point(center.x + unit.x, center.y + unit.y)
+        line = helper.create_line(start, end)
+        line.set_construction(True)
+        helper.solve()
+        self._axes[key] = line.fusion
+        return line.fusion
 
     def hide_helpers(self):
         for entity in self.helpers:
@@ -342,8 +584,12 @@ def derive(p):
 
 
 class Plane:
-    def __init__(self, runtime, entity):
+    def __init__(self, runtime, entity, frame=None, anchor=None):
         self.runtime, self.entity = runtime, entity
+        # The gallery frame a plane across the base plane was made from, and the sketch point at its origin. A sketch
+        # on such a plane maps the frame's axes to Fusion's, and anchors on that point. [PB-FRAME-PLANE]
+        self.frame, self.anchor = frame, anchor
+        self.container = None
 
 
 class Circle:
@@ -403,6 +649,47 @@ class Profile:
                 self.Outer = [curve for curve in loop.profileCurves]
             else:
                 self.Holes.append([curve for curve in loop.profileCurves])
+        # The sketch entities on the outer boundary, by token, so a line the build drew compares equal to its entity.
+        self.Entities = [EntityRef(curve.sketchEntity.entityToken) for curve in self.Outer]
+
+
+class EntityRef:
+    def __init__(self, token):
+        self.token = token
+
+    def __eq__(self, other):
+        return getattr(other, 'token', None) == self.token
+
+    def __hash__(self):
+        return hash(self.token)
+
+
+class Line:
+    """A line the gallery drew: the points it joins, and the Fusion line once the sketch is drawn."""
+
+    def __init__(self, start, end):
+        self.start, self.end = start, end
+        self.construction = False
+        self.fusion = None
+
+    def set_construction(self, flag):
+        self.construction = flag
+
+    @property
+    def token(self):
+        return self.fusion.entityToken
+
+
+def _coordinates(point):
+    """The gallery coordinates of a pending point; a Fusion point the build passes in (the sketch origin) is at 0, 0."""
+    return (point.x, point.y) if isinstance(point, PendingPoint) else (0.0, 0.0)
+
+
+class Chain:
+    """Sketch curves that join end to end, open or closed."""
+
+    def __init__(self, curves):
+        self.curves = curves
 
 
 class Sketch:
@@ -415,10 +702,25 @@ class Sketch:
     anchor. [SPUR-F-GALLERY-SKETCH] [SPUR-F-ARC-CENTRE] [SPUR-F-ALIGN-DUPLICATE] [SPUR-F-LOCAL-ORIGIN]
     """
 
-    def __init__(self, runtime, fsketch, origin=None, rootCircle=None, rootRadius=None):
+    def __init__(self, runtime, fsketch, origin=None, rootCircle=None, rootRadius=None, plane=None):
         self.runtime = runtime
         self._scale = runtime.scale if runtime is not None else 1.0
         self.sketch: adsk.fusion.Sketch = fsketch
+        # A sketch on a plane across the base plane has axes of Fusion's choosing. The gallery's coordinates map to
+        # them by the dot products of the frame's axes and the sketch's, and the point the plane was made at anchors
+        # the local origin. The sketch's normal runs against the frame's when the map is a reflection. [PB-FRAME-PLANE]
+        self._map = (1.0, 0.0, 0.0, 1.0)
+        self.flipped = False
+        self._anchorPoint = runtime.anchor if runtime is not None else None
+        self.container = None
+        if plane is not None and plane.frame is not None:
+            x, y = vec_of(fsketch.xDirection), vec_of(fsketch.yDirection)
+            u, v = runtime.to_world_dir(plane.frame.u()).unit(), runtime.to_world_dir(plane.frame.v()).unit()
+            self._map = (u.dot(x), v.dot(x), u.dot(y), v.dot(y))
+            self.flipped = self._map[0] * self._map[3] - self._map[1] * self._map[2] < 0
+            if plane.anchor is not None:
+                self._anchorPoint = plane.anchor
+        self._lineHandles = []
         # The local origin is a point the anchor constraint can move, which the sketch's own origin is not.
         self._origin = origin if origin is not None else fsketch.sketchPoints.add(adsk.core.Point3D.create(0, 0, 0))
         # A caller that draws the root circle itself passes it, and the root arc then lies on that circle.
@@ -432,6 +734,14 @@ class Sketch:
         self._constraints = []
         self._bindings = []
         self._dimensioned = []
+
+    def _xy(self, x, y):
+        a, b, c, d = self._map
+        return a * x + b * y, c * x + d * y
+
+    def _p3(self, x, y):
+        fx, fy = self._xy(x, y)
+        return adsk.core.Point3D.create(fx * self._scale, fy * self._scale, 0)
 
     # sketch.Sketch
     def origin(self):
@@ -448,7 +758,26 @@ class Sketch:
         return point
 
     def create_line(self, start, end):
-        self._lines.append((start, end))
+        line = Line(start, end)
+        self._lines.append(line)
+        self._lineHandles.append(line)
+        return line
+
+    def find_axis_line(self, axis):
+        """The construction line this sketch drew along axis from the same start, or None. The line may be longer
+        than the axis the gallery names."""
+        start, end = (axis.Start.U, axis.Start.V), (axis.End.U, axis.End.V)
+        near = lambda a, b: abs(a[0] - b[0]) < 1e-9 and abs(a[1] - b[1]) < 1e-9
+        wanted = (end[0] - start[0], end[1] - start[1])
+        for line in self._lineHandles:
+            if not line.construction or line.fusion is None or not near(_coordinates(line.start), start):
+                continue
+            own = (_coordinates(line.end)[0] - start[0], _coordinates(line.end)[1] - start[1])
+            scale = math.hypot(*own) * math.hypot(*wanted)
+            if scale > 0 and abs(own[0] * wanted[1] - own[1] * wanted[0]) < 1e-9 * scale \
+                    and own[0] * wanted[0] + own[1] * wanted[1] > 0:
+                return line.fusion
+        return None
 
     def create_arc(self, center, start, end):
         self._arcs.append((center, start, end))
@@ -472,8 +801,7 @@ class Sketch:
         if isinstance(center, PendingPoint):
             # A circle whose centre the gallery dimensions from the origin: Fusion makes the centre point with
             # the circle, and the dimension step then places it.
-            circle = circles.addByCenterRadius(
-                adsk.core.Point3D.create(center.x * self._scale, center.y * self._scale, 0), radius * self._scale)
+            circle = circles.addByCenterRadius(self._p3(center.x, center.y), radius * self._scale)
             center.point = circle.centerSketchPoint
             return Circle(circle, center)
         return Circle(circles.addByCenterRadius(center, radius * self._scale), center)
@@ -494,6 +822,11 @@ class Sketch:
 
     def profiles(self):
         return [Profile(profile) for profile in self.sketch.profiles]
+
+    def chains(self):
+        """The drawn lines that join end to end, one chain. A line drawn as construction is not part of one."""
+        curves = [line.fusion for line in self._lineHandles if not line.construction and line.fusion is not None]
+        return [Chain(curves)] if curves else []
 
     # The drawing
     def finish(self, anchor=None):
@@ -525,7 +858,7 @@ class Sketch:
 
     def _anchor(self):
         """Move the local origin onto the anchor, last, once every dimension is in place. [SPUR-F-LOCAL-ORIGIN]"""
-        projected = adsk.fusion.SketchPoint.cast(self.sketch.project(self.runtime.anchor).item(0))
+        projected = adsk.fusion.SketchPoint.cast(self.sketch.project(self._anchorPoint).item(0))
         if projected is None:
             raise RuntimeError(f'{self.sketch.name}: anchor projection produced no SketchPoint')
         constraints: adsk.fusion.GeometricConstraints = self.sketch.geometricConstraints
@@ -536,7 +869,7 @@ class Sketch:
         for spline in self._splines:
             collection = adsk.core.ObjectCollection.create()
             for point in spline.points:
-                collection.add(adsk.core.Point3D.create(point.x * self._scale, point.y * self._scale, 0))
+                collection.add(self._p3(point.x, point.y))
             spline.fusion = splines.add(collection)
             fits: adsk.fusion.SketchPointList = spline.fusion.fitPoints
             for i, point in enumerate(spline.points):
@@ -574,17 +907,23 @@ class Sketch:
         constraints.addCoincident(end.point, nearest)
 
     def _end(self, point):
+        if not isinstance(point, PendingPoint):
+            return point
         if point.point is not None:
             return point.point
-        return adsk.core.Point3D.create(point.x * self._scale, point.y * self._scale, 0)
+        return self._p3(point.x, point.y)
 
     def _drawLines(self):
         lines: adsk.fusion.SketchLines = self.sketch.sketchCurves.sketchLines
-        for start, end in self._lines:
+        for handle in self._lines:
+            start, end = handle.start, handle.end
             line: adsk.fusion.SketchLine = lines.addByTwoPoints(self._end(start), self._end(end))
-            if start.point is None:
+            handle.fusion = line
+            if handle.construction:
+                line.isConstruction = True
+            if isinstance(start, PendingPoint) and start.point is None:
                 start.point = line.startSketchPoint
-            if end.point is None:
+            if isinstance(end, PendingPoint) and end.point is None:
                 end.point = line.endSketchPoint
         self._lines = []
 
@@ -603,7 +942,9 @@ class Sketch:
                     point.arcEnd = True
                     constraints.addCoincident(point.point, self._rootCircle)
                 continue
-            arc: adsk.fusion.SketchArc = arcs.addByCenterStartEnd(center, start.point, end.point)
+            # An arc runs counter-clockwise from its start; a reflected map reverses that. [PB-FRAME-PLANE]
+            first, last = (end, start) if self.flipped else (start, end)
+            arc: adsk.fusion.SketchArc = arcs.addByCenterStartEnd(center, first.point, last.point)
             # Fusion makes its own centre point for the arc; tie it to the local origin. [SPUR-F-ARC-CENTRE]
             constraints.addCoincident(arc.centerSketchPoint, center)
         self._arcs = []
@@ -614,15 +955,17 @@ class Sketch:
         if not point.arcEnd:
             self._dimension(point, horizontal)
             self._dimension(point, vertical)
-        elif abs(point.x) >= abs(point.y):
-            self._dimension(point, vertical)
         else:
-            self._dimension(point, horizontal)
+            fx, fy = self._xy(point.x, point.y)
+            if abs(fx) >= abs(fy):
+                self._dimension(point, vertical)
+            else:
+                self._dimension(point, horizontal)
         self._dimensioned.append(point)
 
     def _dimension(self, point, orientation):
         dims: adsk.fusion.SketchDimensions = self.sketch.sketchDimensions
-        textPoint = adsk.core.Point3D.create(point.x * self._scale, point.y * self._scale, 0)
+        textPoint = self._p3(point.x, point.y)
         try:
             dims.addDistanceDimension(self._origin, point.point, orientation, textPoint)
             return
@@ -641,8 +984,10 @@ class Sketch:
 
     def _sameCoordinate(self, point, orientation):
         horizontal = orientation == adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation
+        px, py = self._xy(point.x, point.y)
         for other in self._dimensioned:
-            if abs((other.x - point.x) if horizontal else (other.y - point.y)) < SAME_COORDINATE:
+            ox, oy = self._xy(other.x, other.y)
+            if abs((ox - px) if horizontal else (oy - py)) < SAME_COORDINATE:
                 return other
         return None
 
@@ -701,10 +1046,32 @@ def sketchcheck_verify_fully_constrained(sketch):
 # Bodies, features and edge selection
 
 
+class Box:
+    def __init__(self, low, high):
+        self._low, self._high = low, high
+
+    # The gallery's box names its corners in capitals.
+    Min = property(lambda self: self._low)
+    Max = property(lambda self: self._high)
+
+
 class Body:
     def __init__(self, runtime, body):
         self.runtime = runtime
         self.body: adsk.fusion.BRepBody = body
+        # The gallery container the body belongs to; None is the root. [PB-CONTAINER-BODIES]
+        self.container = None
+
+    def bounds(self):
+        """The smallest box around the body in the build's local frame. The body's bounding box in the design is
+        axis-aligned in the design, so its corners are mapped to the local frame, which can make the box larger than
+        the body; a caller that only needs the body's reach along a direction gets a safe margin."""
+        box = self.body.boundingBox
+        corners = [Vec(x, y, z) for x in (box.minPoint.x, box.maxPoint.x) for y in (box.minPoint.y, box.maxPoint.y)
+                   for z in (box.minPoint.z, box.maxPoint.z)]
+        local = [self.runtime.to_local(corner) for corner in corners]
+        return Box(Vec(min(c.x for c in local), min(c.y for c in local), min(c.z for c in local)),
+                   Vec(max(c.x for c in local), max(c.y for c in local), max(c.z for c in local)))
 
     def is_solid(self):
         return self.body.isSolid
@@ -715,15 +1082,28 @@ class Body:
     def faces(self):
         return [Face(self.runtime, f) for f in self.body.faces]
 
+    def extreme_faces_by_centroid(self, axis):
+        """The faces with the least and the greatest centroid along axis, a direction of the build frame."""
+        ranked = []
+        for face in self.faces():
+            ranked.append((face.centroid().Value.dot(axis), face))
+        if len(ranked) < 2:
+            raise RuntimeError(f'body {self.body.name} has {len(ranked)} faces; need two to find the extremes')
+        ranked.sort(key=lambda entry: entry[0])
+        return ranked[0][1], ranked[-1][1]
+
 
 class Position:
     def __init__(self, runtime, point):
         self.Value = runtime.to_local(vec_of(point))
+        # Fusion reports a point as a number, with no certified error. [PB-READING-BOUND]
+        self.Bound = Length(0.0)
 
 
 class Centroid:
     def __init__(self, runtime, point):
         self.Value = runtime.to_local(vec_of(point))
+        self.Bound = Length(0.0)
 
 
 class Vertex:
@@ -733,6 +1113,15 @@ class Vertex:
 
     def position(self):
         return Position(self._runtime, self._point)
+
+    def _key(self):
+        return (round(self._point.x, 6), round(self._point.y, 6), round(self._point.z, 6))
+
+    def __hash__(self):
+        return hash(self._key())
+
+    def __eq__(self, other):
+        return isinstance(other, Vertex) and self._key() == other._key()
 
 
 class Edge:
@@ -831,6 +1220,9 @@ class Face:
 
     def edges(self):
         return [Edge(self.runtime, e) for e in self.face.edges]
+
+    def centroid(self):
+        return Centroid(self.runtime, self.face.centroid)
 
 
 class Predicate:
@@ -982,14 +1374,23 @@ def decad_extrude(doc, sketch, profile, extent, name, body):
         raise SketchOnly()
     extrudes: adsk.fusion.ExtrudeFeatures = doc.component.features.extrudeFeatures
     operation = adsk.fusion.FeatureOperations.NewBodyFeatureOperation
-    extrudeInput: adsk.fusion.ExtrudeFeatureInput = extrudes.createInput(profile.fprofile, operation)
+    reversed_ = sketch.flipped
+    if isinstance(profile, Chain):
+        # An open chain extrudes to a sheet, a surface body.
+        path = doc.component.createOpenProfile(profile.curves[0], True)
+        extrudeInput: adsk.fusion.ExtrudeFeatureInput = extrudes.createInput(path, operation)
+        extrudeInput.isSolid = False
+    else:
+        extrudeInput = extrudes.createInput(profile.fprofile, operation)
     if isinstance(extent, TwoSided):
         extrudeInput.setTwoSidesExtent(
             adsk.fusion.DistanceExtentDefinition.create(value_input(extent.One.D, doc.scale)),
             adsk.fusion.DistanceExtentDefinition.create(value_input(extent.Two.D, doc.scale)))
     else:
         distance = adsk.fusion.DistanceExtentDefinition.create(value_input(extent.D, doc.scale))
-        direction = (adsk.fusion.ExtentDirections.PositiveExtentDirection if extent.Dir == DECAD_ALONG
+        # The sketch's normal runs against the frame's when the plane's map is a reflection. [PB-FRAME-PLANE]
+        along = (extent.Dir == DECAD_ALONG) != reversed_
+        direction = (adsk.fusion.ExtentDirections.PositiveExtentDirection if along
                      else adsk.fusion.ExtentDirections.NegativeExtentDirection)
         extrudeInput.setOneSideExtent(distance, direction)
     extrude: adsk.fusion.ExtrudeFeature = extrudes.add(extrudeInput)
@@ -998,7 +1399,14 @@ def decad_extrude(doc, sketch, profile, extent, name, body):
         raise RuntimeError(f'{name}: expected one body, got {extrude.bodies.count}')
     fbody: adsk.fusion.BRepBody = extrude.bodies.item(0)
     solids.name_feature(fbody, body)
-    return Body(doc, fbody)
+    return _placed(Body(doc, fbody), sketch)
+
+
+def _placed(body, sketch):
+    """A body made from a sketch that the gallery put in a container belongs to that container."""
+    if sketch.container is not None:
+        body.runtime.move_body(body, sketch.container)
+    return body
 
 
 def _axis_through(runtime, pattern, name):
@@ -1022,7 +1430,8 @@ def _axis_through(runtime, pattern, name):
             solids.name_feature(entity, name)
             entity.isLightBulbOn = False
             return entity
-    raise RuntimeError(f'{name}: no cylindrical face on the pattern axis')
+    # No face lies on the axis (a revolved blank is a cone), so a construction line along it is the axis.
+    return runtime.axis_line(pattern.Center, pattern.Axis, name)
 
 
 @logged
@@ -1045,6 +1454,21 @@ def decad_pattern_copies(tooth, pattern, name):
     return copies
 
 
+class Option:
+    """A decad option the Fusion kernel has no use for: decad's mesh booleans take hints, Fusion's exact kernel none."""
+
+    def __init__(self, what):
+        self.what = what
+
+
+def decad_with_matching_faces():
+    return Option('matching faces')
+
+
+def decad_with_copy_placement(turn):
+    return Option(turn)
+
+
 def _combine(base, tools, operation, name):
     collection = adsk.core.ObjectCollection.create()
     for tool in tools:
@@ -1054,17 +1478,286 @@ def _combine(base, tools, operation, name):
     combineInput.operation = operation
     feature = combines.add(combineInput)
     solids.name_feature(feature, name)
+    # The tools are consumed, so they no longer belong to a container.
+    for tool in tools:
+        if tool.container is not None:
+            tool.container.bodies.remove(tool)
+            tool.container = None
     return base
+
+
+class UnionBody(Body):
+    """A union the gallery asked for, not yet made. Fusion's exact kernel joins any number of bodies in one
+    combine, and one combine of thirty teeth is far cheaper than thirty. So a union is recorded, a union of unions
+    is flattened, and the single combine is made when something first needs the body's geometry. [PB-LAZY-JOIN]"""
+
+    def __init__(self, runtime, base, others, name):
+        self.runtime = runtime
+        self.container = base.container
+        self._name = name
+        self._body = None
+        self._absorbed = False
+        self._parts = [base] + list(others)
+        # The union stands where its base stood: the base is the body the container holds.
+        if base.container is not None and base in base.container.bodies:
+            base.container.bodies[base.container.bodies.index(base)] = self
+            base.container = None
+
+    @property
+    def body(self):
+        if self._absorbed:
+            raise RuntimeError(f'{self._name}: a union that a later union took over was used again')
+        if self._body is None:
+            self._realize()
+        return self._body
+
+    @body.setter
+    def body(self, value):
+        # A body that moves to a component is a new Fusion body.
+        self._body = value
+
+    def _realize(self):
+        _realize_copies(self._parts)
+        base, tools = self._parts[0], self._parts[1:]
+        _combine(base, tools, adsk.fusion.FeatureOperations.JoinFeatureOperation, self._name)
+        self._body = base.body
+        self._parts = []
 
 
 @logged
 def decad_union(base, *others, name):
-    return _combine(base, others, adsk.fusion.FeatureOperations.JoinFeatureOperation, name)
+    parts = []
+    for other in others:
+        # A pending union of the tool joins the same base, so its parts become tools of this one.
+        if isinstance(other, UnionBody) and other._body is None:
+            parts.extend(other._parts)
+            other._parts = []
+            other._absorbed = True
+        else:
+            parts.append(other)
+    if isinstance(base, UnionBody) and base._body is None:
+        base._parts.extend(parts)
+        base._name = name
+        return base
+    return UnionBody(base.runtime, base, parts, name)
 
 
 @logged
-def decad_cut(base, tool, name):
+def decad_cut(base, tool, *options, name):
     return _combine(base, [tool], adsk.fusion.FeatureOperations.CutFeatureOperation, name)
+
+
+@logged
+def decad_intersect(base, tool, *options, name):
+    return _combine(base, [tool], adsk.fusion.FeatureOperations.IntersectFeatureOperation, name)
+
+
+class CopyRotation:
+    def __init__(self, center, axis, angle):
+        self.center, self.axis, self.angle = center, axis, angle
+
+
+def decad_with_copy_rotation(center, axis, angle):
+    return CopyRotation(center, axis, angle)
+
+
+class CopyBody(Body):
+    """A turned copy of a body the gallery asked for, not yet made. The gallery copies a tooth once per angle, and
+    Fusion makes all the copies of one body at equal angles with a single circular pattern, so the copies are made
+    when something first needs one of them. [PB-LAZY-JOIN]"""
+
+    def __init__(self, runtime, source, rotation, name):
+        self.runtime = runtime
+        self.container = source.container
+        self.source, self.rotation, self._name = source, rotation, name
+        self._body = None
+
+    @property
+    def body(self):
+        if self._body is None:
+            self._make()
+        return self._body
+
+    @body.setter
+    def body(self, value):
+        self._body = value
+
+    def _make(self):
+        runtime = self.runtime
+        entities = adsk.core.ObjectCollection.create()
+        entities.add(self.source.body)
+        copies: adsk.fusion.CopyPasteBodies = runtime.component.features.copyPasteBodies
+        feature = copies.add(entities)
+        solids.name_feature(feature, self._name)
+        if feature.bodies.count != 1:
+            raise RuntimeError(f'{self._name}: expected one copied body, got {feature.bodies.count}')
+        self._body = feature.bodies.item(0)
+        if self.rotation is not None:
+            turned = Body(runtime, self._body)
+            decad_transform(turned, self.rotation, name=self._name + ' Turn')
+
+
+def _turn_angle(rotation):
+    return rotation.angle.base() if hasattr(rotation.angle, 'base') else rotation.angle
+
+
+@logged
+def decad_copy(body, *options, name):
+    """A copy of the body, turned by the rotation option when there is one."""
+    rotation = None
+    for option in options:
+        if isinstance(option, CopyRotation):
+            rotation = Rotation(option.axis, _turn_angle(option), option.center)
+    copy = CopyBody(body.runtime, body, rotation, name)
+    if body.container is not None:
+        body.container.bodies.append(copy)
+    return copy
+
+
+def _realize_copies(parts):
+    """Make the pending copies among parts. The copies of one body at the angles 2 pi k / n for k = 1 to n - 1 about
+    one axis are one circular pattern; any other copy is made on its own when its body is first read."""
+    groups = {}
+    for part in parts:
+        if isinstance(part, CopyBody) and part._body is None and part.rotation is not None:
+            groups.setdefault(id(part.source), []).append(part)
+    for copies in groups.values():
+        count = len(copies) + 1
+        if count < 3:
+            continue
+        first = copies[0].rotation
+        axis = first.axis.unit()
+        center = first.center if first.center is not None else Vec(0.0, 0.0, 0.0)
+        step = 2 * math.pi / count
+        wanted = sorted(_turn_angle(c.rotation) % (2 * math.pi) for c in copies)
+        same = all(c.rotation.axis.unit().sub(axis).len() < 1e-9 and _same_centre(c.rotation.center, first.center)
+                   for c in copies)
+        if not same or any(abs(a - step * (k + 1)) > 1e-9 for k, a in enumerate(wanted)):
+            continue
+        _pattern_copies(copies, axis, center, count, step)
+
+
+def _same_centre(a, b):
+    if a is None or b is None:
+        return a is b
+    return a.sub(b).len() < 1e-9
+
+
+def _pattern_copies(copies, axis, center, count, step):
+    """One circular pattern of the source for all its pending copies. Each new body is given to the copy whose angle
+    about the axis matches the body's centroid, since Fusion does not say which instance is which."""
+    source, runtime = copies[0].source, copies[0].runtime
+    name = copies[0]._name
+    made = decad_pattern_copies(source, CircularPattern(center, axis, count), name)
+    perpendicular = Vec(0.0, 0.0, 1.0) if abs(axis.z) < 0.9 else Vec(1.0, 0.0, 0.0)
+    e1 = axis.cross(perpendicular).unit()
+    e2 = axis.cross(e1)
+
+    def angle(body):
+        c = body.centroid().Value
+        return math.atan2(c.dot(e2), c.dot(e1))
+
+    origin = angle(source)
+    pool = list(made)
+    for copy in sorted(copies, key=lambda c: _turn_angle(c.rotation)):
+        wanted = _turn_angle(copy.rotation)
+        best = min(pool, key=lambda b: abs(math.remainder(angle(b) - origin - wanted, 2 * math.pi)))
+        if abs(math.remainder(angle(best) - origin - wanted, 2 * math.pi)) > step / 4:
+            raise RuntimeError(f'{name}: no pattern instance lies at {wanted:.6f} rad')
+        pool.remove(best)
+        copy._body = best.body
+
+
+@logged
+def decad_remove(body, name):
+    """Delete a body from the design. The body stays readable to the gallery but nothing takes it again."""
+    removes: adsk.fusion.RemoveFeatures = body.runtime.component.features.removeFeatures
+    feature = removes.add(body.body)
+    solids.name_feature(feature, name)
+    if body.container is not None:
+        body.container.bodies.remove(body)
+        body.container = None
+
+
+def _planar_face_through(body, world):
+    """A planar face of the body that contains the point."""
+    for face in body.body.faces:
+        if face.geometry.surfaceType != adsk.core.SurfaceTypes.PlaneSurfaceType:
+            continue
+        plane = cast(adsk.core.Plane, face.geometry)
+        offset = vec_of(plane.origin).sub(world)
+        if abs(offset.dot(vec_of(plane.normal).unit())) <= 1e-5:
+            return face
+    raise RuntimeError(f'{body.body.name}: no planar face passes through the scale anchor')
+
+
+@logged
+def decad_scaled_at(body, anchor, factor, name):
+    """Scale the body uniformly about a point of the build frame, in place."""
+    runtime = body.runtime
+    world = runtime.to_world(anchor)
+    where = adsk.core.Point3D.create(world.x, world.y, world.z)
+    face = _planar_face_through(body, world)
+    # A construction point at a bare Point3D is valid only in direct modeling, so the base point is a sketch point
+    # on a face that passes through the anchor. [PB-SCALE-BASE-POINT]
+    anchorSketch = runtime.component.sketches.add(face)
+    solids.name_feature(anchorSketch, name + ' Anchor')
+    base = anchorSketch.sketchPoints.add(anchorSketch.modelToSketchSpace(where))
+    anchorSketch.isLightBulbOn = False
+    entities = adsk.core.ObjectCollection.create()
+    entities.add(body.body)
+    scales: adsk.fusion.ScaleFeatures = runtime.component.features.scaleFeatures
+    scaleInput: adsk.fusion.ScaleFeatureInput = scales.createInput(
+        entities, base, adsk.core.ValueInput.createByReal(factor))
+    feature = scales.add(scaleInput)
+    solids.name_feature(feature, name)
+    return body
+
+
+@logged
+def decad_split(target, sheet, name):
+    """Cut a solid with a surface body and return its two pieces, the one nearer the local origin first. The gallery
+    walks the slices from the heel toward the apex, so the first piece is the one the next plane can still meet."""
+    runtime = target.runtime
+    splits: adsk.fusion.SplitBodyFeatures = runtime.component.features.splitBodyFeatures
+    splitInput: adsk.fusion.SplitBodyFeatureInput = splits.createInput(target.body, sheet.body, True)
+    feature = splits.add(splitInput)
+    solids.name_feature(feature, name)
+    if feature.bodies.count != 2:
+        raise RuntimeError(f'{name}: the sheet made {feature.bodies.count} pieces; want two')
+    container = target.container
+    pieces = []
+    for fbody in feature.bodies:
+        pieces.append(Body(runtime, fbody))
+    pieces.sort(key=lambda piece: piece.centroid().Value.len())
+    # Fusion keeps the splitting tool as a body of its own, where decad consumes it, so the sheet is removed. Left in
+    # place it shows as a large plate across the gear. [PB-SPLIT-TOOL]
+    decad_remove(sheet, name + ' Sheet Removal')
+    # The target is consumed; the pieces take its place.
+    for gone in (target,):
+        if gone.container is not None:
+            gone.container.bodies.remove(gone)
+            gone.container = None
+    if container is not None:
+        for piece in pieces:
+            container.bodies.append(piece)
+            piece.container = container
+    return pieces
+
+
+@logged
+def decad_loft_faces(doc, *faces, name, body):
+    lofts: adsk.fusion.LoftFeatures = doc.component.features.loftFeatures
+    loftInput: adsk.fusion.LoftFeatureInput = lofts.createInput(adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+    for face in faces:
+        loftInput.loftSections.add(face.face)
+    loft: adsk.fusion.LoftFeature = lofts.add(loftInput)
+    solids.name_feature(loft, name)
+    if loft.bodies.count != 1:
+        raise RuntimeError(f'{name}: expected one body, got {loft.bodies.count}')
+    fbody: adsk.fusion.BRepBody = loft.bodies.item(0)
+    solids.name_feature(fbody, body)
+    return Body(doc, fbody)
 
 
 @logged
@@ -1108,6 +1801,133 @@ def decad_loft(doc, lowerSketch, lowerProfile, upperSketch, upperProfile, name, 
     fbody: adsk.fusion.BRepBody = loft.bodies.item(0)
     solids.name_feature(fbody, body)
     return Body(doc, fbody)
+
+
+class Rotation:
+    """A turn about an axis, by an angle in radians. The axis passes through the local origin unless a centre is given."""
+
+    def __init__(self, axis, angle, center=None):
+        self.axis, self.angle, self.center = axis, angle, center
+
+
+def r3_rotation(axis, angle):
+    return Rotation(axis, angle)
+
+
+def r3_rotation_around(center, axis, angle):
+    return Rotation(axis, angle, center)
+
+
+def units_scalar(x):
+    return x
+
+
+def placement_place(body, frame):
+    """The gallery moves a finished gear to its Placement. Here the build already lies on the Target Plane at the
+    Anchor Point, so there is no placement to apply."""
+    if frame is not None:
+        raise RuntimeError('a placement frame is not translated: the add-in builds on the Target Plane')
+    return body
+
+
+@logged
+def decad_transform(body, transform, name):
+    runtime = body.runtime
+    if not isinstance(transform, Rotation):
+        raise RuntimeError(f'{name}: only a rotation is translated')
+    axis = runtime.to_world_dir(transform.axis).unit()
+    origin = runtime.placement.origin() if transform.center is None else runtime.to_world(transform.center)
+    matrix = adsk.core.Matrix3D.create()
+    matrix.setToRotation(transform.angle, adsk.core.Vector3D.create(axis.x, axis.y, axis.z),
+                         adsk.core.Point3D.create(origin.x, origin.y, origin.z))
+    entities = adsk.core.ObjectCollection.create()
+    entities.add(body.body)
+    moves: adsk.fusion.MoveFeatures = runtime.component.features.moveFeatures
+    moveInput: adsk.fusion.MoveFeatureInput = moves.createInput2(entities)
+    moveInput.defineAsFreeMove(matrix)
+    feature = moves.add(moveInput)
+    solids.name_feature(feature, name)
+    return body
+
+
+class FullRevolution:
+    pass
+
+
+def decad_full_revolution():
+    return FullRevolution()
+
+
+class Point2:
+    def __init__(self, U, V):
+        self.U, self.V = U, V
+
+
+def decad_point2(U, V):
+    return Point2(U, V)
+
+
+class SketchLine:
+    def __init__(self, Start, End):
+        self.Start, self.End = Start, End
+
+
+def decad_sketch_line(Start, End):
+    return SketchLine(Start, End)
+
+
+@logged
+def decad_revolve(doc, sketch, profile, axis, extent, name):
+    if not isinstance(extent, FullRevolution):
+        raise RuntimeError(f'{name}: only a full revolution is translated')
+    line = sketch.find_axis_line(axis)
+    if line is None:
+        if abs(axis.Start.U) > 1e-12 or abs(axis.Start.V) > 1e-12:
+            raise RuntimeError(f'{name}: only an axis from the local origin is translated')
+        line = doc.axis_line(Vec(0, 0, 0), Vec(axis.End.U - axis.Start.U, axis.End.V - axis.Start.V, 0), 'Shaft Axis')
+    revolves: adsk.fusion.RevolveFeatures = doc.component.features.revolveFeatures
+    revolveInput: adsk.fusion.RevolveFeatureInput = revolves.createInput(
+        profile.fprofile, line, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+    revolveInput.setAngleExtent(False, adsk.core.ValueInput.createByString('360 deg'))
+    feature: adsk.fusion.RevolveFeature = revolves.add(revolveInput)
+    solids.name_feature(feature, name)
+    if feature.bodies.count != 1:
+        raise RuntimeError(f'{name}: expected one body, got {feature.bodies.count}')
+    return _placed(Body(doc, feature.bodies.item(0)), sketch)
+
+
+@logged
+def decad_loft_from_point(doc, point, sketch, profile, name, body):
+    """Loft from a point to a profile. The gallery's point is the common apex, the local origin, which is the anchor."""
+    if abs(point.x) > 1e-9 or abs(point.y) > 1e-9 or abs(point.z) > 1e-9:
+        raise RuntimeError(f'{name}: only a loft from the local origin is translated')
+    lofts: adsk.fusion.LoftFeatures = doc.component.features.loftFeatures
+    loftInput: adsk.fusion.LoftFeatureInput = lofts.createInput(adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+    loftInput.loftSections.add(doc.anchor)
+    loftInput.loftSections.add(profile.fprofile)
+    loft: adsk.fusion.LoftFeature = lofts.add(loftInput)
+    solids.name_feature(loft, name)
+    if loft.bodies.count != 1:
+        raise RuntimeError(f'{name}: expected one body, got {loft.bodies.count}')
+    fbody: adsk.fusion.BRepBody = loft.bodies.item(0)
+    solids.name_feature(fbody, body)
+    return _placed(Body(doc, fbody), sketch)
+
+
+def select_embedded_tooth_profile(profiles, root):
+    """The region of a tooth sketch whose root circle cuts across the flanks: valid, with no hole, bounded by four
+    curves of which two are the flank splines trimmed at the root circle. Fusion's regions carry their trimmed
+    curves, so the region is found by that shape. [PB-EMBEDDED-TOOTH]"""
+    found = []
+    for profile in profiles:
+        if not profile.Valid or profile.Holes or len(profile.Outer) != 4:
+            continue
+        splines = [c for c in profile.Outer if c.geometry.curveType == adsk.core.Curve3DTypes.NurbsCurve3DCurveType]
+        if len(splines) == 2:
+            found.append(profile)
+    if len(found) != 1:
+        raise RuntimeError(f'found {len(found)} embedded virtual tooth regions among {len(profiles)} regions; want one')
+    return found[0]
 
 
 class MirrorFrame:

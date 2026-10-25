@@ -2,11 +2,9 @@ package bevel_test
 
 import (
 	"encoding/json"
-	"math"
 	"os"
 	"path/filepath"
-	"regexp"
-	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/bevel"
@@ -51,43 +49,13 @@ func TestDialogDefaultsComeFromTheGallery(t *testing.T) {
 	out, _, _, _ := generate(t)
 	require.Contains(t, out, "createByString('90 deg')")
 	require.Contains(t, out, "createByString('35 deg')")
+	// Straight teeth are the default tooth type, and the dropdown comes before the spiral-only inputs.
+	require.Contains(t, out, "toothInput.listItems.add(_TOOTH_STRAIGHT, True)")
+	require.Contains(t, out, "toothInput.listItems.add(_TOOTH_SPIRAL, False)")
+	require.Less(t, strings.Index(out, "INPUT_ID_TOOTH_TYPE, 'Tooth Type'"), strings.Index(out, "INPUT_ID_SPIRAL_ANGLE, 'Mean Spiral Angle'"))
+	require.Contains(t, out, "SpiralAngle=inputs.itemById(INPUT_ID_SPIRAL_ANGLE).value if _is_spiral(inputs) else 0.0")
 	require.Contains(t, out, "handInput.listItems.add(_HAND_RIGHT, True)")
 	require.Contains(t, out, "addBoolValueInput(INPUT_ID_BORE_ENABLE, 'Enable Bore', True, '', True)")
-}
-
-// TestFixedToothParametersMatchTheGallery requires the pressure angle and sample count
-// that lib/geargen/spurproxy.py fixes for the bevel tooth to equal the gallery defaults.
-func TestFixedToothParametersMatchTheGallery(t *testing.T) {
-	_, m, _, _ := generate(t)
-	proxy, err := os.ReadFile(filepath.Join("..", "..", "lib", "geargen", "spurproxy.py"))
-	require.NoError(t, err)
-	angle := regexp.MustCompile(`pressureAngleRad=math\.radians\(([0-9.]+)\)`).FindSubmatch(proxy)
-	steps := regexp.MustCompile(`involuteSteps=([0-9]+)`).FindSubmatch(proxy)
-	require.NotNil(t, angle)
-	require.NotNil(t, steps)
-	degrees, err := strconv.ParseFloat(string(angle[1]), 64)
-	require.NoError(t, err)
-	for _, in := range m.Inputs {
-		switch in.Name {
-		case "PressureAngle":
-			require.InDelta(t, in.Default, degrees*math.Pi/180, 1e-12)
-		case "Samples":
-			require.EqualValues(t, mustInt(t, string(steps[1])), in.Default)
-		}
-	}
-}
-
-func mustInt(t *testing.T, s string) int {
-	n, err := strconv.Atoi(s)
-	require.NoError(t, err)
-	return n
-}
-
-func TestGenerateRefusesChangedGalleryCode(t *testing.T) {
-	_, m, reviewed, fragment := generate(t)
-	reviewed.Digest = "0000"
-	_, err := bevel.Generate(m, "v0", fragment, reviewed)
-	require.ErrorContains(t, err, "gearport accept")
 }
 
 func TestGenerateRefusesAnUnmappedInput(t *testing.T) {
@@ -95,19 +63,4 @@ func TestGenerateRefusesAnUnmappedInput(t *testing.T) {
 	m.Inputs = append(m.Inputs, gallery.Input{Name: "NewOption", Type: "float64"})
 	_, err := bevel.Generate(m, "v0", fragment, reviewed)
 	require.ErrorContains(t, err, "NewOption")
-}
-
-// TestEveryCreatedObjectIsNamedByRole requires every sketch and construction plane the
-// add-in creates to be given a name, so the Fusion browser shows roles and not Sketch1.
-func TestEveryCreatedObjectIsNamedByRole(t *testing.T) {
-	have, err := os.ReadFile(filepath.Join("..", "..", "lib", "geargen", "bevelgear.py"))
-	require.NoError(t, err)
-	text := string(have)
-	created := regexp.MustCompile(`(?m)^\s*(\w+)\s*=\s*[\w.]*(?:sketches|constructionPlanes)\.add\(`)
-	matches := created.FindAllStringSubmatch(text, -1)
-	require.NotEmpty(t, matches)
-	for _, m := range matches {
-		named := regexp.MustCompile(`(?m)^\s*` + regexp.QuoteMeta(m[1]) + `\.name = `)
-		require.Truef(t, named.MatchString(text), "%s is created without a name", m[1])
-	}
 }

@@ -1,6 +1,7 @@
 package go2py
 
 import (
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/token"
@@ -97,6 +98,29 @@ func (f *fnState) declStmt(sb *strings.Builder, s *ast.DeclStmt) error {
 		}
 		return nil
 	}
+	if ok && gd.Tok == token.TYPE {
+		// A struct type declared inside a function is rendered with the other classes.
+		for _, spec := range gd.Specs {
+			ts := spec.(*ast.TypeSpec)
+			st, isStruct := ts.Type.(*ast.StructType)
+			if !isStruct {
+				return fmt.Errorf("%s: only a struct type may be declared in a function", f.pos(s))
+			}
+			info := &structInfo{name: ts.Name.Name, types: map[string]typ{}, anonymous: true}
+			for _, fld := range st.Fields.List {
+				ft, err := fromAST(fld.Type, f.t.structs)
+				if err != nil {
+					return fmt.Errorf("%s: %w", f.pos(s), err)
+				}
+				for _, n := range fld.Names {
+					info.fields = append(info.fields, n.Name)
+					info.types[n.Name] = ft
+				}
+			}
+			f.t.structs[info.name] = info
+		}
+		return nil
+	}
 	if !ok || gd.Tok != token.VAR {
 		return fmt.Errorf("%s: unsupported declaration", f.pos(s))
 	}
@@ -106,7 +130,11 @@ func (f *fnState) declStmt(sb *strings.Builder, s *ast.DeclStmt) error {
 			return fmt.Errorf("%s: var with a value is unsupported", f.pos(s))
 		}
 		if isIdent(vs.Type, "error") {
-			// The runtime raises instead of returning an error.
+			// The runtime raises instead of returning an error. A variable that holds the last one stays None.
+			for _, n := range vs.Names {
+				f.env[n.Name] = nilType
+				f.line(sb, "%s = None", pyName(n.Name))
+			}
 			continue
 		}
 		vt, err := fromAST(vs.Type, f.t.structs)
@@ -196,7 +224,19 @@ func (f *fnState) target(l ast.Expr, define bool, rt typ) (string, error) {
 			return "", fmt.Errorf("%s: assignment to unknown name %s", f.pos(l), l.Name)
 		}
 		return pyName(l.Name), nil
-	case *ast.IndexExpr, *ast.SelectorExpr:
+	case *ast.IndexExpr:
+		// A store writes the key itself, where a read of a map takes the zero value for a missing one.
+		text, _, err := f.expr(l)
+		if i := strings.LastIndex(text, ".get("); err == nil && i >= 0 && strings.HasSuffix(text, ")") {
+			x, _, xerr := f.expr(l.X)
+			key, _, kerr := f.expr(l.Index)
+			if xerr != nil || kerr != nil {
+				return "", errors.Join(xerr, kerr)
+			}
+			return x + "[" + key + "]", nil
+		}
+		return text, err
+	case *ast.SelectorExpr, *ast.StarExpr:
 		text, _, err := f.expr(l)
 		return text, err
 	}
@@ -226,8 +266,24 @@ func (f *fnState) opAssign(sb *strings.Builder, s *ast.AssignStmt) error {
 // sincos renders "s, c := math.Sincos(x)", the one two-value call the subset allows.
 func (f *fnState) sincos(sb *strings.Builder, s *ast.AssignStmt) error {
 	call, ok := s.Rhs[0].(*ast.CallExpr)
+	if ok && isMathCall(call, "Frexp") && len(call.Args) == 1 {
+		arg, _, err := f.expr(call.Args[0])
+		if err != nil {
+			return err
+		}
+		mantissa, err := f.target(s.Lhs[0], s.Tok == token.DEFINE, floatType)
+		if err != nil {
+			return err
+		}
+		exponent, err := f.target(s.Lhs[1], s.Tok == token.DEFINE, intType)
+		if err != nil {
+			return err
+		}
+		f.line(sb, "%s, %s = math.frexp(%s)", mantissa, exponent, arg)
+		return nil
+	}
 	if !ok || !isMathCall(call, "Sincos") || len(call.Args) != 1 {
-		return fmt.Errorf("%s: only math.Sincos may return two values", f.pos(s))
+		return fmt.Errorf("%s: only math.Sincos and math.Frexp may return two values", f.pos(s))
 	}
 	arg, _, err := f.expr(call.Args[0])
 	if err != nil {
@@ -276,7 +332,7 @@ func (f *fnState) returnStmt(sb *strings.Builder, s *ast.ReturnStmt) error {
 		results = results[:len(results)-1]
 		// A stored error value (return nil, err) is never set in a translated function, which raises
 		// instead, so only the other results are returned.
-		if !isNil(last) && (!f.t.sketch || !isIdent(last, "err")) {
+		if !isNil(last) && (!f.t.sketch || !isErrIdent(last)) {
 			return f.raise(sb, last)
 		}
 	}
@@ -301,6 +357,17 @@ func (f *fnState) returnStmt(sb *strings.Builder, s *ast.ReturnStmt) error {
 
 // raise renders "return ..., fmt.Errorf(format, args...)" as a RuntimeError.
 func (f *fnState) raise(sb *strings.Builder, e ast.Expr) error {
+	if id, isName := e.(*ast.Ident); isName {
+		if t, local := f.env[id.Name]; local && t.kind == kindNil {
+			// A local variable holding an earlier error: nothing sets it in a translated function.
+			f.line(sb, "raise RuntimeError(str(%s))", pyName(id.Name))
+			return nil
+		}
+		// A package-level error value, var errX = fmt.Errorf("..."), raises its own message.
+		if value, err := f.t.model.PackageValue(id.Name); err == nil {
+			e = value
+		}
+	}
 	call, ok := e.(*ast.CallExpr)
 	if !ok || !isPkgCall(call, "fmt", "Errorf") || len(call.Args) == 0 {
 		return fmt.Errorf("%s: an error result must be nil or fmt.Errorf", f.pos(e))
@@ -409,6 +476,9 @@ func (f *fnState) forStmt(sb *strings.Builder, s *ast.ForStmt) error {
 	if !ok {
 		return fmt.Errorf("%s: for loop variable is not a name", f.pos(s))
 	}
+	if s.Cond == nil {
+		return f.openLoop(sb, s, init, id)
+	}
 	cond, ok := s.Cond.(*ast.BinaryExpr)
 	if !ok || (cond.Op != token.LSS && cond.Op != token.LEQ) || !isIdent(cond.X, id.Name) {
 		return fmt.Errorf("%s: for loop condition must be i < n or i <= n", f.pos(s))
@@ -464,4 +534,39 @@ func isMathCall(c *ast.CallExpr, fn string) bool { return isPkgCall(c, "math", f
 func isPkgCall(c *ast.CallExpr, pkg, fn string) bool {
 	sel, ok := c.Fun.(*ast.SelectorExpr)
 	return ok && isIdent(sel.X, pkg) && sel.Sel.Name == fn
+}
+
+// openLoop renders "for i := start; ; i++": a loop with no bound, which the body leaves with break.
+func (f *fnState) openLoop(sb *strings.Builder, s *ast.ForStmt, init *ast.AssignStmt, id *ast.Ident) error {
+	post, ok := s.Post.(*ast.IncDecStmt)
+	if !ok || post.Tok != token.INC || !isIdent(post.X, id.Name) {
+		return fmt.Errorf("%s: an unbounded for loop post statement must be i++", f.pos(s))
+	}
+	continues := false
+	ast.Inspect(s.Body, func(n ast.Node) bool {
+		if b, ok := n.(*ast.BranchStmt); ok && b.Tok == token.CONTINUE {
+			continues = true
+		}
+		return !continues
+	})
+	if continues {
+		return fmt.Errorf("%s: an unbounded for loop cannot continue", f.pos(s))
+	}
+	start, st, err := f.expr(init.Rhs[0])
+	if err != nil {
+		return err
+	}
+	if st.kind == kindUntyped {
+		st = intType
+	}
+	f.env[id.Name] = st
+	f.line(sb, "%s = %s", pyName(id.Name), start)
+	f.line(sb, "while True:")
+	f.indent++
+	defer func() { f.indent-- }()
+	if err := f.block(sb, s.Body.List); err != nil {
+		return err
+	}
+	f.line(sb, "%s += 1", pyName(id.Name))
+	return nil
 }

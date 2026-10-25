@@ -886,9 +886,95 @@ the check failed with the end of each copy's last spline and the point beside it
 before the pattern it passed. `decadfusion.Sketch.solve` therefore anchors between the dimensions and the patterns when the sketch has a pattern, and
 stays last otherwise, as [SPUR-F-LOCAL-ORIGIN] has it.
 
+**[PB-PARAM-TABLE] A model that only reads its parameters back keeps them in Python.** The bevel gear's
+`defineParameters` writes inputs and expressions into a table and its build reads the results (cone angle, radii, face
+width). No sketch binds a dimension to a parameter, so no Fusion user parameter is made. `decadfusion.ParamTable` holds
+the values, evaluates the expressions with Python's arithmetic and the functions the gallery names (`hypot`, `atan2`,
+`sin`, `cos`, `min`, `max`, `pow`), and `Runtime.param` reads from it first.
+
+**[PB-CONTAINER-BODIES] A gallery container is a Fusion component made last.** The gallery nests containers and puts
+sketches, planes and bodies in them. A feature on a body inside a component runs in that component's context, and its
+inputs would have to be proxies. So the build runs in one component, `Container` only records which container a body
+belongs to, and `Runtime.finish_containers` makes a component for each container that holds a body and moves the bodies
+in. Sketches and planes stay where they are, so they keep following the anchor. A body a boolean consumes leaves its
+container. The cycloidal drive's sub-components follow the same rule.
+
+**[PB-FRAME-PLANE] A plane across the base plane comes from a construction line.** The bevel pair's bore plane and tooth
+plane are perpendicular to the base plane and pass through a point of it. A Fusion-only sketch on the base plane holds a
+construction line from that point along the plane's normal, and the plane is normal to the line at its start, so it
+follows the anchor. Fusion picks the axes of a sketch on such a plane, so the sketch maps the gallery's coordinates to
+them by the dot products of the frame's axes and the sketch's, draws an arc from the other end when the map is a
+reflection, extrudes the other way for the same reason, and anchors on the line's start point. A pattern about an axis
+that no cylindrical face lies on uses the same kind of line as its axis.
+
+**[PB-PAIR-PLANE] A gear that stands on the Target Plane is drawn in a plane across it, with its apex above the point.** The
+original spec (`spec/bevelgear/instructions.md`, removed from `feat-gallery-port`, still on `main`) puts the Target Plane
+under the driving gear's flat back face and the Center Point at the centre of that face. The pair's apex is above the point on
+the side the plane's normal points to, by R cos(gamma) plus the driving base height, which is the blank's heel station. The
+pinion shaft is the driving shaft turned about the apex, toward the greater X of the plane that holds both shafts. The
+gallery draws the pair with its apex at the origin, so the add-in places it. A short line through the Center Point along the
+plane's X axis (in the `Tools` sketch, fully constrained) carries a construction plane at 90 degrees to the Target Plane,
+made at minus 90 when the pinion would lie toward the lesser X. A `Pair Tools` sketch on that plane projects the Center
+Point and holds the apex, dimensioned horizontally and vertically from it. The gallery's U is the Target Plane's normal turned
+round, so the driving shaft runs from the apex down into the plane, and V completes a right-handed pair about the sketch's
+normal. `Runtime.build_frame` takes them, and every sketch maps the gallery's axes to Fusion's by dot products.
+[PB-FRAME-PLANE]
+
+**[PB-NO-GRID-SNAP] Decad's grid snap of a section about a rotated shaft is not applied in Fusion.** The gallery snaps the
+points of every section about a rotated shaft to a grid whose step depends on the section's reach, so that decad's
+revolve sees exact floats. In Fusion the pinion's faces that should lie on one cone, the toe dish of its blank and the
+faces its toe cone trims into every tooth, came out as 31 extra cone faces, one per tooth, and the pinion looked as if
+its teeth stood on the body with a crease at each end. The driving gear, built about an unrotated shaft and so not
+snapped, merged them into one face (face counts 129 and 160, with the same volume to 0.009 percent). Fusion's kernel is
+exact, so `decadfusion.shaft_snap` returns the section as it is. The shaft direction's rounding to 26 bits stays: every
+feature about one shaft uses the same value.
+
+**[PB-EMBEDDED-TOOTH] The embedded virtual tooth is the region bounded by two flank splines, a tip arc and a root arc.**
+Decad numbers the trim of each flank at the root circle; Fusion's regions carry their trimmed curves, so the runtime
+picks the one valid, hole-free region with four edges of which two are splines.
+
+**[PB-STALE-MODULE] Fusion keeps imported modules across an add-in Stop and Run.** A deploy that changes
+`decadfusion.py` and not the generated gear file can leave the old runtime running, and a traceback then names line
+numbers and messages of code that is gone. The error dialog's Build line shows the runtime's hash and whether it matches
+the file on disk, and the command reloads the runtime when the hash differs. Read that line before trusting a report.
+
+**[PB-PROFILE-STALE] Adding a curve to a sketch invalidates the profiles already read from it.** A revolve whose axis was
+added to the profile's own sketch after `sketch.profiles` was read failed with `invalid profile(s) for Revolve Feature`.
+The axis goes in a sketch of its own, or the sketch draws it before the profiles are read. One axis line serves every
+revolve and pattern about the same axis. [PB-FRAME-PLANE]
+
+**[PB-BAD-ENTITY] `Sketch.project` answers `Bad entity parameter` for an entity that is not there or is stale.** Two causes
+were seen. The entity was None, because a sketch took its anchor from a plane that has none. A SketchPoint that another
+sketch had projected is also refused once that sketch gains curves and constraints, so a build projects the point the user
+chose and not the copy a tools sketch holds.
+
+**[PB-POINT-POSITION] The position of a point has a different name on each kind of point.** A SketchPoint has `geometry` in
+its sketch and `worldGeometry` in the design, a ConstructionPoint has `geometry` only, and a BRepVertex has `geometry`.
+Code that accepts the user's Center Point reads whichever exists.
+
+**[PB-PROGRESS-FILE] A build that hangs leaves no trace in the Text Commands window.** The window does not repaint while the
+add-in blocks Fusion's thread. `decadfusion.progress` appends a flushed line to `geargen-progress.log` in the system temp
+directory for each timed step, so the last line names the step that never returned. `unconstrained_entities` makes a failed
+constraint check name the curves and fit points it left free.
+
 ## What the spec need not pin (free to vary)
 
 Local variable names, comments, log strings, and how build steps are decomposed into private
 helper methods. What the spec **does** pin and the output must reproduce: the contract surface (the
 classes, hook methods, `ctx` fields, and call graph the spec declares), parameter names/ids, the
 geometry the spec prescribes, feature order, and edge-case handling.
+
+**[PB-LAZY-JOIN] Join and copy once, not once per tooth.** Fusion's kernel joins any number of bodies in one combine, and
+makes every copy of a body at equal angles in one circular pattern. The gallery joins and copies tooth by tooth (its
+kernel needs that), so the runtime records a `decad.Union` and a rotated `decad.Copy` and makes the pattern and the single
+combine when a later step first reads the body. Thirty-one teeth cost two features, not about ninety. A copy at an angle
+that is not part of an equal set is made on its own. `tests/test_bevel_batching.py` counts the features.
+
+**[PB-SCALE-BASE-POINT] A Scale feature's base point is a sketch point, never a construction point at a bare point.**
+`ConstructionPointInput.setByPoint` with a `Point3D` is valid only in direct modeling; in a parametric design it fails
+with "3 : Environment is not supported". The base point is a sketch point on a planar face that passes through the
+anchor, placed with `modelToSketchSpace`.
+
+**[PB-SPLIT-TOOL] A Split Body feature leaves its splitting tool in the design.** The gallery's `decad.Split` consumes the
+sheet, so the runtime removes the sheet body after the split. A sheet left behind shows as a plate, one per cut, across
+the gear.
