@@ -389,6 +389,7 @@ class Runtime:
         # The parameter table of a model that computes its dimensions in Python, and the gallery's containers.
         self._table = ParamTable()
         self._root = Container(self, component.name)
+        self._axes = {}
         # The gallery builds a gear about the local origin and +Z. frame is that local frame, and
         # placement is where it lies in the design: the anchor, the sketch's axes and their normal.
         self.frame: Frame = Frame(Vec(0, 0, 0), Vec(1, 0, 0), Vec(0, 1, 0), Vec(0, 0, 1))
@@ -520,15 +521,23 @@ class Runtime:
         return Plane(self, entity, frame=frame, anchor=start.point)
 
     def axis_line(self, center, direction, name):
-        """A construction line from center along direction, in a Fusion-only sketch, for a pattern about an axis that
-        no face of the design lies on. [PB-FRAME-PLANE]"""
-        helper = self.create_sketch(self.xy(), name)
+        """A construction line from center along direction, in a Fusion-only sketch on the base plane, for a revolve or
+        a pattern about an axis. The sketch being revolved cannot hold it: adding a curve to a sketch invalidates the
+        profiles already read from it. One line serves every use of the same axis. [PB-FRAME-PLANE]"""
         unit = Vec(direction.x, direction.y, 0).unit()
-        start = helper.dimension_point(center.x, center.y)
+        key = tuple(round(v, 9) for v in (center.x, center.y, unit.x, unit.y))
+        if key in self._axes:
+            return self._axes[key]
+        helper = self.create_sketch(self.xy(), name)
+        if abs(center.x) < 1e-12 and abs(center.y) < 1e-12:
+            start = helper.origin()
+        else:
+            start = helper.dimension_point(center.x, center.y)
         end = helper.dimension_point(center.x + unit.x, center.y + unit.y)
         line = helper.create_line(start, end)
         line.set_construction(True)
         helper.solve()
+        self._axes[key] = line.fusion
         return line.fusion
 
     def hide_helpers(self):
@@ -718,9 +727,9 @@ class Sketch:
         self._lineHandles.append(line)
         return line
 
-    def axis_line(self, axis):
-        """The line a revolve turns about: a construction line of this sketch from axis.Start to axis.End. The sketch
-        often draws it already; if not, one is added, with its start on the local origin and its end dimensioned."""
+    def find_axis_line(self, axis):
+        """The construction line this sketch drew along axis from the same start, or None. The line may be longer
+        than the axis the gallery names."""
         start, end = (axis.Start.U, axis.Start.V), (axis.End.U, axis.End.V)
         near = lambda a, b: abs(a[0] - b[0]) < 1e-9 and abs(a[1] - b[1]) < 1e-9
         wanted = (end[0] - start[0], end[1] - start[1])
@@ -728,25 +737,11 @@ class Sketch:
             if not line.construction or line.fusion is None or not near(_coordinates(line.start), start):
                 continue
             own = (_coordinates(line.end)[0] - start[0], _coordinates(line.end)[1] - start[1])
-            # The same direction from the same start: the line may be longer than the axis the gallery names.
             scale = math.hypot(*own) * math.hypot(*wanted)
             if scale > 0 and abs(own[0] * wanted[1] - own[1] * wanted[0]) < 1e-9 * scale \
                     and own[0] * wanted[0] + own[1] * wanted[1] > 0:
                 return line.fusion
-        lines: adsk.fusion.SketchLines = self.sketch.sketchCurves.sketchLines
-        line = lines.addByTwoPoints(self._p3(*start), self._p3(*end))
-        line.isConstruction = True
-        constraints: adsk.fusion.GeometricConstraints = self.sketch.geometricConstraints
-        if near(start, (0.0, 0.0)):
-            constraints.addCoincident(line.startSketchPoint, self._origin)
-        else:
-            moved = PendingPoint(start[0], start[1], False)
-            moved.point = line.startSketchPoint
-            self._dimensionPoint(moved)
-        tip = PendingPoint(end[0], end[1], False)
-        tip.point = line.endSketchPoint
-        self._dimensionPoint(tip)
-        return line
+        return None
 
     def create_arc(self, center, start, end):
         self._arcs.append((center, start, end))
@@ -1551,7 +1546,11 @@ def decad_sketch_line(Start, End):
 def decad_revolve(doc, sketch, profile, axis, extent, name):
     if not isinstance(extent, FullRevolution):
         raise RuntimeError(f'{name}: only a full revolution is translated')
-    line = sketch.axis_line(axis)
+    line = sketch.find_axis_line(axis)
+    if line is None:
+        if abs(axis.Start.U) > 1e-12 or abs(axis.Start.V) > 1e-12:
+            raise RuntimeError(f'{name}: only an axis from the local origin is translated')
+        line = doc.axis_line(Vec(0, 0, 0), Vec(axis.End.U - axis.Start.U, axis.End.V - axis.Start.V, 0), 'Shaft Axis')
     revolves: adsk.fusion.RevolveFeatures = doc.component.features.revolveFeatures
     revolveInput: adsk.fusion.RevolveFeatureInput = revolves.createInput(
         profile.fprofile, line, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
