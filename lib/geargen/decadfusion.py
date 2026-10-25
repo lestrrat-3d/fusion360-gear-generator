@@ -538,10 +538,12 @@ class Runtime:
     def xy(self):
         return Plane(self, self.plane, frame=self.frame if self.mapped else None)
 
-    def unique(self, name):
-        """A role name that repeats gets an index: Tooth Profile, Tooth Profile 2."""
-        count = self._names.get(name, 0) + 1
-        self._names[name] = count
+    def unique(self, name, kind=None):
+        """A role name that repeats among objects of one kind gets an index: Tooth Profile, Tooth Profile 2. Sketches,
+        planes and axes are one kind (None); timeline features ('feature') and bodies ('body') count apart."""
+        key = name if kind is None else (kind, name)
+        count = self._names.get(key, 0) + 1
+        self._names[key] = count
         return name if count == 1 else f'{name} {count}'
 
     def derive(self, p):
@@ -1475,12 +1477,25 @@ def decad_extrude(doc, sketch, profile, extent, name, body):
                      else adsk.fusion.ExtentDirections.NegativeExtentDirection)
         extrudeInput.setOneSideExtent(distance, direction)
     extrude: adsk.fusion.ExtrudeFeature = extrudes.add(extrudeInput)
-    solids.name_feature(extrude, name)
+    _name_feature(extrude, name, doc)
     if extrude.bodies.count != 1:
         raise RuntimeError(f'{name}: expected one body, got {extrude.bodies.count}')
     fbody: adsk.fusion.BRepBody = extrude.bodies.item(0)
-    solids.name_feature(fbody, body)
+    _name_feature(fbody, body, doc, 'body')
     return _placed(Body(doc, fbody), sketch)
+
+
+def _name_feature(obj, name, runtime, kind='feature'):
+    """Name a Fusion object by its role, with an index when the role repeats among objects of its kind, and return it.
+    Naming never fails a build. (CLAUDE.md, "Naming")"""
+    solids.name_feature(obj, runtime.unique(name, kind))
+    return obj
+
+
+def _other_bodies(feature, original):
+    """The bodies a feature lists other than original. A pattern or mirror may or may not list its source body with the
+    bodies it made; bodies are compared with ==, never by entityToken."""
+    return [fbody for fbody in feature.bodies if not fbody == original]
 
 
 def _placed(body, source):
@@ -1508,7 +1523,7 @@ def _axis_through(runtime, pattern, name):
             axisInput: adsk.fusion.ConstructionAxisInput = axes.createInput()
             axisInput.setByCircularFace(face)
             entity = axes.add(axisInput)
-            solids.name_feature(entity, name)
+            _name_feature(entity, name, runtime, None)
             entity.isLightBulbOn = False
             return entity
     # No face lies on the axis (a revolved blank is a cone), so a construction line along it is the axis. The line lies
@@ -1533,10 +1548,9 @@ def _circular_pattern(tooth, pattern, name):
     patternInput.totalAngle = adsk.core.ValueInput.createByString('360 deg')
     patternInput.isSymmetric = False
     feature: adsk.fusion.CircularPatternFeature = patterns.add(patternInput)
-    solids.name_feature(feature, name)
-    # The result may or may not list the original body; the copies are the others.
-    source = tooth.body
-    copies = [Body(runtime, b) for b in feature.bodies if not b == source]
+    _name_feature(feature, name, runtime)
+    copies = [Body(runtime, _name_feature(b, name + ' Copy', runtime, 'body'))
+              for b in _other_bodies(feature, tooth.body)]
     if not copies:
         raise RuntimeError(f'{name}: the pattern made no copies')
     return copies
@@ -1572,7 +1586,7 @@ def _combine(base, tools, operation, name):
     combineInput: adsk.fusion.CombineFeatureInput = combines.createInput(base.body, collection)
     combineInput.operation = operation
     feature = combines.add(combineInput)
-    solids.name_feature(feature, name)
+    _name_feature(feature, name, base.runtime)
     # The tools are consumed, so they no longer belong to a container.
     for tool in tools:
         _leave_container(tool)
@@ -1733,10 +1747,10 @@ class CopyBody(Body):
         entities.add(self.source.body)
         copies: adsk.fusion.CopyPasteBodies = runtime.component.features.copyPasteBodies
         feature = copies.add(entities)
-        solids.name_feature(feature, self._name)
+        _name_feature(feature, self._name, runtime)
         if feature.bodies.count != 1:
             raise RuntimeError(f'{self._name}: expected one copied body, got {feature.bodies.count}')
-        self._body = feature.bodies.item(0)
+        self._body = _name_feature(feature.bodies.item(0), self._name, runtime, 'body')
         if self.rotation is not None:
             turned = Body(runtime, self._body)
             decad_transform(turned, self.rotation, name=self._name + ' Turn')
@@ -1831,7 +1845,7 @@ def decad_remove(body, name):
     _settle(body)
     removes: adsk.fusion.RemoveFeatures = body.runtime.component.features.removeFeatures
     feature = removes.add(body.body)
-    solids.name_feature(feature, name)
+    _name_feature(feature, name, body.runtime)
     if body.container is not None:
         body.container.bodies.remove(body)
         body.container = None
@@ -1860,7 +1874,7 @@ def decad_scaled_at(body, anchor, factor, name):
     # A construction point at a bare Point3D is valid only in direct modeling, so the base point is a sketch point
     # on a face that passes through the anchor. [PB-SCALE-BASE-POINT]
     anchorSketch = runtime.component.sketches.add(face)
-    solids.name_feature(anchorSketch, name + ' Anchor')
+    _name_feature(anchorSketch, name + ' Anchor', runtime, None)
     base = anchorSketch.sketchPoints.add(anchorSketch.modelToSketchSpace(where))
     anchorSketch.isLightBulbOn = False
     entities = adsk.core.ObjectCollection.create()
@@ -1869,7 +1883,7 @@ def decad_scaled_at(body, anchor, factor, name):
     scaleInput: adsk.fusion.ScaleFeatureInput = scales.createInput(
         entities, base, adsk.core.ValueInput.createByReal(factor))
     feature = scales.add(scaleInput)
-    solids.name_feature(feature, name)
+    _name_feature(feature, name, runtime)
     return body
 
 
@@ -1882,12 +1896,13 @@ def decad_split(target, sheet, name):
     splits: adsk.fusion.SplitBodyFeatures = runtime.component.features.splitBodyFeatures
     splitInput: adsk.fusion.SplitBodyFeatureInput = splits.createInput(target.body, sheet.body, True)
     feature = splits.add(splitInput)
-    solids.name_feature(feature, name)
+    _name_feature(feature, name, runtime)
     if feature.bodies.count != 2:
         raise RuntimeError(f'{name}: the sheet made {feature.bodies.count} pieces; want two')
     container = target.container
     pieces = []
     for fbody in feature.bodies:
+        _name_feature(fbody, name + ' Piece', runtime, 'body')
         pieces.append(Body(runtime, fbody))
     pieces.sort(key=lambda piece: piece.centroid().Value.len())
     # Fusion keeps the splitting tool as a body of its own, where decad consumes it, so the sheet is removed. Left in
@@ -1914,11 +1929,11 @@ def decad_loft_faces(doc, *faces, name, body):
     for face in faces:
         loftInput.loftSections.add(face.face)
     loft: adsk.fusion.LoftFeature = lofts.add(loftInput)
-    solids.name_feature(loft, name)
+    _name_feature(loft, name, doc)
     if loft.bodies.count != 1:
         raise RuntimeError(f'{name}: expected one body, got {loft.bodies.count}')
     fbody: adsk.fusion.BRepBody = loft.bodies.item(0)
-    solids.name_feature(fbody, body)
+    _name_feature(fbody, body, doc, 'body')
     # The loft belongs where the body of its first section is.
     return _placed(Body(doc, fbody), owners[0] if owners else None)
 
@@ -1933,7 +1948,7 @@ def decad_fillet(body, selector, radius, name):
     filletInput.addConstantRadiusEdgeSet(edges, value_input(radius, body.runtime.scale), False)
     with timed(f'{name} feature'):
         feature = fillets.add(filletInput)
-    solids.name_feature(feature, name)
+    _name_feature(feature, name, body.runtime)
     return body
 
 
@@ -1947,7 +1962,7 @@ def decad_chamfer(body, selector, setback, name):
     chamferInput.chamferEdgeSets.addEqualDistanceChamferEdgeSet(edges, value_input(setback, body.runtime.scale), False)
     with timed(f'{name} feature'):
         feature = chamfers.add(chamferInput)
-    solids.name_feature(feature, name)
+    _name_feature(feature, name, body.runtime)
     return body
 
 
@@ -1960,11 +1975,11 @@ def decad_loft(doc, lowerSketch, lowerProfile, upperSketch, upperProfile, name, 
     loftInput.loftSections.add(lowerProfile.fprofile)
     loftInput.loftSections.add(upperProfile.fprofile)
     loft: adsk.fusion.LoftFeature = lofts.add(loftInput)
-    solids.name_feature(loft, name)
+    _name_feature(loft, name, doc)
     if loft.bodies.count != 1:
         raise RuntimeError(f'{name}: expected one body, got {loft.bodies.count}')
     fbody: adsk.fusion.BRepBody = loft.bodies.item(0)
-    solids.name_feature(fbody, body)
+    _name_feature(fbody, body, doc, 'body')
     return _placed(Body(doc, fbody), lowerSketch)
 
 
@@ -2015,7 +2030,7 @@ def decad_transform(body, transform, name):
     moveInput: adsk.fusion.MoveFeatureInput = moves.createInput2(entities)
     moveInput.defineAsFreeMove(matrix)
     feature = moves.add(moveInput)
-    solids.name_feature(feature, name)
+    _name_feature(feature, name, runtime)
     return body
 
 
@@ -2059,10 +2074,13 @@ def decad_revolve(doc, sketch, profile, axis, extent, name):
         profile.fprofile, line, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
     revolveInput.setAngleExtent(False, adsk.core.ValueInput.createByString('360 deg'))
     feature: adsk.fusion.RevolveFeature = revolves.add(revolveInput)
-    solids.name_feature(feature, name)
+    _name_feature(feature, name, doc)
     if feature.bodies.count != 1:
         raise RuntimeError(f'{name}: expected one body, got {feature.bodies.count}')
-    return _placed(Body(doc, feature.bodies.item(0)), sketch)
+    # The gallery's revolve names no body, so the body takes the feature's role.
+    fbody: adsk.fusion.BRepBody = feature.bodies.item(0)
+    _name_feature(fbody, name, doc, 'body')
+    return _placed(Body(doc, fbody), sketch)
 
 
 @logged
@@ -2075,11 +2093,11 @@ def decad_loft_from_point(doc, point, sketch, profile, name, body):
     loftInput.loftSections.add(doc.anchor)
     loftInput.loftSections.add(profile.fprofile)
     loft: adsk.fusion.LoftFeature = lofts.add(loftInput)
-    solids.name_feature(loft, name)
+    _name_feature(loft, name, doc)
     if loft.bodies.count != 1:
         raise RuntimeError(f'{name}: expected one body, got {loft.bodies.count}')
     fbody: adsk.fusion.BRepBody = loft.bodies.item(0)
-    solids.name_feature(fbody, body)
+    _name_feature(fbody, body, doc, 'body')
     return _placed(Body(doc, fbody), sketch)
 
 
@@ -2130,10 +2148,9 @@ def decad_mirrored_copy(source, mirror, name, body):
     mirrorInput: adsk.fusion.MirrorFeatureInput = mirrors.createInput(entities, plane.entity)
     mirrorInput.isCombine = False
     feature: adsk.fusion.MirrorFeature = mirrors.add(mirrorInput)
-    solids.name_feature(feature, name)
-    original = source.body
-    copies = [b for b in feature.bodies if not b == original]
+    _name_feature(feature, name, runtime)
+    copies = _other_bodies(feature, source.body)
     if len(copies) != 1:
         raise RuntimeError(f'{name}: expected one mirrored body, got {len(copies)}')
-    solids.name_feature(copies[0], body)
+    _name_feature(copies[0], body, runtime, 'body')
     return _placed(Body(runtime, copies[0]), source)

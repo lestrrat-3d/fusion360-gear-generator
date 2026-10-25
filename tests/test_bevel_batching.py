@@ -106,7 +106,8 @@ class BatchingTest(unittest.TestCase):
         self.log = []
         self.runtime = SimpleNamespace(
             component=SimpleNamespace(features=FakeFeatures(self.log, 12)),
-            to_local=lambda v: v, to_world=lambda v: v, to_world_dir=lambda v: v, scale=1.0)
+            to_local=lambda v: v, to_world=lambda v: v, to_world_dir=lambda v: v, scale=1.0,
+            unique=lambda name, kind=None: name)
         self.patches = [
             mock.patch.object(fx.adsk.core.ObjectCollection, 'create', side_effect=FakeCollection),
             mock.patch.object(fx, '_axis_through', return_value='axis'),
