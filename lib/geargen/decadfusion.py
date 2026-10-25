@@ -1106,7 +1106,7 @@ class Body:
 
     def faces(self):
         _settle(self)
-        return [Face(self.runtime, f) for f in self.body.faces]
+        return [Face(self.runtime, f, self) for f in self.body.faces]
 
     def extreme_faces_by_centroid(self, axis):
         """The faces with the least and the greatest centroid along axis, a direction of the build frame."""
@@ -1235,9 +1235,11 @@ def decad_is_cylinder(surface):
 
 
 class Face:
-    def __init__(self, runtime, face):
+    def __init__(self, runtime, face, owner=None):
         self.runtime = runtime
         self.face: adsk.fusion.BRepFace = face
+        # The Body the face was read from, when it was read from one.
+        self.owner = owner
 
     def surface(self):
         if self.face.geometry.surfaceType == adsk.core.SurfaceTypes.CylinderSurfaceType:
@@ -1428,10 +1430,10 @@ def decad_extrude(doc, sketch, profile, extent, name, body):
     return _placed(Body(doc, fbody), sketch)
 
 
-def _placed(body, sketch):
-    """A body made from a sketch that the gallery put in a container belongs to that container."""
-    if sketch.container is not None:
-        body.runtime.move_body(body, sketch.container)
+def _placed(body, source):
+    """A body made from a sketch or from another body belongs to the container the gallery put that source in."""
+    if source is not None and source.container is not None:
+        body.runtime.move_body(body, source.container)
     return body
 
 
@@ -1463,7 +1465,7 @@ def _axis_through(runtime, pattern, name):
 @logged
 def decad_pattern_copies(tooth, pattern, name):
     _settle(tooth)
-    return _circular_pattern(tooth, pattern, name)
+    return [_placed(copy, tooth) for copy in _circular_pattern(tooth, pattern, name)]
 
 
 def _circular_pattern(tooth, pattern, name):
@@ -1851,6 +1853,8 @@ def decad_split(target, sheet, name):
 
 @logged
 def decad_loft_faces(doc, *faces, name, body):
+    owners = [face.owner for face in faces if face.owner is not None]
+    _settle_all(*owners)
     lofts: adsk.fusion.LoftFeatures = doc.component.features.loftFeatures
     loftInput: adsk.fusion.LoftFeatureInput = lofts.createInput(adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
     for face in faces:
@@ -1861,7 +1865,8 @@ def decad_loft_faces(doc, *faces, name, body):
         raise RuntimeError(f'{name}: expected one body, got {loft.bodies.count}')
     fbody: adsk.fusion.BRepBody = loft.bodies.item(0)
     solids.name_feature(fbody, body)
-    return Body(doc, fbody)
+    # The loft belongs where the body of its first section is.
+    return _placed(Body(doc, fbody), owners[0] if owners else None)
 
 
 @logged
@@ -1906,7 +1911,7 @@ def decad_loft(doc, lowerSketch, lowerProfile, upperSketch, upperProfile, name, 
         raise RuntimeError(f'{name}: expected one body, got {loft.bodies.count}')
     fbody: adsk.fusion.BRepBody = loft.bodies.item(0)
     solids.name_feature(fbody, body)
-    return Body(doc, fbody)
+    return _placed(Body(doc, fbody), lowerSketch)
 
 
 class Rotation:
@@ -2063,4 +2068,4 @@ def decad_mirrored_copy(source, mirror, name, body):
     if len(copies) != 1:
         raise RuntimeError(f'{name}: expected one mirrored body, got {len(copies)}')
     solids.name_feature(copies[0], body)
-    return Body(runtime, copies[0])
+    return _placed(Body(runtime, copies[0]), source)

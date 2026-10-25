@@ -258,5 +258,45 @@ class PatternCopiesTest(RuntimeTestCase):
         self.assertEqual((0.0, 5.0, 0.0), (origin.x, origin.y, origin.z))
 
 
+class ContainerPlacementTest(RuntimeTestCase):
+    """A result takes the container of the body or sketch it was made from, as extrude, revolve and copy do."""
+
+    def test_pattern_copies_join_the_container_of_their_tooth(self):
+        fx = self.fx
+        container = self.runtime.root().new_child('Gear')
+        tooth = self.body(1.0, 3.0, 0.0, container=container)
+        copies = fx.decad_pattern_copies(
+            tooth, fx.decad_circular_pattern(Center=fx.r3_vec(), Axis=fx.r3_new_vec(1, 0, 0), Count=3), name='Pattern')
+        self.assertEqual([tooth] + copies, container.bodies)
+        self.assertTrue(all(copy.container is container for copy in copies))
+
+    def test_a_mirrored_copy_joins_the_container_of_its_source(self):
+        fx = self.fx
+        container = self.runtime.root().new_child('Gear')
+        source = self.body(1.0, container=container)
+        with mock.patch.object(fx.Runtime, 'create_plane_from_frame', return_value=SimpleNamespace(entity='plane')):
+            mirrored = fx.decad_mirrored_copy(source, fx.decad_mirror_frame(fx.r3_new_frame(
+                fx.Vec(0, 0, 0), fx.Vec(1, 0, 0), fx.Vec(0, 1, 0))), name='Mirror', body='Mirrored')
+        self.assertIs(container, mirrored.container)
+        self.assertIn(mirrored, container.bodies)
+
+    def test_a_loft_joins_the_container_of_its_lower_sketch(self):
+        fx = self.fx
+        container = self.runtime.root().new_child('Gear')
+        lower = SimpleNamespace(container=container)
+        loft = fx.decad_loft(self.runtime, lower, SimpleNamespace(fprofile='a'), SimpleNamespace(container=None),
+                             SimpleNamespace(fprofile='b'), name='Loft', body='Tooth')
+        self.assertIs(container, loft.container)
+
+    def test_a_loft_through_faces_joins_the_container_of_its_first_section(self):
+        fx = self.fx
+        container = self.runtime.root().new_child('Gear')
+        slab = self.body(1.0, container=container)
+        slab.body.faces = ['cap']
+        faces = slab.faces()
+        loft = fx.decad_loft_faces(self.runtime, *faces, name='Loft', body='Tooth')
+        self.assertIs(container, loft.container)
+
+
 if __name__ == '__main__':
     unittest.main()

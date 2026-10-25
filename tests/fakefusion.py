@@ -185,8 +185,8 @@ class Recorder:
         return SimpleNamespace(bodies=BodyList([FakeBRep(*_centre(source))]), name='')
 
     def make_pattern(self, pattern_input):
-        """Fusion's circular pattern: the source (as another wrapper) and count - 1 copies turned about the axis, which
-        the runtime gives as pattern_input.axisCentre and pattern_input.axisDirection for this fake."""
+        """Fusion's circular pattern: the source (as another wrapper) and count - 1 copies turned about the axis. A test
+        that patches out the axis lookup sets the axis as pattern_axis, a centre and a unit direction."""
         source = pattern_input.args[0].items[0]
         count = int(pattern_input.attrs['quantity'][1])
         centre, direction = self.pattern_axis
@@ -229,11 +229,27 @@ class RecordingInput:
             raise AttributeError(name)
         if name in self.attrs:
             return self.attrs[name]
+        return _Member(self, name)
 
-        def method(*args, **kwargs):
-            self.calls.append((name, args))
-            return True
-        return method
+    def called(self, name):
+        """The arguments of each call of the named method, such as 'setTwoSidesExtent' or 'loftSections.add'."""
+        return [args for called, args in self.calls if called == name]
+
+
+class _Member:
+    """A method or a member object of a RecordingInput: calling it records the call, and its attributes are members."""
+
+    def __init__(self, owner, name):
+        self._owner, self._name = owner, name
+
+    def __call__(self, *args, **kwargs):
+        self._owner.calls.append((self._name, args))
+        return True
+
+    def __getattr__(self, name):
+        if name.startswith('__'):
+            raise AttributeError(name)
+        return _Member(self._owner, f'{self._name}.{name}')
 
 
 def _centre(body):
