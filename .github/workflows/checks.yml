@@ -1,11 +1,12 @@
-name: 3D proof
+name: Checks
 
 # Checks that every generated gear add-in is what the port produces from the pinned decad-gallery
 # revision, that every add-in compiles and imports with the Fusion modules stubbed, and that every object
 # the add-ins create in Fusion is named by its role. Two jobs:
 #
-#   port    port/, which generates the gears from decad-gallery and fails when a checked-in gear
-#           differs from a fresh generation
+#   port    port/, which generates the gears from decad-gallery: fails when go.mod or go.sum is not
+#           tidy, when go vet or golangci-lint reports a problem, when a port test fails, or when a
+#           checked-in gear differs from a fresh generation
 #   addins  tests/, which fails when an add-in does not compile or import, or creates a sketch, plane,
 #           feature or body without a name
 #
@@ -17,6 +18,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 env:
   PYTHON_VERSION: '3.12'
 
@@ -26,9 +30,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out the gear repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
@@ -40,18 +44,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out the gear repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # port/go.mod pins the decad-gallery revision the ported gears are generated from, and the
       # Go module cache supplies that source, so no sibling checkout is needed.
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: port/go.mod
           cache: false
 
       # The differential tests run the Python translation of the gallery's Go helpers, and the
       # same Python runs the generated add-in's syntax check.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
@@ -66,7 +70,7 @@ jobs:
         working-directory: port
 
       - name: Lint the port
-        uses: golangci/golangci-lint-action@v9.3.0
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: v2.12.2
           working-directory: port
