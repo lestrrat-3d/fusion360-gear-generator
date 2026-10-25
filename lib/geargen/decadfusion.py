@@ -390,6 +390,8 @@ class Runtime:
         self._table = ParamTable()
         self._root = Container(self, component.name)
         self._axes = {}
+        # True when the gallery's axes are not the sketch plane's own: the build lies across the sketch plane.
+        self.mapped = False
         # The gallery builds a gear about the local origin and +Z. frame is that local frame, and
         # placement is where it lies in the design: the anchor, the sketch's axes and their normal.
         self.frame: Frame = Frame(Vec(0, 0, 0), Vec(1, 0, 0), Vec(0, 1, 0), Vec(0, 0, 1))
@@ -400,15 +402,20 @@ class Runtime:
         _active = self
         return self
 
-    def build_frame(self, sketch):
+    def build_frame(self, sketch, u=None, v=None):
         """Place the gear: its origin is the anchor and its axes are the sketch's. [SPUR-F-LOCAL-ORIGIN]
 
         Returns the local frame the translated code builds in. Positions that come out of the design
         (vertices of edges) are in that frame, and positions that go in (the pattern axis, a plane's
         frame, an edge's end point) are mapped to the design, as the gallery's Place does at the end.
         """
-        u = vec_of(sketch.xDirection)
-        v = vec_of(sketch.yDirection)
+        if u is None:
+            u = vec_of(sketch.xDirection)
+            v = vec_of(sketch.yDirection)
+        else:
+            # The gallery's U and V are given in the design, in the sketch's plane: a gear whose shaft is the gallery's U
+            # stands on a plane it lies across. The sketch's own axes then map to them. [PB-FRAME-PLANE]
+            self.mapped = True
         self.placement = Frame(vec_of(self.anchor.worldGeometry), u, v, u.cross(v).unit())
         return self.frame
 
@@ -454,7 +461,7 @@ class Runtime:
         return self._table
 
     def xy(self):
-        return Plane(self, self.plane)
+        return Plane(self, self.plane, frame=self.frame if self.mapped else None)
 
     def unique(self, name):
         """A role name that repeats gets an index: Tooth Profile, Tooth Profile 2."""
@@ -496,7 +503,7 @@ class Runtime:
         solids.name_feature(entity, name)
         entity.isLightBulbOn = True
         self.helpers.append(entity)
-        return Plane(self, entity)
+        return Plane(self, entity, frame=self.frame if self.mapped else None)
 
     def _plane_across(self, frame, name):
         """A plane perpendicular to the base plane through the frame's origin: a Fusion-only sketch holds a

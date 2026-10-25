@@ -158,25 +158,69 @@ class BevelGearGenerator(Generator):
             self.plane.name = 'Pair Base Plane'
 
         toolsSketch = self._anchor(component)
-        runtime = _fx.Runtime(component, self.plane, self._projectedAnchor, _no_fusion_parameters, False, MILLIMETRE)
+        pairPlane, pairTools, shaft, across = self._pairPlane(component, toolsSketch)
+        runtime = _fx.Runtime(component, pairPlane, self._projectedAnchor, _no_fusion_parameters, False, MILLIMETRE)
         runtime.activate()
-        runtime.build_frame(toolsSketch)
+        runtime.build_frame(pairTools, shaft, across)
         pair = build_pair(runtime, params)
         pair.Driving.body.name = 'Driving Gear'
         pair.Pinion.body.name = 'Pinion Gear'
         runtime.finish_containers()
         runtime.hide_helpers()
         toolsSketch.isVisible = False
+        pairTools.isVisible = False
+        pairPlane.isLightBulbOn = False
         solids.hide_construction_geometry(component)
 
     def _anchor(self, component):
-        """A sketch on the plane that holds the Center Point, fully constrained, for every translated sketch to
-        project. [CYCLOIDAL-F-ANCHOR-CHAIN]"""
+        """A sketch on the Target Plane that holds the Center Point and a short line through it along the sketch's X
+        axis, fully constrained. Every translated sketch projects the point, and the Pair Plane stands on the line.
+        [CYCLOIDAL-F-ANCHOR-CHAIN] [PB-PAIR-PLANE]"""
         sketch: adsk.fusion.Sketch = component.sketches.add(self.plane)
         sketch.name = 'Tools'
-        self._projectedAnchor = adsk.fusion.SketchPoint.cast(sketch.project(self.anchorPoint).item(0))
-        if self._projectedAnchor is None:
+        projected = adsk.fusion.SketchPoint.cast(sketch.project(self.anchorPoint).item(0))
+        if projected is None:
             raise RuntimeError('Tools: anchor projection produced no SketchPoint')
+        cx, cy = projected.geometry.x, projected.geometry.y
+        line: adsk.fusion.SketchLine = sketch.sketchCurves.sketchLines.addByTwoPoints(
+            adsk.core.Point3D.create(cx - 0.5, cy, 0.0), adsk.core.Point3D.create(cx + 0.5, cy, 0.0))
+        constraints: adsk.fusion.GeometricConstraints = sketch.geometricConstraints
+        constraints.addCoincident(projected, line)
+        constraints.addMidPoint(projected, line)
+        sketch.sketchDimensions.addDistanceDimension(
+            line.startSketchPoint, line.endSketchPoint,
+            adsk.fusion.DimensionOrientations.AlignedDimensionOrientation,
+            adsk.core.Point3D.create(cx, cy + 0.3, 0.0))
+        constraints.addHorizontal(line)
         if not sketch.isFullyConstrained:
             raise RuntimeError(f'{sketch.name}: sketch is not fully constrained')
+        self._projectedAnchor = projected
+        self._anchorLine = line
         return sketch
+
+    def _pairPlane(self, component, toolsSketch):
+        """The plane the pair is drawn in: across the Target Plane, through the Center Point and along the sketch's X
+        axis. The driving shaft is the Target Plane's normal, so the driving gear stands on the plane with its apex on
+        the Center Point, and the pinion's shaft turns toward the sketch's X axis. Returns the plane, a sketch on it,
+        and the gallery's U and V in the design. [PB-PAIR-PLANE]"""
+        x = _fx.vec_of(toolsSketch.xDirection)
+        y = _fx.vec_of(toolsSketch.yDirection)
+        normal = x.cross(y).unit()
+        planes: adsk.fusion.ConstructionPlanes = component.constructionPlanes
+        plane = None
+        for angle in ('90 deg', '-90 deg'):
+            planeInput = planes.createInput()
+            planeInput.setByAngle(self._anchorLine, adsk.core.ValueInput.createByString(angle), self.plane)
+            plane = planes.add(planeInput)
+            # The plane's normal should be the Target Plane's Y direction, so that U x V is that direction.
+            if _fx.vec_of(plane.geometry.normal).dot(y) > 0:
+                break
+            if angle == '90 deg':
+                plane.deleteMe()
+        plane.name = 'Pair Plane'
+        sketch: adsk.fusion.Sketch = component.sketches.add(plane)
+        sketch.name = 'Pair Tools'
+        sketch.project(self.anchorPoint)
+        sketchNormal = _fx.vec_of(sketch.xDirection).cross(_fx.vec_of(sketch.yDirection)).unit()
+        # U is the Target Plane's normal, and V completes a right-handed pair about the sketch's normal.
+        return plane, sketch, normal, sketchNormal.cross(normal).unit()

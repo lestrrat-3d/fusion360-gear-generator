@@ -907,6 +907,14 @@ them by the dot products of the frame's axes and the sketch's, draws an arc from
 reflection, extrudes the other way for the same reason, and anchors on the line's start point. A pattern about an axis
 that no cylindrical face lies on uses the same kind of line as its axis.
 
+**[PB-PAIR-PLANE] A gear that stands on the Target Plane is drawn in a plane across it.** The gallery draws a bevel pair
+in one plane, the driving shaft along its X axis. To stand the driving gear on the Target Plane, a short line through the
+Center Point along the plane's X axis (in the `Tools` sketch, fully constrained) carries a construction plane at 90 degrees
+to the Target Plane. That plane's normal should be the Target Plane's Y direction, so the plane is made at 90 degrees and
+again at minus 90 if its normal came out the other way. The gallery's U is then the Target Plane's normal and its V
+completes a right-handed pair about the sketch's normal; `Runtime.build_frame` takes them, and every sketch maps the
+gallery's axes to Fusion's by dot products. [PB-FRAME-PLANE]
+
 **[PB-EMBEDDED-TOOTH] The embedded virtual tooth is the region bounded by two flank splines, a tip arc and a root arc.**
 Decad numbers the trim of each flank at the root circle; Fusion's regions carry their trimmed curves, so the runtime
 picks the one valid, hole-free region with four edges of which two are splines.
