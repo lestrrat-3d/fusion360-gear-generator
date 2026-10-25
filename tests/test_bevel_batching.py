@@ -160,6 +160,16 @@ class BatchingTest(unittest.TestCase):
         self.assertEqual([joined], container.bodies)
         self.assertIs(container, joined.container)
 
+    def test_a_union_and_a_copy_accept_the_body_they_move_to(self):
+        fx = self.fx
+        joined = fx.decad_union(self.body(0, 0, 0), self.body(1, 0, 0), name='Join')
+        moved = FakeBRep(0, 0, 0)
+        joined.body = moved
+        self.assertIs(moved, joined.body)
+        copy = fx.decad_copy(self.body(1, 0, 0), name='Copy')
+        copy.body = moved
+        self.assertIs(moved, copy.body)
+
     def test_copies_at_uneven_angles_are_made_one_by_one(self):
         fx = self.fx
         tooth = self.body(1.0, 3.0, 0.0)

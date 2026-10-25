@@ -1511,6 +1511,11 @@ class UnionBody(Body):
             self._realize()
         return self._body
 
+    @body.setter
+    def body(self, value):
+        # A body that moves to a component is a new Fusion body.
+        self._body = value
+
     def _realize(self):
         _realize_copies(self._parts)
         base, tools = self._parts[0], self._parts[1:]
@@ -1572,6 +1577,10 @@ class CopyBody(Body):
         if self._body is None:
             self._make()
         return self._body
+
+    @body.setter
+    def body(self, value):
+        self._body = value
 
     def _make(self):
         runtime = self.runtime
