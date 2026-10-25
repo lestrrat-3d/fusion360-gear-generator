@@ -89,3 +89,16 @@ feature pattern. It found the casing contour by sorting a 240 by 240 sweep into 
 from a base ring and `N` joined sectors, and it worked in centimetres. The gallery splits each lobe into three
 splines at its inflections and traces the contour along 81 directions (720 cam angles, 2000 profile steps). It
 builds the housing as one cylinder minus the contour cavity and the base hole.
+
+## Where the build time goes
+
+Measured in Fusion on the default drive (gallery 19c0f5f), the build takes 14.1 s: 13.3 s for the translated gallery
+build, 0.65 s to move the bodies into sub-components, and 0.02 s for the display settle. Inside the build:
+
+- The sketch solves take about 7.3 s: the disc 2.3 s (37 points), the casing 2.5 s (28 points), the output plate 1.0 s
+  (7 points), the output pins 0.9 s (6 points) and four one-circle sketches 0.15 s each. Fusion charges about 0.05 s per
+  dimension, so the gallery draws one lobe and patterns it ([PB-DIMENSION-COST], [PB-SPLINE-RING]).
+- The disc chamfer takes 1.7 s. The other features (extrudes, cuts, the housing, plate and pin chamfers) take about 1.5 s
+  together.
+- About 1.6 s is Python arithmetic, measured offline: `_housing_contour` evaluates 720 cam angles by 2,000 profile steps.
+  The log does not time it, because it runs before the casing sketch is drawn.
