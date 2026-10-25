@@ -963,3 +963,9 @@ Local variable names, comments, log strings, and how build steps are decomposed 
 helper methods. What the spec **does** pin and the output must reproduce: the contract surface (the
 classes, hook methods, `ctx` fields, and call graph the spec declares), parameter names/ids, the
 geometry the spec prescribes, feature order, and edge-case handling.
+
+**[PB-LAZY-JOIN] Join and copy once, not once per tooth.** Fusion's kernel joins any number of bodies in one combine, and
+makes every copy of a body at equal angles in one circular pattern. The gallery joins and copies tooth by tooth (its
+kernel needs that), so the runtime records a `decad.Union` and a rotated `decad.Copy` and makes the pattern and the single
+combine when a later step first reads the body. Thirty-one teeth cost two features, not about ninety. A copy at an angle
+that is not part of an equal set is made on its own. `tests/test_bevel_batching.py` counts the features.

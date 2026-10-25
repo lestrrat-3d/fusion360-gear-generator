@@ -1486,9 +1486,51 @@ def _combine(base, tools, operation, name):
     return base
 
 
+class UnionBody(Body):
+    """A union the gallery asked for, not yet made. Fusion's exact kernel joins any number of bodies in one
+    combine, and one combine of thirty teeth is far cheaper than thirty. So a union is recorded, a union of unions
+    is flattened, and the single combine is made when something first needs the body's geometry. [PB-LAZY-JOIN]"""
+
+    def __init__(self, runtime, base, others, name):
+        self.runtime = runtime
+        self.container = base.container
+        self._name = name
+        self._body = None
+        self._absorbed = False
+        self._parts = [base] + list(others)
+
+    @property
+    def body(self):
+        if self._absorbed:
+            raise RuntimeError(f'{self._name}: a union that a later union took over was used again')
+        if self._body is None:
+            self._realize()
+        return self._body
+
+    def _realize(self):
+        _realize_copies(self._parts)
+        base, tools = self._parts[0], self._parts[1:]
+        _combine(base, tools, adsk.fusion.FeatureOperations.JoinFeatureOperation, self._name)
+        self._body = base.body
+        self._parts = []
+
+
 @logged
 def decad_union(base, *others, name):
-    return _combine(base, others, adsk.fusion.FeatureOperations.JoinFeatureOperation, name)
+    parts = []
+    for other in others:
+        # A pending union of the tool joins the same base, so its parts become tools of this one.
+        if isinstance(other, UnionBody) and other._body is None:
+            parts.extend(other._parts)
+            other._parts = []
+            other._absorbed = True
+        else:
+            parts.append(other)
+    if isinstance(base, UnionBody) and base._body is None:
+        base._parts.extend(parts)
+        base._name = name
+        return base
+    return UnionBody(base.runtime, base, parts, name)
 
 
 @logged
@@ -1510,26 +1552,107 @@ def decad_with_copy_rotation(center, axis, angle):
     return CopyRotation(center, axis, angle)
 
 
+class CopyBody(Body):
+    """A turned copy of a body the gallery asked for, not yet made. The gallery copies a tooth once per angle, and
+    Fusion makes all the copies of one body at equal angles with a single circular pattern, so the copies are made
+    when something first needs one of them. [PB-LAZY-JOIN]"""
+
+    def __init__(self, runtime, source, rotation, name):
+        self.runtime = runtime
+        self.container = source.container
+        self.source, self.rotation, self._name = source, rotation, name
+        self._body = None
+
+    @property
+    def body(self):
+        if self._body is None:
+            self._make()
+        return self._body
+
+    def _make(self):
+        runtime = self.runtime
+        entities = adsk.core.ObjectCollection.create()
+        entities.add(self.source.body)
+        copies: adsk.fusion.CopyPasteBodies = runtime.component.features.copyPasteBodies
+        feature = copies.add(entities)
+        solids.name_feature(feature, self._name)
+        if feature.bodies.count != 1:
+            raise RuntimeError(f'{self._name}: expected one copied body, got {feature.bodies.count}')
+        self._body = feature.bodies.item(0)
+        if self.rotation is not None:
+            turned = Body(runtime, self._body)
+            decad_transform(turned, self.rotation, name=self._name + ' Turn')
+
+
+def _turn_angle(rotation):
+    return rotation.angle.base() if hasattr(rotation.angle, 'base') else rotation.angle
+
+
 @logged
 def decad_copy(body, *options, name):
     """A copy of the body, turned by the rotation option when there is one."""
-    runtime = body.runtime
-    entities = adsk.core.ObjectCollection.create()
-    entities.add(body.body)
-    copies: adsk.fusion.CopyPasteBodies = runtime.component.features.copyPasteBodies
-    feature = copies.add(entities)
-    solids.name_feature(feature, name)
-    if feature.bodies.count != 1:
-        raise RuntimeError(f'{name}: expected one copied body, got {feature.bodies.count}')
-    copy = Body(runtime, feature.bodies.item(0))
-    copy.container = body.container
-    if body.container is not None:
-        body.container.bodies.append(copy)
+    rotation = None
     for option in options:
         if isinstance(option, CopyRotation):
-            decad_transform(copy, Rotation(option.axis, option.angle.base() if hasattr(option.angle, 'base') else option.angle,
-                                           option.center), name=name + ' Turn')
+            rotation = Rotation(option.axis, _turn_angle(option), option.center)
+    copy = CopyBody(body.runtime, body, rotation, name)
+    if body.container is not None:
+        body.container.bodies.append(copy)
     return copy
+
+
+def _realize_copies(parts):
+    """Make the pending copies among parts. The copies of one body at the angles 2 pi k / n for k = 1 to n - 1 about
+    one axis are one circular pattern; any other copy is made on its own when its body is first read."""
+    groups = {}
+    for part in parts:
+        if isinstance(part, CopyBody) and part._body is None and part.rotation is not None:
+            groups.setdefault(id(part.source), []).append(part)
+    for copies in groups.values():
+        count = len(copies) + 1
+        if count < 3:
+            continue
+        first = copies[0].rotation
+        axis = first.axis.unit()
+        center = first.center if first.center is not None else Vec(0.0, 0.0, 0.0)
+        step = 2 * math.pi / count
+        wanted = sorted(_turn_angle(c.rotation) % (2 * math.pi) for c in copies)
+        same = all(c.rotation.axis.unit().sub(axis).len() < 1e-9 and _same_centre(c.rotation.center, first.center)
+                   for c in copies)
+        if not same or any(abs(a - step * (k + 1)) > 1e-9 for k, a in enumerate(wanted)):
+            continue
+        _pattern_copies(copies, axis, center, count, step)
+
+
+def _same_centre(a, b):
+    if a is None or b is None:
+        return a is b
+    return a.sub(b).len() < 1e-9
+
+
+def _pattern_copies(copies, axis, center, count, step):
+    """One circular pattern of the source for all its pending copies. Each new body is given to the copy whose angle
+    about the axis matches the body's centroid, since Fusion does not say which instance is which."""
+    source, runtime = copies[0].source, copies[0].runtime
+    name = copies[0]._name
+    made = decad_pattern_copies(source, CircularPattern(center, axis, count), name)
+    perpendicular = Vec(0.0, 0.0, 1.0) if abs(axis.z) < 0.9 else Vec(1.0, 0.0, 0.0)
+    e1 = axis.cross(perpendicular).unit()
+    e2 = axis.cross(e1)
+
+    def angle(body):
+        c = body.centroid().Value
+        return math.atan2(c.dot(e2), c.dot(e1))
+
+    origin = angle(source)
+    pool = list(made)
+    for copy in sorted(copies, key=lambda c: _turn_angle(c.rotation)):
+        wanted = _turn_angle(copy.rotation)
+        best = min(pool, key=lambda b: abs(math.remainder(angle(b) - origin - wanted, 2 * math.pi)))
+        if abs(math.remainder(angle(best) - origin - wanted, 2 * math.pi)) > step / 4:
+            raise RuntimeError(f'{name}: no pattern instance lies at {wanted:.6f} rad')
+        pool.remove(best)
+        copy._body = best.body
 
 
 @logged
