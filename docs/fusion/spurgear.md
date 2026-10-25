@@ -117,8 +117,8 @@ build on the shared `[PB-FULL-CONSTRAINT]`, `[PB-SHARE-XOR-COINCIDENT]`, `[PB-NO
   them in `solve()`: splines first, so each line and arc ends on a spline's own fit points, then lines, arcs and the
   dimensions from the local origin, and last the coincident constraint onto the anchor. The tooth angle is part of the
   sampled points, so there is no spine, reference line or angular dimension. The ribs below, `[SPUR-F-SPINE]` and
-  `[SPUR-F-ROTATE-CONFIRM]` describe the old construction, which only `lib/geargen/legacyspur.py` still draws, for the
-  bevel add-in until it is translated.
+  `[SPUR-F-ROTATE-CONFIRM]` describe the old construction, which no add-in draws any more (`legacyspur.py` was
+  deleted on 2026-10-25); they are kept as history.
 
 - **[SPUR-F-LOCAL-FRAME] The translated code builds in the gallery's local frame, and the runtime maps to the design.**
   The gallery builds a gear about the local origin and +Z and moves it onto its placement at the end. The translated
@@ -153,7 +153,9 @@ build on the shared `[PB-FULL-CONSTRAINT]`, `[PB-SHARE-XOR-COINCIDENT]`, `[PB-NO
 - **[SPUR-F-ROOT-ARC] The gallery's root arc is the root circle.** `drawCircles` already draws the root circle, sized by
   the root radius parameter, and the profile finders count its arc. A second arc over it would split the circle and
   change the curve counts. The builder leaves the root arc undrawn and puts both root points on the root circle with a
-  coincident constraint. Each then gets one dimension, because the circle fixes its radius.
+  coincident constraint. Each then gets one dimension, because the circle fixes its radius. This was the old
+  construction's rule; the translated tooth sketch draws the gallery's root arc, and the runtime branch that applied
+  this rule was deleted with `legacyspur.py` on 2026-10-25.
 
 - **[SPUR-F-SPINE] Spine + +X reference + angular pin (step 7).** Draw the spine as a construction
   line `addByTwoPoints(localOrigin, toothTopPoint)` — pass **both** existing `SketchPoint`s

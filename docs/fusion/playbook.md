@@ -26,13 +26,10 @@ import adsk.core, adsk.fusion
 from ...lib import fusion360utils as futil
 from .misc import to_cm, to_mm, get_design
 from .base import Generator, GenerationContext, get_value, get_boolean, get_selection
-from .utilities import get_normal, find_profile_by_curve_counts, find_circle_by_radius
-from . import solids                     # body-op helpers — only gears that need them
-from .spurproxy import VirtualSpurProxy  # only gears that borrow the spur tooth drawer
+from . import solids                     # name_feature, hide_construction_geometry
 ```
 
-(Trim the list to what the gear actually uses; the last two lines apply only to gears whose spec
-calls for them. `lib/geargen/__init__.py` star-imports each gear module to build the package
+(Trim the list to what the gear actually uses. `lib/geargen/__init__.py` star-imports each gear module to build the package
 facade — that one facade star-import is fine; gear modules themselves never use `import *`.)
 
 Module-level constants name the recurring parameters and dialog input ids, e.g.
@@ -142,65 +139,12 @@ alone means min-1/no-max — usually wrong; the existing gears use `setSelection
 exactly-one, or `(0, 1)` plus an explicit empty-selection fallback the spec must also state).
 Filters are enum constants, never strings ([PB-SELECTION-FILTER-ENUM]).
 
-The framework carries a small library of **proven** helpers; each encodes a known Fusion failure
-mode that took real debugging to pin down. A generated gear **MUST call these instead of
-re-implementing the pattern** — re-defining one of these names (or writing a private equivalent of
-one) in a generated module is a contract violation the validation step checks for. The gear's spec
-says *which* helpers it uses and *on what geometry*; the behavior below is the helper's contract.
-
-**`lib/geargen/utilities.py`:**
-- `find_profile_by_curve_counts(sketch, nurbs=0, arcs=0, lines=0)` → the profile whose loop has
-  exactly those curve-type counts and no other curve types ([PB-PROFILE-MATCH]); raises (never
-  falls back to a wrong profile) with a self-diagnosing message.
-- `find_circle_by_radius(sketch, radius, tolerance=0.0001)` → the sketch circle matching the
-  radius (cm); raises on no match.
-- `get_normal(entity)` → world normal of a `BRepFace` / `ConstructionPlane` / `Plane` / `Sketch`.
-
-**`lib/geargen/solids.py`** (body operations; all take the owning component first):
-- `cut_conical_ends(component, toothBody, gearBody, toeMid, heelMid, apexWorld, label)` → the
-  toe-then-heel two-cone flush trim. Toe cut is strict (failure raises); a heel cone that does not
-  intersect the keeper is caught (typed `NonIntersectError`) and the keeper is returned intact.
-  Exactly two split features per gear, every gear ratio.
-- `apply_conical_cut(component, targetBody, frustumBody, edgeMidWorld, apexWorld, label)` → one
-  conical cut: candidate `ConeSurfaceType` faces of `frustumBody` ordered best-first by the cut
-  edge's world-MIDPOINT distance ([PB-FACE-BY-MIDPOINT]), each tried as the split tool
-  (`isSplittingToolExtended=True`), first that splits wins; keeper per `select_keeper`. When no
-  face splits: raises `NonIntersectError` if the per-face failures carried Fusion's
-  `SPLIT_TARGET_TOOL_NOT_INTERSECT` (or localized `交差`) signal, else `RuntimeError` — both with
-  the full per-face distance/error history ([PB-SELF-DIAGNOSING]).
-- `select_keeper(component, pieces, apexWorld, label)` → drops apex-containing pieces, keeps the
-  largest remaining, removes the rest ([PB-REMOVE-PIECES]); raises when nothing remains.
-- `find_cone_faces_by_midpoint(frustumBody, edgeMidWorld)` / `surface_distance(surface, point)` —
-  the face-candidate ordering primitives (unevaluable distance → `inf`, "try last").
-- `slice_body_by_offset_planes(component, body, basePlane, offsets)` → splits piece-by-piece with
-  planes offset by each value (cm); a plane that misses a piece leaves it whole. The caller picks
-  the offsets/signs and asserts the resulting piece count ([PB-EMPTY-RESULT]).
-- `rotate_body_about_edge(component, body, edge, angleRad)` — rotation about a sketch edge's world
-  endpoints via free-move matrix ([PB-MOVE-ROTATE]).
-- `plane_by_angle(component, line, refPlane, angleDeg)` — `setByAngle` construction plane through
-  a sketch line (passed directly, never via `Path.create` — [PB-CONSTRUCTION-PLANES]).
-- `combine_point(base, a, e1, b=0.0, e2=None)` → world `Point3D` = base + a·e1 (+ b·e2), cm.
-- `circle_intersect_nearest(R, Cx, Cy, r_c, refX, refY)` → the 2-D circle∩circle intersection
-  nearest the reference point (non-overlap clamps to tangency).
-- `hide_construction_geometry(component)` — recursive light-bulb-off walk over every sketch /
-  construction plane / axis in the tree, deduped by `entityToken` ([PB-TREE-CLEANUP]).
-
-**`lib/geargen/spurproxy.py`:**
-- `VirtualSpurProxy(module_mm, virtualTeeth, pressureAngleRad=radians(20), involuteSteps=15,
-  rootSink_mm=0.0)` — a fake spur `parent` for `SpurGearInvoluteToothDesignGenerator`
-  ([PB-PRECOMPUTED-MODE]): serves, in internal cm, exactly the parameter keys the spur drawer reads
-  (`Module`, `ToothNumber`, `PressureAngle`, the Pitch/Base/Root/Tip circle diameters+radii,
-  `InvoluteSteps`), each wrapped in a `.value` carrier (`Val`). Carries the `_lastToothEmbedded`
-  output slot the drawer writes during `draw()` — the borrowing gear reads it back afterward.
-  - `virtualTeeth` may be a **real number**. The pitch diameter is `virtualTeeth * module_mm`, so a
-    gear that needs a pitch circle at a radius the tooth count does not land on passes the real
-    count and gets that radius. The drawer reads `ToothNumber` only for the angular half-thickness
-    `pi / (2 * ToothNumber)`, which a real count leaves at the standard `pi * module / 2` of tooth
-    at the pitch circle.
-  - `rootSink_mm` shortens the ROOT circle by `2 * rootSink_mm` of diameter and leaves pitch, base
-    and tip where they are. It exists for a gear whose tooth is joined onto a curved body, where a
-    root circle at the dedendum corner exactly meets that body along one line. It defaults to 0,
-    which is the plain spur tooth.
+The framework helpers are `solids.name_feature` (names an object by its role and never fails a build) and
+`solids.hide_construction_geometry(component)` (a recursive light-bulb-off walk over every sketch, construction plane
+and axis in the tree, [PB-TREE-CLEANUP]). Every Fusion operation of a translated gear goes through
+`lib/geargen/decadfusion.py`. The old pipeline's helpers (`utilities.py`, `spurproxy.py`, `legacyspur.py`, and the
+conical-cut, slicing and rotation helpers of `solids.py`) were deleted on 2026-10-25 once no add-in used them. The
+Fusion behaviours they encoded stay under their anchors in this file.
 
 ## `processInputs` pattern
 
@@ -806,7 +750,7 @@ authoritative description of the behavior the helpers encode.
     and Fusion refuses to move a body by it, with `RuntimeError: 3 : invalid transform`. Measured
     2026-09-02 on the bevel pinion, whose mesh phase is 0 by default. Any caller that *computes* an
     angle can legitimately arrive at zero, so return early rather than making each call site guard
-    it; `solids.rotate_body_about_edge` absorbs it for exactly this reason.
+    it; `decadfusion.decad_transform` returns the body unchanged for a zero turn for exactly this reason.
 
 ## Multi-component orchestration (a gear that builds several sibling components, e.g. a pair)
 

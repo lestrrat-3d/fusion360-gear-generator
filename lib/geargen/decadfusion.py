@@ -782,7 +782,7 @@ class Sketch:
     anchor. [SPUR-F-GALLERY-SKETCH] [SPUR-F-ARC-CENTRE] [SPUR-F-ALIGN-DUPLICATE] [SPUR-F-LOCAL-ORIGIN]
     """
 
-    def __init__(self, runtime, fsketch, origin=None, rootCircle=None, rootRadius=None, plane=None):
+    def __init__(self, runtime, fsketch, plane=None):
         self.runtime = runtime
         self._scale = runtime.scale if runtime is not None else 1.0
         self.sketch: adsk.fusion.Sketch = fsketch
@@ -802,10 +802,7 @@ class Sketch:
                 self._anchorPoint = plane.anchor
         self._lineHandles = []
         # The local origin is a point the anchor constraint can move, which the sketch's own origin is not.
-        self._origin = origin if origin is not None else fsketch.sketchPoints.add(adsk.core.Point3D.create(0, 0, 0))
-        # A caller that draws the root circle itself passes it, and the root arc then lies on that circle.
-        self._rootCircle = rootCircle
-        self._rootRadius = rootRadius
+        self._origin = fsketch.sketchPoints.add(adsk.core.Point3D.create(0, 0, 0))
         self._points = []
         self._lines = []
         self._arcs = []
@@ -1007,21 +1004,10 @@ class Sketch:
                 end.point = line.endSketchPoint
         self._lines = []
 
-    def _onRootCircle(self, point):
-        assert self._rootRadius is not None
-        return abs(math.hypot(point.x, point.y) - self._rootRadius) < SAME_COORDINATE
-
     def _drawArcs(self):
         arcs: adsk.fusion.SketchArcs = self.sketch.sketchCurves.sketchArcs
         constraints: adsk.fusion.GeometricConstraints = self.sketch.geometricConstraints
         for center, start, end in self._arcs:
-            if self._rootCircle is not None and self._onRootCircle(start) and self._onRootCircle(end):
-                # The root arc is part of the root circle the caller already drew, which the parameters size.
-                # Its ends sit on that circle instead of getting a second arc. [SPUR-F-ROOT-ARC]
-                for point in (start, end):
-                    point.arcEnd = True
-                    constraints.addCoincident(point.point, self._rootCircle)
-                continue
             # An arc runs counter-clockwise from its start; a reflected map reverses that. [PB-FRAME-PLANE]
             first, last = (end, start) if self.flipped else (start, end)
             arc: adsk.fusion.SketchArc = arcs.addByCenterStartEnd(center, first.point, last.point)
