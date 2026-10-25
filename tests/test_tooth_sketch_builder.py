@@ -38,6 +38,8 @@ class FakePointList:
 
 class FakeSketch:
     def __init__(self):
+        self.name = 'Fake Sketch'
+        self.isComputeDeferred = False
         self.constraints = []
         self.dimensions = []
         self.lines = []
