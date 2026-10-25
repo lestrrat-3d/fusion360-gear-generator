@@ -1088,6 +1088,7 @@ class Body:
         """The smallest box around the body in the build's local frame. The body's bounding box in the design is
         axis-aligned in the design, so its corners are mapped to the local frame, which can make the box larger than
         the body; a caller that only needs the body's reach along a direction gets a safe margin."""
+        _settle(self)
         box = self.body.boundingBox
         corners = [Vec(x, y, z) for x in (box.minPoint.x, box.maxPoint.x) for y in (box.minPoint.y, box.maxPoint.y)
                    for z in (box.minPoint.z, box.maxPoint.z)]
@@ -1096,12 +1097,15 @@ class Body:
                    Vec(max(c.x for c in local), max(c.y for c in local), max(c.z for c in local)))
 
     def is_solid(self):
+        _settle(self)
         return self.body.isSolid
 
     def centroid(self):
+        _settle(self)
         return Centroid(self.runtime, self.body.physicalProperties.centerOfMass)
 
     def faces(self):
+        _settle(self)
         return [Face(self.runtime, f) for f in self.body.faces]
 
     def extreme_faces_by_centroid(self, axis):
@@ -1458,6 +1462,11 @@ def _axis_through(runtime, pattern, name):
 
 @logged
 def decad_pattern_copies(tooth, pattern, name):
+    _settle(tooth)
+    return _circular_pattern(tooth, pattern, name)
+
+
+def _circular_pattern(tooth, pattern, name):
     runtime = tooth.runtime
     axis = _axis_through(runtime, pattern, name + ' Axis')
     entities = adsk.core.ObjectCollection.create()
@@ -1492,6 +1501,13 @@ def decad_with_copy_placement(turn):
     return Option(turn)
 
 
+def _leave_container(body):
+    if body.container is not None:
+        if any(held is body for held in body.container.bodies):
+            body.container.bodies.remove(body)
+        body.container = None
+
+
 def _combine(base, tools, operation, name):
     collection = adsk.core.ObjectCollection.create()
     for tool in tools:
@@ -1503,10 +1519,40 @@ def _combine(base, tools, operation, name):
     solids.name_feature(feature, name)
     # The tools are consumed, so they no longer belong to a container.
     for tool in tools:
-        if tool.container is not None:
-            tool.container.bodies.remove(tool)
-            tool.container = None
+        _leave_container(tool)
     return base
+
+
+def _depend(body, lazy):
+    """Record that a pending union or copy takes body, so that an operation on body makes it first. [PB-LAZY-JOIN]"""
+    body.__dict__.setdefault('_dependents', []).append(lazy)
+
+
+def _settle(body, upto=None):
+    """Make the pending copies of body and the pending unions that take it, in the order the gallery asked for them,
+    before anything else changes or reads body. The lazy batching then gives every body the shape the eager sequence
+    of features would. With upto, only what was asked for before upto is made; once upto is no longer pending,
+    everything before it was made already. Copies asked for one after another are made together, so the copies of one
+    tooth stay one pattern. [PB-LAZY-JOIN]"""
+    pending = body.__dict__.get('_dependents')
+    if not pending:
+        return
+    if upto is not None and not any(entry is upto for entry in pending):
+        return
+    while pending and pending[0] is not upto:
+        entry = pending.pop(0)
+        if isinstance(entry, CopyBody):
+            run = [entry]
+            while pending and pending[0] is not upto and isinstance(pending[0], CopyBody):
+                run.append(pending.pop(0))
+            _make_copies(run)
+        elif entry._body is None and not entry._absorbed:
+            entry._realize()
+
+
+def _settle_all(*bodies):
+    for body in bodies:
+        _settle(body)
 
 
 class UnionBody(Body):
@@ -1521,6 +1567,8 @@ class UnionBody(Body):
         self._body = None
         self._absorbed = False
         self._parts = [base] + list(others)
+        for part in self._parts:
+            _depend(part, self)
         # The union stands where its base stood: the base is the body the container holds.
         if base.container is not None and base in base.container.bodies:
             base.container.bodies[base.container.bodies.index(base)] = self
@@ -1529,7 +1577,7 @@ class UnionBody(Body):
     @property
     def body(self):
         if self._absorbed:
-            raise RuntimeError(f'{self._name}: a union that a later union took over was used again')
+            raise ConsumedBody(f'{self._name}: a union that a later union took over was used again')
         if self._body is None:
             self._realize()
         return self._body
@@ -1540,6 +1588,10 @@ class UnionBody(Body):
         self._body = value
 
     def _realize(self):
+        # What the gallery asked of each part before this union comes first: a copy of a tool is made before the
+        # join consumes the tool, and an earlier union that takes a part is joined first.
+        for part in self._parts:
+            _settle(part, upto=self)
         _realize_copies(self._parts)
         base, tools = self._parts[0], self._parts[1:]
         _combine(base, tools, adsk.fusion.FeatureOperations.JoinFeatureOperation, self._name)
@@ -1549,6 +1601,9 @@ class UnionBody(Body):
 
 @logged
 def decad_union(base, *others, name):
+    for body in (base,) + others:
+        if isinstance(body, UnionBody) and body._absorbed:
+            raise ConsumedBody(f'{name}: {body._name} was joined into a later union and cannot be joined again')
     parts = []
     for other in others:
         # A pending union of the tool joins the same base, so its parts become tools of this one.
@@ -1556,10 +1611,16 @@ def decad_union(base, *others, name):
             parts.extend(other._parts)
             other._parts = []
             other._absorbed = True
+            # The eager join consumes the tool, so the union it stood for leaves its container.
+            _leave_container(other)
         else:
             parts.append(other)
+            # The eager join consumes its tools, so they leave their containers when the union is asked for.
+            _leave_container(other)
     if isinstance(base, UnionBody) and base._body is None:
         base._parts.extend(parts)
+        for part in parts:
+            _depend(part, base)
         base._name = name
         return base
     return UnionBody(base.runtime, base, parts, name)
@@ -1567,11 +1628,13 @@ def decad_union(base, *others, name):
 
 @logged
 def decad_cut(base, tool, *options, name):
+    _settle_all(base, tool)
     return _combine(base, [tool], adsk.fusion.FeatureOperations.CutFeatureOperation, name)
 
 
 @logged
 def decad_intersect(base, tool, *options, name):
+    _settle_all(base, tool)
     return _combine(base, [tool], adsk.fusion.FeatureOperations.IntersectFeatureOperation, name)
 
 
@@ -1594,6 +1657,7 @@ class CopyBody(Body):
         self.container = source.container
         self.source, self.rotation, self._name = source, rotation, name
         self._body = None
+        _depend(source, self)
 
     @property
     def body(self):
@@ -1606,6 +1670,8 @@ class CopyBody(Body):
         self._body = value
 
     def _make(self):
+        # The copy is of the source as it stood when the copy was asked for.
+        _settle(self.source, upto=self)
         runtime = self.runtime
         entities = adsk.core.ObjectCollection.create()
         entities.add(self.source.body)
@@ -1635,6 +1701,14 @@ def decad_copy(body, *options, name):
     if body.container is not None:
         body.container.bodies.append(copy)
     return copy
+
+
+def _make_copies(copies):
+    """Make pending copies, the ones at equal angles about one axis as one pattern and the others one by one."""
+    _realize_copies(copies)
+    for copy in copies:
+        if copy._body is None:
+            copy._make()
 
 
 def _realize_copies(parts):
@@ -1671,13 +1745,14 @@ def _pattern_copies(copies, axis, center, count, step):
     about the axis matches the body's centroid, since Fusion does not say which instance is which."""
     source, runtime = copies[0].source, copies[0].runtime
     name = copies[0]._name
-    made = decad_pattern_copies(source, CircularPattern(center, axis, count), name)
+    made = _circular_pattern(source, CircularPattern(center, axis, count), name)
     perpendicular = Vec(0.0, 0.0, 1.0) if abs(axis.z) < 0.9 else Vec(1.0, 0.0, 0.0)
     e1 = axis.cross(perpendicular).unit()
     e2 = axis.cross(e1)
 
     def angle(body):
-        c = body.centroid().Value
+        # The raw centre of mass: reading the source through Body would make its pending copies, which are these.
+        c = Centroid(runtime, body.body.physicalProperties.centerOfMass).Value
         return math.atan2(c.dot(e2), c.dot(e1))
 
     origin = angle(source)
@@ -1694,6 +1769,7 @@ def _pattern_copies(copies, axis, center, count, step):
 @logged
 def decad_remove(body, name):
     """Delete a body from the design. The body stays readable to the gallery but nothing takes it again."""
+    _settle(body)
     removes: adsk.fusion.RemoveFeatures = body.runtime.component.features.removeFeatures
     feature = removes.add(body.body)
     solids.name_feature(feature, name)
@@ -1717,6 +1793,7 @@ def _planar_face_through(body, world):
 @logged
 def decad_scaled_at(body, anchor, factor, name):
     """Scale the body uniformly about a point of the build frame, in place."""
+    _settle(body)
     runtime = body.runtime
     world = runtime.to_world(anchor)
     where = adsk.core.Point3D.create(world.x, world.y, world.z)
@@ -1741,6 +1818,7 @@ def decad_scaled_at(body, anchor, factor, name):
 def decad_split(target, sheet, name):
     """Cut a solid with a surface body and return its two pieces, the one nearer the local origin first. The gallery
     walks the slices from the heel toward the apex, so the first piece is the one the next plane can still meet."""
+    _settle_all(target, sheet)
     runtime = target.runtime
     splits: adsk.fusion.SplitBodyFeatures = runtime.component.features.splitBodyFeatures
     splitInput: adsk.fusion.SplitBodyFeatureInput = splits.createInput(target.body, sheet.body, True)
@@ -1785,6 +1863,7 @@ def decad_loft_faces(doc, *faces, name, body):
 
 @logged
 def decad_fillet(body, selector, radius, name):
+    _settle(body)
     with timed(f'{name} edge selection'):
         edges = _edge_collection(selector, body, name)
     fillets: adsk.fusion.FilletFeatures = body.runtime.component.features.filletFeatures
@@ -1798,6 +1877,7 @@ def decad_fillet(body, selector, radius, name):
 
 @logged
 def decad_chamfer(body, selector, setback, name):
+    _settle(body)
     with timed(f'{name} edge selection'):
         edges = _edge_collection(selector, body, name)
     chamfers: adsk.fusion.ChamferFeatures = body.runtime.component.features.chamferFeatures
@@ -1855,6 +1935,7 @@ def placement_place(body, frame):
 
 @logged
 def decad_transform(body, transform, name):
+    _settle(body)
     runtime = body.runtime
     if not isinstance(transform, Rotation):
         raise RuntimeError(f'{name}: only a rotation is translated')
@@ -1964,6 +2045,7 @@ def decad_mirror_frame(Frame):
 
 @logged
 def decad_mirrored_copy(source, mirror, name, body):
+    _settle(source)
     runtime = source.runtime
     plane = runtime.create_plane_from_frame(mirror.Frame, name + ' Plane')
     entities = adsk.core.ObjectCollection.create()

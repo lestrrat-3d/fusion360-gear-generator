@@ -134,5 +134,84 @@ class ContainerTest(RuntimeTestCase):
             self.runtime.finish_containers()
 
 
+class LazyBookkeepingTest(RuntimeTestCase):
+    """Pending unions and copies give every body the shape the eager sequence of features would."""
+
+    def turn(self, angle=0.5):
+        return self.fx.r3_rotation(self.fx.r3_new_vec(1, 0, 0), angle)
+
+    def test_a_union_a_later_union_absorbs_leaves_its_container(self):
+        fx = self.fx
+        container = fx.Container(self.runtime, 'Gear')
+        blank, tooth = self.body(container=container), self.body(1.0, container=container)
+        inner = fx.decad_union(blank, tooth, name='Inner')
+        outer = fx.decad_union(self.body(2.0), inner, name='Outer')
+        self.assertEqual([], container.bodies)
+        outer.body
+        for held in container.bodies:
+            held.body  # finish_containers reads every body it moves
+
+    def test_an_absorbed_union_cannot_be_joined_again(self):
+        fx = self.fx
+        first = fx.decad_union(self.body(), self.body(1.0), name='U')
+        second = fx.decad_union(self.body(2.0), first, name='V')
+        with self.assertRaises(fx.ConsumedBody):
+            fx.decad_union(second, first, name='W')
+        with self.assertRaises(fx.ConsumedBody):
+            fx.decad_union(first, self.body(3.0), name='X')
+
+    def test_a_copy_is_made_before_its_source_moves(self):
+        fx = self.fx
+        source = self.body(1.0)
+        copy = fx.decad_copy(source, name='Copy')
+        fx.decad_transform(source, self.turn(), name='Move')
+        self.assertEqual(['copy', 'move'], self.features.kinds())
+        copy.body
+        self.assertEqual(['copy', 'move'], self.features.kinds())
+
+    def test_a_pending_union_is_joined_before_its_base_moves(self):
+        fx = self.fx
+        base = self.body()
+        fx.decad_union(base, self.body(1.0), name='Join')
+        fx.decad_transform(base, self.turn(), name='Move')
+        self.assertEqual(['combine', 'move'], self.features.kinds())
+
+    def test_a_copy_of_a_tool_is_made_before_the_join_consumes_the_tool(self):
+        fx = self.fx
+        tool = self.body(1.0)
+        copy = fx.decad_copy(tool, name='Copy')
+        joined = fx.decad_union(self.body(), tool, name='Join')
+        joined.body
+        self.assertEqual(['copy', 'combine'], self.features.kinds())
+        self.assertIsNotNone(copy._body)
+
+    def test_a_copy_asked_for_after_a_union_copies_the_joined_body(self):
+        fx = self.fx
+        base = self.body()
+        fx.decad_union(base, self.body(1.0), name='Join')
+        copy = fx.decad_copy(base, name='Copy')
+        copy.body
+        self.assertEqual(['combine', 'copy'], self.features.kinds())
+
+    def test_every_operation_on_a_body_makes_its_pending_copies_first(self):
+        fx = self.fx
+        operations = {
+            'cut base': lambda b: fx.decad_cut(b, self.body(9.0), name='Cut'),
+            'cut tool': lambda b: fx.decad_cut(self.body(9.0), b, name='Cut'),
+            'intersect': lambda b: fx.decad_intersect(b, self.body(9.0), name='Intersect'),
+            'remove': lambda b: fx.decad_remove(b, name='Remove'),
+            'centroid': lambda b: b.centroid(),
+            'faces': lambda b: b.faces(),
+            'solid': lambda b: b.is_solid(),
+        }
+        for what, operation in operations.items():
+            with self.subTest(operation=what):
+                self.log.clear()
+                source = self.body(1.0)
+                fx.decad_copy(source, name='Copy')
+                operation(source)
+                self.assertEqual('copy', self.features.kinds()[0])
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -155,7 +155,8 @@ class BatchingTest(unittest.TestCase):
             body.container = container
             container.bodies.append(body)
         joined = fx.decad_union(blank, tooth, name='Join')
-        self.assertEqual([joined, tooth], container.bodies)
+        # The join consumes the tooth when the union is asked for, as the eager feature would.
+        self.assertEqual([joined], container.bodies)
         joined.body
         self.assertEqual([joined], container.bodies)
         self.assertIs(container, joined.container)
