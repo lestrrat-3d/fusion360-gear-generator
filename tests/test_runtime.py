@@ -417,8 +417,7 @@ class NumbersTest(RuntimeTestCase):
             fx.Runtime(self.component, 'plane', None, None, scale=1.0).activate()
             self.assertAlmostEqual(0.5, fx.units_millimeters(5.0))
             fx._active = None
-            with self.assertRaises(RuntimeError):
-                fx.units_millimeters(5.0)
+            self.assertEqual(5.0, fx.units_millimeters(5.0), 'with no runtime the gallery computes in millimetres')
         finally:
             fx._active = saved
 

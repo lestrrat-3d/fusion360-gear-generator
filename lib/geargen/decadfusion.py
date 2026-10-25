@@ -248,10 +248,10 @@ def decad_two_sided(One, Two):
 
 def units_millimeters(x):
     """x millimetres in the length unit of the translated code: the number itself in a millimetre runtime (scale
-    0.1), a tenth of it in a centimetre runtime (scale 1.0). [PB-UNITS]"""
-    if _active is None:
-        raise RuntimeError('units_millimeters needs an active runtime to know the unit of the translated code')
-    return x * 0.1 / _active.scale
+    0.1), a tenth of it in a centimetre runtime (scale 1.0). Translated code that runs with no runtime active, such
+    as a gallery calculation the port's tests call directly, computes in the gallery's millimetres. [PB-UNITS]"""
+    scale = _active.scale if _active is not None else 0.1
+    return x * 0.1 / scale
 
 
 class CircularPattern:
