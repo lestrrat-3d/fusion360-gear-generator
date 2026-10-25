@@ -311,8 +311,8 @@ func TestTranslatedBuildRunsAgainstFakes(t *testing.T) {
 		"Housing Hole Profile", "Output Plate Profile", "Output Pin Profile",
 	}, names(0, "sketch"))
 	require.Equal(t, []string{"Casing Cavity Cut", "Housing Hole Cut", "Input Bore Cut"}, sorted(names(0, "cut")))
-	require.Equal(t, []string{"Chamfer housing", "Chamfer output plate", "Chamfer output pin"}, uniq(names(0, "chamfer")))
-	require.Len(t, names(0, "chamfer"), 2+6)
+	require.Equal(t, []string{"Chamfer disc 1", "Chamfer housing", "Chamfer output plate", "Chamfer output pin"}, uniq(names(0, "chamfer")))
+	require.Len(t, names(0, "chamfer"), 1+2+6)
 	require.Equal(t, []string{
 		"Cycloidal Disk 1", "Housing", "Eccentric Cam", "Output Plate",
 		"Output Pin 1", "Output Pin 2", "Output Pin 3", "Output Pin 4", "Output Pin 5", "Output Pin 6",

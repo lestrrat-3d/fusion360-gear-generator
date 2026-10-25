@@ -100,8 +100,8 @@ var FeatureSpec = go2py.Spec{
 		"inflections", "lobeSegments", "housingContour", "splitAtInflections", "thinned", "resolve",
 		"minInwardCurvatureRadius", "undercuts", "undercutBound", "Problems", "planeAt", "circleAt",
 		"discGeometry", "discHeight", "buildDisc", "buildDiscSampled", "buildHousing", "buildCavity", "buildCam",
-		"buildCamBridge", "outputPinCenter", "buildOutput", "chamfered", "chamferedBy", "housingOuterCircles",
-		"Build", "DiscName", "OutputPinName", "Named",
+		"buildCamBridge", "outputPinCenter", "buildOutput", "chamferedBy", "housingOuterCircles",
+		"chamfered", "chamferedDisc", "Build", "DiscName", "OutputPinName", "Named",
 	},
 	Roles: map[string]go2py.Role{
 		"planeAt:sketch.World.CreatePlaneFromFrame#1":  {Feature: "Section Plane"},
