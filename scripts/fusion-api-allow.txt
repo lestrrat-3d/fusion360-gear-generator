@@ -8,9 +8,7 @@
 lib/geargen/bevelgear.py: Cannot access attribute "project" for class "Sketch"
 lib/geargen/cycloidal.py: Cannot access attribute "project" for class "Sketch"
 lib/geargen/decadfusion.py: Cannot access attribute "project" for class "Sketch"
-lib/geargen/legacyspur.py: Cannot access attribute "project" for class "Sketch"
 lib/geargen/spurgear.py: Cannot access attribute "project" for class "Sketch"
-lib/geargen/legacyspur.py: Cannot access attribute "createInput2" for class "SketchTexts"
 lib/geargen/spurgear.py: Cannot access attribute "createInput2" for class "SketchTexts"
 lib/geargen/decadfusion.py: Cannot access attribute "addConstantRadiusEdgeSet" for class "FilletFeatureInput"
 #
