@@ -974,3 +974,7 @@ that is not part of an equal set is made on its own. `tests/test_bevel_batching.
 `ConstructionPointInput.setByPoint` with a `Point3D` is valid only in direct modeling; in a parametric design it fails
 with "3 : Environment is not supported". The base point is a sketch point on a planar face that passes through the
 anchor, placed with `modelToSketchSpace`.
+
+**[PB-SPLIT-TOOL] A Split Body feature leaves its splitting tool in the design.** The gallery's `decad.Split` consumes the
+sheet, so the runtime removes the sheet body after the split. A sheet left behind shows as a plate, one per cut, across
+the gear.

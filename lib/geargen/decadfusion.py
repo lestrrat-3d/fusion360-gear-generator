@@ -1730,8 +1730,11 @@ def decad_split(target, sheet, name):
     for fbody in feature.bodies:
         pieces.append(Body(runtime, fbody))
     pieces.sort(key=lambda piece: piece.centroid().Value.len())
-    # The sheet and the target are consumed; the pieces take the target's place.
-    for gone in (target, sheet):
+    # Fusion keeps the splitting tool as a body of its own, where decad consumes it, so the sheet is removed. Left in
+    # place it shows as a large plate across the gear. [PB-SPLIT-TOOL]
+    decad_remove(sheet, name + ' Sheet Removal')
+    # The target is consumed; the pieces take its place.
+    for gone in (target,):
         if gone.container is not None:
             gone.container.bodies.remove(gone)
             gone.container = None
