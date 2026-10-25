@@ -159,7 +159,9 @@ class BevelGearGenerator(Generator):
 
         toolsSketch = self._anchor(component)
         pairPlane, pairTools, shaft, across = self._pairPlane(component, toolsSketch)
-        runtime = _fx.Runtime(component, pairPlane, self._projectedAnchor, _no_fusion_parameters, False, MILLIMETRE)
+        # Every sketch projects the Center Point itself: the point the Tools sketch projected goes stale once that sketch
+        # changes, and a projection of it is refused.
+        runtime = _fx.Runtime(component, pairPlane, self.anchorPoint, _no_fusion_parameters, False, MILLIMETRE)
         runtime.activate()
         runtime.build_frame(pairTools, shaft, across)
         pair = build_pair(runtime, params)
