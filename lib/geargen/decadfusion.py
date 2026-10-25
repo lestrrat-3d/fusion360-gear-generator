@@ -486,16 +486,19 @@ class Sketch:
 
     def solve(self):
         with timed(f'{self.sketch.name} solve'):
-            self.finish()
-            with timed(f'{self.sketch.name} anchor'):
-                self._anchor()
+            self.finish(self._anchorTimed)
+
+    def _anchorTimed(self):
+        with timed(f'{self.sketch.name} anchor'):
+            self._anchor()
 
     def profiles(self):
         return [Profile(profile) for profile in self.sketch.profiles]
 
     # The drawing
-    def finish(self):
-        """Draw everything recorded, without moving the local origin."""
+    def finish(self, anchor=None):
+        """Draw everything recorded. A caller passes the step that moves the local origin onto the anchor, which runs
+        last, or before the patterns when the sketch has any: [PB-SPLINE-RING]"""
         with timed(f'{self.sketch.name} draw'):
             self._drawSplines()
             self._drawLines()
@@ -507,6 +510,9 @@ class Sketch:
             for constraint in self._constraints:
                 self._dimensionCircle(constraint)
             self._constraints = []
+        if anchor is not None and self._patterns:
+            anchor()
+            anchor = None
         for pattern in self._patterns:
             with timed(f'{self.sketch.name} pattern'):
                 self._pattern(*pattern)
@@ -514,6 +520,8 @@ class Sketch:
         for constraint, name in self._bindings:
             self._bind(constraint, name)
         self._bindings = []
+        if anchor is not None:
+            anchor()
 
     def _anchor(self):
         """Move the local origin onto the anchor, last, once every dimension is in place. [SPUR-F-LOCAL-ORIGIN]"""
