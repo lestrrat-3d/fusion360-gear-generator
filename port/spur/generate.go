@@ -327,6 +327,9 @@ func (p *pieces) writeDerived(sb *strings.Builder, mp Param, e gallery.Parameter
 	if err != nil {
 		return fmt.Errorf("parameter %s: %w", mp.Table, err)
 	}
+	if err := fusionexpr.CheckUnit(res.Kind, mp.Unit); err != nil {
+		return fmt.Errorf("parameter %s: %w", mp.Table, err)
+	}
 	format := res.Format
 	args := make([]string, 0, len(res.Names)+1)
 	for _, name := range res.Names {

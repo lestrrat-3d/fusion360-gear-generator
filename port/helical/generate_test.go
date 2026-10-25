@@ -83,3 +83,10 @@ func TestGenerateRefusesChangedCreatingCalls(t *testing.T) {
 	_, err = helical.Generate(m, "v0", fragment, reviewed)
 	require.ErrorContains(t, err, "records no creating calls")
 }
+
+func TestRegistrationRefusesAnAngleAsALength(t *testing.T) {
+	p := helical.FilletRadius
+	p.Expr = "helix_angle"
+	_, err := helical.Registration(p)
+	require.ErrorContains(t, err, "angle")
+}

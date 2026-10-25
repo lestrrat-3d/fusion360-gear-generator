@@ -132,3 +132,17 @@ func readFragment(t *testing.T) string {
 	require.NoError(t, err)
 	return string(fragment)
 }
+
+func TestGenerateRefusesAnAngleRegisteredAsALength(t *testing.T) {
+	_, m, reviewed := generate(t)
+	table := slices.Clone(m.Table)
+	for i := range table {
+		if table[i].Name == "base_radius" {
+			table[i].Expr = "pressure_angle"
+		}
+	}
+	m.Table = table
+	_, err := spur.Generate(m, "v0", readFragment(t), reviewed)
+	require.ErrorContains(t, err, "base_radius")
+	require.ErrorContains(t, err, "angle")
+}

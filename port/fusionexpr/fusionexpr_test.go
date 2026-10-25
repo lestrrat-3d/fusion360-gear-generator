@@ -95,3 +95,14 @@ func TestTranslateWritesPiInCapitals(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "PI / 2", got.Format)
 }
+
+func TestCheckUnitRefusesAMismatchedKind(t *testing.T) {
+	require.NoError(t, fusionexpr.CheckUnit(fusionexpr.KindLength, "mm"))
+	require.NoError(t, fusionexpr.CheckUnit(fusionexpr.KindAngle, "rad"))
+	require.NoError(t, fusionexpr.CheckUnit(fusionexpr.KindNone, "mm"), "a plain number takes the parameter's unit")
+	require.NoError(t, fusionexpr.CheckUnit(fusionexpr.KindNone, ""))
+	require.ErrorContains(t, fusionexpr.CheckUnit(fusionexpr.KindAngle, "mm"), "angle")
+	require.ErrorContains(t, fusionexpr.CheckUnit(fusionexpr.KindLength, ""), "length")
+	require.ErrorContains(t, fusionexpr.CheckUnit(fusionexpr.KindOther, "mm"), "mixed-unit")
+	require.ErrorContains(t, fusionexpr.CheckUnit(fusionexpr.KindLength, "furlong"), "no rule")
+}

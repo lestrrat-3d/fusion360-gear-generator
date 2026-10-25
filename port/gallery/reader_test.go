@@ -157,3 +157,33 @@ func f(a, b float64) float64 {
 	_, err = m.SourceDigest("noSuchFunction")
 	require.Error(t, err)
 }
+
+// TestTableReadsTheParamsArgumentByItsName requires the table reader to find the Params argument by its declared
+// name, to read a value computed in defineParameters as a snapshot, and to refuse any other selector.
+func TestTableReadsTheParamsArgumentByItsName(t *testing.T) {
+	m := loadSource(t, `
+var other struct{ X float64 }
+
+func defineParameters(t *param.Table, q Params) error {
+	d := resolve(q)
+	t.SetValue("a", units.Millimeters(q.A))
+	t.SetValue("b", units.Millimeters(d.B))
+	return nil
+}
+`)
+	require.NoError(t, m.TableErr)
+	require.Equal(t, []gallery.Parameter{
+		{Name: "a", Kind: gallery.KindInput, Unit: "Millimeters", Field: "A"},
+		{Name: "b", Kind: gallery.KindSnapshot, Unit: "Millimeters", Field: "d.B"},
+	}, m.Table)
+
+	m = loadSource(t, `
+var other struct{ X float64 }
+
+func defineParameters(t *param.Table, q Params) error {
+	t.SetValue("x", units.Millimeters(other.X))
+	return nil
+}
+`)
+	require.ErrorContains(t, m.TableErr, "other.X")
+}

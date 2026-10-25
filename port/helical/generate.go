@@ -95,6 +95,9 @@ func Registration(p Parameter) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("parameter %s: %w", p.Table, err)
 	}
+	if err := fusionexpr.CheckUnit(res.Kind, p.Unit); err != nil {
+		return "", fmt.Errorf("parameter %s: %w", p.Table, err)
+	}
 	var sb strings.Builder
 	if len(res.Names) == 0 {
 		fmt.Fprintf(&sb, "        expression = '%s'\n", res.Format)

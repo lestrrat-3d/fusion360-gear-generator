@@ -21,6 +21,7 @@ func (p *parsedPackage) table() ([]Parameter, error) {
 		return nil, err
 	}
 	p.unitAliases = unitAliasesIn(fd)
+	p.paramsName, p.tableLocals = paramsAndLocalsOf(fd)
 	var out []Parameter
 	var walkErr error
 	ast.Inspect(fd.Body, func(n ast.Node) bool {
@@ -129,13 +130,46 @@ func (p *parsedPackage) tableValue(call *ast.CallExpr, kind ParameterKind, wrap 
 	if !ok {
 		return Parameter{}, fmt.Errorf("%s: parameter %s does not read a Params field", p.pos(call), name)
 	}
-	param.Field = field.Sel.Name
-	if base, ok := field.X.(*ast.Ident); ok && base.Name != "p" {
-		// A value computed before the table is written, not a field of Params.
-		param.Kind = KindSnapshot
-		param.Field = base.Name + "." + field.Sel.Name
+	base, ok := field.X.(*ast.Ident)
+	switch {
+	case !ok:
+		return Parameter{}, fmt.Errorf("%s: parameter %s reads a field of a field, which the reader does not follow",
+			p.pos(call), name)
+	case base.Name == p.paramsName:
+		param.Field = field.Sel.Name
+		return param, nil
 	}
+	if _, local := p.tableLocals[base.Name]; !local {
+		return Parameter{}, fmt.Errorf("%s: parameter %s reads %s.%s, which is neither the Params argument %q nor a "+
+			"value defineParameters computes", p.pos(call), name, base.Name, field.Sel.Name, p.paramsName)
+	}
+	// A value computed before the table is written, not a field of Params.
+	param.Kind = KindSnapshot
+	param.Field = base.Name + "." + field.Sel.Name
 	return param, nil
+}
+
+// paramsAndLocalsOf returns the name of the Params argument of defineParameters and the names its body declares
+// with :=, which hold values computed before the table is written.
+func paramsAndLocalsOf(fd *ast.FuncDecl) (string, map[string]struct{}) {
+	params := ""
+	for _, f := range fd.Type.Params.List {
+		if id, ok := f.Type.(*ast.Ident); ok && id.Name == "Params" && len(f.Names) == 1 {
+			params = f.Names[0].Name
+		}
+	}
+	locals := map[string]struct{}{}
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		if as, ok := n.(*ast.AssignStmt); ok && as.Tok == token.DEFINE {
+			for _, l := range as.Lhs {
+				if id, ok := l.(*ast.Ident); ok {
+					locals[id.Name] = struct{}{}
+				}
+			}
+		}
+		return true
+	})
+	return params, locals
 }
 
 // unitAliasesIn finds assignments such as mm := units.Millimeters in a function body.

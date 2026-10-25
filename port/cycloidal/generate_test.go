@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/cycloidal"
@@ -110,4 +111,38 @@ func TestGenerateRefusesChangedCreatingCalls(t *testing.T) {
 	reviewed.Creations = nil
 	_, err = cycloidal.Generate(m, "v0", fragment, reviewed)
 	require.ErrorContains(t, err, "records no creating calls")
+}
+
+// TestDerivedParametersFollowTheEntryUnit requires a snapshot to be converted to Fusion's internal unit by its own
+// unit, an expression to fit its unit, and an unknown unit to stop the port.
+func TestDerivedParametersFollowTheEntryUnit(t *testing.T) {
+	_, m, reviewed, fragment := generate(t)
+	with := func(name string, change func(p *gallery.Parameter)) *gallery.Model {
+		copied := *m
+		copied.Table = slices.Clone(m.Table)
+		found := false
+		for i := range copied.Table {
+			if copied.Table[i].Name == name {
+				change(&copied.Table[i])
+				found = true
+			}
+		}
+		require.True(t, found, name)
+		return &copied
+	}
+	// The expressions that read pin_radius as a length would refuse an angle, so they are left out.
+	angled := with("pin_radius", func(p *gallery.Parameter) { p.Unit = "Radians" })
+	angled.Table = slices.DeleteFunc(angled.Table, func(p gallery.Parameter) bool { return strings.Contains(p.Expr, "pin_radius") })
+	out, err := cycloidal.Generate(angled, "v0", fragment, reviewed)
+	require.NoError(t, err)
+	require.Contains(t, out, "createByReal(dims.pinRadius),\n            'rad'")
+
+	_, err = cycloidal.Generate(with("pin_radius", func(p *gallery.Parameter) { p.Unit = "Furlongs" }), "v0", fragment, reviewed)
+	require.ErrorContains(t, err, "Furlongs")
+	_, err = cycloidal.Generate(with("pin_diameter", func(p *gallery.Parameter) { p.Unit = "Radians" }), "v0", fragment, reviewed)
+	require.ErrorContains(t, err, "pin_diameter")
+	_, err = cycloidal.Generate(with("pin_circle_radius", func(p *gallery.Parameter) { p.Expr = "lobes" }), "v0", fragment, reviewed)
+	require.NoError(t, err, "a plain number fits a length")
+	_, err = cycloidal.Generate(with("lobes", func(p *gallery.Parameter) { p.Expr = "pin_circle_diameter" }), "v0", fragment, reviewed)
+	require.ErrorContains(t, err, "lobes")
 }

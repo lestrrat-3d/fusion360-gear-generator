@@ -52,6 +52,10 @@ type parsedPackage struct {
 	// unitAliases maps a local name to the units constructor it stands for, such as mm to
 	// Millimeters, while the parameter table is read.
 	unitAliases map[string]string
+	// paramsName is the name of defineParameters' Params argument, and tableLocals the names its body declares,
+	// while the parameter table is read.
+	paramsName  string
+	tableLocals map[string]struct{}
 }
 
 // funcDecl returns the package-level function or method-less declaration called name.
