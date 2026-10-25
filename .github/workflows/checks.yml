@@ -9,7 +9,9 @@ name: Checks
 #           checked-in gear differs from a fresh generation
 #   addins  tests/, which fails when an add-in does not compile or import, or creates a sketch, plane,
 #           feature or body without a name; and scripts/check-deploy.sh, which fails when a file
-#           deploy.sh ships does not compile or deploy.sh ships something the add-in does not need
+#           deploy.sh ships does not compile or deploy.sh ships something the add-in does not need;
+#           and scripts/check_fusion_api.py, which fails when an add-in file names a Fusion API member
+#           that does not exist or calls one with the wrong arguments
 #
 # The gallery proves each gear's geometry in its own repository. This repository holds no proof.
 
@@ -24,6 +26,10 @@ permissions:
 
 env:
   PYTHON_VERSION: '3.12'
+  # The Fusion API stubs (AutodeskFusion360/FusionAPIReference) the API check reads, and the pyright
+  # that reads them. scripts/fetch-fusion-api-stubs.sh reads this pin, so a local run uses it too.
+  FUSION_API_COMMIT: 07814d19ac63bb3ff0d55e3d35517cf3a71bad8c
+  PYRIGHT_VERSION: '1.1.410'
 
 jobs:
   addins:
@@ -39,6 +45,20 @@ jobs:
 
       - name: Compile and import the add-ins, and check every created object is named
         run: python3 -m unittest discover -s tests -p 'test_*.py'
+
+      # The tests stub adsk with MagicMock, so any attribute resolves there. This step guards the
+      # Fusion API names: pyright with the Fusion API stubs fails on a misspelled member of a Fusion
+      # type, a name missing from an adsk module, a wrong argument count or keyword, an undefined
+      # name or a syntax error, in lib/, commands/ and the add-in files at the root. Known findings
+      # that still work in Fusion are listed in scripts/fusion-api-allow.txt.
+      - name: Install pyright
+        run: python3 -m pip install --disable-pip-version-check --no-input "pyright==${PYRIGHT_VERSION}"
+
+      - name: Fetch the Fusion API stubs
+        run: scripts/fetch-fusion-api-stubs.sh
+
+      - name: Check Fusion API names and call signatures
+        run: scripts/check_fusion_api.py
 
       # Runs deploy.sh into a scratch folder, so the checked set is exactly what deploy.sh ships.
       - name: Check every file deploy.sh ships compiles, and nothing else is shipped
