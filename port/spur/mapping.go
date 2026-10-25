@@ -119,6 +119,7 @@ var FeatureSpec = go2py.Spec{
 	Prefix:   "_",
 	Structs:  []string{"point", "dimensions", "toothPoints", "Variant", "ToothInput"},
 	TypeOnly: []string{"Params", "run"},
+	Filled:   []string{"toothPoints"},
 	// The add-in registers the parameters itself.
 	Provided: []string{"defineParameters"},
 	// The runtime reads the dimensions from the user parameters instead of a scratch document.

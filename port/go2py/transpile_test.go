@@ -132,6 +132,7 @@ func TestTranspileSketchRefusesWhatItDoesNotKnow(t *testing.T) {
 		Prefix:   "_",
 		Structs:  []string{"point", "dimensions", "toothPoints"},
 		TypeOnly: []string{"Params"},
+		Filled:   []string{"toothPoints"},
 		Funcs: []string{
 			"rotate", "involutePoint", "flankBeta", "sampleFlanks", "rootContact", "addToothPoints",
 		},

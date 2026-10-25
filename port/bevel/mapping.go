@@ -82,6 +82,7 @@ var FeatureSpec = go2py.Spec{
 		"spiralSliceFrame", "spiralTrace", "serialEnds", "spiralHeelSection"},
 	TypeOnly:   []string{"Params"},
 	Mutable:    []string{"axialPoint", "Params", "dimensions", "shaftFrame"},
+	Filled:     []string{"spiralSliceFrame"},
 	Aliases:    map[string]string{"joinOrder": "int"},
 	IotaConsts: []string{"joinOneByOne", "joinTeethGrouped", "joinTeethFirst", "joinTeethBalancedFirst"},
 	FirstOnly:  []string{"spiralOvershoots", "orders", "sliceSpiralPointTooth:reach"},

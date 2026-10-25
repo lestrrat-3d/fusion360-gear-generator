@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
+	"strconv"
 	"strings"
 )
 
@@ -56,9 +57,17 @@ func (f *fnState) literal(e *ast.BasicLit) (string, typ, error) {
 	case token.INT:
 		return e.Value, untypedType, nil
 	case token.FLOAT:
-		return e.Value, floatType, nil
+		return e.Value, untypedFloatType, nil
 	case token.STRING:
 		if f.t.sketch {
+			if strings.HasPrefix(e.Value, "`") {
+				// A raw string has no escapes in Go; Python reads backslashes and quotes in it.
+				text, err := strconv.Unquote(e.Value)
+				if err != nil {
+					return "", typ{}, fmt.Errorf("%s: %w", f.pos(e), err)
+				}
+				return quote(text), stringType, nil
+			}
 			return e.Value, stringType, nil
 		}
 	}
@@ -132,6 +141,14 @@ func (f *fnState) binary(e *ast.BinaryExpr) (string, typ, error) {
 	if !ok {
 		return "", typ{}, fmt.Errorf("%s: unsupported operator %s", f.pos(e), e.Op)
 	}
+	if e.Op == token.EQL || e.Op == token.NEQ {
+		// x % y == 0 holds in Go exactly when it holds in Python, whatever the signs.
+		for _, side := range [][2]ast.Expr{{e.X, e.Y}, {e.Y, e.X}} {
+			if rem, ok := unparen(side[0]).(*ast.BinaryExpr); ok && rem.Op == token.REM && isZero(side[1]) {
+				f.remZero = append(f.remZero, rem)
+			}
+		}
+	}
 	l, lt, err := f.operand(e.X)
 	if err != nil {
 		return "", typ{}, err
@@ -145,8 +162,27 @@ func (f *fnState) binary(e *ast.BinaryExpr) (string, typ, error) {
 		return map[token.Token]string{token.EQL: "False", token.NEQ: "True"}[e.Op], boolType, nil
 	}
 	if (lt.kind == kindNil || rt.kind == kindNil) && (e.Op == token.EQL || e.Op == token.NEQ) {
+		if lt.kind == kindSlice || rt.kind == kindSlice || lt.kind == kindMap || rt.kind == kindMap {
+			return "", typ{}, fmt.Errorf("%s: comparing a slice or map with nil is unsupported: a nil slice is an "+
+				"empty list in Python; test len instead", f.pos(e))
+		}
 		op = map[token.Token]string{token.EQL: "is", token.NEQ: "is not"}[e.Op]
 		return l + " " + op + " " + r, boolType, nil
+	}
+	if (e.Op == token.EQL || e.Op == token.NEQ) && (lt.kind == kindStruct || rt.kind == kindStruct) {
+		for _, t := range []typ{lt, rt} {
+			if info := f.t.structs[t.name]; t.kind == kindStruct && info != nil && info.mutable() && !info.assigned {
+				return "", typ{}, fmt.Errorf("%s: comparing %s values needs equality by field; list %s in Spec.Mutable",
+					f.pos(e), t.name, t.name)
+			}
+		}
+	}
+	if e.Op == token.REM && !f.remainderAgrees(e) {
+		// Go's remainder takes the sign of the dividend and Python's the sign of the divisor; fmod is Go's.
+		if !lt.numeric() || !rt.numeric() {
+			return "", typ{}, fmt.Errorf("%s: operator %% on a non-number", f.pos(e))
+		}
+		return "int(math.fmod(" + l + ", " + r + "))", intType, nil
 	}
 	text := l + " " + op + " " + r
 	switch e.Op {
@@ -160,6 +196,55 @@ func (f *fnState) binary(e *ast.BinaryExpr) (string, typ, error) {
 		return "", typ{}, fmt.Errorf("%s: %w", f.pos(e), err)
 	}
 	return text, rtype, nil
+}
+
+// remainderAgrees reports whether Python's x % y gives Go's result: when the remainder is only compared with zero,
+// or when neither operand can be negative.
+func (f *fnState) remainderAgrees(e *ast.BinaryExpr) bool {
+	for _, z := range f.remZero {
+		if z == e {
+			return true
+		}
+	}
+	return f.neverNegative(e.X) && f.neverNegative(e.Y)
+}
+
+// neverNegative reports whether an int expression cannot be below zero: a constant, len, a loop counter that never
+// goes below zero, or a sum, product or remainder of those.
+func (f *fnState) neverNegative(e ast.Expr) bool {
+	switch e := unparen(e).(type) {
+	case *ast.BasicLit:
+		return e.Kind == token.INT
+	case *ast.Ident:
+		_, ok := f.counters[e.Name]
+		return ok
+	case *ast.CallExpr:
+		return isIdent(e.Fun, "len")
+	case *ast.BinaryExpr:
+		return (e.Op == token.ADD || e.Op == token.MUL || e.Op == token.REM) && f.neverNegative(e.X) && f.neverNegative(e.Y)
+	}
+	return false
+}
+
+// nonNegativeConstant reports whether e is an integer literal, which is never negative.
+func nonNegativeConstant(e ast.Expr) bool {
+	lit, ok := unparen(e).(*ast.BasicLit)
+	return ok && lit.Kind == token.INT
+}
+
+func unparen(e ast.Expr) ast.Expr {
+	for {
+		p, ok := e.(*ast.ParenExpr)
+		if !ok {
+			return e
+		}
+		e = p.X
+	}
+}
+
+func isZero(e ast.Expr) bool {
+	lit, ok := unparen(e).(*ast.BasicLit)
+	return ok && lit.Kind == token.INT && lit.Value == "0"
 }
 
 // operand renders a binary operand, wrapping a nested binary expression in parentheses.
@@ -180,14 +265,20 @@ func arithmeticType(op token.Token, l, r typ) (typ, error) {
 	if !l.numeric() || !r.numeric() {
 		return typ{}, fmt.Errorf("operator %s on a non-number", op)
 	}
+	if (l.kind == kindUntypedFloat && r.kind == kindInt) || (l.kind == kindInt && r.kind == kindUntypedFloat) {
+		return typ{}, fmt.Errorf("operator %s on an int and a floating-point constant: Go converts the constant to "+
+			"int and Python does not; write the constant as an integer or convert the int with float64", op)
+	}
 	result := l
 	switch {
 	case l.kind == kindFloat || r.kind == kindFloat:
 		result = floatType
+	case l.kind == kindUntypedFloat || r.kind == kindUntypedFloat:
+		result = untypedFloatType
 	case l.kind == kindUntyped:
 		result = r
 	}
-	if op == token.QUO && result.kind != kindFloat {
+	if op == token.QUO && result.kind != kindFloat && result.kind != kindUntypedFloat {
 		return typ{}, fmt.Errorf("integer division is unsupported; convert an operand with float64")
 	}
 	return result, nil
@@ -233,26 +324,38 @@ func (f *fnState) call(e *ast.CallExpr) (string, typ, error) {
 
 func (f *fnState) mathCall(e *ast.CallExpr, name string) (string, typ, error) {
 	if name == "Inf" && len(e.Args) == 1 {
-		sign, _, err := f.expr(e.Args[0])
-		if err != nil {
-			return "", typ{}, err
+		sign, ok := constantSign(e.Args[0])
+		if !ok {
+			return "", typ{}, fmt.Errorf("%s: math.Inf needs a constant sign", f.pos(e))
 		}
-		if strings.HasPrefix(sign, "-") {
+		if sign < 0 {
 			return "-math.inf", floatType, nil
 		}
 		return "math.inf", floatType, nil
 	}
 	switch name {
 	case "IsNaN", "IsInf":
-		// IsInf(x, 0) is true for an infinity of either sign, as math.isinf is.
-		if len(e.Args) == 0 {
-			return "", typ{}, fmt.Errorf("%s: math.%s needs an argument", f.pos(e), name)
+		if (name == "IsNaN" && len(e.Args) != 1) || (name == "IsInf" && len(e.Args) != 2) {
+			return "", typ{}, fmt.Errorf("%s: math.%s has the wrong number of arguments", f.pos(e), name)
 		}
 		x, _, err := f.expr(e.Args[0])
 		if err != nil {
 			return "", typ{}, err
 		}
-		return "math.is" + strings.ToLower(name[2:]) + "(" + x + ")", boolType, nil
+		if name == "IsNaN" {
+			return "math.isnan(" + x + ")", boolType, nil
+		}
+		sign, ok := constantSign(e.Args[1])
+		switch {
+		case !ok:
+			return "", typ{}, fmt.Errorf("%s: math.IsInf needs a constant sign", f.pos(e))
+		case sign > 0:
+			return "(" + x + " == math.inf)", boolType, nil
+		case sign < 0:
+			return "(" + x + " == -math.inf)", boolType, nil
+		}
+		// IsInf(x, 0) is true for an infinity of either sign, as math.isinf is.
+		return "math.isinf(" + x + ")", boolType, nil
 	}
 	py, ok := mathFuncs[name]
 	if !ok {
@@ -266,6 +369,31 @@ func (f *fnState) mathCall(e *ast.CallExpr, name string) (string, typ, error) {
 		return py + "(" + strings.Join(args, ", ") + ")", intType, nil
 	}
 	return py + "(" + strings.Join(args, ", ") + ")", floatType, nil
+}
+
+// constantSign returns the sign of an integer literal, possibly negated: -1, 0 or 1.
+func constantSign(e ast.Expr) (int, bool) {
+	e = unparen(e)
+	negative := false
+	if u, ok := e.(*ast.UnaryExpr); ok && (u.Op == token.SUB || u.Op == token.ADD) {
+		negative = u.Op == token.SUB
+		e = unparen(u.X)
+	}
+	lit, ok := e.(*ast.BasicLit)
+	if !ok || lit.Kind != token.INT {
+		return 0, false
+	}
+	v, err := strconv.ParseInt(lit.Value, 0, 64)
+	if err != nil {
+		return 0, false
+	}
+	switch {
+	case v == 0:
+		return 0, true
+	case negative:
+		return -1, true
+	}
+	return 1, true
 }
 
 func (f *fnState) args(list []ast.Expr) ([]string, error) {
@@ -595,7 +723,7 @@ func (f *fnState) composite(e *ast.CompositeLit) (string, typ, error) {
 			}
 			elts[i] = elt
 		}
-		args, err := f.args(elts)
+		args, err := f.valueArgs(elts)
 		if err != nil {
 			return "", typ{}, err
 		}
@@ -659,8 +787,11 @@ func (f *fnState) composite(e *ast.CompositeLit) (string, typ, error) {
 				if !ok {
 					return "", typ{}, fmt.Errorf("%s: a literal of %s needs field names", f.pos(e), id.Name)
 				}
-				text, _, err := f.expr(kv.Value)
+				text, vt, err := f.expr(kv.Value)
 				if err != nil {
+					return "", typ{}, err
+				}
+				if text, err = f.copyValue(kv.Value, text, vt, ""); err != nil {
 					return "", typ{}, err
 				}
 				kw = append(kw, key.Name+"="+text)
@@ -678,7 +809,7 @@ func (f *fnState) composite(e *ast.CompositeLit) (string, typ, error) {
 	if len(e.Elts) != len(info.fields) {
 		return "", typ{}, fmt.Errorf("%s: literal of %s needs %d unkeyed fields", f.pos(e), id.Name, len(info.fields))
 	}
-	args, err := f.args(e.Elts)
+	args, err := f.valueArgs(e.Elts)
 	if err != nil {
 		return "", typ{}, err
 	}
@@ -708,7 +839,7 @@ func (f *fnState) appendCall(e *ast.CallExpr) (string, typ, error) {
 		}
 		return xs + " + list(" + ys + ")", xt, nil
 	}
-	vals, err := f.args(rest)
+	vals, err := f.valueArgs(rest)
 	if err != nil {
 		return "", typ{}, err
 	}
@@ -752,8 +883,8 @@ func (f *fnState) sprintf(e *ast.CallExpr) (string, typ, error) {
 		return "", typ{}, err
 	}
 	if lit, ok := e.Args[0].(*ast.BasicLit); ok {
-		if strings.Contains(lit.Value, "%w") {
-			return "", typ{}, fmt.Errorf("%s: %%w is unsupported", f.pos(e))
+		if err := f.checkVerbs(lit, e.Args[1:], e.Ellipsis.IsValid()); err != nil {
+			return "", typ{}, err
 		}
 		format = strings.ReplaceAll(format, "%v", "%s")
 	}
@@ -772,6 +903,73 @@ func (f *fnState) sprintf(e *ast.CallExpr) (string, typ, error) {
 		return "", typ{}, err
 	}
 	return format + " % (" + strings.Join(args, ", ") + ",)", stringType, nil
+}
+
+// checkVerbs refuses a format whose verbs Python's % operator would print differently from Go's fmt. The verbs
+// allowed are %d and %x of an int, %s of a string or a handle, %g and %f of a number with an optional
+// precision (%.2f), %v of anything but a float (it prints as %s), and %%. One difference remains: without a precision,
+// Python's %g prints six significant digits where Go's prints the fewest that identify the value, so 0.1234567 reads
+// 0.123457 in Python. A spread argument list is not checked against the verbs.
+func (f *fnState) checkVerbs(lit *ast.BasicLit, args []ast.Expr, spread bool) error {
+	format, err := strconv.Unquote(lit.Value)
+	if err != nil {
+		return fmt.Errorf("%s: %w", f.pos(lit), err)
+	}
+	arg := 0
+	for i := 0; i < len(format); i++ {
+		if format[i] != '%' {
+			continue
+		}
+		j := i + 1
+		if j < len(format) && format[j] == '%' {
+			i = j
+			continue
+		}
+		precision := false
+		if j < len(format) && format[j] == '.' {
+			precision = true
+			j++
+			for j < len(format) && format[j] >= '0' && format[j] <= '9' {
+				j++
+			}
+		}
+		if j >= len(format) {
+			return fmt.Errorf("%s: format %s ends inside a verb", f.pos(lit), lit.Value)
+		}
+		verb := format[j]
+		allowed := map[byte]bool{'d': true, 'x': true, 's': true, 'v': true, 'g': true, 'f': true}[verb]
+		if !allowed || (precision && verb != 'g' && verb != 'f') {
+			return fmt.Errorf("%s: the verb %s in %s is unsupported: Python's %% prints it differently", f.pos(lit),
+				format[i:j+1], lit.Value)
+		}
+		if !spread {
+			if arg >= len(args) {
+				return fmt.Errorf("%s: format %s has more verbs than arguments", f.pos(lit), lit.Value)
+			}
+			_, at, err := f.expr(args[arg])
+			if err != nil {
+				return err
+			}
+			float := at.kind == kindFloat || at.kind == kindUntypedFloat
+			integer := at.kind == kindInt || at.kind == kindUntyped
+			switch {
+			case verb == 'v' && float:
+				return fmt.Errorf("%s: %%v of a float prints 3 in Go and 3.0 in Python; use %%g", f.pos(args[arg]))
+			case (verb == 'd' || verb == 'x') && !integer:
+				return fmt.Errorf("%s: %%%c needs an int", f.pos(args[arg]), verb)
+			case (verb == 'g' || verb == 'f') && !at.numeric():
+				return fmt.Errorf("%s: %%%c needs a number", f.pos(args[arg]), verb)
+			case verb == 's' && (float || integer || at.kind == kindBool):
+				return fmt.Errorf("%s: %%s of a number or bool prints %%!s(...) in Go", f.pos(args[arg]))
+			}
+		}
+		arg++
+		i = j
+	}
+	if !spread && arg != len(args) {
+		return fmt.Errorf("%s: format %s has %d verbs for %d arguments", f.pos(lit), lit.Value, arg, len(args))
+	}
+	return nil
 }
 
 // sortSlice renders sort.Slice(xs, func(i, j int) bool { return key(xs[i]) < key(xs[j]) }) as a sort

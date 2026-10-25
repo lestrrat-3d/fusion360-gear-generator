@@ -32,8 +32,11 @@ type Spec struct {
 	// the translator does not know are left out.
 	TypeOnly []string
 	// Mutable lists the structs the translated code assigns field by field. They become classes
-	// with equality by field, not namedtuples.
+	// with equality by field and a copy method, not namedtuples, and a Go copy of one is a copy in Python.
 	Mutable []string
+	// Filled lists the structs with slice or handle fields, which are classes anyway, that the translated code
+	// fills field by field and never copies. A copy of one is refused, because Python would share the object.
+	Filled []string
 	// Values are package-level constants and variables, rendered before the functions in the
 	// order listed. A value may use the ones before it.
 	Values []string
@@ -191,6 +194,13 @@ func translate(m *gallery.Model, spec Spec) (string, map[string][]string, error)
 			info.assigned = true
 		}
 	}
+	for _, name := range spec.Filled {
+		info, ok := tr.structs[name]
+		if !ok || !info.mutable() {
+			return "", nil, fmt.Errorf("Spec.Filled lists %s, which is not a translated struct with a slice or handle field", name)
+		}
+		info.filled = true
+	}
 	for name, underlying := range spec.Aliases {
 		expr, err := parser.ParseExpr(underlying)
 		if err != nil {
@@ -221,8 +231,11 @@ func translate(m *gallery.Model, spec Spec) (string, map[string][]string, error)
 		if err != nil {
 			return "", nil, fmt.Errorf("value %s: %w", name, err)
 		}
-		if vt.kind == kindUntyped {
+		switch vt.kind {
+		case kindUntyped:
 			vt = intType
+		case kindUntypedFloat:
+			vt = floatType
 		}
 		py := tr.prefix + pySnake(name)
 		tr.globals[name] = global{py: py, t: vt}
@@ -371,7 +384,8 @@ func (s *structInfo) python(prefix string) string {
 		fmt.Fprintf(&sb, "class %s%s:\n    def __init__(self, %s):\n", prefix, pyClass(s.name), strings.Join(params, ", "))
 		for _, f := range s.fields {
 			if s.types[f].kind == kindSlice {
-				// A Go slice field starts as nil, which appends to; Python's None does not.
+				// A Go slice field starts as nil, which appends to; Python's None does not. The translation passes
+				// an array field's zero values itself (defaultOf, arrayFields).
 				fmt.Fprintf(&sb, "        self.%s = [] if %s is None else %s\n", f, f, f)
 				continue
 			}
@@ -465,9 +479,12 @@ func (t *transpiler) loadSignature(name string) (*funcInfo, error) {
 
 // function renders one function.
 func (t *transpiler) function(fi *funcInfo) (string, error) {
-	fn := &fnState{t: t, info: fi, env: map[string]typ{}, calls: map[string]int{}}
+	fn := &fnState{t: t, info: fi, env: map[string]typ{}, calls: map[string]int{}, root: fi.decl}
+	// The parameters, the named results and the body's own declarations are one Go block.
+	fn.push(fi.decl.Body.Pos(), fi.decl.Body.End())
 	if fi.recvType != nil && fi.recvName != "" {
 		fn.env[fi.recvName] = *fi.recvType
+		fn.scopes[0].names[fi.recvName] = fi.decl.Pos()
 	}
 	var args []string
 	if fi.recvType != nil && fi.recvName != "" && fi.recvType.kind == kindStruct && !t.structs[fi.recvType.name].zero {
@@ -475,6 +492,7 @@ func (t *transpiler) function(fi *funcInfo) (string, error) {
 	}
 	for _, p := range fi.params {
 		fn.env[p.name] = p.typ
+		fn.scopes[0].names[p.name] = fi.decl.Pos()
 		if p.typ.kind == kindCtx {
 			continue
 		}
@@ -490,8 +508,13 @@ func (t *transpiler) function(fi *funcInfo) (string, error) {
 	if fi.named {
 		for _, r := range fi.results {
 			fn.env[r.name] = r.typ
+			fn.scopes[0].names[r.name] = fi.decl.Pos()
 			if r.typ.kind == kindSlice {
-				fn.line(&sb, "%s = []", pyName(r.name))
+				empty, err := r.typ.emptyList()
+				if err != nil {
+					return "", err
+				}
+				fn.line(&sb, "%s = %s", pyName(r.name), empty)
 				continue
 			}
 			zero, err := r.typ.zero()
@@ -501,7 +524,10 @@ func (t *transpiler) function(fi *funcInfo) (string, error) {
 			fn.line(&sb, "%s = %s", pyName(r.name), zero)
 		}
 	}
-	if err := fn.block(&sb, fi.decl.Body.List); err != nil {
+	if err := fn.copyParams(&sb, fi.params); err != nil {
+		return "", err
+	}
+	if err := fn.stmts(&sb, fi.decl.Body.List); err != nil {
 		return "", err
 	}
 	return strings.TrimRight(sb.String(), "\n"), nil
@@ -517,6 +543,25 @@ type fnState struct {
 	multi bool
 	// calls counts the creating calls made so far, per operation, to key the roles table.
 	calls map[string]int
+	// scopes are the Go blocks open at the statement being translated, innermost last: see define.
+	scopes []scope
+	// root is the declaration of the Go function being translated, which a closure shares with its function.
+	root ast.Node
+	// breaks lists what a break leaves in the statements open at the one being translated, innermost last.
+	breaks []breakKind
+	// remZero lists the remainders that are only compared with zero, where Python's % agrees with Go's.
+	remZero []*ast.BinaryExpr
+	// counters are the loop variables that never go below zero: range keys and counted loops that start at a
+	// constant that is not negative and step up by one. Python's % agrees with Go's on them.
+	counters map[string]struct{}
+}
+
+// nonNegative records that the loop variable name never goes below zero.
+func (f *fnState) nonNegative(name string) {
+	if f.counters == nil {
+		f.counters = map[string]struct{}{}
+	}
+	f.counters[name] = struct{}{}
 }
 
 func (f *fnState) line(sb *strings.Builder, format string, args ...any) {
@@ -592,16 +637,35 @@ func pyClass(s string) string {
 	return strings.ToUpper(s[:1]) + s[1:]
 }
 
+// arrayFields renders the keyword arguments that give each array field of a struct its zero values, for a struct
+// the Go code declares without a value.
+func (s *structInfo) arrayFields() string {
+	var kw []string
+	for _, f := range s.fields {
+		if t := s.types[f]; t.kind == kindSlice && t.length != "" {
+			kw = append(kw, f+"="+s.defaultOf(f))
+		}
+	}
+	return strings.Join(kw, ", ")
+}
+
 // global is a package-level value the translation renders as a module-level Python name.
 type global struct {
 	py string
 	t  typ
 }
 
-// defaultOf is the Python default of a field of a class: the zero value of a number or bool, else None.
+// defaultOf is the Python default of a field of a class: the zero value of a number or bool, the zero values of an
+// array, else None.
 func (s *structInfo) defaultOf(field string) string {
 	switch t := s.types[field]; t.kind {
-	case kindFloat, kindInt, kindUntyped, kindBool:
+	case kindSlice:
+		if t.length != "" {
+			if empty, err := t.emptyList(); err == nil {
+				return empty
+			}
+		}
+	case kindFloat, kindInt, kindUntyped, kindUntypedFloat, kindBool:
 		if zero, err := t.zero(); err == nil {
 			return zero
 		}
