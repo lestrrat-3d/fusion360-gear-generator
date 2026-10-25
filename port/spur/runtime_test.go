@@ -44,8 +44,8 @@ json.dump({'top': sorted(top), 'classes': classes}, sys.stdout)
 var runtimeClass = map[string]string{
 	"decad.Document": "Runtime", "sketch.World": "Runtime", "units.Value": "Value", "decad.Body": "Body",
 	"decad.EdgeQuery": "Selector", "decad.Edge": "Edge", "decad.Vertex": "Vertex", "decad.Position": "Position",
-	"decad.Face": "Face", "decad.Cylinder": "Cylinder",
-	"sketch.Sketch": "Sketch", "sketch.Profile": "Profile", "r3.Frame": "Frame", "r3.Vec": "Vec",
+	"decad.Face": "Face", "decad.Cylinder": "Cylinder", "decad.Centroid": "Centroid",
+	"sketch.Sketch": "Sketch", "sketch.Profile": "Profile", "sketch.Circle": "Circle", "r3.Frame": "Frame", "r3.Vec": "Vec",
 }
 
 // TestRuntimeDefinesEveryOperationTheTranslatorAccepts requires the Fusion runtime to define a

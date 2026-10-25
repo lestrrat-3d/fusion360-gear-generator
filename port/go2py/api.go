@@ -27,6 +27,9 @@ var apiFuncs = map[string]apiSig{
 	"decad.Cut":           {res: "decad.Body", named: true},
 	"decad.Fillet":        {res: "decad.Body", named: true},
 	"decad.Chamfer":       {res: "decad.Body", named: true},
+	"decad.Circular":      {res: "decad.Predicate"},
+	"decad.LongerThan":    {res: "decad.Predicate"},
+	"units.Millimeters":   {res: "units.Value"},
 	"decad.Loft":          {res: "decad.Body", named: true},
 	"decad.MirroredCopy":  {res: "decad.Body", named: true},
 	"decad.Edges":         {res: "decad.EdgeQuery"},
@@ -59,23 +62,28 @@ var apiMethods = map[string]apiSig{
 	"decad.Edge.End":              {res: "decad.Vertex"},
 	"decad.Edge.Curve":            {res: "decad.Curve"},
 	"decad.Body.Faces":            {res: "[]decad.Face"},
+	"decad.Body.Centroid":         {res: "decad.Centroid"},
+	"r3.Vec.Dot":                  {res: "float"},
+	"r3.Vec.Cross":                {res: "r3.Vec"},
 	"decad.Face.Surface":          {res: "decad.Surface"},
 	"decad.Face.Edges":            {res: "[]decad.Edge"},
 	"decad.Vertex.Position":       {res: "decad.Position"},
 
-	"sketch.World.CreateSketch":         {res: "sketch.Sketch", named: true},
-	"sketch.World.CreatePlaneFromFrame": {res: "sketch.Plane", named: true},
-	"sketch.World.Params":               {res: "sketch.Table"},
-	"sketch.World.XY":                   {res: "sketch.Plane"},
-	"sketch.Sketch.CreateCircle":        {res: "sketch.Circle"},
-	"sketch.Sketch.CreateLine":          {},
-	"sketch.Sketch.CreateArc":           {},
-	"sketch.Sketch.CreateFitSpline":     {},
-	"sketch.Sketch.AddConstraint":       {},
-	"sketch.Sketch.Bind":                {},
-	"sketch.Sketch.Origin":              {res: "sketch.Point"},
-	"sketch.Sketch.Profiles":            {res: "[]sketch.Profile"},
-	"sketch.Sketch.Solve":               {},
+	"sketch.World.CreateSketch":               {res: "sketch.Sketch", named: true},
+	"sketch.World.CreatePlaneFromFrame":       {res: "sketch.Plane", named: true},
+	"sketch.World.Params":                     {res: "sketch.Table"},
+	"sketch.World.XY":                         {res: "sketch.Plane"},
+	"sketch.Sketch.CreateCircle":              {res: "sketch.Circle"},
+	"sketch.Sketch.CreateLine":                {},
+	"sketch.Sketch.CreateArc":                 {},
+	"sketch.Sketch.CreateFitSpline":           {res: "sketch.Entity"},
+	"sketch.Sketch.CreatePoint":               {res: "sketch.Point"},
+	"sketch.Sketch.CreatePatternCircularRing": {res: "sketch.Entity"},
+	"sketch.Sketch.AddConstraint":             {},
+	"sketch.Sketch.Bind":                      {},
+	"sketch.Sketch.Origin":                    {res: "sketch.Point"},
+	"sketch.Sketch.Profiles":                  {res: "[]sketch.Profile"},
+	"sketch.Sketch.Solve":                     {},
 
 	"r3.Frame.Origin": {res: "r3.Vec"},
 	"r3.Frame.N":      {res: "r3.Vec"},
@@ -91,6 +99,9 @@ var apiMethods = map[string]apiSig{
 var apiFields = map[string]string{
 	"decad.Position.Value":  "r3.Vec",
 	"decad.Cylinder.Radius": "units.Value",
+	"decad.Centroid.Value":  "r3.Vec",
+	"sketch.Profile.Holes":  "[]sketch.Edge",
+	"sketch.Circle.Center":  "sketch.Point",
 	"r3.Vec.X":              "float",
 	"r3.Vec.Y":              "float",
 	"r3.Vec.Z":              "float",
@@ -109,6 +120,8 @@ var apiLiterals = map[string]string{
 	"decad.CircularPattern": "decad.CircularPattern",
 	"decad.Distance":        "decad.Distance",
 	"decad.MirrorFrame":     "decad.MirrorFrame",
+	"decad.TwoSided":        "decad.TwoSided",
+	"decad.DistanceSide":    "decad.DistanceSide",
 }
 
 // apiTypeTests are the types a translated function may test a value against, with a type
@@ -147,6 +160,9 @@ type Role struct {
 	Feature string
 	// Body names the body a feature creates, when it creates one.
 	Body string
+	// Qualify names a string variable of the translated function that is appended to Feature, so a
+	// helper that serves several callers names its result after the caller's label.
+	Qualify string
 }
 
 // runtimeName is the runtime function for a package-level API function.
@@ -223,7 +239,11 @@ func (f *fnState) finishCall(e *ast.CallExpr, name string, sig apiSig, callee st
 		if !ok {
 			return "", typ{}, true, fmt.Errorf("%s: no role name for %s: add it to the roles table", f.pos(e), key)
 		}
-		args = append(args, "name="+quote(role.Feature))
+		if role.Qualify != "" {
+			args = append(args, "name="+quote(role.Feature+" ")+" + "+pyName(role.Qualify))
+		} else {
+			args = append(args, "name="+quote(role.Feature))
+		}
 		if role.Body != "" {
 			args = append(args, "body="+quote(role.Body))
 		}

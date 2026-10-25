@@ -866,6 +866,26 @@ internal units (cm for length, **radians** for angle) regardless of the unit str
 field comes back in radians; convert with `math.degrees(...)` before any degree-range check. Don't
 read via `ValueInput.realValue`.
 
+**[PB-DIMENSION-COST] The cost of a sketch's dimensions grows with the cube of its points, so a loop is patterned.**
+`addDistanceDimension` took 0.003 s per call on a 40-point sketch and 0.06 s per call after 150 spline fit points. The
+cycloidal drive's rotor profile had 457 dimensioned points and its dimensions took 359 s, the casing's 448 took 99 s.
+Deferring the solver (`isComputeDeferred`), hiding the sketch and switching off its display changed none of this: the
+deferred solve took 0.2 s, so the time is in the calls. A shape of repeated lobes is therefore drawn once and
+patterned, as the gallery model does ([PB-SPLINE-RING]), instead of dimensioned lobe by lobe.
+
+**[PB-SPLINE-RING] A circular pattern of splines closes a ring with one coincident.** The gallery draws one lobe of
+chained fitted splines, leaves the last end point free, and patterns the lobe about a centre point. In Fusion,
+`GeometricConstraints.addCircularPattern` copies the splines in 0.02 s and the copies already form one closed outline
+with the seed, because Fusion connects curve ends that sit on one point. Only the seed's free end needs a constraint:
+a coincident to the start of the first copy, found as the created spline whose first fit point lies one step around
+from the seed's start. That leaves the sketch fully constrained. A coincident between every neighbouring pair is
+refused as redundant for 44 of 45 junctions, and merging the end points works but is no better and slower.
+The pattern goes in after the local origin is anchored. While the origin is a loose point, the copies' junction
+points stay free and the sketch reads as not fully constrained: with the anchor coincident added after the pattern
+the check failed with the end of each copy's last spline and the point beside it free, and with the anchor added
+before the pattern it passed. `decadfusion.Sketch.solve` therefore anchors between the dimensions and the patterns when the sketch has a pattern, and
+stays last otherwise, as [SPUR-F-LOCAL-ORIGIN] has it.
+
 ## What the spec need not pin (free to vary)
 
 Local variable names, comments, log strings, and how build steps are decomposed into private

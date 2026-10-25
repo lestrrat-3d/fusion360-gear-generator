@@ -1,11 +1,13 @@
 # Shared implementation of a gear-generator command. Each commands/<gear>/entry.py
 # declares one GearCommand and re-exports its start/stop (see those modules).
 
+import importlib
 import sys
 import adsk.core
 import adsk.fusion
 from ..lib import fusion360utils as futil
 from ..lib import geargen
+from ..lib.geargen import decadfusion as _runtime
 from .. import config
 
 ui = adsk.core.Application.get().userInterface
@@ -13,7 +15,7 @@ ui = adsk.core.Application.get().userInterface
 # Bump this string on every deploy of THIS file. It proves whether the
 # commands/ layer reloaded: if the dialog's Build line shows an old tag, the
 # add-in Stop/Run did not re-import commands/_gear_command.py.
-BUILD_TAG = 'r6-2026-09-18'
+BUILD_TAG = 'r7-2026-10-25'
 
 # Plain (undecorated) generator methods used as canaries to detect whether the
 # *loaded* generator module matches the file on disk. co_firstlineno comes from
@@ -66,7 +68,9 @@ def _build_label(generator_class):
         matched = ', '.join('{}@{}'.format(n, loaded)
                             for n, loaded, _ in results)
         body = 'generator matches file on disk ({})'.format(matched)
-    return 'Build: command {} | {}'.format(BUILD_TAG, body)
+    runtime = 'decadfusion {}{}'.format(
+        _runtime.RUNTIME_BUILD, ' STALE on disk' if _runtime.runtime_is_stale() else ' matches file on disk')
+    return 'Build: command {} | {} | {}'.format(BUILD_TAG, body, runtime)
 
 
 # A gear opts into live validation by giving each editable input a trailing,
@@ -204,6 +208,11 @@ class GearCommand:
             design = _component_design_or_message()
             if design is None:
                 return
+            # Fusion keeps imported modules across an add-in Stop and Run, so reload the runtime when its file
+            # changed since the import; the generated modules reach it through the module object.
+            if _runtime.runtime_is_stale():
+                importlib.reload(_runtime)
+            futil.log(f'{self.name} decadfusion build {_runtime.RUNTIME_BUILD}')
             # [PB-SETTLE-DISPLAY]: remember the user's own sketches, so the settle below only
             # touches the ones this generator is about to author.
             preexisting = geargen.sketch_tokens(design)

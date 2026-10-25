@@ -28,3 +28,25 @@ func (m *Model) Struct(name string) (*ast.StructType, error) {
 	}
 	return st, nil
 }
+
+// PackageValue returns the declaration of the package-level constant or variable called name,
+// and the single expression it is initialised with.
+func (m *Model) PackageValue(name string) (ast.Expr, error) {
+	for _, f := range m.pkg.files {
+		for _, d := range f.Decls {
+			gd, ok := d.(*ast.GenDecl)
+			if !ok || (gd.Tok != token.CONST && gd.Tok != token.VAR) {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				vs := spec.(*ast.ValueSpec)
+				for i, n := range vs.Names {
+					if n.Name == name && i < len(vs.Values) {
+						return vs.Values[i], nil
+					}
+				}
+			}
+		}
+	}
+	return nil, fmt.Errorf("package-level value %s not found", name)
+}
