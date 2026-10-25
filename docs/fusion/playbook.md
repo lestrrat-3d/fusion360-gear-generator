@@ -866,12 +866,20 @@ internal units (cm for length, **radians** for angle) regardless of the unit str
 field comes back in radians; convert with `math.degrees(...)` before any degree-range check. Don't
 read via `ValueInput.realValue`.
 
-**[PB-DEFERRED-COMPUTE] A sketch with hundreds of dimensioned points is drawn with the solver deferred.** Every
-`addDistanceDimension` re-solves the whole sketch, so a profile with a thousand dimensioned points (the cycloidal
-drive's rotor and casing) ran for minutes. `decadfusion.Sketch` sets `sketch.isComputeDeferred = True` while it draws a
-sketch of more than `BULK_POINTS` points and solves once at the end. A deferred solver reports a refused dimension
-only later, so the runtime finds a repeated coordinate itself and aligns the two points instead of waiting for an
-exception. The involute gears stay below the threshold and keep the try-first path.
+**[PB-DIMENSION-COST] The cost of a sketch's dimensions grows with the cube of its points, so a loop is patterned.**
+`addDistanceDimension` took 0.003 s per call on a 40-point sketch and 0.06 s per call after 150 spline fit points. The
+cycloidal drive's rotor profile had 457 dimensioned points and its dimensions took 359 s, the casing's 448 took 99 s.
+Deferring the solver (`isComputeDeferred`), hiding the sketch and switching off its display changed none of this: the
+deferred solve took 0.2 s, so the time is in the calls. A shape of repeated lobes is therefore drawn once and
+patterned, as the gallery model does ([PB-SPLINE-RING]), instead of dimensioned lobe by lobe.
+
+**[PB-SPLINE-RING] A circular pattern of splines closes a ring with one coincident.** The gallery draws one lobe of
+chained fitted splines, leaves the last end point free, and patterns the lobe about a centre point. In Fusion,
+`GeometricConstraints.addCircularPattern` copies the splines in 0.02 s and the copies already form one closed outline
+with the seed, because Fusion connects curve ends that sit on one point. Only the seed's free end needs a constraint:
+a coincident to the start of the first copy, found as the created spline whose first fit point lies one step around
+from the seed's start. That leaves the sketch fully constrained. A coincident between every neighbouring pair is
+refused as redundant for 44 of 45 junctions, and merging the end points works but is no better and slower.
 
 ## What the spec need not pin (free to vary)
 

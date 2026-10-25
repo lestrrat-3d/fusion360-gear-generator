@@ -28,11 +28,6 @@ DECAD_AGAINST = -1
 # Two coordinates closer than this, in cm, are one value to Fusion's sketch solver.
 SAME_COORDINATE = 1e-6
 
-# A sketch with more points than this is drawn with Fusion's solver deferred: every added dimension would
-# otherwise re-solve the whole sketch, which grows with the square of the point count and took minutes for the
-# cycloidal drive's thousand-point profiles. [PB-DEFERRED-COMPUTE]
-BULK_POINTS = 200
-
 # The active runtime. A translated function reaches the design through the objects it is handed, except
 # sketch_new_world(), which the gallery calls with no argument.
 _active = None
@@ -333,11 +328,28 @@ class Plane:
         self.runtime, self.entity = runtime, entity
 
 
+class Circle:
+    """A circle the gallery drew: the Fusion circle and the point the gallery placed its centre by."""
+
+    def __init__(self, circle, center):
+        self.circle = circle
+        self.Center = center
+
+
+class Spline:
+    """A fitted spline the gallery asked for. Fusion creates it when the sketch is drawn."""
+
+    def __init__(self, points):
+        self.points = points
+        self.fusion = None
+
+
 class Constraint:
     """A dimension that a sketch will create: a radius or a diameter of a circle."""
 
     def __init__(self, kind, circle, value):
-        self.kind, self.circle, self.value = kind, circle, value
+        self.kind, self.value = kind, value
+        self.circle = circle.circle if isinstance(circle, Circle) else circle
         self.dimension = None
 
 
@@ -398,11 +410,10 @@ class Sketch:
         self._lines = []
         self._arcs = []
         self._splines = []
+        self._patterns = []
         self._constraints = []
         self._bindings = []
         self._dimensioned = []
-        self._bulk = False
-        self._coordinates = {}
 
     # sketch.Sketch
     def origin(self):
@@ -425,7 +436,18 @@ class Sketch:
         self._arcs.append((center, start, end))
 
     def create_fit_spline(self, *points):
-        self._splines.append(points)
+        spline = Spline(points)
+        self._splines.append(spline)
+        return spline
+
+    def create_point(self, x, y):
+        """A point the gallery places without dimensioning it: the pattern places it."""
+        return PendingPoint(x, y, False)
+
+    def create_pattern_circular_ring(self, splines, center, n, start, end):
+        """A circular pattern of splines about center, n copies in all, closing into a ring. [PB-SPLINE-RING]"""
+        self._patterns.append((splines, center, n, start, end))
+        return splines[0]
 
     def create_circle(self, center, radius):
         circles: adsk.fusion.SketchCircles = self.sketch.sketchCurves.sketchCircles
@@ -435,8 +457,8 @@ class Sketch:
             circle = circles.addByCenterRadius(
                 adsk.core.Point3D.create(center.x * self._scale, center.y * self._scale, 0), radius * self._scale)
             center.point = circle.centerSketchPoint
-            return circle
-        return circles.addByCenterRadius(center, radius * self._scale)
+            return Circle(circle, center)
+        return Circle(circles.addByCenterRadius(center, radius * self._scale), center)
 
     def add_constraint(self, constraint):
         self._constraints.append(constraint)
@@ -456,28 +478,21 @@ class Sketch:
     # The drawing
     def finish(self):
         """Draw everything recorded, without moving the local origin."""
-        self._bulk = len(self._points) > BULK_POINTS
-        self._coordinates = {}
-        if self._bulk:
-            self.sketch.isComputeDeferred = True
-        try:
-            with timed(f'{self.sketch.name} draw'):
-                self._drawSplines()
-                self._drawLines()
-                self._drawArcs()
-            with timed(f'{self.sketch.name} dimension {len(self._points)} points'):
-                for i, point in enumerate(self._points):
-                    if i % 100 == 0:
-                        progress(f'{self.sketch.name} dimension point {i}')
-                    self._dimensionPoint(point)
-                self._points = []
-                for constraint in self._constraints:
-                    self._dimensionCircle(constraint)
-                self._constraints = []
-        finally:
-            if self._bulk:
-                with timed(f'{self.sketch.name} compute'):
-                    self.sketch.isComputeDeferred = False
+        with timed(f'{self.sketch.name} draw'):
+            self._drawSplines()
+            self._drawLines()
+            self._drawArcs()
+        with timed(f'{self.sketch.name} dimension {len(self._points)} points'):
+            for point in self._points:
+                self._dimensionPoint(point)
+            self._points = []
+            for constraint in self._constraints:
+                self._dimensionCircle(constraint)
+            self._constraints = []
+        for pattern in self._patterns:
+            with timed(f'{self.sketch.name} pattern'):
+                self._pattern(*pattern)
+        self._patterns = []
         for constraint, name in self._bindings:
             self._bind(constraint, name)
         self._bindings = []
@@ -492,14 +507,45 @@ class Sketch:
 
     def _drawSplines(self):
         splines: adsk.fusion.SketchFittedSplines = self.sketch.sketchCurves.sketchFittedSplines
-        for points in self._splines:
+        for spline in self._splines:
             collection = adsk.core.ObjectCollection.create()
-            for point in points:
+            for point in spline.points:
                 collection.add(adsk.core.Point3D.create(point.x * self._scale, point.y * self._scale, 0))
-            fits: adsk.fusion.SketchPointList = splines.add(collection).fitPoints
-            for i, point in enumerate(points):
+            spline.fusion = splines.add(collection)
+            fits: adsk.fusion.SketchPointList = spline.fusion.fitPoints
+            for i, point in enumerate(spline.points):
                 point.point = fits.item(i)
         self._splines = []
+
+    def _pattern(self, splines, center, n, start, end):
+        """Copy the seed splines n - 1 times about center, then tie the seed's free end to the first copy's start.
+        Fusion's copies carry their own points and the closed outline needs only that one coincident: every
+        neighbouring pair would add redundant constraints. [PB-SPLINE-RING]"""
+        constraints: adsk.fusion.GeometricConstraints = self.sketch.geometricConstraints
+        centre = center.point if isinstance(center, PendingPoint) else center
+        patternInput = constraints.createCircularPatternInput([spline.fusion for spline in splines], centre)
+        patternInput.quantity = adsk.core.ValueInput.createByReal(n)
+        patternInput.totalAngle = adsk.core.ValueInput.createByString('360 deg')
+        pattern = constraints.addCircularPattern(patternInput)
+        if pattern is None:
+            raise RuntimeError(f'{self.sketch.name}: the circular pattern was not created')
+        # The first copy starts where the seed's start turned one step about the centre.
+        origin, first = centre.geometry, start.point.geometry
+        step = 2 * math.pi / n
+        dx, dy = first.x - origin.x, first.y - origin.y
+        target = (origin.x + dx * math.cos(step) - dy * math.sin(step), origin.y + dx * math.sin(step) + dy * math.cos(step))
+        nearest, gap = None, None
+        for entity in pattern.createdEntities:
+            fitted = adsk.fusion.SketchFittedSpline.cast(entity)
+            if fitted is None:
+                continue
+            point = fitted.fitPoints.item(0)
+            distance = math.hypot(point.geometry.x - target[0], point.geometry.y - target[1])
+            if gap is None or distance < gap:
+                nearest, gap = point, distance
+        if nearest is None or gap > SAME_COORDINATE * 100:
+            raise RuntimeError(f'{self.sketch.name}: no copy of the pattern starts where the seed ends')
+        constraints.addCoincident(end.point, nearest)
 
     def _end(self, point):
         if point.point is not None:
@@ -551,20 +597,13 @@ class Sketch:
     def _dimension(self, point, orientation):
         dims: adsk.fusion.SketchDimensions = self.sketch.sketchDimensions
         textPoint = adsk.core.Point3D.create(point.x * self._scale, point.y * self._scale, 0)
-        if self._bulk:
-            # A deferred solver reports a refused dimension only later, so find the repeated coordinate here.
-            partner = self._repeated(point, orientation)
+        try:
+            dims.addDistanceDimension(self._origin, point.point, orientation, textPoint)
+            return
+        except RuntimeError:
+            partner = self._sameCoordinate(point, orientation)
             if partner is None:
-                dims.addDistanceDimension(self._origin, point.point, orientation, textPoint)
-                return
-        else:
-            try:
-                dims.addDistanceDimension(self._origin, point.point, orientation, textPoint)
-                return
-            except RuntimeError:
-                partner = self._sameCoordinate(point, orientation)
-                if partner is None:
-                    raise
+                raise
         # Fusion refuses a second dimension with the value and direction of an earlier one from the
         # same origin, as at tooth angle 0 where both flanks start at one x. Aligning the two points
         # fixes the same coordinate. [SPUR-F-ALIGN-DUPLICATE]
@@ -573,18 +612,6 @@ class Sketch:
             constraints.addVerticalPoints(point.point, partner.point)
         else:
             constraints.addHorizontalPoints(point.point, partner.point)
-
-    def _repeated(self, point, orientation):
-        """The earlier point that has this point's coordinate in this direction, or None, and records the point."""
-        horizontal = orientation == adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation
-        value = point.x if horizontal else point.y
-        key = (horizontal, round(value / SAME_COORDINATE))
-        for near in (key[1] - 1, key[1], key[1] + 1):
-            other = self._coordinates.get((horizontal, near))
-            if other is not None and abs((other.x if horizontal else other.y) - value) < SAME_COORDINATE:
-                return other
-        self._coordinates[key] = point
-        return None
 
     def _sameCoordinate(self, point, orientation):
         horizontal = orientation == adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation

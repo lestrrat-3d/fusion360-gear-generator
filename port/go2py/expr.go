@@ -424,14 +424,15 @@ func (f *fnState) conversion(e *ast.CallExpr, py string, t typ) (string, typ, er
 	return py + "(" + text + ")", t, nil
 }
 
-// make renders make([]T, n) as a list of n zero values.
+// make renders make([]T, n) as a list of n zero values. The capacity of make([]T, n, c) only reserves room, so
+// it is dropped.
 func (f *fnState) make(e *ast.CallExpr) (string, typ, error) {
 	if len(e.Args) == 1 || len(e.Args) == 2 {
 		if mt, err := fromAST(e.Args[0], f.t.structs); err == nil && mt.kind == kindMap {
 			return "{}", mt, nil
 		}
 	}
-	if len(e.Args) != 2 {
+	if len(e.Args) != 2 && len(e.Args) != 3 {
 		return "", typ{}, fmt.Errorf("%s: make needs a slice type and a length", f.pos(e))
 	}
 	st, err := fromAST(e.Args[0], f.t.structs)
