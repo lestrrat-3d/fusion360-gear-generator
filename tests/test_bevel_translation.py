@@ -256,7 +256,7 @@ class BevelTranslationTest(unittest.TestCase):
         self.assertNotIn('Bore Profile', [e[1] for e in log if e[0] == 'sketch'])
 
     def test_the_spiral_pair_refuses_until_it_is_translated(self):
-        with self.assertRaisesRegex(NotImplementedError, 'Mean Spiral Angle'):
+        with self.assertRaisesRegex(NotImplementedError, 'Tooth Type Straight'):
             self.run_pair(SpiralAngle=0.6)
 
     def test_the_gallerys_validity_checks_raise_their_messages(self):

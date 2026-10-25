@@ -95,7 +95,12 @@ func paramsFromInputs(m *gallery.Model) string {
 				fmt.Fprintf(&sb, "        %s=%s.value,\n", g.Name, item)
 			}
 		case Angle:
-			fmt.Fprintf(&sb, "        %s=%s.value,\n", g.Name, item)
+			if g.Name == "SpiralAngle" {
+				// Straight teeth build with a spiral angle of zero, whatever the hidden field holds.
+				fmt.Fprintf(&sb, "        %s=%s.value if _is_spiral(inputs) else 0.0,\n", g.Name, item)
+			} else {
+				fmt.Fprintf(&sb, "        %s=%s.value,\n", g.Name, item)
+			}
 		case Length:
 			fmt.Fprintf(&sb, "        %s=to_mm(%s.value),\n", g.Name, item)
 		case Bool:
@@ -116,6 +121,9 @@ func checkInputs(m *gallery.Model) error {
 	}
 	mapped := map[string]bool{}
 	for _, in := range Inputs {
+		if in.Field == "" {
+			continue
+		}
 		mapped[in.Field] = true
 		if !have[in.Field] {
 			return fmt.Errorf("mapping lists Params.%s, which the gallery no longer defines: update port/bevel", in.Field)
@@ -145,6 +153,11 @@ func inputsBlock(m *gallery.Model) (string, error) {
 	for _, in := range Inputs {
 		g := byField[in.Field]
 		switch in.Kind {
+		case ToothType:
+			entries = append(entries, fmt.Sprintf("        toothInput = inputs.addDropDownCommandInput(\n"+
+				"            %s, '%s',\n            adsk.core.DropDownStyles.TextListDropDownStyle)\n"+
+				"        toothInput.listItems.add(_TOOTH_STRAIGHT, True)\n        toothInput.listItems.add(_TOOTH_SPIRAL, False)\n",
+				in.Const, in.Label))
 		case Number:
 			entries = append(entries, valueInput(in, "''", fmt.Sprintf("createByReal(%s)", number(g.Default))))
 		case Angle:

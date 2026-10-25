@@ -23,11 +23,14 @@ const (
 	Bool
 	// Hand writes a drop-down of Right and Left with the default selected.
 	Hand
+	// ToothType writes a drop-down of Straight and Spiral that no gallery field backs. Choosing Straight hides the
+	// spiral-only inputs and builds with a spiral angle of zero.
+	ToothType
 )
 
 // Input maps one gallery Params field to a dialog input.
 type Input struct {
-	// Field is the gallery Params field.
+	// Field is the gallery Params field. It is empty for an input the gallery does not have.
 	Field string
 	// Const is the Python constant of the input id.
 	Const string
@@ -49,6 +52,7 @@ var Inputs = []Input{
 	{Field: "MateBoreDiameter", Const: "INPUT_ID_PINION_BORE", Label: "Pinion Gear Bore Diameter", Kind: Length},
 	{Field: "FaceWidth", Const: "INPUT_ID_FACE_WIDTH", Label: "Face Width", Kind: Length},
 	{Field: "ToothSpacing", Const: "INPUT_ID_TOOTH_SPACING", Label: "Tooth Spacing", Kind: Length},
+	{Const: "INPUT_ID_TOOTH_TYPE", Label: "Tooth Type", Kind: ToothType},
 	{Field: "SpiralAngle", Const: "INPUT_ID_SPIRAL_ANGLE", Label: "Mean Spiral Angle", Kind: Angle},
 	{Field: "SpiralHand", Const: "INPUT_ID_HAND", Label: "Hand of Spiral", Kind: Hand},
 	{Field: "CutterRadius", Const: "INPUT_ID_CUTTER_RADIUS", Label: "Cutter Radius", Kind: Length},

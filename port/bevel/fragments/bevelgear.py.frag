@@ -26,6 +26,7 @@ INPUT_ID_DRIVING_BORE = 'drivingBore'
 INPUT_ID_PINION_BORE = 'pinionBore'
 INPUT_ID_FACE_WIDTH = 'faceWidth'
 INPUT_ID_TOOTH_SPACING = 'toothSpacing'
+INPUT_ID_TOOTH_TYPE = 'toothType'
 INPUT_ID_SPIRAL_ANGLE = 'spiralAngle'
 INPUT_ID_HAND = 'spiralHand'
 INPUT_ID_CUTTER_RADIUS = 'cutterRadius'
@@ -33,6 +34,8 @@ INPUT_ID_TOE_EXTENSION = 'toeExtension'
 INPUT_ID_DRIVING_TOE_RADIUS = 'drivingToeRadius'
 INPUT_ID_PINION_TOE_RADIUS = 'pinionToeRadius'
 
+_TOOTH_STRAIGHT = 'Straight'
+_TOOTH_SPIRAL = 'Spiral'
 _HAND_RIGHT = 'Right'
 _HAND_LEFT = 'Left'
 
@@ -74,27 +77,26 @@ class BevelGearCommandInputsConfigurator:
         # @@inputs@@
         cls._updateSpiralInputVisibility(inputs)
 
-    # S1: spiral-only inputs (Hand of Spiral, Cutter Radius) show only when
-    # Mean Spiral Angle is above zero.
+    # The spiral-only inputs show when the Tooth Type is Spiral and hide when it is Straight.
+    SPIRAL_ONLY = (INPUT_ID_SPIRAL_ANGLE, INPUT_ID_HAND, INPUT_ID_CUTTER_RADIUS)
+
     @classmethod
     def _updateSpiralInputVisibility(cls, inputs: adsk.core.CommandInputs):
-        spiral = inputs.itemById(INPUT_ID_SPIRAL_ANGLE)
-        hand = inputs.itemById(INPUT_ID_HAND)
-        cutter = inputs.itemById(INPUT_ID_CUTTER_RADIUS)
-        if spiral is None or hand is None or cutter is None:
-            return
-        try:
-            design: adsk.fusion.Design = get_design()
-            value = design.unitsManager.evaluateExpression(spiral.expression, 'rad')
-            visible = value > 0
-        except Exception:
-            visible = True
-        hand.isVisible = visible
-        cutter.isVisible = visible
+        visible = _is_spiral(inputs)
+        for inputId in cls.SPIRAL_ONLY:
+            item = inputs.itemById(inputId)
+            if item is not None:
+                item.isVisible = visible
 
     @classmethod
     def handle_input_changed(cls, args: adsk.core.InputChangedEventArgs):
         cls._updateSpiralInputVisibility(args.inputs)
+
+
+def _is_spiral(inputs: adsk.core.CommandInputs) -> bool:
+    """True when the Tooth Type is Spiral."""
+    toothType = inputs.itemById(INPUT_ID_TOOTH_TYPE)
+    return toothType is not None and toothType.selectedItem is not None and toothType.selectedItem.name == _TOOTH_SPIRAL
 
 
 # @@params_class@@
@@ -102,15 +104,15 @@ class BevelGearCommandInputsConfigurator:
 # @@translated@@
 
 def _build_spiral_member(doc, p, geometry, pinion):
-    raise NotImplementedError('the spiral bevel member is not translated yet: set Mean Spiral Angle to 0')
+    raise NotImplementedError('the spiral bevel member is not translated yet: choose Tooth Type Straight')
 
 
 def _build_spiral_pair(doc, p, pinionParams, drivingPlan, pinionPlan):
-    raise NotImplementedError('the spiral bevel pair is not translated yet: set Mean Spiral Angle to 0')
+    raise NotImplementedError('the spiral bevel pair is not translated yet: choose Tooth Type Straight')
 
 
 def _validate_spiral_build(p):
-    raise NotImplementedError('the spiral bevel pair is not translated yet: set Mean Spiral Angle to 0')
+    raise NotImplementedError('the spiral bevel pair is not translated yet: choose Tooth Type Straight')
 
 
 def _params_of_inputs(inputs: adsk.core.CommandInputs):
@@ -133,6 +135,8 @@ class BevelGearGenerator(Generator):
 
     def generate(self, inputs: adsk.core.CommandInputs):
         params = _params_of_inputs(inputs)
+        if _is_spiral(inputs) and params.SpiralAngle <= 0:
+            raise RuntimeError('Mean Spiral Angle must be above 0 for spiral teeth')
 
         # Selections first ([PB-SELECTION-STASH]).
         parentEntities = get_selection(inputs, INPUT_ID_PARENT)

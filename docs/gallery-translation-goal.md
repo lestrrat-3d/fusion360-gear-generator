@@ -78,8 +78,12 @@ Fusion taught us. This file owns the goal, the rules for reaching it, and the de
   turns toward the X axis. The user expected the gear on the plane, with its centre on the point, on 2026-10-25 and said
   both builds that put the apex on the point were wrong: first with both shafts in the Target Plane, then with the
   driving shaft along its normal.
-- The straight pair is translated. The spiral pair refuses with a message until it is translated; set Mean Spiral Angle
-  to 0.
+- The dialog has a Tooth Type drop-down, Straight or Spiral, which the gallery does not have. Straight hides Mean Spiral
+  Angle, Hand of Spiral and Cutter Radius and builds with a spiral angle of zero. Spiral shows them and needs an angle
+  above zero. Straight is the default until the spiral pair is translated; the gallery's default is spiral. Requested by
+  the user on 2026-10-26.
+- The straight pair is translated. The spiral pair refuses with a message until it is translated; choose Tooth Type
+  Straight.
 
 ## Definition of done for a gear
 
