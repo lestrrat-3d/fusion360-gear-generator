@@ -158,10 +158,12 @@ class BevelGearGenerator(Generator):
             self.plane.name = 'Pair Base Plane'
 
         toolsSketch = self._anchor(component)
-        pairPlane, pairTools, shaft, across = self._pairPlane(component, toolsSketch)
-        # Every sketch projects the Center Point itself: the point the Tools sketch projected goes stale once that sketch
-        # changes, and a projection of it is refused.
-        runtime = _fx.Runtime(component, pairPlane, self.anchorPoint, _no_fusion_parameters, False, MILLIMETRE)
+        # The driving gear stands on its back face, so the pair's apex is the blank's heel station above the Center
+        # Point, and the driving shaft runs from the apex down into the Target Plane.
+        height = _blank_section_of(_prepare_build(params).geometry)[1].station
+        pairPlane, pairTools, apex, shaft, across = self._pairPlane(component, toolsSketch, height)
+        # Every sketch projects the apex, a point of the Pair Tools sketch that is fully constrained to the Center Point.
+        runtime = _fx.Runtime(component, pairPlane, apex, _no_fusion_parameters, False, MILLIMETRE)
         runtime.activate()
         runtime.build_frame(pairTools, shaft, across)
         pair = build_pair(runtime, params)
@@ -200,11 +202,12 @@ class BevelGearGenerator(Generator):
         self._anchorLine = line
         return sketch
 
-    def _pairPlane(self, component, toolsSketch):
+    def _pairPlane(self, component, toolsSketch, height):
         """The plane the pair is drawn in: across the Target Plane, through the Center Point and along the sketch's X
-        axis. The driving shaft is the Target Plane's normal, so the driving gear stands on the plane with its apex on
-        the Center Point, and the pinion's shaft turns toward the sketch's X axis. Returns the plane, a sketch on it,
-        and the gallery's U and V in the design. [PB-PAIR-PLANE]"""
+        axis. The driving gear stands on the Target Plane on its back face with its axis through the Center Point, so
+        the pair's apex is `height` (mm) above the point, and the driving shaft is the Target Plane's normal turned
+        round. Returns the plane, a sketch on it, the apex in that sketch, and the gallery's U and V in the design.
+        [PB-PAIR-PLANE]"""
         x = _fx.vec_of(toolsSketch.xDirection)
         y = _fx.vec_of(toolsSketch.yDirection)
         normal = x.cross(y).unit()
@@ -214,15 +217,33 @@ class BevelGearGenerator(Generator):
             planeInput = planes.createInput()
             planeInput.setByAngle(self._anchorLine, adsk.core.ValueInput.createByString(angle), self.plane)
             plane = planes.add(planeInput)
-            # The plane's normal should be the Target Plane's Y direction, so that U x V is that direction.
-            if _fx.vec_of(plane.geometry.normal).dot(y) > 0:
+            # The plane's normal should be against the Target Plane's Y direction, so that U x V, with U the driving
+            # shaft pointing down into the plane, is its X direction.
+            if _fx.vec_of(plane.geometry.normal).dot(y) < 0:
                 break
             if angle == '90 deg':
                 plane.deleteMe()
         plane.name = 'Pair Plane'
         sketch: adsk.fusion.Sketch = component.sketches.add(plane)
         sketch.name = 'Pair Tools'
-        sketch.project(self.anchorPoint)
+        center = adsk.fusion.SketchPoint.cast(sketch.project(self.anchorPoint).item(0))
+        if center is None:
+            raise RuntimeError('Pair Tools: the Center Point projected to no SketchPoint')
+        sx = _fx.vec_of(sketch.xDirection)
+        sy = _fx.vec_of(sketch.yDirection)
+        lift = to_cm(height)
+        apex = sketch.sketchPoints.add(adsk.core.Point3D.create(
+            center.geometry.x + normal.dot(sx) * lift, center.geometry.y + normal.dot(sy) * lift, 0.0))
+        constraints: adsk.fusion.GeometricConstraints = sketch.geometricConstraints
+        for orientation, align in (
+                (adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation, constraints.addVerticalPoints),
+                (adsk.fusion.DimensionOrientations.VerticalDimensionOrientation, constraints.addHorizontalPoints)):
+            try:
+                sketch.sketchDimensions.addDistanceDimension(center, apex, orientation, apex.geometry)
+            except RuntimeError:
+                # The apex lies straight above or beside the point, and Fusion refuses a dimension of zero.
+                align(center, apex)
         sketchNormal = _fx.vec_of(sketch.xDirection).cross(_fx.vec_of(sketch.yDirection)).unit()
-        # U is the Target Plane's normal, and V completes a right-handed pair about the sketch's normal.
-        return plane, sketch, normal, sketchNormal.cross(normal).unit()
+        # U is the Target Plane's normal turned round, and V completes a right-handed pair about the sketch's normal.
+        down = normal.scale(-1.0)
+        return plane, sketch, apex, down, sketchNormal.cross(down).unit()

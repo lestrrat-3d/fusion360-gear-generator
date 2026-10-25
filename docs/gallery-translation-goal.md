@@ -72,10 +72,12 @@ Fusion taught us. This file owns the goal, the rules for reaching it, and the de
 - The gear is two members in one pair. The translation maps the gallery's containers "Pair", "Driving Gear" and
   "Pinion Gear" to Fusion components made after the build ([PB-CONTAINER-BODIES]), and the shared "Gear Profiles" sketch
   is the gallery's own. Decided with the user on 2026-10-25.
-- The driving gear stands on the Target Plane with its apex on the Center Point, so its shaft is the plane's normal.
-  The pair lies in the Pair Plane, across the Target Plane through the Center Point along its X axis, and the pinion's
-  shaft turns toward the X axis. The user expected this on 2026-10-25 and said the first build, which put both shafts
-  in the Target Plane, was wrong. The gallery's Placement frame says the same: U is the driving shaft.
+- The driving gear stands on its back face on the Target Plane with its axis through the Center Point, so the pair's apex
+  is above the point by the blank's heel station and the driving shaft is the Target Plane's normal turned round. The
+  pair lies in the Pair Plane, across the Target Plane through the Center Point along its X axis, and the pinion's shaft
+  turns toward the X axis. The user expected the gear on the plane, with its centre on the point, on 2026-10-25 and said
+  both builds that put the apex on the point were wrong: first with both shafts in the Target Plane, then with the
+  driving shaft along its normal.
 - The straight pair is translated. The spiral pair refuses with a message until it is translated; set Mean Spiral Angle
   to 0.
 
