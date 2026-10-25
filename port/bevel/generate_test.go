@@ -2,8 +2,10 @@ package bevel_test
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -70,4 +72,24 @@ func TestGenerateRefusesAnUnmappedInput(t *testing.T) {
 func TestApexScrapRemovalNamedByRole(t *testing.T) {
 	out, _, _, _ := generate(t)
 	require.Contains(t, out, `_fx.decad_remove(ranked[0].body, name="Spiral Apex Scrap Removal")`)
+}
+
+// TestGenerateRefusesChangedCreatingCalls requires the port to stop when the creating calls of a translated function
+// differ from reviewed.json, as when the gallery swaps two calls of one operation and the role names would follow
+// the positions.
+func TestGenerateRefusesChangedCreatingCalls(t *testing.T) {
+	_, m, reviewed, fragment := generate(t)
+	calls := slices.Clone(reviewed.Creations["cutBore"])
+	require.NotEmpty(t, calls)
+	calls[0], calls[len(calls)-1] = calls[len(calls)-1], calls[0]
+	require.NotEqual(t, reviewed.Creations["cutBore"], calls)
+	reviewed.Creations = maps.Clone(reviewed.Creations)
+	reviewed.Creations["cutBore"] = calls
+	_, err := bevel.Generate(m, "v0", fragment, reviewed)
+	require.ErrorContains(t, err, "cutBore")
+	require.ErrorContains(t, err, "gearport accept bevelgear")
+
+	reviewed.Creations = nil
+	_, err = bevel.Generate(m, "v0", fragment, reviewed)
+	require.ErrorContains(t, err, "records no creating calls")
 }

@@ -201,3 +201,31 @@ func TestTranspileRefusesUnusedSpecEntries(t *testing.T) {
 		})
 	}
 }
+
+// TestTranslateRecordsCreatingCalls requires the creating calls of each function in translation order, each as one
+// line of Go however the source wraps it, so two swapped calls of one operation read differently.
+func TestTranslateRecordsCreatingCalls(t *testing.T) {
+	m := loadModel(t, `
+func two(ctx context.Context, a, b *decad.Body) (*decad.Body, error) {
+	x, err := decad.Union(ctx, a, b)
+	if err != nil {
+		return nil, err
+	}
+	return decad.Union(ctx, x,
+		b, // the second
+	)
+}
+`)
+	tr, err := go2py.Translate(m, go2py.Spec{
+		Prefix: "_",
+		Funcs:  []string{"two"},
+		Roles: map[string]go2py.Role{
+			"two:decad.Union#1": {Feature: "First"}, "two:decad.Union#2": {Feature: "Second"},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, map[string][]string{"two": {
+		"decad.Union#1 decad.Union(ctx, a, b)",
+		"decad.Union#2 decad.Union(ctx, x, b)",
+	}}, tr.Creations)
+}

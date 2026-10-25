@@ -11,9 +11,14 @@ import (
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/spur"
 )
 
-// ComputeReviewed returns the empty record: the drive follows no reviewed code, because the build,
-// the dimensions and the validity checks are translated from the gallery.
-func ComputeReviewed(m *gallery.Model) (spur.Reviewed, error) { return spur.Reviewed{}, nil }
+// ComputeReviewed returns the record of the translation: its creating calls, which the role names are keyed on.
+func ComputeReviewed(m *gallery.Model) (spur.Reviewed, error) {
+	tr, err := go2py.Translate(m, FeatureSpec)
+	if err != nil {
+		return spur.Reviewed{}, err
+	}
+	return spur.Reviewed{Creations: tr.Creations}, nil
+}
 
 // Generate returns the contents of lib/geargen/cycloidal.py for the gallery model m at version,
 // using fragment as the Fusion wiring. It fails when the gallery has drifted from what the
@@ -25,10 +30,14 @@ func Generate(m *gallery.Model, version, fragment string, reviewed spur.Reviewed
 	if m.TableErr != nil {
 		return "", m.TableErr
 	}
-	translated, err := go2py.TranspileSpec(m, FeatureSpec)
+	tr, err := go2py.Translate(m, FeatureSpec)
 	if err != nil {
 		return "", fmt.Errorf("translate the cycloidal drive: %w", err)
 	}
+	if err := spur.CheckCreations("cycloidal", reviewed, tr.Creations); err != nil {
+		return "", err
+	}
+	translated := tr.Python
 	inputs, err := inputsBlock(m)
 	if err != nil {
 		return "", err

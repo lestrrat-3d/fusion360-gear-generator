@@ -1,4 +1,87 @@
 {
   "digest": "",
-  "functions": null
+  "functions": null,
+  "creations": {
+    "BuildPair": [
+      "decad.Transform#1 decad.Transform(ctx, pinion, pinionPhase)"
+    ],
+    "buildBackConeToothProfile": [
+      "sketch.World.CreatePlaneFromFrame#1 world.CreatePlaneFromFrame(frame)"
+    ],
+    "buildPointToothIn": [
+      "decad.LoftFromPoint#1 decad.LoftFromPoint(ctx, doc, r3.NewVec(0, 0, 0), s, profile)"
+    ],
+    "buildSpiralMemberOvershoot": [
+      "decad.Union#1 decad.Union(ctx, level[i], level[i+1])",
+      "decad.Union#2 decad.Union(ctx, joined, level[0])",
+      "decad.Union#3 decad.Union(ctx, level[i], level[i+1])",
+      "decad.Union#4 decad.Union(ctx, joined, level[0])",
+      "decad.Union#5 decad.Union(ctx, combined, instance)",
+      "decad.Union#6 decad.Union(ctx, joined, combined)",
+      "decad.Union#7 decad.Union(ctx, joined, instance)",
+      "decad.Intersect#1 decad.Intersect(ctx, joined, ends.region)"
+    ],
+    "buildSpiralMemberSerialTrace": [
+      "decad.Remove#1 decad.Remove(body)"
+    ],
+    "buildSpiralPair": [
+      "decad.MirroredCopy#1 decad.MirroredCopy(ctx, pinion, decad.MirrorFrame{Frame: plane})",
+      "decad.Transform#1 decad.Transform(ctx, pinion, pinionPhase)",
+      "decad.Transform#2 decad.Transform(ctx, pinion, pinionTurn)"
+    ],
+    "buildSpiralTooth": [
+      "decad.LoftFaces#1 decad.LoftFaces(ctx, doc, faces...)",
+      "decad.Remove#1 decad.Remove(slab)"
+    ],
+    "buildStraightMember": [
+      "decad.Cut#1 decad.Cut(ctx, tooth, toeCone, decad.WithMatchingFaces())",
+      "decad.Intersect#1 decad.Intersect(ctx, toeKeeper, heelCone, decad.WithMatchingFaces())",
+      "decad.PatternCopies#1 decad.PatternCopies(ctx, trimmedTooth, decad.CircularPattern{Center: r3.Vec{}, Axis: f.axis(), Count: p.Teeth})",
+      "decad.Union#1 decad.Union(ctx, blank, pattern...)"
+    ],
+    "buildVirtualToothProfile": [
+      "sketch.World.CreateSketch#1 world.CreateSketch(plane)"
+    ],
+    "crownSpiralSlabs": [
+      "decad.ScaledAt#1 decad.ScaledAt(ctx, slab, anchor, units.Scalar(factor))"
+    ],
+    "cutBore": [
+      "sketch.World.CreatePlaneFromFrame#1 world.CreatePlaneFromFrame(frame)",
+      "sketch.World.CreateSketch#1 world.CreateSketch(plane)",
+      "decad.Extrude#1 decad.Extrude(ctx, doc, s, profiles[0], decad.Distance{D: units.Millimeters(high - low + 2*margin), Dir: decad.Along})",
+      "decad.Cut#1 decad.Cut(ctx, target, tool)"
+    ],
+    "patternSpiralTooth": [
+      "decad.Copy#1 decad.Copy(ctx, trimmed, decad.WithCopyRotation(r3.Vec{}, r3.NewVec(1, 0, 0), angle))"
+    ],
+    "placePair": [
+      "decad.Transform#1 decad.Transform(ctx, driving, drivingTurn)"
+    ],
+    "revolve": [
+      "decad.Revolve#1 decad.Revolve(ctx, doc, s, profile, axis, decad.FullRevolution{})"
+    ],
+    "revolveAxialSectionIn": [
+      "sketch.World.CreateSketch#1 world.CreateSketch(world.XY())",
+      "decad.Revolve#1 decad.Revolve(ctx, doc, s, profiles[0], f.sketchAxis(), decad.FullRevolution{})"
+    ],
+    "revolveSharedBlanks": [
+      "sketch.World.CreateSketch#1 world.CreateSketch(world.XY())"
+    ],
+    "sliceSpiralPointTooth": [
+      "decad.Split#1 decad.Split(ctx, inner, sheet)",
+      "decad.Remove#1 decad.Remove(sheet)",
+      "decad.Remove#2 decad.Remove(ranked[0].body)"
+    ],
+    "spiralSliceSheet": [
+      "sketch.World.CreateSketch#1 world.CreateSketch(world.XY())",
+      "decad.Extrude#1 decad.Extrude(ctx, doc, s, chains[0], decad.TwoSided{One: decad.DistanceSide{D: units.Millimeters(extent)}, Two: decad.DistanceSide{D: units.Millimeters(extent)}})"
+    ],
+    "trimSpiralToothBy": [
+      "decad.Cut#1 decad.Cut(ctx, curved, toeCone)",
+      "decad.Intersect#1 decad.Intersect(ctx, toeKeeper, heelCone)"
+    ],
+    "twistSpiralSlabs": [
+      "decad.Transform#1 decad.Transform(ctx, slab, turn)"
+    ]
+  }
 }

@@ -109,11 +109,37 @@ type StepArg struct{ Name, Type string }
 
 // TranspileSpec renders the structs, functions and drawing sequences of spec, in that order.
 func TranspileSpec(m *gallery.Model, spec Spec) (string, error) {
+	tr, err := Translate(m, spec)
+	return tr.Python, err
+}
+
+// Translation is the result of Translate.
+type Translation struct {
+	// Python is the rendered code.
+	Python string
+	// Creations lists, for each translated function that creates Fusion objects, its creating calls in the order
+	// the translation makes them. An entry is the role key's operation and number, then the Go call:
+	// "decad.Extrude#1 decad.Extrude(ctx, doc, s, prof, extent)". It is the sequence the Roles keys count, so a
+	// gallery change to it, such as two swapped calls of one operation, moves a role name to another call.
+	Creations map[string][]string
+}
+
+// Translate renders spec as TranspileSpec does and also reports the creating calls of each function.
+func Translate(m *gallery.Model, spec Spec) (Translation, error) {
+	text, creations, err := translate(m, spec)
+	if err != nil {
+		return Translation{}, err
+	}
+	return Translation{Python: text, Creations: creations}, nil
+}
+
+func translate(m *gallery.Model, spec Spec) (string, map[string][]string, error) {
 	tr := &transpiler{
 		model: m, prefix: spec.Prefix, structs: map[string]*structInfo{}, funcs: map[string]*funcInfo{},
 		sketch:  len(spec.Steps) > 0 || len(spec.TypeOnly) > 0 || len(spec.Roles) > 0 || len(spec.External) > 0,
 		runtime: spec.Runtime, roles: spec.Roles, provided: map[string]bool{}, external: spec.External, bound: spec.Bound,
 		globals: map[string]global{}, firstOnly: map[string]bool{}, used: map[string]struct{}{},
+		creations: map[string][]string{},
 	}
 	for _, name := range spec.FirstOnly {
 		tr.firstOnly[name] = true
@@ -156,7 +182,7 @@ func TranspileSpec(m *gallery.Model, spec Spec) (string, error) {
 			tr.structs[p.name] = info
 		}
 		if len(failed) == len(todo) {
-			return "", lastErr
+			return "", nil, lastErr
 		}
 		todo = failed
 	}
@@ -168,11 +194,11 @@ func TranspileSpec(m *gallery.Model, spec Spec) (string, error) {
 	for name, underlying := range spec.Aliases {
 		expr, err := parser.ParseExpr(underlying)
 		if err != nil {
-			return "", fmt.Errorf("alias %s: %w", name, err)
+			return "", nil, fmt.Errorf("alias %s: %w", name, err)
 		}
 		at, err := fromAST(expr, tr.structs)
 		if err != nil {
-			return "", fmt.Errorf("alias %s: %w", name, err)
+			return "", nil, fmt.Errorf("alias %s: %w", name, err)
 		}
 		tr.structs[name] = &structInfo{name: name, types: map[string]typ{}, alias: &at}
 	}
@@ -188,12 +214,12 @@ func TranspileSpec(m *gallery.Model, spec Spec) (string, error) {
 	for _, name := range spec.Values {
 		expr, err := m.PackageValue(name)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 		fn := &fnState{t: tr, info: &funcInfo{name: name}, env: map[string]typ{}, calls: map[string]int{}}
 		text, vt, err := fn.expr(expr)
 		if err != nil {
-			return "", fmt.Errorf("value %s: %w", name, err)
+			return "", nil, fmt.Errorf("value %s: %w", name, err)
 		}
 		if vt.kind == kindUntyped {
 			vt = intType
@@ -217,7 +243,7 @@ func TranspileSpec(m *gallery.Model, spec Spec) (string, error) {
 		tr.funcs[name] = info
 	}
 	if len(signatureFailures) > 0 {
-		return "", errors.Join(signatureFailures...)
+		return "", nil, errors.Join(signatureFailures...)
 	}
 	for _, name := range spec.Structs {
 		out.WriteString(tr.structs[name].python(spec.Prefix))
@@ -237,12 +263,12 @@ func TranspileSpec(m *gallery.Model, spec Spec) (string, error) {
 		body.WriteString("\n\n")
 	}
 	if len(failures) > 0 {
-		return "", errors.Join(failures...)
+		return "", nil, errors.Join(failures...)
 	}
 	for _, st := range spec.Steps {
 		src, err := tr.steps(st)
 		if err != nil {
-			return "", fmt.Errorf("function %s: %w", st.Name, err)
+			return "", nil, fmt.Errorf("function %s: %w", st.Name, err)
 		}
 		body.WriteString(src)
 		body.WriteString("\n\n")
@@ -261,9 +287,9 @@ func TranspileSpec(m *gallery.Model, spec Spec) (string, error) {
 	}
 	out.WriteString(body.String())
 	if err := tr.checkUnused(spec); err != nil {
-		return "", err
+		return "", nil, err
 	}
-	return strings.TrimRight(out.String(), "\n") + "\n", nil
+	return strings.TrimRight(out.String(), "\n") + "\n", tr.creations, nil
 }
 
 // use records that the translation used the entry key of the Spec table named table.
@@ -310,6 +336,8 @@ type transpiler struct {
 	firstOnly map[string]bool
 	// used records the Spec table entries the translation used, as "<table> <key>".
 	used map[string]struct{}
+	// creations lists the creating calls of each function: see Translation.Creations.
+	creations map[string][]string
 }
 
 // funcInfo is the parsed signature of a function to translate.

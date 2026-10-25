@@ -2,9 +2,11 @@ package cycloidal_test
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"testing"
 
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/cycloidal"
@@ -88,4 +90,24 @@ func TestEveryCreatedObjectIsNamedByRole(t *testing.T) {
 		named := regexp.MustCompile(`(?m)^\s*(?:self\.)?` + regexp.QuoteMeta(m[1]) + `\.name = `)
 		require.Truef(t, named.MatchString(text), "%s is created without a name", m[1])
 	}
+}
+
+// TestGenerateRefusesChangedCreatingCalls requires the port to stop when the creating calls of a translated function
+// differ from reviewed.json, as when the gallery swaps two calls of one operation and the role names would follow
+// the positions.
+func TestGenerateRefusesChangedCreatingCalls(t *testing.T) {
+	_, m, reviewed, fragment := generate(t)
+	calls := slices.Clone(reviewed.Creations["buildHousing"])
+	require.NotEmpty(t, calls)
+	calls[1], calls[4] = calls[4], calls[1]
+	require.NotEqual(t, reviewed.Creations["buildHousing"], calls)
+	reviewed.Creations = maps.Clone(reviewed.Creations)
+	reviewed.Creations["buildHousing"] = calls
+	_, err := cycloidal.Generate(m, "v0", fragment, reviewed)
+	require.ErrorContains(t, err, "buildHousing")
+	require.ErrorContains(t, err, "gearport accept cycloidal")
+
+	reviewed.Creations = nil
+	_, err = cycloidal.Generate(m, "v0", fragment, reviewed)
+	require.ErrorContains(t, err, "records no creating calls")
 }

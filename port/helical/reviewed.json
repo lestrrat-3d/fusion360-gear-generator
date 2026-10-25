@@ -3,5 +3,13 @@
   "functions": [
     "Build",
     "Variant"
-  ]
+  ],
+  "creations": {
+    "LoftTooth": [
+      "decad.Loft#1 decad.Loft(ctx, in.Doc, lowerSketch, lowerProfile, upperSketch, upperProfile)"
+    ],
+    "filletRootEdges": [
+      "decad.Fillet#1 decad.Fillet(ctx, gear, selection.Exactly(len(roots)), radius)"
+    ]
+  }
 }

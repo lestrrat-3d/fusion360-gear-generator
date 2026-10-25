@@ -1,4 +1,46 @@
 {
   "digest": "",
-  "functions": null
+  "functions": null,
+  "creations": {
+    "buildCam": [
+      "sketch.World.CreateSketch#1 r.world.CreateSketch(plane)",
+      "decad.Extrude#1 decad.Extrude(ctx, r.doc, s, profile, decad.Distance{D: units.Millimeters(top - bottom), Dir: decad.Along})",
+      "decad.Union#1 decad.Union(ctx, sections[0], sections[1:]...)",
+      "sketch.World.CreateSketch#2 r.world.CreateSketch(plane)",
+      "decad.Extrude#2 decad.Extrude(ctx, r.doc, s, profile, decad.Distance{D: units.Millimeters(height), Dir: decad.Along})",
+      "decad.Cut#1 decad.Cut(ctx, cam, tool)"
+    ],
+    "buildCamBridge": [
+      "sketch.World.CreateSketch#1 r.world.CreateSketch(plane)",
+      "decad.Extrude#1 decad.Extrude(ctx, r.doc, s, profile, decad.Distance{D: units.Millimeters(2 * half), Dir: decad.Along})"
+    ],
+    "buildCavity": [
+      "sketch.World.CreateSketch#1 r.world.CreateSketch(cavityPlane)",
+      "decad.Extrude#1 decad.Extrude(ctx, r.doc, cs, cavityProfile, decad.Distance{D: units.Millimeters(stack + planeGap + 1), Dir: decad.Along})"
+    ],
+    "buildDiscSampled": [
+      "sketch.World.CreateSketch#1 r.world.CreateSketch(plane)",
+      "decad.Extrude#1 decad.Extrude(ctx, r.doc, s, profile, decad.Distance{D: thickness, Dir: decad.Along})"
+    ],
+    "buildHousing": [
+      "sketch.World.CreateSketch#1 r.world.CreateSketch(outerPlane)",
+      "decad.Extrude#1 decad.Extrude(ctx, r.doc, os, outerProfile, decad.Distance{D: units.Millimeters(stack - bottom), Dir: decad.Along})",
+      "decad.Cut#1 decad.Cut(ctx, prism, cavity)",
+      "sketch.World.CreateSketch#2 r.world.CreateSketch(holePlane)",
+      "decad.Extrude#2 decad.Extrude(ctx, r.doc, hs, holeProfile, decad.Distance{D: units.Millimeters(-bottom + 1), Dir: decad.Along})",
+      "decad.Cut#2 decad.Cut(ctx, walled, hole)"
+    ],
+    "buildOutput": [
+      "sketch.World.CreateSketch#1 r.world.CreateSketch(plane)",
+      "decad.Extrude#1 decad.Extrude(ctx, r.doc, ps, plateProfile, decad.Distance{D: thickness, Dir: decad.Along})",
+      "sketch.World.CreateSketch#2 r.world.CreateSketch(plane)",
+      "decad.Extrude#2 decad.Extrude(ctx, r.doc, pins, profile, decad.TwoSided{One: decad.DistanceSide{D: thickness}, Two: decad.DistanceSide{D: height}})"
+    ],
+    "chamferedBy": [
+      "decad.Chamfer#1 decad.Chamfer(ctx, body, sel, size)"
+    ],
+    "planeAt": [
+      "sketch.World.CreatePlaneFromFrame#1 r.world.CreatePlaneFromFrame(frame)"
+    ]
+  }
 }

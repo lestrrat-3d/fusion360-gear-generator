@@ -4,8 +4,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"math"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/fusionexpr"
@@ -13,16 +15,79 @@ import (
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/go2py"
 )
 
-// Reviewed records the gallery code a stored fragment was reviewed against. The spur has no
-// stored construction left, so its record is empty; the other gears still use it.
+// Reviewed records what a person reviewed a gear's port against, in its reviewed.json. gearport accept
+// writes it, and gearport gen and check stop when the gallery no longer matches it.
 type Reviewed struct {
-	// Digest is gallery.Model.SourceDigest of Functions.
+	// Digest is gallery.Model.SourceDigest of Functions: the gallery code a stored fragment copies. A gear with no
+	// such code leaves both empty.
 	Digest    string   `json:"digest"`
 	Functions []string `json:"functions"`
+	// Creations is go2py.Translation.Creations of the gear's translation: the creating calls of each translated
+	// function, in order, which the role names of port/<gear>/mapping.go are keyed on.
+	Creations map[string][]string `json:"creations,omitempty"`
 }
 
-// ComputeReviewed returns the empty record: the spur follows no reviewed code.
-func ComputeReviewed(m *gallery.Model) (Reviewed, error) { return Reviewed{}, nil }
+// ComputeReviewed returns the record of the spur: the creating calls of its translation.
+func ComputeReviewed(m *gallery.Model) (Reviewed, error) {
+	tr, err := go2py.Translate(m, FeatureSpec)
+	if err != nil {
+		return Reviewed{}, err
+	}
+	return Reviewed{Creations: tr.Creations}, nil
+}
+
+// CheckCreations requires the creating calls of a gear's translation, now, to be the ones its reviewed.json
+// records. A gallery change to them, such as two calls of one operation swapped, would move a role name to
+// another call, so it stops the port until a person reviews the roles and runs gearport accept.
+func CheckCreations(gear string, reviewed Reviewed, now map[string][]string) error {
+	hint := fmt.Sprintf("review the roles in port/%s/mapping.go, then run gearport accept %s", gearDir(gear), gear)
+	if reviewed.Creations == nil {
+		return fmt.Errorf("reviewed.json records no creating calls: %s", hint)
+	}
+	var problems []string
+	for _, name := range slices.Sorted(maps.Keys(reviewed.Creations)) {
+		if _, ok := now[name]; !ok {
+			problems = append(problems, fmt.Sprintf("%s no longer creates anything", name))
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(now)) {
+		was, ok := reviewed.Creations[name]
+		if !ok {
+			problems = append(problems, fmt.Sprintf("%s now creates %q", name, now[name]))
+			continue
+		}
+		if diff := sequenceDiff(was, now[name]); diff != "" {
+			problems = append(problems, fmt.Sprintf("%s: %s", name, diff))
+		}
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("the gallery's creating calls changed: %s: %s", strings.Join(problems, "; "), hint)
+	}
+	return nil
+}
+
+// sequenceDiff describes the first difference between two call sequences, or returns "" when they are equal.
+func sequenceDiff(was, now []string) string {
+	for i := 0; i < len(was) || i < len(now); i++ {
+		switch {
+		case i >= len(was):
+			return fmt.Sprintf("call %d is new: %q", i+1, now[i])
+		case i >= len(now):
+			return fmt.Sprintf("call %d is gone: %q", i+1, was[i])
+		case was[i] != now[i]:
+			return fmt.Sprintf("call %d was %q and is now %q", i+1, was[i], now[i])
+		}
+	}
+	return ""
+}
+
+// gearDir is the port package directory of a gear.
+func gearDir(gear string) string {
+	return map[string]string{
+		"spurgear": "spur", "helicalgear": "helical", "herringbonegear": "herringbone",
+		"bevelgear": "bevel", "cycloidal": "cycloidal",
+	}[gear]
+}
 
 // Generate returns the contents of lib/geargen/spurgear.py for the gallery model m
 // at version, using fragment as the stored Fusion construction. It fails when the
@@ -36,6 +101,9 @@ func Generate(m *gallery.Model, version, fragment string, reviewed Reviewed) (st
 	}
 	gen, err := newPieces(m)
 	if err != nil {
+		return "", err
+	}
+	if err := CheckCreations("spurgear", reviewed, gen.creations); err != nil {
 		return "", err
 	}
 	out := fragment
@@ -109,6 +177,8 @@ type pieces struct {
 	derived string
 	helpers string
 	byTable map[string]Param
+	// creations are the creating calls of the translation.
+	creations map[string][]string
 }
 
 func newPieces(m *gallery.Model) (*pieces, error) {
@@ -120,12 +190,13 @@ func newPieces(m *gallery.Model) (*pieces, error) {
 	if p.derived, err = p.derivedMethod(); err != nil {
 		return nil, err
 	}
-	python, err := go2py.TranspileSpec(m, FeatureSpec)
+	tr, err := go2py.Translate(m, FeatureSpec)
 	if err != nil {
 		return nil, fmt.Errorf("translate involute math and tooth section: %w", err)
 	}
+	p.creations = tr.Creations
 	p.helpers = "# Involute sampling and the tooth section, translated from the gallery model's Go source.\n" +
-		"# Do not edit.\n" + python + "\n"
+		"# Do not edit.\n" + tr.Python + "\n"
 	return p, nil
 }
 

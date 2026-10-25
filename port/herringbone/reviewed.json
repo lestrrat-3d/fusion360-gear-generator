@@ -2,5 +2,11 @@
   "digest": "66ec7d5f824cf7d6459a2020ee9265980578a6a95f3609fae05942a31989ca9f",
   "functions": [
     "variant"
-  ]
+  ],
+  "creations": {
+    "chevron": [
+      "decad.MirroredCopy#1 decad.MirroredCopy(ctx, half, decad.MirrorFrame{Frame: mid})",
+      "decad.Union#1 decad.Union(ctx, half, mirrored)"
+    ]
+  }
 }
