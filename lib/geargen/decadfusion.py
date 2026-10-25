@@ -454,14 +454,16 @@ class Runtime:
         return self._root
 
     def bodies(self):
-        """Every body of the component, the same wrapper for the same body."""
-        registry = self.__dict__.setdefault('_bodyRegistry', {})
+        """Every body of the component, the same wrapper for the same body. Bodies are matched with ==: one entity can
+        return different entityToken strings over time, so tokens are never compared."""
+        registry = self.__dict__.setdefault('_bodyRegistry', [])
         found = []
         for fbody in self.component.bRepBodies:
-            token = fbody.entityToken
-            if token not in registry:
-                registry[token] = Body(self, fbody)
-            found.append(registry[token])
+            wrapper = next((known for known in registry if known.body == fbody), None)
+            if wrapper is None:
+                wrapper = Body(self, fbody)
+                registry.append(wrapper)
+            found.append(wrapper)
         return found
 
     def move_body(self, body, container):
@@ -649,19 +651,25 @@ class Profile:
                 self.Outer = [curve for curve in loop.profileCurves]
             else:
                 self.Holes.append([curve for curve in loop.profileCurves])
-        # The sketch entities on the outer boundary, by token, so a line the build drew compares equal to its entity.
-        self.Entities = [EntityRef(curve.sketchEntity.entityToken) for curve in self.Outer]
+        # The sketch entities on the outer boundary, so a line the build drew compares equal to its entity.
+        self.Entities = [EntityRef(curve.sketchEntity) for curve in self.Outer]
 
 
 class EntityRef:
-    def __init__(self, token):
-        self.token = token
+    """A sketch entity of a profile. It equals a Line the build drew when the line's Fusion entity is the same entity,
+    compared with ==: one entity can return different entityToken strings over time, so tokens are never compared."""
+
+    def __init__(self, entity):
+        self.entity = entity
 
     def __eq__(self, other):
-        return getattr(other, 'token', None) == self.token
+        if isinstance(other, EntityRef):
+            return self.entity == other.entity
+        fusion = getattr(other, 'fusion', None)
+        return fusion is not None and fusion == self.entity
 
-    def __hash__(self):
-        return hash(self.token)
+    # Equality follows Fusion's ==, which no hash can follow.
+    __hash__ = None
 
 
 class Line:
@@ -674,10 +682,6 @@ class Line:
 
     def set_construction(self, flag):
         self.construction = flag
-
-    @property
-    def token(self):
-        return self.fusion.entityToken
 
 
 def _coordinates(point):
@@ -1448,7 +1452,8 @@ def decad_pattern_copies(tooth, pattern, name):
     feature: adsk.fusion.CircularPatternFeature = patterns.add(patternInput)
     solids.name_feature(feature, name)
     # The result may or may not list the original body; the copies are the others.
-    copies = [Body(runtime, b) for b in feature.bodies if b.entityToken != tooth.body.entityToken]
+    source = tooth.body
+    copies = [Body(runtime, b) for b in feature.bodies if not b == source]
     if not copies:
         raise RuntimeError(f'{name}: the pattern made no copies')
     return copies
@@ -1950,7 +1955,8 @@ def decad_mirrored_copy(source, mirror, name, body):
     mirrorInput.isCombine = False
     feature: adsk.fusion.MirrorFeature = mirrors.add(mirrorInput)
     solids.name_feature(feature, name)
-    copies = [b for b in feature.bodies if b.entityToken != source.body.entityToken]
+    original = source.body
+    copies = [b for b in feature.bodies if not b == original]
     if len(copies) != 1:
         raise RuntimeError(f'{name}: expected one mirrored body, got {len(copies)}')
     solids.name_feature(copies[0], body)

@@ -215,7 +215,7 @@ class GearCommand:
             futil.log(f'{self.name} decadfusion build {_runtime.RUNTIME_BUILD}')
             # [PB-SETTLE-DISPLAY]: remember the user's own sketches, so the settle below only
             # touches the ones this generator is about to author.
-            preexisting = geargen.sketch_tokens(design)
+            preexisting = geargen.existing_sketches(design)
             g = self.generator_class(design)
             g.generate(args.command.commandInputs)
             # Every gear runs through here, so one call covers all of them and no generated

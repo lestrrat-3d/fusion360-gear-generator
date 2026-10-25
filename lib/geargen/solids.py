@@ -249,26 +249,22 @@ def circle_intersect_nearest(R, Cx, Cy, r_c, refX, refY):
 
 def hide_construction_geometry(component):
     # Recursively hide every sketch, construction plane, and construction
-    # axis under `component` (dedupe by entityToken), leaving only bodies
-    # visible ([PB-TREE-CLEANUP]).
-    seen = set()
+    # axis under `component`, leaving only bodies visible ([PB-TREE-CLEANUP]).
+    # A component reached through two occurrences is walked once; components
+    # are compared with ==, never by entityToken, whose string can differ over
+    # time for one entity.
+    walked = []
 
     def walk(comp):
+        if any(comp == seen for seen in walked):
+            return
+        walked.append(comp)
         for sketch in comp.sketches:
-            token = sketch.entityToken
-            if token not in seen:
-                seen.add(token)
-                sketch.isLightBulbOn = False
+            sketch.isLightBulbOn = False
         for plane in comp.constructionPlanes:
-            token = plane.entityToken
-            if token not in seen:
-                seen.add(token)
-                plane.isLightBulbOn = False
+            plane.isLightBulbOn = False
         for axis in comp.constructionAxes:
-            token = axis.entityToken
-            if token not in seen:
-                seen.add(token)
-                axis.isLightBulbOn = False
+            axis.isLightBulbOn = False
         for occ in comp.occurrences:
             walk(occ.component)
 
