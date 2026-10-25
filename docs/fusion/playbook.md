@@ -238,12 +238,15 @@ fully constrained sketch shows as unconstrained. Opening the sketch and closing 
     Profiles and both per-gear Profile sketches when each was built and after the last feature, while all four icons
     showed otherwise. Read the property, not the browser.
   - `commands/_gear_command.py` records the sketches that exist before `generate()`, and afterwards calls
-    `geargen.settle_sketch_display` once. That toggles `isComputeDeferred` on each new sketch, reads
-    `isFullyConstrained`, and calls `adsk.doEvents()`. Every gear goes through that one call, so no fragment or runtime
-    function adds its own.
+    `geargen.settle_sketch_display` once. That reads `isFullyConstrained` on each new sketch and calls
+    `adsk.doEvents()`. It used to toggle `isComputeDeferred` on each sketch first, which re-solves the sketch: for the
+    cycloidal disc and casing sketches a solve took 2.5 s each, so the toggle cost seconds in a build the log did not
+    show. The toggle is gone and the command logs `<name> settle display` with its time. Every gear goes through that one
+    call, so no fragment or runtime function adds its own.
   - It changes only the display. Across three instrumented bevel builds the geometry, constraint and dimension counts
     were the same with and without it. It also refreshed a control sketch it was not applied to, which points at
-    `adsk.doEvents()` as the part that does the work; both parts are kept because only the pair was measured.
+    `adsk.doEvents()` as the part that does the work. Whether the icons still refresh without the toggle is to be
+    confirmed in Fusion; if they do not, restore the toggle for the small sketches only.
   - Sketch-only spur, Fusion 2705.1.25: the first run showed the `Tools` and `Gear Profile` sketches as not fully
     constrained, and a later run showed both fully constrained without any action. The first reading was not
     reproduced. Nothing in the port changed the sketch calls, so no code changed.

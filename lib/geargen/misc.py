@@ -41,9 +41,11 @@ def settle_sketch_display(design, known=None):
     A sketch authored through the API ends up with a browser node whose constraint icon still
     shows the state the sketch had when it was created, which is before any of its constraints
     existed. Opening and closing the sketch editor refreshes it, and so does this: each sketch
-    is recomputed and re-read, and one adsk.doEvents() lets Fusion process the updates it has
-    queued. Measured on the bevel gear, this changes no geometry, no constraint and no
-    dimension, only what the browser shows.
+    is re-read, and one adsk.doEvents() lets Fusion process the updates it has queued. Measured
+    on the bevel gear, this changes no geometry, no constraint and no dimension, only what the
+    browser shows. The sketches are not recomputed (isComputeDeferred toggled): that re-solves
+    every sketch, which costs as much as building it, and the control measurement in the
+    playbook shows adsk.doEvents() alone refreshed a sketch it was not applied to.
 
     Sketches in known (from existing_sketches) are left alone, so only what the generator just
     authored is touched. Returns how many sketches were settled."""
@@ -53,8 +55,6 @@ def settle_sketch_display(design, known=None):
             if known and _is_known(sketch, known):
                 continue
             try:
-                sketch.isComputeDeferred = True
-                sketch.isComputeDeferred = False
                 # The read is part of the refresh: it is what asks Fusion for the current
                 # verdict rather than the one cached on the node.
                 sketch.isFullyConstrained

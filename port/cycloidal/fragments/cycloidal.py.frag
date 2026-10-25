@@ -172,13 +172,16 @@ class CycloidalDriveGenerator(Generator):
         runtime.activate()
         self._runtime = runtime
         runtime.build_frame(toolsSketch)
-        drive = build(runtime, self._galleryParams())
+        with _fx.timed('Cycloidal build'):
+            drive = build(runtime, self._galleryParams())
         for named in drive_named(drive):
             named.Body.body.name = named.Name
-        self._buildSubComponents(component)
-        runtime.hide_helpers()
-        toolsSketch.isVisible = False
-        solids.hide_construction_geometry(component)
+        with _fx.timed('Cycloidal sub-components'):
+            self._buildSubComponents(component)
+        with _fx.timed('Cycloidal hide helpers'):
+            runtime.hide_helpers()
+            toolsSketch.isVisible = False
+            solids.hide_construction_geometry(component)
 
     def _anchor(self, component):
         """A sketch on the plane that holds the Anchor Point, fully constrained, for every translated sketch to
@@ -208,5 +211,6 @@ class CycloidalDriveGenerator(Generator):
                 continue
             occurrence = component.occurrences.addNewComponent(adsk.core.Matrix3D.create())
             occurrence.component.name = name
-            for body in bodies:
-                body.moveToComponent(occurrence)
+            with _fx.timed(f'Move {len(bodies)} bodies into {name}'):
+                for body in bodies:
+                    body.moveToComponent(occurrence)

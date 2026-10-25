@@ -622,3 +622,26 @@ class SplitScalePlaneTest(RuntimeTestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class SettleDisplayTest(FusionTestCase):
+    def test_a_settle_reads_each_new_sketch_and_does_not_recompute_it(self):
+        import importlib
+        misc = importlib.import_module('addin.lib.geargen.misc')
+        toggled, read = [], []
+
+        class Sketch:
+            name = 'New'
+
+            def __setattr__(self, name, value):
+                if name == 'isComputeDeferred':
+                    toggled.append(value)
+
+            @property
+            def isFullyConstrained(self):
+                read.append(True)
+                return True
+        design = SimpleNamespace(allComponents=[SimpleNamespace(sketches=[Sketch(), Sketch()])])
+        self.assertEqual(2, misc.settle_sketch_display(design, None))
+        self.assertEqual([], toggled, 'a recompute re-solves the sketch, which costs as much as building it')
+        self.assertEqual(2, len(read))

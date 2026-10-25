@@ -287,10 +287,12 @@ class GearCommand:
             # touches the ones this generator is about to author.
             preexisting = geargen.existing_sketches(design)
             g = self.generator_class(design)
-            g.generate(args.command.commandInputs)
+            with _runtime.timed(f'{self.name} generate'):
+                g.generate(args.command.commandInputs)
             # Every gear runs through here, so one call covers all of them and no generated
             # module carries its own copy.
-            settled = geargen.settle_sketch_display(design, preexisting)
+            with _runtime.timed(f'{self.name} settle display'):
+                settled = geargen.settle_sketch_display(design, preexisting)
             futil.log(f'{self.name} settled the display of {settled} new sketches')
         except Exception:
             # Put the build marker in the error box so any traceback the user
