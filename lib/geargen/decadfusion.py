@@ -22,6 +22,7 @@ import adsk.core
 import adsk.fusion
 from ...lib import fusion360utils as futil
 from . import solids
+from .decaderrors import Degenerate
 
 DECAD_ALONG = 1
 DECAD_AGAINST = -1
@@ -1895,7 +1896,15 @@ def decad_split(target, sheet, name):
     runtime = target.runtime
     splits: adsk.fusion.SplitBodyFeatures = runtime.component.features.splitBodyFeatures
     splitInput: adsk.fusion.SplitBodyFeatureInput = splits.createInput(target.body, sheet.body, True)
-    feature = splits.add(splitInput)
+    try:
+        feature = splits.add(splitInput)
+    except RuntimeError as refusal:
+        # Fusion refuses a sheet that does not meet the body: decad's ErrDegenerate, which the gallery skips.
+        raise Degenerate(f'{name}: the sheet does not split the body ({refusal})') from refusal
+    if feature.bodies.count < 2:
+        # A split that leaves one body missed it. The feature is taken out so the target stands as it was.
+        feature.deleteMe()
+        raise Degenerate(f'{name}: the sheet missed the body')
     _name_feature(feature, name, runtime)
     if feature.bodies.count != 2:
         raise RuntimeError(f'{name}: the sheet made {feature.bodies.count} pieces; want two')

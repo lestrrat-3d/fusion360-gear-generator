@@ -210,7 +210,7 @@ class Recorder:
 
     def make_split(self, split_input):
         pieces = self.split_pieces or [FakeBRep(1.0, 0, 0), FakeBRep(5.0, 0, 0)]
-        return SimpleNamespace(bodies=BodyList(pieces), name='')
+        return SimpleNamespace(bodies=BodyList(pieces), name='', deleteMe=lambda: self.log.append(('deleteMe',)))
 
     pattern_axis = ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0))
 

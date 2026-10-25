@@ -521,6 +521,25 @@ class SplitScalePlaneTest(RuntimeTestCase):
         with self.assertRaisesRegex(RuntimeError, 'made 3 pieces'):
             self.fx.decad_split(self.body(), self.body(), name='Slice')
 
+    def test_a_sheet_that_leaves_one_body_is_degenerate_and_the_feature_is_taken_out(self):
+        from addin.lib.geargen.decaderrors import Degenerate
+        target = self.body(3.0)
+        self.features.split_pieces = [FakeBRep(1.0)]
+        with self.assertRaises(Degenerate):
+            self.fx.decad_split(target, self.body(0.0), name='Slice')
+        self.assertEqual(['split', 'deleteMe'], self.features.kinds())
+        self.assertNotIn('remove', self.features.kinds(), 'the sheet stays for the caller to remove')
+
+    def test_a_refused_split_is_degenerate(self):
+        from addin.lib.geargen.decaderrors import Degenerate
+
+        def refuse(split_input):
+            raise RuntimeError('3 : no intersection')
+        self.component.features.splitBodyFeatures.add = refuse
+        with self.assertRaises(Degenerate):
+            self.fx.decad_split(self.body(3.0), self.body(0.0), name='Slice')
+        self.assertTrue(issubclass(Degenerate, RuntimeError))
+
     def scale_setup(self):
         fx = self.fx
         sketches = []
