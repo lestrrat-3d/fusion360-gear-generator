@@ -77,6 +77,7 @@ var FeatureSpec = go2py.Spec{
 		"buildSpiralMember":          {Python: "_build_spiral_member", Result: "decad.Body"},
 		"buildSpiralPair":            {Python: "_build_spiral_pair", Result: "GearPair"},
 		"validateSpiralBuild":        {Python: "_validate_spiral_build", Result: ""},
+		"snap":                       {Python: "_fx.shaft_snap", Result: "[]axialPoint"},
 		"selectEmbeddedToothProfile": {Python: "_fx.select_embedded_tooth_profile", Result: "sketch.Profile"},
 	},
 	Funcs: []string{
@@ -86,7 +87,7 @@ var FeatureSpec = go2py.Spec{
 		"buildHeelConeIn", "endConeSection", "buildEndCone", "buildPointToothIn", "ResolveBoreDiameter",
 		"maximumBoreDiameter", "cutBore", "newPairContainers", "uniqueChild", "addSketch", "addPlane", "moveBody",
 		"newShaftFrame", "roundBits", "buildBackConeToothProfile", "buildVirtualToothProfile", "local", "axis", "sketchAxis", "unit", "vec",
-		"snap", "sectionXY", "revolveAxialSection", "buildShiftedEndCone",
+		"sectionXY", "revolveAxialSection", "buildShiftedEndCone",
 	},
 	Roles: map[string]go2py.Role{
 		"BuildPair:decad.Transform#1":                                   {Feature: "Pinion Tooth Phase Turn"},

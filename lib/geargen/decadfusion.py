@@ -320,6 +320,14 @@ def param_new():
     return ParamTable()
 
 
+def shaft_snap(frame, section):
+    """The gallery snaps the points of a section about a rotated shaft to a grid, so that decad's revolve about that axis
+    sees exact floats. Fusion's kernel is exact, and the snap does harm there: the grid depends on the section's reach,
+    so the same surface drawn in two sections lands on two slightly different cones, and Fusion keeps the faces apart where
+    it merges the faces of an unsnapped gear. The section is returned as it is. [PB-NO-GRID-SNAP]"""
+    return list(section)
+
+
 class Container:
     """The gallery's container: a group of bodies that nest. Fusion makes a component for it once the build is done,
     and moves its bodies in, because a feature on a body inside a component would run in that component's

@@ -69,7 +69,8 @@ type Spec struct {
 type Bound struct {
 	// Python is the callee, such as "_fx.derive".
 	Python string
-	// Result is the translated struct the function returns.
+	// Result is the type the function returns: a translated struct, a handle such as "decad.Body", a slice such as
+	// "[]axialPoint", or empty for nothing.
 	Result string
 }
 

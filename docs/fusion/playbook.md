@@ -920,6 +920,15 @@ round, so the driving shaft runs from the apex down into the plane, and V comple
 normal. `Runtime.build_frame` takes them, and every sketch maps the gallery's axes to Fusion's by dot products.
 [PB-FRAME-PLANE]
 
+**[PB-NO-GRID-SNAP] Decad's grid snap of a section about a rotated shaft is not applied in Fusion.** The gallery snaps the
+points of every section about a rotated shaft to a grid whose step depends on the section's reach, so that decad's
+revolve sees exact floats. In Fusion the pinion's faces that should lie on one cone, the toe dish of its blank and the
+faces its toe cone trims into every tooth, came out as 31 extra cone faces, one per tooth, and the pinion looked as if
+its teeth stood on the body with a crease at each end. The driving gear, built about an unrotated shaft and so not
+snapped, merged them into one face (face counts 129 and 160, with the same volume to 0.009 percent). Fusion's kernel is
+exact, so `decadfusion.shaft_snap` returns the section as it is. The shaft direction's rounding to 26 bits stays: every
+feature about one shaft uses the same value.
+
 **[PB-EMBEDDED-TOOTH] The embedded virtual tooth is the region bounded by two flank splines, a tip arc and a root arc.**
 Decad numbers the trim of each flank at the root circle; Fusion's regions carry their trimmed curves, so the runtime
 picks the one valid, hole-free region with four edges of which two are splines.

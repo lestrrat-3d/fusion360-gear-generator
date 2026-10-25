@@ -172,7 +172,7 @@ class BevelTranslationTest(unittest.TestCase):
             return [FakeBody('Tooth Copy') for _ in range(pattern.Count - 1)]
 
         namespace = SimpleNamespace(**{n: getattr(fx, n) for n in (
-            'param_new', 'field_ref', 'math_round', 'math_ilogb', 'r3_new_vec', 'r3_vec', 'r3_new_frame', 'r3_rotation',
+            'param_new', 'shaft_snap', 'field_ref', 'math_round', 'math_ilogb', 'r3_new_vec', 'r3_vec', 'r3_new_frame', 'r3_rotation',
             'units_radians', 'units_millimeters', 'UNITS_MILLIMETER', 'UNITS_RADIAN', 'UNITS_ONE', 'DECAD_ALONG',
             'decad_distance', 'decad_circular_pattern', 'decad_with_matching_faces', 'decad_full_revolution',
             'decad_sketch_line', 'decad_point2')})

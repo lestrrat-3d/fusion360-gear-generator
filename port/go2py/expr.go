@@ -299,6 +299,14 @@ func (f *fnState) structCall(e *ast.CallExpr, sel *ast.SelectorExpr) (string, ty
 		}
 		return x + "." + sel.Sel.Name + "(" + strings.Join(args, ", ") + ")", rt, nil
 	}
+	if b, ok := f.t.bound[sel.Sel.Name]; ok {
+		// A method the runtime implements: the receiver is its first argument.
+		args, err := f.args(e.Args)
+		if err != nil {
+			return "", typ{}, err
+		}
+		return b.Python + "(" + strings.Join(append([]string{x}, args...), ", ") + ")", boundType(b.Result), nil
+	}
 	callee, ok := f.t.funcs[sel.Sel.Name]
 	if !ok || callee.recvType == nil || callee.recvType.name != xt.name {
 		return "", typ{}, fmt.Errorf("%s: %s.%s is not translated", f.pos(e), xt.name, sel.Sel.Name)
@@ -423,14 +431,7 @@ func (f *fnState) translatedCall(e *ast.CallExpr, name string) (string, typ, err
 		if err != nil {
 			return "", typ{}, err
 		}
-		bt := typ{kind: kindStruct, name: b.Result}
-		switch {
-		case b.Result == "":
-			bt = typ{kind: kindOpaque, name: "void"}
-		case strings.Contains(b.Result, "."):
-			bt = typ{kind: kindOpaque, name: b.Result}
-		}
-		return b.Python + "(" + strings.Join(args, ", ") + ")", bt, nil
+		return b.Python + "(" + strings.Join(args, ", ") + ")", boundType(b.Result), nil
 	}
 	callee, ok := f.t.funcs[name]
 	if !ok {
@@ -804,4 +805,19 @@ func (f *fnState) sortSlice(e *ast.CallExpr) (string, typ, error) {
 		reverse = ", reverse=True"
 	}
 	return name + ".sort(key=lambda _v: " + key + reverse + ")", typ{kind: kindOpaque, name: "void"}, nil
+}
+
+// boundType is the Go type of a bound function's result: nothing, a slice, a handle of an opaque package, or a
+// translated struct.
+func boundType(result string) typ {
+	switch {
+	case result == "":
+		return typ{kind: kindOpaque, name: "void"}
+	case strings.HasPrefix(result, "[]"):
+		elem := boundType(result[2:])
+		return typ{kind: kindSlice, elem: &elem}
+	case strings.Contains(result, "."):
+		return typ{kind: kindOpaque, name: result}
+	}
+	return typ{kind: kindStruct, name: result}
 }
