@@ -67,13 +67,15 @@ Fusion taught us. This file owns the goal, the rules for reaching it, and the de
 - Starting a gear: list the gallery operations it uses, then list which are already covered by a rule.
 - The screw gear has no gallery model and is outside this goal. It stays on `feat-screwgear` branches.
 
-## Waiting on other sessions
+## Bevel
 
-- Bevel: the gear is two members in one pair. The Fusion add-in keeps them in components and describes both blank
-  profiles in one shared sketch. Requested on 2026-10-24: decad gets a generic grouping container (`decad-7e`: nestable,
-  grouping only, no instancing, no transform), then the gallery's `BuildPair` draws one shared sketch for both blanks and
-  puts each member in a container (`decad-gallery-93`). The translation maps the containers to Fusion components and
-  keeps the shared sketch. Until both land, the straight bevel path is translated against the current model and reworked.
+- The gear is two members in one pair. The translation maps the gallery's containers "Pair", "Driving Gear" and
+  "Pinion Gear" to Fusion components made after the build ([PB-CONTAINER-BODIES]), and the shared "Gear Profiles" sketch
+  is the gallery's own. Decided with the user on 2026-10-25.
+- The Target Plane is the plane that holds both shafts, as the gallery's Placement says, and the Center Point is the
+  common apex. The old add-in stood the driving gear on the plane.
+- The straight pair is translated. The spiral pair refuses with a message until it is translated; set Mean Spiral Angle
+  to 0.
 
 ## Definition of done for a gear
 
