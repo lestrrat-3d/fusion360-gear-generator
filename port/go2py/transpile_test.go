@@ -124,29 +124,14 @@ func TestTranspileSketchRefusesWhatItDoesNotKnow(t *testing.T) {
 	m, err := gallery.Load(src.Dir)
 	require.NoError(t, err)
 
-	args := []go2py.StepArg{
-		{Name: "s", Type: "*sketch.Sketch"}, {Name: "p", Type: "Params"},
-		{Name: "d", Type: "dimensions"}, {Name: "angle", Type: "float64"},
-	}
+	// A function that is not in the list cannot be called from a translated one.
 	spec := go2py.Spec{
 		Prefix:   "_",
 		Structs:  []string{"point", "dimensions", "toothPoints"},
 		TypeOnly: []string{"Params"},
 		Filled:   []string{"toothPoints"},
-		Funcs: []string{
-			"rotate", "involutePoint", "flankBeta", "sampleFlanks", "rootContact", "addToothPoints",
-		},
+		Funcs:    []string{"rotate", "involutePoint", "flankBeta", "sampleFlanks", "addToothPoints"},
 	}
-
-	// A stop call the function never makes lets the translation run into the solver and
-	// profile checks, which the Python runtime does not perform, so the port refuses.
-	spec.Steps = []go2py.Steps{{Name: "buildToothSection", PyName: "x", Args: args, StopAt: "noSuchCall"}}
-	_, err = go2py.TranspileSpec(m, spec)
-	require.ErrorContains(t, err, "not translated")
-
-	// A function that is not in the list cannot be called from a translated one.
-	spec.Funcs = []string{"rotate", "involutePoint", "flankBeta", "sampleFlanks", "addToothPoints"}
-	spec.Steps = nil
 	_, err = go2py.TranspileSpec(m, spec)
 	require.ErrorContains(t, err, "rootContact")
 }

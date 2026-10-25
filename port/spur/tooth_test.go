@@ -18,7 +18,15 @@ import (
 // recorder stands in for the Fusion runtime and records the calls the translated tooth
 // section makes, in order.
 const recorder = `
-import collections, json, math, sys
+import collections, json, math, sys, types
+
+_fx = types.SimpleNamespace(sketchcheck_verify_fully_constrained=lambda s: None)
+
+class World:
+    def __init__(self, sketch):
+        self.sketch = sketch
+    def create_sketch(self, plane, name):
+        return self.sketch
 
 class Recorder:
     def __init__(self):
@@ -37,6 +45,10 @@ class Recorder:
         self.arcs.append([c, a, b])
     def create_fit_spline(self, *pts):
         self.splines.append(list(pts))
+    def solve(self):
+        pass
+    def profiles(self):
+        return [types.SimpleNamespace(Valid=True, Outer=[None] * 6)]
 
 Params = collections.namedtuple('Params', ['Teeth', 'Samples'])
 out = []
@@ -44,7 +56,7 @@ for c in json.load(sys.stdin):
     pitch = c['module'] * c['teeth'] / 2
     d = _Dimensions(pitch, pitch * math.cos(c['pressure_angle']), pitch - 1.25 * c['module'], pitch + c['module'], 0.0)
     r = Recorder()
-    _draw_tooth_section(r, Params(c['teeth'], c['samples']), d, c['angle'])
+    _build_tooth_section(World(r), 'plane', Params(c['teeth'], c['samples']), d, c['angle'])
     out.append(r.__dict__)
 json.dump(out, sys.stdout)
 `

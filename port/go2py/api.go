@@ -248,9 +248,6 @@ func (f *fnState) apiCall(e *ast.CallExpr, sel *ast.SelectorExpr) (string, typ, 
 	if err != nil {
 		return "", typ{}, false, nil
 	}
-	if rt.kind == kindStruct && f.t.structs[rt.name] != nil && f.t.structs[rt.name].zero {
-		return "", typ{}, false, nil
-	}
 	if rt.kind != kindOpaque {
 		return "", typ{}, false, nil
 	}
@@ -328,9 +325,6 @@ type APIEntry struct {
 func API() []APIEntry {
 	var out []APIEntry
 	for name, sig := range apiFuncs {
-		if strings.HasSuffix(name, "#v") {
-			continue
-		}
 		if sig.recv {
 			_, fn, _ := strings.Cut(name, ".")
 			out = append(out, APIEntry{Go: name, Python: pySnake(fn), Receiver: "sketch.Sketch"})

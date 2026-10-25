@@ -27,7 +27,7 @@ const (
 	// kindCtx is a context.Context. A translated function takes none and passes none.
 	kindCtx
 	kindString
-	// kindNil is the nil literal, and the value of any field of a zero-valued struct.
+	// kindNil is the nil literal.
 	kindNil
 	kindMap
 	// kindUntypedFloat is a floating-point constant. It takes the type float64 next to a float or another constant,
@@ -236,9 +236,6 @@ type structInfo struct {
 	name   string
 	fields []string
 	types  map[string]typ
-	// zero marks a struct the translation treats as its zero value, such as an options
-	// struct with every field unset. Every field reads as nil.
-	zero bool
 	// external marks a struct of another gallery package, which the translation holds as an
 	// opaque handle and reads only the listed fields of.
 	external bool

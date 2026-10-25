@@ -3,67 +3,10 @@ package go2py
 import (
 	"fmt"
 	"go/ast"
-	"go/parser"
 	"go/token"
 	"slices"
 	"strings"
 )
-
-// steps renders the creation sequence of one drawing function.
-func (t *transpiler) steps(st Steps) (string, error) {
-	decl, err := t.model.Func(st.Name)
-	if err != nil {
-		return "", err
-	}
-	fn := &fnState{t: t, info: &funcInfo{name: st.Name, decl: decl}, env: map[string]typ{}, calls: map[string]int{}}
-	names := make([]string, len(st.Args))
-	for i, a := range st.Args {
-		expr, err := parser.ParseExpr(a.Type)
-		if err != nil {
-			return "", fmt.Errorf("argument %s: %w", a.Name, err)
-		}
-		at, err := fromAST(expr, t.structs)
-		if err != nil {
-			return "", fmt.Errorf("argument %s: %w", a.Name, err)
-		}
-		fn.env[a.Name] = at
-		names[i] = pyName(a.Name)
-	}
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "def %s%s(%s):\n", t.prefix, st.PyName, strings.Join(names, ", "))
-	fn.indent = 1
-	stopped := false
-	for _, s := range decl.Body.List {
-		if createsSketch(s) {
-			continue
-		}
-		if callsFunc(s, st.StopAt) {
-			stopped = true
-			break
-		}
-		if err := fn.stmt(&sb, s); err != nil {
-			return "", err
-		}
-	}
-	if !stopped {
-		return "", fmt.Errorf("no call of %s to stop at", st.StopAt)
-	}
-	return strings.TrimRight(sb.String(), "\n"), nil
-}
-
-// callsFunc reports whether the statement calls the function name.
-func callsFunc(s ast.Stmt, name string) bool {
-	found := false
-	ast.Inspect(s, func(n ast.Node) bool {
-		if c, ok := n.(*ast.CallExpr); ok {
-			if id, ok := c.Fun.(*ast.Ident); ok && id.Name == name {
-				found = true
-			}
-		}
-		return !found
-	})
-	return found
-}
 
 // isErrIdent reports whether e names an error variable: err, or a name ending in Err such as phaseErr.
 func isErrIdent(e ast.Expr) bool {
@@ -484,18 +427,3 @@ func (f *fnState) commaOK(sb *strings.Builder, s *ast.AssignStmt) (bool, error) 
 }
 
 func isIdentNamed(e ast.Expr, name string) bool { return isIdent(e, name) }
-
-// createsSketch reports whether the statement is "s, err := world.CreateSketch(plane)". A drawing
-// function that is translated up to a stop call draws in a sketch its caller made.
-func createsSketch(s ast.Stmt) bool {
-	a, ok := s.(*ast.AssignStmt)
-	if !ok || len(a.Rhs) != 1 {
-		return false
-	}
-	call, ok := a.Rhs[0].(*ast.CallExpr)
-	if !ok {
-		return false
-	}
-	sel, ok := call.Fun.(*ast.SelectorExpr)
-	return ok && sel.Sel.Name == "CreateSketch"
-}

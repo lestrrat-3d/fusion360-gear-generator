@@ -80,23 +80,6 @@ func TestLoadSpurTable(t *testing.T) {
 	require.Equal(t, "One", byName["involute_angle"].Unit)
 }
 
-func TestSpurDecadCalls(t *testing.T) {
-	m := loadSpur(t)
-	calls, err := m.DecadCalls("Build")
-	require.NoError(t, err)
-	require.Equal(t, []string{
-		"Extrude",       // root disc
-		"Extrude",       // tooth
-		"PatternCopies", // teeth
-		"Union",         // join
-		"Fillet",        // ordinary root fillet
-		"Fillet",        // embedded root fillet
-		"Extrude",       // bore tool
-		"Cut",           // bore
-		"Chamfer",       // cap chamfer
-	}, calls)
-}
-
 // loadSource parses src as a model package beside the Params type and DefaultParams function the reader requires.
 func loadSource(t *testing.T, src string) *gallery.Model {
 	t.Helper()

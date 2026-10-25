@@ -311,7 +311,7 @@ func (f *fnState) checkFieldWrite(l *ast.SelectorExpr) error {
 		return nil
 	}
 	info := f.t.structs[xt.name]
-	if info == nil || info.zero || info.external || info.assigned || info.filled {
+	if info == nil || info.external || info.assigned || info.filled {
 		return nil
 	}
 	if !info.mutable() {

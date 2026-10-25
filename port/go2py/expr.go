@@ -444,9 +444,6 @@ func (f *fnState) structCall(e *ast.CallExpr, sel *ast.SelectorExpr) (string, ty
 	if !ok || callee.recvType == nil || callee.recvType.name != xt.name {
 		return "", typ{}, fmt.Errorf("%s: %s.%s is not translated", f.pos(e), xt.name, sel.Sel.Name)
 	}
-	if info.zero {
-		return f.translatedCall(e, sel.Sel.Name)
-	}
 	args, err := f.args(e.Args)
 	if err != nil {
 		return "", typ{}, err
@@ -659,9 +656,6 @@ func (f *fnState) selector(e *ast.SelectorExpr) (string, typ, error) {
 			return "", typ{}, fmt.Errorf("%s: %s.%s is not in the API table", f.pos(e), xt.name, e.Sel.Name)
 		}
 		return x + "." + e.Sel.Name, parseAPIType(ft), nil
-	}
-	if xt.kind == kindStruct && f.t.structs[xt.name] != nil && f.t.structs[xt.name].zero {
-		return "None", nilType, nil
 	}
 	if xt.kind != kindStruct {
 		return "", typ{}, fmt.Errorf("%s: field access on a non-struct", f.pos(e))

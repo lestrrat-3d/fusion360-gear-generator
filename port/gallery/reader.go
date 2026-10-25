@@ -87,18 +87,6 @@ func (p *parsedPackage) callable(name string) (*ast.FuncDecl, error) {
 	return nil, fmt.Errorf("function %s not found", name)
 }
 
-// method returns the first method called name on any receiver.
-func (p *parsedPackage) method(name string) (*ast.FuncDecl, error) {
-	for _, f := range p.files {
-		for _, d := range f.Decls {
-			if fd, ok := d.(*ast.FuncDecl); ok && fd.Recv != nil && fd.Name.Name == name {
-				return fd, nil
-			}
-		}
-	}
-	return nil, fmt.Errorf("method %s not found", name)
-}
-
 // typeSpec returns the type declaration called name.
 func (p *parsedPackage) typeSpec(name string) (*ast.TypeSpec, error) {
 	for _, f := range p.files {

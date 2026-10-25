@@ -46,8 +46,6 @@ type Spec struct {
 	FirstOnly []string
 	// Funcs are translated whole.
 	Funcs []string
-	// Steps are the creation sequences of drawing functions, translated up to a stop call.
-	Steps []Steps
 	// Runtime is the name of the Python module that implements the API table. Default "_fx".
 	Runtime string
 	// Roles maps a creating call, keyed "<Go function>:<Type.Method or pkg.Func>#<n>", to the
@@ -56,8 +54,6 @@ type Spec struct {
 	// Provided lists Go functions the Fusion wiring already does, such as registering the
 	// parameters. A call of one renders nothing.
 	Provided []string
-	// Zero lists the struct types the translation treats as their zero value.
-	Zero []string
 	// Bound maps Go functions the runtime implements to the Python callee, with the struct
 	// type each returns, such as derive.
 	Bound map[string]Bound
@@ -95,22 +91,7 @@ type External struct {
 	Method bool
 }
 
-// Steps names a gallery function that draws on a sketch and the part of it to translate.
-// The translation keeps the calls that create or constrain sketch entities and drops
-// the error checks, the sketch creation, and everything from the StopAt call on.
-type Steps struct {
-	Name   string
-	PyName string
-	// Args are the Python function's parameters in order.
-	Args []StepArg
-	// StopAt is the name of the first call the translation leaves out.
-	StopAt string
-}
-
-// StepArg is a parameter of a Steps function and its Go type, such as "*sketch.Sketch".
-type StepArg struct{ Name, Type string }
-
-// TranspileSpec renders the structs, functions and drawing sequences of spec, in that order.
+// TranspileSpec renders the structs and functions of spec, in that order.
 func TranspileSpec(m *gallery.Model, spec Spec) (string, error) {
 	tr, err := Translate(m, spec)
 	return tr.Python, err
@@ -139,7 +120,7 @@ func Translate(m *gallery.Model, spec Spec) (Translation, error) {
 func translate(m *gallery.Model, spec Spec) (string, map[string][]string, error) {
 	tr := &transpiler{
 		model: m, prefix: spec.Prefix, structs: map[string]*structInfo{}, funcs: map[string]*funcInfo{},
-		sketch:  len(spec.Steps) > 0 || len(spec.TypeOnly) > 0 || len(spec.Roles) > 0 || len(spec.External) > 0,
+		sketch:  len(spec.TypeOnly) > 0 || len(spec.Roles) > 0 || len(spec.External) > 0,
 		runtime: spec.Runtime, roles: spec.Roles, provided: map[string]bool{}, external: spec.External, bound: spec.Bound,
 		globals: map[string]global{}, firstOnly: map[string]bool{}, used: map[string]struct{}{},
 		creations: map[string][]string{},
@@ -212,9 +193,6 @@ func translate(m *gallery.Model, spec Spec) (string, map[string][]string, error)
 		}
 		tr.structs[name] = &structInfo{name: name, types: map[string]typ{}, alias: &at}
 	}
-	for _, name := range spec.Zero {
-		tr.structs[name] = &structInfo{name: name, types: map[string]typ{}, zero: true}
-	}
 	var values strings.Builder
 	for i, name := range spec.IotaConsts {
 		py := tr.prefix + pySnake(name)
@@ -277,14 +255,6 @@ func translate(m *gallery.Model, spec Spec) (string, map[string][]string, error)
 	}
 	if len(failures) > 0 {
 		return "", nil, errors.Join(failures...)
-	}
-	for _, st := range spec.Steps {
-		src, err := tr.steps(st)
-		if err != nil {
-			return "", nil, fmt.Errorf("function %s: %w", st.Name, err)
-		}
-		body.WriteString(src)
-		body.WriteString("\n\n")
 	}
 	// Struct types written inline are known only after the functions that use them are translated.
 	var anon []string
@@ -363,8 +333,8 @@ type funcInfo struct {
 	// returns the other results and raises RuntimeError for a non-nil error.
 	errorResult bool
 	named       bool
-	// recvName and recvType describe the receiver of a method. The receiver is a zero-valued
-	// struct, so the Python function takes no argument for it.
+	// recvName and recvType describe the receiver of a method. The Python function takes a struct
+	// receiver as its first argument.
 	recvName string
 	recvType *typ
 }
@@ -487,7 +457,7 @@ func (t *transpiler) function(fi *funcInfo) (string, error) {
 		fn.scopes[0].names[fi.recvName] = fi.decl.Pos()
 	}
 	var args []string
-	if fi.recvType != nil && fi.recvName != "" && fi.recvType.kind == kindStruct && !t.structs[fi.recvType.name].zero {
+	if fi.recvType != nil && fi.recvName != "" && fi.recvType.kind == kindStruct {
 		args = append(args, pyName(fi.recvName))
 	}
 	for _, p := range fi.params {
