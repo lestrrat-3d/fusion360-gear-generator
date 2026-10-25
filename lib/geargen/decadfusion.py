@@ -416,7 +416,9 @@ class Runtime:
             # The gallery's U and V are given in the design, in the sketch's plane: a gear whose shaft is the gallery's U
             # stands on a plane it lies across. The sketch's own axes then map to them. [PB-FRAME-PLANE]
             self.mapped = True
-        self.placement = Frame(vec_of(self.anchor.worldGeometry), u, v, u.cross(v).unit())
+        # A sketch point has a world position; a construction point's position is already in the design's space.
+        position = self.anchor.worldGeometry if hasattr(self.anchor, 'worldGeometry') else self.anchor.geometry
+        self.placement = Frame(vec_of(position), u, v, u.cross(v).unit())
         return self.frame
 
     def to_world(self, point):
