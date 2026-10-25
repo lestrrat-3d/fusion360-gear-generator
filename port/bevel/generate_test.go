@@ -93,3 +93,18 @@ func TestGenerateRefusesChangedCreatingCalls(t *testing.T) {
 	_, err = bevel.Generate(m, "v0", fragment, reviewed)
 	require.ErrorContains(t, err, "records no creating calls")
 }
+
+// TestMissedSlicePlaneIsSkipped requires the spiral slicer to catch decad's ErrDegenerate from a split, as the
+// gallery's errors.Is does, and to remove the sheet and move to the next plane.
+func TestMissedSlicePlaneIsSkipped(t *testing.T) {
+	out, _, _, _ := generate(t)
+	require.Contains(t, out, "from . import decaderrors as _errors\n")
+	require.Contains(t, out, "                try:\n"+
+		"                    cut = _fx.decad_split(inner, sheet, name=\"Spiral Slice\")\n"+
+		"                    err = None\n"+
+		"                except _errors.Degenerate as _caught:\n"+
+		"                    err = _caught\n")
+	require.Contains(t, out, "            if isinstance(err, _errors.Degenerate):\n"+
+		"                _fx.decad_remove(sheet, name=\"Missed Slice Sheet Removal\")\n"+
+		"                continue\n")
+}

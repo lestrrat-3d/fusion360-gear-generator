@@ -66,6 +66,12 @@ type Spec struct {
 	Aliases map[string]string
 	// IotaConsts lists the constants of a const block written with iota, in order: the first is 0.
 	IotaConsts []string
+	// Catch maps a gallery error value, keyed "pkg.Name" such as "decad.ErrDegenerate", to the Python exception
+	// class the runtime raises for it, such as "_errors.Degenerate". errors.Is(err, X) of a listed value becomes an
+	// isinstance test, and the call it examines, the last one that sets err before it, a try statement that
+	// stores the exception in err. errors.Is of any other value is false: see "Retry loops" in
+	// docs/gallery-translation-goal.md.
+	Catch map[string]string
 	// ExternalTypes lists the structs of another gallery package, keyed "pkg.Type", and the
 	// type of each field the translated code reads.
 	ExternalTypes map[string]map[string]string
@@ -122,7 +128,7 @@ func translate(m *gallery.Model, spec Spec) (string, map[string][]string, error)
 		model: m, prefix: spec.Prefix, structs: map[string]*structInfo{}, funcs: map[string]*funcInfo{},
 		sketch:  len(spec.TypeOnly) > 0 || len(spec.Roles) > 0 || len(spec.External) > 0,
 		runtime: spec.Runtime, roles: spec.Roles, provided: map[string]bool{}, external: spec.External, bound: spec.Bound,
-		globals: map[string]global{}, firstOnly: map[string]bool{}, used: map[string]struct{}{},
+		globals: map[string]global{}, firstOnly: map[string]bool{}, used: map[string]struct{}{}, catch: spec.Catch,
 		creations: map[string][]string{},
 	}
 	for _, name := range spec.FirstOnly {
@@ -278,7 +284,7 @@ func translate(m *gallery.Model, spec Spec) (string, map[string][]string, error)
 // use records that the translation used the entry key of the Spec table named table.
 func (t *transpiler) use(table, key string) { t.used[table+" "+key] = struct{}{} }
 
-// checkUnused fails for an entry of Roles, FirstOnly, Bound, External or Provided that the translation never
+// checkUnused fails for an entry of Roles, FirstOnly, Bound, External, Provided or Catch that the translation never
 // used. A stale key does nothing, or names the wrong call when the calls of a function are renumbered.
 func (t *transpiler) checkUnused(spec Spec) error {
 	var stale []string
@@ -295,6 +301,7 @@ func (t *transpiler) checkUnused(spec Spec) error {
 	check("Bound", slices.Collect(maps.Keys(spec.Bound)))
 	check("External", slices.Collect(maps.Keys(spec.External)))
 	check("Provided", slices.Clone(spec.Provided))
+	check("Catch", slices.Collect(maps.Keys(spec.Catch)))
 	if len(stale) > 0 {
 		return fmt.Errorf("the translation never uses these Spec entries; remove or correct them: %s",
 			strings.Join(stale, ", "))
@@ -321,6 +328,8 @@ type transpiler struct {
 	used map[string]struct{}
 	// creations lists the creating calls of each function: see Translation.Creations.
 	creations map[string][]string
+	// catch is Spec.Catch.
+	catch map[string]string
 }
 
 // funcInfo is the parsed signature of a function to translate.
@@ -494,6 +503,9 @@ func (t *transpiler) function(fi *funcInfo) (string, error) {
 			fn.line(&sb, "%s = %s", pyName(r.name), zero)
 		}
 	}
+	if err := fn.planCatches(fi.decl.Body); err != nil {
+		return "", err
+	}
 	if err := fn.copyParams(&sb, fi.params); err != nil {
 		return "", err
 	}
@@ -519,6 +531,10 @@ type fnState struct {
 	root ast.Node
 	// breaks lists what a break leaves in the statements open at the one being translated, innermost last.
 	breaks []breakKind
+	// catchSites are the calls whose error a test of errors.Is examines, and caught the error variables they set:
+	// see Spec.Catch.
+	catchSites map[*ast.AssignStmt]*catchSite
+	caught     map[caughtVar]struct{}
 	// remZero lists the remainders that are only compared with zero, where Python's % agrees with Go's.
 	remZero []*ast.BinaryExpr
 	// counters are the loop variables that never go below zero: range keys and counted loops that start at a

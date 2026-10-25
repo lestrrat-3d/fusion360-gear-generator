@@ -70,7 +70,8 @@
     "sliceSpiralPointTooth": [
       "decad.Split#1 decad.Split(ctx, inner, sheet)",
       "decad.Remove#1 decad.Remove(sheet)",
-      "decad.Remove#2 decad.Remove(ranked[0].body)"
+      "decad.Remove#2 decad.Remove(sheet)",
+      "decad.Remove#3 decad.Remove(ranked[0].body)"
     ],
     "spiralSliceSheet": [
       "sketch.World.CreateSketch#1 world.CreateSketch(world.XY())",

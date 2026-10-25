@@ -51,6 +51,9 @@ func (f *fnState) stmts(sb *strings.Builder, list []ast.Stmt) error {
 func (f *fnState) stmt(sb *strings.Builder, s ast.Stmt) error {
 	switch s := s.(type) {
 	case *ast.AssignStmt:
+		if handled, err := f.catchingAssign(sb, s); handled || err != nil {
+			return err
+		}
 		if f.t.sketch {
 			if handled, err := f.apiAssign(sb, s); handled || err != nil {
 				return err

@@ -89,6 +89,9 @@ var FeatureSpec = go2py.Spec{
 	Aliases:    map[string]string{"joinOrder": "int"},
 	IotaConsts: []string{"joinOneByOne", "joinTeethGrouped", "joinTeethFirst", "joinTeethBalancedFirst"},
 	FirstOnly:  []string{"spiralOvershoots", "orders", "sliceSpiralPointTooth:reach"},
+	// A slice plane that misses the tooth is skipped, and the sign of the offsets flips when every plane misses.
+	// decad reports the miss as ErrDegenerate and the runtime raises decaderrors.Degenerate.
+	Catch: map[string]string{"decad.ErrDegenerate": "_errors.Degenerate"},
 	Values: []string{"spiralOvershoots", "spiralCrownPerRad", "verifiedSpiralAngle",
 		"directionBits", "gridBits", "localShaft", "pairContainerName", "drivingContainerName", "pinionContainerName",
 	},
@@ -128,7 +131,8 @@ var FeatureSpec = go2py.Spec{
 		"patternSpiralTooth:decad.Copy#1":                               {Feature: "Spiral Tooth Copy"},
 		"sliceSpiralPointTooth:decad.Split#1":                           {Feature: "Spiral Slice"},
 		"sliceSpiralPointTooth:decad.Remove#1":                          {Feature: "Short Slice Sheet Removal"},
-		"sliceSpiralPointTooth:decad.Remove#2":                          {Feature: "Spiral Apex Scrap Removal"},
+		"sliceSpiralPointTooth:decad.Remove#2":                          {Feature: "Missed Slice Sheet Removal"},
+		"sliceSpiralPointTooth:decad.Remove#3":                          {Feature: "Spiral Apex Scrap Removal"},
 		"spiralSliceSheet:sketch.World.CreateSketch#1":                  {Feature: "Slice Sheet"},
 		"spiralSliceSheet:decad.Extrude#1":                              {Feature: "Slice Sheet Extrude", Body: "Slice Sheet"},
 		"trimSpiralToothBy:decad.Cut#1":                                 {Feature: "Spiral Tooth Toe Trim"},

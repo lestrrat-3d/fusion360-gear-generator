@@ -301,8 +301,7 @@ func (f *fnState) call(e *ast.CallExpr) (string, typ, error) {
 		if ok && f.t.sketch {
 			switch pkg.Name + "." + fn.Sel.Name {
 			case "errors.Is":
-				// A translated call raises instead of returning an error: see "Retry loops".
-				return "False", boolType, nil
+				return f.errorsIs(e)
 			case "fmt.Sprintf":
 				return f.sprintf(e)
 			case "sort.Slice":

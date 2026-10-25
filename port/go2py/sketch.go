@@ -293,6 +293,9 @@ func (f *fnState) closure(sb *strings.Builder, name string, lit *ast.FuncLit) er
 	inner.root = f.root
 	inner.scopes = slices.Clone(f.scopes)
 	inner.push(lit.Pos(), lit.End())
+	if err := inner.planCatches(lit.Body); err != nil {
+		return err
+	}
 	var params []string
 	local := map[string]bool{}
 	for _, fld := range lit.Type.Params.List {

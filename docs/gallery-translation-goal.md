@@ -52,8 +52,14 @@ Fusion taught us. This file owns the goal, the rules for reaching it, and the de
   again with the next numbers. Every try that decad accepts gives the same gear, because the overshoot is trimmed flush
   afterwards. Fusion's kernel is exact and has no such refusal. A failed Fusion feature stays in the timeline as an
   error, so retrying there would need a rollback that does not exist.
-- The retry loops are listed in `port/bevel/mapping.go` (`FirstEntryOnly`), so the rule is visible in the code that
+- The retry loops are listed in `port/bevel/mapping.go` (`FirstOnly`), so the rule is visible in the code that
   applies it. Decided with the user on 2026-10-24.
+- A skip is not a retry. The spiral slicer tests `errors.Is(err, decad.ErrDegenerate)` after a split: the plane missed
+  the tooth, so the gallery removes the sheet and moves to the next plane, and flips the side of the planes when every
+  plane misses. `Catch` in `port/bevel/mapping.go` maps `decad.ErrDegenerate` to the Python class
+  `decaderrors.Degenerate`. The translation puts the split in a `try` statement that stores that exception in `err`, and
+  `errors.Is` becomes `isinstance`. Every other `errors.Is` is false, as the rule above says. The runtime raises
+  `Degenerate` when a split sheet misses the body, and a plain `RuntimeError` for any other failure.
 
 ## Order of work
 
