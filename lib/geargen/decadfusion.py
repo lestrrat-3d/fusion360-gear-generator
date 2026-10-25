@@ -533,12 +533,26 @@ class Runtime:
         return sketch
 
     def create_plane_from_frame(self, frame, name):
+        """A construction plane for a gallery frame, which a sketch on it maps its coordinates through. Two kinds are
+        translated: a frame across the base plane with its origin in the base plane, and a frame that is the build's
+        own frame moved along its normal. Any other frame raises Untranslated, because a sketch on its plane would be
+        drawn somewhere else. [PB-FRAME-PLANE]"""
         across = frame.n().dot(self.frame.n())
-        if abs(across) < 1e-9 and abs(frame.origin().dot(self.frame.n())) < 1e-9:
+        height = frame.origin().sub(self.frame.origin()).dot(self.frame.n())
+        if abs(across) < 1e-9:
+            if abs(height) > 1e-9:
+                raise Untranslated(f'{name}: a plane across the base plane is translated only through a point of the base '
+                                   f'plane; its origin is {height:g} off it')
             return self._plane_across(frame, name)
         if abs(abs(across) - 1.0) > 1e-9:
-            raise RuntimeError(f'{name}: a plane that is neither parallel nor perpendicular to the base plane is not translated')
-        offset = frame.origin().sub(self.frame.origin()).dot(self.frame.n()) * self.scale
+            raise Untranslated(f'{name}: a plane that is neither parallel nor perpendicular to the base plane is not '
+                               'translated')
+        shift = frame.origin().sub(self.frame.origin()).sub(self.frame.n().scale(height))
+        if across < 0 or shift.len() > 1e-9 or frame.u().sub(self.frame.u()).len() > 1e-9 \
+                or frame.v().sub(self.frame.v()).len() > 1e-9:
+            raise Untranslated(f'{name}: a plane parallel to the base plane is translated only as the build frame moved '
+                               'along its normal; this frame is reversed, turned or moved within the plane')
+        offset = height * self.scale
         name = self.unique(name)
         planes: adsk.fusion.ConstructionPlanes = self.component.constructionPlanes
         planeInput: adsk.fusion.ConstructionPlaneInput = planes.createInput()
@@ -1430,9 +1444,12 @@ def decad_extrude(doc, sketch, profile, extent, name, body):
     else:
         extrudeInput = extrudes.createInput(profile.fprofile, operation)
     if isinstance(extent, TwoSided):
+        # Side one runs along the sketch's normal, which runs against the frame's when the plane's map is a
+        # reflection. [PB-FRAME-PLANE]
+        along, against = (extent.Two, extent.One) if reversed_ else (extent.One, extent.Two)
         extrudeInput.setTwoSidesExtent(
-            adsk.fusion.DistanceExtentDefinition.create(value_input(extent.One.D, doc.scale)),
-            adsk.fusion.DistanceExtentDefinition.create(value_input(extent.Two.D, doc.scale)))
+            adsk.fusion.DistanceExtentDefinition.create(value_input(along.D, doc.scale)),
+            adsk.fusion.DistanceExtentDefinition.create(value_input(against.D, doc.scale)))
     else:
         distance = adsk.fusion.DistanceExtentDefinition.create(value_input(extent.D, doc.scale))
         # The sketch's normal runs against the frame's when the plane's map is a reflection. [PB-FRAME-PLANE]
@@ -2071,11 +2088,22 @@ def decad_mirror_frame(Frame):
     return MirrorFrame(Frame)
 
 
+def _mirror_plane_frame(runtime, frame):
+    """A mirror needs only the plane, not the frame's axes or where in the plane its origin lies. A plane parallel to
+    the base plane is given as the build frame moved along its normal, the one parallel frame create_plane_from_frame
+    translates."""
+    base = runtime.frame
+    if abs(abs(frame.n().dot(base.n())) - 1.0) > 1e-9:
+        return frame
+    height = frame.origin().sub(base.origin()).dot(base.n())
+    return Frame(base.origin().add(base.n().scale(height)), base.u(), base.v(), base.n())
+
+
 @logged
 def decad_mirrored_copy(source, mirror, name, body):
     _settle(source)
     runtime = source.runtime
-    plane = runtime.create_plane_from_frame(mirror.Frame, name + ' Plane')
+    plane = runtime.create_plane_from_frame(_mirror_plane_frame(runtime, mirror.Frame), name + ' Plane')
     entities = adsk.core.ObjectCollection.create()
     entities.add(source.body)
     mirrors: adsk.fusion.MirrorFeatures = runtime.component.features.mirrorFeatures

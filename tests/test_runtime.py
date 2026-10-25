@@ -331,5 +331,68 @@ class AxisTest(RuntimeTestCase):
         self.assertIsNotNone(line)
 
 
+class PlaneTest(RuntimeTestCase):
+    """Planes from gallery frames, and extents on reflected sketches."""
+
+    def setUp(self):
+        super().setUp()
+        self.planes = []
+
+        def add(plane_input):
+            plane = SimpleNamespace(name='', isLightBulbOn=False, input=plane_input)
+            self.planes.append(plane)
+            return plane
+        from fakefusion import RecordingInput
+        self.component.constructionPlanes = SimpleNamespace(createInput=lambda: RecordingInput('plane', ()), add=add)
+
+    def frame(self, origin, u=(1, 0, 0), v=(0, 1, 0)):
+        fx = self.fx
+        return fx.r3_new_frame(fx.Vec(*origin), fx.Vec(*u), fx.Vec(*v))
+
+    def test_the_build_frame_moved_along_its_normal_is_an_offset_plane(self):
+        self.runtime.create_plane_from_frame(self.frame((0, 0, 2.5)), 'Shifted')
+        self.assertEqual([('plane', ('real', 2.5))], self.planes[0].input.called('setByOffset'))
+
+    def test_a_parallel_frame_the_offset_cannot_carry_is_a_named_error(self):
+        fx = self.fx
+        cases = {
+            'moved within the plane': self.frame((1, 0, 2)),
+            'turned': self.frame((0, 0, 2), (0, 1, 0), (-1, 0, 0)),
+            'reversed': self.frame((0, 0, 2), (0, 1, 0), (1, 0, 0)),
+        }
+        for what, frame in cases.items():
+            with self.subTest(frame=what):
+                with self.assertRaises(fx.Untranslated):
+                    self.runtime.create_plane_from_frame(frame, 'Plane')
+        self.assertEqual([], self.planes)
+
+    def test_a_plane_across_the_base_plane_off_it_is_a_named_error(self):
+        with self.assertRaises(self.fx.Untranslated):
+            self.runtime.create_plane_from_frame(self.frame((0, 0, 2), (1, 0, 0), (0, 0, 1)), 'Across')
+
+    def test_a_mirror_plane_parallel_to_the_base_plane_needs_only_its_height(self):
+        fx = self.fx
+        made = []
+        with mock.patch.object(fx.Runtime, 'create_plane_from_frame',
+                               side_effect=lambda frame, name: made.append(frame) or SimpleNamespace(entity='plane')):
+            fx.decad_mirrored_copy(self.body(1.0), fx.decad_mirror_frame(self.frame((3, 4, 2), (0, 1, 0), (1, 0, 0))),
+                                   name='Mirror', body='Mirrored')
+        frame = made[0]
+        self.assertEqual((0, 0, 2), (frame.origin().x, frame.origin().y, frame.origin().z))
+        self.assertEqual((1, 0, 0), (frame.u().x, frame.u().y, frame.u().z))
+
+    def test_a_two_sided_extent_on_a_reflected_sketch_swaps_its_sides(self):
+        fx = self.fx
+        fx.adsk.fusion.DistanceExtentDefinition.create = lambda value: value
+        for flipped, want in ((False, (('real', 1.0), ('real', 2.0))), (True, (('real', 2.0), ('real', 1.0)))):
+            with self.subTest(flipped=flipped):
+                self.log.clear()
+                sketch = SimpleNamespace(flipped=flipped, container=None)
+                extent = fx.decad_two_sided(One=fx.decad_distance_side(D=1.0), Two=fx.decad_distance_side(D=2.0))
+                fx.decad_extrude(self.runtime, sketch, SimpleNamespace(fprofile='p'), extent, name='Sheet', body='Sheet')
+                extrude_input = self.log[0][1]
+                self.assertEqual([want], extrude_input.called('setTwoSidesExtent'))
+
+
 if __name__ == '__main__':
     unittest.main()
