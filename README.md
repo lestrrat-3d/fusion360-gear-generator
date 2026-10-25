@@ -15,46 +15,17 @@ On top of the above, there were also a few minor issues that I wanted to see hap
 
 The add-in installs one command per generator into a **Gears** dropdown in the Fusion **SOLID > CREATE** panel:
 
-<table>
-<thead>
-<tr><th>Example</th><th>Gear</th><th>Rendered at</th></tr>
-</thead>
-<tbody>
-<tr>
-<td width="350"><img src="docs/images/gears/spur.png" width="320" alt="A cyan spur gear with a central bore, teeth running straight across the rim"></td>
-<td><strong>Spur Gear</strong><br>Straight teeth across the rim. This is the plain case: it drives a parallel shaft and pushes nothing along the axis.</td>
-<td>Module 2, 24 teeth, 20&deg; pressure angle, 12 mm thick, 10 mm bore.</td>
-</tr>
-<tr>
-<td width="350"><img src="docs/images/gears/helical.png" width="320" alt="A violet helical gear, its teeth twisting evenly around the rim"></td>
-<td><strong>Helical Gear</strong><br>The same tooth twisted to the far face, which is what <em>Helix Angle</em> sets. Each tooth comes into contact gradually rather than all at once, so it runs more quietly than a spur gear, at the price of a thrust load along the shaft.</td>
-<td>16 mm thick at a 20&deg; helix angle.</td>
-</tr>
-<tr>
-<td width="350"><img src="docs/images/gears/herringbone.png" width="320" alt="An amber herringbone gear, its teeth meeting in a chevron at mid-height"></td>
-<td><strong>Herringbone Gear</strong><br>Twisted to mid-body and mirrored, so the teeth meet in a chevron. The two halves lean opposite ways and their thrust cancels, which keeps the helical gear's quiet running without the load on the shaft.</td>
-<td>20 mm thick at a 20&deg; helix angle.</td>
-</tr>
-<tr>
-<td width="350"><img src="docs/images/gears/bevel.png" width="320" alt="A green straight bevel pair meshing at a right angle: a flat 24-tooth gear with a 16-tooth pinion standing on its rim"></td>
-<td><strong>Bevel Gear</strong><br>Teeth on a cone, for two shafts whose axes cross. Straight and spiral bevels come from the same command: <em>Mean Spiral Angle</em> selects between them (0 gives a straight bevel), and <em>Hand of Spiral</em> picks the direction.</td>
-<td>A 24/16 pair meshing at a right angle, module 2, spiral angle 0.</td>
-</tr>
-<tr>
-<td width="350"><img src="docs/images/gears/cycloidal.png" width="320" alt="A cycloidal drive with its output plate lifted off: a blue ring housing holding a red lobed disc and a gold eccentric cam, and a teal plate above it on six pins"></td>
-<td><strong>Cycloidal Drive</strong><br>A speed reducer rather than a single gear. It builds the lobed disc(s), the eccentric cam, a pinless ring housing and the output plate with its pins, each in its own sub-component.</td>
-<td>The dialog's defaults with two discs, the output plate lifted clear on its own pins so the rest can be seen.</td>
-</tr>
-</tbody>
-</table>
+| Gear | What it makes | Pictures and inputs |
+| --- | --- | --- |
+| **Spur Gear** | Straight teeth across the rim. This is the plain case: it drives a parallel shaft and pushes nothing along the axis. | [spur gear](https://github.com/lestrrat-3d/decad-gallery/tree/main/models/spurgear) |
+| **Helical Gear** | The same tooth twisted to the far face, which is what *Helix Angle* sets. Each tooth comes into contact gradually rather than all at once, so it runs more quietly than a spur gear, at the price of a thrust load along the shaft. | [helical gear](https://github.com/lestrrat-3d/decad-gallery/tree/main/models/helicalgear) |
+| **Herringbone Gear** | Twisted to mid-body and mirrored, so the teeth meet in a chevron. The two halves lean opposite ways and their thrust cancels, which keeps the helical gear's quiet running without the load on the shaft. | [herringbone gear](https://github.com/lestrrat-3d/decad-gallery/tree/main/models/herringbonegear) |
+| **Bevel Gear** | A meshing pair with teeth on a cone, for two shafts whose axes cross. The *Tooth Type* drop-down picks straight or spiral teeth. Spiral shows *Mean Spiral Angle*, *Hand of Spiral* and *Cutter Radius*. | [bevel gear](https://github.com/lestrrat-3d/decad-gallery/tree/main/models/bevelgear) |
+| **Cycloidal Drive** | A speed reducer rather than a single gear. It builds the lobed disc(s), the eccentric cam, a pinless ring housing and the output plate with its pins, each in its own sub-component. | [cycloidal drive](https://github.com/lestrrat-3d/decad-gallery/tree/main/models/cycloidal) |
 
-Those pictures are renders of the proof geometry, not illustrations. The spur, helical and
-herringbone flanks are involute curves sampled from [`proof/involute`](proof/involute), the package
-the 3D proofs draw their teeth from, and each of the three is swept the way its spec sweeps it. The
-bevel pair and the cycloidal drive are rendered from the solids their own proofs build, positioned
-and phased the way those proofs fix them. So a change to the proved geometry changes the pictures
-too. The renderer is [SolidLens](https://github.com/lestrrat-3d/solidlens). Regenerate all five with
-`proof/render_examples.sh`, which runs against the engine revisions `proof/go.mod` pins.
+Each gear's geometry is built and checked in [decad-gallery](https://github.com/lestrrat-3d/decad-gallery). Its pages
+show rendered pictures of the same models and list the inputs and defaults. This add-in translates those models into
+Fusion commands, so the dialog defaults come from the gallery.
 
 # INSTALLATION
 
@@ -73,7 +44,9 @@ This is a standard Fusion 360 add-in. There is no Marketplace package yet, so in
 
    If you keep your checkout somewhere else, run `./deploy.sh` from it instead. That script copies only
    the files Fusion actually loads (`Gear Generator.py`, the manifest, `config.py`, `commands/`, `lib/`
-   and the `diag_*.py` helpers) and leaves the specs, proofs and tooling behind. It picks the
+   and the `diag_*.py` helpers), plus `LICENSE` and `NOTICE`, and leaves `port/`, `docs/` and `tests/` behind. It deletes
+   files under `commands/` and `lib/` in the destination, and `diag_*.py` files at its top, that the checkout does not
+   have; other files you keep in the destination folder are left alone. It picks the
    destination from `$FUSION_ADDIN_DIR`, then from an untracked `.deploy.conf` beside the script, then
    by searching the standard locations listed above. Re-run it after every change.
 
@@ -90,25 +63,21 @@ The commands then live under **SOLID > CREATE > Gears**.
 
 Pick a generator from the **Gears** dropdown, fill in the dialog (module, tooth count, pressure angle,
 etc.), and pick the plane/point that places the result. The generated sketches are fully constrained,
-the one exception being the bevel tooth-profile and spiral guide sketches, which are exempt for the
-reasons recorded in `spec/bevelgear/fusion.md`. The spur, helical and herringbone gears also draw the
+and a build that leaves one free stops with an error that names the free curves. The spur, helical and herringbone gears also draw the
 root, tip, base and pitch circles alongside the gear body and label each one with its radius. The
 Cycloidal Drive checks its inputs as you type and shows the problem next to the offending field,
 keeping OK disabled until the values work.
 
 # DEVELOPMENT
 
-The generators under `lib/geargen/` are build output, not hand-written source. Each one is generated
-from its natural-language spec in `spec/<gear>/`, driven by the skills in `.claude/skills/`. Geometry
-checking is uneven so far: the spur, helical, bevel and cycloidal generators have Go proofs under
-`proof/`, which build the real sketches and solids and check them before anything reaches Fusion; the
-spur and helical sketch schemes also have compiled proofs at `proof/spurgear/sketches_test.go` and
-`proof/helicalgear/sketches_test.go`; herringbone is checked only by loading it into Fusion.
+The generators under `lib/geargen/` are build output, not hand-written source. Each one is generated by
+`gearport` from a [decad-gallery](https://github.com/lestrrat-3d/decad-gallery) model, which owns the gear's contract
+and its geometry proof. The Fusion construction that the gallery cannot express is stored in
+`port/<gear>/fragments/`. `docs/gallery-port-pipeline.md` describes the pipeline.
 
-So a fix goes into the spec, or into the shared `.claude/skills/generate-gear/PLAYBOOK.md` when the
-behaviour applies to every gear, and then you regenerate. Editing `lib/geargen/<gear>.py` directly
-leaves the spec and the proof describing a gear that no longer exists. `CLAUDE.md` covers which skill
-regenerates what.
+So a fix goes into the fragment, the mapping or `docs/fusion/`, or into the gallery when it is a geometry rule, and then
+you regenerate. Editing `lib/geargen/<gear>.py` directly is overwritten by the next regeneration. `CLAUDE.md` covers
+where each kind of finding goes.
 
 # TODO
 

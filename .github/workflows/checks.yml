@@ -1,0 +1,115 @@
+name: Checks
+
+# Checks that every generated gear add-in is what the port produces from the pinned decad-gallery
+# revision, that every add-in compiles and imports with the Fusion modules stubbed, and that every object
+# the add-ins create in Fusion is named by its role. Two jobs:
+#
+#   port    port/, which generates the gears from decad-gallery: fails when go.mod or go.sum is not
+#           tidy, when go vet or golangci-lint reports a problem, when a port test fails, or when a
+#           checked-in gear differs from a fresh generation
+#   addins  tests/, which fails when an add-in does not compile or import, or creates a sketch, plane,
+#           feature or body without a name; and scripts/check-deploy.sh, which fails when a file
+#           deploy.sh ships does not compile or deploy.sh ships something the add-in does not need;
+#           and scripts/check_fusion_api.py, which fails when an add-in file names a Fusion API member
+#           that does not exist or calls one with the wrong arguments
+#
+# The gallery proves each gear's geometry in its own repository. This repository holds no proof.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: '3.12'
+  # The Fusion API stubs (AutodeskFusion360/FusionAPIReference) the API check reads, and the pyright
+  # that reads them. scripts/fetch-fusion-api-stubs.sh reads this pin, so a local run uses it too.
+  FUSION_API_COMMIT: 07814d19ac63bb3ff0d55e3d35517cf3a71bad8c
+  PYRIGHT_VERSION: '1.1.410'
+
+jobs:
+  addins:
+    name: Add-in checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the gear repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Compile and import the add-ins, and check every created object is named
+        run: python3 -m unittest discover -s tests -p 'test_*.py'
+
+      # The tests stub adsk with MagicMock, so any attribute resolves there. This step guards the
+      # Fusion API names: pyright with the Fusion API stubs fails on a misspelled member of a Fusion
+      # type, a name missing from an adsk module, a wrong argument count or keyword, an undefined
+      # name or a syntax error, in lib/, commands/ and the add-in files at the root. Known findings
+      # that still work in Fusion are listed in scripts/fusion-api-allow.txt.
+      - name: Install pyright
+        run: python3 -m pip install --disable-pip-version-check --no-input "pyright==${PYRIGHT_VERSION}"
+
+      - name: Fetch the Fusion API stubs
+        run: scripts/fetch-fusion-api-stubs.sh
+
+      - name: Check Fusion API names and call signatures
+        run: scripts/check_fusion_api.py
+
+      # Runs deploy.sh into a scratch folder, so the checked set is exactly what deploy.sh ships.
+      - name: Check every file deploy.sh ships compiles, and nothing else is shipped
+        run: scripts/check-deploy.sh
+
+  port:
+    name: Gallery port
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the gear repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      # port/go.mod pins the decad-gallery revision the ported gears are generated from, and the
+      # Go module cache supplies that source, so no sibling checkout is needed.
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: port/go.mod
+          cache: false
+
+      # The differential tests run the Python translation of the gallery's Go helpers, and the
+      # same Python runs the generated add-in's syntax check.
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Check go.mod and go.sum are tidy
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+        working-directory: port
+
+      - name: Vet the port
+        run: go vet ./...
+        working-directory: port
+
+      - name: Lint the port
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.12.2
+          working-directory: port
+
+      - name: Run the port tests
+        run: go test ./...
+        working-directory: port
+
+      - name: Build gearport
+        run: |
+          mkdir -p .tmp
+          go build -C port -o ../.tmp/gearport ./cmd/gearport
+
+      # One gear per fragment under port/<dir>/fragments/. Every gear is checked and every stale
+      # one is named before the step fails.
+      - name: Check every lib/geargen/<gear>.py is what the port generates
+        run: scripts/check-generated-gears.sh .tmp/gearport

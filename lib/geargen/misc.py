@@ -13,21 +13,29 @@ def get_design(app=adsk.core.Application.get()):
     return des
 
 
-def sketch_tokens(design):
-    """Every sketch that already exists in the design, by entity token. Paired with
-    settle_sketch_display to tell the sketches a generator authored from the ones the user
-    already had (see [PB-SETTLE-DISPLAY])."""
-    tokens = set()
+def existing_sketches(design):
+    """Every sketch that already exists in the design. Paired with settle_sketch_display to tell the sketches a
+    generator authored from the ones the user already had (see [PB-SETTLE-DISPLAY]). The sketches are kept as objects
+    and compared with ==: one entity can return different entityToken strings over time, so tokens are never
+    compared."""
+    sketches = []
     for component in design.allComponents:
         for sketch in component.sketches:
-            try:
-                tokens.add(sketch.entityToken)
-            except Exception:
-                pass
-    return tokens
+            sketches.append(sketch)
+    return sketches
 
 
-def settle_sketch_display(design, known_tokens=None):
+def _is_known(sketch, known):
+    for other in known:
+        try:
+            if sketch == other:
+                return True
+        except Exception:
+            pass
+    return False
+
+
+def settle_sketch_display(design, known=None):
     """[PB-SETTLE-DISPLAY] Make Fusion's display agree with the solver once generation is done.
 
     A sketch authored through the API ends up with a browser node whose constraint icon still
@@ -37,17 +45,13 @@ def settle_sketch_display(design, known_tokens=None):
     queued. Measured on the bevel gear, this changes no geometry, no constraint and no
     dimension, only what the browser shows.
 
-    Sketches whose token is in known_tokens are left alone, so only what the generator just
+    Sketches in known (from existing_sketches) are left alone, so only what the generator just
     authored is touched. Returns how many sketches were settled."""
     settled = 0
     for component in design.allComponents:
         for sketch in component.sketches:
-            if known_tokens:
-                try:
-                    if sketch.entityToken in known_tokens:
-                        continue
-                except Exception:
-                    pass
+            if known and _is_known(sketch, known):
+                continue
             try:
                 sketch.isComputeDeferred = True
                 sketch.isComputeDeferred = False

@@ -1,0 +1,41 @@
+{
+  "digest": "",
+  "functions": null,
+  "creations": {
+    "PlaneAt": [
+      "sketch.World.CreatePlaneFromFrame#1 in.World.CreatePlaneFromFrame(f)"
+    ],
+    "assemble": [
+      "sketch.World.CreateSketch#1 world.CreateSketch(lower)",
+      "decad.Extrude#1 decad.Extrude(ctx, doc, ds, dp, extent)",
+      "decad.PatternCopies#1 decad.PatternCopies(ctx, tooth, decad.CircularPattern{Center: frame.Origin(), Axis: frame.N(), Count: teeth})",
+      "decad.Union#1 decad.Union(ctx, disc, append([]*decad.Body{tooth}, copies...)...)"
+    ],
+    "buildBoreProfile": [
+      "sketch.World.CreatePlaneFromFrame#1 world.CreatePlaneFromFrame(low)",
+      "sketch.World.CreateSketch#1 world.CreateSketch(plane)"
+    ],
+    "buildEmbeddedTooth": [
+      "sketch.World.CreateSketch#1 world.CreateSketch(plane)"
+    ],
+    "buildToothSection": [
+      "sketch.World.CreateSketch#1 world.CreateSketch(plane)"
+    ],
+    "chamferOuterCaps": [
+      "decad.Chamfer#1 decad.Chamfer(ctx, gear, sel, setback)"
+    ],
+    "cutBore": [
+      "decad.Extrude#1 decad.Extrude(ctx, doc, s, prof, decad.Distance{D: length, Dir: decad.Along})",
+      "decad.Cut#1 decad.Cut(ctx, gear, tool)"
+    ],
+    "filletEmbedded": [
+      "decad.Fillet#1 decad.Fillet(ctx, body, sel, radius)"
+    ],
+    "filletRootsValue": [
+      "decad.Fillet#1 decad.Fillet(ctx, body, sel.Exactly(len(corners)), radius)"
+    ],
+    "tooth": [
+      "decad.Extrude#1 decad.Extrude(ctx, r.doc, ts, prof, r.extent)"
+    ]
+  }
+}
