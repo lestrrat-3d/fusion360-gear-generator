@@ -107,16 +107,27 @@ build on the shared `[PB-FULL-CONSTRAINT]`, `[PB-SHARE-XOR-COINCIDENT]`, `[PB-NO
   ⚠️ Putting the centre on the origin makes the **last rib's perpendicular redundant** — see
   `[SPUR-F-RIBS]`, which omits it. Keeping both is what throws `VCS_SKETCH_OVER_CONSTRAINTS`.
 
-- **[SPUR-F-GALLERY-SKETCH] The ordinary tooth is drawn from the gallery's tooth section.** The port
-  translates the gallery's `addToothPoints` and `buildToothSection` into Python (`_add_tooth_points`,
-  `_build_tooth_section`). They call `dimension_point`, `dimension_arc_end`, `create_line`, `create_arc` and
-  `create_fit_spline` in the gallery's order, and `_ToothSketchBuilder` (kept in the port's spur fragment) draws
-  them. Every point is placed by distance dimensions from the local origin: two for an ordinary point, one for an arc
-  end. The builder draws the splines first so each line and arc ends on a spline's own fit points, then the lines, the
-  tip arc, and last the dimensions. The tooth angle is part of the sampled points, so a rotated tooth needs no spine,
-  no reference line and no angular dimension. The ribs below, `[SPUR-F-SPINE]` and `[SPUR-F-ROTATE-CONFIRM]` now apply
-  only to the embedded tooth (base radius below root radius), which is still drawn the old way. The gallery's
-  embedded tooth closes with a different arc, so translating it is a separate change.
+- **[SPUR-F-GALLERY-SKETCH] The spur is built by the gallery's own code, translated.** `spurgear.py` holds the
+  gallery's `assemble`, `tooth`, `buildToothSection`, `buildEmbeddedTooth`, the fillet, bore and chamfer functions,
+  translated by `port/go2py`. They call `decad_extrude`, `decad_union` and the other operations of
+  `lib/geargen/decadfusion.py`, which does the Fusion work once for every gear. Each gallery sketch is one Fusion
+  sketch (`Tooth Profile`, `Root Disc Profile`, `Bore Profile`), each gallery operation is one timeline feature
+  (`Tooth Extrude`, `Root Disc Extrude`, `Tooth Pattern`, `Teeth Join`, `Root Fillet`, `Bore Tool Extrude`,
+  `Bore Cut`, `Cap Chamfer`), and `port/spur/mapping.go` names them. A sketch records the gallery's calls and draws
+  them in `solve()`: splines first, so each line and arc ends on a spline's own fit points, then lines, arcs and the
+  dimensions from the local origin, and last the coincident constraint onto the anchor. The tooth angle is part of the
+  sampled points, so there is no spine, reference line or angular dimension. The ribs below, `[SPUR-F-SPINE]` and
+  `[SPUR-F-ROTATE-CONFIRM]` describe the old construction, which only `lib/geargen/legacyspur.py` still draws, for the
+  helical, herringbone and bevel add-ins until those are translated.
+
+- **[SPUR-F-RUNTIME-RULES] What `decadfusion.py` decides, because the gallery does not.** The extrude distance and
+  the fillet and chamfer sizes are the user parameters, as expressions, so the features stay parametric. A radius or
+  diameter dimension bound by the gallery is driven by its parameter. An axial edge starts at the end on the lower
+  cap, as in decad. The pattern axis is the axis of a cylindrical face of the component's bodies that lies on the
+  pattern axis, since a disc exists by then. The cap faces are the planar faces perpendicular to the axis at its
+  lowest and highest position. The lower cap's frame comes from the Tools sketch: its origin is the anchor and its axes
+  are the sketch's. The root, tip, base and pitch circles with their labels are not in the gallery, so they are drawn
+  in a `Reference Circles` sketch of their own. Not yet verified in Fusion on 2026-10-24.
 
 - **[SPUR-F-ARC-CENTRE] An arc's centre is tied to the local origin by a coincident constraint.** Fusion creates its
   own centre point for `addByCenterStartEnd`, even when the point you pass is the local origin, so the arc stays

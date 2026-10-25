@@ -1,4 +1,4 @@
-package gotopy
+package go2py
 
 import (
 	"fmt"
@@ -31,6 +31,16 @@ type Spec struct {
 	Funcs []string
 	// Steps are the creation sequences of drawing functions, translated up to a stop call.
 	Steps []Steps
+	// Runtime is the name of the Python module that implements the API table. Default "_fx".
+	Runtime string
+	// Roles maps a creating call, keyed "<Go function>:<Type.Method or pkg.Func>#<n>", to the
+	// Fusion name of the object it creates.
+	Roles map[string]Role
+	// Provided lists Go functions the Fusion wiring already does, such as registering the
+	// parameters. A call of one renders nothing.
+	Provided []string
+	// Zero lists the struct types the translation treats as their zero value.
+	Zero []string
 }
 
 // Steps names a gallery function that draws on a sketch and the part of it to translate.
@@ -52,9 +62,23 @@ type StepArg struct{ Name, Type string }
 func TranspileSpec(m *gallery.Model, spec Spec) (string, error) {
 	tr := &transpiler{
 		model: m, prefix: spec.Prefix, structs: map[string]*structInfo{}, funcs: map[string]*funcInfo{},
-		sketch: len(spec.Steps) > 0 || len(spec.TypeOnly) > 0,
+		sketch:  len(spec.Steps) > 0 || len(spec.TypeOnly) > 0,
+		runtime: spec.Runtime, roles: spec.Roles, provided: map[string]bool{},
+	}
+	for _, name := range spec.Provided {
+		tr.provided[name] = true
+	}
+	if tr.runtime == "" {
+		tr.runtime = "_fx"
 	}
 	var out strings.Builder
+	for _, name := range spec.Structs {
+		info, err := tr.loadStruct(name, false)
+		if err != nil {
+			return "", err
+		}
+		tr.structs[name] = info
+	}
 	for _, name := range spec.TypeOnly {
 		info, err := tr.loadStruct(name, true)
 		if err != nil {
@@ -62,12 +86,8 @@ func TranspileSpec(m *gallery.Model, spec Spec) (string, error) {
 		}
 		tr.structs[name] = info
 	}
-	for _, name := range spec.Structs {
-		info, err := tr.loadStruct(name, false)
-		if err != nil {
-			return "", err
-		}
-		tr.structs[name] = info
+	for _, name := range spec.Zero {
+		tr.structs[name] = &structInfo{name: name, types: map[string]typ{}, zero: true}
 	}
 	for _, name := range spec.Funcs {
 		info, err := tr.loadSignature(name)
@@ -105,7 +125,10 @@ type transpiler struct {
 	structs map[string]*structInfo
 	funcs   map[string]*funcInfo
 	// sketch enables the sketch calls and error-check handling drawing functions need.
-	sketch bool
+	sketch   bool
+	runtime  string
+	roles    map[string]Role
+	provided map[string]bool
 }
 
 // funcInfo is the parsed signature of a function to translate.
@@ -118,6 +141,10 @@ type funcInfo struct {
 	// returns the other results and raises RuntimeError for a non-nil error.
 	errorResult bool
 	named       bool
+	// recvName and recvType describe the receiver of a method. The receiver is a zero-valued
+	// struct, so the Python function takes no argument for it.
+	recvName string
+	recvType *typ
 }
 
 type namedType struct {
@@ -165,11 +192,21 @@ func (t *transpiler) loadStruct(name string, lenient bool) (*structInfo, error) 
 }
 
 func (t *transpiler) loadSignature(name string) (*funcInfo, error) {
-	decl, err := t.model.Func(name)
+	decl, err := t.model.Callable(name)
 	if err != nil {
 		return nil, err
 	}
 	info := &funcInfo{name: name, decl: decl}
+	if decl.Recv != nil && len(decl.Recv.List) == 1 {
+		rt, err := fromAST(decl.Recv.List[0].Type, t.structs)
+		if err != nil {
+			return nil, fmt.Errorf("function %s: receiver: %w", name, err)
+		}
+		info.recvType = &rt
+		if names := decl.Recv.List[0].Names; len(names) == 1 {
+			info.recvName = names[0].Name
+		}
+	}
 	for _, f := range decl.Type.Params.List {
 		ft, err := fromAST(f.Type, t.structs)
 		if err != nil {
@@ -206,11 +243,17 @@ func (t *transpiler) loadSignature(name string) (*funcInfo, error) {
 
 // function renders one function.
 func (t *transpiler) function(fi *funcInfo) (string, error) {
-	fn := &fnState{t: t, info: fi, env: map[string]typ{}}
-	args := make([]string, len(fi.params))
-	for i, p := range fi.params {
+	fn := &fnState{t: t, info: fi, env: map[string]typ{}, calls: map[string]int{}}
+	if fi.recvType != nil && fi.recvName != "" {
+		fn.env[fi.recvName] = *fi.recvType
+	}
+	var args []string
+	for _, p := range fi.params {
 		fn.env[p.name] = p.typ
-		args[i] = pyName(p.name)
+		if p.typ.kind == kindCtx {
+			continue
+		}
+		args = append(args, pyName(p.name))
 	}
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "def %s%s(%s):\n", t.prefix, pySnake(fi.name), strings.Join(args, ", "))
@@ -241,6 +284,8 @@ type fnState struct {
 	info   *funcInfo
 	env    map[string]typ
 	indent int
+	// calls counts the creating calls made so far, per operation, to key the roles table.
+	calls map[string]int
 }
 
 func (f *fnState) line(sb *strings.Builder, format string, args ...any) {
@@ -264,10 +309,13 @@ func pyName(s string) string {
 
 // pySnake converts a Go camelCase name to snake_case.
 func pySnake(s string) string {
+	rs := []rune(s)
 	var sb strings.Builder
-	for i, r := range s {
+	for i, r := range rs {
 		if unicode.IsUpper(r) {
-			if i > 0 {
+			// A run of capitals is one word (XY → xy); a new word starts at a capital that follows a
+			// lower-case letter or digit, or that begins a word after a run of capitals.
+			if i > 0 && (!unicode.IsUpper(rs[i-1]) || (i+1 < len(rs) && unicode.IsLower(rs[i+1]))) {
 				sb.WriteByte('_')
 			}
 			sb.WriteRune(unicode.ToLower(r))
@@ -276,6 +324,16 @@ func pySnake(s string) string {
 		sb.WriteRune(r)
 	}
 	return sb.String()
+}
+
+// pyKeyword avoids Python keywords for a method name.
+func pyKeyword(s string) string {
+	switch s {
+	case "and", "as", "class", "def", "del", "elif", "except", "from", "global", "in", "is",
+		"lambda", "not", "or", "pass", "raise", "try", "with", "yield":
+		return s + "_"
+	}
+	return s
 }
 
 // pyClass converts a Go struct name to a Python class name.

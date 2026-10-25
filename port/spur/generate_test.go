@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/gallery"
+	"github.com/lestrrat-3d/fusion360-gear-generator/port/go2py"
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/spur"
 	"github.com/stretchr/testify/require"
 )
@@ -79,20 +80,21 @@ func TestGeneratedModuleKeepsTheSurfaceOtherGearsUse(t *testing.T) {
 
 	// helicalgear, herringbonegear, bevelgear and commands/spurgear import these.
 	require.Subset(t, got.Classes, []string{
-		"SpurGearCommandInputsConfigurator", "SpurGearGenerationContext",
-		"SpurGearGenerator", "SpurGearInvoluteToothDesignGenerator",
+		"SpurGearCommandInputsConfigurator", "SpurGearGenerationContext", "SpurGearGenerator",
 	})
 	require.Subset(t, got.Defined, []string{"PARAM_MODULE", "PARAM_TOOTH_NUMBER", "PARAM_THICKNESS"})
 	require.Subset(t, got.Defined, got.Used, "a PARAM_ or INPUT_ID_ name is used but never defined")
 }
 
-func TestGenerateRefusesChangedGalleryCode(t *testing.T) {
-	_, m, reviewed := generate(t)
-	reviewed.Digest = "0000"
-	fragment, err := os.ReadFile(filepath.Join("fragments", "spurgear.py.frag"))
+func TestGenerateNeedsARoleNameForEveryCreatedObject(t *testing.T) {
+	src, err := gallery.Locate(t.Context(), "..", "spurgear")
 	require.NoError(t, err)
-	_, err = spur.Generate(m, "v0", string(fragment), reviewed)
-	require.ErrorContains(t, err, "gearport accept")
+	m, err := gallery.Load(src.Dir)
+	require.NoError(t, err)
+	spec := spur.FeatureSpec
+	spec.Roles = map[string]go2py.Role{}
+	_, err = go2py.TranspileSpec(m, spec)
+	require.ErrorContains(t, err, "no role name")
 }
 
 func TestGenerateRefusesAnUnfilledFragment(t *testing.T) {

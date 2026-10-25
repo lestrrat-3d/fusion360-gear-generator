@@ -8,7 +8,7 @@ from .misc import to_cm, to_mm, get_design
 from .base import get_boolean, get_selection
 from .utilities import find_profile_by_curve_counts, get_normal
 from . import solids
-from .spurgear import SpurGearInvoluteToothDesignGenerator
+from .legacyspur import SpurGearInvoluteToothDesignGenerator
 from .spurproxy import VirtualSpurProxy
 
 

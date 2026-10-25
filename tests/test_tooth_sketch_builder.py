@@ -7,6 +7,7 @@ point of the second flank) and accepted the rest. The reason is not understood, 
 repeated value it sees and nothing else. This cannot show that a Fusion call is right; it shows that the runtime
 draws every curve, dimensions every point once per coordinate it owns, and aligns two points where Fusion refuses.
 """
+import collections
 import importlib
 import importlib.util
 import math
@@ -118,6 +119,7 @@ class ToothSketchBuilderTest(unittest.TestCase):
         package = importlib.util.module_from_spec(spec)
         sys.modules['addin'] = package
         cls.spur = importlib.import_module('addin.lib.geargen.spurgear')
+        cls.fx = importlib.import_module('addin.lib.geargen.decadfusion')
 
     @classmethod
     def tearDownClass(cls):
@@ -133,10 +135,9 @@ class ToothSketchBuilderTest(unittest.TestCase):
         root, tip = pitch - 1.25 * module, pitch + module
         sketch = FakeSketch()
         circle = object()
-        builder = spur._ToothSketchBuilder(sketch, sketch.origin, circle, root)
-        spur._build_tooth_section(
-            builder, spur._ToothParams(teeth, samples),
-            spur._Dimensions(pitch, base, root, tip, 0.0), angle)
+        builder = self.fx.Sketch(None, sketch, sketch.origin, circle, root)
+        params = collections.namedtuple('Params', ['Teeth', 'Samples'])(teeth, samples)
+        spur._draw_tooth_section(builder, params, spur._Dimensions(pitch, base, root, tip, 0.0), angle)
         builder.finish()
         return sketch, circle
 
@@ -172,11 +173,11 @@ class ToothSketchBuilderTest(unittest.TestCase):
     def test_a_refusal_with_no_partner_is_raised(self):
         spur = self.spur
         sketch = FakeSketch()
-        builder = spur._ToothSketchBuilder(sketch, sketch.origin, object(), 1.0)
-        first = spur._PendingPoint(1.0, 2.0, False)
+        builder = self.fx.Sketch(None, sketch, sketch.origin, object(), 1.0)
+        first = self.fx.PendingPoint(1.0, 2.0, False)
         first.point = FakePoint(1.0, 2.0)
         sketch.sketchDimensions.addDistanceDimension(sketch.origin, first.point, H, None)
-        second = spur._PendingPoint(5.0, 2.0, False)
+        second = self.fx.PendingPoint(5.0, 2.0, False)
         second.point = FakePoint(1.0, 2.0)  # the fake refuses it, but no earlier point shares its x
         with self.assertRaises(RuntimeError):
             builder._dimension(second, H)

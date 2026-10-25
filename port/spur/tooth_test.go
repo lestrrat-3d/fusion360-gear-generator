@@ -9,7 +9,7 @@ import (
 
 	"github.com/lestrrat-3d/decad-gallery/models/spurgear"
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/gallery"
-	"github.com/lestrrat-3d/fusion360-gear-generator/port/gotopy"
+	"github.com/lestrrat-3d/fusion360-gear-generator/port/go2py"
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/spur"
 	"github.com/lestrrat-3d/sketch"
 	"github.com/stretchr/testify/require"
@@ -44,7 +44,7 @@ for c in json.load(sys.stdin):
     pitch = c['module'] * c['teeth'] / 2
     d = _Dimensions(pitch, pitch * math.cos(c['pressure_angle']), pitch - 1.25 * c['module'], pitch + c['module'], 0.0)
     r = Recorder()
-    _build_tooth_section(r, Params(c['teeth'], c['samples']), d, c['angle'])
+    _draw_tooth_section(r, Params(c['teeth'], c['samples']), d, c['angle'])
     out.append(r.__dict__)
 json.dump(out, sys.stdout)
 `
@@ -72,7 +72,7 @@ func TestTranslatedToothSectionMatchesGallery(t *testing.T) {
 	require.NoError(t, err)
 	m, err := gallery.Load(src.Dir)
 	require.NoError(t, err)
-	text, err := gotopy.TranspileSpec(m, spur.ToothSpec)
+	text, err := go2py.TranspileSpec(m, spur.FeatureSpec)
 	require.NoError(t, err)
 
 	cases := []toothCase{

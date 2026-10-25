@@ -6,7 +6,7 @@
 // gallery source, and the rest is Fusion knowledge kept in the fragment.
 package spur
 
-import "github.com/lestrrat-3d/fusion360-gear-generator/port/gotopy"
+import "github.com/lestrrat-3d/fusion360-gear-generator/port/go2py"
 
 // ParamKind tells how a mapped parameter reaches Fusion.
 type ParamKind int
@@ -92,7 +92,8 @@ var Params = []Param{
 			GoField: "CapChamfer", DialogUnit: "mm", ValueUnit: "mm"}},
 	{Table: "samples", Kind: Fixed, Const: "PARAM_INVOLUTE_STEPS", Name: "InvoluteSteps",
 		Comment: "Number of points sampled along each involute flank"},
-	{Table: "tool_margin", Kind: GalleryOnly},
+	{Table: "tool_margin", Kind: Derived, Const: "PARAM_TOOL_MARGIN", Name: "ToolMargin", Unit: "mm",
+		Comment: "Distance the bore tool starts below the gear"},
 	{Table: "pitch_radius", Kind: Derived, Const: "PARAM_PITCH_RADIUS", Name: "PitchCircleRadius", Unit: "mm",
 		Comment: "Pitch circle radius"},
 	{Table: "base_radius", Kind: Derived, Const: "PARAM_BASE_RADIUS", Name: "BaseCircleRadius", Unit: "mm",
@@ -105,49 +106,56 @@ var Params = []Param{
 		Comment: "Involute function of the pressure angle"},
 	{Table: "fillet_radius", Kind: Derived, Const: "PARAM_FILLET_RADIUS", Name: "FilletRadius", Unit: "mm",
 		Comment: "Radius of the root fillets", HelixFactor: true},
-	{Table: "bore_tool_length", Kind: GalleryOnly},
+	{Table: "bore_tool_length", Kind: Derived, Const: "PARAM_BORE_TOOL_LENGTH", Name: "BoreToolLength", Unit: "mm",
+		Comment: "Length of the bore tool"},
 }
 
-// ExpectedOps is the sequence of decad feature operations the fragment implements.
-// The port refuses to generate when the gallery's build performs a different
-// sequence, because the fragment's Fusion feature order would no longer match.
-var ExpectedOps = []string{
-	"Extrude",       // root disc
-	"Extrude",       // tooth
-	"PatternCopies", // teeth
-	"Union",         // join
-	"Fillet",        // ordinary root fillet
-	"Fillet",        // embedded root fillet
-	"Extrude",       // bore tool
-	"Cut",           // bore
-	"Chamfer",       // cap chamfer
-}
-
-// ReviewedFuncs are the gallery functions the fragment's Fusion construction
-// follows. The fragment records a digest of their code (reviewed.json); a change
-// to any of them stops the port until the fragment is reviewed and the digest accepted.
-var ReviewedFuncs = []string{
-	"assemble", "tooth", "filletSpurRoots", "buildToothSection", "buildEmbeddedTooth", "addToothPoints",
-	"closingRadius", "halfAngle", "filletRootsValue", "filletEmbedded", "buildBoreProfile", "cutBore",
-	"chamferOuterCaps", "rootContact",
-}
-
-// ToothSpec is what the port translates from the gallery model into the Fusion add-in: the
-// involute sampling, the dimensioned points of one tooth, and the order in which the tooth
-// section creates its curves. The Fusion runtime that executes the creation sequence is in
-// the fragment (_ToothSketchBuilder).
-var ToothSpec = gotopy.Spec{
+// FeatureSpec is what the port translates from the gallery model into the Fusion add-in: the
+// involute sampling, the dimensioned points of one tooth, and the whole build (tooth, root disc,
+// pattern, join, root fillet, bore, cap chamfer) in the order the gallery performs it. The Fusion
+// runtime that executes the calls is lib/geargen/decadfusion.py.
+//
+// The tooth section is translated twice. buildToothSection builds a sketch of its own, which the
+// spur uses. The drawing steps (draw_tooth_section) draw into a sketch the caller made, which the
+// helical, herringbone and bevel add-ins still use until their constructions are translated too.
+var FeatureSpec = go2py.Spec{
 	Prefix:   "_",
 	Structs:  []string{"point", "dimensions", "toothPoints"},
-	TypeOnly: []string{"Params"},
+	TypeOnly: []string{"Params", "run"},
+	Zero:     []string{"Variant"},
+	// The add-in registers the parameters itself, from the mapping above.
+	Provided: []string{"defineParameters"},
 	Funcs: []string{
-		"rotate", "involutePoint", "flankBeta", "sampleFlanks", "rootContact", "addToothPoints",
+		"rotate", "involutePoint", "flankBeta", "sampleFlanks", "rootContact", "toothAngle", "addToothPoints",
+		"toWorld", "shifted", "placement", "singleProfile", "solveAndVerify", "halfAngle", "closingRadius",
+		"buildToothSection", "buildEmbeddedTooth", "tooth", "filletSpurRoots", "filletRootsValue",
+		"filletEmbedded", "buildBoreProfile", "cutBore", "chamferOuterCaps", "assemble",
 	},
-	Steps: []gotopy.Steps{{
-		Name: "buildToothSection", PyName: "build_tooth_section", StopAt: "solveAndVerify",
-		Args: []gotopy.StepArg{
+	Steps: []go2py.Steps{{
+		Name: "buildToothSection", PyName: "draw_tooth_section", StopAt: "solveAndVerify",
+		Args: []go2py.StepArg{
 			{Name: "s", Type: "*sketch.Sketch"}, {Name: "p", Type: "Params"},
 			{Name: "d", Type: "dimensions"}, {Name: "angle", Type: "float64"},
 		},
 	}},
+	Roles: Roles,
+}
+
+// Roles names each object the translated build creates in Fusion, by its role. A key is the Go
+// function, the operation and the number of the call in that function.
+var Roles = map[string]go2py.Role{
+	"buildToothSection:sketch.World.CreateSketch#1":        {Feature: "Tooth Profile"},
+	"buildEmbeddedTooth:sketch.World.CreateSketch#1":       {Feature: "Tooth Profile"},
+	"tooth:decad.Extrude#1":                                {Feature: "Tooth Extrude", Body: "Tooth"},
+	"assemble:sketch.World.CreateSketch#1":                 {Feature: "Root Disc Profile"},
+	"assemble:decad.Extrude#1":                             {Feature: "Root Disc Extrude", Body: "Gear Body"},
+	"assemble:decad.PatternCopies#1":                       {Feature: "Tooth Pattern"},
+	"assemble:decad.Union#1":                               {Feature: "Teeth Join"},
+	"filletRootsValue:decad.Fillet#1":                      {Feature: "Root Fillet"},
+	"filletEmbedded:decad.Fillet#1":                        {Feature: "Root Fillet"},
+	"buildBoreProfile:sketch.World.CreatePlaneFromFrame#1": {Feature: "Bore Tool Plane"},
+	"buildBoreProfile:sketch.World.CreateSketch#1":         {Feature: "Bore Profile"},
+	"cutBore:decad.Extrude#1":                              {Feature: "Bore Tool Extrude", Body: "Bore Tool"},
+	"cutBore:decad.Cut#1":                                  {Feature: "Bore Cut"},
+	"chamferOuterCaps:decad.Chamfer#1":                     {Feature: "Cap Chamfer"},
 }
