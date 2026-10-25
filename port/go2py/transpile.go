@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"go/ast"
+	"go/parser"
 	"slices"
 	"strings"
 	"unicode"
@@ -60,6 +61,11 @@ type Spec struct {
 	// code calls, keyed "pkg.Func" or "pkg.Type.Method". The Python module that holds the
 	// translation of that package provides them.
 	External map[string]External
+	// Aliases lists defined types whose underlying type is a number, bool or string, keyed by name:
+	// "joinOrder": "int". The translation treats a value of one as its underlying type.
+	Aliases map[string]string
+	// IotaConsts lists the constants of a const block written with iota, in order: the first is 0.
+	IotaConsts []string
 	// ExternalTypes lists the structs of another gallery package, keyed "pkg.Type", and the
 	// type of each field the translated code reads.
 	ExternalTypes map[string]map[string]string
@@ -158,10 +164,26 @@ func TranspileSpec(m *gallery.Model, spec Spec) (string, error) {
 			info.assigned = true
 		}
 	}
+	for name, underlying := range spec.Aliases {
+		expr, err := parser.ParseExpr(underlying)
+		if err != nil {
+			return "", fmt.Errorf("alias %s: %w", name, err)
+		}
+		at, err := fromAST(expr, tr.structs)
+		if err != nil {
+			return "", fmt.Errorf("alias %s: %w", name, err)
+		}
+		tr.structs[name] = &structInfo{name: name, types: map[string]typ{}, alias: &at}
+	}
 	for _, name := range spec.Zero {
 		tr.structs[name] = &structInfo{name: name, types: map[string]typ{}, zero: true}
 	}
 	var values strings.Builder
+	for i, name := range spec.IotaConsts {
+		py := tr.prefix + pySnake(name)
+		tr.globals[name] = global{py: py, t: intType}
+		fmt.Fprintf(&out, "%s = %d\n\n", py, i)
+	}
 	for _, name := range spec.Values {
 		expr, err := m.PackageValue(name)
 		if err != nil {

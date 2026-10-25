@@ -60,6 +60,7 @@ func paramsClass(m *gallery.Model) string {
 	for _, in := range m.Inputs {
 		fmt.Fprintf(&sb, "        self.%s = %s\n", in.Name, in.Name)
 	}
+	sb.WriteString("\n    def __eq__(self, other):\n        return vars(self) == vars(other)\n")
 	sb.WriteString("\n    def _copy(self):\n        return _Params(**vars(self))\n")
 	return sb.String()
 }

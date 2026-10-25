@@ -453,6 +453,17 @@ class Runtime:
     def root(self):
         return self._root
 
+    def bodies(self):
+        """Every body of the component, the same wrapper for the same body."""
+        registry = self.__dict__.setdefault('_bodyRegistry', {})
+        found = []
+        for fbody in self.component.bRepBodies:
+            token = fbody.entityToken
+            if token not in registry:
+                registry[token] = Body(self, fbody)
+            found.append(registry[token])
+        return found
+
     def move_body(self, body, container):
         if body.container is not None:
             body.container.bodies.remove(body)
@@ -674,6 +685,13 @@ def _coordinates(point):
     return (point.x, point.y) if isinstance(point, PendingPoint) else (0.0, 0.0)
 
 
+class Chain:
+    """Sketch curves that join end to end, open or closed."""
+
+    def __init__(self, curves):
+        self.curves = curves
+
+
 class Sketch:
     """A Fusion sketch the translated gallery code draws in.
 
@@ -804,6 +822,11 @@ class Sketch:
 
     def profiles(self):
         return [Profile(profile) for profile in self.sketch.profiles]
+
+    def chains(self):
+        """The drawn lines that join end to end, one chain. A line drawn as construction is not part of one."""
+        curves = [line.fusion for line in self._lineHandles if not line.construction and line.fusion is not None]
+        return [Chain(curves)] if curves else []
 
     # The drawing
     def finish(self, anchor=None):
@@ -1059,15 +1082,28 @@ class Body:
     def faces(self):
         return [Face(self.runtime, f) for f in self.body.faces]
 
+    def extreme_faces_by_centroid(self, axis):
+        """The faces with the least and the greatest centroid along axis, a direction of the build frame."""
+        ranked = []
+        for face in self.faces():
+            ranked.append((face.centroid().Value.dot(axis), face))
+        if len(ranked) < 2:
+            raise RuntimeError(f'body {self.body.name} has {len(ranked)} faces; need two to find the extremes')
+        ranked.sort(key=lambda entry: entry[0])
+        return ranked[0][1], ranked[-1][1]
+
 
 class Position:
     def __init__(self, runtime, point):
         self.Value = runtime.to_local(vec_of(point))
+        # Fusion reports a point as a number, with no certified error. [PB-READING-BOUND]
+        self.Bound = Length(0.0)
 
 
 class Centroid:
     def __init__(self, runtime, point):
         self.Value = runtime.to_local(vec_of(point))
+        self.Bound = Length(0.0)
 
 
 class Vertex:
@@ -1077,6 +1113,15 @@ class Vertex:
 
     def position(self):
         return Position(self._runtime, self._point)
+
+    def _key(self):
+        return (round(self._point.x, 6), round(self._point.y, 6), round(self._point.z, 6))
+
+    def __hash__(self):
+        return hash(self._key())
+
+    def __eq__(self, other):
+        return isinstance(other, Vertex) and self._key() == other._key()
 
 
 class Edge:
@@ -1175,6 +1220,9 @@ class Face:
 
     def edges(self):
         return [Edge(self.runtime, e) for e in self.face.edges]
+
+    def centroid(self):
+        return Centroid(self.runtime, self.face.centroid)
 
 
 class Predicate:
@@ -1327,7 +1375,13 @@ def decad_extrude(doc, sketch, profile, extent, name, body):
     extrudes: adsk.fusion.ExtrudeFeatures = doc.component.features.extrudeFeatures
     operation = adsk.fusion.FeatureOperations.NewBodyFeatureOperation
     reversed_ = sketch.flipped
-    extrudeInput: adsk.fusion.ExtrudeFeatureInput = extrudes.createInput(profile.fprofile, operation)
+    if isinstance(profile, Chain):
+        # An open chain extrudes to a sheet, a surface body.
+        path = doc.component.createOpenProfile(profile.curves[0], True)
+        extrudeInput: adsk.fusion.ExtrudeFeatureInput = extrudes.createInput(path, operation)
+        extrudeInput.isSolid = False
+    else:
+        extrudeInput = extrudes.createInput(profile.fprofile, operation)
     if isinstance(extent, TwoSided):
         extrudeInput.setTwoSidesExtent(
             adsk.fusion.DistanceExtentDefinition.create(value_input(extent.One.D, doc.scale)),
@@ -1447,9 +1501,110 @@ def decad_intersect(base, tool, *options, name):
     return _combine(base, [tool], adsk.fusion.FeatureOperations.IntersectFeatureOperation, name)
 
 
+class CopyRotation:
+    def __init__(self, center, axis, angle):
+        self.center, self.axis, self.angle = center, axis, angle
+
+
+def decad_with_copy_rotation(center, axis, angle):
+    return CopyRotation(center, axis, angle)
+
+
 @logged
 def decad_copy(body, *options, name):
-    raise NotImplementedError(f'{name}: decad.Copy is not translated yet; the straight bevel pair patterns its teeth')
+    """A copy of the body, turned by the rotation option when there is one."""
+    runtime = body.runtime
+    entities = adsk.core.ObjectCollection.create()
+    entities.add(body.body)
+    copies: adsk.fusion.CopyPasteBodies = runtime.component.features.copyPasteBodies
+    feature = copies.add(entities)
+    solids.name_feature(feature, name)
+    if feature.bodies.count != 1:
+        raise RuntimeError(f'{name}: expected one copied body, got {feature.bodies.count}')
+    copy = Body(runtime, feature.bodies.item(0))
+    copy.container = body.container
+    if body.container is not None:
+        body.container.bodies.append(copy)
+    for option in options:
+        if isinstance(option, CopyRotation):
+            decad_transform(copy, Rotation(option.axis, option.angle.base() if hasattr(option.angle, 'base') else option.angle,
+                                           option.center), name=name + ' Turn')
+    return copy
+
+
+@logged
+def decad_remove(body, name):
+    """Delete a body from the design. The body stays readable to the gallery but nothing takes it again."""
+    removes: adsk.fusion.RemoveFeatures = body.runtime.component.features.removeFeatures
+    feature = removes.add(body.body)
+    solids.name_feature(feature, name)
+    if body.container is not None:
+        body.container.bodies.remove(body)
+        body.container = None
+
+
+@logged
+def decad_scaled_at(body, anchor, factor, name):
+    """Scale the body uniformly about a point of the build frame, in place."""
+    runtime = body.runtime
+    points: adsk.fusion.ConstructionPoints = runtime.component.constructionPoints
+    pointInput: adsk.fusion.ConstructionPointInput = points.createInput()
+    world = runtime.to_world(anchor)
+    pointInput.setByPoint(adsk.core.Point3D.create(world.x, world.y, world.z))
+    base = points.add(pointInput)
+    solids.name_feature(base, name + ' Anchor')
+    base.isLightBulbOn = False
+    entities = adsk.core.ObjectCollection.create()
+    entities.add(body.body)
+    scales: adsk.fusion.ScaleFeatures = runtime.component.features.scaleFeatures
+    scaleInput: adsk.fusion.ScaleFeatureInput = scales.createInput(
+        entities, base, adsk.core.ValueInput.createByReal(factor))
+    feature = scales.add(scaleInput)
+    solids.name_feature(feature, name)
+    return body
+
+
+@logged
+def decad_split(target, sheet, name):
+    """Cut a solid with a surface body and return its two pieces, the one nearer the local origin first. The gallery
+    walks the slices from the heel toward the apex, so the first piece is the one the next plane can still meet."""
+    runtime = target.runtime
+    splits: adsk.fusion.SplitBodyFeatures = runtime.component.features.splitBodyFeatures
+    splitInput: adsk.fusion.SplitBodyFeatureInput = splits.createInput(target.body, sheet.body, True)
+    feature = splits.add(splitInput)
+    solids.name_feature(feature, name)
+    if feature.bodies.count != 2:
+        raise RuntimeError(f'{name}: the sheet made {feature.bodies.count} pieces; want two')
+    container = target.container
+    pieces = []
+    for fbody in feature.bodies:
+        pieces.append(Body(runtime, fbody))
+    pieces.sort(key=lambda piece: piece.centroid().Value.len())
+    # The sheet and the target are consumed; the pieces take the target's place.
+    for gone in (target, sheet):
+        if gone.container is not None:
+            gone.container.bodies.remove(gone)
+            gone.container = None
+    if container is not None:
+        for piece in pieces:
+            container.bodies.append(piece)
+            piece.container = container
+    return pieces
+
+
+@logged
+def decad_loft_faces(doc, *faces, name, body):
+    lofts: adsk.fusion.LoftFeatures = doc.component.features.loftFeatures
+    loftInput: adsk.fusion.LoftFeatureInput = lofts.createInput(adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+    for face in faces:
+        loftInput.loftSections.add(face.face)
+    loft: adsk.fusion.LoftFeature = lofts.add(loftInput)
+    solids.name_feature(loft, name)
+    if loft.bodies.count != 1:
+        raise RuntimeError(f'{name}: expected one body, got {loft.bodies.count}')
+    fbody: adsk.fusion.BRepBody = loft.bodies.item(0)
+    solids.name_feature(fbody, body)
+    return Body(doc, fbody)
 
 
 @logged
@@ -1496,14 +1651,22 @@ def decad_loft(doc, lowerSketch, lowerProfile, upperSketch, upperProfile, name, 
 
 
 class Rotation:
-    """A turn about an axis through the local origin, by an angle in radians."""
+    """A turn about an axis, by an angle in radians. The axis passes through the local origin unless a centre is given."""
 
-    def __init__(self, axis, angle):
-        self.axis, self.angle = axis, angle
+    def __init__(self, axis, angle, center=None):
+        self.axis, self.angle, self.center = axis, angle, center
 
 
 def r3_rotation(axis, angle):
     return Rotation(axis, angle)
+
+
+def r3_rotation_around(center, axis, angle):
+    return Rotation(axis, angle, center)
+
+
+def units_scalar(x):
+    return x
 
 
 def placement_place(body, frame):
@@ -1520,7 +1683,7 @@ def decad_transform(body, transform, name):
     if not isinstance(transform, Rotation):
         raise RuntimeError(f'{name}: only a rotation is translated')
     axis = runtime.to_world_dir(transform.axis).unit()
-    origin = runtime.placement.origin()
+    origin = runtime.placement.origin() if transform.center is None else runtime.to_world(transform.center)
     matrix = adsk.core.Matrix3D.create()
     matrix.setToRotation(transform.angle, adsk.core.Vector3D.create(axis.x, axis.y, axis.z),
                          adsk.core.Point3D.create(origin.x, origin.y, origin.z))

@@ -72,6 +72,9 @@ class FakeSketch:
     def solve(self):
         self.log.append(('sketch', self.name, self.points))
 
+    def chains(self):
+        return [object()]
+
     def profiles(self):
         if self.name == 'Gear Profiles':
             drawn = [line for line in self.lines if not line.construction]
@@ -82,10 +85,59 @@ class FakeSketch:
         return [FakeProfile()]
 
 
+class FakeVertex:
+    def __init__(self, x, y, z):
+        self.point = (x, y, z)
+
+    def position(self):
+        vec = sys.modules['addin.lib.geargen.decadfusion'].Vec(*self.point)
+        return SimpleNamespace(Value=vec, Bound=FakeBound())
+
+
+class FakeBound:
+    def base(self):
+        return 0.0
+
+
+class FakeEdge:
+    def __init__(self, start, end):
+        self._start, self._end = start, end
+
+    def start(self):
+        return self._start
+
+    def end(self):
+        return self._end
+
+
+class FakeFace:
+    """A planar slab cap at distance x along the cone, with four corners: two root corners near the shaft axis."""
+
+    def __init__(self, fx, x):
+        self.fx, self.x = fx, x
+        corners = [FakeVertex(x, 1.0, 0.0), FakeVertex(x, 1.0, 0.5), FakeVertex(x, 3.0, 0.5), FakeVertex(x, 3.0, 0.0)]
+        # The two nearest the axis are (x, 1, 0) and (x, 1, 0.5).
+        self.corners = corners
+
+    def centroid(self):
+        return SimpleNamespace(Value=self.fx.Vec(self.x, 0.0, 0.0), Bound=FakeBound())
+
+    def edges(self):
+        c = self.corners
+        return [FakeEdge(c[i], c[(i + 1) % 4]) for i in range(4)]
+
+
 class FakeBody:
-    def __init__(self, name):
+    def __init__(self, name, fx=None, x=0.0):
         self.name = name
         self.container = None
+        self.fx, self.x = fx, x
+
+    def centroid(self):
+        return SimpleNamespace(Value=self.fx.Vec(self.x, 0.0, 0.0), Bound=FakeBound())
+
+    def extreme_faces_by_centroid(self, axis):
+        return FakeFace(self.fx, self.x - 1.0), FakeFace(self.fx, self.x + 1.0)
 
     def bounds(self):
         return SimpleNamespace(Min=SimpleNamespace(X=-10.0, Y=-10.0), Max=SimpleNamespace(X=10.0, Y=10.0))
@@ -119,6 +171,9 @@ class FakeRuntime:
 
     def xy(self):
         return 'xy'
+
+    def bodies(self):
+        return []
 
     def create_sketch(self, plane, name):
         return FakeSketch(self.log, name)
@@ -165,7 +220,7 @@ class BevelTranslationTest(unittest.TestCase):
 
         def body_of(name, body, *args):
             counter[name] = counter.get(name, 0) + 1
-            return FakeBody(body or name)
+            return FakeBody(body or name, fx)
 
         def pattern_copies(tooth, pattern, name):
             log.append(('pattern', name, pattern.Count))
@@ -176,13 +231,31 @@ class BevelTranslationTest(unittest.TestCase):
             'units_radians', 'units_millimeters', 'UNITS_MILLIMETER', 'UNITS_RADIAN', 'UNITS_ONE', 'DECAD_ALONG',
             'decad_distance', 'decad_circular_pattern', 'decad_with_matching_faces', 'decad_full_revolution',
             'decad_sketch_line', 'decad_point2')})
+        slices = {'count': 0}
+
+        def split(target, sheet, name):
+            slices['count'] += 1
+            return [FakeBody('Remainder', fx, 1.0), FakeBody('Slab', fx, 10.0 + 5.0 * slices['count'])]
+
+        namespace.decad_split = split
+        namespace.decad_two_sided = fx.decad_two_sided
+        namespace.decad_distance_side = fx.decad_distance_side
+        namespace.r3_rotation_around = fx.r3_rotation_around
+        namespace.units_scalar = fx.units_scalar
+        namespace.decad_with_copy_rotation = fx.decad_with_copy_rotation
+        namespace.decad_copy = lambda body, *options, name: log.append(('copy', name)) or FakeBody('Tooth Copy', fx)
+        namespace.decad_remove = lambda body, name: log.append(('remove', name))
+        namespace.decad_scaled_at = lambda body, anchor, factor, name: log.append(('scale', name, factor)) or body
+        namespace.decad_loft_faces = lambda doc, *faces, name, body: log.append(('loftfaces', name, len(faces))) or FakeBody(body, fx)
+        namespace.decad_mirror_frame = fx.decad_mirror_frame
+        namespace.decad_mirrored_copy = lambda source, mirror, name, body: log.append(('mirror', name)) or FakeBody(body, fx)
         namespace.sketch_new_world = lambda: runtime
         namespace.sketch_new_diameter = lambda circle, d: SimpleNamespace()
         namespace.sketch_new_radius = lambda circle, r: SimpleNamespace()
         namespace.sketchcheck_verify_fully_constrained = lambda s: None
         namespace.decad_revolve = feature('revolve', body_of)
-        namespace.decad_loft_from_point = feature('loft', lambda name, body, *a: FakeBody(body))
-        namespace.decad_extrude = feature('extrude', lambda name, body, *a: FakeBody(body))
+        namespace.decad_loft_from_point = feature('loft', lambda name, body, *a: FakeBody(body, fx))
+        namespace.decad_extrude = feature('extrude', lambda name, body, *a: FakeBody(body, fx))
         namespace.decad_cut = feature('cut')
         namespace.decad_intersect = feature('intersect')
         namespace.decad_union = feature('union')
@@ -255,9 +328,20 @@ class BevelTranslationTest(unittest.TestCase):
         runtime, log, pair = self.run_pair(EnableBore=False)
         self.assertNotIn('Bore Profile', [e[1] for e in log if e[0] == 'sketch'])
 
-    def test_the_spiral_pair_refuses_until_it_is_translated(self):
-        with self.assertRaisesRegex(NotImplementedError, 'Tooth Type Straight'):
-            self.run_pair(SpiralAngle=0.6)
+    def test_a_spiral_pair_slices_twists_crowns_and_lofts_each_tooth(self):
+        runtime, log, pair = self.run_pair(SpiralAngle=0.6, Teeth=12, MateTeeth=12)
+        kinds = [e[0] for e in log]
+        # One driving gear is mirrored from the pinion when the two members share their parameters.
+        self.assertEqual(['Spiral Driving Gear Mirror'], [e[1] for e in log if e[0] == 'mirror'])
+        # Eight cuts make nine pieces; the apex scrap goes, seven of the eight slabs are crowned (all but the heel-most)
+        # and the slabs are lofted through nine sections and removed.
+        self.assertEqual(7, kinds.count('scale'))
+        self.assertEqual([('loftfaces', 'Spiral Tooth Loft', 9)], [e for e in log if e[0] == 'loftfaces'])
+        self.assertEqual(11, sum(1 for e in log if e[0] == 'copy'))
+
+    def test_a_spiral_hand_other_than_right_or_left_is_refused(self):
+        with self.assertRaisesRegex(RuntimeError, 'right or left'):
+            self.run_pair(SpiralAngle=0.6, SpiralHand='up')
 
     def test_the_gallerys_validity_checks_raise_their_messages(self):
         with self.assertRaisesRegex(RuntimeError, 'shaft angle must lie between 30 and 150 degrees'):

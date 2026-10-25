@@ -93,7 +93,10 @@ func fromAST(e ast.Expr, structs map[string]*structInfo) (typ, error) {
 		case "any":
 			return typ{kind: kindOpaque, name: "any"}, nil
 		}
-		if _, ok := structs[e.Name]; ok {
+		if info, ok := structs[e.Name]; ok {
+			if info.alias != nil {
+				return *info.alias, nil
+			}
 			return typ{kind: kindStruct, name: e.Name}, nil
 		}
 	case *ast.StarExpr:
@@ -189,6 +192,8 @@ type structInfo struct {
 	anonymous bool
 	// assigned marks a struct the translated code fills in field by field, which becomes a class.
 	assigned bool
+	// alias is the underlying type of a defined number, bool or string type, which has no class of its own.
+	alias *typ
 }
 
 // mutable reports whether the struct holds slices or handles, which a function fills in

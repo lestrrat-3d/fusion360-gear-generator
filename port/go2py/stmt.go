@@ -1,6 +1,7 @@
 package go2py
 
 import (
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/token"
@@ -97,6 +98,29 @@ func (f *fnState) declStmt(sb *strings.Builder, s *ast.DeclStmt) error {
 		}
 		return nil
 	}
+	if ok && gd.Tok == token.TYPE {
+		// A struct type declared inside a function is rendered with the other classes.
+		for _, spec := range gd.Specs {
+			ts := spec.(*ast.TypeSpec)
+			st, isStruct := ts.Type.(*ast.StructType)
+			if !isStruct {
+				return fmt.Errorf("%s: only a struct type may be declared in a function", f.pos(s))
+			}
+			info := &structInfo{name: ts.Name.Name, types: map[string]typ{}, anonymous: true}
+			for _, fld := range st.Fields.List {
+				ft, err := fromAST(fld.Type, f.t.structs)
+				if err != nil {
+					return fmt.Errorf("%s: %w", f.pos(s), err)
+				}
+				for _, n := range fld.Names {
+					info.fields = append(info.fields, n.Name)
+					info.types[n.Name] = ft
+				}
+			}
+			f.t.structs[info.name] = info
+		}
+		return nil
+	}
 	if !ok || gd.Tok != token.VAR {
 		return fmt.Errorf("%s: unsupported declaration", f.pos(s))
 	}
@@ -106,7 +130,11 @@ func (f *fnState) declStmt(sb *strings.Builder, s *ast.DeclStmt) error {
 			return fmt.Errorf("%s: var with a value is unsupported", f.pos(s))
 		}
 		if isIdent(vs.Type, "error") {
-			// The runtime raises instead of returning an error.
+			// The runtime raises instead of returning an error. A variable that holds the last one stays None.
+			for _, n := range vs.Names {
+				f.env[n.Name] = nilType
+				f.line(sb, "%s = None", pyName(n.Name))
+			}
 			continue
 		}
 		vt, err := fromAST(vs.Type, f.t.structs)
@@ -196,7 +224,19 @@ func (f *fnState) target(l ast.Expr, define bool, rt typ) (string, error) {
 			return "", fmt.Errorf("%s: assignment to unknown name %s", f.pos(l), l.Name)
 		}
 		return pyName(l.Name), nil
-	case *ast.IndexExpr, *ast.SelectorExpr, *ast.StarExpr:
+	case *ast.IndexExpr:
+		// A store writes the key itself, where a read of a map takes the zero value for a missing one.
+		text, _, err := f.expr(l)
+		if i := strings.LastIndex(text, ".get("); err == nil && i >= 0 && strings.HasSuffix(text, ")") {
+			x, _, xerr := f.expr(l.X)
+			key, _, kerr := f.expr(l.Index)
+			if xerr != nil || kerr != nil {
+				return "", errors.Join(xerr, kerr)
+			}
+			return x + "[" + key + "]", nil
+		}
+		return text, err
+	case *ast.SelectorExpr, *ast.StarExpr:
 		text, _, err := f.expr(l)
 		return text, err
 	}
@@ -317,6 +357,17 @@ func (f *fnState) returnStmt(sb *strings.Builder, s *ast.ReturnStmt) error {
 
 // raise renders "return ..., fmt.Errorf(format, args...)" as a RuntimeError.
 func (f *fnState) raise(sb *strings.Builder, e ast.Expr) error {
+	if id, isName := e.(*ast.Ident); isName {
+		if t, local := f.env[id.Name]; local && t.kind == kindNil {
+			// A local variable holding an earlier error: nothing sets it in a translated function.
+			f.line(sb, "raise RuntimeError(str(%s))", pyName(id.Name))
+			return nil
+		}
+		// A package-level error value, var errX = fmt.Errorf("..."), raises its own message.
+		if value, err := f.t.model.PackageValue(id.Name); err == nil {
+			e = value
+		}
+	}
 	call, ok := e.(*ast.CallExpr)
 	if !ok || !isPkgCall(call, "fmt", "Errorf") || len(call.Args) == 0 {
 		return fmt.Errorf("%s: an error result must be nil or fmt.Errorf", f.pos(e))

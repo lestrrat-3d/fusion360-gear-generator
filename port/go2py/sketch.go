@@ -157,6 +157,15 @@ func (f *fnState) multiResult(sb *strings.Builder, s *ast.AssignStmt, call *ast.
 				break
 			}
 		}
+		if x, xt, err := f.expr(fn.X); err == nil && xt.kind == kindOpaque {
+			if sig, found := apiMethods[xt.name+"."+fn.Sel.Name]; found && len(sig.results) == len(s.Lhs)-errs {
+				for _, r := range sig.results {
+					types = append(types, parseAPIType(r))
+				}
+				callee, recv = x+"."+pyKeyword(pySnake(fn.Sel.Name)), ""
+				break
+			}
+		}
 		key, r, ok := f.externalKey(fn)
 		if !ok {
 			return false, nil
@@ -218,6 +227,9 @@ func (f *fnState) rangeStmt(sb *strings.Builder, s *ast.RangeStmt) error {
 		f.line(sb, "for %s in range(%s):", keyName, xs)
 	case xt.kind == kindSlice:
 		if id, ok := s.X.(*ast.Ident); ok && f.t.firstOnly[id.Name] {
+			xs += "[:1]"
+		} else if val != nil && f.t.firstOnly[f.info.name+":"+val.Name] {
+			// A list written in the loop itself is named by the function and the loop variable.
 			xs += "[:1]"
 		}
 		if val != nil && val.Name != "_" {

@@ -327,7 +327,7 @@ herringbone gears list only the operations in their own package, and the spur po
 `gearport gen bevelgear` writes `lib/geargen/bevelgear.py` from the pinned gallery `models/bevelgear`. The straight pair
 is translated: `BuildPair`, `buildMember`, `buildStraightMember`, the blanks, the cones, the point tooth, the bore, the
 containers and the validity checks. The fragment holds the dialog, the `Tools` sketch, the Pair Plane and the call of the
-translated build. A spiral pair refuses with a message until it is translated. The old stored fragment is gone.
+translated build. A spiral pair is translated from the same functions and has not yet been loaded in Fusion. The old stored fragment is gone.
 
 The gallery needed two seams for the translation, both merged in gallery PR #107: `selectEmbeddedToothProfile` holds the
 embedded-region walk that reads decad internals, and the straight tooth pattern is `decad.PatternCopies`, which Fusion

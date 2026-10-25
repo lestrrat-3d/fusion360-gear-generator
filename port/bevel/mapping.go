@@ -66,15 +66,18 @@ var Inputs = []Input{
 // Center Point instead.
 var GalleryOnly = []string{"PressureAngle", "Samples", "Placement"}
 
-// FeatureSpec is what the port translates from the gallery model: the whole build of a straight pair, in the
-// order the gallery performs it. A spiral member is not translated yet: its three entry points are provided by
-// the fragment and refuse.
+// FeatureSpec is what the port translates from the gallery model: the whole build of a straight or spiral pair, in
+// the order the gallery performs it.
 var FeatureSpec = go2py.Spec{
-	Prefix:   "_",
-	Structs:  []string{"axialPoint", "shaftFrame", "dimensions", "memberBuildPlan", "GearPair", "pairContainers"},
-	TypeOnly: []string{"Params"},
-	Mutable:  []string{"Params", "dimensions", "shaftFrame"},
-	Values: []string{
+	Prefix: "_",
+	Structs: []string{"axialPoint", "shaftFrame", "dimensions", "memberBuildPlan", "GearPair", "pairContainers",
+		"spiralSliceFrame", "spiralTrace", "serialEnds", "spiralHeelSection"},
+	TypeOnly:   []string{"Params"},
+	Mutable:    []string{"axialPoint", "Params", "dimensions", "shaftFrame"},
+	Aliases:    map[string]string{"joinOrder": "int"},
+	IotaConsts: []string{"joinOneByOne", "joinTeethGrouped", "joinTeethFirst", "joinTeethBalancedFirst"},
+	FirstOnly:  []string{"spiralOvershoots", "orders", "sliceSpiralPointTooth:reach"},
+	Values: []string{"spiralOvershoots", "spiralCrownPerRad",
 		"directionBits", "gridBits", "localShaft", "pairContainerName", "drivingContainerName", "pinionContainerName",
 	},
 	Bound: map[string]go2py.Bound{
@@ -90,10 +93,40 @@ var FeatureSpec = go2py.Spec{
 		"revolveBlankIn", "revolveAxialSectionIn", "revolveSharedBlanks", "profileUses", "buildToeConeIn",
 		"buildHeelConeIn", "endConeSection", "buildEndCone", "buildPointToothIn", "ResolveBoreDiameter",
 		"maximumBoreDiameter", "cutBore", "newPairContainers", "uniqueChild", "addSketch", "addPlane", "moveBody",
-		"newShaftFrame", "roundBits", "apexFrame", "heelStation", "buildBackConeToothProfile", "buildVirtualToothProfile", "local", "axis", "sketchAxis", "unit", "vec",
+		"newShaftFrame", "roundBits", "apexFrame", "heelStation", "buildSpiralMember", "buildSpiralMemberSerial",
+		"buildSpiralMemberSerialTrace", "spiralJoinGroupsFirst", "buildSpiralMemberOvershoot", "buildSpiralTooth",
+		"patternSpiralTooth", "trimSpiralToothBy", "sliceSpiralPointTooth", "spiralSliceSheet", "validateSpiralBuild",
+		"buildSpiralTrace", "cutterIntersectionNear", "twistSpiralSlabs", "crownSpiralSlabs", "spiralHeelRootAnchor",
+		"spiralLoftFaces", "buildSerialEnds", "DefaultParams", "buildSpiralPair", "BuildPointTooth", "buildBackConeToothProfile", "buildVirtualToothProfile", "local", "axis", "sketchAxis", "unit", "vec",
 		"sectionXY", "revolveAxialSection", "buildShiftedEndCone",
 	},
 	Roles: map[string]go2py.Role{
+		"buildSpiralMemberSerialTrace:decad.Remove#1":                   {Feature: "Failed Spiral Member Removal"},
+		"buildSpiralMemberOvershoot:decad.Union#1":                      {Feature: "Spiral Tooth Pair Join"},
+		"buildSpiralMemberOvershoot:decad.Union#2":                      {Feature: "Spiral Teeth Join"},
+		"buildSpiralMemberOvershoot:decad.Union#3":                      {Feature: "Spiral Tooth Pair Join"},
+		"buildSpiralMemberOvershoot:decad.Union#4":                      {Feature: "Spiral Teeth Group Join"},
+		"buildSpiralMemberOvershoot:decad.Union#5":                      {Feature: "Spiral Tooth Join"},
+		"buildSpiralMemberOvershoot:decad.Union#6":                      {Feature: "Spiral Teeth Join"},
+		"buildSpiralMemberOvershoot:decad.Union#7":                      {Feature: "Spiral Tooth Join"},
+		"buildSpiralMemberOvershoot:decad.Intersect#1":                  {Feature: "Spiral Member Cap Trim"},
+		"buildSpiralTooth:decad.LoftFaces#1":                            {Feature: "Spiral Tooth Loft", Body: "Spiral Tooth"},
+		"buildSpiralTooth:decad.Remove#1":                               {Feature: "Spiral Slab Removal"},
+		"crownSpiralSlabs:decad.ScaledAt#1":                             {Feature: "Spiral Crown Scale"},
+		"patternSpiralTooth:decad.Copy#1":                               {Feature: "Spiral Tooth Copy"},
+		"sliceSpiralPointTooth:decad.Split#1":                           {Feature: "Spiral Slice"},
+		"sliceSpiralPointTooth:decad.Remove#1":                          {Feature: "Short Slice Sheet Removal"},
+		"sliceSpiralPointTooth:decad.Remove#2":                          {Feature: "Missed Slice Sheet Removal"},
+		"sliceSpiralPointTooth:decad.Remove#3":                          {Feature: "Refused Slice Sheet Removal"},
+		"sliceSpiralPointTooth:decad.Remove#4":                          {Feature: "Spiral Apex Scrap Removal"},
+		"spiralSliceSheet:sketch.World.CreateSketch#1":                  {Feature: "Slice Sheet"},
+		"spiralSliceSheet:decad.Extrude#1":                              {Feature: "Slice Sheet Extrude", Body: "Slice Sheet"},
+		"trimSpiralToothBy:decad.Cut#1":                                 {Feature: "Spiral Tooth Toe Trim"},
+		"trimSpiralToothBy:decad.Intersect#1":                           {Feature: "Spiral Tooth Heel Trim"},
+		"twistSpiralSlabs:decad.Transform#1":                            {Feature: "Spiral Slab Twist"},
+		"buildSpiralPair:decad.MirroredCopy#1":                          {Feature: "Spiral Driving Gear Mirror", Body: "Spiral Driving Gear"},
+		"buildSpiralPair:decad.Transform#1":                             {Feature: "Pinion Tooth Phase Turn"},
+		"buildSpiralPair:decad.Transform#2":                             {Feature: "Pinion Shaft Turn"},
 		"BuildPair:decad.Transform#1":                                   {Feature: "Pinion Tooth Phase Turn"},
 		"placePair:decad.Transform#1":                                   {Feature: "Driving Gear Phase Turn"},
 		"buildStraightMember:decad.Cut#1":                               {Feature: "Tooth Toe Trim"},

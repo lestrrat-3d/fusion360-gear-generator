@@ -82,8 +82,11 @@ Fusion taught us. This file owns the goal, the rules for reaching it, and the de
   Angle, Hand of Spiral and Cutter Radius and builds with a spiral angle of zero. Spiral shows them and needs an angle
   above zero. Straight is the default until the spiral pair is translated; the gallery's default is spiral. Requested by
   the user on 2026-10-26.
-- The straight pair is translated. The spiral pair refuses with a message until it is translated; choose Tooth Type
-  Straight.
+- The straight pair is translated and Fusion-verified. The spiral pair is translated too, from the same gallery
+  functions, and awaits its first Fusion load. Its decad-only steps map to Fusion as follows: `Split` is a surface
+  extrude of the cut line plus a Split Body feature (the piece nearer the apex comes first), `ScaledAt` is a Scale
+  feature about a construction point, `LoftFaces` is a loft through the slabs' planar caps, and `Copy` with a rotation
+  is a Copy/Paste Body plus a free move.
 
 ## Definition of done for a gear
 

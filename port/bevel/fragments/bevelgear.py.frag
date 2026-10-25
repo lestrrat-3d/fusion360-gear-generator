@@ -103,18 +103,6 @@ def _is_spiral(inputs: adsk.core.CommandInputs) -> bool:
 
 # @@translated@@
 
-def _build_spiral_member(doc, p, geometry, pinion):
-    raise NotImplementedError('the spiral bevel member is not translated yet: choose Tooth Type Straight')
-
-
-def _build_spiral_pair(doc, p, pinionParams, drivingPlan, pinionPlan):
-    raise NotImplementedError('the spiral bevel pair is not translated yet: choose Tooth Type Straight')
-
-
-def _validate_spiral_build(p):
-    raise NotImplementedError('the spiral bevel pair is not translated yet: choose Tooth Type Straight')
-
-
 def _params_of_inputs(inputs: adsk.core.CommandInputs):
     # @@params_from_inputs@@
 

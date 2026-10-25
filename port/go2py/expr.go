@@ -79,6 +79,10 @@ func (f *fnState) ident(e *ast.Ident) (string, typ, error) {
 		if g, ok := f.t.globals[e.Name]; ok {
 			return g.py, g.t, nil
 		}
+		if f.t.sketch && isErrIdent(e) {
+			// An error variable: a translated call raises, so none is ever set.
+			return "None", nilType, nil
+		}
 		return "", typ{}, fmt.Errorf("%s: unknown name %s", f.pos(e), e.Name)
 	}
 	return pyName(e.Name), t, nil
@@ -548,6 +552,12 @@ func (f *fnState) index(e *ast.IndexExpr) (string, typ, error) {
 	i, _, err := f.expr(e.Index)
 	if err != nil {
 		return "", typ{}, err
+	}
+	if xt.kind == kindMap {
+		// A missing key reads as the element's zero value.
+		if zero, zerr := xt.elem.zero(); zerr == nil {
+			return x + ".get(" + i + ", " + zero + ")", *xt.elem, nil
+		}
 	}
 	return x + "[" + i + "]", *xt.elem, nil
 }
