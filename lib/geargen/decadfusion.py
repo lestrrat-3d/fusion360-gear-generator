@@ -93,6 +93,21 @@ class SketchOnly(Exception):
     """Raised by the first extrude when the dialog asks for sketches only, which ends the build."""
 
 
+class FusionRefused(RuntimeError):
+    """Fusion answered null, or fewer results than the build needs, where the API reports a failure that way.
+    [PB-EMPTY-RESULT]"""
+
+
+class Untranslated(RuntimeError):
+    """The translated build asked for something this runtime has no Fusion form for, such as an axis, a plane or an
+    extent it cannot represent. Raised instead of building something else."""
+
+
+class ConsumedBody(RuntimeError):
+    """A body that an earlier union consumed was used again. Fusion's join deletes its tools, so the eager sequence
+    of features would fail at the same step."""
+
+
 class Vec:
     def __init__(self, x, y, z):
         self.x, self.y, self.z = x, y, z
@@ -370,7 +385,10 @@ class Container:
             occurrence.component.name = child._name
             child.context = occurrence if context is None else occurrence.createForAssemblyContext(context)
             for body in child.bodies:
-                body.body = body.body.moveToComponent(child.context)
+                moved = body.body.moveToComponent(child.context)
+                if moved is None:
+                    raise FusionRefused(f'{child._name}: Fusion did not move body {body.body.name} into the component')
+                body.body = moved
             child.realize(occurrence.component, child.context)
 
 

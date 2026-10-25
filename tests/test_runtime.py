@@ -87,5 +87,52 @@ class EntityIdentityTest(RuntimeTestCase):
         self.assertEqual(1, misc.settle_sketch_display(design, known))
 
 
+class FakeOccurrence:
+    def __init__(self, parent_log):
+        self.component = SimpleNamespace(name='', occurrences=FakeOccurrences(parent_log))
+        self.log = parent_log
+
+    def createForAssemblyContext(self, context):
+        return ('proxy', self, context)
+
+
+class FakeOccurrences:
+    def __init__(self, log):
+        self.log = log
+
+    def addNewComponent(self, matrix):
+        occurrence = FakeOccurrence(self.log)
+        self.log.append(occurrence)
+        return occurrence
+
+
+class ContainerTest(RuntimeTestCase):
+    """finish_containers makes a component for each container that holds a body and moves the bodies in."""
+
+    def test_each_container_with_a_body_becomes_a_component_and_its_bodies_move_in(self):
+        made = []
+        self.component.occurrences = FakeOccurrences(made)
+        root = self.runtime.root()
+        pair = root.new_child('Pair')
+        driving, pinion = pair.new_child('Driving Gear'), pair.new_child('Pinion Gear')
+        root.new_child('Empty')
+        gear = self.body(1.0, container=driving)
+        before = gear.body
+        self.runtime.finish_containers()
+        self.assertEqual(['Pair', 'Driving Gear'], [o.component.name for o in made])
+        self.assertIs(made[1], driving.context[1], 'a nested component is reached through its parent occurrence')
+        self.assertIsNot(before, gear.body)
+        self.assertEqual(driving.context, gear.body.movedTo)
+        self.assertIsNone(pinion.context)
+
+    def test_a_refused_move_raises(self):
+        self.component.occurrences = FakeOccurrences([])
+        container = self.runtime.root().new_child('Gear')
+        gear = self.body(container=container)
+        gear.body.moveToComponent = lambda target: None
+        with self.assertRaises(self.fx.FusionRefused):
+            self.runtime.finish_containers()
+
+
 if __name__ == '__main__':
     unittest.main()
