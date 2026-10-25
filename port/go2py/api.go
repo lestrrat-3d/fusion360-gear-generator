@@ -15,7 +15,8 @@ type apiSig struct {
 	res string
 	// named marks an operation that creates a Fusion object. Its call site needs a role name.
 	named bool
-	// recv marks a sketchcheck helper whose first argument is the receiver.
+	// recv marks a package-level function whose first argument is the receiver: a sketchcheck helper
+	// or a sketch tool such as sketch.CreatePatternCircular(s, ...).
 	recv bool
 	// results are the types of an operation that returns several values, not counting an error.
 	results []string
@@ -64,6 +65,9 @@ var apiFuncs = map[string]apiSig{
 	"r3.NewFrame":             {res: "r3.Frame"},
 	"r3.NewVec":               {res: "r3.Vec"},
 
+	"sketch.CreatePatternCircularRing": {res: "sketch.Entity", recv: true},
+	"sketch.CreatePatternCircular":     {res: "[]sketch.Entity", recv: true},
+
 	"sketchcheck.DimensionPoint":         {res: "sketch.Point", recv: true},
 	"sketchcheck.DimensionArcEnd":        {res: "sketch.Point", recv: true},
 	"sketchcheck.VerifyFullyConstrained": {},
@@ -108,22 +112,20 @@ var apiMethods = map[string]apiSig{
 	"decad.Face.Edges":                  {res: "[]decad.Edge"},
 	"decad.Vertex.Position":             {res: "decad.Position"},
 
-	"sketch.World.CreateSketch":               {res: "sketch.Sketch", named: true},
-	"sketch.World.CreatePlaneFromFrame":       {res: "sketch.Plane", named: true},
-	"sketch.World.Params":                     {res: "sketch.Table"},
-	"sketch.World.XY":                         {res: "sketch.Plane"},
-	"sketch.Sketch.CreateCircle":              {res: "sketch.Circle"},
-	"sketch.Sketch.CreateLine":                {res: "sketch.Line"},
-	"sketch.Sketch.CreateArc":                 {},
-	"sketch.Sketch.CreateFitSpline":           {res: "sketch.Entity"},
-	"sketch.Sketch.CreatePoint":               {res: "sketch.Point"},
-	"sketch.Sketch.CreatePatternCircularRing": {res: "sketch.Entity"},
-	"sketch.Sketch.CreatePatternCircular":     {res: "[]sketch.Entity"},
-	"sketch.Sketch.AddConstraint":             {},
-	"sketch.Sketch.Bind":                      {},
-	"sketch.Sketch.Origin":                    {res: "sketch.Point"},
-	"sketch.Sketch.Profiles":                  {res: "[]sketch.Profile"},
-	"sketch.Sketch.Solve":                     {},
+	"sketch.World.CreateSketch":         {res: "sketch.Sketch", named: true},
+	"sketch.World.CreatePlaneFromFrame": {res: "sketch.Plane", named: true},
+	"sketch.World.Params":               {res: "sketch.Table"},
+	"sketch.World.XY":                   {res: "sketch.Plane"},
+	"sketch.Sketch.CreateCircle":        {res: "sketch.Circle"},
+	"sketch.Sketch.CreateLine":          {res: "sketch.Line"},
+	"sketch.Sketch.CreateArc":           {},
+	"sketch.Sketch.CreateFitSpline":     {res: "sketch.Entity"},
+	"sketch.Sketch.CreatePoint":         {res: "sketch.Point"},
+	"sketch.Sketch.AddConstraint":       {},
+	"sketch.Sketch.Bind":                {},
+	"sketch.Sketch.Origin":              {res: "sketch.Point"},
+	"sketch.Sketch.Profiles":            {res: "[]sketch.Profile"},
+	"sketch.Sketch.Solve":               {},
 
 	"r3.Frame.Origin": {res: "r3.Vec"},
 	"r3.Frame.N":      {res: "r3.Vec"},
