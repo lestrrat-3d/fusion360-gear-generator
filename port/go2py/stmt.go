@@ -30,7 +30,12 @@ const (
 // loopBody renders the body of a loop, where a break leaves the loop.
 func (f *fnState) loopBody(sb *strings.Builder, list []ast.Stmt) error {
 	f.breaks = append(f.breaks, breakLoop)
-	defer func() { f.breaks = f.breaks[:len(f.breaks)-1] }()
+	f.loopPosts = append(f.loopPosts, f.pendingPost)
+	f.pendingPost = ""
+	defer func() {
+		f.breaks = f.breaks[:len(f.breaks)-1]
+		f.loopPosts = f.loopPosts[:len(f.loopPosts)-1]
+	}()
 	return f.block(sb, list)
 }
 
@@ -116,6 +121,10 @@ func (f *fnState) stmt(sb *strings.Builder, s ast.Stmt) error {
 			f.line(sb, "break")
 			return nil
 		case token.CONTINUE:
+			if n := len(f.loopPosts); n > 0 && f.loopPosts[n-1] != "" {
+				// A while loop that stands for a Go for loop runs the post statement before it continues.
+				f.line(sb, "%s", f.loopPosts[n-1])
+			}
 			f.line(sb, "continue")
 			return nil
 		}
@@ -599,8 +608,36 @@ func (f *fnState) forStmt(sb *strings.Builder, s *ast.ForStmt) error {
 		return err
 	}
 	if startType.kind == kindFloat || startType.kind == kindUntypedFloat {
-		return fmt.Errorf("%s: a for loop over the floating-point variable %s is unsupported; count with an int",
-			f.pos(s), id.Name)
+		// A float counter cannot be a Python range: it is a while loop, and the post statement runs at the end of
+		// each turn and before each continue.
+		if step != "" {
+			return fmt.Errorf("%s: a for loop with a floating-point variable %s steps by 1 only", f.pos(s), id.Name)
+		}
+		if err := f.fixedBounds(s, id.Name, cond.Y, stepExpr); err != nil {
+			return err
+		}
+		if err := f.define(id, id.Name, floatType); err != nil {
+			return err
+		}
+		limit, _, err := f.expr(cond.Y)
+		if err != nil {
+			return err
+		}
+		op := "<"
+		if cond.Op == token.LEQ {
+			op = "<="
+		}
+		f.line(sb, "%s = %s", pyName(id.Name), start)
+		f.line(sb, "while %s %s %s:", pyName(id.Name), op, limit)
+		f.indent++
+		defer func() { f.indent-- }()
+		post := fmt.Sprintf("%s += 1", pyName(id.Name))
+		f.pendingPost = post
+		if err := f.loopBody(sb, s.Body.List); err != nil {
+			return err
+		}
+		f.line(sb, "%s", post)
+		return nil
 	}
 	// Python's range takes its bounds once; Go reads the condition and the step on every turn.
 	if err := f.fixedBounds(s, id.Name, cond.Y, stepExpr); err != nil {

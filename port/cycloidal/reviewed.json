@@ -34,10 +34,13 @@
       "sketch.World.CreateSketch#1 r.world.CreateSketch(plane)",
       "decad.Extrude#1 decad.Extrude(ctx, r.doc, ps, plateProfile, decad.Distance{D: thickness, Dir: decad.Along})",
       "sketch.World.CreateSketch#2 r.world.CreateSketch(plane)",
-      "decad.Extrude#2 decad.Extrude(ctx, r.doc, pins, profile, decad.TwoSided{One: decad.DistanceSide{D: thickness}, Two: decad.DistanceSide{D: height}})"
+      "decad.Extrude#2 decad.Extrude(ctx, r.doc, pins, seed, decad.TwoSided{One: decad.DistanceSide{D: thickness}, Two: decad.DistanceSide{D: height}})"
     ],
     "chamferedBy": [
       "decad.Chamfer#1 decad.Chamfer(ctx, body, sel, size)"
+    ],
+    "patternPins": [
+      "decad.PatternCopies#1 decad.PatternCopies(ctx, pin, decad.CircularPattern{Center: r.frame.Origin(), Axis: r.frame.N(), Count: r.p.OutputPinCount})"
     ],
     "planeAt": [
       "sketch.World.CreatePlaneFromFrame#1 r.world.CreatePlaneFromFrame(frame)"

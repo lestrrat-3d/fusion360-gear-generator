@@ -100,6 +100,35 @@ func sum() float64 {
 	require.ErrorContains(t, err, "floating-point")
 }
 
+func TestFloatCounterStepByOneTranslatesAndContinueRunsTheStep(t *testing.T) {
+	out, err := translate(t, `
+func sum(home float64) float64 {
+	s := 0.0
+	for m := home - 1; m <= home+1; m++ {
+		if m == home {
+			continue
+		}
+		s = s + m
+	}
+	return s
+}
+`, go2py.Spec{Funcs: []string{"sum"}})
+	require.NoError(t, err)
+	// m runs home-1, home, home+1; the middle turn continues, so the sum is (home-1) + (home+1).
+	require.Equal(t, []any{8.0}, evalPython(t, out, "_sum(4.0)"))
+}
+
+func TestIntegerDivisionTruncatesTowardZero(t *testing.T) {
+	out, err := translate(t, `
+func steps(total, parts int) int {
+	return total / parts
+}
+`, go2py.Spec{Funcs: []string{"steps"}})
+	require.NoError(t, err)
+	require.Equal(t, []any{22.0}, evalPython(t, out, "_steps(720, 32)"))
+	require.Equal(t, []any{-2.0}, evalPython(t, out, "_steps(-5, 2)"), "Go truncates -2.5 toward zero; Python's // would give -3")
+}
+
 func TestLoopBoundTheBodyChangesIsRefused(t *testing.T) {
 	cases := map[string]string{
 		"a length the body grows": `

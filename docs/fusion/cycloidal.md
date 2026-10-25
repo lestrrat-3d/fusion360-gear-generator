@@ -102,3 +102,8 @@ build, 0.65 s to move the bodies into sub-components, and 0.02 s for the display
   together.
 - About 1.6 s is Python arithmetic, measured offline: `_housing_contour` evaluates 720 cam angles by 2,000 profile steps.
   The log does not time it, because it runs before the casing sketch is drawn.
+
+Gallery 6994978 patterns the output holes of each disc, the sockets of the output plate and the pins (one pin, one
+chamfer, one circular pattern of the body), and folds the housing contour into one pin pitch of cam angles (23 steps
+at 16 pins instead of 720). Offline, `_housing_contour` dropped from 1.6 s to 0.13 s. The sketch and feature savings
+are not yet measured in Fusion; the same log lines will show them.

@@ -184,6 +184,11 @@ func (f *fnState) binary(e *ast.BinaryExpr) (string, typ, error) {
 		}
 		return "int(math.fmod(" + l + ", " + r + "))", intType, nil
 	}
+	if e.Op == token.QUO && isIntegerKind(lt) && isIntegerKind(rt) {
+		// Go truncates an integer quotient toward zero; int() of the true quotient does the same for the small
+		// counts a build divides.
+		return "int(" + l + " / " + r + ")", intType, nil
+	}
 	text := l + " " + op + " " + r
 	switch e.Op {
 	case token.LSS, token.LEQ, token.GTR, token.GEQ, token.EQL, token.NEQ:
@@ -196,6 +201,11 @@ func (f *fnState) binary(e *ast.BinaryExpr) (string, typ, error) {
 		return "", typ{}, fmt.Errorf("%s: %w", f.pos(e), err)
 	}
 	return text, rtype, nil
+}
+
+// isIntegerKind reports whether t is an int or an untyped integer constant.
+func isIntegerKind(t typ) bool {
+	return t.kind == kindInt || t.kind == kindUntyped
 }
 
 // remainderAgrees reports whether Python's x % y gives Go's result: when the remainder is only compared with zero,

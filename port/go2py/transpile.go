@@ -531,6 +531,10 @@ type fnState struct {
 	root ast.Node
 	// breaks lists what a break leaves in the statements open at the one being translated, innermost last.
 	breaks []breakKind
+	// loopPosts holds, for each enclosing loop, the post statement a `continue` must run first ("" for none), and
+	// pendingPost is the one the loop being opened will push.
+	loopPosts   []string
+	pendingPost string
 	// catchSites are the calls whose error a test of errors.Is examines, and caught the error variables they set:
 	// see Spec.Catch.
 	catchSites map[*ast.AssignStmt]*catchSite

@@ -100,10 +100,11 @@ var FeatureSpec = go2py.Spec{
 		"inflections", "lobeSegments", "housingContour", "splitAtInflections", "thinned", "resolve",
 		"minInwardCurvatureRadius", "undercuts", "undercutBound", "Problems", "planeAt", "circleAt",
 		"discGeometry", "discHeight", "buildDisc", "buildDiscSampled", "buildHousing", "buildCavity", "buildCam",
-		"buildCamBridge", "outputPinCenter", "buildOutput", "chamferedBy", "housingOuterCircles", "drawPatternedLoop",
+		"buildCamBridge", "outputPinCenter", "buildOutput", "patternPinCircle", "patternPins", "chamferedBy", "housingOuterCircles", "drawPatternedLoop",
 		"chamfered", "chamferedDisc", "Build", "DiscName", "OutputPinName", "Named",
 	},
 	Roles: map[string]go2py.Role{
+		"patternPins:decad.PatternCopies#1":            {Feature: "Output Pin Pattern"},
 		"planeAt:sketch.World.CreatePlaneFromFrame#1":  {Feature: "Section Plane"},
 		"buildDiscSampled:sketch.World.CreateSketch#1": {Feature: "Disc Profile"},
 		"buildDiscSampled:decad.Extrude#1":             {Feature: "Disc Extrude", Body: "Disc"},

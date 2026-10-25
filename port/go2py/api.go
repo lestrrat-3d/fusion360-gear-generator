@@ -118,6 +118,7 @@ var apiMethods = map[string]apiSig{
 	"sketch.Sketch.CreateFitSpline":           {res: "sketch.Entity"},
 	"sketch.Sketch.CreatePoint":               {res: "sketch.Point"},
 	"sketch.Sketch.CreatePatternCircularRing": {res: "sketch.Entity"},
+	"sketch.Sketch.CreatePatternCircular":     {res: "[]sketch.Entity"},
 	"sketch.Sketch.AddConstraint":             {},
 	"sketch.Sketch.Bind":                      {},
 	"sketch.Sketch.Origin":                    {res: "sketch.Point"},

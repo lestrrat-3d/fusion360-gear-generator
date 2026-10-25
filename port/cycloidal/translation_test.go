@@ -179,6 +179,10 @@ class Sketch:
         assert end is not start and n >= 2, self.name
         self.patterns.append([len(splines), n])
         return splines[0]
+    def create_pattern_circular(self, entities, center, n):
+        assert entities and center is not None and n >= 2, self.name + ': a pattern part is missing'
+        self.patterns.append(['circles', len(entities), n])
+        return entities
     def create_circle(self, c, r): self.circles += 1; return types.SimpleNamespace(Center=c)
     def add_constraint(self, c): pass
     def bind(self, c, table, name): assert isinstance(name, str)
@@ -216,13 +220,17 @@ fx.decad_distance = lambda D, Dir: ('distance', D)
 fx.decad_distance_side = lambda D: ('side', D)
 fx.decad_two_sided = lambda One, Two: ('two', One, Two)
 fx.units_millimeters = lambda x: x
+fx.math_round = lambda x: float(math.floor(abs(x) + 0.5)) * (1 if x >= 0 else -1)
 def extrude(doc, s, profile, extent, name, body):
     LOG.append(['extrude', name, body])
-    if body == 'Output Pin':
-        pins.append(Body(body, 6.0 - 0.7 * len(pins)))
-        return pins[-1]
     return Body(body)
 fx.decad_extrude = extrude
+fx.decad_circular_pattern = lambda Center, Axis, Count: ('pattern', Count)
+def pattern_copies(pin, pattern, name):
+    import math
+    LOG.append(['pattern', name, pattern[1]])
+    return [Body(pin.name, 2 * math.pi * k / pattern[1]) for k in range(1, pattern[1])]
+fx.decad_pattern_copies = pattern_copies
 def feature(kind):
     def make(*args, name=None):
         LOG.append([kind, name]); return args[0]
@@ -331,12 +339,19 @@ func TestTranslatedBuildRunsAgainstFakes(t *testing.T) {
 	for _, name := range []string{"Disc Profile", "Casing Profile"} {
 		e := sketchEntry(0, name)
 		require.Less(t, e[2].(float64), 80.0, name+" points")
-		require.Len(t, e[5], 1, name+" patterns")
 	}
-	require.Equal(t, []any{3.0, 15.0}, sketchEntry(0, "Disc Profile")[5].([]any)[0], "one lobe of 3 splines, 15 lobes")
+	require.Len(t, sketchEntry(0, "Casing Profile")[5], 1, "casing patterns")
+	// The disc patterns its lobe and its one output hole; the plate patterns one socket; the pin sketch draws one pin.
+	require.Equal(t, []any{[]any{3.0, 15.0}, []any{"circles", 1.0, 6.0}}, sketchEntry(0, "Disc Profile")[5],
+		"one lobe of 3 splines, 15 lobes, and one output hole, 6 holes")
+	require.Equal(t, []any{[]any{"circles", 1.0, 6.0}}, sketchEntry(0, "Output Plate Profile")[5], "one socket, 6 sockets")
+	require.Less(t, sketchEntry(0, "Output Plate Profile")[2].(float64), 4.0, "plate points")
+	require.Equal(t, 1.0, sketchEntry(0, "Output Pin Profile")[4], "one pin circle")
+	require.Equal(t, []string{"Output Pin Extrude"}, names(0, "extrude")[len(names(0, "extrude"))-1:], "one pin is extruded")
+	require.Equal(t, []string{"Output Pin Pattern"}, names(0, "pattern"), "the pin is patterned once")
 	require.Equal(t, []string{"Casing Cavity Cut", "Housing Hole Cut", "Input Bore Cut"}, sorted(names(0, "cut")))
 	require.Equal(t, []string{"Chamfer disc 1", "Chamfer housing", "Chamfer output plate", "Chamfer output pin"}, uniq(names(0, "chamfer")))
-	require.Len(t, names(0, "chamfer"), 1+2+6)
+	require.Len(t, names(0, "chamfer"), 1+2+1, "the single pin is chamfered once, then patterned")
 	require.Equal(t, []string{
 		"Cycloidal Disk 1", "Housing", "Eccentric Cam", "Output Plate",
 		"Output Pin 1", "Output Pin 2", "Output Pin 3", "Output Pin 4", "Output Pin 5", "Output Pin 6",

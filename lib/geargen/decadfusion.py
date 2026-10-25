@@ -876,6 +876,12 @@ class Sketch:
         self._patterns.append((splines, center, n, start, end))
         return splines[0]
 
+    def create_pattern_circular(self, entities, center, n):
+        """A circular pattern of circles or splines about center, n copies in all. The copies follow the seed's
+        dimensions, so one circle is dimensioned where n would be. [PB-DIMENSION-COST]"""
+        self._patterns.append((entities, center, n, None, None))
+        return entities
+
     def create_circle(self, center, radius):
         circles: adsk.fusion.SketchCircles = self.sketch.sketchCurves.sketchCircles
         if isinstance(center, PendingPoint):
@@ -962,12 +968,15 @@ class Sketch:
         neighbouring pair would add redundant constraints. [PB-SPLINE-RING]"""
         constraints: adsk.fusion.GeometricConstraints = self.sketch.geometricConstraints
         centre = center.point if isinstance(center, PendingPoint) else center
-        patternInput = constraints.createCircularPatternInput([spline.fusion for spline in splines], centre)
+        seeds = [seed.fusion if isinstance(seed, Spline) else seed.circle for seed in splines]
+        patternInput = constraints.createCircularPatternInput(seeds, centre)
         patternInput.quantity = adsk.core.ValueInput.createByReal(n)
         patternInput.totalAngle = adsk.core.ValueInput.createByString('360 deg')
         pattern = constraints.addCircularPattern(patternInput)
         if pattern is None:
             raise RuntimeError(f'{self.sketch.name}: the circular pattern was not created')
+        if start is None:
+            return
         # The first copy starts where the seed's start turned one step about the centre.
         origin, first = centre.geometry, start.point.geometry
         step = 2 * math.pi / n
