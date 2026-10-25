@@ -44,20 +44,30 @@ def describe(path, body):
     box = body.boundingBox
     log('   box %s .. %s' % (fmt(box.minPoint), fmt(box.maxPoint)))
     kinds = {}
-    cones = []
+    groups = {}
     for face in body.faces:
         kind = face.geometry.surfaceType
         kinds[kind] = kinds.get(kind, 0) + 1
         if kind == adsk.core.SurfaceTypes.ConeSurfaceType:
             cone = adsk.core.Cone.cast(face.geometry)
-            cones.append((fmt(cone.origin), fmt(cone.axis), math.degrees(cone.halfAngle), face.area * 100))
+            key = ('cone', fmt(cone.origin), fmt(cone.axis), round(math.degrees(cone.halfAngle), 4))
+        elif kind == adsk.core.SurfaceTypes.PlaneSurfaceType:
+            plane = adsk.core.Plane.cast(face.geometry)
+            key = ('plane', fmt(plane.origin), fmt(plane.normal), 0)
+        elif kind == adsk.core.SurfaceTypes.CylinderSurfaceType:
+            cylinder = adsk.core.Cylinder.cast(face.geometry)
+            key = ('cylinder', fmt(cylinder.origin), fmt(cylinder.axis), round(cylinder.radius * 10, 4))
+        else:
+            continue
+        count, area = groups.get(key, (0, 0.0))
+        groups[key] = (count + 1, area + face.area * 100)
     names = {adsk.core.SurfaceTypes.PlaneSurfaceType: 'plane', adsk.core.SurfaceTypes.ConeSurfaceType: 'cone',
              adsk.core.SurfaceTypes.CylinderSurfaceType: 'cylinder', adsk.core.SurfaceTypes.NurbsSurfaceType: 'nurbs',
              adsk.core.SurfaceTypes.SphereSurfaceType: 'sphere', adsk.core.SurfaceTypes.TorusSurfaceType: 'torus'}
     log('   faces by kind: ' + ', '.join('%s %d' % (names.get(k, str(k)), n) for k, n in sorted(kinds.items())))
-    big = sorted(cones, key=lambda c: -c[3])[:6]
-    for origin, axis, half, area in big:
-        log('   cone  apex %s  axis %s  half angle %.5f deg  area %.2f mm2' % (origin, axis, half, area))
+    for (kind, origin, axis, angle), (count, area) in sorted(groups.items(), key=lambda g: -g[1][1]):
+        log('   %-8s x%-3d total area %8.3f mm2  origin %s  axis %s  angle/radius %s' % (
+            kind, count, area, origin, axis, angle))
 
 
 try:
