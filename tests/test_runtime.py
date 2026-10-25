@@ -298,5 +298,38 @@ class ContainerPlacementTest(RuntimeTestCase):
         self.assertIs(container, loft.container)
 
 
+class AxisTest(RuntimeTestCase):
+    """A pattern axis with no coaxial cylinder is a construction line in the base plane, or a named error."""
+
+    def setUp(self):
+        super().setUp()
+        self.patches[0].stop()  # the real _axis_through
+        self.patches = self.patches[1:]
+        self.component.bRepBodies = []
+
+    def axis(self, center, direction):
+        fx = self.fx
+        return fx._axis_through(self.runtime, fx.decad_circular_pattern(Center=center, Axis=direction, Count=4), 'Axis')
+
+    def test_an_axis_along_the_gear_normal_with_no_cylinder_is_a_named_error(self):
+        fx = self.fx
+        with self.assertRaises(fx.Untranslated):
+            self.axis(fx.Vec(0, 0, 0), fx.Vec(0, 0, 1))
+
+    def test_an_axis_that_leaves_the_base_plane_is_not_replaced_by_its_projection(self):
+        fx = self.fx
+        with self.assertRaises(fx.Untranslated):
+            self.axis(fx.Vec(0, 0, 0), fx.Vec(1, 0, 1))
+        with self.assertRaises(fx.Untranslated):
+            self.axis(fx.Vec(0, 0, 2), fx.Vec(1, 0, 0))
+
+    def test_an_axis_in_the_base_plane_is_a_construction_line(self):
+        fx = self.fx
+        with mock.patch.object(fx.Runtime, 'create_sketch') as create:
+            line = self.axis(fx.Vec(0, 0, 0), fx.Vec(1, 0, 0))
+        self.assertEqual(1, create.call_count)
+        self.assertIsNotNone(line)
+
+
 if __name__ == '__main__':
     unittest.main()

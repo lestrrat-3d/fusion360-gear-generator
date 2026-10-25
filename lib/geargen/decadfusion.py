@@ -574,7 +574,17 @@ class Runtime:
     def axis_line(self, center, direction, name):
         """A construction line from center along direction, in a Fusion-only sketch on the base plane, for a revolve or
         a pattern about an axis. The sketch being revolved cannot hold it: adding a curve to a sketch invalidates the
-        profiles already read from it. One line serves every use of the same axis. [PB-FRAME-PLANE]"""
+        profiles already read from it. One line serves every use of the same axis. [PB-FRAME-PLANE]
+
+        The line lies in the base plane, so an axis that leaves the plane, or does not start in it, has no line here and
+        is refused rather than replaced by its projection."""
+        length = direction.len()
+        if length < 1e-12:
+            raise Untranslated(f'{name}: the axis has no direction')
+        if abs(direction.z) > 1e-9 * length or abs(center.z) > 1e-9:
+            raise Untranslated(f'{name}: an axis through ({center.x:g}, {center.y:g}, {center.z:g}) along '
+                               f'({direction.x:g}, {direction.y:g}, {direction.z:g}) does not lie in the base plane, and '
+                               'only a cylindrical face or a line in the base plane makes a construction axis here')
         unit = Vec(direction.x, direction.y, 0).unit()
         key = tuple(round(v, 9) for v in (center.x, center.y, unit.x, unit.y))
         if key in self._axes:
@@ -1467,7 +1477,8 @@ def _axis_through(runtime, pattern, name):
             solids.name_feature(entity, name)
             entity.isLightBulbOn = False
             return entity
-    # No face lies on the axis (a revolved blank is a cone), so a construction line along it is the axis.
+    # No face lies on the axis (a revolved blank is a cone), so a construction line along it is the axis. The line lies
+    # in the base plane; axis_line refuses an axis that does not.
     return runtime.axis_line(pattern.Center, pattern.Axis, name)
 
 
