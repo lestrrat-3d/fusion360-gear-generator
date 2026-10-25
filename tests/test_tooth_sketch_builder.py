@@ -184,6 +184,38 @@ class ToothSketchBuilderTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             builder._dimension(second, H)
 
+    def test_a_refusal_other_than_over_constraint_is_raised(self):
+        sketch = FakeSketch()
+        builder = self.fx.Sketch(None, sketch, sketch.origin, object(), 1.0)
+        first = self.fx.PendingPoint(1.0, 2.0, False)
+        first.point = FakePoint(1.0, 2.0)
+        builder._dimensioned.append(first)
+        second = self.fx.PendingPoint(1.0, 5.0, False)
+        second.point = FakePoint(1.0, 5.0)
+
+        def refuse(*args):
+            raise RuntimeError('3 : bad entity parameter')
+        sketch.sketchDimensions.addDistanceDimension = refuse
+        with self.assertRaisesRegex(RuntimeError, 'bad entity'):
+            builder._dimension(second, H)
+        self.assertEqual([], sketch.constraints, 'no alignment stands in for another refusal')
+
+    def test_a_refused_alignment_raises_the_refused_dimension(self):
+        sketch = FakeSketch()
+        builder = self.fx.Sketch(None, sketch, sketch.origin, object(), 1.0)
+        first = self.fx.PendingPoint(1.0, 2.0, False)
+        first.point = FakePoint(1.0, 2.0)
+        builder._dimensioned.append(first)
+        second = self.fx.PendingPoint(1.0, 5.0, False)
+        second.point = FakePoint(1.0, 5.0)
+
+        def refuse(*args):
+            raise RuntimeError('3 : VCS_SKETCH_OVER_CONSTRAINTS')
+        sketch.sketchDimensions.addDistanceDimension = refuse
+        sketch.geometricConstraints.addVerticalPoints = refuse
+        with self.assertRaisesRegex(RuntimeError, 'refused a distance dimension'):
+            builder._dimension(second, H)
+
 
 if __name__ == '__main__':
     unittest.main()

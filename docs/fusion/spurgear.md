@@ -146,8 +146,9 @@ build on the shared `[PB-FULL-CONSTRAINT]`, `[PB-SHARE-XOR-COINCIDENT]`, `[PB-NO
   `VCS_SKETCH_OVER_CONSTRAINTS` on one horizontal (or vertical) dimension, the first point of the second flank, and
   accepted all the others. A vertical (or horizontal) alignment of the two points (`addVerticalPoints`,
   `addHorizontalPoints`, not `addVertical`) fixes the same coordinate and leaves the sketch fully constrained. The
-  cause is not understood, so `_ToothSketchBuilder._dimension` applies the alignment to any refused dimension that has
-  a partner with the same coordinate (within 1e-6 cm) and raises otherwise.
+  cause is not understood, so `decadfusion.Sketch._dimension` applies the alignment to a dimension refused with
+  `VCS_SKETCH_OVER_CONSTRAINTS` that has a partner with the same coordinate (within 1e-6 cm). It raises any other
+  refusal, and raises the refused dimension when Fusion refuses the alignment too.
 
 - **[SPUR-F-ROOT-ARC] The gallery's root arc is the root circle.** `drawCircles` already draws the root circle, sized by
   the root radius parameter, and the profile finders count its arc. A second arc over it would split the circle and

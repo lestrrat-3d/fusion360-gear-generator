@@ -29,6 +29,9 @@ DECAD_AGAINST = -1
 # Two coordinates closer than this, in cm, are one value to Fusion's sketch solver.
 SAME_COORDINATE = 1e-6
 
+# The error Fusion raises for a dimension or constraint the sketch already fixes. [SPUR-F-ALIGN-DUPLICATE]
+OVER_CONSTRAINED = 'VCS_SKETCH_OVER_CONSTRAINTS'
+
 def _source_hash():
     try:
         with open(__file__, 'rb') as source:
@@ -991,18 +994,24 @@ class Sketch:
         try:
             dims.addDistanceDimension(self._origin, point.point, orientation, textPoint)
             return
-        except RuntimeError:
-            partner = self._sameCoordinate(point, orientation)
+        except RuntimeError as error:
+            # Only the refusal the probes recorded is replaced; any other refusal is the build's error.
+            partner = self._sameCoordinate(point, orientation) if OVER_CONSTRAINED in str(error) else None
             if partner is None:
                 raise
+            refusal = error
         # Fusion refuses a second dimension with the value and direction of an earlier one from the
         # same origin, as at tooth angle 0 where both flanks start at one x. Aligning the two points
         # fixes the same coordinate. [SPUR-F-ALIGN-DUPLICATE]
         constraints: adsk.fusion.GeometricConstraints = self.sketch.geometricConstraints
-        if orientation == adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation:
-            constraints.addVerticalPoints(point.point, partner.point)
-        else:
-            constraints.addHorizontalPoints(point.point, partner.point)
+        try:
+            if orientation == adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation:
+                constraints.addVerticalPoints(point.point, partner.point)
+            else:
+                constraints.addHorizontalPoints(point.point, partner.point)
+        except RuntimeError as alignment:
+            raise RuntimeError(f'{self.sketch.name}: Fusion refused a distance dimension ({refusal}) and the alignment '
+                               f'that replaces it ({alignment})') from refusal
 
     def _sameCoordinate(self, point, orientation):
         horizontal = orientation == adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation
