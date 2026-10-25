@@ -366,6 +366,8 @@ stay free: with the anchor coincident added after the pattern, the check failed 
 spline and the point beside it free, and with the anchor added before the pattern it passed.
 `decadfusion.Sketch.finish` therefore anchors between the dimensions and the patterns when the sketch has a pattern,
 and last otherwise ([SPUR-F-LOCAL-ORIGIN] in `docs/fusion/spurgear.md`).
+With the anchor first, it does not matter which spline carries the junction dimension (the earlier spline's last fit point or
+the later spline's first) or where the pattern centre lies: the ring is fully constrained in each variant.
 
 **[PB-EMBEDDED-TOOTH] The embedded virtual tooth is the region bounded by two flank splines, a tip arc and a root
 arc.** Decad numbers the trim of each flank at the root circle. Fusion's regions carry their trimmed curves, so
