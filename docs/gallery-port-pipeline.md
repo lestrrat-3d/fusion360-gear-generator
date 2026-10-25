@@ -17,7 +17,7 @@ holds the Fusion findings. This file describes how the pipeline works and where 
 | `port/gallery` | Reads the pinned gallery source: `Params`, defaults, the parameter table, the operations a build performs, and a digest of named functions. |
 | `port/go2py` | Translates gallery Go into Python. `api.go` is the table of operations the translator accepts. |
 | `port/fusionexpr` | Rewrites a gallery parameter expression into a Fusion expression. It refuses a function it has no rule for. |
-| `port/<gear>/` | One package per gear (`spur`, `helical`, `herringbone`, `cycloidal`, `bevel`): the mapping from gallery names to Fusion names and dialog inputs (`mapping.go`), the generator, and `reviewed.json`. |
+| `port/<gear>/` | One package per gear (`spur`, `helical`, `herringbone`, `cycloidal`, `bevel`): the mapping from gallery names to Fusion names and dialog inputs (`mapping.go`), the generator, and `reviewed.json`, which records what the gallery's build looked like when the translation was reviewed. |
 | `port/<gear>/fragments/` | The stored Python that wraps the translation: dialog, command handlers, selections and anchor. It holds marker lines where generated code goes. |
 | `port/cmd/gearport` | The command. |
 | `lib/geargen/decadfusion.py` | The Fusion implementation of the API table. It stands in for the gallery's Document, World, Sketch and Body. Written by hand. |
@@ -60,8 +60,17 @@ translated code assigns field by field (`Mutable`); and it reads a missing map k
 anything not in the API table stops the port. Nothing is skipped silently.
 
 A function the runtime implements instead of the translator (`Bound`), a function of another gallery package
-(`External`), and a retry loop that runs once (`FirstOnly`, see `docs/gallery-translation-goal.md`) are the only
-places where gallery code is not translated.
+(`External`), a function the add-in does itself (`Provided`), and a retry loop that runs once (`FirstOnly`, see
+`docs/gallery-translation-goal.md`) are the only places where gallery code is not translated. One gallery error value,
+`decad.ErrDegenerate`, is translated as an exception (`Catch`): a split sheet that misses the tooth is a skip in the
+gallery, so the runtime raises `decaderrors.Degenerate` and the translated `errors.Is` becomes `isinstance`. Every other
+`errors.Is` is false.
+
+The translator refuses Go it would turn into different Python: a redeclared name that shadows one read again, mixed
+integer and float literals, float loop variables, a loop condition the body changes, `%` on operands that may be
+negative (Go truncates, Python floors), a `break` inside a `switch` in a loop, copies of structs it cannot copy, and
+`Sprintf` verbs it does not render as Go does. One known difference remains: Python's `math.acos`, `math.sqrt` and
+division raise where Go returns NaN or Inf.
 
 ### What stops `gearport gen`
 
@@ -69,11 +78,13 @@ places where gallery code is not translated.
 - A parameter table entry the mapping does not list.
 - A gallery call, option or struct the translator has no rule for.
 - A creating call with no role name.
-- For spur, helical and herringbone: a change to the code of the functions in `reviewed.json`. A person reviews the
-  fragment, then runs `gearport accept`. Cycloidal and bevel record no digest, because their whole build is
-  translated and nothing stored follows the gallery's code.
-
-A gallery change to the operations or their order therefore stops the port until the rules are reviewed.
+- A `Roles`, `FirstOnly`, `Bound`, `External`, `Provided` or `Catch` entry that the translation never uses.
+- A change in the ordered list of creating calls of a translated function, or in the code of the functions a gear
+  reviews by digest. Both are recorded in `reviewed.json`. A person reviews the translation, then runs
+  `gearport accept <gear>`. Because each entry carries the call's text, two swapped calls of one operation stop the port
+  too, so role names cannot swap silently.
+- A gallery module that is not in the Go module cache and cannot be downloaded, or one that a `replace` directive
+  points at a local checkout.
 
 ## The Fusion runtime
 
@@ -98,18 +109,23 @@ A gallery change to the operations or their order therefore stops the port until
 
 `.github/workflows/3d-proof.yml` runs on every pull request and on pushes to `main`:
 
-- `port` runs `go test ./...` in `port/` and `gearport check <gear>` for each gear. A pin bump with no regeneration, a
-  hand edit of a generated file, a stale fragment and a translator change all fail here.
-- `addins` runs `python3 -m unittest discover -s tests`. It compiles and imports every file under `lib/` and
-  `commands/` with the Fusion modules stubbed, fails on an unnamed sketch, plane, feature or body, runs the translated
-  bevel build against a fake Fusion, and counts the features the batching makes.
+- `port` runs `go mod tidy` (and fails on a diff), `go vet`, golangci-lint and `go test ./...` in `port/`, then
+  `scripts/check-generated-gears.sh`, which names every gear whose file differs from a fresh generation. A pin bump with no
+  regeneration, a hand edit of a generated file, a stale fragment and a translator change all fail here.
+- `addins` runs `python3 -m unittest discover -s tests` and `scripts/check_fusion_api.py`. The tests compile and import
+  the add-in, its entry file and the shipped diag scripts with the Fusion modules stubbed, require every `_fx.<name>` a
+  generated file uses to exist in the runtime, fail on an unnamed sketch, plane, feature or body, run the translated
+  bevel build against a fake Fusion, and test the runtime's bookkeeping (containers, lazy joins and copies, split, scale,
+  planes, units). The API check runs pyright against the FusionAPIReference stubs, pinned in the workflow, and fails on an
+  unknown Fusion member, a wrong argument count or an undefined name. `scripts/fusion-api-allow.txt` lists the retired
+  members the code still uses, which work in Fusion today. `scripts/check-deploy.sh` runs `deploy.sh` into a temporary
+  folder, compiles what it copied and fails if it shipped a test, a Go file or a document.
 
 The gallery proves each gear's geometry. This repository does not repeat it.
 
-What nothing checks: the Fusion API calls statically, the degrees of freedom of the add-in's own sketches, and the
-numeric agreement of a Fusion body with the gallery body. A pyright run against the FusionAPIReference stubs, a port of
-the sketch proofs and a body comparison would close these gaps. The Fusion load stays a manual step, because only a
-person can run Fusion. Its findings go where `CLAUDE.md`, "When Fusion gives a verdict", says.
+What nothing checks: the degrees of freedom of the add-in's own sketches, the Fusion API calls on values whose type
+pyright cannot see, and the numeric agreement of a Fusion body with the gallery body. Only a person can run Fusion, so
+the Fusion load stays a manual step. Its findings go where `CLAUDE.md`, "When Fusion gives a verdict", says.
 
 Bumping a pin is its own change, and the Fusion load decides whether the bump is accepted.
 
@@ -127,8 +143,11 @@ The screw gear has no gallery model and is not part of the port.
 
 ### Where the add-in differs from the gallery
 
-- Cycloidal: the drive is grouped into sub-components, which the gallery does not have. The dialog checks the inputs as you type with the gallery's own `Problems`
-  function, translated.
+- Cycloidal: the drive is grouped into sub-components, which the gallery does not have. The dialog checks the inputs
+  as you type with the gallery's own `Problems` function, translated.
+- Spur, helical and herringbone: the gallery's own checks (`validate`, `ValidateHelixAngle`) run, translated, before
+  anything is built, so a bad input raises the gallery's message. The dialog has no live check for them, because they
+  need the derived parameters.
 - Bevel: the dialog has a Tooth Type drop-down that the gallery does not have. Straight is the default and builds
   with a spiral angle of zero; Spiral shows Mean Spiral Angle, Hand of Spiral and Cutter Radius. The gallery default is
   also straight, and the dialog starts Mean Spiral Angle at 35° because a spiral pair needs an angle above zero. The

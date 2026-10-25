@@ -30,7 +30,7 @@ because the spur was the first gear translated, and the runtime cites them by th
 4. The coincident constraint that moves the local origin onto the anchor (`[SPUR-F-LOCAL-ORIGIN]`).
 
 The tooth angle is part of the sampled points, so the sketch has no spine, ribs or angular dimension. That older
-construction is gone. `lib/geargen/legacyspur.py` still holds a copy, but nothing imports it.
+construction is gone.
 
 ### [SPUR-F-LOCAL-ORIGIN] Each sketch has its own movable origin
 
@@ -93,16 +93,17 @@ At tooth angle 0 and 90 degrees the two flanks are mirror images. In the probes,
 `VCS_SKETCH_OVER_CONSTRAINTS` on one horizontal (or vertical) dimension, the first point of the second flank, and
 accepted all the others. A vertical (or horizontal) alignment of the two points (`addVerticalPoints`,
 `addHorizontalPoints`, not `addVertical`) fixes the same coordinate and leaves the sketch fully constrained. The
-cause is not understood. `decadfusion.Sketch._dimension` therefore catches a refused distance dimension, aligns
-the point with an earlier dimensioned point whose coordinate matches within `SAME_COORDINATE`, and raises the error
-again when there is none.
+cause is not understood. `decadfusion.Sketch._dimension` therefore applies the alignment to a dimension refused with
+`VCS_SKETCH_OVER_CONSTRAINTS` that has an earlier dimensioned point whose coordinate matches within `SAME_COORDINATE`.
+It raises any other refusal, and raises the refused dimension when Fusion refuses the alignment too.
 
 ### [SPUR-F-ROOT-ARC] A root arc on a root circle the caller drew
 
 When a caller passes its own root circle into `decadfusion.Sketch`, an arc whose two ends lie on that circle is
 not drawn. Its ends get a coincident constraint to the circle instead, and each end then needs only one dimension.
-A second arc over the circle would split it and change the profile's curves. Only `legacyspur.py` passes a root
-circle, and nothing imports it. The translated spur draws its root arc as an ordinary arc.
+A second arc over the circle would split it and change the profile's curves. This was the old construction's rule. The
+translated spur draws its root arc as an ordinary arc, and the runtime branch that applied the rule was deleted with
+`legacyspur.py` on 2026-10-25.
 
 ## Helical and herringbone
 

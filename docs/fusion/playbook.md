@@ -509,8 +509,7 @@ this. An earlier note said `defineAsRotate` rejects a `SketchLine` axis; the ref
 construction axis or sketch line, and the case behind the note was not recorded.
   - A zero angle is refused. `setToRotation(0, axis, origin)` builds the identity, and Fusion refuses to move a body by
     it with `RuntimeError: 3 : invalid transform` (measured 2026-09-02 on the bevel pinion, whose mesh phase was 0 by
-    default). `decad_transform` does not skip a zero angle, so a translated build that can turn by zero needs that
-    check in the runtime. The current calls turn by π/teeth, the shaft angle or a spiral twist.
+    default). `decad_transform` returns the body unchanged for a zero turn for exactly this reason.
 
 **[PB-SCALE-BASE-POINT] A Scale feature's base point is a sketch point, never a construction point at a bare point.**
 The reference says `ConstructionPointInput.setByPoint` with a `Point3D` is valid only in direct modeling and fails in a
@@ -616,12 +615,13 @@ its container. The cycloidal drive's sub-components follow the same rule (`_buil
 
 **[PB-STALE-MODULE] Fusion keeps imported modules across an add-in Stop and Run.** A deploy that changes
 `decadfusion.py` and not the generated gear file can leave the old runtime running, and a traceback then names line
-numbers and messages of code that is gone. The error box's Build line shows the runtime's hash and whether it matches
-the file on disk, and `GearCommand.command_execute` reloads the runtime when the hash differs. The generator module is
-not reloaded: the Build line compares the line numbers of a few of its methods (`generate` among them) with the
-file, and each generated module logs `<gear> build <GEAR_BUILD_ID>` when Fusion imports it, which `gearport id <gear>`
-matches. Read those lines before trusting a report.
+numbers and messages of code that is gone. Before a build the command compares each geargen module the generator uses
+with a hash of its file, and reloads, in dependency order, every module whose file changed or that uses a module reloaded
+after it. A module still stale after that fails the build. The Build line in the log and in the error box names each
+module with its build id (`gearport id <gear>`) or file hash and marks a stale one. Read that line before trusting a
+report.
 
 **[PB-PROGRESS-FILE] A build that hangs leaves no trace in the Text Commands window.** The window does not repaint while
 the add-in blocks Fusion's thread. `decadfusion.progress` appends a flushed line to `geargen-progress.log` in the
-system temp directory for each timed step, so the last line names the step that never returned.
+system temp directory for each timed step, so the last line names the step that never returned. The command empties the
+file before each build, and the tests point it at a temporary path.
