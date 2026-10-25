@@ -3,6 +3,7 @@
 
 import importlib
 import sys
+import types
 import adsk.core
 import adsk.fusion
 from ..lib import fusion360utils as futil
@@ -15,62 +16,130 @@ ui = adsk.core.Application.get().userInterface
 # Bump this string on every deploy of THIS file. It proves whether the
 # commands/ layer reloaded: if the dialog's Build line shows an old tag, the
 # add-in Stop/Run did not re-import commands/_gear_command.py.
-BUILD_TAG = 'r7-2026-10-25'
+BUILD_TAG = 'r8-2026-10-25'
 
-# Plain (undecorated) generator methods used as canaries to detect whether the
-# *loaded* generator module matches the file on disk. co_firstlineno comes from
-# the bytecode Fusion actually executed; if it disagrees with where the `def`
-# sits in the current source file, Fusion is running a stale copy.
-_CANARY_METHODS = ('generate', 'buildChamfers', '_resolveDimensions')
+# Fusion keeps imported modules across an add-in Stop and Run, so a deploy can leave
+# old code running [PB-STALE-MODULE]. Each geargen module is recorded with the hash of
+# its file when it was loaded, and with the reload count at that time. Before a build
+# the command reloads, in dependency order, every module the generator uses whose
+# file changed or which uses a module reloaded after it.
+_PACKAGE = _runtime.__name__.rpartition('.')[0]
+_LOADED = {}
+_RELOADS = {'count': 0}
 
 
-def _staleness(generator_class):
-    # Returns (is_stale, [(method, loaded_line, disk_line), ...]) or (None, None)
-    # if it could not be determined.
-    try:
-        module = sys.modules[generator_class.__module__]
-        path = getattr(module, '__file__', None)
-        if not path:
-            return None, None
-        with open(path, encoding='utf-8') as fh:
-            disk_lines = fh.read().splitlines()
-        results = []
-        for name in _CANARY_METHODS:
-            member = generator_class.__dict__.get(name)
-            code = getattr(member, '__code__', None)
-            if code is None:
-                continue
-            needle = 'def {}('.format(name)
-            disk_line = None
-            for i, line in enumerate(disk_lines, 1):
-                if line.strip().startswith(needle):
-                    disk_line = i
-                    break
-            results.append((name, code.co_firstlineno, disk_line))
-        is_stale = any(
-            disk is not None and loaded != disk
-            for _, loaded, disk in results)
-        return is_stale, results
-    except Exception:
-        return None, None
+def _file_hash(module):
+    path = getattr(module, '__file__', None)
+    return _runtime.source_hash(path) if path else None
+
+
+def _record(module, loaded=None):
+    _LOADED[module.__name__] = (loaded if loaded is not None else _file_hash(module), _RELOADS['count'])
+
+
+def _loaded(module):
+    if module.__name__ not in _LOADED:
+        _record(module)
+    return _LOADED[module.__name__]
+
+
+for _name, _module in list(sys.modules.items()):
+    if _name.startswith(_PACKAGE + '.') and _module is not None:
+        # The runtime hashed its file when it was imported, which is the closest record of the code loaded.
+        _record(_module, _runtime.RUNTIME_BUILD if _module is _runtime else None)
+
+
+def _module_of(value):
+    """The geargen module a value is or comes from, or None."""
+    if isinstance(value, types.ModuleType):
+        module = value
+    else:
+        try:
+            name = getattr(value, '__module__', None)
+        except Exception:
+            return None
+        module = sys.modules.get(name) if isinstance(name, str) else None
+    if module is None or not module.__name__.startswith(_PACKAGE + '.'):
+        return None
+    return module
+
+
+def _uses(module):
+    """The geargen modules a module uses: the ones it imported and the ones its imported names come from."""
+    used = []
+    for value in list(vars(module).values()):
+        other = _module_of(value)
+        if other is not None and other is not module and not any(other is u for u in used):
+            used.append(other)
+    return used
+
+
+def _gear_modules(generator_class):
+    """The geargen modules the generator's module uses, its own last, each after the modules it uses."""
+    order = []
+    visiting = set()
+
+    def visit(module):
+        if module.__name__ in visiting:
+            return
+        visiting.add(module.__name__)
+        for used in _uses(module):
+            visit(used)
+        order.append(module)
+
+    visit(sys.modules[generator_class.__module__])
+    return order
+
+
+def _staleness(modules):
+    """For each module, None when it matches its file and nothing it uses was reloaded after it, else the reason."""
+    reasons = []
+    for module in modules:
+        loaded, generation = _loaded(module)
+        if _file_hash(module) != loaded:
+            reasons.append('file on disk changed')
+        elif any(_loaded(used)[1] > generation for used in _uses(module)):
+            reasons.append('uses a module reloaded after it')
+        else:
+            reasons.append(None)
+    return reasons
+
+
+def fresh_generator_class(generator_class):
+    """The generator class as the files on disk define it. Reloads the stale geargen modules the generator uses, in
+    dependency order, and raises when one still differs from its file afterwards."""
+    modules = _gear_modules(generator_class)
+    reasons = _staleness(modules)
+    stale = [i for i, reason in enumerate(reasons) if reason is not None]
+    if stale:
+        for module in modules[stale[0]:]:
+            importlib.reload(module)
+            _RELOADS['count'] += 1
+            _record(module)
+            futil.log(f'reloaded {module.__name__} ({reasons[modules.index(module)] or "after a module it uses"})')
+        left = [m.__name__ for m, reason in zip(modules, _staleness(modules)) if reason is not None]
+        if left:
+            raise RuntimeError('STALE geargen modules after a reload, restart Fusion: ' + ', '.join(left))
+    fresh = getattr(sys.modules[generator_class.__module__], generator_class.__name__, None)
+    if fresh is None:
+        raise RuntimeError(f'{generator_class.__module__} no longer defines {generator_class.__name__}')
+    return fresh
 
 
 def _build_label(generator_class):
-    is_stale, results = _staleness(generator_class)
-    if is_stale is None:
-        body = 'generator version could not be read'
-    elif is_stale:
-        bad = ', '.join(
-            '{} running line {} but file says {}'.format(n, loaded, disk)
-            for n, loaded, disk in results if disk is not None and loaded != disk)
-        body = 'STALE generator module — restart Fusion ({})'.format(bad)
-    else:
-        matched = ', '.join('{}@{}'.format(n, loaded)
-                            for n, loaded, _ in results)
-        body = 'generator matches file on disk ({})'.format(matched)
-    runtime = 'decadfusion {}{}'.format(
-        _runtime.RUNTIME_BUILD, ' STALE on disk' if _runtime.runtime_is_stale() else ' matches file on disk')
-    return 'Build: command {} | {} | {}'.format(BUILD_TAG, body, runtime)
+    """The command tag, and each geargen module the generator uses with the id of the code loaded: the build id a
+    generated module logs (gearport id), or the hash of the file for a hand-written one."""
+    try:
+        modules = _gear_modules(generator_class)
+        parts = []
+        for module, reason in zip(modules, _staleness(modules)):
+            loaded = getattr(module, 'GEAR_BUILD_ID', None) or _loaded(module)[0]
+            parts.append('{} {}{}'.format(module.__name__.rpartition('.')[2], loaded,
+                                          '' if reason is None else ' STALE ({})'.format(reason)))
+        body = ' | '.join(parts)
+    except Exception as error:
+        body = 'module versions could not be read ({})'.format(error)
+    return 'Build: command {} | {}'.format(BUILD_TAG, body)
 
 
 # A gear opts into live validation by giving each editable input a trailing,
@@ -208,11 +277,10 @@ class GearCommand:
             design = _component_design_or_message()
             if design is None:
                 return
-            # Fusion keeps imported modules across an add-in Stop and Run, so reload the runtime when its file
-            # changed since the import; the generated modules reach it through the module object.
-            if _runtime.runtime_is_stale():
-                importlib.reload(_runtime)
-            futil.log(f'{self.name} decadfusion build {_runtime.RUNTIME_BUILD}')
+            # Fusion keeps imported modules across an add-in Stop and Run, so the runtime and the generated
+            # modules are reloaded from the files on disk when they changed. [PB-STALE-MODULE]
+            self.generator_class = fresh_generator_class(self.generator_class)
+            futil.log(f'{self.name} {_build_label(self.generator_class)}')
             # [PB-SETTLE-DISPLAY]: remember the user's own sketches, so the settle below only
             # touches the ones this generator is about to author.
             preexisting = geargen.existing_sketches(design)

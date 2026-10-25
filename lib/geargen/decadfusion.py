@@ -32,9 +32,10 @@ SAME_COORDINATE = 1e-6
 # The error Fusion raises for a dimension or constraint the sketch already fixes. [SPUR-F-ALIGN-DUPLICATE]
 OVER_CONSTRAINED = 'VCS_SKETCH_OVER_CONSTRAINTS'
 
-def _source_hash():
+def source_hash(path):
+    """The first 12 hex digits of the SHA-1 of a file, or 'unreadable'."""
     try:
-        with open(__file__, 'rb') as source:
+        with open(path, 'rb') as source:
             return hashlib.sha1(source.read()).hexdigest()[:12]
     except OSError:
         return 'unreadable'
@@ -42,11 +43,12 @@ def _source_hash():
 
 # The hash of this file when Fusion imported it. Fusion keeps imported modules across an add-in Stop and Run, so a
 # deploy of this file can leave the old code running; the command compares this with the file on disk.
-RUNTIME_BUILD = _source_hash()
+# [PB-STALE-MODULE]
+RUNTIME_BUILD = source_hash(__file__)
 
 
 def runtime_is_stale():
-    return _source_hash() != RUNTIME_BUILD
+    return source_hash(__file__) != RUNTIME_BUILD
 
 
 # The active runtime. A translated function reaches the design through the objects it is handed, except

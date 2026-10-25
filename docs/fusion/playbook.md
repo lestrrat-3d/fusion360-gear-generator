@@ -934,9 +934,11 @@ Decad numbers the trim of each flank at the root circle; Fusion's regions carry 
 picks the one valid, hole-free region with four edges of which two are splines.
 
 **[PB-STALE-MODULE] Fusion keeps imported modules across an add-in Stop and Run.** A deploy that changes
-`decadfusion.py` and not the generated gear file can leave the old runtime running, and a traceback then names line
-numbers and messages of code that is gone. The error dialog's Build line shows the runtime's hash and whether it matches
-the file on disk, and the command reloads the runtime when the hash differs. Read that line before trusting a report.
+`decadfusion.py` or a generated gear file can leave the old code running, and a traceback then names line numbers and
+messages of code that is gone. Before a build the command compares each geargen module the generator uses with a hash
+of its file, and reloads, in dependency order, every module whose file changed or that uses a module reloaded after it;
+a module still stale after that fails the build. The Build line in the log and in the error dialog names each module
+with its build id (`gearport id`) or file hash, and marks a stale one. Read that line before trusting a report.
 
 **[PB-PROFILE-STALE] Adding a curve to a sketch invalidates the profiles already read from it.** A revolve whose axis was
 added to the profile's own sketch after `sketch.profiles` was read failed with `invalid profile(s) for Revolve Feature`.
