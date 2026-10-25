@@ -41,6 +41,35 @@ type Spec struct {
 	Provided []string
 	// Zero lists the struct types the translation treats as their zero value.
 	Zero []string
+	// Bound maps Go functions the runtime implements to the Python callee, with the struct
+	// type each returns, such as derive.
+	Bound map[string]Bound
+	// External lists functions and methods of another gallery package that the translated
+	// code calls, keyed "pkg.Func" or "pkg.Type.Method". The Python module that holds the
+	// translation of that package provides them.
+	External map[string]External
+	// ExternalTypes lists the structs of another gallery package, keyed "pkg.Type", and the
+	// type of each field the translated code reads.
+	ExternalTypes map[string]map[string]string
+}
+
+// Bound is a Go function that the Python runtime implements instead of a translation.
+type Bound struct {
+	// Python is the callee, such as "_fx.derive".
+	Python string
+	// Result is the translated struct the function returns.
+	Result string
+}
+
+// External is a function of another gallery package that the translation calls.
+type External struct {
+	// Python is the callee, such as "_spur.build_tooth_section".
+	Python string
+	// Results are the types of the results, not counting a trailing error, in the notation of
+	// the API table.
+	Results []string
+	// Method is true when the Go call has a receiver, which becomes the first argument.
+	Method bool
 }
 
 // Steps names a gallery function that draws on a sketch and the part of it to translate.
@@ -62,8 +91,15 @@ type StepArg struct{ Name, Type string }
 func TranspileSpec(m *gallery.Model, spec Spec) (string, error) {
 	tr := &transpiler{
 		model: m, prefix: spec.Prefix, structs: map[string]*structInfo{}, funcs: map[string]*funcInfo{},
-		sketch:  len(spec.Steps) > 0 || len(spec.TypeOnly) > 0,
-		runtime: spec.Runtime, roles: spec.Roles, provided: map[string]bool{},
+		sketch:  len(spec.Steps) > 0 || len(spec.TypeOnly) > 0 || len(spec.Roles) > 0 || len(spec.External) > 0,
+		runtime: spec.Runtime, roles: spec.Roles, provided: map[string]bool{}, external: spec.External, bound: spec.Bound,
+	}
+	for name, fields := range spec.ExternalTypes {
+		info := &structInfo{name: name, types: map[string]typ{}, external: true}
+		for field, ft := range fields {
+			info.types[field] = parseAPIType(ft)
+		}
+		tr.structs[name] = info
 	}
 	for _, name := range spec.Provided {
 		tr.provided[name] = true
@@ -72,19 +108,33 @@ func TranspileSpec(m *gallery.Model, spec Spec) (string, error) {
 		tr.runtime = "_fx"
 	}
 	var out strings.Builder
+	// A struct may use another that is listed after it, so load until none is left.
+	type pending struct {
+		name    string
+		lenient bool
+	}
+	var todo []pending
 	for _, name := range spec.Structs {
-		info, err := tr.loadStruct(name, false)
-		if err != nil {
-			return "", err
-		}
-		tr.structs[name] = info
+		todo = append(todo, pending{name, false})
 	}
 	for _, name := range spec.TypeOnly {
-		info, err := tr.loadStruct(name, true)
-		if err != nil {
-			return "", err
+		todo = append(todo, pending{name, true})
+	}
+	for len(todo) > 0 {
+		var failed []pending
+		var lastErr error
+		for _, p := range todo {
+			info, err := tr.loadStruct(p.name, p.lenient)
+			if err != nil {
+				failed, lastErr = append(failed, p), err
+				continue
+			}
+			tr.structs[p.name] = info
 		}
-		tr.structs[name] = info
+		if len(failed) == len(todo) {
+			return "", lastErr
+		}
+		todo = failed
 	}
 	for _, name := range spec.Zero {
 		tr.structs[name] = &structInfo{name: name, types: map[string]typ{}, zero: true}
@@ -127,6 +177,8 @@ type transpiler struct {
 	// sketch enables the sketch calls and error-check handling drawing functions need.
 	sketch   bool
 	runtime  string
+	external map[string]External
+	bound    map[string]Bound
 	roles    map[string]Role
 	provided map[string]bool
 }
@@ -155,9 +207,13 @@ type namedType struct {
 func (s *structInfo) python(prefix string) string {
 	if s.mutable() {
 		var sb strings.Builder
-		fmt.Fprintf(&sb, "class %s%s:\n    def __init__(self):\n", prefix, pyClass(s.name))
+		params := make([]string, len(s.fields))
+		for i, f := range s.fields {
+			params[i] = f + "=None"
+		}
+		fmt.Fprintf(&sb, "class %s%s:\n    def __init__(self, %s):\n", prefix, pyClass(s.name), strings.Join(params, ", "))
 		for _, f := range s.fields {
-			fmt.Fprintf(&sb, "        self.%s = None\n", f)
+			fmt.Fprintf(&sb, "        self.%s = %s\n", f, f)
 		}
 		return strings.TrimRight(sb.String(), "\n")
 	}
@@ -248,6 +304,9 @@ func (t *transpiler) function(fi *funcInfo) (string, error) {
 		fn.env[fi.recvName] = *fi.recvType
 	}
 	var args []string
+	if fi.recvType != nil && fi.recvName != "" && fi.recvType.kind == kindStruct && !t.structs[fi.recvType.name].zero {
+		args = append(args, pyName(fi.recvName))
+	}
 	for _, p := range fi.params {
 		fn.env[p.name] = p.typ
 		if p.typ.kind == kindCtx {
@@ -256,7 +315,7 @@ func (t *transpiler) function(fi *funcInfo) (string, error) {
 		args = append(args, pyName(p.name))
 	}
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "def %s%s(%s):\n", t.prefix, pySnake(fi.name), strings.Join(args, ", "))
+	fmt.Fprintf(&sb, "def %s(%s):\n", t.pyFunc(fi), strings.Join(args, ", "))
 	fn.indent = 1
 	if fi.named {
 		for _, r := range fi.results {
@@ -284,6 +343,8 @@ type fnState struct {
 	info   *funcInfo
 	env    map[string]typ
 	indent int
+	// multi lets a call return several values, as a return of another call does.
+	multi bool
 	// calls counts the creating calls made so far, per operation, to key the roles table.
 	calls map[string]int
 }
@@ -324,6 +385,20 @@ func pySnake(s string) string {
 		sb.WriteRune(r)
 	}
 	return sb.String()
+}
+
+// pyFunc is the Python name of a translated Go function or method. An exported Go name is
+// public in Python and an unexported one carries the prefix. A method is named after its
+// receiver type, so two receivers can share a method name.
+func (t *transpiler) pyFunc(fi *funcInfo) string {
+	name := pySnake(fi.name)
+	if fi.recvType != nil && fi.recvType.kind == kindStruct {
+		name = pySnake(fi.recvType.name) + "_" + name
+	}
+	if fi.name != "" && unicode.IsUpper([]rune(fi.name)[0]) {
+		return name
+	}
+	return t.prefix + name
 }
 
 // pyKeyword avoids Python keywords for a method name.

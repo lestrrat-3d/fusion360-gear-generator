@@ -81,6 +81,11 @@ class Vec:
         n = self.len()
         return Vec(self.x / n, self.y / n, self.z / n)
 
+    # The gallery's r3.Vec names its fields in capitals.
+    X = property(lambda self: self.x)
+    Y = property(lambda self: self.y)
+    Z = property(lambda self: self.z)
+
 
 def r3_new_vec(x, y, z):
     return Vec(x, y, z)
@@ -164,7 +169,11 @@ class Runtime:
         self.sketch_only = sketch_only
         self.sketches = []
         self.helpers = []
+        self._names = {}
+        # The gallery builds a gear about the local origin and +Z. frame is that local frame, and
+        # placement is where it lies in the design: the anchor, the sketch's axes and their normal.
         self.frame: Frame = Frame(Vec(0, 0, 0), Vec(1, 0, 0), Vec(0, 1, 0), Vec(0, 0, 1))
+        self.placement: Frame = self.frame
 
     def activate(self):
         global _active
@@ -172,11 +181,29 @@ class Runtime:
         return self
 
     def build_frame(self, sketch):
-        """The frame of the lower cap: the anchor, the sketch's axes and their normal. [SPUR-F-LOCAL-ORIGIN]"""
+        """Place the gear: its origin is the anchor and its axes are the sketch's. [SPUR-F-LOCAL-ORIGIN]
+
+        Returns the local frame the translated code builds in. Positions that come out of the design
+        (vertices of edges) are in that frame, and positions that go in (the pattern axis, a plane's
+        frame, an edge's end point) are mapped to the design, as the gallery's Place does at the end.
+        """
         u = vec_of(sketch.xDirection)
         v = vec_of(sketch.yDirection)
-        self.frame = Frame(vec_of(self.anchor.worldGeometry), u, v, u.cross(v).unit())
+        self.placement = Frame(vec_of(self.anchor.worldGeometry), u, v, u.cross(v).unit())
         return self.frame
+
+    def to_world(self, point):
+        p = self.placement
+        return p.origin().add(p.u().scale(point.x)).add(p.v().scale(point.y)).add(p.n().scale(point.z))
+
+    def to_world_dir(self, direction):
+        p = self.placement
+        return p.u().scale(direction.x).add(p.v().scale(direction.y)).add(p.n().scale(direction.z))
+
+    def to_local(self, point):
+        p = self.placement
+        d = point.sub(p.origin())
+        return Vec(d.dot(p.u()), d.dot(p.v()), d.dot(p.n()))
 
     # decad.Document
     def param(self, name):
@@ -190,7 +217,24 @@ class Runtime:
     def xy(self):
         return Plane(self, self.plane)
 
+    def unique(self, name):
+        """A role name that repeats gets an index: Tooth Profile, Tooth Profile 2."""
+        count = self._names.get(name, 0) + 1
+        self._names[name] = count
+        return name if count == 1 else f'{name} {count}'
+
+    def derive(self, p):
+        """The gear dimensions, read from the user parameters the gallery table defines."""
+        class Dimensions:
+            pass
+        d = Dimensions()
+        d.pitch, d.base = self.param('pitch_radius').base(), self.param('base_radius').base()
+        d.root, d.tip = self.param('root_radius').base(), self.param('tip_radius').base()
+        d.fillet = self.param('fillet_radius').base()
+        return d
+
     def create_sketch(self, plane, name):
+        name = self.unique(name)
         fsketch: adsk.fusion.Sketch = self.component.sketches.add(plane.entity)
         solids.name_feature(fsketch, name)
         fsketch.isVisible = True
@@ -199,8 +243,8 @@ class Runtime:
         return sketch
 
     def create_plane_from_frame(self, frame, name):
-        base = self.frame
-        offset = frame.origin().sub(base.origin()).dot(base.n())
+        offset = frame.origin().sub(self.frame.origin()).dot(self.frame.n())
+        name = self.unique(name)
         planes: adsk.fusion.ConstructionPlanes = self.component.constructionPlanes
         planeInput: adsk.fusion.ConstructionPlaneInput = planes.createInput()
         planeInput.setByOffset(self.plane, adsk.core.ValueInput.createByReal(offset))
@@ -219,6 +263,10 @@ class Runtime:
 
 def sketch_new_world():
     return _active
+
+
+def derive(p):
+    return _active.derive(p)
 
 
 class Plane:
@@ -472,18 +520,22 @@ class Body:
     def is_solid(self):
         return self.body.isSolid
 
+    def faces(self):
+        return [Face(self.runtime, f) for f in self.body.faces]
+
 
 class Position:
-    def __init__(self, point):
-        self.Value = vec_of(point)
+    def __init__(self, runtime, point):
+        self.Value = runtime.to_local(vec_of(point))
 
 
 class Vertex:
-    def __init__(self, point):
+    def __init__(self, runtime, point):
+        self._runtime = runtime
         self._point = point
 
     def position(self):
-        return Position(self._point)
+        return Position(self._runtime, self._point)
 
 
 class Edge:
@@ -500,12 +552,29 @@ class Edge:
 
     def is_axial(self):
         if self._axial is None:
-            axis = self.runtime.frame.n()
+            axis = self.runtime.placement.n()
             a, b = (vec_of(p) for p in self.ends())
             d = b.sub(a)
             length = d.len()
             self._axial = length > 0 and abs(abs(d.dot(axis)) - length) <= 1e-6 * max(length, 1.0)
         return self._axial
+
+    def end(self):
+        """The end of an axial edge on the upper cap, the other end from start()."""
+        a, b = self.ends()
+        s = self.start()
+        return Vertex(self.runtime, b) if s._point is a else Vertex(self.runtime, a)
+
+    def curve(self):
+        if self.edge.geometry.curveType == adsk.core.Curve3DTypes.Line3DCurveType:
+            return Line3()
+        return Curve()
+
+    def __hash__(self):
+        return hash(self.edge.tempId)
+
+    def __eq__(self, other):
+        return isinstance(other, Edge) and self.edge.tempId == other.edge.tempId
 
     def axisDirection(self):
         a, b = (vec_of(p) for p in self.ends())
@@ -514,9 +583,57 @@ class Edge:
     def start(self):
         """The end of an axial edge on the lower cap; an edge that is not axial keeps Fusion's start."""
         a, b = self.ends()
-        if self.is_axial() and vec_of(b).dot(self.runtime.frame.n()) < vec_of(a).dot(self.runtime.frame.n()):
-            return Vertex(b)
-        return Vertex(a)
+        axis = self.runtime.placement.n()
+        if self.is_axial() and vec_of(b).dot(axis) < vec_of(a).dot(axis):
+            return Vertex(self.runtime, b)
+        return Vertex(self.runtime, a)
+
+
+class Curve:
+    """A curve of an edge that is not a straight line."""
+
+
+class Line3(Curve):
+    """A straight edge."""
+
+
+def decad_is_line3(curve):
+    return isinstance(curve, Line3)
+
+
+class Length:
+    def __init__(self, value):
+        self._value = value
+
+    def base(self):
+        return self._value
+
+
+class Surface:
+    """A surface of a face that is not a cylinder."""
+
+
+class Cylinder(Surface):
+    def __init__(self, radius):
+        self.Radius = Length(radius)
+
+
+def decad_is_cylinder(surface):
+    return isinstance(surface, Cylinder)
+
+
+class Face:
+    def __init__(self, runtime, face):
+        self.runtime = runtime
+        self.face: adsk.fusion.BRepFace = face
+
+    def surface(self):
+        if self.face.geometry.surfaceType == adsk.core.SurfaceTypes.CylinderSurfaceType:
+            return Cylinder(cast(adsk.core.Cylinder, self.face.geometry).radius)
+        return Surface()
+
+    def edges(self):
+        return [Edge(self.runtime, e) for e in self.face.edges]
 
 
 class Predicate:
@@ -530,12 +647,19 @@ class Predicate:
 
 
 def decad_parallel_to(axis):
-    return Predicate(lambda edge, body: edge.is_axial() and abs(abs(edge.axisDirection().dot(axis.unit())) - 1) < 1e-6)
+    def test(edge, body):
+        a, b = (vec_of(p) for p in edge.ends())
+        if not isinstance(edge.curve(), Line3) or b.sub(a).len() == 0:
+            return False
+        world = edge.runtime.to_world_dir(axis).unit()
+        return abs(abs(edge.axisDirection().dot(world)) - 1) < 1e-6
+    return Predicate(test)
 
 
 def decad_endpoint_at(point):
     def test(edge, body):
-        return any(vec_of(p).sub(point).len() <= SAME_COORDINATE for p in edge.ends())
+        world = edge.runtime.to_world(point)
+        return any(vec_of(p).sub(world).len() <= SAME_COORDINATE for p in edge.ends())
     return Predicate(test)
 
 
@@ -571,7 +695,7 @@ def decad_cap_end(body):
 
 
 def cap_faces(runtime, body, high):
-    axis = runtime.frame.n()
+    axis = runtime.placement.n()
     planar = []
     for face in body.body.faces:
         if face.geometry.surfaceType != adsk.core.SurfaceTypes.PlaneSurfaceType:
@@ -609,10 +733,13 @@ class Selector:
         self.count = count
 
     def or_(self, *predicates):
-        return Selector(self.groups + [list(predicates)], self.count)
+        """Add a group of conditions, in place, as the gallery's EdgeQuery does."""
+        self.groups.append(list(predicates))
+        return self
 
     def exactly(self, count):
-        return Selector(self.groups, count)
+        self.count = count
+        return self
 
     def select_edges(self, body):
         edges = []
@@ -661,7 +788,7 @@ def decad_extrude(doc, sketch, profile, extent, name, body):
 
 def _axis_through(runtime, pattern, name):
     """A construction axis along the pattern axis: the axis of a cylindrical face of the component's bodies."""
-    center, axis = pattern.Center, pattern.Axis.unit()
+    center, axis = runtime.to_world(pattern.Center), runtime.to_world_dir(pattern.Axis).unit()
     for fbody in runtime.component.bRepBodies:
         for face in fbody.faces:
             if face.geometry.surfaceType != adsk.core.SurfaceTypes.CylinderSurfaceType:
@@ -749,3 +876,47 @@ def decad_chamfer(body, selector, setback, name):
         feature = chamfers.add(chamferInput)
     solids.name_feature(feature, name)
     return body
+
+
+@logged
+def decad_loft(doc, lowerSketch, lowerProfile, upperSketch, upperProfile, name, body):
+    if doc.sketch_only:
+        raise SketchOnly()
+    lofts: adsk.fusion.LoftFeatures = doc.component.features.loftFeatures
+    loftInput: adsk.fusion.LoftFeatureInput = lofts.createInput(adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+    loftInput.loftSections.add(lowerProfile.fprofile)
+    loftInput.loftSections.add(upperProfile.fprofile)
+    loft: adsk.fusion.LoftFeature = lofts.add(loftInput)
+    solids.name_feature(loft, name)
+    if loft.bodies.count != 1:
+        raise RuntimeError(f'{name}: expected one body, got {loft.bodies.count}')
+    fbody: adsk.fusion.BRepBody = loft.bodies.item(0)
+    solids.name_feature(fbody, body)
+    return Body(doc, fbody)
+
+
+class MirrorFrame:
+    def __init__(self, Frame):
+        self.Frame = Frame
+
+
+def decad_mirror_frame(Frame):
+    return MirrorFrame(Frame)
+
+
+@logged
+def decad_mirrored_copy(source, mirror, name, body):
+    runtime = source.runtime
+    plane = runtime.create_plane_from_frame(mirror.Frame, name + ' Plane')
+    entities = adsk.core.ObjectCollection.create()
+    entities.add(source.body)
+    mirrors: adsk.fusion.MirrorFeatures = runtime.component.features.mirrorFeatures
+    mirrorInput: adsk.fusion.MirrorFeatureInput = mirrors.createInput(entities, plane.entity)
+    mirrorInput.isCombine = False
+    feature: adsk.fusion.MirrorFeature = mirrors.add(mirrorInput)
+    solids.name_feature(feature, name)
+    copies = [b for b in feature.bodies if b.entityToken != source.body.entityToken]
+    if len(copies) != 1:
+        raise RuntimeError(f'{name}: expected one mirrored body, got {len(copies)}')
+    solids.name_feature(copies[0], body)
+    return Body(runtime, copies[0])

@@ -27,13 +27,15 @@ var apiFuncs = map[string]apiSig{
 	"decad.Cut":           {res: "decad.Body", named: true},
 	"decad.Fillet":        {res: "decad.Body", named: true},
 	"decad.Chamfer":       {res: "decad.Body", named: true},
-	"decad.Edges":         {res: "decad.Selector"},
+	"decad.Loft":          {res: "decad.Body", named: true},
+	"decad.MirroredCopy":  {res: "decad.Body", named: true},
+	"decad.Edges":         {res: "decad.EdgeQuery"},
 	"decad.ParallelTo":    {res: "decad.Predicate"},
 	"decad.EndpointAt":    {res: "decad.Predicate"},
 	"decad.Concave":       {res: "decad.Predicate"},
 	"decad.OuterLoopOf":   {res: "decad.Predicate"},
-	"decad.CapStart":      {res: "decad.Selector"},
-	"decad.CapEnd":        {res: "decad.Selector"},
+	"decad.CapStart":      {res: "decad.EdgeQuery"},
+	"decad.CapEnd":        {res: "decad.EdgeQuery"},
 	"sketch.NewWorld":     {res: "sketch.World"},
 	"sketch.NewRadius":    {res: "sketch.Constraint"},
 	"sketch.NewDiameter":  {res: "sketch.Constraint"},
@@ -47,14 +49,19 @@ var apiFuncs = map[string]apiSig{
 
 // apiMethods are the methods of the opaque types, keyed "Type.Method".
 var apiMethods = map[string]apiSig{
-	"decad.Document.Param":       {res: "decad.Value"},
-	"decad.Value.Base":           {res: "float"},
-	"decad.Body.IsSolid":         {res: "bool"},
-	"decad.Selector.Or":          {res: "decad.Selector"},
-	"decad.Selector.Exactly":     {res: "decad.Selector"},
-	"decad.Selector.SelectEdges": {res: "[]decad.Edge"},
-	"decad.Edge.Start":           {res: "decad.Vertex"},
-	"decad.Vertex.Position":      {res: "decad.Position"},
+	"decad.Document.Param":        {res: "units.Value"},
+	"units.Value.Base":            {res: "float"},
+	"decad.Body.IsSolid":          {res: "bool"},
+	"decad.EdgeQuery.Or":          {res: "decad.EdgeQuery"},
+	"decad.EdgeQuery.Exactly":     {res: "decad.EdgeQuery"},
+	"decad.EdgeQuery.SelectEdges": {res: "[]decad.Edge"},
+	"decad.Edge.Start":            {res: "decad.Vertex"},
+	"decad.Edge.End":              {res: "decad.Vertex"},
+	"decad.Edge.Curve":            {res: "decad.Curve"},
+	"decad.Body.Faces":            {res: "[]decad.Face"},
+	"decad.Face.Surface":          {res: "decad.Surface"},
+	"decad.Face.Edges":            {res: "[]decad.Edge"},
+	"decad.Vertex.Position":       {res: "decad.Position"},
 
 	"sketch.World.CreateSketch":         {res: "sketch.Sketch", named: true},
 	"sketch.World.CreatePlaneFromFrame": {res: "sketch.Plane", named: true},
@@ -82,9 +89,13 @@ var apiMethods = map[string]apiSig{
 
 // apiFields are the fields of the opaque types, keyed "Type.Field".
 var apiFields = map[string]string{
-	"decad.Position.Value": "r3.Vec",
-	"sketch.Profile.Valid": "bool",
-	"sketch.Profile.Outer": "[]sketch.Edge",
+	"decad.Position.Value":  "r3.Vec",
+	"decad.Cylinder.Radius": "units.Value",
+	"r3.Vec.X":              "float",
+	"r3.Vec.Y":              "float",
+	"r3.Vec.Z":              "float",
+	"sketch.Profile.Valid":  "bool",
+	"sketch.Profile.Outer":  "[]sketch.Edge",
 }
 
 // apiConsts are the package-level constants of the opaque packages.
@@ -97,6 +108,17 @@ var apiConsts = map[string]string{
 var apiLiterals = map[string]string{
 	"decad.CircularPattern": "decad.CircularPattern",
 	"decad.Distance":        "decad.Distance",
+	"decad.MirrorFrame":     "decad.MirrorFrame",
+}
+
+// apiTypeTests are the types a translated function may test a value against, with a type
+// assertion. Each becomes a runtime function named is_<type>.
+var apiTypeTests = map[string]bool{"decad.Cylinder": true, "decad.Line3": true}
+
+// typeTestName is the runtime function that tests a value against an API type.
+func typeTestName(qualified string) string {
+	pkg, name, _ := strings.Cut(qualified, ".")
+	return pkg + "_is_" + pySnake(name)
 }
 
 // parseAPIType converts an API result type string.
@@ -248,6 +270,9 @@ func API() []APIEntry {
 	for name := range apiConsts {
 		pkg, c, _ := strings.Cut(name, ".")
 		out = append(out, APIEntry{Go: name, Python: strings.ToUpper(pkg) + "_" + strings.ToUpper(pySnake(c))})
+	}
+	for name := range apiTypeTests {
+		out = append(out, APIEntry{Go: name, Python: typeTestName(name)})
 	}
 	for name := range apiLiterals {
 		out = append(out, APIEntry{Go: name, Python: runtimeName(name)})

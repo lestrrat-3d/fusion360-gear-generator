@@ -64,6 +64,26 @@ func (f *fnState) stmt(sb *strings.Builder, s ast.Stmt) error {
 
 func (f *fnState) declStmt(sb *strings.Builder, s *ast.DeclStmt) error {
 	gd, ok := s.Decl.(*ast.GenDecl)
+	if ok && gd.Tok == token.CONST {
+		for _, spec := range gd.Specs {
+			vs := spec.(*ast.ValueSpec)
+			for i, n := range vs.Names {
+				if i >= len(vs.Values) {
+					return fmt.Errorf("%s: a constant without a value is unsupported", f.pos(s))
+				}
+				text, ct, err := f.expr(vs.Values[i])
+				if err != nil {
+					return err
+				}
+				if ct.kind == kindUntyped {
+					ct = intType
+				}
+				f.env[n.Name] = ct
+				f.line(sb, "%s = %s", pyName(n.Name), text)
+			}
+		}
+		return nil
+	}
 	if !ok || gd.Tok != token.VAR {
 		return fmt.Errorf("%s: unsupported declaration", f.pos(s))
 	}
@@ -213,9 +233,11 @@ func (f *fnState) returnStmt(sb *strings.Builder, s *ast.ReturnStmt) error {
 		return nil
 	}
 	results := s.Results
-	if len(results) == 1 && info.errorResult && len(info.results) == 1 {
+	if len(results) == 1 && info.errorResult && len(info.results) >= 1 {
 		if call, ok := results[0].(*ast.CallExpr); ok {
+			f.multi = true
 			text, _, err := f.expr(call)
+			f.multi = false
 			if err != nil {
 				return err
 			}
@@ -304,7 +326,7 @@ func (f *fnState) ifStmt(sb *strings.Builder, s *ast.IfStmt, word string) error 
 	if ct.kind != kindBool {
 		return fmt.Errorf("%s: if condition is not a bool", f.pos(s.Cond))
 	}
-	if cond == "None is not None" {
+	if cond == "None is not None" || cond == "False" {
 		// A field of a zero-valued struct is never set, so this branch never runs.
 		switch e := s.Else.(type) {
 		case nil:
