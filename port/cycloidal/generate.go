@@ -3,6 +3,7 @@ package cycloidal
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/fusionexpr"
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/gallery"
@@ -160,12 +161,10 @@ func (p *pieces) fieldFromParameter(field string) string {
 		return "None"
 	}
 	c := ParamConst(e.Name)
-	switch {
-	case e.Kind == gallery.KindCount:
+	if e.Kind == gallery.KindCount {
 		return fmt.Sprintf("int(round(value(%s)))", c)
-	default:
-		return fmt.Sprintf("to_mm(value(%s))", c)
 	}
+	return fmt.Sprintf("to_mm(value(%s))", c)
 }
 
 // paramsFromInputs renders the function that reads the gallery Params, in millimetres, from the dialog
@@ -230,7 +229,7 @@ func (p *pieces) derivedParameters() (string, error) {
 	var sb strings.Builder
 	for _, e := range p.m.Table {
 		c, unit := ParamConst(e.Name), unitString(e.Unit)
-		comment := strings.ReplaceAll(strings.Title(strings.ReplaceAll(e.Name, "_", " ")), "'", "")
+		comment := strings.ReplaceAll(titleWords(strings.ReplaceAll(e.Name, "_", " ")), "'", "")
 		switch e.Kind {
 		case gallery.KindInput, gallery.KindCount:
 			continue
@@ -337,3 +336,16 @@ func pyBool(v bool) string {
 }
 
 func number(v float64) string { return fmt.Sprintf("%g", v) }
+
+// titleWords capitalises each letter that follows a non-letter, as the deprecated strings.Title does.
+func titleWords(s string) string {
+	out := []rune(s)
+	start := true
+	for i, r := range out {
+		if start && unicode.IsLetter(r) {
+			out[i] = unicode.ToUpper(r)
+		}
+		start = !unicode.IsLetter(r)
+	}
+	return string(out)
+}

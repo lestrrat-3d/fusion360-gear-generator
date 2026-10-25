@@ -276,7 +276,7 @@ func (f *fnState) returnStmt(sb *strings.Builder, s *ast.ReturnStmt) error {
 		results = results[:len(results)-1]
 		// A stored error value (return nil, err) is never set in a translated function, which raises
 		// instead, so only the other results are returned.
-		if !isNil(last) && !(f.t.sketch && isIdent(last, "err")) {
+		if !isNil(last) && (!f.t.sketch || !isIdent(last, "err")) {
 			return f.raise(sb, last)
 		}
 	}
