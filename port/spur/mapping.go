@@ -113,8 +113,8 @@ var Params = []Param{
 // runtime that executes the calls is lib/geargen/decadfusion.py.
 //
 // The tooth section is translated twice. buildToothSection builds a sketch of its own, which the
-// spur uses. The drawing steps (draw_tooth_section) draw into a sketch the caller made, which the
-// helical, herringbone and bevel add-ins still use until their constructions are translated too.
+// spur, helical and herringbone builds use. The drawing steps (draw_tooth_section) draw into a sketch
+// the caller made; no add-in calls them, only lib/geargen/legacyspur.py and a runtime test.
 var FeatureSpec = go2py.Spec{
 	Prefix:   "_",
 	Structs:  []string{"point", "dimensions", "toothPoints", "Variant", "ToothInput"},

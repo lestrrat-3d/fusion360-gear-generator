@@ -530,8 +530,11 @@ func pySnake(s string) string {
 }
 
 // pyFunc is the Python name of a translated Go function or method. An exported Go name is
-// public in Python and an unexported one carries the prefix. A method is named after its
-// receiver type, so two receivers can share a method name.
+// public in Python and an unexported one carries the prefix. A method's Python name starts
+// with its receiver type, but a name in Spec.Funcs names one Go function, the package-level
+// one or else the first method of that name (gallery.Model.Callable), and the translation keys
+// functions by that bare name (transpiler.funcs). Two methods of one name on different
+// receivers cannot both be translated.
 func (t *transpiler) pyFunc(fi *funcInfo) string {
 	name := pySnake(fi.name)
 	if fi.recvType != nil && fi.recvType.kind == kindStruct {
