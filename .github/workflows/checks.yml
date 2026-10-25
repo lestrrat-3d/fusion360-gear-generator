@@ -8,7 +8,8 @@ name: Checks
 #           tidy, when go vet or golangci-lint reports a problem, when a port test fails, or when a
 #           checked-in gear differs from a fresh generation
 #   addins  tests/, which fails when an add-in does not compile or import, or creates a sketch, plane,
-#           feature or body without a name
+#           feature or body without a name; and scripts/check-deploy.sh, which fails when a file
+#           deploy.sh ships does not compile or deploy.sh ships something the add-in does not need
 #
 # The gallery proves each gear's geometry in its own repository. This repository holds no proof.
 
@@ -38,6 +39,10 @@ jobs:
 
       - name: Compile and import the add-ins, and check every created object is named
         run: python3 -m unittest discover -s tests -p 'test_*.py'
+
+      # Runs deploy.sh into a scratch folder, so the checked set is exactly what deploy.sh ships.
+      - name: Check every file deploy.sh ships compiles, and nothing else is shipped
+        run: scripts/check-deploy.sh
 
   port:
     name: Gallery port
