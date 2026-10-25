@@ -61,6 +61,8 @@ rsync -r --delete \
     --include '/Gear Generator.py' \
     --include '/Gear Generator.manifest' \
     --include '/config.py' \
+    --include '/LICENSE' \
+    --include '/NOTICE' \
     --include '/commands/***' \
     --include '/lib/***' \
     --include '/diag_*.py' \

@@ -18,10 +18,12 @@ mkdir -p "$scratch"
 FUSION_ADDIN_DIR="$dest" "$root/deploy.sh"
 
 cd "$dest"
-if [[ ! -f "Gear Generator.py" || ! -f "Gear Generator.manifest" ]]; then
-    echo "check-deploy: deploy.sh did not ship the add-in entry file and manifest" >&2
-    exit 1
-fi
+for required in "Gear Generator.py" "Gear Generator.manifest" LICENSE NOTICE; do
+    if [[ ! -f "$required" ]]; then
+        echo "check-deploy: deploy.sh did not ship $required" >&2
+        exit 1
+    fi
+done
 
 forbidden='(^|/)(tests|port|docs|spec|\.tmp|\.git|\.github|__pycache__)(/|$)|\.go$|\.pyc$|_out\.txt$'
 bad="$(find . -mindepth 1 -printf '%P\n' | grep -E "$forbidden" || true)"
