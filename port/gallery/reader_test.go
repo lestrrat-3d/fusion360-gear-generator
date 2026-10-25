@@ -2,6 +2,8 @@ package gallery_test
 
 import (
 	"math"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/gallery"
@@ -95,13 +97,60 @@ func TestSpurDecadCalls(t *testing.T) {
 	}, calls)
 }
 
-func TestSourceDigestIgnoresCommentsOnly(t *testing.T) {
+// loadSource parses src as a model package beside the Params type and DefaultParams function the reader requires.
+func loadSource(t *testing.T, src string) *gallery.Model {
+	t.Helper()
+	dir := t.TempDir()
+	text := "package m\n\nimport \"math\"\n\ntype Params struct{ A float64 }\n\n" +
+		"func DefaultParams() Params { return Params{A: 1} }\n\n" + src
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "m.go"), []byte(text), 0o600))
+	m, err := gallery.Load(dir)
+	require.NoError(t, err)
+	return m
+}
+
+func digestOf(t *testing.T, src string) string {
+	t.Helper()
+	d, err := loadSource(t, src).SourceDigest("f")
+	require.NoError(t, err)
+	return d
+}
+
+func TestSourceDigestIgnoresCommentsAndFormatting(t *testing.T) {
+	base := digestOf(t, `func f(a, b float64) float64 {
+	c := a + b
+	return math.Max(c, 2)
+}
+`)
+	commented := digestOf(t, `// f adds and clamps.
+func f(a, b float64) float64 {
+	// The sum.
+	c := a + b /* inline */
+
+	// Clamp it.
+	return math.Max(c, 2)
+}
+`)
+	require.Equal(t, base, commented, "comments must not change the digest")
+	reformatted := digestOf(t, `func f(a,
+	b float64) float64 {
+	c := a +
+		b; return math.Max(
+		c,
+		2,
+	) }
+`)
+	require.Equal(t, base, reformatted, "line breaks, spacing and trailing commas must not change the digest")
+	changed := digestOf(t, `func f(a, b float64) float64 {
+	c := a - b
+	return math.Max(c, 2)
+}
+`)
+	require.NotEqual(t, base, changed, "a changed expression must change the digest")
+
 	m := loadSpur(t)
 	a, err := m.SourceDigest("Build", "cutBore")
 	require.NoError(t, err)
-	b, err := m.SourceDigest("Build", "cutBore")
-	require.NoError(t, err)
-	require.Equal(t, a, b)
 	c, err := m.SourceDigest("cutBore", "Build")
 	require.NoError(t, err)
 	require.NotEqual(t, a, c)
