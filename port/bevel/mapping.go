@@ -90,7 +90,7 @@ var FeatureSpec = go2py.Spec{
 		"revolveBlankIn", "revolveAxialSectionIn", "revolveSharedBlanks", "profileUses", "buildToeConeIn",
 		"buildHeelConeIn", "endConeSection", "buildEndCone", "buildPointToothIn", "ResolveBoreDiameter",
 		"maximumBoreDiameter", "cutBore", "newPairContainers", "uniqueChild", "addSketch", "addPlane", "moveBody",
-		"newShaftFrame", "roundBits", "buildBackConeToothProfile", "buildVirtualToothProfile", "local", "axis", "sketchAxis", "unit", "vec",
+		"newShaftFrame", "roundBits", "apexFrame", "heelStation", "buildBackConeToothProfile", "buildVirtualToothProfile", "local", "axis", "sketchAxis", "unit", "vec",
 		"sectionXY", "revolveAxialSection", "buildShiftedEndCone",
 	},
 	Roles: map[string]go2py.Role{
