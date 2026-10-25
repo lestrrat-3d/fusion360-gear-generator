@@ -1666,17 +1666,31 @@ def decad_remove(body, name):
         body.container = None
 
 
+def _planar_face_through(body, world):
+    """A planar face of the body that contains the point."""
+    for face in body.body.faces:
+        if face.geometry.surfaceType != adsk.core.SurfaceTypes.PlaneSurfaceType:
+            continue
+        plane = cast(adsk.core.Plane, face.geometry)
+        offset = vec_of(plane.origin).sub(world)
+        if abs(offset.dot(vec_of(plane.normal).unit())) <= 1e-5:
+            return face
+    raise RuntimeError(f'{body.body.name}: no planar face passes through the scale anchor')
+
+
 @logged
 def decad_scaled_at(body, anchor, factor, name):
     """Scale the body uniformly about a point of the build frame, in place."""
     runtime = body.runtime
-    points: adsk.fusion.ConstructionPoints = runtime.component.constructionPoints
-    pointInput: adsk.fusion.ConstructionPointInput = points.createInput()
     world = runtime.to_world(anchor)
-    pointInput.setByPoint(adsk.core.Point3D.create(world.x, world.y, world.z))
-    base = points.add(pointInput)
-    solids.name_feature(base, name + ' Anchor')
-    base.isLightBulbOn = False
+    where = adsk.core.Point3D.create(world.x, world.y, world.z)
+    face = _planar_face_through(body, world)
+    # A construction point at a bare Point3D is valid only in direct modeling, so the base point is a sketch point
+    # on a face that passes through the anchor. [PB-SCALE-BASE-POINT]
+    anchorSketch = runtime.component.sketches.add(face)
+    solids.name_feature(anchorSketch, name + ' Anchor')
+    base = anchorSketch.sketchPoints.add(anchorSketch.modelToSketchSpace(where))
+    anchorSketch.isLightBulbOn = False
     entities = adsk.core.ObjectCollection.create()
     entities.add(body.body)
     scales: adsk.fusion.ScaleFeatures = runtime.component.features.scaleFeatures

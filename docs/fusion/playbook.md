@@ -969,3 +969,8 @@ makes every copy of a body at equal angles in one circular pattern. The gallery 
 kernel needs that), so the runtime records a `decad.Union` and a rotated `decad.Copy` and makes the pattern and the single
 combine when a later step first reads the body. Thirty-one teeth cost two features, not about ninety. A copy at an angle
 that is not part of an equal set is made on its own. `tests/test_bevel_batching.py` counts the features.
+
+**[PB-SCALE-BASE-POINT] A Scale feature's base point is a sketch point, never a construction point at a bare point.**
+`ConstructionPointInput.setByPoint` with a `Point3D` is valid only in direct modeling; in a parametric design it fails
+with "3 : Environment is not supported". The base point is a sketch point on a planar face that passes through the
+anchor, placed with `modelToSketchSpace`.
