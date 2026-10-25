@@ -166,16 +166,23 @@ class Profile:
     def __init__(self, holes): self.Valid, self.Holes, self.Outer = True, [None] * holes, []
 
 class Sketch:
-    def __init__(self, name): self.name, self.points, self.splines, self.circles = name, 0, 0, 0
+    def __init__(self, name): self.name, self.points, self.splines, self.circles, self.patterns = name, 0, 0, 0, []
     def origin(self): return types.SimpleNamespace()
     def dimension_point(self, x, y): self.points += 1; return types.SimpleNamespace(x=x, y=y)
+    def create_point(self, x, y): return types.SimpleNamespace(x=x, y=y)
     def create_fit_spline(self, *pts):
         assert all(pt is not None for pt in pts), self.name + ': a spline point is missing'
         self.splines += 1
-    def create_circle(self, c, r): self.circles += 1; return types.SimpleNamespace()
+        return types.SimpleNamespace(points=pts)
+    def create_pattern_circular_ring(self, splines, center, n, start, end):
+        assert splines and center is not None and start is not None and end is not None, self.name + ': a pattern part is missing'
+        assert end is not start and n >= 2, self.name
+        self.patterns.append([len(splines), n])
+        return splines[0]
+    def create_circle(self, c, r): self.circles += 1; return types.SimpleNamespace(Center=c)
     def add_constraint(self, c): pass
     def bind(self, c, table, name): assert isinstance(name, str)
-    def solve(self): LOG.append(['sketch', self.name, self.points, self.splines, self.circles])
+    def solve(self): LOG.append(['sketch', self.name, self.points, self.splines, self.circles, self.patterns])
     def profiles(self):
         if self.name == 'Output Pin Profile':
             return [Profile(0) for _ in range(self.circles)]
@@ -310,6 +317,23 @@ func TestTranslatedBuildRunsAgainstFakes(t *testing.T) {
 		"Disc Profile", "Cam Section Profile", "Input Bore Profile", "Housing Outer Profile", "Casing Profile",
 		"Housing Hole Profile", "Output Plate Profile", "Output Pin Profile",
 	}, names(0, "sketch"))
+	// The disc and the casing draw one lobe or one pin pitch and pattern it, so only a few dozen points carry
+	// dimensions: the cost of dimensions grows with the cube of the points in a sketch.
+	sketchEntry := func(i int, name string) []any {
+		for _, e := range got[i].Log {
+			if e[0] == "sketch" && e[1] == name {
+				return e
+			}
+		}
+		t.Fatalf("no sketch %q", name)
+		return nil
+	}
+	for _, name := range []string{"Disc Profile", "Casing Profile"} {
+		e := sketchEntry(0, name)
+		require.Less(t, e[2].(float64), 80.0, name+" points")
+		require.Len(t, e[5], 1, name+" patterns")
+	}
+	require.Equal(t, []any{3.0, 15.0}, sketchEntry(0, "Disc Profile")[5].([]any)[0], "one lobe of 3 splines, 15 lobes")
 	require.Equal(t, []string{"Casing Cavity Cut", "Housing Hole Cut", "Input Bore Cut"}, sorted(names(0, "cut")))
 	require.Equal(t, []string{"Chamfer disc 1", "Chamfer housing", "Chamfer output plate", "Chamfer output pin"}, uniq(names(0, "chamfer")))
 	require.Len(t, names(0, "chamfer"), 1+2+6)

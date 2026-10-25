@@ -100,7 +100,7 @@ var FeatureSpec = go2py.Spec{
 		"inflections", "lobeSegments", "housingContour", "splitAtInflections", "thinned", "resolve",
 		"minInwardCurvatureRadius", "undercuts", "undercutBound", "Problems", "planeAt", "circleAt",
 		"discGeometry", "discHeight", "buildDisc", "buildDiscSampled", "buildHousing", "buildCavity", "buildCam",
-		"buildCamBridge", "outputPinCenter", "buildOutput", "chamferedBy", "housingOuterCircles",
+		"buildCamBridge", "outputPinCenter", "buildOutput", "chamferedBy", "housingOuterCircles", "drawPatternedLoop",
 		"chamfered", "chamferedDisc", "Build", "DiscName", "OutputPinName", "Named",
 	},
 	Roles: map[string]go2py.Role{
