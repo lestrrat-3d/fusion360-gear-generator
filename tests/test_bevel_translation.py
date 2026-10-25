@@ -133,6 +133,7 @@ class FakeBody:
     def __init__(self, name, fx=None, x=0.0):
         self.name = name
         self.container = None
+        self.runtime = None
         self.fx, self.x = fx, x
 
     def centroid(self):
@@ -213,7 +214,7 @@ class BevelTranslationTest(unittest.TestCase):
         sys.modules.update(cls.saved)
         cls.progress.cleanup()
 
-    def run_pair(self, **changes):
+    def run_pair(self, real_union=False, **changes):
         bevel, fx = self.bevel, self.fx
         runtime = FakeRuntime(fx)
         log = runtime.log
@@ -265,7 +266,8 @@ class BevelTranslationTest(unittest.TestCase):
         namespace.decad_extrude = feature('extrude', lambda name, body, *a: FakeBody(body, fx))
         namespace.decad_cut = feature('cut')
         namespace.decad_intersect = feature('intersect')
-        namespace.decad_union = feature('union')
+        # The real union, when asked for, so the container lists are the ones UnionBody leaves.
+        namespace.decad_union = fx.decad_union if real_union else feature('union')
         namespace.decad_transform = feature('transform')
         namespace.decad_pattern_copies = pattern_copies
         namespace.select_embedded_tooth_profile = lambda profiles, root: profiles[0]
@@ -312,12 +314,20 @@ class BevelTranslationTest(unittest.TestCase):
         self.assertEqual(member, kinds[:len(member)])
 
     def test_the_pair_sits_in_containers_named_as_the_gallery_names_them(self):
-        runtime, log, pair = self.run_pair()
+        # A union is joined when its geometry is read; the bore reads only the bounds, which the fake answers.
+        with mock.patch.object(self.fx.UnionBody, 'bounds', lambda union: FakeBody('Joined').bounds()):
+            runtime, log, pair = self.run_pair(real_union=True)
         pair_container = runtime.root().children()[0]
         self.assertEqual('Pair', pair_container.name())
-        self.assertEqual(['Driving Gear', 'Pinion Gear'], [c.name() for c in pair_container.children()])
-        self.assertIs(pair.Driving.container, pair_container.children()[0])
-        self.assertIs(pair.Pinion.container, pair_container.children()[1])
+        driving, pinion = pair_container.children()
+        self.assertEqual(['Driving Gear', 'Pinion Gear'], [driving.name(), pinion.name()])
+        self.assertIsInstance(pair.Driving, self.fx.UnionBody)
+        self.assertIs(pair.Driving.container, driving)
+        self.assertIs(pair.Pinion.container, pinion)
+        # Each member's container holds its joined gear and nothing the join consumed.
+        self.assertEqual([pair.Driving], driving.bodies)
+        self.assertEqual([pair.Pinion], pinion.bodies)
+        self.assertEqual([], pair_container.bodies)
 
     def test_a_second_pair_takes_the_next_container_name(self):
         runtime, log, pair = self.run_pair()

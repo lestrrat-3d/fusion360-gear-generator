@@ -450,5 +450,156 @@ class NumbersTest(RuntimeTestCase):
         self.assertEqual(['move'], self.features.kinds())
 
 
+class MillimetreRuntimeTest(RuntimeTestCase):
+    """A runtime with scale 0.1 builds in millimetres and converts at every place a length meets Fusion. [PB-UNITS]"""
+
+    def setUp(self):
+        super().setUp()
+        fx = self.fx
+        self.runtime = fx.Runtime(self.component, 'plane', SimpleNamespace(geometry=fx.Vec(1.0, 2.0, 3.0)), None,
+                                  scale=0.1)
+        self.runtime.build_frame(SimpleNamespace(xDirection=fx.Vec(1, 0, 0), yDirection=fx.Vec(0, 1, 0)))
+
+    def test_positions_map_between_millimetres_and_the_design(self):
+        fx = self.fx
+        world = self.runtime.to_world(fx.Vec(10.0, 20.0, 30.0))
+        self.assertEqual((2.0, 4.0, 6.0), (world.x, world.y, world.z))
+        local = self.runtime.to_local(world)
+        self.assertEqual((10.0, 20.0, 30.0), (round(local.x, 9), round(local.y, 9), round(local.z, 9)))
+
+    def test_sketch_coordinates_and_radii_become_centimetres(self):
+        fx = self.fx
+        circles = []
+        fsketch = SimpleNamespace(
+            name='S', sketchPoints=SimpleNamespace(add=lambda point: point),
+            sketchCurves=SimpleNamespace(sketchCircles=SimpleNamespace(
+                addByCenterRadius=lambda centre, radius: circles.append((centre, radius)) or SimpleNamespace(
+                    centerSketchPoint='centre', radius=radius))))
+        sketch = fx.Sketch(self.runtime, fsketch)
+        point = sketch._p3(10.0, 20.0)
+        self.assertEqual((1.0, 2.0), (point.x, point.y))
+        sketch.create_circle(sketch.dimension_point(10.0, 0.0), 5.0)
+        centre, radius = circles[0]
+        self.assertEqual((1.0, 0.0, 0.5), (centre.x, centre.y, radius))
+
+    def test_feature_values_become_centimetres_unless_they_name_a_parameter(self):
+        fx = self.fx
+        self.assertEqual(('real', 0.5), fx.value_input(5.0, 0.1))
+        self.assertEqual(('string', 'Gear_Thickness'), fx.value_input(fx.Value('Gear_Thickness', None, 0.1), 0.1))
+
+    def test_a_plane_offset_becomes_centimetres(self):
+        from fakefusion import RecordingInput
+        made = []
+        self.component.constructionPlanes = SimpleNamespace(
+            createInput=lambda: RecordingInput('plane', ()),
+            add=lambda plane_input: made.append(plane_input) or SimpleNamespace(name='', isLightBulbOn=False))
+        fx = self.fx
+        self.runtime.create_plane_from_frame(fx.r3_new_frame(fx.Vec(0, 0, 25.0), fx.Vec(1, 0, 0), fx.Vec(0, 1, 0)), 'P')
+        self.assertEqual([('plane', ('real', 2.5))], made[0].called('setByOffset'))
+
+
+class SplitScalePlaneTest(RuntimeTestCase):
+    """The spiral bevel's decad-only steps: Split, ScaledAt, and the plane across the base plane."""
+
+    def test_a_split_returns_the_piece_nearer_the_origin_first_and_removes_the_sheet(self):
+        fx = self.fx
+        container = self.runtime.root().new_child('Gear')
+        target = self.body(3.0, container=container)
+        sheet = self.body(0.0)
+        far, near = FakeBRep(9.0, 0.0, 0.0), FakeBRep(2.0, 0.0, 0.0)
+        self.features.split_pieces = [far, near]
+        pieces = fx.decad_split(target, sheet, name='Slice')
+        self.assertIs(near, pieces[0].body)
+        self.assertIs(far, pieces[1].body)
+        self.assertEqual(['split', 'remove'], self.features.kinds())
+        self.assertIs(sheet.body, self.log[1][1], 'the splitting sheet is removed')
+        self.assertEqual(pieces, container.bodies)
+        self.assertIsNone(target.container)
+
+    def test_a_split_into_other_than_two_pieces_is_an_error(self):
+        self.features.split_pieces = [FakeBRep(), FakeBRep(1.0), FakeBRep(2.0)]
+        with self.assertRaisesRegex(RuntimeError, 'made 3 pieces'):
+            self.fx.decad_split(self.body(), self.body(), name='Slice')
+
+    def scale_setup(self):
+        fx = self.fx
+        sketches = []
+
+        def add_sketch(face):
+            sketch = SimpleNamespace(name='', isLightBulbOn=True, face=face, points=[])
+            sketch.modelToSketchSpace = lambda point: ('sketch', point.x, point.y, point.z)
+            sketch.sketchPoints = SimpleNamespace(add=lambda point: sketch.points.append(point) or point)
+            sketches.append(sketch)
+            return sketch
+        self.component.sketches = SimpleNamespace(add=add_sketch)
+        cap = SimpleNamespace(geometry=SimpleNamespace(
+            surfaceType=fx.adsk.core.SurfaceTypes.PlaneSurfaceType,
+            origin=SimpleNamespace(x=1.0, y=0.0, z=0.0), normal=SimpleNamespace(x=1.0, y=0.0, z=0.0)))
+        side = SimpleNamespace(geometry=SimpleNamespace(surfaceType='cylinder'))
+        return sketches, [side, cap]
+
+    def test_a_scale_turns_about_a_sketch_point_on_a_face_through_the_anchor(self):
+        fx = self.fx
+        sketches, faces = self.scale_setup()
+        slab = self.body(1.0)
+        slab.body.faces = faces
+        self.assertIs(slab, fx.decad_scaled_at(slab, fx.Vec(1.0, 0.5, 0.0), 0.8, name='Crown Scale'))
+        self.assertIs(faces[1], sketches[0].face)
+        self.assertEqual([('sketch', 1.0, 0.5, 0.0)], sketches[0].points)
+        scale_input = self.log[0][1]
+        self.assertEqual((('sketch', 1.0, 0.5, 0.0), ('real', 0.8)), scale_input.args[1:])
+
+    def test_a_scale_with_no_face_through_the_anchor_is_an_error(self):
+        fx = self.fx
+        sketches, faces = self.scale_setup()
+        slab = self.body(1.0)
+        slab.body.faces = faces
+        with self.assertRaisesRegex(RuntimeError, 'no planar face'):
+            fx.decad_scaled_at(slab, fx.Vec(5.0, 0.0, 0.0), 0.8, name='Crown Scale')
+
+    def test_repeated_roles_get_an_index(self):
+        fx = self.fx
+        sketches, faces = self.scale_setup()
+        for _ in range(3):
+            slab = self.body(1.0)
+            slab.body.faces = faces
+            fx.decad_scaled_at(slab, fx.Vec(1.0, 0.0, 0.0), 0.8, name='Spiral Crown Scale')
+        names = [c.args[1] for c in fx.solids.name_feature.call_args_list]
+        self.assertEqual(['Spiral Crown Scale Anchor', 'Spiral Crown Scale',
+                          'Spiral Crown Scale Anchor 2', 'Spiral Crown Scale 2',
+                          'Spiral Crown Scale Anchor 3', 'Spiral Crown Scale 3'], names)
+
+    def test_every_body_a_feature_makes_is_named(self):
+        fx = self.fx
+        tooth = self.body(1.0, 3.0, 0.0)
+        fx.decad_pattern_copies(tooth, fx.decad_circular_pattern(Center=fx.r3_vec(), Axis=fx.r3_new_vec(1, 0, 0),
+                                                                 Count=3), name='Tooth Pattern')
+        copy = fx.decad_copy(tooth, name='Tooth Copy')
+        copy.body
+        named = [(c.args[0], c.args[1]) for c in fx.solids.name_feature.call_args_list]
+        bodies = [name for obj, name in named if isinstance(obj, FakeBRep)]
+        self.assertEqual(['Tooth Pattern Copy', 'Tooth Pattern Copy 2', 'Tooth Copy'], bodies)
+
+    def test_a_plane_across_the_base_plane_stands_on_a_line_from_the_frame_origin(self):
+        fx = self.fx
+        from fakefusion import RecordingInput
+        made = []
+        self.component.constructionPlanes = SimpleNamespace(
+            createInput=lambda: RecordingInput('plane', ()),
+            add=lambda plane_input: made.append(plane_input) or SimpleNamespace(name='', isLightBulbOn=False))
+        helper = mock.MagicMock()
+        helper.dimension_point.side_effect = lambda x, y: SimpleNamespace(x=x, y=y, point=('point', x, y))
+        helper.create_line.return_value = SimpleNamespace(fusion='line', set_construction=lambda flag: None)
+        frame = fx.r3_new_frame(fx.Vec(20.0, 0.0, 0.0), fx.Vec(0, 0, 1), fx.Vec(1, 0, 0))
+        with mock.patch.object(fx.Runtime, 'create_sketch', return_value=helper) as create:
+            plane = self.runtime.create_plane_from_frame(frame, 'Bore Plane')
+        self.assertEqual('Bore Plane Axis', create.call_args.args[1])
+        self.assertEqual([((20.0, 0.0),), ((20.0, 1.0),)],
+                         [(tuple(round(v, 9) for v in c.args),) for c in helper.dimension_point.call_args_list])
+        self.assertEqual([('line', ('real', 0))], made[0].called('setByDistanceOnPath'))
+        self.assertIs(frame, plane.frame)
+        self.assertEqual(('point', 20.0, 0.0), plane.anchor)
+
+
 if __name__ == '__main__':
     unittest.main()
