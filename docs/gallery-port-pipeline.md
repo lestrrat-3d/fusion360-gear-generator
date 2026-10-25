@@ -107,7 +107,7 @@ division raise where Go returns NaN or Inf.
 
 ## Checks
 
-`.github/workflows/3d-proof.yml` runs on every pull request and on pushes to `main`:
+`.github/workflows/checks.yml` runs on every pull request and on pushes to `main`:
 
 - `port` runs `go mod tidy` (and fails on a diff), `go vet`, golangci-lint and `go test ./...` in `port/`, then
   `scripts/check-generated-gears.sh`, which names every gear whose file differs from a fresh generation. A pin bump with no
