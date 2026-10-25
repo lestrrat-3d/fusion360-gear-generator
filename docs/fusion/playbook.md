@@ -919,6 +919,30 @@ gallery's axes to Fusion's by dot products. [PB-FRAME-PLANE]
 Decad numbers the trim of each flank at the root circle; Fusion's regions carry their trimmed curves, so the runtime
 picks the one valid, hole-free region with four edges of which two are splines.
 
+**[PB-STALE-MODULE] Fusion keeps imported modules across an add-in Stop and Run.** A deploy that changes
+`decadfusion.py` and not the generated gear file can leave the old runtime running, and a traceback then names line
+numbers and messages of code that is gone. The error dialog's Build line shows the runtime's hash and whether it matches
+the file on disk, and the command reloads the runtime when the hash differs. Read that line before trusting a report.
+
+**[PB-PROFILE-STALE] Adding a curve to a sketch invalidates the profiles already read from it.** A revolve whose axis was
+added to the profile's own sketch after `sketch.profiles` was read failed with `invalid profile(s) for Revolve Feature`.
+The axis goes in a sketch of its own, or the sketch draws it before the profiles are read. One axis line serves every
+revolve and pattern about the same axis. [PB-FRAME-PLANE]
+
+**[PB-BAD-ENTITY] `Sketch.project` answers `Bad entity parameter` for an entity that is not there or is stale.** Two causes
+were seen. The entity was None, because a sketch took its anchor from a plane that has none. A SketchPoint that another
+sketch had projected is also refused once that sketch gains curves and constraints, so a build projects the point the user
+chose and not the copy a tools sketch holds.
+
+**[PB-POINT-POSITION] The position of a point has a different name on each kind of point.** A SketchPoint has `geometry` in
+its sketch and `worldGeometry` in the design, a ConstructionPoint has `geometry` only, and a BRepVertex has `geometry`.
+Code that accepts the user's Center Point reads whichever exists.
+
+**[PB-PROGRESS-FILE] A build that hangs leaves no trace in the Text Commands window.** The window does not repaint while the
+add-in blocks Fusion's thread. `decadfusion.progress` appends a flushed line to `geargen-progress.log` in the system temp
+directory for each timed step, so the last line names the step that never returned. `unconstrained_entities` makes a failed
+constraint check name the curves and fit points it left free.
+
 ## What the spec need not pin (free to vary)
 
 Local variable names, comments, log strings, and how build steps are decomposed into private
