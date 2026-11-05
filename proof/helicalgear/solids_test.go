@@ -62,7 +62,7 @@ func stepBoreCut(t *testing.T, doc *decad.Document, p map[string]float64) []*dec
 	if err != nil {
 		t.Fatal(err)
 	}
-	tool, err = tool.Placed(t.Context(), shift)
+	tool, err = decad.Transform(t.Context(), tool, shift)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func polygonArea(pts []involute.Pt) float64 {
 func stepLoftTooth(t *testing.T, doc *decad.Document, p map[string]float64) []*decad.Body {
 	bottom, bp := polygonSection(t, 0, 0)
 	top, tp := polygonSection(t, p["height"], p["angle"])
-	body, err := doc.Loft(t.Context(), bottom, bp, top, tp)
+	body, err := decad.Loft(t.Context(), doc, bottom, bp, top, tp)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +224,7 @@ func stepPatternTeeth(t *testing.T, doc *decad.Document, p map[string]float64) [
 		if err != nil {
 			t.Fatal(err)
 		}
-		copy, err := copySeed.Placed(t.Context(), rotation)
+		copy, err := decad.Transform(t.Context(), copySeed, rotation)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -261,7 +261,7 @@ func stepCombineTeeth(t *testing.T, doc *decad.Document, p map[string]float64) [
 			if err != nil {
 				t.Fatal(err)
 			}
-			tooth, err = tooth.Placed(t.Context(), rotation)
+			tooth, err = decad.Transform(t.Context(), tooth, rotation)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -310,7 +310,7 @@ func facetedRootBody(t *testing.T, doc *decad.Document, p map[string]float64) *d
 	if err != nil {
 		t.Fatal(err)
 	}
-	body, err = body.Placed(t.Context(), shift)
+	body, err = decad.Transform(t.Context(), body, shift)
 	if err != nil {
 		t.Fatal(err)
 	}

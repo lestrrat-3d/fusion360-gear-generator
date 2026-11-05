@@ -515,7 +515,7 @@ func prismWithHoles(t *testing.T, doc *decad.Document, pts []point, holes []hole
 		t.Fatalf("%s: no valid region carries %d hole(s); the openings may cross the boundary",
 			label, len(holes))
 	}
-	body, err := doc.Extrude(s, found, decad.Distance{D: units.Millimeters(height), Dir: decad.Along})
+	body, err := decad.Extrude(t.Context(), doc, s, found, decad.Distance{D: units.Millimeters(height), Dir: decad.Along})
 	if err != nil {
 		t.Fatalf("%s: extrude the holed profile: %v", label, err)
 	}
@@ -550,7 +550,7 @@ func annulus(t *testing.T, doc *decad.Document, ox, oy, ro, ix, iy, ri, z0, heig
 	inner := s.CreateCircle(ic, ri)
 	s.AddConstraint(sketch.NewDiameter(outer, 2*ro), sketch.NewDiameter(inner, 2*ri))
 	profile := holedProfile(t, s)
-	body, err := doc.Extrude(s, profile, decad.Distance{D: units.Millimeters(height), Dir: decad.Along})
+	body, err := decad.Extrude(t.Context(), doc, s, profile, decad.Distance{D: units.Millimeters(height), Dir: decad.Along})
 	if err != nil {
 		t.Fatalf("%s: extrude the annulus: %v", label, err)
 	}
@@ -593,7 +593,7 @@ func liftTo(t *testing.T, body *decad.Body, z0 float64, label string) *decad.Bod
 	if err != nil {
 		t.Fatalf("%s: translation to z=%g: %v", label, z0, err)
 	}
-	moved, err := body.Placed(t.Context(), tr)
+	moved, err := decad.Transform(t.Context(), body, tr)
 	if err != nil {
 		t.Fatalf("%s: place at z=%g: %v", label, z0, err)
 	}

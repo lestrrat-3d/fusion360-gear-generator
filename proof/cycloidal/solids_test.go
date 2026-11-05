@@ -587,7 +587,7 @@ func casingSector(t *testing.T, doc *decad.Document, d dims, sink float64) *deca
 		s.Fix(q)
 	}
 	profile := decadtest.SolveRegion(t, s)
-	body, err := doc.Extrude(s, profile, decad.TwoSided{
+	body, err := decad.Extrude(t.Context(), doc, s, profile, decad.TwoSided{
 		One: decad.DistanceSide{D: units.Millimeters(d.stackTop())},
 		Two: decad.DistanceSide{D: units.Millimeters(1 + sink)},
 	})
@@ -611,7 +611,7 @@ func casingRing(t *testing.T, doc *decad.Document, d dims, sink float64) *decad.
 		s.Fix(q)
 	}
 	profile := holedProfile(t, s)
-	body, err := doc.Extrude(s, profile, decad.TwoSided{
+	body, err := decad.Extrude(t.Context(), doc, s, profile, decad.TwoSided{
 		One: decad.DistanceSide{D: units.Millimeters(d.stackTop())},
 		Two: decad.DistanceSide{D: units.Millimeters(1 + sink)},
 	})
@@ -777,7 +777,7 @@ func stepChamferRims(t *testing.T, doc *decad.Document, p map[string]float64) []
 	if d.Chamfer <= 0 {
 		return []*decad.Body{plate}
 	}
-	chamfered, err := plate.Chamfer(t.Context(), decad.Edges(decad.Circular()), units.Millimeters(d.Chamfer))
+	chamfered, err := decad.Chamfer(t.Context(), plate, decad.Edges(decad.Circular()), units.Millimeters(d.Chamfer))
 	if err != nil {
 		t.Fatalf("chamfer the Output Plate's cap rims at %.4f mm: %v", d.Chamfer, err)
 	}
@@ -816,7 +816,7 @@ func stepChamferPinEnds(t *testing.T, doc *decad.Document, p map[string]float64)
 	if d.Chamfer <= 0 {
 		return []*decad.Body{pin}
 	}
-	chamfered, err := pin.Chamfer(t.Context(), decad.Edges(decad.Circular()), units.Millimeters(d.Chamfer))
+	chamfered, err := decad.Chamfer(t.Context(), pin, decad.Edges(decad.Circular()), units.Millimeters(d.Chamfer))
 	if err != nil {
 		t.Fatalf("chamfer the Output Pin's ends at %.4f mm: %v", d.Chamfer, err)
 	}

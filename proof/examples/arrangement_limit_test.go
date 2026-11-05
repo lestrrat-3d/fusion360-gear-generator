@@ -56,11 +56,11 @@ func arrangementOperands(t *testing.T, holes int) (*decad.Document, *decad.Body,
 	require.NotNil(t, toolProfile)
 
 	doc := decad.New()
-	plate, err := doc.Extrude(plateSketch, plateProfile, decad.Distance{
+	plate, err := decad.Extrude(t.Context(), doc, plateSketch, plateProfile, decad.Distance{
 		D: units.Millimeters(8), Dir: decad.Along,
 	})
 	require.NoError(t, err)
-	tool, err := doc.Extrude(toolSketch, toolProfile, decad.TwoSided{
+	tool, err := decad.Extrude(t.Context(), doc, toolSketch, toolProfile, decad.TwoSided{
 		One: decad.DistanceSide{D: units.Millimeters(9)},
 		Two: decad.DistanceSide{D: units.Millimeters(1)},
 	})

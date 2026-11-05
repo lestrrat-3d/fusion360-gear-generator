@@ -203,7 +203,7 @@ func patternFromSection(t *testing.T, doc *decad.Document, p map[string]float64,
 	bodies := []*decad.Body{seed}
 	for i := 1; i < int(p["teeth"]); i++ {
 		rotation := toothRotation(t, p, i)
-		copy, err := seed.PlacedCopy(t.Context(), rotation)
+		copy, err := decad.Copy(t.Context(), seed, decad.WithCopyPlacement(rotation))
 		require.NoError(t, err)
 		bodies = append(bodies, copy)
 	}
@@ -333,7 +333,7 @@ func stepRootFillets(t *testing.T, doc *decad.Document, p map[string]float64) []
 	edges, err := query.SelectEdges(bodies[0])
 	require.NoError(t, err)
 	require.NotEmpty(t, edges, "the final contour must expose concave root edges for the fillet")
-	filleted, err := bodies[0].Fillet(t.Context(), query, units.Millimeters(radius))
+	filleted, err := decad.Fillet(t.Context(), bodies[0], query, units.Millimeters(radius))
 	require.NoError(t, err)
 	return []*decad.Body{filleted}
 }

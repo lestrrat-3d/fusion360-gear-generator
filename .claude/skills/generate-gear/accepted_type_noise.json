@@ -304,5 +304,10 @@
     "rule": "reportOptionalMemberAccess",
     "message": "\"activate\" is not a known attribute of \"None\"",
     "why": "self.designOccurrence.activate(): designOccurrence is another None-initialised class attribute (already accepted on the assignment side); the crown step's step-21 activate/finally block runs after generate() assigns it in S3."
+  },
+  {
+    "rule": "reportAssignmentType",
+    "message": "Type \"int\" is not assignable to declared type \"HorizontalAlignments\"",
+    "why": "Enum member is an int in the adsk stubs; the declared HorizontalAlignments annotation is the stub's own type for the argument, and Fusion accepts the enum value at runtime."
   }
 ]

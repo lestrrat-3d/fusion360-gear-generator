@@ -46,7 +46,7 @@ func makeCapChamfer(ctx context.Context, start bool) (*decad.Document, *decad.Bo
 		return nil, nil, 0, fmt.Errorf("missing cylinder profile")
 	}
 	doc := decad.New()
-	body, err := doc.Extrude(s, region, decad.Distance{
+	body, err := decad.Extrude(ctx, doc, s, region, decad.Distance{
 		D: units.Millimeters(chamferHeight), Dir: decad.Along,
 	})
 	if err != nil {
@@ -60,7 +60,7 @@ func makeCapChamfer(ctx context.Context, start bool) (*decad.Document, *decad.Bo
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("select cap edge: %w", err)
 	}
-	chamfered, err := body.Chamfer(ctx, query, units.Millimeters(chamferSetback))
+	chamfered, err := decad.Chamfer(ctx, body, query, units.Millimeters(chamferSetback))
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("chamfer cap: %w", err)
 	}

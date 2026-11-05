@@ -381,7 +381,7 @@ func loftHalf(t *testing.T, doc *decad.Document, world *sketch.World, p map[stri
 	t.Helper()
 	fromSketch, fromProfile := sectionSketch(t, world, p, fromZ, fromAngle)
 	toSketch, toProfile := sectionSketch(t, world, p, toZ, toAngle)
-	body, err := doc.Loft(t.Context(), fromSketch, fromProfile, toSketch, toProfile)
+	body, err := decad.Loft(t.Context(), doc, fromSketch, fromProfile, toSketch, toProfile)
 	if err != nil {
 		t.Fatalf("loft %q from the section at %g mm to the section at %g mm: %v", name, fromZ, toZ, err)
 	}

@@ -46,7 +46,7 @@ func makeComparisonBlock(ctx context.Context) (comparisonBody, error) {
 		return comparisonBody{}, fmt.Errorf("missing comparison profile")
 	}
 	doc := decad.New()
-	body, err := doc.Extrude(s, region, decad.Distance{
+	body, err := decad.Extrude(ctx, doc, s, region, decad.Distance{
 		D: units.Millimeters(10), Dir: decad.Along,
 	})
 	if err != nil {

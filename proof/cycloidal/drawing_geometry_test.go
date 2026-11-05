@@ -358,7 +358,7 @@ func drawExtrude(t *testing.T, doc *decad.Document, s *sketch.Sketch, holes int,
 	if found == nil {
 		t.Fatalf("%s: no valid region carries %d opening(s)", label, holes)
 	}
-	body, err := doc.Extrude(s, found, decad.Distance{D: units.Millimeters(height), Dir: decad.Along})
+	body, err := decad.Extrude(t.Context(), doc, s, found, decad.Distance{D: units.Millimeters(height), Dir: decad.Along})
 	if err != nil {
 		t.Fatalf("%s: extrude: %v", label, err)
 	}
@@ -443,7 +443,7 @@ func drawLiftTo(t *testing.T, body *decad.Body, z0 float64, label string) *decad
 	if err != nil {
 		t.Fatalf("%s: translation to z=%g: %v", label, z0, err)
 	}
-	moved, err := body.Placed(t.Context(), tr)
+	moved, err := decad.Transform(t.Context(), body, tr)
 	if err != nil {
 		t.Fatalf("%s: place at z=%g: %v", label, z0, err)
 	}

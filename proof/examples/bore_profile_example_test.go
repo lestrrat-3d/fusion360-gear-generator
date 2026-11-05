@@ -46,7 +46,7 @@ func boreBody(ctx context.Context, innerRadius float64) (*decad.Document, *decad
 		return nil, nil, nil, fmt.Errorf("missing annular profile")
 	}
 	doc := decad.New()
-	body, err := doc.Extrude(s, annulus, decad.Distance{
+	body, err := decad.Extrude(ctx, doc, s, annulus, decad.Distance{
 		D: units.Millimeters(8), Dir: decad.Along,
 	})
 	if err != nil {

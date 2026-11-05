@@ -31,8 +31,7 @@ class HerringboneGearGenerator(HelicalGearGenerator):
         thickness = self.getParameter(PARAM_THICKNESS)
         helixAngle = self.getParameter(PARAM_HELIX_ANGLE)
         return 'Herringbone Gear (M={}, Tooth={}, Thickness={}, Angle={})'.format(
-            module.expression, toothNumber.expression, thickness.expression,
-            helixAngle.expression)
+            module.expression, toothNumber.expression, thickness.expression, helixAngle.expression)
 
     def helicalPlaneOffset(self):
         thickness = self.getParameter(PARAM_THICKNESS).value
@@ -42,12 +41,15 @@ class HerringboneGearGenerator(HelicalGearGenerator):
         assert isinstance(ctx, HerringboneGearGenerationContext)
         self.loftTooth(ctx)
 
+        # Mirror the lofted half across the mid-body helix plane to form the other half.
         entities = adsk.core.ObjectCollection.create()
         entities.add(ctx.toothBody)
         mirrorInput = self.getComponent().features.mirrorFeatures.createInput(entities, ctx.helixPlane)
         mirrorResult = self.getComponent().features.mirrorFeatures.add(mirrorInput)
         mirrorResult.bodies.item(0).name = 'Tooth Body (Mirrored)'
 
+        # Combine the mirrored half into the original so the pattern/combine steps in the
+        # inherited spur pipeline operate on a single body.
         entities = adsk.core.ObjectCollection.create()
         entities.add(mirrorResult.bodies.item(0))
         combineInput = self.getComponent().features.combineFeatures.createInput(

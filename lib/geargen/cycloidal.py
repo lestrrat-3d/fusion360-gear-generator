@@ -1,14 +1,18 @@
 import math
-import adsk.core, adsk.fusion
+
+import adsk.core
+import adsk.fusion
+
 from ...lib import fusion360utils as futil
 from .misc import to_cm, to_mm, get_design
 from .base import Generator, get_value, get_selection
 from . import solids
 
 
-# -----------------------------------------------------------------------------------------
-# Dialog input ids and registered user-parameter names.
-# -----------------------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Dialog input ids and registered parameter names (S01, S03).
+# ---------------------------------------------------------------------------
+
 INPUT_ID_PLANE = 'plane'
 INPUT_ID_ANCHOR_POINT = 'anchorPoint'
 INPUT_ID_DISC_COUNT = 'discCount'
@@ -31,6 +35,8 @@ INPUT_ID_OUTPUT_PLATE_THICKNESS = 'outputPlateThickness'
 INPUT_ID_CHAMFER_SIZE = 'chamferSize'
 INPUT_ID_PARENT = 'parentComponent'
 
+STATUS_SUFFIX = '__status'
+
 PARAM_PIN_COUNT = 'PinCount'
 PARAM_PIN_CIRCLE_DIAMETER = 'PinCircleDiameter'
 PARAM_PIN_DIAMETER = 'PinDiameter'
@@ -49,189 +55,128 @@ PARAM_BASE_THICKNESS = 'BaseThickness'
 PARAM_OUTPUT_PLATE_THICKNESS = 'OutputPlateThickness'
 PARAM_CHAMFER_SIZE = 'ChamferSize'
 
-# Derived parameters, registered after _resolveDimensions ([PB-NUMERIC-SNAPSHOT] for the two
-# marked "snapshot"; the rest stay live expressions).
+PARAM_PIN_RADIUS = 'PinRadius'
+PARAM_OUTPUT_HOLE_DIAMETER = 'OutputHoleDiameter'
 PARAM_LOBES = 'Lobes'
 PARAM_PIN_CIRCLE_RADIUS = 'PinCircleRadius'
 PARAM_OUTPUT_PIN_CIRCLE_RADIUS = 'OutputPinCircleRadius'
-PARAM_PIN_RADIUS = 'PinRadius'                        # numeric snapshot
-PARAM_OUTPUT_HOLE_DIAMETER = 'OutputHoleDiameter'      # numeric snapshot
 PARAM_HOUSING_INNER_DIAMETER = 'HousingInnerDiameter'
 PARAM_HOUSING_OUTER_DIAMETER = 'HousingOuterDiameter'
 PARAM_OUTPUT_PLATE_DIAMETER = 'OutputPlateDiameter'
 
+FINE_STEPS = 2000
+TURN_LIMIT = 5.0 * math.pi / 180.0
+SWEEP_STEPS = 240
+CONTOUR_BINS = 80
+BISECT_ROUNDS = 40
 
-# -----------------------------------------------------------------------------------------
-# S01 — dialog inputs.
-# -----------------------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# S01: dialog
+# ---------------------------------------------------------------------------
+
 class CycloidalDriveCommandInputsConfigurator:
     @classmethod
     def configure(cls, command: adsk.core.Command):
-        inputs = command.commandInputs
+        inputs: adsk.core.CommandInputs = command.commandInputs
 
-        # 1. Target Plane — first, so Fusion's auto-focus-first-selection-input
-        #    behaviour opens the dialog on it ([PB-AUTOFOCUS-FIRST]).
-        planeInput = inputs.addSelectionInput(INPUT_ID_PLANE, 'Target Plane', 'Target Plane')
-        planeInput.addSelectionFilter(adsk.core.SelectionCommandInput.ConstructionPlanes)
-        planeInput.addSelectionFilter(adsk.core.SelectionCommandInput.PlanarFaces)
-        planeInput.setSelectionLimits(1, 1)
+        plane: adsk.core.SelectionCommandInput = inputs.addSelectionInput(
+            INPUT_ID_PLANE, 'Target Plane', 'Select the plane to build the drive on')
+        plane.addSelectionFilter(adsk.core.SelectionCommandInput.ConstructionPlanes)
+        plane.addSelectionFilter(adsk.core.SelectionCommandInput.PlanarFaces)
+        plane.setSelectionLimits(1, 1)
 
-        # 2. Anchor Point
-        anchorInput = inputs.addSelectionInput(INPUT_ID_ANCHOR_POINT, 'Anchor Point', 'Anchor Point')
-        anchorInput.addSelectionFilter(adsk.core.SelectionCommandInput.ConstructionPoints)
-        anchorInput.addSelectionFilter(adsk.core.SelectionCommandInput.SketchPoints)
-        anchorInput.setSelectionLimits(1, 1)
+        anchor: adsk.core.SelectionCommandInput = inputs.addSelectionInput(
+            INPUT_ID_ANCHOR_POINT, 'Anchor Point', 'Select the point the drive is centered on')
+        anchor.addSelectionFilter(adsk.core.SelectionCommandInput.ConstructionPoints)
+        anchor.addSelectionFilter(adsk.core.SelectionCommandInput.SketchPoints)
+        anchor.setSelectionLimits(1, 1)
 
-        # 3. Disc Count — dropdown, not a value input.
-        discCountInput = inputs.addDropDownCommandInput(
+        discCount: adsk.core.DropDownCommandInput = inputs.addDropDownCommandInput(
             INPUT_ID_DISC_COUNT, 'Disc Count', adsk.core.DropDownStyles.TextListDropDownStyle)
-        discCountInput.listItems.add('1', True)
-        discCountInput.listItems.add('2', False)
-        cls._addStatusSlot(inputs, INPUT_ID_DISC_COUNT)
+        discCount.listItems.add('1', True)
+        discCount.listItems.add('2', False)
+        cls._slot(inputs, INPUT_ID_DISC_COUNT)
 
-        # 4. Pin Count
-        inputs.addValueInput(
-            INPUT_ID_PIN_COUNT, 'Pin Count', '', adsk.core.ValueInput.createByReal(16))
-        cls._addStatusSlot(inputs, INPUT_ID_PIN_COUNT)
+        cls._value(inputs, INPUT_ID_PIN_COUNT, 'Pin Count', '', 16)
+        cls._value(inputs, INPUT_ID_PIN_CIRCLE_DIAMETER, 'Pin Circle Diameter', 'mm', to_cm(90))
+        cls._value(inputs, INPUT_ID_PIN_DIAMETER, 'Pin Diameter', 'mm', to_cm(0))
+        cls._value(inputs, INPUT_ID_ECCENTRICITY, 'Eccentricity', 'mm', to_cm(1.5))
+        cls._value(inputs, INPUT_ID_DISK_CLEARANCE, 'Disk Clearance', 'mm', to_cm(0.3))
+        cls._value(inputs, INPUT_ID_DISC_THICKNESS, 'Disc Thickness', 'mm', to_cm(8))
+        cls._value(inputs, INPUT_ID_DISC_GAP, 'Disc Gap', 'mm', to_cm(0.5))
+        cls._value(inputs, INPUT_ID_CENTER_BEARING_DIAMETER, 'Center Bearing Diameter', 'mm', to_cm(30))
+        cls._value(inputs, INPUT_ID_INPUT_SHAFT_DIAMETER, 'Input Shaft Diameter', 'mm', to_cm(8))
+        cls._value(inputs, INPUT_ID_BEARING_CLEARANCE, 'Bearing Clearance', 'mm', to_cm(0.2))
+        cls._value(inputs, INPUT_ID_OUTPUT_PIN_CIRCLE_DIAMETER, 'Output Pin Circle Diameter', 'mm', to_cm(50))
+        cls._value(inputs, INPUT_ID_OUTPUT_PIN_COUNT, 'Output Pin Count', '', 6)
+        cls._value(inputs, INPUT_ID_OUTPUT_PIN_DIAMETER, 'Output Pin Diameter', 'mm', to_cm(0))
+        cls._value(inputs, INPUT_ID_WALL, 'Housing Wall', 'mm', to_cm(3))
+        cls._value(inputs, INPUT_ID_BASE_THICKNESS, 'Base Thickness', 'mm', to_cm(5))
+        cls._value(inputs, INPUT_ID_OUTPUT_PLATE_THICKNESS, 'Output Plate Thickness', 'mm', to_cm(5))
+        cls._value(inputs, INPUT_ID_CHAMFER_SIZE, 'Chamfer Size', 'mm', to_cm(0.5))
 
-        # 5. Pin Circle Diameter
-        inputs.addValueInput(
-            INPUT_ID_PIN_CIRCLE_DIAMETER, 'Pin Circle Diameter', 'mm',
-            adsk.core.ValueInput.createByReal(to_cm(90)))
-        cls._addStatusSlot(inputs, INPUT_ID_PIN_CIRCLE_DIAMETER)
+        parent: adsk.core.SelectionCommandInput = inputs.addSelectionInput(
+            INPUT_ID_PARENT, 'Parent Component', 'Select the component the drive is created in')
+        parent.addSelectionFilter(adsk.core.SelectionCommandInput.Occurrences)
+        parent.addSelectionFilter(adsk.core.SelectionCommandInput.RootComponents)
+        parent.setSelectionLimits(0, 1)
+        parent.addSelection(get_design().rootComponent)
 
-        # 6. Pin Diameter
-        inputs.addValueInput(
-            INPUT_ID_PIN_DIAMETER, 'Pin Diameter', 'mm',
-            adsk.core.ValueInput.createByReal(to_cm(0)))
-        cls._addStatusSlot(inputs, INPUT_ID_PIN_DIAMETER)
+    @classmethod
+    def _value(cls, inputs: adsk.core.CommandInputs, input_id: str, label: str, unit: str, default: float):
+        inputs.addValueInput(input_id, label, unit, adsk.core.ValueInput.createByReal(default))
+        cls._slot(inputs, input_id)
 
-        # 7. Eccentricity
-        inputs.addValueInput(
-            INPUT_ID_ECCENTRICITY, 'Eccentricity', 'mm',
-            adsk.core.ValueInput.createByReal(to_cm(1.5)))
-        cls._addStatusSlot(inputs, INPUT_ID_ECCENTRICITY)
-
-        # 8. Disk Clearance
-        inputs.addValueInput(
-            INPUT_ID_DISK_CLEARANCE, 'Disk Clearance', 'mm',
-            adsk.core.ValueInput.createByReal(to_cm(0.3)))
-        cls._addStatusSlot(inputs, INPUT_ID_DISK_CLEARANCE)
-
-        # 9. Disc Thickness
-        inputs.addValueInput(
-            INPUT_ID_DISC_THICKNESS, 'Disc Thickness', 'mm',
-            adsk.core.ValueInput.createByReal(to_cm(8)))
-        cls._addStatusSlot(inputs, INPUT_ID_DISC_THICKNESS)
-
-        # 10. Disc Gap
-        inputs.addValueInput(
-            INPUT_ID_DISC_GAP, 'Disc Gap', 'mm',
-            adsk.core.ValueInput.createByReal(to_cm(0.5)))
-        cls._addStatusSlot(inputs, INPUT_ID_DISC_GAP)
-
-        # 11. Center Bearing Diameter
-        inputs.addValueInput(
-            INPUT_ID_CENTER_BEARING_DIAMETER, 'Center Bearing Diameter', 'mm',
-            adsk.core.ValueInput.createByReal(to_cm(30)))
-        cls._addStatusSlot(inputs, INPUT_ID_CENTER_BEARING_DIAMETER)
-
-        # 12. Input Shaft Diameter
-        inputs.addValueInput(
-            INPUT_ID_INPUT_SHAFT_DIAMETER, 'Input Shaft Diameter', 'mm',
-            adsk.core.ValueInput.createByReal(to_cm(8)))
-        cls._addStatusSlot(inputs, INPUT_ID_INPUT_SHAFT_DIAMETER)
-
-        # 13. Bearing Clearance
-        inputs.addValueInput(
-            INPUT_ID_BEARING_CLEARANCE, 'Bearing Clearance', 'mm',
-            adsk.core.ValueInput.createByReal(to_cm(0.2)))
-        cls._addStatusSlot(inputs, INPUT_ID_BEARING_CLEARANCE)
-
-        # 14. Output Pin Circle Diameter
-        inputs.addValueInput(
-            INPUT_ID_OUTPUT_PIN_CIRCLE_DIAMETER, 'Output Pin Circle Diameter', 'mm',
-            adsk.core.ValueInput.createByReal(to_cm(50)))
-        cls._addStatusSlot(inputs, INPUT_ID_OUTPUT_PIN_CIRCLE_DIAMETER)
-
-        # 15. Output Pin Count
-        inputs.addValueInput(
-            INPUT_ID_OUTPUT_PIN_COUNT, 'Output Pin Count', '',
-            adsk.core.ValueInput.createByReal(6))
-        cls._addStatusSlot(inputs, INPUT_ID_OUTPUT_PIN_COUNT)
-
-        # 16. Output Pin Diameter
-        inputs.addValueInput(
-            INPUT_ID_OUTPUT_PIN_DIAMETER, 'Output Pin Diameter', 'mm',
-            adsk.core.ValueInput.createByReal(to_cm(0)))
-        cls._addStatusSlot(inputs, INPUT_ID_OUTPUT_PIN_DIAMETER)
-
-        # 17. Housing Wall
-        inputs.addValueInput(
-            INPUT_ID_WALL, 'Housing Wall', 'mm', adsk.core.ValueInput.createByReal(to_cm(3)))
-        cls._addStatusSlot(inputs, INPUT_ID_WALL)
-
-        # 18. Base Thickness
-        inputs.addValueInput(
-            INPUT_ID_BASE_THICKNESS, 'Base Thickness', 'mm',
-            adsk.core.ValueInput.createByReal(to_cm(5)))
-        cls._addStatusSlot(inputs, INPUT_ID_BASE_THICKNESS)
-
-        # 19. Output Plate Thickness
-        inputs.addValueInput(
-            INPUT_ID_OUTPUT_PLATE_THICKNESS, 'Output Plate Thickness', 'mm',
-            adsk.core.ValueInput.createByReal(to_cm(5)))
-        cls._addStatusSlot(inputs, INPUT_ID_OUTPUT_PLATE_THICKNESS)
-
-        # 20. Chamfer Size
-        inputs.addValueInput(
-            INPUT_ID_CHAMFER_SIZE, 'Chamfer Size', 'mm',
-            adsk.core.ValueInput.createByReal(to_cm(0.5)))
-        cls._addStatusSlot(inputs, INPUT_ID_CHAMFER_SIZE)
-
-        # 21. Parent Component — last.
-        parentInput = inputs.addSelectionInput(
-            INPUT_ID_PARENT, 'Parent Component', 'Parent Component')
-        parentInput.addSelectionFilter(adsk.core.SelectionCommandInput.Occurrences)
-        parentInput.addSelectionFilter(adsk.core.SelectionCommandInput.RootComponents)
-        parentInput.setSelectionLimits(0, 1)
-        parentInput.addSelection(get_design().rootComponent)
-
-    @staticmethod
-    def _addStatusSlot(inputs: adsk.core.CommandInputs, inputId):
-        slot = inputs.addTextBoxCommandInput(inputId + '__status', '', '', 2, True)
+    @classmethod
+    def _slot(cls, inputs: adsk.core.CommandInputs, input_id: str):
+        slot: adsk.core.TextBoxCommandInput = inputs.addTextBoxCommandInput(
+            input_id + STATUS_SUFFIX, '', '', 2, True)
         slot.isVisible = False
 
 
-# -----------------------------------------------------------------------------------------
-# S02/S03 — shared geometry/validity math. disk_point is the rotor profile point function;
-# evaluate_problems is the single validity routine validate_inputs and _resolveDimensions
-# both call, so the two never drift ([PB-VALIDATE-INPUTS]).
-# -----------------------------------------------------------------------------------------
-def disk_point(t, cx, cy, phi, R, E, N, RrEff):
-    num = math.sin((1 - N) * t)
-    den = (R / (E * N)) - math.cos((1 - N) * t)
-    psi = math.atan2(num, den)
-    x0 = R * math.cos(t) - RrEff * math.cos(t + psi) - E * math.cos(N * t)
-    y0 = -R * math.sin(t) + RrEff * math.sin(t + psi) + E * math.sin(N * t)
-    x = cx + (x0 * math.cos(phi) - y0 * math.sin(phi))
-    y = cy + (x0 * math.sin(phi) + y0 * math.cos(phi))
-    return x, y
+# ---------------------------------------------------------------------------
+# S02: one resolve + validate routine, shared by the dialog and the generator
+# ---------------------------------------------------------------------------
+
+def resolve_values(raw: dict) -> dict:
+    """Resolve the derived dimensions from raw internal-cm dialog values.
+
+    raw keys: N, M, D, R, Rop, E, c, pinDiameter, outputPinDiameter, CBD, clr, ISD.
+    """
+    N = raw['N']
+    M = raw['M']
+    R = raw['R']
+    Rop = raw['Rop']
+    E = raw['E']
+    c = raw['c']
+    vals = dict(raw)
+    vals['auto_pin'] = not (raw['pinDiameter'] > 0)
+    vals['auto_out'] = not (raw['outputPinDiameter'] > 0)
+    if raw['pinDiameter'] > 0:
+        Rr = raw['pinDiameter'] / 2
+    else:
+        Rr = 0.5 * (E + R * math.sin(math.pi / N))
+    Rr_eff = Rr + c
+    Rv = R - Rr_eff - E
+    if raw['outputPinDiameter'] > 0:
+        D_pin = raw['outputPinDiameter']
+    else:
+        D_pin = Rop * math.sin(math.pi / M) - E
+    D_hole = D_pin + 2 * E
+    vals['Rr'] = Rr
+    vals['Rr_eff'] = Rr_eff
+    vals['Rv'] = Rv
+    vals['D_pin'] = D_pin
+    vals['D_hole'] = D_hole
+    vals['L'] = N - 1
+    return vals
 
 
-def _resolve_pin_radius(R, E, N, pinDiameterRaw):
-    if pinDiameterRaw > 0:
-        return pinDiameterRaw / 2, True
-    return 0.5 * (E + R * math.sin(math.pi / N)), False
-
-
-def rho_min_O(R, E, N):
-    """Smallest radius of curvature of the base trochoid at the points whose centre of
-    curvature lies toward O, sampled at 2000 points of t over [0, 2*pi)."""
+def rho_min_toward_origin(R: float, E: float, N: int) -> float:
     best = math.inf
-    found = False
-    for i in range(2000):
-        t = 2 * math.pi * i / 2000
+    for i in range(FINE_STEPS):
+        t = 2 * math.pi * i / FINE_STEPS
         bx = R * math.cos(t) - E * math.cos(N * t)
         by = -R * math.sin(t) + E * math.sin(N * t)
         xp = -R * math.sin(t) + E * N * math.sin(N * t)
@@ -241,1190 +186,1084 @@ def rho_min_O(R, E, N):
         k = xp * ypp - yp * xpp
         if abs(k) < 1e-12:
             continue
-        s2 = xp * xp + yp * yp
-        rho = s2 ** 1.5 / k
-        s = math.sqrt(s2)
-        nx, ny = -yp / s, xp / s
-        cx, cy = bx + rho * nx, by + rho * ny
+        s = math.sqrt(xp * xp + yp * yp)
+        rho = s ** 3 / k
+        nx = -yp / s
+        ny = xp / s
+        cx = bx + rho * nx
+        cy = by + rho * ny
         if cx * cx + cy * cy < bx * bx + by * by:
-            found = True
             best = min(best, abs(rho))
-    return best if found else math.inf
+    return best
 
 
-def _undercut_limit(R, E, N, c, pinDiameterRaw):
-    """The largest E' in (0, E] for which Rr_eff(E') < rho_min_O(E') still holds, by exactly
-    40 bisection rounds. Returns None when no positive E' satisfies it."""
-    def trial(e):
-        Rr, _ = _resolve_pin_radius(R, e, N, pinDiameterRaw)
-        return (Rr + c) < rho_min_O(R, e, N)
-
-    lo, hi = 1e-9, E
-    if not trial(lo):
-        return None
-    for _ in range(40):
+def undercut_limit(vals: dict) -> float:
+    """E*: 40 bisection rounds on E' in (0, E], re-resolving Rr and rho_min_O each round.
+    Returns 0 when no positive E' satisfies the guard."""
+    R = vals['R']
+    N = vals['N']
+    c = vals['c']
+    lo = 0.0
+    hi = vals['E']
+    for _ in range(BISECT_ROUNDS):
         mid = (lo + hi) / 2
-        if trial(mid):
+        if not vals['auto_pin']:
+            rr = vals['pinDiameter'] / 2
+        else:
+            rr = 0.5 * (mid + R * math.sin(math.pi / N))
+        if rr + c < rho_min_toward_origin(R, mid, N):
             lo = mid
         else:
             hi = mid
     return lo
 
 
-def evaluate_problems(N, M, D, R, E, c, CBD, ISD, clr, Rop, pinDiameterRaw, outputPinDiameterRaw):
-    """The whole validity list, in the order the spec's table gives. Returns every failing
-    message, not just the first. All inputs are internal cm / plain ints."""
+def _mm(cm: float) -> str:
+    return '{:.2f}'.format(to_mm(cm))
+
+
+def evaluate_problems(vals: dict) -> list:
     problems = []
+    N = vals['N']
+    M = vals['M']
+    D = vals['D']
+    R = vals['R']
+    Rop = vals['Rop']
+    E = vals['E']
+    Rr = vals['Rr']
+    Rr_eff = vals['Rr_eff']
+    Rv = vals['Rv']
+    D_pin = vals['D_pin']
+    D_hole = vals['D_hole']
+    CBD = vals['CBD']
+    clr = vals['clr']
+    ISD = vals['ISD']
+    sinN = math.sin(math.pi / N)
+    sinM = math.sin(math.pi / M)
 
-    Rr, pinOverride = _resolve_pin_radius(R, E, N, pinDiameterRaw)
-    RrEff = Rr + c
-    Rv = R - RrEff - E
-    if outputPinDiameterRaw > 0:
-        DPin = outputPinDiameterRaw
-        outOverride = True
-    else:
-        DPin = Rop * math.sin(math.pi / M) - E
-        outOverride = False
-    DHole = DPin + 2 * E
-
-    # 1
     if D == 2 and (N % 2 != 0 or M % 2 != 0):
         problems.append(
             'Two discs require an even Pin Count and an even Output Pin Count '
             '(currently N={}, M={}).'.format(N, M))
 
-    # 2
-    if not (E < Rr < R * math.sin(math.pi / N)):
-        if pinOverride:
+    if not (E < Rr < R * sinN):
+        if vals['auto_pin']:
             problems.append(
-                'Pin Diameter must be between {:.2f} mm and {:.2f} mm (currently {:.2f}).'.format(
-                    to_mm(2 * E), to_mm(2 * R * math.sin(math.pi / N)), to_mm(2 * Rr)))
+                'Pin geometry out of range — increase Pin Circle Diameter above {} mm '
+                'or reduce Eccentricity below {} mm.'.format(_mm(2 * E / sinN), _mm(R * sinN)))
         else:
             problems.append(
-                'Pin geometry out of range — increase Pin Circle Diameter above {:.2f} mm '
-                'or reduce Eccentricity below {:.2f} mm.'.format(
-                    to_mm(2 * E / math.sin(math.pi / N)), to_mm(R * math.sin(math.pi / N))))
+                'Pin Diameter must be between {} mm and {} mm (currently {}).'.format(
+                    _mm(2 * E), _mm(2 * R * sinN), _mm(2 * Rr)))
 
-    # 3
-    if not (DPin > 0):
-        if outOverride:
+    if not (D_pin > 0):
+        if vals['auto_out']:
+            problems.append(
+                'Output pins vanish (resolved diameter ≤ 0) — increase Output Pin '
+                'Circle Diameter above {} mm, increase Output Pin Count, or reduce '
+                'Eccentricity.'.format(_mm(2 * E / sinM)))
+        else:
             problems.append('Output Pin Diameter must be greater than 0.')
-        else:
-            problems.append(
-                'Output pins vanish (resolved diameter ≤ 0) — increase Output Pin Circle '
-                'Diameter above {:.2f} mm, increase Output Pin Count, or reduce '
-                'Eccentricity.'.format(to_mm(2 * E / math.sin(math.pi / M))))
 
-    # 4
-    if not (DHole < 2 * Rop * math.sin(math.pi / M)):
+    if not (D_hole < 2 * Rop * sinM):
         problems.append(
-            'Output holes overlap — increase Output Pin Circle Diameter above {:.2f} mm, '
+            'Output holes overlap — increase Output Pin Circle Diameter above {} mm, '
             'increase Output Pin Count, or reduce Output Pin Diameter / Eccentricity.'.format(
-                to_mm((DPin + 2 * E) / math.sin(math.pi / M))))
+                _mm((D_pin + 2 * E) / sinM)))
 
-    # 5
     if not (E < R / N):
         problems.append(
-            'Eccentricity too large — reduce it below {:.2f} mm (or increase Pin Circle '
-            'Diameter / reduce Pin Count).'.format(to_mm(R / N)))
+            'Eccentricity too large — reduce it below {} mm (or increase Pin Circle '
+            'Diameter / reduce Pin Count).'.format(_mm(R / N)))
 
-    # 6
     if not (Rop < Rv):
         problems.append(
-            'Output Pin Circle too large — set Output Pin Circle Diameter below {:.2f} mm '
-            '(currently {:.2f}).'.format(to_mm(2 * Rv), to_mm(2 * Rop)))
+            'Output Pin Circle too large — set Output Pin Circle Diameter below {} mm '
+            '(currently {}).'.format(_mm(2 * Rv), _mm(2 * Rop)))
 
-    # 7
-    if not (RrEff < rho_min_O(R, E, N)):
-        eStar = _undercut_limit(R, E, N, c, pinDiameterRaw)
-        if eStar is None:
+    if not (Rr_eff < rho_min_toward_origin(R, E, N)):
+        limit = undercut_limit(vals)
+        if limit > 0:
+            problems.append(
+                'Eccentricity too large — the rotor profile undercuts/self-intersects. '
+                'Reduce Eccentricity below {} mm.'.format(_mm(limit)))
+        else:
             problems.append(
                 'Eccentricity too large — the rotor profile undercuts/self-intersects. '
                 'Reduce Eccentricity.')
-        else:
-            problems.append(
-                'Eccentricity too large — the rotor profile undercuts/self-intersects. '
-                'Reduce Eccentricity below {:.2f} mm.'.format(to_mm(eStar)))
 
-    # 8
     if not (ISD < CBD):
         problems.append(
-            'Input Shaft Diameter must be less than Center Bearing Diameter '
-            '({:.2f} mm).'.format(to_mm(CBD)))
+            'Input Shaft Diameter must be less than Center Bearing Diameter ({} mm).'.format(_mm(CBD)))
 
-    # 9
     if not (E + ISD / 2 < CBD / 2):
         problems.append(
-            "Input bore doesn't fit inside the cam — set Input Shaft Diameter below {:.2f} mm, "
-            'or reduce Eccentricity / increase Center Bearing Diameter.'.format(to_mm(CBD - 2 * E)))
+            "Input bore doesn't fit inside the cam — set Input Shaft Diameter below {} mm, "
+            'or reduce Eccentricity / increase Center Bearing Diameter.'.format(_mm(CBD - 2 * E)))
 
-    # 10
-    if not ((CBD + clr) / 2 < Rop - DHole / 2):
+    if not ((CBD + clr) / 2 < Rop - D_hole / 2):
         problems.append(
-            'Disk center bore overlaps the output holes — increase Output Pin Circle Diameter '
-            'above {:.2f} mm, or reduce Center Bearing Diameter / Bearing Clearance / output '
-            'pin size.'.format(to_mm(CBD + clr + DHole)))
+            'Disk center bore overlaps the output holes — increase Output Pin Circle '
+            'Diameter above {} mm, or reduce Center Bearing Diameter / Bearing Clearance / '
+            'output pin size.'.format(_mm(CBD + clr + D_hole)))
 
     return problems
 
 
-def vanish():
-    """Not a call — 'vanish' is a word inside evaluate_problems' check-3 message string."""
-    raise NotImplementedError
+def read_raw_inputs(inputs: adsk.core.CommandInputs) -> dict:
+    """Raw internal-cm values straight off the dialog inputs (no parameters, no document writes)."""
+    def val(inputs: adsk.core.CommandInputs, input_id: str) -> float:
+        vi: adsk.core.ValueCommandInput = adsk.core.ValueCommandInput.cast(inputs.itemById(input_id))
+        return vi.value
+
+    dropdown: adsk.core.DropDownCommandInput = adsk.core.DropDownCommandInput.cast(
+        inputs.itemById(INPUT_ID_DISC_COUNT))
+    return {
+        'N': int(round(val(inputs, INPUT_ID_PIN_COUNT))),
+        'M': int(round(val(inputs, INPUT_ID_OUTPUT_PIN_COUNT))),
+        'D': int(dropdown.selectedItem.name),
+        'R': val(inputs, INPUT_ID_PIN_CIRCLE_DIAMETER) / 2,
+        'Rop': val(inputs, INPUT_ID_OUTPUT_PIN_CIRCLE_DIAMETER) / 2,
+        'E': val(inputs, INPUT_ID_ECCENTRICITY),
+        'c': val(inputs, INPUT_ID_DISK_CLEARANCE),
+        'pinDiameter': val(inputs, INPUT_ID_PIN_DIAMETER),
+        'outputPinDiameter': val(inputs, INPUT_ID_OUTPUT_PIN_DIAMETER),
+        'CBD': val(inputs, INPUT_ID_CENTER_BEARING_DIAMETER),
+        'clr': val(inputs, INPUT_ID_BEARING_CLEARANCE),
+        'ISD': val(inputs, INPUT_ID_INPUT_SHAFT_DIAMETER),
+        'T': val(inputs, INPUT_ID_DISC_THICKNESS),
+        'G': val(inputs, INPUT_ID_DISC_GAP),
+        'Wall': val(inputs, INPUT_ID_WALL),
+        'BaseT': val(inputs, INPUT_ID_BASE_THICKNESS),
+        'PlateT': val(inputs, INPUT_ID_OUTPUT_PLATE_THICKNESS),
+        'Chamfer': val(inputs, INPUT_ID_CHAMFER_SIZE),
+    }
 
 
-# -----------------------------------------------------------------------------------------
-# The orchestrator.
-# -----------------------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Geometry transcriptions from the proof (S06, S23)
+# ---------------------------------------------------------------------------
+
+def disk_point(vals: dict, t: float, cx: float, cy: float, phi: float):
+    """The rotor boundary point at parameter t, in internal cm."""
+    n = vals['N']
+    R = vals['R']
+    E = vals['E']
+    rr_eff = vals['Rr_eff']
+    num = math.sin((1 - n) * t)
+    den = R / (E * n) - math.cos((1 - n) * t)
+    psi = math.atan2(num, den)
+    x0 = R * math.cos(t) - rr_eff * math.cos(t + psi) - E * math.cos(n * t)
+    y0 = -R * math.sin(t) + rr_eff * math.sin(t + psi) + E * math.sin(n * t)
+    x = cx + x0 * math.cos(phi) - y0 * math.sin(phi)
+    y = cy + x0 * math.sin(phi) + y0 * math.cos(phi)
+    return (x, y)
+
+
+def lobe_samples(vals: dict, cx: float, cy: float, phi: float) -> list:
+    """One lobe, t in [0, 2*pi/L], sampled by bounded turn angle."""
+    span = 2 * math.pi / vals['L']
+    fine = [disk_point(vals, span * i / FINE_STEPS, cx, cy, phi) for i in range(FINE_STEPS + 1)]
+    kept = [fine[0]]
+    acc = 0.0
+    for i in range(1, FINE_STEPS):
+        a = math.atan2(fine[i][1] - fine[i - 1][1], fine[i][0] - fine[i - 1][0])
+        b = math.atan2(fine[i + 1][1] - fine[i][1], fine[i + 1][0] - fine[i][0])
+        acc += abs(math.atan2(math.sin(b - a), math.cos(b - a)))
+        if acc >= TURN_LIMIT:
+            kept.append(fine[i])
+            acc = 0.0
+    kept.append(fine[FINE_STEPS])
+    return kept
+
+
+def contour_pitch(vals: dict) -> list:
+    """The casing's inner wall over one pin pitch, emitted at bin edges."""
+    N = vals['N']
+    L = vals['L']
+    E = vals['E']
+    half = math.pi / N
+    bin_max = [0.0] * CONTOUR_BINS
+    hit = [False] * CONTOUR_BINS
+    for i in range(SWEEP_STEPS):
+        th = 2 * math.pi * i / SWEEP_STEPS
+        cx = E * math.cos(th)
+        cy = E * math.sin(th)
+        clock = -th / L
+        for j in range(SWEEP_STEPS):
+            q = disk_point(vals, 2 * math.pi * j / SWEEP_STEPS, cx, cy, clock)
+            a = math.atan2(q[1], q[0])
+            if a < -half or a > half:
+                continue
+            b = int((a + half) / (2 * half) * CONTOUR_BINS)
+            b = min(max(b, 0), CONTOUR_BINS - 1)
+            r = math.hypot(q[0], q[1])
+            if (not hit[b]) or r > bin_max[b]:
+                bin_max[b] = r
+                hit[b] = True
+    out = []
+    for i in range(CONTOUR_BINS + 1):
+        ang = -half + 2 * half * i / CONTOUR_BINS
+        peak = 0.0
+        if i > 0 and hit[i - 1]:
+            peak = max(peak, bin_max[i - 1])
+        if i < CONTOUR_BINS and hit[i]:
+            peak = max(peak, bin_max[i])
+        r = vals['c'] + peak
+        out.append((r * math.cos(ang), r * math.sin(ang)))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Generator
+# ---------------------------------------------------------------------------
+
 class CycloidalDriveGenerator(Generator):
-    DEFAULT_STATUS_INPUT_ID = INPUT_ID_PIN_CIRCLE_DIAMETER + '__status'
+    DEFAULT_STATUS_INPUT_ID = INPUT_ID_PIN_CIRCLE_DIAMETER + STATUS_SUFFIX
 
-    def prefixBase(self) -> str:
-        return 'CycloidalDrive'
-
-    def generateName(self) -> str:
-        N = int(round(self.getParameter(PARAM_PIN_COUNT).value))
-        L = N - 1
-        return 'Cycloidal Drive (N={}):{}'.format(N, L)
-
-    # -- S03 -------------------------------------------------------------------------------
-    @staticmethod
-    def validate_inputs(inputs: adsk.core.CommandInputs) -> list:
-        N = int(round(inputs.itemById(INPUT_ID_PIN_COUNT).value))
-        M = int(round(inputs.itemById(INPUT_ID_OUTPUT_PIN_COUNT).value))
-        D = int(inputs.itemById(INPUT_ID_DISC_COUNT).selectedItem.name)
-        R = inputs.itemById(INPUT_ID_PIN_CIRCLE_DIAMETER).value / 2
-        E = inputs.itemById(INPUT_ID_ECCENTRICITY).value
-        c = inputs.itemById(INPUT_ID_DISK_CLEARANCE).value
-        CBD = inputs.itemById(INPUT_ID_CENTER_BEARING_DIAMETER).value
-        ISD = inputs.itemById(INPUT_ID_INPUT_SHAFT_DIAMETER).value
-        clr = inputs.itemById(INPUT_ID_BEARING_CLEARANCE).value
-        Rop = inputs.itemById(INPUT_ID_OUTPUT_PIN_CIRCLE_DIAMETER).value / 2
-        pinDiameterRaw = inputs.itemById(INPUT_ID_PIN_DIAMETER).value
-        outputPinDiameterRaw = inputs.itemById(INPUT_ID_OUTPUT_PIN_DIAMETER).value
-        return evaluate_problems(
-            N, M, D, R, E, c, CBD, ISD, clr, Rop, pinDiameterRaw, outputPinDiameterRaw)
-
-    # -- S02 -------------------------------------------------------------------------------
-    def processInputs(self, inputs: adsk.core.CommandInputs):
-        # Field declarations, in the cast(None) form, before anything reads them. The
-        # constructor is the inherited 1-arg (design) one; self.parentComponent, self.design,
-        # self.occurrence, self.prefix and self.cleaner are already set there.
+    def __init__(self, design: adsk.fusion.Design):
+        super().__init__(design)
         self.plane = adsk.fusion.ConstructionPlane.cast(None)
         self.anchorPoint = adsk.fusion.SketchPoint.cast(None)
+        self.vals = {}
+        self.Rr = 0.0
+        self.D_hole = 0.0
+        self.chamferSize = 0.0
+        self.chamfersSkipped = 0
+        self.diskBodies = [adsk.fusion.BRepBody.cast(None)] * 2
+        self.diskAxes = [adsk.fusion.ConstructionAxis.cast(None)] * 2
+        self.lobeSplines = [adsk.fusion.SketchFittedSpline.cast(None)] * 2
+        self.outputHoles = [adsk.fusion.SketchCircle.cast(None)] * 2
+        self.lobeDiskCentres = [adsk.fusion.SketchPoint.cast(None)] * 2
+        self.discPlanes = [adsk.fusion.ConstructionPlane.cast(None)] * 2
+        self.lobeSketches = [adsk.fusion.Sketch.cast(None)] * 2
+        self.holeSketches = [adsk.fusion.Sketch.cast(None)] * 2
         self.driveAxis = adsk.fusion.ConstructionAxis.cast(None)
         self.housingRing = adsk.fusion.BRepBody.cast(None)
         self.ringCasing = adsk.fusion.BRepBody.cast(None)
         self.cam = adsk.fusion.BRepBody.cast(None)
         self.outputPlate = adsk.fusion.BRepBody.cast(None)
         self.lobePinCircle = adsk.fusion.SketchCircle.cast(None)
-        self.chamferSize = 0.0
-        self.chamfersSkipped = 0
-        self.Rr = 0.0
-        self.D_hole = 0.0
 
-        # 1. Selections first ([PB-SELECTION-STASH]).
-        parentEntities = get_selection(inputs, INPUT_ID_PARENT)
-        if parentEntities:
-            parentEntity = parentEntities[0]
-            if parentEntity.objectType == adsk.fusion.Occurrence.classType():
-                self.parentComponent = parentEntity.component
-            else:
-                self.parentComponent = parentEntity
-        else:
+    def prefixBase(self) -> str:
+        return 'CycloidalDrive'
+
+    # -- S02 ---------------------------------------------------------------
+
+    @staticmethod
+    def validate_inputs(inputs: adsk.core.CommandInputs) -> list:
+        raw = read_raw_inputs(inputs)
+        return evaluate_problems(resolve_values(raw))
+
+    # -- S03 ---------------------------------------------------------------
+
+    def processInputs(self, inputs: adsk.core.CommandInputs):
+        # Selections first: creating the occurrence drops them ([PB-SELECTION-STASH]).
+        parents = get_selection(inputs, INPUT_ID_PARENT)
+        if len(parents) == 0:
             self.parentComponent = get_design().rootComponent
+        else:
+            occ: adsk.fusion.Occurrence = adsk.fusion.Occurrence.cast(parents[0])
+            if occ:
+                self.parentComponent = occ.component
+            else:
+                self.parentComponent = adsk.fusion.Component.cast(parents[0])
+        planes = get_selection(inputs, INPUT_ID_PLANE)
+        if len(planes) == 0:
+            raise Exception('A Target Plane must be selected.')
+        self.plane = planes[0]
+        anchors = get_selection(inputs, INPUT_ID_ANCHOR_POINT)
+        if len(anchors) == 0:
+            raise Exception('An Anchor Point must be selected.')
+        self.anchorPoint = anchors[0]
 
-        self.plane = get_selection(inputs, INPUT_ID_PLANE)[0]
-        self.anchorPoint = get_selection(inputs, INPUT_ID_ANCHOR_POINT)[0]
+        dropdown: adsk.core.DropDownCommandInput = adsk.core.DropDownCommandInput.cast(
+            inputs.itemById(INPUT_ID_DISC_COUNT))
+        D = int(dropdown.selectedItem.name)
 
-        # 2. Disc Count from the dropdown, never with a get_* helper ([PB-INPUT-READ]). The
-        # six per-disc fields are lists indexed by d, sized to D as soon as it is known.
-        D = int(inputs.itemById(INPUT_ID_DISC_COUNT).selectedItem.name)
-        self.diskBodies = [adsk.fusion.BRepBody.cast(None) for _ in range(D)]
-        self.diskAxes = [adsk.fusion.ConstructionAxis.cast(None) for _ in range(D)]
-        self.lobeSplines = [adsk.fusion.SketchFittedSpline.cast(None) for _ in range(D)]
-        self.outputHoles = [adsk.fusion.SketchCircle.cast(None) for _ in range(D)]
-        self.lobeDiskCentres = [adsk.fusion.SketchPoint.cast(None) for _ in range(D)]
-        self.discPlanes = [adsk.fusion.ConstructionPlane.cast(None) for _ in range(D)]
+        self.chamfersSkipped = 0
 
-        # 3. Value inputs, registered with the resolved ValueInput ([PB-GET-VALUE-CONTRACT]).
-        self.addParameter(
-            PARAM_PIN_COUNT, get_value(inputs, INPUT_ID_PIN_COUNT, ''), '', 'Pin Count')
-        self.addParameter(
-            PARAM_PIN_CIRCLE_DIAMETER, get_value(inputs, INPUT_ID_PIN_CIRCLE_DIAMETER, 'mm'),
-            'mm', 'Pin Circle Diameter')
-        self.addParameter(
-            PARAM_PIN_DIAMETER, get_value(inputs, INPUT_ID_PIN_DIAMETER, 'mm'), 'mm',
-            'Pin Diameter (0 = auto)')
-        self.addParameter(
-            PARAM_ECCENTRICITY, get_value(inputs, INPUT_ID_ECCENTRICITY, 'mm'), 'mm',
-            'Eccentricity')
-        self.addParameter(
-            PARAM_DISK_CLEARANCE, get_value(inputs, INPUT_ID_DISK_CLEARANCE, 'mm'), 'mm',
-            'Disk Clearance')
-        self.addParameter(
-            PARAM_DISC_THICKNESS, get_value(inputs, INPUT_ID_DISC_THICKNESS, 'mm'), 'mm',
-            'Disc Thickness')
-        self.addParameter(
-            PARAM_DISC_GAP, get_value(inputs, INPUT_ID_DISC_GAP, 'mm'), 'mm', 'Disc Gap')
-        self.addParameter(
-            PARAM_CENTER_BEARING_DIAMETER,
-            get_value(inputs, INPUT_ID_CENTER_BEARING_DIAMETER, 'mm'), 'mm',
-            'Center Bearing Diameter')
-        self.addParameter(
-            PARAM_INPUT_SHAFT_DIAMETER, get_value(inputs, INPUT_ID_INPUT_SHAFT_DIAMETER, 'mm'),
-            'mm', 'Input Shaft Diameter (0 = no bore)')
-        self.addParameter(
-            PARAM_BEARING_CLEARANCE, get_value(inputs, INPUT_ID_BEARING_CLEARANCE, 'mm'), 'mm',
-            'Bearing Clearance')
-        self.addParameter(
-            PARAM_OUTPUT_PIN_CIRCLE_DIAMETER,
-            get_value(inputs, INPUT_ID_OUTPUT_PIN_CIRCLE_DIAMETER, 'mm'), 'mm',
-            'Output Pin Circle Diameter')
-        self.addParameter(
-            PARAM_OUTPUT_PIN_COUNT, get_value(inputs, INPUT_ID_OUTPUT_PIN_COUNT, ''), '',
-            'Output Pin Count')
-        self.addParameter(
-            PARAM_OUTPUT_PIN_DIAMETER, get_value(inputs, INPUT_ID_OUTPUT_PIN_DIAMETER, 'mm'),
-            'mm', 'Output Pin Diameter (0 = auto)')
-        self.addParameter(
-            PARAM_WALL, get_value(inputs, INPUT_ID_WALL, 'mm'), 'mm', 'Housing Wall')
-        self.addParameter(
-            PARAM_BASE_THICKNESS, get_value(inputs, INPUT_ID_BASE_THICKNESS, 'mm'), 'mm',
-            'Base Thickness')
-        self.addParameter(
-            PARAM_OUTPUT_PLATE_THICKNESS,
-            get_value(inputs, INPUT_ID_OUTPUT_PLATE_THICKNESS, 'mm'), 'mm',
-            'Output Plate Thickness')
-        self.addParameter(
-            PARAM_CHAMFER_SIZE, get_value(inputs, INPUT_ID_CHAMFER_SIZE, 'mm'), 'mm',
-            'Chamfer Size')
-        self.chamferSize = self.getParameter(PARAM_CHAMFER_SIZE).value
+        self.addParameter(PARAM_PIN_COUNT, get_value(inputs, INPUT_ID_PIN_COUNT, ''), '', 'Pin Count')
+        self.addParameter(PARAM_PIN_CIRCLE_DIAMETER,
+                          get_value(inputs, INPUT_ID_PIN_CIRCLE_DIAMETER, 'mm'), 'mm', 'Pin Circle Diameter')
+        self.addParameter(PARAM_PIN_DIAMETER, get_value(inputs, INPUT_ID_PIN_DIAMETER, 'mm'), 'mm',
+                          'Pin Diameter (0 = automatic)')
+        self.addParameter(PARAM_ECCENTRICITY, get_value(inputs, INPUT_ID_ECCENTRICITY, 'mm'), 'mm',
+                          'Eccentricity')
+        self.addParameter(PARAM_DISK_CLEARANCE, get_value(inputs, INPUT_ID_DISK_CLEARANCE, 'mm'), 'mm',
+                          'Disk Clearance')
+        self.addParameter(PARAM_DISC_THICKNESS, get_value(inputs, INPUT_ID_DISC_THICKNESS, 'mm'), 'mm',
+                          'Disc Thickness')
+        self.addParameter(PARAM_DISC_GAP, get_value(inputs, INPUT_ID_DISC_GAP, 'mm'), 'mm', 'Disc Gap')
+        self.addParameter(PARAM_CENTER_BEARING_DIAMETER,
+                          get_value(inputs, INPUT_ID_CENTER_BEARING_DIAMETER, 'mm'), 'mm',
+                          'Center Bearing Diameter')
+        self.addParameter(PARAM_INPUT_SHAFT_DIAMETER,
+                          get_value(inputs, INPUT_ID_INPUT_SHAFT_DIAMETER, 'mm'), 'mm',
+                          'Input Shaft Diameter')
+        self.addParameter(PARAM_BEARING_CLEARANCE,
+                          get_value(inputs, INPUT_ID_BEARING_CLEARANCE, 'mm'), 'mm', 'Bearing Clearance')
+        self.addParameter(PARAM_OUTPUT_PIN_CIRCLE_DIAMETER,
+                          get_value(inputs, INPUT_ID_OUTPUT_PIN_CIRCLE_DIAMETER, 'mm'), 'mm',
+                          'Output Pin Circle Diameter')
+        self.addParameter(PARAM_OUTPUT_PIN_COUNT, get_value(inputs, INPUT_ID_OUTPUT_PIN_COUNT, ''), '',
+                          'Output Pin Count')
+        self.addParameter(PARAM_OUTPUT_PIN_DIAMETER,
+                          get_value(inputs, INPUT_ID_OUTPUT_PIN_DIAMETER, 'mm'), 'mm',
+                          'Output Pin Diameter (0 = automatic)')
+        self.addParameter(PARAM_WALL, get_value(inputs, INPUT_ID_WALL, 'mm'), 'mm', 'Housing Wall')
+        self.addParameter(PARAM_BASE_THICKNESS, get_value(inputs, INPUT_ID_BASE_THICKNESS, 'mm'), 'mm',
+                          'Base Thickness')
+        self.addParameter(PARAM_OUTPUT_PLATE_THICKNESS,
+                          get_value(inputs, INPUT_ID_OUTPUT_PLATE_THICKNESS, 'mm'), 'mm',
+                          'Output Plate Thickness')
+        self.addParameter(PARAM_CHAMFER_SIZE, get_value(inputs, INPUT_ID_CHAMFER_SIZE, 'mm'), 'mm',
+                          'Chamfer Size')
 
-        # 4. Resolve derived scalars and validate.
-        self._resolveDimensions()
+        self._resolveDimensions(inputs)
+        self.vals['D'] = D
 
-        # 5. Register the derived parameters, after the resolve.
-        nPinCount = self.parameterName(PARAM_PIN_COUNT)
-        self.addParameter(
-            PARAM_LOBES, adsk.core.ValueInput.createByString('{} - 1'.format(nPinCount)), '',
-            'Lobes = Pin Count - 1')
+        pn = self.parameterName
+        self.addParameter(PARAM_PIN_RADIUS, adsk.core.ValueInput.createByReal(self.Rr), 'mm',
+                          'Resolved pin radius')
+        self.addParameter(PARAM_OUTPUT_HOLE_DIAMETER, adsk.core.ValueInput.createByReal(self.D_hole), 'mm',
+                          'Resolved output hole diameter')
+        self.addParameter(PARAM_LOBES,
+                          adsk.core.ValueInput.createByString('{} - 1'.format(pn(PARAM_PIN_COUNT))), '',
+                          'Lobe count')
+        self.addParameter(PARAM_PIN_CIRCLE_RADIUS,
+                          adsk.core.ValueInput.createByString('{} / 2'.format(pn(PARAM_PIN_CIRCLE_DIAMETER))),
+                          'mm', 'Pin circle radius')
+        self.addParameter(PARAM_OUTPUT_PIN_CIRCLE_RADIUS,
+                          adsk.core.ValueInput.createByString(
+                              '{} / 2'.format(pn(PARAM_OUTPUT_PIN_CIRCLE_DIAMETER))),
+                          'mm', 'Output pin circle radius')
+        self.addParameter(PARAM_HOUSING_INNER_DIAMETER,
+                          adsk.core.ValueInput.createByString('2 * ({} - {} - {})'.format(
+                              pn(PARAM_PIN_CIRCLE_RADIUS), pn(PARAM_PIN_RADIUS), pn(PARAM_WALL))),
+                          'mm', 'Housing inner diameter')
+        self.addParameter(PARAM_HOUSING_OUTER_DIAMETER,
+                          adsk.core.ValueInput.createByString('2 * ({} - {} + 2 * {} + {})'.format(
+                              pn(PARAM_PIN_CIRCLE_RADIUS), pn(PARAM_PIN_RADIUS),
+                              pn(PARAM_ECCENTRICITY), pn(PARAM_WALL))),
+                          'mm', 'Housing outer diameter')
+        self.addParameter(PARAM_OUTPUT_PLATE_DIAMETER,
+                          adsk.core.ValueInput.createByString('{} + ({} - 2 * {}) + 2 * {}'.format(
+                              pn(PARAM_OUTPUT_PIN_CIRCLE_DIAMETER), pn(PARAM_OUTPUT_HOLE_DIAMETER),
+                              pn(PARAM_ECCENTRICITY), pn(PARAM_WALL))),
+                          'mm', 'Output plate diameter')
 
-        nPCD = self.parameterName(PARAM_PIN_CIRCLE_DIAMETER)
-        self.addParameter(
-            PARAM_PIN_CIRCLE_RADIUS, adsk.core.ValueInput.createByString('{} / 2'.format(nPCD)),
-            'mm', 'Pin circle radius')
-
-        nOPCD = self.parameterName(PARAM_OUTPUT_PIN_CIRCLE_DIAMETER)
-        self.addParameter(
-            PARAM_OUTPUT_PIN_CIRCLE_RADIUS,
-            adsk.core.ValueInput.createByString('{} / 2'.format(nOPCD)), 'mm',
-            'Output pin circle radius')
-
-        self.addParameter(
-            PARAM_PIN_RADIUS, adsk.core.ValueInput.createByReal(self.Rr), 'mm',
-            'Resolved pin radius (numeric snapshot)')
-        self.addParameter(
-            PARAM_OUTPUT_HOLE_DIAMETER, adsk.core.ValueInput.createByReal(self.D_hole), 'mm',
-            'Resolved output hole diameter (numeric snapshot)')
-
-        nPinCircleRadius = self.parameterName(PARAM_PIN_CIRCLE_RADIUS)
-        nPinRadius = self.parameterName(PARAM_PIN_RADIUS)
-        nWall = self.parameterName(PARAM_WALL)
-        nEcc = self.parameterName(PARAM_ECCENTRICITY)
-        self.addParameter(
-            PARAM_HOUSING_INNER_DIAMETER, adsk.core.ValueInput.createByString(
-                '2 * ({} - {} - {})'.format(nPinCircleRadius, nPinRadius, nWall)), 'mm',
-            'Housing inner diameter')
-        self.addParameter(
-            PARAM_HOUSING_OUTER_DIAMETER, adsk.core.ValueInput.createByString(
-                '2 * ({} - {} + 2 * {} + {})'.format(nPinCircleRadius, nPinRadius, nEcc, nWall)),
-            'mm', 'Housing outer diameter')
-
-        nOutputHoleDiameter = self.parameterName(PARAM_OUTPUT_HOLE_DIAMETER)
-        self.addParameter(
-            PARAM_OUTPUT_PLATE_DIAMETER, adsk.core.ValueInput.createByString(
-                '{} + {} - 2 * {} + 2 * {}'.format(nOPCD, nOutputHoleDiameter, nEcc, nWall)),
-            'mm', 'Output plate diameter')
-
-    def _resolveDimensions(self):
-        N = int(round(self.getParameter(PARAM_PIN_COUNT).value))
-        M = int(round(self.getParameter(PARAM_OUTPUT_PIN_COUNT).value))
-        D = len(self.diskBodies)
-        R = self.getParameter(PARAM_PIN_CIRCLE_DIAMETER).value / 2
-        E = self.getParameter(PARAM_ECCENTRICITY).value
-        c = self.getParameter(PARAM_DISK_CLEARANCE).value
-        CBD = self.getParameter(PARAM_CENTER_BEARING_DIAMETER).value
-        ISD = self.getParameter(PARAM_INPUT_SHAFT_DIAMETER).value
-        clr = self.getParameter(PARAM_BEARING_CLEARANCE).value
-        Rop = self.getParameter(PARAM_OUTPUT_PIN_CIRCLE_DIAMETER).value / 2
-        pinDiameterRaw = self.getParameter(PARAM_PIN_DIAMETER).value
-        outputPinDiameterRaw = self.getParameter(PARAM_OUTPUT_PIN_DIAMETER).value
-
-        problems = evaluate_problems(
-            N, M, D, R, E, c, CBD, ISD, clr, Rop, pinDiameterRaw, outputPinDiameterRaw)
+    def _resolveDimensions(self, inputs: adsk.core.CommandInputs):
+        raw = read_raw_inputs(inputs)
+        vals = resolve_values(raw)
+        problems = evaluate_problems(vals)
         if problems:
             raise Exception('\n'.join(problems))
+        self.vals = vals
+        self.Rr = vals['Rr']
+        self.D_hole = vals['D_hole']
+        self.chamferSize = vals['Chamfer']
 
-        Rr, _ = _resolve_pin_radius(R, E, N, pinDiameterRaw)
-        if outputPinDiameterRaw > 0:
-            DPin = outputPinDiameterRaw
-        else:
-            DPin = Rop * math.sin(math.pi / M) - E
-        DHole = DPin + 2 * E
+    def generateName(self) -> str:
+        N = self.vals['N']
+        return 'Cycloidal Drive (N={}):{}'.format(N, N - 1)
 
-        # Only Rr and D_hole persist on self: they are the two numeric snapshots step 5
-        # registers ([PB-NUMERIC-SNAPSHOT]). Every other scalar composes cleanly from the
-        # registered parameters, so build methods fetch them fresh with self.getParameter(...).
-        self.Rr = Rr
-        self.D_hole = DHole
+    # -- S04 ---------------------------------------------------------------
 
-
-    # -- S04/S05 -----------------------------------------------------------------------
     def generate(self, inputs: adsk.core.CommandInputs):
         self.processInputs(inputs)
-
         component = self.getComponent()
         component.name = self.generateName()
 
-        # S05 — normalize the Target Plane to a ConstructionPlane.
-        if self.plane.objectType != adsk.fusion.ConstructionPlane.classType():
+        if not adsk.fusion.ConstructionPlane.cast(self.plane):
             planeInput = component.constructionPlanes.createInput()
-            planeInput.setByOffset(self.plane, adsk.core.ValueInput.createByReal(0))
+            planeInput.setByOffset(self.plane, adsk.core.ValueInput.createByString('0 mm'))
             self.plane = component.constructionPlanes.add(planeInput)
 
-        # S06 through S16 — per-disc loop.
-        discCount = len(self.diskBodies)
-        for d in range(discCount):
-            if d == 0:
-                self.discPlanes[d] = self.plane
-            else:
-                planeInput = component.constructionPlanes.createInput()
-                planeInput.setByOffset(self.plane, adsk.core.ValueInput.createByString(
-                    '{} * ({} + {})'.format(
-                        d, self.parameterName(PARAM_DISC_THICKNESS),
-                        self.parameterName(PARAM_DISC_GAP))))
-                plane = component.constructionPlanes.add(planeInput)
-                plane.name = 'Disc Plane {}'.format(d + 1)
-                self.discPlanes[d] = plane
-
+        D = self.vals['D']
+        for d in range(D):
+            self._buildDiscPlane(d)
+            futil.log('cycloidal: disc {}'.format(d + 1))
             self.buildLobeSketch(d)
             self.buildDisk(d)
             self.buildOutputHoleSketch(d)
             self.buildOutputHoles(d)
             self.buildDiskBore(d)
-
-        # S17 through S19.
         self.buildCam()
-
-        # S20 through S28.
         self.buildRingPins()
-
-        # S29 through S35.
         self.buildOutputPins()
-
-        # S36.
         self.buildChamfers()
-
-        # S37 — last, because moveToComponent invalidates the moved body's reference.
         self.buildSubComponents()
 
         if self.chamfersSkipped > 0:
             adsk.core.Application.get().userInterface.messageBox(
-                'Cycloidal drive generated, but {n} chamfer(s) could not be created at Chamfer '
-                'Size {sz} mm and were skipped. Reduce Chamfer Size (or set it to 0) for this '
-                'geometry.'.format(n=self.chamfersSkipped, sz=to_mm(self.chamferSize)))
+                'Cycloidal drive generated, but {n} chamfer(s) could not be created at Chamfer Size {sz} '
+                'mm and were skipped. Reduce Chamfer Size (or set it to 0) for this geometry.'.format(
+                    n=self.chamfersSkipped, sz=to_mm(self.chamferSize)))
 
-    # -- Shared anchor-chain helper ([CYCLOIDAL-F-ANCHOR-CHAIN]) -----------------------
-    def _anchorSketch(self, sketch: adsk.fusion.Sketch):
-        """Project the user's Anchor, add a fresh local origin, tie the two. Returns the
-        local origin SketchPoint every later constraint in the sketch hangs off."""
-        projected = sketch.project(self.anchorPoint).item(0)
-        localOrigin = sketch.sketchPoints.add(adsk.core.Point3D.create(0, 0, 0))
+    # -- shared helpers ----------------------------------------------------
+
+    def _stackTopExpr(self) -> str:
+        nT = self.parameterName(PARAM_DISC_THICKNESS)
+        nG = self.parameterName(PARAM_DISC_GAP)
+        if self.vals['D'] == 1:
+            return nT
+        return '2 * {} + {}'.format(nT, nG)
+
+    def _planeFor(self, d: int) -> adsk.fusion.ConstructionPlane:
+        if d == 0:
+            return self.plane
+        return self.discPlanes[d]
+
+    def _sign(self, d: int) -> float:
+        return 1.0 if d == 0 else -1.0
+
+    def _newSketch(self, name: str, plane: adsk.fusion.ConstructionPlane) -> adsk.fusion.Sketch:
+        sketch: adsk.fusion.Sketch = self.createSketchObject(name, plane)
+        sketch.isVisible = True
+        return sketch
+
+    def _anchorSketch(self, sketch: adsk.fusion.Sketch) -> adsk.fusion.SketchPoint:
+        """[CYCLOIDAL-F-ANCHOR-CHAIN] Project the Anchor and add a fresh local origin on it."""
+        projected: adsk.fusion.SketchPoint = adsk.fusion.SketchPoint.cast(
+            sketch.project(self.anchorPoint).item(0))
+        localOrigin: adsk.fusion.SketchPoint = sketch.sketchPoints.add(adsk.core.Point3D.create(0, 0, 0))
         sketch.geometricConstraints.addCoincident(localOrigin, projected)
         return localOrigin
 
-    def _buildDiskCentre(
-            self, sketch: adsk.fusion.Sketch, localOrigin: adsk.fusion.SketchPoint, d, E):
-        """The eccentric disc centre Od_d = O + s_d*E*Xhat ([CYCLOIDAL-F-DISK-CENTER]).
-        Returns (s, diskCentre)."""
-        s = 1 if d == 0 else -1
-        diskCentre = sketch.sketchPoints.add(adsk.core.Point3D.create(s * E, 0, 0))
-        eccLine = sketch.sketchCurves.sketchLines.addByTwoPoints(localOrigin, diskCentre)
+    def _discCentre(self, sketch: adsk.fusion.Sketch, localOrigin: adsk.fusion.SketchPoint,
+                    d: int) -> adsk.fusion.SketchPoint:
+        """[CYCLOIDAL-F-DISK-CENTER] Od_d off the local origin, driven by Eccentricity."""
+        E = self.vals['E']
+        Rv = self.vals['Rv']
+        s = self._sign(d)
+        diskCentre: adsk.fusion.SketchPoint = sketch.sketchPoints.add(adsk.core.Point3D.create(s * E, 0, 0))
+        eccLine: adsk.fusion.SketchLine = sketch.sketchCurves.sketchLines.addByTwoPoints(localOrigin, diskCentre)
         eccLine.isConstruction = True
         sketch.geometricConstraints.addHorizontal(eccLine)
-        eccDim = sketch.sketchDimensions.addDistanceDimension(
-            localOrigin, diskCentre,
-            adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation,
-            adsk.core.Point3D.create(s * E / 2, 0.2, 0))
-        eccDim.parameter.expression = self.parameterName(PARAM_ECCENTRICITY)
-        return s, diskCentre
+        dim: adsk.fusion.SketchLinearDimension = sketch.sketchDimensions.addDistanceDimension(
+            localOrigin, diskCentre, adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation,
+            adsk.core.Point3D.create(s * E / 2, -Rv / 10, 0))
+        dim.parameter.expression = self.parameterName(PARAM_ECCENTRICITY)
+        return diskCentre
 
-    def _addCircleLabel(
-            self, sketch: adsk.fusion.Sketch, circle: adsk.fusion.SketchCircle, label, height):
-        textInput = sketch.sketchTexts.createInput2(label, height)
-        textInput.setAsAlongPath(
-            circle, True, adsk.core.HorizontalAlignments.CenterHorizontalAlignment, 0)
+    def _circleOn(self, sketch: adsk.fusion.Sketch, cx: float, cy: float, r: float,
+                  at: adsk.fusion.SketchPoint, expression: str,
+                  construction: bool) -> adsk.fusion.SketchCircle:
+        circle: adsk.fusion.SketchCircle = sketch.sketchCurves.sketchCircles.addByCenterRadius(
+            adsk.core.Point3D.create(cx, cy, 0), r)
+        circle.isConstruction = construction
+        sketch.geometricConstraints.addCoincident(circle.centerSketchPoint, at)
+        dim: adsk.fusion.SketchDiameterDimension = sketch.sketchDimensions.addDiameterDimension(
+            circle, adsk.core.Point3D.create(cx + 0.75 * r, cy + 0.75 * r, 0))
+        dim.parameter.expression = expression
+        return circle
+
+    def _label(self, sketch: adsk.fusion.Sketch, text: str, curve: adsk.fusion.SketchCurve):
+        textInput: adsk.fusion.SketchTextInput = sketch.sketchTexts.createInput2(text, self.Rr)
+        alignment: adsk.core.HorizontalAlignments = adsk.core.HorizontalAlignments.CenterHorizontalAlignment
+        textInput.setAsAlongPath(curve, True, alignment, 0)
         sketch.sketchTexts.add(textInput)
 
-    def _stackTopExpr(self):
-        nT = self.parameterName(PARAM_DISC_THICKNESS)
-        if len(self.diskBodies) == 1:
-            return nT
-        nG = self.parameterName(PARAM_DISC_GAP)
-        return '2 * {} + {}'.format(nT, nG)
+    def _profileHolding(self, sketch: adsk.fusion.Sketch,
+                        target: adsk.fusion.SketchEntity) -> adsk.fusion.Profile:
+        """The first profile one of whose loops carries `target`, by identity."""
+        for i in range(sketch.profiles.count):
+            profile: adsk.fusion.Profile = sketch.profiles.item(i)
+            for j in range(profile.profileLoops.count):
+                loop: adsk.fusion.ProfileLoop = profile.profileLoops.item(j)
+                for k in range(loop.profileCurves.count):
+                    pc: adsk.fusion.ProfileCurve = loop.profileCurves.item(k)
+                    if pc.sketchEntity == target:
+                        return profile
+        raise Exception('No profile in sketch "{}" carries the expected curve.'.format(sketch.name))
 
-    # -- S07 -----------------------------------------------------------------------------
-    def buildLobeSketch(self, d):
-        component = self.getComponent()
-        plane = self.discPlanes[d]
-        sketch = self.createSketchObject('Rotor Lobe {}'.format(d + 1), plane=plane)
-        sketch.isVisible = True
-
-        E = self.getParameter(PARAM_ECCENTRICITY).value
-        R = self.getParameter(PARAM_PIN_CIRCLE_RADIUS).value
-        Rr = self.Rr
-        RrEff = Rr + self.getParameter(PARAM_DISK_CLEARANCE).value
-        Rv = R - RrEff - E
-        Rop = self.getParameter(PARAM_OUTPUT_PIN_CIRCLE_RADIUS).value
-        N = int(round(self.getParameter(PARAM_PIN_COUNT).value))
-        L = int(round(self.getParameter(PARAM_LOBES).value))
-
-        localOrigin = self._anchorSketch(sketch)
-        s, diskCentre = self._buildDiskCentre(sketch, localOrigin, d, E)
-
-        # Three reference circles.
-        if d == 0:
-            pinCircle = sketch.sketchCurves.sketchCircles.addByCenterRadius(
-                adsk.core.Point3D.create(0, 0, 0), R)
-            pinCircle.isConstruction = True
-            sketch.geometricConstraints.addCoincident(pinCircle.centerSketchPoint, localOrigin)
-            pinDim = sketch.sketchDimensions.addDiameterDimension(
-                pinCircle, adsk.core.Point3D.create(R, 0.2, 0))
-            pinDim.parameter.expression = self.parameterName(PARAM_PIN_CIRCLE_DIAMETER)
-            self._addCircleLabel(sketch, pinCircle, 'Pin Circle', Rr)
-            self.lobePinCircle = pinCircle
-
-        outputCircle = sketch.sketchCurves.sketchCircles.addByCenterRadius(
-            adsk.core.Point3D.create(s * E, 0, 0), Rop)
-        outputCircle.isConstruction = True
-        sketch.geometricConstraints.addCoincident(outputCircle.centerSketchPoint, diskCentre)
-        outputDim = sketch.sketchDimensions.addDiameterDimension(
-            outputCircle, adsk.core.Point3D.create(s * E + Rop, 0.2, 0))
-        outputDim.parameter.expression = self.parameterName(PARAM_OUTPUT_PIN_CIRCLE_DIAMETER)
-        self._addCircleLabel(sketch, outputCircle, 'Output Pin Circle', Rr)
-
-        rootCircle = sketch.sketchCurves.sketchCircles.addByCenterRadius(
-            adsk.core.Point3D.create(s * E, 0, 0), Rv)
-        rootCircle.isConstruction = True
-        sketch.geometricConstraints.addCoincident(rootCircle.centerSketchPoint, diskCentre)
-        rootDim = sketch.sketchDimensions.addDiameterDimension(
-            rootCircle, adsk.core.Point3D.create(s * E + Rv, 0.2, 0))
-        rootDim.parameter.expression = '2 * ({} - {} - {} - {})'.format(
-            self.parameterName(PARAM_PIN_CIRCLE_RADIUS), self.parameterName(PARAM_PIN_RADIUS),
-            self.parameterName(PARAM_DISK_CLEARANCE), self.parameterName(PARAM_ECCENTRICITY))
-        self._addCircleLabel(sketch, rootCircle, 'Root Circle', Rr)
-
-        # The lobe: one open fitted spline through the adaptively sampled points.
-        span = 2 * math.pi / L
-        phi = d * math.pi
-        cx, cy = s * E, 0.0
-        fine = [disk_point(span * i / 2000, cx, cy, phi, R, E, N, RrEff) for i in range(2001)]
-        kept = [fine[0]]
-        acc = 0.0
-        for i in range(1, 2000):
-            ax, ay = fine[i][0] - fine[i - 1][0], fine[i][1] - fine[i - 1][1]
-            bx, by = fine[i + 1][0] - fine[i][0], fine[i + 1][1] - fine[i][1]
-            acc += abs(math.degrees(math.atan2(ax * by - ay * bx, ax * bx + ay * by)))
-            if acc >= 5.0:
-                kept.append(fine[i])
-                acc = 0.0
-        kept.append(fine[-1])
-
+    def _allProfiles(self, sketch: adsk.fusion.Sketch) -> adsk.core.ObjectCollection:
         coll = adsk.core.ObjectCollection.create()
-        for x, y in kept:
-            coll.add(adsk.core.Point3D.create(x, y, 0))
-        spline = sketch.sketchCurves.sketchFittedSplines.add(coll)
+        for i in range(sketch.profiles.count):
+            coll.add(sketch.profiles.item(i))
+        return coll
 
-        for i in range(1, spline.fitPoints.count - 1):
-            spline.fitPoints.item(i).isFixed = True
-        sketch.geometricConstraints.addCoincident(spline.fitPoints.item(0), rootCircle)
-        sketch.geometricConstraints.addCoincident(
-            spline.fitPoints.item(spline.fitPoints.count - 1), rootCircle)
+    def _extentOf(self, expression: str) -> adsk.fusion.DistanceExtentDefinition:
+        return adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByString(expression))
 
-        # Two spokes and the lobe pitch.
-        line1 = sketch.sketchCurves.sketchLines.addByTwoPoints(
-            diskCentre, adsk.core.Point3D.create(s * E + Rv, 0, 0))
-        sketch.geometricConstraints.addCoincident(line1.endSketchPoint, spline.fitPoints.item(0))
-        sketch.geometricConstraints.addHorizontal(line1)
-
-        line2 = sketch.sketchCurves.sketchLines.addByTwoPoints(
-            diskCentre, adsk.core.Point3D.create(
-                s * E + Rv * math.cos(2 * math.pi / L), -Rv * math.sin(2 * math.pi / L), 0))
-        sketch.geometricConstraints.addCoincident(
-            line2.endSketchPoint, spline.fitPoints.item(spline.fitPoints.count - 1))
-
-        angDim = sketch.sketchDimensions.addAngularDimension(
-            line1, line2, adsk.core.Point3D.create(
-                s * E + 0.4 * Rv * math.cos(math.pi / L), -0.4 * Rv * math.sin(math.pi / L), 0))
-        angDim.parameter.expression = '360 deg / {}'.format(self.parameterName(PARAM_LOBES))
-
-        self.lobeDiskCentres[d] = diskCentre
-        self.lobeSplines[d] = spline
-
-        # [PB-TEXT-HOLDS-DOF]: the circle labels carry their own position, so this sketch
-        # never reports fully constrained even though its geometry is fully determined.
-        futil.log(
-            'Rotor Lobe {} isFullyConstrained: {}'.format(d + 1, sketch.isFullyConstrained))
-
-    # -- S08/S09/S10/S11 -------------------------------------------------------------------
-    def buildDisk(self, d):
-        component = self.getComponent()
-        L = int(round(self.getParameter(PARAM_LOBES).value))
-        spline = self.lobeSplines[d]
-        sketch = spline.parentSketch
-
-        base = component.bRepBodies.count
-
-        sectorProfile = None
-        for profile in sketch.profiles:
-            for loop in profile.profileLoops:
-                if any(pc.sketchEntity == spline for pc in loop.profileCurves):
-                    sectorProfile = profile
-                    break
-            if sectorProfile is not None:
-                break
-        if sectorProfile is None:
-            raise Exception(
-                'Rotor Lobe {}: could not find the lobe sector profile'.format(d + 1))
-
-        ext = component.features.extrudeFeatures.createInput(
-            sectorProfile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
-        ext.setOneSideExtent(
-            adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByString(
-                self.parameterName(PARAM_DISC_THICKNESS))),
-            adsk.fusion.ExtentDirections.PositiveExtentDirection)
-        extrude = component.features.extrudeFeatures.add(ext)
-        extrude.bodies.item(0).name = 'Cycloidal Disk {}'.format(d + 1)
-
-        # S09 — construction axis through the disc centre, from the cap face's normal.
-        capFace = extrude.startFaces.item(0)
-        self.buildDiskAxis(capFace, d)
-
-        # S10 — circular-pattern the lobe sector L times.
+    def _pattern(self, feature, axis: adsk.fusion.ConstructionAxis, quantity: int,
+                 component: adsk.fusion.Component):
         coll = adsk.core.ObjectCollection.create()
-        coll.add(extrude)
-        pat = component.features.circularPatternFeatures.createInput(coll, self.diskAxes[d])
+        coll.add(feature)
+        self._patternCollection(coll, axis, quantity, component)
+
+    def _patternCollection(self, coll: adsk.core.ObjectCollection, axis: adsk.fusion.ConstructionAxis,
+                           quantity: int, component: adsk.fusion.Component):
+        pat = component.features.circularPatternFeatures.createInput(coll, axis)
         pat.patternComputeOption = adsk.fusion.PatternComputeOptions.AdjustPatternCompute
-        pat.quantity = adsk.core.ValueInput.createByReal(L)
+        pat.quantity = adsk.core.ValueInput.createByReal(quantity)
         pat.totalAngle = adsk.core.ValueInput.createByString('360 deg')
         pat.isSymmetric = False
         component.features.circularPatternFeatures.add(pat)
 
-        # S11 — join disc d's own L sectors into one body.
-        target = component.bRepBodies.item(base)
-        tools = adsk.core.ObjectCollection.create()
-        for i in range(base + 1, base + L):
-            tools.add(component.bRepBodies.item(i))
+    def _join(self, target: adsk.fusion.BRepBody, tools: adsk.core.ObjectCollection,
+              component: adsk.fusion.Component):
         ci = component.features.combineFeatures.createInput(target, tools)
         ci.operation = adsk.fusion.FeatureOperations.JoinFeatureOperation
         component.features.combineFeatures.add(ci)
 
-        target.name = 'Cycloidal Disk {}'.format(d + 1)
-        self.diskBodies[d] = target
+    def _joinRange(self, component: adsk.fusion.Component, base: int, count: int) -> adsk.fusion.BRepBody:
+        """Join bodies base .. base+count-1 into the one at `base`; return it."""
+        target: adsk.fusion.BRepBody = component.bRepBodies.item(base)
+        if count > 1:
+            tools = adsk.core.ObjectCollection.create()
+            for i in range(base + 1, base + count):
+                tools.add(component.bRepBodies.item(i))
+            self._join(target, tools, component)
+        return component.bRepBodies.item(base)
 
-    # -- S09 ---------------------------------------------------------------------------
-    def buildDiskAxis(self, capFace: adsk.fusion.BRepFace, d):
+    def buildDiskAxis(self, capFace: adsk.fusion.BRepFace, d: int):
         component = self.getComponent()
         axInput = component.constructionAxes.createInput()
         axInput.setByPerpendicularAtPoint(capFace, self.lobeDiskCentres[d])
-        axis = component.constructionAxes.add(axInput)
+        axis: adsk.fusion.ConstructionAxis = component.constructionAxes.add(axInput)
         axis.name = 'Disk Axis {}'.format(d + 1)
         self.diskAxes[d] = axis
 
-    # -- S12 -----------------------------------------------------------------------------
-    def buildOutputHoleSketch(self, d):
-        plane = self.discPlanes[d]
-        sketch = self.createSketchObject('Output Hole {}'.format(d + 1), plane=plane)
-        sketch.isVisible = True
+    def _capAxis(self, extrude: adsk.fusion.ExtrudeFeature, point, name: str) -> adsk.fusion.ConstructionAxis:
+        component = self.getComponent()
+        capFace: adsk.fusion.BRepFace = extrude.startFaces.item(0)
+        axInput = component.constructionAxes.createInput()
+        axInput.setByPerpendicularAtPoint(capFace, point)
+        axis: adsk.fusion.ConstructionAxis = component.constructionAxes.add(axInput)
+        axis.name = name
+        return axis
 
-        E = self.getParameter(PARAM_ECCENTRICITY).value
-        Rop = self.getParameter(PARAM_OUTPUT_PIN_CIRCLE_RADIUS).value
-        Rr = self.Rr
-        DHole = self.D_hole
+    # -- S05 ---------------------------------------------------------------
 
+    def _buildDiscPlane(self, d: int):
+        if d == 0:
+            return
+        component = self.getComponent()
+        planeInput = component.constructionPlanes.createInput()
+        planeInput.setByOffset(self.plane, adsk.core.ValueInput.createByString('{} * ({} + {})'.format(
+            d, self.parameterName(PARAM_DISC_THICKNESS), self.parameterName(PARAM_DISC_GAP))))
+        plane: adsk.fusion.ConstructionPlane = component.constructionPlanes.add(planeInput)
+        plane.name = 'Disc Plane {}'.format(d + 1)
+        self.discPlanes[d] = plane
+
+    # -- S06 ---------------------------------------------------------------
+
+    def buildLobeSketch(self, d: int):
+        v = self.vals
+        E = v['E']
+        R = v['R']
+        Rop = v['Rop']
+        Rv = v['Rv']
+        L = v['L']
+        s = self._sign(d)
+        pn = self.parameterName
+
+        sketch = self._newSketch('Rotor Lobe {}'.format(d + 1), self._planeFor(d))
+        self.lobeSketches[d] = sketch
         localOrigin = self._anchorSketch(sketch)
-        s, diskCentre = self._buildDiskCentre(sketch, localOrigin, d, E)
+        diskCentre = self._discCentre(sketch, localOrigin, d)
+        self.lobeDiskCentres[d] = diskCentre
 
-        outputHoleCircle = sketch.sketchCurves.sketchCircles.addByCenterRadius(
-            adsk.core.Point3D.create(s * E, 0, 0), Rop)
-        outputHoleCircle.isConstruction = True
-        sketch.geometricConstraints.addCoincident(
-            outputHoleCircle.centerSketchPoint, diskCentre)
-        circleDim = sketch.sketchDimensions.addDiameterDimension(
-            outputHoleCircle, adsk.core.Point3D.create(s * E + Rop, 0.2, 0))
-        circleDim.parameter.expression = self.parameterName(PARAM_OUTPUT_PIN_CIRCLE_DIAMETER)
-        self._addCircleLabel(sketch, outputHoleCircle, 'Output Hole Circle', Rr)
+        pinCircle = self._circleOn(sketch, 0, 0, R, localOrigin, pn(PARAM_PIN_CIRCLE_DIAMETER), True)
+        self._label(sketch, 'Pin Circle', pinCircle)
+        if d == 0:
+            self.lobePinCircle = pinCircle
 
-        hole = sketch.sketchCurves.sketchCircles.addByCenterRadius(
-            adsk.core.Point3D.create(s * E + Rop, 0, 0), DHole / 2)
-        holeDim = sketch.sketchDimensions.addDiameterDimension(
-            hole, adsk.core.Point3D.create(s * E + Rop + DHole / 2, 0.2, 0))
-        holeDim.parameter.expression = self.parameterName(PARAM_OUTPUT_HOLE_DIAMETER)
-        sketch.geometricConstraints.addCoincident(hole.centerSketchPoint, outputHoleCircle)
-        spokeLine = sketch.sketchCurves.sketchLines.addByTwoPoints(
+        outCircle = self._circleOn(sketch, s * E, 0, Rop, diskCentre,
+                                   pn(PARAM_OUTPUT_PIN_CIRCLE_DIAMETER), True)
+        self._label(sketch, 'Output Pin Circle', outCircle)
+
+        rootCircle = self._circleOn(
+            sketch, s * E, 0, Rv, diskCentre,
+            '2 * ({} - {} - {} - {})'.format(pn(PARAM_PIN_CIRCLE_RADIUS), pn(PARAM_PIN_RADIUS),
+                                             pn(PARAM_DISK_CLEARANCE), pn(PARAM_ECCENTRICITY)),
+            True)
+        self._label(sketch, 'Root Circle', rootCircle)
+
+        # The lobe: one open fitted spline through the turn-bounded samples.
+        coll = adsk.core.ObjectCollection.create()
+        for (x, y) in lobe_samples(v, s * E, 0.0, d * math.pi):
+            coll.add(adsk.core.Point3D.create(x, y, 0))
+        spline: adsk.fusion.SketchFittedSpline = sketch.sketchCurves.sketchFittedSplines.add(coll)
+        self.lobeSplines[d] = spline
+
+        count = spline.fitPoints.count
+        for i in range(1, count - 1):
+            interior: adsk.fusion.SketchPoint = spline.fitPoints.item(i)
+            interior.isFixed = True
+        firstFit: adsk.fusion.SketchPoint = spline.fitPoints.item(0)
+        lastFit: adsk.fusion.SketchPoint = spline.fitPoints.item(count - 1)
+        sketch.geometricConstraints.addCoincident(firstFit, rootCircle)
+        sketch.geometricConstraints.addCoincident(lastFit, rootCircle)
+
+        line1: adsk.fusion.SketchLine = sketch.sketchCurves.sketchLines.addByTwoPoints(
+            diskCentre,
+            adsk.core.Point3D.create(s * E + Rv * math.cos(d * math.pi), Rv * math.sin(d * math.pi), 0))
+        sketch.geometricConstraints.addCoincident(line1.endSketchPoint, firstFit)
+        sketch.geometricConstraints.addHorizontal(line1)
+
+        a2 = d * math.pi - 2 * math.pi / L
+        line2: adsk.fusion.SketchLine = sketch.sketchCurves.sketchLines.addByTwoPoints(
+            diskCentre,
+            adsk.core.Point3D.create(s * E + Rv * math.cos(a2), Rv * math.sin(a2), 0))
+        sketch.geometricConstraints.addCoincident(line2.endSketchPoint, lastFit)
+
+        a3 = d * math.pi - math.pi / L
+        angDim: adsk.fusion.SketchAngularDimension = sketch.sketchDimensions.addAngularDimension(
+            line1, line2,
+            adsk.core.Point3D.create(s * E + 0.4 * Rv * math.cos(a3), 0.4 * Rv * math.sin(a3), 0))
+        angDim.parameter.expression = '360 deg / {}'.format(pn(PARAM_LOBES))
+
+    # -- S07-S10 -----------------------------------------------------------
+
+    def buildDisk(self, d: int):
+        component = self.getComponent()
+        L = self.vals['L']
+        sketch = self.lobeSketches[d]
+
+        base = component.bRepBodies.count
+        sectorProfile = self._profileHolding(sketch, self.lobeSplines[d])
+        ext = component.features.extrudeFeatures.createInput(
+            sectorProfile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+        ext.setOneSideExtent(self._extentOf(self.parameterName(PARAM_DISC_THICKNESS)),
+                             adsk.fusion.ExtentDirections.PositiveExtentDirection)
+        extrude: adsk.fusion.ExtrudeFeature = component.features.extrudeFeatures.add(ext)
+        sectorBody: adsk.fusion.BRepBody = extrude.bodies.item(0)
+        sectorBody.name = 'Cycloidal Disk {}'.format(d + 1)
+
+        # S08: Disk Axis at the disc centre, on the cap face picked by normal.
+        capFace: adsk.fusion.BRepFace = extrude.startFaces.item(0)
+        self.buildDiskAxis(capFace, d)
+
+        # S09: circular pattern of the sector extrude about the Disk Axis.
+        self._pattern(extrude, self.diskAxes[d], L, component)
+
+        # S10: join this disc's own L sectors.
+        joined = self._joinRange(component, base, L)
+        joined.name = 'Cycloidal Disk {}'.format(d + 1)
+        self.diskBodies[d] = joined
+
+    # -- S11 ---------------------------------------------------------------
+
+    def buildOutputHoleSketch(self, d: int):
+        v = self.vals
+        E = v['E']
+        Rop = v['Rop']
+        s = self._sign(d)
+        pn = self.parameterName
+
+        sketch = self._newSketch('Output Hole {}'.format(d + 1), self._planeFor(d))
+        self.holeSketches[d] = sketch
+        localOrigin = self._anchorSketch(sketch)
+        diskCentre = self._discCentre(sketch, localOrigin, d)
+
+        holeCircle = self._circleOn(sketch, s * E, 0, Rop, diskCentre,
+                                    pn(PARAM_OUTPUT_PIN_CIRCLE_DIAMETER), True)
+        self._label(sketch, 'Output Hole Circle', holeCircle)
+
+        hole: adsk.fusion.SketchCircle = sketch.sketchCurves.sketchCircles.addByCenterRadius(
+            adsk.core.Point3D.create(s * E + Rop, 0, 0), self.D_hole / 2)
+        r = self.D_hole / 2
+        holeDim: adsk.fusion.SketchDiameterDimension = sketch.sketchDimensions.addDiameterDimension(
+            hole, adsk.core.Point3D.create(s * E + Rop + 0.75 * r, 0.75 * r, 0))
+        holeDim.parameter.expression = pn(PARAM_OUTPUT_HOLE_DIAMETER)
+        sketch.geometricConstraints.addCoincident(hole.centerSketchPoint, holeCircle)
+        spoke: adsk.fusion.SketchLine = sketch.sketchCurves.sketchLines.addByTwoPoints(
             diskCentre, hole.centerSketchPoint)
-        sketch.geometricConstraints.addHorizontal(spokeLine)
-
+        spoke.isConstruction = True
+        sketch.geometricConstraints.addHorizontal(spoke)
         self.outputHoles[d] = hole
 
-    # -- S13/S14 ---------------------------------------------------------------------------
-    def buildOutputHoles(self, d):
-        component = self.getComponent()
-        M = int(round(self.getParameter(PARAM_OUTPUT_PIN_COUNT).value))
-        holeCircle = self.outputHoles[d]
-        sketch = holeCircle.parentSketch
+    # -- S12, S13 ----------------------------------------------------------
 
-        holeProfile = None
-        for profile in sketch.profiles:
-            for loop in profile.profileLoops:
-                if any(pc.sketchEntity == holeCircle for pc in loop.profileCurves):
-                    holeProfile = profile
-                    break
-            if holeProfile is not None:
-                break
-        if holeProfile is None:
-            raise Exception('Output Hole {}: could not find the hole profile'.format(d + 1))
+    def buildOutputHoles(self, d: int):
+        component = self.getComponent()
+        sketch = self.holeSketches[d]
+        holeProfile = self._profileHolding(sketch, self.outputHoles[d])
 
         ci = component.features.extrudeFeatures.createInput(
             holeProfile, adsk.fusion.FeatureOperations.CutFeatureOperation)
-        ci.setOneSideExtent(
-            adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByString(
-                self.parameterName(PARAM_DISC_THICKNESS))),
-            adsk.fusion.ExtentDirections.PositiveExtentDirection)
+        ci.setOneSideExtent(self._extentOf(self.parameterName(PARAM_DISC_THICKNESS)),
+                            adsk.fusion.ExtentDirections.PositiveExtentDirection)
         ci.participantBodies = [self.diskBodies[d]]
-        cut = component.features.extrudeFeatures.add(ci)
+        cut: adsk.fusion.ExtrudeFeature = component.features.extrudeFeatures.add(ci)
 
-        coll = adsk.core.ObjectCollection.create()
-        coll.add(cut)
-        pat = component.features.circularPatternFeatures.createInput(coll, self.diskAxes[d])
-        pat.patternComputeOption = adsk.fusion.PatternComputeOptions.AdjustPatternCompute
-        pat.quantity = adsk.core.ValueInput.createByReal(M)
-        pat.totalAngle = adsk.core.ValueInput.createByString('360 deg')
-        pat.isSymmetric = False
-        component.features.circularPatternFeatures.add(pat)
+        self._pattern(cut, self.diskAxes[d], self.vals['M'], component)
 
-    # -- S15/S16 ---------------------------------------------------------------------------
-    def buildDiskBore(self, d):
+    # -- S14, S15 ----------------------------------------------------------
+
+    def buildDiskBore(self, d: int):
+        v = self.vals
+        E = v['E']
+        CBD = v['CBD']
+        clr = v['clr']
+        s = self._sign(d)
+        pn = self.parameterName
         component = self.getComponent()
-        plane = self.discPlanes[d]
-        sketch = self.createSketchObject('Disc Bore {}'.format(d + 1), plane=plane)
-        sketch.isVisible = True
 
-        E = self.getParameter(PARAM_ECCENTRICITY).value
-        CBD = self.getParameter(PARAM_CENTER_BEARING_DIAMETER).value
-        clr = self.getParameter(PARAM_BEARING_CLEARANCE).value
-
+        sketch = self._newSketch('Disc Bore {}'.format(d + 1), self._planeFor(d))
         localOrigin = self._anchorSketch(sketch)
-        s, diskCentre = self._buildDiskCentre(sketch, localOrigin, d, E)
+        diskCentre = self._discCentre(sketch, localOrigin, d)
+        self._circleOn(sketch, s * E, 0, (CBD + clr) / 2, diskCentre,
+                       '{} + {}'.format(pn(PARAM_CENTER_BEARING_DIAMETER), pn(PARAM_BEARING_CLEARANCE)),
+                       False)
 
-        boreRadius = (CBD + clr) / 2
-        bore = sketch.sketchCurves.sketchCircles.addByCenterRadius(
-            adsk.core.Point3D.create(s * E, 0, 0), boreRadius)
-        sketch.geometricConstraints.addCoincident(bore.centerSketchPoint, diskCentre)
-        boreDim = sketch.sketchDimensions.addDiameterDimension(
-            bore, adsk.core.Point3D.create(s * E + boreRadius, 0.2, 0))
-        boreDim.parameter.expression = '{} + {}'.format(
-            self.parameterName(PARAM_CENTER_BEARING_DIAMETER),
-            self.parameterName(PARAM_BEARING_CLEARANCE))
-
-        coll = adsk.core.ObjectCollection.create()
-        for profile in sketch.profiles:
-            coll.add(profile)
         ci = component.features.extrudeFeatures.createInput(
-            coll, adsk.fusion.FeatureOperations.CutFeatureOperation)
-        ci.setOneSideExtent(
-            adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByString(
-                self.parameterName(PARAM_DISC_THICKNESS))),
-            adsk.fusion.ExtentDirections.PositiveExtentDirection)
+            self._allProfiles(sketch), adsk.fusion.FeatureOperations.CutFeatureOperation)
+        ci.setOneSideExtent(self._extentOf(pn(PARAM_DISC_THICKNESS)),
+                            adsk.fusion.ExtentDirections.PositiveExtentDirection)
         ci.participantBodies = [self.diskBodies[d]]
         component.features.extrudeFeatures.add(ci)
 
-    # -- S17/S18/S19 -------------------------------------------------------------------
+    # -- S16-S18 -----------------------------------------------------------
+
     def buildCam(self):
+        v = self.vals
+        E = v['E']
+        CBD = v['CBD']
+        ISD = v['ISD']
+        D = v['D']
+        pn = self.parameterName
         component = self.getComponent()
-        E = self.getParameter(PARAM_ECCENTRICITY).value
-        CBD = self.getParameter(PARAM_CENTER_BEARING_DIAMETER).value
-        ISD = self.getParameter(PARAM_INPUT_SHAFT_DIAMETER).value
-        nT = self.parameterName(PARAM_DISC_THICKNESS)
-        nG = self.parameterName(PARAM_DISC_GAP)
-        discCount = len(self.diskBodies)
-        sectionBodies = []
+        camBodies = []
 
-        for d in range(discCount):
-            plane = self.discPlanes[d]
-            sketch = self.createSketchObject('Eccentric Cam {}'.format(d + 1), plane=plane)
-            sketch.isVisible = True
-
+        for d in range(D):
+            s = self._sign(d)
+            sketch = self._newSketch('Eccentric Cam {}'.format(d + 1), self._planeFor(d))
             localOrigin = self._anchorSketch(sketch)
-            s, diskCentre = self._buildDiskCentre(sketch, localOrigin, d, E)
+            diskCentre = self._discCentre(sketch, localOrigin, d)
+            self._circleOn(sketch, s * E, 0, CBD / 2, diskCentre, pn(PARAM_CENTER_BEARING_DIAMETER), False)
+            if ISD > 0:
+                self._circleOn(sketch, 0, 0, ISD / 2, localOrigin, pn(PARAM_INPUT_SHAFT_DIAMETER), False)
 
-            outerCircle = sketch.sketchCurves.sketchCircles.addByCenterRadius(
-                adsk.core.Point3D.create(s * E, 0, 0), CBD / 2)
-            sketch.geometricConstraints.addCoincident(outerCircle.centerSketchPoint, diskCentre)
-            outerDim = sketch.sketchDimensions.addDiameterDimension(
-                outerCircle, adsk.core.Point3D.create(s * E + CBD / 2, 0.2, 0))
-            outerDim.parameter.expression = self.parameterName(PARAM_CENTER_BEARING_DIAMETER)
-
-            hasBore = ISD > 0
-            if hasBore:
-                boreCircle = sketch.sketchCurves.sketchCircles.addByCenterRadius(
-                    adsk.core.Point3D.create(0, 0, 0), ISD / 2)
-                sketch.geometricConstraints.addCoincident(
-                    boreCircle.centerSketchPoint, localOrigin)
-                boreDim = sketch.sketchDimensions.addDiameterDimension(
-                    boreCircle, adsk.core.Point3D.create(ISD / 2, 0.2, 0))
-                boreDim.parameter.expression = self.parameterName(PARAM_INPUT_SHAFT_DIAMETER)
-
-            # Select the cross-section by loop count, never find_profile_by_curve_counts.
-            if hasBore:
-                sectionProfile = None
-                for profile in sketch.profiles:
-                    if profile.profileLoops.count == 2:
-                        sectionProfile = profile
+            # S17: the annulus has two loops; with no bore the sketch has one profile.
+            camProfile: adsk.fusion.Profile = sketch.profiles.item(0)
+            if ISD > 0:
+                found = False
+                for i in range(sketch.profiles.count):
+                    candidate: adsk.fusion.Profile = sketch.profiles.item(i)
+                    if candidate.profileLoops.count == 2:
+                        camProfile = candidate
+                        found = True
                         break
-                if sectionProfile is None:
-                    raise Exception(
-                        'Eccentric Cam {}: could not find the two-loop annulus'.format(d + 1))
-            else:
-                sectionProfile = sketch.profiles.item(0)
-
-            isLast = d == discCount - 1
-            extentExpr = nT if isLast else '{} + {}'.format(nT, nG)
+                if not found:
+                    raise Exception('No two-loop cam profile in sketch "{}".'.format(sketch.name))
 
             ext = component.features.extrudeFeatures.createInput(
-                sectionProfile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
-            ext.setOneSideExtent(
-                adsk.fusion.DistanceExtentDefinition.create(
-                    adsk.core.ValueInput.createByString(extentExpr)),
-                adsk.fusion.ExtentDirections.PositiveExtentDirection)
-            extrude = component.features.extrudeFeatures.add(ext)
-            body = extrude.bodies.item(0)
+                camProfile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+            nT = pn(PARAM_DISC_THICKNESS)
+            nG = pn(PARAM_DISC_GAP)
+            if d < D - 1:
+                extent = '{} + {}'.format(nT, nG)
+            else:
+                extent = nT
+            ext.setOneSideExtent(self._extentOf(extent), adsk.fusion.ExtentDirections.PositiveExtentDirection)
+            extrude: adsk.fusion.ExtrudeFeature = component.features.extrudeFeatures.add(ext)
+            body: adsk.fusion.BRepBody = extrude.bodies.item(0)
             body.name = 'Eccentric Cam {}'.format(d + 1)
-            sectionBodies.append(body)
+            camBodies.append(body)
 
-        # S19 — join the cam sections (or, for a single disc, just rename the one body).
-        if discCount == 1:
-            self.cam = sectionBodies[0]
-            self.cam.name = 'Eccentric Cam'
-        else:
-            target = sectionBodies[0]
+        # S18
+        target: adsk.fusion.BRepBody = camBodies[0]
+        if D > 1:
             tools = adsk.core.ObjectCollection.create()
-            for body in sectionBodies[1:]:
-                tools.add(body)
-            ci = component.features.combineFeatures.createInput(target, tools)
-            ci.operation = adsk.fusion.FeatureOperations.JoinFeatureOperation
-            component.features.combineFeatures.add(ci)
-            target.name = 'Eccentric Cam'
-            self.cam = target
+            for k in range(1, len(camBodies)):
+                tools.add(camBodies[k])
+            self._join(target, tools, component)
+        target.name = 'Eccentric Cam'
+        self.cam = target
 
-    # -- S20 through S28 -----------------------------------------------------------------
+    # -- S19-S27 -----------------------------------------------------------
+
     def buildRingPins(self):
-        component = self.getComponent()
-        R = self.getParameter(PARAM_PIN_CIRCLE_RADIUS).value
-        E = self.getParameter(PARAM_ECCENTRICITY).value
+        v = self.vals
+        R = v['R']
+        E = v['E']
+        N = v['N']
+        Wall = v['Wall']
         Rr = self.Rr
-        Wall = self.getParameter(PARAM_WALL).value
+        pn = self.parameterName
+        component = self.getComponent()
 
-        # S20 — construction plane for the housing base, 1 mm below the disc.
+        # S19
         planeInput = component.constructionPlanes.createInput()
         planeInput.setByOffset(self.plane, adsk.core.ValueInput.createByString('-1 mm'))
-        housingPlane = component.constructionPlanes.add(planeInput)
+        housingPlane: adsk.fusion.ConstructionPlane = component.constructionPlanes.add(planeInput)
         housingPlane.name = 'Ring Housing Plane'
 
-        # S21 — Housing Ring sketch: a plain pinless annulus.
-        ringSketch = self.createSketchObject('Housing Ring', plane=housingPlane)
-        ringSketch.isVisible = True
+        # S20
+        sketch = self._newSketch('Housing Ring', housingPlane)
+        localOrigin = self._anchorSketch(sketch)
+        self._circleOn(sketch, 0, 0, R - Rr + 2 * E + Wall, localOrigin, pn(PARAM_HOUSING_OUTER_DIAMETER), False)
+        self._circleOn(sketch, 0, 0, R - Rr - Wall, localOrigin, pn(PARAM_HOUSING_INNER_DIAMETER), False)
 
-        ringLocalOrigin = self._anchorSketch(ringSketch)
-
-        outerR = R - Rr + 2 * E + Wall
-        outerCircle = ringSketch.sketchCurves.sketchCircles.addByCenterRadius(
-            adsk.core.Point3D.create(0, 0, 0), outerR)
-        ringSketch.geometricConstraints.addCoincident(
-            outerCircle.centerSketchPoint, ringLocalOrigin)
-        outerDim = ringSketch.sketchDimensions.addDiameterDimension(
-            outerCircle, adsk.core.Point3D.create(outerR, 0.2, 0))
-        outerDim.parameter.expression = self.parameterName(PARAM_HOUSING_OUTER_DIAMETER)
-
-        innerR = R - Rr - Wall
-        innerCircle = ringSketch.sketchCurves.sketchCircles.addByCenterRadius(
-            adsk.core.Point3D.create(0, 0, 0), innerR)
-        ringSketch.geometricConstraints.addCoincident(
-            innerCircle.centerSketchPoint, ringLocalOrigin)
-        innerDim = ringSketch.sketchDimensions.addDiameterDimension(
-            innerCircle, adsk.core.Point3D.create(innerR, 0.2, 0))
-        innerDim.parameter.expression = self.parameterName(PARAM_HOUSING_INNER_DIAMETER)
-
-        # S22 — extrude the annulus, away from the disc.
-        annulusProfile = None
-        for profile in ringSketch.profiles:
-            if profile.profileLoops.count == 2:
-                annulusProfile = profile
+        # S21
+        annulus: adsk.fusion.Profile = sketch.profiles.item(0)
+        found = False
+        for i in range(sketch.profiles.count):
+            candidate: adsk.fusion.Profile = sketch.profiles.item(i)
+            if candidate.profileLoops.count == 2:
+                annulus = candidate
+                found = True
                 break
-        if annulusProfile is None:
-            raise Exception('Housing Ring: could not find the annulus profile')
-
+        if not found:
+            raise Exception('No two-loop annulus profile in sketch "Housing Ring".')
         ext = component.features.extrudeFeatures.createInput(
-            annulusProfile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
-        ext.setOneSideExtent(
-            adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByString(
-                self.parameterName(PARAM_BASE_THICKNESS))),
-            adsk.fusion.ExtentDirections.NegativeExtentDirection)
-        housingExtrude = component.features.extrudeFeatures.add(ext)
+            annulus, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+        ext.setOneSideExtent(self._extentOf(pn(PARAM_BASE_THICKNESS)),
+                             adsk.fusion.ExtentDirections.NegativeExtentDirection)
+        housingExtrude: adsk.fusion.ExtrudeFeature = component.features.extrudeFeatures.add(ext)
         self.housingRing = housingExtrude.bodies.item(0)
         self.housingRing.name = 'Housing Ring'
 
-        # S23 — construction axis on the drive axis, through the local origin.
-        capFace = housingExtrude.startFaces.item(0)
-        axInput = component.constructionAxes.createInput()
-        axInput.setByPerpendicularAtPoint(capFace, ringLocalOrigin)
-        self.driveAxis = component.constructionAxes.add(axInput)
-        self.driveAxis.name = 'Drive Axis'
+        # S22
+        self.driveAxis = self._capAxis(housingExtrude, localOrigin, 'Drive Axis')
 
-        # S24 — Ring Casing section sketch: compute the swept-envelope contour first.
-        N = int(round(self.getParameter(PARAM_PIN_COUNT).value))
-        L = int(round(self.getParameter(PARAM_LOBES).value))
-        c = self.getParameter(PARAM_DISK_CLEARANCE).value
-        RrEff = Rr + c
+        # S23
+        ro = R - Rr + 2 * E + Wall
+        casing = self._newSketch('Ring Casing', self.plane)
+        casingOrigin = self._anchorSketch(casing)
+        self._circleOn(casing, 0, 0, ro, casingOrigin, pn(PARAM_HOUSING_OUTER_DIAMETER), False)
+        pts = adsk.core.ObjectCollection.create()
+        for (x, y) in contour_pitch(v):
+            pts.add(adsk.core.Point3D.create(x, y, 0))
+        contour: adsk.fusion.SketchFittedSpline = casing.sketchCurves.sketchFittedSplines.add(pts)
+        cCount = contour.fitPoints.count
+        firstPt: adsk.fusion.SketchPoint = contour.fitPoints.item(0)
+        lastPt: adsk.fusion.SketchPoint = contour.fitPoints.item(cCount - 1)
         half = math.pi / N
-        nbins = 80
-        sweepSteps = 240
-        binMax = [0.0] * nbins
-        hit = [False] * nbins
-        for i in range(sweepSteps):
-            theta = 2 * math.pi * i / sweepSteps
-            cx, cy = E * math.cos(theta), E * math.sin(theta)
-            phi = -theta / L
-            for j in range(sweepSteps):
-                t = 2 * math.pi * j / sweepSteps
-                x, y = disk_point(t, cx, cy, phi, R, E, N, RrEff)
-                a = math.atan2(y, x)
-                if a < -half or a > half:
-                    continue
-                b = int((a + half) / (2 * half) * nbins)
-                b = min(max(b, 0), nbins - 1)
-                r = math.hypot(x, y)
-                if r > binMax[b]:
-                    binMax[b] = r
-                hit[b] = True
+        casing.sketchCurves.sketchLines.addByTwoPoints(
+            firstPt, adsk.core.Point3D.create(ro * math.cos(-half), ro * math.sin(-half), 0))
+        casing.sketchCurves.sketchLines.addByTwoPoints(
+            lastPt, adsk.core.Point3D.create(ro * math.cos(half), ro * math.sin(half), 0))
 
-        contourPoints = []
-        for i in range(nbins + 1):
-            phi_i = -half + 2 * half * i / nbins
-            peak = 0.0
-            if i - 1 >= 0 and hit[i - 1]:
-                peak = max(peak, binMax[i - 1])
-            if i < nbins and hit[i]:
-                peak = max(peak, binMax[i])
-            r = c + peak
-            contourPoints.append((r * math.cos(phi_i), r * math.sin(phi_i)))
-
-        casingSketch = self.createSketchObject('Ring Casing', plane=self.plane)
-        casingSketch.isVisible = True
-
-        casingOrigin = self._anchorSketch(casingSketch)
-
-        outerRadius = R - Rr + 2 * E + Wall
-        casingOuterCircle = casingSketch.sketchCurves.sketchCircles.addByCenterRadius(
-            adsk.core.Point3D.create(0, 0, 0), outerRadius)
-        casingSketch.geometricConstraints.addCoincident(
-            casingOuterCircle.centerSketchPoint, casingOrigin)
-        casingOuterDim = casingSketch.sketchDimensions.addDiameterDimension(
-            casingOuterCircle, adsk.core.Point3D.create(outerRadius, 0.2, 0))
-        casingOuterDim.parameter.expression = self.parameterName(PARAM_HOUSING_OUTER_DIAMETER)
-
-        coll = adsk.core.ObjectCollection.create()
-        for x, y in contourPoints:
-            coll.add(adsk.core.Point3D.create(x, y, 0))
-        contourSpline = casingSketch.sketchCurves.sketchFittedSplines.add(coll)
-
-        outerFirst = adsk.core.Point3D.create(
-            outerRadius * math.cos(-half), outerRadius * math.sin(-half), 0)
-        outerLast = adsk.core.Point3D.create(
-            outerRadius * math.cos(half), outerRadius * math.sin(half), 0)
-        casingSketch.sketchCurves.sketchLines.addByTwoPoints(
-            contourSpline.fitPoints.item(0), outerFirst)
-        casingSketch.sketchCurves.sketchLines.addByTwoPoints(
-            contourSpline.fitPoints.item(contourSpline.fitPoints.count - 1), outerLast)
-
-        # S25 — extrude the casing sector, two-sided, selecting the smallest-area profile
-        # among those whose loop contains the contour spline.
-        candidates = []
-        for profile in casingSketch.profiles:
-            for loop in profile.profileLoops:
-                if any(pc.sketchEntity == contourSpline for pc in loop.profileCurves):
-                    candidates.append(profile)
-                    break
-        if not candidates:
-            raise Exception('Ring Casing: could not find a profile containing the contour spline')
-        sectorProfile = None
-        sectorArea = None
-        for candidate in candidates:
-            candidate: adsk.fusion.Profile
-            area = candidate.areaProperties(
-                adsk.fusion.CalculationAccuracy.LowCalculationAccuracy).area
-            if sectorArea is None or area < sectorArea:
-                sectorArea = area
-                sectorProfile = candidate
-        if sectorProfile is None:
-            raise Exception('Ring Casing: could not select the smallest-area sector profile')
-
-        stackTopExpr = self._stackTopExpr()
+        # S24: the wedge is the smallest profile that carries the contour.
+        wedge: adsk.fusion.Profile = adsk.fusion.Profile.cast(None)
+        wedgeArea = math.inf
+        for i in range(casing.profiles.count):
+            candidate: adsk.fusion.Profile = casing.profiles.item(i)
+            carries = False
+            for j in range(candidate.profileLoops.count):
+                loop: adsk.fusion.ProfileLoop = candidate.profileLoops.item(j)
+                for k in range(loop.profileCurves.count):
+                    pc: adsk.fusion.ProfileCurve = loop.profileCurves.item(k)
+                    if pc.sketchEntity == contour:
+                        carries = True
+            if not carries:
+                continue
+            area = candidate.areaProperties(adsk.fusion.CalculationAccuracy.LowCalculationAccuracy).area
+            if area < wedgeArea:
+                wedgeArea = area
+                wedge = candidate
+        if wedge is None:
+            raise Exception('No casing wedge profile carries the contour.')
 
         base = component.bRepBodies.count
+        sectorInput = component.features.extrudeFeatures.createInput(
+            wedge, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+        sectorInput.setTwoSidesExtent(self._extentOf(self._stackTopExpr()), self._extentOf('1 mm'))
+        sectorFeature: adsk.fusion.ExtrudeFeature = component.features.extrudeFeatures.add(sectorInput)
 
-        ext = component.features.extrudeFeatures.createInput(
-            sectorProfile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
-        ext.setTwoSidesExtent(
-            adsk.fusion.DistanceExtentDefinition.create(
-                adsk.core.ValueInput.createByString(stackTopExpr)),
-            adsk.fusion.DistanceExtentDefinition.create(
-                adsk.core.ValueInput.createByString('1 mm')))
-        sectorFeature = component.features.extrudeFeatures.add(ext)
+        # S25
+        self._pattern(sectorFeature, self.driveAxis, N, component)
 
-        # S26 — circular-pattern the casing sector N times about the drive axis.
-        coll2 = adsk.core.ObjectCollection.create()
-        coll2.add(sectorFeature)
-        pat = component.features.circularPatternFeatures.createInput(coll2, self.driveAxis)
-        pat.patternComputeOption = adsk.fusion.PatternComputeOptions.AdjustPatternCompute
-        pat.quantity = adsk.core.ValueInput.createByReal(N)
-        pat.totalAngle = adsk.core.ValueInput.createByString('360 deg')
-        pat.isSymmetric = False
-        component.features.circularPatternFeatures.add(pat)
+        # S26
+        casingBody = self._joinRange(component, base, N)
 
-        # S27 — join the N casing sectors into one casing.
-        target = component.bRepBodies.item(base)
+        # S27
         tools = adsk.core.ObjectCollection.create()
-        for i in range(base + 1, base + N):
-            tools.add(component.bRepBodies.item(i))
-        ci = component.features.combineFeatures.createInput(target, tools)
-        ci.operation = adsk.fusion.FeatureOperations.JoinFeatureOperation
-        component.features.combineFeatures.add(ci)
-        self.ringCasing = target
-
-        # S28 — combine the casing into the Housing.
-        tools2 = adsk.core.ObjectCollection.create()
-        tools2.add(self.ringCasing)
-        ci2 = component.features.combineFeatures.createInput(self.housingRing, tools2)
-        ci2.operation = adsk.fusion.FeatureOperations.JoinFeatureOperation
-        component.features.combineFeatures.add(ci2)
+        tools.add(casingBody)
+        self._join(self.housingRing, tools, component)
         self.housingRing.name = 'Housing'
         self.ringCasing = None
 
-    # -- S29 through S35 -----------------------------------------------------------------
-    def buildOutputPins(self):
-        component = self.getComponent()
-        E = self.getParameter(PARAM_ECCENTRICITY).value
-        Rop = self.getParameter(PARAM_OUTPUT_PIN_CIRCLE_RADIUS).value
-        Wall = self.getParameter(PARAM_WALL).value
-        DHole = self.D_hole
-        DPin = DHole - 2 * E
-        stackTopExpr = self._stackTopExpr()
+    # -- S28-S34 -----------------------------------------------------------
 
-        # S29 — construction plane for the output plate, 1 mm above the top disc.
+    def buildOutputPins(self):
+        v = self.vals
+        Rop = v['Rop']
+        D_pin = v['D_pin']
+        M = v['M']
+        pn = self.parameterName
+        component = self.getComponent()
+
+        # S28
         planeInput = component.constructionPlanes.createInput()
-        planeInput.setByOffset(
-            self.plane, adsk.core.ValueInput.createByString(stackTopExpr + ' + 1 mm'))
-        platePlane = component.constructionPlanes.add(planeInput)
+        planeInput.setByOffset(self.plane, adsk.core.ValueInput.createByString(self._stackTopExpr() + ' + 1 mm'))
+        platePlane: adsk.fusion.ConstructionPlane = component.constructionPlanes.add(planeInput)
         platePlane.name = 'Output Plate Plane'
 
-        # S30 — Output Plate sketch, everything on the drive axis O.
-        plateSketch = self.createSketchObject('Output Plate', plane=platePlane)
-        plateSketch.isVisible = True
-
-        localOrigin = self._anchorSketch(plateSketch)
-
-        plateRadius = Rop + DPin / 2 + Wall
-        plateOuterCircle = plateSketch.sketchCurves.sketchCircles.addByCenterRadius(
-            adsk.core.Point3D.create(0, 0, 0), plateRadius)
-        plateSketch.geometricConstraints.addCoincident(
-            plateOuterCircle.centerSketchPoint, localOrigin)
-        plateDim = plateSketch.sketchDimensions.addDiameterDimension(
-            plateOuterCircle, adsk.core.Point3D.create(plateRadius, 0.2, 0))
-        plateDim.parameter.expression = self.parameterName(PARAM_OUTPUT_PLATE_DIAMETER)
-
-        outPinCircle = plateSketch.sketchCurves.sketchCircles.addByCenterRadius(
-            adsk.core.Point3D.create(0, 0, 0), Rop)
-        outPinCircle.isConstruction = True
-        plateSketch.geometricConstraints.addCoincident(
-            outPinCircle.centerSketchPoint, localOrigin)
-        outPinDim = plateSketch.sketchDimensions.addDiameterDimension(
-            outPinCircle, adsk.core.Point3D.create(Rop, 0.2, 0))
-        outPinDim.parameter.expression = self.parameterName(PARAM_OUTPUT_PIN_CIRCLE_DIAMETER)
-
-        pinRadius = (DHole - 2 * E) / 2
-        pin = plateSketch.sketchCurves.sketchCircles.addByCenterRadius(
-            adsk.core.Point3D.create(Rop, 0, 0), pinRadius)
-        pinDim = plateSketch.sketchDimensions.addDiameterDimension(
-            pin, adsk.core.Point3D.create(Rop + pinRadius, 0.2, 0))
+        # S29
+        sketch = self._newSketch('Output Plate', platePlane)
+        localOrigin = self._anchorSketch(sketch)
+        plateRadius = Rop + D_pin / 2 + v['Wall']
+        self._circleOn(sketch, 0, 0, plateRadius, localOrigin, pn(PARAM_OUTPUT_PLATE_DIAMETER), False)
+        outPinCircle = self._circleOn(sketch, 0, 0, Rop, localOrigin,
+                                      pn(PARAM_OUTPUT_PIN_CIRCLE_DIAMETER), True)
+        pin: adsk.fusion.SketchCircle = sketch.sketchCurves.sketchCircles.addByCenterRadius(
+            adsk.core.Point3D.create(Rop, 0, 0), D_pin / 2)
+        pinDim: adsk.fusion.SketchDiameterDimension = sketch.sketchDimensions.addDiameterDimension(
+            pin, adsk.core.Point3D.create(Rop + 0.75 * D_pin / 2, 0.75 * D_pin / 2, 0))
         pinDim.parameter.expression = '{} - 2 * {}'.format(
-            self.parameterName(PARAM_OUTPUT_HOLE_DIAMETER), self.parameterName(PARAM_ECCENTRICITY))
-        plateSketch.geometricConstraints.addCoincident(pin.centerSketchPoint, outPinCircle)
-        spokeLine = plateSketch.sketchCurves.sketchLines.addByTwoPoints(
+            pn(PARAM_OUTPUT_HOLE_DIAMETER), pn(PARAM_ECCENTRICITY))
+        sketch.geometricConstraints.addCoincident(pin.centerSketchPoint, outPinCircle)
+        pinSpoke: adsk.fusion.SketchLine = sketch.sketchCurves.sketchLines.addByTwoPoints(
             localOrigin, pin.centerSketchPoint)
-        plateSketch.geometricConstraints.addHorizontal(spokeLine)
+        pinSpoke.isConstruction = True
+        sketch.geometricConstraints.addHorizontal(pinSpoke)
 
-        # S31 — extrude the full plate disc, away from the disk.
-        coll = adsk.core.ObjectCollection.create()
-        for profile in plateSketch.profiles:
-            coll.add(profile)
-        ext = component.features.extrudeFeatures.createInput(
-            coll, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
-        ext.setOneSideExtent(
-            adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByString(
-                self.parameterName(PARAM_OUTPUT_PLATE_THICKNESS))),
-            adsk.fusion.ExtentDirections.PositiveExtentDirection)
-        plateExtrude = component.features.extrudeFeatures.add(ext)
-        self.outputPlate = plateExtrude.bodies.item(0)
+        # S30
+        plateInput = component.features.extrudeFeatures.createInput(
+            self._allProfiles(sketch), adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+        plateInput.setOneSideExtent(self._extentOf(pn(PARAM_OUTPUT_PLATE_THICKNESS)),
+                                    adsk.fusion.ExtentDirections.PositiveExtentDirection)
+        plateFeature: adsk.fusion.ExtrudeFeature = component.features.extrudeFeatures.add(plateInput)
+        self.outputPlate = plateFeature.bodies.item(0)
         self.outputPlate.name = 'Output Plate'
-
-        # S32 — extrude the output pin, two-sided.
-        pinProfile = None
-        for profile in plateSketch.profiles:
-            if profile.profileLoops.count == 1:
-                loop = profile.profileLoops.item(0)
-                if any(pc.sketchEntity == pin for pc in loop.profileCurves):
-                    pinProfile = profile
-                    break
-        if pinProfile is None:
-            raise Exception('Output Plate: could not find the pin disc profile')
-
         pinBase = component.bRepBodies.count
+
+        # S31
+        pinProfile: adsk.fusion.Profile = adsk.fusion.Profile.cast(None)
+        for i in range(sketch.profiles.count):
+            candidate: adsk.fusion.Profile = sketch.profiles.item(i)
+            if candidate.profileLoops.count != 1:
+                continue
+            loop: adsk.fusion.ProfileLoop = candidate.profileLoops.item(0)
+            if loop.profileCurves.count != 1:
+                continue
+            pc: adsk.fusion.ProfileCurve = loop.profileCurves.item(0)
+            if pc.sketchEntity == pin:
+                pinProfile = candidate
+                break
+        if pinProfile is None:
+            raise Exception('No single-loop pin profile in sketch "Output Plate".')
         pinExt = component.features.extrudeFeatures.createInput(
             pinProfile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
-        pinExt.setTwoSidesExtent(
-            adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByString(
-                self.parameterName(PARAM_OUTPUT_PLATE_THICKNESS))),
-            adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByString(
-                stackTopExpr + ' + 1 mm')))
-        pinFeature = component.features.extrudeFeatures.add(pinExt)
-        pinBody = pinFeature.bodies.item(0)
+        pinExt.setTwoSidesExtent(self._extentOf(pn(PARAM_OUTPUT_PLATE_THICKNESS)),
+                                 self._extentOf(self._stackTopExpr() + ' + 1 mm'))
+        pinFeature: adsk.fusion.ExtrudeFeature = component.features.extrudeFeatures.add(pinExt)
+        pinBody: adsk.fusion.BRepBody = pinFeature.bodies.item(0)
         pinBody.name = 'Output Pin'
 
-        # S33 — cut the plate socket, keeping the pin.
+        # S32
         tools = adsk.core.ObjectCollection.create()
         tools.add(pinBody)
         ci = component.features.combineFeatures.createInput(self.outputPlate, tools)
         ci.operation = adsk.fusion.FeatureOperations.CutFeatureOperation
         ci.isKeepToolBodies = True
-        combineFeature = component.features.combineFeatures.add(ci)
+        combineFeature: adsk.fusion.CombineFeature = component.features.combineFeatures.add(ci)
 
-        # S34 — chamfer the output pin's ends.
+        # S33
         chamferFeature = self._chamferCapRims(pinBody)
 
-        # S35 — pattern the pin, socket and chamfer M times.
-        M = int(round(self.getParameter(PARAM_OUTPUT_PIN_COUNT).value))
-        coll2 = adsk.core.ObjectCollection.create()
-        coll2.add(pinFeature)
-        coll2.add(combineFeature)
+        # S34
+        coll = adsk.core.ObjectCollection.create()
+        coll.add(pinFeature)
+        coll.add(combineFeature)
         if chamferFeature is not None:
-            coll2.add(chamferFeature)
-        pat = component.features.circularPatternFeatures.createInput(coll2, self.driveAxis)
-        pat.patternComputeOption = adsk.fusion.PatternComputeOptions.AdjustPatternCompute
-        pat.quantity = adsk.core.ValueInput.createByReal(M)
-        pat.totalAngle = adsk.core.ValueInput.createByString('360 deg')
-        pat.isSymmetric = False
-        component.features.circularPatternFeatures.add(pat)
-
+            coll.add(chamferFeature)
+        self._patternCollection(coll, self.driveAxis, M, component)
         for k in range(M):
-            component.bRepBodies.item(pinBase + k).name = 'Output Pin {}'.format(k + 1)
+            patterned: adsk.fusion.BRepBody = component.bRepBodies.item(pinBase + k)
+            patterned.name = 'Output Pin {}'.format(k + 1)
 
-    # -- S34 contract, also used by S36 ---------------------------------------------------
     def _chamferCapRims(self, body: adsk.fusion.BRepBody):
+        """[CYCLOIDAL-F-CHAMFERS] Chamfer the outer loop of the two axially extreme caps."""
         if self.chamferSize <= 0:
             return None
+        planeGeom: adsk.core.Plane = self.plane.geometry
+        axis: adsk.core.Vector3D = planeGeom.normal
+        ref: adsk.core.Point3D = planeGeom.origin
 
-        axis: adsk.core.Vector3D = self.plane.geometry.normal
-        ref: adsk.core.Point3D = self.plane.geometry.origin
-
-        faceHeights = []
-        for face in body.faces:
+        capFaces = []
+        heights = []
+        for i in range(body.faces.count):
+            face: adsk.fusion.BRepFace = body.faces.item(i)
             if face.geometry.surfaceType != adsk.core.SurfaceTypes.PlaneSurfaceType:
                 continue
-            n: adsk.core.Vector3D = face.geometry.normal
+            facePlane: adsk.core.Plane = adsk.core.Plane.cast(face.geometry)
+            n: adsk.core.Vector3D = facePlane.normal
             if abs(n.dotProduct(axis)) <= 0.999:
                 continue
-            h = ref.vectorTo(face.geometry.origin).dotProduct(axis)
-            faceHeights.append((face, h))
-
-        if not faceHeights:
+            o: adsk.core.Point3D = facePlane.origin
+            h = (o.x - ref.x) * axis.x + (o.y - ref.y) * axis.y + (o.z - ref.z) * axis.z
+            capFaces.append(face)
+            heights.append(h)
+        if len(capFaces) == 0:
             return None
-
-        hmin = min(h for _, h in faceHeights)
-        hmax = max(h for _, h in faceHeights)
+        hmin = min(heights)
+        hmax = max(heights)
 
         edges = adsk.core.ObjectCollection.create()
-        for face, h in faceHeights:
+        for idx in range(len(capFaces)):
+            h = heights[idx]
             if not (abs(h - hmin) < 1e-4 or abs(h - hmax) < 1e-4):
                 continue
-            for loop in face.loops:
+            capFace: adsk.fusion.BRepFace = capFaces[idx]
+            for j in range(capFace.loops.count):
+                loop: adsk.fusion.BRepLoop = capFace.loops.item(j)
                 if not loop.isOuter:
                     continue
-                for edge in loop.edges:
-                    edges.add(edge)
-
+                for k in range(loop.edges.count):
+                    edges.add(loop.edges.item(k))
         if edges.count == 0:
             return None
 
-        chamfers = self.getComponent().features.chamferFeatures
-        ci = chamfers.createInput2()
+        chamferFeatures = self.getComponent().features.chamferFeatures
+        ci = chamferFeatures.createInput2()
         ci.chamferEdgeSets.addEqualDistanceChamferEdgeSet(
-            edges, adsk.core.ValueInput.createByString(self.parameterName(PARAM_CHAMFER_SIZE)),
-            False)
+            edges, adsk.core.ValueInput.createByString(self.parameterName(PARAM_CHAMFER_SIZE)), False)
         try:
-            return chamfers.add(ci)
-        except RuntimeError as e:
-            futil.log('Chamfer failed on body "{}": {}'.format(body.name, e))
+            return chamferFeatures.add(ci)
+        except RuntimeError as err:
+            futil.log('cycloidal: chamfer skipped on {}: {}'.format(body.name, err))
             self.chamfersSkipped += 1
             return None
 
-    # -- S36 -------------------------------------------------------------------------------
+    # -- S35 ---------------------------------------------------------------
+
     def buildChamfers(self):
         if self.chamferSize <= 0:
             return
+        for d in range(self.vals['D']):
+            self._chamferCapRims(self.diskBodies[d])
+        if self.ringCasing is not None:
+            self._chamferCapRims(self.ringCasing)
+        if self.housingRing is not None:
+            self._chamferCapRims(self.housingRing)
+        if self.outputPlate is not None:
+            self._chamferCapRims(self.outputPlate)
 
-        targets = list(self.diskBodies) + [self.housingRing, self.ringCasing, self.outputPlate]
-        for body in targets:
-            if body is None:
-                continue
-            self._chamferCapRims(body)
+    # -- S36 ---------------------------------------------------------------
 
-    # -- S37 -------------------------------------------------------------------------------
     def buildSubComponents(self):
         component = self.getComponent()
-
-        groups = {'Rotor Discs': [], 'Housing': [], 'Eccentric Cam': [], 'Output': []}
+        rotors = []
+        housing = []
+        cam = []
+        output = []
         for i in range(component.bRepBodies.count):
-            body = component.bRepBodies.item(i)
+            body: adsk.fusion.BRepBody = component.bRepBodies.item(i)
             name = body.name
             if name.startswith('Cycloidal Disk'):
-                groups['Rotor Discs'].append(body)
+                rotors.append(body)
             elif name == 'Housing':
-                groups['Housing'].append(body)
+                housing.append(body)
             elif name == 'Eccentric Cam':
-                groups['Eccentric Cam'].append(body)
+                cam.append(body)
             elif name == 'Output Plate' or name.startswith('Output Pin'):
-                groups['Output'].append(body)
+                output.append(body)
 
-        for groupName in ('Rotor Discs', 'Housing', 'Eccentric Cam', 'Output'):
-            bodies = groups[groupName]
-            if not bodies:
+        groups = [('Rotor Discs', rotors), ('Housing', housing), ('Eccentric Cam', cam), ('Output', output)]
+        for (groupName, members) in groups:
+            if len(members) == 0:
                 continue
-            occ = component.occurrences.addNewComponent(adsk.core.Matrix3D.create())
+            occ: adsk.fusion.Occurrence = component.occurrences.addNewComponent(adsk.core.Matrix3D.create())
             occ.component.name = groupName
-            for body in bodies:
-                body: adsk.fusion.BRepBody
-                body.moveToComponent(occ)
+            for member in members:
+                moving: adsk.fusion.BRepBody = adsk.fusion.BRepBody.cast(member)
+                moving.moveToComponent(occ)
 
         solids.hide_construction_geometry(component)

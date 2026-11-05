@@ -350,7 +350,7 @@ func bevBuildGearBody(t *testing.T, doc *decad.Document, w *sketch.World, f *bev
 	t.Helper()
 	ring := f.axialSection(g)
 	s, region := bevRingSketch(t, w, w.XY(), ring)
-	body, err := doc.Revolve(s, region, bevRevolveAxis(), decad.FullRevolution{})
+	body, err := decad.Revolve(t.Context(), doc, s, region, bevRevolveAxis(), decad.FullRevolution{})
 	if err != nil {
 		t.Fatalf("%s: revolve the hexagon: %v", g.label, err)
 	}
@@ -369,7 +369,7 @@ func bevBuildTooth(t *testing.T, doc *decad.Document, w *sketch.World, f *bevFig
 	farPlane, _ := f.toothPlane(t, w, g, 1)
 	farSketch, farRegion := bevRingSketch(t, w, farPlane, ring)
 
-	body, err := doc.Loft(t.Context(), nearSketch, nearRegion, farSketch, farRegion)
+	body, err := decad.Loft(t.Context(), doc, nearSketch, nearRegion, farSketch, farRegion)
 	if err != nil {
 		t.Fatalf("%s: loft the apex section to the tooth profile: %v", g.label, err)
 	}
@@ -629,7 +629,7 @@ func bevLayApart(t *testing.T, bodies []*decad.Body, gap float64) []*decad.Body 
 		if err != nil {
 			t.Fatalf("displacement for body %d: %v", i, err)
 		}
-		moved, err := body.Placed(t.Context(), motion)
+		moved, err := decad.Transform(t.Context(), body, motion)
 		if err != nil {
 			t.Fatalf("lay body %d apart: %v", i, err)
 		}
@@ -743,7 +743,7 @@ func (f *bevFigure) buildEndCone(t *testing.T, doc *decad.Document, w *sketch.Wo
 	farPlane := bevStationPlane(t, w, far)
 	nearSketch, nearRegion := bevRingSketch(t, w, nearPlane, bevNgon(slope*math.Abs(apexStation-near)))
 	farSketch, farRegion := bevRingSketch(t, w, farPlane, bevNgon(slope*math.Abs(apexStation-far)))
-	body, err := doc.Loft(t.Context(), nearSketch, nearRegion, farSketch, farRegion)
+	body, err := decad.Loft(t.Context(), doc, nearSketch, nearRegion, farSketch, farRegion)
 	if err != nil {
 		t.Fatalf("%s: build the end-cut cone with its apex at station %.6g: %v",
 			g.label, apexStation, err)
@@ -979,7 +979,7 @@ func stepCircularPattern(t *testing.T, doc *decad.Document, p map[string]float64
 		if err != nil {
 			t.Fatalf("%s: pattern motion %d: %v", g.label, k, err)
 		}
-		copyBody, err := seed.PlacedCopy(t.Context(), motion)
+		copyBody, err := decad.Copy(t.Context(), seed, decad.WithCopyPlacement(motion))
 		if err != nil {
 			t.Fatalf("%s: pattern copy %d: %v", g.label, k, err)
 		}
@@ -987,7 +987,7 @@ func stepCircularPattern(t *testing.T, doc *decad.Document, p map[string]float64
 	}
 	// The increment retires the seed, exactly as Fusion's pattern returns the
 	// original among its bodies and leaves nothing else to measure it by.
-	placed, err := seed.Placed(t.Context(), r3.Identity())
+	placed, err := decad.Transform(t.Context(), seed, r3.Identity())
 	if err != nil {
 		t.Fatalf("%s: retire the seed into the pattern: %v", g.label, err)
 	}
@@ -1092,7 +1092,7 @@ func stepCombineJoin(t *testing.T, doc *decad.Document, p map[string]float64) []
 	if err != nil {
 		t.Fatalf("%s: build the displacement that lays the tooth apart: %v", g.label, err)
 	}
-	apart, err := toothBody.Placed(t.Context(), motion)
+	apart, err := decad.Transform(t.Context(), toothBody, motion)
 	if err != nil {
 		t.Fatalf("%s: lay the tooth apart from the frustum: %v", g.label, err)
 	}
@@ -1214,7 +1214,7 @@ func (f *bevFigure) buildHeelBand(t *testing.T, doc *decad.Document, w *sketch.W
 		bevNgon(slope*math.Abs(apexStation-near)))
 	farSketch, farRegion := bevRingSketch(t, w, bevStationPlane(t, w, far),
 		bevNgon(slope*math.Abs(apexStation-far)))
-	return doc.Loft(t.Context(), nearSketch, nearRegion, farSketch, farRegion)
+	return decad.Loft(t.Context(), doc, nearSketch, nearRegion, farSketch, farRegion)
 }
 
 // buildBorePrism extrudes the bore circle symmetrically about the bore plane,
@@ -1226,7 +1226,7 @@ func (f *bevFigure) buildBorePrism(t *testing.T, doc *decad.Document, w *sketch.
 	t.Helper()
 	start := g.station(f.apex, g.axisToe)
 	s, region := bevRingSketch(t, w, bevStationPlane(t, w, start), bevNgon(g.boreDiameter/2))
-	body, err := doc.Extrude(s, region, decad.Symmetric{
+	body, err := decad.Extrude(t.Context(), doc, s, region, decad.Symmetric{
 		D: units.Millimeters(2 * f.coneDistance),
 	})
 	if err != nil {
@@ -1323,7 +1323,7 @@ func stepMeshRotation(t *testing.T, doc *decad.Document, p map[string]float64) [
 	if err != nil {
 		t.Fatalf("%s: mesh rotation: %v", g.label, err)
 	}
-	rotated, err := tooth.Placed(t.Context(), motion)
+	rotated, err := decad.Transform(t.Context(), tooth, motion)
 	if err != nil {
 		t.Fatalf("%s: apply the mesh rotation: %v", g.label, err)
 	}
