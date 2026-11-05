@@ -2,6 +2,8 @@ package go2py_test
 
 import (
 	"fmt"
+	"math"
+	"strconv"
 	"testing"
 
 	"github.com/lestrrat-3d/fusion360-gear-generator/port/go2py"
@@ -95,7 +97,6 @@ func TestFormatVerbsFollowGo(t *testing.T) {
 		"%t":         `func f(b bool) string { return fmt.Sprintf("%t", b) }`,
 		"%q":         `func f(s string) string { return fmt.Sprintf("%q", s) }`,
 		"%T":         `func f(x float64) string { return fmt.Sprintf("%T", x) }`,
-		"%v float":   `func f(x float64) string { return fmt.Sprintf("%v", x) }`,
 		"%d float":   `func f(x float64) string { return fmt.Sprintf("%d", x) }`,
 		"%s int":     `func f(n int) string { return fmt.Sprintf("%s", n) }`,
 		"%5d":        `func f(n int) string { return fmt.Sprintf("%5d", n) }`,
@@ -105,7 +106,6 @@ func TestFormatVerbsFollowGo(t *testing.T) {
 		"no verb":    `func f(n int) string { return fmt.Sprintf("n", n) }`,
 		"open verb":  `func f(n int) string { return fmt.Sprintf("%", n) }`,
 		"%.2d":       `func f(n int) string { return fmt.Sprintf("%.2d", n) }`,
-		"%v of 3.0":  `func f() string { return fmt.Sprintf("%v", 3.0) }`,
 		"%x float":   `func f(x float64) string { return fmt.Sprintf("%x", x) }`,
 		"%g string":  `func f(s string) string { return fmt.Sprintf("%g", s) }`,
 		"%s float64": `func f(x float64) string { return fmt.Sprintf("%s", x) }`,
@@ -145,4 +145,67 @@ func arr() float64 {
 `, go2py.Spec{Funcs: []string{"arr"}, Structs: []string{"pair"}, Mutable: []string{"pair"}})
 	require.NoError(t, err)
 	require.Equal(t, []any{5.0}, evalPython(t, out, "_arr()"))
+}
+
+// runtimePrelude is Python that defines _fx.go_float from the add-in runtime's own source, so a test checks the
+// function the add-in runs.
+const runtimePrelude = `
+import decimal, re, types
+_source = open('../../lib/geargen/decadfusion.py').read()
+_go_float = re.search(r'def go_float\(x\):.*?\n\n\n(?=def )', _source, re.S).group(0)
+_names = {'math': math, 'decimal': decimal}
+exec(_go_float, _names)
+_fx = types.SimpleNamespace(go_float=_names['go_float'])
+`
+
+func TestFloatPrintedByVPrintsAsGoDoes(t *testing.T) {
+	out, err := translate(t, `func f(x float64) string { return fmt.Sprintf("<%v>", x) }
+func g(x float64) (float64, error) { return 0, fmt.Errorf("bad %v of %d", x, 2) }`, sketchSpec("f", "g"))
+	require.NoError(t, err)
+	require.Contains(t, out, "_fx.go_float(x)")
+
+	values := []float64{3, 0.5, 100000, 1e6, 123456789, 1e-4, 1e-5, -2.5, 0.1234567, 1.5e300, 20 * math.Pi / 180}
+	exprs := make([]string, len(values))
+	want := make([]any, len(values))
+	for i, v := range values {
+		exprs[i] = fmt.Sprintf("_f(%s)", strconv.FormatFloat(v, 'g', -1, 64))
+		want[i] = fmt.Sprintf("<%v>", v)
+	}
+	require.Equal(t, want, evalPython(t, runtimePrelude+out, exprs...))
+}
+
+func TestErrorsNewIsAnErrorResult(t *testing.T) {
+	out, err := translate(t, `func f(n int) (int, error) {
+	if n < 0 {
+		return 0, errors.New("negative")
+	}
+	return n, nil
+}`, sketchSpec("f"))
+	require.NoError(t, err)
+	require.Contains(t, out, `raise RuntimeError("negative")`)
+
+	_, err = translate(t, `func f(msg string) (int, error) { return 0, errors.New(msg) }`, sketchSpec("f"))
+	require.ErrorContains(t, err, "errors.New needs a literal message")
+}
+
+func TestMapLiteralWithEntriesAndRangeOverIt(t *testing.T) {
+	out, err := translate(t, `func total() float64 {
+	sum := 0.0
+	for _, v := range map[string]float64{"a": 1, "b": 2.5} {
+		sum = sum + v
+	}
+	return sum
+}
+
+func names() int {
+	n := 0
+	for name := range map[string]float64{"a": 1, "b": 2.5} {
+		if name != "" {
+			n = n + 1
+		}
+	}
+	return n
+}`, sketchSpec("total", "names"))
+	require.NoError(t, err)
+	require.Equal(t, []any{3.5, 2.0}, evalPython(t, out, "_total()", "_names()"))
 }

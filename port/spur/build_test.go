@@ -27,6 +27,7 @@ class Vec:
     def sub(self, o): return Vec(self.x - o.x, self.y - o.y, self.z - o.z)
     def scale(self, k): return Vec(self.x * k, self.y * k, self.z * k)
     def len(self): return math.sqrt(self.x ** 2 + self.y ** 2 + self.z ** 2)
+    def equal(self, o, tol): return abs(self.x - o.x) <= tol and abs(self.y - o.y) <= tol and abs(self.z - o.z) <= tol
 
 class Frame:
     def __init__(self, o, u, v): self._o, self._u, self._v = o, u, v
@@ -207,10 +208,10 @@ func TestTranslatedBuildCreatesTheGalleryFeaturesInOrder(t *testing.T) {
 	ordinary := func(teeth int, fillet bool, bore, chamfer bool) [][]any {
 		n := float64(teeth)
 		log := [][]any{
-			{"sketch", "Tooth Profile"}, {"solve", "Tooth Profile"},
-			{"extrude", "Tooth Extrude", "Tooth", "thickness"},
 			{"sketch", "Root Disc Profile"}, {"bind", "root_radius"}, {"solve", "Root Disc Profile"},
 			{"extrude", "Root Disc Extrude", "Gear Body", "thickness"},
+			{"sketch", "Tooth Profile"}, {"solve", "Tooth Profile"},
+			{"extrude", "Tooth Extrude", "Tooth", "thickness"},
 			{"pattern", "Tooth Pattern", n},
 			{"union", "Teeth Join", n},
 		}

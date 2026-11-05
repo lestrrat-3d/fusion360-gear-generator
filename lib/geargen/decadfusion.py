@@ -10,6 +10,7 @@
 # The translated code is the gallery's: it creates sketches, features and bodies in the gallery's order, and passes
 # the role name of each one it creates. This module never decides geometry.
 
+import decimal
 import functools
 import hashlib
 import math
@@ -146,6 +147,10 @@ class Vec:
         return Vec(self.y * other.z - self.z * other.y, self.z * other.x - self.x * other.z,
                    self.x * other.y - self.y * other.x)
 
+    def equal(self, other, tol):
+        """The gallery's r3.Vec.Equal: every coordinate within tol of the other's."""
+        return abs(self.x - other.x) <= tol and abs(self.y - other.y) <= tol and abs(self.z - other.z) <= tol
+
     def unit(self):
         n = self.len()
         return Vec(self.x / n, self.y / n, self.z / n)
@@ -154,6 +159,34 @@ class Vec:
     X = property(lambda self: self.x)
     Y = property(lambda self: self.y)
     Z = property(lambda self: self.z)
+
+
+def go_float(x):
+    """x printed as Go's %v prints a float64: the shortest digits that read back as x, plain for a decimal exponent
+    from -4 up to 5 and in the e notation outside it, so 3.0 is 3 and 1e6 is 1e+06. Python's own % prints 3.0 and
+    1000000.0, which would make a translated error message differ from the gallery's."""
+    x = float(x)
+    if x != x:
+        return 'NaN'
+    if x in (math.inf, -math.inf):
+        return '+Inf' if x > 0 else '-Inf'
+    if x == 0:
+        return '-0' if math.copysign(1.0, x) < 0 else '0'
+    _, digits, exponent = decimal.Decimal(repr(abs(x))).as_tuple()
+    text = ''.join(str(d) for d in digits).rstrip('0')
+    exponent += len(digits) - len(text)
+    # The value is 0.<text> * 10 ** (len(text) + exponent), so its first digit stands at 10 ** shown.
+    shown = len(text) + exponent - 1
+    sign = '-' if x < 0 else ''
+    if shown < -4 or shown >= 6:
+        mantissa = text[0] + ('.' + text[1:] if len(text) > 1 else '')
+        return '%s%se%s%02d' % (sign, mantissa, '-' if shown < 0 else '+', abs(shown))
+    if exponent >= 0:
+        return sign + text + '0' * exponent
+    point = len(text) + exponent
+    if point > 0:
+        return sign + text[:point] + '.' + text[point:]
+    return sign + '0.' + '0' * -point + text
 
 
 def r3_new_vec(x, y, z):

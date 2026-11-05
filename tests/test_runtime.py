@@ -620,6 +620,29 @@ class SplitScalePlaneTest(RuntimeTestCase):
         self.assertEqual(('point', 20.0, 0.0), plane.anchor)
 
 
+class GalleryNumbersTest(FusionTestCase):
+    """The two small helpers the translated gallery code calls on numbers and vectors."""
+
+    def test_go_float_prints_as_go_prints_a_float(self):
+        # Each pair is a float and what Go's fmt prints for it with %v.
+        expected = [
+            (3.0, '3'), (0.5, '0.5'), (100000.0, '100000'), (1e6, '1e+06'), (123456789.0, '1.23456789e+08'),
+            (1e20, '1e+20'), (1e-4, '0.0001'), (1e-5, '1e-05'), (0.00012345, '0.00012345'), (12345.678, '12345.678'),
+            (-2.5, '-2.5'), (0.0, '0'), (-0.0, '-0'), (math.nan, 'NaN'), (math.inf, '+Inf'), (-math.inf, '-Inf'),
+            (1.5e300, '1.5e+300'), (20 * math.pi / 180, '0.3490658503988659'),
+        ]
+        for value, text in expected:
+            with self.subTest(value=value):
+                self.assertEqual(text, self.fx.go_float(value))
+
+    def test_vec_equal_compares_each_coordinate_within_the_tolerance(self):
+        vec = self.fx.Vec
+        self.assertTrue(vec(1, 2, 3).equal(vec(1 + 5e-7, 2 - 5e-7, 3), 1e-6))
+        self.assertFalse(vec(1, 2, 3).equal(vec(1, 2, 3 + 2e-6), 1e-6))
+        # A distance within the tolerance is not enough: every coordinate has to be.
+        self.assertFalse(vec(0, 0, 0).equal(vec(0.9e-6, 0.9e-6, 1.1e-6), 1e-6))
+
+
 if __name__ == '__main__':
     unittest.main()
 

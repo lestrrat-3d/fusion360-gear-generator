@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -15,24 +16,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// validateDriver runs the translated validate on every case and prints its message, or "" for valid inputs. Its
-// derive stands for the Fusion user parameters: it evaluates the gallery's own parameter table, in order.
+// validateDriver runs the translated validate on every case and prints its message, or "" for valid inputs.
 const validateDriver = `
 import json, math, sys, types
 
 data = json.load(sys.stdin)
 
-def derive(p):
-    names = {'cos': math.cos, 'tan': math.tan, 'pi': math.pi, 'deg': math.degrees}
-    for e in data['table']:
-        if e['Kind'] in ('input', 'count'):
-            names[e['Name']] = float(getattr(p, e['Field']))
-        elif e['Kind'] == 'expr':
-            names[e['Name']] = eval(e['Expr'], {'__builtins__': {}}, names)
-    return types.SimpleNamespace(pitch=names['pitch_radius'], base=names['base_radius'], root=names['root_radius'],
-                                 tip=names['tip_radius'], fillet=names['fillet_radius'])
-
-_fx = types.SimpleNamespace(derive=derive)
+# go_float is the runtime's own function, read from lib/geargen/decadfusion.py, so the messages are checked against
+# what the add-in prints.
+import decimal, re
+source = open(data['runtime']).read()
+go_float_source = re.search(r'def go_float\(x\):.*?\n\n\n(?=def )', source, re.S).group(0)
+namespace = {'math': math, 'decimal': decimal}
+exec(go_float_source, namespace)
+_fx = types.SimpleNamespace(go_float=namespace['go_float'])
 out = []
 for c in data['cases']:
     p = types.SimpleNamespace(Placement=None, **c)
@@ -62,7 +59,7 @@ func TestTranslatedValidateMatchesTheGallery(t *testing.T) {
 		f(&p)
 		return p
 	}
-	// Lengths are chosen so Go's shortest %g and Python's six-digit %g print them alike.
+	// The messages print floats the way Go does, so lengths need no care, and two of them have many digits.
 	cases := []spurgear.Params{
 		base,
 		change(func(p *spurgear.Params) { p.Module, p.Teeth, p.Thickness = 2, 40, 16 }),
@@ -76,6 +73,9 @@ func TestTranslatedValidateMatchesTheGallery(t *testing.T) {
 		change(func(p *spurgear.Params) { p.BoreDiameter = -1 }),
 		change(func(p *spurgear.Params) { p.CapChamfer = -0.5 }),
 		change(func(p *spurgear.Params) { p.BoreDiameter = 14.5 }),
+		change(func(p *spurgear.Params) { p.Thickness = -0.1234567 }),
+		change(func(p *spurgear.Params) { p.CapChamfer = -1e-7 }),
+		change(func(p *spurgear.Params) { p.Module = 1e6; p.Teeth = 3 }),
 		change(func(p *spurgear.Params) { p.BoreDiameter = 20 }),
 	}
 	type row struct {
@@ -91,7 +91,9 @@ func TestTranslatedValidateMatchesTheGallery(t *testing.T) {
 	for i, p := range cases {
 		rows[i] = row{p.Module, p.Teeth, p.PressureAngle, p.Thickness, p.Samples, p.BoreDiameter, p.CapChamfer}
 	}
-	in, err := json.Marshal(map[string]any{"table": m.Table, "cases": rows})
+	runtime, err := filepath.Abs("../../lib/geargen/decadfusion.py")
+	require.NoError(t, err)
+	in, err := json.Marshal(map[string]any{"cases": rows, "runtime": runtime})
 	require.NoError(t, err)
 	cmd := exec.CommandContext(t.Context(), "python3", "-I", "-c", "import collections\nimport math\n\n"+text+"\n"+validateDriver)
 	cmd.Stdin = bytes.NewReader(in)
@@ -107,8 +109,9 @@ func TestTranslatedValidateMatchesTheGallery(t *testing.T) {
 		world := sketch.NewWorld()
 		_, _, err := spurgear.BuildToothSection(t.Context(), world, world.XY(), p, 0)
 		want := ""
-		if err != nil && strings.HasPrefix(err.Error(), "spurgear:") {
-			want = err.Error()
+		if err != nil {
+			// The gallery wraps the checks of validate in the name of the section it was drawing.
+			want = strings.TrimPrefix(err.Error(), "tooth section: ")
 		}
 		require.Equal(t, want, got[i], "case %d", i)
 	}

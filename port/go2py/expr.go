@@ -703,14 +703,27 @@ func (f *fnState) index(e *ast.IndexExpr) (string, typ, error) {
 func (f *fnState) composite(e *ast.CompositeLit) (string, typ, error) {
 	switch t := e.Type.(type) {
 	case *ast.MapType:
-		if len(e.Elts) != 0 {
-			return "", typ{}, fmt.Errorf("%s: a map literal with entries is unsupported", f.pos(e))
-		}
 		mt, err := fromAST(t, f.t.structs)
 		if err != nil {
 			return "", typ{}, fmt.Errorf("%s: %w", f.pos(e), err)
 		}
-		return "{}", mt, nil
+		entries := make([]string, len(e.Elts))
+		for i, elt := range e.Elts {
+			kv, ok := elt.(*ast.KeyValueExpr)
+			if !ok {
+				return "", typ{}, fmt.Errorf("%s: a map literal entry needs key: value", f.pos(elt))
+			}
+			key, _, err := f.expr(kv.Key)
+			if err != nil {
+				return "", typ{}, err
+			}
+			val, _, err := f.expr(kv.Value)
+			if err != nil {
+				return "", typ{}, err
+			}
+			entries[i] = key + ": " + val
+		}
+		return "{" + strings.Join(entries, ", ") + "}", mt, nil
 	case *ast.ArrayType:
 		elem, err := fromAST(t.Elt, f.t.structs)
 		if err != nil {
@@ -901,16 +914,74 @@ func (f *fnState) sprintf(e *ast.CallExpr) (string, typ, error) {
 		}
 		return format + " % tuple(" + spread + ")", stringType, nil
 	}
-	args, err := f.args(e.Args[1:])
+	lit, _ := e.Args[0].(*ast.BasicLit)
+	args, err := f.formatArgs(lit, e.Args[1:])
 	if err != nil {
 		return "", typ{}, err
 	}
 	return format + " % (" + strings.Join(args, ", ") + ",)", stringType, nil
 }
 
+// formatArgs renders the arguments of a format call. An argument printed by %v that is a float goes through
+// the runtime's go_float, because Python prints 3.0 where Go prints 3. A nil lit means the format is not a literal,
+// and the arguments are rendered as they are.
+func (f *fnState) formatArgs(lit *ast.BasicLit, list []ast.Expr) ([]string, error) {
+	var verbs []byte
+	if lit != nil {
+		format, err := strconv.Unquote(lit.Value)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", f.pos(lit), err)
+		}
+		verbs = formatVerbs(format)
+	}
+	out := make([]string, 0, len(list))
+	for i, a := range list {
+		text, at, err := f.expr(a)
+		if err != nil {
+			return nil, err
+		}
+		if at.kind == kindCtx {
+			continue
+		}
+		if i < len(verbs) && verbs[i] == 'v' && (at.kind == kindFloat || at.kind == kindUntypedFloat) {
+			text = f.t.runtime + ".go_float(" + text + ")"
+		}
+		out = append(out, text)
+	}
+	return out, nil
+}
+
+// formatVerbs lists the verb letter of each argument-taking verb in a Go format, skipping %%.
+func formatVerbs(format string) []byte {
+	var verbs []byte
+	for i := 0; i < len(format); i++ {
+		if format[i] != '%' {
+			continue
+		}
+		j := i + 1
+		if j < len(format) && format[j] == '%' {
+			i = j
+			continue
+		}
+		if j < len(format) && format[j] == '.' {
+			j++
+			for j < len(format) && format[j] >= '0' && format[j] <= '9' {
+				j++
+			}
+		}
+		if j >= len(format) {
+			break
+		}
+		verbs = append(verbs, format[j])
+		i = j
+	}
+	return verbs
+}
+
 // checkVerbs refuses a format whose verbs Python's % operator would print differently from Go's fmt. The verbs
 // allowed are %d and %x of an int, %s of a string or a handle, %g and %f of a number with an optional
-// precision (%.2f), %v of anything but a float (it prints as %s), and %%. One difference remains: without a precision,
+// precision (%.2f), %v (it prints as %s, and a float goes through the runtime's go_float, which prints it as Go
+// does: 3 for 3.0), and %%. One difference remains: without a precision,
 // Python's %g prints six significant digits where Go's prints the fewest that identify the value, so 0.1234567 reads
 // 0.123457 in Python. A spread argument list is not checked against the verbs.
 func (f *fnState) checkVerbs(lit *ast.BasicLit, args []ast.Expr, spread bool) error {
@@ -956,8 +1027,6 @@ func (f *fnState) checkVerbs(lit *ast.BasicLit, args []ast.Expr, spread bool) er
 			float := at.kind == kindFloat || at.kind == kindUntypedFloat
 			integer := at.kind == kindInt || at.kind == kindUntyped
 			switch {
-			case verb == 'v' && float:
-				return fmt.Errorf("%s: %%v of a float prints 3 in Go and 3.0 in Python; use %%g", f.pos(args[arg]))
 			case (verb == 'd' || verb == 'x') && !integer:
 				return fmt.Errorf("%s: %%%c needs an int", f.pos(args[arg]), verb)
 			case (verb == 'g' || verb == 'f') && !at.numeric():
