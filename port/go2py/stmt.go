@@ -460,8 +460,17 @@ func (f *fnState) raise(sb *strings.Builder, e ast.Expr) error {
 		}
 	}
 	call, ok := e.(*ast.CallExpr)
+	if ok && isPkgCall(call, "errors", "New") && len(call.Args) == 1 {
+		// errors.New(text) is fmt.Errorf with no verbs.
+		lit, isLit := call.Args[0].(*ast.BasicLit)
+		if !isLit || lit.Kind != token.STRING {
+			return fmt.Errorf("%s: errors.New needs a literal message", f.pos(e))
+		}
+		f.line(sb, "raise RuntimeError(%s)", lit.Value)
+		return nil
+	}
 	if !ok || !isPkgCall(call, "fmt", "Errorf") || len(call.Args) == 0 {
-		return fmt.Errorf("%s: an error result must be nil or fmt.Errorf", f.pos(e))
+		return fmt.Errorf("%s: an error result must be nil, fmt.Errorf or errors.New", f.pos(e))
 	}
 	lit, ok := call.Args[0].(*ast.BasicLit)
 	if !ok || lit.Kind != token.STRING {
@@ -471,13 +480,9 @@ func (f *fnState) raise(sb *strings.Builder, e ast.Expr) error {
 		return err
 	}
 	format := strings.ReplaceAll(lit.Value, "%v", "%s")
-	args := make([]string, 0, len(call.Args)-1)
-	for _, a := range call.Args[1:] {
-		text, _, err := f.expr(a)
-		if err != nil {
-			return err
-		}
-		args = append(args, text)
+	args, err := f.formatArgs(lit, call.Args[1:])
+	if err != nil {
+		return err
 	}
 	if len(args) == 0 {
 		f.line(sb, "raise RuntimeError(%s)", format)

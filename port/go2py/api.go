@@ -108,6 +108,7 @@ var apiMethods = map[string]apiSig{
 	"decad.Body.Centroid":               {res: "decad.Centroid"},
 	"r3.Vec.Dot":                        {res: "float"},
 	"r3.Vec.Cross":                      {res: "r3.Vec"},
+	"r3.Vec.Equal":                      {res: "bool"},
 	"decad.Face.Surface":                {res: "decad.Surface"},
 	"decad.Face.Edges":                  {res: "[]decad.Edge"},
 	"decad.Vertex.Position":             {res: "decad.Position"},

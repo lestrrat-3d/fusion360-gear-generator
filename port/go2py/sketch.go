@@ -146,7 +146,8 @@ func (f *fnState) multiResult(sb *strings.Builder, s *ast.AssignStmt, call *ast.
 }
 
 // rangeStmt renders the range loops a gallery model writes: "i, v := range xs" as an enumerate
-// loop, "i := range xs" as a loop over the indexes, "i := range n" and "range n" as a counted loop.
+// loop, "i := range xs" as a loop over the indexes, "i := range n" and "range n" as a counted loop, and
+// "k, v := range m" as a loop over the items of a map.
 // A slice listed in Spec.FirstOnly is walked once, with its first entry.
 func (f *fnState) rangeStmt(sb *strings.Builder, s *ast.RangeStmt) error {
 	key, _ := s.Key.(*ast.Ident)
@@ -164,12 +165,29 @@ func (f *fnState) rangeStmt(sb *strings.Builder, s *ast.RangeStmt) error {
 	keyName := "_"
 	if key != nil && key.Name != "_" {
 		keyName = pyName(key.Name)
-		if err := f.define(key, key.Name, intType); err != nil {
+		keyType := intType
+		if xt.kind == kindMap {
+			keyType = *xt.key
+		}
+		if err := f.define(key, key.Name, keyType); err != nil {
 			return err
 		}
-		f.nonNegative(key.Name)
+		if xt.kind != kindMap {
+			f.nonNegative(key.Name)
+		}
 	}
 	switch {
+	case xt.kind == kindMap:
+		// Go visits a map in a random order, so a loop that reads one cannot depend on the order, and Python's
+		// insertion order is as good as any.
+		if val == nil || val.Name == "_" {
+			f.line(sb, "for %s in %s:", keyName, xs)
+			break
+		}
+		if err := f.define(val, val.Name, *xt.elem); err != nil {
+			return err
+		}
+		f.line(sb, "for %s, %s in %s.items():", keyName, pyName(val.Name), xs)
 	case xt.numeric():
 		if val != nil {
 			return fmt.Errorf("%s: range over a number has no value", f.pos(s))

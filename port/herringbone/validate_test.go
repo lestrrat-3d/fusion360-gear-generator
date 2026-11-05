@@ -102,13 +102,13 @@ func TestAddInsValidateTheirDefaults(t *testing.T) {
 		{Gear: "helical", Inputs: with(map[string]float64{"module": 2, "teeth": 40, "thickness": 16, "helix_angle": 20 * deg})},
 		{Gear: "herringbone", Inputs: with(map[string]float64{"module": 2, "teeth": 40, "thickness": 20, "helix_angle": 20 * deg})},
 		{Gear: "spur", Inputs: with(map[string]float64{"bore_diameter": 20}),
-			want: "spurgear: bore diameter 20 must be below root diameter 14.5"},
+			want: "bore diameter 20 must be below the root diameter 14.5"},
 		{Gear: "helical", Inputs: with(map[string]float64{"helix_angle": 50 * deg}),
 			want: "helix angle must be from 1 to 45 degrees"},
 		{Gear: "herringbone", Inputs: with(map[string]float64{"helix_angle": 0}),
 			want: "zero helix angle is a spur gear; use spurgear.Build"},
 		{Gear: "herringbone", Inputs: with(map[string]float64{"teeth": 2}),
-			want: "spurgear: teeth 2 must be at least 3"},
+			want: "teeth 2 must be at least 3"},
 	}
 	in, err := json.Marshal(map[string]any{"table": m.Table, "mapping": spur.Params, "cases": cases})
 	require.NoError(t, err)

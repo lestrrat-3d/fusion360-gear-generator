@@ -122,12 +122,12 @@ var FeatureSpec = go2py.Spec{
 	// The runtime reads the dimensions from the user parameters instead of a scratch document.
 	Bound: map[string]go2py.Bound{"derive": {Python: "_fx.derive", Result: "dimensions"}},
 	Funcs: []string{
-		"validate",
-		"rotate", "involutePoint", "flankBeta", "sampleFlanks", "InvoluteFlanks", "rootContact", "toothAngle", "addToothPoints",
-		"toWorld", "shifted", "placement", "singleProfile", "solveAndVerify", "halfAngle", "closingRadius",
+		"finite", "validate",
+		"rotate", "involutePoint", "flankOffset", "sampleFlanks", "InvoluteFlanks", "rootContact", "toothAngle", "newToothPoints", "drawToothFlanks",
+		"toWorld", "shifted", "placement", "singleProfile", "solveAndVerify", "embeddedClosingRadius", "buildRootDisc",
 		"buildToothSection", "BuildToothSection", "buildEmbeddedTooth", "Shifted", "PlaneAt", "tooth",
 		"filletSpurRoots", "filletRootsValue", "filletEmbedded", "buildBoreProfile", "cutBore",
-		"chamferOuterCaps", "assemble",
+		"chamferCaps", "assemble",
 	},
 	Roles: Roles,
 }
@@ -139,8 +139,8 @@ var Roles = map[string]go2py.Role{
 	"buildEmbeddedTooth:sketch.World.CreateSketch#1":       {Feature: "Tooth Profile"},
 	"tooth:decad.Extrude#1":                                {Feature: "Tooth Extrude", Body: "Tooth"},
 	"PlaneAt:sketch.World.CreatePlaneFromFrame#1":          {Feature: "Twisted Section Plane"},
-	"assemble:sketch.World.CreateSketch#1":                 {Feature: "Root Disc Profile"},
-	"assemble:decad.Extrude#1":                             {Feature: "Root Disc Extrude", Body: "Gear Body"},
+	"buildRootDisc:sketch.World.CreateSketch#1":            {Feature: "Root Disc Profile"},
+	"buildRootDisc:decad.Extrude#1":                        {Feature: "Root Disc Extrude", Body: "Gear Body"},
 	"assemble:decad.PatternCopies#1":                       {Feature: "Tooth Pattern"},
 	"assemble:decad.Union#1":                               {Feature: "Teeth Join"},
 	"filletRootsValue:decad.Fillet#1":                      {Feature: "Root Fillet"},
@@ -149,5 +149,5 @@ var Roles = map[string]go2py.Role{
 	"buildBoreProfile:sketch.World.CreateSketch#1":         {Feature: "Bore Profile"},
 	"cutBore:decad.Extrude#1":                              {Feature: "Bore Tool Extrude", Body: "Bore Tool"},
 	"cutBore:decad.Cut#1":                                  {Feature: "Bore Cut"},
-	"chamferOuterCaps:decad.Chamfer#1":                     {Feature: "Cap Chamfer"},
+	"chamferCaps:decad.Chamfer#1":                          {Feature: "Cap Chamfer"},
 }

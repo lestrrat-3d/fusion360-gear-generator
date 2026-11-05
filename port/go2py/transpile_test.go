@@ -16,7 +16,7 @@ import (
 )
 
 // helperFuncs are the pure spur helpers the Fusion tooth drawer needs, in dependency order.
-var helperFuncs = []string{"rotate", "involutePoint", "flankBeta", "sampleFlanks"}
+var helperFuncs = []string{"rotate", "involutePoint", "flankOffset", "sampleFlanks"}
 
 func transpileSpur(t *testing.T) string {
 	t.Helper()
@@ -24,7 +24,11 @@ func transpileSpur(t *testing.T) string {
 	require.NoError(t, err)
 	m, err := gallery.Load(src.Dir)
 	require.NoError(t, err)
-	out, err := go2py.Transpile(m, "_", []string{"point"}, helperFuncs)
+	// The helpers return two values, which only the sketch mode of the translator allows, and that mode is on when
+	// the spec names a type that is known but not rendered.
+	out, err := go2py.TranspileSpec(m, go2py.Spec{
+		Prefix: "_", Structs: []string{"point"}, TypeOnly: []string{"Params"}, Funcs: helperFuncs,
+	})
 	require.NoError(t, err)
 	return out
 }
@@ -130,7 +134,7 @@ func TestTranspileSketchRefusesWhatItDoesNotKnow(t *testing.T) {
 		Structs:  []string{"point", "dimensions", "toothPoints"},
 		TypeOnly: []string{"Params"},
 		Filled:   []string{"toothPoints"},
-		Funcs:    []string{"rotate", "involutePoint", "flankBeta", "sampleFlanks", "addToothPoints"},
+		Funcs:    []string{"rotate", "involutePoint", "flankOffset", "sampleFlanks", "newToothPoints"},
 	}
 	_, err = go2py.TranspileSpec(m, spec)
 	require.ErrorContains(t, err, "rootContact")

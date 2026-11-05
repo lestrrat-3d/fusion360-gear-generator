@@ -55,8 +55,11 @@ module, so a match with `gearport id` shows that Fusion ran that file.
    feature and body is named by what it is for (see `CLAUDE.md`, "Naming").
 
 What the translator does with Go that Python reads differently: it drops error checks, because the runtime raises
-instead; it drops the context argument; it folds branches on an unset options struct; it copies a struct that the
-translated code assigns field by field (`Mutable`); and it reads a missing map key as the zero value. A call of
+instead; it drops the context argument; it turns `errors.New` and `fmt.Errorf` into `RuntimeError`; it prints a float
+of a `%v` verb through `_fx.go_float`, because Python prints 3.0 where Go prints 3; it renders a map literal as a dict
+and a loop over a map as a loop over its items, in insertion order, so no gallery loop may depend on Go's random map
+order; it folds branches on an unset options struct; it copies a struct that the translated code assigns field by field
+(`Mutable`); and it reads a missing map key as the zero value. A call of
 anything not in the API table stops the port. Nothing is skipped silently.
 
 A function the runtime implements instead of the translator (`Bound`), a function of another gallery package
